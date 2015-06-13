@@ -973,6 +973,8 @@ public:
         if (err || ! mutex) {
             return err;
         }
+        // For now disable timers if log receiver.
+        gLayoutManager.SetDisableTimerFlag(true);
         mStartedFlag = true;
         int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogReceiver");

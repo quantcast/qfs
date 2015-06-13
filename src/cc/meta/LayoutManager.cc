@@ -1495,6 +1495,7 @@ LayoutManager::LayoutManager() :
     mRebalanceCtrs(),
     mRebalancePlan(),
     mCleanupScheduledFlag(false),
+    mDisableTimerFlag(false),
     mCSCountersUpdateInterval(2),
     mCSCountersUpdateTime(0),
     mCSCountersResponse(),
@@ -4667,6 +4668,13 @@ LayoutManager::EnqueueServerDown(
     }
 }
 
+void
+LayoutManager::SetDisableTimerFlag(bool flag)
+{
+    mDisableTimerFlag = flag;
+    mIdempotentRequestTracker.SetDisableTimerFlag(flag);
+}
+
 HibernatedChunkServer*
 LayoutManager::FindHibernatingCS(const ServerLocation& loc,
     LayoutManager::HibernatedServerInfos::iterator* outIt)
@@ -7085,8 +7093,11 @@ void
 LayoutManager::LeaseCleanup(
     int64_t startTime)
 {
-    const time_t now = (time_t)startTime;
+    if (mDisableTimerFlag) {
+        return;
+    }
 
+    const time_t now = (time_t)startTime;
     mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap);
     if (now < mLeaseCleanerOtherNextRunTime) {

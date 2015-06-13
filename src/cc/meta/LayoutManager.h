@@ -1393,6 +1393,7 @@ public:
     void DumpsterCleanupDone(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void EnqueueServerDown(const ChunkServer& srv, const MetaChunkRequest& req);
+    void SetDisableTimerFlag(bool flag);
 protected:
     typedef vector<
         int,
@@ -2031,6 +2032,7 @@ protected:
     RebalanceCtrs mRebalanceCtrs;
     ifstream      mRebalancePlan;
     bool          mCleanupScheduledFlag;
+    bool          mDisableTimerFlag;
 
     int                mCSCountersUpdateInterval;
     time_t             mCSCountersUpdateTime;
