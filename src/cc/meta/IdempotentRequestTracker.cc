@@ -431,13 +431,13 @@ private:
                 theHeadPtr = &theAck;
             }
             theTailPtr = &theAck;
+            mOutstandingExpireAckCount++;
         }
         while (theHeadPtr) {
             MetaRequest& theReq = *theHeadPtr;
             theHeadPtr = theReq.next;
             theReq.next = 0;
             theReq.clnt = &mNullCallback;
-            mOutstandingExpireAckCount++;
             submit_request(&theReq);
         }
     }
