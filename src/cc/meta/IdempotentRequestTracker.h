@@ -62,6 +62,8 @@ public:
         const char* inPtr,
         size_t      inLen);
     void Clear();
+    void SetDisableTimerFlag(
+        bool inFlag);
 private:
     class Impl;
     Impl& mImpl; 

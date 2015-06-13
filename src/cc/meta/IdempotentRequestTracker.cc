@@ -62,6 +62,7 @@ public:
           mLru(),
           mUserEntryCounts(),
           mCleanUserEntryFlag(false),
+          mDisableTimerFlag(false),
           mOutstandingExpireAckCount(0),
           mNullCallback()
     {
@@ -278,6 +279,11 @@ public:
         MetaRequest::Release(theReqPtr);
         return (theOkFlag ? -EINVAL : 0);
     }
+    void SetDisableTimerFlag(
+        bool inFlag)
+    {
+        mDisableTimerFlag = inFlag;
+    }
 private:
     typedef int64_t Count;
     class Entry
@@ -384,6 +390,7 @@ private:
     Entry           mLru;
     UserEntryCounts mUserEntryCounts;
     bool            mCleanUserEntryFlag;
+    bool            mDisableTimerFlag;
     int             mOutstandingExpireAckCount;
     KfsCallbackObj  mNullCallback;
     Table*          mTables[META_NUM_OPS_COUNT];
@@ -407,7 +414,7 @@ private:
     void Expire(
         int64_t inNow)
     {
-        if (0 < mOutstandingExpireAckCount) {
+        if (mDisableTimerFlag || 0 < mOutstandingExpireAckCount) {
             return;
         }
         int64_t const theExpirationTime = inNow - mExpirationTimeMicroSec;
@@ -529,6 +536,13 @@ IdempotentRequestTracker::Read(
 IdempotentRequestTracker::Clear()
 {
     mImpl.Clear();
+}
+
+    void
+IdempotentRequestTracker::SetDisableTimerFlag(
+    bool inFlag)
+{
+    mImpl.SetDisableTimerFlag(inFlag);
 }
 
 } // namespace KFS
