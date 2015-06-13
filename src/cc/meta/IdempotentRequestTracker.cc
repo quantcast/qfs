@@ -39,6 +39,7 @@
 #include "kfsio/Globals.h"
 
 #include "qcdio/qcdebug.h"
+#include "qcdio/QCUtils.h"
 
 #include <ostream>
 #include <istream>
@@ -54,12 +55,15 @@ class IdempotentRequestTracker::Impl : public ITimeout
 {
 public:
     Impl()
-        : mExpirationTimeMicroSec((6 * 60) * 1000 * 1000),
+        : ITimeout(),
+          mExpirationTimeMicroSec((6 * 60) * 1000 * 1000),
           mSize(0),
           mMaxSize(64 << 10),
           mLru(),
           mUserEntryCounts(),
-          mCleanUserEntryFlag(false)
+          mCleanUserEntryFlag(false),
+          mOutstandingExpireAckCount(0),
+          mNullCallback()
     {
         for (size_t i = 0; i < sizeof(mTables) / sizeof(mTables[0]); i++) {
             mTables[i] = 0;
@@ -174,6 +178,14 @@ public:
     void Handle(
         MetaAck& inAck)
     {
+        if (&mNullCallback == inAck.clnt) {
+            QCRTASSERT(0 < mOutstandingExpireAckCount);
+            mOutstandingExpireAckCount--;
+            inAck.clnt = 0;
+        }
+        if (inAck.status != 0) {
+            return;
+        }
         inAck.status = HandleAck(inAck.ack.data(), inAck.ack.size(),
                 inAck.euser, inAck.authUid);
     }
@@ -212,7 +224,7 @@ public:
     }
     virtual void Timeout()
     {
-        if (mSize <= 0) {
+        if (mSize <= 0 || 0 < mOutstandingExpireAckCount) {
             return;
         }
         Expire(GetLastCallTimeMs() * 1000);
@@ -372,6 +384,8 @@ private:
     Entry           mLru;
     UserEntryCounts mUserEntryCounts;
     bool            mCleanUserEntryFlag;
+    int             mOutstandingExpireAckCount;
+    KfsCallbackObj  mNullCallback;
     Table*          mTables[META_NUM_OPS_COUNT];
 
     bool Validate(
@@ -393,6 +407,9 @@ private:
     void Expire(
         int64_t inNow)
     {
+        if (0 < mOutstandingExpireAckCount) {
+            return;
+        }
         int64_t const theExpirationTime = inNow - mExpirationTimeMicroSec;
         Entry*       thePtr     = &mLru;
         MetaRequest* theHeadPtr = 0;
@@ -419,6 +436,8 @@ private:
             MetaRequest& theReq = *theHeadPtr;
             theHeadPtr = theReq.next;
             theReq.next = 0;
+            theReq.clnt = &mNullCallback;
+            mOutstandingExpireAckCount++;
             submit_request(&theReq);
         }
     }
