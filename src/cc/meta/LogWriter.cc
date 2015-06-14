@@ -389,7 +389,7 @@ private:
         void PushBack(
             Queue& inQueue)
         {
-            if (IsEmpty()) {
+            if (inQueue.IsEmpty()) {
                 return;
             }
             if (mTailPtr) {
