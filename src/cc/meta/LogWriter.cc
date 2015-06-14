@@ -389,7 +389,7 @@ private:
         void PushBack(
             Queue& inQueue)
         {
-            if (! inQueue.mHeadPtr) {
+            if (IsEmpty()) {
                 return;
             }
             if (mTailPtr) {
