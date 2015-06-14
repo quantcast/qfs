@@ -389,6 +389,9 @@ private:
         void PushBack(
             Queue& inQueue)
         {
+            if (! inQueue.mHeadPtr) {
+                return;
+            }
             if (mTailPtr) {
                 mTailPtr->next = inQueue.mHeadPtr;
             } else {
@@ -499,8 +502,9 @@ private:
     {
         mWokenFlag = false;
         mPendingAckQueue.PushBack(inDoneQueue);
+        MetaRequest* thePtr = 0;
         if (mTransmitCommitted < mNextLogSeq) {
-            MetaRequest* thePtr     = mPendingAckQueue.Front();
+            thePtr = mPendingAckQueue.Front();
             MetaRequest* thePrevPtr = 0;
             while (thePtr) {
                 if (mTransmitCommitted < thePtr->logseq) {
@@ -516,7 +520,8 @@ private:
                 thePrevPtr = thePtr;
                 thePtr     = thePtr->next;
             }
-        } else {
+        }
+        if (! thePtr) {
             inDoneQueue.PushBack(mPendingAckQueue);
         }
         if (inDoneQueue.IsEmpty()) {
@@ -573,6 +578,9 @@ private:
             } else {
                 NewLog(mNextLogSeq);
             }
+        }
+        if (! mTransmitterUpFlag) {
+            mTransmitterUpFlag = mLogTransmitter.IsUp();
         }
         mMdStream.SetSync(false);
         ostream&     theStream = mMdStream;

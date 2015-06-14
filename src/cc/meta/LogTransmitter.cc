@@ -514,6 +514,7 @@ private:
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
+        mLastSentBlockSeq  = -1;
         Error("exceeded max pending send");
     }
     void CompactIfNeeded()
@@ -745,7 +746,8 @@ private:
     }
     bool SendHeartbeat()
     {
-        if (mAckBlockSeq < mLastSentBlockSeq || ! mBlocksQueue.empty()) {
+        if ((0 <= mAckBlockSeq && mAckBlockSeq < mLastSentBlockSeq) ||
+                ! mBlocksQueue.empty()) {
             return false;
         }
         SendBlockSelf(max(seq_t(0), mLastSentBlockSeq), 0, "", 0,
@@ -999,10 +1001,7 @@ private:
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr   = 0;
         AdvancePendingQueue();
-        if (mBlocksQueue.empty()) {
-            mLastSentBlockSeq    = -1;
-            mAckBlockSeq         = -1;
-        }
+        mAckBlockSeq = -1;
         mImpl.Update(*this);
         if (mSleepingFlag) {
             return;
@@ -1248,7 +1247,7 @@ LogTransmitter::Impl::Acked(
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     const seq_t theAck = inTransmitter.GetAck();
-    if (theAck <= mCommitted) {
+    if (theAck <= mCommitted && 0 <= inPrevAck) {
         return;
     }
     int            theCnt    = 0;

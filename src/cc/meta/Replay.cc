@@ -1349,6 +1349,9 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
             status = -EINVAL;
         }
     }
+    if (0 == status && ! state.mCommitQueue.empty()) {
+        lastCommittedStatus = state.mCommitQueue.back().status;
+    }
     if (0 <= blockSeq || 0 != status) {
         blockChecksum.blockEnd(0);
         blockChecksum.write("\n", 1);
@@ -1544,9 +1547,6 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         if (! state.mCommitQueue.empty() &&
                 state.mCommitQueue.back().logSeq == committed) {
             lastCommittedStatus = state.mCommitQueue.back().status;
-            if (0 < lastCommittedStatus) {
-                lastCommittedStatus = -KfsToSysErrno(lastCommittedStatus);
-            }
         } else {
             lastCommittedStatus = 0;
         }
