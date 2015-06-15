@@ -466,7 +466,7 @@ public:
         if (mCleanUserEntryFlag && *theEntry.mCountPtr <= 0) {
             mUserEntryCounts.Erase(GetUid(*(theEntry.mReqPtr)));
         }
-        mCleanUserEntryFlag = 0;
+        mCleanUserEntryFlag = false;
         theEntry.mReqPtr->SetReq(0);
         Lru::Remove(theEntry);
         mSize--;
