@@ -1206,6 +1206,7 @@ public:
     {
         QCMutex* const mutex = gNetDispatch.GetMutex();
         if (! mutex) {
+            mLogReceiverThread.Dispatch();
             return;
         }
         assert(mutex->IsOwned());
@@ -1602,15 +1603,15 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
     if (! mAcceptor->IsAcceptorStarted()) {
         return false;
     }
-    if (mClientThreadCount >= 0 || mClientThreads) {
+    if (mLogReceiverThread.Start() != 0) {
+        return false;
+    }
+    if (0 <= mClientThreadCount || mClientThreads) {
         return true;
     }
     mClientThreadCount = max(threadCount, 0);
     if (mClientThreadCount <= 0) {
         return true;
-    }
-    if (mLogReceiverThread.Start() != 0) {
-        return false;
     }
     int cpuIndex = startCpuAffinity;
     mClientThreads = new ClientManager::ClientThread[mClientThreadCount];
@@ -1686,7 +1687,6 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
 {
     QCMutex* const mutex = gNetDispatch.GetMutex();
     if (! mutex) {
-        mLogReceiverThread.Dispatch();
         return;
     }
     assert(mutex->IsOwned());
