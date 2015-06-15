@@ -1217,27 +1217,23 @@ LogTransmitter::Impl::Insert(
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     Transmitter* const theHeadPtr = List::Front(mTransmittersPtr);
-    if (theHeadPtr == List::Back(mTransmittersPtr)) {
-        panic("invalid transmitter insert invocation");
+    if (! theHeadPtr) {
+        List::PushFront(mTransmittersPtr, inTransmitter);
         return;
     }
-    // Use insertion sort, and count unique ids.
-    const int64_t      theId  = inTransmitter.GetId();
-    Transmitter*       thePtr = theHeadPtr;
+    // Insertion sort.
+    const int64_t theId  = inTransmitter.GetId();
+    Transmitter*  thePtr = theHeadPtr;
     while (theId < thePtr->GetId()) {
         if (theHeadPtr == (thePtr = &List::GetNext(*thePtr))) {
-            thePtr = 0;
-            break;
+            List::PushBack(mTransmittersPtr, inTransmitter);
+            return;
         }
     }
     if (thePtr == theHeadPtr) {
         List::PushFront(mTransmittersPtr, inTransmitter);
-        thePtr = &inTransmitter;
-    } else if (thePtr) {
-        QCDLListOp<Transmitter>::Insert(inTransmitter, *thePtr);
     } else {
-        List::PushBack(mTransmittersPtr, inTransmitter);
-        thePtr = &List::GetPrev(inTransmitter);
+        QCDLListOp<Transmitter>::Insert(inTransmitter, List::GetPrev(*thePtr));
     }
 }
 
@@ -1247,29 +1243,32 @@ LogTransmitter::Impl::Acked(
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     const seq_t theAck = inTransmitter.GetAck();
-    if (theAck <= mCommitted && 0 <= inPrevAck) {
-        return;
-    }
-    int            theCnt    = 0;
-    int            theAckCnt = 0;
-    const int64_t  theId     = inTransmitter.GetId();
-    List::Iterator theIt(mTransmittersPtr);
-    Transmitter*   thePtr;
-    while ((thePtr = theIt.Next())) {
-        if (theId == thePtr->GetId()) {
-            continue;
-        }
-        theCnt++;
-        if (theAck <= thePtr->GetAck()) {
-            theAckCnt++;
-            if (mMinAckToCommit <= theAckCnt) {
-                break;
+    if (0 < theAck && mCommitted < theAck) {
+        int64_t        thePrevId    = -1;
+        int            theCnt       = 0;
+        int            theAckCnt    = 0;
+        seq_t          theCommitted = theAck;
+        List::Iterator theIt(mTransmittersPtr);
+        Transmitter*   thePtr;
+        while ((thePtr = theIt.Next())) {
+            theCnt++;
+            const seq_t theCurAck = thePtr->GetAck();
+            if (theCurAck < 0) {
+                continue;
+            }
+            const int64_t theId = thePtr->GetId();
+            if (mCommitted < theCurAck) {
+                theCommitted = min(theCommitted, theCurAck);
+                if (theId != thePrevId) {
+                    theAckCnt++;
+                    thePrevId = theId;
+                }
             }
         }
-    }
-    if (thePtr || theCnt <= theAckCnt) {
-        mCommitted = theAck;
-        mCommitObserver.Notify(mCommitted);
+        if (min(mMinAckToCommit, theCnt) <= theAckCnt) {
+            mCommitted = theCommitted;
+            mCommitObserver.Notify(mCommitted);
+        }
     }
     if (inPrevAck < 0) {
         Update(inTransmitter);

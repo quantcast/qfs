@@ -951,7 +951,7 @@ public:
         { LogReceiverThread::Shutdown(); }
     void ChildAtFork()
         { mNetManager.ChildAtFork(); }
-    bool IsStarted() const
+    bool IsThreadStarted() const
         { return mThread.IsStarted(); }
     int Start()
     {
@@ -970,14 +970,16 @@ public:
         const int err = mLogReceiver.Start(
             mutex ? mNetManager : globalNetManager(), *this,
             MetaRequest::GetLogWriter().GetCommittedLogSeq());
-        if (err || ! mutex) {
+        if (err) {
             return err;
         }
         // For now disable timers if log receiver.
         gLayoutManager.SetDisableTimerFlag(true);
         mStartedFlag = true;
-        int kStackSize = 64 << 10;
-        mThread.Start(this, kStackSize, "LogReceiver");
+        if (mutex) {
+            int kStackSize = 64 << 10;
+            mThread.Start(this, kStackSize, "LogReceiver");
+        }
         return 0;
     }
     void SetParameters(
@@ -1098,13 +1100,24 @@ public:
     }
     virtual void Wakeup()
     {
-        SyncAddAndFetch(mSignalCnt, 1);
         mWakeupFlag = true;
         if (gNetDispatch.GetMutex()) {
+            SyncAddAndFetch(mSignalCnt, 1);
             mNetManager.Wakeup();
         } else {
             globalNetManager().Wakeup();
         }
+    }
+    void Dispatch()
+    {
+        assert(! gNetDispatch.GetMutex());
+        if (! mWakeupFlag) {
+            return;
+        }
+        mWakeupFlag = false;
+        mLogReceiver.Dispatch();
+        // The main thread unconditionally schedules flush and the end of event
+        // processing in MainThreadPrepareToFork::DispatchEnd()
     }
 private:
     Properties                mParameters;
@@ -1118,7 +1131,7 @@ private:
     bool                      mStartedFlag;
     bool                      mParametersUpdatePendingFlag;
     StBufferT<char, 10 << 10> mBuffer;
-    volatile int mSignalCnt;
+    volatile int              mSignalCnt;
 
     virtual void Run()
     {
@@ -1186,7 +1199,8 @@ public:
     // The prepare thread count includes the "main" and log receiver threads.
     inline int GetPrepareToForkCount() const
     {
-        return (mClientThreadCount + (mLogReceiverThread.IsStarted() ? 1 : 0));
+        return (mClientThreadCount +
+            (mLogReceiverThread.IsThreadStarted() ? 1 : 0));
     }
     inline void PrepareToFork()
     {
@@ -1672,6 +1686,7 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
 {
     QCMutex* const mutex = gNetDispatch.GetMutex();
     if (! mutex) {
+        mLogReceiverThread.Dispatch();
         return;
     }
     assert(mutex->IsOwned());
