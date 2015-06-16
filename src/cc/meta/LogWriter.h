@@ -82,8 +82,11 @@ public:
     void ScheduleFlush();
     void ChildAtFork();
     void Shutdown();
+    seq_t GetNextSeq()
+        { return ++mNextSeq; }
 private:
     class Impl;
+    seq_t mNextSeq;
     Impl& mImpl;
 };
 

@@ -1040,6 +1040,9 @@ public:
         mPendingCommitTail = &inOp;
         inOp.next = 0;
         if (inOp.blockCommitted <= mLastCommit) {
+            if (inOp.blockCommitted < mLastCommit) {
+                panic("log block: invalid commit sequence");
+            }
             return;
         }
         mLastCommit = inOp.blockCommitted;
@@ -1051,11 +1054,18 @@ public:
             if (mLastCommit < theCur.blockEndSeq) {
                 break;
             }
+            KFS_LOG_STREAM_DEBUG <<
+                "replaying block:"
+                " seq: ["   << theCur.blockStartSeq <<
+                ":"         << theCur.blockEndSeq << "]"
+                " lines: "  << theCur.blockLines.GetSize() <<
+                " bytes: "  << theCur.blockData.BytesConsumable() <<
+            KFS_LOG_EOM;
             thePtr = theCur.next;
             theCur.next = 0;
             const int*       theLenPtr     = theCur.blockLines.GetPtr();
             const int* const theLendEndPtr =
-                theLenPtr + inOp.blockLines.GetSize();
+                theLenPtr + theCur.blockLines.GetSize();
             while (theLenPtr < theLendEndPtr) {
                 int theLen = *theLenPtr++;
                 if (theLen <= 0) {
@@ -1074,7 +1084,9 @@ public:
                     theBufPtr[theLen] = 0;
                     KFS_LOG_STREAM_FATAL <<
                         "log block apply failure:"
-                        " seq: ["   << theCur.blockStartSeq << "]"
+                        " seq: ["   << theCur.blockStartSeq <<
+                        ":"         << theCur.blockEndSeq << "]"
+                        " commit: " << mLastCommit <<
                         " status: " << theStatus <<
                         " "         << theBufPtr <<
                     KFS_LOG_EOM;

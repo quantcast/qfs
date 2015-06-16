@@ -26,6 +26,8 @@
 //----------------------------------------------------------------------------
 
 #include "MetaRequest.h"
+#include "LogWriter.h"
+
 #include "common/RequestParser.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
@@ -773,8 +775,10 @@ MetaRequest::Replay(const char* buf, size_t len, seq_t& logseq, int& status)
 {
     MetaRequest* req = sMetaReplayIoHandler.Handle(buf, len);
     if (! req) {
+        logseq = -1;
         return false;
     }
+    req->seqno = GetLogWriter().GetNextSeq();
     bool ret = false;
     if (0 <= logseq && logseq == req->logseq) {
         req->replayFlag = true;

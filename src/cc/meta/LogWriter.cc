@@ -71,7 +71,6 @@ public:
           mLogTransmitter(mNetManager, *this),
           mTransmitCommitted(-1),
           mTransmitterUpFlag(false),
-          mNextSeq(-1),
           mMaxDoneLogSeq(-1),
           mCommitted(),
           mThread(),
@@ -224,8 +223,7 @@ public:
     bool Enqueue(
         MetaRequest& inRequest)
     {
-        inRequest.next  = 0;
-        inRequest.seqno = ++mNextSeq;
+        inRequest.next = 0;
         if (mStopFlag) {
             inRequest.status    = -ELOGFAILED;
             inRequest.statusMsg = "log writer is not running";
@@ -432,7 +430,6 @@ private:
     LogTransmitter mLogTransmitter;
     seq_t          mTransmitCommitted;
     bool           mTransmitterUpFlag;
-    seq_t          mNextSeq;
     seq_t          mMaxDoneLogSeq;
     Committed      mCommitted;
     QCThread       mThread;
@@ -507,7 +504,8 @@ private:
             thePtr = mPendingAckQueue.Front();
             MetaRequest* thePrevPtr = 0;
             while (thePtr) {
-                if (mTransmitCommitted < thePtr->logseq) {
+                if (mTransmitCommitted < thePtr->logseq &&
+                        0 == thePtr->status) {
                     if (thePrevPtr) {
                         thePrevPtr->next = 0;
                         inDoneQueue =
@@ -537,6 +535,7 @@ private:
         if (mStopFlag) {
             mNetManager.Shutdown();
         }
+        mInFlightCommitted = mPendingCommitted;
         if (mInQueue.IsEmpty()) {
             if (mWokenFlag) {
                 Queue theTmp;
@@ -546,7 +545,6 @@ private:
         }
         Queue theWriteQueue = mInQueue;
         mInQueue.Reset();
-        mInFlightCommitted = mPendingCommitted;
         theLocker.Unlock();
         mWokenFlag = true;
         Write(*theWriteQueue.Front());
@@ -829,6 +827,7 @@ private:
             inRequest.status = -EFAULT;
             return;
         }
+        inRequest.committed = mLastLogSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "invalid block start sequence";
@@ -878,20 +877,21 @@ private:
         thePtr = theEndPtr - inRequest.blockLines.Back();
         inRequest.blockLines.Back() += theTrailerLen;
         inRequest.blockCommitted = -1;
+        seq_t     theLogSeq      = -1;
+        Committed theBlockCommitted;
         if (thePtr + 2 < theEndPtr &&
                 (*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
             thePtr += 2;
-            const char* theStartPtr = thePtr;
-            while (thePtr < theEndPtr && (*thePtr & 0xFF) != '/') {
-                ++thePtr;
-            }
-            if (thePtr < theEndPtr &&
-                    (*thePtr & 0xFF) == '/' &&
-                    ! HexIntParser::Parse(
-                        theStartPtr,
-                        thePtr - theStartPtr,
-                        inRequest.blockCommitted)) {
-                inRequest.blockCommitted = -1;
+            if (ParseField(thePtr, theEndPtr, theBlockCommitted.mSeq) &&
+                    ParseField(thePtr, theEndPtr, theBlockCommitted.mFidSeed) &&
+                    ParseField(thePtr, theEndPtr, theBlockCommitted.mErrChkSum) &&
+                    ParseField(thePtr, theEndPtr, theBlockCommitted.mStatus) &&
+                    ParseField(thePtr, theEndPtr, theLogSeq) &&
+                    0 <= theBlockCommitted.mSeq &&
+                    0 <= theBlockCommitted.mStatus &&
+                    theBlockCommitted.mSeq <= theLogSeq &&
+                    theLogSeq == inRequest.blockEndSeq) {
+                inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
         }
         if (inRequest.blockCommitted < 0) {
@@ -923,15 +923,37 @@ private:
         mReqOstream.flush();
         Sync();
         if (IsLogStreamGood()) {
-            inRequest.blockSeq = mNextBlockSeq;
-            mLastLogSeq      = inRequest.blockEndSeq;
-            mNextLogSeq      = mLastLogSeq;
-            inRequest.status = 0;
+            inRequest.blockSeq  = mNextBlockSeq;
+            mLastLogSeq         = inRequest.blockEndSeq;
+            mNextLogSeq         = mLastLogSeq;
+            inRequest.status    = 0;
+            inRequest.committed = mLastLogSeq;
+            mInFlightCommitted  = theBlockCommitted;
             StartBlock(mNextBlockChecksum);
         } else {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
         }
+    }
+    template<typename T>
+    bool ParseField(
+        const char*& ioPtr,
+        const char*  inEndPtr,
+        T&           outVal)
+    {
+        const char* theStartPtr = ioPtr;
+        while (ioPtr < inEndPtr && (*ioPtr & 0xFF) != '/') {
+            ++ioPtr;
+        }
+        if (ioPtr < inEndPtr &&
+                HexIntParser::Parse(
+                    theStartPtr,
+                    ioPtr - theStartPtr,
+                    outVal)) {
+            ++ioPtr;
+            return true;
+        }
+        return false;
     }
     void CloseLog()
     {
@@ -1099,7 +1121,8 @@ private:
 };
 
 LogWriter::LogWriter()
-    : mImpl(*(new Impl()))
+    : mNextSeq(0),
+      mImpl(*(new Impl()))
 {}
 
 LogWriter::~LogWriter()
@@ -1146,6 +1169,7 @@ LogWriter::Start(
 LogWriter::Enqueue(
     MetaRequest& inRequest)
 {
+    inRequest.seqno = GetNextSeq();
     return mImpl.Enqueue(inRequest);
 }
 

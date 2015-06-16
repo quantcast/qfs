@@ -274,6 +274,8 @@ public:
                 " [" << theCur.blockStartSeq <<
                 ":"  << theCur.blockEndSeq <<
                 "] status: " << theCur.status <<
+                " lines: "   << theCur.blockLines.GetSize() <<
+                " bytes: "   << theCur.blockData.BytesConsumable() <<
             KFS_LOG_EOM;
             if (theCur.blockStartSeq != (theCur.status == 0 ?
                         mCommittedLogSeq : theNextSeq) ||
@@ -289,11 +291,15 @@ public:
                     continue;
                 }
             }
+            if (mCommittedLogSeq < theCur.committed) {
+                mCommittedLogSeq = theCur.committed;
+            }
             Release(theCur);
         }
-        if (mCommittedLogSeq < theNextSeq) {
+        if (mCommittedLogSeq < theNextSeq || mLastWriteSeq < mCommittedLogSeq) {
             // Log write failure, all subsequent write ops must fail too, as
             // those won't be adjacent in log sequence space.
+            // Or extraneous / stale write, the sequence is committed already.
             mLastWriteSeq = mCommittedLogSeq;
         }
         const bool theRetFlag = 0 != mPendingSubmitHeadPtr;
@@ -319,10 +325,11 @@ public:
     {
         inOp.next = mWriteOpFreeListPtr;
         mWriteOpFreeListPtr = &inOp;
-        inOp.blockData.Clear();
-        inOp.blockLines.Clear();
+        inOp.committed     = -1;
         inOp.blockStartSeq = -1;
         inOp.blockEndSeq   = -1;
+        inOp.blockData.Clear();
+        inOp.blockLines.Clear();
     }
     int HandleEvent(
         int   inType,
@@ -332,8 +339,7 @@ public:
             panic("LogReceiver::Impl: unexpected event");
             return 0;
         }
-        MetaLogWriterControl& theOp =
-            *reinterpret_cast<MetaLogWriterControl*>(inDataPtr);
+        MetaRequest& theOp = *reinterpret_cast<MetaRequest*>(inDataPtr);
         const bool theWakeupFlag = ! IsAwake();
         if (mCompletionQueueTailPtr) {
             mCompletionQueueTailPtr->next = &theOp;
@@ -1135,7 +1141,7 @@ private:
                 }
                 theRem -= theEndPtr - theStartPtr;
                 const char* thePtr  = theStartPtr;
-                const char* theNPtr = thePtr;
+                const char* theNPtr;
                 while (thePtr < theEndPtr &&
                         (theNPtr = reinterpret_cast<const char*>(
                             memchr(thePtr, '\n', theEndPtr - thePtr)))) {

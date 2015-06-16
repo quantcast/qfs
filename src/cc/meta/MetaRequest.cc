@@ -103,7 +103,8 @@ public:
                 return;
             }
             // If the original request is in the log queue, then this request
-            // must go though the log queue to ensure tha.
+            // must go though the log queue to ensure original request
+            // completed before submitting response.
             req.logAction = r->commitPendingFlag ?
                 MetaRequest::kLogQueue : MetaRequest::kLogNever;
         }

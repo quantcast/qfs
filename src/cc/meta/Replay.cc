@@ -1028,7 +1028,9 @@ ReplayState::runCommitQueue(
                 return true;
             }
             KFS_LOG_STREAM_ERROR <<
-                "log commit status mismatch:"
+                "log commit:"
+                " sequence: " << logSeq <<
+                " status mismatch"
                 " expected: " << status <<
                 " [" << QCUtils::SysError(KfsToSysErrno(status)) << "]"
                 " actual: "   << f.status <<
@@ -1043,6 +1045,20 @@ ReplayState::runCommitQueue(
             return false;
         }
         mCommitQueue.pop_front();
+    }
+    if (0 != status) {
+        KFS_LOG_STREAM_ERROR <<
+            "log commit:"
+            " sequence: "       << logSeq <<
+            " / "               << (mCommitQueue.empty() ?
+                seq_t(-1) : mCommitQueue.front().logSeq) <<
+            " status mismatch"
+            " status: "         << status <<
+            " [" << QCUtils::SysError(KfsToSysErrno(status)) << "]" <<
+            " seed:"            << seed <<
+            " error checksum: " << errChecksum <<
+            " commit queue: "   << mCommitQueue.size() <<
+        KFS_LOG_EOM;
     }
     return (0 == status);
 }
@@ -1059,6 +1075,10 @@ replay_log_ahead_entry(DETokenizer& c)
     ReplayState&              state  = ReplayState::get(c);
     seq_t logSeq = state.mLastLogAheadSeq + 1;
     if (! MetaRequest::Replay(token.ptr, token.len, logSeq, status)) {
+        KFS_LOG_STREAM_ERROR <<
+            "replay failure: seq: " << logSeq <<
+            " expected: "           << state.mLastLogAheadSeq + 1 <<
+        KFS_LOG_EOM;
         return false;
     }
     status = status < 0 ? SysToKfsErrno(-status) : 0;
@@ -1116,7 +1136,7 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         return false;
     }
     const uint32_t expectedChecksum = blockChecksum.blockEnd(skip);
-    if (expectedChecksum != checksum) {
+    if ((int64_t)expectedChecksum != checksum) {
         KFS_LOG_STREAM_ERROR <<
             "record block checksum mismatch:"
             " expected: " << expectedChecksum <<
@@ -1342,7 +1362,7 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
                     replay_log_commit_entry(tokenizer, blockChecksum) :
                     entrymap.parse(tokenizer)))) {
             KFS_LOG_STREAM_ERROR <<
-                "error " << path <<
+                "error block seq: " << blockSeq <<
                 ":" << tokenizer.getEntryCount() <<
                 ":" << tokenizer.getEntry() <<
             KFS_LOG_EOM;
@@ -1557,6 +1577,10 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     }
     if (status == 0) {
         errChecksum = state.mLogAheadErrChksum;
+        // For now update checkpont committed in order to make replay line to
+        // work at startup with all requests already committed.
+        state.mCheckpointCommitted = state.mLastCommitted;
+        state.mCheckpointErrChksum = state.mLogAheadErrChksum;
     } else {
         appendToLastLogFlag = false;
     }

@@ -271,6 +271,7 @@ public:
         theReqPtr->submitCount = 0xf; // Mark as already logged and handled.
         theReqPtr->submitTime  = sStartTime;
         theReqPtr->processTime = theReqPtr->submitTime;
+        theReqPtr->seqno       = 0;
         const int  theStatus = theReqPtr->status;
         const bool theOkFlag = Handle(
             *static_cast<MetaIdempotentRequest*>(theReqPtr)) ||
