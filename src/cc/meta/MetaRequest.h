@@ -3726,14 +3726,26 @@ struct MetaLogWriterControl : public MetaRequest {
     }
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "log write";
-        if (0 <= blockStartSeq) {
-            os << " block: [" << blockStartSeq <<
-            ":" << blockEndSeq <<
-            "] lenght: " << blockData.BytesConsumable();
+        if (kWriteBlock == type) {
+            os <<
+                "log write"
+                " block: ["    << blockStartSeq <<
+                ":"            << blockEndSeq <<
+                "] length: "   << blockData.BytesConsumable() <<
+                " lines: "     << blockLines.GetSize() <<
+                " committed: " << blockCommitted <<
+                " block seq: " << blockSeq
+            ;
         } else {
-            os << " control";
+            os << "log control: ";
+            switch (type) {
+                case kNop:           os << "nop";            break;
+                case kNewLog:        os << "new log";        break;
+                case kSetParameters: os << "set parameters"; break;
+                default:             os << "invalid";        break;
+            }
         }
+        os << " status: "  << status;
         return os;
     }
 };

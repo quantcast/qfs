@@ -270,12 +270,7 @@ public:
             thePtr = thePtr->next;
             theCur.next = 0;
             KFS_LOG_STREAM_DEBUG <<
-                "log block write complete:"
-                " [" << theCur.blockStartSeq <<
-                ":"  << theCur.blockEndSeq <<
-                "] status: " << theCur.status <<
-                " lines: "   << theCur.blockLines.GetSize() <<
-                " bytes: "   << theCur.blockData.BytesConsumable() <<
+                "complete: " << theCur.Show() <<
             KFS_LOG_EOM;
             if (theCur.blockStartSeq != (theCur.status == 0 ?
                         mCommittedLogSeq : theNextSeq) ||
@@ -311,7 +306,7 @@ public:
             thePtr = thePtr->next;
             theCur.next = 0;
             KFS_LOG_STREAM_DEBUG <<
-                "log receiver submit: " << theCur.Show() <<
+                "submit: " << theCur.Show() <<
             KFS_LOG_EOM;
             submit_request(&theCur);
         }
@@ -364,6 +359,10 @@ public:
         MetaRequest& inOp)
     {
         const bool theWakeupFlag = ! IsAwake();
+        KFS_LOG_STREAM_DEBUG <<
+            "pending submit: " << inOp.Show()   <<
+            " wakeup: "        << theWakeupFlag <<
+        KFS_LOG_EOM;
         if (mPendingSubmitTailPtr) {
             mPendingSubmitTailPtr->next = &inOp;
         } else {

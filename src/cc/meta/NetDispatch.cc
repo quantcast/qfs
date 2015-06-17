@@ -1055,11 +1055,7 @@ public:
                 break;
             }
             KFS_LOG_STREAM_DEBUG <<
-                "replaying block:"
-                " seq: ["   << theCur.blockStartSeq <<
-                ":"         << theCur.blockEndSeq << "]"
-                " lines: "  << theCur.blockLines.GetSize() <<
-                " bytes: "  << theCur.blockData.BytesConsumable() <<
+                "replaying: " << theCur.Show() <<
             KFS_LOG_EOM;
             thePtr = theCur.next;
             theCur.next = 0;
@@ -1083,12 +1079,10 @@ public:
                     theCur.blockData.CopyOut(theBufPtr, theLen);
                     theBufPtr[theLen] = 0;
                     KFS_LOG_STREAM_FATAL <<
-                        "log block apply failure:"
-                        " seq: ["   << theCur.blockStartSeq <<
-                        ":"         << theCur.blockEndSeq << "]"
+                        "log block replay failure: " << theCur.Show() <<
                         " commit: " << mLastCommit <<
                         " status: " << theStatus <<
-                        " "         << theBufPtr <<
+                        " line: "   << theBufPtr <<
                     KFS_LOG_EOM;
                     panic("log block apply failure");
                 }
