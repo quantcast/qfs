@@ -97,6 +97,7 @@ public:
             }
         }
         const chunkId_t& GetChunkId() const { return chunkId; }
+        const seq_t&     GetChunkVersion() const { return chunkVersion; }
         fid_t GetFileId() const { return id(); }
         MetaFattr* GetFattr() const { return fattr; }
         void SetFattr(MetaFattr* fa) {
@@ -139,10 +140,7 @@ public:
             return map.HasServer(srv, *this);
         }
         bool HasHibernatedServer(const CSMap& map, size_t idx) const {
-            return map.HasHibernatedServer(idx, *this);
-        }
-        bool NotifyHibernated(const CSMap& map) const {
-            return map.NotifyHibernated(*this);
+            return 0 != map.HasHibernatedServer(idx, *this);
         }
         ChunkServerPtr GetServer(const CSMap& map,
                 const ServerLocation& loc) const {
@@ -514,6 +512,9 @@ public:
             }
             return true;
         }
+        void SetVersion(seq_t vers) {
+            chunkVersion = vers;
+        }
         friend class QCDLListOp<Entry, 0>;
         friend class CSMap;
     private:
@@ -663,27 +664,37 @@ public:
         }
         return &*(mHibernatedServers[idx]);
     }
-    bool NotifyHibernated(chunkId_t chunkId) const {
-        if (mHibernatedCount <= 0) {
+    bool SetVersion(chunkId_t chunkId, seq_t vers) {
+        Entry* const entry = Find(chunkId);
+        if (! entry) {
             return false;
         }
-        const Entry* const entry = Find(chunkId);
-        return (entry && NotifyHibernated(*entry));
+        SetVersion(*entry, vers);
+        return true;
     }
-    bool NotifyHibernated(const Entry& entry) const {
-        if (mHibernatedCount <= 0) {
-            return false;
-        }
-        bool ret = false;
+    void SetVersion(Entry& entry, seq_t vers) const {
         for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
-            const HibernatedChunkServerPtr& srv =
-                mHibernatedServers[entry.IndexAt(i)];
+            const size_t          idx = entry.IndexAt(i);
+            const ChunkServerPtr& srv = mServers[idx];
             if (srv) {
-                srv->Modified(entry.GetChunkId());
-                ret = true;
+                if (mDebugValidateFlag) {
+                    srv->SetVersion(
+                        entry.GetChunkId(), entry.GetChunkVersion(), vers, idx);
+                } else {
+                    srv->SetVersion(
+                        entry.GetChunkId(), entry.GetChunkVersion(), vers);
+                }
+            } else {
+                const HibernatedChunkServerPtr& srv = mHibernatedServers[idx];
+                if (! srv) {
+                    InternalError("invalid server index");
+                    continue;
+                }
+                srv->SetVersion(
+                    entry.GetChunkId(), entry.GetChunkVersion(), vers, idx);
             }
         }
-        return ret;
+        entry.SetVersion(vers);
     }
     bool ReplaceHibernatedServer(const ChunkServerPtr& server, size_t idx) {
         if (! server || Validate(server)) {
@@ -755,9 +766,9 @@ public:
         ValidateHosted(entry);
         return entry.HasServers();
     }
-    bool HasHibernatedServer(size_t idx, chunkId_t chunkId) const {
+    const Entry* HasHibernatedServer(size_t idx, chunkId_t chunkId) const {
         const Entry* const entry = 0 < mHibernatedCount ? Find(chunkId) : 0;
-        return (entry && HasHibernatedServer(idx, *entry));
+        return ((entry && HasHibernatedServer(idx, *entry)) ? entry : 0);
     }
     bool HasHibernatedServer(size_t idx, const Entry& entry) const {
         return (IsHibernated(idx) && entry.HasIndex(idx));
@@ -1275,9 +1286,11 @@ private:
             const ChunkServerPtr& srv = mServers[idx];
             if (srv) {
                 if (mDebugValidateFlag) {
-                    srv->RemoveHosted(entry.GetChunkId(), idx);
+                    srv->RemoveHosted(
+                        entry.GetChunkId(), entry.GetChunkVersion(), idx);
                 } else {
-                    srv->RemoveHosted(entry.GetChunkId());
+                    srv->RemoveHosted(
+                        entry.GetChunkId(), entry.GetChunkVersion());
                 }
             } else {
                 const HibernatedChunkServerPtr& srv = mHibernatedServers[idx];
@@ -1285,23 +1298,26 @@ private:
                     InternalError("invalid server index");
                     continue;
                 }
-                srv->RemoveHosted(entry.GetChunkId(), idx);
+                srv->RemoveHosted(
+                    entry.GetChunkId(), entry.GetChunkVersion(), idx);
             }
         }
     }
     void AddHosted(const ChunkServerPtr& server, const Entry& entry) const {
         if (mDebugValidateFlag) {
-            server->AddHosted(entry.GetChunkId(), server->GetIndex());
+            server->AddHosted(entry.GetChunkId(), entry.GetChunkVersion(),
+                server->GetIndex());
         } else {
-            server->AddHosted(entry.GetChunkId());
+            server->AddHosted(entry.GetChunkId(), entry.GetChunkVersion());
         }
     }
     void RemoveHosted(const ChunkServerPtr& server,
             const Entry& entry) const {
         if (mDebugValidateFlag) {
-            server->RemoveHosted(entry.GetChunkId(), server->GetIndex());
+            server->RemoveHosted(entry.GetChunkId(), entry.GetChunkVersion(),
+                server->GetIndex());
         } else {
-            server->RemoveHosted(entry.GetChunkId());
+            server->RemoveHosted(entry.GetChunkId(), entry.GetChunkVersion());
         }
     }
     bool Validate() const {

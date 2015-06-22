@@ -48,6 +48,7 @@
 #include "common/ValueSampler.h"
 #include "common/StdAllocator.h"
 #include "common/MsgLogger.h"
+#include "common/CIdChecksum.h"
 #include "MetaRequest.h"
 
 #include <string>
@@ -88,7 +89,7 @@ public:
     CSMapServerInfo()
         : mIndex(-1),
           mChunkCount(0),
-          mCIdChecksum(kCIdNullChecksum),
+          mCIdChecksum(),
           mSet(0)
         {}
     ~CSMapServerInfo() {
@@ -96,44 +97,61 @@ public:
     }
     int GetIndex() const { return mIndex; }
     size_t GetChunkCount() const { return mChunkCount; }
-    CIdChecksum_t GetChecksum() const { return mCIdChecksum; }
+    const CIdChecksum& GetChecksum() const { return mCIdChecksum; }
     int GetHibernatedIndex() const {
         return (mIndex <= GetHbrdIdx(0) ? GetHbrdIdx(mIndex) : -1);
     }
 protected:
-    void RemoveHosted(chunkId_t chunkId, int index) {
+    void RemoveHosted(chunkId_t chunkId, seq_t vers, int index) {
         if (mIndex < 0 || index != mIndex) {
-            panic("invalid index", false);
+            panic("invalid index");
         }
         if (mSet && mSet->Erase(chunkId) <= 0) {
-            panic("no such chunk", false);
+            panic("no such chunk");
         }
-        RemoveHosted(chunkId);
+        RemoveHosted(chunkId, vers);
+    }
+    void SetVersion(chunkId_t chunkId, seq_t curVers, seq_t vers, int index) {
+        if (mIndex < 0 || index != mIndex) {
+            panic("invalid index");
+        }
+        if (mSet && ! mSet->Find(chunkId)) {
+            panic("no such chunk");
+        }
+        SetVersion(chunkId, curVers, vers);
     }
 private:
-    int           mIndex;
-    size_t        mChunkCount;
-    CIdChecksum_t mCIdChecksum;
+    int         mIndex;
+    size_t      mChunkCount;
+    CIdChecksum mCIdChecksum;
 
     static int GetHbrdIdx(int idx) {
         return -(idx + 2);
     }
-    void AddHosted(chunkId_t chunkId) {
+    void AddHosted(chunkId_t chunkId, seq_t vers) {
         mChunkCount++;
         assert(mChunkCount > 0);
-        mCIdChecksum = CIdsChecksumAdd(chunkId, mCIdChecksum);
+        mCIdChecksum.Add(chunkId, vers);
     }
-    void RemoveHosted(chunkId_t chunkId) {
+    void RemoveHosted(chunkId_t chunkId, seq_t vers) {
         if (mChunkCount <= 0) {
-            panic("no hosted chunks", false);
+            panic("no hosted chunks");
             return;
         }
         mChunkCount--;
-        mCIdChecksum = CIdsChecksumRemove(chunkId, mCIdChecksum);
+        mCIdChecksum.Remove(chunkId, vers);
+    }
+    void SetVersion(chunkId_t chunkId, seq_t curVers, seq_t vers) {
+        if (mChunkCount <= 0) {
+            panic("no hosted chunks");
+            return;
+        }
+        mCIdChecksum.Remove(chunkId, curVers);
+        mCIdChecksum.Add(chunkId, vers);
     }
     void ClearHosted() {
-        mChunkCount  = 0;
-        mCIdChecksum = kCIdNullChecksum;
+        mChunkCount = 0;
+        mCIdChecksum.Clear();
         if (mSet) {
             mSet->Clear();
         }
@@ -158,7 +176,7 @@ private:
         other.mIndex       = 0 <= other.mIndex ? GetHbrdIdx(mIndex) : -1;
         other.mChunkCount  = 0;
         other.mSet         = 0;
-        other.mCIdChecksum = kCIdNullChecksum;
+        other.mCIdChecksum.Clear();
         if (debugTrackChunkIdFlag) {
              if (! mSet && mChunkCount == 0) {
                 mSet = new Set();
@@ -182,16 +200,16 @@ private:
     > Set;
     Set* mSet;
 
-    void AddHosted(chunkId_t chunkId, int index) {
+    void AddHosted(chunkId_t chunkId, seq_t vers, int index) {
         bool newEntryFlag = false;
         if (mIndex < 0 || index != mIndex) {
-            panic("invalid index", false);
+            panic("invalid index");
         }
         if (mSet && (! mSet->Insert(chunkId, chunkId, newEntryFlag) ||
                 ! newEntryFlag)) {
-            panic("duplicate chunk id", false);
+            panic("duplicate chunk id");
         }
-        AddHosted(chunkId);
+        AddHosted(chunkId, vers);
     }
     const int* HostedIdx(chunkId_t chunkId) const {
         return ((mSet && mSet->Find(chunkId)) ? &mIndex : 0);
@@ -841,8 +859,9 @@ public:
 
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,
-        InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
-        chunkId_t lastResumeModifiedChunk, uint64_t generation);
+        InFlightChunks& chunks, CIdChecksum& chunksChecksum,
+        ChunkIdQueue& chunksDelete, chunkId_t lastResumeModifiedChunk,
+        uint64_t generation);
     inline void HelloDone(MetaHello& r);
     uint64_t GetHibernatedGeneration() const
         { return mHibernatedGeneration; }
@@ -1218,6 +1237,7 @@ public:
     bool HelloResumeReply(MetaHello& r, const CSMap& csMap,
         ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
     void ResumeRestart(
+        const CSMap&    csMap,
         ChunkIdQueue&   staleChunkIds,
         ModifiedChunks& modifiedChunks,
         int64_t         deletedReportCount);
@@ -1240,8 +1260,9 @@ public:
     };
     ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
 private:
-    void RemoveHosted(chunkId_t chunkId, int index);
-    void Modified(chunkId_t chunkId);
+    void RemoveHosted(chunkId_t chunkId, seq_t vers, int index);
+    void SetVersion(chunkId_t chunkId, seq_t curVers, seq_t vers, int index);
+    void Modified(chunkId_t chunkId, seq_t curVers, seq_t vers);
     void Prune() {
         if (sChunkListsSize <= sMaxChunkListsSize ||
                 (uint64_t)sValidCount * (mListsSize - 1) < sMaxChunkListsSize) {
@@ -1271,6 +1292,7 @@ private:
     size_t         mDeletedReportCount;
     size_t         mListsSize;
     uint64_t       mGeneration;
+    CIdChecksum    mModifiedChecksum;
 
     static size_t   sValidCount;
     static size_t   sChunkListsSize;

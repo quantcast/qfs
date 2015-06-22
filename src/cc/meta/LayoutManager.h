@@ -1394,6 +1394,7 @@ public:
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void EnqueueServerDown(const ChunkServer& srv, const MetaChunkRequest& req);
     void SetDisableTimerFlag(bool flag);
+    void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
 protected:
     typedef vector<
         int,

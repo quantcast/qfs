@@ -3315,7 +3315,7 @@ LayoutManager::AddNewServer(MetaHello *r)
         if (0 < r->resumeStep) {
             HibernatedChunkServer* const cs = FindHibernatingCS(r->location);
             if (cs && cs->GetIndex() == (int)hibernatedIdx) {
-                cs->ResumeRestart(
+                cs->ResumeRestart(mChunkToServerMap,
                     staleChunkIds, modififedChunks, r->deletedReportCount);
             }
         }
@@ -3324,9 +3324,8 @@ LayoutManager::AddNewServer(MetaHello *r)
         KFS_LOG_EOM;
         return;
     }
-    r->resumeStep = -1; // Hello done.
-
-    // Update the list since a new server is in
+    // Hello done.
+    // Update the list since a new server appeared.
     CheckHibernatingServersStatus();
 
     const char* msg = "added";
@@ -3356,6 +3355,7 @@ LayoutManager::AddNewServer(MetaHello *r)
         msg << " chunk server: " << r->peerName << "/" <<
             srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
+        " resume: "          << r->resumeStep <<
         " rack: "            << r->rackId << " => " << rackId <<
         " chunks:"           << r->server->GetChunkCount() << 
         " stable: "          << r->chunks.size() <<
@@ -7336,10 +7336,6 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             if (r->servers.size() != (size_t)r->numReplicas) {
                 CheckReplication(*ci);
             }
-        } else {
-            // Version change succeeded, verify chunk versions when hibernated
-            // server(s) re-connect.
-            mChunkToServerMap.NotifyHibernated(*ci);
         }
         if (r->appendChunk) {
             // Insert pending make stable entry here, to ensure that
@@ -7416,7 +7412,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         return;
     }
     // Roll back to the initial chunk version, and make chunk stable.
-    mChunkToServerMap.NotifyHibernated(*ci);
+    // mChunkToServerMap.NotifyHibernated(*ci);
     StTmp<Servers> serversTmp(mServers3Tmp);
     Servers&       srvs = serversTmp.Get();
     mChunkToServerMap.GetServers(*ci, srvs);
@@ -7437,6 +7433,12 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             kMakeStableFlag
         );
     }
+}
+
+void
+LayoutManager::SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version)
+{
+    mChunkToServerMap.SetVersion(GetCsEntry(chunkInfo), version);
 }
 
 int

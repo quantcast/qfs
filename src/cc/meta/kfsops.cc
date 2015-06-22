@@ -1543,14 +1543,15 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     Node * const l = findLeaf(ckey, kp);
     if (l) {
         if (! appendOffset) {
-            MetaChunkInfo * const c = l->extractMeta<MetaChunkInfo>(kp);
+            MetaChunkInfo* const c = l->extractMeta<MetaChunkInfo>(kp);
             if (curChunkId) {
                 *curChunkId = c->chunkId;
             }
             if (c->chunkId != chunkId || c->chunkVersion == chunkVersion) {
                 return -EEXIST;
             }
-            c->chunkVersion = chunkVersion;
+            gLayoutManager.SetChunkVersion(*c, chunkVersion);
+            // c->chunkVersion = chunkVersion;
             if (appendReplayFlag && ! fa->IsStriped()) {
                 const chunkOff_t size = max(
                     fa->nextChunkOffset(), boundary + chunkOff_t(CHUNKSIZE));

@@ -29,6 +29,7 @@
 #include "LogWriter.h"
 
 #include "common/RequestParser.h"
+#include "common/CIdChecksum.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
@@ -255,11 +256,38 @@ public:
         {  MetaRequest::Release(inReqPtr); }
 };
 
+template<typename INT_PARSER_T>
+class MetaReqValueParserT
+{
+public:
+    template<typename T>
+    static void SetValue(
+        const char* inPtr,
+        size_t      inLen,
+        const T&    inDefaultValue,
+        T&          outValue)
+    {
+        ValueParserT<INT_PARSER_T>::SetValue(
+            inPtr, inLen, inDefaultValue, outValue);
+    }
+    static void SetValue(
+        const char*        inPtr,
+        size_t             inLen,
+        const CIdChecksum& inDefaultValue,
+        CIdChecksum&       outValue)
+    {
+        const char* thePtr = inPtr;
+        if (! outValue.Parse<INT_PARSER_T>(thePtr, inLen)) {
+            outValue = inDefaultValue;
+        }
+    }
+};
+
 template <typename SUPER, typename OBJ>
 class MetaLongNamesClientRequestParser : public RequestParser<
     SUPER,
     OBJ,
-    ValueParserT<DecIntParser>,
+    MetaReqValueParserT<DecIntParser>,
     false, // Use long names / format.
     PropertiesTokenizer,
     NopOstream,
@@ -278,7 +306,7 @@ template <typename SUPER, typename OBJ>
 class MetaShortNamesClientRequestParser : public RequestParser<
     SUPER,
     OBJ,
-    ValueParserT<HexIntParser>,
+    MetaReqValueParserT<HexIntParser>,
     true, // Use short names / format.
     PropertiesTokenizer,
     NopOstream,

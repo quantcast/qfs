@@ -49,6 +49,7 @@
 #include "common/ReqOstream.h"
 #include "common/RequestParser.h"
 #include "common/kfsatomic.h"
+#include "common/CIdChecksum.h"
 #include "qcdio/QCDLList.h"
 
 #include <string.h>
@@ -1760,7 +1761,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     size_t             modifiedCount;
     size_t             chunkCount;
     int64_t            reReplicationCount;
-    CIdChecksum_t      checksum;
+    CIdChecksum        checksum;
     IOBuffer           responseBuf;
 
     MetaHello()
@@ -1806,7 +1807,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           modifiedCount(0),
           chunkCount(0),
           reReplicationCount(0),
-          checksum(0),
+          checksum(),
           responseBuf()
         {}
     virtual void handle();

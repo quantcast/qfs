@@ -40,6 +40,7 @@
 #include "common/StBuffer.h"
 #include "common/RequestParser.h"
 #include "common/ReqOstream.h"
+#include "common/CIdChecksum.h"
 
 #include "qcdio/QCDLList.h"
 
@@ -2193,7 +2194,7 @@ struct HelloMetaOp : public KfsOp {
     uint64_t                 modifiedCount;
     uint64_t                 deletedReport;
     uint64_t                 chunkCount;
-    CIdChecksum_t            checksum;
+    CIdChecksum              checksum;
     ChunkIds                 resumeModified;
     ChunkIds                 resumeDeleted;
     int64_t                  helloDoneCount;
@@ -2226,7 +2227,7 @@ struct HelloMetaOp : public KfsOp {
           modifiedCount(0),
           deletedReport(0),
           chunkCount(0),
-          checksum(0),
+          checksum(),
           resumeModified(),
           resumeDeleted(),
           helloDoneCount(0),

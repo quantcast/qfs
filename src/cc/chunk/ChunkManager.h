@@ -911,9 +911,10 @@ private:
         const ChunkManager::HostedChunkList& notStableAppend,
         const ChunkManager::HostedChunkList& notStable,
         bool                                 noFidsFlag);
-    inline bool NotifyLostChunk(kfsChunkId_t chunkId);
+    inline bool NotifyLostChunk(kfsChunkId_t chunkId, kfsSeq_t vers);
     inline bool ScheduleNotifyLostChunk();
-    inline bool IsTargetChunkVersionStable(const ChunkInfoHandle& cih) const;
+    inline bool IsTargetChunkVersionStable(
+        const ChunkInfoHandle& cih, kfsSeq_t* vers = 0) const;
 
     static bool sExitDebugCheckFlag;
 private:

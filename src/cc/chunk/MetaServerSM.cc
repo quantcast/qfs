@@ -98,7 +98,7 @@ MetaServerSM::MetaServerSM()
       mCurrentKeyId(),
       mUpdateCurrentKeyFlag(false),
       mNoFidsFlag(true),
-      mHelloResume(1),
+      mHelloResume(-1),
       mOp(0),
       mRequestFlag(false),
       mTraceRequestResponseFlag(false),
@@ -792,9 +792,16 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 mHelloOp->chunkCount    = prop.getValue(
                     kRpcFormatShort == mRpcFormat ? "C" : "Chunks",
                         uint64_t(0));
-                mHelloOp->checksum      = prop.getValue(
-                    kRpcFormatShort == mRpcFormat ? "K" : "Checksum",
-                        uint64_t(0));
+                const Properties::String* const cs = prop.getValue(
+                    kRpcFormatShort == mRpcFormat ? "K" : "Checksum");
+                const char* csp = cs ? cs->GetPtr() : 0;
+                if (! cs || ! (kRpcFormatShort == mRpcFormat ?
+                        mHelloOp->checksum.Parse<HexIntParser>(
+                            csp, cs->GetSize()) :
+                        mHelloOp->checksum.Parse<DecIntParser>(
+                            csp, cs->GetSize()))) {
+                    mHelloOp->checksum.Clear();
+                }
                 mHelloOp->deletedReport = prop.getValue(
                     kRpcFormatShort == mRpcFormat ? "DR": "Deleted-report",
                         mHelloOp->deletedCount);

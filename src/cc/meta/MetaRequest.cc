@@ -4581,9 +4581,11 @@ MetaHello::response(ReqOstream& os, IOBuffer& buf)
         }
     }
     if (0 <= resumeStep) {
+        os << (shortRpcFormatFlag ? "R:" : "Resume: ") <<
+            resumeStep   << "\r\n";
+    }
+    if (0 == resumeStep) {
         os <<
-            (shortRpcFormatFlag ? "R:" : "Resume: ")  <<
-                resumeStep   << "\r\n" <<
             (shortRpcFormatFlag ? "D:" : "Deleted: ") <<
                 deletedCount << "\r\n" <<
             (shortRpcFormatFlag ? "DR:" : "Deleted-report: ") <<

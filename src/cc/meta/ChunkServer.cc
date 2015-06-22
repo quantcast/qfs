@@ -2811,8 +2811,9 @@ ChunkServer::Verify(
 
 inline void
 ChunkServer::GetInFlightChunks(const CSMap& csMap,
-    ChunkServer::InFlightChunks& chunks, ChunkIdQueue& chunksDelete,
-    chunkId_t lastResumeModifiedChunk, uint64_t generation)
+    ChunkServer::InFlightChunks& chunks, CIdChecksum& chunksChecksum,
+    ChunkIdQueue& chunksDelete, chunkId_t lastResumeModifiedChunk,
+    uint64_t generation)
 {
     KFS_LOG_STREAM_DEBUG <<
         " server: "           << GetServerLocation() <<
@@ -2828,11 +2829,13 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
     const chunkId_t* id;
     mLastChunksInFlight.First();
     while ((id = mLastChunksInFlight.Next())) {
-        const CSMap::Entry* const entry = csMap.Find(*id);
+        const chunkId_t           chunkId = *id;
+        const CSMap::Entry* const entry   = csMap.Find(chunkId);
         if (entry && csMap.HasServer(srv, *entry)) {
-            chunks.Insert(*id);
+            chunks.Insert(chunkId);
+            chunksChecksum.Add(chunkId, entry->GetChunkVersion());
         } else {
-            chunksDelete.PushBack(*id);
+            chunksDelete.PushBack(chunkId);
         }
     }
     mLastChunksInFlight.Clear();
@@ -2848,10 +2851,11 @@ HibernatedChunkServer::HibernatedChunkServer(
       mModifiedChunks(),
       mDeletedReportCount(0),
       mListsSize(0),
-      mGeneration(++mGeneration)
+      mGeneration(++mGeneration),
+      mModifiedChecksum()
 {
-    server.GetInFlightChunks(csMap, mModifiedChunks, mDeletedChunks,
-        lastResumeModifiedChunk, mGeneration);
+    server.GetInFlightChunks(csMap, mModifiedChunks, mModifiedChecksum,
+        mDeletedChunks, lastResumeModifiedChunk, mGeneration);
     mDeletedReportCount = mDeletedChunks.GetSize();
     const size_t size = mModifiedChunks.Size() + mDeletedReportCount;
     mListsSize = 1 + size;
@@ -2870,10 +2874,12 @@ HibernatedChunkServer::HibernatedChunkServer(
 }
 
 void
-HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, int index)
+HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, seq_t vers, int index)
 {
     if (0 < mListsSize) {
-        if (! mModifiedChunks.Erase(chunkId)) {
+        if (mModifiedChunks.Erase(chunkId)) {
+            mModifiedChecksum.Remove(chunkId, vers);
+        } else {
             mListsSize++;
             sChunkListsSize++;
             Prune();
@@ -2882,7 +2888,7 @@ HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, int index)
             mDeletedChunks.PushBack(chunkId);
         }
     }
-    CSMapServerInfo::RemoveHosted(chunkId, index);
+    CSMapServerInfo::RemoveHosted(chunkId, vers, index);
     KFS_LOG_STREAM_DEBUG <<
         "hibernated: "  << GetIndex() <<
         " / "           << index <<
@@ -2892,16 +2898,34 @@ HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, int index)
 }
 
 void
-HibernatedChunkServer::Modified(chunkId_t chunkId)
+HibernatedChunkServer::SetVersion(
+    chunkId_t chunkId, seq_t curVers, seq_t vers, int index)
 {
-    if (0 < mListsSize && mModifiedChunks.Insert(chunkId)) {
-        mListsSize++;
-        sChunkListsSize++;
-        Prune();
+    Modified(chunkId, curVers, vers);
+    CSMapServerInfo::SetVersion(chunkId, curVers, vers, index);
+}
+
+void
+HibernatedChunkServer::Modified(chunkId_t chunkId, seq_t curVers, seq_t vers)
+{
+    if (0 < mListsSize) {
+        if (mModifiedChunks.Insert(chunkId)) {
+            mListsSize++;
+            sChunkListsSize++;
+            Prune();
+            if (0 < mListsSize) {
+                mModifiedChecksum.Add(chunkId, vers);
+            }
+        } else if (curVers != vers) {
+            mModifiedChecksum.Remove(chunkId, curVers);
+            mModifiedChecksum.Add(chunkId, vers);
+        }
     }
     KFS_LOG_STREAM_DEBUG <<
         "hibernated: "  << GetIndex() <<
         " modified: "   << chunkId <<
+        " version: "    << curVers <<
+        " => "          << vers <<
         " lists size: " << mListsSize <<
     KFS_LOG_EOM;
 }
@@ -2912,15 +2936,19 @@ HibernatedChunkServer::UpdateLastInFlight(const CSMap& csMap, chunkId_t chunkId)
     if (mListsSize <= 0) {
         return;
     }
-    if (csMap.HasHibernatedServer(GetIndex(), chunkId)) {
-        Modified(chunkId);
+    const CSMap::Entry* const ce =
+        csMap.HasHibernatedServer(GetIndex(), chunkId);
+    if (ce) {
+        Modified(chunkId, ce->GetChunkVersion(), ce->GetChunkVersion());
         return;
     }
-    if (! mModifiedChunks.Erase(chunkId)) {
-        mListsSize++;
-        sChunkListsSize++;
-        Prune();
+    if (mModifiedChunks.Find(chunkId)) {
+        panic("invalid modified chunk entry");
+        return;
     }
+    mListsSize++;
+    sChunkListsSize++;
+    Prune();
     if (0 < mListsSize) {
         mDeletedChunks.PushBack(chunkId);
         mDeletedReportCount = mDeletedChunks.GetSize();
@@ -2963,8 +2991,9 @@ HibernatedChunkServer::HelloResumeReply(
                 MsgLogger::kLogLevelINFO :
                 MsgLogger::kLogLevelERROR) <<
             "hibernated: "  << GetIndex() <<
-            " "             << r.statusMsg <<
             " server: "     << r.server->GetServerLocation() <<
+            " status: "     << r.status <<
+            " msg: "        << r.statusMsg <<
             " resume: "     << r.resumeStep <<
             " chunks: "     << r.chunkCount <<
             " => "          << GetChunkCount() <<
@@ -2984,22 +3013,33 @@ HibernatedChunkServer::HelloResumeReply(
                 staleChunkIds.PushBack(mDeletedChunks[i]);
             }
         }
+        if (! modifiedChunks.IsEmpty()) {
+            panic("resume reply: invalid non empty modified chunks list");
+            modifiedChunks.Clear();
+        }
         modifiedChunks.Swap(mModifiedChunks);
+        mModifiedChecksum.Clear();
         r.server->HelloDone(r);
+        return false;
+    }
+    if (GetChunkCount() < mModifiedChunks.Size()) {
+        panic("resume reply: invalid modified chunks list size");
         return false;
     }
     r.deletedCount       = 0;
     r.modifiedCount      = 0;
-    r.chunkCount         = GetChunkCount();
+    r.chunkCount         = GetChunkCount() - mModifiedChunks.Size();
     r.checksum           = GetChecksum();
     r.deletedReportCount = (int64_t)mDeletedReportCount;
-    // Chunk server assumes responsibility for ensuring no duplicate list
-    // entries.
+    r.checksum.Remove(mModifiedChecksum);
+    // Chunk server assumes responsibility for ensuring that list has no
+    // duplicate entries.
     for (MetaHello::MissingChunks::const_iterator
             it = r.missingChunks.begin(); it != r.missingChunks.end(); ++it) {
-        const chunkId_t chunkId = *it;
+        const chunkId_t     chunkId = *it;
+        const CSMap::Entry* ce;
         if (mModifiedChunks.Find(chunkId) ||
-                ! csMap.HasHibernatedServer(GetIndex(), chunkId)) {
+                ! (ce = csMap.HasHibernatedServer(GetIndex(), chunkId))) {
             continue;
         }
         if (r.chunkCount <= 0) {
@@ -3009,7 +3049,7 @@ HibernatedChunkServer::HelloResumeReply(
             return false;
         }
         r.chunkCount--;
-        r.checksum = CIdsChecksumRemove(chunkId, r.checksum);
+        r.checksum.Remove(chunkId, ce->GetChunkVersion());
     }
     KFS_LOG_STREAM_INFO <<
         "hibernated: " << GetIndex() <<
@@ -3043,7 +3083,7 @@ HibernatedChunkServer::HelloResumeReply(
     while ((id = mModifiedChunks.Next())) {
         const char* const ptr = IntToHexString(*id, bend);
         writer.Write(ptr, bend - ptr + 1);
-        r.modifiedCount++ ;
+        r.modifiedCount++;
     }
     writer.Close();
     return true;
@@ -3051,6 +3091,7 @@ HibernatedChunkServer::HelloResumeReply(
 
 void
 HibernatedChunkServer::ResumeRestart(
+    const CSMap&                           csMap,
     ChunkIdQueue&                          staleChunkIds,
     HibernatedChunkServer::ModifiedChunks& modifiedChunks,
     int64_t                                deletedReportCount)
@@ -3099,6 +3140,19 @@ HibernatedChunkServer::ResumeRestart(
         }
     }
     if (! modifiedChunks.IsEmpty()) {
+        modifiedChunks.First();
+        const chunkId_t* id;
+        while ((id = modifiedChunks.Next())) {
+            const CSMap::Entry* const p = csMap.Find(*id);
+            if (! p) {
+                panic("resume restart invalid modified list");
+                continue;
+            }
+            if (mModifiedChunks.Find(*id)) {
+                continue;
+            }
+            mModifiedChecksum.Add(*id, p->GetChunkVersion());
+        }
         if (mModifiedChunks.IsEmpty()) {
             mModifiedChunks.Swap(modifiedChunks);
             size += mModifiedChunks.Size();
