@@ -37,7 +37,6 @@ using std::string;
 using std::ifstream;
 
 class DETokenizer;
-class ReplayState;
 class DiskEntry;
 
 class Replay
@@ -104,6 +103,7 @@ public:
     };
 private:
     typedef MdStreamT<BlockChecksum> MdStream;
+    class ReplayState;
 
     ifstream         file;   //!< the log file being replayed
     string           path;   //!< path name for log file
@@ -124,8 +124,6 @@ private:
     DETokenizer&     tokenizer;
     const DiskEntry& entrymap;
     BlockChecksum    blockChecksum;
-
-    class ReplayState;
 
     int playLogs(seq_t lastlog, bool includeLastLogFlag);
     int playlog(bool& lastEntryChecksumFlag);
