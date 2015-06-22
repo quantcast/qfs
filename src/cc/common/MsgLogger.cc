@@ -43,10 +43,12 @@ MsgLogger::MsgLogger(
     const char*         filename,
     MsgLogger::LogLevel logLevel,
     const Properties*   props,
-    const char*         propPrefix)
+    const char*         propPrefix,
+    const char*         logLevelStr)
     : BufferedLogWriter(filename ? -1 : fileno(stderr), filename)
 {
     BufferedLogWriter::SetLogLevel(logLevel);
+    BufferedLogWriter::SetLogLevel(logLevelStr);
     BufferedLogWriter::SetMaxLogWaitTime(std::numeric_limits<int>::max());
     if (props) {
         BufferedLogWriter::SetParameters(*props, propPrefix);
@@ -90,14 +92,16 @@ MsgLogger::Init(
     const char*         filename,
     MsgLogger::LogLevel logLevel,
     const Properties*   props,
-    const char*         propPrefix)
+    const char*         propPrefix,
+    const char*         logLevelStr)
 {
     if (logger) {
         if (props) {
             logger->SetParameters(*props, propPrefix);
         }
     } else {
-        static MsgLogger sLogger(filename, logLevel, props, propPrefix);
+        static MsgLogger sLogger(
+            filename, logLevel, props, propPrefix, logLevelStr);
         logger = &sLogger;
     }
 }
