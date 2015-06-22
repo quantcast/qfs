@@ -37,7 +37,8 @@ namespace KFS
     {
     private:
         MsgLogger(const char *filename, LogLevel logLevel,
-            const Properties* props, const char* propPrefix);
+            const Properties* props, const char* propPrefix,
+            const char* logLevelStr);
         ~MsgLogger();
         MsgLogger(const MsgLogger &other);
         MsgLogger& operator=(const MsgLogger &other);
@@ -49,7 +50,8 @@ namespace KFS
         static void Init(const char *filename, LogLevel logLevel);
         static void Init(const Properties& props, const char* propPrefix = 0);
         static void Init(const char *filename, LogLevel logLevel,
-            const Properties* props, const char* propPrefix);
+            const Properties* props, const char* propPrefix,
+            const char* logLevelStr = 0);
         static void SetLevel(LogLevel logLevel) {
             if (logger) {
                 logger->SetLogLevel(logLevel);

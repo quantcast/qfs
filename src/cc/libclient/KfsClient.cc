@@ -219,21 +219,6 @@ ValidateCreateParams(
     );
 }
 
-static MsgLogger::LogLevel
-GetLogLevel(const char* logLevel)
-{
-    if (! logLevel || strcmp(logLevel, "INFO") == 0) {
-        return MsgLogger::kLogLevelINFO;
-    }
-    if (strcmp(logLevel, "DEBUG") == 0) {
-        return MsgLogger::kLogLevelDEBUG;
-    }
-    if (strcmp(logLevel, "WARN") == 0) {
-        return MsgLogger::kLogLevelWARN;
-    }
-    return MsgLogger::kLogLevelINFO;
-}
-
 KfsClient::KfsClient(KfsNetClient* metaServer)
     : mImpl(new KfsClientImpl(metaServer))
 {
@@ -245,9 +230,11 @@ KfsClient::~KfsClient()
 }
 
 void
-KfsClient::SetLogLevel(const string &logLevel)
+KfsClient::SetLogLevel(const string& logLevel)
 {
-    MsgLogger::SetLevel(GetLogLevel(logLevel.c_str()));
+    if (MsgLogger::GetLogger()) {
+        MsgLogger::GetLogger()->SetLogLevel(logLevel.c_str());
+    }
 }
 
 int
@@ -1385,7 +1372,7 @@ private:
             if (! p) {
                 p = getenv("KFS_CLIENT_LOG_LEVEL");
             }
-            MsgLogger::Init(0, GetLogLevel(p));
+            MsgLogger::Init(0, MsgLogger::kLogLevelINFO, 0, 0, p);
         }
     }
     static ClientsList& Instance();
