@@ -117,6 +117,16 @@ public:
         delete [] tokens;
         delete [] buffer;
     }
+    void reset() {
+        cur        = tokens;
+        end        = tokens;
+        entryCount = 0;
+        bend       = buffer + kMaxEntrySize;
+        nextEnt    = bend;
+        prevStart  = nextEnt;
+        base       = 10;
+        lastOk     = true;
+    }
     void pop_front() {
         assert(cur < end);
         ++cur;

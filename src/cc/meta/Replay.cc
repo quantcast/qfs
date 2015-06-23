@@ -1417,8 +1417,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     state.mLogAheadErrChksum = errChecksum;
     state.mSubEntryCount     = 0;
     int status = 0;
-    tokenizer.setIntBase(10);
-    tokenizer.resetEntryCount();
+    tokenizer.reset();
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
             continue;
