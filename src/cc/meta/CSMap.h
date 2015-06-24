@@ -687,7 +687,9 @@ public:
             } else {
                 const HibernatedChunkServerPtr& srv = mHibernatedServers[idx];
                 if (! srv) {
-                    InternalError("invalid server index");
+                    if (! mRemoveServerScanPtr) {
+                        InternalError("invalid server index");
+                    }
                     continue;
                 }
                 srv->SetVersion(
@@ -1295,7 +1297,9 @@ private:
             } else {
                 const HibernatedChunkServerPtr& srv = mHibernatedServers[idx];
                 if (! srv) {
-                    InternalError("invalid server index");
+                    if (! mRemoveServerScanPtr) {
+                        InternalError("invalid server index");
+                    }
                     continue;
                 }
                 srv->RemoveHosted(
