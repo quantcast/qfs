@@ -6683,12 +6683,12 @@ LayoutManager::InvalidateAllChunkReplicas(
     if (mci->offset != offset) {
         return false;
     }
-    mci->chunkVersion += IncrementChunkVersionRollBack(chunkId);
-    chunkVersion = mci->chunkVersion;
     StTmp<Servers> serversTmp(mServers3Tmp);
     Servers&       c = serversTmp.Get();
     mChunkToServerMap.GetServers(*ci, c);
     ci->RemoveAllServers(mChunkToServerMap);
+    mci->chunkVersion += IncrementChunkVersionRollBack(chunkId);
+    chunkVersion = mci->chunkVersion;
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
     mPendingBeginMakeStable.Erase(chunkId);
     mPendingMakeStable.Erase(chunkId);
