@@ -72,8 +72,8 @@ public:
 
         theLsPrev.mNextPtr[ListT] = &inListRs;
         inListRs.mPrevPtr[ListT]  = &theLsPrev;
-        theRsPrev.mNextPtr[ListT] = &inListRs;
-        inListRs.mPrevPtr[ListT]  = &theRsPrev;
+        theRsPrev.mNextPtr[ListT] = &inListLs;
+        inListLs.mPrevPtr[ListT]  = &theRsPrev;
     }
 
     static void Remove(
