@@ -1751,9 +1751,10 @@ private:
         }
         // Meta operations are automatically retried by MetaServer.
         // Declare fatal error in the case of meta op failure.
-        if (&mLookupOp == mCurOpPtr || &mCreateOp == mCurOpPtr ||
+        if ((&mLookupOp == mCurOpPtr || &mCreateOp == mCurOpPtr ||
                 &mMkdirOp == mCurOpPtr || &mLookupPathOp == mCurOpPtr ||
-                &mLeaseAcquireOp == mCurOpPtr) {
+                &mLeaseAcquireOp == mCurOpPtr) &&
+                -ELOGFAILED != mErrorCode) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "meta operation failed, giving up" <<
             KFS_LOG_EOM;
