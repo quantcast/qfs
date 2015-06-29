@@ -878,6 +878,7 @@ struct MetaGetlayout: public MetaRequest {
 struct MetaLeaseRelinquish: public MetaRequest {
     LeaseType  leaseType; //!< input
     chunkId_t  chunkId;   //!< input
+    chunkOff_t chunkPos;
     int64_t    leaseId;   //!< input
     chunkOff_t chunkSize;
     bool       hasChunkChecksum;
@@ -886,6 +887,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
         : MetaRequest(META_LEASE_RELINQUISH, false),
           leaseType(READ_LEASE),
           chunkId(-1),
+          chunkPos(-1),
           leaseId(-1),
           chunkSize(-1),
           hasChunkChecksum(false),
@@ -924,6 +926,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def("Lease-type",     &MetaLeaseRelinquish::leaseTypeStr                 )
         .Def("Chunk-handle",   &MetaLeaseRelinquish::chunkId,        chunkId_t(-1))
+        .Def("Chunk-pos",      &MetaLeaseRelinquish::chunkPos,       chunkId_t(-1))
         .Def("Lease-id",       &MetaLeaseRelinquish::leaseId,          int64_t(-1))
         .Def("Chunk-size",     &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
         .Def("Chunk-checksum", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
@@ -2995,6 +2998,7 @@ struct MetaLeaseRenew: public MetaRequest {
     LeaseType          leaseType;
     StringBufT<256>    pathname; // Optional for debugging;
     chunkId_t          chunkId;
+    chunkOff_t         chunkPos;
     int64_t            leaseId;
     bool               emitCSAccessFlag;
     bool               clientCSAllowClearTextFlag;
@@ -3008,6 +3012,7 @@ struct MetaLeaseRenew: public MetaRequest {
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
+          chunkPos(-1),
           leaseId(-1),
           emitCSAccessFlag(false),
           clientCSAllowClearTextFlag(false),
@@ -3043,9 +3048,10 @@ struct MetaLeaseRenew: public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def("Lease-type",   &MetaLeaseRenew::leaseTypeStr          )
-        .Def("Lease-id",     &MetaLeaseRenew::leaseId,   int64_t(-1))
-        .Def("Chunk-handle", &MetaLeaseRenew::chunkId, chunkId_t(-1))
+        .Def("Lease-type",   &MetaLeaseRenew::leaseTypeStr            )
+        .Def("Lease-id",     &MetaLeaseRenew::leaseId,     int64_t(-1))
+        .Def("Chunk-handle", &MetaLeaseRenew::chunkId,   chunkId_t(-1))
+        .Def("Chunk-pos",    &MetaLeaseRenew::chunkPos, chunkOff_t(-1))
         .Def("CS-access",    &MetaLeaseRenew::emitCSAccessFlag)
         ;
     }

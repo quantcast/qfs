@@ -205,7 +205,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
         return -EINVAL;
     }
 
-    if (numReplicas <= 0) {
+    if (numReplicas < 0) {
         KFS_LOG_STREAM_DEBUG << "Bad # of replicas (" <<
             numReplicas << ") for " << fname << KFS_LOG_EOM;
         return -EINVAL;
@@ -1504,11 +1504,25 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
         return -EACCES;
     }
     if (numReplicas) {
-        assert(fa->numReplicas != 0);
         *numReplicas = fa->numReplicas;
     }
     if (stripedFileFlag) {
         *stripedFileFlag = fa->IsStriped();
+    }
+    if (0 == fa->numReplicas) {
+        if (-ENOENT != res || ci) {
+            panic("chunk entry in object sotre file");
+            return -EFAULT;
+        }
+        if (0 != *chunkId) {
+            return -EINVAL; // Prevent chunk assignment in replay.
+        }
+        *chunkId      = 0;
+        *chunkVersion = 0;
+        if (offset < fa->nextChunkOffset()) {
+            return -EEXIST;
+        }
+        return 0;
     }
     // check if an id has already been assigned to this offset
     if (res != -ENOENT && ci) {
@@ -2108,6 +2122,10 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
     }
     if ((int)fa->numReplicas == numReplicas) {
         return 0;
+    }
+    if (KFS_FILE == fa->type && 0 == fa->numReplicas) {
+        // Do not allow to change object store file replication.
+        return -EINVAL;
     }
     fa->setReplication(numReplicas);
     StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);

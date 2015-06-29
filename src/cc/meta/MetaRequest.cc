@@ -1851,6 +1851,19 @@ MetaAllocate::handle()
         egroup,
         &fa
     );
+    if (0 == numReplicas) {
+        if (appendChunk) {
+            status    = -EINVAL;
+            statusMsg = "append is not supported with object store files";
+            return;
+        }
+        if (invalidateAllFlag) {
+            status    = -EINVAL;
+            statusMsg = "chunk invalidation is not supported"
+                " with object store files";
+            return;
+        }
+    }
     if (status != 0 && (status != -EEXIST || appendChunk)) {
         // we have a problem
         return;
@@ -3970,7 +3983,7 @@ MetaRequest* MetaRequest::sMetaRequestsPtr[1] = {0};
 
 bool MetaCreate::Validate()
 {
-    return (dir >= 0 && ! name.empty() && numReplicas > 0);
+    return (dir >= 0 && ! name.empty() && 0 <= numReplicas);
 }
 
 /*!

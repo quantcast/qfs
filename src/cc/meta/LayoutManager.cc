@@ -152,6 +152,14 @@ UpdateReplicationState(CSMap& csmap, CSMap::Entry& entry)
     }
 }
 
+static inline bool
+IsObjectStoreBlock(fid_t fid, chunkOff_t pos)
+{
+    const MetaFattr* const fa = metatree.getFattr(fid);
+    return (fa && KFS_FILE == fa->type && fa->numReplicas == 0 &&
+        pos <= fa->nextChunkOffset());
+}
+
 class ChunkIdMatcher
 {
     const chunkId_t myid;
@@ -338,13 +346,14 @@ inline void
 ChunkLeases::Erase(
     ChunkLeases::REntry& rl)
 {
-    const bool      updateFlag = rl.Get().mScheduleReplicationCheckFlag;
-    const chunkId_t chunkId    = rl.GetKey();
-    if (mReadLeases.Erase(chunkId) != 1) {
+    const EntryKey  key        = rl.GetKey();
+    const bool      updateFlag =
+        key.second < 0 && rl.Get().mScheduleReplicationCheckFlag;
+    if (mReadLeases.Erase(key) != 1) {
         panic("internal error: read lease delete failure");
     }
     if (updateFlag) {
-        gLayoutManager.ChangeChunkReplication(chunkId);
+        gLayoutManager.ChangeChunkReplication(key.first);
     }
 }
 
@@ -415,17 +424,24 @@ ChunkLeases::NewWriteLeaseId()
 
 inline const ChunkLeases::WriteLease*
 ChunkLeases::GetWriteLease(
-    chunkId_t chunkId) const
+    const ChunkLeases::EntryKey& key) const
 {
-    const WEntry* const wl = mWriteLeases.Find(chunkId);
+    const WEntry* const wl = mWriteLeases.Find(key);
     return (wl ? &wl->Get() : 0);
 }
 
 inline const ChunkLeases::WriteLease*
-ChunkLeases::GetValidWriteLease(
+ChunkLeases::GetChunkWriteLease(
     chunkId_t chunkId) const
 {
-    WEntry* const we = mWriteLeases.Find(chunkId);
+    return GetWriteLease(EntryKey(chunkId, -1));
+}
+
+inline const ChunkLeases::WriteLease*
+ChunkLeases::GetValidWriteLease(
+    const ChunkLeases::EntryKey& key) const
+{
+    WEntry* const we = mWriteLeases.Find(key);
     if (! we) {
         return 0;
     }
@@ -435,10 +451,10 @@ ChunkLeases::GetValidWriteLease(
 
 inline const ChunkLeases::WriteLease*
 ChunkLeases::RenewValidWriteLease(
-    chunkId_t           chunkId,
-    const MetaAllocate& req)
+    const ChunkLeases::EntryKey& key,
+    const MetaAllocate&          req)
 {
-    WEntry* const we = mWriteLeases.Find(chunkId);
+    WEntry* const we = mWriteLeases.Find(key);
     if (! we) {
         return 0;
     }
@@ -481,27 +497,27 @@ ChunkLeases::RenewValidWriteLease(
 
 inline bool
 ChunkLeases::HasValidWriteLease(
-    chunkId_t chunkId) const
+    const ChunkLeases::EntryKey& key) const
 {
-    const WEntry* const we = mWriteLeases.Find(chunkId);
+    const WEntry* const we = mWriteLeases.Find(key);
     return (we && TimeNow() <= we->Get().expires);
 }
 
 inline bool
 ChunkLeases::HasWriteLease(
-    chunkId_t chunkId) const
+    const ChunkLeases::EntryKey& key) const
 {
-    return (mWriteLeases.Find(chunkId) != 0);
+    return (mWriteLeases.Find(key) != 0);
 }
 
 inline bool
 ChunkLeases::HasValidLease(
-    chunkId_t chunkId) const
+    const ChunkLeases::EntryKey& key) const
 {
-    if (HasValidWriteLease(chunkId)) {
+    if (HasValidWriteLease(key)) {
         return true;
     }
-    const REntry* const re = mReadLeases.Find(chunkId);
+    const REntry* const re = mReadLeases.Find(key);
     if (! re) {
         return false;
     }
@@ -511,13 +527,13 @@ ChunkLeases::HasValidLease(
 
 inline bool
 ChunkLeases::HasLease(
-    chunkId_t chunkId) const
+    const ChunkLeases::EntryKey& key) const
 {
-    REntry* const rl = mReadLeases.Find(chunkId);
+    REntry* const rl = mReadLeases.Find(key);
     if (rl && ! rl->Get().mLeases.IsEmpty()) {
         return true;
     }
-    return (mWriteLeases.Find(chunkId) != 0);
+    return (mWriteLeases.Find(key) != 0);
 }
 
 inline bool
@@ -525,7 +541,7 @@ ChunkLeases::UpdateReadLeaseReplicationCheck(
     chunkId_t chunkId,
     bool      setScheduleReplicationCheckFlag)
 {
-    REntry* const rl = mReadLeases.Find(chunkId);
+    REntry* const rl = mReadLeases.Find(EntryKey(chunkId, -1));
     if (rl  && ! rl->Get().mLeases.IsEmpty()) {
         if (setScheduleReplicationCheckFlag) {
             rl->Get().mScheduleReplicationCheckFlag = true;
@@ -540,7 +556,7 @@ ChunkLeases::ReplicaLost(
     chunkId_t          chunkId,
     const ChunkServer* chunkServer)
 {
-    WEntry* const wl = mWriteLeases.Find(chunkId);
+    WEntry* const wl = mWriteLeases.Find(EntryKey(chunkId, -1));
     if (! wl) {
         return -EINVAL;
     }
@@ -580,7 +596,7 @@ ChunkLeases::ServerDown(
     mWriteLeases.First();
     const WEntry* entry;
     while ((entry = mWriteLeases.Next())) {
-        chunkId_t const   chunkId = entry->GetKey();
+        chunkId_t const   chunkId = entry->GetKey().first;
         const WriteLease& wl      = *entry;
         CSMap::Entry*     ci      = 0;
         if (wl.appendFlag &&
@@ -630,8 +646,9 @@ ChunkLeases::ExpiredCleanup(
     if (wl.allocInFlight) {
         return false;
     }
-    CSMap::Entry* const ci = csmap.Find(we.GetKey());
-    if (! ci) {
+    CSMap::Entry* const ci = we.GetKey().second < 0 ?
+        csmap.Find(we.GetKey().first) : 0;
+    if (we.GetKey().second < 0 && ! ci) {
         Erase(we);
         return true;
     }
@@ -644,7 +661,7 @@ ChunkLeases::ExpiredCleanup(
         }
         return false;
     }
-    const bool   relinquishedFlag = wl.relinquishedFlag;
+    const bool   relinquishedFlag = ci && wl.relinquishedFlag;
     const seq_t  chunkVersion     = wl.chunkVersion;
     const string pathname         = wl.pathname;
     const bool   appendFlag       = wl.appendFlag;
@@ -675,34 +692,36 @@ ChunkLeases::ExpiredCleanup(
 
 inline bool
 ChunkLeases::ExpiredCleanup(
-    chunkId_t      chunkId,
-    time_t         now,
-    int            ownerDownExpireDelay,
-    ARAChunkCache& arac,
-    CSMap&         csmap)
+    const ChunkLeases::EntryKey& key,
+    time_t                       now,
+    int                          ownerDownExpireDelay,
+    ARAChunkCache&               arac,
+    CSMap&                       csmap)
 {
-    REntry* const rl = mReadLeases.Find(chunkId);
+    REntry* const rl = mReadLeases.Find(key);
     if (rl) {
-        assert(! mWriteLeases.Find(chunkId));
+        assert(! mWriteLeases.Find(key));
         const bool ret = ExpiredCleanup(*rl, now);
-        if (! ret && ! csmap.Find(chunkId)) {
+        if (! ret && (key.second < 0 ?
+                ! csmap.Find(key.first) :
+                ! IsObjectStoreBlock(key.first, key.second))) {
             Erase(*rl);
             return true;
         }
         return ret;
     }
-    WEntry* const wl = mWriteLeases.Find(chunkId);
+    WEntry* const wl = mWriteLeases.Find(key);
     return (! wl || ExpiredCleanup(
         *wl, now, ownerDownExpireDelay, arac, csmap));
 }
 
 inline const char*
 ChunkLeases::FlushWriteLease(
-    chunkId_t      chunkId,
-    ARAChunkCache& arac,
-    CSMap&         csmap)
+    const ChunkLeases::EntryKey& key,
+    ARAChunkCache&               arac,
+    CSMap&                       csmap)
 {
-    WEntry* const we = mWriteLeases.Find(chunkId);
+    WEntry* const we = mWriteLeases.Find(key);
     if (! we) {
         return "no write lease";
     }
@@ -730,9 +749,10 @@ ChunkLeases::LeaseRelinquish(
     ARAChunkCache&             arac,
     CSMap&                     csmap)
 {
-    REntry* const re = mReadLeases.Find(req.chunkId);
+    EntryKey const key(req.chunkId, req.chunkPos);
+    REntry* const re = mReadLeases.Find(key);
     if (re) {
-        assert(! mWriteLeases.Find(req.chunkId));
+        assert(! mWriteLeases.Find(key));
         ChunkReadLeasesHead& rl     = *re;
         ChunkReadLeases&     leases = rl.mLeases;
         ReadLease* const     le     = leases.Find(req.leaseId);
@@ -757,13 +777,19 @@ ChunkLeases::LeaseRelinquish(
         return -EPERM;
     }
 
-    WEntry* const we = mWriteLeases.Find(req.chunkId);
+    WEntry* const we = mWriteLeases.Find(key);
     if (! we || we->Get().leaseId != req.leaseId) {
         return -EINVAL;
     }
-    const CSMap::Entry* const ci = csmap.Find(req.chunkId);
-    if (! ci) {
-        return -ELEASEEXPIRED;
+    const CSMap::Entry* const ci = key.second < 0 ? csmap.Find(key.first) : 0;
+    if (key.second < 0) {
+        if (! ci) {
+            return -ELEASEEXPIRED;
+        }
+    } else {
+        if (! IsObjectStoreBlock(key.first, key.second)) {
+            return -ELEASEEXPIRED;
+        }
     }
     WriteLease& wl = *we;
     if (wl.allocInFlight) {
@@ -778,6 +804,7 @@ ChunkLeases::LeaseRelinquish(
             *(wl.allocInFlight->pendingLeaseRelinquish);
         lr.leaseType        = req.leaseType;
         lr.chunkId          = req.chunkId;
+        lr.chunkPos         = req.chunkPos;
         lr.leaseId          = req.leaseId;
         lr.chunkSize        = req.chunkSize;
         lr.hasChunkChecksum = req.hasChunkChecksum;
@@ -792,7 +819,7 @@ ChunkLeases::LeaseRelinquish(
     // the owner of the lease is giving up the lease; update the expires so
     // that the normal lease cleanup will work out.
     Expire(*we, now);
-    if (hadLeaseFlag) {
+    if (hadLeaseFlag && ci) {
         // For write append lease checksum and size always have to be
         // specified for make chunk stable, otherwise run begin make
         // chunk stable.
@@ -878,19 +905,19 @@ ChunkLeases::Timer(
 
 inline bool
 ChunkLeases::NewReadLease(
-    chunkId_t              chunkId,
-    time_t                 expires,
-    ChunkLeases::LeaseId&  leaseId)
+    const ChunkLeases::EntryKey& key,
+    time_t                       expires,
+    ChunkLeases::LeaseId&        leaseId)
 {
-    if (mWriteLeases.Find(chunkId)) {
-        assert(! mReadLeases.Find(chunkId));
+    if (mWriteLeases.Find(key)) {
+        assert(! mReadLeases.Find(key));
         return false;
     }
     // Keep list sorted by expiration time.
     const LeaseId id           = NewReadLeaseId();
     bool          insertedFlag = false;
     REntry&              re    = *mReadLeases.Insert(
-        chunkId, REntry(chunkId, ChunkReadLeasesHead()), insertedFlag);
+        key, REntry(key, ChunkReadLeasesHead()), insertedFlag);
     ChunkReadLeasesHead& h      = re;
     ChunkReadLeases&     leases = h.mLeases;
     const time_t         exp    =
@@ -913,8 +940,11 @@ inline bool
 ChunkLeases::NewWriteLease(
     MetaAllocate& req)
 {
-    if (mReadLeases.Find(req.chunkId)) {
-        assert(! mWriteLeases.Find(req.chunkId));
+    EntryKey const key(
+        0 < req.numReplicas ? req.chunkId : req.fid,
+        0 < req.numReplicas ? -1          : req.offset);
+    if (mReadLeases.Find(key)) {
+        assert(! mWriteLeases.Find(key));
         return false;
     }
     const LeaseId id = NewWriteLeaseId();
@@ -925,7 +955,7 @@ ChunkLeases::NewWriteLease(
     );
     bool insertedFlag = false;
     WEntry* const l = mWriteLeases.Insert(
-        req.chunkId, WEntry(req.chunkId, wl), insertedFlag);
+        key, WEntry(key, wl), insertedFlag);
     req.leaseId = l->Get().leaseId;
     if (insertedFlag) {
         PutInExpirationList(*l);
@@ -935,18 +965,18 @@ ChunkLeases::NewWriteLease(
 
 inline int
 ChunkLeases::Renew(
-    chunkId_t            chunkId,
-    ChunkLeases::LeaseId leaseId,
-    bool                 allocDoneFlag /* = false */,
-    const MetaFattr*     fa            /* = 0 */,
-    MetaLeaseRenew*      req           /* = 0 */)
+    const ChunkLeases::EntryKey& key,
+    ChunkLeases::LeaseId         leaseId,
+    bool                         allocDoneFlag /* = false */,
+    const MetaFattr*             fa            /* = 0 */,
+    MetaLeaseRenew*              req           /* = 0 */)
 {
     if (IsReadLease(leaseId)) {
-        REntry* const rl = mReadLeases.Find(chunkId);
+        REntry* const rl = mReadLeases.Find(key);
         if (! rl) {
             return -EINVAL;
         }
-        assert(! mWriteLeases.Find(chunkId));
+        assert(! mWriteLeases.Find(key));
         ChunkReadLeasesHead& h      = *rl;
         ChunkReadLeases&     leases = h.mLeases;
         RLEntry* const       cl     = leases.Find(leaseId);
@@ -973,12 +1003,12 @@ ChunkLeases::Renew(
         }
         return 0;
     }
-    WEntry* const we = mWriteLeases.Find(chunkId);
+    WEntry* const we = mWriteLeases.Find(key);
     if (! we || we->Get().leaseId != leaseId) {
         return -EINVAL;
     }
     WriteLease& wl = *we;
-    assert(! mReadLeases.Find(chunkId));
+    assert(! mReadLeases.Find(key));
     const time_t now = TimeNow();
     if (wl.expires < now && ! wl.allocInFlight) {
         // Don't renew expired leases, and let the timer to clean it up
@@ -1019,10 +1049,10 @@ ChunkLeases::Renew(
 
 inline bool
 ChunkLeases::DeleteWriteLease(
-    chunkId_t            chunkId,
-    ChunkLeases::LeaseId leaseId)
+    const ChunkLeases::EntryKey& key,
+    ChunkLeases::LeaseId         leaseId)
 {
-    WEntry* const we = mWriteLeases.Find(chunkId);
+    WEntry* const we = mWriteLeases.Find(key);
     if (! we || we->Get().leaseId != leaseId) {
         return false;
     }
@@ -1032,14 +1062,14 @@ ChunkLeases::DeleteWriteLease(
 
 inline bool
 ChunkLeases::Delete(
-    chunkId_t chunkId)
+    const ChunkLeases::EntryKey& key)
 {
-    WEntry* const wl = mWriteLeases.Find(chunkId);
+    WEntry* const wl = mWriteLeases.Find(key);
     const bool hadWr = wl != 0;
     if (hadWr) {
         Erase(*wl);
     }
-    REntry* const rl = mReadLeases.Find(chunkId);
+    REntry* const rl = mReadLeases.Find(key);
     const bool hadRd = rl != 0;
     if (hadRd) {
         Erase(*rl);
@@ -1064,9 +1094,15 @@ public:
     void operator()(
         const ChunkLeases::REntry& inEntry)
     {
-        const CSMap::Entry* const ci = mCsmap.Find(inEntry.GetKey());
-        if (! ci) {
-            return;
+        fid_t fid;
+        if (inEntry.GetKey().second < 0) {
+            const CSMap::Entry* const ci = mCsmap.Find(inEntry.GetKey().first);
+            if (! ci) {
+                return;
+            }
+            fid = ci->GetFileId();
+        } else {
+            fid = inEntry.GetKey().first;
         }
         size_t         count = 0;
         const RLEntry& list  = inEntry.Get().mExpirationList;
@@ -1076,16 +1112,26 @@ public:
             count++;
         }
         if (0 < count) {
-            mOpenForRead[ci->GetFileId()].push_back(
-                make_pair(inEntry.GetKey(), count));
+            mOpenForRead[fid].push_back(
+                make_pair(inEntry.GetKey().second < 0 ?
+                    inEntry.GetKey().first : -inEntry.GetKey().second, count));
         }
     }
     void operator()(
         const ChunkLeases::WEntry& inEntry)
     {
-        const CSMap::Entry* const ci = mCsmap.Find(inEntry.GetKey());
-        if (ci) {
-            mOpenForWrite[ci->GetFileId()].push_back(inEntry.GetKey());
+        if (inEntry.GetKey().second < 0) {
+            const CSMap::Entry* const ci = mCsmap.Find(inEntry.GetKey().first);
+            if (ci) {
+                mOpenForWrite[ci->GetFileId()
+                    ].push_back(inEntry.GetKey().first);
+            }
+        } else {
+            if (IsObjectStoreBlock(
+                    inEntry.GetKey().first, inEntry.GetKey().second)) {
+                mOpenForWrite[inEntry.GetKey().first
+                    ].push_back(-inEntry.GetKey().second);
+            }
         }
     }
 private:
@@ -1093,6 +1139,7 @@ private:
     MetaOpenFiles::WriteInfo& mOpenForWrite;
     const CSMap&              mCsmap;
     const time_t              mNow;
+
 private:
     OpenFileLister(const OpenFileLister&);
     OpenFileLister& operator=(const OpenFileLister&);
@@ -1109,9 +1156,17 @@ ChunkLeases::GetOpenFiles(
     mWriteLeaseTimer.Apply(lister);
     const WEntry* we = &mWAllocationInFlightList;
     while((we = &WEntry::List::GetPrev(*we)) != &mWAllocationInFlightList) {
-        const CSMap::Entry* const ci = csmap.Find(we->GetKey());
-        if (ci) {
-            openForWrite[ci->GetFileId()].push_back(we->GetKey());
+        if (we->GetKey().second < 0) {
+            const CSMap::Entry* const ci = csmap.Find(we->GetKey().first);
+            if (ci) {
+                openForWrite[ci->GetFileId()].push_back(we->GetKey().first);
+            }
+        } else {
+            if (IsObjectStoreBlock(
+                    we->GetKey().first, we->GetKey().second)) {
+                openForWrite[we->GetKey().first
+                    ].push_back(-we->GetKey().second);
+            }
         }
     }
 }
@@ -1456,6 +1511,7 @@ LayoutManager::LayoutManager() :
     mFileSystemIdRequiredFlag(false),
     mDeleteChunkOnFsIdMismatchFlag(false),
     mChunkAvailableUseReplicationOrRecoveryThreshold(-1),
+    mObjectStoreEnabledFlag(false),
     mCreateFileTypeExclude(),
     mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
@@ -2089,6 +2145,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.maxRecoveryStripeCount", mMaxRecoveryStripeCount));
     mMaxRSDataStripeCount = min(KFS_MAX_DATA_STRIPE_COUNT, props.getValue(
         "metaServer.maxRSDataStripeCount", mMaxRSDataStripeCount));
+    mObjectStoreEnabledFlag = props.getValue(
+        "metaServer.objectStoreEnabled", mObjectStoreEnabledFlag ? 1 : 0) != 0;
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
@@ -2223,6 +2281,11 @@ LayoutManager::Validate(MetaCreate& createOp) const
         createOp.status    = -EPERM;
         createOp.statusMsg =
             "data stripe count exceeds max allowed for files with recovery";
+        return false;
+    }
+    if (0 == createOp.numReplicas && ! mObjectStoreEnabledFlag) {
+        createOp.statusMsg = "object store is not enabled";
+        createOp.status    = -EINVAL;
         return false;
     }
     return true;
@@ -2676,7 +2739,7 @@ bool
 LayoutManager::HasWriteAppendLease(chunkId_t chunkId) const
 {
     const ChunkLeases::WriteLease* const wl =
-        mChunkLeases.GetWriteLease(chunkId);
+        mChunkLeases.GetChunkWriteLease(chunkId);
     return (wl && wl->appendFlag);
 }
 
@@ -2887,7 +2950,7 @@ LayoutManager::AddNewServer(MetaHello *r)
                     continue;
                 }
                 const ChunkLeases::WriteLease* const wl =
-                    mChunkLeases.GetWriteLease(chunkId);
+                    mChunkLeases.GetChunkWriteLease(chunkId);
                 if (wl && wl->allocInFlight &&
                         wl->allocInFlight->status == 0) {
                     staleReason = "chunk allocation in flight";
@@ -3060,7 +3123,7 @@ LayoutManager::AddNotStableChunk(
     // expired lease exists, and [B]MCS is not in progress, then add the
     // chunk back.
     const ChunkLeases::WriteLease* const wl =
-        mChunkLeases.GetWriteLease(chunkId);
+        mChunkLeases.GetChunkWriteLease(chunkId);
     if (wl && appendFlag != wl->appendFlag) {
         return (appendFlag ? "not append lease" : "append lease");
     }
@@ -3228,7 +3291,7 @@ LayoutManager::Done(MetaChunkVersChange& req)
     // with make chunk stable.
     // Ensure that no write lease exists.
     if (GetChunkVersionRollBack(req.chunkId) <= 0 ||
-            mChunkLeases.GetWriteLease(req.chunkId)) {
+            mChunkLeases.GetChunkWriteLease(req.chunkId)) {
         KFS_LOG_STREAM_INFO << req.Show() <<
             " no version roll back or write lese exists,"
             " declaring stale replica" <<
@@ -3480,7 +3543,7 @@ LayoutManager::CanBeRecovered(
     }
     if (incompleteChunkBlockFlag && incompleteChunkBlockWriteHasLeaseFlag) {
         for (it = cblk.begin(); it != cblk.end(); ++it) {
-            if (mChunkLeases.GetWriteLease((*it)->chunkId)) {
+            if (mChunkLeases.GetChunkWriteLease((*it)->chunkId)) {
                 *incompleteChunkBlockWriteHasLeaseFlag = true;
                 break;
             }
@@ -4625,7 +4688,7 @@ LayoutManager::AllocateChunk(
     }
     StTmp<ChunkPlacement> placementTmp(mChunkPlacementTmp);
     ChunkPlacement&       placement = placementTmp.Get();
-    if (r->stripedFileFlag) {
+    if (r->stripedFileFlag && 0 < r->numReplicas) {
         // For replication greater than one do the same placement, but
         // only take into the account write masters, or the chunk server
         // hosting the first replica.
@@ -4638,7 +4701,7 @@ LayoutManager::AllocateChunk(
                 ++it) {
             if (it->first.second == r->chunkBlockStart) {
                 const ChunkLeases::WriteLease* const lease =
-                    mChunkLeases.GetWriteLease(it->second);
+                    mChunkLeases.GetChunkWriteLease(it->second);
                 if (! lease || ! lease->chunkServer) {
                     continue;
                 }
@@ -5155,8 +5218,11 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         // replica re-appears) will expire the lease.
     }
 
+    ChunkLeases::EntryKey const leaseKey(
+        0 == r->numReplicas ? r->fid    :    r->chunkId,
+        0 == r->numReplicas ? r->offset : -1);
     const ChunkLeases::WriteLease* const l =
-        mChunkLeases.RenewValidWriteLease(r->chunkId, *r);
+        mChunkLeases.RenewValidWriteLease(leaseKey, *r);
     if (l) {
         if (l->allocInFlight) {
             r->statusMsg =
@@ -5190,7 +5256,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         }
         // Delete the lease to force version number bump.
         // Assume that the client encountered a write error.
-        mChunkLeases.Delete(r->chunkId);
+        mChunkLeases.Delete(leaseKey);
     }
     if (ret < 0) {
         return ret;
@@ -5198,7 +5264,10 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     // there is no valid write lease; to issue a new write lease, we
     // need to do a version # bump.  do that only if we haven't yet
     // handed out valid read leases
-    if (! ExpiredLeaseCleanup(r->chunkId)) {
+    const int ownerDownExpireDelay = 0;
+    if (! mChunkLeases.ExpiredCleanup(
+            leaseKey, TimeNow(), ownerDownExpireDelay,
+            mARAChunkCache, mChunkToServerMap)) {
         r->statusMsg = "valid read lease";
         KFS_LOG_STREAM_DEBUG << "write lease denied"
             " chunk " << r->chunkId << " " << r->statusMsg <<
@@ -5206,7 +5275,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         return -EBUSY;
     }
     // Check if make stable is in progress.
-    // It is crucial to check the after invoking ExpiredLeaseCleanup()
+    // It is crucial to check the after invoking ExpiredCleanup()
     // Expired lease cleanup the above can start make chunk stable.
     if (! IsChunkStable(r->chunkId)) {
         r->statusMsg = "chunk is not stable";
@@ -5216,7 +5285,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         return -EBUSY;
     }
     // Check if servers vector has changed:
-    // chunk servers can go down in ExpiredLeaseCleanup()
+    // chunk servers can go down in ExpiredCleanup()
     r->servers.clear();
     mChunkToServerMap.GetServers(*ci, r->servers);
     if (r->servers.empty()) {
@@ -5381,8 +5450,8 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
             mChunkReservationThreshold) {
         return -1;
     }
-    const ChunkLeases::WriteLease* const wl =
-        mChunkLeases.RenewValidWriteLease(entry->chunkId, *req);
+    const ChunkLeases::WriteLease* const wl =mChunkLeases.RenewValidWriteLease(
+            ChunkLeases::EntryKey(entry->chunkId, -1), *req);
     if (! wl) {
         mARAChunkCache.Invalidate(it);
         return -1;
@@ -5564,15 +5633,15 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
             // Cannot obtain lease if no replicas exist.
             leaseId = -EAGAIN;
         } else if ((req.leaseTimeout <= 0 ?
-                mChunkLeases.HasWriteLease(chunkId) :
+                mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(chunkId, -1)) :
                 ! mChunkLeases.NewReadLease(
-                    chunkId,
+                    ChunkLeases::EntryKey(chunkId, -1),
                     TimeNow() + req.leaseTimeout,
                     leaseId))) {
             leaseId = -EBUSY;
             if (req.flushFlag) {
-                mChunkLeases.FlushWriteLease(
-                    chunkId, mARAChunkCache, mChunkToServerMap);
+                mChunkLeases.FlushWriteLease(ChunkLeases::EntryKey(chunkId, -1),
+                    mARAChunkCache, mChunkToServerMap);
             }
         }
         writer.Write(" ", 1);
@@ -5790,9 +5859,10 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         return 0;
     }
     if ((req->leaseTimeout <= 0 ?
-            ! mChunkLeases.HasWriteLease(req->chunkId) :
+            ! mChunkLeases.HasWriteLease(
+                ChunkLeases::EntryKey(req->chunkId, -1)) :
             mChunkLeases.NewReadLease(
-                req->chunkId,
+                 ChunkLeases::EntryKey(req->chunkId, -1),
                 TimeNow() + req->leaseTimeout,
                 req->leaseId))) {
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
@@ -5807,7 +5877,8 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
     req->statusMsg = "has write lease";
     if (req->flushFlag) {
         const char* const errMsg = mChunkLeases.FlushWriteLease(
-            req->chunkId, mARAChunkCache, mChunkToServerMap);
+             ChunkLeases::EntryKey(req->chunkId, -1),
+             mARAChunkCache, mChunkToServerMap);
         req->statusMsg += "; ";
         req->statusMsg += errMsg ? errMsg :
             "initiated write lease relinquish";
@@ -5825,7 +5896,7 @@ public:
     ValidLeaseIssued(const ChunkLeases& cl)
         : leases(cl) {}
     bool operator() (MetaChunkInfo *c) const {
-        return leases.HasValidLease(c->chunkId);
+        return leases.HasValidLease( ChunkLeases::EntryKey(c->chunkId, -1));
     }
 };
 
@@ -5865,9 +5936,10 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         req->statusMsg = "access denied";
         return -EACCES;
     }
-    const bool kAllocDoneFlag = false;
-    const int  ret            = mChunkLeases.Renew(
-        req->chunkId,
+    ChunkLeases::EntryKey const key(req->chunkId, req->chunkPos);
+    const bool                  kAllocDoneFlag = false;
+    const int                   ret            = mChunkLeases.Renew(
+        key,
         req->leaseId,
         kAllocDoneFlag,
         (mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ? cs->GetFattr() : 0,
@@ -5966,7 +6038,7 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
         CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
         if (! ci) {
             const ChunkLeases::WriteLease* const lease =
-                mChunkLeases.GetWriteLease(chunkId);
+                mChunkLeases.GetChunkWriteLease(chunkId);
             if (! lease || ! (alloc = lease->allocInFlight) ||
                     find(alloc->servers.begin(),
                         alloc->servers.end(),
@@ -6076,7 +6148,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
             continue;
         }
         const ChunkLeases::WriteLease* const lease =
-            mChunkLeases.GetWriteLease(chunkId);
+            mChunkLeases.GetChunkWriteLease(chunkId);
         if (lease) {
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: " << chunkId <<
@@ -6208,7 +6280,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
     mARAChunkCache.Invalidate(fid, chunkId);
     mPendingBeginMakeStable.erase(chunkId);
     mPendingMakeStable.erase(chunkId);
-    mChunkLeases.Delete(chunkId);
+    mChunkLeases.Delete(ChunkLeases::EntryKey(chunkId, -1));
     mChunkVersionRollBack.erase(chunkId);
 
     // submit an RPC request
@@ -6247,7 +6319,7 @@ LayoutManager::InvalidateAllChunkReplicas(
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
     mPendingBeginMakeStable.erase(chunkId);
     mPendingMakeStable.erase(chunkId);
-    mChunkLeases.Delete(chunkId);
+    mChunkLeases.Delete(ChunkLeases::EntryKey(chunkId, -1));
     mChunkVersionRollBack.erase(chunkId);
     const bool kEvacuateChunkFlag = false;
     for_each(c.begin(), c.end(), bind(&ChunkServer::NotifyStaleChunk,
@@ -6639,7 +6711,7 @@ LayoutManager::ExpiredLeaseCleanup(chunkId_t chunkId)
 {
     const int ownerDownExpireDelay = 0;
     return mChunkLeases.ExpiredCleanup(
-        chunkId, TimeNow(), ownerDownExpireDelay,
+        ChunkLeases::EntryKey(chunkId, -1), TimeNow(), ownerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap
     );
 }
@@ -6767,7 +6839,10 @@ bool
 LayoutManager::Validate(MetaAllocate* r)
 {
     const ChunkLeases::WriteLease* const lease =
-        mChunkLeases.GetWriteLease(r->chunkId);
+        r->numReplicas == 0 ?
+            mChunkLeases.GetWriteLease(
+                ChunkLeases::EntryKey(r->fid, r->offset)) :
+            mChunkLeases.GetChunkWriteLease(r->chunkId);
     if (lease && lease->allocInFlight == r &&
             lease->leaseId == r->leaseId &&
             lease->chunkVersion == r->chunkVersion) {
@@ -6816,12 +6891,15 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             r->statusMsg = "no write master crypto key";
         }
     }
+    ChunkLeases::EntryKey const leaseKey(
+        0 == r->numReplicas ? r->fid    :    r->chunkId,
+        0 == r->numReplicas ? r->offset : -1);
     if (r->status >= 0) {
         // Tree::assignChunkId() succeeded.
         // File and chunk ids are valid and in sync with meta tree.
         const bool kAllocDoneFlag = true;
         const int  ret            = mChunkLeases.Renew(
-            r->chunkId, r->leaseId, kAllocDoneFlag);
+            leaseKey, r->leaseId, kAllocDoneFlag);
         if (ret < 0) {
             panic("failed to renew allocation write lease");
             r->status = ret;
@@ -6887,7 +6965,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     // Delete write lease, it wasn't ever handed to the client, and
     // version change will make chunk stable, thus there is no need to
     // go trough the normal lease cleanup procedure.
-    if (! mChunkLeases.DeleteWriteLease(r->chunkId, r->leaseId)) {
+    if (! mChunkLeases.DeleteWriteLease(leaseKey, r->leaseId)) {
         if (! mChunkToServerMap.Find(r->chunkId)) {
             // Chunk does not exist, deleted.
             mChunkVersionRollBack.erase(r->chunkId);
@@ -7562,7 +7640,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
                     req->server->GetServerLocation())) {
                 res = "already added";
                 notifyStaleFlag = false;
-            } else if ((li = mChunkLeases.GetWriteLease(req->chunkId)) &&
+            } else if ((li = mChunkLeases.GetChunkWriteLease(req->chunkId)) &&
                 (((! li->relinquishedFlag &&
                     li->expires >= TimeNow()) ||
                     li->chunkVersion !=
@@ -7928,7 +8006,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         return -1;
     }
     if (! IsChunkStable(req->chunkId) ||
-            mChunkLeases.HasWriteLease(req->chunkId)) {
+            mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(req->chunkId, -1))) {
         return -1; // Chunk isn't stable yet, or being written again.
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
@@ -8292,7 +8370,7 @@ LayoutManager::CanReplicateChunkNow(
     // Don't replicate chunks for which a write lease has been
     // issued.
     const ChunkLeases::WriteLease* const wl =
-        mChunkLeases.GetWriteLease(chunkId);
+        mChunkLeases.GetChunkWriteLease(chunkId);
     if (wl) {
         KFS_LOG_STREAM_DEBUG <<
             "re-replication delayed chunk:"
@@ -8395,7 +8473,7 @@ LayoutManager::CanReplicateChunkNow(
                 break;
             }
             const chunkId_t curChunkId = (*it)->chunkId;
-            if (mChunkLeases.GetWriteLease(curChunkId) ||
+            if (mChunkLeases.GetChunkWriteLease(curChunkId) ||
                     ! IsChunkStable(curChunkId)) {
                 notStable++;
                 break;
@@ -8431,8 +8509,7 @@ LayoutManager::CanReplicateChunkNow(
                 chunkId_t const chunkId = (*it)->chunkId;
                 CSMap::Entry&   ci      = GetCsEntry(**it);
                 if (! mChunkToServerMap.HasServers(ci) ||
-                        mChunkLeases.GetWriteLease(
-                            chunkId) ||
+                        mChunkLeases.GetChunkWriteLease(chunkId) ||
                         ! IsChunkStable(chunkId)) {
                     mChunkToServerMap.SetState(ci,
                         CSMap::Entry::kStatePendingRecovery);
@@ -9223,7 +9300,7 @@ LayoutManager::ProcessInvalidStripes(MetaChunkReplicate& req)
             continue; // no chunk -- hole.
         }
         assert(pos == (*it)->offset);
-        if (mChunkLeases.GetWriteLease((*it)->chunkId) ||
+        if (mChunkLeases.GetChunkWriteLease((*it)->chunkId) ||
                 ! IsChunkStable((*it)->chunkId)) {
             KFS_LOG_STREAM_ERROR << "invalid stripes:"
                 " index: "  << idx <<
@@ -10514,7 +10591,7 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         op.statusMsg = "chunk block past logical end of file";
         return;
     }
-    if (mChunkLeases.GetWriteLease(op.chunkId)) {
+    if (mChunkLeases.GetChunkWriteLease(op.chunkId)) {
         // This check isn't sufficient with recovery, typically the size check
         // the above would be sifficient, as logical end of file set and the end
         // of write. If remove isn't set, then the can replicate chunk now will

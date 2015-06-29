@@ -103,6 +103,7 @@ class ARAChunkCache;
 class ChunkLeases
 {
 public:
+    typedef pair<chunkId_t, chunkOff_t> EntryKey;
     enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     typedef DelegationToken::TokenSeq TokenSeq;
@@ -214,49 +215,51 @@ public:
     ChunkLeases();
 
     inline const WriteLease* GetWriteLease(
+        const EntryKey& key) const;
+    inline const WriteLease* GetChunkWriteLease(
         chunkId_t chunkId) const;
     inline const WriteLease* GetValidWriteLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline const WriteLease* RenewValidWriteLease(
-        chunkId_t           chunkId,
+        const EntryKey&     key,
         const MetaAllocate& req);
     inline bool HasValidWriteLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline bool HasValidLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline bool HasWriteLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline bool HasLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline int ReplicaLost(
         chunkId_t          chunkId,
         const ChunkServer* chunkServer);
     inline bool NewReadLease(
-        chunkId_t chunkId,
-        time_t    expires,
-        LeaseId&  leaseId);
+        const EntryKey& key,
+        time_t          expires,
+        LeaseId&        leaseId);
     inline bool NewWriteLease(
         MetaAllocate& req);
     inline bool DeleteWriteLease(
-        chunkId_t chunkId,
-        LeaseId   leaseId);
+        const EntryKey& key,
+        LeaseId         leaseId);
     inline int Renew(
-        chunkId_t        chunkId,
+        const EntryKey&  key,
         LeaseId          leaseId,
         bool             allocDoneFlag = false,
         const MetaFattr* fattr         = 0,
         MetaLeaseRenew*  req           = 0);
-    inline bool Delete(chunkId_t chunkId);
+    inline bool Delete(const EntryKey& key);
     inline bool ExpiredCleanup(
-        chunkId_t      chunkId,
-        time_t         now,
-        int            ownerDownExpireDelay,
-        ARAChunkCache& arac,
-        CSMap&         csmap);
+        const EntryKey& key,
+        time_t          now,
+        int             ownerDownExpireDelay,
+        ARAChunkCache&  arac,
+        CSMap&          csmap);
     inline const char* FlushWriteLease(
-        chunkId_t      chunkId,
-        ARAChunkCache& arac,
-        CSMap&         csmap);
+        const EntryKey& key,
+        ARAChunkCache&  arac,
+        CSMap&          csmap);
     inline void Timer(
         time_t         now,
         int            ownerDownExpireDelay,
@@ -281,6 +284,13 @@ public:
         LeaseId leaseId);
 
 private:
+    class EntryKeyHash
+    {
+    public:
+        static size_t Hash(
+            const EntryKey& inVal)
+            { return size_t(inVal.first); }
+    };
     class RLEntry : public ReadLease
     {
     public:
@@ -429,17 +439,17 @@ private:
 
         EntryT& operator=(const EntryT&);
     };
-    typedef EntryT<chunkId_t, ChunkReadLeasesHead> REntry;
+    typedef EntryT<EntryKey, ChunkReadLeasesHead> REntry;
     typedef LinearHash <
         REntry,
-        KeyCompare<REntry::Key>,
+        KeyCompare<REntry::Key, EntryKeyHash>,
         DynamicArray<SingleLinkedList<REntry>*, 13>,
         StdFastAllocator<REntry>
     > ReadLeases;
-    typedef EntryT<chunkId_t, WriteLease> WEntry;
+    typedef EntryT<EntryKey, WriteLease> WEntry;
     typedef LinearHash <
         WEntry,
-        KeyCompare<WEntry::Key>,
+        KeyCompare<WEntry::Key, EntryKeyHash>,
         DynamicArray<SingleLinkedList<WEntry>*, 13>,
         StdFastAllocator<WEntry>
     > WriteLeases;
@@ -1429,6 +1439,8 @@ public:
         { return mDeleteChunkOnFsIdMismatchFlag; }
     void Handle(MetaForceChunkReplication& op);
     bool Validate(MetaCreate& createOp) const;
+    bool IsObjectStoreEnabled() const
+        { return mObjectStoreEnabledFlag; }
 protected:
     typedef vector<
         int,
@@ -2067,6 +2079,7 @@ protected:
     bool              mFileSystemIdRequiredFlag;
     bool              mDeleteChunkOnFsIdMismatchFlag;
     int               mChunkAvailableUseReplicationOrRecoveryThreshold;
+    bool              mObjectStoreEnabledFlag;
 
     typedef set<int> CreateFileTypeExclude;
     CreateFileTypeExclude mCreateFileTypeExclude;
