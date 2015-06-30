@@ -103,7 +103,21 @@ class ARAChunkCache;
 class ChunkLeases
 {
 public:
-    typedef pair<chunkId_t, chunkOff_t> EntryKey;
+    class EntryKey : public pair<chunkId_t, chunkOff_t>
+    {
+    public:
+        EntryKey()
+            : pair<chunkId_t, chunkOff_t>()
+            {}
+        EntryKey(fid_t fid, chunkOff_t pos)
+            : pair<chunkId_t, chunkOff_t>(fid, pos < 0 ? chunkOff_t(-1) : pos)
+            {}
+        EntryKey(chunkId_t fid)
+            : pair<chunkId_t, chunkOff_t>(fid, -1)
+            {}
+        bool IsChunkEntry() const
+            { return (second < 0); }
+    };
     enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     typedef DelegationToken::TokenSeq TokenSeq;
