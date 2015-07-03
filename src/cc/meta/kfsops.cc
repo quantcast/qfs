@@ -1559,63 +1559,68 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     chunkOff_t* appendOffset, chunkId_t* curChunkId, bool appendReplayFlag)
 {
     MetaFattr * const fa = getFattr(file);
-    if (fa == NULL) {
+    if (! fa) {
         return -ENOENT;
     }
     chunkOff_t boundary = chunkStartOffset(offset);
-    // check if an id has already been assigned to this chunk
-    const Key    ckey(KFS_CHUNKINFO, file, boundary);
-    int          kp;
-    Node * const l = findLeaf(ckey, kp);
-    if (l) {
-        if (! appendOffset) {
-            MetaChunkInfo * const c =
-                l->extractMeta<MetaChunkInfo>(kp);
-            if (curChunkId) {
-                *curChunkId = c->chunkId;
-            }
-            if (c->chunkId != chunkId ||
-                    c->chunkVersion == chunkVersion) {
-                return -EEXIST;
-            }
-            c->chunkVersion = chunkVersion;
-            if (appendReplayFlag && ! fa->IsStriped()) {
-                const chunkOff_t size = max(
-                    fa->nextChunkOffset(), boundary + chunkOff_t(CHUNKSIZE));
-                if (fa->filesize < size) {
-                    setFileSize(fa, size);
+    if (0 != fa->numReplicas) {
+        // check if an id has already been assigned to this chunk
+        const Key    ckey(KFS_CHUNKINFO, file, boundary);
+        int          kp;
+        Node * const l = findLeaf(ckey, kp);
+        if (l) {
+            if (! appendOffset) {
+                MetaChunkInfo * const c =
+                    l->extractMeta<MetaChunkInfo>(kp);
+                if (curChunkId) {
+                    *curChunkId = c->chunkId;
                 }
-            } else if (boundary + chunkOff_t(CHUNKSIZE) >=
-                        fa->nextChunkOffset() &&
-                    ! fa->IsStriped() &&
-                    fa->filesize >= 0) {
-                invalidateFileSize(fa);
+                if (c->chunkId != chunkId ||
+                        c->chunkVersion == chunkVersion) {
+                    return -EEXIST;
+                }
+                c->chunkVersion = chunkVersion;
+                if (appendReplayFlag && ! fa->IsStriped()) {
+                    const chunkOff_t size = max(
+                        fa->nextChunkOffset(),
+                        boundary + chunkOff_t(CHUNKSIZE));
+                    if (fa->filesize < size) {
+                        setFileSize(fa, size);
+                    }
+                } else if (boundary + chunkOff_t(CHUNKSIZE) >=
+                            fa->nextChunkOffset() &&
+                        ! fa->IsStriped() &&
+                        fa->filesize >= 0) {
+                    invalidateFileSize(fa);
+                }
+                fa->mtime = microseconds();
+                return 0;
             }
-            fa->mtime = microseconds();
-            return 0;
+            boundary      = fa->nextChunkOffset();
+            *appendOffset = boundary;
         }
-        boundary      = fa->nextChunkOffset();
-        *appendOffset = boundary;
-    }
 
-    bool newEntryFlag = false;
-    MetaChunkInfo* const m = gLayoutManager.AddChunkToServerMapping(
-            fa, boundary, chunkId, chunkVersion, newEntryFlag);
-    if (! m || ! newEntryFlag) {
-        panic("duplicate chunk mapping");
-        return -EFAULT;
+        bool newEntryFlag = false;
+        MetaChunkInfo* const m = gLayoutManager.AddChunkToServerMapping(
+                fa, boundary, chunkId, chunkVersion, newEntryFlag);
+        if (! m || ! newEntryFlag) {
+            panic("duplicate chunk mapping");
+            return -EFAULT;
+        }
+        if (insert(m)) {
+            // insert failed
+            m->destroy();
+            panic("assignChunk");
+            return -EFAULT;
+        }
     }
-    if (insert(m)) {
-        // insert failed
-        m->destroy();
-        panic("assignChunk");
-        return -EFAULT;
-    }
-
     // insert succeeded; so, bump the chunkcount.
-    fa->chunkcount()++;
+    if (0 != fa->numReplicas) {
+        fa->chunkcount()++;
+    }
     if (boundary >= fa->nextChunkOffset()) {
-        if (! fa->IsStriped() && fa->filesize >= 0 &&
+        if (0 != fa->numReplicas &&
+                ! fa->IsStriped() && 0 <= fa->filesize &&
                 ! appendOffset && ! appendReplayFlag) {
             // We will know the size of the file only when the write to
             // this chunk is finished. Invalidate the size now.
@@ -1629,9 +1634,9 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
             setFileSize(fa, size);
         }
     }
-
-    UpdateNumChunks(1);
-
+    if (0 != fa->numReplicas) {
+        UpdateNumChunks(1);
+    }
     fa->mtime = microseconds();
     if (curChunkId) {
         *curChunkId = chunkId;

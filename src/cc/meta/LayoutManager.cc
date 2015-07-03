@@ -942,8 +942,8 @@ ChunkLeases::NewWriteLease(
     MetaAllocate& req)
 {
     EntryKey const key(
-        0 < req.numReplicas ? req.chunkId : req.fid,
-        0 < req.numReplicas ? -1          : req.offset);
+        0 < req.numReplicas ? req.chunkId    : req.fid,
+        0 < req.numReplicas ? chunkOff_t(-1) : req.offset);
     if (mReadLeases.Find(key)) {
         assert(! mWriteLeases.Find(key));
         return false;
@@ -4666,6 +4666,21 @@ LayoutManager::AllocateChunk(
     assert(r->offset >= 0 && (r->offset % CHUNKSIZE) == 0);
 
     r->servers.clear();
+    if (0 == r->numReplicas) {
+        Servers::const_iterator const it = FindServerByHost(r->clientIp);
+        if (it == mChunkServers.end()) {
+            r->statusMsg = "no access proxy on host: " + r->clientIp;
+            return -ENOSPC;
+        }
+        r->servers.push_back(*it);
+        r->master = r->servers.front();
+        if (! mChunkLeases.NewWriteLease(*r)) {
+            r->statusMsg = "failed to get write lease for a new chunk";
+            return -EBUSY;
+        }
+        r->servers.front()->AllocateChunk(r, r->leaseId, r->minSTier);
+        return 0;
+    }
     if (r->numReplicas <= 0) {
         // huh? allocate a chunk with 0 replicas???
         KFS_LOG_STREAM_DEBUG <<
@@ -5192,6 +5207,52 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         r->statusMsg = "meta server in recovery mode";
         return -EBUSY;
     }
+    if (0 == r->numReplicas) {
+        ChunkLeases::EntryKey const leaseKey(r->fid, r->offset);
+        const ChunkLeases::WriteLease* const l =
+            mChunkLeases.RenewValidWriteLease(leaseKey, *r);
+        if (l) {
+            if (l->allocInFlight) {
+                r->statusMsg = "allocation is in progress";
+                KFS_LOG_STREAM_INFO << "write lease denied"
+                    " <" << r->fid << "@" << r->offset << "> " <<
+                    r->statusMsg <<
+                KFS_LOG_EOM;
+                return -EBUSY;
+            }
+            if (l->chunkServer &&
+                    l->chunkServer->GetServerLocation().hostname !=
+                        r->clientIp) {
+                r->statusMsg = "other access proxy owns write lease: " +
+                    l->chunkServer->GetServerLocation().ToString();
+                KFS_LOG_STREAM_INFO << "write lease denied"
+                    " ip: " << r->clientIp <<
+                    " <" << r->fid << "@" << r->offset << "> " <<
+                    r->statusMsg <<
+                KFS_LOG_EOM;
+                return -EBUSY;
+            }
+            // Create new lease even though no version change done.
+            mChunkLeases.Delete(leaseKey);
+        }
+        Servers::const_iterator const it = FindServerByHost(r->clientIp);
+        if (it != mChunkServers.end()) {
+            r->statusMsg = "no access proxy available on: " + r->clientIp;
+            return -EDATAUNAVAIL;
+        }
+        r->servers.clear();
+        r->servers.push_back(*it);
+        r->master = *it;
+        if (! mChunkLeases.NewWriteLease(*r)) {
+            panic("failed to get write lease for a chunk");
+        }
+        isNewLease = true;
+        for (size_t i = r->servers.size(); i-- > 0; ) {
+            r->servers[i]->AllocateChunk(
+                r, i == 0 ? r->leaseId : -1, r->minSTier);
+        }
+        return 0;
+    }
     if (GetInFlightChunkModificationOpCount(r->chunkId) > 0) {
         // Wait for re-replication to finish.
         KFS_LOG_STREAM_INFO << "Write lease: " << r->chunkId <<
@@ -5219,9 +5280,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         // replica re-appears) will expire the lease.
     }
 
-    ChunkLeases::EntryKey const leaseKey(
-        0 == r->numReplicas ? r->fid    : r->chunkId,
-        0 == r->numReplicas ? r->offset : chunkOff_t(-1));
+    ChunkLeases::EntryKey const leaseKey(r->chunkId);
     const ChunkLeases::WriteLease* const l =
         mChunkLeases.RenewValidWriteLease(leaseKey, *r);
     if (l) {
@@ -6292,6 +6351,21 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
 void
 LayoutManager::DeleteChunk(MetaAllocate *req)
 {
+    if (0 == req->numReplicas) {
+        if (mChunkLeases.DeleteWriteLease(
+                ChunkLeases::EntryKey(req->fid, req->offset),
+                req->leaseId) &&
+                ! req->servers.empty() &&
+                ! req->servers.front()->IsDown()) {
+            const bool       kHasChunkChecksum = false;
+            const bool       kPendingAddFlag   = false;
+            const chunkOff_t kChunkSize        = -1;
+            req->servers.front()->MakeChunkStable(
+                req->fid, req->offset, req->chunkVersion,
+                kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
+        }
+        return;
+    }
     if (mChunkToServerMap.Find(req->chunkId)) {
         panic("allocation attempts to delete existing chunk mapping");
         return;
@@ -6443,9 +6517,9 @@ class Pinger
 public:
     uint64_t               totalSpace;
     uint64_t               usedSpace;
-    uint64_t           freeFsSpace;
-    uint64_t           goodMasters;
-    uint64_t           goodSlaves;
+    uint64_t               freeFsSpace;
+    uint64_t               goodMasters;
+    uint64_t               goodSlaves;
     uint64_t               writableDrives;
     uint64_t               totalDrives;
     LayoutManager::Servers retiring;
@@ -6873,7 +6947,7 @@ LayoutManager::Validate(MetaAllocate* r)
 void
 LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
 {
-    if (r->stripedFileFlag && r->initialChunkVersion < 0) {
+    if (r->stripedFileFlag && r->initialChunkVersion < 0 && 0 != r->numReplicas) {
         if (mStripedFilesAllocationsInFlight.erase(make_pair(make_pair(
                 r->fid, r->chunkBlockStart), r->chunkId)) != 1 &&
                 r->status >= 0) {
@@ -6904,6 +6978,9 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
         if (ret < 0) {
             panic("failed to renew allocation write lease");
             r->status = ret;
+            return;
+        }
+        if (0 == r->numReplicas) {
             return;
         }
         // AddChunkToServerMapping() should delete version roll back for
@@ -6967,6 +7044,9 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     // version change will make chunk stable, thus there is no need to
     // go trough the normal lease cleanup procedure.
     if (! mChunkLeases.DeleteWriteLease(leaseKey, r->leaseId)) {
+        if (0 == r->numReplicas) {
+            return;
+        }
         if (! mChunkToServerMap.Find(r->chunkId)) {
             // Chunk does not exist, deleted.
             mChunkVersionRollBack.erase(r->chunkId);
@@ -6975,6 +7055,18 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             return;
         }
         panic("chunk version roll back failed to delete write lease");
+    }
+    if (0 == r->numReplicas) {
+        if (! r->servers.empty() && r->servers.front() &&
+                ! r->servers.front()->IsDown()) {
+            const bool       kHasChunkChecksum = false;
+            const bool       kPendingAddFlag   = false;
+            const chunkOff_t kChunkSize        = -1;
+            r->servers.front()->MakeChunkStable(
+                r->fid, r->offset, r->chunkVersion,
+                kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
+        }
+        return;
     }
     if (r->initialChunkVersion < 0) {
         return;

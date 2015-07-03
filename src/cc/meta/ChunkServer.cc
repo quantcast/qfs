@@ -1800,8 +1800,9 @@ ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 int
 ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
 {
-    NewChunkInTier(tier);
-
+    if (0 < r->numReplicas) {
+        NewChunkInTier(tier);
+    }
     MetaChunkAllocate* const req = new MetaChunkAllocate(
         NextSeq(), r, shared_from_this(), leaseId, tier, r->maxSTier
     );

@@ -4255,7 +4255,7 @@ MetaAllocate::writeChunkAccess(ostream& os)
         "C-access: ";
     ChunkAccessToken::WriteToken(
         os,
-        chunkId,
+        0 == numReplicas ? fid : chunkId,
         authUid,
         tokenSeq,
         writeMasterKeyId,
@@ -4281,8 +4281,9 @@ MetaAllocate::responseSelf(ostream& os)
         return;
     }
     os <<
-        "Chunk-handle: "  << chunkId      << "\r\n"
-        "Chunk-version: " << chunkVersion << "\r\n";
+        "Chunk-handle: "  << (0 == numReplicas ? fid : chunkId) << "\r\n"
+        "Chunk-version: " << (0 == numReplicas ?
+            -(chunkId_t)offset : chunkVersion) << "\r\n";
     if (appendChunk) {
         os << "Chunk-offset: " << offset << "\r\n";
     }
@@ -4865,7 +4866,8 @@ MetaChunkAllocate::request(ostream &os)
         "Version: KFS/1.0\r\n"
         "File-handle: "   << req->fid          << "\r\n"
         "Chunk-handle: "  << req->chunkId      << "\r\n"
-        "Chunk-version: " << req->chunkVersion << "\r\n"
+        "Chunk-version: " <<
+            (0 == req->numReplicas ? req->offset : req->chunkVersion) << "\r\n"
         "Min-tier: "      << (int)minSTier     << "\r\n"
         "Max-tier: "      << (int)maxSTier     << "\r\n"
     ;
