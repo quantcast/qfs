@@ -4262,7 +4262,9 @@ MetaAllocate::writeChunkAccess(ostream& os)
         issuedTime,
         ChunkAccessToken::kAllowWriteFlag |
             (clientCSAllowClearTextFlag ?
-                ChunkAccessToken::kAllowClearTextFlag : 0),
+                ChunkAccessToken::kAllowClearTextFlag : 0) |
+            (0 == numReplicas ?
+                ChunkAccessToken::kObjectStoreFlag : 0),
         LEASE_INTERVAL_SECS * 2,
         writeMasterKey.GetPtr(),
         writeMasterKey.GetSize()

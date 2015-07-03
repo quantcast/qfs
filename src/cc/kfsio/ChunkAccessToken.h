@@ -50,7 +50,8 @@ public:
         kAllowClearTextFlag = 0x0400,
         kUsesWriteIdFlag    = 0x0800,
         kUsesLeaseIdFlag    = 0x1000,
-        kAppendRecoveryFlag = 0x2000
+        kAppendRecoveryFlag = 0x2000,
+        kObjectStoreFlag    = 0x4000
     };
     class ShowToken
     {
