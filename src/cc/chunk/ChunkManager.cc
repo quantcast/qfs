@@ -1601,7 +1601,9 @@ ChunkManager::ChunkManager()
       mChunkDirs(),
       mWriteId(GetRandomSeq()), // Seed write id.
       mPendingWrites(),
+      mObjPendingWrites(),
       mChunkTable(),
+      mObjTable(),
       mMaxIORequestSize(4 << 20),
       mNextChunkDirsCheckTime(globalNetManager().Now() - 360000),
       mChunkDirsCheckIntervalSecs(120),
@@ -2562,9 +2564,12 @@ ChunkManager::WriteChunkMetadata(
 }
 
 int
-ChunkManager::ReadChunkMetadata(kfsChunkId_t chunkId, KfsOp* cb)
+ChunkManager::ReadChunkMetadata(
+    kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb)
 {
-    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    ChunkInfoHandle** const ci = 0 <= chunkVersion ?
+        mChunkTable.Find(chunkId) :
+        mObjTable.Find(make_pair(chunkId, chunkVersion));
     if (! ci) {
         return -EBADF;
     }

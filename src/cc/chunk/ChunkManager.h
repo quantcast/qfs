@@ -230,7 +230,7 @@ public:
     /// is done.
     /// @retval 0 if op was successfully scheduled; -errno otherwise
     int WriteChunkMetadata(kfsChunkId_t chunkId, KfsCallbackObj *cb, bool forceFlag = false);
-    int ReadChunkMetadata(kfsChunkId_t chunkId, KfsOp *cb);
+    int ReadChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp *cb);
 
     /// Notification that read is finished
     void ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf);
@@ -693,6 +693,22 @@ private:
         >,
         StdFastAllocator<CMapEntry>
     > CMap;
+    typedef KVPair<pair<kfsChunkId_t, int64_t>, ChunkInfoHandle*> ObjMapEntry;
+    struct ObjHash
+    {
+        static size_t Hash(
+            const ObjMapEntry::Key& inVal)
+            { return size_t(inVal.first); }
+    };
+    typedef LinearHash<
+        ObjMapEntry,
+        KeyCompare<ObjMapEntry::Key, ObjHash>,
+        DynamicArray<
+            SingleLinkedList<ObjMapEntry>*,
+            20
+        >,
+        StdFastAllocator<ObjMapEntry>
+    > ObjMap;
 
     /// How long should a pending write be held in LRU
     int mMaxPendingWriteLruSecs;
@@ -719,9 +735,11 @@ private:
     /// See the comments in KfsOps.cc near WritePrepareOp related to write handling
     int64_t mWriteId;
     PendingWrites mPendingWrites;
+    PendingWrites mObjPendingWrites;
 
     /// table that maps chunkIds to their associated state
     CMap   mChunkTable;
+    ObjMap mObjTable;
     size_t mMaxIORequestSize;
     /// Chunk lru, and stale chunks list heads.
     ChunkLists mChunkInfoLists[kChunkInfoListCount];

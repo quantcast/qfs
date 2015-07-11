@@ -200,7 +200,7 @@ ValidateCreateParams(
     int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     return (
-        (numReplicas <= 0 ||
+        (numReplicas < 0 ||
         (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
             ! RSStriperValidate(
                 stripedType, numStripes, numRecoveryStripes, stripeSize, 0)) ||

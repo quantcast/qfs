@@ -1177,7 +1177,7 @@ AllocChunkOp::Execute()
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId);
     mustExistFlag = chunkVersion > 1;
-    if (! mustExistFlag) {
+    if (! mustExistFlag && 0 <= chunkVersion) {
         const int ret = gChunkManager.DeleteChunk(chunkId);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<
@@ -1187,10 +1187,10 @@ AllocChunkOp::Execute()
             KFS_LOG_EOM;
         }
     }
-    const bool failIfExistsFlag = ! mustExistFlag;
+    const bool failIfExistsFlag = ! mustExistFlag && 0 <= chunkVersion;
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
-    int res = gChunkManager.ReadChunkMetadata(chunkId, this);
+    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this);
     if (res == 0) {
         if (failIfExistsFlag) {
             die("chunk deletion failed");
@@ -1300,7 +1300,7 @@ void
 TruncateChunkOp::Execute()
 {
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaReadDone);
-    if (gChunkManager.ReadChunkMetadata(chunkId, this) < 0) {
+    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this) < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
     }
@@ -1367,7 +1367,8 @@ MakeChunkStableOp::Execute()
         return;
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
-    const int ret = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const int ret = gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this);
     if (ret < 0) {
         status = ret;
         gLogger.Submit(this);
@@ -1414,7 +1415,8 @@ void
 ChangeChunkVersOp::Execute()
 {
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);
-    const int ret = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const int ret = gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this);
     if (ret < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
@@ -1930,7 +1932,8 @@ ReadOp::Execute()
     }
 
     SET_HANDLER(this, &ReadOp::HandleChunkMetaReadDone);
-    const int res = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const int res = gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this);
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed read chunk meta data, status: " << res <<
@@ -2139,7 +2142,7 @@ WriteIdAllocOp::ReadChunkMetadata()
     // page in the chunk meta-data if needed
     // if the read was successful, the call to read will callback handle-done
     SET_HANDLER(this, &WriteIdAllocOp::Done);
-    int res = gChunkManager.ReadChunkMetadata(chunkId, this);
+    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this);
     if (res < 0) {
         Done(EVENT_CMD_DONE, &res);
     }
@@ -2632,7 +2635,8 @@ SizeOp::Execute()
 {
     int res = 0;
     if (gChunkManager.ChunkSize(this) ||
-            (res = gChunkManager.ReadChunkMetadata(chunkId, this)) < 0) {
+            (res = gChunkManager.ReadChunkMetadata(
+                chunkId, chunkVersion, this)) < 0) {
         if (0 <= status && res < 0) {
             status = res;
         }
@@ -2742,7 +2746,7 @@ void
 GetChunkMetadataOp::Execute()
 {
     SET_HANDLER(this, &GetChunkMetadataOp::HandleChunkMetaReadDone);
-    if (gChunkManager.ReadChunkMetadata(chunkId, this) < 0) {
+    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this) < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
     }

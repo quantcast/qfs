@@ -4285,7 +4285,7 @@ MetaAllocate::responseSelf(ostream& os)
     os <<
         "Chunk-handle: "  << (0 == numReplicas ? fid : chunkId) << "\r\n"
         "Chunk-version: " << (0 == numReplicas ?
-            -(chunkId_t)offset : chunkVersion) << "\r\n";
+            -(chunkId_t)offset - 1 : chunkVersion) << "\r\n";
     if (appendChunk) {
         os << "Chunk-offset: " << offset << "\r\n";
     }
