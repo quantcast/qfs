@@ -463,12 +463,14 @@ private:
     }
     int64_t GetChunkSize() const
     {
-        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         return (info ? info->chunkSize : -1);
     }
     bool IsChunkOpen() const
     {
-        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         return (info && (info->chunkBlockChecksum || info->chunkSize == 0));
     }
     inline void SetCanDoLowOnBuffersFlushFlag(bool flag);
@@ -1054,7 +1056,7 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
         KFS_LOG_EOM;
         SetState(kStateChunkLost);
     } else if (mState == kStateOpen && IsMaster() &&
-            ! gLeaseClerk.IsLeaseValid(mChunkId,
+            ! gLeaseClerk.IsLeaseValid(mChunkId, mChunkVersion,
                 op ? &op->syncReplicationAccess : 0,
                 &allowCSClearTextFlag)) {
         WAPPEND_LOG_STREAM_ERROR << (prefix ? prefix : "") <<
@@ -1977,7 +1979,8 @@ AtomicRecordAppender::GetOpStatus(GetRecordAppendOpStatus* op)
             op->chunkVersion       = mChunkVersion;
             op->chunkBytesReserved = mBytesReserved;
             op->remainingLeaseTime = IsMaster() ?
-                gLeaseClerk.GetLeaseExpireTime(mChunkId) - Now() : -1;
+                gLeaseClerk.GetLeaseExpireTime(mChunkId, mChunkVersion) - Now()
+                : -1;
             op->masterFlag         = IsMaster();
             op->stableFlag         = mState == kStateStable;
             op->appenderState      = mState;
@@ -2174,7 +2177,8 @@ AtomicRecordAppender::ComputeChecksum(
     kfsChunkId_t chunkId, int64_t chunkVersion,
     int64_t& chunkSize, uint32_t& chunkChecksum)
 {
-    const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(chunkId);
+    const ChunkInfo_t* const info =
+        gChunkManager.GetChunkInfo(chunkId, chunkVersion);
     if (! info ||
             (! info->chunkBlockChecksum && info->chunkSize != 0) ||
             chunkVersion != info->chunkVersion) {
@@ -2516,7 +2520,8 @@ AtomicRecordAppender::OpDone(ReadOp* op)
         return;
     }
     if (op->status >= 0 && ssize_t(op->numBytes) == op->numBytesIO) {
-        ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+        ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         if (! info || (! info->chunkBlockChecksum && info->chunkSize != 0)) {
             WAPPEND_LOG_STREAM_FATAL <<
                 "make chunk stable read:"
@@ -2670,7 +2675,8 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
                 return;
             }
             // No last block read and checksum update is needed.
-            ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+            ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+                mChunkId, mChunkVersion);
             if (! info || (! info->chunkBlockChecksum && info->chunkSize != 0)) {
                 WAPPEND_LOG_STREAM_FATAL <<
                     "make chunk stable:"
@@ -3043,7 +3049,8 @@ AtomicRecordAppender::NotifyChunkClosed()
         " size: "     << mChunkSize <<
         " checksum: " << mChunkChecksum <<
     KFS_LOG_EOM;
-    gLeaseClerk.RelinquishLease(mChunkId, mChunkSize, true, mChunkChecksum);
+    gLeaseClerk.RelinquishLease(mChunkId, mChunkVersion,
+        mChunkSize, true, mChunkChecksum);
 }
 
 void
@@ -3238,7 +3245,8 @@ AtomicRecordAppendManager::AllocateChunk(
         const ChunkInfo_t* info = 0;
         if (! chunkFileHandle ||
                 ! chunkFileHandle->IsOpen() ||
-                ! (info = gChunkManager.GetChunkInfo(op->chunkId)) ||
+                ! (info = gChunkManager.GetChunkInfo(
+                        op->chunkId, op->chunkVersion)) ||
                 (! info->chunkBlockChecksum && info->chunkSize != 0)) {
             op->statusMsg = "chunk manager closed this chunk";
             op->status    = AtomicRecordAppender::kErrParameters;

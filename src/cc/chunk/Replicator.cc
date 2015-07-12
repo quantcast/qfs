@@ -678,7 +678,8 @@ ReplicatorImpl::HandleReplicationDone(int code, void* data)
             " " << mOwner->Show() <<
         KFS_LOG_EOM;
     } else {
-        const ChunkInfo_t* const ci = gChunkManager.GetChunkInfo(mChunkId);
+        const ChunkInfo_t* const ci = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         KFS_LOG_STREAM_NOTICE << mOwner->Show() <<
             " chunk size: " << (ci ? ci->chunkSize : -1) <<
         KFS_LOG_EOM;

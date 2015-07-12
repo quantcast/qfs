@@ -35,11 +35,13 @@
 
 namespace KFS
 {
+using std::make_pair;
 using KFS::libkfsio::globalNetManager;
 
 LeaseClerk gLeaseClerk;
 
-static const string kWriteLease("WRITE_LEASE");
+static const string  kWriteLease("WRITE_LEASE");
+static const int64_t kNullVersion = 0;
 
 inline time_t
 LeaseClerk::Now()
@@ -56,12 +58,23 @@ LeaseClerk::LeaseClerk()
     mTmpExpireQueue.reserve(4 << 10);
 }
 
+inline LeaseClerk::LeaseMapEntry::Key
+LeaseClerk::MakeKey(chunkId_t chunkId, int64_t chunkVersion)
+{
+    return make_pair(
+        chunkId, 0 <= chunkVersion ? kNullVersion : chunkVersion);
+}
+
 void
 LeaseClerk::RegisterLease(const AllocChunkOp& op)
 {
     // Get replace the old lease if there is one
     bool insertedFlag = false;
-    LeaseInfo_t& lease = *mLeases.Insert(op.chunkId, LeaseInfo_t(), insertedFlag);
+    LeaseInfo_t& lease = *mLeases.Insert(
+        MakeKey(op.chunkId, op.chunkVersion),
+        LeaseInfo_t(),
+        insertedFlag
+    );
     lease.leaseId                       = op.leaseId;
     lease.lastWriteTime                 = Now();
     lease.expires                       = lease.lastWriteTime + LEASE_INTERVAL_SECS;
@@ -94,9 +107,9 @@ LeaseClerk::RegisterLease(const AllocChunkOp& op)
 }
 
 void
-LeaseClerk::UnRegisterLease(kfsChunkId_t chunkId)
+LeaseClerk::UnRegisterLease(kfsChunkId_t chunkId, int64_t chunkVerison)
 {
-    if (mLeases.Erase(chunkId) <= 0) {
+    if (mLeases.Erase(MakeKey(chunkId, chunkVerison)) <= 0) {
         return;
     }
     KFS_LOG_STREAM_DEBUG <<
@@ -105,9 +118,9 @@ LeaseClerk::UnRegisterLease(kfsChunkId_t chunkId)
 }
 
 void
-LeaseClerk::InvalidateLease(kfsChunkId_t chunkId)
+LeaseClerk::InvalidateLease(kfsChunkId_t chunkId, int64_t chunkVerison)
 {
-    LeaseInfo_t* const lease = mLeases.Find(chunkId);
+    LeaseInfo_t* const lease = mLeases.Find(MakeKey(chunkId, chunkVerison));
     if (! lease ||
             lease->invalidFlag ||
             lease->appendFlag ||
@@ -134,9 +147,9 @@ LeaseClerk::UnregisterAllLeases()
 }
 
 void
-LeaseClerk::DoingWrite(kfsChunkId_t chunkId)
+LeaseClerk::DoingWrite(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    LeaseInfo_t* const lease = mLeases.Find(chunkId);
+    LeaseInfo_t* const lease = mLeases.Find(MakeKey(chunkId, chunkVersion));
     if (! lease) {
         return;
     }
@@ -146,12 +159,13 @@ LeaseClerk::DoingWrite(kfsChunkId_t chunkId)
 bool
 LeaseClerk::IsLeaseValid(
     kfsChunkId_t           chunkId,
+    int64_t                chunkVersion,
     SyncReplicationAccess* syncReplicationAccess, /* = 0 */
     bool*                  allowCSClearTextFlag   /* = 0 */) const
 {
     // now <= lease.expires ==> lease hasn't expired and is therefore
     // valid.
-    LeaseInfo_t* const lease = mLeases.Find(chunkId);
+    LeaseInfo_t* const lease = mLeases.Find(MakeKey(chunkId, chunkVersion));
     const bool validFlag =
         lease && ! lease->invalidFlag && Now() <= lease->expires;
     if (syncReplicationAccess) {
@@ -168,9 +182,9 @@ LeaseClerk::IsLeaseValid(
 }
 
 time_t
-LeaseClerk::GetLeaseExpireTime(kfsChunkId_t chunkId) const
+LeaseClerk::GetLeaseExpireTime(kfsChunkId_t chunkId, int64_t chunkVersion) const
 {
-    LeaseInfo_t* const lease = mLeases.Find(chunkId);
+    LeaseInfo_t* const lease = mLeases.Find(MakeKey(chunkId, chunkVersion));
     return ((! lease || lease->invalidFlag) ?
         Now() - 1 : lease->expires);
 }
@@ -178,7 +192,7 @@ LeaseClerk::GetLeaseExpireTime(kfsChunkId_t chunkId) const
 void
 LeaseClerk::LeaseRenewed(LeaseRenewOp& op)
 {
-    LeaseInfo_t* const li = mLeases.Find(op.chunkId);
+    LeaseInfo_t* const li = mLeases.Find(MakeKey(op.chunkId, op.chunkVersion));
     if (! li) {
         return; // Ignore stale renew reply.
     }
@@ -238,7 +252,7 @@ LeaseClerk::HandleEvent(int code, void* data)
                         " status: " << renewOp->status <<
                         " msg: "    << renewOp->statusMsg <<
                     KFS_LOG_EOM;
-                    UnRegisterLease(renewOp->chunkId);
+                    UnRegisterLease(renewOp->chunkId, renewOp->chunkVersion);
                 }
             } else if (op->op != CMD_LEASE_RELINQUISH) {
                 // Relinquish op will get here with its default handler, but
@@ -272,14 +286,16 @@ LeaseClerk::Timeout()
     while ((entry = mLeases.Next())) {
         // messages could be in-flight...so wait for a full
         // lease-interval before discarding dead leases
-        const kfsChunkId_t chunkId = entry->GetKey();
-        LeaseInfo_t&       lease   = const_cast<LeaseInfo_t&>(entry->GetVal());
+        const LeaseMapEntry::Key key   = entry->GetKey();
+        LeaseInfo_t&             lease =
+            const_cast<LeaseInfo_t&>(entry->GetVal());
         if (lease.expires + LEASE_INTERVAL_SECS < now) {
             KFS_LOG_STREAM_INFO <<
                 "cleanup lease: " << lease.leaseId <<
-                " chunk: "        << chunkId <<
+                " chunk: "        << key.first <<
+                " vers: "         << key.second <<
             KFS_LOG_EOM;
-            mTmpExpireQueue.push_back(chunkId);
+            mTmpExpireQueue.push_back(key);
             continue;
         }
         /// Before the lease expires at the server, we submit we a renew
@@ -297,20 +313,21 @@ LeaseClerk::Timeout()
         // there is some data buffered in the appender.
         if (lease.lastWriteTime + LEASE_INTERVAL_SECS < now &&
                 ! (lease.appendFlag ?
-                    gAtomicRecordAppendManager.WantsToKeepLease(chunkId) :
-                    gChunkManager.IsWritePending(chunkId)
+                    gAtomicRecordAppendManager.WantsToKeepLease(key.first) :
+                    gChunkManager.IsWritePending(key.first, key.second)
                 )) {
             continue;
         }
         // The metaserverSM will fill seq#.
         LeaseRenewOp* const op = new LeaseRenewOp(
-            -1, chunkId, lease.leaseId, kWriteLease,
+            -1, key.first, key.second, lease.leaseId, kWriteLease,
             lease.syncReplicationAccess.chunkServerAccess &&
                 lease.syncReplicationExpirationTime <= now
         );
         KFS_LOG_STREAM_INFO <<
             "sending lease renew for:"
-            " chunk: "      << chunkId <<
+            " chunk: "      << key.first <<
+            " vers: "       << key.second <<
             " lease: "      << lease.leaseId <<
             " expires in: " << (lease.expires - now) << " sec" <<
         KFS_LOG_EOM;
@@ -319,7 +336,7 @@ LeaseClerk::Timeout()
         lease.leaseRenewSent = true;
         gMetaServerSM.EnqueueOp(op);
     }
-    for (vector<kfsChunkId_t>::const_iterator it = mTmpExpireQueue.begin();
+    for (TmpExpireQueue::const_iterator it = mTmpExpireQueue.begin();
             it != mTmpExpireQueue.end();
             ++it) {
         mLeases.Erase(*it);
@@ -328,10 +345,10 @@ LeaseClerk::Timeout()
 }
 
 void
-LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t size,
-    bool hasChecksum, uint32_t checksum)
+LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t chunkVersion,
+    int64_t size, bool hasChecksum, uint32_t checksum)
 {
-    LeaseInfo_t* const it = mLeases.Find(chunkId);
+    LeaseInfo_t* const it = mLeases.Find(MakeKey(chunkId, chunkVersion));
     if (! it) {
         KFS_LOG_STREAM_DEBUG <<
             "lease relinquish: no lease exists for:"
@@ -359,7 +376,7 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t size,
     op->chunkChecksum = checksum;
     op->chunkSize     = size;
     op->clnt          = this;
-    mLeases.Erase(chunkId);
+    mLeases.Erase(MakeKey(chunkId, chunkVersion));
     gMetaServerSM.EnqueueOp(op);
 }
 } // namespace KFS

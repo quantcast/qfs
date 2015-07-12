@@ -874,9 +874,9 @@ ReadOp::HandleDone(int code, void *data)
         return 0;
     }
 
-    const ChunkInfo_t* ci = gChunkManager.GetChunkInfo(chunkId);
+    const ChunkInfo_t* ci = gChunkManager.GetChunkInfo(chunkId, chunkVersion);
     if (ci && ci->chunkSize > 0 && offset + numBytesIO >= ci->chunkSize &&
-            ! gLeaseClerk.IsLeaseValid(chunkId)) {
+            ! gLeaseClerk.IsLeaseValid(chunkId, chunkVersion)) {
         // If we have read the full chunk, close out the fd.  The
         // observation is that reads are sequential and when we
         // finished a chunk, the client will move to the next one.
@@ -888,7 +888,7 @@ ReadOp::HandleDone(int code, void *data)
         // upon return.
         diskIo.reset();
         KFS_LOG_STREAM_INFO << "closing chunk: " << chunkId << KFS_LOG_EOM;
-        gChunkManager.CloseChunk(chunkId);
+        gChunkManager.CloseChunk(chunkId, ci->chunkVersion);
     }
 
     gLogger.Submit(this);
@@ -1086,7 +1086,8 @@ CloseOp::Execute()
         if (chunkAccessTokenValidFlag) {
             if (myPos == 0) {
                 const bool hasValidLeaseFlag = gLeaseClerk.IsLeaseValid(
-                    chunkId, &syncReplicationAccess, &allowCSClearTextFlag);
+                    chunkId, chunkVersion,
+                    &syncReplicationAccess, &allowCSClearTextFlag);
                 if (hasValidLeaseFlag) {
                     if ((chunkAccessFlags &
                             ChunkAccessToken::kAllowWriteFlag) == 0) {
@@ -1111,12 +1112,14 @@ CloseOp::Execute()
             // forward the close only if it was accepted by the chunk
             // manager.  the chunk manager can reject a close if the
             // chunk is being written to by multiple record appenders
-            if (hasWriteId && ! gChunkManager.IsValidWriteId(writeId)) {
-                statusMsg = "invalid write id";
-                status    = -EINVAL;
+            if (hasWriteId) {
+                if ((status = gChunkManager.CloseChunkWrite(
+                        chunkId, writeId)) != 0) {
+                    statusMsg = "invalid write or chunk id";
+                }
             } else {
-                needToForward = gChunkManager.CloseChunk(chunkId) == 0 &&
-                    needToForward;
+                needToForward = gChunkManager.CloseChunk(
+                    chunkId, chunkVersion) == 0 && needToForward;
                 status        = 0;
             }
         }
@@ -1175,7 +1178,7 @@ AllocChunkOp::Execute()
     }
 
     // Allocation implicitly invalidates all previously existed write leases.
-    gLeaseClerk.UnRegisterLease(chunkId);
+    gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
     mustExistFlag = chunkVersion > 1;
     if (! mustExistFlag && 0 <= chunkVersion) {
         const int ret = gChunkManager.DeleteChunk(chunkId);
@@ -1401,8 +1404,8 @@ MakeChunkStableOp::HandleMakeStableDone(int code, void *data)
         status = res < 0 ? res : -1;
     }
     if (status >= 0 &&
-            ! gLeaseClerk.IsLeaseValid(chunkId) &&
-            gChunkManager.CloseChunkIfReadable(chunkId)) {
+            ! gLeaseClerk.IsLeaseValid(chunkId, chunkVersion) &&
+            gChunkManager.CloseChunkIfReadable(chunkId, chunkVersion)) {
         KFS_LOG_STREAM_DEBUG <<
             Show() << " done, chunk closed" <<
         KFS_LOG_EOM;
@@ -2055,7 +2058,8 @@ WriteIdAllocOp::Execute()
     bool       allowCSClearTextFlag = chunkAccessTokenValidFlag &&
         (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
     if (writeMaster && ! gLeaseClerk.IsLeaseValid(
-            chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
+            chunkId, chunkVersion,
+            &syncReplicationAccess, &allowCSClearTextFlag)) {
         status    = -ELEASEEXPIRED;
         statusMsg = "no valid write lease exists";
         Done(EVENT_CMD_DONE, &status);
@@ -2073,7 +2077,7 @@ WriteIdAllocOp::Execute()
         // Notify the lease clerk that we are doing write.  This is to
         // signal the lease clerk to renew the lease for the chunk when
         // appropriate.
-        gLeaseClerk.DoingWrite(chunkId);
+        gLeaseClerk.DoingWrite(chunkId, chunkVersion);
     }
     const ServerLocation& loc = gChunkServer.GetLocation();
     writeIdStr.Copy(loc.hostname.data(), loc.hostname.size()).Append((char)' ');
@@ -2170,7 +2174,7 @@ WriteIdAllocOp::Done(int code, void *data)
             // Now, when the client forces a re-allocation, the
             // metaserver will do a version bump; when the node that
             // was dead comes back, we can detect it has missed a write
-            gLeaseClerk.InvalidateLease(chunkId);
+            gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
         }
     }
     KFS_LOG_STREAM(
@@ -2225,19 +2229,20 @@ WritePrepareOp::Execute()
     if (writeMaster) {
         // if we are the master, check the lease...
         if (! gLeaseClerk.IsLeaseValid(
-                chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
+                chunkId, chunkVersion,
+                &syncReplicationAccess, &allowCSClearTextFlag)) {
             KFS_LOG_STREAM_ERROR <<
                 "Write prepare failed, lease expired for " << chunkId <<
             KFS_LOG_EOM;
             statusMsg = "no valid write lease exists";
-            gLeaseClerk.InvalidateLease(chunkId);
+            gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
             status = -ELEASEEXPIRED;
             Done(EVENT_CMD_DONE, this);
             return;
         }
         // Notify the lease clerk that we are doing write.  This is to
         // signal the lease clerk to renew the lease for the chunk when appropriate.
-        gLeaseClerk.DoingWrite(chunkId);
+        gLeaseClerk.DoingWrite(chunkId, chunkVersion);
     }
 
     if (blocksChecksums.empty()) {
@@ -2332,7 +2337,7 @@ WritePrepareOp::Done(int code, void *data)
         // Now, when the client forces a re-allocation, the
         // metaserver will do a version bump; when the node that
         // was dead comes back, we can detect it has missed a write
-        gLeaseClerk.InvalidateLease(chunkId);
+        gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
     }
     numDone++;
     if (writeFwdOp && numDone < 2) {
@@ -2416,7 +2421,8 @@ WriteSyncOp::Execute()
     if (writeMaster) {
         // if we are the master, check the lease...
         if (! gLeaseClerk.IsLeaseValid(
-                chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
+                chunkId, chunkVersion,
+                &syncReplicationAccess, &allowCSClearTextFlag)) {
             statusMsg = "no valid write lease exists";
             status    = -ELEASEEXPIRED;
             KFS_LOG_STREAM_ERROR <<
@@ -2429,7 +2435,7 @@ WriteSyncOp::Execute()
         // Notify the lease clerk that we are doing write.  This is to
         // signal the lease clerk to renew the lease for the chunk when
         // appropriate.
-        gLeaseClerk.DoingWrite(chunkId);
+        gLeaseClerk.DoingWrite(chunkId, chunkVersion);
     }
 
     SET_HANDLER(this, &WriteSyncOp::Done);
@@ -2567,7 +2573,7 @@ WriteSyncOp::Done(int code, void *data)
         // Now, when the client forces a re-allocation, the
         // metaserver will do a version bump; when the node that
         // was dead comes back, we can detect it has missed a write
-        gLeaseClerk.InvalidateLease(chunkId);
+        gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
     }
     numDone++;
     if (fwdedOp && numDone < 2) {
@@ -2762,7 +2768,7 @@ GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void *data)
         gLogger.Submit(this);
         return 0;
     }
-    const ChunkInfo_t * const info = gChunkManager.GetChunkInfo(chunkId);
+    const ChunkInfo_t * const info = gChunkManager.GetChunkInfo(chunkId, 0);
     if (info) {
         if (info->chunkBlockChecksum || info->chunkSize == 0) {
             chunkVersion = info->chunkVersion;
@@ -3113,6 +3119,9 @@ CloseOp::Request(ostream& os)
     os << "Chunk-handle: " << chunkId << "\r\n";
     if (hasWriteId) {
         os << "Has-write-id: " << 1 << "\r\n";
+    }
+    if (chunkVersion < 0) {
+        os << "Chunk-version: " << chunkVersion << "\r\n";
     }
     if (masterCommitted >= 0) {
         os  << "Master-committed: " << masterCommitted << "\r\n";

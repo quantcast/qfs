@@ -40,11 +40,14 @@
 #include "KfsOps.h"
 
 #include <vector>
+#include <utility>
 
 namespace KFS
 {
 
 using std::vector;
+using std::pair;
+
 struct LeaseRenewOp;
 struct AllocChunkOp;
 
@@ -63,28 +66,29 @@ public:
     /// @param[in] leaseId  The lease id to be registered with the clerk
     /// @param[in] appendFlag True if chunk created in write append mode
     void RegisterLease(const AllocChunkOp& op);
-    void UnRegisterLease(kfsChunkId_t chunkId);
-    void InvalidateLease(kfsChunkId_t chunkId);
+    void UnRegisterLease(kfsChunkId_t chunkId, int64_t chunkVerison);
+    void InvalidateLease(kfsChunkId_t chunkId, int64_t chunkVerison);
 
     /// Used for voluntarily giving up a write lease.
     ///
-    void RelinquishLease(kfsChunkId_t chunkId, int64_t size = -1,
-        bool hasChecksum = false, uint32_t checksum = 0);
+    void RelinquishLease(kfsChunkId_t chunkId, int64_t chunkVerison,
+        int64_t size = -1, bool hasChecksum = false, uint32_t checksum = 0);
     /// Record the occurence of a write.  This notifies the clerk to
     /// renew the lease prior to the end of the lease period.
-    void DoingWrite(kfsChunkId_t chunkId);
+    void DoingWrite(kfsChunkId_t chunkId, int64_t chunkVerison);
 
     /// Check if lease is still valid.
     /// @param[in] chunkId  The chunk whose lease we are checking for validity.
     bool IsLeaseValid(
         kfsChunkId_t           chunkId,
+        int64_t                chunkVerison,
         SyncReplicationAccess* syncReplicationAccess = 0,
         bool*                  allowCSClearTextFlag  = 0) const;
 
     // Lease renew op completion handler.
     int HandleEvent(int code, void *data);
 
-    time_t GetLeaseExpireTime(kfsChunkId_t chunkId) const;
+    time_t GetLeaseExpireTime(kfsChunkId_t chunkId, int64_t chunkVersion) const;
     void UnregisterAllLeases();
 
     void Timeout();
@@ -101,24 +105,32 @@ private:
         time_t                syncReplicationExpirationTime;
         SyncReplicationAccess syncReplicationAccess;
     };
-    typedef KVPair<kfsChunkId_t, LeaseInfo_t> LeaseMapEntry;
+    typedef KVPair<pair<kfsChunkId_t, int64_t>, LeaseInfo_t> LeaseMapEntry;
+    struct KeyHash
+    {
+        static size_t Hash(
+            const LeaseMapEntry::Key& key)
+            { return size_t(key.first); }
+    };
     typedef LinearHash<
         LeaseMapEntry,
-        KeyCompare<kfsChunkId_t>,
+        KeyCompare<LeaseMapEntry::Key, KeyHash>,
         DynamicArray<
             SingleLinkedList<LeaseMapEntry>*,
             8 // start from 256 entries
         >,
         StdFastAllocator<LeaseMapEntry>
     > LeaseMap;
+    typedef vector<LeaseMapEntry::Key> TmpExpireQueue;
 
     /// All the leases registered with the clerk
     LeaseMap          mLeases;
     time_t            mLastLeaseCheckTime;
-    vector<chunkId_t> mTmpExpireQueue;
+    TmpExpireQueue    mTmpExpireQueue;
 
     void LeaseRenewed(LeaseRenewOp& op);
-    void LeaseExpired(kfsChunkId_t chunkId);
+    inline static LeaseMapEntry::Key MakeKey(
+        chunkId_t chunkId, int64_t chunkVersion);
 
     inline static time_t Now();
 private:

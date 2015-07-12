@@ -976,7 +976,7 @@ public:
         bool            renameFlag,
         bool            stableFlag,
         kfsSeq_t        targetVersion);
-    int WriteChunkMetadata( KfsCallbackObj* cb = 0) {
+    int WriteChunkMetadata(KfsCallbackObj* cb = 0) {
         return WriteChunkMetadata(cb, false, mStableFlag,
             mStableFlag ? chunkInfo.chunkVersion : kfsSeq_t(0));
     }
@@ -1279,9 +1279,17 @@ ChunkManager::Delete(ChunkInfoHandle& cih)
 inline bool
 ChunkManager::Remove(ChunkInfoHandle& cih)
 {
-    if (mPendingWrites.HasChunkId(cih.chunkInfo.chunkId) ||
-            mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
-        return false;
+    if (0 <= cih.chunkInfo.chunkVersion) {
+        if (mPendingWrites.HasChunkId(cih.chunkInfo.chunkId) ||
+                mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
+            return false;
+        }
+    } else {
+        ObjPendingWrites::Key const key(
+            cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion);
+        if (mObjPendingWrites.HasChunkId(key) || mObjTable.Erase(key) <= 0) {
+            return false;
+        }
     }
     Delete(cih);
     return true;
@@ -1332,7 +1340,8 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     KFS_LOG_STREAM_INFO <<
         "Closing chunk " << chunkInfo.chunkId << " and might give up lease" <<
     KFS_LOG_EOM;
-    gLeaseClerk.RelinquishLease(chunkInfo.chunkId, chunkInfo.chunkSize);
+    gLeaseClerk.RelinquishLease(
+        chunkInfo.chunkId, chunkInfo.chunkVersion, chunkInfo.chunkSize);
 
     ChunkList::Remove(chunkInfoLists[mChunkList], *this);
     globals().ctrOpenDiskFds.Update(-1);
@@ -2374,7 +2383,7 @@ ChunkManager::AllocChunkForAppend(
     int                   replicationPos,
     const ServerLocation& peerLoc)
 {
-    if (IsWritePending(op->chunkId)) {
+    if (IsWritePending(op->chunkId, op->chunkVersion)) {
         op->statusMsg = "random write in progress";
         op->status = -EINVAL;
     }
@@ -2409,7 +2418,7 @@ ChunkManager::IsChunkStable(const ChunkInfoHandle* cih) const
         cih->IsStable() &&
         (! cih->IsWriteAppenderOwns() ||
             gAtomicRecordAppendManager.IsChunkStable(cih->chunkInfo.chunkId)) &&
-        ! IsWritePending(cih->chunkInfo.chunkId) &&
+        ! IsWritePending(cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion) &&
         ! cih->IsBeingReplicated()
     );
 }
@@ -2744,9 +2753,11 @@ ChunkManager::IsChunkMetadataLoaded(kfsChunkId_t chunkId)
 }
 
 ChunkInfo_t*
-ChunkManager::GetChunkInfo(kfsChunkId_t chunkId)
+ChunkManager::GetChunkInfo(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    ChunkInfoHandle** const ci = 0 <= chunkVersion ?
+        mChunkTable.Find(chunkId) :
+        mObjTable.Find(make_pair(chunkId, chunkVersion));
     return (ci ? &((*ci)->chunkInfo) : 0);
 }
 
@@ -2870,7 +2881,8 @@ ChunkManager::StaleChunk(ChunkInfoHandle* cih,
     if (mChunkTable.Erase(cih->chunkInfo.chunkId) <= 0) {
         return -EBADF;
     }
-    gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId);
+    gLeaseClerk.UnRegisterLease(
+        cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
     if (! cih->IsStale() && ! mPendingWrites.Delete(
             cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) {
         ostringstream os;
@@ -3453,19 +3465,39 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
 }
 
 int
-ChunkManager::CloseChunk(kfsChunkId_t chunkId)
+ChunkManager::CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    ChunkInfoHandle** const ci = 0 < chunkVersion ?
+        mChunkTable.Find(chunkId) :
+        mObjTable.Find(make_pair(chunkId, chunkVersion));
     if (! ci) {
         return -EBADF;
     }
     return CloseChunk(*ci);
 }
 
-bool
-ChunkManager::CloseChunkIfReadable(kfsChunkId_t chunkId)
+int
+ChunkManager::CloseChunkWrite(kfsChunkId_t chunkId, int64_t writeId)
 {
-    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    const WriteOp* wo = mPendingWrites.find(writeId);
+    if (! wo) {
+        wo = mObjPendingWrites.find(writeId);
+    }
+    if (! wo) {
+        return -EBADF;
+    }
+    if (wo->chunkId != chunkId) {
+        return -EINVAL;
+    }
+    return CloseChunk(wo->chunkId, wo->chunkVersion);
+}
+
+bool
+ChunkManager::CloseChunkIfReadable(kfsChunkId_t chunkId, int64_t chunkVersion)
+{
+    ChunkInfoHandle** const ci = 0 < chunkVersion ?
+        mChunkTable.Find(chunkId) :
+        mObjTable.Find(make_pair(chunkId, chunkVersion));
     if (! ci) {
         return -EBADF;
     }
@@ -3491,13 +3523,17 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih)
     if (cih->IsFileOpen() && ! cih->IsFileInUse() &&
             ! cih->IsBeingReplicated() && ! cih->SyncMeta()) {
         Release(*cih);
+        if (cih->chunkInfo.chunkVersion < 0) {
+            Delete(*cih); // Delete object table entry with no pending writes.
+        }
     } else {
         KFS_LOG_STREAM_INFO <<
             "Didn't release chunk " << cih->chunkInfo.chunkId <<
             " on close;  might give up lease" <<
         KFS_LOG_EOM;
         gLeaseClerk.RelinquishLease(
-            cih->chunkInfo.chunkId, cih->chunkInfo.chunkSize);
+            cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion,
+            cih->chunkInfo.chunkSize);
     }
     return 0;
 }
@@ -4181,7 +4217,8 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
     op->isChunkLost = err == 0;
     gMetaServerSM.EnqueueOp(op);
     // Meta server automatically cleans up leases for corrupted chunks.
-    gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId);
+    gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId,
+        cih->chunkInfo.chunkVersion);
 }
 
 void
@@ -4681,7 +4718,8 @@ ChunkManager::AllocateWriteId(
     } else if (wi->chunkVersion != cih->chunkInfo.chunkVersion) {
         wi->statusMsg = "chunk version mismatch";
         wi->status = -EINVAL;
-    } else if (wi->isForRecordAppend && IsWritePending(wi->chunkId)) {
+    } else if (wi->isForRecordAppend && IsWritePending(
+            wi->chunkId, wi->chunkVersion)) {
         wi->statusMsg = "random write in progress";
         wi->status = -EINVAL;
     } else if (wi->isForRecordAppend && ! IsWriteAppenderOwns(wi->chunkId)) {
@@ -4942,8 +4980,9 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
         bool writePendingFlag = false;
         if ((inUseFlag = cih->IsFileInUse()) ||
                 (hasLeaseFlag = gLeaseClerk.IsLeaseValid(
-                    cih->chunkInfo.chunkId)) ||
-                (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId))) {
+                    cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) ||
+                (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId,
+                    cih->chunkInfo.chunkVersion))) {
             KFS_LOG_STREAM_DEBUG << "cleanup: stale entry in chunk lru:"
                 " dataFH: "   << (const void*)cih->dataFH.get() <<
                 " chunk: "    << cih->chunkInfo.chunkId <<

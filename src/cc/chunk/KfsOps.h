@@ -941,6 +941,7 @@ struct CloseOp : public KfsClientChunkOp {
     StringBufT<256>       servers;         // input: set of servers on which to chunk is to be closed
     int                   chunkAccessLength;
     int                   contentLength;
+    int64_t               chunkVersion;
     SyncReplicationAccess syncReplicationAccess;
 
     CloseOp(kfsSeq_t s = 0)
@@ -952,6 +953,7 @@ struct CloseOp : public KfsClientChunkOp {
           servers              (),
           chunkAccessLength    (0),
           contentLength        (0),
+          chunkVersion         (0),
           syncReplicationAccess()
         {}
     CloseOp(kfsSeq_t s, const CloseOp& op)
@@ -963,6 +965,7 @@ struct CloseOp : public KfsClientChunkOp {
           servers              (op.servers),
           chunkAccessLength    (op.chunkAccessLength),
           contentLength        (op.contentLength),
+          chunkVersion         (op.chunkVersion),
           syncReplicationAccess(op.syncReplicationAccess)
         { chunkId = op.chunkId; }
     virtual int GetContentLength() const { return contentLength; }
@@ -1007,6 +1010,7 @@ struct CloseOp : public KfsClientChunkOp {
         .Def("Master-committed", &CloseOp::masterCommitted, int64_t(-1))
         .Def("C-access-length",  &CloseOp::chunkAccessLength)
         .Def("Content-length",   &CloseOp::contentLength)
+        .Def("Chunk-version",    &CloseOp::chunkVersion,    int64_t(0))
         ;
     }
 };
@@ -2010,6 +2014,7 @@ struct StatsOp : public KfsOp {
 struct LeaseRenewOp : public KfsOp {
     kfsChunkId_t          chunkId;
     int64_t               leaseId;
+    int64_t               chunkVersion;
     const string          leaseType;
     bool                  emitCSAceessFlag;
     bool                  allowCSClearTextFlag;
@@ -2018,10 +2023,17 @@ struct LeaseRenewOp : public KfsOp {
     int                   chunkAccessLength;
     SyncReplicationAccess syncReplicationAccess;
 
-    LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t, bool a)
+    LeaseRenewOp(
+        kfsSeq_t      s,
+        kfsChunkId_t  c,
+        int64_t       v,
+        int64_t       l,
+        const string& t,
+        bool          a)
         : KfsOp(CMD_LEASE_RENEW, s),
           chunkId(c),
           leaseId(l),
+          chunkVersion(v),
           leaseType(t),
           emitCSAceessFlag(a),
           allowCSClearTextFlag(false),
