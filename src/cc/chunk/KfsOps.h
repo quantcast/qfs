@@ -355,10 +355,11 @@ struct KfsOp : public KfsCallbackObj
         bool            findFlag,
         bool            resetFlag,
         kfsChunkId_t    chunkId,
+        int64_t         chunkVersion,
         BufferManager*& devBufMgr)
     {
         if (findFlag && ! devBufMgr) {
-            devBufMgr = FindDeviceBufferManager(chunkId);
+            devBufMgr = FindDeviceBufferManager(chunkId, chunkVersion);
         }
         BufferManager* const ret = devBufMgr;
         if (resetFlag) {
@@ -368,7 +369,8 @@ struct KfsOp : public KfsCallbackObj
     }
     static void SetMutex(QCMutex* mutex)
         { sMutex = mutex; }
-    static BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
+    static BufferManager* FindDeviceBufferManager(
+        kfsChunkId_t chunkId, int64_t chunkVersion);
     inline static Display ShowOp(const KfsOp* op)
         { return (op ? Display(*op) : Display(GetNullOp())); }
     virtual bool CheckAccess(ClientSM& sm);
@@ -1064,7 +1066,7 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
         bool findFlag, bool resetFlag)
     {
         return GetDeviceBufferMangerSelf(
-            findFlag, resetFlag, chunkId, devBufMgr);
+            findFlag, resetFlag, chunkId, chunkVersion, devBufMgr);
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1330,7 +1332,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         bool findFlag, bool resetFlag)
     {
         return GetDeviceBufferMangerSelf(
-            findFlag, resetFlag, chunkId, devBufMgr);
+            findFlag, resetFlag, chunkId, chunkVersion, devBufMgr);
     }
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1572,14 +1574,16 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
 
 struct ReadChunkMetaOp : public KfsOp {
     kfsChunkId_t chunkId;
+    int64_t      chunkVersion;
     DiskIoPtr    diskIo; /* disk connection used for reading data */
     // others ops that are also waiting for this particular meta-data
     // read to finish; they'll get notified when the read is done
     list<KfsOp*, StdFastAllocator<KfsOp*> > waiters;
 
-    ReadChunkMetaOp(kfsChunkId_t c, KfsCallbackObj *o)
+    ReadChunkMetaOp(kfsChunkId_t c, int64_t v, KfsCallbackObj* o)
         : KfsOp(CMD_READ_CHUNKMETA, 0, o),
           chunkId(c),
+          chunkVersion(v),
           diskIo(),
           waiters()
     {
@@ -1702,7 +1706,7 @@ struct ReadOp : public KfsClientChunkOp {
         bool findFlag, bool resetFlag)
     {
         return GetDeviceBufferMangerSelf(
-            findFlag, resetFlag, chunkId, devBufMgr);
+            findFlag, resetFlag, chunkId, chunkVersion, devBufMgr);
     }
     virtual bool ParseResponse(const Properties& props, IOBuffer& iobuf);
     virtual bool GetResponseContent(IOBuffer& iobuf, int len)

@@ -486,9 +486,9 @@ KfsOp::CheckAccess(ClientSM& sm)
 }
 
 /* static */ BufferManager*
-KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
+KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    return gChunkManager.FindDeviceBufferManager(chunkId);
+    return gChunkManager.FindDeviceBufferManager(chunkId, chunkVersion);
 }
 
 inline bool
@@ -826,7 +826,8 @@ ReadOp::HandleDone(int code, void *data)
             KFS_LOG_EOM;
         }
         if (status != -ETIMEDOUT) {
-            gChunkManager.ChunkIOFailed(chunkId, status, diskIo.get());
+            gChunkManager.ChunkIOFailed(
+                chunkId, chunkVersion, status, diskIo.get());
         }
     } else if (code == EVENT_DISK_READ) {
         assert(data);
@@ -1012,8 +1013,8 @@ WriteOp::HandleWriteDone(int code, void *data)
                 "Disk error: errno: " << status << " chunkid: " << chunkId <<
             KFS_LOG_EOM;
         }
-        gChunkManager.ChunkIOFailed(chunkId, status, diskIo.get());
-
+        gChunkManager.ChunkIOFailed(
+            chunkId, chunkVersion, status, diskIo.get());
         if (wpop->status >= 0) {
             wpop->status = status;
         }
@@ -1181,7 +1182,7 @@ AllocChunkOp::Execute()
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
     mustExistFlag = chunkVersion > 1;
     if (! mustExistFlag && 0 <= chunkVersion) {
-        const int ret = gChunkManager.DeleteChunk(chunkId);
+        const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<
                 "allocate: delete existing"
@@ -1295,7 +1296,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
 void
 DeleteChunkOp::Execute()
 {
-    status = gChunkManager.DeleteChunk(chunkId);
+    status = gChunkManager.DeleteChunk(chunkId, 0);
     gLogger.Submit(this);
 }
 
@@ -1326,7 +1327,7 @@ TruncateChunkOp::HandleChunkMetaReadDone(int code, void *data)
         return 0;
     }
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaWriteDone);
-    const int ret = gChunkManager.WriteChunkMetadata(chunkId, this);
+    const int ret = gChunkManager.WriteChunkMetadata(chunkId, 0, this);
     if (ret != 0) {
         status = ret;
         gLogger.Submit(this);
@@ -1920,7 +1921,8 @@ ReadOp::Execute()
             "read request size exceeds chunk size: " << numBytes <<
         KFS_LOG_EOM;
         status = -EINVAL;
-    } else if (clientSMFlag && ! gChunkManager.IsChunkReadable(chunkId)) {
+    } else if (clientSMFlag &&
+            ! gChunkManager.IsChunkReadable(chunkId, chunkVersion)) {
         // Do not allow dirty reads.
         statusMsg = "chunk not readable";
         status    = -EAGAIN;
@@ -2218,7 +2220,7 @@ WritePrepareOp::Execute()
         return;
     }
 
-    if (!gChunkManager.IsChunkMetadataLoaded(chunkId)) {
+    if (!gChunkManager.IsChunkMetadataLoaded(chunkId, chunkVersion)) {
         statusMsg = "checksums are not loaded";
         status = -ELEASEEXPIRED;
         Done(EVENT_CMD_DONE, this);
@@ -2403,7 +2405,7 @@ WriteSyncOp::Execute()
         return;
     }
 
-    if (! gChunkManager.IsChunkMetadataLoaded(chunkId)) {
+    if (! gChunkManager.IsChunkMetadataLoaded(chunkId, chunkVersion)) {
         // This should not normally happen, as valid write id would keep chunk
         // loaded / writable.
         status    = -ELEASEEXPIRED;
@@ -2456,7 +2458,7 @@ WriteSyncOp::Execute()
     // write checksum.
     bool                   mismatch    = false;
     const vector<uint32_t> myChecksums =
-        gChunkManager.GetChecksums(chunkId, offset, numBytes);
+        gChunkManager.GetChecksums(chunkId, chunkVersion, offset, numBytes);
     if ((writeMaster && (
             (offset % CHECKSUM_BLOCKSIZE) != 0 ||
             (numBytes % CHECKSUM_BLOCKSIZE) != 0)) || checksums.empty()) {
@@ -2550,7 +2552,7 @@ WriteSyncOp::ForwardToPeer(
 
     if (writeMaster) {
         fwdedOp->checksums =
-            gChunkManager.GetChecksums(chunkId, offset, numBytes);
+            gChunkManager.GetChecksums(chunkId, chunkVersion, offset, numBytes);
     } else {
         fwdedOp->checksums = checksums;
     }
@@ -2819,7 +2821,8 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
                 " status: "  << status <<
             KFS_LOG_EOM;
         }
-        gChunkManager.ChunkIOFailed(chunkId, status, readOp.diskIo.get());
+        gChunkManager.ChunkIOFailed(
+            chunkId, chunkVersion, status, readOp.diskIo.get());
         gLogger.Submit(this);
         return 0;
     } else if (code == EVENT_DISK_READ) {

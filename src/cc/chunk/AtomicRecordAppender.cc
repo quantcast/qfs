@@ -802,7 +802,7 @@ AtomicRecordAppender::~AtomicRecordAppender()
             mReplicationsInFlight != 0 ||
             ! mWriteIdState.empty() ||
             ! AppendReplicationList::IsEmpty(mReplicationList) ||
-            gChunkManager.IsWriteAppenderOwns(mChunkId)) {
+            gChunkManager.IsWriteAppenderOwns(mChunkId, mChunkVersion)) {
         WAPPEND_LOG_STREAM_FATAL <<
             " invalid dtor invocation:"
             " state: "        << GetStateAsStr() <<
@@ -881,7 +881,8 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
             DiskIo::FilePtr const chunkFileHandle(mChunkFileHandle);
             assert(nowStableFlag);
             mChunkFileHandle.reset();
-            gChunkManager.ChunkIOFailed(mChunkId, 0, chunkFileHandle.get());
+            gChunkManager.ChunkIOFailed(
+                mChunkId, mChunkVersion, 0, chunkFileHandle.get());
         }
         Cntrs().mLostChunkCount++;
     } else if (mState == kStateReplicationFailed) {
@@ -2983,7 +2984,8 @@ AtomicRecordAppender::MetaWriteDone(int status)
         " ios: "        << mIoOpsInFlight <<
         " commit: "     << mNextCommitOffset <<
         " status: "     << status <<
-        " owner: "      << gChunkManager.IsWriteAppenderOwns(mChunkId) <<
+        " owner: "      <<
+            gChunkManager.IsWriteAppenderOwns(mChunkId, mChunkVersion) <<
     KFS_LOG_EOM;
     if (DeleteIfNeeded()) {
         return;

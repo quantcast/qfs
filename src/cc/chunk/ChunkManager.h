@@ -145,7 +145,7 @@ public:
     /// Delete a previously allocated chunk file.
     /// @param[in] chunkId id of the chunk being deleted.
     /// @retval status code
-    int DeleteChunk(kfsChunkId_t chunkId);
+    int DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion);
 
     /// Dump chunk map with information about chunkID and chunkSize
     void DumpChunkMap();
@@ -158,8 +158,8 @@ public:
     /// Move that chunk out of the dirty dir.
     int MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
             bool appendFlag, KfsCallbackObj* cb, string& statusMsg);
-    bool IsChunkStable(kfsChunkId_t chunkId) const;
-    bool IsChunkReadable(kfsChunkId_t chunkId) const;
+    bool IsChunkStable(kfsChunkId_t chunkId, int64_t chunkVersion) const;
+    bool IsChunkReadable(kfsChunkId_t chunkId, int64_t chunkVersion) const;
     bool IsChunkStable(MakeChunkStableOp* op);
 
     /// A previously created chunk is stale; move it to stale chunks
@@ -190,12 +190,6 @@ public:
                            int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
     int ChangeChunkVers(ChangeChunkVersOp* op);
 
-    /// Open a chunk for I/O.
-    /// @param[in] chunkId id of the chunk being opened.
-    /// @param[in] openFlags  O_RDONLY, O_WRONLY
-    /// @retval status code
-    int OpenChunk(kfsChunkId_t chunkId, int openFlags);
-
     /// Close a previously opened chunk and release resources.
     /// @param[in] chunkId id of the chunk being closed.
     /// @retval 0 if the close was accepted; -1 otherwise
@@ -208,14 +202,16 @@ public:
     /// @param[in] chunkId  the chunk id for which we want info
     /// @param[out] cih  the resulting pointer from mChunkTable[chunkId]
     /// @retval  0 on success; -EBADF if we can't find mChunkTable[chunkId]
-    int GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih) const;
+    ChunkInfoHandle* GetChunkInfoHandle(
+        kfsChunkId_t chunkId, int64_t chunkVersion) const;
 
     /// Given a byte range, return the checksums for that range.
-    vector<uint32_t> GetChecksums(kfsChunkId_t chunkId, int64_t offset, size_t numBytes);
+    vector<uint32_t> GetChecksums(kfsChunkId_t chunkId,
+        int64_t chunkVersion, int64_t offset, size_t numBytes);
 
     /// For telemetry purposes, provide the driveName where the chunk
     /// is stored and pass that back to the client.
-    string GetDirName(chunkId_t chunkId) const;
+    string GetDirName(chunkId_t chunkId, int64_t chunkVersion) const;
 
     /// Schedule a read on a chunk.
     /// @param[in] op  The read operation being scheduled.
@@ -230,13 +226,13 @@ public:
     /// Write/read out/in the chunk meta-data and notify the cb when the op
     /// is done.
     /// @retval 0 if op was successfully scheduled; -errno otherwise
-    int WriteChunkMetadata(kfsChunkId_t chunkId,
+    int WriteChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion,
             KfsCallbackObj *cb, bool forceFlag = false);
     int ReadChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp *cb);
 
     /// Notification that read is finished
     void ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf);
-    bool IsChunkMetadataLoaded(kfsChunkId_t chunkId);
+    bool IsChunkMetadataLoaded(kfsChunkId_t chunkId, int64_t chunkVersion);
 
     /// A previously scheduled write op just finished.  Update chunk
     /// size and the amount of used space.
@@ -302,9 +298,6 @@ public:
             mObjPendingWrites.HasChunkId(make_pair(chunkId, chunkVersion)));
     }
 
-    /// Given a chunk id, return its version
-    int64_t GetChunkVersion(kfsChunkId_t c);
-
     /// Retrieve the write op given a write id.
     /// @param[in] writeId  The id corresponding to a previously
     /// enqueued write.
@@ -333,15 +326,17 @@ public:
 
     ChunkInfo_t* GetChunkInfo(kfsChunkId_t chunkId, int64_t chunkVersion);
 
-    void ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* file);
-    void ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo* diskIo);
+    void ChunkIOFailed(kfsChunkId_t chunkId, int64_t chunkVersion,
+        int err, const DiskIo::File* file);
+    void ChunkIOFailed(kfsChunkId_t chunkId, int64_t chunkVersion,
+        int err, const DiskIo* diskIo);
     void ChunkIOFailed(ChunkInfoHandle* cih, int err);
     void ReportIOFailure(ChunkInfoHandle* cih, int err);
     size_t GetMaxIORequestSize() const {
         return mMaxIORequestSize;
     }
     void Shutdown();
-    bool IsWriteAppenderOwns(kfsChunkId_t chunkId) const;
+    bool IsWriteAppenderOwns(kfsChunkId_t chunkId, int64_t chunkVersion) const;
 
     inline void LruUpdate(ChunkInfoHandle& cih);
     inline bool IsInLru(const ChunkInfoHandle& cih) const;
@@ -403,7 +398,8 @@ public:
         bool forceDeleteFlag, bool evacuatedFlag);
     inline void DeleteSelf(ChunkInfoHandle& cih);
     inline bool Remove(ChunkInfoHandle& cih);
-    BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
+    BufferManager* FindDeviceBufferManager(
+        kfsChunkId_t chunkId, int64_t chunkVersion);
     const CryptoKeys& GetCryptoKeys() const
         { return mCryptoKeys; }
     int64_t GetFileSystemId() const
@@ -865,7 +861,8 @@ private:
 
     /// Given a chunkId and offset, return the checksum of corresponding
     /// "checksum block"---i.e., the 64K block that contains offset.
-    uint32_t GetChecksum(kfsChunkId_t chunkId, int64_t offset);
+    uint32_t GetChecksum(kfsChunkId_t chunkId, int64_t chunkVersion,
+        int64_t offset);
 
     /// For any writes that have been held for more than 2 mins,
     /// scavenge them and reclaim memory.
@@ -903,6 +900,8 @@ private:
     void SetBufferedIo(const Properties& props);
     void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
+    template<typename T> void ClearTable(T& table);
+    template<typename T> void RunIoCompletion(T& table);
 
     static bool sExitDebugCheckFlag;
 private:
