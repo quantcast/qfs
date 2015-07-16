@@ -435,6 +435,8 @@ private:
             { return mWriteIds.size(); }
         WriteOp* front() const
             { return mLru.front().mWriteIdIt->mOp; }
+        const Key& FrontKey() const
+            { return mLru.front().mChunkIdIt->first; }
         WriteOp* back() const
             { return mLru.back().mWriteIdIt->mOp; }
         WriteOp* find(int64_t writeId) const
@@ -546,7 +548,9 @@ private:
         struct LruEntry
         {
             LruEntry()
-                : mWriteIdIt(), mChunkIdIt(), mChunkWritesIt()
+                : mWriteIdIt(),
+                  mChunkIdIt(),
+                  mChunkWritesIt()
                 {}
             LruEntry(
                 typename WriteIdSet::iterator  writeIdIt,
@@ -739,6 +743,8 @@ private:
     /// directories for storing the chunks
     ChunkDirs    mChunkDirs;
     StorageTiers mStorageTiers;
+    ChunkDirs    mObjDirs;
+    StorageTiers mObjStorageTiers;
 
     /// See the comments in KfsOps.cc near WritePrepareOp related to write handling
     int64_t mWriteId;
@@ -806,6 +812,8 @@ private:
     kfsSTier_t mAllocDefaultMaxTier;
     string     mStorageTiersPrefixes;
     bool       mStorageTiersSetFlag;
+    string     mObjStorageTiersPrefixes;
+    bool       mObjStorageTiersSetFlag;
     string     mBufferedIoPrefixes;
     bool       mBufferedIoSetFlag;
     bool       mDiskBufferManagerEnabledFlag;
@@ -833,7 +841,8 @@ private:
     /// Of the various directories this chunkserver is configured with, find the
     /// directory to store a chunk file.
     /// This method does a "directory allocation".
-    ChunkDirInfo* GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier);
+    ChunkDirInfo* GetDirForChunk(
+        bool objFlag, kfsSTier_t minTier, kfsSTier_t maxTier);
 
     void CheckChunkDirs();
     void GetFsSpaceAvailable();
@@ -867,6 +876,8 @@ private:
     /// For any writes that have been held for more than 2 mins,
     /// scavenge them and reclaim memory.
     void ScavengePendingWrites(time_t now);
+    template<typename TT, typename WT> void ScavengePendingWrites(
+        time_t now, TT& table, WT& pendingWrites);
 
     /// If we have too many open fd's close out whatever we can.  When
     /// periodic is set, we do a scan and clean up.
@@ -897,6 +908,13 @@ private:
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
     void SendChunkDirInfo();
     void SetStorageTiers(const Properties& props);
+    void SetStorageTiers(
+        const string&               prefixes,
+        ChunkManager::ChunkDirs&    dirs,
+        ChunkManager::StorageTiers& tiers);
+    bool InitStorageDirs(
+        const vector<string>&    dirNames,
+        ChunkManager::ChunkDirs& storageDirs);
     void SetBufferedIo(const Properties& props);
     void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);

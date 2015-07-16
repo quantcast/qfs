@@ -1350,8 +1350,14 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     KFS_LOG_EOM;
     gLeaseClerk.RelinquishLease(
         chunkInfo.chunkId, chunkInfo.chunkVersion, chunkInfo.chunkSize);
-
-    ChunkList::Remove(chunkInfoLists[mChunkList], *this);
+    if (chunkInfo.chunkVersion < 0) {
+        // Move to the front of the lru to schedule removal from the object
+        // block table.
+        lastIOTime -= 60 * 60 * 24 * 365 * 10;
+        ChunkList::PushFront(chunkInfoLists[mChunkList], *this);
+    } else {
+        ChunkList::Remove(chunkInfoLists[mChunkList], *this);
+    }
     globals().ctrOpenDiskFds.Update(-1);
 }
 
@@ -1616,6 +1622,9 @@ ChunkManager::ChunkManager()
       mMaxClientCount(mMaxOpenFds * 2 / 3),
       mFdsPerChunk(1),
       mChunkDirs(),
+      mStorageTiers(),
+      mObjDirs(),
+      mObjStorageTiers(),
       mWriteId(GetRandomSeq()), // Seed write id.
       mPendingWrites(),
       mObjPendingWrites(),
@@ -1670,6 +1679,8 @@ ChunkManager::ChunkManager()
       mAllocDefaultMaxTier(kKfsSTierMax),
       mStorageTiersPrefixes(),
       mStorageTiersSetFlag(false),
+      mObjStorageTiersPrefixes(),
+      mObjStorageTiersSetFlag(false),
       mBufferedIoPrefixes(),
       mBufferedIoSetFlag(false),
       mDiskBufferManagerEnabledFlag(true),
@@ -2063,20 +2074,42 @@ ChunkManager::SetStorageTiers(const Properties& props)
     const string prevPrefixes = mStorageTiersPrefixes;
     mStorageTiersPrefixes = props.getValue(
         "chunkServer.storageTierPrefixes", mStorageTiersPrefixes);
-    if (prevPrefixes == mStorageTiersPrefixes && mStorageTiersSetFlag) {
-        return;
+    if (prevPrefixes != mStorageTiersPrefixes || ! mStorageTiersSetFlag) {
+        if (mChunkDirs.empty()) {
+            mStorageTiersSetFlag = false;
+        } else {
+            SetStorageTiers(mStorageTiersPrefixes, mChunkDirs, mStorageTiers);
+            mStorageTiersSetFlag = true;
+        }
     }
-    if (mChunkDirs.empty()) {
-        mStorageTiersSetFlag = false;
-        return;
+    const string prevObjPrefixes = mObjStorageTiersPrefixes;
+    mObjStorageTiersPrefixes = props.getValue(
+        "chunkServer.objecStorageTierPrefixes", mObjStorageTiersPrefixes);
+    if (prevObjPrefixes != mObjStorageTiersPrefixes ||
+            ! mObjStorageTiersSetFlag) {
+        if (mObjDirs.empty()) {
+            mObjStorageTiersSetFlag = false;
+        } else {
+            SetStorageTiers(
+                mObjStorageTiersPrefixes, mObjDirs, mObjStorageTiers);
+            mObjStorageTiersSetFlag = true;
+        }
     }
-    mStorageTiers.clear();
-    for (ChunkDirs::iterator it = mChunkDirs.begin();
-            it < mChunkDirs.end();
+}
+
+void
+ChunkManager::SetStorageTiers(
+    const string&               prefixes,
+    ChunkManager::ChunkDirs&    dirs,
+    ChunkManager::StorageTiers& tiers)
+{
+    tiers.clear();
+    for (ChunkDirs::iterator it = dirs.begin();
+            it < dirs.end();
             ++it) {
         it->storageTier = kKfsSTierMax;
     }
-    istringstream is(mStorageTiersPrefixes);
+    istringstream is(prefixes);
     string prefix;
     int    tier;
     while ((is >> prefix >> tier)) {
@@ -2089,8 +2122,8 @@ ChunkManager::SetStorageTiers(const Properties& props)
         if (tier > kKfsSTierMax) {
             tier = kKfsSTierMax;
         }
-        for (ChunkDirs::iterator it = mChunkDirs.begin();
-                it != mChunkDirs.end();
+        for (ChunkDirs::iterator it = dirs.begin();
+                it != dirs.end();
                 ++it) {
             const string& dirname = it->dirname;
             if (prefix.length() <= dirname.length() &&
@@ -2099,15 +2132,14 @@ ChunkManager::SetStorageTiers(const Properties& props)
             }
         }
     }
-    for (ChunkDirs::iterator it = mChunkDirs.begin();
-            it < mChunkDirs.end();
+    for (ChunkDirs::iterator it = dirs.begin();
+            it < dirs.end();
             ++it) {
         if (it->availableSpace < 0) {
             continue;
         }
-        mStorageTiers[it->storageTier].push_back(&(*it));
+        tiers[it->storageTier].push_back(&(*it));
     }
-    mStorageTiersSetFlag = true;
 }
 
 void
@@ -2167,9 +2199,64 @@ struct EqualPrefixStr : public binary_function<string, string, bool>
 };
 
 bool
+ChunkManager::InitStorageDirs(
+    const vector<string>&    dirNames,
+    ChunkManager::ChunkDirs& storageDirs)
+{
+    // Normalize tailing /, and keep only longest prefixes:
+    // only leave leaf directories.
+    const size_t kMaxDirNameLength = MAX_RPC_HEADER_LEN / 3;
+    vector<string> dirs;
+    dirs.reserve(dirNames.size());
+    for (vector<string>::const_iterator it = dirNames.begin();
+            it < dirNames.end();
+            ++it) {
+        if (it->empty()) {
+            continue;
+        }
+        string dir = *it;
+        size_t pos = dir.length();
+        while (pos > 1 && dir[pos - 1] == '/') {
+            --pos;
+        }
+        if (++pos < dir.length()) {
+            dir.erase(pos);
+        }
+        dir = AddTrailingPathSeparator(dir);
+        if (dir.length() > kMaxDirNameLength) {
+            KFS_LOG_STREAM_ERROR <<
+                dir << ": chunk directory name exceeds"
+                    " character length limit of " << kMaxDirNameLength <<
+            KFS_LOG_EOM;
+            return false;
+        }
+        dirs.push_back(dir);
+    }
+    sort(dirs.begin(), dirs.end(), greater<string>());
+    size_t cnt = unique(dirs.begin(), dirs.end(), EqualPrefixStr()) -
+        dirs.begin();
+    storageDirs.Allocate(cnt);
+    vector<string>::const_iterator di = dirs.begin();
+    for (ChunkDirs::iterator it = storageDirs.begin();
+            it < storageDirs.end();
+            ++it, ++di) {
+        it->dirname     = *di;
+        it->storageTier = kKfsSTierMax;
+    }
+    return true;
+}
+
+bool
 ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
 {
-    if (chunkDirs.empty()) {
+    istringstream  is(prop.getValue("chunkServer.objectDir", string()));
+    string         name;
+    vector<string> objDirs;
+    while ((is >> name)) {
+        KFS_LOG_STREAM_INFO << "object dir: " << name << KFS_LOG_EOM;
+        objDirs.push_back(name);
+    }
+    if (chunkDirs.empty() && objDirs.empty()) {
         KFS_LOG_STREAM_ERROR <<
             "no chunk directories specified" <<
         KFS_LOG_EOM;
@@ -2211,45 +2298,9 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         return false;
     }
 
-    // Normalize tailing /, and keep only longest prefixes:
-    // only leave leaf directories.
-    const size_t kMaxDirNameLength = MAX_RPC_HEADER_LEN / 3;
-    vector<string> dirs;
-    dirs.reserve(chunkDirs.size());
-    for (vector<string>::const_iterator it = chunkDirs.begin();
-            it < chunkDirs.end();
-            ++it) {
-        if (it->empty()) {
-            continue;
-        }
-        string dir = *it;
-        size_t pos = dir.length();
-        while (pos > 1 && dir[pos - 1] == '/') {
-            --pos;
-        }
-        if (++pos < dir.length()) {
-            dir.erase(pos);
-        }
-        dir = AddTrailingPathSeparator(dir);
-        if (dir.length() > kMaxDirNameLength) {
-            KFS_LOG_STREAM_ERROR <<
-                dir << ": chunk directory name exceeds"
-                    " character length limit of " << kMaxDirNameLength <<
-            KFS_LOG_EOM;
-            return false;
-        }
-        dirs.push_back(dir);
-    }
-    sort(dirs.begin(), dirs.end(), greater<string>());
-    size_t cnt = unique(dirs.begin(), dirs.end(), EqualPrefixStr()) -
-        dirs.begin();
-    mChunkDirs.Allocate(cnt);
-    vector<string>::const_iterator di = dirs.begin();
-    for (ChunkDirs::iterator it = mChunkDirs.begin();
-            it < mChunkDirs.end();
-            ++it, ++di) {
-        it->dirname     = *di;
-        it->storageTier = kKfsSTierMax;
+    if (! InitStorageDirs(chunkDirs, mChunkDirs) ||
+            ! InitStorageDirs(objDirs, mObjDirs)) {
+        return false;
     }
     SetStorageTiers(prop);
     SetBufferedIo(prop);
@@ -2307,6 +2358,9 @@ ChunkManager::AllocChunk(
     kfsSeq_t          chunkReplicationTargetVersion /* = -1 */,
     DiskIo::FilePtr*  outFileHandle                 /* = 0 */)
 {
+    if (isBeingReplicated && chunkVersion < 0) {
+        return -EINVAL;
+    }
     ChunkInfoHandle* const cie = GetChunkInfoHandle(chunkId, chunkVersion);
     if (cie) {
         ChunkInfoHandle* const cih = cie;
@@ -2340,12 +2394,14 @@ ChunkManager::AllocChunk(
 
     // Find the directory to use
     ChunkDirInfo* const chunkdir = GetDirForChunk(
+        chunkVersion < 0,
         minTier == kKfsSTierUndef ? mAllocDefaultMinTier : minTier,
         maxTier == kKfsSTierUndef ? mAllocDefaultMaxTier : maxTier
     );
     if (! chunkdir) {
         KFS_LOG_STREAM_INFO <<
             "no directory has space to host chunk " << chunkId <<
+            " version: " << chunkVersion <<
         KFS_LOG_EOM;
         return -ENOSPC;
     }
@@ -3286,10 +3342,12 @@ ChunkManager::GetDirForChunkT(T start, T end)
 }
 
 ChunkManager::ChunkDirInfo*
-ChunkManager::GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier)
+ChunkManager::GetDirForChunk(
+    bool objFlag, kfsSTier_t minTier, kfsSTier_t maxTier)
 {
-    for (StorageTiers::const_iterator it = mStorageTiers.lower_bound(minTier);
-            it != mStorageTiers.end() && it->first <= maxTier;
+    StorageTiers& tiers = objFlag ? mObjStorageTiers : mStorageTiers;
+    for (StorageTiers::const_iterator it = tiers.lower_bound(minTier);
+            it != tiers.end() && it->first <= maxTier;
             ++it) {
         ChunkDirInfo* const dir = GetDirForChunkT(
             it->second.begin(), it->second.end());
@@ -3543,9 +3601,6 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih)
     if (cih->IsFileOpen() && ! cih->IsFileInUse() &&
             ! cih->IsBeingReplicated() && ! cih->SyncMeta()) {
         Release(*cih);
-        if (cih->chunkInfo.chunkVersion < 0) {
-            Delete(*cih); // Delete object table entry with no pending writes.
-        }
     } else {
         KFS_LOG_STREAM_INFO <<
             "Didn't release chunk " << cih->chunkInfo.chunkId <<
@@ -3867,8 +3922,8 @@ ChunkManager::WriteDone(WriteOp* op)
 bool
 ChunkManager::ReadChunkDone(ReadOp* op)
 {
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(op->chunkId, op->chunkVersion);
-
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(
+        op->chunkId, op->chunkVersion);
     bool staleRead = false;
     if (! cih ||
             op->chunkVersion != cih->chunkInfo.chunkVersion ||
@@ -4843,7 +4898,7 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
         // prefix has already been removed, and it will not be possible to
         // queue disk io request (delete or rename) anyway, and attempt to do
         // so will return an error.
-        if (cih->GetDirInfo().diskQueue) {
+        if (0 <= cih->chunkInfo.chunkVersion && cih->GetDirInfo().diskQueue) {
             // If the chunk with target version already exists withing the same
             // chunk directory, then do not issue delete.
             // If the existing chunk is already stable but the chunk to delete
@@ -4915,26 +4970,26 @@ ChunkManager::Timeout()
     gAtomicRecordAppendManager.Timeout();
 }
 
-void
-ChunkManager::ScavengePendingWrites(time_t now)
+template<typename TT, typename WT> void
+ChunkManager::ScavengePendingWrites(
+    time_t now, TT& table, WT& pendingWrites)
 {
     const time_t opExpireTime = now - mMaxPendingWriteLruSecs;
-
-    while (! mPendingWrites.empty()) {
-        WriteOp* const op = mPendingWrites.front();
+    while (! pendingWrites.empty()) {
+        WriteOp* const op = pendingWrites.front();
         // The list is sorted by enqueue time
         if (opExpireTime < op->enqueueTime) {
             break;
         }
         // if it exceeds 5 mins, retire the op
         KFS_LOG_STREAM_DEBUG <<
-            "Retiring write with id=" << op->writeId <<
-            " as it has been too long" <<
+            "expiring write with id: " << op->writeId <<
+            " chunkId: "               << op->chunkId <<
+            " version: "               << op->chunkVersion <<
         KFS_LOG_EOM;
-        mPendingWrites.pop_front();
-
-        ChunkInfoHandle** const ce  = mChunkTable.Find(op->chunkId);
-        ChunkInfoHandle* const  cih = ce ? *ce : 0;
+        ChunkInfoHandle** const ce  = table.Find(pendingWrites.FrontKey());
+        ChunkInfoHandle*  const cih = ce ? *ce : 0;
+        pendingWrites.pop_front();
         if (cih) {
             if (now - cih->lastIOTime >= mInactiveFdsCleanupIntervalSecs) {
                 // close the chunk only if it is inactive
@@ -4950,6 +5005,13 @@ ChunkManager::ScavengePendingWrites(time_t now)
     }
 }
 
+void
+ChunkManager::ScavengePendingWrites(time_t now)
+{
+    ScavengePendingWrites(now, mChunkTable, mPendingWrites);
+    ScavengePendingWrites(now, mObjTable,   mObjPendingWrites);
+}
+
 bool
 ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
 {
@@ -4957,12 +5019,8 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
     // are open, clean up.
     time_t expireTime;
     int    releaseCnt = -1;
-    if (! forceFlag) {
-        if (now < mNextInactiveFdCleanupTime) {
-            return true;
-        }
+    if (forceFlag) {
         expireTime = now - mInactiveFdsCleanupIntervalSecs;
-    } else {
         // Reserve is to deal with asynchronous close/open in the cases where
         // open and close are executed on different io queues.
         const uint64_t kReserve     = min((mMaxOpenChunkFiles + 3) / 4,
@@ -4981,15 +5039,28 @@ ChunkManager::CleanupInactiveFds(time_t now, bool forceFlag)
         } else {
             expireTime = now - mInactiveFdsCleanupIntervalSecs;
         }
+    } else {
+        if (now < mNextInactiveFdCleanupTime) {
+            ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
+            ChunkInfoHandle*   cih;
+            while ((cih = it.Next()) && cih->chunkInfo.chunkVersion < 0 &&
+                    ! cih->IsFileOpen()) {
+                Delete(*cih);
+            }
+            return true;
+        }
     }
-
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
     ChunkInfoHandle* cih;
-    while ((cih = it.Next()) && cih->lastIOTime < expireTime) {
+    while ((cih = it.Next()) && (cih->lastIOTime < expireTime ||
+                cih->chunkInfo.chunkVersion < 0)) {
         if (! cih->IsFileOpen() || cih->IsBeingReplicated()) {
             // Doesn't belong here, if / when io completes it will be added
             // back.
             ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
+            if (cih->chunkInfo.chunkVersion < 0) {
+                Delete(*cih); // Was scheduled for object table cleanup.
+            }
             continue;
         }
         bool inUseFlag;
@@ -5170,6 +5241,54 @@ ChunkManager::StartDiskIo()
             " sprsrv: "         << it->supportsSpaceReservatonFlag <<
         KFS_LOG_EOM;
         StorageTiers::mapped_type& tier = mStorageTiers[it->storageTier];
+        assert(find(tier.begin(), tier.end(), it) == tier.end());
+        tier.push_back(&(*it));
+    }
+    // Ensure that device id for obj store will not collide with normal the host
+    // file system ids issued by the directory checker, in order to detect
+    // possible name collisions between host file system directories and object
+    // store directories.
+    const int64_t     kMaxSpace = int64_t(1) << 60;
+    DiskIo::DeviceId  objDevId  =
+        DiskIo::DeviceId(1) << (sizeof(DiskIo::DeviceId) * 8 - 2);
+    for (ChunkDirs::iterator it = mObjDirs.begin();
+            it != mObjDirs.end();
+            ++it) {
+        it->dirCountSpaceAvailable      = &*it;
+        it->fileSystemId                = mFileSystemId;
+        it->deviceId                    = objDevId++;
+        it->availableSpace              = kMaxSpace;
+        it->totalSpace                  = kMaxSpace;
+        it->supportsSpaceReservatonFlag = false;
+        it->availableChunks.Clear();
+        string errMsg;
+        if (! DiskIo::StartIoQueue(
+                it->dirname.c_str(),
+                it->deviceId,
+                mMaxOpenChunkFiles,
+                &errMsg)) {
+            KFS_LOG_STREAM_FATAL <<
+                "failed to start disk queue for: " << it->dirname <<
+                " dev: << " << it->deviceId << " :" << errMsg <<
+            KFS_LOG_EOM;
+            DiskIo::Shutdown();
+            return false;
+        }
+        if (! (it->diskQueue = DiskIo::FindDiskQueue(it->dirname.c_str()))) {
+            die(it->dirname + ": failed to find disk queue");
+        }
+        it->startTime = globalNetManager().Now();
+        it->startCount++;
+        KFS_LOG_STREAM_INFO <<
+            "object store: " << it->dirname <<
+            " tier: "        << (int)it->storageTier <<
+            " devId: "       << it->deviceId <<
+            " space:"
+            " available: "   << it->availableSpace <<
+            " used: "        << it->usedSpace <<
+            " sprsrv: "      << it->supportsSpaceReservatonFlag <<
+        KFS_LOG_EOM;
+        StorageTiers::mapped_type& tier = mObjStorageTiers[it->storageTier];
         assert(find(tier.begin(), tier.end(), it) == tier.end());
         tier.push_back(&(*it));
     }
