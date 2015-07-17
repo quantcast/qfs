@@ -1455,6 +1455,9 @@ public:
     bool Validate(MetaCreate& createOp) const;
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }
+    void GetChunkServers(
+        const string& host,
+        Servers&      servers);
 protected:
     typedef vector<
         int,
@@ -2266,6 +2269,12 @@ protected:
     bool UpdateClientAuth(AuthContext& ctx);
     void MakeChunkAccess(
         const CSMap::Entry&            cs,
+        kfsUid_t                       authUid,
+        MetaLeaseAcquire::ChunkAccess& chunkAccess,
+        const ChunkServer*             writeMaster);
+    void MakeChunkAccess(
+        chunkId_t                      chunkId,
+        const LayoutManager::Servers&  servers,
         kfsUid_t                       authUid,
         MetaLeaseAcquire::ChunkAccess& chunkAccess,
         const ChunkServer*             writeMaster);

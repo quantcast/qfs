@@ -3433,6 +3433,9 @@ LeaseRenewOp::Request(ostream& os)
     if (emitCSAceessFlag) {
         os << "CS-access: 1\r\n";
     }
+    if (chunkVersion < 0) {
+        os << "Chunk-pos: " << (-chunkVersion + 1) << "\r\n";
+    }
     os << "\r\n";
 }
 
@@ -3454,11 +3457,14 @@ LeaseRelinquishOp::Request(ostream& os)
         "Lease-id: "       << leaseId         << "\r\n"
         "Lease-type: "     << leaseType       << "\r\n"
     ;
-    if (chunkSize >= 0) {
+    if (0 <= chunkSize) {
         os << "Chunk-size: " << chunkSize << "\r\n";
     }
     if (hasChecksum) {
         os << "Chunk-checksum: " << chunkChecksum << "\r\n";
+    }
+    if (chunkVersion < 0) {
+        os << "Chunk-pos: " << (-chunkVersion + 1) << "\r\n";
     }
     os << "\r\n";
 }

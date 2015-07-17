@@ -362,10 +362,11 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t chunkVersion,
     // in flight, then delete the lease.
     const LeaseInfo_t& lease = *it;
     LeaseRelinquishOp* const op = new LeaseRelinquishOp(
-        -1, chunkId, lease.leaseId, kWriteLease);
+        -1, chunkId, chunkVersion, lease.leaseId, kWriteLease);
     KFS_LOG_STREAM_INFO <<
         "sending lease relinquish for:"
         " chunk: "      << chunkId <<
+        " version: "    << chunkVersion <<
         " lease: "      << lease.leaseId <<
         " expires in: " << (lease.expires - Now()) << " sec" <<
         " size: "       << size <<

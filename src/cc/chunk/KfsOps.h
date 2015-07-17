@@ -2079,15 +2079,22 @@ struct LeaseRenewOp : public KfsOp {
 // using this op.
 struct LeaseRelinquishOp : public KfsOp {
     kfsChunkId_t chunkId;
+    int64_t      chunkVersion;
     int64_t      leaseId;
     const string leaseType;
     int64_t      chunkSize;
     uint32_t     chunkChecksum;
     bool         hasChecksum;
 
-    LeaseRelinquishOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const string& t)
+    LeaseRelinquishOp(
+        kfsSeq_t      s,
+        kfsChunkId_t  c,
+        int64_t       v,
+        int64_t       l,
+        const string& t)
         : KfsOp(CMD_LEASE_RELINQUISH, s),
           chunkId(c),
+          chunkVersion(v),
           leaseId(l),
           leaseType(t),
           chunkSize(-1),

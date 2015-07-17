@@ -780,6 +780,7 @@ struct MetaReaddirPlus: public MetaRequest {
 struct MetaGetalloc: public MetaRequest {
     fid_t           fid;          //!< file for alloc info is needed
     chunkOff_t      offset;       //!< offset of chunk within file
+    bool            objectStoreFlag;
     chunkId_t       chunkId;      //!< Id of the chunk corresponding to offset
     seq_t           chunkVersion; //!< version # assigned to this chunk
     ServerLocations locations;    //!< where the copies of the chunks are
@@ -789,6 +790,7 @@ struct MetaGetalloc: public MetaRequest {
         : MetaRequest(META_GETALLOC, false),
           fid(-1),
           offset(-1),
+          objectStoreFlag(false),
           chunkId(-1),
           chunkVersion(-1),
           locations(),
@@ -817,6 +819,7 @@ struct MetaGetalloc: public MetaRequest {
         .Def("File-handle",  &MetaGetalloc::fid,          fid_t(-1))
         .Def("Chunk-offset", &MetaGetalloc::offset,  chunkOff_t(-1))
         .Def("Pathname",     &MetaGetalloc::pathname               )
+        .Def("Obj-store",    &MetaGetalloc::objectStoreFlag,  false)
         ;
     }
 };
@@ -2924,6 +2927,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     const LeaseType    leaseType;
     StringBufT<256>    pathname; // Optional for debugging.
     chunkId_t          chunkId;
+    chunkOff_t         chunkPos;
     bool               flushFlag;
     int                leaseTimeout;
     int64_t            leaseId;
@@ -2941,6 +2945,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           leaseType(READ_LEASE),
           pathname(),
           chunkId(-1),
+          chunkPos(-1),
           flushFlag(false),
           leaseTimeout(LEASE_INTERVAL_SECS),
           leaseId(-1),
@@ -2983,6 +2988,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def("Get-locations",       &MetaLeaseAcquire::getChunkLocationsFlag,      false)
         .Def("Append-recovery",     &MetaLeaseAcquire::appendRecoveryFlag,         false)
         .Def("Append-recovery-loc", &MetaLeaseAcquire::appendRecoveryLocations)
+        .Def("Chunk-pos",           &MetaLeaseAcquire::chunkPos,          chunkOff_t(-1))
         ;
     }
 };

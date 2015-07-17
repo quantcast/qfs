@@ -1591,25 +1591,51 @@ MetaGetalloc::handle()
         statusMsg = "negative offset";
         return;
     }
-    MetaChunkInfo* chunkInfo = 0;
-    status = metatree.getalloc(fid, offset, &chunkInfo);
-    if (status != 0) {
-        KFS_LOG_STREAM_DEBUG <<
-            "handle_getalloc(" << fid << "," << offset <<
-            ") = " << status << ": kfsop failed" <<
-        KFS_LOG_EOM;
-        return;
-    }
-
-    chunkId      = chunkInfo->chunkId;
-    chunkVersion = chunkInfo->chunkVersion;
+    MetaFattr* fa  = 0;
+    int        err = 0;
     Servers    c;
-    MetaFattr* fa = 0;
     replicasOrderedFlag = false;
-    const int err = gLayoutManager.GetChunkToServerMapping(
-        *chunkInfo, c, fa, &replicasOrderedFlag);
-    if (! fa) {
-        panic("invalid chunk to server map", false);
+    if (objectStoreFlag) {
+        if (! (fa = metatree.getFattr(fid))) {
+            status    = -ENOENT;
+            statusMsg = "no such file";
+            return;
+        }
+        if (KFS_FILE != fa->type) {
+            status    = -EISDIR;
+            statusMsg = "not a file";
+            return;
+        }
+        if (0 != fa->numReplicas) {
+            status    = -EINVAL;
+            statusMsg = "not an object store file";
+            return;
+        }
+        gLayoutManager.GetChunkServers(clientIp, c);
+        if (c.empty()) {
+            status    = -EAGAIN;
+            statusMsg = "no access proxy available on host: " + clientIp;
+            return;
+        }
+        chunkId      = fid;
+        chunkVersion = -(chunkId_t)offset - 1;
+    } else {
+        MetaChunkInfo* chunkInfo = 0;
+        status = metatree.getalloc(fid, offset, &chunkInfo);
+        if (status != 0) {
+            KFS_LOG_STREAM_DEBUG <<
+                "handle_getalloc(" << fid << "," << offset <<
+                ") = " << status << ": kfsop failed" <<
+            KFS_LOG_EOM;
+            return;
+        }
+        chunkId      = chunkInfo->chunkId;
+        chunkVersion = chunkInfo->chunkVersion;
+        err = gLayoutManager.GetChunkToServerMapping(
+            *chunkInfo, c, fa, &replicasOrderedFlag);
+        if (! fa) {
+            panic("invalid chunk to server map", false);
+        }
     }
     if (! CanAccessFile(fa, *this)) {
         return;
@@ -4174,7 +4200,7 @@ MetaGetalloc::response(ostream& os)
         return;
     }
     os <<
-        "Chunk-handle: " << chunkId << "\r\n"
+        "Chunk-handle: "  << chunkId << "\r\n"
         "Chunk-version: " << chunkVersion << "\r\n";
     if (replicasOrderedFlag) {
         os << "Replicas-ordered: 1\r\n";
@@ -4869,7 +4895,9 @@ MetaChunkAllocate::request(ostream &os)
         "File-handle: "   << req->fid          << "\r\n"
         "Chunk-handle: "  << req->chunkId      << "\r\n"
         "Chunk-version: " <<
-            (0 == req->numReplicas ? req->offset : req->chunkVersion) << "\r\n"
+            (0 == req->numReplicas ?
+                -(chunkId_t)req->offset - 1 :
+                req->chunkVersion)             << "\r\n"
         "Min-tier: "      << (int)minSTier     << "\r\n"
         "Max-tier: "      << (int)maxSTier     << "\r\n"
     ;

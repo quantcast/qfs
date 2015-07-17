@@ -2465,10 +2465,14 @@ ChunkManager::AllocChunkForAppend(
 {
     if (IsWritePending(op->chunkId, op->chunkVersion)) {
         op->statusMsg = "random write in progress";
-        op->status = -EINVAL;
+        op->status    = -EINVAL;
     }
-    const bool kIsBeingReplicatedFlag = false;
-    ChunkInfoHandle *cih = 0;
+    if (op->chunkVersion < 0) {
+        op->statusMsg = "append not supported with object store blocks";
+        op->status    = -EINVAL;
+    }
+    const bool       kIsBeingReplicatedFlag = false;
+    ChunkInfoHandle* cih                    = 0;
     op->status = AllocChunk(
         op->fileId,
         op->chunkId,

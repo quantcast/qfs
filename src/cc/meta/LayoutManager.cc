@@ -4682,7 +4682,6 @@ LayoutManager::AllocateChunk(
         return 0;
     }
     if (r->numReplicas <= 0) {
-        // huh? allocate a chunk with 0 replicas???
         KFS_LOG_STREAM_DEBUG <<
             "allocate chunk reaplicas: " << r->numReplicas <<
             " request: " << r->Show() <<
@@ -5762,8 +5761,19 @@ LayoutManager::MakeChunkAccess(
         chunkAccess.Clear();
         return;
     }
-    MetaLeaseAcquire::ChunkAccessInfo info(
-        ServerLocation(), cs.GetChunkId(), authUid);
+    MakeChunkAccess(
+        cs.GetChunkId(), servers, authUid, chunkAccess, writeMaster);
+}
+
+void
+LayoutManager::MakeChunkAccess(
+    chunkId_t                      chunkId,
+    const LayoutManager::Servers&  servers,
+    kfsUid_t                       authUid,
+    MetaLeaseAcquire::ChunkAccess& chunkAccess,
+    const ChunkServer*             writeMaster)
+{
+    MetaLeaseAcquire::ChunkAccessInfo info(ServerLocation(), chunkId, authUid);
     for (Servers::const_iterator it = servers.begin(); it != servers.end(); ) {
         if (writeMaster) {
             info.authUid = (*it)->GetAuthUid();
@@ -5794,6 +5804,11 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         panic("invalid read lease request");
         return -EFAULT;
     }
+    req->chunkAccess.Clear();
+    if (READ_LEASE != req->leaseType) {
+        req->statusMsg = "invalid lease type";
+        return -EINVAL;
+    }
     if (LEASE_INTERVAL_SECS < req->leaseTimeout) {
         req->leaseTimeout = LEASE_INTERVAL_SECS;
     }
@@ -5803,12 +5818,55 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         req->issuedTime   = TimeNow();
         req->validForTime = mCSAccessValidForTimeSec;
     }
+    if (0 <= req->chunkPos) {
+        if (req->chunkId < 0) {
+            req->statusMsg = "invalid file id";
+            return -EINVAL;
+        }
+        const MetaFattr* const fa = metatree.getFattr(req->chunkId);
+        if (! fa) {
+            req->statusMsg = "no such file";
+            return -ENOENT;
+        }
+        if (KFS_FILE != fa->type) {
+            req->statusMsg = "not a file";
+            return -EISDIR;
+        }
+        if (0 != fa->numReplicas) {
+            req->statusMsg = "not an object store file";
+            return -EINVAL;
+        }
+        if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
+            StTmp<Servers> serversTmp(mServers3Tmp);
+            Servers&       servers = serversTmp.Get();
+            GetChunkServers(req->clientIp, servers);
+            if (servers.empty()) {
+                req->statusMsg =
+                    "no access proxy available on " + req->clientIp;
+                return -EAGAIN;
+            }
+            MakeChunkAccess(
+                req->chunkId, servers, req->authUid, req->chunkAccess, 0);
+            if (req->chunkAccess.IsEmpty()) {
+                req->statusMsg = "no access proxy key available";
+                return -EAGAIN;
+            }
+        }
+        if (! mChunkLeases.NewReadLease(
+                ChunkLeases::EntryKey(req->chunkId, req->chunkPos),
+                TimeNow() + req->leaseTimeout,
+                req->leaseId)) {
+            req->statusMsg = "write lease exists";
+            return -EBUSY;
+        }
+        return 0;
+    }
     const int ret = GetChunkReadLeases(*req);
     if (ret != 0 || req->chunkId < 0) {
         return ret;
     }
     if ((! req->fromChunkServerFlag && ! req->appendRecoveryFlag) &&
-            InRecovery()) {
+            req->chunkPos < 0 && InRecovery()) {
         req->statusMsg = "recovery is in progress";
         KFS_LOG_STREAM_INFO << "chunk " << req->chunkId <<
             " " << req->statusMsg << " => EBUSY" <<
@@ -5978,9 +6036,27 @@ LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
 int
 LayoutManager::LeaseRenew(MetaLeaseRenew* req)
 {
-    const CSMap::Entry* const cs = mChunkToServerMap.Find(req->chunkId);
-    if (! cs) {
-        return -EINVAL;
+    const CSMap::Entry* const cs = 0 <= req->chunkPos ? 0 :
+        mChunkToServerMap.Find(req->chunkId);
+    const MetaFattr* fa;
+    if (req->chunkPos < 0) {
+        if (! (fa = metatree.getFattr(req->chunkId))) {
+            req->statusMsg = "no such file";
+            return -ENOENT;
+        }
+        if (KFS_FILE != fa->type) {
+            req->statusMsg = "not a file";
+            return -EISDIR;
+        }
+        if (0 != fa->numReplicas) {
+            req->statusMsg = "not an object store file";
+            return -EINVAL;
+        }
+    } else {
+        if (! cs) {
+            return -EINVAL;
+        }
+        fa = cs->GetFattr();
     }
     const bool readLeaseFlag = mChunkLeases.IsReadLease(req->leaseId);
     if (readLeaseFlag != (req->leaseType == READ_LEASE)) {
@@ -5992,7 +6068,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         return -EPERM;
     }
     if (mVerifyAllOpsPermissionsFlag && readLeaseFlag &&
-                ! cs->GetFattr()->CanRead(req->euser, req->egroup)) {
+                ! fa->CanRead(req->euser, req->egroup)) {
         req->statusMsg = "access denied";
         return -EACCES;
     }
@@ -6002,17 +6078,27 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         key,
         req->leaseId,
         kAllocDoneFlag,
-        (mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ? cs->GetFattr() : 0,
+        (mVerifyAllOpsPermissionsFlag && ! readLeaseFlag) ? fa : 0,
         mClientCSAuthRequiredFlag ? req : 0
     );
-    if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
+    if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone &&
+            (! readLeaseFlag || cs)) {
         req->issuedTime                 = TimeNow();
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if (req->emitCSAccessFlag) {
             req->validForTime = mCSAccessValidForTimeSec;
         }
         req->tokenSeq = (MetaAllocate::TokenSeq)mRandom.Rand();
-        MakeChunkAccess(*cs, req->authUid, req->chunkAccess, req->chunkServer);
+        if (cs) {
+            MakeChunkAccess(
+                *cs, req->authUid, req->chunkAccess, req->chunkServer);
+        } else {
+            StTmp<Servers> serversTmp(mServers3Tmp);
+            Servers&       servers = serversTmp.Get();
+            GetChunkServers(req->clientIp, servers);
+            MakeChunkAccess(
+                req->chunkId, servers, req->authUid, req->chunkAccess, 0);
+        }
     }
     return ret;
 }
@@ -6361,7 +6447,7 @@ LayoutManager::DeleteChunk(MetaAllocate *req)
             const bool       kPendingAddFlag   = false;
             const chunkOff_t kChunkSize        = -1;
             req->servers.front()->MakeChunkStable(
-                req->fid, req->offset, req->chunkVersion,
+                req->fid, req->fid, (chunkId_t)req->offset - 1,
                 kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
         return;
@@ -10777,6 +10863,22 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
             op.status    = -EAGAIN;
             op.statusMsg = "no replication candidates";
             return;
+        }
+    }
+}
+
+void
+LayoutManager::GetChunkServers(
+    const string&           host,
+    LayoutManager::Servers& servers)
+{
+    Servers::const_iterator it = FindServerByHost(host);
+    servers.clear();
+    if (it != mChunkServers.end()) {
+        servers.push_back(*it);
+        while (++it != mChunkServers.end() &&
+                host == (*it)->GetServerLocation().hostname) {
+            servers.push_back(*it);
         }
     }
 }
