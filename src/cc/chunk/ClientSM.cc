@@ -1359,6 +1359,14 @@ ClientSM::CheckAccess(KfsClientChunkOp& op)
             }
             break;
     }
+    if (((op.chunkAccessFlags & ChunkAccessToken::kObjectStoreFlag) == 0) !=
+            (op.op == CMD_GET_CHUNK_METADATA || 0 <= op.chunkVersion)) {
+        op.statusMsg = 0 <= op.chunkVersion ?
+            "invalid object store access token" :
+            "invalid object store position";
+        op.status    = -EPERM;
+        return false;
+    }
     if ((op.chunkAccessFlags & ChunkAccessToken::kUsesLeaseIdFlag) != 0) {
         // Lease id isn't used yet.
         op.statusMsg = "chunk access: no lease id subject allowed";

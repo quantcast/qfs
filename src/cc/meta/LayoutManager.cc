@@ -5866,7 +5866,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         return ret;
     }
     if ((! req->fromChunkServerFlag && ! req->appendRecoveryFlag) &&
-            req->chunkPos < 0 && InRecovery()) {
+            InRecovery()) {
         req->statusMsg = "recovery is in progress";
         KFS_LOG_STREAM_INFO << "chunk " << req->chunkId <<
             " " << req->statusMsg << " => EBUSY" <<
@@ -6039,7 +6039,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
     const CSMap::Entry* const cs = 0 <= req->chunkPos ? 0 :
         mChunkToServerMap.Find(req->chunkId);
     const MetaFattr* fa;
-    if (req->chunkPos < 0) {
+    if (0 <= req->chunkPos) {
         if (! (fa = metatree.getFattr(req->chunkId))) {
             req->statusMsg = "no such file";
             return -ENOENT;

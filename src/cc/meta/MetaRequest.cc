@@ -4405,7 +4405,9 @@ MetaLeaseAcquire::response(ostream& os, IOBuffer& buf)
                         ChunkAccessToken::kAppendRecoveryFlag :
                         ChunkAccessToken::kAllowReadFlag) |
                         (clientCSAllowClearTextFlag ?
-                            ChunkAccessToken::kAllowClearTextFlag : 0),
+                            ChunkAccessToken::kAllowClearTextFlag : 0) |
+                        (0 <= chunkPos ?
+                            ChunkAccessToken::kObjectStoreFlag : 0),
                     leaseTimeout * 2,
                     ptr->key.GetPtr(),
                     ptr->key.GetSize()
@@ -4493,7 +4495,8 @@ MetaLeaseRenew::response(ostream& os, IOBuffer& buf)
                     ChunkAccessToken::kAllowWriteFlag) :
                 ChunkAccessToken::kAllowReadFlag) |
                 (clientCSAllowClearTextFlag ?
-                    ChunkAccessToken::kAllowClearTextFlag : 0),
+                    ChunkAccessToken::kAllowClearTextFlag : 0) |
+                (0 <= chunkPos ? ChunkAccessToken::kObjectStoreFlag : 0),
             LEASE_INTERVAL_SECS * 2,
             ptr->key.GetPtr(),
             ptr->key.GetSize()

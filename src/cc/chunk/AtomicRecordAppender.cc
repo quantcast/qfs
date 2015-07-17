@@ -172,7 +172,6 @@ typedef QCDLList<RecordAppendOp> AppendReplicationList;
 RecordAppendOp::RecordAppendOp(kfsSeq_t s)
     : ChunkAccessRequestOp(CMD_RECORD_APPEND, s),
       clientSeq(s),
-      chunkVersion(-1),
       numBytes(0),
       offset(-1),
       fileOffset(-1),

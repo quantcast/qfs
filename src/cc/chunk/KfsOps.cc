@@ -3109,9 +3109,10 @@ CloseOp::Request(ostream& os)
 {
     os <<
         "CLOSE \r\n"
-        "Cseq: "     << seq               << "\r\n"
-        "Version: "  << KFS_VERSION_STR   << "\r\n"
-        "Need-ack: " << (needAck ? 1 : 0) << "\r\n"
+        "Cseq: "          << seq               << "\r\n"
+        "Version: "       << KFS_VERSION_STR   << "\r\n"
+        "Need-ack: "      << (needAck ? 1 : 0) << "\r\n"
+        "Chunk-version: " << chunkVersion      << "\r\n"
     ;
     if (numServers > 0) {
         os <<
@@ -3122,9 +3123,6 @@ CloseOp::Request(ostream& os)
     os << "Chunk-handle: " << chunkId << "\r\n";
     if (hasWriteId) {
         os << "Has-write-id: " << 1 << "\r\n";
-    }
-    if (chunkVersion < 0) {
-        os << "Chunk-version: " << chunkVersion << "\r\n";
     }
     if (masterCommitted >= 0) {
         os  << "Master-committed: " << masterCommitted << "\r\n";

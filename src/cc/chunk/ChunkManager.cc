@@ -2832,10 +2832,8 @@ ChunkManager::IsChunkMetadataLoaded(kfsChunkId_t chunkId, int64_t chunkVersion)
 ChunkInfo_t*
 ChunkManager::GetChunkInfo(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    ChunkInfoHandle** const ci = 0 <= chunkVersion ?
-        mChunkTable.Find(chunkId) :
-        mObjTable.Find(make_pair(chunkId, chunkVersion));
-    return (ci ? &((*ci)->chunkInfo) : 0);
+    ChunkInfoHandle* const ci = GetChunkInfoHandle(chunkId, chunkVersion);
+    return (ci ? &(ci->chunkInfo) : 0);
 }
 
 int
@@ -3549,13 +3547,11 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
 int
 ChunkManager::CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    ChunkInfoHandle** const ci = 0 < chunkVersion ?
-        mChunkTable.Find(chunkId) :
-        mObjTable.Find(make_pair(chunkId, chunkVersion));
+    ChunkInfoHandle* const ci = GetChunkInfoHandle(chunkId, chunkVersion);
     if (! ci) {
         return -EBADF;
     }
-    return CloseChunk(*ci);
+    return CloseChunk(ci);
 }
 
 int
@@ -3577,16 +3573,14 @@ ChunkManager::CloseChunkWrite(kfsChunkId_t chunkId, int64_t writeId)
 bool
 ChunkManager::CloseChunkIfReadable(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    ChunkInfoHandle** const ci = 0 < chunkVersion ?
-        mChunkTable.Find(chunkId) :
-        mObjTable.Find(make_pair(chunkId, chunkVersion));
+    ChunkInfoHandle* const ci = GetChunkInfoHandle(chunkId, chunkVersion);
     if (! ci) {
         return -EBADF;
     }
     return (
-        IsChunkStable(*ci) &&
-        (*ci)->IsChunkReadable() &&
-        CloseChunk(*ci) == 0
+        IsChunkStable(ci) &&
+        ci->IsChunkReadable() &&
+        CloseChunk(ci) == 0
     );
 }
 
