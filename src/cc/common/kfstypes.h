@@ -142,9 +142,9 @@ static inline bool ValidateStripeParameters(
 {
     return (inStipedFileType == KFS_STRIPED_FILE_TYPE_NONE || (
         KFS_STRIPED_FILE_TYPE_UNKNOWN < inStipedFileType &&
-            inStipedFileType <= KFS_STRIPED_FILE_TYPE_COUNT &&
+            inStipedFileType < KFS_STRIPED_FILE_TYPE_COUNT &&
         KFS_MIN_STRIPE_SIZE <= inStripeSize &&
-            inStripeSize < KFS_MAX_STRIPE_SIZE &&
+            inStripeSize <= KFS_MAX_STRIPE_SIZE &&
         0 < inStripeCount &&
         inStripeSize % KFS_STRIPE_ALIGNMENT == 0 &&
         (int64_t)CHUNKSIZE % inStripeSize == 0 &&
