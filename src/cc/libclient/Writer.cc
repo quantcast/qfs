@@ -1180,8 +1180,9 @@ private:
         {
             QCASSERT(mAllocOp.chunkId > 0);
             Reset(mCloseOp);
-            mCloseOp.chunkId   = mAllocOp.chunkId;
-            mCloseOp.writeInfo = mWriteIds;
+            mCloseOp.chunkId      = mAllocOp.chunkId;
+            mCloseOp.chunkVersion = mAllocOp.chunkVersion;
+            mCloseOp.writeInfo    = mWriteIds;
             if (mCloseOp.writeInfo.empty()) {
                 mCloseOp.chunkServerLoc = mAllocOp.chunkServers;
             } else {

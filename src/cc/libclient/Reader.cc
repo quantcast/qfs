@@ -1053,6 +1053,9 @@ private:
             mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
             mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
             mLeaseAcquireOp.allowCSClearTextFlag          = false;
+            mLeaseAcquireOp.chunkPos                      =
+                mGetAllocOp.chunkVersion < 0 ?
+                    -(int64_t)mGetAllocOp.chunkVersion - 1 : int64_t(-1);
             mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
             mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
             mOuter.mStats.mGetLeaseCount++;
@@ -1137,6 +1140,7 @@ private:
             mLeaseRenewOp.chunkId         = mLeaseAcquireOp.chunkId;
             mLeaseRenewOp.pathname        = mGetAllocOp.filename.c_str();
             mLeaseRenewOp.leaseId         = mLeaseAcquireOp.leaseId;
+            mLeaseRenewOp.chunkPos        = mLeaseAcquireOp.chunkPos;
             mLeaseRenewOp.getCSAccessFlag = ! mChunkServerAccess.IsEmpty() &&
                 mChunkServerAccessExpires <= theNow;
             mLeaseRenewOp.chunkAccessCount              = 0;
@@ -1558,8 +1562,9 @@ private:
             // Cancel in flight lease renew if any.
             CancelMetaOps();
             Reset(mLeaseRelinquishOp);
-            mLeaseRelinquishOp.chunkId = mLeaseAcquireOp.chunkId;
-            mLeaseRelinquishOp.leaseId = mLeaseAcquireOp.leaseId;
+            mLeaseRelinquishOp.chunkId  = mLeaseAcquireOp.chunkId;
+            mLeaseRelinquishOp.leaseId  = mLeaseAcquireOp.leaseId;
+            mLeaseRelinquishOp.chunkPos = mLeaseAcquireOp.chunkPos;
             mLeaseAcquireOp.leaseId = -1;
             EnqueueMeta(mLeaseRelinquishOp);
         }

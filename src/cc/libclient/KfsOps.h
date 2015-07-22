@@ -808,6 +808,7 @@ struct ChunkAccessOp: public KfsOp {
     };
 
     kfsChunkId_t    chunkId;
+    int64_t         chunkVersion;
     string          access;
     bool            createChunkAccessFlag:1;
     bool            createChunkServerAccessFlag:1;
@@ -823,6 +824,7 @@ struct ChunkAccessOp: public KfsOp {
     ChunkAccessOp(KfsOp_t o, kfsSeq_t s, kfsChunkId_t c)
         : KfsOp(o, s),
           chunkId(c),
+          chunkVersion(0),
           access(),
           createChunkAccessFlag(false),
           createChunkServerAccessFlag(false),
@@ -1024,14 +1026,12 @@ struct CloseOp : public ChunkAccessOp {
 
 // used for retrieving a chunk's size
 struct SizeOp : public ChunkAccessOp {
-    int64_t    chunkVersion;
     chunkOff_t size; /* result */
 
     SizeOp(kfsSeq_t s, kfsChunkId_t c, int64_t v)
         : ChunkAccessOp(CMD_SIZE, s, c),
-          chunkVersion(v),
           size(-1)
-        {}
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
@@ -1047,7 +1047,6 @@ struct SizeOp : public ChunkAccessOp {
 
 
 struct ReadOp : public ChunkAccessOp {
-    int64_t          chunkVersion; /* input */
     chunkOff_t       offset;       /* input */
     size_t           numBytes;     /* input */
     bool             skipVerifyDiskChecksumFlag;
@@ -1058,13 +1057,12 @@ struct ReadOp : public ChunkAccessOp {
 
     ReadOp(kfsSeq_t s, kfsChunkId_t c, int64_t v)
         : ChunkAccessOp(CMD_READ, s, c),
-          chunkVersion(v),
           offset(0),
           numBytes(0),
           skipVerifyDiskChecksumFlag(false),
           diskIOTime(0.0),
           elapsedTime(0.0)
-        {}
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
@@ -1082,7 +1080,6 @@ struct ReadOp : public ChunkAccessOp {
 
 // op that defines the write that is going to happen
 struct WriteIdAllocOp : public ChunkAccessOp {
-    int64_t      chunkVersion; /* input */
     chunkOff_t   offset;       /* input */
     size_t       numBytes;     /* input */
     bool         isForRecordAppend; /* set if this is for a record append that is coming */
@@ -1092,14 +1089,11 @@ struct WriteIdAllocOp : public ChunkAccessOp {
 
     WriteIdAllocOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, chunkOff_t o, size_t n)
         : ChunkAccessOp(CMD_WRITE_ID_ALLOC, s, c),
-          chunkVersion(v),
           offset(o),
           numBytes(n),
           isForRecordAppend(false),
           writePrepReplySupportedFlag(false)
-    {
-
-    }
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
@@ -1111,7 +1105,6 @@ struct WriteIdAllocOp : public ChunkAccessOp {
 
 struct WritePrepareOp : public ChunkAccessOp {
     kfsChunkId_t      chunkId;
-    int64_t           chunkVersion; /* input */
     chunkOff_t        offset;       /* input */
     size_t            numBytes;     /* input */
     bool              replyRequestedFlag;
@@ -1120,13 +1113,12 @@ struct WritePrepareOp : public ChunkAccessOp {
 
     WritePrepareOp(kfsSeq_t s, kfsChunkId_t c, int64_t v)
         : ChunkAccessOp(CMD_WRITE_PREPARE, s, c),
-          chunkVersion(v),
           offset(0),
           numBytes(0),
           replyRequestedFlag(false),
           checksums(),
           writeInfo()
-        {}
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "write-prepare:"
@@ -1141,7 +1133,6 @@ struct WritePrepareOp : public ChunkAccessOp {
 };
 
 struct WriteSyncOp : public ChunkAccessOp {
-    int64_t           chunkVersion;
     // The range of data we are sync'ing
     chunkOff_t        offset; /* input */
     size_t            numBytes; /* input */
@@ -1151,7 +1142,6 @@ struct WriteSyncOp : public ChunkAccessOp {
 
     WriteSyncOp()
         : ChunkAccessOp(CMD_WRITE_SYNC, 0, 0),
-          chunkVersion(0),
           offset(0),
           numBytes(0),
           writeInfo()
@@ -1199,6 +1189,7 @@ struct LeaseAcquireOp : public KfsOp {
     BOOST_STATIC_ASSERT(kMaxChunkIds * 21 + (1<<10) < MAX_RPC_HEADER_LEN);
 
     kfsChunkId_t           chunkId;      // input
+    int64_t                chunkPos;     // input
     const char*            pathname;     // input
     bool                   flushFlag;    // input
     int                    leaseTimeout; // input
@@ -1216,6 +1207,7 @@ struct LeaseAcquireOp : public KfsOp {
     LeaseAcquireOp(kfsSeq_t s, kfsChunkId_t c, const char* p)
         : KfsOp(CMD_LEASE_ACQUIRE, s),
           chunkId(c),
+          chunkPos(-1),
           pathname(p),
           flushFlag(false),
           leaseTimeout(-1),
@@ -1235,6 +1227,7 @@ struct LeaseAcquireOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         os << "lease-acquire:"
             " chunkid: " << chunkId <<
+            " pos: "     << chunkPos <<
             " leaseid: " << leaseId
         ;
         return os;
@@ -1243,6 +1236,7 @@ struct LeaseAcquireOp : public KfsOp {
 
 struct LeaseRenewOp : public KfsOp {
     kfsChunkId_t chunkId;  // input
+    int64_t      chunkPos; // input
     int64_t      leaseId;  // input
     const char*  pathname; // input
     bool         getCSAccessFlag;
@@ -1254,6 +1248,7 @@ struct LeaseRenewOp : public KfsOp {
     LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const char* p)
         : KfsOp(CMD_LEASE_RENEW, s),
           chunkId(c),
+          chunkPos(-1),
           leaseId(l),
           pathname(p),
           getCSAccessFlag(false),
@@ -1269,6 +1264,7 @@ struct LeaseRenewOp : public KfsOp {
         os <<
             "lease-renew:"
             " chunkid: " << chunkId <<
+            " pos: "     << chunkPos <<
             " leaseId: " << leaseId;
         return os;
     }
@@ -1278,36 +1274,39 @@ struct LeaseRenewOp : public KfsOp {
 // using this op.
 struct LeaseRelinquishOp : public KfsOp {
     kfsChunkId_t chunkId;
+    int64_t      chunkPos;
     int64_t      leaseId;
     string       leaseType;
 
     LeaseRelinquishOp(kfsSeq_t s, kfsChunkId_t c, int64_t l)
         : KfsOp(CMD_LEASE_RELINQUISH, s),
           chunkId(c),
+          chunkPos(-1),
           leaseId(l)
         {}
     void Request(ostream& os);
     // defaut parsing of status is sufficient
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "lease-relinquish: chunkid: " << chunkId <<
-            " leaseId: " << leaseId << " type: " << leaseType;
+        os << "lease-relinquish:"
+            " chunkid: " << chunkId <<
+            " pos: "     << chunkPos <<
+            " leaseId: " << leaseId <<
+            " type: "    << leaseType;
         return os;
     }
 };
 
 /// add in ops for space reserve/release/record-append
 struct ChunkSpaceReserveOp : public ChunkAccessOp {
-    int64_t          chunkVersion; /* input */
     size_t            numBytes;    /* input */
     vector<WriteInfo> writeInfo;   /* input */
 
     ChunkSpaceReserveOp(kfsSeq_t s, kfsChunkId_t c, int64_t v,
         vector<WriteInfo> &w, size_t n)
         : ChunkAccessOp(CMD_CHUNK_SPACE_RESERVE, s, c),
-          chunkVersion(v),
           numBytes(n),
           writeInfo(w)
-        {}
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chunk-space-reserve: chunkid: " << chunkId <<
@@ -1317,17 +1316,15 @@ struct ChunkSpaceReserveOp : public ChunkAccessOp {
 };
 
 struct ChunkSpaceReleaseOp : public ChunkAccessOp {
-    int64_t           chunkVersion; /* input */
     size_t            numBytes;     /* input */
     vector<WriteInfo> writeInfo;    /* input */
 
     ChunkSpaceReleaseOp(kfsSeq_t s, kfsChunkId_t c, int64_t v,
             const vector<WriteInfo>& w, size_t n)
         : ChunkAccessOp(CMD_CHUNK_SPACE_RELEASE, s, c),
-          chunkVersion(v),
           numBytes(n),
           writeInfo(w)
-        {}
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "chunk-space-release: chunkid: " << chunkId <<
@@ -1337,17 +1334,15 @@ struct ChunkSpaceReleaseOp : public ChunkAccessOp {
 };
 
 struct RecordAppendOp : public ChunkAccessOp {
-    int64_t      chunkVersion;   /* input */
-    chunkOff_t   offset;         /* input: this client's view of where it is writing in the file */
+    chunkOff_t        offset;    /* input: this client's view of where it is writing in the file */
     vector<WriteInfo> writeInfo; /* input */
 
     RecordAppendOp(kfsSeq_t s, kfsChunkId_t c, int64_t v, chunkOff_t o,
         const vector<WriteInfo>& w)
         : ChunkAccessOp(CMD_RECORD_APPEND, s, c),
-          chunkVersion(v),
           offset(o),
           writeInfo(w)
-        {}
+        { chunkVersion = v; }
     void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "record-append: chunkid: " << chunkId <<
@@ -1359,48 +1354,46 @@ struct RecordAppendOp : public ChunkAccessOp {
 
 struct GetRecordAppendOpStatus : public ChunkAccessOp
 {
-    int64_t      writeId;          // input
-    kfsSeq_t     opSeq;            // output
-    int64_t      chunkVersion;
-    int64_t      opOffset;
-    size_t       opLength;
-    int          opStatus;
-    size_t       widAppendCount;
-    size_t       widBytesReserved;
-    size_t       chunkBytesReserved;
-    int64_t      remainingLeaseTime;
-    int64_t      masterCommitOffset;
-    int64_t      nextCommitOffset;
-    int          appenderState;
-    string       appenderStateStr;
-    bool         masterFlag;
-    bool         stableFlag;
-    bool         openForAppendFlag;
-    bool         widWasReadOnlyFlag;
-    bool         widReadOnlyFlag;
+    int64_t  writeId;          // input
+    kfsSeq_t opSeq;            // output
+    int64_t  opOffset;
+    size_t   opLength;
+    int      opStatus;
+    size_t   widAppendCount;
+    size_t   widBytesReserved;
+    size_t   chunkBytesReserved;
+    int64_t  remainingLeaseTime;
+    int64_t  masterCommitOffset;
+    int64_t  nextCommitOffset;
+    int      appenderState;
+    string   appenderStateStr;
+    bool     masterFlag;
+    bool     stableFlag;
+    bool     openForAppendFlag;
+    bool     widWasReadOnlyFlag;
+    bool     widReadOnlyFlag;
 
-    GetRecordAppendOpStatus(kfsSeq_t seq, kfsChunkId_t c, int64_t w) :
-        ChunkAccessOp(CMD_GET_RECORD_APPEND_STATUS, seq, c),
-        writeId(w),
-        opSeq(-1),
-        chunkVersion(-1),
-        opOffset(-1),
-        opLength(0),
-        opStatus(-1),
-        widAppendCount(0),
-        widBytesReserved(0),
-        chunkBytesReserved(0),
-        remainingLeaseTime(0),
-        masterCommitOffset(-1),
-        nextCommitOffset(-1),
-        appenderState(0),
-        appenderStateStr(),
-        masterFlag(false),
-        stableFlag(false),
-        openForAppendFlag(false),
-        widWasReadOnlyFlag(false),
-        widReadOnlyFlag(false)
-    {}
+    GetRecordAppendOpStatus(kfsSeq_t seq, kfsChunkId_t c, int64_t w)
+        : ChunkAccessOp(CMD_GET_RECORD_APPEND_STATUS, seq, c),
+          writeId(w),
+          opSeq(-1),
+          opOffset(-1),
+          opLength(0),
+          opStatus(-1),
+          widAppendCount(0),
+          widBytesReserved(0),
+          chunkBytesReserved(0),
+          remainingLeaseTime(0),
+          masterCommitOffset(-1),
+          nextCommitOffset(-1),
+          appenderState(0),
+          appenderStateStr(),
+          masterFlag(false),
+          stableFlag(false),
+          openForAppendFlag(false),
+          widWasReadOnlyFlag(false),
+          widReadOnlyFlag(false)
+        {}
     void Request(ostream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const

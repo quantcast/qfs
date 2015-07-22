@@ -470,8 +470,9 @@ void
 CloseOp::Request(ostream &os)
 {
     os <<
-        "CLOSE\r\n"      << ReqHeaders(*this) <<
-        "Chunk-handle: " << chunkId           << "\r\n"
+        "CLOSE\r\n"       << ReqHeaders(*this) <<
+        "Chunk-handle: "  << chunkId           << "\r\n"
+        "Chunk-version: " << chunkVersion      << "\r\n"
         << Access()
     ;
     if (! writeInfo.empty()) {
@@ -660,6 +661,9 @@ LeaseAcquireOp::Request(ostream &os)
     if (chunkId >= 0) {
         os << "Chunk-handle: " << chunkId << "\r\n";
     }
+    if (0 <= chunkPos) {
+        os << "Chunk-pos: " << chunkPos << "\r\n";
+    }
     if (flushFlag) {
         os << "Flush-write-lease: 1\r\n";
     }
@@ -700,6 +704,9 @@ LeaseRenewOp::Request(ostream &os)
         "Lease-id: "      << leaseId           << "\r\n"
         "Lease-type: "       "READ_LEASE"         "\r\n"
     ;
+    if (0 <= chunkPos) {
+        os << "Chunk-pos: " << chunkPos << "\r\n";
+    }
     if (getCSAccessFlag) {
         os << "CS-access: 1\r\n";
     }
@@ -714,7 +721,11 @@ LeaseRelinquishOp::Request(ostream &os)
         "Chunk-handle:"        << chunkId           << "\r\n"
         "Lease-id: "           << leaseId           << "\r\n"
         "Lease-type: "            "READ_LEASE"         "\r\n"
-    "\r\n";
+    ;
+    if (0 <= chunkPos) {
+        os << "Chunk-pos: " << chunkPos << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void
