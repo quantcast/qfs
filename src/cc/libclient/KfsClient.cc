@@ -494,7 +494,7 @@ KfsClient::ParseCreateParams(const char* params,
     } else {
         char* p = 0;
         numReplicas = (int)strtol(params, &p, 10);
-        if (numReplicas <= 0) {
+        if (numReplicas < 0) {
             return -EINVAL;
         }
         if (*p == ',') numStripes         = (int)strtol(p + 1, &p, 10);

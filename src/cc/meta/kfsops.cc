@@ -1517,7 +1517,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
         if (0 != *chunkId) {
             return -EINVAL; // Prevent chunk assignment in replay.
         }
-        *chunkId      = 0;
+        *chunkId      = file;
         *chunkVersion = 0;
         if (offset < fa->nextChunkOffset()) {
             return -EEXIST;

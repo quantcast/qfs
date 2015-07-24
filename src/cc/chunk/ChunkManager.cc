@@ -2419,12 +2419,16 @@ ChunkManager::AllocChunk(
     cih->SetBeingReplicated(isBeingReplicated);
     cih->SetMetaDirty();
     bool newEntryFlag = false;
-    if (! mChunkTable.Insert(chunkId, cih, newEntryFlag) || ! newEntryFlag) {
+    if (! (0 <= cih->chunkInfo.chunkVersion ?
+        mChunkTable.Insert(cih->chunkInfo.chunkId, cih, newEntryFlag) :
+        mObjTable.Insert(make_pair(
+                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion),
+            cih, newEntryFlag)) || ! newEntryFlag) {
         die("chunk insertion failure");
         cih->Delete(mChunkInfoLists);
         return -EFAULT;
     }
-    KFS_LOG_STREAM_INFO << "Creating chunk: " << MakeChunkPathname(cih) <<
+    KFS_LOG_STREAM_INFO << "creating chunk: " << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
     int ret = OpenChunk(cih, O_RDWR | O_CREAT);
     if (ret < 0) {

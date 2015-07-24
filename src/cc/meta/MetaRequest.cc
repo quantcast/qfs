@@ -4309,7 +4309,7 @@ MetaAllocate::responseSelf(ostream& os)
         return;
     }
     os <<
-        "Chunk-handle: "  << (0 == numReplicas ? fid : chunkId) << "\r\n"
+        "Chunk-handle: "  << chunkId << "\r\n"
         "Chunk-version: " << (0 == numReplicas ?
             -(chunkId_t)offset - 1 : chunkVersion) << "\r\n";
     if (appendChunk) {

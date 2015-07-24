@@ -572,7 +572,8 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
                 DelegationToken::kChunkServerFlag |
                 ChunkAccessToken::kAllowReadFlag |
                 ChunkAccessToken::kAllowWriteFlag |
-                ChunkAccessToken::kAllowClearTextFlag)) |
+                ChunkAccessToken::kAllowClearTextFlag |
+                ChunkAccessToken::kObjectStoreFlag)) |
                 accessTokenFlags,
             validForSec,
             key.GetPtr(),
