@@ -1514,7 +1514,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
             panic("chunk entry in object sotre file");
             return -EFAULT;
         }
-        if (0 != *chunkId) {
+        if (file != *chunkId) {
             return -EINVAL; // Prevent chunk assignment in replay.
         }
         *chunkId      = file;
