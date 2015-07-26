@@ -3433,7 +3433,7 @@ LeaseRenewOp::Request(ostream& os)
         os << "CS-access: 1\r\n";
     }
     if (chunkVersion < 0) {
-        os << "Chunk-pos: " << (-chunkVersion + 1) << "\r\n";
+        os << "Chunk-pos: " << (-(int64_t)chunkVersion - 1) << "\r\n";
     }
     os << "\r\n";
 }
@@ -3463,7 +3463,7 @@ LeaseRelinquishOp::Request(ostream& os)
         os << "Chunk-checksum: " << chunkChecksum << "\r\n";
     }
     if (chunkVersion < 0) {
-        os << "Chunk-pos: " << (-chunkVersion + 1) << "\r\n";
+        os << "Chunk-pos: " << (-(int64_t)chunkVersion - 1) << "\r\n";
     }
     os << "\r\n";
 }
