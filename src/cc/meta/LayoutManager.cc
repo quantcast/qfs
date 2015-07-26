@@ -646,9 +646,10 @@ ChunkLeases::ExpiredCleanup(
     if (wl.allocInFlight) {
         return false;
     }
-    CSMap::Entry* const ci = we.GetKey().IsChunkEntry() ?
-        csmap.Find(we.GetKey().first) : 0;
-    if (we.GetKey().IsChunkEntry() && ! ci) {
+    const EntryKey      key = we.GetKey();
+    CSMap::Entry* const ci  = key.IsChunkEntry() ?
+        csmap.Find(key.first) : 0;
+    if (key.IsChunkEntry() && ! ci) {
         Erase(we);
         return true;
     }
@@ -661,14 +662,30 @@ ChunkLeases::ExpiredCleanup(
         }
         return false;
     }
-    const bool   relinquishedFlag = ci && wl.relinquishedFlag;
-    const seq_t  chunkVersion     = wl.chunkVersion;
-    const string pathname         = wl.pathname;
-    const bool   appendFlag       = wl.appendFlag;
-    const bool   stripedFileFlag  = wl.stripedFileFlag;
+    const ChunkServerPtr chunkServer      =
+        ci ? ChunkServerPtr() : wl.chunkServer;
+    const bool           relinquishedFlag = ci && wl.relinquishedFlag;
+    const seq_t          chunkVersion     = wl.chunkVersion;
+    const string         pathname         = wl.pathname;
+    const bool           appendFlag       = wl.appendFlag;
+    const bool           stripedFileFlag  = wl.stripedFileFlag;
     Erase(we);
     if (relinquishedFlag) {
         UpdateReplicationState(csmap, *ci);
+        return true;
+    }
+    if (! ci) {
+        if (key.IsChunkEntry() || appendFlag) {
+            panic("invalid object store block write lease");
+        }
+        if (chunkServer && ! chunkServer->IsDown()) {
+            const bool       kHasChunkChecksum = false;
+            const bool       kPendingAddFlag   = false;
+            const chunkOff_t kChunkSize        = -1;
+            chunkServer->MakeChunkStable(
+                key.first, key.first, key.second,
+                kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
+        }
         return true;
     }
     if (appendFlag) {
@@ -6435,7 +6452,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
 }
 
 void
-LayoutManager::DeleteChunk(MetaAllocate *req)
+LayoutManager::DeleteChunk(MetaAllocate* req)
 {
     if (0 == req->numReplicas) {
         if (mChunkLeases.DeleteWriteLease(
