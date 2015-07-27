@@ -5171,16 +5171,18 @@ LayoutManager::WritePendingChunkVersionChange(ostream& os) const
 }
 
 int
-LayoutManager::GetInFlightChunkOpsCount(chunkId_t chunkId, MetaOp opType) const
+LayoutManager::GetInFlightChunkOpsCount(chunkId_t chunkId, MetaOp opType,
+    chunkOff_t objStoreBlockPos /* = -1 */) const
 {
     const MetaOp types[] = { opType,  META_NUM_OPS_COUNT };
-    return GetInFlightChunkOpsCount(chunkId, types);
+    return GetInFlightChunkOpsCount(chunkId, types, objStoreBlockPos);
 }
 
 int
 LayoutManager::GetInFlightChunkModificationOpCount(
     chunkId_t               chunkId,
-    LayoutManager::Servers* srvs /* = 0 */) const
+    chunkOff_t              objStoreBlockPos /* = -1 */,
+    LayoutManager::Servers* srvs             /* = 0 */) const
 {
     MetaOp const types[] = {
         META_CHUNK_REPLICATE,  // Recovery or replication.
@@ -5188,14 +5190,15 @@ LayoutManager::GetInFlightChunkModificationOpCount(
         META_CHUNK_MAKE_STABLE,
         META_NUM_OPS_COUNT     // Sentinel
     };
-    return GetInFlightChunkOpsCount(chunkId, types, srvs);
+    return GetInFlightChunkOpsCount(chunkId, types, objStoreBlockPos, srvs);
 }
 
 int
 LayoutManager::GetInFlightChunkOpsCount(
     chunkId_t               chunkId,
     const MetaOp*           opTypes,
-    LayoutManager::Servers* srvs /* = 0 */) const
+    chunkOff_t              objStoreBlockPos /* = -1 */,
+    LayoutManager::Servers* srvs              /* = 0 */) const
 {
     int                                  ret = 0;
     const ChunkServer::ChunkOpsInFlight& ops =
@@ -5210,9 +5213,23 @@ LayoutManager::GetInFlightChunkOpsCount(
         for (const MetaOp* op = opTypes;
                 *op != META_NUM_OPS_COUNT;
                 op++) {
-            if (it->second->op == *op) {
-                ret++;
+            if (it->second->op != *op) {
+                continue;
             }
+            if (objStoreBlockPos < 0) {
+                if (it->second->chunkVersion < 0) {
+                    continue;
+                }
+            } else {
+                if (0 <= it->second->chunkVersion) {
+                    continue;
+                }
+                if (-(chunkOff_t)it->second->chunkVersion + 1 !=
+                        objStoreBlockPos) {
+                    continue;
+                }
+            }
+            ret++;
             if (srvs && find(srvs->begin(), srvs->end(),
                     it->second->server) == srvs->end()) {
                 srvs->push_back(it->second->server);
@@ -5257,6 +5274,16 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
                 KFS_LOG_EOM;
                 return -EBUSY;
             }
+            if (GetInFlightChunkOpsCount(
+                    r->fid, META_CHUNK_MAKE_STABLE, r->offset)) {
+                r->statusMsg = "make block stable in progress";
+                KFS_LOG_STREAM_INFO << "write lease denied"
+                    " ip: " << r->clientIp <<
+                    " <" << r->fid << "@" << r->offset << "> " <<
+                    r->statusMsg <<
+                KFS_LOG_EOM;
+                return -EBUSY;
+            }
             // Create new lease even though no version change done.
             mChunkLeases.Delete(leaseKey);
         }
@@ -5280,7 +5307,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
     }
     if (GetInFlightChunkModificationOpCount(r->chunkId) > 0) {
         // Wait for re-replication to finish.
-        KFS_LOG_STREAM_INFO << "Write lease: " << r->chunkId <<
+        KFS_LOG_STREAM_INFO << "write lease: " << r->chunkId <<
             " is being re-replicated => EBUSY" <<
         KFS_LOG_EOM;
         r->statusMsg = "replication is in progress";
@@ -5860,6 +5887,10 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         }
         if (0 != fa->numReplicas) {
             req->statusMsg = "not an object store file";
+            return -EINVAL;
+        }
+        if (req->appendRecoveryFlag) {
+            req->statusMsg = "append is not supported with object store file";
             return -EINVAL;
         }
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
@@ -8583,8 +8614,10 @@ LayoutManager::GetPlacementExcludes(
                         CSMap::Entry::kStateNone) {
                 return false;
             }
+            const chunkOff_t kObjStoreBlockPos = -1;
             if (GetInFlightChunkModificationOpCount(
                     (*it)->chunkId,
+                    kObjStoreBlockPos,
                     stopIfHasAnyReplicationsInFlight ?
                         0 : &servers
                     ) > 0 &&
@@ -8735,8 +8768,9 @@ LayoutManager::CanReplicateChunkNow(
                 good++;
             }
             if (chunkId != curChunkId) {
+                const chunkOff_t kObjStoreBlockPos = -1;
                 GetInFlightChunkModificationOpCount(
-                    curChunkId, &srvs);
+                    curChunkId, kObjStoreBlockPos, &srvs);
             }
             placement.ExcludeServerAndRack(srvs, curChunkId);
             ++it;

@@ -1605,11 +1605,13 @@ struct MetaChown: public MetaRequest {
 struct MetaChunkRequest: public MetaRequest {
     const chunkId_t      chunkId;
     const ChunkServerPtr server; // The "owner".
+    seq_t                chunkVersion;
     MetaChunkRequest(MetaOp o, seq_t s, bool mu,
             const ChunkServerPtr& c, chunkId_t cid)
         : MetaRequest(o, mu, s),
           chunkId(cid),
-          server(c)
+          server(c),
+          chunkVersion(0)
         {}
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
@@ -1645,7 +1647,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
           chunkServerAccessStr(),
           chunkAccessStr(),
           req(r)
-          {}
+          { chunkVersion = req->chunkVersion; }
     virtual void handle();
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -1697,7 +1699,6 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     > FileRecoveryInFlightCount;
 
     fid_t                               fid;          //!< input: we tell the chunkserver what it is
-    seq_t                               chunkVersion; //!< io: the chunkservers tells us what it did
     chunkOff_t                          chunkOffset;  //!< input: chunk recovery parameters
     int16_t                             striperType;
     int16_t                             numStripes;
@@ -1725,7 +1726,6 @@ struct MetaChunkReplicate: public MetaChunkRequest {
             FileRecoveryInFlightCount::iterator it)
         : MetaChunkRequest(META_CHUNK_REPLICATE, n, false, s, c),
           fid(f),
-          chunkVersion(-1),
           chunkOffset(-1),
           striperType(KFS_STRIPED_FILE_TYPE_NONE),
           numStripes(0),
@@ -1760,7 +1760,6 @@ struct MetaChunkReplicate: public MetaChunkRequest {
  */
 struct MetaChunkVersChange: public MetaChunkRequest {
     fid_t               fid;
-    seq_t               chunkVersion; //!< version # assigned to this chunk
     seq_t               fromVersion;
     bool                makeStableFlag;
     bool                pendingAddFlag;
@@ -1778,12 +1777,12 @@ struct MetaChunkVersChange: public MetaChunkRequest {
         MetaChunkReplicate*   repl = 0)
         : MetaChunkRequest(META_CHUNK_VERSCHANGE, n, false, s, c),
           fid(f),
-          chunkVersion(v),
           fromVersion(fromVers),
           makeStableFlag(mkStableFlag),
           pendingAddFlag(pendAddFlag),
           replicate(repl)
     {
+        chunkVersion = v;
         if (replicate) {
             assert(! replicate->versChange);
             replicate->versChange = this;
@@ -1813,7 +1812,6 @@ struct MetaChunkVersChange: public MetaChunkRequest {
 struct MetaChunkSize: public MetaChunkRequest {
     fid_t      fid;     //!< input: we use the tuple <fileid, chunkid> to
                 //!< find the entry we need.
-    seq_t      chunkVersion;
     chunkOff_t chunkSize; //!< output: the chunk size
     chunkOff_t filesize;  //!< for logging purposes: the size of the file
     /// input: given the pathname, we can update space usage for the path
@@ -1825,12 +1823,11 @@ struct MetaChunkSize: public MetaChunkRequest {
             chunkId_t c, seq_t v, const string &p, bool retry)
         : MetaChunkRequest(META_CHUNK_SIZE, n, true, s, c),
           fid(f),
-          chunkVersion(v),
           chunkSize(-1),
           filesize(-1),
           pathname(p),
           retryFlag(retry)
-        {}
+        { chunkVersion = v; }
     virtual void handle();
     virtual int log(ostream &file) const;
     virtual void request(ostream &os);
@@ -1900,7 +1897,6 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
 
 struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     const fid_t          fid;           // input
-    const seq_t          chunkVersion;  // input
     const ServerLocation serverLoc;     // processing this cmd
     int64_t              chunkSize;     // output
     uint32_t             chunkChecksum; // output
@@ -1908,11 +1904,10 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
             const ServerLocation& l, fid_t f, chunkId_t c, seq_t v) :
         MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, n, false, s, c),
         fid(f),
-        chunkVersion(v),
         serverLoc(l),
         chunkSize(-1),
         chunkChecksum(0)
-        {}
+        { chunkVersion = v; }
     virtual void handle();
     virtual void request(ostream &os);
     virtual void handleReply(const Properties& prop)
@@ -1993,7 +1988,6 @@ struct MetaLogMakeChunkStableDone : public MetaLogMakeChunkStable {
  */
 struct MetaChunkMakeStable: public MetaChunkRequest {
     const fid_t      fid;   //!< input: we tell the chunkserver what it is
-    const seq_t      chunkVersion; //!< The version tha the chunk should be in
     const chunkOff_t chunkSize;
     const bool       hasChunkChecksum:1;
     const bool       addPending:1;
@@ -2011,12 +2005,11 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
         : MetaChunkRequest(META_CHUNK_MAKE_STABLE,
                 inSeqNo, false, inServer, inChunkId),
           fid(inFileId),
-          chunkVersion(inChunkVersion),
           chunkSize(inChunkSize),
           hasChunkChecksum(inHasChunkChecksum),
           addPending(inAddPending),
           chunkChecksum(inChunkChecksum)
-        {}
+        { chunkVersion = inChunkVersion; }
     virtual void handle();
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const;
@@ -2043,7 +2036,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
             const Properties& props)
         : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, false, s, -1),
           serverProps(Properties2Str(props))
-    {}
+        {}
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {

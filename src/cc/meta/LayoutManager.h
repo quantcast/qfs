@@ -1277,11 +1277,12 @@ public:
     double GetMaxSpaceUtilizationThreshold() const {
         return mMaxSpaceUtilizationThreshold;
     }
-    int GetInFlightChunkOpsCount(chunkId_t chunkId, MetaOp opType) const;
+    int GetInFlightChunkOpsCount(chunkId_t chunkId, MetaOp opType,
+        chunkOff_t objStoreBlockPos = -1) const;
     int GetInFlightChunkModificationOpCount(chunkId_t chunkId,
-        Servers* srvs = 0) const;
+         chunkOff_t objStoreBlockPos = -1, Servers* srvs = 0) const;
     int GetInFlightChunkOpsCount(chunkId_t chunkId, const MetaOp* opTypes,
-        Servers* srvs = 0) const;
+         chunkOff_t objStoreBlockPos = -1, Servers* srvs = 0) const;
     void DoCheckpoint() {
         mCheckpoint.GetOp().ScheduleNow();
         mCheckpoint.Timeout();
