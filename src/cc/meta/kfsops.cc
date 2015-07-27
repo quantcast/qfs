@@ -1619,8 +1619,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
         fa->chunkcount()++;
     }
     if (boundary >= fa->nextChunkOffset()) {
-        if (0 != fa->numReplicas &&
-                ! fa->IsStriped() && 0 <= fa->filesize &&
+        if (! fa->IsStriped() && 0 <= fa->filesize &&
                 ! appendOffset && ! appendReplayFlag) {
             // We will know the size of the file only when the write to
             // this chunk is finished. Invalidate the size now.

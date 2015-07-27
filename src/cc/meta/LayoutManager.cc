@@ -683,7 +683,7 @@ ChunkLeases::ExpiredCleanup(
             const bool       kPendingAddFlag   = false;
             const chunkOff_t kChunkSize        = -1;
             chunkServer->MakeChunkStable(
-                key.first, key.first, key.second,
+                key.first, key.first, -(seq_t)key.second - 1,
                 kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
         return true;
@@ -767,7 +767,7 @@ ChunkLeases::LeaseRelinquish(
     CSMap&                     csmap)
 {
     EntryKey const key(req.chunkId, req.chunkPos);
-    REntry* const re = mReadLeases.Find(key);
+    REntry* const  re = mReadLeases.Find(key);
     if (re) {
         assert(! mWriteLeases.Find(key));
         ChunkReadLeasesHead& rl     = *re;
@@ -829,37 +829,46 @@ ChunkLeases::LeaseRelinquish(
         lr.chunkChecksum    = req.chunkChecksum;
         return 0;
     }
-    const time_t now = TimeNow();
-    const int    ret = wl.expires < now ? -ELEASEEXPIRED : 0;
-    const bool   hadLeaseFlag = ! wl.relinquishedFlag;
+    const time_t         now          = TimeNow();
+    const int            ret          = wl.expires < now ? -ELEASEEXPIRED : 0;
+    const bool           hadLeaseFlag = ! wl.relinquishedFlag;
+    const ChunkServerPtr chunkServer  = ci ? ChunkServerPtr() : wl.chunkServer;
     wl.ResetServer();
     wl.relinquishedFlag = true;
     // the owner of the lease is giving up the lease; update the expires so
     // that the normal lease cleanup will work out.
     Expire(*we, now);
-    if (hadLeaseFlag && ci) {
-        // For write append lease checksum and size always have to be
-        // specified for make chunk stable, otherwise run begin make
-        // chunk stable.
-        const CSMap::Entry& v = *ci;
-        const bool beginMakeChunkStableFlag = wl.appendFlag &&
-            (! req.hasChunkChecksum || req.chunkSize < 0);
-        if (wl.appendFlag) {
-            arac.Invalidate(v.GetFileId(), req.chunkId);
+    if (hadLeaseFlag) {
+        if (ci) {
+            // For write append lease checksum and size always have to be
+            // specified for make chunk stable, otherwise run begin make
+            // chunk stable.
+            const CSMap::Entry& v = *ci;
+            const bool beginMakeChunkStableFlag = wl.appendFlag &&
+                (! req.hasChunkChecksum || req.chunkSize < 0);
+            if (wl.appendFlag) {
+                arac.Invalidate(v.GetFileId(), req.chunkId);
+            }
+            const bool leaseRelinquishFlag = true;
+            gLayoutManager.MakeChunkStableInit(
+                v,
+                wl.chunkVersion,
+                wl.pathname,
+                beginMakeChunkStableFlag,
+                req.chunkSize,
+                req.hasChunkChecksum,
+                req.chunkChecksum,
+                wl.stripedFileFlag,
+                wl.appendFlag,
+                leaseRelinquishFlag
+            );
+        } else if (chunkServer && ! chunkServer->IsDown()) {
+            const bool kHasChunkChecksum = false;
+            const bool kPendingAddFlag   = false;
+            chunkServer->MakeChunkStable(
+                key.first, key.first, -(seq_t)key.second - 1,
+                req.chunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
-        const bool leaseRelinquishFlag = true;
-        gLayoutManager.MakeChunkStableInit(
-            v,
-            wl.chunkVersion,
-            wl.pathname,
-            beginMakeChunkStableFlag,
-            req.chunkSize,
-            req.hasChunkChecksum,
-            req.chunkChecksum,
-            wl.stripedFileFlag,
-            wl.appendFlag,
-            leaseRelinquishFlag
-        );
     }
     return ret;
 }
@@ -6464,7 +6473,7 @@ LayoutManager::DeleteChunk(MetaAllocate* req)
             const bool       kPendingAddFlag   = false;
             const chunkOff_t kChunkSize        = -1;
             req->servers.front()->MakeChunkStable(
-                req->fid, req->fid, (chunkId_t)req->offset - 1,
+                req->fid, req->fid, (seq_t)req->offset - 1,
                 kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
         return;
@@ -7779,8 +7788,35 @@ LayoutManager::LogMakeChunkStableDone(const MetaLogMakeChunkStable* req)
 void
 LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
 {
+    string pathname;
+    if (req->chunkVersion < 0) {
+        if (0 != req->status || ! req->server || req->server->IsDown()) {
+            return;
+        }
+        MetaFattr* const fa = metatree.getFattr(req->fid);
+        if (! fa || KFS_FILE != fa->type || 0 != fa->numReplicas ||
+               -(chunkOff_t)req->chunkVersion + 1 + (chunkOff_t)CHUNKSIZE <
+                fa->nextChunkOffset()) {
+            return;
+        }
+        if (0 <= req->chunkSize) {
+            // Log chunk size.
+            MetaChunkSize* const op = new MetaChunkSize(
+                0, // seq #
+                req->server, // chunk server
+                req->fid, req->chunkId, req->chunkVersion, pathname,
+                false
+            );
+            op->chunkSize = req->chunkSize;
+            submit_request(op);
+        } else {
+            // Get the chunk's size from one of the servers.
+            req->server->GetChunkSize(
+                req->fid, req->chunkId, req->chunkVersion, pathname);
+        }
+        return;
+    }
     const char* const                  logPrefix       = "MCS: done";
-    string                             pathname;
     CSMap::Entry*                      pinfo           = 0;
     bool                               updateSizeFlag  = false;
     bool                               updateMTimeFlag = false;
@@ -8202,65 +8238,82 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         return -1;
     }
     if (! IsChunkStable(req->chunkId) ||
-            mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(req->chunkId))) {
+            mChunkLeases.HasWriteLease(
+                ChunkLeases::EntryKey(req->chunkId, req->chunkVersion))) {
         return -1; // Chunk isn't stable yet, or being written again.
     }
-    const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
-    if (! ci) {
-        return -1; // No such chunk, do not log.
-    }
-    MetaFattr* const           fa    = ci->GetFattr();
-    const MetaChunkInfo* const chunk = ci->GetChunkInfo();
-    // Coalesce can change file id while request is in flight.
-    if (req->fid != fa->id()) {
-        req->fid = fa->id();
-        req->pathname.clear(); // Path name is no longer valid.
-    }
-    if (fa->IsStriped() || fa->filesize >= 0 || fa->type != KFS_FILE ||
-            chunk->offset + (chunkOff_t)CHUNKSIZE <
-                fa->nextChunkOffset()) {
-        return -1; // No update needed, do not write log entry.
-    }
-    if (req->chunkVersion != chunk->chunkVersion) {
-        KFS_LOG_STREAM_DEBUG <<
-            " last chunk: " << chunk->chunkId      <<
-            " version: "    << chunk->chunkVersion <<
-            " ignoring: "   << req->Show()         <<
-            " status: "     << req->status         <<
-            " msg: "        << req->statusMsg      <<
-        KFS_LOG_EOM;
-        return -1;
-    }
-    if (req->chunkSize < 0 || req->status < 0) {
-        KFS_LOG_STREAM_ERROR <<
-            req->Show() <<
-            " status: " << req->status <<
-            " msg: "    << req->statusMsg <<
-        KFS_LOG_EOM;
-        if (! req->retryFlag) {
+    MetaFattr* fa;
+    chunkOff_t offset;
+    const CSMap::Entry* const ci = req->chunkVersion < 0 ?
+        0 : mChunkToServerMap.Find(req->chunkId);
+    if (ci) {
+        fa = ci->GetFattr();
+        const MetaChunkInfo* const chunk = ci->GetChunkInfo();
+        // Coalesce can change file id while request is in flight.
+        if (req->fid != fa->id()) {
+            req->fid = fa->id();
+            req->pathname.clear(); // Path name is no longer valid.
+        }
+        if (fa->IsStriped() || fa->filesize >= 0 || fa->type != KFS_FILE ||
+                chunk->offset + (chunkOff_t)CHUNKSIZE <
+                    fa->nextChunkOffset()) {
+            return -1; // No update needed, do not write log entry.
+        }
+        if (req->chunkVersion != chunk->chunkVersion) {
+            KFS_LOG_STREAM_DEBUG <<
+                " last chunk: " << chunk->chunkId      <<
+                " version: "    << chunk->chunkVersion <<
+                " ignoring: "   << req->Show()         <<
+                " status: "     << req->status         <<
+                " msg: "        << req->statusMsg      <<
+            KFS_LOG_EOM;
             return -1;
         }
-        // Retry the size request with all servers.
-        StTmp<Servers> serversTmp(mServers3Tmp);
-        Servers&       srvs = serversTmp.Get();
-        mChunkToServerMap.GetServers(*ci, srvs);
-        for (Servers::const_iterator it = srvs.begin();
-                it != srvs.end();
-                ++it) {
-            if ((*it)->IsDown()) {
-                continue;
+        if (req->chunkSize < 0 || req->status < 0) {
+            KFS_LOG_STREAM_ERROR <<
+                req->Show() <<
+                " status: " << req->status <<
+                " msg: "    << req->statusMsg <<
+            KFS_LOG_EOM;
+            if (! req->retryFlag) {
+                return -1;
             }
-            const bool retryFlag = false;
-            (*it)->GetChunkSize(
-                req->fid, req->chunkId, req->chunkVersion,
-                req->pathname, retryFlag);
+            // Retry the size request with all servers.
+            StTmp<Servers> serversTmp(mServers3Tmp);
+            Servers&       srvs = serversTmp.Get();
+            mChunkToServerMap.GetServers(*ci, srvs);
+            for (Servers::const_iterator it = srvs.begin();
+                    it != srvs.end();
+                    ++it) {
+                if ((*it)->IsDown()) {
+                    continue;
+                }
+                const bool retryFlag = false;
+                (*it)->GetChunkSize(
+                    req->fid, req->chunkId, req->chunkVersion,
+                    req->pathname, retryFlag);
+            }
+            return -1;
         }
-        return -1;
+        offset = chunk->offset;
+    } else {
+        if (0 <= req->chunkVersion) {
+            return -1;
+        }
+        fa = metatree.getFattr(req->fid);
+        if (! fa || 0 != fa->numReplicas || KFS_FILE != fa->type) {
+            return -1;
+        }
+        offset = -(chunkOff_t)req->chunkVersion + 1;
+        if (offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
+            return -1;
+        }
     }
-    metatree.setFileSize(fa, chunk->offset + req->chunkSize);
+    metatree.setFileSize(fa, offset + req->chunkSize);
     KFS_LOG_STREAM_INFO <<
         "file: "      << req->fid <<
         " chunk: "    << req->chunkId <<
+        " version: "  << req->chunkVersion <<
         " size: "     << req->chunkSize <<
         " filesize: " << fa->filesize <<
     KFS_LOG_EOM;

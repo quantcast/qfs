@@ -3237,7 +3237,11 @@ AtomicRecordAppendManager::AllocateChunk(
     const ServerLocation&  peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
-    assert(op);
+    if (! op || op->chunkVersion < 0) {
+        die("invalid chunk allocation attempt for append");
+        op->status = -EFAULT;
+        return;
+    }
     bool insertedFlag = false;
     AtomicRecordAppender** const res = mAppenders.Insert(
         op->chunkId, (AtomicRecordAppender*)0, insertedFlag);
@@ -3378,7 +3382,8 @@ AtomicRecordAppendManager::AllocateWriteId(
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (! appender) {
         op->statusMsg = "not open for append; no appender";
         op->status    = AtomicRecordAppender::kErrParameters;
@@ -3505,7 +3510,8 @@ bool
 AtomicRecordAppendManager::BeginMakeChunkStable(BeginMakeChunkStableOp* op)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ? 0 :
+        mAppenders.Find(op->chunkId);
     if (! appender) {
         op->statusMsg = "chunk does not exist or not open for append";
         op->status    = AtomicRecordAppender::kErrParameters;
@@ -3530,7 +3536,8 @@ AtomicRecordAppendManager::CloseChunk(
     CloseOp* op, int64_t writeId, bool& forwardFlag)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (! appender) {
         return false; // let chunk manager handle it
     }
@@ -3542,7 +3549,8 @@ bool
 AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (appender) {
         (*appender)->MakeChunkStableEx(op);
         // Completion handler is already invoked or will be invoked later.
@@ -3607,7 +3615,8 @@ AtomicRecordAppendManager::AppendBegin(
     const ServerLocation& peerLoc)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (! appender) {
         op->status    = AtomicRecordAppender::kErrParameters;
         op->statusMsg = "chunk does not exist or not open for append";
