@@ -250,7 +250,8 @@ public:
         bool        inSkipHolesFlag,
         bool        inUseDefaultBufferAllocatorFlag = false,
         Offset      inRecoverChunkPos               = -1,
-        bool        inFailShortReadsFlag            = false);
+        bool        inFailShortReadsFlag            = false,
+        int         inReplicasCount                 = -1);
     int Close();
     int Read(
         IOBuffer& inBuffer,

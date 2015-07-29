@@ -369,7 +369,11 @@ GetAllocOp::Request(ostream &os)
         "Pathname: "     << filename          << "\r\n"
         "File-handle: "  << fid               << "\r\n"
         "Chunk-offset: " << fileOffset        << "\r\n"
-    "\r\n";
+    ;
+    if (objectStoreFlag) {
+        os << "Obj-store: 1\r\n";
+    }
+    os << "\r\n";
 }
 
 void

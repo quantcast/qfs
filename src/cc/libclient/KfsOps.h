@@ -588,6 +588,7 @@ struct GetAllocOp: public KfsOp {
     int64_t                chunkVersion; // result
     bool                   serversOrderedFlag; // result: meta server ordered the servers list
                                                // by its preference / load -- try the servers in this order.
+    bool                   objectStoreFlag;
     vector<ServerLocation> chunkServers; // result: where the chunk is hosted name/port
     string                 filename;     // input
 
@@ -598,6 +599,7 @@ struct GetAllocOp: public KfsOp {
           chunkId(-1),
           chunkVersion(-1),
           serversOrderedFlag(false),
+          objectStoreFlag(false),
           chunkServers(),
           filename()
         {}
@@ -606,12 +608,13 @@ struct GetAllocOp: public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         os <<
             "getalloc:"
-            " fid: "     << fid <<
-            " offset: "  << fileOffset <<
-            " chunkId: " << chunkId <<
-            " version: " << chunkVersion <<
-            " ordered: " << serversOrderedFlag <<
-            " servers: " << chunkServers.size()
+            " fid: "      << fid <<
+            " offset: "   << fileOffset <<
+            " objstore: " << objectStoreFlag <<
+            " chunkId: "  << chunkId <<
+            " version: "  << chunkVersion <<
+            " ordered: "  << serversOrderedFlag <<
+            " servers: "  << chunkServers.size()
         ;
         for (vector<ServerLocation>::const_iterator it = chunkServers.begin();
                 it != chunkServers.end();

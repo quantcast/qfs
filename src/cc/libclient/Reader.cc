@@ -129,7 +129,8 @@ public:
           mChunkServersStats(),
           mNetManager(mMetaServer.GetNetManager()),
           mStriperPtr(0),
-          mCompletionDepthCount(0)
+          mCompletionDepthCount(0),
+          mReplicaCount(-1)
         { Readers::Init(mReaders); }
     int Open(
         kfsFileId_t inFileId,
@@ -142,7 +143,8 @@ public:
         bool        inSkipHolesFlag,
         bool        inUseDefaultBufferAllocatorFlag,
         Offset      inRecoverChunkPos,
-        bool        inFailShortReadsFlag)
+        bool        inFailShortReadsFlag,
+        int         inReplicasCount)
     {
         const char* const theFileNamePtr = inFileNamePtr ? inFileNamePtr : "";
         if (inFileId <= 0 || (! *theFileNamePtr && inRecoverChunkPos < 0)) {
@@ -163,9 +165,10 @@ public:
         }
         QCASSERT(Readers::IsEmpty(mReaders));
         delete mStriperPtr;
-        string theErrMsg;
         mStriperPtr = 0;
         mOpenChunkBlockSize = Offset(CHUNKSIZE);
+        mReplicaCount       = inReplicasCount;
+        string theErrMsg;
         mStriperPtr = Striper::Create(
             inStriperType,
             inStripeCount,
@@ -295,6 +298,8 @@ public:
     }
     bool GetErrorCode() const
         { return mErrorCode; }
+    int GetReplicaCount() const
+        { return mReplicaCount; }
 
 private:
     typedef KfsNetClient ChunkServer;
@@ -512,6 +517,7 @@ private:
                 mGetAllocOp.fileOffset = inOffset - theChunkOffset;
                 mOpenChunkBlockFileOffset = mGetAllocOp.fileOffset -
                     mGetAllocOp.fileOffset % mOuter.mOpenChunkBlockSize;
+                mGetAllocOp.objectStoreFlag = 0 == mOuter.mReplicaCount;
             } else {
                 QCRTASSERT(mGetAllocOp.fileOffset == inOffset - theChunkOffset);
             }
@@ -2196,6 +2202,7 @@ private:
     NetManager&         mNetManager;
     Striper*            mStriperPtr;
     int                 mCompletionDepthCount;
+    int                 mReplicaCount;
     ChunkReader*        mReaders[1];
 
     void InternalError(
@@ -2698,7 +2705,8 @@ Reader::Open(
     bool           inSkipHolesFlag,
     bool           inUseDefaultBufferAllocatorFlag,
     Reader::Offset inRecoverChunkPos,
-    bool           inFailShortReadsFlag)
+    bool           inFailShortReadsFlag,
+    int            inReplicasCount)
 {
     Impl::StRef theRef(mImpl);
     return mImpl.Open(
@@ -2712,7 +2720,8 @@ Reader::Open(
         inSkipHolesFlag,
         inUseDefaultBufferAllocatorFlag,
         inRecoverChunkPos,
-        inFailShortReadsFlag
+        inFailShortReadsFlag,
+        inReplicasCount
     );
 }
 

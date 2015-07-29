@@ -1449,7 +1449,8 @@ private:
                 inParams.mSkipHolesFlag,
                 kUseDefaultBufferAllocatorFlag,
                 kRecoverChunkPos,
-                inParams.mFailShortReadsFlag
+                inParams.mFailShortReadsFlag,
+                inParams.mReplicaCount
             );
         }
         virtual void Process(
