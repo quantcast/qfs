@@ -264,7 +264,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
     }
     UpdateNumFiles(1);
     updateCounts(fa, 0, 1, 0);
-    fa->minSTier = parent->minSTier;
+    fa->minSTier = 0 == numReplicas ? parent->maxSTier : parent->minSTier;
     fa->maxSTier = parent->maxSTier;
     if (newFattr) {
         *newFattr = fa;
@@ -1387,8 +1387,7 @@ Tree::getalloc(fid_t fid, chunkOff_t& offset,
  * \return        status code
  */
 int
-Tree::getLastChunkInfo(fid_t fid, bool nonStripedFileFlag,
-    MetaFattr*& fa, MetaChunkInfo*& c)
+Tree::getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c)
 {
     fa = 0;
     ChunkIterator cit = getAlloc(fid, fa);
@@ -1518,7 +1517,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
             return -EINVAL; // Prevent chunk assignment in replay.
         }
         *chunkId      = file;
-        *chunkVersion = 0;
+        *chunkVersion = chunkStartOffset(offset) + fa->maxSTier;
         if (offset < fa->nextChunkOffset()) {
             return -EEXIST;
         }

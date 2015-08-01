@@ -110,7 +110,8 @@ public:
             : pair<chunkId_t, chunkOff_t>()
             {}
         EntryKey(fid_t fid, chunkOff_t pos)
-            : pair<chunkId_t, chunkOff_t>(fid, pos < 0 ? chunkOff_t(-1) : pos)
+            : pair<chunkId_t, chunkOff_t>(fid, pos < 0 ? chunkOff_t(-1) :
+                chunkStartOffset(pos))
             {}
         EntryKey(chunkId_t fid)
             : pair<chunkId_t, chunkOff_t>(fid, -1)

@@ -782,6 +782,12 @@ MetaCreate::handle()
         statusMsg = "invalid storage tier range";
         return;
     }
+    if (minSTier < kKfsSTierMax && 0 == numReplicas && minSTier != maxSTier) {
+        status    = -EINVAL;
+        statusMsg =
+            "storage tier range is not supported with object store files";
+        return;
+    }
     if (! gLayoutManager.Validate(*this)) {
         if (0 <= status) {
             status = -EINVAL;
@@ -1536,8 +1542,7 @@ MetaReaddirPlus::handle()
         // so that the client can compute filesize
         MetaChunkInfo* lastChunk = 0;
         MetaFattr*     cfa       = 0;
-        if (metatree.getLastChunkInfo(
-                fa->id(), false, cfa, lastChunk) != 0 ||
+        if (metatree.getLastChunkInfo(fa->id(), cfa, lastChunk) != 0 ||
                 ! lastChunk) {
             lc.offset       = -1;
             lc.chunkId      = -1;
@@ -1611,6 +1616,11 @@ MetaGetalloc::handle()
             statusMsg = "not an object store file";
             return;
         }
+        if (fa->nextChunkOffset() <= offset) {
+            status    = -EINVAL;
+            statusMsg = "past end of file position";
+            return;
+        }
         gLayoutManager.GetChunkServers(clientIp, c);
         if (c.empty()) {
             status    = -EAGAIN;
@@ -1618,7 +1628,8 @@ MetaGetalloc::handle()
             return;
         }
         chunkId      = fid;
-        chunkVersion = -(chunkId_t)offset - 1;
+        chunkVersion =
+            -(chunkId_t)(chunkStartOffset(offset) + fa->maxSTier) - 1;
     } else {
         MetaChunkInfo* chunkInfo = 0;
         status = metatree.getalloc(fid, offset, &chunkInfo);
@@ -1676,10 +1687,9 @@ MetaGetlayout::handle()
     vector<MetaChunkInfo*> chunkInfo;
     MetaFattr*             fa = 0;
     if (lastChunkInfoOnlyFlag) {
-        bool           kOnlyForNonStripedFileFlag = false;
-        MetaChunkInfo* ci                         = 0;
+        MetaChunkInfo* ci = 0;
         status = metatree.getLastChunkInfo(
-            fid, kOnlyForNonStripedFileFlag, fa, ci);
+            fid, fa, ci);
         if (status == 0 && ci) {
             chunkInfo.push_back(ci);
         }
@@ -2398,6 +2408,12 @@ MetaChangeFileReplication::handle()
             return;
         }
     } else {
+        if (0 == fa->numReplicas) {
+            status    = -EINVAL;
+            statusMsg =
+                "modification of object store file parameters is not supported";
+            return;
+        }
         numReplicas = min(numReplicas,
             max(int16_t(fa->numReplicas),
                 (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
@@ -4311,7 +4327,7 @@ MetaAllocate::responseSelf(ostream& os)
     os <<
         "Chunk-handle: "  << chunkId << "\r\n"
         "Chunk-version: " << (0 == numReplicas ?
-            -(chunkId_t)offset - 1 : chunkVersion) << "\r\n";
+            -chunkVersion - 1 : chunkVersion) << "\r\n";
     if (appendChunk) {
         os << "Chunk-offset: " << offset << "\r\n";
     }
@@ -4899,7 +4915,7 @@ MetaChunkAllocate::request(ostream &os)
         "Chunk-handle: "  << req->chunkId      << "\r\n"
         "Chunk-version: " <<
             (0 == req->numReplicas ?
-                -(chunkId_t)req->offset - 1 :
+                -req->chunkVersion - 1 :
                 req->chunkVersion)             << "\r\n"
         "Min-tier: "      << (int)minSTier     << "\r\n"
         "Max-tier: "      << (int)maxSTier     << "\r\n"

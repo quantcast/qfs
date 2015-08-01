@@ -683,7 +683,7 @@ ChunkLeases::ExpiredCleanup(
             const bool       kPendingAddFlag   = false;
             const chunkOff_t kChunkSize        = -1;
             chunkServer->MakeChunkStable(
-                key.first, key.first, -(seq_t)key.second - 1,
+                key.first, key.first, -chunkVersion - 1,
                 kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
         return true;
@@ -866,7 +866,7 @@ ChunkLeases::LeaseRelinquish(
             const bool kHasChunkChecksum = false;
             const bool kPendingAddFlag   = false;
             chunkServer->MakeChunkStable(
-                key.first, key.first, -(seq_t)key.second - 1,
+                key.first, key.first, -wl.chunkVersion - 1,
                 req.chunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
     }
@@ -6504,7 +6504,7 @@ LayoutManager::DeleteChunk(MetaAllocate* req)
             const bool       kPendingAddFlag   = false;
             const chunkOff_t kChunkSize        = -1;
             req->servers.front()->MakeChunkStable(
-                req->fid, req->fid, (seq_t)req->offset - 1,
+                req->fid, req->fid, -req->chunkVersion - 1,
                 kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
         return;
@@ -7206,7 +7206,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             const bool       kPendingAddFlag   = false;
             const chunkOff_t kChunkSize        = -1;
             r->servers.front()->MakeChunkStable(
-                r->fid, r->offset, r->chunkVersion,
+                r->fid, r->fid, -r->chunkVersion - 1,
                 kChunkSize, kHasChunkChecksum, 0, kPendingAddFlag);
         }
         return;
