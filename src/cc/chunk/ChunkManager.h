@@ -203,7 +203,8 @@ public:
     /// @param[out] cih  the resulting pointer from mChunkTable[chunkId]
     /// @retval  0 on success; -EBADF if we can't find mChunkTable[chunkId]
     ChunkInfoHandle* GetChunkInfoHandle(
-        kfsChunkId_t chunkId, int64_t chunkVersion) const;
+        kfsChunkId_t chunkId, int64_t chunkVersion,
+        bool addObjectBlockMappingFlag = true) const;
 
     /// Given a byte range, return the checksums for that range.
     vector<uint32_t> GetChecksums(kfsChunkId_t chunkId,
@@ -881,7 +882,7 @@ private:
 
     /// If we have too many open fd's close out whatever we can.  When
     /// periodic is set, we do a scan and clean up.
-    bool CleanupInactiveFds(time_t now, bool forceFlag = false);
+    bool CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur = 0);
 
     /// For some reason, dirname is not accessable (for instance, the
     /// drive may have failed); in this case, notify metaserver that
