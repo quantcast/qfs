@@ -112,6 +112,12 @@ AsciiCharToLower(int c)
     return ((c >= 'A' && c <= 'Z') ? 'a' + (c - 'A') : c);
 }
 
+inline chunkOff_t
+ChunkVersionToObjFileBlockPos(seq_t chunkVersion)
+{
+    return chunkStartOffset(-(chunkOff_t)chunkVersion - 1);
+}
+
 static inline void
 UpdatePendingRecovery(CSMap& csmap, CSMap::Entry& ent)
 {
@@ -5224,7 +5230,7 @@ LayoutManager::GetInFlightChunkOpsCount(
                 if (0 <= it->second->chunkVersion) {
                     continue;
                 }
-                if (-(chunkOff_t)it->second->chunkVersion + 1 !=
+                if (ChunkVersionToObjFileBlockPos(it->second->chunkVersion) !=
                         objStoreBlockPos) {
                     continue;
                 }
@@ -7826,8 +7832,8 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         }
         MetaFattr* const fa = metatree.getFattr(req->fid);
         if (! fa || KFS_FILE != fa->type || 0 != fa->numReplicas ||
-               -(chunkOff_t)req->chunkVersion + 1 + (chunkOff_t)CHUNKSIZE <
-                fa->nextChunkOffset()) {
+                ChunkVersionToObjFileBlockPos(req->chunkVersion) +
+                    (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
             return;
         }
         if (0 <= req->chunkSize) {
@@ -8335,7 +8341,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         if (! fa || 0 != fa->numReplicas || KFS_FILE != fa->type) {
             return -1;
         }
-        offset = -(chunkOff_t)req->chunkVersion + 1;
+        offset = ChunkVersionToObjFileBlockPos(req->chunkVersion);
         if (offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
             return -1;
         }

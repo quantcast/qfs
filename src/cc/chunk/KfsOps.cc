@@ -1181,7 +1181,7 @@ AllocChunkOp::Execute()
 
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
-    mustExistFlag = chunkVersion > 1;
+    mustExistFlag = 1 < chunkVersion;
     if (! mustExistFlag && 0 <= chunkVersion) {
         const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
         if (ret != -EBADF) {
@@ -1195,7 +1195,8 @@ AllocChunkOp::Execute()
     const bool failIfExistsFlag = ! mustExistFlag && 0 <= chunkVersion;
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
-    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this);
+    int res = (! mustExistFlag && chunkVersion < 0) ? -EBADF :
+        gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this);
     if (res == 0) {
         if (failIfExistsFlag) {
             die("chunk deletion failed");
