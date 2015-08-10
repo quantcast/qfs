@@ -844,6 +844,8 @@ public:
           mPendingSpaceReservationSize(0),
           mWriteMetaOpsHead(0),
           mWriteMetaOpsTail(0),
+          mReadableNotifyHead(0),
+          mReadableNotifyTail(0),
           mChunkDir(chunkdir)
     {
         ChunkList::Init(*this);
@@ -1101,6 +1103,21 @@ public:
                 pendingReservationSizeDelta);
         }
     }
+    void AddWaitChunkReadable(KfsOp* op)
+    {
+        if (! op || op->next != 0) {
+            die("invalid AddWaitChunkReadable invocation");
+            return;
+        }
+        if (mReadableNotifyTail) {
+            mReadableNotifyTail->next = op;
+        } else {
+            mReadableNotifyHead = op;
+        }
+        if (IsChunkReadable()) {
+            WaitChunkReadableDone(IsStale() ? -EIO : 0);
+        }
+    }
 
 private:
     bool                        mBeingReplicatedFlag:1;
@@ -1120,6 +1137,8 @@ private:
     int                         mPendingSpaceReservationSize;
     WriteChunkMetaOp*           mWriteMetaOpsHead;
     WriteChunkMetaOp*           mWriteMetaOpsTail;
+    KfsOp*                      mReadableNotifyHead;
+    KfsOp*                      mReadableNotifyTail;
     ChunkDirInfo&               mChunkDir;
     ChunkInfoHandle*            mPrevPtr[ChunkDirInfo::kChunkInfoHDirListCount];
     ChunkInfoHandle*            mNextPtr[ChunkDirInfo::kChunkInfoHDirListCount];
@@ -1162,6 +1181,7 @@ private:
         }
         if (mDeleteFlag || IsStale()) {
             if (! mWriteMetaOpsHead) {
+                WaitChunkReadableDone(-EIO);
                 if (IsStale()) {
                     gChunkManager.UpdateStale(*this);
                 } else {
@@ -1170,6 +1190,27 @@ private:
             }
         } else {
             gChunkManager.LruUpdate(*this);
+            if (mReadableNotifyHead && IsChunkReadable()) {
+                WaitChunkReadableDone();
+            }
+        }
+    }
+    void WaitChunkReadableDone(
+        int status = 0)
+    {
+        KfsOp* cur = mReadableNotifyHead;
+        mReadableNotifyHead = 0;
+        mReadableNotifyTail = 0;
+        while (cur) {
+            KfsOp* const op = cur;
+            cur = cur->next;
+            op->next = 0;
+            if (op->clnt) {
+                op->status = status;
+                op->clnt->HandleEvent(EVENT_CMD_DONE, op);
+            } else {
+                delete op;
+            }
         }
     }
     friend class QCDLListOp<ChunkInfoHandle, 0>;
@@ -3569,7 +3610,8 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
 }
 
 int
-ChunkManager::CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion)
+ChunkManager::CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion,
+    KfsOp* op /* = 0 */)
 {
     const bool kAddObjectBlockMappingFlag = false;
     ChunkInfoHandle* const ci = GetChunkInfoHandle(chunkId, chunkVersion,
@@ -3577,11 +3619,12 @@ ChunkManager::CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion)
     if (! ci) {
         return -EBADF;
     }
-    return CloseChunk(ci);
+    return CloseChunk(ci, op);
 }
 
 int
-ChunkManager::CloseChunkWrite(kfsChunkId_t chunkId, int64_t writeId)
+ChunkManager::CloseChunkWrite(
+    kfsChunkId_t chunkId, int64_t writeId, KfsOp* op /* = 0 */)
 {
     const WriteOp* wo = mPendingWrites.find(writeId);
     if (! wo) {
@@ -3593,7 +3636,7 @@ ChunkManager::CloseChunkWrite(kfsChunkId_t chunkId, int64_t writeId)
     if (wo->chunkId != chunkId) {
         return -EINVAL;
     }
-    return CloseChunk(wo->chunkId, wo->chunkVersion);
+    return CloseChunk(wo->chunkId, wo->chunkVersion, op);
 }
 
 bool
@@ -3613,7 +3656,7 @@ ChunkManager::CloseChunkIfReadable(kfsChunkId_t chunkId, int64_t chunkVersion)
 }
 
 int
-ChunkManager::CloseChunk(ChunkInfoHandle* cih)
+ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
 {
     if (cih->IsWriteAppenderOwns()) {
         KFS_LOG_STREAM_INFO <<
@@ -3635,6 +3678,9 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih)
         gLeaseClerk.RelinquishLease(
             cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion,
             cih->chunkInfo.chunkSize);
+    }
+    if (op) {
+        cih->AddWaitChunkReadable(op);
     }
     return 0;
 }
@@ -4311,6 +4357,7 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
         (err == 0 ? "lost" : "corrupted") <<
         " chunk: "     << cih->chunkInfo.chunkId <<
         " file: "      << cih->chunkInfo.fileId <<
+        " version: "   << cih->chunkInfo.chunkVersion <<
         " error: "     << err <<
         (err ? string() : QCUtils::SysError(-err, " ")) <<
         " dir: "       << cih->GetDirname() <<
@@ -4319,11 +4366,13 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
         " corrupted: " << mCounters.mCorruptedChunksCount <<
     KFS_LOG_EOM;
 
-    // This op will get deleted when we get an ack from the metaserver
-    CorruptChunkOp* const op = new CorruptChunkOp(
-        0, cih->chunkInfo.fileId, cih->chunkInfo.chunkId);
-    op->isChunkLost = err == 0;
-    gMetaServerSM.EnqueueOp(op);
+    if (0 <= cih->chunkInfo.chunkVersion) {
+        // This op will get deleted when we get an ack from the metaserver
+        CorruptChunkOp* const op = new CorruptChunkOp(
+            0, cih->chunkInfo.fileId, cih->chunkInfo.chunkId);
+        op->isChunkLost = err == 0;
+        gMetaServerSM.EnqueueOp(op);
+    }
     // Meta server automatically cleans up leases for corrupted chunks.
     gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId,
         cih->chunkInfo.chunkVersion);

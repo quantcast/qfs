@@ -429,6 +429,7 @@ KfsOp::KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj* c)
       clnt(c),
       startTime(microseconds()),
       bufferBytes(),
+      next(0),
       nextOp()
 {
     OpsList::Init(*this);
@@ -1077,6 +1078,10 @@ CloseOp::Execute()
     int64_t        writeId       = -1;
     bool           needToForward = needToForwardToPeer(
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
+    if (chunkVersion < 0 && needToForward && hasWriteId) {
+        status    = -EINVAL;
+        statusMsg = "invalid object store file block close";
+    }
     if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
             (subjectId != writeId || ! hasWriteId)) {
@@ -1115,9 +1120,15 @@ CloseOp::Execute()
             // manager.  the chunk manager can reject a close if the
             // chunk is being written to by multiple record appenders
             if (hasWriteId) {
-                if ((status = gChunkManager.CloseChunkWrite(
-                        chunkId, writeId)) != 0) {
+                const bool waitReadableFlag = clnt && chunkVersion < 0;
+                const int  ret              = gChunkManager.CloseChunkWrite(
+                        chunkId, writeId, waitReadableFlag ? this : 0);
+                if (ret != 0) {
+                    status    = ret;
                     statusMsg = "invalid write or chunk id";
+                }
+                if (waitReadableFlag && 0 == ret) {
+                    return;
                 }
             } else {
                 needToForward = gChunkManager.CloseChunk(

@@ -284,6 +284,7 @@ struct KfsOp : public KfsCallbackObj
     // keep statistics
     int64_t         startTime;
     BufferBytes     bufferBytes;
+    KfsOp*          next;
     NextOp          nextOp;
 
     KfsOp(KfsOp_t o, kfsSeq_t s, KfsCallbackObj *c = 0);
