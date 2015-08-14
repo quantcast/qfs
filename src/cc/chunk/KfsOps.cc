@@ -1101,8 +1101,9 @@ CloseOp::Execute()
                         status    = -EPERM;
                         statusMsg = "valid write lease exists";
                     }
-                } else if (hasWriteId || (chunkAccessFlags &
-                        ChunkAccessToken::kAllowReadFlag) == 0) {
+                } else if ((hasWriteId || (chunkAccessFlags &
+                        ChunkAccessToken::kAllowReadFlag) == 0) &&
+                        0 <= chunkVersion) {
                     status    = -EPERM;
                     statusMsg = "no valid write lease exists";
                 }
@@ -1121,8 +1122,16 @@ CloseOp::Execute()
             // chunk is being written to by multiple record appenders
             if (hasWriteId) {
                 const bool waitReadableFlag = clnt && chunkVersion < 0;
-                const int  ret              = gChunkManager.CloseChunkWrite(
-                        chunkId, writeId, waitReadableFlag ? this : 0);
+                if (waitReadableFlag) {
+                    SET_HANDLER(this, &CloseOp::HandleDone);
+                }
+                const int ret = gChunkManager.CloseChunkWrite(
+                        chunkId,
+                        chunkVersion,
+                        writeId,
+                        waitReadableFlag ? this          : 0,
+                        waitReadableFlag ? &readMetaFlag : 0
+                );
                 if (ret != 0) {
                     status    = ret;
                     statusMsg = "invalid write or chunk id";
@@ -1169,9 +1178,29 @@ CloseOp::ForwardToPeer(
 }
 
 int
-CloseOp::HandlePeerReply(int code, void *data)
+CloseOp::HandlePeerReply(int code, void* data)
 {
     delete this;
+    return 0;
+}
+
+int
+CloseOp::HandleDone(int code, void* data)
+{
+    if (data && 0 == status) {
+        status = *reinterpret_cast<const int*>(data);
+    }
+    if (status == 0 && readMetaFlag && chunkVersion < 0) {
+        readMetaFlag = false;
+        const int ret = gChunkManager.CloseChunkWrite(
+            chunkId, chunkVersion, -1, this, &readMetaFlag);
+        if (ret == 0) {
+            return 0;
+        }
+        status    = ret;
+        statusMsg = "invalid write or chunk id";
+    }
+    gLogger.Submit(this);
     return 0;
 }
 

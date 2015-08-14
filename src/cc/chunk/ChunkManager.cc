@@ -1205,12 +1205,8 @@ private:
             KfsOp* const op = cur;
             cur = cur->next;
             op->next = 0;
-            if (op->clnt) {
-                op->status = status;
-                op->clnt->HandleEvent(EVENT_CMD_DONE, op);
-            } else {
-                delete op;
-            }
+            int res = status;
+            op->HandleEvent(EVENT_CMD_DONE, &res);
         }
     }
     friend class QCDLListOp<ChunkInfoHandle, 0>;
@@ -3624,13 +3620,27 @@ ChunkManager::CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion,
 
 int
 ChunkManager::CloseChunkWrite(
-    kfsChunkId_t chunkId, int64_t writeId, KfsOp* op /* = 0 */)
+    kfsChunkId_t chunkId, int64_t chunkVersion, int64_t writeId,
+    KfsOp* op, bool* readMetaFlag)
 {
     const WriteOp* wo = mPendingWrites.find(writeId);
     if (! wo) {
         wo = mObjPendingWrites.find(writeId);
     }
     if (! wo) {
+        if (op && chunkVersion < 0) {
+            ChunkInfoHandle* const cih =
+                GetChunkInfoHandle(chunkId, chunkVersion);
+            if (cih && cih->chunkInfo.AreChecksumsLoaded()) {
+                cih->AddWaitChunkReadable(op);
+            } else {
+                if (readMetaFlag) {
+                    *readMetaFlag = true;
+                }
+                ReadChunkMetadata(chunkId, chunkVersion, op);
+            }
+            return 0;
+        }
         return -EBADF;
     }
     if (wo->chunkId != chunkId) {

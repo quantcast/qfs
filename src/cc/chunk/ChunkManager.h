@@ -194,7 +194,8 @@ public:
     /// @param[in] chunkId id of the chunk being closed.
     /// @retval 0 if the close was accepted; -1 otherwise
     int  CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* op = 0);
-    int  CloseChunkWrite(kfsChunkId_t chunkId, int64_t writeId, KfsOp* op = 0);
+    int  CloseChunkWrite(kfsChunkId_t chunkId, int64_t chunkVersion, int64_t writeId,
+        KfsOp* op, bool* readMetaFlag);
     int  CloseChunk(ChunkInfoHandle* cih, KfsOp* op = 0);
     bool CloseChunkIfReadable(kfsChunkId_t chunkId, int64_t chunkVersion);
 

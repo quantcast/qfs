@@ -948,6 +948,7 @@ struct CloseOp : public KfsClientChunkOp {
     int                   chunkAccessLength;
     int                   contentLength;
     SyncReplicationAccess syncReplicationAccess;
+    bool                  readMetaFlag;
 
     CloseOp(kfsSeq_t s = 0)
         : KfsClientChunkOp(CMD_CLOSE, s),
@@ -958,7 +959,8 @@ struct CloseOp : public KfsClientChunkOp {
           servers              (),
           chunkAccessLength    (0),
           contentLength        (0),
-          syncReplicationAccess()
+          syncReplicationAccess(),
+          readMetaFlag         (false)
         {}
     CloseOp(kfsSeq_t s, const CloseOp& op)
         : KfsClientChunkOp(CMD_CLOSE, s),
@@ -969,7 +971,8 @@ struct CloseOp : public KfsClientChunkOp {
           servers              (op.servers),
           chunkAccessLength    (op.chunkAccessLength),
           contentLength        (op.contentLength),
-          syncReplicationAccess(op.syncReplicationAccess)
+          syncReplicationAccess(op.syncReplicationAccess),
+          readMetaFlag         (op.readMetaFlag)
     {
         chunkId      = op.chunkId;
         chunkVersion = op.chunkVersion;
@@ -1001,6 +1004,7 @@ struct CloseOp : public KfsClientChunkOp {
             KfsOp::Response(os);
         }
     }
+    int HandleDone(int code, void* data);
     void ForwardToPeer(
         const ServerLocation& loc,
         bool                  wrtieMasterFlag,

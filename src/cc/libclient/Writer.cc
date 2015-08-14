@@ -653,6 +653,10 @@ private:
                     CloseChunk();
                     return;
                 }
+                if (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
+                    Enqueue(mCloseOp);
+                    return;
+                }
                 mChunkServer.Stop();
                 if (mLastOpPtr == &mAllocOp) {
                     mOuter.mMetaServer.Cancel(mLastOpPtr, this);
@@ -1203,11 +1207,16 @@ private:
                 return;
             }
             if (mCloseOp.status != 0) {
+                if (mCloseOp.chunkVersion < 0) {
+                    HandleError(inOp);
+                    return;
+                }
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "chunk close failure, status: " << mCloseOp.status <<
                     " ignored" <<
                 KFS_LOG_EOM;
             }
+            mCloseOp.chunkId = -1;
             Reset();
             StartWrite();
         }
@@ -1367,9 +1376,12 @@ private:
                 StartWrite();
                 return;
             }
-            if (++mRetryCount > mOuter.mMaxRetryCount) {
+            if (++mRetryCount > mOuter.mMaxRetryCount ||
+                    (&inOp == &mCloseOp && inOp.status !=
+                        ChunkServer::kErrorMaxRetryReached)) {
                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "max retry reached: " << mRetryCount << ", giving up" <<
+                    (&inOp == &mCloseOp ? "close block failure, retries:" :
+                        "max retry reached: ") << mRetryCount << ", giving up" <<
                 KFS_LOG_EOM;
                 mErrorCode = theStatus < 0 ? theStatus : -1;
                 Reset();
