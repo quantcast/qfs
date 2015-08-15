@@ -3680,7 +3680,7 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
 {
     if (cih->IsWriteAppenderOwns()) {
         KFS_LOG_STREAM_INFO <<
-            "Ignoring close chunk on chunk: " << cih->chunkInfo.chunkId <<
+            "ignoring close chunk on chunk: " << cih->chunkInfo.chunkId <<
             " open for append " <<
         KFS_LOG_EOM;
         return -EINVAL;
@@ -3692,8 +3692,8 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
         Release(*cih);
     } else {
         KFS_LOG_STREAM_INFO <<
-            "Didn't release chunk " << cih->chunkInfo.chunkId <<
-            " on close;  might give up lease" <<
+            "chunk " << cih->chunkInfo.chunkId <<
+            " not released on close; might give up lease" <<
         KFS_LOG_EOM;
         gLeaseClerk.RelinquishLease(
             cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion,
