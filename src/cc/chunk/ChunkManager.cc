@@ -1390,7 +1390,9 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
         UpdateDirStableCount();
     }
     KFS_LOG_STREAM_INFO <<
-        "Closing chunk " << chunkInfo.chunkId << " and might give up lease" <<
+        "closing chunk " << chunkInfo.chunkId <<
+        " version "      << chunkInfo.chunkVersion <<
+        " and might give up lease" <<
     KFS_LOG_EOM;
     gLeaseClerk.RelinquishLease(
         chunkInfo.chunkId, chunkInfo.chunkVersion, chunkInfo.chunkSize);

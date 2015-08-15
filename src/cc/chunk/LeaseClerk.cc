@@ -353,7 +353,8 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t chunkVersion,
         KFS_LOG_STREAM_DEBUG <<
             "lease relinquish: no lease exists for:"
             " chunk: "    << chunkId <<
-            " size: "     << size    <<
+            " version: "  << chunkVersion <<
+            " size: "     << size <<
             " checksum: " << (hasChecksum ? int64_t(checksum) : int64_t(-1)) <<
         KFS_LOG_EOM;
         return;
