@@ -1171,6 +1171,10 @@ private:
             die("attempt to delete chunk info handle "
                 "with meta data write in flight");
         }
+        if (mReadableNotifyHead) {
+            WaitChunkReadableDone(
+                (IsStale() || ! IsChunkReadable()) ? -EIO : 0);
+        }
         if (IsFileOpen()) {
             globals().ctrOpenDiskFds.Update(-1);
         }
@@ -1181,7 +1185,10 @@ private:
         }
         if (mDeleteFlag || IsStale()) {
             if (! mWriteMetaOpsHead) {
-                WaitChunkReadableDone(-EIO);
+                if (mReadableNotifyHead) {
+                    WaitChunkReadableDone(
+                        (IsStale() || ! IsChunkReadable()) ? -EIO : 0);
+                }
                 if (IsStale()) {
                     gChunkManager.UpdateStale(*this);
                 } else {
@@ -1390,7 +1397,7 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     if (chunkInfo.chunkVersion < 0) {
         // Move to the front of the lru to schedule removal from the object
         // block table.
-        lastIOTime -= 60 * 60 * 24 * 365 * 10;
+        lastIOTime = globalNetManager().Now()  - 60 * 60 * 24 * 365 * 10;
         ChunkList::PushFront(chunkInfoLists[mChunkList], *this);
     } else {
         ChunkList::Remove(chunkInfoLists[mChunkList], *this);
@@ -3013,7 +3020,10 @@ ChunkManager::StaleChunk(ChunkInfoHandle* cih,
         die("null chunk table entry");
         return -EFAULT;
     }
-    if (mChunkTable.Erase(cih->chunkInfo.chunkId) <= 0) {
+    if ((0 <= cih->chunkInfo.chunkVersion ?
+            mChunkTable.Erase(cih->chunkInfo.chunkId) :
+            mObjTable.Erase(make_pair(cih->chunkInfo.chunkId,
+                        cih->chunkInfo.chunkVersion))) <= 0) {
         return -EBADF;
     }
     gLeaseClerk.UnRegisterLease(
@@ -5167,7 +5177,7 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
             while ((cih = it.Next()) && cih != cur &&
                     cih->chunkInfo.chunkVersion < 0 &&
                     ! cih->IsFileOpen()) {
-                Delete(*cih);
+                Remove(*cih);
             }
             return true;
         }
@@ -5181,7 +5191,7 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
             // back.
             ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
             if (cih != cur && cih->chunkInfo.chunkVersion < 0) {
-                Delete(*cih); // Was scheduled for object table cleanup.
+                Remove(*cih); // Was scheduled for object table cleanup.
             }
             continue;
         }
