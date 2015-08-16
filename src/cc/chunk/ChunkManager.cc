@@ -4394,10 +4394,13 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
             0, cih->chunkInfo.fileId, cih->chunkInfo.chunkId);
         op->isChunkLost = err == 0;
         gMetaServerSM.EnqueueOp(op);
+        // Meta server automatically cleans up leases for corrupted chunks.
+        gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId,
+            cih->chunkInfo.chunkVersion);
+    } else {
+        gLeaseClerk.RelinquishLease(cih->chunkInfo.chunkId,
+            cih->chunkInfo.chunkVersion, cih->chunkInfo.chunkSize);
     }
-    // Meta server automatically cleans up leases for corrupted chunks.
-    gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId,
-        cih->chunkInfo.chunkVersion);
 }
 
 void
