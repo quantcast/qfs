@@ -118,7 +118,8 @@ public:
         const char* inDirNamePtr,
         DeviceId    inDeviceId,
         int         inMaxOpenFiles,
-        string*     inErrMessagePtr = 0);
+        string*     inErrMessagePtr   = 0,
+        int         inMinWriteBlkSize = 0);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,
@@ -170,14 +171,17 @@ public:
     static void SetParameters(
         const Properties& inProperties);
     static int GetMaxIoTimeSec();
+    typedef vector<IOBufferData> IoBuffers;
     class File
     {
     public:
         File()
             : mQueuePtr(0),
+              mIoBuffers(),
               mFileIdx(-1),
               mReadOnlyFlag(false),
-              mSpaceReservedFlag(false)
+              mSpaceReservedFlag(false),
+              mError(0)
             {}
         ~File()
         {
@@ -213,11 +217,15 @@ public:
             int64_t& outReadBlockCount,
             int64_t& outWriteBlockCount,
             int&     outBlockSize);
+        int GetError() const
+            { return mError; }
     private:
         DiskQueue* mQueuePtr;
+        IoBuffers  mIoBuffers;
         int        mFileIdx;
         bool       mReadOnlyFlag:1;
         bool       mSpaceReservedFlag:1;
+        int        mError;
 
         void Reset();
         friend class DiskQueue;
@@ -266,7 +274,6 @@ public:
     FilePtr GetFilePtr() const
         { return mFilePtr; }
 private:
-    typedef vector<IOBufferData> IoBuffers;
     /// Owning KfsCallbackObj.
     KfsCallbackObj* const  mCallbackObjPtr;
     FilePtr                mFilePtr;
@@ -283,6 +290,11 @@ private:
     DiskIo*                mPrevPtr[1];
     DiskIo*                mNextPtr[1];
 
+    ssize_t SubmitWrite(
+        bool       inSyncFlag,
+        int64_t    inBlockIdx,
+        size_t     inNumBytes,
+        DiskQueue* inQueuePtr);
     void RunCompletion();
     void IoCompletion(
         IOBuffer* inBufferPtr,
