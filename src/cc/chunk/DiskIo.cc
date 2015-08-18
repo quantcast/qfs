@@ -1800,7 +1800,8 @@ DiskIo::DiskIo(
       mEnqueueTime(),
       mWriteSyncFlag(false),
       mCompletionRequestId(QCDiskQueue::kRequestIdNone),
-      mCompletionCode(QCDiskQueue::kErrorNone)
+      mCompletionCode(QCDiskQueue::kErrorNone),
+      mChainedPtr(0)
 {
     QCRTASSERT(mCallbackObjPtr && mFilePtr.get());
     DiskIoQueues::IoQueue::Init(*this);
@@ -2071,14 +2072,94 @@ DiskIo::Write(
     }
     QCDiskQueue::BlockIdx theBlkIdx =
         (QCDiskQueue::BlockIdx)(inOffset / theBlockSize);
-    // Always buffer the last write if buffering is on.
+    // Unless sync requested, buffer the last write if buffering is on.
+    if (theBufferFlag && inSyncFlag) {
+        const int  theBlkCnt    = theMinWriteBlkSize / theBlockSize;
+        IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
+        theFBufIt = theIoBuffers.begin();
+        IoBuffers::iterator theLastIt = theIoBuffers.end();
+        while (theLastIt != theIoBuffers.begin()) {
+            --theLastIt;
+            if (! theLastIt->IsEmpty()) {
+                ++theLastIt;
+                break;
+            }
+        }
+        if (theLastIt != theIoBuffers.end() &&
+                (theLastIt - theIoBuffers.begin()) % theBlkCnt != 0) {
+            const int theErr = EIO;
+            DiskIoReportError(
+                "DiskIo::Write: sync: incomplete trailing buffered block",
+                theErr
+            );
+            mIoBuffers.clear();
+            return -theErr;
+        }
+        while (theFBufIt != theLastIt) {
+            if (theFBufIt->IsEmpty()) {
+                ++theFBufIt;
+                continue;
+            }
+            DiskIo* theIoPtr;
+            if ((theFBufIt - theIoBuffers.begin()) % theBlkCnt != 0) {
+                theIoPtr = new DiskIo(mFilePtr, &sBufferredWriteNullCb);
+                while (theFBufIt != theLastIt && ! theFBufIt->IsEmpty()) {
+                    theIoPtr->mIoBuffers.push_back(*theFBufIt);
+                    *theFBufIt = IOBufferData();
+                    ++theFBufIt;
+                }
+                if ((theFBufIt != theLastIt &&
+                        theIoPtr->mIoBuffers.size() != (size_t)theBlkCnt)) {
+                    // Undo copy.
+                    while (theIoPtr->mIoBuffers.empty()) {
+                        --theFBufIt;
+                        *theFBufIt = theIoPtr->mIoBuffers.back();
+                        theIoPtr->mIoBuffers.pop_back();
+                    }
+                    delete theIoPtr;
+                    theIoPtr = 0;
+                }
+            } else {
+                theIoPtr = 0;
+            }
+            if (! theIoPtr) {
+                delete theIoPtr;
+                const int theErr = EIO;
+                DiskIoReportError(
+                    "DiskIo::Write: sync: incomplete buffered block",
+                    theErr
+                );
+                mIoBuffers.clear();
+                return -theErr;
+            }
+            if (theFBufIt == theLastIt) {
+                mRequestId = 300000; // > 0 != QCDiskQueue::kRequestIdNone
+                mWriteSyncFlag       = inSyncFlag;
+                mCompletionRequestId = mRequestId;
+                mCompletionCode      = QCDiskQueue::kErrorNone;
+                sDiskIoQueuesPtr->WritePending(inNumBytes - theNWr);
+                theIoPtr->mChainedPtr = this;
+            }
+            const ssize_t theStatus = theIoPtr->SubmitWrite(
+                theFBufIt == theLastIt && inSyncFlag,
+                theFBufIt - theIoBuffers.begin(),
+                theIoPtr->mIoBuffers.size() * theBlockSize,
+                theQueuePtr
+            );
+            if (theStatus < 0) {
+                DiskQueue::SetError(*mFilePtr, (int)theStatus);
+                return theStatus;
+            }
+        }
+        return (inNumBytes - theNWr);
+    }
     // Check if prior buffered data can be written.
     if (theBufferFlag && theMinWriteBlkSize <= inOffset) {
-        const int theBlkCnt = theMinWriteBlkSize /  theBlockSize;
+        const int  theBlkCnt    = theMinWriteBlkSize / theBlockSize;
         IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
         theFBufIt = theIoBuffers.begin() +
             (inOffset / theMinWriteBlkSize) * theBlkCnt;
-        IoBuffers::iterator const theEndIt = theFBufIt;
+        IoBuffers::iterator const theEndIt = theFBufIt + 1;
         for (; ;) {
             if (theFBufIt->IsEmpty()) {
                 theFBufIt++;
@@ -2379,7 +2460,14 @@ DiskIo::RunCompletion()
     if (mIoRetCode < 0 || mReadLength <= 0) {
         const bool theCheckStatusFlag = mReadLength == 0 && mIoBuffers.empty();
         mIoBuffers.clear();
+        DiskIo* const theChainedPtr = mChainedPtr;
+        mChainedPtr = 0;
         IoCompletion(0, theNumRead, theCheckStatusFlag);
+        if (theChainedPtr) {
+            // FIXME
+            // theChainedPtr->Done(
+            //);
+        }
         return;
     }
     // Read. Skip/trim first/last buffers if needed.

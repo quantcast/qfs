@@ -287,6 +287,7 @@ private:
     bool                   mWriteSyncFlag;
     QCDiskQueue::RequestId mCompletionRequestId;
     QCDiskQueue::Error     mCompletionCode;
+    DiskIo*                mChainedPtr;
     DiskIo*                mPrevPtr[1];
     DiskIo*                mNextPtr[1];
 
