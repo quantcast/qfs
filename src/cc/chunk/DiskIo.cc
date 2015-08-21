@@ -2111,7 +2111,8 @@ DiskIo::Write(
                 ++theFBufIt;
                 continue;
             }
-            const QCDiskQueue::BlockIdx theIdx = theFBufIt - theIoBuffers.begin();
+            const QCDiskQueue::BlockIdx theIdx =
+                theFBufIt - theIoBuffers.begin();
             DiskIo* theIoPtr;
             if ((theFBufIt - theIoBuffers.begin()) % theBlkCnt == 0) {
                 theIoPtr = new DiskIo(mFilePtr,
@@ -2144,8 +2145,7 @@ DiskIo::Write(
                 mIoBuffers.clear();
                 return -theErr;
             }
-            const bool theSyncFlag =
-                theFBufIt == theLastIt && inSyncFlag;
+            const bool theSyncFlag = theFBufIt == theLastIt && inSyncFlag;
             if (theFBufIt == theLastIt) {
                 mRequestId = 300000; // > 0 != QCDiskQueue::kRequestIdNone
                 mWriteSyncFlag       = inSyncFlag;
