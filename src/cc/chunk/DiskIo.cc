@@ -551,6 +551,8 @@ public:
           mBufferManager(inConfig.getValue(
             "chunkServer.bufferManager.enabled", true)),
           mNullCallback(),
+          mBufferredWriteNullCallback(),
+          mNullBufferDataPtr(0),
           mCounters(),
           mDiskErrorSimulatorConfig(inConfig),
           mCpuAffinity(inConfig.getValue(
@@ -571,6 +573,7 @@ public:
     {
         DiskIoQueues::Shutdown(0, false);
         globalNetManager().UnRegisterTimeoutHandler(this);
+        delete mNullBufferDataPtr;
     }
     bool Start(
         string* inErrMessagePtr)
@@ -596,6 +599,9 @@ public:
                 // Make sure that allocator works, and it isn't possible to
                 // change it:
                 IOBufferData theAllocatorTest;
+                if (! mNullBufferDataPtr) {
+                    mNullBufferDataPtr = new IOBufferData(0, 0, 0, 0);
+                }
             }
         }
         if (theSysError) {
@@ -993,6 +999,10 @@ public:
     }
     KfsCallbackObj* GetNullCallbackPtr()
         { return &mNullCallback; }
+    KfsCallbackObj* GetBufferredWriteNullCallbackPtr()
+        { return &mBufferredWriteNullCallback; }
+    const IOBufferData& GetNullBufferData() const
+        { return *mNullBufferDataPtr; }
     static time_t Now()
         { return globalNetManager().Now(); }
     void UpdateOpenFilesCount(
@@ -1118,6 +1128,8 @@ private:
     BufferAllocator                mBufferAllocator;
     BufferManager                  mBufferManager;
     NullCallback                   mNullCallback;
+    NullCallback                   mBufferredWriteNullCallback;
+    IOBufferData*                  mNullBufferDataPtr;
     DiskIo*                        mIoInFlightQueuePtr[1];
     DiskIo*                        mIoDoneQueuePtr[1];
     DiskQueue*                     mDiskQueuesPtr[1];
@@ -1738,6 +1750,12 @@ DiskIo::File::GetDiskQueuePendingCount(
     }
 }
 
+    int
+DiskIo::File::GetMinWriteBlkSize() const
+{
+    return (mQueuePtr ? mQueuePtr->GetMinWriteBlkSize() : 0);
+}
+
     bool
 DiskIo::File::ReserveSpace(
     string* inErrMessagePtr)
@@ -1815,6 +1833,12 @@ DiskIo::~DiskIo()
     void
 DiskIo::Close()
 {
+    if (mChainedPtr) {
+        QCRTASSERT(mChainedPtr->mChainedPtr == this);
+        mChainedPtr->mChainedPtr = 0;
+        mChainedPtr = 0;
+        return;
+    }
     if (sDiskIoQueuesPtr) {
         sDiskIoQueuesPtr->Cancel(*this);
     }
@@ -1887,7 +1911,7 @@ DiskIo::Read(
     sDiskIoQueuesPtr->SetInFlight(this);
     const int theMinWriteBlkSize = theQueuePtr->GetMinWriteBlkSize();
     if (0 < theMinWriteBlkSize) {
-        IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
+        const IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
         if (! theIoBuffers.empty()) {
             const size_t theIdx    = inOffset / theBlockSize;
             const size_t theEndIdx =
@@ -1900,7 +1924,8 @@ DiskIo::Read(
                     theIoBuffers.begin() + theIdx;
                 IoBuffers::const_iterator const theEndIt =
                     theIoBuffers.begin() + theEndIdx;
-                while (theIt != theEndIt && theIt->IsEmpty()) {
+                mIoBuffers.reserve(theEndIdx - theIdx);
+                while (theIt != theEndIt && ! theIt->IsEmpty()) {
                     mIoBuffers.push_back(*theIt);
                     ++theIt;
                 }
@@ -1961,24 +1986,6 @@ DiskIo::Read(
     return -theErr;
 }
 
-class BufferredWriteNullCb : public KfsCallbackObj
-{
-public:
-    BufferredWriteNullCb()
-        : KfsCallbackObj()
-        { SET_HANDLER(this, &BufferredWriteNullCb::Done); }
-    int Done(
-        int   /* inCode */,
-        void* /* inDataPtr */)
-        { return 0; }
-private:
-    BufferredWriteNullCb(
-        const BufferredWriteNullCb& inCb);
-    BufferredWriteNullCb& operator=(
-        const BufferredWriteNullCb& inCb);
-};
-static BufferredWriteNullCb sBufferredWriteNullCb;
-
     ssize_t
 DiskIo::Write(
     DiskIo::Offset inOffset,
@@ -2023,27 +2030,34 @@ DiskIo::Write(
         DiskIoReportError("DiskIo::Write: invalid offset", EINVAL);
         return -EINVAL;
     }
-    const size_t kBlockAlignMask = (4 << 10) - 1;
-    size_t       theNWr          = inNumBytes;
-    const size_t theBufferCnt    =
+    size_t                theNWr             = inNumBytes;
+    QCDiskQueue::BlockIdx theBlkIdx          =
+        (QCDiskQueue::BlockIdx)(inOffset / theBlockSize);
+    const size_t          theBufferCnt       =
         (theNWr + (size_t)theBlockSize - 1) / (size_t)theBlockSize;
-    const int theMinWriteBlkSize = theQueuePtr->GetMinWriteBlkSize();
-    IoBuffers::iterator theFBufIt;
-    bool                theBufferFlag = false;
-    if (0 < theMinWriteBlkSize) {
+    const int             theMinWriteBlkSize =
+        theQueuePtr->GetMinWriteBlkSize();
+    IoBuffers&            theIoBuffers       =
+        DiskQueue::GetIoBuffers(*mFilePtr);
+    const bool            theBufferFlag      = 0 < theMinWriteBlkSize && (
+        ! inSyncFlag ||
+        ! theIoBuffers.empty() ||
+        inNumBytes % theMinWriteBlkSize != 0 ||
+        inOffset   % theMinWriteBlkSize != 0
+    );
+    IoBuffers::iterator   theFBufIt;
+    if (theBufferFlag) {
         if (mFilePtr->GetError() < 0) {
             return mFilePtr->GetError();
         }
-        IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
-        const size_t theStart = (size_t)(inOffset / theBlockSize);
-        if (inOffset != (Offset)(theStart * theBlockSize) ||
-                inNumBytes % theMinWriteBlkSize != 0) {
-            theIoBuffers.resize(theStart + theBufferCnt);
-            theFBufIt = theIoBuffers.begin() + theStart;
-            theBufferFlag = true;
+        const size_t theSize     = (size_t)theBlkIdx + theBufferCnt;
+        if (theIoBuffers.size() < theSize) {
+            theIoBuffers.resize(theSize, sDiskIoQueuesPtr->GetNullBufferData());
         }
+        theFBufIt = theIoBuffers.begin() + theBlkIdx;
     }
     mIoBuffers.reserve(theBufferCnt);
+    const size_t kBlockAlignMask = (4 << 10) - 1;
     for (IOBuffer::iterator
             theIt = inBufferPtr->begin();
             theIt != inBufferPtr->end() && theNWr > 0;
@@ -2070,15 +2084,12 @@ DiskIo::Write(
         }
         mIoBuffers.push_back(*theIt);
     }
-    QCDiskQueue::BlockIdx theBlkIdx =
-        (QCDiskQueue::BlockIdx)(inOffset / theBlockSize);
     // Unless sync requested, buffer the last write if buffering is on.
     if (theBufferFlag && inSyncFlag) {
-        const int  theBlkCnt    = theMinWriteBlkSize / theBlockSize;
-        IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
-        theFBufIt = theIoBuffers.begin();
+        const int           theBlkCnt = theMinWriteBlkSize / theBlockSize;
         IoBuffers::iterator theLastIt = theIoBuffers.end();
-        while (theLastIt != theIoBuffers.begin()) {
+        theFBufIt = theIoBuffers.begin();
+        while (theFBufIt != theLastIt) {
             --theLastIt;
             if (! theLastIt->IsEmpty()) {
                 ++theLastIt;
@@ -2086,7 +2097,7 @@ DiskIo::Write(
             }
         }
         if (theLastIt != theIoBuffers.end() &&
-                (theLastIt - theIoBuffers.begin()) % theBlkCnt != 0) {
+                (theLastIt - theFBufIt) % theBlkCnt != 0) {
             const int theErr = EIO;
             DiskIoReportError(
                 "DiskIo::Write: sync: incomplete trailing buffered block",
@@ -2100,12 +2111,14 @@ DiskIo::Write(
                 ++theFBufIt;
                 continue;
             }
+            const QCDiskQueue::BlockIdx theIdx = theFBufIt - theIoBuffers.begin();
             DiskIo* theIoPtr;
-            if ((theFBufIt - theIoBuffers.begin()) % theBlkCnt != 0) {
-                theIoPtr = new DiskIo(mFilePtr, &sBufferredWriteNullCb);
+            if ((theFBufIt - theIoBuffers.begin()) % theBlkCnt == 0) {
+                theIoPtr = new DiskIo(mFilePtr,
+                    sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr());
                 while (theFBufIt != theLastIt && ! theFBufIt->IsEmpty()) {
                     theIoPtr->mIoBuffers.push_back(*theFBufIt);
-                    *theFBufIt = IOBufferData();
+                    *theFBufIt = sDiskIoQueuesPtr->GetNullBufferData();
                     ++theFBufIt;
                 }
                 if ((theFBufIt != theLastIt &&
@@ -2123,7 +2136,6 @@ DiskIo::Write(
                 theIoPtr = 0;
             }
             if (! theIoPtr) {
-                delete theIoPtr;
                 const int theErr = EIO;
                 DiskIoReportError(
                     "DiskIo::Write: sync: incomplete buffered block",
@@ -2132,21 +2144,26 @@ DiskIo::Write(
                 mIoBuffers.clear();
                 return -theErr;
             }
+            const bool theSyncFlag =
+                theFBufIt == theLastIt && inSyncFlag;
             if (theFBufIt == theLastIt) {
                 mRequestId = 300000; // > 0 != QCDiskQueue::kRequestIdNone
                 mWriteSyncFlag       = inSyncFlag;
                 mCompletionRequestId = mRequestId;
                 mCompletionCode      = QCDiskQueue::kErrorNone;
-                sDiskIoQueuesPtr->WritePending(inNumBytes - theNWr);
                 theIoPtr->mChainedPtr = this;
+                mChainedPtr = theIoPtr;
+                mBlockIdx   = theBlkIdx;
+                theIoBuffers.clear();
             }
             const ssize_t theStatus = theIoPtr->SubmitWrite(
-                theFBufIt == theLastIt && inSyncFlag,
-                theFBufIt - theIoBuffers.begin(),
+                theSyncFlag,
+                theIdx,
                 theIoPtr->mIoBuffers.size() * theBlockSize,
                 theQueuePtr
             );
             if (theStatus < 0) {
+                theIoBuffers.clear();
                 DiskQueue::SetError(*mFilePtr, (int)theStatus);
                 return theStatus;
             }
@@ -2155,11 +2172,10 @@ DiskIo::Write(
     }
     // Check if prior buffered data can be written.
     if (theBufferFlag && theMinWriteBlkSize <= inOffset) {
-        const int  theBlkCnt    = theMinWriteBlkSize / theBlockSize;
-        IoBuffers& theIoBuffers = DiskQueue::GetIoBuffers(*mFilePtr);
-        theFBufIt = theIoBuffers.begin() +
+        const int                 theBlkCnt = theMinWriteBlkSize / theBlockSize;
+        IoBuffers::iterator const theEndIt  = theIoBuffers.begin() +
             (inOffset / theMinWriteBlkSize) * theBlkCnt;
-        IoBuffers::iterator const theEndIt = theFBufIt + 1;
+        theFBufIt = theEndIt - 1;
         for (; ;) {
             if (theFBufIt->IsEmpty()) {
                 theFBufIt++;
@@ -2176,12 +2192,13 @@ DiskIo::Write(
             --theFBufIt;
         }
         if (theFBufIt != theEndIt) {
-            DiskIo& theIo = *(new DiskIo(mFilePtr, &sBufferredWriteNullCb));
+            DiskIo& theIo = *(new DiskIo(mFilePtr,
+                sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr()));
             theBlkIdx =
                 (QCDiskQueue::BlockIdx)(theFBufIt - theIoBuffers.begin());
             while (theFBufIt != theEndIt) {
                 theIo.mIoBuffers.push_back(*theFBufIt);
-                *theFBufIt = IOBufferData();
+                *theFBufIt = sDiskIoQueuesPtr->GetNullBufferData();
                 ++theFBufIt;
             }
             const ssize_t theStatus = theIo.SubmitWrite(
@@ -2196,7 +2213,7 @@ DiskIo::Write(
             }
         }
     }
-    if (! mIoBuffers.empty()) {
+    if (! mIoBuffers.empty() && ! theBufferFlag) {
         return SubmitWrite(
             inSyncFlag, theBlkIdx, inNumBytes - theNWr, theQueuePtr);
     }
@@ -2435,8 +2452,8 @@ DiskIo::RunCompletion()
             " error: " << theNumRead <<
             " " << theErrMsg <<
         KFS_LOG_EOM;
-        if (&sBufferredWriteNullCb == mCallbackObjPtr &&
-                0 <= mFilePtr->GetError()) {
+        if (sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr() ==
+                mCallbackObjPtr && 0 <= mFilePtr->GetError()) {
             DiskQueue::SetError(*mFilePtr, theNumRead);
         }
     }
@@ -2462,11 +2479,36 @@ DiskIo::RunCompletion()
         mIoBuffers.clear();
         DiskIo* const theChainedPtr = mChainedPtr;
         mChainedPtr = 0;
+        if (theChainedPtr) {
+            theChainedPtr->mChainedPtr     = 0;
+            theChainedPtr->mIoRetCode      = mIoRetCode;
+            theChainedPtr->mCompletionCode = mCompletionCode;
+            theChainedPtr->mWriteSyncFlag  = mWriteSyncFlag;
+        }
         IoCompletion(0, theNumRead, theCheckStatusFlag);
         if (theChainedPtr) {
-            // FIXME
-            // theChainedPtr->Done(
-            //);
+            const int     theBufferSize  =
+                sDiskIoQueuesPtr->GetBufferAllocator().GetBufferSize();
+            const int     theBufferCount = (int)theChainedPtr->mIoBuffers.size();
+            const int64_t theBlockIdx    = theChainedPtr->mBlockIdx;
+            const int     theSysErrCode  =
+                QCDiskQueue::kErrorNone == theChainedPtr->mCompletionCode ?
+                    0 : (int)-theChainedPtr->mIoRetCode;
+            theChainedPtr->mBlockIdx = 0;
+            BufIterator   theBufItr(theChainedPtr->mIoBuffers);
+            theChainedPtr->mCompletionRequestId = theChainedPtr->mRequestId;
+            sDiskIoQueuesPtr->WritePending(theBufferCount * theBufferSize);
+            sDiskIoQueuesPtr->SetInFlight(theChainedPtr);
+            theChainedPtr->Done(
+                theChainedPtr->mRequestId,
+                theChainedPtr->mFilePtr->GetFileIdx(),
+                theBlockIdx,
+                theBufItr,
+                theBufferCount,
+                theChainedPtr->mCompletionCode,
+                theSysErrCode,
+                theBufferCount * theBufferSize
+            );
         }
         return;
     }

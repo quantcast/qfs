@@ -108,7 +108,11 @@ IOBufferData::Init(char* buf, int bufSize)
 {
     // glibc malloc returns 2 * sizeof(size_t) aligned blocks.
     const int size = max(0, bufSize);
-    mData.reset(buf ? buf : new char [size], IOBufferArrayDeallocator());
+    if (size <= 0 && ! buf) {
+        mData.reset();
+    } else {
+        mData.reset(buf ? buf : new char [size], IOBufferArrayDeallocator());
+    }
     mProducer = mData.get();
     mEnd      = mProducer + size;
     mConsumer = mProducer;

@@ -217,6 +217,7 @@ public:
             int64_t& outReadBlockCount,
             int64_t& outWriteBlockCount,
             int&     outBlockSize);
+        int GetMinWriteBlkSize() const;
         int GetError() const
             { return mError; }
     private:

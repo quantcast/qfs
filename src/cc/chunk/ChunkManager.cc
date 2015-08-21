@@ -1442,8 +1442,10 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
         assert(diskIo);
         diskIOTime = microseconds();
         status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf,
-            gChunkManager.IsSyncChunkHeader() &&
-            (targetVersion > 0 || stableFlag));
+            (gChunkManager.IsSyncChunkHeader() &&
+                (targetVersion > 0 || stableFlag)) ||
+            (stableFlag && 0 < cih->dataFH->GetMinWriteBlkSize())
+        );
     }
     return status;
 }
@@ -1525,6 +1527,12 @@ ChunkInfoHandle::WriteChunkMetadata(
         wcm->dataBuf.ZeroFillLast();
         if ((int)KFS_CHUNK_HEADER_SIZE < wcm->dataBuf.BytesConsumable()) {
             die("invalid io buffer size");
+        }
+        const int headerTailSize =
+            min(dataFH->GetMinWriteBlkSize(), (int)KFS_CHUNK_HEADER_SIZE) -
+            wcm->dataBuf.BytesConsumable();
+        if (0 < headerTailSize) {
+            wcm->dataBuf.ZeroFill(headerTailSize);
         }
     }
     if (wcm->renameFlag) {
