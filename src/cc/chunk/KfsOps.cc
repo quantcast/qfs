@@ -1218,7 +1218,6 @@ AllocChunkOp::Execute()
         gLogger.Submit(this);
         return;
     }
-
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
     mustExistFlag = mustExistFlag || 1 < chunkVersion;
@@ -1232,14 +1231,13 @@ AllocChunkOp::Execute()
             KFS_LOG_EOM;
         }
     }
-    const bool failIfExistsFlag = ! mustExistFlag && 0 <= chunkVersion;
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
     const bool kAddObjectBlockMappingFlag = false;
     int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
         kAddObjectBlockMappingFlag);
     if (res == 0) {
-        if (failIfExistsFlag) {
+        if (! mustExistFlag) {
             die("chunk deletion failed");
         }
         return; // The completion handler will be or already invoked.
