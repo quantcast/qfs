@@ -4904,7 +4904,7 @@ MetaDelegate::response(ostream& os)
  * @param[out] os: A string stream that contains the response.
  */
 void
-MetaChunkAllocate::request(ostream &os)
+MetaChunkAllocate::request(ostream& os)
 {
     assert(req && ! req->servers.empty());
 
@@ -4924,6 +4924,9 @@ MetaChunkAllocate::request(ostream &os)
         os << "Lease-id: " << leaseId << "\r\n";
         if (req->clientCSAllowClearTextFlag) {
             os << "CS-clear-text: 1\r\n";
+        }
+        if (0 == req->numReplicas && 0 < req->initialChunkVersion) {
+            os << "Exists: 1\r\n";
         }
     }
     os <<

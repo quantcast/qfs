@@ -5256,6 +5256,11 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         return -EBUSY;
     }
     if (0 == r->numReplicas) {
+        Servers::const_iterator const it = FindServerByHost(r->clientIp);
+        if (mChunkServers.end() == it) {
+            r->statusMsg = "no access proxy available on: " + r->clientIp;
+            return -EDATAUNAVAIL;
+        }
         ChunkLeases::EntryKey const leaseKey(r->fid, r->offset);
         const ChunkLeases::WriteLease* const l =
             mChunkLeases.RenewValidWriteLease(leaseKey, *r);
@@ -5290,14 +5295,9 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
                 KFS_LOG_EOM;
                 return -EBUSY;
             }
-            // Create new lease even though no version change done.
-            mChunkLeases.Delete(leaseKey);
         }
-        Servers::const_iterator const it = FindServerByHost(r->clientIp);
-        if (it != mChunkServers.end()) {
-            r->statusMsg = "no access proxy available on: " + r->clientIp;
-            return -EDATAUNAVAIL;
-        }
+        // Create new lease even though no version change done.
+        mChunkLeases.Delete(leaseKey);
         r->servers.clear();
         r->servers.push_back(*it);
         r->master = *it;
