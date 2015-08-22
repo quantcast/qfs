@@ -551,6 +551,7 @@ struct AllocChunkOp : public KfsOp {
         .Def("C-access-length", &AllocChunkOp::chunkAccessLength)
         .Def("CS-acess-time",   &AllocChunkOp::chunkServerAccessValidForTime)
         .Def("CS-acess-issued", &AllocChunkOp::chunkServerAccessIssuedTime)
+        .Def("Exists",          &AllocChunkOp::mustExistFlag)
         ;
     }
 };

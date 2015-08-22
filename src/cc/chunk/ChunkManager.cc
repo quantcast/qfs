@@ -2736,9 +2736,11 @@ ChunkManager::WriteChunkMetadata(
 
 int
 ChunkManager::ReadChunkMetadata(
-    kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb)
+    kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb,
+    bool addObjectBlockMappingFlag)
 {
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion);
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,
+        addObjectBlockMappingFlag);
     if (! cih) {
         return -EBADF;
     }
@@ -2917,7 +2919,9 @@ ChunkManager::IsChunkMetadataLoaded(kfsChunkId_t chunkId, int64_t chunkVersion)
 ChunkInfo_t*
 ChunkManager::GetChunkInfo(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    ChunkInfoHandle* const ci = GetChunkInfoHandle(chunkId, chunkVersion);
+    const bool kAddObjectBlockMappingFlag = false;
+    ChunkInfoHandle* const ci = GetChunkInfoHandle(chunkId, chunkVersion,
+        kAddObjectBlockMappingFlag);
     return (ci ? &(ci->chunkInfo) : 0);
 }
 
@@ -3141,17 +3145,16 @@ ChunkManager::ChangeChunkVers(
     KfsCallbackObj*        cb,
     const DiskIo::FilePtr* filePtr /* = 0 */)
 {
-    if (chunkVersion < 0) {
-        return -EINVAL;
-    }
-    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
-    if (! ci) {
+    const bool kAddObjectBlockMappingFlag = false;
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,
+        kAddObjectBlockMappingFlag);
+    if (! cih) {
         return -EBADF;
     }
-    if (filePtr && *filePtr != (*ci)->dataFH) {
+    if (filePtr && *filePtr != cih->dataFH) {
         return -EINVAL;
     }
-    return ChangeChunkVers(*ci, chunkVersion, stableFlag, cb);
+    return ChangeChunkVers(cih, chunkVersion, stableFlag, cb);
 }
 
 int
@@ -3161,7 +3164,7 @@ ChunkManager::ChangeChunkVers(
     bool             stableFlag,
     KfsCallbackObj*  cb)
 {
-    if (! cih->chunkInfo.chunkBlockChecksum) {
+    if (! cih->chunkInfo.AreChecksumsLoaded()) {
         KFS_LOG_STREAM_ERROR <<
             "attempt to change version on chunk: " <<
                 cih->chunkInfo.chunkId << " denied: checksums are not loaded" <<
@@ -3175,9 +3178,21 @@ ChunkManager::ChangeChunkVers(
         KFS_LOG_EOM;
         return -EINVAL;
     }
-
+    if (chunkVersion < 0 &&
+            (cih->IsStable() != stableFlag ||
+                chunkVersion != cih->chunkInfo.chunkVersion)) {
+        KFS_LOG_STREAM_WARN <<
+            "invalid attempt to change version on object store" <<
+                " block: "   << cih->chunkInfo.chunkId <<
+                " version: " << chunkVersion <<
+                " / "        << cih->chunkInfo.chunkVersion <<
+                " stable: "  << cih->IsStable() <<
+                " / "        << stableFlag <<
+        KFS_LOG_EOM;
+        return -EINVAL;
+    }
     KFS_LOG_STREAM_INFO <<
-        "Chunk " << MakeChunkPathname(cih) <<
+        "chunk " << MakeChunkPathname(cih) <<
         " already exists; changing version #" <<
         " from " << cih->chunkInfo.chunkVersion << " to " << chunkVersion <<
         " stable: " << cih->IsStable() << "=>" << stableFlag <<
@@ -3665,7 +3680,9 @@ ChunkManager::CloseChunkWrite(
                 if (readMetaFlag) {
                     *readMetaFlag = true;
                 }
-                ReadChunkMetadata(chunkId, chunkVersion, op);
+                bool kAddObjectBlockMappingFlag = true;
+                ReadChunkMetadata(chunkId, chunkVersion, op,
+                    kAddObjectBlockMappingFlag);
             }
             return 0;
         }
@@ -3726,8 +3743,13 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
 bool
 ChunkManager::ChunkSize(SizeOp* op)
 {
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(op->chunkId, op->chunkVersion);
+    const bool kAddObjectBlockMappingFlag = false;
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(op->chunkId, op->chunkVersion,
+        kAddObjectBlockMappingFlag);
     if (! cih) {
+        if (op->chunkVersion < 0) {
+            return false;
+        }
         op->status    = -EBADF;
         op->statusMsg = "no such chunk";
         return true;

@@ -230,7 +230,8 @@ public:
     /// @retval 0 if op was successfully scheduled; -errno otherwise
     int WriteChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion,
             KfsCallbackObj *cb, bool forceFlag = false);
-    int ReadChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp *cb);
+    int ReadChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb,
+        bool addObjectBlockMappingFlag);
 
     /// Notification that read is finished
     void ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf);

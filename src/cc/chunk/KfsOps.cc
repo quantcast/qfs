@@ -1221,8 +1221,8 @@ AllocChunkOp::Execute()
 
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
-    mustExistFlag = 1 < chunkVersion;
-    if (! mustExistFlag && 0 <= chunkVersion) {
+    mustExistFlag = mustExistFlag || 1 < chunkVersion;
+    if (! mustExistFlag) {
         const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<
@@ -1235,8 +1235,9 @@ AllocChunkOp::Execute()
     const bool failIfExistsFlag = ! mustExistFlag && 0 <= chunkVersion;
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
-    int res = (! mustExistFlag && chunkVersion < 0) ? -EBADF :
-        gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this);
+    const bool kAddObjectBlockMappingFlag = false;
+    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
+        kAddObjectBlockMappingFlag);
     if (res == 0) {
         if (failIfExistsFlag) {
             die("chunk deletion failed");
@@ -1346,7 +1347,9 @@ void
 TruncateChunkOp::Execute()
 {
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaReadDone);
-    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this) < 0) {
+    const bool kAddObjectBlockMappingFlag = false;
+    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this,
+            kAddObjectBlockMappingFlag) < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
     }
@@ -1413,8 +1416,9 @@ MakeChunkStableOp::Execute()
         return;
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
+    const bool kAddObjectBlockMappingFlag = false;
     const int ret = gChunkManager.ReadChunkMetadata(
-        chunkId, chunkVersion, this);
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (ret < 0) {
         status = ret;
         gLogger.Submit(this);
@@ -1461,8 +1465,9 @@ void
 ChangeChunkVersOp::Execute()
 {
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);
+    const bool kAddObjectBlockMappingFlag = false;
     const int ret = gChunkManager.ReadChunkMetadata(
-        chunkId, chunkVersion, this);
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (ret < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
@@ -1979,8 +1984,9 @@ ReadOp::Execute()
     }
 
     SET_HANDLER(this, &ReadOp::HandleChunkMetaReadDone);
+    const bool kAddObjectBlockMappingFlag = true;
     const int res = gChunkManager.ReadChunkMetadata(
-        chunkId, chunkVersion, this);
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed read chunk meta data, status: " << res <<
@@ -2190,7 +2196,9 @@ WriteIdAllocOp::ReadChunkMetadata()
     // page in the chunk meta-data if needed
     // if the read was successful, the call to read will callback handle-done
     SET_HANDLER(this, &WriteIdAllocOp::Done);
-    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this);
+    const bool kAddObjectBlockMappingFlag = false;
+    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
+        kAddObjectBlockMappingFlag);
     if (res < 0) {
         Done(EVENT_CMD_DONE, &res);
     }
@@ -2683,10 +2691,11 @@ GetRecordAppendOpStatus::Execute()
 void
 SizeOp::Execute()
 {
-    int res = 0;
+    int  res                        = 0;
+    bool kAddObjectBlockMappingFlag = true;
     if (gChunkManager.ChunkSize(this) ||
             (res = gChunkManager.ReadChunkMetadata(
-                chunkId, chunkVersion, this)) < 0) {
+                chunkId, chunkVersion, this, kAddObjectBlockMappingFlag)) < 0) {
         if (0 <= status && res < 0) {
             status = res;
         }
@@ -2796,7 +2805,9 @@ void
 GetChunkMetadataOp::Execute()
 {
     SET_HANDLER(this, &GetChunkMetadataOp::HandleChunkMetaReadDone);
-    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this) < 0) {
+    bool const kAddObjectBlockMappingFlag = true;
+    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this,
+            kAddObjectBlockMappingFlag) < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
     }
