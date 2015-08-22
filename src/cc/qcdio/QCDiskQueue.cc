@@ -116,7 +116,8 @@ public:
         InputIterator* inBufferIteratorPtr,
         int            inBufferCount,
         IoCompletion*  inIoCompletionPtr,
-        Time           inTimeWaitNanoSec);
+        Time           inTimeWaitNanoSec,
+        int64_t        inEofHint);
     bool Cancel(
         RequestId inRequestId);
     IoCompletion* CancelOrSetCompletionIfInFlight(
@@ -1021,7 +1022,8 @@ QCDiskQueue::Queue::Enqueue(
     QCDiskQueue::InputIterator* inBufferIteratorPtr,
     int                         inBufferCount,
     QCDiskQueue::IoCompletion*  inIoCompletionPtr,
-    QCDiskQueue::Time           inTimeWaitNanoSec)
+    QCDiskQueue::Time           inTimeWaitNanoSec,
+    int64_t                     inEofHint)
 {
     if ((inReqType != kReqTypeRead && ! IsWriteReqType(inReqType)) ||
             inBufferCount <= 0 ||
@@ -1089,6 +1091,9 @@ QCDiskQueue::Queue::Enqueue(
     if (theReq.mBufferCount <= 0) {
         Put(theReq);
         return EnqueueStatus(kRequestIdNone, kErrorBlockCountOutOfRange);
+    }
+    if (kReqTypeWriteSync == inReqType && 0 <= inEofHint) {
+        mFileInfoPtr[inFileIdx].mCloseFileSize = inEofHint;
     }
     Enqueue(theReq);
     if (! mBarrierFlag) {
@@ -2185,7 +2190,8 @@ QCDiskQueue::Enqueue(
     QCDiskQueue::InputIterator* inBufferIteratorPtr,
     int                         inBufferCount,
     QCDiskQueue::IoCompletion*  inIoCompletionPtr,
-    QCDiskQueue::Time           inTimeWaitNanoSec)
+    QCDiskQueue::Time           inTimeWaitNanoSec,
+    int64_t                     inEofHint)
 {
     if (! mQueuePtr) {
         return EnqueueStatus(kRequestIdNone, kErrorParameter);
@@ -2197,7 +2203,8 @@ QCDiskQueue::Enqueue(
         inBufferIteratorPtr,
         inBufferCount,
         inIoCompletionPtr,
-        inTimeWaitNanoSec);
+        inTimeWaitNanoSec,
+        inEofHint);
 }
 
     bool

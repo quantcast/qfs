@@ -1991,7 +1991,8 @@ DiskIo::Write(
     DiskIo::Offset inOffset,
     size_t         inNumBytes,
     IOBuffer*      inBufferPtr,
-    bool           inSyncFlag /* = false */)
+    bool           inSyncFlag /* = false */,
+    DiskIo::Offset inEofHint  /* = -1 */)
 {
     if (inOffset < 0 || ! inBufferPtr ||
             mRequestId != QCDiskQueue::kRequestIdNone || ! mFilePtr->IsOpen()) {
@@ -2160,7 +2161,8 @@ DiskIo::Write(
                 theSyncFlag,
                 theIdx,
                 theIoPtr->mIoBuffers.size() * theBlockSize,
-                theQueuePtr
+                theQueuePtr,
+                inEofHint
             );
             if (theStatus < 0) {
                 theIoBuffers.clear();
@@ -2170,26 +2172,31 @@ DiskIo::Write(
         }
         return (inNumBytes - theNWr);
     }
-    // Check if prior buffered data can be written.
+    // Check if preceding buffered data can be written.
     if (theBufferFlag && theMinWriteBlkSize <= inOffset) {
         const int                 theBlkCnt = theMinWriteBlkSize / theBlockSize;
         IoBuffers::iterator const theEndIt  = theIoBuffers.begin() +
             (inOffset / theMinWriteBlkSize) * theBlkCnt;
-        theFBufIt = theEndIt - 1;
-        for (; ;) {
-            if (theFBufIt->IsEmpty()) {
-                theFBufIt++;
-                const size_t theFront =
-                    (theFBufIt - theIoBuffers.begin()) % theBlkCnt;
-                if (theFront != 0) {
-                    theFBufIt += theBlkCnt - theFront;
-                }
-                break;
-            }
-            if (theIoBuffers.begin() == theFBufIt) {
-                break;
-            }
+        theFBufIt = theEndIt;
+         // Check the beginning of the write block -- special case for yet
+         // unwritten chunk header.
+        if (! (theEndIt - theBlkCnt)->IsEmpty()) {
             --theFBufIt;
+            for (; ;) {
+                if (theFBufIt->IsEmpty()) {
+                    theFBufIt++;
+                    const size_t theFront =
+                        (theFBufIt - theIoBuffers.begin()) % theBlkCnt;
+                    if (theFront != 0) {
+                        theFBufIt += theBlkCnt - theFront;
+                    }
+                    break;
+                }
+                if (theIoBuffers.begin() == theFBufIt) {
+                    break;
+                }
+                --theFBufIt;
+            }
         }
         if (theFBufIt != theEndIt) {
             DiskIo& theIo = *(new DiskIo(mFilePtr,
@@ -2205,7 +2212,8 @@ DiskIo::Write(
                 inSyncFlag,
                 theBlkIdx,
                 theIo.mIoBuffers.size() * theBlockSize,
-                theQueuePtr
+                theQueuePtr,
+                inEofHint
             );
             if (theStatus < 0) {
                 DiskQueue::SetError(*mFilePtr, (int)theStatus);
@@ -2215,7 +2223,7 @@ DiskIo::Write(
     }
     if (! mIoBuffers.empty() && ! theBufferFlag) {
         return SubmitWrite(
-            inSyncFlag, theBlkIdx, inNumBytes - theNWr, theQueuePtr);
+            inSyncFlag, theBlkIdx, inNumBytes - theNWr, theQueuePtr, inEofHint);
     }
     if (! theBufferFlag || inNumBytes <= theNWr) {
         return 0;
@@ -2248,7 +2256,8 @@ DiskIo::SubmitWrite(
     bool       inSyncFlag,
     int64_t    inBlockIdx,
     size_t     inNumBytes,
-    DiskQueue* inQueuePtr)
+    DiskQueue* inQueuePtr,
+    int64_t    inEofHint)
 {
     BufIterator theBufItr(mIoBuffers);
     mWriteSyncFlag       = inSyncFlag;
@@ -2262,7 +2271,8 @@ DiskIo::SubmitWrite(
         mIoBuffers.size(),
         this,
         sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec(),
-        inSyncFlag
+        inSyncFlag,
+        inEofHint
     );
     if (theStatus.IsGood()) {
         sDiskIoQueuesPtr->WritePending(inNumBytes);

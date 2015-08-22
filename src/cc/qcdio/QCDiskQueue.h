@@ -272,7 +272,8 @@ public:
         InputIterator* inBufferIteratorPtr,
         int            inBufferCount,
         IoCompletion*  inIoCompletionPtr,
-        Time           inTimeWaitNanoSec = -1);
+        Time           inTimeWaitNanoSec = -1,
+        int64_t        inEofHint         = -1);
 
     EnqueueStatus Read(
         FileIdx        inFileIdx,
@@ -299,7 +300,8 @@ public:
         int            inBufferCount,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec = -1,
-        bool           inSyncFlag        = false)
+        bool           inSyncFlag        = false,
+        int64_t        inEofHint         = -1)
     {
         return Enqueue(
             inSyncFlag ? kReqTypeWriteSync : kReqTypeWrite,
@@ -308,7 +310,8 @@ public:
             inBufferIteratorPtr,
             inBufferCount,
             inIoCompletionPtr,
-            inTimeWaitNanoSec);
+            inTimeWaitNanoSec,
+            inEofHint);
     }
 
     CompletionStatus SyncIo(

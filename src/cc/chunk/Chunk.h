@@ -21,7 +21,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// 
+//
 //----------------------------------------------------------------------------
 
 #ifndef _CHUNKSERVER_CHUNK_H
@@ -50,7 +50,7 @@ using std::dec;
 ///
 
 
-/// 
+///
 /// \brief ChunkInfo_t
 /// For each chunk, the chunkserver maintains a meta-data file.  This
 /// file defines the chunk attributes such as, the file it is
@@ -60,13 +60,14 @@ using std::dec;
 ///
 
 /// We allow a chunk header upto 16K in size
-const size_t KFS_CHUNK_HEADER_SIZE = 16 << 10;
+const size_t KFS_CHUNK_HEADER_SIZE     = 16 << 10;
+const size_t KFS_MIN_CHUNK_HEADER_SIZE =  8 << 10;
 
 /// The max # of checksum blocks we have for a given chunk
 const uint32_t MAX_CHUNK_CHECKSUM_BLOCKS = CHUNKSIZE /  CHECKSUM_BLOCKSIZE;
 
 /// In the chunk header, we store upto 256 char of the file that
-/// originally created the chunk.  
+/// originally created the chunk.
 const size_t CHUNK_META_MAX_FILENAME_LEN = 256;
 
 const uint32_t CHUNK_META_MAGIC = 0xCAFECAFE;
@@ -78,7 +79,13 @@ static size_t const      kKfsChunkFsIdPrefixLength = 16;
 // This structure is on-disk
 struct DiskChunkInfo_t
 {
-    DiskChunkInfo_t(kfsFileId_t f, kfsChunkId_t c, int64_t s, kfsSeq_t v)
+    enum Flags
+    {
+        kFlagsNone          = 0,
+        kFlagsMinHeaderSize = 1,
+    };
+
+    DiskChunkInfo_t(kfsFileId_t f, kfsChunkId_t c, int64_t s, kfsSeq_t v, uint32_t cf)
         : metaMagic(CHUNK_META_MAGIC),
           metaVersion(CHUNK_META_VERSION),
           fileId(f),
@@ -86,7 +93,7 @@ struct DiskChunkInfo_t
           chunkVersion(v),
           chunkSize(s),
           numReads(0),
-          unused(0) {
+          flags(cf) {
             memset(filename, 0, CHUNK_META_MAX_FILENAME_LEN);
     }
 
@@ -169,19 +176,19 @@ struct DiskChunkInfo_t
     uint64_t fileId;
     uint64_t chunkId;
     uint64_t chunkVersion;
-    uint64_t chunkSize; 
+    uint64_t chunkSize;
     uint32_t chunkBlockChecksum[MAX_CHUNK_CHECKSUM_BLOCKS];
-    // some statistics about the chunk: 
+    // some statistics about the chunk:
     // -- version # has an estimate of the # of writes
     // -- track the # of reads
     // ...
     uint32_t numReads;
     char     filename[CHUNK_META_MAX_FILENAME_LEN];
-    uint32_t unused;    // legacy padding
+    uint32_t flags;
 } __attribute__ ((__packed__));
 
 BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) == 4400);
-BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) < KFS_CHUNK_HEADER_SIZE);
+BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) < KFS_MIN_CHUNK_HEADER_SIZE);
 BOOST_STATIC_ASSERT(
     sizeof(int64_t) + kKfsChunkFsIdPrefixLength <= CHUNK_META_MAX_FILENAME_LEN);
 
@@ -192,7 +199,9 @@ struct ChunkInfo_t
         : fileId(0),
           chunkId(0),
           chunkVersion(0),
-          chunkSize(0), 
+          chunkSize(0),
+          chunkFlags(0),
+          reserved(0),
           chunkBlockChecksum(0)
         {}
 
@@ -237,9 +246,9 @@ struct ChunkInfo_t
         }
     }
 
-    // save the chunk meta-data to the buffer; 
+    // save the chunk meta-data to the buffer;
     void Serialize(IOBuffer* dataBuf, int64_t fsid) {
-        DiskChunkInfo_t dci(fileId, chunkId, chunkSize, chunkVersion);
+        DiskChunkInfo_t dci(fileId, chunkId, chunkSize, chunkVersion, chunkFlags);
         dci.SetFsId(fsid);
         assert(chunkBlockChecksum);
         dci.SetChecksums(chunkBlockChecksum);
@@ -267,6 +276,7 @@ struct ChunkInfo_t
         chunkId = dci.chunkId;
         chunkSize = dci.chunkSize;
         chunkVersion = dci.chunkVersion;
+        chunkFlags = dci.flags;
 
         delete [] chunkBlockChecksum;
         chunkBlockChecksum = new uint32_t[MAX_CHUNK_CHECKSUM_BLOCKS];
@@ -279,10 +289,25 @@ struct ChunkInfo_t
         return 0;
     }
 
+    void SetMinHeaderSize(bool flag) {
+        if (flag) {
+            chunkFlags |= DiskChunkInfo_t::kFlagsMinHeaderSize;
+        } else {
+            chunkFlags &= ~((uint32_t)DiskChunkInfo_t::kFlagsMinHeaderSize);
+        }
+    }
+
+    size_t GetHeaderSize() const {
+        return ((chunkFlags & DiskChunkInfo_t::kFlagsMinHeaderSize) == 0 ?
+            KFS_CHUNK_HEADER_SIZE : KFS_MIN_CHUNK_HEADER_SIZE);
+    }
+
     kfsFileId_t  fileId;
     kfsChunkId_t chunkId;
     kfsSeq_t     chunkVersion;
-    int64_t      chunkSize; 
+    int64_t      chunkSize;
+    uint32_t     chunkFlags;
+    uint32_t     reserved;
     uint32_t*    chunkBlockChecksum;
 private:
     // No copy.
@@ -323,6 +348,10 @@ bool IsValidChunkFile(
     int&               outIoTimeSec,
     bool&              outReadFlag);
 
+static inline size_t GetChunkHeaderSize(kfsSeq_t chunkVersion) {
+    return (chunkVersion < 0 ?
+        KFS_MIN_CHUNK_HEADER_SIZE : KFS_CHUNK_HEADER_SIZE);
 }
 
+}
 #endif // _CHUNKSERVER_CHUNK_H

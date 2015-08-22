@@ -1379,7 +1379,7 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     }
     string errMsg;
     if (! dataFH->Close(
-            chunkInfo.chunkSize + KFS_CHUNK_HEADER_SIZE,
+            chunkInfo.chunkSize + chunkInfo.GetHeaderSize(),
             &errMsg)) {
         KFS_LOG_STREAM_INFO <<
             "chunk " << chunkInfo.chunkId << " close error: " << errMsg <<
@@ -1443,8 +1443,9 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
         diskIOTime = microseconds();
         status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf,
             (gChunkManager.IsSyncChunkHeader() &&
-                (targetVersion > 0 || stableFlag)) ||
-            (stableFlag && 0 < cih->dataFH->GetMinWriteBlkSize())
+                (0 < targetVersion || stableFlag)) ||
+            (stableFlag && 0 < cih->dataFH->GetMinWriteBlkSize()),
+            cih->chunkInfo.chunkSize
         );
     }
     return status;
@@ -1525,11 +1526,12 @@ ChunkInfoHandle::WriteChunkMetadata(
         wcm->dataBuf.CopyIn(
             reinterpret_cast<const char*>(&checksum), (int)sizeof(checksum));
         wcm->dataBuf.ZeroFillLast();
-        if ((int)KFS_CHUNK_HEADER_SIZE < wcm->dataBuf.BytesConsumable()) {
+        const int headerSize = (int)chunkInfo.GetHeaderSize();
+        if (headerSize < wcm->dataBuf.BytesConsumable()) {
             die("invalid io buffer size");
         }
         const int headerTailSize =
-            min(dataFH->GetMinWriteBlkSize(), (int)KFS_CHUNK_HEADER_SIZE) -
+            min(dataFH->GetMinWriteBlkSize(), headerSize) -
             wcm->dataBuf.BytesConsumable();
         if (0 < headerTailSize) {
             wcm->dataBuf.ZeroFill(headerTailSize);
@@ -2474,6 +2476,10 @@ ChunkManager::AllocChunk(
     const bool stableFlag = false;
     ChunkInfoHandle* const cih = new ChunkInfoHandle(*chunkdir, stableFlag);
     cih->chunkInfo.Init(fileId, chunkId, chunkVersion);
+    cih->chunkInfo.SetMinHeaderSize(
+        GetChunkHeaderSize(cih->chunkInfo.chunkVersion) ==
+        KFS_MIN_CHUNK_HEADER_SIZE
+    );
     cih->SetBeingReplicated(isBeingReplicated);
     cih->SetMetaDirty();
     bool newEntryFlag = false;
@@ -2767,10 +2773,10 @@ ChunkManager::ReadChunkMetadata(
         return -ESERVERBUSY;
     }
     rcm->diskIo.reset(d);
-
-    const int res = rcm->diskIo->Read(0, KFS_CHUNK_HEADER_SIZE);
+    const size_t headerSize = GetChunkHeaderSize(cih->chunkInfo.chunkVersion);
+    const int    res        = rcm->diskIo->Read(0, headerSize);
     if (res < 0) {
-        cih->ReadStats(res, (int64_t)KFS_CHUNK_HEADER_SIZE, 0);
+        cih->ReadStats(res, (int64_t)headerSize, 0);
         ReportIOFailure(cih, res);
         delete rcm;
         return res;
@@ -2807,9 +2813,10 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
         KFS_LOG_EOM;
         return;
     }
+    const int64_t headerSize = (int64_t)GetChunkHeaderSize(op->chunkVersion);
     int res;
     if (! dataBuf ||
-            dataBuf->BytesConsumable() < (int)KFS_CHUNK_HEADER_SIZE ||
+            dataBuf->BytesConsumable() < headerSize ||
             dataBuf->CopyOut(mChunkHeaderBuffer.GetPtr(),
                     mChunkHeaderBuffer.GetSize()) !=
                 mChunkHeaderBuffer.GetSize()) {
@@ -2857,6 +2864,7 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
             KFS_LOG_EOM;
         } else {
             cih->chunkInfo.SetChecksums(dci.chunkBlockChecksum);
+            cih->chunkInfo.chunkFlags = dci.flags;
             if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
                 const int64_t extra = cih->chunkInfo.chunkSize - dci.chunkSize;
                 mUsedSpace -= extra;
@@ -2889,7 +2897,7 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
     }
     LruUpdate(*cih);
     cih->readChunkMetaOp = 0;
-    cih->ReadStats(op->status, (int64_t)KFS_CHUNK_HEADER_SIZE,
+    cih->ReadStats(op->status, headerSize,
         max(int64_t(1), microseconds() - op->startTime));
     if (op->status < 0 && op->status != -ETIMEDOUT) {
         mCounters.mBadChunkHeaderErrorCount++;
@@ -3816,7 +3824,8 @@ ChunkManager::ReadChunk(ReadOp* op)
         numBytesIO = cih->chunkInfo.chunkSize - offset;
     }
     op->diskIOTime = microseconds();
-    const int ret = op->diskIo->Read(offset + KFS_CHUNK_HEADER_SIZE, numBytesIO);
+    const int ret = op->diskIo->Read(
+        offset + cih->chunkInfo.GetHeaderSize(), numBytesIO);
     if (ret < 0) {
         cih->ReadStats(ret, (int64_t)numBytesIO, 0);
         ReportIOFailure(cih, ret);
@@ -3966,7 +3975,7 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
 
     op->diskIOTime = microseconds();
     int res = op->diskIo->Write(
-        offset + KFS_CHUNK_HEADER_SIZE, numBytesIO, &op->dataBuf);
+        offset + cih->chunkInfo.GetHeaderSize(), numBytesIO, &op->dataBuf);
     if (res >= 0) {
         UpdateChecksums(cih, op);
         assert(res <= numBytesIO);
@@ -5261,11 +5270,11 @@ typedef map<int64_t, int> FileSystemIdsCount;
 bool
 ChunkManager::StartDiskIo()
 {
-    if ((int)KFS_CHUNK_HEADER_SIZE < IOBufferData::GetDefaultBufferSize()) {
+    if ((int)KFS_MIN_CHUNK_HEADER_SIZE < IOBufferData::GetDefaultBufferSize()) {
         KFS_LOG_STREAM_INFO <<
             "invalid io buffer size: " <<
                 IOBufferData::GetDefaultBufferSize() <<
-            " exceeds chunk header size: " << KFS_CHUNK_HEADER_SIZE <<
+            " exceeds chunk header size: " << KFS_MIN_CHUNK_HEADER_SIZE <<
         KFS_LOG_EOM;
         return false;
     }

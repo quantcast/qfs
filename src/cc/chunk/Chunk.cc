@@ -102,7 +102,7 @@ bool IsValidChunkFile(
     outFileId    = components[0];
     outChunkId   = chunkId;
     outChunkVers = chunkVers;
-    outChunkSize = filesz - KFS_CHUNK_HEADER_SIZE;
+    outChunkSize = filesz - GetChunkHeaderSize(chunkVers);
     if (filesz > kMaxChunkFileSize || forceReadFlag) {
         outReadFlag = true;
         // Load and validate chunk header, and set proper file size.

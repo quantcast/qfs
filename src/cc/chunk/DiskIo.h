@@ -267,7 +267,8 @@ public:
         Offset    inOffset,
         size_t    inNumBytes,
         IOBuffer* inBufferPtr,
-        bool      inSyncFlag = false);
+        bool      inSyncFlag = false,
+        Offset    inEofHint  = -1);
 
     /// Retrieves [pending] open completion by queuing empty read.
     int CheckOpenStatus();
@@ -296,7 +297,8 @@ private:
         bool       inSyncFlag,
         int64_t    inBlockIdx,
         size_t     inNumBytes,
-        DiskQueue* inQueuePtr);
+        DiskQueue* inQueuePtr,
+        int64_t    inEofHint);
     void RunCompletion();
     void IoCompletion(
         IOBuffer* inBufferPtr,

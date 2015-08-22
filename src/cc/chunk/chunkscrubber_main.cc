@@ -121,7 +121,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
     // The file might be bigger by one io buffer size, and io buffer size is
     // guaranteed to be less or equal to the KFS_CHUNK_HEADER_SIZE.
     const int64_t kMaxChunkFileSize = (int64_t)(KFS_CHUNK_HEADER_SIZE + CHUNKSIZE);
-    if (filesz < (int64_t)KFS_CHUNK_HEADER_SIZE ||
+    if (filesz < (int64_t)KFS_MIN_CHUNK_HEADER_SIZE ||
             filesz > (int64_t)(kMaxChunkFileSize + KFS_CHUNK_HEADER_SIZE)) {
         KFS_LOG_STREAM_ERROR <<
             fn << ": invalid file size: " << filesz <<
@@ -177,7 +177,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
         close(fd);
         return false;
     }
-    const ssize_t res = pread(fd, buf, CHUNKSIZE, KFS_CHUNK_HEADER_SIZE);
+    const ssize_t res = pread(fd, buf, CHUNKSIZE, chunkInfo.GetHeaderSize());
     if (res < 0) {
         const int err = errno;
         KFS_LOG_STREAM_ERROR <<

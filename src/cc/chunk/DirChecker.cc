@@ -948,7 +948,8 @@ private:
             if (IsValidChunkFile(
                     inDirName,
                     theName.c_str(),
-                    theCur.mChunkSize + KFS_CHUNK_HEADER_SIZE,
+                    theCur.mChunkSize +
+                        GetChunkHeaderSize(theChunkInfo.mChunkVersion),
                     inRequireChunkHeaderChecksumFlag,
                     kForceReadFlag,
                     inChunkHeaderBuffer,
