@@ -829,6 +829,8 @@ private:
     int        mDirCheckFailureSimulatorInterval;
     bool       mChunkSizeSkipHeaderVerifyFlag;
     bool       mVersionChangePermitWritesInFlightFlag;
+    int        mObjStoreBlockWriteBufferSize;
+    bool       mObjStoreBufferDataIgnoreOverwriteFlag;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;

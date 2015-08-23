@@ -1749,6 +1749,8 @@ ChunkManager::ChunkManager()
       mDirCheckFailureSimulatorInterval(-1),
       mChunkSizeSkipHeaderVerifyFlag(false),
       mVersionChangePermitWritesInFlightFlag(true),
+      mObjStoreBlockWriteBufferSize((int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)),
+      mObjStoreBufferDataIgnoreOverwriteFlag(true),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -2099,6 +2101,16 @@ ChunkManager::SetParameters(const Properties& prop)
     mVersionChangePermitWritesInFlightFlag = prop.getValue(
         "chunkServer.versionChangePermitWritesInFlight",
         mVersionChangePermitWritesInFlightFlag ? 1 : 0) != 0;
+    mObjStoreBlockWriteBufferSize = prop.getValue(
+        "chunkServer.objStoreBlockWriteBufferSize",
+        mObjStoreBlockWriteBufferSize);
+    if (0 < mObjStoreBlockWriteBufferSize &&
+            mObjStoreBlockWriteBufferSize < KFS_CHUNK_HEADER_SIZE) {
+        mObjStoreBlockWriteBufferSize = KFS_CHUNK_HEADER_SIZE;
+    }
+    mObjStoreBufferDataIgnoreOverwriteFlag = prop.getValue(
+        "chunkServer.objStoreBufferDataIgnoreOverwriteFlag",
+        mObjStoreBufferDataIgnoreOverwriteFlag);
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
@@ -5442,7 +5454,11 @@ ChunkManager::StartDiskIo()
                 it->dirname.c_str(),
                 it->deviceId,
                 mMaxOpenChunkFiles,
-                &errMsg)) {
+                &errMsg,
+                mObjStoreBlockWriteBufferSize,
+                mObjStoreBufferDataIgnoreOverwriteFlag &&
+                    mObjStoreBlockWriteBufferSize <
+                    (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE))) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<
                 " dev: << " << it->deviceId << " :" << errMsg <<
@@ -5452,6 +5468,17 @@ ChunkManager::StartDiskIo()
         }
         if (! (it->diskQueue = DiskIo::FindDiskQueue(it->dirname.c_str()))) {
             die(it->dirname + ": failed to find disk queue");
+        }
+        const int writeBufSize = DiskIo::GetMinWriteBlkSize(it->diskQueue);
+        if (0 < writeBufSize && writeBufSize < (int)KFS_CHUNK_HEADER_SIZE) {
+            KFS_LOG_STREAM_FATAL <<
+                "failed to start disk queue for: " << it->dirname <<
+                " dev: << " << it->deviceId <<
+                " : invalid write buffer size: " << writeBufSize <<
+                " less than " << KFS_CHUNK_HEADER_SIZE <<
+            KFS_LOG_EOM;
+            DiskIo::Shutdown();
+            return false;
         }
         it->startTime = globalNetManager().Now();
         it->startCount++;

@@ -278,7 +278,8 @@ public:
         int64_t                           inMaxClientQuota,
         int                               inWaitingAvgInterval,
         const DiskErrorSimulator::Config* inSimulatorConfigPtr,
-        int                               inMinWriteBlkSize)
+        int                               inMinWriteBlkSize,
+        bool                              inBufferDataIgnoreOverwriteFlag)
         : QCDiskQueue(),
           QCDiskQueue::DebugTracer(),
           mFileNamePrefixes(inFileNamePrefixPtr ? inFileNamePrefixPtr : ""),
@@ -291,7 +292,8 @@ public:
           mBufferManager(true),
           mSimulatorPtr(inSimulatorConfigPtr ?
             new DiskErrorSimulator(*inSimulatorConfigPtr) : 0),
-          mMinWriteBlkSize(inMinWriteBlkSize)
+          mMinWriteBlkSize(inMinWriteBlkSize),
+          mBufferDataIgnoreOverwriteFlag(inBufferDataIgnoreOverwriteFlag)
     {
         mFileNamePrefixes.append(1, (char)0);
         DiskQueueList::Init(*this);
@@ -434,6 +436,8 @@ public:
         { return mBufferManager; }
     int GetMinWriteBlkSize() const
         { return mMinWriteBlkSize; }
+    bool GetBufferDataIgnoreOverwriteFlag() const
+        { return mBufferDataIgnoreOverwriteFlag; }
     static DiskIo::IoBuffers& GetIoBuffers(
         DiskIo::File& inFile)
         { return inFile.mIoBuffers; }
@@ -452,6 +456,7 @@ private:
     BufferManager             mBufferManager;
     DiskErrorSimulator* const mSimulatorPtr;
     int const                 mMinWriteBlkSize;
+    bool const                mBufferDataIgnoreOverwriteFlag;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
 
@@ -553,14 +558,13 @@ public:
           mNullCallback(),
           mBufferredWriteNullCallback(),
           mNullBufferDataPtr(0),
+          mNullBufferDataWrittenPtr(0),
           mCounters(),
           mDiskErrorSimulatorConfig(inConfig),
           mCpuAffinity(inConfig.getValue(
             "chunkServer.diskQueue.cpuAffinity", 0)),
           mDiskQueueTraceFlag(inConfig.getValue(
-            "chunkServer.diskQueue.trace", 0) != 0),
-          mMinWriteBlkSize(inConfig.getValue(
-            "chunkServer.diskQueue.minWriteBlkSize", 0))
+            "chunkServer.diskQueue.trace", 0) != 0)
     {
         mCounters.Clear();
         IoQueue::Init(mIoInFlightQueuePtr);
@@ -574,6 +578,7 @@ public:
         DiskIoQueues::Shutdown(0, false);
         globalNetManager().UnRegisterTimeoutHandler(this);
         delete mNullBufferDataPtr;
+        delete mNullBufferDataWrittenPtr;
     }
     bool Start(
         string* inErrMessagePtr)
@@ -601,6 +606,12 @@ public:
                 IOBufferData theAllocatorTest;
                 if (! mNullBufferDataPtr) {
                     mNullBufferDataPtr = new IOBufferData(0, 0, 0, 0);
+                }
+                if (! mNullBufferDataWrittenPtr) {
+                    mNullBufferDataWrittenPtr = new IOBufferData(1);
+                    mNullBufferDataWrittenPtr->Consume(
+                        mNullBufferDataWrittenPtr->Fill(
+                            mNullBufferDataWrittenPtr->BytesConsumable()));
                 }
             }
         }
@@ -791,7 +802,8 @@ public:
         DiskIo::DeviceId inDeviceId,
         int              inMaxOpenFiles,
         string*          inErrMessagePtr,
-        int              inMinWriteBlkSize)
+        int              inMinWriteBlkSize,
+        bool             inBufferDataIgnoreOverwriteFlag)
     {
         DiskQueue* theQueuePtr = FindDiskQueue(inDirNamePtr);
         if (theQueuePtr) {
@@ -807,7 +819,7 @@ public:
             theQueuePtr->SetDeviceId(inDeviceId);
             return true;
         }
-        int theMinWriteBlkSize = max(mMinWriteBlkSize, inMinWriteBlkSize);
+        int theMinWriteBlkSize = inMinWriteBlkSize;
         if (theMinWriteBlkSize <= mBufferAllocator.GetBufferSize()) {
             theMinWriteBlkSize = 0;
         } else {
@@ -831,7 +843,8 @@ public:
             mBufferManager.GetWaitingAvgInterval(),
             mDiskErrorSimulatorConfig.IsEnabled(inDirNamePtr) ?
                 &mDiskErrorSimulatorConfig : 0,
-            max(mMinWriteBlkSize, inMinWriteBlkSize)
+            theMinWriteBlkSize,
+            inBufferDataIgnoreOverwriteFlag
         );
         const int theSysErr = theQueuePtr->Start(
             mDiskQueueThreadCount,
@@ -1003,6 +1016,11 @@ public:
         { return &mBufferredWriteNullCallback; }
     const IOBufferData& GetNullBufferData() const
         { return *mNullBufferDataPtr; }
+    const IOBufferData& GetNullBufferDataWritten() const
+        { return *mNullBufferDataWrittenPtr; }
+    bool IsBufferPosWritten(
+        const IOBufferData& inData) const
+        { return (inData.Consumer() == mNullBufferDataWrittenPtr->Consumer()); }
     static time_t Now()
         { return globalNetManager().Now(); }
     void UpdateOpenFilesCount(
@@ -1130,6 +1148,7 @@ private:
     NullCallback                   mNullCallback;
     NullCallback                   mBufferredWriteNullCallback;
     IOBufferData*                  mNullBufferDataPtr;
+    IOBufferData*                  mNullBufferDataWrittenPtr;
     DiskIo*                        mIoInFlightQueuePtr[1];
     DiskIo*                        mIoDoneQueuePtr[1];
     DiskQueue*                     mDiskQueuesPtr[1];
@@ -1137,7 +1156,6 @@ private:
     DiskErrorSimulator::Config     mDiskErrorSimulatorConfig;
     const QCDiskQueue::CpuAffinity mCpuAffinity;
     const int                      mDiskQueueTraceFlag;
-    const int                      mMinWriteBlkSize;
 
     QCIoBufferPool& GetBufferPool()
         { return mBufferAllocator.GetBufferPool(); }
@@ -1254,8 +1272,9 @@ DiskIo::StartIoQueue(
     const char*      inDirNamePtr,
     DiskIo::DeviceId inDeviceId,
     int              inMaxOpenFiles,
-    string*          inErrMessagePtr    /* = 0 */,
-    int              inMinWriteBlkSize  /* = 0 */)
+    string*          inErrMessagePtr                 /* = 0 */,
+    int              inMinWriteBlkSize               /* = 0 */,
+    bool             inBufferDataIgnoreOverwriteFlag /* = false */)
 {
     if (! sDiskIoQueuesPtr) {
         if (inErrMessagePtr) {
@@ -1265,7 +1284,7 @@ DiskIo::StartIoQueue(
     }
     return sDiskIoQueuesPtr->AddDiskQueue(
         inDirNamePtr, inDeviceId, inMaxOpenFiles,
-        inErrMessagePtr, inMinWriteBlkSize);
+        inErrMessagePtr, inMinWriteBlkSize, inBufferDataIgnoreOverwriteFlag);
 }
 
 
@@ -1636,6 +1655,13 @@ DiskIo::EnqueueMeta(
         DiskIoReportError(theErrMsgPtr, EINVAL);
     }
     return false;
+}
+
+    /* static */ int
+DiskIo::GetMinWriteBlkSize(
+    const DiskQueue* inDiskQueuePtr)
+{
+    return (inDiskQueuePtr ? inDiskQueuePtr->GetMinWriteBlkSize() : 0);
 }
 
     bool
@@ -2031,16 +2057,19 @@ DiskIo::Write(
         DiskIoReportError("DiskIo::Write: invalid offset", EINVAL);
         return -EINVAL;
     }
-    size_t                theNWr             = inNumBytes;
-    QCDiskQueue::BlockIdx theBlkIdx          =
+    size_t                theNWr                   = inNumBytes;
+    QCDiskQueue::BlockIdx theBlkIdx                =
         (QCDiskQueue::BlockIdx)(inOffset / theBlockSize);
-    const size_t          theBufferCnt       =
+    const size_t          theBufferCnt             =
         (theNWr + (size_t)theBlockSize - 1) / (size_t)theBlockSize;
-    const int             theMinWriteBlkSize =
+    const int             theMinWriteBlkSize       =
         theQueuePtr->GetMinWriteBlkSize();
-    IoBuffers&            theIoBuffers       =
+    const bool            theWBIgnoreOverwriteFlag =
+        theQueuePtr->GetBufferDataIgnoreOverwriteFlag();
+    IoBuffers&            theIoBuffers             =
         DiskQueue::GetIoBuffers(*mFilePtr);
-    const bool            theBufferFlag      = 0 < theMinWriteBlkSize && (
+    const bool            theBufferFlag            =
+        0 < theMinWriteBlkSize && (
         ! inSyncFlag ||
         ! theIoBuffers.empty() ||
         inNumBytes % theMinWriteBlkSize != 0 ||
@@ -2080,7 +2109,9 @@ DiskIo::Write(
             return -EINVAL;
         }
         theNWr -= theBlockSize;
-        if (theBufferFlag) {
+        // Do not allow overwrites, if requested.
+        if (theBufferFlag && (! theWBIgnoreOverwriteFlag ||
+                ! sDiskIoQueuesPtr->IsBufferPosWritten(*theFBufIt))) {
             *theFBufIt++ = *theIt;
         }
         mIoBuffers.push_back(*theIt);
@@ -2120,7 +2151,9 @@ DiskIo::Write(
                     sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr());
                 while (theFBufIt != theLastIt && ! theFBufIt->IsEmpty()) {
                     theIoPtr->mIoBuffers.push_back(*theFBufIt);
-                    *theFBufIt = sDiskIoQueuesPtr->GetNullBufferData();
+                    *theFBufIt = theWBIgnoreOverwriteFlag ?
+                        sDiskIoQueuesPtr->GetNullBufferDataWritten() :
+                        sDiskIoQueuesPtr->GetNullBufferData();
                     ++theFBufIt;
                 }
                 if ((theFBufIt != theLastIt &&
@@ -2172,10 +2205,11 @@ DiskIo::Write(
         }
         return (inNumBytes - theNWr);
     }
-    // Check if preceding buffered data can be written.
+    // Check buffered data can be written, always keep the first block with
+    // chunk header until sync is requested.
     if (theBufferFlag && theMinWriteBlkSize <= inOffset) {
         const int                 theBlkCnt = theMinWriteBlkSize / theBlockSize;
-        IoBuffers::iterator const theEndIt  = theIoBuffers.begin() +
+        IoBuffers::iterator       theEndIt  = theIoBuffers.begin() +
             (inOffset / theMinWriteBlkSize) * theBlkCnt;
         theFBufIt = theEndIt;
          // Check the beginning of the write block -- special case for yet
@@ -2198,6 +2232,20 @@ DiskIo::Write(
                 --theFBufIt;
             }
         }
+        while (theEndIt + theBlkCnt <= theIoBuffers.end() &&
+                ! theEndIt->IsEmpty() &&
+                ! (theEndIt + theBlkCnt - 1)->IsEmpty()) {
+            if (2 < theBlkCnt) {
+                IoBuffers::iterator theIt = theEndIt + theBlkCnt - 2;
+                while (theEndIt < theIt && ! theIt->IsEmpty()) {
+                    --theIt;
+                }
+                if (theEndIt < theIt) {
+                    break;
+                }
+            }
+            theEndIt += theBlkCnt;
+        }
         if (theFBufIt != theEndIt) {
             DiskIo& theIo = *(new DiskIo(mFilePtr,
                 sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr()));
@@ -2205,7 +2253,9 @@ DiskIo::Write(
                 (QCDiskQueue::BlockIdx)(theFBufIt - theIoBuffers.begin());
             while (theFBufIt != theEndIt) {
                 theIo.mIoBuffers.push_back(*theFBufIt);
-                *theFBufIt = sDiskIoQueuesPtr->GetNullBufferData();
+                *theFBufIt = theWBIgnoreOverwriteFlag ?
+                    sDiskIoQueuesPtr->GetNullBufferDataWritten() :
+                    sDiskIoQueuesPtr->GetNullBufferData();
                 ++theFBufIt;
             }
             const ssize_t theStatus = theIo.SubmitWrite(

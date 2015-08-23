@@ -118,8 +118,9 @@ public:
         const char* inDirNamePtr,
         DeviceId    inDeviceId,
         int         inMaxOpenFiles,
-        string*     inErrMessagePtr   = 0,
-        int         inMinWriteBlkSize = 0);
+        string*     inErrMessagePtr                 = 0,
+        int         inMinWriteBlkSize               = 0,
+        bool        inBufferDataIgnoreOverwriteFlag = false);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,
@@ -171,6 +172,8 @@ public:
     static void SetParameters(
         const Properties& inProperties);
     static int GetMaxIoTimeSec();
+    static int GetMinWriteBlkSize(
+        const DiskQueue* inDiskQueuePtr);
     typedef vector<IOBufferData> IoBuffers;
     class File
     {
