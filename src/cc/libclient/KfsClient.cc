@@ -4591,6 +4591,10 @@ KfsClientImpl::Seek(int fd, chunkOff_t offset, int whence)
     if (newOff < 0) {
         return -EINVAL;
     }
+    if (0 == entry.fattr.numReplicas &&
+            entry.currPos.fileOffset + offset != newOff) {
+        return -ESPIPE;
+    }
     entry.currPos.fileOffset = newOff;
 
     return newOff;

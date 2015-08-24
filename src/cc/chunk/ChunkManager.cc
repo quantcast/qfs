@@ -1311,13 +1311,8 @@ ChunkManager::DeleteSelf(ChunkInfoHandle& cih)
 inline void
 ChunkManager::Delete(ChunkInfoHandle& cih)
 {
-    if (! cih.IsStale() && ! (0 <= cih.chunkInfo.chunkVersion ?
-            mPendingWrites.Delete(
-                cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion) :
-            mObjPendingWrites.Delete(
-                ObjPendingWrites::Key(cih.chunkInfo.chunkId,
-                    cih.chunkInfo.chunkVersion),  cih.chunkInfo.chunkVersion))
-            ) {
+    if (! cih.IsStale() && ! mPendingWrites.Delete(
+            cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion)) {
         ostringstream os;
         os << "delete failed to cleanup pending writes: "
             " chunk: "   << cih.chunkInfo.chunkId <<
@@ -1331,15 +1326,18 @@ ChunkManager::Delete(ChunkInfoHandle& cih)
 inline bool
 ChunkManager::Remove(ChunkInfoHandle& cih)
 {
+    if (mPendingWrites.HasChunkId(
+            cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion)) {
+        return false;
+    }
     if (0 <= cih.chunkInfo.chunkVersion) {
-        if (mPendingWrites.HasChunkId(cih.chunkInfo.chunkId) ||
-                mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
+        if (mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
             return false;
         }
     } else {
         ObjPendingWrites::Key const key(
             cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion);
-        if (mObjPendingWrites.HasChunkId(key) || mObjTable.Erase(key) <= 0) {
+        if (mObjTable.Erase(key) <= 0) {
             return false;
         }
     }
@@ -1683,7 +1681,6 @@ ChunkManager::ChunkManager()
       mObjStorageTiers(),
       mWriteId(GetRandomSeq()), // Seed write id.
       mPendingWrites(),
-      mObjPendingWrites(),
       mChunkTable(),
       mObjTable(),
       mMaxIORequestSize(4 << 20),
@@ -3063,7 +3060,7 @@ ChunkManager::StaleChunk(ChunkInfoHandle* cih,
     gLeaseClerk.UnRegisterLease(
         cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
     if (! cih->IsStale() && ! mPendingWrites.Delete(
-            cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) {
+                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) {
         ostringstream os;
         os << "make stale failed to cleanup pending writes: "
             " chunk: "   << cih->chunkInfo.chunkId <<
@@ -3678,10 +3675,10 @@ ChunkManager::CloseChunkWrite(
     kfsChunkId_t chunkId, int64_t chunkVersion, int64_t writeId,
     KfsOp* op, bool* readMetaFlag)
 {
-    const WriteOp* wo = mPendingWrites.find(writeId);
-    if (! wo) {
-        wo = mObjPendingWrites.find(writeId);
+    if (PendingWrites::IsObjStoreWriteId(writeId) == (0 <= chunkVersion)) {
+        return -EINVAL;
     }
+    const WriteOp* const wo = mPendingWrites.find(writeId);
     if (! wo) {
         if (op && chunkVersion < 0) {
             ChunkInfoHandle* const cih =
@@ -4998,6 +4995,12 @@ ChunkManager::AllocateWriteId(
         wi->status = -EINVAL;
     } else {
         mWriteId++;
+        if (PendingWrites::IsObjStoreWriteId(mWriteId) ==
+                (0 <= wi->chunkVersion)) {
+            mWriteId++;
+            assert(PendingWrites::IsObjStoreWriteId(mWriteId) !=
+                (0 <= wi->chunkVersion));
+        }
         wi->writeId = mWriteId;
         if (wi->isForRecordAppend) {
             gAtomicRecordAppendManager.AllocateWriteId(
@@ -5194,8 +5197,8 @@ ChunkManager::ScavengePendingWrites(
 void
 ChunkManager::ScavengePendingWrites(time_t now)
 {
-    ScavengePendingWrites(now, mChunkTable, mPendingWrites);
-    ScavengePendingWrites(now, mObjTable,   mObjPendingWrites);
+    ScavengePendingWrites(now, mChunkTable, mPendingWrites.GetChunkWrites());
+    ScavengePendingWrites(now, mObjTable,   mPendingWrites.GetObjWrites());
 }
 
 bool
@@ -6394,7 +6397,7 @@ ChunkManager::MetaServerConnectionLost()
 long
 ChunkManager::GetNumWritableChunks() const
 {
-    return (long)mPendingWrites.GetChunkIdCount();
+    return (long)mPendingWrites.GetChunkWrites().GetChunkIdCount();
 }
 
 void

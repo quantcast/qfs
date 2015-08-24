@@ -65,8 +65,8 @@ static void DiskIoReportError(
     const char* inMsgPtr,
     int         inSysError = 0);
 static void DiskIoReportError(
-    string inMsg,
-    int    inSysError = 0)
+    const string& inMsg,
+    int           inSysError = 0)
 { DiskIoReportError(inMsg.c_str(), inSysError); }
 
 static int DiskQueueToSysError(

@@ -296,9 +296,7 @@ public:
     /// pending write(s).
     /// @retval True if a write is pending; false otherwise
     bool IsWritePending(kfsChunkId_t chunkId, int64_t chunkVersion) const {
-        return (0 <= chunkVersion ?
-            mPendingWrites.HasChunkId(chunkId) :
-            mObjPendingWrites.HasChunkId(make_pair(chunkId, chunkVersion)));
+        return  mPendingWrites.HasChunkId(chunkId, chunkVersion);
     }
 
     /// Retrieve the write op given a write id.
@@ -450,7 +448,7 @@ private:
                 mWriteIds.find(WriteIdEntry(&op));
             return (i == mWriteIds.end() ? 0 : i->mOp);
         }
-        bool HasChunkId(const IDT& chunkId) const
+        bool HasChunkId(const Key& chunkId) const
             { return (mChunkIds.find(chunkId) != mChunkIds.end()); }
         bool erase(WriteOp* op)
         {
@@ -466,7 +464,7 @@ private:
                 mWriteIds.find(WriteIdEntry(&op));
             return (i != mWriteIds.end() && Erase(i));
         }
-        bool Delete(const IDT& chunkId, kfsSeq_t chunkVersion)
+        bool Delete(const Key& chunkId, kfsSeq_t chunkVersion)
         {
             typename ChunkIdMap::iterator i = mChunkIds.find(chunkId);
             if (i == mChunkIds.end()) {
@@ -544,9 +542,9 @@ private:
         > WriteIdSet;
         typedef list<OpListEntry,
             StdFastAllocator<OpListEntry> > ChunkWrites;
-        typedef map<IDT, ChunkWrites, less<IDT>,
+        typedef map<Key, ChunkWrites, less<Key>,
             StdFastAllocator<
-                pair<const IDT, ChunkWrites> >
+                pair<const Key, ChunkWrites> >
         > ChunkIdMap;
         struct LruEntry
         {
@@ -594,7 +592,8 @@ private:
                 return false;
             }
             typename ChunkIdMap::iterator const c = mChunkIds.insert(
-                make_pair(op->chunkId, ChunkWrites())).first;
+                make_pair(Key(op->chunkId, op->chunkVersion),
+                ChunkWrites())).first;
             typename ChunkWrites::iterator const cw =
                 c->second.insert(c->second.end(), OpListEntry());
             w.first->GetLruIterator() = mLru.insert(
@@ -638,10 +637,89 @@ private:
         PendingWritesT(const PendingWritesT&);
         PendingWritesT& operator=(const PendingWritesT&);
     };
-    typedef PendingWritesT<kfsChunkId_t> PendingWrites;
+    class PendingWritesChunkKey
+    {
+    public:
+        PendingWritesChunkKey(kfsChunkId_t chunkId)
+            : mChunkId(chunkId)
+            {}
+        PendingWritesChunkKey(kfsChunkId_t chunkId, kfsSeq_t /* chunkVersion */)
+            : mChunkId(chunkId)
+            {}
+        bool operator==(PendingWritesChunkKey& rhs) const
+            { return (mChunkId == rhs.mChunkId); }
+        bool operator<(PendingWritesChunkKey& rhs) const
+            { return (mChunkId < rhs.mChunkId); }
+        operator kfsChunkId_t () const
+            { return mChunkId; }
+    private:
+        kfsChunkId_t mChunkId;
+    };
+    typedef PendingWritesT<PendingWritesChunkKey> ChunkPendingWrites;
     typedef PendingWritesT<
         pair<kfsChunkId_t, int64_t>
     > ObjPendingWrites;
+    class PendingWrites
+    {
+    public:
+        static inline bool
+        IsObjStoreWriteId(int64_t writeId)
+        {
+            return ((writeId & 0x1) != 0);
+        }
+        PendingWrites()
+            : mChunkWrites(),
+              mObjWrites()
+            {}
+        bool HasChunkId(kfsChunkId_t chunkId, kfsSeq_t chunkVersion) const
+        {
+            return (0 <= chunkVersion ?
+                mChunkWrites.HasChunkId(
+                    ChunkPendingWrites::Key(chunkId, chunkVersion)) :
+                mObjWrites.HasChunkId(
+                    ObjPendingWrites::Key(chunkId, chunkVersion))
+            );
+        }
+        bool Delete(kfsChunkId_t chunkId, kfsSeq_t chunkVersion)
+        {
+            return (0 <= chunkVersion ?
+                mChunkWrites.Delete(
+                    ChunkPendingWrites::Key(chunkId, chunkVersion),
+                    chunkVersion) :
+                mObjWrites.Delete(
+                    ObjPendingWrites::Key(chunkId, chunkVersion),
+                    chunkVersion)
+            );
+        }
+        WriteOp* find(int64_t writeId) const
+        {
+            return (IsObjStoreWriteId(writeId) ?
+                mObjWrites.find(writeId) :
+                mChunkWrites.find(writeId)
+            );
+        }
+        bool push_back(WriteOp* op)
+        {
+            return (0 <= op->chunkVersion ?
+                mChunkWrites.push_back(op) :
+                mObjWrites.push_back(op)
+            );
+        }
+        ChunkPendingWrites& GetChunkWrites()
+            { return mChunkWrites; }
+        ObjPendingWrites& GetObjWrites()
+            { return mObjWrites; }
+        const ChunkPendingWrites& GetChunkWrites() const
+            { return mChunkWrites; }
+        const ObjPendingWrites& GetObjWrites() const
+            { return mObjWrites; }
+    private:
+        ChunkPendingWrites mChunkWrites;
+        ObjPendingWrites   mObjWrites;
+    private:
+        PendingWrites(const PendingWrites&);
+        PendingWrites& operator=(const PendingWrites&);
+    };
 
     class ChunkDirs
     {
