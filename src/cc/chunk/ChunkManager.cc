@@ -3486,8 +3486,8 @@ ChunkManager::MakeChunkPathname(
         cih->GetDirname(),
         cih->chunkInfo.fileId,
         cih->chunkInfo.chunkId,
-        stableFlag ? targetVersion : 0,
-        stableFlag ? string()      : mDirtyChunksDir
+        (stableFlag || targetVersion < 0) ? targetVersion : 0,
+        stableFlag ? string() : mDirtyChunksDir
     );
 }
 
