@@ -5044,6 +5044,7 @@ ChunkManager::AllocateWriteId(
             op->enqueueTime     = globalNetManager().Now();
             op->isWriteIdHolder = true;
             mPendingWrites.push_back(op);
+            LruUpdate(*cih); // Move back to prevent spurious scans.
         }
     }
     if (wi->status != 0) {
