@@ -3755,8 +3755,8 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
     if (cih->IsFileOpen() &&
             ! cih->IsFileInUse() &&
             ! cih->IsBeingReplicated() &&
-            ! IsWritePending(
-                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion) &&
+            (cih->IsStable() || ! IsWritePending(
+                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) &&
             ! cih->SyncMeta()) {
         Release(*cih);
     } else {
