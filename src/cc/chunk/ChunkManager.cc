@@ -3752,8 +3752,12 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
     }
 
     // Close file if not in use.
-    if (cih->IsFileOpen() && ! cih->IsFileInUse() &&
-            ! cih->IsBeingReplicated() && ! cih->SyncMeta()) {
+    if (cih->IsFileOpen() &&
+            ! cih->IsFileInUse() &&
+            ! cih->IsBeingReplicated() &&
+            ! IsWritePending(
+                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion) &&
+            ! cih->SyncMeta()) {
         Release(*cih);
     } else {
         KFS_LOG_STREAM_INFO <<
@@ -5200,6 +5204,7 @@ ChunkManager::ScavengePendingWrites(
         ChunkInfoHandle** const ce  = table.Find(pendingWrites.FrontKey());
         ChunkInfoHandle*  const cih = ce ? *ce : 0;
         pendingWrites.pop_front();
+        delete op;
         if (cih) {
             if (now - cih->lastIOTime >= mInactiveFdsCleanupIntervalSecs) {
                 // close the chunk only if it is inactive
@@ -5211,7 +5216,6 @@ ChunkManager::ScavengePendingWrites(
                 LruUpdate(*cih);
             }
         }
-        delete op;
     }
 }
 
