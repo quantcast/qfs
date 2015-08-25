@@ -1118,6 +1118,8 @@ public:
             WaitChunkReadableDone(IsStale() ? -EIO : 0);
         }
     }
+    inline bool ScheduleObjTableCleanup(
+        ChunkLists* chunkInfoLists);
 
 private:
     bool                        mBeingReplicatedFlag:1;
@@ -1223,6 +1225,21 @@ private:
     ChunkInfoHandle& operator=(const  ChunkInfoHandle&);
 };
 
+inline bool
+ChunkInfoHandle::ScheduleObjTableCleanup(
+    ChunkInfoHandle::ChunkLists* chunkInfoLists)
+{
+    if (0 <= chunkInfo.chunkVersion ||
+            ChunkManager::kChunkLruList != mChunkList) {
+        return false;
+    }
+    // Move to the front of the lru to schedule removal from the object
+    // block table.
+    lastIOTime = globalNetManager().Now() - 60 * 60 * 24 * 365 * 10;
+    ChunkList::PushFront(chunkInfoLists[mChunkList], *this);
+    return true;
+}
+
 inline ChunkInfoHandle*
 ChunkManager::AddMapping(ChunkInfoHandle* cih)
 {
@@ -1241,6 +1258,10 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
     }
     mUsedSpace += cih->chunkInfo.chunkSize;
     UpdateDirSpace(cih, cih->chunkInfo.chunkSize);
+    if (cih->chunkInfo.chunkVersion < 0 &&
+            ! cih->ScheduleObjTableCleanup(mChunkInfoLists)) {
+        die("add object table mapping schedule cleanup failure");
+    }
     return *ci;
 }
 
@@ -1394,12 +1415,8 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     KFS_LOG_EOM;
     gLeaseClerk.RelinquishLease(
         chunkInfo.chunkId, chunkInfo.chunkVersion, chunkInfo.chunkSize);
-    if (chunkInfo.chunkVersion < 0) {
-        // Move to the front of the lru to schedule removal from the object
-        // block table.
-        lastIOTime = globalNetManager().Now()  - 60 * 60 * 24 * 365 * 10;
-        ChunkList::PushFront(chunkInfoLists[mChunkList], *this);
-    } else {
+    if (0 <= chunkInfo.chunkVersion ||
+            ! ScheduleObjTableCleanup(chunkInfoLists)) {
         ChunkList::Remove(chunkInfoLists[mChunkList], *this);
     }
     globals().ctrOpenDiskFds.Update(-1);
@@ -2500,6 +2517,10 @@ ChunkManager::AllocChunk(
         die("chunk insertion failure");
         cih->Delete(mChunkInfoLists);
         return -EFAULT;
+    }
+    if (cih->chunkInfo.chunkVersion < 0 &&
+            ! cih->ScheduleObjTableCleanup(mChunkInfoLists)) {
+        die("alloc object schedule cleanup failure");
     }
     KFS_LOG_STREAM_INFO << "creating chunk: " << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
