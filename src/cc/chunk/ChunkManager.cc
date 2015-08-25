@@ -5267,11 +5267,14 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
     while ((cih = it.Next()) && (cih->lastIOTime < expireTime ||
                 cih->chunkInfo.chunkVersion < 0)) {
         if (! cih->IsFileOpen() || cih->IsBeingReplicated()) {
-            // Doesn't belong here, if / when io completes it will be added
-            // back.
-            ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
-            if (cih != cur && cih->chunkInfo.chunkVersion < 0) {
-                Remove(*cih); // Was scheduled for object table cleanup.
+            if (cih != cur) {
+                if (cih->chunkInfo.chunkVersion < 0) {
+                    Remove(*cih); // Was scheduled for object table cleanup.
+                } else {
+                    // Doesn't belong here, if / when io completes it will be
+                    // added back.
+                    ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
+                }
             }
             continue;
         }
