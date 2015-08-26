@@ -1022,8 +1022,7 @@ WriteOp::HandleWriteDone(int code, void *data)
         }
         wpop->HandleEvent(EVENT_CMD_DONE, this);
         return 0;
-    }
-    else if (code == EVENT_DISK_WROTE) {
+    } else if (code == EVENT_DISK_WROTE) {
         status = *(int *) data;
         if (numBytesIO != status || status < (int)numBytes) {
             // write didn't do everything that was asked; we need to retry
@@ -2340,7 +2339,7 @@ WritePrepareOp::Execute()
     writeOp->enqueueTime = globalNetManager().Now();
 
     KFS_LOG_STREAM_DEBUG <<
-        "Writing to chunk: " << chunkId <<
+        "writing to chunk: " << chunkId <<
         " @offset: " << offset <<
         " nbytes: " << numBytes <<
         " checksum: " << checksum <<

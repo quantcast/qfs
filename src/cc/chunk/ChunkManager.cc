@@ -3918,7 +3918,14 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
     // schedule a write based on the chunk size.  Make sure that a
     // write doesn't overflow the size of a chunk.
     op->numBytesIO = min((size_t) (CHUNKSIZE - op->offset), op->numBytes);
-
+    if (0 == op->numBytes && 0 == op->numBytesIO && op->wpop) {
+        op->diskIOTime = 0;
+        LruUpdate(*cih);
+        cih->StartWrite(op);
+        int res = 0;
+        op->HandleEvent(EVENT_DISK_WROTE, &res);
+        return 0;
+    }
     if (op->numBytesIO <= 0 || op->offset < 0) {
         return -EINVAL;
     }

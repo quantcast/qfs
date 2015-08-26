@@ -498,11 +498,14 @@ private:
               mLogPrefix(inLogPrefix),
               mOpDoneFlagPtr(0),
               mInFlightBlocks(),
-              mHasSubjectIdFlag(),
+              mHasSubjectIdFlag(false),
+              mKeepLeaseFlag(false),
+              mLeaseUpdatePendingFlag(false),
               mChunkAccess(),
               mLeaseExpireTime(0),
               mChunkAccessExpireTime(0),
-              mCSAccessExpireTime(0)
+              mCSAccessExpireTime(0),
+              mUpdateLeaseOp(0, -1, 0)
         {
             Queue::Init(mPendingQueue);
             Queue::Init(mInFlightQueue);
@@ -630,7 +633,7 @@ private:
         }
         void StartWrite()
         {
-            if (mSleepingFlag) {
+            if (mSleepingFlag && ! CancelLeaseUpdate()) {
                 return;
             }
             if (mErrorCode != 0 && ! mAllocOp.invalidateAllFlag) {
@@ -678,7 +681,7 @@ private:
                 ReportCompletion();
                 return;
             }
-            if (! CanWrite()) {
+            if (! CanWrite() && ! SheduleLeaseUpdate()) {
                 return;
             }
             if (0 < mAllocOp.chunkId && mLeaseExpireTime < Now()) {
@@ -692,7 +695,7 @@ private:
                         " empty" <<
                 KFS_LOG_EOM;
                 Reset();
-                if (! CanWrite()) {
+                if (! CanWrite() && ! SheduleLeaseUpdate()) {
                     // Do not try to preallocate chunk after inactivity timeout
                     // or error, if no data pending.
                     return;
@@ -704,7 +707,11 @@ private:
             // Other methods of this class have to return immediately (unwind)
             // after invoking StartWrite().
             if (mAllocOp.chunkId > 0 && ! mWriteIds.empty()) {
-                Write();
+                if (CanWrite()) {
+                    Write();
+                } else {
+                    UpdateLease();
+                }
             } else if (! mLastOpPtr) { // Close can be in flight.
                 Reset();
                 AllocateChunk();
@@ -765,6 +772,7 @@ private:
     private:
         typedef std::vector<WriteInfo> WriteIds;
         typedef std::bitset<CHUNKSIZE / CHECKSUM_BLOCKSIZE> ChecksumBlocks;
+        enum { kLeaseRenewTime = LEASE_INTERVAL_SECS / 3 };
 
         Impl&          mOuter;
         ChunkServer    mChunkServer;
@@ -784,10 +792,13 @@ private:
         bool*          mOpDoneFlagPtr;
         ChecksumBlocks mInFlightBlocks;
         bool           mHasSubjectIdFlag;
+        bool           mKeepLeaseFlag;
+        bool           mLeaseUpdatePendingFlag;
         string         mChunkAccess;
         time_t         mLeaseExpireTime;
         time_t         mChunkAccessExpireTime;
         time_t         mCSAccessExpireTime;
+        WritePrepareOp mUpdateLeaseOp;
         WriteOp*       mPendingQueue[1];
         WriteOp*       mInFlightQueue[1];
         ChunkWriter*   mPrevPtr[1];
@@ -854,8 +865,34 @@ private:
                 ReportCompletion(theOffset, theSize);
                 return;
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
+            mKeepLeaseFlag   = mAllocOp.chunkVersion < 0;
             AllocateWriteId();
+        }
+        bool SheduleLeaseUpdate()
+        {
+            if (! mKeepLeaseFlag) {
+                return false;
+            }
+            const time_t theNow = Now();
+            if (theNow < mLeaseExpireTime) {
+                mLeaseUpdatePendingFlag = true;
+                Sleep(mLeaseExpireTime - theNow);
+                return false;
+            }
+            return true;
+        }
+        bool CancelLeaseUpdate()
+        {
+            if (! mLeaseUpdatePendingFlag) {
+                return false;
+            }
+            if (mSleepingFlag) {
+                mOuter.mNetManager.UnRegisterTimeoutHandler(this);
+                mSleepingFlag = false;
+            }
+            mLeaseUpdatePendingFlag = false;
+            return true;
         }
         bool CanWrite()
         {
@@ -1034,6 +1071,14 @@ private:
             if (inCanceledFlag) {
                 return;
             }
+            if (0 <= inOp.status && inOp.chunkVersion < 0 &&
+                    ! inOp.writePrepReplySupportedFlag) {
+                // Chunk server / AP with object store support must have
+                // write prepare reply support.
+                inOp.status    = kErrorParameters;
+                inOp.statusMsg = "invalid write id alloc reply: "
+                    "write prepare reply is not supported";
+            }
             if (inOp.status < 0) {
                 HandleError(inOp);
                 return;
@@ -1062,7 +1107,7 @@ private:
                 return;
             }
             UpdateAccess(inOp);
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
             StartWrite();
         }
         void Write()
@@ -1189,7 +1234,48 @@ private:
             if (! ReportCompletion(theOffset, theDoneCount)) {
                 return;
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
+            StartWrite();
+        }
+        void UpdateLease()
+        {
+            QCASSERT(mWriteIdAllocOp.writePrepReplySupportedFlag &&
+                0 < mAllocOp.chunkId && ! mWriteIds.empty());
+            Reset(mUpdateLeaseOp);
+            mUpdateLeaseOp.chunkId            = mAllocOp.chunkId;
+            mUpdateLeaseOp.chunkVersion       = mAllocOp.chunkVersion;
+            mUpdateLeaseOp.writeInfo          = mWriteIds;
+            mUpdateLeaseOp.contentLength      = 0;
+            mUpdateLeaseOp.numBytes           = 0;
+            mUpdateLeaseOp.offset             = 0;
+            mUpdateLeaseOp.checksum           = kKfsNullChecksum;
+            mUpdateLeaseOp.replyRequestedFlag =
+                mWriteIdAllocOp.writePrepReplySupportedFlag;
+            mUpdateLeaseOp.checksums.clear();
+            SetAccess(
+                mUpdateLeaseOp,
+                mUpdateLeaseOp.replyRequestedFlag
+            );
+            Enqueue(mUpdateLeaseOp);
+        }
+        void Done(
+            WritePrepareOp& inOp,
+            bool            inCanceledFlag,
+            IOBuffer*       inBufferPtr)
+        {
+            QCASSERT(&mUpdateLeaseOp == &inOp && ! inBufferPtr);
+            mUpdateLeaseOp.chunkId = -1;
+            if (inCanceledFlag) {
+                return;
+            }
+            if (0 != mUpdateLeaseOp.status) {
+                HandleError(inOp);
+                return;
+            }
+            if (mUpdateLeaseOp.replyRequestedFlag) {
+                UpdateAccess(mUpdateLeaseOp);
+            }
+            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
             StartWrite();
         }
         void CloseChunk()
@@ -1274,6 +1360,8 @@ private:
                 Done(mAllocOp, inCanceledFlag, inBufferPtr);
             } else if (&mCloseOp == inOpPtr) {
                 Done(mCloseOp, inCanceledFlag, inBufferPtr);
+            } else if (&mUpdateLeaseOp == inOpPtr) {
+                Done(mUpdateLeaseOp, inCanceledFlag, inBufferPtr);
             } else if (inOpPtr && inOpPtr->op == CMD_WRITE) {
                 Done(*static_cast<WriteOp*>(inOpPtr),
                     inCanceledFlag, inBufferPtr);
@@ -1304,6 +1392,7 @@ private:
                 mOuter.mNetManager.UnRegisterTimeoutHandler(this);
                 mSleepingFlag = false;
             }
+            mLeaseUpdatePendingFlag = false;
         }
         static void Reset(
             KfsOp& inOp)
@@ -1402,7 +1491,11 @@ private:
                 mOuter.mStats.mAllocRetriesCount++;
             }
             mOuter.mStats.mRetriesCount++;
-            const int theTimeToNextRetry = GetTimeToNextRetry();
+            int theTimeToNextRetry = GetTimeToNextRetry();
+            if (mKeepLeaseFlag) {
+                theTimeToNextRetry = (int)min(
+                    mLeaseExpireTime - Now(), (time_t)theTimeToNextRetry);
+            }
             // Retry.
             KFS_LOG_STREAM_INFO << mLogPrefix <<
                 "scheduling retry: " << mRetryCount <<
