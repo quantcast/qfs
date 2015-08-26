@@ -650,11 +650,22 @@ private:
                 // Try to close chunk even if chunk server disconnected, to
                 // release the write lease.
                 if (mAllocOp.chunkId > 0) {
-                    CloseChunk();
+                    // Wait for write id allocation completion with object store
+                    // block write.
+                    if (&mWriteIdAllocOp != mLastOpPtr ||
+                            mCloseOp.chunkId < 0 ||
+                            0 <= mCloseOp.chunkVersion) {
+                        CloseChunk();
+                    }
                     return;
                 }
                 if (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
-                    Enqueue(mCloseOp);
+                    if (&mAllocOp != mLastOpPtr &&
+                            &mWriteIdAllocOp != mLastOpPtr) {
+                         // Re-allocate object block to force to create lease.
+                        Reset();
+                        AllocateChunk();
+                    }
                     return;
                 }
                 mChunkServer.Stop();
@@ -790,7 +801,8 @@ private:
             QCASSERT(
                 mOuter.mFileId > 0 &&
                 mAllocOp.fileOffset >= 0 &&
-                ! Queue::IsEmpty(mPendingQueue)
+                (! Queue::IsEmpty(mPendingQueue) ||
+                    (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0))
             );
             Reset(mAllocOp);
             mAllocOp.fid                  = mOuter.mFileId;
@@ -1376,12 +1388,9 @@ private:
                 StartWrite();
                 return;
             }
-            if (++mRetryCount > mOuter.mMaxRetryCount ||
-                    (&inOp == &mCloseOp && inOp.status !=
-                        ChunkServer::kErrorMaxRetryReached)) {
+            if (++mRetryCount > mOuter.mMaxRetryCount) {
                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    (&inOp == &mCloseOp ? "close block failure, retries:" :
-                        "max retry reached: ") << mRetryCount << ", giving up" <<
+                    "max retry reached: " << mRetryCount << ", giving up" <<
                 KFS_LOG_EOM;
                 mErrorCode = theStatus < 0 ? theStatus : -1;
                 Reset();
