@@ -2788,7 +2788,16 @@ ChunkManager::ReadChunkMetadata(
         cb->HandleEvent(EVENT_CMD_DONE, &res);
         return 0;
     }
-
+    if (cih->chunkInfo.chunkVersion < 0 && ! cih->IsStable()) {
+        // Non stable object block is scheduled for cleanup -- fail the read, as
+        // the object block is discarded in this case.
+        KFS_LOG_STREAM_ERROR <<
+            "denied meta data read for object store block: " << chunkId <<
+            " version: " << chunkVersion <<
+            " non stable with no checksums loaded" <<
+        KFS_LOG_EOM;
+        return -EBADF;
+    }
     if (cih->readChunkMetaOp) {
         // if we have issued a read request for this chunk's metadata,
         // don't submit another one; otherwise, we will simply drive
