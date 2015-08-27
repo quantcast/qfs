@@ -895,6 +895,7 @@ struct AllocateOp : public KfsOp {
     int                    maxAppendersPerChunk;
     bool                   invalidateAllFlag;
     bool                   allowCSClearTextFlag;
+    int64_t                chunkLeaseDuration;
     int64_t                chunkServerAccessValidForTime;
     int64_t                chunkServerAccessIssuedTime;
     string                 chunkAccess;
@@ -914,6 +915,7 @@ struct AllocateOp : public KfsOp {
         maxAppendersPerChunk(64),
         invalidateAllFlag(false),
         allowCSClearTextFlag(false),
+        chunkLeaseDuration(-1),
         chunkServerAccessValidForTime(0),
         chunkServerAccessIssuedTime(0),
         chunkAccess(),
@@ -941,7 +943,9 @@ struct AllocateOp : public KfsOp {
         os <<
             " access:" <<
             " s: " << chunkServerAccessToken <<
-            " c: " << chunkAccess;
+            " c: " << chunkAccess <<
+            " valid for: "      << chunkServerAccessValidForTime <<
+            " lease duration: " << chunkLeaseDuration;
         return os;
     }
 };

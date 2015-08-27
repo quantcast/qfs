@@ -4270,6 +4270,7 @@ MetaAllocate::writeChunkAccess(ostream& os)
         os.write(responseAccessStr.data(), responseAccessStr.size());
         return;
     }
+    os << "Lease-duration: " << leaseDuration << "\r\n";
     if (validForTime <= 0) {
         return;
     }

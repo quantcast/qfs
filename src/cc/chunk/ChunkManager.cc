@@ -1072,7 +1072,7 @@ public:
         }
     }
     void WriteStats(int status, int64_t writeSize, int64_t ioTimeMicrosec) {
-        if (mChunkDir.availableSpace >= 0) {
+        if (0 <= mChunkDir.availableSpace && 0 < writeSize) {
             mChunkDir.writeCounters.Update(status, writeSize, ioTimeMicrosec);
             mChunkDir.totalWriteCounters.Update(
                 status, writeSize, ioTimeMicrosec);
@@ -1635,8 +1635,8 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
             }
         } else {
             const int64_t nowUsec = microseconds();
-            WriteStats(status, ChunkHeaderBuffer::GetSize(), max(int64_t(0),
-                nowUsec - mWriteMetaOpsHead->diskIOTime));
+            WriteStats(status, ChunkHeaderBuffer::GetSize(),
+                max(int64_t(0), nowUsec - mWriteMetaOpsHead->diskIOTime));
             mWriteMetaOpsHead->diskIOTime = nowUsec;
         }
         WriteChunkMetaOp* const cur = mWriteMetaOpsHead;
@@ -3919,9 +3919,16 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
     // write doesn't overflow the size of a chunk.
     op->numBytesIO = min((size_t) (CHUNKSIZE - op->offset), op->numBytes);
     if (0 == op->numBytes && 0 == op->numBytesIO && op->wpop) {
-        op->diskIOTime = 0;
-        LruUpdate(*cih);
+        // Empty write prepare can be used to keep write lease in a period of
+        // write inactivity.
+        op->diskIo.reset(SetupDiskIo(cih, op));
+        if (! op->diskIo) {
+            return -ESERVERBUSY;
+        }
         cih->StartWrite(op);
+        op->diskIOTime = microseconds();
+        // Do not queue empty IO (it isn't presently supported anyway), invoke
+        // completion instead.
         int res = 0;
         op->HandleEvent(EVENT_DISK_WROTE, &res);
         return 0;
@@ -5758,9 +5765,9 @@ ChunkManager::FindDeviceBufferManager(kfsChunkId_t chunkId, int64_t chunkVersion
     if (chunkVersion < 0) {
         const kfsSTier_t storageTier =
             (kfsSTier_t)((-chunkVersion - 1) % (int64_t)CHUNKSIZE);
-        ChunkDirInfo* const j = GetDirForChunk(
+        ChunkDirInfo* const dir = GetDirForChunk(
             chunkVersion < 0, storageTier, storageTier);
-        return (j ? DiskIo::GetDiskBufferManager(j->diskQueue) : 0);
+        return (dir ? DiskIo::GetDiskBufferManager(dir->diskQueue) : 0);
     }
     const bool kAddObjectBlockMappingFlag = false;
     ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,

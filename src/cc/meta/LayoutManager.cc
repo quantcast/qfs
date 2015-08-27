@@ -650,6 +650,9 @@ ChunkLeases::ExpiredCleanup(
 {
     const WriteLease& wl = we;
     if (wl.allocInFlight) {
+        if (mTimerRunningFlag) {
+            panic("lease with allocation in flight has expired");
+        }
         return false;
     }
     const EntryKey      key = we.GetKey();
@@ -989,7 +992,9 @@ ChunkLeases::NewWriteLease(
     bool insertedFlag = false;
     WEntry* const l = mWriteLeases.Insert(
         key, WEntry(key, wl), insertedFlag);
-    req.leaseId = l->Get().leaseId;
+    req.leaseId       = l->Get().leaseId;
+    req.leaseDuration = req.authUid != kKfsUserNone ?
+        l->Get().endTime - TimeNow() : int64_t(-1);
     if (insertedFlag) {
         PutInExpirationList(*l);
     }
@@ -5369,11 +5374,15 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
             isNewLease = false;
             r->servers.clear();
             mChunkToServerMap.GetServers(*ci, r->servers);
-            r->master = l->chunkServer;
+            r->leaseId       = l->leaseId;
+            r->master        = l->chunkServer;
+            r->leaseDuration = r->authUid != kKfsUserNone ?
+                l->endTime - TimeNow() : int64_t(-1);
             return ret;
         }
         // Delete the lease to force version number bump.
-        // Assume that the client encountered a write error.
+        // Assume that the client encountered a write error, or other client
+        // is writing into the same file.
         mChunkLeases.Delete(leaseKey);
     }
     if (ret < 0) {

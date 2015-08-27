@@ -994,6 +994,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     uint32_t             delegationValidForTime;
     uint16_t             delegationFlags;
     int64_t              delegationIssuedTime;
+    int64_t              leaseDuration;
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
     StringBufT<64>       clientHost;   //!< the host from which request was received
@@ -1038,6 +1039,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           delegationValidForTime(0),
           delegationFlags(0),
           delegationIssuedTime(0),
+          leaseDuration(-1),
           clientHost(),
           pathname()
     {

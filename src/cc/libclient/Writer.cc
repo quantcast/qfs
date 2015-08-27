@@ -352,7 +352,7 @@ public:
 private:
     typedef KfsNetClient ChunkServer;
 
-    class ChunkWriter : private ITimeout, private KfsNetClient::OpOwner
+    class ChunkWriter : public KfsCallbackObj, private KfsNetClient::OpOwner
     {
     public:
         struct WriteOp;
@@ -466,7 +466,7 @@ private:
             Impl&         inOuter,
             int64_t       inSeqNum,
             const string& inLogPrefix)
-            : ITimeout(),
+            : KfsCallbackObj(),
               KfsNetClient::OpOwner(),
               mOuter(inOuter),
               mChunkServer(
@@ -502,11 +502,14 @@ private:
               mKeepLeaseFlag(false),
               mLeaseUpdatePendingFlag(false),
               mChunkAccess(),
+              mLeaseEndTime(0),
               mLeaseExpireTime(0),
               mChunkAccessExpireTime(0),
               mCSAccessExpireTime(0),
-              mUpdateLeaseOp(0, -1, 0)
+              mUpdateLeaseOp(0, -1, 0),
+              mSleepTimer(inOuter.mNetManager, *this)
         {
+            SET_HANDLER(this, &ChunkWriter::EventHandler);
             Queue::Init(mPendingQueue);
             Queue::Init(mInFlightQueue);
             Writers::Init(*this);
@@ -636,6 +639,7 @@ private:
             if (mSleepingFlag && ! CancelLeaseUpdate()) {
                 return;
             }
+            mLeaseUpdatePendingFlag = false;
             if (mErrorCode != 0 && ! mAllocOp.invalidateAllFlag) {
                 if (mLastOpPtr) {
                     Reset();
@@ -684,7 +688,9 @@ private:
             if (! CanWrite() && ! SheduleLeaseUpdate()) {
                 return;
             }
-            if (0 < mAllocOp.chunkId && mLeaseExpireTime < Now()) {
+            if (0 < mAllocOp.chunkId && min(mLeaseEndTime - 1,
+                        mLeaseExpireTime + kLeaseRenewTime / 2) <=
+                        Now()) {
                 // When chunk server disconnects it might clean up write lease.
                 // Start from the beginning -- chunk allocation.
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
@@ -770,8 +776,9 @@ private:
         }
 
     private:
-        typedef std::vector<WriteInfo> WriteIds;
+        typedef std::vector<WriteInfo>                      WriteIds;
         typedef std::bitset<CHUNKSIZE / CHECKSUM_BLOCKSIZE> ChecksumBlocks;
+        typedef NetManager::Timer                           Timer;
         enum { kLeaseRenewTime = LEASE_INTERVAL_SECS / 3 };
 
         Impl&          mOuter;
@@ -795,10 +802,12 @@ private:
         bool           mKeepLeaseFlag;
         bool           mLeaseUpdatePendingFlag;
         string         mChunkAccess;
+        time_t         mLeaseEndTime;
         time_t         mLeaseExpireTime;
         time_t         mChunkAccessExpireTime;
         time_t         mCSAccessExpireTime;
         WritePrepareOp mUpdateLeaseOp;
+        Timer          mSleepTimer;
         WriteOp*       mPendingQueue[1];
         WriteOp*       mInFlightQueue[1];
         ChunkWriter*   mPrevPtr[1];
@@ -807,13 +816,19 @@ private:
         friend class QCDLListOp<ChunkWriter, 0>;
         typedef QCDLListOp<ChunkWriter, 0> ChunkWritersListOp;
 
+        void UpdateLeaseExpirationTime()
+        {
+            mLeaseExpireTime = min(mLeaseEndTime,
+                Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime);
+        }
         void AllocateChunk()
         {
             QCASSERT(
                 mOuter.mFileId > 0 &&
                 mAllocOp.fileOffset >= 0 &&
                 (! Queue::IsEmpty(mPendingQueue) ||
-                    (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0))
+                    (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) ||
+                    mKeepLeaseFlag)
             );
             Reset(mAllocOp);
             mAllocOp.fid                  = mOuter.mFileId;
@@ -824,6 +839,7 @@ private:
             mAllocOp.spaceReservationSize = 0;
             mAllocOp.maxAppendersPerChunk = 0;
             mAllocOp.allowCSClearTextFlag = false;
+            mAllocOp.chunkLeaseDuration            = -1;
             mAllocOp.chunkServerAccessValidForTime = 0;
             mAllocOp.chunkServerAccessIssuedTime   = 0;
             mAllocOp.chunkServers.clear();
@@ -865,7 +881,11 @@ private:
                 ReportCompletion(theOffset, theSize);
                 return;
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
+            mLeaseEndTime = Now() + (mAllocOp.chunkLeaseDuration < 0 ?
+                time_t(10) * 365 * 24 * 3600 :
+                (time_t)max(
+                    int64_t(1), mAllocOp.chunkLeaseDuration - kLeaseRenewTime));
+            UpdateLeaseExpirationTime();
             mKeepLeaseFlag   = mAllocOp.chunkVersion < 0;
             AllocateWriteId();
         }
@@ -888,7 +908,7 @@ private:
                 return false;
             }
             if (mSleepingFlag) {
-                mOuter.mNetManager.UnRegisterTimeoutHandler(this);
+                mSleepTimer.RemoveTimeout();
                 mSleepingFlag = false;
             }
             mLeaseUpdatePendingFlag = false;
@@ -1107,7 +1127,7 @@ private:
                 return;
             }
             UpdateAccess(inOp);
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
+            UpdateLeaseExpirationTime();
             StartWrite();
         }
         void Write()
@@ -1234,7 +1254,7 @@ private:
             if (! ReportCompletion(theOffset, theDoneCount)) {
                 return;
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
+            UpdateLeaseExpirationTime();
             StartWrite();
         }
         void UpdateLease()
@@ -1275,7 +1295,7 @@ private:
             if (mUpdateLeaseOp.replyRequestedFlag) {
                 UpdateAccess(mUpdateLeaseOp);
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime;
+            UpdateLeaseExpirationTime();
             StartWrite();
         }
         void CloseChunk()
@@ -1389,7 +1409,7 @@ private:
             mChunkServer.Stop();
             QCASSERT(Queue::IsEmpty(mInFlightQueue));
             if (mSleepingFlag) {
-                mOuter.mNetManager.UnRegisterTimeoutHandler(this);
+                mSleepTimer.RemoveTimeout();
                 mSleepingFlag = false;
             }
             mLeaseUpdatePendingFlag = false;
@@ -1521,20 +1541,26 @@ private:
             KFS_LOG_EOM;
             mSleepingFlag = true;
             mOuter.mStats.mSleepTimeSec += inSec;
-            const bool kResetTimerFlag = true;
-            SetTimeoutInterval(inSec * 1000, kResetTimerFlag);
-            mOuter.mNetManager.RegisterTimeoutHandler(this);
+            mSleepTimer.SetTimeout(inSec);
             return true;
         }
-        virtual void Timeout()
+        void Timeout()
         {
             KFS_LOG_STREAM_DEBUG << mLogPrefix << "timeout" <<
             KFS_LOG_EOM;
             if (mSleepingFlag) {
-                mOuter.mNetManager.UnRegisterTimeoutHandler(this);
+                mSleepTimer.RemoveTimeout();
                 mSleepingFlag = false;
             }
             StartWrite();
+        }
+        int EventHandler(
+            int   inCode,
+            void* inDataPtr)
+        {
+            QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inCode && ! inDataPtr);
+            Timeout();
+            return 0;
         }
         bool ReportCompletion(
             Offset inOffset = 0,

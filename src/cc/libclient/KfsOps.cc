@@ -1097,6 +1097,7 @@ AllocateOp::ParseResponseHeaderSelf(const Properties &prop)
     if (status < 0) {
         return;
     }
+    chunkLeaseDuration = prop.getValue("Lease-duration", int64_t(-1));
     if (ParseChunkServerAccess(*this, prop.getValue("CS-access"),
             chunkServerAccessToken, chunkServerAccessKey)) {
         chunkServerAccessValidForTime =
