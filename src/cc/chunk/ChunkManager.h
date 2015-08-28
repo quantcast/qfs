@@ -786,22 +786,22 @@ private:
         >,
         StdFastAllocator<CMapEntry>
     > CMap;
-    typedef KVPair<pair<kfsChunkId_t, int64_t>, ChunkInfoHandle*> ObjMapEntry;
+    typedef KVPair<pair<kfsChunkId_t, int64_t>, ChunkInfoHandle*> ObjTableEntry;
     struct ObjHash
     {
         static size_t Hash(
-            const ObjMapEntry::Key& inVal)
+            const ObjTableEntry::Key& inVal)
             { return size_t(inVal.first); }
     };
     typedef LinearHash<
-        ObjMapEntry,
-        KeyCompare<ObjMapEntry::Key, ObjHash>,
+        ObjTableEntry,
+        KeyCompare<ObjTableEntry::Key, ObjHash>,
         DynamicArray<
-            SingleLinkedList<ObjMapEntry>*,
+            SingleLinkedList<ObjTableEntry>*,
             20
         >,
-        StdFastAllocator<ObjMapEntry>
-    > ObjMap;
+        StdFastAllocator<ObjTableEntry>
+    > ObjTable;
 
     /// How long should a pending write be held in LRU
     int mMaxPendingWriteLruSecs;
@@ -833,8 +833,8 @@ private:
     ObjPendingWrites mObjPendingWrites;
 
     /// table that maps chunkIds to their associated state
-    CMap   mChunkTable;
-    ObjMap mObjTable;
+    CMap     mChunkTable;
+    ObjTable mObjTable;
     size_t mMaxIORequestSize;
     /// Chunk lru, and stale chunks list heads.
     ChunkLists mChunkInfoLists[kChunkInfoListCount];

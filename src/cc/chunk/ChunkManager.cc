@@ -1118,6 +1118,10 @@ public:
             WaitChunkReadableDone(IsStale() ? -EIO : 0);
         }
     }
+    void SubmitWaitChunkReadable(int status)
+    {
+        WaitChunkReadableDone(status);
+    }
     inline bool ScheduleObjTableCleanup(
         ChunkLists* chunkInfoLists);
 
@@ -2469,6 +2473,10 @@ ChunkManager::AllocChunk(
                     cih->chunkInfo.chunkVersion != chunkVersion) {
                 return -EINVAL;
             }
+            // Invalidate pending writes, if any, due to no version change for
+            // object store blocks. For chunk this should be a no op, and if any
+            // pending writes are still around they should be deleted.
+            mPendingWrites.Delete(chunkId, chunkVersion);
             if (outCih) {
                 *outCih = cih;
             }
@@ -3220,6 +3228,8 @@ ChunkManager::ChangeChunkVers(
     if (chunkVersion < 0 &&
             (cih->IsStable() != stableFlag ||
                 chunkVersion != cih->chunkInfo.chunkVersion)) {
+        // For now do not support changing object store blocks, as this requires
+        // read modify write support.
         KFS_LOG_STREAM_WARN <<
             "invalid attempt to change version on object store" <<
                 " block: "   << cih->chunkInfo.chunkId <<
@@ -3228,7 +3238,8 @@ ChunkManager::ChangeChunkVers(
                 " stable: "  << cih->IsStable() <<
                 " / "        << stableFlag <<
         KFS_LOG_EOM;
-        return -EINVAL;
+        return ((chunkVersion == cih->chunkInfo.chunkVersion && ! stableFlag) ?
+            -EROFS : -EINVAL);
     }
     KFS_LOG_STREAM_INFO <<
         "chunk " << MakeChunkPathname(cih) <<
@@ -3714,7 +3725,17 @@ ChunkManager::CloseChunkWrite(
             ChunkInfoHandle* const cih =
                 GetChunkInfoHandle(chunkId, chunkVersion);
             if (cih && cih->chunkInfo.AreChecksumsLoaded()) {
-                cih->AddWaitChunkReadable(op);
+                bool stableFlag = false;
+                if (cih->GetTargetStateAndVersion(stableFlag) != chunkVersion) {
+                    return -EINVAL;
+                }
+                if (stableFlag) {
+                    cih->AddWaitChunkReadable(op);
+                } else {
+                    if (! gMetaServerSM.IsUp()) {
+                        return -ELEASEEXPIRED;
+                    }
+                }
             } else {
                 if (readMetaFlag) {
                     *readMetaFlag = true;
@@ -3854,7 +3875,7 @@ ChunkManager::ReadChunk(ReadOp* op)
     if (op->chunkVersion != cih->chunkInfo.chunkVersion) {
         KFS_LOG_STREAM_INFO << "Version # mismatch (have=" <<
             cih->chunkInfo.chunkVersion << " vs asked=" << op->chunkVersion <<
-            ")...failing a read" <<
+            ") failing read" <<
         KFS_LOG_EOM;
         return -EBADVERS;
     }
@@ -5306,19 +5327,24 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
             }
             continue;
         }
-        bool inUseFlag;
-        bool hasLeaseFlag     = false;
-        bool writePendingFlag = false;
-        if ((inUseFlag = cih->IsFileInUse()) ||
+        bool       hasLeaseFlag     = false;
+        bool       writePendingFlag = false;
+        const bool fileInUseFlag    = cih->IsFileInUse();
+        if (fileInUseFlag ||
                 (hasLeaseFlag = gLeaseClerk.IsLeaseValid(
                     cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) ||
                 (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId,
-                    cih->chunkInfo.chunkVersion))) {
+                    cih->chunkInfo.chunkVersion)) ||
+                (cih->chunkInfo.chunkVersion < 0 && ! cih->IsStable() &&
+                    gMetaServerSM.ConnectionUptime() < LEASE_INTERVAL_SECS)) {
             KFS_LOG_STREAM_DEBUG << "cleanup: stale entry in chunk lru:"
-                " dataFH: "   << (const void*)cih->dataFH.get() <<
-                " chunk: "    << cih->chunkInfo.chunkId <<
-                " last io: "  << (now - cih->lastIOTime) << " sec. ago" <<
-                (inUseFlag ?        " file in use"     : "") <<
+                " dataFH: "      << (const void*)cih->dataFH.get() <<
+                " chunk: "       << cih->chunkInfo.chunkId <<
+                " version: "     << cih->chunkInfo.chunkVersion <<
+                " stable: "      << cih->IsStable() <<
+                " last io: "     << (now - cih->lastIOTime) << " sec. ago" <<
+                " meta uptime: " << gMetaServerSM.ConnectionUptime() <<
+                (fileInUseFlag ?    " file in use"     : "") <<
                 (hasLeaseFlag ?     " has lease"       : "") <<
                 (writePendingFlag ? " wrtie pending"   : "") <<
             KFS_LOG_EOM;
@@ -5762,18 +5788,21 @@ ChunkManager::FindDeviceBufferManager(kfsChunkId_t chunkId, int64_t chunkVersion
     if (! mDiskBufferManagerEnabledFlag) {
         return 0;
     }
-    if (chunkVersion < 0) {
-        const kfsSTier_t storageTier =
-            (kfsSTier_t)((-chunkVersion - 1) % (int64_t)CHUNKSIZE);
-        ChunkDirInfo* const dir = GetDirForChunk(
-            chunkVersion < 0, storageTier, storageTier);
-        return (dir ? DiskIo::GetDiskBufferManager(dir->diskQueue) : 0);
-    }
     const bool kAddObjectBlockMappingFlag = false;
     ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,
         kAddObjectBlockMappingFlag);
-    return (cih ? DiskIo::GetDiskBufferManager(cih->GetDirInfo().diskQueue) :
-        0);
+    if (cih) {
+        return DiskIo::GetDiskBufferManager(cih->GetDirInfo().diskQueue);
+    }
+    if (0 <= chunkVersion) {
+        return 0;
+    }
+    // Use find "directory" / queue that will likely to be used for bloc.
+    const kfsSTier_t storageTier =
+        (kfsSTier_t)((-chunkVersion - 1) % (int64_t)CHUNKSIZE);
+    ChunkDirInfo* const dir = GetDirForChunk(
+        chunkVersion < 0, storageTier, storageTier);
+    return (dir ? DiskIo::GetDiskBufferManager(dir->diskQueue) : 0);
 }
 
 int
@@ -6442,6 +6471,20 @@ ChunkManager::MetaServerConnectionLost()
             UpdateCountFsSpaceAvailable();
         }
         it->RestartEvacuation();
+    }
+    ObjTable::Entry::value_type const* p;
+    mObjTable.First();
+    while ((p = mObjTable.Next())) {
+        ChunkInfoHandle* const cih = p->GetVal();
+        if (! cih->IsStable()) {
+            mPendingWrites.Delete(
+                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
+            bool stableFlag = false;
+            cih->GetTargetStateAndVersion(stableFlag);
+            if (! stableFlag) {
+                cih->SubmitWaitChunkReadable(-ELEASEEXPIRED);
+            }
+        }
     }
     mNextSendChunDirInfoTime = globalNetManager().Now() - 36000;
 }

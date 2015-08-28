@@ -75,7 +75,8 @@ public:
         kErrorParameters = -EINVAL,
         kErrorTryAgain   = -EAGAIN,
         kErrorFault      = -EFAULT,
-        kErrorNoEntry    = -ENOENT
+        kErrorNoEntry    = -ENOENT,
+        kErrorReadOnly   = -EROFS
     };
 
     Impl(
@@ -1463,15 +1464,40 @@ private:
                 "\nRequest:\n"            << theOStream.str() <<
             KFS_LOG_EOM;
             int theStatus = inOp.status;
-            if (&inOp == &mAllocOp && theStatus == kErrorNoEntry) {
-                // File deleted, and lease expired or meta server restarted.
-                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "file does not exist, giving up" <<
-                KFS_LOG_EOM;
-                mErrorCode = theStatus;
-                Reset();
-                mOuter.FatalError(theStatus);
-                return;
+            if (&inOp == &mAllocOp) {
+                if (theStatus == kErrorNoEntry) {
+                    // File deleted, and lease expired or meta server restarted.
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "file does not exist, giving up" <<
+                    KFS_LOG_EOM;
+                    mErrorCode = theStatus;
+                    Reset();
+                    mOuter.FatalError(theStatus);
+                    return;
+                }
+                if (theStatus == kErrorReadOnly && mClosingFlag &&
+                        0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "object store block is now stable stable" <<
+                    KFS_LOG_EOM;
+                    mCloseOp.chunkId = -1;
+                    Reset();
+                    StartWrite();
+                    return;
+                    /*
+                    Although it might be possible to verify that the block is
+                    stable by using the following code, the problem is that the
+                    block (chunk) and chunk server access might have expired
+                    already, and the only way to obtain the access is successful
+                    block allocation completion.
+                    Reset(mAllocOp);
+                    mAllocOp.chunkId      = mCloseOp.chunkId;
+                    mAllocOp.chunkVersion = mCloseOp.chunkVersion;
+                    mWriteIds             = mCloseOp.writeInfo;
+                    StartWrite();
+                    return;
+                    */
+                }
             }
             if (mOuter.mStriperPtr && ! mAllocOp.invalidateAllFlag &&
                     mAllocOp.fileOffset >= 0 &&

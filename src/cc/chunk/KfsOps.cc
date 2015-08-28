@@ -1117,7 +1117,7 @@ CloseOp::Execute()
         } else if (! gAtomicRecordAppendManager.CloseChunk(
                 this, writeId, needToForward)) {
             // forward the close only if it was accepted by the chunk
-            // manager.  the chunk manager can reject a close if the
+            // manager. The chunk manager can reject a close if the
             // chunk is being written to by multiple record appenders
             if (hasWriteId) {
                 const bool waitReadableFlag = clnt && chunkVersion < 0;
@@ -1232,9 +1232,9 @@ AllocChunkOp::Execute()
     }
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
-    const bool kAddObjectBlockMappingFlag = false;
+    const bool addObjectBlockMappingFlag = mustExistFlag;
     int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
-        kAddObjectBlockMappingFlag);
+        addObjectBlockMappingFlag);
     if (res == 0) {
         if (! mustExistFlag) {
             die("chunk deletion failed");
