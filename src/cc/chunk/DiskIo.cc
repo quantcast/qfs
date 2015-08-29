@@ -279,7 +279,8 @@ public:
         int                               inWaitingAvgInterval,
         const DiskErrorSimulator::Config* inSimulatorConfigPtr,
         int                               inMinWriteBlkSize,
-        bool                              inBufferDataIgnoreOverwriteFlag)
+        bool                              inBufferDataIgnoreOverwriteFlag,
+        int                               inBufferDataTailToKeepSize)
         : QCDiskQueue(),
           QCDiskQueue::DebugTracer(),
           mFileNamePrefixes(inFileNamePrefixPtr ? inFileNamePrefixPtr : ""),
@@ -293,7 +294,8 @@ public:
           mSimulatorPtr(inSimulatorConfigPtr ?
             new DiskErrorSimulator(*inSimulatorConfigPtr) : 0),
           mMinWriteBlkSize(inMinWriteBlkSize),
-          mBufferDataIgnoreOverwriteFlag(inBufferDataIgnoreOverwriteFlag)
+          mBufferDataIgnoreOverwriteFlag(inBufferDataIgnoreOverwriteFlag),
+          mBufferDataTailToKeepSize(max(0, inBufferDataTailToKeepSize))
     {
         mFileNamePrefixes.append(1, (char)0);
         DiskQueueList::Init(*this);
@@ -438,6 +440,8 @@ public:
         { return mMinWriteBlkSize; }
     bool GetBufferDataIgnoreOverwriteFlag() const
         { return mBufferDataIgnoreOverwriteFlag; }
+    int GetBufferDataTailToKeepSize() const
+        { return mBufferDataTailToKeepSize; }
     static DiskIo::IoBuffers& GetIoBuffers(
         DiskIo::File& inFile)
         { return inFile.mIoBuffers; }
@@ -457,6 +461,7 @@ private:
     DiskErrorSimulator* const mSimulatorPtr;
     int const                 mMinWriteBlkSize;
     bool const                mBufferDataIgnoreOverwriteFlag;
+    int const                 mBufferDataTailToKeepSize;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
 
@@ -803,7 +808,8 @@ public:
         int              inMaxOpenFiles,
         string*          inErrMessagePtr,
         int              inMinWriteBlkSize,
-        bool             inBufferDataIgnoreOverwriteFlag)
+        bool             inBufferDataIgnoreOverwriteFlag,
+        int              inBufferDataTailToKeepSize)
     {
         DiskQueue* theQueuePtr = FindDiskQueue(inDirNamePtr);
         if (theQueuePtr) {
@@ -844,7 +850,8 @@ public:
             mDiskErrorSimulatorConfig.IsEnabled(inDirNamePtr) ?
                 &mDiskErrorSimulatorConfig : 0,
             theMinWriteBlkSize,
-            inBufferDataIgnoreOverwriteFlag
+            inBufferDataIgnoreOverwriteFlag,
+            inBufferDataTailToKeepSize
         );
         const int theSysErr = theQueuePtr->Start(
             mDiskQueueThreadCount,
@@ -1274,7 +1281,8 @@ DiskIo::StartIoQueue(
     int              inMaxOpenFiles,
     string*          inErrMessagePtr                 /* = 0 */,
     int              inMinWriteBlkSize               /* = 0 */,
-    bool             inBufferDataIgnoreOverwriteFlag /* = false */)
+    bool             inBufferDataIgnoreOverwriteFlag /* = false */,
+    int              inBufferDataTailToKeepSize      /* = 0 */)
 {
     if (! sDiskIoQueuesPtr) {
         if (inErrMessagePtr) {
@@ -1283,8 +1291,14 @@ DiskIo::StartIoQueue(
         return false;
     }
     return sDiskIoQueuesPtr->AddDiskQueue(
-        inDirNamePtr, inDeviceId, inMaxOpenFiles,
-        inErrMessagePtr, inMinWriteBlkSize, inBufferDataIgnoreOverwriteFlag);
+        inDirNamePtr,
+        inDeviceId,
+        inMaxOpenFiles,
+        inErrMessagePtr,
+        inMinWriteBlkSize,
+        inBufferDataIgnoreOverwriteFlag,
+        inBufferDataTailToKeepSize
+    );
 }
 
 
@@ -2232,7 +2246,9 @@ DiskIo::Write(
                 --theFBufIt;
             }
         }
-        while (theEndIt + theBlkCnt <= theIoBuffers.end() &&
+        const int theTailCnt = (theQueuePtr->GetBufferDataTailToKeepSize()
+            + theBlockSize - 1) / theBlockSize;
+        while (theEndIt + theBlkCnt + theTailCnt <= theIoBuffers.end() &&
                 ! theEndIt->IsEmpty() &&
                 ! (theEndIt + theBlkCnt - 1)->IsEmpty()) {
             if (2 < theBlkCnt) {

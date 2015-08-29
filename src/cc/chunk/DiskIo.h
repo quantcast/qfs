@@ -120,7 +120,8 @@ public:
         int         inMaxOpenFiles,
         string*     inErrMessagePtr                 = 0,
         int         inMinWriteBlkSize               = 0,
-        bool        inBufferDataIgnoreOverwriteFlag = false);
+        bool        inBufferDataIgnoreOverwriteFlag = false,
+        int         inBufferDataTailToKeepSize      = 0);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,

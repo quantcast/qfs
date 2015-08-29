@@ -7836,14 +7836,19 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
 {
     string pathname;
     if (req->chunkVersion < 0) {
-        if (0 != req->status || ! req->server || req->server->IsDown()) {
-            return;
-        }
         MetaFattr* const fa = metatree.getFattr(req->fid);
         if (! fa || KFS_FILE != fa->type || 0 != fa->numReplicas ||
                 ChunkVersionToObjFileBlockPos(req->chunkVersion) +
                     (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
             return;
+        }
+        if (0 != req->status || ! req->server || req->server->IsDown()) {
+            // FIXME: re-queue size op later, or directly query object store.
+            // For now just update the size if it is known, i.e. chunk server
+            // initiated lease relinquish with the chunk size.
+            if (req->chunkSize < 0) {
+                return;
+            }
         }
         if (0 <= req->chunkSize) {
             // Log chunk size.

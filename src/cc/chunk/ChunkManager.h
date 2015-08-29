@@ -909,6 +909,10 @@ private:
     bool       mVersionChangePermitWritesInFlightFlag;
     int        mObjStoreBlockWriteBufferSize;
     bool       mObjStoreBufferDataIgnoreOverwriteFlag;
+    int        mObjStoreMaxWritableBlocks;
+    int        mObjStoreWritableBlocks;
+    double     mObjStoreBufferDataRatio;
+    int        mObjStoreBufferDataMaxSizePerBlock;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;

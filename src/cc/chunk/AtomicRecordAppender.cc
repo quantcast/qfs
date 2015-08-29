@@ -3104,7 +3104,7 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mActiveAppendersCount(0),
       mOpenAppendersCount(0),
       mAppendersWithWidCount(0),
-      mBufferLimitRatio(0.6),
+      mBufferLimitRatio(0.4),
       mMaxWriteIdsPerChunk(16 << 10),
       mCloseOutOfSpaceThreshold(4),
       mCloseOutOfSpaceSec(5),
@@ -3191,8 +3191,9 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
         return;
     }
     if (mTotalBuffersBytes <= 0) {
+        const BufferManager& bufMgr = DiskIo::GetBufferManager();
         mTotalBuffersBytes = (int64_t)(
-            DiskIo::GetBufferManager().GetTotalCount() *
+            (bufMgr.GetBufferPoolTotalBytes() - bufMgr.GetTotalCount()) *
             mBufferLimitRatio);
         if (mTotalBuffersBytes <= 0) {
             mTotalBuffersBytes = mFlushLimit;

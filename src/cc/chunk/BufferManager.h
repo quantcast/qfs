@@ -193,8 +193,17 @@ public:
         { return mMinBufferCount; }
     int GetTotalBufferCount() const
     {
-        const int theSize = mBufferPoolPtr ? mBufferPoolPtr->GetBufferSize() : 0;
+        const int theSize =
+            mBufferPoolPtr ? mBufferPoolPtr->GetBufferSize() : 0;
         return (theSize > 0 ? mTotalCount / theSize : 0);
+    }
+    ByteCount GetBufferPoolTotalBytes() const
+    {
+        if (mBufferPoolPtr) {
+            return ((ByteCount)mBufferPoolPtr->GetBufferSize() *
+                mBufferPoolPtr->GetTotalBufferCount());
+        }
+        return 0;
     }
     int GetWaitingCount() const
         { return mWaitingCount; }

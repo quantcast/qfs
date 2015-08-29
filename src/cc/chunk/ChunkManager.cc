@@ -1769,6 +1769,10 @@ ChunkManager::ChunkManager()
       mVersionChangePermitWritesInFlightFlag(true),
       mObjStoreBlockWriteBufferSize((int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)),
       mObjStoreBufferDataIgnoreOverwriteFlag(true),
+      mObjStoreMaxWritableBlocks(-1),
+      mObjStoreWritableBlocks(0),
+      mObjStoreBufferDataRatio(0.3),
+      mObjStoreBufferDataMaxSizePerBlock(mObjStoreBlockWriteBufferSize),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -2129,6 +2133,13 @@ ChunkManager::SetParameters(const Properties& prop)
     mObjStoreBufferDataIgnoreOverwriteFlag = prop.getValue(
         "chunkServer.objStoreBufferDataIgnoreOverwriteFlag",
         mObjStoreBufferDataIgnoreOverwriteFlag);
+    const double prevObjStoreBufferDataRatio = mObjStoreBufferDataRatio;
+    mObjStoreBufferDataRatio = max(double(0.0), min(double(0.9), prop.getValue(
+        "chunkServer.objStoreBufferDataIgnoreOverwriteFlag",
+        mObjStoreBufferDataRatio)));
+    if (prevObjStoreBufferDataRatio != mObjStoreBufferDataRatio) {
+        mObjStoreMaxWritableBlocks = -1;
+    }
     mDirChecker.SetFsIdPrefix(mFsIdFileNamePrefix);
     SetDirCheckerIoTimeout();
     ClientSM::SetParameters(prop);
@@ -2486,6 +2497,32 @@ ChunkManager::AllocChunk(
         return -EBADF;
     }
 
+    if (chunkVersion < 0) {
+        if (mObjStoreMaxWritableBlocks < 0) {
+            const BufferManager& bufMgr = DiskIo::GetBufferManager();
+            mObjStoreMaxWritableBlocks = (int)((
+                (bufMgr.GetBufferPoolTotalBytes() - bufMgr.GetTotalCount()) *
+                mObjStoreBufferDataRatio
+            ) / mObjStoreBufferDataMaxSizePerBlock);
+        }
+        int objStoreWritableBlocks = 0;
+        for (ChunkDirs::iterator it = mObjDirs.begin();
+                it != mObjDirs.end();
+                ++it) {
+            if (it->availableSpace < 0) {
+                continue;
+            }
+            objStoreWritableBlocks += it->notStableOpenCount;
+            if (mObjStoreMaxWritableBlocks <= objStoreWritableBlocks) {
+                KFS_LOG_STREAM_ERROR <<
+                    "exceeded writable object block"
+                    " limit:  " << mObjStoreMaxWritableBlocks <<
+                    " <= "      << mObjStoreWritableBlocks <<
+                KFS_LOG_EOM;
+                return -ESERVERBUSY;
+            }
+        }
+    }
     // Find the directory to use
     ChunkDirInfo* const chunkdir = GetDirForChunk(
         chunkVersion < 0,
@@ -5513,6 +5550,12 @@ ChunkManager::StartDiskIo()
         assert(find(tier.begin(), tier.end(), it) == tier.end());
         tier.push_back(&(*it));
     }
+    mObjStoreBufferDataMaxSizePerBlock = max(1, mObjStoreBlockWriteBufferSize);
+    if (mObjStoreBufferDataMaxSizePerBlock <
+            (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)) {
+        mObjStoreBufferDataMaxSizePerBlock +=
+            (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE);
+    }
     // Ensure that device id for obj store will not collide with normal the host
     // file system ids issued by the directory checker, in order to detect
     // possible name collisions between host file system directories and object
@@ -5539,7 +5582,8 @@ ChunkManager::StartDiskIo()
                 mObjStoreBlockWriteBufferSize,
                 mObjStoreBufferDataIgnoreOverwriteFlag &&
                     mObjStoreBlockWriteBufferSize <
-                    (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE))) {
+                    (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE),
+                (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE))) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<
                 " dev: << " << it->deviceId << " :" << errMsg <<
