@@ -2497,7 +2497,7 @@ ChunkManager::AllocChunk(
         return -EBADF;
     }
 
-    if (chunkVersion < 0) {
+    if (chunkVersion < 0 && 0 < mObjStoreBufferDataMaxSizePerBlock) {
         if (mObjStoreMaxWritableBlocks < 0) {
             const BufferManager& bufMgr = DiskIo::GetBufferManager();
             mObjStoreMaxWritableBlocks = (int)((
@@ -5550,12 +5550,11 @@ ChunkManager::StartDiskIo()
         assert(find(tier.begin(), tier.end(), it) == tier.end());
         tier.push_back(&(*it));
     }
-    mObjStoreBufferDataMaxSizePerBlock = max(1, mObjStoreBlockWriteBufferSize);
-    if (mObjStoreBufferDataMaxSizePerBlock <
-            (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)) {
-        mObjStoreBufferDataMaxSizePerBlock +=
-            (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE);
-    }
+    mObjStoreBufferDataMaxSizePerBlock = min(
+        (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE),
+        2 * mObjStoreBlockWriteBufferSize +
+            (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE)
+    );
     // Ensure that device id for obj store will not collide with normal the host
     // file system ids issued by the directory checker, in order to detect
     // possible name collisions between host file system directories and object
