@@ -76,7 +76,8 @@ public:
         kErrorTryAgain   = -EAGAIN,
         kErrorFault      = -EFAULT,
         kErrorNoEntry    = -ENOENT,
-        kErrorReadOnly   = -EROFS
+        kErrorReadOnly   = -EROFS,
+        kErrorSeek       = -ESPIPE
     };
 
     Impl(
@@ -231,6 +232,11 @@ public:
             );
         }
         if (inOffset != mOffset + mBuffer.BytesConsumable()) {
+            if (0 == mReplicaCount) {
+                // Non sequential write is not supported with object store
+                // files.
+                return kErrorSeek;
+            }
             // Just flush for now, do not try to optimize buffer rewrite.
             const int thePrevRefCount = GetRefCount();
             const int theRet = Flush();

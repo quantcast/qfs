@@ -5313,11 +5313,9 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
 {
     // if we haven't cleaned up in 5 mins or if we too many fd's that
     // are open, clean up.
-    time_t     expireTime;
-    int        releaseCnt = -1;
-    const bool forceFlag  = ! cur;
-    if (forceFlag) {
-        expireTime = now - mInactiveFdsCleanupIntervalSecs;
+    time_t expireTime;
+    int    releaseCnt = -1;
+    if (cur) {
         // Reserve is to deal with asynchronous close/open in the cases where
         // open and close are executed on different io queues.
         const uint64_t kReserve     = min((mMaxOpenChunkFiles + 3) / 4,
@@ -5325,8 +5323,7 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         const uint64_t openChunkCnt = globals().ctrOpenDiskFds.GetValue();
         if (openChunkCnt + kReserve > (uint64_t)mMaxOpenChunkFiles ||
                 (openChunkCnt + kReserve) * mFdsPerChunk +
-                    globals().ctrOpenNetFds.GetValue() >
-                    (uint64_t)mMaxOpenFds) {
+                    globals().ctrOpenNetFds.GetValue() > (uint64_t)mMaxOpenFds) {
             if (mNextInactiveFdFullScanTime < now) {
                 expireTime = now + 2 * mInactiveFdsCleanupIntervalSecs;
             } else {
@@ -5340,16 +5337,16 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         if (now < mNextInactiveFdCleanupTime) {
             ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
             ChunkInfoHandle*   cih;
-            while ((cih = it.Next()) && cih != cur &&
-                    cih->chunkInfo.chunkVersion < 0 &&
+            while ((cih = it.Next()) && cih->chunkInfo.chunkVersion < 0 &&
                     ! cih->IsFileOpen()) {
                 Remove(*cih);
             }
             return true;
         }
+        expireTime = now - mInactiveFdsCleanupIntervalSecs;
     }
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
-    ChunkInfoHandle* cih;
+    ChunkInfoHandle*   cih;
     while ((cih = it.Next()) && (cih->lastIOTime < expireTime ||
                 cih->chunkInfo.chunkVersion < 0)) {
         if (! cih->IsFileOpen() || cih->IsBeingReplicated()) {
@@ -5364,16 +5361,20 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
             }
             continue;
         }
-        bool       hasLeaseFlag     = false;
-        bool       writePendingFlag = false;
-        const bool fileInUseFlag    = cih->IsFileInUse();
+        bool       hasLeaseFlag         = false;
+        bool       writePendingFlag     = false;
+        bool       objBlockMetaDownFlag = false;
+        time_t     metaUptime           = 0;
+        const bool fileInUseFlag        = cih->IsFileInUse();
         if (fileInUseFlag ||
                 (hasLeaseFlag = gLeaseClerk.IsLeaseValid(
                     cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) ||
                 (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId,
                     cih->chunkInfo.chunkVersion)) ||
-                (cih->chunkInfo.chunkVersion < 0 && ! cih->IsStable() &&
-                    gMetaServerSM.ConnectionUptime() < LEASE_INTERVAL_SECS)) {
+                (objBlockMetaDownFlag = cih->chunkInfo.chunkVersion < 0 &&
+                    ! cih->IsStable() &&
+                    (metaUptime = gMetaServerSM.ConnectionUptime()) <
+                        LEASE_INTERVAL_SECS)) {
             KFS_LOG_STREAM_DEBUG << "cleanup: stale entry in chunk lru:"
                 " dataFH: "      << (const void*)cih->dataFH.get() <<
                 " chunk: "       << cih->chunkInfo.chunkId <<
@@ -5385,6 +5386,9 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                 (hasLeaseFlag ?     " has lease"       : "") <<
                 (writePendingFlag ? " wrtie pending"   : "") <<
             KFS_LOG_EOM;
+            if (objBlockMetaDownFlag && metaUptime < LEASE_INTERVAL_SECS / 2) {
+                LruUpdate(*cih); // Move to the back of lru.
+            }
             continue;
         }
         if (cih->SyncMeta()) {
@@ -6519,7 +6523,7 @@ ChunkManager::MetaServerConnectionLost()
     mObjTable.First();
     while ((p = mObjTable.Next())) {
         ChunkInfoHandle* const cih = p->GetVal();
-        if (! cih->IsStable()) {
+        if (! cih->IsChunkReadable()) {
             mPendingWrites.Delete(
                 cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
             bool stableFlag = false;
