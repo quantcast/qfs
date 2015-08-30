@@ -1413,7 +1413,7 @@ MakeChunkStableOp::Execute()
         return;
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
-    const bool kAddObjectBlockMappingFlag = false;
+    const bool kAddObjectBlockMappingFlag = true;
     const int ret = gChunkManager.ReadChunkMetadata(
         chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (ret < 0) {
@@ -1447,7 +1447,23 @@ MakeChunkStableOp::HandleMakeStableDone(int code, void *data)
         const int res = data ? *reinterpret_cast<const int*>(data) : -1;
         status = res < 0 ? res : -1;
     }
-    if (status >= 0 &&
+    if (0 <= status && 0 <= chunkSize && chunkVersion  < 0) {
+        const ChunkInfo_t* const ci =
+            gChunkManager.GetChunkInfo(chunkId, chunkVersion);
+        // Verify that the object store block size matches.
+        if (! ci || ! ci->AreChecksumsLoaded()) {
+            statusMsg = "checksums not unloaded";
+            status    = -EAGAIN;
+        }
+        if (ci->chunkSize != chunkSize) {
+            statusMsg = "object block size do not match";
+            status    = -EINVAL;
+        }
+    }
+    // If size is undefined, do not close object block yet, as meta server might
+    // query size in order to determine logical EOF.
+    if (0 <= status &&
+            (0 <= chunkVersion || 0 <= chunkSize) &&
             ! gLeaseClerk.IsLeaseValid(chunkId, chunkVersion) &&
             gChunkManager.CloseChunkIfReadable(chunkId, chunkVersion)) {
         KFS_LOG_STREAM_DEBUG <<

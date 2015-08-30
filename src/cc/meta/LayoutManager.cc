@@ -7842,15 +7842,16 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
                     (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
             return;
         }
-        if (0 != req->status || ! req->server || req->server->IsDown()) {
-            // FIXME: re-queue size op later, or directly query object store.
+        bool useSizeFlag = 0 <= req->chunkSize && 0 == req->status;
+        if (0 != req->status && (! req->server || req->server->IsDown())) {
             // For now just update the size if it is known, i.e. chunk server
             // initiated lease relinquish with the chunk size.
-            if (req->chunkSize < 0) {
+            if (req->chunkSize < 0 || -EINVAL == req->status) {
                 return;
             }
+            useSizeFlag = true;
         }
-        if (0 <= req->chunkSize) {
+        if (useSizeFlag) {
             // Log chunk size.
             MetaChunkSize* const op = new MetaChunkSize(
                 0, // seq #

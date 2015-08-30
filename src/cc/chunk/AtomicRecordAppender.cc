@@ -2177,8 +2177,8 @@ AtomicRecordAppender::ComputeChecksum(
     kfsChunkId_t chunkId, int64_t chunkVersion,
     int64_t& chunkSize, uint32_t& chunkChecksum)
 {
-    const ChunkInfo_t* const info =
-        gChunkManager.GetChunkInfo(chunkId, chunkVersion);
+    const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+        chunkId, chunkVersion);
     if (! info ||
             (! info->chunkBlockChecksum && info->chunkSize != 0) ||
             chunkVersion != info->chunkVersion) {
@@ -3598,9 +3598,15 @@ AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
             }
         }
     } else {
-        const bool appendFlag = false;
+        // With no size, only delete pending writes for object store block,
+        // do not make it stable to allow re-allocation.
+        const bool deletePendingWritesOnlyFlag =
+            op->chunkVersion < 0 && op->chunkSize < 0;
+        const bool appendFlag                  = false;
         const int res         = gChunkManager.MakeChunkStable(
-            op->chunkId, op->chunkVersion, appendFlag, op, op->statusMsg);
+            op->chunkId, op->chunkVersion, appendFlag, op, op->statusMsg,
+            deletePendingWritesOnlyFlag
+        );
         if (res >= 0) {
             return true;
         }

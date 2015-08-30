@@ -4965,7 +4965,11 @@ MetaChunkDelete::request(ostream &os)
     os << "DELETE \r\n";
     os << "Cseq: " << opSeqno << "\r\n";
     os << "Version: KFS/1.0\r\n";
-    os << "Chunk-handle: " << chunkId << "\r\n\r\n";
+    os << "Chunk-handle: " << chunkId << "\r\n";
+    if (0 != chunkVersion) {
+        os << "Chunk-version: " << chunkVersion << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void

@@ -399,7 +399,10 @@ public:
     ///  deleted.
     /// @retval 0 on success; -1 on failure
     ///
-    int DeleteChunk(chunkId_t chunkId);
+    int DeleteChunk(chunkId_t chunkId) {
+        return DeleteChunkVers(chunkId, 0);
+    }
+    int DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion);
 
     ///
     /// Send a message to the server asking it to go down.

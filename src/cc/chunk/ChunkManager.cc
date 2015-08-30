@@ -2674,9 +2674,8 @@ ChunkManager::IsChunkStable(MakeChunkStableOp* op)
     if (op->hasChecksum) {
         return false; // Have to run make stable to compare the checksum.
     }
-    const bool kAddObjectBlockMappingFlag = false;
     ChunkInfoHandle* const cih = GetChunkInfoHandle(
-        op->chunkId, op->chunkVersion, kAddObjectBlockMappingFlag);
+        op->chunkId, op->chunkVersion);
     if (! cih) {
         op->statusMsg = "no such chunk";
         op->status    = -EBADF;
@@ -2684,12 +2683,14 @@ ChunkManager::IsChunkStable(MakeChunkStableOp* op)
     }
     // See if it have to wait until the chunk becomes readable.
     return (op->chunkVersion == cih->chunkInfo.chunkVersion &&
-        IsChunkStable(cih) && cih->IsChunkReadable());
+        IsChunkStable(cih) && cih->IsChunkReadable() &&
+        (0 <= op->chunkVersion || cih->chunkInfo.AreChecksumsLoaded()));
 }
 
 int
 ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
-    bool appendFlag, KfsCallbackObj* cb, string& statusMsg)
+    bool appendFlag, KfsCallbackObj* cb, string& statusMsg,
+    bool cleanupPendingWritesOnlyFlag)
 {
     const bool kAddObjectBlockMappingFlag = false;
     ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,
@@ -2713,7 +2714,7 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
         statusMsg = "chunk replication is in progress";
         return -EINVAL;
     }
-    if (! cih->chunkInfo.chunkBlockChecksum) {
+    if (! cih->chunkInfo.AreChecksumsLoaded()) {
         statusMsg = "checksum are not loaded";
         return -EAGAIN;
     }
@@ -2738,6 +2739,16 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
             " version: " << cih->chunkInfo.chunkVersion
         ;
         die(os.str());
+    }
+    gLeaseClerk.UnRegisterLease(
+        cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
+    if (cleanupPendingWritesOnlyFlag) {
+        if (cih->IsChunkReadable()) {
+            int res = 0;
+            cb->HandleEvent(EVENT_DISK_RENAME_DONE, &res);
+            return 0;
+        }
+        return -EAGAIN;
     }
     stableFlag = true;
     const bool renameFlag = true;

@@ -157,7 +157,8 @@ public:
     /// A previously created dirty chunk should now be made "stable".
     /// Move that chunk out of the dirty dir.
     int MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
-            bool appendFlag, KfsCallbackObj* cb, string& statusMsg);
+            bool appendFlag, KfsCallbackObj* cb, string& statusMsg,
+            bool cleanupPendingWritesOnlyFlag = false);
     bool IsChunkStable(kfsChunkId_t chunkId, int64_t chunkVersion) const;
     bool IsChunkReadable(kfsChunkId_t chunkId, int64_t chunkVersion) const;
     bool IsChunkStable(MakeChunkStableOp* op);

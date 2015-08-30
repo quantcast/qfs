@@ -1878,10 +1878,13 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
 }
 
 int
-ChunkServer::DeleteChunk(chunkId_t chunkId)
+ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion)
 {
-    mChunksToEvacuate.Erase(chunkId);
-    Enqueue(new MetaChunkDelete(NextSeq(), shared_from_this(), chunkId));
+    if (0 <= chunkVersion) {
+        mChunksToEvacuate.Erase(chunkId);
+    }
+    Enqueue(new MetaChunkDelete(
+        NextSeq(), shared_from_this(), chunkId, chunkVersion));
     return 0;
 }
 

@@ -1666,13 +1666,18 @@ struct MetaChunkAllocate : public MetaChunkRequest {
  * \brief Delete RPC from meta server to chunk server
  */
 struct MetaChunkDelete: public MetaChunkRequest {
-    MetaChunkDelete(seq_t n, const ChunkServerPtr& s, chunkId_t c)
+    MetaChunkDelete(
+        seq_t                 n,
+        const ChunkServerPtr& s,
+        chunkId_t             c,
+        seq_t                 v)
         : MetaChunkRequest(META_CHUNK_DELETE, n, false, s, c)
-        {}
+        { chunkVersion = v; }
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta->chunk delete: chunkId: " << chunkId;
+        return os << "meta->chunk delete: chunkId: " << chunkId <<
+            " version: " << chunkVersion;
     }
 };
 
