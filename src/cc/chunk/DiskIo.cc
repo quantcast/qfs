@@ -2634,7 +2634,7 @@ DiskIo::IoCompletion(
     if (inRetCode < 0) {
         mCallbackObjPtr->HandleEvent(EVENT_DISK_ERROR, &inRetCode);
     } else if (inCheckStatusFlag) {
-        mCallbackObjPtr->HandleEvent(EVENT_CHECK_OPNE_STATUS_DONE, 0);
+        mCallbackObjPtr->HandleEvent(EVENT_CHECK_OPEN_STATUS_DONE, 0);
     } else if (inBufferPtr) {
         globals().ctrDiskBytesRead.Update(int(mIoRetCode));
         mCallbackObjPtr->HandleEvent(EVENT_DISK_READ, inBufferPtr);

@@ -689,10 +689,12 @@ struct ChangeChunkVersOp : public KfsOp {
 
 struct DeleteChunkOp : public KfsOp {
     kfsChunkId_t chunkId; // input
+    int64_t      chunkVersion;
 
     DeleteChunkOp(kfsSeq_t s = 0)
        : KfsOp(CMD_DELETE_CHUNK, s),
-         chunkId(-1)
+         chunkId(-1),
+         chunkVersion(0)
         {}
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const {
@@ -702,10 +704,12 @@ struct DeleteChunkOp : public KfsOp {
             " chunkid: " << chunkId
         ;
     }
+    int Done(int code, void* data);
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def("Chunk-handle", &DeleteChunkOp::chunkId, kfsChunkId_t(-1))
+        .Def("Chunk-handle",  &DeleteChunkOp::chunkId,      kfsChunkId_t(-1))
+        .Def("Chunk-version", &DeleteChunkOp::chunkVersion, int64_t(0))
         ;
     }
 };

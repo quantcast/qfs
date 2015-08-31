@@ -837,6 +837,7 @@ public:
           mStableFlag(stableFlag),
           mInDoneHandlerFlag(false),
           mKeepFlag(false),
+          mForceDeleteObjectStoreBlockFlag(false),
           mChunkList(ChunkManager::kChunkLruList),
           mChunkDirList(ChunkDirInfo::kChunkDirList),
           mRenamesInFlight(0),
@@ -1030,8 +1031,12 @@ public:
     bool IsKeep() const {
         return mKeepFlag;
     }
-    void MakeStale(ChunkLists* chunkInfoLists, bool keepFlag) {
+    void MakeStale(ChunkLists* chunkInfoLists, bool keepFlag, KfsOp* op)
+    {
         if (IsStale()) {
+            if (op) {
+                die("invalid chunk handle make stable invocation");
+            }
             return;
         }
         mKeepFlag = keepFlag;
@@ -1047,6 +1052,19 @@ public:
             mWritesInFlight = 1;
             WriteDone();
         }
+        WaitChunkReadableDone(-EIO);
+        if (op) {
+            mReadableNotifyTail = op;
+        }
+    }
+    KfsOp* DetachStaleDeleteCompletionOp()
+    {
+        if (! IsStale()) {
+            return 0;
+        }
+        KfsOp* const op = mReadableNotifyTail;
+        mReadableNotifyTail = 0;
+        return op;
     }
     void UpdateStale(ChunkLists* chunkInfoLists) {
         const bool evacuateFlag = IsEvacuate();
@@ -1122,6 +1140,14 @@ public:
     {
         WaitChunkReadableDone(status);
     }
+    void SetForceDeleteObjectStoreBlock(bool flag)
+    {
+        mForceDeleteObjectStoreBlockFlag = flag;
+    }
+    bool GetForceDeleteObjectStoreBlockFlag() const
+    {
+        return mForceDeleteObjectStoreBlockFlag;
+    }
     inline bool ScheduleObjTableCleanup(
         ChunkLists* chunkInfoLists);
 
@@ -1134,6 +1160,7 @@ private:
     bool                        mStableFlag:1;
     bool                        mInDoneHandlerFlag:1;
     bool                        mKeepFlag:1;
+    bool                        mForceDeleteObjectStoreBlockFlag:1;
     ChunkManager::ChunkListType mChunkList:2;
     ChunkDirInfo::ChunkListType mChunkDirList:2;
     unsigned int                mRenamesInFlight:19;
@@ -1176,6 +1203,11 @@ private:
             // Object is the "client" of this op.
             die("attempt to delete chunk info handle "
                 "with meta data write in flight");
+        }
+        KfsOp* const op = DetachStaleDeleteCompletionOp();
+        if (op) {
+            int res = -EIO;
+            op->HandleEvent(EVENT_DISK_ERROR, &res);
         }
         if (mReadableNotifyHead) {
             WaitChunkReadableDone(
@@ -1380,11 +1412,12 @@ ChunkManager::UpdateStale(ChunkInfoHandle& cih)
 
 inline void
 ChunkManager::MakeStale(ChunkInfoHandle& cih,
-    bool forceDeleteFlag, bool evacuatedFlag)
+    bool forceDeleteFlag, bool evacuatedFlag, KfsOp* op)
 {
     cih.MakeStale(mChunkInfoLists,
         (! forceDeleteFlag && ! mForceDeleteStaleChunksFlag) ||
-        (evacuatedFlag && mKeepEvacuatedChunksFlag)
+        (evacuatedFlag && mKeepEvacuatedChunksFlag),
+        op
     );
     assert(! cih.HasWritesInFlight());
     RunStaleChunksQueue();
@@ -2761,18 +2794,20 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
 }
 
 int
-ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion)
+ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* op)
 {
-    const bool kAddObjectBlockMappingFlag = false;
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,
-        kAddObjectBlockMappingFlag);
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion);
     if (! cih) {
         return -EBADF;
     }
-    KFS_LOG_STREAM_INFO << "deleting chunk: " << chunkId <<
+    KFS_LOG_STREAM_INFO << "deleting"
+        " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
     KFS_LOG_EOM;
+    cih->SetForceDeleteObjectStoreBlock(chunkVersion < 0);
     const bool forceDeleteFlag = true;
-    return StaleChunk(cih, forceDeleteFlag);
+    const bool evacuatedFlag   = false;
+    return StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op);
 }
 
 void
@@ -3028,8 +3063,9 @@ ChunkManager::MarkChunkStale(ChunkInfoHandle* cih, KfsCallbackObj* cb)
     string err;
     const int ret = DiskIo::Rename(
         s.c_str(), staleChunkPathname.c_str(), cb, &err) ? 0 : -1;
-    KFS_LOG_STREAM_INFO <<
-        "Moving chunk " << cih->chunkInfo.chunkId <<
+    KFS_LOG_STREAM(0 == ret ?
+            MsgLogger::kLogLevelNOTICE : MsgLogger::kLogLevelERROR) <<
+        "moving chunk " << cih->chunkInfo.chunkId <<
         " to staleChunks dir " << staleChunkPathname <<
         (ret == 0 ? " ok" : " error:") << err <<
     KFS_LOG_EOM;
@@ -3131,7 +3167,7 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
 
 int
 ChunkManager::StaleChunk(ChunkInfoHandle* cih,
-    bool forceDeleteFlag, bool evacuatedFlag)
+    bool forceDeleteFlag, bool evacuatedFlag, KfsOp* op)
 {
     if (! cih) {
         die("null chunk table entry");
@@ -3154,7 +3190,7 @@ ChunkManager::StaleChunk(ChunkInfoHandle* cih,
         ;
         die(os.str());
     }
-    MakeStale(*cih, forceDeleteFlag, evacuatedFlag);
+    MakeStale(*cih, forceDeleteFlag, evacuatedFlag, op);
     return 0;
 }
 
@@ -5190,6 +5226,44 @@ ChunkManager::GetWriteStatus(int64_t writeId)
     return (op ? op->status : -EINVAL);
 }
 
+class StaleChunkDeleteCompletion : public KfsCallbackObj
+{
+public:
+    static KfsCallbackObj& Make(KfsCallbackObj& cb, KfsCallbackObj* otherCb)
+    {
+        if (otherCb) {
+            return *(new StaleChunkDeleteCompletion(cb, *otherCb));
+        }
+        return cb;
+    }
+private:
+    StaleChunkDeleteCompletion(KfsCallbackObj& cb, KfsCallbackObj& otherCb)
+        : KfsCallbackObj(),
+          mCb(cb),
+          mOtherCb(otherCb),
+          mDoneFlag(false)
+        { SET_HANDLER(this, &StaleChunkDeleteCompletion::Done); }
+    virtual ~StaleChunkDeleteCompletion()
+    {
+        if (mDoneFlag) {
+            return;
+        }
+        int ret = -EIO;
+        mOtherCb.HandleEvent(EVENT_DISK_ERROR, &ret);
+    }
+    int Done(int code, void* data)
+    {
+        mDoneFlag = true;
+        const int ret = mOtherCb.HandleEvent(code, data);
+        mCb.HandleEvent(code, data);
+        delete this;
+        return ret;
+    }
+    KfsCallbackObj& mCb;
+    KfsCallbackObj& mOtherCb;
+    bool            mDoneFlag;
+};
+
 void
 ChunkManager::RunStaleChunksQueue(bool completionFlag)
 {
@@ -5205,7 +5279,9 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
         // prefix has already been removed, and it will not be possible to
         // queue disk io request (delete or rename) anyway, and attempt to do
         // so will return an error.
-        if (0 <= cih->chunkInfo.chunkVersion && cih->GetDirInfo().diskQueue) {
+        if ((0 <= cih->chunkInfo.chunkVersion ||
+                cih->GetForceDeleteObjectStoreBlockFlag()) &&
+                cih->GetDirInfo().diskQueue) {
             // If the chunk with target version already exists withing the same
             // chunk directory, then do not issue delete.
             // If the existing chunk is already stable but the chunk to delete
@@ -5214,22 +5290,20 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
             // transitioned into stable version. If not then unstable chunk will
             // be cleaned up on the next restart.
             const ChunkInfoHandle* const* const ci =
-                mChunkTable.Find(cih->chunkInfo.chunkId);
+                0 <= cih->chunkInfo.chunkVersion ?
+                mChunkTable.Find(cih->chunkInfo.chunkId) : 0;
             if (! ci ||
                     &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
                     ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion)) {
+                KfsCallbackObj& cb = StaleChunkDeleteCompletion::Make(
+                    mStaleChunkCompletion, cih->DetachStaleDeleteCompletionOp());
+                bool ok;
                 if (cih->IsKeep()) {
-                    if (MarkChunkStale(cih, &mStaleChunkCompletion) == 0) {
-                        mStaleChunkOpsInFlight++;
-                    }
+                    ok = MarkChunkStale(cih, &cb) == 0;
                 } else {
                     const string fileName = MakeChunkPathname(cih);
-                    string err;
-                    const bool ok = DiskIo::Delete(
-                        fileName.c_str(), &mStaleChunkCompletion, &err);
-                    if (ok) {
-                        mStaleChunkOpsInFlight++;
-                    }
+                    string       err;
+                    ok = DiskIo::Delete(fileName.c_str(), &cb, &err);
                     KFS_LOG_STREAM(ok ?
                             MsgLogger::kLogLevelINFO :
                             MsgLogger::kLogLevelERROR) <<
@@ -5237,6 +5311,11 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
                         (ok ? " ok" : " error: ") << err <<
                         " in flight: " << mStaleChunkOpsInFlight <<
                     KFS_LOG_EOM;
+                }
+                if (ok) {
+                    mStaleChunkOpsInFlight++;
+                } else if (&cb != &mStaleChunkCompletion) {
+                    delete &cb;
                 }
             }
         }

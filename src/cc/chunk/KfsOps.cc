@@ -1336,8 +1336,24 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
 void
 DeleteChunkOp::Execute()
 {
-    status = gChunkManager.DeleteChunk(chunkId, 0);
+    if (chunkVersion < 0) {
+        SET_HANDLER(this, &DeleteChunkOp::Done);
+    }
+    status = gChunkManager.DeleteChunk(chunkId, chunkVersion,
+        chunkVersion < 0 ? this : 0);
+    if (0 <= chunkVersion || status < 0) {
+        gLogger.Submit(this);
+    }
+}
+
+int
+DeleteChunkOp::Done(int code, void* data)
+{
+    if (code == EVENT_DISK_ERROR) {
+        status = data ? *reinterpret_cast<const int*>(data) : -EIO;
+    }
     gLogger.Submit(this);
+    return 0;
 }
 
 void
