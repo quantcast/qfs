@@ -826,7 +826,9 @@ public:
             return true;
         }
         int theMinWriteBlkSize = inMinWriteBlkSize;
-        if (theMinWriteBlkSize <= mBufferAllocator.GetBufferSize()) {
+        if (theMinWriteBlkSize < 0 ||
+                (size_t)theMinWriteBlkSize <=
+                    mBufferAllocator.GetBufferSize()) {
             theMinWriteBlkSize = 0;
         } else {
             if (theMinWriteBlkSize % mBufferAllocator.GetBufferSize() != 0) {
@@ -2448,7 +2450,8 @@ DiskIo::Done(
                 QCRTASSERT((inBufferCount - (theCnt + 1)) * theBufSize >=
                     inIoByteCount);
             } else {
-                QCRTASSERT(mIoBuffers.size() * theBufSize == inIoByteCount);
+                QCRTASSERT(
+                    (int64_t)mIoBuffers.size() * theBufSize == inIoByteCount);
             }
             theOwnBuffersFlag = true;
         }

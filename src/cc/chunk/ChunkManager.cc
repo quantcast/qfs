@@ -2160,7 +2160,7 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.objStoreBlockWriteBufferSize",
         mObjStoreBlockWriteBufferSize);
     if (0 < mObjStoreBlockWriteBufferSize &&
-            mObjStoreBlockWriteBufferSize < KFS_CHUNK_HEADER_SIZE) {
+            mObjStoreBlockWriteBufferSize < (int)KFS_CHUNK_HEADER_SIZE) {
         mObjStoreBlockWriteBufferSize = KFS_CHUNK_HEADER_SIZE;
     }
     mObjStoreBufferDataIgnoreOverwriteFlag = prop.getValue(
