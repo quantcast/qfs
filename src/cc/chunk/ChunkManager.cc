@@ -2803,6 +2803,8 @@ ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* op)
     KFS_LOG_STREAM_INFO << "deleting"
         " chunk: "   << chunkId <<
         " version: " << chunkVersion <<
+        " / "        << cih->chunkInfo.chunkVersion <<
+        " readble: " << cih->IsChunkReadable() <<
     KFS_LOG_EOM;
     cih->SetForceDeleteObjectStoreBlock(chunkVersion < 0);
     const bool forceDeleteFlag = true;
