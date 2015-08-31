@@ -47,6 +47,7 @@
 #include "common/LinearHash.h"
 #include "common/StBuffer.h"
 #include "common/TimerWheel.h"
+#include "common/PoolAllocator.h"
 #include "qcdio/QCDLList.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/ITimeout.h"
@@ -1460,11 +1461,31 @@ public:
     void GetChunkServers(
         const string& host,
         Servers&      servers);
+    void Done(MetaChunkDelete& req);
 protected:
     typedef vector<
         int,
         StdAllocator<int>
     > RackIds;
+    typedef KeyOnly<pair<chunkId_t, seq_t> > ObjBlockDeleteQueueEntry;
+    class ObjBlockDeleteQueueEntryHash
+    {
+    public:
+        static size_t Hash(
+            const ObjBlockDeleteQueueEntry::Key& inVal)
+            { return size_t(inVal.first ^ inVal.second); }
+    };
+    typedef LinearHash <
+        ObjBlockDeleteQueueEntry,
+        KeyCompare<ObjBlockDeleteQueueEntry::Key, ObjBlockDeleteQueueEntryHash>,
+        DynamicArray<SingleLinkedList<ObjBlockDeleteQueueEntry>*, 16>,
+        PoolAllocatorAdapter<
+            ObjBlockDeleteQueueEntry,
+            size_t(1) << 20, // size_t TMinStorageAlloc,
+            size_t(8) << 20, // size_t TMaxStorageAlloc,
+            true             // bool   TForceCleanupFlag
+       >
+    > ObjBlockDeleteQueue;
     class RebalanceCtrs
     {
     public:
@@ -2109,6 +2130,8 @@ protected:
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
+
+    ObjBlockDeleteQueue mObjBlockDeleteQueue;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;

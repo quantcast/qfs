@@ -5246,6 +5246,12 @@ MetaChunkReplicate::handleReply(const Properties& prop)
 }
 
 void
+MetaChunkDelete::handle()
+{
+    gLayoutManager.Done(*this);
+}
+
+void
 MetaChunkSize::request(ostream &os)
 {
     os <<

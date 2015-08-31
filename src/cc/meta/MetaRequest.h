@@ -1673,6 +1673,7 @@ struct MetaChunkDelete: public MetaChunkRequest {
         seq_t                 v)
         : MetaChunkRequest(META_CHUNK_DELETE, n, false, s, c)
         { chunkVersion = v; }
+    virtual void handle();
     virtual void request(ostream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {

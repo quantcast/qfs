@@ -1014,49 +1014,6 @@ public:
         Erasing(keyVal.GetVal());
     }
 private:
-    template<typename T>
-    class Allocator
-    {
-    public:
-        T* allocate(size_t n) {
-            if (n != 1) {
-                panic("alloc n != 1 not implemented", false);
-                return 0;
-            }
-            return reinterpret_cast<T*>(GetAllocator().Allocate());
-        }
-        void deallocate(T* ptr, size_t n) {
-            if (n != 1) {
-                panic("dealloc n != 1 not implemented", false);
-                return;
-            }
-            GetAllocator().Deallocate(ptr);
-        }
-        static void construct(T* ptr, const T& other) {
-            new (ptr) T(other);
-        }
-        static void destroy(T* ptr) {
-            ptr->~T();
-        }
-        template <typename TOther>
-        struct rebind {
-            typedef Allocator<TOther> other;
-        };
-        typedef PoolAllocator<
-            sizeof(T),         // size_t TItemSize,
-            size_t(8)   << 20, // size_t TMinStorageAlloc,
-            size_t(128) << 20, // size_t TMaxStorageAlloc,
-            false              // bool   TForceCleanupFlag
-        > Alloc;
-        const Alloc& GetAllocator() const {
-            return alloc;
-        }
-    private:
-        Alloc alloc;
-        Alloc& GetAllocator() {
-            return alloc;
-        }
-    };
     typedef LinearHash<
         KeyVal,
         KeyCompare<chunkId_t>,
@@ -1064,7 +1021,12 @@ private:
             SingleLinkedList<KeyVal>*,
             24 // 2^24 * sizeof(void*) => 128 MB
         >,
-        Allocator<KeyVal>,
+        PoolAllocatorAdapter<
+            KeyVal,
+            size_t(8)   << 20, // size_t TMinStorageAlloc,
+            size_t(128) << 20, // size_t TMaxStorageAlloc,
+            false              // bool   TForceCleanupFlag
+        >,
         CSMap
     > Map;
 public:

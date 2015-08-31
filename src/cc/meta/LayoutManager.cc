@@ -1555,6 +1555,7 @@ LayoutManager::LayoutManager() :
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
     mFileRecoveryInFlightCount(),
+    mObjBlockDeleteQueue(),
     mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -11005,6 +11006,15 @@ LayoutManager::GetChunkServers(
                 host == (*it)->GetServerLocation().hostname) {
             servers.push_back(*it);
         }
+    }
+}
+
+void
+LayoutManager::Done(MetaChunkDelete& req)
+{
+    if (req.chunkVersion < 0 && (0 == req.status || -ENOENT == req.status)) {
+        mObjBlockDeleteQueue.Erase(
+            ObjBlockDeleteQueueEntry::Key(req.chunkId, req.chunkVersion));
     }
 }
 
