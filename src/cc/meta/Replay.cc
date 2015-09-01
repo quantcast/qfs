@@ -878,6 +878,14 @@ replay_chown(DETokenizer& c)
     return true;
 }
 
+static bool
+replay_clear_obj_store_delete(DETokenizer& c)
+{
+    c.pop_front();
+    gLayoutManager.ClearObjStoreDelete();
+    return true;
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -911,6 +919,7 @@ get_entry_map()
     e.add_parser("chown",                   &replay_chown);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    e.add_parser("clearobjstoredelete",     &replay_clear_obj_store_delete);
     initied = true;
     return e;
 }

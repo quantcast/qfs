@@ -145,7 +145,8 @@ using std::less;
     f(DELEGATE) \
     f(DELEGATE_CANCEL) \
     f(SET_FILE_SYSTEM_INFO) \
-    f(FORCE_CHUNK_REPLICATION)
+    f(FORCE_CHUNK_REPLICATION) \
+    f(CLEAR_OBJ_STORE_DELETE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,

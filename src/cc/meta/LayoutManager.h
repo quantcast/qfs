@@ -1462,6 +1462,11 @@ public:
         const string& host,
         Servers&      servers);
     void Done(MetaChunkDelete& req);
+    void DeleteFile(const MetaFattr& fa);
+    int  WritePendingObjStoreDelete(ostream& os);
+    bool AddPendingObjStoreDelete(chunkId_t chunkId, seq_t chunkVersion);
+    void ClearObjStoreDelete();
+
 protected:
     typedef vector<
         int,
@@ -2131,6 +2136,11 @@ protected:
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
 
+    int                 mObjStoreMaxSchedulePerRun;
+    int                 mObjStoreMaxDeletesPerServer;
+    int                 mObjStoreMaxScanPerRun;
+    size_t              mObjStoreDeleteSrvIdx;
+    size_t              mObjStoreDeletesInFlight;
     ObjBlockDeleteQueue mObjBlockDeleteQueue;
 
     BufferInputStream                   mTmpParseStream;
@@ -2317,6 +2327,7 @@ protected:
         return true;
     }
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
+    bool RunObjectBlockDeleteQueue();
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;

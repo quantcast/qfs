@@ -144,6 +144,10 @@ public:
         if (inFileId <= 0 || ! inFileNamePtr || ! *inFileNamePtr) {
             return kErrorParameters;
         }
+        if (0 == inReplicaCount && 0 != inFileSize) {
+            // Overwrite and append are not supported with object store files.
+            return kErrorSeek;
+        }
         if (mFileId > 0) {
             if (inFileId == mFileId &&
                     inFileNamePtr == mPathName) {
@@ -1759,10 +1763,13 @@ private:
     }
     void SetFileSize()
     {
-        if (! mStriperPtr || mErrorCode != 0 || mTruncateOp.fid >= 0) {
+        if ((! mStriperPtr && 0 != mReplicaCount) ||
+                mErrorCode != 0 || 0 <= mTruncateOp.fid) {
             return;
         }
-        const Offset theSize = mStriperPtr->GetFileSize();
+        const Offset theSize = mStriperPtr ?
+            mStriperPtr->GetFileSize() :
+            mOffset + mBuffer.BytesConsumable();
         if (theSize < 0 || theSize <= mTruncateOp.fileOffset) {
             return;
         }

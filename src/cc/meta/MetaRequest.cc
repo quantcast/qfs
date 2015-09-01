@@ -1629,7 +1629,7 @@ MetaGetalloc::handle()
         }
         chunkId      = fid;
         chunkVersion =
-            -(chunkId_t)(chunkStartOffset(offset) + fa->maxSTier) - 1;
+            -(seq_t)(chunkStartOffset(offset) + fa->maxSTier) - 1;
     } else {
         MetaChunkInfo* chunkInfo = 0;
         status = metatree.getalloc(fid, offset, &chunkInfo);

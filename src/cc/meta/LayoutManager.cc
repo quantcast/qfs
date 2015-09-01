@@ -1555,6 +1555,11 @@ LayoutManager::LayoutManager() :
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
     mFileRecoveryInFlightCount(),
+    mObjStoreMaxSchedulePerRun(16 << 10),
+    mObjStoreMaxDeletesPerServer(128),
+    mObjStoreMaxScanPerRun(512 << 10),
+    mObjStoreDeleteSrvIdx(0),
+    mObjStoreDeletesInFlight(0),
     mObjBlockDeleteQueue(),
     mTmpParseStream(),
     mChunkInfosTmp(),
@@ -2067,6 +2072,15 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mVerifyAllOpsPermissionsParamFlag = props.getValue(
         "metaServer.verifyAllOpsPermissions",
         mVerifyAllOpsPermissionsParamFlag ? 1 : 0) != 0;
+    mObjStoreMaxSchedulePerRun = max(1, props.getValue(
+        "metaServer.objStoreMaxSchedulePerRun",
+        mObjStoreMaxSchedulePerRun));
+    mObjStoreMaxDeletesPerServer = max(1, props.getValue(
+        "metaServer.objStoreMaxDeletesPerServer",
+        mObjStoreMaxDeletesPerServer));
+    mObjStoreMaxScanPerRun = max(128, props.getValue(
+        "metaServer.objStoreMaxScanPerRun",
+        mObjStoreMaxScanPerRun));
     mRootHosts.clear();
     {
         istringstream is(props.getValue("metaServer.rootHosts", ""));
@@ -7837,36 +7851,8 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
 {
     string pathname;
     if (req->chunkVersion < 0) {
-        MetaFattr* const fa = metatree.getFattr(req->fid);
-        if (! fa || KFS_FILE != fa->type || 0 != fa->numReplicas ||
-                ChunkVersionToObjFileBlockPos(req->chunkVersion) +
-                    (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset()) {
-            return;
-        }
-        bool useSizeFlag = 0 <= req->chunkSize && 0 == req->status;
-        if (0 != req->status && (! req->server || req->server->IsDown())) {
-            // For now just update the size if it is known, i.e. chunk server
-            // initiated lease relinquish with the chunk size.
-            if (req->chunkSize < 0 || -EINVAL == req->status) {
-                return;
-            }
-            useSizeFlag = true;
-        }
-        if (useSizeFlag) {
-            // Log chunk size.
-            MetaChunkSize* const op = new MetaChunkSize(
-                0, // seq #
-                req->server, // chunk server
-                req->fid, req->chunkId, req->chunkVersion, pathname,
-                false
-            );
-            op->chunkSize = req->chunkSize;
-            submit_request(op);
-        } else {
-            // Get the chunk's size from one of the servers.
-            req->server->GetChunkSize(
-                req->fid, req->chunkId, req->chunkVersion, pathname);
-        }
+        // Client is responsible for updating logical EOF for object store
+        // files.
         return;
     }
     const char* const                  logPrefix       = "MCS: done";
@@ -9275,7 +9261,7 @@ LayoutManager::ChunkReplicationChecker()
                     mMightHaveRetiringServersFlag));
         }
     }
-    if (runRebalanceFlag &&
+    if (! RunObjectBlockDeleteQueue() && runRebalanceFlag &&
             (mIsRebalancingEnabled || mIsExecutingRebalancePlan) &&
             mLastRebalanceRunTime + mRebalanceRunInterval <= now) {
         mLastRebalanceRunTime = now;
@@ -11009,13 +10995,160 @@ LayoutManager::GetChunkServers(
     }
 }
 
+bool
+LayoutManager::RunObjectBlockDeleteQueue()
+{
+
+    if (mObjBlockDeleteQueue.IsEmpty()) {
+        mObjStoreDeletesInFlight = 0;
+        return false;
+    }
+    if (mChunkServers.empty()) {
+        return false;
+    }
+    MetaOp const types[] = {
+        META_CHUNK_DELETE,
+        META_CHUNK_ALLOCATE,
+        META_CHUNK_MAKE_STABLE,
+        META_NUM_OPS_COUNT // Sentinel
+    };
+    const size_t targeInFlight =
+        mChunkServers.size() * mObjStoreMaxDeletesPerServer;
+    int          pass          = 0;
+    int          rem           = mObjStoreMaxSchedulePerRun;
+    int          scanRem       = mObjStoreMaxScanPerRun;
+    while (0 < rem && 0 < scanRem &&
+            mObjStoreDeletesInFlight < targeInFlight) {
+        const ObjBlockDeleteQueueEntry* const entry =
+            mObjBlockDeleteQueue.Next();
+        if (! entry) {
+            if (0 < pass++) {
+                break;
+            }
+            mObjBlockDeleteQueue.First();
+            continue;
+        }
+        scanRem--;
+        if (0 < GetInFlightChunkOpsCount(
+                entry->GetVal().first, types, entry->GetVal().second)) {
+            continue;
+        }
+        for (int i = 0; ; i++) {
+            const size_t size = mChunkServers.size();
+            if (size <= mObjStoreDeleteSrvIdx) {
+                mObjStoreDeleteSrvIdx = 0;
+                if (size <= 0 || 2 <= i) {
+                    return (rem < mObjStoreMaxSchedulePerRun);
+                }
+            }
+            const ChunkServerPtr& server =
+                mChunkServers[mObjStoreDeleteSrvIdx++];
+            if (server->IsDown()) {
+                continue;
+            }
+            mObjStoreDeletesInFlight++;
+            rem--;
+            server->DeleteChunkVers(
+                entry->GetVal().first, entry->GetVal().second);
+            break;
+        }
+    }
+    return (scanRem <= 0 || rem < mObjStoreMaxSchedulePerRun);
+}
+
+void
+LayoutManager::DeleteFile(const MetaFattr& fa)
+{
+    if (0 != fa.numReplicas || KFS_FILE != fa.type) {
+        return;
+    }
+    // Queue one past the last block, to handle possible in flight allocation.
+    ObjBlockDeleteQueueEntry::Val const entryVal(fa.id(), 0);
+    ObjBlockDeleteQueueEntry entry(entryVal, entryVal);
+    kfsSTier_t const         maxTier     = fa.maxSTier;
+    bool                     updatedFlag = false;
+    for (chunkOff_t pos = 0; pos <= fa.nextChunkOffset(); pos += CHUNKSIZE) {
+        entry.GetVal().second = -(seq_t)(pos + maxTier) - 1;
+        bool insertedFlag = false;
+        mObjBlockDeleteQueue.Insert(
+            entry.GetKey(), entry.GetVal(), insertedFlag);
+        updatedFlag |= insertedFlag;
+    }
+    if (updatedFlag) {
+        RunObjectBlockDeleteQueue();
+    }
+}
+
+struct MetaClearObjStoreDelete : public MetaRequest
+{
+    MetaClearObjStoreDelete()
+        : MetaRequest(META_CLEAR_OBJ_STORE_DELETE, true)
+        {}
+    virtual void handle()
+        { status = 0; }
+    virtual int log(ostream& os) const
+    {
+        os << "clearobjstoredelete\n";
+        return (os ? 0 : -EIO);
+    }
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << "clearobjstoredelete";
+    }
+};
+
 void
 LayoutManager::Done(MetaChunkDelete& req)
 {
-    if (req.chunkVersion < 0 && (0 == req.status || -ENOENT == req.status)) {
-        mObjBlockDeleteQueue.Erase(
-            ObjBlockDeleteQueueEntry::Key(req.chunkId, req.chunkVersion));
+    if (0 <= req.chunkVersion) {
+        return;
     }
+    if (0 < mObjStoreDeletesInFlight) {
+        mObjStoreDeletesInFlight--;
+    }
+    if (0 == req.status || -ENOENT == req.status) {
+        if (0 < mObjBlockDeleteQueue.Erase(
+                ObjBlockDeleteQueueEntry::Key(req.chunkId, req.chunkVersion)) &&
+                mObjBlockDeleteQueue.IsEmpty()) {
+            // For now only log when the queue becomes empty, in attempt to
+            // minimize extraneous deletes, after log reply on the restart.
+            submit_request(new MetaClearObjStoreDelete());
+        }
+    }
+}
+
+void
+LayoutManager::ClearObjStoreDelete()
+{
+    mObjBlockDeleteQueue.Clear();
+}
+
+// Write positive chunk versions to checkpoint, and convert them on load,
+// in order to avoid any potential problems with hex representation.
+bool
+LayoutManager::AddPendingObjStoreDelete(chunkId_t chunkId, seq_t chunkVersion)
+{
+    if (chunkId <= 0 || chunkVersion <= 0) {
+        return false;
+    }
+    ObjBlockDeleteQueueEntry::Val const entry(chunkId, -chunkVersion);
+    bool                                insertedFlag = false;
+    mObjBlockDeleteQueue.Insert(entry, entry, insertedFlag);
+    return true;
+}
+
+int
+LayoutManager::WritePendingObjStoreDelete(ostream& os)
+{
+    const ObjBlockDeleteQueueEntry* entry;
+    mObjBlockDeleteQueue.First();
+    while ((entry = mObjBlockDeleteQueue.Next())) {
+        os <<
+            "osd/" << entry->GetVal().first <<
+            "/"    << -entry->GetVal().second <<
+        "\n";
+    }
+    return (os ? 0 : -EIO);
 }
 
 } // namespace KFS

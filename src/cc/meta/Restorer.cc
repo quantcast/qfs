@@ -436,6 +436,28 @@ restore_filesystem_info(DETokenizer& c)
     return (ok && 0 <= fsid);
 }
 
+static bool
+restore_objstore_delete(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const chunkId_t chunkId = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const seq_t chunkVersion = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    return gLayoutManager.AddPendingObjStoreDelete(chunkId, chunkVersion);
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -460,6 +482,7 @@ get_entry_map()
     e.add_parser("checksum",                &restore_checksum);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    e.add_parser("osd",                     &restore_objstore_delete);
     initied = true;
     return e;
 }

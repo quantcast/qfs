@@ -419,6 +419,8 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),
              mem_fun(&MetaChunkInfo::DeleteChunk));
+    } else if (0 == fa->numReplicas) {
+        gLayoutManager.DeleteFile(*fa);
     }
     UpdateNumFiles(-1);
     setFileSize(fa, 0, -1, 0);
@@ -1618,7 +1620,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
         fa->chunkcount()++;
     }
     if (boundary >= fa->nextChunkOffset()) {
-        if (! fa->IsStriped() && 0 <= fa->filesize &&
+        if (0 != fa->numReplicas && ! fa->IsStriped() && 0 <= fa->filesize &&
                 ! appendOffset && ! appendReplayFlag) {
             // We will know the size of the file only when the write to
             // this chunk is finished. Invalidate the size now.
@@ -1833,7 +1835,23 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
     if (fa->filesize == offset) {
         return 0;
     }
-    if (fa->IsStriped() && (offset > 0 || endOffset >= 0)) {
+    if (0 == fa->numReplicas) {
+        if (! setEofHintFlag || 0 <= endOffset ||
+                (0 < offset && fa->nextChunkOffset() <= 0) ||
+                fa->FilePosToChunkBlkIndex(offset - 1) !=
+                fa->LastChunkBlkIndex() ||
+                offset < fa->filesize) {
+            // Truncate is not supported with object store files.
+            // Only setting logic EOF is allowed.
+            return -EACCES;
+        }
+        setFileSize(fa, offset);
+        if (mtime) {
+            fa->mtime = *mtime;
+        }
+        return 0;
+    }
+    if (fa->IsStriped() && (0 < offset || 0 <= endOffset)) {
         // For now do not allow truncation of striped files, and do not
         // allow to create trailing hole.
         // Use truncate only to set the logical eof.
@@ -1844,6 +1862,9 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
             return -EACCES;
         }
         setFileSize(fa, offset);
+        if (mtime) {
+            fa->mtime = *mtime;
+        }
         gLayoutManager.UpdateDelayedRecovery(*fa);
         return 0;
     }
