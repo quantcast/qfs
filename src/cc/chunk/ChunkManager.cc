@@ -41,6 +41,7 @@
 #include "common/kfstypes.h"
 #include "common/nofilelimit.h"
 #include "common/IntToString.h"
+#include "common/hsieh_hash.h"
 
 #include "kfsio/Counter.h"
 #include "kfsio/checksum.h"
@@ -1465,7 +1466,7 @@ WriteChunkMetaOp::IsRenameNeeded(const ChunkInfoHandle* cih) const
     return (
         renameFlag &&
         ((cih->IsStable() && cih->chunkInfo.chunkVersion != targetVersion) ||
-        cih->IsStable() != stableFlag)
+        (0 <= cih->chunkInfo.chunkVersion && cih->IsStable() != stableFlag))
     );
 }
 
@@ -3614,7 +3615,7 @@ ChunkManager::MakeChunkPathname(
         cih->chunkInfo.fileId,
         cih->chunkInfo.chunkId,
         (stableFlag || targetVersion < 0) ? targetVersion : 0,
-        stableFlag ? string() : mDirtyChunksDir
+        (stableFlag || targetVersion < 0) ? string() : mDirtyChunksDir
     );
 }
 
@@ -3624,11 +3625,25 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     const string& subDir)
 {
     string ret;
-    ret.reserve(chunkdir.size() + subDir.size() + 78);
+    ret.reserve(
+        chunkdir.size() +
+        subDir.size() + 78 +
+        (chunkVersion < 0 ? 9 : 0)
+    );
     ret.assign(chunkdir.data(), chunkdir.size());
     ret.append(subDir.data(), subDir.size());
-    AppendDecIntToString(ret, fid);
-    ret += '.';
+    if (chunkVersion < 0) {
+        kfsChunkId_t buf[2];
+        buf[0] = chunkId;
+        buf[1] = chunkVersion;
+        AppendHexIntToString(ret, HsiehHash(
+            reinterpret_cast<const char*>(buf), sizeof(buf)));
+        ret += '.';
+    }
+    if (0 <= chunkVersion || fid != chunkId) {
+        AppendDecIntToString(ret, fid);
+        ret += '.';
+    }
     AppendDecIntToString(ret, chunkId);
     ret += '.';
     AppendDecIntToString(ret, chunkVersion);

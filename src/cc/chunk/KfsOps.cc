@@ -1429,7 +1429,7 @@ MakeChunkStableOp::Execute()
         return;
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
-    const bool kAddObjectBlockMappingFlag = true;
+    const bool kAddObjectBlockMappingFlag = false;
     const int ret = gChunkManager.ReadChunkMetadata(
         chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (ret < 0) {
