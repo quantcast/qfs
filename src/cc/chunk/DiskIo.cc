@@ -2531,10 +2531,6 @@ DiskIo::RunCompletion()
             " error: " << theNumRead <<
             " " << theErrMsg <<
         KFS_LOG_EOM;
-        if (sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr() ==
-                mCallbackObjPtr && 0 <= mFilePtr->GetError()) {
-            DiskQueue::SetError(*mFilePtr, theNumRead);
-        }
     }
     if (theMetaFlag) {
         KfsCallbackObj* const theCallbackObjPtr = mCallbackObjPtr;
@@ -2634,6 +2630,14 @@ DiskIo::IoCompletion(
     int       inRetCode,
     bool      inCheckStatusFlag /* = false */)
 {
+    if (sDiskIoQueuesPtr->GetBufferredWriteNullCallbackPtr() ==
+            mCallbackObjPtr) {
+        if (inRetCode < 0 && 0 <= mFilePtr->GetError()) {
+            DiskQueue::SetError(*mFilePtr, inRetCode);
+        }
+        delete this;
+        return;
+    }
     if (inRetCode < 0) {
         mCallbackObjPtr->HandleEvent(EVENT_DISK_ERROR, &inRetCode);
     } else if (inCheckStatusFlag) {

@@ -1220,7 +1220,7 @@ AllocChunkOp::Execute()
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
     mustExistFlag = mustExistFlag || 1 < chunkVersion;
-    if (! mustExistFlag) {
+    if (! mustExistFlag && 0 <= chunkVersion) {
         const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<

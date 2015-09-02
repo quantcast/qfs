@@ -1719,7 +1719,7 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
 
 // Chunk manager implementation.
 ChunkManager::ChunkManager()
-    : mMaxPendingWriteLruSecs(300),
+    : mMaxPendingWriteLruSecs(LEASE_INTERVAL_SECS),
       mCheckpointIntervalSecs(120),
       mTotalSpace(int64_t(1) << 62),
       mUsedSpace(0),
@@ -1745,7 +1745,7 @@ ChunkManager::ChunkManager()
       mGetFsSpaceAvailableIntervalSecs(25),
       mNextSendChunDirInfoTime(globalNetManager().Now() -360000),
       mSendChunDirInfoIntervalSecs(2 * 60),
-      mInactiveFdsCleanupIntervalSecs(300),
+      mInactiveFdsCleanupIntervalSecs(LEASE_INTERVAL_SECS),
       mNextInactiveFdCleanupTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
       mInactiveFdFullScanIntervalSecs(2),
       mNextInactiveFdFullScanTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
@@ -1804,7 +1804,6 @@ ChunkManager::ChunkManager()
       mObjStoreBlockWriteBufferSize((int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)),
       mObjStoreBufferDataIgnoreOverwriteFlag(true),
       mObjStoreMaxWritableBlocks(-1),
-      mObjStoreWritableBlocks(0),
       mObjStoreBufferDataRatio(0.3),
       mObjStoreBufferDataMaxSizePerBlock(mObjStoreBlockWriteBufferSize),
       mRand(),
@@ -2551,7 +2550,7 @@ ChunkManager::AllocChunk(
                 KFS_LOG_STREAM_ERROR <<
                     "exceeded writable object block"
                     " limit:  " << mObjStoreMaxWritableBlocks <<
-                    " <= "      << mObjStoreWritableBlocks <<
+                    " <= "      << objStoreWritableBlocks <<
                 KFS_LOG_EOM;
                 return -ESERVERBUSY;
             }
@@ -2708,8 +2707,12 @@ ChunkManager::IsChunkStable(MakeChunkStableOp* op)
     if (op->hasChecksum) {
         return false; // Have to run make stable to compare the checksum.
     }
+    // Only add object store block to the table if size is specified, as in
+    // this case make stable is from chunk server initiated lease release,
+    // and not from allocation failure handling path.
+    const bool addObjectBlockMappingFlag = 0 <= op->chunkSize;
     ChunkInfoHandle* const cih = GetChunkInfoHandle(
-        op->chunkId, op->chunkVersion);
+        op->chunkId, op->chunkVersion, addObjectBlockMappingFlag);
     if (! cih) {
         op->statusMsg = "no such chunk";
         op->status    = -EBADF;
@@ -2926,10 +2929,10 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
     const bool kAddObjectBlockMappingFlag = false;
     ChunkInfoHandle* const cih = GetChunkInfoHandle(op->chunkId, op->chunkVersion,
         kAddObjectBlockMappingFlag);
-    if (! cih) {
-        if (op->status == 0) {
-            op->status    = -EBADF;
-            op->statusMsg = "no such chunk";
+    if (! cih || op != cih->readChunkMetaOp) {
+        if (0 <= op->status) {
+            op->status    = cih ? -EAGAIN                : -EBADF;
+            op->statusMsg = cih ? "stale meta data read" : "no such chunk";
             KFS_LOG_STREAM_ERROR <<
                 "chunk meta data read completion: " <<
                     op->statusMsg  << " " << op->Show() <<
@@ -2937,27 +2940,21 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
         }
         return;
     }
-    if (op != cih->readChunkMetaOp) {
-        if (op->status >= 0) {
-            op->status    = -EAGAIN;
-            op->statusMsg = "stale meta data read";
-        }
-        KFS_LOG_STREAM_ERROR <<
-            "chunk meta data read completion: " <<
-                op->statusMsg  << " " << op->Show() <<
-        KFS_LOG_EOM;
-        return;
-    }
     const int64_t headerSize = (int64_t)GetChunkHeaderSize(op->chunkVersion);
-    int res;
-    if (! dataBuf ||
+    int           res;
+    if (op->status < 0 || ! dataBuf ||
             dataBuf->BytesConsumable() < headerSize ||
             dataBuf->CopyOut(mChunkHeaderBuffer.GetPtr(),
                     mChunkHeaderBuffer.GetSize()) !=
                 mChunkHeaderBuffer.GetSize()) {
         if (op->status != -ETIMEDOUT) {
-            op->status    = -EIO;
-            op->statusMsg = "short chunk meta data read";
+            if (0 <= op->status) {
+                op->status    = -EIO;
+                op->statusMsg = "short chunk meta data read";
+            } else if (op->statusMsg.empty()) {
+                op->statusMsg = QCUtils::SysError(
+                    -op->status, "chunk meta data read error: ");
+            }
         } else {
             op->statusMsg = "read timed out";
         }
@@ -3619,6 +3616,22 @@ ChunkManager::MakeChunkPathname(
     );
 }
 
+template<typename T>
+inline static char*
+IntToBytes(char* buf, const T& val)
+{
+    char* ptr  = buf;
+    T     byte = val;
+    for (char* const end = ptr + sizeof(T); ;) {
+        *ptr++ = (char)byte;
+        if (end <= ptr) {
+            break;
+        }
+        byte >>= 8;
+    }
+    return ptr;
+}
+
 string
 ChunkManager::MakeChunkPathname(const string& chunkdir,
     kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
@@ -3633,11 +3646,9 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     ret.assign(chunkdir.data(), chunkdir.size());
     ret.append(subDir.data(), subDir.size());
     if (chunkVersion < 0) {
-        kfsChunkId_t buf[2];
-        buf[0] = chunkId;
-        buf[1] = chunkVersion;
-        AppendHexIntToString(ret, HsiehHash(
-            reinterpret_cast<const char*>(buf), sizeof(buf)));
+        char buf[sizeof(chunkId) + sizeof(chunkVersion)];
+        IntToBytes(IntToBytes(buf, chunkId), chunkVersion);
+        AppendHexIntToString(ret, HsiehHash(buf, sizeof(buf)));
         ret += '.';
     }
     if (0 <= chunkVersion || fid != chunkId) {
@@ -4902,7 +4913,7 @@ ChunkManager::GetChecksums(kfsChunkId_t chunkId, int64_t chunkVersion,
 }
 
 DiskIo*
-ChunkManager::SetupDiskIo(ChunkInfoHandle *cih, KfsCallbackObj *op)
+ChunkManager::SetupDiskIo(ChunkInfoHandle *cih, KfsCallbackObj* op)
 {
     if (! cih->IsFileOpen()) {
         if (OpenChunk(cih, O_RDWR) < 0) {
@@ -5452,6 +5463,8 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         }
         expireTime = now - mInactiveFdsCleanupIntervalSecs;
     }
+    const time_t       unstableObjBlockExpireTime =
+        now - mInactiveFdsCleanupIntervalSecs;
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
     ChunkInfoHandle*   cih;
     while ((cih = it.Next()) && (cih->lastIOTime < expireTime ||
@@ -5471,6 +5484,7 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         bool       hasLeaseFlag         = false;
         bool       writePendingFlag     = false;
         bool       objBlockMetaDownFlag = false;
+        bool       unstableObjBlockFlag = false;
         time_t     metaUptime           = 0;
         const bool fileInUseFlag        = cih->IsFileInUse();
         if (fileInUseFlag ||
@@ -5478,14 +5492,17 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                     cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) ||
                 (writePendingFlag = IsWritePending(cih->chunkInfo.chunkId,
                     cih->chunkInfo.chunkVersion)) ||
-                (objBlockMetaDownFlag = cih->chunkInfo.chunkVersion < 0 &&
-                    ! cih->IsStable() &&
+                ((unstableObjBlockFlag = cih->chunkInfo.chunkVersion < 0 &&
+                    ! cih->IsStable()) &&
+                        unstableObjBlockExpireTime < cih->lastIOTime) ||
+                (objBlockMetaDownFlag = unstableObjBlockFlag &&
                     (metaUptime = gMetaServerSM.ConnectionUptime()) <
                         LEASE_INTERVAL_SECS)) {
-            KFS_LOG_STREAM_DEBUG << "cleanup: stale entry in chunk lru:"
-                " dataFH: "      << (const void*)cih->dataFH.get() <<
+            KFS_LOG_STREAM_DEBUG << "cleanup: ignoring entry in chunk lru:"
                 " chunk: "       << cih->chunkInfo.chunkId <<
                 " version: "     << cih->chunkInfo.chunkVersion <<
+                " dataFH: "      << (const void*)cih->dataFH.get() <<
+                " use count: "   << cih->dataFH.use_count() <<
                 " stable: "      << cih->IsStable() <<
                 " last io: "     << (now - cih->lastIOTime) << " sec. ago" <<
                 " meta uptime: " << gMetaServerSM.ConnectionUptime() <<

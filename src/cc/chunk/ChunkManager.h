@@ -914,7 +914,6 @@ private:
     int        mObjStoreBlockWriteBufferSize;
     bool       mObjStoreBufferDataIgnoreOverwriteFlag;
     int        mObjStoreMaxWritableBlocks;
-    int        mObjStoreWritableBlocks;
     double     mObjStoreBufferDataRatio;
     int        mObjStoreBufferDataMaxSizePerBlock;
 

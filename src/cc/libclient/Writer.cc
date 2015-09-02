@@ -1712,6 +1712,7 @@ private:
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "start write:" <<
+            " offset: "  << mOffset <<
             " pending: " << GetPendingSizeSelf() <<
             " thresh: "  << mWriteThreshold <<
             " flush: "   << inFlushFlag <<
@@ -1951,7 +1952,11 @@ private:
         if (! thePtr) {
             return true;
         }
-        if (thePtr == &inWriter) {
+        // With object store files close even a single chunk writer as soon as
+        // chunk is complete as re-write is not supported, in order to minimize
+        // the number of non-stable chunks, and the corresponding memory
+        // buffers.
+        if (0 < mReplicaCount && thePtr == &inWriter) {
             return false;
         }
         const Offset theLeftEdge = thePtr->GetOpenChunkBlockFileOffset();
