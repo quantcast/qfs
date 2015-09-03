@@ -1464,7 +1464,7 @@ public:
     void Done(MetaChunkDelete& req);
     void DeleteFile(const MetaFattr& fa);
     int  WritePendingObjStoreDelete(ostream& os);
-    bool AddPendingObjStoreDelete(chunkId_t chunkId, seq_t chunkVersion);
+    bool AddPendingObjStoreDelete(chunkId_t chunkId, seq_t first, seq_t last);
     void ClearObjStoreDelete();
 
 protected:
@@ -1472,25 +1472,31 @@ protected:
         int,
         StdAllocator<int>
     > RackIds;
-    typedef KeyOnly<pair<chunkId_t, seq_t> > ObjBlockDeleteQueueEntry;
-    class ObjBlockDeleteQueueEntryHash
+    typedef pair<chunkId_t, chunkOff_t> ObjBlockDeleteQueueEntry;
+    typedef DynamicArray<ObjBlockDeleteQueueEntry, 16> ObjBlocksFileDeleteQueue;
+    typedef DynamicArray<ObjBlockDeleteQueueEntry,  8> ObjBlocksDeleteRequeue;
+    typedef KeyOnly<pair<chunkId_t, seq_t> > ObjBlocksDeleteInFlightEntry;
+    class ObjBlocksDeleteInFlightEntryHash
     {
     public:
         static size_t Hash(
-            const ObjBlockDeleteQueueEntry::Key& inVal)
+            const ObjBlocksDeleteInFlightEntry::Key& inVal)
             { return size_t(inVal.first ^ inVal.second); }
     };
     typedef LinearHash <
-        ObjBlockDeleteQueueEntry,
-        KeyCompare<ObjBlockDeleteQueueEntry::Key, ObjBlockDeleteQueueEntryHash>,
-        DynamicArray<SingleLinkedList<ObjBlockDeleteQueueEntry>*, 16>,
+        ObjBlocksDeleteInFlightEntry,
+        KeyCompare<
+            ObjBlocksDeleteInFlightEntry::Key,
+            ObjBlocksDeleteInFlightEntryHash
+        >,
+        DynamicArray<SingleLinkedList<ObjBlocksDeleteInFlightEntry>*, 8>,
         PoolAllocatorAdapter<
-            ObjBlockDeleteQueueEntry,
+            ObjBlocksDeleteInFlightEntry,
             size_t(1) << 20, // size_t TMinStorageAlloc,
             size_t(8) << 20, // size_t TMaxStorageAlloc,
             true             // bool   TForceCleanupFlag
        >
-    > ObjBlockDeleteQueue;
+    > ObjBlocksDeleteInFlight;
     class RebalanceCtrs
     {
     public:
@@ -2136,12 +2142,12 @@ protected:
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
 
-    int                 mObjStoreMaxSchedulePerRun;
-    int                 mObjStoreMaxDeletesPerServer;
-    int                 mObjStoreMaxScanPerRun;
-    size_t              mObjStoreDeleteSrvIdx;
-    size_t              mObjStoreDeletesInFlight;
-    ObjBlockDeleteQueue mObjBlockDeleteQueue;
+    int                      mObjStoreMaxSchedulePerRun;
+    int                      mObjStoreMaxDeletesPerServer;
+    size_t                   mObjStoreDeleteSrvIdx;
+    ObjBlocksFileDeleteQueue mObjBlocksFileDeleteQueue;
+    ObjBlocksDeleteRequeue   mObjBlocksDeleteRequeue;
+    ObjBlocksDeleteInFlight  mObjBlocksDeleteInFlight;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
@@ -2328,6 +2334,8 @@ protected:
     }
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
     bool RunObjectBlockDeleteQueue();
+    chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
+        int& remScanCnt);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;

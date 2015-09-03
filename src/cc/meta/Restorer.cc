@@ -439,6 +439,7 @@ restore_filesystem_info(DETokenizer& c)
 static bool
 restore_objstore_delete(DETokenizer& c)
 {
+    const bool osdFlag = c.front() == DETokenizer::Token("osd", 3);
     c.pop_front();
     if (c.empty()) {
         return false;
@@ -451,11 +452,12 @@ restore_objstore_delete(DETokenizer& c)
     if (c.empty()) {
         return false;
     }
-    const seq_t chunkVersion = c.toNumber();
+    const seq_t last = c.toNumber();
     if (! c.isLastOk()) {
         return false;
     }
-    return gLayoutManager.AddPendingObjStoreDelete(chunkId, chunkVersion);
+    return gLayoutManager.AddPendingObjStoreDelete(
+        chunkId, osdFlag ? last : seq_t(0), last);
 }
 
 static DiskEntry&
@@ -482,6 +484,7 @@ get_entry_map()
     e.add_parser("checksum",                &restore_checksum);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    e.add_parser("osx",                     &restore_objstore_delete);
     e.add_parser("osd",                     &restore_objstore_delete);
     initied = true;
     return e;
