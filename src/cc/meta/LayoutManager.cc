@@ -10987,28 +10987,38 @@ LayoutManager::GetChunkServers(
 bool
 LayoutManager::RunObjectBlockDeleteQueue()
 {
-    int  rem    = mObjStoreMaxSchedulePerRun;
-    int  maxReq = (mObjBlocksDeleteRequeue.GetSize() + 1) / 2;
-    bool ret    = ! mObjBlocksDeleteRequeue.IsEmpty();
-    while (! mObjBlocksDeleteRequeue.IsEmpty() && 0 < rem) {
-        swap(mObjBlocksDeleteRequeue.Front(), mObjBlocksDeleteRequeue.Back());
+    int  rem       = mObjStoreMaxSchedulePerRun;
+    size_t  maxReq = (mObjBlocksDeleteRequeue.GetSize() + 1) / 2;
+    bool ret       = ! mObjBlocksDeleteRequeue.IsEmpty();
+    for (size_t i = 0; i < mObjBlocksDeleteRequeue.GetSize() && 0 < rem; i++) {
+        swap(mObjBlocksDeleteRequeue[i], mObjBlocksDeleteRequeue.Back());
         const ObjBlockDeleteQueueEntry entry = mObjBlocksDeleteRequeue.Back();
         const size_t prevSize = mObjBlocksDeleteRequeue.PopBack();
         if (DeleteFileBlocks(entry.first, entry.second, entry.second, rem) ==
                 entry.second) {
             mObjBlocksDeleteRequeue.PushBack(entry);
         }
-        if (prevSize < mObjBlocksDeleteRequeue.GetSize() && --maxReq <= 0) {
-            break;
+        if (prevSize < mObjBlocksDeleteRequeue.GetSize()) {
+            if (maxReq <= 0) {
+                break;
+            }
+            maxReq--;
         }
     }
+    maxReq = mObjBlocksFileDeleteQueue.GetSize() / 2;
     while (! mObjBlocksFileDeleteQueue.IsEmpty() && 0 < rem) {
         ObjBlockDeleteQueueEntry& entry = mObjBlocksFileDeleteQueue.Back();
         if (0 <= (entry.second = DeleteFileBlocks(
-                entry.first, 0, entry.second, rem))) {
-            return true;
+                entry.first, 0, entry.second, rem)) && 0 < rem) {
+            if (maxReq <= 0) {
+                return true;
+            }
+            maxReq--;
+            swap(mObjBlocksFileDeleteQueue.Front(),
+                mObjBlocksFileDeleteQueue.Back());
+        } else {
+            mObjBlocksFileDeleteQueue.PopBack();
         }
-        mObjBlocksFileDeleteQueue.PopBack();
     }
     return ret;
 }
@@ -11054,6 +11064,7 @@ LayoutManager::DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
             if (size <= mObjStoreDeleteSrvIdx) {
                 mObjStoreDeleteSrvIdx = 0;
                 if (size <= 0 || 2 <= i) {
+                    remScanCnt = 0;
                     return pos;
                 }
             }
@@ -11066,7 +11077,7 @@ LayoutManager::DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
                     return pos;
                 }
                 mObjBlocksDeleteRequeue.PushBack(make_pair(fid, pos));
-                continue;
+                break;
             }
             entry.GetVal().second = chunkVersion;
             bool insertedFlag = false;
