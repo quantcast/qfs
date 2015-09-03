@@ -11060,33 +11060,29 @@ LayoutManager::DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
             remScanCnt = 0;
             return pos;
         }
-        for (int i = 0; ; i++) {
-            if (size <= mObjStoreDeleteSrvIdx) {
-                mObjStoreDeleteSrvIdx = 0;
-                if (size <= 0 || 2 <= i) {
-                    remScanCnt = 0;
-                    return pos;
-                }
+        if (size <= mObjStoreDeleteSrvIdx) {
+            mObjStoreDeleteSrvIdx = 0;
+            if (size <= 0) {
+                remScanCnt = 0;
+                return pos;
             }
-            const ChunkServerPtr& server       =
-                mChunkServers[mObjStoreDeleteSrvIdx++];
-            const seq_t           chunkVersion = -(seq_t)pos - 1;
-            if (0 < GetInFlightChunkOpsCount(fid, types,
-                    ChunkVersionToObjFileBlockPos(chunkVersion))) {
-                if (maxInFlight <= mObjBlocksDeleteRequeue.GetSize()) {
-                    return pos;
-                }
-                mObjBlocksDeleteRequeue.PushBack(make_pair(fid, pos));
-                break;
+        }
+        const seq_t chunkVersion = -(seq_t)pos - 1;
+        if (0 < GetInFlightChunkOpsCount(fid, types,
+                ChunkVersionToObjFileBlockPos(chunkVersion))) {
+            if (maxInFlight <= mObjBlocksDeleteRequeue.GetSize()) {
+                return pos;
             }
+            mObjBlocksDeleteRequeue.PushBack(make_pair(fid, pos));
+        } else {
             entry.GetVal().second = chunkVersion;
             bool insertedFlag = false;
             mObjBlocksDeleteInFlight.Insert(
                 entry.GetKey(), entry.GetVal(), insertedFlag);
             if (insertedFlag) {
-                server->DeleteChunkVers(fid, chunkVersion);
+                mChunkServers[mObjStoreDeleteSrvIdx++
+                    ]->DeleteChunkVers(fid, chunkVersion);
             }
-            break;
         }
     }
     return pos;
