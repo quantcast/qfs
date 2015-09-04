@@ -11042,7 +11042,7 @@ LayoutManager::RunObjectBlockDeleteQueue()
                 break;
             }
             randCnt++;
-            // Delete cannot be schedule due to allocation or make stable in
+            // Delete cannot be scheduled due to allocation or make stable in
             // flight. Randomly choose next item to schedule.
             swap(mObjBlocksDeleteRequeue[
                     size < 3 ? int64_t(0) : Rand(size - 1)],
