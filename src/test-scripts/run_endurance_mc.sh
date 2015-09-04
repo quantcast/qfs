@@ -281,6 +281,8 @@ if [ x"$testonly" != x'yes' ]; then
 
 kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
 
+mkdir -p "$objectstoredir" || exit
+
 echo "Starting meta server $metahost:$metasrvport"
 
 (
