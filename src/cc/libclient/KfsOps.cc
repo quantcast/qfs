@@ -435,6 +435,9 @@ AllocateOp::Request(ostream &os)
     if (invalidateAllFlag) {
         os << "Invalidate-all: 1\r\n";
     }
+    if (masterServer.IsValid()) {
+        os << "Chunk-master: " << masterServer << "\r\n";
+    }
     if (append) {
         os <<
             "Chunk-append: 1\r\n"

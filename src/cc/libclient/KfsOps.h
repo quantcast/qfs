@@ -880,8 +880,8 @@ struct GetChunkMetadataOp: public ChunkAccessOp {
 struct AllocateOp : public KfsOp {
     kfsFileId_t            fid;
     chunkOff_t             fileOffset;
-    string                 pathname; // input: the full pathname corresponding to fid
-    kfsChunkId_t           chunkId; // result
+    string                 pathname;     // input: the full pathname corresponding to fid
+    kfsChunkId_t           chunkId;      // result
     int64_t                chunkVersion; // result---version # for the chunk
     // where is the chunk hosted name/port
     ServerLocation         masterServer; // master for running the write transaction
@@ -939,6 +939,9 @@ struct AllocateOp : public KfsOp {
             for (size_t i = 0; i < sz; i++) {
                 os << " " << chunkServers[i];
             }
+        }
+        if (masterServer.IsValid()) {
+            os << " master: " << masterServer;
         }
         os <<
             " access:" <<

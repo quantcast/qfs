@@ -998,6 +998,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     int64_t              leaseDuration;
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
+    StringBufT<64>       chunkServerName;
     StringBufT<64>       clientHost;   //!< the host from which request was received
     StringBufT<256>      pathname;     //!< full pathname that corresponds to fid
     MetaAllocate(seq_t s = -1, fid_t f = -1, chunkOff_t o = -1)
@@ -1041,6 +1042,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           delegationFlags(0),
           delegationIssuedTime(0),
           leaseDuration(-1),
+          chunkServerName(),
           clientHost(),
           pathname()
     {
@@ -1074,6 +1076,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         .Def("Space-reserve",            &MetaAllocate::spaceReservationSize, int(1<<20))
         .Def("Max-appenders",            &MetaAllocate::maxAppendersPerChunk,    int(64))
         .Def("Invalidate-all",           &MetaAllocate::invalidateAllFlag,         false)
+        .Def("Chunk-master",             &MetaAllocate::chunkServerName                 )
         ;
     }
 };

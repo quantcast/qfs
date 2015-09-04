@@ -842,6 +842,13 @@ private:
                     mKeepLeaseFlag)
             );
             Reset(mAllocOp);
+            if (0 == mOuter.mReplicaCount) {
+                if (! mAllocOp.chunkServers.empty()) {
+                    mAllocOp.masterServer = mAllocOp.chunkServers.front();
+                }
+            } else {
+                mAllocOp.masterServer.Reset(0, -1);
+            }
             mAllocOp.fid                  = mOuter.mFileId;
             mAllocOp.pathname             = mOuter.mPathName;
             mAllocOp.append               = false;

@@ -1464,7 +1464,8 @@ public:
     void Done(MetaChunkDelete& req);
     void DeleteFile(const MetaFattr& fa);
     int  WritePendingObjStoreDelete(ostream& os);
-    bool AddPendingObjStoreDelete(chunkId_t chunkId, seq_t first, seq_t last);
+    bool AddPendingObjStoreDelete(
+        chunkId_t chunkId, chunkOff_t first, chunkOff_t last);
     void ClearObjStoreDelete();
 
 protected:
@@ -1472,10 +1473,105 @@ protected:
         int,
         StdAllocator<int>
     > RackIds;
-    typedef pair<chunkId_t, chunkOff_t> ObjBlockDeleteQueueEntry;
-    typedef DynamicArray<ObjBlockDeleteQueueEntry, 16> ObjBlocksFileDeleteQueue;
+    class ObjStoreFilesDeleteQueue
+    {
+    public:
+        class Entry
+        {
+        public:
+            Entry* GetNext() const
+                { return mNext; }
+            const time_t mTime;
+            const fid_t  mFid;
+            chunkOff_t   mLast;
+        private:
+            Entry* mNext;
+            Entry(
+                time_t     time,
+                fid_t      fid,
+                chunkOff_t last)
+                : mTime(time),
+                  mFid(fid),
+                  mLast(last),
+                  mNext(0)
+                {}
+            ~Entry()
+                {}
+            friend class ObjStoreFilesDeleteQueue;
+        };
+        ObjStoreFilesDeleteQueue()
+            : mHead(0),
+              mTail(0),
+              mSize(0),
+              mAllocator()
+            {}
+        ~ObjStoreFilesDeleteQueue()
+            { ObjStoreFilesDeleteQueue::Clear(); }
+        Entry* Front()
+            { return mHead; }
+        bool IsEmpty() const
+            { return (! mHead); }
+        void Add(time_t time, fid_t fid, chunkOff_t last)
+        {
+            Entry* const entry =
+                new (mAllocator.Allocate()) Entry(time, fid, last);
+            if (mTail) {
+                mTail->mNext = entry;
+            } else {
+                mHead = entry;
+            }
+            mTail = entry;
+            mSize++;
+        }
+        void Remove()
+        {
+            if (mHead) {
+                Entry* const entry = mHead;
+                mHead = entry->mNext;
+                if (! mHead) {
+                    mTail = 0;
+                }
+                mSize--;
+                Delete(entry);
+            }
+        }
+        void Clear()
+        {
+            Entry* next = mHead;
+            mHead = 0;
+            mTail = 0;
+            mSize = 0;
+            while (next) {
+                Entry* const entry = next;
+                next = entry->mNext;
+                Delete(entry);
+            }
+        }
+        size_t GetSize() const
+            { return mSize; }
+    private:
+        typedef PoolAllocator<
+            sizeof(Entry),
+            size_t(1) << 20, // size_t TMinStorageAlloc,
+            size_t(8) << 20, // size_t TMaxStorageAlloc,
+            true             // bool   TForceCleanupFlag
+        > Allocator;
+        Entry*    mHead;
+        Entry*    mTail;
+        size_t    mSize;
+        Allocator mAllocator;
+
+        void Delete(Entry* entry)
+        {
+            entry->~Entry();
+            mAllocator.Deallocate(entry);
+        }
+    };
+    typedef pair<chunkId_t, chunkOff_t>                ObjBlockDeleteQueueEntry;
     typedef DynamicArray<ObjBlockDeleteQueueEntry,  8> ObjBlocksDeleteRequeue;
-    typedef KeyOnly<pair<chunkId_t, seq_t> > ObjBlocksDeleteInFlightEntry;
+    typedef KeyOnly<
+        pair<chunkId_t, seq_t>
+    > ObjBlocksDeleteInFlightEntry;
     class ObjBlocksDeleteInFlightEntryHash
     {
     public:
@@ -1489,7 +1585,7 @@ protected:
             ObjBlocksDeleteInFlightEntry::Key,
             ObjBlocksDeleteInFlightEntryHash
         >,
-        DynamicArray<SingleLinkedList<ObjBlocksDeleteInFlightEntry>*, 8>,
+        DynamicArray<SingleLinkedList<ObjBlocksDeleteInFlightEntry>*, 17>,
         PoolAllocatorAdapter<
             ObjBlocksDeleteInFlightEntry,
             size_t(1) << 20, // size_t TMinStorageAlloc,
@@ -2144,8 +2240,9 @@ protected:
 
     int                      mObjStoreMaxSchedulePerRun;
     int                      mObjStoreMaxDeletesPerServer;
+    int                      mObjStoreDeleteDelay;
     size_t                   mObjStoreDeleteSrvIdx;
-    ObjBlocksFileDeleteQueue mObjBlocksFileDeleteQueue;
+    ObjStoreFilesDeleteQueue mObjStoreFilesDeleteQueue;
     ObjBlocksDeleteRequeue   mObjBlocksDeleteRequeue;
     ObjBlocksDeleteInFlight  mObjBlocksDeleteInFlight;
 
@@ -2339,6 +2436,7 @@ protected:
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
+    Servers::const_iterator FindAccessProxy(MetaAllocate& req) const;
 };
 
 extern LayoutManager& gLayoutManager;

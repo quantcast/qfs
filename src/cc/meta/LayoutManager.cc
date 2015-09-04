@@ -1236,6 +1236,33 @@ LayoutManager::FindServerByHost(const T& host) const
         it : mChunkServers.end());
 }
 
+LayoutManager::Servers::const_iterator
+LayoutManager::FindAccessProxy(MetaAllocate& req) const
+{
+    Servers::const_iterator it;
+    if (req.chunkServerName.empty()) {
+        it = FindServerByHost(req.clientIp);
+        if (it == mChunkServers.end()) {
+            req.statusMsg = "no access proxy on host: " + req.clientIp;
+        }
+    } else {
+        ServerLocation loc;
+        if (! loc.FromString(
+                req.chunkServerName.data(), req.chunkServerName.size())) {
+            req.statusMsg = "invalid chunk server name";
+            req.status    = -EINVAL;
+            it = mChunkServers.end();
+        } else {
+            it = FindServer(loc);
+            if (it == mChunkServers.end()) {
+                req.statusMsg = "no proxy on host: " +
+                    req.chunkServerName.GetStr();
+            }
+        }
+    }
+    return it;
+}
+
 inline CSMap::Entry&
 LayoutManager::GetCsEntry(MetaChunkInfo& chunkInfo)
 {
@@ -1558,8 +1585,9 @@ LayoutManager::LayoutManager() :
     mFileRecoveryInFlightCount(),
     mObjStoreMaxSchedulePerRun(16 << 10),
     mObjStoreMaxDeletesPerServer(128),
+    mObjStoreDeleteDelay(2 * LEASE_INTERVAL_SECS),
     mObjStoreDeleteSrvIdx(0),
-    mObjBlocksFileDeleteQueue(),
+    mObjStoreFilesDeleteQueue(),
     mObjBlocksDeleteRequeue(),
     mObjBlocksDeleteInFlight(),
     mTmpParseStream(),
@@ -2079,6 +2107,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mObjStoreMaxDeletesPerServer = max(1, props.getValue(
         "metaServer.objStoreMaxDeletesPerServer",
         mObjStoreMaxDeletesPerServer));
+    mObjStoreDeleteDelay = props.getValue(
+        "metaServer.objStoreDeleteDelay",
+        mObjStoreDeleteDelay);
     mRootHosts.clear();
     {
         istringstream is(props.getValue("metaServer.rootHosts", ""));
@@ -4717,10 +4748,9 @@ LayoutManager::AllocateChunk(
 
     r->servers.clear();
     if (0 == r->numReplicas) {
-        Servers::const_iterator const it = FindServerByHost(r->clientIp);
+        Servers::const_iterator const it = FindAccessProxy(*r);
         if (it == mChunkServers.end()) {
-            r->statusMsg = "no access proxy on host: " + r->clientIp;
-            return -ENOSPC;
+            return (r->status == 0 ? -ENOSPC : r->status);
         }
         r->servers.push_back(*it);
         r->master = r->servers.front();
@@ -5274,10 +5304,9 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         return -EBUSY;
     }
     if (0 == r->numReplicas) {
-        Servers::const_iterator const it = FindServerByHost(r->clientIp);
-        if (mChunkServers.end() == it) {
-            r->statusMsg = "no access proxy available on: " + r->clientIp;
-            return -EDATAUNAVAIL;
+        Servers::const_iterator const it = FindAccessProxy(*r);
+        if (it == mChunkServers.end()) {
+            return (r->status == 0 ? -ENOSPC : r->status);
         }
         ChunkLeases::EntryKey const leaseKey(r->fid, r->offset);
         const ChunkLeases::WriteLease* const l =
@@ -10987,40 +11016,40 @@ LayoutManager::GetChunkServers(
 bool
 LayoutManager::RunObjectBlockDeleteQueue()
 {
-    int  rem       = mObjStoreMaxSchedulePerRun;
-    size_t  maxReq = (mObjBlocksDeleteRequeue.GetSize() + 1) / 2;
-    bool ret       = ! mObjBlocksDeleteRequeue.IsEmpty();
-    for (size_t i = 0; i < mObjBlocksDeleteRequeue.GetSize() && 0 < rem; i++) {
-        swap(mObjBlocksDeleteRequeue[i], mObjBlocksDeleteRequeue.Back());
-        const ObjBlockDeleteQueueEntry entry = mObjBlocksDeleteRequeue.Back();
-        const size_t prevSize = mObjBlocksDeleteRequeue.PopBack();
+    int          rem         = mObjStoreMaxSchedulePerRun;
+    const size_t kMaxRandCnt = 4;
+    size_t       randCnt     = 0;
+    while (! mObjBlocksDeleteRequeue.IsEmpty() && 0 < rem) {
+        const ObjBlockDeleteQueueEntry entry    = mObjBlocksDeleteRequeue.Back();
+        const size_t                   prevSize =
+            mObjBlocksDeleteRequeue.PopBack();
         if (DeleteFileBlocks(entry.first, entry.second, entry.second, rem) ==
                 entry.second) {
             mObjBlocksDeleteRequeue.PushBack(entry);
         }
-        if (prevSize < mObjBlocksDeleteRequeue.GetSize()) {
-            if (maxReq <= 0) {
+        const size_t size = mObjBlocksDeleteRequeue.GetSize();
+        if (prevSize <= size) {
+            if (rem <= 0 || size < 2 || min(size - 1, kMaxRandCnt) <= randCnt) {
                 break;
             }
-            maxReq--;
+            randCnt++;
+            // Delete cannot be schedule due to allocation or make stable in
+            // flight. Randomly choose next item to schedule.
+            swap(mObjBlocksDeleteRequeue[
+                    size < 3 ? int64_t(0) : Rand(size - 1)],
+                mObjBlocksDeleteRequeue.Back());
         }
     }
-    maxReq = mObjBlocksFileDeleteQueue.GetSize() / 2;
-    while (! mObjBlocksFileDeleteQueue.IsEmpty() && 0 < rem) {
-        ObjBlockDeleteQueueEntry& entry = mObjBlocksFileDeleteQueue.Back();
-        if (0 <= (entry.second = DeleteFileBlocks(
-                entry.first, 0, entry.second, rem)) && 0 < rem) {
-            if (maxReq <= 0) {
-                return true;
-            }
-            maxReq--;
-            swap(mObjBlocksFileDeleteQueue.Front(),
-                mObjBlocksFileDeleteQueue.Back());
-        } else {
-            mObjBlocksFileDeleteQueue.PopBack();
-        }
+    const time_t                     expire = TimeNow() - mObjStoreDeleteDelay;
+    ObjStoreFilesDeleteQueue::Entry* entry;
+    while (0 < rem &&
+            (entry = mObjStoreFilesDeleteQueue.Front()) &&
+            entry->mTime < expire &&
+            (entry->mLast = DeleteFileBlocks(
+                entry->mFid, 0, entry->mLast, rem)) < 0) {
+        mObjStoreFilesDeleteQueue.Remove();
     }
-    return ret;
+    return (rem < mObjStoreMaxSchedulePerRun);
 }
 
 void
@@ -11030,12 +11059,13 @@ LayoutManager::DeleteFile(const MetaFattr& fa)
         return;
     }
     // Queue one past the last block, to handle possible in flight allocation.
-    chunkOff_t last = fa.nextChunkOffset() + fa.maxSTier + CHUNKSIZE;
+    chunkOff_t last = fa.nextChunkOffset() + fa.maxSTier;
     int        rem  = mObjStoreMaxSchedulePerRun;
-    if ((last = DeleteFileBlocks(fa.id(), 0, last, rem)) < 0) {
+    if (mObjStoreDeleteDelay <= 0 &&
+            (last = DeleteFileBlocks(fa.id(), 0, last, rem)) < 0) {
         return;
     }
-    mObjBlocksFileDeleteQueue.PushBack(make_pair(fa.id(), last));
+    mObjStoreFilesDeleteQueue.Add(TimeNow(), fa.id(), last);
 }
 
 chunkOff_t
@@ -11051,9 +11081,10 @@ LayoutManager::DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
     ObjBlocksDeleteInFlightEntry::Val const entryVal(fid, 0);
     ObjBlocksDeleteInFlightEntry            entry(entryVal, entryVal);
     chunkOff_t                              pos;
-    for (pos = last; first <= pos && 0 < remScanCnt--; pos -= CHUNKSIZE) {
+    for (pos = last; first <= pos && 0 < remScanCnt; pos -= CHUNKSIZE) {
          // Update size as chunk servers might go down due to DeleteChunkVers()
          // invocation.
+        remScanCnt--;
         const size_t size        = mChunkServers.size();
         const size_t maxInFlight = size * mObjStoreMaxDeletesPerServer;
         if (maxInFlight <= mObjBlocksDeleteInFlight.GetSize()) {
@@ -11121,9 +11152,10 @@ LayoutManager::Done(MetaChunkDelete& req)
     }
     if (mObjBlocksDeleteInFlight.IsEmpty() &&
             mObjBlocksDeleteRequeue.IsEmpty() &&
-                mObjBlocksFileDeleteQueue.IsEmpty()) {
+                mObjStoreFilesDeleteQueue.IsEmpty()) {
+        // Drained the queues, log this event.
         submit_request(new MetaClearObjStoreDelete());
-        return; // Drained the queues, log event.
+        return;
     }
     if (mObjBlocksDeleteInFlight.GetSize() + mObjStoreMaxDeletesPerServer / 2 <
             mObjStoreMaxDeletesPerServer * mChunkServers.size()) {
@@ -11136,12 +11168,12 @@ LayoutManager::ClearObjStoreDelete()
 {
     mObjBlocksDeleteInFlight.Clear();
     mObjBlocksDeleteRequeue.Clear();
-    mObjBlocksFileDeleteQueue.Clear();
+    mObjStoreFilesDeleteQueue.Clear();
 }
 
 bool
 LayoutManager::AddPendingObjStoreDelete(
-    chunkId_t chunkId, seq_t first, seq_t last)
+    chunkId_t chunkId, chunkOff_t first, chunkOff_t last)
 {
     if (chunkId <= 0 || last < 0 || (0 != first && first != last)) {
         return false;
@@ -11149,7 +11181,7 @@ LayoutManager::AddPendingObjStoreDelete(
     if (first == last) {
         mObjBlocksDeleteRequeue.PushBack(make_pair(chunkId, last));
     } else {
-        mObjBlocksFileDeleteQueue.PushBack(make_pair(chunkId, last));
+        mObjStoreFilesDeleteQueue.Add(TimeNow(), chunkId, last);
     }
     return true;
 }
@@ -11157,27 +11189,29 @@ LayoutManager::AddPendingObjStoreDelete(
 int
 LayoutManager::WritePendingObjStoreDelete(ostream& os)
 {
-    ObjBlocksFileDeleteQueue::ConstIterator fit(mObjBlocksFileDeleteQueue);
-    const ObjBlockDeleteQueueEntry* entry;
-    while ((entry = fit.Next())) {
+    const ObjStoreFilesDeleteQueue::Entry* fde =
+        mObjStoreFilesDeleteQueue.Front();
+    while (fde) {
         os <<
-            "osx/" << entry->first <<
-            "/"    << entry->second <<
+            "osx/" << fde->mFid <<
+            "/"    << fde->mLast <<
         "\n";
+        fde = fde->GetNext();
     }
+    const ObjBlockDeleteQueueEntry* dre;
     ObjBlocksDeleteRequeue::ConstIterator rit(mObjBlocksDeleteRequeue);
-    while ((entry = rit.Next())) {
+    while ((dre = rit.Next())) {
         os <<
-            "osd/" << entry->first <<
-            "/"    << entry->second <<
+            "osd/" << dre->first <<
+            "/"    << dre->second <<
         "\n";
     }
-    const ObjBlocksDeleteInFlightEntry* fentry;
+    const ObjBlocksDeleteInFlightEntry* dfe;
     mObjBlocksDeleteInFlight.First();
-    while ((fentry = mObjBlocksDeleteInFlight.Next())) {
+    while ((dfe = mObjBlocksDeleteInFlight.Next())) {
         os <<
-            "osd/" << fentry->GetVal().first <<
-            "/"    << (-fentry->GetVal().second - 1) <<
+            "osd/" << dfe->GetVal().first <<
+            "/"    << (-dfe->GetVal().second - 1) <<
         "\n";
     }
     return (os ? 0 : -EIO);

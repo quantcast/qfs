@@ -452,12 +452,12 @@ restore_objstore_delete(DETokenizer& c)
     if (c.empty()) {
         return false;
     }
-    const seq_t last = c.toNumber();
+    const chunkOff_t last = c.toNumber();
     if (! c.isLastOk()) {
         return false;
     }
     return gLayoutManager.AddPendingObjStoreDelete(
-        chunkId, osdFlag ? last : seq_t(0), last);
+        chunkId, osdFlag ? last : chunkOff_t(0), last);
 }
 
 static DiskEntry&
