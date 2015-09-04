@@ -1438,7 +1438,8 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     }
     string errMsg;
     if (! dataFH->Close(
-            chunkInfo.chunkSize + chunkInfo.GetHeaderSize(),
+            0 <= chunkInfo.chunkVersion ?
+                chunkInfo.chunkSize + chunkInfo.GetHeaderSize() : int64_t(-1),
             &errMsg)) {
         KFS_LOG_STREAM_INFO <<
             "chunk " << chunkInfo.chunkId << " close error: " << errMsg <<
