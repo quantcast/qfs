@@ -149,7 +149,7 @@ while [ $# -gt 0 ]; do
             for n in \
                 "$clitestdir/fanout/kfanout_test.log" \
                 "$clitestdir/sortmaster/sortmaster_endurance_test.log" \
-                "$clitestdir/cp/cptest-"{n,rs,tfs}.log \
+                "$clitestdir/cp/cptest-"{n,rs,tfs,os}.log \
                 ; do
                 [ -f "$n" ] || continue
                 echo "============== `basename "$n"` ================="
