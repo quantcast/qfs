@@ -24,7 +24,7 @@
 # with the failure simulation by default (see usage below).
 #
 # The logic below expects that 4 directories
-# /mnt/data{0-5}/<user-name>
+# /mnt/data{0-3}/<user-name>
 # are available and correspond to 4 physical disks.
 # 
 # 
@@ -87,6 +87,8 @@ mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 chunkdirerrsim=0
 chunkdirerrsimall=0
 chunkserverclithreads=${chunkserverclithreads-3}
+objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
+objectstoredir="/mnt/data3/$USER/test/object_store"
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -359,6 +361,8 @@ metaServer.rootDirMode = 0777
 
 metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.startupAbortOnPanic = 1
+
+metaServer.objectStoreEnabled = 1
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -467,6 +471,8 @@ chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
 chunkServer.clientThreadCount = $chunkserverclithreads
+chunkServer.objStoreBlockWriteBufferSize = $objectstorebuffersize
+chunkServer.objectDir                    = $objectstoredir
 EOF
 
         if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then
@@ -547,12 +553,14 @@ fi
     cpfromkfsopts="-T $cstimeout -R $csretry"
     export cpfromkfsopts
 
-    for suf in rs n tfs; do
+    for suf in rs n tfs os; do
         cptokfsopts="-T $cstimeout -R $csretry"
         if [ x"$suf" = x'rs' ]; then
             cptokfsopts="$cptokfsopts -S"
         elif [ x"$suf" = x'tfs' ]; then
             cptokfsopts="$cptokfsopts -z 0 -y 128 -u 65536 -r 2 -u 65536 -w 267386880"
+        elif [ x"$suf" = x'os' ]; then
+            cptokfsopts="$cptokfsopts -r 0"
         fi
         export cptokfsopts
 
