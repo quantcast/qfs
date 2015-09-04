@@ -121,7 +121,8 @@ public:
         string*     inErrMessagePtr                 = 0,
         int         inMinWriteBlkSize               = 0,
         bool        inBufferDataIgnoreOverwriteFlag = false,
-        int         inBufferDataTailToKeepSize      = 0);
+        int         inBufferDataTailToKeepSize      = 0,
+        bool        inCreateExclusiveFlag           = true);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,

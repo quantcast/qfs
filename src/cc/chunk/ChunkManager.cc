@@ -5723,7 +5723,8 @@ ChunkManager::StartDiskIo()
         it->totalSpace                  = kMaxSpace;
         it->supportsSpaceReservatonFlag = false;
         it->availableChunks.Clear();
-        string errMsg;
+        string     errMsg;
+        const bool kCreateExclusiveFlag = false;
         if (! DiskIo::StartIoQueue(
                 it->dirname.c_str(),
                 it->deviceId,
@@ -5733,7 +5734,8 @@ ChunkManager::StartDiskIo()
                 mObjStoreBufferDataIgnoreOverwriteFlag &&
                     mObjStoreBlockWriteBufferSize <
                     (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE),
-                (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE))) {
+                (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE),
+                kCreateExclusiveFlag)) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<
                 " dev: << " << it->deviceId << " :" << errMsg <<

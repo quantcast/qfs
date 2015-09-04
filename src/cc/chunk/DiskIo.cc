@@ -322,7 +322,8 @@ public:
         const char**    inFileNamesPtr,
         QCIoBufferPool& inBufferPool,
         CpuAffinity     inCpuAffinity,
-        bool            inTraceFlag)
+        bool            inTraceFlag,
+        bool            inCreateExclusiveFlag)
     {
         return QCDiskQueue::Start(
             inThreadCount,
@@ -333,7 +334,9 @@ public:
             inBufferPool,
             mSimulatorPtr,
             inCpuAffinity,
-            inTraceFlag ? this : 0
+            inTraceFlag ? this : 0,
+            false,
+            inCreateExclusiveFlag
         );
     }
     EnqueueStatus DeleteFile(
@@ -809,7 +812,8 @@ public:
         string*          inErrMessagePtr,
         int              inMinWriteBlkSize,
         bool             inBufferDataIgnoreOverwriteFlag,
-        int              inBufferDataTailToKeepSize)
+        int              inBufferDataTailToKeepSize,
+        bool             inCreateExclusiveFlag)
     {
         DiskQueue* theQueuePtr = FindDiskQueue(inDirNamePtr);
         if (theQueuePtr) {
@@ -863,7 +867,8 @@ public:
             0, // FileNamesPtr
             GetBufferPool(),
             mCpuAffinity,
-            mDiskQueueTraceFlag
+            mDiskQueueTraceFlag,
+            inCreateExclusiveFlag
         );
         if (theSysErr) {
             theQueuePtr->Delete(mDiskQueuesPtr);
@@ -1284,7 +1289,8 @@ DiskIo::StartIoQueue(
     string*          inErrMessagePtr                 /* = 0 */,
     int              inMinWriteBlkSize               /* = 0 */,
     bool             inBufferDataIgnoreOverwriteFlag /* = false */,
-    int              inBufferDataTailToKeepSize      /* = 0 */)
+    int              inBufferDataTailToKeepSize      /* = 0 */,
+    bool             inCreateExclusiveFlag           /* = true */)
 {
     if (! sDiskIoQueuesPtr) {
         if (inErrMessagePtr) {
@@ -1299,7 +1305,8 @@ DiskIo::StartIoQueue(
         inErrMessagePtr,
         inMinWriteBlkSize,
         inBufferDataIgnoreOverwriteFlag,
-        inBufferDataTailToKeepSize
+        inBufferDataTailToKeepSize,
+        inCreateExclusiveFlag
     );
 }
 

@@ -86,6 +86,7 @@ public:
           mReqWaitersCount(0),
           mDebugTracerPtr(0),
           mIoStartObserverPtr(0),
+          mCreateExclusiveFlag(true),
           mRunFlag(false),
           mBarrierFlag(false)
         {}
@@ -101,7 +102,8 @@ public:
         IoStartObserver*         inIoStartObserverPtr,
         QCDiskQueue::CpuAffinity inCpuAffinity,
         DebugTracer*             inDebugTracerPtr,
-        bool                     inBufferedIoFlag);
+        bool                     inBufferedIoFlag,
+        bool                     inCreateExclusiveFlag);
     void Stop()
     {
         QCStMutexLocker theLocker(mMutex);
@@ -442,6 +444,7 @@ private:
     int              mReqWaitersCount;
     DebugTracer*     mDebugTracerPtr;
     IoStartObserver* mIoStartObserverPtr;
+    bool             mCreateExclusiveFlag;
     bool             mRunFlag;
     bool             mBarrierFlag; // New req. can not be processed
                                    // until in flight req. done.
@@ -817,9 +820,11 @@ private:
     static int CreateFile(
         const char* inFileNamePtr,
         int         inFlags,
-        int         inPerms)
+        int         inPerms,
+        bool        inCreateExclusiveFlag)
     {
-        const int theFlags = inFlags | O_CREAT | O_EXCL;
+        const int theFlags = inFlags | O_CREAT |
+            (inCreateExclusiveFlag ? O_EXCL : 0);
         int       theFd;
         while ((theFd = open(inFileNamePtr, theFlags, inPerms)) < 0 &&
                 errno == EEXIST &&
@@ -903,7 +908,8 @@ QCDiskQueue::Queue::Start(
     QCDiskQueue::IoStartObserver* inIoStartObserverPtr,
     QCDiskQueue::CpuAffinity      inCpuAffinity,
     QCDiskQueue::DebugTracer*     inDebugTracerPtr,
-    bool                          inBufferedIoFlag)
+    bool                          inBufferedIoFlag,
+    bool                          inCreateExclusiveFlag)
 {
     QCStMutexLocker theLocker(mMutex);
     StopSelf();
@@ -938,6 +944,7 @@ QCDiskQueue::Queue::Start(
     mPendingCloseTail = kEndOfPendingCloseList;
     mFileInfoPtr = new FileInfo[mFileCount];
     mFreeFdHead = kFreeFdEnd;
+    mCreateExclusiveFlag = inCreateExclusiveFlag;
     for (mFdCount = 0; mFdCount < theFdCount; ) {
         int theError = 0;
         for (int i = 0; i < mFileCount; i++) {
@@ -1388,6 +1395,7 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
     const int         theOpenFlags    =
         (theReadOnlyFlag ? O_RDONLY : O_RDWR) |
         GetOpenCommonFlags(mFileInfoPtr[theIdx].mBufferedIoFlag);
+    const bool        theCreateExclusiveFlag = mCreateExclusiveFlag;
 
     QCRTASSERT(theIdx >= 0 && theIdx < mFileCount && theFileNamePtr);
     QCStMutexUnlocker theUnlock(mMutex);
@@ -1408,7 +1416,8 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
     for (i = theIdx; i < mFdCount; i += mFileCount) {
         QCRTASSERT(mFdPtr[i] == kOpenPendingFd);
         const int theFd    = (theCreateFlag && i == theIdx) ?
-            CreateFile(theFileNamePtr, theOpenFlags, S_IRUSR | S_IWUSR) :
+            CreateFile(theFileNamePtr, theOpenFlags, S_IRUSR | S_IWUSR,
+                theCreateExclusiveFlag) :
             open(theFileNamePtr, theOpenFlags);
         if (theFd < 0 || fcntl(theFd, F_SETFD, FD_CLOEXEC)) {
             theSysErr = errno ? errno : -1;
@@ -1550,11 +1559,12 @@ QCDiskQueue::Queue::ProcessMeta(
          (int)inReq.mFileIdx == mFileCount - 1 // always the last pseudo entry
     );
     inReq.mInFlightFlag = true;
-    const char* const theNamePtr       = GetBuffersPtr(inReq)[0];
-    const ReqType     theReqType       = inReq.mReqType;
-    const size_t      theNextNameStart = inReq.mBlockIdx;
-    const RequestId   theReqId         = GetRequestId(inReq);
-    const int         theBlockSize     = mBlockSize;
+    const char* const theNamePtr             = GetBuffersPtr(inReq)[0];
+    const ReqType     theReqType             = inReq.mReqType;
+    const size_t      theNextNameStart       = inReq.mBlockIdx;
+    const RequestId   theReqId               = GetRequestId(inReq);
+    const int         theBlockSize           = mBlockSize;
+    const bool        theCreateExclusiveFlag = mCreateExclusiveFlag;
     QCASSERT(theNamePtr);
     QCStMutexUnlocker theUnlock(mMutex);
 
@@ -1630,7 +1640,8 @@ QCDiskQueue::Queue::ProcessMeta(
                 const int theOpenFlags =
                     O_RDWR | GetOpenCommonFlags(theBufferedIoFlag);
                 const int theFd        = CreateFile(
-                    theNamePtr, theOpenFlags, S_IRUSR | S_IWUSR);
+                    theNamePtr, theOpenFlags, S_IRUSR | S_IWUSR,
+                    theCreateExclusiveFlag);
                 if (theFd < 0) {
                     theSysErr = errno;
                     theError  = kErrorCheckDirWritable;
@@ -2150,10 +2161,11 @@ QCDiskQueue::Start(
     int                           inFileCount,
     const char**                  inFileNamesPtr,
     QCIoBufferPool&               inBufferPool,
-    QCDiskQueue::IoStartObserver* inIoStartObserverPtr /* = 0 */,
-    QCDiskQueue::CpuAffinity      inCpuAffinity        /* = CpuAffinity::None() */,
-    QCDiskQueue::DebugTracer*     inDebugTracerPtr     /* = 0 */,
-    bool                          inBufferedIoFlag     /* = false */)
+    QCDiskQueue::IoStartObserver* inIoStartObserverPtr  /* = 0 */,
+    QCDiskQueue::CpuAffinity      inCpuAffinity         /* = CpuAffinity::None() */,
+    QCDiskQueue::DebugTracer*     inDebugTracerPtr      /* = 0 */,
+    bool                          inBufferedIoFlag      /* = false */,
+    bool                          inCreateExclusiveFlag /* = true */)
 {
     Stop();
     mQueuePtr = new Queue();
@@ -2167,7 +2179,8 @@ QCDiskQueue::Start(
         inIoStartObserverPtr,
         inCpuAffinity,
         inDebugTracerPtr,
-        inBufferedIoFlag
+        inBufferedIoFlag,
+        inCreateExclusiveFlag
     );
     if (theRet != 0) {
         Stop();

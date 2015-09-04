@@ -258,10 +258,11 @@ public:
         int              inFileCount,
         const char**     inFileNamesPtr,
         QCIoBufferPool&  inBufferPool,
-        IoStartObserver* inIoStartObserverPtr = 0,
-        CpuAffinity      inCpuAffinity        = CpuAffinity::None(),
-        DebugTracer*     inDebugTracerPtr     = 0,
-        bool             inBufferedIoFlag     = false);
+        IoStartObserver* inIoStartObserverPtr  = 0,
+        CpuAffinity      inCpuAffinity         = CpuAffinity::None(),
+        DebugTracer*     inDebugTracerPtr      = 0,
+        bool             inBufferedIoFlag      = false,
+        bool             inCreateExclusiveFlag = true);
 
     void Stop();
 
