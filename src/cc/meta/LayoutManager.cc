@@ -1583,7 +1583,7 @@ LayoutManager::LayoutManager() :
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
     mFileRecoveryInFlightCount(),
-    mObjStoreMaxSchedulePerRun(16 << 10),
+    mObjStoreDeleteMaxSchedulePerRun(16 << 10),
     mObjStoreMaxDeletesPerServer(128),
     mObjStoreDeleteDelay(2 * LEASE_INTERVAL_SECS),
     mObjStoreDeleteSrvIdx(0),
@@ -2101,14 +2101,14 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mVerifyAllOpsPermissionsParamFlag = props.getValue(
         "metaServer.verifyAllOpsPermissions",
         mVerifyAllOpsPermissionsParamFlag ? 1 : 0) != 0;
-    mObjStoreMaxSchedulePerRun = max(1, props.getValue(
-        "metaServer.objStoreMaxSchedulePerRun",
-        mObjStoreMaxSchedulePerRun));
+    mObjStoreDeleteMaxSchedulePerRun = max(1, props.getValue(
+        "metaServer.objectStoreDeleteMaxSchedulePerRun",
+        mObjStoreDeleteMaxSchedulePerRun));
     mObjStoreMaxDeletesPerServer = max(1, props.getValue(
-        "metaServer.objStoreMaxDeletesPerServer",
+        "metaServer.objectStoreMaxDeletesPerServer",
         mObjStoreMaxDeletesPerServer));
     mObjStoreDeleteDelay = props.getValue(
-        "metaServer.objStoreDeleteDelay",
+        "metaServer.objectStoreDeleteDelay",
         mObjStoreDeleteDelay);
     mRootHosts.clear();
     {
@@ -11016,7 +11016,7 @@ LayoutManager::GetChunkServers(
 bool
 LayoutManager::RunObjectBlockDeleteQueue()
 {
-    int          rem         = mObjStoreMaxSchedulePerRun;
+    int          rem         = mObjStoreDeleteMaxSchedulePerRun;
     const size_t kMaxRandCnt = 4;
     size_t       randCnt     = 0;
     while (! mObjBlocksDeleteRequeue.IsEmpty() && 0 < rem) {
@@ -11049,7 +11049,7 @@ LayoutManager::RunObjectBlockDeleteQueue()
                 entry->mFid, 0, entry->mLast, rem)) < 0) {
         mObjStoreFilesDeleteQueue.Remove();
     }
-    return (rem < mObjStoreMaxSchedulePerRun);
+    return (rem < mObjStoreDeleteMaxSchedulePerRun);
 }
 
 void
@@ -11060,7 +11060,7 @@ LayoutManager::DeleteFile(const MetaFattr& fa)
     }
     // Queue one past the last block, to handle possible in flight allocation.
     chunkOff_t last = fa.nextChunkOffset() + fa.maxSTier;
-    int        rem  = mObjStoreMaxSchedulePerRun;
+    int        rem  = mObjStoreDeleteMaxSchedulePerRun;
     if (mObjStoreDeleteDelay <= 0 &&
             (last = DeleteFileBlocks(fa.id(), 0, last, rem)) < 0) {
         return;

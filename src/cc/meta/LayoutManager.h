@@ -2238,7 +2238,7 @@ protected:
         FileRecoveryInFlightCount;
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
 
-    int                      mObjStoreMaxSchedulePerRun;
+    int                      mObjStoreDeleteMaxSchedulePerRun;
     int                      mObjStoreMaxDeletesPerServer;
     int                      mObjStoreDeleteDelay;
     size_t                   mObjStoreDeleteSrvIdx;
