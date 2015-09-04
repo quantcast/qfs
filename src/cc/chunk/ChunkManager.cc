@@ -46,6 +46,8 @@
 #include "kfsio/Counter.h"
 #include "kfsio/checksum.h"
 #include "kfsio/Globals.h"
+#include "kfsio/Base64.h"
+
 #include "qcdio/QCUtils.h"
 
 #include <dirent.h>
@@ -3646,10 +3648,30 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     ret.assign(chunkdir.data(), chunkdir.size());
     ret.append(subDir.data(), subDir.size());
     if (chunkVersion < 0) {
-        char buf[sizeof(chunkId) + sizeof(chunkVersion)];
+        uint32_t hash;
+        const    size_t kBlockIdSize = sizeof(chunkId) + sizeof(chunkVersion);
+        char     buf[max(
+            (size_t)Base64::EncodedLength(sizeof(hash)) + 1, kBlockIdSize)];
         IntToBytes(IntToBytes(buf, chunkId), chunkVersion);
-        AppendHexIntToString(ret, HsiehHash(buf, sizeof(buf)));
-        ret += '.';
+        hash = (uint32_t)HsiehHash(buf, kBlockIdSize);
+        int len = Base64::Encode(
+            reinterpret_cast<const char*>(&hash), (int)sizeof(hash), buf);
+        if (len <= 0) {
+            die("base64 encoding failure");
+        }
+        // Convert to url safe encoding with no padding.
+        while (0 < len && (buf[len - 1] & 0xFF) == '=') {
+            len--;
+        }
+        for (int i = 0; i < len; i++) {
+            switch (buf[i] & 0xFF) {
+                case '/': buf[i] = '_'; break;
+                case '+': buf[i] = '-'; break;
+                default:                break;
+            }
+        }
+        buf[len++] = '.';
+        ret.append(buf, len);
     }
     if (0 <= chunkVersion || fid != chunkId) {
         AppendDecIntToString(ret, fid);
