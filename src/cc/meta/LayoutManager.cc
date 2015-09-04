@@ -6946,7 +6946,16 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
         "Max clients= "       << gNetDispatch.GetMaxClientCount() << "\t"
         "Max chunk srvs= "    << ChunkServer::GetMaxChunkServerCount() << "\t"
         "Buffers total= "     <<
-            (mBufferPool ? mBufferPool->GetTotalBufferCount() : 0)
+            (mBufferPool ? mBufferPool->GetTotalBufferCount() : 0) << "\t"
+        "Object store enabled= " << mObjectStoreEnabledFlag << "\t"
+        "Object store deletes= " << mObjStoreFilesDeleteQueue.GetSize() << "\t"
+        "Object store in flight deletes= " <<
+            mObjBlocksDeleteInFlight.GetSize() << "\t"
+        "Object store block retry deletes= " <<
+            mObjBlocksDeleteRequeue.GetSize() << "\t"
+        "Object store first delete time= " <<
+            (mObjStoreFilesDeleteQueue.IsEmpty() ? time_t(0) :
+                TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime)
     ;
     mWOstream.flush();
     mWOstream.Reset();
