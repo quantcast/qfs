@@ -72,6 +72,7 @@ clientuser=${clientuser-"`id -un`"}
 numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
+objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
 
 export metahost
 export metasrvport
@@ -327,6 +328,9 @@ metaServer.clientCSAllowClearText = $csallowcleartext
 metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.clientThreadCount = 2
 metaServer.startupAbortOnPanic = 1
+metaServer.objectStoreEnabled  = 1
+metaServer.objectStoreDeleteDelay = 2
+metaServer.replicationCheckInterval = 0.5
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -383,6 +387,7 @@ if [ x"$metastartwait" = x'yes' ]; then
     done
 fi
 
+mkdir "$chunksrvdir/object_store" || exit
 i=$chunksrvport
 e=`expr $i + $numchunksrv`
 while [ $i -lt $e ]; do
@@ -410,6 +415,8 @@ chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
 chunkServer.rsReader.debugCheckThread = 1
 chunkServer.clientThreadCount = $chunkserverclithreads
+chunkServer.objStoreBlockWriteBufferSize = $objectstorebuffersize
+chunkServer.objectDir                    = ../object_store
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF
@@ -457,6 +464,10 @@ cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
+    cptokfsopts='-r 0 -m 15 -l 15' \
+    cpfromkfsopts='-r 0 -w 65537' \
+    cptest.sh &&\
+    mv cptest.log cptest-os.log && \
     cptokfsopts='-r 3 -m 1 -l 15' \
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
