@@ -963,8 +963,15 @@ public:
     bool IsFileEquals(const DiskIoPtr& diskIoPtr) const {
         return IsFileEquals(diskIoPtr.get());
     }
+    bool DiscardMeta() {
+        if (mWriteMetaOpsHead || 0 < mWritesInFlight) {
+            return false;
+        }
+        mMetaDirtyFlag = false;
+        return true;
+    }
     bool SyncMeta() {
-        if (mWriteMetaOpsHead || mWritesInFlight > 0) {
+        if (mWriteMetaOpsHead || 0 < mWritesInFlight) {
             return true;
         }
         if (mMetaDirtyFlag) {
@@ -2882,6 +2889,10 @@ ChunkManager::WriteChunkMetadata(
         return -EBADF;
     }
     if (forceFlag) {
+        if (! cih->chunkInfo.AreChecksumsLoaded() ||
+                (cih->chunkInfo.chunkVersion < 0 && cih->IsStable())) {
+            return -EAGAIN;
+        }
         cih->SetMetaDirty();
     }
     return cih->WriteChunkMetadata(cb);
@@ -3383,10 +3394,10 @@ ChunkManager::ReplicationDone(kfsChunkId_t chunkId, int status,
     if (! cih->IsBeingReplicated() || filePtr != cih->dataFH) {
         KFS_LOG_STREAM_DEBUG <<
             "irnored stale replication completion for"
-                " chunk: "    << chunkId <<
-                " status: "   << status <<
-                " fileH: "    << (const void*)cih->dataFH.get() <<
-                " "           << (const void*)filePtr.get() <<
+            " chunk: "    << chunkId <<
+            " status: "   << status <<
+            " fileH: "    << (const void*)cih->dataFH.get() <<
+            " "           << (const void*)filePtr.get() <<
         KFS_LOG_EOM;
         return;
     }
@@ -5564,10 +5575,13 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                     (metaUptime = gMetaServerSM.ConnectionUptime()) <
                         LEASE_INTERVAL_SECS &&
                         (metaUptime < kMinMetaUptime || now < cih->lastIOTime +
-                            mObjStoreBlockMaxNonStableDisconnectedTime))) {
+                            (cih->chunkInfo.chunkSize <= 0 ?
+                            mObjStoreBlockMaxNonStableDisconnectedTime * 2 / 3 :
+                            mObjStoreBlockMaxNonStableDisconnectedTime)))) {
             KFS_LOG_STREAM_DEBUG << "cleanup: ignoring entry in chunk lru:"
                 " chunk: "       << cih->chunkInfo.chunkId <<
                 " version: "     << cih->chunkInfo.chunkVersion <<
+                " size: "        << cih->chunkInfo.chunkSize <<
                 " dataFH: "      << (const void*)cih->dataFH.get() <<
                 " use count: "   << cih->dataFH.use_count() <<
                 " stable: "      << cih->IsStable() <<
@@ -5580,7 +5594,8 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
             KFS_LOG_EOM;
             continue;
         }
-        if (cih->SyncMeta()) {
+        if ((cih->chunkInfo.chunkVersion < 0 ?
+                ! cih->DiscardMeta() : cih->SyncMeta())) {
             continue;
         }
         // we have a valid file-id and it has been over 5 mins since we last did
@@ -5588,6 +5603,9 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         KFS_LOG_STREAM_DEBUG << "cleanup: closing"
             " dataFH: "  << (const void*)cih->dataFH.get() <<
             " chunk: "   << cih->chunkInfo.chunkId <<
+            " version: " << cih->chunkInfo.chunkVersion <<
+            " size: "    << cih->chunkInfo.chunkSize <<
+            " stable: "  << cih->IsStable() <<
             " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
         KFS_LOG_EOM;
         const bool openFlag = releaseCnt > 0 && cih->IsFileOpen();
