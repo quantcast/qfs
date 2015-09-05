@@ -298,6 +298,8 @@ public:
         bool      setScheduleReplicationCheckFlag);
     inline bool IsReadLease(
         LeaseId leaseId);
+    bool IsEmpty() const
+        { return (mReadLeases.IsEmpty() && mWriteLeases.IsEmpty()); }
 
 private:
     class EntryKeyHash
@@ -1073,6 +1075,7 @@ public:
     /// Is a valid lease issued on any of the chunks in the
     /// vector of MetaChunkInfo's?
     bool IsValidLeaseIssued(const vector<MetaChunkInfo*> &c);
+    bool IsValidObjBlockLeaseIssued(fid_t fid, chunkOff_t last);
 
     void MakeChunkStableInit(
         const CSMap::Entry& entry,

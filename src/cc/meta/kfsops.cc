@@ -401,25 +401,36 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         return -EPERM;
     }
     invalidatePathCache(pathname, fname, fa);
-    if (fa->chunkcount() > 0) {
-        StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
-        vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
-        getalloc(fa->id(), chunkInfo);
-        assert(fa->chunkcount() == (int64_t)chunkInfo.size());
-        if (todumpster > 0 ||
-                gLayoutManager.IsValidLeaseIssued(chunkInfo)) {
-            // put the file into dumpster
+    if (0 < fa->chunkcount() || 0 == fa->numReplicas) {
+        if (todumpster <= 0) {
+            if (0 != fa->numReplicas) {
+                StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+                vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+                getalloc(fa->id(), chunkInfo);
+                assert(fa->chunkcount() == (int64_t)chunkInfo.size());
+                if (gLayoutManager.IsValidLeaseIssued(chunkInfo)) {
+                    todumpster = 1;
+                } else {
+                    UpdateNumChunks(-fa->chunkcount());
+                    // fire-away...
+                    for_each(chunkInfo.begin(), chunkInfo.end(),
+                         mem_fun(&MetaChunkInfo::DeleteChunk));
+                }
+            } else if (gLayoutManager.IsValidObjBlockLeaseIssued(
+                    fa->id(), fa->nextChunkOffset())) {
+                todumpster = 1;
+            }
+        }
+        if (0 < todumpster) {
+            // Move into dumpster.
             todumpster = fa->id();
-            int status = moveToDumpster(dir, fname, todumpster);
-            KFS_LOG_STREAM_DEBUG << "Moving " << fname << " to dumpster" <<
+            const int status = moveToDumpster(dir, fname, todumpster);
+            KFS_LOG_STREAM_DEBUG << "moving " << fname << " to dumpster" <<
             KFS_LOG_EOM;
             return status;
         }
-        UpdateNumChunks(-fa->chunkcount());
-        // fire-away...
-        for_each(chunkInfo.begin(), chunkInfo.end(),
-             mem_fun(&MetaChunkInfo::DeleteChunk));
-    } else if (0 == fa->numReplicas) {
+    }
+    if (0 == fa->numReplicas) {
         gLayoutManager.DeleteFile(*fa);
     }
     UpdateNumFiles(-1);

@@ -906,6 +906,7 @@ private:
     bool       mWritePrepareReplyFlag;
     CryptoKeys mCryptoKeys;
     int64_t    mFileSystemId;
+    string     mFileSystemIdSuffix;
     string     mFsIdFileNamePrefix;
     int        mDirCheckerIoTimeoutSec;
     int        mDirCheckFailureSimulatorInterval;
@@ -916,6 +917,7 @@ private:
     int        mObjStoreMaxWritableBlocks;
     double     mObjStoreBufferDataRatio;
     int        mObjStoreBufferDataMaxSizePerBlock;
+    int        mObjStoreBlockMaxNonStableDisconnectedTime;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;

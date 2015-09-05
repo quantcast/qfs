@@ -69,6 +69,8 @@ inline static vector<uint32_t> ComputeChecksums(const IOBuffer* data, size_t len
 vector<uint32_t> ComputeChecksums(
     const char* data, size_t len, uint32_t* chksum = 0);
 
+uint32_t ComputeCrc32(const char* data, size_t len, uint32_t cchksum = 0);
+
 }
 
 #endif // CHUNKSERVER_CHECKSUM_H

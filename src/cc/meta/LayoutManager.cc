@@ -6128,13 +6128,16 @@ public:
     ValidLeaseIssued(const ChunkLeases& cl)
         : leases(cl) {}
     bool operator() (MetaChunkInfo *c) const {
-        return leases.HasValidLease( ChunkLeases::EntryKey(c->chunkId));
+        return leases.HasValidLease(ChunkLeases::EntryKey(c->chunkId));
     }
 };
 
 bool
 LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
 {
+    if (mChunkLeases.IsEmpty()) {
+        return false;
+    }
     vector<MetaChunkInfo*>::const_iterator const i = find_if(
         c.begin(), c.end(),
         ValidLeaseIssued(mChunkLeases)
@@ -6145,6 +6148,25 @@ LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
     KFS_LOG_STREAM_DEBUG << "valid lease issued on chunk: " <<
             (*i)->chunkId << KFS_LOG_EOM;
     return true;
+}
+
+bool
+LayoutManager::IsValidObjBlockLeaseIssued(fid_t fid, chunkOff_t last)
+{
+    if (mChunkLeases.IsEmpty()) {
+        return false;
+    }
+    for (chunkOff_t pos = last; 0 <= pos; pos -= CHUNKSIZE) {
+        if (mChunkLeases.HasValidLease(ChunkLeases::EntryKey(fid, pos))) {
+            KFS_LOG_STREAM_DEBUG <<
+                "valid lease issued on object block: " <<
+                " fid: " << fid <<
+                " pos: " << pos <<
+            KFS_LOG_EOM;
+            return true;
+        }
+    }
+    return false;
 }
 
 int

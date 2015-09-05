@@ -41,7 +41,6 @@
 #include "common/kfstypes.h"
 #include "common/nofilelimit.h"
 #include "common/IntToString.h"
-#include "common/hsieh_hash.h"
 
 #include "kfsio/Counter.h"
 #include "kfsio/checksum.h"
@@ -984,7 +983,8 @@ public:
         kfsSeq_t        targetVersion);
     int WriteChunkMetadata(KfsCallbackObj* cb = 0) {
         return WriteChunkMetadata(cb, false, mStableFlag,
-            mStableFlag ? chunkInfo.chunkVersion : kfsSeq_t(0));
+            (mStableFlag || chunkInfo.chunkVersion < 0) ?
+                chunkInfo.chunkVersion : kfsSeq_t(0));
     }
     kfsSeq_t GetTargetStateAndVersion(bool& stableFlag) const {
         if (! mWriteMetaOpsTail || mRenamesInFlight <= 0) {
@@ -1484,7 +1484,7 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
             return 0;
         }
         if (! DiskIo::Rename(
-                gChunkManager.MakeChunkPathname(cih).c_str(),
+                 gChunkManager.MakeChunkPathname(cih).c_str(),
                 gChunkManager.MakeChunkPathname(
                     cih, stableFlag, targetVersion).c_str(),
                 cih,
@@ -1497,10 +1497,20 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
     } else {
         assert(diskIo);
         diskIOTime = microseconds();
+        if (cih->chunkInfo.chunkVersion < 0 &&
+                (! stableFlag || cih->IsStale() ||
+                    targetVersion != cih->chunkInfo.chunkVersion)) {
+            // Never write non stable header or version change for object
+            // store block.
+            int res = 0;
+            cih->HandleEvent(EVENT_DISK_WROTE, &res);
+            return 0;
+        }
         status = diskIo->Write(0, dataBuf.BytesConsumable(), &dataBuf,
             (gChunkManager.IsSyncChunkHeader() &&
                 (0 < targetVersion || stableFlag)) ||
-            (stableFlag && 0 < cih->dataFH->GetMinWriteBlkSize()),
+            (stableFlag && cih->dataFH &&
+                0 < cih->dataFH->GetMinWriteBlkSize()),
             cih->chunkInfo.chunkSize
         );
     }
@@ -1520,7 +1530,8 @@ ChunkInfoHandle::WriteChunkMetadata(
     }
     // If chunk is not stable and is not transitioning into stable, and there
     // are no pending ops, just assign the version and mark meta dirty.
-    if (targetVersion > 0 && chunkInfo.chunkVersion != targetVersion &&
+    if ((chunkInfo.chunkVersion < 0 ||
+            (targetVersion > 0 && chunkInfo.chunkVersion != targetVersion)) &&
             mWritesInFlight <= 0 &&
             ! IsStable() && ! stableFlag && ! mWriteMetaOpsTail &&
             ! mInDoneHandlerFlag && IsFileOpen() &&
@@ -1528,9 +1539,13 @@ ChunkInfoHandle::WriteChunkMetadata(
         mMetaDirtyFlag         = true;
         chunkInfo.chunkVersion = targetVersion;
         if (cb) {
-            int res = 0;
-            cb->HandleEvent(renameFlag ?
-                EVENT_DISK_RENAME_DONE : EVENT_DISK_WROTE, &res);
+            if (renameFlag) {
+                int64_t res = 0;
+                cb->HandleEvent(EVENT_DISK_RENAME_DONE, &res);
+            } else {
+                int res = 0;
+                cb->HandleEvent(EVENT_DISK_WROTE, &res);
+            }
         }
         UpdateState();
         return 0;
@@ -1540,7 +1555,10 @@ ChunkInfoHandle::WriteChunkMetadata(
         // Not stable chunks on disk always have version 0.
         mMetaDirtyFlag = true;
         const int ret = WriteChunkMetadata(
-            0, false, stableFlag, stableFlag ? targetVersion : kfsSeq_t(0));
+            0, false, stableFlag,
+            (stableFlag || chunkInfo.chunkVersion < 0) ?
+                targetVersion : kfsSeq_t(0)
+        );
         if (ret != 0) {
             return ret;
         }
@@ -1799,6 +1817,7 @@ ChunkManager::ChunkManager()
       mWritePrepareReplyFlag(true),
       mCryptoKeys(globalNetManager(), 0 /* inMutexPtr */),
       mFileSystemId(-1),
+      mFileSystemIdSuffix(),
       mFsIdFileNamePrefix("0-fsid-"),
       mDirCheckerIoTimeoutSec(-1),
       mDirCheckFailureSimulatorInterval(-1),
@@ -1809,6 +1828,7 @@ ChunkManager::ChunkManager()
       mObjStoreMaxWritableBlocks(-1),
       mObjStoreBufferDataRatio(0.3),
       mObjStoreBufferDataMaxSizePerBlock(mObjStoreBlockWriteBufferSize),
+      mObjStoreBlockMaxNonStableDisconnectedTime(LEASE_INTERVAL_SECS * 3 / 2),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -2173,6 +2193,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mObjStoreBufferDataRatio = max(double(0.0), min(double(0.9), prop.getValue(
         "chunkServer.objStoreBufferDataIgnoreOverwriteFlag",
         mObjStoreBufferDataRatio)));
+    mObjStoreBlockMaxNonStableDisconnectedTime = prop.getValue(
+        "chunkServer.objStoreBlockMaxNonStableDisconnectedTime",
+        mObjStoreBlockMaxNonStableDisconnectedTime);
     if (prevObjStoreBufferDataRatio != mObjStoreBufferDataRatio) {
         mObjStoreMaxWritableBlocks = -1;
     }
@@ -2784,7 +2807,7 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
         cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
     if (cleanupPendingWritesOnlyFlag) {
         if (cih->IsChunkReadable()) {
-            int res = 0;
+            int64_t res = 0;
             cb->HandleEvent(EVENT_DISK_RENAME_DONE, &res);
             return 0;
         }
@@ -3635,6 +3658,28 @@ IntToBytes(char* buf, const T& val)
     return ptr;
 }
 
+static inline size_t
+UrlSafeBase64Encode(const void* data, size_t size, char* buf)
+{
+    int len = Base64::Encode(
+        reinterpret_cast<const char*>(data), (int)size, buf);
+    if (len <= 0) {
+        die("base64 encoding failure");
+    }
+    // Convert to url safe encoding with no padding.
+    while (0 < len && (buf[len - 1] & 0xFF) == '=') {
+        len--;
+    }
+    for (int i = 0; i < len; i++) {
+        switch (buf[i] & 0xFF) {
+            case '/': buf[i] = '_'; break;
+            case '+': buf[i] = '-'; break;
+            default:                break;
+        }
+    }
+    return len;
+}
+
 string
 ChunkManager::MakeChunkPathname(const string& chunkdir,
     kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
@@ -3649,28 +3694,13 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     ret.assign(chunkdir.data(), chunkdir.size());
     ret.append(subDir.data(), subDir.size());
     if (chunkVersion < 0) {
-        uint32_t hash;
+        uint32_t crc32;
         const    size_t kBlockIdSize = sizeof(chunkId) + sizeof(chunkVersion);
         char     buf[max(
-            (size_t)Base64::EncodedLength(sizeof(hash)) + 1, kBlockIdSize)];
+            (size_t)Base64::EncodedLength(sizeof(crc32)) + 1, kBlockIdSize)];
         IntToBytes(IntToBytes(buf, chunkId), chunkVersion);
-        hash = (uint32_t)HsiehHash(buf, kBlockIdSize);
-        int len = Base64::Encode(
-            reinterpret_cast<const char*>(&hash), (int)sizeof(hash), buf);
-        if (len <= 0) {
-            die("base64 encoding failure");
-        }
-        // Convert to url safe encoding with no padding.
-        while (0 < len && (buf[len - 1] & 0xFF) == '=') {
-            len--;
-        }
-        for (int i = 0; i < len; i++) {
-            switch (buf[i] & 0xFF) {
-                case '/': buf[i] = '_'; break;
-                case '+': buf[i] = '-'; break;
-                default:                break;
-            }
-        }
+        crc32 = ComputeCrc32(buf, kBlockIdSize);
+        size_t len = UrlSafeBase64Encode(&crc32, sizeof(crc32), buf);
         buf[len++] = '.';
         ret.append(buf, len);
     }
@@ -3681,6 +3711,15 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     AppendDecIntToString(ret, chunkId);
     ret += '.';
     AppendDecIntToString(ret, chunkVersion);
+    if (chunkVersion < 0 && 0 <= mFileSystemId) {
+        if (mFileSystemIdSuffix.empty()) {
+            char buf[Base64::EncodedLength(sizeof(mFileSystemId)) + 1];
+            buf[0] = '.';
+            mFileSystemIdSuffix.assign(buf, UrlSafeBase64Encode(
+                &mFileSystemId, sizeof(mFileSystemId), buf + 1));
+        }
+        ret += mFileSystemIdSuffix;
+    }
     return ret;
 }
 
@@ -5490,8 +5529,7 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         now - mInactiveFdsCleanupIntervalSecs;
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
     ChunkInfoHandle*   cih;
-    while ((cih = it.Next()) && (cih->lastIOTime < expireTime ||
-                cih->chunkInfo.chunkVersion < 0)) {
+    while ((cih = it.Next())) {
         if (! cih->IsFileOpen() || cih->IsBeingReplicated()) {
             if (cih != cur) {
                 if (cih->chunkInfo.chunkVersion < 0) {
@@ -5504,10 +5542,14 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
             }
             continue;
         }
+        if (expireTime <= cih->lastIOTime) {
+            break;
+        }
         bool       hasLeaseFlag         = false;
         bool       writePendingFlag     = false;
         bool       objBlockMetaDownFlag = false;
         bool       unstableObjBlockFlag = false;
+        time_t     kMinMetaUptime       = 10;
         time_t     metaUptime           = 0;
         const bool fileInUseFlag        = cih->IsFileInUse();
         if (fileInUseFlag ||
@@ -5520,7 +5562,9 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                         unstableObjBlockExpireTime < cih->lastIOTime) ||
                 (objBlockMetaDownFlag = unstableObjBlockFlag &&
                     (metaUptime = gMetaServerSM.ConnectionUptime()) <
-                        LEASE_INTERVAL_SECS)) {
+                        LEASE_INTERVAL_SECS &&
+                        (metaUptime < kMinMetaUptime || now < cih->lastIOTime +
+                            mObjStoreBlockMaxNonStableDisconnectedTime))) {
             KFS_LOG_STREAM_DEBUG << "cleanup: ignoring entry in chunk lru:"
                 " chunk: "       << cih->chunkInfo.chunkId <<
                 " version: "     << cih->chunkInfo.chunkVersion <<
@@ -5529,13 +5573,11 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                 " stable: "      << cih->IsStable() <<
                 " last io: "     << (now - cih->lastIOTime) << " sec. ago" <<
                 " meta uptime: " << gMetaServerSM.ConnectionUptime() <<
-                (fileInUseFlag ?    " file in use"     : "") <<
-                (hasLeaseFlag ?     " has lease"       : "") <<
-                (writePendingFlag ? " wrtie pending"   : "") <<
+                (fileInUseFlag ?        " file in use"       : "") <<
+                (hasLeaseFlag ?         " has lease"         : "") <<
+                (writePendingFlag ?     " wrtie pending"     : "") <<
+                (objBlockMetaDownFlag ? " short meta uptime" : "") <<
             KFS_LOG_EOM;
-            if (objBlockMetaDownFlag && metaUptime < LEASE_INTERVAL_SECS / 2) {
-                LruUpdate(*cih); // Move to the back of lru.
-            }
             continue;
         }
         if (cih->SyncMeta()) {
@@ -5785,6 +5827,7 @@ ChunkManager::SetFileSystemId(int64_t fileSystemId, bool deleteAllChunksFlag)
         die("invalid file system id");
         return false;
     }
+    mFileSystemIdSuffix.clear();
     mFileSystemId = fileSystemId;
     mDirChecker.SetDeleteAllChaunksOnFsMismatch(
         mFileSystemId, deleteAllChunksFlag);

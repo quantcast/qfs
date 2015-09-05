@@ -253,5 +253,11 @@ AppendToChecksumVector(const IOBuffer& data, size_t inlen,
     return;
 }
 
+uint32_t
+ComputeCrc32(const char* data, size_t len, uint32_t cchksum /* = 0 */)
+{
+    return crc32(cchksum, reinterpret_cast<const Bytef*>(data), len);
+}
+
 }
 
