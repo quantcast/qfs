@@ -927,6 +927,7 @@ private:
     double     mObjStoreBufferDataRatio;
     int        mObjStoreBufferDataMaxSizePerBlock;
     int        mObjStoreBlockMaxNonStableDisconnectedTime;
+    int        mObjBlockDiscardMinMetaUptime;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;

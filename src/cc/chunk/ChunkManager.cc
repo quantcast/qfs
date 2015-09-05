@@ -840,6 +840,7 @@ public:
           mInDoneHandlerFlag(false),
           mKeepFlag(false),
           mForceDeleteObjectStoreBlockFlag(false),
+          mWriteIdIssuedFlag(false),
           mChunkList(ChunkManager::kChunkLruList),
           mChunkDirList(ChunkDirInfo::kChunkDirList),
           mRenamesInFlight(0),
@@ -1106,8 +1107,7 @@ public:
                 status, writeSize, ioTimeMicrosec);
         }
     }
-    void UpdateDirStableCount()
-    {
+    void UpdateDirStableCount() {
         if (mChunkDirList == ChunkDirInfo::kChunkDirListNone) {
             return;
         }
@@ -1131,8 +1131,7 @@ public:
                 pendingReservationSizeDelta);
         }
     }
-    void AddWaitChunkReadable(KfsOp* op)
-    {
+    void AddWaitChunkReadable(KfsOp* op) {
         if (! op || op->next != 0) {
             die("invalid AddWaitChunkReadable invocation");
             return;
@@ -1146,17 +1145,20 @@ public:
             WaitChunkReadableDone(IsStale() ? -EIO : 0);
         }
     }
-    void SubmitWaitChunkReadable(int status)
-    {
+    void SubmitWaitChunkReadable(int status) {
         WaitChunkReadableDone(status);
     }
-    void SetForceDeleteObjectStoreBlock(bool flag)
-    {
+    void SetForceDeleteObjectStoreBlock(bool flag) {
         mForceDeleteObjectStoreBlockFlag = flag;
     }
-    bool GetForceDeleteObjectStoreBlockFlag() const
-    {
+    bool GetForceDeleteObjectStoreBlockFlag() const {
         return mForceDeleteObjectStoreBlockFlag;
+    }
+    void SetWriteIdIssuedFlag(bool flag) {
+        mWriteIdIssuedFlag = flag;
+    }
+    bool GetWriteIdIssuedFlag() const {
+        return mWriteIdIssuedFlag;
     }
     inline bool ScheduleObjTableCleanup(
         ChunkLists* chunkInfoLists);
@@ -1171,6 +1173,7 @@ private:
     bool                        mInDoneHandlerFlag:1;
     bool                        mKeepFlag:1;
     bool                        mForceDeleteObjectStoreBlockFlag:1;
+    bool                        mWriteIdIssuedFlag:1;
     ChunkManager::ChunkListType mChunkList:2;
     ChunkDirInfo::ChunkListType mChunkDirList:2;
     unsigned int                mRenamesInFlight:19;
@@ -1836,6 +1839,7 @@ ChunkManager::ChunkManager()
       mObjStoreBufferDataRatio(0.3),
       mObjStoreBufferDataMaxSizePerBlock(mObjStoreBlockWriteBufferSize),
       mObjStoreBlockMaxNonStableDisconnectedTime(LEASE_INTERVAL_SECS * 3 / 2),
+      mObjBlockDiscardMinMetaUptime(90),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -2203,6 +2207,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mObjStoreBlockMaxNonStableDisconnectedTime = prop.getValue(
         "chunkServer.objStoreBlockMaxNonStableDisconnectedTime",
         mObjStoreBlockMaxNonStableDisconnectedTime);
+    mObjBlockDiscardMinMetaUptime = prop.getValue(
+        "chunkServer.objBlockDiscardMinMetaUptime",
+        mObjBlockDiscardMinMetaUptime);
     if (prevObjStoreBufferDataRatio != mObjStoreBufferDataRatio) {
         mObjStoreMaxWritableBlocks = -1;
     }
@@ -5276,7 +5283,11 @@ ChunkManager::AllocateWriteId(
             LruUpdate(*cih); // Move back to prevent spurious scans.
         }
     }
-    if (wi->status != 0) {
+    if (0 == wi->status) {
+        if (cih) {
+            cih->SetWriteIdIssuedFlag(true);
+        }
+    } else {
         KFS_LOG_STREAM_ERROR <<
             "failed: " << wi->Show() <<
         KFS_LOG_EOM;
@@ -5541,15 +5552,16 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
     ChunkLru::Iterator it(mChunkInfoLists[kChunkLruList]);
     ChunkInfoHandle*   cih;
     while ((cih = it.Next())) {
+        if (cih == cur) {
+            continue;
+        }
         if (! cih->IsFileOpen() || cih->IsBeingReplicated()) {
-            if (cih != cur) {
-                if (cih->chunkInfo.chunkVersion < 0) {
-                    Remove(*cih); // Was scheduled for object table cleanup.
-                } else {
-                    // Doesn't belong here, if / when io completes it will be
-                    // added back.
-                    ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
-                }
+            if (cih->chunkInfo.chunkVersion < 0) {
+                Remove(*cih); // Was scheduled for object table cleanup.
+            } else {
+                // Doesn't belong here, if / when io completes it will be
+                // added back.
+                ChunkLru::Remove(mChunkInfoLists[kChunkLruList], *cih);
             }
             continue;
         }
@@ -5560,7 +5572,6 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         bool       writePendingFlag     = false;
         bool       objBlockMetaDownFlag = false;
         bool       unstableObjBlockFlag = false;
-        time_t     kMinMetaUptime       = 10;
         time_t     metaUptime           = 0;
         const bool fileInUseFlag        = cih->IsFileInUse();
         if (fileInUseFlag ||
@@ -5574,19 +5585,21 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                 (objBlockMetaDownFlag = unstableObjBlockFlag &&
                     (metaUptime = gMetaServerSM.ConnectionUptime()) <
                         LEASE_INTERVAL_SECS &&
-                        (metaUptime < kMinMetaUptime || now < cih->lastIOTime +
-                            (cih->chunkInfo.chunkSize <= 0 ?
+                        (metaUptime < mObjBlockDiscardMinMetaUptime ||
+                        now < cih->lastIOTime +
+                            (cih->GetWriteIdIssuedFlag() <= 0 ?
                             mObjStoreBlockMaxNonStableDisconnectedTime * 2 / 3 :
                             mObjStoreBlockMaxNonStableDisconnectedTime)))) {
             KFS_LOG_STREAM_DEBUG << "cleanup: ignoring entry in chunk lru:"
-                " chunk: "       << cih->chunkInfo.chunkId <<
-                " version: "     << cih->chunkInfo.chunkVersion <<
-                " size: "        << cih->chunkInfo.chunkSize <<
-                " dataFH: "      << (const void*)cih->dataFH.get() <<
-                " use count: "   << cih->dataFH.use_count() <<
-                " stable: "      << cih->IsStable() <<
-                " last io: "     << (now - cih->lastIOTime) << " sec. ago" <<
-                " meta uptime: " << gMetaServerSM.ConnectionUptime() <<
+                " chunk: "        << cih->chunkInfo.chunkId <<
+                " version: "      << cih->chunkInfo.chunkVersion <<
+                " size: "         << cih->chunkInfo.chunkSize <<
+                " dataFH: "       << (const void*)cih->dataFH.get() <<
+                " use count: "    << cih->dataFH.use_count() <<
+                " stable: "       << cih->IsStable() <<
+                " had write id: " << cih->GetWriteIdIssuedFlag() <<
+                " last io: "      << (now - cih->lastIOTime) << " sec. ago" <<
+                " meta uptime: "  << gMetaServerSM.ConnectionUptime() <<
                 (fileInUseFlag ?        " file in use"       : "") <<
                 (hasLeaseFlag ?         " has lease"         : "") <<
                 (writePendingFlag ?     " write pending"     : "") <<
@@ -5598,15 +5611,14 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                 ! cih->DiscardMeta() : cih->SyncMeta())) {
             continue;
         }
-        // we have a valid file-id and it has been over 5 mins since we last did
-        // I/O on it.
         KFS_LOG_STREAM_DEBUG << "cleanup: closing"
-            " dataFH: "  << (const void*)cih->dataFH.get() <<
-            " chunk: "   << cih->chunkInfo.chunkId <<
-            " version: " << cih->chunkInfo.chunkVersion <<
-            " size: "    << cih->chunkInfo.chunkSize <<
-            " stable: "  << cih->IsStable() <<
-            " last io: " << (now - cih->lastIOTime) << " sec. ago" <<
+            " chunk: "        << cih->chunkInfo.chunkId <<
+            " version: "      << cih->chunkInfo.chunkVersion <<
+            " size: "         << cih->chunkInfo.chunkSize <<
+            " dataFH: "       << (const void*)cih->dataFH.get() <<
+            " stable: "       << cih->IsStable() <<
+            " had write id: " << cih->GetWriteIdIssuedFlag() <<
+            " last io: "      << (now - cih->lastIOTime) << " sec. ago" <<
         KFS_LOG_EOM;
         const bool openFlag = releaseCnt > 0 && cih->IsFileOpen();
         Release(*cih);
