@@ -5575,7 +5575,7 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
                 " meta uptime: " << gMetaServerSM.ConnectionUptime() <<
                 (fileInUseFlag ?        " file in use"       : "") <<
                 (hasLeaseFlag ?         " has lease"         : "") <<
-                (writePendingFlag ?     " wrtie pending"     : "") <<
+                (writePendingFlag ?     " write pending"     : "") <<
                 (objBlockMetaDownFlag ? " short meta uptime" : "") <<
             KFS_LOG_EOM;
             continue;
