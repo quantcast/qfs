@@ -5277,7 +5277,7 @@ ChunkManager::AllocateWriteId(
 WriteOp*
 ChunkManager::CloneWriteOp(int64_t writeId)
 {
-    WriteOp* const other = mPendingWrites.find(writeId);
+    WriteOp* const other = mPendingWrites.FindAndMoveBackIfOk(writeId);
     if (! other || other->status < 0) {
         // if the write is "bad" already, don't add more data to it
         if (other) {

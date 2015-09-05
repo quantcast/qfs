@@ -493,7 +493,7 @@ private:
             }
             return false;
         }
-        WriteOp* FindAndMoveBack(int64_t writeId)
+        WriteOp* FindAndMoveBackIfOk(int64_t writeId)
         {
             mKeyOp.writeId = writeId;
             const typename WriteIdSet::iterator i =
@@ -501,9 +501,11 @@ private:
             if (i == mWriteIds.end()) {
                 return 0;
             }
-            // splice: "All iterators remain valid including iterators that
-            // point to elements of x." x == mLru
-            mLru.splice(mLru.end(), mLru, i->GetLruIterator());
+            if (0 <= i->mOp->status) {
+                // splice: "All iterators remain valid including iterators that
+                // point to elements of x." x == mLru
+                mLru.splice(mLru.end(), mLru, i->GetLruIterator());
+            }
             return i->mOp;
         }
         size_t GetChunkIdCount() const
@@ -700,6 +702,13 @@ private:
             return (IsObjStoreWriteId(writeId) ?
                 mObjWrites.find(writeId) :
                 mChunkWrites.find(writeId)
+            );
+        }
+        WriteOp* FindAndMoveBackIfOk(int64_t writeId)
+        {
+            return (IsObjStoreWriteId(writeId) ?
+                mObjWrites.FindAndMoveBackIfOk(writeId) :
+                mChunkWrites.FindAndMoveBackIfOk(writeId)
             );
         }
         bool push_back(WriteOp* op)
