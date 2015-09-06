@@ -70,8 +70,8 @@ public:
           mFileInfoPtr(0),
           mPendingReadBlockCount(0),
           mPendingWriteBlockCount(0),
-          mPendingCloseHead(kEndOfPendingCloseList),
-          mPendingCloseTail(kEndOfPendingCloseList),
+          mPendingCloseHeadPtr(0),
+          mPendingCloseTailPtr(0),
           mPendingCount(0),
           mFreeCount(0),
           mTotalCount(0),
@@ -91,6 +91,7 @@ public:
           mCreateExclusiveFlag(true),
           mRunFlag(false),
           mRequestAffinityFlag(false),
+          mSerializeMetaRequestsFlag(true),
           mBarrierFlag(false)
         {}
     virtual ~Queue()
@@ -107,7 +108,8 @@ public:
         DebugTracer*             inDebugTracerPtr,
         bool                     inBufferedIoFlag,
         bool                     inCreateExclusiveFlag,
-        bool                     inRequestAffinityFlag);
+        bool                     inRequestAffinityFlag,
+        bool                     inSerializeMetaRequestsFlag);
     void Stop()
     {
         QCStMutexLocker theLocker(mMutex);
@@ -434,8 +436,8 @@ private:
     FileInfo*        mFileInfoPtr;
     int64_t          mPendingReadBlockCount;
     int64_t          mPendingWriteBlockCount;
-    unsigned int     mPendingCloseHead;
-    unsigned int     mPendingCloseTail;
+    unsigned int*    mPendingCloseHeadPtr;
+    unsigned int*    mPendingCloseTailPtr;
     int              mPendingCount;
     int              mFreeCount;
     int              mTotalCount;
@@ -455,6 +457,7 @@ private:
     bool             mCreateExclusiveFlag;
     bool             mRunFlag;
     bool             mRequestAffinityFlag;
+    bool             mSerializeMetaRequestsFlag;
     bool             mBarrierFlag; // New req. can not be processed
                                    // until in flight req. done.
 
@@ -769,20 +772,24 @@ private:
         Put(inReq);
     }
     void ScheduleClose(
-        unsigned int inFileIdx)
+        unsigned int inFileIdx,
+        int          inThreadIdx)
     {
-        if (mPendingCloseTail != kEndOfPendingCloseList) {
+        unsigned int& thePendingCloseTail = mPendingCloseTailPtr[inThreadIdx];
+        if (thePendingCloseTail != kEndOfPendingCloseList) {
             QCASSERT(
-                mFilePendingReqCountPtr[mPendingCloseTail] ==
+                mFilePendingReqCountPtr[thePendingCloseTail] ==
                 kEndOfPendingCloseList
             );
-            mFilePendingReqCountPtr[mPendingCloseTail] =
+            mFilePendingReqCountPtr[thePendingCloseTail] =
                 inFileIdx + kPendingCloseListIdxOff;
-            mPendingCloseTail = inFileIdx;
+            thePendingCloseTail = inFileIdx;
         } else {
-            QCASSERT(mPendingCloseHead == kEndOfPendingCloseList);
-            mPendingCloseTail = inFileIdx;
-            mPendingCloseHead = inFileIdx + kPendingCloseListIdxOff;
+            unsigned int& thePendingCloseHead =
+                mPendingCloseHeadPtr[inThreadIdx];
+            QCASSERT(thePendingCloseHead == kEndOfPendingCloseList);
+            thePendingCloseTail = inFileIdx;
+            thePendingCloseHead = inFileIdx + kPendingCloseListIdxOff;
         }
         mFilePendingReqCountPtr[inFileIdx] = kEndOfPendingCloseList;
     }
@@ -935,6 +942,9 @@ QCDiskQueue::Queue::StopSelf()
     mRequestBufferCount = 0;
     delete [] mRequestsPtr;
     mRequestsPtr = 0;
+    delete [] mPendingCloseHeadPtr;
+    mPendingCloseHeadPtr = 0;
+    mPendingCloseTailPtr = 0;
     mFreeCount = 0;
     mTotalCount = 0;
     mPendingCount = 0;
@@ -963,7 +973,8 @@ QCDiskQueue::Queue::Start(
     QCDiskQueue::DebugTracer*     inDebugTracerPtr,
     bool                          inBufferedIoFlag,
     bool                          inCreateExclusiveFlag,
-    bool                          inRequestAffinityFlag)
+    bool                          inRequestAffinityFlag,
+    bool                          inSerializeMetaRequestsFlag)
 {
     QCStMutexLocker theLocker(mMutex);
     StopSelf();
@@ -981,6 +992,8 @@ QCDiskQueue::Queue::Start(
 #else
     const int kMaxIoVecCount = 1 << 10;
 #endif
+    mSerializeMetaRequestsFlag =
+        inSerializeMetaRequestsFlag || ! inRequestAffinityFlag;
     mNextThreadIdx = 0;
     mDebugTracerPtr = inDebugTracerPtr;
     mIoStartObserverPtr = inIoStartObserverPtr;
@@ -999,8 +1012,13 @@ QCDiskQueue::Queue::Start(
         mFileCount : inThreadCount * mFileCount;
     mFdPtr = new int[theFdCount];
     mFilePendingReqCountPtr = new unsigned int[mFileCount];
-    mPendingCloseHead = kEndOfPendingCloseList;
-    mPendingCloseTail = kEndOfPendingCloseList;
+    const int theCloseQueueCnt =
+        2 * (inRequestAffinityFlag ? inThreadCount : 1);
+    mPendingCloseHeadPtr = new unsigned int[theCloseQueueCnt];
+    for (int i = 0; i < theCloseQueueCnt; i++) {
+        mPendingCloseHeadPtr[i] = kEndOfPendingCloseList;
+    }
+    mPendingCloseTailPtr = mPendingCloseHeadPtr + theCloseQueueCnt / 2;
     mFileInfoPtr = new FileInfo[mFileCount];
     mFileInfoPtr[mFileCount - 1].mThreadIdx = 0;
     mFreeFdHead = kFreeFdEnd;
@@ -1035,6 +1053,9 @@ QCDiskQueue::Queue::Start(
                 theError = EOVERFLOW;
                 break;
             }
+            if (! mRequestAffinityFlag || mThreadCount <= mNextThreadIdx) {
+                mNextThreadIdx = 0;
+            }
             mFilePendingReqCountPtr[i] = 0;
             mFileInfoPtr[i].mLastBlockIdx          = theBlkIdx;
             mFileInfoPtr[i].mSpaceAllocPendingFlag = false;
@@ -1042,6 +1063,7 @@ QCDiskQueue::Queue::Start(
             mFileInfoPtr[i].mOpenError             = kOpenErrorNone;
             mFileInfoPtr[i].mClosedFlag            = false;
             mFileInfoPtr[i].mCloseFileSize         = -1;
+            mFileInfoPtr[i].mThreadIdx             = mNextThreadIdx++;
             if (theFd < 0 && i < inFileCount) {
                 theFd = mFreeFdHead;
                 mFreeFdHead = -(i + kFreeFdOffset);
@@ -1224,11 +1246,13 @@ QCDiskQueue::Queue::Run(
     struct iovec* const theIoVecPtr = mIoVecPtr +
         mIoVecPerThreadCount * inThreadIndex;
     const int theThreadQueueIdx = mRequestAffinityFlag ? inThreadIndex : 0;
+    unsigned int& thePendingCloseHead = mPendingCloseHeadPtr[theThreadQueueIdx];
+    unsigned int& thePendingCloseTail = mPendingCloseTailPtr[theThreadQueueIdx];
     bool theBarrierFlag = false;
     while (mRunFlag) {
         Request* theReqPtr = 0;
         while ((mBarrierFlag ||
-                    (mPendingCloseHead == kEndOfPendingCloseList &&
+                    (thePendingCloseHead == kEndOfPendingCloseList &&
                     ! (theReqPtr = Dequeue(theThreadQueueIdx)))) &&
                     mRunFlag) {
             Wait(theThreadQueueIdx);
@@ -1239,31 +1263,32 @@ QCDiskQueue::Queue::Run(
             }
             break;
         }
-        mBarrierFlag = theReqPtr ?
+        mBarrierFlag = mSerializeMetaRequestsFlag && (theReqPtr ?
             theReqPtr->IsBarrier() :
-            mPendingCloseHead != kEndOfPendingCloseList;
-        if (theBarrierFlag && ! mBarrierFlag && mThreadCount > 1) {
+            ! mRequestAffinityFlag &&
+                thePendingCloseHead != kEndOfPendingCloseList);
+        if (theBarrierFlag && ! mBarrierFlag && 0 < mThreadCount) {
             // Wake up other threads after barrier req.
             NotifyAllWithPending();
         }
         theBarrierFlag = mBarrierFlag;
         if (theReqPtr) {
-            QCASSERT(mPendingCloseHead == kEndOfPendingCloseList);
+            QCASSERT(thePendingCloseHead == kEndOfPendingCloseList);
             const FileIdx theFileIdx = theReqPtr->mFileIdx;
             Process(*theReqPtr, theFdPtr, theIoVecPtr);
             if (mFileInfoPtr[theFileIdx].mClosedFlag &&
                     mFilePendingReqCountPtr[theFileIdx] <= 0) {
-                ScheduleClose(theFileIdx);
+                ScheduleClose(theFileIdx, theThreadQueueIdx);
             }
         } else {
             QCASSERT(
-                mPendingCloseHead != kEndOfPendingCloseList &&
-                kPendingCloseListIdxOff <= mPendingCloseHead &&
-                mBarrierFlag
+                thePendingCloseHead != kEndOfPendingCloseList &&
+                kPendingCloseListIdxOff <= thePendingCloseHead &&
+                (mBarrierFlag || mRequestAffinityFlag)
             );
-            unsigned int theHead = mPendingCloseHead;
-            mPendingCloseHead = kEndOfPendingCloseList;
-            mPendingCloseTail = kEndOfPendingCloseList;
+            unsigned int theHead = thePendingCloseHead;
+            thePendingCloseHead = kEndOfPendingCloseList;
+            thePendingCloseTail = kEndOfPendingCloseList;
             while (theHead != kEndOfPendingCloseList) {
                 const unsigned int theFileIdx =
                     theHead - kPendingCloseListIdxOff;
@@ -1869,7 +1894,7 @@ QCDiskQueue::Queue::CloseFile(
     }
     if (mFilePendingReqCountPtr[inFileIdx] <= 0) {
         const int theThreadIdx = mFileInfoPtr[inFileIdx].mThreadIdx;
-        ScheduleClose(inFileIdx);
+        ScheduleClose(inFileIdx, theThreadIdx);
         Notify(theThreadIdx);
     }
     // Else if request are pending the last request will perform close.
@@ -1895,7 +1920,7 @@ QCDiskQueue::Queue::CloseAllFiles()
             continue;
         }
         if (mFilePendingReqCountPtr[i] <= 0) {
-            ScheduleClose(i);
+            ScheduleClose(i, theThreadIdx);
             if (theThreadIdx == theLastThreadIdx) {
                 continue;
             }
@@ -2242,12 +2267,13 @@ QCDiskQueue::Start(
     int                           inFileCount,
     const char**                  inFileNamesPtr,
     QCIoBufferPool&               inBufferPool,
-    QCDiskQueue::IoStartObserver* inIoStartObserverPtr  /* = 0 */,
-    QCDiskQueue::CpuAffinity      inCpuAffinity         /* = CpuAffinity::None() */,
-    QCDiskQueue::DebugTracer*     inDebugTracerPtr      /* = 0 */,
-    bool                          inBufferedIoFlag      /* = false */,
-    bool                          inCreateExclusiveFlag /* = true */,
-    bool                          inRequestAffinityFlag /* = false */)
+    QCDiskQueue::IoStartObserver* inIoStartObserverPtr        /* = 0 */,
+    QCDiskQueue::CpuAffinity      inCpuAffinity /* = CpuAffinity::None() */,
+    QCDiskQueue::DebugTracer*     inDebugTracerPtr            /* = 0 */,
+    bool                          inBufferedIoFlag            /* = false */,
+    bool                          inCreateExclusiveFlag       /* = true  */,
+    bool                          inRequestAffinityFlag       /* = false */,
+    bool                          inSerializeMetaRequestsFlag /* = true  */)
 {
     Stop();
     mQueuePtr = new Queue();
@@ -2263,7 +2289,8 @@ QCDiskQueue::Start(
         inDebugTracerPtr,
         inBufferedIoFlag,
         inCreateExclusiveFlag,
-        inRequestAffinityFlag
+        inRequestAffinityFlag,
+        inSerializeMetaRequestsFlag
     );
     if (theRet != 0) {
         Stop();
