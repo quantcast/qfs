@@ -58,8 +58,8 @@ class QCDiskQueue::Queue
 public:
     Queue()
         : mMutex(),
-          mWorkCond(),
           mFreeReqCond(),
+          mWorkCondPtr(0),
           mBufferPoolPtr(0),
           mThreadsPtr(0),
           mBuffersPtr(0),
@@ -76,6 +76,7 @@ public:
           mFreeCount(0),
           mTotalCount(0),
           mThreadCount(0),
+          mRequestQueueCount(0),
           mRequestBufferCount(0),
           mCompletionRunningCount(0),
           mFileCount(0),
@@ -86,8 +87,10 @@ public:
           mReqWaitersCount(0),
           mDebugTracerPtr(0),
           mIoStartObserverPtr(0),
+          mNextThreadIdx(0),
           mCreateExclusiveFlag(true),
           mRunFlag(false),
+          mRequestAffinityFlag(false),
           mBarrierFlag(false)
         {}
     virtual ~Queue()
@@ -103,7 +106,8 @@ public:
         QCDiskQueue::CpuAffinity inCpuAffinity,
         DebugTracer*             inDebugTracerPtr,
         bool                     inBufferedIoFlag,
-        bool                     inCreateExclusiveFlag);
+        bool                     inCreateExclusiveFlag,
+        bool                     inRequestAffinityFlag);
     void Stop()
     {
         QCStMutexLocker theLocker(mMutex);
@@ -404,7 +408,8 @@ private:
               mOpenPendingFlag(false),
               mOpenError(kOpenErrorNone),
               mClosedFlag(false),
-              mCloseFileSize(-1)
+              mCloseFileSize(-1),
+              mThreadIdx(0)
             {}
         uint64_t  mLastBlockIdx:48;
         bool      mSpaceAllocPendingFlag:1;
@@ -413,11 +418,12 @@ private:
         bool      mClosedFlag:1;
         bool      mBufferedIoFlag:1;
         int64_t   mCloseFileSize;
+        int       mThreadIdx;
     };
 
     QCMutex          mMutex;
-    QCCondVar        mWorkCond;
     QCCondVar        mFreeReqCond;
+    QCCondVar*       mWorkCondPtr;
     QCIoBufferPool*  mBufferPoolPtr;
     IoThread*        mThreadsPtr;
     char**           mBuffersPtr;
@@ -434,6 +440,7 @@ private:
     int              mFreeCount;
     int              mTotalCount;
     int              mThreadCount;
+    int              mRequestQueueCount;
     int              mRequestBufferCount;
     int              mCompletionRunningCount;
     int              mFileCount;
@@ -444,8 +451,10 @@ private:
     int              mReqWaitersCount;
     DebugTracer*     mDebugTracerPtr;
     IoStartObserver* mIoStartObserverPtr;
+    int              mNextThreadIdx;
     bool             mCreateExclusiveFlag;
     bool             mRunFlag;
+    bool             mRequestAffinityFlag;
     bool             mBarrierFlag; // New req. can not be processed
                                    // until in flight req. done.
 
@@ -481,7 +490,7 @@ private:
         Request& inReq)
     {
         return (mBuffersPtr +
-            ((&inReq - mRequestsPtr) - kRequestQueueCount) * mRequestBufferCount
+            ((&inReq - mRequestsPtr) - mRequestQueueCount) * mRequestBufferCount
         );
     }
     void Init(
@@ -542,11 +551,13 @@ private:
     bool Empty(
         RequestIdx inIdx) const
         { return (mRequestsPtr[inIdx].mNextIdx == inIdx); }
-    bool HasPendingReq() const
-        { return (! Empty(kIoQueueIdx)); }
-    bool HasPendingNonBarrierReq() const
+    bool HasPendingReq(
+        int inThreadIdx) const
+        { return (! Empty(kIoQueueIdx + inThreadIdx)); }
+    bool HasPendingNonBarrierReq(
+        int inThreadIdx) const
     {
-        const Request* const theReqPtr = Front(kIoQueueIdx);
+        const Request* const theReqPtr = Front(kIoQueueIdx + inThreadIdx);
         return (theReqPtr && ! theReqPtr->IsBarrier());
     }
     int GetReqListSize(
@@ -628,10 +639,11 @@ private:
         }
     }
     void Enqueue(
-        Request& inReq)
+        Request& inReq,
+        int      inThreadIdx)
     {
         Trace("enqueue", inReq);
-        Insert(mRequestsPtr[kIoQueueIdx], inReq);
+        Insert(mRequestsPtr[kIoQueueIdx + inThreadIdx], inReq);
         mPendingCount++;
         mFilePendingReqCountPtr[inReq.mFileIdx]++;
         if (inReq.mReqType == kReqTypeRead) {
@@ -643,9 +655,10 @@ private:
             QCRTASSERT(! "Bad request type");
         }
     }
-    Request* Dequeue()
+    Request* Dequeue(
+        int inThreadIdx)
     {
-        Request* const theReqPtr = Front(kIoQueueIdx);
+        Request* const theReqPtr = Front(kIoQueueIdx + inThreadIdx);
         if (theReqPtr) {
             RemoveWithSubRequests(*theReqPtr);
         }
@@ -662,7 +675,7 @@ private:
         while ((theBufCount -= mRequestBufferCount) > 0) {
             Request& theReq = *theNextPtr;
             QCRTASSERT(
-                mRequestsPtr + kRequestQueueCount <= theNextPtr &&
+                mRequestsPtr + mRequestQueueCount <= theNextPtr &&
                 theReq.mReqType == kReqTypeNone
             );
             theNextPtr = mRequestsPtr + theReq.mNextIdx;
@@ -838,6 +851,40 @@ private:
         struct stat theStat;
         return (fstat(inFd, &theStat) == 0 ? theStat.st_size : off_t(-1));
     }
+    void Notify(
+        int inThreadIdx)
+    {
+        mWorkCondPtr[inThreadIdx].Notify();
+    }
+    void NotifyAll()
+    {
+        if (mRequestAffinityFlag) {
+            for (int i = 0; i < mThreadCount; i++) {
+                mWorkCondPtr[i].Notify();
+            }
+            return;
+        }
+        mWorkCondPtr[0].NotifyAll();
+    }
+    void NotifyAllWithPending()
+    {
+        if (mRequestAffinityFlag) {
+            for (int i = 0; i < mThreadCount; i++) {
+                if (HasPendingReq(i)) {
+                    mWorkCondPtr[i].Notify();
+                }
+            }
+            return;
+        }
+        if (HasPendingReq(0)) {
+            mWorkCondPtr[0].NotifyAll();
+        }
+    }
+    void Wait(
+        int inThreadIdx)
+    {
+        mWorkCondPtr[inThreadIdx].Wait(mMutex);
+    }
 private:
     Queue(
         const Queue& inQueue);
@@ -850,7 +897,9 @@ QCDiskQueue::Queue::StopSelf()
 {
     QCASSERT(mMutex.IsOwned());
     mRunFlag = false;
-    mWorkCond.NotifyAll();
+    if (mWorkCondPtr) {
+        NotifyAll();
+    }
     for (int i = 0; i < mThreadCount; i++) {
         QCThread& theThread = mThreadsPtr[i];
         QCStMutexUnlocker theUnlock(mMutex);
@@ -859,8 +908,10 @@ QCDiskQueue::Queue::StopSelf()
     QCASSERT(mCompletionRunningCount == 0);
     if (mRequestsPtr) {
         Request* theReqPtr;
-        while ((theReqPtr = Dequeue())) {
-            Cancel(*theReqPtr);
+        for (int i = 0; i < (mRequestAffinityFlag ? mThreadCount : 0); i++) {
+            while ((theReqPtr = Dequeue(i))) {
+                Cancel(*theReqPtr);
+            }
         }
         QCASSERT(mPendingCount == 0);
     }
@@ -869,6 +920,8 @@ QCDiskQueue::Queue::StopSelf()
             close(mFdPtr[mFdCount]);
         }
     }
+    delete [] mWorkCondPtr;
+    mWorkCondPtr = 0;
     delete [] mFdPtr;
     mFdPtr = 0;
     delete [] mFilePendingReqCountPtr;
@@ -909,7 +962,8 @@ QCDiskQueue::Queue::Start(
     QCDiskQueue::CpuAffinity      inCpuAffinity,
     QCDiskQueue::DebugTracer*     inDebugTracerPtr,
     bool                          inBufferedIoFlag,
-    bool                          inCreateExclusiveFlag)
+    bool                          inCreateExclusiveFlag,
+    bool                          inRequestAffinityFlag)
 {
     QCStMutexLocker theLocker(mMutex);
     StopSelf();
@@ -927,22 +981,28 @@ QCDiskQueue::Queue::Start(
 #else
     const int kMaxIoVecCount = 1 << 10;
 #endif
+    mNextThreadIdx = 0;
     mDebugTracerPtr = inDebugTracerPtr;
     mIoStartObserverPtr = inIoStartObserverPtr;
     mIoVecPerThreadCount = Min(
         Min(kMaxIoVecCount, Min(4 << 10, inMaxBuffersPerRequestCount * 32)),
         inMaxQueueDepth * inMaxBuffersPerRequestCount
     );
+    mRequestAffinityFlag = inRequestAffinityFlag;
+    mWorkCondPtr = new QCCondVar[
+        mRequestAffinityFlag ? inThreadCount : 1];
     // The last entry is pseudo file for meta requests.
     mFileCount = inFileCount + 1;
     mIoVecPtr = new struct iovec[mIoVecPerThreadCount * inThreadCount];
     mBlockSize = inBufferPool.GetBufferSize();
-    const int theFdCount = inThreadCount * mFileCount;
+    const int theFdCount = mRequestAffinityFlag ?
+        mFileCount : inThreadCount * mFileCount;
     mFdPtr = new int[theFdCount];
     mFilePendingReqCountPtr = new unsigned int[mFileCount];
     mPendingCloseHead = kEndOfPendingCloseList;
     mPendingCloseTail = kEndOfPendingCloseList;
     mFileInfoPtr = new FileInfo[mFileCount];
+    mFileInfoPtr[mFileCount - 1].mThreadIdx = 0;
     mFreeFdHead = kFreeFdEnd;
     mCreateExclusiveFlag = inCreateExclusiveFlag;
     for (mFdCount = 0; mFdCount < theFdCount; ) {
@@ -994,10 +1054,12 @@ QCDiskQueue::Queue::Start(
     }
     mBuffersPtr = new char*[inMaxQueueDepth * inMaxBuffersPerRequestCount];
     mRequestBufferCount = inMaxBuffersPerRequestCount;
-    const int theReqCnt = kRequestQueueCount + inMaxQueueDepth;
+    mRequestQueueCount  = kRequestQueueCount +
+        (mRequestAffinityFlag ? inThreadCount - 1 : 0);
+    const int theReqCnt = mRequestQueueCount + inMaxQueueDepth;
     mRequestsPtr = new Request[theReqCnt];
     // Init list heads: kFreeQueueIdx kIoQueueIdx.
-    for (mTotalCount = 0; mTotalCount < kRequestQueueCount; mTotalCount++) {
+    for (mTotalCount = 0; mTotalCount < mRequestQueueCount; mTotalCount++) {
         Init(mRequestsPtr[mTotalCount]);
     }
     // Make free list.
@@ -1035,7 +1097,7 @@ QCDiskQueue::Queue::Enqueue(
     if ((inReqType != kReqTypeRead && ! IsWriteReqType(inReqType)) ||
             inBufferCount <= 0 ||
             inBufferCount > (mRequestBufferCount *
-                (mTotalCount - kRequestQueueCount)) ||
+                (mTotalCount - mRequestQueueCount)) ||
             (! inBufferIteratorPtr && IsWriteReqType(inReqType))) {
         return EnqueueStatus(kRequestIdNone, kErrorParameter);
     }
@@ -1102,9 +1164,10 @@ QCDiskQueue::Queue::Enqueue(
     if (kReqTypeWriteSync == inReqType && 0 <= inEofHint) {
         mFileInfoPtr[inFileIdx].mCloseFileSize = inEofHint;
     }
-    Enqueue(theReq);
+    const int theThreadIdx = mFileInfoPtr[inFileIdx].mThreadIdx;
+    Enqueue(theReq, theThreadIdx);
     if (! mBarrierFlag) {
-        mWorkCond.Notify();
+        Notify(theThreadIdx);
     }
     return EnqueueStatus(GetRequestId(theReq), kErrorNone);
 }
@@ -1116,7 +1179,7 @@ QCDiskQueue::Queue::Cancel(
     QCStMutexLocker theLocker(mMutex);
     return (
         mPendingCount > 0 &&
-        inRequestId >= kRequestQueueCount &&
+        inRequestId >= mRequestQueueCount &&
         inRequestId < mTotalCount &&
         ! mRequestsPtr[inRequestId].mInFlightFlag &&
         Cancel(mRequestsPtr[inRequestId])
@@ -1130,7 +1193,7 @@ QCDiskQueue::Queue::CancelOrSetCompletionIfInFlight(
 {
     QCStMutexLocker theLocker(mMutex);
     if (mPendingCount <= 0 ||
-            inRequestId < kRequestQueueCount ||
+            inRequestId < mRequestQueueCount ||
             inRequestId >= mTotalCount) {
         return 0;
     }
@@ -1157,17 +1220,18 @@ QCDiskQueue::Queue::Run(
     QCStMutexLocker theLocker(mMutex);
     QCASSERT(inThreadIndex >= 0 && inThreadIndex < mThreadCount);
     int* const          theFdPtr    = mFdPtr +
-        mFdCount / mThreadCount * inThreadIndex;
+        (mRequestAffinityFlag ? 0 : mFdCount / mThreadCount * inThreadIndex);
     struct iovec* const theIoVecPtr = mIoVecPtr +
         mIoVecPerThreadCount * inThreadIndex;
+    const int theThreadQueueIdx = mRequestAffinityFlag ? inThreadIndex : 0;
     bool theBarrierFlag = false;
     while (mRunFlag) {
         Request* theReqPtr = 0;
         while ((mBarrierFlag ||
                     (mPendingCloseHead == kEndOfPendingCloseList &&
-                    ! (theReqPtr = Dequeue()))) &&
+                    ! (theReqPtr = Dequeue(theThreadQueueIdx)))) &&
                     mRunFlag) {
-            mWorkCond.Wait(mMutex);
+            Wait(theThreadQueueIdx);
         }
         if (! mRunFlag) {
             if (theReqPtr) {
@@ -1178,9 +1242,9 @@ QCDiskQueue::Queue::Run(
         mBarrierFlag = theReqPtr ?
             theReqPtr->IsBarrier() :
             mPendingCloseHead != kEndOfPendingCloseList;
-        if (theBarrierFlag && ! mBarrierFlag &&
-                HasPendingReq() && mThreadCount > 1) {
-            mWorkCond.NotifyAll(); // Wake up other threads after barrier req.
+        if (theBarrierFlag && ! mBarrierFlag && mThreadCount > 1) {
+            // Wake up other threads after barrier req.
+            NotifyAllWithPending();
         }
         theBarrierFlag = mBarrierFlag;
         if (theReqPtr) {
@@ -1415,6 +1479,10 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
     int i;
     for (i = theIdx; i < mFdCount; i += mFileCount) {
         QCRTASSERT(mFdPtr[i] == kOpenPendingFd);
+        if (mRequestAffinityFlag && i >= mFileCount) {
+            mFdPtr[i] = -1;
+            continue;
+        }
         const int theFd    = (theCreateFlag && i == theIdx) ?
             CreateFile(theFileNamePtr, theOpenFlags, S_IRUSR | S_IWUSR,
                 theCreateExclusiveFlag) :
@@ -1446,7 +1514,9 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
     }
     if (theSysErr) {
         while ((i -= mFileCount) >= theIdx) {
-            close(mFdPtr[i]);
+            if (0 <= mFdPtr[i]) {
+                close(mFdPtr[i]);
+            }
             mFdPtr[i] = kOpenPendingFd;
         }
     }
@@ -1483,6 +1553,7 @@ QCDiskQueue::Queue::ProcessClose(
         }
 
         const int theFd = mFdPtr[inFileIdx];
+        mFdPtr[inFileIdx] = -1;
         for (int i = inFileIdx + mFileCount; i < mFdCount; i += mFileCount) {
             if (close(mFdPtr[i])) {
                 theSysErr = errno ? errno : -1;
@@ -1741,7 +1812,9 @@ QCDiskQueue::Queue::OpenFile(
     for (int i = theIdx; i < mFdCount; i += mFileCount) {
         mFdPtr[i] = kOpenPendingFd;
     }
-
+    if (! mRequestAffinityFlag || mThreadCount <= mNextThreadIdx) {
+        mNextThreadIdx = 0;
+    }
     mFilePendingReqCountPtr[theIdx] = 0;
     mFileInfoPtr[theIdx].mOpenError             = kOpenErrorNone;
     mFileInfoPtr[theIdx].mOpenPendingFlag       = true;
@@ -1751,6 +1824,7 @@ QCDiskQueue::Queue::OpenFile(
     mFileInfoPtr[theIdx].mSpaceAllocPendingFlag = inAllocateFileSpaceFlag &&
         ! inReadOnlyFlag && inMaxFileSize > 0;
     mFileInfoPtr[theIdx].mBufferedIoFlag        = inBufferedIoFlag;
+    mFileInfoPtr[theIdx].mThreadIdx             = mNextThreadIdx++;
 
     Request& theReq = *theReqPtr;
     const size_t theFileNameLen = strlen(inFileNamePtr) + 1;
@@ -1765,8 +1839,9 @@ QCDiskQueue::Queue::OpenFile(
     theReq.mFileIdx         = theIdx;
     theReq.mBlockIdx        = theBlkIdx;
     theReq.mIoCompletionPtr = 0;
-    Enqueue(theReq);
-    mWorkCond.Notify();
+    const int theThreadIdx = mFileInfoPtr[theIdx].mThreadIdx;
+    Enqueue(theReq, theThreadIdx);
+    Notify(theThreadIdx);
     return OpenFileStatus(theIdx, kErrorNone, 0);
 }
 
@@ -1793,8 +1868,9 @@ QCDiskQueue::Queue::CloseFile(
         return CloseFileStatus(kErrorOpen, Open2SysError(theOpenError));
     }
     if (mFilePendingReqCountPtr[inFileIdx] <= 0) {
+        const int theThreadIdx = mFileInfoPtr[inFileIdx].mThreadIdx;
         ScheduleClose(inFileIdx);
-        mWorkCond.Notify();
+        Notify(theThreadIdx);
     }
     // Else if request are pending the last request will perform close.
     return CloseFileStatus(kErrorNone, 0);
@@ -1804,11 +1880,12 @@ QCDiskQueue::Queue::CloseFile(
 QCDiskQueue::Queue::CloseAllFiles()
 {
     QCStMutexLocker theLocker(mMutex);
-    bool theNotifiedFlag = false;
+    int theLastThreadIdx = -1;
     for (int i = 0; i < mFileCount; i++) {
         if (mFdPtr[i] < 0 || mFileInfoPtr[i].mClosedFlag) {
             continue;
         }
+        const int theThreadIdx = mFileInfoPtr[i].mThreadIdx;
         mFileInfoPtr[i].mClosedFlag = true;
         // mFileInfoPtr[i].mCloseFileSize = -1;
         if (mFilePendingReqCountPtr[i] <= 0 &&
@@ -1819,11 +1896,11 @@ QCDiskQueue::Queue::CloseAllFiles()
         }
         if (mFilePendingReqCountPtr[i] <= 0) {
             ScheduleClose(i);
-            if (theNotifiedFlag) {
+            if (theThreadIdx == theLastThreadIdx) {
                 continue;
             }
-            mWorkCond.Notify();
-            theNotifiedFlag = true;
+            Notify(theThreadIdx);
+            theLastThreadIdx = theThreadIdx;
         }
     }
 }
@@ -1853,8 +1930,9 @@ QCDiskQueue::Queue::CheckOpenStatus(
     theReq.mBlockIdx        = 0;
     theReq.mIoCompletionPtr = inIoCompletionPtr;
     GetBuffersPtr(theReq)[0] = 0;
-    Enqueue(theReq);
-    mWorkCond.Notify();
+    const int theThreadIdx = mFileInfoPtr[inFileIdx].mThreadIdx;
+    Enqueue(theReq, theThreadIdx);
+    Notify(theThreadIdx);
     return EnqueueStatus(GetRequestId(theReq), kErrorNone);
 }
 
@@ -2016,7 +2094,9 @@ QCDiskQueue::Queue::EnqueueMeta(
                 theFileName2Len);
         }
     }
-
+    if (! mRequestAffinityFlag || mThreadCount <= mNextThreadIdx) {
+        mNextThreadIdx = 0;
+    }
     Request& theReq = *theReqPtr;
     theReq.mReqType          = inReqType;
     theReq.mBufferCount      = 0;
@@ -2024,8 +2104,9 @@ QCDiskQueue::Queue::EnqueueMeta(
     theReq.mBlockIdx         = inFileName2Ptr ? theFileName1Len : 0;
     theReq.mIoCompletionPtr  = inIoCompletionPtr;
     GetBuffersPtr(theReq)[0] = theFileNamesPtr;
-    Enqueue(theReq);
-    mWorkCond.Notify();
+    const int theThreadIdx = mNextThreadIdx++;
+    Enqueue(theReq, theThreadIdx);
+    Notify(theThreadIdx);
     return EnqueueStatus(GetRequestId(theReq), kErrorNone);
 }
 
@@ -2165,7 +2246,8 @@ QCDiskQueue::Start(
     QCDiskQueue::CpuAffinity      inCpuAffinity         /* = CpuAffinity::None() */,
     QCDiskQueue::DebugTracer*     inDebugTracerPtr      /* = 0 */,
     bool                          inBufferedIoFlag      /* = false */,
-    bool                          inCreateExclusiveFlag /* = true */)
+    bool                          inCreateExclusiveFlag /* = true */,
+    bool                          inRequestAffinityFlag /* = false */)
 {
     Stop();
     mQueuePtr = new Queue();
@@ -2180,7 +2262,8 @@ QCDiskQueue::Start(
         inCpuAffinity,
         inDebugTracerPtr,
         inBufferedIoFlag,
-        inCreateExclusiveFlag
+        inCreateExclusiveFlag,
+        inRequestAffinityFlag
     );
     if (theRet != 0) {
         Stop();

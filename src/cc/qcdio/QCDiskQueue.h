@@ -262,7 +262,8 @@ public:
         CpuAffinity      inCpuAffinity         = CpuAffinity::None(),
         DebugTracer*     inDebugTracerPtr      = 0,
         bool             inBufferedIoFlag      = false,
-        bool             inCreateExclusiveFlag = true);
+        bool             inCreateExclusiveFlag = true,
+        bool             inRequestAffinityFlag = false);
 
     void Stop();
 
