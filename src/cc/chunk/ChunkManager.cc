@@ -5568,11 +5568,11 @@ ChunkManager::CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur)
         if (expireTime <= cih->lastIOTime) {
             break;
         }
-        bool       hasLeaseFlag         = false;
-        bool       writePendingFlag     = false;
-        bool       objBlockMetaDownFlag = false;
-        bool       unstableObjBlockFlag = false;
-        time_t     metaUptime           = 0;
+        bool   hasLeaseFlag         = false;
+        bool   writePendingFlag     = false;
+        bool   objBlockMetaDownFlag = false;
+        bool   unstableObjBlockFlag = false;
+        time_t metaUptime           = 0;
         const bool fileInUseFlag        = cih->IsFileInUse();
         if (fileInUseFlag ||
                 (hasLeaseFlag = gLeaseClerk.IsLeaseValid(
@@ -6046,6 +6046,11 @@ ChunkManager::SendChunkDirInfo()
 {
     for (ChunkDirs::iterator it = mChunkDirs.begin();
             it < mChunkDirs.end();
+            ++it) {
+        it->chunkDirInfoOp.Enqueue();
+    }
+    for (ChunkDirs::iterator it = mObjDirs.begin();
+            it < mObjDirs.end();
             ++it) {
         it->chunkDirInfoOp.Enqueue();
     }
