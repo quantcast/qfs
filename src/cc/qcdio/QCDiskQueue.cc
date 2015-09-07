@@ -53,6 +53,9 @@
 static const unsigned int kPendingCloseListIdxOff = 1;
 static const unsigned int kEndOfPendingCloseList  = ~((unsigned int)0);
 
+class QCDiskQueue::Request
+{};
+
 class QCDiskQueue::Queue
 {
 public:
@@ -87,6 +90,7 @@ public:
           mReqWaitersCount(0),
           mDebugTracerPtr(0),
           mIoStartObserverPtr(0),
+          mRequestProcessorsPtr(0),
           mNextThreadIdx(0),
           mCreateExclusiveFlag(true),
           mRunFlag(false),
@@ -96,6 +100,13 @@ public:
         {}
     virtual ~Queue()
         { Queue::Stop(); }
+    inline void Done(
+        QCDiskQueue::RequestProcessor& inProcessor,
+        QCDiskQueue::Request&          inReq,
+        Error                          inError,
+        int                            inSysError,
+        int64_t                        inIoByteCount,
+        BlockIdx                       inBlockIdx);
     int Start(
         int                      inThreadCount,
         int                      inMaxQueueDepth,
@@ -109,7 +120,8 @@ public:
         bool                     inBufferedIoFlag,
         bool                     inCreateExclusiveFlag,
         bool                     inRequestAffinityFlag,
-        bool                     inSerializeMetaRequestsFlag);
+        bool                     inSerializeMetaRequestsFlag,
+        RequestProcessor**       inRequestProcessorsPtr);
     void Stop()
     {
         QCStMutexLocker theLocker(mMutex);
@@ -231,14 +243,16 @@ private:
            kFileIndexBitCount   = 16
     };
 
-    class Request
+    class Request : public QCDiskQueue::Request
     {
     public:
         Request()
-            : mPrevIdx(0),
+            : QCDiskQueue::Request(),
+              mPrevIdx(0),
               mNextIdx(0),
               mReqType(kReqTypeNone),
               mInFlightFlag(false),
+              mFreeBuffersIfNoIoCompletionFlag(false),
               mBufferCount(0),
               mFileIdx(0),
               mBlockIdx(0),
@@ -254,6 +268,7 @@ private:
         RequestIdx    mNextIdx;
         ReqType       mReqType:8;
         bool          mInFlightFlag:1;
+        bool          mFreeBuffersIfNoIoCompletionFlag:1;
         int           mBufferCount;
         uint64_t      mFileIdx:16;
         uint64_t      mBlockIdx:48;
@@ -423,42 +438,43 @@ private:
         int       mThreadIdx;
     };
 
-    QCMutex          mMutex;
-    QCCondVar        mFreeReqCond;
-    QCCondVar*       mWorkCondPtr;
-    QCIoBufferPool*  mBufferPoolPtr;
-    IoThread*        mThreadsPtr;
-    char**           mBuffersPtr;
-    Request*         mRequestsPtr;
-    int*             mFdPtr;
-    unsigned int*    mFilePendingReqCountPtr;
-    struct iovec*    mIoVecPtr;
-    FileInfo*        mFileInfoPtr;
-    int64_t          mPendingReadBlockCount;
-    int64_t          mPendingWriteBlockCount;
-    unsigned int*    mPendingCloseHeadPtr;
-    unsigned int*    mPendingCloseTailPtr;
-    int              mPendingCount;
-    int              mFreeCount;
-    int              mTotalCount;
-    int              mThreadCount;
-    int              mRequestQueueCount;
-    int              mRequestBufferCount;
-    int              mCompletionRunningCount;
-    int              mFileCount;
-    int              mFdCount;
-    int              mBlockSize;
-    int              mIoVecPerThreadCount;
-    int              mFreeFdHead;
-    int              mReqWaitersCount;
-    DebugTracer*     mDebugTracerPtr;
-    IoStartObserver* mIoStartObserverPtr;
-    int              mNextThreadIdx;
-    bool             mCreateExclusiveFlag;
-    bool             mRunFlag;
-    bool             mRequestAffinityFlag;
-    bool             mSerializeMetaRequestsFlag;
-    bool             mBarrierFlag; // New req. can not be processed
+    QCMutex            mMutex;
+    QCCondVar          mFreeReqCond;
+    QCCondVar*         mWorkCondPtr;
+    QCIoBufferPool*    mBufferPoolPtr;
+    IoThread*          mThreadsPtr;
+    char**             mBuffersPtr;
+    Request*           mRequestsPtr;
+    int*               mFdPtr;
+    unsigned int*      mFilePendingReqCountPtr;
+    struct iovec*      mIoVecPtr;
+    FileInfo*          mFileInfoPtr;
+    int64_t            mPendingReadBlockCount;
+    int64_t            mPendingWriteBlockCount;
+    unsigned int*      mPendingCloseHeadPtr;
+    unsigned int*      mPendingCloseTailPtr;
+    int                mPendingCount;
+    int                mFreeCount;
+    int                mTotalCount;
+    int                mThreadCount;
+    int                mRequestQueueCount;
+    int                mRequestBufferCount;
+    int                mCompletionRunningCount;
+    int                mFileCount;
+    int                mFdCount;
+    int                mBlockSize;
+    int                mIoVecPerThreadCount;
+    int                mFreeFdHead;
+    int                mReqWaitersCount;
+    DebugTracer*       mDebugTracerPtr;
+    IoStartObserver*   mIoStartObserverPtr;
+    RequestProcessor** mRequestProcessorsPtr;
+    int                mNextThreadIdx;
+    bool               mCreateExclusiveFlag;
+    bool               mRunFlag;
+    bool               mRequestAffinityFlag;
+    bool               mSerializeMetaRequestsFlag;
+    bool               mBarrierFlag; // New req. can not be processed
                                    // until in flight req. done.
 
     enum
@@ -716,8 +732,8 @@ private:
         Error    inError,
         int      inSysError,
         int64_t  inIoByteCount,
-        bool     inFreeBuffersIfNoIoCompletion = false,
-        BlockIdx inBlockIdx                    = -1)
+        bool     inFreeBuffersIfNoIoCompletionFlag = false,
+        BlockIdx inBlockIdx                        = -1)
     {
         QCASSERT(mMutex.IsOwned());
         QCRTASSERT(
@@ -761,7 +777,7 @@ private:
                 mBufferPoolPtr->Put(theItr, inReq.mBufferCount);
             }
         } else {
-            if (inFreeBuffersIfNoIoCompletion && inReq.mBufferCount > 0) {
+            if (inFreeBuffersIfNoIoCompletionFlag && inReq.mBufferCount > 0) {
                 QCStMutexUnlocker theUnlock(mMutex);
                 mBufferPoolPtr->Put(theItr, inReq.mBufferCount);
             }
@@ -861,10 +877,20 @@ private:
     void Notify(
         int inThreadIdx)
     {
+        if (mRequestProcessorsPtr) {
+            mRequestProcessorsPtr[inThreadIdx]->Wakeup();
+            return;
+        }
         mWorkCondPtr[inThreadIdx].Notify();
     }
     void NotifyAll()
     {
+        if (mRequestProcessorsPtr) {
+            for (int i = 0; i < mThreadCount; i++) {
+                mRequestProcessorsPtr[i]->Wakeup();
+            }
+            return;
+        }
         if (mRequestAffinityFlag) {
             for (int i = 0; i < mThreadCount; i++) {
                 mWorkCondPtr[i].Notify();
@@ -875,6 +901,17 @@ private:
     }
     void NotifyAllWithPending()
     {
+        if (mRequestProcessorsPtr) {
+            if (! mRequestAffinityFlag && ! HasPendingReq(0)) {
+                return;
+            }
+            for (int i = 0; i < mThreadCount; i++) {
+                if (! mRequestAffinityFlag || HasPendingReq(i)) {
+                    mRequestProcessorsPtr[i]->Wakeup();
+                }
+            }
+            return;
+        }
         if (mRequestAffinityFlag) {
             for (int i = 0; i < mThreadCount; i++) {
                 if (HasPendingReq(i)) {
@@ -890,6 +927,11 @@ private:
     void Wait(
         int inThreadIdx)
     {
+        if (mRequestProcessorsPtr) {
+            QCStMutexUnlocker theUnlock(mMutex);
+            mRequestProcessorsPtr[inThreadIdx]->ProcessAndWait();
+            return;
+        }
         mWorkCondPtr[inThreadIdx].Wait(mMutex);
     }
 private:
@@ -899,12 +941,34 @@ private:
         const Queue& inQueue);
 };
 
+    inline void
+QCDiskQueue::Queue::Done(
+    QCDiskQueue::RequestProcessor& inProcessor,
+    QCDiskQueue::Request&          inReq,
+    QCDiskQueue::Error             inError,
+    int                            inSysError,
+    int64_t                        inIoByteCount,
+    QCDiskQueue::BlockIdx          inBlockIdx)
+{
+    QCStMutexLocker theLocker(mMutex);
+    QCRTASSERT(mRequestProcessorsPtr);
+    Request& theReq = static_cast<Request&>(inReq);
+    RequestComplete(
+        theReq,
+        inError,
+        inSysError,
+        inIoByteCount,
+        theReq.mFreeBuffersIfNoIoCompletionFlag,
+        inBlockIdx
+    );
+}
+
     void
 QCDiskQueue::Queue::StopSelf()
 {
     QCASSERT(mMutex.IsOwned());
     mRunFlag = false;
-    if (mWorkCondPtr) {
+    if (mWorkCondPtr || mRequestProcessorsPtr) {
         NotifyAll();
     }
     for (int i = 0; i < mThreadCount; i++) {
@@ -962,19 +1026,20 @@ QCDiskQueue::Queue::StopSelf()
 
     int
 QCDiskQueue::Queue::Start(
-    int                           inThreadCount,
-    int                           inMaxQueueDepth,
-    int                           inMaxBuffersPerRequestCount,
-    int                           inFileCount,
-    const char**                  inFileNamesPtr,
-    QCIoBufferPool&               inBufferPool,
-    QCDiskQueue::IoStartObserver* inIoStartObserverPtr,
-    QCDiskQueue::CpuAffinity      inCpuAffinity,
-    QCDiskQueue::DebugTracer*     inDebugTracerPtr,
-    bool                          inBufferedIoFlag,
-    bool                          inCreateExclusiveFlag,
-    bool                          inRequestAffinityFlag,
-    bool                          inSerializeMetaRequestsFlag)
+    int                             inThreadCount,
+    int                             inMaxQueueDepth,
+    int                             inMaxBuffersPerRequestCount,
+    int                             inFileCount,
+    const char**                    inFileNamesPtr,
+    QCIoBufferPool&                 inBufferPool,
+    QCDiskQueue::IoStartObserver*   inIoStartObserverPtr,
+    QCDiskQueue::CpuAffinity        inCpuAffinity,
+    QCDiskQueue::DebugTracer*       inDebugTracerPtr,
+    bool                            inBufferedIoFlag,
+    bool                            inCreateExclusiveFlag,
+    bool                            inRequestAffinityFlag,
+    bool                            inSerializeMetaRequestsFlag,
+    QCDiskQueue::RequestProcessor** inRequestProcessorsPtr)
 {
     QCStMutexLocker theLocker(mMutex);
     StopSelf();
@@ -987,26 +1052,38 @@ QCDiskQueue::Queue::Start(
         return EINVAL;
     }
     mBufferPoolPtr = &inBufferPool;
+    if (mRequestProcessorsPtr) {
+        for (int i = 0; i < inThreadCount; i++) {
+            if (! mRequestProcessorsPtr[i]) {
+                return EINVAL;
+            }
+        }
+    }
 #ifdef IOV_MAX
     const int kMaxIoVecCount = IOV_MAX;
 #else
     const int kMaxIoVecCount = 1 << 10;
 #endif
+    mRequestProcessorsPtr = inRequestProcessorsPtr;
     mSerializeMetaRequestsFlag =
         inSerializeMetaRequestsFlag || ! inRequestAffinityFlag;
     mNextThreadIdx = 0;
     mDebugTracerPtr = inDebugTracerPtr;
     mIoStartObserverPtr = inIoStartObserverPtr;
-    mIoVecPerThreadCount = Min(
+    mIoVecPerThreadCount = mRequestProcessorsPtr ? 0 : Min(
         Min(kMaxIoVecCount, Min(4 << 10, inMaxBuffersPerRequestCount * 32)),
         inMaxQueueDepth * inMaxBuffersPerRequestCount
     );
     mRequestAffinityFlag = inRequestAffinityFlag;
-    mWorkCondPtr = new QCCondVar[
-        mRequestAffinityFlag ? inThreadCount : 1];
+    if (! mRequestProcessorsPtr) {
+        mWorkCondPtr = new QCCondVar[
+            mRequestAffinityFlag ? inThreadCount : 1];
+    }
     // The last entry is pseudo file for meta requests.
     mFileCount = inFileCount + 1;
-    mIoVecPtr = new struct iovec[mIoVecPerThreadCount * inThreadCount];
+    if (0 < mIoVecPerThreadCount) {
+        mIoVecPtr = new struct iovec[mIoVecPerThreadCount * inThreadCount];
+    }
     mBlockSize = inBufferPool.GetBufferSize();
     const int theFdCount = mRequestAffinityFlag ?
         mFileCount : inThreadCount * mFileCount;
@@ -1300,6 +1377,9 @@ QCDiskQueue::Queue::Run(
             QCRTASSERT(mBarrierFlag);
             mBarrierFlag = false;
         }
+    }
+    if (mRequestProcessorsPtr) {
+        mRequestProcessorsPtr[inThreadIndex]->Stop();
     }
 }
 
@@ -2259,21 +2339,36 @@ QCDiskQueue::~QCDiskQueue()
     QCDiskQueue::Stop();
 }
 
+    void
+QCDiskQueue::Done(
+    QCDiskQueue::RequestProcessor& inProcessor,
+    QCDiskQueue::Request&          inReq,
+    QCDiskQueue::Error             inError,
+    int                            inSysError,
+    int64_t                        inIoByteCount,
+    QCDiskQueue::BlockIdx          inBlockIdx)
+{
+    QCASSERT(mQueuePtr);
+    mQueuePtr->Done(
+        inProcessor, inReq, inError, inSysError, inIoByteCount, inBlockIdx);
+}
+
     int
 QCDiskQueue::Start(
-    int                           inThreadCount,
-    int                           inMaxQueueDepth,
-    int                           inMaxBuffersPerRequestCount,
-    int                           inFileCount,
-    const char**                  inFileNamesPtr,
-    QCIoBufferPool&               inBufferPool,
-    QCDiskQueue::IoStartObserver* inIoStartObserverPtr        /* = 0 */,
-    QCDiskQueue::CpuAffinity      inCpuAffinity /* = CpuAffinity::None() */,
-    QCDiskQueue::DebugTracer*     inDebugTracerPtr            /* = 0 */,
-    bool                          inBufferedIoFlag            /* = false */,
-    bool                          inCreateExclusiveFlag       /* = true  */,
-    bool                          inRequestAffinityFlag       /* = false */,
-    bool                          inSerializeMetaRequestsFlag /* = true  */)
+    int                             inThreadCount,
+    int                             inMaxQueueDepth,
+    int                             inMaxBuffersPerRequestCount,
+    int                             inFileCount,
+    const char**                    inFileNamesPtr,
+    QCIoBufferPool&                 inBufferPool,
+    QCDiskQueue::IoStartObserver*   inIoStartObserverPtr        /* = 0 */,
+    QCDiskQueue::CpuAffinity        inCpuAffinity /* = CpuAffinity::None() */,
+    QCDiskQueue::DebugTracer*       inDebugTracerPtr            /* = 0 */,
+    bool                            inBufferedIoFlag            /* = false */,
+    bool                            inCreateExclusiveFlag       /* = true  */,
+    bool                            inRequestAffinityFlag       /* = false */,
+    bool                            inSerializeMetaRequestsFlag /* = true  */,
+    QCDiskQueue::RequestProcessor** inRequestProcessorsPtr      /* = 0 */)
 {
     Stop();
     mQueuePtr = new Queue();
@@ -2290,7 +2385,8 @@ QCDiskQueue::Start(
         inBufferedIoFlag,
         inCreateExclusiveFlag,
         inRequestAffinityFlag,
-        inSerializeMetaRequestsFlag
+        inSerializeMetaRequestsFlag,
+        inRequestProcessorsPtr
     );
     if (theRet != 0) {
         Stop();

@@ -239,10 +239,46 @@ public:
             {}
     };
 
+    class Request;
+    class RequestProcessor
+    {
+    public:
+        virtual void ProcessAndWait() = 0;
+        virtual void Wakeup() = 0;
+        virtual void Stop() = 0;
+        virtual void StartIo(
+            Request&        inReqeust,
+            ReqType         inReqType,
+            int             inFd,
+            BlockIdx        inStartBlockIdx,
+            int             inBufferCount,
+            InputIterator*  inInputIteratorPtr,
+            OutputIterator* inOutputIteratorPtr) = 0;
+        virtual void StartMeta(
+            Request&    inReqeust,
+            ReqType     inReqType,
+            const char* inNamePtr,
+            int         inFlags,
+            int         inPerms,
+            const char* inName2Ptr) = 0;
+    protected:
+        RequestProcessor()
+            {}
+        virtual ~RequestProcessor()
+            {}
+    };
+    void Done(
+        RequestProcessor& inProcessor,
+        Request&          inReq,
+        Error             inError,
+        int               inSysError,
+        int64_t           inIoByteCount,
+        BlockIdx          inBlockIdx = -1);
+
     static bool IsValidRequestId(
         RequestId inReqId)
-    { 
-        return (inReqId != kRequestIdNone); 
+    {
+        return (inReqId != kRequestIdNone);
     }
 
     static const char* ToString(
@@ -252,19 +288,20 @@ public:
     ~QCDiskQueue();
 
     int Start(
-        int              inThreadCount,
-        int              inMaxQueueDepth,
-        int              inMaxBuffersPerRequestCount,
-        int              inFileCount,
-        const char**     inFileNamesPtr,
-        QCIoBufferPool&  inBufferPool,
-        IoStartObserver* inIoStartObserverPtr        = 0,
-        CpuAffinity      inCpuAffinity               = CpuAffinity::None(),
-        DebugTracer*     inDebugTracerPtr            = 0,
-        bool             inBufferedIoFlag            = false,
-        bool             inCreateExclusiveFlag       = true,
-        bool             inRequestAffinityFlag       = false,
-        bool             inSerializeMetaRequestsFlag = true);
+        int                inThreadCount,
+        int                inMaxQueueDepth,
+        int                inMaxBuffersPerRequestCount,
+        int                inFileCount,
+        const char**       inFileNamesPtr,
+        QCIoBufferPool&    inBufferPool,
+        IoStartObserver*   inIoStartObserverPtr        = 0,
+        CpuAffinity        inCpuAffinity               = CpuAffinity::None(),
+        DebugTracer*       inDebugTracerPtr            = 0,
+        bool               inBufferedIoFlag            = false,
+        bool               inCreateExclusiveFlag       = true,
+        bool               inRequestAffinityFlag       = false,
+        bool               inSerializeMetaRequestsFlag = true,
+        RequestProcessor** inRequestProcessorsPtr      = 0);
 
     void Stop();
 
