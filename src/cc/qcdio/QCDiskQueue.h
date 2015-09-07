@@ -247,7 +247,7 @@ public:
         virtual void Wakeup() = 0;
         virtual void Stop() = 0;
         virtual void StartIo(
-            Request&        inReqeust,
+            Request&        inRequest,
             ReqType         inReqType,
             int             inFd,
             BlockIdx        inStartBlockIdx,
@@ -255,7 +255,7 @@ public:
             InputIterator*  inInputIteratorPtr,
             OutputIterator* inOutputIteratorPtr) = 0;
         virtual void StartMeta(
-            Request&    inReqeust,
+            Request&    inRequest,
             ReqType     inReqType,
             const char* inNamePtr,
             int         inFlags,
