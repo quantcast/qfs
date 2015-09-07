@@ -719,14 +719,17 @@ private:
     void Process(
         Request&      inReq,
         int*          inFdPtr,
-        struct iovec* inIoVecPtr);
+        struct iovec* inIoVecPtr,
+        int           inThreadIdx);
     void ProcessOpenOrCreate(
-        Request& inReq);
+        Request& inReq,
+        int      inThreadIdx);
     void ProcessClose(
         unsigned int inFileIdx);
     void ProcessMeta(
         Request&      inReq,
-        struct iovec* inIoVecPtr);
+        struct iovec* inIoVecPtr,
+        int           inThreadIdx);
     void RequestComplete(
         Request& inReq,
         Error    inError,
@@ -840,11 +843,12 @@ private:
         }
         char theBuf[256];
         const int theLen = snprintf(theBuf, sizeof(theBuf),
-            "%-16s: tid: %08lx type: %2d id: %3d buf: %4d compl: %p",
+        "%-16s: tid: %08lx type: %2d id: %3d file idx: %3d buf: %4d compl: %p",
             inMsgPtr,
             (long)pthread_self(),
             (int)inReq.mReqType,
             GetRequestId(inReq),
+            (int)inReq.mFileIdx,
             inReq.mBufferCount,
             inReq.mIoCompletionPtr
         );
@@ -1312,7 +1316,7 @@ QCDiskQueue::Queue::CancelOrSetCompletionIfInFlight(
     return inCompletionIfInFlightPtr;
 }
 
-    /* virtual */ void
+    void
 QCDiskQueue::Queue::Run(
     int inThreadIndex)
 {
@@ -1352,7 +1356,7 @@ QCDiskQueue::Queue::Run(
         if (theReqPtr) {
             QCASSERT(thePendingCloseHead == kEndOfPendingCloseList);
             const FileIdx theFileIdx = theReqPtr->mFileIdx;
-            Process(*theReqPtr, theFdPtr, theIoVecPtr);
+            Process(*theReqPtr, theFdPtr, theIoVecPtr, inThreadIndex);
             if (mFileInfoPtr[theFileIdx].mClosedFlag &&
                     mFilePendingReqCountPtr[theFileIdx] <= 0) {
                 ScheduleClose(theFileIdx, theThreadQueueIdx);
@@ -1381,13 +1385,15 @@ QCDiskQueue::Queue::Run(
     if (mRequestProcessorsPtr) {
         mRequestProcessorsPtr[inThreadIndex]->Stop();
     }
+    NotifyAll(); // Wakeup all worker threads on exit.
 }
 
     void
 QCDiskQueue::Queue::Process(
     Request&      inReq,
     int*          inFdPtr,
-    struct iovec* inIoVecPtr)
+    struct iovec* inIoVecPtr,
+    int           inThreadIdx)
 {
     QCASSERT(mMutex.IsOwned());
     QCASSERT(mIoVecPerThreadCount > 0 && mBufferPoolPtr);
@@ -1395,11 +1401,11 @@ QCDiskQueue::Queue::Process(
             inReq.mReqType == kReqTypeCreate ||
             inReq.mReqType == kReqTypeOpenRO ||
             inReq.mReqType == kReqTypeCreateRO) {
-        ProcessOpenOrCreate(inReq);
+        ProcessOpenOrCreate(inReq, inThreadIdx);
         return;
     }
     if (inReq.IsMeta()) {
-        ProcessMeta(inReq, inIoVecPtr);
+        ProcessMeta(inReq, inIoVecPtr, inThreadIdx);
         return;
     }
 
@@ -1426,6 +1432,16 @@ QCDiskQueue::Queue::Process(
         RequestComplete(inReq, kErrorBlockIdxOutOfRange, 0, 0, ! theBufPtr[0]);
         return;
     };
+    int64_t theFileSize;
+    if (theSyncFlag) {
+        theFileSize = mFileInfoPtr[inReq.mFileIdx].mCloseFileSize;
+        if (theFileSize >= 0 && theFileSize >= mBlockSize *
+                int64_t(mFileInfoPtr[inReq.mFileIdx].mLastBlockIdx)) {
+            theFileSize = -1;
+        }
+    } else {
+        theFileSize = -1;
+    }
     const RequestId theReqId = GetRequestId(inReq);
     QCStMutexUnlocker theUnlock(mMutex);
 
@@ -1438,6 +1454,36 @@ QCDiskQueue::Queue::Process(
             inReq.mBlockIdx,
             inReq.mBufferCount
         );
+    }
+    if (mRequestProcessorsPtr) {
+        if (0 < theAllocSize) {
+            mFileInfoPtr[inReq.mFileIdx].mSpaceAllocPendingFlag = false;
+        }
+        const bool theGetBufFlag = ! theBufPtr[0];
+        inReq.mFreeBuffersIfNoIoCompletionFlag = theGetBufFlag;
+        if (theGetBufFlag) {
+            QCASSERT(theReadFlag);
+            BuffersIterator theIt(*this, inReq, inReq.mBufferCount);
+            // Allocate buffers for read request.
+            if (! mBufferPoolPtr->Get(theIt, inReq.mBufferCount,
+                    QCIoBufferPool::kRefillReqIdRead)) {
+                theUnlock.Lock();
+                RequestComplete(inReq, kErrorOutOfBuffers, 0, 0, theGetBufFlag);
+                return;
+            }
+        }
+        BuffersIterator theIt(*this, inReq, inReq.mBufferCount);
+        mRequestProcessorsPtr[inThreadIdx]->StartIo(
+            inReq,
+            inReq.mReqType,
+            theFd,
+            inReq.mBlockIdx,
+            inReq.mBufferCount,
+            &theIt,
+            theAllocSize,
+            theFileSize
+        );
+        return;
     }
 
     Error theError    = kErrorNone;
@@ -1539,7 +1585,8 @@ QCDiskQueue::Queue::Process(
 
     void
 QCDiskQueue::Queue::ProcessOpenOrCreate(
-    Request& inReq)
+    Request& inReq,
+    int      inThreadIdx)
 {
     QCASSERT(
         mMutex.IsOwned() &&
@@ -1584,26 +1631,46 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
     int i;
     for (i = theIdx; i < mFdCount; i += mFileCount) {
         QCRTASSERT(mFdPtr[i] == kOpenPendingFd);
-        if (mRequestAffinityFlag && i >= mFileCount) {
-            mFdPtr[i] = -1;
-            continue;
-        }
-        const int theFd    = (theCreateFlag && i == theIdx) ?
-            CreateFile(theFileNamePtr, theOpenFlags, S_IRUSR | S_IWUSR,
-                theCreateExclusiveFlag) :
-            open(theFileNamePtr, theOpenFlags);
-        if (theFd < 0 || fcntl(theFd, F_SETFD, FD_CLOEXEC)) {
-            theSysErr = errno ? errno : -1;
-            break;
-        }
-        mFdPtr[i] = theFd;
-        if (i >= mFileCount) {
-            continue;
-        }
-        const off_t theSize = GetFileSize(theFd);
-        if (theSize < 0) {
-            theSysErr = errno;
-            break;
+        int64_t theSize;
+        if (mRequestProcessorsPtr) {
+            theSize = theMaxFileSize;
+            const int theFd =  mRequestProcessorsPtr[inThreadIdx]->Open(
+                theFileNamePtr,
+                theReadOnlyFlag,
+                i == theIdx && theCreateFlag,
+                i == theIdx && theCreateExclusiveFlag,
+                theSize
+            );
+            if (theFd < 0) {
+                theSysErr = -theFd;
+                break;
+            }
+            if (theSize < 0) {
+                theSysErr = EINVAL;
+                break;
+            }
+            mFdPtr[i] = theFd;
+            if (mFileCount <= i) {
+                continue;
+            }
+        } else {
+            const int theFd    = (theCreateFlag && i == theIdx) ?
+                CreateFile(theFileNamePtr, theOpenFlags, S_IRUSR | S_IWUSR,
+                    theCreateExclusiveFlag) :
+                open(theFileNamePtr, theOpenFlags);
+            if (theFd < 0 || fcntl(theFd, F_SETFD, FD_CLOEXEC)) {
+                theSysErr = errno ? errno : -1;
+                break;
+            }
+            mFdPtr[i] = theFd;
+            if (mFileCount <= i) {
+                continue;
+            }
+            theSize = GetFileSize(theFd);
+            if (theSize < 0) {
+                theSysErr = errno;
+                break;
+            }
         }
         const int64_t theBlkIdx =
             (int64_t(theMaxFileSize < 0 ? theSize : theMaxFileSize) +
@@ -1657,10 +1724,20 @@ QCDiskQueue::Queue::ProcessClose(
             );
         }
 
-        const int theFd = mFdPtr[inFileIdx];
-        mFdPtr[inFileIdx] = -1;
-        for (int i = inFileIdx + mFileCount; i < mFdCount; i += mFileCount) {
-            if (close(mFdPtr[i])) {
+        const int theFd = mRequestProcessorsPtr ? -1 : mFdPtr[inFileIdx];
+        if (! mRequestProcessorsPtr) {
+            mFdPtr[inFileIdx] = -1;
+        }
+        for (int i = inFileIdx + (mRequestProcessorsPtr ? 0 : mFileCount);
+                i < mFdCount;
+                i += mFileCount) {
+            if (mRequestProcessorsPtr) {
+                const int theErr =
+                    mRequestProcessorsPtr[i]->Close(mFdPtr[i], theFileSize);
+                if (theErr) {
+                    theSysErr = theErr;
+                }
+            } else if (close(mFdPtr[i])) {
                 theSysErr = errno ? errno : -1;
             }
             mFdPtr[i] = -1;
@@ -1679,7 +1756,7 @@ QCDiskQueue::Queue::ProcessClose(
     // file size might be larger in the case if truncate fails.
     // All other errors should be reported by io completion as io is direct or
     // at least the write is synchronous.
-    if (mDebugTracerPtr && theSysErr != 0) {
+    if (mDebugTracerPtr) {
         char theBuf[128];
         const int theLen = snprintf(theBuf, sizeof(theBuf),
             "%-16s: tid: %08lx file idx: %5d error: %d",
@@ -1723,7 +1800,8 @@ GetFsAvailable(
     void
 QCDiskQueue::Queue::ProcessMeta(
     Request&      inReq,
-    struct iovec* inIoVecPtr)
+    struct iovec* inIoVecPtr,
+    int           inThreadIdx)
 {
     QCASSERT(
         mMutex.IsOwned() &&
@@ -1755,6 +1833,17 @@ QCDiskQueue::Queue::ProcessMeta(
         );
     }
 
+    if (mRequestProcessorsPtr) {
+        inReq.mFreeBuffersIfNoIoCompletionFlag = false;
+        mRequestProcessorsPtr[inThreadIdx]->StartMeta(
+            inReq,
+            inReq.mReqType,
+            theNamePtr,
+            kReqTypeRename == inReq.mReqType ?
+                theNamePtr + theNextNameStart : 0
+        );
+        return;
+    }
     BlockIdx theBlkIdx   = -1;
     int64_t  theRetCount = 0;
     int      theSysErr   = 0;

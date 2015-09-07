@@ -246,6 +246,16 @@ public:
         virtual void ProcessAndWait() = 0;
         virtual void Wakeup() = 0;
         virtual void Stop() = 0;
+        virtual int Open(
+            const char* inFileNamePtr,
+            bool        inReadOnlyFlag,
+            bool        inCreateFlag,
+            bool        inCreateExclusiveFlag,
+            int64_t&    ioMaxFileSize
+        ) = 0;
+        virtual int Close(
+            int     inFd,
+            int64_t inEof) = 0;
         virtual void StartIo(
             Request&        inRequest,
             ReqType         inReqType,
@@ -253,13 +263,12 @@ public:
             BlockIdx        inStartBlockIdx,
             int             inBufferCount,
             InputIterator*  inInputIteratorPtr,
-            OutputIterator* inOutputIteratorPtr) = 0;
+            int64_t         inSpaceAllocSize,
+            int64_t         inEof) = 0;
         virtual void StartMeta(
             Request&    inRequest,
             ReqType     inReqType,
             const char* inNamePtr,
-            int         inFlags,
-            int         inPerms,
             const char* inName2Ptr) = 0;
     protected:
         RequestProcessor()
