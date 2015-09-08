@@ -1442,6 +1442,9 @@ QCDiskQueue::Queue::Process(
     } else {
         theFileSize = -1;
     }
+    if (mRequestProcessorsPtr && 0 < theAllocSize) {
+        mFileInfoPtr[inReq.mFileIdx].mSpaceAllocPendingFlag = false;
+    }
     const RequestId theReqId = GetRequestId(inReq);
     QCStMutexUnlocker theUnlock(mMutex);
 
@@ -1456,9 +1459,6 @@ QCDiskQueue::Queue::Process(
         );
     }
     if (mRequestProcessorsPtr) {
-        if (0 < theAllocSize) {
-            mFileInfoPtr[inReq.mFileIdx].mSpaceAllocPendingFlag = false;
-        }
         const bool theGetBufFlag = ! theBufPtr[0];
         inReq.mFreeBuffersIfNoIoCompletionFlag = theGetBufFlag;
         if (theGetBufFlag) {
