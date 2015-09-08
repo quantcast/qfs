@@ -921,6 +921,10 @@ private:
     int        mDirCheckFailureSimulatorInterval;
     bool       mChunkSizeSkipHeaderVerifyFlag;
     bool       mVersionChangePermitWritesInFlightFlag;
+    bool       mDiskIoRequestAffinityFlag;
+    bool       mDiskIoSerializeMetaRequestsFlag;
+    bool       mObjStoreIoRequestAffinityFlag;
+    bool       mObjStoreIoSerializeMetaRequestsFlag;
     int        mObjStoreBlockWriteBufferSize;
     bool       mObjStoreBufferDataIgnoreOverwriteFlag;
     int        mObjStoreMaxWritableBlocks;

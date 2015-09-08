@@ -323,8 +323,12 @@ public:
         QCIoBufferPool& inBufferPool,
         CpuAffinity     inCpuAffinity,
         bool            inTraceFlag,
-        bool            inCreateExclusiveFlag)
+        bool            inCreateExclusiveFlag,
+        bool            inRequestAffinityFlag,
+        bool            inSerializeMetaRequestsFlag)
     {
+        const bool kBufferedIoFlag = false;
+        RequestProcessor** kRequestProcessorsPtr = 0;
         return QCDiskQueue::Start(
             inThreadCount,
             inMaxQueueDepth,
@@ -335,8 +339,11 @@ public:
             mSimulatorPtr,
             inCpuAffinity,
             inTraceFlag ? this : 0,
-            false,
-            inCreateExclusiveFlag
+            kBufferedIoFlag,
+            inCreateExclusiveFlag,
+            inRequestAffinityFlag,
+            inSerializeMetaRequestsFlag,
+            kRequestProcessorsPtr
         );
     }
     EnqueueStatus DeleteFile(
@@ -813,7 +820,9 @@ public:
         int              inMinWriteBlkSize,
         bool             inBufferDataIgnoreOverwriteFlag,
         int              inBufferDataTailToKeepSize,
-        bool             inCreateExclusiveFlag)
+        bool             inCreateExclusiveFlag,
+        bool             inRequestAffinityFlag,
+        bool             inSerializeMetaRequestsFlag)
     {
         DiskQueue* theQueuePtr = FindDiskQueue(inDirNamePtr);
         if (theQueuePtr) {
@@ -868,7 +877,9 @@ public:
             GetBufferPool(),
             mCpuAffinity,
             mDiskQueueTraceFlag,
-            inCreateExclusiveFlag
+            inCreateExclusiveFlag,
+            inRequestAffinityFlag,
+            inSerializeMetaRequestsFlag
         );
         if (theSysErr) {
             theQueuePtr->Delete(mDiskQueuesPtr);
@@ -1290,7 +1301,9 @@ DiskIo::StartIoQueue(
     int              inMinWriteBlkSize               /* = 0 */,
     bool             inBufferDataIgnoreOverwriteFlag /* = false */,
     int              inBufferDataTailToKeepSize      /* = 0 */,
-    bool             inCreateExclusiveFlag           /* = true */)
+    bool             inCreateExclusiveFlag           /* = true */,
+    bool             inRequestAffinityFlag           /* = false */,
+    bool             inSerializeMetaRequestsFlag     /* = true */)
 {
     if (! sDiskIoQueuesPtr) {
         if (inErrMessagePtr) {
@@ -1306,7 +1319,9 @@ DiskIo::StartIoQueue(
         inMinWriteBlkSize,
         inBufferDataIgnoreOverwriteFlag,
         inBufferDataTailToKeepSize,
-        inCreateExclusiveFlag
+        inCreateExclusiveFlag,
+        inRequestAffinityFlag,
+        inSerializeMetaRequestsFlag
     );
 }
 

@@ -1833,6 +1833,10 @@ ChunkManager::ChunkManager()
       mDirCheckFailureSimulatorInterval(-1),
       mChunkSizeSkipHeaderVerifyFlag(false),
       mVersionChangePermitWritesInFlightFlag(true),
+      mDiskIoRequestAffinityFlag(false),
+      mDiskIoSerializeMetaRequestsFlag(true),
+      mObjStoreIoRequestAffinityFlag(true),
+      mObjStoreIoSerializeMetaRequestsFlag(false),
       mObjStoreBlockWriteBufferSize((int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)),
       mObjStoreBufferDataIgnoreOverwriteFlag(true),
       mObjStoreMaxWritableBlocks(-1),
@@ -2190,6 +2194,18 @@ ChunkManager::SetParameters(const Properties& prop)
     mVersionChangePermitWritesInFlightFlag = prop.getValue(
         "chunkServer.versionChangePermitWritesInFlight",
         mVersionChangePermitWritesInFlightFlag ? 1 : 0) != 0;
+    mDiskIoRequestAffinityFlag = prop.getValue(
+        "chunkServer.diskIoRequestAffinity",
+        mDiskIoRequestAffinityFlag ? 1 : 0) != 0;
+    mDiskIoSerializeMetaRequestsFlag = prop.getValue(
+        "chunkServer.diskIoSerializeMetaRequestsFlag",
+        mDiskIoSerializeMetaRequestsFlag ? 1 : 0) != 0;
+    mObjStoreIoRequestAffinityFlag = prop.getValue(
+        "chunkServer.ObjStoreIoRequestAffinity",
+        mObjStoreIoRequestAffinityFlag ? 1 : 0) != 0;
+    mObjStoreIoSerializeMetaRequestsFlag = prop.getValue(
+        "chunkServer.ObjStoreIoSerializeMetaRequestsFlag",
+        mObjStoreIoSerializeMetaRequestsFlag ? 1 : 0) != 0;
     mObjStoreBlockWriteBufferSize = prop.getValue(
         "chunkServer.objStoreBlockWriteBufferSize",
         mObjStoreBlockWriteBufferSize);
@@ -2491,7 +2507,7 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
         KFS_LOG_EOM;
         return false;
     }
-    mFdsPerChunk = DiskIo::GetFdCountPerFile();
+    mFdsPerChunk = mDiskIoRequestAffinityFlag ? 1 : DiskIo::GetFdCountPerFile();
     if (mFdsPerChunk < 1) {
         KFS_LOG_STREAM_ERROR <<
             "invalid fd count per chunk: " << mFdsPerChunk <<
@@ -5743,11 +5759,22 @@ ChunkManager::StartDiskIo()
         it->availableChunks.Clear();
         it->availableChunks.Swap(dit->second.mChunkInfos);
         string errMsg;
+        int    kMinWriteBlkSize               = 0;
+        bool   kBufferDataIgnoreOverwriteFlag = false;
+        int    kinBufferDataTailToKeepSize    = 0;
+        bool   kCreateExclusiveFlag           = true;
         if (! DiskIo::StartIoQueue(
                 it->dirname.c_str(),
                 it->deviceId,
                 mMaxOpenChunkFiles,
-                &errMsg)) {
+                &errMsg,
+                kMinWriteBlkSize,
+                kBufferDataIgnoreOverwriteFlag,
+                kinBufferDataTailToKeepSize,
+                kCreateExclusiveFlag,
+                mDiskIoRequestAffinityFlag,
+                mDiskIoSerializeMetaRequestsFlag
+            )) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<
                 " dev: << " << it->deviceId << " :" << errMsg <<
@@ -5807,7 +5834,10 @@ ChunkManager::StartDiskIo()
                     mObjStoreBlockWriteBufferSize <
                     (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE),
                 (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE),
-                kCreateExclusiveFlag)) {
+                kCreateExclusiveFlag,
+                mObjStoreIoRequestAffinityFlag,
+                mObjStoreIoSerializeMetaRequestsFlag
+            )) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<
                 " dev: << " << it->deviceId << " :" << errMsg <<

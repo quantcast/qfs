@@ -122,7 +122,9 @@ public:
         int         inMinWriteBlkSize               = 0,
         bool        inBufferDataIgnoreOverwriteFlag = false,
         int         inBufferDataTailToKeepSize      = 0,
-        bool        inCreateExclusiveFlag           = true);
+        bool        inCreateExclusiveFlag           = true,
+        bool        inRequestAffinityFlag           = false,
+        bool        inSerializeMetaRequestsFlag     = true);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,
