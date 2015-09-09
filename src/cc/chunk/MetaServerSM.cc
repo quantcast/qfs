@@ -939,7 +939,16 @@ MetaServerSM::EnqueueOp(KfsOp* op)
 bool
 MetaServerSM::SendResponse(KfsOp* op)
 {
-    if (! mSentHello || ! IsConnected()) {
+    const bool discardFlag = ! mSentHello || ! IsConnected();
+    KFS_LOG_STREAM_DEBUG <<
+        (discardFlag ? "discard" : "send") <<
+        " meta reply:"
+        " seq: "     << op->seq <<
+        (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
+        " status: "  << op->status <<
+        " "          << op->Show() <<
+    KFS_LOG_EOM;
+    if (discardFlag) {
         // Hello does full chunk inventory synchronization.
         // Meta server assumes undefined state for all requests that were in
         // in flight at the time of disconnect, and will discard the responses
@@ -952,13 +961,6 @@ MetaServerSM::SendResponse(KfsOp* op)
         return false;
     }
     // fire'n'forget.
-    KFS_LOG_STREAM_DEBUG <<
-        "send meta reply:"
-        " seq: "     << op->seq <<
-        (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
-        " status: "  << op->status <<
-        " "          << op->Show() <<
-    KFS_LOG_EOM;
     if (op->op == CMD_ALLOC_CHUNK) {
         mCounters.mAllocCount++;
         if (op->status < 0) {
