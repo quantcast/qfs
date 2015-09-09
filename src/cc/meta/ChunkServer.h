@@ -1088,7 +1088,7 @@ protected:
     /// also, fail all the dispatched ops.
     ///
     void Error(const char* errorMsg);
-    void FailDispatchedOps();
+    void FailDispatchedOps(const char* errorMsg);
     /// Periodically, send a heartbeat message to the chunk server.
     int Heartbeat();
     int TimeoutOps();

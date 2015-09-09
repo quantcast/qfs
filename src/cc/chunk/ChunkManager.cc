@@ -3374,7 +3374,8 @@ ChunkManager::ChangeChunkVers(
                 chunkVersion != cih->chunkInfo.chunkVersion)) {
         // For now do not support changing object store blocks, as this requires
         // read modify write support.
-        KFS_LOG_STREAM_WARN <<
+        KFS_LOG_STREAM(chunkVersion == cih->chunkInfo.chunkVersion ?
+                MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR)  <<
             "invalid attempt to change version on object store" <<
                 " block: "   << cih->chunkInfo.chunkId <<
                 " version: " << chunkVersion <<

@@ -847,7 +847,7 @@ ChunkServer::ForceDown()
     ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
-    FailDispatchedOps();
+    FailDispatchedOps("chunk server down");
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
@@ -910,7 +910,7 @@ ChunkServer::Error(const char* errorMsg)
     ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     UpdateChunkWritesPerDrive(0, 0);
-    FailDispatchedOps();
+    FailDispatchedOps(errorMsg);
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
@@ -2200,7 +2200,8 @@ ChunkServer::TimeoutOps()
             " total: "     << sChunkOpsInFlight.size() <<
             " "            << it->second->Show() <<
         KFS_LOG_EOM;
-        it->second->status = -EIO;
+        it->second->statusMsg = "request timed out";
+        it->second->status    = -EIO;
         it->second->resume();
     }
     return (mReqsTimeoutQueue.empty() ?
@@ -2208,7 +2209,7 @@ ChunkServer::TimeoutOps()
 }
 
 void
-ChunkServer::FailDispatchedOps()
+ChunkServer::FailDispatchedOps(const char* errMsg)
 {
     DispatchedReqs   reqs;
     ReqsTimeoutQueue reqTimeouts;
@@ -2225,7 +2226,8 @@ ChunkServer::FailDispatchedOps()
             it != reqs.end();
             ++it) {
         MetaChunkRequest* const op = it->second.first->second;
-        op->status = -EIO;
+        op->statusMsg = errMsg ? errMsg : "chunk server disconnect";
+        op->status    = -EIO;
         op->resume();
     }
 }
