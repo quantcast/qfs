@@ -2156,6 +2156,17 @@ DiskIo::Write(
     }
     // Unless sync requested, buffer the last write if buffering is on.
     if (theBufferFlag && inSyncFlag) {
+        int64_t theTail;
+        if (inEofHint < 0 || (theTail = (int64_t)theIoBuffers.size() *
+                theBlockSize - inEofHint) < 0 || theBlockSize < theTail) {
+            const int theErr = EIO;
+            DiskIoReportError(
+                "DiskIo::Write: sync: invalid EOF",
+                theErr
+            );
+            mIoBuffers.clear();
+            return -theErr;
+        }
         const int           theBlkCnt = theMinWriteBlkSize / theBlockSize;
         IoBuffers::iterator theLastIt = theIoBuffers.end();
         theFBufIt = theIoBuffers.begin();
