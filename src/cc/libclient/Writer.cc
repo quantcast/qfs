@@ -1557,7 +1557,12 @@ private:
             int theTimeToNextRetry = GetTimeToNextRetry();
             if (mKeepLeaseFlag) {
                 theTimeToNextRetry = (int)min(
-                    mLeaseExpireTime - Now(), (time_t)theTimeToNextRetry);
+                    max(mRetryCount <= 1 ? (time_t)0 : (time_t)max(2,
+                        LEASE_INTERVAL_SECS /
+                            (2 * max(1, mOuter.mMaxRetryCount))),
+                        mLeaseExpireTime - Now()),
+                    (time_t)theTimeToNextRetry
+                );
             }
             // Retry.
             KFS_LOG_STREAM_INFO << mLogPrefix <<
