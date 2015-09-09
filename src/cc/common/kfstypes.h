@@ -46,8 +46,9 @@ const fid_t ROOTFID = 2;      //!< special fid for "/
 
 //!< Every time we change the protocol, rev. this one. We can use this value to
 //!< detect clients running old binaries.
-const int KFS_CLIENT_PROTO_VERS = 114;
-const int KFS_CLIENT_MIN_STRIPED_FILE_SUPPORT_PROTO_VERS = 110;
+const int KFS_CLIENT_PROTO_VERS                               = 115;
+const int KFS_CLIENT_MIN_STRIPED_FILE_SUPPORT_PROTO_VERS      = 110;
+const int KFS_CLIENT_MIN_OBJECT_STORE_FILE_SUPPORT_PROTO_VERS = 115;
 
 //!< Declarations as used in the Chunkserver/client-library
 typedef int64_t kfsFileId_t;

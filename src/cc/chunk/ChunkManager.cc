@@ -1521,7 +1521,7 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
                 (0 < targetVersion || stableFlag)) ||
             (stableFlag && cih->dataFH &&
                 0 < cih->dataFH->GetMinWriteBlkSize()),
-            cih->chunkInfo.chunkSize
+            cih->chunkInfo.GetHeaderSize() + cih->chunkInfo.chunkSize
         );
     }
     return status;

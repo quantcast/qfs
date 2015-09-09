@@ -1888,6 +1888,12 @@ MetaAllocate::handle()
         &fa
     );
     if (0 == numReplicas) {
+        if (clientProtoVers <
+                KFS_CLIENT_MIN_OBJECT_STORE_FILE_SUPPORT_PROTO_VERS) {
+            status    = -EPERM;
+            statusMsg = "client upgrade required to write object store file";
+            return;
+        }
         if (appendChunk) {
             status    = -EINVAL;
             statusMsg = "append is not supported with object store files";

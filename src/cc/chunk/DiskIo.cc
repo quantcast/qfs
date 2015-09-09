@@ -2226,7 +2226,9 @@ DiskIo::Write(
                 theIoPtr->mChainedPtr = this;
                 mChainedPtr = theIoPtr;
                 mBlockIdx   = theBlkIdx;
-                theIoBuffers.clear();
+                if (! theWBIgnoreOverwriteFlag) {
+                    theIoBuffers.clear();
+                }
             }
             const ssize_t theStatus = theIoPtr->SubmitWrite(
                 theSyncFlag,
@@ -2341,6 +2343,27 @@ DiskIo::Write(
     return (inNumBytes - theNWr);
 }
 
+    inline static bool
+ValidateWriteRequest(
+    bool       inSyncFlag,
+    int64_t    inBlockIdx,
+    size_t     inNumBytes,
+    DiskQueue* inQueuePtr,
+    int64_t    inEofHint)
+{
+    const int theMinWriteSize = inQueuePtr->GetMinWriteBlkSize();
+    if (theMinWriteSize <= 0) {
+        return true;
+    }
+    const int theBlkSize = inQueuePtr->GetBlockSize();
+    int64_t   theTail;
+    return (inBlockIdx * theBlkSize % theMinWriteSize == 0 &&
+        ((inSyncFlag && 0 <= (theTail = inBlockIdx * theBlkSize +
+            (int64_t)inNumBytes - inEofHint) && theTail < theBlkSize) ||
+        inNumBytes % theMinWriteSize == 0)
+    );
+}
+
     ssize_t
 DiskIo::SubmitWrite(
     bool       inSyncFlag,
@@ -2349,6 +2372,8 @@ DiskIo::SubmitWrite(
     DiskQueue* inQueuePtr,
     int64_t    inEofHint)
 {
+    QCRTASSERT(ValidateWriteRequest(
+        inSyncFlag, inBlockIdx, inNumBytes, inQueuePtr, inEofHint));
     BufIterator theBufItr(mIoBuffers);
     mWriteSyncFlag       = inSyncFlag;
     mCompletionRequestId = QCDiskQueue::kRequestIdNone;
