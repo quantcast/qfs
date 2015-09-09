@@ -2237,9 +2237,7 @@ DiskIo::Write(
                 theIoPtr->mChainedPtr = this;
                 mChainedPtr = theIoPtr;
                 mBlockIdx   = theBlkIdx;
-                if (! theWBIgnoreOverwriteFlag) {
-                    theIoBuffers.clear();
-                }
+                theIoBuffers.clear();
             }
             const ssize_t theStatus = theIoPtr->SubmitWrite(
                 theSyncFlag,
