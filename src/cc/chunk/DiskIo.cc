@@ -903,6 +903,7 @@ public:
         int         inErr)
     {
         if (mCrashOnErrorFlag) {
+            MsgLogger::Stop();
             QCUtils::FatalError(inMsgPtr, inErr);
         }
     }

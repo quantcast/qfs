@@ -2971,7 +2971,7 @@ ChunkManager::ReadChunkMetadata(
         return -ESERVERBUSY;
     }
     rcm->diskIo.reset(d);
-    const size_t headerSize = GetChunkHeaderSize(cih->chunkInfo.chunkVersion);
+    const size_t headerSize = KFS_MIN_CHUNK_HEADER_SIZE;
     const int    res        = rcm->diskIo->Read(0, headerSize);
     if (res < 0) {
         cih->ReadStats(res, (int64_t)headerSize, 0);
@@ -3000,7 +3000,7 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
         }
         return;
     }
-    const int64_t headerSize = (int64_t)GetChunkHeaderSize(op->chunkVersion);
+    const int64_t headerSize = (int64_t)KFS_MIN_CHUNK_HEADER_SIZE;
     int           res;
     if (op->status < 0 || ! dataBuf ||
             dataBuf->BytesConsumable() < headerSize ||

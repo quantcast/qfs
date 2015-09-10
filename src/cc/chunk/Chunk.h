@@ -188,7 +188,8 @@ struct DiskChunkInfo_t
 } __attribute__ ((__packed__));
 
 BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) == 4400);
-BOOST_STATIC_ASSERT(sizeof(DiskChunkInfo_t) < KFS_MIN_CHUNK_HEADER_SIZE);
+BOOST_STATIC_ASSERT(
+    sizeof(DiskChunkInfo_t) + sizeof(uint64_t) <= KFS_MIN_CHUNK_HEADER_SIZE);
 BOOST_STATIC_ASSERT(
     sizeof(int64_t) + kKfsChunkFsIdPrefixLength <= CHUNK_META_MAX_FILENAME_LEN);
 
