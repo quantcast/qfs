@@ -1494,7 +1494,7 @@ WriteChunkMetaOp::Start(ChunkInfoHandle* cih)
             return 0;
         }
         if (! DiskIo::Rename(
-                 gChunkManager.MakeChunkPathname(cih).c_str(),
+                gChunkManager.MakeChunkPathname(cih).c_str(),
                 gChunkManager.MakeChunkPathname(
                     cih, stableFlag, targetVersion).c_str(),
                 cih,
@@ -3369,22 +3369,27 @@ ChunkManager::ChangeChunkVers(
         KFS_LOG_EOM;
         return -EINVAL;
     }
+    bool    targetStable = false;
+    int64_t targetVersion;
     if (chunkVersion < 0 &&
-            (cih->IsStable() != stableFlag ||
-                chunkVersion != cih->chunkInfo.chunkVersion)) {
+            (chunkVersion !=
+                (targetVersion = cih->GetTargetStateAndVersion(targetStable)) ||
+            targetStable != stableFlag)) {
         // For now do not support changing object store blocks, as this requires
         // read modify write support.
-        KFS_LOG_STREAM(chunkVersion == cih->chunkInfo.chunkVersion ?
+        KFS_LOG_STREAM(chunkVersion == targetVersion ?
                 MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR)  <<
-            "invalid attempt to change version on object store" <<
+            "attempt to change version on object store denied" <<
                 " block: "   << cih->chunkInfo.chunkId <<
-                " version: " << chunkVersion <<
-                " / "        << cih->chunkInfo.chunkVersion <<
+                " version: " << cih->chunkInfo.chunkVersion <<
+                " -> "       << targetVersion <<
+                " <- "       << chunkVersion <<
                 " stable: "  << cih->IsStable() <<
-                " / "        << stableFlag <<
+                " -> "       << targetStable <<
+                " <- "       << stableFlag <<
         KFS_LOG_EOM;
         return ((chunkVersion == cih->chunkInfo.chunkVersion && ! stableFlag) ?
-            -EROFS : -EINVAL);
+            (cih->IsStable() ? -EROFS : -EAGAIN) : -EINVAL);
     }
     KFS_LOG_STREAM_INFO <<
         "chunk " << MakeChunkPathname(cih) <<
