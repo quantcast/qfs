@@ -251,8 +251,7 @@ public:
             bool        inReadOnlyFlag,
             bool        inCreateFlag,
             bool        inCreateExclusiveFlag,
-            int64_t&    ioMaxFileSize
-        ) = 0;
+            int64_t&    ioMaxFileSize) = 0;
         virtual int Close(
             int     inFd,
             int64_t inEof) = 0;
