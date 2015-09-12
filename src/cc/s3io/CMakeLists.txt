@@ -38,12 +38,21 @@ set_target_properties (qfss3io PROPERTIES OUTPUT_NAME "qfss3io")
 #
 # Since the objects have to be built twice, set this up so they don't
 # clobber each other.
-
 set_target_properties (qfss3io PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qfss3io-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
-target_link_libraries (qfss3io        ${S3IO_LIBRARIES})
-target_link_libraries (qfss3io-shared ${S3IO_LIBRARIES})
+target_link_libraries (qfss3io
+    kfsCommon
+    ${CURL_LIBRARIES}
+    ${XML2_LIBRARIES}
+    ${LIBS3_LIBRARIES}
+)
+target_link_libraries (qfss3io-shared
+    kfsCommon-shared
+    ${CURL_LIBRARIES}
+    ${XML2_LIBRARIES}
+    ${LIBS3_LIBRARIES}
+)
 
 install (TARGETS qfss3io qfss3io-shared
     LIBRARY DESTINATION lib

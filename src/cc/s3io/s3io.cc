@@ -32,12 +32,15 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
 
-#include "../../../../libs3/build/include/libs3.h"
+#include <libs3.h>
 #include <curl/curl.h>
+
 #include <errno.h>
 
 namespace KFS
 {
+
+char* const kS3IOFdOffset = (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
 
 class S3IO::Impl
 {
@@ -45,7 +48,7 @@ public:
     Impl()
         : mS3CtxPtr(0),
           mCurlCtxPtr(0),
-          mFdPoll(),
+          mFdPoll(true), // Wakeable
           mPollWaitMilliSec(1000),
           mPollSocketCount(0)
         {}
@@ -63,19 +66,19 @@ public:
         CURLMcode theStatus;
         if (CURLM_OK != (theStatus = curl_multi_setopt(
                 mCurlCtxPtr, CURLMOPT_SOCKETDATA, this))) {
-            InternalError("curl_multi_setopt(CURLMOPT_SOCKETDATA)", theStatus);
+            FatalError("curl_multi_setopt(CURLMOPT_SOCKETDATA)", theStatus);
         }
         if (CURLM_OK != (theStatus = curl_multi_setopt(mCurlCtxPtr,
                 CURLMOPT_SOCKETFUNCTION, &CurlSocketCB))) {
-            InternalError("curl_multi_setopt(CURLMOPT_SOCKETFUNCTION)", theStatus);
+            FatalError("curl_multi_setopt(CURLMOPT_SOCKETFUNCTION)", theStatus);
         }
         if (CURLM_OK != (theStatus = curl_multi_setopt(
                 mCurlCtxPtr, CURLMOPT_TIMERDATA, this))) {
-            InternalError("curl_multi_setopt(CURLMOPT_TIMERDATA)", theStatus);
+            FatalError("curl_multi_setopt(CURLMOPT_TIMERDATA)", theStatus);
         }
         if (CURLM_OK != (theStatus = curl_multi_setopt(
                 mCurlCtxPtr, CURLMOPT_TIMERFUNCTION, &CurlTimerCB))) {
-            InternalError("curl_multi_setopt(CURLMOPT_TIMERFUNCTION)", theStatus);
+            FatalError("curl_multi_setopt(CURLMOPT_TIMERFUNCTION)", theStatus);
         }
         return true;
     }
@@ -86,7 +89,6 @@ public:
     }
     void ProcessAndWait()
     {
-        const int64_t thePollTime = microseconds();
         const int     theErr      =
             mFdPoll.Poll(mPollSocketCount, (int)mPollWaitMilliSec);
         if (theErr < 0 && theErr != -EINTR && theErr != -EAGAIN) {
@@ -94,41 +96,49 @@ public:
                 QCUtils::SysError(-theErr, "poll error") <<
             KFS_LOG_EOM;
         }
-        int               theEvents;
-        void*             thePtr;
-        CURLMcode         theStatus;
-        const char* const kNullPtr    = 0;
-        int               theRemCount = 0;
-        int               theCount    = 0;
+        int       theEvents;
+        void*     thePtr;
+        CURLMcode theStatus;
+        int       theRemCount = 0;
+        int       theCount    = 0;
         while (mFdPoll.Next(theEvents, thePtr)) {
+            if (! thePtr) {
+                continue;
+            }
             theCount++;
             curl_socket_t theFd = (curl_socket_t)(
-                reinterpret_cast<const char*>(thePtr) - kNullPtr);
-            while ((theStatus = curl_multi_socket_action(mCurlCtxPtr,
-                        theFd,
-                        ConvertEvents(theEvents),
-                        &theRemCount)) == CURLM_CALL_MULTI_PERFORM)
+                reinterpret_cast<const char*>(thePtr) - kS3IOFdOffset);
+            while ((theStatus = curl_multi_socket_action(
+                    mCurlCtxPtr,
+                    theFd,
+                    ConvertEvents(theEvents),
+                    &theRemCount)) == CURLM_CALL_MULTI_PERFORM)
                 {}
             if (CURLM_OK != theStatus) {
-                InternalError("curl_multi_socket_action", theStatus);
+                FatalError("curl_multi_socket_action", theStatus);
             }
         }
-        if (theCount <= 0 && (mPollWaitMilliSec == 0 ||
-                (0 < mPollWaitMilliSec &&
-                thePollTime + mPollWaitMilliSec * 1000 + 500 <=
-                    microseconds()))) {
+        if (theCount <= 0 &&  0 <= mPollWaitMilliSec) {
             if ((theStatus = curl_multi_socket_action(
                     mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
-                InternalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
+                FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
                     theStatus);
             }
+        }
+        const S3Status theS3Status = S3_finish_request_context(mS3CtxPtr);
+        if (S3StatusOK != theS3Status) {
+            FatalError("S3_finish_request_context", theS3Status);
         }
     }
     void Wakeup()
     {
+        if (! mFdPoll.Wakeup()) {
+            FatalError("wake failure");
+        }
     }
     void Stop()
     {
+        Wakeup();
     }
     int Open(
         const char* inFileNamePtr,
@@ -212,7 +222,7 @@ private:
                     theStatus = mFdPoll.Remove(inFd);
                     QCASSERT(0 < mPollSocketCount);
                     if (CURLM_OK != curl_multi_assign(mCurlCtxPtr, inFd, 0)) {
-                        InternalError("curl_multi_assign");
+                        FatalError("curl_multi_assign");
                     }
                     mPollSocketCount--;
                 }
@@ -229,19 +239,18 @@ private:
             case CURL_POLL_NONE:
                 break;
             default:
-                InternalError("invalid set socket action", inAction);
+                FatalError("invalid set socket action", inAction);
                 break;
         }
         if (theEvents) {
-            char* const kNullPtr = 0;
             if (inSocketPtr) {
-                theStatus = mFdPoll.Set(inFd, theEvents, kNullPtr + inFd);
+                theStatus = mFdPoll.Set(inFd, theEvents, kS3IOFdOffset + inFd);
             } else {
-                theStatus = mFdPoll.Add(inFd, theEvents, kNullPtr + inFd);
+                theStatus = mFdPoll.Add(inFd, theEvents, kS3IOFdOffset + inFd);
                 if (CURLM_OK != curl_multi_assign(
                         mCurlCtxPtr, inFd,
                         const_cast<char*>(kSocketAddedPtr + inFd))) {
-                    InternalError("curl_multi_assign");
+                    FatalError("curl_multi_assign");
                 }
                 mPollSocketCount++;
             }
@@ -272,7 +281,7 @@ private:
         }
         return theEvents;
     }
-    void InternalError(
+    void FatalError(
         const char* inMsgPtr,
         int         inStatus = 0)
     {
@@ -280,7 +289,7 @@ private:
         KFS_LOG_STREAM_FATAL <<
             "S3: " << (const void*)mS3CtxPtr <<
             "internal error: " << theMsgPtr   <<
-            " status: " << inStatus <<
+            " status: "        << inStatus <<
         KFS_LOG_EOM;
         MsgLogger::Stop();
         QCUtils::FatalError(theMsgPtr, 0);

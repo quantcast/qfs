@@ -379,6 +379,41 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
     ENDIF (FUSE_FOUND)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
 
+# For now attempt to find libs3 build artifacts in ../libs3 directory.
+IF (NOT DEFINED LIBS3_LIBRARY_DIR)
+    SET(LIBS3_LIBRARY_DIR ${KFS_DIR_PREFIX}/../libs3/build/lib)
+ENDIF (NOT DEFINED LIBS3_LIBRARY_DIR)
+IF (NOT DEFINED LIBS3_INCLUDE_DIR)
+    SET(LIBS3_INCLUDE_DIR ${KFS_DIR_PREFIX}/../libs3/build/include)
+ENDIF (NOT DEFINED LIBS3_INCLUDE_DIR)
+
+find_library(LIBS3_LIBRARIES
+    NAMES ${CMAKE_SHARED_LIBRARY_PREFIX}s3${CMAKE_SHARED_LIBRARY_SUFFIX}
+    PATHS ${LIBS3_LIBRARY_DIR}
+)
+IF (LIBS3_LIBRARIES)
+    find_path(LIBS3_INCLUDE_DIR
+        libs3.h
+        PATHS ${LIBS3_INCLUDE_DIR}
+    )
+    IF (NOT LIBS3_INCLUDE_DIR)
+        SET(LIBS3_LIBRARIES FALSE)
+    ELSE  (NOT LIBS3_INCLUDE_DIR)
+        find_package(CURL)
+        IF (NOT CURL_FOUND)
+            message (STATUS "S3 library requires cURL library")
+            SET(LIBS3_LIBRARIES FALSE)
+        ELSE (NOT CURL_FOUND)
+            find_library(LIBXML2_LIBRARIES
+                NAMES ${CMAKE_SHARED_LIBRARY_PREFIX}xml2${CMAKE_SHARED_LIBRARY_SUFFIX}
+            )
+            IF (NOT LIBXML2_LIBRARIES)
+                message (STATUS "S3 library requires xml2 library")
+                SET(LIBS3_LIBRARIES FALSE)
+            ENDIF (NOT LIBXML2_LIBRARIES)
+        ENDIF (NOT CURL_FOUND)
+    ENDIF  (NOT LIBS3_INCLUDE_DIR)
+ENDIF (LIBS3_LIBRARIES)
 
 # include dirs
 include_directories(
@@ -403,6 +438,14 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcdio src/cc/qcdio)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/krb src/cc/krb)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qfsc src/cc/qfsc)
+IF (LIBS3_LIBRARIES)
+    message (STATUS "Usig S3 includes: ${LIBS3_INCLUDE_DIR}")
+    message (STATUS "Usig S3 libraries: ${LIBS3_LIBRARIES}")
+    include_directories(${CURL_INCLUDE_DIRS}  ${LIBS3_INCLUDE_DIR})
+    add_subdirectory (${KFS_DIR_PREFIX}src/cc/s3io src/cc/s3io)
+ELSE (LIBS3_LIBRARIES)
+    message (STATUS "Not building S3 support")
+ENDIF (LIBS3_LIBRARIES)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
