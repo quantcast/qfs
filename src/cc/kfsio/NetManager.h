@@ -204,7 +204,6 @@ public:
         bool resetTimer);
     static inline const NetManager* GetNetManager(const NetConnection& conn);
 private:
-    class Waker;
     typedef NetManagerEntry::List            List;
     typedef QCDLList<ITimeout>               TimeoutHandlers;
     typedef NetManagerEntry::PendingReadList PendingReadList;
@@ -237,7 +236,6 @@ private:
     int64_t         mTimerOverrunSec;
     int             mMaxAcceptsPerRead;
     QCFdPoll&       mPoll;
-    Waker&          mWaker;
     PollEventHook*  mPollEventHook;
     NetManagerEntry mPendingReadList;
     PendingUpdate   mPendingUpdate;
