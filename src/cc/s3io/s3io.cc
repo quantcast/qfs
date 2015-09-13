@@ -39,12 +39,14 @@
 
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace KFS
 {
 
 using std::string;
 using std::vector;
+using std::max;
 
 char* const kS3IOFdOffset = (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
 
@@ -183,7 +185,8 @@ public:
                 inReadOnlyFlag,
                 inCreateFlag,
                 inCreateExclusiveFlag,
-                ioMaxFileSize
+                ioMaxFileSize,
+                mGeneration++
             );
         }
         return theFd;
@@ -217,12 +220,14 @@ public:
         BlockIdx        inStartBlockIdx,
         int             inBufferCount,
         InputIterator*  inInputIteratorPtr,
-        int64_t         inSpaceAllocSize,
+        int64_t         /* inSpaceAllocSize */,
         int64_t         inEof)
     {
         QCDiskQueue::Error theError   = QCDiskQueue::kErrorNone;
         int                theSysErr  = 0;
         File*              theFilePtr = GetFilePtr(inFd);
+        S3Req*             theReqPtr  = 0;
+        int64_t            theEnd;
         switch (inReqType) {
             case QCDiskQueue::kReqTypeRead:
                 if (! theFilePtr) {
@@ -230,22 +235,90 @@ public:
                     theSysErr = EBADF;
                     break;
                 }
-                break;
+                if (inStartBlockIdx < 0) {
+                    theError  = QCDiskQueue::kErrorRead;
+                    theSysErr = EINVAL;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "invalid read start position: " << inStartBlockIdx <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+                theReqPtr = S3Req::Get(
+                    *this,
+                    inFd,
+                    inStartBlockIdx * mBlockSize,
+                    inBufferCount,
+                    inInputIteratorPtr,
+                    inBufferCount * mBlockSize,
+                    theFilePtr->mGeneration
+                );
+                if (! theReqPtr) {
+                    theError  = QCDiskQueue::kErrorRead;
+                    theSysErr = EINVAL;
+                    break;
+                }
+                Read(*theReqPtr);
+                return;
             case QCDiskQueue::kReqTypeWrite:
             case QCDiskQueue::kReqTypeWriteSync:
-                if (! theFilePtr || theFilePtr->mReadOnlyFlag) {
+                if (! theFilePtr || theFilePtr->mReadOnlyFlag ||
+                        inBufferCount <= 0) {
                     theError  = QCDiskQueue::kErrorWrite;
                     theSysErr = theFilePtr ? EINVAL : EBADF;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "invalid write attempt into read only file" <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+                if (QCDiskQueue::kReqTypeWrite == inReqType ||
+                        inStartBlockIdx != 0) {
+                    theError  = QCDiskQueue::kErrorWrite;
+                    theSysErr = EINVAL;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "partial write is not spported yet" <<
+                        " block index: " << inStartBlockIdx <<
+                    KFS_LOG_EOM;
                     break;
                 }
                 if (QCDiskQueue::kReqTypeWriteSync == inReqType && inEof < 0) {
                     theError  = QCDiskQueue::kErrorParameter;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "invalid sync write EOF: " << inEof <<
+                        " max: " << theFilePtr->mMaxFileSize <<
+                    KFS_LOG_EOM;
                     break;
                 }
                 if (0 <= inEof) {
                     theFilePtr->mMaxFileSize = inEof;
                 }
-                break;
+                theEnd = (inStartBlockIdx + inBufferCount) * mBlockSize;
+                if (theFilePtr->mMaxFileSize + mBlockSize < theEnd) {
+                    theError  = QCDiskQueue::kErrorParameter;
+                    theSysErr = EINVAL;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "write past last block: " << theEnd <<
+                        " max: " << theFilePtr->mMaxFileSize <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+                theReqPtr = S3Req::Get(
+                    *this,
+                    inFd,
+                    inStartBlockIdx * mBlockSize,
+                    inBufferCount,
+                    inInputIteratorPtr,
+                    inBufferCount * mBlockSize -
+                        (theFilePtr->mMaxFileSize < theEnd ?
+                            theEnd - theFilePtr->mMaxFileSize : 0),
+                    theFilePtr->mGeneration
+                );
+                if (! theReqPtr) {
+                    theError  = QCDiskQueue::kErrorWrite;
+                    theSysErr = EINVAL;
+                    break;
+                }
+                Write(*theReqPtr);
+                return;
             default:
                 theError  = QCDiskQueue::kErrorParameter;
                 theSysErr = theFilePtr ? ENXIO : EBADF;
@@ -279,24 +352,116 @@ private:
             bool        inReadOnlyFlag,
             bool        inCreateFlag,
             bool        inCreateExclusiveFlag,
-            int64_t     ioMaxFileSize)
+            int64_t     inMaxFileSize,
+            uint64_t    inGeneration)
             : mFileName(inFileNamePtr ? inFileNamePtr : ""),
               mReadOnlyFlag(inReadOnlyFlag),
               mCreateExclusiveFlag(inCreateExclusiveFlag),
-              mMaxFileSize(ioMaxFileSize)
+              mMaxFileSize(inMaxFileSize),
+              mGeneration(inGeneration)
             {}
         void Close(
             int64_t inEof)
         {
         }
-        string  mFileName;
-        bool    mReadOnlyFlag;
-        bool    mCreateFlag;
-        bool    mCreateExclusiveFlag;
-        int64_t mMaxFileSize;
+        string         mFileName;
+        bool           mReadOnlyFlag;
+        bool           mCreateFlag;
+        bool           mCreateExclusiveFlag;
+        int64_t        mMaxFileSize;
+        uint64_t const mGeneration;
     };
     typedef vector<File*> FileTable;
     typedef vector<int>   FreeFdList;
+    class S3Req
+    {
+    public:
+        static S3Req* Get(
+            S3IO&          inOuter,
+            int            inFd,
+            BlockIdx       inStartBlockIdx,
+            int            inBufferCount,
+            InputIterator* inInputIteratorPtr,
+            size_t         inSize,
+            uint64_t       inGeneration)
+        {
+            char* const theMemPtr = new char[
+                sizeof(S3Req) + sizeof(char*) * max(0, inBufferCount)];
+            S3Req& theReq = *(new (theMemPtr) S3Req(
+                inOuter,
+                inFd,
+                inStartBlockIdx,
+                inBufferCount,
+                inSize,
+                inGeneration
+            ));
+            if (0 < inBufferCount) {
+                if (inSize <= 0) {
+                    KFS_LOG_STREAM_ERROR << inOuter.mLogPrefix <<
+                        "invalid empty write attempt" <<
+                    KFS_LOG_EOM;
+                    theReq.Dispose();
+                    return 0;
+                }
+                if (! inInputIteratorPtr) {
+                    KFS_LOG_STREAM_ERROR << inOuter.mLogPrefix <<
+                        "invalid null buffer iterator"
+                        " buffer count: " << inBufferCount <<
+                    KFS_LOG_EOM;
+                    theReq.Dispose();
+                    return 0;
+                }
+                char** theBuffersPtr = theReq.GetBuffers();
+                for (int i = 0; i < inBufferCount; i++) {
+                    char* const thePtr = inInputIteratorPtr->Get();
+                    if (! thePtr) {
+                        KFS_LOG_STREAM_ERROR << inOuter.mLogPrefix <<
+                            "invalid null buffer, pos:" << i <<
+                            " expected: " << inBufferCount << " buffers" <<
+                        KFS_LOG_EOM;
+                        theReq.Dispose();
+                        return 0;
+                    }
+                    *theBuffersPtr++ = thePtr;
+                }
+            }
+            return &theReq;
+        }
+        void Dispose()
+        {
+            char* const thePtr = reinterpret_cast<char*>(this);
+            this->~S3Req();
+            delete [] thePtr;
+        }
+    private:
+        S3IO&          mOuter;
+        int const      mFd;
+        size_t         mStartPos;
+        size_t         mPos;
+        size_t         mSize;
+        uint64_t const mGeneration;
+
+        S3Req(
+            S3IO&          inOuter,
+            int            inFd,
+            size_t         inStartPos,
+            int            inBufferCount,
+            size_t         inSize,
+            uint64_t       inGeneration)
+            : mOuter(inOuter),
+              mFd(inFd),
+              mStartPos(inStartPos),
+              mPos(0),
+              mSize(inSize),
+              mGeneration(inGeneration)
+            {}
+
+        char** GetBuffers()
+            { return reinterpret_cast<char**>(this + 1); }
+        ~S3Req()
+            {}
+    };
+    friend class S3Req;
 
     QCDiskQueue*      mDiskQueuePtr;
     int               mBlockSize;
@@ -311,6 +476,7 @@ private:
     string            mBucketName;
     string            mAccessKeyId;
     string            mSecretAccessKey;
+    uint64_t          mGeneration;
 
     S3IO(
         const char* inLogPrefixPtr)
@@ -324,7 +490,11 @@ private:
           mPollWaitMilliSec(1000),
           mPollSocketCount(0),
           mFileTable(),
-          mFreeFdList()
+          mFreeFdList(),
+          mBucketName(),
+          mAccessKeyId(),
+          mSecretAccessKey(),
+          mGeneration(1)
     {
         if (! inLogPrefixPtr) {
             mLogPrefix += "S3IO ";
@@ -347,16 +517,20 @@ private:
         mFreeFdList.pop_back();
         return theFd;
     }
-    void RemvoeFile(
-        int inFd)
-    {
-    }
     File* GetFilePtr(
         int inFd)
     {
         return ((inFd < 0 || mFileTable.size() <= (size_t)inFd) ?
             0 : mFileTable[inFd]);
         
+    }
+    void Read(
+        S3Req& inReq)
+    {
+    }
+    void Write(
+        S3Req& inReq)
+    {
     }
     static int CurlTimerCB(
         CURLM* inCurlCtxPtr,
