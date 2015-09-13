@@ -31,10 +31,23 @@
 
 #define KFS_MAKE_REGISTERED_IO_METHOD_NAME(inType) \
     IOMethodRegistry_KFS_IO_METHOD_##inType
-#define KFS_DECLARE_IO_METHOD_PTR(inType) \
-    IOMethod::Registry const KFS_MAKE_REGISTERED_IO_METHOD_NAME(inType)
-#define KFS_REGISTER_IO_METHOD(inType, inMethodPtr) \
-    extern KFS_DECLARE_IO_METHOD_PTR(inType); \
-    KFS_DECLARE_IO_METHOD_PTR(inType) = inMethodPtr
+#define KFS_DECLARE_IO_METHOD(inType) \
+    IOMethod* KFS_MAKE_REGISTERED_IO_METHOD_NAME(inType)( \
+    const char*       inUrlPtr,          \
+    const char*       inLogPrefixPtr,    \
+    const char*       inParamsPrefixPtr, \
+    const Properties& inParameters       \
+    )
+#define KFS_REGISTER_IO_METHOD(inType, inMethod) \
+    extern KFS_DECLARE_IO_METHOD(inType); \
+    KFS_DECLARE_IO_METHOD(inType) \
+    { \
+        return inMethod(       \
+            inUrlPtr,          \
+            inLogPrefixPtr,    \
+            inParamsPrefixPtr, \
+            inParameters       \
+        ); \
+    }
 
 #endif /* KFS_CHUNK_IO_METHOD_DEF_H */

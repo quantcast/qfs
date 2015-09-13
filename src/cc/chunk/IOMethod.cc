@@ -31,21 +31,22 @@ namespace KFS
 class IOMethodList
 {
 public:
+    typedef IOMethod* (*Registry)(
+        const char*       inUrlPtr,
+        const char*       inLogPrefixPtr,
+        const char*       inParamsPrefixPtr,
+        const Properties& inParameters);
     class Entry
     {
     public:
         Entry(
-            IOMethod::Registry inMethodPtr)
+            Registry inMethodPtr)
             : mMethodPtr(inMethodPtr),
               mNextPtr(0)
-        {
-            if (mMethodPtr) {
-                IOMethodList::PushBack(*this);
-            }
-        }
+            { IOMethodList::PushBack(*this); }
     private:
-        IOMethod::Registry const mMethodPtr;
-        Entry*                   mNextPtr;
+        Registry const mMethodPtr;
+        Entry*         mNextPtr;
         friend class IOMethodList;
     };
     static IOMethod* Create(
@@ -104,9 +105,9 @@ IOMethod::Create(
 }
 
 #define __KFS_DECLARE_EXTERN_IO_METHOD(inType) \
-    extern KFS_DECLARE_IO_METHOD_PTR(inType); \
+    extern KFS_DECLARE_IO_METHOD(inType); \
     static IOMethodList::Entry sListEntry##inType(\
-        KFS_MAKE_REGISTERED_IO_METHOD_NAME(inType))
+        &KFS_MAKE_REGISTERED_IO_METHOD_NAME(inType))
 
 #ifdef KFS_IO_METHOD_NAME_S3IO
     __KFS_DECLARE_EXTERN_IO_METHOD(KFS_IO_METHOD_NAME_S3IO);

@@ -49,12 +49,6 @@ public:
     virtual void SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters) = 0;
-
-    typedef IOMethod* (*Registry)(
-        const char*       inUrlPtr,
-        const char*       inLogPrefixPtr,
-        const char*       inParamsPrefixPtr,
-        const Properties& inParameters);
 protected:
     IOMethod()
         {}
