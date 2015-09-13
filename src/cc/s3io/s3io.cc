@@ -251,6 +251,8 @@ public:
                 }
                 theReqPtr = S3Req::Get(
                     *this,
+                    inRequest,
+                    inReqType,
                     inFd,
                     inStartBlockIdx * mBlockSize,
                     inBufferCount,
@@ -309,6 +311,8 @@ public:
                 }
                 theReqPtr = S3Req::Get(
                     *this,
+                    inRequest,
+                    inReqType,
                     inFd,
                     inStartBlockIdx * mBlockSize,
                     inBufferCount,
@@ -384,6 +388,8 @@ private:
     public:
         static S3Req* Get(
             S3IO&          inOuter,
+            Request&       inRequest,
+            ReqType        inReqType,
             int            inFd,
             BlockIdx       inStartBlockIdx,
             int            inBufferCount,
@@ -395,6 +401,8 @@ private:
                 sizeof(S3Req) + sizeof(char*) * max(0, inBufferCount)];
             S3Req& theReq = *(new (theMemPtr) S3Req(
                 inOuter,
+                inRequest,
+                inReqType,
                 inFd,
                 inStartBlockIdx,
                 inBufferCount,
@@ -513,6 +521,8 @@ private:
         }
     private:
         S3IO&          mOuter;
+        Request&       mRequest;
+        ReqType        mReqType;
         int const      mFd;
         size_t         mStartPos;
         size_t         mPos;
@@ -524,12 +534,16 @@ private:
 
         S3Req(
             S3IO&          inOuter,
+            Request&       inRequest,
+            ReqType        inReqType,
             int            inFd,
             size_t         inStartPos,
             int            inBufferCount,
             size_t         inSize,
             uint64_t       inGeneration)
             : mOuter(inOuter),
+              mRequest(inRequest),
+              mReqType(inReqType),
               mFd(inFd),
               mStartPos(inStartPos),
               mPos(0),
