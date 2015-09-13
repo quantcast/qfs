@@ -258,7 +258,7 @@ public:
                     inBufferCount,
                     inInputIteratorPtr,
                     inBufferCount * mBlockSize,
-                    theFilePtr->mGeneration
+                    *theFilePtr
                 );
                 if (! theReqPtr) {
                     theError  = QCDiskQueue::kErrorRead;
@@ -320,7 +320,7 @@ public:
                     inBufferCount * mBlockSize -
                         (theFilePtr->mMaxFileSize < theEnd ?
                             theEnd - theFilePtr->mMaxFileSize : 0),
-                    theFilePtr->mGeneration
+                    *theFilePtr
                 );
                 if (! theReqPtr) {
                     theError  = QCDiskQueue::kErrorWrite;
@@ -395,7 +395,7 @@ private:
             int            inBufferCount,
             InputIterator* inInputIteratorPtr,
             size_t         inSize,
-            uint64_t       inGeneration)
+            File&          inFile)
         {
             char* const theMemPtr = new char[
                 sizeof(S3Req) + sizeof(char*) * max(0, inBufferCount)];
@@ -407,7 +407,7 @@ private:
                 inStartBlockIdx,
                 inBufferCount,
                 inSize,
-                inGeneration
+                inFile
             ));
             if (0 < inBufferCount) {
                 if (inSize <= 0) {
@@ -438,6 +438,7 @@ private:
                     }
                     *theBuffersPtr++ = thePtr;
                 }
+                theReq.mBufferPtr = theReq.GetBuffers();
             }
             return &theReq;
         }
@@ -450,7 +451,7 @@ private:
         const char* GetMd5Sum()
         {
             if (mMd5Sum.empty()) {
-                MdStream theStream(0, true, string(), 0);
+                ostream& theStream = mOuter.mMdStream.Reset();
                 char** thePtr = GetBuffers();
                 size_t thePos;
                 for (thePos = 0;
@@ -461,7 +462,11 @@ private:
                 if (thePos < mSize) {
                     theStream.write(*thePtr, mSize - thePos);
                 }
-                mMd5Sum = theStream.GetMd();
+                if (theStream) {
+                    mMd5Sum = mOuter.mMdStream.GetMd();
+                } else {
+                    mOuter.FatalError("md5 sum failure");
+                }
             }
             return mMd5Sum.c_str();
         }
@@ -480,14 +485,12 @@ private:
             if (mSize <= mPos || inBufferSize <= 0) {
                 return 0;
             }
-            char*       thePtr    = inBufferPtr;
-            char* const theEndPtr = thePtr + inBufferSize;
-            size_t      theSize;
-            if (mPos <= 0) {
-                mBufferPtr = GetBuffers();
-                mBufRem    = 0;
-            } else if (0 < mBufRem) {
-                theSize = min(mBufRem, (size_t)(theEndPtr - thePtr));
+            char*        thePtr    = inBufferPtr;
+            const size_t theRem    = min((size_t)inBufferSize, mSize - mPos);
+            char* const  theEndPtr = thePtr + theRem;
+            size_t       theSize;
+            if (0 < mBufRem) {
+                theSize = min(mBufRem, theRem);
                 memcpy(thePtr,
                     *mBufferPtr + mOuter.mBlockSize - mBufRem, theSize);
                 mBufRem -= theSize;
@@ -498,19 +501,41 @@ private:
                 thePtr += theSize;
             }
             theSize = mOuter.mBlockSize;
-            while (mPos + theSize <= mSize && thePtr + theSize <= theEndPtr) {
+            while (thePtr + theSize <= theEndPtr) {
                 memcpy(thePtr, *mBufferPtr++, theSize);
                 mPos   += theSize;
                 thePtr += theSize;
             }
-            theSize = min(mSize - mPos, (size_t)(theEndPtr - thePtr));
+            theSize = (size_t)(theEndPtr - thePtr);
             if (0 < theSize) {
                 memcpy(thePtr, *mBufferPtr, theSize);
                 thePtr += theSize;
                 mPos   += theSize;
                 mBufRem = mOuter.mBlockSize - theSize;
             }
-            return (thePtr - (theEndPtr - inBufferSize));
+            return (int)(thePtr - (theEndPtr - theRem));
+        }
+        void Retry()
+        {
+            mRetryCount++;
+            mBufferPtr = GetBuffers();
+            mPos       = 0;
+            mBufRem    = 0;
+            switch (mReqType) {
+                case QCDiskQueue::kReqTypeRead:
+                    mOuter.Read(*this);
+                    return;
+                case QCDiskQueue::kReqTypeWrite:
+                case QCDiskQueue::kReqTypeWriteSync:
+                    mOuter.Write(*this);
+                    return;
+                case QCDiskQueue::kReqTypeDelete:
+                    mOuter.Delete(*this);
+                    return;
+                default:
+                    mOuter.FatalError("invalid request type");
+                    return;
+            }
         }
         void Done(
             S3Status              inStatus,
@@ -523,14 +548,16 @@ private:
         S3IO&          mOuter;
         Request&       mRequest;
         ReqType        mReqType;
-        int const      mFd;
-        size_t         mStartPos;
+        int      const mFd;
+        uint64_t const mGeneration;
+        string   const mFileName;
+        string         mMd5Sum;
+        size_t   const mStartPos;
         size_t         mPos;
         size_t         mSize;
         size_t         mBufRem;
         char**         mBufferPtr;
-        uint64_t const mGeneration;
-        string         mMd5Sum;
+        int            mRetryCount;
 
         S3Req(
             S3IO&          inOuter,
@@ -540,18 +567,20 @@ private:
             size_t         inStartPos,
             int            inBufferCount,
             size_t         inSize,
-            uint64_t       inGeneration)
+            const File&    inFile)
             : mOuter(inOuter),
               mRequest(inRequest),
               mReqType(inReqType),
               mFd(inFd),
+              mGeneration(inFile.mGeneration),
+              mFileName(inFile.mFileName),
+              mMd5Sum(),
               mStartPos(inStartPos),
               mPos(0),
               mSize(inSize),
               mBufRem(0),
               mBufferPtr(0),
-              mGeneration(inGeneration),
-              mMd5Sum()
+              mRetryCount(0)
             {}
 
         char** GetBuffers()
@@ -586,6 +615,7 @@ private:
     S3Protocol        mS3Protocol;
     S3UriStyle        mS3UriStyle;
     uint64_t          mGeneration;
+    MdStream          mMdStream;
 
     S3IO(
         const char* inLogPrefixPtr)
@@ -614,7 +644,8 @@ private:
           mUseServerSideEncryptionFlag(false),
           mS3Protocol(S3ProtocolHTTPS),
           mS3UriStyle(S3UriStyleVirtualHost),
-          mGeneration(1)
+          mGeneration(1),
+          mMdStream(0, true, string(), 0)
     {
         if (! inLogPrefixPtr) {
             mLogPrefix += "S3IO ";
@@ -691,6 +722,10 @@ private:
             &thePutObjectHandler,
             &inReq
         );
+    }
+    void Delete(
+        S3Req& inReq)
+    {
     }
     static S3Status S3ResponsePropertiesCB(
         const S3ResponseProperties* inPropertiesPtr,
