@@ -27,6 +27,7 @@
 
 #include "common/MsgLogger.h"
 #include "common/IntToString.h"
+#include "common/MdStream.h"
 
 #include "qcdio/QCFdPoll.h"
 #include "qcdio/QCUtils.h"
@@ -47,6 +48,7 @@ namespace KFS
 using std::string;
 using std::vector;
 using std::max;
+using std::min;
 
 char* const kS3IOFdOffset = (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
 
@@ -84,8 +86,12 @@ public:
             KFS_LOG_EOM;
             return false;
         }
-        if (! mS3CtxPtr &&
-                S3StatusOK != S3_create_request_context(&mS3CtxPtr)) {
+        S3Status theS3Status;
+        if (! mS3CtxPtr && S3StatusOK !=
+                (theS3Status = S3_create_request_context(&mS3CtxPtr))) {
+            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                "S3_create_request_context failure: " << theS3Status <<
+            KFS_LOG_EOM;
             return false;
         }
         mCurlCtxPtr = reinterpret_cast<CURLM*>(
@@ -433,13 +439,88 @@ private:
             this->~S3Req();
             delete [] thePtr;
         }
+        const char* GetMd5Sum()
+        {
+            if (mMd5Sum.empty()) {
+                MdStream theStream(0, true, string(), 0);
+                char** thePtr = GetBuffers();
+                size_t thePos;
+                for (thePos = 0;
+                        thePos + mOuter.mBlockSize <= mSize;
+                        thePos += mOuter.mBlockSize) {
+                    theStream.write(*thePtr++, mOuter.mBlockSize);
+                }
+                if (thePos < mSize) {
+                    theStream.write(*thePtr, mSize - thePos);
+                }
+                mMd5Sum = theStream.GetMd();
+            }
+            return mMd5Sum.c_str();
+        }
+        size_t GetSize() const
+            { return mSize; }
+        int GetFd() const
+            { return mFd; }
+        size_t GetStartPos()
+            { return mStartPos; }
+        uint64_t GetGeneration() const
+            { return mGeneration; }
+        int Write(
+            int   inBufferSize,
+            char* inBufferPtr)
+        {
+            if (mSize <= mPos || inBufferSize <= 0) {
+                return 0;
+            }
+            char*       thePtr    = inBufferPtr;
+            char* const theEndPtr = thePtr + inBufferSize;
+            size_t      theSize;
+            if (mPos <= 0) {
+                mBufferPtr = GetBuffers();
+                mBufRem    = 0;
+            } else if (0 < mBufRem) {
+                theSize = min(mBufRem, (size_t)(theEndPtr - thePtr));
+                memcpy(thePtr,
+                    *mBufferPtr + mOuter.mBlockSize - mBufRem, theSize);
+                mBufRem -= theSize;
+                if (0 < mBufRem) {
+                    return (int)theSize;
+                }
+                mBufferPtr++;
+                thePtr += theSize;
+            }
+            theSize = mOuter.mBlockSize;
+            while (mPos + theSize <= mSize && thePtr + theSize <= theEndPtr) {
+                memcpy(thePtr, *mBufferPtr++, theSize);
+                mPos   += theSize;
+                thePtr += theSize;
+            }
+            theSize = min(mSize - mPos, (size_t)(theEndPtr - thePtr));
+            if (0 < theSize) {
+                memcpy(thePtr, *mBufferPtr, theSize);
+                thePtr += theSize;
+                mPos   += theSize;
+                mBufRem = mOuter.mBlockSize - theSize;
+            }
+            return (thePtr - (theEndPtr - inBufferSize));
+        }
+        void Done(
+            S3Status              inStatus,
+            const S3ErrorDetails* inErrorPtr)
+        {
+            if (S3_status_is_retryable(inStatus)) {
+            }
+        }
     private:
         S3IO&          mOuter;
         int const      mFd;
         size_t         mStartPos;
         size_t         mPos;
         size_t         mSize;
+        size_t         mBufRem;
+        char**         mBufferPtr;
         uint64_t const mGeneration;
+        string         mMd5Sum;
 
         S3Req(
             S3IO&          inOuter,
@@ -453,7 +534,10 @@ private:
               mStartPos(inStartPos),
               mPos(0),
               mSize(inSize),
-              mGeneration(inGeneration)
+              mBufRem(0),
+              mBufferPtr(0),
+              mGeneration(inGeneration),
+              mMd5Sum()
             {}
 
         char** GetBuffers()
@@ -473,9 +557,20 @@ private:
     int               mPollSocketCount;
     FileTable         mFileTable;
     FreeFdList        mFreeFdList;
+    string            mS3HostName;
     string            mBucketName;
     string            mAccessKeyId;
     string            mSecretAccessKey;
+    string            mSecurityToken;
+    string            mContentType;
+    string            mCacheControl;
+    string            mContentDispositionFilename;
+    string            mContentEncoding;
+    int64_t           mObjectExpires;
+    S3CannedAcl       mCannedAcl;
+    bool              mUseServerSideEncryptionFlag;
+    S3Protocol        mS3Protocol;
+    S3UriStyle        mS3UriStyle;
     uint64_t          mGeneration;
 
     S3IO(
@@ -491,9 +586,20 @@ private:
           mPollSocketCount(0),
           mFileTable(),
           mFreeFdList(),
+          mS3HostName(),
           mBucketName(),
           mAccessKeyId(),
           mSecretAccessKey(),
+          mSecurityToken(),
+          mContentType(),
+          mCacheControl(),
+          mContentDispositionFilename(),
+          mContentEncoding(),
+          mObjectExpires(-1),
+          mCannedAcl(S3CannedAclPrivate),
+          mUseServerSideEncryptionFlag(false),
+          mS3Protocol(S3ProtocolHTTPS),
+          mS3UriStyle(S3UriStyleVirtualHost),
           mGeneration(1)
     {
         if (! inLogPrefixPtr) {
@@ -522,7 +628,6 @@ private:
     {
         return ((inFd < 0 || mFileTable.size() <= (size_t)inFd) ?
             0 : mFileTable[inFd]);
-        
     }
     void Read(
         S3Req& inReq)
@@ -531,6 +636,70 @@ private:
     void Write(
         S3Req& inReq)
     {
+        S3BucketContext theBucketContext =
+        {
+            mS3HostName.empty() ? 0 : mS3HostName.c_str(),
+            mBucketName.c_str(),
+            mS3Protocol,
+            mS3UriStyle,
+            mAccessKeyId.c_str(),
+            mSecretAccessKey.c_str(),
+            mSecurityToken.empty() ? 0 : mSecurityToken.c_str()
+        };
+        S3PutProperties thePutProperties =
+        {
+            mContentType.empty()  ? 0 : mContentType.c_str(),
+            inReq.GetMd5Sum(),
+            mCacheControl.empty() ? 0 : mCacheControl.c_str(),
+            mContentDispositionFilename.empty() ?
+                0 : mContentDispositionFilename.c_str(),
+            mContentEncoding.empty() ? 0  : mContentEncoding.c_str(),
+            mObjectExpires,
+            mCannedAcl,
+            0, // metaPropertiesCount,
+            0, // metaProperties,
+            mUseServerSideEncryptionFlag ? 1 : 0
+        };
+        S3PutObjectHandler thePutObjectHandler =
+        {
+            {
+                &S3ResponsePropertiesCB,
+                &S3ResponseCompleteCB
+            },
+            &S3PutObjectDataCB
+        };
+        S3_put_object(
+            &theBucketContext,
+            mFileTable[inReq.GetFd()]->mFileName.c_str(),
+            inReq.GetSize(),
+            &thePutProperties,
+            0,
+            &thePutObjectHandler,
+            &inReq
+        );
+    }
+    static S3Status S3ResponsePropertiesCB(
+        const S3ResponseProperties* inPropertiesPtr,
+        void*                       inUserDataPtr)
+    {
+       // return reinterpret_cast<S3Req*>(inUserDataPtr)->
+       return S3StatusOK;
+    }
+    static void S3ResponseCompleteCB(
+        S3Status              inStatus,
+        const S3ErrorDetails* inErrorPtr,
+        void*                 inUserDataPtr)
+    {
+        reinterpret_cast<S3Req*>(inUserDataPtr)->Done(
+            inStatus, inErrorPtr);
+    }
+    static int S3PutObjectDataCB(
+        int    inBufferSize,
+        char*  inBufferPtr,
+        void*  inUserDataPtr)
+    {
+        return reinterpret_cast<S3Req*>(inUserDataPtr)->Write(
+            inBufferSize, inBufferPtr);
     }
     static int CurlTimerCB(
         CURLM* inCurlCtxPtr,
