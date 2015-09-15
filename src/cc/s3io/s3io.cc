@@ -399,6 +399,16 @@ public:
                     theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid read start position: " << inStartBlockIdx <<
+                        " " << theFilePtr->mFileName <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+                if (theFilePtr->mWriteOnlyFlag) {
+                    theError  = QCDiskQueue::kErrorRead;
+                    theSysErr = EINVAL;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "invalid read on write only file: " <<
+                            theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -427,7 +437,8 @@ public:
                     theError  = QCDiskQueue::kErrorWrite;
                     theSysErr = theFilePtr ? EINVAL : EBADF;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "invalid write attempt into read only file" <<
+                        "invalid write attempt into read only file: " <<
+                        theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -438,6 +449,7 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "partial write is not spported yet" <<
                         " block index: " << inStartBlockIdx <<
+                        " : " << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -446,6 +458,7 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid sync write EOF: " << inEof <<
                         " max: " << theFilePtr->mMaxFileSize <<
+                        " : " << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -459,9 +472,11 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "write past last block: " << theEnd <<
                         " max: " << theFilePtr->mMaxFileSize <<
+                        " : " << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
+                theFilePtr->mWriteOnlyFlag = true;
                 theReqPtr = S3Req::Get(
                     *this,
                     inRequest,
@@ -520,6 +535,7 @@ private:
             : mFileName(inFileNamePtr ? inFileNamePtr : ""),
               mReadOnlyFlag(inReadOnlyFlag),
               mCreateExclusiveFlag(inCreateExclusiveFlag),
+              mWriteOnlyFlag(false),
               mMaxFileSize(inMaxFileSize),
               mGeneration(inGeneration)
             {}
@@ -531,6 +547,7 @@ private:
         bool           mReadOnlyFlag;
         bool           mCreateFlag;
         bool           mCreateExclusiveFlag;
+        bool           mWriteOnlyFlag;
         int64_t        mMaxFileSize;
         uint64_t const mGeneration;
     };
@@ -756,6 +773,7 @@ private:
             if (inErrorPtr) {
                 KFS_LOG_STREAM_START(MsgLogger::kLogLevelERROR, theMsg) <<
                     mOuterPtr->mLogPrefix <<
+                    " "           << mFileName <<
                     " error: "    << inStatus <<
                     " message: "  <<
                         (inErrorPtr->message ? inErrorPtr->message : "") <<
