@@ -303,11 +303,14 @@ public:
                         &theRemCount)) == CURLM_CALL_MULTI_PERFORM)
                     {}
             }
-            theRemCount = 0;
-            if ((theStatus = curl_multi_socket_action(
-                    mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
-                FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
-                    theStatus);
+            if (mCurlTimer.IsScheduled()) {
+                mCurlTimer.Schedule(-1);
+                theRemCount = 0;
+                if ((theStatus = curl_multi_socket_action(
+                        mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
+                    FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
+                        theStatus);
+                }
             }
         } while(0 < theRemCount);
     }
@@ -646,27 +649,21 @@ private:
             { return mStartBlockIdx; }
         uint64_t GetGeneration() const
             { return mGeneration; }
-        S3Status Read(
-            int         inBufferSize,
-            const char* inBufferPtr)
-        {
-            //S3StatusAbortedByCallback : S3StatusOK
-            return S3StatusOK;
-        }
-        int Write(
-            int   inBufferSize,
-            char* inBufferPtr)
+        template<typename T, typename FT>
+        int IO(
+            int       inBufferSize,
+            T*        inBufferPtr,
+            const FT& inFunc)
         {
             if (mSize <= mPos || inBufferSize <= 0) {
                 return 0;
             }
-            char*        thePtr    = inBufferPtr;
-            const size_t theRem    = min((size_t)inBufferSize, mSize - mPos);
-            char* const  theEndPtr = thePtr + theRem;
+            T*           thePtr = inBufferPtr;
+            size_t const theRem = min((size_t)inBufferSize, mSize - mPos);
             size_t       theSize;
             if (0 < mBufRem) {
                 theSize = min(mBufRem, theRem);
-                memcpy(thePtr,
+                inFunc(thePtr,
                     *mBufferPtr + mOuterPtr->mBlockSize - mBufRem, theSize);
                 mBufRem -= theSize;
                 if (0 < mBufRem) {
@@ -675,20 +672,55 @@ private:
                 mBufferPtr++;
                 thePtr += theSize;
             }
+            T* const theEndPtr = thePtr + theRem;
             theSize = mOuterPtr->mBlockSize;
             while (thePtr + theSize <= theEndPtr) {
-                memcpy(thePtr, *mBufferPtr++, theSize);
+                inFunc(thePtr, *mBufferPtr++, theSize);
                 mPos   += theSize;
                 thePtr += theSize;
             }
             theSize = (size_t)(theEndPtr - thePtr);
             if (0 < theSize) {
-                memcpy(thePtr, *mBufferPtr, theSize);
+                inFunc(thePtr, *mBufferPtr, theSize);
                 thePtr += theSize;
                 mPos   += theSize;
                 mBufRem = mOuterPtr->mBlockSize - theSize;
             }
             return (int)(thePtr - (theEndPtr - theRem));
+        }
+        class ReadFunc
+        {
+        public:
+            void operator()(
+                const char* inFromPtr,
+                char*       inToPtr,
+                size_t      inSize) const
+                { memcpy(inToPtr, inFromPtr, inSize); }
+        };
+        S3Status Read(
+            int         inBufferSize,
+            const char* inBufferPtr)
+        {
+            if (mOuterPtr->mStopFlag) {
+                return S3StatusAbortedByCallback;
+            }
+            IO(inBufferSize, inBufferPtr, ReadFunc());
+            return S3StatusOK;
+        }
+        class WriteFunc
+        {
+        public:
+            void operator()(
+                char*       inToPtr,
+                const char* inFromPtr,
+                size_t      inSize) const
+                { memcpy(inToPtr, inFromPtr, inSize); }
+        };
+        int Write(
+            int   inBufferSize,
+            char* inBufferPtr)
+        {
+            return IO(inBufferSize, inBufferPtr, WriteFunc());
         }
         void Run()
         {
@@ -792,6 +824,8 @@ private:
                 }
             }
         }
+        bool IsScheduled() const
+            { return List::IsInList(*this); }
         time_t GetStartTime() const
             { return mStartTime; }
         int GetRetryCount() const
