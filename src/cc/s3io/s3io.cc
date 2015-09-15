@@ -757,10 +757,13 @@ private:
                 KFS_LOG_STREAM_START(MsgLogger::kLogLevelERROR, theMsg) <<
                     mOuterPtr->mLogPrefix <<
                     " error: "    << inStatus <<
-                    " message: "  << inErrorPtr->message <<
-                    " resource: " << inErrorPtr->resource <<
-                    " details: "  << inErrorPtr->furtherDetails <<
-                    " extra: "    << inErrorPtr->extraDetailsCount;
+                    " message: "  <<
+                        (inErrorPtr->message ? inErrorPtr->message : "") <<
+                    " resource: " <<
+                        (inErrorPtr->resource ? inErrorPtr->resource : "") <<
+                    " details: "  << (inErrorPtr->furtherDetails ?
+                            inErrorPtr->furtherDetails : "")
+                    ;
                     ostream& theStream = theMsg.GetStream();
                     for (int i = 0; i < inErrorPtr->extraDetailsCount; i++) {
                         theStream <<
