@@ -28,15 +28,19 @@
 #include "common/MsgLogger.h"
 #include "common/IntToString.h"
 #include "common/MdStream.h"
+#include "common/TimerWheel.h"
+#include "common/Properties.h"
 
 #include "qcdio/QCFdPoll.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDLList.h"
 #include "qcdio/qcdebug.h"
 
 #include <libs3.h>
 #include <curl/curl.h>
 
 #include <errno.h>
+#include <string.h>
 
 #include <string>
 #include <vector>
@@ -60,21 +64,46 @@ public:
     typedef QCDiskQueue::BlockIdx      BlockIdx;
     typedef QCDiskQueue::InputIterator InputIterator;
 
+    enum {
+        kTimerResolutionSec = 1,
+        kMaxTimerTimeSec    = 512
+    };
+
     static IOMethod* New(
         const char*       inUrlPtr,
         const char*       inLogPrefixPtr,
         const char*       inParamsPrefixPtr,
         const Properties& inParameters)
     {
-        if (! inUrlPtr) {
+        if (! inUrlPtr ||
+                inUrlPtr[0] != 's' ||
+                inUrlPtr[1] != '3' ||
+                inUrlPtr[2] != ':' ||
+                inUrlPtr[3] != '/' ||
+                inUrlPtr[4] != '/') {
             return 0;
         }
-        S3IO* const thePtr = new S3IO(inLogPrefixPtr);
+        const char* kDefaultHostName = 0;
+        if (S3_initialize("s3", S3_INIT_ALL, kDefaultHostName) != S3StatusOK) {
+            KFS_LOG_STREAM_ERROR <<
+                "S3_initialize failure: " << S3StatusOK <<
+            KFS_LOG_EOM;
+            return 0;
+        }
+        string theConfigPrefix = inUrlPtr + 5;
+        while (! theConfigPrefix.empty() && *theConfigPrefix.rbegin() == '/') {
+            theConfigPrefix.resize(theConfigPrefix.size() - 1);
+        }
+        S3IO* const thePtr = new S3IO(
+            inUrlPtr, theConfigPrefix.c_str(), inLogPrefixPtr);
         thePtr->SetParameters(inParamsPrefixPtr, inParameters);
         return thePtr;
     }
     virtual ~S3IO()
-        { S3IO::Stop(); }
+    {
+        S3IO::Stop();
+        S3_deinitialize();
+    }
     virtual bool Init(
         QCDiskQueue& inDiskQueue)
     {
@@ -119,16 +148,106 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters)
     {
+        Properties::String theName;
+        if (inPrefixPtr) {
+            theName.Append(inPrefixPtr);
+        }
+        theName.Append(mConfigPrefix);
+        const size_t thePrefixSize = theName.GetSize();
+        mS3HostName = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("hostName"),
+            mS3HostName
+        );
+        mBucketName = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("bucketName"),
+            mBucketName
+        );
+        mAccessKeyId = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("accessKeyId"),
+            mAccessKeyId
+        );
+        mSecurityToken = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("securityToken"),
+            mSecurityToken
+        );
+        mContentType = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("contentType"),
+            mContentType
+        );
+        mCacheControl = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("cacheControl"),
+            mCacheControl
+        );
+        mContentDispositionFilename = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append(
+                "contentDispositionFilename"),
+            mContentDispositionFilename
+        );
+        mContentEncoding = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("contentEncoding"),
+            mContentEncoding
+        );
+        mObjectExpires = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("objectExpires"),
+            mObjectExpires
+        );
+        mUseServerSideEncryptionFlag = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("useServerSideEncryption"),
+            mUseServerSideEncryptionFlag ? 1 : 0
+        ) != 0;
+        const Properties::String* theValPtr;
+        if ((theValPtr = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("cannedAcl")))) {
+            if (*theValPtr == "private") {
+                mCannedAcl = S3CannedAclPrivate;
+            } else if (*theValPtr == "publicRead") {
+                mCannedAcl = S3CannedAclPublicRead;
+            } else if (*theValPtr == "publicReadWrite") {
+                mCannedAcl = S3CannedAclPublicReadWrite;
+            } else if (*theValPtr == "authenticatedRead") {
+                mCannedAcl = S3CannedAclAuthenticatedRead;
+            }
+        }
+        if ((theValPtr = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("protocol")))) {
+            if (*theValPtr == "https") {
+                mS3Protocol = S3ProtocolHTTPS;
+            } else if (*theValPtr == "http") {
+                mS3Protocol = S3ProtocolHTTP;
+            }
+        }
+        if ((theValPtr = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("uriStyle")))) {
+            if (*theValPtr == "virtualHost") {
+                mS3UriStyle = S3UriStyleVirtualHost;
+            } else if (*theValPtr == "path") {
+                mS3UriStyle = S3UriStylePath;
+            }
+        }
+        mMaxRetryCount = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("maxRetryCount"),
+            mMaxRetryCount
+        );
+        mRetryInterval = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("retryInterval"),
+            mRetryInterval
+        );
     }
     virtual void ProcessAndWait()
     {
+        if (mStopFlag) {
+            Stop();
+            return;
+        }
+        const int kMaxPollSleepMs = kTimerResolutionSec * 1000;
         const int theErr =
-            mFdPoll.Poll(mPollSocketCount, (int)mPollWaitMilliSec);
+            mFdPoll.Poll(mPollSocketCount, kMaxPollSleepMs);
         if (theErr < 0 && theErr != -EINTR && theErr != -EAGAIN) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 QCUtils::SysError(-theErr, "poll error") <<
             KFS_LOG_EOM;
         }
+        mNow = time(0);
         int       theEvents;
         void*     thePtr;
         CURLMcode theStatus;
@@ -151,13 +270,7 @@ public:
                 FatalError("curl_multi_socket_action", theStatus);
             }
         }
-        if (theCount <= 0 &&  0 <= mPollWaitMilliSec) {
-            if ((theStatus = curl_multi_socket_action(
-                    mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
-                FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
-                    theStatus);
-            }
-        }
+        Timer();
         const S3Status theS3Status = S3_finish_request_context(mS3CtxPtr);
         if (S3StatusOK != theS3Status) {
             FatalError("S3_finish_request_context", theS3Status);
@@ -171,7 +284,32 @@ public:
     }
     virtual void Stop()
     {
-        Wakeup();
+        mStopFlag = true;
+        int theRemCount;
+        do {
+            int theStatus = 0;
+            for (curl_socket_t theFd = 0;
+                    0 < mPollSocketCount && 0 < theRemCount &&
+                        theFd < mCurlFdTable.size();
+                    ++theFd) {
+                if (! mCurlFdTable[theFd]) {
+                    continue;
+                }
+                theRemCount = 0;
+                while ((theStatus = curl_multi_socket_action(
+                        mCurlCtxPtr,
+                        theFd,
+                        ConvertEvents(QCFdPoll::kOpTypeError),
+                        &theRemCount)) == CURLM_CALL_MULTI_PERFORM)
+                    {}
+            }
+            theRemCount = 0;
+            if ((theStatus = curl_multi_socket_action(
+                    mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
+                FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
+                    theStatus);
+            }
+        } while(0 < theRemCount);
     }
     virtual int Open(
         const char* inFileNamePtr,
@@ -180,7 +318,19 @@ public:
         bool        inCreateExclusiveFlag,
         int64_t&    ioMaxFileSize)
     {
-        if (! inFileNamePtr || ! *inFileNamePtr) {
+        if (! inFileNamePtr) {
+            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                "invalid null file name" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        const size_t theLen = strlen(inFileNamePtr);
+        if (theLen <= mFilePrefix.size() ||
+                mFilePrefix.compare(0, theLen, inFileNamePtr) != 0) {
+            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                "invalid file name: " << inFileNamePtr <<
+                " file prefix: "      << mFilePrefix <<
+            KFS_LOG_EOM;
             return -EINVAL;
         }
         const int theFd = NewFd();
@@ -254,7 +404,7 @@ public:
                     inRequest,
                     inReqType,
                     inFd,
-                    inStartBlockIdx * mBlockSize,
+                    inStartBlockIdx,
                     inBufferCount,
                     inInputIteratorPtr,
                     inBufferCount * mBlockSize,
@@ -314,7 +464,7 @@ public:
                     inRequest,
                     inReqType,
                     inFd,
-                    inStartBlockIdx * mBlockSize,
+                    inStartBlockIdx,
                     inBufferCount,
                     inInputIteratorPtr,
                     inBufferCount * mBlockSize -
@@ -386,6 +536,24 @@ private:
     class S3Req
     {
     public:
+        typedef QCDLListOp<S3Req> List;
+        S3Req(
+            S3IO* inOuterPtr = 0)
+            : mOuterPtr(inOuterPtr),
+              mRequestPtr(0),
+              mReqType(QCDiskQueue::kReqTypeNone),
+              mFd(-1),
+              mGeneration(0),
+              mStartBlockIdx(0),
+              mFileName(),
+              mMd5Sum(),
+              mPos(0),
+              mSize(0),
+              mBufRem(0),
+              mBufferPtr(0),
+              mRetryCount(0),
+              mStartTime(mOuterPtr ? mOuterPtr->mNow : 0)
+            { List::Init(*this); }
         static S3Req* Get(
             S3IO&          inOuter,
             Request&       inRequest,
@@ -451,21 +619,21 @@ private:
         const char* GetMd5Sum()
         {
             if (mMd5Sum.empty()) {
-                ostream& theStream = mOuter.mMdStream.Reset();
+                ostream& theStream = mOuterPtr->mMdStream.Reset();
                 char** thePtr = GetBuffers();
                 size_t thePos;
                 for (thePos = 0;
-                        thePos + mOuter.mBlockSize <= mSize;
-                        thePos += mOuter.mBlockSize) {
-                    theStream.write(*thePtr++, mOuter.mBlockSize);
+                        thePos + mOuterPtr->mBlockSize <= mSize;
+                        thePos += mOuterPtr->mBlockSize) {
+                    theStream.write(*thePtr++, mOuterPtr->mBlockSize);
                 }
                 if (thePos < mSize) {
                     theStream.write(*thePtr, mSize - thePos);
                 }
                 if (theStream) {
-                    mMd5Sum = mOuter.mMdStream.GetMd();
+                    mMd5Sum = mOuterPtr->mMdStream.GetMd();
                 } else {
-                    mOuter.FatalError("md5 sum failure");
+                    mOuterPtr->FatalError("md5 sum failure");
                 }
             }
             return mMd5Sum.c_str();
@@ -474,10 +642,17 @@ private:
             { return mSize; }
         int GetFd() const
             { return mFd; }
-        size_t GetStartPos()
-            { return mStartPos; }
+        size_t GetStartBlockIdx()
+            { return mStartBlockIdx; }
         uint64_t GetGeneration() const
             { return mGeneration; }
+        S3Status Read(
+            int         inBufferSize,
+            const char* inBufferPtr)
+        {
+            //S3StatusAbortedByCallback : S3StatusOK
+            return S3StatusOK;
+        }
         int Write(
             int   inBufferSize,
             char* inBufferPtr)
@@ -492,7 +667,7 @@ private:
             if (0 < mBufRem) {
                 theSize = min(mBufRem, theRem);
                 memcpy(thePtr,
-                    *mBufferPtr + mOuter.mBlockSize - mBufRem, theSize);
+                    *mBufferPtr + mOuterPtr->mBlockSize - mBufRem, theSize);
                 mBufRem -= theSize;
                 if (0 < mBufRem) {
                     return (int)theSize;
@@ -500,7 +675,7 @@ private:
                 mBufferPtr++;
                 thePtr += theSize;
             }
-            theSize = mOuter.mBlockSize;
+            theSize = mOuterPtr->mBlockSize;
             while (thePtr + theSize <= theEndPtr) {
                 memcpy(thePtr, *mBufferPtr++, theSize);
                 mPos   += theSize;
@@ -511,29 +686,34 @@ private:
                 memcpy(thePtr, *mBufferPtr, theSize);
                 thePtr += theSize;
                 mPos   += theSize;
-                mBufRem = mOuter.mBlockSize - theSize;
+                mBufRem = mOuterPtr->mBlockSize - theSize;
             }
             return (int)(thePtr - (theEndPtr - theRem));
         }
-        void Retry()
+        void Run()
         {
+            List::Remove(*this);
+            if (this == &mOuterPtr->mCurlTimer) {
+                mOuterPtr->CurlTimer();
+                return;
+            }
             mRetryCount++;
             mBufferPtr = GetBuffers();
             mPos       = 0;
             mBufRem    = 0;
             switch (mReqType) {
                 case QCDiskQueue::kReqTypeRead:
-                    mOuter.Read(*this);
+                    mOuterPtr->Read(*this);
                     return;
                 case QCDiskQueue::kReqTypeWrite:
                 case QCDiskQueue::kReqTypeWriteSync:
-                    mOuter.Write(*this);
+                    mOuterPtr->Write(*this);
                     return;
                 case QCDiskQueue::kReqTypeDelete:
-                    mOuter.Delete(*this);
+                    mOuterPtr->Delete(*this);
                     return;
                 default:
-                    mOuter.FatalError("invalid request type");
+                    mOuterPtr->FatalError("invalid request type");
                     return;
             }
         }
@@ -541,63 +721,168 @@ private:
             S3Status              inStatus,
             const S3ErrorDetails* inErrorPtr)
         {
-            if (S3_status_is_retryable(inStatus)) {
+            if (inErrorPtr) {
+                KFS_LOG_STREAM_START(MsgLogger::kLogLevelERROR, theMsg) <<
+                    mOuterPtr->mLogPrefix <<
+                    " error: "    << inStatus <<
+                    " message: "  << inErrorPtr->message <<
+                    " resource: " << inErrorPtr->resource <<
+                    " details: "  << inErrorPtr->furtherDetails <<
+                    " extra: "    << inErrorPtr->extraDetailsCount;
+                    ostream& theStream = theMsg.GetStream();
+                    for (int i = 0; i < inErrorPtr->extraDetailsCount; i++) {
+                        theStream <<
+                            " "   << inErrorPtr->extraDetails[i].name <<
+                            ": "  << inErrorPtr->extraDetails[i].value;
+                    }
+                KFS_LOG_STREAM_END;
+            }
+            if (S3StatusOK != inStatus && S3_status_is_retryable(inStatus) &&
+                    mOuterPtr->ScheduleRetry(*this)) {
+                return;
+            }
+            int64_t            theIoByteCount;
+            int                theSysErr;
+            QCDiskQueue::Error theError;
+            if (inStatus == S3StatusOK) {
+                theIoByteCount =
+                    QCDiskQueue::kReqTypeRead == mReqType ? mSize : mSize;
+                theSysErr      = 0;
+                theError       = QCDiskQueue::kErrorNone;
+            } else {
+                theIoByteCount = 0;
+                switch (mReqType) {
+                    case QCDiskQueue::kReqTypeRead:
+                        theError  = QCDiskQueue::kErrorRead;
+                        theSysErr = -EIO;
+                        break;
+                    case QCDiskQueue::kReqTypeWrite:
+                    case QCDiskQueue::kReqTypeWriteSync:
+                        theError  = QCDiskQueue::kErrorWrite;
+                        theSysErr = -EIO;
+                        break;
+                    case QCDiskQueue::kReqTypeDelete:
+                        theError  = QCDiskQueue::kErrorDelete;
+                        theSysErr = -EIO; // FIXME
+                        break;
+                    default:
+                        mOuterPtr->FatalError("invalid request type");
+                        return;
+                }
+                theIoByteCount = 0;
+            }
+            mOuterPtr->mDiskQueuePtr->Done(
+                *mOuterPtr,
+                *mRequestPtr,
+                theError,
+                theSysErr,
+                theIoByteCount,
+                mStartBlockIdx
+            );
+        }
+        void Schedule(
+            int inTimeSec)
+        {
+            if (inTimeSec < 0) {
+                List::Remove(*this);
+            } else {
+                mOuterPtr->mTimer.Schedule(*this, inTimeSec);
+                if (inTimeSec == 0) {
+                    mOuterPtr->Wakeup();
+                }
             }
         }
+        time_t GetStartTime() const
+            { return mStartTime; }
+        int GetRetryCount() const
+            { return mRetryCount; }
+        const string& GetFileName() const
+            { return mFileName; }
+        ~S3Req()
+            { List::Remove(*this); }
+        S3Status Properties(
+            const S3ResponseProperties* inPropertiesPtr)
+        {
+            return S3StatusOK;
+        }
     private:
-        S3IO&          mOuter;
-        Request&       mRequest;
-        ReqType        mReqType;
+        S3IO*    const mOuterPtr;
+        Request* const mRequestPtr;
+        ReqType  const mReqType;
         int      const mFd;
         uint64_t const mGeneration;
+        BlockIdx const mStartBlockIdx;
         string   const mFileName;
         string         mMd5Sum;
-        size_t   const mStartPos;
         size_t         mPos;
         size_t         mSize;
         size_t         mBufRem;
         char**         mBufferPtr;
         int            mRetryCount;
+        time_t         mStartTime;
+        S3Req*         mPrevPtr[1];
+        S3Req*         mNextPtr[1];
+
+        friend class QCDLListOp<S3Req>;
 
         S3Req(
             S3IO&          inOuter,
             Request&       inRequest,
             ReqType        inReqType,
             int            inFd,
-            size_t         inStartPos,
+            BlockIdx       inStartBlockIdx,
             int            inBufferCount,
             size_t         inSize,
             const File&    inFile)
-            : mOuter(inOuter),
-              mRequest(inRequest),
+            : mOuterPtr(&inOuter),
+              mRequestPtr(&inRequest),
               mReqType(inReqType),
               mFd(inFd),
               mGeneration(inFile.mGeneration),
+              mStartBlockIdx(inStartBlockIdx),
               mFileName(inFile.mFileName),
               mMd5Sum(),
-              mStartPos(inStartPos),
               mPos(0),
               mSize(inSize),
               mBufRem(0),
               mBufferPtr(0),
-              mRetryCount(0)
-            {}
+              mRetryCount(0),
+              mStartTime(mOuterPtr->mNow)
+            { List::Init(*this); }
 
         char** GetBuffers()
             { return reinterpret_cast<char**>(this + 1); }
-        ~S3Req()
-            {}
+        void operator delete(void* inPtr);
     };
     friend class S3Req;
 
+    typedef TimerWheel<
+        S3Req,
+        S3Req::List,
+        time_t,
+        kMaxTimerTimeSec,
+        kTimerResolutionSec
+    > TimerW;
+    class TimerFunc
+    {
+    public:
+        void operator()(
+            S3Req& inReq) const
+            { inReq.Run(); }
+    };
+    typedef vector<bool> CurlFdTable;
+
     QCDiskQueue*      mDiskQueuePtr;
     int               mBlockSize;
+    string const      mConfigPrefix;
+    string const      mFilePrefix;
     string            mLogPrefix;
     S3RequestContext* mS3CtxPtr;
     CURLM*            mCurlCtxPtr;
     QCFdPoll          mFdPoll;
-    long              mPollWaitMilliSec;
     int               mPollSocketCount;
+    int               mMaxRetryCount;
+    int               mRetryInterval;
     FileTable         mFileTable;
     FreeFdList        mFreeFdList;
     string            mS3HostName;
@@ -616,18 +901,28 @@ private:
     S3UriStyle        mS3UriStyle;
     uint64_t          mGeneration;
     MdStream          mMdStream;
+    time_t            mNow;
+    TimerW            mTimer;
+    S3Req             mCurlTimer;
+    CurlFdTable       mCurlFdTable;
+    bool              mStopFlag;
 
     S3IO(
+        const char* inUrlPtr,
+        const char* inConfigPrefixPtr,
         const char* inLogPrefixPtr)
         : IOMethod(),
           mDiskQueuePtr(0),
           mBlockSize(0),
+          mConfigPrefix(inConfigPrefixPtr ? inConfigPrefixPtr : ""),
+          mFilePrefix(inUrlPtr ? inUrlPtr : ""),
           mLogPrefix(inLogPrefixPtr ? inLogPrefixPtr : ""),
           mS3CtxPtr(0),
           mCurlCtxPtr(0),
           mFdPoll(true), // Wakeable
-          mPollWaitMilliSec(1000),
           mPollSocketCount(0),
+          mMaxRetryCount(10),
+          mRetryInterval(10),
           mFileTable(),
           mFreeFdList(),
           mS3HostName(),
@@ -645,7 +940,12 @@ private:
           mS3Protocol(S3ProtocolHTTPS),
           mS3UriStyle(S3UriStyleVirtualHost),
           mGeneration(1),
-          mMdStream(0, true, string(), 0)
+          mMdStream(0, true, string(), 0),
+          mNow(time(0)),
+          mTimer(mNow),
+          mCurlTimer(this),
+          mCurlFdTable(),
+          mStopFlag(false)
     {
         if (! inLogPrefixPtr) {
             mLogPrefix += "S3IO ";
@@ -654,9 +954,10 @@ private:
         } else if (! mLogPrefix.empty() && *mLogPrefix.rbegin() != ' ') {
             mLogPrefix += ' ';
         }
-        mFileTable.reserve(2 << 10);
+        mFileTable.reserve(1 << 10);
         mFileTable.push_back(0); // Reserve first slot, to fds start from 1.
-        mFreeFdList.reserve(2 << 10);
+        mFreeFdList.reserve(1 << 10);
+        mCurlFdTable.reserve(1 << 10);
     }
     int NewFd()
     {
@@ -677,11 +978,7 @@ private:
     void Read(
         S3Req& inReq)
     {
-    }
-    void Write(
-        S3Req& inReq)
-    {
-        S3BucketContext theBucketContext =
+        const S3BucketContext theBucketContext =
         {
             mS3HostName.empty() ? 0 : mS3HostName.c_str(),
             mBucketName.c_str(),
@@ -691,7 +988,46 @@ private:
             mSecretAccessKey.c_str(),
             mSecurityToken.empty() ? 0 : mSecurityToken.c_str()
         };
-        S3PutProperties thePutProperties =
+        const S3GetConditions theGetConditions =
+        {
+            -1, // ifModifiedSince,
+            -1, // ifNotModifiedSince,
+            0,  // ifMatch,
+            0   // ifNotMatch
+        };
+        const S3GetObjectHandler theGetObjectHandler =
+        {
+            {
+                &S3ResponsePropertiesCB,
+                &S3ResponseCompleteCB
+            },
+            &S3GetObjectDataCB
+        };
+        S3_get_object(
+            &theBucketContext,
+            inReq.GetFileName().c_str(),
+            &theGetConditions,
+            inReq.GetStartBlockIdx() * mBlockSize,
+            inReq.GetSize(),
+            mS3CtxPtr,
+            &theGetObjectHandler,
+            &inReq
+        );
+    }
+    void Write(
+        S3Req& inReq)
+    {
+        const S3BucketContext theBucketContext =
+        {
+            mS3HostName.empty() ? 0 : mS3HostName.c_str(),
+            mBucketName.c_str(),
+            mS3Protocol,
+            mS3UriStyle,
+            mAccessKeyId.c_str(),
+            mSecretAccessKey.c_str(),
+            mSecurityToken.empty() ? 0 : mSecurityToken.c_str()
+        };
+        const S3PutProperties thePutProperties =
         {
             mContentType.empty()  ? 0 : mContentType.c_str(),
             inReq.GetMd5Sum(),
@@ -705,7 +1041,7 @@ private:
             0, // metaProperties,
             mUseServerSideEncryptionFlag ? 1 : 0
         };
-        S3PutObjectHandler thePutObjectHandler =
+        const S3PutObjectHandler thePutObjectHandler =
         {
             {
                 &S3ResponsePropertiesCB,
@@ -715,10 +1051,10 @@ private:
         };
         S3_put_object(
             &theBucketContext,
-            mFileTable[inReq.GetFd()]->mFileName.c_str(),
+            inReq.GetFileName().c_str(),
             inReq.GetSize(),
             &thePutProperties,
-            0,
+            mS3CtxPtr,
             &thePutObjectHandler,
             &inReq
         );
@@ -727,12 +1063,37 @@ private:
         S3Req& inReq)
     {
     }
+    bool ScheduleRetry(
+        S3Req& inReq)
+    {
+        if (! mStopFlag && inReq.GetRetryCount() < mMaxRetryCount) {
+            inReq.Schedule(
+                max(time_t(1), mRetryInterval - (mNow - inReq.GetStartTime())));
+            return true;
+        }
+        return false;
+    }
+    void Timer()
+    {
+        TimerFunc theFunc;
+        mTimer.Run(mNow, theFunc);
+    }
+    void CurlTimer()
+    {
+        int theStatus;
+        int theRemCount = 0;
+        if ((theStatus = curl_multi_socket_action(
+                mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
+            FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
+                theStatus);
+        }
+    }
     static S3Status S3ResponsePropertiesCB(
         const S3ResponseProperties* inPropertiesPtr,
         void*                       inUserDataPtr)
     {
-       // return reinterpret_cast<S3Req*>(inUserDataPtr)->
-       return S3StatusOK;
+        return reinterpret_cast<S3Req*>(inUserDataPtr
+            )->Properties(inPropertiesPtr);
     }
     static void S3ResponseCompleteCB(
         S3Status              inStatus,
@@ -742,10 +1103,18 @@ private:
         reinterpret_cast<S3Req*>(inUserDataPtr)->Done(
             inStatus, inErrorPtr);
     }
+    static S3Status S3GetObjectDataCB(
+        int         inBufferSize,
+        const char* inBufferPtr,
+        void*       inUserDataPtr)
+    {
+        return reinterpret_cast<S3Req*>(inUserDataPtr)->Read(
+            inBufferSize, inBufferPtr);
+    }
     static int S3PutObjectDataCB(
-        int    inBufferSize,
-        char*  inBufferPtr,
-        void*  inUserDataPtr)
+        int   inBufferSize,
+        char* inBufferPtr,
+        void* inUserDataPtr)
     {
         return reinterpret_cast<S3Req*>(inUserDataPtr)->Write(
             inBufferSize, inBufferPtr);
@@ -764,10 +1133,10 @@ private:
         curl_socket_t inFd,
         int           inAction,
         void*         inUserDataPtr,
-        void*         inSocketPtr)
+        void*         /* inSocketPtr */)
     {
         return reinterpret_cast<S3IO*>(inUserDataPtr)->SetSocket(
-            inFd, inAction, inSocketPtr
+            inFd, inAction
         );
     }
     int SetTimeout(
@@ -775,26 +1144,36 @@ private:
         long   inTimeoutMs)
     {
         QCRTASSERT(mCurlCtxPtr == inCurlCtxPtr);
-        mPollWaitMilliSec = inTimeoutMs;
+        const long kMilliSec = 1000;
+        if (kMaxTimerTimeSec * kMilliSec < inTimeoutMs ||
+                inTimeoutMs < kMilliSec) {
+            KFS_LOG_STREAM_DEBUG <<
+                " shortening curl timer from: " << inTimeoutMs <<
+                " to: " << (inTimeoutMs < kMilliSec ?
+                    0 : (int)kMaxTimerTimeSec * kMilliSec) << " ms." <<
+            KFS_LOG_EOM;
+        }
+        mCurlTimer.Schedule(inTimeoutMs / kMilliSec);
         return 0;
+    }
+    bool IsPollingSocket(
+        curl_socket_t inFd)
+    {
+        return (0 <= inFd && inFd < mCurlFdTable.size() && mCurlFdTable[inFd]);
     }
     int SetSocket(
         curl_socket_t inFd,
-        int           inAction,
-        void*         inSocketPtr)
+        int           inAction)
     {
-        const char* kSocketAddedPtr = "ADDED";
         int theStatus = 0;
         int theEvents = 0;
         switch(inAction) {
             case CURL_POLL_REMOVE:
-                if (inSocketPtr) {
+                if (IsPollingSocket(inFd)) {
                     theStatus = mFdPoll.Remove(inFd);
                     QCASSERT(0 < mPollSocketCount);
-                    if (CURLM_OK != curl_multi_assign(mCurlCtxPtr, inFd, 0)) {
-                        FatalError("curl_multi_assign");
-                    }
                     mPollSocketCount--;
+                    mCurlFdTable[inFd] = false;
                 }
                 break;
             case CURL_POLL_IN:
@@ -812,16 +1191,15 @@ private:
                 FatalError("invalid set socket action", inAction);
                 break;
         }
-        if (theEvents) {
-            if (inSocketPtr) {
-                theStatus = mFdPoll.Set(inFd, theEvents, kS3IOFdOffset + inFd);
+        if (CURL_POLL_REMOVE != inAction) {
+            if (IsPollingSocket(inFd)) {
+                theStatus = mStopFlag ? 0 :
+                    mFdPoll.Set(inFd, theEvents, kS3IOFdOffset + inFd);
             } else {
-                theStatus = mFdPoll.Add(inFd, theEvents, kS3IOFdOffset + inFd);
-                if (CURLM_OK != curl_multi_assign(
-                        mCurlCtxPtr, inFd,
-                        const_cast<char*>(kSocketAddedPtr + inFd))) {
-                    FatalError("curl_multi_assign");
-                }
+                theStatus = mStopFlag ? 0 :
+                    mFdPoll.Add(inFd, theEvents, kS3IOFdOffset + inFd);
+                mCurlFdTable.resize(inFd);
+                mCurlFdTable[inFd] = true;
                 mPollSocketCount++;
             }
         }
