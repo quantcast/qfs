@@ -34,7 +34,9 @@
 #include "qcdio/QCFdPoll.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCDLList.h"
+#include "qcdio/QCMutex.h"
 #include "qcdio/qcdebug.h"
+#include "qcdio/qcstutils.h"
 
 #include <libs3.h>
 #include <curl/curl.h>
@@ -148,90 +150,9 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters)
     {
-        Properties::String theName;
-        if (inPrefixPtr) {
-            theName.Append(inPrefixPtr);
-        }
-        theName.Append(mConfigPrefix);
-        const size_t thePrefixSize = theName.GetSize();
-        mS3HostName = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("hostName"),
-            mS3HostName
-        );
-        mBucketName = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("bucketName"),
-            mBucketName
-        );
-        mAccessKeyId = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("accessKeyId"),
-            mAccessKeyId
-        );
-        mSecurityToken = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("securityToken"),
-            mSecurityToken
-        );
-        mContentType = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("contentType"),
-            mContentType
-        );
-        mCacheControl = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("cacheControl"),
-            mCacheControl
-        );
-        mContentDispositionFilename = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append(
-                "contentDispositionFilename"),
-            mContentDispositionFilename
-        );
-        mContentEncoding = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("contentEncoding"),
-            mContentEncoding
-        );
-        mObjectExpires = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("objectExpires"),
-            mObjectExpires
-        );
-        mUseServerSideEncryptionFlag = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("useServerSideEncryption"),
-            mUseServerSideEncryptionFlag ? 1 : 0
-        ) != 0;
-        const Properties::String* theValPtr;
-        if ((theValPtr = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("cannedAcl")))) {
-            if (*theValPtr == "private") {
-                mCannedAcl = S3CannedAclPrivate;
-            } else if (*theValPtr == "publicRead") {
-                mCannedAcl = S3CannedAclPublicRead;
-            } else if (*theValPtr == "publicReadWrite") {
-                mCannedAcl = S3CannedAclPublicReadWrite;
-            } else if (*theValPtr == "authenticatedRead") {
-                mCannedAcl = S3CannedAclAuthenticatedRead;
-            }
-        }
-        if ((theValPtr = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("protocol")))) {
-            if (*theValPtr == "https") {
-                mS3Protocol = S3ProtocolHTTPS;
-            } else if (*theValPtr == "http") {
-                mS3Protocol = S3ProtocolHTTP;
-            }
-        }
-        if ((theValPtr = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("uriStyle")))) {
-            if (*theValPtr == "virtualHost") {
-                mS3UriStyle = S3UriStyleVirtualHost;
-            } else if (*theValPtr == "path") {
-                mS3UriStyle = S3UriStylePath;
-            }
-        }
-        mMaxRetryCount = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("maxRetryCount"),
-            mMaxRetryCount
-        );
-        mRetryInterval = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("retryInterval"),
-            mRetryInterval
-        );
+        QCStMutexLocker theLock(mMutex);
+        mUpdatedParameters.Set(inPrefixPtr, mConfigPrefix, inParameters);
+        mParametersUpdatedFlag = true;
     }
     virtual void ProcessAndWait()
     {
@@ -247,6 +168,11 @@ public:
                 QCUtils::SysError(-theErr, "poll error") <<
             KFS_LOG_EOM;
         }
+        QCStMutexLocker theLock(mMutex);
+        if (mParametersUpdatedFlag) {
+            mParameters = mUpdatedParameters;
+        }
+        theLock.Unlock();
         mNow = time(0);
         int       theEvents;
         void*     thePtr;
@@ -305,12 +231,7 @@ public:
             }
             if (mCurlTimer.IsScheduled()) {
                 mCurlTimer.Schedule(-1);
-                theRemCount = 0;
-                if ((theStatus = curl_multi_socket_action(
-                        mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
-                    FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
-                        theStatus);
-                }
+                theRemCount = CurlTimer();
             }
         } while(0 < theRemCount);
     }
@@ -553,19 +474,160 @@ private:
     };
     typedef vector<File*> FileTable;
     typedef vector<int>   FreeFdList;
-    class S3Req
+    class Parameters
     {
     public:
-        typedef QCDLListOp<S3Req> List;
+        Parameters()
+            : mS3HostName(),
+              mBucketName(),
+              mAccessKeyId(),
+              mSecretAccessKey(),
+              mSecurityToken(),
+              mContentType(),
+              mCacheControl(),
+              mContentDispositionFilename(),
+              mContentEncoding(),
+              mObjectExpires(-1),
+              mCannedAcl(S3CannedAclPrivate),
+              mUseServerSideEncryptionFlag(false),
+              mS3Protocol(S3ProtocolHTTPS),
+              mS3UriStyle(S3UriStyleVirtualHost),
+              mMaxRetryCount(10),
+              mRetryInterval(10)
+            {}
+        void Set(
+            const char*       inPrefixPtr,
+            const string&     inConfigPrefix,
+            const Properties& inParameters)
+        {
+            Properties::String theName;
+            if (inPrefixPtr) {
+                theName.Append(inPrefixPtr);
+            }
+            theName.Append(inConfigPrefix);
+            const size_t thePrefixSize = theName.GetSize();
+            mS3HostName = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("hostName"),
+                mS3HostName
+            );
+            mBucketName = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("bucketName"),
+                mBucketName
+            );
+            mAccessKeyId = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("accessKeyId"),
+                mAccessKeyId
+            );
+            mSecurityToken = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("securityToken"),
+                mSecurityToken
+            );
+            mContentType = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("contentType"),
+                mContentType
+            );
+            mCacheControl = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("cacheControl"),
+                mCacheControl
+            );
+            mContentDispositionFilename = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(
+                    "contentDispositionFilename"),
+                mContentDispositionFilename
+            );
+            mContentEncoding = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("contentEncoding"),
+                mContentEncoding
+            );
+            mObjectExpires = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("objectExpires"),
+                mObjectExpires
+            );
+            mUseServerSideEncryptionFlag = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("useServerSideEncryption"),
+                mUseServerSideEncryptionFlag ? 1 : 0
+            ) != 0;
+            const Properties::String* theValPtr;
+            if ((theValPtr = inParameters.getValue(
+                    theName.Truncate(thePrefixSize).Append("cannedAcl")))) {
+                if (*theValPtr == "private") {
+                    mCannedAcl = S3CannedAclPrivate;
+                } else if (*theValPtr == "publicRead") {
+                    mCannedAcl = S3CannedAclPublicRead;
+                } else if (*theValPtr == "publicReadWrite") {
+                    mCannedAcl = S3CannedAclPublicReadWrite;
+                } else if (*theValPtr == "authenticatedRead") {
+                    mCannedAcl = S3CannedAclAuthenticatedRead;
+                }
+            }
+            if ((theValPtr = inParameters.getValue(
+                    theName.Truncate(thePrefixSize).Append("protocol")))) {
+                if (*theValPtr == "https") {
+                    mS3Protocol = S3ProtocolHTTPS;
+                } else if (*theValPtr == "http") {
+                    mS3Protocol = S3ProtocolHTTP;
+                }
+            }
+            if ((theValPtr = inParameters.getValue(
+                    theName.Truncate(thePrefixSize).Append("uriStyle")))) {
+                if (*theValPtr == "virtualHost") {
+                    mS3UriStyle = S3UriStyleVirtualHost;
+                } else if (*theValPtr == "path") {
+                    mS3UriStyle = S3UriStylePath;
+                }
+            }
+            mMaxRetryCount = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("maxRetryCount"),
+                mMaxRetryCount
+            );
+            mRetryInterval = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("retryInterval"),
+                mRetryInterval
+            );
+        }
+        string      mS3HostName;
+        string      mBucketName;
+        string      mAccessKeyId;
+        string      mSecretAccessKey;
+        string      mSecurityToken;
+        string      mContentType;
+        string      mCacheControl;
+        string      mContentDispositionFilename;
+        string      mContentEncoding;
+        int64_t     mObjectExpires;
+        S3CannedAcl mCannedAcl;
+        bool        mUseServerSideEncryptionFlag;
+        S3Protocol  mS3Protocol;
+        S3UriStyle  mS3UriStyle;
+        int         mMaxRetryCount;
+        int         mRetryInterval;
+    };
+    class S3ReqBase
+    {
+    public:
+        typedef QCDLListOp<S3ReqBase> List;
+        S3ReqBase()
+            { List::Init(*this); }
+    private:
+        S3ReqBase* mPrevPtr[1];
+        S3ReqBase* mNextPtr[1];
+        friend class QCDLListOp<S3ReqBase>;
+    };
+    class S3Req : public S3ReqBase
+    {
+    public:
+        typedef S3ReqBase::List List;
         S3Req(
             S3IO* inOuterPtr = 0)
-            : mOuterPtr(inOuterPtr),
+            : S3ReqBase(),
+              mOuterPtr(inOuterPtr),
               mRequestPtr(0),
               mReqType(QCDiskQueue::kReqTypeNone),
               mFd(-1),
               mGeneration(0),
               mStartBlockIdx(0),
               mFileName(),
+              mParameters(),
               mMd5Sum(),
               mPos(0),
               mSize(0),
@@ -573,7 +635,7 @@ private:
               mBufferPtr(0),
               mRetryCount(0),
               mStartTime(mOuterPtr ? mOuterPtr->mNow : 0)
-            { List::Init(*this); }
+            {}
         static S3Req* Get(
             S3IO&          inOuter,
             Request&       inRequest,
@@ -853,32 +915,102 @@ private:
             { return mRetryCount; }
         const string& GetFileName() const
             { return mFileName; }
+        const S3PutProperties& InitPutProperties(
+            S3PutProperties& outProps)
+        {
+            outProps.contentType                =
+                mParameters.mContentType.empty()  ? 0 :
+                mParameters.mContentType.c_str();
+            outProps.md5 = GetMd5Sum();
+            outProps.cacheControl               =
+                mParameters.mCacheControl.empty() ? 0 :
+                mParameters.mCacheControl.c_str();
+            outProps.contentDispositionFilename =
+                mParameters.mContentDispositionFilename.empty() ? 0 :
+                mParameters.mContentDispositionFilename.c_str();
+            outProps.contentEncoding            =
+                mParameters.mContentEncoding.empty() ? 0  :
+                mParameters.mContentEncoding.c_str();
+            outProps.expires                    = mParameters.mObjectExpires;
+            outProps.cannedAcl                  = mParameters.mCannedAcl;
+            outProps.metaDataCount              = 0;
+            outProps.metaData                   = 0;
+            outProps.useServerSideEncryption    =
+                mParameters.mUseServerSideEncryptionFlag ? 1 : 0;
+            return outProps;
+        }
+        const S3BucketContext& InitBucketContext(
+            S3BucketContext& outCtx) const
+        {
+            outCtx.hostName        =
+                mParameters.mS3HostName.empty() ? 0 :
+                mParameters.mS3HostName.c_str();
+            outCtx.bucketName      = mParameters.mBucketName.c_str();
+            outCtx.protocol        = mParameters.mS3Protocol;
+            outCtx.uriStyle        = mParameters.mS3UriStyle;
+            outCtx.accessKeyId     = mParameters.mAccessKeyId.c_str();
+            outCtx.secretAccessKey =
+                mParameters.mSecretAccessKey.c_str();
+            outCtx.securityToken   =
+                mParameters.mSecurityToken.empty() ? 0 :
+                mParameters.mSecurityToken.c_str();
+            return outCtx;
+        }
         ~S3Req()
             { List::Remove(*this); }
         S3Status Properties(
             const S3ResponseProperties* inPropertiesPtr)
         {
+            KFS_LOG_STREAM_START(MsgLogger::kLogLevelDEBUG, theMsg) <<
+                mOuterPtr->mLogPrefix <<
+                " "       << mFileName <<
+                " type: " << mReqType <<
+                " Content-Type: " <<
+                    (inPropertiesPtr->contentType ?
+                        inPropertiesPtr->contentType : "null") <<
+                " Request-Id: " <<
+                     (inPropertiesPtr->requestId ?
+                        inPropertiesPtr->requestId : "null") <<
+                " Request-Id-2: " <<
+                    (inPropertiesPtr->requestId2 ?
+                        inPropertiesPtr->requestId2 : "null") <<
+                " Content-Length: " <<
+                    inPropertiesPtr->contentLength <<
+                " Server: " <<
+                    (inPropertiesPtr->server ?
+                        inPropertiesPtr->server : "null") <<
+                " ETag: " <<
+                    (inPropertiesPtr->eTag ?
+                        inPropertiesPtr->eTag : "null") <<
+                " Last-Modified: " << inPropertiesPtr->lastModified <<
+                " UsesServerSideEncryption: " <<
+                    inPropertiesPtr->usesServerSideEncryption
+                ;
+                ostream& theStream = theMsg.GetStream();
+                for (int i = 0; i < inPropertiesPtr->metaDataCount; i++) {
+                    theStream << "x-amz-meta-" <<
+                        inPropertiesPtr->metaData[i].name <<
+                        ": " << inPropertiesPtr->metaData[i].value;
+                }
+            KFS_LOG_STREAM_END;
             return S3StatusOK;
         }
     private:
-        S3IO*    const mOuterPtr;
-        Request* const mRequestPtr;
-        ReqType  const mReqType;
-        int      const mFd;
-        uint64_t const mGeneration;
-        BlockIdx const mStartBlockIdx;
-        string   const mFileName;
-        string         mMd5Sum;
-        size_t         mPos;
-        size_t         mSize;
-        size_t         mBufRem;
-        char**         mBufferPtr;
-        int            mRetryCount;
-        time_t         mStartTime;
-        S3Req*         mPrevPtr[1];
-        S3Req*         mNextPtr[1];
-
-        friend class QCDLListOp<S3Req>;
+        S3IO*      const mOuterPtr;
+        Request*   const mRequestPtr;
+        ReqType    const mReqType;
+        int        const mFd;
+        uint64_t   const mGeneration;
+        BlockIdx   const mStartBlockIdx;
+        string     const mFileName;
+        Parameters const mParameters;
+        string           mMd5Sum;
+        size_t           mPos;
+        size_t           mSize;
+        size_t           mBufRem;
+        char**           mBufferPtr;
+        int              mRetryCount;
+        time_t           mStartTime;
 
         S3Req(
             S3IO&          inOuter,
@@ -889,13 +1021,15 @@ private:
             int            inBufferCount,
             size_t         inSize,
             const File&    inFile)
-            : mOuterPtr(&inOuter),
+            : S3ReqBase(),
+              mOuterPtr(&inOuter),
               mRequestPtr(&inRequest),
               mReqType(inReqType),
               mFd(inFd),
               mGeneration(inFile.mGeneration),
               mStartBlockIdx(inStartBlockIdx),
               mFileName(inFile.mFileName),
+              mParameters(inOuter.mParameters),
               mMd5Sum(),
               mPos(0),
               mSize(inSize),
@@ -903,8 +1037,7 @@ private:
               mBufferPtr(0),
               mRetryCount(0),
               mStartTime(mOuterPtr->mNow)
-            { List::Init(*this); }
-
+            {}
         char** GetBuffers()
             { return reinterpret_cast<char**>(this + 1); }
         void operator delete(void* inPtr);
@@ -912,8 +1045,8 @@ private:
     friend class S3Req;
 
     typedef TimerWheel<
-        S3Req,
-        S3Req::List,
+        S3ReqBase,
+        S3ReqBase::List,
         time_t,
         kMaxTimerTimeSec,
         kTimerResolutionSec
@@ -922,8 +1055,8 @@ private:
     {
     public:
         void operator()(
-            S3Req& inReq) const
-            { inReq.Run(); }
+            S3ReqBase& inReq) const
+            { static_cast<S3Req&>(inReq).Run(); }
     };
     typedef vector<bool> CurlFdTable;
 
@@ -936,24 +1069,8 @@ private:
     CURLM*            mCurlCtxPtr;
     QCFdPoll          mFdPoll;
     int               mPollSocketCount;
-    int               mMaxRetryCount;
-    int               mRetryInterval;
     FileTable         mFileTable;
     FreeFdList        mFreeFdList;
-    string            mS3HostName;
-    string            mBucketName;
-    string            mAccessKeyId;
-    string            mSecretAccessKey;
-    string            mSecurityToken;
-    string            mContentType;
-    string            mCacheControl;
-    string            mContentDispositionFilename;
-    string            mContentEncoding;
-    int64_t           mObjectExpires;
-    S3CannedAcl       mCannedAcl;
-    bool              mUseServerSideEncryptionFlag;
-    S3Protocol        mS3Protocol;
-    S3UriStyle        mS3UriStyle;
     uint64_t          mGeneration;
     MdStream          mMdStream;
     time_t            mNow;
@@ -961,6 +1078,10 @@ private:
     S3Req             mCurlTimer;
     CurlFdTable       mCurlFdTable;
     bool              mStopFlag;
+    bool              mParametersUpdatedFlag;
+    Parameters        mParameters;
+    Parameters        mUpdatedParameters;
+    QCMutex           mMutex;
 
     S3IO(
         const char* inUrlPtr,
@@ -976,31 +1097,19 @@ private:
           mCurlCtxPtr(0),
           mFdPoll(true), // Wakeable
           mPollSocketCount(0),
-          mMaxRetryCount(10),
-          mRetryInterval(10),
           mFileTable(),
           mFreeFdList(),
-          mS3HostName(),
-          mBucketName(),
-          mAccessKeyId(),
-          mSecretAccessKey(),
-          mSecurityToken(),
-          mContentType(),
-          mCacheControl(),
-          mContentDispositionFilename(),
-          mContentEncoding(),
-          mObjectExpires(-1),
-          mCannedAcl(S3CannedAclPrivate),
-          mUseServerSideEncryptionFlag(false),
-          mS3Protocol(S3ProtocolHTTPS),
-          mS3UriStyle(S3UriStyleVirtualHost),
           mGeneration(1),
           mMdStream(0, true, string(), 0),
           mNow(time(0)),
           mTimer(mNow),
           mCurlTimer(this),
           mCurlFdTable(),
-          mStopFlag(false)
+          mStopFlag(false),
+          mParametersUpdatedFlag(false),
+          mParameters(),
+          mUpdatedParameters(),
+          mMutex()
     {
         if (! inLogPrefixPtr) {
             mLogPrefix += "S3IO ";
@@ -1033,16 +1142,7 @@ private:
     void Read(
         S3Req& inReq)
     {
-        const S3BucketContext theBucketContext =
-        {
-            mS3HostName.empty() ? 0 : mS3HostName.c_str(),
-            mBucketName.c_str(),
-            mS3Protocol,
-            mS3UriStyle,
-            mAccessKeyId.c_str(),
-            mSecretAccessKey.c_str(),
-            mSecurityToken.empty() ? 0 : mSecurityToken.c_str()
-        };
+        S3BucketContext       theBucketContext = { 0 };
         const S3GetConditions theGetConditions =
         {
             -1, // ifModifiedSince,
@@ -1059,7 +1159,7 @@ private:
             &S3GetObjectDataCB
         };
         S3_get_object(
-            &theBucketContext,
+            &inReq.InitBucketContext(theBucketContext),
             inReq.GetFileName().c_str(),
             &theGetConditions,
             inReq.GetStartBlockIdx() * mBlockSize,
@@ -1072,30 +1172,8 @@ private:
     void Write(
         S3Req& inReq)
     {
-        const S3BucketContext theBucketContext =
-        {
-            mS3HostName.empty() ? 0 : mS3HostName.c_str(),
-            mBucketName.c_str(),
-            mS3Protocol,
-            mS3UriStyle,
-            mAccessKeyId.c_str(),
-            mSecretAccessKey.c_str(),
-            mSecurityToken.empty() ? 0 : mSecurityToken.c_str()
-        };
-        const S3PutProperties thePutProperties =
-        {
-            mContentType.empty()  ? 0 : mContentType.c_str(),
-            inReq.GetMd5Sum(),
-            mCacheControl.empty() ? 0 : mCacheControl.c_str(),
-            mContentDispositionFilename.empty() ?
-                0 : mContentDispositionFilename.c_str(),
-            mContentEncoding.empty() ? 0  : mContentEncoding.c_str(),
-            mObjectExpires,
-            mCannedAcl,
-            0, // metaPropertiesCount,
-            0, // metaProperties,
-            mUseServerSideEncryptionFlag ? 1 : 0
-        };
+        S3BucketContext theBucketContext = { 0 };
+        S3PutProperties thePutProperties = { 0 };
         const S3PutObjectHandler thePutObjectHandler =
         {
             {
@@ -1105,10 +1183,10 @@ private:
             &S3PutObjectDataCB
         };
         S3_put_object(
-            &theBucketContext,
+            &inReq.InitBucketContext(theBucketContext),
             inReq.GetFileName().c_str(),
             inReq.GetSize(),
-            &thePutProperties,
+            &inReq.InitPutProperties(thePutProperties),
             mS3CtxPtr,
             &thePutObjectHandler,
             &inReq
@@ -1117,13 +1195,26 @@ private:
     void Delete(
         S3Req& inReq)
     {
+        S3BucketContext theBucketContext = { 0 };
+        const S3ResponseHandler theResponseHandler =
+        {
+            0, // &3ResponsePropertiesCB
+            &S3ResponseCompleteCB
+        };
+        S3_delete_object(
+            &inReq.InitBucketContext(theBucketContext),
+            inReq.GetFileName().c_str(),
+            mS3CtxPtr,
+            &theResponseHandler,
+            &inReq
+        );
     }
     bool ScheduleRetry(
         S3Req& inReq)
     {
-        if (! mStopFlag && inReq.GetRetryCount() < mMaxRetryCount) {
-            inReq.Schedule(
-                max(time_t(1), mRetryInterval - (mNow - inReq.GetStartTime())));
+        if (! mStopFlag && inReq.GetRetryCount() < mParameters.mMaxRetryCount) {
+            inReq.Schedule(max(time_t(1), mParameters.mRetryInterval -
+                (mNow - inReq.GetStartTime())));
             return true;
         }
         return false;
@@ -1133,7 +1224,7 @@ private:
         TimerFunc theFunc;
         mTimer.Run(mNow, theFunc);
     }
-    void CurlTimer()
+    int CurlTimer()
     {
         int theStatus;
         int theRemCount = 0;
@@ -1142,6 +1233,7 @@ private:
             FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
                 theStatus);
         }
+        return theRemCount;
     }
     static S3Status S3ResponsePropertiesCB(
         const S3ResponseProperties* inPropertiesPtr,
