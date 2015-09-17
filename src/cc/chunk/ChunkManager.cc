@@ -1844,6 +1844,7 @@ ChunkManager::ChunkManager()
       mObjStoreBufferDataMaxSizePerBlock(mObjStoreBlockWriteBufferSize),
       mObjStoreBlockMaxNonStableDisconnectedTime(LEASE_INTERVAL_SECS * 3 / 2),
       mObjBlockDiscardMinMetaUptime(90),
+      mObjStoreIoThreadCount(-1),
       mRand(),
       mChunkHeaderBuffer()
 {
@@ -2209,6 +2210,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mObjStoreBlockWriteBufferSize = prop.getValue(
         "chunkServer.objStoreBlockWriteBufferSize",
         mObjStoreBlockWriteBufferSize);
+    mObjStoreIoThreadCount = prop.getValue(
+        "chunkServer.objStoreIoThreadCount",
+        mObjStoreIoThreadCount);
     if (0 < mObjStoreBlockWriteBufferSize &&
             mObjStoreBlockWriteBufferSize < (int)KFS_CHUNK_HEADER_SIZE) {
         mObjStoreBlockWriteBufferSize = KFS_CHUNK_HEADER_SIZE;
@@ -5806,8 +5810,9 @@ ChunkManager::StartDiskIo()
         assert(find(tier.begin(), tier.end(), it) == tier.end());
         tier.push_back(&(*it));
     }
+    const int64_t kMaxFileSize         = KFS_CHUNK_HEADER_SIZE + CHUNKSIZE;
     mObjStoreBufferDataMaxSizePerBlock = min(
-        (int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE),
+        (int)kMaxFileSize,
         2 * mObjStoreBlockWriteBufferSize +
             (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE)
     );
@@ -5829,7 +5834,7 @@ ChunkManager::StartDiskIo()
         it->supportsSpaceReservatonFlag = false;
         it->availableChunks.Clear();
         string     errMsg;
-        const bool kCreateExclusiveFlag = false;
+        const bool    kCreateExclusiveFlag = false;
         if (! DiskIo::StartIoQueue(
                 it->dirname.c_str(),
                 it->deviceId,
@@ -5842,7 +5847,9 @@ ChunkManager::StartDiskIo()
                 (int)(KFS_CHUNK_HEADER_SIZE + CHECKSUM_BLOCKSIZE),
                 kCreateExclusiveFlag,
                 mObjStoreIoRequestAffinityFlag,
-                mObjStoreIoSerializeMetaRequestsFlag
+                mObjStoreIoSerializeMetaRequestsFlag,
+                mObjStoreIoThreadCount,
+                kMaxFileSize
             )) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<

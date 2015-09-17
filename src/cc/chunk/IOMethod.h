@@ -45,7 +45,9 @@ public:
     virtual ~IOMethod()
         {}
     virtual bool Init(
-        QCDiskQueue& inQueue) = 0;
+        QCDiskQueue& inQueue,
+        int64_t      inMinWriteBlkSize,
+        int64_t      inMaxFileSize) = 0;
     virtual void SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters) = 0;

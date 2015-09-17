@@ -25,6 +25,7 @@
 
 #include "DiskIo.h"
 #include "BufferManager.h"
+#include "IOMethod.h"
 
 #include "kfsio/IOBuffer.h"
 #include "kfsio/Globals.h"
@@ -262,13 +263,15 @@ private:
         const DiskErrorSimulator&);
 };
 
+const char* const kDiskQueueParametersPrefixPtr = "chunkServer.diskQueue.";
 // Disk io queue.
 class DiskQueue : public QCDiskQueue,
     private QCDiskQueue::DebugTracer
 {
 public:
-    typedef QCDLList<DiskQueue, 0> DiskQueueList;
-    typedef DiskIo::DeviceId       DeviceId;
+    typedef QCDLList<DiskQueue, 0>        DiskQueueList;
+    typedef DiskIo::DeviceId              DeviceId;
+    typedef QCDiskQueue::RequestProcessor RequestProcessor;
 
     DiskQueue(
         DiskQueue**                       inListPtr,
@@ -279,8 +282,11 @@ public:
         int                               inWaitingAvgInterval,
         const DiskErrorSimulator::Config* inSimulatorConfigPtr,
         int                               inMinWriteBlkSize,
+        int64_t                           inMaxFileSize,
         bool                              inBufferDataIgnoreOverwriteFlag,
-        int                               inBufferDataTailToKeepSize)
+        int                               inBufferDataTailToKeepSize,
+        int                               inThreadCount,
+        IOMethod**                        inIoMethodsPtr)
         : QCDiskQueue(),
           QCDiskQueue::DebugTracer(),
           mFileNamePrefixes(inFileNamePrefixPtr ? inFileNamePrefixPtr : ""),
@@ -294,8 +300,13 @@ public:
           mSimulatorPtr(inSimulatorConfigPtr ?
             new DiskErrorSimulator(*inSimulatorConfigPtr) : 0),
           mMinWriteBlkSize(inMinWriteBlkSize),
+          mMaxFileSize(inMaxFileSize),
           mBufferDataIgnoreOverwriteFlag(inBufferDataIgnoreOverwriteFlag),
-          mBufferDataTailToKeepSize(max(0, inBufferDataTailToKeepSize))
+          mBufferDataTailToKeepSize(max(0, inBufferDataTailToKeepSize)),
+          mThreadCount(inThreadCount),
+          mIoMethodsPtr(inIoMethodsPtr),
+          mRequestProcessorsPtr(
+            inIoMethodsPtr ? new RequestProcessor*[inThreadCount]: 0)
     {
         mFileNamePrefixes.append(1, (char)0);
         DiskQueueList::Init(*this);
@@ -308,6 +319,19 @@ public:
         mBufferManager.Init(0, inMaxBuffersBytes, inMaxClientQuota, 0);
         mBufferManager.SetWaitingAvgInterval(inWaitingAvgInterval);
     }
+    void SetParameters(
+        const Properties& inProperties)
+    {
+        if (! mIoMethodsPtr) {
+            return;
+        }
+        for (int i = 0; i < mThreadCount; i++) {
+            mIoMethodsPtr[i]->SetParameters(
+                kDiskQueueParametersPrefixPtr,
+                inProperties
+            );
+        }
+    }
     void Delete(
         DiskQueue** inListPtr)
     {
@@ -315,7 +339,6 @@ public:
         delete this;
     }
     int Start(
-        int             inThreadCount,
         int             inMaxQueueDepth,
         int             inMaxBuffersPerRequestCount,
         int             inFileCount,
@@ -327,10 +350,18 @@ public:
         bool            inRequestAffinityFlag,
         bool            inSerializeMetaRequestsFlag)
     {
+        if (mIoMethodsPtr) {
+            for (int i = 0; i < mThreadCount; i++) {
+                if (! mIoMethodsPtr[i]->Init(
+                        *this, mMinWriteBlkSize, mMaxFileSize)) {
+                    return EIO;
+                }
+                mRequestProcessorsPtr[i] = mIoMethodsPtr[i];
+            }
+        }
         const bool kBufferedIoFlag = false;
-        RequestProcessor** kRequestProcessorsPtr = 0;
         return QCDiskQueue::Start(
-            inThreadCount,
+            mThreadCount,
             inMaxQueueDepth,
             inMaxBuffersPerRequestCount,
             inFileCount,
@@ -343,7 +374,7 @@ public:
             inCreateExclusiveFlag,
             inRequestAffinityFlag,
             inSerializeMetaRequestsFlag,
-            kRequestProcessorsPtr
+            mRequestProcessorsPtr
         );
     }
     EnqueueStatus DeleteFile(
@@ -469,9 +500,13 @@ private:
     DiskIo::FilePtr           mCheckDirWritableNullFilePtr;
     BufferManager             mBufferManager;
     DiskErrorSimulator* const mSimulatorPtr;
-    int const                 mMinWriteBlkSize;
-    bool const                mBufferDataIgnoreOverwriteFlag;
-    int const                 mBufferDataTailToKeepSize;
+    int                 const mMinWriteBlkSize;
+    int64_t             const mMaxFileSize;
+    bool                const mBufferDataIgnoreOverwriteFlag;
+    int                 const mBufferDataTailToKeepSize;
+    int                 const mThreadCount;
+    IOMethod**          const mIoMethodsPtr;
+    RequestProcessor**  const mRequestProcessorsPtr;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
 
@@ -483,8 +518,16 @@ private:
         mGetFsSpaceAvailableNullFilePtr->mQueuePtr = 0;
         mCheckDirReadableNullFilePtr->mQueuePtr    = 0;
         delete mSimulatorPtr;
+        if (mIoMethodsPtr) {
+            for (int i = 0; i < mThreadCount; i++) {
+                delete mIoMethodsPtr[i];
+                mIoMethodsPtr[i] = 0;
+            }
+        }
+        delete [] mIoMethodsPtr;
+        delete [] mRequestProcessorsPtr;
     }
-   friend class QCDLListOp<DiskQueue, 0>;
+    friend class QCDLListOp<DiskQueue, 0>;
 private:
     DiskQueue(
         const DiskQueue& inQueue);
@@ -579,7 +622,8 @@ public:
           mCpuAffinity(inConfig.getValue(
             "chunkServer.diskQueue.cpuAffinity", 0)),
           mDiskQueueTraceFlag(inConfig.getValue(
-            "chunkServer.diskQueue.trace", 0) != 0)
+            "chunkServer.diskQueue.trace", 0) != 0),
+          mParameters(inConfig)
     {
         mCounters.Clear();
         IoQueue::Init(mIoInFlightQueuePtr);
@@ -822,7 +866,9 @@ public:
         int              inBufferDataTailToKeepSize,
         bool             inCreateExclusiveFlag,
         bool             inRequestAffinityFlag,
-        bool             inSerializeMetaRequestsFlag)
+        bool             inSerializeMetaRequestsFlag,
+        int              inThreadCount,
+        int64_t          inMaxFileSize)
     {
         DiskQueue* theQueuePtr = FindDiskQueue(inDirNamePtr);
         if (theQueuePtr) {
@@ -853,6 +899,33 @@ public:
                 return false;
             }
         }
+        const int theThreadCount    = 0 < inThreadCount ?
+            inThreadCount : mDiskQueueThreadCount;
+        IOMethod**  theIoMethodsPtr = 0;
+        const char* kLogPrefixPtr   = 0;
+        for (int i = 0; i < theThreadCount; i++) {
+            IOMethod* const thePtr = IOMethod::Create(
+                inDirNamePtr,
+                kLogPrefixPtr,
+                kDiskQueueParametersPrefixPtr,
+                mParameters
+            );
+            if (0 == i) {
+                if (! thePtr) {
+                    break;
+                }
+                theIoMethodsPtr = new IOMethod*[theThreadCount];
+            }
+            if (! thePtr) {
+                while (0 <= --i) {
+                    delete theIoMethodsPtr[i];
+                }
+                delete [] theIoMethodsPtr;
+                DiskIoReportError("IO method create failure");
+                return false;
+            }
+            theIoMethodsPtr[i] = thePtr;
+        }
         theQueuePtr = new DiskQueue(
             mDiskQueuesPtr,
             inDeviceId,
@@ -865,11 +938,13 @@ public:
             mDiskErrorSimulatorConfig.IsEnabled(inDirNamePtr) ?
                 &mDiskErrorSimulatorConfig : 0,
             theMinWriteBlkSize,
+            inMaxFileSize,
             inBufferDataIgnoreOverwriteFlag,
-            inBufferDataTailToKeepSize
+            inBufferDataTailToKeepSize,
+            theThreadCount,
+            theIoMethodsPtr
         );
         const int theSysErr = theQueuePtr->Start(
-            mDiskQueueThreadCount,
             mDiskQueueMaxQueueDepth,
             mDiskQueueMaxBuffersPerRequest,
             inMaxOpenFiles,
@@ -1073,6 +1148,12 @@ public:
         }
         mMaxIoTime = max(1, inProperties.getValue(
             "chunkServer.diskIo.maxIoTimeSec", mMaxIoTime));
+        mParameters = inProperties;
+        DiskQueue* thePtr;
+        DiskQueueList::Iterator theIt(mDiskQueuesPtr);
+        while ((thePtr = theIt.Next())) {
+            thePtr->SetParameters(mParameters);
+        }
     }
     int GetMaxIoTimeSec() const
         { return mMaxIoTime; }
@@ -1182,6 +1263,7 @@ private:
     DiskErrorSimulator::Config     mDiskErrorSimulatorConfig;
     const QCDiskQueue::CpuAffinity mCpuAffinity;
     const int                      mDiskQueueTraceFlag;
+    Properties                     mParameters;
 
     QCIoBufferPool& GetBufferPool()
         { return mBufferAllocator.GetBufferPool(); }
@@ -1304,7 +1386,9 @@ DiskIo::StartIoQueue(
     int              inBufferDataTailToKeepSize      /* = 0 */,
     bool             inCreateExclusiveFlag           /* = true */,
     bool             inRequestAffinityFlag           /* = false */,
-    bool             inSerializeMetaRequestsFlag     /* = true */)
+    bool             inSerializeMetaRequestsFlag     /* = true */,
+    int              inThreadCount                   /* = -1 */,
+    int64_t          inMaxFileSize                   /* = -1 */)
 {
     if (! sDiskIoQueuesPtr) {
         if (inErrMessagePtr) {
@@ -1322,7 +1406,9 @@ DiskIo::StartIoQueue(
         inBufferDataTailToKeepSize,
         inCreateExclusiveFlag,
         inRequestAffinityFlag,
-        inSerializeMetaRequestsFlag
+        inSerializeMetaRequestsFlag,
+        inThreadCount,
+        inMaxFileSize
     );
 }
 

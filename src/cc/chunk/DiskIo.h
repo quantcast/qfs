@@ -124,7 +124,9 @@ public:
         int         inBufferDataTailToKeepSize      = 0,
         bool        inCreateExclusiveFlag           = true,
         bool        inRequestAffinityFlag           = false,
-        bool        inSerializeMetaRequestsFlag     = true);
+        bool        inSerializeMetaRequestsFlag     = true,
+        int         inThreadCount                   = -1,
+        int64_t     inMaxFileSize                   = -1);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,
