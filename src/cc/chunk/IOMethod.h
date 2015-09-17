@@ -46,6 +46,7 @@ public:
         {}
     virtual bool Init(
         QCDiskQueue& inQueue,
+        int          inBlockSize,
         int64_t      inMinWriteBlkSize,
         int64_t      inMaxFileSize) = 0;
     virtual void SetParameters(

@@ -20,6 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
+// AWS S3 IO method implementation.
 //
 //----------------------------------------------------------------------------
 
@@ -56,7 +57,8 @@ using std::vector;
 using std::max;
 using std::min;
 
-char* const kS3IOFdOffset = (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
+char* const  kS3IOFdOffset = (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
+static const string kOkStatusStr("ok");
 
 class S3IO : public IOMethod
 {
@@ -108,6 +110,7 @@ public:
     }
     virtual ~S3IO()
     {
+        KFS_LOG_STREAM_DEBUG << mLogPrefix << "~S3IO" << KFS_LOG_EOM;
         S3IO::Stop();
         if (mS3CtxPtr) {
             S3_destroy_request_context(mS3CtxPtr);
@@ -116,6 +119,7 @@ public:
     }
     virtual bool Init(
         QCDiskQueue& inDiskQueue,
+        int          inBlockSize,
         int64_t      inMinWriteBlkSize,
         int64_t      inMaxFileSize)
     {
@@ -133,7 +137,7 @@ public:
             KFS_LOG_EOM;
             return false;
         }
-        mBlockSize = mDiskQueuePtr->GetBlockSize();
+        mBlockSize = inBlockSize;
         if (mBlockSize <= 0) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "invalid block size: " << mBlockSize <<
@@ -190,9 +194,8 @@ public:
             Stop();
             return;
         }
-        const int kMaxPollSleepMs = kTimerResolutionSec * 1000;
         const int theErr =
-            mFdPoll.Poll(mPollSocketCount, kMaxPollSleepMs);
+            mFdPoll.Poll(mPollSocketCount, mPollWaitMs);
         if (theErr < 0 && theErr != EINTR && theErr != EAGAIN) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 QCUtils::SysError(theErr, "poll error") <<
@@ -227,6 +230,7 @@ public:
                 FatalError("curl_multi_socket_action", theStatus);
             }
         }
+        mRunCurlTimerFlag = theCount <= 0;
         Timer();
         const S3Status theS3Status = S3_finish_request_context(mS3CtxPtr);
         if (S3StatusOK != theS3Status) {
@@ -244,6 +248,7 @@ public:
         mStopFlag = true;
         int theRemCount;
         do {
+            mRunCurlTimerFlag = true;
             int theStatus = 0;
             for (curl_socket_t theFd = 0;
                     0 < mPollSocketCount && 0 < theRemCount &&
@@ -253,6 +258,7 @@ public:
                     continue;
                 }
                 theRemCount = 0;
+                mRunCurlTimerFlag = false;
                 while ((theStatus = curl_multi_socket_action(
                         mCurlCtxPtr,
                         theFd,
@@ -281,7 +287,7 @@ public:
         if (0 <= theFd) {
             QCASSERT(mFileTable[theFd].mFileName.empty());
             mFileTable[theFd].Set(
-                inFileNamePtr,
+                inFileNamePtr + mFilePrefix.length(),
                 inReadOnlyFlag,
                 inCreateFlag,
                 inCreateExclusiveFlag,
@@ -474,7 +480,7 @@ public:
                     0, // inBufferCount,
                     0, // inInputIteratorPtr,
                     0, // size,
-                    File(inNamePtr)
+                    File(inNamePtr + mFilePrefix.length())
                 ));
                 break;
             default:
@@ -579,6 +585,10 @@ private:
             mAccessKeyId = inParameters.getValue(
                 theName.Truncate(thePrefixSize).Append("accessKeyId"),
                 mAccessKeyId
+            );
+            mSecretAccessKey = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("secretAccessKey"),
+                mSecretAccessKey
             );
             mSecurityToken = inParameters.getValue(
                 theName.Truncate(thePrefixSize).Append("securityToken"),
@@ -1117,6 +1127,7 @@ private:
     S3RequestContext* mS3CtxPtr;
     CURLM*            mCurlCtxPtr;
     QCFdPoll          mFdPoll;
+    int               mPollWaitMs;
     int               mPollSocketCount;
     FileTable         mFileTable;
     int64_t           mFreeFdListIdx;
@@ -1125,6 +1136,7 @@ private:
     TimerW            mTimer;
     TimerEntry        mCurlTimer;
     CurlFdTable       mCurlFdTable;
+    bool              mRunCurlTimerFlag;
     bool              mStopFlag;
     bool              mParametersUpdatedFlag;
     Parameters        mParameters;
@@ -1144,6 +1156,7 @@ private:
           mS3CtxPtr(0),
           mCurlCtxPtr(0),
           mFdPoll(true), // Wakeable
+          mPollWaitMs(kTimerResolutionSec * 1000),
           mPollSocketCount(0),
           mFileTable(),
           mFreeFdListIdx(-1),
@@ -1152,6 +1165,7 @@ private:
           mTimer(mNow),
           mCurlTimer(),
           mCurlFdTable(),
+          mRunCurlTimerFlag(false),
           mStopFlag(false),
           mParametersUpdatedFlag(false),
           mParameters(),
@@ -1160,11 +1174,12 @@ private:
     {
         if (! inLogPrefixPtr) {
             mLogPrefix += "S3IO ";
-            AppendHexIntToString(mLogPrefix, this - (S3IO*)0);
+            AppendHexIntToString(mLogPrefix, reinterpret_cast<uint64_t>(this));
             mLogPrefix +=  ' ';
         } else if (! mLogPrefix.empty() && *mLogPrefix.rbegin() != ' ') {
             mLogPrefix += ' ';
         }
+        KFS_LOG_STREAM_DEBUG << mLogPrefix << "S3IO" << KFS_LOG_EOM;
         const size_t kFdReserve = 256;
         mFileTable.reserve(kFdReserve);
         mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
@@ -1197,9 +1212,11 @@ private:
             KFS_LOG_EOM;
             return EINVAL;
         }
-        const size_t theLen = strlen(inFileNamePtr);
-        if (theLen <= mFilePrefix.size() ||
-                mFilePrefix.compare(0, theLen, inFileNamePtr) != 0) {
+        const size_t theLen     = strlen(inFileNamePtr);
+        const size_t thePrefLen = mFilePrefix.length();
+        if (theLen <= mFilePrefix.length() ||
+                mFilePrefix.compare(
+                    0, thePrefLen, inFileNamePtr, thePrefLen) != 0) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "invalid file name: " << inFileNamePtr <<
                 " file prefix: "      << mFilePrefix <<
@@ -1316,6 +1333,10 @@ private:
     }
     int CurlTimer()
     {
+        if (! mRunCurlTimerFlag) {
+            Schedule(mCurlTimer, 0);
+            return -1;
+        }
         int theStatus;
         int theRemCount = 0;
         if ((theStatus = curl_multi_socket_action(
@@ -1382,27 +1403,32 @@ private:
     {
         QCRTASSERT(mCurlCtxPtr == inCurlCtxPtr);
         const long kMilliSec = 1000;
-        if (0 < inTimeoutMs && (kMaxTimerTimeSec * kMilliSec < inTimeoutMs ||
-                inTimeoutMs < kMilliSec)) {
-            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                " shortening curl timer from: " << inTimeoutMs <<
-                " to: " << (inTimeoutMs < kMilliSec ?
-                    0 : (int)kMaxTimerTimeSec * kMilliSec) << " ms." <<
-            KFS_LOG_EOM;
+        if (0 < inTimeoutMs && inTimeoutMs < kMilliSec) {
+            mPollWaitMs = inTimeoutMs;
+        } else {
+            mPollWaitMs = kTimerResolutionSec * kMilliSec;
         }
-        Schedule(mCurlTimer,
-            inTimeoutMs < 0 ? inTimeoutMs : inTimeoutMs / kMilliSec);
+        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+            "timeout curl: " << inTimeoutMs << " ms " <<
+            " poll: "        << mPollWaitMs << " ms " <<
+        KFS_LOG_EOM;
+        Schedule(
+            mCurlTimer,
+            inTimeoutMs < 0 ? inTimeoutMs : inTimeoutMs / kMilliSec,
+            0 == inTimeoutMs
+        );
         return 0;
     }
     void Schedule(
         TimerEntry& inEntry,
-        time_t      inNextTime)
+        time_t      inNextTime,
+        bool        inWakeupFlag = true)
     {
         if (inNextTime < 0) {
             TimerEntry::List::Remove(inEntry);
         } else {
             mTimer.Schedule(inEntry, inNextTime);
-            if (inNextTime <= 0) {
+            if (inNextTime <= 0 && inWakeupFlag) {
                 Wakeup();
             }
         }
@@ -1450,21 +1476,36 @@ private:
                 theStatus = mStopFlag ? 0 :
                     mFdPoll.Add(inFd, theEvents, kS3IOFdOffset + inFd);
                 if (mCurlFdTable.size() <= (size_t)inFd) {
-                    mCurlFdTable.resize(inFd);
+                    mCurlFdTable.resize(inFd + 1);
                 }
                 mCurlFdTable[inFd] = true;
                 mPollSocketCount++;
             }
         }
-        if (0 != theStatus) {
-            KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                " socket: " << inFd <<
-                " action: " << inAction <<
-                " "         << QCUtils::SysError(theStatus) <<
-                " status: " << theStatus <<
-            KFS_LOG_EOM;
-        }
+        KFS_LOG_STREAM(0 != theStatus ?
+                MsgLogger::kLogLevelERROR :
+                MsgLogger::kLogLevelDEBUG) << mLogPrefix <<
+            "socket: "    << inFd <<
+            " action: "   << ActionToName(inAction) << "/" << inAction <<
+            " events: "   << theEvents <<
+            " status: "   << (theStatus == 0 ?
+                kOkStatusStr: QCUtils::SysError(theStatus)) <<
+            " poll fds: " << mPollSocketCount <<
+        KFS_LOG_EOM;
         return 0;
+    }
+    static const char* ActionToName(
+        int inAction)
+    {
+        switch(inAction) {
+            case CURL_POLL_REMOVE: return "remove";
+            case CURL_POLL_IN:     return "in";
+            case CURL_POLL_OUT:    return "out";
+            case CURL_POLL_INOUT:  return "io";
+            case CURL_POLL_NONE:   return "none";
+            default:               break;
+        }
+        return "invalid";
     }
     int ConvertEvents(
             int inEvents)

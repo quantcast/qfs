@@ -1396,7 +1396,8 @@ QCDiskQueue::Queue::Process(
     int           inThreadIdx)
 {
     QCASSERT(mMutex.IsOwned());
-    QCASSERT(mIoVecPerThreadCount > 0 && mBufferPoolPtr);
+    QCASSERT((0 < mIoVecPerThreadCount || mRequestProcessorsPtr) &&
+        mBufferPoolPtr);
     if (inReq.mReqType == kReqTypeOpen ||
             inReq.mReqType == kReqTypeCreate ||
             inReq.mReqType == kReqTypeOpenRO ||

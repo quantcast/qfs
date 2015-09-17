@@ -353,7 +353,10 @@ public:
         if (mIoMethodsPtr) {
             for (int i = 0; i < mThreadCount; i++) {
                 if (! mIoMethodsPtr[i]->Init(
-                        *this, mMinWriteBlkSize, mMaxFileSize)) {
+                        *this,
+                        inBufferPool.GetBufferSize(),
+                        mMinWriteBlkSize,
+                        mMaxFileSize)) {
                     return EIO;
                 }
                 mRequestProcessorsPtr[i] = mIoMethodsPtr[i];
