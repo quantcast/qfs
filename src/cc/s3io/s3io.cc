@@ -119,7 +119,7 @@ public:
         int64_t      inMinWriteBlkSize,
         int64_t      inMaxFileSize)
     {
-        if (inMaxFileSize <= 0) {
+        if (inMaxFileSize <= 0 || (int64_t(5) << 30) < inMaxFileSize) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "invalid max file size: " << inMaxFileSize <<
             KFS_LOG_EOM;
