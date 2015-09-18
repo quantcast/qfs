@@ -2014,6 +2014,9 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
                 break;
             }
         }
+    } else if (-ENOENT == status) {
+        // Change status to generic failure, to distingush from no such file.
+        status = -EALLOCFAILED;
     }
     // Ensure that the op isn't stale.
     // Invalidate all replicas might make it stale if it comes while this op

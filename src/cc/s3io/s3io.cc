@@ -39,6 +39,8 @@
 #include "qcdio/qcdebug.h"
 #include "qcdio/qcstutils.h"
 
+#include "kfsio/Base64.h"
+
 #include <libs3.h>
 #include <curl/curl.h>
 
@@ -57,8 +59,9 @@ using std::vector;
 using std::max;
 using std::min;
 
-char* const  kS3IOFdOffset = (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
-static const string kOkStatusStr("ok");
+static char*  const kS3IOFdOffset =
+    (char*)0 + (size_t(1) << (sizeof(char*) * 8 - 2));
+static string const kOkStatusStr("ok");
 
 class S3IO : public IOMethod
 {
@@ -358,6 +361,11 @@ public:
                     KFS_LOG_EOM;
                     break;
                 }
+                if (inBufferCount <= 0 && ! theFilePtr->mReadOnlyFlag) {
+                    // 0 size read is used to get open status. The object
+                    // that corresponds to "file" might not exists yet.
+                    break;
+                }
                 theReqPtr = S3Req::Get(
                     *this,
                     inRequest,
@@ -446,17 +454,15 @@ public:
                 theSysErr = theFilePtr ? ENXIO : EBADF;
                 break;
         }
-        if (QCDiskQueue::kErrorNone != theError || 0 != theSysErr) {
-            int64_t const theIoByteCount = 0;
-            mDiskQueuePtr->Done(
-                *this,
-                inRequest,
-                theError,
-                theSysErr,
-                theIoByteCount,
-                inStartBlockIdx
-            );
-        }
+        int64_t const theIoByteCount = 0;
+        mDiskQueuePtr->Done(
+            *this,
+            inRequest,
+            theError,
+            theSysErr,
+            theIoByteCount,
+            inStartBlockIdx
+        );
     }
     virtual void StartMeta(
         Request&    inRequest,
@@ -747,10 +753,10 @@ private:
         }
         const char* GetMd5Sum()
         {
-            if (mMd5Sum.empty()) {
+            if (! *mMd5Sum) {
                 ostream& theStream = mOuter.mMdStream.Reset();
-                char** thePtr = GetBuffers();
-                size_t thePos;
+                char**   thePtr    = GetBuffers();
+                size_t   thePos;
                 for (thePos = 0;
                         thePos + mOuter.mBlockSize <= mSize;
                         thePos += mOuter.mBlockSize) {
@@ -760,65 +766,27 @@ private:
                     theStream.write(*thePtr, mSize - thePos);
                 }
                 if (theStream) {
-                    mMd5Sum = mOuter.mMdStream.GetMd();
+                    const size_t theLen =
+                        mOuter.mMdStream.GetMdBin(mOuter.mTmpMdBuf);
+                    QCRTASSERT(theLen <= sizeof(mOuter.mTmpMdBuf));
+                    const int theB64Len = Base64::Encode(
+                        reinterpret_cast<const char*>(mOuter.mTmpMdBuf),
+                        theLen, mMd5Sum);
+                    QCRTASSERT(
+                        0 < theB64Len &&
+                        (size_t)theB64Len < sizeof(mMd5Sum)
+                    );
+                    mMd5Sum[theB64Len] = 0;
                 } else {
                     mOuter.FatalError("md5 sum failure");
                 }
             }
-            return mMd5Sum.c_str();
+            return mMd5Sum;
         }
         size_t GetSize() const
             { return mSize; }
         size_t GetStartBlockIdx()
             { return mStartBlockIdx; }
-        template<typename T, typename FT>
-        int IO(
-            int       inBufferSize,
-            T*        inBufferPtr,
-            const FT& inFunc)
-        {
-            if (mSize <= mPos || inBufferSize <= 0) {
-                return 0;
-            }
-            T*           thePtr = inBufferPtr;
-            size_t const theRem = min((size_t)inBufferSize, mSize - mPos);
-            size_t       theSize;
-            if (0 < mBufRem) {
-                theSize = min(mBufRem, theRem);
-                inFunc(thePtr,
-                    *mBufferPtr + mOuter.mBlockSize - mBufRem, theSize);
-                mBufRem -= theSize;
-                if (0 < mBufRem) {
-                    return (int)theSize;
-                }
-                mBufferPtr++;
-                thePtr += theSize;
-            }
-            T* const theEndPtr = thePtr + theRem;
-            theSize = mOuter.mBlockSize;
-            while (thePtr + theSize <= theEndPtr) {
-                inFunc(thePtr, *mBufferPtr++, theSize);
-                mPos   += theSize;
-                thePtr += theSize;
-            }
-            theSize = (size_t)(theEndPtr - thePtr);
-            if (0 < theSize) {
-                inFunc(thePtr, *mBufferPtr, theSize);
-                thePtr += theSize;
-                mPos   += theSize;
-                mBufRem = mOuter.mBlockSize - theSize;
-            }
-            return (int)(thePtr - (theEndPtr - theRem));
-        }
-        class ReadFunc
-        {
-        public:
-            void operator()(
-                const char* inFromPtr,
-                char*       inToPtr,
-                size_t      inSize) const
-                { memcpy(inToPtr, inFromPtr, inSize); }
-        };
         S3Status Read(
             int         inBufferSize,
             const char* inBufferPtr)
@@ -829,24 +797,14 @@ private:
             IO(inBufferSize, inBufferPtr, ReadFunc());
             return S3StatusOK;
         }
-        class WriteFunc
-        {
-        public:
-            void operator()(
-                char*       inToPtr,
-                const char* inFromPtr,
-                size_t      inSize) const
-                { memcpy(inToPtr, inFromPtr, inSize); }
-        };
         int Write(
             int   inBufferSize,
             char* inBufferPtr)
-        {
-            return IO(inBufferSize, inBufferPtr, WriteFunc());
-        }
+            { return IO(inBufferSize, inBufferPtr, WriteFunc()); }
         void Run()
         {
             mRetryCount++;
+            mStartTime = mOuter.mNow;
             mBufferPtr = GetBuffers();
             mPos       = 0;
             mBufRem    = 0;
@@ -872,14 +830,15 @@ private:
         {
             KFS_LOG_STREAM_START(S3StatusOK == inStatus ?
                     MsgLogger::kLogLevelDEBUG :
-                    MsgLogger::kLogLevelERROR, theMsg) <<
-                mOuter.mLogPrefix <<
-                " done: "    << (const void*)this <<
+                    MsgLogger::kLogLevelERROR, theMsg) << mOuter.mLogPrefix <<
+                (const void*)this <<
+                " done: "    << RequestTypeToName(mReqType) <<
+                "/"          << mReqType <<
                 " "          << mFileName <<
-                " request: " << mReqType <<
-                " pos: "     << GetStartBlockIdx() <<
-                " size: "    << GetSize() <<
-                " attempt: " << GetRetryCount() <<
+                " startb: "  << mStartBlockIdx <<
+                " size: "    << mSize <<
+                " pos: "     << mPos <<
+                " attempt: " << mRetryCount <<
                 " status: "  << inStatus <<
                 " "          << S3_get_status_name(inStatus)
                 ;
@@ -887,16 +846,18 @@ private:
                 if (inErrorPtr) {
                     theStream <<
                     " message: "  <<
-                        (inErrorPtr->message ? inErrorPtr->message : "") <<
+                        (inErrorPtr->message ? inErrorPtr->message : "nil") <<
                     " resource: " <<
-                        (inErrorPtr->resource ? inErrorPtr->resource : "") <<
+                        (inErrorPtr->resource ? inErrorPtr->resource : "nil") <<
                     " details: "  << (inErrorPtr->furtherDetails ?
-                            inErrorPtr->furtherDetails : "")
+                            inErrorPtr->furtherDetails : "nil")
                     ;
                     for (int i = 0; i < inErrorPtr->extraDetailsCount; i++) {
                         theStream <<
-                            " "   << inErrorPtr->extraDetails[i].name <<
-                            ": "  << inErrorPtr->extraDetails[i].value;
+                            " "   << (inErrorPtr->extraDetails[i].name ? 
+                                inErrorPtr->extraDetails[i].name : "nil") <<
+                            ": "  << (inErrorPtr->extraDetails[i].value ?
+                            inErrorPtr->extraDetails[i].value : "nil");
                     }
                 }
             KFS_LOG_STREAM_END;
@@ -908,8 +869,7 @@ private:
             int                theSysErr;
             QCDiskQueue::Error theError;
             if (inStatus == S3StatusOK) {
-                theIoByteCount =
-                    QCDiskQueue::kReqTypeRead == mReqType ? mSize : mSize;
+                theIoByteCount = mPos;
                 theSysErr      = 0;
                 theError       = QCDiskQueue::kErrorNone;
             } else {
@@ -931,7 +891,6 @@ private:
                         mOuter.FatalError("invalid request type");
                         return;
                 }
-                theIoByteCount = 0;
             }
             S3IO&          theOuter         = mOuter;
             Request&       theRequest       = mRequest;
@@ -998,52 +957,76 @@ private:
         {
             KFS_LOG_STREAM_START(MsgLogger::kLogLevelDEBUG, theMsg) <<
                 mOuter.mLogPrefix <<
-                " "       << mFileName <<
-                " type: " << mReqType <<
+                (const void*)this <<
+                " "               << RequestTypeToName(mReqType) <<
+                "/"               << mReqType <<
+                " "               << mFileName <<
                 " Content-Type: " <<
                     (inPropertiesPtr->contentType ?
-                        inPropertiesPtr->contentType : "null") <<
+                        inPropertiesPtr->contentType : "nil") <<
                 " Request-Id: " <<
                      (inPropertiesPtr->requestId ?
-                        inPropertiesPtr->requestId : "null") <<
+                        inPropertiesPtr->requestId : "nil") <<
                 " Request-Id-2: " <<
                     (inPropertiesPtr->requestId2 ?
-                        inPropertiesPtr->requestId2 : "null") <<
+                        inPropertiesPtr->requestId2 : "nil") <<
                 " Content-Length: " <<
                     inPropertiesPtr->contentLength <<
                 " Server: " <<
                     (inPropertiesPtr->server ?
-                        inPropertiesPtr->server : "null") <<
+                        inPropertiesPtr->server : "nil") <<
                 " ETag: " <<
                     (inPropertiesPtr->eTag ?
-                        inPropertiesPtr->eTag : "null") <<
+                        inPropertiesPtr->eTag : "nil") <<
                 " Last-Modified: " << inPropertiesPtr->lastModified <<
                 " UsesServerSideEncryption: " <<
-                    inPropertiesPtr->usesServerSideEncryption
+                    (int)inPropertiesPtr->usesServerSideEncryption
                 ;
                 ostream& theStream = theMsg.GetStream();
                 for (int i = 0; i < inPropertiesPtr->metaDataCount; i++) {
                     theStream << "x-amz-meta-" <<
-                        inPropertiesPtr->metaData[i].name <<
-                        ": " << inPropertiesPtr->metaData[i].value;
+                        (inPropertiesPtr->metaData[i].name ?
+                            inPropertiesPtr->metaData[i].name : "nil") <<
+                        ": " << (inPropertiesPtr->metaData[i].value ?
+                            inPropertiesPtr->metaData[i].value : "nil");
                 }
             KFS_LOG_STREAM_END;
             return S3StatusOK;
         }
     private:
+        class ReadFunc
+        {
+        public:
+            void operator()(
+                const char* inFromPtr,
+                char*       inToPtr,
+                size_t      inSize) const
+                { memcpy(inToPtr, inFromPtr, inSize); }
+        };
+        class WriteFunc
+        {
+        public:
+            void operator()(
+                char*       inToPtr,
+                const char* inFromPtr,
+                size_t      inSize) const
+                { memcpy(inToPtr, inFromPtr, inSize); }
+        };
+
         S3IO&            mOuter;
         Request&         mRequest;
         ReqType    const mReqType;
         BlockIdx   const mStartBlockIdx;
         string     const mFileName;
         Parameters const mParameters;
-        string           mMd5Sum;
         size_t           mPos;
         size_t           mSize;
         size_t           mBufRem;
         char**           mBufferPtr;
         int              mRetryCount;
         time_t           mStartTime;
+        char             mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
+                         // Base64::EncodedLength(128 / 8) + 1
 
         S3Req(
             S3IO&          inOuter,
@@ -1060,7 +1043,6 @@ private:
               mStartBlockIdx(inStartBlockIdx),
               mFileName(inFile.mFileName),
               mParameters(inOuter.mParameters),
-              mMd5Sum(),
               mPos(0),
               mSize(inSize),
               mBufRem(0),
@@ -1068,14 +1050,21 @@ private:
               mRetryCount(0),
               mStartTime(mOuter.mNow)
         {
+            mMd5Sum[0] = 0;
             KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                "S3Req: " << (const void*)this <<
+                (const void*)this <<
+                " S3Req: " << RequestTypeToName(mReqType) <<
+                "/"        << mReqType <<
+                " "        << mFileName <<
             KFS_LOG_EOM;
         }
         ~S3Req()
         {
             KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                "~S3Req: " << (const void*)this <<
+                (const void*)this <<
+                " ~S3Req: " << RequestTypeToName(mReqType) <<
+                "/"         << mReqType <<
+                " "         << mFileName <<
             KFS_LOG_EOM;
             List::Remove(*this);
         }
@@ -1086,6 +1075,67 @@ private:
             char* const thePtr = reinterpret_cast<char*>(this);
             this->~S3Req();
             delete [] thePtr;
+        }
+        template<typename T, typename FT>
+        int IOSelf(
+            int       inBufferSize,
+            T*        inBufferPtr,
+            const FT& inFunc)
+        {
+            if (mSize <= mPos || inBufferSize <= 0) {
+                return 0;
+            }
+            T*           thePtr = inBufferPtr;
+            size_t const theRem = min((size_t)inBufferSize, mSize - mPos);
+            size_t       theSize;
+            if (0 < mBufRem) {
+                theSize = min(mBufRem, theRem);
+                inFunc(thePtr,
+                    *mBufferPtr + mOuter.mBlockSize - mBufRem, theSize);
+                mBufRem -= theSize;
+                mPos    += theSize;
+                if (0 < mBufRem) {
+                    return (int)theSize;
+                }
+                mBufferPtr++;
+                thePtr += theSize;
+            }
+            T* const theEndPtr = inBufferPtr + theRem;
+            theSize = mOuter.mBlockSize;
+            while (thePtr + theSize <= theEndPtr) {
+                inFunc(thePtr, *mBufferPtr++, theSize);
+                mPos   += theSize;
+                thePtr += theSize;
+            }
+            theSize = (size_t)(theEndPtr - thePtr);
+            if (0 < theSize) {
+                inFunc(thePtr, *mBufferPtr, theSize);
+                thePtr += theSize;
+                mPos   += theSize;
+                mBufRem = mOuter.mBlockSize - theSize;
+            }
+            return (int)(thePtr - (theEndPtr - theRem));
+        }
+        template<typename T, typename FT>
+        int IO(
+            int       inBufferSize,
+            T*        inBufferPtr,
+            const FT& inFunc)
+        {
+            const int theRet = IOSelf(inBufferSize, inBufferPtr, inFunc);
+            KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                (const void*)this <<
+                " "         << RequestTypeToName(mReqType) <<
+                "/"         << mReqType <<
+                " startb: " << mStartBlockIdx <<
+                " bytes: "  << inBufferSize <<
+                " / "       << theRet <<
+                " pos: "    << mPos <<
+                " size: "   << mSize <<
+                " brem: "   << mBufRem <<
+                " bidx: "   << (mBufferPtr - GetBuffers()) <<
+            KFS_LOG_EOM;
+            return theRet;
         }
     };
     friend class S3Req;
@@ -1142,7 +1192,28 @@ private:
     Parameters        mParameters;
     Parameters        mUpdatedParameters;
     QCMutex           mMutex;
+    MdStream::MD      mTmpMdBuf;
 
+    static bool IsDebugLogLevel()
+    {
+        return (
+            MsgLogger::GetLogger() &&
+            MsgLogger::GetLogger()->IsLogLevelEnabled(
+                    MsgLogger::kLogLevelDEBUG)
+        );
+    }
+    static const char* RequestTypeToName(
+        ReqType inReqType)
+    {
+        switch (inReqType) {
+            case QCDiskQueue::kReqTypeRead:      return "read";
+            case QCDiskQueue::kReqTypeWrite:     return "write";
+            case QCDiskQueue::kReqTypeWriteSync: return "wrsync";
+            case QCDiskQueue::kReqTypeDelete:    return "delete";
+            default: break;
+        }
+        return "invalid";
+    }
     S3IO(
         const char* inUrlPtr,
         const char* inConfigPrefixPtr,
@@ -1247,7 +1318,7 @@ private:
         const S3GetObjectHandler theGetObjectHandler =
         {
             {
-                &S3ResponsePropertiesCB,
+                IsDebugLogLevel() ? &S3ResponsePropertiesCB : 0,
                 &S3ResponseCompleteCB
             },
             &S3GetObjectDataCB
@@ -1267,11 +1338,12 @@ private:
         S3Req& inReq)
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "put: "      << (const void*)&inReq <<
-            " "          << inReq.GetFileName() <<
+            (const void*)&inReq <<
+            " put: "     << inReq.GetFileName() <<
             " pos: "     << inReq.GetStartBlockIdx() <<
             " * "        << mBlockSize <<
             " size: "    << inReq.GetSize() <<
+            " md5: "     << inReq.GetMd5Sum() <<
             " attempt: " << inReq.GetRetryCount() <<
         KFS_LOG_EOM;
         S3BucketContext theBucketContext = { 0 };
@@ -1279,7 +1351,7 @@ private:
         const S3PutObjectHandler thePutObjectHandler =
         {
             {
-                &S3ResponsePropertiesCB,
+                IsDebugLogLevel() ? &S3ResponsePropertiesCB : 0,
                 &S3ResponseCompleteCB
             },
             &S3PutObjectDataCB
@@ -1305,7 +1377,7 @@ private:
         S3BucketContext theBucketContext = { 0 };
         const S3ResponseHandler theResponseHandler =
         {
-            0, // &3ResponsePropertiesCB
+            IsDebugLogLevel() ? &S3ResponsePropertiesCB : 0,
             &S3ResponseCompleteCB
         };
         S3_delete_object(

@@ -1729,12 +1729,12 @@ QCDiskQueue::Queue::ProcessClose(
         if (! mRequestProcessorsPtr) {
             mFdPtr[inFileIdx] = -1;
         }
-        for (int i = inFileIdx + (mRequestProcessorsPtr ? 0 : mFileCount);
+        for (int k = 0, i = inFileIdx + (mRequestProcessorsPtr ? 0 : mFileCount);
                 i < mFdCount;
                 i += mFileCount) {
             if (mRequestProcessorsPtr) {
                 const int theErr =
-                    mRequestProcessorsPtr[i]->Close(mFdPtr[i], theFileSize);
+                    mRequestProcessorsPtr[k++]->Close(mFdPtr[i], theFileSize);
                 if (theErr) {
                     theSysErr = theErr;
                 }

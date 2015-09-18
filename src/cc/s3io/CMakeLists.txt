@@ -42,15 +42,13 @@ set_target_properties (qfss3io PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (qfss3io-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
 target_link_libraries (qfss3io
-    kfsCommon
-    ${OPENSSL_LIBRARIES}
+    kfsIO
     ${CURL_LIBRARIES}
     ${XML2_LIBRARIES}
     ${LIBS3_LIBRARIES}
 )
 target_link_libraries (qfss3io-shared
-    kfsCommon-shared
-    ${OPENSSL_LIBRARIES}
+    kfsIO-shared
     ${CURL_LIBRARIES}
     ${XML2_LIBRARIES}
     ${LIBS3_LIBRARIES}
