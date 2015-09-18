@@ -1217,6 +1217,11 @@ AllocChunkOp::Execute()
         gLogger.Submit(this);
         return;
     }
+    if (chunkVersion < 0 &&
+            (status = gChunkManager.GetObjectStoreStatus(&statusMsg)) != 0) {
+        gLogger.Submit(this);
+        return;
+    }
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
     mustExistFlag = mustExistFlag || 1 < chunkVersion;
@@ -2011,7 +2016,11 @@ ReadOp::Execute()
         gLogger.Submit(this);
         return;
     }
-
+    if (chunkVersion < 0 &&
+            (status = gChunkManager.GetObjectStoreStatus(&statusMsg)) != 0) {
+        gLogger.Submit(this);
+        return;
+    }
     SET_HANDLER(this, &ReadOp::HandleChunkMetaReadDone);
     const bool kAddObjectBlockMappingFlag = true;
     const int res = gChunkManager.ReadChunkMetadata(

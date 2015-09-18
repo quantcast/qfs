@@ -1765,6 +1765,8 @@ ChunkManager::ChunkManager()
       mStorageTiers(),
       mObjDirs(),
       mObjStorageTiers(),
+      mObjectStoreErrorMsg(),
+      mObjectStoreStatus(0),
       mWriteId(GetRandomSeq()), // Seed write id.
       mPendingWrites(),
       mChunkTable(),
@@ -2285,6 +2287,34 @@ ChunkManager::SetStorageTiers(const Properties& props)
             SetStorageTiers(
                 mObjStorageTiersPrefixes, mObjDirs, mObjStorageTiers);
             mObjStorageTiersSetFlag = true;
+            for (StorageTiers::const_iterator it = mObjStorageTiers.begin();
+                    it != mObjStorageTiers.end();
+                    ++it) {
+                if (1 < it->second.size()) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "invalid object store tier configuration:"
+                        " tier: " << (int)it->first <<
+                        " configured with: " << it->second.size() <<
+                        " storage IO directories / queues;"
+                        " only single directory per tier supported" <<
+                    KFS_LOG_EOM;
+                    if (mObjStorageTiersSetFlag) {
+                        mObjectStoreErrorMsg =
+                            "invalid object store tier configuration:"
+                            " more than single directory in tiers:";
+                    }
+                    mObjectStoreErrorMsg += ' ';
+                    AppendDecIntToString(mObjectStoreErrorMsg, (int)it->first);
+                    mObjStorageTiersSetFlag = false;
+                }
+            }
+            if (mObjStorageTiersSetFlag) {
+                mObjectStoreErrorMsg.clear();
+                mObjectStoreStatus = 0;
+            } else {
+                mObjStorageTiers.clear();
+                mObjectStoreStatus = -EINVAL;
+            }
         }
     }
 }

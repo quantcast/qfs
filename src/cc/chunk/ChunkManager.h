@@ -414,6 +414,13 @@ public:
         { return mRand.Rand(); }
     int GetDirCheckFailureSimulatorInterval() const
         { return mDirCheckFailureSimulatorInterval; }
+    int GetObjectStoreStatus(string* msg = 0) const
+    {
+        if (0 != mObjectStoreStatus && msg) {
+            *msg = mObjectStoreErrorMsg;
+        }
+        return mObjectStoreStatus;
+    }
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
@@ -839,6 +846,8 @@ private:
     StorageTiers mStorageTiers;
     ChunkDirs    mObjDirs;
     StorageTiers mObjStorageTiers;
+    string       mObjectStoreErrorMsg;
+    int          mObjectStoreStatus;
 
     /// See the comments in KfsOps.cc near WritePrepareOp related to write handling
     int64_t mWriteId;

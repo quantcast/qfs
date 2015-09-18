@@ -956,7 +956,7 @@ public:
             mCpuAffinity,
             mDiskQueueTraceFlag,
             inCreateExclusiveFlag,
-            inRequestAffinityFlag,
+            inRequestAffinityFlag || 0 != theIoMethodsPtr,
             inSerializeMetaRequestsFlag
         );
         if (theSysErr) {
