@@ -92,8 +92,10 @@ public:
             return 0;
         }
         const char*    kDefaultHostName = 0;
+        const char*    kAgentInfo       = "QFS";
         const S3Status theStatus        =
-            S3_initialize("s3", S3_INIT_ALL, kDefaultHostName);
+            S3_initializeEx(kAgentInfo, S3_INIT_ALL, kDefaultHostName,
+                &CurlRequestSetupCB);
         if (theStatus != S3StatusOK) {
             KFS_LOG_STREAM_ERROR <<
                 inUrlPtr <<
@@ -588,7 +590,11 @@ private:
               mS3Protocol(S3ProtocolHTTPS),
               mS3UriStyle(S3UriStyleVirtualHost),
               mMaxRetryCount(10),
-              mRetryInterval(10)
+              mRetryInterval(10),
+              mVerifyCertStatusFlag(false),
+              mVerifyPeerFlag(false),
+              mCABundle(),
+              mCAPath()
             {}
         void Set(
             const char*       inPrefixPtr,
@@ -683,6 +689,26 @@ private:
                 theName.Truncate(thePrefixSize).Append("retryInterval"),
                 mRetryInterval
             );
+            mVerifyCertStatusFlag = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(
+                    "verifyCertStatus"),
+                mVerifyCertStatusFlag ? 1 : 0
+            ) != 0;
+            mVerifyPeerFlag = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(
+                    "verifyPeer"),
+                mVerifyPeerFlag ? 1 : 0
+            ) != 0;
+            mCABundle = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(
+                    "CABundle"),
+                mCABundle
+            );
+            mCAPath = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(
+                    "CAPath"),
+                mCAPath
+            );
         }
         string      mS3HostName;
         string      mBucketName;
@@ -700,6 +726,10 @@ private:
         S3UriStyle  mS3UriStyle;
         int         mMaxRetryCount;
         int         mRetryInterval;
+        bool        mVerifyCertStatusFlag;
+        bool        mVerifyPeerFlag;
+        string      mCABundle;
+        string      mCAPath;
     };
     class TimerEntry
     {
@@ -1031,6 +1061,9 @@ private:
             KFS_LOG_STREAM_END;
             return S3StatusOK;
         }
+        S3Status CurlConfig(
+            void* inCurlPtr)
+            { return mOuter.CurlConfig(inCurlPtr); }
     private:
         class ReadFunc
         {
@@ -1437,6 +1470,40 @@ private:
             &inReq
         );
     }
+    S3Status CurlConfig(
+        void* inCurlPtr)
+    {
+        CURLcode theStatus;
+        // Always set verify host, if peer verification is off it makes
+        // no difference.
+        if (CURLE_OK != (theStatus = curl_easy_setopt(
+                inCurlPtr, CURLOPT_SSL_VERIFYHOST, 2))) {
+            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYHOST)", theStatus);
+        }
+        if (CURLE_OK != (theStatus = curl_easy_setopt(
+                inCurlPtr, CURLOPT_SSL_VERIFYPEER,
+                mParameters.mVerifyPeerFlag ? 1 : 0))) {
+            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)", theStatus);
+        }
+        if (CURLE_OK != (theStatus = curl_easy_setopt(
+                inCurlPtr, CURLOPT_SSL_VERIFYSTATUS,
+                mParameters.mVerifyCertStatusFlag ? 1 : 0))) {
+            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYSTATUS)", theStatus);
+        }
+        if (! mParameters.mCABundle.empty() &&
+                CURLE_OK != (theStatus = curl_easy_setopt(
+                    inCurlPtr, CURLOPT_CAINFO,
+                    mParameters.mCABundle.c_str()))) {
+            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)", theStatus);
+        }
+        if (! mParameters.mCAPath.empty() &&
+                CURLE_OK != (theStatus = curl_easy_setopt(
+                    inCurlPtr, CURLOPT_CAPATH,
+                    mParameters.mCAPath.c_str()))) {
+            FatalError("curl_easy_setopt(CURLOPT_CAPATH)", theStatus);
+        }
+        return S3StatusOK;
+    }
     void Timer()
     {
         TimerFunc theFunc(*this);
@@ -1456,6 +1523,13 @@ private:
                 theStatus);
         }
         return theRemCount;
+    }
+    static S3Status CurlRequestSetupCB(
+        void* inCurlPtr,
+        void* inUserDataPtr)
+    {
+        return reinterpret_cast<S3Req*>(inUserDataPtr)->CurlConfig(
+            inCurlPtr);
     }
     static S3Status S3ResponsePropertiesCB(
         const S3ResponseProperties* inPropertiesPtr,

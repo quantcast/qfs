@@ -379,12 +379,15 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
     ENDIF (FUSE_FOUND)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
 
-# For now attempt to find libs3 build artifacts in ../libs3 directory.
+# For now attempt to find libs3 build artifacts in ../libs3/libs3 directory,
+# assuming that the following successfully completed in ../libs3 directory:
+# make DESTDIR=libs3 install
+#
 IF (NOT DEFINED LIBS3_LIBRARY_DIR)
-    SET(LIBS3_LIBRARY_DIR ${KFS_DIR_PREFIX}/../libs3/build/lib)
+    SET(LIBS3_LIBRARY_DIR ${KFS_DIR_PREFIX}/../libs3/libs3/lib)
 ENDIF (NOT DEFINED LIBS3_LIBRARY_DIR)
 IF (NOT DEFINED LIBS3_INCLUDE_DIR)
-    SET(LIBS3_INCLUDE_DIR ${KFS_DIR_PREFIX}/../libs3/build/include)
+    SET(LIBS3_INCLUDE_DIR ${KFS_DIR_PREFIX}/../libs3/libs3/include)
 ENDIF (NOT DEFINED LIBS3_INCLUDE_DIR)
 
 find_library(LIBS3_LIBRARIES
@@ -413,6 +416,30 @@ IF (LIBS3_LIBRARIES)
             ENDIF (NOT LIBXML2_LIBRARIES)
         ENDIF (NOT CURL_FOUND)
     ENDIF  (NOT LIBS3_INCLUDE_DIR)
+    IF (LIBS3_LIBRARIES)
+        INCLUDE(CheckFunctionExists)
+        SET(CMAKE_REQUIRED_INCLUDES ${LIBS3_INCLUDE_DIR})
+        SET(CMAKE_REQUIRED_LIBRARIES
+            ${CURL_LIBRARIES}
+            ${XML2_LIBRARIES}
+            ${LIBS3_LIBRARIES}
+        )
+        CHECK_FUNCTION_EXISTS(S3_initializeEx S3_HAS_S3_initializeEx)
+        IF (S3_HAS_S3_initializeEx)
+            CHECK_FUNCTION_EXISTS(S3_finish_request_context
+                S3_HAS_S3_finish_request_context)
+            IF (S3_HAS_S3_finish_request_context)
+                CHECK_FUNCTION_EXISTS(S3_get_curl_request_context
+                    S3_HAS_S3_get_curl_request_context)
+                IF (S3_HAS_S3_get_curl_request_context)
+                    SET(S3_HAS_ALL_REQUIRED_FUNCTIONS TRUE)
+                ENDIF (S3_HAS_S3_get_curl_request_context)
+            ENDIF (S3_HAS_S3_finish_request_context)
+        ENDIF (S3_HAS_S3_initializeEx)
+        IF (NOT S3_HAS_ALL_REQUIRED_FUNCTIONS)
+            SET(LIBS3_LIBRARIES FALSE)
+        ENDIF (NOT S3_HAS_ALL_REQUIRED_FUNCTIONS)
+    ENDIF (LIBS3_LIBRARIES)
 ENDIF (LIBS3_LIBRARIES)
 
 # include dirs
