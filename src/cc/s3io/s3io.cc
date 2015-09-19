@@ -252,28 +252,35 @@ public:
         int theRemCount;
         do {
             mRunCurlTimerFlag = true;
-            int theStatus = 0;
+            theRemCount       = 0;
             for (curl_socket_t theFd = 0;
-                    0 < mPollSocketCount && 0 < theRemCount &&
-                        theFd < mCurlFdTable.size();
+                    0 < mPollSocketCount && theFd < mCurlFdTable.size();
                     ++theFd) {
                 if (! mCurlFdTable[theFd]) {
                     continue;
                 }
-                theRemCount = 0;
+                theRemCount       = 0;
                 mRunCurlTimerFlag = false;
+                int theStatus;
                 while ((theStatus = curl_multi_socket_action(
                         mCurlCtxPtr,
                         theFd,
                         ConvertEvents(QCFdPoll::kOpTypeError),
                         &theRemCount)) == CURLM_CALL_MULTI_PERFORM)
                     {}
+                if (CURLM_OK != theStatus) {
+                    FatalError("curl_multi_socket_action", theStatus);
+                }
             }
             if (mCurlTimer.IsScheduled()) {
                 Schedule(mCurlTimer, -1);
                 theRemCount = CurlTimer();
             }
-        } while(0 < theRemCount);
+            const S3Status theS3Status = S3_finish_request_context(mS3CtxPtr);
+            if (S3StatusOK != theS3Status) {
+                FatalError("S3_finish_request_context", theS3Status);
+            }
+        } while(0 < theRemCount || 0 < mRequestCount);
     }
     virtual int Open(
         const char* inFileNamePtr,
@@ -294,8 +301,12 @@ public:
                 inReadOnlyFlag,
                 inCreateFlag,
                 inCreateExclusiveFlag,
-                ioMaxFileSize
+                ioMaxFileSize,
+                mGeneration
             );
+            if (0 == ++mGeneration) {
+                mGeneration++;
+            }
         }
         return theFd;
     }
@@ -374,7 +385,8 @@ public:
                     inBufferCount,
                     inInputIteratorPtr,
                     inBufferCount * mBlockSize,
-                    *theFilePtr
+                    *theFilePtr,
+                    inFd
                 );
                 if (! theReqPtr) {
                     theError  = QCDiskQueue::kErrorRead;
@@ -440,7 +452,8 @@ public:
                     inBufferCount * mBlockSize -
                         (theFilePtr->mMaxFileSize < theEnd ?
                             theEnd - theFilePtr->mMaxFileSize : 0),
-                    *theFilePtr
+                    *theFilePtr,
+                    inFd
                 );
                 if (! theReqPtr) {
                     theError  = QCDiskQueue::kErrorWrite;
@@ -486,7 +499,8 @@ public:
                     0, // inBufferCount,
                     0, // inInputIteratorPtr,
                     0, // size,
-                    File(inNamePtr + mFilePrefix.length())
+                    File(inNamePtr + mFilePrefix.length()),
+                    -1
                 ));
                 break;
             default:
@@ -507,6 +521,8 @@ public:
         }
     }
 private:
+    typedef uint64_t Generation;
+
     class File
     {
     public:
@@ -516,20 +532,23 @@ private:
               mReadOnlyFlag(false),
               mCreateExclusiveFlag(false),
               mWriteOnlyFlag(false),
-              mMaxFileSize(-1)
+              mMaxFileSize(-1),
+              mGeneration(0)
             {}
         void Set(
             const char* inFileNamePtr,
             bool        inReadOnlyFlag,
             bool        inCreateFlag,
             bool        inCreateExclusiveFlag,
-            int64_t     inMaxFileSize)
+            int64_t     inMaxFileSize,
+            Generation  inGeneration)
         {
             mFileName            = inFileNamePtr;
             mReadOnlyFlag        = inReadOnlyFlag;
             mCreateExclusiveFlag = inCreateExclusiveFlag;
             mWriteOnlyFlag       = false;
             mMaxFileSize         = inMaxFileSize;
+            mGeneration          = inGeneration;
         }
         void Reset()
         {
@@ -538,13 +557,15 @@ private:
             mCreateExclusiveFlag = false;
             mWriteOnlyFlag       = false;
             mMaxFileSize         = -1;
+            mGeneration          = 0;
         }
-        string  mFileName;
-        bool    mReadOnlyFlag:1;
-        bool    mCreateFlag:1;
-        bool    mCreateExclusiveFlag:1;
-        bool    mWriteOnlyFlag:1;
-        int64_t mMaxFileSize;
+        string     mFileName;
+        bool       mReadOnlyFlag:1;
+        bool       mCreateFlag:1;
+        bool       mCreateExclusiveFlag:1;
+        bool       mWriteOnlyFlag:1;
+        int64_t    mMaxFileSize;
+        Generation mGeneration;
     };
     typedef vector<File> FileTable;
     typedef vector<int>  FreeFdList;
@@ -705,7 +726,8 @@ private:
             int            inBufferCount,
             InputIterator* inInputIteratorPtr,
             size_t         inSize,
-            const File&    inFile)
+            const File&    inFile,
+            int            inFd)
         {
             char* const theMemPtr = new char[
                 sizeof(S3Req) + sizeof(char*) * max(0, inBufferCount)];
@@ -716,7 +738,8 @@ private:
                 inStartBlockIdx,
                 inBufferCount,
                 inSize,
-                inFile
+                inFile,
+                inFd
             ));
             if (0 < inBufferCount) {
                 if (inSize <= 0) {
@@ -785,7 +808,7 @@ private:
         }
         size_t GetSize() const
             { return mSize; }
-        size_t GetStartBlockIdx()
+        size_t GetStartBlockIdx() const
             { return mStartBlockIdx; }
         S3Status Read(
             int         inBufferSize,
@@ -862,13 +885,30 @@ private:
                 }
             KFS_LOG_STREAM_END;
             if (S3StatusOK != inStatus && S3_status_is_retryable(inStatus) &&
-                    mOuter.ScheduleRetry(*this)) {
-                return;
+                    ! mOuter.mStopFlag &&
+                    mRetryCount < mOuter.mParameters.mMaxRetryCount) {
+                const File* theFilePtr;
+                if (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
+                        theFilePtr->mGeneration == mGeneration)) {
+                    const time_t theFutureDelta = max(time_t(1),
+                        mOuter.mParameters.mRetryInterval -
+                        (mOuter.mNow - mStartTime));
+                    KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                        (const void*)this <<
+                        " "               << RequestTypeToName(mReqType) <<
+                        "/"               << mReqType <<
+                        " "               << mFileName <<
+                        " scheduling retry in " <<
+                            theFutureDelta << " seconds" <<
+                    KFS_LOG_EOM;
+                    mOuter.Schedule(*this, theFutureDelta);
+                    return;
+                }
             }
             int64_t            theIoByteCount;
             int                theSysErr;
             QCDiskQueue::Error theError;
-            if (inStatus == S3StatusOK) {
+            if (S3StatusOK == inStatus) {
                 theIoByteCount = mPos;
                 theSysErr      = 0;
                 theError       = QCDiskQueue::kErrorNone;
@@ -905,8 +945,6 @@ private:
                 theStartBlockIdx
             );
         }
-        time_t GetStartTime() const
-            { return mStartTime; }
         int GetRetryCount() const
             { return mRetryCount; }
         const string& GetFileName() const
@@ -1017,6 +1055,8 @@ private:
         Request&         mRequest;
         ReqType    const mReqType;
         BlockIdx   const mStartBlockIdx;
+        Generation const mGeneration;
+        int        const mFd;
         string     const mFileName;
         Parameters const mParameters;
         size_t           mPos;
@@ -1035,12 +1075,15 @@ private:
             BlockIdx       inStartBlockIdx,
             int            inBufferCount,
             size_t         inSize,
-            const File&    inFile)
+            const File&    inFile,
+            int            inFd)
             : TimerEntry(),
               mOuter(inOuter),
               mRequest(inRequest),
               mReqType(inReqType),
               mStartBlockIdx(inStartBlockIdx),
+              mGeneration(inFile.mGeneration),
+              mFd(inFd),
               mFileName(inFile.mFileName),
               mParameters(inOuter.mParameters),
               mPos(0),
@@ -1057,6 +1100,7 @@ private:
                 "/"        << mReqType <<
                 " "        << mFileName <<
             KFS_LOG_EOM;
+            mOuter.mRequestCount++;
         }
         ~S3Req()
         {
@@ -1067,6 +1111,7 @@ private:
                 " "         << mFileName <<
             KFS_LOG_EOM;
             List::Remove(*this);
+            mOuter.mRequestCount--;
         }
         char** GetBuffers()
             { return reinterpret_cast<char**>(this + 1); }
@@ -1181,11 +1226,13 @@ private:
     int               mPollSocketCount;
     FileTable         mFileTable;
     int64_t           mFreeFdListIdx;
+    Generation        mGeneration;
     MdStream          mMdStream;
     time_t            mNow;
     TimerW            mTimer;
     TimerEntry        mCurlTimer;
     CurlFdTable       mCurlFdTable;
+    int               mRequestCount;
     bool              mRunCurlTimerFlag;
     bool              mStopFlag;
     bool              mParametersUpdatedFlag;
@@ -1231,11 +1278,13 @@ private:
           mPollSocketCount(0),
           mFileTable(),
           mFreeFdListIdx(-1),
+          mGeneration(1),
           mMdStream(0, true, string(), 0),
           mNow(time(0)),
           mTimer(mNow),
           mCurlTimer(),
           mCurlFdTable(),
+          mRequestCount(0),
           mRunCurlTimerFlag(false),
           mStopFlag(false),
           mParametersUpdatedFlag(false),
@@ -1388,16 +1437,6 @@ private:
             &inReq
         );
     }
-    bool ScheduleRetry(
-        S3Req& inReq)
-    {
-        if (! mStopFlag && inReq.GetRetryCount() < mParameters.mMaxRetryCount) {
-            Schedule(inReq, max(time_t(1), mParameters.mRetryInterval -
-                (mNow - inReq.GetStartTime())));
-            return true;
-        }
-        return false;
-    }
     void Timer()
     {
         TimerFunc theFunc(*this);
@@ -1481,8 +1520,8 @@ private:
             mPollWaitMs = kTimerResolutionSec * kMilliSec;
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "timeout curl: " << inTimeoutMs << " ms " <<
-            " poll: "        << mPollWaitMs << " ms " <<
+            "timeout curl: " << inTimeoutMs << " ms" <<
+            " poll: "        << mPollWaitMs << " ms" <<
         KFS_LOG_EOM;
         Schedule(
             mCurlTimer,
@@ -1493,14 +1532,14 @@ private:
     }
     void Schedule(
         TimerEntry& inEntry,
-        time_t      inNextTime,
+        time_t      inFutureDelta,
         bool        inWakeupFlag = true)
     {
-        if (inNextTime < 0) {
+        if (inFutureDelta < 0) {
             TimerEntry::List::Remove(inEntry);
         } else {
-            mTimer.Schedule(inEntry, inNextTime);
-            if (inNextTime <= 0 && inWakeupFlag) {
+            mTimer.Schedule(inEntry, mNow + inFutureDelta);
+            if (inFutureDelta <= 0 && inWakeupFlag) {
                 Wakeup();
             }
         }
