@@ -1479,28 +1479,33 @@ private:
         if (CURLE_OK != (theStatus = curl_easy_setopt(
                 inCurlPtr, CURLOPT_SSL_VERIFYHOST, 2))) {
             FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYHOST)", theStatus);
+            return S3StatusInternalError;
         }
         if (CURLE_OK != (theStatus = curl_easy_setopt(
                 inCurlPtr, CURLOPT_SSL_VERIFYPEER,
                 mParameters.mVerifyPeerFlag ? 1 : 0))) {
             FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)", theStatus);
+            return S3StatusInternalError;
         }
         if (CURLE_OK != (theStatus = curl_easy_setopt(
                 inCurlPtr, CURLOPT_SSL_VERIFYSTATUS,
                 mParameters.mVerifyCertStatusFlag ? 1 : 0))) {
             FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYSTATUS)", theStatus);
+            return S3StatusInternalError;
         }
         if (! mParameters.mCABundle.empty() &&
                 CURLE_OK != (theStatus = curl_easy_setopt(
                     inCurlPtr, CURLOPT_CAINFO,
                     mParameters.mCABundle.c_str()))) {
             FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)", theStatus);
+            return S3StatusInternalError;
         }
         if (! mParameters.mCAPath.empty() &&
                 CURLE_OK != (theStatus = curl_easy_setopt(
                     inCurlPtr, CURLOPT_CAPATH,
                     mParameters.mCAPath.c_str()))) {
             FatalError("curl_easy_setopt(CURLOPT_CAPATH)", theStatus);
+            return S3StatusInternalError;
         }
         return S3StatusOK;
     }
