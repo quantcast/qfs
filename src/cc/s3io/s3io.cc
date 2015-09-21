@@ -1647,7 +1647,8 @@ private:
     bool IsPollingSocket(
         curl_socket_t inFd)
     {
-        return (0 <= inFd && inFd < mCurlFdTable.size() && mCurlFdTable[inFd]);
+        return (0 <= inFd && (size_t)inFd < mCurlFdTable.size() &&
+            mCurlFdTable[inFd]);
     }
     int SetSocket(
         curl_socket_t inFd,
