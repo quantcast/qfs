@@ -1082,12 +1082,20 @@ private:
                     theStatus);
                 return S3StatusInternalError;
             }
-            if (CURLE_OK != (theStatus = curl_easy_setopt(
-                    inCurlPtr, CURLOPT_SSL_VERIFYSTATUS,
-                    mParameters.mVerifyCertStatusFlag ? 1 : 0))) {
-                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYSTATUS)",
-                    theStatus);
-                return S3StatusInternalError;
+            if (mParameters.mVerifyCertStatusFlag &&
+                    CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_SSL_VERIFYSTATUS, 1))) {
+                if (CURLE_NOT_BUILT_IN == theStatus) {
+                    KFS_LOG_STREAM_WARN << mOuter.mLogPrefix <<
+                        "ssl certificate verification status is not supported"
+                        " not built into cURL library" <<
+                    KFS_LOG_EOM;
+                } else {
+                    mOuter.FatalError(
+                        "curl_easy_setopt(CURLOPT_SSL_VERIFYSTATUS)",
+                        theStatus);
+                    return S3StatusInternalError;
+                }
             }
             if (! mParameters.mCABundle.empty() &&
                     CURLE_OK != (theStatus = curl_easy_setopt(
