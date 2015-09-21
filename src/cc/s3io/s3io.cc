@@ -253,6 +253,9 @@ public:
     virtual void Stop()
     {
         mStopFlag = true;
+        if (! mS3CtxPtr) {
+            return;
+        }
         int theRemCount;
         do {
             mRunCurlTimerFlag = true;
