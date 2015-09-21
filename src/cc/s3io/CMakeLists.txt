@@ -23,7 +23,7 @@
 #
 
 set (sources
-S3IO.cc
+s3io.cc
 )
 
 #
