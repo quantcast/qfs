@@ -258,7 +258,7 @@ public:
             mRunCurlTimerFlag = true;
             theRemCount       = 0;
             for (curl_socket_t theFd = 0;
-                    0 < mPollSocketCount && theFd < mCurlFdTable.size();
+                    0 < mPollSocketCount && (size_t)theFd < mCurlFdTable.size();
                     ++theFd) {
                 if (! mCurlFdTable[theFd]) {
                     continue;
@@ -1082,6 +1082,14 @@ private:
                     theStatus);
                 return S3StatusInternalError;
             }
+#ifndef CURLOPT_SSL_VERIFYSTATUS
+            if (mParameters.mVerifyCertStatusFlag) {
+                KFS_LOG_STREAM_WARN << mOuter.mLogPrefix <<
+                    "ssl certificate verification status is not supported"
+                    " by cURL library" <<
+                KFS_LOG_EOM;
+            }
+#else
             if (mParameters.mVerifyCertStatusFlag &&
                     CURLE_OK != (theStatus = curl_easy_setopt(
                         inCurlPtr, CURLOPT_SSL_VERIFYSTATUS, 1))) {
@@ -1097,6 +1105,7 @@ private:
                     return S3StatusInternalError;
                 }
             }
+#endif
             if (! mParameters.mCABundle.empty() &&
                     CURLE_OK != (theStatus = curl_easy_setopt(
                         inCurlPtr, CURLOPT_CAINFO,
