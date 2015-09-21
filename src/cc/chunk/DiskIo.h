@@ -126,7 +126,8 @@ public:
         bool        inRequestAffinityFlag           = false,
         bool        inSerializeMetaRequestsFlag     = true,
         int         inThreadCount                   = -1,
-        int64_t     inMaxFileSize                   = -1);
+        int64_t     inMaxFileSize                   = -1,
+        bool        inCanUseIoMethodFlag            = false);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,
@@ -209,6 +210,7 @@ public:
             bool        inBufferedIoFlag       = false);
         bool IsOpen() const
             { return (mFileIdx >= 0); }
+        // Close with IOs in flight will result in crash.
         bool Close(
             Offset  inFileSize      = -1,
             string* inErrMessagePtr = 0);

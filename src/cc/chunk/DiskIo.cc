@@ -306,7 +306,8 @@ public:
           mThreadCount(inThreadCount),
           mIoMethodsPtr(inIoMethodsPtr),
           mRequestProcessorsPtr(
-            inIoMethodsPtr ? new RequestProcessor*[inThreadCount]: 0)
+            inIoMethodsPtr ? new RequestProcessor*[inThreadCount]: 0),
+          mCanEnforceIoTimeoutFlag(false)
     {
         mFileNamePrefixes.append(1, (char)0);
         DiskQueueList::Init(*this);
@@ -350,13 +351,15 @@ public:
         bool            inRequestAffinityFlag,
         bool            inSerializeMetaRequestsFlag)
     {
+        mCanEnforceIoTimeoutFlag = false;
         if (mIoMethodsPtr) {
             for (int i = 0; i < mThreadCount; i++) {
                 if (! mIoMethodsPtr[i]->Init(
                         *this,
                         inBufferPool.GetBufferSize(),
                         mMinWriteBlkSize,
-                        mMaxFileSize)) {
+                        mMaxFileSize,
+                        mCanEnforceIoTimeoutFlag)) {
                     return EIO;
                 }
                 mRequestProcessorsPtr[i] = mIoMethodsPtr[i];
@@ -486,6 +489,8 @@ public:
         { return mBufferDataIgnoreOverwriteFlag; }
     int GetBufferDataTailToKeepSize() const
         { return mBufferDataTailToKeepSize; }
+    bool CanEnforceIoTimeout() const
+        { return mCanEnforceIoTimeoutFlag; }
     static DiskIo::IoBuffers& GetIoBuffers(
         DiskIo::File& inFile)
         { return inFile.mIoBuffers; }
@@ -510,6 +515,7 @@ private:
     int                 const mThreadCount;
     IOMethod**          const mIoMethodsPtr;
     RequestProcessor**  const mRequestProcessorsPtr;
+    bool                      mCanEnforceIoTimeoutFlag;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
 
@@ -630,6 +636,7 @@ public:
     {
         mCounters.Clear();
         IoQueue::Init(mIoInFlightQueuePtr);
+        IoQueue::Init(mIoInFlightNoTimeoutQueuePtr);
         IoQueue::Init(mIoDoneQueuePtr);
         DiskQueueList::Init(mDiskQueuesPtr);
         // Call Timeout() every time NetManager goes trough its work loop.
@@ -710,6 +717,7 @@ public:
             thePtr->Stop();
         }
         QCRTASSERT(IoQueue::IsEmpty(mIoInFlightQueuePtr));
+        QCRTASSERT(IoQueue::IsEmpty(mIoInFlightNoTimeoutQueuePtr));
         delete mWriteCancelWaiterPtr;
         mWriteCancelWaiterPtr = 0;
         mMaxRequestSize = 0;
@@ -747,7 +755,7 @@ public:
     {
         {
             QCStMutexLocker theLocker(mMutex);
-            IoQueue::Remove(mIoInFlightQueuePtr, inIo);
+            RemoveInFlight(inIo);
             IoQueue::PushBack(mIoDoneQueuePtr, inIo);
             inIo.mCompletionRequestId = inRequestId;
             inIo.mCompletionCode      = inCompletionCode;
@@ -812,8 +820,8 @@ public:
                 inIo.mIoRetCode = -ETIMEDOUT;
             }
         } else {
-            QCASSERT(IoQueue::IsInList(mIoInFlightQueuePtr, inIo));
-            IoQueue::Remove(mIoInFlightQueuePtr, inIo);
+            QCASSERT(IsInFlight(inIo));
+            RemoveInFlight(inIo);
             if (inExpireFlag) {
                 inIo.mCompletionRequestId = inIo.mRequestId;
                 inIo.mCompletionCode      = QCDiskQueue::kErrorCancel;
@@ -871,7 +879,8 @@ public:
         bool             inRequestAffinityFlag,
         bool             inSerializeMetaRequestsFlag,
         int              inThreadCount,
-        int64_t          inMaxFileSize)
+        int64_t          inMaxFileSize,
+        bool             inCanUseIoMethodFlag)
     {
         DiskQueue* theQueuePtr = FindDiskQueue(inDirNamePtr);
         if (theQueuePtr) {
@@ -906,7 +915,9 @@ public:
             inThreadCount : mDiskQueueThreadCount;
         IOMethod**  theIoMethodsPtr = 0;
         const char* kLogPrefixPtr   = 0;
-        for (int i = 0; i < theThreadCount; i++) {
+        for (int i = inCanUseIoMethodFlag ? 0 : theThreadCount;
+                i < theThreadCount;
+                i++) {
             IOMethod* const thePtr = IOMethod::Create(
                 inDirNamePtr,
                 kLogPrefixPtr,
@@ -1103,7 +1114,7 @@ public:
         }
         inIoPtr->mEnqueueTime = Now();
         QCStMutexLocker theLocker(mMutex);
-        IoQueue::PushBack(mIoInFlightQueuePtr, *inIoPtr);
+        AddInFlight(*inIoPtr);
     }
     void ResetInFlight(
         DiskIo* inIoPtr)
@@ -1112,7 +1123,7 @@ public:
             return;
         }
         QCStMutexLocker theLocker(mMutex);
-        IoQueue::Remove(mIoInFlightQueuePtr, *inIoPtr);
+        RemoveInFlight(*inIoPtr);
     }
     KfsCallbackObj* GetNullCallbackPtr()
         { return &mNullCallback; }
@@ -1260,6 +1271,7 @@ private:
     IOBufferData*                  mNullBufferDataPtr;
     IOBufferData*                  mNullBufferDataWrittenPtr;
     DiskIo*                        mIoInFlightQueuePtr[1];
+    DiskIo*                        mIoInFlightNoTimeoutQueuePtr[1];
     DiskIo*                        mIoDoneQueuePtr[1];
     DiskQueue*                     mDiskQueuesPtr[1];
     Counters                       mCounters;
@@ -1271,6 +1283,21 @@ private:
     QCIoBufferPool& GetBufferPool()
         { return mBufferAllocator.GetBufferPool(); }
 
+    DiskIo** GetInFlightQueue(
+        const DiskIo& inIo)
+    {
+        return (inIo.mFilePtr->GetDiskQueuePtr()->CanEnforceIoTimeout() ?
+            mIoInFlightNoTimeoutQueuePtr : mIoInFlightQueuePtr);
+    }
+    void AddInFlight(
+        DiskIo& inIo)
+        { IoQueue::PushBack(GetInFlightQueue(inIo), inIo); }
+    void RemoveInFlight(
+        DiskIo& inIo)
+        { IoQueue::Remove(GetInFlightQueue(inIo), inIo); }
+    bool IsInFlight(
+        DiskIo& inIo)
+        { return IoQueue::IsInList(GetInFlightQueue(inIo), inIo); }
     DiskIo* GetTimedOut(
             time_t inMinTime)
     {
@@ -1391,7 +1418,8 @@ DiskIo::StartIoQueue(
     bool             inRequestAffinityFlag           /* = false */,
     bool             inSerializeMetaRequestsFlag     /* = true */,
     int              inThreadCount                   /* = -1 */,
-    int64_t          inMaxFileSize                   /* = -1 */)
+    int64_t          inMaxFileSize                   /* = -1 */,
+    bool             inCanUseIoMethodFlag            /* false */)
 {
     if (! sDiskIoQueuesPtr) {
         if (inErrMessagePtr) {
@@ -1411,7 +1439,8 @@ DiskIo::StartIoQueue(
         inRequestAffinityFlag,
         inSerializeMetaRequestsFlag,
         inThreadCount,
-        inMaxFileSize
+        inMaxFileSize,
+        inCanUseIoMethodFlag
     );
 }
 

@@ -48,7 +48,8 @@ public:
         QCDiskQueue& inQueue,
         int          inBlockSize,
         int64_t      inMinWriteBlkSize,
-        int64_t      inMaxFileSize) = 0;
+        int64_t      inMaxFileSize,
+        bool&        outCanEnforceIoTimeoutFlag) = 0;
     virtual void SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters) = 0;

@@ -1446,6 +1446,10 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
         }
         return;
     }
+    if (IsFileInUse()) {
+        die("invalid release attempt: file has pending IOs");
+        return;
+    }
     string errMsg;
     if (! dataFH->Close(
             0 <= chunkInfo.chunkVersion ?
@@ -5863,8 +5867,9 @@ ChunkManager::StartDiskIo()
         it->totalSpace                  = kMaxSpace;
         it->supportsSpaceReservatonFlag = false;
         it->availableChunks.Clear();
+        const bool kCreateExclusiveFlag = false;
+        const bool kCanUseIoMethodFlag  = true;
         string     errMsg;
-        const bool    kCreateExclusiveFlag = false;
         if (! DiskIo::StartIoQueue(
                 it->dirname.c_str(),
                 it->deviceId,
@@ -5879,7 +5884,8 @@ ChunkManager::StartDiskIo()
                 mObjStoreIoRequestAffinityFlag,
                 mObjStoreIoSerializeMetaRequestsFlag,
                 mObjStoreIoThreadCount,
-                kMaxFileSize
+                kMaxFileSize,
+                kCanUseIoMethodFlag
             )) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to start disk queue for: " << it->dirname <<
@@ -6869,12 +6875,23 @@ ChunkManager::CheckChunkDirs()
                 mDirChecker.Add(it->dirname, it->bufferedIoFlag);
                 continue;
             }
+            int    kMinWriteBlkSize               = 0;
+            bool   kBufferDataIgnoreOverwriteFlag = false;
+            int    kinBufferDataTailToKeepSize    = 0;
+            bool   kCreateExclusiveFlag           = true;
             string errMsg;
             if (DiskIo::StartIoQueue(
                     it->dirname.c_str(),
                     dit->second.mDeviceId,
                     mMaxOpenChunkFiles,
-                    &errMsg)) {
+                    &errMsg,
+                    kMinWriteBlkSize,
+                    kBufferDataIgnoreOverwriteFlag,
+                    kinBufferDataTailToKeepSize,
+                    kCreateExclusiveFlag,
+                    mDiskIoRequestAffinityFlag,
+                    mDiskIoSerializeMetaRequestsFlag
+                )) {
                 if (! (it->diskQueue = DiskIo::FindDiskQueue(
                         it->dirname.c_str()))) {
                     die(it->dirname + ": failed to find disk queue");

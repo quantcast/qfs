@@ -126,7 +126,8 @@ public:
         QCDiskQueue& inDiskQueue,
         int          inBlockSize,
         int64_t      inMinWriteBlkSize,
-        int64_t      inMaxFileSize)
+        int64_t      inMaxFileSize,
+        bool&        outCanEnforceIoTimeoutFlag)
     {
         if (inMaxFileSize <= 0 || (int64_t(5) << 30) < inMaxFileSize) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
@@ -183,6 +184,7 @@ public:
             return false;
         }
         mDiskQueuePtr = &inDiskQueue;
+        outCanEnforceIoTimeoutFlag = true;
         return true;
     }
     virtual void SetParameters(
@@ -1063,7 +1065,48 @@ private:
         }
         S3Status CurlConfig(
             void* inCurlPtr)
-            { return mOuter.CurlConfig(inCurlPtr); }
+        {
+            CURLcode theStatus;
+            // Always set verify host, if peer verification is off it makes
+            // no difference.
+            if (CURLE_OK != (theStatus = curl_easy_setopt(
+                    inCurlPtr, CURLOPT_SSL_VERIFYHOST, 2))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYHOST)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            if (CURLE_OK != (theStatus = curl_easy_setopt(
+                    inCurlPtr, CURLOPT_SSL_VERIFYPEER,
+                    mParameters.mVerifyPeerFlag ? 1 : 0))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            if (CURLE_OK != (theStatus = curl_easy_setopt(
+                    inCurlPtr, CURLOPT_SSL_VERIFYSTATUS,
+                    mParameters.mVerifyCertStatusFlag ? 1 : 0))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYSTATUS)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            if (! mParameters.mCABundle.empty() &&
+                    CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_CAINFO,
+                        mParameters.mCABundle.c_str()))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            if (! mParameters.mCAPath.empty() &&
+                    CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_CAPATH,
+                        mParameters.mCAPath.c_str()))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_CAPATH)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            return S3StatusOK;
+        }
     private:
         class ReadFunc
         {
@@ -1469,45 +1512,6 @@ private:
             &theResponseHandler,
             &inReq
         );
-    }
-    S3Status CurlConfig(
-        void* inCurlPtr)
-    {
-        CURLcode theStatus;
-        // Always set verify host, if peer verification is off it makes
-        // no difference.
-        if (CURLE_OK != (theStatus = curl_easy_setopt(
-                inCurlPtr, CURLOPT_SSL_VERIFYHOST, 2))) {
-            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYHOST)", theStatus);
-            return S3StatusInternalError;
-        }
-        if (CURLE_OK != (theStatus = curl_easy_setopt(
-                inCurlPtr, CURLOPT_SSL_VERIFYPEER,
-                mParameters.mVerifyPeerFlag ? 1 : 0))) {
-            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)", theStatus);
-            return S3StatusInternalError;
-        }
-        if (CURLE_OK != (theStatus = curl_easy_setopt(
-                inCurlPtr, CURLOPT_SSL_VERIFYSTATUS,
-                mParameters.mVerifyCertStatusFlag ? 1 : 0))) {
-            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYSTATUS)", theStatus);
-            return S3StatusInternalError;
-        }
-        if (! mParameters.mCABundle.empty() &&
-                CURLE_OK != (theStatus = curl_easy_setopt(
-                    inCurlPtr, CURLOPT_CAINFO,
-                    mParameters.mCABundle.c_str()))) {
-            FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)", theStatus);
-            return S3StatusInternalError;
-        }
-        if (! mParameters.mCAPath.empty() &&
-                CURLE_OK != (theStatus = curl_easy_setopt(
-                    inCurlPtr, CURLOPT_CAPATH,
-                    mParameters.mCAPath.c_str()))) {
-            FatalError("curl_easy_setopt(CURLOPT_CAPATH)", theStatus);
-            return S3StatusInternalError;
-        }
-        return S3StatusOK;
     }
     void Timer()
     {
