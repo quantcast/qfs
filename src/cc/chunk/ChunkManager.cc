@@ -2227,8 +2227,8 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.objStoreBufferDataIgnoreOverwriteFlag",
         mObjStoreBufferDataIgnoreOverwriteFlag);
     const double prevObjStoreBufferDataRatio = mObjStoreBufferDataRatio;
-    mObjStoreBufferDataRatio = max(double(0.0), min(double(0.9), prop.getValue(
-        "chunkServer.objStoreBufferDataIgnoreOverwriteFlag",
+    mObjStoreBufferDataRatio = max(double(0.0), min(double(0.995), prop.getValue(
+        "chunkServer.objStoreBufferDataRatio",
         mObjStoreBufferDataRatio)));
     mObjStoreBlockMaxNonStableDisconnectedTime = prop.getValue(
         "chunkServer.objStoreBlockMaxNonStableDisconnectedTime",

@@ -421,8 +421,11 @@ public:
                     theError  = QCDiskQueue::kErrorWrite;
                     theSysErr = theFilePtr ? EINVAL : EBADF;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "invalid write attempt into read only file: " <<
-                        theFilePtr->mFileName <<
+                        "invalid write attempt: " <<
+                        " file: " << (const void*)theFilePtr <<
+                        " name: " << (theFilePtr ?
+                            theFilePtr->mFileName : string()) <<
+                        " buffers: " << inBufferCount <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -1499,8 +1502,9 @@ private:
             return (int)(mFileTable.size() - 1);
         }
         const int theFd = (int)mFreeFdListIdx;
+        QCASSERT(theFd < mFileTable.size());
         mFreeFdListIdx = mFileTable[mFreeFdListIdx].mMaxFileSize;
-        mFileTable[mFreeFdListIdx].mMaxFileSize = -1;
+        mFileTable[theFd].mMaxFileSize = -1;
         return theFd;
     }
     File* GetFilePtr(
