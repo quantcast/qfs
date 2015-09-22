@@ -54,14 +54,15 @@
 namespace KFS
 {
 
-#ifndef CURL_SSLVERSION_TLSv1_0
-#   define CURL_SSLVERSION_TLSv1_0 CURL_SSLVERSION_TLSv1
+#if CURL_VERSION_MAJOR < 7 || \
+        (CURL_VERSION_MAJOR == 7 && CURL_VERSION_MINOR < 34)
+const long CURL_SSLVERSION_TLSv1_0 = CURL_SSLVERSION_TLSv1;
+const long CURL_SSLVERSION_TLSv1_1 = CURL_SSLVERSION_TLSv1;
+const long CURL_SSLVERSION_TLSv1_2 = CURL_SSLVERSION_TLSv1;
 #endif
-#ifndef CURL_SSLVERSION_TLSv1_1
-#   define CURL_SSLVERSION_TLSv1_1 CURL_SSLVERSION_TLSv1
-#endif
-#ifndef CURL_SSLVERSION_TLSv1_2
-#   define CURL_SSLVERSION_TLSv1_2 CURL_SSLVERSION_TLSv1
+#if 7 <= CURL_VERSION_MAJOR || \
+        (CURL_VERSION_MAJOR == 7 && 41 <= CURL_VERSION_MINOR)
+#   define QFS_S3_CURL_HAS_SSL_VERIFYSTATUS
 #endif
 
 using std::string;
@@ -774,7 +775,7 @@ private:
                     KFS_LOG_EOM;
                 }
             }
-#ifndef CURLOPT_SSL_VERIFYSTATUS
+#ifndef QFS_S3_CURL_HAS_SSL_VERIFYSTATUS
             if (mVerifyCertStatusFlag) {
                 KFS_LOG_STREAM_WARN << inLogPrefix <<
                     "ssl certificate verification status is not supported"
@@ -1174,7 +1175,7 @@ private:
                     theStatus);
                 return S3StatusInternalError;
             }
-#ifdef CURLOPT_SSL_VERIFYSTATUS
+#ifdef QFS_S3_CURL_HAS_SSL_VERIFYSTATUS
             if (mParameters.mVerifyCertStatusFlag &&
                     CURLE_OK != (theStatus = curl_easy_setopt(
                         inCurlPtr, CURLOPT_SSL_VERIFYSTATUS, long(1)))) {
