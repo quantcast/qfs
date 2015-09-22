@@ -598,6 +598,7 @@ private:
               mRetryInterval(10),
               mVerifyCertStatusFlag(false),
               mVerifyPeerFlag(false),
+              mSslCiphers("!ADH:!AECDH:!MD5:HIGH:@STRENGTH"),
               mCABundle(),
               mCAPath()
             {}
@@ -704,6 +705,11 @@ private:
                     "verifyPeer"),
                 mVerifyPeerFlag ? 1 : 0
             ) != 0;
+            mSslCiphers = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(
+                    "sslCiphers"),
+                mSslCiphers
+            );
             mCABundle = inParameters.getValue(
                 theName.Truncate(thePrefixSize).Append(
                     "CABundle"),
@@ -733,6 +739,7 @@ private:
         int         mRetryInterval;
         bool        mVerifyCertStatusFlag;
         bool        mVerifyPeerFlag;
+        string      mSslCiphers;
         string      mCABundle;
         string      mCAPath;
     };
@@ -1109,6 +1116,14 @@ private:
                 }
             }
 #endif
+            if (! mParameters.mSslCiphers.empty() &&
+                    CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_SSL_CIPHER_LIST,
+                        mParameters.mSslCiphers.c_str()))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_CIPHER_LIST)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
             if (! mParameters.mCABundle.empty() &&
                     CURLE_OK != (theStatus = curl_easy_setopt(
                         inCurlPtr, CURLOPT_CAINFO,
