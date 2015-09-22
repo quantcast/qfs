@@ -54,6 +54,16 @@
 namespace KFS
 {
 
+#ifndef CURL_SSLVERSION_TLSv1_0
+#   define CURL_SSLVERSION_TLSv1_0 CURL_SSLVERSION_TLSv1
+#endif
+#ifndef CURL_SSLVERSION_TLSv1_1
+#   define CURL_SSLVERSION_TLSv1_1 CURL_SSLVERSION_TLSv1
+#endif
+#ifndef CURL_SSLVERSION_TLSv1_2
+#   define CURL_SSLVERSION_TLSv1_2 CURL_SSLVERSION_TLSv1
+#endif
+
 using std::string;
 using std::vector;
 using std::max;
@@ -192,7 +202,8 @@ public:
         const Properties& inParameters)
     {
         QCStMutexLocker theLock(mMutex);
-        mUpdatedParameters.Set(inPrefixPtr, mConfigPrefix, inParameters);
+        mUpdatedParameters.Set(inPrefixPtr, mConfigPrefix, inParameters,
+            mLogPrefix);
         mParametersUpdatedFlag = true;
     }
     virtual void ProcessAndWait()
@@ -598,6 +609,7 @@ private:
               mRetryInterval(10),
               mVerifyCertStatusFlag(false),
               mVerifyPeerFlag(false),
+              mSslVersion(CURL_SSLVERSION_TLSv1),
               mSslCiphers("!ADH:!AECDH:!MD5:HIGH:@STRENGTH"),
               mCABundle(),
               mCAPath()
@@ -605,7 +617,8 @@ private:
         void Set(
             const char*       inPrefixPtr,
             const string&     inConfigPrefix,
-            const Properties& inParameters)
+            const Properties& inParameters,
+            const string&     inLogPrefix)
         {
             Properties::String theName;
             if (inPrefixPtr) {
@@ -669,6 +682,11 @@ private:
                     mCannedAcl = S3CannedAclPublicReadWrite;
                 } else if (*theValPtr == "authenticatedRead") {
                     mCannedAcl = S3CannedAclAuthenticatedRead;
+                } else {
+                    KFS_LOG_STREAM_WARN << inLogPrefix <<
+                        " invalid parameter " << theName << " = " <<
+                        *theValPtr <<
+                    KFS_LOG_EOM;
                 }
             }
             if ((theValPtr = inParameters.getValue(
@@ -677,6 +695,11 @@ private:
                     mS3Protocol = S3ProtocolHTTPS;
                 } else if (*theValPtr == "http") {
                     mS3Protocol = S3ProtocolHTTP;
+                } else {
+                    KFS_LOG_STREAM_WARN << inLogPrefix <<
+                        " invalid parameter " << theName << " = " <<
+                        *theValPtr <<
+                    KFS_LOG_EOM;
                 }
             }
             if ((theValPtr = inParameters.getValue(
@@ -685,6 +708,11 @@ private:
                     mS3UriStyle = S3UriStyleVirtualHost;
                 } else if (*theValPtr == "path") {
                     mS3UriStyle = S3UriStylePath;
+                } else {
+                    KFS_LOG_STREAM_WARN << inLogPrefix <<
+                        " invalid parameter " << theName << " = " <<
+                        *theValPtr <<
+                    KFS_LOG_EOM;
                 }
             }
             mMaxRetryCount = inParameters.getValue(
@@ -720,6 +748,40 @@ private:
                     "CAPath"),
                 mCAPath
             );
+            if ((theValPtr = inParameters.getValue(
+                    theName.Truncate(thePrefixSize).Append("sslVersion")))) {
+                if (*theValPtr == "tls1") {
+                    mSslVersion = CURL_SSLVERSION_TLSv1;
+                } else if (*theValPtr == "ssl2") {
+                    mSslVersion = CURL_SSLVERSION_SSLv2;
+                } else if (*theValPtr == "ssl3") {
+                    mSslVersion = CURL_SSLVERSION_SSLv3;
+                } else if (*theValPtr == "tls10") {
+                    mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_0,
+                        inLogPrefix);
+                } else if (*theValPtr == "tls11") {
+                    mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_1,
+                        inLogPrefix);
+                } else if (*theValPtr == "tls12") {
+                    mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_2,
+                        inLogPrefix);
+                } else if (*theValPtr == "") {
+                    mSslVersion = CURL_SSLVERSION_DEFAULT;
+                } else {
+                    KFS_LOG_STREAM_WARN << inLogPrefix <<
+                        " invalid parameter " << theName << " = " <<
+                        *theValPtr <<
+                    KFS_LOG_EOM;
+                }
+            }
+#ifndef CURLOPT_SSL_VERIFYSTATUS
+            if (mVerifyCertStatusFlag) {
+                KFS_LOG_STREAM_WARN << inLogPrefix <<
+                    "ssl certificate verification status is not supported"
+                    " by cURL library" <<
+                KFS_LOG_EOM;
+            }
+#endif
         }
         string      mS3HostName;
         string      mBucketName;
@@ -739,9 +801,22 @@ private:
         int         mRetryInterval;
         bool        mVerifyCertStatusFlag;
         bool        mVerifyPeerFlag;
+        long        mSslVersion;
         string      mSslCiphers;
         string      mCABundle;
         string      mCAPath;
+    private:
+        long WarnIfNotSupported(
+            long          inSslVersion,
+            const string& inLogPrefix)
+        {
+            if (CURL_SSLVERSION_TLSv1 == inSslVersion) {
+                KFS_LOG_STREAM_WARN << inLogPrefix <<
+                    "ssl version not supported by cURL library using TLSv1" <<
+                KFS_LOG_EOM;
+            }
+            return inSslVersion;
+        }
     };
     class TimerEntry
     {
@@ -1080,29 +1155,29 @@ private:
             // Always set verify host, if peer verification is off it makes
             // no difference.
             if (CURLE_OK != (theStatus = curl_easy_setopt(
-                    inCurlPtr, CURLOPT_SSL_VERIFYHOST, 2))) {
+                    inCurlPtr, CURLOPT_SSL_VERIFYHOST, long(2)))) {
                 mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYHOST)",
                     theStatus);
                 return S3StatusInternalError;
             }
             if (CURLE_OK != (theStatus = curl_easy_setopt(
                     inCurlPtr, CURLOPT_SSL_VERIFYPEER,
-                    mParameters.mVerifyPeerFlag ? 1 : 0))) {
+                    mParameters.mVerifyPeerFlag ? long(1) : long(0)))) {
                 mOuter.FatalError("curl_easy_setopt(CURLOPT_SSL_VERIFYPEER)",
                     theStatus);
                 return S3StatusInternalError;
             }
-#ifndef CURLOPT_SSL_VERIFYSTATUS
-            if (mParameters.mVerifyCertStatusFlag) {
-                KFS_LOG_STREAM_WARN << mOuter.mLogPrefix <<
-                    "ssl certificate verification status is not supported"
-                    " by cURL library" <<
-                KFS_LOG_EOM;
+            if (CURLE_OK != (theStatus = curl_easy_setopt(
+                    inCurlPtr, CURLOPT_SSLVERSION,
+                    mParameters.mSslVersion))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_SSLVERSION)",
+                    theStatus);
+                return S3StatusInternalError;
             }
-#else
+#ifdef CURLOPT_SSL_VERIFYSTATUS
             if (mParameters.mVerifyCertStatusFlag &&
                     CURLE_OK != (theStatus = curl_easy_setopt(
-                        inCurlPtr, CURLOPT_SSL_VERIFYSTATUS, 1))) {
+                        inCurlPtr, CURLOPT_SSL_VERIFYSTATUS, long(1)))) {
                 if (CURLE_NOT_BUILT_IN == theStatus) {
                     KFS_LOG_STREAM_WARN << mOuter.mLogPrefix <<
                         "ssl certificate verification status is not supported"
