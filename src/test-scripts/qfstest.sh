@@ -34,15 +34,29 @@ while [ $# -ge 1 ]; do
         testipv6='yes'
     elif [ x"$1" = x'-noauth' ]; then
         auth='no'
+    elif [ x"$1" = x'-s3' ]; then
+        s3test='yes'
     elif [ x"$1" = x'-auth' ]; then
         auth='no'
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]"
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth] [-s3]"
         exit 1
     fi
     shift
 done
+
+if [ x"$s3test" = x'yes' ]; then
+    if [ x"$QFS_S3_ACCESS_KEY_ID" = x -o \
+            x"$QFS_S3_SECRET_ACCESS_KEY" = x -o \
+            x"$QFS_S3_BUCKET_NAME" = x ]; then
+        echo "environment variables QFS_S3_ACCESS_KEY_ID," \
+            "QFS_S3_SECRET_ACCESS_KEY," \
+            "and QFS_S3_BUCKET_NAME must be set accordintly"
+        exit 1
+    fi
+fi
+
 export myvalgrind
 
 exec </dev/null
@@ -257,6 +271,19 @@ mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
 
+cabundlefile="$chunksrvdir/ca-bundle.crt"
+objectstoredir="$chunksrvdir/object_store"
+cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
+if [ x"$s3test" = x'yes' ]; then
+    if [ -x "`which wget 2>/dev/null`" ]; then
+        wget "$cabundleurl" -O "$cabundlefile" || exit
+    else
+        curl "$cabundleurl" > "$cabundlefile" || exit
+    fi
+else
+    mkdir "$objectstoredir" || exit
+fi
+
 if [ $fotest -ne 0 ]; then
     mindiskspace=$minrequreddiskspacefanoutsort
 else
@@ -387,7 +414,6 @@ if [ x"$metastartwait" = x'yes' ]; then
     done
 fi
 
-mkdir "$chunksrvdir/object_store" || exit
 i=$chunksrvport
 e=`expr $i + $numchunksrv`
 while [ $i -lt $e ]; do
@@ -408,15 +434,12 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
-chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
 chunkServer.rsReader.debugCheckThread = 1
 chunkServer.clientThreadCount = $chunkserverclithreads
-chunkServer.objStoreBlockWriteBufferSize = $objectstorebuffersize
-chunkServer.objectDir                    = ../object_store
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF
@@ -426,7 +449,39 @@ EOF
 chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
 chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-
+EOF
+    fi
+    if [ x"$s3test" = x'yes' ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.objectDir                      = s3://aws.
+chunkServer.diskQueue.aws.bucketName       = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId      = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey  = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.verifyPeer       = 1
+chunkServer.diskQueue.aws.verifyCertStatus = 0
+chunkServer.diskQueue.aws.CABundle         = $cabundlefile
+EOF
+        if [ $i -eq $chunksrvport ]; then
+            cat >> "$dir/$chunksrvprop" << EOF
+# Give the buffer manager the same as with no S3 8192*0.4, appender
+# 8129*0.6*0.4, and the rest to S3 write buffers: 15 chunks by 64MB
+# do this only for the first chunk server as it presently will be
+# responsible for all writes, as all chunk servers are on the same host.
+chunkServer.objStoreBufferDataRatio           = 0.99
+chunkServer.recAppender.bufferLimitRatio      = 0.008
+chunkServer.bufferManager.maxRatio            = 0.01333
+chunkServer.ioBufferPool.partitionBufferCount = 245760
+EOF
+        else
+            cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.ioBufferPool.partitionBufferCount = 8192
+EOF
+        fi
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.ioBufferPool.partitionBufferCount = 8192
+chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
+chunkServer.objectDir                         = $objectstoredir
 EOF
     fi
     cd "$dir" || exit
