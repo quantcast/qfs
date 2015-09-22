@@ -611,7 +611,7 @@ private:
               mVerifyCertStatusFlag(false),
               mVerifyPeerFlag(false),
               mSslVersion(CURL_SSLVERSION_TLSv1),
-              mSslCiphers("!ADH:!AECDH:!MD5:HIGH:@STRENGTH"),
+              mSslCiphers(),// Use default as list depends curl's backend.
               mCABundle(),
               mCAPath()
             {}
