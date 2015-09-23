@@ -526,9 +526,9 @@ struct AllocChunkOp : public KfsOp {
         return os <<
             "alloc-chunk:"
             " seq: "       << seq <<
-            " fileid: "    << fileId <<
-            " chunkid: "   << chunkId <<
-            " chunkvers: " << chunkVersion <<
+            " file: "      << fileId <<
+            " chunk: "     << chunkId <<
+            " version: "   << chunkVersion <<
             " leaseid: "   << leaseId <<
             " append: "    << (appendFlag ? 1 : 0) <<
             " cleartext: " << (allowCSClearTextFlag ? 1 : 0)
@@ -579,9 +579,9 @@ struct BeginMakeChunkStableOp : public KfsOp {
         return os <<
             "begin-make-chunk-stable:"
             " seq: "       << seq <<
-            " fileid: "    << fileId <<
-            " chunkid: "   << chunkId <<
-            " chunkvers: " << chunkVersion <<
+            " file: "      << fileId <<
+            " chunk "      << chunkId <<
+            " version: "   << chunkVersion <<
             " size: "      << chunkSize <<
             " checksum: "  << chunkChecksum
         ;
@@ -624,9 +624,9 @@ struct MakeChunkStableOp : public KfsOp {
         return os <<
             "make-chunk-stable:"
             " seq: "          << seq <<
-            " fileid: "       << fileId <<
-            " chunkid: "      << chunkId <<
-            " chunkvers: "    << chunkVersion <<
+            " file: "         << fileId <<
+            " chunk: "        << chunkId <<
+            " version: "      << chunkVersion <<
             " chunksize: "    << chunkSize <<
             " checksum: "     << chunkChecksum <<
             " has-checksum: " << (hasChecksum ? "yes" : "no")
@@ -669,9 +669,9 @@ struct ChangeChunkVersOp : public KfsOp {
         return os <<
             "change-chunk-vers:"
             " seq: "         << seq <<
-            " fileid: "      << fileId <<
-            " chunkid: "     << chunkId <<
-            " chunkvers: "   << chunkVersion <<
+            " file: "        << fileId <<
+            " chunk: "       << chunkId <<
+            " version: "     << chunkVersion <<
             " make stable: " << makeStableFlag
         ;
     }
@@ -701,7 +701,8 @@ struct DeleteChunkOp : public KfsOp {
         return os <<
             "delete-chunk:"
             " seq: "     << seq <<
-            " chunkid: " << chunkId
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion
         ;
     }
     int Done(int code, void* data);
@@ -730,9 +731,9 @@ struct TruncateChunkOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "truncate-chunk:"
-            " seq: "       << seq <<
-            " chunkid: "   << chunkId <<
-            " chunksize: " << chunkSize
+            " seq: "   << seq <<
+            " chunk: " << chunkId <<
+            " size: "  << chunkSize
         ;
     }
     template<typename T> static T& ParserDef(T& parser)
@@ -800,7 +801,7 @@ struct ReplicateChunkOp : public KfsOp {
             "replicate-chunk:" <<
             " seq: "        << seq <<
             " fid: "        << fid <<
-            " chunkid: "    << chunkId <<
+            " chunk: "      << chunkId <<
             " version: "    << chunkVersion <<
             " targetVers: " << targetVersion <<
             " offset: "     << chunkOffset <<
@@ -994,7 +995,8 @@ struct CloseOp : public KfsClientChunkOp {
         return os <<
             "close:"
             " seq: "             << seq <<
-            " chunkId: "         << chunkId <<
+            " chunk: "           << chunkId <<
+            " version: "         << chunkVersion <<
             " num-servers: "     << numServers <<
             " servers: "         << servers <<
             " need-ack: "        << needAck <<
@@ -1147,13 +1149,14 @@ struct GetRecordAppendOpStatus : public KfsClientChunkOp
     {
         return os <<
             "get-record-append-op-status:"
-            " seq: "          << seq <<
-            " chunkId: "      << chunkId <<
-            " writeId: "      << writeId <<
-            " status: "       << status  <<
-            " op-seq: "       << opSeq <<
-            " op-status: "    << opStatus <<
-            " wid: "          << (widReadOnlyFlag ? "ro" : "w")
+            " seq: "       << seq <<
+            " chunk: "     << chunkId <<
+            " version: "   << chunkVersion <<
+            " writeId: "   << writeId <<
+            " status: "    << status  <<
+            " op-seq: "    << opSeq <<
+            " op-status: " << opStatus <<
+            " wid: "       << (widReadOnlyFlag ? "ro" : "w")
         ;
     }
     template<typename T> static T& ParserDef(T& parser)
@@ -1252,13 +1255,13 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
     {
         return os <<
             "write-id-alloc:"
-            " seq: "          << seq <<
-            " client-seq: "   << clientSeq <<
-            " chunkId: "      << chunkId <<
-            " chunkversion: " << chunkVersion <<
-            " servers: "      << servers <<
-            " status: "       << status <<
-            " msg: "          << statusMsg
+            " seq: "        << seq <<
+            " client-seq: " << clientSeq <<
+            " chunk: "      << chunkId <<
+            " version: "    << chunkVersion <<
+            " servers: "    << servers <<
+            " status: "     << status <<
+            " msg: "        << statusMsg
         ;
     }
     bool Validate();
@@ -1342,11 +1345,11 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     {
         return os <<
             "write-prepare:"
-            " seq: "          << seq <<
-            " chunkId: "      << chunkId <<
-            " chunkversion: " << chunkVersion <<
-            " offset: "       << offset <<
-            " numBytes: "     << numBytes
+            " seq: "       << seq <<
+            " chunk: "     << chunkId <<
+            " version  "   << chunkVersion <<
+            " offset: "    << offset <<
+            " numBytes: "  << numBytes
         ;
     }
     template<typename T> static T& ParserDef(T& parser)
@@ -1480,10 +1483,10 @@ struct WriteOp : public KfsOp {
     {
         return os <<
             "write:"
-            " chunkId: "       << chunkId <<
-            " chunkversion: "  << chunkVersion <<
-            " offset: "        << offset <<
-            " numBytes: "      << numBytes
+            " chunk: "    << chunkId <<
+            " version "   << chunkVersion <<
+            " offset: "   << offset <<
+            " numBytes: " << numBytes
         ;
     }
 };
@@ -1550,12 +1553,12 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
     {
         return os <<
             "write-sync:"
-            " seq: "          << seq <<
-            " chunkId: "      << chunkId <<
-            " chunkversion: " << chunkVersion <<
-            " offset: "       << offset <<
-            " numBytes: "     << numBytes <<
-            " write-ids: "    << servers;
+            " seq: "       << seq <<
+            " chunk: "     << chunkId <<
+            " version "    << chunkVersion <<
+            " offset: "    << offset <<
+            " numBytes: "  << numBytes <<
+            " write-ids: " << servers;
     }
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
@@ -1596,7 +1599,8 @@ struct ReadChunkMetaOp : public KfsOp {
     {
         return os <<
             "read-chunk-meta:"
-            " chunkid: " << chunkId
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion
         ;
     }
 
@@ -1693,10 +1697,10 @@ struct ReadOp : public KfsClientChunkOp {
     {
         return os <<
             "read:"
-            " chunkId: "      << chunkId <<
-            " chunkversion: " << chunkVersion <<
-            " offset: "       << offset <<
-            " numBytes: "     << numBytes <<
+            " chunk: "    << chunkId <<
+            " version "   << chunkVersion <<
+            " offset: "   << offset <<
+            " numBytes: " << numBytes <<
             (skipVerifyDiskChecksumFlag ? " skip-disk-chksum" : "")
         ;
     }
@@ -1754,10 +1758,10 @@ struct SizeOp : public KfsClientChunkOp {
     {
         return os <<
             "size:"
-            " seq: "          << seq <<
-            " chunkId: "      << chunkId <<
-            " chunkversion: " << chunkVersion <<
-            " size: "         << size
+            " seq: "    << seq <<
+            " chunk: "  << chunkId <<
+            " version " << chunkVersion <<
+            " size: "   << size
         ;
     }
     int HandleDone(int code, void *data);
@@ -1808,7 +1812,8 @@ struct ChunkSpaceReserveOp : public KfsClientChunkOp {
         return os <<
             "space reserve:"
             " seq: "     << seq <<
-            " chunkId: " << chunkId <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
             " nbytes: "  << nbytes
         ;
     }
@@ -1850,7 +1855,8 @@ struct ChunkSpaceReleaseOp : public KfsClientChunkOp {
         return os <<
             "space release:"
             " seq: "     << seq <<
-            " chunkId: " << chunkId <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
             " nbytes: "  << nbytes
         ;
     }
@@ -1905,9 +1911,9 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     {
         return os <<
             "get-chunk-metadata:"
-            " seq: "          << seq <<
-            " chunkid: "      << chunkId <<
-            " chunkversion: " << chunkVersion
+            " seq: "    << seq <<
+            " chunk: "  << chunkId <<
+            " version " << chunkVersion
         ;
     }
     int HandleDone(int code, void *data);
@@ -2062,7 +2068,8 @@ struct LeaseRenewOp : public KfsOp {
         return os <<
             "lease-renew:"
             " seq: "     << seq <<
-            " chunkid: " << chunkId <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
             " leaseId: " << leaseId <<
             " type: "    << leaseType
         ;
@@ -2106,7 +2113,8 @@ struct LeaseRelinquishOp : public KfsOp {
         return os <<
             "lease-relinquish:"
             " seq: "      << seq <<
-            " chunkid: "  << chunkId <<
+            " chunk "     << chunkId <<
+            " version: "  << chunkVersion <<
             " leaseId: "  << leaseId <<
             " type: "     << leaseType <<
             " size: "     << chunkSize <<
@@ -2232,9 +2240,9 @@ struct CorruptChunkOp : public KfsOp {
     {
         return os <<
             "corrupt chunk:"
-            " seq: "     << seq <<
-            " fileid: "  << fid <<
-            " chunkid: " << chunkId
+            " seq: "   << seq <<
+            " file: "  << fid <<
+            " chunk: " << chunkId
         ;
     }
 private:

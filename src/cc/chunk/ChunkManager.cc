@@ -798,7 +798,7 @@ struct WriteChunkMetaOp : public KfsOp
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "write-chunk-meta: "
-            " chunkid: " << chunkId <<
+            " chunk: "   << chunkId <<
             " rename:  " << renameFlag <<
             " stable:  " << stableFlag <<
             " version: " << targetVersion
@@ -4037,6 +4037,7 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
     if (cih->IsWriteAppenderOwns()) {
         KFS_LOG_STREAM_INFO <<
             "ignoring close chunk on chunk: " << cih->chunkInfo.chunkId <<
+            " version: " << cih->chunkInfo.chunkVersion <<
             " open for append " <<
         KFS_LOG_EOM;
         return -EINVAL;
@@ -4052,7 +4053,8 @@ ChunkManager::CloseChunk(ChunkInfoHandle* cih, KfsOp* op /* = 0 */)
         Release(*cih);
     } else {
         KFS_LOG_STREAM_INFO <<
-            "chunk " << cih->chunkInfo.chunkId <<
+            "chunk: " << cih->chunkInfo.chunkId <<
+            " version: " << cih->chunkInfo.chunkVersion <<
             " not released on close; might give up lease" <<
         KFS_LOG_EOM;
         gLeaseClerk.RelinquishLease(
@@ -4422,12 +4424,13 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     op->diskIOTime = max(int64_t(1), microseconds() - op->diskIOTime);
     const int readLen = op->dataBuf.BytesConsumable();
     if (readLen <= 0) {
-        KFS_LOG_STREAM_ERROR << "Short read for" <<
-            " chunk: "  << cih->chunkInfo.chunkId  <<
-            " size: "   << cih->chunkInfo.chunkSize <<
+        KFS_LOG_STREAM_ERROR << "short read for" <<
+            " chunk: "    << cih->chunkInfo.chunkId  <<
+            " version: "  << cih->chunkInfo.chunkVersion  <<
+            " size: "     << cih->chunkInfo.chunkSize <<
             " read:"
-            " offset: " << op->offset <<
-            " len: "    << readLen <<
+            " offset: "   << op->offset <<
+            " len: "      << readLen <<
         KFS_LOG_EOM;
         if (cih->chunkInfo.chunkSize > op->offset + readLen) {
             op->status = -EIO;
@@ -4447,8 +4450,9 @@ ChunkManager::ReadChunkDone(ReadOp* op)
     // Checksums should be loaded.
     if (! cih->chunkInfo.AreChecksumsLoaded()) {
         // the read took too long; the checksums got paged out.  ask the client to retry
-        KFS_LOG_STREAM_INFO << "checksums for chunk: " <<
-            cih->chunkInfo.chunkId  <<
+        KFS_LOG_STREAM_INFO << "checksums for"
+            " chunk: "   << cih->chunkInfo.chunkId  <<
+            " version: " << cih->chunkInfo.chunkVersion  <<
             " got paged out; returning EAGAIN to client" <<
         KFS_LOG_EOM;
         cih->ReadStats(op->status, readLen, op->diskIOTime);
@@ -4686,6 +4690,7 @@ ChunkManager::ReadChunkDone(ReadOp* op)
                     mAllowSparseChunksFlag) {
                 KFS_LOG_STREAM_INFO <<
                     " chunk: "      << cih->chunkInfo.chunkId <<
+                    " version: "    << cih->chunkInfo.chunkVersion <<
                     " block: "      << checksumBlock <<
                     " no checksum " <<
                     " read: "       << op->checksum[obi] <<
@@ -4790,7 +4795,10 @@ ChunkManager::ChunkIOFailed(kfsChunkId_t chunkId, int64_t chunkVersion,
         kAddObjectBlockMappingFlag);
     if (! cih) {
         KFS_LOG_STREAM_ERROR <<
-            "io failure: chunk: " << chunkId << " not in table" <<
+            "io failure:"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " not in table" <<
         KFS_LOG_EOM;
         return;
     }
@@ -4813,7 +4821,9 @@ ChunkManager::ReportIOFailure(ChunkInfoHandle* cih, int err)
             err == -ENFILE ||
             err == -ESERVERBUSY) {
         KFS_LOG_STREAM_ERROR <<
-            "assuming temporary io failure chunk: " << cih->chunkInfo.chunkId <<
+            "assuming temporary io failure"
+            " chunk: "   << cih->chunkInfo.chunkId <<
+            " version: " << cih->chunkInfo.chunkVersion <<
             " dir: " << cih->GetDirname() <<
             " " << QCUtils::SysError(-err) <<
         KFS_LOG_EOM;
@@ -4860,6 +4870,7 @@ ChunkManager::NotifyMetaChunksLost(
         while ((cih = ChunkDirList::Front(list))) {
             const kfsChunkId_t chunkId = cih->chunkInfo.chunkId;
             const kfsFileId_t  fileId  = cih->chunkInfo.fileId;
+            const kfsSeq_t     version = cih->chunkInfo.chunkVersion;
             // get rid of chunkid from our list
             const bool staleFlag = staleChunksFlag || cih->IsStale();
             ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
@@ -4876,8 +4887,10 @@ ChunkManager::NotifyMetaChunksLost(
                 continue;
             }
             KFS_LOG_STREAM_INFO <<
-                "lost chunk: " << chunkId <<
-                " file: " << fileId <<
+                "lost"
+                " chunk: "   << chunkId <<
+                " version: " << version <<
+                " file: "    << fileId <<
             KFS_LOG_EOM;
             mCounters.mDirLostChunkCount++;
             if (! gMetaServerSM.IsConnected()) {
@@ -5117,7 +5130,7 @@ ChunkManager::RemoveDirtyChunks()
                 continue;
             }
             KFS_LOG_STREAM_INFO <<
-                "Cleaning out dirty chunk: " << name <<
+                "cleaning out dirty chunk: " << name <<
             KFS_LOG_EOM;
             if (unlink(name.c_str())) {
                 const int err = errno;
@@ -5551,7 +5564,7 @@ ChunkManager::ScavengePendingWrites(
         // if it exceeds 5 mins, retire the op
         KFS_LOG_STREAM_DEBUG <<
             "expiring write with id: " << op->writeId <<
-            " chunkId: "               << op->chunkId <<
+            " chunk: "                 << op->chunkId <<
             " version: "               << op->chunkVersion <<
         KFS_LOG_EOM;
         ChunkInfoHandle** const ce  = table.Find(pendingWrites.FrontKey());

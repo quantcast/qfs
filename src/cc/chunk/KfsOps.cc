@@ -824,7 +824,10 @@ ReadOp::HandleDone(int code, void *data)
         if (data) {
             status = *reinterpret_cast<const int*>(data);
             KFS_LOG_STREAM_INFO <<
-                "disk error: errno: " << status << " chunkid: " << chunkId <<
+                "disk error:"
+                " status: "   << status <<
+                " chunk: "    << chunkId <<
+                " version: "  << chunkVersion <<
             KFS_LOG_EOM;
         }
         if (status != -ETIMEDOUT) {
@@ -890,7 +893,10 @@ ReadOp::HandleDone(int code, void *data)
         // DiskIo completion path doesn't expect diskIo pointer to remain valid
         // upon return.
         diskIo.reset();
-        KFS_LOG_STREAM_INFO << "closing chunk: " << chunkId << KFS_LOG_EOM;
+        KFS_LOG_STREAM_INFO << "closing"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+        KFS_LOG_EOM;
         gChunkManager.CloseChunk(chunkId, ci->chunkVersion);
     }
 
@@ -955,7 +961,9 @@ WriteOp::HandleRecordAppendDone(int code, void *data)
         if (data) {
             status = *(int *) data;
             KFS_LOG_STREAM_INFO <<
-                "Disk error: errno: " << status << " chunkid: " << chunkId <<
+                "disk error:"
+                " status: "   << status <<
+                " chunk: "    << chunkId <<
             KFS_LOG_EOM;
         }
     } else if (code == EVENT_DISK_WROTE) {
@@ -1012,7 +1020,10 @@ WriteOp::HandleWriteDone(int code, void *data)
         if (data) {
             status = *(int *) data;
             KFS_LOG_STREAM_INFO <<
-                "Disk error: errno: " << status << " chunkid: " << chunkId <<
+                "disk error:"
+                " status: "  << status <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
             KFS_LOG_EOM;
         }
         gChunkManager.ChunkIOFailed(
@@ -1069,7 +1080,10 @@ void
 CloseOp::Execute()
 {
     KFS_LOG_STREAM_INFO <<
-        "Closing chunk: " << chunkId << " and might give up lease" <<
+        "closing"
+        " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
+        " and might give up lease" <<
     KFS_LOG_EOM;
 
     ServerLocation peerLoc;
@@ -1255,8 +1269,9 @@ AllocChunkOp::Execute()
     }
     KFS_LOG_STREAM_ERROR <<
         "allocate: read chunk metadata:"
-        " chunk: " << chunkId <<
-        " error: " << res <<
+        " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
+        " error: "   << res <<
     KFS_LOG_EOM;
     status = res;
     gLogger.Submit(this);
@@ -2009,8 +2024,10 @@ ReadOp::Execute()
         statusMsg = "chunk not readable";
         status    = -EAGAIN;
         KFS_LOG_STREAM_ERROR <<
-            " read request for chunk: " << chunkId <<
-            " denied: " << statusMsg <<
+            " read request for"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " denied: "  << statusMsg <<
         KFS_LOG_EOM;
     }
     if (status < 0) {
@@ -2028,7 +2045,10 @@ ReadOp::Execute()
         chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "failed read chunk meta data, status: " << res <<
+            "failed read meta data:"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " status: "  << res <<
         KFS_LOG_EOM;
         status = res;
         gLogger.Submit(this);
@@ -2381,9 +2401,11 @@ WritePrepareOp::Execute()
     writeOp->enqueueTime = globalNetManager().Now();
 
     KFS_LOG_STREAM_DEBUG <<
-        "writing to chunk: " << chunkId <<
-        " @offset: " << offset <<
-        " nbytes: " << numBytes <<
+        "writing to"
+        " chunk: "    << chunkId <<
+        " version: "  << chunkVersion <<
+        " @offset: "  << offset <<
+        " nbytes: "   << numBytes <<
         " checksum: " << checksum <<
     KFS_LOG_EOM;
 
@@ -2559,10 +2581,11 @@ WriteSyncOp::Execute()
             if (myChecksums[i] == 0) {
                 KFS_LOG_STREAM_ERROR <<
                     "sync failed due to 0 checksum:" <<
-                    " chunk: "  << chunkId <<
-                    " offset: " << offset <<
-                    " size: "   << numBytes <<
-                    " index: "  << i <<
+                    " chunk: "   << chunkId <<
+                    " version: " << chunkVersion <<
+                    " offset: "  << offset <<
+                    " size: "    << numBytes <<
+                    " index: "   << i <<
                 KFS_LOG_EOM;
                 mismatch = true;
             }
@@ -2570,9 +2593,10 @@ WriteSyncOp::Execute()
         if (! mismatch) {
             KFS_LOG_STREAM_DEBUG <<
                 "validated checksums are non-zero for"
-                " chunk: "  << chunkId <<
-                " offset: " << offset <<
-                " size: "   << numBytes <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
+                " offset: "  << offset <<
+                " size: "    << numBytes <<
             KFS_LOG_EOM;
         }
     } else {
@@ -2598,8 +2622,9 @@ WriteSyncOp::Execute()
         if (! mismatch) {
             KFS_LOG_STREAM_DEBUG <<
                 "sync checksum verified for"
-                " chunk: "  << chunkId <<
-                " offset: " << offset <<
+                " chunk: "    << chunkId <<
+                " version: "  << chunkVersion <<
+                " offset: "   << offset <<
                 " checksum entries:"
                 " expected: " << myChecksums.size() <<
                 " received: " << checksums.size() <<
@@ -2791,6 +2816,7 @@ ChunkSpaceReserveOp::Execute()
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         "space reserve: "
         " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
         " writeId: " << writeId <<
         " bytes: "   << nbytes  <<
         " status: "  << status  <<
@@ -2832,6 +2858,7 @@ ChunkSpaceReleaseOp::Execute()
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         "space release: "
         " chunk: "     << chunkId <<
+        " version: "   << chunkVersion <<
         " writeId: "   << writeId <<
         " requested: " << nbytes  <<
         " reserved: "  << rsvd    <<
@@ -2909,7 +2936,8 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
         if (data) {
             status = *(int *) data;
             KFS_LOG_STREAM_ERROR << "disk error:"
-                " chunkid: " << chunkId <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
                 " status: "  << status <<
             KFS_LOG_EOM;
         }
@@ -2934,8 +2962,9 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
         status = readOp.status;
         if (status == 0) {
             KFS_LOG_STREAM_DEBUG << "scrub read succeeded"
-                " chunk: "  << chunkId <<
-                " offset: " << readOp.offset <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
+                " offset: "  << readOp.offset <<
             KFS_LOG_EOM;
             // checksum verified; setup the next read
             numBytesScrubbed += readOp.dataBuf.BytesConsumable();
@@ -2946,6 +2975,7 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
             if (numBytesScrubbed >= chunkSize) {
                 KFS_LOG_STREAM_DEBUG << "scrub succeeded"
                     " chunk: "      << chunkId <<
+                    " version: "    << chunkVersion <<
                     " bytes read: " << numBytesScrubbed <<
                 KFS_LOG_EOM;
                 gLogger.Submit(this);
@@ -2956,8 +2986,9 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
     }
     if (status < 0) {
         KFS_LOG_STREAM_INFO << "scrub read failed: "
-            " chunk: "  << chunkId <<
-            " status: " << status <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " status: "  << status <<
         KFS_LOG_EOM;
         gLogger.Submit(this);
         return 0;
@@ -3448,8 +3479,10 @@ ReadChunkMetaOp::HandleDone(int code, void *data)
     if (code == EVENT_DISK_ERROR) {
         status = data ? *reinterpret_cast<const int*>(data) : -EIO;
         KFS_LOG_STREAM_ERROR <<
-            "chunk: " << chunkId <<
-            " read meta disk error: " << status <<
+            " read meta disk error:"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " status: "  << status <<
         KFS_LOG_EOM;
     } else if (code == EVENT_DISK_READ) {
         dataBuf = reinterpret_cast<IOBuffer*>(data);
@@ -3457,7 +3490,11 @@ ReadChunkMetaOp::HandleDone(int code, void *data)
         status = -EINVAL;
         ostringstream os;
         os  << "read chunk meta data unexpected event: "
-            " code: " <<  code << " data: " << data;
+            " code: "    << code <<
+            " data: "    << data <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion
+        ;
         die(os.str());
     }
     gChunkManager.ReadChunkMetadataDone(this, dataBuf);
