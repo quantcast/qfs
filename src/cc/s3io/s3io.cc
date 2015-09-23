@@ -229,7 +229,6 @@ public:
         mNow = time(0);
         int       theEvents;
         void*     thePtr;
-        CURLMcode theStatus;
         int       theRemCount = 0;
         int       theCount    = 0;
         while (mFdPoll.Next(theEvents, thePtr)) {
@@ -239,6 +238,7 @@ public:
             theCount++;
             curl_socket_t theFd = (curl_socket_t)(
                 reinterpret_cast<const char*>(thePtr) - kS3IOFdOffset);
+            CURLMcode theStatus;
             while ((theStatus = curl_multi_socket_action(
                     mCurlCtxPtr,
                     theFd,
@@ -280,7 +280,7 @@ public:
                 }
                 theRemCount       = 0;
                 mRunCurlTimerFlag = false;
-                int theStatus;
+                CURLMcode theStatus;
                 while ((theStatus = curl_multi_socket_action(
                         mCurlCtxPtr,
                         theFd,
@@ -1696,10 +1696,13 @@ private:
             Schedule(mCurlTimer, 0);
             return -1;
         }
-        int theStatus;
-        int theRemCount = 0;
-        if ((theStatus = curl_multi_socket_action(
-                mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount))) {
+        int       theRemCount = 0;
+        CURLMcode theStatus;
+        while (CURLM_CALL_MULTI_PERFORM ==
+                (theStatus = curl_multi_socket_action(
+                    mCurlCtxPtr, CURL_SOCKET_TIMEOUT, 0, &theRemCount)))
+            {}
+        if (CURLM_OK != theStatus) {
             FatalError("curl_multi_socket_action(CURL_SOCKET_TIMEOUT)",
                 theStatus);
         }
