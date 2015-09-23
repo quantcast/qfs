@@ -330,9 +330,9 @@ public:
         KFS_LOG_STREAM(0 <= theFd ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) << mLogPrefix <<
-            "open: "
+            "open:"
             " fd: "     << theFd <<
-            " gen: "    << (0 <= theFd ? mGeneration : mGeneration - 1) <<
+            " gen: "    << (0 <= theFd ? mGeneration - 1 : mGeneration) <<
             " name: "   << (inFileNamePtr + mFilePrefix.length()) <<
             " ro: "     << inReadOnlyFlag <<
             " create: " << inCreateFlag <<
@@ -348,7 +348,7 @@ public:
         File* const theFilePtr = GetFilePtr(inFd);
         if (! theFilePtr) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "close: "
+                "close:"
                 " fd: "  << inFd <<
                 " eof: "  << inEof <<
                 " bad file descriptor" <<
@@ -363,7 +363,7 @@ public:
         KFS_LOG_STREAM(0 == theRet ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) << mLogPrefix <<
-            "close: "
+            "close:"
             " fd: "     << inFd <<
             " gen: "    << theFile.mGeneration <<
             " "         << theFile.mFileName <<

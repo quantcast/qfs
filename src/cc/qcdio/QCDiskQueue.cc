@@ -725,7 +725,8 @@ private:
         Request& inReq,
         int      inThreadIdx);
     void ProcessClose(
-        unsigned int inFileIdx);
+        unsigned int inFileIdx,
+        int          inThreadIdx);
     void ProcessMeta(
         Request&      inReq,
         struct iovec* inIoVecPtr,
@@ -1374,7 +1375,7 @@ QCDiskQueue::Queue::Run(
                 const unsigned int theFileIdx =
                     theHead - kPendingCloseListIdxOff;
                 theHead = mFilePendingReqCountPtr[theFileIdx];
-                ProcessClose(theFileIdx);
+                ProcessClose(theFileIdx, theThreadQueueIdx);
             }
         }
         if (theBarrierFlag) {
@@ -1702,7 +1703,8 @@ QCDiskQueue::Queue::ProcessOpenOrCreate(
 
     void
 QCDiskQueue::Queue::ProcessClose(
-    unsigned int inFileIdx)
+    unsigned int inFileIdx,
+    int          inThreadIdx)
 {
     QCASSERT(mMutex.IsOwned());
     QCRTASSERT((int)inFileIdx < mFileCount);
@@ -1729,7 +1731,8 @@ QCDiskQueue::Queue::ProcessClose(
         if (! mRequestProcessorsPtr) {
             mFdPtr[inFileIdx] = -1;
         }
-        for (int k = 0, i = inFileIdx + (mRequestProcessorsPtr ? 0 : mFileCount);
+        for (int k = inThreadIdx,
+                i = inFileIdx + (mRequestProcessorsPtr ? 0 : mFileCount);
                 i < mFdCount;
                 i += mFileCount) {
             if (mRequestProcessorsPtr) {
