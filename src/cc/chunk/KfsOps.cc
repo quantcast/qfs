@@ -1225,7 +1225,8 @@ AllocChunkOp::Execute()
     // Allocation implicitly invalidates all previously existed write leases.
     gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
     mustExistFlag = mustExistFlag || 1 < chunkVersion;
-    if (! mustExistFlag && 0 <= chunkVersion) {
+    const bool mustNotExistFlag = ! mustExistFlag;
+    if (mustNotExistFlag && 0 <= chunkVersion) {
         const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<
@@ -1241,12 +1242,12 @@ AllocChunkOp::Execute()
     int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
         addObjectBlockMappingFlag);
     if (res == 0) {
-        if (! mustExistFlag) {
+        if (mustNotExistFlag) {
             die("chunk deletion failed");
         }
         return; // The completion handler will be or already invoked.
     }
-    if (! mustExistFlag && res == -EBADF) {
+    if (mustNotExistFlag && res == -EBADF) {
         // Allocate new chunk.
         res = 0;
         HandleChunkAllocDone(EVENT_CMD_DONE, &res);
