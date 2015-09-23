@@ -1484,7 +1484,7 @@ struct WriteOp : public KfsOp {
         return os <<
             "write:"
             " chunk: "    << chunkId <<
-            " version "   << chunkVersion <<
+            " version: "  << chunkVersion <<
             " offset: "   << offset <<
             " numBytes: " << numBytes
         ;
@@ -1555,7 +1555,7 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
             "write-sync:"
             " seq: "       << seq <<
             " chunk: "     << chunkId <<
-            " version "    << chunkVersion <<
+            " version: "   << chunkVersion <<
             " offset: "    << offset <<
             " numBytes: "  << numBytes <<
             " write-ids: " << servers;
@@ -1698,7 +1698,7 @@ struct ReadOp : public KfsClientChunkOp {
         return os <<
             "read:"
             " chunk: "    << chunkId <<
-            " version "   << chunkVersion <<
+            " version: "  << chunkVersion <<
             " offset: "   << offset <<
             " numBytes: " << numBytes <<
             (skipVerifyDiskChecksumFlag ? " skip-disk-chksum" : "")
@@ -1758,10 +1758,10 @@ struct SizeOp : public KfsClientChunkOp {
     {
         return os <<
             "size:"
-            " seq: "    << seq <<
-            " chunk: "  << chunkId <<
-            " version " << chunkVersion <<
-            " size: "   << size
+            " seq: "     << seq <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " size: "    << size
         ;
     }
     int HandleDone(int code, void *data);
@@ -1911,9 +1911,9 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
     {
         return os <<
             "get-chunk-metadata:"
-            " seq: "    << seq <<
-            " chunk: "  << chunkId <<
-            " version " << chunkVersion
+            " seq: "     << seq <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion
         ;
     }
     int HandleDone(int code, void *data);

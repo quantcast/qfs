@@ -1465,7 +1465,7 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     }
     KFS_LOG_STREAM_INFO <<
         "closing chunk " << chunkInfo.chunkId <<
-        " version "      << chunkInfo.chunkVersion <<
+        " version: "     << chunkInfo.chunkVersion <<
         " and might give up lease" <<
     KFS_LOG_EOM;
     gLeaseClerk.RelinquishLease(
