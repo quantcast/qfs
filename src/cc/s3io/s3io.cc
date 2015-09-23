@@ -1208,7 +1208,7 @@ private:
             return S3StatusOK;
         }
         S3Status CurlConfig(
-            void* inCurlPtr)
+            CURL* inCurlPtr)
         {
             CURLcode theStatus;
             // Always set verify host, if peer verification is off it makes
@@ -1715,7 +1715,7 @@ private:
         void* inUserDataPtr)
     {
         return reinterpret_cast<S3Req*>(inUserDataPtr)->CurlConfig(
-            inCurlPtr);
+            reinterpret_cast<CURL*>(inCurlPtr));
     }
     static S3Status S3ResponsePropertiesCB(
         const S3ResponseProperties* inPropertiesPtr,
