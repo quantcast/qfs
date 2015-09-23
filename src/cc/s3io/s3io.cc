@@ -1556,7 +1556,7 @@ private:
             return (int)(mFileTable.size() - 1);
         }
         const int theFd = (int)mFreeFdListIdx;
-        QCASSERT(theFd < mFileTable.size());
+        QCASSERT((size_t)theFd < mFileTable.size());
         mFreeFdListIdx = mFileTable[mFreeFdListIdx].mMaxFileSize;
         mFileTable[theFd].mMaxFileSize = -1;
         return theFd;
