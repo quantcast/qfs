@@ -1053,7 +1053,7 @@ private:
                     ;
                     for (int i = 0; i < inErrorPtr->extraDetailsCount; i++) {
                         theStream <<
-                            " "   << (inErrorPtr->extraDetails[i].name ? 
+                            " "   << (inErrorPtr->extraDetails[i].name ?
                                 inErrorPtr->extraDetails[i].name : "nil") <<
                             ": "  << (inErrorPtr->extraDetails[i].value ?
                             inErrorPtr->extraDetails[i].value : "nil");
@@ -1880,7 +1880,7 @@ private:
         return "invalid";
     }
     int ConvertEvents(
-            int inEvents)
+        int inEvents)
     {
         int theEvents = 0;
         if ((theEvents & QCFdPoll::kOpTypeIn) != 0 ||
