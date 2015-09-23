@@ -605,6 +605,7 @@ private:
             const char* inFileNamePtr = 0)
             : mFileName(inFileNamePtr ? inFileNamePtr : ""),
               mReadOnlyFlag(false),
+              mCreateFlag(false),
               mCreateExclusiveFlag(false),
               mWriteOnlyFlag(false),
               mMaxFileSize(-1),
@@ -620,6 +621,7 @@ private:
         {
             mFileName            = inFileNamePtr;
             mReadOnlyFlag        = inReadOnlyFlag;
+            mCreateFlag          = inCreateFlag;
             mCreateExclusiveFlag = inCreateExclusiveFlag;
             mWriteOnlyFlag       = false;
             mMaxFileSize         = inMaxFileSize;
@@ -629,6 +631,7 @@ private:
         {
             mFileName = string();
             mReadOnlyFlag        = false;
+            mCreateFlag          = false;
             mCreateExclusiveFlag = false;
             mWriteOnlyFlag       = false;
             mMaxFileSize         = -1;
