@@ -6218,7 +6218,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         mClientCSAuthRequiredFlag ? req : 0
     );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone &&
-            (! readLeaseFlag || cs)) {
+            (! readLeaseFlag || cs || req->chunkPos < 0)) {
         req->issuedTime                 = TimeNow();
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if (req->emitCSAccessFlag) {
