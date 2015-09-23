@@ -327,6 +327,18 @@ public:
                 mGeneration++;
             }
         }
+        KFS_LOG_STREAM(0 <= theFd ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR) << mLogPrefix <<
+            "open: "
+            " fd: "     << theFd <<
+            " gen: "    << (0 <= theFd ? mGeneration : mGeneration - 1) <<
+            " name: "   << (inFileNamePtr + mFilePrefix.length()) <<
+            " ro: "     << inReadOnlyFlag <<
+            " create: " << inCreateFlag <<
+            " excl: "   << inCreateExclusiveFlag <<
+            " max sz: " << ioMaxFileSize <<
+        KFS_LOG_EOM;
         return theFd;
     }
     virtual int Close(
@@ -335,6 +347,12 @@ public:
     {
         File* const theFilePtr = GetFilePtr(inFd);
         if (! theFilePtr) {
+            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                "close: "
+                " fd: "  << inFd <<
+                " eof: "  << inEof <<
+                " bad file descriptor" <<
+            KFS_LOG_EOM;
             return EBADF;
         }
         int theRet = 0;
@@ -342,6 +360,20 @@ public:
         if (! theFile.mReadOnlyFlag &&  theFile.mMaxFileSize < inEof) {
             theRet = EINVAL;
         }
+        KFS_LOG_STREAM(0 == theRet ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR) << mLogPrefix <<
+            "close: "
+            " fd: "     << inFd <<
+            " gen: "    << theFile.mGeneration <<
+            " "         << theFile.mFileName <<
+            " eof: "    << inEof <<
+            " ro: "     << theFile.mReadOnlyFlag <<
+            " create: " << theFile.mCreateFlag <<
+            " excl: "   << theFile.mCreateExclusiveFlag <<
+            " max sz: " << theFile.mMaxFileSize <<
+            " status: " << theRet <<
+        KFS_LOG_EOM;
         if (mFileTable.size() == (size_t)inFd + 1) {
             mFileTable.pop_back();
         } else {
@@ -371,6 +403,11 @@ public:
                 if (! theFilePtr) {
                     theError  = QCDiskQueue::kErrorRead;
                     theSysErr = EBADF;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "invalid read attempt:"
+                        " fd: " << inFd <<
+                        " is not valid" <<
+                    KFS_LOG_EOM;
                     break;
                 }
                 if (inStartBlockIdx < 0) {
@@ -378,6 +415,8 @@ public:
                     theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid read start position: " << inStartBlockIdx <<
+                        " fd: "   << inFd <<
+                        " gen: "  << theFilePtr->mGeneration <<
                         " file: " << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
@@ -387,7 +426,9 @@ public:
                     theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid read on write only file: " <<
-                            theFilePtr->mFileName <<
+                        " fd: "  << inFd <<
+                        " gen: " << theFilePtr->mGeneration <<
+                        " "      << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -421,7 +462,10 @@ public:
                     theError  = QCDiskQueue::kErrorWrite;
                     theSysErr = theFilePtr ? EINVAL : EBADF;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "invalid write attempt:" <<
+                        RequestTypeToName(inReqType) <<
+                        "/" << inReqType <<
+                        " invalid write attempt:" <<
+                        " fd: "   << inFd <<
                         " file: " << (const void*)theFilePtr <<
                         " name: " << (theFilePtr ?
                             theFilePtr->mFileName : string()) <<
@@ -436,7 +480,9 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "partial write is not spported yet" <<
                         " block index: " << inStartBlockIdx <<
-                        " : " << theFilePtr->mFileName <<
+                        " fd: "          << inFd <<
+                        " gen: "         << theFilePtr->mGeneration <<
+                        " "              << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -445,7 +491,9 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid sync write EOF: " << inEof <<
                         " max: " << theFilePtr->mMaxFileSize <<
-                        " : " << theFilePtr->mFileName <<
+                        " fd: "  << inFd <<
+                        " gen: " << theFilePtr->mGeneration <<
+                        " "      << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -459,7 +507,9 @@ public:
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "write past last block: " << theEnd <<
                         " max: " << theFilePtr->mMaxFileSize <<
-                        " : " << theFilePtr->mFileName <<
+                        " fd: "  << inFd <<
+                        " gen: " << theFilePtr->mGeneration <<
+                        " "      << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -1289,6 +1339,8 @@ private:
                 " S3Req: " << RequestTypeToName(mReqType) <<
                 "/"        << mReqType <<
                 " "        << mFileName <<
+                " fd: "    << mFd <<
+                " gen: "   << mGeneration <<
             KFS_LOG_EOM;
             mOuter.mRequestCount++;
         }
@@ -1299,6 +1351,8 @@ private:
                 " ~S3Req: " << RequestTypeToName(mReqType) <<
                 "/"         << mReqType <<
                 " "         << mFileName <<
+                " fd: "     << mFd <<
+                " gen: "    << mGeneration <<
             KFS_LOG_EOM;
             List::Remove(*this);
             mOuter.mRequestCount--;
