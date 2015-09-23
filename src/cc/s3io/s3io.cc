@@ -295,6 +295,9 @@ public:
                 Schedule(mCurlTimer, -1);
                 theRemCount = CurlTimer();
             }
+            // Expire all timers.
+            mNow += 2 * kMaxTimerTimeSec;
+            Timer();
             const S3Status theS3Status = S3_finish_request_context(mS3CtxPtr);
             if (S3StatusOK != theS3Status) {
                 FatalError("S3_finish_request_context", theS3Status);
