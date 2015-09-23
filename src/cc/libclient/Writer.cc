@@ -498,6 +498,7 @@ private:
               mRetryCount(0),
               mPendingCount(0),
               mOpenChunkBlockFileOffset(-1),
+              mMaxChunkPos(0),
               mOpStartTime(0),
               mWriteIds(),
               mAllocOp(0, 0, ""),
@@ -643,6 +644,7 @@ private:
             // as it could invoke completion immediately (in the case of
             // failure).
             mPendingCount += theNWr;
+            mMaxChunkPos = max(thePos, mMaxChunkPos);
             return theNWr;
         }
         void StartWrite()
@@ -798,6 +800,7 @@ private:
         int            mRetryCount;
         Offset         mPendingCount;
         Offset         mOpenChunkBlockFileOffset;
+        Offset         mMaxChunkPos;
         time_t         mOpStartTime;
         WriteIds       mWriteIds;
         AllocateOp     mAllocOp;
@@ -1329,6 +1332,22 @@ private:
                 mCloseOp.chunkServerLoc.clear();
             }
             SetAccess(mCloseOp);
+            if (mCloseOp.chunkVersion < 0) {
+                // Extend timeout to accommodate object commit, possibly single
+                // atomic 64MB "object" write.
+                const int theMaxWriteSize =
+                    max(1 << 9, mOuter.mMaxWriteSize);
+                const int theTimeout = (mOuter.mOpTimeoutSec + 3) / 4 *
+                    (1 + max(mOuter.mMaxRetryCount / 3,
+                    (int)((mMaxChunkPos + theMaxWriteSize - 1) /
+                        theMaxWriteSize)));
+                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                    "chunk: "                << mCloseOp.chunkId <<
+                    " version: "             << mCloseOp.chunkVersion <<
+                    " chunk close timeout: " << theTimeout << " sec." <<
+                KFS_LOG_EOM;
+                mChunkServer.SetOpTimeoutSec(theTimeout);
+            }
             mWriteIds.clear();
             mAllocOp.chunkId = -1;
             Enqueue(mCloseOp);
@@ -1339,6 +1358,10 @@ private:
             IOBuffer* inBufferPtr)
         {
             QCASSERT(&mCloseOp == &inOp && ! inBufferPtr);
+            if (mCloseOp.chunkVersion < 0) {
+                // Restore timeout, changed by CloseChunk().
+                mChunkServer.SetOpTimeoutSec(mOuter.mOpTimeoutSec);
+            }
             if (inCanceledFlag) {
                 return;
             }

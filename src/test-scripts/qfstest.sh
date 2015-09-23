@@ -275,10 +275,10 @@ cabundlefile="$chunksrvdir/ca-bundle.crt"
 objectstoredir="$chunksrvdir/object_store"
 cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
 if [ x"$s3test" = x'yes' ]; then
-    if [ -x "`which wget 2>/dev/null`" ]; then
-        wget "$cabundleurl" -O "$cabundlefile" || exit
-    else
+    if [ -x "`which curl 2>/dev/null`" ]; then
         curl "$cabundleurl" > "$cabundlefile" || exit
+    else
+        wget "$cabundleurl" -O "$cabundlefile" || exit
     fi
 else
     mkdir "$objectstoredir" || exit
@@ -464,13 +464,15 @@ EOF
         if [ $i -eq $chunksrvport ]; then
             cat >> "$dir/$chunksrvprop" << EOF
 # Give the buffer manager the same as with no S3 8192*0.4, appender
-# 8129*0.6*0.4, and the rest to S3 write buffers: 15 chunks by 64MB
+# 8129*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 64MB
+# do this only for the first chunk server as it presently will be
+# 8129*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 64MB
 # do this only for the first chunk server as it presently will be
 # responsible for all writes, as all chunk servers are on the same host.
 chunkServer.objStoreBufferDataRatio           = 0.99
 chunkServer.recAppender.bufferLimitRatio      = 0.008
-chunkServer.bufferManager.maxRatio            = 0.01333
-chunkServer.ioBufferPool.partitionBufferCount = 245760
+chunkServer.bufferManager.maxRatio            = 0.0125
+chunkServer.ioBufferPool.partitionBufferCount = 267386
 EOF
         else
             cat >> "$dir/$chunksrvprop" << EOF

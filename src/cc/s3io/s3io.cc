@@ -421,7 +421,7 @@ public:
                     theError  = QCDiskQueue::kErrorWrite;
                     theSysErr = theFilePtr ? EINVAL : EBADF;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "invalid write attempt: " <<
+                        "invalid write attempt:" <<
                         " file: " << (const void*)theFilePtr <<
                         " name: " << (theFilePtr ?
                             theFilePtr->mFileName : string()) <<

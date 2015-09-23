@@ -2631,6 +2631,15 @@ ChunkManager::AllocChunk(
                 (bufMgr.GetBufferPoolTotalBytes() - bufMgr.GetTotalCount()) *
                 mObjStoreBufferDataRatio
             ) / mObjStoreBufferDataMaxSizePerBlock);
+            KFS_LOG_STREAM_DEBUG <<
+                " object store max writable"
+                " blocks: "     << mObjStoreMaxWritableBlocks <<
+                " total"
+                " bytes: "      << bufMgr.GetBufferPoolTotalBytes() <<
+                " buf mgr: "    << bufMgr.GetTotalCount() <<
+                " ratio: "      << mObjStoreBufferDataRatio <<
+                " max wr buf: " << mObjStoreBufferDataMaxSizePerBlock <<
+            KFS_LOG_EOM;
         }
         int objStoreWritableBlocks = 0;
         for (ChunkDirs::iterator it = mObjDirs.begin();
