@@ -6218,7 +6218,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         mClientCSAuthRequiredFlag ? req : 0
     );
     if (ret == 0 && mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone &&
-            (! readLeaseFlag || cs || req->chunkPos < 0)) {
+            (! readLeaseFlag || cs || 0 <= req->chunkPos)) {
         req->issuedTime                 = TimeNow();
         req->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if (req->emitCSAccessFlag) {
@@ -6228,7 +6228,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         if (cs) {
             MakeChunkAccess(
                 *cs, req->authUid, req->chunkAccess, req->chunkServer);
-        } else {
+        } else if (! req->chunkServer) {
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
             GetChunkServers(req->clientIp, servers);
