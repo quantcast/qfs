@@ -646,7 +646,6 @@ private:
         Generation mGeneration;
     };
     typedef vector<File> FileTable;
-    typedef vector<int>  FreeFdList;
     class Parameters
     {
     public:
