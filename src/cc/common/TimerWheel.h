@@ -117,7 +117,7 @@ private:
     size_t mCurBucket;
     TimeT  mNextRunTime;
     T      mTmpList;
-    T      mBuckets[BucketCntT + 1];
+    T      mBuckets[BucketCntT];
 
     template<typename FT, typename ET>
     void ApplySelf(

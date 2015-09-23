@@ -1438,7 +1438,7 @@ private:
         TimerEntry,
         TimerEntry::List,
         time_t,
-        kMaxTimerTimeSec,
+        (kMaxTimerTimeSec + kTimerResolutionSec) / kTimerResolutionSec,
         kTimerResolutionSec
     > TimerW;
     class TimerFunc
