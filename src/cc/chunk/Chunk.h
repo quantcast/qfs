@@ -209,9 +209,12 @@ struct DiskChunkInfo_t
             }
         }
         numReads = ReverseInt(numReads);
-        const int64_t fsid = GetFsId();
-        if (0 <= fsid) {
-            SetFsId(ReverseInt(fsid));
+        if (memcmp(filename,
+                kKfsChunkFsIdPrefix, kKfsChunkFsIdPrefixLength) == 0) {
+            int64_t id;
+            memcpy(&id, filename + kKfsChunkFsIdPrefixLength, sizeof(id));
+            id = ReverseInt(id);
+            memcpy(filename + kKfsChunkFsIdPrefixLength, &id, sizeof(id));
         }
         flags = ReverseInt(flags);
     }
