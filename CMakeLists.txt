@@ -379,15 +379,18 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
     ENDIF (FUSE_FOUND)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
 
-# For now attempt to find libs3 build artifacts in ../libs3/libs3 directory,
+# For now try to find libs3 build artifacts in ../libs3/libs3 directory,
 # assuming that the following successfully completed in ../libs3 directory:
 # make DESTDIR=libs3 install
 #
+IF (NOT DEFINED LIBS3_GIT_DIR)
+    SET(LIBS3_GIT_DIR ${KFS_DIR_PREFIX}../)
+ENDIF (NOT DEFINED LIBS3_GIT_DIR)
 IF (NOT DEFINED LIBS3_LIBRARY_DIR)
-    SET(LIBS3_LIBRARY_DIR ${KFS_DIR_PREFIX}/../libs3/libs3/lib)
+    SET(LIBS3_LIBRARY_DIR ${LIBS3_GIT_DIR}/libs3/libs3/lib)
 ENDIF (NOT DEFINED LIBS3_LIBRARY_DIR)
 IF (NOT DEFINED LIBS3_INCLUDE_DIR)
-    SET(LIBS3_INCLUDE_DIR ${KFS_DIR_PREFIX}/../libs3/libs3/include)
+    SET(LIBS3_INCLUDE_DIR ${LIBS3_GIT_DIR}/libs3/libs3/include)
 ENDIF (NOT DEFINED LIBS3_INCLUDE_DIR)
 
 find_library(LIBS3_LIBRARIES
@@ -400,6 +403,7 @@ IF (LIBS3_LIBRARIES)
         PATHS ${LIBS3_INCLUDE_DIR}
     )
     IF (NOT LIBS3_INCLUDE_DIR)
+        message (STATUS "S3 include directory not found")
         SET(LIBS3_LIBRARIES FALSE)
     ELSE  (NOT LIBS3_INCLUDE_DIR)
         find_package(CURL)
@@ -440,6 +444,15 @@ IF (LIBS3_LIBRARIES)
             SET(LIBS3_LIBRARIES FALSE)
         ENDIF (NOT S3_HAS_ALL_REQUIRED_FUNCTIONS)
     ENDIF (LIBS3_LIBRARIES)
+ELSE (LIBS3_LIBRARIES)
+    message (STATUS "S3 library"
+        " ${CMAKE_SHARED_LIBRARY_PREFIX}s3${CMAKE_SHARED_LIBRARY_SUFFIX}"
+        " not found in ${LIBS3_LIBRARY_DIR}")
+    message (STATUS "To build S3 library:")
+    message (STATUS "(cd ${LIBS3_GIT_DIR} && "
+        "git clone https://github.com/mikeov/libs3.git && "
+        "make DESTDIR=libs3 install)"
+    )
 ENDIF (LIBS3_LIBRARIES)
 
 # include dirs
