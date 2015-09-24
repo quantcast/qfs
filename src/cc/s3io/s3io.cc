@@ -1043,11 +1043,11 @@ private:
         static bool IsRetryNeeded(
             S3Status inStatus)
         {
-            switch(inStatus) {
+            switch (inStatus) {
                 case S3StatusOK:
                     return false;
-                // Curl errors converted by libs3 into the following.
-                // see request_curl_code_to_status().
+                // Curl errors converted by libs3 into the following code.
+                // See libs3 request_curl_code_to_status().
                 // "Internal error is catch all, including invalid curl
                 // configuration. Retry configuration errors for now as
                 // curl status is not presently available.
