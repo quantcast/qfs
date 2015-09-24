@@ -3071,11 +3071,14 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
             " " << op->Show() <<
         KFS_LOG_EOM;
     } else {
-        const DiskChunkInfo_t&  dci     =
-            *reinterpret_cast<const DiskChunkInfo_t*>(
+        DiskChunkInfo_t& dci                  =
+            *reinterpret_cast<DiskChunkInfo_t*>(
                 mChunkHeaderBuffer.GetPtr());
-        const uint64_t&        checksum =
+        const bool       reverseByteOrderFlag = dci.IsReverseByteOrder();
+        const uint64_t&  rdChksum             =
             *reinterpret_cast<const uint64_t*>(&dci + 1);
+        const uint64_t   checksum             = reverseByteOrderFlag ?
+            DiskChunkInfo_t::ReverseInt(rdChksum) : rdChksum;
         uint32_t               headerChecksum = 0;
         if ((checksum != 0 || mRequireChunkHeaderChecksumFlag) &&
                 (headerChecksum = ComputeBlockChecksum(
@@ -3084,8 +3087,9 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
             op->statusMsg = "chunk header checksum mismatch";
             ostringstream os;
             os << "chunk meta data read completion: " << op->statusMsg  <<
-                " expected: " << checksum <<
-                " computed: " << headerChecksum  <<
+                " expected: "           << checksum <<
+                " computed: "           << headerChecksum  <<
+                " reverse byte order: " << reverseByteOrderFlag <<
                 " " << op->Show()
             ;
             const string str = os.str();
@@ -3093,31 +3097,37 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
             if (mAbortOnChecksumMismatchFlag) {
                 die(str);
             }
-        } else if ((res = dci.Validate(op->chunkId, cih->IsStable() ?
-                cih->chunkInfo.chunkVersion : kfsSeq_t(0))) < 0) {
-            op->status    = res;
-            op->statusMsg = "chunk metadata validation mismatch";
-            KFS_LOG_STREAM_ERROR <<
-                "chunk meta data read completion: " << op->statusMsg  <<
-                " " << op->Show() <<
-            KFS_LOG_EOM;
         } else {
-            cih->chunkInfo.SetChecksums(dci.chunkBlockChecksum);
-            cih->chunkInfo.chunkFlags = dci.flags;
-            if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
-                const int64_t extra = cih->chunkInfo.chunkSize - dci.chunkSize;
-                mUsedSpace -= extra;
-                UpdateDirSpace(cih, -extra);
-                cih->chunkInfo.chunkSize = dci.chunkSize;
-            } else if (cih->chunkInfo.chunkSize != (int64_t)dci.chunkSize) {
-                op->status    = -EIO;
-                op->statusMsg = "chunk metadata size mismatch";
+            if (reverseByteOrderFlag) {
+                dci.ReverseByteOrder();
+            }
+            if ((res = dci.Validate(op->chunkId, cih->IsStable() ?
+                    cih->chunkInfo.chunkVersion : kfsSeq_t(0))) < 0) {
+                op->status    = res;
+                op->statusMsg = "chunk metadata validation mismatch";
                 KFS_LOG_STREAM_ERROR <<
                     "chunk meta data read completion: " << op->statusMsg  <<
-                    " file: " << cih->chunkInfo.chunkSize <<
-                    " meta: " << dci.chunkSize <<
                     " " << op->Show() <<
                 KFS_LOG_EOM;
+            } else {
+                cih->chunkInfo.SetChecksums(dci.chunkBlockChecksum);
+                cih->chunkInfo.chunkFlags = dci.flags;
+                if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
+                    const int64_t extra =
+                        cih->chunkInfo.chunkSize - dci.chunkSize;
+                    mUsedSpace -= extra;
+                    UpdateDirSpace(cih, -extra);
+                    cih->chunkInfo.chunkSize = dci.chunkSize;
+                } else if (cih->chunkInfo.chunkSize != (int64_t)dci.chunkSize) {
+                    op->status    = -EIO;
+                    op->statusMsg = "chunk metadata size mismatch";
+                    KFS_LOG_STREAM_ERROR <<
+                        "chunk meta data read completion: " << op->statusMsg  <<
+                        " file: " << cih->chunkInfo.chunkSize <<
+                        " meta: " << dci.chunkSize <<
+                        " " << op->Show() <<
+                    KFS_LOG_EOM;
+                }
             }
         }
         if (0 <= op->status && 0 < mFileSystemId) {

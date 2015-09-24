@@ -60,18 +60,16 @@ using std::dec;
 ///
 
 /// We allow a chunk header upto 16K in size
-const size_t KFS_CHUNK_HEADER_SIZE     = 16 << 10;
-const size_t KFS_MIN_CHUNK_HEADER_SIZE =  8 << 10;
-
+const size_t   KFS_CHUNK_HEADER_SIZE               = 16 << 10;
+/// Minimum header size, presently used with object store blocks.
+const size_t   KFS_MIN_CHUNK_HEADER_SIZE           =  8 << 10;
 /// The max # of checksum blocks we have for a given chunk
-const uint32_t MAX_CHUNK_CHECKSUM_BLOCKS = CHUNKSIZE /  CHECKSUM_BLOCKSIZE;
-
-/// In the chunk header, we store upto 256 char of the file that
-/// originally created the chunk.
-const size_t CHUNK_META_MAX_FILENAME_LEN = 256;
-
-const uint32_t CHUNK_META_MAGIC = 0xCAFECAFE;
-const uint32_t CHUNK_META_VERSION = 0x1;
+const uint32_t MAX_CHUNK_CHECKSUM_BLOCKS           =
+    CHUNKSIZE /  CHECKSUM_BLOCKSIZE;
+/// File name field now used to store file system id.
+const size_t   CHUNK_META_MAX_FILENAME_LEN         = 256;
+const uint32_t CHUNK_META_MAGIC                    = 0xCAFECAFE;
+const uint32_t CHUNK_META_VERSION                  = 0x1;
 static const char* const kKfsChunkFsIdPrefix       =
     "\0QFSFsId\xe4\x5e\x23\x0e\x34\x9a\x07\xce";
 static size_t const      kKfsChunkFsIdPrefixLength = 16;
@@ -85,7 +83,8 @@ struct DiskChunkInfo_t
         kFlagsMinHeaderSize = 1,
     };
 
-    DiskChunkInfo_t(kfsFileId_t f, kfsChunkId_t c, int64_t s, kfsSeq_t v, uint32_t cf)
+    DiskChunkInfo_t(
+        kfsFileId_t f, kfsChunkId_t c, int64_t s, kfsSeq_t v, uint32_t cf)
         : metaMagic(CHUNK_META_MAGIC),
           metaVersion(CHUNK_META_VERSION),
           fileId(f),
@@ -97,6 +96,32 @@ struct DiskChunkInfo_t
             memset(filename, 0, CHUNK_META_MAX_FILENAME_LEN);
     }
 
+    template <typename T> static T ReverseInt(T intv) {
+        if (0 == intv) {
+            return intv;
+        }
+        T val = intv;
+        T ret = 0;
+        for (size_t i = sizeof(val); ;) {
+            ret |= val & T(0xFF);
+            if (0 == --i) {
+                break;
+            }
+            ret <<= 8;
+            val >>= 8;
+        }
+        return ret;
+    }
+
+    template <typename T> static void ReverseIntInPlace(T& intv) {
+        intv = ReverseInt(intv);
+    }
+
+    bool IsReverseByteOrder() const {
+        return (ReverseInt(CHUNK_META_MAGIC) == metaMagic &&
+            ReverseInt(CHUNK_META_VERSION) == metaVersion);
+    }
+
     void SetChecksums(const uint32_t* checksums) {
         memcpy(chunkBlockChecksum, checksums,
             MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(chunkBlockChecksum[0]));
@@ -105,23 +130,25 @@ struct DiskChunkInfo_t
     int Validate() const {
         if (metaMagic != CHUNK_META_MAGIC) {
             KFS_LOG_STREAM_INFO <<
-                "Magic # mismatch (got: " << hex << metaMagic <<
-                ", expect: " << CHUNK_META_MAGIC << ")" << dec <<
+                "magic mismatch: " << hex <<
+                " actual: "   << metaMagic <<
+                " expected: " << CHUNK_META_MAGIC << dec <<
             KFS_LOG_EOM;
-            return -KFS::EBADCKSUM;
+            return -EBADCKSUM;
         }
         if (metaVersion != CHUNK_META_VERSION) {
             KFS_LOG_STREAM_INFO <<
-                "Version # mismatch (got: << " << hex << metaVersion <<
-                ", expect: << " << CHUNK_META_VERSION << ")" << dec <<
+                "chunk header version mismatch:" << hex <<
+                " actual: "   << metaVersion <<
+                " expected: " << CHUNK_META_VERSION << dec <<
             KFS_LOG_EOM;
-            return -KFS::EBADCKSUM;
+            return -EBADCKSUM;
         }
-        if (chunkSize > (uint64_t)CHUNKSIZE) {
+        if ((uint64_t)CHUNKSIZE < chunkSize) {
             KFS_LOG_STREAM_INFO <<
-                "Invlid chunk size: " << chunkSize <<
+                "invlid chunk size: " << chunkSize <<
             KFS_LOG_EOM;
-            return -KFS::EBADCKSUM;
+            return -EBADCKSUM;
         }
         return 0;
     }
@@ -133,17 +160,19 @@ struct DiskChunkInfo_t
         }
         if ((kfsChunkId_t)chunkId != cid) {
             KFS_LOG_STREAM_INFO <<
-                "Chunkid mismatch (got: " <<
-                    chunkId << ", expect: " << cid << ")" <<
+                "chunkid mismatch:"
+                " actual: "   << chunkId <<
+                " expected: " << cid <<
             KFS_LOG_EOM;
-            return -KFS::EBADCKSUM;
+            return -EBADCKSUM;
         }
         if ((kfsSeq_t)chunkVersion != vers) {
             KFS_LOG_STREAM_INFO <<
-                "Chunk version mismatch (got: " <<
-                    chunkVersion << ", expect: " << vers << ")" <<
+                "chunk version mismatch:"
+                " actual: "   << chunkVersion <<
+                " expected: " << vers <<
             KFS_LOG_EOM;
-            return -KFS::EBADCKSUM;
+            return -EBADCKSUM;
         }
         return 0;
     }
@@ -170,6 +199,26 @@ struct DiskChunkInfo_t
         memset(filename + pos, 0, CHUNK_META_MAX_FILENAME_LEN - pos);
     }
 
+    void ReverseByteOrder(bool cheksumsReverseFlag = true) {
+        ReverseIntInPlace(metaMagic);
+        ReverseIntInPlace(metaVersion);
+        ReverseIntInPlace(fileId);
+        ReverseIntInPlace(chunkId);
+        ReverseIntInPlace(chunkVersion);
+        ReverseIntInPlace(chunkSize);
+        if (cheksumsReverseFlag) {
+            for (size_t i = 0; i < MAX_CHUNK_CHECKSUM_BLOCKS; i++) {
+                ReverseIntInPlace(chunkBlockChecksum[i]);
+            }
+        }
+        ReverseIntInPlace(numReads);
+        const int64_t fsid = GetFsId();
+        if (0 <= fsid) {
+            SetFsId(ReverseInt(fsid));
+        }
+        ReverseIntInPlace(flags);
+    }
+
     uint32_t metaMagic;
     uint32_t metaVersion;
 
@@ -178,11 +227,7 @@ struct DiskChunkInfo_t
     uint64_t chunkVersion;
     uint64_t chunkSize;
     uint32_t chunkBlockChecksum[MAX_CHUNK_CHECKSUM_BLOCKS];
-    // some statistics about the chunk:
-    // -- version # has an estimate of the # of writes
-    // -- track the # of reads
-    // ...
-    uint32_t numReads;
+    uint32_t numReads; // Not used.
     char     filename[CHUNK_META_MAX_FILENAME_LEN];
     uint32_t flags;
 } __attribute__ ((__packed__));
@@ -226,7 +271,10 @@ struct ChunkInfo_t
         delete [] chunkBlockChecksum;
         chunkBlockChecksum = 0;
         KFS_LOG_STREAM_DEBUG <<
-            "Unloading chunk checksum for chunk " << chunkId <<
+            "unloaded chunk checksum:"
+            " file: "   << fileId <<
+            " chunk "   << chunkId <<
+            " version " << chunkVersion <<
         KFS_LOG_EOM;
     }
 
@@ -243,7 +291,7 @@ struct ChunkInfo_t
 
     void VerifyChecksumsLoaded() const {
         if (! chunkBlockChecksum) {
-            die("Checksums are not loaded!");
+            die("checksums are not loaded!");
         }
     }
 
@@ -259,16 +307,18 @@ struct ChunkInfo_t
     int Deserialize(const DiskChunkInfo_t& dci, bool validate) {
         if (validate) {
             if (dci.metaMagic != CHUNK_META_MAGIC) {
-                KFS_LOG_STREAM_INFO <<
-                    "Magic # mismatch (got: " << hex << dci.metaMagic <<
-                    ", expect: " << CHUNK_META_MAGIC << ")" << dec <<
+                KFS_LOG_STREAM_ERROR <<
+                    "chunk header magic mismatch:" << hex <<
+                    " actual: "   << dci.metaMagic <<
+                    " expected: " << CHUNK_META_MAGIC << dec <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
             if (dci.metaVersion != CHUNK_META_VERSION) {
-                KFS_LOG_STREAM_INFO <<
-                    "Version # mismatch (got: << " << hex << dci.metaVersion <<
-                    ", expect: << " << CHUNK_META_VERSION << ")" << dec <<
+                KFS_LOG_STREAM_ERROR <<
+                    "chunk header version mismatch:" << hex <<
+                    " actual: "   << dci.metaVersion <<
+                    " expected: " << CHUNK_META_VERSION << dec <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
@@ -284,9 +334,11 @@ struct ChunkInfo_t
         memcpy(chunkBlockChecksum, dci.chunkBlockChecksum,
                MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(uint32_t));
         KFS_LOG_STREAM_DEBUG <<
-            "Loading chunk checksum for chunk " << chunkId <<
+            "loaded chunk checksums:"
+            " file: "     << fileId <<
+            " chunk: "    << chunkId <<
+            " version: "  << chunkVersion <<
         KFS_LOG_EOM;
-
         return 0;
     }
 
