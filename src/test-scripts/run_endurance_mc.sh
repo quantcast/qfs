@@ -499,8 +499,6 @@ chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
 chunkServer.clientThreadCount = $chunkserverclithreads
-chunkServer.objStoreBlockWriteBufferSize = $objectstorebuffersize
-chunkServer.objectDir                    = $objectstoredir
 EOF
 
         if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then
@@ -554,6 +552,8 @@ EOF
     else
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.ioBufferPool.partitionBufferCount = 131072
+chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
+chunkServer.objectDir                         = $objectstoredir
 EOF
 fi
         (
