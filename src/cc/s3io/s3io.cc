@@ -303,6 +303,8 @@ public:
                 FatalError("S3_finish_request_context", theS3Status);
             }
         } while(0 < theRemCount || 0 < mRequestCount);
+        mNow = time(0);
+        mTimer.SetNextRunTime(mNow);
     }
     virtual int Open(
         const char* inFileNamePtr,
@@ -540,6 +542,16 @@ public:
             default:
                 theError  = QCDiskQueue::kErrorParameter;
                 theSysErr = theFilePtr ? ENXIO : EBADF;
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    "start meta:"     <<
+                    " fd: "           << inFd <<
+                    " gen: "          << (theFilePtr ?
+                        theFilePtr->mGeneration : Generation(0)) <<
+                    " name: "         << (theFilePtr ?
+                        theFilePtr->mFileName : string()) <<
+                    " request type: " << inReqType <<
+                    " is not supported" <<
+                KFS_LOG_EOM;
                 break;
         }
         int64_t const theIoByteCount = 0;
@@ -581,6 +593,11 @@ public:
             default:
                 theError  = QCDiskQueue::kErrorParameter;
                 theSysErr = ENXIO;
+                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                    "start meta:"     <<
+                    " request type: " << inReqType <<
+                    " is not supported" <<
+                KFS_LOG_EOM;
                 break;
         }
         if (QCDiskQueue::kErrorNone != theError || 0 != theSysErr) {

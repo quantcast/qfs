@@ -105,6 +105,9 @@ public:
             }
         } while (0 < theBucketCnt--);
     }
+    void SetNextRunTime(
+        TimeT& inNextRunTime)
+        { mNextRunTime = inNextRunTime; }
     template<typename FT>
     void Apply(
         FT& inFunctor) const

@@ -89,6 +89,8 @@ chunkdirerrsimall=0
 chunkserverclithreads=${chunkserverclithreads-3}
 objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
 objectstoredir="/mnt/data3/$USER/test/object_store"
+cabundlefile="`dirname "$objectstoredir"`/ca-bundle.crt"
+cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -128,10 +130,12 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -chunk-dir-err-sim <num> -- enable chunk directory check failure simulator on
     firtst <num> chunk servers
  -valgrind-cs             -- run chunk servers under valgrind
- -auth                    -- turn authentication on or off'
+ -auth                    -- turn authentication on or off
+ -s3                      -- test with AWS S3'
     exit 0
 fi
 
+s3test='no'
 excode=0
 while [ $# -gt 0 ]; do
     if [ x"$1" = x'-stop' ]; then
@@ -192,6 +196,9 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-valgrind-cs' ]; then
         shift
         csvalgrind='yes'
+    elif [ x"$1" = x'-s3' ]; then
+        shift
+        s3test='yes'
     elif [ x"$1" = x'-auth' ]; then
         shift
         if [ x"$1" = x'on' -o x"$1" = x'ON' -o \
@@ -220,6 +227,17 @@ done
 
 if [ $excode -ne 0 ]; then
     exit `expr $excode - 1`
+fi
+
+if [ x"$s3test" = x'yes' ]; then
+    if [ x"$QFS_S3_ACCESS_KEY_ID" = x -o \
+            x"$QFS_S3_SECRET_ACCESS_KEY" = x -o \
+            x"$QFS_S3_BUCKET_NAME" = x ]; then
+        echo "environment variables QFS_S3_ACCESS_KEY_ID," \
+            "QFS_S3_SECRET_ACCESS_KEY," \
+            "and QFS_S3_BUCKET_NAME must be set accordintly"
+        exit 1
+    fi
 fi
 
 mkdir -p "$metasrvdir"
@@ -281,7 +299,15 @@ if [ x"$testonly" != x'yes' ]; then
 
 kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
 
-mkdir -p "$objectstoredir" || exit
+if [ x"$s3test" = x'yes' ]; then
+    if [ -x "`which curl 2>/dev/null`" ]; then
+        curl "$cabundleurl" > "$cabundlefile" || exit
+    else
+        wget "$cabundleurl" -O "$cabundlefile" || exit
+    fi
+else
+    mkdir -p "$objectstoredir" || exit
+fi
 
 echo "Starting meta server $metahost:$metasrvport"
 
@@ -469,7 +495,6 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.recAppender.closeEmptyWidStateSec = 5
-chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
@@ -510,6 +535,27 @@ chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
         fi
+    if [ x"$s3test" = x'yes' ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.objectDir                      = s3://aws.
+chunkServer.diskQueue.aws.bucketName       = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId      = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey  = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.verifyPeer       = 1
+chunkServer.diskQueue.aws.verifyCertStatus = 0
+chunkServer.diskQueue.aws.CABundle         = $cabundlefile
+# Give the buffer manager the same as with no S3 131072*0.4, appender
+# 131072*(1-0.4)*0.4, and the rest to S3 write buffers: ~18 chunks by 64MB
+chunkServer.objStoreBufferDataRatio           = 0.79
+chunkServer.recAppender.bufferLimitRatio      = 0.084
+chunkServer.bufferManager.maxRatio            = 0.123
+chunkServer.ioBufferPool.partitionBufferCount = 426056
+EOF
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.ioBufferPool.partitionBufferCount = 131072
+EOF
+fi
         (
         cd "$dir" || exit
         rm -f *.log*

@@ -185,6 +185,12 @@ else
     metaport=$metasrvport
     export metaport
     smtest="$smdir/sortmaster_test.sh"
+    if [ x"$myvalgrind" = x ]; then
+        smtestqfsvalgrind='no'
+    else
+        smtestqfsvalgrind='yes'
+    fi
+    export smtestqfsvalgrind
 # Use QFS_CLIENT_CONFIG for sort master.
 #    if [ x"$auth" = x'yes' ]; then
 #        smauthconf="$testdir/sortmasterauth.prp"
@@ -464,8 +470,6 @@ EOF
         if [ $i -eq $chunksrvport ]; then
             cat >> "$dir/$chunksrvprop" << EOF
 # Give the buffer manager the same as with no S3 8192*0.4, appender
-# 8192*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 64MB
-# do this only for the first chunk server as it presently will be
 # 8192*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 64MB
 # do this only for the first chunk server as it presently will be
 # responsible for all writes, as all chunk servers are on the same host.
