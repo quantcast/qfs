@@ -113,10 +113,6 @@ struct DiskChunkInfo_t
         return ret;
     }
 
-    template <typename T> static void ReverseIntInPlace(T& intv) {
-        intv = ReverseInt(intv);
-    }
-
     bool IsReverseByteOrder() const {
         return (ReverseInt(CHUNK_META_MAGIC) == metaMagic &&
             ReverseInt(CHUNK_META_VERSION) == metaVersion);
@@ -200,23 +196,24 @@ struct DiskChunkInfo_t
     }
 
     void ReverseByteOrder(bool cheksumsReverseFlag = true) {
-        ReverseIntInPlace(metaMagic);
-        ReverseIntInPlace(metaVersion);
-        ReverseIntInPlace(fileId);
-        ReverseIntInPlace(chunkId);
-        ReverseIntInPlace(chunkVersion);
-        ReverseIntInPlace(chunkSize);
+        metaMagic    = ReverseInt(metaMagic);
+        metaVersion  = ReverseInt(metaVersion);
+        fileId       = ReverseInt(fileId);
+        chunkId      = ReverseInt(chunkId);
+        chunkVersion = ReverseInt(chunkVersion);
+        chunkSize    = ReverseInt(chunkSize);
         if (cheksumsReverseFlag) {
             for (size_t i = 0; i < MAX_CHUNK_CHECKSUM_BLOCKS; i++) {
-                ReverseIntInPlace(chunkBlockChecksum[i]);
+                chunkBlockChecksum[i] =
+                    ReverseInt(chunkBlockChecksum[i]);
             }
         }
-        ReverseIntInPlace(numReads);
+        numReads = ReverseInt(numReads);
         const int64_t fsid = GetFsId();
         if (0 <= fsid) {
             SetFsId(ReverseInt(fsid));
         }
-        ReverseIntInPlace(flags);
+        flags = ReverseInt(flags);
     }
 
     uint32_t metaMagic;
