@@ -2611,6 +2611,16 @@ ChunkManager::AllocChunk(
                     cih->chunkInfo.chunkVersion != chunkVersion) {
                 return -EINVAL;
             }
+            if (! mustExistFlag && chunkVersion < 0 &&
+                    0 < cih->chunkInfo.chunkSize) {
+                KFS_LOG_STREAM_ERROR <<
+                    "not empty unstable object block already exists:"
+                    " chunk: "   << chunkId <<
+                    " version: " << chunkVersion <<
+                    " size: "    << cih->chunkInfo.chunkSize <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
             // Invalidate pending writes, if any, due to no version change for
             // object store blocks. For chunk this should be a no op, and if any
             // pending writes are still around they should be deleted.
