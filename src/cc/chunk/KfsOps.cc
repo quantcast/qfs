@@ -1363,9 +1363,10 @@ DeleteChunkOp::Execute()
     if (chunkVersion < 0) {
         SET_HANDLER(this, &DeleteChunkOp::Done);
     }
+    const bool objStoreBlockFlag = chunkVersion < 0;
     status = gChunkManager.DeleteChunk(chunkId, chunkVersion,
-        chunkVersion < 0 ? this : 0);
-    if (0 <= chunkVersion || status < 0) {
+        objStoreBlockFlag ? this : 0);
+    if (! objStoreBlockFlag || status < 0) {
         gLogger.Submit(this);
     }
 }

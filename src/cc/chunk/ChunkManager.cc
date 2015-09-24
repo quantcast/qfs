@@ -3497,10 +3497,11 @@ ChunkManager::ReplicationDone(kfsChunkId_t chunkId, int status,
         KFS_LOG_EOM;
         return;
     }
-
     KFS_LOG_STREAM_DEBUG <<
-        "Replication for chunk: " << chunkId <<
-        " status: " << status <<
+        "replication done:"
+        " chunk: "   << chunkId <<
+        " version: " << cih->chunkInfo.chunkVersion <<
+        " status: "  << status <<
         " " << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
     if (status < 0) {
@@ -5500,7 +5501,7 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
             // chunk directory, then do not issue delete.
             // If the existing chunk is already stable but the chunk to delete
             // has the same version but it is not stable, then the file is
-            // likely have already been deleted , when the existing chunk
+            // likely have already been deleted, when the existing chunk
             // transitioned into stable version. If not then unstable chunk will
             // be cleaned up on the next restart.
             const ChunkInfoHandle* const* const ci =
