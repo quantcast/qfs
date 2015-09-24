@@ -1040,6 +1040,28 @@ private:
                     return;
             }
         }
+        static bool IsRetryNeeded(
+            S3Status inStatus)
+        {
+            switch(inStatus) {
+                case S3StatusOK:
+                    return false;
+                // Curl errors converted by libs3 into the following.
+                // see request_curl_code_to_status().
+                // "Internal error is catch all, including invalid curl
+                // configuration. Retry configuration errors for now as
+                // curl status is not presently available.
+                case S3StatusNameLookupError:
+                case S3StatusFailedToConnect:
+                case S3StatusConnectionFailed:
+                case S3StatusServerFailedVerification:
+                case S3StatusInternalError:
+                    return true;
+                default:
+                    break;
+            }
+            return (0 != S3_status_is_retryable(inStatus));
+        }
         void Done(
             S3Status              inStatus,
             const S3ErrorDetails* inErrorPtr)
@@ -1077,7 +1099,7 @@ private:
                     }
                 }
             KFS_LOG_STREAM_END;
-            if (S3StatusOK != inStatus && S3_status_is_retryable(inStatus) &&
+            if (IsRetryNeeded(inStatus) &&
                     ! mOuter.mStopFlag &&
                     mRetryCount < mOuter.mParameters.mMaxRetryCount) {
                 const File* theFilePtr;
