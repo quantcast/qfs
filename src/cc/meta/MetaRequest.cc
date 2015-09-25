@@ -768,12 +768,25 @@ MetaCreate::handle()
     }
     fid        = 0;
     todumpster = -1;
-    if (striperType != KFS_STRIPED_FILE_TYPE_NONE && numRecoveryStripes > 0) {
+    const bool wasNotObjectStoreFileFlag = 0 < numReplicas;
+    if (striperType != KFS_STRIPED_FILE_TYPE_NONE && 0 < numRecoveryStripes) {
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerRSFile());
     } else {
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerFile());
+    }
+    if (0 == numReplicas && wasNotObjectStoreFileFlag &&
+           gLayoutManager.IsObjectStoreEnabled()) {
+        // Convert to object store file if meta server is configured to do
+        // so.
+        striperType        = KFS_STRIPED_FILE_TYPE_NONE;
+        numRecoveryStripes = 0;
+        numStripes         = 0;
+        stripeSize         = 0;
+        if (minSTier < kKfsSTierMax) {
+            maxSTier = minSTier; // No storage tier range.
+        }
     }
     if (maxSTier < minSTier ||
             minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||

@@ -23,6 +23,8 @@
 #
 #
 
+s3curldebug=0
+
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
         myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
@@ -36,11 +38,14 @@ while [ $# -ge 1 ]; do
         auth='no'
     elif [ x"$1" = x'-s3' ]; then
         s3test='yes'
+    elif [ x"$1" = x'-s3debug' ]; then
+        s3test='yes'
+        s3curldebug=1
     elif [ x"$1" = x'-auth' ]; then
         auth='no'
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth] [-s3]"
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth] [-s3 | -s3debug]"
         exit 1
     fi
     shift
@@ -391,6 +396,19 @@ metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
 fi
 
+# Test meta server distributing S3 configuration to chunk servers.
+if [ x"$s3test" = x'yes' ]; then
+    cat >> "$metasrvprop" << EOF
+chunkServer.diskQueue.aws.bucketName       = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId      = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey  = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.verifyPeer       = 1
+chunkServer.diskQueue.aws.verifyCertStatus = 0
+chunkServer.diskQueue.aws.CABundle         = $cabundlefile
+chunkServer.diskQueue.aws.curlDebug        = $s3curldebug
+EOF
+fi
+
 metaserver -c "$metasrvprop" > "${metaservercreatefsout}" 2>&1 || {
     status=$?
     cat "${metaservercreatefsout}"
@@ -459,13 +477,7 @@ EOF
     fi
     if [ x"$s3test" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.objectDir                      = s3://aws.
-chunkServer.diskQueue.aws.bucketName       = $QFS_S3_BUCKET_NAME
-chunkServer.diskQueue.aws.accessKeyId      = $QFS_S3_ACCESS_KEY_ID
-chunkServer.diskQueue.aws.secretAccessKey  = $QFS_S3_SECRET_ACCESS_KEY
-chunkServer.diskQueue.aws.verifyPeer       = 1
-chunkServer.diskQueue.aws.verifyCertStatus = 0
-chunkServer.diskQueue.aws.CABundle         = $cabundlefile
+chunkServer.objectDir = s3://aws.
 EOF
         if [ $i -eq $chunksrvport ]; then
             cat >> "$dir/$chunksrvprop" << EOF

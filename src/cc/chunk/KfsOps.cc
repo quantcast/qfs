@@ -1360,6 +1360,11 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
 void
 DeleteChunkOp::Execute()
 {
+    if (chunkVersion < 0 &&
+            (status = gChunkManager.GetObjectStoreStatus(&statusMsg)) != 0) {
+        gLogger.Submit(this);
+        return;
+    }
     if (chunkVersion < 0) {
         SET_HANDLER(this, &DeleteChunkOp::Done);
     }

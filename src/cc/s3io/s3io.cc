@@ -471,7 +471,8 @@ public:
                         "/" << inReqType <<
                         " invalid write attempt:" <<
                         " fd: "   << inFd <<
-                        " file: " << (const void*)theFilePtr <<
+                        " file: " <<
+                            reinterpret_cast<const void*>(theFilePtr) <<
                         " name: " << (theFilePtr ?
                             theFilePtr->mFileName : string()) <<
                         " buffers: " << inBufferCount <<
@@ -686,9 +687,12 @@ private:
               mVerifyCertStatusFlag(false),
               mVerifyPeerFlag(false),
               mSslVersion(CURL_SSLVERSION_TLSv1),
+              mLowSpeedLimit(4 << 10),
+              mLowSpeedTime(10),
               mSslCiphers(),// Use default as list depends curl's backend.
               mCABundle(),
-              mCAPath()
+              mCAPath(),
+              mCurlDebugFlag(false)
             {}
         void Set(
             const char*       inPrefixPtr,
@@ -799,29 +803,32 @@ private:
                 theName.Truncate(thePrefixSize).Append("retryInterval"),
                 mRetryInterval
             );
+            mLowSpeedLimit = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("lowSpeedLimit"),
+                mLowSpeedLimit
+            );
+            mLowSpeedTime = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("lowSpeedTime"),
+                mLowSpeedTime
+            );
             mVerifyCertStatusFlag = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append(
-                    "verifyCertStatus"),
+                theName.Truncate(thePrefixSize).Append("verifyCertStatus"),
                 mVerifyCertStatusFlag ? 1 : 0
             ) != 0;
             mVerifyPeerFlag = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append(
-                    "verifyPeer"),
+                theName.Truncate(thePrefixSize).Append("verifyPeer"),
                 mVerifyPeerFlag ? 1 : 0
             ) != 0;
             mSslCiphers = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append(
-                    "sslCiphers"),
+                theName.Truncate(thePrefixSize).Append("sslCiphers"),
                 mSslCiphers
             );
             mCABundle = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append(
-                    "CABundle"),
+                theName.Truncate(thePrefixSize).Append("CABundle"),
                 mCABundle
             );
             mCAPath = inParameters.getValue(
-                theName.Truncate(thePrefixSize).Append(
-                    "CAPath"),
+                theName.Truncate(thePrefixSize).Append("CAPath"),
                 mCAPath
             );
             if ((theValPtr = inParameters.getValue(
@@ -850,6 +857,10 @@ private:
                     KFS_LOG_EOM;
                 }
             }
+            mCurlDebugFlag = inParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("curlDebug"),
+                mCurlDebugFlag ? 1 : 0
+            ) != 0;
 #ifndef QFS_S3_CURL_HAS_SSL_VERIFYSTATUS
             if (mVerifyCertStatusFlag) {
                 KFS_LOG_STREAM_WARN << inLogPrefix <<
@@ -878,9 +889,12 @@ private:
         bool        mVerifyCertStatusFlag;
         bool        mVerifyPeerFlag;
         long        mSslVersion;
+        long        mLowSpeedLimit;
+        long        mLowSpeedTime;
         string      mSslCiphers;
         string      mCABundle;
         string      mCAPath;
+        bool        mCurlDebugFlag;
     private:
         long WarnIfNotSupported(
             long          inSslVersion,
@@ -1069,7 +1083,7 @@ private:
             KFS_LOG_STREAM_START(S3StatusOK == inStatus ?
                     MsgLogger::kLogLevelDEBUG :
                     MsgLogger::kLogLevelERROR, theMsg) << mOuter.mLogPrefix <<
-                (const void*)this <<
+                reinterpret_cast<const void*>(this) <<
                 " done: "    << RequestTypeToName(mReqType) <<
                 "/"          << mReqType <<
                 " "          << mFileName <<
@@ -1077,6 +1091,7 @@ private:
                 " size: "    << mSize <<
                 " pos: "     << mPos <<
                 " attempt: " << mRetryCount <<
+                " curl: "    << reinterpret_cast<const void*>(mCurlPtr) <<
                 " status: "  << inStatus <<
                 " "          << S3_get_status_name(inStatus)
                 ;
@@ -1099,6 +1114,25 @@ private:
                     }
                 }
             KFS_LOG_STREAM_END;
+            if (mParameters.mCurlDebugFlag && mCurlPtr) {
+                CURLcode theStatus;
+                if (CURLE_OK != (theStatus = curl_easy_setopt(
+                        mCurlPtr, CURLOPT_VERBOSE, long(0)))) {
+                    mOuter.FatalError("curl_easy_setopt(CURLOPT_VERBOSE)",
+                        theStatus);
+                }
+                if (CURLE_OK != (theStatus = curl_easy_setopt(
+                        mCurlPtr, CURLOPT_DEBUGDATA, (void*)0))) {
+                    mOuter.FatalError("curl_easy_setopt(CURLOPT_DEBUGDATA)",
+                        theStatus);
+                }
+                if (CURLE_OK != (theStatus = curl_easy_setopt(
+                        mCurlPtr, CURLOPT_DEBUGFUNCTION, (void*)0))) {
+                    mOuter.FatalError("curl_easy_setopt(CURLOPT_DEBUGFUNCTION)",
+                        theStatus);
+                }
+            }
+            mCurlPtr = 0;
             if (IsRetryNeeded(inStatus) &&
                     ! mOuter.mStopFlag &&
                     mRetryCount < mOuter.mParameters.mMaxRetryCount) {
@@ -1109,7 +1143,7 @@ private:
                         mOuter.mParameters.mRetryInterval -
                         (mOuter.mNow - mStartTime));
                     KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                        (const void*)this <<
+                        reinterpret_cast<const void*>(this) <<
                         " "               << RequestTypeToName(mReqType) <<
                         "/"               << mReqType <<
                         " "               << mFileName <<
@@ -1210,7 +1244,8 @@ private:
         {
             KFS_LOG_STREAM_START(MsgLogger::kLogLevelDEBUG, theMsg) <<
                 mOuter.mLogPrefix <<
-                (const void*)this <<
+                reinterpret_cast<const void*>(this) <<
+                " curl: "         << reinterpret_cast<const void*>(mCurlPtr) <<
                 " "               << RequestTypeToName(mReqType) <<
                 "/"               << mReqType <<
                 " "               << mFileName <<
@@ -1313,7 +1348,88 @@ private:
                     theStatus);
                 return S3StatusInternalError;
             }
+            if (0 <= mParameters.mLowSpeedLimit &&
+                    CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_LOW_SPEED_LIMIT,
+                        mParameters.mLowSpeedLimit))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_LOW_SPEED_LIMIT)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            if (0 <= mParameters.mLowSpeedTime &&
+                    CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_LOW_SPEED_TIME,
+                        mParameters.mLowSpeedTime))) {
+                mOuter.FatalError("curl_easy_setopt(CURLOPT_LOW_SPEED_TIME)",
+                    theStatus);
+                return S3StatusInternalError;
+            }
+            if (mParameters.mCurlDebugFlag) {
+                if (CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_DEBUGDATA, this))) {
+                    mOuter.FatalError("curl_easy_setopt(CURLOPT_DEBUGDATA)",
+                        theStatus);
+                    return S3StatusInternalError;
+                }
+                if (CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_DEBUGFUNCTION,
+                        &S3IO::CurlDebugCB))) {
+                    mOuter.FatalError("curl_easy_setopt(CURLOPT_DEBUGFUNCTION)",
+                        theStatus);
+                    return S3StatusInternalError;
+                }
+                if (CURLE_OK != (theStatus = curl_easy_setopt(
+                        inCurlPtr, CURLOPT_VERBOSE, long(1)))) {
+                    mOuter.FatalError("curl_easy_setopt(CURLOPT_VERBOSE)",
+                        theStatus);
+                    return S3StatusInternalError;
+                }
+            }
+            mCurlPtr = inCurlPtr;
+            KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                reinterpret_cast<const void*>(this) <<
+                " curl: "  << reinterpret_cast<const void*>(inCurlPtr) <<
+                " setup: " << RequestTypeToName(mReqType) <<
+                "/"        << mReqType <<
+                " "        << mFileName <<
+                " fd: "    << mFd <<
+                " gen: "   << mGeneration <<
+                " debug: " << mParameters.mCurlDebugFlag <<
+                " speed:"
+                " low: "   << mParameters.mLowSpeedTime <<
+                " time: "  << mParameters.mLowSpeedTime <<
+            KFS_LOG_EOM;
             return S3StatusOK;
+        }
+        int CurlDebug(
+            CURL*         inCurlPtr,
+            curl_infotype inType,
+            char*         inDataPtr,
+            size_t        inDataSize)
+        {
+            QCRTASSERT(inCurlPtr == mCurlPtr);
+            char theTmpBuf[128];
+            KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                reinterpret_cast<const void*>(this) <<
+                " curl: "   << reinterpret_cast<const void*>(inCurlPtr) <<
+                " debug: "  << RequestTypeToName(mReqType) <<
+                "/"         << mReqType <<
+                " "         << mFileName <<
+                " fd: "     << mFd <<
+                " gen: "    << mGeneration <<
+                " startb: " << mStartBlockIdx <<
+                " pos: "    << mPos <<
+                " size: "   << mSize <<
+                " brem: "   << mBufRem <<
+                " type: "   << CurlDebugTypeToName(inType) <<
+                " data: "   << reinterpret_cast<const void*>(inDataPtr) <<
+                " size: "   << inDataSize <<
+                " bytes: "  << ShowData(
+                    theTmpBuf, sizeof(theTmpBuf),
+                    inDataPtr, inDataSize
+                ) <<
+            KFS_LOG_EOM;
+            return 0;
         }
     private:
         class ReadFunc
@@ -1349,6 +1465,7 @@ private:
         char**           mBufferPtr;
         int              mRetryCount;
         time_t           mStartTime;
+        CURL*            mCurlPtr;
         char             mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
                          // Base64::EncodedLength(128 / 8) + 1
 
@@ -1375,11 +1492,12 @@ private:
               mBufRem(0),
               mBufferPtr(0),
               mRetryCount(0),
-              mStartTime(mOuter.mNow)
+              mStartTime(mOuter.mNow),
+              mCurlPtr(0)
         {
             mMd5Sum[0] = 0;
             KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                (const void*)this <<
+                reinterpret_cast<const void*>(this) <<
                 " S3Req: " << RequestTypeToName(mReqType) <<
                 "/"        << mReqType <<
                 " "        << mFileName <<
@@ -1390,8 +1508,9 @@ private:
         }
         ~S3Req()
         {
+            QCASSERT(! mCurlPtr);
             KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                (const void*)this <<
+                reinterpret_cast<const void*>(this) <<
                 " ~S3Req: " << RequestTypeToName(mReqType) <<
                 "/"         << mReqType <<
                 " "         << mFileName <<
@@ -1457,7 +1576,8 @@ private:
         {
             const int theRet = IOSelf(inBufferSize, inBufferPtr, inFunc);
             KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                (const void*)this <<
+                reinterpret_cast<const void*>(this) <<
+                " curl: "   << reinterpret_cast<const void*>(mCurlPtr) <<
                 " "         << RequestTypeToName(mReqType) <<
                 "/"         << mReqType <<
                 " startb: " << mStartBlockIdx <<
@@ -1469,6 +1589,33 @@ private:
                 " bidx: "   << (mBufferPtr - GetBuffers()) <<
             KFS_LOG_EOM;
             return theRet;
+        }
+        const char* ShowData(
+            char*       inBufferPtr,
+            size_t      inBufSize,
+            const char* inDataPtr,
+            size_t      inDataSize)
+        {
+            if (inBufSize <= 0) {
+                return "";
+            }
+            const char* const kHexPtr = "0123456789ABCDEF";
+            size_t            i       = 0;
+            for (size_t k = 0; k < inDataSize && i + 1 < inBufSize; k++) {
+                const int theSym = inDataPtr[k] & 0xFF;
+                if (' ' <= theSym && theSym < 127) {
+                    inBufferPtr[i++] = (char)theSym;
+                } else {
+                    if (inBufSize <= i + 3) {
+                        break;
+                    }
+                    inBufferPtr[i++] = '\\';
+                    inBufferPtr[i++] = kHexPtr[(theSym >> 4) & 0xF];
+                    inBufferPtr[i++] = kHexPtr[theSym & 0xF];
+                }
+            }
+            inBufferPtr[i] = 0;
+            return inBufferPtr;
         }
     };
     friend class S3Req;
@@ -1638,7 +1785,7 @@ private:
         S3Req& inReq)
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "get: "      << (const void*)&inReq <<
+            "get: "      << reinterpret_cast<const void*>(&inReq) <<
             " "          << inReq.GetFileName() <<
             " pos: "     << inReq.GetStartBlockIdx() <<
             " * "        << mBlockSize <<
@@ -1676,7 +1823,7 @@ private:
         S3Req& inReq)
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            (const void*)&inReq <<
+            reinterpret_cast<const void*>(&inReq) <<
             " put: "     << inReq.GetFileName() <<
             " pos: "     << inReq.GetStartBlockIdx() <<
             " * "        << mBlockSize <<
@@ -1708,7 +1855,7 @@ private:
         S3Req& inReq)
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "delete: "   << (const void*)&inReq <<
+            "delete: "   << reinterpret_cast<const void*>(&inReq) <<
             " "          << inReq.GetFileName() <<
             " attempt: " << inReq.GetRetryCount() <<
         KFS_LOG_EOM;
@@ -1797,15 +1944,41 @@ private:
         );
     }
     static int CurlSocketCB(
-        CURL*         /* inCurlPtr */,
+        CURL*         inCurlPtr,
         curl_socket_t inFd,
         int           inAction,
         void*         inUserDataPtr,
         void*         /* inSocketPtr */)
     {
         return reinterpret_cast<S3IO*>(inUserDataPtr)->SetSocket(
-            inFd, inAction
+            inCurlPtr, inFd, inAction
         );
+    }
+    static int CurlDebugCB(
+        CURL*         inCurlPtr,
+        curl_infotype inType,
+        char*         inDataPtr,
+        size_t        inDataSize,
+        void*         inUserDataPtr)
+    {
+        return (inUserDataPtr ?
+            reinterpret_cast<S3Req*>(inUserDataPtr)->CurlDebug(
+                inCurlPtr, inType, inDataPtr, inDataSize) : 0);
+    }
+    static const char* CurlDebugTypeToName(
+        curl_infotype inType)
+    {
+        switch (inType) {
+            case CURLINFO_TEXT:         return "info";
+            case CURLINFO_HEADER_IN:    return "header in";
+            case CURLINFO_HEADER_OUT:   return "header out";
+            case CURLINFO_DATA_IN:      return "data in";
+            case CURLINFO_DATA_OUT:     return "data out";
+            case CURLINFO_SSL_DATA_IN:  return "ssl data in";
+            case CURLINFO_SSL_DATA_OUT: return "ssl data out";
+            default:                    break;
+        }
+        return "invalid";
     }
     int SetTimeout(
         CURLM* inCurlCtxPtr,
@@ -1819,7 +1992,8 @@ private:
             mPollWaitMs = kTimerResolutionSec * kMilliSec;
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            "timeout curl: " << inTimeoutMs << " ms" <<
+            "curl: "         << reinterpret_cast<const void*>(inCurlCtxPtr) <<
+            " set timeout: " << inTimeoutMs << " ms" <<
             " poll: "        << mPollWaitMs << " ms" <<
         KFS_LOG_EOM;
         Schedule(
@@ -1850,6 +2024,7 @@ private:
             mCurlFdTable[inFd]);
     }
     int SetSocket(
+        const CURL*   inCurlPtr,
         curl_socket_t inFd,
         int           inAction)
     {
@@ -1896,7 +2071,8 @@ private:
         KFS_LOG_STREAM(0 != theStatus ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) << mLogPrefix <<
-            "socket: "    << inFd <<
+            "curl: "      << reinterpret_cast<const void*>(inCurlPtr) <<
+            " socket: "   << inFd <<
             " action: "   << ActionToName(inAction) << "/" << inAction <<
             " events: "   << theEvents <<
             " status: "   << (theStatus == 0 ?
