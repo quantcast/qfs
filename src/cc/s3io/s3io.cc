@@ -1396,7 +1396,7 @@ private:
                 " gen: "   << mGeneration <<
                 " debug: " << mParameters.mCurlDebugFlag <<
                 " speed:"
-                " low: "   << mParameters.mLowSpeedTime <<
+                " low: "   << mParameters.mLowSpeedLimit <<
                 " time: "  << mParameters.mLowSpeedTime <<
             KFS_LOG_EOM;
             return S3StatusOK;
