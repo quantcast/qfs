@@ -1857,7 +1857,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
                 offset < fa->filesize) {
             // Truncate is not supported with object store files.
             // Only setting logic EOF is allowed.
-            return -EACCES;
+            return -ENOSYS;
         }
         setFileSize(fa, offset);
         if (mtime) {
@@ -1873,7 +1873,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         if (endOffset >= 0 || offset < fa->filesize ||
                 fa->FilePosToChunkBlkIndex(offset - 1) !=
                 fa->LastChunkBlkIndex()) {
-            return -EACCES;
+            return -ENOSYS;
         }
         setFileSize(fa, offset);
         if (mtime) {

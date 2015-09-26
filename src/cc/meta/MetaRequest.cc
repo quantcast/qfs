@@ -354,6 +354,9 @@ FattrReply(ostream& os, const MFattr& fa, const UserAndGroupNames* ugn)
     "Replication: " << fa.numReplicas  << "\r\n";
     if (fa.type == KFS_FILE) {
         os << "Chunk-count: " << fa.chunkcount() << "\r\n";
+        if (0 == fa.numReplicas) {
+            os << "Next-chunk-pos: " << fa.nextChunkOffset() << "\r\n";
+        }
     } else if (fa.type == KFS_DIR) {
         os <<
         "File-count: " << fa.fileCount() << "\r\n"

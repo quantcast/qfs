@@ -3834,7 +3834,10 @@ public:
           mTotalFilesSize(0),
           mStripedFilesCount(0),
           mFilesWithRecoveryCount(0),
-          mMaxReplication(0)
+          mMaxReplication(0),
+          mObjectStoreFileCount(0),
+          mObjectStoreBlockCount(0),
+          mMaxObjectStoreBlockCount(0)
     {
         mPath.reserve(8 << 10);
         for (int i = 0, k = 0; i < kStateCount; i++) {
@@ -3875,6 +3878,15 @@ public:
         } else if (fa.IsStriped()) {
             mStripedFilesCount++;
         }
+        if (0 == fa.numReplicas) {
+            const int64_t theBlkCnt =
+                (int64_t)(fa.nextChunkOffset() / (chunkOff_t)CHUNKSIZE);
+            mObjectStoreFileCount++;
+            mMaxObjectStoreBlockCount =
+                max(mMaxObjectStoreBlockCount, theBlkCnt);
+            mObjectStoreBlockCount += theBlkCnt;
+            // Continue to validate that object store file has no chunks.
+        }
         mMaxReplication  = max(mMaxReplication, (int)fa.numReplicas);
         mLayoutManager.CheckFile(*this, de, fa);
         return (! mStopFlag);
@@ -3899,7 +3911,9 @@ public:
         " " << fa.numStripes <<
         " " << fa.numRecoveryStripes <<
         " " << fa.stripeSize <<
-        " " << fa.chunkcount() <<
+        " " << (0 == fa.numReplicas ?
+            (int64_t)(fa.nextChunkOffset() / (chunkOff_t)CHUNKSIZE) :
+            fa.chunkcount()) <<
         " " << DisplayIsoDateTime(fa.mtime) <<
         " ";
         DisplayPath(os) << "/" << de.getName() << "\n";
@@ -3995,6 +4009,8 @@ public:
         "File " << suff << " max chunks: " << mMaxChunkCount << "\n"
         "File " << suff << " max replication: " <<
             mMaxReplication << "\n"
+        "File " << suff << " max object store blocks: " <<
+            mMaxObjectStoreBlockCount << "\n"
         "Chunks: " << chunkCount << "\n"
         "Chunks " << suff << ": " << mTotalChunkCount <<
             " " << (mTotalChunkCount * 1e2 /
@@ -4020,6 +4036,8 @@ public:
             mPartialRecoveryBlock <<
             " " << (mPartialRecoveryBlock * 1e2 /
                 max(mRecoveryBlock, size_t(1))) << "%\n"
+        "Object store files "  << suff << ": " << mObjectStoreFileCount << "\n"
+        "Object store blocks " << suff << ": " << mObjectStoreBlockCount << "\n"
         "Fsck run time: "  <<
             (microseconds() - mStartTime) * 1e-6 << " sec.\n"
         "Files: [fsck_state size replication type stripes"
@@ -4059,6 +4077,9 @@ private:
     size_t         mStripedFilesCount;
     size_t         mFilesWithRecoveryCount;
     int            mMaxReplication;
+    size_t         mObjectStoreFileCount;
+    int64_t        mObjectStoreBlockCount;
+    int64_t        mMaxObjectStoreBlockCount;
 
     ostream& DisplayPath(ostream& os) const
     {
@@ -4193,7 +4214,11 @@ LayoutManager::CheckFile(
         }
     }
     if (! stopFlag) {
-        if (recoveryStripeCnt > 0 && chunkBlockCount > 0 &&
+        if (0 == fa.numReplicas && fa.filesize <= 0 &&
+                0 < fa.nextChunkOffset() && FilesChecker::kLost != status &&
+                fa.mtime + mFsckAbandonedFileTimeout < fsck.StartTime()) {
+            status = FilesChecker::kAbandoned;
+        } else if (0 < recoveryStripeCnt && 0 < chunkBlockCount &&
                 (status != FilesChecker::kLost ||
                     fa.filesize <= 0 ||
                     invalidBlkFlag) &&
@@ -4201,8 +4226,7 @@ LayoutManager::CheckFile(
                     fsck.StartTime() &&
                 fa.filesize <= (chunkBlockCount - 1) *
                     fa.numStripes * (chunkOff_t)CHUNKSIZE &&
-                fa.mtime + mFsckAbandonedFileTimeout <
-                    fsck.StartTime()) {
+                fa.mtime + mFsckAbandonedFileTimeout < fsck.StartTime()) {
             status = FilesChecker::kAbandoned;
         }
         fsck.Report(status, de, fa);
