@@ -1697,6 +1697,9 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
             ! dstFa->CanWrite(euser, egroup)) {
         return -EACCES;
     }
+    if (0 == srcFa->numReplicas || 0 == dstFa->numReplicas) {
+        return -ENOSYS;
+    }
     // If files are striped, both have to have the same stripe parameters,
     // and the last chunk blocks should be complete.
     if ((srcFa->IsStriped() || dstFa->IsStriped()) && (
