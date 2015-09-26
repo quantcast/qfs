@@ -3268,8 +3268,9 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     }
     if (op.striperType != op.metaStriperType && forceTypeFlag) {
         KFS_LOG_STREAM_ERROR <<
-            pathname << ": create: " << "striped file type " << op.striperType <<
-            " is not supported " << " got: " << op.metaStriperType <<
+            pathname << ": create:" <<
+            " striped file type " << op.striperType <<
+            " is not supported "  << " got: " << op.metaStriperType <<
         KFS_LOG_EOM;
         // Cleanup the file.
         RemoveOp rm(0, parentFid, filename.c_str(), pathname);
@@ -3328,6 +3329,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
         " striper: "  << fa.striperType <<
+        " replicas: " << numReplicas <<
     KFS_LOG_EOM;
 
     return fte;

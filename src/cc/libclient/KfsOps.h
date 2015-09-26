@@ -872,7 +872,9 @@ struct GetChunkMetadataOp: public ChunkAccessOp {
         {}
     void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "get chunk metadata: chunkId: " << chunkId;
+        os << "get chunk metadata:"
+            " chunkId: " << chunkId <<
+            " version: " << chunkVersion;
         return os;
     }
 };
@@ -1029,7 +1031,9 @@ struct CloseOp : public ChunkAccessOp {
         {}
     void Request(ostream& os);
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "close: chunkid: " << chunkId;
+        os << "close:"
+            " chunkid: " << chunkId <<
+            " version: " << chunkVersion;
         return os;
     }
 };

@@ -1337,10 +1337,11 @@ private:
                 // atomic 64MB "object" write.
                 const int theMaxWriteSize =
                     max(1 << 9, mOuter.mMaxWriteSize);
-                const int theTimeout = (mOuter.mOpTimeoutSec + 3) / 4 *
+                const int theTimeout = min(LEASE_INTERVAL_SECS / 2,
+                    (mOuter.mOpTimeoutSec + 3) / 4 *
                     (1 + max(mOuter.mMaxRetryCount / 3,
                     (int)((mMaxChunkPos + theMaxWriteSize - 1) /
-                        theMaxWriteSize)));
+                        theMaxWriteSize))));
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "chunk: "                << mCloseOp.chunkId <<
                     " version: "             << mCloseOp.chunkVersion <<
