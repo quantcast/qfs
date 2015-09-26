@@ -3297,7 +3297,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     FileAttr& fa = entry.fattr;
     fa.Init(false);    // is an ordinary file
     fa.fileId      = op.fileId;
-    fa.numReplicas = numReplicas;
+    fa.numReplicas = op.metaNumReplicas;
     fa.fileSize    = 0; // presently CreateOp always deletes file if exists.
     fa.minSTier    = op.minSTier;
     fa.maxSTier    = op.maxSTier;
@@ -3329,7 +3329,8 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
         " striper: "  << fa.striperType <<
-        " replicas: " << numReplicas <<
+        " replicas: " << fa.numReplicas <<
+        " / "         << numReplicas <<
     KFS_LOG_EOM;
 
     return fte;

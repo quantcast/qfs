@@ -4108,9 +4108,10 @@ MetaCreate::response(ostream &os)
         os << "Striper-type: " << striperType << "\r\n";
     }
     os <<
-    "User: "  << user  <<  "\r\n"
-    "Group: " << group <<  "\r\n"
-    "Mode: "  << mode  <<  "\r\n"
+    "Num-replicas: " << numReplicas << "\r\n"
+    "User: "         << user        << "\r\n"
+    "Group: "        << group       << "\r\n"
+    "Mode: "         << mode        << "\r\n"
     ;
     if (minSTier < kKfsSTierMax) {
         os <<

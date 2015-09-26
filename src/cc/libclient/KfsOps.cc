@@ -884,6 +884,7 @@ CreateOp::ParseResponseHeaderSelf(const Properties &prop)
     fileId            = prop.getValue("File-handle", (kfsFileId_t) -1);
     metaStriperType   = prop.getValue("Striper-type",
         int(KFS_STRIPED_FILE_TYPE_NONE));
+    metaNumReplicas   = prop.getValue("Num-replicas", numReplicas);
     if (0 <= status) {
         permissions.user  = prop.getValue("User",     permissions.user);
         permissions.group = prop.getValue("Group",    permissions.group);

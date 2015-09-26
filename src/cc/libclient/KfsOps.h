@@ -261,6 +261,7 @@ struct CreateOp : public KfsOp {
     int         numRecoveryStripes;
     int         stripeSize;
     int         metaStriperType;
+    int         metaNumReplicas;
     Permissions permissions;
     kfsSeq_t    reqId;
     kfsSTier_t  minSTier;
@@ -286,6 +287,7 @@ struct CreateOp : public KfsOp {
           numRecoveryStripes(0),
           stripeSize(0),
           metaStriperType(KFS_STRIPED_FILE_TYPE_UNKNOWN),
+          metaNumReplicas(0),
           permissions(perms),
           reqId(id),
           minSTier(minTier),
