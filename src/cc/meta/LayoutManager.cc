@@ -3994,6 +3994,9 @@ public:
         "Files " << suff << " striped: " <<
             mStripedFilesCount <<
             " " << (mStripedFilesCount * fpct) << "%\n"
+        "Files "  << suff << " object store: " <<
+            mObjectStoreFileCount <<
+            " " << (mObjectStoreFileCount * fpct) << "%\n"
         "Files " << suff << " sum of logical sizes: " <<
             mTotalFilesSize << "\n";
         for (int i = kStateNone + 1; i < kStateCount; i++) {
@@ -4036,7 +4039,6 @@ public:
             mPartialRecoveryBlock <<
             " " << (mPartialRecoveryBlock * 1e2 /
                 max(mRecoveryBlock, size_t(1))) << "%\n"
-        "Object store files "  << suff << ": " << mObjectStoreFileCount << "\n"
         "Object store blocks " << suff << ": " << mObjectStoreBlockCount << "\n"
         "Fsck run time: "  <<
             (microseconds() - mStartTime) * 1e-6 << " sec.\n"
