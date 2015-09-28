@@ -464,8 +464,8 @@ include_directories(
 )
 
 IF (LIBS3_LIBRARIES)
-    message (STATUS "Usig S3 includes: ${LIBS3_INCLUDE_DIR}")
-    message (STATUS "Usig S3 libraries: ${LIBS3_LIBRARIES}")
+    message (STATUS "Using S3 includes: ${LIBS3_INCLUDE_DIR}")
+    message (STATUS "Using S3 libraries: ${LIBS3_LIBRARIES}")
     include_directories(${CURL_INCLUDE_DIRS}  ${LIBS3_INCLUDE_DIR})
     add_definitions(-D KFS_IO_METHOD_NAME_S3IO=S3IO)
 ELSE (LIBS3_LIBRARIES)
