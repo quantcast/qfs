@@ -116,7 +116,8 @@ public:
         ServerPsk*  inServerPskPtr        = 0,
         VerifyPeer* inVerifyPeerPtr       = 0,
         const char* inExpectedPeerNamePtr = 0,
-        bool        inDeleteOnCloseFlag   = true);
+        bool        inDeleteOnCloseFlag   = true,
+        const char* inServerNamePtr       = 0);
     SslFilter(
         Ctx&        inCtx,
         const char* inPskDataPtr        = 0,
@@ -124,7 +125,8 @@ public:
         const char* inPskCliIdendityPtr = 0,
         ServerPsk*  inServerPskPtr      = 0,
         VerifyPeer* inVerifyPeerPtr     = 0,
-        bool        inDeleteOnCloseFlag = true);
+        bool        inDeleteOnCloseFlag = true,
+        const char* inServerNamePtr     = 0);
     Error GetError() const;
     void SetPsk(
         const char* inPskDataPtr,
