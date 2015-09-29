@@ -39,6 +39,7 @@
 
 #include "qcdio/qcdebug.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDlList.h"
 
 #include <string>
 #include <set>
