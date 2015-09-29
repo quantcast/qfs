@@ -251,7 +251,11 @@ private:
             List::Init(*this);
         }
         virtual ~ClientSM()
-            {}
+        {
+            QCRTASSERT(0 == mRecursionCount && ! mTransactionPtr &&
+                    ! mConnectionPtr->IsGood());
+            --mRecursionCount; // To catch double delete.
+        }
         void Connect(
             Transaction& inTransaction)
         {
@@ -375,7 +379,7 @@ private:
                     return 0;
                 }
             }
-            QCASSERT(mRecursionCount >= 1);
+            QCASSERT(1 <= mRecursionCount);
             mRecursionCount--;
             return 0;
         }
