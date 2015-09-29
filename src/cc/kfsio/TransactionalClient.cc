@@ -323,7 +323,8 @@ private:
                     if (mTransactionPtr) {
                         IOBuffer& theIoBuf = mConnectionPtr->GetOutBuffer();
                         QCASSERT(&theIoBuf == inEventDataPtr);
-                        const int theRet = mTransactionPtr->Request(theIoBuf);
+                        const int theRet = mTransactionPtr->Request(
+                            theIoBuf, mConnectionPtr->GetInBuffer());
                         if (theRet < 0) {
                             mConnectionPtr->Close();
                         }
@@ -374,6 +375,8 @@ private:
                 if (! mTransactionPtr) {
                     mConnectionPtr->SetMaxReadAhead(1);
                     mConnectionPtr->SetInactivityTimeout(mImpl.mIdleTimeout);
+                    mConnectionPtr->GetOutBuffer().Clear();
+                    mConnectionPtr->GetInBuffer().Clear();
                     mRecursionCount--;
                     mImpl.Add(*this);
                     return 0;
