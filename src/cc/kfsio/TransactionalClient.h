@@ -45,8 +45,9 @@ public:
     {
     public:
         virtual int Request(
-            IOBuffer& inBuffer,
-            IOBuffer& inResponseBuffer) = 0;
+            IOBuffer&             inBuffer,
+            IOBuffer&             inResponseBuffer,
+            const ServerLocation& inServer) = 0;
         virtual int Response(
             IOBuffer& inBuffer) = 0;
         virtual void Error(

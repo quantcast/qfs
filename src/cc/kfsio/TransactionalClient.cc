@@ -62,6 +62,7 @@ public:
           mTimeout(20),
           mIdleTimeout(60),
           mHttpsHostNameFlag(true),
+          mVerifyServerFlag(true),
           mServerName(),
           mPeerNames(),
           mSslCtxParameters(),
@@ -138,6 +139,10 @@ public:
         mHttpsHostNameFlag = inParameters.getValue(
             theName.Truncate(thePrefixSize).Append("httpsHostName"),
             mHttpsHostNameFlag ? 1 : 0
+        ) != 0;
+        mVerifyServerFlag = inParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("ssl.verifyServer"),
+            mVerifyServerFlag ? 1 : 0
         ) != 0;
         bool                            theStopFlag =
             thePrevHostName != mLocation.hostname;
@@ -238,17 +243,18 @@ private:
         bool          inEndTimeValidFlag)
     {
         if (0 < inCurCertDepth) {
-            return inPreverifyOkFlag;
+            return (inPreverifyOkFlag || ! mVerifyServerFlag);
         }
-        const bool theRetFlag = inPreverifyOkFlag && (mPeerNames.empty() ||
-            mPeerNames.find(inPeerName) != mPeerNames.end());
+        const bool theRetFlag = ! mVerifyServerFlag ||
+            (inPreverifyOkFlag && (mPeerNames.empty() ||
+            mPeerNames.find(inPeerName) != mPeerNames.end()));
         KFS_LOG_STREAM(theRetFlag ? 
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) <<
             "peer verify: " << (theRetFlag ? "ok" : "failed") <<
              " peer: "           << inPeerName <<
              " prev name: "      << ioFilterAuthName <<
-             " preverify: "      << inPreverifyOkFlag <<
+             " preverify ok: "   << inPreverifyOkFlag <<
              " depth: "          << inCurCertDepth <<
              " end time: +"      << (inEndTime - mNetManager.Now()) <<
              " end time valid: " << inEndTimeValidFlag <<
@@ -270,6 +276,7 @@ private:
               mImpl(inImpl),
               mConnectionPtr(),
               mRecursionCount(0),
+              mIdleFlag(false),
               mTransactionPtr(0)
         {
             SET_HANDLER(this, &ClientSM::EventHandler);
@@ -278,13 +285,14 @@ private:
         virtual ~ClientSM()
         {
             QCRTASSERT(0 == mRecursionCount && ! mTransactionPtr &&
-                    ! mConnectionPtr->IsGood());
+                    (! mConnectionPtr || ! mConnectionPtr->IsGood()));
             --mRecursionCount; // To catch double delete.
         }
         void Connect(
             Transaction& inTransaction)
         {
             QCASSERT(! mTransactionPtr);
+            mIdleFlag = false;
             const bool theNonBlockingFlag = true;
             TcpSocket& theSocket          = *(new TcpSocket());
             const int theErr              = theSocket.Connect(
@@ -315,7 +323,8 @@ private:
         void Run(
             Transaction& inTransaction)
         {
-            QCASSERT(! mTransactionPtr);
+            QCASSERT(! mTransactionPtr && mIdleFlag);
+            mIdleFlag = false;
             mTransactionPtr = &inTransaction;
             mConnectionPtr->SetInactivityTimeout(mImpl.mTimeout);
             EventHandler(EVENT_NET_WROTE, &mConnectionPtr->GetOutBuffer());
@@ -329,7 +338,6 @@ private:
             }
             if (mTransactionPtr) {
                 mTransactionPtr->Error(inError, inMsgPtr);
-                mTransactionPtr = 0;
             }
             mImpl.Remove(*this);
         }
@@ -362,9 +370,15 @@ private:
                         IOBuffer& theIoBuf = mConnectionPtr->GetOutBuffer();
                         QCASSERT(&theIoBuf == inEventDataPtr);
                         const int theRet = mTransactionPtr->Request(
-                            theIoBuf, mConnectionPtr->GetInBuffer());
+                            theIoBuf,
+                            mConnectionPtr->GetInBuffer(),
+                            mImpl.mLocation
+                        );
                         if (theRet < 0) {
+                            mTransactionPtr = 0;
                             mConnectionPtr->Close();
+                        } else if (0 < theRet) {
+                            mConnectionPtr->SetMaxReadAhead(theRet);
                         }
                     }
                     break;
@@ -416,6 +430,8 @@ private:
                     mConnectionPtr->GetOutBuffer().Clear();
                     mConnectionPtr->GetInBuffer().Clear();
                     mRecursionCount--;
+                    QCASSERT(! mIdleFlag);
+                    mIdleFlag = true;
                     mImpl.Add(*this);
                     return 0;
                 }
@@ -424,11 +440,13 @@ private:
             mRecursionCount--;
             return 0;
         }
+        bool IsIdle() const
+            { return mIdleFlag; }
     protected:
         Impl&            mImpl;
         NetConnectionPtr mConnectionPtr;
         int              mRecursionCount;
-        bool             mCloseConnectionFlag;
+        bool             mIdleFlag;
         Transaction*     mTransactionPtr;
         ClientSM*        mPrevPtr[1];
         ClientSM*        mNextPtr[1];
@@ -449,7 +467,7 @@ private:
                 0,       // inPskCliIdendityPtr
                 0,       // inServerPskPtr
                 &inImpl, // inVerifyPeerPtr
-                true,    // inDeleteOnCloseFlag,
+                false,   // inDeleteOnCloseFlag,
                 inImpl.mServerName.empty() ? inImpl.mServerName.c_str() : 0
               )
             { SET_HANDLER(this, &SslClientSM::EventHandler); }
@@ -493,6 +511,7 @@ private:
     int             mTimeout;
     int             mIdleTimeout;
     bool            mHttpsHostNameFlag;
+    bool            mVerifyServerFlag;
     string          mServerName;
     PeerNames       mPeerNames;
     Properties      mSslCtxParameters;
@@ -523,22 +542,24 @@ private:
             mErrorMsg.clear();
         } else if (mErrorMsg.empty()) {
             if (mLocation.IsValid()) {
-                mErrorMsg = "invalid server address";
-            } else {
                 mErrorMsg = "invalid ssl configation";
+            } else {
+                mErrorMsg = "invalid server address";
             }
         }
     }
     void Add(
         ClientSM& inClient)
     {
+        QCASSERT(inClient.IsIdle());
         List::Remove(mInUseListPtr, inClient);
         List::PushFront(mIdleListPtr, inClient);
     }
     void Remove(
         ClientSM& inClient)
     {
-        List::Remove(mInUseListPtr, inClient);
+        List::Remove(inClient.IsIdle() ? mIdleListPtr : mInUseListPtr,
+            inClient);
         delete &inClient;
     }
 private:
