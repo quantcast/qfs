@@ -123,6 +123,7 @@ public:
         }
         mNetManager.RegisterTimeoutHandler(this);
         mNetManager.MainLoop();
+        mNetManager.UnRegisterTimeoutHandler(this);
         mClient.Stop();
         SslFilter::Cleanup();
         return 0;
@@ -191,6 +192,7 @@ private:
                         inBuffer.BytesConsumable() << " bytes" <<
                     KFS_LOG_EOM;
                     inBuffer.Clear();
+                    delete this;
                     return -1;
                 }
                 return kMaxHdrLen;
@@ -200,12 +202,17 @@ private:
                         mOuter.mHdrBuffer, mHeaderLength);
                 if (! GetContentLength(thePtr, thePtr + mHeaderLength,
                         mContentLength)) {
+                    if (thePtr != mOuter.mHdrBuffer) {
+                        memcpy(mOuter.mHdrBuffer, thePtr, mHeaderLength);
+                    }
                     mOuter.mHdrBuffer[mHeaderLength] = 0;
-                    KFS_LOG_STREAM_ERROR << " failed to parse content length: " <<
+                    KFS_LOG_STREAM_ERROR << " failed to parse content length:" <<
                         " discarding: " << inBuffer.BytesConsumable() << " bytes"
+                        " header length: " << mHeaderLength <<
                         " header: " << mOuter.mHdrBuffer <<
                     KFS_LOG_EOM;
                     inBuffer.Clear();
+                    delete this;
                     return -1;
                 }
                 if (inBuffer.BytesConsumable() <
@@ -215,7 +222,7 @@ private:
                 }
             }
             KFS_LOG_STREAM_DEBUG <<
-                " response:"
+                "response:"
                 " headers: "   << mHeaderLength <<
                 " body: "      << mContentLength <<
                 " buffer: "    << inBuffer.BytesConsumable() <<

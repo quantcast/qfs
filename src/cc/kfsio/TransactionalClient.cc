@@ -356,6 +356,7 @@ private:
                     if (! mTransactionPtr ||
                             (theRet = mTransactionPtr->Response(
                                 theIoBuf)) < 0) {
+                        mTransactionPtr = 0;
                         mConnectionPtr->Close();
                     } else if (0 < theRet) {
                         mConnectionPtr->SetMaxReadAhead(theRet);
