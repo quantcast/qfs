@@ -27,11 +27,16 @@
 #ifndef KFSIO_TRANSACTIONAL_CLIENT_H
 #define KFSIO_TRANSACTIONAL_CLIENT_H
 
+#include <string>
+
 namespace KFS
 {
+using std::string;
+
 class NetManager;
 class Properties;
 class IOBuffer;
+struct ServerLocation;
 
 class TransactionalClient
 {
@@ -56,14 +61,24 @@ public:
     TransactionalClient(
         NetManager& inNetManager);
     ~TransactionalClient();
+    int SetServer(
+        const ServerLocation& inLocation,
+        bool                  inHttpsHostNameFlag);
     void Stop();
-    bool SetParameters(
+    int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        string*           inErrMsgPtr);
     void Run(
         Transaction& inTransaction);
 private:
     class Impl;
+    Impl& mImpl;
+private:
+    TransactionalClient(
+        const TransactionalClient& inClient);
+    TransactionalClient& operator=(
+        const TransactionalClient& inClient);
 };
 
 }

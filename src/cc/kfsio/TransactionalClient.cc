@@ -73,22 +73,42 @@ public:
     }
     ~Impl()
     {
-        Impl::Stop();
+        Impl::Stop(-EIO, "shutdown");
         if (mSslCtxPtr) {
             SslFilter::FreeCtx(mSslCtxPtr);
         }
     }
-    void Stop()
+    void Stop(
+        int         inError,
+        const char* inMsgPtr)
     {
         ClientSM* theClientPtr;
         while ((theClientPtr = List::PopFront(mIdleListPtr))) {
-            theClientPtr->EventHandler(EVENT_NET_ERROR, 0);
+            theClientPtr->Stop(inError, inMsgPtr);
         }
         while ((theClientPtr = List::PopFront(mInUseListPtr))) {
-            theClientPtr->EventHandler(EVENT_NET_ERROR, 0);
+            theClientPtr->Stop(inError, inMsgPtr);
         }
     }
-    bool SetParameters(
+    int SetServer(
+        const ServerLocation& inLocation,
+        bool                  inHttpsHostNameFlag)
+    {
+        if (inLocation == mLocation &&
+                inHttpsHostNameFlag == mHttpsHostNameFlag) {
+            return mError;
+        }
+        mHttpsHostNameFlag = inHttpsHostNameFlag;
+        mLocation          = inLocation;
+        if (mHttpsHostNameFlag) {
+            UpdateHttpsPeerNames();
+        }
+        mError = (mLocation.IsValid() &&
+            (mSslCtxParameters.empty() || 0 != mSslCtxPtr)) ? 0 : -EINVAL;
+        Stop(-EAGAIN, "server location changed");
+        return mError;
+    }
+    int SetParameters(
         const char*       inParamsPrefixPtr,
         const Properties& inParameters,
         string*           inErrMsgPtr)
@@ -119,10 +139,12 @@ public:
             theName.Truncate(thePrefixSize).Append("httpsHostName"),
             mHttpsHostNameFlag ? 1 : 0
         ) != 0;
-        const Properties::String* const theValPtr = inParameters.getValue(
+        bool                            theStopFlag =
+            thePrevHostName != mLocation.hostname;
+        const Properties::String* const theValPtr   = inParameters.getValue(
             theName.Truncate(thePrefixSize).Append("peerNames"));
         if (theValPtr) {
-            mPeerNames.clear();
+            PeerNames thePeerNames;
             const char*       thePtr    = theValPtr->GetPtr();
             const char* const theEndPtr = thePtr + theValPtr->GetSize();
             while (thePtr < theEndPtr) {
@@ -134,22 +156,16 @@ public:
                     ++thePtr;
                 }
                 if (theStartPtr < thePtr) {
-                    mPeerNames.insert(
+                    thePeerNames.insert(
                         string(theStartPtr, thePtr - theStartPtr));
                 }
             }
-        } else if (mHttpsHostNameFlag &&
-                (mPeerNames.empty() || thePrevHostName != mLocation.hostname)) {
-            mPeerNames.clear();
-            if (! mLocation.hostname.empty()) {
-                mPeerNames.insert(mLocation.hostname);
-                const size_t thePos = mLocation.hostname.find('.');
-                if (string::npos != thePos && 0 < thePos &&
-                        thePos + 1 < mLocation.hostname.size()) {
-                    string theName("*");
-                    theName.append(mLocation.hostname, thePos, string::npos);
-                }
+            if (thePeerNames != mPeerNames) {
+                theStopFlag = true;
+                mPeerNames = thePeerNames;
             }
+        } else if (mHttpsHostNameFlag && (mPeerNames.empty() || theStopFlag)) {
+            UpdateHttpsPeerNames();
         }
         const Properties::String* const theSrvNamePtr = inParameters.getValue(
             theName.Truncate(thePrefixSize).Append("serverName"));
@@ -178,10 +194,14 @@ public:
                 mSslCtxParameters,
                 inErrMsgPtr
             );
+            theStopFlag = true;
         }
         mError = (mLocation.IsValid() &&
             (theParamsCount <= 0 || 0 != mSslCtxPtr)) ? 0 : -EINVAL;
-        return (0 == mError);
+        if (theStopFlag) {
+            Stop(-EAGAIN, "configuration changed");
+        }
+        return mError;
     }
     void Run(
         Transaction& inTransaction)
@@ -295,6 +315,19 @@ private:
             mTransactionPtr = &inTransaction;
             mConnectionPtr->SetInactivityTimeout(mImpl.mTimeout);
             EventHandler(EVENT_NET_WROTE, &mConnectionPtr->GetOutBuffer());
+        }
+        void Stop(
+            int         inError,
+            const char* inMsgPtr)
+        {
+            if (mConnectionPtr) {
+                mConnectionPtr->Close();
+            }
+            if (mTransactionPtr) {
+                mTransactionPtr->Error(inError, inMsgPtr);
+                mTransactionPtr = 0;
+            }
+            mImpl.Remove(*this);
         }
         int EventHandler(
             int   inEventCode,
@@ -463,6 +496,20 @@ private:
     ClientSM*       mInUseListPtr[1];
     ClientSM*       mIdleListPtr[1];
 
+    void UpdateHttpsPeerNames()
+    {
+        mPeerNames.clear();
+        if (mLocation.hostname.empty()) {
+            return;
+        }
+        mPeerNames.insert(mLocation.hostname);
+        const size_t thePos = mLocation.hostname.find('.');
+        if (string::npos != thePos && 0 < thePos &&
+                thePos + 1 < mLocation.hostname.size()) {
+            string theName("*");
+            theName.append(mLocation.hostname, thePos, string::npos);
+        }
+    }
     void Add(
         ClientSM& inClient)
     {
@@ -475,6 +522,51 @@ private:
         List::Remove(mInUseListPtr, inClient);
         delete &inClient;
     }
+private:
+    Impl(
+        const Impl& inImpl);
+    Impl& operator=(
+        const Impl& inImpl);
 };
+
+TransactionalClient::TransactionalClient(
+    NetManager& inNetManager)
+    : mImpl(*(new Impl(inNetManager)))
+    {}
+
+TransactionalClient::~TransactionalClient()
+{
+    delete &mImpl;
+}
+
+    int
+TransactionalClient::SetServer(
+    const ServerLocation& inLocation,
+    bool                  inHttpsHostNameFlag)
+{
+    return mImpl.SetServer(inLocation, inHttpsHostNameFlag);
+}
+
+    void
+TransactionalClient::Stop()
+{
+    mImpl.Stop(-EIO, "stop");
+}
+
+    int
+TransactionalClient::SetParameters(
+    const char*       inPrefixPtr,
+    const Properties& inParameters,
+    string*           inErrMsgPtr)
+{
+    return mImpl.SetParameters(inPrefixPtr, inParameters, inErrMsgPtr);
+}
+
+    void
+TransactionalClient::Run(
+    Transaction& inTransaction)
+{
+    mImpl.Run(inTransaction);
+}
 
 } // namespace KFS
