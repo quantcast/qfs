@@ -65,7 +65,8 @@ public:
           mServerName(),
           mPeerNames(),
           mSslCtxParameters(),
-          mError(0)
+          mError(0),
+          mErrorMsg()
     {
         mLocation.port = 443;
         List::Init(mInUseListPtr);
@@ -103,8 +104,7 @@ public:
         if (mHttpsHostNameFlag) {
             UpdateHttpsPeerNames();
         }
-        mError = (mLocation.IsValid() &&
-            (mSslCtxParameters.empty() || 0 != mSslCtxPtr)) ? 0 : -EINVAL;
+        UpdateStatus();
         Stop(-EAGAIN, "server location changed");
         return mError;
     }
@@ -177,27 +177,31 @@ public:
         }
         theName.Truncate(thePrefixSize).Append("ssl.");
         Properties theSslCtxParameters;
-        const size_t theParamsCount = inParameters.copyWithPrefix(
+        inParameters.copyWithPrefix(
             theName.GetPtr(), theName.GetSize(), theSslCtxParameters);
         if (theSslCtxParameters != mSslCtxParameters) {
+            mSslCtxParameters.swap(theSslCtxParameters);
             if (mSslCtxPtr) {
                 SslFilter::FreeCtx(mSslCtxPtr);
                 mSslCtxPtr = 0;
             }
-            mSslCtxParameters = theSslCtxParameters;
-            const bool kServerFlag  = false;
-            const bool kPskOnlyFlag = false;
-            mSslCtxPtr = SslFilter::CreateCtx(
-                kServerFlag,
-                kPskOnlyFlag,
-                inParamsPrefixPtr,
-                mSslCtxParameters,
-                inErrMsgPtr
-            );
+            if (! mSslCtxParameters.empty()) {
+                const bool kServerFlag  = false;
+                const bool kPskOnlyFlag = false;
+                mSslCtxPtr = SslFilter::CreateCtx(
+                    kServerFlag,
+                    kPskOnlyFlag,
+                    inParamsPrefixPtr,
+                    mSslCtxParameters,
+                    &mErrorMsg
+                );
+            }
             theStopFlag = true;
         }
-        mError = (mLocation.IsValid() &&
-            (theParamsCount <= 0 || 0 != mSslCtxPtr)) ? 0 : -EINVAL;
+        UpdateStatus();
+        if (inErrMsgPtr) {
+            *inErrMsgPtr = mErrorMsg;
+        }
         if (theStopFlag) {
             Stop(-EAGAIN, "configuration changed");
         }
@@ -207,7 +211,7 @@ public:
         Transaction& inTransaction)
     {
         if (mError) {
-            inTransaction.Error(mError, "invalid parameters");
+            inTransaction.Error(mError, mErrorMsg.c_str());
             return;
         }
         ClientSM* theClientPtr = List::PopFront(mIdleListPtr);
@@ -493,6 +497,7 @@ private:
     PeerNames       mPeerNames;
     Properties      mSslCtxParameters;
     int             mError;
+    string          mErrorMsg;
     ClientSM*       mInUseListPtr[1];
     ClientSM*       mIdleListPtr[1];
 
@@ -508,6 +513,20 @@ private:
                 thePos + 1 < mLocation.hostname.size()) {
             string theName("*");
             theName.append(mLocation.hostname, thePos, string::npos);
+        }
+    }
+    void UpdateStatus()
+    {
+        mError = (mLocation.IsValid() &&
+            (mSslCtxParameters.empty() || 0 != mSslCtxPtr)) ? 0 : -EINVAL;
+        if (0 == mError) {
+            mErrorMsg.clear();
+        } else if (mErrorMsg.empty()) {
+            if (mLocation.IsValid()) {
+                mErrorMsg = "invalid server address";
+            } else {
+                mErrorMsg = "invalid ssl configation";
+            }
         }
     }
     void Add(
