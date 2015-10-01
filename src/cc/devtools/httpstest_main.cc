@@ -29,6 +29,7 @@
 #include "kfsio/NetManager.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/HttpResponseHeaders.h"
 
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
@@ -153,7 +154,7 @@ private:
             : mOuter(inOuter),
               mSentFlag(false),
               mHeaderLength(-1),
-              mContentLength(-1)
+              mHeaders()
             {}
         virtual ~HttpReq()
         {
@@ -169,6 +170,7 @@ private:
             if (mSentFlag) {
                 return 0;
             }
+            mHeaders.Reset();
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
             theStream <<
                 "GET / HTTP/1.1\r\n"
@@ -197,11 +199,12 @@ private:
                 }
                 return kMaxHdrLen;
             }
-            if (mContentLength < 0) {
+            if (mHeaders.GetContentLength() < 0) {
                 const char* const thePtr = inBuffer.CopyOutOrGetBufPtr(
                         mOuter.mHdrBuffer, mHeaderLength);
-                if (! GetContentLength(thePtr, thePtr + mHeaderLength,
-                        mContentLength)) {
+                if (! mHeaders.Parse(thePtr, mHeaderLength) ||
+                        mHeaders.IsUnsupportedEncoding() ||
+                        mHeaders.GetContentLength() < 0) {
                     if (thePtr != mOuter.mHdrBuffer) {
                         memcpy(mOuter.mHdrBuffer, thePtr, mHeaderLength);
                     }
@@ -216,16 +219,18 @@ private:
                     return -1;
                 }
                 if (inBuffer.BytesConsumable() <
-                        mContentLength + mHeaderLength) {
-                    return ((mContentLength + mHeaderLength) -
+                        mHeaders.GetContentLength() + mHeaderLength) {
+                    return ((mHeaders.GetContentLength() + mHeaderLength) -
                         inBuffer.BytesConsumable());
                 }
             }
             KFS_LOG_STREAM_DEBUG <<
                 "response:"
                 " headers: "   << mHeaderLength <<
-                " body: "      << mContentLength <<
+                " body: "      << mHeaders.GetContentLength() <<
                 " buffer: "    << inBuffer.BytesConsumable() <<
+                " status: "    << mHeaders.GetStatus() <<
+                " http/1.1 "   << mHeaders.IsHttp11OrGreater() <<
                 " in flight: " << mOuter.mInFlightCount <<
                 " done: "      << mOuter.mDoneCount <<
             KFS_LOG_EOM;
@@ -257,10 +262,10 @@ private:
             delete this;
         }
     private:
-        HttpsTest& mOuter;
-        bool       mSentFlag;
-        int        mHeaderLength;
-        int        mContentLength;
+        HttpsTest&          mOuter;
+        bool                mSentFlag;
+        int                 mHeaderLength;
+        HttpResponseHeaders mHeaders;
     private:
         HttpReq(
             const HttpReq& inRequest);
