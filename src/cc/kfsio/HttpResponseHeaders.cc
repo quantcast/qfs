@@ -43,7 +43,7 @@ const Token kHttpTransferEncodingKey     ("transfer-encoding");
 const Token kHttpTransferEncodingChunked ("chunked");
 const Token kHttpTransferEncodingIdentity("identity");
 const Token kHttpProtocol                ("http");
-const Token kHttpConnection              ("connection");
+const Token kHttpConnectionKey           ("connection");
 const Token kHttpConnectionClose         ("close");
 
     static inline bool
@@ -171,7 +171,7 @@ HttpResponseHeaders::Parse(
             mUnsupportedEncodingFlag = true;
             continue;
         }
-        if (Equals(theKey, kHttpConnection)) {
+        if (Equals(theKey, kHttpConnectionKey)) {
             const Token& theValue = theTokenizer.GetValue();
             if (Equals(theValue, kHttpConnectionClose)) {
                 mConnectionCloseFlag = true;
