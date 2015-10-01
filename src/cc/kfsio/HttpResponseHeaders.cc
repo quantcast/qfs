@@ -42,7 +42,9 @@ typedef PropertiesTokenizer::Token Token;
 const Token kHttpTransferEncodingKey     ("transfer-encoding");
 const Token kHttpTransferEncodingChunked ("chunked");
 const Token kHttpTransferEncodingIdentity("identity");
-const Token kHttpProtocol("http");
+const Token kHttpProtocol                ("http");
+const Token kHttpConnection              ("connection");
+const Token kHttpConnectionClose         ("close");
 
     static inline bool
 Equals(
@@ -167,6 +169,13 @@ HttpResponseHeaders::Parse(
                 continue;
             }
             mUnsupportedEncodingFlag = true;
+            continue;
+        }
+        if (Equals(theKey, kHttpConnection)) {
+            const Token& theValue = theTokenizer.GetValue();
+            if (Equals(theValue, kHttpConnectionClose)) {
+                mConnectionCloseFlag = true;
+            }
             continue;
         }
     }

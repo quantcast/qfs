@@ -37,7 +37,8 @@ public:
           mContentLength(-1),
           mChunkedEcondingFlag(false),
           mUnsupportedEncodingFlag(false),
-          mHttp11OrGreaterFlag(false)
+          mHttp11OrGreaterFlag(false),
+          mConnectionCloseFlag(false)
         {}
     bool Parse(
         const char* inPtr,
@@ -49,6 +50,7 @@ public:
         mChunkedEcondingFlag     = false;
         mUnsupportedEncodingFlag = false;
         mHttp11OrGreaterFlag     = false;
+        mConnectionCloseFlag     = false;
     }
     int GetStatus() const
         { return mStatus; }
@@ -60,12 +62,15 @@ public:
         { return mUnsupportedEncodingFlag; }
     bool IsHttp11OrGreater() const
         { return mHttp11OrGreaterFlag; }
+    bool IsConnectionClose() const
+        { return mConnectionCloseFlag; }
 private:
     int  mStatus;
     int  mContentLength;
     bool mChunkedEcondingFlag;
     bool mUnsupportedEncodingFlag;
     bool mHttp11OrGreaterFlag;
+    bool mConnectionCloseFlag;
 };
 
 } // namespace KFS

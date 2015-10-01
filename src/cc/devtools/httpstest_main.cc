@@ -204,7 +204,9 @@ private:
                         mOuter.mHdrBuffer, mHeaderLength);
                 if (! mHeaders.Parse(thePtr, mHeaderLength) ||
                         mHeaders.IsUnsupportedEncoding() ||
-                        mHeaders.GetContentLength() < 0) {
+                        (mHeaders.IsHttp11OrGreater() &&
+                        (mHeaders.GetContentLength() < 0 &&
+                        ! mHeaders.IsChunkedEconding()))) {
                     if (thePtr != mOuter.mHdrBuffer) {
                         memcpy(mOuter.mHdrBuffer, thePtr, mHeaderLength);
                     }
@@ -231,6 +233,8 @@ private:
                 " buffer: "    << inBuffer.BytesConsumable() <<
                 " status: "    << mHeaders.GetStatus() <<
                 " http/1.1 "   << mHeaders.IsHttp11OrGreater() <<
+                " close: "     << mHeaders.IsConnectionClose() <<
+                " chunked: "   << mHeaders.IsChunkedEconding() <<
                 " in flight: " << mOuter.mInFlightCount <<
                 " done: "      << mOuter.mDoneCount <<
             KFS_LOG_EOM;
