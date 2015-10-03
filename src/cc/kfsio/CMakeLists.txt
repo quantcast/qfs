@@ -44,6 +44,7 @@ set (sources
     PrngIsaac64.cc
     TransactionalClient.cc
     HttpResponseHeaders.cc
+    HttpChunkedDecoder.cc
 )
 
 add_library (kfsIO STATIC ${sources})

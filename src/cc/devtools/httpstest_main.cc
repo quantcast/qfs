@@ -30,6 +30,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/HttpResponseHeaders.h"
+#include "kfsio/HttpChunkedDecoder.h"
 
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
@@ -131,7 +132,9 @@ public:
     }
     virtual void Timeout()
     {
-        if (5 <= mDoneCount) {
+        const int kMaxDoneReqCount   = 5;
+        const int kStartConcurrently = 3;
+        if (kMaxDoneReqCount <= mDoneCount) {
             KFS_LOG_STREAM_DEBUG <<
                 " shutdown: "  <<
                 " in flight: " << mInFlightCount <<
@@ -139,7 +142,7 @@ public:
             KFS_LOG_EOM;
             mNetManager.Shutdown();
         }
-        int k = 3 - mInFlightCount;
+        int k = kStartConcurrently - mInFlightCount;
         while (0 < k--) {
             mInFlightCount++;
             mClient.Run(*(new HttpReq(*this)));
@@ -154,7 +157,9 @@ private:
             : mOuter(inOuter),
               mSentFlag(false),
               mHeaderLength(-1),
-              mHeaders()
+              mIoBuffer(),
+              mHeaders(),
+              mHttpChunkedDecoder(mIoBuffer)
             {}
         virtual ~HttpReq()
         {
@@ -199,7 +204,8 @@ private:
                 }
                 return kMaxHdrLen;
             }
-            if (mHeaders.GetContentLength() < 0) {
+            if (mHeaders.GetContentLength() < 0 &&
+                    ! mHeaders.IsChunkedEconding()) {
                 const char* const thePtr = inBuffer.CopyOutOrGetBufPtr(
                         mOuter.mHdrBuffer, mHeaderLength);
                 if (! mHeaders.Parse(thePtr, mHeaderLength) ||
@@ -220,17 +226,50 @@ private:
                     delete this;
                     return -1;
                 }
+                if (mHeaders.IsChunkedEconding()) {
+                    mIoBuffer.Move(&inBuffer, mHeaderLength);
+                }
+            }
+            if (mHeaders.IsChunkedEconding()) {
+                const int theRet = mHttpChunkedDecoder.Parse(inBuffer);
+                if (theRet < 0) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "failed to parse chunk encoded content:" <<
+                        " discarding: " << inBuffer.BytesConsumable() <<
+                        " bytes header length: " << mHeaderLength <<
+                    KFS_LOG_EOM;
+                    inBuffer.Clear();
+                    delete this;
+                    return -1;
+                } else if (0 < theRet) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        " chunked:"
+                        " read ahead: " << theRet <<
+                        " buffer rem: " << inBuffer.BytesConsumable() <<
+                        " decoded: "    << mIoBuffer.BytesConsumable() <<
+                    KFS_LOG_EOM;
+                    return theRet;
+                }
+                if (! inBuffer.IsEmpty()) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "failed to completely parse chunk encoded content:" <<
+                        " discarding: " << inBuffer.BytesConsumable() <<
+                        " bytes header length: " << mHeaderLength <<
+                    KFS_LOG_EOM;
+                }
+            } else {
                 if (inBuffer.BytesConsumable() <
                         mHeaders.GetContentLength() + mHeaderLength) {
                     return ((mHeaders.GetContentLength() + mHeaderLength) -
                         inBuffer.BytesConsumable());
                 }
             }
+            IOBuffer& theBuffer = mHeaders.IsChunkedEconding() ? mIoBuffer : inBuffer;
             KFS_LOG_STREAM_DEBUG <<
                 "response:"
                 " headers: "   << mHeaderLength <<
                 " body: "      << mHeaders.GetContentLength() <<
-                " buffer: "    << inBuffer.BytesConsumable() <<
+                " buffer: "    << theBuffer.BytesConsumable() <<
                 " status: "    << mHeaders.GetStatus() <<
                 " http/1.1 "   << mHeaders.IsHttp11OrGreater() <<
                 " close: "     << mHeaders.IsConnectionClose() <<
@@ -238,20 +277,20 @@ private:
                 " in flight: " << mOuter.mInFlightCount <<
                 " done: "      << mOuter.mDoneCount <<
             KFS_LOG_EOM;
-            while (! inBuffer.IsEmpty()) {
-                const int theErr = inBuffer.Write(mOuter.mOutFd);
+            while (! theBuffer.IsEmpty()) {
+                const int theErr = theBuffer.Write(mOuter.mOutFd);
                 if (theErr < 0) {
                     KFS_LOG_STREAM_ERROR << " write error: " <<
                         QCUtils::SysError(-theErr) <<
-                        " discarding: " << inBuffer.BytesConsumable() <<
+                        " discarding: " << theBuffer.BytesConsumable() <<
                         " bytes" <<
                     KFS_LOG_EOM;
-                    inBuffer.Clear();
+                    theBuffer.Clear();
                     break;
                 }
             }
             delete this;
-            return 0;
+            return (mHeaders.IsConnectionClose() ? -1 : 0);
         }
         virtual void Error(
             int         inStatus,
@@ -269,7 +308,9 @@ private:
         HttpsTest&          mOuter;
         bool                mSentFlag;
         int                 mHeaderLength;
+        IOBuffer            mIoBuffer;
         HttpResponseHeaders mHeaders;
+        HttpChunkedDecoder  mHttpChunkedDecoder;
     private:
         HttpReq(
             const HttpReq& inRequest);

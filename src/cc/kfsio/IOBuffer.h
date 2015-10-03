@@ -193,7 +193,9 @@ public:
     static int GetDefaultBufferSize() {
         return sDefaultBufferSize;
     }
-
+    // Detach buffer can only detach non shared buffers. The caller assumes
+    // full responsibility for releasing the buffer correctly.
+    char* DetachBuffer(bool consumerAtBufferStartFlag);
 private:
     IOBufferBlockPtr mData;
     /// Pointers that correspond to the start/end of the buffer
@@ -209,6 +211,7 @@ private:
 
     inline int MaxAvailable(int numBytes) const;
     inline int MaxConsumable(int numBytes) const;
+    char* DetachBufferSelf();
 
     static int sDefaultBufferSize;
 };
@@ -454,6 +457,8 @@ public:
     iterator begin() const { return mBuf.begin(); }
     iterator end()   const { return mBuf.end();   }
 
+    /// Detach firs buffer.
+    char* DetachFirstBuffer(bool fullOrPartialLastBufferFlag);
     /// Debug
     void Verify() const;
 

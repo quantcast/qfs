@@ -269,8 +269,14 @@ public:
             ReqType     inReqType,
             const char* inNamePtr,
             const char* inName2Ptr) = 0;
+        bool AllocatesReadBuffers() const
+            { return mAllocatesReadBuffersFlag; }
     protected:
-        RequestProcessor()
+        const bool mAllocatesReadBuffersFlag;
+
+        RequestProcessor(
+            bool inAllocatesReadBuffersFlag = false)
+            : mAllocatesReadBuffersFlag(inAllocatesReadBuffersFlag)
             {}
         virtual ~RequestProcessor()
             {}
@@ -281,7 +287,8 @@ public:
         Error             inError,
         int               inSysError,
         int64_t           inIoByteCount,
-        BlockIdx          inBlockIdx = -1);
+        BlockIdx          inBlockIdx         = -1,
+        InputIterator*    inInputIteratorPtr = 0);
 
     static bool IsValidRequestId(
         RequestId inReqId)

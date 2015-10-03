@@ -106,7 +106,8 @@ public:
         Error                          inError,
         int                            inSysError,
         int64_t                        inIoByteCount,
-        BlockIdx                       inBlockIdx);
+        BlockIdx                       inBlockIdx,
+        QCDiskQueue::InputIterator*    inInputIteratorPtr);
     int Start(
         int                      inThreadCount,
         int                      inMaxQueueDepth,
@@ -953,11 +954,25 @@ QCDiskQueue::Queue::Done(
     QCDiskQueue::Error             inError,
     int                            inSysError,
     int64_t                        inIoByteCount,
-    QCDiskQueue::BlockIdx          inBlockIdx)
+    QCDiskQueue::BlockIdx          inBlockIdx,
+    QCDiskQueue::InputIterator*    inInputIteratorPtr)
 {
+    Request& theReq = static_cast<Request&>(inReq);
+    if (inInputIteratorPtr) {
+        QCRTASSERT(
+            inProcessor.AllocatesReadBuffers() &&
+            kReqTypeRead == theReq.mReqType &&
+            0 < theReq.mBufferCount &&
+            ! GetBuffersPtr(theReq)[0]
+        );
+        BuffersIterator theIt(*this, theReq, theReq.mBufferCount);
+        char*           thePtr;
+        while ((thePtr = inInputIteratorPtr->Get())) {
+            theIt.Put(thePtr);
+        }
+    }
     QCStMutexLocker theLocker(mMutex);
     QCRTASSERT(mRequestProcessorsPtr);
-    Request& theReq = static_cast<Request&>(inReq);
     RequestComplete(
         theReq,
         inError,
@@ -1461,7 +1476,8 @@ QCDiskQueue::Queue::Process(
         );
     }
     if (mRequestProcessorsPtr) {
-        const bool theGetBufFlag = ! theBufPtr[0];
+        const bool theGetBufFlag = ! theBufPtr[0] &&
+            ! mRequestProcessorsPtr[inThreadIdx]->AllocatesReadBuffers();
         inReq.mFreeBuffersIfNoIoCompletionFlag = theGetBufFlag;
         if (theGetBufFlag) {
             QCASSERT(theReadFlag);
@@ -1474,14 +1490,15 @@ QCDiskQueue::Queue::Process(
                 return;
             }
         }
-        BuffersIterator theIt(*this, inReq, inReq.mBufferCount);
+        BuffersIterator theIt(
+            *this, inReq, theGetBufFlag ? inReq.mBufferCount : 0);
         mRequestProcessorsPtr[inThreadIdx]->StartIo(
             inReq,
             inReq.mReqType,
             theFd,
             inReq.mBlockIdx,
             inReq.mBufferCount,
-            &theIt,
+            theGetBufFlag ? &theIt : 0,
             theAllocSize,
             theFileSize
         );
@@ -2439,11 +2456,13 @@ QCDiskQueue::Done(
     QCDiskQueue::Error             inError,
     int                            inSysError,
     int64_t                        inIoByteCount,
-    QCDiskQueue::BlockIdx          inBlockIdx)
+    QCDiskQueue::BlockIdx          inBlockIdx,
+    QCDiskQueue::InputIterator*    inInputIteratorPtr)
 {
     QCASSERT(mQueuePtr);
     mQueuePtr->Done(
-        inProcessor, inReq, inError, inSysError, inIoByteCount, inBlockIdx);
+        inProcessor, inReq, inError, inSysError, inIoByteCount, inBlockIdx,
+        inInputIteratorPtr);
 }
 
     int

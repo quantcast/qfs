@@ -28,6 +28,12 @@
 //
 //----------------------------------------------------------------------------
 
+#include "IOBuffer.h"
+#include "Globals.h"
+
+#include "qcdio/QCMutex.h"
+#include "qcdio/qcstutils.h"
+
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <limits.h>
@@ -38,9 +44,7 @@
 #include <cerrno>
 #include <iostream>
 #include <algorithm>
-
-#include "IOBuffer.h"
-#include "Globals.h"
+#include <vector>
 
 namespace KFS
 {
@@ -48,6 +52,8 @@ namespace KFS
 using std::min;
 using std::max;
 using std::list;
+using std::vector;
+using std::find;
 
 using namespace KFS::libkfsio;
 
@@ -58,14 +64,75 @@ static libkfsio::IOBufferAllocator* sIOBufferAllocator = 0;
 static volatile bool sIsIOBufferAllocatorUsed = false;
 int IOBufferData::sDefaultBufferSize = 4 << 10;
 
+class IOBufferDetacher
+{
+public:
+    static void Detach(const void* buf)
+        { sInstance.DetachSelf(buf); }
+    static bool Detached(const void* buf)
+        { return sInstance.DetachedSelf(buf); }
+private:
+    IOBufferDetacher()
+        : mMutex(),
+          mList(),
+          mHasEntriesFlag(false)
+        { mList.reserve(128); }
+    void DetachSelf(const void* buf)
+    {
+        QCStMutexLocker lock(mMutex);
+        // Do not assign, uless the value changes, as store might not be atomic.
+        if (! mHasEntriesFlag) {
+            mHasEntriesFlag = false;
+        }
+        mList.push_back(buf);
+    }
+    bool DetachedSelf(const void* buf)
+    {
+        // Flag fetch should not present a problem as Detach and Detached must
+        // be invoked from the same thread for the same buffer.
+        if (mHasEntriesFlag) {
+            QCStMutexLocker lock(mMutex);
+            List::iterator const it = find(mList.begin(), mList.end(), buf);
+            if (mList.end() != it) {
+                mList.erase(it);
+                if (mList.empty()) {
+                    mHasEntriesFlag = false;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+private:
+    typedef vector<const void*> List;
+    QCMutex       mMutex;
+    List          mList;
+    volatile bool mHasEntriesFlag;
+
+    static IOBufferDetacher sInstance;
+};
+IOBufferDetacher IOBufferDetacher::sInstance;
+
 struct IOBufferArrayDeallocator
 {
-    void operator()(char* buf) { delete [] buf; }
+    void operator()(char* buf)
+    {
+        if (IOBufferDetacher::Detached(buf)) {
+            return;
+        }
+        delete [] buf;
+    }
 };
 
 struct IOBufferDeallocator
 {
-    void operator()(char* buf) { sIOBufferAllocator->Deallocate(buf); }
+    void operator()(char* buf)
+    {
+        if (IOBufferDetacher::Detached(buf)) {
+            return;
+        }
+        sIOBufferAllocator->Deallocate(buf);
+    }
 };
 
 struct IOBufferDeallocatorCustom
@@ -74,7 +141,13 @@ struct IOBufferDeallocatorCustom
         libkfsio::IOBufferAllocator& allocator)
         : mAllocator(allocator)
         {}
-    void operator()(char* buf) { mAllocator.Deallocate(buf); }
+    void operator()(char* buf)
+    {
+        if (IOBufferDetacher::Detached(buf)) {
+            return;
+        }
+        mAllocator.Deallocate(buf);
+    }
 private:
     libkfsio::IOBufferAllocator& mAllocator;
 };
@@ -322,6 +395,21 @@ IOBufferData::CopyOut(char *buf, int numBytes) const
     const int nbytes = MaxConsumable(numBytes);
     memmove(buf, mConsumer, nbytes);
     return nbytes;
+}
+
+char*
+IOBufferData::DetachBuffer(bool consumerAtBufferStartFlag)
+{
+    if (IsShared() || (consumerAtBufferStartFlag && mData.get() != mConsumer)) {
+        return 0;
+    }
+    char* const buf = mData.get();
+    IOBufferDetacher::Detach(buf);
+    mData.reset();
+    mEnd      = 0;
+    mConsumer = 0;
+    mProducer = 0;
+    return buf;
 }
 
 #ifdef DEBUG_IOBuffer
@@ -1639,6 +1727,27 @@ IOBuffer::IndexOf(int offset, const char* str) const
     }
     DebugVerify();
     return -1;
+}
+
+char*
+IOBuffer::DetachFirstBuffer(bool fullOrPartialLastBufferFlag)
+{
+    DebugVerify();
+    if (mBuf.empty()) {
+        return 0;
+    }
+    IOBufferData& buf = mBuf.front();
+    const int nb = buf.BytesConsumable();
+    if (fullOrPartialLastBufferFlag && nb < mByteCount && ! buf.IsFull()) {
+        return 0; 
+    }
+    char* const ret = buf.DetachBuffer(fullOrPartialLastBufferFlag);
+    if  (ret) {
+        mBuf.pop_front();
+        mByteCount -= nb;
+    }
+    DebugVerify(0 != ret);
+    return ret;
 }
 
 int
