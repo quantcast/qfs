@@ -37,29 +37,29 @@ class HttpChunkedDecoder
 public:
     HttpChunkedDecoder(
         IOBuffer& inIOBuffer,
-        int       inMaxReadAhead = 3 << 10)
+        int       inMaxReadAhead = 2 << 10)
         : mIOBuffer(inIOBuffer),
           mMaxReadAhead(inMaxReadAhead),
           mLength(-1),
-          mChunkRem(0)
+          mChunkRem(0),
+          mAlignedFlag(false)
         {}
     ~HttpChunkedDecoder()
         {}
     void Reset()
     {
-        mLength   = -1;
-        mChunkRem = 0;
+        mLength      = -1;
+        mChunkRem    = 0;
+        mAlignedFlag = false;
     }
     int Parse(
         IOBuffer& inBuffer);
 private:
-    enum { kLengthBufSize = sizeof(int) * 2 + 1 };
-
     IOBuffer& mIOBuffer;
     int       mMaxReadAhead;
     int       mLength;
     int       mChunkRem;
-    char      mBuf[kLengthBufSize];
+    bool      mAlignedFlag;
 };
 
 } // namespace KFS

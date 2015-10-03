@@ -56,6 +56,7 @@ public:
         : ITimeout(),
           mNetManager(),
           mClient(mNetManager),
+          mPath("/"),
           mWOStream(),
           mOutFd(fileno(stdout)),
           mInFlightCount(0),
@@ -70,9 +71,9 @@ public:
         char** inArgsPtr)
     {
         MsgLogger::Init(0, MsgLogger::kLogLevelDEBUG);
-        if (3 != inArgsCount) {
+        if (3 != inArgsCount && 4 != inArgsCount) {
             KFS_LOG_STREAM_ERROR <<
-                "Usage: {-cfg <config> | <host> <port>}" <<
+                "Usage: {-cfg <config> | <host> <port>} [<uri path>]" <<
             KFS_LOG_EOM;
             return 1;
         }
@@ -121,6 +122,9 @@ public:
                 }
             } else {
                 mClient.SetServer(theLocation, true);
+            }
+            if (4 <= inArgsCount) {
+                mPath = inArgsPtr[3];
             }
         }
         mNetManager.RegisterTimeoutHandler(this);
@@ -178,7 +182,7 @@ private:
             mHeaders.Reset();
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
             theStream <<
-                "GET / HTTP/1.1\r\n"
+                "GET "   << mOuter.mPath << " HTTP/1.1\r\n"
                 "Host: " << inServer.hostname << "\r\n"
                 "\r\n"
                 "\r\n"
@@ -321,6 +325,7 @@ private:
 
     NetManager          mNetManager;
     TransactionalClient mClient;
+    string              mPath;
     IOBuffer::WOStream  mWOStream;
     int const           mOutFd;
     int                 mInFlightCount;

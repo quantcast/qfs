@@ -60,8 +60,30 @@ HttpChunkedDecoder::Parse(
             return mMaxReadAhead;
         }
         if (0 < mChunkRem) {
-            const int theLen = min(
-                inBuffer.BytesConsumable(), mChunkRem - kCrLfLen);
+            const int theCnt = inBuffer.BytesConsumable();
+            const int theRem = mChunkRem - kCrLfLen;
+            if (theCnt < theRem) {
+                if (! mAlignedFlag &&
+                            IOBufferData::GetDefaultBufferSize() < theRem) {
+                    mAlignedFlag = true;
+                    const int theAlign = mIOBuffer.BytesConsumable() %
+                        IOBufferData::GetDefaultBufferSize();
+                    if (theAlign == 0) {
+                        inBuffer.MakeBuffersFull();
+                    } else {
+                        IOBuffer theBuf;
+                        theBuf.ReplaceKeepBuffersFull(
+                            &inBuffer, theAlign, theCnt);
+                        inBuffer.Move(&theBuf);
+                        inBuffer.Consume(theAlign);
+                    }
+                }
+                if (mAlignedFlag) {
+                    const int kAvgChunkHeaderSize = 64;
+                    return (mChunkRem - theCnt + kAvgChunkHeaderSize);
+                }
+            }
+            const int theLen = min(theCnt, theRem);
             if (0 < theLen) {
                 mIOBuffer.ReplaceKeepBuffersFull(
                     &inBuffer,
@@ -81,8 +103,11 @@ HttpChunkedDecoder::Parse(
         if (theIdx <= 0) {
             return mMaxReadAhead;
         }
-        int               theLen    = min(theIdx, (int)kLengthBufSize);
-        const char* const theLenPtr = inBuffer.CopyOutOrGetBufPtr(mBuf, theLen);
+        char              theBuf[sizeof(int) * 2 + 1];
+        int               theLen    =
+            min(theIdx, (int)(sizeof(theBuf) / sizeof(theBuf[0])));
+        const char* const theLenPtr =
+            inBuffer.CopyOutOrGetBufPtr(theBuf, theLen);
         const int         theSym    = theLenPtr[0] & 0xFF;
         if (! (0 <= theSym && theSym <= '9') &&
                 ! ('A' <= theSym && theSym <= 'F') &&
@@ -105,6 +130,7 @@ HttpChunkedDecoder::Parse(
         if (0 < mLength) {
             mChunkRem = mLength + kCrLfLen;
         }
+        mAlignedFlag = false;
     }
     return max(mMaxReadAhead, mChunkRem);
 }
