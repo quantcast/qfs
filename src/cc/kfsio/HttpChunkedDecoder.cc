@@ -30,6 +30,7 @@
 #include "common/RequestParser.h"
 
 #include <string.h>
+#include <errno.h>
 #include <algorithm>
 
 namespace KFS
