@@ -54,7 +54,9 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters) = 0;
 protected:
-    IOMethod()
+    IOMethod(
+        bool inAllocatesReadBuffersFlag = false)
+        : QCDiskQueue::RequestProcessor(inAllocatesReadBuffersFlag)
         {}
 private:
     IOMethod(

@@ -24,6 +24,7 @@
 
 set (sources
 s3io.cc
+s3ion.cc
 )
 
 #

@@ -101,7 +101,8 @@ public:
     void MainLoop(
         QCMutex*    mutex                = 0,
         bool        wakeupAndCleanupFlag = true,
-        Dispatcher* dispatcher           = 0);
+        Dispatcher* dispatcher           = 0,
+        bool        runOnceFlag          = false);
     void Wakeup();
 
     void Shutdown()
@@ -230,6 +231,7 @@ private:
     const int       mTimeoutMs;
     const time_t    mStartTime;
     time_t          mNow;
+    time_t          mLastTimerTime;
     int64_t         mMaxOutgoingBacklog;
     int64_t         mNumBytesToSend;
     int64_t         mTimerOverrunCount;

@@ -65,6 +65,7 @@ NetManager::NetManager(int timeoutMs)
       mTimeoutMs(timeoutMs),
       mStartTime(time(0)),
       mNow(mStartTime),
+      mLastTimerTime(mNow - 1),
       mMaxOutgoingBacklog(0),
       mNumBytesToSend(0),
       mTimerOverrunCount(0),
@@ -361,13 +362,16 @@ void
 NetManager::MainLoop(
     QCMutex*                mutex                /* = 0 */,
     bool                    wakeupAndCleanupFlag /* = true */,
-    NetManager::Dispatcher* dispatcher           /* = 0 */)
+    NetManager::Dispatcher* dispatcher           /* = 0 */,
+    bool                    runOnceFlag          /* false */)
 {
     QCStMutexLocker locker(mutex);
 
-    mNow = time(0);
-    time_t lastTimerTime = mNow;
-    if (! wakeupAndCleanupFlag) {
+    if (! runOnceFlag || mLastTimerTime != mNow) {
+        mNow           = time(0);
+        mLastTimerTime = mNow;
+    }
+    if (! wakeupAndCleanupFlag && ! runOnceFlag) {
         mRunFlag = true;
     }
     const int timerOverrunWarningTime(mTimeoutMs / (1000/2));
@@ -494,14 +498,14 @@ NetManager::MainLoop(
         }
         mRemove.clear();
         mNow = time(0);
-        int slotCnt = min(int(kTimerWheelSize), int(mNow - lastTimerTime));
-        if (lastTimerTime + timerOverrunWarningTime < mNow) {
+        int slotCnt = min(int(kTimerWheelSize), int(mNow - mLastTimerTime));
+        if (mLastTimerTime + timerOverrunWarningTime < mNow) {
             KFS_LOG_STREAM_INFO <<
-                "timer overrun " << (mNow - lastTimerTime) <<
+                "timer overrun " << (mNow - mLastTimerTime) <<
                 " seconds detected" <<
             KFS_LOG_EOM;
             mTimerOverrunCount++;
-            mTimerOverrunSec += mNow - lastTimerTime;
+            mTimerOverrunSec += mNow - mLastTimerTime;
         }
         mTimerRunningFlag = true;
         while (slotCnt-- > 0) {
@@ -533,13 +537,22 @@ NetManager::MainLoop(
             mRemove.clear();
         }
         mTimerRunningFlag = false;
-        lastTimerTime = mNow;
+        mLastTimerTime = mNow;
         mTimerWheelBucketItr = mRemove.end();
+        if (runOnceFlag) {
+            break;
+        }
     }
-    if (wakeupAndCleanupFlag) {
-        CleanUp();
+    if (runOnceFlag) {
+        if (! mRunFlag) {
+            CleanUp();
+        }
     } else {
-        mRunFlag = true;
+        if (wakeupAndCleanupFlag) {
+            CleanUp();
+        } else {
+            mRunFlag = true;
+        }
     }
     if (dispatcher) {
         dispatcher->DispatchExit();
