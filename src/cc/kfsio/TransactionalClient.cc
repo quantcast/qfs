@@ -355,7 +355,7 @@ private:
                     int theRet;
                     if (! mTransactionPtr ||
                             (theRet = mTransactionPtr->Response(
-                                theIoBuf)) < 0) {
+                                theIoBuf, false)) < 0) {
                         mTransactionPtr = 0;
                         mConnectionPtr->Close();
                     } else if (0 < theRet) {
@@ -388,7 +388,7 @@ private:
                     if (mConnectionPtr->IsGood()) {
                         // EOF
                         if (mTransactionPtr && mTransactionPtr->Response(
-                                mConnectionPtr->GetInBuffer()) <= 0) {
+                                mConnectionPtr->GetInBuffer(), true) <= 0) {
                             mTransactionPtr = 0;
                         }
                     }

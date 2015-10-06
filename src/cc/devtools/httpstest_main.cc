@@ -192,7 +192,8 @@ private:
             return kMaxHdrLen;
         }
         virtual int Response(
-            IOBuffer& inBuffer)
+            IOBuffer& inBuffer,
+            bool      inEofFlag)
         {
             if (mHeaderLength <= 0 &&
                     ((mHeaderLength = GetHeaderLength(inBuffer)) <= 0 ||
