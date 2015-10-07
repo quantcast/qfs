@@ -664,8 +664,12 @@ private:
             const char*           inVerbPtr,
             IOBuffer&             inBuffer,
             const ServerLocation& inServer,
-            const char*           inMd5Ptr         = 0,
-            const char*           inContentTypePtr = 0)
+            const char*           inMd5Ptr                = 0,
+            const char*           inContentTypePtr        = 0,
+            const char*           inContentDispositionPtr = 0,
+            int64_t               inContentLength         = -1,
+            int64_t               inRangeStart            = -1,
+            int64_t               inRangeEnd              = -1)
         {
             if (mSentFlag) {
                 return 0;
@@ -710,10 +714,22 @@ private:
             if (! mOuter.mUserAgent.empty()) {
                 theStream << "User-Agent: " << mOuter.mUserAgent << "\r\n";
             }
+            if (inContentDispositionPtr && *inContentDispositionPtr) {
+                theStream << "Content-Disposition: " <<
+                    inContentDispositionPtr << "\r\n";
+            }
+            if (0 <= inContentLength) {
+                theStream << "Content-Length: " << inContentLength << "\r\n";
+            }
+            if (0 <= inRangeStart && 0 <= inRangeEnd) {
+                theStream << "Range: bytes=" <<
+                    inRangeStart << "-" << inRangeEnd << "\r\n";
+            }
             theStream <<
                 "Authorization: AWS " << mOuter.mAccessKeyId << ":" <<
                     mOuter.Sign(theSignBuf, mOuter.mSecretAccessKey) << "\r\n"
-            "\r\n" ;
+            "\r\n";
+            theStream.flush();
             mOuter.mWOStream.Reset();
             mSentFlag = true;
             return mOuter.mMaxReadAhead;
@@ -925,9 +941,10 @@ private:
             Request&      inRequest,
             ReqType       inReqType,
             const string& inFileName)
-            : S3Req(inOuter, inRequest, inReqType, inFileName)
+            : S3Req(inOuter, inRequest, inReqType, inFileName),
+              mDataBuf()
         {
-            SET_HANDLER(this, &S3Put::Timeout);
+            mMd5Sum[0] = 0;
         }
         int Timeout(
             int   inEvent,
@@ -939,16 +956,27 @@ private:
         }
         virtual ostream& Display(
             ostream& inStream) const
-            { return (inStream << "put: " << mFileName); }
+        {
+            return (inStream <<
+                reinterpret_cast<const void*>(this) <<
+                " put: " << mFileName
+            );
+        }
         virtual int Request(
             IOBuffer&             inBuffer,
             IOBuffer&             /* inResponseBuffer */,
             const ServerLocation& inServer)
         {
-            const bool theSentFlag = mSentFlag;
-            const int theRet = SendRequest("PUT", inBuffer, inServer);
-            if (! theSentFlag) {
+            if (mSentFlag) {
+                return 0;
             }
+            const int theRet = SendRequest("PUT", inBuffer, inServer,
+                GetMd5Sum(),
+                mOuter.mContentType.c_str(),
+                mOuter.mContentDispositionFilename.c_str(),
+                mDataBuf.BytesConsumable()
+            );
+            inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
             return theRet;
         }
         virtual int Response(
@@ -961,11 +989,104 @@ private:
             }
             return theRet;
         }
+        const char* GetMd5Sum()
+        {
+            if (*mMd5Sum) {
+                return mMd5Sum;
+            }
+            ostream& theStream = mOuter.mMdStream.Reset();
+            for (IOBuffer::iterator theIt = mIOBuffer.begin();
+                    theIt != mIOBuffer.end();
+                    ++theIt) {
+                theStream.write(theIt->Consumer(), theIt->BytesConsumable());
+            }
+            if (theStream) {
+                const size_t theLen =
+                    mOuter.mMdStream.GetMdBin(mOuter.mTmpMdBuf);
+                QCRTASSERT(theLen <= sizeof(mOuter.mTmpMdBuf));
+                const int theB64Len = Base64::Encode(
+                    reinterpret_cast<const char*>(mOuter.mTmpMdBuf),
+                    theLen, mMd5Sum);
+                QCRTASSERT(
+                    0 < theB64Len &&
+                    (size_t)theB64Len < sizeof(mMd5Sum)
+                );
+                mMd5Sum[theB64Len] = 0;
+            } else {
+                mOuter.FatalError("md5 sum failure");
+            }
+            return mMd5Sum;
+        }
     private:
-        //char mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
+        IOBuffer mDataBuf;
+        char     mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
                          // Base64::EncodedLength(128 / 8) + 1
     };
     friend class S3Put;
+    class S3Get : public S3Req
+    {
+    public:
+        S3Get(
+            Outer&        inOuter,
+            Request&      inRequest,
+            ReqType       inReqType,
+            const string& inFileName)
+            : S3Req(inOuter, inRequest, inReqType, inFileName),
+              mRangeStart(-1),
+              mRangeEnd(-1)
+            {}
+        int Timeout(
+            int   inEvent,
+            void* inDataPtr)
+        {
+            QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inEvent && ! inDataPtr);
+            mOuter.mClient.Run(*this);
+            return 0;
+        }
+        virtual ostream& Display(
+            ostream& inStream) const
+        {
+            return (inStream <<
+                reinterpret_cast<const void*>(this) <<
+                " get: " << mFileName
+            );
+        }
+        virtual int Request(
+            IOBuffer&             inBuffer,
+            IOBuffer&             /* inResponseBuffer */,
+            const ServerLocation& inServer)
+        {
+            if (mSentFlag) {
+                return 0;
+            }
+            const char* const kMdSumPtr       = 0;
+            const char* const kContentTypePtr = 0;
+            const char* const kDispositionPtr = 0;
+            int         const kContentLength  = -1;
+            return SendRequest("GET", inBuffer, inServer,
+                kMdSumPtr,
+                kContentTypePtr,
+                kDispositionPtr,
+                kContentLength,
+                mRangeStart,
+                mRangeEnd
+            );
+        }
+        virtual int Response(
+            IOBuffer& inBuffer,
+            bool      inEofFlag)
+        {
+            bool      theDoneFlag = false;
+            const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
+            if (theDoneFlag) {
+            }
+            return theRet;
+        }
+    private:
+        const int64_t mRangeStart;
+        const int64_t mRangeEnd;
+    };
+    friend class S3Get;
 
     enum { kHmacSha1Len = 20 };
 
