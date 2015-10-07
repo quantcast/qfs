@@ -946,20 +946,13 @@ private:
         {
             mMd5Sum[0] = 0;
         }
-        int Timeout(
-            int   inEvent,
-            void* inDataPtr)
-        {
-            QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inEvent && ! inDataPtr);
-            mOuter.mClient.Run(*this);
-            return 0;
-        }
         virtual ostream& Display(
             ostream& inStream) const
         {
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
-                " put: " << mFileName
+                " put: " << mFileName <<
+                " " << mDataBuf.BytesConsumable()
             );
         }
         virtual int Request(
@@ -1035,20 +1028,13 @@ private:
               mRangeStart(-1),
               mRangeEnd(-1)
             {}
-        int Timeout(
-            int   inEvent,
-            void* inDataPtr)
-        {
-            QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inEvent && ! inDataPtr);
-            mOuter.mClient.Run(*this);
-            return 0;
-        }
         virtual ostream& Display(
             ostream& inStream) const
         {
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
-                " get: " << mFileName
+                " get: " << mFileName <<
+                " " << mRangeStart << "-" << mRangeEnd
             );
         }
         virtual int Request(
