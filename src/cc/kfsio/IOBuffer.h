@@ -527,6 +527,7 @@ public:
     class OStream;
     class IStream;
     class WOStream;
+    class DisplayData;
     class ByteIterator
     {
     public:
@@ -656,6 +657,59 @@ public:
     istream& Reset()
         { return Set(0, 0); }
 };
+
+class IOBuffer::DisplayData
+{
+public:
+    DisplayData(
+        const IOBuffer& inBuffer,
+        int             inLength = numeric_limits<int>::max())
+        : mIOBuffer(inBuffer),
+          mLength(Min(inLength, inBuffer.BytesConsumable()))
+        {}
+    template<typename ST>
+    ST& Display(
+        ST& inStream) const
+    {
+        const char* const kHexDigits = "0123456789ABCDEF";
+        int               theRem     = mLength;
+        for (IOBuffer::iterator theIt = mIOBuffer.begin();
+                inStream && 0 < theRem && theIt != mIOBuffer.end();
+                ++theIt) {
+            const int theCnt = Min(theRem, theIt->BytesConsumable());
+            for (const char* thePtr = theIt->Consumer(),
+                        * const theEndPtr = thePtr + theCnt;
+                    thePtr < theEndPtr;
+                    thePtr++) {
+                const int theSym = *thePtr & 0xFF;
+                if (' ' <= theSym && theSym < 127) {
+                    inStream << "\\x" <<
+                        kHexDigits[(theSym >> 4) & 0xF] <<
+                        kHexDigits[theSym & 0xF]
+                    ;
+                } else {
+                    inStream << thePtr;
+                }
+            }
+            theRem -= theCnt;
+        }
+        return inStream;
+    }
+private:
+    const IOBuffer& mIOBuffer;
+    int             mLength;
+
+    static int Min(
+        int inLfs,
+        int inRhs)
+        { return (inLfs < inRhs ? inLfs : inRhs); }
+};
+
+template<typename ST>
+ST& operator<<(
+    ST&                          inStream,
+    const IOBuffer::DisplayData& inDisplay)
+{ return inDisplay.Display(inStream); }
 
 }
 

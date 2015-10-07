@@ -50,6 +50,11 @@
 
 #include <errno.h>
 #include <string.h>
+#include <time.h>
+
+#include <openssl/hmac.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
 
 #include <string>
 #include <vector>
@@ -86,6 +91,11 @@ operator<<(
     ST&                        inStream,
     const S3ION_ObjDisplay<T>& inDisplay)
     { return inDisplay.Show(inStream); }
+
+const char* const kS3IODaateWeekDays[7] =
+    { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+const char* const kS3IODateMonths[12] =
+    { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 
 class S3ION : public IOMethod
 {
@@ -572,7 +582,6 @@ private:
               mRequest(inRequest),
               mReqType(inReqType),
               mFileName(inFileName),
-              mLogPrefix(),
               mRetryCount(0),
               mStartTime(mOuter.Now()),
               mTimer(mOuter.mNetManager, *this),
@@ -594,19 +603,48 @@ private:
             void* inDataPtr)
         {
             QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inEvent && ! inDataPtr);
-            mOuter.mClient.Run(*this);
+            mTimer.RemoveTimeout();
+            if (mOuter.mNetManager.IsRunning()) {
+                mStartTime = mOuter.Now();
+                mOuter.mClient.Run(*this);
+            } else {
+                Error(-EIO, "canceled by shutdown");
+            }
             return 0;
         }
         virtual ostream& Display(
             ostream& inStream) const = 0;
+        virtual void Error(
+            int         inStatus,
+            const char* inMsgPtr)
+        {
+            KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
+                "network error: " << inStatus  <<
+                " message: "      << (inMsgPtr ? inMsgPtr : "") <<
+            KFS_LOG_EOM;
+            if (mOuter.mNetManager.IsRunning() && 0 <= mOuter.mRetryInterval &&
+                    ++mRetryCount < mOuter.mMaxRetryCount) {
+                const int theTime = min(0,
+                    (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
+                KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
+                    "scheduling retry: " << mRetryCount <<
+                    " of " << mOuter.mMaxRetryCount <<
+                    " in " << theTime << " sec." <<
+                KFS_LOG_EOM;
+                mTimer.SetTimeout(theTime);
+            } else {
+                mTimer.RemoveTimeout();
+            }
+            Reset();
+        }
     protected:
-        typedef NetManager::Timer Timer;
+        typedef NetManager::Timer     Timer;
+        typedef IOBuffer::DisplayData ShowData;
 
         Outer&              mOuter;
         Request&            mRequest;
         ReqType       const mReqType;
         string        const mFileName;
-        string        const mLogPrefix;
         int                 mRetryCount;
         time_t              mStartTime;
         Timer               mTimer;
@@ -625,34 +663,77 @@ private:
         int SendRequest(
             const char*           inVerbPtr,
             IOBuffer&             inBuffer,
-            const ServerLocation& inServer)
+            const ServerLocation& inServer,
+            const char*           inMd5Ptr         = 0,
+            const char*           inContentTypePtr = 0)
         {
             if (mSentFlag) {
                 return 0;
             }
             mHeaders.Reset();
+            const char* const theDatePtr = mOuter.DateNow();
+            string& theSignBuf = mOuter.mTmpSignBuffer;
+            theSignBuf = inVerbPtr;
+            theSignBuf += '\n';
+            if (inMd5Ptr && *inMd5Ptr) {
+                theSignBuf += inMd5Ptr;
+            }
+            theSignBuf += '\n';
+            if (inContentTypePtr && *inContentTypePtr) {
+                theSignBuf += inContentTypePtr;
+            }
+            theSignBuf += '\n';
+            theSignBuf += theDatePtr;
+            theSignBuf += '\n';
+            theSignBuf += '/';
+            theSignBuf += mOuter.mBucketName;
+            theSignBuf += '/';
+            theSignBuf += mFileName;
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
             theStream <<
                 inVerbPtr << " /" << mFileName << " HTTP/1.1\r\n"
-                "Host: "  << inServer.hostname << "\r\n"
-                "\r\n"
-                "\r\n"
+                "Host: "  << inServer.hostname
             ;
+            if (80 != inServer.port && 443 != inServer.port) {
+                theStream << ':' << inServer.port;
+            }
+            theStream <<
+                "\r\n"
+                "Date: "  << theDatePtr << "\r\n"
+            ;
+            if (inMd5Ptr && *inMd5Ptr) {
+                theStream << "Content-MD5: " << inMd5Ptr << "\r\n";
+            }
+            if (inContentTypePtr && *inContentTypePtr) {
+                theStream << "Content-Type: " << inContentTypePtr << "\r\n";
+            }
+            if (! mOuter.mUserAgent.empty()) {
+                theStream << "User-Agent: " << mOuter.mUserAgent << "\r\n";
+            }
+            theStream <<
+                "Authorization: AWS " << mOuter.mAccessKeyId << ":" <<
+                    mOuter.Sign(theSignBuf, mOuter.mSecretAccessKey) << "\r\n"
+            "\r\n" ;
             mOuter.mWOStream.Reset();
             mSentFlag = true;
             return mOuter.mMaxReadAhead;
         }
         int ParseResponse(
             IOBuffer& inBuffer,
-            bool      inEofFlag)
+            bool      inEofFlag,
+            bool&     outDoneFlag)
         {
+            outDoneFlag = false;
             if (mHeaderLength <= 0 &&
                     ((mHeaderLength = GetHeaderLength(inBuffer)) <= 0 ||
                     mOuter.mMaxHdrLen < mHeaderLength)) {
                 if (mOuter.mMaxHdrLen < inBuffer.BytesConsumable()) {
-                    KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
-                        "exceeded max header length: " <<
-                        inBuffer.BytesConsumable() << " bytes" <<
+                    KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
+                        " exceeded max header length: " << mOuter.mMaxHdrLen <<
+                         " / " << inBuffer.BytesConsumable() <<
+                        " data: " <<
+                            ShowData(inBuffer, mOuter.mDebugTraceMaxDataSize) <<
+                        " ..." <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "exceeded max header length");
                     return -1;
@@ -669,18 +750,21 @@ private:
                         ! mHeaders.IsChunkedEconding())) ||
                         (mOuter.mMaxResponseSize <
                             mHeaders.GetContentLength())) {
-                    if (thePtr != mOuter.mHdrBufferPtr) {
-                        memcpy(mOuter.mHdrBufferPtr, thePtr, mHeaderLength);
-                    }
-                    mOuter.mHdrBufferPtr[mHeaderLength] = 0;
-                    KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
-                        " invalid response:" <<
-                        " header length: " << mHeaderLength <<
-                        " header: " << mOuter.mHdrBufferPtr <<
+                    KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
+                        " invalid response:"
+                        " header length: "       << mHeaderLength <<
                         " max response length: " << mOuter.mMaxResponseSize <<
+                        " header: " <<
+                            ShowData(inBuffer, mHeaderLength) <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "invalid response");
                     return -1;
+                }
+                if (mOuter.mDebugTraceResponseHeadersFlag) {
+                    KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
+                        " response header: " <<
+                            ShowData(inBuffer, mHeaderLength) <<
+                    KFS_LOG_EOM;
                 }
                 mReadTillEofFlag = ! mHeaders.IsChunkedEconding() &&
                     mHeaders.GetContentLength() < 0;
@@ -691,7 +775,7 @@ private:
                 if (theRet < 0) {
                     const char* const theMsgPtr =
                         "chunked encoded parse failure";
-                    KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
+                    KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                         " " << theMsgPtr << ":" <<
                         " discarding: " << inBuffer.BytesConsumable() <<
                         " bytes header length: " << mHeaderLength <<
@@ -703,7 +787,8 @@ private:
                             mIOBuffer.BytesConsumable() + theRet) {
                         const char* const theMsgPtr =
                             "exceeded max response size";
-                        KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
+                        KFS_LOG_STREAM_ERROR <<
+                            mOuter.mLogPrefix << Show(*this) <<
                             " " << theMsgPtr << ":" <<
                                 mOuter.mMaxResponseSize +
                                 mOuter.mMaxReadAhead <<
@@ -713,7 +798,7 @@ private:
                         Error(-EINVAL, theMsgPtr);
                         return -1;
                     }
-                    KFS_LOG_STREAM_DEBUG << mLogPrefix << Show(*this) <<
+                    KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
                         " chunked:"
                         " read ahead: " << theRet <<
                         " buffer rem: " << inBuffer.BytesConsumable() <<
@@ -724,7 +809,7 @@ private:
                 if (! inBuffer.IsEmpty()) {
                     const char* const theMsgPtr =
                         "failed to parse completely chunk encoded content";
-                    KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
+                    KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                         " " << theMsgPtr << ":" <<
                         " discarding: " << inBuffer.BytesConsumable() <<
                         " bytes header length: " << mHeaderLength <<
@@ -733,11 +818,14 @@ private:
                     return -1;
                 }
             } else if (mReadTillEofFlag) {
-                if (! inEofFlag) {
+                if (inEofFlag) {
+                    mIOBuffer.Move(&inBuffer);
+                } else {
                     if (mOuter.mMaxResponseSize < inBuffer.BytesConsumable()) {
                         const char* const theMsgPtr =
                             "exceeded max response size";
-                        KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
+                        KFS_LOG_STREAM_ERROR <<
+                            mOuter.mLogPrefix << Show(*this) <<
                             " " << theMsgPtr << ":" <<
                                 mOuter.mMaxResponseSize <<
                             " discarding: " << inBuffer.BytesConsumable() <<
@@ -756,16 +844,23 @@ private:
                 }
                 mIOBuffer.Move(&inBuffer, mHeaders.GetContentLength());
             }
-            KFS_LOG_STREAM_DEBUG << mLogPrefix << Show(*this) <<
+            const int theStatus = mHeaders.GetStatus();
+            KFS_LOG_STREAM((200 <= theStatus && theStatus <= 299) ?
+                     MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+                mOuter.mLogPrefix << Show(*this) <<
                 "response:"
                 " headers: "   << mHeaderLength <<
                 " body: "      << mHeaders.GetContentLength() <<
                 " buffer: "    << mIOBuffer.BytesConsumable() <<
-                " status: "    << mHeaders.GetStatus() <<
+                " status: "    << theStatus <<
                 " http/1.1 "   << mHeaders.IsHttp11OrGreater() <<
                 " close: "     << mHeaders.IsConnectionClose() <<
                 " chunked: "   << mHeaders.IsChunkedEconding() <<
+                " data: "      <<
+                    ShowData(mIOBuffer, mOuter.mDebugTraceMaxDataSize) <<
+                "..." <<
             KFS_LOG_EOM;
+            outDoneFlag = true;
             return ((mReadTillEofFlag || mHeaders.IsConnectionClose()) ?
                 -1 : 0);
         }
@@ -797,33 +892,26 @@ private:
             {}
         virtual ostream& Display(
             ostream& inStream) const
-            { return (inStream << "delete: " << mFileName); }
+        {
+            return (inStream <<
+                reinterpret_cast<const void*>(this) <<
+                " delete: " << mFileName
+            );
+        }
         virtual int Request(
             IOBuffer&             inBuffer,
             IOBuffer&             /* inResponseBuffer */,
             const ServerLocation& inServer)
-        {
-            return SendRequest("DELETE", inBuffer, inServer);
-        }
+            { return SendRequest("DELETE", inBuffer, inServer); }
         virtual int Response(
             IOBuffer& inBuffer,
             bool      inEofFlag)
         {
-            int theRet = ParseResponse(inBuffer, inEofFlag);
-            if (0 == theRet) {
-                
-                // return ResponseDone
+            bool      theDoneFlag = false;
+            const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
+            if (theDoneFlag) {
             }
             return theRet;
-        }
-        virtual void Error(
-            int         inStatus,
-            const char* inMsgPtr)
-        {
-            KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
-                "network error: " << inStatus  <<
-                " message: "      << (inMsgPtr ? inMsgPtr : "") <<
-            KFS_LOG_EOM;
         }
     private:
         
@@ -857,29 +945,29 @@ private:
             IOBuffer&             /* inResponseBuffer */,
             const ServerLocation& inServer)
         {
-            return SendRequest("PUT", inBuffer, inServer);
+            const bool theSentFlag = mSentFlag;
+            const int theRet = SendRequest("PUT", inBuffer, inServer);
+            if (! theSentFlag) {
+            }
+            return theRet;
         }
         virtual int Response(
             IOBuffer& inBuffer,
             bool      inEofFlag)
         {
-            const int theRet = ParseResponse(inBuffer, inEofFlag);
+            bool      theDoneFlag = false;
+            const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
+            if (theDoneFlag) {
+            }
             return theRet;
-        }
-        virtual void Error(
-            int         inStatus,
-            const char* inMsgPtr)
-        {
-            KFS_LOG_STREAM_ERROR << mLogPrefix << Show(*this) <<
-                "network error: " << inStatus  <<
-                " message: "      << (inMsgPtr ? inMsgPtr : "") <<
-            KFS_LOG_EOM;
         }
     private:
         //char mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
                          // Base64::EncodedLength(128 / 8) + 1
     };
     friend class S3Put;
+
+    enum { kHmacSha1Len = 20 };
 
     QCDiskQueue*        mDiskQueuePtr;
     int                 mBlockSize;
@@ -907,11 +995,11 @@ private:
     string              mCacheControl;
     string              mContentDispositionFilename;
     string              mContentEncoding;
+    string              mUserAgent;
     int64_t             mObjectExpires;
-    //S3CannedAcl       mCannedAcl;
     bool                mUseServerSideEncryptionFlag;
-    //S3Protocol        mS3Protocol;
-    //S3UriStyle        mS3UriStyle;
+    bool                mDebugTraceResponseHeadersFlag;
+    int                 mDebugTraceMaxDataSize;
     int                 mMaxRetryCount;
     int                 mRetryInterval;
     int                 mMaxReadAhead;
@@ -921,7 +1009,11 @@ private:
     long                mLowSpeedLimit;
     long                mLowSpeedTime;
     IOBuffer::WOStream  mWOStream;
+    string              mTmpSignBuffer;
+    time_t              mLastDateTime;
     QCMutex             mMutex;
+    char                mDateBuf[32];
+    char                mHmacBuf[(kHmacSha1Len + 2) / 3 * 4 + 1];
     MdStream::MD        mTmpMdBuf;
 
     static bool IsDebugLogLevel()
@@ -975,8 +1067,11 @@ private:
           mCacheControl(),
           mContentDispositionFilename(),
           mContentEncoding(),
+          mUserAgent("QFS"),
           mObjectExpires(-1),
           mUseServerSideEncryptionFlag(false),
+          mDebugTraceResponseHeadersFlag(false),
+          mDebugTraceMaxDataSize(256),
           mMaxRetryCount(10),
           mRetryInterval(10),
           mMaxReadAhead(4 << 10),
@@ -986,6 +1081,8 @@ private:
           mLowSpeedLimit(4 << 10),
           mLowSpeedTime(10),
           mWOStream(),
+          mTmpSignBuffer(),
+          mLastDateTime(0),
           mMutex()
     {
         if (! inLogPrefixPtr) {
@@ -999,6 +1096,8 @@ private:
         const size_t kFdReserve = 256;
         mFileTable.reserve(kFdReserve);
         mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
+        mTmpSignBuffer.reserve(1 << 10);
+        mDateBuf[0] = 0;
     }
     void SetParameters()
     {
@@ -1041,6 +1140,10 @@ private:
             theName.Truncate(thePrefixSize).Append("contentEncoding"),
             mContentEncoding
         );
+        mUserAgent = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("userAgent"),
+            mUserAgent
+        );
         mObjectExpires = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("objectExpires"),
             mObjectExpires
@@ -1065,51 +1168,15 @@ private:
             theName.Truncate(thePrefixSize).Append("lowSpeedTime"),
             mLowSpeedTime
         );
+        mDebugTraceResponseHeadersFlag = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("debugTraceResponseHeaders"),
+            mDebugTraceResponseHeadersFlag ? 1 : 0
+        ) != 0;
+        mDebugTraceMaxDataSize = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("debugTraceMaxDataSize"),
+            mDebugTraceMaxDataSize
+        );
 #if 0
-        const Properties::String* theValPtr;
-        if ((theValPtr = mParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("cannedAcl")))) {
-            if (*theValPtr == "private") {
-                mCannedAcl = S3CannedAclPrivate;
-            } else if (*theValPtr == "publicRead") {
-                mCannedAcl = S3CannedAclPublicRead;
-            } else if (*theValPtr == "publicReadWrite") {
-                mCannedAcl = S3CannedAclPublicReadWrite;
-            } else if (*theValPtr == "authenticatedRead") {
-                mCannedAcl = S3CannedAclAuthenticatedRead;
-            } else {
-                KFS_LOG_STREAM_WARN << inLogPrefix <<
-                    " invalid parameter " << theName << " = " <<
-                    *theValPtr <<
-                KFS_LOG_EOM;
-            }
-        }
-        if ((theValPtr = mParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("protocol")))) {
-            if (*theValPtr == "https") {
-                mS3Protocol = S3ProtocolHTTPS;
-            } else if (*theValPtr == "http") {
-                mS3Protocol = S3ProtocolHTTP;
-            } else {
-                KFS_LOG_STREAM_WARN << inLogPrefix <<
-                    " invalid parameter " << theName << " = " <<
-                    *theValPtr <<
-                KFS_LOG_EOM;
-            }
-        }
-        if ((theValPtr = mParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("uriStyle")))) {
-            if (*theValPtr == "virtualHost") {
-                mS3UriStyle = S3UriStyleVirtualHost;
-            } else if (*theValPtr == "path") {
-                mS3UriStyle = S3UriStylePath;
-            } else {
-                KFS_LOG_STREAM_WARN << inLogPrefix <<
-                    " invalid parameter " << theName << " = " <<
-                    *theValPtr <<
-                KFS_LOG_EOM;
-            }
-        }
         mVerifyCertStatusFlag = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("verifyCertStatus"),
             mVerifyCertStatusFlag ? 1 : 0
@@ -1235,7 +1302,111 @@ private:
         MsgLogger::Stop();
         QCUtils::FatalError(theMsgPtr, 0);
     }
-
+    const char* DateNow()
+    {
+        const time_t theNow = Now();
+        if (theNow == mLastDateTime && 0 != mDateBuf[0]) {
+            return mDateBuf;
+        }
+        mLastDateTime = theNow;
+        // Do not use strftime() to avoid local complications.
+        struct tm        theTm    = { 0 };
+        struct tm* const theTmPtr = gmtime_r(&theNow, &theTm);
+        if (! theTmPtr || theTmPtr->tm_wday < 0 || 6 < theTmPtr->tm_wday ||
+                theTmPtr->tm_mday < 1 || 31 < theTmPtr->tm_mday ||
+                theTmPtr->tm_mon < 0 || 11 < theTmPtr->tm_mon ||
+                theTmPtr->tm_year + 1900 < 0 || 8099 < theTmPtr->tm_year) {
+            FatalError("gmtime_r failure");
+            return mDateBuf;
+        }
+        char* thePtr = mDateBuf;
+        memcpy(thePtr, kS3IODaateWeekDays[theTmPtr->tm_wday], 3);
+        thePtr += 3;
+        *thePtr++ = ',';
+        *thePtr++ = ' ';
+        *thePtr++ = (char)('0' + theTmPtr->tm_mday / 10);
+        *thePtr++ = (char)('0' + theTmPtr->tm_mday % 10);
+        *thePtr++ = ' ';
+        memcpy(thePtr, kS3IODateMonths[theTmPtr->tm_mday - 1], 3);
+        thePtr += 3;
+        *thePtr++ = ' ';
+        int theYear = theTmPtr->tm_year + 1900;
+        for (int i = 3; 0 <= i; i--) {
+            thePtr[i] = (char)('0' + theYear % 10);
+            theYear /= 10;
+        }
+        thePtr += 4;
+        *thePtr++ = ' ';
+        *thePtr++ = (char)('0' + theTmPtr->tm_hour / 10);
+        *thePtr++ = (char)('0' + theTmPtr->tm_hour % 10);
+        *thePtr++ = ':';
+        *thePtr++ = (char)('0' + theTmPtr->tm_min / 10);
+        *thePtr++ = (char)('0' + theTmPtr->tm_min % 10);
+        *thePtr++ = ':';
+        *thePtr++ = (char)('0' + theTmPtr->tm_sec / 10);
+        *thePtr++ = (char)('0' + theTmPtr->tm_sec % 10);
+        memcpy(thePtr, " +0000", 7);
+        QCASSERT(
+            thePtr + 7 <= mDateBuf + sizeof(mDateBuf) / sizeof(mDateBuf[0]));
+        return mDateBuf;
+    }
+    const char* Sign(
+        const string& inData,
+        const string& inKey)
+    {
+        const char* const theKeyPtr = inKey.data();
+        const int         theKeyLen = (int)inKey.size();
+        HMAC_CTX theCtx;
+        HMAC_CTX_init(&theCtx);
+        unsigned int       theLen    = 0;
+        unsigned char      theSignBuf[kHmacSha1Len];
+#if OPENSSL_VERSION_NUMBER < 0x1000000fL
+        HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen, EVP_sha1(), 0);
+        HMAC_Update(
+            &theCtx,
+            reinterpret_cast<const unsigned char*>(inData.data()),
+            (int)inData.size()
+        );
+        HMAC_Final(
+            &theCtx,
+            reinterpret_cast<unsigned char*>(theSignBuf),
+            &theLen
+        );
+#else
+        const bool theOkFlag =
+            HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen, EVP_sha1(), 0) &&
+            HMAC_Update(
+                &theCtx,
+                reinterpret_cast<const unsigned char*>(inData.data()),
+                (int)inData.size()
+            ) &&
+            HMAC_Final(
+                &theCtx,
+                reinterpret_cast<unsigned char*>(theSignBuf),
+                &theLen
+            );
+        if (! theOkFlag) {
+            const int kBufSize = 127;
+            char      theBuf[kBufSize + 1];
+            theBuf[0] = 0;
+            theBuf[kBufSize] = 0;
+            ERR_error_string_n(ERR_get_error(), theBuf, kBufSize);
+            FatalError(theBuf);
+        }
+#endif
+        HMAC_CTX_cleanup(&theCtx);
+        if ((unsigned int)kHmacSha1Len != theLen) {
+            FatalError("hmac-sha1 failure");
+        }
+        const int theEncLen = Base64::Encode(
+            reinterpret_cast<const char*>(theSignBuf), (int)theLen, mHmacBuf);
+        if (theEncLen <= 0 || (int)sizeof(mHmacBuf) <= theEncLen) {
+            FatalError("base64 encode failure");
+            mHmacBuf[0] = 0;
+        }
+        mHmacBuf[theEncLen] = 0;
+        return mHmacBuf;
+    }
 private:
     S3ION(
         const S3ION& inS3io);
