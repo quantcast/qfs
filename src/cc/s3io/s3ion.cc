@@ -188,6 +188,54 @@ public:
         mUpdatedFullConfigPrefix += mConfigPrefix;
         inParameters.copyWithPrefix(mFullConfigPrefix, mUpdatedParameters);
         mParametersUpdatedFlag = true;
+#if 0
+        mVerifyCertStatusFlag = mUpdatedParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("verifyCertStatus"),
+            mVerifyCertStatusFlag ? 1 : 0
+        ) != 0;
+        mVerifyPeerFlag = mUpdatedParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("verifyPeer"),
+            mVerifyPeerFlag ? 1 : 0
+        ) != 0;
+        mSslCiphers = mUpdatedParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("sslCiphers"),
+            mSslCiphers
+        );
+        mCABundle = mUpdatedParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("CABundle"),
+            mCABundle
+        );
+        mCAPath = mUpdatedParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("CAPath"),
+            mCAPath
+        );
+        if ((theValPtr = mUpdatedParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("sslVersion")))) {
+            if (*theValPtr == "tls1") {
+                mSslVersion = CURL_SSLVERSION_TLSv1;
+            } else if (*theValPtr == "ssl2") {
+                mSslVersion = CURL_SSLVERSION_SSLv2;
+            } else if (*theValPtr == "ssl3") {
+                mSslVersion = CURL_SSLVERSION_SSLv3;
+            } else if (*theValPtr == "tls10") {
+                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_0,
+                    inLogPrefix);
+            } else if (*theValPtr == "tls11") {
+                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_1,
+                    inLogPrefix);
+            } else if (*theValPtr == "tls12") {
+                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_2,
+                    inLogPrefix);
+            } else if (*theValPtr == "") {
+                mSslVersion = CURL_SSLVERSION_DEFAULT;
+            } else {
+                KFS_LOG_STREAM_WARN << inLogPrefix <<
+                    " invalid parameter " << theName << " = " <<
+                    *theValPtr <<
+                KFS_LOG_EOM;
+            }
+        }
+#endif
     }
     virtual void ProcessAndWait()
     {
@@ -359,17 +407,28 @@ public:
                     // that corresponds to "file" might not exists yet.
                     break;
                 }
-                if (Start(
+                if (inInputIteratorPtr || inInputIteratorPtr->Get()) {
+                    FatalError("read buffer pre-allocation is not supported");
+                    theError  = QCDiskQueue::kErrorRead;
+                    theSysErr = EINVAL;
+                    break;
+                }
+                if (mNetManager.IsRunning()) {
+                    mClient.Run(*(new S3Get(
+                        *this,
                         inRequest,
                         inReqType,
+                        theFilePtr->mFileName,
                         inStartBlockIdx,
                         inBufferCount,
-                        inInputIteratorPtr,
-                        inBufferCount * mBlockSize,
-                        *theFilePtr,
-                        inFd)) {
+                        theFilePtr->mGeneration,
+                        inFd
+                    )));
                     return;
                 }
+                theError  = QCDiskQueue::kErrorRead;
+                theSysErr = EIO;
+                break;
             case QCDiskQueue::kReqTypeWrite:
             case QCDiskQueue::kReqTypeWriteSync:
                 if (! theFilePtr || theFilePtr->mReadOnlyFlag ||
@@ -430,19 +489,49 @@ public:
                     break;
                 }
                 theFilePtr->mWriteOnlyFlag = true;
-                if (Start(
-                        inRequest,
-                        inReqType,
-                        inStartBlockIdx,
-                        inBufferCount,
-                        inInputIteratorPtr,
-                        inBufferCount * mBlockSize -
-                            (theFilePtr->mMaxFileSize < theEnd ?
-                                theEnd - theFilePtr->mMaxFileSize : 0),
-                        *theFilePtr,
-                        inFd)) {
-                    return;
+                if (mNetManager.IsRunning()) {
+                    IOBuffer theBuf;
+                    char*    thePtr;
+                    int      theRem = (int)(
+                        min(theFilePtr->mMaxFileSize, theEnd) -
+                        inStartBlockIdx * mBlockSize);
+                    while (0 < theRem && (thePtr = inInputIteratorPtr->Get())) {
+                        const int theLen = min(theRem, mBlockSize);
+                        theBuf.Append(IOBufferData(
+                            IOBufferData::IOBufferBlockPtr(
+                                thePtr, DoNotDeallocate()),
+                            mBlockSize, 0, theLen
+                        ));
+                        theRem -= theLen;
+                    }
+                    if (theRem <= 0) {
+                        mClient.Run(*(new S3Put(
+                            *this,
+                            inRequest,
+                            inReqType,
+                            theFilePtr->mFileName,
+                            inStartBlockIdx,
+                            theFilePtr->mGeneration,
+                            inFd,
+                            theBuf
+                        )));
+                        return;
+                    }
+                    theError  = QCDiskQueue::kErrorWrite;
+                    theSysErr = EINVAL;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "write invalid buffer count: " << inBufferCount <<
+                        " end: " << theEnd <<
+                        " max: " << theFilePtr->mMaxFileSize <<
+                        " fd: "  << inFd <<
+                        " gen: " << theFilePtr->mGeneration <<
+                        " "      << theFilePtr->mFileName <<
+                    KFS_LOG_EOM;
+                    break;
                 }
+                theError  = QCDiskQueue::kErrorWrite;
+                theSysErr = EIO;
+                break;
             default:
                 theError  = QCDiskQueue::kErrorParameter;
                 theSysErr = theFilePtr ? ENXIO : EBADF;
@@ -482,17 +571,14 @@ public:
                     theError  = QCDiskQueue::kErrorDelete;
                     break;
                 }
-                if (Start(
-                        inRequest,
-                        inReqType,
-                        0, // inStartBlockIdx,
-                        0, // inBufferCount,
-                        0, // inInputIteratorPtr,
-                        0, // size,
-                        File(inNamePtr + mFilePrefix.length()),
-                        -1)) {
-                    break;
+                if (mNetManager.IsRunning()) {
+                    mClient.Run(*(new S3Delete(
+                        *this, inRequest, inReqType, string(inNamePtr))));
+                } else {
+                    theError  = QCDiskQueue::kErrorDelete;
+                    theSysErr = EIO;
                 }
+                break;
             default:
                 theError  = QCDiskQueue::kErrorParameter;
                 theSysErr = ENXIO;
@@ -575,13 +661,18 @@ private:
             Outer&        inOuter,
             Request&      inRequest,
             ReqType       inReqType,
-            const string& inFileName)
+            const string& inFileName,
+            BlockIdx      inStartBlockIdx = 0,
+            Generation    inGeneration    = 0,
+            int           inFd            = -1)
             : KfsCallbackObj(),
               TransactionalClient::Transaction(),
               mOuter(inOuter),
               mRequest(inRequest),
               mReqType(inReqType),
               mFileName(inFileName),
+              mGeneration(inGeneration),
+              mFd(inFd),
               mRetryCount(0),
               mStartTime(mOuter.Now()),
               mTimer(mOuter.mNetManager, *this),
@@ -589,6 +680,9 @@ private:
               mReceivedHeadersFlag(false),
               mReadTillEofFlag(false),
               mHeaderLength(-1),
+              mError(QCDiskQueue::kErrorNone),
+              mSysError(0),
+              mStartBlockIdx(inStartBlockIdx),
               mIOBuffer(),
               mHeaders(),
               mHttpChunkedDecoder(mIOBuffer, mOuter.mMaxReadAhead)
@@ -596,8 +690,6 @@ private:
             mOuter.mRequestCount++;
             SET_HANDLER(this, &S3Req::Timeout);
         }
-        int GetRetryCount() const
-            { return mRetryCount; }
         int Timeout(
             int   inEvent,
             void* inDataPtr)
@@ -622,8 +714,17 @@ private:
                 "network error: " << inStatus  <<
                 " message: "      << (inMsgPtr ? inMsgPtr : "") <<
             KFS_LOG_EOM;
-            if (mOuter.mNetManager.IsRunning() && 0 <= mOuter.mRetryInterval &&
-                    ++mRetryCount < mOuter.mMaxRetryCount) {
+            Retry();
+        }
+        bool Retry()
+        {
+            const File* theFilePtr;
+            bool const  theRetryFlag =
+                mOuter.mNetManager.IsRunning() && 0 <= mOuter.mRetryInterval &&
+                ++mRetryCount < mOuter.mMaxRetryCount &&
+                (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
+                        theFilePtr->mGeneration == mGeneration));
+            if (theRetryFlag) {
                 const int theTime = min(0,
                     (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
@@ -632,10 +733,15 @@ private:
                     " in " << theTime << " sec." <<
                 KFS_LOG_EOM;
                 mTimer.SetTimeout(theTime);
+                Reset();
             } else {
                 mTimer.RemoveTimeout();
+                if (0 == mSysError) {
+                    mSysError = EIO;
+                }
+                Done();
             }
-            Reset();
+            return theRetryFlag;
         }
     protected:
         typedef NetManager::Timer     Timer;
@@ -645,6 +751,8 @@ private:
         Request&            mRequest;
         ReqType       const mReqType;
         string        const mFileName;
+        Generation    const mGeneration;
+        int           const mFd;
         int                 mRetryCount;
         time_t              mStartTime;
         Timer               mTimer;
@@ -652,6 +760,9 @@ private:
         bool                mReceivedHeadersFlag;
         bool                mReadTillEofFlag;
         int                 mHeaderLength;
+        QCDiskQueue::Error  mError;
+        int                 mSysError;
+        BlockIdx            mStartBlockIdx;
         IOBuffer            mIOBuffer;
         HttpResponseHeaders mHeaders;
         HttpChunkedDecoder  mHttpChunkedDecoder;
@@ -659,6 +770,44 @@ private:
         virtual ~S3Req()
         {
             mOuter.mRequestCount--;
+        }
+        void Done(
+            int64_t        inIoByteCount      = 0,
+            InputIterator* inInputIteratorPtr = 0)
+        {
+            if (0 != mSysError && QCDiskQueue::kErrorNone == mError) {
+                switch (mReqType) {
+                    case QCDiskQueue::kReqTypeRead:
+                        mError = QCDiskQueue::kErrorRead;
+                        break;
+                    case QCDiskQueue::kReqTypeWrite:
+                    case QCDiskQueue::kReqTypeWriteSync:
+                        mError = QCDiskQueue::kErrorWrite;
+                        break;
+                    case QCDiskQueue::kReqTypeDelete:
+                        mError = QCDiskQueue::kErrorDelete;
+                        break;
+                    default:
+                        mOuter.FatalError("invalid request type");
+                        mError = QCDiskQueue::kErrorParameter;
+                        break;
+                }
+            }
+            QCDiskQueue::Error const theError         = mError;
+            int                const theSysErr        = mSysError;
+            BlockIdx           const theStartBlockIdx = mStartBlockIdx;
+            Request&                 theRequest       = mRequest;
+            Outer                    theOuter         = mOuter;
+            delete this;
+            theOuter.mDiskQueuePtr->Done(
+                theOuter,
+                theRequest,
+                theError,
+                theSysErr,
+                QCDiskQueue::kErrorNone == mError ? inIoByteCount      : 0,
+                theStartBlockIdx,
+                QCDiskQueue::kErrorNone == mError ? inInputIteratorPtr : 0
+            );
         }
         int SendRequest(
             const char*           inVerbPtr,
@@ -861,7 +1010,7 @@ private:
                 mIOBuffer.Move(&inBuffer, mHeaders.GetContentLength());
             }
             const int theStatus = mHeaders.GetStatus();
-            KFS_LOG_STREAM((200 <= theStatus && theStatus <= 299) ?
+            KFS_LOG_STREAM(IsHttpStatusOk() ?
                      MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
                 mOuter.mLogPrefix << Show(*this) <<
                 "response:"
@@ -890,6 +1039,13 @@ private:
             mHeaders.Reset();
             mHttpChunkedDecoder.Reset();
         }
+        bool IsHttpStatusOk() const
+        {
+            const int theStatus = mHeaders.GetStatus();
+            return (200 <= theStatus && theStatus <= 299);
+        }
+        bool IsStatusOk()
+            { return IsHttpStatusOk(); }
     private:
         S3Req(
             const S3Req& inReq);
@@ -926,33 +1082,49 @@ private:
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
+                if (IsStatusOk()) {
+                    Done();
+                } else {
+                    Retry();
+                }
             }
             return theRet;
         }
     private:
-        
+        S3Delete(
+            const S3Delete& inDelete);
+        S3Delete& operator=(
+            const S3Delete& inDelete);
     };
     friend class S3Delete;
     class S3Put : public S3Req
     {
     public:
         S3Put(
-            Outer&        inOuter,
-            Request&      inRequest,
-            ReqType       inReqType,
-            const string& inFileName)
-            : S3Req(inOuter, inRequest, inReqType, inFileName),
+            Outer&         inOuter,
+            Request&       inRequest,
+            ReqType        inReqType,
+            const string&  inFileName,
+            BlockIdx       inStartBlockIdx,
+            Generation     inGeneration,
+            int            inFd,
+            IOBuffer&      inIOBuffer)
+            : S3Req(inOuter, inRequest, inReqType, inFileName,
+                inStartBlockIdx, inGeneration, inFd),
               mDataBuf()
         {
             mMd5Sum[0] = 0;
+            mIOBuffer.Move(&inIOBuffer);
         }
         virtual ostream& Display(
             ostream& inStream) const
         {
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
-                " put: " << mFileName <<
-                " " << mDataBuf.BytesConsumable()
+                " put: "  << mFileName <<
+                " fd: "   << mFd <<
+                " gen: "  << mGeneration <<
+                " size: " << mDataBuf.BytesConsumable()
             );
         }
         virtual int Request(
@@ -979,6 +1151,11 @@ private:
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
+                if (IsStatusOk()) {
+                    Done(mIOBuffer.BytesConsumable());
+                } else {
+                    Retry();
+                }
             }
             return theRet;
         }
@@ -1023,18 +1200,26 @@ private:
             Outer&        inOuter,
             Request&      inRequest,
             ReqType       inReqType,
-            const string& inFileName)
-            : S3Req(inOuter, inRequest, inReqType, inFileName),
-              mRangeStart(-1),
-              mRangeEnd(-1)
+            const string& inFileName,
+            BlockIdx      inStartBlockIdx,
+            int           inBufferCount,
+            Generation    inGeneration,
+            int           inFd)
+            : S3Req(inOuter, inRequest, inReqType, inFileName,
+                inStartBlockIdx, inGeneration, inFd),
+              mRangeStart(inStartBlockIdx * mOuter.mBlockSize),
+              mRangeEnd(inBufferCount * mOuter.mBlockSize)
             {}
         virtual ostream& Display(
             ostream& inStream) const
         {
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
-                " get: " << mFileName <<
-                " " << mRangeStart << "-" << mRangeEnd
+                " get: "   << mFileName <<
+                " fd: "    << mFd <<
+                " gen: "   << mGeneration <<
+                " range: " << mRangeStart <<
+                " size: "  << (mRangeEnd - mRangeStart)
             );
         }
         virtual int Request(
@@ -1065,14 +1250,49 @@ private:
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
+                if (IsStatusOk()) {
+                    int const theIoByteCount = mIOBuffer.BytesConsumable();
+                    IOBufInputIterator theIterator(mIOBuffer);
+                    Done(theIoByteCount, &theIterator);
+                } else {
+                    Retry();
+                }
             }
             return theRet;
         }
     private:
+        class IOBufInputIterator : public InputIterator
+        {
+        public:
+            IOBufInputIterator(
+                IOBuffer& inIOBuffer)
+                : InputIterator(),
+                  mIOBuffer()
+                { mIOBuffer.Move(&inIOBuffer); }
+            virtual char* Get()
+            {
+                const bool  kFullOrPartialLastBufferFlag = true;;
+                char* const thePtr = mIOBuffer.DetachFirstBuffer(
+                    kFullOrPartialLastBufferFlag);
+                QCRTASSERT(thePtr || mIOBuffer.IsEmpty());
+                return thePtr;
+            }
+        private:
+            IOBuffer mIOBuffer;
+        };
         const int64_t mRangeStart;
         const int64_t mRangeEnd;
     };
     friend class S3Get;
+    class DoNotDeallocate
+    {
+    public:
+        DoNotDeallocate()
+            {}
+        void operator()(
+            char* /* inBufferPtr */)
+            {}
+    };
 
     enum { kHmacSha1Len = 20 };
 
@@ -1283,54 +1503,20 @@ private:
             theName.Truncate(thePrefixSize).Append("debugTraceMaxDataSize"),
             mDebugTraceMaxDataSize
         );
-#if 0
-        mVerifyCertStatusFlag = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("verifyCertStatus"),
-            mVerifyCertStatusFlag ? 1 : 0
-        ) != 0;
-        mVerifyPeerFlag = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("verifyPeer"),
-            mVerifyPeerFlag ? 1 : 0
-        ) != 0;
-        mSslCiphers = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("sslCiphers"),
-            mSslCiphers
-        );
-        mCABundle = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("CABundle"),
-            mCABundle
-        );
-        mCAPath = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("CAPath"),
-            mCAPath
-        );
-        if ((theValPtr = mParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("sslVersion")))) {
-            if (*theValPtr == "tls1") {
-                mSslVersion = CURL_SSLVERSION_TLSv1;
-            } else if (*theValPtr == "ssl2") {
-                mSslVersion = CURL_SSLVERSION_SSLv2;
-            } else if (*theValPtr == "ssl3") {
-                mSslVersion = CURL_SSLVERSION_SSLv3;
-            } else if (*theValPtr == "tls10") {
-                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_0,
-                    inLogPrefix);
-            } else if (*theValPtr == "tls11") {
-                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_1,
-                    inLogPrefix);
-            } else if (*theValPtr == "tls12") {
-                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_2,
-                    inLogPrefix);
-            } else if (*theValPtr == "") {
-                mSslVersion = CURL_SSLVERSION_DEFAULT;
+        if (! mParameters.getValue(
+                theName.Truncate(thePrefixSize).Append("host"))) {
+            const bool kHttpsHostNameFlag = true;
+            string theHost;
+            if (mS3HostName.empty()) {
+                theHost = mBucketName + ".s3.amazonaws.com";
             } else {
-                KFS_LOG_STREAM_WARN << inLogPrefix <<
-                    " invalid parameter " << theName << " = " <<
-                    *theValPtr <<
-                KFS_LOG_EOM;
+                theHost = mBucketName + mS3HostName;
             }
+            mClient.SetServer(
+                ServerLocation(mS3HostName, 443),
+                kHttpsHostNameFlag
+            );
         }
-#endif
         string theErrMsg;
         const int theStatus = mClient.SetParameters(
             mFullConfigPrefix.c_str(), mParameters, &theErrMsg);
@@ -1384,18 +1570,6 @@ private:
             return EINVAL;
         }
         return 0;
-    }
-    bool Start(
-        Request&        inRequest,
-        ReqType         inReqType,
-        BlockIdx        inStartBlockIdx,
-        int             inBufferCount,
-        InputIterator*  inInputIteratorPtr,
-        size_t          inSize,
-        const File&     inFile,
-        int             inFd)
-    {
-        return false;
     }
     void FatalError(
         const char* inMsgPtr,
