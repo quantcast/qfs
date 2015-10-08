@@ -682,7 +682,11 @@ public:
                     thePtr < theEndPtr;
                     thePtr++) {
                 const int theSym = *thePtr & 0xFF;
-                if (' ' <= theSym && theSym < 127) {
+                if (theSym == '\n') {
+                    inStream << "\\n";
+                } else if (theSym == '\r') {
+                    inStream << "\\r";
+                } else if (' ' <= theSym && theSym < 127) {
                     inStream << "\\x" <<
                         kHexDigits[(theSym >> 4) & 0xF] <<
                         kHexDigits[theSym & 0xF]
