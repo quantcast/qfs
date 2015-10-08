@@ -785,7 +785,7 @@ private:
             int                const theSysErr        = mSysError;
             BlockIdx           const theStartBlockIdx = mStartBlockIdx;
             Request&                 theRequest       = mRequest;
-            Outer                    theOuter         = mOuter;
+            Outer&                   theOuter         = mOuter;
             delete this;
             theOuter.mDiskQueuePtr->Done(
                 theOuter,
@@ -1179,6 +1179,11 @@ private:
         IOBuffer mDataBuf;
         char     mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
                          // Base64::EncodedLength(128 / 8) + 1
+    private:
+        S3Put(
+            const S3Put& inPut);
+        S3Put& operator=(
+            const S3Put& inPut);
     };
     friend class S3Put;
     class S3Get : public S3Req
@@ -1270,6 +1275,11 @@ private:
         };
         const int64_t mRangeStart;
         const int64_t mRangeEnd;
+    private:
+        S3Get(
+            const S3Get& inGet);
+        S3Get& operator=(
+            const S3Get& inGet);
     };
     friend class S3Get;
     class DoNotDeallocate
