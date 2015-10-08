@@ -141,7 +141,7 @@ public:
             mHttpsHostNameFlag ? 1 : 0
         ) != 0;
         mVerifyServerFlag = inParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("ssl.verifyServer"),
+            theName.Truncate(thePrefixSize).Append("ssl.verifyPeer"),
             mVerifyServerFlag ? 1 : 0
         ) != 0;
         bool                            theStopFlag =

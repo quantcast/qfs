@@ -188,27 +188,15 @@ public:
         mUpdatedFullConfigPrefix += mConfigPrefix;
         inParameters.copyWithPrefix(mFullConfigPrefix, mUpdatedParameters);
         mParametersUpdatedFlag = true;
+        RenameParameter("verifyPeer", "ssl.verifyPeer");
+        RenameParameter("sslCiphers", "ssl.cipher");
+        RenameParameter("CABundle",   "ssl.CAFile");
+        RenameParameter("CAPath",     "ssl.CADir");
 #if 0
         mVerifyCertStatusFlag = mUpdatedParameters.getValue(
             theName.Truncate(thePrefixSize).Append("verifyCertStatus"),
             mVerifyCertStatusFlag ? 1 : 0
         ) != 0;
-        mVerifyPeerFlag = mUpdatedParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("verifyPeer"),
-            mVerifyPeerFlag ? 1 : 0
-        ) != 0;
-        mSslCiphers = mUpdatedParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("sslCiphers"),
-            mSslCiphers
-        );
-        mCABundle = mUpdatedParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("CABundle"),
-            mCABundle
-        );
-        mCAPath = mUpdatedParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("CAPath"),
-            mCAPath
-        );
         if ((theValPtr = mUpdatedParameters.getValue(
                 theName.Truncate(thePrefixSize).Append("sslVersion")))) {
             if (*theValPtr == "tls1") {
@@ -1582,6 +1570,27 @@ private:
         KFS_LOG_EOM;
         MsgLogger::Stop();
         QCUtils::FatalError(theMsgPtr, 0);
+    }
+    void RenameParameter(
+        const char* inFromNamePtr,
+        const char* inToNamePtr)
+    {
+        Properties::String theName(mUpdatedFullConfigPrefix);
+        const size_t       thePrefixSize = theName.GetSize();
+        if (mUpdatedParameters.getValue(
+                theName.Truncate(thePrefixSize).Append(inToNamePtr))) {
+            // Newer name exists.
+            return;
+        }
+        const Properties::String* theFromValPtr = mUpdatedParameters.getValue(
+            theName.Truncate(thePrefixSize).Append(inFromNamePtr));
+        if (! theFromValPtr) {
+            // Old does not exist.
+            return;
+        }
+        mUpdatedParameters.setValue(
+            theName.Truncate(thePrefixSize).Append(inToNamePtr), *theFromValPtr
+        );
     }
     const char* DateNow()
     {
