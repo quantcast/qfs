@@ -82,7 +82,7 @@ private:
         QCStMutexLocker lock(mMutex);
         // Do not assign, uless the value changes, as store might not be atomic.
         if (! mHasEntriesFlag) {
-            mHasEntriesFlag = false;
+            mHasEntriesFlag = true;
         }
         mList.push_back(buf);
     }

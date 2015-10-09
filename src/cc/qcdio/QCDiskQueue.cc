@@ -1490,15 +1490,16 @@ QCDiskQueue::Queue::Process(
                 return;
             }
         }
-        BuffersIterator theIt(
-            *this, inReq, theGetBufFlag ? inReq.mBufferCount : 0);
+        const int theBufferCount = (theGetBufFlag || 0 != theBufPtr[0]) ?
+            inReq.mBufferCount : 0;
+        BuffersIterator theIt(*this, inReq, theBufferCount);
         mRequestProcessorsPtr[inThreadIdx]->StartIo(
             inReq,
             inReq.mReqType,
             theFd,
             inReq.mBlockIdx,
             inReq.mBufferCount,
-            theGetBufFlag ? &theIt : 0,
+            0 < theBufferCount ? &theIt : 0,
             theAllocSize,
             theFileSize
         );

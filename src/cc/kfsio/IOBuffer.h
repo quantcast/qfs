@@ -673,6 +673,8 @@ public:
     {
         const char* const kHexDigits = "0123456789ABCDEF";
         int               theRem     = mLength;
+        char              theBuf[2];
+        theBuf[1] = 0;
         for (IOBuffer::iterator theIt = mIOBuffer.begin();
                 inStream && 0 < theRem && theIt != mIOBuffer.end();
                 ++theIt) {
@@ -687,12 +689,13 @@ public:
                 } else if (theSym == '\r') {
                     inStream << "\\r";
                 } else if (' ' <= theSym && theSym < 127) {
+                    theBuf[0] = (char)theSym;
+                    inStream << theBuf;
+                } else {
                     inStream << "\\x" <<
                         kHexDigits[(theSym >> 4) & 0xF] <<
                         kHexDigits[theSym & 0xF]
                     ;
-                } else {
-                    inStream << thePtr;
                 }
             }
             theRem -= theCnt;

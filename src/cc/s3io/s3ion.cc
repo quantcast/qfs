@@ -186,44 +186,9 @@ public:
         QCStMutexLocker theLock(mMutex);
         mUpdatedFullConfigPrefix = inPrefixPtr ? inPrefixPtr : "";
         mUpdatedFullConfigPrefix += mConfigPrefix;
-        inParameters.copyWithPrefix(mFullConfigPrefix, mUpdatedParameters);
+        inParameters.copyWithPrefix(
+            mUpdatedFullConfigPrefix, mUpdatedParameters);
         mParametersUpdatedFlag = true;
-        RenameParameter("verifyPeer", "ssl.verifyPeer");
-        RenameParameter("sslCiphers", "ssl.cipher");
-        RenameParameter("CABundle",   "ssl.CAFile");
-        RenameParameter("CAPath",     "ssl.CADir");
-#if 0
-        mVerifyCertStatusFlag = mUpdatedParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("verifyCertStatus"),
-            mVerifyCertStatusFlag ? 1 : 0
-        ) != 0;
-        if ((theValPtr = mUpdatedParameters.getValue(
-                theName.Truncate(thePrefixSize).Append("sslVersion")))) {
-            if (*theValPtr == "tls1") {
-                mSslVersion = CURL_SSLVERSION_TLSv1;
-            } else if (*theValPtr == "ssl2") {
-                mSslVersion = CURL_SSLVERSION_SSLv2;
-            } else if (*theValPtr == "ssl3") {
-                mSslVersion = CURL_SSLVERSION_SSLv3;
-            } else if (*theValPtr == "tls10") {
-                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_0,
-                    inLogPrefix);
-            } else if (*theValPtr == "tls11") {
-                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_1,
-                    inLogPrefix);
-            } else if (*theValPtr == "tls12") {
-                mSslVersion = WarnIfNotSupported(CURL_SSLVERSION_TLSv1_2,
-                    inLogPrefix);
-            } else if (*theValPtr == "") {
-                mSslVersion = CURL_SSLVERSION_DEFAULT;
-            } else {
-                KFS_LOG_STREAM_WARN << inLogPrefix <<
-                    " invalid parameter " << theName << " = " <<
-                    *theValPtr <<
-                KFS_LOG_EOM;
-            }
-        }
-#endif
     }
     virtual void ProcessAndWait()
     {
@@ -395,7 +360,7 @@ public:
                     // that corresponds to "file" might not exists yet.
                     break;
                 }
-                if (inInputIteratorPtr || inInputIteratorPtr->Get()) {
+                if (inInputIteratorPtr && inInputIteratorPtr->Get()) {
                     FatalError("read buffer pre-allocation is not supported");
                     theError  = QCDiskQueue::kErrorRead;
                     theSysErr = EINVAL;
@@ -894,6 +859,7 @@ private:
                 return mOuter.mMaxReadAhead;
             }
             if (! mReceivedHeadersFlag) {
+                mReceivedHeadersFlag = true;
                 const char* const thePtr = inBuffer.CopyOutOrGetBufPtr(
                         mOuter.mHdrBufferPtr, mHeaderLength);
                 if (! mHeaders.Parse(thePtr, mHeaderLength) ||
@@ -908,7 +874,9 @@ private:
                         " header length: "       << mHeaderLength <<
                         " max response length: " << mOuter.mMaxResponseSize <<
                         " header: " <<
-                            ShowData(inBuffer, mHeaderLength) <<
+                            ShowData(inBuffer,
+                                min(mOuter.mDebugTraceMaxDataSize,
+                                    mHeaderLength)) <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "invalid response");
                     return -1;
@@ -922,6 +890,9 @@ private:
                 mReadTillEofFlag = ! mHeaders.IsChunkedEconding() &&
                     mHeaders.GetContentLength() < 0;
                 inBuffer.Consume(mHeaderLength);
+                if (! mHeaders.IsChunkedEconding()) {
+                    inBuffer.MakeBuffersFull();
+                }
             }
             if (mHeaders.IsChunkedEconding()) {
                 const int theRet = mHttpChunkedDecoder.Parse(inBuffer);
@@ -1001,7 +972,7 @@ private:
             KFS_LOG_STREAM(IsHttpStatusOk() ?
                      MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
                 mOuter.mLogPrefix << Show(*this) <<
-                "response:"
+                " response:"
                 " headers: "   << mHeaderLength <<
                 " body: "      << mHeaders.GetContentLength() <<
                 " buffer: "    << mIOBuffer.BytesConsumable() <<
@@ -1201,7 +1172,7 @@ private:
             : S3Req(inOuter, inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
               mRangeStart(inStartBlockIdx * mOuter.mBlockSize),
-              mRangeEnd(inBufferCount * mOuter.mBlockSize)
+              mRangeEnd(mRangeStart + inBufferCount * mOuter.mBlockSize - 1)
             {}
         virtual ostream& Display(
             ostream& inStream) const
@@ -1211,8 +1182,8 @@ private:
                 " get: "   << mFileName <<
                 " fd: "    << mFd <<
                 " gen: "   << mGeneration <<
-                " range: " << mRangeStart <<
-                " size: "  << (mRangeEnd - mRangeStart)
+                " pos: "   << mRangeStart <<
+                " size: "  << (mRangeEnd - mRangeStart + 1)
             );
         }
         virtual int Request(
@@ -1244,6 +1215,7 @@ private:
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
                 if (IsStatusOk()) {
+                    mIOBuffer.Trim((int)(mRangeEnd + 1 - mRangeStart));
                     int const theIoByteCount = mIOBuffer.BytesConsumable();
                     IOBufInputIterator theIterator(mIOBuffer);
                     Done(theIoByteCount, &theIterator);
@@ -1383,7 +1355,7 @@ private:
           mUpdatedParameters(),
           mFullConfigPrefix(),
           mUpdatedFullConfigPrefix(),
-          mS3HostName(),
+          mS3HostName("s3.amazonaws.com"),
           mBucketName(),
           mAccessKeyId(),
           mSecretAccessKey(),
@@ -1426,6 +1398,11 @@ private:
     }
     void SetParameters()
     {
+        RenameParameter("verifyPeer", "ssl.verifyPeer");
+        RenameParameter("sslCiphers", "ssl.cipher");
+        RenameParameter("CABundle",   "ssl.CAFile");
+        RenameParameter("CAPath",     "ssl.CADir");
+
         Properties::String theName(mFullConfigPrefix);
         const size_t       thePrefixSize = theName.GetSize();
         mS3HostName = mParameters.getValue(
@@ -1504,21 +1481,15 @@ private:
         if (! mParameters.getValue(
                 theName.Truncate(thePrefixSize).Append("host"))) {
             const bool kHttpsHostNameFlag = true;
-            string theHost;
-            if (mS3HostName.empty()) {
-                theHost = mBucketName + ".s3.amazonaws.com";
-            } else {
-                theHost = mBucketName + mS3HostName;
-            }
             mClient.SetServer(
-                ServerLocation(mS3HostName, 443),
+                ServerLocation(mBucketName + "." + mS3HostName, 443),
                 kHttpsHostNameFlag
             );
         }
         string theErrMsg;
         const int theStatus = mClient.SetParameters(
             mFullConfigPrefix.c_str(), mParameters, &theErrMsg);
-        if (0 != theStatus) {
+        if (0 != theStatus && ! mBucketName.empty()) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "set parameters failure: " <<
                 " status: " << theStatus <<
@@ -1585,20 +1556,20 @@ private:
         const char* inFromNamePtr,
         const char* inToNamePtr)
     {
-        Properties::String theName(mUpdatedFullConfigPrefix);
+        Properties::String theName(mFullConfigPrefix);
         const size_t       thePrefixSize = theName.GetSize();
-        if (mUpdatedParameters.getValue(
+        if (mParameters.getValue(
                 theName.Truncate(thePrefixSize).Append(inToNamePtr))) {
             // Newer name exists.
             return;
         }
-        const Properties::String* theFromValPtr = mUpdatedParameters.getValue(
+        const Properties::String* theFromValPtr = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append(inFromNamePtr));
         if (! theFromValPtr) {
             // Old does not exist.
             return;
         }
-        mUpdatedParameters.setValue(
+        mParameters.setValue(
             theName.Truncate(thePrefixSize).Append(inToNamePtr), *theFromValPtr
         );
     }
@@ -1627,7 +1598,7 @@ private:
         *thePtr++ = (char)('0' + theTmPtr->tm_mday / 10);
         *thePtr++ = (char)('0' + theTmPtr->tm_mday % 10);
         *thePtr++ = ' ';
-        memcpy(thePtr, kS3IODateMonths[theTmPtr->tm_mday - 1], 3);
+        memcpy(thePtr, kS3IODateMonths[theTmPtr->tm_mon], 3);
         thePtr += 3;
         *thePtr++ = ' ';
         int theYear = theTmPtr->tm_year + 1900;

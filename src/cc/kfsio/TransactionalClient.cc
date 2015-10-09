@@ -196,7 +196,7 @@ public:
                 mSslCtxPtr = SslFilter::CreateCtx(
                     kServerFlag,
                     kPskOnlyFlag,
-                    inParamsPrefixPtr,
+                    theName.GetPtr(),
                     mSslCtxParameters,
                     &mErrorMsg
                 );
@@ -533,6 +533,7 @@ private:
                 thePos + 1 < mLocation.hostname.size()) {
             string theName("*");
             theName.append(mLocation.hostname, thePos, string::npos);
+            mPeerNames.insert(theName);
         }
     }
     void UpdateStatus()
