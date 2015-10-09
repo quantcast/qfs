@@ -179,6 +179,11 @@ HttpResponseHeaders::Parse(
             continue;
         }
     }
+    if (mContentLength < 0 && (
+            (100 <= mStatus && mStatus <= 199) ||
+            204 == mStatus || 304 == mStatus)) {
+        mContentLength = 0;
+    }
     return true;
 }
 

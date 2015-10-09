@@ -94,8 +94,10 @@ operator<<(
 
 const char* const kS3IODaateWeekDays[7] =
     { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-const char* const kS3IODateMonths[12] =
-    { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+const char* const kS3IODateMonths[12] = {
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+    "Dec"
+};
 
 class S3ION : public IOMethod
 {
@@ -105,12 +107,6 @@ public:
     typedef QCDiskQueue::ReqType       ReqType;
     typedef QCDiskQueue::BlockIdx      BlockIdx;
     typedef QCDiskQueue::InputIterator InputIterator;
-
-    enum
-    {
-        kTimerResolutionSec = 1,
-        kMaxTimerTimeSec    = 512
-    };
 
     template<typename T>
     static S3ION_ObjDisplay<T> Show(
@@ -526,7 +522,8 @@ public:
                 }
                 if (mNetManager.IsRunning()) {
                     mClient.Run(*(new S3Delete(
-                        *this, inRequest, inReqType, string(inNamePtr))));
+                        *this, inRequest, inReqType,
+                        string(inNamePtr + mFilePrefix.length()))));
                 } else {
                     theError  = QCDiskQueue::kErrorDelete;
                     theSysErr = EIO;
@@ -823,7 +820,7 @@ private:
             if (0 <= inContentLength) {
                 theStream << "Content-Length: " << inContentLength << "\r\n";
             }
-            if (0 <= inRangeStart && 0 <= inRangeEnd) {
+            if (0 <= inRangeStart && inRangeStart <= inRangeEnd) {
                 theStream << "Range: bytes=" <<
                     inRangeStart << "-" << inRangeEnd << "\r\n";
             }
@@ -1073,7 +1070,7 @@ private:
               mDataBuf()
         {
             mMd5Sum[0] = 0;
-            mIOBuffer.Move(&inIOBuffer);
+            mDataBuf.Move(&inIOBuffer);
         }
         virtual ostream& Display(
             ostream& inStream) const
@@ -1124,8 +1121,8 @@ private:
                 return mMd5Sum;
             }
             ostream& theStream = mOuter.mMdStream.Reset();
-            for (IOBuffer::iterator theIt = mIOBuffer.begin();
-                    theIt != mIOBuffer.end();
+            for (IOBuffer::iterator theIt = mDataBuf.begin();
+                    theIt != mDataBuf.end();
                     ++theIt) {
                 theStream.write(theIt->Consumer(), theIt->BytesConsumable());
             }
@@ -1237,7 +1234,7 @@ private:
             virtual char* Get()
             {
                 const bool  kFullOrPartialLastBufferFlag = true;;
-                char* const thePtr = mIOBuffer.DetachFirstBuffer(
+                char* const thePtr = mIOBuffer.DetachFrontBuffer(
                     kFullOrPartialLastBufferFlag);
                 QCRTASSERT(thePtr || mIOBuffer.IsEmpty());
                 return thePtr;

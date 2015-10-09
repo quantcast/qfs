@@ -1730,7 +1730,7 @@ IOBuffer::IndexOf(int offset, const char* str) const
 }
 
 char*
-IOBuffer::DetachFirstBuffer(bool fullOrPartialLastBufferFlag)
+IOBuffer::DetachFrontBuffer(bool fullOrPartialLastBufferFlag)
 {
     DebugVerify();
     if (mBuf.empty()) {

@@ -457,8 +457,8 @@ public:
     iterator begin() const { return mBuf.begin(); }
     iterator end()   const { return mBuf.end();   }
 
-    /// Detach firs buffer.
-    char* DetachFirstBuffer(bool fullOrPartialLastBufferFlag);
+    /// Detach first / front buffer, if not shared.
+    char* DetachFrontBuffer(bool fullOrPartialLastBufferFlag);
     /// Debug
     void Verify() const;
 
