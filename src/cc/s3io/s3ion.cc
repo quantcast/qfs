@@ -121,13 +121,12 @@ public:
         if (! inUrlPtr ||
                 inUrlPtr[0] != 's' ||
                 inUrlPtr[1] != '3' ||
-                inUrlPtr[2] != 'n' ||
-                inUrlPtr[3] != ':' ||
-                inUrlPtr[4] != '/' ||
-                inUrlPtr[5] != '/') {
+                inUrlPtr[2] != ':' ||
+                inUrlPtr[3] != '/' ||
+                inUrlPtr[4] != '/') {
             return 0;
         }
-        string theConfigPrefix = inUrlPtr + 6;
+        string theConfigPrefix = inUrlPtr + 5;
         while (! theConfigPrefix.empty() && *theConfigPrefix.rbegin() == '/') {
             theConfigPrefix.resize(theConfigPrefix.size() - 1);
         }
@@ -820,7 +819,7 @@ private:
             if (0 <= inContentLength) {
                 theStream << "Content-Length: " << inContentLength << "\r\n";
             }
-            if (0 <= inRangeStart && inRangeStart <= inRangeEnd) {
+            if (0 <= inRangeStart) {
                 theStream << "Range: bytes=" <<
                     inRangeStart << "-" << inRangeEnd << "\r\n";
             }
@@ -1169,7 +1168,8 @@ private:
             : S3Req(inOuter, inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
               mRangeStart(inStartBlockIdx * mOuter.mBlockSize),
-              mRangeEnd(mRangeStart + inBufferCount * mOuter.mBlockSize - 1)
+              mRangeEnd(mRangeStart +
+                max(0, inBufferCount) * mOuter.mBlockSize - 1)
             {}
         virtual ostream& Display(
             ostream& inStream) const
