@@ -675,7 +675,7 @@ private:
                 (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
                         theFilePtr->mGeneration == mGeneration));
             if (theRetryFlag) {
-                const int theTime = min(0,
+                const int theTime = max(0,
                     (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                     "scheduling retry: " << mRetryCount <<
