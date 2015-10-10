@@ -761,13 +761,14 @@ private:
             const char*           inVerbPtr,
             IOBuffer&             inBuffer,
             const ServerLocation& inServer,
-            const char*           inMd5Ptr                = 0,
-            const char*           inContentTypePtr        = 0,
-            const char*           inContentDispositionPtr = 0,
-            const char*           inContentEncodingPtr    = 0,
-            int64_t               inContentLength         = -1,
-            int64_t               inRangeStart            = -1,
-            int64_t               inRangeEnd              = -1)
+            const char*           inMd5Ptr                   = 0,
+            const char*           inContentTypePtr           = 0,
+            const char*           inContentDispositionPtr    = 0,
+            const char*           inContentEncodingPtr       = 0,
+            bool                  inServerSideEncryptionFlag = false,
+            int64_t               inContentLength            = -1,
+            int64_t               inRangeStart               = -1,
+            int64_t               inRangeEnd                 = -1)
         {
             if (mSentFlag) {
                 return 0;
@@ -787,6 +788,13 @@ private:
             theSignBuf += '\n';
             theSignBuf += theDatePtr;
             theSignBuf += '\n';
+            const char* const kEcryptHdrPtr  = "x-amz-server-side-encryption:";
+            const char* const kEncrptTypePtr = "aws:kms";
+            if (inServerSideEncryptionFlag) {
+                theSignBuf += kEcryptHdrPtr;
+                theSignBuf += kEncrptTypePtr;
+                theSignBuf += '\n';
+            }
             theSignBuf += '/';
             theSignBuf += mOuter.mBucketName;
             theSignBuf += '/';
@@ -796,7 +804,7 @@ private:
                 inVerbPtr << " /" << mFileName << " HTTP/1.1\r\n"
                 "Host: "  << inServer.hostname
             ;
-            if (80 != inServer.port && 443 != inServer.port) {
+            if ((mOuter.mHttpsFlag ? 443 : 80) != inServer.port) {
                 theStream << ':' << inServer.port;
             }
             theStream <<
@@ -826,6 +834,9 @@ private:
             if (0 <= inRangeStart) {
                 theStream << "Range: bytes=" <<
                     inRangeStart << "-" << inRangeEnd << "\r\n";
+            }
+            if (inServerSideEncryptionFlag) {
+                theStream << kEcryptHdrPtr << " " << kEncrptTypePtr << "\r\n";
             }
             theStream <<
                 "Authorization: AWS " << mOuter.mAccessKeyId << ":" <<
@@ -1103,6 +1114,7 @@ private:
                 mOuter.mContentType.c_str(),
                 mOuter.mContentDispositionFilename.c_str(),
                 mOuter.mContentEncoding.c_str(),
+                mOuter.mUseServerSideEncryptionFlag,
                 mDataBuf.BytesConsumable()
             );
             inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
@@ -1200,16 +1212,18 @@ private:
             if (mSentFlag) {
                 return 0;
             }
-            const char* const kMdSumPtr            = 0;
-            const char* const kContentTypePtr      = 0;
-            const char* const kDispositionPtr      = 0;
-            const char* const kContentEncondingPtr = 0;
-            int         const kContentLength       = -1;
+            const char* const kMdSumPtr                 = 0;
+            const char* const kContentTypePtr           = 0;
+            const char* const kDispositionPtr           = 0;
+            const char* const kContentEncondingPtr      = 0;
+            bool        const kServerSideEncryptionFlag = false;
+            int         const kContentLength            = -1;
             return SendRequest("GET", inBuffer, inServer,
                 kMdSumPtr,
                 kContentTypePtr,
                 kDispositionPtr,
                 kContentEncondingPtr,
+                kServerSideEncryptionFlag,
                 kContentLength,
                 mRangeStart,
                 mRangeEnd
@@ -1304,6 +1318,7 @@ private:
     int64_t             mObjectExpires;
     bool                mUseServerSideEncryptionFlag;
     bool                mDebugTraceRequestHeadersFlag;
+    bool                mHttpsFlag;
     int                 mDebugTraceMaxDataSize;
     int                 mDebugTraceMaxHeaderSize;
     int                 mMaxRetryCount;
@@ -1375,6 +1390,7 @@ private:
           mObjectExpires(-1),
           mUseServerSideEncryptionFlag(false),
           mDebugTraceRequestHeadersFlag(false),
+          mHttpsFlag(false),
           mDebugTraceMaxDataSize(256),
           mDebugTraceMaxHeaderSize(384),
           mMaxRetryCount(10),
@@ -1484,14 +1500,14 @@ private:
             mClient.SetServer(ServerLocation(), true);
             return;
         }
+        mHttpsFlag = mParameters.hasPrefix(
+            theName.Truncate(thePrefixSize).Append("ssl."));
         if (! mParameters.getValue(
                 theName.Truncate(thePrefixSize).Append("host"))) {
-            const bool theHttpsHostNameFlag = mParameters.hasPrefix(
-                theName.Truncate(thePrefixSize).Append("ssl."));
             mClient.SetServer(
                 ServerLocation(mBucketName + "." + mS3HostName,
-                    theHttpsHostNameFlag ? 443 : 80),
-                theHttpsHostNameFlag
+                    mHttpsFlag ? 443 : 80),
+                mHttpsFlag
             );
         }
         string    theErrMsg;
