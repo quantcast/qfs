@@ -130,8 +130,14 @@ public:
     size_t copyWithPrefix(const char* prefix, size_t prefixLen,
         Properties& props) const;
     size_t copyWithPrefix(const char* prefix, Properties& props) const;
-    size_t copyWithPrefix(const string& prefix, Properties& props) const
+    template <typename T>
+    size_t copyWithPrefix(const T& prefix, Properties& props) const
         { return copyWithPrefix(prefix.data(), prefix.size(), props); }
+    bool hasPrefix(const char* prefix, size_t prefixLen) const;
+    bool hasPrefix(const char* prefix) const;
+    template <typename T>
+    bool hasPrefix(const T& prefix) const
+        { return hasPrefix(prefix.data(), prefix.size()); }
     void swap(Properties& props)
     {
         propmap.swap(props.propmap);

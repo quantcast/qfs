@@ -513,4 +513,21 @@ Properties::equalsWithPrefix(const char* prefix, size_t prefixLen,
     return false;
 }
 
+bool
+Properties::hasPrefix(const char* prefix) const
+{
+    return hasPrefix(prefix, strlen(prefix));
+}
+
+bool
+Properties::hasPrefix(const char* prefix, size_t prefixLen) const
+{
+    if (! prefix || prefixLen <= 0) {
+        return (! propmap.empty());
+    }
+    PropMap::const_iterator const it =
+        propmap.lower_bound(String(prefix, prefixLen));
+    return (it != propmap.end() && KeyStartsWith(it->first, prefix, prefixLen));
+}
+
 } // namespace KFS

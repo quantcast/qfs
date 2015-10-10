@@ -469,7 +469,7 @@ private:
                 0,       // inServerPskPtr
                 &inImpl, // inVerifyPeerPtr
                 false,   // inDeleteOnCloseFlag,
-                inImpl.mServerName.empty() ? inImpl.mServerName.c_str() : 0
+                inImpl.mServerName.empty() ? 0 : inImpl.mServerName.c_str()
               )
             { SET_HANDLER(this, &SslClientSM::EventHandler); }
         virtual ~SslClientSM()

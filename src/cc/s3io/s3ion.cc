@@ -187,8 +187,7 @@ public:
     }
     virtual void ProcessAndWait()
     {
-        bool   theUpdateParametersFlag = false;
-        string theConfigPrefix;
+        bool theUpdateParametersFlag = false;
         QCStMutexLocker theLock(mMutex);
         if (mParametersUpdatedFlag) {
             if (mUpdatedFullConfigPrefix != mFullConfigPrefix ||
@@ -361,7 +360,7 @@ public:
                     theSysErr = EINVAL;
                     break;
                 }
-                if (mNetManager.IsRunning()) {
+                if (IsRunning()) {
                     mClient.Run(*(new S3Get(
                         *this,
                         inRequest,
@@ -437,7 +436,7 @@ public:
                     break;
                 }
                 theFilePtr->mWriteOnlyFlag = true;
-                if (mNetManager.IsRunning()) {
+                if (IsRunning()) {
                     IOBuffer theBuf;
                     char*    thePtr;
                     int      theRem = (int)(
@@ -519,7 +518,7 @@ public:
                     theError  = QCDiskQueue::kErrorDelete;
                     break;
                 }
-                if (mNetManager.IsRunning()) {
+                if (IsRunning()) {
                     mClient.Run(*(new S3Delete(
                         *this, inRequest, inReqType,
                         string(inNamePtr + mFilePrefix.length()))));
@@ -645,7 +644,7 @@ private:
         {
             QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inEvent && ! inDataPtr);
             mTimer.RemoveTimeout();
-            if (mOuter.mNetManager.IsRunning()) {
+            if (mOuter.IsRunning()) {
                 mStartTime = mOuter.Now();
                 mOuter.mClient.Run(*this);
             } else {
@@ -669,7 +668,7 @@ private:
         {
             const File* theFilePtr;
             bool const  theRetryFlag =
-                mOuter.mNetManager.IsRunning() && 0 <= mOuter.mRetryInterval &&
+                mOuter.IsRunning() && 0 <= mOuter.mRetryInterval &&
                 ++mRetryCount < mOuter.mMaxRetryCount &&
                 (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
                         theFilePtr->mGeneration == mGeneration));
@@ -830,6 +829,11 @@ private:
             theStream.flush();
             mOuter.mWOStream.Reset();
             mSentFlag = true;
+            if (mOuter.mDebugTraceRequestHeadersFlag) {
+                KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
+                    " request header: " << ShowData(inBuffer) <<
+                KFS_LOG_EOM;
+            }
             return mOuter.mMaxReadAhead;
         }
         int ParseResponse(
@@ -845,8 +849,8 @@ private:
                     KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                         " exceeded max header length: " << mOuter.mMaxHdrLen <<
                          " / " << inBuffer.BytesConsumable() <<
-                        " data: " <<
-                            ShowData(inBuffer, mOuter.mDebugTraceMaxDataSize) <<
+                        " data: " << ShowData(
+                            inBuffer, mOuter.mDebugTraceMaxHeaderSize) <<
                         " ..." <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "exceeded max header length");
@@ -869,15 +873,14 @@ private:
                         " invalid response:"
                         " header length: "       << mHeaderLength <<
                         " max response length: " << mOuter.mMaxResponseSize <<
-                        " header: " <<
-                            ShowData(inBuffer,
-                                min(mOuter.mDebugTraceMaxDataSize,
+                        " header: " << ShowData(inBuffer,
+                            min(mOuter.mDebugTraceMaxHeaderSize,
                                     mHeaderLength)) <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "invalid response");
                     return -1;
                 }
-                if (mOuter.mDebugTraceResponseHeadersFlag) {
+                if (mOuter.mDebugTraceRequestHeadersFlag) {
                     KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
                         " response header: " <<
                             ShowData(inBuffer, mHeaderLength) <<
@@ -1292,16 +1295,15 @@ private:
     string              mUserAgent;
     int64_t             mObjectExpires;
     bool                mUseServerSideEncryptionFlag;
-    bool                mDebugTraceResponseHeadersFlag;
+    bool                mDebugTraceRequestHeadersFlag;
     int                 mDebugTraceMaxDataSize;
+    int                 mDebugTraceMaxHeaderSize;
     int                 mMaxRetryCount;
     int                 mRetryInterval;
     int                 mMaxReadAhead;
     int                 mMaxHdrLen;
     char*               mHdrBufferPtr;
     int                 mMaxResponseSize;
-    long                mLowSpeedLimit;
-    long                mLowSpeedTime;
     IOBuffer::WOStream  mWOStream;
     string              mTmpSignBuffer;
     time_t              mLastDateTime;
@@ -1364,16 +1366,15 @@ private:
           mUserAgent("QFS"),
           mObjectExpires(-1),
           mUseServerSideEncryptionFlag(false),
-          mDebugTraceResponseHeadersFlag(false),
+          mDebugTraceRequestHeadersFlag(false),
           mDebugTraceMaxDataSize(256),
+          mDebugTraceMaxHeaderSize(384),
           mMaxRetryCount(10),
           mRetryInterval(10),
           mMaxReadAhead(4 << 10),
           mMaxHdrLen(16 << 10),
           mHdrBufferPtr(new char[mMaxHdrLen + 1]),
           mMaxResponseSize(64 << 20),
-          mLowSpeedLimit(4 << 10),
-          mLowSpeedTime(10),
           mWOStream(),
           mTmpSignBuffer(),
           mLastDateTime(0),
@@ -1459,34 +1460,36 @@ private:
             theName.Truncate(thePrefixSize).Append("retryInterval"),
             mRetryInterval
         );
-        mLowSpeedLimit = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("lowSpeedLimit"),
-            mLowSpeedLimit
-        );
-        mLowSpeedTime = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("lowSpeedTime"),
-            mLowSpeedTime
-        );
-        mDebugTraceResponseHeadersFlag = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("debugTraceResponseHeaders"),
-            mDebugTraceResponseHeadersFlag ? 1 : 0
+        mDebugTraceRequestHeadersFlag = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("debugTrace.requestHeaders"),
+            mDebugTraceRequestHeadersFlag ? 1 : 0
         ) != 0;
         mDebugTraceMaxDataSize = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("debugTraceMaxDataSize"),
+            theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
             mDebugTraceMaxDataSize
         );
+        mDebugTraceMaxHeaderSize = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
+            mDebugTraceMaxHeaderSize
+        );
+        if (! IsRunning()) {
+            mClient.SetServer(ServerLocation(), true);
+            return;
+        }
         if (! mParameters.getValue(
                 theName.Truncate(thePrefixSize).Append("host"))) {
-            const bool kHttpsHostNameFlag = true;
+            const bool theHttpsHostNameFlag = mParameters.hasPrefix(
+                theName.Truncate(thePrefixSize).Append("ssl."));
             mClient.SetServer(
-                ServerLocation(mBucketName + "." + mS3HostName, 443),
-                kHttpsHostNameFlag
+                ServerLocation(mBucketName + "." + mS3HostName,
+                    theHttpsHostNameFlag ? 443 : 80),
+                theHttpsHostNameFlag
             );
         }
-        string theErrMsg;
-        const int theStatus = mClient.SetParameters(
+        string    theErrMsg;
+        int const theStatus = mClient.SetParameters(
             mFullConfigPrefix.c_str(), mParameters, &theErrMsg);
-        if (0 != theStatus && ! mBucketName.empty()) {
+        if (0 != theStatus) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "set parameters failure: " <<
                 " status: " << theStatus <<
@@ -1494,6 +1497,8 @@ private:
             KFS_LOG_EOM;
         }
     }
+    bool IsRunning() const
+        { return (mNetManager.IsRunning() && ! mBucketName.empty()); }
     time_t Now() const
         { return mNetManager.Now(); }
     int NewFd()
