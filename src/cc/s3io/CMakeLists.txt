@@ -23,7 +23,6 @@
 #
 
 set (sources
-s3io.cc
 s3ion.cc
 )
 
@@ -44,15 +43,9 @@ set_target_properties (qfss3io-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
 target_link_libraries (qfss3io
     kfsIO
-    ${CURL_LIBRARIES}
-    ${XML2_LIBRARIES}
-    ${LIBS3_LIBRARIES}
 )
 target_link_libraries (qfss3io-shared
     kfsIO-shared
-    ${CURL_LIBRARIES}
-    ${XML2_LIBRARIES}
-    ${LIBS3_LIBRARIES}
 )
 
 install (TARGETS qfss3io qfss3io-shared

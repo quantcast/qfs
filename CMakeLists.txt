@@ -379,82 +379,6 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
     ENDIF (FUSE_FOUND)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
 
-# For now try to find libs3 build artifacts in ../libs3/libs3 directory,
-# assuming that the following successfully completed in ../libs3 directory:
-# make DESTDIR=libs3 install
-#
-IF (NOT DEFINED LIBS3_GIT_DIR)
-    SET(LIBS3_GIT_DIR ${KFS_DIR_PREFIX}../)
-ENDIF (NOT DEFINED LIBS3_GIT_DIR)
-IF (NOT DEFINED LIBS3_LIBRARY_DIR)
-    SET(LIBS3_LIBRARY_DIR ${LIBS3_GIT_DIR}libs3/libs3/lib)
-ENDIF (NOT DEFINED LIBS3_LIBRARY_DIR)
-IF (NOT DEFINED LIBS3_INCLUDE_DIR)
-    SET(LIBS3_INCLUDE_DIR ${LIBS3_GIT_DIR}libs3/libs3/include)
-ENDIF (NOT DEFINED LIBS3_INCLUDE_DIR)
-
-find_library(LIBS3_LIBRARIES
-    NAMES ${CMAKE_SHARED_LIBRARY_PREFIX}s3${CMAKE_SHARED_LIBRARY_SUFFIX}
-    PATHS ${LIBS3_LIBRARY_DIR}
-)
-IF (LIBS3_LIBRARIES)
-    find_path(LIBS3_INCLUDE_DIR
-        libs3.h
-        PATHS ${LIBS3_INCLUDE_DIR}
-    )
-    IF (NOT LIBS3_INCLUDE_DIR)
-        message (STATUS "S3 include directory not found")
-        SET(LIBS3_LIBRARIES FALSE)
-    ELSE  (NOT LIBS3_INCLUDE_DIR)
-        find_package(CURL)
-        IF (NOT CURL_FOUND)
-            message (STATUS "S3 library requires cURL library")
-            SET(LIBS3_LIBRARIES FALSE)
-        ELSE (NOT CURL_FOUND)
-            find_library(LIBXML2_LIBRARIES
-                NAMES ${CMAKE_SHARED_LIBRARY_PREFIX}xml2${CMAKE_SHARED_LIBRARY_SUFFIX}
-            )
-            IF (NOT LIBXML2_LIBRARIES)
-                message (STATUS "S3 library requires xml2 library")
-                SET(LIBS3_LIBRARIES FALSE)
-            ENDIF (NOT LIBXML2_LIBRARIES)
-        ENDIF (NOT CURL_FOUND)
-    ENDIF  (NOT LIBS3_INCLUDE_DIR)
-    IF (LIBS3_LIBRARIES)
-        INCLUDE(CheckFunctionExists)
-        SET(CMAKE_REQUIRED_INCLUDES ${LIBS3_INCLUDE_DIR})
-        SET(CMAKE_REQUIRED_LIBRARIES
-            ${CURL_LIBRARIES}
-            ${XML2_LIBRARIES}
-            ${LIBS3_LIBRARIES}
-        )
-        CHECK_FUNCTION_EXISTS(S3_initializeEx S3_HAS_S3_initializeEx)
-        IF (S3_HAS_S3_initializeEx)
-            CHECK_FUNCTION_EXISTS(S3_finish_request_context
-                S3_HAS_S3_finish_request_context)
-            IF (S3_HAS_S3_finish_request_context)
-                CHECK_FUNCTION_EXISTS(S3_get_curl_request_context
-                    S3_HAS_S3_get_curl_request_context)
-                IF (S3_HAS_S3_get_curl_request_context)
-                    SET(S3_HAS_ALL_REQUIRED_FUNCTIONS TRUE)
-                ENDIF (S3_HAS_S3_get_curl_request_context)
-            ENDIF (S3_HAS_S3_finish_request_context)
-        ENDIF (S3_HAS_S3_initializeEx)
-        IF (NOT S3_HAS_ALL_REQUIRED_FUNCTIONS)
-            SET(LIBS3_LIBRARIES FALSE)
-        ENDIF (NOT S3_HAS_ALL_REQUIRED_FUNCTIONS)
-    ENDIF (LIBS3_LIBRARIES)
-ELSE (LIBS3_LIBRARIES)
-    message (STATUS "S3 library"
-        " ${CMAKE_SHARED_LIBRARY_PREFIX}s3${CMAKE_SHARED_LIBRARY_SUFFIX}"
-        " not found in ${LIBS3_LIBRARY_DIR}")
-    message (STATUS "To build S3 library:")
-    message (STATUS "(cd ${LIBS3_GIT_DIR} && "
-        "git clone https://github.com/mikeov/libs3.git && "
-        "make DESTDIR=libs3 install)"
-    )
-ENDIF (LIBS3_LIBRARIES)
-
 # include dirs
 include_directories(
     ${Boost_INCLUDE_DIRS}
@@ -462,15 +386,6 @@ include_directories(
     ${KRB5_INCLUDE_DIRS}
     ${KFS_DIR_PREFIX}src/cc
 )
-
-IF (LIBS3_LIBRARIES)
-    message (STATUS "Using S3 includes: ${LIBS3_INCLUDE_DIR}")
-    message (STATUS "Using S3 libraries: ${LIBS3_LIBRARIES}")
-    include_directories(${CURL_INCLUDE_DIRS}  ${LIBS3_INCLUDE_DIR})
-    add_definitions(-D KFS_IO_METHOD_NAME_S3IO=S3IO)
-ELSE (LIBS3_LIBRARIES)
-    message (STATUS "Not building S3 support")
-ENDIF (LIBS3_LIBRARIES)
 
 IF (JNI_FOUND)
     message(STATUS "JNI found: building qfs_access")
@@ -506,13 +421,10 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcdio src/cc/qcdio)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/krb src/cc/krb)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qfsc src/cc/qfsc)
+add_subdirectory (${KFS_DIR_PREFIX}src/cc/s3io src/cc/s3io)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
-
-IF (LIBS3_LIBRARIES)
-    add_subdirectory (${KFS_DIR_PREFIX}src/cc/s3io src/cc/s3io)
-ENDIF (LIBS3_LIBRARIES)
 
 IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
