@@ -764,6 +764,7 @@ private:
             const char*           inMd5Ptr                = 0,
             const char*           inContentTypePtr        = 0,
             const char*           inContentDispositionPtr = 0,
+            const char*           inContentEncodingPtr    = 0,
             int64_t               inContentLength         = -1,
             int64_t               inRangeStart            = -1,
             int64_t               inRangeEnd              = -1)
@@ -814,6 +815,10 @@ private:
             if (inContentDispositionPtr && *inContentDispositionPtr) {
                 theStream << "Content-Disposition: " <<
                     inContentDispositionPtr << "\r\n";
+            }
+            if (inContentEncodingPtr && *inContentEncodingPtr) {
+                theStream << "Content-Encoding: " <<
+                    inContentEncodingPtr << "\r\n";
             }
             if (0 <= inContentLength) {
                 theStream << "Content-Length: " << inContentLength << "\r\n";
@@ -1097,6 +1102,7 @@ private:
                 GetMd5Sum(),
                 mOuter.mContentType.c_str(),
                 mOuter.mContentDispositionFilename.c_str(),
+                mOuter.mContentEncoding.c_str(),
                 mDataBuf.BytesConsumable()
             );
             inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
@@ -1194,14 +1200,16 @@ private:
             if (mSentFlag) {
                 return 0;
             }
-            const char* const kMdSumPtr       = 0;
-            const char* const kContentTypePtr = 0;
-            const char* const kDispositionPtr = 0;
-            int         const kContentLength  = -1;
+            const char* const kMdSumPtr            = 0;
+            const char* const kContentTypePtr      = 0;
+            const char* const kDispositionPtr      = 0;
+            const char* const kContentEncondingPtr = 0;
+            int         const kContentLength       = -1;
             return SendRequest("GET", inBuffer, inServer,
                 kMdSumPtr,
                 kContentTypePtr,
                 kDispositionPtr,
+                kContentEncondingPtr,
                 kContentLength,
                 mRangeStart,
                 mRangeEnd
