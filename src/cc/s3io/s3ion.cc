@@ -857,6 +857,7 @@ private:
             bool      inEofFlag,
             bool&     outDoneFlag)
         {
+            const int kCloseConnection = -1;
             outDoneFlag = false;
             if (mHeaderLength <= 0 &&
                     ((mHeaderLength = GetHeaderLength(inBuffer)) <= 0 ||
@@ -870,7 +871,7 @@ private:
                         " ..." <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "exceeded max header length");
-                    return -1;
+                    return kCloseConnection;
                 }
                 return mOuter.mMaxReadAhead;
             }
@@ -894,7 +895,7 @@ private:
                                     mHeaderLength)) <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "invalid response");
-                    return -1;
+                    return kCloseConnection;
                 }
                 if (mOuter.mDebugTraceRequestHeadersFlag) {
                     KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
@@ -920,7 +921,7 @@ private:
                         " bytes header length: " << mHeaderLength <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "chunked encoded parse failure");
-                    return -1;
+                    return kCloseConnection;
                 } else if (0 < theRet) {
                     if (mOuter.mMaxResponseSize + mOuter.mMaxReadAhead <
                             mIOBuffer.BytesConsumable() + theRet) {
@@ -935,7 +936,7 @@ private:
                             " bytes header length: " << mHeaderLength <<
                         KFS_LOG_EOM;
                         Error(-EINVAL, theMsgPtr);
-                        return -1;
+                        return kCloseConnection;
                     }
                     KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
                         " chunked:"
@@ -954,7 +955,7 @@ private:
                         " bytes header length: " << mHeaderLength <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, theMsgPtr);
-                    return -1;
+                    return kCloseConnection;
                 }
             } else if (mReadTillEofFlag) {
                 if (inEofFlag) {
@@ -971,7 +972,7 @@ private:
                             " bytes header length: " << mHeaderLength <<
                         KFS_LOG_EOM;
                         Error(-EINVAL, theMsgPtr);
-                        return -1;
+                        return kCloseConnection;
                     }
                     return (mOuter.mMaxResponseSize + 1 -
                         inBuffer.BytesConsumable());
@@ -1001,7 +1002,7 @@ private:
             KFS_LOG_EOM;
             outDoneFlag = true;
             return ((mReadTillEofFlag || mHeaders.IsConnectionClose()) ?
-                -1 : 0);
+                kCloseConnection : 0);
         }
         void Reset()
         {
