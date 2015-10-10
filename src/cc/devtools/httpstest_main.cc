@@ -112,7 +112,7 @@ public:
                 Properties theProps;
                 theProps.setValue("host", theLocation.hostname);
                 theProps.setValue("port", inArgsPtr[2]);
-                theProps.setValue("ssl.verifyServer", "0");
+                theProps.setValue("ssl.verifyPeer", "0");
                 string theErr;
                 if (mClient.SetParameters(0, theProps, &theErr)) {
                     KFS_LOG_STREAM_ERROR <<
