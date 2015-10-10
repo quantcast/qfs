@@ -294,8 +294,9 @@ private:
                     break;
                 }
             }
+            const int theRet = mHeaders.IsConnectionClose() ? -1 : 0;
             delete this;
-            return (mHeaders.IsConnectionClose() ? -1 : 0);
+            return theRet;
         }
         virtual void Error(
             int         inStatus,

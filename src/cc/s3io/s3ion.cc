@@ -752,9 +752,9 @@ private:
                 theRequest,
                 theError,
                 theSysErr,
-                QCDiskQueue::kErrorNone == mError ? inIoByteCount      : 0,
+                QCDiskQueue::kErrorNone == theError ? inIoByteCount      : 0,
                 theStartBlockIdx,
-                QCDiskQueue::kErrorNone == mError ? inInputIteratorPtr : 0
+                QCDiskQueue::kErrorNone == theError ? inInputIteratorPtr : 0
             );
         }
         int SendRequest(
