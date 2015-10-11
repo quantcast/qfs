@@ -23,7 +23,7 @@
 #
 #
 
-s3curldebug=0
+s3debug=0
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -40,7 +40,7 @@ while [ $# -ge 1 ]; do
         s3test='yes'
     elif [ x"$1" = x'-s3debug' ]; then
         s3test='yes'
-        s3curldebug=1
+        s3debug=1
     elif [ x"$1" = x'-auth' ]; then
         auth='no'
     else
@@ -399,13 +399,12 @@ fi
 # Test meta server distributing S3 configuration to chunk servers.
 if [ x"$s3test" = x'yes' ]; then
     cat >> "$metasrvprop" << EOF
-chunkServer.diskQueue.aws.bucketName       = $QFS_S3_BUCKET_NAME
-chunkServer.diskQueue.aws.accessKeyId      = $QFS_S3_ACCESS_KEY_ID
-chunkServer.diskQueue.aws.secretAccessKey  = $QFS_S3_SECRET_ACCESS_KEY
-chunkServer.diskQueue.aws.verifyPeer       = 1
-chunkServer.diskQueue.aws.verifyCertStatus = 0
-chunkServer.diskQueue.aws.CABundle         = $cabundlefile
-chunkServer.diskQueue.aws.curlDebug        = $s3curldebug
+chunkServer.diskQueue.aws.bucketName                = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId               = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey           = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.ssl.verifyPeer            = 1
+chunkServer.diskQueue.aws.ssl.CAFile                = $cabundlefile
+chunkServer.diskQueue.aws.debugTrace.requestHeaders = $s3debug
 EOF
 fi
 

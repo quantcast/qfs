@@ -763,7 +763,6 @@ private:
             const ServerLocation& inServer,
             const char*           inMd5Ptr                   = 0,
             const char*           inContentTypePtr           = 0,
-            const char*           inContentDispositionPtr    = 0,
             const char*           inContentEncodingPtr       = 0,
             bool                  inServerSideEncryptionFlag = false,
             int64_t               inContentLength            = -1,
@@ -788,6 +787,12 @@ private:
             theSignBuf += '\n';
             theSignBuf += theDatePtr;
             theSignBuf += '\n';
+            const char* const kSecurityTokenHdrPtr = "x-amz-security-token:";
+            if (! mOuter.mSecurityToken.empty()) {
+                theSignBuf += kSecurityTokenHdrPtr;
+                theSignBuf += mOuter.mSecurityToken;
+                theSignBuf += '\n';
+            }
             const char* const kEcryptHdrPtr  = "x-amz-server-side-encryption:";
             const char* const kEncrptTypePtr = "aws:kms";
             if (inServerSideEncryptionFlag) {
@@ -820,10 +825,6 @@ private:
             if (! mOuter.mUserAgent.empty()) {
                 theStream << "User-Agent: " << mOuter.mUserAgent << "\r\n";
             }
-            if (inContentDispositionPtr && *inContentDispositionPtr) {
-                theStream << "Content-Disposition: " <<
-                    inContentDispositionPtr << "\r\n";
-            }
             if (inContentEncodingPtr && *inContentEncodingPtr) {
                 theStream << "Content-Encoding: " <<
                     inContentEncodingPtr << "\r\n";
@@ -835,8 +836,16 @@ private:
                 theStream << "Range: bytes=" <<
                     inRangeStart << "-" << inRangeEnd << "\r\n";
             }
+            if (! mOuter.mSecurityToken.empty()) {
+                theStream << kSecurityTokenHdrPtr << " " <<
+                    mOuter.mSecurityToken << "\r\n";
+            }
             if (inServerSideEncryptionFlag) {
                 theStream << kEcryptHdrPtr << " " << kEncrptTypePtr << "\r\n";
+            }
+            if (! mOuter.mCacheControl.empty()) {
+                theStream << "Cache-Control: " <<
+                    mOuter.mCacheControl << "\r\n";
             }
             theStream <<
                 "Authorization: AWS " << mOuter.mAccessKeyId << ":" <<
@@ -1113,9 +1122,9 @@ private:
             const int theRet = SendRequest("PUT", inBuffer, inServer,
                 GetMd5Sum(),
                 mOuter.mContentType.c_str(),
-                mOuter.mContentDispositionFilename.c_str(),
                 mOuter.mContentEncoding.c_str(),
-                mOuter.mUseServerSideEncryptionFlag,
+                // Encryption require version 4 authorization, disable for now.
+                false, // mOuter.mUseServerSideEncryptionFlag,
                 mDataBuf.BytesConsumable()
             );
             inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
@@ -1215,14 +1224,12 @@ private:
             }
             const char* const kMdSumPtr                 = 0;
             const char* const kContentTypePtr           = 0;
-            const char* const kDispositionPtr           = 0;
             const char* const kContentEncondingPtr      = 0;
             bool        const kServerSideEncryptionFlag = false;
             int         const kContentLength            = -1;
             return SendRequest("GET", inBuffer, inServer,
                 kMdSumPtr,
                 kContentTypePtr,
-                kDispositionPtr,
                 kContentEncondingPtr,
                 kServerSideEncryptionFlag,
                 kContentLength,
@@ -1313,10 +1320,8 @@ private:
     string              mSecurityToken;
     string              mContentType;
     string              mCacheControl;
-    string              mContentDispositionFilename;
     string              mContentEncoding;
     string              mUserAgent;
-    int64_t             mObjectExpires;
     bool                mUseServerSideEncryptionFlag;
     bool                mDebugTraceRequestHeadersFlag;
     bool                mHttpsFlag;
@@ -1385,10 +1390,8 @@ private:
           mSecurityToken(),
           mContentType(),
           mCacheControl(),
-          mContentDispositionFilename(),
           mContentEncoding(),
           mUserAgent("QFS"),
-          mObjectExpires(-1),
           mUseServerSideEncryptionFlag(false),
           mDebugTraceRequestHeadersFlag(false),
           mHttpsFlag(false),
@@ -1421,6 +1424,7 @@ private:
     }
     void SetParameters()
     {
+        // For backward compatibility.
         RenameParameter("verifyPeer", "ssl.verifyPeer");
         RenameParameter("sslCiphers", "ssl.cipher");
         RenameParameter("CABundle",   "ssl.CAFile");
@@ -1456,11 +1460,6 @@ private:
             theName.Truncate(thePrefixSize).Append("cacheControl"),
             mCacheControl
         );
-        mContentDispositionFilename = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append(
-                "contentDispositionFilename"),
-            mContentDispositionFilename
-        );
         mContentEncoding = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("contentEncoding"),
             mContentEncoding
@@ -1468,10 +1467,6 @@ private:
         mUserAgent = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("userAgent"),
             mUserAgent
-        );
-        mObjectExpires = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append("objectExpires"),
-            mObjectExpires
         );
         mUseServerSideEncryptionFlag = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("useServerSideEncryption"),
