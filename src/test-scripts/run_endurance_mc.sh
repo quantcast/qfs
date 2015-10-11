@@ -91,6 +91,7 @@ objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
 objectstoredir="/mnt/data3/$USER/test/object_store"
 cabundlefile="`dirname "$objectstoredir"`/ca-bundle.crt"
 cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
+cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -300,10 +301,15 @@ if [ x"$testonly" != x'yes' ]; then
 kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
 
 if [ x"$s3test" = x'yes' ]; then
-    if [ -x "`which curl 2>/dev/null`" ]; then
-        curl "$cabundleurl" > "$cabundlefile" || exit
+    if [ -f "$cabundlefileos" ]; then
+        echo "Using $cabundlefileos"
+        cabundlefile=$cabundlefileos
     else
-        wget "$cabundleurl" -O "$cabundlefile" || exit
+        if [ -x "`which curl 2>/dev/null`" ]; then
+            curl "$cabundleurl" > "$cabundlefile" || exit
+        else
+            wget "$cabundleurl" -O "$cabundlefile" || exit
+        fi
     fi
 else
     mkdir -p "$objectstoredir" || exit

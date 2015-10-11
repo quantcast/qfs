@@ -282,14 +282,20 @@ mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
 
+cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 cabundlefile="$chunksrvdir/ca-bundle.crt"
 objectstoredir="$chunksrvdir/object_store"
 cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
 if [ x"$s3test" = x'yes' ]; then
-    if [ -x "`which curl 2>/dev/null`" ]; then
-        curl "$cabundleurl" > "$cabundlefile" || exit
+    if [ -f "$cabundlefileos" ]; then
+        echo "Using $cabundlefileos"
+        cabundlefile=$cabundlefileos
     else
-        wget "$cabundleurl" -O "$cabundlefile" || exit
+        if [ -x "`which curl 2>/dev/null`" ]; then
+            curl "$cabundleurl" > "$cabundlefile" || exit
+        else
+            wget "$cabundleurl" -O "$cabundlefile" || exit
+        fi
     fi
 else
     mkdir "$objectstoredir" || exit
