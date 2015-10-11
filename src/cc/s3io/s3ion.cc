@@ -169,9 +169,13 @@ public:
             KFS_LOG_EOM;
             return false;
         }
-
         mDiskQueuePtr = &inDiskQueue;
         outCanEnforceIoTimeoutFlag = true;
+        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+            "prefix:"
+            " file: "   << mFilePrefix <<
+            " config: " << mConfigPrefix <<
+        KFS_LOG_EOM;
         return true;
     }
     virtual void SetParameters(
@@ -1511,9 +1515,20 @@ private:
             mFullConfigPrefix.c_str(), mParameters, &theErrMsg);
         if (0 != theStatus) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "set parameters failure: " <<
+                "prefix:"
+                " file: "   << mFilePrefix <<
+                " config: " << mConfigPrefix <<
+                " set parameters failure:" <<
                 " status: " << theStatus <<
                 " "         << theErrMsg <<
+            KFS_LOG_EOM;
+        } else {
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                "prefix:"
+                " file: "   << mFilePrefix <<
+                " config: " << mConfigPrefix <<
+                " bucket: " << mBucketName <<
+                " https: "  << mHttpsFlag <<
             KFS_LOG_EOM;
         }
     }
