@@ -1653,7 +1653,7 @@ private:
         *thePtr++ = ':';
         *thePtr++ = (char)('0' + theTmPtr->tm_sec / 10);
         *thePtr++ = (char)('0' + theTmPtr->tm_sec % 10);
-        memcpy(thePtr, " +0000", 7);
+        memcpy(thePtr, " GMT", 5);
         QCASSERT(
             thePtr + 7 <= mDateBuf + sizeof(mDateBuf) / sizeof(mDateBuf[0]));
         return mDateBuf;
