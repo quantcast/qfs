@@ -681,7 +681,7 @@ private:
                 const int theTime = max(kTimerResolution,
                     (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
-                    "scheduling retry: " << mRetryCount <<
+                    " scheduling retry: " << mRetryCount <<
                     " of " << mOuter.mMaxRetryCount <<
                     " in " << theTime << " sec." <<
                 KFS_LOG_EOM;
