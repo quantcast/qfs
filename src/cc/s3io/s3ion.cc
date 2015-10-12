@@ -663,12 +663,12 @@ private:
             const char* inMsgPtr)
         {
             KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
-                "network error: " << inStatus  <<
-                " message: "      << (inMsgPtr ? inMsgPtr : "") <<
+                " network error: " << inStatus  <<
+                " message: "       << (inMsgPtr ? inMsgPtr : "") <<
             KFS_LOG_EOM;
             Retry();
         }
-        bool Retry()
+        void Retry()
         {
             const File* theFilePtr;
             bool const  theRetryFlag =
@@ -677,15 +677,16 @@ private:
                 (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
                         theFilePtr->mGeneration == mGeneration));
             if (theRetryFlag) {
-                const int theTime = max(0,
+                const int kTimerResolution = 1;
+                const int theTime = max(kTimerResolution,
                     (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                     "scheduling retry: " << mRetryCount <<
                     " of " << mOuter.mMaxRetryCount <<
                     " in " << theTime << " sec." <<
                 KFS_LOG_EOM;
-                mTimer.SetTimeout(theTime);
                 Reset();
+                mTimer.SetTimeout(theTime);
             } else {
                 mTimer.RemoveTimeout();
                 if (0 == mSysError) {
@@ -693,7 +694,6 @@ private:
                 }
                 Done();
             }
-            return theRetryFlag;
         }
     protected:
         typedef NetManager::Timer     Timer;

@@ -1963,7 +1963,14 @@ ChunkManager::Shutdown()
     RunIoCompletion(mObjTable);
     RunIoCompletion(mChunkTable);
     gClientManager.Shutdown();
-    DiskIo::RunIoCompletion();
+    Replicator::Shutdown();
+    for (int i = 0; i < 256; i++) {
+        DiskIo::RunIoCompletion();
+        gClientManager.Shutdown();
+        if (! DiskIo::RunIoCompletion()) {
+            break;
+        }
+    }
     globalNetManager().UnRegisterTimeoutHandler(this);
     string errMsg;
     if (! DiskIo::Shutdown(&errMsg)) {
