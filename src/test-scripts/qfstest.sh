@@ -542,7 +542,7 @@ cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
-    cptokfsopts='-r 0 -m 15 -l 15' \
+    cptokfsopts='-r 0 -m 15 -l 15 -R 20' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh &&\
     mv cptest.log cptest-os.log && \
