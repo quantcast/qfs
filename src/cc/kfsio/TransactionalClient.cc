@@ -369,7 +369,7 @@ private:
 	        case EVENT_NET_WROTE:
                     if (mTransactionPtr) {
                         IOBuffer& theIoBuf = mConnectionPtr->GetOutBuffer();
-                        const bool theUpdateFlag = theIoBuf.IsEmpty();
+                        const int theCnt   = theIoBuf.BytesConsumable();
                         QCASSERT(&theIoBuf == inEventDataPtr);
                         const int theRet = mTransactionPtr->Request(
                             theIoBuf,
@@ -383,8 +383,8 @@ private:
                             if (0 < theRet) {
                                 mConnectionPtr->SetMaxReadAhead(theRet);
                             }
-                            if (theUpdateFlag && ! theIoBuf.IsEmpty()) {
-                                const bool kResetTimerFlag = true;
+                            if (theCnt < theIoBuf.BytesConsumable()) {
+                                const bool kResetTimerFlag = theCnt <= 0;
                                 mConnectionPtr->Update(kResetTimerFlag);
                             }
                         }
