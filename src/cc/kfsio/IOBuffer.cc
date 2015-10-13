@@ -67,8 +67,35 @@ int IOBufferData::sDefaultBufferSize = 4 << 10;
 class IOBufferDetacher
 {
 public:
-    static void Detach(const void* buf)
-        { sInstance.DetachSelf(buf); }
+    static char* Detach(IOBufferData::IOBufferBlockPtr& data)
+    {
+        if (! data.unique()) {
+            return 0;
+        }
+        char* const dbuf = data.get();
+        if (! dbuf) {
+            return dbuf;
+        }
+        const void* buf = dbuf;
+        sInstance.DetachSelf(buf);
+        data.reset();
+        if (buf) {
+            // Deleter must be different, than one of supported deleters. There
+            // is way to recover from this failure, as is isn't possible to
+            // determine deleter type when arbitrary deleter is used. Non
+            // default deleter must implement required detach logic, if needed.
+            //
+            // The alternative is to check whether or not one of the supported
+            // deleters is used prior to data.reset() invocation, and possibly
+            // maintain deleter instance "do not delte" flag, insteadof using
+            // global do not delete list, at the price of deleter instance size
+            // increase.
+            // The alternative approach doesn't seem to be warranted given the
+            // overhead, and rather rare / uncommon use of this functionality..
+            abort();
+        }
+        return dbuf;
+    };
     static bool Detached(const void* buf)
         { return sInstance.DetachedSelf(buf); }
 private:
@@ -77,23 +104,26 @@ private:
           mList(),
           mHasEntriesFlag(false)
         { mList.reserve(128); }
-    void DetachSelf(const void* buf)
+    void DetachSelf(const void*& buf)
     {
         QCStMutexLocker lock(mMutex);
         // Do not assign, uless the value changes, as store might not be atomic.
         if (! mHasEntriesFlag) {
             mHasEntriesFlag = true;
         }
-        mList.push_back(buf);
+        mList.push_back(&buf);
     }
     bool DetachedSelf(const void* buf)
     {
         // Flag fetch should not present a problem as Detach and Detached must
-        // be invoked from the same thread for the same buffer.
+        // be invoked from the same thread with the same buffer.
         if (mHasEntriesFlag) {
             QCStMutexLocker lock(mMutex);
-            List::iterator const it = find(mList.begin(), mList.end(), buf);
-            if (mList.end() != it) {
+            List::iterator it;
+            for (it = mList.begin(); it != mList.end() && **it != buf; ++it)
+                {}
+            if (it != mList.end()) {
+                **it = 0;
                 mList.erase(it);
                 if (mList.empty()) {
                     mHasEntriesFlag = false;
@@ -104,7 +134,8 @@ private:
         return false;
     }
 private:
-    typedef vector<const void*> List;
+    typedef vector<const void**> List;
+
     QCMutex       mMutex;
     List          mList;
     volatile bool mHasEntriesFlag;
@@ -250,7 +281,8 @@ IOBufferData::IOBufferData(int bufsz)
     IOBufferData::Init(0, bufsz);
 }
 
-IOBufferData::IOBufferData(char* buf, int offset, int size, libkfsio::IOBufferAllocator& allocator)
+IOBufferData::IOBufferData(char* buf, int offset, int size,
+    libkfsio::IOBufferAllocator& allocator)
     : mData(),
       mEnd(0),
       mProducer(0),
@@ -272,13 +304,14 @@ IOBufferData::IOBufferData(char* buf, int bufSize, int offset, int size)
     IOBufferData::Consume(offset);
 }
 
-IOBufferData::IOBufferData(const IOBufferBlockPtr& data, int bufSize, int offset, int size)
+IOBufferData::IOBufferData(const IOBufferBlockPtr& data,
+    int bufSize, int offset, int size)
     : mData(data),
       mEnd(0),
       mProducer(0),
       mConsumer(0)
 {
-    char* const buf = data.get();
+    char* const buf = mData.get();
     mEnd      = buf + bufSize;
     mProducer = buf;
     mConsumer = buf;
@@ -400,15 +433,15 @@ IOBufferData::CopyOut(char *buf, int numBytes) const
 char*
 IOBufferData::DetachBuffer(bool consumerAtBufferStartFlag)
 {
-    if (IsShared() || (consumerAtBufferStartFlag && mData.get() != mConsumer)) {
+    if (consumerAtBufferStartFlag && mData.get() != mConsumer) {
         return 0;
     }
-    char* const buf = mData.get();
-    IOBufferDetacher::Detach(buf);
-    mData.reset();
-    mEnd      = 0;
-    mConsumer = 0;
-    mProducer = 0;
+    char* const buf = IOBufferDetacher::Detach(mData);
+    if (buf) {
+        mEnd      = 0;
+        mConsumer = 0;
+        mProducer = 0;
+    }
     return buf;
 }
 

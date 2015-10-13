@@ -541,13 +541,14 @@ EOF
         fi
     if [ x"$s3test" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.objectDir                      = s3://aws.
-chunkServer.diskQueue.aws.bucketName       = $QFS_S3_BUCKET_NAME
-chunkServer.diskQueue.aws.accessKeyId      = $QFS_S3_ACCESS_KEY_ID
-chunkServer.diskQueue.aws.secretAccessKey  = $QFS_S3_SECRET_ACCESS_KEY
-chunkServer.diskQueue.aws.verifyPeer       = 1
-chunkServer.diskQueue.aws.verifyCertStatus = 0
-chunkServer.diskQueue.aws.CABundle         = $cabundlefile
+chunkServer.objectDir                               = s3://aws.
+chunkServer.diskQueue.aws.bucketName                = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId               = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey           = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.debugTrace.requestHeaders = 1
+chunkServer.diskQueue.aws.ssl.verifyPeer            = 1
+chunkServer.diskQueue.aws.ssl.CAFile                = $cabundlefile
+
 # Give the buffer manager the same as with no S3 131072*0.4, appender
 # 131072*(1-0.4)*0.4, and the rest to S3 write buffers: ~18 chunks by 64MB
 chunkServer.objStoreBufferDataRatio           = 0.79
