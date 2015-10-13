@@ -665,6 +665,8 @@ private:
             KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                 " network error: " << inStatus  <<
                 " message: "       << (inMsgPtr ? inMsgPtr : "") <<
+                " started: "       << (mOuter.Now() - mStartTime) <<
+                    " secs. ago" <<
             KFS_LOG_EOM;
             Retry();
         }
@@ -870,6 +872,13 @@ private:
             bool      inEofFlag,
             bool&     outDoneFlag)
         {
+            if (mOuter.mDebugTraceRequestProgressFlag) {
+                KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
+                    " response buffer:"
+                    " length: " << inBuffer.BytesConsumable() <<
+                    " eof: "    << inEofFlag <<
+                KFS_LOG_EOM;
+            }
             const int kCloseConnection = -1;
             outDoneFlag = false;
             if (mHeaderLength <= 0 &&
@@ -1034,6 +1043,19 @@ private:
         }
         bool IsStatusOk()
             { return IsHttpStatusOk(); }
+        void TraceProgress(
+            IOBuffer&             inBuffer,
+            IOBuffer&             inResponseBuffer)
+        {
+            if (! mOuter.mDebugTraceRequestProgressFlag) {
+                return;
+            }
+            KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
+                " buffers:"
+                " in: "  << inResponseBuffer.BytesConsumable() <<
+                " out: " << inBuffer.BytesConsumable() <<
+            KFS_LOG_EOM;
+        }
     private:
         S3Req(
             const S3Req& inReq);
@@ -1060,9 +1082,12 @@ private:
         }
         virtual int Request(
             IOBuffer&             inBuffer,
-            IOBuffer&             /* inResponseBuffer */,
+            IOBuffer&             inResponseBuffer,
             const ServerLocation& inServer)
-            { return SendRequest("DELETE", inBuffer, inServer); }
+        {
+            TraceProgress(inBuffer, inResponseBuffer);
+            return SendRequest("DELETE", inBuffer, inServer);
+        }
         virtual int Response(
             IOBuffer& inBuffer,
             bool      inEofFlag)
@@ -1117,9 +1142,10 @@ private:
         }
         virtual int Request(
             IOBuffer&             inBuffer,
-            IOBuffer&             /* inResponseBuffer */,
+            IOBuffer&             inResponseBuffer,
             const ServerLocation& inServer)
         {
+            TraceProgress(inBuffer, inResponseBuffer);
             if (mSentFlag) {
                 return 0;
             }
@@ -1220,9 +1246,10 @@ private:
         }
         virtual int Request(
             IOBuffer&             inBuffer,
-            IOBuffer&             /* inResponseBuffer */,
+            IOBuffer&             inResponseBuffer,
             const ServerLocation& inServer)
         {
+            TraceProgress(inBuffer, inResponseBuffer);
             if (mSentFlag) {
                 return 0;
             }
@@ -1328,6 +1355,7 @@ private:
     string              mUserAgent;
     bool                mUseServerSideEncryptionFlag;
     bool                mDebugTraceRequestHeadersFlag;
+    bool                mDebugTraceRequestProgressFlag;
     bool                mHttpsFlag;
     int                 mDebugTraceMaxDataSize;
     int                 mDebugTraceMaxHeaderSize;
@@ -1398,6 +1426,7 @@ private:
           mUserAgent("QFS"),
           mUseServerSideEncryptionFlag(false),
           mDebugTraceRequestHeadersFlag(false),
+          mDebugTraceRequestProgressFlag(false),
           mHttpsFlag(false),
           mDebugTraceMaxDataSize(256),
           mDebugTraceMaxHeaderSize(384),
@@ -1487,6 +1516,10 @@ private:
         mDebugTraceRequestHeadersFlag = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("debugTrace.requestHeaders"),
             mDebugTraceRequestHeadersFlag ? 1 : 0
+        ) != 0;
+        mDebugTraceRequestProgressFlag = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("debugTrace.requestProgress"),
+            mDebugTraceRequestProgressFlag ? 1 : 0
         ) != 0;
         mDebugTraceMaxDataSize = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),

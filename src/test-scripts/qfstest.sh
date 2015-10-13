@@ -405,12 +405,13 @@ fi
 # Test meta server distributing S3 configuration to chunk servers.
 if [ x"$s3test" = x'yes' ]; then
     cat >> "$metasrvprop" << EOF
-chunkServer.diskQueue.aws.bucketName                = $QFS_S3_BUCKET_NAME
-chunkServer.diskQueue.aws.accessKeyId               = $QFS_S3_ACCESS_KEY_ID
-chunkServer.diskQueue.aws.secretAccessKey           = $QFS_S3_SECRET_ACCESS_KEY
-chunkServer.diskQueue.aws.ssl.verifyPeer            = 1
-chunkServer.diskQueue.aws.ssl.CAFile                = $cabundlefile
-chunkServer.diskQueue.aws.debugTrace.requestHeaders = $s3debug
+chunkServer.diskQueue.aws.bucketName                 = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId                = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey            = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.ssl.verifyPeer             = 1
+chunkServer.diskQueue.aws.ssl.CAFile                 = $cabundlefile
+chunkServer.diskQueue.aws.debugTrace.requestHeaders  = $s3debug
+chunkServer.diskQueue.aws.debugTrace.requestProgress = $s3debug
 EOF
 fi
 

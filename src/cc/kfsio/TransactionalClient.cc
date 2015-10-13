@@ -50,13 +50,12 @@ namespace KFS
 using std::set;
 using std::string;
 
-class TransactionalClient::Impl : public SslFilterVerifyPeer
+class TransactionalClient::Impl
 {
 public:
     Impl(
         NetManager& inNetManager)
-        : SslFilterVerifyPeer(),
-          mNetManager(inNetManager),
+        : mNetManager(inNetManager),
           mLocation(),
           mSslCtxPtr(0),
           mTimeout(20),
@@ -234,38 +233,6 @@ public:
         theClientPtr->Connect(inTransaction);
     }
 private:
-    virtual bool Verify(
-	string&       ioFilterAuthName,
-        bool          inPreverifyOkFlag,
-        int           inCurCertDepth,
-        const string& inPeerName,
-        int64_t       inEndTime,
-        bool          inEndTimeValidFlag)
-    {
-        if (0 < inCurCertDepth) {
-            return (inPreverifyOkFlag || ! mVerifyServerFlag);
-        }
-        const bool theRetFlag = ! mVerifyServerFlag ||
-            (inPreverifyOkFlag && (mPeerNames.empty() ||
-            mPeerNames.find(inPeerName) != mPeerNames.end()));
-        KFS_LOG_STREAM(theRetFlag ? 
-                MsgLogger::kLogLevelDEBUG :
-                MsgLogger::kLogLevelERROR) <<
-            "peer verify: " << (theRetFlag ? "ok" : "failed") <<
-             " peer: "           << inPeerName <<
-             " prev name: "      << ioFilterAuthName <<
-             " preverify ok: "   << inPreverifyOkFlag <<
-             " depth: "          << inCurCertDepth <<
-             " end time: +"      << (inEndTime - mNetManager.Now()) <<
-             " end time valid: " << inEndTimeValidFlag <<
-        KFS_LOG_EOM;
-        if (theRetFlag) {
-            ioFilterAuthName = inPeerName;
-        } else {
-            ioFilterAuthName.clear();
-        }
-        return theRetFlag;
-    }
     class ClientSM : public KfsCallbackObj
     {
     public:
@@ -300,7 +267,8 @@ private:
             if (theErr && theErr != -EINPROGRESS) {
                 const string theError = QCUtils::SysError(-theErr);
                 KFS_LOG_STREAM_ERROR <<
-                    "failed to connect to server " << mImpl.mLocation <<
+                    reinterpret_cast<const void*>(&inTransaction) <<
+                    " failed to connect to server " << mImpl.mLocation <<
                     " : " << theError <<
                 KFS_LOG_EOM;
                 delete &theSocket;
@@ -310,7 +278,8 @@ private:
             }
             mTransactionPtr = &inTransaction;
             KFS_LOG_STREAM_DEBUG <<
-                "connecting to server: " << mImpl.mLocation <<
+                reinterpret_cast<const void*>(&inTransaction) <<
+                " connecting to server: " << mImpl.mLocation <<
             KFS_LOG_EOM;
             mConnectionPtr.reset(new NetConnection(&theSocket, this));
             mConnectionPtr->EnableReadIfOverloaded();
@@ -402,7 +371,6 @@ private:
                     // Fall through.
                 case EVENT_INACTIVITY_TIMEOUT:
                     mConnectionPtr->Close();
-                    mConnectionPtr->GetInBuffer().Clear();
                     break;
 
 	        default:
@@ -412,6 +380,16 @@ private:
             if (1 == mRecursionCount) {
                 mConnectionPtr->StartFlush();
                 if (! mConnectionPtr->IsGood()) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        reinterpret_cast<const void*>(mTransactionPtr) <<
+                        " closed: " << mImpl.mLocation <<
+                        " in: "     <<
+                            mConnectionPtr->GetOutBuffer().BytesConsumable() <<
+                        " out: "    <<
+                            mConnectionPtr->GetOutBuffer().BytesConsumable() <<
+                    KFS_LOG_EOM;
+                    mConnectionPtr->GetInBuffer().Clear();
+                    mConnectionPtr->GetOutBuffer().Clear();
                     if (mTransactionPtr) {
                         const string theErrMsg(
                             inEventCode == EVENT_INACTIVITY_TIMEOUT ?
@@ -462,19 +440,20 @@ private:
         friend class QCDLListOp<ClientSM>;
     };
     friend class ClientSM;
-    class SslClientSM : public ClientSM
+    class SslClientSM : public ClientSM, public SslFilterVerifyPeer
     {
     public:
         SslClientSM(
             Impl& inImpl)
             : ClientSM(inImpl),
+              SslFilterVerifyPeer(),
               mSslFilter(
                 *inImpl.mSslCtxPtr,
                 0,       // inPskDataPtr
                 0,       // inPskDataLen
                 0,       // inPskCliIdendityPtr
                 0,       // inServerPskPtr
-                &inImpl, // inVerifyPeerPtr
+                this,    // inVerifyPeerPtr
                 false,   // inDeleteOnCloseFlag,
                 inImpl.mServerName.empty() ? 0 : inImpl.mServerName.c_str()
               )
@@ -496,7 +475,8 @@ private:
                             theErr < 0 ? -theErr : theErr);
                     }
                     KFS_LOG_STREAM_ERROR <<
-                        "connect to " << mImpl.mLocation <<
+                        reinterpret_cast<const void*>(mTransactionPtr) <<
+                        " connect to " << mImpl.mLocation <<
                         " error: "    << theErrMsg <<
                     KFS_LOG_EOM;
                     mConnectionPtr->Close();
@@ -504,6 +484,40 @@ private:
                 }
             }
             return ClientSM::EventHandler(inEventCode, inEventDataPtr);
+        }
+        virtual bool Verify(
+	    string&       ioFilterAuthName,
+            bool          inPreverifyOkFlag,
+            int           inCurCertDepth,
+            const string& inPeerName,
+            int64_t       inEndTime,
+            bool          inEndTimeValidFlag)
+        {
+            if (0 < inCurCertDepth &&
+                    (inPreverifyOkFlag || ! mImpl.mVerifyServerFlag)) {
+                return true;
+            }
+            const bool theRetFlag = ! mImpl.mVerifyServerFlag ||
+                (inPreverifyOkFlag && (mImpl.mPeerNames.empty() ||
+                mImpl.mPeerNames.find(inPeerName) != mImpl.mPeerNames.end()));
+            KFS_LOG_STREAM(theRetFlag ? 
+                    MsgLogger::kLogLevelDEBUG :
+                    MsgLogger::kLogLevelERROR) <<
+                reinterpret_cast<const void*>(mTransactionPtr) <<
+                " peer verify: " << (theRetFlag ? "ok" : "failed") <<
+                " peer: "           << inPeerName <<
+                " prev name: "      << ioFilterAuthName <<
+                " preverify ok: "   << inPreverifyOkFlag <<
+                " depth: "          << inCurCertDepth <<
+                " end time: +"      << (inEndTime - mImpl.mNetManager.Now()) <<
+                " end time valid: " << inEndTimeValidFlag <<
+            KFS_LOG_EOM;
+            if (theRetFlag) {
+                ioFilterAuthName = inPeerName;
+            } else {
+                ioFilterAuthName.clear();
+            }
+            return theRetFlag;
         }
     private:
         SslFilter mSslFilter;
@@ -551,7 +565,7 @@ private:
             mErrorMsg.clear();
         } else if (mErrorMsg.empty()) {
             if (mLocation.IsValid()) {
-                mErrorMsg = "invalid ssl configation";
+                mErrorMsg = "invalid ssl configuration";
             } else {
                 mErrorMsg = "invalid server address";
             }
