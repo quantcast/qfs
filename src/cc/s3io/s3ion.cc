@@ -640,6 +640,7 @@ private:
               mHttpChunkedDecoder(mIOBuffer, mOuter.mMaxReadAhead)
         {
             mOuter.mRequestCount++;
+            QCASSERT(0 < mOuter.mRequestCount);
             SET_HANDLER(this, &S3Req::Timeout);
         }
         int Timeout(
@@ -723,6 +724,7 @@ private:
 
         virtual ~S3Req()
         {
+            QCASSERT(0 < mOuter.mRequestCount);
             mOuter.mRequestCount--;
         }
         void Done(
@@ -1276,6 +1278,11 @@ private:
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
                 if (IsStatusOk()) {
+                     // Even though the input buffer should be empty, clear it,
+                     // to ensure that the last possibly partial buffer is not
+                     // shared between input buffer and and IO buffer, in order
+                     // to prevent buffer detach failure.
+                    inBuffer.Clear();
                     mIOBuffer.Trim((int)(mRangeEnd + 1 - mRangeStart));
                     int const theIoByteCount = mIOBuffer.BytesConsumable();
                     IOBufInputIterator theIterator(mIOBuffer);
