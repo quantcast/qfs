@@ -1332,7 +1332,7 @@ private:
             {}
     };
 
-    enum { kHmacSha1Len = 20 };
+    enum { kHmacSha256Len = 256 / 8 };
 
     QCDiskQueue*        mDiskQueuePtr;
     int                 mBlockSize;
@@ -1375,9 +1375,13 @@ private:
     IOBuffer::WOStream  mWOStream;
     string              mTmpSignBuffer;
     time_t              mLastDateTime;
+    time_t              mLastDateZTime;
+    time_t              mTmLastDateTime;
     QCMutex             mMutex;
+    struct tm           mTmBuf;
     char                mDateBuf[32];
-    char                mHmacBuf[(kHmacSha1Len + 2) / 3 * 4 + 1];
+    char                mDateTimeZBuf[32];
+    char                mHmacBuf[kHmacSha256Len * 2 + 1];
     MdStream::MD        mTmpMdBuf;
 
     static bool IsDebugLogLevel()
@@ -1446,6 +1450,8 @@ private:
           mWOStream(),
           mTmpSignBuffer(),
           mLastDateTime(0),
+          mLastDateZTime(0),
+          mTmLastDateTime(0),
           mMutex()
     {
         if (! inLogPrefixPtr) {
@@ -1460,6 +1466,7 @@ private:
         mFileTable.reserve(kFdReserve);
         mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
         mTmpSignBuffer.reserve(1 << 10);
+        mTmBuf.tm_mday = -1;
         mDateBuf[0] = 0;
     }
     void SetParameters()
@@ -1650,6 +1657,26 @@ private:
             theName.Truncate(thePrefixSize).Append(inToNamePtr), *theFromValPtr
         );
     }
+    const struct tm& GetTmNow()
+    {
+        const time_t theNow = Now();
+        if (theNow == mTmLastDateTime || mTmBuf.tm_mday <= 0) {
+            return mTmBuf;
+        }
+        struct tm* const theTmPtr = gmtime_r(&theNow, &mTmBuf);
+        if (! theTmPtr || theTmPtr->tm_wday < 0 || 6 < theTmPtr->tm_wday ||
+                theTmPtr->tm_mday < 1 || 31 < theTmPtr->tm_mday ||
+                theTmPtr->tm_mon < 0 || 11 < theTmPtr->tm_mon ||
+                theTmPtr->tm_year + 1900 < 0 || 8099 < theTmPtr->tm_year) {
+            FatalError("gmtime_r failure");
+            mTmBuf.tm_mday = -1;
+        }
+        if (theTmPtr != &mTmBuf) {
+            memcpy(&mTmBuf, theTmPtr, sizeof(mTmBuf));
+        }
+        mTmLastDateTime = theNow;
+        return mTmBuf;
+    }
     const char* DateNow()
     {
         const time_t theNow = Now();
@@ -1658,58 +1685,86 @@ private:
         }
         mLastDateTime = theNow;
         // Do not use strftime() to avoid local complications.
-        struct tm        theTm    = { 0 };
-        struct tm* const theTmPtr = gmtime_r(&theNow, &theTm);
-        if (! theTmPtr || theTmPtr->tm_wday < 0 || 6 < theTmPtr->tm_wday ||
-                theTmPtr->tm_mday < 1 || 31 < theTmPtr->tm_mday ||
-                theTmPtr->tm_mon < 0 || 11 < theTmPtr->tm_mon ||
-                theTmPtr->tm_year + 1900 < 0 || 8099 < theTmPtr->tm_year) {
-            FatalError("gmtime_r failure");
-            return mDateBuf;
-        }
+        const struct tm& theTm = GetTmNow();
         char* thePtr = mDateBuf;
-        memcpy(thePtr, kS3IODaateWeekDays[theTmPtr->tm_wday], 3);
+        memcpy(thePtr, kS3IODaateWeekDays[theTm.tm_wday], 3);
         thePtr += 3;
         *thePtr++ = ',';
         *thePtr++ = ' ';
-        *thePtr++ = (char)('0' + theTmPtr->tm_mday / 10);
-        *thePtr++ = (char)('0' + theTmPtr->tm_mday % 10);
+        *thePtr++ = (char)('0' + theTm.tm_mday / 10);
+        *thePtr++ = (char)('0' + theTm.tm_mday % 10);
         *thePtr++ = ' ';
-        memcpy(thePtr, kS3IODateMonths[theTmPtr->tm_mon], 3);
+        memcpy(thePtr, kS3IODateMonths[theTm.tm_mon], 3);
         thePtr += 3;
         *thePtr++ = ' ';
-        int theYear = theTmPtr->tm_year + 1900;
+        int theYear = theTm.tm_year + 1900;
         for (int i = 3; 0 <= i; i--) {
             thePtr[i] = (char)('0' + theYear % 10);
             theYear /= 10;
         }
         thePtr += 4;
         *thePtr++ = ' ';
-        *thePtr++ = (char)('0' + theTmPtr->tm_hour / 10);
-        *thePtr++ = (char)('0' + theTmPtr->tm_hour % 10);
+        *thePtr++ = (char)('0' + theTm.tm_hour / 10);
+        *thePtr++ = (char)('0' + theTm.tm_hour % 10);
         *thePtr++ = ':';
-        *thePtr++ = (char)('0' + theTmPtr->tm_min / 10);
-        *thePtr++ = (char)('0' + theTmPtr->tm_min % 10);
+        *thePtr++ = (char)('0' + theTm.tm_min / 10);
+        *thePtr++ = (char)('0' + theTm.tm_min % 10);
         *thePtr++ = ':';
-        *thePtr++ = (char)('0' + theTmPtr->tm_sec / 10);
-        *thePtr++ = (char)('0' + theTmPtr->tm_sec % 10);
+        *thePtr++ = (char)('0' + theTm.tm_sec / 10);
+        *thePtr++ = (char)('0' + theTm.tm_sec % 10);
         memcpy(thePtr, " GMT", 5);
         QCASSERT(
             thePtr + 7 <= mDateBuf + sizeof(mDateBuf) / sizeof(mDateBuf[0]));
         return mDateBuf;
     }
+    const char* DateTimeZNow()
+    {
+        const time_t theNow = Now();
+        if (theNow == mLastDateZTime && 0 != mDateBuf[0]) {
+            return mDateBuf;
+        }
+        mLastDateZTime = theNow;
+        // Do not use strftime() to avoid local complications.
+        const struct tm& theTm   = GetTmNow();
+        char*            thePtr  = mDateTimeZBuf;
+        int              theYear = theTm.tm_year + 1900;
+        for (int i = 3; 0 <= i; i--) {
+            thePtr[i] = (char)('0' + theYear % 10);
+            theYear /= 10;
+        }
+        thePtr += 4;
+        const int theMon = theTm.tm_mon + 1;
+        *thePtr++ = (char)('0' + theMon / 10);
+        *thePtr++ = (char)('0' + theMon % 10);
+        *thePtr++ = (char)('0' + theTm.tm_mday / 10);
+        *thePtr++ = (char)('0' + theTm.tm_mday % 10);
+        *thePtr++ = 'T';
+        *thePtr++ = (char)('0' + theTm.tm_hour / 10);
+        *thePtr++ = (char)('0' + theTm.tm_hour % 10);
+        *thePtr++ = (char)('0' + theTm.tm_min / 10);
+        *thePtr++ = (char)('0' + theTm.tm_min % 10);
+        *thePtr++ = (char)('0' + theTm.tm_sec / 10);
+        *thePtr++ = (char)('0' + theTm.tm_sec % 10);
+        *thePtr++ = (char)'Z';
+        *thePtr   = 0;
+        QCASSERT(thePtr + 1 <= mDateBuf +
+            sizeof(mDateTimeZBuf) / sizeof(mDateTimeZBuf[0]));
+        return mDateTimeZBuf;
+    }
     const char* Sign(
         const string& inData,
-        const string& inKey)
+        const string& inKey,
+        bool          inSha256Flag = false)
     {
         const char* const theKeyPtr = inKey.data();
         const int         theKeyLen = (int)inKey.size();
         HMAC_CTX theCtx;
         HMAC_CTX_init(&theCtx);
         unsigned int       theLen    = 0;
-        unsigned char      theSignBuf[kHmacSha1Len];
+        unsigned char      theSignBuf[kHmacSha256Len];
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL
-        HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen, EVP_sha1(), 0);
+        HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen,
+            inSha256Flag ? EVP_sha256() : EVP_sha1(), 0);
         HMAC_Update(
             &theCtx,
             reinterpret_cast<const unsigned char*>(inData.data()),
@@ -1722,7 +1777,8 @@ private:
         );
 #else
         const bool theOkFlag =
-            HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen, EVP_sha1(), 0) &&
+            HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen,
+                inSha256Flag ? EVP_sha256() : EVP_sha1(), 0) &&
             HMAC_Update(
                 &theCtx,
                 reinterpret_cast<const unsigned char*>(inData.data()),
@@ -1743,16 +1799,31 @@ private:
         }
 #endif
         HMAC_CTX_cleanup(&theCtx);
-        if ((unsigned int)kHmacSha1Len != theLen) {
-            FatalError("hmac-sha1 failure");
+        if (theLen <= 0 || (unsigned int)kHmacSha256Len < theLen) {
+            FatalError(inSha256Flag ?
+                "hmac-sha256 failure" : "hmac-sha1 failure");
         }
-        const int theEncLen = Base64::Encode(
-            reinterpret_cast<const char*>(theSignBuf), (int)theLen, mHmacBuf);
-        if (theEncLen <= 0 || (int)sizeof(mHmacBuf) <= theEncLen) {
-            FatalError("base64 encode failure");
-            mHmacBuf[0] = 0;
+        if (inSha256Flag) {
+            const char* const kHexDigits = "0123456789abcdef";
+            char* theResPtr = mHmacBuf;
+            for (unsigned char* thePtr = theSignBuf,
+                    * const theEndPtr = thePtr + theLen;
+                    thePtr < theEndPtr;
+                    ++thePtr) {
+                *theResPtr++ = kHexDigits[(*thePtr >> 8) & 0xF];
+                *theResPtr++ = kHexDigits[*thePtr & 0xF];
+            }
+            *theResPtr = 0;
+        } else {
+            const int theEncLen = Base64::Encode(
+                reinterpret_cast<const char*>(theSignBuf),
+                (int)theLen, mHmacBuf);
+            if (theEncLen <= 0 || (int)sizeof(mHmacBuf) <= theEncLen) {
+                FatalError("base64 encode failure");
+                mHmacBuf[0] = 0;
+            }
+            mHmacBuf[theEncLen] = 0;
         }
-        mHmacBuf[theEncLen] = 0;
         return mHmacBuf;
     }
 private:
