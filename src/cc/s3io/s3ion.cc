@@ -140,6 +140,8 @@ public:
         KFS_LOG_STREAM_DEBUG << mLogPrefix << "~S3ION" << KFS_LOG_EOM;
         S3ION::Stop();
         delete [] mHdrBufferPtr;
+        HMAC_CTX_cleanup(&mHmacCtx);
+        EVP_MD_CTX_cleanup(&mMdCtx);
     }
     virtual bool Init(
         QCDiskQueue& inDiskQueue,
@@ -554,6 +556,18 @@ public:
         }
     }
 private:
+    enum
+    {
+        kMd5Len        = 128 / 8,
+        kSha1Len       = 160 / 8,
+        kSha256Len     = 256 / 8,
+        kMaxMdLen      = kSha256Len,
+        kV4SignDateLen = 8
+    };
+    typedef char Md5Buf[kMd5Len];
+    typedef char Sha256Buf[kSha256Len];
+    typedef char Sha1Buf[kSha1Len];
+
     typedef uint64_t Generation;
 
     class File
@@ -1182,32 +1196,24 @@ private:
             if (*mMd5Sum) {
                 return mMd5Sum;
             }
-            ostream& theStream = mOuter.mMdStream.Reset();
+            mOuter.Md5Start();
             for (IOBuffer::iterator theIt = mDataBuf.begin();
                     theIt != mDataBuf.end();
                     ++theIt) {
-                theStream.write(theIt->Consumer(), theIt->BytesConsumable());
+                mOuter.MdAdd(theIt->Consumer(), theIt->BytesConsumable());
             }
-            if (theStream) {
-                const size_t theLen =
-                    mOuter.mMdStream.GetMdBin(mOuter.mTmpMdBuf);
-                QCRTASSERT(theLen <= sizeof(mOuter.mTmpMdBuf));
-                const int theB64Len = Base64::Encode(
-                    reinterpret_cast<const char*>(mOuter.mTmpMdBuf),
-                    theLen, mMd5Sum);
-                QCRTASSERT(
-                    0 < theB64Len &&
-                    (size_t)theB64Len < sizeof(mMd5Sum)
-                );
-                mMd5Sum[theB64Len] = 0;
-            } else {
-                mOuter.FatalError("md5 sum failure");
-            }
+            const int theB64Len = Base64::Encode(
+                mOuter.MdEnd(kMd5Len), kMd5Len, mMd5Sum);
+            QCRTASSERT(
+                0 < theB64Len &&
+                (size_t)theB64Len < sizeof(mMd5Sum)
+            );
+            mMd5Sum[theB64Len] = 0;
             return mMd5Sum;
         }
     private:
         IOBuffer mDataBuf;
-        char     mMd5Sum[(128 / 8 + 2) / 3 * 4 + 1];
+        char     mMd5Sum[(kMd5Len + 2) / 3 * 4 + 1];
                          // Base64::EncodedLength(128 / 8) + 1
     private:
         S3Put(
@@ -1332,8 +1338,6 @@ private:
             {}
     };
 
-    enum { kHmacSha256Len = 256 / 8 };
-
     QCDiskQueue*        mDiskQueuePtr;
     int                 mBlockSize;
     string const        mConfigPrefix;
@@ -1344,7 +1348,6 @@ private:
     FileTable           mFileTable;
     int64_t             mFreeFdListIdx;
     Generation          mGeneration;
-    MdStream            mMdStream;
     int                 mRequestCount;
     bool                mParametersUpdatedFlag;
     Properties          mParameters;
@@ -1356,6 +1359,7 @@ private:
     string              mAccessKeyId;
     string              mSecretAccessKey;
     string              mSecurityToken;
+    string              mRegion;
     string              mContentType;
     string              mCacheControl;
     string              mContentEncoding;
@@ -1374,15 +1378,20 @@ private:
     int                 mMaxResponseSize;
     IOBuffer::WOStream  mWOStream;
     string              mTmpSignBuffer;
+    string              mTmpBuffer;
     time_t              mLastDateTime;
     time_t              mLastDateZTime;
     time_t              mTmLastDateTime;
     QCMutex             mMutex;
     struct tm           mTmBuf;
+    HMAC_CTX            mHmacCtx;
+    EVP_MD_CTX          mMdCtx;
     char                mDateBuf[32];
-    char                mDateTimeZBuf[32];
-    char                mHmacBuf[kHmacSha256Len * 2 + 1];
-    MdStream::MD        mTmpMdBuf;
+    char                mISOTime[32];
+    Sha256Buf           mV4SignKey;
+    char                mTmpMdBuf[kMaxMdLen];
+    char                mV4SignDate[kV4SignDateLen];
+    char                mSignBuf[kMaxMdLen * 2 + 1];
 
     static bool IsDebugLogLevel()
     {
@@ -1419,7 +1428,6 @@ private:
           mFileTable(),
           mFreeFdListIdx(-1),
           mGeneration(1),
-          mMdStream(0, true, string(), 0),
           mRequestCount(0),
           mParametersUpdatedFlag(false),
           mParameters(),
@@ -1431,6 +1439,7 @@ private:
           mAccessKeyId(),
           mSecretAccessKey(),
           mSecurityToken(),
+          mRegion(),
           mContentType(),
           mCacheControl(),
           mContentEncoding(),
@@ -1466,8 +1475,13 @@ private:
         mFileTable.reserve(kFdReserve);
         mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
         mTmpSignBuffer.reserve(1 << 10);
+        mTmpBuffer.reserve(1 << 9);
         mTmBuf.tm_mday = -1;
         mDateBuf[0] = 0;
+        mSignBuf[0] = 0;
+        memset(mV4SignDate, 0, sizeof(mV4SignDate));
+        HMAC_CTX_init(&mHmacCtx);
+        EVP_MD_CTX_init(&mMdCtx);
     }
     void SetParameters()
     {
@@ -1498,6 +1512,10 @@ private:
         mSecurityToken = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("securityToken"),
             mSecurityToken
+        );
+        mRegion = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("region"),
+            mRegion
         );
         mContentType = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("contentType"),
@@ -1543,6 +1561,7 @@ private:
             theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
             mDebugTraceMaxHeaderSize
         );
+        mV4SignDate[0] = 0; // Force version 4 sign key update.
         if (! IsRunning()) {
             mClient.SetServer(ServerLocation(), true);
             return;
@@ -1580,7 +1599,12 @@ private:
         }
     }
     bool IsRunning() const
-        { return (mNetManager.IsRunning() && ! mBucketName.empty()); }
+    {
+        return (mNetManager.IsRunning() &&
+            ! mBucketName.empty() &&
+            ! mSecretAccessKey.empty()
+        );
+    }
     time_t Now() const
         { return mNetManager.Now(); }
     int NewFd()
@@ -1660,7 +1684,7 @@ private:
     const struct tm& GetTmNow()
     {
         const time_t theNow = Now();
-        if (theNow == mTmLastDateTime || mTmBuf.tm_mday <= 0) {
+        if (theNow == mTmLastDateTime && 0 < mTmBuf.tm_mday) {
             return mTmBuf;
         }
         struct tm* const theTmPtr = gmtime_r(&theNow, &mTmBuf);
@@ -1717,7 +1741,7 @@ private:
             thePtr + 7 <= mDateBuf + sizeof(mDateBuf) / sizeof(mDateBuf[0]));
         return mDateBuf;
     }
-    const char* DateTimeZNow()
+    const char* ISOTimeNow()
     {
         const time_t theNow = Now();
         if (theNow == mLastDateZTime && 0 != mDateBuf[0]) {
@@ -1726,7 +1750,7 @@ private:
         mLastDateZTime = theNow;
         // Do not use strftime() to avoid local complications.
         const struct tm& theTm   = GetTmNow();
-        char*            thePtr  = mDateTimeZBuf;
+        char*            thePtr  = mISOTime;
         int              theYear = theTm.tm_year + 1900;
         for (int i = 3; 0 <= i; i--) {
             thePtr[i] = (char)('0' + theYear % 10);
@@ -1748,45 +1772,76 @@ private:
         *thePtr++ = (char)'Z';
         *thePtr   = 0;
         QCASSERT(thePtr + 1 <= mDateBuf +
-            sizeof(mDateTimeZBuf) / sizeof(mDateTimeZBuf[0]));
-        return mDateTimeZBuf;
+            sizeof(mISOTime) / sizeof(mISOTime[0]));
+        return mISOTime;
     }
-    const char* Sign(
-        const string& inData,
-        const string& inKey,
-        bool          inSha256Flag = false)
+    void MdStart(
+        bool inSha256Flag)
     {
-        const char* const theKeyPtr = inKey.data();
-        const int         theKeyLen = (int)inKey.size();
-        HMAC_CTX theCtx;
-        HMAC_CTX_init(&theCtx);
-        unsigned int       theLen    = 0;
-        unsigned char      theSignBuf[kHmacSha256Len];
+        if (! EVP_DigestInit_ex(&mMdCtx,
+                inSha256Flag ? EVP_sha256() : EVP_md5(), 0)) {
+            FatalError("EVP_DigestInit_ex failure");
+        }
+    }
+    void Md5Start()
+        { MdStart(false); }
+    void Sha256Start()
+        { MdStart(true); }
+    void MdAdd(
+        const void* inPtr,
+        size_t      inSize)
+    {
+        if (! EVP_DigestUpdate(&mMdCtx, inPtr, inSize)) {
+            FatalError("EVP_DigestUpdate failure");
+        }
+    }
+    const char* MdEnd(
+        int inLen)
+    {
+        unsigned int theLen = 0;
+        if (! EVP_DigestFinal_ex(&mMdCtx,
+                    reinterpret_cast<unsigned char*>(mTmpMdBuf),
+                    &theLen) ||
+                theLen <= 0 || kMaxMdLen < theLen ||
+                    (unsigned int)inLen != theLen) {
+            FatalError("EVP_DigestFinal_ex failure");
+        }
+        return mTmpMdBuf;
+    }
+    const char* Hmac(
+        const void*   inKeyPtr,
+        size_t        inKeyLen,
+        const void*   inDataPtr,
+        size_t        inDataLen,
+        char*         inResultPtr,
+        bool          inSha256Flag)
+    {
+        unsigned int theLen = 0;
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL
-        HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen,
+        HMAC_Init_ex(&mHmacCtx, inKeyPtr, (int)inKeyLen,
             inSha256Flag ? EVP_sha256() : EVP_sha1(), 0);
         HMAC_Update(
-            &theCtx,
-            reinterpret_cast<const unsigned char*>(inData.data()),
-            (int)inData.size()
+            &mHmacCtx,
+            reinterpret_cast<const unsigned char*>(inDataPtr),
+            (int)inDataLen
         );
         HMAC_Final(
-            &theCtx,
-            reinterpret_cast<unsigned char*>(theSignBuf),
+            &mHmacCtx,
+            reinterpret_cast<unsigned char*>(inResultPtr),
             &theLen
         );
 #else
         const bool theOkFlag =
-            HMAC_Init_ex(&theCtx, theKeyPtr, theKeyLen,
+            HMAC_Init_ex(&mHmacCtx, inKeyPtr, (int)inKeyLen,
                 inSha256Flag ? EVP_sha256() : EVP_sha1(), 0) &&
             HMAC_Update(
-                &theCtx,
-                reinterpret_cast<const unsigned char*>(inData.data()),
-                (int)inData.size()
+                &mHmacCtx,
+                reinterpret_cast<const unsigned char*>(inDataPtr),
+                (int)inDataLen
             ) &&
             HMAC_Final(
-                &theCtx,
-                reinterpret_cast<unsigned char*>(theSignBuf),
+                &mHmacCtx,
+                reinterpret_cast<unsigned char*>(inResultPtr),
                 &theLen
             );
         if (! theOkFlag) {
@@ -1798,33 +1853,84 @@ private:
             FatalError(theBuf);
         }
 #endif
-        HMAC_CTX_cleanup(&theCtx);
-        if (theLen <= 0 || (unsigned int)kHmacSha256Len < theLen) {
-            FatalError(inSha256Flag ?
-                "hmac-sha256 failure" : "hmac-sha1 failure");
+        if ((inSha256Flag ? kSha256Len : kSha1Len) != theLen) {
+            FatalError("invalid sha length");
         }
-        if (inSha256Flag) {
-            const char* const kHexDigits = "0123456789abcdef";
-            char* theResPtr = mHmacBuf;
-            for (unsigned char* thePtr = theSignBuf,
-                    * const theEndPtr = thePtr + theLen;
-                    thePtr < theEndPtr;
-                    ++thePtr) {
-                *theResPtr++ = kHexDigits[(*thePtr >> 8) & 0xF];
-                *theResPtr++ = kHexDigits[*thePtr & 0xF];
-            }
-            *theResPtr = 0;
-        } else {
-            const int theEncLen = Base64::Encode(
-                reinterpret_cast<const char*>(theSignBuf),
-                (int)theLen, mHmacBuf);
-            if (theEncLen <= 0 || (int)sizeof(mHmacBuf) <= theEncLen) {
-                FatalError("base64 encode failure");
-                mHmacBuf[0] = 0;
-            }
-            mHmacBuf[theEncLen] = 0;
+        return inResultPtr;
+    }
+    const char* HmacSha1(
+        const void*   inKeyPtr,
+        size_t        inKeyLen,
+        const void*   inDataPtr,
+        size_t        inDataLen,
+        Sha1Buf       inResult)
+    {
+        return Hmac(inKeyPtr, inKeyLen, inDataPtr, inDataLen, inResult, false);
+    }
+    const char* Sign(
+        const string& inData,
+        const string& inKey)
+    {
+        Sha1Buf theBuf;
+        const int theEncLen = Base64::Encode(
+            HmacSha1(inKey.data(), inKey.size(),
+                inData.data(), inData.size(), theBuf),
+            kSha1Len, mSignBuf
+        );
+        if (theEncLen <= 0 || (int)(sizeof(mSignBuf) / sizeof(mSignBuf[0])) <=
+                theEncLen) {
+            FatalError("base64 encode failure");
+            mSignBuf[0] = 0;
         }
-        return mHmacBuf;
+        mSignBuf[theEncLen] = 0;
+        return mSignBuf;
+    }
+    const char* HmacSha256(
+        const void*   inKeyPtr,
+        size_t        inKeyLen,
+        const void*   inDataPtr,
+        size_t        inDataLen,
+        Sha256Buf     inResult)
+    {
+        return Hmac(inKeyPtr, inKeyLen, inDataPtr, inDataLen, inResult, true);
+    }
+    const void* GetV4SignKey()
+    {
+        const char* const theISONowPtr = ISOTimeNow();
+        if (memcmp(theISONowPtr, mV4SignDate, kV4SignDateLen) == 0) {
+            return mV4SignKey;
+        }
+        memcpy(mV4SignDate, theISONowPtr, kV4SignDateLen);
+        string& theTmpBuf = mTmpBuffer;
+        theTmpBuf = "AWS4";
+        theTmpBuf += mSecretAccessKey;
+        Sha256Buf theTmp;
+        HmacSha256(
+            HmacSha256(
+                HmacSha256(
+                    HmacSha256(
+                        theTmpBuf.data(), theTmpBuf.size(),
+                        mV4SignDate, kV4SignDateLen, theTmp), kSha256Len,
+                    mRegion.data(), mRegion.size(), mV4SignKey), kSha256Len,
+            "s3", 2, theTmp), kSha256Len,
+            "aws4_request", 12, mV4SignKey
+        );
+        return mV4SignKey;
+    }
+    void Sha256Hex(
+        const Sha256Buf inSha256,
+        char*           inHexBufPtr)
+    {
+        const char* const kHexDigits = "0123456789abcdef";
+        char*             theResPtr  = inHexBufPtr;
+        for (const char* thePtr = inSha256,
+                * const theEndPtr = thePtr + kSha256Len;
+                thePtr < theEndPtr;
+                ++thePtr) {
+            *theResPtr++ = kHexDigits[(*thePtr >> 4) & 0xF];
+            *theResPtr++ = kHexDigits[*thePtr & 0xF];
+        }
+        *theResPtr = 0;
     }
 private:
     S3ION(
