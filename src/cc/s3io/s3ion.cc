@@ -1140,9 +1140,10 @@ private:
             IOBuffer&      inIOBuffer)
             : S3Req(inOuter, inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
-              mDataBuf()
+              mDataBuf(),
+              mIsSha256Flag(false)
         {
-            mMd5Sum[0] = 0;
+            mMdBuf[0] = 0;
             mDataBuf.Move(&inIOBuffer);
         }
         virtual ostream& Display(
@@ -1193,9 +1194,10 @@ private:
         }
         const char* GetMd5Sum()
         {
-            if (*mMd5Sum) {
-                return mMd5Sum;
+            if (*mMdBuf && ! mIsSha256Flag) {
+                return mMdBuf;
             }
+            mIsSha256Flag = false;
             mOuter.Md5Start();
             for (IOBuffer::iterator theIt = mDataBuf.begin();
                     theIt != mDataBuf.end();
@@ -1203,18 +1205,39 @@ private:
                 mOuter.MdAdd(theIt->Consumer(), theIt->BytesConsumable());
             }
             const int theB64Len = Base64::Encode(
-                mOuter.MdEnd(kMd5Len), kMd5Len, mMd5Sum);
+                mOuter.MdEnd(kMd5Len), kMd5Len, mMdBuf);
             QCRTASSERT(
                 0 < theB64Len &&
-                (size_t)theB64Len < sizeof(mMd5Sum)
+                (size_t)theB64Len < sizeof(mMdBuf) / sizeof(mMdBuf[0])
             );
-            mMd5Sum[theB64Len] = 0;
-            return mMd5Sum;
+            mMdBuf[theB64Len] = 0;
+            return mMdBuf;
+        }
+        const char* GetSha256()
+        {
+            if (*mMdBuf && mIsSha256Flag) {
+                return mMdBuf;
+            }
+            mIsSha256Flag = false;
+            mOuter.Sha256Start();
+            for (IOBuffer::iterator theIt = mDataBuf.begin();
+                    theIt != mDataBuf.end();
+                    ++theIt) {
+                mOuter.MdAdd(theIt->Consumer(), theIt->BytesConsumable());
+            }
+            Sha256Hex(mOuter.MdEnd(kSha256Len), mMdBuf);
+            return mMdBuf;
         }
     private:
+        enum
+        {
+            kMd5Base64Len = (kMd5Len + 2) / 3 * 4,
+            kSha256HexLen = kSha256Len * 2
+        };
         IOBuffer mDataBuf;
-        char     mMd5Sum[(kMd5Len + 2) / 3 * 4 + 1];
-                         // Base64::EncodedLength(128 / 8) + 1
+        bool     mIsSha256Flag;
+        char     mMdBuf[1 +
+            (kMd5Base64Len < kSha256HexLen ? kSha256HexLen : kMd5Base64Len)];
     private:
         S3Put(
             const S3Put& inPut);
@@ -1917,7 +1940,7 @@ private:
         );
         return mV4SignKey;
     }
-    void Sha256Hex(
+    static const char* Sha256Hex(
         const Sha256Buf inSha256,
         char*           inHexBufPtr)
     {
@@ -1931,6 +1954,7 @@ private:
             *theResPtr++ = kHexDigits[*thePtr & 0xF];
         }
         *theResPtr = 0;
+        return inHexBufPtr;
     }
 private:
     S3ION(
