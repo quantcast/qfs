@@ -1008,12 +1008,12 @@ private:
             theSignBuf += ';';
             theSignBuf += kAmzDateNamePtr;
             if (! mOuter.mSecurityToken.empty()) {
-                theSignBuf += kAmzSTNamePtr;
                 theSignBuf += ';';
+                theSignBuf += kAmzSTNamePtr;
             }
             if (inServerSideEncryptionFlag) {
-                theSignBuf += kAmzSSENamePtr;
                 theSignBuf += ';';
+                theSignBuf += kAmzSSENamePtr;
             }
             size_t const theSHLen = theSignBuf.size() - theSHPos;
             theSignBuf += '\n';
@@ -1377,8 +1377,7 @@ private:
                 mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
                 mOuter.mContentType.c_str(),
                 mOuter.mContentEncoding.c_str(),
-                // Encryption require version 4 authorization, disable for now.
-                false, // mOuter.mUseServerSideEncryptionFlag,
+                mOuter.mUseServerSideEncryptionFlag,
                 mDataBuf.BytesConsumable()
             );
             inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
