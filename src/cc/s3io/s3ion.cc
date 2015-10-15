@@ -131,7 +131,6 @@ public:
         }
         S3ION* const thePtr = new S3ION(
             inUrlPtr, theConfigPrefix.c_str(), inLogPrefixPtr);
-        thePtr->Test();
         thePtr->SetParameters(inParamsPrefixPtr, inParameters);
         return thePtr;
     }
@@ -1375,7 +1374,7 @@ private:
                 return 0;
             }
             const int theRet = SendRequest("PUT", inBuffer, inServer,
-                GetMd5Sum(),
+                mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
                 mOuter.mContentType.c_str(),
                 mOuter.mContentEncoding.c_str(),
                 // Encryption require version 4 authorization, disable for now.
@@ -2137,38 +2136,6 @@ private:
         }
         *theResPtr = 0;
         return inHexBufPtr;
-    }
-    void Test()
-    {
-        mAccessKeyId     = "AKIAIOSFODNN7EXAMPLE";
-        mSecretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
-        mRegion          = "us-east-1";
-        mLastDateZTime   = Now();
-        memcpy(mISOTime, "20130524T000000Z", 17);
-        mTmpSignBuffer   =
-        "AWS4-HMAC-SHA256\n"
-        "20130524T000000Z\n"
-        "20130524/us-east-1/s3/aws4_request\n"
-        "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972";
-        Sha256Buf theShaBuf;
-        char      theShaHex[kSha256HexLen + 1];
-        const char* const theAuthSignPtr = Sha256Hex(
-            HmacSha256(GetV4SignKey(), kSha256Len,
-                mTmpSignBuffer.data(), mTmpSignBuffer.size(), theShaBuf),
-            theShaHex
-        );
-        QCRTASSERT(memcmp(
-            theAuthSignPtr,
-            "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41",
-            kSha256HexLen + 1) == 0
-        );
-        mAccessKeyId.clear();
-        mSecretAccessKey.clear();
-        mRegion.clear();
-        mLastDateZTime = 0;
-        memset(mISOTime, 0, sizeof(mISOTime));
-        memset(mV4SignDate, 0, sizeof(mV4SignDate));
-        mTmpSignBuffer.clear();
     }
 private:
     S3ION(
