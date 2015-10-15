@@ -29,7 +29,6 @@
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "common/IntToString.h"
-#include "common/MdStream.h"
 #include "common/Properties.h"
 #include "common/httputils.h"
 
@@ -132,6 +131,7 @@ public:
         }
         S3ION* const thePtr = new S3ION(
             inUrlPtr, theConfigPrefix.c_str(), inLogPrefixPtr);
+        thePtr->Test();
         thePtr->SetParameters(inParamsPrefixPtr, inParameters);
         return thePtr;
     }
@@ -562,7 +562,9 @@ private:
         kSha1Len       = 160 / 8,
         kSha256Len     = 256 / 8,
         kMaxMdLen      = kSha256Len,
-        kV4SignDateLen = 8
+        kV4SignDateLen = 8,
+        kMd5Base64Len  = (kMd5Len + 2) / 3 * 4,
+        kSha256HexLen  = kSha256Len * 2
     };
     typedef char Md5Buf[kMd5Len];
     typedef char Sha256Buf[kSha256Len];
@@ -783,7 +785,7 @@ private:
             const char*           inVerbPtr,
             IOBuffer&             inBuffer,
             const ServerLocation& inServer,
-            const char*           inMd5Ptr                   = 0,
+            const char*           inMdPtr                    = 0,
             const char*           inContentTypePtr           = 0,
             const char*           inContentEncodingPtr       = 0,
             bool                  inServerSideEncryptionFlag = false,
@@ -795,6 +797,54 @@ private:
                 return 0;
             }
             mHeaders.Reset();
+            if (mOuter.mRegion.empty()) {
+                SendRequestAuthV2(
+                    inVerbPtr,
+                    inBuffer,
+                    inServer,
+                    inMdPtr,
+                    inContentTypePtr,
+                    inContentEncodingPtr,
+                    inServerSideEncryptionFlag,
+                    inContentLength,
+                    inRangeStart,
+                    inRangeEnd
+                );
+            } else {
+                SendRequestAuthV4(
+                    inVerbPtr,
+                    inBuffer,
+                    inServer,
+                    inMdPtr,
+                    inContentTypePtr,
+                    inContentEncodingPtr,
+                    inServerSideEncryptionFlag,
+                    inContentLength,
+                    inRangeStart,
+                    inRangeEnd
+                );
+            }
+            mOuter.mWOStream.Reset();
+            mSentFlag = true;
+            if (mOuter.mDebugTraceRequestHeadersFlag) {
+                KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
+                    " request header: " << ShowData(inBuffer) <<
+                KFS_LOG_EOM;
+            }
+            return mOuter.mMaxReadAhead;
+        }
+        void SendRequestAuthV2(
+            const char*           inVerbPtr,
+            IOBuffer&             inBuffer,
+            const ServerLocation& inServer,
+            const char*           inMd5Ptr,
+            const char*           inContentTypePtr,
+            const char*           inContentEncodingPtr,
+            bool                  inServerSideEncryptionFlag,
+            int64_t               inContentLength,
+            int64_t               inRangeStart,
+            int64_t               inRangeEnd)
+        {
             const char* const theDatePtr = mOuter.DateNow();
             string& theSignBuf = mOuter.mTmpSignBuffer;
             theSignBuf = inVerbPtr;
@@ -874,14 +924,172 @@ private:
                     mOuter.Sign(theSignBuf, mOuter.mSecretAccessKey) << "\r\n"
             "\r\n";
             theStream.flush();
-            mOuter.mWOStream.Reset();
-            mSentFlag = true;
-            if (mOuter.mDebugTraceRequestHeadersFlag) {
-                KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
-                    " request header: " << ShowData(inBuffer) <<
-                KFS_LOG_EOM;
+        }
+        void SendRequestAuthV4(
+            const char*           inVerbPtr,
+            IOBuffer&             inBuffer,
+            const ServerLocation& inServer,
+            const char*           inMdPtr,
+            const char*           inContentTypePtr,
+            const char*           inContentEncodingPtr,
+            bool                  inServerSideEncryptionFlag,
+            int64_t               inContentLength,
+            int64_t               inRangeStart,
+            int64_t               inRangeEnd)
+        {
+            const char* const kEmptyShaPtr    =
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+            const char* const kHostHNamePtr   = "host";
+            const char* const kHostHRangePtr  = "range";
+            const char* const kHostHRBytesPtr = ":bytes=";
+            const char* const kAmzShaNamePtr  = "x-amz-content-sha256";
+            const char* const kAmzDateNamePtr = "x-amz-date";
+            const char* const kAmzSTNamePtr   = "x-amz-security-token";
+            const char* const kAmzSSENamePtr  = "x-amz-server-side-encryption";
+            const char* const kEncrptTypePtr  = "aws:kms";
+            const char* const theTimePtr      = mOuter.ISOTimeNow();
+            const char* const theContShaPtr   =
+                (inMdPtr && *inMdPtr) ? inMdPtr : kEmptyShaPtr;
+            string&           theSignBuf      = mOuter.mTmpSignBuffer;
+            theSignBuf = inVerbPtr;
+            theSignBuf += '\n';
+            // URI -- bucket and file name should not contain characters that need
+            // to be escaped.
+            theSignBuf += '/';
+            theSignBuf += mFileName;
+            theSignBuf += '\n';
+            // Empty query string.
+            theSignBuf += '\n';
+            theSignBuf += kHostHNamePtr;
+            theSignBuf += ':';
+            theSignBuf += inServer.hostname;
+            if ((mOuter.mHttpsFlag ? 443 : 80) != inServer.port) {
+                theSignBuf += ':';
+                AppendDecIntToString(theSignBuf, inServer.port);
             }
-            return mOuter.mMaxReadAhead;
+            theSignBuf += '\n';
+            if (0 <= inRangeStart) {
+                theSignBuf += kHostHRangePtr;
+                theSignBuf += kHostHRBytesPtr;
+                AppendDecIntToString(theSignBuf, inRangeStart);
+                theSignBuf += '-';
+                AppendDecIntToString(theSignBuf, inRangeEnd);
+                theSignBuf += '\n';
+            }
+            theSignBuf += kAmzShaNamePtr;
+            theSignBuf += ':';
+            theSignBuf += theContShaPtr;
+            theSignBuf += '\n';
+            theSignBuf += kAmzDateNamePtr;
+            theSignBuf += ':';
+            theSignBuf += theTimePtr;
+            theSignBuf += '\n';
+            if (! mOuter.mSecurityToken.empty()) {
+                theSignBuf += kAmzSTNamePtr;
+                theSignBuf += ':';
+                theSignBuf += mOuter.mSecurityToken;
+                theSignBuf += '\n';
+            }
+            if (inServerSideEncryptionFlag) {
+                theSignBuf += kAmzSSENamePtr;
+                theSignBuf += ':';
+                theSignBuf += kEncrptTypePtr;
+                theSignBuf += '\n';
+            }
+            theSignBuf += '\n';
+            // List of signed headers.
+            size_t const theSHPos = theSignBuf.size();
+            theSignBuf += kHostHNamePtr;
+            theSignBuf += ';';
+            if (0 <= inRangeStart) {
+                theSignBuf += kHostHRangePtr;
+                theSignBuf += ';';
+            }
+            theSignBuf += kAmzShaNamePtr;
+            theSignBuf += ';';
+            theSignBuf += kAmzDateNamePtr;
+            if (! mOuter.mSecurityToken.empty()) {
+                theSignBuf += kAmzSTNamePtr;
+                theSignBuf += ';';
+            }
+            if (inServerSideEncryptionFlag) {
+                theSignBuf += kAmzSSENamePtr;
+                theSignBuf += ';';
+            }
+            size_t const theSHLen = theSignBuf.size() - theSHPos;
+            theSignBuf += '\n';
+            theSignBuf += theContShaPtr;
+            mOuter.Sha256Start();
+            mOuter.MdAdd(theSignBuf.data(), theSignBuf.size());
+            char              theShaHex[kSha256HexLen + 1];
+            const char* const theShaHexPtr =
+                Sha256Hex(mOuter.MdEnd(kSha256Len), theShaHex);
+            size_t const theSPos = theSignBuf.size();
+            theSignBuf += "AWS4-HMAC-SHA256\n";
+            theSignBuf += theTimePtr;
+            theSignBuf += '\n';
+            size_t const theCtxPos = theSignBuf.size();
+            theSignBuf.append(theTimePtr, 8);
+            theSignBuf += '/';
+            theSignBuf += mOuter.mRegion;
+            theSignBuf += "/s3/aws4_request\n";
+            size_t const theCtxLen = theSignBuf.size() - 1 - theCtxPos;
+            theSignBuf += theShaHexPtr;
+            Sha256Buf theShaBuf;
+            const char* const theAuthSignPtr = Sha256Hex(
+                mOuter.HmacSha256(mOuter.GetV4SignKey(), kSha256Len,
+                    theSignBuf.data() + theSPos, theSignBuf.size() - theSPos, theShaBuf),
+                theShaHex
+            );
+            ostream& theStream = mOuter.mWOStream.Set(inBuffer);
+            theStream <<
+                inVerbPtr << " /" << mFileName << " HTTP/1.1\r\n"
+                "Host: "  << inServer.hostname
+            ;
+            if ((mOuter.mHttpsFlag ? 443 : 80) != inServer.port) {
+                theStream << ':' << inServer.port;
+            }
+            theStream << "\r\n";
+            if (! mOuter.mCacheControl.empty()) {
+                theStream << "Cache-Control: " <<
+                    mOuter.mCacheControl << "\r\n";
+            }
+            if (inContentEncodingPtr && *inContentEncodingPtr) {
+                theStream << "Content-Encoding: " <<
+                    inContentEncodingPtr << "\r\n";
+            }
+            if (0 <= inContentLength) {
+                theStream << "Content-Length: " << inContentLength << "\r\n";
+            }
+            if (inContentTypePtr && *inContentTypePtr) {
+                theStream << "Content-Type: " << inContentTypePtr << "\r\n";
+            }
+            if (0 <= inRangeStart) {
+                theStream << "Range: bytes=" <<
+                    inRangeStart << "-" << inRangeEnd << "\r\n";
+            }
+            if (! mOuter.mUserAgent.empty()) {
+                theStream << "User-Agent: " << mOuter.mUserAgent << "\r\n";
+            }
+            theStream <<
+                kAmzShaNamePtr  << ": " << theContShaPtr << "\r\n" <<
+                kAmzDateNamePtr << ": " << theTimePtr    << "\r\n";
+            if (! mOuter.mSecurityToken.empty()) {
+                theStream << kAmzSTNamePtr << ": " <<
+                    mOuter.mSecurityToken << "\r\n";
+            }
+            if (inServerSideEncryptionFlag) {
+                theStream << kAmzSSENamePtr << ": " << kEncrptTypePtr << "\r\n";
+            }
+            theStream <<
+                "Authorization: AWS4-HMAC-SHA256 Credential=" <<
+                mOuter.mAccessKeyId << "/";
+                theStream.write(theSignBuf.data() + theCtxPos, theCtxLen) <<
+                ",SignedHeaders=";
+                theStream.write(theSignBuf.data() + theSHPos, theSHLen) <<
+                ",Signature=" << theAuthSignPtr << "\r\n"
+            "\r\n";
+            theStream.flush();
         }
         int ParseResponse(
             IOBuffer& inBuffer,
@@ -1229,11 +1437,6 @@ private:
             return mMdBuf;
         }
     private:
-        enum
-        {
-            kMd5Base64Len = (kMd5Len + 2) / 3 * 4,
-            kSha256HexLen = kSha256Len * 2
-        };
         IOBuffer mDataBuf;
         bool     mIsSha256Flag;
         char     mMdBuf[1 +
@@ -1509,10 +1712,10 @@ private:
     void SetParameters()
     {
         // For backward compatibility.
-        RenameParameter("verifyPeer", "ssl.verifyPeer");
-        RenameParameter("sslCiphers", "ssl.cipher");
-        RenameParameter("CABundle",   "ssl.CAFile");
-        RenameParameter("CAPath",     "ssl.CADir");
+        // RenameParameter("verifyPeer", "ssl.verifyPeer");
+        // RenameParameter("sslCiphers", "ssl.cipher");
+        // RenameParameter("CABundle",   "ssl.CAFile");
+        // RenameParameter("CAPath",     "ssl.CADir");
 
         Properties::String theName(mFullConfigPrefix);
         const size_t       thePrefixSize = theName.GetSize();
@@ -1683,27 +1886,6 @@ private:
         MsgLogger::Stop();
         QCUtils::FatalError(theMsgPtr, 0);
     }
-    void RenameParameter(
-        const char* inFromNamePtr,
-        const char* inToNamePtr)
-    {
-        Properties::String theName(mFullConfigPrefix);
-        const size_t       thePrefixSize = theName.GetSize();
-        if (mParameters.getValue(
-                theName.Truncate(thePrefixSize).Append(inToNamePtr))) {
-            // Newer name exists.
-            return;
-        }
-        const Properties::String* theFromValPtr = mParameters.getValue(
-            theName.Truncate(thePrefixSize).Append(inFromNamePtr));
-        if (! theFromValPtr) {
-            // Old does not exist.
-            return;
-        }
-        mParameters.setValue(
-            theName.Truncate(thePrefixSize).Append(inToNamePtr), *theFromValPtr
-        );
-    }
     const struct tm& GetTmNow()
     {
         const time_t theNow = Now();
@@ -1767,8 +1949,8 @@ private:
     const char* ISOTimeNow()
     {
         const time_t theNow = Now();
-        if (theNow == mLastDateZTime && 0 != mDateBuf[0]) {
-            return mDateBuf;
+        if (theNow == mLastDateZTime && 0 != mISOTime[0]) {
+            return mISOTime;
         }
         mLastDateZTime = theNow;
         // Do not use strftime() to avoid local complications.
@@ -1794,7 +1976,7 @@ private:
         *thePtr++ = (char)('0' + theTm.tm_sec % 10);
         *thePtr++ = (char)'Z';
         *thePtr   = 0;
-        QCASSERT(thePtr + 1 <= mDateBuf +
+        QCASSERT(thePtr + 1 <= mISOTime +
             sizeof(mISOTime) / sizeof(mISOTime[0]));
         return mISOTime;
     }
@@ -1955,6 +2137,38 @@ private:
         }
         *theResPtr = 0;
         return inHexBufPtr;
+    }
+    void Test()
+    {
+        mAccessKeyId     = "AKIAIOSFODNN7EXAMPLE";
+        mSecretAccessKey = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        mRegion          = "us-east-1";
+        mLastDateZTime   = Now();
+        memcpy(mISOTime, "20130524T000000Z", 17);
+        mTmpSignBuffer   =
+        "AWS4-HMAC-SHA256\n"
+        "20130524T000000Z\n"
+        "20130524/us-east-1/s3/aws4_request\n"
+        "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972";
+        Sha256Buf theShaBuf;
+        char      theShaHex[kSha256HexLen + 1];
+        const char* const theAuthSignPtr = Sha256Hex(
+            HmacSha256(GetV4SignKey(), kSha256Len,
+                mTmpSignBuffer.data(), mTmpSignBuffer.size(), theShaBuf),
+            theShaHex
+        );
+        QCRTASSERT(memcmp(
+            theAuthSignPtr,
+            "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41",
+            kSha256HexLen + 1) == 0
+        );
+        mAccessKeyId.clear();
+        mSecretAccessKey.clear();
+        mRegion.clear();
+        mLastDateZTime = 0;
+        memset(mISOTime, 0, sizeof(mISOTime));
+        memset(mV4SignDate, 0, sizeof(mV4SignDate));
+        mTmpSignBuffer.clear();
     }
 private:
     S3ION(
