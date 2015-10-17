@@ -57,8 +57,14 @@ if [ x"$s3test" = x'yes' ]; then
             x"$QFS_S3_BUCKET_NAME" = x ]; then
         echo "environment variables QFS_S3_ACCESS_KEY_ID," \
             "QFS_S3_SECRET_ACCESS_KEY," \
-            "and QFS_S3_BUCKET_NAME must be set accordintly"
+            "QFS_S3_BUCKET_NAME, and optionally"\
+            "QFS_S3_REGION_NAME must be set accordintly"
         exit 1
+    fi
+    if [ x"$QFS_S3_REGION_NAME" = x ]; then
+        s3serversideencryption=${s3serversideencryption-0}
+    else
+        s3serversideencryption=${s3serversideencryption-1}
     fi
 fi
 
@@ -408,6 +414,8 @@ if [ x"$s3test" = x'yes' ]; then
 chunkServer.diskQueue.aws.bucketName                 = $QFS_S3_BUCKET_NAME
 chunkServer.diskQueue.aws.accessKeyId                = $QFS_S3_ACCESS_KEY_ID
 chunkServer.diskQueue.aws.secretAccessKey            = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.region                     = $QFS_S3_REGION_NAME
+chunkServer.diskQueue.aws.useServerSideEncryption    = $s3serversideencryption
 chunkServer.diskQueue.aws.ssl.verifyPeer             = 1
 chunkServer.diskQueue.aws.ssl.CAFile                 = $cabundlefile
 chunkServer.diskQueue.aws.debugTrace.requestHeaders  = $s3debug
