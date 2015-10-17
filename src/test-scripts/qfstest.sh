@@ -470,6 +470,7 @@ chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
 chunkServer.rsReader.debugCheckThread = 1
 chunkServer.clientThreadCount = $chunkserverclithreads
+chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 EOF

@@ -557,13 +557,15 @@ public:
 private:
     enum
     {
-        kMd5Len        = 128 / 8,
-        kSha1Len       = 160 / 8,
-        kSha256Len     = 256 / 8,
-        kMaxMdLen      = kSha256Len,
-        kV4SignDateLen = 8,
-        kMd5Base64Len  = (kMd5Len + 2) / 3 * 4,
-        kSha256HexLen  = kSha256Len * 2
+        kMd5Len         = 128 / 8,
+        kSha1Len        = 160 / 8,
+        kSha256Len      = 256 / 8,
+        kMaxMdLen       = kSha256Len,
+        kISODateLen     = 8,
+        kV4SignDateLen  = kISODateLen,
+        kMd5Base64Len   = (kMd5Len + 2) / 3 * 4,
+        kSha256HexLen   = kSha256Len * 2,
+        kMaxDateTimeLen = 32
     };
     typedef char Md5Buf[kMd5Len];
     typedef char Sha256Buf[kSha256Len];
@@ -1028,7 +1030,7 @@ private:
             theSignBuf += theTimePtr;
             theSignBuf += '\n';
             size_t const theCtxPos = theSignBuf.size();
-            theSignBuf.append(theTimePtr, 8);
+            theSignBuf.append(theTimePtr, kISODateLen);
             theSignBuf += '/';
             theSignBuf += mOuter.mRegion;
             theSignBuf += "/s3/aws4_request\n";
@@ -1112,7 +1114,7 @@ private:
                         " exceeded max header length: " << mOuter.mMaxHdrLen <<
                          " / " << inBuffer.BytesConsumable() <<
                         " data: " << ShowData(
-                            inBuffer, mOuter.mDebugTraceMaxHeaderSize) <<
+                            inBuffer, mOuter.mDebugTraceMaxErrorDataSize) <<
                         " ..." <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "exceeded max header length");
@@ -1136,7 +1138,7 @@ private:
                         " header length: "       << mHeaderLength <<
                         " max response length: " << mOuter.mMaxResponseSize <<
                         " header: " << ShowData(inBuffer,
-                            min(mOuter.mDebugTraceMaxHeaderSize,
+                            min(mOuter.mDebugTraceMaxErrorDataSize,
                                     mHeaderLength)) <<
                     KFS_LOG_EOM;
                     Error(-EINVAL, "invalid response");
@@ -1241,9 +1243,9 @@ private:
                 " http/1.1 "   << mHeaders.IsHttp11OrGreater() <<
                 " close: "     << mHeaders.IsConnectionClose() <<
                 " chunked: "   << mHeaders.IsChunkedEconding() <<
-                " data: "      <<
-                    ShowData(mIOBuffer, mOuter.mDebugTraceMaxDataSize) <<
-                "..." <<
+                " data: "      << ShowData(mIOBuffer, IsHttpStatusOk() ?
+                        mOuter.mDebugTraceMaxDataSize :
+                        mOuter.mDebugTraceMaxErrorDataSize) <<
             KFS_LOG_EOM;
             outDoneFlag = true;
             return ((mReadTillEofFlag || mHeaders.IsConnectionClose()) ?
@@ -1424,7 +1426,7 @@ private:
             if (*mMdBuf && mIsSha256Flag) {
                 return mMdBuf;
             }
-            mIsSha256Flag = false;
+            mIsSha256Flag = true;
             mOuter.Sha256Start();
             for (IOBuffer::iterator theIt = mDataBuf.begin();
                     theIt != mDataBuf.end();
@@ -1593,6 +1595,7 @@ private:
     bool                mDebugTraceRequestProgressFlag;
     bool                mHttpsFlag;
     int                 mDebugTraceMaxDataSize;
+    int                 mDebugTraceMaxErrorDataSize;
     int                 mDebugTraceMaxHeaderSize;
     int                 mMaxRetryCount;
     int                 mRetryInterval;
@@ -1610,12 +1613,12 @@ private:
     struct tm           mTmBuf;
     HMAC_CTX            mHmacCtx;
     EVP_MD_CTX          mMdCtx;
-    char                mDateBuf[32];
-    char                mISOTime[32];
+    char                mDateBuf[kMaxDateTimeLen];
+    char                mISOTime[kMaxDateTimeLen];
     Sha256Buf           mV4SignKey;
     char                mTmpMdBuf[kMaxMdLen];
     char                mV4SignDate[kV4SignDateLen];
-    char                mSignBuf[kMaxMdLen * 2 + 1];
+    char                mSignBuf[kSha256HexLen + 1];
 
     static bool IsDebugLogLevel()
     {
@@ -1673,7 +1676,8 @@ private:
           mDebugTraceRequestProgressFlag(false),
           mHttpsFlag(false),
           mDebugTraceMaxDataSize(256),
-          mDebugTraceMaxHeaderSize(384),
+          mDebugTraceMaxErrorDataSize(512),
+          mDebugTraceMaxHeaderSize(512),
           mMaxRetryCount(10),
           mRetryInterval(10),
           mMaxReadAhead(4 << 10),
@@ -1780,6 +1784,10 @@ private:
         mDebugTraceMaxDataSize = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
             mDebugTraceMaxDataSize
+        );
+        mDebugTraceMaxErrorDataSize = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("debugTrace.maxErrorDataSize"),
+            mDebugTraceMaxErrorDataSize
         );
         mDebugTraceMaxHeaderSize = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
@@ -1940,8 +1948,8 @@ private:
         *thePtr++ = (char)('0' + theTm.tm_sec / 10);
         *thePtr++ = (char)('0' + theTm.tm_sec % 10);
         memcpy(thePtr, " GMT", 5);
-        QCASSERT(
-            thePtr + 7 <= mDateBuf + sizeof(mDateBuf) / sizeof(mDateBuf[0]));
+        QCASSERT(thePtr + 5 <= mDateBuf +
+            sizeof(mDateBuf) / sizeof(mDateBuf[0]));
         return mDateBuf;
     }
     const char* ISOTimeNow()
@@ -1974,7 +1982,7 @@ private:
         *thePtr++ = (char)('0' + theTm.tm_sec % 10);
         *thePtr++ = (char)'Z';
         *thePtr   = 0;
-        QCASSERT(thePtr + 1 <= mISOTime +
+        QCASSERT(thePtr < mISOTime +
             sizeof(mISOTime) / sizeof(mISOTime[0]));
         return mISOTime;
     }
@@ -2099,6 +2107,7 @@ private:
     }
     const void* GetV4SignKey()
     {
+        // The key should be valid for 7 days, update it when the date changes.
         const char* const theISONowPtr = ISOTimeNow();
         if (memcmp(theISONowPtr, mV4SignDate, kV4SignDateLen) == 0) {
             return mV4SignKey;
