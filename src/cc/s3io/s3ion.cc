@@ -97,6 +97,7 @@ const char* const kS3IODateMonths[12] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
     "Dec"
 };
+const int64_t kS3MinPartSize = int64_t(5) << 20;
 
 class S3ION : public IOMethod
 {
@@ -572,10 +573,13 @@ private:
     typedef char Sha1Buf[kSha1Len];
 
     typedef uint64_t Generation;
+    class MPPut;
 
     class File
     {
     public:
+        typedef QCDLList<MPPut> List;
+
         File(
             const char* inFileNamePtr = 0)
             : mFileName(inFileNamePtr ? inFileNamePtr : ""),
@@ -585,7 +589,7 @@ private:
               mWriteOnlyFlag(false),
               mMaxFileSize(-1),
               mGeneration(0)
-            {}
+            { List::Init(mPendingListPtr); }
         void Set(
             const char* inFileNamePtr,
             bool        inReadOnlyFlag,
@@ -611,14 +615,18 @@ private:
             mWriteOnlyFlag       = false;
             mMaxFileSize         = -1;
             mGeneration          = 0;
+            QCASSERT(List::IsEmpty(mPendingListPtr));
+            List::Init(mPendingListPtr);
         }
         string     mFileName;
+        string     mUploadId;
         bool       mReadOnlyFlag:1;
         bool       mCreateFlag:1;
         bool       mCreateExclusiveFlag:1;
         bool       mWriteOnlyFlag:1;
         int64_t    mMaxFileSize;
         Generation mGeneration;
+        MPPut*     mPendingListPtr[1];
     };
     typedef vector<File> FileTable;
     class S3Req : public KfsCallbackObj, public TransactionalClient::Transaction
@@ -744,9 +752,13 @@ private:
             QCASSERT(0 < mOuter.mRequestCount);
             mOuter.mRequestCount--;
         }
-        void Done(
+        virtual void Done(
             int64_t        inIoByteCount      = 0,
             InputIterator* inInputIteratorPtr = 0)
+            { DoneSelf(inIoByteCount, inInputIteratorPtr); }
+        virtual void DoneSelf(
+            int64_t        inIoByteCount,
+            InputIterator* inInputIteratorPtr)
         {
             if (0 != mSysError && QCDiskQueue::kErrorNone == mError) {
                 switch (mReqType) {
@@ -792,7 +804,8 @@ private:
             bool                  inServerSideEncryptionFlag = false,
             int64_t               inContentLength            = -1,
             int64_t               inRangeStart               = -1,
-            int64_t               inRangeEnd                 = -1)
+            int64_t               inRangeEnd                 = -1,
+            const char*           inQueryStringPtr           = 0)
         {
             if (mSentFlag) {
                 return 0;
@@ -809,7 +822,8 @@ private:
                     inServerSideEncryptionFlag,
                     inContentLength,
                     inRangeStart,
-                    inRangeEnd
+                    inRangeEnd,
+                    inQueryStringPtr
                 );
             } else {
                 SendRequestAuthV4(
@@ -822,7 +836,8 @@ private:
                     inServerSideEncryptionFlag,
                     inContentLength,
                     inRangeStart,
-                    inRangeEnd
+                    inRangeEnd,
+                    inQueryStringPtr
                 );
             }
             mOuter.mWOStream.Reset();
@@ -844,7 +859,8 @@ private:
             bool                  inServerSideEncryptionFlag,
             int64_t               inContentLength,
             int64_t               inRangeStart,
-            int64_t               inRangeEnd)
+            int64_t               inRangeEnd,
+            const char*           inQueryStringPtr)
         {
             const char* const theDatePtr = mOuter.DateNow();
             string& theSignBuf = mOuter.mTmpSignBuffer;
@@ -879,7 +895,11 @@ private:
             theSignBuf += mFileName;
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
             theStream <<
-                inVerbPtr << " /" << mFileName << " HTTP/1.1\r\n"
+                inVerbPtr << " /" << mFileName;
+            if (inQueryStringPtr && *inQueryStringPtr) {
+                theStream << "?" << inQueryStringPtr;
+            }
+            theStream  << " HTTP/1.1\r\n"
                 "Host: "  << inServer.hostname
             ;
             if ((mOuter.mHttpsFlag ? 443 : 80) != inServer.port) {
@@ -936,7 +956,8 @@ private:
             bool                  inServerSideEncryptionFlag,
             int64_t               inContentLength,
             int64_t               inRangeStart,
-            int64_t               inRangeEnd)
+            int64_t               inRangeEnd,
+            const char*           inQueryStringPtr)
         {
             const char* const kEmptyShaPtr    =
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -959,7 +980,10 @@ private:
             theSignBuf += '/';
             theSignBuf += mFileName;
             theSignBuf += '\n';
-            // Empty query string.
+            // Query string.
+            if (inQueryStringPtr && *inQueryStringPtr) {
+                theSignBuf += inQueryStringPtr;
+            }
             theSignBuf += '\n';
             theSignBuf += kHostHNamePtr;
             theSignBuf += ':';
@@ -1044,7 +1068,11 @@ private:
             );
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
             theStream <<
-                inVerbPtr << " /" << mFileName << " HTTP/1.1\r\n"
+                inVerbPtr << " /" << mFileName;
+            if (inQueryStringPtr && *inQueryStringPtr) {
+                theStream << "?" << inQueryStringPtr;
+            }
+            theStream << " HTTP/1.1\r\n"
                 "Host: "  << inServer.hostname
             ;
             if ((mOuter.mHttpsFlag ? 443 : 80) != inServer.port) {
@@ -1339,14 +1367,14 @@ private:
     {
     public:
         S3Put(
-            Outer&         inOuter,
-            Request&       inRequest,
-            ReqType        inReqType,
-            const string&  inFileName,
-            BlockIdx       inStartBlockIdx,
-            Generation     inGeneration,
-            int            inFd,
-            IOBuffer&      inIOBuffer)
+            Outer&        inOuter,
+            Request&      inRequest,
+            ReqType       inReqType,
+            const string& inFileName,
+            BlockIdx      inStartBlockIdx,
+            Generation    inGeneration,
+            int           inFd,
+            IOBuffer&     inIOBuffer)
             : S3Req(inOuter, inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
               mDataBuf(),
@@ -1393,7 +1421,7 @@ private:
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
                 if (IsStatusOk()) {
-                    Done(mIOBuffer.BytesConsumable());
+                    Done(mDataBuf.BytesConsumable());
                 } else {
                     Retry();
                 }
@@ -1436,7 +1464,7 @@ private:
             Sha256Hex(mOuter.MdEnd(kSha256Len), mMdBuf);
             return mMdBuf;
         }
-    private:
+    protected:
         IOBuffer mDataBuf;
         bool     mIsSha256Flag;
         char     mMdBuf[1 +
@@ -1563,6 +1591,294 @@ private:
             char* /* inBufferPtr */)
             {}
     };
+    class MPPut : public S3Put
+    {
+    public:
+        typedef File::List List;
+        MPPut(
+            Outer&          inOuter,
+            S3Req::Request& inRequest,
+            ReqType         inReqType,
+            const string&   inFileName,
+            BlockIdx        inStartBlockIdx,
+            Generation      inGeneration,
+            int             inFd,
+            IOBuffer&       inIOBuffer)
+            : S3Put(
+                inOuter,
+                inRequest,
+                inReqType,
+                inFileName,
+                inStartBlockIdx,
+                inGeneration,
+                inFd,
+                inIOBuffer)
+        {
+            List::Init(*this);
+            mTmpStr[0] = 0;
+        }
+        virtual ostream& Display(
+            ostream& inStream) const
+        {
+            return (inStream <<
+                reinterpret_cast<const void*>(this) <<
+                " pput: " << mFileName <<
+                " fd: "   << mFd <<
+                " gen: "  << mGeneration <<
+                " pos: "  << mStartBlockIdx * mOuter.mBlockSize <<
+                " size: " << mDataBuf.BytesConsumable()
+            );
+        }
+        virtual int Request(
+            IOBuffer&             inBuffer,
+            IOBuffer&             inResponseBuffer,
+            const ServerLocation& inServer)
+        {
+            TraceProgress(inBuffer, inResponseBuffer);
+            const File* const theFilePtr = GetFilePtr();
+            if (! theFilePtr) {
+                return -1;
+            }
+            if (mSentFlag) {
+                return 0;
+            }
+            const bool theGetIdFlag = mDataBuf.IsEmpty();
+            StringBufT<256> theQueryStr;
+            if (! theGetIdFlag) {
+                if (theFilePtr->mUploadId.empty()) {
+                    mOuter.FatalError("invocation without upload id");
+                    Error(EINVAL, "no upload id");
+                    return -1;
+                }
+                const int64_t thePartNum =
+                    mStartBlockIdx * mOuter.mBlockSize / mOuter.mMinWriteSize;
+                QCASSERT(thePartNum * kS3MinPartSize ==
+                    mStartBlockIdx * mOuter.mBlockSize);
+                theQueryStr.Append("partNumber=");
+                AppendDecIntToString(theQueryStr, thePartNum)
+                    .Append("&uploadId=")
+                    .Append(theFilePtr->mUploadId);
+            }
+            const int64_t kRangeStart = -1;
+            const int64_t kRangeEnd   = -1;
+            const int     theRet      = SendRequest(
+                theGetIdFlag ? "POST" : "PUT",
+                inBuffer,
+                inServer,
+                mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
+                mOuter.mContentType.c_str(),
+                mOuter.mContentEncoding.c_str(),
+                mOuter.mUseServerSideEncryptionFlag,
+                theGetIdFlag ? -1 : mDataBuf.BytesConsumable(),
+                kRangeStart,
+                kRangeEnd,
+                theGetIdFlag ? "uploads" : theQueryStr.GetPtr()
+            );
+            if (! theGetIdFlag) {
+                inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
+            }
+            return theRet;
+        }
+        virtual int Response(
+            IOBuffer& inBuffer,
+            bool      inEofFlag)
+        {
+            File* const theFilePtr = GetFilePtr();
+            if (! theFilePtr) {
+                return -1;
+            }
+            bool      theDoneFlag = false;
+            const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
+            if (theDoneFlag) {
+                if (IsStatusOk()) {
+                    if (mDataBuf.IsEmpty()) {
+                        theFilePtr->mUploadId = ParseUploadId(inBuffer);
+                        if (theFilePtr->mUploadId.empty()) {
+                            KFS_LOG_STREAM_ERROR <<
+                                mOuter.mLogPrefix << Show(*this) <<
+                                "failed to parse upload id"
+                                " response length: " <<
+                                    inBuffer.BytesConsumable() <<
+                                " data: " << ShowData(inBuffer,
+                                    mOuter.mDebugTraceMaxErrorDataSize) <<
+                            KFS_LOG_EOM;
+                            Retry();
+                        } else {
+                            Done();
+                        }
+                    } else {
+                        Done(mDataBuf.BytesConsumable());
+                    }
+                } else {
+                    Retry();
+                }
+            }
+            return theRet;
+        }
+    private:
+        MPPut* mPrevPtr[1];
+        MPPut* mNextPtr[1];
+        char   mTmpStr[4];
+        friend class QCDLListOp<MPPut>;
+
+        File* GetFilePtr()
+        {
+            File*      theFilePtr;
+            bool const theOkFlag = mOuter.IsRunning() &&
+                (theFilePtr = mOuter.GetFilePtr(mFd)) &&
+                theFilePtr->mGeneration == mGeneration;
+            if (! theOkFlag) {
+                Error(EINVAL, "file closed");
+            }
+            return (theOkFlag ? theFilePtr : 0);
+        }
+        virtual void DoneSelf(
+            int64_t        inIoByteCount,
+            InputIterator* inInputIteratorPtr)
+        {
+            File* const theFilePtr = GetFilePtr();
+            if (theFilePtr) {
+                List::Remove(theFilePtr->mPendingListPtr, *this);
+                if (theFilePtr->mUploadId.empty()) {
+                    MPPut* thePtr;
+                    while((thePtr = List::PopFront(
+                            theFilePtr->mPendingListPtr))) {
+                        thePtr->mSysError = EIO;
+                        thePtr->Done();
+                    }
+                }
+            }
+            if (mIOBuffer.IsEmpty()) {
+                delete this;
+                return;
+            }
+            S3Req::DoneSelf(inIoByteCount, inInputIteratorPtr);
+        }
+        const char* UrlEncode(
+            int inSym)
+        {
+            switch (inSym) {
+                case '-':
+                case '_':
+                case '.':
+                case '~':
+                    mTmpStr[0] = (char)inSym;
+                    mTmpStr[1] = 0;
+                    return mTmpStr;
+                default:
+                    break;
+            }
+            if (('0' <= inSym && inSym <= '9') ||
+                    ('a' <= inSym && inSym <= 'z') ||
+                    ('A' <= inSym && inSym <= 'Z')) {
+                mTmpStr[0] = (char)inSym;
+                mTmpStr[1] = 0;
+                return mTmpStr;
+            }
+            const char* const kHexDigits = "0123456789ABCDEF";
+            mTmpStr[0] = (char)'%';
+            mTmpStr[1] = kHexDigits[((inSym >> 4) & 0xF)];
+            mTmpStr[2] = kHexDigits[inSym & 0xF];
+            mTmpStr[3] = 0;
+            return mTmpStr;
+        }
+        string ParseUploadId(
+            IOBuffer& inBuffer)
+        {
+            int theResIdx = inBuffer.IndexOf(0, "<InitiateMultipartUploadResult");
+            if (theResIdx < 0) {
+                return string();
+            }
+            theResIdx += 30;
+            const int theResEndIdx = inBuffer.IndexOf(
+                theResIdx, "</InitiateMultipartUploadResult");
+            if (theResEndIdx <= theResIdx) {
+                return string();
+            }
+            int theIdx = inBuffer.IndexOf(theResIdx + 1, "<UploadId");
+            if (theIdx <= 0 || theResEndIdx <= theIdx) {
+                return string();
+            }
+            theIdx += 9;
+            const int theEndIdx = inBuffer.IndexOf(theIdx, "</UploadId");
+            if (theEndIdx <= theIdx || theResEndIdx <= theEndIdx) {
+                return string();
+            }
+            const int            theLen = theEndIdx - theIdx;
+            StBufferT<char, 256> theBuf;
+            char*                thePtr = theBuf.Resize(theLen);
+            inBuffer.Consume(theIdx);
+            const char* const theEndPtr =
+                thePtr + inBuffer.CopyOut(thePtr, theLen);
+            while (thePtr < theEndPtr && *thePtr != '>') {
+                ++thePtr;
+            }
+            string theRes;
+            theRes.reserve(theLen);
+            while (thePtr < theEndPtr) {
+                switch (*thePtr & 0xFF) {
+                    case '&':
+                        if (theEndPtr < thePtr + 4) {
+                            return string();
+                        }
+                        if (thePtr[1] == '#') {
+                            int theSym = 0;
+                            thePtr += 2;
+                            while (thePtr < theEndPtr && *thePtr != ';') {
+                                const int theVal = *thePtr & 0xFF;
+                                if (theVal < '0' || '9' < theVal) {
+                                    return string();
+                                }
+                                theSym *= 10;
+                                theSym += theVal - '0';
+                                if (theSym < 0 || 0xFFFF < theSym) {
+                                    return string();
+                                }
+                                ++thePtr;
+                            }
+                            if (theEndPtr <= thePtr || *thePtr != ';') {
+                                return string();
+                            }
+                            thePtr++;
+                            if (0xFF < theSym) {
+                                theRes += UrlEncode((theSym >>  8) & 0xFF);
+                            }
+                            theRes += UrlEncode(theSym & 0xFF);
+                        } else if (thePtr + 5 <= theEndPtr &&
+                                memcmp(thePtr, "&amp;", 5) == 0) {
+                            theRes += UrlEncode('&');
+                            thePtr += 5;
+                        } else if (thePtr + 6 <= theEndPtr &&
+                                memcmp(thePtr, "&quot;", 6) == 0) {
+                            theRes += UrlEncode('"');
+                            thePtr += 6;
+                        } else if (thePtr + 6 <= theEndPtr &&
+                                memcmp(thePtr, "&apos;", 6) == 0) {
+                            theRes += UrlEncode('\'');
+                            thePtr += 6;
+                        } else if (thePtr + 4 <= theEndPtr &&
+                                memcmp(thePtr, "&lt;", 4) == 0) {
+                            theRes += UrlEncode('<');
+                            thePtr += 4;
+                        } else if (thePtr + 4 <= theEndPtr &&
+                                memcmp(thePtr, "&gt;", 4) == 0) {
+                            theRes += UrlEncode('>');
+                            thePtr += 4;
+                        } else {
+                            return string();
+                        }
+                        break;
+                    case '<':
+                    case '>':
+                        return string();
+                    default:
+                        theRes += UrlEncode(*thePtr & 0xFF);
+                        ++thePtr;
+                }
+            }
+            return theRes;
+        }
+    };
 
     QCDiskQueue*        mDiskQueuePtr;
     int                 mBlockSize;
@@ -1601,6 +1917,7 @@ private:
     int                 mRetryInterval;
     int                 mMaxReadAhead;
     int                 mMaxHdrLen;
+    int                 mMinWriteSize;
     char*               mHdrBufferPtr;
     int                 mMaxResponseSize;
     IOBuffer::WOStream  mWOStream;
@@ -1682,6 +1999,7 @@ private:
           mRetryInterval(10),
           mMaxReadAhead(4 << 10),
           mMaxHdrLen(16 << 10),
+          mMinWriteSize(5 << 20),
           mHdrBufferPtr(new char[mMaxHdrLen + 1]),
           mMaxResponseSize(64 << 20),
           mWOStream(),
