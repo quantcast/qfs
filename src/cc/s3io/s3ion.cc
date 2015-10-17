@@ -1613,15 +1613,13 @@ private:
                 inGeneration,
                 inFd,
                 inIOBuffer)
-        {
-            List::Init(*this);
-        }
+            { List::Init(*this); }
         virtual ostream& Display(
             ostream& inStream) const
         {
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
-                " pput: " << mFileName <<
+                " mput: " << mFileName <<
                 " fd: "   << mFd <<
                 " gen: "  << mGeneration <<
                 " pos: "  << mStartBlockIdx * mOuter.mBlockSize <<
@@ -1654,7 +1652,7 @@ private:
                 QCASSERT(thePartNum * kS3MinPartSize ==
                     mStartBlockIdx * mOuter.mBlockSize);
                 theQueryStr.Append("partNumber=");
-                AppendDecIntToString(theQueryStr, thePartNum)
+                AppendDecIntToString(theQueryStr, thePartNum + 1)
                     .Append("&uploadId=")
                     .Append(theFilePtr->mUploadId);
             }
