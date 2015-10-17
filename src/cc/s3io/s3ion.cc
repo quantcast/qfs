@@ -1615,7 +1615,6 @@ private:
                 inIOBuffer)
         {
             List::Init(*this);
-            mTmpStr[0] = 0;
         }
         virtual ostream& Display(
             ostream& inStream) const
@@ -1718,7 +1717,6 @@ private:
     private:
         MPPut* mPrevPtr[1];
         MPPut* mNextPtr[1];
-        char   mTmpStr[4];
         friend class QCDLListOp<MPPut>;
 
         File* GetFilePtr()
@@ -1755,38 +1753,11 @@ private:
             }
             S3Req::DoneSelf(inIoByteCount, inInputIteratorPtr);
         }
-        const char* UrlEncode(
-            int inSym)
-        {
-            switch (inSym) {
-                case '-':
-                case '_':
-                case '.':
-                case '~':
-                    mTmpStr[0] = (char)inSym;
-                    mTmpStr[1] = 0;
-                    return mTmpStr;
-                default:
-                    break;
-            }
-            if (('0' <= inSym && inSym <= '9') ||
-                    ('a' <= inSym && inSym <= 'z') ||
-                    ('A' <= inSym && inSym <= 'Z')) {
-                mTmpStr[0] = (char)inSym;
-                mTmpStr[1] = 0;
-                return mTmpStr;
-            }
-            const char* const kHexDigits = "0123456789ABCDEF";
-            mTmpStr[0] = (char)'%';
-            mTmpStr[1] = kHexDigits[((inSym >> 4) & 0xF)];
-            mTmpStr[2] = kHexDigits[inSym & 0xF];
-            mTmpStr[3] = 0;
-            return mTmpStr;
-        }
         string ParseUploadId(
             IOBuffer& inBuffer)
         {
-            int theResIdx = inBuffer.IndexOf(0, "<InitiateMultipartUploadResult");
+            int theResIdx = inBuffer.IndexOf(
+                0, "<InitiateMultipartUploadResult");
             if (theResIdx < 0) {
                 return string();
             }
@@ -1801,83 +1772,31 @@ private:
                 return string();
             }
             theIdx += 9;
-            const int theEndIdx = inBuffer.IndexOf(theIdx, "</UploadId");
-            if (theEndIdx <= theIdx || theResEndIdx <= theEndIdx) {
+            const int theEndIdx    = inBuffer.IndexOf(theIdx, "</UploadId");
+            const int kMaxIdLength = 4 << 10;
+            if (theEndIdx <= theIdx || theResEndIdx <= theEndIdx ||
+                    theIdx + kMaxIdLength < theEndIdx) {
                 return string();
             }
-            const int            theLen = theEndIdx - theIdx;
-            StBufferT<char, 256> theBuf;
-            char*                thePtr = theBuf.Resize(theLen);
             inBuffer.Consume(theIdx);
-            const char* const theEndPtr =
-                thePtr + inBuffer.CopyOut(thePtr, theLen);
-            while (thePtr < theEndPtr && *thePtr != '>') {
-                ++thePtr;
+            int                  theLen    = theEndIdx - theIdx;
+            StBufferT<char, 256> theBuf;
+            const char*          thePtr    =
+                inBuffer.CopyOutOrGetBufPtr(theBuf.Resize(theLen), theLen);
+            const char* const    theEndPtr = thePtr + theLen;
+            if (theEndPtr <= thePtr) {
+                return string();
             }
-            string theRes;
-            theRes.reserve(theLen);
-            while (thePtr < theEndPtr) {
-                switch (*thePtr & 0xFF) {
-                    case '&':
-                        if (theEndPtr < thePtr + 4) {
-                            return string();
-                        }
-                        if (thePtr[1] == '#') {
-                            int theSym = 0;
-                            thePtr += 2;
-                            while (thePtr < theEndPtr && *thePtr != ';') {
-                                const int theVal = *thePtr & 0xFF;
-                                if (theVal < '0' || '9' < theVal) {
-                                    return string();
-                                }
-                                theSym *= 10;
-                                theSym += theVal - '0';
-                                if (theSym < 0 || 0xFFFF < theSym) {
-                                    return string();
-                                }
-                                ++thePtr;
-                            }
-                            if (theEndPtr <= thePtr || *thePtr != ';') {
-                                return string();
-                            }
-                            thePtr++;
-                            if (0xFF < theSym) {
-                                theRes += UrlEncode((theSym >>  8) & 0xFF);
-                            }
-                            theRes += UrlEncode(theSym & 0xFF);
-                        } else if (thePtr + 5 <= theEndPtr &&
-                                memcmp(thePtr, "&amp;", 5) == 0) {
-                            theRes += UrlEncode('&');
-                            thePtr += 5;
-                        } else if (thePtr + 6 <= theEndPtr &&
-                                memcmp(thePtr, "&quot;", 6) == 0) {
-                            theRes += UrlEncode('"');
-                            thePtr += 6;
-                        } else if (thePtr + 6 <= theEndPtr &&
-                                memcmp(thePtr, "&apos;", 6) == 0) {
-                            theRes += UrlEncode('\'');
-                            thePtr += 6;
-                        } else if (thePtr + 4 <= theEndPtr &&
-                                memcmp(thePtr, "&lt;", 4) == 0) {
-                            theRes += UrlEncode('<');
-                            thePtr += 4;
-                        } else if (thePtr + 4 <= theEndPtr &&
-                                memcmp(thePtr, "&gt;", 4) == 0) {
-                            theRes += UrlEncode('>');
-                            thePtr += 4;
-                        } else {
-                            return string();
-                        }
-                        break;
-                    case '<':
-                    case '>':
-                        return string();
-                    default:
-                        theRes += UrlEncode(*thePtr & 0xFF);
-                        ++thePtr;
+            const int theSym = *thePtr & 0xFF;
+            if (theSym != '>') {
+                if (' ' < theSym) {
+                    return string();
+                }
+                while (thePtr < theEndPtr && *thePtr != '>') {
+                    ++thePtr;
                 }
             }
-            return theRes;
+            return XmlToUrlEncoding(thePtr, theEndPtr - thePtr);
         }
     };
 
@@ -2463,6 +2382,108 @@ private:
         }
         *theResPtr = 0;
         return inHexBufPtr;
+    }
+    static bool IsAlnum(
+        const int inSym)
+    {
+        return (('0' <= inSym && inSym <= '9') ||
+                ('a' <= inSym && inSym <= 'z') ||
+                ('A' <= inSym && inSym <= 'Z'));
+    }
+    static string& UrlEncode(
+        int     inSym,
+        string& inStr)
+    {
+        if (IsAlnum(inSym)) {
+            inStr += (char)inSym;
+            return inStr;
+        }
+        switch (inSym) {
+            case '-':
+            case '_':
+            case '.':
+            case '~':
+                inStr += (char)inSym;
+                return inStr;
+            default:
+                break;
+        }
+        const char* const kHexDigits = "0123456789ABCDEF";
+        inStr += (char)'%';
+        inStr += kHexDigits[((inSym >> 4) & 0xF)];
+        inStr += kHexDigits[inSym & 0xF];
+        return inStr;
+    }
+    static string XmlToUrlEncoding(
+        const char* inPtr,
+        size_t      inLen)
+    {
+        const char*       thePtr = inPtr;
+        const char* const theEndPtr = inPtr + inLen;
+        string            theRes;
+        theRes.reserve(inLen);
+        while (thePtr < theEndPtr) {
+            switch (*thePtr & 0xFF) {
+                case '&':
+                    if (theEndPtr < thePtr + 4) {
+                        return string();
+                    }
+                    if (thePtr[1] == '#') {
+                        int theSym = 0;
+                        thePtr += 2;
+                        while (thePtr < theEndPtr && *thePtr != ';') {
+                            const int theVal = *thePtr & 0xFF;
+                            if (theVal < '0' || '9' < theVal) {
+                                return string();
+                            }
+                            theSym *= 10;
+                            theSym += theVal - '0';
+                            if (theSym < 0 || 0xFFFF < theSym) {
+                                return string();
+                            }
+                            ++thePtr;
+                        }
+                        if (theEndPtr <= thePtr || *thePtr != ';') {
+                            return string();
+                        }
+                        thePtr++;
+                        if (0xFF < theSym) {
+                            UrlEncode((theSym >>  8) & 0xFF, theRes);
+                        }
+                        UrlEncode(theSym & 0xFF, theRes);
+                    } else if (thePtr + 5 <= theEndPtr &&
+                            memcmp(thePtr, "&amp;", 5) == 0) {
+                        UrlEncode('&', theRes);
+                        thePtr += 5;
+                    } else if (thePtr + 6 <= theEndPtr &&
+                            memcmp(thePtr, "&quot;", 6) == 0) {
+                        UrlEncode('"', theRes);
+                        thePtr += 6;
+                    } else if (thePtr + 6 <= theEndPtr &&
+                            memcmp(thePtr, "&apos;", 6) == 0) {
+                        UrlEncode('\'', theRes);
+                        thePtr += 6;
+                    } else if (thePtr + 4 <= theEndPtr &&
+                            memcmp(thePtr, "&lt;", 4) == 0) {
+                        UrlEncode('<', theRes);
+                        thePtr += 4;
+                    } else if (thePtr + 4 <= theEndPtr &&
+                            memcmp(thePtr, "&gt;", 4) == 0) {
+                        UrlEncode('>', theRes);
+                        thePtr += 4;
+                    } else {
+                        return string();
+                    }
+                    break;
+                case '<':
+                case '>':
+                    return string();
+                default:
+                    UrlEncode(*thePtr & 0xFF, theRes);
+                    ++thePtr;
+            }
+        }
+        return theRes;
     }
 private:
     S3ION(
