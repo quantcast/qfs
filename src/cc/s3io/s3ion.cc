@@ -1736,10 +1736,11 @@ private:
             int64_t        inIoByteCount,
             InputIterator* inInputIteratorPtr)
         {
-            File* const theFilePtr = GetFilePtr();
+            File* const theFilePtr   = GetFilePtr();
+            const bool  theGetIdFlag = mDataBuf.IsEmpty();
             if (theFilePtr) {
                 List::Remove(theFilePtr->mPendingListPtr, *this);
-                if (theFilePtr->mUploadId.empty()) {
+                if (theGetIdFlag && theFilePtr->mUploadId.empty()) {
                     MPPut* thePtr;
                     while((thePtr = List::PopFront(
                             theFilePtr->mPendingListPtr))) {
@@ -1748,7 +1749,7 @@ private:
                     }
                 }
             }
-            if (mIOBuffer.IsEmpty()) {
+            if (theGetIdFlag) {
                 delete this;
                 return;
             }
