@@ -401,19 +401,6 @@ public:
                     KFS_LOG_EOM;
                     break;
                 }
-                if (QCDiskQueue::kReqTypeWrite == inReqType ||
-                        inStartBlockIdx != 0) {
-                    theError  = QCDiskQueue::kErrorWrite;
-                    theSysErr = EINVAL;
-                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "partial write is not spported yet" <<
-                        " block index: " << inStartBlockIdx <<
-                        " fd: "          << inFd <<
-                        " gen: "         << theFilePtr->mGeneration <<
-                        " "              << theFilePtr->mFileName <<
-                    KFS_LOG_EOM;
-                    break;
-                }
                 if (QCDiskQueue::kReqTypeWriteSync == inReqType && inEof < 0) {
                     theError  = QCDiskQueue::kErrorParameter;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
@@ -425,15 +412,36 @@ public:
                     KFS_LOG_EOM;
                     break;
                 }
+                theEnd = (inStartBlockIdx + inBufferCount) * mBlockSize;
+                if ((QCDiskQueue::kReqTypeWrite == inReqType ||
+                        (QCDiskQueue::kReqTypeWriteSync == inReqType &&
+                            theEnd < inEof)) &&
+                        (0 != inStartBlockIdx % kS3MinPartSize ||
+                            0 != theEnd % kS3MinPartSize)) {
+                    theError  = QCDiskQueue::kErrorWrite;
+                    theSysErr = EINVAL;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "invalid partial write attempt:" <<
+                        " type: "        << RequestTypeToName(inReqType) <<
+                        " blocks:"
+                        " pos: "         << inStartBlockIdx <<
+                        " count: "       << inBufferCount <<
+                        " eof: "         << inEof <<
+                        " fd: "          << inFd <<
+                        " gen: "         << theFilePtr->mGeneration <<
+                        " "              << theFilePtr->mFileName <<
+                    KFS_LOG_EOM;
+                    break;
+                }
                 if (0 <= inEof) {
                     theFilePtr->mMaxFileSize = inEof;
                 }
-                theEnd = (inStartBlockIdx + inBufferCount) * mBlockSize;
                 if (theFilePtr->mMaxFileSize + mBlockSize < theEnd) {
                     theError  = QCDiskQueue::kErrorParameter;
                     theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "write past last block: " << theEnd <<
+                        "write past last block"
+                        " pos: " << theEnd <<
                         " max: " << theFilePtr->mMaxFileSize <<
                         " fd: "  << inFd <<
                         " gen: " << theFilePtr->mGeneration <<
@@ -458,7 +466,22 @@ public:
                         theRem -= theLen;
                     }
                     if (theRem <= 0) {
-                        mClient.Run(*(new S3Put(
+                        if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
+                                File::List::IsEmpty(
+                                    theFilePtr->mPendingListPtr)) {
+                            mClient.Run(*(new S3Put(
+                                *this,
+                                inRequest,
+                                inReqType,
+                                theFilePtr->mFileName,
+                                inStartBlockIdx,
+                                theFilePtr->mGeneration,
+                                inFd,
+                                theBuf
+                            )));
+                            return;
+                        }
+                        MPPut& theReq = *(new MPPut(
                             *this,
                             inRequest,
                             inReqType,
@@ -467,7 +490,32 @@ public:
                             theFilePtr->mGeneration,
                             inFd,
                             theBuf
-                        )));
+                        ));
+                        File::List::PushBack(
+                            theFilePtr->mPendingListPtr, theReq);
+                        if (theFilePtr->mUploadId.empty()) {
+                            if (&theReq != File::List::Front(
+                                    theFilePtr->mPendingListPtr)) {
+                                return; // Wait for get id completions.
+                            }
+                            // Enqueue get id request.
+                            IOBuffer theBuf;
+                            MPPut&   theGetIdReq = *(new MPPut(
+                                *this,
+                                inRequest,
+                                inReqType,
+                                theFilePtr->mFileName,
+                                inStartBlockIdx,
+                                theFilePtr->mGeneration,
+                                inFd,
+                                theBuf
+                            ));
+                            File::List::PushFront(
+                                theFilePtr->mPendingListPtr, theGetIdReq);
+                            mClient.Run(theGetIdReq);
+                        } else {
+                            mClient.Run(theReq);
+                        }
                         return;
                     }
                     theError  = QCDiskQueue::kErrorWrite;
@@ -1648,7 +1696,7 @@ private:
                     return -1;
                 }
                 const int64_t thePartNum =
-                    mStartBlockIdx * mOuter.mBlockSize / mOuter.mMinWriteSize;
+                    mStartBlockIdx * mOuter.mBlockSize / kS3MinPartSize;
                 QCASSERT(thePartNum * kS3MinPartSize ==
                     mStartBlockIdx * mOuter.mBlockSize);
                 theQueryStr.Append("partNumber=");
@@ -1835,7 +1883,6 @@ private:
     int                 mRetryInterval;
     int                 mMaxReadAhead;
     int                 mMaxHdrLen;
-    int                 mMinWriteSize;
     char*               mHdrBufferPtr;
     int                 mMaxResponseSize;
     IOBuffer::WOStream  mWOStream;
@@ -1917,7 +1964,6 @@ private:
           mRetryInterval(10),
           mMaxReadAhead(4 << 10),
           mMaxHdrLen(16 << 10),
-          mMinWriteSize(5 << 20),
           mHdrBufferPtr(new char[mMaxHdrLen + 1]),
           mMaxResponseSize(64 << 20),
           mWOStream(),
