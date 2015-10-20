@@ -467,6 +467,44 @@ public:
                         KFS_LOG_EOM;
                         break;
                     }
+                    if (0 <= theFilePtr->mMaxFileSize &&
+                            theFilePtr->mMaxFileSize < inEof) {
+                        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                            "eof exceeds previously set max file size"
+                            " invalid write attempt:"
+                            " type: "  << RequestTypeToName(inReqType) <<
+                            " blocks:"
+                            " pos: "   << inStartBlockIdx <<
+                            " count: " << inBufferCount <<
+                            " eof: "   << theFilePtr->mMaxFileSize <<
+                            " => "     << inEof <<
+                            " fd: "    << inFd <<
+                            " gen: "   << theFilePtr->mGeneration <<
+                            " "        << theFilePtr->mFileName <<
+                        KFS_LOG_EOM;
+                        break;
+                    }
+                    if (! theFilePtr->mMPutParts.empty() && inEof <
+                            theFilePtr->mMPutParts.back().mEnd * mBlockSize) {
+                        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                            "eof is less than previously submited "
+                                "partial write"
+                            " invalid write attempt:"
+                            " type: "  << RequestTypeToName(inReqType) <<
+                            " blocks:"
+                            " pos: "   << inStartBlockIdx <<
+                            " count: " << inBufferCount <<
+                            " eof: "   << theFilePtr->mMaxFileSize <<
+                            " => "     << inEof <<
+                            " write"
+                            " end: "   << theFilePtr->mMPutParts.back().mEnd *
+                                mBlockSize <<
+                            " fd: "    << inFd <<
+                            " gen: "   << theFilePtr->mGeneration <<
+                            " "        << theFilePtr->mFileName <<
+                        KFS_LOG_EOM;
+                        break;
+                    }
                     theFilePtr->mMaxFileSize = inEof;
                 }
                 if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
@@ -544,8 +582,8 @@ public:
                     }
                     if (theRem <= 0) {
                         if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
-                                theFilePtr->mUploadId.empty() &&
                                 theFilePtr->mMPutParts.empty()) {
+                            QCASSERT(theFilePtr->mUploadId.empty());
                             mClient.Run(*(new S3Put(
                                 *this,
                                 inRequest,
@@ -562,6 +600,7 @@ public:
                             theFilePtr-> mMPutParts.empty();
                         const BlockIdx theEnd   =
                             inStartBlockIdx + inBufferCount;
+                        size_t     theCurIdx    = 0;
                         if (theFirstFlag) {
                             theFilePtr->mMPutParts.reserve(
                                 (mMaxFileSize + kS3MinPartSize - 1) /
@@ -574,7 +613,7 @@ public:
                                 theFilePtr->mMPutParts.end(),
                                 inStartBlockIdx
                             );
-                            if (theIt != theFilePtr-> mMPutParts.end() &&
+                            if (theIt != theFilePtr->mMPutParts.end() &&
                                     theIt->mStart < theEnd) {
                                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
                                     "invalid partial write attempt:" <<
@@ -593,11 +632,43 @@ public:
                                 KFS_LOG_EOM;
                                 break;
                             }
-                            theFilePtr->mMPutParts.insert(theIt,
-                                MPutPart(inStartBlockIdx, theEnd));
+                            theCurIdx = theFilePtr->mMPutParts.insert(
+                                theIt, MPutPart(inStartBlockIdx, theEnd)) -
+                                theFilePtr->mMPutParts.begin();
                         }
                         if (QCDiskQueue::kReqTypeWriteSync == inReqType) {
                             // Validate that there are no gaps.
+                            bool     theErrorFlag = false;
+                            BlockIdx thePrevEnd   = 0;
+                            for (MPutParts::const_iterator
+                                    theIt = theFilePtr->mMPutParts.begin();
+                                    theFilePtr->mMPutParts.end() != theIt;
+                                    ++theIt) {
+                                if (theIt->mStart != thePrevEnd) {
+                                    theErrorFlag = true;
+                                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                                        "invalid sync write attempt:" <<
+                                        " non ajacent region:"
+                                        " type: "  <<
+                                            RequestTypeToName(inReqType) <<
+                                        " blocks:"
+                                        " prior:"
+                                        " end: "   << thePrevEnd <<
+                                        " start: " << theIt->mStart <<
+                                        " end: "   << theIt->mEnd <<
+                                        " eof: "   << theFilePtr->mMaxFileSize <<
+                                        " fd: "    << inFd <<
+                                        " gen: "   << theFilePtr->mGeneration <<
+                                        " "        << theFilePtr->mFileName <<
+                                    KFS_LOG_EOM;
+                                }
+                                thePrevEnd = theIt->mEnd;
+                            }
+                            if (theErrorFlag) {
+                                theFilePtr->mMPutParts.erase(
+                                    theFilePtr->mMPutParts.begin() + theCurIdx);
+                                break;
+                            }
                             theFilePtr->mCommitFlag = true;
                         }
                         MPPut& theReq = *(new MPPut(
@@ -946,7 +1017,7 @@ private:
             QCASSERT(0 < mOuter.mRequestCount);
             mOuter.mRequestCount--;
         }
-        virtual void Done(
+        void Done(
             int64_t        inIoByteCount      = 0,
             InputIterator* inInputIteratorPtr = 0)
             { DoneSelf(inIoByteCount, inInputIteratorPtr); }
@@ -2022,8 +2093,9 @@ private:
                     MPPut* thePtr;
                     while((thePtr = List::Front(
                             theFilePtr->mPendingListPtr))) {
+                        QCASSERT(! thePtr->mDataBuf.IsEmpty());
                         thePtr->mSysError = EIO;
-                        thePtr->Done();
+                        thePtr->Done(); // Recursion.
                     }
                 }
             }

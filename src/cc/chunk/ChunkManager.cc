@@ -5332,6 +5332,7 @@ ChunkManager::GetChunkInfoHandle(
         if (cih != const_cast<ChunkManager*>(this)->AddMapping(cih)) {
             die("duplicate object block table entry");
             const_cast<ChunkManager*>(this)->Delete(*cih);
+            return 0;
         }
         return cih;
     }

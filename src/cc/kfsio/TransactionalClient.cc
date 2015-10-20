@@ -59,7 +59,7 @@ public:
           mLocation(),
           mSslCtxPtr(0),
           mTimeout(20),
-          mIdleTimeout(60),
+          mIdleTimeout(20),
           mHttpsHostNameFlag(true),
           mVerifyServerFlag(true),
           mServerName(),
