@@ -580,98 +580,122 @@ public:
                         ));
                         theRem -= theLen;
                     }
-                    if (theRem <= 0) {
-                        if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
-                                theFilePtr->mMPutParts.empty()) {
-                            QCASSERT(theFilePtr->mUploadId.empty());
-                            mClient.Run(*(new S3Put(
-                                *this,
-                                inRequest,
-                                inReqType,
-                                theFilePtr->mFileName,
-                                inStartBlockIdx,
-                                theFilePtr->mGeneration,
-                                inFd,
-                                theBuf
-                            )));
-                            return;
+                    if (0 < theRem) {
+                        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                            "write invalid buffer count: " << inBufferCount <<
+                            " end: " << theEnd <<
+                            " max: " << theFilePtr->mMaxFileSize <<
+                            " fd: "  << inFd <<
+                            " gen: " << theFilePtr->mGeneration <<
+                            " "      << theFilePtr->mFileName <<
+                        KFS_LOG_EOM;
+                        break;
+                    }
+                    if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
+                            theFilePtr->mMPutParts.empty()) {
+                        QCASSERT(theFilePtr->mUploadId.empty());
+                        mClient.Run(*(new S3Put(
+                            *this,
+                            inRequest,
+                            inReqType,
+                            theFilePtr->mFileName,
+                            inStartBlockIdx,
+                            theFilePtr->mGeneration,
+                            inFd,
+                            theBuf
+                        )));
+                        return;
+                    }
+                    const bool theFirstFlag = theFilePtr-> mMPutParts.empty();
+                    const BlockIdx theEnd   = inStartBlockIdx + inBufferCount;
+                    size_t     theCurIdx    = 0;
+                    if (theFirstFlag) {
+                        theFilePtr->mMPutParts.reserve(
+                            (mMaxFileSize + kS3MinPartSize - 1) /
+                            kS3MinPartSize);
+                        theFilePtr->mMPutParts.push_back(
+                            MPutPart(inStartBlockIdx, theEnd));
+                    } else {
+                        MPutParts::iterator const theIt = lower_bound(
+                            theFilePtr->mMPutParts.begin(),
+                            theFilePtr->mMPutParts.end(),
+                            inStartBlockIdx
+                        );
+                        if (theIt != theFilePtr->mMPutParts.end() &&
+                                theIt->mStart < theEnd) {
+                            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                                "invalid partial write attempt:" <<
+                                " reigion already written:"
+                                " type: "  <<
+                                    RequestTypeToName(inReqType) <<
+                                " blocks:"
+                                " start: " << theIt->mStart <<
+                                " => "     << inStartBlockIdx <<
+                                " end: "   << theIt->mEnd <<
+                                " => "     << theEnd <<
+                                " eof: "   << inEof <<
+                                " fd: "    << inFd <<
+                                " gen: "   << theFilePtr->mGeneration <<
+                                " "        << theFilePtr->mFileName <<
+                            KFS_LOG_EOM;
+                            break;
                         }
-                        const bool theFirstFlag =
-                            theFilePtr-> mMPutParts.empty();
-                        const BlockIdx theEnd   =
-                            inStartBlockIdx + inBufferCount;
-                        size_t     theCurIdx    = 0;
-                        if (theFirstFlag) {
-                            theFilePtr->mMPutParts.reserve(
-                                (mMaxFileSize + kS3MinPartSize - 1) /
-                                kS3MinPartSize);
-                            theFilePtr->mMPutParts.push_back(
-                                MPutPart(inStartBlockIdx, theEnd));
-                        } else {
-                            MPutParts::iterator const theIt = lower_bound(
-                                theFilePtr->mMPutParts.begin(),
-                                theFilePtr->mMPutParts.end(),
-                                inStartBlockIdx
-                            );
-                            if (theIt != theFilePtr->mMPutParts.end() &&
-                                    theIt->mStart < theEnd) {
+                        theCurIdx = theFilePtr->mMPutParts.insert(
+                            theIt, MPutPart(inStartBlockIdx, theEnd)) -
+                            theFilePtr->mMPutParts.begin();
+                    }
+                    if (QCDiskQueue::kReqTypeWriteSync == inReqType) {
+                        // Validate that there are no gaps.
+                        bool     theErrorFlag = false;
+                        BlockIdx thePrevEnd   = 0;
+                        for (MPutParts::const_iterator
+                                theIt = theFilePtr->mMPutParts.begin();
+                                theFilePtr->mMPutParts.end() != theIt;
+                                ++theIt) {
+                            if (theIt->mStart != thePrevEnd) {
+                                theErrorFlag = true;
                                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                                    "invalid partial write attempt:" <<
-                                    " reigion already written:"
-                                    " type: "  <<
-                                        RequestTypeToName(inReqType) <<
+                                    "invalid sync write attempt:" <<
+                                    " non ajacent region:"
                                     " blocks:"
+                                    " prior:"
+                                    " end: "   << thePrevEnd <<
                                     " start: " << theIt->mStart <<
-                                    " => "     << inStartBlockIdx <<
                                     " end: "   << theIt->mEnd <<
-                                    " => "     << theEnd <<
-                                    " eof: "   << inEof <<
+                                    " eof: "   << theFilePtr->mMaxFileSize <<
                                     " fd: "    << inFd <<
                                     " gen: "   << theFilePtr->mGeneration <<
                                     " "        << theFilePtr->mFileName <<
                                 KFS_LOG_EOM;
-                                break;
                             }
-                            theCurIdx = theFilePtr->mMPutParts.insert(
-                                theIt, MPutPart(inStartBlockIdx, theEnd)) -
-                                theFilePtr->mMPutParts.begin();
+                            thePrevEnd = theIt->mEnd;
                         }
-                        if (QCDiskQueue::kReqTypeWriteSync == inReqType) {
-                            // Validate that there are no gaps.
-                            bool     theErrorFlag = false;
-                            BlockIdx thePrevEnd   = 0;
-                            for (MPutParts::const_iterator
-                                    theIt = theFilePtr->mMPutParts.begin();
-                                    theFilePtr->mMPutParts.end() != theIt;
-                                    ++theIt) {
-                                if (theIt->mStart != thePrevEnd) {
-                                    theErrorFlag = true;
-                                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                                        "invalid sync write attempt:" <<
-                                        " non ajacent region:"
-                                        " type: "  <<
-                                            RequestTypeToName(inReqType) <<
-                                        " blocks:"
-                                        " prior:"
-                                        " end: "   << thePrevEnd <<
-                                        " start: " << theIt->mStart <<
-                                        " end: "   << theIt->mEnd <<
-                                        " eof: "   << theFilePtr->mMaxFileSize <<
-                                        " fd: "    << inFd <<
-                                        " gen: "   << theFilePtr->mGeneration <<
-                                        " "        << theFilePtr->mFileName <<
-                                    KFS_LOG_EOM;
-                                }
-                                thePrevEnd = theIt->mEnd;
-                            }
-                            if (theErrorFlag) {
-                                theFilePtr->mMPutParts.erase(
-                                    theFilePtr->mMPutParts.begin() + theCurIdx);
-                                break;
-                            }
-                            theFilePtr->mCommitFlag = true;
+                        if (theErrorFlag) {
+                            theFilePtr->mMPutParts.erase(
+                                theFilePtr->mMPutParts.begin() + theCurIdx);
+                            break;
                         }
-                        MPPut& theReq = *(new MPPut(
+                        theFilePtr->mCommitFlag = true;
+                    }
+                    MPPut& theReq = *(new MPPut(
+                        *this,
+                        inRequest,
+                        inReqType,
+                        theFilePtr->mFileName,
+                        inStartBlockIdx,
+                        theFilePtr->mGeneration,
+                        inFd,
+                        theBuf
+                    ));
+                    File::List::PushBack(
+                        theFilePtr->mPendingListPtr, theReq);
+                    if (theFilePtr->mUploadId.empty()) {
+                        if (! theFirstFlag) {
+                            return; // Wait for get id completion.
+                        }
+                        // Enqueue get id request.
+                        IOBuffer theBuf;
+                        MPPut&   theGetIdReq = *(new MPPut(
                             *this,
                             inRequest,
                             inReqType,
@@ -681,41 +705,13 @@ public:
                             inFd,
                             theBuf
                         ));
-                        File::List::PushBack(
-                            theFilePtr->mPendingListPtr, theReq);
-                        if (theFilePtr->mUploadId.empty()) {
-                            if (! theFirstFlag) {
-                                return; // Wait for get id completion.
-                            }
-                            // Enqueue get id request.
-                            IOBuffer theBuf;
-                            MPPut&   theGetIdReq = *(new MPPut(
-                                *this,
-                                inRequest,
-                                inReqType,
-                                theFilePtr->mFileName,
-                                inStartBlockIdx,
-                                theFilePtr->mGeneration,
-                                inFd,
-                                theBuf
-                            ));
-                            File::List::PushFront(
-                                theFilePtr->mPendingListPtr, theGetIdReq);
-                            mClient.Run(theGetIdReq);
-                        } else {
-                            mClient.Run(theReq);
-                        }
-                        return;
+                        File::List::PushFront(
+                            theFilePtr->mPendingListPtr, theGetIdReq);
+                        mClient.Run(theGetIdReq);
+                    } else {
+                        mClient.Run(theReq);
                     }
-                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "write invalid buffer count: " << inBufferCount <<
-                        " end: " << theEnd <<
-                        " max: " << theFilePtr->mMaxFileSize <<
-                        " fd: "  << inFd <<
-                        " gen: " << theFilePtr->mGeneration <<
-                        " "      << theFilePtr->mFileName <<
-                    KFS_LOG_EOM;
-                    break;
+                    return;
                 }
                 theSysErr = EIO;
                 break;
