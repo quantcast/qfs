@@ -43,7 +43,7 @@ using std::ifstream;
 using namespace KFS;
 KfsClient * gKfsClient;
 
-bool doFileOps(char *testDataFile, char *dirname, int seqNum, int numIter);
+int  doFileOps(char *testDataFile, char *dirname, int seqNum, int numIter);
 bool compareData(char *dst, char *src, int numBytes);
 void generateData(char *testDataFile, char *buf, int numBytes);
 
@@ -77,7 +77,7 @@ main(int argc, char **argv)
     cout << "Test passed" << endl;
 }
 
-bool
+int
 doFileOps(char *testDataFile, char *parentDir, int seqNum, int numIter)
 {
     char *dataBuf, *kfsBuf;
