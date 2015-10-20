@@ -520,9 +520,9 @@ public:
                     break;
                 }
                 theEnd = (inStartBlockIdx + inBufferCount) * mBlockSize;
-                if ((QCDiskQueue::kReqTypeWrite == inReqType ||
-                        (QCDiskQueue::kReqTypeWriteSync == inReqType &&
-                            theEnd < theFilePtr->mMaxFileSize)) &&
+                if ((theEnd < theFilePtr->mMaxFileSize ||
+                        (theFilePtr->mMaxFileSize < 0 &&
+                        QCDiskQueue::kReqTypeWrite == inReqType)) &&
                         (0 != inStartBlockIdx % kS3MinPartSize ||
                             0 != theEnd % kS3MinPartSize)) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
@@ -531,7 +531,8 @@ public:
                         " blocks:"
                         " pos: "   << inStartBlockIdx <<
                         " count: " << inBufferCount <<
-                        " eof: "   << inEof <<
+                        " eof: "   << theFilePtr->mMaxFileSize <<
+                        " / "      << inEof <<
                         " fd: "    << inFd <<
                         " gen: "   << theFilePtr->mGeneration <<
                         " "        << theFilePtr->mFileName <<
