@@ -334,7 +334,7 @@ static char* test_qfs_get_data_locations() {
 
   check(count == expected_length,
     "unexpected number of chunk locations: %d != %d", count, expected_length);
-  check_qfs_call(res >= 0);
+  check_qfs_call(res);
 
   return 0;
 }

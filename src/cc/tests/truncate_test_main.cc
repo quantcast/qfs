@@ -42,7 +42,7 @@ using std::ifstream;
 using namespace KFS;
 KfsClient * gKfsClient;
 bool doMkdir(char *dirname);
-bool doFileOps(char *testDataFile, char *dirname, int seqNum, int numIter);
+int  doFileOps(char *testDataFile, char *dirname, int seqNum, int numIter);
 bool compareData(char *dst, char *src, int numBytes);
 void generateData(char *testDataFile, char *buf, int numBytes);
 
@@ -96,7 +96,7 @@ doMkdir(char *dirname)
 }
 
 
-bool
+int
 doFileOps(char *testDataFile,
                char *parentDir, int seqNum, int numIter)
 {
