@@ -35,6 +35,8 @@ public:
     HttpResponseHeaders()
         : mStatus(-1),
           mContentLength(-1),
+          mETagPos(-1),
+          mETagLen(-1),
           mChunkedEcondingFlag(false),
           mUnsupportedEncodingFlag(false),
           mHttp11OrGreaterFlag(false),
@@ -47,6 +49,8 @@ public:
     {
         mStatus                  = -1;
         mContentLength           = -1;
+        mETagPos                 = -1;
+        mETagLen                 = -1;
         mChunkedEcondingFlag     = false;
         mUnsupportedEncodingFlag = false;
         mHttp11OrGreaterFlag     = false;
@@ -56,6 +60,10 @@ public:
         { return mStatus; }
     int GetContentLength() const
         { return mContentLength; }
+    int GetETagPosition() const
+        { return mETagPos; }
+    int GetETagLength() const
+        { return mETagLen; }
     bool IsChunkedEconding() const
         { return mChunkedEcondingFlag; }
     bool IsUnsupportedEncoding() const
@@ -67,6 +75,8 @@ public:
 private:
     int  mStatus;
     int  mContentLength;
+    int  mETagPos;
+    int  mETagLen;
     bool mChunkedEcondingFlag;
     bool mUnsupportedEncodingFlag;
     bool mHttp11OrGreaterFlag;

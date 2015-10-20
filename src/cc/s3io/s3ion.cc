@@ -46,6 +46,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/event.h"
+#include "kfsio/IOBufferWriter.h"
 
 #include <errno.h>
 #include <string.h>
@@ -66,6 +67,7 @@ using std::string;
 using std::vector;
 using std::max;
 using std::min;
+using std::lower_bound;
 using KFS::httputils::GetHeaderLength;
 
 template<typename T>
@@ -84,6 +86,19 @@ private:
     const T& mObj;
 };
 
+class S3StrToken : public PropertiesTokenizer::Token
+{
+public:
+    S3StrToken(
+        const char* inPtr)
+        : PropertiesTokenizer::Token(inPtr)
+        {}
+    const char* data() const
+        { return mPtr; }
+    size_t size() const
+        { return mLen; }
+};
+
 template<typename ST, typename T>
     ST&
 operator<<(
@@ -97,7 +112,23 @@ const char* const kS3IODateMonths[12] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
     "Dec"
 };
+
 const int64_t kS3MinPartSize = int64_t(5) << 20;
+const string  kEmptyString;
+
+const S3StrToken kS3MPutCompleteStart("<CompleteMultipartUpload>");
+const S3StrToken kS3MPutCompleteEnd  ("</CompleteMultipartUpload>");
+const S3StrToken kS3MPutCompletePartStart("<Part>");
+const S3StrToken kS3MPutCompletePartEnd  ("</Part>");
+const S3StrToken kS3MPutCompletePartNumberStart("<PartNumber>");
+const S3StrToken kS3MPutCompletePartNumberEnd  ("</PartNumber>");
+const S3StrToken kS3MPutCompleteETagStart("<ETag>");
+const S3StrToken kS3MPutCompleteETagEnd  ("</ETag>");
+
+const S3StrToken kStrMPutInitResultStart("<InitiateMultipartUploadResult");
+const S3StrToken kStrMPutInitResultEnd  ("</InitiateMultipartUploadResult");
+const S3StrToken kStrMPutInitResultUploadIdStart("<UploadId");
+const S3StrToken kStrMPutInitResultUploadIdEnd  ("<<UploadId");
 
 class S3ION : public IOMethod
 {
@@ -156,10 +187,10 @@ public:
             KFS_LOG_EOM;
             return false;
         }
-        if (inMinWriteBlkSize < inMaxFileSize) {
+        if (inMinWriteBlkSize < kS3MinPartSize) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "write block size: " << inMinWriteBlkSize <<
-                " less than max file size: " << inMaxFileSize <<
+                " less than part size: " << kS3MinPartSize <<
                 " is not supported" <<
             KFS_LOG_EOM;
             return false;
@@ -172,6 +203,7 @@ public:
             return false;
         }
         mDiskQueuePtr = &inDiskQueue;
+        mMaxFileSize  = inMaxFileSize;
         outCanEnforceIoTimeoutFlag = true;
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "prefix:"
@@ -384,9 +416,9 @@ public:
                 break;
             case QCDiskQueue::kReqTypeWrite:
             case QCDiskQueue::kReqTypeWriteSync:
+                theError = QCDiskQueue::kErrorWrite;
                 if (! theFilePtr || theFilePtr->mReadOnlyFlag ||
                         inBufferCount <= 0) {
-                    theError  = QCDiskQueue::kErrorWrite;
                     theSysErr = theFilePtr ? EINVAL : EBADF;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         RequestTypeToName(inReqType) <<
@@ -401,7 +433,44 @@ public:
                     KFS_LOG_EOM;
                     break;
                 }
-                if (QCDiskQueue::kReqTypeWriteSync == inReqType && inEof < 0) {
+                theSysErr = EINVAL;
+                if (theFilePtr->mCommitFlag) {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        " write sync already issued"
+                        " invalid write attempt:"
+                        " type: "  << RequestTypeToName(inReqType) <<
+                        " blocks:"
+                        " pos: "   << inStartBlockIdx <<
+                        " count: " << inBufferCount <<
+                        " eof: "   << theFilePtr->mMaxFileSize <<
+                        " / "      << inEof <<
+                        " fd: "    << inFd <<
+                        " gen: "   << theFilePtr->mGeneration <<
+                        " "        << theFilePtr->mFileName <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+                if (0 <= inEof) {
+                    if (mMaxFileSize < inEof) {
+                        KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                            "eof exceeds specified max file size"
+                            " invalid write attempt:"
+                            " type: "  << RequestTypeToName(inReqType) <<
+                            " blocks:"
+                            " pos: "   << inStartBlockIdx <<
+                            " count: " << inBufferCount <<
+                            " eof: "   << theFilePtr->mMaxFileSize <<
+                            " => "     << inEof <<
+                            " fd: "    << inFd <<
+                            " gen: "   << theFilePtr->mGeneration <<
+                            " "        << theFilePtr->mFileName <<
+                        KFS_LOG_EOM;
+                        break;
+                    }
+                    theFilePtr->mMaxFileSize = inEof;
+                }
+                if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
+                        theFilePtr->mMaxFileSize < 0) {
                     theError  = QCDiskQueue::kErrorParameter;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid sync write EOF: " << inEof <<
@@ -415,30 +484,23 @@ public:
                 theEnd = (inStartBlockIdx + inBufferCount) * mBlockSize;
                 if ((QCDiskQueue::kReqTypeWrite == inReqType ||
                         (QCDiskQueue::kReqTypeWriteSync == inReqType &&
-                            theEnd < inEof)) &&
+                            theEnd < theFilePtr->mMaxFileSize)) &&
                         (0 != inStartBlockIdx % kS3MinPartSize ||
                             0 != theEnd % kS3MinPartSize)) {
-                    theError  = QCDiskQueue::kErrorWrite;
-                    theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid partial write attempt:" <<
-                        " type: "        << RequestTypeToName(inReqType) <<
+                        " type: "  << RequestTypeToName(inReqType) <<
                         " blocks:"
-                        " pos: "         << inStartBlockIdx <<
-                        " count: "       << inBufferCount <<
-                        " eof: "         << inEof <<
-                        " fd: "          << inFd <<
-                        " gen: "         << theFilePtr->mGeneration <<
-                        " "              << theFilePtr->mFileName <<
+                        " pos: "   << inStartBlockIdx <<
+                        " count: " << inBufferCount <<
+                        " eof: "   << inEof <<
+                        " fd: "    << inFd <<
+                        " gen: "   << theFilePtr->mGeneration <<
+                        " "        << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
-                if (0 <= inEof) {
-                    theFilePtr->mMaxFileSize = inEof;
-                }
-                if (theFilePtr->mMaxFileSize + mBlockSize < theEnd) {
-                    theError  = QCDiskQueue::kErrorParameter;
-                    theSysErr = EINVAL;
+                if (theFilePtr->mMaxFileSize + mBlockSize <= theEnd) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "write past last block"
                         " pos: " << theEnd <<
@@ -446,6 +508,21 @@ public:
                         " fd: "  << inFd <<
                         " gen: " << theFilePtr->mGeneration <<
                         " "      << theFilePtr->mFileName <<
+                    KFS_LOG_EOM;
+                    break;
+                }
+                if (theFilePtr->mErrorFlag) {
+                    theSysErr = EIO;
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "unrecoverable write error has already occurred"
+                        " type: "  << RequestTypeToName(inReqType) <<
+                        " blocks:"
+                        " pos: "   << inStartBlockIdx <<
+                        " count: " << inBufferCount <<
+                        " eof: "   << inEof <<
+                        " fd: "    << inFd <<
+                        " gen: "   << theFilePtr->mGeneration <<
+                        " "        << theFilePtr->mFileName <<
                     KFS_LOG_EOM;
                     break;
                 }
@@ -467,8 +544,8 @@ public:
                     }
                     if (theRem <= 0) {
                         if (QCDiskQueue::kReqTypeWriteSync == inReqType &&
-                                File::List::IsEmpty(
-                                    theFilePtr->mPendingListPtr)) {
+                                theFilePtr->mUploadId.empty() &&
+                                theFilePtr->mMPutParts.empty()) {
                             mClient.Run(*(new S3Put(
                                 *this,
                                 inRequest,
@@ -480,6 +557,48 @@ public:
                                 theBuf
                             )));
                             return;
+                        }
+                        const bool theFirstFlag =
+                            theFilePtr-> mMPutParts.empty();
+                        const BlockIdx theEnd   =
+                            inStartBlockIdx + inBufferCount;
+                        if (theFirstFlag) {
+                            theFilePtr->mMPutParts.reserve(
+                                (mMaxFileSize + kS3MinPartSize - 1) /
+                                kS3MinPartSize);
+                            theFilePtr->mMPutParts.push_back(
+                                MPutPart(inStartBlockIdx, theEnd));
+                        } else {
+                            MPutParts::iterator const theIt = lower_bound(
+                                theFilePtr->mMPutParts.begin(),
+                                theFilePtr->mMPutParts.end(),
+                                inStartBlockIdx
+                            );
+                            if (theIt != theFilePtr-> mMPutParts.end() &&
+                                    theIt->mStart < theEnd) {
+                                KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                                    "invalid partial write attempt:" <<
+                                    " reigion already written:"
+                                    " type: "  <<
+                                        RequestTypeToName(inReqType) <<
+                                    " blocks:"
+                                    " start: " << theIt->mStart <<
+                                    " => "     << inStartBlockIdx <<
+                                    " end: "   << theIt->mEnd <<
+                                    " => "     << theEnd <<
+                                    " eof: "   << inEof <<
+                                    " fd: "    << inFd <<
+                                    " gen: "   << theFilePtr->mGeneration <<
+                                    " "        << theFilePtr->mFileName <<
+                                KFS_LOG_EOM;
+                                break;
+                            }
+                            theFilePtr->mMPutParts.insert(theIt,
+                                MPutPart(inStartBlockIdx, theEnd));
+                        }
+                        if (QCDiskQueue::kReqTypeWriteSync == inReqType) {
+                            // Validate that there are no gaps.
+                            theFilePtr->mCommitFlag = true;
                         }
                         MPPut& theReq = *(new MPPut(
                             *this,
@@ -494,9 +613,8 @@ public:
                         File::List::PushBack(
                             theFilePtr->mPendingListPtr, theReq);
                         if (theFilePtr->mUploadId.empty()) {
-                            if (&theReq != File::List::Front(
-                                    theFilePtr->mPendingListPtr)) {
-                                return; // Wait for get id completions.
+                            if (! theFirstFlag) {
+                                return; // Wait for get id completion.
                             }
                             // Enqueue get id request.
                             IOBuffer theBuf;
@@ -518,8 +636,6 @@ public:
                         }
                         return;
                     }
-                    theError  = QCDiskQueue::kErrorWrite;
-                    theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "write invalid buffer count: " << inBufferCount <<
                         " end: " << theEnd <<
@@ -530,7 +646,6 @@ public:
                     KFS_LOG_EOM;
                     break;
                 }
-                theError  = QCDiskQueue::kErrorWrite;
                 theSysErr = EIO;
                 break;
             default:
@@ -622,6 +737,25 @@ private:
 
     typedef uint64_t Generation;
     class MPPut;
+    class MPutPart
+    {
+    public:
+        typedef StringBufT<66> ETag;
+        MPutPart(
+            BlockIdx inStart = 0,
+            BlockIdx inEnd   = 0)
+            : mStart(inStart),
+              mEnd(inEnd),
+              mETag()
+            {}
+        bool operator<(
+            const BlockIdx& inVal) const
+            { return (mStart < inVal); }
+        BlockIdx mStart;
+        BlockIdx mEnd;
+        ETag     mETag;
+    };
+    typedef vector<MPutPart> MPutParts;
 
     class File
     {
@@ -631,12 +765,16 @@ private:
         File(
             const char* inFileNamePtr = 0)
             : mFileName(inFileNamePtr ? inFileNamePtr : ""),
+              mUploadId(),
               mReadOnlyFlag(false),
               mCreateFlag(false),
               mCreateExclusiveFlag(false),
               mWriteOnlyFlag(false),
+              mCommitFlag(false),
+              mErrorFlag(false),
               mMaxFileSize(-1),
-              mGeneration(0)
+              mGeneration(0),
+              mMPutParts()
             { List::Init(mPendingListPtr); }
         void Set(
             const char* inFileNamePtr,
@@ -656,13 +794,18 @@ private:
         }
         void Reset()
         {
-            mFileName            = string(); // De-allocate.
+            mFileName            = kEmptyString; // De-allocate.
+            mUploadId            = kEmptyString;
             mReadOnlyFlag        = false;
             mCreateFlag          = false;
             mCreateExclusiveFlag = false;
             mWriteOnlyFlag       = false;
+            mCommitFlag          = false;
+            mErrorFlag           = false;
             mMaxFileSize         = -1;
             mGeneration          = 0;
+            MPutParts theTmp;
+            mMPutParts.swap(theTmp); // De-allocate.
             QCASSERT(List::IsEmpty(mPendingListPtr));
             List::Init(mPendingListPtr);
         }
@@ -672,8 +815,11 @@ private:
         bool       mCreateFlag:1;
         bool       mCreateExclusiveFlag:1;
         bool       mWriteOnlyFlag:1;
+        bool       mCommitFlag:1;
+        bool       mErrorFlag:1;
         int64_t    mMaxFileSize;
         Generation mGeneration;
+        MPutParts  mMPutParts;
         MPPut*     mPendingListPtr[1];
     };
     typedef vector<File> FileTable;
@@ -684,7 +830,7 @@ private:
 
         S3Req(
             Outer&        inOuter,
-            Request&      inRequest,
+            Request*      inRequestPtr,
             ReqType       inReqType,
             const string& inFileName,
             BlockIdx      inStartBlockIdx = 0,
@@ -693,7 +839,7 @@ private:
             : KfsCallbackObj(),
               TransactionalClient::Transaction(),
               mOuter(inOuter),
-              mRequest(inRequest),
+              mRequestPtr(inRequestPtr),
               mReqType(inReqType),
               mFileName(inFileName),
               mGeneration(inGeneration),
@@ -776,7 +922,7 @@ private:
         typedef IOBuffer::DisplayData ShowData;
 
         Outer&              mOuter;
-        Request&            mRequest;
+        Request*      const mRequestPtr;
         ReqType       const mReqType;
         string        const mFileName;
         Generation    const mGeneration;
@@ -829,12 +975,15 @@ private:
             QCDiskQueue::Error const theError         = mError;
             int                const theSysErr        = mSysError;
             BlockIdx           const theStartBlockIdx = mStartBlockIdx;
-            Request&                 theRequest       = mRequest;
+            Request*           const theRequestPtr    = mRequestPtr;
             Outer&                   theOuter         = mOuter;
             delete this;
+            if (! theRequestPtr) {
+                return;
+            }
             theOuter.mDiskQueuePtr->Done(
                 theOuter,
-                theRequest,
+                *theRequestPtr,
                 theError,
                 theSysErr,
                 QCDiskQueue::kErrorNone == theError ? inIoByteCount      : 0,
@@ -1168,10 +1317,12 @@ private:
             "\r\n";
             theStream.flush();
         }
+        template<typename T>
         int ParseResponse(
             IOBuffer& inBuffer,
             bool      inEofFlag,
-            bool&     outDoneFlag)
+            bool&     outDoneFlag,
+            T*        outETagPtr)
         {
             if (mOuter.mDebugTraceRequestProgressFlag) {
                 KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
@@ -1228,6 +1379,16 @@ private:
                 }
                 mReadTillEofFlag = ! mHeaders.IsChunkedEconding() &&
                     mHeaders.GetContentLength() < 0;
+                if (outETagPtr) {
+                    if (0 < mHeaders.GetETagLength()) {
+                        outETagPtr->Copy(
+                            thePtr + mHeaders.GetETagPosition(),
+                            mHeaders.GetETagLength()
+                        );
+                    } else {
+                        outETagPtr->clear();
+                    }
+                }
                 inBuffer.Consume(mHeaderLength);
                 if (! mHeaders.IsChunkedEconding()) {
                     inBuffer.MakeBuffersFull();
@@ -1327,6 +1488,14 @@ private:
             return ((mReadTillEofFlag || mHeaders.IsConnectionClose()) ?
                 kCloseConnection : 0);
         }
+        int ParseResponse(
+            IOBuffer& inBuffer,
+            bool      inEofFlag,
+            bool&     outDoneFlag)
+        {
+            MPutPart::ETag* const kNoEtagPtr = 0;
+            return ParseResponse(inBuffer, inEofFlag, outDoneFlag, kNoEtagPtr);
+        }
         void Reset()
         {
             mSentFlag            = false;
@@ -1371,14 +1540,23 @@ private:
             Request&      inRequest,
             ReqType       inReqType,
             const string& inFileName)
-            : S3Req(inOuter, inRequest, inReqType, inFileName)
+            : S3Req(inOuter, &inRequest, inReqType, inFileName),
+              mUploadId()
+            {}
+        S3Delete(
+            Outer&        inOuter,
+            const string& inFileName,
+            const string& inUploadId)
+            : S3Req(inOuter, 0, QCDiskQueue::kReqTypeNone, inFileName),
+              mUploadId(inUploadId)
             {}
         virtual ostream& Display(
             ostream& inStream) const
         {
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
-                " delete: " << mFileName
+                " delete: " << mFileName <<
+                " upload: " << mUploadId
             );
         }
         virtual int Request(
@@ -1405,6 +1583,7 @@ private:
             return theRet;
         }
     private:
+        string mUploadId;
         S3Delete(
             const S3Delete& inDelete);
         S3Delete& operator=(
@@ -1423,7 +1602,7 @@ private:
             Generation    inGeneration,
             int           inFd,
             IOBuffer&     inIOBuffer)
-            : S3Req(inOuter, inRequest, inReqType, inFileName,
+            : S3Req(inOuter, &inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
               mDataBuf(),
               mIsSha256Flag(false)
@@ -1536,7 +1715,7 @@ private:
             int           inBufferCount,
             Generation    inGeneration,
             int           inFd)
-            : S3Req(inOuter, inRequest, inReqType, inFileName,
+            : S3Req(inOuter, &inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
               mRangeStart(inStartBlockIdx * mOuter.mBlockSize),
               mRangeEnd(mRangeStart +
@@ -1660,7 +1839,10 @@ private:
                 inStartBlockIdx,
                 inGeneration,
                 inFd,
-                inIOBuffer)
+                inIOBuffer),
+                mCommitFlag(false),
+                mETag(),
+                mTmpWrite()
             { List::Init(*this); }
         virtual ostream& Display(
             ostream& inStream) const
@@ -1695,19 +1877,44 @@ private:
                     Error(EINVAL, "no upload id");
                     return -1;
                 }
-                const int64_t thePartNum =
-                    mStartBlockIdx * mOuter.mBlockSize / kS3MinPartSize;
-                QCASSERT(thePartNum * kS3MinPartSize ==
-                    mStartBlockIdx * mOuter.mBlockSize);
-                theQueryStr.Append("partNumber=");
-                AppendDecIntToString(theQueryStr, thePartNum + 1)
-                    .Append("&uploadId=")
-                    .Append(theFilePtr->mUploadId);
+                if (! mCommitFlag) {
+                    const int64_t thePartNum =
+                        mStartBlockIdx * mOuter.mBlockSize / kS3MinPartSize;
+                    QCASSERT(thePartNum * kS3MinPartSize ==
+                        mStartBlockIdx * mOuter.mBlockSize);
+                    theQueryStr.Append("partNumber=");
+                    AppendDecIntToString(theQueryStr, thePartNum + 1);
+                }
+                theQueryStr.Append("&uploadId=").Append(theFilePtr->mUploadId);
+            }
+            if (mCommitFlag && mTmpWrite.IsEmpty()) {
+                mMdBuf[0] = 0; // Invalidate to force re-computation.
+                mTmpWrite.Move(&mDataBuf); // Save write buffers.
+                IOBufferWriter theWriter(mDataBuf);
+                theWriter.Write(kS3MPutCompleteStart);
+                for (MPutParts::const_iterator
+                        theIt = theFilePtr->mMPutParts.begin();
+                        theFilePtr->mMPutParts.end() != theIt;
+                        ++theIt) {
+                    // Write commit request.
+                    theWriter.Write(kS3MPutCompletePartStart);
+                    theWriter.Write(kS3MPutCompletePartNumberStart);
+                    ConvertInt<int64_t, 10> const thePartNum(
+                        theIt->mStart * mOuter.mBlockSize / kS3MinPartSize + 1);
+                    theWriter.Write(thePartNum);
+                    theWriter.Write(kS3MPutCompletePartNumberEnd);
+                    theWriter.Write(kS3MPutCompleteETagStart);
+                    theWriter.Write(theIt->mETag);
+                    theWriter.Write(kS3MPutCompleteETagEnd);
+                    theWriter.Write(kS3MPutCompletePartEnd);
+                }
+                theWriter.Write(kS3MPutCompleteEnd);
+                theWriter.Close();
             }
             const int64_t kRangeStart = -1;
             const int64_t kRangeEnd   = -1;
             const int     theRet      = SendRequest(
-                theGetIdFlag ? "POST" : "PUT",
+                (mCommitFlag || theGetIdFlag) ? "POST" : "PUT",
                 inBuffer,
                 inServer,
                 mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
@@ -1733,7 +1940,8 @@ private:
                 return -1;
             }
             bool      theDoneFlag = false;
-            const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
+            const int theRet      = ParseResponse(
+                inBuffer, inEofFlag, theDoneFlag, &mETag);
             if (theDoneFlag) {
                 if (IsStatusOk()) {
                     if (mDataBuf.IsEmpty()) {
@@ -1752,7 +1960,24 @@ private:
                             Done();
                         }
                     } else {
-                        Done(mDataBuf.BytesConsumable());
+                        if (mCommitFlag) {
+                            // Parse commit response.
+                        } else {
+                            MPutParts::iterator const theIt = lower_bound(
+                                theFilePtr->mMPutParts.begin(),
+                                theFilePtr->mMPutParts.end(),
+                                mStartBlockIdx
+                            );
+                            if (theIt == theFilePtr->mMPutParts.end() ||
+                                    theIt->mStart != mStartBlockIdx ||
+                                    (! theIt->mETag.empty())) {
+                                mOuter.FatalError(
+                                    "invalid multipart put completion");
+                            } else {
+                                theIt->mETag = mETag;
+                            }
+                        }
+                        Done();
                     }
                 } else {
                     Retry();
@@ -1761,17 +1986,21 @@ private:
             return theRet;
         }
     private:
-        MPPut* mPrevPtr[1];
-        MPPut* mNextPtr[1];
+        bool           mCommitFlag;
+        MPutPart::ETag mETag;
+        IOBuffer       mTmpWrite;
+        MPPut*         mPrevPtr[1];
+        MPPut*         mNextPtr[1];
         friend class QCDLListOp<MPPut>;
 
-        File* GetFilePtr()
+        File* GetFilePtr(
+            bool inInvokeErrorHandlerFlag = true)
         {
             File*      theFilePtr;
             bool const theOkFlag = mOuter.IsRunning() &&
                 (theFilePtr = mOuter.GetFilePtr(mFd)) &&
                 theFilePtr->mGeneration == mGeneration;
-            if (! theOkFlag) {
+            if (inInvokeErrorHandlerFlag && ! theOkFlag) {
                 Error(EINVAL, "file closed");
             }
             return (theOkFlag ? theFilePtr : 0);
@@ -1780,13 +2009,18 @@ private:
             int64_t        inIoByteCount,
             InputIterator* inInputIteratorPtr)
         {
-            File* const theFilePtr   = GetFilePtr();
+            const bool  kInvokeErrorHandlerFlag = false;
+            File* const theFilePtr   = GetFilePtr(kInvokeErrorHandlerFlag);
             const bool  theGetIdFlag = mDataBuf.IsEmpty();
             if (theFilePtr) {
+                if (0 != mSysError && ! theFilePtr->mErrorFlag) {
+                    theFilePtr->mErrorFlag = true;
+                }
                 List::Remove(theFilePtr->mPendingListPtr, *this);
                 if (theGetIdFlag && theFilePtr->mUploadId.empty()) {
+                    theFilePtr->mErrorFlag = true;
                     MPPut* thePtr;
-                    while((thePtr = List::PopFront(
+                    while((thePtr = List::Front(
                             theFilePtr->mPendingListPtr))) {
                         thePtr->mSysError = EIO;
                         thePtr->Done();
@@ -1797,28 +2031,54 @@ private:
                 delete this;
                 return;
             }
-            S3Req::DoneSelf(inIoByteCount, inInputIteratorPtr);
+            if (mCommitFlag) {
+                mDataBuf.Clear();
+                mDataBuf.Move(&mTmpWrite);
+            } else if (theFilePtr &&
+                    (theFilePtr->mCommitFlag || theFilePtr->mErrorFlag) &&
+                    ! theFilePtr->mUploadId.empty() &&
+                    List::IsEmpty(theFilePtr->mPendingListPtr)) {
+                if (theFilePtr->mErrorFlag) {
+                    if (mOuter.IsRunning()) {
+                        // Delete all upload parts.
+                        mOuter.mClient.Run(*(new S3Delete(
+                            mOuter, mFileName, theFilePtr->mUploadId)));
+                    }
+                } else {
+                    if (mOuter.IsRunning()) {
+                        mCommitFlag = true;
+                        mRetryCount = 0;
+                        Reset();
+                        mOuter.mClient.Run(*this);
+                        return;
+                    }
+                    mSysError = EIO;
+                }
+            }
+            S3Req::DoneSelf(mDataBuf.BytesConsumable(), 0);
         }
         string ParseUploadId(
             IOBuffer& inBuffer)
         {
             int theResIdx = inBuffer.IndexOf(
-                0, "<InitiateMultipartUploadResult");
+                0, kStrMPutInitResultStart.data());
             if (theResIdx < 0) {
                 return string();
             }
-            theResIdx += 30;
+            theResIdx += kStrMPutInitResultStart.size();
             const int theResEndIdx = inBuffer.IndexOf(
-                theResIdx, "</InitiateMultipartUploadResult");
+                theResIdx, kStrMPutInitResultEnd.data());
             if (theResEndIdx <= theResIdx) {
                 return string();
             }
-            int theIdx = inBuffer.IndexOf(theResIdx + 1, "<UploadId");
+            int theIdx = inBuffer.IndexOf(theResIdx + 1,
+                kStrMPutInitResultUploadIdStart.data());
             if (theIdx <= 0 || theResEndIdx <= theIdx) {
                 return string();
             }
-            theIdx += 9;
-            const int theEndIdx    = inBuffer.IndexOf(theIdx, "</UploadId");
+            theIdx += kStrMPutInitResultUploadIdStart.size();
+            const int theEndIdx    = inBuffer.IndexOf(theIdx,
+                kStrMPutInitResultUploadIdEnd.data());
             const int kMaxIdLength = 4 << 10;
             if (theEndIdx <= theIdx || theResEndIdx <= theEndIdx ||
                     theIdx + kMaxIdLength < theEndIdx) {
@@ -1847,6 +2107,7 @@ private:
     };
 
     QCDiskQueue*        mDiskQueuePtr;
+    int64_t             mMaxFileSize;
     int                 mBlockSize;
     string const        mConfigPrefix;
     string const        mFilePrefix;
@@ -1928,6 +2189,7 @@ private:
         const char* inLogPrefixPtr)
         : IOMethod(true), // Do not allocate read buffers.
           mDiskQueuePtr(0),
+          mMaxFileSize(0),
           mBlockSize(0),
           mConfigPrefix(inConfigPrefixPtr ? inConfigPrefixPtr : ""),
           mFilePrefix(inUrlPtr ? inUrlPtr : ""),
@@ -2528,6 +2790,23 @@ private:
             }
         }
         return theRes;
+    }
+    template <typename ST>
+    static ST& XmlEncode(
+        const char* inPtr,
+        size_t      inLen,
+        ST&         inStream)
+    {
+        const char*       thePtr    = inPtr;
+        const char* const theEndPtr = thePtr + inLen;
+        while (thePtr < theEndPtr) {
+            switch (*thePtr & 0xFF) {
+                case '&': inStream << "&amp;"; break;
+                case '<': inStream << "&lt;";  break;
+                default:  inStream << *thePtr; break;
+            }
+            ++thePtr;
+        }
     }
 private:
     S3ION(

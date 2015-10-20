@@ -45,6 +45,7 @@ const Token kHttpTransferEncodingIdentity("identity");
 const Token kHttpProtocol                ("http");
 const Token kHttpConnectionKey           ("connection");
 const Token kHttpConnectionClose         ("close");
+const Token kHttpEtagKey                 ("etag");
 
     static inline bool
 Equals(
@@ -176,6 +177,12 @@ HttpResponseHeaders::Parse(
             if (Equals(theValue, kHttpConnectionClose)) {
                 mConnectionCloseFlag = true;
             }
+            continue;
+        }
+        if (Equals(theKey, kHttpEtagKey)) {
+            const Token& theValue = theTokenizer.GetValue();
+            mETagPos = theValue.mPtr - inPtr;
+            mETagPos = theValue.mLen;
             continue;
         }
     }
