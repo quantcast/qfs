@@ -105,9 +105,6 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
     }
     for (i = 0; i < kNumComponents; i++) {
         components[i] = strtoll(ptr, &end, 10);
-        if (components[i] < 0) {
-            break;
-        }
         if ((*end & 0xFF) != '.') {
             if (*end == 0) {
                 i++;
@@ -165,7 +162,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
     }
     if (chunkInfo.chunkVersion != chunkVers) {
         KFS_LOG_STREAM_ERROR <<
-            fn << ":" << "chunk id version: " << chunkInfo.chunkId <<
+            fn << ": chunk id version: " << chunkInfo.chunkVersion <<
         KFS_LOG_EOM;
         close(fd);
         return false;
@@ -219,6 +216,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
                 fn << ": checksum mismatch"
                 " block: " << b <<
                 " pos: "   << i <<
+                " + "      << chunkInfo.GetHeaderSize() <<
                 " computed: " << cksum <<
                 " expected: " << chunkInfo.chunkBlockChecksum[b] <<
             KFS_LOG_EOM;
