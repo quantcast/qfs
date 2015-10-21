@@ -130,6 +130,11 @@ const S3StrToken kStrMPutInitResultEnd  ("</InitiateMultipartUploadResult");
 const S3StrToken kStrMPutInitResultUploadIdStart("<UploadId");
 const S3StrToken kStrMPutInitResultUploadIdEnd  ("<<UploadId");
 
+const S3StrToken kStrMPutCompleteResultStart("<CompleteMultipartUploadResult");
+const S3StrToken kStrMPutCompleteResultEnd("</CompleteMultipartUploadResult");
+const S3StrToken kStrMPutKeyStart("<Key");
+const S3StrToken kStrMPutKeyEnd("</Key");
+
 class S3ION : public IOMethod
 {
 public:
@@ -1022,6 +1027,10 @@ private:
             int64_t        inIoByteCount,
             InputIterator* inInputIteratorPtr)
         {
+            if (! mRequestPtr) {
+                delete this;
+                return;
+            }
             if (0 != mSysError && QCDiskQueue::kErrorNone == mError) {
                 switch (mReqType) {
                     case QCDiskQueue::kReqTypeRead:
@@ -1046,9 +1055,6 @@ private:
             Request*           const theRequestPtr    = mRequestPtr;
             Outer&                   theOuter         = mOuter;
             delete this;
-            if (! theRequestPtr) {
-                return;
-            }
             theOuter.mDiskQueuePtr->Done(
                 theOuter,
                 *theRequestPtr,
@@ -1633,7 +1639,30 @@ private:
             const ServerLocation& inServer)
         {
             TraceProgress(inBuffer, inResponseBuffer);
-            return SendRequest("DELETE", inBuffer, inServer);
+            const char* const kContentMdPtr       = 0;
+            const char* const kContentTypePtr     = 0;
+            const char* const kContentEcondingPtr = 0;
+            bool        const kUseEncryptionFlag  = false;
+            int         const kContentLength      = -1;
+            int64_t     const kRangeStart         = -1;
+            int64_t     const kRangeEnd           = -1;
+            if (! mUploadId.empty()) {
+                mOuter.mTmpBuffer = "uploadId=";
+                mOuter.mTmpBuffer += mUploadId;
+            }
+            return SendRequest(
+                "DELETE",
+                inBuffer,
+                inServer,
+                kContentMdPtr,
+                kContentTypePtr,
+                kContentEcondingPtr,
+                kUseEncryptionFlag,
+                kContentLength,
+                kRangeStart,
+                kRangeEnd,
+                mUploadId.empty() ? 0 : mOuter.mTmpBuffer.c_str()
+            );
         }
         virtual int Response(
             IOBuffer& inBuffer,
@@ -1642,7 +1671,8 @@ private:
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
-                if (IsStatusOk()) {
+                if (IsStatusOk() ||
+                        (! mUploadId.empty() && 404 == mHeaders.GetStatus())) {
                     Done();
                 } else {
                     Retry();
@@ -2029,7 +2059,18 @@ private:
                         }
                     } else {
                         if (mCommitFlag) {
-                            // Parse commit response.
+                            if (! ParseCommitResponse(inBuffer)) {
+                                KFS_LOG_STREAM_ERROR <<
+                                    mOuter.mLogPrefix << Show(*this) <<
+                                    "commit error:"
+                                    " response length: " <<
+                                        inBuffer.BytesConsumable() <<
+                                    " data: " << ShowData(inBuffer,
+                                        mOuter.mDebugTraceMaxErrorDataSize) <<
+                                KFS_LOG_EOM;
+                                Retry();
+                                return theRet;
+                            }
                         } else {
                             MPutParts::iterator const theIt = lower_bound(
                                 theFilePtr->mMPutParts.begin(),
@@ -2092,7 +2133,7 @@ private:
                             theFilePtr->mPendingListPtr))) {
                         QCASSERT(! thePtr->mDataBuf.IsEmpty());
                         thePtr->mSysError = EIO;
-                        thePtr->Done(); // Recursion.
+                        thePtr->Done();
                     }
                 }
             }
@@ -2172,6 +2213,39 @@ private:
                 }
             }
             return XmlToUrlEncoding(thePtr, theEndPtr - thePtr);
+        }
+        bool ParseCommitResponse(
+            IOBuffer& inBuffer)
+        {
+            int theResIdx = inBuffer.IndexOf(
+                0, kStrMPutCompleteResultStart.data());
+            if (theResIdx < 0) {
+                return false;
+            }
+            theResIdx += kStrMPutCompleteResultStart.size();
+            const int theResEndIdx = inBuffer.IndexOf(
+                theResIdx, kStrMPutCompleteResultEnd.data());
+            if (theResEndIdx <= theResIdx) {
+                return false;
+            }
+            int theIdx = inBuffer.IndexOf(theResIdx + 1,
+                kStrMPutKeyStart.data());
+            if (theIdx <= 0 || theResEndIdx <= theIdx) {
+                return false;
+            }
+            theIdx += kStrMPutInitResultUploadIdStart.size();
+            // No XML decoding should be required as file name is "URL safe".
+            int theFnIdx = inBuffer.IndexOf(theIdx, mFileName.data());
+            if (theFnIdx <= theIdx || theResEndIdx <= theFnIdx) {
+                return false;
+            }
+            theFnIdx += mFileName.size();
+            const int theEndIdx = inBuffer.IndexOf(
+                theFnIdx, kStrMPutKeyEnd.data());
+            if (theEndIdx != theFnIdx || theResEndIdx <= theEndIdx) {
+                return false;
+            }
+            return true;
         }
     };
 
