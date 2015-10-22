@@ -302,6 +302,8 @@ public:
     /// @param[in] numReplicas the desired degree of replication for
     /// the file.
     /// @param[in] exclusive  create will fail if the exists (O_EXCL flag)
+    /// @param[in] maxReadWriteSize maximum number of bytes written/read
+    /// between client and chunk-server each time
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
@@ -309,17 +311,20 @@ public:
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
         kfsMode_t mode = 0666,
-        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
+        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
+		int maxReadWriteSize = 0);
 
     ///
     /// Create a file which is specified by a complete path.
     /// @param[in] pathname that has to be created
     /// @param[in] exclusive  create will fail if the exists (O_EXCL flag)
     /// @param[in] params in ParseCreateParams() format
+    /// @param[in] maxReadWriteSize maximum number of bytes written/read
+    /// between client and chunk-server each time
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
-    int Create(const char *pathname, bool exclusive, const char* params);
+    int Create(const char *pathname, bool exclusive, const char* params, int maxReadWriteSize = 0);
 
     ///
     /// Remove a file which is specified by a complete path.
@@ -355,23 +360,28 @@ public:
     /// O_CREAT, O_CREAT|O_EXCL, O_RDWR, O_RDONLY, O_WRONLY, O_TRUNC, O_APPEND
     /// @param[in] numReplicas if O_CREAT is specified, then this the
     /// desired degree of replication for the file
+    /// @param[in] maxReadWriteSize maximum number of bytes written/read
+    /// between client and chunk-server each time
     /// @retval fd corresponding to the opened file; -errno on failure
     ///
     int Open(const char *pathname, int openFlags, int numReplicas = 3,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE,
         kfsMode_t mode = 0666,
-        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
+        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
+		int maxReadWriteSize = 0);
 
     ///
     /// Create a file which is specified by a complete path.
     /// @param[in] pathname that has to be created
     /// @param[in] params in ParseCreateParams() format
+    /// @param[in] maxReadWriteSize maximum number of bytes written/read
+    /// between client and chunk-server each time
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
     int Open(const char *pathname, int openFlags, const char* params,
-        kfsMode_t mode = 0666);
+        kfsMode_t mode = 0666, int maxReadWriteSize = 0);
 
     ///
     /// Close a file

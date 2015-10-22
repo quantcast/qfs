@@ -417,7 +417,8 @@ private:
             inBufPtr,
             inSize,
             0, // inMaxPending,
-            inOffset
+            inOffset,
+			inEntry.mMaxReadWriteSize
         );
         if (GetSize() <= 0) {
             return 0;
@@ -605,6 +606,7 @@ KfsClientImpl::Read(
     int64_t       theLen           = min(theEof - thePos, (int64_t)inSize);
     const int     theSize          = (int)theLen;
     const bool    theSkipHolesFlag = theEntry.skipHoles;
+    const int	  theMaxReadWriteSize = theEntry.mMaxReadWriteSize;
     if (theLen <= 0) {
         return 0;
     }
@@ -769,7 +771,8 @@ KfsClientImpl::Read(
             inBufPtr + theRet,
             theRdSize,
             0,
-            thePos
+            thePos,
+			theMaxReadWriteSize
         );
         if (theSkipHolesFlag && theStatus == -ENOENT) {
             theStatus = 0;

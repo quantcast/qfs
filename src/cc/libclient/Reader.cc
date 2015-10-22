@@ -552,7 +552,7 @@ private:
             const int theMaxReadSize = max(1, mOuter.mMaxReadSize);
             while (theSize > 0) {
                 const int theOpSize = min(theMaxReadSize, theSize);
-                ReadOp& theOp = *(new ReadOp(
+                 ReadOp& theOp = *(new ReadOp(
                     theOpSize,
                     thePos,
                     inRequestId,
@@ -2273,6 +2273,7 @@ private:
         const int theQueuedCount = QueueChunkRead(
             inBuffer, inLength, inOffset, inRequestId,
             RequestId(), true, mFailShortReadsFlag);
+
         if (theQueuedCount > 0) {
             StartQueuedRead(theQueuedCount);
         }
