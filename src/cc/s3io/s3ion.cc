@@ -135,6 +135,15 @@ const S3StrToken kStrMPutCompleteResultEnd("</CompleteMultipartUploadResult");
 const S3StrToken kStrMPutKeyStart("<Key");
 const S3StrToken kStrMPutKeyEnd("</Key");
 
+const S3StrToken kStrGetUploadsResultStrart("<ListMultipartUploadsResult");
+const S3StrToken kStrGetUploadsResultEnd("</ListMultipartUploadsResult");
+const S3StrToken kStrGetUploadsIsTruncatedStrart("<IsTruncated");
+const S3StrToken kStrGetUploadsIsTruncatedEnd("</IsTruncated");
+const S3StrToken kStrGetUploadsUploadStrart("<Upload");
+const S3StrToken kStrGetUploadsUploadEnd("</Upload");
+const S3StrToken kStrGetUploadsUploadIdStrart("<UploadId");
+const S3StrToken kStrGetUploadsUploadIdEnd("</UploadID");
+
 class S3ION : public IOMethod
 {
 public:
@@ -251,6 +260,19 @@ public:
         bool                    const kRunOnceFlag          = true;
         mNetManager.MainLoop(
             kMutexPtr, kWakeupAndCleanupFlag, kDispatcherPtr, kRunOnceFlag);
+        while (! mRunList.empty()) {
+            mRunList.swap(mCurRunList);
+            for (RunList::const_iterator theIt = mCurRunList.begin();
+                    theIt != mCurRunList.end();
+                    ++theIt) {
+                if (IsRunning()) {
+                    mClient.Run(**theIt);
+                } else {
+                    (*theIt)->Error(-EIO, "canceled");
+                }
+            }
+            mCurRunList.clear();
+        }
     }
     virtual void Wakeup()
     {
@@ -972,8 +994,7 @@ private:
                 (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
                         theFilePtr->mGeneration == mGeneration));
             if (theRetryFlag) {
-                const int kTimerResolution = 1;
-                const int theTime = max(kTimerResolution,
+                const int theTime = max(0,
                     (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                     " scheduling retry: " << mRetryCount <<
@@ -981,7 +1002,12 @@ private:
                     " in " << theTime << " sec." <<
                 KFS_LOG_EOM;
                 Reset();
-                mTimer.SetTimeout(theTime);
+                if (theTime <= 0) {
+                    mTimer.RemoveTimeout();
+                    mOuter.ScheduleNext(*this);
+                } else {
+                    mTimer.SetTimeout(theTime);
+                }
             } else {
                 mTimer.RemoveTimeout();
                 if (0 == mSysError) {
@@ -1076,7 +1102,8 @@ private:
             int64_t               inContentLength            = -1,
             int64_t               inRangeStart               = -1,
             int64_t               inRangeEnd                 = -1,
-            const char*           inQueryStringPtr           = 0)
+            const char*           inQueryStringPtr           = 0,
+            const char*           inUriPtr                   = 0)
         {
             if (mSentFlag) {
                 return 0;
@@ -1094,7 +1121,8 @@ private:
                     inContentLength,
                     inRangeStart,
                     inRangeEnd,
-                    inQueryStringPtr
+                    inQueryStringPtr,
+                    inUriPtr
                 );
             } else {
                 SendRequestAuthV4(
@@ -1108,7 +1136,8 @@ private:
                     inContentLength,
                     inRangeStart,
                     inRangeEnd,
-                    inQueryStringPtr
+                    inQueryStringPtr,
+                    inUriPtr
                 );
             }
             mOuter.mWOStream.Reset();
@@ -1131,7 +1160,8 @@ private:
             int64_t               inContentLength,
             int64_t               inRangeStart,
             int64_t               inRangeEnd,
-            const char*           inQueryStringPtr)
+            const char*           inQueryStringPtr,
+            const char*           inUriPtr)
         {
             const char* const theDatePtr = mOuter.DateNow();
             string& theSignBuf = mOuter.mTmpSignBuffer;
@@ -1162,11 +1192,19 @@ private:
             }
             theSignBuf += '/';
             theSignBuf += mOuter.mBucketName;
-            theSignBuf += '/';
-            theSignBuf += mFileName;
+            if (inUriPtr) {
+                theSignBuf += inUriPtr;
+            } else {
+                theSignBuf += '/';
+                theSignBuf += mFileName;
+            }
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
-            theStream <<
-                inVerbPtr << " /" << mFileName;
+            theStream << inVerbPtr;
+            if (inUriPtr) {
+                theStream << " " << inUriPtr;
+            } else {
+                theStream << " /" << mFileName;
+            }
             if (inQueryStringPtr && *inQueryStringPtr) {
                 theStream << "?" << inQueryStringPtr;
             }
@@ -1228,7 +1266,8 @@ private:
             int64_t               inContentLength,
             int64_t               inRangeStart,
             int64_t               inRangeEnd,
-            const char*           inQueryStringPtr)
+            const char*           inQueryStringPtr,
+            const char*           inUriPtr)
         {
             const char* const kEmptyShaPtr    =
                 "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -1248,8 +1287,12 @@ private:
             theSignBuf += '\n';
             // URI -- bucket and file name should not contain characters that need
             // to be escaped.
-            theSignBuf += '/';
-            theSignBuf += mFileName;
+            if (inUriPtr) {
+                theSignBuf += inUriPtr;
+            } else {
+                theSignBuf += '/';
+                theSignBuf += mFileName;
+            }
             theSignBuf += '\n';
             // Query string.
             if (inQueryStringPtr && *inQueryStringPtr) {
@@ -1338,8 +1381,12 @@ private:
                 theShaHex
             );
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
-            theStream <<
-                inVerbPtr << " /" << mFileName;
+            theStream << inVerbPtr;
+            if (inUriPtr) {
+                theStream << " " << inUriPtr;
+            } else {
+                theStream << " /" << mFileName;
+            }
             if (inQueryStringPtr && *inQueryStringPtr) {
                 theStream << "?" << inQueryStringPtr;
             }
@@ -1615,6 +1662,7 @@ private:
             ReqType       inReqType,
             const string& inFileName)
             : S3Req(inOuter, &inRequest, inReqType, inFileName),
+              mGetUploadsFlag(true),
               mUploadId()
             {}
         S3Delete(
@@ -1622,6 +1670,7 @@ private:
             const string& inFileName,
             const string& inUploadId)
             : S3Req(inOuter, 0, QCDiskQueue::kReqTypeNone, inFileName),
+              mGetUploadsFlag(false),
               mUploadId(inUploadId)
             {}
         virtual ostream& Display(
@@ -1649,9 +1698,15 @@ private:
             if (! mUploadId.empty()) {
                 mOuter.mTmpBuffer = "uploadId=";
                 mOuter.mTmpBuffer += mUploadId;
+            } else if (mGetUploadsFlag) {
+                mOuter.mTmpBuffer = "max-uploads=1&prefix=";
+                mOuter.mTmpBuffer += mFileName;
+                mOuter.mTmpBuffer += "&uploads=";
+            } else {
+                mOuter.mTmpBuffer.clear();
             }
             return SendRequest(
-                "DELETE",
+                mGetUploadsFlag ? "GET" : "DELETE",
                 inBuffer,
                 inServer,
                 kContentMdPtr,
@@ -1661,7 +1716,8 @@ private:
                 kContentLength,
                 kRangeStart,
                 kRangeEnd,
-                mUploadId.empty() ? 0 : mOuter.mTmpBuffer.c_str()
+                mOuter.mTmpBuffer.c_str(),
+                mGetUploadsFlag ? "/" : 0
             );
         }
         virtual int Response(
@@ -1670,10 +1726,17 @@ private:
         {
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
-            if (theDoneFlag) {
+            if (theDoneFlag && ! HandleGetUploadsResponse(inBuffer)) {
                 if (IsStatusOk() ||
                         (! mUploadId.empty() && 404 == mHeaders.GetStatus())) {
-                    Done();
+                    if (mRequestPtr &&
+                            (! mUploadId.empty() || mGetUploadsFlag) &&
+                            mOuter.IsRunning()) {
+                        mUploadId.clear();
+                        mOuter.ScheduleNext(*this);
+                    } else {
+                        Done();
+                    }
                 } else {
                     Retry();
                 }
@@ -1681,11 +1744,110 @@ private:
             return theRet;
         }
     private:
+        bool   mGetUploadsFlag;
         string mUploadId;
         S3Delete(
             const S3Delete& inDelete);
         S3Delete& operator=(
             const S3Delete& inDelete);
+
+        bool HandleGetUploadsResponse(
+            IOBuffer& inBuffer)
+        {
+            if (! mGetUploadsFlag || ! mUploadId.empty()) {
+                return false;
+            }
+            if (! IsStatusOk() || ! ParseGetUploadsResponse(inBuffer)) {
+                Retry();
+            } else if (mOuter.IsRunning()) {
+                mOuter.ScheduleNext(*this);
+            }
+            return true;
+        }
+        bool ParseGetUploadsResponse(
+            IOBuffer& inBuffer)
+        {
+            int theResIdx = inBuffer.IndexOf(
+                0, kStrGetUploadsResultStrart.data());
+            if (theResIdx < 0) {
+                return false;
+            }
+            theResIdx += kStrGetUploadsResultStrart.size() + 1;
+            const int theResEndIdx = inBuffer.IndexOf(
+                theResIdx, kStrGetUploadsResultEnd.data());
+            if (theResEndIdx <= theResIdx) {
+                return false;
+            }
+            int theTruncIdx = inBuffer.IndexOf(theResIdx,
+                kStrGetUploadsIsTruncatedStrart.data());
+            if (theTruncIdx <= theResIdx || theResEndIdx <= theTruncIdx) {
+                return false;
+            }
+            theTruncIdx += kStrGetUploadsIsTruncatedStrart.size();
+            const int theTruncEnd = inBuffer.IndexOf(
+                theTruncIdx + 1, kStrGetUploadsIsTruncatedEnd.data());
+            if (theTruncEnd <= theTruncIdx || theResEndIdx <= theTruncEnd) {
+                return false;
+            }
+            int theTruncValIdx = inBuffer.IndexOf(theTruncIdx, ">true<");
+            const bool theTruncFlag = theTruncIdx <= theTruncValIdx &&
+                theTruncValIdx + 5 == theTruncEnd;
+            int theUploadIdx = inBuffer.IndexOf(
+                theTruncEnd + 1, kStrGetUploadsUploadStrart.data());
+            if (theUploadIdx <= theResIdx || theResEndIdx <= theUploadIdx) {
+                if (theTruncFlag) {
+                    return false;
+                }
+                // No uploads.
+                mUploadId.clear();
+                mGetUploadsFlag = false;
+                return true;
+            }
+            theUploadIdx += kStrGetUploadsUploadStrart.size() + 1;
+            const int theUploadEndIdx = inBuffer.IndexOf(
+                theUploadIdx, kStrGetUploadsUploadEnd.data());
+            if (theUploadEndIdx <= theUploadIdx ||
+                    theResEndIdx <= theUploadEndIdx) {
+                return false;
+            }
+            int theUploadIdIdx = inBuffer.IndexOf(
+                theUploadIdx, kStrGetUploadsUploadIdStrart.data());
+            if (theUploadIdIdx <= theUploadIdx ||
+                    theUploadEndIdx <= theUploadIdx) {
+                return false;
+            }
+            theUploadIdIdx += kStrGetUploadsUploadIdStrart.size();
+            int theUploadIdEndIdx = inBuffer.IndexOf(
+                theUploadIdIdx + 1, kStrGetUploadsUploadIdEnd.data());
+            if (theUploadIdEndIdx <= theUploadIdIdx ||
+                    theUploadEndIdx <= theUploadIdEndIdx) {
+                return false;
+            }
+            inBuffer.Consume(theUploadIdIdx);
+            int                  theLen    = theUploadIdEndIdx - theUploadIdIdx;
+            StBufferT<char, 256> theBuf;
+            const char*          thePtr    =
+                inBuffer.CopyOutOrGetBufPtr(theBuf.Resize(theLen), theLen);
+            const char* const    theEndPtr = thePtr + theLen;
+            if (theEndPtr <= thePtr) {
+                return false;
+            }
+            const int theSym = *thePtr & 0xFF;
+            if (theSym != '>') {
+                if (' ' < theSym) {
+                    return false;
+                }
+                while (thePtr < theEndPtr && *thePtr != '>') {
+                    ++thePtr;
+                }
+            }
+            mUploadId = XmlToUrlEncoding(thePtr, theEndPtr - thePtr);
+            if (mUploadId.empty()) {
+                return false;
+            }
+            mGetUploadsFlag = theTruncFlag; // Has more uploads.
+            return true;
+        }
     };
     friend class S3Delete;
     class S3Put : public S3Req
@@ -2249,6 +2411,8 @@ private:
         }
     };
 
+    typedef vector<TransactionalClient::Transaction*> RunList;
+
     QCDiskQueue*        mDiskQueuePtr;
     int64_t             mMaxFileSize;
     int                 mBlockSize;
@@ -2264,6 +2428,8 @@ private:
     bool                mParametersUpdatedFlag;
     Properties          mParameters;
     Properties          mUpdatedParameters;
+    RunList             mRunList;
+    RunList             mCurRunList;
     string              mFullConfigPrefix;
     string              mUpdatedFullConfigPrefix;
     string              mS3HostName;
@@ -2346,6 +2512,8 @@ private:
           mParametersUpdatedFlag(false),
           mParameters(),
           mUpdatedParameters(),
+          mRunList(),
+          mCurRunList(),
           mFullConfigPrefix(),
           mUpdatedFullConfigPrefix(),
           mS3HostName("s3.amazonaws.com"),
@@ -2391,6 +2559,8 @@ private:
         mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
         mTmpSignBuffer.reserve(1 << 10);
         mTmpBuffer.reserve(1 << 9);
+        mRunList.reserve(128);
+        mCurRunList.reserve(128);
         mTmBuf.tm_mday = -1;
         mDateBuf[0] = 0;
         mSignBuf[0] = 0;
@@ -2523,6 +2693,15 @@ private:
             ! mBucketName.empty() &&
             ! mSecretAccessKey.empty()
         );
+    }
+    void ScheduleNext(
+        TransactionalClient::Transaction& inReq)
+    {
+        if (! IsRunning()) {
+            FatalError("invalid schedule next invocation");
+            return;
+        }
+        mRunList.push_back(&inReq);
     }
     time_t Now() const
         { return mNetManager.Now(); }
