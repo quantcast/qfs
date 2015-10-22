@@ -131,7 +131,7 @@ public:
             int           inSize         = 0,
             int           inMaxPending   = -1,
             int64_t       inOffset       = -1,
-			int			  inMaxReadWriteSize	= 0);
+            int           inMaxReadWriteSize	= 0);
         void Reset(
             RequestType   inOpType       = kRequestTypeUnknown,
             FileInstance  inFileInstance = 0,
@@ -141,7 +141,7 @@ public:
             int           inSize         = 0,
             int           inMaxPending   = -1,
             int64_t       inOffset       = -1,
-			int			  inMaxReadWriteSize	= 0);
+            int           inMaxReadWriteSize = 0);
         virtual void Done(
             int64_t inStatus) = 0;
         int64_t GetOffset() const
@@ -170,7 +170,7 @@ public:
         int64_t       mStatus;
         int64_t       mMaxPendingOrEndPos;
         int64_t       mOffset;
-        int			  mMaxReadWriteSize;
+        int           mMaxReadWriteSize;
     private:
         Request* mPrevPtr[1];
         Request* mNextPtr[1];
@@ -275,7 +275,7 @@ public:
         int                    inSize       = 0,
         int                    inMaxPending = -1,
         int64_t                inOffset     = -1,
-		int					   maxReadWriteSize = 0);
+        int                    maxReadWriteSize = 0);
     void ExecuteMeta(
         KfsOp& inOp);
     Properties GetStats();

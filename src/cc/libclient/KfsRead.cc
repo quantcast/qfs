@@ -418,7 +418,7 @@ private:
             inSize,
             0, // inMaxPending,
             inOffset,
-			inEntry.mMaxReadWriteSize
+            inEntry.mMaxReadWriteSize
         );
         if (GetSize() <= 0) {
             return 0;
@@ -772,7 +772,7 @@ KfsClientImpl::Read(
             theRdSize,
             0,
             thePos,
-			theMaxReadWriteSize
+            theMaxReadWriteSize
         );
         if (theSkipHolesFlag && theStatus == -ENOENT) {
             theStatus = 0;

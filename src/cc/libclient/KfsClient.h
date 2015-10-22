@@ -312,7 +312,7 @@ public:
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
         kfsMode_t mode = 0666,
         kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
-		int maxReadWriteSize = 0);
+        int maxReadWriteSize = 0);
 
     ///
     /// Create a file which is specified by a complete path.
@@ -369,7 +369,7 @@ public:
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE,
         kfsMode_t mode = 0666,
         kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
-		int maxReadWriteSize = 0);
+        int maxReadWriteSize = 0);
 
     ///
     /// Create a file which is specified by a complete path.

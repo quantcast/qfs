@@ -281,7 +281,7 @@ public:
         int                    inSize,
         int                    inMaxPending,
         int64_t                inOffset,
-		int					   inMaxReadWriteSize = 0)
+        int                    inMaxReadWriteSize = 0)
     {
         if (IsSync(inRequestType)) {
             SyncRequest& theReq = GetSyncRequest(
@@ -293,7 +293,7 @@ public:
                 inSize,
                 inMaxPending,
                 inOffset,
-				inMaxReadWriteSize
+                inMaxReadWriteSize
             );
             const int64_t theRet = theReq.Execute(*this);
             PutSyncRequest(theReq);
@@ -624,7 +624,7 @@ private:
             int           inSize         = 0,
             int           inMaxPending   = -1,
             int64_t       inOffset       = -1,
-			int			  inMaxReadWriteSize = 0)
+            int           inMaxReadWriteSize = 0)
             : Request(
                 inRequestType,
                 inFileInstance,
@@ -634,7 +634,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset,
-				inMaxReadWriteSize),
+                inMaxReadWriteSize),
               KfsNetClient::OpOwner(),
               mMutex(),
               mCond(),
@@ -650,7 +650,7 @@ private:
             int           inSize         = 0,
             int           inMaxPending   = -1,
             int64_t       inOffset       = -1,
-			int			  inMaxReadWriteSize = 0)
+            int           inMaxReadWriteSize = 0)
         {
             QCRTASSERT(! mWaitingFlag);
             Request::Reset(
@@ -662,7 +662,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset,
-				inMaxReadWriteSize
+                inMaxReadWriteSize
             );
             mRetStatus   = 0;
             mWaitingFlag = 0;
@@ -1104,7 +1104,7 @@ private:
             Owner&            inOwner,
             Workers::iterator inWorkersIt,
             const char*       inLogPrefixPtr,
-			int				  inMaxWriteSize)
+            int               inMaxWriteSize)
             : Worker(inOwner, inWorkersIt),
               Writer::Completion(),
               mWriter(
@@ -1403,7 +1403,7 @@ private:
             Owner&            inOwner,
             Workers::iterator inWorkersIt,
             const char*       inLogPrefixPtr,
-			int				  inMaxReadSize)
+            int               inMaxReadSize)
             : Worker(inOwner, inWorkersIt),
               Reader::Completion(),
               mReader(
@@ -1746,7 +1746,7 @@ private:
         int                    inSize,
         int                    inMaxPending,
         int64_t                inOffset,
-		int					   inMaxReadWriteSize)
+        int                    inMaxReadWriteSize)
     {
         QCStMutexLocker lock(mMutex);
         SyncRequest* theReqPtr = FreeSyncRequests::PopFront(mFreeSyncRequests);
@@ -1759,7 +1759,7 @@ private:
             inSize,
             inMaxPending,
             inOffset,
-			inMaxReadWriteSize
+            inMaxReadWriteSize
         ) : *(new SyncRequest(
             inRequestType,
             inFileInstance,
@@ -1769,7 +1769,7 @@ private:
             inSize,
             inMaxPending,
             inOffset,
-			inMaxReadWriteSize
+            inMaxReadWriteSize
         )));
     }
     void PutSyncRequest(
@@ -1911,7 +1911,7 @@ KfsProtocolWorker::Request::Request(
     int                                       inSize         /* = 0 */,
     int                                       inMaxPending   /* = -1 */,
     int64_t                                   inOffset       /* = -1 */,
-	int										  inMaxReadWriteSize /* = 0 */)
+    int                                       inMaxReadWriteSize /* = 0 */)
     : mRequestType(inRequestType),
       mFileInstance(inFileInstance),
       mFileId(inFileId),
@@ -1922,7 +1922,7 @@ KfsProtocolWorker::Request::Request(
       mStatus(0),
       mMaxPendingOrEndPos(inMaxPending),
       mOffset(inOffset),
-	  mMaxReadWriteSize(inMaxReadWriteSize)
+      mMaxReadWriteSize(inMaxReadWriteSize)
 {
     KfsProtocolWorker::Impl::WorkQueue::Init(*this);
 }
@@ -1937,7 +1937,7 @@ KfsProtocolWorker::Request::Reset(
     int                                       inSize         /* = 0 */,
     int                                       inMaxPending   /* = -1 */,
     int64_t                                   inOffset       /* = -1 */,
-	int										  inMaxReadWriteSize /* = 0 */)
+    int                                       inMaxReadWriteSize /* = 0 */)
 {
     mRequestType        = inRequestType;
     mFileInstance       = inFileInstance;
@@ -1997,7 +1997,7 @@ KfsProtocolWorker::Execute(
     int                                       inSize,
     int                                       inMaxPending,
     int64_t                                   inOffset,
-	int										  inMaxReadWriteSize)
+    int                                       inMaxReadWriteSize)
 {
     return mImpl.Execute(
         inRequestType,
@@ -2008,7 +2008,7 @@ KfsProtocolWorker::Execute(
         inSize,
         inMaxPending,
         inOffset,
-		inMaxReadWriteSize
+        inMaxReadWriteSize
     );
 }
 

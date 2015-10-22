@@ -210,7 +210,7 @@ struct FileTableEntry {
     int                  ioBufferSize;
     ReadBuffer           buffer;
     ReadRequest*         mReadQueue[1];
-    int					 mMaxReadWriteSize;
+    int                  mMaxReadWriteSize;
 
     FileTableEntry(kfsFileId_t p, const string& n, unsigned int instance):
         parentFid(p),
@@ -230,7 +230,7 @@ struct FileTableEntry {
         dirEntries(0),
         ioBufferSize(0),
         buffer(),
-		mMaxReadWriteSize(0)
+        mMaxReadWriteSize(0)
         { mReadQueue[0] = 0; }
     ~FileTableEntry()
     {
@@ -394,7 +394,7 @@ public:
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
         kfsMode_t mode = kKfsModeUndef,
         kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
-		int maxReadWriteSize = 0);
+        int maxReadWriteSize = 0);
 
     ///
     /// Remove a file which is specified by a complete path.
@@ -871,7 +871,7 @@ private:
     int CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
         bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-		int maxReadWriteSize);
+        int maxReadWriteSize);
     ssize_t SetReadAheadSize(FileTableEntry& inEntry, size_t inSize, bool optimalFlag = false);
     ssize_t SetIoBufferSize(FileTableEntry& entry, size_t size, bool optimalFlag = false);
     ssize_t SetOptimalIoBufferSize(FileTableEntry& entry, size_t size) {

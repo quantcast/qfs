@@ -607,7 +607,7 @@ private:
                 Queue::PushBack(mPendingQueue, *theWriteOpPtr);
             }
             while (theSize >= theWriteThreshold) {
-            	int theOpSize = min(mOuter.mMaxWriteSize, theSize);
+                int theOpSize = min(mOuter.mMaxWriteSize, theSize);
                 if (theOpSize > kChecksumBlockSize) {
                     theOpSize -= theOpSize % kChecksumBlockSize;
                 }

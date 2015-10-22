@@ -413,7 +413,7 @@ public:
             }
         }
         if (mOffset - mRecoveryEndPos < max(1, inWriteThreshold)) {
-        	Flush(inWriteThreshold);
+            Flush(inWriteThreshold);
             return 0;
         }
         QCASSERT(mRecoveryStripeCount > 0);

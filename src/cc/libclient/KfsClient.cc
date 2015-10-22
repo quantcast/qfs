@@ -475,7 +475,6 @@ KfsClient::ParseCreateParams(const char* params,
     stripedType        = KFS_STRIPED_FILE_TYPE_NONE;
     minSTier           = kKfsSTierMax;
     maxSTier           = kKfsSTierMax;
-
     if (! params || ! *params) {
         return 0;
     }
@@ -518,7 +517,7 @@ int
 KfsClient::Create(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-	int maxReadWriteSize)
+    int maxReadWriteSize)
 {
     return mImpl->Create(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
@@ -592,7 +591,6 @@ KfsClient::Open(const char *pathname, int openFlags, const char *params,
     int        stripedType;
     kfsSTier_t minSTier;
     kfsSTier_t maxSTier;
-
     const int ret = ParseCreateParams(
         params, numReplicas, numStripes, numRecoveryStripes,
         stripeSize, stripedType, minSTier, maxSTier);
@@ -3203,7 +3201,7 @@ int
 KfsClientImpl::Create(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-	int maxReadWriteSize)
+    int maxReadWriteSize)
 {
     QCStMutexLocker l(mMutex);
     return CreateSelf(pathname, numReplicas, exclusive,
@@ -3215,7 +3213,7 @@ int
 KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-	int maxReadWriteSize)
+    int maxReadWriteSize)
 {
     if (! pathname || ! *pathname) {
         return -EINVAL;
@@ -3335,7 +3333,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
         " striper: "  << fa.striperType <<
-		" maxReadWriteSize: " << entry.mMaxReadWriteSize <<
+        " maxReadWriteSize: " << entry.mMaxReadWriteSize <<
     KFS_LOG_EOM;
 
     return fte;
@@ -3850,7 +3848,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             op.status = LookupSelf(op, parentFid, filename, fa, now, fpath);
         } else {
             if (fa) {
-            	Delete(fa);
+                Delete(fa);
                 fa = 0;
             }
             DoMetaOpWithRetry(&op);
@@ -3951,7 +3949,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
         }
     }
     if (! entry.fattr.isDirectory) {
-		SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
+        SetOptimalIoBufferSize(entry, mDefaultIoBufferSize);
         SetOptimalReadAheadSize(entry, mDefaultReadAheadSize);
         if (fa && entry.openMode != O_RDONLY) {
             Delete(fa); // Invalidate attribute cache entry if isn't read only.
