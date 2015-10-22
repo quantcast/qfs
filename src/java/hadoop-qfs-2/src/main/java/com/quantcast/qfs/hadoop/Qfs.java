@@ -103,6 +103,22 @@ public class Qfs extends AbstractFileSystem {
     ChecksumOpt         checksumOpt,
     boolean             createParent)
       throws IOException {
+    return createInternal(path, createFlag, absolutePermission, bufferSize, 
+            replication, blockSize, progress, checksumOpt, createParent, 0);
+  }
+  
+  public FSDataOutputStream createInternal(
+    Path                path,
+    EnumSet<CreateFlag> createFlag,
+    FsPermission        absolutePermission,
+    int                 bufferSize,
+    short               replication,
+    long                blockSize,
+    Progressable        progress,
+    ChecksumOpt         checksumOpt,
+    boolean             createParent,
+    int                 targetDiskIoSize)
+      throws IOException {
     CreateFlag.validate(createFlag);
     if (createParent) {
       mkdir(path.getParent(), absolutePermission, createParent);
@@ -113,6 +129,7 @@ public class Qfs extends AbstractFileSystem {
       bufferSize,
       createFlag.contains(CreateFlag.OVERWRITE),
       absolutePermission.toShort(),
+      targetDiskIoSize,
       createFlag.contains(CreateFlag.APPEND)
     );
   }
@@ -196,9 +213,14 @@ public class Qfs extends AbstractFileSystem {
   @Override
   public FSDataInputStream open(Path path, int bufferSize)
       throws IOException, UnresolvedLinkException {
-    return qfs.open(path, bufferSize);
+    return open(path, bufferSize, 0);
   }
 
+  public FSDataInputStream open(Path path, int bufferSize, int targetDiskIoSize)
+      throws IOException, UnresolvedLinkException {
+    return qfs.open(path, bufferSize, targetDiskIoSize);
+  }
+  
   @Override
   public void renameInternal(Path src, Path dst)
       throws IOException, UnresolvedLinkException {

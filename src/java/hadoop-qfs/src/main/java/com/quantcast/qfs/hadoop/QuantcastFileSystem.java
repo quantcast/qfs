@@ -169,28 +169,46 @@ public class QuantcastFileSystem extends FileSystem {
   public FSDataOutputStream create(Path file, FsPermission permission,
                                    boolean overwrite, int bufferSize,
                                    short replication, long blockSize,
-                                   Progressable progress)
-    throws IOException {
+                                   Progressable progress) throws IOException {
+      return create(file, permission, overwrite, bufferSize, replication,
+              blockSize, 0, progress);
+  }
+  
+  public FSDataOutputStream create(Path file, FsPermission permission,
+                                   boolean overwrite, int bufferSize,
+                                   short replication, long blockSize,
+                                   int targetDiskIoSize, Progressable progress) throws IOException {
     Path parent = file.getParent();
     if (parent != null && !mkdirs(parent)) {
       throw new IOException("Mkdirs failed to create " + parent);
     }
     return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
-      replication, bufferSize, overwrite, permission.toShort());
+      replication, bufferSize, overwrite, permission.toShort(), targetDiskIoSize);
   }
 
+  public FSDataOutputStream createNonRecursive(Path file, FsPermission permission,
+                                               boolean overwrite, int bufferSize,
+                                               short replication, long blockSize,
+                                               Progressable progress) throws IOException {
+      return createNonRecursive(file, permission, overwrite, bufferSize, replication, 
+              blockSize, 0, progress);
+  }
+  
   public FSDataOutputStream createNonRecursive(Path file,
                                    FsPermission permission,
                                    boolean overwrite, int bufferSize,
                                    short replication, long blockSize,
-                                   Progressable progress)
-    throws IOException {
-    return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
-      replication, bufferSize, overwrite, permission.toShort());
+                                   int targetDiskIoSize, Progressable progress) throws IOException {
+      return qfsImpl.create(makeAbsolute(file).toUri().getPath(), 
+              replication, bufferSize, overwrite, permission.toShort(), targetDiskIoSize);
   }
 
   public FSDataInputStream open(Path path, int bufferSize) throws IOException {
-    return qfsImpl.open(makeAbsolute(path).toUri().getPath(), bufferSize);
+      return open(path, bufferSize, 0);
+  }
+  
+  public FSDataInputStream open(Path path, int bufferSize, int targetDiskIoSize) throws IOException {
+      return qfsImpl.open(makeAbsolute(path).toUri().getPath(), bufferSize, targetDiskIoSize);
   }
 
   public boolean rename(Path src, Path dst) throws IOException {

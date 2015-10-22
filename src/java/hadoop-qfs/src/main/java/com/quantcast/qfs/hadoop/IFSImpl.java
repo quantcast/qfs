@@ -62,13 +62,13 @@ interface IFSImpl {
 
   public long getModificationTime(String path) throws IOException;
   public FSDataOutputStream create(String path, short replication,
-           int bufferSize, boolean overwrite, int mode) throws IOException;
+           int bufferSize, boolean overwrite, int mode, int targetDiskIoSize) throws IOException;
   public FSDataOutputStream create(String path, short replication,
             int bufferSize, boolean overwrite, int mode,
-            boolean append) throws IOException;
+            int targetDiskIoSize, boolean append) throws IOException;
   public FSDataOutputStream append(String path, short replication,
            int bufferSize) throws IOException;
-  public FSDataInputStream open(String path, int bufferSize)
+  public FSDataInputStream open(String path, int bufferSize, int targetDiskIoSize)
            throws IOException;
   public void setPermission(String path, int mode) throws IOException;
   public void setOwner(String path, String username, String groupname)

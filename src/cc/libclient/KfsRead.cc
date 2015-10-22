@@ -417,7 +417,8 @@ private:
             inBufPtr,
             inSize,
             0, // inMaxPending,
-            inOffset
+            inOffset,
+            inEntry.mTargetDiskIoSize
         );
         if (GetSize() <= 0) {
             return 0;
@@ -605,6 +606,7 @@ KfsClientImpl::Read(
     int64_t       theLen           = min(theEof - thePos, (int64_t)inSize);
     const int     theSize          = (int)theLen;
     const bool    theSkipHolesFlag = theEntry.skipHoles;
+    const int	  theTargetDiskIoSize = theEntry.mTargetDiskIoSize;
     if (theLen <= 0) {
         return 0;
     }
@@ -769,7 +771,8 @@ KfsClientImpl::Read(
             inBufPtr + theRet,
             theRdSize,
             0,
-            thePos
+            thePos,
+            theTargetDiskIoSize
         );
         if (theSkipHolesFlag && theStatus == -ENOENT) {
             theStatus = 0;
@@ -846,8 +849,9 @@ KfsClientImpl::SetReadAheadSize(
             theAttr.numStripes > 0 &&
             theAttr.stripeSize < theSize) {
         const int theStride = theAttr.stripeSize * theAttr.numStripes;
+        const int theTargetDiskIoSize = (inEntry.mTargetDiskIoSize > 0 ? inEntry.mTargetDiskIoSize : mTargetDiskIoSize);
         theSize = (max(inOptimalFlag ?
-                mTargetDiskIoSize * theAttr.numStripes : 0, theSize) +
+                theTargetDiskIoSize * theAttr.numStripes : 0, theSize) +
             theStride - 1) / theStride * theStride;
     }
     inEntry.buffer.SetBufSize(theSize);
