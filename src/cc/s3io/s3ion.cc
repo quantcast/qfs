@@ -355,6 +355,8 @@ public:
             " create: " << theFile.mCreateFlag <<
             " excl: "   << theFile.mCreateExclusiveFlag <<
             " max sz: " << theFile.mMaxFileSize <<
+            " upload: " << theFile.mUploadId <<
+            " parts: "  << theFile.mMPutParts.size() <<
             " status: " << theRet <<
         KFS_LOG_EOM;
         if (theFile.mCommitFlag &&
@@ -365,7 +367,7 @@ public:
                 *this, theFile.mFileName, theFile.mUploadId)));
         }
         // Clear the list, request completion should detect file close and
-        // abort the qrequest followed by required cleanup.
+        // abort the request followed by required cleanup.
         while (File::List::PopFront(theFile.mPendingListPtr))
             {}
         if (mFileTable.size() == (size_t)inFd + 1) {
@@ -827,15 +829,16 @@ public:
 private:
     enum
     {
-        kMd5Len         = 128 / 8,
-        kSha1Len        = 160 / 8,
-        kSha256Len      = 256 / 8,
-        kMaxMdLen       = kSha256Len,
-        kISODateLen     = 8,
-        kV4SignDateLen  = kISODateLen,
-        kMd5Base64Len   = (kMd5Len + 2) / 3 * 4,
-        kSha256HexLen   = kSha256Len * 2,
-        kMaxDateTimeLen = 32
+        kMd5Len            = 128 / 8,
+        kSha1Len           = 160 / 8,
+        kSha256Len         = 256 / 8,
+        kMaxMdLen          = kSha256Len,
+        kISODateLen        = 8,
+        kV4SignDateLen     = kISODateLen,
+        kMd5Base64Len      = (kMd5Len + 2) / 3 * 4,
+        kSha256HexLen      = kSha256Len * 2,
+        kMaxDateTimeLen    = 32,
+        kMaxUploadIdLength = 4 << 10
     };
     typedef char Md5Buf[kMd5Len];
     typedef char Sha256Buf[kSha256Len];
@@ -1765,6 +1768,13 @@ private:
                 return false;
             }
             if (! IsStatusOk() || ! ParseGetUploadsResponse(inBuffer)) {
+                KFS_LOG_STREAM_ERROR <<
+                    mOuter.mLogPrefix << Show(*this) <<
+                    "failed to parse get uploads response: " <<
+                    " response length: " << inBuffer.BytesConsumable() <<
+                    " data: " << ShowData(inBuffer,
+                        mOuter.mDebugTraceMaxErrorDataSize) <<
+                KFS_LOG_EOM;
                 Retry();
             } else if (mOuter.IsRunning()) {
                 mOuter.ScheduleNext(*this);
@@ -1827,7 +1837,8 @@ private:
             int theUploadIdEndIdx = inBuffer.IndexOf(
                 theUploadIdIdx + 1, kStrGetUploadsUploadIdEnd.data());
             if (theUploadIdEndIdx <= theUploadIdIdx ||
-                    theUploadEndIdx <= theUploadIdEndIdx) {
+                    theUploadEndIdx <= theUploadIdEndIdx ||
+                    theUploadIdIdx + kMaxUploadIdLength < theUploadIdEndIdx) {
                 return false;
             }
             inBuffer.Consume(theUploadIdIdx);
@@ -2363,9 +2374,8 @@ private:
             theIdx += kStrMPutInitResultUploadIdStart.size();
             const int theEndIdx    = inBuffer.IndexOf(theIdx,
                 kStrMPutInitResultUploadIdEnd.data());
-            const int kMaxIdLength = 4 << 10;
             if (theEndIdx <= theIdx || theResEndIdx <= theEndIdx ||
-                    theIdx + kMaxIdLength < theEndIdx) {
+                    theIdx + kMaxUploadIdLength < theEndIdx) {
                 return string();
             }
             inBuffer.Consume(theIdx);
