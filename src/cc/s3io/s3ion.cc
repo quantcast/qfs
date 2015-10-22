@@ -340,7 +340,7 @@ public:
         }
         int theRet = 0;
         File& theFile = *theFilePtr;
-        if (! theFile.mReadOnlyFlag &&  theFile.mMaxFileSize < inEof) {
+        if (! theFile.mReadOnlyFlag && theFile.mMaxFileSize < inEof) {
             theRet = EINVAL;
         }
         KFS_LOG_STREAM(0 == theRet ?
@@ -357,6 +357,17 @@ public:
             " max sz: " << theFile.mMaxFileSize <<
             " status: " << theRet <<
         KFS_LOG_EOM;
+        if (theFile.mCommitFlag &&
+                ! theFile.mUploadId.empty() &&
+                File::List::IsEmpty(theFile.mPendingListPtr) &&
+                IsRunning()) {
+            mClient.Run(*(new S3Delete(
+                *this, theFile.mFileName, theFile.mUploadId)));
+        }
+        // Clear the list, request completion should detect file close and
+        // abort the qrequest followed by required cleanup.
+        while (File::List::PopFront(theFile.mPendingListPtr))
+            {}
         if (mFileTable.size() == (size_t)inFd + 1) {
             mFileTable.pop_back();
         } else {
@@ -1746,10 +1757,6 @@ private:
     private:
         bool   mGetUploadsFlag;
         string mUploadId;
-        S3Delete(
-            const S3Delete& inDelete);
-        S3Delete& operator=(
-            const S3Delete& inDelete);
 
         bool HandleGetUploadsResponse(
             IOBuffer& inBuffer)
@@ -1848,6 +1855,11 @@ private:
             mGetUploadsFlag = theTruncFlag; // Has more uploads.
             return true;
         }
+    private:
+        S3Delete(
+            const S3Delete& inDelete);
+        S3Delete& operator=(
+            const S3Delete& inDelete);
     };
     friend class S3Delete;
     class S3Put : public S3Req
