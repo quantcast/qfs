@@ -34,6 +34,7 @@ set (exe_files
     sslfiltertest
     dtokentest
     httpstest
+    xmlscannertest
 )
 
 #
