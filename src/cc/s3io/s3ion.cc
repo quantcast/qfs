@@ -945,45 +945,18 @@ private:
         MPPut*     mPendingListPtr[1];
     };
     typedef vector<File> FileTable;
-    template<typename T>
-    class XmlResponseParser
+    class IOBufferInputIterator : private IOBuffer::ByteIterator
     {
     public:
-        XmlResponseParser(
-            T&      inTarget,
-            string& inKeyBuf,
-            string& inValueBuf)
-            : mTarget(inTarget),
-              mFunc(*this, inKeyBuf, inValueBuf)
-            {}
-        bool operator()(
-            const string& inKey,
-            const string& inValue)
-            { return mTarget(inKey, inValue); }
-        bool Parse(
+        IOBufferInputIterator(
             const IOBuffer& inBuffer)
+            : IOBuffer::ByteIterator(inBuffer)
+            {}
+        int Next()
         {
-            Iterator theIt(inBuffer);
-            return mFunc.Scan(theIt);
+            const char* const thePtr = IOBuffer::ByteIterator::Next();
+            return (thePtr ? (*thePtr & 0xFF) : -1);
         }
-        const string& GetKey() const
-            { return mFunc.GetKey(); }
-    private:
-        class Iterator : private IOBuffer::ByteIterator
-        {
-        public:
-            Iterator(
-                const IOBuffer& inBuffer)
-                : IOBuffer::ByteIterator(inBuffer)
-                {}
-            int Next()
-            {
-                const char* const thePtr = IOBuffer::ByteIterator::Next();
-                return (thePtr ? (*thePtr & 0xFF) : -1);
-            }
-        };
-        T&                                                      mTarget;
-        XmlScanner::KeyValueFunc<string, XmlResponseParser<T> > mFunc;
     };
     class S3Req : public KfsCallbackObj, public TransactionalClient::Transaction
     {
@@ -1766,6 +1739,7 @@ private:
             int         const kContentLength      = -1;
             int64_t     const kRangeStart         = -1;
             int64_t     const kRangeEnd           = -1;
+            // Maintain AWS authorization v4 "canonical" form of the query.
             if (! mUploadId.empty()) {
                 mOuter.mTmpBuffer = "uploadId=";
                 mOuter.mTmpBuffer += mUploadId;
@@ -2598,9 +2572,10 @@ private:
     {
         mTmpBuffer.clear();
         mTmpSignBuffer.clear();
-        XmlResponseParser<T> theParser(
+        XmlScanner::KeyValueFunc<string, T> theScanner(
             inTarget, mTmpBuffer, mTmpSignBuffer);
-        return theParser.Parse(inBuffer);
+        IOBufferInputIterator               theIt(inBuffer);
+        return theScanner.Scan(theIt);
     }
     const string& GetXmlLastParsedKey()
         { return mTmpBuffer; }
