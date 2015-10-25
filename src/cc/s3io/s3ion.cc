@@ -2371,8 +2371,8 @@ private:
                     List::IsEmpty(theFilePtr->mPendingListPtr)) {
                 if (theFilePtr->mErrorFlag) {
                     if (mOuter.IsRunning()) {
-                        // Delete all upload parts.
-                        mOuter.mClient.Run(*(new S3Delete(
+                        // Abort: delete all upload parts.
+                        mOuter.ScheduleNext(*(new S3Delete(
                             mOuter, mFileName, theFilePtr->mUploadId)));
                     }
                 } else {
