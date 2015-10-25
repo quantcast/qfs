@@ -42,8 +42,13 @@ class XmlScannerTest
 {
 public:
     XmlScannerTest()
-        : mFunc(*this, 1 << 10, 1 << 10)
-        {}
+        : mKey(),
+          mValue(),
+          mFunc(*this, mKey, mValue)
+    {
+        mKey.reserve(1 << 10);
+        mValue.reserve(1 << 10);
+    }
     bool operator()(
         const string& inKey,
         const string& inVal)
@@ -69,6 +74,8 @@ private:
             return cin.get();
         }
     };
+    string                                           mKey;
+    string                                           mValue;
     XmlScanner::KeyValueFunc<string, XmlScannerTest> mFunc;
 };
 

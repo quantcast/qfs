@@ -183,6 +183,9 @@ public:
                     if ('?' == theSym) {
                         theState = kStatePrologEnd;
                     }
+                    if (inFunc(theState, theSym)) {
+                        break;
+                    }
                     break;
                 case kStatePrologEnd:
                     if ('>' != theSym) {
@@ -210,20 +213,17 @@ public:
         typedef typename StringT::size_type Size; 
 
         KeyValueFunc(
-            FuncT& inFunc,
-            Size   inMaxKeySizeHint   = 0,
-            Size   inMaxValueSizeHint = 0)
+            FuncT&  inFunc,
+            String& inKeyBuf,
+            String& inValueBuf)
             : mFunc(inFunc),
               mCloseTagPos(String::npos),
               mCurCloseTagPos(String::npos),
               mPrevState(kStateNone),
               mLeafFlag(false),
-              mKey(),
-              mValue()
-        {
-            mKey.reserve(inMaxKeySizeHint);
-            mValue.reserve(inMaxValueSizeHint);
-        }
+              mKey(inKeyBuf),
+              mValue(inValueBuf)
+            {}
         void Reset()
         {
             mKey.clear();
@@ -305,13 +305,13 @@ public:
         bool IsLeaf() const
             { return mLeafFlag; }
     protected:
-        FuncT& mFunc;
-        Size   mCloseTagPos;
-        Size   mCurCloseTagPos;
-        State  mPrevState;
-        bool   mLeafFlag;
-        String mKey;
-        String mValue;
+        FuncT&  mFunc;
+        Size    mCloseTagPos;
+        Size    mCurCloseTagPos;
+        State   mPrevState;
+        bool    mLeafFlag;
+        String& mKey;
+        String& mValue;
 
         bool CloseEmptyTag()
         {

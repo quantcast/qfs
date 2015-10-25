@@ -31,6 +31,7 @@
 #include "common/IntToString.h"
 #include "common/Properties.h"
 #include "common/httputils.h"
+#include "common/XmlScanner.h"
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCDLList.h"
@@ -93,6 +94,12 @@ public:
         const char* inPtr)
         : PropertiesTokenizer::Token(inPtr)
         {}
+    bool operator==(
+        const string& inRhs) const
+    {
+        return (*static_cast<const Token*>(this) ==
+            Token(inRhs.data(), inRhs.size()));
+    }
     const char* data() const
         { return mPtr; }
     size_t size() const
@@ -116,33 +123,39 @@ const char* const kS3IODateMonths[12] = {
 const int64_t kS3MinPartSize = int64_t(5) << 20;
 const string  kEmptyString;
 
-const S3StrToken kS3MPutCompleteStart("<CompleteMultipartUpload>");
-const S3StrToken kS3MPutCompleteEnd  ("</CompleteMultipartUpload>");
-const S3StrToken kS3MPutCompletePartStart("<Part>");
-const S3StrToken kS3MPutCompletePartEnd  ("</Part>");
+const S3StrToken kStrMPutInitResultResultBucket(
+    "/InitiateMultipartUploadResult/Bucket");
+const S3StrToken kStrMPutInitResultResultKey(
+    "/InitiateMultipartUploadResult/Key");
+const S3StrToken kStrMPutInitResultResulUploadId(
+    "/InitiateMultipartUploadResult/UploadId");
+
+const S3StrToken kS3MPutCompleteStart          ("<CompleteMultipartUpload>");
+const S3StrToken kS3MPutCompleteEnd            ("</CompleteMultipartUpload>");
+const S3StrToken kS3MPutCompletePartStart      ("<Part>");
+const S3StrToken kS3MPutCompletePartEnd        ("</Part>");
 const S3StrToken kS3MPutCompletePartNumberStart("<PartNumber>");
 const S3StrToken kS3MPutCompletePartNumberEnd  ("</PartNumber>");
-const S3StrToken kS3MPutCompleteETagStart("<ETag>");
-const S3StrToken kS3MPutCompleteETagEnd  ("</ETag>");
+const S3StrToken kS3MPutCompleteETagStart      ("<ETag>");
+const S3StrToken kS3MPutCompleteETagEnd        ("</ETag>");
 
-const S3StrToken kStrMPutInitResultStart("<InitiateMultipartUploadResult");
-const S3StrToken kStrMPutInitResultEnd  ("</InitiateMultipartUploadResult");
-const S3StrToken kStrMPutInitResultUploadIdStart("<UploadId");
-const S3StrToken kStrMPutInitResultUploadIdEnd  ("<<UploadId");
+const S3StrToken kStrMPutCompleteResultBucket(
+    "/CompleteMultipartUploadResult/Bucket");
+const S3StrToken kStrMPutCompleteResultKey(
+    "/CompleteMultipartUploadResult/Key");
+const S3StrToken kStrMPutCompleteResultETag(
+    "/CompleteMultipartUploadResult/ETag");
 
-const S3StrToken kStrMPutCompleteResultStart("<CompleteMultipartUploadResult");
-const S3StrToken kStrMPutCompleteResultEnd("</CompleteMultipartUploadResult");
-const S3StrToken kStrMPutKeyStart("<Key");
-const S3StrToken kStrMPutKeyEnd("</Key");
-
-const S3StrToken kStrGetUploadsResultStrart("<ListMultipartUploadsResult");
-const S3StrToken kStrGetUploadsResultEnd("</ListMultipartUploadsResult");
-const S3StrToken kStrGetUploadsIsTruncatedStrart("<IsTruncated");
-const S3StrToken kStrGetUploadsIsTruncatedEnd("</IsTruncated");
-const S3StrToken kStrGetUploadsUploadStrart("<Upload");
-const S3StrToken kStrGetUploadsUploadEnd("</Upload");
-const S3StrToken kStrGetUploadsUploadIdStrart("<UploadId");
-const S3StrToken kStrGetUploadsUploadIdEnd("</UploadID");
+const S3StrToken kStrGetUploadsResultBucket(
+    "/ListMultipartUploadsResult/Bucket");
+const S3StrToken kStrGetUploadsResultMaxUploads(
+    "/ListMultipartUploadsResult/MaxUploads");
+const S3StrToken kStrGetUploadsResultIsTruncated(
+    "/ListMultipartUploadsResult/IsTruncated");
+const S3StrToken kStrGetUploadsResultUploadKey(
+    "/ListMultipartUploadsResult/Upload/Key");
+const S3StrToken kStrGetUploadsResultUploadUploadId(
+    "/ListMultipartUploadsResult/Upload/UploadId");
 
 class S3ION : public IOMethod
 {
@@ -932,6 +945,46 @@ private:
         MPPut*     mPendingListPtr[1];
     };
     typedef vector<File> FileTable;
+    template<typename T>
+    class XmlResponseParser
+    {
+    public:
+        XmlResponseParser(
+            T&      inTarget,
+            string& inKeyBuf,
+            string& inValueBuf)
+            : mTarget(inTarget),
+              mFunc(*this, inKeyBuf, inValueBuf)
+            {}
+        bool operator()(
+            const string& inKey,
+            const string& inValue)
+            { return mTarget(inKey, inValue); }
+        bool Parse(
+            const IOBuffer& inBuffer)
+        {
+            Iterator theIt(inBuffer);
+            return mFunc.Scan(theIt);
+        }
+        const string& GetKey() const
+            { return mFunc.GetKey(); }
+    private:
+        class Iterator : private IOBuffer::ByteIterator
+        {
+        public:
+            Iterator(
+                const IOBuffer& inBuffer)
+                : IOBuffer::ByteIterator(inBuffer)
+                {}
+            int Next()
+            {
+                const char* const thePtr = IOBuffer::ByteIterator::Next();
+                return (thePtr ? (*thePtr & 0xFF) : -1);
+            }
+        };
+        T&                                                      mTarget;
+        XmlScanner::KeyValueFunc<string, XmlResponseParser<T> > mFunc;
+    };
     class S3Req : public KfsCallbackObj, public TransactionalClient::Transaction
     {
     public:
@@ -1770,7 +1823,8 @@ private:
             if (! IsStatusOk() || ! ParseGetUploadsResponse(inBuffer)) {
                 KFS_LOG_STREAM_ERROR <<
                     mOuter.mLogPrefix << Show(*this) <<
-                    "failed to parse get uploads response: " <<
+                    "failed to parse get uploads response:" <<
+                    " at: " << mOuter.GetXmlLastParsedKey() <<
                     " response length: " << inBuffer.BytesConsumable() <<
                     " data: " << ShowData(inBuffer,
                         mOuter.mDebugTraceMaxErrorDataSize) <<
@@ -1781,90 +1835,83 @@ private:
             }
             return true;
         }
-        bool ParseGetUploadsResponse(
-            IOBuffer& inBuffer)
+        class GetUploadsResponseParser
         {
-            int theResIdx = inBuffer.IndexOf(
-                0, kStrGetUploadsResultStrart.data());
-            if (theResIdx < 0) {
-                return false;
-            }
-            theResIdx += kStrGetUploadsResultStrart.size() + 1;
-            const int theResEndIdx = inBuffer.IndexOf(
-                theResIdx, kStrGetUploadsResultEnd.data());
-            if (theResEndIdx <= theResIdx) {
-                return false;
-            }
-            int theTruncIdx = inBuffer.IndexOf(theResIdx,
-                kStrGetUploadsIsTruncatedStrart.data());
-            if (theTruncIdx <= theResIdx || theResEndIdx <= theTruncIdx) {
-                return false;
-            }
-            theTruncIdx += kStrGetUploadsIsTruncatedStrart.size();
-            const int theTruncEnd = inBuffer.IndexOf(
-                theTruncIdx + 1, kStrGetUploadsIsTruncatedEnd.data());
-            if (theTruncEnd <= theTruncIdx || theResEndIdx <= theTruncEnd) {
-                return false;
-            }
-            int theTruncValIdx = inBuffer.IndexOf(theTruncIdx, ">true<");
-            const bool theTruncFlag = theTruncIdx <= theTruncValIdx &&
-                theTruncValIdx + 5 == theTruncEnd;
-            int theUploadIdx = inBuffer.IndexOf(
-                theTruncEnd + 1, kStrGetUploadsUploadStrart.data());
-            if (theUploadIdx <= theResIdx || theResEndIdx <= theUploadIdx) {
-                if (theTruncFlag) {
-                    return false;
+        public:
+            GetUploadsResponseParser(
+                const string& inBucketName,
+                const string& inFileName,
+                string&       inUploadId)
+                : mBucketName(inBucketName),
+                  mFileName(inFileName),
+                  mUploadId(inUploadId),
+                  mGotBucketFlag(false),
+                  mGotKeyFlag(false),
+                  mGotIsTruncatedFlag(false),
+                  mGotMaxResultsFlag(false),
+                  mHasMoreFlag(false)
+                {}
+            bool operator()(
+                const string& inKey,
+                const string& inValue)
+            {
+                if (kStrGetUploadsResultBucket == inKey) {
+                    mGotBucketFlag = true;
+                    return (inValue == mBucketName);
                 }
-                // No uploads.
-                mUploadId.clear();
-                mGetUploadsFlag = false;
+                if (kStrGetUploadsResultMaxUploads == inKey) {
+                    mGotMaxResultsFlag = true;
+                    return (inValue == "1");
+                }
+                if (kStrGetUploadsResultUploadKey == inKey) {
+                    mGotKeyFlag = true;
+                    return (inValue == mFileName);
+                }
+                if (kStrGetUploadsResultIsTruncated == inKey) {
+                    mGotIsTruncatedFlag = true;
+                    mHasMoreFlag = inValue == "true";
+                    return (mHasMoreFlag || inValue == "false");
+                }
+                if (kStrGetUploadsResultUploadUploadId == inKey) {
+                    mUploadId = XmlToUrlEncoding(
+                        inValue.data(), inValue.size());
+                    return ! mUploadId.empty();
+                }
                 return true;
             }
-            theUploadIdx += kStrGetUploadsUploadStrart.size() + 1;
-            const int theUploadEndIdx = inBuffer.IndexOf(
-                theUploadIdx, kStrGetUploadsUploadEnd.data());
-            if (theUploadEndIdx <= theUploadIdx ||
-                    theResEndIdx <= theUploadEndIdx) {
-                return false;
+            bool HasMore() const
+                { return mHasMoreFlag; }
+            bool IsOk() const
+            {
+                return (
+                  mGotBucketFlag &&
+                  mGotIsTruncatedFlag &&
+                  mGotMaxResultsFlag &&
+                  (mGotKeyFlag != mUploadId.empty())
+                );
             }
-            int theUploadIdIdx = inBuffer.IndexOf(
-                theUploadIdx, kStrGetUploadsUploadIdStrart.data());
-            if (theUploadIdIdx <= theUploadIdx ||
-                    theUploadEndIdx <= theUploadIdx) {
-                return false;
+        private:
+            const string& mBucketName;
+            const string& mFileName;
+            string&       mUploadId;
+            bool          mGotBucketFlag:1;
+            bool          mGotKeyFlag:1;
+            bool          mGotIsTruncatedFlag:1;
+            bool          mGotMaxResultsFlag:1;
+            bool          mHasMoreFlag:1;
+        };
+        bool ParseGetUploadsResponse(
+            const IOBuffer& inBuffer)
+        {
+            GetUploadsResponseParser theParser(
+                mOuter.mBucketName, mFileName, mUploadId);
+            if (mOuter.ParseXmlResponse(inBuffer, theParser) &&
+                    theParser.IsOk()) {
+                mGetUploadsFlag = theParser.HasMore();
+                return true;
             }
-            theUploadIdIdx += kStrGetUploadsUploadIdStrart.size();
-            int theUploadIdEndIdx = inBuffer.IndexOf(
-                theUploadIdIdx + 1, kStrGetUploadsUploadIdEnd.data());
-            if (theUploadIdEndIdx <= theUploadIdIdx ||
-                    theUploadEndIdx <= theUploadIdEndIdx ||
-                    theUploadIdIdx + kMaxUploadIdLength < theUploadIdEndIdx) {
-                return false;
-            }
-            inBuffer.Consume(theUploadIdIdx);
-            int                  theLen    = theUploadIdEndIdx - theUploadIdIdx;
-            StBufferT<char, 256> theBuf;
-            const char*          thePtr    =
-                inBuffer.CopyOutOrGetBufPtr(theBuf.Resize(theLen), theLen);
-            const char* const    theEndPtr = thePtr + theLen;
-            if (theEndPtr <= thePtr) {
-                return false;
-            }
-            const int theSym = *thePtr & 0xFF;
-            if (theSym != '>') {
-                if (' ' < theSym) {
-                    return false;
-                }
-                while (thePtr < theEndPtr && *thePtr != '>') {
-                    ++thePtr;
-                }
-            }
-            mUploadId = XmlToUrlEncoding(thePtr, theEndPtr - thePtr);
-            if (mUploadId.empty()) {
-                return false;
-            }
-            mGetUploadsFlag = theTruncFlag; // Has more uploads.
-            return true;
+            mUploadId.clear();
+            return false;
         }
     private:
         S3Delete(
@@ -2232,7 +2279,8 @@ private:
                         if (theFilePtr->mUploadId.empty()) {
                             KFS_LOG_STREAM_ERROR <<
                                 mOuter.mLogPrefix << Show(*this) <<
-                                "failed to parse upload id"
+                                "failed to parse upload id:"
+                                " at: " << mOuter.GetXmlLastParsedKey() <<
                                 " response length: " <<
                                     inBuffer.BytesConsumable() <<
                                 " data: " << ShowData(inBuffer,
@@ -2248,6 +2296,7 @@ private:
                                 KFS_LOG_STREAM_ERROR <<
                                     mOuter.mLogPrefix << Show(*this) <<
                                     "commit error:"
+                                    " at: " << mOuter.GetXmlLastParsedKey() <<
                                     " response length: " <<
                                         inBuffer.BytesConsumable() <<
                                     " data: " << ShowData(inBuffer,
@@ -2352,84 +2401,107 @@ private:
             }
             S3Req::DoneSelf(mDataBuf.BytesConsumable(), 0);
         }
+        class UploadIdParser
+        {
+        public:
+            UploadIdParser(
+                const string& inBucketName,
+                const string& inFileName,
+                string&       inUploadId)
+                : mBucketName(inBucketName),
+                  mFileName(inFileName),
+                  mUploadId(inUploadId),
+                  mGotBucketFlag(false),
+                  mGotKeyFlag(false)
+                {}
+            bool operator()(
+                const string& inKey,
+                const string& inValue)
+            {
+                if (kStrMPutInitResultResultBucket == inKey) {
+                    mGotBucketFlag = true;
+                    return (inValue == mBucketName);
+                }
+                if (kStrMPutInitResultResultKey == inKey) {
+                    mGotKeyFlag = true;
+                    return (inValue == mFileName);
+                }
+                if (kStrMPutInitResultResulUploadId == inKey) {
+                    mUploadId = XmlToUrlEncoding(
+                        inValue.data(), inValue.size());
+                    return ! mUploadId.empty();
+                }
+                return true;
+            }
+            bool IsError() const
+            {
+                return (! mGotBucketFlag || ! mGotKeyFlag || mUploadId.empty());
+            }
+        private:
+            const string& mBucketName;
+            const string& mFileName;
+            string&       mUploadId;
+            bool          mGotBucketFlag:1;
+            bool          mGotKeyFlag:1;
+        };
         string ParseUploadId(
-            IOBuffer& inBuffer)
+            const IOBuffer& inBuffer) const
         {
-            int theResIdx = inBuffer.IndexOf(
-                0, kStrMPutInitResultStart.data());
-            if (theResIdx < 0) {
-                return string();
+            string         theId;
+            UploadIdParser theParser(mOuter.mBucketName, mFileName, theId);
+            if (! mOuter.ParseXmlResponse(inBuffer, theParser) ||
+                    theParser.IsError()) {
+                return kEmptyString;
             }
-            theResIdx += kStrMPutInitResultStart.size();
-            const int theResEndIdx = inBuffer.IndexOf(
-                theResIdx, kStrMPutInitResultEnd.data());
-            if (theResEndIdx <= theResIdx) {
-                return string();
-            }
-            int theIdx = inBuffer.IndexOf(theResIdx + 1,
-                kStrMPutInitResultUploadIdStart.data());
-            if (theIdx <= 0 || theResEndIdx <= theIdx) {
-                return string();
-            }
-            theIdx += kStrMPutInitResultUploadIdStart.size();
-            const int theEndIdx    = inBuffer.IndexOf(theIdx,
-                kStrMPutInitResultUploadIdEnd.data());
-            if (theEndIdx <= theIdx || theResEndIdx <= theEndIdx ||
-                    theIdx + kMaxUploadIdLength < theEndIdx) {
-                return string();
-            }
-            inBuffer.Consume(theIdx);
-            int                  theLen    = theEndIdx - theIdx;
-            StBufferT<char, 256> theBuf;
-            const char*          thePtr    =
-                inBuffer.CopyOutOrGetBufPtr(theBuf.Resize(theLen), theLen);
-            const char* const    theEndPtr = thePtr + theLen;
-            if (theEndPtr <= thePtr) {
-                return string();
-            }
-            const int theSym = *thePtr & 0xFF;
-            if (theSym != '>') {
-                if (' ' < theSym) {
-                    return string();
-                }
-                while (thePtr < theEndPtr && *thePtr != '>') {
-                    ++thePtr;
-                }
-            }
-            return XmlToUrlEncoding(thePtr, theEndPtr - thePtr);
+            return theId;
         }
-        bool ParseCommitResponse(
-            IOBuffer& inBuffer)
+        class CommitResponseParser
         {
-            int theResIdx = inBuffer.IndexOf(
-                0, kStrMPutCompleteResultStart.data());
-            if (theResIdx < 0) {
-                return false;
+        public:
+            CommitResponseParser(
+                const string& inBucketName,
+                const string& inFileName)
+                : mBucketName(inBucketName),
+                  mFileName(inFileName),
+                  mGotBucketFlag(false),
+                  mGotKeyFlag(false),
+                  mGotETagFlag(false)
+                {}
+            bool operator()(
+                const string& inKey,
+                const string& inValue)
+            {
+                if (kStrMPutCompleteResultBucket == inKey) {
+                    mGotBucketFlag = true;
+                    return (inValue == mBucketName);
+                }
+                if (kStrMPutCompleteResultKey == inKey) {
+                    mGotKeyFlag = true;
+                    return (inValue == mFileName);
+                }
+                if (kStrMPutCompleteResultETag == inKey) {
+                    mGotETagFlag = true;
+                    return (! inValue.empty());
+                }
+                return true;
             }
-            theResIdx += kStrMPutCompleteResultStart.size();
-            const int theResEndIdx = inBuffer.IndexOf(
-                theResIdx, kStrMPutCompleteResultEnd.data());
-            if (theResEndIdx <= theResIdx) {
-                return false;
-            }
-            int theIdx = inBuffer.IndexOf(theResIdx + 1,
-                kStrMPutKeyStart.data());
-            if (theIdx <= 0 || theResEndIdx <= theIdx) {
-                return false;
-            }
-            theIdx += kStrMPutInitResultUploadIdStart.size();
-            // No XML decoding should be required as file name is "URL safe".
-            int theFnIdx = inBuffer.IndexOf(theIdx, mFileName.data());
-            if (theFnIdx <= theIdx || theResEndIdx <= theFnIdx) {
-                return false;
-            }
-            theFnIdx += mFileName.size();
-            const int theEndIdx = inBuffer.IndexOf(
-                theFnIdx, kStrMPutKeyEnd.data());
-            if (theEndIdx != theFnIdx || theResEndIdx <= theEndIdx) {
-                return false;
-            }
-            return true;
+            bool IsOk() const
+                { return ( mGotBucketFlag && mGotKeyFlag && mGotETagFlag); }
+        private:
+            const string& mBucketName;
+            const string& mFileName;
+            bool          mGotBucketFlag:1;
+            bool          mGotKeyFlag:1;
+            bool          mGotETagFlag:1;
+        };
+        bool ParseCommitResponse(
+            const IOBuffer& inBuffer) const
+        {
+            CommitResponseParser theParser(mOuter.mBucketName, mFileName);
+            return (
+                mOuter.ParseXmlResponse(inBuffer, theParser) &&
+                theParser.IsOk()
+            );
         }
     };
 
@@ -2514,6 +2586,19 @@ private:
         }
         return "invalid";
     }
+    template<typename T>
+    bool ParseXmlResponse(
+        const IOBuffer& inBuffer,
+        T&              inTarget)
+    {
+        mTmpBuffer.clear();
+        mTmpSignBuffer.clear();
+        XmlResponseParser<T> theParser(
+            inTarget, mTmpBuffer, mTmpSignBuffer);
+        return theParser.Parse(inBuffer);
+    }
+    const string& GetXmlLastParsedKey()
+        { return mTmpBuffer; }
     S3ION(
         const char* inUrlPtr,
         const char* inConfigPrefixPtr,
