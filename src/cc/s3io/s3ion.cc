@@ -2181,7 +2181,9 @@ private:
                 return 0;
             }
             const bool theGetIdFlag = mDataBuf.IsEmpty();
-            StringBufT<256> theQueryStr;
+            string&    theQueryStr  = mOuter.mTmpBuffer;
+            theQueryStr.clear();
+            // Maintain AWS authorization v4 "canonical" form of the query.
             if (! theGetIdFlag) {
                 if (theFilePtr->mUploadId.empty()) {
                     mOuter.FatalError("invocation without upload id");
@@ -2193,10 +2195,12 @@ private:
                         mStartBlockIdx * mOuter.mBlockSize / kS3MinPartSize;
                     QCASSERT(thePartNum * kS3MinPartSize ==
                         mStartBlockIdx * mOuter.mBlockSize);
-                    theQueryStr.Append("partNumber=");
+                    theQueryStr = "partNumber=";
                     AppendDecIntToString(theQueryStr, thePartNum + 1);
+                    theQueryStr += "&";
                 }
-                theQueryStr.Append("&uploadId=").Append(theFilePtr->mUploadId);
+                theQueryStr += "uploadId=";
+                theQueryStr += theFilePtr->mUploadId;
             }
             if (mCommitFlag && mTmpWrite.IsEmpty()) {
                 mMdBuf[0] = 0; // Invalidate to force re-computation.
@@ -2235,7 +2239,7 @@ private:
                 theGetIdFlag ? -1 : mDataBuf.BytesConsumable(),
                 kRangeStart,
                 kRangeEnd,
-                theGetIdFlag ? "uploads" : theQueryStr.GetPtr()
+                theGetIdFlag ? "uploads=" : theQueryStr.data()
             );
             if (! theGetIdFlag) {
                 inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
@@ -2532,6 +2536,7 @@ private:
     IOBuffer::WOStream  mWOStream;
     string              mTmpSignBuffer;
     string              mTmpBuffer;
+    string              mTmpSignKeyBuffer;
     time_t              mLastDateTime;
     time_t              mLastDateZTime;
     time_t              mTmLastDateTime;
@@ -2629,6 +2634,8 @@ private:
           mMaxResponseSize(64 << 20),
           mWOStream(),
           mTmpSignBuffer(),
+          mTmpBuffer(),
+          mTmpSignKeyBuffer(),
           mLastDateTime(0),
           mLastDateZTime(0),
           mTmLastDateTime(0),
@@ -2646,7 +2653,8 @@ private:
         mFileTable.reserve(kFdReserve);
         mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
         mTmpSignBuffer.reserve(1 << 10);
-        mTmpBuffer.reserve(1 << 9);
+        mTmpBuffer.reserve(1 << 10);
+        mTmpSignKeyBuffer.reserve(1 << 9);
         mRunList.reserve(128);
         mCurRunList.reserve(128);
         mTmBuf.tm_mday = -1;
@@ -3067,7 +3075,7 @@ private:
             return mV4SignKey;
         }
         memcpy(mV4SignDate, theISONowPtr, kV4SignDateLen);
-        string& theTmpBuf = mTmpBuffer;
+        string& theTmpBuf = mTmpSignKeyBuffer;
         theTmpBuf = "AWS4";
         theTmpBuf += mSecretAccessKey;
         Sha256Buf theTmp;
