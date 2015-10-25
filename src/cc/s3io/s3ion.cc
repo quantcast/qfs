@@ -576,7 +576,7 @@ public:
                 if ((theEnd < theFilePtr->mMaxFileSize ||
                         (theFilePtr->mMaxFileSize < 0 &&
                         QCDiskQueue::kReqTypeWrite == inReqType)) &&
-                        (0 != inStartBlockIdx % kS3MinPartSize ||
+                        (0 != (inStartBlockIdx * mBlockSize) % kS3MinPartSize ||
                             0 != theEnd % kS3MinPartSize)) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "invalid partial write attempt:" <<
