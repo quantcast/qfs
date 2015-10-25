@@ -1746,7 +1746,8 @@ private:
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
                 " delete: " << mFileName <<
-                " upload: " << mUploadId
+                " upload: " << mUploadId <<
+                " get: "    << mGetUploadsFlag
             );
         }
         virtual int Request(
@@ -1755,6 +1756,9 @@ private:
             const ServerLocation& inServer)
         {
             TraceProgress(inBuffer, inResponseBuffer);
+            if (mSentFlag) {
+                return 0;
+            }
             const char* const kContentMdPtr       = 0;
             const char* const kContentTypePtr     = 0;
             const char* const kContentEcondingPtr = 0;
@@ -1800,6 +1804,8 @@ private:
                             (! mUploadId.empty() || mGetUploadsFlag) &&
                             mOuter.IsRunning()) {
                         mUploadId.clear();
+                        mRetryCount = 0;
+                        Reset();
                         mOuter.ScheduleNext(*this);
                     } else {
                         Done();
@@ -1820,17 +1826,19 @@ private:
             if (! mGetUploadsFlag || ! mUploadId.empty()) {
                 return false;
             }
-            if (! IsStatusOk() || ! ParseGetUploadsResponse(inBuffer)) {
+            if (! IsStatusOk() || ! ParseGetUploadsResponse()) {
                 KFS_LOG_STREAM_ERROR <<
                     mOuter.mLogPrefix << Show(*this) <<
                     "failed to parse get uploads response:" <<
                     " at: " << mOuter.GetXmlLastParsedKey() <<
-                    " response length: " << inBuffer.BytesConsumable() <<
-                    " data: " << ShowData(inBuffer,
+                    " response length: " << mIOBuffer.BytesConsumable() <<
+                    " data: " << ShowData(mIOBuffer,
                         mOuter.mDebugTraceMaxErrorDataSize) <<
                 KFS_LOG_EOM;
                 Retry();
             } else if (mOuter.IsRunning()) {
+                mRetryCount = 0;
+                Reset();
                 mOuter.ScheduleNext(*this);
             }
             return true;
@@ -1900,12 +1908,11 @@ private:
             bool          mGotMaxResultsFlag:1;
             bool          mHasMoreFlag:1;
         };
-        bool ParseGetUploadsResponse(
-            const IOBuffer& inBuffer)
+        bool ParseGetUploadsResponse()
         {
             GetUploadsResponseParser theParser(
                 mOuter.mBucketName, mFileName, mUploadId);
-            if (mOuter.ParseXmlResponse(inBuffer, theParser) &&
+            if (mOuter.ParseXmlResponse(mIOBuffer, theParser) &&
                     theParser.IsOk()) {
                 mGetUploadsFlag = theParser.HasMore();
                 return true;
@@ -2275,15 +2282,15 @@ private:
             if (theDoneFlag) {
                 if (IsStatusOk()) {
                     if (mDataBuf.IsEmpty()) {
-                        theFilePtr->mUploadId = ParseUploadId(inBuffer);
+                        theFilePtr->mUploadId = ParseUploadId();
                         if (theFilePtr->mUploadId.empty()) {
                             KFS_LOG_STREAM_ERROR <<
                                 mOuter.mLogPrefix << Show(*this) <<
                                 "failed to parse upload id:"
                                 " at: " << mOuter.GetXmlLastParsedKey() <<
                                 " response length: " <<
-                                    inBuffer.BytesConsumable() <<
-                                " data: " << ShowData(inBuffer,
+                                    mIOBuffer.BytesConsumable() <<
+                                " data: " << ShowData(mIOBuffer,
                                     mOuter.mDebugTraceMaxErrorDataSize) <<
                             KFS_LOG_EOM;
                             Retry();
@@ -2292,14 +2299,14 @@ private:
                         }
                     } else {
                         if (mCommitFlag) {
-                            if (! ParseCommitResponse(inBuffer)) {
+                            if (! ParseCommitResponse()) {
                                 KFS_LOG_STREAM_ERROR <<
                                     mOuter.mLogPrefix << Show(*this) <<
                                     "commit error:"
                                     " at: " << mOuter.GetXmlLastParsedKey() <<
                                     " response length: " <<
-                                        inBuffer.BytesConsumable() <<
-                                    " data: " << ShowData(inBuffer,
+                                        mIOBuffer.BytesConsumable() <<
+                                    " data: " << ShowData(mIOBuffer,
                                         mOuter.mDebugTraceMaxErrorDataSize) <<
                                 KFS_LOG_EOM;
                                 Retry();
@@ -2444,12 +2451,11 @@ private:
             bool          mGotBucketFlag:1;
             bool          mGotKeyFlag:1;
         };
-        string ParseUploadId(
-            const IOBuffer& inBuffer) const
+        string ParseUploadId() const
         {
             string         theId;
             UploadIdParser theParser(mOuter.mBucketName, mFileName, theId);
-            if (! mOuter.ParseXmlResponse(inBuffer, theParser) ||
+            if (! mOuter.ParseXmlResponse(mIOBuffer, theParser) ||
                     theParser.IsError()) {
                 return kEmptyString;
             }
@@ -2494,12 +2500,11 @@ private:
             bool          mGotKeyFlag:1;
             bool          mGotETagFlag:1;
         };
-        bool ParseCommitResponse(
-            const IOBuffer& inBuffer) const
+        bool ParseCommitResponse() const
         {
             CommitResponseParser theParser(mOuter.mBucketName, mFileName);
             return (
-                mOuter.ParseXmlResponse(inBuffer, theParser) &&
+                mOuter.ParseXmlResponse(mIOBuffer, theParser) &&
                 theParser.IsOk()
             );
         }
