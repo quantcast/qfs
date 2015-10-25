@@ -2161,6 +2161,7 @@ private:
             return (inStream <<
                 reinterpret_cast<const void*>(this) <<
                 " mput: " << mFileName <<
+                " type: " << RequestTypeToName(mReqType) <<
                 " fd: "   << mFd <<
                 " gen: "  << mGeneration <<
                 " pos: "  << mStartBlockIdx * mOuter.mBlockSize <<
@@ -2233,9 +2234,9 @@ private:
                 inBuffer,
                 inServer,
                 mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
-                mOuter.mContentType.c_str(),
-                mOuter.mContentEncoding.c_str(),
-                mOuter.mUseServerSideEncryptionFlag,
+                theGetIdFlag ? mOuter.mContentType.c_str()     : 0,
+                theGetIdFlag ? mOuter.mContentEncoding.c_str() : 0,
+                theGetIdFlag && mOuter.mUseServerSideEncryptionFlag,
                 theGetIdFlag ? -1 : mDataBuf.BytesConsumable(),
                 kRangeStart,
                 kRangeEnd,
@@ -2379,7 +2380,9 @@ private:
                         mCommitFlag = true;
                         mRetryCount = 0;
                         Reset();
-                        mOuter.mClient.Run(*this);
+                        File::List::PushFront(
+                            theFilePtr->mPendingListPtr, *this);
+                        mOuter.ScheduleNext(*this);
                         return;
                     }
                     mSysError = EIO;
