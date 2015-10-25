@@ -2298,7 +2298,8 @@ private:
                                 mOuter.FatalError(
                                     "invalid multipart put completion");
                             } else {
-                                theIt->mETag = mETag;
+                                XmlEncode(
+                                    mETag.data(), mETag.size(), theIt->mETag);
                             }
                         }
                         Done();
@@ -3204,18 +3205,19 @@ private:
     static ST& XmlEncode(
         const char* inPtr,
         size_t      inLen,
-        ST&         inStream)
+        ST&         inStr)
     {
         const char*       thePtr    = inPtr;
         const char* const theEndPtr = thePtr + inLen;
         while (thePtr < theEndPtr) {
             switch (*thePtr & 0xFF) {
-                case '&': inStream << "&amp;"; break;
-                case '<': inStream << "&lt;";  break;
-                default:  inStream << *thePtr; break;
+                case '&': inStr.Append("&amp;", 5); break;
+                case '<': inStr.Append("&lt;",  4); break;
+                default:  inStr.Append(*thePtr);    break;
             }
             ++thePtr;
         }
+        return inStr;
     }
 private:
     S3ION(
