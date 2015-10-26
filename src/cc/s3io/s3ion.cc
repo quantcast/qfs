@@ -87,25 +87,6 @@ private:
     const T& mObj;
 };
 
-class S3StrToken : public PropertiesTokenizer::Token
-{
-public:
-    S3StrToken(
-        const char* inPtr)
-        : PropertiesTokenizer::Token(inPtr)
-        {}
-    bool operator==(
-        const string& inRhs) const
-    {
-        return (*static_cast<const Token*>(this) ==
-            Token(inRhs.data(), inRhs.size()));
-    }
-    const char* data() const
-        { return mPtr; }
-    size_t size() const
-        { return mLen; }
-};
-
 template<typename ST, typename T>
     ST&
 operator<<(
@@ -119,6 +100,8 @@ const char* const kS3IODateMonths[12] = {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
     "Dec"
 };
+
+typedef PropertiesTokenizer::Token S3StrToken;
 
 const int64_t kS3MinPartSize = int64_t(5) << 20;
 const string  kEmptyString;
