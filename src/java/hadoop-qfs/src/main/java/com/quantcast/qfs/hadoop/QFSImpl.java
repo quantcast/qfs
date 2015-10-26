@@ -235,22 +235,22 @@ class QFSImpl implements IFSImpl {
 
   public FSDataOutputStream create(String path, short replication,
                                    int bufferSize, boolean overwrite,
-                                   int mode) throws IOException {
+                                   int mode, int maxReadWriteSize) throws IOException {
     final boolean append = false;
-    return create(path, replication, bufferSize, overwrite, mode, append);
+    return create(path, replication, bufferSize, overwrite, mode, maxReadWriteSize, append);
   }
 
   public FSDataOutputStream create(String path, short replication,
         int bufferSize, boolean overwrite, int mode,
-        boolean append) throws IOException {
+        int maxReadWriteSize, boolean append) throws IOException {
     return new FSDataOutputStream(createQFSOutputStream(
-      kfsAccess, path, replication, overwrite, append, mode), statistics);
+      kfsAccess, path, replication, overwrite, append, mode, maxReadWriteSize), statistics);
   }
 
-  public FSDataInputStream open(String path, int bufferSize)
+  public FSDataInputStream open(String path, int bufferSize, int maxReadWriteSize)
     throws IOException {
       return new FSDataInputStream(createQFSInputStream(kfsAccess, path,
-                                                      statistics));
+                                                      maxReadWriteSize, statistics));
   }
 
   public FSDataOutputStream append(String path, short replication,
@@ -258,8 +258,9 @@ class QFSImpl implements IFSImpl {
     final boolean append    = true;
     final boolean overwrite = false;
     final int     mode      = 0666;
+    final int maxReadWriteSize = 0;
     return new FSDataOutputStream(createQFSOutputStream(
-      kfsAccess, path, replication, overwrite, append, mode), statistics);
+      kfsAccess, path, replication, overwrite, append, mode, maxReadWriteSize), statistics);
   }
 
   public void setPermission(String path, int mode) throws IOException {
@@ -279,13 +280,13 @@ class QFSImpl implements IFSImpl {
 
   protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
                                                   short replication, boolean overwrite,
-                                                  boolean append, int mode) throws IOException {
-    return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode);
+                                                  boolean append, int mode, int maxReadWriteSize) throws IOException {
+    return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode, maxReadWriteSize);
   }
 
   protected QFSInputStream createQFSInputStream(KfsAccess kfsAccess, String path,
-                                                FileSystem.Statistics stats) throws IOException {
-    return new QFSInputStream(kfsAccess, path, stats);
+                                                int maxReadWriteSize, FileSystem.Statistics stats) throws IOException {
+    return new QFSInputStream(kfsAccess, path, maxReadWriteSize, stats);
   }
 
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
