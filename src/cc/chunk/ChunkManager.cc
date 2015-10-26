@@ -1843,7 +1843,7 @@ ChunkManager::ChunkManager()
       mDiskIoSerializeMetaRequestsFlag(true),
       mObjStoreIoRequestAffinityFlag(true),
       mObjStoreIoSerializeMetaRequestsFlag(false),
-      mObjStoreBlockWriteBufferSize((int)(CHUNKSIZE + KFS_CHUNK_HEADER_SIZE)),
+      mObjStoreBlockWriteBufferSize(5 << 20), // Min S3 multi part upload.
       mObjStoreBufferDataIgnoreOverwriteFlag(true),
       mObjStoreMaxWritableBlocks(-1),
       mObjStoreBufferDataRatio(0.3),

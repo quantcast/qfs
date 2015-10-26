@@ -244,6 +244,7 @@ private:
               mConnectionPtr(),
               mRecursionCount(0),
               mIdleFlag(false),
+              mWasIdleFlag(false),
               mTransactionPtr(0)
         {
             SET_HANDLER(this, &ClientSM::EventHandler);
@@ -259,7 +260,8 @@ private:
             Transaction& inTransaction)
         {
             QCASSERT(! mTransactionPtr);
-            mIdleFlag = false;
+            mIdleFlag    = false;
+            mWasIdleFlag = false;
             const bool theNonBlockingFlag = true;
             TcpSocket& theSocket          = *(new TcpSocket());
             const int theErr              = theSocket.Connect(
@@ -293,7 +295,8 @@ private:
             Transaction& inTransaction)
         {
             QCASSERT(! mTransactionPtr && mIdleFlag);
-            mIdleFlag = false;
+            mIdleFlag    = false;
+            mWasIdleFlag = true;
             mTransactionPtr = &inTransaction;
             mConnectionPtr->SetInactivityTimeout(mImpl.mTimeout);
             EventHandler(EVENT_NET_WROTE, &mConnectionPtr->GetOutBuffer());
@@ -319,6 +322,7 @@ private:
 
             switch (inEventCode) {
 	        case EVENT_NET_READ: {
+                    mWasIdleFlag = false;
                     IOBuffer& theIoBuf = mConnectionPtr->GetInBuffer();
                     QCASSERT(&theIoBuf == inEventDataPtr);
                     int theRet;
@@ -397,11 +401,14 @@ private:
                         );
                         mTransactionPtr->Error(
                             inEventCode == EVENT_INACTIVITY_TIMEOUT ?
-                                -ETIMEDOUT : -EIO,  
-                            inEventCode == EVENT_INACTIVITY_TIMEOUT ? 
+                                -ETIMEDOUT : (mWasIdleFlag ? -EAGAIN : -EIO),
+                            inEventCode == EVENT_INACTIVITY_TIMEOUT ?
                                 "network timeout" :
                                 (theErrMsg.empty() ?
-                                    "network error" : theErrMsg.c_str())
+                                    (mWasIdleFlag ?
+                                        "connection re-use failure" :
+                                        "network error") :
+                                    theErrMsg.c_str())
                         );
                     }
                     mTransactionPtr = 0;
@@ -433,6 +440,7 @@ private:
         NetConnectionPtr mConnectionPtr;
         int              mRecursionCount;
         bool             mIdleFlag;
+        bool             mWasIdleFlag;
         Transaction*     mTransactionPtr;
         ClientSM*        mPrevPtr[1];
         ClientSM*        mNextPtr[1];
@@ -500,7 +508,7 @@ private:
             const bool theRetFlag = ! mImpl.mVerifyServerFlag ||
                 (inPreverifyOkFlag && (mImpl.mPeerNames.empty() ||
                 mImpl.mPeerNames.find(inPeerName) != mImpl.mPeerNames.end()));
-            KFS_LOG_STREAM(theRetFlag ? 
+            KFS_LOG_STREAM(theRetFlag ?
                     MsgLogger::kLogLevelDEBUG :
                     MsgLogger::kLogLevelERROR) <<
                 reinterpret_cast<const void*>(mTransactionPtr) <<

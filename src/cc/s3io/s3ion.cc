@@ -1009,13 +1009,24 @@ private:
             int         inStatus,
             const char* inMsgPtr)
         {
-            KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
+            const int  kMinAgainRetryInterval = 2;
+            const bool theResubmiNowtFlag     = -EAGAIN == inStatus &&
+                mOuter.Now() <= mStartTime + kMinAgainRetryInterval;
+            KFS_LOG_STREAM(theResubmiNowtFlag ?
+                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+                mOuter.mLogPrefix << Show(*this) <<
                 " network error: " << inStatus  <<
                 " message: "       << (inMsgPtr ? inMsgPtr : "") <<
                 " started: "       << (mOuter.Now() - mStartTime) <<
                     " secs. ago" <<
             KFS_LOG_EOM;
-            Retry();
+            if (theResubmiNowtFlag) {
+                Reset();
+                mTimer.RemoveTimeout();
+                mOuter.ScheduleNext(*this);
+            } else {
+                Retry();
+            }
         }
         void Retry()
         {
