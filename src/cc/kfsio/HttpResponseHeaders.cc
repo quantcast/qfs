@@ -182,7 +182,7 @@ HttpResponseHeaders::Parse(
         if (Equals(theKey, kHttpEtagKey)) {
             const Token& theValue = theTokenizer.GetValue();
             mETagPos = theValue.mPtr - inPtr;
-            mETagPos = theValue.mLen;
+            mETagLen = theValue.mLen;
             continue;
         }
     }

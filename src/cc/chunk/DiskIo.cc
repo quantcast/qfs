@@ -1444,7 +1444,6 @@ DiskIo::StartIoQueue(
     );
 }
 
-
     /* static */ bool
 DiskIo::StopIoQueue(
     DiskQueue*       inDiskQueuePtr,

@@ -370,6 +370,8 @@ public:
             " max sz: " << theFile.mMaxFileSize <<
             " upload: " << theFile.mUploadId <<
             " parts: "  << theFile.mMPutParts.size() <<
+            " commit: " << theFile.mCommitFlag <<
+            " error: "  << theFile.mErrorFlag <<
             " status: " << theRet <<
         KFS_LOG_EOM;
         if (theFile.mCommitFlag &&
@@ -730,6 +732,13 @@ public:
                             break;
                         }
                         theFilePtr->mCommitFlag = true;
+                        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                            "commit write:"
+                            " eof: "   << theFilePtr->mMaxFileSize <<
+                            " fd: "    << inFd <<
+                            " gen: "   << theFilePtr->mGeneration <<
+                            " "        << theFilePtr->mFileName <<
+                        KFS_LOG_EOM;
                     }
                     MPPut& theReq = *(new MPPut(
                         *this,
@@ -2347,14 +2356,23 @@ private:
                     theFilePtr->mErrorFlag = true;
                 }
                 List::Remove(theFilePtr->mPendingListPtr, *this);
-                if (theGetIdFlag && theFilePtr->mUploadId.empty()) {
-                    theFilePtr->mErrorFlag = true;
-                    MPPut* thePtr;
-                    while((thePtr = List::Front(
-                            theFilePtr->mPendingListPtr))) {
-                        QCASSERT(! thePtr->mDataBuf.IsEmpty());
-                        thePtr->mSysError = EIO;
-                        thePtr->Done();
+                if (theGetIdFlag) {
+                    if (theFilePtr->mUploadId.empty() || ! mOuter.IsRunning()) {
+                        theFilePtr->mErrorFlag = true;
+                        MPPut* thePtr;
+                        while((thePtr = List::Front(
+                                theFilePtr->mPendingListPtr))) {
+                            QCASSERT(! thePtr->mDataBuf.IsEmpty());
+                            thePtr->mSysError = EIO;
+                            thePtr->Done();
+                        }
+                    } else {
+                        List::Iterator theIt(theFilePtr->mPendingListPtr);
+                        MPPut*         thePtr;
+                        while((thePtr = theIt.Next())) {
+                            QCASSERT(! thePtr->mDataBuf.IsEmpty());
+                            mOuter.ScheduleNext(*thePtr);
+                        }
                     }
                 }
             }
