@@ -307,7 +307,8 @@ public:
             inBufferPtr,
             inSize,
             inMaxPending,
-            inOffset
+            inOffset,
+            inMaxReadWriteSize
         ));
     }
     int64_t Enqueue(
@@ -527,7 +528,8 @@ private:
             void*         inBufferPtr,
             int           inSize,
             int           inMaxPending,
-            int64_t       inOffset)
+            int64_t       inOffset,
+            int           inMaxReadWriteSize)
         {
             QCASSERT(IsAsync(inRequestType));
             const bool theCopyFlag = inSize > 0 && ! (
@@ -566,7 +568,8 @@ private:
                 theBufferPtr,
                 inSize,
                 inMaxPending,
-                inOffset
+                inOffset,
+                inMaxReadWriteSize
             );
             QCASSERT(reinterpret_cast<char*>(theRetPtr) == theAllocPtr);
             return *theRetPtr;
@@ -591,7 +594,8 @@ private:
             void*         inBufferPtr,
             int           inSize,
             int           inMaxPending,
-            int64_t       inOffset)
+            int64_t       inOffset,
+            int           inMaxReadWriteSize)
             : Request(
                 inRequestType,
                 inFileInstance,
@@ -600,7 +604,8 @@ private:
                 inBufferPtr,
                 inSize,
                 inMaxPending,
-                inOffset)
+                inOffset,
+                inMaxReadWriteSize)
             {}
         virtual ~AsyncRequest()
             {}
