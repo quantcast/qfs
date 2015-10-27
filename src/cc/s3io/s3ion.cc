@@ -104,13 +104,13 @@ const char* const kS3IODateMonths[12] = {
 typedef PropertiesTokenizer::Token S3StrToken;
 
 const int64_t kS3MinPartSize = int64_t(5) << 20;
-const string  kEmptyString;
+const string  kS3EmptyString;
 
-const S3StrToken kStrMPutInitResultResultBucket(
+const S3StrToken kS3StrMPutInitResultResultBucket(
     "/InitiateMultipartUploadResult/Bucket");
-const S3StrToken kStrMPutInitResultResultKey(
+const S3StrToken kS3StrMPutInitResultResultKey(
     "/InitiateMultipartUploadResult/Key");
-const S3StrToken kStrMPutInitResultResulUploadId(
+const S3StrToken kS3StrMPutInitResultResulUploadId(
     "/InitiateMultipartUploadResult/UploadId");
 
 const S3StrToken kS3MPutCompleteStart          ("<CompleteMultipartUpload>");
@@ -122,22 +122,22 @@ const S3StrToken kS3MPutCompletePartNumberEnd  ("</PartNumber>");
 const S3StrToken kS3MPutCompleteETagStart      ("<ETag>");
 const S3StrToken kS3MPutCompleteETagEnd        ("</ETag>");
 
-const S3StrToken kStrMPutCompleteResultBucket(
+const S3StrToken kS3StrMPutCompleteResultBucket(
     "/CompleteMultipartUploadResult/Bucket");
-const S3StrToken kStrMPutCompleteResultKey(
+const S3StrToken kS3StrMPutCompleteResultKey(
     "/CompleteMultipartUploadResult/Key");
-const S3StrToken kStrMPutCompleteResultETag(
+const S3StrToken kS3StrMPutCompleteResultETag(
     "/CompleteMultipartUploadResult/ETag");
 
-const S3StrToken kStrGetUploadsResultBucket(
+const S3StrToken kS3StrGetUploadsResultBucket(
     "/ListMultipartUploadsResult/Bucket");
-const S3StrToken kStrGetUploadsResultMaxUploads(
+const S3StrToken kS3StrGetUploadsResultMaxUploads(
     "/ListMultipartUploadsResult/MaxUploads");
-const S3StrToken kStrGetUploadsResultIsTruncated(
+const S3StrToken kS3StrGetUploadsResultIsTruncated(
     "/ListMultipartUploadsResult/IsTruncated");
-const S3StrToken kStrGetUploadsResultUploadKey(
+const S3StrToken kS3StrGetUploadsResultUploadKey(
     "/ListMultipartUploadsResult/Upload/Key");
-const S3StrToken kStrGetUploadsResultUploadUploadId(
+const S3StrToken kS3StrGetUploadsResultUploadUploadId(
     "/ListMultipartUploadsResult/Upload/UploadId");
 
 class S3ION : public IOMethod
@@ -908,8 +908,8 @@ private:
         }
         void Reset()
         {
-            mFileName            = kEmptyString; // De-allocate.
-            mUploadId            = kEmptyString;
+            mFileName            = kS3EmptyString; // De-allocate.
+            mUploadId            = kS3EmptyString;
             mReadOnlyFlag        = false;
             mCreateFlag          = false;
             mCreateExclusiveFlag = false;
@@ -1865,24 +1865,24 @@ private:
                 const string& inKey,
                 const string& inValue)
             {
-                if (kStrGetUploadsResultBucket == inKey) {
+                if (kS3StrGetUploadsResultBucket == inKey) {
                     mGotBucketFlag = true;
                     return (inValue == mBucketName);
                 }
-                if (kStrGetUploadsResultMaxUploads == inKey) {
+                if (kS3StrGetUploadsResultMaxUploads == inKey) {
                     mGotMaxResultsFlag = true;
                     return (inValue == "1");
                 }
-                if (kStrGetUploadsResultUploadKey == inKey) {
+                if (kS3StrGetUploadsResultUploadKey == inKey) {
                     mGotKeyFlag = true;
                     return (inValue == mFileName);
                 }
-                if (kStrGetUploadsResultIsTruncated == inKey) {
+                if (kS3StrGetUploadsResultIsTruncated == inKey) {
                     mGotIsTruncatedFlag = true;
                     mHasMoreFlag = inValue == "true";
                     return (mHasMoreFlag || inValue == "false");
                 }
-                if (kStrGetUploadsResultUploadUploadId == inKey) {
+                if (kS3StrGetUploadsResultUploadUploadId == inKey) {
                     mUploadId = XmlToUrlEncoding(
                         inValue.data(), inValue.size());
                     return ! mUploadId.empty();
@@ -2462,15 +2462,15 @@ private:
                 const string& inKey,
                 const string& inValue)
             {
-                if (kStrMPutInitResultResultBucket == inKey) {
+                if (kS3StrMPutInitResultResultBucket == inKey) {
                     mGotBucketFlag = true;
                     return (inValue == mBucketName);
                 }
-                if (kStrMPutInitResultResultKey == inKey) {
+                if (kS3StrMPutInitResultResultKey == inKey) {
                     mGotKeyFlag = true;
                     return (inValue == mFileName);
                 }
-                if (kStrMPutInitResultResulUploadId == inKey) {
+                if (kS3StrMPutInitResultResulUploadId == inKey) {
                     mUploadId = XmlToUrlEncoding(
                         inValue.data(), inValue.size());
                     return ! mUploadId.empty();
@@ -2494,7 +2494,7 @@ private:
             UploadIdParser theParser(mOuter.mBucketName, mFileName, theId);
             if (! mOuter.ParseXmlResponse(mIOBuffer, theParser) ||
                     theParser.IsError()) {
-                return kEmptyString;
+                return kS3EmptyString;
             }
             return theId;
         }
@@ -2514,15 +2514,15 @@ private:
                 const string& inKey,
                 const string& inValue)
             {
-                if (kStrMPutCompleteResultBucket == inKey) {
+                if (kS3StrMPutCompleteResultBucket == inKey) {
                     mGotBucketFlag = true;
                     return (inValue == mBucketName);
                 }
-                if (kStrMPutCompleteResultKey == inKey) {
+                if (kS3StrMPutCompleteResultKey == inKey) {
                     mGotKeyFlag = true;
                     return (inValue == mFileName);
                 }
-                if (kStrMPutCompleteResultETag == inKey) {
+                if (kS3StrMPutCompleteResultETag == inKey) {
                     mGotETagFlag = true;
                     return (! inValue.empty());
                 }
