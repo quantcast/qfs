@@ -418,7 +418,7 @@ public:
                     theError  = QCDiskQueue::kErrorRead;
                     theSysErr = EINVAL;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "invalid read on write only file: " <<
+                        "invalid read on write only file:" <<
                         " fd: "  << inFd <<
                         " gen: " << theFilePtr->mGeneration <<
                         " "      << theFilePtr->mFileName <<
@@ -923,6 +923,16 @@ private:
             QCASSERT(List::IsEmpty(mPendingListPtr));
             List::Init(mPendingListPtr);
         }
+        void MakeReadOnly()
+        {
+            string theFileName;
+            theFileName.swap(mFileName);
+            Generation const theGeneration = mGeneration;
+            Reset();
+            theFileName.swap(mFileName);
+            mGeneration = theGeneration;
+            mReadOnlyFlag = true;
+        }
         string     mFileName;
         string     mUploadId;
         bool       mReadOnlyFlag:1;
@@ -1146,7 +1156,8 @@ private:
             int64_t               inRangeStart               = -1,
             int64_t               inRangeEnd                 = -1,
             const char*           inQueryStringPtr           = 0,
-            const char*           inUriPtr                   = 0)
+            const char*           inUriPtr                   = 0,
+            const char*           inV2QueryToSignPtr         = 0)
         {
             if (mSentFlag) {
                 return 0;
@@ -1165,7 +1176,8 @@ private:
                     inRangeStart,
                     inRangeEnd,
                     inQueryStringPtr,
-                    inUriPtr
+                    inUriPtr,
+                    inV2QueryToSignPtr
                 );
             } else {
                 SendRequestAuthV4(
@@ -1204,7 +1216,8 @@ private:
             int64_t               inRangeStart,
             int64_t               inRangeEnd,
             const char*           inQueryStringPtr,
-            const char*           inUriPtr)
+            const char*           inUriPtr,
+            const char*           inV2QueryToSignPtr)
         {
             const char* const theDatePtr = mOuter.DateNow();
             string& theSignBuf = mOuter.mTmpSignBuffer;
@@ -1240,6 +1253,10 @@ private:
             } else {
                 theSignBuf += '/';
                 theSignBuf += mFileName;
+            }
+            if (inV2QueryToSignPtr && *inV2QueryToSignPtr) {
+                theSignBuf += '?';
+                theSignBuf += inV2QueryToSignPtr;
             }
             ostream& theStream = mOuter.mWOStream.Set(inBuffer);
             theStream << inVerbPtr;
@@ -1313,7 +1330,7 @@ private:
             const char*           inUriPtr)
         {
             const char* const kEmptyShaPtr    =
-                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
             const char* const kHostHNamePtr   = "host";
             const char* const kHostHRangePtr  = "range";
             const char* const kHostHRBytesPtr = ":bytes=";
@@ -1328,8 +1345,8 @@ private:
             string&           theSignBuf      = mOuter.mTmpSignBuffer;
             theSignBuf = inVerbPtr;
             theSignBuf += '\n';
-            // URI -- bucket and file name should not contain characters that need
-            // to be escaped.
+            // URI -- bucket and file name should not contain characters that
+            // need to be escaped.
             if (inUriPtr) {
                 theSignBuf += inUriPtr;
             } else {
@@ -1742,16 +1759,23 @@ private:
             int         const kContentLength      = -1;
             int64_t     const kRangeStart         = -1;
             int64_t     const kRangeEnd           = -1;
+            const char*       theV2QueryToSignPtr;
             // Maintain AWS authorization v4 "canonical" form of the query.
             if (! mUploadId.empty()) {
                 mOuter.mTmpBuffer = "uploadId=";
                 mOuter.mTmpBuffer += mUploadId;
+                theV2QueryToSignPtr = mOuter.mTmpBuffer.data();
             } else if (mGetUploadsFlag) {
                 mOuter.mTmpBuffer = "max-uploads=1&prefix=";
                 mOuter.mTmpBuffer += mFileName;
-                mOuter.mTmpBuffer += "&uploads=";
+                mOuter.mTmpBuffer += "&uploads";
+                if (! mOuter.mRegion.empty()) {
+                    mOuter.mTmpBuffer += '=';
+                }
+                theV2QueryToSignPtr = "uploads";
             } else {
                 mOuter.mTmpBuffer.clear();
+                theV2QueryToSignPtr = 0;
             }
             return SendRequest(
                 mGetUploadsFlag ? "GET" : "DELETE",
@@ -1765,7 +1789,8 @@ private:
                 kRangeStart,
                 kRangeEnd,
                 mOuter.mTmpBuffer.c_str(),
-                mGetUploadsFlag ? "/" : 0
+                mGetUploadsFlag ? "/" : 0,
+                theV2QueryToSignPtr
             );
         }
         virtual int Response(
@@ -1806,7 +1831,7 @@ private:
             if (! IsStatusOk() || ! ParseGetUploadsResponse()) {
                 KFS_LOG_STREAM_ERROR <<
                     mOuter.mLogPrefix << Show(*this) <<
-                    "failed to parse get uploads response:" <<
+                    " failed to parse get uploads response:" <<
                     " at: " << mOuter.GetXmlLastParsedKey() <<
                     " response length: " << mIOBuffer.BytesConsumable() <<
                     " data: " << ShowData(mIOBuffer,
@@ -1962,6 +1987,10 @@ private:
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
                 if (IsStatusOk()) {
+                    File* const theFilePtr = mOuter.GetFilePtr(mFd);
+                    if (theFilePtr && mGeneration == theFilePtr->mGeneration) {
+                        theFilePtr->MakeReadOnly();
+                    }
                     Done(mDataBuf.BytesConsumable());
                 } else {
                     Retry();
@@ -2201,7 +2230,7 @@ private:
                         mStartBlockIdx * mOuter.mBlockSize);
                     theQueryStr = "partNumber=";
                     AppendDecIntToString(theQueryStr, thePartNum + 1);
-                    theQueryStr += "&";
+                    theQueryStr += '&';
                 }
                 theQueryStr += "uploadId=";
                 theQueryStr += theFilePtr->mUploadId;
@@ -2230,20 +2259,26 @@ private:
                 theWriter.Write(kS3MPutCompleteEnd);
                 theWriter.Close();
             }
-            const int64_t kRangeStart = -1;
-            const int64_t kRangeEnd   = -1;
+            const int64_t     kRangeStart = -1;
+            const int64_t     kRangeEnd   = -1;
+            const char* const kUriPtr     = 0;
             const int     theRet      = SendRequest(
                 (mCommitFlag || theGetIdFlag) ? "POST" : "PUT",
                 inBuffer,
                 inServer,
-                mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
+                theGetIdFlag ? 0 :
+                    (mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256()),
                 theGetIdFlag ? mOuter.mContentType.c_str()     : 0,
                 theGetIdFlag ? mOuter.mContentEncoding.c_str() : 0,
                 theGetIdFlag && mOuter.mUseServerSideEncryptionFlag,
                 theGetIdFlag ? -1 : mDataBuf.BytesConsumable(),
                 kRangeStart,
                 kRangeEnd,
-                theGetIdFlag ? "uploads=" : theQueryStr.data()
+                theGetIdFlag ?
+                    (mOuter.mRegion.empty() ? "uploads" : "uploads=") :
+                    theQueryStr.c_str(),
+                kUriPtr,
+                theGetIdFlag ? "uploads"  : theQueryStr.c_str()
             );
             if (! theGetIdFlag) {
                 inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
@@ -2268,7 +2303,7 @@ private:
                         if (theFilePtr->mUploadId.empty()) {
                             KFS_LOG_STREAM_ERROR <<
                                 mOuter.mLogPrefix << Show(*this) <<
-                                "failed to parse upload id:"
+                                " failed to parse upload id:"
                                 " at: " << mOuter.GetXmlLastParsedKey() <<
                                 " response length: " <<
                                     mIOBuffer.BytesConsumable() <<
@@ -2284,7 +2319,7 @@ private:
                             if (! ParseCommitResponse()) {
                                 KFS_LOG_STREAM_ERROR <<
                                     mOuter.mLogPrefix << Show(*this) <<
-                                    "commit error:"
+                                    " commit error:"
                                     " at: " << mOuter.GetXmlLastParsedKey() <<
                                     " response length: " <<
                                         mIOBuffer.BytesConsumable() <<
@@ -2377,6 +2412,14 @@ private:
             if (mCommitFlag) {
                 mDataBuf.Clear();
                 mDataBuf.Move(&mTmpWrite);
+                if (theFilePtr) {
+                    if (! List::IsEmpty(theFilePtr->mPendingListPtr)) {
+                        mOuter.FatalError(
+                            "invalid multipart upload completion");
+                    } else {
+                        theFilePtr->MakeReadOnly();
+                    }
+                }
             } else if (theFilePtr &&
                     (theFilePtr->mCommitFlag || theFilePtr->mErrorFlag) &&
                     ! theFilePtr->mUploadId.empty() &&
@@ -2591,8 +2634,6 @@ private:
         const IOBuffer& inBuffer,
         T&              inTarget)
     {
-        mTmpBuffer.clear();
-        mTmpSignBuffer.clear();
         XmlScanner::KeyValueFunc<string, T> theScanner(
             inTarget, mTmpBuffer, mTmpSignBuffer);
         IOBufferInputIterator               theIt(inBuffer);

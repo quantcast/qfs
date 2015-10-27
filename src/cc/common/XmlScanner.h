@@ -22,7 +22,7 @@
 //
 // Minimalistic xml scanner, intended for "values" extraction, and very basic /
 // minimalistic validation.
-// CDATA is not supported, 
+// CDATA is not supported,
 //
 //----------------------------------------------------------------------------
 
@@ -61,14 +61,15 @@ public:
         IT& inIterator,
         FT& inFunc)
     {
-        int   theSym;
-        int   thePrevSym = -1;
-        State theState   = kStateNone;
-        State theFState;
+        const int kSpace     = ' ';
+        int       thePrevSym = -1;
+        State     theState   = kStateNone;
+        State     theFState;
+        int       theSym;
         while (0 <= (theSym = inIterator.Next())) {
             switch (theState) {
                 case kStateNone:
-                    if (theSym <= ' ') {
+                    if (theSym <= kSpace) {
                         break;
                     }
                     if ('<' == theSym) {
@@ -92,7 +93,7 @@ public:
                     theState = kStateTagName;
                     // Fall through
                 case kStateTagName:
-                    if (theSym <= ' ' || '/' == theSym) {
+                    if (theSym <= kSpace || '/' == theSym) {
                         theState = '/' == theSym ? kStateEmptyTag : kStateAttr;
                         if (inFunc(kStateTagNameEnd, theSym)) {
                             break;
@@ -141,6 +142,12 @@ public:
                         theState  = kStateNone;
                         theFState = kStateCloseTagEnd;
                     } else {
+                        if (theSym <= kSpace) {
+                            break;
+                        }
+                        if (thePrevSym <= kSpace) {
+                            return false;
+                        }
                         theFState = theState;
                     }
                     if (inFunc(theFState, theSym)) {
@@ -210,7 +217,7 @@ public:
     {
     public:
         typedef StringT                     String;
-        typedef typename StringT::size_type Size; 
+        typedef typename StringT::size_type Size;
 
         KeyValueFunc(
             FuncT&  inFunc,
@@ -223,7 +230,10 @@ public:
               mLeafFlag(false),
               mKey(inKeyBuf),
               mValue(inValueBuf)
-            {}
+        {
+            mKey.clear();
+            mValue.clear();
+        }
         void Reset()
         {
             mKey.clear();
@@ -267,10 +277,10 @@ public:
                         }
                         break;
                     }
+                    mCurCloseTagPos++;
                     if (mKey.size() <= mCloseTagPos) {
                         return false;
                     }
-                    mCurCloseTagPos++;
                     if (inSym != mKey[mCurCloseTagPos]) {
                         return false;
                     }
@@ -327,6 +337,11 @@ public:
         }
         bool CloseTag()
             { return (mCurCloseTagPos + 1 == mKey.size() && CloseEmptyTag()); }
+    private:
+        KeyValueFunc(
+            const KeyValueFunc& inFunc);
+        KeyValueFunc& operator=(
+            const KeyValueFunc& inFunc);
     };
 };
 
