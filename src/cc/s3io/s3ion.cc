@@ -2802,6 +2802,16 @@ private:
             theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
             mDebugTraceMaxHeaderSize
         );
+        const int theMaxHdrLen = min(256 << 10, max(4 << 10,
+        mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("maxHttpHeaderSize"),
+            mMaxHdrLen
+        )));
+        if (theMaxHdrLen != mMaxHdrLen) {
+            mMaxHdrLen = theMaxHdrLen;
+            delete [] mHdrBufferPtr;
+            mHdrBufferPtr = new char[mMaxHdrLen];
+        }
         mV4SignDate[0] = 0; // Force version 4 sign key update.
         if (! IsRunning()) {
             mClient.SetServer(ServerLocation(), true);
