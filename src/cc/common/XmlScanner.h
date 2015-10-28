@@ -44,7 +44,6 @@ public:
         kStateAttr,
         kStateEmptyTag,
         kStateValue,
-        kStateValueEnd,
         kStateCloseTag,
         kStateCloseTagEnd,
         kStateSkipStart,
@@ -66,7 +65,7 @@ public:
         const int kSpace     = ' ';
         int       thePrevSym = -1;
         State     theState   = kStateNone;
-        State     theFState;
+        State     theFState  = kStateNone;
         int       theSym;
         while (0 <= (theSym = inIterator.Next())) {
             switch (theState) {
@@ -131,10 +130,9 @@ public:
                 case kStateValue:
                     if ('<' == theSym) {
                         theState  = kStateTag;
-                        theFState = kStateValueEnd;
-                    } else {
-                        theFState = theState;
+                        break;
                     }
+                    theFState = theState;
                     if (inFunc(theFState, theSym)) {
                         break;
                     }
@@ -182,11 +180,11 @@ public:
                     theState = kStateComment;
                     break;
                 case kStateCommentEnd1:
-                    if ('>' == theSym) {
-                        theState = kStateNone;
-                        break;
+                    if ('>' != theSym) {
+                        return false;
                     }
-                    theState = kStateComment;
+                    theState = kStateValue == theFState ?
+                            kStateValue : kStateNone;
                     break;
                 case kStateProlog:
                     if ('?' == theSym) {
