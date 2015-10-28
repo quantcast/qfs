@@ -79,12 +79,13 @@ public:
                     }
                     return false;
                 case kStateTag:
-                    if ('/' == theSym) {
-                        theState = kStateCloseTag;
-                        break;
-                    }
                     if ('!' == theSym) {
                         theState = kStateSkipStart;
+                        break;
+                    }
+                    theFState = kStateNone;
+                    if ('/' == theSym) {
+                        theState = kStateCloseTag;
                         break;
                     }
                     if ('?' == theSym) {
@@ -158,7 +159,8 @@ public:
                     if ('-' == theSym) {
                         theState = kStateCommentStart;
                     } else {
-                        theState = kStateSkipEnd;
+                        theState  = kStateSkipEnd;
+                        theFState = kStateNone;
                     }
                     break;
                 case kStateCommentStart:
