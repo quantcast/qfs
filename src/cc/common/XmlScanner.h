@@ -54,7 +54,9 @@ public:
         kStateCommentEnd1,
         kStateProlog,
         kStatePrologEnd,
-        kStateSkipEnd
+        kStateSkipEnd,
+        kStateSkipCloseBracket,
+        kStateSkipCloseBracketEndTag,
     };
     template<typename IT, typename FT>
     static bool Scan(
@@ -201,8 +203,26 @@ public:
                     theState = kStateNone;
                     break;
                 case kStateSkipEnd:
+                    if ('[' == theSym) {
+                        theState = kStateSkipCloseBracket;
+                        break;
+                    }
                     if ('>' == theSym) {
                         theState = kStateNone;
+                    }
+                    break;
+                case kStateSkipCloseBracket:
+                    if (']' == theSym) {
+                        theState = kStateSkipCloseBracketEndTag;
+                    }
+                    break;
+                case kStateSkipCloseBracketEndTag:
+                    if ('>' == theSym) {
+                        theState = kStateNone;
+                        break;
+                    }
+                    if (kSpace < theSym) {
+                        return false;
                     }
                     break;
                 default:
