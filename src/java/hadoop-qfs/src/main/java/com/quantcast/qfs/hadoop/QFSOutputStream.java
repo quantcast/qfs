@@ -36,7 +36,7 @@ class QFSOutputStream extends OutputStream {
   private final KfsOutputChannel kfsChannel;
 
   public QFSOutputStream(KfsAccess kfsAccess, String path, short replication,
-    boolean overwrite, boolean append, int mode, int maxReadWriteSize) throws IOException {
+    boolean overwrite, boolean append, int mode, int targetDiskIoSize) throws IOException {
     if (append) {
       this.kfsChannel = kfsAccess.kfs_append_ex(path, (int)replication, mode);
     } else {
@@ -44,7 +44,7 @@ class QFSOutputStream extends OutputStream {
       final long    readAheadSize = -1;
       final boolean exclusive     = ! overwrite;
       this.kfsChannel = kfsAccess.kfs_create_ex(
-        path, replication, exclusive, bufferSize, readAheadSize, mode, maxReadWriteSize);
+        path, replication, exclusive, bufferSize, readAheadSize, mode, targetDiskIoSize);
     }
     if (kfsChannel == null) {
       throw new IOException("QFS internal error -- null channel");

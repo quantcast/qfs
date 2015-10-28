@@ -34,9 +34,9 @@ class QFSInputStream extends FSInputStream {
   private final long fsize;
 
   public QFSInputStream(KfsAccess kfsAccess, String path,
-                        int maxReadWriteSize, FileSystem.Statistics stats) throws IOException {
+                        int targetDiskIoSize, FileSystem.Statistics stats) throws IOException {
     this.statistics = stats;
-    this.kfsChannel = kfsAccess.kfs_open_ex(path, -1, -1, maxReadWriteSize);
+    this.kfsChannel = kfsAccess.kfs_open_ex(path, -1, -1, targetDiskIoSize);
     if (kfsChannel == null) {
       throw new IOException("QFS internal error -- null channel");
     }

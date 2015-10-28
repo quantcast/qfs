@@ -97,7 +97,7 @@ final public class KfsAccess
     private final static native
     int create(long ptr, String path, int numReplicas, boolean exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-        boolean forceType, int mode, int maxReadWriteSize);
+        boolean forceType, int mode, int targetDiskIoSize);
 
     private final static native
     int remove(long ptr, String path);
@@ -108,7 +108,7 @@ final public class KfsAccess
     private final static native
     int open(long ptr, String path, String mode, int numReplicas,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-        int createMode, int maxReadWriteSize);
+        int createMode, int targetDiskIoSize);
 
     private final static native
     int exists(long ptr, String path);
@@ -536,7 +536,7 @@ final public class KfsAccess
     }
     
     public KfsOutputChannel kfs_create_ex(String path, int numReplicas, boolean exclusive,
-        long bufferSize, long readAheadSize, int mode, int maxReadWriteSize) throws IOException
+        long bufferSize, long readAheadSize, int mode, int targetDiskIoSize) throws IOException
     {
         final boolean forceStriperType = false;
         KfsOutputChannel chan =  kfs_create_ex(
@@ -551,7 +551,7 @@ final public class KfsAccess
             DEFAULT_STRIPER_TYPE,
             forceStriperType,
             mode,
-            maxReadWriteSize
+            targetDiskIoSize
         );
         if (getStripedType(cPtr, path) != DEFAULT_STRIPER_TYPE) {
             final short r = setReplication(cPtr, path, numReplicas);
@@ -583,10 +583,10 @@ final public class KfsAccess
     public KfsOutputChannel kfs_create_ex(String path, int numReplicas, boolean exclusive,
             long bufferSize, long readAheadSize,
             int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-            boolean forceType, int mode, int maxReadWriteSize) throws IOException
+            boolean forceType, int mode, int targetDiskIoSize) throws IOException
     {
         final int fd = create(cPtr, path, numReplicas, exclusive,
-                numStripes, numRecoveryStripes, stripeSize, stripedType, forceType, mode, maxReadWriteSize);
+                numStripes, numRecoveryStripes, stripeSize, stripedType, forceType, mode, targetDiskIoSize);
         kfs_retToIOException(fd, path);
         if (bufferSize >= 0) {
             setIoBufferSize(cPtr, fd, bufferSize);
@@ -606,7 +606,7 @@ final public class KfsAccess
         return chan;
     }
 
-    private final int kfs_open_ro(String path, int maxReadWriteSize)
+    private final int kfs_open_ro(String path, int targetDiskIoSize)
     {
         return open(cPtr, path, "r",
             DEFAULT_REPLICATION,
@@ -615,7 +615,7 @@ final public class KfsAccess
             DEFAULT_STRIPE_SIZE,
             DEFAULT_STRIPER_TYPE,
             0,
-            maxReadWriteSize
+            targetDiskIoSize
         );
     }
     
@@ -629,10 +629,10 @@ final public class KfsAccess
         return kfs_open(path, bufferSize, readAheadSize, 0);
     }
     
-    public KfsInputChannel kfs_open(String path, long bufferSize, long readAheadSize, int maxReadWriteSize)
+    public KfsInputChannel kfs_open(String path, long bufferSize, long readAheadSize, int targetDiskIoSize)
     {
         try {
-            return kfs_open_ex(path, bufferSize, readAheadSize, maxReadWriteSize);
+            return kfs_open_ex(path, bufferSize, readAheadSize, targetDiskIoSize);
         } catch (IOException ex) {
             return null;
         }
@@ -643,9 +643,9 @@ final public class KfsAccess
         return kfs_open_ex(path, bufferSize, readAheadSize, 0);
     }
     
-    public KfsInputChannel kfs_open_ex(String path, long bufferSize, long readAheadSize, int maxReadWriteSize) throws IOException
+    public KfsInputChannel kfs_open_ex(String path, long bufferSize, long readAheadSize, int targetDiskIoSize) throws IOException
     {
-        final int fd = kfs_open_ro(path, maxReadWriteSize);
+        final int fd = kfs_open_ro(path, targetDiskIoSize);
         kfs_retToIOException(fd, path);
         if (bufferSize >= 0) {
             setIoBufferSize(cPtr, fd, bufferSize);

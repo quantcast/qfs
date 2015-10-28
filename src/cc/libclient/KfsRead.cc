@@ -418,7 +418,7 @@ private:
             inSize,
             0, // inMaxPending,
             inOffset,
-            inEntry.mMaxReadWriteSize
+            inEntry.mTargetDiskIoSize
         );
         if (GetSize() <= 0) {
             return 0;
@@ -606,7 +606,7 @@ KfsClientImpl::Read(
     int64_t       theLen           = min(theEof - thePos, (int64_t)inSize);
     const int     theSize          = (int)theLen;
     const bool    theSkipHolesFlag = theEntry.skipHoles;
-    const int	  theMaxReadWriteSize = theEntry.mMaxReadWriteSize;
+    const int	  theTargetDiskIoSize = theEntry.mTargetDiskIoSize;
     if (theLen <= 0) {
         return 0;
     }
@@ -772,7 +772,7 @@ KfsClientImpl::Read(
             theRdSize,
             0,
             thePos,
-            theMaxReadWriteSize
+            theTargetDiskIoSize
         );
         if (theSkipHolesFlag && theStatus == -ENOENT) {
             theStatus = 0;

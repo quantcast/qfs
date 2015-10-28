@@ -118,12 +118,12 @@ extern "C" {
 
     jint Java_com_quantcast_qfs_access_KfsAccess_open(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring jmode, jint jnumReplicas,
-        jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType, jint jcreateMode, jint jmaxReadWriteSize);
+        jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType, jint jcreateMode, jint jtargetDiskIoSize);
 
     jint Java_com_quantcast_qfs_access_KfsAccess_create(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas, jboolean jexclusive,
         jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType,
-        jboolean foreceType, jint mode, jint jmaxReadWriteSize);
+        jboolean foreceType, jint mode, jint jtargetDiskIoSize);
 
     jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize);
@@ -423,7 +423,7 @@ jobjectArray Java_com_quantcast_qfs_access_KfsAccess_readdir(
 jint Java_com_quantcast_qfs_access_KfsAccess_open(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring jmode,
     jint jnumReplicas, jint jnumStripes, jint jnumRecoveryStripes,
-    jint jstripeSize, jint jstripedType, jint jcreateMode, jint jmaxReadWriteSize)
+    jint jstripeSize, jint jstripedType, jint jcreateMode, jint jtargetDiskIoSize)
 {
     if (! jptr) {
         return -EFAULT;
@@ -449,7 +449,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_open(
         openMode = O_WRONLY | O_APPEND;
 
     return clnt->Open(path.c_str(), openMode, jnumReplicas,
-        jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, jcreateMode, kKfsSTierMax, kKfsSTierMax, jmaxReadWriteSize);
+        jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, jcreateMode, kKfsSTierMax, kKfsSTierMax, jtargetDiskIoSize);
 }
 
 jint Java_com_quantcast_qfs_access_KfsInputChannel_close(
@@ -477,7 +477,7 @@ jint Java_com_quantcast_qfs_access_KfsOutputChannel_close(
 jint Java_com_quantcast_qfs_access_KfsAccess_create(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas, jboolean jexclusive,
     jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType,
-    jboolean foreceType, jint mode, jint jmaxReadWriteSize)
+    jboolean foreceType, jint mode, jint jtargetDiskIoSize)
 {
     if (! jptr) {
         return -EFAULT;
@@ -487,7 +487,7 @@ jint Java_com_quantcast_qfs_access_KfsAccess_create(
     string path;
     setStr(path, jenv, jpath);
     return clnt->Create(path.c_str(), jnumReplicas, jexclusive,
-        jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, foreceType, (kfsMode_t)mode, kKfsSTierMax, kKfsSTierMax, jmaxReadWriteSize);
+        jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, foreceType, (kfsMode_t)mode, kKfsSTierMax, kKfsSTierMax, jtargetDiskIoSize);
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_remove(

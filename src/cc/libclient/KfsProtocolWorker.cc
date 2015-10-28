@@ -281,7 +281,7 @@ public:
         int                    inSize,
         int                    inMaxPending,
         int64_t                inOffset,
-        int                    inMaxReadWriteSize = 0)
+        int                    inTargetDiskIoSize = 0)
     {
         if (IsSync(inRequestType)) {
             SyncRequest& theReq = GetSyncRequest(
@@ -293,7 +293,7 @@ public:
                 inSize,
                 inMaxPending,
                 inOffset,
-                inMaxReadWriteSize
+                inTargetDiskIoSize
             );
             const int64_t theRet = theReq.Execute(*this);
             PutSyncRequest(theReq);
@@ -308,7 +308,7 @@ public:
             inSize,
             inMaxPending,
             inOffset,
-            inMaxReadWriteSize
+            inTargetDiskIoSize
         ));
     }
     int64_t Enqueue(
@@ -529,7 +529,7 @@ private:
             int           inSize,
             int           inMaxPending,
             int64_t       inOffset,
-            int           inMaxReadWriteSize)
+            int           inTargetDiskIoSize)
         {
             QCASSERT(IsAsync(inRequestType));
             const bool theCopyFlag = inSize > 0 && ! (
@@ -569,7 +569,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset,
-                inMaxReadWriteSize
+                inTargetDiskIoSize
             );
             QCASSERT(reinterpret_cast<char*>(theRetPtr) == theAllocPtr);
             return *theRetPtr;
@@ -595,7 +595,7 @@ private:
             int           inSize,
             int           inMaxPending,
             int64_t       inOffset,
-            int           inMaxReadWriteSize)
+            int           inTargetDiskIoSize)
             : Request(
                 inRequestType,
                 inFileInstance,
@@ -605,7 +605,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset,
-                inMaxReadWriteSize)
+                inTargetDiskIoSize)
             {}
         virtual ~AsyncRequest()
             {}
@@ -629,7 +629,7 @@ private:
             int           inSize         = 0,
             int           inMaxPending   = -1,
             int64_t       inOffset       = -1,
-            int           inMaxReadWriteSize = 0)
+            int           inTargetDiskIoSize = 0)
             : Request(
                 inRequestType,
                 inFileInstance,
@@ -639,7 +639,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset,
-                inMaxReadWriteSize),
+                inTargetDiskIoSize),
               KfsNetClient::OpOwner(),
               mMutex(),
               mCond(),
@@ -655,7 +655,7 @@ private:
             int           inSize         = 0,
             int           inMaxPending   = -1,
             int64_t       inOffset       = -1,
-            int           inMaxReadWriteSize = 0)
+            int           inTargetDiskIoSize = 0)
         {
             QCRTASSERT(! mWaitingFlag);
             Request::Reset(
@@ -667,7 +667,7 @@ private:
                 inSize,
                 inMaxPending,
                 inOffset,
-                inMaxReadWriteSize
+                inTargetDiskIoSize
             );
             mRetStatus   = 0;
             mWaitingFlag = 0;
@@ -1717,16 +1717,16 @@ private:
             "," << theName
         ;
         const string  theLogPrefix = theStream.str();
-        int maxReadWriteSize = inRequest.mMaxReadWriteSize;
+        int targetDiskIoSize = inRequest.mTargetDiskIoSize;
         Worker* const theRetPtr    = IsAppend(inRequest) ?
             static_cast<Worker*>(new Appender(
                 *this, inWorkersIt, theLogPrefix.c_str())) :
             (IsWrite(inRequest) ?
                 static_cast<Worker*>(new FileWriter(
-                    *this, inWorkersIt, theLogPrefix.c_str(), maxReadWriteSize)) :
+                    *this, inWorkersIt, theLogPrefix.c_str(), targetDiskIoSize)) :
             (IsRead(inRequest) ?
                 static_cast<Worker*>(new FileReader(
-                    *this, inWorkersIt, theLogPrefix.c_str(), maxReadWriteSize)) :
+                    *this, inWorkersIt, theLogPrefix.c_str(), targetDiskIoSize)) :
                 0
         ));
         QCRTASSERT(theRetPtr);
@@ -1751,7 +1751,7 @@ private:
         int                    inSize,
         int                    inMaxPending,
         int64_t                inOffset,
-        int                    inMaxReadWriteSize)
+        int                    inTargetDiskIoSize)
     {
         QCStMutexLocker lock(mMutex);
         SyncRequest* theReqPtr = FreeSyncRequests::PopFront(mFreeSyncRequests);
@@ -1764,7 +1764,7 @@ private:
             inSize,
             inMaxPending,
             inOffset,
-            inMaxReadWriteSize
+            inTargetDiskIoSize
         ) : *(new SyncRequest(
             inRequestType,
             inFileInstance,
@@ -1774,7 +1774,7 @@ private:
             inSize,
             inMaxPending,
             inOffset,
-            inMaxReadWriteSize
+            inTargetDiskIoSize
         )));
     }
     void PutSyncRequest(
@@ -1916,7 +1916,7 @@ KfsProtocolWorker::Request::Request(
     int                                       inSize         /* = 0 */,
     int                                       inMaxPending   /* = -1 */,
     int64_t                                   inOffset       /* = -1 */,
-    int                                       inMaxReadWriteSize /* = 0 */)
+    int                                       inTargetDiskIoSize /* = 0 */)
     : mRequestType(inRequestType),
       mFileInstance(inFileInstance),
       mFileId(inFileId),
@@ -1927,7 +1927,7 @@ KfsProtocolWorker::Request::Request(
       mStatus(0),
       mMaxPendingOrEndPos(inMaxPending),
       mOffset(inOffset),
-      mMaxReadWriteSize(inMaxReadWriteSize)
+      mTargetDiskIoSize(inTargetDiskIoSize)
 {
     KfsProtocolWorker::Impl::WorkQueue::Init(*this);
 }
@@ -1942,7 +1942,7 @@ KfsProtocolWorker::Request::Reset(
     int                                       inSize         /* = 0 */,
     int                                       inMaxPending   /* = -1 */,
     int64_t                                   inOffset       /* = -1 */,
-    int                                       inMaxReadWriteSize /* = 0 */)
+    int                                       inTargetDiskIoSize /* = 0 */)
 {
     mRequestType        = inRequestType;
     mFileInstance       = inFileInstance;
@@ -1954,7 +1954,7 @@ KfsProtocolWorker::Request::Reset(
     mState              = KfsProtocolWorker::Request::kStateNone;
     mStatus             = 0;
     mOffset             = inOffset;
-    mMaxReadWriteSize	= inMaxReadWriteSize;
+    mTargetDiskIoSize	= inTargetDiskIoSize;
 }
 
 /* virtual */
@@ -2002,7 +2002,7 @@ KfsProtocolWorker::Execute(
     int                                       inSize,
     int                                       inMaxPending,
     int64_t                                   inOffset,
-    int                                       inMaxReadWriteSize)
+    int                                       inTargetDiskIoSize)
 {
     return mImpl.Execute(
         inRequestType,
@@ -2013,7 +2013,7 @@ KfsProtocolWorker::Execute(
         inSize,
         inMaxPending,
         inOffset,
-        inMaxReadWriteSize
+        inTargetDiskIoSize
     );
 }
 

@@ -210,7 +210,7 @@ struct FileTableEntry {
     int                  ioBufferSize;
     ReadBuffer           buffer;
     ReadRequest*         mReadQueue[1];
-    int                  mMaxReadWriteSize;
+    int                  mTargetDiskIoSize;
 
     FileTableEntry(kfsFileId_t p, const string& n, unsigned int instance):
         parentFid(p),
@@ -230,7 +230,7 @@ struct FileTableEntry {
         dirEntries(0),
         ioBufferSize(0),
         buffer(),
-        mMaxReadWriteSize(0)
+        mTargetDiskIoSize(0)
         { mReadQueue[0] = 0; }
     ~FileTableEntry()
     {
@@ -384,7 +384,7 @@ public:
     /// @param[in] numReplicas the desired degree of replication for
     /// the file.
     /// @param[in] exclusive  create will fail if the exists (O_EXCL flag)
-    /// @param[in] maxReadWriteSize maximum number of bytes written/read
+    /// @param[in] targetDiskIoSize maximum number of bytes written/read
     /// between client and chunk-server each time
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
@@ -394,7 +394,7 @@ public:
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
         kfsMode_t mode = kKfsModeUndef,
         kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
-        int maxReadWriteSize = 0);
+        int targetDiskIoSize = 0);
 
     ///
     /// Remove a file which is specified by a complete path.
@@ -431,13 +431,13 @@ public:
     /// O_CREAT, O_CREAT|O_EXCL, O_RDWR, O_RDONLY, O_WRONLY, O_TRUNC, O_APPEND
     /// @param[in] numReplicas if O_CREAT is specified, then this the
     /// desired degree of replication for the file
-    /// @param[in] maxReadWriteSize maximum number of bytes written/read
+    /// @param[in] targetDiskIoSize maximum number of bytes written/read
     /// between client and chunk-server each time
     /// @retval fd corresponding to the opened file; -errno on failure
     ///
     int Open(const char *pathname, int openFlags, int numReplicas,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-        kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier, int maxReadWriteSize);
+        kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier, int targetDiskIoSize);
 
     ///
     /// Close a file
@@ -863,7 +863,7 @@ private:
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE,
         kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax,
         bool cacheAttributesFlag = false,
-        kfsMode_t mode = kKfsModeUndef, string* path = 0, int maxReadWriteSize = 0);
+        kfsMode_t mode = kKfsModeUndef, string* path = 0, int targetDiskIoSize = 0);
     int CacheAttributes(const char* pathname);
     int GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
         vector<vector<string> >& locations, chunkOff_t* outBlkSize);
@@ -871,7 +871,7 @@ private:
     int CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
         bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-        int maxReadWriteSize);
+        int targetDiskIoSize);
     ssize_t SetReadAheadSize(FileTableEntry& inEntry, size_t inSize, bool optimalFlag = false);
     ssize_t SetIoBufferSize(FileTableEntry& entry, size_t size, bool optimalFlag = false);
     ssize_t SetOptimalIoBufferSize(FileTableEntry& entry, size_t size) {

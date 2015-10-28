@@ -517,16 +517,16 @@ int
 KfsClient::Create(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-    int maxReadWriteSize)
+    int targetDiskIoSize)
 {
     return mImpl->Create(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
-        mode, minSTier, maxSTier, maxReadWriteSize);
+        mode, minSTier, maxSTier, targetDiskIoSize);
 }
 
 
 int
-KfsClient::Create(const char *pathname, bool exclusive, const char *params, int maxReadWriteSize)
+KfsClient::Create(const char *pathname, bool exclusive, const char *params, int targetDiskIoSize)
 {
     int        numReplicas;
     int        numStripes;
@@ -543,7 +543,7 @@ KfsClient::Create(const char *pathname, bool exclusive, const char *params, int 
     }
     return mImpl->Create(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, true,
-        0666, maxSTier, minSTier, maxReadWriteSize);
+        0666, maxSTier, minSTier, targetDiskIoSize);
 }
 
 int
@@ -573,16 +573,16 @@ KfsClient::SetMtime(const char *pathname, const struct timeval &mtime)
 int
 KfsClient::Open(const char *pathname, int openFlags, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier, int maxReadWriteSize)
+    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier, int targetDiskIoSize)
 {
     return mImpl->Open(pathname, openFlags, numReplicas,
         numStripes, numRecoveryStripes, stripeSize, stripedType, mode,
-        minSTier, maxSTier, maxReadWriteSize);
+        minSTier, maxSTier, targetDiskIoSize);
 }
 
 int
 KfsClient::Open(const char *pathname, int openFlags, const char *params,
-    kfsMode_t mode, int maxReadWriteSize)
+    kfsMode_t mode, int targetDiskIoSize)
 {
     int        numReplicas;
     int        numStripes;
@@ -599,7 +599,7 @@ KfsClient::Open(const char *pathname, int openFlags, const char *params,
     }
     return mImpl->Open(pathname, openFlags, numReplicas,
         numStripes, numRecoveryStripes, stripeSize, stripedType, mode,
-        minSTier, maxSTier, maxReadWriteSize);
+        minSTier, maxSTier, targetDiskIoSize);
 }
 
 int
@@ -3201,19 +3201,19 @@ int
 KfsClientImpl::Create(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-    int maxReadWriteSize)
+    int targetDiskIoSize)
 {
     QCStMutexLocker l(mMutex);
     return CreateSelf(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
-        mode, minSTier, maxSTier, maxReadWriteSize);
+        mode, minSTier, maxSTier, targetDiskIoSize);
 }
 
 int
 KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-    int maxReadWriteSize)
+    int targetDiskIoSize)
 {
     if (! pathname || ! *pathname) {
         return -EINVAL;
@@ -3303,7 +3303,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     fa.fileSize    = 0; // presently CreateOp always deletes file if exists.
     fa.minSTier    = op.minSTier;
     fa.maxSTier    = op.maxSTier;
-    entry.mMaxReadWriteSize = (maxReadWriteSize + CHECKSUM_BLOCKSIZE - 1) /
+    entry.mTargetDiskIoSize = (targetDiskIoSize + CHECKSUM_BLOCKSIZE - 1) /
     							CHECKSUM_BLOCKSIZE * CHECKSUM_BLOCKSIZE;
     if (op.metaStriperType != KFS_STRIPED_FILE_TYPE_NONE) {
         fa.numStripes         = (int16_t)numStripes;
@@ -3333,7 +3333,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
         " striper: "  << fa.striperType <<
-        " maxReadWriteSize: " << entry.mMaxReadWriteSize <<
+        " targetDiskIoSize: " << entry.mTargetDiskIoSize <<
     KFS_LOG_EOM;
 
     return fte;
@@ -3779,13 +3779,13 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
 int
 KfsClientImpl::Open(const char *pathname, int openMode, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier, int maxReadWriteSize)
+    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier, int targetDiskIoSize)
 {
     QCStMutexLocker l(mMutex);
     const bool kCacheAttributesFlag = false;
     return OpenSelf(pathname, openMode, numReplicas,
         numStripes, numRecoveryStripes, stripeSize, stripedType,
-        minSTier, maxSTier, kCacheAttributesFlag, mode, 0, maxReadWriteSize);
+        minSTier, maxSTier, kCacheAttributesFlag, mode, 0, targetDiskIoSize);
 }
 
 int
@@ -3812,7 +3812,7 @@ int
 KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
     kfsSTier_t minSTier, kfsSTier_t maxSTier,
-    bool cacheAttributesFlag, kfsMode_t mode, string* path, int maxReadWriteSize)
+    bool cacheAttributesFlag, kfsMode_t mode, string* path, int targetDiskIoSize)
 {
     if ((openMode & O_TRUNC) != 0 &&
             (openMode & (O_RDWR | O_WRONLY | O_APPEND)) == 0) {
@@ -3861,7 +3861,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 const int fte = CreateSelf(pathname, numReplicas,
                     openMode & O_EXCL,
                     numStripes, numRecoveryStripes, stripeSize, stripedType,
-                    false, mode, minSTier, maxSTier, maxReadWriteSize);
+                    false, mode, minSTier, maxSTier, targetDiskIoSize);
                 if (fte >= 0 && (openMode & O_APPEND) != 0) {
                     FileTableEntry& entry = *mFileTable[fte];
                     assert(! entry.fattr.isDirectory);
@@ -3924,7 +3924,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
         entry.openMode = 0;
     }
     entry.fattr = fattr;
-    entry.mMaxReadWriteSize = maxReadWriteSize;
+    entry.mTargetDiskIoSize = targetDiskIoSize;
     const bool truncateFlag =
         ! cacheAttributesFlag && (openMode & O_TRUNC) != 0;
     if (truncateFlag) {

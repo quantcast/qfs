@@ -235,22 +235,22 @@ class QFSImpl implements IFSImpl {
 
   public FSDataOutputStream create(String path, short replication,
                                    int bufferSize, boolean overwrite,
-                                   int mode, int maxReadWriteSize) throws IOException {
+                                   int mode, int targetDiskIoSize) throws IOException {
     final boolean append = false;
-    return create(path, replication, bufferSize, overwrite, mode, maxReadWriteSize, append);
+    return create(path, replication, bufferSize, overwrite, mode, targetDiskIoSize, append);
   }
 
   public FSDataOutputStream create(String path, short replication,
         int bufferSize, boolean overwrite, int mode,
-        int maxReadWriteSize, boolean append) throws IOException {
+        int targetDiskIoSize, boolean append) throws IOException {
     return new FSDataOutputStream(createQFSOutputStream(
-      kfsAccess, path, replication, overwrite, append, mode, maxReadWriteSize), statistics);
+      kfsAccess, path, replication, overwrite, append, mode, targetDiskIoSize), statistics);
   }
 
-  public FSDataInputStream open(String path, int bufferSize, int maxReadWriteSize)
+  public FSDataInputStream open(String path, int bufferSize, int targetDiskIoSize)
     throws IOException {
       return new FSDataInputStream(createQFSInputStream(kfsAccess, path,
-                                                      maxReadWriteSize, statistics));
+                                                      targetDiskIoSize, statistics));
   }
 
   public FSDataOutputStream append(String path, short replication,
@@ -258,9 +258,9 @@ class QFSImpl implements IFSImpl {
     final boolean append    = true;
     final boolean overwrite = false;
     final int     mode      = 0666;
-    final int maxReadWriteSize = 0;
+    final int targetDiskIoSize = 0;
     return new FSDataOutputStream(createQFSOutputStream(
-      kfsAccess, path, replication, overwrite, append, mode, maxReadWriteSize), statistics);
+      kfsAccess, path, replication, overwrite, append, mode, targetDiskIoSize), statistics);
   }
 
   public void setPermission(String path, int mode) throws IOException {
@@ -280,13 +280,13 @@ class QFSImpl implements IFSImpl {
 
   protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
                                                   short replication, boolean overwrite,
-                                                  boolean append, int mode, int maxReadWriteSize) throws IOException {
-    return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode, maxReadWriteSize);
+                                                  boolean append, int mode, int targetDiskIoSize) throws IOException {
+    return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode, targetDiskIoSize);
   }
 
   protected QFSInputStream createQFSInputStream(KfsAccess kfsAccess, String path,
-                                                int maxReadWriteSize, FileSystem.Statistics stats) throws IOException {
-    return new QFSInputStream(kfsAccess, path, maxReadWriteSize, stats);
+                                                int targetDiskIoSize, FileSystem.Statistics stats) throws IOException {
+    return new QFSInputStream(kfsAccess, path, targetDiskIoSize, stats);
   }
 
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)

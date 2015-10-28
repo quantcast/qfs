@@ -117,7 +117,7 @@ public class Qfs extends AbstractFileSystem {
     Progressable        progress,
     ChecksumOpt         checksumOpt,
     boolean             createParent,
-    int                 maxReadWriteSize)
+    int                 targetDiskIoSize)
       throws IOException {
     CreateFlag.validate(createFlag);
     if (createParent) {
@@ -129,7 +129,7 @@ public class Qfs extends AbstractFileSystem {
       bufferSize,
       createFlag.contains(CreateFlag.OVERWRITE),
       absolutePermission.toShort(),
-      maxReadWriteSize,
+      targetDiskIoSize,
       createFlag.contains(CreateFlag.APPEND)
     );
   }
@@ -216,9 +216,9 @@ public class Qfs extends AbstractFileSystem {
     return open(path, bufferSize, 0);
   }
 
-  public FSDataInputStream open(Path path, int bufferSize, int maxReadWriteSize)
+  public FSDataInputStream open(Path path, int bufferSize, int targetDiskIoSize)
       throws IOException, UnresolvedLinkException {
-    return qfs.open(path, bufferSize, maxReadWriteSize);
+    return qfs.open(path, bufferSize, targetDiskIoSize);
   }
   
   @Override
