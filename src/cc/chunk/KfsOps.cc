@@ -1094,8 +1094,7 @@ CloseOp::Execute()
     if (chunkVersion < 0 && needToForward && hasWriteId) {
         status    = -EINVAL;
         statusMsg = "invalid object store file block close";
-    }
-    if (chunkAccessTokenValidFlag &&
+    } else if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
             (subjectId != writeId || ! hasWriteId)) {
         status    = -EPERM;

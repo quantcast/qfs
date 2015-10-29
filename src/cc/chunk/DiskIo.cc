@@ -2236,7 +2236,7 @@ DiskIo::Write(
         if (mFilePtr->GetError() < 0) {
             return mFilePtr->GetError();
         }
-        const size_t theSize     = (size_t)theBlkIdx + theBufferCnt;
+        const size_t theSize = (size_t)theBlkIdx + theBufferCnt;
         if (theIoBuffers.size() < theSize) {
             theIoBuffers.resize(theSize, sDiskIoQueuesPtr->GetNullBufferData());
         }
@@ -2700,6 +2700,8 @@ DiskIo::RunCompletion()
         theErrMsg += QCUtils::SysError(-theNumRead);
         KFS_LOG_STREAM(theMetaFlag ?
                 MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+            " " << reinterpret_cast<const void*>(mFilePtr.get()) <<
+            " " << reinterpret_cast<const void*>(this) <<
             theOpNamePtr <<
             " (" << mReadLength << " " << mIoBuffers.size() << ")"
             " error: " << theNumRead <<

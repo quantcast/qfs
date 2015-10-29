@@ -1451,6 +1451,7 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
         return;
     }
     string errMsg;
+    const void* const logFH = dataFH.get();
     if (! dataFH->Close(
             0 <= chunkInfo.chunkVersion ?
                 chunkInfo.chunkSize + chunkInfo.GetHeaderSize() : int64_t(-1),
@@ -1466,6 +1467,7 @@ ChunkInfoHandle::Release(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     KFS_LOG_STREAM_INFO <<
         "closing chunk " << chunkInfo.chunkId <<
         " version: "     << chunkInfo.chunkVersion <<
+        " file handle: " << logFH <<
         " and might give up lease" <<
     KFS_LOG_EOM;
     gLeaseClerk.RelinquishLease(
@@ -2913,6 +2915,8 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
         cb, renameFlag, stableFlag, cih->chunkInfo.chunkVersion);
     if (res < 0) {
         statusMsg = "failed to start chunk meta data write";
+        const DiskIo::File* const kNullFile = 0;
+        ChunkIOFailed(chunkId, chunkVersion, res, kNullFile);
     }
     return res;
 }
@@ -2982,7 +2986,12 @@ ChunkManager::WriteChunkMetadata(
         }
         cih->SetMetaDirty();
     }
-    return cih->WriteChunkMetadata(cb);
+    const int status = cih->WriteChunkMetadata(cb);
+    if (0 != status) {
+        const DiskIo::File* const kNullFile = 0;
+        ChunkIOFailed(chunkId, chunkVersion, status, kNullFile);
+    }
+    return status;
 }
 
 int
@@ -3481,8 +3490,15 @@ ChunkManager::ChangeChunkVers(
         ;
         die(os.str());
     }
-    const bool renameFlag = true;
-    return cih->WriteChunkMetadata(cb, renameFlag, stableFlag, chunkVersion);
+    kfsChunkId_t const chunkId    = cih->chunkInfo.chunkId;
+    const bool         renameFlag = true;
+    const int          status     = cih->WriteChunkMetadata(
+        cb, renameFlag, stableFlag, chunkVersion);
+    if (0 != status) {
+        const DiskIo::File* const kNullFile = 0;
+        ChunkIOFailed(chunkId, chunkVersion, status, kNullFile);
+    }
+    return status;
 }
 
 void
@@ -3922,10 +3938,10 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
     if (cih->IsFileOpen()) {
         return 0;
     }
+    const bool openFlag = 0 == (openFlags & O_CREAT);
     if (! CleanupInactiveFds(globalNetManager().Now(), cih)) {
         KFS_LOG_STREAM_ERROR <<
-            "failed to " <<
-                (((openFlags & O_CREAT) == 0) ? "open" : "create") <<
+            "failed to " << (openFlag ? "open" : "create") <<
             " chunk file: " << MakeChunkPathname(cih) <<
             ": out of file descriptors"
             " chunk fds: "  <<
@@ -3973,7 +3989,7 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
             cih->dataFH.reset();
         }
         KFS_LOG_STREAM_ERROR <<
-            "failed to " << (((openFlags & O_CREAT) == 0) ? "open" : "create") <<
+            "failed to " << (openFlag ? "open" : "create") <<
             " chunk file: " << fn << " :" << errMsg <<
         KFS_LOG_EOM;
         return (tempFailureFlag ? -EAGAIN : -EBADF);
@@ -3983,6 +3999,12 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
     if (! cih->IsStable()) {
         cih->UpdateDirStableCount();
     }
+    KFS_LOG_STREAM(openFlag ?
+            MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelINFO) <<
+        (openFlag ? "open" : "create") <<
+        " chunk file: "  << fn <<
+        " file handle: " << reinterpret_cast<const void*>(cih->dataFH.get()) <<
+    KFS_LOG_EOM;
     // the checksums will be loaded async
     return 0;
 }
@@ -4021,9 +4043,7 @@ ChunkManager::CloseChunkWrite(
                 if (stableFlag) {
                     cih->AddWaitChunkReadable(op);
                 } else {
-                    if (! gMetaServerSM.IsUp()) {
-                        return -ELEASEEXPIRED;
-                    }
+                    return (gMetaServerSM.IsUp() ? -EINVAL : -ELEASEEXPIRED);
                 }
             } else {
                 if (readMetaFlag) {
@@ -6896,7 +6916,8 @@ ChunkManager::MetaServerConnectionLost()
 long
 ChunkManager::GetNumWritableChunks() const
 {
-    return (long)mPendingWrites.GetChunkWrites().GetChunkIdCount();
+    return (long)(mPendingWrites.GetChunkWrites().GetChunkIdCount() +
+        mPendingWrites.GetObjWrites().GetChunkIdCount());
 }
 
 void
