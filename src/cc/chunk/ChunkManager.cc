@@ -4042,18 +4042,16 @@ ChunkManager::CloseChunkWrite(
                 }
                 if (stableFlag) {
                     cih->AddWaitChunkReadable(op);
-                } else {
-                    return (gMetaServerSM.IsUp() ? -EINVAL : -ELEASEEXPIRED);
+                    return 0;
                 }
-            } else {
-                if (readMetaFlag) {
-                    *readMetaFlag = true;
-                }
-                bool kAddObjectBlockMappingFlag = true;
-                ReadChunkMetadata(chunkId, chunkVersion, op,
-                    kAddObjectBlockMappingFlag);
+                return (gMetaServerSM.IsUp() ? -EINVAL : -ELEASEEXPIRED);
             }
-            return 0;
+            if (readMetaFlag) {
+                *readMetaFlag = true;
+            }
+            bool kAddObjectBlockMappingFlag = true;
+            return ReadChunkMetadata(chunkId, chunkVersion, op,
+                kAddObjectBlockMappingFlag);
         }
         return -EBADF;
     }
