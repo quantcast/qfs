@@ -44,7 +44,7 @@ public:
     XmlScannerTest()
         : mKey(),
           mValue(),
-          mFunc(*this, mKey, mValue)
+          mFunc(*this, mKey, mValue, 10 << 10, 10 << 10)
     {
         mKey.reserve(1 << 10);
         mValue.reserve(1 << 10);

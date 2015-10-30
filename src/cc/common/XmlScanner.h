@@ -242,10 +242,14 @@ public:
         KeyValueFunc(
             FuncT&  inFunc,
             String& inKeyBuf,
-            String& inValueBuf)
+            String& inValueBuf,
+            Size    inMaxKeySize,
+            Size    inMaxValueSize)
             : mFunc(inFunc),
               mCloseTagPos(String::npos),
               mCurCloseTagPos(String::npos),
+              mMaxKeySize(inMaxKeySize),
+              mMaxValueSize(inMaxValueSize),
               mPrevState(kStateNone),
               mLeafFlag(false),
               mKey(inKeyBuf),
@@ -306,6 +310,9 @@ public:
                     }
                     break;
                 case kStateTagName:
+                    if (mMaxKeySize <= mKey.size()) {
+                        return false;
+                    }
                     if (thePrevState != inState) {
                         mKey     += PathSeparator;
                         mLeafFlag = true;
@@ -315,6 +322,9 @@ public:
                 case kStateValue:
                     if (thePrevState != inState) {
                         mValue.clear();
+                    }
+                    if (mMaxValueSize <= mKey.size()) {
+                        return false;
                     }
                     mValue += (char)inSym;
                     break;
@@ -338,6 +348,8 @@ public:
         FuncT&  mFunc;
         Size    mCloseTagPos;
         Size    mCurCloseTagPos;
+        Size    mMaxKeySize;
+        Size    mMaxValueSize;
         State   mPrevState;
         bool    mLeafFlag;
         String& mKey;

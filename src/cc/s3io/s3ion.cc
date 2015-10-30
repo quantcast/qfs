@@ -1553,6 +1553,20 @@ private:
                     Error(-EINVAL, "invalid response");
                     return kCloseConnection;
                 }
+                if (mOuter.mMaxResponseSize < mHeaders.GetContentLength()) {
+                    KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
+                        " response size: "       <<
+                            mHeaders.GetContentLength() <<
+                        " exceeds limit: "       << mOuter.mMaxResponseSize <<
+                        " header length: "       << mHeaderLength <<
+                        " max response length: " << mOuter.mMaxResponseSize <<
+                        " header: " << ShowData(inBuffer,
+                            min(mOuter.mDebugTraceMaxErrorDataSize,
+                                    mHeaderLength)) <<
+                    KFS_LOG_EOM;
+                    Error(-EINVAL, "response size exceeds limit");
+                    return kCloseConnection;
+                }
                 if (mOuter.mDebugTraceRequestHeadersFlag) {
                     KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix << Show(*this) <<
                         " response header: " <<
@@ -2697,8 +2711,10 @@ private:
         const IOBuffer& inBuffer,
         T&              inTarget)
     {
+        const size_t kMaxKeySize   = 4 << 10;
+        const size_t kMaxValueSize = 4 << 10;
         XmlScanner::KeyValueFunc<string, T> theScanner(
-            inTarget, mTmpBuffer, mTmpSignBuffer);
+            inTarget, mTmpBuffer, mTmpSignBuffer, kMaxKeySize, kMaxValueSize);
         IOBufferInputIterator               theIt(inBuffer);
         return theScanner.Scan(theIt);
     }
@@ -2750,7 +2766,7 @@ private:
           mMaxReadAhead(4 << 10),
           mMaxHdrLen(16 << 10),
           mHdrBufferPtr(new char[mMaxHdrLen + 1]),
-          mMaxResponseSize(64 << 20),
+          mMaxResponseSize((16 << 10) + (64 << 20)),
           mWOStream(),
           mTmpSignBuffer(),
           mTmpBuffer(),
@@ -2864,6 +2880,10 @@ private:
         mDebugTraceMaxHeaderSize = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("debugTrace.maxDataSize"),
             mDebugTraceMaxHeaderSize
+        );
+        mMaxResponseSize = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("maxResponseSize"),
+            mMaxResponseSize
         );
         const int theMaxHdrLen = min(256 << 10, max(4 << 10,
         mParameters.getValue(
