@@ -357,17 +357,17 @@ public:
             " error: "  << theFile.mErrorFlag <<
             " status: " << theRet <<
         KFS_LOG_EOM;
-        if (theFile.mCommitFlag &&
+        if (theFile.mErrorFlag &&
                 ! theFile.mUploadId.empty() &&
                 File::List::IsEmpty(theFile.mPendingListPtr) &&
                 IsRunning()) {
             mClient.Run(*(new S3Delete(
                 *this, theFile.mFileName, theFile.mUploadId)));
         }
-        // Clear the list, request completion should detect file close and
-        // abort the request followed by required cleanup.
-        while (File::List::PopFront(theFile.mPendingListPtr))
-            {}
+        MPPut* thePtr;
+        while ((thePtr = File::List::Back(theFile.mPendingListPtr))) {
+            thePtr->Cancel(theFile);
+        }
         if (mFileTable.size() == (size_t)inFd + 1) {
             mFileTable.pop_back();
         } else {
@@ -1020,9 +1020,10 @@ private:
             const char* inMsgPtr)
         {
             const int  kMinAgainRetryInterval = 2;
-            const bool theResubmiNowtFlag     = -EAGAIN == inStatus &&
-                mOuter.Now() <= mStartTime + kMinAgainRetryInterval;
-            KFS_LOG_STREAM(theResubmiNowtFlag ?
+            const bool theResubmiNowFlag      = -EAGAIN == inStatus &&
+                mOuter.Now() <= mStartTime + kMinAgainRetryInterval &&
+                mOuter.IsRunning();
+            KFS_LOG_STREAM(theResubmiNowFlag ?
                 MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
                 mOuter.mLogPrefix << Show(*this) <<
                 " network error: " << inStatus  <<
@@ -1030,7 +1031,7 @@ private:
                 " started: "       << (mOuter.Now() - mStartTime) <<
                     " secs. ago" <<
             KFS_LOG_EOM;
-            if (theResubmiNowtFlag) {
+            if (theResubmiNowFlag) {
                 Reset();
                 mTimer.RemoveTimeout();
                 mOuter.ScheduleNext(*this);
@@ -2184,6 +2185,7 @@ private:
                 inFd,
                 inIOBuffer),
                 mCommitFlag(false),
+                mCommitInFlightFlag(false),
                 mETag(),
                 mTmpWrite()
             { List::Init(*this); }
@@ -2220,7 +2222,7 @@ private:
             if (! theGetIdFlag) {
                 if (theFilePtr->mUploadId.empty()) {
                     mOuter.FatalError("invocation without upload id");
-                    Error(EINVAL, "no upload id");
+                    Error(-EINVAL, "no upload id");
                     return -1;
                 }
                 if (! mCommitFlag) {
@@ -2353,8 +2355,28 @@ private:
             }
             return theRet;
         }
+        void Cancel(
+            File& inFile)
+        {
+            List::Remove(inFile.mPendingListPtr, *this);
+            if (mCommitFlag && ! mCommitInFlightFlag) {
+                // Commit is not in flight (or retry state) -- schedule it to
+                // fail after file close completion. All other pending list
+                // entries must be in flight, and therefore it is sufficient to
+                // just remove them from list, as request or reply handler
+                // will discover file close and fail these.
+                mCommitInFlightFlag = true;
+                if (mOuter.IsRunning()) {
+                    mOuter.ScheduleNext(*this);
+                } else {
+                    // Fail synchronously.
+                    Error(-EIO, "file close in shutdown");
+                }
+            }
+        }
     private:
         bool           mCommitFlag;
+        bool           mCommitInFlightFlag;
         MPutPart::ETag mETag;
         IOBuffer       mTmpWrite;
         MPPut*         mPrevPtr[1];
@@ -2369,7 +2391,7 @@ private:
                 (theFilePtr = mOuter.GetFilePtr(mFd)) &&
                 theFilePtr->mGeneration == mGeneration;
             if (inInvokeErrorHandlerFlag && ! theOkFlag) {
-                Error(EINVAL, "file closed");
+                Error(-EINVAL, "file closed");
             }
             return (theOkFlag ? theFilePtr : 0);
         }
@@ -2381,15 +2403,19 @@ private:
             File* const theFilePtr   = GetFilePtr(kInvokeErrorHandlerFlag);
             const bool  theGetIdFlag = mDataBuf.IsEmpty();
             if (theFilePtr) {
-                if (0 != mSysError && ! theFilePtr->mErrorFlag) {
-                    theFilePtr->mErrorFlag = true;
+                if (theFilePtr->mErrorFlag != (0 != mSysError)) {
+                    if (0 != mSysError) {
+                        theFilePtr->mErrorFlag = true;
+                    } else {
+                        mSysError = EIO;
+                    }
                 }
                 List::Remove(theFilePtr->mPendingListPtr, *this);
                 if (theGetIdFlag) {
                     if (theFilePtr->mUploadId.empty() || ! mOuter.IsRunning()) {
                         theFilePtr->mErrorFlag = true;
                         MPPut* thePtr;
-                        while((thePtr = List::Front(
+                        while((thePtr = List::Back(
                                 theFilePtr->mPendingListPtr))) {
                             QCASSERT(! thePtr->mDataBuf.IsEmpty());
                             thePtr->mSysError = EIO;
@@ -2403,45 +2429,82 @@ private:
                             mOuter.ScheduleNext(*thePtr);
                         }
                     }
+                } else if (theFilePtr->mCommitFlag && ! mCommitFlag &&
+                        ! theFilePtr->mErrorFlag &&
+                        QCDiskQueue::kReqTypeWriteSync == mReqType) {
+                    const bool theWaitFlag =
+                        ! List::IsEmpty(theFilePtr->mPendingListPtr);
+                    if ((theWaitFlag && List::Front(
+                                theFilePtr->mPendingListPtr)->mCommitFlag) ||
+                                mCommitInFlightFlag) {
+                        mOuter.FatalError(
+                            "invalid multipart part upload completion");
+                    }
+                    // Always report upload commit result on the write sync.
+                    // Write sync must be the last request to report completion,
+                    // while non sync write completions can be reported out of
+                    // [submit] order.
+                    File::List::PushFront(theFilePtr->mPendingListPtr, *this);
+                    mCommitFlag = true;
+                    mRetryCount = 0;
+                    Reset();
+                    if (theWaitFlag) {
+                        // Always reorder (even in the case of shutdown) to be
+                        // the last reported completion.
+                        return;
+                    }
                 }
             }
             if (theGetIdFlag) {
                 delete this;
                 return;
             }
-            if (mCommitFlag) {
-                mDataBuf.Clear();
-                mDataBuf.Move(&mTmpWrite);
-                if (theFilePtr) {
-                    if (! List::IsEmpty(theFilePtr->mPendingListPtr)) {
+            if (theFilePtr) {
+                MPPut* const theFrontPtr =
+                    List::Front(theFilePtr->mPendingListPtr);
+                if (mCommitInFlightFlag) {
+                    if (! mCommitFlag ||
+                            QCDiskQueue::kReqTypeWriteSync != mReqType ||
+                            theFrontPtr) {
                         mOuter.FatalError(
-                            "invalid multipart upload completion");
-                    } else {
+                            "invalid multipart commit completion");
+                    }
+                    // Commit completion.
+                    mDataBuf.Clear();
+                    mDataBuf.Move(&mTmpWrite);
+                    if (! theFilePtr->mErrorFlag) {
                         theFilePtr->MakeReadOnly();
                     }
-                }
-            } else if (theFilePtr &&
-                    (theFilePtr->mCommitFlag || theFilePtr->mErrorFlag) &&
-                    ! theFilePtr->mUploadId.empty() &&
-                    List::IsEmpty(theFilePtr->mPendingListPtr)) {
-                if (theFilePtr->mErrorFlag) {
-                    if (mOuter.IsRunning()) {
-                        // Abort: delete all upload parts.
-                        mOuter.ScheduleNext(*(new S3Delete(
-                            mOuter, mFileName, theFilePtr->mUploadId)));
+                } else if ((theFilePtr->mCommitFlag ||
+                            theFilePtr->mErrorFlag) &&
+                        ! theFilePtr->mUploadId.empty() &&
+                        theFrontPtr && theFrontPtr->mCommitFlag &&
+                        List::Back(theFilePtr->mPendingListPtr) ==
+                            theFrontPtr) {
+                    const bool theDoneFlag = this == theFrontPtr;
+                    if (theFilePtr->mErrorFlag) {
+                        if (mOuter.IsRunning()) {
+                            // Abort: delete all upload parts.
+                            mOuter.ScheduleNext(*(new S3Delete(
+                                mOuter, mFileName, theFilePtr->mUploadId)));
+                            theFilePtr->mUploadId = kS3EmptyString;
+                        }
+                        theFrontPtr->Done();
+                    } else {
+                        if (mOuter.IsRunning()) {
+                            theFrontPtr->mCommitInFlightFlag = true;
+                            mOuter.ScheduleNext(*theFrontPtr);
+                        } else {
+                            mSysError = EIO;
+                            theFrontPtr->Done();
+                        }
                     }
-                } else {
-                    if (mOuter.IsRunning()) {
-                        mCommitFlag = true;
-                        mRetryCount = 0;
-                        Reset();
-                        File::List::PushFront(
-                            theFilePtr->mPendingListPtr, *this);
-                        mOuter.ScheduleNext(*this);
+                    if (theDoneFlag) {
                         return;
                     }
-                    mSysError = EIO;
                 }
+            } else if (0 == mSysError) {
+                mSysError = EIO;
             }
             S3Req::DoneSelf(mDataBuf.BytesConsumable(), 0);
         }
