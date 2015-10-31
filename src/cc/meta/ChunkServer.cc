@@ -363,6 +363,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mNumAppendsWithWid(0),
       mNumChunkWriteReplications(0),
       mNumChunkReadReplications(0),
+      mNumObjects(0),
+      mNumWrObjects(0),
       mDispatchedReqs(),
       mReqsTimeoutQueue(),
       mLostChunks(0),
@@ -844,8 +846,13 @@ ChunkServer::ForceDown()
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
+    const int64_t objDelta = -mNumObjects;
+    mNumObjects = 0;
+    const int64_t wrObjDelta = -mNumWrObjects;
+    mNumWrObjects = 0;
     ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
+    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps("chunk server down");
     assert(sChunkDirsCount >= mChunkDirInfos.size());
@@ -907,8 +914,13 @@ ChunkServer::Error(const char* errorMsg)
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
+    const int64_t objDelta = -mNumObjects;
+    mNumObjects = 0;
+    const int64_t wrObjDelta = -mNumWrObjects;
+    mNumWrObjects = 0;
     ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
+    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
     UpdateChunkWritesPerDrive(0, 0);
     FailDispatchedOps(errorMsg);
     assert(sChunkDirsCount >= mChunkDirInfos.size());
@@ -1582,8 +1594,15 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         mEvacuateDoneCnt   = prop.getValue("Evacuate-done",         int64_t(-1));
         mEvacuateDoneBytes = prop.getValue("Evacuate-done-bytes",   int64_t(-1));
         mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
-        const int numWrChunks = prop.getValue("Num-writable-chunks", 0);
-        const int numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+        const int     numWrChunks = prop.getValue("Num-writable-chunks", 0);
+        const int     numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+        const int64_t numObjs     = prop.getValue("Num-objs", int64_t(0));
+        const int64_t numWrObjs   =
+            min(numObjs, prop.getValue("Num-wr-objs", int64_t(0)));
+        if (mNumWrObjects != numWrObjs || numObjs != mNumObjects) {
+            gLayoutManager.UpdateObjectsCount(*this,
+                numObjs - mNumObjects, numWrObjs - mNumWrObjects);
+        }
         UpdateStorageTiers(prop.getValue("Storage-tiers"),
             numWrDrives, numWrChunks);
         UpdateChunkWritesPerDrive(numWrChunks, numWrDrives);

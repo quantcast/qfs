@@ -6914,8 +6914,19 @@ ChunkManager::MetaServerConnectionLost()
 long
 ChunkManager::GetNumWritableChunks() const
 {
-    return (long)(mPendingWrites.GetChunkWrites().GetChunkIdCount() +
-        mPendingWrites.GetObjWrites().GetChunkIdCount());
+    return (long)mPendingWrites.GetChunkWrites().GetChunkIdCount();
+}
+
+long
+ChunkManager::GetNumWritableObjects() const
+{
+    return (long)mPendingWrites.GetObjWrites().GetChunkIdCount();
+}
+
+long
+ChunkManager::GetNumOpenObjects() const
+{
+    return (long)mObjTable.GetSize();
 }
 
 void

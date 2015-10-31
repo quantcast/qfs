@@ -1461,7 +1461,7 @@ public:
     bool Validate(MetaCreate& createOp) const;
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }
-    void GetChunkServers(
+    void GetAccessProxies(
         const string& host,
         Servers&      servers);
     void Done(MetaChunkDelete& req);
@@ -1470,6 +1470,8 @@ public:
     bool AddPendingObjStoreDelete(
         chunkId_t chunkId, chunkOff_t first, chunkOff_t last);
     void ClearObjStoreDelete();
+    void UpdateObjectsCount(
+        ChunkServer& srv, int64_t delta, int64_t writableDelta);
 
 protected:
     typedef vector<
@@ -2135,6 +2137,9 @@ protected:
     int64_t mCSLoadAvgSum;
     int64_t mCSMasterLoadAvgSum;
     int64_t mCSSlaveLoadAvgSum;
+    int64_t mCSTotalLoadAvgSum;
+    int64_t mCSOpenObjectCount;
+    int64_t mCSWritableObjectCount;
     int     mCSTotalPossibleCandidateCount;
     int     mCSMasterPossibleCandidateCount;
     int     mCSSlavePossibleCandidateCount;
@@ -2230,6 +2235,9 @@ protected:
     bool              mDeleteChunkOnFsIdMismatchFlag;
     int               mChunkAvailableUseReplicationOrRecoveryThreshold;
     bool              mObjectStoreEnabledFlag;
+    bool              mObjectStoreReadCanUsePoxoyOnDifferentHostFlag;
+    bool              mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag;
+    bool              mObjectStorePlacementTestFlag;
 
     typedef set<int> CreateFileTypeExclude;
     CreateFileTypeExclude mCreateFileTypeExclude;
@@ -2371,8 +2379,8 @@ protected:
         bool stopIfHasAnyReplicationsInFlight = false,
         vector<MetaChunkInfo*>* chunkBlock = 0);
     void ProcessInvalidStripes(MetaChunkReplicate& req);
-    RackId GetRackId(const ServerLocation& loc);
-    RackId GetRackId(const string& loc);
+    RackId GetRackId(const ServerLocation& loc) const;
+    RackId GetRackId(const string& loc) const;
     void ScheduleCleanup(size_t maxScanCount = 1);
     void RemoveRetiring(CSMap::Entry& ci, Servers& servers, int numReplicas,
         bool deleteRetiringFlag = false);
@@ -2439,7 +2447,8 @@ protected:
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
-    Servers::const_iterator FindAccessProxy(MetaAllocate& req) const;
+    bool FindAccessProxy(MetaAllocate& req);
+    bool FindAccessProxy(const string& host, Servers& srvs);
 };
 
 extern LayoutManager& gLayoutManager;

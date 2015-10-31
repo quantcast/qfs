@@ -800,6 +800,10 @@ public:
         { return mAuthUid; }
     const string& GetMd5Sum() const
         { return mMd5Sum; }
+    const int64_t GetOpenObjectCount() const
+        { return mNumObjects; }
+    const int64_t GetWritableObjectCount() const
+        { return mNumWrObjects; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -931,6 +935,9 @@ protected:
     /// Track the # of chunk replications (write/read) that are going on this server
     int mNumChunkWriteReplications;
     int mNumChunkReadReplications;
+
+    int64_t mNumObjects;
+    int64_t mNumWrObjects;
 
     typedef multimap <
         time_t,

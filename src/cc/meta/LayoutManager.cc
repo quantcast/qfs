@@ -1236,14 +1236,26 @@ LayoutManager::FindServerByHost(const T& host) const
         it : mChunkServers.end());
 }
 
-LayoutManager::Servers::const_iterator
-LayoutManager::FindAccessProxy(MetaAllocate& req) const
+bool
+LayoutManager::FindAccessProxy(MetaAllocate& req)
 {
+    req.servers.clear();
     Servers::const_iterator it;
     if (req.chunkServerName.empty()) {
-        it = FindServerByHost(req.clientIp);
+        it = mObjectStorePlacementTestFlag ?
+            mChunkServers.end() : FindServerByHost(req.clientIp);
         if (it == mChunkServers.end()) {
-            req.statusMsg = "no access proxy on host: " + req.clientIp;
+            if (mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag) {
+                if (FindAccessProxy(req.clientIp, req.servers)) {
+                    req.master = req.servers.front();
+                    return true;
+                }
+                req.statusMsg = "no access proxy available";
+                return false;
+            } else  {
+                req.statusMsg = "no access proxy on host: " + req.clientIp;
+                return false;
+            }
         }
     } else {
         ServerLocation loc;
@@ -1251,16 +1263,17 @@ LayoutManager::FindAccessProxy(MetaAllocate& req) const
                 req.chunkServerName.data(), req.chunkServerName.size())) {
             req.statusMsg = "invalid chunk server name";
             req.status    = -EINVAL;
-            it = mChunkServers.end();
-        } else {
-            it = FindServer(loc);
-            if (it == mChunkServers.end()) {
-                req.statusMsg = "no proxy on host: " +
-                    req.chunkServerName.GetStr();
-            }
+            return false;
+        }
+        it = FindServer(loc);
+        if (it == mChunkServers.end()) {
+            req.statusMsg = "no proxy on host: " + req.chunkServerName.GetStr();
+            return false;
         }
     }
-    return it;
+    req.servers.push_back(*it);
+    req.master = req.servers.front();
+    return true;
 }
 
 inline CSMap::Entry&
@@ -1514,6 +1527,9 @@ LayoutManager::LayoutManager() :
     mCSLoadAvgSum(0),
     mCSMasterLoadAvgSum(0),
     mCSSlaveLoadAvgSum(0),
+    mCSTotalLoadAvgSum(0),
+    mCSOpenObjectCount(0),
+    mCSWritableObjectCount(0),
     mCSTotalPossibleCandidateCount(0),
     mCSMasterPossibleCandidateCount(0),
     mCSSlavePossibleCandidateCount(0),
@@ -1578,6 +1594,9 @@ LayoutManager::LayoutManager() :
     mDeleteChunkOnFsIdMismatchFlag(false),
     mChunkAvailableUseReplicationOrRecoveryThreshold(-1),
     mObjectStoreEnabledFlag(false),
+    mObjectStoreReadCanUsePoxoyOnDifferentHostFlag(false),
+    mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag(false),
+    mObjectStorePlacementTestFlag(false),
     mCreateFileTypeExclude(),
     mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
@@ -2229,6 +2248,15 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.maxRSDataStripeCount", mMaxRSDataStripeCount));
     mObjectStoreEnabledFlag = props.getValue(
         "metaServer.objectStoreEnabled", mObjectStoreEnabledFlag ? 1 : 0) != 0;
+    mObjectStoreReadCanUsePoxoyOnDifferentHostFlag = props.getValue(
+        "metaServer.objectStoreReadCanUsePoxoyOnDifferentHost",
+        mObjectStoreReadCanUsePoxoyOnDifferentHostFlag ? 1 : 0) != 0;
+    mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag = props.getValue(
+        "metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost",
+        mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag ? 1 : 0) != 0;
+    mObjectStorePlacementTestFlag = props.getValue(
+        "metaServer.objectStorePlacementTest",
+        mObjectStorePlacementTestFlag ? 1 : 0) != 0;
 
     mConfig.clear();
     mConfig.reserve(10 << 10);
@@ -2374,13 +2402,13 @@ LayoutManager::Validate(MetaCreate& createOp) const
 }
 
 LayoutManager::RackId
-LayoutManager::GetRackId(const ServerLocation& loc)
+LayoutManager::GetRackId(const ServerLocation& loc) const
 {
     return mRackPrefixes.GetId(loc, -1, mRackPrefixUsePortFlag);
 }
 
 LayoutManager::RackId
-LayoutManager::GetRackId(const string& name)
+LayoutManager::GetRackId(const string& name) const
 {
     return mRackPrefixes.GetId(name, -1);
 }
@@ -4579,6 +4607,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
     mUpdateCSLoadAvgFlag      = true;
     mUpdatePlacementScaleFlag = true;
     const bool wasPossibleCandidate = srv.GetCanBeCandidateServerFlag();
+    mCSTotalLoadAvgSum += delta;
     if (wasPossibleCandidate && delta != 0) {
         mCSLoadAvgSum += delta;
         if (srv.CanBeChunkMaster()) {
@@ -4680,7 +4709,25 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
 }
 
 void
-LayoutManager::UpdateChunkWritesPerDrive(ChunkServer& srv,
+LayoutManager::UpdateObjectsCount(
+    ChunkServer& srv, int64_t delta, int64_t writableDelta)
+{
+    if (0 == delta && 0 == writableDelta) {
+        return;
+    }
+    mCSOpenObjectCount     += delta;
+    mCSWritableObjectCount += writableDelta;
+    assert(0 <= mCSOpenObjectCount && 0 <= mCSWritableObjectCount &&
+        mCSWritableObjectCount <= mCSOpenObjectCount);
+    RackInfos::iterator const it = FindRack(srv.GetRack());
+    if (it != mRacks.end()) {
+       // it->UpdateWritableObjectCount(delta, writableDelta);
+    }
+}
+
+void
+LayoutManager::UpdateChunkWritesPerDrive(
+    ChunkServer&                          srv,
     int                                   deltaNumChunkWrites,
     int                                   deltaNumWritableDrives,
     const LayoutManager::StorageTierInfo* tiersDelta)
@@ -4774,14 +4821,13 @@ LayoutManager::AllocateChunk(
 
     r->servers.clear();
     if (0 == r->numReplicas) {
-        Servers::const_iterator const it = FindAccessProxy(*r);
-        if (it == mChunkServers.end()) {
+        if (! FindAccessProxy(*r)) {
             return (r->status == 0 ? -ENOSPC : r->status);
         }
-        r->servers.push_back(*it);
-        r->master = r->servers.front();
         if (! mChunkLeases.NewWriteLease(*r)) {
             r->statusMsg = "failed to get write lease for a new chunk";
+            r->servers.clear();
+            r->master.reset();
             return -EBUSY;
         }
         r->servers.front()->AllocateChunk(r, r->leaseId, r->minSTier);
@@ -5330,25 +5376,24 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
         return -EBUSY;
     }
     if (0 == r->numReplicas) {
-        Servers::const_iterator const it = FindAccessProxy(*r);
-        if (it == mChunkServers.end()) {
+        if (! FindAccessProxy(*r)) {
             return (r->status == 0 ? -ENOSPC : r->status);
         }
         ChunkLeases::EntryKey const leaseKey(r->fid, r->offset);
         const ChunkLeases::WriteLease* const l =
             mChunkLeases.RenewValidWriteLease(leaseKey, *r);
         if (l) {
+            int status = 0;
             if (l->allocInFlight) {
                 r->statusMsg = "allocation is in progress";
                 KFS_LOG_STREAM_INFO << "write lease denied"
                     " <" << r->fid << "@" << r->offset << "> " <<
                     r->statusMsg <<
                 KFS_LOG_EOM;
-                return -EBUSY;
-            }
-            if (l->chunkServer &&
-                    l->chunkServer->GetServerLocation().hostname !=
-                        r->clientIp) {
+                status = -EBUSY;
+            } else if (l->chunkServer && (!  r->master ||
+                    l->chunkServer->GetServerLocation() !=
+                        r->master->GetServerLocation())) {
                 r->statusMsg = "other access proxy owns write lease: " +
                     l->chunkServer->GetServerLocation().ToString();
                 KFS_LOG_STREAM_INFO << "write lease denied"
@@ -5356,9 +5401,8 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
                     " <" << r->fid << "@" << r->offset << "> " <<
                     r->statusMsg <<
                 KFS_LOG_EOM;
-                return -EBUSY;
-            }
-            if (GetInFlightChunkOpsCount(
+                status = -EBUSY;
+            } else if (GetInFlightChunkOpsCount(
                     r->fid, META_CHUNK_MAKE_STABLE, r->offset)) {
                 r->statusMsg = "make block stable in progress";
                 KFS_LOG_STREAM_INFO << "write lease denied"
@@ -5366,14 +5410,16 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r, bool& isNewLease)
                     " <" << r->fid << "@" << r->offset << "> " <<
                     r->statusMsg <<
                 KFS_LOG_EOM;
-                return -EBUSY;
+                status = -EBUSY;
+            }
+            if (0 != status) {
+                r->servers.clear();
+                r->master.reset();
+                return status;
             }
         }
         // Create new lease even though no version change done.
         mChunkLeases.Delete(leaseKey);
-        r->servers.clear();
-        r->servers.push_back(*it);
-        r->master = *it;
         if (! mChunkLeases.NewWriteLease(*r)) {
             panic("failed to get write lease for a chunk");
         }
@@ -5979,7 +6025,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
-            GetChunkServers(req->clientIp, servers);
+            GetAccessProxies(req->clientIp, servers);
             if (servers.empty()) {
                 req->statusMsg =
                     "no access proxy available on " + req->clientIp;
@@ -6257,7 +6303,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         } else if (! req->chunkServer) {
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
-            GetChunkServers(req->clientIp, servers);
+            GetAccessProxies(req->clientIp, servers);
             MakeChunkAccess(
                 req->chunkId, servers, req->authUid, req->chunkAccess, 0);
         }
@@ -11054,12 +11100,57 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
     }
 }
 
+bool
+LayoutManager::FindAccessProxy(
+    const string&           host,
+    LayoutManager::Servers& srvs)
+{
+    for (int pass = 0; pass < 2; pass++) {
+        const RackId                    rackId =
+            pass == 0 ? GetRackId(host) : RackId(-1);
+        RackInfos::const_iterator const it     =
+            rackId < 0 ? mRacks.end() : FindRack(rackId);
+        if (it == mRacks.end() && 0 == pass) {
+            pass++;
+        }
+        const Servers& servers =
+            0 == pass ? it->getServers() : mChunkServers;
+        const size_t   size    = servers.size();
+        if (0 < size) {
+            // Find one with below twice average load or writable object count.
+            // Start from random place.
+            const int64_t kWritableFloor = 4;
+            const int64_t kOpenFloor     = 8;
+            const int64_t           mult = mChunkServers.size() / 2;
+            Servers::const_iterator it   = servers.begin() +
+                (1 < size ? (size_t)Rand(size) : size_t(0));
+            for (size_t i = 0; i < size; i++) {
+                if ((*it)->GetLoadAvg() * mult <= mCSTotalLoadAvgSum &&
+                        ((*it)->GetWritableObjectCount() <= kWritableFloor ||
+                            (*it)->GetWritableObjectCount() * mult <=
+                            mCSWritableObjectCount) &&
+                        ((*it)->GetOpenObjectCount() <= kOpenFloor ||
+                            (*it)->GetOpenObjectCount() * mult <=
+                            mCSOpenObjectCount)) {
+                    srvs.push_back(*it);
+                    return true;
+                }
+                if (servers.end() == ++it) {
+                    it = servers.begin();
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void
-LayoutManager::GetChunkServers(
+LayoutManager::GetAccessProxies(
     const string&           host,
     LayoutManager::Servers& servers)
 {
-    Servers::const_iterator it = FindServerByHost(host);
+    Servers::const_iterator it = mObjectStorePlacementTestFlag ?
+        mChunkServers.end() : FindServerByHost(host);
     servers.clear();
     if (it != mChunkServers.end()) {
         servers.push_back(*it);
@@ -11068,6 +11159,11 @@ LayoutManager::GetChunkServers(
             servers.push_back(*it);
         }
     }
+    if (! mObjectStoreReadCanUsePoxoyOnDifferentHostFlag ||
+            ! servers.empty()) {
+        return;
+    }
+    FindAccessProxy(host, servers);
 }
 
 bool

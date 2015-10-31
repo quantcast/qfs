@@ -1649,6 +1649,10 @@ HeartbeatOp::Execute()
     HBAppend(os, "Num-writable-chunks", "wrchunks",
         writeCount + writeAppendCount + replicationCount
     );
+    HBAppend(os, "Num-wr-objs", "wrobjs",
+        gChunkManager.GetNumWritableObjects());
+    HBAppend(os, "Num-objs",    "objs",
+        gChunkManager.GetNumOpenObjects());
     HBAppend(os, "Evacuate",              "evacuate",
         max(evacuateChunks, evacuateInFlightCount));
     HBAppend(os, "Evacuate-bytes",        "evac-b",   evacuateByteCount);

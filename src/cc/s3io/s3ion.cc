@@ -1048,8 +1048,11 @@ private:
                 (mFd < 0 || ((theFilePtr = mOuter.GetFilePtr(mFd)) &&
                         theFilePtr->mGeneration == mGeneration));
             if (theRetryFlag) {
-                const int theTime = max(0,
-                    (int)(mStartTime + mOuter.mRetryInterval - mOuter.Now()));
+                const int theHttpStatus =  mHeaders.GetStatus();
+                const int theTime       = (mRetryCount < 3 &&
+                    500 <= theHttpStatus && theHttpStatus <= 599) ? 0 :
+                    max(0, (int)(mStartTime + mOuter.mRetryInterval -
+                        mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                     " scheduling retry: " << mRetryCount <<
                     " of " << mOuter.mMaxRetryCount <<
@@ -2786,7 +2789,8 @@ private:
         KFS_LOG_STREAM_DEBUG << mLogPrefix << "S3ION" << KFS_LOG_EOM;
         const size_t kFdReserve = 256;
         mFileTable.reserve(kFdReserve);
-        mFileTable.push_back(File()); // Reserve first slot, to fds start from 1.
+        // Reserve first slot, for fds start from 1
+        mFileTable.push_back(File());
         mTmpSignBuffer.reserve(1 << 10);
         mTmpBuffer.reserve(1 << 10);
         mTmpSignKeyBuffer.reserve(1 << 9);
@@ -2801,7 +2805,7 @@ private:
     }
     void SetParameters()
     {
-        // For backward compatibility.
+        // No backward compatibility.
         // RenameParameter("verifyPeer", "ssl.verifyPeer");
         // RenameParameter("sslCiphers", "ssl.cipher");
         // RenameParameter("CABundle",   "ssl.CAFile");

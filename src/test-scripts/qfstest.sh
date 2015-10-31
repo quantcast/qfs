@@ -380,6 +380,9 @@ metaServer.clientThreadCount = 2
 metaServer.startupAbortOnPanic = 1
 metaServer.objectStoreEnabled  = 1
 metaServer.objectStoreDeleteDelay = 2
+metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStorePlacementTest = 1
 metaServer.replicationCheckInterval = 0.5
 EOF
 

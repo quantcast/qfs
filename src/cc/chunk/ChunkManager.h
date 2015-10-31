@@ -282,6 +282,8 @@ public:
     int64_t GetUsedSpace() const { return mUsedSpace; };
     long GetNumChunks() const { return mChunkTable.GetSize(); };
     long GetNumWritableChunks() const;
+    long GetNumWritableObjects() const;
+    long GetNumOpenObjects() const;
 
     /// For a write, the client is defining a write operation.  The op
     /// is queued and the client pushes data for it subsequently.
