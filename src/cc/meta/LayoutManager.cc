@@ -4726,10 +4726,6 @@ LayoutManager::UpdateObjectsCount(
     mCSWritableObjectCount += writableDelta;
     assert(0 <= mCSOpenObjectCount && 0 <= mCSWritableObjectCount &&
         mCSWritableObjectCount <= mCSOpenObjectCount);
-    RackInfos::iterator const it = FindRack(srv.GetRack());
-    if (it != mRacks.end()) {
-       // it->UpdateWritableObjectCount(delta, writableDelta);
-    }
 }
 
 void

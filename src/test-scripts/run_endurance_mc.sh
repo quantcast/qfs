@@ -397,6 +397,9 @@ metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.startupAbortOnPanic = 1
 
 metaServer.objectStoreEnabled = 1
+metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStorePlacementTest = 1
 chunkServer.objBlockDiscardMinMetaUptime = 8
 EOF
 
