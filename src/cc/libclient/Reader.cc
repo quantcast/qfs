@@ -1062,6 +1062,12 @@ private:
             mLeaseAcquireOp.chunkPos                      =
                 mGetAllocOp.chunkVersion < 0 ?
                     -(int64_t)mGetAllocOp.chunkVersion - 1 : int64_t(-1);
+            if (mGetAllocOp.chunkVersion < 0 &&
+                    ! mGetAllocOp.chunkServers.empty()) {
+                mLeaseAcquireOp.chunkServer = mGetAllocOp.chunkServers.front();
+            } else {
+                mLeaseAcquireOp.chunkServer = ServerLocation();
+            }
             mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
             mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
             mOuter.mStats.mGetLeaseCount++;
@@ -1149,6 +1155,7 @@ private:
             mLeaseRenewOp.chunkPos        = mLeaseAcquireOp.chunkPos;
             mLeaseRenewOp.getCSAccessFlag = ! mChunkServerAccess.IsEmpty() &&
                 mChunkServerAccessExpires <= theNow;
+            mLeaseAcquireOp.chunkServer   = mLeaseAcquireOp.chunkServer;
             mLeaseRenewOp.chunkAccessCount              = 0;
             mLeaseRenewOp.chunkServerAccessValidForTime = 0;
             mLeaseRenewOp.chunkServerAccessIssuedTime   = 0;

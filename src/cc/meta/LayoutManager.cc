@@ -1236,13 +1236,31 @@ LayoutManager::FindServerByHost(const T& host) const
         it : mChunkServers.end());
 }
 
+template<typename T> bool
+LayoutManager::GetAccessProxy(T& req, LayoutManager::Servers& servers)
+{
+    ServerLocation loc;
+    if (! loc.FromString(
+            req.chunkServerName.data(), req.chunkServerName.size())) {
+        req.statusMsg = "invalid chunk server name";
+        req.status    = -EINVAL;
+        return false;
+    }
+    Servers::const_iterator const it = FindServer(loc);
+    if (it == mChunkServers.end()) {
+        req.statusMsg = "no proxy on host: " + req.chunkServerName.GetStr();
+        return false;
+    }
+    servers.push_back(*it);
+    return true;
+}
+
 bool
 LayoutManager::FindAccessProxy(MetaAllocate& req)
 {
     req.servers.clear();
-    Servers::const_iterator it;
     if (req.chunkServerName.empty()) {
-        it = mObjectStorePlacementTestFlag ?
+        Servers::const_iterator const it = mObjectStorePlacementTestFlag ?
             mChunkServers.end() : FindServerByHost(req.clientIp);
         if (it == mChunkServers.end()) {
             if (mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag) {
@@ -1257,21 +1275,10 @@ LayoutManager::FindAccessProxy(MetaAllocate& req)
                 return false;
             }
         }
-    } else {
-        ServerLocation loc;
-        if (! loc.FromString(
-                req.chunkServerName.data(), req.chunkServerName.size())) {
-            req.statusMsg = "invalid chunk server name";
-            req.status    = -EINVAL;
-            return false;
-        }
-        it = FindServer(loc);
-        if (it == mChunkServers.end()) {
-            req.statusMsg = "no proxy on host: " + req.chunkServerName.GetStr();
-            return false;
-        }
+        req.servers.push_back(*it);
+    } else if (! GetAccessProxy(req, req.servers)) {
+        return false;
     }
-    req.servers.push_back(*it);
     req.master = req.servers.front();
     return true;
 }
@@ -6025,7 +6032,11 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         if (mClientCSAuthRequiredFlag && req->authUid != kKfsUserNone) {
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
-            GetAccessProxies(req->clientIp, servers);
+            if (req->chunkServerName.empty()) {
+                GetAccessProxyForHost(req->clientIp, servers);
+            } else if (! GetAccessProxy(*req, servers)) {
+                return (req->status == 0 ? -EINVAL : req->status);
+            }
             if (servers.empty()) {
                 req->statusMsg =
                     "no access proxy available on " + req->clientIp;
@@ -6303,7 +6314,11 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
         } else if (! req->chunkServer) {
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
-            GetAccessProxies(req->clientIp, servers);
+            if (req->chunkServerName.empty()) {
+                GetAccessProxyForHost(req->clientIp, servers);
+            } else if (! GetAccessProxy(*req, servers)) {
+                return (req->status == 0 ? -EINVAL : req->status);
+            }
             MakeChunkAccess(
                 req->chunkId, servers, req->authUid, req->chunkAccess, 0);
         }
@@ -11118,13 +11133,15 @@ LayoutManager::FindAccessProxy(
         const size_t   size    = servers.size();
         if (0 < size) {
             // Find one with below twice average load or writable object count.
-            // Start from random place.
-            const int64_t kWritableFloor = 4;
-            const int64_t kOpenFloor     = 8;
-            const int64_t           mult = mChunkServers.size() / 2;
-            Servers::const_iterator it   = servers.begin() +
+            // Start from random place. Limit scan depth.
+            const int64_t kWritableFloor = 6;
+            const int64_t kOpenFloor     = 32;
+            const size_t  kMaxScan       = 64;
+            const int64_t                 mult = mChunkServers.size() / 2;
+            Servers::const_iterator       it   = servers.begin() +
                 (1 < size ? (size_t)Rand(size) : size_t(0));
-            for (size_t i = 0; i < size; i++) {
+            Servers::const_iterator const sit  = it;
+            for (size_t i = 0; i < min(kMaxScan, size); i++) {
                 if ((*it)->GetLoadAvg() * mult <= mCSTotalLoadAvgSum &&
                         ((*it)->GetWritableObjectCount() <= kWritableFloor ||
                             (*it)->GetWritableObjectCount() * mult <=
@@ -11139,13 +11156,18 @@ LayoutManager::FindAccessProxy(
                     it = servers.begin();
                 }
             }
+            if (0 != pass) {
+                // No good one, use the fist randomly chosen one.
+                srvs.push_back(*sit);
+                return true;
+            }
         }
     }
     return false;
 }
 
 void
-LayoutManager::GetAccessProxies(
+LayoutManager::GetAccessProxyForHost(
     const string&           host,
     LayoutManager::Servers& servers)
 {
@@ -11154,13 +11176,9 @@ LayoutManager::GetAccessProxies(
     servers.clear();
     if (it != mChunkServers.end()) {
         servers.push_back(*it);
-        while (++it != mChunkServers.end() &&
-                host == (*it)->GetServerLocation().hostname) {
-            servers.push_back(*it);
-        }
+        return;
     }
-    if (! mObjectStoreReadCanUsePoxoyOnDifferentHostFlag ||
-            ! servers.empty()) {
+    if (! mObjectStoreReadCanUsePoxoyOnDifferentHostFlag) {
         return;
     }
     FindAccessProxy(host, servers);

@@ -1637,7 +1637,7 @@ MetaGetalloc::handle()
             statusMsg = "past end of file position";
             return;
         }
-        gLayoutManager.GetAccessProxies(clientIp, c);
+        gLayoutManager.GetAccessProxyForHost(clientIp, c);
         if (c.empty()) {
             status    = -EAGAIN;
             statusMsg = "no access proxy available on host: " + clientIp;

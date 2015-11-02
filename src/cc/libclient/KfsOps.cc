@@ -688,6 +688,9 @@ LeaseAcquireOp::Request(ostream &os)
             os << "\r\n";
         }
     }
+    if (chunkServer.IsValid()) {
+        os << "Chunk-server: " << chunkServer << "\r\n";
+    }
     if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
         os << "Chunk-ids:";
         for (int i = 0; i < kMaxChunkIds && chunkIds[i] >= 0; i++) {
@@ -713,6 +716,9 @@ LeaseRenewOp::Request(ostream &os)
     ;
     if (0 <= chunkPos) {
         os << "Chunk-pos: " << chunkPos << "\r\n";
+    }
+    if (chunkServer.IsValid()) {
+        os << "Chunk-server: " << chunkServer << "\r\n";
     }
     if (getCSAccessFlag) {
         os << "CS-access: 1\r\n";

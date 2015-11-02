@@ -1461,7 +1461,7 @@ public:
     bool Validate(MetaCreate& createOp) const;
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }
-    void GetAccessProxies(
+    void GetAccessProxyForHost(
         const string& host,
         Servers&      servers);
     void Done(MetaChunkDelete& req);
@@ -2449,6 +2449,8 @@ protected:
     inline Servers::const_iterator FindServerByHost(const T& host) const;
     bool FindAccessProxy(MetaAllocate& req);
     bool FindAccessProxy(const string& host, Servers& srvs);
+    template<typename T>
+    bool GetAccessProxy(T& req, Servers& servers);
 };
 
 extern LayoutManager& gLayoutManager;

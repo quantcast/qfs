@@ -2152,7 +2152,7 @@ private:
                 { mIOBuffer.Move(&inIOBuffer); }
             virtual char* Get()
             {
-                const bool  kFullOrPartialLastBufferFlag = true;;
+                const bool  kFullOrPartialLastBufferFlag = true;
                 char* const thePtr = mIOBuffer.DetachFrontBuffer(
                     kFullOrPartialLastBufferFlag);
                 QCRTASSERT(thePtr || mIOBuffer.IsEmpty());

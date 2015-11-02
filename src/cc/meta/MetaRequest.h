@@ -2931,6 +2931,7 @@ struct MetaLeaseAcquire: public MetaRequest {
 
     const LeaseType    leaseType;
     StringBufT<256>    pathname; // Optional for debugging.
+    StringBufT<64>     chunkServerName;
     chunkId_t          chunkId;
     chunkOff_t         chunkPos;
     bool               flushFlag;
@@ -2949,6 +2950,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         : MetaRequest(META_LEASE_ACQUIRE, false),
           leaseType(READ_LEASE),
           pathname(),
+          chunkServerName(),
           chunkId(-1),
           chunkPos(-1),
           flushFlag(false),
@@ -2994,6 +2996,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def("Append-recovery",     &MetaLeaseAcquire::appendRecoveryFlag,         false)
         .Def("Append-recovery-loc", &MetaLeaseAcquire::appendRecoveryLocations)
         .Def("Chunk-pos",           &MetaLeaseAcquire::chunkPos,          chunkOff_t(-1))
+        .Def("Chunk-server",        &MetaLeaseAcquire::chunkServerName                  )
         ;
     }
 };
@@ -3008,6 +3011,7 @@ struct MetaLeaseRenew: public MetaRequest {
 
     LeaseType          leaseType;
     StringBufT<256>    pathname; // Optional for debugging;
+    StringBufT<64>     chunkServerName;
     chunkId_t          chunkId;
     chunkOff_t         chunkPos;
     int64_t            leaseId;
@@ -3022,6 +3026,7 @@ struct MetaLeaseRenew: public MetaRequest {
         : MetaRequest(META_LEASE_RENEW, false),
           leaseType(READ_LEASE),
           pathname(),
+          chunkServerName(),
           chunkId(-1),
           chunkPos(-1),
           leaseId(-1),
@@ -3064,6 +3069,7 @@ struct MetaLeaseRenew: public MetaRequest {
         .Def("Chunk-handle", &MetaLeaseRenew::chunkId,   chunkId_t(-1))
         .Def("Chunk-pos",    &MetaLeaseRenew::chunkPos, chunkOff_t(-1))
         .Def("CS-access",    &MetaLeaseRenew::emitCSAccessFlag)
+        .Def("Chunk-server", &MetaLeaseRenew::chunkServerName)
         ;
     }
 private:

@@ -1216,6 +1216,7 @@ struct LeaseAcquireOp : public KfsOp {
     bool                   allowCSClearTextFlag;
     bool                   appendRecoveryFlag;
     vector<ServerLocation> appendRecoveryLocations;
+    ServerLocation         chunkServer;
     kfsChunkId_t*          chunkIds;
     int64_t*               leaseIds;
     bool                   getChunkLocationsFlag;
@@ -1234,6 +1235,7 @@ struct LeaseAcquireOp : public KfsOp {
           allowCSClearTextFlag(false),
           appendRecoveryFlag(false),
           appendRecoveryLocations(),
+          chunkServer(),
           chunkIds(0),
           leaseIds(0),
           getChunkLocationsFlag(false)
@@ -1251,15 +1253,16 @@ struct LeaseAcquireOp : public KfsOp {
 };
 
 struct LeaseRenewOp : public KfsOp {
-    kfsChunkId_t chunkId;  // input
-    int64_t      chunkPos; // input
-    int64_t      leaseId;  // input
-    const char*  pathname; // input
-    bool         getCSAccessFlag;
-    int          chunkAccessCount;
-    int64_t      chunkServerAccessValidForTime;
-    int64_t      chunkServerAccessIssuedTime;
-    bool         allowCSClearTextFlag;
+    kfsChunkId_t   chunkId;     // input
+    int64_t        chunkPos;    // input
+    int64_t        leaseId;     // input
+    const char*    pathname;    // input
+    ServerLocation chunkServer; // input
+    bool           getCSAccessFlag;
+    int            chunkAccessCount;
+    int64_t        chunkServerAccessValidForTime;
+    int64_t        chunkServerAccessIssuedTime;
+    bool           allowCSClearTextFlag;
 
     LeaseRenewOp(kfsSeq_t s, kfsChunkId_t c, int64_t l, const char* p)
         : KfsOp(CMD_LEASE_RENEW, s),
@@ -1267,6 +1270,7 @@ struct LeaseRenewOp : public KfsOp {
           chunkPos(-1),
           leaseId(l),
           pathname(p),
+          chunkServer(),
           getCSAccessFlag(false),
           chunkAccessCount(0),
           chunkServerAccessValidForTime(0),
