@@ -496,23 +496,14 @@ EOF
     if [ x"$s3test" = x'yes' ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.objectDir = s3://aws.
-EOF
-        if [ $i -eq $chunksrvport ]; then
-            cat >> "$dir/$chunksrvprop" << EOF
 # Give the buffer manager the same as with no S3 8192*0.4, appender
-# 8192*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 64MB
-# do this only for the first chunk server as it presently will be
-# responsible for all writes, as all chunk servers are on the same host.
-chunkServer.objStoreBufferDataRatio           = 0.992
-chunkServer.recAppender.bufferLimitRatio      = 0.0074
-chunkServer.bufferManager.maxRatio            = 0.01223
-chunkServer.ioBufferPool.partitionBufferCount = 268000
+# 8192*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 10MB + 64KB
+# buffer for each.
+chunkServer.objStoreBufferDataRatio           = 0.8871
+chunkServer.recAppender.bufferLimitRatio      = 0.0424
+chunkServer.bufferManager.maxRatio            = 0.0705
+chunkServer.ioBufferPool.partitionBufferCount = 46460
 EOF
-        else
-            cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.ioBufferPool.partitionBufferCount = 8192
-EOF
-        fi
     else
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.ioBufferPool.partitionBufferCount = 8192
