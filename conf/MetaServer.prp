@@ -1227,7 +1227,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # S3 secret access key.
 # chunkServer.diskQueue.<object-store-directory-prefix>secretAccessKey =
 
-# S3 secret region name.
+# S3 region name.
 # If not specified, then AWS authorization version 2 is used, otherwise
 # version 4 is used.
 # Note S3 allows server side encryption only with version 4
@@ -1235,9 +1235,14 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # chunkServer.diskQueue.<object-store-directory-prefix>region =
 
 # S3 use server side encryption. If set to non 0 enables aws:kms type encryption.
+# If enable AWS region must be specified.
 # Presently only aws:kms supported.
 # Default is 0.
 # chunkServer.diskQueue.<object-store-directory-prefix>useServerSideEncryption = 0
+
+# If no parameters with the following prefix exits:
+# chunkServer.diskQueue.<object-store-directory-prefix>.ssl.
+# set, then http protocol instead of https used.
 
 # S3 server's x509 certificate verification.
 # Default is 1.
@@ -1253,4 +1258,9 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # For more detailed information please see SSL_CTX_load_verify_locations manual
 # page. CAFile/CADir corresponds to CAfile/CApath in the man page.
 # chunkServer.diskQueue.<object-store-directory-prefix>CADir =
+
+# OpenSSL cipher configuration.
+# Default is !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+# chunkServer.diskQueue.<object-store-directory-prefix>ssl.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+
 
