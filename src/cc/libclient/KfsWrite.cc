@@ -136,6 +136,16 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
     openParams.mRecoveryStripeCount = entry.fattr.numRecoveryStripes;
     openParams.mReplicaCount        = entry.fattr.numReplicas;
     openParams.mMsgLogId            = fd;
+    if(entry.fattr.striperType == KFS_STRIPED_FILE_TYPE_NONE) {
+        openParams.mDiskIoSize = entry.ioBufferSize;
+    }
+    else {
+        const int kChecksumBlockSize = (int) CHECKSUM_BLOCKSIZE;
+        const int totalStripeCount =
+           entry.fattr.numStripes + entry.fattr.numRecoveryStripes;
+        openParams.mDiskIoSize = (entry.ioBufferSize / totalStripeCount
+           + kChecksumBlockSize - 1) / kChecksumBlockSize * kChecksumBlockSize;
+    }
     entry.usedProtocolWorkerFlag = true;
     entry.pending += numBytes;
     const KfsProtocolWorker::FileId       fileId       = entry.fattr.fileId;
