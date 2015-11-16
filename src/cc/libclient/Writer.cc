@@ -74,7 +74,9 @@ public:
         kErrorParameters = -EINVAL,
         kErrorTryAgain   = -EAGAIN,
         kErrorFault      = -EFAULT,
-        kErrorNoEntry    = -ENOENT
+        kErrorNoEntry    = -ENOENT,
+        kErrorReadOnly   = -EROFS,
+        kErrorSeek       = -ESPIPE
     };
 
     Impl(
@@ -140,6 +142,10 @@ public:
     {
         if (inFileId <= 0 || ! inFileNamePtr || ! *inFileNamePtr) {
             return kErrorParameters;
+        }
+        if (0 == inReplicaCount && 0 != inFileSize) {
+            // Overwrite and append are not supported with object store files.
+            return kErrorSeek;
         }
         if (mFileId > 0) {
             if (inFileId == mFileId &&
@@ -229,6 +235,11 @@ public:
             );
         }
         if (inOffset != mOffset + mBuffer.BytesConsumable()) {
+            if (0 == mReplicaCount) {
+                // Non sequential write is not supported with object store
+                // files.
+                return kErrorSeek;
+            }
             // Just flush for now, do not try to optimize buffer rewrite.
             const int thePrevRefCount = GetRefCount();
             const int theRet = Flush();
@@ -351,7 +362,7 @@ public:
 private:
     typedef KfsNetClient ChunkServer;
 
-    class ChunkWriter : private ITimeout, private KfsNetClient::OpOwner
+    class ChunkWriter : public KfsCallbackObj, private KfsNetClient::OpOwner
     {
     public:
         struct WriteOp;
@@ -467,7 +478,7 @@ private:
             Impl&         inOuter,
             int64_t       inSeqNum,
             const string& inLogPrefix)
-            : ITimeout(),
+            : KfsCallbackObj(),
               KfsNetClient::OpOwner(),
               mOuter(inOuter),
               mChunkServer(
@@ -488,6 +499,7 @@ private:
               mRetryCount(0),
               mPendingCount(0),
               mOpenChunkBlockFileOffset(-1),
+              mMaxChunkPos(0),
               mOpStartTime(0),
               mWriteIds(),
               mAllocOp(0, 0, ""),
@@ -499,12 +511,18 @@ private:
               mLogPrefix(inLogPrefix),
               mOpDoneFlagPtr(0),
               mInFlightBlocks(),
-              mHasSubjectIdFlag(),
+              mHasSubjectIdFlag(false),
+              mKeepLeaseFlag(false),
+              mLeaseUpdatePendingFlag(false),
               mChunkAccess(),
+              mLeaseEndTime(0),
               mLeaseExpireTime(0),
               mChunkAccessExpireTime(0),
-              mCSAccessExpireTime(0)
+              mCSAccessExpireTime(0),
+              mUpdateLeaseOp(0, -1, 0),
+              mSleepTimer(inOuter.mNetManager, *this)
         {
+            SET_HANDLER(this, &ChunkWriter::EventHandler);
             Queue::Init(mPendingQueue);
             Queue::Init(mInFlightQueue);
             Writers::Init(*this);
@@ -627,13 +645,15 @@ private:
             // as it could invoke completion immediately (in the case of
             // failure).
             mPendingCount += theNWr;
+            mMaxChunkPos = max(thePos, mMaxChunkPos);
             return theNWr;
         }
         void StartWrite()
         {
-            if (mSleepingFlag) {
+            if (mSleepingFlag && ! CancelLeaseUpdate()) {
                 return;
             }
+            mLeaseUpdatePendingFlag = false;
             if (mErrorCode != 0 && ! mAllocOp.invalidateAllFlag) {
                 if (mLastOpPtr) {
                     Reset();
@@ -651,7 +671,22 @@ private:
                 // Try to close chunk even if chunk server disconnected, to
                 // release the write lease.
                 if (mAllocOp.chunkId > 0) {
-                    CloseChunk();
+                    // Wait for write id allocation completion with object store
+                    // block write.
+                    if (&mWriteIdAllocOp != mLastOpPtr ||
+                            mCloseOp.chunkId < 0 ||
+                            0 <= mCloseOp.chunkVersion) {
+                        CloseChunk();
+                    }
+                    return;
+                }
+                if (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
+                    if (&mAllocOp != mLastOpPtr &&
+                            &mWriteIdAllocOp != mLastOpPtr) {
+                         // Re-allocate object block to force to create lease.
+                        Reset();
+                        AllocateChunk();
+                    }
                     return;
                 }
                 mChunkServer.Stop();
@@ -664,10 +699,12 @@ private:
                 ReportCompletion();
                 return;
             }
-            if (! CanWrite()) {
+            if (! CanWrite() && ! SheduleLeaseUpdate()) {
                 return;
             }
-            if (0 < mAllocOp.chunkId && mLeaseExpireTime < Now()) {
+            if (0 < mAllocOp.chunkId && min(mLeaseEndTime - 1,
+                        mLeaseExpireTime + kLeaseRenewTime / 2) <=
+                        Now()) {
                 // When chunk server disconnects it might clean up write lease.
                 // Start from the beginning -- chunk allocation.
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
@@ -678,7 +715,7 @@ private:
                         " empty" <<
                 KFS_LOG_EOM;
                 Reset();
-                if (! CanWrite()) {
+                if (! CanWrite() && ! SheduleLeaseUpdate()) {
                     // Do not try to preallocate chunk after inactivity timeout
                     // or error, if no data pending.
                     return;
@@ -690,7 +727,11 @@ private:
             // Other methods of this class have to return immediately (unwind)
             // after invoking StartWrite().
             if (mAllocOp.chunkId > 0 && ! mWriteIds.empty()) {
-                Write();
+                if (CanWrite()) {
+                    Write();
+                } else {
+                    UpdateLease();
+                }
             } else if (! mLastOpPtr) { // Close can be in flight.
                 Reset();
                 AllocateChunk();
@@ -749,8 +790,10 @@ private:
         }
 
     private:
-        typedef std::vector<WriteInfo> WriteIds;
+        typedef std::vector<WriteInfo>                      WriteIds;
         typedef std::bitset<CHUNKSIZE / CHECKSUM_BLOCKSIZE> ChecksumBlocks;
+        typedef NetManager::Timer                           Timer;
+        enum { kLeaseRenewTime = LEASE_INTERVAL_SECS / 3 };
 
         Impl&          mOuter;
         ChunkServer    mChunkServer;
@@ -758,6 +801,7 @@ private:
         int            mRetryCount;
         Offset         mPendingCount;
         Offset         mOpenChunkBlockFileOffset;
+        Offset         mMaxChunkPos;
         time_t         mOpStartTime;
         WriteIds       mWriteIds;
         AllocateOp     mAllocOp;
@@ -770,10 +814,15 @@ private:
         bool*          mOpDoneFlagPtr;
         ChecksumBlocks mInFlightBlocks;
         bool           mHasSubjectIdFlag;
+        bool           mKeepLeaseFlag;
+        bool           mLeaseUpdatePendingFlag;
         string         mChunkAccess;
+        time_t         mLeaseEndTime;
         time_t         mLeaseExpireTime;
         time_t         mChunkAccessExpireTime;
         time_t         mCSAccessExpireTime;
+        WritePrepareOp mUpdateLeaseOp;
+        Timer          mSleepTimer;
         WriteOp*       mPendingQueue[1];
         WriteOp*       mInFlightQueue[1];
         ChunkWriter*   mPrevPtr[1];
@@ -782,14 +831,28 @@ private:
         friend class QCDLListOp<ChunkWriter, 0>;
         typedef QCDLListOp<ChunkWriter, 0> ChunkWritersListOp;
 
+        void UpdateLeaseExpirationTime()
+        {
+            mLeaseExpireTime = min(mLeaseEndTime,
+                Now() + LEASE_INTERVAL_SECS - kLeaseRenewTime);
+        }
         void AllocateChunk()
         {
             QCASSERT(
                 mOuter.mFileId > 0 &&
                 mAllocOp.fileOffset >= 0 &&
-                ! Queue::IsEmpty(mPendingQueue)
+                (! Queue::IsEmpty(mPendingQueue) ||
+                    (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) ||
+                    mKeepLeaseFlag)
             );
             Reset(mAllocOp);
+            if (0 == mOuter.mReplicaCount) {
+                if (! mAllocOp.chunkServers.empty()) {
+                    mAllocOp.masterServer = mAllocOp.chunkServers.front();
+                }
+            } else {
+                mAllocOp.masterServer.Reset(0, -1);
+            }
             mAllocOp.fid                  = mOuter.mFileId;
             mAllocOp.pathname             = mOuter.mPathName;
             mAllocOp.append               = false;
@@ -799,6 +862,7 @@ private:
             mAllocOp.maxAppendersPerChunk = 0;
             mAllocOp.allowCSClearTextFlag = false;
             mAllocOp.allCSShortRpcFlag    = false;
+            mAllocOp.chunkLeaseDuration            = -1;
             mAllocOp.chunkServerAccessValidForTime = 0;
             mAllocOp.chunkServerAccessIssuedTime   = 0;
             mAllocOp.chunkServers.clear();
@@ -840,8 +904,38 @@ private:
                 ReportCompletion(theOffset, theSize);
                 return;
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
+            mLeaseEndTime = Now() + (mAllocOp.chunkLeaseDuration < 0 ?
+                time_t(10) * 365 * 24 * 3600 :
+                (time_t)max(
+                    int64_t(1), mAllocOp.chunkLeaseDuration - kLeaseRenewTime));
+            UpdateLeaseExpirationTime();
+            mKeepLeaseFlag   = mAllocOp.chunkVersion < 0;
             AllocateWriteId();
+        }
+        bool SheduleLeaseUpdate()
+        {
+            if (! mKeepLeaseFlag) {
+                return false;
+            }
+            const time_t theNow = Now();
+            if (theNow < mLeaseExpireTime) {
+                mLeaseUpdatePendingFlag = true;
+                Sleep(mLeaseExpireTime - theNow);
+                return false;
+            }
+            return true;
+        }
+        bool CancelLeaseUpdate()
+        {
+            if (! mLeaseUpdatePendingFlag) {
+                return false;
+            }
+            if (mSleepingFlag) {
+                mSleepTimer.RemoveTimeout();
+                mSleepingFlag = false;
+            }
+            mLeaseUpdatePendingFlag = false;
+            return true;
         }
         bool CanWrite()
         {
@@ -887,7 +981,7 @@ private:
                 } else if (! theCSClearTextAllowedFlag) {
                     mWriteIdAllocOp.status    = -EPERM;
                     mWriteIdAllocOp.statusMsg =
-                        "no cleart text chunk server access";
+                        "no clear text chunk server access";
                 } else {
                     mChunkAccessExpireTime = theNow + 60 * 60 * 24 * 365;
                     mCSAccessExpireTime    = mChunkAccessExpireTime;
@@ -1022,6 +1116,14 @@ private:
             if (inCanceledFlag) {
                 return;
             }
+            if (0 <= inOp.status && inOp.chunkVersion < 0 &&
+                    ! inOp.writePrepReplySupportedFlag) {
+                // Chunk server / AP with object store support must have
+                // write prepare reply support.
+                inOp.status    = kErrorParameters;
+                inOp.statusMsg = "invalid write id alloc reply: "
+                    "write prepare reply is not supported";
+            }
             if (inOp.status < 0) {
                 HandleError(inOp);
                 return;
@@ -1054,7 +1156,7 @@ private:
                 return;
             }
             UpdateAccess(inOp);
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
+            UpdateLeaseExpirationTime();
             StartWrite();
         }
         void Write()
@@ -1181,21 +1283,80 @@ private:
             if (! ReportCompletion(theOffset, theDoneCount)) {
                 return;
             }
-            mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS - 5;
+            UpdateLeaseExpirationTime();
+            StartWrite();
+        }
+        void UpdateLease()
+        {
+            QCASSERT(mWriteIdAllocOp.writePrepReplySupportedFlag &&
+                0 < mAllocOp.chunkId && ! mWriteIds.empty());
+            Reset(mUpdateLeaseOp);
+            mUpdateLeaseOp.chunkId            = mAllocOp.chunkId;
+            mUpdateLeaseOp.chunkVersion       = mAllocOp.chunkVersion;
+            mUpdateLeaseOp.writeInfo          = mWriteIds;
+            mUpdateLeaseOp.contentLength      = 0;
+            mUpdateLeaseOp.numBytes           = 0;
+            mUpdateLeaseOp.offset             = 0;
+            mUpdateLeaseOp.checksum           = kKfsNullChecksum;
+            mUpdateLeaseOp.replyRequestedFlag =
+                mWriteIdAllocOp.writePrepReplySupportedFlag;
+            mUpdateLeaseOp.checksums.clear();
+            SetAccess(
+                mUpdateLeaseOp,
+                mUpdateLeaseOp.replyRequestedFlag
+            );
+            Enqueue(mUpdateLeaseOp);
+        }
+        void Done(
+            WritePrepareOp& inOp,
+            bool            inCanceledFlag,
+            IOBuffer*       inBufferPtr)
+        {
+            QCASSERT(&mUpdateLeaseOp == &inOp && ! inBufferPtr);
+            mUpdateLeaseOp.chunkId = -1;
+            if (inCanceledFlag) {
+                return;
+            }
+            if (0 != mUpdateLeaseOp.status) {
+                HandleError(inOp);
+                return;
+            }
+            if (mUpdateLeaseOp.replyRequestedFlag) {
+                UpdateAccess(mUpdateLeaseOp);
+            }
+            UpdateLeaseExpirationTime();
             StartWrite();
         }
         void CloseChunk()
         {
             QCASSERT(mAllocOp.chunkId > 0);
             Reset(mCloseOp);
-            mCloseOp.chunkId   = mAllocOp.chunkId;
-            mCloseOp.writeInfo = mWriteIds;
+            mCloseOp.chunkId      = mAllocOp.chunkId;
+            mCloseOp.chunkVersion = mAllocOp.chunkVersion;
+            mCloseOp.writeInfo    = mWriteIds;
             if (mCloseOp.writeInfo.empty()) {
                 mCloseOp.chunkServerLoc = mAllocOp.chunkServers;
             } else {
                 mCloseOp.chunkServerLoc.clear();
             }
             SetAccess(mCloseOp);
+            if (mCloseOp.chunkVersion < 0) {
+                // Extend timeout to accommodate object commit, possibly single
+                // atomic 64MB "object" write.
+                const int theMaxWriteSize =
+                    max(1 << 9, mOuter.mMaxWriteSize);
+                const int theTimeout = min(LEASE_INTERVAL_SECS / 2,
+                    (mOuter.mOpTimeoutSec + 3) / 4 *
+                    (1 + max(mOuter.mMaxRetryCount / 3,
+                    (int)((mMaxChunkPos + theMaxWriteSize - 1) /
+                        theMaxWriteSize))));
+                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                    "chunk: "                << mCloseOp.chunkId <<
+                    " version: "             << mCloseOp.chunkVersion <<
+                    " chunk close timeout: " << theTimeout << " sec." <<
+                KFS_LOG_EOM;
+                mChunkServer.SetOpTimeoutSec(theTimeout);
+            }
             mWriteIds.clear();
             mAllocOp.chunkId = -1;
             Enqueue(mCloseOp);
@@ -1206,15 +1367,24 @@ private:
             IOBuffer* inBufferPtr)
         {
             QCASSERT(&mCloseOp == &inOp && ! inBufferPtr);
+            if (mCloseOp.chunkVersion < 0) {
+                // Restore timeout, changed by CloseChunk().
+                mChunkServer.SetOpTimeoutSec(mOuter.mOpTimeoutSec);
+            }
             if (inCanceledFlag) {
                 return;
             }
             if (mCloseOp.status != 0) {
+                if (mCloseOp.chunkVersion < 0) {
+                    HandleError(inOp);
+                    return;
+                }
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                     "chunk close failure, status: " << mCloseOp.status <<
                     " ignored" <<
                 KFS_LOG_EOM;
             }
+            mCloseOp.chunkId = -1;
             Reset();
             StartWrite();
         }
@@ -1260,6 +1430,8 @@ private:
                 Done(mAllocOp, inCanceledFlag, inBufferPtr);
             } else if (&mCloseOp == inOpPtr) {
                 Done(mCloseOp, inCanceledFlag, inBufferPtr);
+            } else if (&mUpdateLeaseOp == inOpPtr) {
+                Done(mUpdateLeaseOp, inCanceledFlag, inBufferPtr);
             } else if (inOpPtr && inOpPtr->op == CMD_WRITE) {
                 Done(*static_cast<WriteOp*>(inOpPtr),
                     inCanceledFlag, inBufferPtr);
@@ -1287,9 +1459,10 @@ private:
             mChunkServer.Stop();
             QCASSERT(Queue::IsEmpty(mInFlightQueue));
             if (mSleepingFlag) {
-                mOuter.mNetManager.UnRegisterTimeoutHandler(this);
+                mSleepTimer.RemoveTimeout();
                 mSleepingFlag = false;
             }
+            mLeaseUpdatePendingFlag = false;
         }
         static void Reset(
             KfsOp& inOp)
@@ -1341,15 +1514,40 @@ private:
                 "\nRequest:\n"            << theOStream.str() <<
             KFS_LOG_EOM;
             int theStatus = inOp.status;
-            if (&inOp == &mAllocOp && theStatus == kErrorNoEntry) {
-                // File deleted, and lease expired or meta server restarted.
-                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "file does not exist, giving up" <<
-                KFS_LOG_EOM;
-                mErrorCode = theStatus;
-                Reset();
-                mOuter.FatalError(theStatus);
-                return;
+            if (&inOp == &mAllocOp) {
+                if (theStatus == kErrorNoEntry) {
+                    // File deleted, and lease expired or meta server restarted.
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "file does not exist, giving up" <<
+                    KFS_LOG_EOM;
+                    mErrorCode = theStatus;
+                    Reset();
+                    mOuter.FatalError(theStatus);
+                    return;
+                }
+                if (theStatus == kErrorReadOnly && mClosingFlag &&
+                        0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
+                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                        "object store block is now stable stable" <<
+                    KFS_LOG_EOM;
+                    mCloseOp.chunkId = -1;
+                    Reset();
+                    StartWrite();
+                    return;
+                    /*
+                    Although it might be possible to verify that the block is
+                    stable by using the following code, the problem is that the
+                    block (chunk) and chunk server access might have expired
+                    already, and the only way to obtain the access is successful
+                    block allocation completion.
+                    Reset(mAllocOp);
+                    mAllocOp.chunkId      = mCloseOp.chunkId;
+                    mAllocOp.chunkVersion = mCloseOp.chunkVersion;
+                    mWriteIds             = mCloseOp.writeInfo;
+                    StartWrite();
+                    return;
+                    */
+                }
             }
             if (mOuter.mStriperPtr && ! mAllocOp.invalidateAllFlag &&
                     mAllocOp.fileOffset >= 0 &&
@@ -1389,7 +1587,16 @@ private:
                 mOuter.mStats.mAllocRetriesCount++;
             }
             mOuter.mStats.mRetriesCount++;
-            const int theTimeToNextRetry = GetTimeToNextRetry();
+            int theTimeToNextRetry = GetTimeToNextRetry();
+            if (mKeepLeaseFlag) {
+                theTimeToNextRetry = (int)min(
+                    max(mRetryCount <= 1 ? (time_t)0 : (time_t)max(2,
+                        LEASE_INTERVAL_SECS /
+                            (2 * max(1, mOuter.mMaxRetryCount))),
+                        mLeaseExpireTime - Now()),
+                    (time_t)theTimeToNextRetry
+                );
+            }
             // Retry.
             KFS_LOG_STREAM_INFO << mLogPrefix <<
                 "scheduling retry: " << mRetryCount <<
@@ -1415,20 +1622,26 @@ private:
             KFS_LOG_EOM;
             mSleepingFlag = true;
             mOuter.mStats.mSleepTimeSec += inSec;
-            const bool kResetTimerFlag = true;
-            SetTimeoutInterval(inSec * 1000, kResetTimerFlag);
-            mOuter.mNetManager.RegisterTimeoutHandler(this);
+            mSleepTimer.SetTimeout(inSec);
             return true;
         }
-        virtual void Timeout()
+        void Timeout()
         {
             KFS_LOG_STREAM_DEBUG << mLogPrefix << "timeout" <<
             KFS_LOG_EOM;
             if (mSleepingFlag) {
-                mOuter.mNetManager.UnRegisterTimeoutHandler(this);
+                mSleepTimer.RemoveTimeout();
                 mSleepingFlag = false;
             }
             StartWrite();
+        }
+        int EventHandler(
+            int   inCode,
+            void* inDataPtr)
+        {
+            QCRTASSERT(EVENT_INACTIVITY_TIMEOUT == inCode && ! inDataPtr);
+            Timeout();
+            return 0;
         }
         bool ReportCompletion(
             Offset inOffset = 0,
@@ -1544,6 +1757,7 @@ private:
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "start write:" <<
+            " offset: "  << mOffset <<
             " pending: " << GetPendingSizeSelf() <<
             " thresh: "  << mWriteThreshold <<
             " flush: "   << inFlushFlag <<
@@ -1595,10 +1809,13 @@ private:
     }
     void SetFileSize()
     {
-        if (! mStriperPtr || mErrorCode != 0 || mTruncateOp.fid >= 0) {
+        if ((! mStriperPtr && 0 != mReplicaCount) ||
+                mErrorCode != 0 || 0 <= mTruncateOp.fid) {
             return;
         }
-        const Offset theSize = mStriperPtr->GetFileSize();
+        const Offset theSize = mStriperPtr ?
+            mStriperPtr->GetFileSize() :
+            mOffset + mBuffer.BytesConsumable();
         if (theSize < 0 || theSize <= mTruncateOp.fileOffset) {
             return;
         }
@@ -1780,7 +1997,11 @@ private:
         if (! thePtr) {
             return true;
         }
-        if (thePtr == &inWriter) {
+        // With object store files close even a single chunk writer as soon as
+        // chunk is complete as re-write is not supported, in order to minimize
+        // the number of non-stable chunks, and the corresponding memory
+        // buffers.
+        if (0 < mReplicaCount && thePtr == &inWriter) {
             return false;
         }
         const Offset theLeftEdge = thePtr->GetOpenChunkBlockFileOffset();

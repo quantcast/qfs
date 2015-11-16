@@ -21,14 +21,17 @@
 // permissions and limitations under the License.
 //
 // QCFdPoll implementations with dev poll, epoll, and poll.
-// 
+//
 //----------------------------------------------------------------------------
 
 #include "QCFdPoll.h"
 #include "QCUtils.h"
+#include "QCMutex.h"
+#include "qcstutils.h"
 #include "qcdebug.h"
 
 #include <cerrno>
+#include <algorithm>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -39,19 +42,39 @@
 #ifndef QC_OS_NAME_LINUX
 #   include <map>
 #   ifdef QC_USE_BOOST
-#       include <boost/pool/pool_alloc.hpp> 
+#       include <boost/pool/pool_alloc.hpp>
 #   endif
 #endif
+
+using std::min;
+
+class QCFdPollImplBase
+{
+public:
+    class Waker;
+    QCFdPollImplBase(
+        Waker* inWakerPtr)
+        : mWakerPtr(inWakerPtr)
+        {}
+    ~QCFdPollImplBase()
+        {}
+    Waker* GetWakerPtr() const
+        { return mWakerPtr; }
+private:
+    Waker* const mWakerPtr;
+};
 
 #ifdef QC_OS_NAME_SUNOS
 #include <sys/filio.h>
 #include <sys/devpoll.h>
 
-class QCFdPoll::Impl
+class QCFdPoll::Impl : public QCFdPollImplBase
 {
 public:
-    Impl() 
-        : mFdMap(),
+    Impl(
+        QCFdPollImplBase::Waker* inWakerPtr)
+        : QCFdPollImplBase(inWakerPtr),
+          mFdMap(),
           mPollVecPtr(0),
           mGeneration(0),
           mDevpollFd(-1),
@@ -207,7 +230,7 @@ private:
     int            mNextIdx;
     int            mLastIdx;
 
-    int Ctl(Fd inFd, int inOpType, bool inRemoveFlag) 
+    int Ctl(Fd inFd, int inOpType, bool inRemoveFlag)
     {
         // Solaris doesn't have a "modify" mechanism when changing the
         // types of events we are interested in polling. You have to
@@ -282,13 +305,15 @@ private:
 #include <pthread.h>
 #include <sys/epoll.h>
 
-class QCFdPoll::Impl
+class QCFdPoll::Impl : public QCFdPollImplBase
 {
 public:
     enum { kFdCountHint = 1 << 10 };
 
-    Impl()
-        : mEpollFd(epoll_create(kFdCountHint)),
+    Impl(
+        QCFdPollImplBase::Waker* inWakerPtr)
+        : QCFdPollImplBase(inWakerPtr),
+          mEpollFd(epoll_create(kFdCountHint)),
           mEpollEventCount(0),
           mMaxEventCount(0),
           mNextEventIdx(0),
@@ -439,7 +464,7 @@ private:
         }
         // Looks like fork() randomly screws kernell epoll vector.
         // epoll_ctl() starts returning various errors.
-        // For now assume that the fd is removed from epoll vector. 
+        // For now assume that the fd is removed from epoll vector.
         if (! sForkedFlag) {
             return ((errno ? errno : EFAULT) & ~kEpollFailureAfterFork);
         }
@@ -480,11 +505,13 @@ int  QCFdPoll::Impl::sLastCtlError(0);
 
 #include <poll.h>
 
-class QCFdPoll::Impl
+class QCFdPoll::Impl : public QCFdPollImplBase
 {
 public:
-    Impl()
-        : mFdMap(),
+    Impl(
+        QCFdPollImplBase::Waker* inWakerPtr)
+        : QCFdPollImplBase(inWakerPtr),
+          mFdMap(),
           mPollVecPtr(0),
           mPollVecSize(0),
           mFdCount(0),
@@ -584,7 +611,7 @@ public:
             mFdCount--;
             if (mLastIdx > mFdCount) {
                 mLastIdx = mFdCount;
-            } 
+            }
             mFdMap.erase(theIt);
         } else {
             struct pollfd& theEntry = mPollVecPtr[theIdx];
@@ -768,13 +795,130 @@ private:
 
 #endif
 
-QCFdPoll::QCFdPoll()
-    : mImpl(*new(Impl))
+class QCFdPollImplBase::Waker
+{
+public:
+    Waker()
+        : mMutex(),
+          mWritten(0),
+          mLastWriteError(0),
+          mSleepingFlag(false),
+          mWakeFlag(false)
+    {
+        const int res = pipe(mPipeFds);
+        if (res < 0) {
+            mPipeFds[0] = -1;
+            mPipeFds[1] = -1;
+            QCUtils::FatalError("pipe", errno);
+            return;
+        }
+        fcntl(mPipeFds[0], F_SETFL, O_NONBLOCK);
+        fcntl(mPipeFds[1], F_SETFL, O_NONBLOCK);
+        fcntl(mPipeFds[0], F_SETFD, FD_CLOEXEC);
+        fcntl(mPipeFds[1], F_SETFD, FD_CLOEXEC);
+    }
+    ~Waker()
+        { Waker::Close(); }
+    bool Sleep()
+    {
+        QCStMutexLocker lock(mMutex);
+        mSleepingFlag = ! mWakeFlag;
+        mWakeFlag = false;
+        return mSleepingFlag;
+    }
+    int Wake()
+    {
+        QCStMutexLocker lock(mMutex);
+        mSleepingFlag = false;
+        while (mWritten > 0) {
+            char buf[64];
+            const int res = read(mPipeFds[0], buf, sizeof(buf));
+            if (res > 0) {
+                mWritten -= min(mWritten, res);
+            } else {
+                break;
+            }
+        }
+        return (mWritten);
+    }
+    void Wakeup()
+    {
+        QCStMutexLocker lock(mMutex);
+        mWakeFlag = true;
+        if (mSleepingFlag && mWritten <= 0) {
+            const char buf = 'k';
+            const ssize_t res = write(mPipeFds[1], &buf, sizeof(buf));
+            if (0 < res) {
+                mWritten += res;
+            } else {
+                mLastWriteError = errno;
+            }
+        }
+    }
+    int GetFd() const
+        { return mPipeFds[0]; }
+    void Close()
+    {
+        for (int i = 0; i < 2; i++) {
+            if (mPipeFds[i] >= 0) {
+                close(mPipeFds[i]);
+                mPipeFds[i] = -1;
+            }
+        }
+    }
+private:
+    QCMutex mMutex;
+    int     mWritten;
+    int     mLastWriteError;
+    int     mPipeFds[2];
+    bool    mSleepingFlag;
+    bool    mWakeFlag;
+
+private:
+    Waker(
+        const Waker&);
+    Waker& operator=(
+        const Waker&);
+};
+
+    /* static */ QCFdPoll::Impl&
+QCFdPoll::Create(
+    bool inWakeableFlag)
+{
+    char* const thePtr = new char[sizeof(Impl) +
+        (inWakeableFlag ? sizeof(Impl::Waker) : 0)];
+    Impl& theImpl = *(new (thePtr) Impl(inWakeableFlag ?
+        new (thePtr + sizeof(Impl)) Impl::Waker() : 0));
+    if (inWakeableFlag) {
+        const int theErr = theImpl.Add(
+            theImpl.GetWakerPtr()->GetFd(),
+            QCFdPoll::kOpTypeIn,
+            theImpl.GetWakerPtr()
+        );
+        if (theErr) {
+            QCUtils::FatalError("poll add waker fd",
+                theErr & ~QCFdPoll::kEpollFailureAfterFork);
+        }
+    }
+    return theImpl;
+}
+
+QCFdPoll::QCFdPoll(
+    bool inWakeableFlag)
+    : mImpl(Create(inWakeableFlag))
 {}
 
 QCFdPoll::~QCFdPoll()
 {
-    delete &mImpl;
+    Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
+    if (theWakerPtr && 0 <= theWakerPtr->GetFd()) {
+        Remove(theWakerPtr->GetFd());
+    }
+    mImpl.~Impl();
+    if (theWakerPtr) {
+        theWakerPtr->~Waker();
+    }
+    delete [] reinterpret_cast<char*>(&mImpl);
 }
 
     int
@@ -800,7 +944,15 @@ QCFdPoll::Poll(
     int inMaxEventCountHint,
     int inWaitMilliSec)
 {
-    return mImpl.Poll(inMaxEventCountHint, inWaitMilliSec);
+    Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
+    const int theRet = mImpl.Poll(
+        (theWakerPtr && 0 <= inMaxEventCountHint) ?
+            inMaxEventCountHint + 1 : inMaxEventCountHint,
+        (! theWakerPtr || theWakerPtr->Sleep()) ? inWaitMilliSec : 0);
+    if (theWakerPtr) {
+        theWakerPtr->Wake();
+    }
+    return theRet;
 }
 
     bool
@@ -808,7 +960,11 @@ QCFdPoll::Next(
     int&   outOpType,
     void*& outUserDataPtr)
 {
-    return mImpl.Next(outOpType, outUserDataPtr);
+    bool theRetFlag;
+    while ((theRetFlag = mImpl.Next(outOpType, outUserDataPtr)) &&
+            outUserDataPtr && mImpl.GetWakerPtr() == outUserDataPtr)
+        {}
+    return theRetFlag;
 }
 
     int
@@ -818,8 +974,24 @@ QCFdPoll::Remove(
     return mImpl.Remove(inFd);
 }
 
+    bool
+QCFdPoll::Wakeup()
+{
+    Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
+    if (! theWakerPtr) {
+        return false;
+    }
+    theWakerPtr->Wakeup();
+    return true;
+}
+
     int
 QCFdPoll::Close()
 {
+    Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
+    if (theWakerPtr && 0 <= theWakerPtr->GetFd()) {
+        Remove(theWakerPtr->GetFd()),
+        theWakerPtr->Close();
+    }
     return mImpl.Close();
 }

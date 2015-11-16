@@ -206,7 +206,7 @@ ValidateCreateParams(
     int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
     return (
-        (numReplicas <= 0 ||
+        (numReplicas < 0 ||
         (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
             ! RSStriperValidate(
                 stripedType, numStripes, numRecoveryStripes, stripeSize, 0)) ||
@@ -500,7 +500,7 @@ KfsClient::ParseCreateParams(const char* params,
     } else {
         char* p = 0;
         numReplicas = (int)strtol(params, &p, 10);
-        if (numReplicas <= 0) {
+        if (numReplicas < 0) {
             return -EINVAL;
         }
         if (*p == ',') numStripes         = (int)strtol(p + 1, &p, 10);
@@ -3220,8 +3220,9 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     }
     if (op.striperType != op.metaStriperType && forceTypeFlag) {
         KFS_LOG_STREAM_ERROR <<
-            pathname << ": create: " << "striped file type " << op.striperType <<
-            " is not supported " << " got: " << op.metaStriperType <<
+            pathname << ": create:" <<
+            " striped file type " << op.striperType <<
+            " is not supported "  << " got: " << op.metaStriperType <<
         KFS_LOG_EOM;
         // Cleanup the file.
         RemoveOp rm(0, parentFid, filename.c_str(), pathname);
@@ -3248,7 +3249,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     FileAttr& fa = entry.fattr;
     fa.Init(false);    // is an ordinary file
     fa.fileId      = op.fileId;
-    fa.numReplicas = numReplicas;
+    fa.numReplicas = op.metaNumReplicas;
     fa.fileSize    = 0; // presently CreateOp always deletes file if exists.
     fa.minSTier    = op.minSTier;
     fa.maxSTier    = op.maxSTier;
@@ -3280,6 +3281,8 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
         " striper: "  << fa.striperType <<
+        " replicas: " << fa.numReplicas <<
+        " / "         << numReplicas <<
     KFS_LOG_EOM;
 
     return fte;
@@ -4544,6 +4547,10 @@ KfsClientImpl::Seek(int fd, chunkOff_t offset, int whence)
 
     if (newOff < 0) {
         return -EINVAL;
+    }
+    if (0 == entry.fattr.numReplicas &&
+            entry.currPos.fileOffset != newOff) {
+        return -ESPIPE;
     }
     entry.currPos.fileOffset = newOff;
 

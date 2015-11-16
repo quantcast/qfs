@@ -714,6 +714,9 @@ MakeLogMetaRequestHandler(
     .MakeParser("LV",
         META_LOG_CHUNK_VERSION_CHANGE,
         static_cast<const MetaLogChunkVersionChange*>(0))
+    .MakeParser("XS",
+        META_LOG_CLEAR_OBJ_STORE_DELETE,
+        static_cast<const MetaLogClearObjStoreDelete*>(0))
     ;
 }
 

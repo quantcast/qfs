@@ -172,7 +172,6 @@ typedef QCDLList<RecordAppendOp> AppendReplicationList;
 RecordAppendOp::RecordAppendOp(kfsSeq_t s)
     : ChunkAccessRequestOp(CMD_RECORD_APPEND),
       clientSeq(s),
-      chunkVersion(-1),
       numBytes(0),
       offset(-1),
       fileOffset(-1),
@@ -464,12 +463,14 @@ private:
     }
     int64_t GetChunkSize() const
     {
-        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         return (info ? info->chunkSize : -1);
     }
     bool IsChunkOpen() const
     {
-        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+        const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         return (info && (info->chunkBlockChecksum || info->chunkSize == 0));
     }
     inline void SetCanDoLowOnBuffersFlushFlag(bool flag);
@@ -803,7 +804,7 @@ AtomicRecordAppender::~AtomicRecordAppender()
             mReplicationsInFlight != 0 ||
             ! mWriteIdState.empty() ||
             ! AppendReplicationList::IsEmpty(mReplicationList) ||
-            gChunkManager.IsWriteAppenderOwns(mChunkId)) {
+            gChunkManager.IsWriteAppenderOwns(mChunkId, mChunkVersion)) {
         WAPPEND_LOG_STREAM_FATAL <<
             " invalid dtor invocation:"
             " state: "        << GetStateAsStr() <<
@@ -882,7 +883,8 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
             DiskIo::FilePtr const chunkFileHandle(mChunkFileHandle);
             assert(nowStableFlag);
             mChunkFileHandle.reset();
-            gChunkManager.ChunkIOFailed(mChunkId, 0, chunkFileHandle.get());
+            gChunkManager.ChunkIOFailed(
+                mChunkId, mChunkVersion, 0, chunkFileHandle.get());
         }
         Cntrs().mLostChunkCount++;
     } else if (mState == kStateReplicationFailed) {
@@ -1057,7 +1059,7 @@ AtomicRecordAppender::CheckLeaseAndChunk(const char* prefix, T* op)
         KFS_LOG_EOM;
         SetState(kStateChunkLost);
     } else if (mState == kStateOpen && IsMaster() &&
-            ! gLeaseClerk.IsLeaseValid(mChunkId,
+            ! gLeaseClerk.IsLeaseValid(mChunkId, mChunkVersion,
                 op ? &op->syncReplicationAccess : 0,
                 &allowCSClearTextFlag)) {
         WAPPEND_LOG_STREAM_ERROR << (prefix ? prefix : "") <<
@@ -1980,7 +1982,8 @@ AtomicRecordAppender::GetOpStatus(GetRecordAppendOpStatus* op)
             op->chunkVersion       = mChunkVersion;
             op->chunkBytesReserved = mBytesReserved;
             op->remainingLeaseTime = IsMaster() ?
-                gLeaseClerk.GetLeaseExpireTime(mChunkId) - Now() : -1;
+                gLeaseClerk.GetLeaseExpireTime(mChunkId, mChunkVersion) - Now()
+                : -1;
             op->masterFlag         = IsMaster();
             op->stableFlag         = mState == kStateStable;
             op->appenderState      = mState;
@@ -2177,7 +2180,8 @@ AtomicRecordAppender::ComputeChecksum(
     kfsChunkId_t chunkId, int64_t chunkVersion,
     int64_t& chunkSize, uint32_t& chunkChecksum)
 {
-    const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(chunkId);
+    const ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+        chunkId, chunkVersion);
     if (! info ||
             (! info->chunkBlockChecksum && info->chunkSize != 0) ||
             chunkVersion != info->chunkVersion) {
@@ -2519,7 +2523,8 @@ AtomicRecordAppender::OpDone(ReadOp* op)
         return;
     }
     if (op->status >= 0 && ssize_t(op->numBytes) == op->numBytesIO) {
-        ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+        ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+            mChunkId, mChunkVersion);
         if (! info || (! info->chunkBlockChecksum && info->chunkSize != 0)) {
             WAPPEND_LOG_STREAM_FATAL <<
                 "make chunk stable read:"
@@ -2673,7 +2678,8 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
                 return;
             }
             // No last block read and checksum update is needed.
-            ChunkInfo_t* const info = gChunkManager.GetChunkInfo(mChunkId);
+            ChunkInfo_t* const info = gChunkManager.GetChunkInfo(
+                mChunkId, mChunkVersion);
             if (! info || (! info->chunkBlockChecksum && info->chunkSize != 0)) {
                 WAPPEND_LOG_STREAM_FATAL <<
                     "make chunk stable:"
@@ -2980,7 +2986,8 @@ AtomicRecordAppender::MetaWriteDone(int status)
         " ios: "        << mIoOpsInFlight <<
         " commit: "     << mNextCommitOffset <<
         " status: "     << status <<
-        " owner: "      << gChunkManager.IsWriteAppenderOwns(mChunkId) <<
+        " owner: "      <<
+            gChunkManager.IsWriteAppenderOwns(mChunkId, mChunkVersion) <<
     KFS_LOG_EOM;
     if (DeleteIfNeeded()) {
         return;
@@ -3046,7 +3053,8 @@ AtomicRecordAppender::NotifyChunkClosed()
         " size: "     << mChunkSize <<
         " checksum: " << mChunkChecksum <<
     KFS_LOG_EOM;
-    gLeaseClerk.RelinquishLease(mChunkId, mChunkSize, true, mChunkChecksum);
+    gLeaseClerk.RelinquishLease(mChunkId, mChunkVersion,
+        mChunkSize, true, mChunkChecksum);
 }
 
 void
@@ -3102,7 +3110,7 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mActiveAppendersCount(0),
       mOpenAppendersCount(0),
       mAppendersWithWidCount(0),
-      mBufferLimitRatio(0.6),
+      mBufferLimitRatio(0.4),
       mMaxWriteIdsPerChunk(16 << 10),
       mCloseOutOfSpaceThreshold(4),
       mCloseOutOfSpaceSec(5),
@@ -3189,8 +3197,9 @@ AtomicRecordAppendManager::UpdateAppenderFlushLimit(
         return;
     }
     if (mTotalBuffersBytes <= 0) {
+        const BufferManager& bufMgr = DiskIo::GetBufferManager();
         mTotalBuffersBytes = (int64_t)(
-            DiskIo::GetBufferManager().GetTotalCount() *
+            (bufMgr.GetBufferPoolTotalBytes() - bufMgr.GetTotalCount()) *
             mBufferLimitRatio);
         if (mTotalBuffersBytes <= 0) {
             mTotalBuffersBytes = mFlushLimit;
@@ -3235,7 +3244,11 @@ AtomicRecordAppendManager::AllocateChunk(
     const ServerLocation&  peerLoc,
     const DiskIo::FilePtr& chunkFileHandle)
 {
-    assert(op);
+    if (! op || op->chunkVersion < 0) {
+        die("invalid chunk allocation attempt for append");
+        op->status = -EFAULT;
+        return;
+    }
     bool insertedFlag = false;
     AtomicRecordAppender** const res = mAppenders.Insert(
         op->chunkId, (AtomicRecordAppender*)0, insertedFlag);
@@ -3244,7 +3257,8 @@ AtomicRecordAppendManager::AllocateChunk(
         const ChunkInfo_t* info = 0;
         if (! chunkFileHandle ||
                 ! chunkFileHandle->IsOpen() ||
-                ! (info = gChunkManager.GetChunkInfo(op->chunkId)) ||
+                ! (info = gChunkManager.GetChunkInfo(
+                        op->chunkId, op->chunkVersion)) ||
                 (! info->chunkBlockChecksum && info->chunkSize != 0)) {
             op->statusMsg = "chunk manager closed this chunk";
             op->status    = AtomicRecordAppender::kErrParameters;
@@ -3377,7 +3391,8 @@ AtomicRecordAppendManager::AllocateWriteId(
     const DiskIo::FilePtr& chunkFileHandle)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (! appender) {
         op->statusMsg = "not open for append; no appender";
         op->status    = AtomicRecordAppender::kErrParameters;
@@ -3504,7 +3519,8 @@ bool
 AtomicRecordAppendManager::BeginMakeChunkStable(BeginMakeChunkStableOp* op)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ? 0 :
+        mAppenders.Find(op->chunkId);
     if (! appender) {
         op->statusMsg = "chunk does not exist or not open for append";
         op->status    = AtomicRecordAppender::kErrParameters;
@@ -3529,7 +3545,8 @@ AtomicRecordAppendManager::CloseChunk(
     CloseOp* op, int64_t writeId, bool& forwardFlag)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (! appender) {
         return false; // let chunk manager handle it
     }
@@ -3541,7 +3558,8 @@ bool
 AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (appender) {
         (*appender)->MakeChunkStableEx(op);
         // Completion handler is already invoked or will be invoked later.
@@ -3588,9 +3606,15 @@ AtomicRecordAppendManager::MakeChunkStable(MakeChunkStableOp* op)
             }
         }
     } else {
-        const bool appendFlag = false;
+        // With no size, only delete pending writes for object store block,
+        // do not make it stable to allow re-allocation.
+        const bool deletePendingWritesOnlyFlag =
+            op->chunkVersion < 0 && op->chunkSize < 0;
+        const bool appendFlag                  = false;
         const int res         = gChunkManager.MakeChunkStable(
-            op->chunkId, op->chunkVersion, appendFlag, op, op->statusMsg);
+            op->chunkId, op->chunkVersion, appendFlag, op, op->statusMsg,
+            deletePendingWritesOnlyFlag
+        );
         if (res >= 0) {
             return true;
         }
@@ -3606,7 +3630,8 @@ AtomicRecordAppendManager::AppendBegin(
     const ServerLocation& peerLoc)
 {
     assert(op);
-    AtomicRecordAppender** const appender = mAppenders.Find(op->chunkId);
+    AtomicRecordAppender** const appender = op->chunkVersion < 0 ?
+        0 : mAppenders.Find(op->chunkId);
     if (! appender) {
         op->status    = AtomicRecordAppender::kErrParameters;
         op->statusMsg = "chunk does not exist or not open for append";

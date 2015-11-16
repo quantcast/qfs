@@ -91,6 +91,9 @@ MetaFattr::showSelf(ostream& os) const
             "/minTier/" << (int)minSTier <<
             "/maxTier/" << (int)maxSTier;
     }
+    if (KFS_FILE == type && 0 == numReplicas) {
+        os << "/nextChunkOffset/" << nextChunkOffset();
+    }
     return os;
 }
 

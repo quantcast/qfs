@@ -24,7 +24,7 @@
 # with the failure simulation by default (see usage below).
 #
 # The logic below expects that 4 directories
-# /mnt/data{0-5}/<user-name>
+# /mnt/data{0-3}/<user-name>
 # are available and correspond to 4 physical disks.
 # 
 # 
@@ -91,6 +91,11 @@ mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 chunkdirerrsim=0
 chunkdirerrsimall=0
 chunkserverclithreads=${chunkserverclithreads-3}
+objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
+objectstoredir="/mnt/data3/$USER/test/object_store"
+cabundlefile="`dirname "$objectstoredir"`/ca-bundle.crt"
+cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
+cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -130,10 +135,12 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -chunk-dir-err-sim <num> -- enable chunk directory check failure simulator on
     firtst <num> chunk servers
  -valgrind-cs             -- run chunk servers under valgrind
- -auth                    -- turn authentication on or off'
+ -auth                    -- turn authentication on or off
+ -s3                      -- test with AWS S3'
     exit 0
 fi
 
+s3test='no'
 excode=0
 while [ $# -gt 0 ]; do
     if [ x"$1" = x'-stop' ]; then
@@ -151,7 +158,7 @@ while [ $# -gt 0 ]; do
             for n in \
                 "$clitestdir/fanout/kfanout_test.log" \
                 "$clitestdir/sortmaster/sortmaster_endurance_test.log" \
-                "$clitestdir/cp/cptest-"{n,rs,tfs}.log \
+                "$clitestdir/cp/cptest-"{n,rs,tfs.os}.log \
                 "$metasrvdir/$fscklog" \
                 ; do
                 [ -f "$n" ] || continue
@@ -195,6 +202,9 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-valgrind-cs' ]; then
         shift
         csvalgrind='yes'
+    elif [ x"$1" = x'-s3' ]; then
+        shift
+        s3test='yes'
     elif [ x"$1" = x'-auth' ]; then
         shift
         if [ x"$1" = x'on' -o x"$1" = x'ON' -o \
@@ -223,6 +233,17 @@ done
 
 if [ $excode -ne 0 ]; then
     exit `expr $excode - 1`
+fi
+
+if [ x"$s3test" = x'yes' ]; then
+    if [ x"$QFS_S3_ACCESS_KEY_ID" = x -o \
+            x"$QFS_S3_SECRET_ACCESS_KEY" = x -o \
+            x"$QFS_S3_BUCKET_NAME" = x ]; then
+        echo "environment variables QFS_S3_ACCESS_KEY_ID," \
+            "QFS_S3_SECRET_ACCESS_KEY," \
+            "and QFS_S3_BUCKET_NAME must be set accordintly"
+        exit 1
+    fi
 fi
 
 mkdir -p "$metasrvdir"
@@ -290,6 +311,21 @@ exec 0</dev/null
 if [ x"$testonly" != x'yes' ]; then
 
 kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
+
+if [ x"$s3test" = x'yes' ]; then
+    if [ -f "$cabundlefileos" ]; then
+        echo "Using $cabundlefileos"
+        cabundlefile=$cabundlefileos
+    else
+        if [ -x "`which curl 2>/dev/null`" ]; then
+            curl "$cabundleurl" > "$cabundlefile" || exit
+        else
+            wget "$cabundleurl" -O "$cabundlefile" || exit
+        fi
+    fi
+else
+    mkdir -p "$objectstoredir" || exit
+fi
 
 echo "Starting meta server $metahost:$metasrvport"
 
@@ -382,6 +418,11 @@ metaServer.debugPanicOnHelloResumeFailureCount = 0
 metaServer.log.failureSimulationInterval = 100
 metaServer.log.panicOnIoError = 1
 
+metaServer.objectStoreEnabled = 1
+metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStorePlacementTest = 1
+chunkServer.objBlockDiscardMinMetaUptime = 8
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -500,7 +541,6 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.recAppender.closeEmptyWidStateSec = 5
-chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
@@ -540,6 +580,30 @@ chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
         fi
+    if [ x"$s3test" = x'yes' ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.objectDir                               = s3://aws.
+chunkServer.diskQueue.aws.bucketName                = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId               = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey           = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.debugTrace.requestHeaders = 1
+chunkServer.diskQueue.aws.ssl.verifyPeer            = 1
+chunkServer.diskQueue.aws.ssl.CAFile                = $cabundlefile
+
+# Give the buffer manager the same as with no S3 131072*0.4, appender
+# 131072*(1-0.4)*0.4, and the rest to S3 write buffers: ~18 chunks by 64MB
+chunkServer.objStoreBufferDataRatio           = 0.79
+chunkServer.recAppender.bufferLimitRatio      = 0.084
+chunkServer.bufferManager.maxRatio            = 0.123
+chunkServer.ioBufferPool.partitionBufferCount = 426056
+EOF
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.ioBufferPool.partitionBufferCount = 131072
+chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
+chunkServer.objectDir                         = $objectstoredir
+EOF
+fi
         (
         cd "$dir" || exit
         rm -f *.log*
@@ -586,12 +650,14 @@ fi
     cpfromkfsopts="-T $cstimeout -R $csretry"
     export cpfromkfsopts
 
-    for suf in n tfs rs; do
+    for suf in rs n tfs os; do
         cptokfsopts="-T $cstimeout -R $csretry"
         if [ x"$suf" = x'rs' ]; then
             cptokfsopts="$cptokfsopts -S"
         elif [ x"$suf" = x'tfs' ]; then
             cptokfsopts="$cptokfsopts -z 0 -y 128 -u 65536 -r 2 -u 65536 -w 267386880"
+        elif [ x"$suf" = x'os' ]; then
+            cptokfsopts="$cptokfsopts -r 0"
         fi
         export cptokfsopts
 

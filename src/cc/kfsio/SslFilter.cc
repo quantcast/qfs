@@ -389,6 +389,7 @@ public:
         ServerPsk*  inServerPskPtr,
         VerifyPeer* inVerifyPeerPtr,
         bool        inDeleteOnCloseFlag,
+        const char* inServerNamePtr,
         bool&       inReadPendingFlag)
         : Reader(),
           mSslPtr(SSL_new(reinterpret_cast<SSL_CTX*>(&inCtx))),
@@ -399,6 +400,7 @@ public:
           mPskCliIdendity(inPskCliIdendityPtr ? inPskCliIdendityPtr : ""),
           mAuthName(),
           mPeerPskId(),
+          mPeerName(),
           mServerPskPtr(inServerPskPtr),
           mVerifyPeerPtr(inVerifyPeerPtr),
           mReadPendingFlag(inReadPendingFlag),
@@ -417,6 +419,15 @@ public:
             return;
         }
         if (SSL_set_ex_data(mSslPtr, sOpenSslInitPtr->mExDataIdx, this)) {
+#if 0x10000000L <= OPENSSL_VERSION_NUMBER
+            if (inServerNamePtr &&
+                    ! SSL_set_tlsext_host_name(mSslPtr, inServerNamePtr)) {
+                mError = GetAndClearErr();
+                SSL_free(mSslPtr);
+                mSslPtr = 0;
+                return;
+            }
+#endif
             SetPskCB();
             SSL_set_read_ahead(mSslPtr, 1);
             mServerFlag = ! SSL_in_connect_init(mSslPtr);
@@ -568,7 +579,12 @@ public:
     {
         if (! inSocketPtr || ! inSocketPtr->IsGood() || ! mSslPtr) {
             if (outErrMsgPtr) {
-                *outErrMsgPtr = "no tcp socket, or ssl context";
+                if (mError) {
+                    *outErrMsgPtr = GetErrorMsg(mError);
+                }
+                if (outErrMsgPtr->empty()) {
+                    *outErrMsgPtr = "no tcp socket, or ssl context";
+                }
             }
             return -EINVAL;
         }
@@ -1424,7 +1440,8 @@ SslFilter::SslFilter(
     const char*            inPskCliIdendityPtr,
     SslFilter::ServerPsk*  inServerPskPtr,
     SslFilter::VerifyPeer* inVerifyPeerPtr,
-    bool                   inDeleteOnCloseFlag)
+    bool                   inDeleteOnCloseFlag,
+    const char*            inServerNamePtr)
     : NetConnection::Filter(),
       mImpl(*(new Impl(
         inCtx,
@@ -1434,6 +1451,7 @@ SslFilter::SslFilter(
         inServerPskPtr,
         inVerifyPeerPtr,
         inDeleteOnCloseFlag,
+        inServerNamePtr,
         mReadPendingFlag
     )))
     {}
@@ -1595,7 +1613,8 @@ public:
         ServerPsk*  inServerPskPtr,
         VerifyPeer* inVerifyPeerPtr,
         const char* inExpectedPeerNamePtr,
-        bool        inDeleteOnCloseFlag)
+        bool        inDeleteOnCloseFlag,
+        const char* inServerNamePtr)
         : VerifyPeer(),
           SslFilter(
             inCtx,
@@ -1604,7 +1623,8 @@ public:
             inPskCliIdendityPtr,
             inServerPskPtr,
             this,
-            inDeleteOnCloseFlag),
+            inDeleteOnCloseFlag,
+            inServerNamePtr),
             mVerifyPeerPtr(inVerifyPeerPtr),
             mExpectedPeerName(
                 inExpectedPeerNamePtr ? inExpectedPeerNamePtr : "")
@@ -1672,7 +1692,8 @@ SslFilter::Create(
     SslFilter::ServerPsk*  inServerPskPtr        /* = 0 */,
     SslFilter::VerifyPeer* inVerifyPeerPtr       /* = 0 */,
     const char*            inExpectedPeerNamePtr /* = 0 */,
-    bool                   inDeleteOnCloseFlag   /* = true */)
+    bool                   inDeleteOnCloseFlag   /* = true */,
+    const char*            inServerNamePtr       /* = 0 */)
 {
     if (inExpectedPeerNamePtr) {
         return *(new SslFilterPeerVerify(
@@ -1683,7 +1704,8 @@ SslFilter::Create(
             inServerPskPtr,
             inVerifyPeerPtr,
             inExpectedPeerNamePtr,
-            inDeleteOnCloseFlag
+            inDeleteOnCloseFlag,
+            inServerNamePtr
         ));
     }
     return *(new SslFilter(

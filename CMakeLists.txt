@@ -379,7 +379,6 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
     ENDIF (FUSE_FOUND)
 ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
 
-
 # include dirs
 include_directories(
     ${Boost_INCLUDE_DIRS}
@@ -387,6 +386,25 @@ include_directories(
     ${KRB5_INCLUDE_DIRS}
     ${KFS_DIR_PREFIX}src/cc
 )
+
+IF (JNI_FOUND)
+    message(STATUS "JNI found: building qfs_access")
+    include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
+ELSE (JNI_FOUND)
+    message(STATUS "JNI NOT found: NOT building qfs_access")
+ENDIF (JNI_FOUND)
+
+IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+    message(STATUS "Building qfs_fuse")
+    message(STATUS "fuse libs:         ${FUSE_LIBRARIES}")
+    message(STATUS "fuse include dirs: ${FUSE_INCLUDE_DIRS}")
+    message(STATUS "fuse definitions:  ${FUSE_DEFINITIONS}")
+    add_definitions(${FUSE_DEFINITIONS})
+    add_definitions(-D FUSE_USE_VERSION=26)
+    include_directories(${FUSE_INCLUDE_DIRS})
+ELSE  (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+    message(STATUS "Not building qfs_fuse")
+ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
 
 # get the subdirs we want
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/common src/cc/common)
@@ -403,27 +421,15 @@ add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcdio src/cc/qcdio)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/krb src/cc/krb)
 add_subdirectory (${KFS_DIR_PREFIX}src/cc/qfsc src/cc/qfsc)
+add_subdirectory (${KFS_DIR_PREFIX}src/cc/s3io src/cc/s3io)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
 
-IF (JNI_FOUND)
-    message(STATUS "JNI found: building qfs_access")
-    include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
-    add_subdirectory (${KFS_DIR_PREFIX}src/cc/access src/cc/access)
-ELSE (JNI_FOUND)
-    message(STATUS "JNI NOT found: NOT building qfs_access")
-ENDIF (JNI_FOUND)
-
 IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
-    message(STATUS "Building qfs_fuse")
-    message(STATUS "fuse libs:         ${FUSE_LIBRARIES}")
-    message(STATUS "fuse include dirs: ${FUSE_INCLUDE_DIRS}")
-    message(STATUS "fuse definitions:  ${FUSE_DEFINITIONS}")
-    add_definitions(${FUSE_DEFINITIONS})
-    add_definitions(-D FUSE_USE_VERSION=26)
-    include_directories(${FUSE_INCLUDE_DIRS})
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
-ELSE  (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
-    message(STATUS "Not building qfs_fuse")
 ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+
+IF (JNI_FOUND)
+    add_subdirectory (${KFS_DIR_PREFIX}src/cc/access src/cc/access)
+ENDIF (JNI_FOUND)

@@ -735,6 +735,10 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    // get the sizes of all dirs up-to-date
+    KFS_LOG_STREAM_INFO << "updating space utilization" << KFS_LOG_EOM;
+    metatree.setUpdatePathSpaceUsage(true);
+    metatree.enableFidToPathname();
     KFS_LOG_STREAM_INFO << "replaying logs" << KFS_LOG_EOM;
     status = replayer.playAllLogs();
     if (status != 0) {
@@ -753,11 +757,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
                 minRollChunkIdSeed - max(int64_t(0), replayer.getRollSeeds()));
         }
     }
-    // get the sizes of all dirs up-to-date
-    KFS_LOG_STREAM_INFO << "updating space utilization" << KFS_LOG_EOM;
-    metatree.setUpdatePathSpaceUsage(true);
     metatree.setUpdatePathSpaceUsage(updateSpaceUsageFlag);
-    metatree.enableFidToPathname();
     if (mIsPathToFidCacheEnabled) {
         metatree.enablePathToFidCache();
     }

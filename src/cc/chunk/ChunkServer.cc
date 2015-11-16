@@ -178,8 +178,6 @@ ChunkServer::MainLoop(
     mRemoteSyncers.ReleaseAllServers();
     gChunkManager.Shutdown();
     RemoteSyncSM::Shutdown();
-    gClientManager.Shutdown();
-    Replicator::Shutdown();
     return true;
 }
 

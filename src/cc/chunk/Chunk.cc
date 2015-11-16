@@ -102,7 +102,7 @@ bool IsValidChunkFile(
     outFileId    = components[0];
     outChunkId   = chunkId;
     outChunkVers = chunkVers;
-    outChunkSize = filesz - KFS_CHUNK_HEADER_SIZE;
+    outChunkSize = filesz - GetChunkHeaderSize(chunkVers);
     if (filesz > kMaxChunkFileSize || forceReadFlag) {
         outReadFlag = true;
         // Load and validate chunk header, and set proper file size.
@@ -132,20 +132,25 @@ bool IsValidChunkFile(
             KFS_LOG_EOM;
             return false;
         }
-        const DiskChunkInfo_t& dci      =
-            *reinterpret_cast<const DiskChunkInfo_t*>(
+        DiskChunkInfo_t& dci                  =
+            *reinterpret_cast<DiskChunkInfo_t*>(
                 chunkHeaderBuffer.GetPtr());
-        const uint64_t         checksum =
+        const uint64_t  readChecksum         =
             *reinterpret_cast<const uint64_t*>(&dci + 1);
-        const int res = dci.Validate(chunkId, chunkVers);
-        if (res < 0) {
-            KFS_LOG_STREAM_INFO <<
-                "ignoring invalid chunk file: " << cf <<
-                    " size: "                   << filesz <<
-                    " invalid chunk header"
-                    " status: "                 << res <<
-            KFS_LOG_EOM;
-            return false;
+        const bool      reverseByteOrderFlag = dci.IsReverseByteOrder();
+        const uint64_t  checksum             = reverseByteOrderFlag ?
+            DiskChunkInfo_t::ReverseInt(readChecksum) : readChecksum;
+        if (! reverseByteOrderFlag) {
+            const int res = dci.Validate(chunkId, chunkVers);
+            if (res < 0) {
+                KFS_LOG_STREAM_INFO <<
+                    "ignoring invalid chunk file: " << cf <<
+                        " size: "                   << filesz <<
+                        " invalid chunk header"
+                        " status: "                 << res <<
+                KFS_LOG_EOM;
+                return false;
+            }
         }
         uint32_t hdrChecksum = 0;
         if ((checksum != 0 || requireChunkHeaderChecksumFlag) &&
@@ -158,8 +163,23 @@ bool IsValidChunkFile(
                     " chunk size: "             << dci.chunkSize <<
                     " checksum: "               << checksum <<
                     " expect: "                 << hdrChecksum <<
+                    " reverse byte order: "     << reverseByteOrderFlag <<
             KFS_LOG_EOM;
             return false;
+        }
+        if (reverseByteOrderFlag) {
+            bool const kCheksumsReverseFlag = false;
+            dci.ReverseByteOrder(kCheksumsReverseFlag);
+            const int res = dci.Validate(chunkId, chunkVers);
+            if (res < 0) {
+                KFS_LOG_STREAM_INFO <<
+                    "ignoring invalid chunk file: " << cf <<
+                        " size: "                   << filesz <<
+                        " invalid chunk header"
+                        " status: "                 << res <<
+                KFS_LOG_EOM;
+                return false;
+            }
         }
         outFileSystemId = dci.GetFsId();
         filesz = dci.chunkSize + KFS_CHUNK_HEADER_SIZE;

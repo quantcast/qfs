@@ -239,10 +239,61 @@ public:
             {}
     };
 
+    class Request;
+    class RequestProcessor
+    {
+    public:
+        virtual void ProcessAndWait() = 0;
+        virtual void Wakeup() = 0;
+        virtual void Stop() = 0;
+        virtual int Open(
+            const char* inFileNamePtr,
+            bool        inReadOnlyFlag,
+            bool        inCreateFlag,
+            bool        inCreateExclusiveFlag,
+            int64_t&    ioMaxFileSize) = 0;
+        virtual int Close(
+            int     inFd,
+            int64_t inEof) = 0;
+        virtual void StartIo(
+            Request&        inRequest,
+            ReqType         inReqType,
+            int             inFd,
+            BlockIdx        inStartBlockIdx,
+            int             inBufferCount,
+            InputIterator*  inInputIteratorPtr,
+            int64_t         inSpaceAllocSize,
+            int64_t         inEof) = 0;
+        virtual void StartMeta(
+            Request&    inRequest,
+            ReqType     inReqType,
+            const char* inNamePtr,
+            const char* inName2Ptr) = 0;
+        bool AllocatesReadBuffers() const
+            { return mAllocatesReadBuffersFlag; }
+    protected:
+        const bool mAllocatesReadBuffersFlag;
+
+        RequestProcessor(
+            bool inAllocatesReadBuffersFlag = false)
+            : mAllocatesReadBuffersFlag(inAllocatesReadBuffersFlag)
+            {}
+        virtual ~RequestProcessor()
+            {}
+    };
+    void Done(
+        RequestProcessor& inProcessor,
+        Request&          inReq,
+        Error             inError,
+        int               inSysError,
+        int64_t           inIoByteCount,
+        BlockIdx          inBlockIdx         = -1,
+        InputIterator*    inInputIteratorPtr = 0);
+
     static bool IsValidRequestId(
         RequestId inReqId)
-    { 
-        return (inReqId != kRequestIdNone); 
+    {
+        return (inReqId != kRequestIdNone);
     }
 
     static const char* ToString(
@@ -252,16 +303,20 @@ public:
     ~QCDiskQueue();
 
     int Start(
-        int              inThreadCount,
-        int              inMaxQueueDepth,
-        int              inMaxBuffersPerRequestCount,
-        int              inFileCount,
-        const char**     inFileNamesPtr,
-        QCIoBufferPool&  inBufferPool,
-        IoStartObserver* inIoStartObserverPtr = 0,
-        CpuAffinity      inCpuAffinity        = CpuAffinity::None(),
-        DebugTracer*     inDebugTracerPtr     = 0,
-        bool             inBufferedIoFlag     = false);
+        int                inThreadCount,
+        int                inMaxQueueDepth,
+        int                inMaxBuffersPerRequestCount,
+        int                inFileCount,
+        const char**       inFileNamesPtr,
+        QCIoBufferPool&    inBufferPool,
+        IoStartObserver*   inIoStartObserverPtr        = 0,
+        CpuAffinity        inCpuAffinity               = CpuAffinity::None(),
+        DebugTracer*       inDebugTracerPtr            = 0,
+        bool               inBufferedIoFlag            = false,
+        bool               inCreateExclusiveFlag       = true,
+        bool               inRequestAffinityFlag       = false,
+        bool               inSerializeMetaRequestsFlag = true,
+        RequestProcessor** inRequestProcessorsPtr      = 0);
 
     void Stop();
 
@@ -272,7 +327,8 @@ public:
         InputIterator* inBufferIteratorPtr,
         int            inBufferCount,
         IoCompletion*  inIoCompletionPtr,
-        Time           inTimeWaitNanoSec = -1);
+        Time           inTimeWaitNanoSec = -1,
+        int64_t        inEofHint         = -1);
 
     EnqueueStatus Read(
         FileIdx        inFileIdx,
@@ -299,7 +355,8 @@ public:
         int            inBufferCount,
         IoCompletion*  inIoCompletionPtr,
         Time           inTimeWaitNanoSec = -1,
-        bool           inSyncFlag        = false)
+        bool           inSyncFlag        = false,
+        int64_t        inEofHint         = -1)
     {
         return Enqueue(
             inSyncFlag ? kReqTypeWriteSync : kReqTypeWrite,
@@ -308,7 +365,8 @@ public:
             inBufferIteratorPtr,
             inBufferCount,
             inIoCompletionPtr,
-            inTimeWaitNanoSec);
+            inTimeWaitNanoSec,
+            inEofHint);
     }
 
     CompletionStatus SyncIo(

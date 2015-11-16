@@ -517,8 +517,7 @@ public:
     int getalloc(fid_t fid, chunkOff_t offset, vector<MetaChunkInfo*>& v,
         int maxChunks);
     int getalloc(fid_t fid, chunkOff_t offset, MetaChunkInfo **c);
-    int getLastChunkInfo(fid_t fid, bool nonStripedFileFlag,
-        MetaFattr*& fa, MetaChunkInfo*& c);
+    int getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c);
     int rename(fid_t dir, const string& oldname, const string& newname,
             const string& oldpath, bool once, fid_t& todumpster,
             kfsUid_t euser, kfsGid_t egroup);
@@ -595,7 +594,7 @@ public:
     int assignChunkId(fid_t file, chunkOff_t offset,
         chunkId_t chunkId, seq_t version,
         chunkOff_t *appendOffset = 0, chunkId_t  *curChunkId = 0,
-        bool appendReplayFlag = false);
+        bool appendReplayFlag = false, const MetaFattr** outFa = 0);
 
     /*
      * \brief Coalesce blocks of one file with another. Move all the chunks from src to dest.

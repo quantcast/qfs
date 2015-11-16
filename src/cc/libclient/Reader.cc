@@ -129,7 +129,8 @@ public:
           mChunkServersStats(),
           mNetManager(mMetaServer.GetNetManager()),
           mStriperPtr(0),
-          mCompletionDepthCount(0)
+          mCompletionDepthCount(0),
+          mReplicaCount(-1)
         { Readers::Init(mReaders); }
     int Open(
         kfsFileId_t inFileId,
@@ -142,7 +143,8 @@ public:
         bool        inSkipHolesFlag,
         bool        inUseDefaultBufferAllocatorFlag,
         Offset      inRecoverChunkPos,
-        bool        inFailShortReadsFlag)
+        bool        inFailShortReadsFlag,
+        int         inReplicasCount)
     {
         const char* const theFileNamePtr = inFileNamePtr ? inFileNamePtr : "";
         if (inFileId <= 0 || (! *theFileNamePtr && inRecoverChunkPos < 0)) {
@@ -163,9 +165,10 @@ public:
         }
         QCASSERT(Readers::IsEmpty(mReaders));
         delete mStriperPtr;
-        string theErrMsg;
         mStriperPtr = 0;
         mOpenChunkBlockSize = Offset(CHUNKSIZE);
+        mReplicaCount       = inReplicasCount;
+        string theErrMsg;
         mStriperPtr = Striper::Create(
             inStriperType,
             inStripeCount,
@@ -295,6 +298,8 @@ public:
     }
     bool GetErrorCode() const
         { return mErrorCode; }
+    int GetReplicaCount() const
+        { return mReplicaCount; }
 
 private:
     typedef KfsNetClient ChunkServer;
@@ -512,6 +517,7 @@ private:
                 mGetAllocOp.fileOffset = inOffset - theChunkOffset;
                 mOpenChunkBlockFileOffset = mGetAllocOp.fileOffset -
                     mGetAllocOp.fileOffset % mOuter.mOpenChunkBlockSize;
+                mGetAllocOp.objectStoreFlag = 0 == mOuter.mReplicaCount;
             } else {
                 QCRTASSERT(mGetAllocOp.fileOffset == inOffset - theChunkOffset);
             }
@@ -1060,6 +1066,15 @@ private:
             mLeaseAcquireOp.chunkServerAccessValidForTime = 0;
             mLeaseAcquireOp.chunkServerAccessIssuedTime   = 0;
             mLeaseAcquireOp.allowCSClearTextFlag          = false;
+            mLeaseAcquireOp.chunkPos                      =
+                mGetAllocOp.chunkVersion < 0 ?
+                    -(int64_t)mGetAllocOp.chunkVersion - 1 : int64_t(-1);
+            if (mGetAllocOp.chunkVersion < 0 &&
+                    ! mGetAllocOp.chunkServers.empty()) {
+                mLeaseAcquireOp.chunkServer = mGetAllocOp.chunkServers.front();
+            } else {
+                mLeaseAcquireOp.chunkServer = ServerLocation();
+            }
             mLeaseExpireTime = Now() + LEASE_INTERVAL_SECS;
             mLeaseRenewTime  = Now() + (LEASE_INTERVAL_SECS + 1) / 2;
             mOuter.mStats.mGetLeaseCount++;
@@ -1144,8 +1159,10 @@ private:
             mLeaseRenewOp.chunkId         = mLeaseAcquireOp.chunkId;
             mLeaseRenewOp.pathname        = mGetAllocOp.filename.c_str();
             mLeaseRenewOp.leaseId         = mLeaseAcquireOp.leaseId;
+            mLeaseRenewOp.chunkPos        = mLeaseAcquireOp.chunkPos;
             mLeaseRenewOp.getCSAccessFlag = ! mChunkServerAccess.IsEmpty() &&
                 mChunkServerAccessExpires <= theNow;
+            mLeaseAcquireOp.chunkServer   = mLeaseAcquireOp.chunkServer;
             mLeaseRenewOp.chunkAccessCount              = 0;
             mLeaseRenewOp.chunkServerAccessValidForTime = 0;
             mLeaseRenewOp.chunkServerAccessIssuedTime   = 0;
@@ -1565,8 +1582,9 @@ private:
             // Cancel in flight lease renew if any.
             CancelMetaOps();
             Reset(mLeaseRelinquishOp);
-            mLeaseRelinquishOp.chunkId = mLeaseAcquireOp.chunkId;
-            mLeaseRelinquishOp.leaseId = mLeaseAcquireOp.leaseId;
+            mLeaseRelinquishOp.chunkId  = mLeaseAcquireOp.chunkId;
+            mLeaseRelinquishOp.leaseId  = mLeaseAcquireOp.leaseId;
+            mLeaseRelinquishOp.chunkPos = mLeaseAcquireOp.chunkPos;
             mLeaseAcquireOp.leaseId = -1;
             EnqueueMeta(mLeaseRelinquishOp);
         }
@@ -2199,6 +2217,7 @@ private:
     NetManager&         mNetManager;
     Striper*            mStriperPtr;
     int                 mCompletionDepthCount;
+    int                 mReplicaCount;
     ChunkReader*        mReaders[1];
 
     void InternalError(
@@ -2701,7 +2720,8 @@ Reader::Open(
     bool           inSkipHolesFlag,
     bool           inUseDefaultBufferAllocatorFlag,
     Reader::Offset inRecoverChunkPos,
-    bool           inFailShortReadsFlag)
+    bool           inFailShortReadsFlag,
+    int            inReplicasCount)
 {
     Impl::StRef theRef(mImpl);
     return mImpl.Open(
@@ -2715,7 +2735,8 @@ Reader::Open(
         inSkipHolesFlag,
         inUseDefaultBufferAllocatorFlag,
         inRecoverChunkPos,
-        inFailShortReadsFlag
+        inFailShortReadsFlag,
+        inReplicasCount
     );
 }
 

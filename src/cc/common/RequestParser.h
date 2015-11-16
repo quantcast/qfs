@@ -374,6 +374,13 @@ public:
             { return (mPtr + mLen); }
         string ToString() const
             { return string(mPtr, mLen); }
+        bool operator==(
+            const string& inRhs) const
+            { return (*this == Token(inRhs.data(), inRhs.size())); }
+        const char* data() const
+            { return mPtr; }
+        size_t size() const
+            { return mLen; }
         const char* const mPtr;
         size_t const      mLen;
     };

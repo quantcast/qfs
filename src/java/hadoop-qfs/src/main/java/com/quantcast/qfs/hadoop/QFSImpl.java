@@ -20,6 +20,8 @@ package com.quantcast.qfs.hadoop;
 import java.io.*;
 import java.util.NoSuchElementException;
 
+import org.apache.hadoop.conf.Configuration;
+
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -39,8 +41,50 @@ class QFSImpl implements IFSImpl {
   private final long ACCESS_TIME = 0;
 
   public QFSImpl(String metaServerHost, int metaServerPort,
-                 FileSystem.Statistics stats) throws IOException {
+                 FileSystem.Statistics stats,
+                 Configuration cfg) throws IOException {
     kfsAccess = new KfsAccess(metaServerHost, metaServerPort);
+    final long   kMaxUserGroupId = 0x0FFFFFFFFL;
+    final long   kDefaultUser    = ~0L;
+    final long   kDefaultGroup   = ~0L;
+    final long   euser           = cfg.getLong("fs.qfs.euser",  kDefaultUser);
+    final long   egroup          = cfg.getLong("fs.qfs.egroup", kDefaultGroup);
+    final String groupsCfgName   = "fs.qfs.egroups";
+    final String groupsSeparator = ","; // No regex special symbols.
+    final String groupsCfg       = cfg.get(groupsCfgName, "");
+    long[]       groups          = null;
+    if (kDefaultUser != euser && (euser < 0 || kMaxUserGroupId <= euser)) {
+            throw new IOException("invalid effective user id: " + euser);
+    }
+    if (kDefaultGroup != egroup && (egroup < 0 || kMaxUserGroupId <= egroup)) {
+            throw new IOException("invalid effective group id: " + egroup);
+    }
+    if (groupsCfg.contains(groupsSeparator)) {
+        try {
+            final String[] tokens = groupsCfg.split(groupsSeparator);
+            if (0 < tokens.length) {
+                groups = new long[tokens.length];
+                for (int i = 0; i < tokens.length; i++) {
+                    groups[i] = Long.parseLong(tokens[i]);
+                    if (groups[i] < 0 || kMaxUserGroupId <= groups[i]) {
+                        throw new IOException("invalid group id: " + groups[i]);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            throw new IOException("failed to parse configuration setting " +
+                groupsCfgName + " " + ex.getMessage());
+        }
+    }
+    if (kDefaultUser != euser || kDefaultGroup != egroup || null != groups) {
+        // Ignore errors for now.
+        // Setting effective user and group has effect for all QFS file system
+        // client instances withing the process / JVM.
+        // If any other KfsAccess method invoked prior to this point
+        // kfs_setEUserAndEGroup() will return an error.
+        // Effective user and group ids have no effect with QFS authentication.
+        kfsAccess.kfs_setEUserAndEGroup(euser, egroup, groups);
+    }
     statistics = stats;
   }
 

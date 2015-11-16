@@ -33,6 +33,8 @@ set (exe_files
     stlset
     sslfiltertest
     dtokentest
+    httpstest
+    xmlscannertest
 )
 
 #

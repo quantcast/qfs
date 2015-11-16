@@ -46,8 +46,9 @@ const fid_t ROOTFID = 2;      //!< special fid for "/
 
 //!< Every time we change the protocol, rev. this one. We can use this value to
 //!< detect clients running old binaries.
-const int KFS_CLIENT_PROTO_VERS = 114;
-const int KFS_CLIENT_MIN_STRIPED_FILE_SUPPORT_PROTO_VERS = 110;
+const int KFS_CLIENT_PROTO_VERS                               = 115;
+const int KFS_CLIENT_MIN_STRIPED_FILE_SUPPORT_PROTO_VERS      = 110;
+const int KFS_CLIENT_MIN_OBJECT_STORE_FILE_SUPPORT_PROTO_VERS = 115;
 
 //!< Declarations as used in the Chunkserver/client-library
 typedef int64_t kfsFileId_t;
@@ -147,7 +148,7 @@ static inline bool ValidateStripeParameters(
         KFS_STRIPED_FILE_TYPE_UNKNOWN < inStipedFileType &&
             inStipedFileType < KFS_STRIPED_FILE_TYPE_COUNT &&
         KFS_MIN_STRIPE_SIZE <= inStripeSize &&
-            inStripeSize < KFS_MAX_STRIPE_SIZE &&
+            inStripeSize <= KFS_MAX_STRIPE_SIZE &&
         0 < inStripeCount &&
         inStripeSize % KFS_STRIPE_ALIGNMENT == 0 &&
         (int64_t)CHUNKSIZE % inStripeSize == 0 &&

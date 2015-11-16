@@ -43,6 +43,9 @@ set (sources
     ChunkAccessToken.cc
     PrngIsaac64.cc
     NetForwarder.cc
+    TransactionalClient.cc
+    HttpResponseHeaders.cc
+    HttpChunkedDecoder.cc
 )
 
 add_library (kfsIO STATIC ${sources})

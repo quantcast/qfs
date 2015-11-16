@@ -193,7 +193,11 @@ public:
     static int GetDefaultBufferSize() {
         return sDefaultBufferSize;
     }
-
+    /// Detach buffer can only detach non shared buffers. The caller assumes
+    /// full responsibility for releasing the buffer correctly. The method
+    /// should not be called if and object was created with IOBufferData(const
+    ///g IOBufferBlockPtr& data, ...) constructor.
+    char* DetachBuffer(bool consumerAtBufferStartFlag);
 private:
     IOBufferBlockPtr mData;
     /// Pointers that correspond to the start/end of the buffer
@@ -454,6 +458,9 @@ public:
     iterator begin() const { return mBuf.begin(); }
     iterator end()   const { return mBuf.end();   }
 
+    /// Detach first / front buffer, if not shared.
+    /// See IOBufferData::DetachBuffer() description for more details.
+    char* DetachFrontBuffer(bool fullOrPartialLastBufferFlag);
     /// Debug
     void Verify() const;
 
@@ -522,6 +529,7 @@ public:
     class OStream;
     class IStream;
     class WOStream;
+    class DisplayData;
     class ByteIterator
     {
     public:
@@ -651,6 +659,66 @@ public:
     istream& Reset()
         { return Set(0, 0); }
 };
+
+class IOBuffer::DisplayData
+{
+public:
+    DisplayData(
+        const IOBuffer& inBuffer,
+        int             inLength = numeric_limits<int>::max())
+        : mIOBuffer(inBuffer),
+          mLength(Min(inLength, inBuffer.BytesConsumable()))
+        {}
+    template<typename ST>
+    ST& Display(
+        ST& inStream) const
+    {
+        const char* const kHexDigits = "0123456789ABCDEF";
+        int               theRem     = mLength;
+        char              theBuf[2];
+        theBuf[1] = 0;
+        for (IOBuffer::iterator theIt = mIOBuffer.begin();
+                inStream && 0 < theRem && theIt != mIOBuffer.end();
+                ++theIt) {
+            const int theCnt = Min(theRem, theIt->BytesConsumable());
+            for (const char* thePtr = theIt->Consumer(),
+                        * const theEndPtr = thePtr + theCnt;
+                    thePtr < theEndPtr;
+                    thePtr++) {
+                const int theSym = *thePtr & 0xFF;
+                if (theSym == '\n') {
+                    inStream << "\\n";
+                } else if (theSym == '\r') {
+                    inStream << "\\r";
+                } else if (' ' <= theSym && theSym < 127) {
+                    theBuf[0] = (char)theSym;
+                    inStream << theBuf;
+                } else {
+                    inStream << "\\x" <<
+                        kHexDigits[(theSym >> 4) & 0xF] <<
+                        kHexDigits[theSym & 0xF]
+                    ;
+                }
+            }
+            theRem -= theCnt;
+        }
+        return inStream;
+    }
+private:
+    const IOBuffer& mIOBuffer;
+    int             mLength;
+
+    static int Min(
+        int inLfs,
+        int inRhs)
+        { return (inLfs < inRhs ? inLfs : inRhs); }
+};
+
+template<typename ST>
+ST& operator<<(
+    ST&                          inStream,
+    const IOBuffer::DisplayData& inDisplay)
+{ return inDisplay.Display(inStream); }
 
 }
 

@@ -43,6 +43,7 @@ add_executable (chunkserver
     Chunk.cc
     ClientThread.cc
     KfsOpsHandler.cc
+    IOMethod.cc
 )
 add_executable (chunkscrubber chunkscrubber_main.cc)
 
@@ -65,6 +66,12 @@ foreach (exe_file ${exe_files})
         )
     endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
+
+if (USE_STATIC_LIB_LINKAGE)
+    target_link_libraries(chunkserver qfss3io)
+else (USE_STATIC_LIB_LINKAGE)
+    target_link_libraries(chunkserver qfss3io-shared)
+endif (USE_STATIC_LIB_LINKAGE)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
     target_link_libraries(chunkserver umem)

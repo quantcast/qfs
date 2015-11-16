@@ -1241,7 +1241,15 @@ replay_group_users(DETokenizer& c)
     return (restore_group_users(c) && replay_sub_entry(c));
 }
 
-static const DiskEntry&
+static bool
+replay_clear_obj_store_delete(DETokenizer& c)
+{
+    c.pop_front();
+    gLayoutManager.ClearObjStoreDelete();
+    return true;
+}
+
+static DiskEntry&
 get_entry_map()
 {
     static bool initied = false;
@@ -1274,6 +1282,7 @@ get_entry_map()
     e.add_parser("chown",                   &replay_chown);
     e.add_parser("delegatecancel",          &restore_delegate_cancel);
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
+    e.add_parser("clearobjstoredelete",     &replay_clear_obj_store_delete);
     // Write ahead log entries.
     e.add_parser("setfsinfo",               &replay_setfsinfo);
     e.add_parser("gur",                     &replay_group_users_reset);

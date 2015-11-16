@@ -48,8 +48,8 @@ public:
         kEpollFailureAfterFork = 1 << 30
     };
     typedef int Fd;
-
-    QCFdPoll();
+    QCFdPoll(
+        bool inWakeableFlag);
     ~QCFdPoll();
     int Add(
         Fd    inFd,
@@ -80,10 +80,13 @@ public:
         int&   outOpType,
         void*& outUserDataPtr);
     int Close();
+    bool Wakeup();
 private:
     class Impl;
     Impl& mImpl;
 
+    static inline Impl& Create(
+        bool inWakeableFlag);
     QCFdPoll( const QCFdPoll& inPoll);
     QCFdPoll operator=( const QCFdPoll& inPoll);
 };

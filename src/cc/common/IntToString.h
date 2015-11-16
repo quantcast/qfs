@@ -209,6 +209,10 @@ public:
         { return mPtr; }
     unsigned long GetSize() const
         { return (mBuf + sizeof(mBuf) / sizeof(mBuf[0]) - 1 - mPtr); }
+    const char* data() const
+        { return GetPtr(); }
+    unsigned long size() const
+        { return GetSize(); }
 private:
     char        mBuf[sizeof(T) * (TRadix < 8 ? 8 : (TRadix < 16 ? 3 : 2)) + 2];
     char* const mPtr;
@@ -236,7 +240,7 @@ class WriteInt
 public:
     WriteInt(
         T inVal)
-        : ConvertInt<T, TRadix>(inVal)
+        : mConverter(inVal)
         {}
     template<typename TStream>
     TStream& Write(

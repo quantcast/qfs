@@ -125,6 +125,9 @@ Checkpoint::write(
         if (status == 0 && os) {
             status = gLayoutManager.GetUserAndGroup().WriteGroups(os);
         }
+        if (status == 0 && os) {
+            status = gLayoutManager.WritePendingObjStoreDelete(os);
+        }
         if (status == 0) {
             os << "time/" << DisplayIsoDateTime() << '\n';
             const string md = os.GetMd();

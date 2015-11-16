@@ -419,6 +419,10 @@ FattrReply(ReqOstream& os, const MFattr& fa, const UserAndGroupNames* ugn,
     if (fa.type == KFS_FILE) {
         os << (shortRpcFmtFlag ? "C:" : "Chunk-count: ") <<
             fa.chunkcount() << "\r\n";
+        if (0 == fa.numReplicas) {
+            os << (shortRpcFmtFlag ? "NC:" : "Next-chunk-pos: ") <<
+                fa.nextChunkOffset() << "\r\n";
+        }
     } else if (fa.type == KFS_DIR) {
         os <<
         (shortRpcFmtFlag ? "FC:" : "File-count: ") <<
@@ -885,17 +889,38 @@ MetaCreate::start()
         status    = -EPERM;
         return false;
     }
-    if (striperType != KFS_STRIPED_FILE_TYPE_NONE && numRecoveryStripes > 0) {
+    fid        = 0;
+    todumpster = -1;
+    const bool wasNotObjectStoreFileFlag = 0 < numReplicas;
+    if (striperType != KFS_STRIPED_FILE_TYPE_NONE && 0 < numRecoveryStripes) {
         numReplicas = min(numReplicas,
             gLayoutManager.GetMaxReplicasPerRSFile());
     } else {
         numReplicas = min(numReplicas, gLayoutManager.GetMaxReplicasPerFile());
+    }
+    if (0 == numReplicas && wasNotObjectStoreFileFlag &&
+           gLayoutManager.IsObjectStoreEnabled()) {
+        // Convert to object store file if meta server is configured to do
+        // so.
+        striperType        = KFS_STRIPED_FILE_TYPE_NONE;
+        numRecoveryStripes = 0;
+        numStripes         = 0;
+        stripeSize         = 0;
+        if (minSTier < kKfsSTierMax) {
+            maxSTier = minSTier; // No storage tier range.
+        }
     }
     if (maxSTier < minSTier ||
             minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||
             maxSTier < kKfsSTierMin || maxSTier > kKfsSTierMax) {
         status    = -EINVAL;
         statusMsg = "invalid storage tier range";
+        return false;
+    }
+    if (minSTier < kKfsSTierMax && 0 == numReplicas && minSTier != maxSTier) {
+        status    = -EINVAL;
+        statusMsg =
+            "storage tier range is not supported with object store files";
         return false;
     }
     if (! gLayoutManager.Validate(*this)) {
@@ -1719,8 +1744,7 @@ MetaReaddirPlus::handle()
         // so that the client can compute filesize
         MetaChunkInfo* lastChunk = 0;
         MetaFattr*     cfa       = 0;
-        if (metatree.getLastChunkInfo(
-                fa->id(), false, cfa, lastChunk) != 0 ||
+        if (metatree.getLastChunkInfo(fa->id(), cfa, lastChunk) != 0 ||
                 ! lastChunk) {
             lc.offset       = -1;
             lc.chunkId      = -1;
@@ -1774,25 +1798,57 @@ MetaGetalloc::handle()
         statusMsg = "negative offset";
         return;
     }
-    MetaChunkInfo* chunkInfo = 0;
-    status = metatree.getalloc(fid, offset, &chunkInfo);
-    if (status != 0) {
-        KFS_LOG_STREAM_DEBUG <<
-            "handle_getalloc(" << fid << "," << offset <<
-            ") = " << status << ": kfsop failed" <<
-        KFS_LOG_EOM;
-        return;
-    }
-
-    chunkId      = chunkInfo->chunkId;
-    chunkVersion = chunkInfo->chunkVersion;
+    MetaFattr* fa  = 0;
+    int        err = 0;
     Servers    c;
-    MetaFattr* fa = 0;
     replicasOrderedFlag = false;
-    const int err = gLayoutManager.GetChunkToServerMapping(
-        *chunkInfo, c, fa, &replicasOrderedFlag);
-    if (! fa) {
-        panic("invalid chunk to server map", false);
+    if (objectStoreFlag) {
+        if (! (fa = metatree.getFattr(fid))) {
+            status    = -ENOENT;
+            statusMsg = "no such file";
+            return;
+        }
+        if (KFS_FILE != fa->type) {
+            status    = -EISDIR;
+            statusMsg = "not a file";
+            return;
+        }
+        if (0 != fa->numReplicas) {
+            status    = -EINVAL;
+            statusMsg = "not an object store file";
+            return;
+        }
+        if (fa->nextChunkOffset() <= offset) {
+            status    = -EINVAL;
+            statusMsg = "past end of file position";
+            return;
+        }
+        gLayoutManager.GetAccessProxyForHost(clientIp, c);
+        if (c.empty()) {
+            status    = -EAGAIN;
+            statusMsg = "no access proxy available on host: " + clientIp;
+            return;
+        }
+        chunkId      = fid;
+        chunkVersion =
+            -(seq_t)(chunkStartOffset(offset) + fa->maxSTier) - 1;
+    } else {
+        MetaChunkInfo* chunkInfo = 0;
+        status = metatree.getalloc(fid, offset, &chunkInfo);
+        if (status != 0) {
+            KFS_LOG_STREAM_DEBUG <<
+                "handle_getalloc(" << fid << "," << offset <<
+                ") = " << status << ": kfsop failed" <<
+            KFS_LOG_EOM;
+            return;
+        }
+        chunkId      = chunkInfo->chunkId;
+        chunkVersion = chunkInfo->chunkVersion;
+        err = gLayoutManager.GetChunkToServerMapping(
+            *chunkInfo, c, fa, &replicasOrderedFlag);
+        if (! fa) {
+            panic("invalid chunk to server map", false);
+        }
     }
     if (! CanAccessFile(fa, *this)) {
         return;
@@ -1835,10 +1891,9 @@ MetaGetlayout::handle()
     vector<MetaChunkInfo*> chunkInfo;
     MetaFattr*             fa = 0;
     if (lastChunkInfoOnlyFlag) {
-        bool           kOnlyForNonStripedFileFlag = false;
-        MetaChunkInfo* ci                         = 0;
+        MetaChunkInfo* ci = 0;
         status = metatree.getLastChunkInfo(
-            fid, kOnlyForNonStripedFileFlag, fa, ci);
+            fid, fa, ci);
         if (status == 0 && ci) {
             chunkInfo.push_back(ci);
         }
@@ -1973,6 +2028,7 @@ MetaAllocate::dispatch(ClientSM& sm)
 /* virtual */ void
 MetaAllocate::handle()
 {
+    assert(! MetaRequest::next);
     suspended = false;
     if (startedFlag) {
         return;
@@ -2045,6 +2101,25 @@ MetaAllocate::handle()
         egroup,
         &fa
     );
+    if (0 == numReplicas) {
+        if (clientProtoVers <
+                KFS_CLIENT_MIN_OBJECT_STORE_FILE_SUPPORT_PROTO_VERS) {
+            status    = -EPERM;
+            statusMsg = "client upgrade required to write object store file";
+            return;
+        }
+        if (appendChunk) {
+            status    = -EINVAL;
+            statusMsg = "append is not supported with object store files";
+            return;
+        }
+        if (invalidateAllFlag) {
+            status    = -EINVAL;
+            statusMsg = "chunk invalidation is not supported"
+                " with object store files";
+            return;
+        }
+    }
     if (0 != status && (-EEXIST != status || appendChunk)) {
         return; // Access denied or invalid request.
     }
@@ -2083,15 +2158,28 @@ MetaAllocate::handle()
         }
         if (0 == status) {
             suspended = true;
-            submit_request(new MetaLogChunkVersionChange(this));
+            if (0 == numReplicas) {
+                if (1 != servers.size() || ! servers.front()) {
+                    panic("chunk allocation suspended after lease acquistion");
+                    status    = -EFAULT;
+                    suspended = false;
+                } else {
+                    servers.front()->AllocateChunk(this, leaseId, minSTier);
+                }
+            } else {
+                submit_request(new MetaLogChunkVersionChange(this));
+            }
         }
         return;
     }
+    suspended = true;
     const int ret = gLayoutManager.AllocateChunk(this, chunkBlock);
-    if (ret < 0) {
-        // Failure.
-        status = ret;
+    if (0 == ret) {
+        return;
     }
+    // Failure: set status and resume.
+    status    = ret;
+    suspended = false;
 }
 
 void
@@ -2123,6 +2211,9 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
                 break;
             }
         }
+    } else if (-ENOENT == status) {
+        // Change status to generic failure, to distingush from no such file.
+        status = -EALLOCFAILED;
     }
     // Ensure that the op isn't stale.
     // Invalidate all replicas might make it stale if it comes while this op
@@ -2149,6 +2240,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         gLayoutManager.DeleteChunk(this);
     }
     if (0 == status) {
+        assert(! MetaRequest::next);
         suspended = true;
         submit_request(new MetaLogChunkAllocate(this));
         return;
@@ -2172,6 +2264,7 @@ MetaLogChunkAllocate::start()
         chunkVersion        = alloc->chunkVersion;
         appendChunk         = alloc->appendChunk;
         invalidateAllFlag   = alloc->invalidateAllFlag;
+        objectStoreFileFlag = 0 == alloc->numReplicas;
         initialChunkVersion = alloc->initialChunkVersion;
         mtime               = microseconds();
         if (! invalidateAllFlag) {
@@ -2228,7 +2321,7 @@ MetaLogChunkAllocate::handle()
             }
         }
     } else {
-        if (0 <= initialChunkVersion) {
+        if (0 <= initialChunkVersion && ! objectStoreFileFlag) {
             fid_t curFid = -1;
             if (! gLayoutManager.GetChunkFileId(chunkId, curFid)) {
                 // Chunk was deleted (by truncate), fail the allocation.
@@ -2242,6 +2335,9 @@ MetaLogChunkAllocate::handle()
                     " initial: " << initialChunkVersion <<
                 KFS_LOG_EOM;
             } else if (fid != curFid) {
+                // fid = curFid;
+                status    = -ENOENT;
+                statusMsg = "file id has changed";
                 KFS_LOG_STREAM_INFO <<
                     "allocate:"
                     " chunkId: "    << chunkId <<
@@ -2266,15 +2362,22 @@ MetaLogChunkAllocate::handle()
             // started.
             // For append requests assignChunkId assigns past eof offset,
             // if it succeeds, and returns the value in appendOffset.
-            chunkOff_t appendOffset = offset;
-            chunkId_t  curChunkId   = chunkId;
+            chunkOff_t       appendOffset      = offset;
+            chunkId_t        curChunkId        = chunkId;
+            const bool       kAppendReplayFlag = false;
+            const MetaFattr* fa                = 0;
             status = metatree.assignChunkId(fid, offset, chunkId, chunkVersion,
-                appendChunk ? &appendOffset : 0, &curChunkId);
+                appendChunk ? &appendOffset : 0, &curChunkId,
+                kAppendReplayFlag, &fa);
             if (status == 0) {
                 // Offset can change in the case of append.
                 offset = appendOffset;
-                gLayoutManager.CancelPendingMakeStable(fid, chunkId);
-                // assignChunkId() forces a recompute of the file's size.
+                if (objectStoreFileFlag != (0 == fa->numReplicas)) {
+                    panic("object store flag and replication count mismatch");
+                }
+                if (! objectStoreFileFlag && 0 <= initialChunkVersion) {
+                    gLayoutManager.CancelPendingMakeStable(fid, chunkId);
+                }
             } else {
                 KFS_LOG_STREAM((appendChunk && status == -EEXIST) ?
                         MsgLogger::kLogLevelFATAL :
@@ -2536,14 +2639,15 @@ ostream&
 MetaAllocate::ShowSelf(ostream& os) const
 {
     os << "allocate:"
-        " seq: "      << opSeqno     <<
-        " path: "     << pathname    <<
-        " fid: "      << fid         <<
-        " chunkId: "  << chunkId     <<
-        " offset: "   << offset      <<
-        " client: "   << clientHost  <<
-        " replicas: " << numReplicas <<
-        " append: "   << appendChunk
+        " seq: "       << opSeqno      <<
+        " path: "      << pathname     <<
+        " fid: "       << fid          <<
+        " chunkId: "   << chunkId      <<
+        " offset: "    << offset       <<
+        " client: "    << clientHost   <<
+        " replicas: "  << numReplicas  <<
+        " append: "    << appendChunk  <<
+        " valid for: " << validForTime
     ;
     for (Servers::const_iterator i = servers.begin();
             i != servers.end();
@@ -2745,6 +2849,12 @@ MetaChangeFileReplication::handle()
             return;
         }
     } else {
+        if (0 == fa->numReplicas) {
+            status    = -EINVAL;
+            statusMsg =
+                "modification of object store file parameters is not supported";
+            return;
+        }
         numReplicas = min(numReplicas,
             max(int16_t(fa->numReplicas),
                 (fa->striperType != KFS_STRIPED_FILE_TYPE_NONE &&
@@ -3942,7 +4052,7 @@ MetaRequest* MetaRequest::sMetaRequestsPtr[1] = {0};
 
 bool MetaCreate::Validate()
 {
-    return (dir >= 0 && ! name.empty() && numReplicas > 0);
+    return (dir >= 0 && ! name.empty() && 0 <= numReplicas);
 }
 
 /*!
@@ -4022,9 +4132,10 @@ MetaCreate::response(ReqOstream &os)
             striperType << "\r\n";
     }
     os <<
-    (shortRpcFormatFlag ? "u:" : "User: ")  << user  <<  "\r\n" <<
-    (shortRpcFormatFlag ? "g:" : "Group: ") << group <<  "\r\n" <<
-    (shortRpcFormatFlag ? "M:" : "Mode: ")  << mode  <<  "\r\n"
+    (shortRpcFormatFlag ? "R:" : "Num-replicas: ") << numReplicas <<  "\r\n" <<
+    (shortRpcFormatFlag ? "u:" : "User: ")         << user        <<  "\r\n" <<
+    (shortRpcFormatFlag ? "g:" : "Group: ")        << group       <<  "\r\n" <<
+    (shortRpcFormatFlag ? "M:" : "Mode: ")         << mode        <<  "\r\n"
     ;
     if (minSTier < kKfsSTierMax) {
         os <<
@@ -4242,11 +4353,13 @@ MetaAllocate::writeChunkAccess(ReqOstream& os)
         os.write(responseAccessStr.data(), responseAccessStr.size());
         return;
     }
-    if (validForTime <= 0) {
-        return;
-    }
     if (shortRpcFormatFlag) {
         os << hex;
+    }
+    os << (shortRpcFormatFlag ? "LD:" : "Lease-duration: ") <<
+        leaseDuration << "\r\n";
+    if (validForTime <= 0) {
+        return;
     }
     if (clientCSAllowClearTextFlag) {
         os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
@@ -4274,14 +4387,16 @@ MetaAllocate::writeChunkAccess(ReqOstream& os)
         (shortRpcFormatFlag ? "C:" : "C-access: ");
     ChunkAccessToken::WriteToken(
         os.Get(),
-        chunkId,
+        0 == numReplicas ? fid : chunkId,
         authUid,
         tokenSeq,
         writeMasterKeyId,
         issuedTime,
         ChunkAccessToken::kAllowWriteFlag |
             (clientCSAllowClearTextFlag ?
-                ChunkAccessToken::kAllowClearTextFlag : 0),
+                ChunkAccessToken::kAllowClearTextFlag : 0) |
+            (0 == numReplicas ?
+                ChunkAccessToken::kObjectStoreFlag : 0),
         LEASE_INTERVAL_SECS * 2,
         writeMasterKey.GetPtr(),
         writeMasterKey.GetSize()
@@ -4303,15 +4418,15 @@ MetaAllocate::responseSelf(ReqOstream& os)
         return;
     }
     os <<
-        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
-        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
-            chunkVersion << "\r\n";
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << (0 == numReplicas ?
+            -chunkVersion - 1 : chunkVersion) << "\r\n";
     if (appendChunk) {
         os << (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") <<
             offset << "\r\n";
     }
     assert(! servers.empty() || invalidateAllFlag);
-    if (! shortRpcFormatFlag && ! servers.empty() && servers.front()) {
+    if (! shortRpcFormatFlag && ! servers.empty()) {
         os << "Master: " << servers.front()->GetServerLocation() << "\r\n";
     }
     if (shortRpcFormatFlag && allChunkServersShortRpcFlag) {
@@ -4326,8 +4441,9 @@ MetaAllocate::responseSelf(ReqOstream& os)
         os << (shortRpcFormatFlag ? "S:" : "Replicas:");
         for_each(servers.begin(), servers.end(),
             PrintChunkServerLocations(os));
+        os << "\r\n";
     }
-    os << "\r\n\r\n";
+    os << "\r\n";
 }
 
 void
@@ -4409,7 +4525,9 @@ MetaLeaseAcquire::response(ReqOstream& os, IOBuffer& buf)
                         ChunkAccessToken::kAppendRecoveryFlag :
                         ChunkAccessToken::kAllowReadFlag) |
                         (clientCSAllowClearTextFlag ?
-                            ChunkAccessToken::kAllowClearTextFlag : 0),
+                            ChunkAccessToken::kAllowClearTextFlag : 0) |
+                        (0 <= chunkPos ?
+                            ChunkAccessToken::kObjectStoreFlag : 0),
                     leaseTimeout * 2,
                     ptr->key.GetPtr(),
                     ptr->key.GetSize()
@@ -4500,7 +4618,8 @@ MetaLeaseRenew::response(ReqOstream& os, IOBuffer& buf)
                     ChunkAccessToken::kAllowWriteFlag) :
                 ChunkAccessToken::kAllowReadFlag) |
                 (clientCSAllowClearTextFlag ?
-                    ChunkAccessToken::kAllowClearTextFlag : 0),
+                    ChunkAccessToken::kAllowClearTextFlag : 0) |
+                (0 <= chunkPos ? ChunkAccessToken::kObjectStoreFlag : 0),
             LEASE_INTERVAL_SECS * 2,
             ptr->key.GetPtr(),
             ptr->key.GetSize()
@@ -4961,7 +5080,7 @@ MetaDelegate::response(ReqOstream& os)
 void
 MetaChunkAllocate::request(ReqOstream& os)
 {
-    assert(req && ! req->servers.empty());
+    assert(req && META_ALLOCATE == req->op && ! req->servers.empty());
 
     if (shortRpcFormatFlag) {
         os << hex;
@@ -4977,7 +5096,9 @@ MetaChunkAllocate::request(ReqOstream& os)
         (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
             req->chunkId << "\r\n" <<
         (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
-            req->chunkVersion << "\r\n" <<
+            (0 == req->numReplicas ?
+                -req->chunkVersion - 1 :
+                req->chunkVersion) << "\r\n" <<
         (shortRpcFormatFlag ? "TL:" : "Min-tier: ") <<
             (int)minSTier << "\r\n" <<
         (shortRpcFormatFlag ? "TH:" : "Max-tier: ") <<
@@ -4987,6 +5108,9 @@ MetaChunkAllocate::request(ReqOstream& os)
         os << (shortRpcFormatFlag ? "L:" : "Lease-id: ") << leaseId << "\r\n";
         if (req->clientCSAllowClearTextFlag) {
             os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
+        }
+        if (0 == req->numReplicas && 0 < req->initialChunkVersion) {
+            os << (shortRpcFormatFlag ? "E:1\r\n" : "Exists: 1\r\n");
         }
     }
     if (shortRpcFormatFlag && ! req->allChunkServersShortRpcFlag) {
@@ -5038,7 +5162,12 @@ MetaChunkDelete::request(ReqOstream& os)
         os << "Version: KFS/1.0\r\n";
     }
     os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
-        chunkId << "\r\n\r\n";
+        chunkId << "\r\n";
+    if (0 != chunkVersion) {
+        os << (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            chunkVersion << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void
@@ -5391,6 +5520,12 @@ MetaChunkReplicate::handleReply(const Properties& prop)
 }
 
 void
+MetaChunkDelete::handle()
+{
+    gLayoutManager.Done(*this);
+}
+
+void
 MetaChunkSize::request(ReqOstream& os)
 {
     if (shortRpcFormatFlag) {
@@ -5612,6 +5747,21 @@ MetaRemoveFromDumpster::handle()
         // Log failure -- reschedule.
         gLayoutManager.ScheduleDumpsterCleanup(fid, name);
     }
+}
+
+bool
+MetaLogClearObjStoreDelete::start()
+{
+    if (! gLayoutManager.IsObjectStoreDeleteEmpty()) {
+        status = -EINVAL; // Re-scheduled with non empty queue.
+    }
+    return (0 == status);
+}
+
+void
+MetaLogClearObjStoreDelete::handle()
+{
+    gLayoutManager.Handle(*this);
 }
 
 static LogWriter&

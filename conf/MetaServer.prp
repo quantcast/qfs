@@ -1181,3 +1181,86 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is 5. The same value as
 # metaServer.maxConcurrentWriteReplicationsPerNode default.
 # chunkServer.rsReader.maxRecoveryThreads = 5
+
+# ==================== AWS S3 object store =====================================
+#
+# Global toggle to enable object store.
+# Default is 0, Must be set to 1 to enable object store.
+# metaServer.objectStoreEnabled  = 0
+
+# By default "object store access proxy" (AP) (chunk server functions as access
+# proxy) is required to be on the same host as QFS client.
+# Changing the following two parameters allows to use non host local AP.
+#
+# If use of non local AP enabled, then the meta server first attempts to find
+# AP running on the host QFS client runs, then if no such AP found, attempts
+# to find AP on the same rack, and finally chooses of the chunk servers.
+# The meta server attempts to distributed "load" evenly between all APs when
+# non host local AP must be used.
+#
+#
+# Allow to use AP running on different than client host to server read requests.
+# Enabling this option might result in additional network traffic.
+# Default is 0.
+# metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 0
+#
+# Allow to use AP running on different than client host to server write requests.
+# Enabling this option might result in additional network traffic, and reduced
+# write reliability in the cases where AP and client run on different hosts, as
+# object write protocol provides no redundancy. Therefore permanently loosing
+# communication between client and AP, or AP host going down would result in
+# unrecoverable write failure.
+# Default is 0.
+# metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 0
+
+# Object "directlry" parameters.
+# For <object-store-directory-prefix> description please see
+# chunkServer.objectDir parameter description in annotated chunk server
+# configuration file.
+#
+# S3 bucket name used to store object blocks.
+# chunkServer.diskQueue.<object-store-directory-prefix>bucketName =
+
+# S3 access key ID
+# chunkServer.diskQueue.<object-store-directory-prefix>accessKeyId =
+
+# S3 secret access key.
+# chunkServer.diskQueue.<object-store-directory-prefix>secretAccessKey =
+
+# S3 region name.
+# If not specified, then AWS authorization version 2 is used, otherwise
+# version 4 is used.
+# Note S3 allows server side encryption only with version 4
+# Default empty.
+# chunkServer.diskQueue.<object-store-directory-prefix>region =
+
+# S3 use server side encryption. If set to non 0 enables aws:kms type encryption.
+# If enable AWS region must be specified.
+# Presently only aws:kms supported.
+# Default is 0.
+# chunkServer.diskQueue.<object-store-directory-prefix>useServerSideEncryption = 0
+
+# If no parameters with the following prefix exits:
+# chunkServer.diskQueue.<object-store-directory-prefix>.ssl.
+# set, then http protocol instead of https used.
+
+# S3 server's x509 certificate verification.
+# Default is 1.
+# chunkServer.diskQueue.<object-store-directory-prefix>ssl.verifyPeer = 1
+
+# Cerificate authorities bundle used for S3 server verification.
+# Bundle must be in format that openssl supports.
+# Such bundle might be already installed on the system or obtained from:
+# https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt
+# chunkServer.diskQueue.<object-store-directory-prefix>ssl.CAFile =
+
+# Certificate authorities directory can be used in addition to CAFile.
+# For more detailed information please see SSL_CTX_load_verify_locations manual
+# page. CAFile/CADir corresponds to CAfile/CApath in the man page.
+# chunkServer.diskQueue.<object-store-directory-prefix>CADir =
+
+# OpenSSL cipher configuration.
+# Default is !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+# chunkServer.diskQueue.<object-store-directory-prefix>ssl.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+
+

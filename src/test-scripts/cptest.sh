@@ -23,6 +23,7 @@
 #
 
 meta=${meta-'-s 127.0.0.1 -p 20000'}
+removetestdir=${removetestdir-'yes'}
 cptokfsopts=${cptokfsopts-}
 dir="/kfstest/`hostname`/`basename "$0" .sh`${1-}"
 log="`basename "$0" .sh`${1-}.log"
@@ -113,6 +114,9 @@ for s in $sizes; do
     rseed=`expr $rseed + 1`
 done
 if [ $status -eq 0 ]; then
+    if [ x"$removetestdir" = x'yes' ]; then
+        $kfsshell rm "$dir" > /dev/null 2>&1
+    fi
     echo "Passed all tests."
 fi
 

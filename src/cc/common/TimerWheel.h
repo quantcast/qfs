@@ -58,9 +58,9 @@ public:
     {
         // Round to the next slot to ensure the expiration time will be less
         // than the current time at the moment of the the slot traversal.
-        size_t theIdx = inExpires <= mNextRunTime ?
+        size_t theIdx = inExpires < mNextRunTime ?
             size_t(0) :
-            ((size_t)(inExpires - mNextRunTime) + TimerResolutionT - 1) /
+            ((size_t)(inExpires - mNextRunTime) + TimerResolutionT) /
                 TimerResolutionT;
         if (BucketCntT <= theIdx) {
             // Max timeout.
@@ -76,22 +76,28 @@ public:
     TimeT GetNextRunTime() const
         { return mNextRunTime; }
     template<typename FT>
-    bool Run(
+    void Run(
         TimeT inNow,
         FT&   inFunctor)
     {
+        size_t theBucketCnt;
         if (inNow < mNextRunTime) {
-            return false;
-        }
-        size_t theBucketCnt = (size_t)(inNow - mNextRunTime) / TimerResolutionT;
-        mNextRunTime += (theBucketCnt + 1) * TimerResolutionT;
-        if (BucketCntT <= theBucketCnt) {
-            theBucketCnt = BucketCntT - 1;
+            if (! ListT::IsInList(mBuckets[mCurBucket])) {
+                return;
+            }
+            theBucketCnt = 0;
+        } else {
+            theBucketCnt = 1 +
+                (size_t)(inNow - mNextRunTime) / TimerResolutionT;
+            mNextRunTime += theBucketCnt * TimerResolutionT;
+            if (BucketCntT <= theBucketCnt) {
+                theBucketCnt = BucketCntT - 1;
+            }
         }
         do {
             ListT::Insert(mTmpList, mBuckets[mCurBucket]);
             ListT::Remove(mBuckets[mCurBucket]);
-            if (BucketCntT <= ++mCurBucket) {
+            if (0 < theBucketCnt && BucketCntT <= ++mCurBucket) {
                 mCurBucket = 0;
             }
             while (ListT::IsInList(mTmpList)) {
@@ -103,8 +109,10 @@ public:
                 }
             }
         } while (0 < theBucketCnt--);
-        return true;
     }
+    void SetNextRunTime(
+        TimeT& inNextRunTime)
+        { mNextRunTime = inNextRunTime; }
     template<typename FT>
     void Apply(
         FT& inFunctor) const

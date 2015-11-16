@@ -118,7 +118,16 @@ public:
         const char* inDirNamePtr,
         DeviceId    inDeviceId,
         int         inMaxOpenFiles,
-        string*     inErrMessagePtr = 0);
+        string*     inErrMessagePtr                 = 0,
+        int         inMinWriteBlkSize               = 0,
+        bool        inBufferDataIgnoreOverwriteFlag = false,
+        int         inBufferDataTailToKeepSize      = 0,
+        bool        inCreateExclusiveFlag           = true,
+        bool        inRequestAffinityFlag           = false,
+        bool        inSerializeMetaRequestsFlag     = true,
+        int         inThreadCount                   = -1,
+        int64_t     inMaxFileSize                   = -1,
+        bool        inCanUseIoMethodFlag            = false);
     static bool StopIoQueue(
         DiskQueue*  inDiskQueuePtr,
         const char* inDirNamePtr,
@@ -170,14 +179,19 @@ public:
     static void SetParameters(
         const Properties& inProperties);
     static int GetMaxIoTimeSec();
+    static int GetMinWriteBlkSize(
+        const DiskQueue* inDiskQueuePtr);
+    typedef vector<IOBufferData> IoBuffers;
     class File
     {
     public:
         File()
             : mQueuePtr(0),
+              mIoBuffers(),
               mFileIdx(-1),
               mReadOnlyFlag(false),
-              mSpaceReservedFlag(false)
+              mSpaceReservedFlag(false),
+              mError(0)
             {}
         ~File()
         {
@@ -196,6 +210,7 @@ public:
             bool        inBufferedIoFlag       = false);
         bool IsOpen() const
             { return (mFileIdx >= 0); }
+        // Close with IOs in flight will result in crash.
         bool Close(
             Offset  inFileSize      = -1,
             string* inErrMessagePtr = 0);
@@ -213,11 +228,16 @@ public:
             int64_t& outReadBlockCount,
             int64_t& outWriteBlockCount,
             int&     outBlockSize);
+        int GetMinWriteBlkSize() const;
+        int GetError() const
+            { return mError; }
     private:
         DiskQueue* mQueuePtr;
+        IoBuffers  mIoBuffers;
         int        mFileIdx;
         bool       mReadOnlyFlag:1;
         bool       mSpaceReservedFlag:1;
+        int        mError;
 
         void Reset();
         friend class DiskQueue;
@@ -258,7 +278,8 @@ public:
         Offset    inOffset,
         size_t    inNumBytes,
         IOBuffer* inBufferPtr,
-        bool      inSyncFlag = false);
+        bool      inSyncFlag = false,
+        Offset    inEofHint  = -1);
 
     /// Retrieves [pending] open completion by queuing empty read.
     int CheckOpenStatus();
@@ -266,7 +287,6 @@ public:
     FilePtr GetFilePtr() const
         { return mFilePtr; }
 private:
-    typedef vector<IOBufferData> IoBuffers;
     /// Owning KfsCallbackObj.
     KfsCallbackObj* const  mCallbackObjPtr;
     FilePtr                mFilePtr;
@@ -280,9 +300,16 @@ private:
     bool                   mWriteSyncFlag;
     QCDiskQueue::RequestId mCompletionRequestId;
     QCDiskQueue::Error     mCompletionCode;
+    DiskIo*                mChainedPtr;
     DiskIo*                mPrevPtr[1];
     DiskIo*                mNextPtr[1];
 
+    ssize_t SubmitWrite(
+        bool       inSyncFlag,
+        int64_t    inBlockIdx,
+        size_t     inNumBytes,
+        DiskQueue* inQueuePtr,
+        int64_t    inEofHint);
     void RunCompletion();
     void IoCompletion(
         IOBuffer* inBufferPtr,

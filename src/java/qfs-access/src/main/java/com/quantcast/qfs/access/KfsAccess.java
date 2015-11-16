@@ -533,7 +533,7 @@ final public class KfsAccess
         long bufferSize, long readAheadSize, int mode) throws IOException
     {
         final boolean forceStriperType = false;
-        KfsOutputChannel chan =  kfs_create_ex(
+        return kfs_create_ex(
             path,
             DEFAULT_REPLICATION, // numReplicas,
             exclusive,
@@ -546,17 +546,6 @@ final public class KfsAccess
             forceStriperType,
             mode
         );
-        if (getStripedType(cPtr, path) != DEFAULT_STRIPER_TYPE) {
-            final short r = setReplication(cPtr, path, numReplicas);
-            if (r < 0) {
-                try {
-                    chan.close();
-                } catch (IOException ignored) {
-                }
-                kfs_retToIOException(r, path);
-            }
-        }
-        return chan;
     }
 
     public void kfs_close(int fd) throws IOException

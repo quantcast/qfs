@@ -279,8 +279,53 @@ chunkServer.msgLogWriter.logLevel = INFO
 # in the annotated meta server configuration file.
 # chunkserver.meta.auth.psk.key =
 
-# Chunk server's PSK key id. See metaServer.CSAuthentication.psk.keyId parameter
+# Chunk server's PSK key id. See metaServer.CSAuthentication.psk.keyId parameters
 # description in the annotated meta server configuration file.
 # chunkserver.meta.auth.psk.keyId =
 
 #-------------------------------------------------------------------------------
+
+# ==================== AWS S3 object store =====================================
+#
+# The following parameters take effect only on chunk server startup.
+# For parameters that can be changed at run time, please see corresponding
+# section in meta server annotated configuration file.
+#
+# Object store directory. The part (suffix) after s3:// is treated as
+# configuration suffix appended between chunkServer.diskQueue. prefix and S3
+# specific configuration names. For example in s3://bucket_name. "bucket_name."
+# is configuration suffix. If more than one directory specified (like chunk
+# directories), the directories must be assigned to different storage tiers. The
+# chunk server allows only one storage directory per tier, as otherwise it has
+# to look into multiple directories to find object block (chunk). With more than
+# single directory per tier chunk server will return error for object store
+# reads and writes until the configuration is fixed by assigning directores to
+# different tiers. Tiers assignment can be updated by the meta server. The
+# remaining S3 configuration can be set by the meta server. The meta server
+# annotated configuration file has corresponding section with
+# chunkServer.diskQueue.<suffix>. description.
+# Default is no object directories.
+# chunkServer.objectDir =
+
+# The following is an example how to configure chunk server with most memory
+# assigned for S3 writes. This example uses parameters described the prior
+# section of this file..
+#
+# Give chunk server 3GB of buffer space (4096 buffers):
+# chunkServer.ioBufferPool.partitionBufferCount = 786432
+#
+# Use 256MB as request processing buffers:
+# chunkServer.bufferManager.maxRatio            = 0.08334
+#
+# Give something to write append.
+# chunkServer.recAppender.bufferLimitRatio      = 0.00001
+#
+# Use most of the 3GB as S3 write buffers:
+# With this chunk server can have max 269 object store blocks simultaneously
+# opened for write. This assumes the default 5MB minimum S3 part of multipart
+# upload size. Two 5MB buffers plus one 64KB checksum block must be kept in
+# memory for each writable object store blocks.
+# 786432*4096*(1-0.08334)*0.96/(2^20*10+16*2^10) => 269
+# Leaving the remaining 112MB "slack" for request handling etc.
+# 786432*4096*(1-0.08334)*(1-0.96-0.00001)/2^20 => 112
+# chunkServer.objStoreBufferDataRatio           = 0.96

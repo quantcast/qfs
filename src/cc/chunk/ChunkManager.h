@@ -149,7 +149,7 @@ public:
     /// Delete a previously allocated chunk file.
     /// @param[in] chunkId id of the chunk being deleted.
     /// @retval status code
-    int DeleteChunk(kfsChunkId_t chunkId);
+    int DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb = 0);
 
     /// Dump chunk map with information about chunkID and chunkSize
     void DumpChunkMap();
@@ -161,9 +161,10 @@ public:
     /// A previously created dirty chunk should now be made "stable".
     /// Move that chunk out of the dirty dir.
     int MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
-            bool appendFlag, KfsCallbackObj* cb, string& statusMsg);
-    bool IsChunkStable(kfsChunkId_t chunkId) const;
-    bool IsChunkReadable(kfsChunkId_t chunkId) const;
+            bool appendFlag, KfsCallbackObj* cb, string& statusMsg,
+            bool cleanupPendingWritesOnlyFlag = false);
+    bool IsChunkStable(kfsChunkId_t chunkId, int64_t chunkVersion) const;
+    bool IsChunkReadable(kfsChunkId_t chunkId, int64_t chunkVersion) const;
     bool IsChunkStable(MakeChunkStableOp* op);
 
     /// A previously created chunk is stale; move it to stale chunks
@@ -194,31 +195,30 @@ public:
                            int64_t chunkVersion, bool stableFlag, KfsCallbackObj* cb);
     int ChangeChunkVers(ChangeChunkVersOp* op);
 
-    /// Open a chunk for I/O.
-    /// @param[in] chunkId id of the chunk being opened.
-    /// @param[in] openFlags  O_RDONLY, O_WRONLY
-    /// @retval status code
-    int OpenChunk(kfsChunkId_t chunkId, int openFlags);
-
     /// Close a previously opened chunk and release resources.
     /// @param[in] chunkId id of the chunk being closed.
     /// @retval 0 if the close was accepted; -1 otherwise
-    int  CloseChunk(kfsChunkId_t chunkId);
-    int  CloseChunk(ChunkInfoHandle* cih);
-    bool CloseChunkIfReadable(kfsChunkId_t chunkId);
+    int  CloseChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* op = 0);
+    int  CloseChunkWrite(kfsChunkId_t chunkId, int64_t chunkVersion, int64_t writeId,
+        KfsOp* op, bool* readMetaFlag);
+    int  CloseChunk(ChunkInfoHandle* cih, KfsOp* op = 0);
+    bool CloseChunkIfReadable(kfsChunkId_t chunkId, int64_t chunkVersion);
 
     /// Utility function that returns a pointer to mChunkTable[chunkId].
     /// @param[in] chunkId  the chunk id for which we want info
     /// @param[out] cih  the resulting pointer from mChunkTable[chunkId]
     /// @retval  0 on success; -EBADF if we can't find mChunkTable[chunkId]
-    int GetChunkInfoHandle(kfsChunkId_t chunkId, ChunkInfoHandle **cih) const;
+    ChunkInfoHandle* GetChunkInfoHandle(
+        kfsChunkId_t chunkId, int64_t chunkVersion,
+        bool addObjectBlockMappingFlag = true) const;
 
     /// Given a byte range, return the checksums for that range.
-    vector<uint32_t> GetChecksums(kfsChunkId_t chunkId, int64_t offset, size_t numBytes);
+    vector<uint32_t> GetChecksums(kfsChunkId_t chunkId,
+        int64_t chunkVersion, int64_t offset, size_t numBytes);
 
     /// For telemetry purposes, provide the driveName where the chunk
     /// is stored and pass that back to the client.
-    string GetDirName(chunkId_t chunkId) const;
+    string GetDirName(chunkId_t chunkId, int64_t chunkVersion) const;
 
     /// Schedule a read on a chunk.
     /// @param[in] op  The read operation being scheduled.
@@ -233,12 +233,14 @@ public:
     /// Write/read out/in the chunk meta-data and notify the cb when the op
     /// is done.
     /// @retval 0 if op was successfully scheduled; -errno otherwise
-    int WriteChunkMetadata(kfsChunkId_t chunkId, KfsCallbackObj *cb, bool forceFlag = false);
-    int ReadChunkMetadata(kfsChunkId_t chunkId, KfsOp *cb);
+    int WriteChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion,
+            KfsCallbackObj *cb, bool forceFlag = false);
+    int ReadChunkMetadata(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb,
+        bool addObjectBlockMappingFlag);
 
     /// Notification that read is finished
     void ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf);
-    bool IsChunkMetadataLoaded(kfsChunkId_t chunkId);
+    bool IsChunkMetadataLoaded(kfsChunkId_t chunkId, int64_t chunkVersion);
 
     /// A previously scheduled write op just finished.  Update chunk
     /// size and the amount of used space.
@@ -293,6 +295,8 @@ public:
     int64_t GetUsedSpace() const { return mUsedSpace; };
     long GetNumChunks() const { return mChunkTable.GetSize(); };
     long GetNumWritableChunks() const;
+    long GetNumWritableObjects() const;
+    long GetNumOpenObjects() const;
 
     /// For a write, the client is defining a write operation.  The op
     /// is queued and the client pushes data for it subsequently.
@@ -307,12 +311,9 @@ public:
     /// @param[in] chunkId  The chunkid for which we are checking for
     /// pending write(s).
     /// @retval True if a write is pending; false otherwise
-    bool IsWritePending(kfsChunkId_t chunkId) const {
-        return mPendingWrites.HasChunkId(chunkId);
+    bool IsWritePending(kfsChunkId_t chunkId, int64_t chunkVersion) const {
+        return  mPendingWrites.HasChunkId(chunkId, chunkVersion);
     }
-
-    /// Given a chunk id, return its version
-    int64_t GetChunkVersion(kfsChunkId_t c);
 
     /// Retrieve the write op given a write id.
     /// @param[in] writeId  The id corresponding to a previously
@@ -335,22 +336,24 @@ public:
 
     /// Is the write id a valid one
     bool IsValidWriteId(int64_t writeId) {
-        return mPendingWrites.find(writeId);
+        return mPendingWrites.find(writeId) || mObjPendingWrites.find(writeId);
     }
 
     virtual void Timeout();
 
-    ChunkInfo_t* GetChunkInfo(kfsChunkId_t chunkId);
+    ChunkInfo_t* GetChunkInfo(kfsChunkId_t chunkId, int64_t chunkVersion);
 
-    void ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo::File* file);
-    void ChunkIOFailed(kfsChunkId_t chunkId, int err, const DiskIo* diskIo);
+    void ChunkIOFailed(kfsChunkId_t chunkId, int64_t chunkVersion,
+        int err, const DiskIo::File* file);
+    void ChunkIOFailed(kfsChunkId_t chunkId, int64_t chunkVersion,
+        int err, const DiskIo* diskIo);
     void ChunkIOFailed(ChunkInfoHandle* cih, int err);
     void ReportIOFailure(ChunkInfoHandle* cih, int err);
     size_t GetMaxIORequestSize() const {
         return mMaxIORequestSize;
     }
     void Shutdown();
-    bool IsWriteAppenderOwns(kfsChunkId_t chunkId) const;
+    bool IsWriteAppenderOwns(kfsChunkId_t chunkId, int64_t chunkVersion) const;
 
     inline void LruUpdate(ChunkInfoHandle& cih);
     inline bool IsInLru(const ChunkInfoHandle& cih) const;
@@ -370,8 +373,11 @@ public:
     /// metaserver will re-replicate this chunk and for now, won't
     /// send us traffic for this chunk.
     void NotifyMetaCorruptedChunk(ChunkInfoHandle *cih, int err);
-    int  StaleChunk(ChunkInfoHandle *cih,
-        bool forceDeleteFlag = false, bool evacuatedFlag = false);
+    int  StaleChunk(
+        ChunkInfoHandle* cih,
+        bool             forceDeleteFlag = false,
+        bool             evacuatedFlag   = false,
+        KfsOp*           op              = 0);
     /// Utility function that given a chunkId, returns the full path
     /// to the chunk filename.
     string MakeChunkPathname(ChunkInfoHandle *cih);
@@ -409,10 +415,11 @@ public:
     // ChunkManager.cpp
     inline ChunkInfoHandle* AddMapping(ChunkInfoHandle* cih);
     inline void MakeStale(ChunkInfoHandle& cih,
-        bool forceDeleteFlag, bool evacuatedFlag);
+        bool forceDeleteFlag, bool evacuatedFlag, KfsOp* op = 0);
     inline void DeleteSelf(ChunkInfoHandle& cih);
     inline bool Remove(ChunkInfoHandle& cih);
-    BufferManager* FindDeviceBufferManager(kfsChunkId_t chunkId);
+    BufferManager* FindDeviceBufferManager(
+        kfsChunkId_t chunkId, int64_t chunkVersion);
     const CryptoKeys& GetCryptoKeys() const
         { return mCryptoKeys; }
     int64_t GetFileSystemId() const
@@ -425,13 +432,23 @@ public:
     void NotifyStaleChunkDone(CorruptChunkOp& op);
     void HelloDone(HelloMetaOp& hello);
     inline bool InsertLastInFlight(kfsChunkId_t chunkId);
+    int GetObjectStoreStatus(string* msg = 0) const
+    {
+        if (0 != mObjectStoreStatus && msg) {
+            *msg = mObjectStoreErrorMsg;
+        }
+        return mObjectStoreStatus;
+    }
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
-    class PendingWrites
+    template<typename IDT>
+    class PendingWritesT
     {
     public:
-        PendingWrites()
+        typedef IDT Key;
+
+        PendingWritesT()
            : mWriteIds(), mChunkIds(), mLru(), mKeyOp(0, 0)
             {}
         bool empty() const
@@ -448,40 +465,43 @@ private:
             { return mWriteIds.size(); }
         WriteOp* front() const
             { return mLru.front().mWriteIdIt->mOp; }
+        const Key& FrontKey() const
+            { return mLru.front().mChunkIdIt->first; }
         WriteOp* back() const
             { return mLru.back().mWriteIdIt->mOp; }
         WriteOp* find(int64_t writeId) const
         {
             WriteOp& op = GetKeyOp();
             op.writeId = writeId;
-            WriteIdSet::const_iterator const i =
+            typename  WriteIdSet::const_iterator const i =
                 mWriteIds.find(WriteIdEntry(&op));
             return (i == mWriteIds.end() ? 0 : i->mOp);
         }
-        bool HasChunkId(kfsChunkId_t chunkId) const
+        bool HasChunkId(const Key& chunkId) const
             { return (mChunkIds.find(chunkId) != mChunkIds.end()); }
         bool erase(WriteOp* op)
         {
-            const WriteIdSet::iterator i = mWriteIds.find(WriteIdEntry(op));
+            const typename WriteIdSet::iterator i =
+                mWriteIds.find(WriteIdEntry(op));
             return (i != mWriteIds.end() && op == i->mOp && Erase(i));
         }
         bool erase(int64_t writeId)
         {
             WriteOp& op = GetKeyOp();
             op.writeId = writeId;
-            WriteIdSet::const_iterator const i =
+            typename WriteIdSet::const_iterator const i =
                 mWriteIds.find(WriteIdEntry(&op));
             return (i != mWriteIds.end() && Erase(i));
         }
-        bool Delete(kfsChunkId_t chunkId, kfsSeq_t chunkVersion)
+        bool Delete(const Key& chunkId, kfsSeq_t chunkVersion)
         {
-            ChunkIdMap::iterator i = mChunkIds.find(chunkId);
+            typename ChunkIdMap::iterator i = mChunkIds.find(chunkId);
             if (i == mChunkIds.end()) {
                 return true;
             }
             ChunkWrites& wr = i->second;
-            for (ChunkWrites::iterator w = wr.begin(); w != wr.end(); ) {
-                Lru::iterator const c = w->GetLruIterator();
+            for (typename ChunkWrites::iterator w = wr.begin(); w != wr.end(); ) {
+                typename Lru::iterator const c = w->GetLruIterator();
                 if (c->mWriteIdIt->mOp->chunkVersion == chunkVersion) {
                     WriteOp* const op = c->mWriteIdIt->mOp;
                     mWriteIds.erase(c->mWriteIdIt);
@@ -498,17 +518,19 @@ private:
             }
             return false;
         }
-        WriteOp* FindAndMoveBack(int64_t writeId)
+        WriteOp* FindAndMoveBackIfOk(int64_t writeId)
         {
             mKeyOp.writeId = writeId;
-            const WriteIdSet::iterator i =
+            const typename WriteIdSet::iterator i =
                 mWriteIds.find(WriteIdEntry(&mKeyOp));
             if (i == mWriteIds.end()) {
                 return 0;
             }
-            // splice: "All iterators remain valid including iterators that
-            // point to elements of x." x == mLru
-            mLru.splice(mLru.end(), mLru, i->GetLruIterator());
+            if (0 <= i->mOp->status) {
+                // splice: "All iterators remain valid including iterators that
+                // point to elements of x." x == mLru
+                mLru.splice(mLru.end(), mLru, i->GetLruIterator());
+            }
             return i->mOp;
         }
         size_t GetChunkIdCount() const
@@ -551,32 +573,34 @@ private:
         > WriteIdSet;
         typedef list<OpListEntry,
             StdFastAllocator<OpListEntry> > ChunkWrites;
-        typedef map<kfsChunkId_t, ChunkWrites, less<kfsChunkId_t>,
+        typedef map<Key, ChunkWrites, less<Key>,
             StdFastAllocator<
-                pair<const kfsChunkId_t, ChunkWrites> >
+                pair<const Key, ChunkWrites> >
         > ChunkIdMap;
         struct LruEntry
         {
             LruEntry()
-                : mWriteIdIt(), mChunkIdIt(), mChunkWritesIt()
+                : mWriteIdIt(),
+                  mChunkIdIt(),
+                  mChunkWritesIt()
                 {}
             LruEntry(
-                WriteIdSet::iterator  writeIdIt,
-                ChunkIdMap::iterator  chunkIdIt,
-                ChunkWrites::iterator chunkWritesIt)
+                typename WriteIdSet::iterator  writeIdIt,
+                typename ChunkIdMap::iterator  chunkIdIt,
+                typename ChunkWrites::iterator chunkWritesIt)
                 : mWriteIdIt(writeIdIt),
                   mChunkIdIt(chunkIdIt),
                   mChunkWritesIt(chunkWritesIt)
                 {}
-            WriteIdSet::iterator  mWriteIdIt;
-            ChunkIdMap::iterator  mChunkIdIt;
-            ChunkWrites::iterator mChunkWritesIt;
+            typename WriteIdSet::iterator  mWriteIdIt;
+            typename ChunkIdMap::iterator  mChunkIdIt;
+            typename ChunkWrites::iterator mChunkWritesIt;
         };
         typedef list<LruEntry, StdFastAllocator<LruEntry> > Lru;
         class LruIterator : public Lru::iterator
         {
         public:
-            LruIterator& operator=(const Lru::iterator& it)
+            LruIterator& operator=(const typename Lru::iterator& it)
             {
                 Lru::iterator::operator=(it);
                 return *this;
@@ -593,14 +617,15 @@ private:
             if (! op) {
                 return false;
             }
-            pair<WriteIdSet::iterator, bool> const w =
+            pair<typename WriteIdSet::iterator, bool> const w =
                 mWriteIds.insert(WriteIdEntry(op));
             if (! w.second) {
                 return false;
             }
-            ChunkIdMap::iterator const c = mChunkIds.insert(
-                make_pair(op->chunkId, ChunkWrites())).first;
-            ChunkWrites::iterator const cw =
+            typename ChunkIdMap::iterator const c = mChunkIds.insert(
+                make_pair(Key(op->chunkId, op->chunkVersion),
+                ChunkWrites())).first;
+            typename ChunkWrites::iterator const cw =
                 c->second.insert(c->second.end(), OpListEntry());
             w.first->GetLruIterator() = mLru.insert(
                 front ? mLru.begin() : mLru.end(),
@@ -626,9 +651,9 @@ private:
             }
             return true;
         }
-        bool Erase(WriteIdSet::iterator i)
+        bool Erase(typename WriteIdSet::iterator i)
         {
-            const Lru::iterator c = i->GetLruIterator();
+            const typename Lru::iterator c = i->GetLruIterator();
             c->mChunkIdIt->second.erase(c->mChunkWritesIt);
             if (c->mChunkIdIt->second.empty()) {
                 mChunkIds.erase(c->mChunkIdIt);
@@ -639,6 +664,96 @@ private:
         }
         WriteOp& GetKeyOp() const
             { return *const_cast<WriteOp*>(&mKeyOp); }
+    private:
+        PendingWritesT(const PendingWritesT&);
+        PendingWritesT& operator=(const PendingWritesT&);
+    };
+    class PendingWritesChunkKey
+    {
+    public:
+        PendingWritesChunkKey(kfsChunkId_t chunkId)
+            : mChunkId(chunkId)
+            {}
+        PendingWritesChunkKey(kfsChunkId_t chunkId, kfsSeq_t /* chunkVersion */)
+            : mChunkId(chunkId)
+            {}
+        bool operator==(PendingWritesChunkKey& rhs) const
+            { return (mChunkId == rhs.mChunkId); }
+        bool operator<(PendingWritesChunkKey& rhs) const
+            { return (mChunkId < rhs.mChunkId); }
+        operator kfsChunkId_t () const
+            { return mChunkId; }
+    private:
+        kfsChunkId_t mChunkId;
+    };
+    typedef PendingWritesT<PendingWritesChunkKey> ChunkPendingWrites;
+    typedef PendingWritesT<
+        pair<kfsChunkId_t, int64_t>
+    > ObjPendingWrites;
+    class PendingWrites
+    {
+    public:
+        static inline bool
+        IsObjStoreWriteId(int64_t writeId)
+        {
+            return ((writeId & 0x1) != 0);
+        }
+        PendingWrites()
+            : mChunkWrites(),
+              mObjWrites()
+            {}
+        bool HasChunkId(kfsChunkId_t chunkId, kfsSeq_t chunkVersion) const
+        {
+            return (0 <= chunkVersion ?
+                mChunkWrites.HasChunkId(
+                    ChunkPendingWrites::Key(chunkId, chunkVersion)) :
+                mObjWrites.HasChunkId(
+                    ObjPendingWrites::Key(chunkId, chunkVersion))
+            );
+        }
+        bool Delete(kfsChunkId_t chunkId, kfsSeq_t chunkVersion)
+        {
+            return (0 <= chunkVersion ?
+                mChunkWrites.Delete(
+                    ChunkPendingWrites::Key(chunkId, chunkVersion),
+                    chunkVersion) :
+                mObjWrites.Delete(
+                    ObjPendingWrites::Key(chunkId, chunkVersion),
+                    chunkVersion)
+            );
+        }
+        WriteOp* find(int64_t writeId) const
+        {
+            return (IsObjStoreWriteId(writeId) ?
+                mObjWrites.find(writeId) :
+                mChunkWrites.find(writeId)
+            );
+        }
+        WriteOp* FindAndMoveBackIfOk(int64_t writeId)
+        {
+            return (IsObjStoreWriteId(writeId) ?
+                mObjWrites.FindAndMoveBackIfOk(writeId) :
+                mChunkWrites.FindAndMoveBackIfOk(writeId)
+            );
+        }
+        bool push_back(WriteOp* op)
+        {
+            return (0 <= op->chunkVersion ?
+                mChunkWrites.push_back(op) :
+                mObjWrites.push_back(op)
+            );
+        }
+        ChunkPendingWrites& GetChunkWrites()
+            { return mChunkWrites; }
+        ObjPendingWrites& GetObjWrites()
+            { return mObjWrites; }
+        const ChunkPendingWrites& GetChunkWrites() const
+            { return mChunkWrites; }
+        const ObjPendingWrites& GetObjWrites() const
+            { return mObjWrites; }
+    private:
+        ChunkPendingWrites mChunkWrites;
+        ObjPendingWrites   mObjWrites;
     private:
         PendingWrites(const PendingWrites&);
         PendingWrites& operator=(const PendingWrites&);
@@ -709,6 +824,22 @@ private:
         >,
         StdFastAllocator<CMapEntry>
     > CMap;
+    typedef KVPair<pair<kfsChunkId_t, int64_t>, ChunkInfoHandle*> ObjTableEntry;
+    struct ObjHash
+    {
+        static size_t Hash(
+            const ObjTableEntry::Key& inVal)
+            { return size_t(inVal.first); }
+    };
+    typedef LinearHash<
+        ObjTableEntry,
+        KeyCompare<ObjTableEntry::Key, ObjHash>,
+        DynamicArray<
+            SingleLinkedList<ObjTableEntry>*,
+            20
+        >,
+        StdFastAllocator<ObjTableEntry>
+    > ObjTable;
 
     /// How long should a pending write be held in LRU
     int mMaxPendingWriteLruSecs;
@@ -731,13 +862,19 @@ private:
     /// directories for storing the chunks
     ChunkDirs    mChunkDirs;
     StorageTiers mStorageTiers;
+    ChunkDirs    mObjDirs;
+    StorageTiers mObjStorageTiers;
+    string       mObjectStoreErrorMsg;
+    int          mObjectStoreStatus;
 
     /// See the comments in KfsOps.cc near WritePrepareOp related to write handling
     int64_t mWriteId;
-    PendingWrites mPendingWrites;
+    PendingWrites    mPendingWrites;
+    ObjPendingWrites mObjPendingWrites;
 
     /// table that maps chunkIds to their associated state
-    CMap   mChunkTable;
+    CMap     mChunkTable;
+    ObjTable mObjTable;
     size_t mMaxIORequestSize;
     /// Chunk lru, and stale chunks list heads.
     ChunkLists mChunkInfoLists[kChunkInfoListCount];
@@ -796,6 +933,8 @@ private:
     kfsSTier_t mAllocDefaultMaxTier;
     string     mStorageTiersPrefixes;
     bool       mStorageTiersSetFlag;
+    string     mObjStorageTiersPrefixes;
+    bool       mObjStorageTiersSetFlag;
     string     mBufferedIoPrefixes;
     bool       mBufferedIoSetFlag;
     bool       mDiskBufferManagerEnabledFlag;
@@ -803,6 +942,7 @@ private:
     bool       mWritePrepareReplyFlag;
     CryptoKeys mCryptoKeys;
     int64_t    mFileSystemId;
+    string     mFileSystemIdSuffix;
     string     mFsIdFileNamePrefix;
     int        mDirCheckerIoTimeoutSec;
     int        mDirCheckFailureSimulatorInterval;
@@ -825,6 +965,19 @@ private:
     > LastPendingInFlight;
     LastPendingInFlight mLastPendingInFlight;
 
+    bool       mDiskIoRequestAffinityFlag;
+    bool       mDiskIoSerializeMetaRequestsFlag;
+    bool       mObjStoreIoRequestAffinityFlag;
+    bool       mObjStoreIoSerializeMetaRequestsFlag;
+    int        mObjStoreBlockWriteBufferSize;
+    bool       mObjStoreBufferDataIgnoreOverwriteFlag;
+    int        mObjStoreMaxWritableBlocks;
+    double     mObjStoreBufferDataRatio;
+    int        mObjStoreBufferDataMaxSizePerBlock;
+    int        mObjStoreBlockMaxNonStableDisconnectedTime;
+    int        mObjBlockDiscardMinMetaUptime;
+    int        mObjStoreIoThreadCount;
+
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
 
@@ -839,7 +992,8 @@ private:
     /// Of the various directories this chunkserver is configured with, find the
     /// directory to store a chunk file.
     /// This method does a "directory allocation".
-    ChunkDirInfo* GetDirForChunk(kfsSTier_t minTier, kfsSTier_t maxTier);
+    ChunkDirInfo* GetDirForChunk(
+        bool objFlag, kfsSTier_t minTier, kfsSTier_t maxTier);
 
     void CheckChunkDirs();
     void GetFsSpaceAvailable();
@@ -867,15 +1021,18 @@ private:
 
     /// Given a chunkId and offset, return the checksum of corresponding
     /// "checksum block"---i.e., the 64K block that contains offset.
-    uint32_t GetChecksum(kfsChunkId_t chunkId, int64_t offset);
+    uint32_t GetChecksum(kfsChunkId_t chunkId, int64_t chunkVersion,
+        int64_t offset);
 
     /// For any writes that have been held for more than 2 mins,
     /// scavenge them and reclaim memory.
     void ScavengePendingWrites(time_t now);
+    template<typename TT, typename WT> void ScavengePendingWrites(
+        time_t now, TT& table, WT& pendingWrites);
 
     /// If we have too many open fd's close out whatever we can.  When
     /// periodic is set, we do a scan and clean up.
-    bool CleanupInactiveFds(time_t now, bool forceFlag = false);
+    bool CleanupInactiveFds(time_t now, const ChunkInfoHandle* cur = 0);
 
     /// For some reason, dirname is not accessable (for instance, the
     /// drive may have failed); in this case, notify metaserver that
@@ -902,6 +1059,13 @@ private:
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
     void SendChunkDirInfo();
     void SetStorageTiers(const Properties& props);
+    void SetStorageTiers(
+        const string&               prefixes,
+        ChunkManager::ChunkDirs&    dirs,
+        ChunkManager::StorageTiers& tiers);
+    bool InitStorageDirs(
+        const vector<string>&    dirNames,
+        ChunkManager::ChunkDirs& storageDirs);
     void SetBufferedIo(const Properties& props);
     void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
@@ -915,6 +1079,8 @@ private:
     inline bool ScheduleNotifyLostChunk();
     inline bool IsTargetChunkVersionStable(
         const ChunkInfoHandle& cih, kfsSeq_t* vers = 0) const;
+    template<typename T> void ClearTable(T& table);
+    template<typename T> void RunIoCompletion(T& table);
 
     static bool sExitDebugCheckFlag;
 private:
@@ -923,7 +1089,8 @@ private:
     ChunkManager& operator=(const ChunkManager&);
 };
 
-inline ChunkManager::PendingWrites::OpListEntry::OpListEntry()
+template<typename IDT>
+inline ChunkManager::PendingWritesT<IDT>::OpListEntry::OpListEntry()
 {
     BOOST_STATIC_ASSERT(sizeof(mLruIteratorStorage) >= sizeof(LruIterator));
     LruIterator* const i =
@@ -932,10 +1099,12 @@ inline ChunkManager::PendingWrites::OpListEntry::OpListEntry()
     (void)i;
 }
 
-inline ChunkManager::PendingWrites::OpListEntry::~OpListEntry()
+template<typename IDT>
+inline ChunkManager::PendingWritesT<IDT>::OpListEntry::~OpListEntry()
 {  GetLruIterator().~LruIterator(); }
 
-inline ChunkManager::PendingWrites::WriteIdEntry::WriteIdEntry(WriteOp* op)
+template<typename IDT>
+inline ChunkManager::PendingWritesT<IDT>::WriteIdEntry::WriteIdEntry(WriteOp* op)
     : OpListEntry(), mOp(op)
 {}
 

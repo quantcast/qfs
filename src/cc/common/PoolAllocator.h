@@ -42,6 +42,7 @@
 #include <stddef.h>
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include <algorithm>
 
@@ -158,6 +159,72 @@ private:
 
     PoolAllocator( PoolAllocator& inAlloc);
     PoolAllocator& operator=( PoolAllocator& inAlloc);
+};
+
+template<
+    typename T,
+    size_t   TMinStorageAlloc,
+    size_t   TMaxStorageAlloc,
+    bool     TForceCleanupFlag
+>
+class PoolAllocatorAdapter
+{
+public:
+    T* allocate(
+        size_t inCount)
+    {
+        if (inCount != 1) {
+            assert(! "alloc n != 1 not implemented");
+            abort();
+            return 0;
+        }
+        return reinterpret_cast<T*>(GetAllocator().Allocate());
+    }
+    void deallocate(
+        T*     inPtr,
+        size_t inCount)
+    {
+        if (inCount != 1) {
+            assert(! "dealloc n != 1 not implemented");
+            abort();
+            return;
+        }
+        GetAllocator().Deallocate(inPtr);
+    }
+    static void construct(
+        T*       inPtr,
+        const T& inOther)
+        { new (inPtr) T(inOther); }
+    static void destroy(
+        T* inPtr)
+        { inPtr->~T(); }
+    template <typename TOther>
+    struct rebind
+    {
+        typedef PoolAllocatorAdapter<
+            TOther,
+            TMinStorageAlloc,
+            TMaxStorageAlloc,
+            TForceCleanupFlag
+        > other;
+    };
+    typedef PoolAllocator<
+        sizeof(T),         // size_t TItemSize,
+        TMinStorageAlloc,
+        TMaxStorageAlloc,
+        TForceCleanupFlag
+    > Alloc;
+    const Alloc& GetAllocator() const
+    {
+        return mAlloc;
+    }
+private:
+    Alloc mAlloc;
+
+    Alloc& GetAllocator()
+    {
+        return mAlloc;
+    }
 };
 
 }

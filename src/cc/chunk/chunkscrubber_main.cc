@@ -53,17 +53,20 @@ const unsigned int kIoBlkSize = 4 << 10;
 static int
 Deserialize(ChunkInfo_t& chunkInfo, int fd, char* buf, bool hdrChksumRequiredFlag)
 {
-    const DiskChunkInfo_t& dci      =
-        *reinterpret_cast<const DiskChunkInfo_t*>(buf);
-    const uint64_t&        checksum =
+    DiskChunkInfo_t& dci        =
+        *reinterpret_cast<DiskChunkInfo_t*>(buf);
+    const uint64_t&  rdChecksum =
         *reinterpret_cast<const uint64_t*>(&dci + 1);
-    const size_t           readsz   = (sizeof(dci) + sizeof(checksum) +
+    const size_t     readsz     = (sizeof(dci) + sizeof(rdChecksum) +
         kIoBlkSize - 1) / kIoBlkSize * kIoBlkSize;
 
     const ssize_t res = pread(fd, buf, readsz, 0);
     if (res != (ssize_t)readsz) {
         return (res < 0 ? -errno : -EINVAL);
     }
+    const bool     reverseByteOrderFlag = dci.IsReverseByteOrder();
+    const uint64_t checksum             = reverseByteOrderFlag ?
+        DiskChunkInfo_t::ReverseInt(rdChecksum) : rdChecksum;
     uint32_t headerChecksum = 0;
     if ((checksum != 0 || hdrChksumRequiredFlag) &&
             (headerChecksum = ComputeBlockChecksum(buf, sizeof(dci))) !=
@@ -78,7 +81,11 @@ Deserialize(ChunkInfo_t& chunkInfo, int fd, char* buf, bool hdrChksumRequiredFla
     KFS_LOG_STREAM_DEBUG <<
         " chunk header checksum: " << checksum <<
     KFS_LOG_EOM;
-    return chunkInfo.Deserialize(dci, true);
+    if (reverseByteOrderFlag) {
+        dci.ReverseByteOrder();
+    }
+    const bool kValidateFlag = true;
+    return chunkInfo.Deserialize(dci, kValidateFlag);
 }
 
 static bool
@@ -98,9 +105,6 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
     }
     for (i = 0; i < kNumComponents; i++) {
         components[i] = strtoll(ptr, &end, 10);
-        if (components[i] < 0) {
-            break;
-        }
         if ((*end & 0xFF) != '.') {
             if (*end == 0) {
                 i++;
@@ -121,7 +125,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
     // The file might be bigger by one io buffer size, and io buffer size is
     // guaranteed to be less or equal to the KFS_CHUNK_HEADER_SIZE.
     const int64_t kMaxChunkFileSize = (int64_t)(KFS_CHUNK_HEADER_SIZE + CHUNKSIZE);
-    if (filesz < (int64_t)KFS_CHUNK_HEADER_SIZE ||
+    if (filesz < (int64_t)KFS_MIN_CHUNK_HEADER_SIZE ||
             filesz > (int64_t)(kMaxChunkFileSize + KFS_CHUNK_HEADER_SIZE)) {
         KFS_LOG_STREAM_ERROR <<
             fn << ": invalid file size: " << filesz <<
@@ -158,7 +162,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
     }
     if (chunkInfo.chunkVersion != chunkVers) {
         KFS_LOG_STREAM_ERROR <<
-            fn << ":" << "chunk id version: " << chunkInfo.chunkId <<
+            fn << ": chunk id version: " << chunkInfo.chunkVersion <<
         KFS_LOG_EOM;
         close(fd);
         return false;
@@ -177,7 +181,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
         close(fd);
         return false;
     }
-    const ssize_t res = pread(fd, buf, CHUNKSIZE, KFS_CHUNK_HEADER_SIZE);
+    const ssize_t res = pread(fd, buf, CHUNKSIZE, chunkInfo.GetHeaderSize());
     if (res < 0) {
         const int err = errno;
         KFS_LOG_STREAM_ERROR <<
@@ -212,6 +216,7 @@ scrubFile(const string& fn, bool hdrChksumRequiredFlag,
                 fn << ": checksum mismatch"
                 " block: " << b <<
                 " pos: "   << i <<
+                " + "      << chunkInfo.GetHeaderSize() <<
                 " computed: " << cksum <<
                 " expected: " << chunkInfo.chunkBlockChecksum[b] <<
             KFS_LOG_EOM;

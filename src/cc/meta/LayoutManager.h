@@ -52,6 +52,7 @@
 #include "common/StBuffer.h"
 #include "common/TimerWheel.h"
 #include "common/BufferInputStream.h"
+#include "common/PoolAllocator.h"
 #include "qcdio/QCDLList.h"
 #include "kfsio/Counter.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -104,7 +105,23 @@ class ARAChunkCache;
 class ChunkLeases
 {
 public:
-    enum { kLeaseTimerResolutionSec = 1 }; // Power of two to optimize division.
+    class EntryKey : public pair<chunkId_t, chunkOff_t>
+    {
+    public:
+        EntryKey()
+            : pair<chunkId_t, chunkOff_t>()
+            {}
+        EntryKey(fid_t fid, chunkOff_t pos)
+            : pair<chunkId_t, chunkOff_t>(fid, pos < 0 ? chunkOff_t(-1) :
+                chunkStartOffset(pos))
+            {}
+        EntryKey(chunkId_t fid)
+            : pair<chunkId_t, chunkOff_t>(fid, -1)
+            {}
+        bool IsChunkEntry() const
+            { return (second < 0); }
+    };
+    enum { kLeaseTimerResolutionSec = 4 }; // Power of two to optimize division.
     typedef int64_t LeaseId;
     typedef DelegationToken::TokenSeq TokenSeq;
     struct ReadLease
@@ -215,54 +232,56 @@ public:
     ChunkLeases();
 
     inline const WriteLease* GetWriteLease(
+        const EntryKey& key) const;
+    inline const WriteLease* GetChunkWriteLease(
         chunkId_t chunkId) const;
     inline const WriteLease* GetValidWriteLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline const WriteLease* RenewValidWriteLease(
-        chunkId_t           chunkId,
+        const EntryKey&     key,
         const MetaAllocate& req);
     inline bool HasValidWriteLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline bool HasValidLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline bool HasWriteLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline bool HasLease(
-        chunkId_t chunkId) const;
+        const EntryKey& key) const;
     inline int ReplicaLost(
         chunkId_t          chunkId,
         const ChunkServer* chunkServer);
     inline bool NewReadLease(
-        fid_t     fid,
-        chunkId_t chunkId,
-        time_t    expires,
-        LeaseId&  leaseId);
+        fid_t           fid,
+        const EntryKey& key,
+        time_t          expires,
+        LeaseId&        leaseId);
     inline bool NewWriteLease(
         MetaAllocate& req);
     inline bool DeleteWriteLease(
-        fid_t     fid,
-        chunkId_t chunkId,
-        LeaseId   leaseId);
+        fid_t           fid,
+        const EntryKey& key,
+        LeaseId         leaseId);
     inline int Renew(
         fid_t            fid,
-        chunkId_t        chunkId,
+        const EntryKey&  key,
         LeaseId          leaseId,
         bool             allocDoneFlag = false,
         const MetaFattr* fattr         = 0,
         MetaLeaseRenew*  req           = 0);
     inline bool Delete(
-        fid_t     fid,
-        chunkId_t chunkId);
+        fid_t           fid,
+        const EntryKey& key);
     inline bool ExpiredCleanup(
-        chunkId_t      chunkId,
-        time_t         now,
-        int            ownerDownExpireDelay,
-        ARAChunkCache& arac,
-        CSMap&         csmap);
+        const EntryKey& key,
+        time_t          now,
+        int             ownerDownExpireDelay,
+        ARAChunkCache&  arac,
+        CSMap&          csmap);
     inline const char* FlushWriteLease(
-        chunkId_t      chunkId,
-        ARAChunkCache& arac,
-        CSMap&         csmap);
+        const EntryKey& key,
+        ARAChunkCache&  arac,
+        CSMap&          csmap);
     inline void Timer(
         time_t         now,
         int            ownerDownExpireDelay,
@@ -308,7 +327,16 @@ public:
     }
     int GetDumpsterCleanupDelaySec() const
         { return mDumpsterCleanupDelaySec; }
+    bool IsEmpty() const
+        { return (mReadLeases.IsEmpty() && mWriteLeases.IsEmpty()); }
 private:
+    class EntryKeyHash
+    {
+    public:
+        static size_t Hash(
+            const EntryKey& inVal)
+            { return size_t(inVal.first); }
+    };
     class RLEntry : public ReadLease
     {
     public:
@@ -457,17 +485,17 @@ private:
 
         EntryT& operator=(const EntryT&);
     };
-    typedef EntryT<chunkId_t, ChunkReadLeasesHead> REntry;
-    typedef LinearHash<
+    typedef EntryT<EntryKey, ChunkReadLeasesHead> REntry;
+    typedef LinearHash <
         REntry,
-        KeyCompare<REntry::Key>,
+        KeyCompare<REntry::Key, EntryKeyHash>,
         DynamicArray<SingleLinkedList<REntry>*, 13>,
         StdFastAllocator<REntry>
     > ReadLeases;
-    typedef EntryT<chunkId_t, WriteLease> WEntry;
-    typedef LinearHash<
+    typedef EntryT<EntryKey, WriteLease> WEntry;
+    typedef LinearHash <
         WEntry,
-        KeyCompare<WEntry::Key>,
+        KeyCompare<WEntry::Key, EntryKeyHash>,
         DynamicArray<SingleLinkedList<WEntry>*, 13>,
         StdFastAllocator<WEntry>
     > WriteLeases;
@@ -992,6 +1020,7 @@ public:
     /// Is a valid lease issued on any of the chunks in the
     /// vector of MetaChunkInfo's?
     bool IsValidLeaseIssued(const vector<MetaChunkInfo*> &c);
+    bool IsValidObjBlockLeaseIssued(fid_t fid, chunkOff_t last);
 
     void MakeChunkStableInit(
         const CSMap::Entry& entry,
@@ -1207,11 +1236,12 @@ public:
     double GetMaxSpaceUtilizationThreshold() const {
         return mMaxSpaceUtilizationThreshold;
     }
-    int GetInFlightChunkOpsCount(chunkId_t chunkId, MetaOp opType) const;
+    int GetInFlightChunkOpsCount(chunkId_t chunkId, MetaOp opType,
+        chunkOff_t objStoreBlockPos = -1) const;
     int GetInFlightChunkModificationOpCount(chunkId_t chunkId,
-        Servers* srvs = 0) const;
+         chunkOff_t objStoreBlockPos = -1, Servers* srvs = 0) const;
     int GetInFlightChunkOpsCount(chunkId_t chunkId, const MetaOp* opTypes,
-        Servers* srvs = 0) const;
+         chunkOff_t objStoreBlockPos = -1, Servers* srvs = 0) const;
     void DoCheckpoint() {
         mCheckpoint.GetOp().ScheduleNow();
         mCheckpoint.Timeout();
@@ -1395,11 +1425,146 @@ public:
     void EnqueueServerDown(const ChunkServer& srv, const MetaChunkRequest& req);
     void SetDisableTimerFlag(bool flag);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
+    bool IsObjectStoreEnabled() const
+        { return mObjectStoreEnabledFlag; }
+    void GetAccessProxyForHost(
+        const string& host,
+        Servers&      servers);
+    void Done(MetaChunkDelete& req);
+    void DeleteFile(const MetaFattr& fa);
+    int  WritePendingObjStoreDelete(ostream& os);
+    bool AddPendingObjStoreDelete(
+        chunkId_t chunkId, chunkOff_t first, chunkOff_t last);
+    void ClearObjStoreDelete();
+    bool IsObjectStoreDeleteEmpty() const;
+    void Handle(MetaLogClearObjStoreDelete& req);
+    void UpdateObjectsCount(
+        ChunkServer& srv, int64_t delta, int64_t writableDelta);
 protected:
     typedef vector<
         int,
         StdAllocator<int>
     > RackIds;
+    class ObjStoreFilesDeleteQueue
+    {
+    public:
+        class Entry
+        {
+        public:
+            Entry* GetNext() const
+                { return mNext; }
+            const time_t mTime;
+            const fid_t  mFid;
+            chunkOff_t   mLast;
+        private:
+            Entry* mNext;
+            Entry(
+                time_t     time,
+                fid_t      fid,
+                chunkOff_t last)
+                : mTime(time),
+                  mFid(fid),
+                  mLast(last),
+                  mNext(0)
+                {}
+            ~Entry()
+                {}
+            friend class ObjStoreFilesDeleteQueue;
+        };
+        ObjStoreFilesDeleteQueue()
+            : mHead(0),
+              mTail(0),
+              mSize(0),
+              mAllocator()
+            {}
+        ~ObjStoreFilesDeleteQueue()
+            { ObjStoreFilesDeleteQueue::Clear(); }
+        Entry* Front()
+            { return mHead; }
+        bool IsEmpty() const
+            { return (! mHead); }
+        void Add(time_t time, fid_t fid, chunkOff_t last)
+        {
+            Entry* const entry =
+                new (mAllocator.Allocate()) Entry(time, fid, last);
+            if (mTail) {
+                mTail->mNext = entry;
+            } else {
+                mHead = entry;
+            }
+            mTail = entry;
+            mSize++;
+        }
+        void Remove()
+        {
+            if (mHead) {
+                Entry* const entry = mHead;
+                mHead = entry->mNext;
+                if (! mHead) {
+                    mTail = 0;
+                }
+                mSize--;
+                Delete(entry);
+            }
+        }
+        void Clear()
+        {
+            Entry* next = mHead;
+            mHead = 0;
+            mTail = 0;
+            mSize = 0;
+            while (next) {
+                Entry* const entry = next;
+                next = entry->mNext;
+                Delete(entry);
+            }
+        }
+        size_t GetSize() const
+            { return mSize; }
+    private:
+        typedef PoolAllocator<
+            sizeof(Entry),
+            size_t(1) << 20, // size_t TMinStorageAlloc,
+            size_t(8) << 20, // size_t TMaxStorageAlloc,
+            true             // bool   TForceCleanupFlag
+        > Allocator;
+        Entry*    mHead;
+        Entry*    mTail;
+        size_t    mSize;
+        Allocator mAllocator;
+
+        void Delete(Entry* entry)
+        {
+            entry->~Entry();
+            mAllocator.Deallocate(entry);
+        }
+    };
+    typedef pair<chunkId_t, chunkOff_t>                ObjBlockDeleteQueueEntry;
+    typedef DynamicArray<ObjBlockDeleteQueueEntry,  8> ObjBlocksDeleteRequeue;
+    typedef KeyOnly<
+        pair<chunkId_t, seq_t>
+    > ObjBlocksDeleteInFlightEntry;
+    class ObjBlocksDeleteInFlightEntryHash
+    {
+    public:
+        static size_t Hash(
+            const ObjBlocksDeleteInFlightEntry::Key& inVal)
+            { return size_t(inVal.first ^ inVal.second); }
+    };
+    typedef LinearHash <
+        ObjBlocksDeleteInFlightEntry,
+        KeyCompare<
+            ObjBlocksDeleteInFlightEntry::Key,
+            ObjBlocksDeleteInFlightEntryHash
+        >,
+        DynamicArray<SingleLinkedList<ObjBlocksDeleteInFlightEntry>*, 17>,
+        PoolAllocatorAdapter<
+            ObjBlocksDeleteInFlightEntry,
+            size_t(1) << 20, // size_t TMinStorageAlloc,
+            size_t(8) << 20, // size_t TMaxStorageAlloc,
+            true             // bool   TForceCleanupFlag
+       >
+    > ObjBlocksDeleteInFlight;
     class RebalanceCtrs
     {
     public:
@@ -2080,6 +2245,9 @@ protected:
     int64_t mCSLoadAvgSum;
     int64_t mCSMasterLoadAvgSum;
     int64_t mCSSlaveLoadAvgSum;
+    int64_t mCSTotalLoadAvgSum;
+    int64_t mCSOpenObjectCount;
+    int64_t mCSWritableObjectCount;
     int     mCSTotalPossibleCandidateCount;
     int     mCSMasterPossibleCandidateCount;
     int     mCSSlavePossibleCandidateCount;
@@ -2174,6 +2342,10 @@ protected:
     bool              mFileSystemIdRequiredFlag;
     bool              mDeleteChunkOnFsIdMismatchFlag;
     int               mChunkAvailableUseReplicationOrRecoveryThreshold;
+    bool              mObjectStoreEnabledFlag;
+    bool              mObjectStoreReadCanUsePoxoyOnDifferentHostFlag;
+    bool              mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag;
+    bool              mObjectStorePlacementTestFlag;
 
     typedef set<int> CreateFileTypeExclude;
     CreateFileTypeExclude mCreateFileTypeExclude;
@@ -2189,6 +2361,15 @@ protected:
 
     MetaRequest* mResubmitQueueHead;
     MetaRequest* mResubmitQueueTail;
+
+    int                      mObjStoreDeleteMaxSchedulePerRun;
+    int                      mObjStoreMaxDeletesPerServer;
+    int                      mObjStoreDeleteDelay;
+    bool                     mResubmitClearObjectStoreDeleteFlag;
+    size_t                   mObjStoreDeleteSrvIdx;
+    ObjStoreFilesDeleteQueue mObjStoreFilesDeleteQueue;
+    ObjBlocksDeleteRequeue   mObjBlocksDeleteRequeue;
+    ObjBlocksDeleteInFlight  mObjBlocksDeleteInFlight;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
@@ -2319,8 +2500,8 @@ protected:
         bool stopIfHasAnyReplicationsInFlight = false,
         vector<MetaChunkInfo*>* chunkBlock = 0);
     void ProcessInvalidStripes(MetaChunkReplicate& req);
-    RackId GetRackId(const ServerLocation& loc);
-    RackId GetRackId(const string& loc);
+    RackId GetRackId(const ServerLocation& loc) const;
+    RackId GetRackId(const string& loc) const;
     void ScheduleCleanup(size_t maxScanCount = 1);
     void RemoveRetiring(CSMap::Entry& ci, Servers& servers, int numReplicas,
         bool deleteRetiringFlag = false);
@@ -2363,6 +2544,12 @@ protected:
         kfsUid_t                       authUid,
         MetaLeaseAcquire::ChunkAccess& chunkAccess,
         const ChunkServer*             writeMaster);
+    void MakeChunkAccess(
+        chunkId_t                      chunkId,
+        const LayoutManager::Servers&  servers,
+        kfsUid_t                       authUid,
+        MetaLeaseAcquire::ChunkAccess& chunkAccess,
+        const ChunkServer*             writeMaster);
     bool IsVerificationOfStatsOrAdminPermissionsRequired(MetaRequest& op)
     {
         if (! mVerifyAllOpsPermissionsFlag) {
@@ -2377,10 +2564,17 @@ protected:
         return true;
     }
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
+    bool RunObjectBlockDeleteQueue();
+    chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
+        int& remScanCnt);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
     void ScheduleResubmitOrCancel(MetaLogMakeChunkStable& r);
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
+    bool FindAccessProxy(MetaAllocate& req);
+    bool FindAccessProxy(const string& host, Servers& srvs);
+    template<typename T>
+    bool GetAccessProxy(T& req, Servers& servers);
 };
 
 extern LayoutManager& gLayoutManager;

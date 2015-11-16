@@ -28,6 +28,12 @@
 //
 //----------------------------------------------------------------------------
 
+#include "IOBuffer.h"
+#include "Globals.h"
+
+#include "qcdio/QCMutex.h"
+#include "qcdio/qcstutils.h"
+
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <limits.h>
@@ -38,9 +44,7 @@
 #include <cerrno>
 #include <iostream>
 #include <algorithm>
-
-#include "IOBuffer.h"
-#include "Globals.h"
+#include <vector>
 
 namespace KFS
 {
@@ -48,6 +52,8 @@ namespace KFS
 using std::min;
 using std::max;
 using std::list;
+using std::vector;
+using std::find;
 
 using namespace KFS::libkfsio;
 
@@ -58,14 +64,106 @@ static libkfsio::IOBufferAllocator* sIOBufferAllocator = 0;
 static volatile bool sIsIOBufferAllocatorUsed = false;
 int IOBufferData::sDefaultBufferSize = 4 << 10;
 
+class IOBufferDetacher
+{
+public:
+    static char* Detach(IOBufferData::IOBufferBlockPtr& data)
+    {
+        if (! data.unique()) {
+            return 0;
+        }
+        char* const dbuf = data.get();
+        if (! dbuf) {
+            return dbuf;
+        }
+        const void* buf = dbuf;
+        sInstance.DetachSelf(buf);
+        data.reset();
+        if (buf) {
+            // Deleter must be different, than one of supported deleters. There
+            // is way to recover from this failure, as is isn't possible to
+            // determine deleter type when arbitrary deleter is used. Non
+            // default deleter must implement required detach logic, if needed.
+            //
+            // The alternative is to check whether or not one of the supported
+            // deleters is used prior to data.reset() invocation, and possibly
+            // maintain deleter instance "do not delte" flag, insteadof using
+            // global do not delete list, at the price of deleter instance size
+            // increase.
+            // The alternative approach doesn't seem to be warranted given the
+            // overhead, and rather rare / uncommon use of this functionality..
+            abort();
+        }
+        return dbuf;
+    };
+    static bool Detached(const void* buf)
+        { return sInstance.DetachedSelf(buf); }
+private:
+    IOBufferDetacher()
+        : mMutex(),
+          mList(),
+          mHasEntriesFlag(false)
+        { mList.reserve(128); }
+    void DetachSelf(const void*& buf)
+    {
+        QCStMutexLocker lock(mMutex);
+        // Do not assign, uless the value changes, as store might not be atomic.
+        if (! mHasEntriesFlag) {
+            mHasEntriesFlag = true;
+        }
+        mList.push_back(&buf);
+    }
+    bool DetachedSelf(const void* buf)
+    {
+        // Flag fetch should not present a problem as Detach and Detached must
+        // be invoked from the same thread with the same buffer.
+        if (mHasEntriesFlag) {
+            QCStMutexLocker lock(mMutex);
+            List::iterator it;
+            for (it = mList.begin(); it != mList.end() && **it != buf; ++it)
+                {}
+            if (it != mList.end()) {
+                **it = 0;
+                mList.erase(it);
+                if (mList.empty()) {
+                    mHasEntriesFlag = false;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+private:
+    typedef vector<const void**> List;
+
+    QCMutex       mMutex;
+    List          mList;
+    volatile bool mHasEntriesFlag;
+
+    static IOBufferDetacher sInstance;
+};
+IOBufferDetacher IOBufferDetacher::sInstance;
+
 struct IOBufferArrayDeallocator
 {
-    void operator()(char* buf) { delete [] buf; }
+    void operator()(char* buf)
+    {
+        if (IOBufferDetacher::Detached(buf)) {
+            return;
+        }
+        delete [] buf;
+    }
 };
 
 struct IOBufferDeallocator
 {
-    void operator()(char* buf) { sIOBufferAllocator->Deallocate(buf); }
+    void operator()(char* buf)
+    {
+        if (IOBufferDetacher::Detached(buf)) {
+            return;
+        }
+        sIOBufferAllocator->Deallocate(buf);
+    }
 };
 
 struct IOBufferDeallocatorCustom
@@ -74,7 +172,13 @@ struct IOBufferDeallocatorCustom
         libkfsio::IOBufferAllocator& allocator)
         : mAllocator(allocator)
         {}
-    void operator()(char* buf) { mAllocator.Deallocate(buf); }
+    void operator()(char* buf)
+    {
+        if (IOBufferDetacher::Detached(buf)) {
+            return;
+        }
+        mAllocator.Deallocate(buf);
+    }
 private:
     libkfsio::IOBufferAllocator& mAllocator;
 };
@@ -108,7 +212,11 @@ IOBufferData::Init(char* buf, int bufSize)
 {
     // glibc malloc returns 2 * sizeof(size_t) aligned blocks.
     const int size = max(0, bufSize);
-    mData.reset(buf ? buf : new char [size], IOBufferArrayDeallocator());
+    if (size <= 0 && ! buf) {
+        mData.reset();
+    } else {
+        mData.reset(buf ? buf : new char [size], IOBufferArrayDeallocator());
+    }
     mProducer = mData.get();
     mEnd      = mProducer + size;
     mConsumer = mProducer;
@@ -173,7 +281,8 @@ IOBufferData::IOBufferData(int bufsz)
     IOBufferData::Init(0, bufsz);
 }
 
-IOBufferData::IOBufferData(char* buf, int offset, int size, libkfsio::IOBufferAllocator& allocator)
+IOBufferData::IOBufferData(char* buf, int offset, int size,
+    libkfsio::IOBufferAllocator& allocator)
     : mData(),
       mEnd(0),
       mProducer(0),
@@ -195,13 +304,14 @@ IOBufferData::IOBufferData(char* buf, int bufSize, int offset, int size)
     IOBufferData::Consume(offset);
 }
 
-IOBufferData::IOBufferData(const IOBufferBlockPtr& data, int bufSize, int offset, int size)
+IOBufferData::IOBufferData(const IOBufferBlockPtr& data,
+    int bufSize, int offset, int size)
     : mData(data),
       mEnd(0),
       mProducer(0),
       mConsumer(0)
 {
-    char* const buf = data.get();
+    char* const buf = mData.get();
     mEnd      = buf + bufSize;
     mProducer = buf;
     mConsumer = buf;
@@ -318,6 +428,21 @@ IOBufferData::CopyOut(char *buf, int numBytes) const
     const int nbytes = MaxConsumable(numBytes);
     memmove(buf, mConsumer, nbytes);
     return nbytes;
+}
+
+char*
+IOBufferData::DetachBuffer(bool consumerAtBufferStartFlag)
+{
+    if (consumerAtBufferStartFlag && mData.get() != mConsumer) {
+        return 0;
+    }
+    char* const buf = IOBufferDetacher::Detach(mData);
+    if (buf) {
+        mEnd      = 0;
+        mConsumer = 0;
+        mProducer = 0;
+    }
+    return buf;
 }
 
 #ifdef DEBUG_IOBuffer
@@ -1635,6 +1760,27 @@ IOBuffer::IndexOf(int offset, const char* str) const
     }
     DebugVerify();
     return -1;
+}
+
+char*
+IOBuffer::DetachFrontBuffer(bool fullOrPartialLastBufferFlag)
+{
+    DebugVerify();
+    if (mBuf.empty()) {
+        return 0;
+    }
+    IOBufferData& buf = mBuf.front();
+    const int nb = buf.BytesConsumable();
+    if (fullOrPartialLastBufferFlag && nb < mByteCount && ! buf.IsFull()) {
+        return 0; 
+    }
+    char* const ret = buf.DetachBuffer(fullOrPartialLastBufferFlag);
+    if  (ret) {
+        mBuf.pop_front();
+        mByteCount -= nb;
+    }
+    DebugVerify(0 != ret);
+    return ret;
 }
 
 int

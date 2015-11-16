@@ -401,6 +401,8 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mNumAppendsWithWid(0),
       mNumChunkWriteReplications(0),
       mNumChunkReadReplications(0),
+      mNumObjects(0),
+      mNumWrObjects(0),
       mDispatchedReqs(),
       mReqsTimeoutQueue(),
       mLostChunks(0),
@@ -895,10 +897,15 @@ ChunkServer::ForceDown()
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
+    const int64_t objDelta = -mNumObjects;
+    mNumObjects = 0;
+    const int64_t wrObjDelta = -mNumWrObjects;
+    mNumWrObjects = 0;
     ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
+    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
     UpdateChunkWritesPerDrive(0, 0);
-    FailDispatchedOps();
+    FailDispatchedOps("chunk server down");
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
@@ -967,10 +974,15 @@ ChunkServer::Error(const char* errorMsg)
     mUsedSpace    = 0;
     const int64_t delta = -mLoadAvg;
     mLoadAvg      = 0;
+    const int64_t objDelta = -mNumObjects;
+    mNumObjects = 0;
+    const int64_t wrObjDelta = -mNumWrObjects;
+    mNumWrObjects = 0;
     ClearStorageTiers();
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
+    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
     UpdateChunkWritesPerDrive(0, 0);
-    FailDispatchedOps();
+    FailDispatchedOps(errorMsg);
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
@@ -1728,8 +1740,15 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         mEvacuateDoneCnt   = prop.getValue("Evacuate-done",         int64_t(-1));
         mEvacuateDoneBytes = prop.getValue("Evacuate-done-bytes",   int64_t(-1));
         mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
-        const int numWrChunks = prop.getValue("Num-writable-chunks", 0);
-        const int numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+        const int     numWrChunks = prop.getValue("Num-writable-chunks", 0);
+        const int     numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+        const int64_t numObjs     = prop.getValue("Num-objs", int64_t(0));
+        const int64_t numWrObjs   =
+            min(numObjs, prop.getValue("Num-wr-objs", int64_t(0)));
+        if (mNumWrObjects != numWrObjs || numObjs != mNumObjects) {
+            gLayoutManager.UpdateObjectsCount(*this,
+                numObjs - mNumObjects, numWrObjs - mNumWrObjects);
+        }
         const bool kHexFormatFlag = false;
         UpdateStorageTiers(prop.getValue("Storage-tiers"),
             numWrDrives, numWrChunks, kHexFormatFlag);
@@ -1952,8 +1971,9 @@ ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 int
 ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
 {
-    NewChunkInTier(tier);
-
+    if (0 < r->numReplicas) {
+        NewChunkInTier(tier);
+    }
     MetaChunkAllocate* const req = new MetaChunkAllocate(
         NextSeq(), r, GetSelfPtr(), leaseId, tier, r->maxSTier
     );
@@ -2029,10 +2049,13 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
 }
 
 int
-ChunkServer::DeleteChunk(chunkId_t chunkId)
+ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion)
 {
-    mChunksToEvacuate.Erase(chunkId);
-    Enqueue(new MetaChunkDelete(NextSeq(), GetSelfPtr(), chunkId));
+    if (0 <= chunkVersion) {
+        mChunksToEvacuate.Erase(chunkId);
+    }
+    Enqueue(new MetaChunkDelete(
+        NextSeq(), shared_from_this(), chunkId, chunkVersion));
     return 0;
 }
 
@@ -2363,7 +2386,8 @@ ChunkServer::TimeoutOps()
             " total: "     << sChunkOpsInFlight.size() <<
             " "            << it->second->Show() <<
         KFS_LOG_EOM;
-        it->second->status = -EIO;
+        it->second->statusMsg = "request timed out";
+        it->second->status    = -EIO;
         it->second->resume();
     }
     return (mReqsTimeoutQueue.empty() ?
@@ -2371,7 +2395,7 @@ ChunkServer::TimeoutOps()
 }
 
 void
-ChunkServer::FailDispatchedOps()
+ChunkServer::FailDispatchedOps(const char* errMsg)
 {
     DispatchedReqs   reqs;
     ReqsTimeoutQueue reqTimeouts;
@@ -2405,7 +2429,8 @@ ChunkServer::FailDispatchedOps()
             it != reqs.end();
             ++it) {
         MetaChunkRequest* const op = it->second.first->second;
-        op->status = -EIO;
+        op->statusMsg = errMsg ? errMsg : "chunk server disconnect";
+        op->status    = -EIO;
         op->resume();
     }
 }
@@ -2851,7 +2876,7 @@ HibernatedChunkServer::HibernatedChunkServer(
       mModifiedChunks(),
       mDeletedReportCount(0),
       mListsSize(0),
-      mGeneration(++mGeneration),
+      mGeneration(++sGeneration),
       mModifiedChecksum()
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mModifiedChecksum,

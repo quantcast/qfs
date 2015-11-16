@@ -101,7 +101,8 @@ public:
     void MainLoop(
         QCMutex*    mutex                = 0,
         bool        wakeupAndCleanupFlag = true,
-        Dispatcher* dispatcher           = 0);
+        Dispatcher* dispatcher           = 0,
+        bool        runOnceFlag          = false);
     void Wakeup();
 
     void Shutdown()
@@ -205,7 +206,6 @@ public:
         bool resetTimer);
     static inline const NetManager* GetNetManager(const NetConnection& conn);
 private:
-    class Waker;
     typedef NetManagerEntry::List            List;
     typedef QCDLList<ITimeout>               TimeoutHandlers;
     typedef NetManagerEntry::PendingReadList PendingReadList;
@@ -232,13 +232,13 @@ private:
     const int       mTimeoutMs;
     const time_t    mStartTime;
     time_t          mNow;
+    time_t          mLastTimerTime;
     int64_t         mMaxOutgoingBacklog;
     int64_t         mNumBytesToSend;
     int64_t         mTimerOverrunCount;
     int64_t         mTimerOverrunSec;
     int             mMaxAcceptsPerRead;
     QCFdPoll&       mPoll;
-    Waker&          mWaker;
     PollEventHook*  mPollEventHook;
     NetManagerEntry mPendingReadList;
     PendingUpdate   mPendingUpdate;

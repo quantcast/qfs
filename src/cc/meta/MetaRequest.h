@@ -154,7 +154,8 @@ using std::less;
     f(ACK) \
     f(REMOVE_FROM_DUMPSTER) \
     f(LOG_CHUNK_ALLOCATE) \
-    f(LOG_WRITER_CONTROL)
+    f(LOG_WRITER_CONTROL) \
+    f(LOG_CLEAR_OBJ_STORE_DELETE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -1017,6 +1018,7 @@ struct MetaReaddirPlus: public MetaRequest {
 struct MetaGetalloc: public MetaRequest {
     fid_t           fid;          //!< file for alloc info is needed
     chunkOff_t      offset;       //!< offset of chunk within file
+    bool            objectStoreFlag;
     chunkId_t       chunkId;      //!< Id of the chunk corresponding to offset
     seq_t           chunkVersion; //!< version # assigned to this chunk
     ServerLocations locations;    //!< where the copies of the chunks are
@@ -1027,6 +1029,7 @@ struct MetaGetalloc: public MetaRequest {
         : MetaRequest(META_GETALLOC, kLogNever),
           fid(-1),
           offset(-1),
+          objectStoreFlag(false),
           chunkId(-1),
           chunkVersion(-1),
           locations(),
@@ -1055,6 +1058,7 @@ struct MetaGetalloc: public MetaRequest {
         .Def2("File-handle",  "P", &MetaGetalloc::fid,          fid_t(-1))
         .Def2("Chunk-offset", "O", &MetaGetalloc::offset,  chunkOff_t(-1))
         .Def2("Pathname",     "N", &MetaGetalloc::pathname               )
+        .Def2("Obj-store",    "S", &MetaGetalloc::objectStoreFlag,  false)
         ;
     }
 };
@@ -1117,6 +1121,7 @@ struct MetaGetlayout: public MetaRequest {
 struct MetaLeaseRelinquish: public MetaRequest {
     LeaseType  leaseType; //!< input
     chunkId_t  chunkId;   //!< input
+    chunkOff_t chunkPos;
     int64_t    leaseId;   //!< input
     chunkOff_t chunkSize;
     bool       hasChunkChecksum;
@@ -1125,6 +1130,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
         : MetaRequest(META_LEASE_RELINQUISH, kLogNever),
           leaseType(READ_LEASE),
           chunkId(-1),
+          chunkPos(-1),
           leaseId(-1),
           chunkSize(-1),
           hasChunkChecksum(false),
@@ -1162,6 +1168,7 @@ struct MetaLeaseRelinquish: public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def2("Lease-type",     "T", &MetaLeaseRelinquish::leaseTypeStr                 )
         .Def2("Chunk-handle",   "H", &MetaLeaseRelinquish::chunkId,        chunkId_t(-1))
+        .Def2("Chunk-pos",      "O", &MetaLeaseRelinquish::chunkPos,      chunkOff_t(-1))
         .Def2("Lease-id",       "L", &MetaLeaseRelinquish::leaseId,          int64_t(-1))
         .Def2("Chunk-size",     "S", &MetaLeaseRelinquish::chunkSize,     chunkOff_t(-1))
         .Def2("Chunk-checksum", "K", &MetaLeaseRelinquish::chunkChecksumHdr, int64_t(-1))
@@ -1223,8 +1230,10 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     uint32_t             delegationValidForTime;
     uint16_t             delegationFlags;
     int64_t              delegationIssuedTime;
+    int64_t              leaseDuration;
     // With StringBufT instead of string the append allocation (presently
     // the most frequent allocation type) saves malloc() calls.
+    StringBufT<64>       chunkServerName;
     StringBufT<64>       clientHost;   //!< the host from which request was received
     StringBufT<256>      pathname;     //!< full pathname that corresponds to fid
     MetaAllocate(seq_t s = -1, fid_t f = -1, chunkOff_t o = -1)
@@ -1266,6 +1275,8 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
           delegationValidForTime(0),
           delegationFlags(0),
           delegationIssuedTime(0),
+          leaseDuration(-1),
+          chunkServerName(),
           clientHost(),
           pathname(),
           startedFlag(false)
@@ -1300,6 +1311,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
         .Def2("Space-reserve",  "R", &MetaAllocate::spaceReservationSize, int(1<<20))
         .Def2("Max-appenders",  "M", &MetaAllocate::maxAppendersPerChunk,    int(64))
         .Def2("Invalidate-all", "I", &MetaAllocate::invalidateAllFlag,         false)
+        .Def2("Chunk-master",   "C", &MetaAllocate::chunkServerName                 )
         ;
     }
 private:
@@ -1316,6 +1328,7 @@ struct MetaLogChunkAllocate : public MetaRequest {
     int64_t                mtime;
     bool                   appendChunk;
     bool                   invalidateAllFlag;
+    bool                   objectStoreFileFlag;
     vector<ServerLocation> servers;
 
     MetaLogChunkAllocate(
@@ -1329,7 +1342,9 @@ struct MetaLogChunkAllocate : public MetaRequest {
           chunkVersion(1),
           mtime(0),
           appendChunk(false),
-          invalidateAllFlag(false)
+          invalidateAllFlag(false),
+          objectStoreFileFlag(false),
+          servers()
         {}
     bool Validate() { return true; }
     virtual bool start();
@@ -1355,6 +1370,7 @@ struct MetaLogChunkAllocate : public MetaRequest {
         .Def("M", &MetaLogChunkAllocate::mtime,               int64_t(0))
         .Def("A", &MetaLogChunkAllocate::appendChunk,         false)
         .Def("I", &MetaLogChunkAllocate::invalidateAllFlag,   false)
+        .Def("X", &MetaLogChunkAllocate::objectStoreFileFlag, false)
         .Def("S", &MetaLogChunkAllocate::servers)
         ;
     }
@@ -2005,11 +2021,13 @@ struct MetaChown: public MetaRequest {
 struct MetaChunkRequest : public MetaRequest {
     chunkId_t            chunkId;
     const ChunkServerPtr server; // The "owner".
+    seq_t                chunkVersion;
     MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
         : MetaRequest(o, la, s),
           chunkId(cid),
-          server(c)
+          server(c),
+          chunkVersion(0)
         {}
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
@@ -2044,7 +2062,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
           chunkServerAccessStr(),
           chunkAccessStr(),
           req(r)
-          {}
+          { chunkVersion = req->chunkVersion; }
     virtual void handle();
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -2061,13 +2079,19 @@ struct MetaChunkAllocate : public MetaChunkRequest {
  * \brief Delete RPC from meta server to chunk server
  */
 struct MetaChunkDelete: public MetaChunkRequest {
-    MetaChunkDelete(seq_t n, const ChunkServerPtr& s, chunkId_t c)
+    MetaChunkDelete(
+        seq_t                 n,
+        const ChunkServerPtr& s,
+        chunkId_t             c,
+        seq_t                 v)
         : MetaChunkRequest(META_CHUNK_DELETE, n, kLogNever, s, c)
-        {}
+        { chunkVersion = v; }
+    virtual void handle();
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta->chunk delete: chunkId: " << chunkId;
+        return os << "meta->chunk delete: chunkId: " << chunkId <<
+            " version: " << chunkVersion;
     }
 };
 
@@ -2096,7 +2120,6 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     > FileRecoveryInFlightCount;
 
     fid_t                               fid;          //!< input: we tell the chunkserver what it is
-    seq_t                               chunkVersion; //!< io: the chunkservers tells us what it did
     chunkOff_t                          chunkOffset;  //!< input: chunk recovery parameters
     int16_t                             striperType;
     int16_t                             numStripes;
@@ -2125,7 +2148,6 @@ struct MetaChunkReplicate: public MetaChunkRequest {
             FileRecoveryInFlightCount::iterator it)
         : MetaChunkRequest(META_CHUNK_REPLICATE, n, kLogNever, s, c),
           fid(f),
-          chunkVersion(-1),
           chunkOffset(-1),
           striperType(KFS_STRIPED_FILE_TYPE_NONE),
           numStripes(0),
@@ -2161,7 +2183,6 @@ struct MetaChunkReplicate: public MetaChunkRequest {
  */
 struct MetaChunkVersChange: public MetaChunkRequest {
     fid_t               fid;
-    seq_t               chunkVersion; //!< version # assigned to this chunk
     seq_t               fromVersion;
     bool                makeStableFlag;
     bool                pendingAddFlag;
@@ -2181,13 +2202,13 @@ struct MetaChunkVersChange: public MetaChunkRequest {
         bool                  verifyStblFlag)
         : MetaChunkRequest(META_CHUNK_VERSCHANGE, n, kLogNever, s, c),
           fid(f),
-          chunkVersion(v),
           fromVersion(fromVers),
           makeStableFlag(mkStableFlag),
           pendingAddFlag(pendAddFlag),
           verifyStableFlag(verifyStblFlag),
           replicate(repl)
     {
+        chunkVersion = v;
         if (replicate) {
             assert(! replicate->versChange);
             replicate->versChange = this;
@@ -2216,7 +2237,6 @@ struct MetaChunkVersChange: public MetaChunkRequest {
  */
 struct MetaChunkSize: public MetaChunkRequest {
     fid_t      fid; // redundant, for debug purposes only.
-    seq_t      chunkVersion;
     chunkOff_t chunkSize; //!< output: the chunk size
     bool       retryFlag;
     MetaChunkSize(
@@ -2228,10 +2248,9 @@ struct MetaChunkSize: public MetaChunkRequest {
             bool                  retry = false)
         : MetaChunkRequest(META_CHUNK_SIZE, n, kLogIfOk, s, c),
           fid(f),
-          chunkVersion(v),
           chunkSize(-1),
           retryFlag(retry)
-        {}
+        { chunkVersion = v; }
     bool Validate() { return true; }
     virtual bool start();
     virtual void handle();
@@ -2314,7 +2333,6 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
 
 struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     const fid_t          fid;           // input
-    const seq_t          chunkVersion;  // input
     const ServerLocation serverLoc;     // processing this cmd
     int64_t              chunkSize;     // output
     uint32_t             chunkChecksum; // output
@@ -2322,11 +2340,10 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
             const ServerLocation& l, fid_t f, chunkId_t c, seq_t v) :
         MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, n, kLogNever, s, c),
         fid(f),
-        chunkVersion(v),
         serverLoc(l),
         chunkSize(-1),
         chunkChecksum(0)
-        {}
+        { chunkVersion = v; }
     virtual void handle();
     virtual void request(ReqOstream &os);
     virtual void handleReply(const Properties& prop)
@@ -2468,7 +2485,6 @@ struct MetaLogChunkVersionChange : public MetaRequest {
  */
 struct MetaChunkMakeStable: public MetaChunkRequest {
     const fid_t      fid;   //!< input: we tell the chunkserver what it is
-    const seq_t      chunkVersion; //!< The version tha the chunk should be in
     const chunkOff_t chunkSize;
     const bool       hasChunkChecksum:1;
     const bool       addPending:1;
@@ -2486,12 +2502,11 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
         : MetaChunkRequest(META_CHUNK_MAKE_STABLE,
                 inSeqNo, kLogNever, inServer, inChunkId),
           fid(inFileId),
-          chunkVersion(inChunkVersion),
           chunkSize(inChunkSize),
           hasChunkChecksum(inHasChunkChecksum),
           addPending(inAddPending),
           chunkChecksum(inChunkChecksum)
-        {}
+        { chunkVersion = inChunkVersion; }
     virtual void handle();
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const;
@@ -3409,7 +3424,9 @@ struct MetaLeaseAcquire: public MetaRequest {
     typedef StBufferT<ChunkAccessInfo, 3> ChunkAccess;
 
     StringBufT<256>    pathname; // Optional for debugging.
+    StringBufT<64>     chunkServerName;
     chunkId_t          chunkId;
+    chunkOff_t         chunkPos;
     bool               flushFlag;
     int                leaseTimeout;
     int64_t            leaseId;
@@ -3425,7 +3442,9 @@ struct MetaLeaseAcquire: public MetaRequest {
     MetaLeaseAcquire()
         : MetaRequest(META_LEASE_ACQUIRE, kLogNever),
           pathname(),
+          chunkServerName(),
           chunkId(-1),
+          chunkPos(-1),
           flushFlag(false),
           leaseTimeout(LEASE_INTERVAL_SECS),
           leaseId(-1),
@@ -3461,12 +3480,14 @@ struct MetaLeaseAcquire: public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def2("Pathname",            "N", &MetaLeaseAcquire::pathname                         )
         .Def2("Chunk-handle",        "H", &MetaLeaseAcquire::chunkId,      chunkId_t(-1)      )
+        .Def2("Chunk-pos",           "O", &MetaLeaseAcquire::chunkPos,           chunkId_t(-1))
         .Def2("Flush-write-lease",   "F", &MetaLeaseAcquire::flushFlag,    false              )
         .Def2("Lease-timeout",       "T", &MetaLeaseAcquire::leaseTimeout, LEASE_INTERVAL_SECS)
         .Def2("Chunk-ids",           "I", &MetaLeaseAcquire::chunkIds)
         .Def2("Get-locations",       "L", &MetaLeaseAcquire::getChunkLocationsFlag,      false)
         .Def2("Append-recovery",     "A", &MetaLeaseAcquire::appendRecoveryFlag,         false)
         .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::leaseId,              int64_t(-1))
+        .Def2("Chunk-server",        "C", &MetaLeaseAcquire::chunkServerName                  )
         ;
     }
 protected:
@@ -3483,7 +3504,9 @@ struct MetaLeaseRenew: public MetaRequest {
 
     LeaseType          leaseType;
     StringBufT<256>    pathname; // Optional for debugging;
+    StringBufT<64>     chunkServerName;
     chunkId_t          chunkId;
+    chunkOff_t         chunkPos;
     int64_t            leaseId;
     bool               emitCSAccessFlag;
     bool               clientCSAllowClearTextFlag;
@@ -3496,7 +3519,9 @@ struct MetaLeaseRenew: public MetaRequest {
         : MetaRequest(META_LEASE_RENEW, kLogNever),
           leaseType(READ_LEASE),
           pathname(),
+          chunkServerName(),
           chunkId(-1),
+          chunkPos(-1),
           leaseId(-1),
           emitCSAccessFlag(false),
           clientCSAllowClearTextFlag(false),
@@ -3534,7 +3559,9 @@ struct MetaLeaseRenew: public MetaRequest {
         .Def2("Lease-type",   "T", &MetaLeaseRenew::leaseTypeStr          )
         .Def2("Lease-id",     "L", &MetaLeaseRenew::leaseId,   int64_t(-1))
         .Def2("Chunk-handle", "H", &MetaLeaseRenew::chunkId, chunkId_t(-1))
+        .Def2("Chunk-pos",    "O", &MetaLeaseRenew::chunkPos, chunkId_t(-1))
         .Def2("CS-access",    "A", &MetaLeaseRenew::emitCSAccessFlag)
+        .Def2("Chunk-server", "C", &MetaLeaseRenew::chunkServerName)
         ;
     }
 private:
@@ -3748,6 +3775,31 @@ struct MetaLogWriterControl : public MetaRequest {
         }
         os << " status: "  << status;
         return os;
+    }
+};
+
+struct MetaLogClearObjStoreDelete : public MetaRequest
+{
+    MetaLogClearObjStoreDelete()
+        : MetaRequest(META_LOG_CLEAR_OBJ_STORE_DELETE, kLogIfOk)
+        {}
+    bool Validate()
+        { return true; }
+    virtual bool start();
+    virtual void handle();
+    virtual void response(ReqOstream& /* os */)
+        { /* No response; */ }
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "clear object store delete"); }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return  MetaRequest::ParserDef(parser)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        ;
     }
 };
 

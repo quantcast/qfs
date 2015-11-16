@@ -176,7 +176,7 @@ inline static bool
 GetContentLengthAndHost(const char* ptr, const char* end,
     LengthT& contentLength, HostT* host)
 {
-    bool                found = true;
+    bool                found = false;
     PropertiesTokenizer tokenizer(ptr, end - ptr);
     while (tokenizer.Next()) {
         if (tokenizer.GetKey().mLen == kHttpContentLengthKey.mLen &&

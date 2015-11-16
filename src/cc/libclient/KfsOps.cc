@@ -436,7 +436,11 @@ GetAllocOp::Request(ReqOstream& os)
     os <<
         (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid << "\r\n" <<
         (shortRpcFormatFlag ? "O:" : "Chunk-offset: ") << fileOffset << "\r\n"
-    "\r\n";
+    ;
+    if (objectStoreFlag) {
+        os << (shortRpcFormatFlag ? "S:1\r\n" : "Obj-store: 1\r\n");
+    }
+    os << "\r\n";
 }
 
 void
@@ -507,6 +511,10 @@ AllocateOp::Request(ReqOstream& os)
     if (invalidateAllFlag) {
         os << (shortRpcFormatFlag ? "I:1\r\n" : "Invalidate-all: 1\r\n");
     }
+    if (masterServer.IsValid()) {
+        os << (shortRpcFormatFlag ? "C:" : "Chunk-master: ") <<
+            masterServer << "\r\n";
+    }
     if (append) {
         os <<
             (shortRpcFormatFlag ? "A:1\r\n" : "Chunk-append: 1\r\n") <<
@@ -549,7 +557,9 @@ CloseOp::Request(ReqOstream& os)
 {
     os <<
         "CLOSE\r\n"      << ReqHeaders(*this) <<
-        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n"
+        (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n" <<
+        (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+            chunkVersion << "\r\n"
         << Access()
     ;
     if (! writeInfo.empty()) {
@@ -754,6 +764,9 @@ LeaseAcquireOp::Request(ReqOstream& os)
         os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") <<
             chunkId << "\r\n";
     }
+    if (0 <= chunkPos) {
+        os << (shortRpcFormatFlag ? "O:" : "Chunk-pos: ") << chunkPos << "\r\n";
+    }
     if (flushFlag) {
         os << (shortRpcFormatFlag ? "F:1\r\n" : "Flush-write-lease: 1\r\n");
     }
@@ -771,6 +784,10 @@ LeaseAcquireOp::Request(ReqOstream& os)
             }
             os << "\r\n";
         }
+    }
+    if (chunkServer.IsValid()) {
+        os << (shortRpcFormatFlag ? "C:" : "Chunk-server: ") <<
+            chunkServer << "\r\n";
     }
     if (chunkIds && (leaseIds || getChunkLocationsFlag) && chunkIds[0] >= 0) {
         os << (shortRpcFormatFlag ? "I:" : "Chunk-ids:");
@@ -798,6 +815,13 @@ LeaseRenewOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "L:" : "Lease-id: ")      << leaseId      << "\r\n" <<
     (shortRpcFormatFlag ? "T:" : "Lease-type: ")    << "READ_LEASE"    "\r\n"
     ;
+    if (0 <= chunkPos) {
+        os << (shortRpcFormatFlag ? "O:" : "Chunk-pos: ") << chunkPos << "\r\n";
+    }
+    if (chunkServer.IsValid()) {
+        os << (shortRpcFormatFlag ? "C:" : "Chunk-server: ") <<
+            chunkServer << "\r\n";
+    }
     if (getCSAccessFlag) {
         os << (shortRpcFormatFlag ? "A:1\r\n" : "CS-access: 1\r\n");
     }
@@ -812,7 +836,11 @@ LeaseRelinquishOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "H:" : "Chunk-handle:") << chunkId << "\r\n" <<
     (shortRpcFormatFlag ? "L:" : "Lease-id: ")    << leaseId << "\r\n" <<
     (shortRpcFormatFlag ? "T:" : "Lease-type: ")  << "READ_LEASE" "\r\n"
-    "\r\n";
+    ;
+    if (0 <= chunkPos) {
+        os << (shortRpcFormatFlag ? "O:" : "Chunk-pos: ") << chunkPos << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void
@@ -1011,6 +1039,8 @@ CreateOp::ParseResponseHeaderSelf(const Properties& prop)
     metaStriperType   = prop.getValue(
         shortRpcFormatFlag ? "ST" : "Striper-type",
         int(KFS_STRIPED_FILE_TYPE_NONE));
+    metaNumReplicas   = prop.getValue(
+        shortRpcFormatFlag ? "R:" : "Num-replicas: ", numReplicas);
     if (0 <= status) {
         permissions.user  = prop.getValue(
             shortRpcFormatFlag ? "u" : "User", permissions.user);
@@ -1292,6 +1322,8 @@ AllocateOp::ParseResponseHeaderSelf(const Properties& prop)
     if (status < 0) {
         return;
     }
+    chunkLeaseDuration = prop.getValue(
+        shortRpcFormatFlag ? "LD" : "Lease-duration", int64_t(-1));
     if (ParseChunkServerAccess(*this, prop.getValue(
             shortRpcFormatFlag ? "SA" : "CS-access"),
             chunkServerAccessToken, chunkServerAccessKey)) {

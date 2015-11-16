@@ -199,8 +199,8 @@ restore_fattr(DETokenizer& c)
     // filesize is optional; if it isn't there, we can re-compute
     // by asking the chunkservers
     const bool gotfilesize = pop_offset(filesize, "filesize", c, true) &&
-        filesize >= 0;
-    if (numReplicas < minReplicasPerFile) {
+        (filesize >= 0 || 0 == numReplicas);
+    if (0 != numReplicas && numReplicas < minReplicasPerFile) {
         numReplicas = minReplicasPerFile;
     }
     // chunkcount is an estimate; recompute it as we add chunks to the file.
@@ -236,11 +236,8 @@ restore_fattr(DETokenizer& c)
             return false;
         }
         f->mode = (kfsMode_t)n;
-        if ((type == KFS_FILE || type == KFS_DIR) && ! c.empty()) {
-            if (! pop_num(n, "minTier", c, ok)) {
-                f->destroy();
-                return false;
-            }
+        if ((type == KFS_FILE || type == KFS_DIR) && ! c.empty() &&
+                pop_num(n, "minTier", c, ok)) {
             f->minSTier = (kfsSTier_t)n;
             if (! pop_num(n, "maxTier", c, ok)) {
                 f->destroy();
@@ -252,6 +249,16 @@ restore_fattr(DETokenizer& c)
                     f->maxSTier < kKfsSTierMin || f->maxSTier > kKfsSTierMax) {
                 f->destroy();
                 return false;
+            }
+        }
+        if (! c.empty()) {
+            if (! pop_num(n, "nextChunkOffset", c, ok) ||
+                    n < 0 || n % CHUNKSIZE != 0) {
+                f->destroy();
+                return false;
+            }
+            if (0 == numReplicas) {
+                f->nextChunkOffset() = (chunkOff_t)n;
             }
         }
     } else {
@@ -482,6 +489,30 @@ restore_group_users(DETokenizer& c)
         token.ptr, token.len, appendFlag, c.getIntBase() == 16) == 0;
 }
 
+static bool
+restore_objstore_delete(DETokenizer& c)
+{
+    const bool osdFlag = c.front() == DETokenizer::Token("osd", 3);
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const chunkId_t chunkId = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const chunkOff_t last = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    return gLayoutManager.AddPendingObjStoreDelete(
+        chunkId, osdFlag ? last : chunkOff_t(0), last);
+}
+
 static const DiskEntry&
 get_entry_map()
 {
@@ -510,6 +541,8 @@ get_entry_map()
     e.add_parser("gu",                      &restore_group_users);
     e.add_parser("guc",                     &restore_group_users);
     e.add_parser("gur",                     &restore_group_users_reset);
+    e.add_parser("osx",                     &restore_objstore_delete);
+    e.add_parser("osd",                     &restore_objstore_delete);
     initied = true;
     return e;
 }

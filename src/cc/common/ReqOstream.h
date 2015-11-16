@@ -33,6 +33,9 @@
 namespace KFS
 {
 
+struct ServerLocation;
+class CIdChecksum;
+
 template<typename T>
 class ReqOstreamT
 {
@@ -49,6 +52,10 @@ public:
     ST& operator<<(unsigned int       inVal) { return InsertInt(inVal); }
     ST& operator<<(unsigned long      inVal) { return InsertInt(inVal); }
     ST& operator<<(unsigned long long inVal) { return InsertInt(inVal); }
+    ST& operator<<(const ServerLocation& inLoc)
+        { mStream << inLoc; return *this; }
+    ST& operator<<(const CIdChecksum& inChecksum)
+        { mStream << inChecksum; return *this; }
     template<typename VT>
     ST& operator<<(const VT& inVal) { mStream << inVal; return *this; }
     ST& flush() { mStream.flush(); return *this; }

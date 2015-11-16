@@ -211,7 +211,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
         return -EINVAL;
     }
 
-    if (numReplicas <= 0) {
+    if (numReplicas < 0) {
         KFS_LOG_STREAM_DEBUG << "Bad # of replicas (" <<
             numReplicas << ") for " << fname << KFS_LOG_EOM;
         return -EINVAL;
@@ -276,7 +276,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
     }
     UpdateNumFiles(1);
     updateCounts(fa, 0, 1, 0);
-    fa->minSTier = parent->minSTier;
+    fa->minSTier = 0 == numReplicas ? parent->maxSTier : parent->minSTier;
     fa->maxSTier = parent->maxSTier;
     if (newFattr) {
         *newFattr = fa;
@@ -435,6 +435,8 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),
              mem_fun(&MetaChunkInfo::DeleteChunk));
+    } else if (0 == fa->numReplicas) {
+        gLayoutManager.DeleteFile(*fa);
     }
     UpdateNumFiles(-1);
     setFileSize(fa, 0, -1, 0);
@@ -903,7 +905,8 @@ canAccess(Tree& tree, fid_t dir, MetaFattr& fa,
     }
     MetaFattr* parent = fa.parent;
     if (! parent) {
-        parent = dir == ROOTFID ? &fa : tree.getFattr(dir);
+        parent = (dir == ROOTFID && fa.id() == ROOTFID) ?
+            &fa : tree.getFattr(dir);
         if (! parent) {
             panic("canAccess: no parent attribute");
             return false;
@@ -1375,8 +1378,7 @@ Tree::getalloc(fid_t fid, chunkOff_t& offset,
  * \return        status code
  */
 int
-Tree::getLastChunkInfo(fid_t fid, bool nonStripedFileFlag,
-    MetaFattr*& fa, MetaChunkInfo*& c)
+Tree::getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c)
 {
     fa = 0;
     ChunkIterator cit = getAlloc(fid, fa);
@@ -1492,11 +1494,25 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
         return -EACCES;
     }
     if (numReplicas) {
-        assert(fa->numReplicas != 0);
         *numReplicas = fa->numReplicas;
     }
     if (stripedFileFlag) {
         *stripedFileFlag = fa->IsStriped();
+    }
+    if (0 == fa->numReplicas) {
+        if (-ENOENT != res || ci) {
+            panic("chunk entry in object sotre file");
+            return -EFAULT;
+        }
+        if (0 != *chunkId && file != *chunkId) {
+            return -EINVAL; // Prevent chunk assignment in replay.
+        }
+        *chunkId      = file;
+        *chunkVersion = chunkStartOffset(offset) + fa->maxSTier;
+        if (offset < fa->nextChunkOffset()) {
+            return -EEXIST;
+        }
+        return 0;
     }
     // check if an id has already been assigned to this offset
     if (res != -ENOENT && ci) {
@@ -1530,65 +1546,73 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
 int
 Tree::assignChunkId(fid_t file, chunkOff_t offset,
     chunkId_t chunkId, seq_t chunkVersion,
-    chunkOff_t* appendOffset, chunkId_t* curChunkId, bool appendReplayFlag)
+    chunkOff_t* appendOffset, chunkId_t* curChunkId, bool appendReplayFlag,
+    const MetaFattr** outFa)
 {
     MetaFattr * const fa = getFattr(file);
+    if (outFa) {
+        *outFa = fa;
+    }
     if (! fa) {
         return -ENOENT;
     }
     chunkOff_t boundary = chunkStartOffset(offset);
-    // check if an id has already been assigned to this chunk
-    const Key    ckey(KFS_CHUNKINFO, file, boundary);
-    int          kp;
-    Node * const l = findLeaf(ckey, kp);
-    if (l) {
-        if (! appendOffset) {
-            MetaChunkInfo* const c = l->extractMeta<MetaChunkInfo>(kp);
-            if (curChunkId) {
-                *curChunkId = c->chunkId;
-            }
-            if (c->chunkId != chunkId || c->chunkVersion == chunkVersion) {
-                return -EEXIST;
-            }
-            gLayoutManager.SetChunkVersion(*c, chunkVersion);
-            // c->chunkVersion = chunkVersion;
-            if (appendReplayFlag && ! fa->IsStriped()) {
-                const chunkOff_t size = max(
-                    fa->nextChunkOffset(), boundary + chunkOff_t(CHUNKSIZE));
-                if (fa->filesize < size) {
-                    setFileSize(fa, size);
+    if (0 != fa->numReplicas) {
+        // check if an id has already been assigned to this chunk
+        const Key    ckey(KFS_CHUNKINFO, file, boundary);
+        int          kp;
+        Node * const l = findLeaf(ckey, kp);
+        if (l) {
+            if (! appendOffset) {
+                MetaChunkInfo* const c = l->extractMeta<MetaChunkInfo>(kp);
+                if (curChunkId) {
+                    *curChunkId = c->chunkId;
                 }
-            } else if (boundary + chunkOff_t(CHUNKSIZE) >=
-                        fa->nextChunkOffset() &&
-                    ! fa->IsStriped() &&
-                    fa->filesize >= 0) {
-                invalidateFileSize(fa);
+                if (c->chunkId != chunkId || c->chunkVersion == chunkVersion) {
+                    return -EEXIST;
+                }
+                gLayoutManager.SetChunkVersion(*c, chunkVersion);
+                // c->chunkVersion = chunkVersion;
+                if (appendReplayFlag && ! fa->IsStriped()) {
+                    const chunkOff_t size = max(
+                        fa->nextChunkOffset(), boundary +
+                        chunkOff_t(CHUNKSIZE));
+                    if (fa->filesize < size) {
+                        setFileSize(fa, size);
+                    }
+                } else if (boundary + chunkOff_t(CHUNKSIZE) >=
+                            fa->nextChunkOffset() &&
+                        ! fa->IsStriped() &&
+                        fa->filesize >= 0) {
+                    invalidateFileSize(fa);
+                }
+                fa->mtime = microseconds();
+                return 0;
             }
-            fa->mtime = microseconds();
-            return 0;
+            boundary      = fa->nextChunkOffset();
+            *appendOffset = boundary;
         }
-        boundary      = fa->nextChunkOffset();
-        *appendOffset = boundary;
-    }
 
-    bool newEntryFlag = false;
-    MetaChunkInfo* const m = gLayoutManager.AddChunkToServerMapping(
-            fa, boundary, chunkId, chunkVersion, newEntryFlag);
-    if (! m || ! newEntryFlag) {
-        panic("duplicate chunk mapping");
-        return -EFAULT;
+        bool newEntryFlag = false;
+        MetaChunkInfo* const m = gLayoutManager.AddChunkToServerMapping(
+                fa, boundary, chunkId, chunkVersion, newEntryFlag);
+        if (! m || ! newEntryFlag) {
+            panic("duplicate chunk mapping");
+            return -EFAULT;
+        }
+        if (insert(m)) {
+            // insert failed
+            m->destroy();
+            panic("assignChunk");
+            return -EFAULT;
+        }
     }
-    if (insert(m)) {
-        // insert failed
-        m->destroy();
-        panic("assignChunk");
-        return -EFAULT;
-    }
-
     // insert succeeded; so, bump the chunkcount.
-    fa->chunkcount()++;
+    if (0 != fa->numReplicas) {
+        fa->chunkcount()++;
+    }
     if (boundary >= fa->nextChunkOffset()) {
-        if (! fa->IsStriped() && fa->filesize >= 0 &&
+        if (0 != fa->numReplicas && ! fa->IsStriped() && 0 <= fa->filesize &&
                 ! appendOffset && ! appendReplayFlag) {
             // We will know the size of the file only when the write to
             // this chunk is finished. Invalidate the size now.
@@ -1602,9 +1626,9 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
             setFileSize(fa, size);
         }
     }
-
-    UpdateNumChunks(1);
-
+    if (0 != fa->numReplicas) {
+        UpdateNumChunks(1);
+    }
     fa->mtime = microseconds();
     if (curChunkId) {
         *curChunkId = chunkId;
@@ -1653,6 +1677,9 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
     if (! srcFa->CanWrite(euser, egroup) ||
             ! dstFa->CanWrite(euser, egroup)) {
         return -EACCES;
+    }
+    if (0 == srcFa->numReplicas || 0 == dstFa->numReplicas) {
+        return -ENOSYS;
     }
     // If files are striped, both have to have the same stripe parameters,
     // and the last chunk blocks should be complete.
@@ -1803,7 +1830,23 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
     if (fa->filesize == offset) {
         return 0;
     }
-    if (fa->IsStriped() && (offset > 0 || endOffset >= 0)) {
+    if (0 == fa->numReplicas) {
+        if (! setEofHintFlag || 0 <= endOffset ||
+                (0 < offset && fa->nextChunkOffset() <= 0) ||
+                fa->FilePosToChunkBlkIndex(offset - 1) !=
+                fa->LastChunkBlkIndex() ||
+                offset < fa->filesize) {
+            // Truncate is not supported with object store files.
+            // Only setting logic EOF is allowed.
+            return -ENOSYS;
+        }
+        setFileSize(fa, offset);
+        if (mtime) {
+            fa->mtime = *mtime;
+        }
+        return 0;
+    }
+    if (fa->IsStriped() && (0 < offset || 0 <= endOffset)) {
         // For now do not allow truncation of striped files, and do not
         // allow to create trailing hole.
         // Use truncate only to set the logical eof.
@@ -1811,7 +1854,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
         if (endOffset >= 0 || offset < fa->filesize ||
                 fa->FilePosToChunkBlkIndex(offset - 1) !=
                 fa->LastChunkBlkIndex()) {
-            return -EACCES;
+            return -ENOSYS;
         }
         setFileSize(fa, offset);
         if (mtime) {
@@ -2115,6 +2158,10 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
     }
     if ((int)fa->numReplicas == numReplicas) {
         return 0;
+    }
+    if (KFS_FILE == fa->type && 0 == fa->numReplicas) {
+        // Do not allow to change object store file replication.
+        return -EINVAL;
     }
     fa->setReplication(numReplicas);
     StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);

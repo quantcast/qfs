@@ -49,90 +49,6 @@ using std::min;
 using std::max;
 using std::numeric_limits;
 
-class NetManager::Waker
-{
-public:
-    Waker()
-        : mMutex(),
-          mWritten(0),
-          mSleepingFlag(false),
-          mWakeFlag(false)
-    {
-        const int res = pipe(mPipeFds);
-        if (res < 0) {
-            perror("pipe");
-            mPipeFds[0] = -1;
-            mPipeFds[1] = -1;
-            abort();
-            return;
-        }
-        fcntl(mPipeFds[0], F_SETFL, O_NONBLOCK);
-        fcntl(mPipeFds[1], F_SETFL, O_NONBLOCK);
-        fcntl(mPipeFds[0], F_SETFD, FD_CLOEXEC);
-        fcntl(mPipeFds[1], F_SETFD, FD_CLOEXEC);
-    }
-    ~Waker() { Waker::Close(); }
-    bool Sleep()
-    {
-        QCStMutexLocker lock(mMutex);
-        mSleepingFlag = ! mWakeFlag;
-        mWakeFlag = false;
-        return mSleepingFlag;
-    }
-    int Wake()
-    {
-        QCStMutexLocker lock(mMutex);
-        mSleepingFlag = false;
-        while (mWritten > 0) {
-            char buf[64];
-            const int res = read(mPipeFds[0], buf, sizeof(buf));
-            if (res > 0) {
-                mWritten -= min(mWritten, res);
-            } else {
-                break;
-            }
-        }
-        return (mWritten);
-    }
-    void Wakeup()
-    {
-        QCStMutexLocker lock(mMutex);
-        mWakeFlag = true;
-        if (mSleepingFlag && mWritten <= 0) {
-            const char buf = 'k';
-            const ssize_t res = write(mPipeFds[1], &buf, sizeof(buf));
-            if (0 < res) {
-                mWritten += res;
-            } else {
-                const int err = errno;
-                KFS_LOG_STREAM_ERROR << "wakeup: write: " <<
-                    res << " " << QCUtils::SysError(err) <<
-                KFS_LOG_EOM;
-            }
-        }
-    }
-    int GetFd() const { return mPipeFds[0]; }
-    void Close()
-    {
-        for (int i = 0; i < 2; i++) {
-            if (mPipeFds[i] >= 0) {
-                close(mPipeFds[i]);
-                mPipeFds[i] = -1;
-            }
-        }
-    }
-private:
-    QCMutex mMutex;
-    int     mWritten;
-    int     mPipeFds[2];
-    bool    mSleepingFlag;
-    bool    mWakeFlag;
-
-private:
-   Waker(const Waker&);
-   Waker& operator=(const Waker&);
-};
-
 NetManager::NetManager(int timeoutMs)
     : mRemove(),
       mTimerWheelBucketItr(mRemove.end()),
@@ -149,13 +65,13 @@ NetManager::NetManager(int timeoutMs)
       mTimeoutMs(timeoutMs),
       mStartTime(time(0)),
       mNow(mStartTime),
+      mLastTimerTime(mNow - 1),
       mMaxOutgoingBacklog(0),
       mNumBytesToSend(0),
       mTimerOverrunCount(0),
       mTimerOverrunSec(0),
       mMaxAcceptsPerRead(1),
-      mPoll(*(new QCFdPoll())),
-      mWaker(*(new Waker())),
+      mPoll(*(new QCFdPoll(true))), // Wakeable
       mPollEventHook(0),
       mPendingReadList(),
       mPendingUpdate(),
@@ -171,7 +87,6 @@ NetManager::~NetManager()
     NetManager::CleanUp();
     assert(! PendingReadList::IsInList(mPendingReadList));
     delete &mPoll;
-    delete &mWaker;
 }
 
 void
@@ -440,25 +355,23 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
 void
 NetManager::Wakeup()
 {
-    mWaker.Wakeup();
+    mPoll.Wakeup();
 }
 
 void
 NetManager::MainLoop(
     QCMutex*                mutex                /* = 0 */,
     bool                    wakeupAndCleanupFlag /* = true */,
-    NetManager::Dispatcher* dispatcher           /* = 0 */)
+    NetManager::Dispatcher* dispatcher           /* = 0 */,
+    bool                    runOnceFlag          /* false */)
 {
     QCStMutexLocker locker(mutex);
 
-    mNow = time(0);
-    time_t lastTimerTime = mNow;
-    if (wakeupAndCleanupFlag) {
-        CheckFatalPollSysError(
-            mPoll.Add(mWaker.GetFd(), QCFdPoll::kOpTypeIn),
-            "failed to add net waker's fd to the poll set"
-        );
-    } else {
+    if (! runOnceFlag || mLastTimerTime != mNow) {
+        mNow           = time(0);
+        mLastTimerTime = mNow;
+    }
+    if (! wakeupAndCleanupFlag && ! runOnceFlag) {
         mRunFlag = true;
     }
     const int timerOverrunWarningTime(mTimeoutMs / (1000/2));
@@ -491,8 +404,8 @@ NetManager::MainLoop(
         if (dispatcher) {
             dispatcher->DispatchEnd();
         }
-        const int timeout = (! PendingReadList::IsInList(mPendingReadList)
-            && mWaker.Sleep()) ? mTimeoutMs : 0;
+        const int timeout = PendingReadList::IsInList(mPendingReadList) ?
+            0 : mTimeoutMs;
         const int fdCount = mConnectionsCount + 1;
         assert(mPendingUpdate.empty());
         mPollFlag = true;
@@ -503,7 +416,6 @@ NetManager::MainLoop(
                 QCUtils::SysError(-ret, "poll error") <<
             KFS_LOG_EOM;
         }
-        mWaker.Wake();
         unlocker.Lock();
         mPollFlag = false;
         const int64_t nowMs = ITimeout::NowMs();
@@ -586,14 +498,14 @@ NetManager::MainLoop(
         }
         mRemove.clear();
         mNow = time(0);
-        int slotCnt = min(int(kTimerWheelSize), int(mNow - lastTimerTime));
-        if (lastTimerTime + timerOverrunWarningTime < mNow) {
+        int slotCnt = min(int(kTimerWheelSize), int(mNow - mLastTimerTime));
+        if (mLastTimerTime + timerOverrunWarningTime < mNow) {
             KFS_LOG_STREAM_INFO <<
-                "timer overrun " << (mNow - lastTimerTime) <<
+                "timer overrun " << (mNow - mLastTimerTime) <<
                 " seconds detected" <<
             KFS_LOG_EOM;
             mTimerOverrunCount++;
-            mTimerOverrunSec += mNow - lastTimerTime;
+            mTimerOverrunSec += mNow - mLastTimerTime;
         }
         mTimerRunningFlag = true;
         while (slotCnt-- > 0) {
@@ -625,17 +537,22 @@ NetManager::MainLoop(
             mRemove.clear();
         }
         mTimerRunningFlag = false;
-        lastTimerTime = mNow;
+        mLastTimerTime = mNow;
         mTimerWheelBucketItr = mRemove.end();
+        if (runOnceFlag) {
+            break;
+        }
     }
-    if (wakeupAndCleanupFlag) {
-        CheckFatalPollSysError(
-            mPoll.Remove(mWaker.GetFd()),
-            "failed to removed net kicker's fd from poll set"
-        );
-        CleanUp();
+    if (runOnceFlag) {
+        if (! mRunFlag) {
+            CleanUp();
+        }
     } else {
-        mRunFlag = true;
+        if (wakeupAndCleanupFlag) {
+            CleanUp();
+        } else {
+            mRunFlag = true;
+        }
     }
     if (dispatcher) {
         dispatcher->DispatchExit();
@@ -673,7 +590,6 @@ NetManager::CleanUp(bool childAtForkFlag, bool onlyCloseFdFlag)
     }
     if (childAtForkFlag) {
         mPoll.Close();
-        mWaker.Close();
     }
     for (int i = 0; i <= kTimerWheelSize; i++) {
         for (mTimerWheelBucketItr = mTimerWheel[i].begin();

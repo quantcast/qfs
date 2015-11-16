@@ -448,7 +448,10 @@ public:
     ///  deleted.
     /// @retval 0 on success; -1 on failure
     ///
-    int DeleteChunk(chunkId_t chunkId);
+    int DeleteChunk(chunkId_t chunkId) {
+        return DeleteChunkVers(chunkId, 0);
+    }
+    int DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion);
 
     ///
     /// Send a message to the server asking it to go down.
@@ -865,7 +868,10 @@ public:
     inline void HelloDone(MetaHello& r);
     uint64_t GetHibernatedGeneration() const
         { return mHibernatedGeneration; }
-
+    const int64_t GetOpenObjectCount() const
+        { return mNumObjects; }
+    const int64_t GetWritableObjectCount() const
+        { return mNumWrObjects; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -998,6 +1004,9 @@ protected:
     /// Track the # of chunk replications (write/read) that are going on this server
     int mNumChunkWriteReplications;
     int mNumChunkReadReplications;
+
+    int64_t mNumObjects;
+    int64_t mNumWrObjects;
 
     typedef multimap <
         time_t,
@@ -1161,7 +1170,7 @@ protected:
     /// also, fail all the dispatched ops.
     ///
     void Error(const char* errorMsg);
-    void FailDispatchedOps();
+    void FailDispatchedOps(const char* errorMsg);
     /// Periodically, send a heartbeat message to the chunk server.
     int Heartbeat();
     int TimeoutOps();

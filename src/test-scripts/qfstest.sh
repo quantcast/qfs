@@ -23,9 +23,9 @@
 #
 #
 
-twrsync=${twrsync-0}
 csrpctrace=${rpctrace-0}
 trdverify=${trdverify-0}
+s3debug=0
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -38,20 +38,41 @@ while [ $# -ge 1 ]; do
         testipv6='yes'
     elif [ x"$1" = x'-noauth' ]; then
         auth='no'
+    elif [ x"$1" = x'-s3' ]; then
+        s3test='yes'
+    elif [ x"$1" = x'-s3debug' ]; then
+        s3test='yes'
+        s3debug=1
     elif [ x"$1" = x'-auth' ]; then
         auth='no'
-    elif [ x"$1" = x'-twrsync' ]; then
-        twrsync=1
     elif [ x"$1" = x'-csrpctrace' ]; then
         csrpctrace=1
     else
         echo "unsupported option: $1" 1>&2
         echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]"\
-            "[-twrsync] [-csrpctrace] [-trdverify]"
+            " [-s3 | -s3debug] [-csrpctrace] [-trdverify]"
         exit 1
     fi
     shift
 done
+
+if [ x"$s3test" = x'yes' ]; then
+    if [ x"$QFS_S3_ACCESS_KEY_ID" = x -o \
+            x"$QFS_S3_SECRET_ACCESS_KEY" = x -o \
+            x"$QFS_S3_BUCKET_NAME" = x ]; then
+        echo "environment variables QFS_S3_ACCESS_KEY_ID," \
+            "QFS_S3_SECRET_ACCESS_KEY," \
+            "QFS_S3_BUCKET_NAME, and optionally"\
+            "QFS_S3_REGION_NAME must be set accordintly"
+        exit 1
+    fi
+    if [ x"$QFS_S3_REGION_NAME" = x ]; then
+        s3serversideencryption=${s3serversideencryption-0}
+    else
+        s3serversideencryption=${s3serversideencryption-1}
+    fi
+fi
+
 export myvalgrind
 
 exec </dev/null
@@ -81,6 +102,7 @@ clientuser=${clientuser-"`id -un`"}
 numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
+objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
 
 export metahost
 export metasrvport
@@ -179,6 +201,12 @@ else
     metaport=$metasrvport
     export metaport
     smtest="$smdir/sortmaster_test.sh"
+    if [ x"$myvalgrind" = x ]; then
+        smtestqfsvalgrind='no'
+    else
+        smtestqfsvalgrind='yes'
+    fi
+    export smtestqfsvalgrind
 # Use QFS_CLIENT_CONFIG for sort master.
 #    if [ x"$auth" = x'yes' ]; then
 #        smauthconf="$testdir/sortmasterauth.prp"
@@ -265,6 +293,25 @@ mkdir "$testdir" || exit
 mkdir "$metasrvdir" || exit
 mkdir "$chunksrvdir" || exit
 
+cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
+cabundlefile="$chunksrvdir/ca-bundle.crt"
+objectstoredir="$chunksrvdir/object_store"
+cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
+if [ x"$s3test" = x'yes' ]; then
+    if [ -f "$cabundlefileos" ]; then
+        echo "Using $cabundlefileos"
+        cabundlefile=$cabundlefileos
+    else
+        if [ -x "`which curl 2>/dev/null`" ]; then
+            curl "$cabundleurl" > "$cabundlefile" || exit
+        else
+            wget "$cabundleurl" -O "$cabundlefile" || exit
+        fi
+    fi
+else
+    mkdir "$objectstoredir" || exit
+fi
+
 if [ $fotest -ne 0 ]; then
     mindiskspace=$minrequreddiskspacefanoutsort
 else
@@ -336,6 +383,12 @@ metaServer.clientCSAllowClearText = $csallowcleartext
 metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.clientThreadCount = 2
 metaServer.startupAbortOnPanic = 1
+metaServer.objectStoreEnabled  = 1
+metaServer.objectStoreDeleteDelay = 2
+metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
+metaServer.objectStorePlacementTest = 1
+metaServer.replicationCheckInterval = 0.5
 EOF
 
 if [ x"$auth" = x'yes' ]; then
@@ -360,6 +413,21 @@ metaServer.CSAuthentication.blackList            = none
 metaServer.CSAuthentication.maxAuthenticationValidTimeSec = 5
 
 metaServer.cryptoKeys.keysFileName               = keys.txt
+EOF
+fi
+
+# Test meta server distributing S3 configuration to chunk servers.
+if [ x"$s3test" = x'yes' ]; then
+    cat >> "$metasrvprop" << EOF
+chunkServer.diskQueue.aws.bucketName                 = $QFS_S3_BUCKET_NAME
+chunkServer.diskQueue.aws.accessKeyId                = $QFS_S3_ACCESS_KEY_ID
+chunkServer.diskQueue.aws.secretAccessKey            = $QFS_S3_SECRET_ACCESS_KEY
+chunkServer.diskQueue.aws.region                     = $QFS_S3_REGION_NAME
+chunkServer.diskQueue.aws.useServerSideEncryption    = $s3serversideencryption
+chunkServer.diskQueue.aws.ssl.verifyPeer             = 1
+chunkServer.diskQueue.aws.ssl.CAFile                 = $cabundlefile
+chunkServer.diskQueue.aws.debugTrace.requestHeaders  = $s3debug
+chunkServer.diskQueue.aws.debugTrace.requestProgress = $s3debug
 EOF
 fi
 
@@ -412,7 +480,6 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
-chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.bufferManager.maxClientQuota = 2097152
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
@@ -424,6 +491,9 @@ chunkServer.debugTestWriteSync = $twsync
 chunkServer.clientSM.traceRequestResponse   = $csrpctrace
 chunkServer.remoteSync.traceRequestResponse = $csrpctrace
 chunkServer.meta.traceRequestResponseFlag   = $csrpctrace
+chunkServer.placementMaxWaitingAvgSecsThreshold = 600
+# chunkServer.forceVerifyDiskReadChecksum = 1
+# chunkServer.debugTestWriteSync = 1
 EOF
     if [ x"$auth" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit
@@ -431,7 +501,24 @@ EOF
 chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
 chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-
+EOF
+    fi
+    if [ x"$s3test" = x'yes' ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.objectDir = s3://aws.
+# Give the buffer manager the same as with no S3 8192*0.4, appender
+# 8192*(1-0.4)*0.4, and the rest to S3 write buffers: 16 chunks by 10MB + 64KB
+# buffer for each.
+chunkServer.objStoreBufferDataRatio           = 0.8871
+chunkServer.recAppender.bufferLimitRatio      = 0.0424
+chunkServer.bufferManager.maxRatio            = 0.0705
+chunkServer.ioBufferPool.partitionBufferCount = 46460
+EOF
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.ioBufferPool.partitionBufferCount = 8192
+chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
+chunkServer.objectDir                         = $objectstoredir
 EOF
     fi
     cd "$dir" || exit
@@ -469,6 +556,10 @@ cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
+    cptokfsopts='-r 0 -m 15 -l 15 -R 20' \
+    cpfromkfsopts='-r 0 -w 65537' \
+    cptest.sh &&\
+    mv cptest.log cptest-os.log && \
     cptokfsopts='-r 3 -m 1 -l 15' \
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \

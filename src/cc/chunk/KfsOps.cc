@@ -619,6 +619,7 @@ KfsOp::KfsOp(KfsOp_t o)
       clnt(0),
       startTime(microseconds()),
       bufferBytes(),
+      next(0),
       nextOp()
 {
     OpsList::Init(*this);
@@ -660,9 +661,9 @@ KfsOp::CheckAccess(ClientSM& sm)
 }
 
 /* static */ BufferManager*
-KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId)
+KfsOp::FindDeviceBufferManager(kfsChunkId_t chunkId, int64_t chunkVersion)
 {
-    return gChunkManager.FindDeviceBufferManager(chunkId);
+    return gChunkManager.FindDeviceBufferManager(chunkId, chunkVersion);
 }
 
 bool
@@ -747,7 +748,8 @@ ChunkAccessRequestOp::WriteChunkAccessResponse(
                 DelegationToken::kChunkServerFlag |
                 ChunkAccessToken::kAllowReadFlag |
                 ChunkAccessToken::kAllowWriteFlag |
-                ChunkAccessToken::kAllowClearTextFlag)) |
+                ChunkAccessToken::kAllowClearTextFlag |
+                ChunkAccessToken::kObjectStoreFlag)) |
                 accessTokenFlags,
             validForSec,
             key.GetPtr(),
@@ -864,11 +866,15 @@ ReadOp::HandleDone(int code, void *data)
         if (data) {
             status = *reinterpret_cast<const int*>(data);
             KFS_LOG_STREAM_INFO <<
-                "disk error: errno: " << status << " chunkid: " << chunkId <<
+                "disk error:"
+                " status: "   << status <<
+                " chunk: "    << chunkId <<
+                " version: "  << chunkVersion <<
             KFS_LOG_EOM;
         }
         if (status != -ETIMEDOUT) {
-            gChunkManager.ChunkIOFailed(chunkId, status, diskIo.get());
+            gChunkManager.ChunkIOFailed(
+                chunkId, chunkVersion, status, diskIo.get());
         }
     } else if (code == EVENT_DISK_READ) {
         assert(data);
@@ -916,9 +922,9 @@ ReadOp::HandleDone(int code, void *data)
         return 0;
     }
 
-    const ChunkInfo_t* ci = gChunkManager.GetChunkInfo(chunkId);
+    const ChunkInfo_t* ci = gChunkManager.GetChunkInfo(chunkId, chunkVersion);
     if (ci && ci->chunkSize > 0 && offset + numBytesIO >= ci->chunkSize &&
-            ! gLeaseClerk.IsLeaseValid(chunkId)) {
+            ! gLeaseClerk.IsLeaseValid(chunkId, chunkVersion)) {
         // If we have read the full chunk, close out the fd.  The
         // observation is that reads are sequential and when we
         // finished a chunk, the client will move to the next one.
@@ -929,8 +935,11 @@ ReadOp::HandleDone(int code, void *data)
         // DiskIo completion path doesn't expect diskIo pointer to remain valid
         // upon return.
         diskIo.reset();
-        KFS_LOG_STREAM_INFO << "closing chunk: " << chunkId << KFS_LOG_EOM;
-        gChunkManager.CloseChunk(chunkId);
+        KFS_LOG_STREAM_INFO << "closing"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+        KFS_LOG_EOM;
+        gChunkManager.CloseChunk(chunkId, ci->chunkVersion);
     }
 
     gLogger.Submit(this);
@@ -994,7 +1003,9 @@ WriteOp::HandleRecordAppendDone(int code, void *data)
         if (data) {
             status = *(int *) data;
             KFS_LOG_STREAM_INFO <<
-                "Disk error: errno: " << status << " chunkid: " << chunkId <<
+                "disk error:"
+                " status: "   << status <<
+                " chunk: "    << chunkId <<
             KFS_LOG_EOM;
         }
     } else if (code == EVENT_DISK_WROTE) {
@@ -1051,18 +1062,20 @@ WriteOp::HandleWriteDone(int code, void *data)
         if (data) {
             status = *(int *) data;
             KFS_LOG_STREAM_INFO <<
-                "Disk error: errno: " << status << " chunkid: " << chunkId <<
+                "disk error:"
+                " status: "  << status <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
             KFS_LOG_EOM;
         }
-        gChunkManager.ChunkIOFailed(chunkId, status, diskIo.get());
-
+        gChunkManager.ChunkIOFailed(
+            chunkId, chunkVersion, status, diskIo.get());
         if (wpop->status >= 0) {
             wpop->status = status;
         }
         wpop->HandleEvent(EVENT_CMD_DONE, this);
         return 0;
-    }
-    else if (code == EVENT_DISK_WROTE) {
+    } else if (code == EVENT_DISK_WROTE) {
         status = *(int *) data;
         if (numBytesIO != status || status < (int)numBytes) {
             // write didn't do everything that was asked; we need to retry
@@ -1109,7 +1122,10 @@ void
 CloseOp::Execute()
 {
     KFS_LOG_STREAM_INFO <<
-        "Closing chunk: " << chunkId << " and might give up lease" <<
+        "closing"
+        " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
+        " and might give up lease" <<
     KFS_LOG_EOM;
 
     ServerLocation peerLoc;
@@ -1117,7 +1133,10 @@ CloseOp::Execute()
     int64_t        writeId       = -1;
     bool           needToForward = needToForwardToPeer(shortRpcFormatFlag,
         servers, numServers, myPos, peerLoc, hasWriteId, writeId);
-    if (chunkAccessTokenValidFlag &&
+    if (chunkVersion < 0 && needToForward && hasWriteId) {
+        status    = -EINVAL;
+        statusMsg = "invalid object store file block close";
+    } else if (chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kUsesWriteIdFlag) != 0 &&
             (subjectId != writeId || ! hasWriteId)) {
         status    = -EPERM;
@@ -1128,15 +1147,17 @@ CloseOp::Execute()
         if (chunkAccessTokenValidFlag) {
             if (myPos == 0) {
                 const bool hasValidLeaseFlag = gLeaseClerk.IsLeaseValid(
-                    chunkId, &syncReplicationAccess, &allowCSClearTextFlag);
+                    chunkId, chunkVersion,
+                    &syncReplicationAccess, &allowCSClearTextFlag);
                 if (hasValidLeaseFlag) {
                     if ((chunkAccessFlags &
                             ChunkAccessToken::kAllowWriteFlag) == 0) {
                         status    = -EPERM;
                         statusMsg = "valid write lease exists";
                     }
-                } else if (hasWriteId || (chunkAccessFlags &
-                        ChunkAccessToken::kAllowReadFlag) == 0) {
+                } else if ((hasWriteId || (chunkAccessFlags &
+                        ChunkAccessToken::kAllowReadFlag) == 0) &&
+                        0 <= chunkVersion) {
                     status    = -EPERM;
                     statusMsg = "no valid write lease exists";
                 }
@@ -1151,24 +1172,30 @@ CloseOp::Execute()
         } else if (! gAtomicRecordAppendManager.CloseChunk(
                 this, writeId, needToForward)) {
             // forward the close only if it was accepted by the chunk
-            // manager.  the chunk manager can reject a close if the
+            // manager. The chunk manager can reject a close if the
             // chunk is being written to by multiple record appenders
-            if (hasWriteId && ! gChunkManager.IsValidWriteId(writeId)) {
-                if (needAck) {
-                    status    = -EINVAL;
-                    statusMsg = "invalid write id ";
-                    AppendDecIntToString(statusMsg, writeId);
-                    KFS_LOG_STREAM_ERROR <<
-                        "seq: "    << seq <<
-                        " "        << statusMsg  <<
-                        " wid: "   << writeId <<
-                        " mypos: " << myPos <<
-                        " peer: "  << peerLoc <<
-                    KFS_LOG_EOM;
+            if (hasWriteId) {
+                const bool waitReadableFlag = clnt && chunkVersion < 0;
+                if (waitReadableFlag) {
+                    SET_HANDLER(this, &CloseOp::HandleDone);
+                }
+                const int ret = gChunkManager.CloseChunkWrite(
+                        chunkId,
+                        chunkVersion,
+                        writeId,
+                        waitReadableFlag ? this          : 0,
+                        waitReadableFlag ? &readMetaFlag : 0
+                );
+                if (ret != 0) {
+                    status    = ret;
+                    statusMsg = "invalid write or chunk id";
+                }
+                if (waitReadableFlag && 0 == ret) {
+                    return;
                 }
             } else {
-                needToForward = gChunkManager.CloseChunk(chunkId) == 0 &&
-                    needToForward;
+                needToForward = gChunkManager.CloseChunk(
+                    chunkId, chunkVersion) == 0 && needToForward;
                 status        = 0;
             }
         }
@@ -1205,9 +1232,29 @@ CloseOp::ForwardToPeer(
 }
 
 int
-CloseOp::HandlePeerReply(int code, void *data)
+CloseOp::HandlePeerReply(int code, void* data)
 {
     delete this;
+    return 0;
+}
+
+int
+CloseOp::HandleDone(int code, void* data)
+{
+    if (data && 0 == status) {
+        status = *reinterpret_cast<const int*>(data);
+    }
+    if (status == 0 && readMetaFlag && chunkVersion < 0) {
+        readMetaFlag = false;
+        const int ret = gChunkManager.CloseChunkWrite(
+            chunkId, chunkVersion, -1, this, &readMetaFlag);
+        if (ret == 0) {
+            return 0;
+        }
+        status    = ret;
+        statusMsg = "invalid write or chunk id";
+    }
+    gLogger.Submit(this);
     return 0;
 }
 
@@ -1225,12 +1272,17 @@ AllocChunkOp::Execute()
         gLogger.Submit(this);
         return;
     }
-
+    if (chunkVersion < 0 &&
+            (status = gChunkManager.GetObjectStoreStatus(&statusMsg)) != 0) {
+        gLogger.Submit(this);
+        return;
+    }
     // Allocation implicitly invalidates all previously existed write leases.
-    gLeaseClerk.UnRegisterLease(chunkId);
-    mustExistFlag = chunkVersion > 1;
-    if (! mustExistFlag) {
-        const int ret = gChunkManager.DeleteChunk(chunkId);
+    gLeaseClerk.UnRegisterLease(chunkId, chunkVersion);
+    mustExistFlag = mustExistFlag || 1 < chunkVersion;
+    const bool deleteIfExistsFlag = ! mustExistFlag && 0 <= chunkVersion;
+    if (deleteIfExistsFlag) {
+        const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<
                 "allocate: delete existing"
@@ -1239,13 +1291,17 @@ AllocChunkOp::Execute()
             KFS_LOG_EOM;
         }
     }
-    const bool failIfExistsFlag = ! mustExistFlag;
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
     startGeneration = gMetaServerSM.GetGenerationCount();
-    int res = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const bool addObjectBlockMappingFlag = mustExistFlag;
+    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
+        addObjectBlockMappingFlag);
     if (res == 0) {
-        if (failIfExistsFlag) {
+        // The completion handler will be or already invoked: "this" might not
+        // be valid at this point, as it might have been deleted already:
+        // do not attempt to access.
+        if (deleteIfExistsFlag) {
             die("chunk deletion failed");
         }
         return; // The completion handler will be or have already been invoked.
@@ -1258,8 +1314,9 @@ AllocChunkOp::Execute()
     }
     KFS_LOG_STREAM_ERROR <<
         "allocate: read chunk metadata:"
-        " chunk: " << chunkId <<
-        " error: " << res <<
+        " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
+        " error: "   << res <<
     KFS_LOG_EOM;
     status = res;
     gLogger.Submit(this);
@@ -1350,15 +1407,39 @@ AllocChunkOp::HandleChunkAllocDone(int code, void *data)
 void
 DeleteChunkOp::Execute()
 {
-    status = gChunkManager.DeleteChunk(chunkId);
+    if (chunkVersion < 0 &&
+            (status = gChunkManager.GetObjectStoreStatus(&statusMsg)) != 0) {
+        gLogger.Submit(this);
+        return;
+    }
+    if (chunkVersion < 0) {
+        SET_HANDLER(this, &DeleteChunkOp::Done);
+    }
+    const bool objStoreBlockFlag = chunkVersion < 0;
+    status = gChunkManager.DeleteChunk(chunkId, chunkVersion,
+        objStoreBlockFlag ? this : 0);
+    if (! objStoreBlockFlag || status < 0) {
+        gLogger.Submit(this);
+    }
+}
+
+int
+DeleteChunkOp::Done(int code, void* data)
+{
+    if (code == EVENT_DISK_ERROR) {
+        status = data ? *reinterpret_cast<const int*>(data) : -EIO;
+    }
     gLogger.Submit(this);
+    return 0;
 }
 
 void
 TruncateChunkOp::Execute()
 {
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaReadDone);
-    if (gChunkManager.ReadChunkMetadata(chunkId, this) < 0) {
+    const bool kAddObjectBlockMappingFlag = false;
+    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this,
+            kAddObjectBlockMappingFlag) < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
     }
@@ -1381,7 +1462,7 @@ TruncateChunkOp::HandleChunkMetaReadDone(int code, void *data)
         return 0;
     }
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaWriteDone);
-    const int ret = gChunkManager.WriteChunkMetadata(chunkId, this);
+    const int ret = gChunkManager.WriteChunkMetadata(chunkId, 0, this);
     if (ret != 0) {
         status = ret;
         gLogger.Submit(this);
@@ -1426,7 +1507,9 @@ MakeChunkStableOp::Execute()
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
     startGeneration = gMetaServerSM.GetGenerationCount();
-    const int ret = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const bool kAddObjectBlockMappingFlag = false;
+    const int ret = gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (ret < 0) {
         status = ret;
         gLogger.Submit(this);
@@ -1461,9 +1544,25 @@ MakeChunkStableOp::HandleMakeStableDone(int code, void *data)
         const int res = data ? *reinterpret_cast<const int*>(data) : -1;
         status = res < 0 ? res : -1;
     }
-    if (status >= 0 &&
-            ! gLeaseClerk.IsLeaseValid(chunkId) &&
-            gChunkManager.CloseChunkIfReadable(chunkId)) {
+    if (0 <= status && 0 <= chunkSize && chunkVersion  < 0) {
+        const ChunkInfo_t* const ci =
+            gChunkManager.GetChunkInfo(chunkId, chunkVersion);
+        // Verify that the object store block size matches.
+        if (! ci || ! ci->AreChecksumsLoaded()) {
+            statusMsg = "checksums not unloaded";
+            status    = -EAGAIN;
+        }
+        if (ci->chunkSize != chunkSize) {
+            statusMsg = "object block size do not match";
+            status    = -EINVAL;
+        }
+    }
+    // If size is undefined, do not close object block yet, as meta server might
+    // query size in order to determine logical EOF.
+    if (0 <= status &&
+            (0 <= chunkVersion || 0 <= chunkSize) &&
+            ! gLeaseClerk.IsLeaseValid(chunkId, chunkVersion) &&
+            gChunkManager.CloseChunkIfReadable(chunkId, chunkVersion)) {
         KFS_LOG_STREAM_DEBUG <<
             Show() << " done, chunk closed" <<
         KFS_LOG_EOM;
@@ -1475,10 +1574,11 @@ MakeChunkStableOp::HandleMakeStableDone(int code, void *data)
 void
 ChangeChunkVersOp::Execute()
 {
-    if (verifyStableFlag) {
+    if (verifyStableFlag && 0 <= chunkVersion) {
         // Bypass meta data load, if only chunk version check is required.
-        const ChunkInfo_t* const ci = gChunkManager.GetChunkInfo(chunkId);
-        if (! ci || gChunkManager.IsChunkReadable(chunkId)) {
+        const ChunkInfo_t* const ci =
+            gChunkManager.GetChunkInfo(chunkId, chunkVersion);
+        if (! ci || gChunkManager.IsChunkReadable(chunkId, chunkVersion)) {
             if (! ci) {
                 statusMsg = "no such chunk";
                 status    = -ENOENT;
@@ -1497,7 +1597,9 @@ ChangeChunkVersOp::Execute()
     }
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);
     startGeneration = gMetaServerSM.GetGenerationCount();
-    const int ret = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const bool kAddObjectBlockMappingFlag = false;
+    const int ret = gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (ret < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
@@ -1626,6 +1728,10 @@ HeartbeatOp::Execute()
     HBAppend(os, "Num-writable-chunks", "wrchunks",
         writeCount + writeAppendCount + replicationCount
     );
+    HBAppend(os, "Num-wr-objs", "wrobjs",
+        gChunkManager.GetNumWritableObjects());
+    HBAppend(os, "Num-objs",    "objs",
+        gChunkManager.GetNumOpenObjects());
     HBAppend(os, "Evacuate",              "evacuate",
         max(evacuateChunks, evacuateInFlightCount));
     HBAppend(os, "Evacuate-bytes",        "evac-b",   evacuateByteCount);
@@ -2003,25 +2109,37 @@ ReadOp::Execute()
             "read request size exceeds chunk size: " << numBytes <<
         KFS_LOG_EOM;
         status = -EINVAL;
-    } else if (clientSMFlag && ! gChunkManager.IsChunkReadable(chunkId)) {
+    } else if (clientSMFlag &&
+            ! gChunkManager.IsChunkReadable(chunkId, chunkVersion)) {
         // Do not allow dirty reads.
         statusMsg = "chunk not readable";
         status    = -EAGAIN;
         KFS_LOG_STREAM_ERROR <<
-            " read request for chunk: " << chunkId <<
-            " denied: " << statusMsg <<
+            " read request for"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " denied: "  << statusMsg <<
         KFS_LOG_EOM;
     }
     if (status < 0) {
         gLogger.Submit(this);
         return;
     }
-
+    if (chunkVersion < 0 &&
+            (status = gChunkManager.GetObjectStoreStatus(&statusMsg)) != 0) {
+        gLogger.Submit(this);
+        return;
+    }
     SET_HANDLER(this, &ReadOp::HandleChunkMetaReadDone);
-    const int res = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const bool kAddObjectBlockMappingFlag = true;
+    const int res = gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
     if (res < 0) {
         KFS_LOG_STREAM_ERROR <<
-            "failed read chunk meta data, status: " << res <<
+            "failed read meta data:"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " status: "  << res <<
         KFS_LOG_EOM;
         status = res;
         gLogger.Submit(this);
@@ -2144,7 +2262,8 @@ WriteIdAllocOp::Execute()
     bool       allowCSClearTextFlag = chunkAccessTokenValidFlag &&
         (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
     if (writeMaster && ! gLeaseClerk.IsLeaseValid(
-            chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
+            chunkId, chunkVersion,
+            &syncReplicationAccess, &allowCSClearTextFlag)) {
         status    = -ELEASEEXPIRED;
         statusMsg = "no valid write lease exists";
         Done(EVENT_CMD_DONE, &status);
@@ -2162,7 +2281,7 @@ WriteIdAllocOp::Execute()
         // Notify the lease clerk that we are doing write.  This is to
         // signal the lease clerk to renew the lease for the chunk when
         // appropriate.
-        gLeaseClerk.DoingWrite(chunkId);
+        gLeaseClerk.DoingWrite(chunkId, chunkVersion);
     }
     const ServerLocation& loc = gChunkServer.GetLocation();
     writeIdStr.Copy(loc.hostname.data(), loc.hostname.size()).Append((char)' ');
@@ -2239,7 +2358,9 @@ WriteIdAllocOp::ReadChunkMetadata()
     // page in the chunk meta-data if needed
     // if the read was successful, the call to read will callback handle-done
     SET_HANDLER(this, &WriteIdAllocOp::Done);
-    int res = gChunkManager.ReadChunkMetadata(chunkId, this);
+    const bool kAddObjectBlockMappingFlag = false;
+    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
+        kAddObjectBlockMappingFlag);
     if (res < 0) {
         Done(EVENT_CMD_DONE, &res);
     }
@@ -2267,7 +2388,7 @@ WriteIdAllocOp::Done(int code, void *data)
             // Now, when the client forces a re-allocation, the
             // metaserver will do a version bump; when the node that
             // was dead comes back, we can detect it has missed a write
-            gLeaseClerk.InvalidateLease(chunkId);
+            gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
         }
     }
     KFS_LOG_STREAM(
@@ -2311,7 +2432,7 @@ WritePrepareOp::Execute()
         return;
     }
 
-    if (!gChunkManager.IsChunkMetadataLoaded(chunkId)) {
+    if (!gChunkManager.IsChunkMetadataLoaded(chunkId, chunkVersion)) {
         statusMsg = "checksums are not loaded";
         status = -ELEASEEXPIRED;
         Done(EVENT_CMD_DONE, this);
@@ -2322,19 +2443,20 @@ WritePrepareOp::Execute()
     if (writeMaster) {
         // if we are the master, check the lease...
         if (! gLeaseClerk.IsLeaseValid(
-                chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
+                chunkId, chunkVersion,
+                &syncReplicationAccess, &allowCSClearTextFlag)) {
             KFS_LOG_STREAM_ERROR <<
                 "Write prepare failed, lease expired for " << chunkId <<
             KFS_LOG_EOM;
             statusMsg = "no valid write lease exists";
-            gLeaseClerk.InvalidateLease(chunkId);
+            gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
             status = -ELEASEEXPIRED;
             Done(EVENT_CMD_DONE, this);
             return;
         }
         // Notify the lease clerk that we are doing write.  This is to
         // signal the lease clerk to renew the lease for the chunk when appropriate.
-        gLeaseClerk.DoingWrite(chunkId);
+        gLeaseClerk.DoingWrite(chunkId, chunkVersion);
     }
 
     if (blocksChecksums.empty()) {
@@ -2382,9 +2504,11 @@ WritePrepareOp::Execute()
     writeOp->enqueueTime = globalNetManager().Now();
 
     KFS_LOG_STREAM_DEBUG <<
-        "Writing to chunk: " << chunkId <<
-        " @offset: " << offset <<
-        " nbytes: " << numBytes <<
+        "writing to"
+        " chunk: "    << chunkId <<
+        " version: "  << chunkVersion <<
+        " @offset: "  << offset <<
+        " nbytes: "   << numBytes <<
         " checksum: " << checksum <<
     KFS_LOG_EOM;
 
@@ -2429,7 +2553,7 @@ WritePrepareOp::Done(int code, void *data)
         // Now, when the client forces a re-allocation, the
         // metaserver will do a version bump; when the node that
         // was dead comes back, we can detect it has missed a write
-        gLeaseClerk.InvalidateLease(chunkId);
+        gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
     }
     numDone++;
     if (writeFwdOp && numDone < 2) {
@@ -2495,7 +2619,7 @@ WriteSyncOp::Execute()
         return;
     }
 
-    if (! gChunkManager.IsChunkMetadataLoaded(chunkId)) {
+    if (! gChunkManager.IsChunkMetadataLoaded(chunkId, chunkVersion)) {
         // This should not normally happen, as valid write id would keep chunk
         // loaded / writable.
         status    = -ELEASEEXPIRED;
@@ -2513,7 +2637,8 @@ WriteSyncOp::Execute()
     if (writeMaster) {
         // if we are the master, check the lease...
         if (! gLeaseClerk.IsLeaseValid(
-                chunkId, &syncReplicationAccess, &allowCSClearTextFlag)) {
+                chunkId, chunkVersion,
+                &syncReplicationAccess, &allowCSClearTextFlag)) {
             statusMsg = "no valid write lease exists";
             status    = -ELEASEEXPIRED;
             KFS_LOG_STREAM_ERROR <<
@@ -2526,7 +2651,7 @@ WriteSyncOp::Execute()
         // Notify the lease clerk that we are doing write.  This is to
         // signal the lease clerk to renew the lease for the chunk when
         // appropriate.
-        gLeaseClerk.DoingWrite(chunkId);
+        gLeaseClerk.DoingWrite(chunkId, chunkVersion);
     }
 
     SET_HANDLER(this, &WriteSyncOp::Done);
@@ -2547,7 +2672,7 @@ WriteSyncOp::Execute()
     // write checksum.
     bool                   mismatch    = false;
     const vector<uint32_t> myChecksums =
-        gChunkManager.GetChecksums(chunkId, offset, numBytes);
+        gChunkManager.GetChecksums(chunkId, chunkVersion, offset, numBytes);
     if ((writeMaster && (
             (offset % CHECKSUM_BLOCKSIZE) != 0 ||
             (numBytes % CHECKSUM_BLOCKSIZE) != 0)) || checksums.empty()) {
@@ -2559,10 +2684,11 @@ WriteSyncOp::Execute()
             if (myChecksums[i] == 0) {
                 KFS_LOG_STREAM_ERROR <<
                     "sync failed due to 0 checksum:" <<
-                    " chunk: "  << chunkId <<
-                    " offset: " << offset <<
-                    " size: "   << numBytes <<
-                    " index: "  << i <<
+                    " chunk: "   << chunkId <<
+                    " version: " << chunkVersion <<
+                    " offset: "  << offset <<
+                    " size: "    << numBytes <<
+                    " index: "   << i <<
                 KFS_LOG_EOM;
                 mismatch = true;
             }
@@ -2570,9 +2696,10 @@ WriteSyncOp::Execute()
         if (! mismatch) {
             KFS_LOG_STREAM_DEBUG <<
                 "validated checksums are non-zero for"
-                " chunk: "  << chunkId <<
-                " offset: " << offset <<
-                " size: "   << numBytes <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
+                " offset: "  << offset <<
+                " size: "    << numBytes <<
             KFS_LOG_EOM;
         }
     } else {
@@ -2598,8 +2725,9 @@ WriteSyncOp::Execute()
         if (! mismatch) {
             KFS_LOG_STREAM_DEBUG <<
                 "sync checksum verified for"
-                " chunk: "  << chunkId <<
-                " offset: " << offset <<
+                " chunk: "    << chunkId <<
+                " version: "  << chunkVersion <<
+                " offset: "   << offset <<
                 " checksum entries:"
                 " expected: " << myChecksums.size() <<
                 " received: " << checksums.size() <<
@@ -2643,7 +2771,7 @@ WriteSyncOp::ForwardToPeer(
 
     if (writeMaster) {
         fwdedOp->checksums =
-            gChunkManager.GetChecksums(chunkId, offset, numBytes);
+            gChunkManager.GetChecksums(chunkId, chunkVersion, offset, numBytes);
     } else {
         fwdedOp->checksums = checksums;
     }
@@ -2666,7 +2794,7 @@ WriteSyncOp::Done(int code, void *data)
         // Now, when the client forces a re-allocation, the
         // metaserver will do a version bump; when the node that
         // was dead comes back, we can detect it has missed a write
-        gLeaseClerk.InvalidateLease(chunkId);
+        gLeaseClerk.InvalidateLease(chunkId, chunkVersion);
     }
     numDone++;
     if (fwdedOp && numDone < 2) {
@@ -2733,9 +2861,11 @@ GetRecordAppendOpStatus::Execute()
 void
 SizeOp::Execute()
 {
-    int res = 0;
+    int  res                        = 0;
+    bool kAddObjectBlockMappingFlag = true;
     if (gChunkManager.ChunkSize(this) ||
-            (res = gChunkManager.ReadChunkMetadata(chunkId, this)) < 0) {
+            (res = gChunkManager.ReadChunkMetadata(
+                chunkId, chunkVersion, this, kAddObjectBlockMappingFlag)) < 0) {
         if (0 <= status && res < 0) {
             status = res;
         }
@@ -2793,6 +2923,7 @@ ChunkSpaceReserveOp::Execute()
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         "space reserve: "
         " chunk: "   << chunkId <<
+        " version: " << chunkVersion <<
         " writeId: " << writeId <<
         " bytes: "   << nbytes  <<
         " status: "  << status  <<
@@ -2835,6 +2966,7 @@ ChunkSpaceReleaseOp::Execute()
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         "space release: "
         " chunk: "     << chunkId <<
+        " version: "   << chunkVersion <<
         " writeId: "   << writeId <<
         " requested: " << nbytes  <<
         " reserved: "  << rsvd    <<
@@ -2847,7 +2979,9 @@ void
 GetChunkMetadataOp::Execute()
 {
     SET_HANDLER(this, &GetChunkMetadataOp::HandleChunkMetaReadDone);
-    if (gChunkManager.ReadChunkMetadata(chunkId, this) < 0) {
+    bool const kAddObjectBlockMappingFlag = true;
+    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this,
+            kAddObjectBlockMappingFlag) < 0) {
         status = -EINVAL;
         gLogger.Submit(this);
     }
@@ -2863,7 +2997,7 @@ GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void *data)
         gLogger.Submit(this);
         return 0;
     }
-    const ChunkInfo_t * const info = gChunkManager.GetChunkInfo(chunkId);
+    const ChunkInfo_t * const info = gChunkManager.GetChunkInfo(chunkId, 0);
     if (info) {
         if (info->chunkBlockChecksum || info->chunkSize == 0) {
             chunkVersion = info->chunkVersion;
@@ -2910,11 +3044,13 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
         if (data) {
             status = *(int *) data;
             KFS_LOG_STREAM_ERROR << "disk error:"
-                " chunkid: " << chunkId <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
                 " status: "  << status <<
             KFS_LOG_EOM;
         }
-        gChunkManager.ChunkIOFailed(chunkId, status, readOp.diskIo.get());
+        gChunkManager.ChunkIOFailed(
+            chunkId, chunkVersion, status, readOp.diskIo.get());
         gLogger.Submit(this);
         return 0;
     } else if (code == EVENT_DISK_READ) {
@@ -2934,8 +3070,9 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
         status = readOp.status;
         if (status == 0) {
             KFS_LOG_STREAM_DEBUG << "scrub read succeeded"
-                " chunk: "  << chunkId <<
-                " offset: " << readOp.offset <<
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion <<
+                " offset: "  << readOp.offset <<
             KFS_LOG_EOM;
             // checksum verified; setup the next read
             numBytesScrubbed += readOp.dataBuf.BytesConsumable();
@@ -2946,6 +3083,7 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
             if (numBytesScrubbed >= chunkSize) {
                 KFS_LOG_STREAM_DEBUG << "scrub succeeded"
                     " chunk: "      << chunkId <<
+                    " version: "    << chunkVersion <<
                     " bytes read: " << numBytesScrubbed <<
                 KFS_LOG_EOM;
                 gLogger.Submit(this);
@@ -2956,8 +3094,9 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void *data)
     }
     if (status < 0) {
         KFS_LOG_STREAM_INFO << "scrub read failed: "
-            " chunk: "  << chunkId <<
-            " status: " << status <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " status: "  << status <<
         KFS_LOG_EOM;
         gLogger.Submit(this);
         return 0;
@@ -3245,14 +3384,19 @@ CloseOp::Request(ReqOstream& os)
         os << hex;
     }
     os <<
-        "CLOSE \r\n" <<
-        (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
+    "CLOSE \r\n" <<
+    (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n"
+    ;
     if (! shortRpcFormatFlag) {
         os << "Version: " << KFS_VERSION_STR << "\r\n";
     }
-    os << (shortRpcFormatFlag ? "A:" : "Need-ack: ") <<
-        (needAck ? 1 : 0) << "\r\n";
-    if (numServers > 0) {
+    os <<
+    (shortRpcFormatFlag ? "A:" : "Need-ack: ") <<
+        (needAck ? 1 : 0) << "\r\n" <<
+    (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
+        chunkVersion    << "\r\n"
+    ;
+    if (0 < numServers) {
         WriteServers(os, *this, hasWriteId);
     }
     os << (shortRpcFormatFlag ? "H:" : "Chunk-handle: ") << chunkId << "\r\n";
@@ -3549,8 +3693,10 @@ ReadChunkMetaOp::HandleDone(int code, void *data)
     if (code == EVENT_DISK_ERROR) {
         status = data ? *reinterpret_cast<const int*>(data) : -EIO;
         KFS_LOG_STREAM_ERROR <<
-            "chunk: " << chunkId <<
-            " read meta disk error: " << status <<
+            " read meta disk error:"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " status: "  << status <<
         KFS_LOG_EOM;
     } else if (code == EVENT_DISK_READ) {
         dataBuf = reinterpret_cast<IOBuffer*>(data);
@@ -3558,7 +3704,11 @@ ReadChunkMetaOp::HandleDone(int code, void *data)
         status = -EINVAL;
         ostringstream os;
         os  << "read chunk meta data unexpected event: "
-            " code: " <<  code << " data: " << data;
+            " code: "    << code <<
+            " data: "    << data <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion
+        ;
         die(os.str());
     }
     gChunkManager.ReadChunkMetadataDone(this, dataBuf);
@@ -3630,6 +3780,10 @@ LeaseRenewOp::Request(ReqOstream& os)
     if (emitCSAceessFlag) {
         os << (shortRpcFormatFlag ? "A:1\r\n" : "CS-access: 1\r\n");
     }
+    if (chunkVersion < 0) {
+        os << (shortRpcFormatFlag ? "O:" : "Chunk-pos: ") <<
+            (-(int64_t)chunkVersion - 1) << "\r\n";
+    }
     os << "\r\n";
 }
 
@@ -3657,13 +3811,17 @@ LeaseRelinquishOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "L:" : "Lease-id: ")     << leaseId   << "\r\n" <<
     (shortRpcFormatFlag ? "T:" : "Lease-type: ")  << leaseType << "\r\n"
     ;
-    if (chunkSize >= 0) {
+    if (0 <= chunkSize) {
         os << (shortRpcFormatFlag ? "S:" : "Chunk-size: ") <<
             chunkSize << "\r\n";
     }
     if (hasChecksum) {
         os << (shortRpcFormatFlag ? "K:" : "Chunk-checksum: ") <<
             chunkChecksum << "\r\n";
+    }
+    if (chunkVersion < 0) {
+        os << (shortRpcFormatFlag ? "O:" : "Chunk-pos: ") <<
+            (-(int64_t)chunkVersion - 1) << "\r\n";
     }
     os << "\r\n";
 }
