@@ -929,7 +929,8 @@ canAccess(Tree& tree, fid_t dir, MetaFattr& fa,
     }
     MetaFattr* parent = fa.parent;
     if (! parent) {
-        parent = dir == ROOTFID ? &fa : tree.getFattr(dir);
+        parent = (dir == ROOTFID && fa.id() == ROOTFID) ?
+            &fa : tree.getFattr(dir);
         if (! parent) {
             panic("canAccess: no parent attribute");
             return false;

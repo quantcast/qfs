@@ -2081,7 +2081,9 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         if (status == 0) {
             // Offset can change in the case of append.
             offset = appendOffset;
-            gLayoutManager.CancelPendingMakeStable(fid, chunkId);
+            if (0 < numReplicas && 0 <= initialChunkVersion) {
+                gLayoutManager.CancelPendingMakeStable(fid, chunkId);
+            }
             // assignChunkId() forces a recompute of the file's size.
         } else {
             KFS_LOG_STREAM((appendChunk && status == -EEXIST) ?

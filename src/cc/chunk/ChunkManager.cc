@@ -1141,6 +1141,7 @@ public:
         } else {
             mReadableNotifyHead = op;
         }
+        mReadableNotifyTail = op;
         if (IsChunkReadable()) {
             WaitChunkReadableDone(IsStale() ? -EIO : 0);
         }
