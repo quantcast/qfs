@@ -1919,6 +1919,8 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
 {
     if (! r || this != r->server.get()) {
         panic("ChunkServer::Enqueue: invalid request");
+        r->status = -EFAULT;
+        r->resume();
         return;
     }
     r->shortRpcFormatFlag = mShortRpcFormatFlag;
