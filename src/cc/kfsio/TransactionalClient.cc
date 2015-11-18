@@ -57,12 +57,12 @@ public:
         NetManager& inNetManager)
         : mNetManager(inNetManager),
           mLocation(),
+          mServerLocation(),
           mSslCtxPtr(0),
           mTimeout(20),
           mIdleTimeout(20),
           mHttpsHostNameFlag(true),
           mVerifyServerFlag(true),
-          mServerName(),
           mPeerNames(),
           mSslCtxParameters(),
           mError(0),
@@ -100,9 +100,15 @@ public:
             return mError;
         }
         mHttpsHostNameFlag = inHttpsHostNameFlag;
-        mLocation          = inLocation;
         if (mHttpsHostNameFlag) {
+            mLocation       = inLocation;
+            mServerLocation = mLocation;
             UpdateHttpsPeerNames();
+        } else {
+            if (mLocation == mServerLocation) {
+                mServerLocation = inLocation;
+            }
+            mLocation = inLocation;
         }
         UpdateStatus();
         Stop(-EAGAIN, "server location changed");
@@ -174,11 +180,12 @@ public:
         const Properties::String* const theSrvNamePtr = inParameters.getValue(
             theName.Truncate(thePrefixSize).Append("serverName"));
         if (theSrvNamePtr) {
-            mServerName.assign(
+            mServerLocation.hostname.assign(
                 theSrvNamePtr->GetPtr(), theSrvNamePtr->GetSize());
         } else if (mHttpsHostNameFlag) {
-            mServerName = mLocation.hostname;
+            mServerLocation.hostname = mLocation.hostname;
         }
+        mServerLocation.port = mLocation.port;
         theName.Truncate(thePrefixSize).Append("ssl.");
         Properties theSslCtxParameters;
         inParameters.copyWithPrefix(
@@ -347,7 +354,7 @@ private:
                         const int theRet = mTransactionPtr->Request(
                             theIoBuf,
                             mConnectionPtr->GetInBuffer(),
-                            mImpl.mLocation
+                            mImpl.mServerLocation
                         );
                         if (theRet < 0) {
                             mTransactionPtr = 0;
@@ -463,7 +470,8 @@ private:
                 0,       // inServerPskPtr
                 this,    // inVerifyPeerPtr
                 false,   // inDeleteOnCloseFlag,
-                inImpl.mServerName.empty() ? 0 : inImpl.mServerName.c_str()
+                inImpl.mServerLocation.hostname.empty() ?
+                    0 : inImpl.mServerLocation.hostname.c_str()
               )
             { SET_HANDLER(this, &SslClientSM::EventHandler); }
         virtual ~SslClientSM()
@@ -537,12 +545,12 @@ private:
 
     NetManager&     mNetManager;
     ServerLocation  mLocation;
+    ServerLocation  mServerLocation;
     SslFilter::Ctx* mSslCtxPtr;
     int             mTimeout;
     int             mIdleTimeout;
     bool            mHttpsHostNameFlag;
     bool            mVerifyServerFlag;
-    string          mServerName;
     PeerNames       mPeerNames;
     Properties      mSslCtxParameters;
     int             mError;
@@ -553,15 +561,16 @@ private:
     void UpdateHttpsPeerNames()
     {
         mPeerNames.clear();
-        if (mLocation.hostname.empty()) {
+        const string& theSrvName = mServerLocation.hostname;
+        if (theSrvName.empty()) {
             return;
         }
-        mPeerNames.insert(mLocation.hostname);
-        const size_t thePos = mLocation.hostname.find('.');
+        mPeerNames.insert(theSrvName);
+        const size_t thePos = theSrvName.find('.');
         if (string::npos != thePos && 0 < thePos &&
-                thePos + 1 < mLocation.hostname.size()) {
+                thePos + 1 < theSrvName.size()) {
             string theName("*");
-            theName.append(mLocation.hostname, thePos, string::npos);
+            theName.append(theSrvName, thePos, string::npos);
             mPeerNames.insert(theName);
         }
     }

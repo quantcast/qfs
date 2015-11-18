@@ -1287,7 +1287,7 @@ public:
             if (IsObjectStoreBlock(
                     inEntry.GetKey().first, inEntry.GetKey().second)) {
                 mOpenForWrite[inEntry.GetKey().first
-                    ].push_back(-inEntry.GetKey().second);
+                    ].push_back(-inEntry.GetKey().second - 1);
             }
         }
     }
@@ -5277,7 +5277,7 @@ LayoutManager::AllocateChunk(
     }
     StTmp<ChunkPlacement> placementTmp(mChunkPlacementTmp);
     ChunkPlacement&       placement = placementTmp.Get();
-    if (r->stripedFileFlag && 0 < r->numReplicas) {
+    if (r->stripedFileFlag) {
         // For replication greater than one do the same placement, but
         // only take into the account write masters, or the chunk server
         // hosting the first replica.
@@ -8997,13 +8997,11 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
                 ChunkLeases::EntryKey(req->chunkId, req->chunkVersion))) {
         return -1; // Chunk isn't stable yet, or being written again.
     }
-    MetaFattr* fa;
-    chunkOff_t offset;
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
     if (! ci) {
         return -ENOENT; // No such chunk, do not log.
     }
-    fa = ci->GetFattr();
+    MetaFattr* const fa = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
     // Coalesce can change file id while request is in flight.
     if (req->fid != fa->id()) {
@@ -9049,7 +9047,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         }
         return -EINVAL;
     }
-    offset = chunk->offset;
+    chunkOff_t const offset = chunk->offset;
     metatree.setFileSize(fa, offset + req->chunkSize);
     KFS_LOG_STREAM_INFO <<
         "file: "      << req->fid <<
