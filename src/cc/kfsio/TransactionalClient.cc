@@ -100,9 +100,15 @@ public:
             return mError;
         }
         mHttpsHostNameFlag = inHttpsHostNameFlag;
-        mLocation          = inLocation;
         if (mHttpsHostNameFlag) {
+            mLocation       = inLocation;
+            mServerLocation = mLocation;
             UpdateHttpsPeerNames();
+        } else {
+            if (mLocation == mServerLocation) {
+                mServerLocation = inLocation;
+            }
+            mLocation = inLocation;
         }
         UpdateStatus();
         Stop(-EAGAIN, "server location changed");
@@ -555,15 +561,16 @@ private:
     void UpdateHttpsPeerNames()
     {
         mPeerNames.clear();
-        if (mLocation.hostname.empty()) {
+        const string& theSrvName = mServerLocation.hostname;
+        if (theSrvName.empty()) {
             return;
         }
-        mPeerNames.insert(mLocation.hostname);
-        const size_t thePos = mLocation.hostname.find('.');
+        mPeerNames.insert(theSrvName);
+        const size_t thePos = theSrvName.find('.');
         if (string::npos != thePos && 0 < thePos &&
-                thePos + 1 < mLocation.hostname.size()) {
+                thePos + 1 < theSrvName.size()) {
             string theName("*");
-            theName.append(mLocation.hostname, thePos, string::npos);
+            theName.append(theSrvName, thePos, string::npos);
             mPeerNames.insert(theName);
         }
     }
