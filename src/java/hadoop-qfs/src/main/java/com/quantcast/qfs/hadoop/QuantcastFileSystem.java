@@ -71,9 +71,10 @@ public class QuantcastFileSystem extends FileSystem {
         if (uri.getHost() == null) {
           qfsImpl = createIFSImpl(conf.get("fs.qfs.metaServerHost", ""),
                                 conf.getInt("fs.qfs.metaServerPort", -1),
-                                statistics);
+                                statistics, conf);
         } else {
-          qfsImpl = createIFSImpl(uri.getHost(), uri.getPort(), statistics);
+          qfsImpl = createIFSImpl(uri.getHost(), uri.getPort(),
+                                statistics, conf);
         }
       }
 
@@ -90,8 +91,9 @@ public class QuantcastFileSystem extends FileSystem {
   }
 
   protected IFSImpl createIFSImpl(String metaServerHost, int metaServerPort,
-                               FileSystem.Statistics stats) throws IOException {
-    return new QFSImpl(metaServerHost, metaServerPort, stats);
+                               FileSystem.Statistics stats,
+                               Configuration conf) throws IOException {
+    return new QFSImpl(metaServerHost, metaServerPort, stats, conf);
   }
 
   public Path getWorkingDirectory() {
