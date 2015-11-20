@@ -554,10 +554,10 @@ chunkServer.diskQueue.aws.ssl.CAFile                = $cabundlefile
 
 # Give the buffer manager the same as with no S3 131072*0.4, appender
 # 131072*(1-0.4)*0.4, and the rest to S3 write buffers: ~18 chunks by 64MB
-chunkServer.objStoreBufferDataRatio           = 0.79
-chunkServer.recAppender.bufferLimitRatio      = 0.084
-chunkServer.bufferManager.maxRatio            = 0.123
-chunkServer.ioBufferPool.partitionBufferCount = 426056
+chunkServer.objStoreBufferDataRatio           = 0.3557
+chunkServer.recAppender.bufferLimitRatio      = 0.2413
+chunkServer.bufferManager.maxRatio            = 0.4022
+chunkServer.ioBufferPool.partitionBufferCount = 130382
 EOF
     else
         cat >> "$dir/$chunksrvprop" << EOF
