@@ -10965,9 +10965,9 @@ LayoutManager::RebalanceCtrs::Show(
     "PlanCannotMove"                << pref << mPlanCannotMove << suf <<
     "PlanReplicationStarted"        << pref << mPlanReplicationStarted << suf <<
     "PlanNoReplicationStarted"      << pref << mPlanNoReplicationStarted << suf <<
-    "PlanLine"              << pref << mPlanLine << suf <<
-    "PlanNoServer"              << pref << mPlanNoServer << suf <<
-    "PlanAdded"             << pref << mPlanAdded << suf <<
+    "PlanLine"                      << pref << mPlanLine << suf <<
+    "PlanNoServer"                  << pref << mPlanNoServer << suf <<
+    "PlanAdded"                     << pref << mPlanAdded << suf <<
     "TotalPlanNoDest"               << pref << mTotalPlanNoDest << suf <<
     "TotalPlanTimeout"              << pref << mTotalPlanTimeout << suf <<
     "TotalPlanScanned"              << pref << mTotalPlanScanned << suf <<
