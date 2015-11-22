@@ -1162,7 +1162,7 @@ private:
             mLeaseRenewOp.chunkPos        = mLeaseAcquireOp.chunkPos;
             mLeaseRenewOp.getCSAccessFlag = ! mChunkServerAccess.IsEmpty() &&
                 mChunkServerAccessExpires <= theNow;
-            mLeaseAcquireOp.chunkServer   = mLeaseAcquireOp.chunkServer;
+            mLeaseRenewOp.chunkServer     = mLeaseAcquireOp.chunkServer;
             mLeaseRenewOp.chunkAccessCount              = 0;
             mLeaseRenewOp.chunkServerAccessValidForTime = 0;
             mLeaseRenewOp.chunkServerAccessIssuedTime   = 0;
