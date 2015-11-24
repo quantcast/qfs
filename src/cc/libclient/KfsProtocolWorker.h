@@ -121,6 +121,7 @@ public:
             bool    mSkipHolesFlag;
             int     mMsgLogId;
             bool    mFailShortReadsFlag;
+            int     mDiskIoSize;
         };
         Request(
             RequestType   inOpType       = kRequestTypeUnknown,

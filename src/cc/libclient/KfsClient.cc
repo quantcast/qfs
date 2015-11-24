@@ -4474,7 +4474,7 @@ KfsClientImpl::StartProtocolWorker()
         params.mMaxReadSize = (maxReadSize + kChecksumBlockSize - 1) /
             kChecksumBlockSize * kChecksumBlockSize;
     } else {
-        params.mMaxReadSize = mTargetDiskIoSize;
+        params.mMaxReadSize = max(4 << 20, mTargetDiskIoSize);
     }
     params.mUseClientPoolFlag = mConfig.getValue(
         "client.connectionPool", params.mUseClientPoolFlag ? 1 : 0) != 0;

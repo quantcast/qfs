@@ -480,7 +480,7 @@ chunkServer.diskIo.crashOnError = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
-chunkServer.bufferManager.maxClientQuota = 2097152
+chunkServer.bufferManager.maxClientQuota = 4202496
 chunkServer.requireChunkHeaderChecksum = 1
 chunkServer.storageTierPrefixes = kfschunk-tier0 2
 chunkServer.exitDebugCheck = 1
@@ -556,15 +556,15 @@ cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
-    cptokfsopts='-r 0 -m 15 -l 15 -R 20' \
+    cptokfsopts='-r 0 -m 15 -l 15 -R 20 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh &&\
     mv cptest.log cptest-os.log && \
-    cptokfsopts='-r 3 -m 1 -l 15' \
+    cptokfsopts='-r 3 -m 1 -l 15 -w -1' \
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
-    cptokfsopts='-S -m 2 -l 2' \
+    cptokfsopts='-S -m 2 -l 2 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh; \
 } > cptest.out 2>&1 &
