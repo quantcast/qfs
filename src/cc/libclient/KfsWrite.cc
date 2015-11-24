@@ -127,24 +127,28 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
         filePos += numBytes;
     }
     StartProtocolWorker();
-    KfsProtocolWorker::Request::Params openParams;
-    openParams.mPathName            = entry.pathname;
-    openParams.mFileSize            = entry.fattr.fileSize;
-    openParams.mStriperType         = entry.fattr.striperType;
-    openParams.mStripeSize          = entry.fattr.stripeSize;
-    openParams.mStripeCount         = entry.fattr.numStripes;
-    openParams.mRecoveryStripeCount = entry.fattr.numRecoveryStripes;
-    openParams.mReplicaCount        = entry.fattr.numReplicas;
-    openParams.mMsgLogId            = fd;
-    if(entry.fattr.striperType == KFS_STRIPED_FILE_TYPE_NONE) {
-        openParams.mDiskIoSize = entry.ioBufferSize;
-    }
-    else {
-        const int kChecksumBlockSize = (int) CHECKSUM_BLOCKSIZE;
-        const int totalStripeCount =
-           entry.fattr.numStripes + entry.fattr.numRecoveryStripes;
-        openParams.mDiskIoSize = (entry.ioBufferSize / totalStripeCount
-           + kChecksumBlockSize - 1) / kChecksumBlockSize * kChecksumBlockSize;
+    KfsProtocolWorker::Request::Params        openParams;
+    KfsProtocolWorker::Request::Params* const openParamsPtr =
+        entry.usedProtocolWorkerFlag ? 0 : &openParams;
+    if (openParamsPtr) {
+        openParams.mPathName            = entry.pathname;
+        openParams.mFileSize            = entry.fattr.fileSize;
+        openParams.mStriperType         = entry.fattr.striperType;
+        openParams.mStripeSize          = entry.fattr.stripeSize;
+        openParams.mStripeCount         = entry.fattr.numStripes;
+        openParams.mRecoveryStripeCount = entry.fattr.numRecoveryStripes;
+        openParams.mReplicaCount        = entry.fattr.numReplicas;
+        openParams.mMsgLogId            = fd;
+        if(entry.fattr.striperType == KFS_STRIPED_FILE_TYPE_NONE) {
+            openParams.mDiskIoSize = entry.ioBufferSize;
+        } else {
+            const int kChecksumBlockSize = (int)CHECKSUM_BLOCKSIZE;
+            const int totalStripeCount   =
+               entry.fattr.numStripes + entry.fattr.numRecoveryStripes;
+            openParams.mDiskIoSize = (entry.ioBufferSize / totalStripeCount
+               + kChecksumBlockSize - 1) /
+               kChecksumBlockSize * kChecksumBlockSize;
+        }
     }
     entry.usedProtocolWorkerFlag = true;
     entry.pending += numBytes;
@@ -189,7 +193,7 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
             )),
         fileInstance,
         fileId,
-        &openParams,
+        openParamsPtr,
         const_cast<char*>(buf),
         numBytes,
         (throttle || (! appendFlag && bufsz >= 0)) ? bufsz : -1,

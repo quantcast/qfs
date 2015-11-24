@@ -105,7 +105,7 @@ class QFSInputStream extends FSInputStream {
   public void reset() throws IOException {
     throw new IOException("Mark not supported");
   }
-  
+
   public void setReadAheadSize(long readAheadSize) {
     kfsChannel.setReadAheadSize(readAheadSize);
   }
