@@ -248,4 +248,9 @@ public class KfsOutputChannel implements WritableByteChannel, Positionable
         }
     }
     
+    public void setIoBufferSize(long bufferSize) {
+        if(bufferSize >= 0) {
+            kfsAccess.kfs_setIoBufferSize(kfsFd, bufferSize);
+        }
+    }
 }

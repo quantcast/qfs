@@ -73,4 +73,8 @@ class QFSOutputStream extends OutputStream {
     flush();
     kfsChannel.close();
   }
+
+  public void setIoBufferSize(long bufferSize) {
+    kfsChannel.setIoBufferSize(bufferSize);
+  }
 }

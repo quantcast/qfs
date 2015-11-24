@@ -1097,7 +1097,8 @@ private:
         FileWriter(
             Owner&            inOwner,
             Workers::iterator inWorkersIt,
-            const char*       inLogPrefixPtr)
+            const char*       inLogPrefixPtr,
+            int               inMaxWriteSize)
             : Worker(inOwner, inWorkersIt),
               Writer::Completion(),
               mWriter(
@@ -1109,7 +1110,8 @@ private:
                 inOwner.mTimeSecBetweenRetries,
                 inOwner.mOpTimeoutSec,
                 inOwner.mIdleTimeoutSec,
-                inOwner.mMaxWriteSize,
+                min(max(4 << 20, inOwner.mMaxWriteSize),
+                    max(inOwner.mMaxWriteSize, inMaxWriteSize)),
                 inLogPrefixPtr,
                 inOwner.mChunkServerInitialSeqNum
               ),
@@ -1710,7 +1712,8 @@ private:
                 *this, inWorkersIt, theLogPrefix.c_str())) :
             (IsWrite(inRequest) ?
                 static_cast<Worker*>(new FileWriter(
-                    *this, inWorkersIt, theLogPrefix.c_str())) :
+                    *this, inWorkersIt, theLogPrefix.c_str(),
+                    inRequest.mParamsPtr->mDiskIoSize)) :
             (IsRead(inRequest) ?
                 static_cast<Worker*>(new FileReader(
                     *this, inWorkersIt, theLogPrefix.c_str())) :
