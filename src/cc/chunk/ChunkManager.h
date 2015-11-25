@@ -949,6 +949,7 @@ private:
     bool       mChunkSizeSkipHeaderVerifyFlag;
     bool       mVersionChangePermitWritesInFlightFlag;
     int64_t    mMinChunkCountForHelloResume;
+    string     mHelloResumeFailureTraceFileName;
 
     PendingNotifyLostChunks* mPendingNotifyLostChunks;
     CorruptChunkOp           mCorruptChunkOp;

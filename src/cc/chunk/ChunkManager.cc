@@ -2021,6 +2021,7 @@ ChunkManager::ChunkManager()
       mChunkSizeSkipHeaderVerifyFlag(false),
       mVersionChangePermitWritesInFlightFlag(true),
       mMinChunkCountForHelloResume(1 << 10),
+      mHelloResumeFailureTraceFileName(),
       mPendingNotifyLostChunks(0),
       mCorruptChunkOp(-1),
       mLastPendingInFlight(),
@@ -2397,6 +2398,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mMinChunkCountForHelloResume = prop.getValue(
         "chunkServer.minChunkCountForHelloResume",
         mMinChunkCountForHelloResume);
+    mHelloResumeFailureTraceFileName = prop.getValue(
+        "chunkServer.helloResumeFailureTraceFileName",
+        mHelloResumeFailureTraceFileName);
     mDiskIoRequestAffinityFlag = prop.getValue(
         "chunkServer.diskIoRequestAffinity",
         mDiskIoRequestAffinityFlag ? 1 : 0) != 0;
@@ -5736,7 +5740,14 @@ ChunkManager::GetHostedChunksResume(
         return;
     }
     mCounters.mHelloResumeFailedCount++;
-    KFS_LOG_STREAM_ERROR <<
+    static ofstream traceTee;
+    if (! mHelloResumeFailureTraceFileName.empty()) {
+        traceTee.open(mHelloResumeFailureTraceFileName.c_str(),
+            ofstream::app | ofstream::out);
+    }
+    KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelERROR, logStream,
+            traceTee.is_open() ? &traceTee : 0);
+        logStream.GetStream() <<
         "hello resume failure:"
         " chunks:"
         " all: "       << mChunkTable.GetSize() <<
@@ -5749,9 +5760,11 @@ ChunkManager::GetHostedChunksResume(
         " modified: "  << hello.resumeModified.size() <<
         " lastInflt: " << mLastPendingInFlight.GetSize() <<
         " / "          << mCorruptChunkOp.chunkCount <<
-        " resume: "    << hello.resumeStep <<
-    KFS_LOG_EOM;
-    KFS_LOG_STREAM_START(MsgLogger::kLogLevelDEBUG, logStream);
+        " resume: "    << hello.resumeStep
+        ;
+    KFS_LOG_STREAM_END;
+    KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelDEBUG, logStream,
+            traceTee.is_open() ? &traceTee : 0);
         ostream& os = logStream.GetStream();
         os << "last pending in flight[" <<
             mLastPendingInFlight.GetSize() <<
@@ -5816,6 +5829,10 @@ ChunkManager::GetHostedChunksResume(
         }
         os << "\n";
     KFS_LOG_STREAM_END;
+    if (traceTee.is_open()) {
+        traceTee << "\n";
+        traceTee.close();
+    }
     hello.resumeStep         = -1;
     hello.status             = 0;
     *(stable.first)          = 0;

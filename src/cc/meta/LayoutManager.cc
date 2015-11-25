@@ -85,6 +85,7 @@ using std::setprecision;
 using std::fixed;
 using std::lower_bound;
 using std::swap;
+using std::ofstream;
 using boost::mem_fn;
 using boost::bind;
 using boost::ref;
@@ -1758,6 +1759,7 @@ LayoutManager::LayoutManager() :
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
     mDebugPanicOnHelloResumeFailureCount(-1),
+    mHelloResumeFailureTraceFileName(),
     mFileRecoveryInFlightCount(),
     mIdempotentRequestTracker(),
     mResubmitQueueHead(0),
@@ -2411,6 +2413,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mDebugPanicOnHelloResumeFailureCount = props.getValue(
         "metaServer.debugPanicOnHelloResumeFailureCount",
         mDebugPanicOnHelloResumeFailureCount);
+    mHelloResumeFailureTraceFileName = props.getValue(
+        "metaServer.helloResumeFailureTraceFileName",
+        mHelloResumeFailureTraceFileName);
     mObjectStoreEnabledFlag = props.getValue(
         "metaServer.objectStoreEnabled", mObjectStoreEnabledFlag ? 1 : 0) != 0;
     mObjectStoreReadCanUsePoxoyOnDifferentHostFlag = props.getValue(
@@ -2539,10 +2544,21 @@ LayoutManager::Validate(MetaHello& r)
             mDebugPanicOnHelloResumeFailureCount < r.helloResumeFailedCount) {
         const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
         if (cs && cs->CanBeResumed()) {
-            KFS_LOG_STREAM_FATAL <<
-                "server: " << r.location << "\n" <<
-                HibernatedChunkServer::Display(*cs, mChunkToServerMap) <<
-            KFS_LOG_EOM;
+            ofstream traceTee;
+            if (! mHelloResumeFailureTraceFileName.empty()) {
+                traceTee.open(mHelloResumeFailureTraceFileName.c_str(),
+                    ofstream::app | ofstream::out);
+            }
+            KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelFATAL, logStream,
+                    traceTee.is_open() ? &traceTee : 0);
+                logStream.GetStream() <<
+                    "server: " << r.location << "\n" <<
+                    HibernatedChunkServer::Display(*cs, mChunkToServerMap);
+            KFS_LOG_STREAM_END;
+            if (traceTee.is_open()) {
+                traceTee << "\n";
+                traceTee.close();
+            }
         } else {
             KFS_LOG_STREAM_FATAL <<
                 (cs ? "no hibernated state" : "no valid hibernated state") <<

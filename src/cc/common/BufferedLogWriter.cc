@@ -797,7 +797,8 @@ public:
     }
     ostream& GetStream(
         LogLevel inLogLevel,
-        bool     inDiscardFlag)
+        bool     inDiscardFlag,
+        ostream* inTeeStreamPtr)
     {
         QCStMutexLocker theLocker(mMutex);
 
@@ -805,11 +806,12 @@ public:
         if (theRetPtr) {
             QCASSERT(mMsgStreamCount > 0);
             mMsgStreamHeadPtr = theRetPtr->Next();
-            theRetPtr->Clear(inLogLevel, inDiscardFlag);
+            theRetPtr->Clear(inLogLevel, inDiscardFlag, inTeeStreamPtr);
             mMsgStreamCount--;
         } else {
             QCASSERT(mMsgStreamCount == 0);
-            theRetPtr = new MsgStream(inLogLevel, inDiscardFlag);
+            theRetPtr = new MsgStream(
+                inLogLevel, inDiscardFlag, inTeeStreamPtr);
         }
         return *theRetPtr;
     }
@@ -824,6 +826,7 @@ public:
                 theStream.GetMsgPtr(), theStream.GetMsgLength());
         }
         if (mMsgStreamCount < mMaxMsgStreamCount) {
+            theStream.ClearTeeStreamPtr();
             theStream.tie(0);
             theStream.Next() = mMsgStreamHeadPtr;
             mMsgStreamHeadPtr = &theStream;
@@ -858,14 +861,18 @@ private:
     public:
         MsgStream(
             LogLevel inLogLevel,
-            bool     inDiscardFlag)
+            bool     inDiscardFlag,
+            ostream* inTeeStreamPtr)
             : streambuf(),
               ostream(this),
               mLogLevel(inLogLevel),
-              mNextPtr(0)
+              mNextPtr(0),
+              mTeeStreamPtr(inTeeStreamPtr)
             { setp(mBuffer, mBuffer + (inDiscardFlag ? 0 : kMaxMsgSize)); }
         virtual ~MsgStream()
             {}
+        void ClearTeeStreamPtr()
+            { mTeeStreamPtr = 0; }
         MsgStream*& Next()
             { return mNextPtr; }
         virtual streamsize xsputn(
@@ -878,7 +885,11 @@ private:
                 streamsize(theEndPtr - theCurPtr)));
             memcpy(theCurPtr, inBufPtr, theSize);
             pbump(theSize);
-            return theSize;
+            return (mTeeStreamPtr ?
+                max(! mTeeStreamPtr->write(inBufPtr, inLength) ?
+                    streamsize(0) : inLength, theSize) :
+                theSize
+            );
         }
         const char* GetMsgPtr() const
         {
@@ -893,7 +904,8 @@ private:
             { return mLogLevel; }
         void Clear(
             LogLevel inLogLevel,
-            bool     inDiscardFlag)
+            bool     inDiscardFlag,
+            ostream* inTeeStreamPtr)
         {
             mLogLevel = inLogLevel;
             mNextPtr  = 0;
@@ -904,6 +916,7 @@ private:
             ostream::fill(' ');
             ostream::tie(0);
             setp(mBuffer, mBuffer + (inDiscardFlag ? 0 : kMaxMsgSize));
+            mTeeStreamPtr = inTeeStreamPtr;
         }
         bool IsDiscard() const
             { return (mBuffer == epptr()); }
@@ -911,6 +924,7 @@ private:
         enum { kMaxMsgSize = 512 << 10 };
         LogLevel   mLogLevel;
         MsgStream* mNextPtr;
+        ostream*   mTeeStreamPtr;
         char       mBuffer[kMaxMsgSize + 1];
     private:
         MsgStream(
@@ -1498,9 +1512,11 @@ BufferedLogWriter::PutStream(
 
 ostream&
 BufferedLogWriter::GetStream(
-    LogLevel inLogLevel)
+    LogLevel inLogLevel,
+    ostream* inTeeStreamPtr)
 {
-    return mImpl.GetStream(inLogLevel, mLogLevel < inLogLevel);
+    return mImpl.GetStream(
+        inLogLevel, mLogLevel < inLogLevel, inTeeStreamPtr);
 }
 
 void

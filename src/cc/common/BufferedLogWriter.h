@@ -137,7 +137,9 @@ public:
         va_list     inArgs);
     void GetCounters(
         Counters& outCounters);
-    ostream& GetStream(LogLevel inLogLevel);
+    ostream& GetStream(
+        LogLevel inLogLevel,
+        ostream* inTeeStreamPtr = 0);
     void PutStream(ostream& inStreamPtr);
     void ChildAtFork();
 
@@ -146,9 +148,10 @@ public:
     public:
         StStream(
             BufferedLogWriter& inLogWriter,
-            LogLevel           inLogLevel)
+            LogLevel           inLogLevel,
+            ostream*           inTeeStreamPtr = 0)
             : mLogWriter(inLogWriter),
-              mStream(inLogWriter.GetStream(inLogLevel))
+              mStream(inLogWriter.GetStream(inLogLevel, inTeeStreamPtr))
             {}
         ~StStream()
             { mLogWriter.PutStream(mStream); }

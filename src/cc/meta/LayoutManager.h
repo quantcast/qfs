@@ -2353,6 +2353,7 @@ protected:
     int                   mMaxRecoveryStripeCount;
     int                   mMaxRSDataStripeCount;
     int64_t               mDebugPanicOnHelloResumeFailureCount;
+    string                mHelloResumeFailureTraceFileName;
 
     typedef MetaChunkReplicate::FileRecoveryInFlightCount
         FileRecoveryInFlightCount;

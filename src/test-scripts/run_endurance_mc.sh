@@ -414,6 +414,7 @@ metaServer.rootDirMode = 0777
 metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.startupAbortOnPanic = 1
 metaServer.debugPanicOnHelloResumeFailureCount = 0
+metaServer.helloResumeFailureTraceFileName = helloresumefail.log
 
 metaServer.log.failureSimulationInterval = 100
 metaServer.log.panicOnIoError = 1
@@ -546,6 +547,7 @@ chunkServer.msgLogWriter.maxLogFileSize = 1e9
 chunkServer.msgLogWriter.maxLogFiles = 30
 chunkServer.clientThreadCount = $chunkserverclithreads
 chunkServer.minChunkCountForHelloResume = 0
+chunkServer.helloResumeFailureTraceFileName = helloresumefail.log
 EOF
 
         if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then

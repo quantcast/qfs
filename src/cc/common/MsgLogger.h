@@ -76,14 +76,19 @@ namespace KFS
 // problems with stream object scope / lifetime.
 // The price for this is that insertion has to be always terminated with
 // KFS_LOG_EOM, otherwise you'll get possibly unintelligible compile time error.
-#ifndef KFS_LOG_STREAM_START
-#   define KFS_LOG_STREAM_START(logLevel, streamVarName) \
+#ifndef KFS_LOG_STREAM_START_TEE
+#   define KFS_LOG_STREAM_START_TEE(logLevel, streamVarName, teeStreamPtr) \
     if (MsgLogger::GetLogger() && \
-            MsgLogger::GetLogger()->IsLogLevelEnabled(logLevel)) {\
+            (MsgLogger::GetLogger()->IsLogLevelEnabled(logLevel) || \
+                teeStreamPtr)) {\
         MsgLogger::StStream streamVarName( \
-            *MsgLogger::GetLogger(), logLevel); \
+            *MsgLogger::GetLogger(), logLevel, teeStreamPtr); \
         streamVarName.GetStream() << "(" << \
             MsgLogger::SourceFileName(__FILE__) << ":" << __LINE__ << ") "
+#endif
+#ifndef KFS_LOG_STREAM_START
+#   define KFS_LOG_STREAM_START(logLevel, streamVarName) \
+        KFS_LOG_STREAM_START_TEE(logLevel, streamVarName, 0)
 #endif
 #ifndef KFS_LOG_STREAM_END
 #   define KFS_LOG_STREAM_END \
