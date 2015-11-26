@@ -1472,7 +1472,8 @@ public:
     void ClearObjStoreDelete();
     void UpdateObjectsCount(
         ChunkServer& srv, int64_t delta, int64_t writableDelta);
-
+    bool DeleteChunkServerRollBack(chunkId_t chunkId)
+        { return (0 < mChunkVersionRollBack.erase(chunkId)); }
 protected:
     typedef vector<
         int,
