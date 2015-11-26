@@ -1429,6 +1429,8 @@ public:
         { return mDeleteChunkOnFsIdMismatchFlag; }
     void Handle(MetaForceChunkReplication& op);
     bool Validate(MetaCreate& createOp) const;
+    bool DeleteChunkServerRollBack(chunkId_t chunkId)
+        { return (0 < mChunkVersionRollBack.erase(chunkId)); }
 protected:
     typedef vector<
         int,

@@ -479,6 +479,9 @@ replay_allocate(DETokenizer& c)
                     gLayoutManager.ReplayPendingMakeStable(
                         cid, chunkVersion, -1, false, 0, true);
                 }
+                if (chunkExists) {
+                    gLayoutManager.DeleteChunkServerRollBack(cid);
+                }
                 if (cid > chunkID.getseed()) {
                     // chunkID are handled by a two-stage
                     // allocation: the seed is updated in
