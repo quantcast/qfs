@@ -520,7 +520,7 @@ replay_allocate(DETokenizer& c)
     fid_t fid;
     chunkId_t cid, logChunkId;
     chunkOff_t offset, tmp = 0;
-    seq_t chunkVersion, logChunkVersion;
+    seq_t chunkVersion = -1, logChunkVersion;
     int status = 0;
     int64_t mtime;
 
@@ -560,28 +560,18 @@ replay_allocate(DETokenizer& c)
         }
         const bool chunkExists = status == -EEXIST;
         if (chunkExists) {
-            // allocates are particularly nasty: we can have
-            // allocate requests that retrieve the info for an
-            // existing chunk; since there is no tree mutation,
-            // there is no way to turn off logging for the request
-            // (the mutation field of a request is const).  so, if
-            // we end up in a situation where what we get from the
-            // log matches what is in the tree, ignore it and move
-            // on
             if (cid != logChunkId) {
                 return false;
             }
             if (chunkVersion == logChunkVersion) {
-                return ok;
+                return true;
             }
             status = 0;
         }
-
         if (status == 0) {
             assert(cid == logChunkId);
-            chunkVersion = logChunkVersion;
             status = metatree.assignChunkId(fid, offset,
-                            cid, chunkVersion, 0, 0, append);
+                            cid, logChunkVersion, 0, 0, append);
             if (status == 0) {
                 fid_t cfid = 0;
                 if (chunkExists &&
@@ -590,11 +580,23 @@ replay_allocate(DETokenizer& c)
                         fid != cfid)) {
                     panic("missing chunk mapping", false);
                 }
-                // In case of append create begin make chunk stable entry,
-                // if it doesn't already exist.
-                if (append) {
-                    gLayoutManager.ReplayPendingMakeStable(
-                        cid, chunkVersion, -1, false, 0, true);
+                MetaLogChunkAllocate logAlloc;
+                logAlloc.replayFlag          = true;
+                logAlloc.status              = 0;
+                logAlloc.fid                 = fid;
+                logAlloc.offset              = offset;
+                logAlloc.chunkId             = logChunkId;
+                logAlloc.chunkVersion        = logChunkVersion;
+                logAlloc.appendChunk         = append;
+                logAlloc.invalidateAllFlag   = false;
+                logAlloc.objectStoreFileFlag = 0 == fa->numReplicas;
+                logAlloc.initialChunkVersion = chunkVersion;
+                logAlloc.mtime               = gottime ? mtime : fa->mtime;
+                gLayoutManager.CommitOrRollBackChunkVersion(&logAlloc);
+                status = logAlloc.status;
+                // assign updates the mtime; so, set it to what is in the log.
+                if (0 == status && gottime) {
+                    fa->mtime = mtime;
                 }
                 if (cid > chunkID.getseed()) {
                     // chunkID are handled by a two-stage
@@ -609,11 +611,6 @@ replay_allocate(DETokenizer& c)
                     // we crash, then the cid in log < seed in ckpt.
                     updateSeed(chunkID, cid);
                 }
-            }
-            // assign updates the mtime; so, set it to what is in
-            // the log
-            if (gottime) {
-                fa->mtime = mtime;
             }
         }
     }
