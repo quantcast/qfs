@@ -5740,13 +5740,17 @@ ChunkManager::GetHostedChunksResume(
         return;
     }
     mCounters.mHelloResumeFailedCount++;
-    static ofstream traceTee;
+    ofstream* traceTee = 0;
     if (! mHelloResumeFailureTraceFileName.empty()) {
-        traceTee.open(mHelloResumeFailureTraceFileName.c_str(),
+        static ofstream sTraceTee;
+        sTraceTee.clear();
+        sTraceTee.open(mHelloResumeFailureTraceFileName.c_str(),
             ofstream::app | ofstream::out);
+        if (sTraceTee.is_open()) {
+            traceTee = &sTraceTee;
+        }
     }
-    KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelERROR, logStream,
-            traceTee.is_open() ? &traceTee : 0);
+    KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelERROR, logStream, traceTee);
         logStream.GetStream() <<
         "hello resume failure:"
         " chunks:"
@@ -5763,8 +5767,7 @@ ChunkManager::GetHostedChunksResume(
         " resume: "    << hello.resumeStep
         ;
     KFS_LOG_STREAM_END;
-    KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelDEBUG, logStream,
-            traceTee.is_open() ? &traceTee : 0);
+    KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelDEBUG, logStream, traceTee);
         ostream& os = logStream.GetStream();
         os << "last pending in flight[" <<
             mLastPendingInFlight.GetSize() <<
@@ -5829,9 +5832,9 @@ ChunkManager::GetHostedChunksResume(
         }
         os << "\n";
     KFS_LOG_STREAM_END;
-    if (traceTee.is_open()) {
-        traceTee << "\n";
-        traceTee.close();
+    if (traceTee) {
+        *traceTee << "\n";
+        traceTee->close();
     }
     hello.resumeStep         = -1;
     hello.status             = 0;
