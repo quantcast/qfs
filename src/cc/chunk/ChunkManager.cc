@@ -5746,7 +5746,7 @@ ChunkManager::GetHostedChunksResume(
         sTraceTee.clear();
         sTraceTee.open(mHelloResumeFailureTraceFileName.c_str(),
             ofstream::app | ofstream::out);
-        if (sTraceTee.is_open()) {
+        if (sTraceTee.is_open() && sTraceTee) {
             traceTee = &sTraceTee;
         }
     }
