@@ -6722,7 +6722,7 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
     ChunkLeases::EntryKey const key(req->chunkId, req->chunkPos);
     const bool                  kAllocDoneFlag = false;
     const int                   ret            = mChunkLeases.Renew(
-        cs->GetFileId(),
+        fa->id(),
         key,
         req->leaseId,
         kAllocDoneFlag,
