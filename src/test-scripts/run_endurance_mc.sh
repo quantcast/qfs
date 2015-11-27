@@ -158,7 +158,7 @@ while [ $# -gt 0 ]; do
             for n in \
                 "$clitestdir/fanout/kfanout_test.log" \
                 "$clitestdir/sortmaster/sortmaster_endurance_test.log" \
-                "$clitestdir/cp/cptest-"{n,rs,tfs.os}.log \
+                "$clitestdir/cp/cptest-"{n,rs,tfs,os}.log \
                 "$metasrvdir/$fscklog" \
                 ; do
                 [ -f "$n" ] || continue
