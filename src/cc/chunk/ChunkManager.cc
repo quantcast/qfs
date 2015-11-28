@@ -5767,6 +5767,9 @@ ChunkManager::GetHostedChunksResume(
         " resume: "    << hello.resumeStep
         ;
     KFS_LOG_STREAM_END;
+    if (traceTee) {
+        *traceTee << "\n";
+    }
     KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelDEBUG, logStream, traceTee);
         ostream& os = logStream.GetStream();
         os << "last pending in flight[" <<
