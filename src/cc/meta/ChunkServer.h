@@ -900,7 +900,7 @@ protected:
     bool mDown;
 
     /// Is there a heartbeat message for which we haven't
-    /// recieved a reply yet?  If yes, dont' send one more
+    /// received a reply yet?  If yes, don't send one more
     bool   mHeartbeatSent;
 
     /// did we skip the sending of a heartbeat message?

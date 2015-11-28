@@ -166,7 +166,7 @@ SysToKfsErrno(
         case EINPROGRESS:      return kKFS_EINPROGRESS;
         case EDQUOT:           return kKFS_EDQUOT;
         case ECANCELED:        return kKFS_ECANCELED;
-        // Ensure that the following do not clash with the sytem error values.
+        // Ensure that the following do not clash with the system error values.
         case EBADVERS:
         case ELEASEEXPIRED:
         case EBADCKSUM:

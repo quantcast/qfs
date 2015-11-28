@@ -2528,7 +2528,7 @@ LayoutManager::Validate(MetaHello& r)
     if (r.clusterKey != mClusterKey) {
         r.statusMsg = "cluster key mismatch:"
             " expect: "   + mClusterKey +
-            " recieved: " + r.clusterKey;
+            " received: " + r.clusterKey;
         r.status = -EBADCLUSTERKEY;
         return false;
     }
@@ -2536,7 +2536,7 @@ LayoutManager::Validate(MetaHello& r)
                 mChunkServerMd5sums.begin(),
                 mChunkServerMd5sums.end(),
                 r.md5sum) == mChunkServerMd5sums.end()) {
-        r.statusMsg = "MD5sum mismatch: recieved: " + r.md5sum;
+        r.statusMsg = "MD5sum mismatch: received: " + r.md5sum;
         r.status    = -EBADCLUSTERKEY;
         return false;
     }
