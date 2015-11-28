@@ -1291,7 +1291,6 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     void responseSelf(ReqOstream &os);
     void LayoutDone(int64_t chunkAllocProcessTime);
     int PendingLeaseRelinquish(int code, void *data);
-    int CheckStatus(bool forceFlag = false) const;
     bool ChunkAllocDone(const MetaChunkAllocate& chunkAlloc);
     void writeChunkAccess(ReqOstream& os);
     virtual bool dispatch(ClientSM& sm);
@@ -1316,6 +1315,7 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     }
 private:
     bool startedFlag;
+    bool CheckAllServersUp();
 };
 
 struct MetaLogChunkAllocate : public MetaRequest {
@@ -1781,7 +1781,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     IOBuffer           responseBuf;
 
     MetaHello()
-        : MetaRequest(META_HELLO, kLogNever),
+        : MetaRequest(META_HELLO, kLogQueue),
           ServerLocation(),
           server(),
           location(*this),
@@ -1826,12 +1826,12 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           checksum(),
           responseBuf()
         {}
+    virtual bool start()
+        { return (0 == status); }
     virtual void handle();
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
-    {
-        return os << "Chunkserver hello";
-    }
+        { return os << "Chunkserver hello"; }
     bool Validate()
     {
         return (ServerLocation::IsValid() &&
@@ -1881,8 +1881,11 @@ struct MetaHello : public MetaRequest, public ServerLocation {
 struct MetaBye: public MetaRequest {
     ChunkServerPtr server; //!< The chunkserver that went down
     MetaBye(seq_t s, const ChunkServerPtr& c)
-        : MetaRequest(META_BYE, kLogNever, s),
-          server(c) { }
+        : MetaRequest(META_BYE, kLogQueue, s),
+          server(c)
+        {}
+    virtual bool start()
+        { return (0 == status); }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {

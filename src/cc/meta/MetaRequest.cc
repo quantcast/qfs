@@ -2289,6 +2289,9 @@ MetaLogChunkAllocate::handle()
         panic("invalid meta log chunk allocate");
         return;
     }
+    if (alloc && 0 != alloc->status) {
+        panic("chunk allocate status changed while log allocate was in flight");
+    }
     if (0 != status) {
         KFS_LOG_STREAM_ERROR <<
             "status: " << status <<
@@ -2548,25 +2551,19 @@ MetaAllocate::PendingLeaseRelinquish(int code, void* data)
     return 0;
 }
 
-int
-MetaAllocate::CheckStatus(bool forceFlag) const
+bool
+MetaAllocate::CheckAllServersUp()
 {
-    if (status < 0) {
-        return status;
-    }
     const size_t sz = servers.size();
-    if (numServerReplies == sz && ! forceFlag) {
-        return status;
-    }
     for (size_t i = 0; i < sz; i++) {
         if (servers[i]->IsDown()) {
-            const_cast<MetaAllocate*>(this)->status    = -EALLOCFAILED;
-            const_cast<MetaAllocate*>(this)->statusMsg = "server " +
+            status    = -EALLOCFAILED;
+            statusMsg = "server " +
                 servers[i]->GetServerLocation().ToString() + " went down";
-            break;
+            return false;
         }
     }
-    return status;
+    return true;
 }
 
 bool
@@ -2607,19 +2604,10 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
         return false;
     }
     // The op is no longer suspended.
-    const bool kForceFlag = true;
-    if (firstFailedServerIdx >= 0 && status != 0) {
-        // Check if all servers are up before discarding chunk.
-        const int prevStatus = status;
-        status = 0;
-        if (CheckStatus(kForceFlag) == 0) {
-            status = prevStatus;
-            gLayoutManager.ChunkCorrupt(
-                chunkId, servers[firstFailedServerIdx]);
-        }
-    } else {
-        // Check if any server went down.
-        CheckStatus(kForceFlag);
+    const bool discardFlag = 0 <= firstFailedServerIdx && 0 != status;
+    if (CheckAllServersUp() && discardFlag) {
+        gLayoutManager.ChunkCorrupt(
+            chunkId, servers[firstFailedServerIdx]);
     }
     LayoutDone(chunkAlloc.processTime);
     return true;

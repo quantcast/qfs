@@ -317,7 +317,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
 }
 
 inline void
-ChunkServer::HelloDone(MetaHello& r)
+ChunkServer::HelloDone(const MetaHello& r)
 {
     if (this != r.server.get() || this != r.clnt) {
         panic("invalid hello done invocation");
