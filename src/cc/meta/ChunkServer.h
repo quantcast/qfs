@@ -1087,6 +1087,7 @@ protected:
     int64_t            mHelloResumeFailedCount;
     bool               mShortRpcFormatFlag;
     uint64_t           mHibernatedGeneration;
+    int                mPendingOpsCount;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
@@ -1219,6 +1220,7 @@ protected:
         int         status,
         const char* statusMsg);
     void ReleasePendingResponses(bool sendResponseFlag = false);
+    inline void Submit(MetaRequest& op);
     inline ChunkServerPtr GetSelfPtr();
 };
 

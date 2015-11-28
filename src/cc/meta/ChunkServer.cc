@@ -362,6 +362,12 @@ ChunkServer::GetSelfPtr()
     return (mSelfPtr ? mSelfPtr : shared_from_this());
 }
 
+inline void
+ChunkServer::Submit(MetaRequest& op)
+{
+    mPendingOpsCount++;
+    submit_request(&op);
+}
 
 ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     : KfsCallbackObj(),
@@ -455,6 +461,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mHelloResumeFailedCount(0),
       mShortRpcFormatFlag(false),
       mHibernatedGeneration(0),
+      mPendingOpsCount(0),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -478,7 +485,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
 
 ChunkServer::~ChunkServer()
 {
-    if (0 != mRecursionCount || mSelfPtr) {
+    if (0 != mRecursionCount || mSelfPtr || 0 != mPendingOpsCount) {
         panic("chunk server: invalid destructor invocation");
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
@@ -700,6 +707,8 @@ ChunkServer::HandleRequest(int code, void *data)
     }
 
     case EVENT_CMD_DONE: {
+        assert(0 < mPendingOpsCount);
+        mPendingOpsCount--;
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data &&
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
@@ -863,7 +872,7 @@ ChunkServer::HandleRequest(int code, void *data)
         panic("chunk server handle event: invalid recursion count");
     }
     mRecursionCount--;
-    if (mRecursionCount <= 0 && mDown) {
+    if (mRecursionCount <= 0 && mDown && mPendingOpsCount <= 0) {
         mSelfPtr.reset(); // Unref / delete self
     }
     return 0;
@@ -909,7 +918,7 @@ ChunkServer::ForceDown()
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
-    if (mRecursionCount <= 0) {
+    if (mRecursionCount <= 0 && mPendingOpsCount <= 0) {
         mSelfPtr.reset(); // Unref / delete self
     }
 }
@@ -991,10 +1000,10 @@ ChunkServer::Error(const char* errorMsg)
         MetaBye* const mb = new MetaBye(0, mSelfPtr);
         mb->authUid = mAuthUid;
         mb->clnt    = this;
-        submit_request(mb);
+        Submit(*mb);
     }
     ReleasePendingResponses();
-    if (mRecursionCount <= 0) {
+    if (mRecursionCount <= 0 && mPendingOpsCount <= 0) {
         mSelfPtr.reset(); // Unref / delete self
     }
 }
@@ -1588,7 +1597,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     if (op.resumeStep < 0) {
         HelloDone(op);
     }
-    submit_request(&op);
+    Submit(op);
     return 0;
 }
 
@@ -1640,7 +1649,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     op->clnt               = this;
     op->authUid            = mAuthUid;
     op->shortRpcFormatFlag = mShortRpcFormatFlag;
-    submit_request(op);
+    Submit(*op);
     return 0;
 }
 
@@ -2745,6 +2754,7 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
         " response length: "    << mAuthenticateOp->sendContentLen <<
         " msg: "                << mAuthenticateOp->statusMsg <<
     KFS_LOG_EOM;
+    mPendingOpsCount++;
     HandleRequest(EVENT_CMD_DONE, mAuthenticateOp);
     return 0;
 }
