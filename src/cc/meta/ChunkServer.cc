@@ -879,12 +879,35 @@ ChunkServer::HandleRequest(int code, void *data)
 }
 
 void
+ChunkServer::RemoveFromWriteAllocation()
+{
+    // Take out the server from write allocation / placement.
+    mTotalSpace   = 0;
+    mTotalFsSpace = 0;
+    mAllocSpace   = 0;
+    mUsedSpace    = 0;
+    const int64_t delta = -mLoadAvg;
+    mLoadAvg      = 0;
+    const int64_t objDelta = -mNumObjects;
+    mNumObjects   = 0;
+    const int64_t wrObjDelta = -mNumWrObjects;
+    mNumWrObjects = 0;
+    ClearStorageTiers();
+    const bool kCanBePlacementCandidateFlag = false;
+    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta,
+        kCanBePlacementCandidateFlag);
+    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
+    UpdateChunkWritesPerDrive(0, 0);
+}
+
+void
 ChunkServer::ForceDown()
 {
     if (mDown) {
         return;
     }
-    KFS_LOG_STREAM_WARN <<
+    KFS_LOG_STREAM(mNetConnection ?
+            MsgLogger::kLogLevelWARN : MsgLogger::kLogLevelDEBUG) <<
         "forcing chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :
             string("not connected")) <<
@@ -894,26 +917,12 @@ ChunkServer::ForceDown()
         mNetConnection->Close();
         mNetConnection->GetInBuffer().Clear();
         mNetConnection.reset();
+        RemoveFromPendingHelloList();
+        RemoveFromWriteAllocation();
     }
-    RemoveFromPendingHelloList();
     MetaRequest::Release(mHelloOp);
-    mHelloOp      = 0;
-    mDown         = true;
-    // Take out the server from write-allocation
-    mTotalSpace   = 0;
-    mTotalFsSpace = 0;
-    mAllocSpace   = 0;
-    mUsedSpace    = 0;
-    const int64_t delta = -mLoadAvg;
-    mLoadAvg      = 0;
-    const int64_t objDelta = -mNumObjects;
-    mNumObjects = 0;
-    const int64_t wrObjDelta = -mNumWrObjects;
-    mNumWrObjects = 0;
-    ClearStorageTiers();
-    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
-    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
-    UpdateChunkWritesPerDrive(0, 0);
+    mHelloOp = 0;
+    mDown = true;
     FailDispatchedOps("chunk server down");
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
@@ -945,7 +954,7 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 void
 ChunkServer::Error(const char* errorMsg)
 {
-    if (mDown) {
+    if (mDown || ! mNetConnection) {
         return;
     }
     if (! mSelfPtr) {
@@ -962,50 +971,26 @@ ChunkServer::Error(const char* errorMsg)
         " socket error: " << (mNetConnection ?
             mNetConnection->GetErrorMsg() : string("none")) <<
     KFS_LOG_EOM;
-    if (mNetConnection) {
-        mNetConnection->Close();
-        mNetConnection->GetInBuffer().Clear();
-        mNetConnection.reset();
-    }
+    mNetConnection->Close();
+    mNetConnection->GetInBuffer().Clear();
+    mNetConnection.reset();
     if (mDownReason.empty() && mRestartQueuedFlag) {
         mDownReason = "restart";
     }
     RemoveFromPendingHelloList();
+    RemoveFromWriteAllocation();
     MetaRequest::Release(mAuthenticateOp);
     mAuthenticateOp = 0;
-    MetaRequest::Release(mHelloOp);
-    mHelloOp      = 0;
-    mDown         = true;
-    // Take out the server from write-allocation
-    mTotalSpace   = 0;
-    mTotalFsSpace = 0;
-    mAllocSpace   = 0;
-    mUsedSpace    = 0;
-    const int64_t delta = -mLoadAvg;
-    mLoadAvg      = 0;
-    const int64_t objDelta = -mNumObjects;
-    mNumObjects = 0;
-    const int64_t wrObjDelta = -mNumWrObjects;
-    mNumWrObjects = 0;
-    ClearStorageTiers();
-    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
-    gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
-    UpdateChunkWritesPerDrive(0, 0);
-    FailDispatchedOps(errorMsg);
-    assert(sChunkDirsCount >= mChunkDirInfos.size());
-    sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
-    mChunkDirInfos.clear();
     if (mHelloDone) {
-        // force the server down thru the main loop to avoid races
+        // Ensure proper event ordering in the logger queue, such that down
+        // event is executed after all RPCs in logger queue.
         MetaBye* const mb = new MetaBye(0, mSelfPtr);
         mb->authUid = mAuthUid;
         mb->clnt    = this;
         Submit(*mb);
+        return;
     }
-    ReleasePendingResponses();
-    if (mRecursionCount <= 0 && mPendingOpsCount <= 0) {
-        mSelfPtr.reset(); // Unref / delete self
-    }
+    ForceDown();
 }
 
 ///
@@ -1936,7 +1921,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
     if (r->submitCount++ == 0) {
         r->submitTime = microseconds();
     }
-    if (mDown || ! mNetConnection || ! mNetConnection->IsGood()) {
+    if (mDown) {
         r->status = -EIO;
         gLayoutManager.EnqueueServerDown(*this, *r);
         r->resume();
@@ -1959,7 +1944,9 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
     if (r->op == META_CHUNK_REPLICATE) {
         KFS_LOG_STREAM_INFO << r->Show() << KFS_LOG_EOM;
     }
-    EnqueueSelf(r);
+    if (mNetConnection && mNetConnection->IsGood()) {
+        EnqueueSelf(r);
+    }
 }
 
 void
@@ -2284,10 +2271,9 @@ ChunkServer::Restart(bool justExitFlag)
 int
 ChunkServer::Heartbeat()
 {
-    if (! mHelloDone || mDown) {
+    if (! mHelloDone || mDown || ! mNetConnection) {
         return -1;
     }
-    assert(mNetConnection);
     const time_t now           = TimeNow();
     const int    timeSinceSent = (int)(now - mLastHeartbeatSent);
     if (mHeartbeatSent) {
@@ -2366,7 +2352,7 @@ ChunkServer::Heartbeat()
 int
 ChunkServer::TimeoutOps()
 {
-    if (! mHelloDone || mDown) {
+    if (! mHelloDone || mDown || ! mNetConnection) {
         return -1;
     }
     time_t const                     now = TimeNow();

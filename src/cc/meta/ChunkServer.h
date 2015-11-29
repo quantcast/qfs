@@ -1220,6 +1220,7 @@ protected:
         int         status,
         const char* statusMsg);
     void ReleasePendingResponses(bool sendResponseFlag = false);
+    void RemoveFromWriteAllocation();
     inline void Submit(MetaRequest& op);
     inline ChunkServerPtr GetSelfPtr();
 };
