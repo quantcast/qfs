@@ -2544,20 +2544,24 @@ LayoutManager::Validate(MetaHello& r)
             mDebugPanicOnHelloResumeFailureCount < r.helloResumeFailedCount) {
         const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
         if (cs && cs->CanBeResumed()) {
-            ofstream traceTee;
+            ofstream* traceTee = 0;
             if (! mHelloResumeFailureTraceFileName.empty()) {
-                traceTee.open(mHelloResumeFailureTraceFileName.c_str(),
+                static ofstream sTraceTee;
+                sTraceTee.open(mHelloResumeFailureTraceFileName.c_str(),
                     ofstream::app | ofstream::out);
+                if (sTraceTee.is_open()) {
+                    traceTee = &sTraceTee;
+                }
             }
-            KFS_LOG_STREAM_START_TEE(MsgLogger::kLogLevelFATAL, logStream,
-                    traceTee.is_open() ? &traceTee : 0);
+            KFS_LOG_STREAM_START_TEE(
+                    MsgLogger::kLogLevelFATAL, logStream, traceTee);
                 logStream.GetStream() <<
                     "server: " << r.location << "\n" <<
                     HibernatedChunkServer::Display(*cs, mChunkToServerMap);
             KFS_LOG_STREAM_END;
-            if (traceTee.is_open()) {
-                traceTee << "\n";
-                traceTee.close();
+            if (traceTee) {
+                *traceTee << "\n";
+                traceTee->close();
             }
         } else {
             KFS_LOG_STREAM_FATAL <<
@@ -3167,8 +3171,11 @@ LayoutManager::AddNewServer(MetaHello *r)
         panic("invalid server location");
         return;
     }
-    Servers::const_iterator const existing = FindServer(srvId);
-    if (existing != mChunkServers.end()) {
+    Servers::iterator const existing = lower_bound(
+        mChunkServers.begin(), mChunkServers.end(),
+        srvId, bind(&ChunkServer::GetServerLocation, _1) < srvId);
+    if (existing != mChunkServers.end() &&
+            (*existing)->GetServerLocation() == srvId) {
         KFS_LOG_STREAM_DEBUG <<
             "duplicate server: " << srvId <<
             " possible reconnect:"
