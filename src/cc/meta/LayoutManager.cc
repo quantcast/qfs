@@ -2597,6 +2597,29 @@ LayoutManager::Validate(MetaHello& r)
     return true;
 }
 
+void
+LayoutManager::Start(MetaHello& r)
+{
+    if (0 != r.status) {
+        return;
+    }
+    if (! r.server || r.server->GetServerLocation() != r.location) {
+        panic("invalid chunk server hello");
+        r.status = -EFAULT;
+        return;
+    }
+    Servers::const_iterator const i = FindServer(r.location);
+    if (mChunkServers.end() == i) {
+        return;
+    }
+    if (*i == r.server) {
+        panic("invalid duplicate chunk server hello");
+        r.status = -EFAULT;
+        return;
+    }
+    (*i)->ScheduleDown("chunk server re-connect");
+}
+
 bool
 LayoutManager::Validate(MetaCreate& createOp) const
 {
@@ -3144,12 +3167,8 @@ LayoutManager::AddNewServer(MetaHello *r)
         panic("invalid server location");
         return;
     }
-
-    Servers::iterator existing = lower_bound(
-        mChunkServers.begin(), mChunkServers.end(),
-        srvId, bind(&ChunkServer::GetServerLocation, _1) < srvId);
-    if (existing != mChunkServers.end() &&
-            (*existing)->GetServerLocation() == srvId) {
+    Servers::const_iterator const existing = FindServer(srvId);
+    if (existing != mChunkServers.end()) {
         KFS_LOG_STREAM_DEBUG <<
             "duplicate server: " << srvId <<
             " possible reconnect:"
@@ -3157,29 +3176,19 @@ LayoutManager::AddNewServer(MetaHello *r)
             " new: "      << (const void*)&srv <<
             " resume: "   << r->resumeStep <<
         KFS_LOG_EOM;
-        if (0 <= r->resumeStep) {
-            if ((*existing)->IsDown()) {
-                r->statusMsg = "down server exists";
-            } else {
-                r->statusMsg = "up server exists";
-            }
-            r->statusMsg += ", retry resume later";
-            r->status = -EAGAIN;
+        if (*existing == r->server) {
+            panic("invalid duplicate attempt to add chunk server");
+            r->status = -EFAULT;
             return;
         }
-        ServerDown(*existing);
-        if (srv.IsDown()) {
-            return;
+        if ((*existing)->IsDown()) {
+            r->statusMsg = "down server exists";
+        } else {
+            r->statusMsg = "up server exists";
         }
-        existing = lower_bound(
-            mChunkServers.begin(), mChunkServers.end(),
-            srvId,
-            bind(&ChunkServer::GetServerLocation, _1) < srvId);
-        if (existing != mChunkServers.end() &&
-                (*existing)->GetServerLocation() == srvId) {
-            panic("duplicate server");
-            return;
-        }
+        r->statusMsg += ", retry resume later";
+        r->status = -EAGAIN;
+        return;
     }
 
     ChunkIdQueue                          staleChunkIds;

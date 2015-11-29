@@ -2911,6 +2911,18 @@ MetaToggleWORM::handle()
     status = 0;
 }
 
+/* virtual */ bool
+MetaHello::start()
+{
+    if (! server) {
+        status = -EINVAL;
+    }
+    if (0 == status) {
+        gLayoutManager.Start(*this);
+    }
+    return (0 == status);
+}
+
 /* virtual */ void
 MetaHello::handle()
 {

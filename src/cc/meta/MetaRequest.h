@@ -1826,8 +1826,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           checksum(),
           responseBuf()
         {}
-    virtual bool start()
-        { return (0 == status); }
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const

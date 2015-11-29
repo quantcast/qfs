@@ -872,6 +872,8 @@ public:
         { return mNumObjects; }
     const int64_t GetWritableObjectCount() const
         { return mNumWrObjects; }
+    void ScheduleDown(const char* message)
+        { Error(message); }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()

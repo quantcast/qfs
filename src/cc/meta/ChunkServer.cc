@@ -302,6 +302,9 @@ ChunkServer::UpdateChunkWritesPerDrive(
 inline void
 ChunkServer::NewChunkInTier(kfsSTier_t tier)
 {
+    if (! mNetConnection) {
+        return;
+    }
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mStorageTiersInfoDelta[i].Clear();
     }
@@ -1641,6 +1644,9 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
 void
 ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
 {
+    if (! mNetConnection) {
+        return;
+    }
     if (op.totalSpace >= 0) {
         mTotalSpace = op.totalSpace;
     }
