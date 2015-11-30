@@ -386,6 +386,15 @@ public:
             mNotStableOpenCount++;
             mChunkCount++;
         }
+        bool IsNonNegative() const {
+            return (
+                0 <= mDeviceCount &&
+                0 <= mNotStableOpenCount &&
+                0 <= mChunkCount &&
+                0 <= mSpaceAvailable &&
+                0 <= mTotalSpace
+            );
+        }
     private:
         int32_t mDeviceCount;
         int32_t mNotStableOpenCount;
@@ -514,7 +523,7 @@ public:
     /// write load towards it.  We detect loaded servers to be
     /// those that don't respond to heartbeat messages.
     bool IsResponsiveServer() const {
-        return (! mDown && ! mHeartbeatSkipped);
+        return (! mDown && ! mHeartbeatSkipped && mNetConnection);
     }
 
     /// To support scheduled down-time and allow maintenance to be
@@ -865,7 +874,7 @@ public:
         InFlightChunks& chunks, CIdChecksum& chunksChecksum,
         ChunkIdQueue& chunksDelete, chunkId_t lastResumeModifiedChunk,
         uint64_t generation);
-    inline void HelloDone(const MetaHello& r);
+    void HelloDone(const MetaHello& r);
     uint64_t GetHibernatedGeneration() const
         { return mHibernatedGeneration; }
     const int64_t GetOpenObjectCount() const
@@ -874,6 +883,8 @@ public:
         { return mNumWrObjects; }
     void ScheduleDown(const char* message)
         { Error(message); }
+    void SetHelloComplete()
+        { mHelloCompleteFlag = true; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -897,6 +908,7 @@ protected:
 
     /// Are we thru with processing HELLO message
     bool mHelloDone;
+    bool mHelloCompleteFlag;
 
     /// Boolean that tracks whether this server is down
     bool mDown;

@@ -670,14 +670,16 @@ public:
             const StorageTierInfo* storageTiersDelta,
             const int*             candidatesDelta) {
         mPossibleCandidatesCount += delta;
-        assert(mPossibleCandidatesCount >= 0);
+        assert(0 <= mPossibleCandidatesCount);
         if (! storageTiersDelta) {
             return;
         }
         for (size_t i = 0; i < kKfsSTierCount; i++) {
             mStorageTierInfo[i] += storageTiersDelta[i];
+            assert(mStorageTierInfo[i].IsNonNegative());
             if (candidatesDelta) {
                 mTierCandidateCount[i] += candidatesDelta[i];
+                assert(0 <= mTierCandidateCount[i]);
             }
         }
     }

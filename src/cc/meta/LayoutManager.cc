@@ -3160,7 +3160,7 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
 /// Add the newly joined server to the list of servers we have.  Also,
 /// update our state to include the chunks hosted on this server.
 void
-LayoutManager::AddNewServer(MetaHello *r)
+LayoutManager::AddNewServer(MetaHello* r)
 {
     if (r->server->IsDown()) {
         return;
@@ -3219,7 +3219,8 @@ LayoutManager::AddNewServer(MetaHello *r)
         if (! mChunkToServerMap.ReplaceHibernatedServer(
                 r->server, hibernatedIdx)) {
             panic("failed to replace hibernated server");
-            srv.ForceDown();
+            r->statusMsg = "internal error";
+            r->status    = -EFAULT;
             return;
         }
         mHibernatingServers.erase(it);
@@ -3234,7 +3235,8 @@ LayoutManager::AddNewServer(MetaHello *r)
                 " servers: " << mChunkToServerMap.GetServerCount() <<
                 " / " << mChunkServers.size() <<
             KFS_LOG_EOM;
-            srv.ForceDown();
+            r->statusMsg = "out of chunk server slots, try again later";
+            r->status    = -EAGAIN;
             return;
         }
     }
@@ -3302,6 +3304,7 @@ LayoutManager::AddNewServer(MetaHello *r)
         mSlavesCount++;
     }
 
+    srv.HelloDone(*r);
     if (! mChunkServersProps.empty() && ! srv.IsDown()) {
         srv.SetProperties(mChunkServersProps);
     }
@@ -3572,6 +3575,7 @@ LayoutManager::AddNewServer(MetaHello *r)
         }
     }
     UpdateReplicationsThreshold();
+    srv.SetHelloComplete();
     KFS_LOG_STREAM_INFO <<
         msg << " chunk server: " << r->peerName << "/" <<
             srv.GetServerLocation() <<
@@ -4726,9 +4730,7 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
 void
 LayoutManager::ServerDown(const ChunkServerPtr& server)
 {
-    if (! server->IsDown()) {
-        server->ForceDown();
-    }
+    server->ForceDown();
     const bool validFlag = mChunkToServerMap.Validate(server);
     Servers::const_iterator const i = FindServer(server->GetServerLocation());
     if (validFlag != (i != mChunkServers.end() && *i == server)) {
@@ -4744,7 +4746,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
         if (rackIter->getServers().empty()) {
             // the entire rack of servers is gone
             // so, take the rack out
-            KFS_LOG_STREAM_INFO << "All servers in rack " <<
+            KFS_LOG_STREAM_INFO << "all servers in rack " <<
                 server->GetRack() << " are down; taking out the rack" <<
             KFS_LOG_EOM;
             mRacks.erase(rackIter);

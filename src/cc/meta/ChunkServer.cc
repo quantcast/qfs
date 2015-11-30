@@ -319,7 +319,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     gLayoutManager.UpdateSrvLoadAvg(*this, 0, mStorageTiersInfoDelta);
 }
 
-inline void
+void
 ChunkServer::HelloDone(const MetaHello& r)
 {
     if (this != r.server.get() || this != r.clnt) {
@@ -380,6 +380,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mAuthPendingSeq(-1),
       mNetConnection(conn),
       mHelloDone(false),
+      mHelloCompleteFlag(false),
       mDown(false),
       mHeartbeatSent(false),
       mHeartbeatSkipped(false),
@@ -884,6 +885,9 @@ ChunkServer::HandleRequest(int code, void *data)
 void
 ChunkServer::RemoveFromWriteAllocation()
 {
+    if (! mHelloDone) {
+        return;
+    }
     // Take out the server from write allocation / placement.
     mTotalSpace   = 0;
     mTotalFsSpace = 0;
@@ -896,9 +900,7 @@ ChunkServer::RemoveFromWriteAllocation()
     const int64_t wrObjDelta = -mNumWrObjects;
     mNumWrObjects = 0;
     ClearStorageTiers();
-    const bool kCanBePlacementCandidateFlag = false;
-    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta,
-        kCanBePlacementCandidateFlag);
+    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
     UpdateChunkWritesPerDrive(0, 0);
 }
@@ -930,6 +932,7 @@ ChunkServer::ForceDown()
     assert(sChunkDirsCount >= mChunkDirInfos.size());
     sChunkDirsCount -= min(sChunkDirsCount, mChunkDirInfos.size());
     mChunkDirInfos.clear();
+    ReleasePendingResponses();
     if (mRecursionCount <= 0 && mPendingOpsCount <= 0) {
         mSelfPtr.reset(); // Unref / delete self
     }
@@ -984,13 +987,17 @@ ChunkServer::Error(const char* errorMsg)
     RemoveFromWriteAllocation();
     MetaRequest::Release(mAuthenticateOp);
     mAuthenticateOp = 0;
-    if (mHelloDone) {
+    if (mHelloCompleteFlag) {
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
         MetaBye* const mb = new MetaBye(0, mSelfPtr);
         mb->authUid = mAuthUid;
         mb->clnt    = this;
         Submit(*mb);
+        return;
+    }
+    if (mHelloDone) {
+        gLayoutManager.ServerDown(mSelfPtr);
         return;
     }
     ForceDown();
@@ -1196,6 +1203,13 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
 
     const bool hasHelloOpFlag = mHelloOp != 0;
     if (! hasHelloOpFlag) {
+        if (0 < mPendingOpsCount) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " unexpected request while processing hello,"
+                " pending ops: " << mPendingOpsCount <<
+            KFS_LOG_EOM;
+            return -1;
+        }
         MetaRequest * const op = mAuthenticateOp ? mAuthenticateOp :
             GetOp(*iobuf, msgLen, "invalid hello");
         if (! op) {
@@ -1582,9 +1596,6 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     mShortRpcFormatFlag     = mHelloOp->shortRpcFormatFlag;
     MetaHello& op = *mHelloOp;
     mHelloOp = 0;
-    if (op.resumeStep < 0) {
-        HelloDone(op);
-    }
     Submit(op);
     return 0;
 }
@@ -2548,9 +2559,6 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
 bool
 ChunkServer::SendResponse(MetaRequest* op)
 {
-    if (! mNetConnection) {
-        return true;
-    }
     if (mAuthenticateOp && mAuthenticateOp != op) {
         op->next = 0;
         if (mPendingResponseOpsHeadPtr) {
@@ -2560,6 +2568,9 @@ ChunkServer::SendResponse(MetaRequest* op)
         }
         mPendingResponseOpsTailPtr = op;
         return false;
+    }
+    if (! mNetConnection) {
+        return true;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
     ChunkServerResponse(*op, mOstream.Set(buf), buf);
@@ -2996,9 +3007,6 @@ HibernatedChunkServer::HelloResumeReply(
         return false;
     }
     if (r.status != 0 || r.resumeStep < 0) {
-        if (r.status == 0 && r.resumeStep < 0) {
-            r.server->HelloDone(r);
-        }
         return false;
     }
     if (! CanBeResumed()) {
@@ -3048,7 +3056,6 @@ HibernatedChunkServer::HelloResumeReply(
         }
         modifiedChunks.Swap(mModifiedChunks);
         mModifiedChecksum.Clear();
-        r.server->HelloDone(r);
         return false;
     }
     if (GetChunkCount() < mModifiedChunks.Size()) {
