@@ -2881,8 +2881,9 @@ MetaCoalesceBlocks::handle()
         srcPath, dstPath, srcFid, dstFid,
         dstStartOffset, &mtime, numChunksMoved,
         euser, egroup);
-    KFS_LOG_STREAM(status == 0 ?
-            MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+    KFS_LOG_STREAM(replayFlag ? MsgLogger::kLogLevelDEBUG :
+            (0 == status ? MsgLogger::kLogLevelINFO :
+                MsgLogger::kLogLevelERROR)) <<
         "coalesce blocks " << srcPath << "->" << dstPath <<
         " " << srcFid << "->" << dstFid <<
         " status: "       << status <<

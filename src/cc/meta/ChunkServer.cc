@@ -716,6 +716,14 @@ ChunkServer::HandleRequest(int code, void *data)
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data &&
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
+        if (! mHelloDone && META_HELLO == op->op && 0 != op->status &&
+                mDisconnectReason.empty()) {
+            if (op->statusMsg.empty()) {
+                mDisconnectReason = "hello error";
+            } else {
+                mDisconnectReason = op->statusMsg;
+            }
+        }
         const bool deleteOpFlag = op != mAuthenticateOp;
         if (SendResponse(op) && deleteOpFlag) {
             MetaRequest::Release(op);

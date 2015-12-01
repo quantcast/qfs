@@ -346,7 +346,7 @@ restore_makestable(DETokenizer& c)
     bool ok = pop_fid(chunkId, "chunkId", c, true);
     ok = pop_fid(chunkVersion, "chunkVersion", c, ok);
     ok = pop_num(tmp, "size", c, ok);
-        chunkSize = (chunkOff_t)tmp;
+    chunkSize = (chunkOff_t)tmp;
     ok = pop_num(tmp, "checksum", c, ok);
     checksum = (uint32_t)tmp;
     ok = pop_num(tmp, "hasChecksum", c, ok);
