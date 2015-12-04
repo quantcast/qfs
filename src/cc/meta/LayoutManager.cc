@@ -3194,7 +3194,7 @@ LayoutManager::AddNewServer(MetaHello* r)
             r->statusMsg = "up server exists";
         }
         r->statusMsg += ", retry resume later";
-        r->status = -EAGAIN;
+        r->status = -EEXIST;
         return;
     }
 
@@ -3236,7 +3236,7 @@ LayoutManager::AddNewServer(MetaHello* r)
                 " / " << mChunkServers.size() <<
             KFS_LOG_EOM;
             r->statusMsg = "out of chunk server slots, try again later";
-            r->status    = -EAGAIN;
+            r->status    = -ERANGE;
             return;
         }
     }
