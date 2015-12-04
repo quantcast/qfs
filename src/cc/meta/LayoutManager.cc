@@ -6170,8 +6170,7 @@ LayoutManager::GetChunkReadLease(MetaLeaseAcquire* req)
         return 0;
     }
     if ((req->leaseTimeout <= 0 ?
-            ! mChunkLeases.HasWriteLease(
-                ChunkLeases::EntryKey(req->chunkId)) :
+            ! mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(req->chunkId)) :
             mChunkLeases.NewReadLease(
                  ChunkLeases::EntryKey(req->chunkId),
                 TimeNow() + req->leaseTimeout,
@@ -8421,8 +8420,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         return -1;
     }
     if (! IsChunkStable(req->chunkId) ||
-            mChunkLeases.HasWriteLease(
-                ChunkLeases::EntryKey(req->chunkId, req->chunkVersion))) {
+            mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(req->chunkId))) {
         return -1; // Chunk isn't stable yet, or being written again.
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
@@ -8437,8 +8435,8 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         req->pathname.clear(); // Path name is no longer valid.
     }
     if (fa->IsStriped() || fa->filesize >= 0 || fa->type != KFS_FILE ||
-            chunk->offset + (chunkOff_t)CHUNKSIZE <
-                fa->nextChunkOffset()) {
+            chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
+            0 == fa->numReplicas) {
         return -1; // No update needed, do not write log entry.
     }
     if (req->chunkVersion != chunk->chunkVersion) {
