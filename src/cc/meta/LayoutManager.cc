@@ -8994,51 +8994,45 @@ LayoutManager::IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const
 bool
 LayoutManager::Start(MetaChunkSize* req)
 {
-    if (req->chunkSize < 0 || req->status < 0 ||
+    if (req->status < 0) {
+        return false;
+    }
+    if (req->chunkVersion < 0 ||
+            req->chunkSize < 0 ||
             ! IsChunkStable(req->chunkId) ||
             mChunkLeases.HasWriteLease(req->chunkId)) {
+        req->status = -EINVAL;
         return false;
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
     if (! ci) {
+        req->status = -ENOENT;
         return false;
     }
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
-    // Coalesce can change file id while request is in flight.
-    if (req->fid != fa->id()) {
-        req->fid = fa->id();
+    if (req->chunkVersion == chunk->chunkVersion &&
+            ! fa->IsStriped() && fa->filesize < 0 && fa->type == KFS_FILE &&
+            fa->nextChunkOffset() <= chunk->offset + (chunkOff_t)CHUNKSIZE &&
+            0 != fa->numReplicas) {
+        return true;
     }
-    return (
-        req->chunkVersion == chunk->chunkVersion &&
-        ! fa->IsStriped() && fa->filesize < 0 && fa->type == KFS_FILE &&
-        fa->nextChunkOffset() <= chunk->offset + (chunkOff_t)CHUNKSIZE
-    );
+    req->status = -EINVAL;
+    return false;
 }
 
 int
 LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
 {
-    if (req->chunkVersion < 0) {
-        return -1;
-    }
-    if (! req->retryFlag && (req->chunkSize < 0 || req->status < 0)) {
-        return -EINVAL;
-    }
-    if (! IsChunkStable(req->chunkId) ||
-            mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(req->chunkId))) {
-        return -1; // Chunk isn't stable yet, or being written again.
+    if (! req->retryFlag && req->status < 0) {
+        return req->status;
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
     if (! ci) {
         return -ENOENT; // No such chunk, do not log.
     }
-    MetaFattr* const fa = ci->GetFattr();
+    MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
-    // Coalesce can change file id while request is in flight.
-    if (req->fid != fa->id()) {
-        req->fid = fa->id();
-    }
     if (fa->IsStriped() || 0 <= fa->filesize || fa->type != KFS_FILE ||
             chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
             0 == fa->numReplicas) {
@@ -9054,14 +9048,14 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         KFS_LOG_EOM;
         return -EBADVERS;
     }
-    if (req->chunkSize < 0 || req->status < 0) {
+    if (req->status < 0) {
         KFS_LOG_STREAM_ERROR <<
             req->Show() <<
             " status: " << req->status <<
             " msg: "    << req->statusMsg <<
         KFS_LOG_EOM;
         if (! req->retryFlag) {
-            return -EINVAL;
+            return req->status;
         }
         // Retry the size request with all servers.
         StTmp<Servers> serversTmp(mServers3Tmp);
@@ -9075,15 +9069,15 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             }
             const bool retryFlag = false;
             (*it)->GetChunkSize(
-                req->fid, req->chunkId, req->chunkVersion,
+                fa->id(), req->chunkId, req->chunkVersion,
                 retryFlag);
         }
-        return -EINVAL;
+        return req->status;
     }
     chunkOff_t const offset = chunk->offset;
     metatree.setFileSize(fa, offset + req->chunkSize);
     KFS_LOG_STREAM_DEBUG <<
-        "file: "      << req->fid <<
+        "file: "      << fa->id() <<
         " chunk: "    << req->chunkId <<
         " version: "  << req->chunkVersion <<
         " size: "     << req->chunkSize <<

@@ -3271,7 +3271,7 @@ MetaChunkMakeStable::ShowSelf(ostream& os) const
 /* virtual */ bool
 MetaChunkSize::start()
 {
-    if (0 == status && 0 <= chunkSize && gLayoutManager.Start(this)) {
+    if (0 == status && gLayoutManager.Start(this)) {
         return (0 == status);
     }
     return false;
@@ -3281,7 +3281,10 @@ MetaChunkSize::start()
 MetaChunkSize::handle()
 {
     // Invoke regardless of status, in order to retry.
-    status = gLayoutManager.GetChunkSizeDone(this);
+    const int res = gLayoutManager.GetChunkSizeDone(this);
+    if (0 <= status) {
+        status = res;
+    }
 }
 
 /* virtual */ void
