@@ -717,7 +717,7 @@ ChunkServer::HandleRequest(int code, void *data)
         assert(data &&
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
         if (! mHelloDone && META_HELLO == op->op && 0 != op->status &&
-                -EAGAIN == op->status && mDisconnectReason.empty()) {
+                -EAGAIN != op->status && mDisconnectReason.empty()) {
             if (op->statusMsg.empty()) {
                 mDisconnectReason = "hello error";
             } else {
