@@ -2891,7 +2891,7 @@ private:
                     // Stripe 1 cannot ever be larger than stripe 0. If the
                     // start position of the hole is in stripe 0, then its
                     // position cannot ever be lost, if the RS block remains
-                    // recoverable, or course, as the hole position
+                    // recoverable, of course, as the hole position
                     // effectively has replication 4 due to recovery stripe
                     // sizes matching the size of stripe 0 in the case if the
                     // stripe 0 is partial (smaller than stripe size).
