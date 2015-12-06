@@ -697,8 +697,9 @@ public:
                     }
                     continue;
                 }
-                srv->SetVersion(
-                    entry.GetChunkId(), entry.GetChunkVersion(), vers, idx);
+                seq_t const curVers = entry.GetChunkVersion();
+                srv->SetVersion(entry.GetChunkId(), curVers,
+                    notifyHibernatedOnlyFlag ? curVers : vers, idx);
             }
         }
         if (! notifyHibernatedOnlyFlag) {
