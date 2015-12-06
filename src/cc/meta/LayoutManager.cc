@@ -7971,9 +7971,22 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
 }
 
 void
+LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version)
+{
+    if (mHibernatingServers.empty()) {
+        return;
+    }
+    const bool kNofifyHibernatedOnlyFlag = true;
+    mChunkToServerMap.SetVersion(chunkId, version,
+        kNofifyHibernatedOnlyFlag);
+}
+
+void
 LayoutManager::SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version)
 {
-    mChunkToServerMap.SetVersion(GetCsEntry(chunkInfo), version);
+    const bool kNofifyHibernatedOnlyFlag = false;
+    mChunkToServerMap.SetVersion(GetCsEntry(chunkInfo), version,
+        kNofifyHibernatedOnlyFlag);
 }
 
 int

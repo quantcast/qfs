@@ -664,19 +664,24 @@ public:
         }
         return &*(mHibernatedServers[idx]);
     }
-    bool SetVersion(chunkId_t chunkId, seq_t vers) {
+    bool SetVersion(chunkId_t chunkId, seq_t vers,
+            bool notifyHibernatedOnlyFlag) {
         Entry* const entry = Find(chunkId);
         if (! entry) {
             return false;
         }
-        SetVersion(*entry, vers);
+        SetVersion(*entry, vers, notifyHibernatedOnlyFlag);
         return true;
     }
-    void SetVersion(Entry& entry, seq_t vers) const {
+    void SetVersion(Entry& entry, seq_t vers,
+            bool notifyHibernatedOnlyFlag) const {
         for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
             const size_t          idx = entry.IndexAt(i);
             const ChunkServerPtr& srv = mServers[idx];
             if (srv) {
+                if (notifyHibernatedOnlyFlag) {
+                    continue;
+                }
                 if (mDebugValidateFlag) {
                     srv->SetVersion(
                         entry.GetChunkId(), entry.GetChunkVersion(), vers, idx);
@@ -696,7 +701,9 @@ public:
                     entry.GetChunkId(), entry.GetChunkVersion(), vers, idx);
             }
         }
-        entry.SetVersion(vers);
+        if (! notifyHibernatedOnlyFlag) {
+            entry.SetVersion(vers);
+        }
     }
     bool ReplaceHibernatedServer(const ChunkServerPtr& server, size_t idx) {
         if (! server || Validate(server)) {

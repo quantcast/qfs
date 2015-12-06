@@ -2658,6 +2658,9 @@ MetaLogChunkVersionChange::handle()
         status = gLayoutManager.ProcessBeginChangeChunkVersion(
             fid, chunkId, chunkVersion, &statusMsg, panicOnInvalidVersion);
     }
+    if (0 == status) {
+        gLayoutManager.ChangeChunkVersion(chunkId, chunkVersion);
+    }
     if (! alloc) {
         return;
     }
