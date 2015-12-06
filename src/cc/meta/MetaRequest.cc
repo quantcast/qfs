@@ -728,19 +728,6 @@ CheckCreatePerms(T& req, bool dirFlag)
     return CheckUserAndGroup(req);
 }
 
-ostream&
-MetaRequest::DisplayServers::Show(ostream& os) const
-{
-    const char* sep = "";
-    for (Servers::const_iterator it = mServers.begin();
-            it != mServers.end() && os;
-            ++it) {
-        os << sep << (*it)->GetServerLocation();
-        sep = ",";
-    }
-    return os;
-}
-
 class MetaRequestNull : public MetaRequest
 {
 protected:
@@ -2188,9 +2175,10 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     suspended = false;
     KFS_LOG_STREAM_DEBUG <<
         "layout is done for"
-        " req: "    << opSeqno   <<
-        " status: " << status    <<
-        " "         << statusMsg <<
+        " req: "     << opSeqno   <<
+        " status: "  << status    <<
+        " "          << statusMsg <<
+        " servers: " << InsertServers(servers) <<
     KFS_LOG_EOM;
     if (status == 0) {
         // Check if all servers are still up, and didn't go down
@@ -3008,16 +2996,6 @@ MetaLeaseCleanup::handle()
     status = 0;
 }
 
-class PrintChunkServerLocations {
-    ReqOstream &os;
-public:
-    PrintChunkServerLocations(ReqOstream &out): os(out) { }
-    void operator () (const ChunkServerPtr &s)
-    {
-        os << ' ' <<  s->GetServerLocation();
-    }
-};
-
 /* virtual */ void
 MetaGetPathName::handle()
 {
@@ -3047,10 +3025,8 @@ MetaGetPathName::handle()
         os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
             srvs.size() << "\r\n";
         if (! srvs.empty()) {
-            os << (shortRpcFormatFlag ? "S:" : "Replicas:");
-            for_each(srvs.begin(), srvs.end(),
-                PrintChunkServerLocations(os));
-            os << "\r\n";
+            os << (shortRpcFormatFlag ? "S:" : "Replicas: ") <<
+                InsertServers(srvs) << "\r\n";
         }
     } else {
         fa = metatree.getFattr(fid);
@@ -4442,10 +4418,8 @@ MetaAllocate::responseSelf(ReqOstream& os)
         if (shortRpcFormatFlag && ! allChunkServersShortRpcFlag) {
             os << "LF:1\r\n";
         }
-        os << (shortRpcFormatFlag ? "S:" : "Replicas:");
-        for_each(servers.begin(), servers.end(),
-            PrintChunkServerLocations(os));
-        os << "\r\n";
+        os << (shortRpcFormatFlag ? "S:" : "Replicas: ") <<
+            InsertServers(servers) << "\r\n";
     }
     os << "\r\n";
 }
@@ -5125,10 +5099,9 @@ MetaChunkAllocate::request(ReqOstream& os)
             (req->appendChunk ? 1 : 0) << "\r\n" <<
         (shortRpcFormatFlag ? "R:" : "Num-servers: ") <<
             req->servers.size() << "\r\n" <<
-        (shortRpcFormatFlag ? "S:" : "Servers: ")
+        (shortRpcFormatFlag ? "S:" : "Servers: ") <<
+            InsertServers(req->servers);
     ;
-    for_each(req->servers.begin(), req->servers.end(),
-            PrintChunkServerLocations(os));
     const size_t cAccessLen = chunkAccessStr.size();
     const size_t len        = cAccessLen + chunkServerAccessStr.size();
     if (len <= 0) {

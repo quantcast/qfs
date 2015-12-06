@@ -7095,7 +7095,7 @@ LayoutManager::DeleteChunk(CSMap::Entry& entry)
     // remove the mapping
     KFS_LOG_STREAM_DEBUG <<
         "delete chunk: <" << fid << "," << chunkId << ">"
-        " servers: " << MetaRequest::DisplayServers(servers) <<
+        " servers: " << MetaRequest::InsertServers(servers) <<
     KFS_LOG_EOM;
     mChunkToServerMap.Erase(chunkId);
     DeleteChunk(fid, chunkId, servers);

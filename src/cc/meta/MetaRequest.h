@@ -179,16 +179,36 @@ struct MetaRequest {
         ChunkServerPtr,
         StdAllocator<ChunkServerPtr>
     > Servers;
-    class DisplayServers
+    template<typename T>
+    class InsertServersT
     {
     public:
-        DisplayServers(const Servers& servers)
-            : mServers(servers)
+        InsertServersT(const T& s, char d = ' ')
+            : srvs(s),
+              sep(d)
             {}
-        ostream& Show(ostream& os) const;
+        template<typename ST>
+        friend ST& operator<<(ST& os, const InsertServersT& ics)
+            { return Insert(ics.srvs.begin(), ics.srvs.end(), os, ics.sep); }
+        friend ReqOstream& operator<<(ReqOstream& os, const InsertServersT& ics)
+            { return Insert(ics.srvs.begin(), ics.srvs.end(), os, ics.sep); }
     private:
-        const Servers& mServers;
+        const T&   srvs;
+        const char sep;
+
+        template<typename IT, typename ST>
+        static ST& Insert(IT it, const IT& end, ST& os, char sep)
+        {
+            if (it != end) {
+                os << (*it)->GetServerLocation();
+                while (++it != end) {
+                    os << sep << (*it)->GetServerLocation();
+                }
+            }
+            return os;
+        }
     };
+    typedef InsertServersT<Servers> InsertServers;
     class Display
     {
     public:
@@ -397,9 +417,6 @@ private:
     static const MetaRequest& GetNullReq();
 };
 inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
-{ return disp.Show(os); }
-inline static ostream& operator<<(ostream& os,
-    const MetaRequest::DisplayServers& disp)
 { return disp.Show(os); }
 
 inline static void submit_request(MetaRequest* r)
