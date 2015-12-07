@@ -155,7 +155,8 @@ using std::less;
     f(REMOVE_FROM_DUMPSTER) \
     f(LOG_CHUNK_ALLOCATE) \
     f(LOG_WRITER_CONTROL) \
-    f(LOG_CLEAR_OBJ_STORE_DELETE)
+    f(LOG_CLEAR_OBJ_STORE_DELETE) \
+    f(READ_META_DATA)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -3797,8 +3798,7 @@ struct MetaLogWriterControl : public MetaRequest {
     }
 };
 
-struct MetaLogClearObjStoreDelete : public MetaRequest
-{
+struct MetaLogClearObjStoreDelete : public MetaRequest {
     MetaLogClearObjStoreDelete()
         : MetaRequest(META_LOG_CLEAR_OBJ_STORE_DELETE, kLogIfOk)
         {}
@@ -3818,6 +3818,41 @@ struct MetaLogClearObjStoreDelete : public MetaRequest
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
+        ;
+    }
+};
+
+struct MetaReadMetaData : public MetaRequest {
+    seq_t    startLogSeq;
+    bool     checkpointFlag;
+    int      readSize;
+    IOBuffer data;
+
+    MetaReadMetaData()
+        : MetaRequest(META_READ_META_DATA, kLogNever),
+          startLogSeq(-1),
+          checkpointFlag(false),
+          readSize(0),
+          data()
+        {}
+    bool Validate()
+        { return true; }
+    virtual void handle();
+    virtual void response(ReqOstream& os, IOBuffer& buf);
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "read " << (checkpointFlag ? "checkpoint" : "log") <<
+            " start seq: " << startLogSeq <<
+            " size: "      << readSize
+        );
+    }
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return  MetaRequest::ParserDef(parser)
+        .Def2("Start-log",  "L", &MetaReadMetaData::startLogSeq,    seq_t(-1))
+        .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag, false)
+        .Def2("Read-size",  "S", &MetaReadMetaData::readSize,       -1)
         ;
     }
 };

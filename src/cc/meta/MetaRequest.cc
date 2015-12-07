@@ -5744,6 +5744,35 @@ MetaLogClearObjStoreDelete::handle()
     gLayoutManager.Handle(*this);
 }
 
+void
+MetaReadMetaData::handle()
+{
+    if (status < 0 ||
+            (0 == submitCount && ! HasMetaServerAdminAccess(*this))) {
+        return;
+    }
+    if (! HasEnoughIoBuffersForResponse(*this)) {
+        return;
+    }
+}
+
+void
+MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
+{
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    uint32_t const crc32 = ComputeCrc32(&data, data.BytesConsumable());
+    os <<
+    (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+        data.BytesConsumable() << "\r\n" <<
+    (shortRpcFormatFlag ? "K:" : "Crc32: ") << crc32 << "\r\n"
+    "\r\n"
+    ;
+    os.flush();
+    buf.Move(&data);
+}
+
 static LogWriter&
 MakeLogWriter()
 {

@@ -259,5 +259,21 @@ ComputeCrc32(const char* data, size_t len, uint32_t cchksum /* = 0 */)
     return crc32(cchksum, reinterpret_cast<const Bytef*>(data), len);
 }
 
+uint32_t
+ComputeCrc32(const IOBuffer* data, size_t len, uint32_t chksum /* = 0 */)
+{
+    uint32_t res = chksum;
+    for (IOBuffer::iterator iter = data->begin();
+            len > 0 && (iter != data->end()); ++iter) {
+        const size_t tlen = min((size_t) iter->BytesConsumable(), len);
+        if (tlen == 0) {
+            continue;
+        }
+        res = ComputeCrc32(iter->Consumer(), tlen, res);
+        len -= tlen;
+    }
+    return res;
+}
+
 }
 

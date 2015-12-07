@@ -232,6 +232,9 @@ MakeMetaRequestHandler(
     .MakeParser("FORCE_REPLICATION",
         META_FORCE_CHUNK_REPLICATION,
         static_cast<const MetaForceChunkReplication*>(0))
+    .MakeParser("READ_META_DATA",
+        META_READ_META_DATA,
+        static_cast<const MetaReadMetaData*>(0))
     ;
 }
 
