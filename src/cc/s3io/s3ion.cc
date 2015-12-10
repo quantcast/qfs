@@ -1049,12 +1049,16 @@ private:
                         theFilePtr->mGeneration == mGeneration));
             if (theRetryFlag) {
                 const int theHttpStatus =  mHeaders.GetStatus();
-                const int theTime       = (mRetryCount < 3 &&
-                    500 <= theHttpStatus && theHttpStatus <= 599) ? 0 :
+                const int theTime       =
+                    (500 <= theHttpStatus && theHttpStatus <= 599) ?
+                    (mOuter.mExponentialBackoffStartInterval <<
+                        min(mOuter.mExponentialBackoffMaxExponent,
+                            mRetryCount - 1)) :
                     max(0, (int)(mStartTime + mOuter.mRetryInterval -
                         mOuter.Now()));
                 KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix << Show(*this) <<
                     " scheduling retry: " << mRetryCount <<
+                    " http status: "      << theHttpStatus <<
                     " of " << mOuter.mMaxRetryCount <<
                     " in " << theTime << " sec." <<
                 KFS_LOG_EOM;
@@ -2667,6 +2671,8 @@ private:
     int                 mDebugTraceMaxHeaderSize;
     int                 mMaxRetryCount;
     int                 mRetryInterval;
+    int                 mExponentialBackoffStartInterval;
+    int                 mExponentialBackoffMaxExponent;
     int                 mMaxReadAhead;
     int                 mMaxHdrLen;
     char*               mHdrBufferPtr;
@@ -2766,6 +2772,8 @@ private:
           mDebugTraceMaxHeaderSize(512),
           mMaxRetryCount(10),
           mRetryInterval(10),
+          mExponentialBackoffStartInterval(3),
+          mExponentialBackoffMaxExponent(5),
           mMaxReadAhead(4 << 10),
           mMaxHdrLen(16 << 10),
           mHdrBufferPtr(new char[mMaxHdrLen + 1]),
@@ -2864,6 +2872,16 @@ private:
         mRetryInterval = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("retryInterval"),
             mRetryInterval
+        );
+        mExponentialBackoffStartInterval = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append(
+                "exponentialBackoffStartInterval"),
+            mExponentialBackoffStartInterval
+        );
+        mExponentialBackoffMaxExponent = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append(
+                "exponentialBackoffMaxExponent"),
+            mExponentialBackoffMaxExponent
         );
         mDebugTraceRequestHeadersFlag = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("debugTrace.requestHeaders"),
