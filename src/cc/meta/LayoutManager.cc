@@ -9049,6 +9049,18 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
     if (fa->IsStriped() || 0 <= fa->filesize || fa->type != KFS_FILE ||
             chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
             0 == fa->numReplicas) {
+        KFS_LOG_STREAM_DEBUG <<
+            "file: "        << fa->id()              <<
+            " size: "       << fa->filesize          <<
+            " next pos: "   << fa->nextChunkOffset() <<
+            " replicas: "   << fa->numReplicas       <<
+            " type: "       << (int)fa->type         <<
+            " striped: "    << fa->IsStriped()       <<
+            " chunk: "      << chunk->chunkId        <<
+            " version: "    << chunk->chunkVersion   <<
+            " retry: "      << req->retryFlag        <<
+            " ignoring: "   << req->Show()           <<
+        KFS_LOG_EOM;
         return -EINVAL; // No update needed.
     }
     if (req->chunkVersion != chunk->chunkVersion) {
