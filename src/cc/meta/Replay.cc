@@ -1014,15 +1014,32 @@ ReplayState::runCommitQueue(
         }
         return true;
     }
-    while (! mCommitQueue.empty()) {
-        const CommitQueueEntry& f = mCommitQueue.front();
+    CommitQueue::iterator it = mCommitQueue.begin();
+    while (mCommitQueue.end() != it) {
+        const CommitQueueEntry& f = *it;
         if (logSeq < f.logSeq) {
             break;
         }
         if (logSeq == f.logSeq) {
             if (f.status == status && f.seed == seed &&
                     f.errChecksum == errChecksum) {
+                mCommitQueue.erase(mCommitQueue.begin(), it);
                 return true;
+            }
+            for (CommitQueue::const_iterator cit = mCommitQueue.begin();
+                    ; ++cit) {
+                KFS_LOG_STREAM_ERROR <<
+                    "commit"
+                    " sequence: "       << cit->logSeq <<
+                    " seed: "           << cit->seed <<
+                    " error checksum: " << cit->errChecksum <<
+                    " status: "         << cit->status <<
+                    " [" << (cit->status == 0 ? string("OK") :
+                        QCUtils::SysError(KfsToSysErrno(cit->status))) << "]" <<
+                KFS_LOG_EOM;
+                if (cit == it) {
+                    break;
+                }
             }
             KFS_LOG_STREAM_ERROR <<
                 "log commit:"
@@ -1041,8 +1058,9 @@ ReplayState::runCommitQueue(
             KFS_LOG_EOM;
             return false;
         }
-        mCommitQueue.pop_front();
+        ++it;
     }
+    mCommitQueue.erase(mCommitQueue.begin(), it);
     if (0 != status) {
         KFS_LOG_STREAM_ERROR <<
             "log commit:"
