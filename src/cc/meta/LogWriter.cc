@@ -280,6 +280,16 @@ public:
         mCommitted.mSeq       = inRequest.logseq;
         mCommitted.mFidSeed   = inFidSeed;
         mCommitted.mStatus    = theStatus;
+        if (0 != theStatus) {
+            KFS_LOG_STREAM_DEBUG <<
+                "committed:"
+                " seq: "    << mCommitted.mSeq <<
+                " seed: "   << mCommitted.mFidSeed <<
+                " status: " << mCommitted.mStatus <<
+                " / "       << inRequest.status <<
+                " chksum: " << mCommitted.mErrChkSum <<
+            KFS_LOG_EOM;
+        }
     }
     seq_t GetCommittedLogSeq() const
         { return mCommitted.mSeq; }

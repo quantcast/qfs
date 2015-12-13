@@ -9010,10 +9010,9 @@ LayoutManager::Start(MetaChunkSize* req)
     if (req->status < 0) {
         return false;
     }
-    if (req->chunkVersion < 0 ||
+    if (req->chunkVersion < 0 || // object store block.
             req->chunkSize < 0 ||
-            ! IsChunkStable(req->chunkId) ||
-            mChunkLeases.HasWriteLease(req->chunkId)) {
+            ! IsChunkStable(req->chunkId)) {
         req->status = -EINVAL;
         return false;
     }
@@ -9037,12 +9036,15 @@ LayoutManager::Start(MetaChunkSize* req)
 int
 LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
 {
+    if (req->chunkVersion < 0) {
+        return -ENOENT; // Object store block.
+    }
     if (! req->retryFlag && req->status < 0) {
         return req->status;
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
     if (! ci) {
-        return -ENOENT; // No such chunk, do not log.
+        return -ENOENT; // No such chunk, fail.
     }
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
@@ -9050,7 +9052,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
             0 == fa->numReplicas) {
         KFS_LOG_STREAM_DEBUG <<
-            "file: "        << fa->id()              <<
+            " file: "       << fa->id()              <<
             " size: "       << fa->filesize          <<
             " next pos: "   << fa->nextChunkOffset() <<
             " replicas: "   << fa->numReplicas       <<
@@ -9058,28 +9060,36 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             " striped: "    << fa->IsStriped()       <<
             " chunk: "      << chunk->chunkId        <<
             " version: "    << chunk->chunkVersion   <<
-            " retry: "      << req->retryFlag        <<
-            " ignoring: "   << req->Show()           <<
+            " ignoring:"
+            " log: "        << req->logseq           <<
+            " "             << req->Show()           <<
         KFS_LOG_EOM;
         return -EINVAL; // No update needed.
     }
-    if (req->chunkVersion != chunk->chunkVersion) {
+    if (0 <= req->status && req->chunkVersion != chunk->chunkVersion) {
         KFS_LOG_STREAM_DEBUG <<
-            " last chunk: " << chunk->chunkId      <<
+            "last chunk: "  << chunk->chunkId      <<
             " version: "    << chunk->chunkVersion <<
-            " ignoring: "   << req->Show()         <<
+            " ignoring:"
+            " log: "        << req->logseq         <<
+            " "             << req->Show()         <<
             " status: "     << req->status         <<
             " msg: "        << req->statusMsg      <<
         KFS_LOG_EOM;
-        return -EBADVERS;
+        req->status = -EBADVERS;
     }
     if (req->status < 0) {
+        // Do not pay attention to lease, as lease might be discarded, if
+        // allocation fails.
+        const bool retryFlag = req->retryFlag && IsChunkStable(req->chunkId);
         KFS_LOG_STREAM_ERROR <<
-            req->Show() <<
+            "log: "     << req->logseq <<
+            " "         << req->Show() <<
             " status: " << req->status <<
             " msg: "    << req->statusMsg <<
+            " retry: "  << retryFlag <<
         KFS_LOG_EOM;
-        if (! req->retryFlag) {
+        if (! retryFlag) {
             return req->status;
         }
         // Retry the size request with all servers.
@@ -9094,8 +9104,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             }
             const bool retryFlag = false;
             (*it)->GetChunkSize(
-                fa->id(), req->chunkId, req->chunkVersion,
-                retryFlag);
+                fa->id(), chunk->chunkId, chunk->chunkVersion, retryFlag);
         }
         return req->status;
     }
@@ -9106,6 +9115,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         " chunk: "    << req->chunkId <<
         " version: "  << req->chunkVersion <<
         " size: "     << req->chunkSize <<
+        " log: "      << req->logseq <<
         " filesize: " << fa->filesize <<
     KFS_LOG_EOM;
     return 0;

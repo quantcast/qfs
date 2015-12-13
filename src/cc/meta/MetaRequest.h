@@ -2283,10 +2283,12 @@ struct MetaChunkSize: public MetaChunkRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            " fid: "             << fid <<
-            " chunkId: "         << chunkId <<
-            " chunkVersion: "    << chunkVersion <<
-            " size: "            << chunkSize
+            " get size:"
+            " fid: "          << fid <<
+            " chunkId: "      << chunkId <<
+            " chunkVersion: " << chunkVersion <<
+            " size: "         << chunkSize <<
+            " retry: "        << retryFlag
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
@@ -2295,7 +2297,6 @@ struct MetaChunkSize: public MetaChunkRequest {
         //.Def("P", &MetaChunkSize::fid,          fid_t(-1))
         .Def("V", &MetaChunkSize::chunkVersion, seq_t(-1))
         .Def("C", &MetaChunkSize::chunkId,      chunkId_t(-1))
-        .Def("R", &MetaChunkSize::retryFlag,    false)
         .Def("S", &MetaChunkSize::chunkSize,    chunkOff_t(-1))
         ;
     }
