@@ -9115,13 +9115,15 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
     chunkOff_t const offset = chunk->offset;
     metatree.setFileSize(fa, offset + req->chunkSize);
     KFS_LOG_STREAM_DEBUG <<
-        "file: "      << fa->id() <<
-        " chunk: "    << req->chunkId <<
-        " version: "  << req->chunkVersion <<
-        " size: "     << req->chunkSize <<
-        " log: "      << req->logseq <<
-        " status: "   << req->status <<
-        " filesize: " << fa->filesize <<
+        "file: "            << fa->id() <<
+        " chunk: "          << req->chunkId <<
+        " version: "        << req->chunkVersion <<
+        " size: "           << req->chunkSize <<
+        " log: "            << req->logseq <<
+        " submitted: "      << req->submitCount <<
+        " commit pending: " << req->commitPendingFlag <<
+        " status: "         << req->status <<
+        " filesize: "       << fa->filesize <<
     KFS_LOG_EOM;
     return 0;
 }
