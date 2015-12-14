@@ -9039,6 +9039,10 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
     if (req->chunkVersion < 0) {
         return -ENOENT; // Object store block.
     }
+    if (0 <= req->status && req->logseq < 0) {
+        panic("chunk size: invalid log sequence");
+        return -EFAULT;
+    }
     if (! req->retryFlag && req->status < 0) {
         return req->status;
     }
@@ -9116,6 +9120,7 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
         " version: "  << req->chunkVersion <<
         " size: "     << req->chunkSize <<
         " log: "      << req->logseq <<
+        " status: "   << req->status <<
         " filesize: " << fa->filesize <<
     KFS_LOG_EOM;
     return 0;
