@@ -1943,7 +1943,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
         return;
     }
     r->shortRpcFormatFlag = mShortRpcFormatFlag;
-    if (r->submitCount++ == 0) {
+    if (0 == r->submitCount) {
         r->submitTime = microseconds();
     }
     if (mDown) {
