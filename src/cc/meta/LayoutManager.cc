@@ -5973,16 +5973,14 @@ LayoutManager::GetChunkWriteLease(MetaAllocate* r)
         return -EDATAUNAVAIL;
     }
     // Need space on the servers..otherwise, fail it
-    r->allChunkServersShortRpcFlag = true;
     for (Servers::const_iterator it = r->servers.begin();
             it != r->servers.end();
             ++it) {
-        r->allChunkServersShortRpcFlag =
-            r->allChunkServersShortRpcFlag && (*it)->IsShortRpcFormat();
         if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
             return -ENOSPC;
         }
     }
+    r->servers.clear();
     assert(r->chunkVersion == r->initialChunkVersion);
     // When issuing a new lease, increment the version, skipping over
     // the failed version increment attemtps.
@@ -7971,14 +7969,46 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
 }
 
 void
-LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version)
+LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version,
+    MetaAllocate* r)
 {
+    CSMap::Entry* const ci = mChunkToServerMap.Find(r->chunkId);
+    if (! ci) {
+        if (r) {
+            r->statusMsg = "no such chunk";
+            r->status    = -EINVAL;
+        }
+        return;
+    }
+    if (r) {
+        // Need space on the servers..otherwise, fail it
+        mChunkToServerMap.GetServers(*ci, r->servers);
+        if (r->servers.empty()) {
+            // all the associated servers are dead...so, fail
+            // the allocation request.
+            r->statusMsg = "no replicas available";
+            r->status    = -EDATAUNAVAIL;
+        } else {
+            r->allChunkServersShortRpcFlag = true;
+            for (Servers::const_iterator it = r->servers.begin();
+                    it != r->servers.end();
+                    ++it) {
+                r->allChunkServersShortRpcFlag =
+                    r->allChunkServersShortRpcFlag && (*it)->IsShortRpcFormat();
+                if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
+                    r->status = -ENOSPC;
+                }
+            }
+        }
+        if (r->status < 0) {
+            r->servers.clear();
+        }
+    }
     if (mHibernatingServers.empty()) {
         return;
     }
     const bool kNofifyHibernatedOnlyFlag = true;
-    mChunkToServerMap.SetVersion(chunkId, version,
-        kNofifyHibernatedOnlyFlag);
+    mChunkToServerMap.SetVersion(*ci, version, kNofifyHibernatedOnlyFlag);
 }
 
 void

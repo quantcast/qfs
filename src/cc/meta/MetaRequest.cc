@@ -2658,14 +2658,14 @@ MetaLogChunkVersionChange::handle()
         status = gLayoutManager.ProcessBeginChangeChunkVersion(
             fid, chunkId, chunkVersion, &statusMsg, panicOnInvalidVersion);
     }
+    if (alloc && (! alloc->suspended || 0 != alloc->status)) {
+        panic("version change: invalid allocate");
+    }
     if (0 == status) {
-        gLayoutManager.ChangeChunkVersion(chunkId, chunkVersion);
+        gLayoutManager.ChangeChunkVersion(chunkId, chunkVersion, alloc);
     }
     if (! alloc) {
         return;
-    }
-    if (! alloc->suspended || 0 != alloc->status) {
-        panic("version change: invalid allocate");
     }
     if (0 != status) {
         alloc->logChunkVersionChangeFailedFlag = true;
@@ -2674,6 +2674,15 @@ MetaLogChunkVersionChange::handle()
         alloc->LayoutDone(processTime);
         processTime = microseconds(); // Time charged to allocate.
         return;
+    }
+    if (alloc->status < 0) {
+        alloc->LayoutDone(processTime);
+        return;
+    }
+    if (alloc->servers.empty()) {
+        panic("version change: no servers");
+        alloc->status = -EFAULT;
+        alloc->LayoutDone(processTime);
     }
     for (size_t i = alloc->servers.size(); i-- > 0; ) {
         alloc->servers[i]->AllocateChunk(

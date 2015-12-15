@@ -1427,7 +1427,7 @@ public:
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void EnqueueServerDown(const ChunkServer& srv, const MetaChunkRequest& req);
     void SetDisableTimerFlag(bool flag);
-    void ChangeChunkVersion(chunkId_t chunkId, seq_t version);
+    void ChangeChunkVersion(chunkId_t chunkId, seq_t version, MetaAllocate* r);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }
