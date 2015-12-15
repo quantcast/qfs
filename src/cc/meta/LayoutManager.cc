@@ -7972,7 +7972,7 @@ void
 LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version,
     MetaAllocate* r)
 {
-    CSMap::Entry* const ci = mChunkToServerMap.Find(r->chunkId);
+    CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
     if (! ci) {
         if (r) {
             r->statusMsg = "no such chunk";
