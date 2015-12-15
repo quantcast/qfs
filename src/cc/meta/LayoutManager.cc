@@ -7997,6 +7997,13 @@ LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version,
                     r->allChunkServersShortRpcFlag && (*it)->IsShortRpcFormat();
                 if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
                     r->status = -ENOSPC;
+                    break;
+                }
+                if ((*it)->IsDown()) {
+                    r->status    = -EALLOCFAILED;
+                    r->statusMsg =
+                        (*it)->GetServerLocation().ToString() + " went down";
+                    break;
                 }
             }
         }
