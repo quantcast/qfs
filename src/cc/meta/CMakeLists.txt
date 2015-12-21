@@ -48,6 +48,7 @@ set (lib_srcs
     LogWriter.cc
     LogReceiver.cc
     LogTransmitter.cc
+    MetaDataStore.cc
 )
 
 add_library (kfsMeta STATIC ${lib_srcs})

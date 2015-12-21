@@ -1,7 +1,7 @@
 //---------------------------------------------------------- -*- Mode: C++ -*-
 // $Id$
 //
-// Created 2015/05/10
+// Created 2015/12/15
 // Author: Mike Ovsiannikov
 //
 // Copyright 2015 Quantcast Corp.
@@ -20,67 +20,53 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// Transaction log replication reciver.
+// Transaction log and checkpoint storage.
 //
 //
 //----------------------------------------------------------------------------
 
-
-#ifndef KFS_META_LOG_RECEIVER_H
-#define KFS_META_LOG_RECEIVER_H
+#ifndef KFS_META_DATA_READER_H
+#define KFS_META_DATA_READER_H
 
 #include "common/kfstypes.h"
 
 namespace KFS
 {
 
-class Properties;
-class NetManager;
-struct MetaLogWriterControl;
+struct MetaReadMetaData;
+class  Properties;
+class  NetManager;
 
-class LogReceiver
+class MetaDataStore
 {
 public:
-    class Replayer
-    {
-    public:
-        virtual void Apply(
-            MetaLogWriterControl& inOp) = 0;
-        virtual void Wakeup() = 0;
-    protected:
-        Replayer()
-            {}
-        virtual ~Replayer()
-            {}
-        Replayer(
-            const Replayer& /* inReplayer */)
-            {}
-        Replayer& operator=(
-            const Replayer& /* inReplayer */)
-            { return *this; }
-    };
-    LogReceiver();
-    ~LogReceiver();
-    bool Dispatch();
-    bool SetParameters(
+    MetaDataStore(
+        NetManager& inNetManager);
+    ~MetaDataStore();
+    void SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);
-    int Start(
-        NetManager& inNetManager,
-        Replayer&   inReplayer,
-        seq_t       inCommittedLogSeq);
+    void Handle(
+        MetaReadMetaData& inReadOp);
+    void RegisterCheckpoint(
+        const char* inFileNamePtr,
+        seq_t       inLogSeq);
+    void RegisterLogSegment(
+        const char* inFileNamePtr,
+        seq_t       inStartSeq,
+        seq_t       inEndSeq);
+    int Start();
     void Shutdown();
 private:
     class Impl;
-
     Impl& mImpl;
 private:
-    LogReceiver(
-        const LogReceiver& inReceiver);
-    LogReceiver& operator=(
-        const LogReceiver& inReceiver);
+    MetaDataStore(
+        const MetaDataStore& inReader);
+    MetaDataStore& operator=(
+        const MetaDataStore& inReader);
 };
 
 } // namespace KFS
 
-#endif /* KFS_META_LOG_RECEIVER_H */
+#endif /* KFS_META_DATA_READER_H */

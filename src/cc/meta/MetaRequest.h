@@ -224,6 +224,13 @@ struct MetaRequest {
     private:
         const MetaRequest& mReq;
     };
+    class GetNext
+    {
+    public:
+        static MetaRequest*& Next(
+            MetaRequest& inReq)
+            { return inReq.next; }
+    };
     enum LogAction
     {
         kLogNever,
@@ -3825,15 +3832,19 @@ struct MetaLogClearObjStoreDelete : public MetaRequest {
 
 struct MetaReadMetaData : public MetaRequest {
     seq_t    startLogSeq;
+    int64_t  readPos;
     bool     checkpointFlag;
     int      readSize;
+    uint32_t checksum;
     IOBuffer data;
 
     MetaReadMetaData()
         : MetaRequest(META_READ_META_DATA, kLogNever),
           startLogSeq(-1),
+          readPos(-1),
           checkpointFlag(false),
           readSize(0),
+          checksum(0),
           data()
         {}
     bool Validate()
@@ -3854,6 +3865,7 @@ struct MetaReadMetaData : public MetaRequest {
         .Def2("Start-log",  "L", &MetaReadMetaData::startLogSeq,    seq_t(-1))
         .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag, false)
         .Def2("Read-size",  "S", &MetaReadMetaData::readSize,       -1)
+        .Def2("Read-pos",   "O", &MetaReadMetaData::readPos,       int64_t(-1))
         ;
     }
 };

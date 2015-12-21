@@ -35,6 +35,7 @@
 #include "common/time.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
+#include "common/SingleLinkedQueue.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
@@ -376,58 +377,7 @@ private:
               mStatus(0)
             {}
     };
-    class Queue
-    {
-    public:
-        Queue()
-            : mHeadPtr(0),
-              mTailPtr(0)
-            {}
-        Queue(
-            MetaRequest* inHeadPtr,
-            MetaRequest* inTailPtr)
-            : mHeadPtr(inHeadPtr),
-              mTailPtr(inTailPtr)
-            {}
-        void Reset()
-        {
-            mHeadPtr = 0;
-            mTailPtr = 0;
-        }
-        void PushBack(
-            Queue& inQueue)
-        {
-            if (inQueue.IsEmpty()) {
-                return;
-            }
-            if (mTailPtr) {
-                mTailPtr->next = inQueue.mHeadPtr;
-            } else {
-                mHeadPtr = inQueue.mHeadPtr;
-            }
-            mTailPtr = inQueue.mTailPtr;
-            inQueue.Reset();
-        }
-        void PushBack(
-            MetaRequest& inRequest)
-        {
-            if (mTailPtr) {
-                mTailPtr->next = &inRequest;
-            } else {
-                mHeadPtr = &inRequest;
-            }
-            mTailPtr = &inRequest;
-        }
-        MetaRequest* Front() const
-            { return mHeadPtr; }
-        MetaRequest* Back() const
-            { return mTailPtr; }
-        bool IsEmpty() const
-            { return (! mHeadPtr); }
-    private:
-        MetaRequest* mHeadPtr;
-        MetaRequest* mTailPtr;
-    };
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
     typedef MdStreamT<Impl> MdStream;
     enum WriteState
     {
@@ -518,10 +468,8 @@ private:
                         0 == thePtr->status) {
                     if (thePrevPtr) {
                         thePrevPtr->next = 0;
-                        inDoneQueue =
-                            Queue(mPendingAckQueue.Front(), thePrevPtr);
-                        mPendingAckQueue =
-                            Queue(thePtr, mPendingAckQueue.Back());
+                        inDoneQueue.Set(mPendingAckQueue.Front(), thePrevPtr);
+                        mPendingAckQueue.Set(thePtr, mPendingAckQueue.Back());
                     }
                     break;
                 }
@@ -553,8 +501,8 @@ private:
             }
             return;
         }
-        Queue theWriteQueue = mInQueue;
-        mInQueue.Reset();
+        Queue theWriteQueue;
+        mInQueue.Swap(theWriteQueue);
         theLocker.Unlock();
         mWokenFlag = true;
         Write(*theWriteQueue.Front());
