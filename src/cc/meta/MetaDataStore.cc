@@ -457,7 +457,7 @@ private:
     Impl& operator=(
         const Impl& inImpl);
 };
-/*
+
 MetaDataStore::MetaDataStore(
     NetManager& inNetManager)
     : mImpl(*(new Impl(inNetManager)))
@@ -511,5 +511,5 @@ MetaDataStore::Shutdown()
 {
     mImpl.Shutdown();
 }
-*/
+
 } // namespace KFS
