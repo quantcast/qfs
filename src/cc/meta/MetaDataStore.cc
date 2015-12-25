@@ -35,6 +35,7 @@
 #include "qcdio/QCThread.h"
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDLList.h"
 #include "qcdio/qcdebug.h"
 
 #include "kfsio/ITimeout.h"
@@ -46,9 +47,11 @@
 #include <vector>
 #include <functional>
 #include <utility>
+#include <algorithm>
 
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 namespace KFS
 {
@@ -57,12 +60,14 @@ using std::map;
 using std::less;
 using std::vector;
 using std::make_pair;
+using std::min;
 
 class MetaDataStore::Impl : public ITimeout
 {
 private:
     typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
     typedef vector<string>                                       DeleteList;
+    typedef vector<int>                                          CloseList;
     class Worker : public QCThread
     {
     public:
@@ -70,8 +75,7 @@ private:
             : QCThread(0, "MetaDataStoreWorker"),
               mOuterPtr(0),
               mQueue(),
-              mCond(),
-              mPruneFlag(false)
+              mCond()
             {}
         void PushBack(
             MetaReadMetaData& inReq)
@@ -91,35 +95,66 @@ private:
         Impl*     mOuterPtr;
         Queue     mQueue;
         QCCondVar mCond;
-        bool      mPruneFlag;
     friend class Impl;
     };
-    class Enntry
+    class Entry
     {
     public:
-        Enntry(
+        typedef QCDLListOp<Entry> List;
+
+        Entry(
             seq_t       inLogSeq      = -1,
             seq_t       inLogEndSeq   = -1,
-            const char* inFileNamePtr = "",
+            const char* inFileNamePtr =  0,
             int         inThreadIdx   = -1)
             : mLogSeq(inLogSeq),
               mLogEndSeq(inLogEndSeq),
-              mFileName(inFileNamePtr),
+              mFileName(inFileNamePtr ? inFileNamePtr : ""),
               mThreadIdx(inThreadIdx),
               mFd(-1),
               mUseCount(0),
-              mAccessTime(0)
-            {}
+              mAccessTime(0),
+              mPendingDeleteFlag(false)
+            { List::Init(*this); }
+        Entry(
+            const Entry& inEntry)
+            : mLogSeq(inEntry.mLogSeq),
+              mLogEndSeq(inEntry.mLogEndSeq),
+              mFileName(inEntry.mFileName),
+              mThreadIdx(inEntry.mThreadIdx),
+              mFd(inEntry.mFd),
+              mUseCount(inEntry.mUseCount),
+              mAccessTime(inEntry.mAccessTime),
+              mPendingDeleteFlag(inEntry.mPendingDeleteFlag)
+            { List::Init(*this); }
+        ~Entry()
+            { List::Remove(*this); }
         bool Expire(
             time_t inExpireTime)
         {
-            if (0 <= mFd && mUseCount <= 0 && mAccessTime < inExpireTime) {
-                close(mFd);
-                mFd       = -1;
-                mUseCount = 0;
+            if (mUseCount <= 0 && (mAccessTime < inExpireTime || mFd < 0)) {
+                List::Remove(*this);
+                return true;
             }
-            return (mFd < 0);
+            return false;
         }
+        void UpdateLru(
+            Entry& inLru,
+            time_t inNow)
+        {
+            if (mUseCount <= 0 && mFd < 0) {
+                if (mPendingDeleteFlag) {
+                    List::Insert(*this, inLru);
+                } else {
+                    List::Remove(*this);
+                }
+            } else {
+                List::Insert(*this, List::GetPrev(inLru));
+            }
+            mAccessTime = inNow;
+        }
+        bool IsInUse() const
+            { return (0 < mFd || mUseCount <= 0); }
         seq_t  mLogSeq;
         seq_t  mLogEndSeq;
         string mFileName;
@@ -127,21 +162,28 @@ private:
         int    mFd;
         int    mUseCount;
         time_t mAccessTime;
+        bool   mPendingDeleteFlag;
+    private:
+        Entry* mPrevPtr[1];
+        Entry* mNextPtr[1];
+        friend class QCDLListOp<Entry>;
     };
-    typedef Enntry Checkpoint;
-    typedef Enntry LogSegment;
+    typedef Entry Checkpoint;
+    typedef Entry LogSegment;
     typedef map<
         seq_t,
         Checkpoint,
         less<seq_t>,
         StdFastAllocator<pair<const seq_t, Checkpoint> >
     > Checkpoints;
+    typedef Checkpoint::List CheckpointLru;
     typedef map<
         seq_t,
         LogSegment,
         less<seq_t>,
         StdFastAllocator<pair<const seq_t, LogSegment> >
     > LogSegments;
+    typedef LogSegment::List LogSegmentsLru;
 public:
     Impl(
         NetManager& inNetManager)
@@ -154,16 +196,18 @@ public:
           mDoneQueue(),
           mCheckpoints(),
           mLogSegments(),
+          mCheckpointsLru(),
+          mLogSegmentsLru(),
+          mMinLogSeq(-1),
+          mPendingDeleteCount(0),
+          mMaxReadSize(2 << 20),
           mMaxInactiveTime(60),
           mMaxCheckpointsToKeepCount(16),
-          mOpenCheckpontsCount(0),
-          mOpenLogSegmentsCount(0),
           mCurThreadIdx(0),
+          mPendingCount(0),
           mNetManager(inNetManager),
           mNow(inNetManager.Now())
-    {
-        mNetManager.RegisterTimeoutHandler(this);
-    }
+        { mNetManager.RegisterTimeoutHandler(this); }
     ~Impl()
     {
         mNetManager.UnRegisterTimeoutHandler(this);
@@ -173,7 +217,26 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters)
     {
-        
+        Properties::String theName(inPrefixPtr ? inPrefixPtr : "");
+        const size_t       thePrefLen = theName.GetSize();
+        QCStMutexLocker theLock(mMutex);
+        mMaxReadSize = max(64 << 10, inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("maxReadSize"),
+            mMaxReadSize));
+        mMaxInactiveTime = max(10, inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("maxInactiveTime"),
+            mMaxInactiveTime));
+        mMaxCheckpointsToKeepCount = max(1, inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("maxCheckpointsToKeepCount"),
+            mMaxCheckpointsToKeepCount));
+        if (! mWorkersPtr) {
+            mWorkersCount = max(1, inParameters.getValue(
+                theName.Truncate(thePrefLen).Append("threadCount"),
+                mWorkersCount));
+        }
+        if (mPendingCount <= 0 && mWorkersPtr && ! mStopFlag) {
+            mWorkersPtr[0].mCond.Notify();
+        }
     }
     void Handle(
         MetaReadMetaData& inReadOp)
@@ -206,12 +269,13 @@ public:
                 theCheckpointPtr = &(theIt->second);
             }
             Checkpoint& theCheckpoint = *theCheckpointPtr;
-            theCheckpoint.mAccessTime = mNow;
             theCheckpoint.mUseCount++;
+            theCheckpoint.UpdateLru(mCheckpointsLru, mNow);
             QCASSERT(0 <= theCheckpoint.mThreadIdx &&
                 theCheckpoint.mThreadIdx < mWorkersCount);
             Worker& theWorker = mWorkersPtr[theCheckpoint.mThreadIdx];
             theWorker.PushBack(inReadOp);
+            mPendingCount++;
             theWorker.mCond.Notify();
             return;
         }
@@ -253,14 +317,14 @@ public:
             theLogSegmentPtr = &(theIt->second);
         }
         LogSegment& theLogSegment = *theLogSegmentPtr;
-        theLogSegment.mAccessTime = mNow;
         theLogSegment.mUseCount++;
+        theLogSegment.UpdateLru(mLogSegmentsLru, mNow);
         QCASSERT(0 <= theLogSegment.mThreadIdx &&
             theLogSegment.mThreadIdx < mWorkersCount);
         Worker& theWorker = mWorkersPtr[theLogSegment.mThreadIdx];
         theWorker.PushBack(inReadOp);
+        mPendingCount++;
         theWorker.mCond.Notify();
-        return;
     }
     void RegisterCheckpoint(
         const char* inFileNamePtr,
@@ -279,8 +343,11 @@ public:
             panic("invalid checkpoint registration attempt");
         }
         mCurThreadIdx++;
-        if (mCurThreadIdx <= mWorkersCount) {
+        if (mWorkersCount <= mCurThreadIdx) {
             mCurThreadIdx = 0;
+        }
+        if (mPendingCount <= 0 && mWorkersPtr && ! mStopFlag) {
+            mWorkersPtr[0].mCond.Notify();
         }
     }
     void RegisterLogSegment(
@@ -304,7 +371,7 @@ public:
             panic("invalid log segment registration attempt");
         }
         mCurThreadIdx++;
-        if (mCurThreadIdx <= mWorkersCount) {
+        if (mWorkersCount <= mCurThreadIdx) {
             mCurThreadIdx = 0;
         }
     }
@@ -340,6 +407,9 @@ public:
         Worker& inWorker)
     {
         DeleteList theDeleteList;
+        CloseList  theCloseList;
+        theDeleteList.reserve(16);
+        theCloseList.reserve(32);
         QCStMutexLocker theLock(mMutex);
         while (! mStopFlag) {
             inWorker.mCond.Wait(mMutex);
@@ -352,61 +422,76 @@ public:
                 } else {
                     Process(theCur);
                 }
+                QCASSERT(0 < mPendingCount);
+                mPendingCount--;
                 mDoneQueue.PushBack(theCur);
                 SyncAddAndFetch(mDoneCount, 1);
             }
-            if (inWorker.mPruneFlag) {
-                theDeleteList.clear();
-                mOpenCheckpontsCount = 0;
-                time_t const theExpireTime = mNow - mMaxInactiveTime;
-                for (Checkpoints::iterator theIt = mCheckpoints.begin();
-                        theIt != mCheckpoints.end();
-                        ) {
-                    const bool theClosedFlag =
-                        theIt->second.Expire(theExpireTime);
-                    if (theClosedFlag &&
-                            mMaxCheckpointsToKeepCount < mCheckpoints.size()) {
-                        theDeleteList.push_back(theIt->second.mFileName);
-                        mCheckpoints.erase(theIt++);
-                    } else {
-                        if (! theClosedFlag) {
-                            mOpenCheckpontsCount++;
-                        }
+            theDeleteList.clear();
+            theCloseList.clear();
+            Expire(theDeleteList, theCloseList);
+            int thePruneCount =
+                (int)mCheckpoints.size() - mMaxCheckpointsToKeepCount -
+                mPendingDeleteCount;
+            const seq_t thePrevMinLogSeq = mMinLogSeq;
+            for (Checkpoints::iterator theIt = mCheckpoints.begin();
+                    0 < thePruneCount;
+                    thePruneCount--) {
+                if (mMinLogSeq < theIt->second.mLogSeq) {
+                    mMinLogSeq = theIt->second.mLogSeq;
+                }
+                if (theIt->second.IsInUse()) {
+                    if (! theIt->second.mPendingDeleteFlag) {
+                        mPendingDeleteCount++;
+                        theIt->second.mPendingDeleteFlag = true;
+                    }
+                    ++theIt;
+                } else {
+                    if (0 <= theIt->second.mFd) {
+                        theCloseList.push_back(theIt->second.mFd);
+                        theIt->second.mFd = -1;
+                    }
+                    theDeleteList.push_back(theIt->second.mFileName);
+                    mCheckpoints.erase(theIt++);
+                }
+            }
+            if (thePrevMinLogSeq < mMinLogSeq) {
+                LogSegments::iterator theIt =
+                    mLogSegments.find(thePrevMinLogSeq);
+                if (mLogSegments.end() == theIt) {
+                    theIt = mLogSegments.begin();
+                }
+                while (theIt != mLogSegments.end() &&
+                            theIt->second.mLogSeq < mMinLogSeq) {
+                    if (theIt->second.IsInUse()) {
+                        theIt->second.mPendingDeleteFlag = true;
                         ++theIt;
+                    } else {
+                        if (0 <= theIt->second.mFd) {
+                            theCloseList.push_back(theIt->second.mFd);
+                            theIt->second.mFd = -1;
+                        }
+                        theDeleteList.push_back(theIt->second.mFileName);
+                        mLogSegments.erase(theIt++);
                     }
                 }
-                const seq_t theMinLogSeq = mCheckpoints.empty() ?
-                    seq_t(-1) : mCheckpoints.begin()->second.mLogSeq;
-                mOpenLogSegmentsCount = 0;
-                for (LogSegments::iterator theIt = mLogSegments.begin();
-                        theIt != mLogSegments.end();
-                        ++theIt) {
-                    const bool theClosedFlag =
-                        theIt->second.Expire(theExpireTime); 
-                    if (theClosedFlag && theIt->second.mLogSeq < theMinLogSeq) {
-                        theDeleteList.push_back(theIt->second.mFileName);
-                        mCheckpoints.erase(theIt++);
-                    } else {
-                        if (! theClosedFlag) {
-                            mOpenLogSegmentsCount++;
-                        }
-                        ++theIt;
-                    }
+            }
+            if (! theDeleteList.empty() || ! theCloseList.empty()) {
+                QCStMutexUnlocker theUnlock(mMutex);
+                while (! theCloseList.empty()) {
+                    close(theCloseList.back());
+                    theCloseList.pop_back();
                 }
-                if (! theDeleteList.empty()) {
-                    QCStMutexUnlocker theUnlock(mMutex);
-                    for (DeleteList::iterator theIt = theDeleteList.begin();
-                            theIt != theDeleteList.end();
-                            ++theIt) {
-                        if (unlink(theIt->c_str())) {
-                            const int theErr = errno;
-                            KFS_LOG_STREAM_ERROR <<
-                                "delete " << *theIt << ": " <<
-                                QCUtils::SysError(theErr) <<
-                            KFS_LOG_EOM;
-                        }
+                while (! theDeleteList.empty()) {
+                    const string& theName = theDeleteList.back();
+                    if (unlink(theName.c_str())) {
+                        const int theErr = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "delete " << theName << ": " <<
+                            QCUtils::SysError(theErr) <<
+                        KFS_LOG_EOM;
                     }
-                    theDeleteList.clear();
+                    theDeleteList.pop_back();
                 }
             }
         }
@@ -423,6 +508,13 @@ public:
         mNow = theNow;
         mDoneQueue.Swap(theDoneQueue);
         mDoneCount = 0;
+        if (mPendingCount <= 0 && mWorkersPtr && ! mStopFlag) {
+            time_t const theExpireTime = mNow - mMaxInactiveTime;
+            if (HasExpired(mCheckpointsLru, theExpireTime) ||
+                    HasExpired(mLogSegmentsLru, theExpireTime)) {
+                mWorkersPtr[0].mCond.Notify();
+            }
+        }
         theLock.Unlock();
         Queue::Entry* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
@@ -438,18 +530,122 @@ private:
     Queue        mDoneQueue;
     Checkpoints  mCheckpoints;
     LogSegments  mLogSegments;
+    Checkpoint   mCheckpointsLru;
+    LogSegment   mLogSegmentsLru;
+    seq_t        mMinLogSeq;
+    int          mPendingDeleteCount;
+    int          mMaxReadSize;
     int          mMaxInactiveTime;
     int          mMaxCheckpointsToKeepCount;
-    int          mOpenCheckpontsCount;
-    int          mOpenLogSegmentsCount;
     int          mCurThreadIdx;
+    int          mPendingCount;
     NetManager&  mNetManager;
     time_t       mNow;
 
+    
+    template<typename EntryT, typename TableT>
+    void Read(
+        EntryT&           inLru,
+        TableT&           inTable,
+        MetaReadMetaData& inReadOp)
+    {
+        typename TableT::iterator const theIt =
+            inTable.find(inReadOp.startLogSeq);
+        if (theIt == inTable.end()) {
+            inReadOp.status    = -EFAULT;
+            inReadOp.statusMsg = "internal error -- no such entry";
+            return;
+        }
+        EntryT& theEntry = theIt->second;
+        QCRTASSERT(0 < theEntry.mUseCount);
+        theEntry.UpdateLru(inLru, mNow);
+        const int theMaxRead = mMaxReadSize;
+        QCStMutexUnlocker theUnlock(mMutex);
+        if (theEntry.mFd < 0) {
+            theEntry.mFd = open(theEntry.mFileName.c_str(), O_RDONLY);
+        }
+        if (theEntry.mFd < 0) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "open: " << theEntry.mFileName << ": " <<
+                QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            inReadOp.status    = -EIO;
+            inReadOp.statusMsg = "failed to open file";
+        } else {
+            const int theNumRd = inReadOp.data.Read(
+                theEntry.mFd, min(theMaxRead, inReadOp.readSize));
+            if (theNumRd < 0) {
+                inReadOp.status    = -EIO;
+                inReadOp.statusMsg = QCUtils::SysError(-theNumRd);
+                KFS_LOG_STREAM_ERROR <<
+                    "read: " << inReadOp.Show() << " " << inReadOp.statusMsg <<
+                KFS_LOG_EOM;
+            } else {
+                KFS_LOG_STREAM_DEBUG <<
+                    "read: " << inReadOp.Show() << " " <<
+                    inReadOp.data.BytesConsumable()  <<
+                KFS_LOG_EOM;
+            }
+        }
+        theUnlock.Lock();
+        theEntry.mUseCount--;
+        QCASSERT(0 <= theEntry.mUseCount);
+        theEntry.UpdateLru(inLru, mNow);
+    }
     void Process(
         MetaReadMetaData& inReadOp)
     {
-        QCStMutexUnlocker theUnlock(mMutex);
+        if (inReadOp.checkpointFlag) {
+            Read(mCheckpointsLru, mCheckpoints, inReadOp);
+        } else {
+            Read(mLogSegmentsLru, mLogSegments, inReadOp);
+        }
+    }
+    template<typename EntryT, typename TableT> static
+    void Expire(
+        EntryT&     inLru,
+        TableT&     inTable,
+        time_t      inExpireTime,
+        DeleteList& inDeleteList,
+        CloseList&  inCloseList)
+    {
+        for (; ;) {
+            EntryT& theEntry = EntryT::List::GetNext(inLru);
+            if (&theEntry == &inLru || ! theEntry.Expire(inExpireTime)) {
+                break;
+            }
+            if (0 <= theEntry.mFd) {
+                inCloseList.push_back(theEntry.mFd);
+                theEntry.mFd = -1;
+            }
+            if (theEntry.mPendingDeleteFlag) {
+                inDeleteList.push_back(theEntry.mFileName);
+                inTable.erase(theEntry.mLogSeq);
+            }
+        }
+    }
+    void Expire(
+        DeleteList& inDeleteList,
+        CloseList&  inCloseList)
+    {
+        time_t const theExpireTime = mNow - mMaxInactiveTime;
+        const size_t theSz = inDeleteList.size();
+        Expire(mCheckpointsLru, mCheckpoints, theExpireTime,
+            inDeleteList, inCloseList);
+        const int theDelta = (int)(inDeleteList.size() - theSz);
+        QCASSERT(0 <= theDelta && theDelta <= mPendingDeleteCount);
+        mPendingDeleteCount -= theDelta;
+        Expire(mLogSegmentsLru, mLogSegments, theExpireTime,
+            inDeleteList, inCloseList);
+    }
+    template<typename EntryT>
+    bool HasExpired(
+        const EntryT& inLru,
+        time_t        inExpireTime)
+    {
+        EntryT& theEntry =  EntryT::List::GetNext(inLru);
+        return (&inLru != &theEntry && theEntry.mAccessTime < inExpireTime);
     }
 private:
     Impl(
