@@ -31,6 +31,7 @@
 #include "common/StdAllocator.h"
 #include "common/kfsatomic.h"
 #include "common/MsgLogger.h"
+#include "common/RequestParser.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/qcstutils.h"
@@ -40,6 +41,7 @@
 
 #include "kfsio/ITimeout.h"
 #include "kfsio/NetManager.h"
+#include "kfsio/IOBuffer.h"
 
 #include "MetaRequest.h"
 
@@ -52,6 +54,8 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 namespace KFS
 {
@@ -199,6 +203,7 @@ public:
           mCheckpointsLru(),
           mLogSegmentsLru(),
           mMinLogSeq(-1),
+          mPruneLogsFlag(false),
           mPendingDeleteCount(0),
           mMaxReadSize(2 << 20),
           mMaxInactiveTime(60),
@@ -370,9 +375,17 @@ public:
             KFS_LOG_EOM;
             panic("invalid log segment registration attempt");
         }
+        bool theWakeFlag = inEndSeq < mMinLogSeq && ! mPruneLogsFlag &&
+            mPendingCount <= 0 && mWorkersPtr && ! mStopFlag;
+        if (inEndSeq < mMinLogSeq) {
+            mPruneLogsFlag = true;
+        }
         mCurThreadIdx++;
         if (mWorkersCount <= mCurThreadIdx) {
             mCurThreadIdx = 0;
+        }
+        if (theWakeFlag) {
+            mWorkersPtr[0].mCond.Notify();
         }
     }
     int Start()
@@ -455,14 +468,15 @@ public:
                     mCheckpoints.erase(theIt++);
                 }
             }
-            if (thePrevMinLogSeq < mMinLogSeq) {
+            if (mPruneLogsFlag || thePrevMinLogSeq < mMinLogSeq) {
+                mPruneLogsFlag = false;
                 LogSegments::iterator theIt =
                     mLogSegments.find(thePrevMinLogSeq);
                 if (mLogSegments.end() == theIt) {
                     theIt = mLogSegments.begin();
                 }
                 while (theIt != mLogSegments.end() &&
-                            theIt->second.mLogSeq < mMinLogSeq) {
+                            theIt->second.mLogEndSeq < mMinLogSeq) {
                     if (theIt->second.IsInUse()) {
                         theIt->second.mPendingDeleteFlag = true;
                         ++theIt;
@@ -533,6 +547,7 @@ private:
     Checkpoint   mCheckpointsLru;
     LogSegment   mLogSegmentsLru;
     seq_t        mMinLogSeq;
+    bool         mPruneLogsFlag;
     int          mPendingDeleteCount;
     int          mMaxReadSize;
     int          mMaxInactiveTime;
@@ -541,7 +556,6 @@ private:
     int          mPendingCount;
     NetManager&  mNetManager;
     time_t       mNow;
-
     
     template<typename EntryT, typename TableT>
     void Read(
@@ -646,6 +660,324 @@ private:
     {
         EntryT& theEntry =  EntryT::List::GetNext(inLru);
         return (&inLru != &theEntry && theEntry.mAccessTime < inExpireTime);
+    }
+    template<typename T>
+    static int LoadDir(
+        const char* inDirNamePtr,
+        const char* inNamePrefixPtr,
+        const char* inLatestNamePtr,
+        const char* inTmpSuffixPtr,
+        bool        inRemoveTmpFlag,
+        T&          inFunctor)
+    {
+        DIR* const theDirPtr = opendir(inDirNamePtr);
+        if (! theDirPtr) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "opendir: " << inDirNamePtr <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            return (0 < theErr ? -theErr : -EINVAL);
+        }
+        string theTmpStr;
+        theTmpStr.reserve(1 << 10);
+        theTmpStr = inDirNamePtr;
+        theTmpStr += "/";
+        theTmpStr += inLatestNamePtr;
+        struct stat theStat = {0};
+        if (stat(theTmpStr.c_str(), &theStat)) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "stat: " << theTmpStr <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        int                  theRet       = 0;
+        size_t const         thePrefixLen = strlen(inNamePrefixPtr);
+        const struct dirent* thePtr;
+        while ((thePtr = readdir(theDirPtr))) {
+            const char* const theNamePtr = thePtr->d_name;
+            if (strncmp(theNamePtr, inNamePrefixPtr, thePrefixLen) != 0 ||
+                    theStat.st_ino == thePtr->d_ino) {
+                continue;
+            }
+            const int64_t theLogSeq = toNumber(theNamePtr + thePrefixLen);
+            if (theLogSeq < 0) {
+                if (inTmpSuffixPtr &&
+                        strstr(theNamePtr + thePrefixLen, inTmpSuffixPtr)) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        (inRemoveTmpFlag ?
+                            "removing" : "ignoring") << ": " << theNamePtr <<
+                    KFS_LOG_EOM;
+                    if (inRemoveTmpFlag && remove(theNamePtr)) {
+                        const int theErr = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "remove: " << theTmpStr <<
+                            ": " << QCUtils::SysError(theErr) <<
+                        KFS_LOG_EOM;
+                        theRet = 0 < theErr ? -theErr : -EINVAL;
+                        break;
+                    }
+                    continue;
+                }
+                KFS_LOG_STREAM_ERROR <<
+                    "malformed file name: " << theNamePtr <<
+                KFS_LOG_EOM;
+                theRet = -EINVAL;
+                break;
+            }
+            if (0 != (theRet = inFunctor(theLogSeq, theNamePtr))) {
+                break;
+            }
+        }
+        closedir(theDirPtr);
+        return theRet;
+    }
+    int LoadCheckpoint(
+        seq_t             inLogSeq,
+        const char* const inNamePtr)
+    {
+        if (mCheckpoints.find(inLogSeq) != mCheckpoints.end()) {
+            KFS_LOG_STREAM_ERROR <<
+                "duplicate checkpoint log sequence number: " <<
+                inNamePtr <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        RegisterCheckpoint(inNamePtr, inLogSeq);
+        return 0;
+    }
+    int LoadLogSegment(
+        seq_t             inLogSeq,
+        const char* const inNamePtr,
+        char*             inReadBufferPtr,
+        size_t            inReadBufferSize)
+    {
+        seq_t theStartSeq = -1;
+        seq_t theEndSeq   = -1;
+        int   theRet      = GetLogSegmentSeqNumbers(
+            inNamePtr,
+            inReadBufferPtr,
+            inReadBufferSize,
+            theStartSeq,
+            theEndSeq
+        );
+        if (0 != theRet) {
+            return theRet;
+        }
+        if (mLogSegments.find(theStartSeq) != mLogSegments.end()) {
+            KFS_LOG_STREAM_ERROR <<
+                "duplicate log segment sequence number: " <<
+                inNamePtr <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        RegisterLogSegment(inNamePtr, theStartSeq, theEndSeq);
+        return 0;
+    }
+    class CheckpointLoader
+    {
+    public:
+        CheckpointLoader(
+            Impl& inImpl)
+            : mImpl(inImpl)
+            {}
+        int operator()(
+            seq_t             inLogSeq,
+            const char* const inNamePtr)
+            { return mImpl.LoadCheckpoint(inLogSeq, inNamePtr); }
+    private:
+        Impl& mImpl;
+    };
+    friend class CheckpointLoader;
+    class LogSegmentLoader
+    {
+    public:
+        LogSegmentLoader(
+            Impl& inImpl)
+            : mImpl(inImpl),
+              mTmpBuffer()
+            { mTmpBuffer.Resize(4 << 10); }
+        int operator()(
+            seq_t             inLogSeq,
+            const char* const inNamePtr)
+        {
+            return mImpl.LoadLogSegment(
+                inLogSeq, inNamePtr, mTmpBuffer.GetPtr(), mTmpBuffer.GetSize());
+        }
+    private:
+        Impl&              mImpl;
+        StBufferT<char, 1> mTmpBuffer;
+    };
+    int Load(
+        const char* inCheckpointDirPtr,
+        const char* inLogDirPtr,
+        bool        inRemoveTmpCheckupointsFlag)
+    {
+        if (! inCheckpointDirPtr || ! inLogDirPtr) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid parameters: "
+                " checkpont directory: " <<
+                    (inCheckpointDirPtr ? inCheckpointDirPtr : "null") <<
+                " log directory: " << (inLogDirPtr ? inLogDirPtr : "null") <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        CheckpointLoader theCheckpointLoader(*this);
+        int theRet = LoadDir(
+            inCheckpointDirPtr,
+            "chkpt.",
+            "latest",
+            ".tmp.",
+            inRemoveTmpCheckupointsFlag,
+            theCheckpointLoader
+        );
+        if (0 != theRet) {
+            return theRet;
+        }
+        LogSegmentLoader theLogSegmentLoader(*this);
+        return LoadDir(
+            inCheckpointDirPtr,
+            "log.",
+            "last",
+            0,
+            false,
+            theLogSegmentLoader
+        );
+    }
+    static int GetLogSegmentSeqNumbers(
+        const char* inNamePtr,
+        char*       inReadBufPtr,
+        size_t      inReadBufSize,
+        seq_t&      outStartSeq,
+        seq_t&      outEndSeq)
+    {
+        const int theFd = open(inNamePtr, O_RDONLY);
+        if (theFd < 0) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "open: " << inNamePtr <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            return (0 < theErr ? -theErr : -EINVAL);
+        }
+        int theRet = 0;
+        ssize_t theRdLen = read(theFd, inReadBufPtr, inReadBufSize);
+        if (theRdLen < 0) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "read: " << inNamePtr <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            theRet = 0 < theErr ? -theErr : -EINVAL;
+        } else {
+            const char* thePtr = strstr(inReadBufPtr, "\nc/");
+            if (thePtr) {
+                outStartSeq = GetCommitLogSequence(
+                    thePtr, inReadBufPtr + theRdLen, inNamePtr);
+                if (outStartSeq < 0) {
+                    outEndSeq = -1;
+                    theRdLen = 0;
+                }
+            } else {
+                KFS_LOG_STREAM_INFO <<
+                    "no initial log commit record found: " << inNamePtr <<
+                KFS_LOG_EOM;
+                outStartSeq = -1;
+                outEndSeq   = -1;
+                theRdLen = 0;
+            }
+        }
+        if (0 == theRet && theRdLen == (ssize_t)inReadBufSize) {
+            off_t thePos = lseek(theFd, -inReadBufSize, SEEK_END);
+            if (thePos < 0) {
+                thePos = lseek(theFd, 0, SEEK_END);
+                if (thePos < 0 ||
+                        (inReadBufSize < thePos &&
+                            (thePos = lseek(theFd,
+                                thePos - inReadBufSize, SEEK_CUR)) < 0)) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "lseek: " << inNamePtr <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    theRet = 0 < theErr ? -theErr : -EINVAL;
+                }
+            }
+            if (0 == theRet && 0 < thePos) {
+                theRdLen = read(theFd, inReadBufPtr, inReadBufSize);
+                if (theRdLen < 0) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "read: " << inNamePtr <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    theRet = 0 < theErr ? -theErr : -EINVAL;
+                }
+            }
+        }
+        if (0 == theRet && 0 <= outStartSeq) {
+            const char* thePtr       = inReadBufPtr + theRdLen - 1;
+            const char* theEndPtr    = 0;
+            bool        theFoundFlag = true;
+            while (inReadBufPtr <= thePtr) {
+                const int theSym = *thePtr & 0xFF;
+                if (theSym == '\n') {
+                    if (thePtr + 3 <= inReadBufPtr + theRdLen &&
+                            thePtr[1] == 'c' && thePtr[2] == '/') {
+                        theFoundFlag = 0 != theEndPtr;
+                        break;
+                    }
+                    theEndPtr = thePtr;
+                }
+            }
+            if (theFoundFlag) {
+                outEndSeq =
+                    GetCommitLogSequence(thePtr, theEndPtr, inNamePtr);
+                if (outEndSeq < 0) {
+                    theRet = -EINVAL;
+                }
+            } else {
+                KFS_LOG_STREAM_INFO <<
+                    "no terminating log commit record found: " << inNamePtr <<
+                KFS_LOG_EOM;
+                theRet = -EINVAL;
+            }
+        }
+        close(theFd);
+        return theRet;
+    }
+    static seq_t GetCommitLogSequence(
+        const char* inStarttPtr,
+        const char* inEndPtr,
+        const char* inNamePtr)
+    {
+        const char* thePtr      = inStarttPtr;
+        int         theCnt      = 0;
+        const char* theStartPtr = 0;
+        const char* theEndPtr   = 0;
+        while (thePtr < inEndPtr && '\n' != (*thePtr & 0xFF)) {
+            if ('/' == (*thePtr & 0xFF)) {
+                theCnt++;
+                if (4 == theCnt) {
+                    theStartPtr = thePtr + 1;
+                } else if (5 == theCnt) {
+                    theEndPtr = thePtr;
+                }
+            }
+            thePtr++;
+        }
+        seq_t theRet = -1;
+        if (theCnt < 6 || '\n' != (*thePtr & 0xFF) ||
+                ! HexIntParser::Parse(
+                    theStartPtr, theEndPtr - theStartPtr, theRet)) {
+            KFS_LOG_STREAM_INFO <<
+                "invalid commit record format: " << inNamePtr <<
+            KFS_LOG_EOM;
+            theRet = -1;
+        }
+        return theRet;
     }
 private:
     Impl(
