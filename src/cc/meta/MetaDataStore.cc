@@ -42,6 +42,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/IOBuffer.h"
+#include "kfsio/checksum.h"
 
 #include "MetaRequest.h"
 
@@ -333,12 +334,14 @@ public:
     }
     void RegisterCheckpoint(
         const char* inFileNamePtr,
-        seq_t       inLogSeq)
+        seq_t       inLogSeq,
+        seq_t       inLogSegmentNumber)
     {
         QCStMutexLocker theLock(mMutex);
         if (! inFileNamePtr || ! *inFileNamePtr || inLogSeq < 0 ||
                 ! mCheckpoints.insert(make_pair(inLogSeq,
-                    Checkpoint(inLogSeq, inLogSeq, inFileNamePtr, mCurThreadIdx)
+                    Checkpoint(inLogSeq, inLogSegmentNumber,
+                        inFileNamePtr, mCurThreadIdx)
                 )).second) {
             KFS_LOG_STREAM_FATAL <<
                 "invalid checkpoint:"
@@ -387,6 +390,20 @@ public:
         if (theWakeFlag) {
             mWorkersPtr[0].mCond.Notify();
         }
+    }
+    int Load(
+        const char* inCheckpointDirPtr,
+        const char* inLogDirPtr,
+        bool        inRemoveTmpCheckupointsFlag)
+    {
+        if (mWorkersPtr || mWorkersCount <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid attempt to load meta data after Start() invocation" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        return LoadSelf(
+            inCheckpointDirPtr, inLogDirPtr, inRemoveTmpCheckupointsFlag);
     }
     int Start()
     {
@@ -596,9 +613,12 @@ private:
                     "read: " << inReadOp.Show() << " " << inReadOp.statusMsg <<
                 KFS_LOG_EOM;
             } else {
+                inReadOp.checksum = ComputeCrc32(
+                    &inReadOp.data, inReadOp.data.BytesConsumable());
                 KFS_LOG_STREAM_DEBUG <<
-                    "read: " << inReadOp.Show() << " " <<
-                    inReadOp.data.BytesConsumable()  <<
+                    "read: "      << inReadOp.Show() <<
+                    " size: "     << inReadOp.data.BytesConsumable()  <<
+                    " checksum: " << inReadOp.checksum <<
                 KFS_LOG_EOM;
             }
         }
@@ -679,38 +699,42 @@ private:
             KFS_LOG_EOM;
             return (0 < theErr ? -theErr : -EINVAL);
         }
-        string theTmpStr;
-        theTmpStr.reserve(1 << 10);
-        theTmpStr = inDirNamePtr;
-        theTmpStr += "/";
-        theTmpStr += inLatestNamePtr;
         struct stat theStat = {0};
-        if (stat(theTmpStr.c_str(), &theStat)) {
-            const int theErr = errno;
-            KFS_LOG_STREAM_ERROR <<
-                "stat: " << theTmpStr <<
-                ": " << QCUtils::SysError(theErr) <<
-            KFS_LOG_EOM;
-            return -EINVAL;
+        string theTmpStr;
+        if (inLatestNamePtr) {
+            theTmpStr.reserve(1 << 10);
+            theTmpStr = inDirNamePtr;
+            theTmpStr += "/";
+            theTmpStr += inLatestNamePtr;
+            if (stat(theTmpStr.c_str(), &theStat)) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    "stat: " << theTmpStr <<
+                    ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
         }
         int                  theRet       = 0;
         size_t const         thePrefixLen = strlen(inNamePrefixPtr);
         const struct dirent* thePtr;
         while ((thePtr = readdir(theDirPtr))) {
             const char* const theNamePtr = thePtr->d_name;
-            if (strncmp(theNamePtr, inNamePrefixPtr, thePrefixLen) != 0 ||
-                    theStat.st_ino == thePtr->d_ino) {
+            if (strncmp(theNamePtr, inNamePrefixPtr, thePrefixLen) != 0) {
                 continue;
             }
             const int64_t theLogSeq = toNumber(theNamePtr + thePrefixLen);
             if (theLogSeq < 0) {
                 if (inTmpSuffixPtr &&
                         strstr(theNamePtr + thePrefixLen, inTmpSuffixPtr)) {
+                    theTmpStr = inDirNamePtr;
+                    theTmpStr += "/";
+                    theTmpStr += theNamePtr;
                     KFS_LOG_STREAM_DEBUG <<
                         (inRemoveTmpFlag ?
-                            "removing" : "ignoring") << ": " << theNamePtr <<
+                            "removing" : "ignoring") << ": " << theTmpStr <<
                     KFS_LOG_EOM;
-                    if (inRemoveTmpFlag && remove(theNamePtr)) {
+                    if (inRemoveTmpFlag && remove(theTmpStr.c_str())) {
                         const int theErr = errno;
                         KFS_LOG_STREAM_ERROR <<
                             "remove: " << theTmpStr <<
@@ -727,7 +751,8 @@ private:
                 theRet = -EINVAL;
                 break;
             }
-            if (0 != (theRet = inFunctor(theLogSeq, theNamePtr))) {
+            if (0 != (theRet = inFunctor(theLogSeq, theNamePtr,
+                    (inLatestNamePtr && theStat.st_ino == thePtr->d_ino)))) {
                 break;
             }
         }
@@ -745,14 +770,16 @@ private:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        RegisterCheckpoint(inNamePtr, inLogSeq);
+        RegisterCheckpoint(inNamePtr, inLogSeq, -1);
         return 0;
     }
     int LoadLogSegment(
         seq_t             inLogSeq,
         const char* const inNamePtr,
         char*             inReadBufferPtr,
-        size_t            inReadBufferSize)
+        size_t            inReadBufferSize,
+        bool              inLastFlag,
+        seq_t&            ioLastSeq)
     {
         seq_t theStartSeq = -1;
         seq_t theEndSeq   = -1;
@@ -766,51 +793,170 @@ private:
         if (0 != theRet) {
             return theRet;
         }
-        if (mLogSegments.find(theStartSeq) != mLogSegments.end()) {
+        if (theStartSeq < 0) {
+            // "Old" style segment -- find corresponding checkpoint, and
+            // assign minimal range to the log segment.
+            Checkpoints::iterator theIt = mCheckpoints.begin();
+            if (mCheckpoints.end() == theIt) {
+                KFS_LOG_STREAM_ERROR <<
+                    "no checkpoints exist: " <<
+                    inNamePtr <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+            while (mCheckpoints.end() != theIt) {
+                if (theIt->second.mLogEndSeq < 0) {
+                    theIt->second.mLogEndSeq = GetLogSegmentNumber(
+                        inNamePtr, inReadBufferPtr, inReadBufferSize);
+                    if (theIt->second.mLogEndSeq < 0) {
+                        return -EINVAL;
+                    }
+                }
+                if (inLogSeq < theIt->second.mLogEndSeq) {
+                    if (mCheckpoints.begin() == theIt) {
+                        theStartSeq = theIt->second.mLogSeq +
+                            inLogSeq - theIt->second.mLogEndSeq;
+                        if (theStartSeq < 0) {
+                            KFS_LOG_STREAM_ERROR <<
+                                "not sufficient log sequence space:"
+                                " "        << theIt->second.mLogSeq <<
+                                " delta: " << theIt->second.mLogEndSeq <<
+                                " for old style log segment: " << inNamePtr <<
+                            KFS_LOG_EOM;
+                            return -EINVAL;
+                        }
+                        break;
+                    }
+                    const seq_t theNextSeq = theIt->second.mLogSeq;
+                    --theIt;
+                    theStartSeq = theIt->second.mLogSeq +
+                            inLogSeq - theIt->second.mLogEndSeq;
+                    if (theNextSeq <= theStartSeq) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "not sufficient log sequence space:"
+                            " "        << theIt->second.mLogSeq <<
+                            " : "      << theNextSeq <<
+                            " delta: " << theNextSeq - theIt->second.mLogSeq <<
+                            " for old style log segment: " << inNamePtr <<
+                        KFS_LOG_EOM;
+                        return -EINVAL;
+                    }
+                }
+                if (inLogSeq == theIt->second.mLogEndSeq) {
+                    theStartSeq = theIt->second.mLogEndSeq;
+                    break;
+                }
+                ++theIt;
+            }
+            if (mCheckpoints.end() == theIt) {
+                --theIt;
+                theStartSeq = theIt->second.mLogSeq +
+                    inLogSeq - theIt->second.mLogEndSeq;
+            }
+            theEndSeq = theStartSeq;
+        }
+        if (! mLogSegments.insert(make_pair(theStartSeq,
+                LogSegment(theStartSeq, theEndSeq, inNamePtr,
+                    0 < theStartSeq ? mCurThreadIdx : 0))).second) {
             KFS_LOG_STREAM_ERROR <<
                 "duplicate log segment sequence number: " <<
                 inNamePtr <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        RegisterLogSegment(inNamePtr, theStartSeq, theEndSeq);
+        mCurThreadIdx++;
+        if (mWorkersCount <= mCurThreadIdx) {
+            mCurThreadIdx = 0;
+        }
+        if (inLastFlag) {
+            ioLastSeq = theStartSeq;
+        }
         return 0;
     }
-    class CheckpointLoader
+    class DataLoader
+    {
+    public:
+        DataLoader(
+            Impl&       inImpl,
+            const char* inDirNamePtr)
+            : mImpl(inImpl),
+              mTmpName(inDirNamePtr),
+              mPrefixSize(0)
+        {
+            if (! mTmpName.empty() && '/' != *mTmpName.rbegin()) {
+                mTmpName += '/';
+            }
+        }
+    protected:
+        Impl&  mImpl;
+        string mTmpName;
+        size_t mPrefixSize;
+    };
+    class CheckpointLoader : public DataLoader
     {
     public:
         CheckpointLoader(
-            Impl& inImpl)
-            : mImpl(inImpl)
+            Impl&       inImpl,
+            const char* inDirNamePtr)
+            : DataLoader(inImpl, inDirNamePtr),
+              mLatestSeq(-1)
             {}
         int operator()(
             seq_t             inLogSeq,
-            const char* const inNamePtr)
-            { return mImpl.LoadCheckpoint(inLogSeq, inNamePtr); }
+            const char* const inNamePtr,
+            bool              inLatestFlag)
+        {
+            if (inLatestFlag) {
+                mLatestSeq = inLogSeq;
+            }
+            mTmpName.erase(mPrefixSize);
+            mTmpName += inNamePtr;
+            return mImpl.LoadCheckpoint(inLogSeq, mTmpName.c_str());
+        }
+        seq_t GetLatest() const
+            { return mLatestSeq; }
     private:
-        Impl& mImpl;
+        seq_t mLatestSeq;
+        CheckpointLoader(
+            const CheckpointLoader& inLoader);
+        CheckpointLoader& operator=(
+            const CheckpointLoader& inLoader);
     };
     friend class CheckpointLoader;
-    class LogSegmentLoader
+    class LogSegmentLoader : public DataLoader
     {
     public:
         LogSegmentLoader(
-            Impl& inImpl)
-            : mImpl(inImpl),
+            Impl&       inImpl,
+            const char* inDirNamePtr)
+            : DataLoader(inImpl, inDirNamePtr),
+              mLastSeq(-1),
               mTmpBuffer()
             { mTmpBuffer.Resize(4 << 10); }
         int operator()(
             seq_t             inLogSeq,
-            const char* const inNamePtr)
+            const char* const inNamePtr,
+            bool              inLastFlag)
         {
+            mTmpName.erase(mPrefixSize);
+            mTmpName += inNamePtr;
             return mImpl.LoadLogSegment(
-                inLogSeq, inNamePtr, mTmpBuffer.GetPtr(), mTmpBuffer.GetSize());
+                inLogSeq,
+                mTmpName.c_str(),
+                mTmpBuffer.GetPtr(),
+                mTmpBuffer.GetSize(),
+                inLastFlag,
+                mLastSeq
+            );
         }
+        seq_t GetLast() const
+            { return mLastSeq; }
     private:
-        Impl&              mImpl;
+        seq_t              mLastSeq;
         StBufferT<char, 1> mTmpBuffer;
     };
-    int Load(
+    friend class LogSegmentLoader;
+    int LoadSelf(
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr,
         bool        inRemoveTmpCheckupointsFlag)
@@ -824,7 +970,7 @@ private:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        CheckpointLoader theCheckpointLoader(*this);
+        CheckpointLoader theCheckpointLoader(*this, inCheckpointDirPtr);
         int theRet = LoadDir(
             inCheckpointDirPtr,
             "chkpt.",
@@ -836,7 +982,24 @@ private:
         if (0 != theRet) {
             return theRet;
         }
-        LogSegmentLoader theLogSegmentLoader(*this);
+        if (mCheckpoints.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "no checkpoint exists: " << inCheckpointDirPtr <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (theCheckpointLoader.GetLatest() !=
+                mCheckpoints.rbegin()->second.mLogSeq) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid or missing latest checkpoint link:" <<
+                " higest checkpoint: " <<
+                    mCheckpoints.rbegin()->second.mLogSeq <<
+                " link seq: " << theCheckpointLoader.GetLatest() <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        mPruneLogsFlag = true;
+        LogSegmentLoader theLogSegmentLoader(*this, inLogDirPtr);
         return LoadDir(
             inCheckpointDirPtr,
             "log.",
@@ -875,7 +1038,7 @@ private:
             const char* thePtr = strstr(inReadBufPtr, "\nc/");
             if (thePtr) {
                 outStartSeq = GetCommitLogSequence(
-                    thePtr, inReadBufPtr + theRdLen, inNamePtr);
+                    thePtr + 1, inReadBufPtr + theRdLen, inNamePtr);
                 if (outStartSeq < 0) {
                     outEndSeq = -1;
                     theRdLen = 0;
@@ -923,14 +1086,16 @@ private:
             bool        theFoundFlag = true;
             while (inReadBufPtr <= thePtr) {
                 const int theSym = *thePtr & 0xFF;
-                if (theSym == '\n') {
+                if ('\n' == theSym) {
                     if (thePtr + 3 <= inReadBufPtr + theRdLen &&
                             thePtr[1] == 'c' && thePtr[2] == '/') {
                         theFoundFlag = 0 != theEndPtr;
+                        thePtr++;
                         break;
                     }
-                    theEndPtr = thePtr;
+                    theEndPtr = thePtr + 1;
                 }
+                thePtr--;
             }
             if (theFoundFlag) {
                 outEndSeq =
@@ -979,6 +1144,58 @@ private:
         }
         return theRet;
     }
+    static seq_t GetLogSegmentNumber(
+        const char* inNamePtr,
+        char*       inReadBufPtr,
+        size_t      inReadBufSize)
+    {
+        const int theFd = open(inNamePtr, O_RDONLY);
+        if (theFd < 0) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "open: " << inNamePtr <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            return (0 < theErr ? -theErr : -EINVAL);
+        }
+        seq_t theRet = -EINVAL;
+        const ssize_t theRdLen = read(theFd, inReadBufPtr, inReadBufSize);
+        if (theRdLen < 0) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "read: " << inNamePtr <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            theRet = 0 < theErr ? -theErr : -EINVAL;
+        } else {
+            const char* theStPtr  = strstr(inReadBufPtr, "\nlog/");
+            if (theStPtr) {
+                theStPtr += 5;
+            }
+            const char* const theEndPtr = theStPtr ? strchr(theStPtr, '\n') : 0;
+            if (theEndPtr) {
+                const char* thePtr = theEndPtr - 1;
+                while (theStPtr <= thePtr) {
+                    if ('.' == (*thePtr & 0xFF)) {
+                        thePtr++;
+                        if (! DecIntParser::Parse(
+                                thePtr, theEndPtr - thePtr, theRet)) {
+                            theRet = -EINVAL;
+                        }
+                        break;
+                    }
+                    thePtr--;
+                }
+            }
+            if (theRet < 0) {
+                KFS_LOG_STREAM_INFO <<
+                    "no start log segment found: " << inNamePtr <<
+                KFS_LOG_EOM;
+            }
+        }
+        close(theFd);
+        return theRet;
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -1014,9 +1231,10 @@ MetaDataStore::Handle(
     void
 MetaDataStore::RegisterCheckpoint(
     const char* inFileNamePtr,
-    seq_t       inLogSeq)
+    seq_t       inLogSeq,
+    seq_t       inLogSegmentNumber)
 {
-    mImpl.RegisterCheckpoint(inFileNamePtr, inLogSeq);
+    mImpl.RegisterCheckpoint(inFileNamePtr, inLogSeq, inLogSegmentNumber);
 }
 
     void
@@ -1026,6 +1244,16 @@ MetaDataStore::RegisterLogSegment(
     seq_t       inEndSeq)
 {
     mImpl.RegisterLogSegment(inFileNamePtr, inStartSeq, inEndSeq);
+}
+
+int
+MetaDataStore::Load(
+    const char* inCheckpointDirPtr,
+    const char* inLogDirPtr,
+    bool        inRemoveTmpCheckupointsFlag)
+{
+    return mImpl.Load(
+        inCheckpointDirPtr, inLogDirPtr, inRemoveTmpCheckupointsFlag);
 }
 
     int

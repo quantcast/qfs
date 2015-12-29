@@ -50,11 +50,16 @@ public:
         MetaReadMetaData& inReadOp);
     void RegisterCheckpoint(
         const char* inFileNamePtr,
-        seq_t       inLogSeq);
+        seq_t       inLogSeq,
+        seq_t       inLogSegmentNumber);
     void RegisterLogSegment(
         const char* inFileNamePtr,
         seq_t       inStartSeq,
         seq_t       inEndSeq);
+    int Load(
+        const char* inCheckpointDirPtr,
+        const char* inLogDirPtr,
+        bool        inRemoveTmpCheckupointsFlag);
     int Start();
     void Shutdown();
 private:
