@@ -36,6 +36,7 @@
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
 #include "common/SingleLinkedQueue.h"
+#include "common/IntToString.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
@@ -977,7 +978,9 @@ private:
         mCurLogStartSeq = inLogSeq;
         mNextLogSeq     = inLogSeq;
         mLastLogSeq     = inLogSeq;
-        mLogName        = makename(mLogDir, mLogFileNamePrefix, mLogNum);
+        mLogName        = makename(mLogDir, mLogFileNamePrefix, inLogSeq);
+        mLogName += '.';
+        AppendDecIntToString(mLogName, mLogNum);
     }
     int SetParameters(
         const char*       inParametersPrefixPtr,

@@ -43,6 +43,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 
 #include <cassert>
 #include <cstdlib>
@@ -151,7 +152,7 @@ Replay replayer;
  * \param[in] p a path in the form "<logdir>/log.<number>"
  */
 int
-Replay::openlog(const string &p)
+Replay::openlog(const string& p)
 {
     if (file.is_open()) {
         file.close();
@@ -159,20 +160,9 @@ Replay::openlog(const string &p)
     KFS_LOG_STREAM_INFO <<
         "open log file: " << p.c_str() <<
     KFS_LOG_EOM;
-    int                     num = -1;
+    int64_t                 num = -1;
     const string::size_type dot = p.rfind('.');
-    if (dot != string::npos) {
-        const char* const ptr = p.c_str() + dot + 1;
-        if (*ptr != 0) {
-            char* end = 0;
-            const long val = strtol(ptr, &end, 10);
-            num = (int)val;
-            if (val != num || *end != 0) {
-                num = -1;
-            }
-        }
-    }
-    if (num < 0) {
+    if (string::npos == dot || (num = toNumber(p.c_str() + dot + 1)) < 0) {
         KFS_LOG_STREAM_FATAL <<
             p << ": invalid log file name" <<
         KFS_LOG_EOM;
@@ -196,15 +186,25 @@ const string&
 Replay::logfile(seq_t num)
 {
     if (tmplogname.empty()) {
-        const string::size_type dot = path.rfind('.');
-        if (dot != string::npos && string::npos == path.find('/', dot)) {
-            tmplogname = path.substr(0, dot + 1);
+        string::size_type name = path.rfind('/');
+        if (string::npos == name) {
+            name = 0;
         } else {
+            name++;
+        }
+        const string::size_type dot = path.find('.', name);
+        if (dot == string::npos) {
             tmplogname = path + ".";
+        } else {
+            tmplogname = path.substr(0, dot + 1);
         }
         tmplogprefixlen = tmplogname.length();
     }
     tmplogname.erase(tmplogprefixlen);
+    if (0 <= logSeqStartNum && logSeqStartNum <= num) {
+        AppendDecIntToString(tmplogname, state.mLastLogAheadSeq);
+        tmplogname += '.';
+    }
     AppendDecIntToString(tmplogname, num);
     return tmplogname;
 }
@@ -1356,7 +1356,9 @@ Replay::Replay()
       state(*(new ReplayState(*this))),
       tokenizer(*(new DETokenizer(file, &state))),
       entrymap(get_entry_map()),
-      blockChecksum()
+      blockChecksum(),
+      maxLogNum(-1),
+      logSeqStartNum(-1)
     {}
 
 Replay::~Replay()
@@ -1522,7 +1524,7 @@ Replay::playLogs(bool includeLastLogFlag)
     state.mLastCommitted       = -1; // Log commit can be less than checkpoint.
     state.mCheckpointCommitted = committed;
     state.mCheckpointErrChksum = errChecksum;
-    const int status = lastLogNum < 0 ? getLastLog(lastLogNum) : 0;
+    const int status = getLastLogNum();
     return (status == 0 ?
         playLogs(lastLogNum, includeLastLogFlag) : status);
 }
@@ -1530,12 +1532,12 @@ Replay::playLogs(bool includeLastLogFlag)
 int
 Replay::playLogs(seq_t last, bool includeLastLogFlag)
 {
-    int status = 0;
     appendToLastLogFlag        = false;
     lastLineChecksumFlag       = false;
     lastLogIntBase             = -1;
     bool lastEntryChecksumFlag = false;
     bool completeSegmentFlag   = true;
+    int  status                = 0;
     for (seq_t i = number; ; i++) {
         if (! includeLastLogFlag && last < i) {
             break;
@@ -1545,15 +1547,6 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
                 number = i;
             }
             break;
-        }
-        // Check if the next log segment exists prior to loading current log
-        // segment in order to allow fsck to load all segments while meta server
-        // is running. The meta server might close the current segment, and
-        // create the new segment after reading / loading tail of the current
-        // segment, in which case the last read might not have the last checksum
-        // line.
-        if (last < i) {
-            completeSegmentFlag = file_exists(logfile(i + 1));
         }
         sRestoreTimeCount = 0;
         const string logfn = logfile(i);
@@ -1571,6 +1564,15 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             KFS_LOG_EOM;
             status = -EINVAL;
             break;
+        }
+        // Check if the next log segment exists prior to loading current log
+        // segment in order to allow fsck to load all segments while meta server
+        // is running. The meta server might close the current segment, and
+        // create the new segment after reading / loading tail of the current
+        // segment, in which case the last read might not have the last checksum
+        // line.
+        if (last < i) {
+            completeSegmentFlag = file_exists(logfile(i + 1));
         }
         if (lastLineChecksumFlag &&
                 (! lastEntryChecksumFlag && completeSegmentFlag)) {
@@ -1611,10 +1613,15 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
 }
 
 int
-Replay::getLastLog(seq_t& last)
+Replay::getLastLogNum()
 {
-    last = number;
-    if (last < 0) {
+    if (0 <= lastLogNum) {
+        return 0;
+    }
+    lastLogNum     = number;
+    maxLogNum      = -1;
+    logSeqStartNum = -1;
+    if (lastLogNum < 0) {
         // no logs, to replay.
         return 0;
     }
@@ -1625,18 +1632,17 @@ Replay::getLastLog(seq_t& last)
     struct stat lastst = {0};
     if (stat(lastlog.c_str(), &lastst)) {
         const int err = errno;
-        if (last == 0 && ! file_exists(logfile(last + 1)) &&
-                ! file_exists(logfile(last + 2))) {
-            last = -1;
-            return 0; // Initial empty checkpoint and log.
+        if (lastLogNum == 0 && ENOENT == err) {
+            lastLogNum = -1; // Initial checkpoint with single log segment.
+        } else {
+            KFS_LOG_STREAM_FATAL <<
+                lastlog <<
+                ": " << QCUtils::SysError(err) <<
+            KFS_LOG_EOM;
+            return (err > 0 ? -err : (err == 0 ? -1 : err));
         }
-        KFS_LOG_STREAM_FATAL <<
-            lastlog <<
-            ": " << QCUtils::SysError(err) <<
-        KFS_LOG_EOM;
-        return (err > 0 ? -err : (err == 0 ? -1 : err));
     }
-    if (lastst.st_nlink != 2) {
+    if (0 <= lastLogNum && lastst.st_nlink != 2) {
         KFS_LOG_STREAM_FATAL <<
             lastlog <<
             ": invalid link count: " << lastst.st_nlink <<
@@ -1647,27 +1653,75 @@ Replay::getLastLog(seq_t& last)
         KFS_LOG_EOM;
         return -EINVAL;
     }
-    if (last > 0 && file_exists(logfile(last - 1))) {
-        // Start search from the previous, as checkpoint might
-        // point to the current one.
-        last--;
-    }
-    for ( ; ; last++) {
-        const string logfn = logfile(last);
-        struct stat st = {0};
-        if (stat(logfn.c_str(), &st)) {
-            const int err = errno;
-            KFS_LOG_STREAM_FATAL <<
-                logfn <<
-                ": " << QCUtils::SysError(err) <<
-            KFS_LOG_EOM;
-            return (err > 0 ? -err : (err == 0 ? -1 : err));
+    string            dirName  = lastlog;
+    string::size_type pos      = dirName.rfind('/');
+    const char*       lastName = lastlog.c_str();
+    if (string::npos != pos) {
+        lastName += pos + 1;
+        if (pos <= 0) {
+            dirName = "/";
+        } else {
+            dirName.erase(pos);
         }
-        if (st.st_ino == lastst.st_ino) {
-            break;
-        }
+    } else {
+        dirName = ".";
     }
-    return 0;
+    DIR* const dir = opendir(dirName.c_str());
+    if (! dir) {
+        const int err = errno;
+        KFS_LOG_STREAM_FATAL <<
+            dirName << ": " << QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+        return (err > 0 ? -err : (err == 0 ? -1 : err));
+    }
+    int                  ret = 0;
+    const struct dirent* ent;
+    while ((ent = readdir(dir))) {
+        if (strcmp(ent->d_name, lastName) == 0) {
+            continue;
+        }
+        const char* const p   = strrchr(ent->d_name, '.');
+        const int64_t     num = p ? toNumber(p + 1) : int64_t(-1);
+        if (0 <= lastLogNum && lastst.st_ino == ent->d_ino) {
+            lastLogNum = num;
+            if (num < 0) {
+                KFS_LOG_STREAM_FATAL <<
+                    "invalid log segment name: " <<
+                        dirName << "/" << ent->d_name <<
+                KFS_LOG_EOM;
+                ret = -EINVAL;
+                break;
+            }
+        }
+        if (num < 0) {
+            continue;
+        }
+        // Find first, if any, log segment number in the form
+        // log.<log sequence>.<log number>
+        const char* s = p;
+        while (ent->d_name <= --s) {
+            const int sym = *s & 0xFF;
+            if ('.' == sym) {
+                if (s + 1 < p && p <= s + 22) {
+                    logSeqStartNum = logSeqStartNum < 0 ? num :
+                        min(num, logSeqStartNum);
+                }
+                break;
+            }
+            if (sym < '0' || '9' < sym) {
+                break;
+            }
+        }
+        maxLogNum = max(num, maxLogNum);
+    }
+    closedir(dir);
+    if (0 == ret && maxLogNum < 0) {
+        KFS_LOG_STREAM_FATAL <<
+            "no log segments found: " << dirName <<
+        KFS_LOG_EOM;
+        ret = -EINVAL;
+    }
+    return ret;
 }
 
 } // namespace KFS

@@ -47,7 +47,7 @@ public:
     bool verifyLogSegmentsPresent()
     {
         lastLogNum = -1;
-        return getLastLog(lastLogNum) == 0;
+        return getLastLogNum() == 0;
     }
     //!< open the log file for replay
     int openlog(const string &p);
@@ -124,10 +124,12 @@ private:
     DETokenizer&     tokenizer;
     const DiskEntry& entrymap;
     BlockChecksum    blockChecksum;
+    seq_t            maxLogNum;
+    seq_t            logSeqStartNum;
 
     int playLogs(seq_t lastlog, bool includeLastLogFlag);
     int playlog(bool& lastEntryChecksumFlag);
-    int getLastLog(seq_t& lastlog);
+    int getLastLogNum();
     const string& logfile(seq_t num);
     string getLastLog();
 private:

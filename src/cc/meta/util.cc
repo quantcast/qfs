@@ -110,7 +110,7 @@ toNumber(const char* str)
 {
     char* endptr;
     const int64_t n = strtoll(str, &endptr, 10);
-    return (*endptr != '\0' ? int64_t(-1) : n);
+    return ((*endptr != '\0' || str == endptr) ? int64_t(-1) : n);
 }
 
 /*!
