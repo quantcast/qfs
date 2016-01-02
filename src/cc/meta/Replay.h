@@ -69,7 +69,7 @@ public:
         { errChecksum = sum; }
     void setCommitted(seq_t seq)
         { committed = seq; }
-    string getCurLog() const
+    const string& getCurLog() const
         { return path; }
     string getLastLogName() const
     {
