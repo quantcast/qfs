@@ -156,7 +156,8 @@ public:
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         if (inLogAppendMdStatePtr) {
-            SetLogName(inLogSeq, inLogNameHasSeqFlag);
+            SetLogName(inLogSeq,
+                inLogNameHasSeqFlag ? inLogAppendStartSeq : seq_t(-1));
             mCurLogStartTime = microseconds();
             mCurLogStartSeq  = inLogAppendStartSeq;
             mMdStream.SetMdState(*inLogAppendMdStatePtr);
@@ -975,8 +976,11 @@ private:
         }
     }
     void SetLogName(
+        seq_t inLogSeq)
+        { SetLogName(inLogSeq, inLogSeq); }
+    void SetLogName(
         seq_t inLogSeq,
-        bool  inLogNameHasSeqFlag = true)
+        seq_t inLogStartSeqNum)
     {
         mCurLogStartSeq = inLogSeq;
         mNextLogSeq     = inLogSeq;
@@ -986,9 +990,9 @@ private:
             mLogName += '/';
         }
         mLogName += mLogFileNamePrefix;
-        if (inLogNameHasSeqFlag) {
+        if (0 <= inLogStartSeqNum) {
             mLogName += '.';
-            AppendDecIntToString(mLogName, inLogSeq);
+            AppendDecIntToString(mLogName, inLogStartSeqNum);
         }
         mLogName += '.';
         AppendDecIntToString(mLogName, mLogNum);
