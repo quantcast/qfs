@@ -60,6 +60,7 @@ public:
         seq_t             inLogAppendStartSeq,
         seq_t             inLogAppendLastBlockSeq,
         bool              inLogAppendHexFlag,
+        bool              inLogNameHasSeqFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,
         string&           outCurLogFileName);

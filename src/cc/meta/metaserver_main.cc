@@ -775,6 +775,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             replayer.getLastLogStart(),
             replayer.getLastBlockSeq(),
             16 == replayer.getLastLogIntBase(),
+            replayer.logSegmentHasLogSeq(),
             "metaServer.log.",
             mStartupProperties,
             logFileName)) != 0) {

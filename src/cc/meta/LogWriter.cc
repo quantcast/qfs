@@ -117,7 +117,7 @@ public:
           mFailureSimulationInterval(0),
           mRandom(),
           mLogFileNamePrefix("log")
-        {}
+        { mLogName.reserve(1 << 10); }
     ~Impl()
         { Impl::Shutdown(); }
     int Start(
@@ -132,6 +132,7 @@ public:
         seq_t             inLogAppendStartSeq,
         seq_t             inLogAppendLastBlockSeq,
         bool              inLogAppendHexFlag,
+        bool              inLogNameHasSeqFlag,
         const char*       inParametersPrefixPtr,
         const Properties& inParameters,
         string&           outCurLogFileName)
@@ -155,7 +156,7 @@ public:
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         if (inLogAppendMdStatePtr) {
-            SetLogName(inLogSeq);
+            SetLogName(inLogSeq, inLogNameHasSeqFlag);
             mCurLogStartTime = microseconds();
             mCurLogStartSeq  = inLogAppendStartSeq;
             mMdStream.SetMdState(*inLogAppendMdStatePtr);
@@ -201,7 +202,8 @@ public:
                 ostream::basefield
             );
             mNextBlockSeq = inLogAppendLastBlockSeq;
-            if (inLogAppendLastBlockSeq < 0 || ! inLogAppendHexFlag) {
+            if (inLogAppendLastBlockSeq < 0 || ! inLogAppendHexFlag ||
+                    ! inLogNameHasSeqFlag) {
                 // Previous / "old" log format.
                 // Close the log segment even if it is empty and start new one.
                 StartNextLog();
@@ -973,12 +975,20 @@ private:
         }
     }
     void SetLogName(
-        seq_t inLogSeq)
+        seq_t inLogSeq,
+        bool  inLogNameHasSeqFlag = true)
     {
         mCurLogStartSeq = inLogSeq;
         mNextLogSeq     = inLogSeq;
         mLastLogSeq     = inLogSeq;
-        mLogName        = makename(mLogDir, mLogFileNamePrefix, inLogSeq);
+        mLogName.assign(mLogDir.data(), mLogDir.size());
+        if (! mLogName.empty() && '/' != *mLogName.rbegin()) {
+            mLogName += '/';
+        }
+        if (inLogNameHasSeqFlag) {
+            mLogName += '.';
+            AppendDecIntToString(mLogName, inLogSeq);
+        }
         mLogName += '.';
         AppendDecIntToString(mLogName, mLogNum);
     }
@@ -1104,6 +1114,7 @@ LogWriter::Start(
     seq_t             inLogAppendStartSeq,
     seq_t             inLogAppendLastBlockSeq,
     bool              inLogAppendHexFlag,
+    bool              inLogNameHasSeqFlag,
     const char*       inParametersPrefixPtr,
     const Properties& inParameters,
     string&           outCurLogFileName)
@@ -1120,6 +1131,7 @@ LogWriter::Start(
         inLogAppendStartSeq,
         inLogAppendLastBlockSeq,
         inLogAppendHexFlag,
+        inLogNameHasSeqFlag,
         inParametersPrefixPtr,
         inParameters,
         outCurLogFileName

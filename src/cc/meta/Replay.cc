@@ -201,7 +201,7 @@ Replay::logfile(seq_t num)
         tmplogprefixlen = tmplogname.length();
     }
     tmplogname.erase(tmplogprefixlen);
-    if (0 <= logSeqStartNum && logSeqStartNum <= num) {
+    if (logSegmentHasLogSeq(num)) {
         AppendDecIntToString(tmplogname, state.mLastLogAheadSeq);
         tmplogname += '.';
     }
@@ -1542,11 +1542,15 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         if (! includeLastLogFlag && last < i) {
             break;
         }
-        if (last < i && ! completeSegmentFlag) {
-            if (! appendToLastLogFlag && number < i) {
-                number = i;
-            }
-            break;
+        // Check if the next log segment exists prior to loading current log
+        // segment in order to allow fsck to load all segments while meta server
+        // is running. The meta server might close the current segment, and
+        // create the new segment after reading / loading tail of the current
+        // segment, in which case the last read might not have the last checksum
+        // line.
+        if (last < i && maxLogNum <= i) {
+            completeSegmentFlag = ! logSegmentHasLogSeq(i + 1) &&
+                file_exists(logfile(i + 1));
         }
         sRestoreTimeCount = 0;
         const string logfn = logfile(i);
@@ -1565,15 +1569,6 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             status = -EINVAL;
             break;
         }
-        // Check if the next log segment exists prior to loading current log
-        // segment in order to allow fsck to load all segments while meta server
-        // is running. The meta server might close the current segment, and
-        // create the new segment after reading / loading tail of the current
-        // segment, in which case the last read might not have the last checksum
-        // line.
-        if (last < i) {
-            completeSegmentFlag = file_exists(logfile(i + 1));
-        }
         if (lastLineChecksumFlag &&
                 (! lastEntryChecksumFlag && completeSegmentFlag)) {
             KFS_LOG_STREAM_FATAL <<
@@ -1583,9 +1578,10 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             status = -EINVAL;
             break;
         }
+        number = i;
         if (last < i && ! lastEntryChecksumFlag) {
             appendToLastLogFlag = true;
-            number = i;
+            break;
         }
     }
     if (status == 0) {

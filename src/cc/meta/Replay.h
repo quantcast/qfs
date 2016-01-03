@@ -89,6 +89,8 @@ public:
     seq_t getLastBlockSeq() const
         { return lastBlockSeq; }
     int playLine(const char* line, int len, seq_t blockSeq);
+    bool logSegmentHasLogSeq() const
+        { return logSegmentHasLogSeq(number); }
 
     class BlockChecksum
     {
@@ -131,6 +133,8 @@ private:
     int playlog(bool& lastEntryChecksumFlag);
     int getLastLogNum();
     const string& logfile(seq_t num);
+    bool logSegmentHasLogSeq(seq_t num) const
+        { return  (0 <= logSeqStartNum && logSeqStartNum <= num); }
     string getLastLog();
 private:
     // No copy.
