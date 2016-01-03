@@ -985,6 +985,7 @@ private:
         if (! mLogName.empty() && '/' != *mLogName.rbegin()) {
             mLogName += '/';
         }
+        mLogName += mLogFileNamePrefix;
         if (inLogNameHasSeqFlag) {
             mLogName += '.';
             AppendDecIntToString(mLogName, inLogSeq);
