@@ -202,7 +202,7 @@ Replay::logfile(seq_t num)
     }
     tmplogname.erase(tmplogprefixlen);
     if (logSegmentHasLogSeq(num)) {
-        AppendDecIntToString(tmplogname, state.mLastLogAheadSeq);
+        AppendDecIntToString(tmplogname, committed);
         tmplogname += '.';
     }
     AppendDecIntToString(tmplogname, num);
