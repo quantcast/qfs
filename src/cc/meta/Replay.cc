@@ -1551,6 +1551,10 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         if (last < i && maxLogNum <= i) {
             completeSegmentFlag = ! logSegmentHasLogSeq(i + 1) &&
                 file_exists(logfile(i + 1));
+            if (! completeSegmentFlag && i < maxLogNum &&
+                    ! file_exists(logfile(i))) {
+                break;
+            }
         }
         sRestoreTimeCount = 0;
         const string logfn = logfile(i);
