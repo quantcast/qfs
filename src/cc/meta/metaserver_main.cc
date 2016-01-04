@@ -762,7 +762,8 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         metatree.enablePathToFidCache();
     }
     string     logFileName;
-    MdStateCtx mds = replayer.getMdState();
+    MdStateCtx mds                     = replayer.getMdState();
+    const bool logSegmentHasLogSeqFlag = replayer.logSegmentHasLogSeq();
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
             replayer.getLogNum(),
@@ -775,7 +776,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             replayer.getLastLogStart(),
             replayer.getLastBlockSeq(),
             16 == replayer.getLastLogIntBase(),
-            replayer.logSegmentHasLogSeq(),
+            logSegmentHasLogSeqFlag,
             "metaServer.log.",
             mStartupProperties,
             logFileName)) != 0) {
@@ -807,6 +808,9 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     }
     setAbortOnPanic(mAbortOnPanicFlag);
     gLayoutManager.InitRecoveryStartTime();
+    if (! writeCheckpointFlag && ! logSegmentHasLogSeqFlag) {
+        mCheckpointFlag = true; // schedule new style checkpoint write.
+    }
     return true;
 }
 
