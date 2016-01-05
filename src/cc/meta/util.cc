@@ -71,7 +71,7 @@ link_latest(const string& realname, const string& alias)
 {
     int status = 0;
     for (int64_t i = getpid() + time(0), e = i + 5; i < e; i++) {
-        const string tmp = alias + "." + toString(i) + ".tmp";
+        const string tmp = realname + "." + toString(i) + ".tmp";
         if (link(realname.c_str(), tmp.c_str())) {
             status = -errno;
         } else {

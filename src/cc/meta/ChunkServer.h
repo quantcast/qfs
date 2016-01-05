@@ -55,7 +55,6 @@
 #include <ostream>
 #include <istream>
 #include <map>
-#include <set>
 
 #include <boost/shared_ptr.hpp>
 #include <boost/enable_shared_from_this.hpp>
@@ -71,7 +70,6 @@ using std::map;
 using std::multimap;
 using std::pair;
 using std::less;
-using std::set;
 
 /// Chunk server connects to the meta server, sends a HELLO
 /// message to configure its state with the meta server,  and

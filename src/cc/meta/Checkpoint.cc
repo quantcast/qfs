@@ -40,6 +40,7 @@
 #include "LayoutManager.h"
 #include "common/MdStream.h"
 #include "common/FdWriter.h"
+#include "common/StBuffer.h"
 
 #include <iostream>
 #include <iomanip>
@@ -78,12 +79,14 @@ Checkpoint::write(
         return -EINVAL;
     }
     cpname = cpfile(logseq);
-    const char* const suffix = ".tmp.XXXXXX";
-    char* const tmpname = new char[cpname.length() + strlen(suffix) + 1];
-    memcpy(tmpname, cpname.c_str(), cpname.length());
-    strcpy(tmpname + cpname.length(), suffix);
-    int fd = mkstemp(tmpname);
+    const char* const    suffix  = ".XXXXXX.tmp";
+    const size_t         suflen  = strlen(suffix) + 1;
+    StBufferT<char, 256> tmpbuf;
+    char* const          tmpname = tmpbuf.Reserve(cpname.length() + suflen);
+    memcpy(tmpname, cpname.data(), cpname.length());
+    memcpy(tmpname + cpname.length(), suffix, suflen);
     int status = 0;
+    int fd     = mkstemp(tmpname);
     if (fd < 0) {
         status = errno > 0 ? -errno : -EIO;
     } else {
@@ -159,7 +162,6 @@ Checkpoint::write(
     if (status != 0 && fd >= 0) {
         unlink(tmpname);
     }
-    delete [] tmpname;
     return status;
 }
 

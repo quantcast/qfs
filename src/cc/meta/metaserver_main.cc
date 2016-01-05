@@ -739,6 +739,8 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     KFS_LOG_STREAM_INFO << "updating space utilization" << KFS_LOG_EOM;
     metatree.setUpdatePathSpaceUsage(true);
     metatree.enableFidToPathname();
+    // Check whether the log segment pointed by checkpoint has sequence number.
+    const bool logSegmentHasLogSeqFlag = replayer.logSegmentHasLogSeq();
     KFS_LOG_STREAM_INFO << "replaying logs" << KFS_LOG_EOM;
     status = replayer.playAllLogs();
     if (status != 0) {
@@ -762,8 +764,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         metatree.enablePathToFidCache();
     }
     string     logFileName;
-    MdStateCtx mds                     = replayer.getMdState();
-    const bool logSegmentHasLogSeqFlag = replayer.logSegmentHasLogSeq();
+    MdStateCtx mds = replayer.getMdState();
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
             replayer.getLogNum(),
@@ -776,7 +777,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             replayer.getLastLogStart(),
             replayer.getLastBlockSeq(),
             16 == replayer.getLastLogIntBase(),
-            logSegmentHasLogSeqFlag,
+            replayer.logSegmentHasLogSeq(),
             "metaServer.log.",
             mStartupProperties,
             logFileName)) != 0) {

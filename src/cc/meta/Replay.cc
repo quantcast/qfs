@@ -34,6 +34,7 @@
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
+#include "common/StdAllocator.h"
 #include "common/kfserrno.h"
 
 #include "kfsio/checksum.h"
@@ -49,11 +50,14 @@
 #include <cstdlib>
 #include <sstream>
 #include <deque>
+#include <set>
 
 namespace KFS
 {
 using std::ostringstream;
 using std::deque;
+using std::set;
+using std::less;
 
 inline void
 Replay::setRollSeeds(int64_t roll)
@@ -1612,6 +1616,12 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     return status;
 }
 
+typedef set<
+    seq_t,
+    less<seq_t>,
+    StdFastAllocator<seq_t>
+> LogSegmentNumbers;
+
 int
 Replay::getLastLogNum()
 {
@@ -1675,6 +1685,7 @@ Replay::getLastLogNum()
         return (err > 0 ? -err : (err == 0 ? -1 : err));
     }
     int                  ret = 0;
+    LogSegmentNumbers    logNums;
     const struct dirent* ent;
     while ((ent = readdir(dir))) {
         if (strcmp(ent->d_name, lastName) == 0) {
@@ -1712,6 +1723,14 @@ Replay::getLastLogNum()
                 break;
             }
         }
+        if (number <= num && ! logNums.insert(num).second) {
+            KFS_LOG_STREAM_FATAL <<
+                "duplicate log segment number: " << num <<
+                dirName << "/" << ent->d_name <<
+            KFS_LOG_EOM;
+            ret = -EINVAL;
+            break;
+        }
         maxLogNum = max(num, maxLogNum);
     }
     closedir(dir);
@@ -1720,6 +1739,26 @@ Replay::getLastLogNum()
             "no log segments found: " << dirName <<
         KFS_LOG_EOM;
         ret = -EINVAL;
+    }
+    LogSegmentNumbers::const_iterator it = logNums.begin();
+    if (logNums.end() == it || *it != number) {
+        KFS_LOG_STREAM_FATAL <<
+            "missing log segmnet: " << number <<
+        KFS_LOG_EOM;
+        ret = -EINVAL;
+    } else {
+        seq_t n = *it;
+        while (logNums.end() != ++it) {
+            if (++n != *it) {
+                KFS_LOG_STREAM_FATAL <<
+                    "missing log segmnets:"
+                    " from: " << n  <<
+                    " to: "   << *it <<
+                KFS_LOG_EOM;
+                n = *it;
+                ret = -EINVAL;
+            }
+        }
     }
     return ret;
 }
