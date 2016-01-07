@@ -939,14 +939,19 @@ final public class KfsAccess
         return ret;
     }
 
+    private void kfs_destroy()
+    {
+        if (cPtr != 0) {
+            final long ptr = cPtr;
+            cPtr = 0;
+            destroy(ptr);
+        }
+    }
+
     protected void finalize() throws Throwable
     {
         try {
-            if (cPtr != 0) {
-                final long ptr = cPtr;
-                cPtr = 0;
-                destroy(ptr);
-            }
+            kfs_destroy();
         } finally {
             super.finalize();
         }
