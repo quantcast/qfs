@@ -35,6 +35,7 @@
 #include "Restorer.h"
 #include "AuditLog.h"
 #include "ClientSM.h"
+#include "Replay.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
@@ -3799,8 +3800,11 @@ MetaCheckpoint::handle()
     const time_t now = globalNetManager().Now();
     if (lastCheckpointId < 0) {
         // First call -- init.
-        lastCheckpointId = GetLogWriter().GetCommittedLogSeq();
-        lastRun          = now;
+        lastCheckpointId = replayer.getCheckpointCommitted();
+        if (lastCheckpointId < 0) {
+            lastCheckpointId = GetLogWriter().GetCommittedLogSeq();
+        }
+        lastRun = now;
         return;
     }
     if (! finishLog) {

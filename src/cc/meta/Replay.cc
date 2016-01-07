@@ -156,34 +156,63 @@ Replay replayer;
  * \param[in] p a path in the form "<logdir>/log.<number>"
  */
 int
-Replay::openlog(const string& p)
+Replay::openlog(const string& name)
 {
     if (file.is_open()) {
         file.close();
     }
+    string::size_type pos = name.rfind('/');
+    if (string::npos == pos) {
+        pos = 0;
+    } else {
+        pos++;
+    }
+    if (logdir.empty()) {
+        tmplogname.assign(name.data(), name.size());
+    } else {
+        tmplogname.assign(logdir.data(), logdir.size());
+        tmplogname += name.data() + pos;
+        pos = logdir.size();
+    }
     KFS_LOG_STREAM_INFO <<
-        "open log file: " << p.c_str() <<
+        "open log file: " << name << " => " << tmplogname <<
     KFS_LOG_EOM;
     int64_t                 num = -1;
-    const string::size_type dot = p.rfind('.');
-    if (string::npos == dot || (num = toNumber(p.c_str() + dot + 1)) < 0) {
+    const string::size_type dot = tmplogname.rfind('.');
+    if (string::npos == dot || dot < pos ||
+            (num = toNumber(tmplogname.c_str() + dot + 1)) < 0) {
         KFS_LOG_STREAM_FATAL <<
-            p << ": invalid log file name" <<
+            tmplogname << ": invalid log file name" <<
         KFS_LOG_EOM;
+        tmplogname.clear();
         return -EINVAL;
     }
-    file.open(p.c_str());
+    file.open(tmplogname.c_str());
     if (file.fail()) {
         const int err = errno;
         KFS_LOG_STREAM_FATAL <<
-            p << ": " << QCUtils::SysError(err) <<
+            tmplogname << ": " << QCUtils::SysError(err) <<
         KFS_LOG_EOM;
+        tmplogname.clear();
         return (err > 0 ? -err : (err == 0 ? -1 : err));
     }
     number = num;
-    path   = p;
+    path.assign(tmplogname.data(), tmplogname.size());
     tmplogname.clear();
     return 0;
+}
+
+void
+Replay::setLogDir(const char* dir)
+{
+    if (dir && *dir) {
+        logdir = dir;
+        if ('/' != *logdir.rbegin()) {
+            logdir += '/';
+        }
+    } else {
+        logdir.clear();
+    }
 }
 
 const string&
@@ -1348,6 +1377,8 @@ Replay::Replay()
       lastLogNum(-1),
       lastLogIntBase(-1),
       appendToLastLogFlag(false),
+      verifyAllLogSegmentsPresetFlag(false),
+      checkpointCommitted(-1),
       committed(0),
       lastLogStart(0),
       lastBlockSeq(-1),
@@ -1356,6 +1387,7 @@ Replay::Replay()
       lastCommittedStatus(0),
       tmplogprefixlen(0),
       tmplogname(),
+      logdir(),
       mds(),
       state(*(new ReplayState(*this))),
       tokenizer(*(new DETokenizer(file, &state))),
@@ -1723,10 +1755,11 @@ Replay::getLastLogNum()
                 break;
             }
         }
-        if (number <= num && ! logNums.insert(num).second) {
+        if ((verifyAllLogSegmentsPresetFlag || number <= num) &&
+                ! logNums.insert(num).second) {
             KFS_LOG_STREAM_FATAL <<
                 "duplicate log segment number: " << num <<
-                dirName << "/" << ent->d_name <<
+                " " << dirName << "/" << ent->d_name <<
             KFS_LOG_EOM;
             ret = -EINVAL;
             break;
@@ -1741,7 +1774,8 @@ Replay::getLastLogNum()
         ret = -EINVAL;
     }
     LogSegmentNumbers::const_iterator it = logNums.begin();
-    if (logNums.end() == it || *it != number) {
+    if (logNums.end() == it || (verifyAllLogSegmentsPresetFlag ?
+            logNums.find(number) == logNums.end() : *it != number)) {
         KFS_LOG_STREAM_FATAL <<
             "missing log segmnet: " << number <<
         KFS_LOG_EOM;

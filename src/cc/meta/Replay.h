@@ -68,7 +68,10 @@ public:
     void setErrChksum(int64_t sum)
         { errChecksum = sum; }
     void setCommitted(seq_t seq)
-        { committed = seq; }
+    {
+        checkpointCommitted = seq;
+        committed           = seq;
+    }
     const string& getCurLog() const
         { return path; }
     string getLastLogName() const
@@ -91,6 +94,11 @@ public:
     int playLine(const char* line, int len, seq_t blockSeq);
     bool logSegmentHasLogSeq() const
         { return logSegmentHasLogSeq(number); }
+    void verifyAllLogSegmentsPreset(bool flag)
+        { verifyAllLogSegmentsPresetFlag = flag; }
+    void setLogDir(const char* dir);
+    seq_t getCheckpointCommitted() const
+        { return checkpointCommitted; }
 
     class BlockChecksum
     {
@@ -113,6 +121,8 @@ private:
     seq_t            lastLogNum;
     int              lastLogIntBase;
     bool             appendToLastLogFlag;
+    bool             verifyAllLogSegmentsPresetFlag;
+    seq_t            checkpointCommitted;
     seq_t            committed;
     seq_t            lastLogStart;
     seq_t            lastBlockSeq;
@@ -121,6 +131,7 @@ private:
     int              lastCommittedStatus;
     size_t           tmplogprefixlen;
     string           tmplogname;
+    string           logdir;
     MdStream         mds;
     ReplayState&     state;
     DETokenizer&     tokenizer;

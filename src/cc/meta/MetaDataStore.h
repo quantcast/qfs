@@ -59,7 +59,7 @@ public:
     int Load(
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr,
-        bool        inRemoveTmpCheckupointsFlag,
+        bool        inRemoveTmpFilesFlag,
         bool        inIgnoreMissingSegmentsFlag);
     int Start();
     void Shutdown();

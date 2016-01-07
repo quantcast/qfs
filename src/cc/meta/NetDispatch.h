@@ -32,6 +32,7 @@
 #include "ClientManager.h"
 #include "ChunkServerFactory.h"
 #include "kfsio/DelegationToken.h"
+#include "MetaDataStore.h"
 
 #include <ostream>
 
@@ -95,10 +96,13 @@ public:
     }
     int WriteCanceledTokens(ostream& os);
     uint64_t GetCanceledTokensUpdateCount() const;
+    MetaDataStore& GetMetaDataStore()
+        { return mMetaDataStore; }
 private:
     class CanceledTokens;
 
     ClientManager      mClientManager; //!< tracks the connected clients
+    MetaDataStore      mMetaDataStore;
     ChunkServerFactory mChunkServerFactory; //!< creates chunk servers when they connect
     QCMutex*           mMutex;
     QCMutex*           mClientManagerMutex;

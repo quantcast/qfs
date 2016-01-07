@@ -318,6 +318,7 @@ NetDispatch::GetCanceledTokensUpdateCount() const
 
 NetDispatch::NetDispatch()
     : mClientManager(),
+      mMetaDataStore(globalNetManager()),
       mChunkServerFactory(),
       mMutex(0),
       mClientManagerMutex(0),
@@ -420,19 +421,26 @@ NetDispatch::Start()
                     mClientThreadsStartCpuAffinity
             ) &&
             mChunkServerFactory.StartAcceptor()) {
-        mCanceledTokens.RemoveExpired();
-        mCanceledTokens.Set(
-            &globalNetManager(),
-            GetMutex() ? &cancelTokensMutex : 0
-        );
-        const bool              kWakeupAndCleanupFlag = true;
-        MainThreadPrepareToFork prepareToFork(mClientManager);
-        // Run main thread event processing.
-        globalNetManager().MainLoop(
-            GetMutex(),
-            kWakeupAndCleanupFlag,
-            &prepareToFork
-        );
+        if (0 != (err = mMetaDataStore.Start())) {
+            KFS_LOG_STREAM_ERROR <<
+                "failed to start meta data store: " <<
+                QCUtils::SysError(err < 0 ? -err : err) <<
+            KFS_LOG_EOM;
+        } else {
+            mCanceledTokens.RemoveExpired();
+            mCanceledTokens.Set(
+                &globalNetManager(),
+                GetMutex() ? &cancelTokensMutex : 0
+            );
+            const bool              kWakeupAndCleanupFlag = true;
+            MainThreadPrepareToFork prepareToFork(mClientManager);
+            // Run main thread event processing.
+            globalNetManager().MainLoop(
+                GetMutex(),
+                kWakeupAndCleanupFlag,
+                &prepareToFork
+            );
+        }
     } else {
         err = -EINVAL;
     }
@@ -809,7 +817,6 @@ void NetDispatch::SetParameters(const Properties& props)
             "metaServer.clientThreadStartCpuAffinity",
             mClientThreadsStartCpuAffinity);
     }
-
     // Only main thread listens, and accepts.
     TcpSocket::SetDefaultRecvBufSize(props.getValue(
         "metaServer.tcpSocket.recvBufSize",
@@ -824,6 +831,7 @@ void NetDispatch::SetParameters(const Properties& props)
 
     sReqStatsGatherer.SetParameters(props);
     mClientManager.SetParameters(props);
+    mMetaDataStore.SetParameters("metaServer.dataStore.", props);
 
     string errMsg;
     int    err;

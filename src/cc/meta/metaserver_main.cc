@@ -35,6 +35,7 @@
 #include "Restorer.h"
 #include "AuditLog.h"
 #include "util.h"
+#include "MetaDataStore.h"
 
 #include "common/Properties.h"
 #include "common/MemLock.h"
@@ -111,6 +112,9 @@ GetIoBufAllocator()
     }
     return sAllocator;
 }
+
+const char* const kLogWriterParamsPrefix = "metaServer.log.";
+const char* const kNewLogDirPropName     = "metaServer.log.logDir";
 
 class MetaServer : public ITimeout
 {
@@ -271,7 +275,6 @@ private:
             return false;
         }
         mLogDir = mStartupProperties.getValue("metaServer.logDir", mLogDir);
-        const char* kNewLogDirPropName = "metaserver.log.logDir";
         mLogDir = mStartupProperties.getValue(kNewLogDirPropName, mLogDir);
         mStartupProperties.setValue(kNewLogDirPropName, mLogDir);
         return Startup(mStartupProperties, createEmptyFsFlag);
@@ -382,7 +385,7 @@ MetaServer::SetParameters(const Properties& props)
     if (mLogWriterRunningFlag) {
         MetaLogWriterControl* const op = new MetaLogWriterControl(
             MetaLogWriterControl::kSetParameters);
-        op->paramsPrefix = "metaserver.log.";
+        op->paramsPrefix = kLogWriterParamsPrefix;
         props.copyWithPrefix(op->paramsPrefix, op->params);
         submit_request(op);
     }
@@ -701,6 +704,10 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    const bool veifyAllLogSegmentsPresentFlag = mStartupProperties.getValue(
+        "metaServer.veifyAllLogSegmentsPresent", 0) != 0;
+    replayer.verifyAllLogSegmentsPreset(veifyAllLogSegmentsPresentFlag);
+    replayer.setLogDir(mLogDir.c_str());
     bool writeCheckpointFlag = false;
     if (! createEmptyFsFlag &&
             (! createEmptyFsIfNoCpExistsFlag || file_exists(LASTCP))) {
@@ -767,7 +774,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     MdStateCtx mds = replayer.getMdState();
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
-            replayer.getLogNum(),
+            replayer.getLogNum() + (replayer.getAppendToLastLogFlag() ? 0 : 1),
             replayer.getCommitted(),
             replayer.getCommitted(),
             fileID.getseed(),
@@ -778,7 +785,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             replayer.getLastBlockSeq(),
             16 == replayer.getLastLogIntBase(),
             replayer.logSegmentHasLogSeq(),
-            "metaServer.log.",
+            kLogWriterParamsPrefix,
             mStartupProperties,
             logFileName)) != 0) {
         KFS_LOG_STREAM_FATAL <<
@@ -804,12 +811,22 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    if (gNetDispatch.GetMetaDataStore().Load(
+            mCPDir.c_str(),
+            mLogDir.c_str(),
+            mStartupProperties.getValue("metaServer.cleanupTempFiles", 1) != 0,
+            ! veifyAllLogSegmentsPresentFlag)) {
+        return false;
+    }
     if (metatree.GetFsId() <= 0) {
         submit_request(new MetaSetFsInfo(fsid, 0));
     }
     setAbortOnPanic(mAbortOnPanicFlag);
     gLayoutManager.InitRecoveryStartTime();
     if (! writeCheckpointFlag && ! logSegmentHasLogSeqFlag) {
+        KFS_LOG_STREAM_DEBUG <<
+            "scheduling checkpoint" <<
+        KFS_LOG_EOM;
         mCheckpointFlag = true; // schedule new style checkpoint write.
     }
     return true;

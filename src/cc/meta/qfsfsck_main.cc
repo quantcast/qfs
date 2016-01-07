@@ -198,6 +198,7 @@ FsckMain(int argc, char** argv)
     if (ok && (! logdir.empty() || ! cpdir.empty())) {
         metatree.disableFidToPathname();
         checkpointer_setup_paths(cpdir);
+        replayer.setLogDir(logdir.c_str());
         ok =
             restoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
             replayer.playLogs(includeLastLogFlag) == 0
