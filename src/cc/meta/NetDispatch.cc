@@ -444,6 +444,7 @@ NetDispatch::Start()
     } else {
         err = -EINVAL;
     }
+    mMetaDataStore.Shutdown();
     mClientManager.Shutdown();
     mCanceledTokens.Set(0, 0);
     mRunningFlag = false;

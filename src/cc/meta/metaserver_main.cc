@@ -774,7 +774,8 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     MdStateCtx mds = replayer.getMdState();
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
-            replayer.getLogNum() + (replayer.getAppendToLastLogFlag() ? 0 : 1),
+            replayer.getLogNum() + ((writeCheckpointFlag ||
+                replayer.getAppendToLastLogFlag()) ? 0 : 1),
             replayer.getCommitted(),
             replayer.getCommitted(),
             fileID.getseed(),

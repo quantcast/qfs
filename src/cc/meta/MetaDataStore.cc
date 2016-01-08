@@ -732,6 +732,7 @@ private:
         const char* inTmpSuffixPtr,
         char        inSeqSeparator,
         bool        inRemoveTmpFlag,
+        bool        inLatestRequiredFlag,
         T&          inFunctor)
     {
         DIR* const theDirPtr = opendir(inDirNamePtr);
@@ -745,6 +746,7 @@ private:
         }
         struct stat theStat = {0};
         string theTmpStr;
+        bool   theHasLatesFlag = false;
         if (inLatestNamePtr) {
             theTmpStr.reserve(1 << 10);
             theTmpStr = inDirNamePtr;
@@ -752,11 +754,15 @@ private:
             theTmpStr += inLatestNamePtr;
             if (stat(theTmpStr.c_str(), &theStat)) {
                 const int theErr = errno;
-                KFS_LOG_STREAM_ERROR <<
-                    "stat: " << theTmpStr <<
-                    ": " << QCUtils::SysError(theErr) <<
-                KFS_LOG_EOM;
-                return -EINVAL;
+                if (ENOENT != theErr || inLatestRequiredFlag) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "stat: " << theTmpStr <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    return -EINVAL;
+                }
+            } else {
+                theHasLatesFlag = true;
             }
         }
         int                  theRet       = 0;
@@ -811,7 +817,7 @@ private:
                 break;
             }
             if (0 != (theRet = inFunctor(theLogSeq, theNumSeq, theNamePtr,
-                    (inLatestNamePtr && theStat.st_ino == thePtr->d_ino)))) {
+                    (theHasLatesFlag && theStat.st_ino == thePtr->d_ino)))) {
                 break;
             }
         }
@@ -857,7 +863,7 @@ private:
     {
         seq_t theStartSeq = inLogSeq;
         seq_t theEndSeq   = inNumSeq;
-        if (0 < inNumSeq) {
+        if (0 <= inNumSeq) {
             if (ioLogSegmentWithSegNum < 0) {
                 ioLogSegmentWithSegNum = inNumSeq;
             } else {
@@ -1076,6 +1082,7 @@ private:
             return -EINVAL;
         }
         CheckpointLoader theCheckpointLoader(*this, inCheckpointDirPtr);
+        const bool       kLatestFileRequiredFlag = true;
         int theRet = LoadDir(
             inCheckpointDirPtr,
             "chkpt.",
@@ -1083,6 +1090,7 @@ private:
             ".tmp",
             0,
             inRemoveTmpFilesFlag,
+            kLatestFileRequiredFlag,
             theCheckpointLoader
         );
         if (0 != theRet) {
@@ -1104,17 +1112,29 @@ private:
             return -EINVAL;
         }
         LogSegmentLoader theLogSegmentLoader(*this, inLogDirPtr);
+        const char* const kLastFileNamePtr      = "last";
+        const bool        kLastFileRequiredFlag = false;
         theRet = LoadDir(
             inLogDirPtr,
             "log.",
-            "last",
+            kLastFileNamePtr,
             ".tmp",
             '.',
             inRemoveTmpFilesFlag,
+            kLastFileRequiredFlag,
             theLogSegmentLoader
         );
         if (0 != theRet) {
             return theRet;
+        }
+        LogSegmentNums& theLogSegments = theLogSegmentLoader.GetLogSegments();
+        if (theLogSegmentLoader.GetLast() < 0 && ! theLogSegments.empty() &&
+                0 < theLogSegments.rbegin()->first) {
+            KFS_LOG_STREAM_ERROR <<
+                inLogDirPtr << "/" << kLastFileNamePtr <<
+                ": not found" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
         }
         if (theLatest.mLogEndSeq < 0) {
             bool theLogSeqFlag = false;
@@ -1130,7 +1150,6 @@ private:
         }
         bool theCPLogFoundFlag = false;
         bool theCPLogSeqFlag   = false;
-        LogSegmentNums& theLogSegments = theLogSegmentLoader.GetLogSegments();
         LogSegments::iterator thePrevIt = theLogSegments.begin();
         if (theLogSegments.end() != thePrevIt) {
             bool theMustHaveSeqFlag = 0 <= thePrevIt->second.mLogEndSeq;
