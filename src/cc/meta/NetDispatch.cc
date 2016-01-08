@@ -458,6 +458,7 @@ void
 NetDispatch::ChildAtFork()
 {
     mClientManager.ChildAtFork();
+    mMetaDataStore.ChildAtFork();
 }
 
 void
@@ -1307,6 +1308,7 @@ inline void
 NetDispatch::PrepareToFork()
 {
     mClientManager.PrepareToFork();
+    mMetaDataStore.PrepareToFork();
 }
 
 inline void
@@ -1319,6 +1321,7 @@ inline void
 NetDispatch::ForkDone()
 {
     mClientManager.ForkDone();
+    mMetaDataStore.ForkDone();
 }
 
 /* virtual */ void

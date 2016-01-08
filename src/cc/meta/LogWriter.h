@@ -40,6 +40,7 @@ struct MetaRequest;
 class Properties;
 class NetManager;
 class MdStateCtx;
+class MetaDataStore;
 
 class LogWriter
 {
@@ -50,6 +51,7 @@ public:
     ~LogWriter();
     int Start(
         NetManager&       inNetManager,
+        MetaDataStore&    inMetaDataStore,
         seq_t             inLogNum,
         seq_t             inLogSeq,
         seq_t             inCommittedLogSeq,

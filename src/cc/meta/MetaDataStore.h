@@ -63,6 +63,9 @@ public:
         bool        inIgnoreMissingSegmentsFlag);
     int Start();
     void Shutdown();
+    void PrepareToFork();
+    void ForkDone();
+    void ChildAtFork();
 private:
     class Impl;
     Impl& mImpl;

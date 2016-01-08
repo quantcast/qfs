@@ -278,6 +278,7 @@ public:
                 }
                 theCheckpointPtr = &(theIt->second);
             }
+            inReadOp.suspended = true;
             Checkpoint& theCheckpoint = *theCheckpointPtr;
             theCheckpoint.mUseCount++;
             theCheckpoint.UpdateLru(mCheckpointsLru, mNow);
@@ -338,6 +339,7 @@ public:
             inReadOp.startLogSeq = theIt->second.mLogSeq;
             theLogSegmentPtr = &(theIt->second);
         }
+        inReadOp.suspended = true;
         LogSegment& theLogSegment = *theLogSegmentPtr;
         theLogSegment.mUseCount++;
         theLogSegment.UpdateLru(mLogSegmentsLru, mNow);
@@ -356,7 +358,7 @@ public:
         QCStMutexLocker theLock(mMutex);
         if (! inFileNamePtr || ! *inFileNamePtr || inLogSeq < 0 ||
                 (! mCheckpoints.empty() &&
-                    mCheckpoints.rbegin()->second.mLogSeq <= inLogSeq) ||
+                    inLogSeq <= mCheckpoints.rbegin()->second.mLogSeq) ||
                 ! mCheckpoints.insert(make_pair(inLogSeq,
                     Checkpoint(inLogSeq, inLogSegmentNumber,
                         inFileNamePtr, mCurThreadIdx))).second) {
@@ -382,6 +384,10 @@ public:
         seq_t       inEndSeq)
     {
         QCStMutexLocker theLock(mMutex);
+        if (mLogSegments.empty()) {
+            QCASSERT(! mWorkersPtr);
+            return;
+        }
         LogSegment* const theLastPtr =  mLogSegments.empty() ?
             0 : &(mLogSegments.rbegin()->second);
         if (! inFileNamePtr || ! *inFileNamePtr || inStartSeq < 0 ||
@@ -455,6 +461,7 @@ public:
         mWorkersCount = 0;
         delete [] mWorkersPtr;
         mWorkersPtr = 0;
+        CloseAll();
     }
     void Run(
         Worker& inWorker)
@@ -591,6 +598,15 @@ public:
             submit_request(thePtr);
         }
     }
+    void PrepareToFork()
+        { mMutex.Lock(); }
+    void ForkDone()
+        { mMutex.Unlock(); }
+    void ChildAtFork()
+    {
+        mStopFlag = true;
+        CloseAll();
+    }
 private:
     Worker*      mWorkersPtr;
     int          mWorkersCount;
@@ -610,7 +626,24 @@ private:
     int          mPendingCount;
     NetManager&  mNetManager;
     time_t       mNow;
-    
+
+    template<typename T>
+    static void CloseAll(
+        T inStartIt,
+        T inEndIt)
+    {
+        for (T theIt = inStartIt; theIt != inEndIt; ++theIt) {
+            if (0 <= theIt->second.mFd) {
+                close(theIt->second.mFd);
+                theIt->second.mFd = -1;
+            }
+        }
+    }
+    void CloseAll()
+    {
+        CloseAll(mCheckpoints.begin(), mCheckpoints.end());
+        CloseAll(mLogSegments.begin(), mLogSegments.end());
+    }
     template<typename EntryT, typename TableT>
     void Read(
         EntryT&           inLru,
@@ -1128,7 +1161,13 @@ private:
             return theRet;
         }
         LogSegmentNums& theLogSegments = theLogSegmentLoader.GetLogSegments();
-        if (theLogSegmentLoader.GetLast() < 0 && ! theLogSegments.empty() &&
+        if (theLogSegments.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                inLogDirPtr << ": no log segments found" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (theLogSegmentLoader.GetLast() < 0 &&
                 0 < theLogSegments.rbegin()->first) {
             KFS_LOG_STREAM_ERROR <<
                 inLogDirPtr << "/" << kLastFileNamePtr <<
@@ -1380,6 +1419,24 @@ MetaDataStore::Start()
 MetaDataStore::Shutdown()
 {
     mImpl.Shutdown();
+}
+
+    void
+MetaDataStore::PrepareToFork()
+{
+    mImpl.PrepareToFork();
+}
+
+    void
+MetaDataStore::ForkDone()
+{
+    mImpl.ForkDone();
+}
+
+    void
+MetaDataStore::ChildAtFork()
+{
+    mImpl.ChildAtFork();
 }
 
 } // namespace KFS

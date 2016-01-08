@@ -71,14 +71,14 @@ public:
     void setWriteSyncFlag(bool flag) { writesync = flag; }
     size_t getWriteBufferSize() const { return writebuffersize; }
     void setWriteBufferSize(size_t size) { writebuffersize = size; }
+    string cpfile(seq_t highest) const //!< generate the next file name
+        { return makename(cpdir, "chkpt", highest); }
 private:
     string  cpdir;       //!< dir for CP files
     bool    writesync;
     size_t  writebuffersize;
     string  cpname;
 
-    string cpfile(seq_t highest)    //!< generate the next file name
-        { return makename(cpdir, "chkpt", highest); }
     int write_leaves(ostream& os);
 private:
     // No copy.

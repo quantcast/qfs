@@ -3782,6 +3782,12 @@ MetaCheckpoint::handle()
         } else {
             failedCount = 0;
             lastCheckpointId = runningCheckpointId;
+            const string fileName = cp.cpfile(lastCheckpointId);
+            gNetDispatch.GetMetaDataStore().RegisterCheckpoint(
+                fileName.c_str(),
+                lastCheckpointId,
+                runningCheckpointLogSegmentNum
+            );
         }
         if (lockFd >= 0) {
             close(lockFd);
@@ -3790,6 +3796,7 @@ MetaCheckpoint::handle()
             panic("checkpoint failures", false);
         }
         runningCheckpointId = -1;
+        runningCheckpointLogSegmentNum = -(runningCheckpointLogSegmentNum + 1);
         pid = -1;
         return;
     }
@@ -3852,6 +3859,7 @@ MetaCheckpoint::handle()
             runningCheckpointId < finishLog->committed) {
         panic("invalid finish log completion: log sequence mismatch");
     }
+    runningCheckpointLogSegmentNum = finishLog->logSegmentNum;
     // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
     // global mutex by waiting on condition with this mutex, but must ensure
     // that no other RPC gets processed. If log commit sequence has changed
@@ -5767,6 +5775,14 @@ MetaReadMetaData::handle()
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
+    seq_t seq;
+    if (0 <= startLogSeq && readPos <= 0 &&
+            (seq = GetLogWriter().GetCommittedLogSeq()) < startLogSeq) {
+        status = -EINVAL;
+        statusMsg = "log sequence higher than committed: ";
+        AppendDecIntToString(statusMsg, seq);
+    }
+    gNetDispatch.GetMetaDataStore().Handle(*this);
 }
 
 void

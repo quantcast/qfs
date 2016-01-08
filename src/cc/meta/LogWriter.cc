@@ -28,6 +28,7 @@
 #include "LogWriter.h"
 #include "LogTransmitter.h"
 #include "MetaRequest.h"
+#include "MetaDataStore.h"
 #include "util.h"
 
 #include "common/MsgLogger.h"
@@ -69,6 +70,7 @@ public:
           LogTransmitter::CommitObserver(),
           NetManager::Dispatcher(),
           mNetManagerPtr(0),
+          mMetaDataStorePtr(0),
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
           mTransmitCommitted(-1),
@@ -122,6 +124,7 @@ public:
         { Impl::Shutdown(); }
     int Start(
         NetManager&       inNetManager,
+        MetaDataStore&    inMetaDataStore,
         seq_t             inLogNum,
         seq_t             inLogSeq,
         seq_t             inCommittedLogSeq,
@@ -155,6 +158,7 @@ public:
         mCommitted.mStatus    = inCommittedStatus;
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
+        mMetaDataStorePtr  = &inMetaDataStore;
         if (inLogAppendMdStatePtr) {
             SetLogName(inLogSeq,
                 inLogNameHasSeqFlag ? inLogAppendStartSeq : seq_t(-1));
@@ -390,6 +394,7 @@ private:
     };
 
     NetManager*    mNetManagerPtr;
+    MetaDataStore* mMetaDataStorePtr;
     NetManager     mNetManager;
     LogTransmitter mLogTransmitter;
     seq_t          mTransmitCommitted;
@@ -766,9 +771,10 @@ private:
                 );
                 return false; // Do not start new record block.
         }
-        inRequest.committed  = mInFlightCommitted.mSeq;
-        inRequest.lastLogSeq = mLastLogSeq;
-        inRequest.logName    = mLogName;
+        inRequest.committed     = mInFlightCommitted.mSeq;
+        inRequest.lastLogSeq    = mLastLogSeq;
+        inRequest.logName       = mLogName;
+        inRequest.logSegmentNum = mLogNum;
         return (theRetFlag && IsLogStreamGood());
     }
     void WriteBlock(
@@ -971,6 +977,8 @@ private:
         FlushBlock(mLastLogSeq);
         if (IsLogStreamGood()) {
             mNextLogSeq = mLastLogSeq;
+            mMetaDataStorePtr->RegisterLogSegment(
+                mLogName.c_str(), mCurLogStartSeq, -mLogNum);
         } else {
             mLastLogSeq = mNextLogSeq;
         }
@@ -1109,6 +1117,7 @@ LogWriter::~LogWriter()
     int
 LogWriter::Start(
     NetManager&       inNetManager,
+    MetaDataStore&    inMetaDataStore,
     seq_t             inLogNum,
     seq_t             inLogSeq,
     seq_t             inCommittedLogSeq,
@@ -1126,6 +1135,7 @@ LogWriter::Start(
 {
     return mImpl.Start(
         inNetManager,
+        inMetaDataStore,
         inLogNum,
         inLogSeq,
         inCommittedLogSeq,

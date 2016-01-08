@@ -3032,6 +3032,7 @@ struct MetaCheckpoint : public MetaRequest {
           checkpointWriteBufferSize(16 << 20),
           lastCheckpointId(-1),
           runningCheckpointId(-1),
+          runningCheckpointLogSegmentNum(-1),
           lastRun(0),
           finishLog(0)
         { clnt = c; }
@@ -3054,6 +3055,7 @@ private:
     size_t                checkpointWriteBufferSize;
     seq_t                 lastCheckpointId;
     seq_t                 runningCheckpointId;
+    seq_t                 runningCheckpointLogSegmentNum;
     time_t                lastRun;
     MetaLogWriterControl* finishLog;
 };
@@ -3742,6 +3744,7 @@ struct MetaLogWriterControl : public MetaRequest {
     Type               type;
     seq_t              committed;
     seq_t              lastLogSeq;
+    seq_t              logSegmentNum;
     Properties         params;
     string             paramsPrefix;
     string             logName;
@@ -3761,6 +3764,7 @@ struct MetaLogWriterControl : public MetaRequest {
           type(t),
           committed(-1),
           lastLogSeq(-1),
+          logSegmentNum(-1),
           params(),
           paramsPrefix(),
           logName(),
