@@ -280,7 +280,7 @@ public:
             }
             inReadOp.suspended = true;
             Checkpoint& theCheckpoint = *theCheckpointPtr;
-            theCheckpoint.mUseCount++;
+            SetInUse(theCheckpoint);
             theCheckpoint.UpdateLru(mCheckpointsLru, mNow);
             QCASSERT(0 <= theCheckpoint.mThreadIdx &&
                 theCheckpoint.mThreadIdx < mWorkersCount);
@@ -341,7 +341,7 @@ public:
         }
         inReadOp.suspended = true;
         LogSegment& theLogSegment = *theLogSegmentPtr;
-        theLogSegment.mUseCount++;
+        SetInUse(theLogSegment);
         theLogSegment.UpdateLru(mLogSegmentsLru, mNow);
         QCASSERT(0 <= theLogSegment.mThreadIdx &&
             theLogSegment.mThreadIdx < mWorkersCount);
@@ -361,7 +361,7 @@ public:
                     inLogSeq <= mCheckpoints.rbegin()->second.mLogSeq) ||
                 ! mCheckpoints.insert(make_pair(inLogSeq,
                     Checkpoint(inLogSeq, inLogSegmentNumber,
-                        inFileNamePtr, mCurThreadIdx))).second) {
+                        inFileNamePtr))).second) {
             KFS_LOG_STREAM_FATAL <<
                 "invalid checkpoint:"
                 " sequence: " << inLogSeq <<
@@ -369,10 +369,6 @@ public:
             KFS_LOG_EOM;
             panic("invalid checkpoint registration attempt");
             return;
-        }
-        mCurThreadIdx++;
-        if (mWorkersCount <= mCurThreadIdx) {
-            mCurThreadIdx = 0;
         }
         if (mPendingCount <= 0 && mWorkersPtr && ! mStopFlag) {
             mWorkersPtr[0].mCond.Notify();
@@ -408,12 +404,8 @@ public:
         }
         mLogSegments.insert(make_pair(
             inStartSeq,
-            LogSegment(inStartSeq, inEndSeq, inFileNamePtr, mCurThreadIdx)
+            LogSegment(inStartSeq, inEndSeq, inFileNamePtr)
         ));
-        mCurThreadIdx++;
-        if (mWorkersCount <= mCurThreadIdx) {
-            mCurThreadIdx = 0;
-        }
     }
     int Load(
         const char* inCheckpointDirPtr,
@@ -644,6 +636,18 @@ private:
         CloseAll(mCheckpoints.begin(), mCheckpoints.end());
         CloseAll(mLogSegments.begin(), mLogSegments.end());
     }
+    template<typename T>
+    void SetInUse(
+        T& inEntry)
+    {
+        if (! inEntry.IsInUse()) {
+            if (mWorkersCount <= ++mCurThreadIdx) {
+                mCurThreadIdx = 0;
+            }
+            inEntry.mThreadIdx = mCurThreadIdx;
+        }
+        inEntry.mUseCount++;
+    }
     template<typename EntryT, typename TableT>
     void Read(
         EntryT&           inLru,
@@ -863,17 +867,13 @@ private:
     {
         if (! mCheckpoints.insert(make_pair(
                     inLogSeq,
-                    Checkpoint(inLogSeq, -1, inNamePtr, mCurThreadIdx)
+                    Checkpoint(inLogSeq, -1, inNamePtr)
                 )).second) {
             KFS_LOG_STREAM_ERROR <<
                 "duplicate checkpoint log sequence number: " <<
                 inNamePtr <<
             KFS_LOG_EOM;
             return -EINVAL;
-        }
-        mCurThreadIdx++;
-        if (mWorkersCount <= mCurThreadIdx) {
-            mCurThreadIdx = 0;
         }
         return 0;
     }
@@ -979,7 +979,7 @@ private:
         pair<LogSegments::iterator, bool> theRes = inLogSegmentNums.insert(
             make_pair(
                 inNumSeq < 0 ? inLogSeq : inNumSeq,
-                LogSegment(theStartSeq, theEndSeq, inNamePtr, mCurThreadIdx)));
+                LogSegment(theStartSeq, theEndSeq, inNamePtr)));
         if (! theRes.second) {
             KFS_LOG_STREAM_ERROR <<
                 "duplicate log segment number:"
@@ -987,10 +987,6 @@ private:
                 " and " << inNamePtr <<
             KFS_LOG_EOM;
             return -EINVAL;
-        }
-        mCurThreadIdx++;
-        if (mWorkersCount <= mCurThreadIdx) {
-            mCurThreadIdx = 0;
         }
         if (inLastFlag) {
             ioLastSeq = theStartSeq;

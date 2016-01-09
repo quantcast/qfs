@@ -5775,11 +5775,17 @@ MetaReadMetaData::handle()
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
+    const int64_t fsId = metatree.GetFsId();
+    if (fsId != fileSystemId) {
+        status    = -ERANGE;
+        statusMsg = "file system id mismatch, expected: ";
+        AppendDecIntToString(statusMsg, fsId);
+    }
     seq_t seq;
     if (0 <= startLogSeq && readPos <= 0 &&
             (seq = GetLogWriter().GetCommittedLogSeq()) < startLogSeq) {
-        status = -EINVAL;
-        statusMsg = "log sequence higher than committed: ";
+        status    = -ERANGE;
+        statusMsg = "requested log sequence higher than committed: ";
         AppendDecIntToString(statusMsg, seq);
     }
     gNetDispatch.GetMetaDataStore().Handle(*this);

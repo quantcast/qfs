@@ -3835,6 +3835,7 @@ struct MetaLogClearObjStoreDelete : public MetaRequest {
 };
 
 struct MetaReadMetaData : public MetaRequest {
+    int64_t  fileSystemId;
     seq_t    startLogSeq;
     int64_t  readPos;
     bool     checkpointFlag;
@@ -3844,6 +3845,7 @@ struct MetaReadMetaData : public MetaRequest {
 
     MetaReadMetaData()
         : MetaRequest(META_READ_META_DATA, kLogNever),
+          fileSystemId(-1),
           startLogSeq(-1),
           readPos(-1),
           checkpointFlag(false),
@@ -3866,6 +3868,7 @@ struct MetaReadMetaData : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return  MetaRequest::ParserDef(parser)
+        .Def2("FsId",      "FI", &MetaReadMetaData::fileSystemId, int64_t(-1))
         .Def2("Start-log",  "L", &MetaReadMetaData::startLogSeq,    seq_t(-1))
         .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag, false)
         .Def2("Read-size",  "S", &MetaReadMetaData::readSize,       -1)
