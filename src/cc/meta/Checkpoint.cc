@@ -36,15 +36,18 @@
 #include "kfstree.h"
 #include "MetaRequest.h"
 #include "NetDispatch.h"
-#include "util.h"
 #include "LayoutManager.h"
+#include "util.h"
+
 #include "common/MdStream.h"
 #include "common/FdWriter.h"
 #include "common/StBuffer.h"
+#include "common/IntToString.h"
 
 #include <iostream>
 #include <iomanip>
 #include <stdlib.h>
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -79,22 +82,28 @@ Checkpoint::write(
         return -EINVAL;
     }
     cpname = cpfile(logseq);
-    const char* const    suffix  = ".XXXXXX.tmp";
-    const size_t         suflen  = strlen(suffix) + 1;
-    StBufferT<char, 256> tmpbuf;
-    char* const          tmpname = tmpbuf.Reserve(cpname.length() + suflen);
-    memcpy(tmpname, cpname.data(), cpname.length());
-    memcpy(tmpname + cpname.length(), suffix, suflen);
-    int status = 0;
-    int fd     = mkstemp(tmpname);
-    if (fd < 0) {
-        status = errno > 0 ? -errno : -EIO;
-    } else {
-        close(fd);
-        fd = open(tmpname, O_WRONLY | (writesync ? O_SYNC : 0));
-        if (fd < 0) {
-            status = errno > 0 ? -errno : -EIO;
-            unlink(tmpname);
+    StringBufT<256> tmpStr(cpname.data(), cpname.size());
+    tmpStr.Append('.');
+    const size_t prefLen = tmpStr.GetSize();
+    const char*  tmpname;
+    int          fd;
+    int          status;
+    for (int i = 64; ; i--) {
+        tmpname = AppendHexIntToString(
+            tmpStr.Truncate(prefLen), gLayoutManager.GetRandom().Rand()
+        ).Append(".tmp").GetPtr();
+        if (0 <= (fd = open(
+                tmpname,
+                O_WRONLY | (writesync ? O_SYNC : 0) |
+                    O_EXCL | O_CREAT | O_TRUNC,
+                0666))) {
+            status = 0;
+            break;
+        }
+        const int err = errno;
+        if (EEXIST != err || i <= 0) {
+            status = err > 0 ? -err : -EIO;
+            break;
         }
     }
     if (status == 0) {
