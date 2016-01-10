@@ -5768,6 +5768,10 @@ MetaLogClearObjStoreDelete::handle()
 void
 MetaReadMetaData::handle()
 {
+    if (handledFlag) {
+        suspended = false;
+        return;
+    }
     if (status < 0 ||
             (0 == submitCount && ! HasMetaServerAdminAccess(*this))) {
         return;
@@ -5777,9 +5781,13 @@ MetaReadMetaData::handle()
     }
     const int64_t fsId = metatree.GetFsId();
     if (fsId != fileSystemId) {
-        status    = -ERANGE;
-        statusMsg = "file system id mismatch, expected: ";
-        AppendDecIntToString(statusMsg, fsId);
+        if (0 <= fileSystemId) {
+            status    = -EBADVERS;
+            statusMsg = "file system id mismatch, expected: ";
+            AppendDecIntToString(statusMsg, fsId);
+        } else {
+            fileSystemId = fsId;
+        }
     }
     seq_t seq;
     if (0 <= startLogSeq && readPos <= 0 &&
@@ -5788,6 +5796,7 @@ MetaReadMetaData::handle()
         statusMsg = "requested log sequence higher than committed: ";
         AppendDecIntToString(statusMsg, seq);
     }
+    handledFlag = true;
     gNetDispatch.GetMetaDataStore().Handle(*this);
 }
 
@@ -5797,11 +5806,11 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
     if (! OkHeader(this, os)) {
         return;
     }
-    uint32_t const crc32 = ComputeCrc32(&data, data.BytesConsumable());
     os <<
     (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
         data.BytesConsumable() << "\r\n" <<
-    (shortRpcFormatFlag ? "K:" : "Crc32: ") << crc32 << "\r\n"
+    (shortRpcFormatFlag ? "L:" : "Start-log: ") << startLogSeq << "\r\n" <<
+    (shortRpcFormatFlag ? "K:" : "Crc32: ")     << checksum << "\r\n"
     "\r\n"
     ;
     os.flush();

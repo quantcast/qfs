@@ -1908,6 +1908,32 @@ FsckOp::ParseResponseHeaderSelf(const Properties& /* prop */)
 }
 
 void
+MetaReadMetaData::Request(ReqOstream& os)
+{
+    os <<
+    "READ_META_DATA\r\n" << ReqHeaders(*this) <<
+    (shortRpcFormatFlag ? "FI:" : "FsId: ")       << fileSystemId << "\r\n" <<
+    (shortRpcFormatFlag ? "L:"  : "Start-log: ")  << startLogSeq << "\r\n" <<
+    (shortRpcFormatFlag ? "C:"  : "Checkpoint: ") <<
+        (checkpointFlag ? 1 : 0) << "\r\n" <<
+    (shortRpcFormatFlag ? "S:"  : "Read-size: ")  << readSize << "\r\n" <<
+    (shortRpcFormatFlag ? "O:"  : "Read-pos: ")   << readPos << "\r\n" <<
+    "\r\n"
+    ;
+}
+
+void
+MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
+{
+    startLogSeq  = prop.getValue(
+        shortRpcFormatFlag ? "L" :  "Start-log", (kfsSeq_t)-1);
+    checksum     = prop.getValue(
+        shortRpcFormatFlag ? "K" :  "Crc32",     (uint32_t)0);
+    fileSystemId = prop.getValue(
+        shortRpcFormatFlag ? "FI" : "FsId",      (int64_t)-1);
+}
+
+void
 MetaMonOp::Request(ReqOstream& os)
 {
     os << verb << "\r\n" << ReqHeaders(*this);

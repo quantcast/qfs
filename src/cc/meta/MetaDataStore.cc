@@ -246,11 +246,17 @@ public:
     void Handle(
         MetaReadMetaData& inReadOp)
     {
+        if (inReadOp.status < 0) {
+            return;
+        }
         QCStMutexLocker theLock(mMutex);
         if (! mWorkersPtr) {
             inReadOp.status    = -ENOENT;
             inReadOp.statusMsg = "shutdown";
             return;
+        }
+        if (inReadOp.readSize <= 0) {
+            inReadOp.readSize = mMaxReadSize;
         }
         if (inReadOp.checkpointFlag) {
             if (mCheckpoints.empty()) {
@@ -277,6 +283,7 @@ public:
                     return;
                 }
                 theCheckpointPtr = &(theIt->second);
+                inReadOp.readPos = max(int64_t(0), inReadOp.readPos);
             }
             inReadOp.suspended = true;
             Checkpoint& theCheckpoint = *theCheckpointPtr;
@@ -334,6 +341,7 @@ public:
                 inReadOp.statusMsg = "missing log segment";
                 return;
             }
+            inReadOp.readPos = 0;
             QCASSERT(theIt->second.mLogSeq <= inReadOp.startLogSeq &&
                 theIt->first == theIt->second.mLogSeq);
             inReadOp.startLogSeq = theIt->second.mLogSeq;
@@ -482,7 +490,9 @@ public:
                 QCASSERT(0 < mPendingCount);
                 mPendingCount--;
                 mDoneQueue.PushBack(theCur);
-                SyncAddAndFetch(mDoneCount, 1);
+                if (SyncAddAndFetch(mDoneCount, 1) <= 1) {
+                    mNetManager.Wakeup();
+                }
             }
             theDeleteList.clear();
             theCloseList.clear();
@@ -568,8 +578,7 @@ public:
     virtual void Timeout()
     {
         const time_t theNow = mNetManager.Now();
-        if (SyncAddAndFetch(mDoneCount, 0) <= 0 &&
-                theNow == mNow) {
+        if (theNow == mNow && SyncAddAndFetch(mDoneCount, 0) <= 0) {
             return;
         }
         Queue theDoneQueue;
@@ -587,6 +596,7 @@ public:
         theLock.Unlock();
         Queue::Entry* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
+            thePtr->suspended = false;
             submit_request(thePtr);
         }
     }
@@ -654,6 +664,7 @@ private:
         TableT&           inTable,
         MetaReadMetaData& inReadOp)
     {
+        QCRTASSERT(0 <= inReadOp.readPos && 0 <= inReadOp.status);
         typename TableT::iterator const theIt =
             inTable.find(inReadOp.startLogSeq);
         if (theIt == inTable.end()) {
@@ -678,8 +689,14 @@ private:
             inReadOp.status    = -EIO;
             inReadOp.statusMsg = "failed to open file";
         } else {
-            const int theNumRd = inReadOp.data.Read(
-                theEntry.mFd, min(theMaxRead, inReadOp.readSize));
+            int theNumRd;
+            if (lseek(theEntry.mFd, inReadOp.readPos, SEEK_SET) !=
+                    inReadOp.readPos) {
+                theNumRd = -errno;
+            } else {
+                theNumRd = inReadOp.data.Read(
+                    theEntry.mFd, min(theMaxRead, inReadOp.readSize));
+            }
             if (theNumRd < 0) {
                 inReadOp.status    = -EIO;
                 inReadOp.statusMsg = QCUtils::SysError(-theNumRd);

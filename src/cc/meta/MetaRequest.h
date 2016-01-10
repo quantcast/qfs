@@ -3841,6 +3841,7 @@ struct MetaReadMetaData : public MetaRequest {
     bool     checkpointFlag;
     int      readSize;
     uint32_t checksum;
+    bool     handledFlag;
     IOBuffer data;
 
     MetaReadMetaData()
@@ -3849,8 +3850,9 @@ struct MetaReadMetaData : public MetaRequest {
           startLogSeq(-1),
           readPos(-1),
           checkpointFlag(false),
-          readSize(0),
+          readSize(-1),
           checksum(0),
+          handledFlag(false),
           data()
         {}
     bool Validate()

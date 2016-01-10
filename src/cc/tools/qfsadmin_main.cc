@@ -83,7 +83,9 @@ using std::istringstream;
                                         " [Host=<chunk server ip>]" \
                                         " [Port=<chunk server port>]" \
     ) \
-    f(UPSERVERS,                        "debug: show connected chunk servers")
+    f(UPSERVERS,                        "debug: show connected chunk servers") \
+    f(READ_META_DATA,                   "retrieve transaction log or" \
+                                        " checkpoint block")
 
     static string
 ToLower(

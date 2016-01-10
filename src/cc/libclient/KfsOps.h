@@ -123,6 +123,7 @@ enum KfsOp_t {
     CMD_META_FORCE_REPLICATION,
     CMD_META_DUMP_CHUNKTOSERVERMAP,
     CMD_META_UPSERVERS,
+    CMD_META_READ_META_DATA,
 
     CMD_NCMDS
 };
@@ -1821,6 +1822,39 @@ struct FsckOp : public KfsMonOp {
         os << "fsck:"
             " report abandoned files: "  << reportAbandonedFilesFlag <<
             " status: "                  << status
+        ;
+        return os;
+    }
+};
+
+struct MetaReadMetaData : public KfsMonOp {
+    int64_t  fileSystemId;
+    kfsSeq_t startLogSeq;
+    int64_t  readPos;
+    bool     checkpointFlag;
+    int      readSize;
+    uint32_t checksum;
+
+    MetaReadMetaData(kfsSeq_t inSeq)
+        : KfsMonOp(CMD_META_READ_META_DATA, inSeq),
+          fileSystemId(-1),
+          startLogSeq(-1),
+          readPos(-1),
+          checkpointFlag(false),
+          readSize(0),
+          checksum(0)
+        {}
+    virtual void Request(ReqOstream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os << "read meta data:"
+            " fs: "         << fileSystemId <<
+            " start: "      << startLogSeq <<
+            " pos: "        << readPos <<
+            " checkpoint: " << checkpointFlag <<
+            " size: "       << readSize <<
+            " crc32: "      << checksum <<
+            " status: "     << status
         ;
         return os;
     }
