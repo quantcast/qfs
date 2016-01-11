@@ -58,7 +58,7 @@ static void usage(char *s)
   fprintf(stderr, "usage: jerasure_07 k m w seed - Scheduled Cauchy Reed-Solomon coding example in GF(2^w).\n");
   fprintf(stderr, "       \n");
   fprintf(stderr, "       k+m must be <= 2^w.  It sets up a Cauchy generator matrix and encodes\n");
-  fprintf(stderr, "       k sets of w*%ld bytes. It uses bit-matrix scheduling, both smart and dumb.\n", sizeof(long));
+  fprintf(stderr, "       k sets of w*%ld bytes. It uses bit-matrix scheduling, both smart and dumb.\n", (long)sizeof(long));
   fprintf(stderr, "       It decodes using bit-matrix scheduling, then shows an example of\n");
   fprintf(stderr, "       using jerasure_do_scheduled_operations().\n");
   fprintf(stderr, "       \n");

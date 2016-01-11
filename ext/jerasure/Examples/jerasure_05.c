@@ -111,7 +111,6 @@ static void print_data_and_coding(int k, int m, int w, int size,
 
 int main(int argc, char **argv)
 {
-  long l;
   int k, m, w, size;
   int i, j;
   int *matrix;
@@ -168,7 +167,6 @@ int main(int argc, char **argv)
   erasures = talloc(int, (m+1));
   erased = talloc(int, (k+m));
   for (i = 0; i < m+k; i++) erased[i] = 0;
-  l = 0;
   for (i = 0; i < m; ) {
     erasures[i] = (MOA_Random_W(w, 1))%(k+m);
     if (erased[erasures[i]] == 0) {

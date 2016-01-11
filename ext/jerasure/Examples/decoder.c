@@ -104,7 +104,7 @@ int main (int argc, char **argv) {
 	char *c_tech;
 	
 	int i, j;				// loop control variable, s
-	int blocksize;			// size of individual files
+	int blocksize = 0;			// size of individual files
 	int origsize;			// size of file before padding
 	int total;				// used to write data, not padding to file
 	struct stat status;		// used to find size of individual files
@@ -139,7 +139,9 @@ int main (int argc, char **argv) {
 		exit(0);
 	}
 	curdir = (char *)malloc(sizeof(char)*100);
-	getcwd(curdir, 100);
+	if (! getcwd(curdir, 100)) {
+            curdir[0] = 0;
+        }
 	
 	/* Begin recreation of file names */
 	cs1 = (char*)malloc(sizeof(char)*strlen(argv[1]));
@@ -300,6 +302,9 @@ int main (int argc, char **argv) {
 					dummy = fread(coding[i-1], sizeof(char), blocksize, fp);
 				}	
 				fclose(fp);
+                                if (dummy < blocksize) {
+                                    fprintf(stderr, "read %d, expected %d\n", dummy, blocksize);
+                                }
 			}
 		}
 		/* Finish allocating data/coding if needed */

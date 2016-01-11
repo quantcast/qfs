@@ -60,7 +60,7 @@ static void usage(char *s)
   fprintf(stderr, "       \n");
   fprintf(stderr, "w must be 8, 16 or 32.  k+m must be <= 2^w.  It sets up a classic\n");
   fprintf(stderr, "Vandermonde-based generator matrix and encodes k devices of\n");
-  fprintf(stderr, "%ld bytes each with it.  Then it decodes.\n", sizeof(long));
+  fprintf(stderr, "%ld bytes each with it.  Then it decodes.\n", (long)sizeof(long));
   fprintf(stderr, "       \n");
   fprintf(stderr, "This demonstrates: jerasure_matrix_encode()\n");
   fprintf(stderr, "                   jerasure_matrix_decode()\n");

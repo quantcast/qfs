@@ -59,7 +59,7 @@ static void usage(char *s)
   fprintf(stderr, "usage: liberation_01 k w seed - Liberation RAID-6 coding/decoding example in GF(2^w).\n");
   fprintf(stderr, "       \n");
   fprintf(stderr, "       w must be prime and k <= w.  It sets up a Liberation bit-matrix\n");
-  fprintf(stderr, "       then it encodes k devices of w*%ld bytes using dumb bit-matrix scheduling.\n", sizeof(long));
+  fprintf(stderr, "       then it encodes k devices of w*%ld bytes using dumb bit-matrix scheduling.\n", (long)sizeof(long));
   fprintf(stderr, "       It decodes using smart bit-matrix scheduling.\n");
   fprintf(stderr, "       \n");
   fprintf(stderr, "This demonstrates: liberation_coding_bitmatrix()\n");
