@@ -36,6 +36,7 @@ from chunks import ChunkThread, ChunkDataManager, HtmlPrintData, HtmlPrintMetaDa
 from chart import ChartData, ChartServerData, ChartHTML
 from browse import QFSBrowser
 import threading
+from collections import OrderedDict
 from get_config import get_config
 
 gJsonSupported = True
@@ -68,6 +69,10 @@ kBrowse=4
 kChunkDirs=5
 cMeta=6
 kConfig=7
+
+ping_status=0
+ping_time=0
+dc_list={}
 
 kHtmlEscapeTable = {
     "&": "&amp;",
@@ -1111,13 +1116,8 @@ def splitServersByRack(status):
         rackId = int(s.split('.')[2])
         updateServerState(status, rackId, s, u)
 
-
-def ping(status, metaserver):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect((metaserver.node, metaserver.port))
-    req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 114\r\n\r\n"
-    sock.send(req)
-    sockIn = sock.makefile('r')
+def parsePing(sockIn):
+    status = Status()
     status.tiersColumnNames = {}
     status.tiersInfo = {}
     for line in sockIn:
@@ -1174,7 +1174,33 @@ def ping(status, metaserver):
     mergeRetiringUpNodes(status)
     status.upServers.sort()
 
-    sock.close()
+    return status
+
+def fillDisconnects():
+    global dc_list
+    if dc_list != {}:
+        dc_list = {}
+    for server in ping_status.downServers:
+        dc_list.setdefault(server.host, []).append(server.down)
+
+def ping(metaserver):
+    global ping_time
+    global ping_status
+
+    if time.time() - ping_time > 30:
+        #print("We are pinging the metaserver now! Time since last update is: %d" % (time.time() - ping_time))
+        ping_time = time.time()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((metaserver.node, metaserver.port))
+        req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 114\r\n\r\n"
+        sock.send(req)
+        sockIn = sock.makefile('r')
+        ping_status = parsePing(sockIn)
+        fillDisconnects()
+        ping_time = time.time()
+        sock.close()
+
+    return ping_status
 
 def splitThousands( s, tSep=',', dSep='.'):
     '''Splits a general float on thousands. GIGO on general input'''
@@ -1581,10 +1607,42 @@ class QFSQueryHandler:
         if not gJsonSupported:
             return (501, 'Server does not support query')
 
-        if queryPath.startswith('/query/chunkservers'):
-            status = Status()
+        if queryPath.startswith('/query/stats/'):
+            status = ping(metaserver)
+            host = queryPath.split('/query/stats/')[1]
+            for server in status.upServers:
+                if server.host == host:
+                    print >> buffer, json.dumps(server, default=lambda o: o.__dict__, sort_keys=True, indent=4)
+            return (200, '')
+        elif queryPath.startswith('/query/dead/count'):
+            status = ping(metaserver)
+            ordered = {}
+            for host in dc_list:
+                ordered[host] = len(dc_list[host])
+            ordered = OrderedDict(sorted(ordered.items(), key=lambda t: t[1], reverse=True))
+            print >> buffer, json.dumps(ordered, indent=4)
+            return (200, '')
+        elif queryPath.startswith('/query/dead/'):
+            status = ping(metaserver)
+            host = queryPath.split('/query/dead/')[1]
+            if host not in dc_list:
+                print >> buffer, json.dumps({host: {'status': "up"}})
+                return (200, '')
+            host_data = {host: {'status': "unknown", 'disconnects': dc_list[host]}}
+            server_array = ['upServers', 'downServers', 'retiringServers', 'evacuatingServers']
+            for type in server_array:
+                if host_data[host]['status'] != "unknown":
+                    break
+                for s in getattr(status, type):
+                    if s.host == host:
+                        host_data[host]['status'] = type.split("Servers")[0]
+                        break
+            host_data[host]['disconnects'] = dc_list[host]
+            print >> buffer, json.dumps(host_data, indent=4)
+            return (200, '')
+        elif queryPath.startswith('/query/chunkservers'):
             try:
-                ping(status, metaserver)
+                status = ping(metaserver)
                 upServers = set()
                 for u in status.upServers:
                     upServers.add(socket.gethostbyname(u.host))
@@ -1814,8 +1872,7 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     self.send_error(404, 'Not found')
                     return
             elif reqType != cMeta and reqType != kConfig:
-                status = Status()
-                ping(status, metaserver)
+                status = ping(metaserver)
                 printStyle(txtStream, 'QFS Status')
 
             refresh = None
