@@ -13,24 +13,40 @@
 #include <stdint.h>
 
 #ifdef INTEL_SSE4
-  #ifdef __SSE4_2__
-    #include <nmmintrin.h>
-  #endif
-  #ifdef __SSE4_1__
-    #include <smmintrin.h>
-  #endif
+#  ifdef __SSE4_2__
+#    include <nmmintrin.h>
+#  endif
+#  ifdef __SSE4_1__
+#    include <smmintrin.h>
+#  endif
 #endif
 
 #ifdef INTEL_SSSE3
-  #include <tmmintrin.h>
+# include <tmmintrin.h>
 #endif
 
 #ifdef INTEL_SSE2
-  #include <emmintrin.h>
+#  include <emmintrin.h>
 #endif
 
 #ifdef INTEL_SSE4_PCLMUL
-  #include <wmmintrin.h>
+#  include <wmmintrin.h>
+
+#  if ! defined(__x86_64__)
+#    if ! defined(_mm_insert_epi64)
+static __inline __m128i _mm_insert_epi64(__m128i a, long long b, int c) {
+  c <<= 1;
+  a = _mm_insert_epi32(a, (unsigned int)b, c);
+  return _mm_insert_epi32(a, (unsigned int)(b >> 32), c + 1);
+}
+#    endif
+#    if ! defined(_mm_extract_epi64)
+static __inline long long  _mm_extract_epi64 (__m128i __X, const int __N)
+{
+  return __builtin_ia32_vec_ext_v2di ((__v2di)__X, __N);
+}
+#    endif
+#  endif
 #endif
 
 

@@ -460,6 +460,7 @@ gf_w32_cfmgk_multiply_region_from_single(gf_t *gf, void *src, void *dest, uint32
   q_plus = *(uint64_t *) h->private;
   g_star = *((uint64_t *) h->private + 1);
 
+  a = _mm_setzero_si128(); /* eliminate uinitialized warning */
   g = _mm_insert_epi64 (a, g_star, 0);
   q = _mm_insert_epi64 (a, q_plus, 0);
   a = _mm_insert_epi32 (_mm_setzero_si128(), val, 0);
@@ -901,6 +902,7 @@ gf_w32_group_s_equals_r_multiply(gf_t *gf, gf_val_32_t a, gf_val_32_t b)
   return p;
 }
 
+#if 0
 static
 inline
 gf_val_32_t
@@ -948,6 +950,7 @@ gf_w32_group_4_4_multiply(gf_t *gf, gf_val_32_t a, gf_val_32_t b)
   p = (d44->shift[ind] ^ d44->reduce[l] ^ (p << 4));
   return p;
 }
+#endif
 
 static
 inline
