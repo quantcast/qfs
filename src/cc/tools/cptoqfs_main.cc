@@ -263,7 +263,7 @@ CpToKfs::Run(int argc, char **argv)
             " [-x] -- delete destination files if exist\n"
             " [-u] -- stripe size\n"
             " [-y] -- data stripes count\n"
-            " [-z] -- recovery stripes count (0 or 3)\n"
+            " [-z] -- recovery stripes count (0 or 3 with file type 2)\n"
             " [-S] -- 6+3 RS 64KB stripes 1 replica\n"
             " [-R] -- op retry count, default -1 -- qfs client default\n"
             " [-D] -- op retry delay, default -1 -- qfs client default\n"
@@ -273,12 +273,13 @@ CpToKfs::Run(int argc, char **argv)
             " [-l] -- max storage tier\n"
             " [-B] -- write from this position\n"
             " [-f] -- configuration file name\n"
-            " [-F] -- file type -- default 0 or 1 if stripe count not 0\n"
+            " [-F] -- file type -- default 1 or 2 if stripe count not 0\n"
         ;
         return(-1);
     }
 
-    if (mStripeSize > 0 || mNumStripes > 0 || mNumRecoveryStripes > 0) {
+    if (KFS_STRIPED_FILE_TYPE_NONE == mStriperType &&
+            (mStripeSize > 0 || mNumStripes > 0 || mNumRecoveryStripes > 0)) {
         mStriperType = KFS_STRIPED_FILE_TYPE_RS;
     }
 
