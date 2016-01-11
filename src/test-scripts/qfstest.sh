@@ -26,6 +26,7 @@
 csrpctrace=${rpctrace-0}
 trdverify=${trdverify-0}
 s3debug=0
+jerasuretest=''
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -47,10 +48,15 @@ while [ $# -ge 1 ]; do
         auth='no'
     elif [ x"$1" = x'-csrpctrace' ]; then
         csrpctrace=1
+    elif [ x"$1" = x'-jerasure' ]; then
+        jerasuretest='yes'
+    elif [ x"$1" = x'-no-jerasure' ]; then
+        jerasuretest='no'
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]"\
-            " [-s3 | -s3debug] [-csrpctrace] [-trdverify]"
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]" \
+            "[-s3 | -s3debug] [-csrpctrace] [-trdverify]" \
+            "[-jerasure | -no-jerasure]"
         exit 1
     fi
     shift
@@ -548,6 +554,14 @@ else
     clientenvcfg=
 fi
 
+if [ x"$jerasuretest" = 'x' ]; then
+    if qfs -ecinfo | grep -w jerasure > /dev/null; then
+        jerasuretest='yes'
+    else
+        jerasuretest='no'
+    fi
+fi
+
 echo "Starting copy test. Test file sizes: $sizes"
 # Run normal test first, then rs test.
 # Enable read ahead and set buffer size to an odd value.
@@ -566,7 +580,13 @@ cppidf="cptest${pidsuf}"
     mv cptest.log cptest-0.log && \
     cptokfsopts='-S -m 2 -l 2 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
-    cptest.sh; \
+    cptest.sh && \
+    [ x"$jerasuretest" = x'no' ] || { \
+        mv cptest.log cptest-rs.log && \
+        cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1' \
+        cpfromkfsopts='-r 0 -w 65537' \
+        cptest.sh ; \
+    }
 } > cptest.out 2>&1 &
 cppid=$!
 echo "$cppid" > "$cppidf"

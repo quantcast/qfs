@@ -326,7 +326,9 @@ int main (int argc, char **argv) {
 
 	/* Get current working directory for construction of file names */
 	curdir = (char*)malloc(sizeof(char)*1000);	
-	getcwd(curdir, 1000);
+	if (! getcwd(curdir, 1000)) {
+            curdir[0] = 0;
+        }
 
         if (argv[1][0] != '-') {
 

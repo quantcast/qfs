@@ -145,9 +145,9 @@ int main(int argc, char **argv)
   printf("<LI> Number of coding disks <i>(m)</i>: %d\n", m);
   printf("<LI> Word size of the Galois Field: <i>(w)</i>: %d\n", w);
   printf("<LI> Seed for the random number generator: %d\n", seed);
-  printf("<LI> Number of bytes stored per disk: %ld\n", sizeof(long)*w);
+  printf("<LI> Number of bytes stored per disk: %ld\n", (long)sizeof(long)*w);
   printf("<LI> Number of packets stored per disk: %d\n", w);
-  printf("<LI> Number of bytes per packet: %ld\n", sizeof(long));
+  printf("<LI> Number of bytes per packet: %ld\n", (long)sizeof(long));
   printf("</UL>\n");
 
   /* Print out the matrix and the bitmatrix */

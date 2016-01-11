@@ -81,6 +81,7 @@ int main(int argc, char **argv)
   char as[50], bs[50], cs[50], ds[50];
   uint32_t mask = 0;
   char *ra, *rb, *rc, *rd, *target;
+  const char* const np = 0;
   int align;
 
 
@@ -124,10 +125,10 @@ int main(int argc, char **argv)
 
   //this still assumes 8 byte aligned pointer from malloc
   //(which is usual on 32-bit machines)
-  ra += (uint64_t)ra & 0xf;
-  rb += (uint64_t)rb & 0xf;
-  rc += (uint64_t)rc & 0xf;
-  rd += (uint64_t)rd & 0xf;
+  ra += (uint64_t)(ra - np) & 0xf;
+  rb += (uint64_t)(rb - np) & 0xf;
+  rc += (uint64_t)(rc - np) & 0xf;
+  rd += (uint64_t)(rd - np) & 0xf;
 
   if (w <= 32) {
     mask = 0;

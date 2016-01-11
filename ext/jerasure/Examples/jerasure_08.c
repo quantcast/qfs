@@ -58,7 +58,7 @@ static void usage(char *s)
   fprintf(stderr, "usage: jerasure_08 k w seed - Example schedule cache usage with RAID-6\n");
   fprintf(stderr, "       \n");
   fprintf(stderr, "       m=2.  k+m must be <= 2^w.  It sets up a RAID-6 generator matrix and encodes\n");
-  fprintf(stderr, "       k sets of w*%ld bytes. It creates a schedule cache for decoding.\n", sizeof(long));
+  fprintf(stderr, "       k sets of w*%ld bytes. It creates a schedule cache for decoding.\n", (long)sizeof(long));
   fprintf(stderr, "       It demonstrates using the schedule cache for both encoding and decoding.\n");
   fprintf(stderr, "       Then it demonstrates using jerasure_do_parity() to re-encode the first.\n");
   fprintf(stderr, "       coding device\n");
