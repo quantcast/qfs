@@ -1000,12 +1000,13 @@ public:
         { return mMaxRequestSize; }
     void ReadPending(
         int64_t inReqBytes,
-        ssize_t inRetCode = 0)
+        ssize_t inRetCode              = 0,
+        bool    inDontUpdateTotalsFlag = false)
     {
         if (inReqBytes == 0) {
             return;
         }
-        if (inReqBytes < 0) {
+        if (inReqBytes < 0 && ! inDontUpdateTotalsFlag) {
             mCounters.mReadCount++;
             if (inRetCode >= 0) {
                 mCounters.mReadByteCount += inRetCode;
@@ -1020,12 +1021,13 @@ public:
     }
     void WritePending(
         int64_t inReqBytes,
-        int64_t inRetCode = 0)
+        int64_t inRetCode              = 0,
+        bool    inDontUpdateTotalsFlag = false)
     {
         if (inReqBytes == 0) {
             return;
         }
-        if (inReqBytes < 0) {
+        if (inReqBytes < 0 && ! inDontUpdateTotalsFlag) {
             mCounters.mWriteCount++;
             if (inRetCode >= 0) {
                 mCounters.mWriteByteCount += inRetCode;
@@ -1999,6 +2001,7 @@ DiskIo::DiskIo(
       mIoRetCode(0),
       mEnqueueTime(),
       mWriteSyncFlag(false),
+      mCachedFlag(false),
       mCompletionRequestId(QCDiskQueue::kRequestIdNone),
       mCompletionCode(QCDiskQueue::kErrorNone),
       mChainedPtr(0)
@@ -2129,6 +2132,7 @@ DiskIo::Read(
             const int kSysErrorCode  = 0;
             mCompletionRequestId = mRequestId;
             mCompletionCode      = QCDiskQueue::kErrorNone;
+            mCachedFlag          = true;
             sDiskIoQueuesPtr->SetInFlight(this);
             Done(
                 mRequestId,
@@ -2456,6 +2460,7 @@ DiskIo::Write(
     mWriteSyncFlag       = inSyncFlag;
     mCompletionRequestId = mRequestId;
     mCompletionCode      = QCDiskQueue::kErrorNone;
+    mCachedFlag          = true;
     sDiskIoQueuesPtr->SetInFlight(this);
     Done(
         mRequestId,
@@ -2679,12 +2684,16 @@ DiskIo::RunCompletion()
         theCode = EVENT_DISK_CHECK_DIR_WRITABLE_DONE;
         sDiskIoQueuesPtr->CheckDirWritableDone(mIoRetCode);
     } else if (mReadLength > 0) {
-        sDiskIoQueuesPtr->ReadPending(-int64_t(mReadLength), mIoRetCode);
+        sDiskIoQueuesPtr->ReadPending(
+            -int64_t(mReadLength), mIoRetCode, mCachedFlag);
         theOpNamePtr = "read";
     } else if (! mIoBuffers.empty()) {
-        sDiskIoQueuesPtr->WritePending(-int64_t(mIoBuffers.size() *
-            sDiskIoQueuesPtr->GetBufferAllocator().GetBufferSize()),
-            mIoRetCode);
+        sDiskIoQueuesPtr->WritePending(
+            -int64_t(mIoBuffers.size() *
+                sDiskIoQueuesPtr->GetBufferAllocator().GetBufferSize()),
+            mIoRetCode,
+            mCachedFlag
+        );
         theOpNamePtr = "write";
         if (mWriteSyncFlag) {
             sDiskIoQueuesPtr->SyncDone(mIoRetCode);
@@ -2749,6 +2758,7 @@ DiskIo::RunCompletion()
             BufIterator   theBufItr(theChainedPtr->mIoBuffers);
             theChainedPtr->mCompletionRequestId = theChainedPtr->mRequestId;
             sDiskIoQueuesPtr->WritePending(theBufferCount * theBufferSize);
+            theChainedPtr->mCachedFlag = true;
             sDiskIoQueuesPtr->SetInFlight(theChainedPtr);
             theChainedPtr->Done(
                 theChainedPtr->mRequestId,

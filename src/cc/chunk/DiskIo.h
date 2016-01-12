@@ -298,6 +298,7 @@ private:
     int64_t                mIoRetCode;
     time_t                 mEnqueueTime;
     bool                   mWriteSyncFlag;
+    bool                   mCachedFlag;
     QCDiskQueue::RequestId mCompletionRequestId;
     QCDiskQueue::Error     mCompletionCode;
     DiskIo*                mChainedPtr;
