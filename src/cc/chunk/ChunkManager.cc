@@ -1306,7 +1306,9 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
     if (! newEntryFlag) {
         return *ci;
     }
-    mUsedSpace += cih->chunkInfo.chunkSize;
+    if (0 <= cih->chunkInfo.chunkVersion) {
+        mUsedSpace += cih->chunkInfo.chunkSize;
+    }
     UpdateDirSpace(cih, cih->chunkInfo.chunkSize);
     if (cih->chunkInfo.chunkVersion < 0 &&
             ! cih->ScheduleObjTableCleanup(mChunkInfoLists)) {
@@ -1411,6 +1413,7 @@ ChunkManager::Remove(ChunkInfoHandle& cih)
         if (mObjTable.Erase(key) <= 0) {
             return false;
         }
+        UpdateDirSpace(&cih, -cih.chunkInfo.chunkSize);
     }
     Delete(cih);
     return true;
@@ -3142,7 +3145,9 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
                 if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
                     const int64_t extra =
                         cih->chunkInfo.chunkSize - dci.chunkSize;
-                    mUsedSpace -= extra;
+                    if (0 <= cih->chunkInfo.chunkVersion) {
+                        mUsedSpace -= extra;
+                    }
                     UpdateDirSpace(cih, -extra);
                     cih->chunkInfo.chunkSize = dci.chunkSize;
                 } else if (cih->chunkInfo.chunkSize != (int64_t)dci.chunkSize) {
@@ -3355,9 +3360,10 @@ ChunkManager::TruncateChunk(kfsChunkId_t chunkId, int64_t chunkSize)
     // Cnunk close will truncate it to the cih->chunkInfo.chunkSize
 
     UpdateDirSpace(cih, -cih->chunkInfo.chunkSize);
-
-    mUsedSpace -= cih->chunkInfo.chunkSize;
-    mUsedSpace += chunkSize;
+    if (0 <= cih->chunkInfo.chunkVersion) {
+        mUsedSpace -= cih->chunkInfo.chunkSize;
+        mUsedSpace += chunkSize;
+    }
     cih->chunkInfo.chunkSize = chunkSize;
 
     UpdateDirSpace(cih, cih->chunkInfo.chunkSize);
@@ -3575,9 +3581,11 @@ ChunkManager::SetChunkSize(ChunkInfo_t& ci, int64_t chunkSize)
     ChunkInfoHandle* const  cih   =
         GetChunkInfoHandle(ci.chunkId, ci.chunkVersion);
     if (cih && 0 <= cih->GetDirInfo().availableSpace) {
-        mUsedSpace += delta;
-        if (mUsedSpace < 0) {
-            mUsedSpace = 0;
+        if (0 <= cih->chunkInfo.chunkVersion) {
+            mUsedSpace += delta;
+            if (mUsedSpace < 0) {
+                mUsedSpace = 0;
+            }
         }
         UpdateDirSpace(cih, delta);
     }
@@ -3981,9 +3989,13 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
                     mChunkTable.Erase(cih->chunkInfo.chunkId) :
                     mObjTable.Erase(make_pair(cih->chunkInfo.chunkId,
                         cih->chunkInfo.chunkVersion))) > 0) {
-                const int64_t size = min(mUsedSpace, cih->chunkInfo.chunkSize);
+                const int64_t size = 0 <= cih->chunkInfo.chunkVersion ?
+                    min(mUsedSpace, cih->chunkInfo.chunkSize) :
+                    cih->chunkInfo.chunkSize;
                 UpdateDirSpace(cih, -size);
-                mUsedSpace -= size;
+                if (0 <= cih->chunkInfo.chunkVersion) {
+                    mUsedSpace -= size;
+                }
             }
             Delete(*cih);
         } else {
@@ -4268,7 +4280,8 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
         return -EINVAL;
     }
     const int64_t addedBytes(op->offset + op->numBytesIO - cih->chunkInfo.chunkSize);
-    if (addedBytes > 0 && mUsedSpace + addedBytes >= mTotalSpace) {
+    if (0 <= cih->chunkInfo.chunkVersion &&
+            0 < addedBytes && mUsedSpace + addedBytes >= mTotalSpace) {
         KFS_LOG_STREAM_ERROR <<
             "out of disk space: " << mUsedSpace << " + " << addedBytes <<
             " = " << (mUsedSpace + addedBytes) << " >= " << mTotalSpace <<
@@ -4418,8 +4431,9 @@ ChunkManager::UpdateChecksums(ChunkInfoHandle *cih, WriteOp *op)
     if (cih->chunkInfo.chunkSize < endOffset) {
 
         UpdateDirSpace(cih, endOffset - cih->chunkInfo.chunkSize);
-
-        mUsedSpace += endOffset - cih->chunkInfo.chunkSize;
+        if (0 <= cih->chunkInfo.chunkVersion) {
+            mUsedSpace += endOffset - cih->chunkInfo.chunkSize;
+        }
         cih->chunkInfo.chunkSize = endOffset;
 
     }
@@ -5563,7 +5577,9 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
         }
         const int64_t size = min(mUsedSpace, cih->chunkInfo.chunkSize);
         UpdateDirSpace(cih, -size);
-        mUsedSpace -= size;
+        if (0 <= cih->chunkInfo.chunkVersion) {
+            mUsedSpace -= size;
+        }
         Delete(*cih);
     }
 }
@@ -5924,7 +5940,7 @@ ChunkManager::StartDiskIo()
     // file system ids issued by the directory checker, in order to detect
     // possible name collisions between host file system directories and object
     // store directories.
-    const int64_t     kMaxSpace = int64_t(1) << 60;
+    const int64_t     kMaxSpace = int64_t(1) << 59;
     DiskIo::DeviceId  objDevId  =
         DiskIo::DeviceId(1) << (sizeof(DiskIo::DeviceId) * 8 - 2);
     for (ChunkDirs::iterator it = mObjDirs.begin();
