@@ -419,6 +419,8 @@ metaServer.helloResumeFailureTraceFileName = helloresumefail.log
 metaServer.log.failureSimulationInterval = 100
 metaServer.log.panicOnIoError = 1
 
+metaServer.dataStore.maxCheckpointsToKeepCount = 120
+
 metaServer.objectStoreEnabled = 1
 metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
