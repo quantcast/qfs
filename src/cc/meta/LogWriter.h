@@ -77,10 +77,10 @@ public:
         fid_t&   outFidSeed,
         int&     outStatus) const;
     void SetCommitted(
-    seq_t   inLogSeq,
-    int64_t inErrChecksum,
-    fid_t   inFidSeed,
-    int     inStatus);
+        seq_t   inLogSeq,
+        int64_t inErrChecksum,
+        fid_t   inFidSeed,
+        int     inStatus);
     seq_t GetCommittedLogSeq() const;
     void ScheduleFlush();
     void ChildAtFork();
