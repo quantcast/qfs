@@ -789,7 +789,11 @@ private:
         }
         mCompletionRunningCount--;
         mPendingCount--;
-        mFilePendingReqCountPtr[inReq.mFileIdx]--;
+        if (--mFilePendingReqCountPtr[inReq.mFileIdx] <= 0 &&
+                mFileInfoPtr[inReq.mFileIdx].mClosedFlag) {
+            ScheduleClose(
+                inReq.mFileIdx, mFileInfoPtr[inReq.mFileIdx].mThreadIdx);
+        }
         Put(inReq);
     }
     void ScheduleClose(
@@ -804,14 +808,13 @@ private:
             );
             mFilePendingReqCountPtr[thePendingCloseTail] =
                 inFileIdx + kPendingCloseListIdxOff;
-            thePendingCloseTail = inFileIdx;
         } else {
             unsigned int& thePendingCloseHead =
                 mPendingCloseHeadPtr[inThreadIdx];
             QCASSERT(thePendingCloseHead == kEndOfPendingCloseList);
-            thePendingCloseTail = inFileIdx;
             thePendingCloseHead = inFileIdx + kPendingCloseListIdxOff;
         }
+        thePendingCloseTail = inFileIdx;
         mFilePendingReqCountPtr[inFileIdx] = kEndOfPendingCloseList;
     }
     Request* GetRequest(
@@ -1371,12 +1374,7 @@ QCDiskQueue::Queue::Run(
         theBarrierFlag = mBarrierFlag;
         if (theReqPtr) {
             QCASSERT(thePendingCloseHead == kEndOfPendingCloseList);
-            const FileIdx theFileIdx = theReqPtr->mFileIdx;
             Process(*theReqPtr, theFdPtr, theIoVecPtr, inThreadIndex);
-            if (mFileInfoPtr[theFileIdx].mClosedFlag &&
-                    mFilePendingReqCountPtr[theFileIdx] <= 0) {
-                ScheduleClose(theFileIdx, theThreadQueueIdx);
-            }
         } else {
             QCASSERT(
                 thePendingCloseHead != kEndOfPendingCloseList &&
