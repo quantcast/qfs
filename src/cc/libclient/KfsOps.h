@@ -1834,6 +1834,7 @@ struct MetaReadMetaData : public KfsMonOp {
     bool     checkpointFlag;
     int      readSize;
     uint32_t checksum;
+    int64_t  fileSize;
 
     MetaReadMetaData(kfsSeq_t inSeq)
         : KfsMonOp(CMD_META_READ_META_DATA, inSeq),
@@ -1842,7 +1843,8 @@ struct MetaReadMetaData : public KfsMonOp {
           readPos(-1),
           checkpointFlag(false),
           readSize(0),
-          checksum(0)
+          checksum(0),
+          fileSize(-1)
         {}
     virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);

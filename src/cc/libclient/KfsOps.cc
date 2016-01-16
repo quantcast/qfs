@@ -1931,6 +1931,8 @@ MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ? "K" :  "Crc32",     (uint32_t)0);
     fileSystemId = prop.getValue(
         shortRpcFormatFlag ? "FI" : "FsId",      (int64_t)-1);
+    fileSize     = prop.getValue(
+        shortRpcFormatFlag ?  "S" : "Size",      (int64_t)-1);
 }
 
 void

@@ -116,6 +116,7 @@ private:
             : mLogSeq(inLogSeq),
               mLogEndSeq(inLogEndSeq),
               mFileName(inFileNamePtr ? inFileNamePtr : ""),
+              mFileSize(-1),
               mThreadIdx(inThreadIdx),
               mFd(-1),
               mUseCount(0),
@@ -161,14 +162,15 @@ private:
         }
         bool IsInUse() const
             { return (0 <= mFd || 0 < mUseCount); }
-        seq_t  mLogSeq;
-        seq_t  mLogEndSeq;
-        string mFileName;
-        int    mThreadIdx;
-        int    mFd;
-        int    mUseCount;
-        time_t mAccessTime;
-        bool   mPendingDeleteFlag;
+        seq_t   mLogSeq;
+        seq_t   mLogEndSeq;
+        string  mFileName;
+        int64_t mFileSize;
+        int     mThreadIdx;
+        int     mFd;
+        int     mUseCount;
+        time_t  mAccessTime;
+        bool    mPendingDeleteFlag;
     private:
         Entry* mPrevPtr[1];
         Entry* mNextPtr[1];
@@ -662,7 +664,8 @@ private:
     void Read(
         EntryT&           inLru,
         TableT&           inTable,
-        MetaReadMetaData& inReadOp)
+        MetaReadMetaData& inReadOp,
+        bool              inSetSizeFlag)
     {
         QCRTASSERT(0 <= inReadOp.readPos && 0 <= inReadOp.status);
         typename TableT::iterator const theIt =
@@ -679,6 +682,19 @@ private:
         QCStMutexUnlocker theUnlock(mMutex);
         if (theEntry.mFd < 0) {
             theEntry.mFd = open(theEntry.mFileName.c_str(), O_RDONLY);
+            if (theEntry.mFileSize < 0 && 0 <= theEntry.mFd &&
+                    (inSetSizeFlag || 0 <= theEntry.mLogEndSeq)) {
+                const off_t theSize = lseek(theEntry.mFd, 0, SEEK_END);
+                if (theSize < 0) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "lseek: " << theEntry.mFileName << ": " <<
+                        QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                } else {
+                    theEntry.mFileSize = theSize;
+                }
+            }
         }
         if (theEntry.mFd < 0) {
             const int theErr = errno;
@@ -706,6 +722,7 @@ private:
             } else {
                 inReadOp.checksum = ComputeCrc32(
                     &inReadOp.data, inReadOp.data.BytesConsumable());
+                inReadOp.fileSize = theEntry.mFileSize;
                 KFS_LOG_STREAM_DEBUG <<
                     "read: "      << inReadOp.Show() <<
                     " size: "     << inReadOp.data.BytesConsumable()  <<
@@ -722,9 +739,11 @@ private:
         MetaReadMetaData& inReadOp)
     {
         if (inReadOp.checkpointFlag) {
-            Read(mCheckpointsLru, mCheckpoints, inReadOp);
+            const bool kSetSizeFlag = true;
+            Read(mCheckpointsLru, mCheckpoints, inReadOp, kSetSizeFlag);
         } else {
-            Read(mLogSegmentsLru, mLogSegments, inReadOp);
+            const bool kSetSizeFlag = false;
+            Read(mLogSegmentsLru, mLogSegments, inReadOp, kSetSizeFlag);
         }
     }
     template<typename EntryT, typename TableT> static

@@ -5810,9 +5810,11 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
     (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
         data.BytesConsumable() << "\r\n" <<
     (shortRpcFormatFlag ? "L:" : "Start-log: ") << startLogSeq << "\r\n" <<
-    (shortRpcFormatFlag ? "K:" : "Crc32: ")     << checksum << "\r\n"
-    "\r\n"
-    ;
+    (shortRpcFormatFlag ? "K:" : "Crc32: ")     << checksum    << "\r\n";
+    if (0 <= fileSize) {
+        os << (shortRpcFormatFlag ? "S:" : "Size: ") << fileSize << "\r\n";
+    }
+    os << "\r\n";
     os.flush();
     buf.Move(&data);
 }
