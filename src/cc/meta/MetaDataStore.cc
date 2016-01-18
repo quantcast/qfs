@@ -706,7 +706,10 @@ private:
             inReadOp.statusMsg = "failed to open file";
         } else {
             int theNumRd;
-            if (lseek(theEntry.mFd, inReadOp.readPos, SEEK_SET) !=
+            if (0 <= theEntry.mFileSize &&
+                    theEntry.mFileSize < inReadOp.readPos) {
+                theNumRd = 0;
+            } else if (lseek(theEntry.mFd, inReadOp.readPos, SEEK_SET) !=
                     inReadOp.readPos) {
                 theNumRd = -errno;
             } else {

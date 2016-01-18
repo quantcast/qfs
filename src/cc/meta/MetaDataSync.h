@@ -28,6 +28,8 @@
 #ifndef KFS_META_DATA_SYNC_H
 #define KFS_META_DATA_SYNC_H
 
+#include "common/kfstypes.h"
+
 namespace KFS
 {
 
@@ -47,6 +49,7 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters);
     int Start(
+        int64_t        inFileSystemId,
         MetaDataStore& inMetaDataStore);
     void Shutdown();
 private:
