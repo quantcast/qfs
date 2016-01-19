@@ -28,6 +28,8 @@
 #include "MetaDataSync.h"
 #include "util.h"
 
+#include "qcdio/qcdebug.h"
+
 #include "common/MsgLogger.h"
 
 #include "kfsio/NetManager.h"
@@ -73,16 +75,19 @@ public:
         : OpOwner(),
           ITimeout(),
           mKfsNetClient(inNetManager),
+          mServers(),
           mAuthContext(),
           mReadOpsPtr(0),
           mFreeList(),
           mFileSystemId(-1),
-          mMaxReadSize(64 << 10),
           mReadOpsCount(16),
+          mMaxReadSize(64 << 10),
           mMaxRetryCount(10),
           mRetryCount(-1),
           mRetryTimeout(3),
+          mCurMaxReadSize(-1),
           mFd(-1),
+          mServerIdx(0),
           mPos(-1),
           mFileSize(-1),
           mLogSeq(-1),
@@ -104,7 +109,7 @@ public:
             mMaxReadSize));
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
         if (! mReadOpsPtr) {
-            mReadOpsCount = max(1, inParameters.getValue(
+            mReadOpsCount = max(size_t(1), inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxReadSize"),
             mReadOpsCount));
         }
@@ -129,7 +134,7 @@ public:
         mFreeList.clear();
         mFreeList.reserve(mReadOpsCount);
         mReadOpsPtr = new ReadOp[mReadOpsCount];
-        for (int i = 0; i < mReadOpsCount; i++) {
+        for (size_t i = 0; i < mReadOpsCount; i++) {
             mFreeList.push_back(mReadOpsPtr + i);
         }
         return 0;
@@ -166,6 +171,12 @@ public:
         if (0 <= theOp.status && theOp.mPos != theOp.readPos) {
             theOp.status    = -EINVAL;
             theOp.statusMsg = "invalid read position";
+        } else if (theOp.startLogSeq < 0) {
+            theOp.status    = -EINVAL;
+            theOp.statusMsg = "invalid log sequence";
+        } else if (theOp.fileSystemId < 0) {
+            theOp.status    = -EINVAL;
+            theOp.statusMsg = "invalid file system id";
         }
         if (theOp.status < 0) {
             HandleError(theOp);
@@ -185,22 +196,55 @@ public:
     {
     }
 private:
+    typedef vector<ServerLocation> Servers;
+
     KfsNetClient      mKfsNetClient;
+    Servers           mServers;
     ClientAuthContext mAuthContext;
     ReadOp*           mReadOpsPtr;
     FreeList          mFreeList;
     int64_t           mFileSystemId;
+    size_t            mReadOpsCount;
     int               mMaxReadSize;
-    int               mReadOpsCount;
     int               mMaxRetryCount;
     int               mRetryCount;
     int               mRetryTimeout;
+    int               mCurMaxReadSize;
     int               mFd;
+    size_t            mServerIdx;
     int64_t           mPos;
+    int64_t           mNextReadPos;
     int64_t           mFileSize;
     seq_t             mLogSeq;
     bool              mCheckpontFlag;
 
+    int GetCheckpoint()
+    {
+        if (! mReadOpsPtr || mServers.empty()) {
+            return -EINVAL;
+        }
+        if (0 <= mFd) {
+            close(mFd);
+            mFd = -1;
+        }
+        if (mServers.size() < ++mServerIdx) {
+            mServerIdx = 0;
+        }
+        mKfsNetClient.Stop();
+        QCASSERT(mFreeList.size() == mReadOpsCount);
+        mKfsNetClient.SetServer(mServers[mServerIdx]);
+        mLogSeq         = -1;
+        mCheckpontFlag  = true;
+        mNextReadPos    = 0;
+        mPos            = 0;
+        mFileSize       = -1;
+        mCurMaxReadSize = -1;
+        if (! StartRead(mMaxReadSize)) {
+            panic("failed to iniate checkpoint download");
+            return -EFAULT;
+        }
+        return 0;
+    }
     ReadOp* GetOp()
     {
         if (mFreeList.empty()) {
@@ -211,10 +255,7 @@ private:
         return theRetPtr;
     }
     bool StartRead(
-        seq_t   inStartSeq,
-        int64_t inStartPos,
-        bool    inCheckpointFlag,
-        int     inMaxReadSize)
+        int inMaxReadSize)
     {
         ReadOp* const theOpPtr = GetOp();
         if (! theOpPtr) {
@@ -222,12 +263,13 @@ private:
         }
         ReadOp& theOp = *theOpPtr;
         theOp.fileSystemId   = mFileSystemId;
-        theOp.startLogSeq    = inStartSeq;
-        theOp.readPos        = inStartPos;
-        theOp.checkpointFlag = inCheckpointFlag;
+        theOp.startLogSeq    = mLogSeq;
+        theOp.readPos        = mNextReadPos;
+        theOp.checkpointFlag = mCheckpontFlag;
         theOp.readSize       = inMaxReadSize;
         theOp.mInFlightFlag  = true;
-        theOp.mPos           = inStartPos;
+        theOp.mPos           = mNextReadPos;
+        theOp.fileSize       = -1;
         theOp.status         = 0;
         theOp.statusMsg.clear();
         theOp.mBuffer.Clear();
@@ -242,6 +284,61 @@ private:
     {
         if (inOp.mPos != mPos) {
             return;
+        }
+        if (mLogSeq < 0) {
+            QCASSERT(mFreeList.size() == mReadOpsCount - 1 &&
+                inOp.mPos == mPos && 0 == mPos);
+            if (mFileSystemId < 0) {
+                mFileSystemId = inOp.fileSystemId;
+            } else if (mFileSystemId != inOp.fileSystemId) {
+                KFS_LOG_STREAM_ERROR <<
+                    "file system id mismatch:"
+                    " expect: "   << mFileSystemId <<
+                    " received: " << inOp.fileSystemId <<
+                KFS_LOG_EOM;
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "file system id mismatch";
+                HandleError(inOp);
+                return;
+            }
+            mLogSeq         = inOp.startLogSeq;
+            mCurMaxReadSize = inOp.mBuffer.BytesConsumable();
+            mNextReadPos    = mCurMaxReadSize;
+        } else if (mLogSeq != inOp.startLogSeq) {
+            KFS_LOG_STREAM_ERROR <<
+                "start log sequence has chnaged:"
+                " from: " << mLogSeq <<
+                " to: "   << inOp.startLogSeq <<
+            KFS_LOG_EOM;
+            inOp.status    = -EINVAL;
+            inOp.statusMsg = "invalid file size";
+            HandleError(inOp);
+            return;
+        }
+        if (0 < inOp.fileSize) {
+            if (mFileSize < 0) {
+                mFileSize = inOp.fileSize;
+            } else if (inOp.fileSize != mFileSize) {
+                KFS_LOG_STREAM_ERROR <<
+                    "file size has chnaged:"
+                    " from: " << mFileSize <<
+                    " to: "   << inOp.fileSize <<
+                KFS_LOG_EOM;
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "invalid file size";
+                HandleError(inOp);
+                return;
+            }
+        }
+        if (inOp.mBuffer.BytesConsumable() != mCurMaxReadSize) {
+            if (mFileSize < 0) {
+                mFileSize = inOp.mPos + inOp.mBuffer.BytesConsumable();
+            }
+            if (mFileSize != inOp.mPos + inOp.mBuffer.BytesConsumable()) {
+            }
+        }
+        if (inOp.mPos == mPos) {
+
         }
     }
     void HandleError(
