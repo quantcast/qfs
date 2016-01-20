@@ -31,6 +31,7 @@
 #include "qcdio/qcdebug.h"
 
 #include "common/MsgLogger.h"
+#include "common/SingleLinkedQueue.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ClientAuthContext.h"
@@ -47,7 +48,6 @@
 namespace KFS
 {
 using std::max;
-using std::vector;
 
 using client::KfsNetClient;
 using client::KfsOp;
@@ -62,13 +62,32 @@ private:
             : client::MetaReadMetaData(-1),
               mPos(-1),
               mInFlightFlag(false),
-              mBuffer()
+              mBuffer(),
+              mNextPtr(0)
             {}
+        bool operator<(
+            const ReadOp& inRhs)
+            { return (mPos < inRhs.mPos); }
         int64_t  mPos;
         bool     mInFlightFlag;
         IOBuffer mBuffer;
+        class GetNext
+        {
+        public:
+            static ReadOp*& Next(
+                ReadOp& inOp)
+                { return inOp.mNextPtr; }
+        };
+        friend class GetNext;
+    private:
+        ReadOp* mNextPtr;
+    private:
+        ReadOp(
+            const ReadOp& inReadOp);
+        ReadOp& operator=(
+            const ReadOp& inReadOp);
     };
-    typedef vector<ReadOp*> FreeList;
+    typedef SingleLinkedQueue<ReadOp, ReadOp::GetNext> ReadQueue;
 public:
     Impl(
         NetManager& inNetManager)
@@ -79,6 +98,7 @@ public:
           mAuthContext(),
           mReadOpsPtr(0),
           mFreeList(),
+          mPendingList(),
           mFileSystemId(-1),
           mReadOpsCount(16),
           mMaxReadSize(64 << 10),
@@ -131,17 +151,15 @@ public:
         if (mReadOpsPtr) {
             return -EINVAL;
         }
-        mFreeList.clear();
-        mFreeList.reserve(mReadOpsCount);
         mReadOpsPtr = new ReadOp[mReadOpsCount];
         for (size_t i = 0; i < mReadOpsCount; i++) {
-            mFreeList.push_back(mReadOpsPtr + i);
+            mFreeList.PutFront(mReadOpsPtr[i]);
         }
         return 0;
     }
     void Shutdown()
     {
-        mKfsNetClient.Stop();
+        Reset();
         delete [] mReadOpsPtr;
         mReadOpsPtr = 0;
     }
@@ -165,7 +183,7 @@ public:
         theOp.mInFlightFlag = false;
         if (inCanceledFlag) {
             theOp.mBuffer.Clear();
-            mFreeList.push_back(&theOp);
+            mFreeList.PutFront(theOp);
             return;
         }
         if (0 <= theOp.status && theOp.mPos != theOp.readPos) {
@@ -202,7 +220,8 @@ private:
     Servers           mServers;
     ClientAuthContext mAuthContext;
     ReadOp*           mReadOpsPtr;
-    FreeList          mFreeList;
+    ReadQueue         mFreeList;
+    ReadQueue         mPendingList;
     int64_t           mFileSystemId;
     size_t            mReadOpsCount;
     int               mMaxReadSize;
@@ -231,7 +250,7 @@ private:
             mServerIdx = 0;
         }
         mKfsNetClient.Stop();
-        QCASSERT(mFreeList.size() == mReadOpsCount);
+        QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mLogSeq         = -1;
         mCheckpontFlag  = true;
@@ -240,24 +259,15 @@ private:
         mFileSize       = -1;
         mCurMaxReadSize = -1;
         if (! StartRead(mMaxReadSize)) {
-            panic("failed to iniate checkpoint download");
+            panic("metad data sync: failed to iniate checkpoint download");
             return -EFAULT;
         }
         return 0;
     }
-    ReadOp* GetOp()
-    {
-        if (mFreeList.empty()) {
-            return 0;
-        }
-        ReadOp* const theRetPtr = mFreeList.back();
-        mFreeList.pop_back();
-        return theRetPtr;
-    }
     bool StartRead(
         int inMaxReadSize)
     {
-        ReadOp* const theOpPtr = GetOp();
+        ReadOp* const theOpPtr = mFreeList.PopFront();
         if (! theOpPtr) {
             return false;
         }
@@ -273,8 +283,9 @@ private:
         theOp.status         = 0;
         theOp.statusMsg.clear();
         theOp.mBuffer.Clear();
+        mPendingList.PushBack(theOp);
         if (! mKfsNetClient.Enqueue(&theOp, this, &theOp.mBuffer)) {
-            panic("read op enqueue failure");
+            panic("metad data sync: read op enqueue failure");
             return false;
         }
         return true;
@@ -286,7 +297,8 @@ private:
             return;
         }
         if (mLogSeq < 0) {
-            QCASSERT(mFreeList.size() == mReadOpsCount - 1 &&
+            QCASSERT(mPendingList.Front() == &inOp &&
+                mPendingList.Back() == &inOp &&
                 inOp.mPos == mPos && 0 == mPos);
             if (mFileSystemId < 0) {
                 mFileSystemId = inOp.fileSystemId;
@@ -304,6 +316,10 @@ private:
             mLogSeq         = inOp.startLogSeq;
             mCurMaxReadSize = inOp.mBuffer.BytesConsumable();
             mNextReadPos    = mCurMaxReadSize;
+            inOp.readSize   = mCurMaxReadSize;
+            if (0 <= inOp.fileSize) {
+                mFileSize = inOp.fileSize;
+            }
         } else if (mLogSeq != inOp.startLogSeq) {
             KFS_LOG_STREAM_ERROR <<
                 "start log sequence has chnaged:"
@@ -315,10 +331,8 @@ private:
             HandleError(inOp);
             return;
         }
-        if (0 < inOp.fileSize) {
-            if (mFileSize < 0) {
-                mFileSize = inOp.fileSize;
-            } else if (inOp.fileSize != mFileSize) {
+        if (0 < mFileSize) {
+            if (inOp.fileSize != mFileSize) {
                 KFS_LOG_STREAM_ERROR <<
                     "file size has chnaged:"
                     " from: " << mFileSize <<
@@ -329,17 +343,43 @@ private:
                 HandleError(inOp);
                 return;
             }
-        }
-        if (inOp.mBuffer.BytesConsumable() != mCurMaxReadSize) {
-            if (mFileSize < 0) {
-                mFileSize = inOp.mPos + inOp.mBuffer.BytesConsumable();
+            if (inOp.readSize != inOp.mBuffer.BytesConsumable()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "short read:"
+                    " pos: "      << inOp.mPos <<
+                    " expected: " << inOp.readSize <<
+                    " received: " << inOp.mBuffer.BytesConsumable() <<
+                    " max read: " << mCurMaxReadSize <<
+                    " eof: "      << mFileSize <<
+                KFS_LOG_EOM;
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "short read";
+                HandleError(inOp);
+                return;
             }
-            if (mFileSize != inOp.mPos + inOp.mBuffer.BytesConsumable()) {
+        }
+        ReadOp* theOpPtr = mPendingList.Front();
+        if (! theOpPtr) {
+            panic("metad data sync: invalid empty pending list");
+            return;
+        }
+        if (theOpPtr->mInFlightFlag) {
+            return;
+        }
+        do {
+            if (0 <= mFd) {
+                mPos += theOpPtr->mBuffer.BytesConsumable();
+                const int theNWr = theOpPtr->mBuffer.Write(mFd);
+                if (theNWr < 0) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "write failure:" <<
+                        QCUtils::SysError((int)-theNWr) <<
+                    KFS_LOG_EOM;
+                }
             }
-        }
-        if (inOp.mPos == mPos) {
-
-        }
+        } while (
+            (theOpPtr = mPendingList.Front()) &&
+            ! theOpPtr->mInFlightFlag);
     }
     void HandleError(
         ReadOp& inReadOp)
@@ -354,6 +394,16 @@ private:
         KFS_LOG_EOM;
         if (++mRetryCount < mMaxRetryCount) {
         }
+    }
+    void Reset()
+    {
+        if (0 < mFd) {
+            close(mFd);
+            mFd = -1;
+        }
+        while (mPendingList.PopFront())
+            {}
+        mKfsNetClient.Stop();
     }
 private:
     Impl(
