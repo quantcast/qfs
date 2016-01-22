@@ -36,6 +36,7 @@ namespace KFS
 
 class Properties;
 class NetManager;
+class IOBuffer;
 struct MetaLogWriterControl;
 
 class LogReceiver
@@ -70,6 +71,11 @@ public:
         Replayer&   inReplayer,
         seq_t       inCommittedLogSeq);
     void Shutdown();
+    static int ParseBlockLines(
+        const IOBuffer&       inBuffer,
+        int                   inLength,
+        MetaLogWriterControl& inOp,
+        int                   inLastSym);
 private:
     class Impl;
 

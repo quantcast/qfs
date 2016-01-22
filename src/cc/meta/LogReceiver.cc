@@ -1124,59 +1124,20 @@ private:
                 mBlockStartSeq, mBlockEndSeq) : 0;
         if (theOpPtr) {
             MetaLogWriterControl& theOp = *theOpPtr;
-            Lines& theLines = theOp.blockLines;
-            theLines.Clear();
-            int  theRem        = mBlockLength;
-            bool theAppendFlag = false;
-            int  theLastSym    = 0;
-            for (IOBuffer::iterator theIt = inBuffer.begin();
-                    0 < theRem && theIt != inBuffer.end();
-                    ++theIt) {
-                const char* const theStartPtr = theIt->Consumer();
-                const char* const theEndPtr   =
-                    min(theIt->Producer(), theStartPtr + theRem);
-                if (theEndPtr <= theStartPtr) {
-                    continue;
-                }
-                theRem -= theEndPtr - theStartPtr;
-                const char* thePtr  = theStartPtr;
-                const char* theNPtr;
-                while (thePtr < theEndPtr &&
-                        (theNPtr = reinterpret_cast<const char*>(
-                            memchr(thePtr, '\n', theEndPtr - thePtr)))) {
-                    ++theNPtr;
-                    const int theLen = (int)(theNPtr - thePtr);
-                    if (theAppendFlag) {
-                        theAppendFlag = false;
-                        theLines.Back() += theLen;
-                    } else {
-                        theLines.Append(theLen);
-                    }
-                    thePtr = theNPtr;
-                }
-                if (thePtr < theEndPtr) {
-                    const int theLen = (int)(theEndPtr - thePtr);
-                    if (theAppendFlag) {
-                        theLines.Back() += theLen;
-                    } else {
-                        theLines.Append(theLen);
-                    }
-                    theAppendFlag = true;
-                    theLastSym = theEndPtr[-1] & 0xFF;
-                }
-            }
-            if (theRem != 0) {
+            const int theRem = LogReceiver::ParseBlockLines(
+                inBuffer, mBlockLength, theOp, '/');
+            if (0 < theRem) {
                 panic("LogReceiver::Impl::Connection::ProcessBlock:"
                     " internal error");
                 mImpl.Release(theOp);
                 return -1;
             }
-            if (! theAppendFlag || theLastSym != '/') {
+            if (theRem < 0) {
                 const char* theMsgPtr =
                     "invalid log block format: no trailing /";
                 KFS_LOG_STREAM_ERROR <<
                     theMsgPtr <<
-                    " lines: " << theLines.GetSize() <<
+                    " lines: " << theOp.blockLines.GetSize() <<
                 KFS_LOG_EOM;
                 mImpl.Release(theOp);
                 Error(theMsgPtr);
@@ -1351,6 +1312,57 @@ LogReceiver::Shutdown()
 LogReceiver::Dispatch()
 {
     return mImpl.Dispatch();
+}
+
+    int
+LogReceiver::ParseBlockLines(
+    const IOBuffer&       inBuffer,
+    int                   inLength,
+    MetaLogWriterControl& inOp,
+    int                   inLastSym)
+{
+    MetaLogWriterControl::Lines& theLines = inOp.blockLines;
+    theLines.Clear();
+    int  theRem        = inLength;
+    bool theAppendFlag = false;
+    int  theLastSym    = 0;
+    for (IOBuffer::iterator theIt = inBuffer.begin();
+            0 < theRem && theIt != inBuffer.end();
+            ++theIt) {
+        const char* const theStartPtr = theIt->Consumer();
+        const char* const theEndPtr   =
+            min(theIt->Producer(), theStartPtr + theRem);
+        if (theEndPtr <= theStartPtr) {
+            continue;
+        }
+        theRem -= theEndPtr - theStartPtr;
+        const char* thePtr  = theStartPtr;
+        const char* theNPtr;
+        while (thePtr < theEndPtr &&
+                (theNPtr = reinterpret_cast<const char*>(
+                    memchr(thePtr, '\n', theEndPtr - thePtr)))) {
+            ++theNPtr;
+            const int theLen = (int)(theNPtr - thePtr);
+            if (theAppendFlag) {
+                theAppendFlag = false;
+                theLines.Back() += theLen;
+            } else {
+                theLines.Append(theLen);
+            }
+            thePtr = theNPtr;
+        }
+        if (thePtr < theEndPtr) {
+            const int theLen = (int)(theEndPtr - thePtr);
+            if (theAppendFlag) {
+                theLines.Back() += theLen;
+            } else {
+                theLines.Append(theLen);
+            }
+            theAppendFlag = true;
+            theLastSym = theEndPtr[-1] & 0xFF;
+        }
+    }
+    return ((theAppendFlag && theLastSym != inLastSym) ? theRem : -EINVAL);
 }
 
 } // namespace KFS

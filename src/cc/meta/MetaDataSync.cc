@@ -26,6 +26,8 @@
 //----------------------------------------------------------------------------
 
 #include "MetaDataSync.h"
+#include "MetaRequest.h"
+#include "LogReceiver.h"
 #include "util.h"
 
 #include "qcdio/qcdebug.h"
@@ -44,6 +46,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <string>
 
 namespace KFS
 {
@@ -95,12 +98,14 @@ public:
           ITimeout(),
           mKfsNetClient(inNetManager),
           mServers(),
+          mFileName(),
           mAuthContext(),
           mReadOpsPtr(0),
           mFreeList(),
           mPendingList(),
           mFileSystemId(-1),
           mReadOpsCount(16),
+          mMaxLogBlockSize(64 << 10),
           mMaxReadSize(64 << 10),
           mMaxRetryCount(10),
           mRetryCount(-1),
@@ -111,7 +116,8 @@ public:
           mPos(-1),
           mFileSize(-1),
           mLogSeq(-1),
-          mCheckpontFlag(false)
+          mCheckpointFlag(false),
+          mLogBuffer()
     {
         mKfsNetClient.SetAuthContext(&mAuthContext);
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
@@ -128,6 +134,9 @@ public:
             theName.Truncate(thePrefLen).Append("maxReadSize"),
             mMaxReadSize));
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
+        mMaxLogBlockSize = max(4 << 10, inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("maxLogBlockSize"),
+            mMaxLogBlockSize));
         if (! mReadOpsPtr) {
             mReadOpsCount = max(size_t(1), inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxReadSize"),
@@ -218,12 +227,14 @@ private:
 
     KfsNetClient      mKfsNetClient;
     Servers           mServers;
+    string            mFileName;
     ClientAuthContext mAuthContext;
     ReadOp*           mReadOpsPtr;
     ReadQueue         mFreeList;
     ReadQueue         mPendingList;
     int64_t           mFileSystemId;
     size_t            mReadOpsCount;
+    int               mMaxLogBlockSize;
     int               mMaxReadSize;
     int               mMaxRetryCount;
     int               mRetryCount;
@@ -235,7 +246,8 @@ private:
     int64_t           mNextReadPos;
     int64_t           mFileSize;
     seq_t             mLogSeq;
-    bool              mCheckpontFlag;
+    bool              mCheckpointFlag;
+    IOBuffer          mLogBuffer;
 
     int GetCheckpoint()
     {
@@ -253,19 +265,18 @@ private:
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mLogSeq         = -1;
-        mCheckpontFlag  = true;
+        mCheckpointFlag = true;
         mNextReadPos    = 0;
         mPos            = 0;
         mFileSize       = -1;
-        mCurMaxReadSize = -1;
-        if (! StartRead(mMaxReadSize)) {
+        mCurMaxReadSize = mMaxReadSize;
+        if (! StartRead()) {
             panic("metad data sync: failed to iniate checkpoint download");
             return -EFAULT;
         }
         return 0;
     }
-    bool StartRead(
-        int inMaxReadSize)
+    bool StartRead()
     {
         ReadOp* const theOpPtr = mFreeList.PopFront();
         if (! theOpPtr) {
@@ -275,8 +286,10 @@ private:
         theOp.fileSystemId   = mFileSystemId;
         theOp.startLogSeq    = mLogSeq;
         theOp.readPos        = mNextReadPos;
-        theOp.checkpointFlag = mCheckpontFlag;
-        theOp.readSize       = inMaxReadSize;
+        theOp.checkpointFlag = mCheckpointFlag;
+        theOp.readSize       = 0 <= mFileSize ?
+            (int)min(mFileSize - mNextReadPos, int64_t(mCurMaxReadSize)) :
+            mCurMaxReadSize;
         theOp.mInFlightFlag  = true;
         theOp.mPos           = mNextReadPos;
         theOp.fileSize       = -1;
@@ -366,20 +379,45 @@ private:
         if (theOpPtr->mInFlightFlag) {
             return;
         }
+        const int theRdSize = theOpPtr->mBuffer.BytesConsumable();
         do {
             if (0 <= mFd) {
-                mPos += theOpPtr->mBuffer.BytesConsumable();
-                const int theNWr = theOpPtr->mBuffer.Write(mFd);
-                if (theNWr < 0) {
-                    KFS_LOG_STREAM_ERROR <<
-                        "write failure:" <<
-                        QCUtils::SysError((int)-theNWr) <<
-                    KFS_LOG_EOM;
+                IOBuffer& theBuffer = theOpPtr->mBuffer;
+                mPos += theBuffer.BytesConsumable();
+                while (! theBuffer.IsEmpty()) {
+                    const int theNWr = theBuffer.Write(mFd);
+                    if (theNWr < 0) {
+                        KFS_LOG_STREAM_ERROR <<
+                            mFileName << ": write failure:" <<
+                            QCUtils::SysError((int)-theNWr) <<
+                        KFS_LOG_EOM;
+                        HandleError();
+                        return;
+                    }
+                    theBuffer.Consume(theNWr);
+                }
+            } else {
+                if (theOpPtr->checkpointFlag || mCheckpointFlag) {
+                    panic("metad data sync: attempt to replay checkpoint");
+                } else {
+                    SubmitLogBlock(theOpPtr->mBuffer);
                 }
             }
+            theOpPtr->mBuffer.Clear();
+            mPendingList.PopFront();
+            mFreeList.PutFront(*theOpPtr);
         } while (
             (theOpPtr = mPendingList.Front()) &&
             ! theOpPtr->mInFlightFlag);
+        if (mFileSize < 0) {
+            if (StartRead()) {
+                mNextReadPos += theRdSize;
+            }
+        } else {
+            while (mNextReadPos < mFileSize && StartRead()) {
+                mNextReadPos += mCurMaxReadSize;
+            }
+        }
     }
     void HandleError(
         ReadOp& inReadOp)
@@ -392,8 +430,13 @@ private:
             " op: "    << inReadOp.mPos <<
             " "        << inReadOp.Show() <<
         KFS_LOG_EOM;
+        HandleError();
+    }
+    void HandleError()
+    {
         if (++mRetryCount < mMaxRetryCount) {
         }
+        Reset();
     }
     void Reset()
     {
@@ -404,6 +447,42 @@ private:
         while (mPendingList.PopFront())
             {}
         mKfsNetClient.Stop();
+    }
+    void SubmitLogBlock(
+        IOBuffer& inBuffer)
+    {
+        mLogBuffer.Move(&inBuffer);
+        for (; ;) {
+            int thePos = mLogBuffer.IndexOf(0, "\nc/");
+            if (thePos < 0) {
+                break;
+            }
+            thePos++;
+            const int theEndPos = mLogBuffer.IndexOf(thePos, "\n");
+            if (theEndPos < 0) {
+                break;
+            }
+            MetaLogWriterControl* const theOpPtr =
+                new MetaLogWriterControl(MetaLogWriterControl::kWriteBlock);
+            const int theRem = LogReceiver::ParseBlockLines(
+                mLogBuffer, theEndPos + 1, *theOpPtr, '\n');
+            if (0 != theRem) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid log block received:" <<
+                    IOBuffer::DisplayData(mLogBuffer, 512) <<
+                KFS_LOG_EOM;
+                HandleError();
+                return;
+            }
+        }
+        if (mMaxLogBlockSize < mLogBuffer.BytesConsumable()) {
+            KFS_LOG_STREAM_ERROR <<
+                "log block size: " << mLogBuffer.BytesConsumable() <<
+                " exceeds: "       << mMaxLogBlockSize <<
+                " data: "          << IOBuffer::DisplayData(mLogBuffer, 256) <<
+            KFS_LOG_EOM;
+            HandleError();
+        }
     }
 private:
     Impl(
@@ -444,4 +523,4 @@ MetaDataSync::Shutdown()
     mImpl.Shutdown();
 }
 
-}
+} // namespace KFS
