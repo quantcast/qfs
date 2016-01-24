@@ -40,6 +40,8 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/checksum.h"
 #include "kfsio/ITimeout.h"
+#include "kfsio/KfsCallbackObj.h"
+#include "kfsio/checksum.h"
 
 #include "libclient/KfsNetClient.h"
 #include "libclient/KfsOps.h"
@@ -55,7 +57,10 @@ using std::max;
 using client::KfsNetClient;
 using client::KfsOp;
 
-class MetaDataSync::Impl : public KfsNetClient::OpOwner, public ITimeout
+class MetaDataSync::Impl :
+    public KfsNetClient::OpOwner,
+    public ITimeout,
+    public KfsCallbackObj
 {
 private:
     class ReadOp : public client::MetaReadMetaData
@@ -96,6 +101,7 @@ public:
         NetManager& inNetManager)
         : OpOwner(),
           ITimeout(),
+          KfsCallbackObj(),
           mKfsNetClient(inNetManager),
           mServers(),
           mFileName(),
@@ -117,8 +123,14 @@ public:
           mFileSize(-1),
           mLogSeq(-1),
           mCheckpointFlag(false),
-          mLogBuffer()
+          mLogBuffer(),
+          mFreeWriteOpList(),
+          mFreeWriteOpCount(0),
+          mNextBlockChecksum(kKfsNullChecksum),
+          mCurBlockChecksum(kKfsNullChecksum),
+          mNextBlockSeq(0)
     {
+        SET_HANDLER(this, &Impl::LogWriteDone);
         mKfsNetClient.SetAuthContext(&mAuthContext);
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
     }
@@ -160,6 +172,7 @@ public:
         if (mReadOpsPtr) {
             return -EINVAL;
         }
+        mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mReadOpsPtr = new ReadOp[mReadOpsCount];
         for (size_t i = 0; i < mReadOpsCount; i++) {
             mFreeList.PutFront(mReadOpsPtr[i]);
@@ -171,6 +184,10 @@ public:
         Reset();
         delete [] mReadOpsPtr;
         mReadOpsPtr = 0;
+        MetaRequest* thePtr;
+        while ((thePtr = mFreeWriteOpList.PopFront())) {
+            MetaRequest::Release(thePtr);
+        }
     }
     virtual void OpDone(
         KfsOp*    inOpPtr,
@@ -223,7 +240,12 @@ public:
     {
     }
 private:
+    enum { kMaxCommitLineLen = 512 };
     typedef vector<ServerLocation> Servers;
+    typedef SingleLinkedQueue<
+        MetaRequest,
+        MetaRequest::GetNext
+    > FreeWriteOpList;
 
     KfsNetClient      mKfsNetClient;
     Servers           mServers;
@@ -248,6 +270,12 @@ private:
     seq_t             mLogSeq;
     bool              mCheckpointFlag;
     IOBuffer          mLogBuffer;
+    FreeWriteOpList   mFreeWriteOpList;
+    int               mFreeWriteOpCount;
+    uint32_t          mNextBlockChecksum;
+    uint32_t          mCurBlockChecksum;
+    seq_t             mNextBlockSeq;
+    char              mCommmitBuf[kMaxCommitLineLen];
 
     int GetCheckpoint()
     {
@@ -264,12 +292,13 @@ private:
         mKfsNetClient.Stop();
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
-        mLogSeq         = -1;
-        mCheckpointFlag = true;
-        mNextReadPos    = 0;
-        mPos            = 0;
-        mFileSize       = -1;
-        mCurMaxReadSize = mMaxReadSize;
+        mLogSeq           = -1;
+        mCheckpointFlag   = true;
+        mNextReadPos      = 0;
+        mPos              = 0;
+        mFileSize         = -1;
+        mCurMaxReadSize   = mMaxReadSize;
+        mCurBlockChecksum = kKfsNullChecksum;
         if (! StartRead()) {
             panic("metad data sync: failed to iniate checkpoint download");
             return -EFAULT;
@@ -432,6 +461,13 @@ private:
         KFS_LOG_EOM;
         HandleError();
     }
+    void HandleError(
+        MetaLogWriterControl& inOp)
+    {
+        inOp.status = -EINVAL;
+        LogWriteDone(EVENT_CMD_DONE, &inOp);
+        HandleError();
+    }
     void HandleError()
     {
         if (++mRetryCount < mMaxRetryCount) {
@@ -448,6 +484,26 @@ private:
             {}
         mKfsNetClient.Stop();
     }
+    template<typename T>
+    bool ParseField(
+        const char*& ioPtr,
+        const char*  inEndPtr,
+        T&           outVal)
+    {
+        const char* theStartPtr = ioPtr;
+        while (ioPtr < inEndPtr && (*ioPtr & 0xFF) != '/') {
+            ++ioPtr;
+        }
+        if (ioPtr < inEndPtr &&
+                HexIntParser::Parse(
+                    theStartPtr,
+                    ioPtr - theStartPtr,
+                    outVal)) {
+            ++ioPtr;
+            return true;
+        }
+        return false;
+    }
     void SubmitLogBlock(
         IOBuffer& inBuffer)
     {
@@ -462,17 +518,116 @@ private:
             if (theEndPos < 0) {
                 break;
             }
-            MetaLogWriterControl* const theOpPtr =
-                new MetaLogWriterControl(MetaLogWriterControl::kWriteBlock);
-            const int theRem = LogReceiver::ParseBlockLines(
-                mLogBuffer, theEndPos + 1, *theOpPtr, '\n');
-            if (0 != theRem) {
+            int theLen = theEndPos - theEndPos;
+            if (kMaxCommitLineLen < theLen) {
                 KFS_LOG_STREAM_ERROR <<
-                    "invalid log block received:" <<
+                    "log block commit line"
+                    " length: "  << theLen <<
+                    " exceeds: " << kMaxCommitLineLen <<
                     IOBuffer::DisplayData(mLogBuffer, 512) <<
                 KFS_LOG_EOM;
                 HandleError();
                 return;
+            }
+            MetaLogWriterControl& theOp = GetLogWriteOpPtr();
+            const int theRem = LogReceiver::ParseBlockLines(
+                mLogBuffer, theEndPos + 1, theOp, '\n');
+            if (0 != theRem || theOp.blockLines.IsEmpty()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid log block received:" <<
+                    IOBuffer::DisplayData(mLogBuffer, 512) <<
+                KFS_LOG_EOM;
+                HandleError(theOp);
+                return;
+            }
+            // Copy log block body, i.e. except trailing / commit line.
+            theOp.blockData.Move(&mLogBuffer, thePos);
+            const char* const theStartPtr =
+                mLogBuffer.CopyOutOrGetBufPtr(mCommmitBuf, theLen);
+            const char* const theEndPtr   = theStartPtr + theLen;
+            const char*       thePtr      = theStartPtr;
+            thePtr += 2;
+            seq_t   theCommitted   = -1;
+            fid_t   theFid         = -1;
+            int64_t theErrChkSum   = -1;
+            int     theBlockStatus = -1;
+            seq_t   theLogSeq      = -1;
+            int     theBlockSeqLen = -1;
+            if (! (ParseField(thePtr, theEndPtr, theCommitted) &&
+                    ParseField(thePtr, theEndPtr, theFid) &&
+                    ParseField(thePtr, theEndPtr, theErrChkSum) &&
+                    ParseField(thePtr, theEndPtr, theBlockStatus) &&
+                    ParseField(thePtr, theEndPtr, theLogSeq) &&
+                    ParseField(thePtr, theEndPtr, theBlockSeqLen) &&
+                    0 <= theCommitted &&
+                    0 <= theBlockStatus &&
+                    theCommitted <= theLogSeq &&
+                    theBlockSeqLen <= theLogSeq)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid log commit line:" <<
+                    IOBuffer::DisplayData(mLogBuffer, theLen) <<
+                KFS_LOG_EOM;
+                HandleError(theOp);
+                return;
+            }
+            theOp.blockStartSeq = theLogSeq - theBlockSeqLen;
+            theOp.blockEndSeq   = theLogSeq;
+            const int theCopyLen  = (int)(thePtr - theStartPtr);
+            int64_t   theBlockSeq = -1;
+            if (ParseField(thePtr, theEndPtr, theBlockSeq) ||
+                    mNextBlockSeq != theBlockSeq) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid log commit block sequence:" <<
+                    " expected: " << mNextBlockSeq <<
+                    " actual: "   << theBlockSeq <<
+                    " data: " << IOBuffer::DisplayData(mLogBuffer, theLen) <<
+                KFS_LOG_EOM;
+                HandleError(theOp);
+                return;
+            }
+            mNextBlockSeq++;
+            const int theBlkSeqLen = thePtr - (theStartPtr + theCopyLen);
+            uint32_t  theChecksum  = 0;
+            if (! HexIntParser::Parse(
+                    thePtr, theEndPtr - thePtr, theChecksum)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "log commit block checksum parse failure:" <<
+                    " data: " << IOBuffer::DisplayData(mLogBuffer, theLen) <<
+                KFS_LOG_EOM;
+                HandleError(theOp);
+                return;
+            }
+            theOp.blockData.Move(&mLogBuffer, theCopyLen);
+            theOp.blockChecksum = ComputeBlockChecksum(
+                &theOp.blockData,
+                theOp.blockData.BytesConsumable(),
+                kKfsNullChecksum
+            );
+            if (mCurBlockChecksum != kKfsNullChecksum) {
+                mCurBlockChecksum = ChecksumBlocksCombine(
+                    mCurBlockChecksum,
+                    theOp.blockChecksum,
+                    theOp.blockData.BytesConsumable()
+                );
+            }
+            mCurBlockChecksum = ComputeBlockChecksum(
+                &mLogBuffer, theBlkSeqLen, mCurBlockChecksum);
+            if (mCurBlockChecksum != theChecksum) {
+                KFS_LOG_STREAM_ERROR <<
+                    "log block checksum mismatch:"
+                    " expected: " << theChecksum <<
+                    " computed: " << mCurBlockChecksum <<
+                KFS_LOG_EOM;
+                HandleError(theOp);
+                return;
+            }
+            theOp.blockLines.Back() -=
+                mLogBuffer.Consume(theLen - theCopyLen + 1);
+            mCurBlockChecksum = mNextBlockChecksum;
+            if (theBlockSeqLen <= 0) {
+                LogWriteDone(EVENT_CMD_DONE, &theOp);
+            } else {
+                submit_request(&theOp);
             }
         }
         if (mMaxLogBlockSize < mLogBuffer.BytesConsumable()) {
@@ -483,6 +638,40 @@ private:
             KFS_LOG_EOM;
             HandleError();
         }
+    }
+    MetaLogWriterControl& GetLogWriteOpPtr()
+    {
+        MetaLogWriterControl* thePtr =
+            static_cast<MetaLogWriterControl*>(mFreeWriteOpList.PopFront());
+        if (thePtr) {
+            mFreeWriteOpCount--;
+        } else {
+            thePtr = new MetaLogWriterControl(
+                MetaLogWriterControl::kWriteBlock);
+            thePtr->clnt = this;
+        }
+        return *thePtr;
+    }
+    int LogWriteDone(
+        int   inEvent,
+        void* inDataPtr)
+    {
+        if (! inDataPtr || EVENT_CMD_DONE != inEvent) {
+            panic("metad data sync: invalid log write completion");
+            return -1;
+        }
+        MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
+            inDataPtr);
+        theOp.status = 0;
+        theOp.statusMsg.clear();
+        theOp.blockData.Clear();
+        if (mReadOpsPtr) {
+            mFreeWriteOpCount++;
+            mFreeWriteOpList.PutFront(theOp);
+        } else {
+            MetaRequest::Release(&theOp);
+        }
+        return 0;
     }
 private:
     Impl(

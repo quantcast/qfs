@@ -663,6 +663,7 @@ private:
             "/" << mInFlightCommitted.mErrChkSum <<
             "/" << mInFlightCommitted.mStatus <<
             "/" << inLogSeq <<
+            "/" << (int)(inLogSeq - mNextLogSeq) <<
             "/"
         ;
         mReqOstream.flush();
@@ -846,6 +847,7 @@ private:
         inRequest.blockLines.Back() += theTrailerLen;
         inRequest.blockCommitted = -1;
         seq_t     theLogSeq      = -1;
+        int       theBlockLen    = -1;
         Committed theBlockCommitted;
         if (thePtr + 2 < theEndPtr &&
                 (*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
@@ -855,10 +857,13 @@ private:
                     ParseField(thePtr, theEndPtr, theBlockCommitted.mErrChkSum) &&
                     ParseField(thePtr, theEndPtr, theBlockCommitted.mStatus) &&
                     ParseField(thePtr, theEndPtr, theLogSeq) &&
+                    ParseField(thePtr, theEndPtr, theBlockLen) &&
                     0 <= theBlockCommitted.mSeq &&
                     0 <= theBlockCommitted.mStatus &&
                     theBlockCommitted.mSeq <= theLogSeq &&
-                    theLogSeq == inRequest.blockEndSeq) {
+                    theLogSeq == inRequest.blockEndSeq &&
+                    inRequest.blockStartSeq + theBlockLen ==
+                        inRequest.blockEndSeq) {
                 inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
         }

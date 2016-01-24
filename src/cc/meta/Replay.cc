@@ -97,6 +97,7 @@ public:
           mCheckpointCommitted(-1),
           mCheckpointErrChksum(-1),
           mLastCommitted(-1),
+          mBlockStartLogSeq(-1),
           mLastBlockSeq(-1),
           mLastLogAheadSeq(0),
           mLogAheadErrChksum(0),
@@ -130,6 +131,7 @@ public:
     seq_t       mCheckpointCommitted;
     seq_t       mCheckpointErrChksum;
     seq_t       mLastCommitted;
+    int64_t     mBlockStartLogSeq;
     int64_t     mLastBlockSeq;
     int64_t     mLastLogAheadSeq;
     int64_t     mLogAheadErrChksum;
@@ -1140,7 +1142,7 @@ replay_log_ahead_entry(DETokenizer& c)
 static bool
 replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
 {
-    if (c.size() < 8) {
+    if (c.size() < 9) {
         return false;
     }
     const char* const ptr   = c.front().ptr;
@@ -1171,6 +1173,12 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     c.pop_front();
     const int64_t logSeq = c.toNumber();
     if (! c.isLastOk() || logSeq != state.mLastLogAheadSeq) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t blockLen = c.toNumber();
+    if (! c.isLastOk() || blockLen < 0 ||
+            state.mBlockStartLogSeq + blockLen != logSeq) {
         return false;
     }
     c.pop_front();
@@ -1208,8 +1216,9 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     if (0 != state.mSubEntryCount) {
         return false;
     }
-    state.mLastBlockSeq  = blockSeq;
-    state.mLastCommitted = commitSeq;
+    state.mBlockStartLogSeq = logSeq;
+    state.mLastBlockSeq     = blockSeq;
+    state.mLastCommitted    = commitSeq;
     return true;
 }
 
@@ -1258,6 +1267,7 @@ replay_commit_reset(DETokenizer& c)
     state.mLastLogAheadSeq   = logSeq;
     state.mLogAheadErrChksum = errchksum;
     state.mLastBlockSeq      = blockSeq;
+    state.mBlockStartLogSeq  = logSeq;
     if (! state.runCommitQueue(
                 commitSeq, seed, status, errchksum) &&
             ! ignoreCommitErrorFlag) {
@@ -1476,6 +1486,7 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     lastLogStart             = committed;
     state.mLastBlockSeq      = -1;
     state.mLastLogAheadSeq   = committed;
+    state.mBlockStartLogSeq  = committed;
     state.mLogAheadErrChksum = errChecksum;
     state.mSubEntryCount     = 0;
     int status = 0;
