@@ -81,7 +81,7 @@ public:
         data.reset();
         if (buf) {
             // Deleter must be different, than one of supported deleters. There
-            // is way to recover from this failure, as is isn't possible to
+            // is no way to recover from this failure, as is isn't possible to
             // determine deleter type when arbitrary deleter is used. Non
             // default deleter must implement required detach logic, if needed.
             //
