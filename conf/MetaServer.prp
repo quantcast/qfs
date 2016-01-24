@@ -1195,8 +1195,8 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # If use of non local AP enabled, then the meta server first attempts to find
 # AP running on the host QFS client runs, then if no such AP found, attempts
 # to find AP on the same rack, and finally chooses of the chunk servers.
-# The meta server attempts to distributed "load" evenly between all APs when
-# non host local AP must be used.
+# The meta server attempts to distribute "load" evenly between all APs when
+# non host local AP has to be used.
 #
 #
 # Allow to use AP running on different than client host to server read requests.
@@ -1213,9 +1213,9 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is 0.
 # metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 0
 
-# Object "directlry" parameters.
+# Object "directory" parameters.
 # For <object-store-directory-prefix> description please see
-# chunkServer.objectDir parameter description in annotated chunk server
+# chunkServer.objectDir parameter description in the annotated chunk server
 # configuration file.
 #
 # S3 bucket name used to store object blocks.
@@ -1235,7 +1235,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # chunkServer.diskQueue.<object-store-directory-prefix>region =
 
 # S3 use server side encryption. If set to non 0 enables aws:kms type encryption.
-# If enable AWS region must be specified.
+# If enabled, then AWS region must be specified.
 # Presently only aws:kms supported.
 # Default is 0.
 # chunkServer.diskQueue.<object-store-directory-prefix>useServerSideEncryption = 0
