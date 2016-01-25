@@ -1933,6 +1933,8 @@ MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ? "FI" : "FsId",      (int64_t)-1);
     fileSize     = prop.getValue(
         shortRpcFormatFlag ?  "S" : "Size",      (int64_t)-1);
+    fileName     = prop.getValue(
+        shortRpcFormatFlag ?  "N" : "Name",      string());
 }
 
 void

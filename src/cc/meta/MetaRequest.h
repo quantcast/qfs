@@ -3843,6 +3843,7 @@ struct MetaReadMetaData : public MetaRequest {
     uint32_t checksum;
     int64_t  fileSize;
     bool     handledFlag;
+    string   filename;
     IOBuffer data;
 
     MetaReadMetaData()
@@ -3855,6 +3856,7 @@ struct MetaReadMetaData : public MetaRequest {
           checksum(0),
           fileSize(-1),
           handledFlag(false),
+          filename(),
           data()
         {}
     bool Validate()

@@ -1077,7 +1077,7 @@ public:
                 if (theLen <= 0) {
                     continue;
                 }
-                char* const       theBufPtr  = mBuffer.Reserve(theLen + 1);
+                char* const       theBufPtr  = mBuffer.Reserve(theLen);
                 const char* const theLinePtr =
                     theCur.blockData.CopyOutOrGetBufPtr(theBufPtr, theLen);
                 const int theStatus = replayer.playLine(
@@ -1086,13 +1086,12 @@ public:
                     theLenPtr < theLendEndPtr ? seq_t(-1) : theCur.blockSeq
                 );
                 if (theStatus != 0) {
-                    theCur.blockData.CopyOut(theBufPtr, theLen);
-                    theBufPtr[theLen] = 0;
                     KFS_LOG_STREAM_FATAL <<
                         "log block replay failure: " << theCur.Show() <<
                         " commit: " << mLastCommit <<
                         " status: " << theStatus <<
-                        " line: "   << theBufPtr <<
+                        " line: "   <<
+                            IOBuffer::DisplayData(theCur.blockData, theLen) <<
                     KFS_LOG_EOM;
                     panic("log block apply failure");
                 }

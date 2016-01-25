@@ -5814,6 +5814,9 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
     if (0 <= fileSize) {
         os << (shortRpcFormatFlag ? "S:" : "Size: ") << fileSize << "\r\n";
     }
+    if (! filename.empty()) {
+        os << (shortRpcFormatFlag ? "N:" : "Name: ") << filename << "\r\n";
+    }
     os << "\r\n";
     os.flush();
     buf.Move(&data);

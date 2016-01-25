@@ -50,6 +50,9 @@
 #include <vector>
 #include <string>
 
+#include <unistd.h>
+#include <fcntl.h>
+
 namespace KFS
 {
 using std::max;
@@ -105,6 +108,8 @@ public:
           mKfsNetClient(inNetManager),
           mServers(),
           mFileName(),
+          mCheckpointDir(),
+          mLogDir(),
           mAuthContext(),
           mReadOpsPtr(0),
           mFreeList(),
@@ -119,23 +124,31 @@ public:
           mCurMaxReadSize(-1),
           mFd(-1),
           mServerIdx(0),
-          mPos(-1),
+          mPos(0),
+          mNextReadPos(0),
           mFileSize(-1),
           mLogSeq(-1),
           mCheckpointFlag(false),
-          mLogBuffer(),
+          mBuffer(),
           mFreeWriteOpList(),
           mFreeWriteOpCount(0),
           mNextBlockChecksum(kKfsNullChecksum),
           mCurBlockChecksum(kKfsNullChecksum),
-          mNextBlockSeq(0)
+          mNextBlockSeq(0),
+          mLogWritesInFlightCount(0),
+          mWriteToFileFlag(false),
+          mWriteSyncFlag(true),
+          mMinWriteSize(4 << 20)
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
         mKfsNetClient.SetAuthContext(&mAuthContext);
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
     }
     virtual ~Impl()
-        { Impl::Shutdown(); }
+    {
+        Impl::Shutdown();
+        QCRTASSERT(0 == mLogWritesInFlightCount);
+    }
     int SetParameters(
         const char*       inParamPrefixPtr,
         const Properties& inParameters)
@@ -186,8 +199,10 @@ public:
         mReadOpsPtr = 0;
         MetaRequest* thePtr;
         while ((thePtr = mFreeWriteOpList.PopFront())) {
+            mFreeWriteOpCount--;
             MetaRequest::Release(thePtr);
         }
+        QCASSERT(0 == mFreeWriteOpCount);
     }
     virtual void OpDone(
         KfsOp*    inOpPtr,
@@ -250,6 +265,8 @@ private:
     KfsNetClient      mKfsNetClient;
     Servers           mServers;
     string            mFileName;
+    string            mCheckpointDir;
+    string            mLogDir;
     ClientAuthContext mAuthContext;
     ReadOp*           mReadOpsPtr;
     ReadQueue         mFreeList;
@@ -269,12 +286,16 @@ private:
     int64_t           mFileSize;
     seq_t             mLogSeq;
     bool              mCheckpointFlag;
-    IOBuffer          mLogBuffer;
+    IOBuffer          mBuffer;
     FreeWriteOpList   mFreeWriteOpList;
     int               mFreeWriteOpCount;
     uint32_t          mNextBlockChecksum;
     uint32_t          mCurBlockChecksum;
     seq_t             mNextBlockSeq;
+    int               mLogWritesInFlightCount;
+    bool              mWriteToFileFlag;
+    bool              mWriteSyncFlag;
+    int               mMinWriteSize;
     char              mCommmitBuf[kMaxCommitLineLen];
 
     int GetCheckpoint()
@@ -294,6 +315,7 @@ private:
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mLogSeq           = -1;
         mCheckpointFlag   = true;
+        mWriteToFileFlag  = true;
         mNextReadPos      = 0;
         mPos              = 0;
         mFileSize         = -1;
@@ -323,6 +345,7 @@ private:
         theOp.mPos           = mNextReadPos;
         theOp.fileSize       = -1;
         theOp.status         = 0;
+        theOp.fileName.clear();
         theOp.statusMsg.clear();
         theOp.mBuffer.Clear();
         mPendingList.PushBack(theOp);
@@ -361,6 +384,33 @@ private:
             inOp.readSize   = mCurMaxReadSize;
             if (0 <= inOp.fileSize) {
                 mFileSize = inOp.fileSize;
+            }
+            if (mCheckpointFlag && mFileSize < 0) {
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "invalid checkpoint file size";
+                HandleError(inOp);
+                return;
+            }
+            if (mWriteToFileFlag && mFd < 0) {
+                mFileName = makename(mCheckpointDir, "chkpt", mLogSeq);
+                mFileName += ".0.tmp";
+                mFd = open(
+                    mFileName.c_str(),
+                    O_WRONLY | (mWriteSyncFlag ? O_SYNC : 0) |
+                        O_CREAT | O_TRUNC,
+                    0666
+                );
+                if (mFd < 0) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "open failure: " << mFileName <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    inOp.status    = 0 < theErr ? -theErr : -EFAULT;
+                    inOp.statusMsg = "failed to open file";
+                    HandleError(inOp);
+                    return;
+                }
             }
         } else if (mLogSeq != inOp.startLogSeq) {
             KFS_LOG_STREAM_ERROR <<
@@ -408,22 +458,27 @@ private:
         if (theOpPtr->mInFlightFlag) {
             return;
         }
-        const int theRdSize = theOpPtr->mBuffer.BytesConsumable();
+        int const theRdSize = theOpPtr->mBuffer.BytesConsumable();
+        mPos += theRdSize;
+        bool const theEofFlag = 0 <= mFileSize ?
+            mFileSize <= mPos : theRdSize <= 0;
         do {
             if (0 <= mFd) {
                 IOBuffer& theBuffer = theOpPtr->mBuffer;
-                mPos += theBuffer.BytesConsumable();
-                while (! theBuffer.IsEmpty()) {
-                    const int theNWr = theBuffer.Write(mFd);
-                    if (theNWr < 0) {
-                        KFS_LOG_STREAM_ERROR <<
-                            mFileName << ": write failure:" <<
-                            QCUtils::SysError((int)-theNWr) <<
-                        KFS_LOG_EOM;
-                        HandleError();
-                        return;
+                mBuffer.Move(&theBuffer);
+                if (theEofFlag || mMinWriteSize <= mBuffer.BytesConsumable()) {
+                    while (! mBuffer.IsEmpty()) {
+                        const int theNWr = mBuffer.Write(mFd);
+                        if (theNWr < 0) {
+                            KFS_LOG_STREAM_ERROR <<
+                                mFileName << ": write failure:" <<
+                                QCUtils::SysError((int)-theNWr) <<
+                            KFS_LOG_EOM;
+                            HandleError();
+                            return;
+                        }
+                        mBuffer.Consume(theNWr);
                     }
-                    theBuffer.Consume(theNWr);
                 }
             } else {
                 if (theOpPtr->checkpointFlag || mCheckpointFlag) {
@@ -438,13 +493,33 @@ private:
         } while (
             (theOpPtr = mPendingList.Front()) &&
             ! theOpPtr->mInFlightFlag);
-        if (mFileSize < 0) {
-            if (StartRead()) {
-                mNextReadPos += theRdSize;
-            }
+        if (theEofFlag) {
+            ReadDone();
         } else {
-            while (mNextReadPos < mFileSize && StartRead()) {
-                mNextReadPos += mCurMaxReadSize;
+            if (mFileSize < 0) {
+                if (StartRead()) {
+                    mNextReadPos += theRdSize;
+                }
+            } else {
+                while (mNextReadPos < mFileSize && StartRead()) {
+                    mNextReadPos += mCurMaxReadSize;
+                }
+            }
+        }
+    }
+    void ReadDone()
+    {
+        if (0 <= mFd) {
+            const int theFd = mFd;
+            mFd = -1;
+            if (close(theFd)) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    mFileName << ": close failure:" <<
+                    QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                HandleError();
+                return;
             }
         }
     }
@@ -465,6 +540,7 @@ private:
         MetaLogWriterControl& inOp)
     {
         inOp.status = -EINVAL;
+        mLogWritesInFlightCount++;
         LogWriteDone(EVENT_CMD_DONE, &inOp);
         HandleError();
     }
@@ -483,6 +559,9 @@ private:
         while (mPendingList.PopFront())
             {}
         mKfsNetClient.Stop();
+        mBuffer.Clear();
+        mPos         = 0;
+        mNextReadPos = 0;
     }
     template<typename T>
     bool ParseField(
@@ -507,14 +586,14 @@ private:
     void SubmitLogBlock(
         IOBuffer& inBuffer)
     {
-        mLogBuffer.Move(&inBuffer);
+        mBuffer.Move(&inBuffer);
         for (; ;) {
-            int thePos = mLogBuffer.IndexOf(0, "\nc/");
+            int thePos = mBuffer.IndexOf(0, "\nc/");
             if (thePos < 0) {
                 break;
             }
             thePos++;
-            const int theEndPos = mLogBuffer.IndexOf(thePos, "\n");
+            const int theEndPos = mBuffer.IndexOf(thePos, "\n");
             if (theEndPos < 0) {
                 break;
             }
@@ -524,26 +603,26 @@ private:
                     "log block commit line"
                     " length: "  << theLen <<
                     " exceeds: " << kMaxCommitLineLen <<
-                    IOBuffer::DisplayData(mLogBuffer, 512) <<
+                    IOBuffer::DisplayData(mBuffer, 512) <<
                 KFS_LOG_EOM;
                 HandleError();
                 return;
             }
-            MetaLogWriterControl& theOp = GetLogWriteOpPtr();
+            MetaLogWriterControl& theOp = GetLogWriteOp();
             const int theRem = LogReceiver::ParseBlockLines(
-                mLogBuffer, theEndPos + 1, theOp, '\n');
+                mBuffer, theEndPos + 1, theOp, '\n');
             if (0 != theRem || theOp.blockLines.IsEmpty()) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid log block received:" <<
-                    IOBuffer::DisplayData(mLogBuffer, 512) <<
+                    IOBuffer::DisplayData(mBuffer, 512) <<
                 KFS_LOG_EOM;
                 HandleError(theOp);
                 return;
             }
             // Copy log block body, i.e. except trailing / commit line.
-            theOp.blockData.Move(&mLogBuffer, thePos);
+            theOp.blockData.Move(&mBuffer, thePos);
             const char* const theStartPtr =
-                mLogBuffer.CopyOutOrGetBufPtr(mCommmitBuf, theLen);
+                mBuffer.CopyOutOrGetBufPtr(mCommmitBuf, theLen);
             const char* const theEndPtr   = theStartPtr + theLen;
             const char*       thePtr      = theStartPtr;
             thePtr += 2;
@@ -565,7 +644,7 @@ private:
                     theBlockSeqLen <= theLogSeq)) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid log commit line:" <<
-                    IOBuffer::DisplayData(mLogBuffer, theLen) <<
+                    IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
                 HandleError(theOp);
                 return;
@@ -580,7 +659,7 @@ private:
                     "invalid log commit block sequence:" <<
                     " expected: " << mNextBlockSeq <<
                     " actual: "   << theBlockSeq <<
-                    " data: " << IOBuffer::DisplayData(mLogBuffer, theLen) <<
+                    " data: " << IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
                 HandleError(theOp);
                 return;
@@ -592,12 +671,12 @@ private:
                     thePtr, theEndPtr - thePtr, theChecksum)) {
                 KFS_LOG_STREAM_ERROR <<
                     "log commit block checksum parse failure:" <<
-                    " data: " << IOBuffer::DisplayData(mLogBuffer, theLen) <<
+                    " data: " << IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
                 HandleError(theOp);
                 return;
             }
-            theOp.blockData.Move(&mLogBuffer, theCopyLen);
+            theOp.blockData.Move(&mBuffer, theCopyLen);
             theOp.blockChecksum = ComputeBlockChecksum(
                 &theOp.blockData,
                 theOp.blockData.BytesConsumable(),
@@ -611,7 +690,7 @@ private:
                 );
             }
             mCurBlockChecksum = ComputeBlockChecksum(
-                &mLogBuffer, theBlkSeqLen, mCurBlockChecksum);
+                &mBuffer, theBlkSeqLen, mCurBlockChecksum);
             if (mCurBlockChecksum != theChecksum) {
                 KFS_LOG_STREAM_ERROR <<
                     "log block checksum mismatch:"
@@ -622,24 +701,25 @@ private:
                 return;
             }
             theOp.blockLines.Back() -=
-                mLogBuffer.Consume(theLen - theCopyLen + 1);
+                mBuffer.Consume(theLen - theCopyLen + 1);
             mCurBlockChecksum = mNextBlockChecksum;
+            mLogWritesInFlightCount++;
             if (theBlockSeqLen <= 0) {
                 LogWriteDone(EVENT_CMD_DONE, &theOp);
             } else {
                 submit_request(&theOp);
             }
         }
-        if (mMaxLogBlockSize < mLogBuffer.BytesConsumable()) {
+        if (mMaxLogBlockSize < mBuffer.BytesConsumable()) {
             KFS_LOG_STREAM_ERROR <<
-                "log block size: " << mLogBuffer.BytesConsumable() <<
+                "log block size: " << mBuffer.BytesConsumable() <<
                 " exceeds: "       << mMaxLogBlockSize <<
-                " data: "          << IOBuffer::DisplayData(mLogBuffer, 256) <<
+                " data: "          << IOBuffer::DisplayData(mBuffer, 256) <<
             KFS_LOG_EOM;
             HandleError();
         }
     }
-    MetaLogWriterControl& GetLogWriteOpPtr()
+    MetaLogWriterControl& GetLogWriteOp()
     {
         MetaLogWriterControl* thePtr =
             static_cast<MetaLogWriterControl*>(mFreeWriteOpList.PopFront());
@@ -656,15 +736,23 @@ private:
         int   inEvent,
         void* inDataPtr)
     {
-        if (! inDataPtr || EVENT_CMD_DONE != inEvent) {
+        if (! inDataPtr || EVENT_CMD_DONE != inEvent ||
+                mLogWritesInFlightCount <= 0) {
             panic("metad data sync: invalid log write completion");
             return -1;
         }
+        mLogWritesInFlightCount--;
         MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
             inDataPtr);
-        theOp.status = 0;
-        theOp.statusMsg.clear();
         theOp.blockData.Clear();
+        theOp.blockLines.Clear();
+        theOp.statusMsg.clear();
+        theOp.status      = 0;
+        theOp.submitCount = 0;
+        theOp.seqno       = -1;
+        theOp.logseq      = -1;
+        theOp.suspended   = false;
+        theOp.logAction   = MetaLogWriterControl::kLogAlways;
         if (mReadOpsPtr) {
             mFreeWriteOpCount++;
             mFreeWriteOpList.PutFront(theOp);

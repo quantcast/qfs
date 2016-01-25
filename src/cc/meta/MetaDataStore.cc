@@ -681,6 +681,12 @@ private:
         const int theMaxRead = mMaxReadSize;
         QCStMutexUnlocker theUnlock(mMutex);
         if (theEntry.mFd < 0) {
+            const size_t thePos = theEntry.mFileName.rfind('/');
+            if (string::npos != thePos) {
+                inReadOp.filename = theEntry.mFileName.substr(thePos + 1);
+            } else {
+                inReadOp.filename = theEntry.mFileName;
+            }
             theEntry.mFd = open(theEntry.mFileName.c_str(), O_RDONLY);
             if (theEntry.mFileSize < 0 && 0 <= theEntry.mFd &&
                     (inSetSizeFlag || 0 <= theEntry.mLogEndSeq)) {
