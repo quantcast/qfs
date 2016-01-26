@@ -128,6 +128,7 @@ public:
           mNextReadPos(0),
           mFileSize(-1),
           mLogSeq(-1),
+          mNextLogSegIdx(-1),
           mCheckpointFlag(false),
           mBuffer(),
           mFreeWriteOpList(),
@@ -285,6 +286,7 @@ private:
     int64_t           mNextReadPos;
     int64_t           mFileSize;
     seq_t             mLogSeq;
+    seq_t             mNextLogSegIdx;
     bool              mCheckpointFlag;
     IOBuffer          mBuffer;
     FreeWriteOpList   mFreeWriteOpList;
@@ -392,8 +394,38 @@ private:
                 return;
             }
             if (mWriteToFileFlag && mFd < 0) {
-                mFileName = makename(mCheckpointDir, "chkpt", mLogSeq);
-                mFileName += ".0.tmp";
+                size_t const theDotPos = inOp.fileName.find('.');
+                size_t const theEndPos = mCheckpointFlag ?
+                    inOp.fileName.size() : inOp.fileName.rfind('.');
+                seq_t theSeq    = -1;
+                seq_t theSegIdx = -1;
+                const char* thePtr = inOp.fileName.data() + theDotPos + 1;
+                if (string::npos == theDotPos || string::npos == theEndPos ||
+                        theEndPos <= theDotPos ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPos - theDotPos - 1, theSeq) ||
+                        theSeq != mLogSeq ||
+                        inOp.fileName.find('/') != string::npos ||
+                        (mCheckpointFlag && (! HexIntParser::Parse(
+                                ++thePtr,
+                                inOp.fileName.size() - theEndPos - 1,
+                                theSegIdx) ||
+                            (0 < mNextLogSegIdx &&
+                                theSegIdx != mNextLogSegIdx)))) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "invalid file name: " << inOp.Show() <<
+                        " log sequence:"
+                        " expected: " << mLogSeq <<
+                        " actual: "   << theSeq <<
+                        " segment: "  << theSegIdx <<
+                    KFS_LOG_EOM;
+                    inOp.status    = -EINVAL;
+                    inOp.statusMsg = "invalid file name";
+                    HandleError(inOp);
+                    return;
+                }
+                mFileName.assign(mCheckpointDir.data(), mCheckpointDir.size());
+                mFileName += inOp.fileName;
                 mFd = open(
                     mFileName.c_str(),
                     O_WRONLY | (mWriteSyncFlag ? O_SYNC : 0) |
