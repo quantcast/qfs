@@ -1115,7 +1115,7 @@ def splitServersByRack(status):
 def ping(status, metaserver):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((metaserver.node, metaserver.port))
-    req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 114\r\n\r\n"
+    req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 115\r\n\r\n"
     sock.send(req)
     sockIn = sock.makefile('r')
     status.tiersColumnNames = {}
@@ -1528,7 +1528,7 @@ class QueryCache:
                 #print "Using cached numbers:", QueryCache.DIR_COUNTERS.printDebug()
                 return QueryCache.GetMatchingCounters(chunkserverHosts)
         dir_counters = ChunkServerData()
-        req = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 114\r\n\r\n"
+        req = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 115\r\n\r\n"
         isConnected = False
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
