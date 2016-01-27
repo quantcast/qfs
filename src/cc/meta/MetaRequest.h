@@ -3837,6 +3837,7 @@ struct MetaLogClearObjStoreDelete : public MetaRequest {
 struct MetaReadMetaData : public MetaRequest {
     int64_t  fileSystemId;
     seq_t    startLogSeq;
+    seq_t    endLogSeq;
     int64_t  readPos;
     bool     checkpointFlag;
     int      readSize;
@@ -3850,6 +3851,7 @@ struct MetaReadMetaData : public MetaRequest {
         : MetaRequest(META_READ_META_DATA, kLogNever),
           fileSystemId(-1),
           startLogSeq(-1),
+          endLogSeq(-1),
           readPos(-1),
           checkpointFlag(false),
           readSize(-1),

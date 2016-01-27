@@ -1830,6 +1830,7 @@ struct FsckOp : public KfsMonOp {
 struct MetaReadMetaData : public KfsMonOp {
     int64_t  fileSystemId;
     kfsSeq_t startLogSeq;
+    kfsSeq_t endLogSeq;
     int64_t  readPos;
     bool     checkpointFlag;
     int      readSize;
@@ -1841,6 +1842,7 @@ struct MetaReadMetaData : public KfsMonOp {
         : KfsMonOp(CMD_META_READ_META_DATA, inSeq),
           fileSystemId(-1),
           startLogSeq(-1),
+          endLogSeq(-1),
           readPos(-1),
           checkpointFlag(false),
           readSize(0),

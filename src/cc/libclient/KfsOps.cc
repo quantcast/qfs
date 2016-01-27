@@ -1935,6 +1935,8 @@ MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ?  "S" : "Size",      (int64_t)-1);
     fileName     = prop.getValue(
         shortRpcFormatFlag ?  "N" : "Name",      string());
+    endLogSeq    = prop.getValue(
+        shortRpcFormatFlag ?  "E" : "End-log",   (kfsSeq_t)-1);
 }
 
 void

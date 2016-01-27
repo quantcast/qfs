@@ -52,6 +52,7 @@
 
 #include <unistd.h>
 #include <fcntl.h>
+#include <dirent.h>
 
 namespace KFS
 {
@@ -110,6 +111,7 @@ public:
           mFileName(),
           mCheckpointDir(),
           mLogDir(),
+          mTmpSuffix(".tmp"),
           mAuthContext(),
           mReadOpsPtr(0),
           mFreeList(),
@@ -237,6 +239,10 @@ public:
         } else if (theOp.fileSystemId < 0) {
             theOp.status    = -EINVAL;
             theOp.statusMsg = "invalid file system id";
+        } else if (0 <= theOp.endLogSeq && ! theOp.checkpointFlag &&
+                theOp.endLogSeq <= theOp.startLogSeq) {
+            theOp.status    = -EINVAL;
+            theOp.statusMsg = "invalid log end sequence";
         }
         if (theOp.status < 0) {
             HandleError(theOp);
@@ -268,6 +274,7 @@ private:
     string            mFileName;
     string            mCheckpointDir;
     string            mLogDir;
+    string            mTmpSuffix;
     ClientAuthContext mAuthContext;
     ReadOp*           mReadOpsPtr;
     ReadQueue         mFreeList;
@@ -300,6 +307,18 @@ private:
     int               mMinWriteSize;
     char              mCommmitBuf[kMaxCommitLineLen];
 
+    void InitRead()
+    {
+        if (! mPendingList.IsEmpty()) {
+            mKfsNetClient.Stop();
+            QCRTASSERT(mPendingList.IsEmpty());
+        }
+        mNextReadPos      = 0;
+        mPos              = 0;
+        mFileSize         = -1;
+        mCurMaxReadSize   = mMaxReadSize;
+        mCurBlockChecksum = kKfsNullChecksum;
+    }
     int GetCheckpoint()
     {
         if (! mReadOpsPtr || mServers.empty()) {
@@ -309,7 +328,7 @@ private:
             close(mFd);
             mFd = -1;
         }
-        if (mServers.size() < ++mServerIdx) {
+        if (mServers.size() < mServerIdx) {
             mServerIdx = 0;
         }
         mKfsNetClient.Stop();
@@ -318,11 +337,7 @@ private:
         mLogSeq           = -1;
         mCheckpointFlag   = true;
         mWriteToFileFlag  = true;
-        mNextReadPos      = 0;
-        mPos              = 0;
-        mFileSize         = -1;
-        mCurMaxReadSize   = mMaxReadSize;
-        mCurBlockChecksum = kKfsNullChecksum;
+        InitRead();
         if (! StartRead()) {
             panic("metad data sync: failed to iniate checkpoint download");
             return -EFAULT;
@@ -424,8 +439,14 @@ private:
                     HandleError(inOp);
                     return;
                 }
-                mFileName.assign(mCheckpointDir.data(), mCheckpointDir.size());
+                if (mCheckpointFlag) {
+                    mFileName.assign(
+                        mCheckpointDir.data(), mCheckpointDir.size());
+                } else {
+                    mFileName.assign(mLogDir.data(), mLogDir.size());
+                }
                 mFileName += inOp.fileName;
+                mFileName += mTmpSuffix;
                 mFd = open(
                     mFileName.c_str(),
                     O_WRONLY | (mWriteSyncFlag ? O_SYNC : 0) |
@@ -491,10 +512,10 @@ private:
             return;
         }
         int const theRdSize = theOpPtr->mBuffer.BytesConsumable();
-        mPos += theRdSize;
-        bool const theEofFlag = 0 <= mFileSize ?
-            mFileSize <= mPos : theRdSize <= 0;
+        bool      theEofFlag;
         do {
+            mPos += theRdSize;
+            theEofFlag = 0 <= mFileSize ? mFileSize <= mPos : theRdSize <= 0;
             if (0 <= mFd) {
                 IOBuffer& theBuffer = theOpPtr->mBuffer;
                 mBuffer.Move(&theBuffer);
@@ -519,6 +540,9 @@ private:
                     SubmitLogBlock(theOpPtr->mBuffer);
                 }
             }
+            if (theEofFlag && ! mCheckpointFlag) {
+                mLogSeq = theOpPtr->endLogSeq;
+            }
             theOpPtr->mBuffer.Clear();
             mPendingList.PopFront();
             mFreeList.PutFront(*theOpPtr);
@@ -541,6 +565,7 @@ private:
     }
     void ReadDone()
     {
+        mKfsNetClient.Cancel();
         if (0 <= mFd) {
             const int theFd = mFd;
             mFd = -1;
@@ -552,6 +577,13 @@ private:
                 KFS_LOG_EOM;
                 HandleError();
                 return;
+            }
+        }
+        mCheckpointFlag = false;
+        if (0 <= mLogSeq) {
+            InitRead();
+            if (! StartRead()) {
+                panic("metad data sync: failed to iniate download");
             }
         }
     }
@@ -792,6 +824,106 @@ private:
             MetaRequest::Release(&theOp);
         }
         return 0;
+    }
+    int PrepareToSync()
+    {
+        const bool kDeleteTmpFlag = true;
+        const bool kRenameFlag    = false;
+        return DeleteOrRenameTmp(mLogDir, kDeleteTmpFlag, kRenameFlag);
+    }
+    int CommitSync()
+    {
+        const bool kDeleteTmpFlag = false;
+        bool       theRenameFlag  = false;
+        const int theRet = DeleteOrRenameTmp(
+            mLogDir, kDeleteTmpFlag, theRenameFlag);
+        theRenameFlag = true;
+        return (0 != theRet ? theRet : DeleteOrRenameTmp(
+            mLogDir, kDeleteTmpFlag, theRenameFlag));
+    }
+    int DeleteOrRenameTmp(
+        const string& inDirName,
+        bool          inDeleteTmpFlag,
+        bool          inRenameTmpFlag)
+    {
+        if (! inDirName.empty() || mTmpSuffix.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid parameters"
+                " direcotry: "  << inDirName <<
+                " siffix: "     << mTmpSuffix <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        DIR* const theDirPtr = opendir(inDirName.c_str());
+        if (! theDirPtr) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "opendir: " << inDirName <<
+                ": " << QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+            return (0 < theErr ? -theErr : -EINVAL);
+        }
+        string theName(inDirName.data(), inDirName.size());
+        if ('/' != *theName.rbegin()) {
+            theName += '/';
+        }
+        string theDestName;
+        const size_t         thePrefixLen = theName.size();
+        const size_t         theSuffixLen = mTmpSuffix.size();
+        const char* const    theSuffixPtr = mTmpSuffix.data();
+        int                  theRet       = 0;
+        const struct dirent* thePtr;
+        while ((thePtr = readdir(theDirPtr))) {
+            const char* const theNamePtr = thePtr->d_name;
+            if ('.' == theNamePtr[0] &&
+                    (0 == theNamePtr[1] ||
+                        ('.' == theNamePtr[1] && 0 == theNamePtr[2]))) {
+                continue;
+            }
+            const size_t theLen     = strlen(theNamePtr);
+            const bool  theTempFlag = theSuffixLen <= theLen ||
+                0 == memcmp(
+                    theSuffixPtr,
+                    theNamePtr + theLen - theSuffixLen,
+                    theSuffixLen);
+            theName.erase(thePrefixLen);
+            theName += theNamePtr;
+            if (inRenameTmpFlag) {
+                if (! theTempFlag) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "unexpected directory entry: " << theName <<
+                    KFS_LOG_EOM;
+                    theRet = -EINVAL;
+                    break;
+                }
+                theDestName.assign(theName.data(),
+                    theName.size() - theSuffixLen);
+                if (rename(theName.c_str(), theDestName.c_str())) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "rename: " << theName <<
+                        " => "     << theDestName <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    theRet = theErr < 0 ? theErr :
+                        theErr == 0 ? -EINVAL : -theErr;
+                    break;
+                }
+            } else  if ((inDeleteTmpFlag ? theTempFlag : ! theTempFlag)) {
+                if (unlink(theName.c_str())) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "unlink: " << theName <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    theRet = theErr < 0 ? theErr :
+                        theErr == 0 ? -EINVAL : -theErr;
+                    break;
+                }
+            }
+        }
+        closedir(theDirPtr);
+        return theRet;
     }
 private:
     Impl(

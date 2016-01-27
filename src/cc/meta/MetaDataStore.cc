@@ -742,6 +742,8 @@ private:
             }
         }
         theUnlock.Lock();
+        inReadOp.endLogSeq = inReadOp.checkpointFlag ?
+            seq_t(-1) : theEntry.mLogEndSeq;
         theEntry.mUseCount--;
         QCASSERT(0 <= theEntry.mUseCount);
         theEntry.UpdateLru(inLru, mNow);

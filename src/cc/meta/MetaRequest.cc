@@ -5811,6 +5811,9 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
         data.BytesConsumable() << "\r\n" <<
     (shortRpcFormatFlag ? "L:" : "Start-log: ") << startLogSeq << "\r\n" <<
     (shortRpcFormatFlag ? "K:" : "Crc32: ")     << checksum    << "\r\n";
+    if (0 <= endLogSeq) {
+        os << (shortRpcFormatFlag ? "E:" : "End-log: ") << endLogSeq << "\r\n";
+    }
     if (0 <= fileSize) {
         os << (shortRpcFormatFlag ? "S:" : "Size: ") << fileSize << "\r\n";
     }
