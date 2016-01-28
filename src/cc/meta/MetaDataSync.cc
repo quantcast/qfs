@@ -1052,8 +1052,10 @@ private:
         closedir(theDirPtr);
         return theRet;
     }
-    int CountDirEntries(
-        const char* inDirNamePtr)
+    template<typename FuncT>
+    int ListDirEntries(
+        const char* inDirNamePtr,
+        FuncT&      inFunc)
     {
         DIR* const theDirPtr = opendir(inDirNamePtr);
         if (! theDirPtr) {
@@ -1064,7 +1066,6 @@ private:
             KFS_LOG_EOM;
             return -theErr;
         }
-        int                  theRet = 0;
         const struct dirent* thePtr;
         while ((thePtr = readdir(theDirPtr))) {
             const char* const theNamePtr = thePtr->d_name;
@@ -1073,10 +1074,75 @@ private:
                         ('.' == theNamePtr[1] && 0 == theNamePtr[2]))) {
                 continue;
             }
-            theRet++;
+            if (! inFunc(theNamePtr)) {
+                break;
+            }
         }
         closedir(theDirPtr);
-        return theRet;
+        return 0;
+    }
+    class CounterFunc
+    {
+    public:
+        CounterFunc()
+            : mCount(0)
+            {}
+        bool operator()(
+            const char* /* inNamePtr */)
+        {
+            mCount++;
+            return true;
+        }
+        int Get() const
+            { return mCount; }
+    private:
+        int mCount;
+    };
+    int CountDirEntries(
+        const char* inDirNamePtr)
+    {
+        CounterFunc theCount;
+        const int theStatus = ListDirEntries(inDirNamePtr, theCount);
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        return theCount.Get();
+    }
+    class GetMaxLogSeq
+    {
+    public:
+        GetMaxLogSeq()
+            : mSeq(-1)
+            {}
+        bool operator()(
+            const char* inNamePtr)
+        {
+            const char* thePtr = strchr(inNamePtr, '.');
+            if (thePtr) {
+                const char* theEndPtr = strchr(++thePtr, '.');
+                if (theEndPtr) {
+                    seq_t theSeq = -1;
+                    if (DecIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theSeq)) {
+                        mSeq = max(mSeq, theSeq);
+                    }
+                }
+            }
+            return true;
+        }
+        seq_t Get() const
+            { return mSeq; }
+    private:
+        seq_t mSeq;
+    };
+    seq_t GetLastLogSeq()
+    {
+        GetMaxLogSeq theFunc;
+        const int theStatus = ListDirEntries(mLogDir.c_str(), theFunc);
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        return theFunc.Get();
     }
     int64_t GetFsId(
         int64_t inFsId)
