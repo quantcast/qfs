@@ -49,8 +49,9 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters);
     int Start(
-        int64_t        inFileSystemId,
-        MetaDataStore& inMetaDataStore);
+        int64_t     inFileSystemId,
+        const char* inCheckpointDirPtr,
+        const char* inLogDirPtr);
     void Shutdown();
 private:
     class Impl;
