@@ -107,7 +107,7 @@ public:
             false,  // inMaxOneOutstandingOpFlag
             inParameters.mAuthContextPtr
           ),
-          mMetaOpTimeout(mMetaServer.GetOpTimeout()),
+          mMetaOpTimeout(mMetaServer.GetOpTimeoutSec()),
           mMetaTimeBetweenRetries(mMetaServer.GetTimeSecBetweenRetries()),
           mMetaMaxRetryCount(mMetaServer.GetMaxRetryCount()),
           mMetaParamsUpdateFlag(false),

@@ -226,7 +226,6 @@ public:
     int GetOpTimeoutSec() const;
     void SetOpTimeoutSec(
         int inTimeout);
-    int GetOpTimeout() const;
     int GetIdleTimeoutSec() const;
     void SetIdleTimeoutSec(
         int inTimeout);
@@ -240,8 +239,6 @@ public:
     bool WasDisconnected() const;
     void SetRetryConnectOnly(
         bool inFlag);
-    void SetOpTimeout(
-        int inOpTimeoutSec);
     void GetStats(
         Stats& outStats) const;
     bool Enqueue(

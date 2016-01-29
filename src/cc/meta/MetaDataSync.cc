@@ -151,11 +151,20 @@ public:
           mWriteSyncFlag(true),
           mMinWriteSize(4 << 20),
           mMaxReadOpRetryCount(8),
-          mSleepingFlag(false)
+          mSleepingFlag(false),
+          mShutdownNetManagerFlag(false),
+          mCheckStartLogSeqFlag(false),
+          mCheckLogSeqOnlyFlag(false),
+          mKeepLogSegmentsInterval(10),
+          mStatus(0)
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
         mKfsNetClient.SetAuthContext(&mAuthContext);
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
+        mKfsNetClient.SetMaxRetryCount(5);
+        mKfsNetClient.SetOpTimeoutSec(10);
+        mKfsNetClient.SetTimeSecBetweenRetries(4);
+        mKfsNetClient.SetFailAllOpsOnOpTimeoutFlag(true);
     }
     virtual ~Impl()
     {
@@ -186,21 +195,33 @@ public:
         mTmpSuffix = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("tmpSuffix"),
             mTmpSuffix);
-         mMaxRetryCount = inParameters.getValue(
+        mMaxRetryCount = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxRetryCount"),
             mMaxRetryCount);
-         mRetryTimeout = inParameters.getValue(
+        mRetryTimeout = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("retryTimeout"),
             mRetryTimeout);
-         mWriteSyncFlag = inParameters.getValue(
+        mWriteSyncFlag = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("writeSync"),
             mWriteSyncFlag ? 1 : 0) != 0;
-         mMinWriteSize = inParameters.getValue(
+        mMinWriteSize = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("minWriteSize"),
             mMinWriteSize);
-         mMaxReadOpRetryCount = inParameters.getValue(
+        mMaxReadOpRetryCount = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxReadOpRetryCount"),
             mMaxReadOpRetryCount);
+        mKeepLogSegmentsInterval = inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("keepLogSegmentsInterval"),
+            mKeepLogSegmentsInterval);
+        mKfsNetClient.SetOpTimeoutSec(max(1, inParameters.getValue(
+                theName.Truncate(thePrefLen).Append("readOpTimeoutSec"),
+                mKfsNetClient.GetOpTimeoutSec())));
+        mKfsNetClient.SetMaxRetryCount(max(0, inParameters.getValue(
+                theName.Truncate(thePrefLen).Append("maxOpRetryCount"),
+                mKfsNetClient.GetMaxRetryCount())));
+        mKfsNetClient.SetTimeSecBetweenRetries(inParameters.getValue(
+                theName.Truncate(thePrefLen).Append("timeBetweenRetries"),
+                mKfsNetClient.GetTimeSecBetweenRetries()));
         const Properties::String* const theServersPtr = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("servers"));
         bool theOkFlag = true;
@@ -254,16 +275,61 @@ public:
         }
         mCheckpointDir = inCheckpointDirPtr;
         mLogDir        = inLogDirPtr;
-        int64_t const theFsId = GetFsId(inFileSystemId);
+        bool          theEmptyFsFlag = false;
+        int64_t const theFsId        = GetFsId(inFileSystemId, theEmptyFsFlag);
         if (theFsId < 0) {
             return (int)theFsId;
         }
         if (inFileSystemId < 0) {
+            if (theEmptyFsFlag) {
+                KFS_LOG_STREAM_ERROR <<
+                    "file system ID must be set with no meta data" <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
             inFileSystemId = theFsId;
         } else if (theFsId != inFileSystemId) {
             KFS_LOG_STREAM_ERROR <<
-                "file system id mismatch: " <<
+                "file system id mismatch:" <<
+                " expected: " << inFileSystemId <<
+                " actual: "   << theFsId <<
             KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (mServers.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "no servers specified to sync meta data" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (theEmptyFsFlag) {
+            int theRet = InitCheckpoint();
+            if (0 != theRet) {
+                return theRet;
+            }
+            if (0 != (theRet = PrepareToSync())) {
+                return theRet;
+            }
+            mShutdownNetManagerFlag = true;
+            mKfsNetClient.GetNetManager().MainLoop();
+            if (0 != mStatus) {
+                return mStatus;
+            }
+            return CommitSync();
+        } else {
+            mLogSeq = GetLastLogSeq();
+            if (mLogSeq < 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "file system id mismatch: " <<
+                KFS_LOG_EOM;
+            }
+            mShutdownNetManagerFlag = true;
+            LogSeqCheckStart();
+            mStatus = 0;
+            mKfsNetClient.GetNetManager().MainLoop();
+            if (0 != mStatus) {
+                return mStatus;
+            }
         }
         return 0;
     }
@@ -341,7 +407,11 @@ public:
         }
         mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
         mSleepingFlag = false;
-        StartRead();
+        if (mMaxRetryCount < mRetryCount) {
+            HandleError();
+        } else {
+            StartRead();
+        }
     }
 private:
     enum { kMaxCommitLineLen = 512 };
@@ -389,8 +459,34 @@ private:
     int               mMinWriteSize;
     int               mMaxReadOpRetryCount;
     bool              mSleepingFlag;
+    bool              mShutdownNetManagerFlag;
+    bool              mCheckStartLogSeqFlag;
+    bool              mCheckLogSeqOnlyFlag;
+    int               mKeepLogSegmentsInterval;
+    int               mStatus;
     char              mCommmitBuf[kMaxCommitLineLen];
 
+    void LogSeqCheckStart()
+    {
+        QCASSERT(0 <= mLogSeq && ! mServers.empty());
+        if (0 <= mFd) {
+            close(mFd);
+            mFd = -1;
+        }
+        if (mServers.size() < mServerIdx) {
+            mServerIdx = 0;
+        }
+        mKfsNetClient.Stop();
+        QCASSERT(mPendingList.IsEmpty());
+        mKfsNetClient.SetServer(mServers[mServerIdx]);
+        mCheckStartLogSeqFlag = false;
+        mCheckLogSeqOnlyFlag  = true;
+        mCheckpointFlag       = false;
+        mWriteToFileFlag      = false;
+        InitRead();
+        mCurMaxReadSize = 256; // Just check if log sequence exists.
+        StartRead();
+    }
     void InitRead()
     {
         if (! mPendingList.IsEmpty()) {
@@ -403,7 +499,7 @@ private:
         mCurMaxReadSize   = mMaxReadSize;
         mCurBlockChecksum = kKfsNullChecksum;
     }
-    int GetCheckpoint()
+    int InitCheckpoint()
     {
         if (! mReadOpsPtr || mServers.empty()) {
             return -EINVAL;
@@ -418,10 +514,19 @@ private:
         mKfsNetClient.Stop();
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
-        mLogSeq           = -1;
-        mCheckpointFlag   = true;
-        mWriteToFileFlag  = true;
+        mLogSeq               = -1;
+        mCheckpointFlag       = true;
+        mWriteToFileFlag      = true;
+        mCheckStartLogSeqFlag = false;
         InitRead();
+        return 0;
+    }
+    int GetCheckpoint()
+    {
+        const int theRet = InitCheckpoint();
+        if (theRet < 0) {
+            return theRet;
+        }
         if (! StartRead()) {
             panic("metad data sync: failed to iniate checkpoint download");
             return -EFAULT;
@@ -494,6 +599,44 @@ private:
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "file system id mismatch";
                 HandleError(inOp);
+                return;
+            }
+            if (mCheckStartLogSeqFlag && 0 <= mLogSeq &&
+                    mLogSeq != inOp.startLogSeq) {
+                KFS_LOG_STREAM_ERROR <<
+                    "start log sequence mismatch:"
+                    " expect: "   << mLogSeq <<
+                    " received: " << inOp.startLogSeq <<
+                KFS_LOG_EOM;
+                inOp.status    = -EINVAL;
+                inOp.statusMsg = "log sequence mismatch";
+                HandleError(inOp);
+                return;
+            }
+            if (mCheckLogSeqOnlyFlag) {
+                if (mLogSeq < inOp.startLogSeq) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "start log sequence: "      << inOp.startLogSeq <<
+                        " greater than requested: " << mLogSeq <<
+                    KFS_LOG_EOM;
+                    inOp.status    = -EINVAL;
+                    inOp.statusMsg =
+                        "start log sequence greater than requrested";
+                    HandleError(inOp);
+                    return;
+                }
+                if (mPendingList.PopFront() != &inOp ||
+                        ! mPendingList.IsEmpty()) {
+                    panic("metad data sync: invalid pending list");
+                }
+                inOp.Reset();
+                mFreeList.PutFront(inOp);
+                mStatus = 0;
+                if (mShutdownNetManagerFlag) {
+                    mKfsNetClient.GetNetManager().Shutdown();
+                } else {
+                    ScheduleGetLogSeqNextServer();
+                }
                 return;
             }
             mLogSeq         = inOp.startLogSeq;
@@ -673,6 +816,7 @@ private:
         mRetryCount     = 0;
         mCheckpointFlag = false;
         if (0 <= mLogSeq) {
+            mCheckStartLogSeqFlag = true;
             InitRead();
             if (! StartRead()) {
                 panic("metad data sync: failed to iniate download");
@@ -684,6 +828,10 @@ private:
     void DownloadDone(
         int inStatus)
     {
+        mStatus = inStatus;
+        if (mShutdownNetManagerFlag) {
+            mKfsNetClient.GetNetManager().Shutdown();
+        }
     }
     void HandleError(
         ReadOp& inReadOp)
@@ -697,6 +845,14 @@ private:
             " op: "    << inReadOp.mPos <<
             " "        << inReadOp.Show() <<
         KFS_LOG_EOM;
+        mStatus = inReadOp.status;
+        if (mCheckLogSeqOnlyFlag) {
+            if (-ENOENT == mStatus ||
+                    KfsNetClient::kErrorMaxRetryReached == mStatus) {
+                ScheduleGetLogSeqNextServer();
+                return;
+            }
+        }
         const int64_t thePos = inReadOp.mPos;
         inReadOp.Reset();
         if (++inReadOp.mRetryCount < mMaxReadOpRetryCount) {
@@ -706,6 +862,19 @@ private:
             }
         }
         HandleError();
+    }
+    void ScheduleGetLogSeqNextServer()
+    {
+        Reset();
+        if (++mServerIdx < mServers.size()) {
+            Sleep(0);
+        } else {
+            if (mShutdownNetManagerFlag) {
+                mKfsNetClient.GetNetManager().Shutdown();
+            } else {
+                Sleep(mKeepLogSegmentsInterval);
+            }
+        }
     }
     void HandleError(
         MetaLogWriterControl& inOp)
@@ -720,12 +889,32 @@ private:
         Reset();
         mRetryCount++;
         if (mMaxRetryCount < mRetryCount) {
-            DownloadDone(-EIO);
-            return;
+            if (mWriteToFileFlag) {
+                if (0 == (mStatus = PrepareToSync())) {
+                    mMaxRetryCount = 0;
+                    mServerIdx++;
+                    if (0 != InitCheckpoint()) {
+                        panic("metad data sync: init checkpoint failure");
+                    }
+                } else {
+                    if (mShutdownNetManagerFlag) {
+                        mKfsNetClient.GetNetManager().Shutdown();
+                        return;
+                    }
+                }
+            } else {
+                if (mCheckLogSeqOnlyFlag) {
+                    ScheduleGetLogSeqNextServer();
+                } else {
+                    DownloadDone(-EIO);
+                }
+                return;
+            }
         }
         KFS_LOG_STREAM_ERROR <<
-            "retry: " << mRetryCount <<
-            " of "    << mMaxRetryCount <<
+            "retry: "   << mRetryCount <<
+            " of "      << mMaxRetryCount <<
+            " server: " << mKfsNetClient.GetServerLocation() <<
             " scheduling retry in: " << mRetryTimeout <<
         KFS_LOG_EOM;
         Sleep(mRetryTimeout);
@@ -1145,12 +1334,14 @@ private:
         return theFunc.Get();
     }
     int64_t GetFsId(
-        int64_t inFsId)
+        int64_t inFsId,
+        bool&   outEmpytFsFlag)
     {
         string theFileName(mCheckpointDir.data(), mCheckpointDir.size());
         if (! theFileName.empty() && '/' != *theFileName.rbegin()) {
             theFileName += '/';
         }
+        outEmpytFsFlag = false;
         theFileName +=  "latest";
         const int theFd = open(theFileName.c_str(), O_RDONLY);
         if (theFd < 0) {
@@ -1183,6 +1374,7 @@ private:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
+            outEmpytFsFlag = true;
             return inFsId;
         }
         StBufferT<char, 1> theBuf;

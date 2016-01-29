@@ -55,7 +55,7 @@ getFsckInfo(MonClient& client, const ServerLocation& loc,
     bool reportAbandonedFilesFlag, int timeoutSec)
 {
     client.SetMaxContentLength(512 << 20);
-    client.SetOpTimeout(timeoutSec);
+    client.SetOpTimeoutSec(timeoutSec);
 
     FsckOp op(0, reportAbandonedFilesFlag);
     const int ret = client.Execute(loc, op);

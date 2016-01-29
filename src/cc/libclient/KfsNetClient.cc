@@ -455,11 +455,6 @@ public:
     void SetRetryConnectOnly(
         bool inFlag)
         { mRetryConnectOnlyFlag = inFlag; }
-    void SetOpTimeout(
-        int inOpTimeoutSec)
-        { mOpTimeoutSec = inOpTimeoutSec; }
-    int GetOpTimeout() const
-        { return mOpTimeoutSec; }
     void GetStats(
         Stats& outStats) const
         { outStats = mStats; }
@@ -2038,20 +2033,6 @@ KfsNetClient::SetMaxRetryCount(
 }
 
     int
-KfsNetClient::GetOpTimeoutSec() const
-{
-    return mImpl.GetOpTimeoutSec();
-}
-
-    void
-KfsNetClient::SetOpTimeoutSec(
-    int inTimeout)
-{
-    Impl::StRef theRef(mImpl);
-    mImpl.SetOpTimeoutSec(inTimeout);
-}
-
-    int
 KfsNetClient::GetIdleTimeoutSec() const
 {
     return mImpl.GetIdleTimeoutSec();
@@ -2118,17 +2099,17 @@ KfsNetClient::SetRetryConnectOnly(
 }
 
     int
-KfsNetClient::GetOpTimeout() const
+KfsNetClient::GetOpTimeoutSec() const
 {
-    return mImpl.GetOpTimeout();
+    return mImpl.GetOpTimeoutSec();
 }
 
     void
-KfsNetClient::SetOpTimeout(
+KfsNetClient::SetOpTimeoutSec(
     int inOpTimeoutSec)
 {
     Impl::StRef theRef(mImpl);
-    mImpl.SetOpTimeout(inOpTimeoutSec);
+    mImpl.SetOpTimeoutSec(inOpTimeoutSec);
 }
 
     void
