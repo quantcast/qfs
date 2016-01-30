@@ -31,6 +31,7 @@
 #include "util.h"
 
 #include "qcdio/qcdebug.h"
+#include "qcdio/QCThread.h"
 
 #include "common/MsgLogger.h"
 #include "common/SingleLinkedQueue.h"
@@ -64,7 +65,8 @@ using client::KfsOp;
 class MetaDataSync::Impl :
     public KfsNetClient::OpOwner,
     public ITimeout,
-    public KfsCallbackObj
+    public KfsCallbackObj,
+    public QCRunnable
 {
 private:
     class ReadOp : public client::MetaReadMetaData
@@ -114,6 +116,7 @@ public:
         : OpOwner(),
           ITimeout(),
           KfsCallbackObj(),
+          QCRunnable(),
           mKfsNetClient(inNetManager),
           mServers(),
           mFileName(),
@@ -156,7 +159,9 @@ public:
           mCheckStartLogSeqFlag(false),
           mCheckLogSeqOnlyFlag(false),
           mKeepLogSegmentsInterval(10),
-          mStatus(0)
+          mNoLogSeqCount(0),
+          mStatus(0),
+          mThread()
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
         mKfsNetClient.SetAuthContext(&mAuthContext);
@@ -302,42 +307,64 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        if (theEmptyFsFlag) {
-            int theRet = InitCheckpoint();
-            if (0 != theRet) {
-                return theRet;
-            }
-            if (0 != (theRet = PrepareToSync())) {
-                return theRet;
-            }
-            mShutdownNetManagerFlag = true;
-            mStatus                 = 0;
-            mKfsNetClient.GetNetManager().MainLoop();
-            mShutdownNetManagerFlag = false;
-            if (0 != mStatus) {
-                return mStatus;
-            }
-            return CommitSync();
-        } else {
+        if (! theEmptyFsFlag) {
             mLogSeq = GetLastLogSeq();
             if (mLogSeq < 0) {
                 KFS_LOG_STREAM_ERROR <<
-                    "file system id mismatch: " <<
+                    "failed to obtain log segment sequence" <<
                 KFS_LOG_EOM;
+                return -EINVAL;
             }
             mShutdownNetManagerFlag = true;
             mStatus                 = 0;
             LogSeqCheckStart();
             mKfsNetClient.GetNetManager().MainLoop();
             mShutdownNetManagerFlag = false;
-            if (0 != mStatus) {
+            if (0 != mStatus && mNoLogSeqCount <= 0) {
                 return mStatus;
             }
         }
+        int theRet = InitCheckpoint();
+        if (0 != theRet) {
+            return theRet;
+        }
+        if (0 != (theRet = PrepareToSync())) {
+            return theRet;
+        }
+        mShutdownNetManagerFlag = true;
+        mStatus                 = 0;
+        mKfsNetClient.GetNetManager().MainLoop();
+        mShutdownNetManagerFlag = false;
+        if (0 != mStatus) {
+            return mStatus;
+        }
+        theRet = CommitSync();
+        if (0 != theRet) {
+            return theRet;
+        }
+        mLogSeq = -mLogSeq;
+        mStatus = 0;
+        LogSeqCheckStart();
+        int kStackSize = 64 << 10;
+        mThread.Start(this, kStackSize, "MetaSyncKeepLogs");
         return 0;
+    }
+    void StartLogSync(
+        seq_t inLogSeq)
+    {
+        StopKeepData();
+        Reset();
+        mLogSeq          = inLogSeq;
+        mWriteToFileFlag = false;
+        mStatus          = 0;
+    }
+    virtual void Run()
+    {
+        mKfsNetClient.GetNetManager().MainLoop();
     }
     void Shutdown()
     {
+        StopKeepData();
         if (mSleepingFlag) {
             mSleepingFlag = false;
             mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
@@ -466,9 +493,18 @@ private:
     bool              mCheckStartLogSeqFlag;
     bool              mCheckLogSeqOnlyFlag;
     int               mKeepLogSegmentsInterval;
+    int               mNoLogSeqCount;
     int               mStatus;
+    QCThread          mThread;
     char              mCommmitBuf[kMaxCommitLineLen];
 
+    void StopKeepData()
+    {
+        if (mThread.IsStarted()) {
+            mKfsNetClient.GetNetManager().Shutdown();
+            mThread.Join();
+        }
+    }
     void LogSeqCheckStart()
     {
         QCASSERT(0 <= mLogSeq && ! mServers.empty());
@@ -486,6 +522,7 @@ private:
         mCheckLogSeqOnlyFlag  = true;
         mCheckpointFlag       = false;
         mWriteToFileFlag      = false;
+        mNoLogSeqCount        = 0;
         InitRead();
         mCurMaxReadSize = 256; // Just check if log sequence exists.
         StartRead();
@@ -778,7 +815,8 @@ private:
                 }
             }
             if (theEofFlag && ! mCheckpointFlag) {
-                mLogSeq = theOpPtr->endLogSeq;
+                mLogSeq = theOpPtr->endLogSeq < 0 ?
+                    -theOpPtr->startLogSeq : theOpPtr->endLogSeq;
             }
             theOpPtr->Reset();
             mPendingList.PopFront();
@@ -852,6 +890,9 @@ private:
         if (mCheckLogSeqOnlyFlag) {
             if (-ENOENT == mStatus ||
                     KfsNetClient::kErrorMaxRetryReached == mStatus) {
+                if (-ENOENT == mStatus) {
+                    mNoLogSeqCount++;
+                }
                 ScheduleGetLogSeqNextServer();
                 return;
             }
@@ -1147,47 +1188,41 @@ private:
     int PrepareToSync()
     {
         const bool kDeleteTmpFlag = true;
-        const bool kRenameFlag    = false;
-        return DeleteOrRenameTmp(mLogDir, kDeleteTmpFlag, kRenameFlag);
+        const int  theRet         = DeleteTmp(mLogDir, kDeleteTmpFlag);
+        if (0 != theRet) {
+            return theRet;
+        }
+        return DeleteTmp(mCheckpointDir, kDeleteTmpFlag);
     }
     int CommitSync()
     {
         const bool kDeleteTmpFlag = false;
-        bool       theRenameFlag  = false;
-        const int theRet = DeleteOrRenameTmp(
-            mLogDir, kDeleteTmpFlag, theRenameFlag);
-        theRenameFlag = true;
-        return (0 != theRet ? theRet : DeleteOrRenameTmp(
-            mLogDir, kDeleteTmpFlag, theRenameFlag));
-    }
-    int DeleteOrRenameTmp(
-        const string& inDirName,
-        bool          inDeleteTmpFlag,
-        bool          inRenameTmpFlag)
-    {
-        if (! inDirName.empty() || mTmpSuffix.empty()) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid parameters"
-                " direcotry: "  << inDirName <<
-                " siffix: "     << mTmpSuffix <<
-            KFS_LOG_EOM;
-            return -EINVAL;
+        int        theRet;
+        if (0 != (theRet = DeleteTmp(mLogDir, kDeleteTmpFlag))) {
+            return theRet;
         }
-        DIR* const theDirPtr = opendir(inDirName.c_str());
+        if (0 != (theRet = RenameTmp(mLogDir))) {
+            return theRet;
+        }
+        if (0 != (theRet = DeleteTmp(mCheckpointDir, kDeleteTmpFlag))) {
+            return theRet;
+        }
+        return RenameTmp(mCheckpointDir);
+    }
+    template<typename FuncT>
+    int ListDirEntries(
+        const char* inDirNamePtr,
+        FuncT&      inFunc)
+    {
+        DIR* const theDirPtr = opendir(inDirNamePtr);
         if (! theDirPtr) {
             const int theErr = errno;
             KFS_LOG_STREAM_ERROR <<
-                "opendir: " << inDirName <<
-                ": " << QCUtils::SysError(theErr) <<
+                "opendir " << inDirNamePtr << ": " <<
+                QCUtils::SysError(theErr) <<
             KFS_LOG_EOM;
-            return (0 < theErr ? -theErr : -EINVAL);
+            return (theErr < 0 ? theErr : (0 != theErr ? -theErr : -EINVAL));
         }
-        string theName(inDirName.data(), inDirName.size());
-        if ('/' != *theName.rbegin()) {
-            theName += '/';
-        }
-        string theDestName;
-        const size_t         thePrefixLen = theName.size();
         const size_t         theSuffixLen = mTmpSuffix.size();
         const char* const    theSuffixPtr = mTmpSuffix.data();
         int                  theRet       = 0;
@@ -1199,79 +1234,148 @@ private:
                         ('.' == theNamePtr[1] && 0 == theNamePtr[2]))) {
                 continue;
             }
-            const size_t theLen     = strlen(theNamePtr);
-            const bool  theTempFlag = theSuffixLen <= theLen ||
-                0 == memcmp(
-                    theSuffixPtr,
-                    theNamePtr + theLen - theSuffixLen,
-                    theSuffixLen);
-            theName.erase(thePrefixLen);
-            theName += theNamePtr;
-            if (inRenameTmpFlag) {
-                if (! theTempFlag) {
-                    KFS_LOG_STREAM_ERROR <<
-                        "unexpected directory entry: " << theName <<
-                    KFS_LOG_EOM;
-                    theRet = -EINVAL;
-                    break;
-                }
-                theDestName.assign(theName.data(),
-                    theName.size() - theSuffixLen);
-                if (rename(theName.c_str(), theDestName.c_str())) {
-                    const int theErr = errno;
-                    KFS_LOG_STREAM_ERROR <<
-                        "rename: " << theName <<
-                        " => "     << theDestName <<
-                        ": " << QCUtils::SysError(theErr) <<
-                    KFS_LOG_EOM;
-                    theRet = theErr < 0 ? theErr :
-                        theErr == 0 ? -EINVAL : -theErr;
-                    break;
-                }
-            } else  if ((inDeleteTmpFlag ? theTempFlag : ! theTempFlag)) {
-                if (unlink(theName.c_str())) {
-                    const int theErr = errno;
-                    KFS_LOG_STREAM_ERROR <<
-                        "unlink: " << theName <<
-                        ": " << QCUtils::SysError(theErr) <<
-                    KFS_LOG_EOM;
-                    theRet = theErr < 0 ? theErr :
-                        theErr == 0 ? -EINVAL : -theErr;
-                    break;
-                }
+            const size_t theLen = strlen(theNamePtr);
+            if (0 != (theRet = inFunc(
+                    theNamePtr,
+                    theLen,
+                    0 < theSuffixLen && (theSuffixLen <= theLen ||
+                    0 == memcmp(
+                        theSuffixPtr,
+                        theNamePtr + theLen - theSuffixLen,
+                        theSuffixLen))))) {
+                break;
             }
         }
         closedir(theDirPtr);
         return theRet;
     }
-    template<typename FuncT>
-    int ListDirEntries(
-        const char* inDirNamePtr,
-        FuncT&      inFunc)
+    class SetPathName
     {
-        DIR* const theDirPtr = opendir(inDirNamePtr);
-        if (! theDirPtr) {
-            const int theErr = errno;
+    protected:
+        SetPathName(
+            const string& inDirName)
+            : mName(inDirName.data(), inDirName.size()),
+              mPrefixLen(mName.size())
+        {
+            if (! mName.empty() && '/' != *mName.rbegin()) {
+                mName += '/';
+                mPrefixLen++;
+            }
+        }
+        const string& SetName(
+            const char* inNamePtr,
+            size_t      inLength)
+        {
+            mName.erase(mPrefixLen);
+            mName.append(inNamePtr, inLength);
+            return mName;
+        }
+        string mName;
+        size_t mPrefixLen;
+    private:
+        SetPathName(
+            const SetPathName&);
+        SetPathName& operator=(
+            const SetPathName&);
+    };
+    class RenameTmpFunc : private SetPathName 
+    {
+    public:
+        RenameTmpFunc(
+            const string& inDirName,
+            size_t        inSuffixLen)
+            : SetPathName(inDirName),
+              mSuffixLen(inSuffixLen),
+              mDestName()
+            {}
+        int operator()(
+            const char* inNamePtr,
+            size_t      inLength,
+            bool        inTmpSuffixFlag)
+        {
+            SetName(inNamePtr, inLength);
+            if (! inTmpSuffixFlag || inLength <= mSuffixLen) {
+                KFS_LOG_STREAM_ERROR <<
+                    "unexpected directory entry: " << mName <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+            mDestName.assign(mName.data(), mName.size() - mSuffixLen);
+            if (rename(mName.c_str(), mDestName.c_str())) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    "rename: " << mName <<
+                    " => "     << mDestName <<
+                    ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                return (theErr < 0 ? theErr :
+                    theErr == 0 ? -EINVAL : -theErr);
+            }
+            return 0;
+        }
+    private:
+        size_t const mSuffixLen;
+        string       mDestName;
+    };
+    int RenameTmp(
+        string& inDirName)
+    {
+        if (inDirName.empty() || mTmpSuffix.empty()) {
             KFS_LOG_STREAM_ERROR <<
-                "opendir " << mCheckpointDir << ": " <<
-                QCUtils::SysError(theErr) <<
+                "invalid parameters"
+                " direcotry: "  << inDirName <<
+                " siffix: "     << mTmpSuffix <<
             KFS_LOG_EOM;
-            return -theErr;
+            return -EINVAL;
         }
-        const struct dirent* thePtr;
-        while ((thePtr = readdir(theDirPtr))) {
-            const char* const theNamePtr = thePtr->d_name;
-            if ('.' == theNamePtr[0] &&
-                    (0 == theNamePtr[1] ||
-                        ('.' == theNamePtr[1] && 0 == theNamePtr[2]))) {
-                continue;
+        RenameTmpFunc theFunc(inDirName, mTmpSuffix.size());
+        return ListDirEntries(inDirName.c_str(), theFunc);
+    }
+    class DeleteFunc : private SetPathName 
+    {
+    public:
+        DeleteFunc(
+            const string& inDirName,
+            bool          inDeleteTmpFlag)
+            : SetPathName(inDirName),
+              mDeleteTmpFlag(inDeleteTmpFlag)
+            {}
+        bool operator()(
+            const char* inNamePtr,
+            size_t      inLength,
+            bool        inTmpSuffixFlag)
+        {
+            if ((mDeleteTmpFlag ? inTmpSuffixFlag : ! inTmpSuffixFlag)) {
+                SetName(inNamePtr, inLength);
+                if (unlink(mName.c_str())) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "unlink: " << mName <<
+                        ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    return (theErr < 0 ? theErr :
+                        theErr == 0 ? -EINVAL : -theErr);
+                }
             }
-            if (! inFunc(theNamePtr)) {
-                break;
-            }
+            return 0;
         }
-        closedir(theDirPtr);
-        return 0;
+    private:
+        const bool mDeleteTmpFlag;
+    };
+    int DeleteTmp(
+        string& inDirName,
+        bool    inDeleteTmpFlag)
+    {
+        if (inDirName.empty() || mTmpSuffix.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid parameters"
+                " direcotry: "  << inDirName <<
+                " siffix: "     << mTmpSuffix <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        DeleteFunc theFunc(inDirName, inDeleteTmpFlag);
+        return ListDirEntries(inDirName.c_str(), theFunc);
     }
     class CounterFunc
     {
@@ -1279,16 +1383,25 @@ private:
         CounterFunc()
             : mCount(0)
             {}
-        bool operator()(
-            const char* /* inNamePtr */)
+        int operator()(
+            const char* /* inNamePtr */,
+            size_t      /* inLength */,
+            bool        inTmpSuffixFlag)
         {
-            mCount++;
-            return true;
+            if (! inTmpSuffixFlag) {
+                mCount++;
+            }
+            return 0;
         }
         int Get() const
             { return mCount; }
     private:
         int mCount;
+    private:
+        CounterFunc(
+            const CounterFunc&);
+        CounterFunc& operator=(
+            const CounterFunc&);
     };
     int CountDirEntries(
         const char* inDirNamePtr)
@@ -1306,9 +1419,14 @@ private:
         GetMaxLogSeq()
             : mSeq(-1)
             {}
-        bool operator()(
-            const char* inNamePtr)
+        int operator()(
+            const char* inNamePtr,
+            size_t      inLength,
+            bool        inTmpSuffixFlag)
         {
+            if (inTmpSuffixFlag) {
+                return 0;
+            }
             const char* thePtr = strchr(inNamePtr, '.');
             if (thePtr) {
                 const char* theEndPtr = strchr(++thePtr, '.');
@@ -1320,12 +1438,17 @@ private:
                     }
                 }
             }
-            return true;
+            return 0;
         }
         seq_t Get() const
             { return mSeq; }
     private:
         seq_t mSeq;
+    private:
+        GetMaxLogSeq(
+            const GetMaxLogSeq&);
+        GetMaxLogSeq& operator=(
+            const GetMaxLogSeq&);
     };
     seq_t GetLastLogSeq()
     {
@@ -1449,6 +1572,13 @@ MetaDataSync::Start(
     const char* inLogDirPtr)
 {
     return mImpl.Start(inFileSystemId, inCheckpointDirPtr, inLogDirPtr);
+}
+
+    void
+MetaDataSync::StartLogSync(
+    seq_t inLogSeq)
+{
+    mImpl.StartLogSync(inLogSeq);
 }
 
     void

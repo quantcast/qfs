@@ -36,7 +36,6 @@ namespace KFS
 class Properties;
 class Prameters;
 class NetManager;
-class MetaDataStore;
 
 class MetaDataSync
 {
@@ -53,6 +52,8 @@ public:
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr);
     void Shutdown();
+    void StartLogSync(
+        seq_t inLogSeq);
 private:
     class Impl;
     Impl& mImpl;
