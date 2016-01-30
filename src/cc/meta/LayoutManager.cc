@@ -1659,6 +1659,7 @@ LayoutManager::LayoutManager() :
     mBufferPool(0),
     mMightHaveRetiringServersFlag(false),
     mRackPrefixUsePortFlag(false),
+    mUseCSRackAssignmentFlag(false),
     mRackPrefixes(),
     mRackWeights(),
     mChunkServerMd5sums(),
@@ -2108,6 +2109,10 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mRackPrefixUsePortFlag = props.getValue(
         "metaServer.rackPrefixUsePort",
         mRackPrefixUsePortFlag ? 1 : 0) != 0;
+    mUseCSRackAssignmentFlag = props.getValue(
+        "metaServer.useCSRackAssignment",
+        mUseCSRackAssignmentFlag ? 1 : 0) != 0;
+
     HibernatedChunkServer::SetParameters(props);
 
     mRackPrefixes.clear();
@@ -3244,9 +3249,14 @@ LayoutManager::AddNewServer(MetaHello* r)
 
     const uint64_t allocSpace = r->chunks.size() * CHUNKSIZE;
     srv.SetSpace(r->totalSpace, r->usedSpace, allocSpace);
-    RackId rackId = GetRackId(srvId);
-    if (rackId < 0 && r->rackId >= 0) {
+    RackId rackId;
+    if (mUseCSRackAssignmentFlag && 0 <= r->rackId) {
         rackId = r->rackId;
+    } else {
+        rackId = GetRackId(srvId);
+        if (rackId < 0 && 0 <= r->rackId) {
+            rackId = r->rackId;
+        }
     }
     srv.SetRack(rackId);
     // Ensure that rack exists before invoking UpdateSrvLoadAvg(), as it

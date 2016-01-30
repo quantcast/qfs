@@ -2223,6 +2223,7 @@ protected:
     typedef map<int, double>           RackWeights;
     typedef vector<string>             ChunkServersMd5sums;
     bool                mRackPrefixUsePortFlag;
+    bool                mUseCSRackAssignmentFlag;
     RackPrefixes        mRackPrefixes;
     RackWeights         mRackWeights;
     ChunkServersMd5sums mChunkServerMd5sums;
