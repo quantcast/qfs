@@ -311,7 +311,9 @@ public:
                 return theRet;
             }
             mShutdownNetManagerFlag = true;
+            mStatus                 = 0;
             mKfsNetClient.GetNetManager().MainLoop();
+            mShutdownNetManagerFlag = false;
             if (0 != mStatus) {
                 return mStatus;
             }
@@ -324,9 +326,10 @@ public:
                 KFS_LOG_EOM;
             }
             mShutdownNetManagerFlag = true;
+            mStatus                 = 0;
             LogSeqCheckStart();
-            mStatus = 0;
             mKfsNetClient.GetNetManager().MainLoop();
+            mShutdownNetManagerFlag = false;
             if (0 != mStatus) {
                 return mStatus;
             }
