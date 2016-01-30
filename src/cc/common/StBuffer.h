@@ -28,7 +28,6 @@
 
 #include <string>
 #include <algorithm>
-#include <ostream>
 
 #include <string.h>
 #include <stdlib.h>
@@ -36,7 +35,6 @@
 namespace KFS
 {
 using std::string;
-using std::ostream;
 using std::min;
 using std::copy;
 using std::swap;
@@ -517,9 +515,9 @@ inline static bool operator==(
     return (inBuf == inStrPtr);
 }
 
-template<size_t DEFAULT_CAPACITY>
-inline static ostream& operator<<(
-    ostream&                       inStream,
+template<size_t DEFAULT_CAPACITY, typename ST>
+inline static ST& operator<<(
+    ST&                                 inStream,
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
 {
     const size_t theSize = inBuf.GetSize();

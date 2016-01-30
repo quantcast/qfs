@@ -35,6 +35,7 @@ namespace KFS
 
 struct ServerLocation;
 class CIdChecksum;
+template <size_t> class StringBufT;
 
 template<typename T>
 class ReqOstreamT
@@ -56,6 +57,9 @@ public:
         { mStream << inLoc; return *this; }
     ST& operator<<(const CIdChecksum& inChecksum)
         { mStream << inChecksum; return *this; }
+    template<size_t DEFAULT_CAPACITY>
+    ST& operator<<(const StringBufT<DEFAULT_CAPACITY>& inVal)
+        { mStream << inVal; return *this; }
     template<typename VT>
     ST& operator<<(const VT& inVal) { mStream << inVal; return *this; }
     ST& flush() { mStream.flush(); return *this; }

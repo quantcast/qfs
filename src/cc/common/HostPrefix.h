@@ -29,20 +29,22 @@
 #define KFS_HOSTPREFIX_H
 
 #include "kfsdecls.h"
+#include "StBuffer.h"
+#include "IntToString.h"
 
 #include <string.h>
+
 #include <string>
-#include <istream>
-#include <ostream>
-#include <sstream>
+#include <vector>
+#include <utility>
+#include <algorithm>
 
 namespace KFS
 {
 using std::string;
 using std::vector;
-using std::istream;
-using std::ostringstream;
 using std::make_pair;
+using std::min;
 
 class HostPrefix
 {
@@ -58,15 +60,17 @@ public:
             mMinLen == inOther.mMinLen &&
             memcmp(mPrefix, inOther.mPrefix, mLen) == 0);
     }
+    template<typename T>
     bool Match(
-        const string& inHost) const
+        const T& inHost) const
     {
         return (inHost.length() >= mMinLen &&
             memcmp(inHost.data(), mPrefix, mLen) == 0);
 
     }
+    template<typename T>
     size_t Parse(
-        const string& inPref)
+        const T& inPref)
     {
         // Allow to position prefix with trailing ??
         // For example: 10.6.34.2?
@@ -93,9 +97,9 @@ public:
         {}
     void clear()
         { mHostPrefixes.clear(); }
-    template<typename TValidator>
+    template<typename ST, typename TValidator>
     void Load(
-        istream&    inStream,
+        ST&         inStream,
         TValidator* inValidatorPtr = 0,
         const T&    inDefault      = T())
     {
@@ -121,17 +125,19 @@ public:
             if (mHostPrefixes.empty()) {
                 return inDefault;
             }
-            ostringstream theStream;
-            theStream << inLocation.hostname << ":" << inLocation.port;
-            const string theName = theStream.str();
+            StringBufT<64> theName(
+                inLocation.hostname.data(), inLocation.hostname.size());
+            theName.Append((char)':');
+            AppendDecIntToString(theName, inLocation.port);
             return GetId(theName, inDefault);
         } else {
             return GetId(inLocation.hostname, inDefault);
         }
     }
+    template<typename ST>
     T GetId(
-        const string& inName,
-        const T&      inDefault) const
+        const ST& inName,
+        const T&  inDefault) const
     {
         typename HostPrefixes::const_iterator theIt = mHostPrefixes.begin();
         while (theIt != mHostPrefixes.end()) {
