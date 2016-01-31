@@ -117,7 +117,9 @@ public:
           ITimeout(),
           KfsCallbackObj(),
           QCRunnable(),
-          mKfsNetClient(inNetManager),
+          mRuntimeNetManager(inNetManager),
+          mStartupNetManager(),
+          mKfsNetClient(mStartupNetManager),
           mServers(),
           mFileName(),
           mCheckpointDir(),
@@ -161,7 +163,9 @@ public:
           mKeepLogSegmentsInterval(10),
           mNoLogSeqCount(0),
           mStatus(0),
-          mThread()
+          mLogWriteStatus(0),
+          mThread(),
+          mReplayerPtr(0)
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
         mKfsNetClient.SetAuthContext(&mAuthContext);
@@ -218,6 +222,9 @@ public:
         mKeepLogSegmentsInterval = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("keepLogSegmentsInterval"),
             mKeepLogSegmentsInterval);
+        mFileSystemId = inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("fileSystemId"),
+            mFileSystemId);
         mKfsNetClient.SetOpTimeoutSec(max(1, inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("readOpTimeoutSec"),
                 mKfsNetClient.GetOpTimeoutSec())));
@@ -230,7 +237,7 @@ public:
         const Properties::String* const theServersPtr = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("servers"));
         bool theOkFlag = true;
-        if (theServersPtr) {
+        if (theServersPtr && ! mReadOpsPtr) {
             const char*       thePtr      = theServersPtr->GetPtr();
             const char* const theEndPtr   = thePtr + theServersPtr->GetSize();
             const bool        kHexFmtFlag = false;
@@ -265,13 +272,18 @@ public:
         return (theOkFlag ? theRet : -EINVAL);
     }
     int Start(
-        int64_t     inFileSystemId,
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr)
     {
         if (mReadOpsPtr || ! inCheckpointDirPtr || ! *inCheckpointDirPtr ||
                 ! inLogDirPtr || ! *inLogDirPtr) {
+            KFS_LOG_STREAM_ERROR <<
+                "meta data sync: invalid parameters" <<
+            KFS_LOG_EOM;
             return -EINVAL;
+        }
+        if (mServers.empty()) {
+            return 0;
         }
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mReadOpsPtr = new ReadOp[mReadOpsCount];
@@ -281,29 +293,23 @@ public:
         mCheckpointDir = inCheckpointDirPtr;
         mLogDir        = inLogDirPtr;
         bool          theEmptyFsFlag = false;
-        int64_t const theFsId        = GetFsId(inFileSystemId, theEmptyFsFlag);
+        int64_t const theFsId        = GetFsId(mFileSystemId, theEmptyFsFlag);
         if (theFsId < 0) {
             return (int)theFsId;
         }
-        if (inFileSystemId < 0) {
+        if (mFileSystemId < 0) {
             if (theEmptyFsFlag) {
                 KFS_LOG_STREAM_ERROR <<
                     "file system ID must be set with no meta data" <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
-            inFileSystemId = theFsId;
-        } else if (theFsId != inFileSystemId) {
+            mFileSystemId = theFsId;
+        } else if (theFsId != mFileSystemId) {
             KFS_LOG_STREAM_ERROR <<
                 "file system id mismatch:" <<
-                " expected: " << inFileSystemId <<
+                " expected: " << mFileSystemId <<
                 " actual: "   << theFsId <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        if (mServers.empty()) {
-            KFS_LOG_STREAM_ERROR <<
-                "no servers specified to sync meta data" <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
@@ -350,17 +356,33 @@ public:
         return 0;
     }
     void StartLogSync(
-        seq_t inLogSeq)
+        seq_t                  inLogSeq,
+        LogReceiver::Replayer& inReplayer)
     {
+        if (! mReadOpsPtr) {
+            return;
+        }
         StopKeepData();
         Reset();
+        mReplayerPtr     = &inReplayer;
         mLogSeq          = inLogSeq;
         mWriteToFileFlag = false;
+        mLogWriteStatus  = 0;
         mStatus          = 0;
+        mKfsNetClient.SetNetManager(mRuntimeNetManager);
+        if (mServers.empty()) {
+            return;
+        }
+        LogSeqCheckStart();
     }
     virtual void Run()
     {
         mKfsNetClient.GetNetManager().MainLoop();
+        Reset();
+        if (mSleepingFlag) {
+            mSleepingFlag = false;
+            mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
+        }
     }
     void Shutdown()
     {
@@ -450,7 +472,10 @@ private:
         MetaRequest,
         MetaRequest::GetNext
     > FreeWriteOpList;
+    typedef LogReceiver::Replayer Replayer;
 
+    NetManager&       mRuntimeNetManager;
+    NetManager        mStartupNetManager;
     KfsNetClient      mKfsNetClient;
     Servers           mServers;
     string            mFileName;
@@ -495,7 +520,9 @@ private:
     int               mKeepLogSegmentsInterval;
     int               mNoLogSeqCount;
     int               mStatus;
+    int               mLogWriteStatus;
     QCThread          mThread;
+    Replayer*         mReplayerPtr;
     char              mCommmitBuf[kMaxCommitLineLen];
 
     void StopKeepData()
@@ -1168,6 +1195,25 @@ private:
         mLogWritesInFlightCount--;
         MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
             inDataPtr);
+        KFS_LOG_STREAM(0 == theOp.status ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR) <<
+            "log write:"
+            " status: " << theOp.status <<
+            " "         << theOp.statusMsg <<
+            " last: "   << theOp.lastLogSeq <<
+            " "         << theOp.Show() <<
+        KFS_LOG_EOM;
+        if (0 == theOp.status &&
+                theOp.committed == theOp.blockEndSeq &&
+                mReplayerPtr) {
+            mReplayerPtr->Apply(theOp);
+            return 0;
+        }
+        if (mLogWriteStatus == 0) {
+            mLogWriteStatus = theOp.status;
+        }
+        Reset();
         theOp.blockData.Clear();
         theOp.blockLines.Clear();
         theOp.statusMsg.clear();
@@ -1527,7 +1573,7 @@ private:
                 thePtr += 21;
                 const char* theEndPtr = strchr(thePtr, '/');
                 if (! theEndPtr ||
-                        ! HexIntParser::Parse(
+                        ! DecIntParser::Parse(
                             thePtr, theEndPtr - thePtr, theRet)) {
                     KFS_LOG_STREAM_ERROR <<
                         "file system id parse failure: " <<
@@ -1567,18 +1613,18 @@ MetaDataSync::SetParameters(
 
     int
 MetaDataSync::Start(
-    int64_t     inFileSystemId,
     const char* inCheckpointDirPtr,
     const char* inLogDirPtr)
 {
-    return mImpl.Start(inFileSystemId, inCheckpointDirPtr, inLogDirPtr);
+    return mImpl.Start(inCheckpointDirPtr, inLogDirPtr);
 }
 
     void
 MetaDataSync::StartLogSync(
-    seq_t inLogSeq)
+    seq_t                  inLogSeq,
+    LogReceiver::Replayer& inReplayer)
 {
-    mImpl.StartLogSync(inLogSeq);
+    mImpl.StartLogSync(inLogSeq, inReplayer);
 }
 
     void

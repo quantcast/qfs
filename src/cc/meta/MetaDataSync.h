@@ -28,13 +28,14 @@
 #ifndef KFS_META_DATA_SYNC_H
 #define KFS_META_DATA_SYNC_H
 
+#include "LogReceiver.h"
+
 #include "common/kfstypes.h"
 
 namespace KFS
 {
 
 class Properties;
-class Prameters;
 class NetManager;
 
 class MetaDataSync
@@ -48,12 +49,12 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters);
     int Start(
-        int64_t     inFileSystemId,
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr);
     void Shutdown();
     void StartLogSync(
-        seq_t inLogSeq);
+        seq_t                  inLogSeq,
+        LogReceiver::Replayer& inReplayer);
 private:
     class Impl;
     Impl& mImpl;

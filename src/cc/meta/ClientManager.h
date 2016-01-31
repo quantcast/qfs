@@ -41,6 +41,7 @@ namespace KFS
 class ClientSM;
 class AuthContext;
 class Properties;
+class MetaDataSync;
 
 class ClientManager
 {
@@ -52,7 +53,8 @@ public:
     void SetMaxClientSockets(int count);
     int GetMaxClientCount() const;
     bool Bind(const ServerLocation& location, bool ipV6OnlyFlag);
-    bool StartAcceptor(int threadCount, int startCpuAffinity);
+    bool StartAcceptor(int threadCount, int startCpuAffinity,
+        MetaDataSync& metaDataSync);
     void Shutdown();
     void ChildAtFork();
     QCMutex& GetMutex();

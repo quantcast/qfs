@@ -34,6 +34,7 @@
 #include "LogWriter.h"
 #include "LogReceiver.h"
 #include "Replay.h"
+#include "MetaDataSync.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -382,7 +383,7 @@ private:
 // Open up the server for connections.
 //
 bool
-NetDispatch::Start()
+NetDispatch::Start(MetaDataSync& metaDataSync)
 {
     assert(! mMutex && ! mCryptoKeys);
     QCMutex dispatchMutex;
@@ -418,7 +419,8 @@ NetDispatch::Start()
                 mClientThreadCount,
                 mClientThreadsStartCpuAffinity >= 0 ?
                     mClientThreadsStartCpuAffinity + 1 :
-                    mClientThreadsStartCpuAffinity
+                    mClientThreadsStartCpuAffinity,
+                metaDataSync
             ) &&
             mChunkServerFactory.StartAcceptor()) {
         if (0 != (err = mMetaDataStore.Start())) {
@@ -446,6 +448,7 @@ NetDispatch::Start()
     }
     mMetaDataStore.Shutdown();
     mClientManager.Shutdown();
+    metaDataSync.Shutdown();
     mCanceledTokens.Set(0, 0);
     mRunningFlag = false;
     mCryptoKeys = 0;
@@ -1134,6 +1137,8 @@ public:
         // The main thread unconditionally schedules flush and the end of event
         // processing in MainThreadPrepareToFork::DispatchEnd()
     }
+    LogReceiver::Replayer& GetReplayer()
+        { return *this; }
 private:
     Properties                mParameters;
     NetManager                mNetManager;
@@ -1204,7 +1209,8 @@ public:
         {};
     virtual ~Impl();
     bool Bind(const ServerLocation& location, bool ipV6OnlyFlag);
-    bool StartAcceptor(int threadCount, int startCpuAffinity);
+    bool StartAcceptor(int threadCount, int startCpuAffinity,
+        MetaDataSync& metaDataSync);
     virtual KfsCallbackObj* CreateKfsCallbackObj(NetConnectionPtr &conn);
     void Shutdown();
     void ChildAtFork();
@@ -1611,7 +1617,8 @@ ClientManager::Impl::Bind(const ServerLocation& location, bool ipV6OnlyFlag)
 }
 
 bool
-ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
+ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity,
+    MetaDataSync& metaDataSync)
 {
     if (! mAcceptor) {
         return false;
@@ -1643,6 +1650,10 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity)
             cpuIndex++;
         }
     }
+    metaDataSync.StartLogSync(
+        MetaRequest::GetLogWriter().GetCommittedLogSeq(),
+        mLogReceiverThread.GetReplayer()
+    );
     return true;
 };
 
@@ -1744,9 +1755,10 @@ ClientManager::Bind(
 
 
 bool
-ClientManager::StartAcceptor(int threadCount, int startCpuAffinity)
+ClientManager::StartAcceptor(int threadCount, int startCpuAffinity,
+    MetaDataSync& metaDataSync)
 {
-    return mImpl.StartAcceptor(threadCount, startCpuAffinity);
+    return mImpl.StartAcceptor(threadCount, startCpuAffinity, metaDataSync);
 }
 
 void

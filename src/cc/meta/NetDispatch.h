@@ -44,6 +44,7 @@ using std::ostream;
 class Properties;
 class IOBuffer;
 class CryptoKeys;
+class MetaDataSync;
 
 class NetDispatch
 {
@@ -57,7 +58,7 @@ public:
         bool                  clientListenerIpV6OnlyFlag,
         const ServerLocation& chunkServerListenerLocation,
         bool                  chunkServerListenerIpV6OnlyFlag);
-    bool Start();
+    bool Start(MetaDataSync& metaDataSync);
     //!< Dispatch completed request.
     void Dispatch(MetaRequest* r);
     void SetParameters(const Properties& props);

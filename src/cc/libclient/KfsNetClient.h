@@ -265,6 +265,8 @@ public:
     void SetCommonRpcHeaders(
         const string& inCommonHeaders,
         const string& inCommonShortHeaders);
+    void SetNetManager(
+        NetManager& inNetManager);
     // Debug
     void SetThread(
         const QCThread* inThreadPtr);

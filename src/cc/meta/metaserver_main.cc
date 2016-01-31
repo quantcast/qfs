@@ -36,6 +36,7 @@
 #include "AuditLog.h"
 #include "util.h"
 #include "MetaDataStore.h"
+#include "MetadataSync.h"
 
 #include "common/Properties.h"
 #include "common/MemLock.h"
@@ -222,7 +223,8 @@ private:
           mAbortOnPanicFlag(true),
           mMaxLockedMemorySize(0),
           mMaxFdLimit(-1),
-          mLogWriterRunningFlag(false)
+          mLogWriterRunningFlag(false),
+          mMetaDataSync(globalNetManager())
         {}
     ~MetaServer()
     {
@@ -336,6 +338,7 @@ private:
     int64_t        mMaxLockedMemorySize;
     int            mMaxFdLimit;
     bool           mLogWriterRunningFlag;
+    MetaDataSync   mMetaDataSync;
 
     static MetaServer sInstance;
 } MetaServer::sInstance;
@@ -373,7 +376,7 @@ MetaServer::SetParameters(const Properties& props)
 
     const bool wormMode = props.getValue("metaServer.wormMode", 0) != 0;
     if (wormMode) {
-        KFS_LOG_STREAM_INFO << "Enabling WORM mode" << KFS_LOG_EOM;
+        KFS_LOG_STREAM_INFO << "enabling WORM mode" << KFS_LOG_EOM;
         setWORMMode(wormMode);
     }
     string chunkmapDumpDir = props.getValue("metaServer.chunkmapDumpDir", ".");
@@ -388,6 +391,13 @@ MetaServer::SetParameters(const Properties& props)
         op->paramsPrefix = kLogWriterParamsPrefix;
         props.copyWithPrefix(op->paramsPrefix, op->params);
         submit_request(op);
+    }
+    const int status = mMetaDataSync.SetParameters(
+        "metaServer.metaDataSync.", props);
+    if (0 != status) {
+        KFS_LOG_STREAM_ERROR << "meta data sync set parameters: " <<
+            QCUtils::SysError(-status) <<
+        KFS_LOG_EOM;
     }
 }
 
@@ -558,7 +568,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
                 if (! createEmptyFsFlag) {
                     KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
                     // The following only returns after receiving SIGQUIT.
-                    okFlag = gNetDispatch.Start();
+                    okFlag = gNetDispatch.Start(mMetaDataSync);
                 }
             }
         } else {
@@ -711,6 +721,10 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     bool writeCheckpointFlag = false;
     if (! createEmptyFsFlag &&
             (! createEmptyFsIfNoCpExistsFlag || file_exists(LASTCP))) {
+        if (0 != (status = mMetaDataSync.Start(
+                mCPDir.c_str(), mLogDir.c_str()))) {
+            return false;
+        }
         // Init fs id if needed, leave create time 0, restorer will set these
         // unless fsinfo entry doesn't exit.
         Restorer r;

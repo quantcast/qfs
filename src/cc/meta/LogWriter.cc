@@ -870,7 +870,7 @@ private:
         if (inRequest.blockCommitted < 0) {
             mMdStream.ClearBuffer();
             --mNextBlockSeq;
-            inRequest.status    = -EIO;
+            inRequest.status    = -EINVAL;
             inRequest.statusMsg = "log write: invalid block format";
             return;
         }

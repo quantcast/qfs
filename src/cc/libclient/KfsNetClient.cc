@@ -208,7 +208,7 @@ public:
           mEventObserverPtr(0),
           mLogPrefix((inLogPrefixPtr && inLogPrefixPtr[0]) ?
                 (inLogPrefixPtr + string(" ")) : string()),
-          mNetManager(inNetManager),
+          mNetManagerPtr(&inNetManager),
           mAuthContextPtr(inAuthContextPtr),
           mSessionExpirationTime(-1),
           mKeyExpirationTime(-1),
@@ -354,7 +354,7 @@ public:
     void Reset()
     {
         if (mSleepingFlag) {
-            mNetManager.UnRegisterTimeoutHandler(this);
+            mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mSleepingFlag = false;
         }
         ResetConnection();
@@ -686,9 +686,9 @@ public:
         EventObserver* inEventObserverPtr)
         { mEventObserverPtr = inEventObserverPtr; }
     time_t Now() const
-        { return mNetManager.Now(); }
+        { return mNetManagerPtr->Now(); }
     NetManager& GetNetManager() const
-        { return mNetManager; }
+        { return *mNetManagerPtr; }
     void SetMaxContentLength(
         int inMax)
         { mMaxContentLength = inMax; }
@@ -880,6 +880,15 @@ public:
         mCommonHeaders      = inCommonHeaders;
         mCommonShortHeaders = inCommonShortHeaders;
     }
+    void SetNetManager(
+        NetManager& inNetManager)
+    {
+        if (&inNetManager == mNetManagerPtr) {
+            return;
+        }
+        Stop();
+        mNetManagerPtr = &inNetManager;
+    }
 private:
     class DoNotDeallocate
     {
@@ -984,7 +993,7 @@ private:
     int64_t            mDisconnectCount;
     EventObserver*     mEventObserverPtr;
     const string       mLogPrefix;
-    NetManager&        mNetManager;
+    NetManager*        mNetManagerPtr;
     ClientAuthContext* mAuthContextPtr;
     int64_t            mSessionExpirationTime;
     int64_t            mKeyExpirationTime;
@@ -1409,7 +1418,7 @@ private:
         mConnPtr->SetMaxReadAhead(kMaxReadAhead);
         mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
         // Add connection to the poll vector
-        mNetManager.AddConnection(mConnPtr);
+        mNetManagerPtr->AddConnection(mConnPtr);
         mSslShutdownInProgressFlag = false;
         if (IsPskAuth()) {
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
@@ -1573,7 +1582,7 @@ private:
     virtual void Timeout()
     {
         if (mSleepingFlag) {
-            mNetManager.UnRegisterTimeoutHandler(this);
+            mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mSleepingFlag = false;
         }
         if (mPendingOpQueue.empty()) {
@@ -1610,7 +1619,7 @@ private:
                 mStats.mSleepTimeSec += mTimeSecBetweenRetries;
                 SetTimeoutInterval(mTimeSecBetweenRetries * 1000, true);
                 mSleepingFlag = true;
-                mNetManager.RegisterTimeoutHandler(this);
+                mNetManagerPtr->RegisterTimeoutHandler(this);
             } else {
                 Timeout();
             }
@@ -2217,6 +2226,14 @@ KfsNetClient::SetCommonRpcHeaders(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetCommonRpcHeaders(inCommonHeaders, inCommonShortHeaders);
+}
+
+    void
+KfsNetClient::SetNetManager(
+    NetManager& inNetManager)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetNetManager(inNetManager);
 }
 
     void
