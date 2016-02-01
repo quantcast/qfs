@@ -84,10 +84,22 @@ private:
         {
             statusMsg.clear();
             mBuffer.Clear();
-            status      = 0;
-            mPos        = -1;
-            mRetryCount = 0;
-            mInFlightFlag = false;
+            fileName.clear();
+            DeallocContentBuf();
+            seq            = -1;
+            contentLength  = 0;
+            status         = 0;
+            fileSystemId   = -1;
+            startLogSeq    = -1;
+            endLogSeq      = -1;
+            readPos        = -1;
+            checkpointFlag = false;
+            readSize       = -1;
+            checksum       = 0;
+            fileSize       = -1;
+            mPos           = -1;
+            mRetryCount    = 0;
+            mInFlightFlag  = false;
         }
         int64_t  mPos;
         int      mRetryCount;
@@ -184,6 +196,12 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters)
     {
+        if (mThread.IsStarted()) {
+            KFS_LOG_STREAM_ERROR <<
+                "parameters update ignored: keep logs thread is running" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
         Properties::String theName(inParamPrefixPtr ? inParamPrefixPtr : "");
         const size_t       thePrefLen = theName.GetSize();
         mMaxReadSize = max(4 << 10, inParameters.getValue(
@@ -237,7 +255,7 @@ public:
         const Properties::String* const theServersPtr = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("servers"));
         bool theOkFlag = true;
-        if (theServersPtr && ! mReadOpsPtr) {
+        if (theServersPtr) {
             const char*       thePtr      = theServersPtr->GetPtr();
             const char* const theEndPtr   = thePtr + theServersPtr->GetSize();
             const bool        kHexFmtFlag = false;
@@ -256,6 +274,15 @@ public:
                 theServers.push_back(theLoc);
             }
             if (theOkFlag) {
+                if (mServerIdx < mServers.size()) {
+                    const ServerLocation& theServer = mServers[mServerIdx];
+                    mServerIdx = 0;
+                    while (mServerIdx < theServers.size()) {
+                        if (theServer == theServers[mServerIdx]) {
+                            break;
+                        }
+                    }
+                }
                 mServers.swap(theServers);
             }
         }
@@ -263,7 +290,7 @@ public:
         ClientAuthContext* const kNullCtxPtr = 0;
         string* const            kNullStrPtr = 0;
         const int theRet = mAuthContext.SetParameters(
-            inParamPrefixPtr,
+            theName.Truncate(thePrefLen).Append("authentication.").GetPtr(),
             inParameters,
             kNullCtxPtr,
             kNullStrPtr,
@@ -424,22 +451,24 @@ public:
             mFreeList.PutFront(theOp);
             return;
         }
-        if (0 <= theOp.status && theOp.mPos != theOp.readPos) {
-            theOp.status    = -EINVAL;
-            theOp.statusMsg = "invalid read position";
-        } else if (theOp.startLogSeq < 0) {
-            theOp.status    = -EINVAL;
-            theOp.statusMsg = "invalid log sequence";
-        } else if (theOp.fileSystemId < 0) {
-            theOp.status    = -EINVAL;
-            theOp.statusMsg = "invalid file system id";
-        } else if (0 <= theOp.endLogSeq && ! theOp.checkpointFlag &&
-                theOp.endLogSeq <= theOp.startLogSeq) {
-            theOp.status    = -EINVAL;
-            theOp.statusMsg = "invalid log end sequence";
+        if (0 <= theOp.status) {
+            if (theOp.mPos != theOp.readPos) {
+                theOp.status    = -EINVAL;
+                theOp.statusMsg = "invalid read position";
+            } else if (theOp.startLogSeq < 0) {
+                theOp.status    = -EINVAL;
+                theOp.statusMsg = "invalid log sequence";
+            } else if (theOp.fileSystemId < 0) {
+                theOp.status    = -EINVAL;
+                theOp.statusMsg = "invalid file system id";
+            } else if (0 <= theOp.endLogSeq && ! theOp.checkpointFlag &&
+                    theOp.endLogSeq <= theOp.startLogSeq) {
+                theOp.status    = -EINVAL;
+                theOp.statusMsg = "invalid log end sequence";
+            }
         }
         if (theOp.status < 0) {
-            HandleError(theOp);
+            HandleReadError(theOp);
             return;
         }
         const uint32_t theChecksum = ComputeCrc32(
@@ -447,7 +476,7 @@ public:
         if (theChecksum != theOp.checksum) {
             theOp.status    = -EBADCKSUM;
             theOp.statusMsg = "received data checksum mismatch";
-            HandleError(theOp);
+            HandleReadError(theOp);
             return;
         }
         Handle(theOp);
@@ -648,7 +677,7 @@ private:
             KFS_LOG_EOM;
             inOp.status    = -EINVAL;
             inOp.statusMsg = "invalid file size";
-            HandleError(inOp);
+            HandleReadError(inOp);
             return;
         }
         if (0 == mPos) {
@@ -665,7 +694,7 @@ private:
                 KFS_LOG_EOM;
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "file system id mismatch";
-                HandleError(inOp);
+                HandleReadError(inOp);
                 return;
             }
             if (mCheckStartLogSeqFlag && 0 <= mLogSeq &&
@@ -677,7 +706,7 @@ private:
                 KFS_LOG_EOM;
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "log sequence mismatch";
-                HandleError(inOp);
+                HandleReadError(inOp);
                 return;
             }
             if (mCheckLogSeqOnlyFlag) {
@@ -689,7 +718,7 @@ private:
                     inOp.status    = -EINVAL;
                     inOp.statusMsg =
                         "start log sequence greater than requrested";
-                    HandleError(inOp);
+                    HandleReadError(inOp);
                     return;
                 }
                 if (mPendingList.PopFront() != &inOp ||
@@ -716,7 +745,7 @@ private:
             if (mCheckpointFlag && mFileSize < 0) {
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "invalid checkpoint file size";
-                HandleError(inOp);
+                HandleReadError(inOp);
                 return;
             }
             if (mWriteToFileFlag && mFd < 0) {
@@ -747,7 +776,7 @@ private:
                     KFS_LOG_EOM;
                     inOp.status    = -EINVAL;
                     inOp.statusMsg = "invalid file name";
-                    HandleError(inOp);
+                    HandleReadError(inOp);
                     return;
                 }
                 if (mCheckpointFlag) {
@@ -772,7 +801,7 @@ private:
                     KFS_LOG_EOM;
                     inOp.status    = 0 < theErr ? -theErr : -EFAULT;
                     inOp.statusMsg = "failed to open file";
-                    HandleError(inOp);
+                    HandleReadError(inOp);
                     return;
                 }
             }
@@ -785,7 +814,7 @@ private:
                 KFS_LOG_EOM;
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "invalid file size";
-                HandleError(inOp);
+                HandleReadError(inOp);
                 return;
             }
             if (inOp.readSize != inOp.mBuffer.BytesConsumable()) {
@@ -799,7 +828,7 @@ private:
                 KFS_LOG_EOM;
                 inOp.status    = -EINVAL;
                 inOp.statusMsg = "short read";
-                HandleError(inOp);
+                HandleReadError(inOp);
                 return;
             }
         }
@@ -901,7 +930,7 @@ private:
             mKfsNetClient.GetNetManager().Shutdown();
         }
     }
-    void HandleError(
+    void HandleReadError(
         ReadOp& inReadOp)
     {
         KFS_LOG_STREAM_ERROR <<
@@ -924,15 +953,17 @@ private:
                 return;
             }
         }
-        const int64_t thePos = inReadOp.mPos;
+        const int64_t thePos        = inReadOp.mPos;
+        const int     theRetryCount = inReadOp.mRetryCount;
         inReadOp.Reset();
-        if (++inReadOp.mRetryCount < mMaxReadOpRetryCount) {
-            inReadOp.mPos = thePos;
+        if (theRetryCount < mMaxReadOpRetryCount) {
+            inReadOp.mPos        = thePos;
+            inReadOp.mRetryCount = theRetryCount + 1;
             if (StartRead(inReadOp)) {
                 return;
             }
         }
-        HandleError();
+        HandleError(&inReadOp);
     }
     void ScheduleGetLogSeqNextServer()
     {
@@ -955,9 +986,10 @@ private:
         LogWriteDone(EVENT_CMD_DONE, &inOp);
         HandleError();
     }
-    void HandleError()
+    void HandleError(
+        ReadOp* inOpPtr = 0)
     {
-        Reset();
+        Reset(inOpPtr);
         mRetryCount++;
         if (mMaxRetryCount < mRetryCount) {
             if (mWriteToFileFlag) {
@@ -1001,7 +1033,8 @@ private:
         SetTimeoutInterval(inTimeSec * 1000, kResetTimerFlag);
         mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
     }
-    void Reset()
+    void Reset(
+        ReadOp* inOpPtr = 0)
     {
         if (0 < mFd) {
             close(mFd);
@@ -1284,11 +1317,11 @@ private:
             if (0 != (theRet = inFunc(
                     theNamePtr,
                     theLen,
-                    0 < theSuffixLen && (theSuffixLen <= theLen ||
+                    0 < theSuffixLen && theSuffixLen <= theLen &&
                     0 == memcmp(
                         theSuffixPtr,
                         theNamePtr + theLen - theSuffixLen,
-                        theSuffixLen))))) {
+                        theSuffixLen)))) {
                 break;
             }
         }

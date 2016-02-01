@@ -570,6 +570,8 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
                     // The following only returns after receiving SIGQUIT.
                     okFlag = gNetDispatch.Start(mMetaDataSync);
                 }
+            } else {
+                mMetaDataSync.Shutdown();
             }
         } else {
             KFS_LOG_STREAM_FATAL <<
