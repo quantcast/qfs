@@ -128,6 +128,7 @@ private:
             : mLogSeq(inEntry.mLogSeq),
               mLogEndSeq(inEntry.mLogEndSeq),
               mFileName(inEntry.mFileName),
+              mFileSize(inEntry.mFileSize),
               mThreadIdx(inEntry.mThreadIdx),
               mFd(inEntry.mFd),
               mUseCount(inEntry.mUseCount),

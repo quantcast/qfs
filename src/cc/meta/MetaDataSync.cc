@@ -402,7 +402,7 @@ public:
         if (mServers.empty()) {
             return;
         }
-        LogSeqCheckStart();
+        LogFetchStart();
     }
     virtual void Run()
     {
@@ -574,6 +574,11 @@ private:
     }
     void LogSeqCheckStart()
     {
+        LogFetchStart(true);
+    }
+    void LogFetchStart(
+        bool inCheckLogSeqOnlyFlag = false)
+    {
         QCASSERT(0 <= mLogSeq && ! mServers.empty());
         if (0 <= mFd) {
             close(mFd);
@@ -588,7 +593,7 @@ private:
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mCheckStartLogSeqFlag = false;
-        mCheckLogSeqOnlyFlag  = true;
+        mCheckLogSeqOnlyFlag  = inCheckLogSeqOnlyFlag;
         mCheckpointFlag       = false;
         mWriteToFileFlag      = false;
         mNoLogSeqCount        = 0;
