@@ -1362,7 +1362,8 @@ LogReceiver::ParseBlockLines(
             theLastSym = theEndPtr[-1] & 0xFF;
         }
     }
-    return ((theAppendFlag && theLastSym != inLastSym) ? theRem : -EINVAL);
+    return (((theAppendFlag && theLastSym == inLastSym) ||
+        (! theAppendFlag && '\n' == inLastSym)) ? theRem : -EINVAL);
 }
 
 } // namespace KFS

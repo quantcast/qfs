@@ -1119,7 +1119,7 @@ private:
             if (theEndPos < 0) {
                 break;
             }
-            int theLen = theEndPos - theEndPos;
+            int theLen = theEndPos - thePos;
             if (kMaxCommitLineLen < theLen) {
                 KFS_LOG_STREAM_ERROR <<
                     "log block commit line"
@@ -1175,7 +1175,7 @@ private:
             theOp.blockEndSeq   = theLogSeq;
             const int theCopyLen  = (int)(thePtr - theStartPtr);
             int64_t   theBlockSeq = -1;
-            if (ParseField(thePtr, theEndPtr, theBlockSeq) ||
+            if (! ParseField(thePtr, theEndPtr, theBlockSeq) ||
                     mNextBlockSeq != theBlockSeq) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid log commit block sequence:" <<
