@@ -137,6 +137,8 @@ public:
           mCheckpointDir(),
           mLogDir(),
           mTmpSuffix(".tmp"),
+          mCheckpointFileName(),
+          mLastLogFileName(),
           mAuthContext(),
           mReadOpsPtr(0),
           mFreeList(),
@@ -357,25 +359,25 @@ public:
                 return mStatus;
             }
         }
-        int theRet = InitCheckpoint();
-        if (0 != theRet) {
-            return theRet;
+        if (mLogSeq < 0) {
+            int theRet;
+            if (0 != (theRet = PrepareToSync()) ||
+                    0 != (theRet = GetCheckpoint())) {
+                return theRet;
+            }
+            mShutdownNetManagerFlag = true;
+            mStatus                 = 0;
+            mKfsNetClient.GetNetManager().MainLoop();
+            mShutdownNetManagerFlag = false;
+            if (0 != mStatus) {
+                return mStatus;
+            }
+            theRet = CommitSync();
+            if (0 != theRet) {
+                return theRet;
+            }
+            mLogSeq = -mLogSeq;
         }
-        if (0 != (theRet = PrepareToSync())) {
-            return theRet;
-        }
-        mShutdownNetManagerFlag = true;
-        mStatus                 = 0;
-        mKfsNetClient.GetNetManager().MainLoop();
-        mShutdownNetManagerFlag = false;
-        if (0 != mStatus) {
-            return mStatus;
-        }
-        theRet = CommitSync();
-        if (0 != theRet) {
-            return theRet;
-        }
-        mLogSeq = -mLogSeq;
         mStatus = 0;
         LogSeqCheckStart();
         int kStackSize = 64 << 10;
@@ -445,6 +447,13 @@ public:
             panic("metad data sync: invalid read RPC state");
             return;
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "status: " << theOp.status <<
+            " "        << theOp.statusMsg <<
+            " pos: "   << theOp.mPos <<
+            " / "      << mPos <<
+            " "        << theOp.Show() <<
+        KFS_LOG_EOM;
         theOp.mInFlightFlag = false;
         if (inCanceledFlag) {
             theOp.Reset();
@@ -511,6 +520,8 @@ private:
     string            mCheckpointDir;
     string            mLogDir;
     string            mTmpSuffix;
+    string            mCheckpointFileName;
+    string            mLastLogFileName;
     ClientAuthContext mAuthContext;
     ReadOp*           mReadOpsPtr;
     ReadQueue         mFreeList;
@@ -571,7 +582,9 @@ private:
         if (mServers.size() < mServerIdx) {
             mServerIdx = 0;
         }
-        mKfsNetClient.Stop();
+        if (! mPendingList.IsEmpty()) {
+            mKfsNetClient.Stop();
+        }
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mCheckStartLogSeqFlag = false;
@@ -607,13 +620,18 @@ private:
         if (mServers.size() < mServerIdx) {
             mServerIdx = 0;
         }
-        mKfsNetClient.Stop();
+        if (! mPendingList.IsEmpty()) {
+            mKfsNetClient.Stop();
+        }
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mLogSeq               = -1;
         mCheckpointFlag       = true;
         mWriteToFileFlag      = true;
         mCheckStartLogSeqFlag = false;
+        mNextLogSegIdx        = -1;
+        mCheckpointFileName.clear();
+        mLastLogFileName.clear();
         InitRead();
         return 0;
     }
@@ -757,11 +775,11 @@ private:
                 const char* thePtr = inOp.fileName.data() + theDotPos + 1;
                 if (string::npos == theDotPos || string::npos == theEndPos ||
                         theEndPos <= theDotPos ||
-                        ! HexIntParser::Parse(
+                        ! DecIntParser::Parse(
                             thePtr, theEndPos - theDotPos - 1, theSeq) ||
                         theSeq != mLogSeq ||
                         inOp.fileName.find('/') != string::npos ||
-                        (mCheckpointFlag && (! HexIntParser::Parse(
+                        (! mCheckpointFlag && (! DecIntParser::Parse(
                                 ++thePtr,
                                 inOp.fileName.size() - theEndPos - 1,
                                 theSegIdx) ||
@@ -772,7 +790,9 @@ private:
                         " log sequence:"
                         " expected: " << mLogSeq <<
                         " actual: "   << theSeq <<
-                        " segment: "  << theSegIdx <<
+                        " segment:"
+                        " expected: " << mNextLogSegIdx <<
+                        " actual: "   << theSegIdx <<
                     KFS_LOG_EOM;
                     inOp.status    = -EINVAL;
                     inOp.statusMsg = "invalid file name";
@@ -783,7 +803,11 @@ private:
                     mFileName.assign(
                         mCheckpointDir.data(), mCheckpointDir.size());
                 } else {
+                    mNextLogSegIdx = theSegIdx;
                     mFileName.assign(mLogDir.data(), mLogDir.size());
+                }
+                if (! mFileName.empty() && '/' != *mFileName.rbegin()) {
+                    mFileName += '/';
                 }
                 mFileName += inOp.fileName;
                 mFileName += mTmpSuffix;
@@ -873,6 +897,7 @@ private:
             if (theEofFlag && ! mCheckpointFlag) {
                 mLogSeq = theOpPtr->endLogSeq < 0 ?
                     -theOpPtr->startLogSeq : theOpPtr->endLogSeq;
+                mNextLogSegIdx++;
             }
             theOpPtr->Reset();
             mPendingList.PopFront();
@@ -906,8 +931,16 @@ private:
                     mFileName << ": close failure:" <<
                     QCUtils::SysError(theErr) <<
                 KFS_LOG_EOM;
+                mFileName.clear();
                 HandleError();
                 return;
+            }
+            if (mCheckpointFlag) {
+                mCheckpointFileName.assign(
+                    mFileName.data(), mFileName.size());
+            } else if (0 <= mLogSeq) {
+                mLastLogFileName.assign(
+                    mFileName.data(), mFileName.size());
             }
         }
         mRetryCount     = 0;
@@ -1040,9 +1073,9 @@ private:
             close(mFd);
             mFd = -1;
         }
+        mKfsNetClient.Stop();
         while (mPendingList.PopFront())
             {}
-        mKfsNetClient.Stop();
         mBuffer.Clear();
         mPos         = 0;
         mNextReadPos = 0;
@@ -1273,8 +1306,39 @@ private:
         }
         return DeleteTmp(mCheckpointDir, kDeleteTmpFlag);
     }
+    int LinkLatest(
+        const string& inName,
+        const char*   inAliasPtr)
+    {
+        const size_t theSufSize = mTmpSuffix.size();
+        const size_t theSize    = inName.size();
+        string       theName(inName.data(),
+            theSufSize < theSize ? theSize - theSufSize : theSize);
+        size_t thePos = theName.rfind('/');
+        string theAlias;
+        if (string::npos != thePos) {
+            ++thePos;
+            theAlias.assign(theName.data(), thePos);
+            theAlias += inAliasPtr;
+        } else {
+            theAlias = inAliasPtr;
+        }
+        const int theRet = link_latest(theName, theAlias);
+        if (0 != theRet) {
+            KFS_LOG_STREAM_ERROR <<
+                "link: " << theName <<
+                " => "   << theAlias <<
+                ": "     << QCUtils::SysError(-theRet) <<
+            KFS_LOG_EOM;
+        }
+        return theRet;
+    }
     int CommitSync()
     {
+        if (mCheckpointFileName.empty()) {
+            panic("meta data sync: invalid commit sync invocation");
+            return -EINVAL;
+        }
         const bool kDeleteTmpFlag = false;
         int        theRet;
         if (0 != (theRet = DeleteTmp(mLogDir, kDeleteTmpFlag))) {
@@ -1286,7 +1350,14 @@ private:
         if (0 != (theRet = DeleteTmp(mCheckpointDir, kDeleteTmpFlag))) {
             return theRet;
         }
-        return RenameTmp(mCheckpointDir);
+        if (0 != (theRet = RenameTmp(mCheckpointDir))) {
+            return theRet;
+        }
+        if (0 != (theRet = LinkLatest(mCheckpointFileName, "latest"))) {
+            return theRet;
+        }
+        return (mLastLogFileName.empty() ? 0 :
+            LinkLatest(mLastLogFileName, "last"));
     }
     template<typename FuncT>
     int ListDirEntries(

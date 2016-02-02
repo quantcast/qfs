@@ -735,9 +735,10 @@ private:
                     &inReadOp.data, inReadOp.data.BytesConsumable());
                 inReadOp.fileSize = theEntry.mFileSize;
                 KFS_LOG_STREAM_DEBUG <<
-                    "read: "      << inReadOp.Show() <<
-                    " size: "     << inReadOp.data.BytesConsumable()  <<
-                    " checksum: " << inReadOp.checksum <<
+                    "read: "       << inReadOp.Show() <<
+                    " size: "      << inReadOp.data.BytesConsumable()  <<
+                    " checksum: "  << inReadOp.checksum <<
+                    " file size: " << inReadOp.fileSize <<
                 KFS_LOG_EOM;
             }
         }
@@ -1213,7 +1214,7 @@ private:
             return -EINVAL;
         }
         if (theLogSegmentLoader.GetLast() < 0 &&
-                0 < theLogSegments.rbegin()->first) {
+                1 != theLogSegments.size()) {
             KFS_LOG_STREAM_ERROR <<
                 inLogDirPtr << "/" << kLastFileNamePtr <<
                 ": not found" <<

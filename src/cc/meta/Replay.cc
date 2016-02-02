@@ -1685,8 +1685,8 @@ Replay::getLastLogNum()
     struct stat lastst = {0};
     if (stat(lastlog.c_str(), &lastst)) {
         const int err = errno;
-        if (lastLogNum == 0 && ENOENT == err) {
-            lastLogNum = -1; // Initial checkpoint with single log segment.
+        if (ENOENT == err) {
+            lastLogNum = -1; // Checkpoint with single log segment.
         } else {
             KFS_LOG_STREAM_FATAL <<
                 lastlog <<
@@ -1765,6 +1765,13 @@ Replay::getLastLogNum()
             if (sym < '0' || '9' < sym) {
                 break;
             }
+        }
+        if (lastLogNum < 0 && number < num) {
+            KFS_LOG_STREAM_FATAL <<
+                "no link to last complete log segment: " << lastlog <<
+            KFS_LOG_EOM;
+            ret = -EINVAL;
+            break;
         }
         if ((verifyAllLogSegmentsPresetFlag || number <= num) &&
                 ! logNums.insert(num).second) {
