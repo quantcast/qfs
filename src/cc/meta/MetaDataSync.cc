@@ -177,7 +177,6 @@ public:
           mKeepLogSegmentsInterval(10),
           mNoLogSeqCount(0),
           mStatus(0),
-          mLogWriteStatus(0),
           mThread(),
           mReplayerPtr(0)
     {
@@ -206,7 +205,7 @@ public:
         }
         Properties::String theName(inParamPrefixPtr ? inParamPrefixPtr : "");
         const size_t       thePrefLen = theName.GetSize();
-        mMaxReadSize = max(4 << 10, inParameters.getValue(
+        mMaxReadSize = max(1 << 10, inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxReadSize"),
             mMaxReadSize));
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
@@ -351,7 +350,6 @@ public:
                 return -EINVAL;
             }
             mShutdownNetManagerFlag = true;
-            mStatus                 = 0;
             LogSeqCheckStart();
             mKfsNetClient.GetNetManager().MainLoop();
             mShutdownNetManagerFlag = false;
@@ -366,7 +364,6 @@ public:
                 return theRet;
             }
             mShutdownNetManagerFlag = true;
-            mStatus                 = 0;
             mKfsNetClient.GetNetManager().MainLoop();
             mShutdownNetManagerFlag = false;
             if (0 != mStatus) {
@@ -378,7 +375,6 @@ public:
             }
             mLogSeq = -mLogSeq;
         }
-        mStatus = 0;
         LogSeqCheckStart();
         int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "MetaSyncKeepLogs");
@@ -396,7 +392,6 @@ public:
         mReplayerPtr     = &inReplayer;
         mLogSeq          = inLogSeq;
         mWriteToFileFlag = false;
-        mLogWriteStatus  = 0;
         mStatus          = 0;
         mKfsNetClient.SetNetManager(mRuntimeNetManager);
         if (mServers.empty()) {
@@ -560,7 +555,6 @@ private:
     int               mKeepLogSegmentsInterval;
     int               mNoLogSeqCount;
     int               mStatus;
-    int               mLogWriteStatus;
     QCThread          mThread;
     Replayer*         mReplayerPtr;
     char              mCommmitBuf[kMaxCommitLineLen];
@@ -580,6 +574,7 @@ private:
         bool inCheckLogSeqOnlyFlag = false)
     {
         QCASSERT(0 <= mLogSeq && ! mServers.empty());
+        mStatus = 0;
         if (0 <= mFd) {
             close(mFd);
             mFd = -1;
@@ -610,8 +605,10 @@ private:
         mNextReadPos      = 0;
         mPos              = 0;
         mFileSize         = -1;
+        mNextBlockSeq     = 0;
         mCurMaxReadSize   = mMaxReadSize;
         mCurBlockChecksum = kKfsNullChecksum;
+        mBuffer.Clear();
     }
     int InitCheckpoint()
     {
@@ -630,6 +627,7 @@ private:
         }
         QCASSERT(mPendingList.IsEmpty());
         mKfsNetClient.SetServer(mServers[mServerIdx]);
+        mStatus               = 0;
         mLogSeq               = -1;
         mCheckpointFlag       = true;
         mWriteToFileFlag      = true;
@@ -948,6 +946,7 @@ private:
                     mFileName.data(), mFileName.size());
             }
         }
+        mBuffer.Clear();
         mRetryCount     = 0;
         mCheckpointFlag = false;
         if (0 <= mLogSeq) {
@@ -964,6 +963,14 @@ private:
         int inStatus)
     {
         mStatus = inStatus;
+        KFS_LOG_STREAM(0 == mStatus ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR)
+            "sync complte:"
+            " status: "   << mStatus <<
+            " seq: "      << -mLogSeq <<
+            " shutdown: " << mShutdownNetManagerFlag <<
+        KFS_LOG_EOM;
         if (mShutdownNetManagerFlag) {
             mKfsNetClient.GetNetManager().Shutdown();
         }
@@ -1210,6 +1217,8 @@ private:
                     theOp.blockChecksum,
                     theOp.blockData.BytesConsumable()
                 );
+            } else {
+                mCurBlockChecksum = theOp.blockChecksum;
             }
             mCurBlockChecksum = ComputeBlockChecksum(
                 &mBuffer, theBlkSeqLen, mCurBlockChecksum);
@@ -1270,10 +1279,11 @@ private:
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) <<
             "log write:"
-            " status: " << theOp.status <<
-            " "         << theOp.statusMsg <<
-            " last: "   << theOp.lastLogSeq <<
-            " "         << theOp.Show() <<
+            " status: "    << theOp.status <<
+            " "            << theOp.statusMsg <<
+            " committed: " << theOp.committed <<
+            " last: "      << theOp.lastLogSeq <<
+            " "            << theOp.Show() <<
         KFS_LOG_EOM;
         if (0 == theOp.status &&
                 theOp.committed == theOp.blockEndSeq &&
@@ -1281,20 +1291,13 @@ private:
             mReplayerPtr->Apply(theOp);
             return 0;
         }
-        if (mLogWriteStatus == 0) {
-            mLogWriteStatus = theOp.status;
+        if (0 != theOp.status && theOp.blockStartSeq == theOp.committed) {
+            Reset();
         }
-        Reset();
-        theOp.blockData.Clear();
-        theOp.blockLines.Clear();
-        theOp.statusMsg.clear();
-        theOp.status      = 0;
-        theOp.submitCount = 0;
-        theOp.seqno       = -1;
-        theOp.logseq      = -1;
-        theOp.suspended   = false;
-        theOp.logAction   = MetaLogWriterControl::kLogAlways;
         if (mReadOpsPtr) {
+            theOp.Reset();
+            theOp.type = MetaLogWriterControl::kWriteBlock;
+            theOp.clnt = this;
             mFreeWriteOpCount++;
             mFreeWriteOpList.PutFront(theOp);
         } else {

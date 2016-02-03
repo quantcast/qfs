@@ -294,7 +294,7 @@ struct MetaRequest {
           euser(kKfsUserNone),
           egroup(kKfsGroupNone),
           maxWaitMillisec(-1),
-          sessionEndTime(),
+          sessionEndTime(0),
           next(0),
           clnt(0),
           recursionCount(0)
@@ -408,6 +408,37 @@ protected:
     virtual ~MetaRequest();
     virtual void ReleaseSelf()
         { delete this; }
+    void ResetSelf()
+    {
+        status              = 0;
+        clientProtoVers     = 0;
+        submitCount         = 0;
+        submitTime          = 0;
+        processTime         = 0;
+        statusMsg           = string();
+        opSeqno             = -1;
+        seqno               = -1;
+        logseq              = -1;
+        logAction           = kLogNever;
+        suspended           = false;
+        fromChunkServerFlag = false;
+        validDelegationFlag = false;
+        fromClientSMFlag    = false;
+        shortRpcFormatFlag  = false;
+        replayFlag          = false;
+        commitPendingFlag   = false;
+        clientIp = string();
+        reqHeaders.Clear();
+        authUid             = kKfsUserNone;
+        authGid             = kKfsGroupNone;
+        euser               = kKfsUserNone;
+        egroup              = kKfsGroupNone;
+        maxWaitMillisec     = -1;
+        sessionEndTime      = 0;
+        next                = 0;
+        clnt                = 0;
+        recursionCount      = 0;
+    }
 private:
     int          recursionCount;
     MetaRequest* mPrevPtr[1];
@@ -423,6 +454,9 @@ private:
     typedef QCDLList<MetaRequest, 0> MetaRequestsList;
     void Init();
     static const MetaRequest& GetNullReq();
+protected:
+    MetaRequest(const MetaRequest&);
+    MetaRequest& operator=(const MetaRequest&);
 };
 inline static ostream& operator<<(ostream& os, const MetaRequest::Display& disp)
 { return disp.Show(os); }
@@ -3807,6 +3841,25 @@ struct MetaLogWriterControl : public MetaRequest {
         }
         os << " status: "  << status;
         return os;
+    }
+    void Reset()
+    {
+        ResetSelf();
+        logAction      = kLogAlways;
+        type           = kNop;
+        committed      = -1;
+        lastLogSeq     = -1;
+        logSegmentNum  = 1;
+        params.clear();
+        paramsPrefix   = string();
+        logName        = string();
+        blockChecksum  = 0;
+        blockSeq       = -1;
+        blockStartSeq  = -1;
+        blockEndSeq    = -1;
+        blockCommitted = -1;
+        blockLines.Clear();
+        blockData.Clear();
     }
 };
 
