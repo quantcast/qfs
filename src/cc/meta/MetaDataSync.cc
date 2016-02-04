@@ -43,6 +43,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/checksum.h"
+#include "kfsio/CryptoKeys.h"
 
 #include "libclient/KfsNetClient.h"
 #include "libclient/KfsOps.h"
@@ -97,6 +98,7 @@ private:
             readSize       = -1;
             checksum       = 0;
             fileSize       = -1;
+            maxReadSize    = -1;
             mPos           = -1;
             mRetryCount    = 0;
             mInFlightFlag  = false;
@@ -174,6 +176,7 @@ public:
           mShutdownNetManagerFlag(false),
           mCheckStartLogSeqFlag(false),
           mCheckLogSeqOnlyFlag(false),
+          mReadPipelineFlag(false),
           mKeepLogSegmentsInterval(10),
           mNoLogSeqCount(0),
           mStatus(0),
@@ -358,6 +361,13 @@ public:
             }
         }
         if (mLogSeq < 0) {
+            const size_t theCnt = mServers.size();
+            if (1 < theCnt) {
+                // Randomly choose server to download from.
+                unsigned int theRnd;
+                CryptoKeys::PseudoRand(&theRnd, sizeof(theRnd));
+                mServerIdx = theRnd % theCnt;
+            }
             int theRet;
             if (0 != (theRet = PrepareToSync()) ||
                     0 != (theRet = GetCheckpoint())) {
@@ -451,8 +461,7 @@ public:
         KFS_LOG_EOM;
         theOp.mInFlightFlag = false;
         if (inCanceledFlag) {
-            theOp.Reset();
-            mFreeList.PutFront(theOp);
+            ClearPendingList();
             return;
         }
         if (0 <= theOp.status) {
@@ -552,6 +561,7 @@ private:
     bool              mShutdownNetManagerFlag;
     bool              mCheckStartLogSeqFlag;
     bool              mCheckLogSeqOnlyFlag;
+    bool              mReadPipelineFlag;
     int               mKeepLogSegmentsInterval;
     int               mNoLogSeqCount;
     int               mStatus;
@@ -559,6 +569,24 @@ private:
     Replayer*         mReplayerPtr;
     char              mCommmitBuf[kMaxCommitLineLen];
 
+    void ClearPendingList()
+    {
+        ReadOp* thePtr;
+        while ((thePtr = mPendingList.Front()) &&
+                ! thePtr->mInFlightFlag) {
+            mPendingList.PopFront();
+            thePtr->Reset();
+            mFreeList.PutFront(*thePtr);
+        }
+    }
+    void StopAndClearPending()
+    {
+        if (! mPendingList.IsEmpty()) {
+            ClearPendingList();
+            mKfsNetClient.Stop();
+            QCASSERT(mPendingList.IsEmpty());
+        }
+    }
     void StopKeepData()
     {
         if (mThread.IsStarted()) {
@@ -582,10 +610,7 @@ private:
         if (mServers.size() < mServerIdx) {
             mServerIdx = 0;
         }
-        if (! mPendingList.IsEmpty()) {
-            mKfsNetClient.Stop();
-        }
-        QCASSERT(mPendingList.IsEmpty());
+        StopAndClearPending();
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mCheckStartLogSeqFlag = false;
         mCheckLogSeqOnlyFlag  = inCheckLogSeqOnlyFlag;
@@ -598,10 +623,8 @@ private:
     }
     void InitRead()
     {
-        if (! mPendingList.IsEmpty()) {
-            mKfsNetClient.Stop();
-            QCRTASSERT(mPendingList.IsEmpty());
-        }
+        StopAndClearPending();
+        mReadPipelineFlag = false;
         mNextReadPos      = 0;
         mPos              = 0;
         mFileSize         = -1;
@@ -622,10 +645,7 @@ private:
         if (mServers.size() < mServerIdx) {
             mServerIdx = 0;
         }
-        if (! mPendingList.IsEmpty()) {
-            mKfsNetClient.Stop();
-        }
-        QCASSERT(mPendingList.IsEmpty());
+        StopAndClearPending();
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mStatus               = 0;
         mLogSeq               = -1;
@@ -757,9 +777,9 @@ private:
                 return;
             }
             mLogSeq         = inOp.startLogSeq;
-            mCurMaxReadSize = inOp.mBuffer.BytesConsumable();
-            mNextReadPos    = mCurMaxReadSize;
-            inOp.readSize   = mCurMaxReadSize;
+            mCurMaxReadSize = min(mMaxReadSize, 0 < inOp.maxReadSize ?
+                inOp.maxReadSize : inOp.mBuffer.BytesConsumable());
+            mNextReadPos    = inOp.mBuffer.BytesConsumable();
             if (0 <= inOp.fileSize) {
                 mFileSize = inOp.fileSize;
             }
@@ -832,6 +852,7 @@ private:
                     return;
                 }
             }
+            mReadPipelineFlag = mFileSize < 0;
         } else if (0 < mFileSize) {
             if (inOp.fileSize != mFileSize) {
                 KFS_LOG_STREAM_ERROR <<
@@ -846,7 +867,7 @@ private:
             }
             if (inOp.readSize != inOp.mBuffer.BytesConsumable()) {
                 KFS_LOG_STREAM_ERROR <<
-                    "short read:"
+                    "invalid read size:"
                     " pos: "      << inOp.mPos <<
                     " expected: " << inOp.readSize <<
                     " received: " << inOp.mBuffer.BytesConsumable() <<
@@ -867,12 +888,26 @@ private:
             panic("metad data sync: invalid empty pending list");
             return;
         }
-        int const theRdSize = theOpPtr->mBuffer.BytesConsumable();
-        bool      theEofFlag;
+        int  theRdSize;
+        bool theEofFlag;
         do {
-            QCASSERT(mPos == theOpPtr->mPos);
+            theRdSize = theOpPtr->mBuffer.BytesConsumable();
+            if (mReadPipelineFlag && mPos != theOpPtr->mPos && 0 < theRdSize) {
+                QCASSERT(mFileSize < 0);
+                // Turn off read pipelining, and restart from the current
+                // position, to handle current log segment grows while read
+                // RPC are in flight.
+                ClearPendingList();
+                mKfsNetClient.Cancel();
+                mNextReadPos      = mPos;
+                mReadPipelineFlag = false;
+                break;
+            }
+            QCASSERT(mPos == theOpPtr->mPos || 0 == theRdSize);
             mPos += theRdSize;
-            theEofFlag = 0 <= mFileSize ? mFileSize <= mPos : theRdSize <= 0;
+            theEofFlag = 0 <= mFileSize ? mFileSize <= mPos :
+                (mCurMaxReadSize <= theOpPtr->maxReadSize ?
+                    theRdSize < mCurMaxReadSize : theRdSize <= 0);
             if (0 <= mFd) {
                 IOBuffer& theBuffer = theOpPtr->mBuffer;
                 mBuffer.Move(&theBuffer);
@@ -912,8 +947,16 @@ private:
             ReadDone();
         } else {
             if (mFileSize < 0) {
-                if (StartRead()) {
-                    mNextReadPos += theRdSize;
+                if (mReadPipelineFlag) {
+                    while (StartRead()) {
+                        mNextReadPos += mCurMaxReadSize;
+                    }
+                } else {
+                    mNextReadPos    = mPos;
+                    mCurMaxReadSize = mMaxReadSize;
+                    if (StartRead()) {
+                        mNextReadPos += mCurMaxReadSize;
+                    }
                 }
             } else {
                 while (mNextReadPos < mFileSize && StartRead()) {
@@ -924,7 +967,9 @@ private:
     }
     void ReadDone()
     {
+        ClearPendingList();
         mKfsNetClient.Cancel();
+        QCRTASSERT(mPendingList.IsEmpty());
         if (0 <= mFd) {
             const int theFd = mFd;
             mFd = -1;
@@ -1008,7 +1053,7 @@ private:
                 return;
             }
         }
-        HandleError(&inReadOp);
+        HandleError();
     }
     void ScheduleGetLogSeqNextServer()
     {
@@ -1031,10 +1076,9 @@ private:
         LogWriteDone(EVENT_CMD_DONE, &inOp);
         HandleError();
     }
-    void HandleError(
-        ReadOp* inOpPtr = 0)
+    void HandleError()
     {
-        Reset(inOpPtr);
+        Reset();
         mRetryCount++;
         if (mMaxRetryCount < mRetryCount) {
             if (mWriteToFileFlag) {
@@ -1078,16 +1122,15 @@ private:
         SetTimeoutInterval(inTimeSec * 1000, kResetTimerFlag);
         mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
     }
-    void Reset(
-        ReadOp* inOpPtr = 0)
+    void Reset()
     {
         if (0 < mFd) {
             close(mFd);
             mFd = -1;
         }
+        ClearPendingList();
         mKfsNetClient.Stop();
-        while (mPendingList.PopFront())
-            {}
+        QCRTASSERT(mPendingList.IsEmpty());
         mBuffer.Clear();
         mPos         = 0;
         mNextReadPos = 0;
@@ -1145,7 +1188,7 @@ private:
                     "invalid log block received:" <<
                     IOBuffer::DisplayData(mBuffer, 512) <<
                 KFS_LOG_EOM;
-                HandleError(theOp);
+                HandleError();
                 return;
             }
             // Copy log block body, i.e. except trailing / commit line.
@@ -1175,7 +1218,7 @@ private:
                     "invalid log commit line:" <<
                     IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
-                HandleError(theOp);
+                HandleError();
                 return;
             }
             theOp.blockStartSeq = theLogSeq - theBlockSeqLen;
@@ -1190,7 +1233,7 @@ private:
                     " actual: "   << theBlockSeq <<
                     " data: " << IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
-                HandleError(theOp);
+                HandleError();
                 return;
             }
             mNextBlockSeq++;
@@ -1202,7 +1245,7 @@ private:
                     "log commit block checksum parse failure:" <<
                     " data: " << IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
-                HandleError(theOp);
+                HandleError();
                 return;
             }
             theOp.blockData.Move(&mBuffer, theCopyLen);
@@ -1228,7 +1271,7 @@ private:
                     " expected: " << theChecksum <<
                     " computed: " << mCurBlockChecksum <<
                 KFS_LOG_EOM;
-                HandleError(theOp);
+                HandleError();
                 return;
             }
             theOp.blockLines.Back() -=

@@ -1937,6 +1937,8 @@ MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ?  "N" : "Name",      string());
     endLogSeq    = prop.getValue(
         shortRpcFormatFlag ?  "E" : "End-log",   (kfsSeq_t)-1);
+    maxReadSize  = prop.getValue(
+        shortRpcFormatFlag ? "M" :  "Max-rd-size",  -1);
 }
 
 void

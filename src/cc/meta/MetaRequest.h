@@ -3894,6 +3894,7 @@ struct MetaReadMetaData : public MetaRequest {
     int64_t  readPos;
     bool     checkpointFlag;
     int      readSize;
+    int      maxReadSize;
     uint32_t checksum;
     int64_t  fileSize;
     bool     handledFlag;
@@ -3908,6 +3909,7 @@ struct MetaReadMetaData : public MetaRequest {
           readPos(-1),
           checkpointFlag(false),
           readSize(-1),
+          maxReadSize(-1),
           checksum(0),
           fileSize(-1),
           handledFlag(false),

@@ -1834,6 +1834,7 @@ struct MetaReadMetaData : public KfsMonOp {
     int64_t  readPos;
     bool     checkpointFlag;
     int      readSize;
+    int      maxReadSize;
     uint32_t checksum;
     int64_t  fileSize;
     string   fileName;
@@ -1846,6 +1847,7 @@ struct MetaReadMetaData : public KfsMonOp {
           readPos(-1),
           checkpointFlag(false),
           readSize(0),
+          maxReadSize(0),
           checksum(0),
           fileSize(-1),
           fileName()
@@ -1855,13 +1857,15 @@ struct MetaReadMetaData : public KfsMonOp {
     virtual ostream& ShowSelf(ostream& os) const {
         os << "read meta data:"
             " fs: "         << fileSystemId <<
+            " log:"
             " start: "      << startLogSeq <<
+            " end: "        << endLogSeq <<
             " pos: "        << readPos <<
             " checkpoint: " << checkpointFlag <<
             " size: "       << readSize <<
+            " max read: "   << maxReadSize <<
             " crc32: "      << checksum <<
-            " name: "       << fileName <<
-            " status: "     << status
+            " name: "       << fileName
         ;
         return os;
     }

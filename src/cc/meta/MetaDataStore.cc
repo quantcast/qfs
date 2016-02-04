@@ -679,7 +679,7 @@ private:
         EntryT& theEntry = theIt->second;
         QCRTASSERT(0 < theEntry.mUseCount);
         theEntry.UpdateLru(inLru, mNow);
-        const int theMaxRead = mMaxReadSize;
+        inReadOp.maxReadSize = mMaxReadSize;
         QCStMutexUnlocker theUnlock(mMutex);
         if (inReadOp.readPos <= 0) {
             const size_t thePos = theEntry.mFileName.rfind('/');
@@ -723,7 +723,7 @@ private:
                 theNumRd = -errno;
             } else {
                 theNumRd = inReadOp.data.Read(
-                    theEntry.mFd, min(theMaxRead, inReadOp.readSize));
+                    theEntry.mFd, min(inReadOp.maxReadSize, inReadOp.readSize));
             }
             if (theNumRd < 0) {
                 inReadOp.status    = -EIO;
