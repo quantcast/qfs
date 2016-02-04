@@ -607,7 +607,7 @@ private:
             close(mFd);
             mFd = -1;
         }
-        if (mServers.size() < mServerIdx) {
+        if (mServers.size() <= mServerIdx) {
             mServerIdx = 0;
         }
         StopAndClearPending();
@@ -642,7 +642,7 @@ private:
             close(mFd);
             mFd = -1;
         }
-        if (mServers.size() < mServerIdx) {
+        if (mServers.size() <= mServerIdx) {
             mServerIdx = 0;
         }
         StopAndClearPending();
@@ -1080,14 +1080,18 @@ private:
     {
         Reset();
         mRetryCount++;
-        if (mMaxRetryCount < mRetryCount) {
+        int theRetryTimeout = mRetryTimeout;
+        if ((mCheckpointFlag && (0 == mPos || mPos < mFileSize / 4)) ||
+                ! mWriteToFileFlag ||
+                mMaxRetryCount < mRetryCount) {
             if (mWriteToFileFlag) {
                 if (0 == (mStatus = PrepareToSync())) {
-                    mMaxRetryCount = 0;
+                    mRetryCount = 0;
                     mServerIdx++;
                     if (0 != InitCheckpoint()) {
                         panic("metad data sync: init checkpoint failure");
                     }
+                    theRetryTimeout = 0;
                 } else {
                     if (mShutdownNetManagerFlag) {
                         mKfsNetClient.GetNetManager().Shutdown();
@@ -1107,9 +1111,9 @@ private:
             "retry: "   << mRetryCount <<
             " of "      << mMaxRetryCount <<
             " server: " << mKfsNetClient.GetServerLocation() <<
-            " scheduling retry in: " << mRetryTimeout <<
+            " scheduling retry in: " << theRetryTimeout <<
         KFS_LOG_EOM;
-        Sleep(mRetryTimeout);
+        Sleep(theRetryTimeout);
     }
     void Sleep(
         int inTimeSec)
