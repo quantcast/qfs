@@ -357,12 +357,12 @@ public:
 class MetaFattr: public Meta, public MFattr {
 private:
     MetaFattr(FileType t, fid_t id, int16_t n,
-        kfsUid_t u, kfsGid_t g, kfsMode_t m)
+        kfsUid_t u, kfsGid_t g, kfsMode_t m, int64_t tm)
         : Meta(KFS_FATTR),
           MFattr(t, id, n, u, g, m),
           parent(0)
     {
-        crtime = microseconds();
+        crtime = tm;
         mtime = ctime = crtime;
     }
     MetaFattr(
@@ -385,9 +385,9 @@ protected:
 public:
     MetaFattr* parent;
     static MetaFattr* create(FileType t, fid_t id, int16_t n,
-        kfsUid_t u, kfsGid_t g, kfsMode_t m)
+        kfsUid_t u, kfsGid_t g, kfsMode_t m, int64_t tm)
     {
-        return new (allocate<MetaFattr>()) MetaFattr(t, id, n, u, g, m);
+        return new (allocate<MetaFattr>()) MetaFattr(t, id, n, u, g, m, tm);
     }
     static MetaFattr* create(
         FileType  t,

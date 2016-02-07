@@ -811,6 +811,7 @@ MetaCreate::handle()
         return;
     }
     MetaFattr* fa = 0;
+    mtime = microseconds();
     status = metatree.create(
         dir,
         name,
@@ -827,7 +828,8 @@ MetaCreate::handle()
         mode,
         rootUserFlag ? kKfsUserRoot : euser,
         egroup,
-        &fa
+        &fa,
+        mtime
     );
     if (status == 0) {
         if (minSTier < kKfsSTierMax) {
@@ -852,8 +854,9 @@ MetaMkdir::handle()
     }
     fid = 0;
     MetaFattr* fa = 0;
+    mtime = microseconds();
     status = metatree.mkdir(
-        dir, name, user, group, mode, euser, egroup, &fid, &fa);
+        dir, name, user, group, mode, euser, egroup, &fid, &fa, mtime);
     if (status == 0 && fa) {
         minSTier = fa->minSTier;
         maxSTier = fa->maxSTier;
@@ -911,8 +914,9 @@ MetaRemove::handle()
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
+    mtime = microseconds();
     status = metatree.remove(dir, name, pathname, todumpster,
-        euser, egroup);
+        euser, egroup, mtime);
 }
 
 /* virtual */ void
@@ -928,7 +932,8 @@ MetaRmdir::handle()
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
-    status = metatree.rmdir(dir, name, pathname, euser, egroup);
+    mtime = microseconds();
+    status = metatree.rmdir(dir, name, pathname, euser, egroup, mtime);
 }
 
 static vector<MetaDentry*>&
@@ -2385,8 +2390,9 @@ MetaRename::handle()
         return;
     }
     todumpster = -1;
+    mtime = microseconds();
     status = metatree.rename(dir, oldname, newname,
-        oldpath, overwrite, todumpster, euser, egroup);
+        oldpath, overwrite, todumpster, euser, egroup, mtime);
 }
 
 /* virtual */ void
@@ -3540,7 +3546,7 @@ MetaCreate::log(ostream& file) const
         "/name/"        << name <<
         "/id/"          << fid <<
         "/numReplicas/" << numReplicas <<
-        "/ctime/"       << ShowTime(microseconds())
+        "/ctime/"       << ShowTime(mtime)
     ;
     if (striperType != KFS_STRIPED_FILE_TYPE_NONE) {
         file <<
@@ -3578,6 +3584,7 @@ MetaMkdir::log(ostream &file) const
         "/user/"  << user <<
         "/group/" << group <<
         "/mode/"  << mode <<
+        "/mtime/" << ShowTime(mtime) <<
     '\n';
     return file.fail() ? -EIO : 0;
 }
@@ -3592,6 +3599,7 @@ MetaRemove::log(ostream &file) const
     if (todumpster > 0) {
         file << "/todumpster/" << todumpster;
     }
+    file << "/mtime/" << ShowTime(mtime);
     file << '\n';
     return file.fail() ? -EIO : 0;
 }
@@ -3602,7 +3610,8 @@ MetaRemove::log(ostream &file) const
 int
 MetaRmdir::log(ostream &file) const
 {
-    file << "rmdir/dir/" << dir << "/name/" << name << '\n';
+    file << "rmdir/dir/" << dir << "/name/" << name <<
+        "/mtime/" << ShowTime(mtime) << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -3689,16 +3698,17 @@ MetaTruncate::log(ostream &file) const
 int
 MetaRename::log(ostream &file) const
 {
+    // Insert sentinel (trailing slash) empty entry after newname for pop_path()
+    // to work.
     file << "rename"
         "/dir/" << dir <<
         "/old/" << oldname <<
-        "/new/" << newname
+        "/new/" << newname << '/'
     ;
     if (todumpster > 0) {
-        // Insert sentinel empty entry for pop_path() to work.
-        file << "//todumpster/" << todumpster;
+        file << "/todumpster/" << todumpster;
     }
-    file << '\n';
+    file << "/mtime/" << ShowTime(mtime) << '\n';
     return file.fail() ? -EIO : 0;
 }
 
@@ -3723,8 +3733,8 @@ MetaCoalesceBlocks::log(ostream &file) const
 int
 MetaSetMtime::log(ostream &file) const
 {
-    file << "setmtime/file/" << fid
-        << "/mtime/" << ShowTime(mtime) << '\n';
+    file << "setmtime/file/" << fid <<
+        "/mtime/" << ShowTime(mtime) << '\n';
     return file.fail() ? -EIO : 0;
 }
 

@@ -34,6 +34,8 @@
 #include "LayoutManager.h"
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
+#include "common/RequestParser.h"
+#include "common/juliantime.h"
 #include "qcdio/QCUtils.h"
 
 #include <sys/types.h>
@@ -102,6 +104,8 @@ Replay::openlog(const string &p)
     path   = p;
     return 0;
 }
+
+static int64_t sLogSegmentTimeUsec = 0;
 
 /*!
  * \brief check log version
@@ -231,7 +235,8 @@ replay_create(DETokenizer& c)
     MetaFattr* fa = 0;
     status = metatree.create(parent, myname, &me, numReplicas, false,
         t, n, nr, ss, todumpster, user, group, mode,
-        kKfsUserRoot, kKfsGroupRoot, &fa);
+        kKfsUserRoot, kKfsGroupRoot, &fa,
+        gottime ? ctime : sLogSegmentTimeUsec);
     if (status == 0) {
         assert(fa);
         updateSeed(fileID, me);
@@ -304,9 +309,13 @@ replay_mkdir(DETokenizer& c)
             mode == kKfsModeUndef) {
         return false;
     }
+    int64_t mtime;
+    if (! pop_time(mtime, "mtime", c, ok)) {
+        mtime = sLogSegmentTimeUsec;
+    }
     MetaFattr* fa = 0;
     status = metatree.mkdir(parent, myname, user, group, mode,
-        kKfsUserRoot, kKfsGroupRoot, &me, &fa);
+        kKfsUserRoot, kKfsGroupRoot, &me, &fa, mtime);
     if (status == 0) {
         assert(fa);
         updateSeed(fileID, me);
@@ -334,12 +343,17 @@ replay_remove(DETokenizer& c)
     bool ok = pop_parent(parent, c);
     ok = pop_name(myname, "name", c, ok);
     fid_t todumpster = -1;
-    if (! pop_fid(todumpster, "todumpster", c, ok))
+    if (! pop_fid(todumpster, "todumpster", c, ok)) {
         todumpster = -1;
-    if (ok)
+    }
+    if (ok) {
+        int64_t mtime;
+        if (! pop_time(mtime, "mtime", c, ok)) {
+            mtime = sLogSegmentTimeUsec;
+        }
         status = metatree.remove(parent, myname, "", todumpster,
-        kKfsUserRoot, kKfsGroupRoot);
-
+        kKfsUserRoot, kKfsGroupRoot, mtime);
+    }
     return (ok && status == 0);
 }
 
@@ -355,9 +369,14 @@ replay_rmdir(DETokenizer& c)
     int status = 0;
     bool ok = pop_parent(parent, c);
     ok = pop_name(myname, "name", c, ok);
-    if (ok)
+    if (ok) {
+        int64_t mtime;
+        if (! pop_time(mtime, "mtime", c, ok)) {
+            mtime = sLogSegmentTimeUsec;
+        }
         status = metatree.rmdir(parent, myname, "",
-            kKfsUserRoot, kKfsGroupRoot);
+            kKfsUserRoot, kKfsGroupRoot, mtime);
+    }
     return (ok && status == 0);
 }
 
@@ -385,9 +404,13 @@ replay_rename(DETokenizer& c)
     if (! pop_fid(todumpster, "todumpster", c, ok))
         todumpster = -1;
     if (ok) {
+        int64_t mtime;
+        if (! pop_time(mtime, "mtime", c, ok)) {
+            mtime = sLogSegmentTimeUsec;
+        }
         string oldpath;
         status = metatree.rename(parent, oldname, newpath, oldpath,
-            true, todumpster, kKfsUserRoot, kKfsGroupRoot);
+            true, todumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
     }
     return (ok && status == 0);
 }
@@ -677,6 +700,7 @@ replay_setmtime(DETokenizer& c)
 }
 
 static int sRestoreTimeCount = 0;
+
 /*!
  * \brief restore time
  * format: time/<time>
@@ -685,6 +709,44 @@ static bool
 restore_time(DETokenizer& c)
 {
     c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    // 2016-02-06T04:11:44.429777Z
+    const char* ptr    = c.front().ptr;
+    int         year   = 0;
+    int         mon    = 0;
+    int         mday   = 0;
+    int         hour   = 0;
+    int         minute = 0;
+    int         sec    = 0;
+    int64_t     usec   = 0;
+    if (27 == c.front().len &&
+            DecIntParser::Parse(ptr, 4, year) &&
+            '-' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, mon) &&
+            '-' == *ptr &&
+            1 <= mon && mon <= 12 &&
+            DecIntParser::Parse(++ptr, 2, mday) &&
+            1 <= mday && mday <= 31 &&
+            'T' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, hour) &&
+            0 <= hour && hour <= 23 &&
+            ':' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, minute) &&
+            0 <= minute && minute <= 59 &&
+            ':' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, sec) &&
+            0 <= sec && sec <= 59 &&
+            '.' == *ptr &&
+            DecIntParser::Parse(++ptr, 6, usec) &&
+            0 <= usec && usec <= 999999 &&
+            'Z' == *ptr) {
+        sLogSegmentTimeUsec = ToUnixTime(year, mon, mday, hour, minute, sec) *
+            1000000 + usec;
+    } else {
+        sLogSegmentTimeUsec = microseconds();
+    }
     KFS_LOG_STREAM_INFO << "log time: " << c.front() << KFS_LOG_EOM;
     sRestoreTimeCount++;
     return true;

@@ -10708,7 +10708,7 @@ LayoutManager::CSMapUnitTest(const Properties& props)
 
     mChunkToServerMap.SetDebugValidate(true);
     MetaFattr* const fattr = MetaFattr::create(KFS_FILE, 1, 1,
-        kKfsUserRoot, kKfsGroupRoot, 0644);
+        kKfsUserRoot, kKfsGroupRoot, 0644, microseconds());
     chunkId_t        cid;
     for (cid = 1; cid <= kChunks; cid++) {
         bool newEntryFlag = false;

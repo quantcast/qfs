@@ -32,6 +32,7 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 #include "common/Properties.h"
+#include "common/juliantime.h"
 #include "common/MsgLogger.h"
 
 #include <openssl/ssl.h>
@@ -44,7 +45,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include <string>
 #include <algorithm>
@@ -94,9 +94,6 @@ public:
             return 0;
         }
         static OpenSslInit sOpenSslInit;
-        if (! SetJulianUtcOffsetSec(sOpenSslInit.mJulianUtcOffsetSec)) {
-            return 1;
-        }
         sOpenSslInitPtr = &sOpenSslInit;
 #if OPENSSL_VERSION_NUMBER < 0x10000000L
         CRYPTO_set_id_callback(&ThreadIdCB);
@@ -783,7 +780,6 @@ private:
               mExDataClientX509Idx(-1),
               mErrFileNamePtr(0),
               mErrLine(-1),
-              mJulianUtcOffsetSec(0),
               mAES256CbcCypherDebugPtr(0)
             {}
         ~OpenSslInit()
@@ -798,7 +794,6 @@ private:
         int               mExDataClientX509Idx;
         const char*       mErrFileNamePtr;
         int               mErrLine;
-        int64_t           mJulianUtcOffsetSec;
         // To simplify tracking down using core file if aes-ni is engaged or
         // not.
         const EVP_CIPHER* mAES256CbcCypherDebugPtr;
@@ -1219,38 +1214,6 @@ private:
         }
         return 0;
     }
-    static int64_t
-    ToJulianDay(
-        int inYear,
-        int inMonth,
-        int inDay)
-    {
-        return ((int64_t(1461) *
-            (inYear + 4800 + (inMonth - 14) / 12)) / 4 +
-            (367 * (inMonth - 2 - 12 * ((inMonth - 14) / 12))) / 12 -
-            (3 * ((inYear + 4900 + (inMonth - 14) / 12) / 100)) / 4 +
-            inDay - 32075
-        );
-    }
-    static bool SetJulianUtcOffsetSec(
-        int64_t& outOffset)
-    {
-        struct tm    theGmt  = { 0 };
-        const time_t theTime = 0;
-        const tm* const theTmPtr = gmtime_r(&theTime, &theGmt);
-        if (! theTmPtr) {
-            return false;
-        }
-        outOffset = ((
-            ToJulianDay(
-                theTmPtr->tm_year  + 1900,
-                theTmPtr->tm_mon   + 1,
-                theTmPtr->tm_mday) * 24 +
-            theTmPtr->tm_hour) * 60 +
-            theTmPtr->tm_min) * 60 +
-            theTmPtr->tm_sec;
-        return true;
-    }
     static bool ParseUtcTime(
         const unsigned char* inStrPtr,
         int                  inLen,
@@ -1294,15 +1257,14 @@ private:
                 theUtcOffset = -theUtcOffset;
             }
         }
-        outTime = ((ToJulianDay(
+        outTime = ToUnixTime(
             theYear + 1900,
             theMonth,
-            theDay) * 24 +
-            theHour) * 60 +
-            theMinute) * 60 +
-            theSecond +
-            theUtcOffset -
-            sOpenSslInitPtr->mJulianUtcOffsetSec;
+            theDay,
+            theHour,
+            theMinute,
+            theSecond + theUtcOffset
+        );
         return true;
     }
     static bool ParseGeneralizedTime(
@@ -1363,15 +1325,14 @@ private:
                 theUtcOffset = -theUtcOffset;
             }
         }
-        outTime = ((ToJulianDay(
+        outTime = ToUnixTime(
             theYear,
             theMonth,
-            theDay) * 24 +
-            theHour) * 60 +
-            theMinute) * 60 +
-            theSecond +
-            theUtcOffset -
-            sOpenSslInitPtr->mJulianUtcOffsetSec;
+            theDay,
+            theHour,
+            theMinute,
+            theSecond + theUtcOffset
+        );
         return true;
     }
     static bool GetTime(

@@ -418,6 +418,7 @@ struct MetaCreate: public MetaRequest {
     string     name;                //!< name to create
     string     ownerName;
     string     groupName;
+    int64_t    mtime;
     MetaCreate()
         : MetaRequest(META_CREATE, true),
           dir(-1),
@@ -437,7 +438,8 @@ struct MetaCreate: public MetaRequest {
           reqId(-1),
           name(),
           ownerName(),
-          groupName()
+          groupName(),
+          mtime()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -498,6 +500,7 @@ struct MetaMkdir: public MetaRequest {
     string     name; //!< name to create
     string     ownerName;
     string     groupName;
+    int64_t    mtime;
     MetaMkdir()
         : MetaRequest(META_MKDIR, true),
           dir(-1),
@@ -510,7 +513,8 @@ struct MetaMkdir: public MetaRequest {
           reqId(-1),
           name(),
           ownerName(),
-          groupName()
+          groupName(),
+          mtime()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -555,12 +559,14 @@ struct MetaRemove: public MetaRequest {
     string   name;     //!< name to remove
     string   pathname; //!< full pathname to remove
     fid_t    todumpster;
+    int64_t  mtime;
     MetaRemove()
         : MetaRequest(META_REMOVE, true),
           dir(-1),
           name(),
           pathname(),
-          todumpster(-1)
+          todumpster(-1),
+          mtime()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -593,14 +599,16 @@ struct MetaRemove: public MetaRequest {
  * \brief remove a directory
  */
 struct MetaRmdir: public MetaRequest {
-    fid_t  dir; //!< parent directory fid
-    string name;    //!< name to remove
-    string pathname; //!< full pathname to remove
+    fid_t   dir; //!< parent directory fid
+    string  name;    //!< name to remove
+    string  pathname; //!< full pathname to remove
+    int64_t mtime;
     MetaRmdir()
         : MetaRequest(META_RMDIR, true),
           dir(-1),
           name(),
-          pathname()
+          pathname(),
+          mtime()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -1141,12 +1149,13 @@ struct MetaTruncate: public MetaRequest {
  * \brief rename a file or directory
  */
 struct MetaRename: public MetaRequest {
-    fid_t  dir;        //!< parent directory
-    string oldname;    //!< old file name
-    string newname;    //!< new file name
-    string oldpath;    //!< fully-qualified old pathname
-    bool   overwrite;  //!< overwrite newname if it exists
-    fid_t  todumpster; //!< moved original to dumpster
+    fid_t   dir;        //!< parent directory
+    string  oldname;    //!< old file name
+    string  newname;    //!< new file name
+    string  oldpath;    //!< fully-qualified old pathname
+    bool    overwrite;  //!< overwrite newname if it exists
+    fid_t   todumpster; //!< moved original to dumpster
+    int64_t mtime;
     MetaRename()
         : MetaRequest(META_RENAME, true),
           dir(-1),
@@ -1154,7 +1163,8 @@ struct MetaRename: public MetaRequest {
           newname(),
           oldpath(),
           overwrite(false),
-          todumpster(-1)
+          todumpster(-1),
+          mtime()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
@@ -1296,7 +1306,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
           dstFid(-1),
           dstStartOffset(-1),
           numChunksMoved(0),
-          mtime(0)
+          mtime()
         {}
     virtual void handle();
     virtual int log(ostream &file) const;
