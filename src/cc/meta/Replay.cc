@@ -36,6 +36,8 @@
 #include "common/MsgLogger.h"
 #include "common/StdAllocator.h"
 #include "common/kfserrno.h"
+#include "common/RequestParser.h"
+#include "common/juliantime.h"
 
 #include "kfsio/checksum.h"
 
@@ -102,6 +104,8 @@ public:
           mLastLogAheadSeq(0),
           mLogAheadErrChksum(0),
           mSubEntryCount(0),
+          mLogSegmentTimeUsec(0),
+          mRestoreTimeCount(0),
           mReplayer(replay)
         {}
     bool runCommitQueue(
@@ -136,6 +140,8 @@ public:
     int64_t     mLastLogAheadSeq;
     int64_t     mLogAheadErrChksum;
     int64_t     mSubEntryCount;
+    int64_t     mLogSegmentTimeUsec;
+    int         mRestoreTimeCount;
     Replay&     mReplayer;
 private:
     ReplayState(const ReplayState&);
@@ -383,7 +389,8 @@ replay_create(DETokenizer& c)
     MetaFattr* fa = 0;
     status = metatree.create(parent, myname, &me, numReplicas, false,
         t, n, nr, ss, todumpster, user, group, mode,
-        kKfsUserRoot, kKfsGroupRoot, &fa);
+        kKfsUserRoot, kKfsGroupRoot, &fa,
+        gottime ? ctime : ReplayState::get(c).mLogSegmentTimeUsec);
     if (status == 0) {
         assert(fa);
         updateSeed(fileID, me);
@@ -456,9 +463,13 @@ replay_mkdir(DETokenizer& c)
             mode == kKfsModeUndef) {
         return false;
     }
+    int64_t mtime;
+    if (! pop_time(mtime, "mtime", c, ok)) {
+        mtime = ReplayState::get(c).mLogSegmentTimeUsec;
+    }
     MetaFattr* fa = 0;
     status = metatree.mkdir(parent, myname, user, group, mode,
-        kKfsUserRoot, kKfsGroupRoot, &me, &fa);
+        kKfsUserRoot, kKfsGroupRoot, &me, &fa, mtime);
     if (status == 0) {
         assert(fa);
         updateSeed(fileID, me);
@@ -486,12 +497,17 @@ replay_remove(DETokenizer& c)
     bool ok = pop_parent(parent, c);
     ok = pop_name(myname, "name", c, ok);
     fid_t todumpster = -1;
-    if (! pop_fid(todumpster, "todumpster", c, ok))
+    if (! pop_fid(todumpster, "todumpster", c, ok)) {
         todumpster = -1;
-    if (ok)
+    }
+    if (ok) {
+        int64_t mtime;
+        if (! pop_time(mtime, "mtime", c, ok)) {
+            mtime = ReplayState::get(c).mLogSegmentTimeUsec;
+        }
         status = metatree.remove(parent, myname, "", todumpster,
-        kKfsUserRoot, kKfsGroupRoot);
-
+        kKfsUserRoot, kKfsGroupRoot, mtime);
+    }
     return (ok && status == 0);
 }
 
@@ -507,9 +523,14 @@ replay_rmdir(DETokenizer& c)
     int status = 0;
     bool ok = pop_parent(parent, c);
     ok = pop_name(myname, "name", c, ok);
-    if (ok)
+    if (ok) {
+        int64_t mtime;
+        if (! pop_time(mtime, "mtime", c, ok)) {
+            mtime = ReplayState::get(c).mLogSegmentTimeUsec;
+        }
         status = metatree.rmdir(parent, myname, "",
-            kKfsUserRoot, kKfsGroupRoot);
+            kKfsUserRoot, kKfsGroupRoot, mtime);
+    }
     return (ok && status == 0);
 }
 
@@ -537,9 +558,13 @@ replay_rename(DETokenizer& c)
     if (! pop_fid(todumpster, "todumpster", c, ok))
         todumpster = -1;
     if (ok) {
+        int64_t mtime;
+        if (! pop_time(mtime, "mtime", c, ok)) {
+            mtime = ReplayState::get(c).mLogSegmentTimeUsec;
+        }
         string oldpath;
         status = metatree.rename(parent, oldname, newpath, oldpath,
-            true, todumpster, kKfsUserRoot, kKfsGroupRoot);
+            true, todumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
     }
     return (ok && status == 0);
 }
@@ -675,7 +700,8 @@ replay_coalesce(DETokenizer& c)
     ok = ok && metatree.coalesceBlocks(
         metatree.getFattr(srcFid), metatree.getFattr(dstFid),
         retSrcFid, retDstFid, dstStartOffset,
-        gottime ? &mtime : 0, numChunksMoved,
+        gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec,
+        numChunksMoved,
         kKfsUserRoot, kKfsGroupRoot) == 0;
     return (
         ok &&
@@ -709,7 +735,7 @@ replay_truncate(DETokenizer& c)
     if (ok) {
         const bool kSetEofHintFlag = true;
         status = metatree.truncate(fid, offset,
-            gottime ? &mtime : 0,
+            gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec,
             kKfsUserRoot, kKfsGroupRoot, endOffset, kSetEofHintFlag);
     }
     return (ok && status == 0);
@@ -734,7 +760,7 @@ replay_pruneFromHead(DETokenizer& c)
     bool gottime = pop_time(mtime, "mtime", c, ok);
     if (ok) {
         status = metatree.pruneFromHead(fid, offset,
-            gottime ? &mtime : 0);
+            gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec);
     }
     return (ok && status == 0);
 }
@@ -822,7 +848,6 @@ replay_setmtime(DETokenizer& c)
     return ok;
 }
 
-static int sRestoreTimeCount = 0;
 /*!
  * \brief restore time
  * format: time/<time>
@@ -831,8 +856,46 @@ static bool
 replay_time(DETokenizer& c)
 {
     c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    // 2016-02-06T04:11:44.429777Z
+    const char* ptr    = c.front().ptr;
+    int         year   = 0;
+    int         mon    = 0;
+    int         mday   = 0;
+    int         hour   = 0;
+    int         minute = 0;
+    int         sec    = 0;
+    int64_t     usec   = 0;
+    if (27 == c.front().len &&
+            DecIntParser::Parse(ptr, 4, year) &&
+            '-' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, mon) &&
+            '-' == *ptr &&
+            1 <= mon && mon <= 12 &&
+            DecIntParser::Parse(++ptr, 2, mday) &&
+            1 <= mday && mday <= 31 &&
+            'T' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, hour) &&
+            0 <= hour && hour <= 23 &&
+            ':' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, minute) &&
+            0 <= minute && minute <= 59 &&
+            ':' == *ptr &&
+            DecIntParser::Parse(++ptr, 2, sec) &&
+            0 <= sec && sec <= 59 &&
+            '.' == *ptr &&
+            DecIntParser::Parse(++ptr, 6, usec) &&
+            0 <= usec && usec <= 999999 &&
+            'Z' == *ptr) {
+        ReplayState::get(c).mLogSegmentTimeUsec =
+            ToUnixTime(year, mon, mday, hour, minute, sec) * 1000000 + usec;
+    } else {
+        ReplayState::get(c).mLogSegmentTimeUsec = microseconds();
+    }
     KFS_LOG_STREAM_INFO << "log time: " << c.front() << KFS_LOG_EOM;
-    sRestoreTimeCount++;
+    ReplayState::get(c).mRestoreTimeCount++;
     return true;
 }
 
@@ -1603,13 +1666,13 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
                 break;
             }
         }
-        sRestoreTimeCount = 0;
+        state.mRestoreTimeCount = 0;
         const string logfn = logfile(i);
         if ((status = openlog(logfn)) != 0 ||
                 (status = playlog(lastEntryChecksumFlag)) != 0) {
             break;
         }
-        if (sRestoreTimeCount <= 0) {
+        if (state.mRestoreTimeCount <= 0) {
             // "time/" is the last line of the header.
             // Each valid log even last partial must have
             // complete header.

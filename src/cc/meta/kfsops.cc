@@ -89,7 +89,8 @@ makeDumpsterDir()
     metatree.mkdir(ROOTFID, DUMPSTERDIR,
         kKfsUserRoot, kKfsGroupRoot, 0700,
         kKfsUserRoot, kKfsGroupRoot,
-        &dummy);
+        &dummy, 0, microseconds()
+    );
 }
 
 int
@@ -155,13 +156,13 @@ Tree::link(fid_t dir, const string& fname, FileType type, fid_t myID,
         int32_t striperType, int32_t numStripes,
         int32_t numRecoveryStripes, int32_t stripeSize,
         kfsUid_t user, kfsGid_t group, kfsMode_t mode,
-        MetaFattr* parent, MetaFattr** newFattr /* = 0 */)
+        MetaFattr* parent, MetaFattr** newFattr, int64_t mtime)
 {
     assert(legalname(fname));
     MetaFattr* fattr;
     if (fname != kThisDir && fname != kParentDir) {
         fattr = MetaFattr::create(type, myID, numReplicas,
-            user, group, mode);
+            user, group, mode, mtime);
         if (! fattr->SetStriped(striperType, numStripes,
                 numRecoveryStripes, stripeSize)) {
             fattr->destroy();
@@ -177,6 +178,7 @@ Tree::link(fid_t dir, const string& fname, FileType type, fid_t myID,
     if (fattr) {
         assert(parent);
         fattr->parent = parent;
+        parent->mtime = mtime;
         insert(fattr);
     }
     if (newFattr) {
@@ -203,7 +205,8 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
         fid_t& todumpster,
         kfsUid_t user, kfsGid_t group, kfsMode_t mode,
         kfsUid_t euser, kfsGid_t egroup,
-        MetaFattr** newFattr /* = 0 */)
+        MetaFattr** newFattr,
+        int64_t mtime)
 {
     if (!legalname(fname)) {
         KFS_LOG_STREAM_WARN << "Bad file name " << fname <<
@@ -251,7 +254,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
             return -EPERM;
         }
         const int status = remove(dir, fname, "", todumpster,
-            euser, egroup);
+            euser, egroup, mtime);
         if (status != 0) {
             assert(status == -EBUSY || todumpster > 0);
             KFS_LOG_STREAM_ERROR << "remove failed: " <<
@@ -270,7 +273,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
     fa = 0;
     status = link(dir, fname, KFS_FILE, *newFid, numReplicas,
         striperType, numStripes, numRecoveryStripes, stripeSize,
-        user, group, mode, parent, &fa);
+        user, group, mode, parent, &fa, mtime);
     if (status != 0) {
         return status;
     }
@@ -391,7 +394,7 @@ Tree::setFileSize(MetaFattr* fa, chunkOff_t size, int64_t nfiles, int64_t ndirs)
  */
 int
 Tree::remove(fid_t dir, const string& fname, const string& pathname,
-    fid_t& todumpster, kfsUid_t euser, kfsGid_t egroup)
+    fid_t& todumpster, kfsUid_t euser, kfsGid_t egroup, int64_t mtime)
 {
     MetaFattr* fa     = 0;
     MetaFattr* parent = 0;
@@ -416,7 +419,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
     if (0 < todumpster) {
         // put the file into dumpster
         todumpster = fa->id();
-        int status = moveToDumpster(dir, fname, todumpster);
+        int status = moveToDumpster(dir, fname, todumpster, mtime);
         KFS_LOG_STREAM(status == 0 ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) <<
@@ -439,6 +442,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         gLayoutManager.DeleteFile(*fa);
     }
     UpdateNumFiles(-1);
+    parent->mtime = mtime;
     setFileSize(fa, 0, -1, 0);
 
     unlink(dir, fname, fa, false);
@@ -456,7 +460,7 @@ int
 Tree::mkdir(fid_t dir, const string& dname,
     kfsUid_t user, kfsGid_t group, kfsMode_t mode,
     kfsUid_t euser, kfsGid_t egroup,
-    fid_t* newFid, MetaFattr** newFattr)
+    fid_t* newFid, MetaFattr** newFattr, int64_t mtime)
 {
     if (! legalname(dname) && (dir != ROOTFID || dname != "/")) {
         return -EINVAL;
@@ -483,7 +487,7 @@ Tree::mkdir(fid_t dir, const string& dname,
         myID = (dname == "/") ? dir : fileID.genid();
     }
     MetaFattr* const fattr  = MetaFattr::create(KFS_DIR, myID, 1,
-        user, group, mode);
+        user, group, mode, mtime);
     MetaDentry* const dentry = MetaDentry::create(dir, dname, myID, fattr);
     fattr->parent = parent;
     int status;
@@ -500,20 +504,21 @@ Tree::mkdir(fid_t dir, const string& dname,
     }
     status = link(myID, kThisDir, KFS_DIR, myID, 1,
         KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
-        kKfsUserNone, kKfsGroupNone, 0, fattr);
+        kKfsUserNone, kKfsGroupNone, 0, fattr, 0, mtime);
     if (status != 0) {
         panic("mkdir link(.)");
         return status;
     }
     status = link(myID, kParentDir, KFS_DIR, dir, 1,
         KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
-        kKfsUserNone, kKfsGroupNone, 0, parent);
+        kKfsUserNone, kKfsGroupNone, 0, parent, 0, mtime);
     if (status != 0) {
         panic("mkdir link(..)");
         return status;
     }
     updateCounts(fattr, 0, 0, 1);
     if (parent) {
+        parent->mtime = mtime;
         fattr->minSTier = parent->minSTier;
         fattr->maxSTier = parent->maxSTier;
     }
@@ -559,7 +564,7 @@ Tree::emptydir(fid_t dir)
  */
 int
 Tree::rmdir(fid_t dir, const string& dname, const string& pathname,
-    kfsUid_t euser, kfsGid_t egroup)
+    kfsUid_t euser, kfsGid_t egroup, int64_t mtime)
 {
     MetaFattr* fa     = 0;
     MetaFattr* parent = 0;
@@ -598,7 +603,7 @@ Tree::rmdir(fid_t dir, const string& dname, const string& pathname,
     }
     invalidatePathCache(pathname, dname, fa);
     UpdateNumDirs(-1);
-
+    parent->mtime = mtime;
     setFileSize(fa, 0, 0, -1);
     unlink(myID, kThisDir, fa, true);
     unlink(myID, kParentDir, fa, true);
@@ -793,12 +798,10 @@ Tree::recomputeDirSize(MetaFattr* dirattr)
             // Do a depth first traversal
             recomputeDirSize(fa);
             dirattr->filesize += fa->filesize;
-            dirattr->mtime = max(dirattr->mtime, fa->mtime);
             dirattr->dirCount()  += fa->dirCount() + 1;
             dirattr->fileCount() += fa->fileCount();
         } else {
             dirattr->filesize += getFileSize(fa);
-            dirattr->mtime = max(dirattr->mtime, fa->mtime);
             dirattr->fileCount()++;
         }
     }
@@ -1639,7 +1642,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
 int
 Tree::coalesceBlocks(const string& srcPath, const string& dstPath,
     fid_t& srcFid, fid_t& dstFid, chunkOff_t& dstStartOffset,
-    const int64_t* mtime, size_t& numChunksMoved,
+    const int64_t mtime, size_t& numChunksMoved,
     kfsUid_t euser, kfsGid_t egroup)
 {
     MetaFattr* src = 0;
@@ -1661,7 +1664,7 @@ Tree::coalesceBlocks(const string& srcPath, const string& dstPath,
 int
 Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
     fid_t &srcFid, fid_t &dstFid, chunkOff_t &dstStartOffset,
-    const int64_t* mtime, size_t& numChunksMoved,
+    const int64_t mtime, size_t& numChunksMoved,
     kfsUid_t euser, kfsGid_t egroup)
 {
     numChunksMoved = 0;
@@ -1761,12 +1764,8 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
     srcFa->nextChunkOffset() = 0;
     srcFa->chunkcount() = 0;
     setFileSize(srcFa, 0);
-    if (mtime) {
-        srcFa->mtime = *mtime;
-    } else {
-        srcFa->mtime = microseconds();
-    }
-    dstFa->mtime = srcFa->mtime;
+    srcFa->mtime = mtime;
+    dstFa->mtime = mtime;
     return 0;
 }
 
@@ -1776,7 +1775,7 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
  * the head of the file to the specified offset.
  */
 int
-Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t* mtime,
+Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t mtime,
     kfsUid_t euser /* = kKfsUserRoot */, kfsGid_t egroup /* = kKfsGroupRoot */)
 {
     if (offset < 0) {
@@ -1788,7 +1787,7 @@ Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t* mtime,
 }
 
 int
-Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
+Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag)
 {
     if (endOffset >= 0 &&
@@ -1841,9 +1840,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
             return -ENOSYS;
         }
         setFileSize(fa, offset);
-        if (mtime) {
-            fa->mtime = *mtime;
-        }
+        fa->mtime = mtime;
         return 0;
     }
     if (fa->IsStriped() && (0 < offset || 0 <= endOffset)) {
@@ -1857,9 +1854,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
             return -ENOSYS;
         }
         setFileSize(fa, offset);
-        if (mtime) {
-            fa->mtime = *mtime;
-        }
+        fa->mtime = mtime;
         gLayoutManager.UpdateDelayedRecovery(*fa);
         return 0;
     }
@@ -1910,9 +1905,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
             setFileSize(fa, endOffset);
         }
     }
-    if (mtime) {
-        fa->mtime = *mtime;
-    }
+    fa->mtime = mtime;
     return 0;
 }
 
@@ -1959,7 +1952,7 @@ Tree::is_descendant(fid_t src, fid_t dst, const MetaFattr* dstFa)
 int
 Tree::rename(fid_t parent, const string& oldname, const string& newname,
     const string& oldpath, bool overwrite, fid_t& todumpster,
-    kfsUid_t euser, kfsGid_t egroup)
+    kfsUid_t euser, kfsGid_t egroup, int64_t mtime)
 {
     int status;
 
@@ -2035,9 +2028,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
     }
     if (dexists) {
         status = (t == KFS_DIR) ?
-            rmdir(ddir, dname, newname, euser, egroup) :
+            rmdir(ddir, dname, newname, euser, egroup, mtime) :
             remove(ddir, dname, newname, todumpster,
-                euser, egroup);
+                euser, egroup, mtime);
         if (status != 0) {
             return status;
         }
@@ -2051,6 +2044,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         src->getName() : string()
     );
 
+    sdfattr->mtime = mtime;
     if (t == KFS_DIR && ddfattr) {
         // get rid of the linkage of the "old" ..
         unlink(srcfid, kParentDir, sfattr, true);
@@ -2074,6 +2068,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             sfattr->dirCount() + 1 : 0;
         setFileSize(sfattr, 0, -fileCnt, -dirCnt);
         sfattr->parent = ddfattr;
+        ddfattr->mtime = mtime;
         // Set both parent and dentry attribute, ensuring that dentry
         // attribute is setup, in order to make consistency check in
         // recomputeDirSize() work.
@@ -2086,7 +2081,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         // create a new linkage for ..
         status = link(srcfid, kParentDir, KFS_DIR, ddir, 1,
             KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
-            kKfsUserNone, kKfsGroupNone, 0, ddfattr);
+            kKfsUserNone, kKfsGroupNone, 0, ddfattr, 0, mtime);
         assert(status == 0);
     }
     if (! movedFromDumpsterName.empty()) {
@@ -2181,7 +2176,7 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
  * \return      status code (zero on success)
  */
 int
-Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid)
+Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid, int64_t mtime)
 {
     assert(0 <= fid);
     string tempname = "/" + DUMPSTERDIR + "/";
@@ -2216,7 +2211,7 @@ Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid)
     const bool   kOverwriteFlag = false;
     const string kOldPath;      // Path cache must be already invalidated.
     const int    ret            = rename(dir, fname, tempname, kOldPath,
-        kOverwriteFlag, nodumpster, kKfsUserRoot, kKfsGroupRoot);
+        kOverwriteFlag, nodumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
     if (ret == 0) {
         tempname.erase(0, plen);
         gLayoutManager.ScheduleDumpsterCleanup(fid, tempname);

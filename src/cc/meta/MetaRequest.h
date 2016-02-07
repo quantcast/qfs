@@ -629,6 +629,7 @@ struct MetaCreate: public MetaIdempotentRequest {
     string     name;                //!< name to create
     string     ownerName;
     string     groupName;
+    int64_t    mtime;
     MetaCreate()
         : MetaIdempotentRequest(META_CREATE, kLogIfOk),
           dir(-1),
@@ -647,7 +648,8 @@ struct MetaCreate: public MetaIdempotentRequest {
           maxSTier(kKfsSTierMax),
           name(),
           ownerName(),
-          groupName()
+          groupName(),
+          mtime()
         {}
     virtual bool start();
     virtual void handle();
@@ -717,12 +719,13 @@ struct MetaCreate: public MetaIdempotentRequest {
         .Def("SR", &MetaCreate::numRecoveryStripes, int32_t(0))
         .Def("SS", &MetaCreate::stripeSize,         int32_t(0))
         .Def("E",  &MetaCreate::exclusive,          false)
-        .Def("N",  &MetaCreate::name                     )
+        .Def("N",  &MetaCreate::name)
         .Def("O",  &MetaCreate::user,               kKfsUserNone)
         .Def("G",  &MetaCreate::group,              kKfsGroupNone)
         .Def("M",  &MetaCreate::mode,               kKfsModeUndef)
         .Def("TL", &MetaCreate::minSTier,           kKfsSTierMax)
         .Def("TH", &MetaCreate::maxSTier,           kKfsSTierMax)
+        .Def("T",  &MetaCreate::mtime)
         ;
     }
 };
@@ -741,6 +744,7 @@ struct MetaMkdir: public MetaIdempotentRequest {
     string     name; //!< name to create
     string     ownerName;
     string     groupName;
+    int64_t    mtime;
     MetaMkdir()
         : MetaIdempotentRequest(META_MKDIR, kLogIfOk),
           dir(-1),
@@ -752,7 +756,8 @@ struct MetaMkdir: public MetaIdempotentRequest {
           maxSTier(kKfsSTierMax),
           name(),
           ownerName(),
-          groupName()
+          groupName(),
+          mtime()
         {}
     virtual bool start();
     virtual void handle();
@@ -811,6 +816,7 @@ struct MetaMkdir: public MetaIdempotentRequest {
         .Def("M",  &MetaMkdir::mode,     kKfsModeUndef)
         .Def("TL", &MetaMkdir::minSTier, kKfsSTierMax)
         .Def("TH", &MetaMkdir::maxSTier, kKfsSTierMax)
+        .Def("T",  &MetaMkdir::mtime)
         ;
     }
 };
@@ -823,12 +829,14 @@ struct MetaRemove: public MetaIdempotentRequest {
     string   name;     //!< name to remove
     string   pathname; //!< full pathname to remove
     fid_t    todumpster;
+    int64_t  mtime;
     MetaRemove()
         : MetaIdempotentRequest(META_REMOVE, kLogIfOk),
           dir(-1),
           name(),
           pathname(),
-          todumpster(-1)
+          todumpster(-1),
+          mtime()
         {}
     virtual bool start();
     virtual void handle();
@@ -868,6 +876,7 @@ struct MetaRemove: public MetaIdempotentRequest {
         return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P", &MetaRemove::dir, fid_t(-1))
         .Def("N", &MetaRemove::name)
+        .Def("T", &MetaRemove::mtime)
         ;
     }
 };
@@ -876,14 +885,16 @@ struct MetaRemove: public MetaIdempotentRequest {
  * \brief remove a directory
  */
 struct MetaRmdir: public MetaIdempotentRequest {
-    fid_t  dir;      //!< parent directory fid
-    string name;     //!< name to remove
-    string pathname; //!< full pathname to remove
+    fid_t   dir;      //!< parent directory fid
+    string  name;     //!< name to remove
+    string  pathname; //!< full pathname to remove
+    int64_t mtime;
     MetaRmdir()
         : MetaIdempotentRequest(META_RMDIR, kLogIfOk),
           dir(-1),
           name(),
-          pathname()
+          pathname(),
+          mtime()
         {}
     virtual bool start();
     virtual void handle();
@@ -922,6 +933,7 @@ struct MetaRmdir: public MetaIdempotentRequest {
         return MetaIdempotentRequest::LogIoDef(parser)
         .Def("P", &MetaRmdir::dir, fid_t(-1))
         .Def("N", &MetaRmdir::name)
+        .Def("T", &MetaRmdir::mtime)
         ;
     }
 };
@@ -1498,6 +1510,7 @@ struct MetaTruncate: public MetaRequest {
         .Def("E", &MetaTruncate::endOffset,       chunkOff_t(-1))
         .Def("O", &MetaTruncate::setEofHintFlag,            true)
         .Def("M", &MetaTruncate::checkPermsFlag,           false)
+        .Def("T", &MetaTruncate::mtime)
         ;
     }
 };
@@ -1506,13 +1519,14 @@ struct MetaTruncate: public MetaRequest {
  * \brief rename a file or directory
  */
 struct MetaRename: public MetaIdempotentRequest {
-    fid_t  dir;        //!< parent directory
-    string oldname;    //!< old file name
-    string newname;    //!< new file name
-    string oldpath;    //!< fully-qualified old pathname
-    bool   overwrite;  //!< overwrite newname if it exists
-    bool   wormModeFlag;
-    fid_t  todumpster; //!< moved original to dumpster
+    fid_t   dir;        //!< parent directory
+    string  oldname;    //!< old file name
+    string  newname;    //!< new file name
+    string  oldpath;    //!< fully-qualified old pathname
+    bool    overwrite;  //!< overwrite newname if it exists
+    bool    wormModeFlag;
+    fid_t   todumpster; //!< moved original to dumpster
+    int64_t mtime;
     MetaRename()
         : MetaIdempotentRequest(META_RENAME, kLogIfOk),
           dir(-1),
@@ -1521,7 +1535,8 @@ struct MetaRename: public MetaIdempotentRequest {
           oldpath(),
           overwrite(false),
           wormModeFlag(false),
-          todumpster(-1)
+          todumpster(-1),
+          mtime()
         {}
     virtual bool start();
     virtual void handle();
@@ -1566,6 +1581,7 @@ struct MetaRename: public MetaIdempotentRequest {
         .Def("F", &MetaRename::oldpath            )
         .Def("W", &MetaRename::overwrite,    false)
         .Def("M", &MetaRename::wormModeFlag, false)
+        .Def("T", &MetaRename::mtime)
         ;
     }
 };
@@ -1706,7 +1722,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
           dstFid(-1),
           dstStartOffset(-1),
           numChunksMoved(0),
-          mtime(0)
+          mtime()
         {}
     virtual bool start();
     virtual void handle();
@@ -3737,19 +3753,21 @@ struct MetaAck : public MetaRequest {
 };
 
 struct MetaRemoveFromDumpster : public MetaRequest {
-    string name;
-    fid_t  fid;
+    string  name;
+    fid_t   fid;
+    int64_t mtime;
 
     MetaRemoveFromDumpster(
         const string& nm = string(),
         fid_t         id = -1)
         : MetaRequest(META_REMOVE_FROM_DUMPSTER, kLogIfOk),
           name(nm),
-          fid(id)
+          fid(id),
+          mtime()
         {}
     bool Validate()
         { return (0 <= fid && ! name.empty()); }
-    virtual bool start() { return true; }
+    virtual bool start();
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -3761,6 +3779,7 @@ struct MetaRemoveFromDumpster : public MetaRequest {
         return MetaRequest::LogIoDef(parser)
         .Def("N", &MetaRemoveFromDumpster::name)
         .Def("P", &MetaRemoveFromDumpster::fid, fid_t(-1))
+        .Def("T", &MetaRemoveFromDumpster::mtime)
         ;
     }
 };

@@ -917,6 +917,9 @@ MetaCreate::start()
         }
         return false;
     }
+    if (0 == status) {
+        mtime = microseconds();
+    }
     return (0 == status);
 }
 
@@ -945,7 +948,8 @@ MetaCreate::handle()
         mode,
         euser,
         egroup,
-        &fa
+        &fa,
+        mtime
     );
     if (status == 0) {
         if (minSTier < kKfsSTierMax) {
@@ -972,6 +976,9 @@ MetaMkdir::start()
     if (! CheckCreatePerms(*this, kDirFlag)) {
         return false;
     }
+    if (0 == status) {
+        mtime = microseconds();
+    }
     return (0 == status);
 }
 
@@ -984,7 +991,7 @@ MetaMkdir::handle()
     fid = 0;
     MetaFattr* fa = 0;
     status = metatree.mkdir(
-        dir, name, user, group, mode, euser, egroup, &fid, &fa);
+        dir, name, user, group, mode, euser, egroup, &fid, &fa, mtime);
     if (status == 0 && fa) {
         minSTier = fa->minSTier;
         maxSTier = fa->maxSTier;
@@ -1042,6 +1049,9 @@ MetaRemove::start()
     if (handler.IsDone()) {
         return true;
     }
+    if (0 == status) {
+        mtime = microseconds();
+    }
     return (0 == status);
 }
 
@@ -1056,7 +1066,7 @@ MetaRemove::handle()
     }
     todumpster = 1;
     status = metatree.remove(dir, name, pathname, todumpster,
-        euser, egroup);
+        euser, egroup, mtime);
 }
 
 /* virtual */ bool
@@ -1073,6 +1083,7 @@ MetaRmdir::start()
     if (handler.IsDone()) {
         return true;
     }
+    mtime = microseconds();
     return true;
 }
 
@@ -1085,7 +1096,7 @@ MetaRmdir::handle()
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
-    status = metatree.rmdir(dir, name, pathname, euser, egroup);
+    status = metatree.rmdir(dir, name, pathname, euser, egroup, mtime);
 }
 
 static vector<MetaDentry*>&
@@ -2728,10 +2739,10 @@ MetaTruncate::handle()
         return;
     }
     if (pruneBlksFromHead) {
-        status = metatree.pruneFromHead(fid, offset, &mtime, euser, egroup);
+        status = metatree.pruneFromHead(fid, offset, mtime, euser, egroup);
         return;
     }
-    status = metatree.truncate(fid, offset, &mtime, euser, egroup,
+    status = metatree.truncate(fid, offset, mtime, euser, egroup,
         endOffset, setEofHintFlag);
 }
 
@@ -2747,6 +2758,9 @@ MetaRename::start()
     if (wormModeFlag && IsWormMutationAllowed(oldname)) {
         statusMsg = "worm mode";
         status    = -EPERM;
+    }
+    if (0 == status) {
+        mtime = microseconds();
     }
     return (0 == status);
 }
@@ -2768,7 +2782,7 @@ MetaRename::handle()
     }
     todumpster = 1;
     status = metatree.rename(dir, oldname, newname,
-        oldpath, overwrite, todumpster, euser, egroup);
+        oldpath, overwrite, todumpster, euser, egroup, mtime);
 }
 
 /* virtual */ bool
@@ -2867,8 +2881,10 @@ MetaChangeFileReplication::handle()
 MetaCoalesceBlocks::start()
 {
     dstStartOffset = -1;
-    mtime = microseconds();
     SetEUserAndEGroup(*this);
+    if (0 == status) {
+        mtime = microseconds();
+    }
     return (0 == status);
 }
 
@@ -2880,7 +2896,7 @@ MetaCoalesceBlocks::handle()
     }
     status = metatree.coalesceBlocks(
         srcPath, dstPath, srcFid, dstFid,
-        dstStartOffset, &mtime, numChunksMoved,
+        dstStartOffset, mtime, numChunksMoved,
         euser, egroup);
     KFS_LOG_STREAM(replayFlag ? MsgLogger::kLogLevelDEBUG :
             (0 == status ? MsgLogger::kLogLevelINFO :
@@ -5729,6 +5745,13 @@ MetaAck::handle()
     gLayoutManager.GetIdempotentRequestTracker().Handle(*this);
 }
 
+bool
+MetaRemoveFromDumpster::start()
+{
+    mtime = microseconds();
+    return true;
+}
+
 void
 MetaRemoveFromDumpster::handle()
 {
@@ -5739,7 +5762,7 @@ MetaRemoveFromDumpster::handle()
         }
         fid_t todumpster = -1;
         status = metatree.remove(ddir, name, string(), todumpster,
-            kKfsUserRoot, kKfsGroupRoot);
+            kKfsUserRoot, kKfsGroupRoot, mtime);
         if (status < 0) {
             panic("dumpster entry delete failure");
         }

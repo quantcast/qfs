@@ -364,7 +364,7 @@ class Tree {
         int16_t numReplicas, int32_t striperType, int32_t numStripes,
         int32_t numRecoveryStripes, int32_t stripeSize,
         kfsUid_t user, kfsGid_t group, kfsMode_t mode,
-        MetaFattr* parent, MetaFattr** newFattr = 0);
+        MetaFattr* parent, MetaFattr** newFattr, int64_t mtime);
     bool emptydir(fid_t dir);
     bool is_descendant(fid_t src, fid_t dst, const MetaFattr* dstFa);
     void shift_path(vector <pathlink> &path);
@@ -438,7 +438,7 @@ public:
     {
         fid_t dummy = 0;
         return mkdir(ROOTFID, "/", user, group, mode,
-            kKfsUserRoot, kKfsGroupRoot, &dummy);
+            kKfsUserRoot, kKfsGroupRoot, &dummy, 0, 0);
     }
     void enablePathToFidCache()
     {
@@ -493,17 +493,18 @@ public:
             fid_t& todumpster,
             kfsUid_t user, kfsGid_t group, kfsMode_t mode,
             kfsUid_t euser, kfsGid_t egroup,
-            MetaFattr** newFattr = 0);
+            MetaFattr** newFattr,
+            int64_t     mtime);
     //!< final argument is optional: when non-null, this call will return
     //!< the size of the file (if known)
     int remove(fid_t dir, const string& fname, const string& pathname, fid_t& todumpster,
-        kfsUid_t euser, kfsGid_t egroup);
+        kfsUid_t euser, kfsGid_t egroup, int64_t mtime);
     int mkdir(fid_t dir, const string& dname,
         kfsUid_t user, kfsGid_t group, kfsMode_t mode,
         kfsUid_t euser, kfsGid_t egroup,
-        fid_t* newFid, MetaFattr** newFattr = 0);
+        fid_t* newFid, MetaFattr** newFattr, int64_t mtime);
     int rmdir(fid_t dir, const string& dname, const string& pathname,
-        kfsUid_t euser, kfsGid_t egroup);
+        kfsUid_t euser, kfsGid_t egroup, int64_t mtime);
     int readdir(fid_t dir, vector<MetaDentry*>& result,
         int maxEntries = 0, bool* moreEntriesFlag = 0);
     int readdir(fid_t dir, const string& fnameStart, vector<MetaDentry*>& v,
@@ -520,7 +521,7 @@ public:
     int getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c);
     int rename(fid_t dir, const string& oldname, const string& newname,
             const string& oldpath, bool once, fid_t& todumpster,
-            kfsUid_t euser, kfsGid_t egroup);
+            kfsUid_t euser, kfsGid_t egroup, int64_t mtime);
     int lookup(fid_t dir, const string& fname,
         kfsUid_t euser, kfsGid_t egroup, MetaFattr*& fa,
         MetaFattr** outParent = 0, MetaDentry** outDentry = 0);
@@ -543,7 +544,8 @@ public:
         kfsSTier_t minSTier, kfsSTier_t maxSTier);
     int changePathReplication(fid_t file, int16_t numReplicas,
         kfsSTier_t minSTier, kfsSTier_t maxSTier);
-
+    int moveToDumpster(fid_t dir, const string& fname, fid_t todumpster,
+        int64_t mtime);
     void cleanupDumpster();
 
     /*!
@@ -610,12 +612,12 @@ public:
     int coalesceBlocks(const string& srcPath, const string& dstPath,
                 fid_t &srcFid, fid_t &dstFid,
                 chunkOff_t &dstStartOffset,
-                const int64_t* mtime, size_t &numChunksMoved,
+                const int64_t mtime, size_t &numChunksMoved,
                 kfsUid_t euser, kfsGid_t egroup);
     int coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
                 fid_t &srcFid, fid_t &dstFid,
                 chunkOff_t &dstStartOffset,
-                const int64_t* mtime, size_t &numChunksMoved,
+                const int64_t mtime, size_t &numChunksMoved,
                 kfsUid_t euser, kfsGid_t egroup);
 
     /*
@@ -632,7 +634,7 @@ public:
      * \retval 0 on success; -errno on failure; 1 if an allocation
      * is needed
      */
-    int truncate(fid_t file, chunkOff_t offset, const int64_t* mtime,
+    int truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
         kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag);
 
     /*
@@ -644,7 +646,7 @@ public:
      * \param[in] mtime Modification time
      * \retval 0 on success; -errno on failure
      */
-    int pruneFromHead(fid_t file, chunkOff_t offset, const int64_t* mtime,
+    int pruneFromHead(fid_t file, chunkOff_t offset, const int64_t mtime,
         kfsUid_t euser = kKfsUserRoot, kfsGid_t egroup = kKfsGroupRoot);
     void invalidatePathCache(const string& pathname, const string& name,
         const MetaFattr* fa, bool removeDirPrefixFlag = false);
