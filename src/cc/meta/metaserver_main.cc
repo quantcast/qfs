@@ -36,7 +36,7 @@
 #include "AuditLog.h"
 #include "util.h"
 #include "MetaDataStore.h"
-#include "MetadataSync.h"
+#include "MetaDataSync.h"
 
 #include "common/Properties.h"
 #include "common/MemLock.h"

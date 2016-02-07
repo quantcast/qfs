@@ -28,6 +28,7 @@
 
 #include <string>
 #include <algorithm>
+#include <ostream>
 
 #include <string.h>
 #include <stdlib.h>
@@ -38,6 +39,7 @@ using std::string;
 using std::min;
 using std::copy;
 using std::swap;
+using std::ostream;
 
 // Stack based buffer. The intention is to use buffer mBuf allocated on the
 // stack (or as part of other object) in most cases, and do real buffer
@@ -515,9 +517,9 @@ inline static bool operator==(
     return (inBuf == inStrPtr);
 }
 
-template<size_t DEFAULT_CAPACITY, typename ST>
-inline static ST& operator<<(
-    ST&                                 inStream,
+template<size_t DEFAULT_CAPACITY>
+inline static ostream& operator<<(
+    ostream&                            inStream,
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
 {
     const size_t theSize = inBuf.GetSize();
