@@ -710,14 +710,17 @@ private:
     void Handle(
         ReadOp& inOp)
     {
-        if (0 <= mLogSeq && mLogSeq != inOp.startLogSeq) {
+        if (0 <= mLogSeq && ((0 != mPos || mWriteToFileFlag) ?
+                mLogSeq != inOp.startLogSeq : mLogSeq < inOp.startLogSeq)) {
             KFS_LOG_STREAM_ERROR <<
                 "start log sequence has chnaged:"
-                " from: " << mLogSeq <<
-                " to: "   << inOp.startLogSeq <<
+                " from: "  << mLogSeq <<
+                " to: "    << inOp.startLogSeq <<
+                " write: " << mWriteToFileFlag <<
+                " pos: "   << mPos <<
             KFS_LOG_EOM;
             inOp.status    = -EINVAL;
-            inOp.statusMsg = "invalid file size";
+            inOp.statusMsg = "invalid sequence";
             HandleReadError(inOp);
             return;
         }
