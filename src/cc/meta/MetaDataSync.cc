@@ -1325,14 +1325,16 @@ private:
         mLogWritesInFlightCount--;
         MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
             inDataPtr);
-        KFS_LOG_STREAM(0 == theOp.status ?
-                MsgLogger::kLogLevelDEBUG :
-                MsgLogger::kLogLevelERROR) <<
+        const bool theErrorFlag = 0 != theOp.status &&
+            theOp.blockStartSeq == theOp.committed;
+        KFS_LOG_STREAM(theErrorFlag ?
+                MsgLogger::kLogLevelERROR :
+                MsgLogger::kLogLevelDEBUG) <<
             "log write:"
             " status: "    << theOp.status <<
             " "            << theOp.statusMsg <<
             " committed: " << theOp.committed <<
-            " last: "      << theOp.lastLogSeq <<
+            " in flight: " << mLogWritesInFlightCount <<
             " "            << theOp.Show() <<
         KFS_LOG_EOM;
         if (0 == theOp.status &&
@@ -1341,7 +1343,7 @@ private:
             mReplayerPtr->Apply(theOp);
             return 0;
         }
-        if (0 != theOp.status && theOp.blockStartSeq == theOp.committed) {
+        if (theErrorFlag) {
             Reset();
         }
         if (mReadOpsPtr) {

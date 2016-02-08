@@ -3842,12 +3842,12 @@ struct MetaLogWriterControl : public MetaRequest {
         if (kWriteBlock == type) {
             os <<
                 "log write"
-                " block: ["    << blockStartSeq <<
-                ":"            << blockEndSeq <<
-                "] length: "   << blockData.BytesConsumable() <<
-                " lines: "     << blockLines.GetSize() <<
-                " committed: " << blockCommitted <<
-                " block seq: " << blockSeq
+                " block: ["          << blockStartSeq <<
+                ":"                  << blockEndSeq <<
+                "] length: "         << blockData.BytesConsumable() <<
+                " lines: "           << blockLines.GetSize() <<
+                " block committed: " << blockCommitted <<
+                " block seq: "       << blockSeq
             ;
         } else {
             os << "log control: ";
