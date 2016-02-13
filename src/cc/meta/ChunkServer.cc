@@ -1460,6 +1460,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                             if (! (is >> c.chunkId >> c.chunkVersion)) {
                                 break;
                             }
+                            if (c.chunkId < 0 || c.chunkVersion < 0) {
+                                break;
+                            }
                             chunks.push_back(c);
                         }
                     } else {
@@ -1468,6 +1471,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                             if (! (is >> allocFileId
                                     >> c.chunkId
                                     >> c.chunkVersion)) {
+                                break;
+                            }
+                            if (c.chunkId < 0 || c.chunkVersion < 0) {
                                 break;
                             }
                             chunks.push_back(c);
@@ -1482,7 +1488,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 if (mHelloOp->contentIntBase == 16) {
                     hexParser.SetIdOnly(true);
                     const MetaHello::ChunkInfo* c;
-                    while (i-- > 0 && (c = hexParser.Next())) {
+                    while (i-- > 0 && (c = hexParser.Next()) &&
+                            0 <= c->chunkId) {
                         mHelloOp->missingChunks.push_back(c->chunkId);
                     }
                 } else {
