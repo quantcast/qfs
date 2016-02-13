@@ -720,6 +720,9 @@ MakeLogMetaRequestHandler(
     .MakeParser("XS",
         META_LOG_CLEAR_OBJ_STORE_DELETE,
         static_cast<const MetaLogClearObjStoreDelete*>(0))
+    .MakeParser("CA",
+        META_CHUNK_AVAILABLE,
+        static_cast<const MetaChunkAvailable*>(0))
     ;
 }
 

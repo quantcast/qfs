@@ -475,10 +475,11 @@ restore_group_users_reset(DETokenizer& c)
     return true;
 }
 
+static const DETokenizer::Token kGUContinue("guc");
+
 bool
 restore_group_users(DETokenizer& c)
 {
-    static const DETokenizer::Token kGUContinue("guc");
     const bool appendFlag = c.front() == kGUContinue;
     c.pop_front();
     if (c.empty()) {

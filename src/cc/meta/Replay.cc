@@ -106,8 +106,14 @@ public:
           mSubEntryCount(0),
           mLogSegmentTimeUsec(0),
           mRestoreTimeCount(0),
-          mReplayer(replay)
+          mReplayer(replay),
+          mCurOp(0)
         {}
+    ~ReplayState()
+    {
+        MetaRequest::Release(mCurOp);
+        mCurOp = 0;
+    }
     bool runCommitQueue(
         int64_t logSeq,
         seq_t   seed,
@@ -118,6 +124,8 @@ public:
         if (0 != mSubEntryCount) {
             return false;
         }
+        MetaRequest::Release(mCurOp);
+        mCurOp = 0;
         mLastLogAheadSeq++;
         return true;
     }
@@ -131,18 +139,19 @@ public:
     static ReplayState& get(const DETokenizer& c)
         { return *reinterpret_cast<ReplayState*>(c.getUserData()); }
 
-    CommitQueue mCommitQueue;
-    seq_t       mCheckpointCommitted;
-    seq_t       mCheckpointErrChksum;
-    seq_t       mLastCommitted;
-    int64_t     mBlockStartLogSeq;
-    int64_t     mLastBlockSeq;
-    int64_t     mLastLogAheadSeq;
-    int64_t     mLogAheadErrChksum;
-    int64_t     mSubEntryCount;
-    int64_t     mLogSegmentTimeUsec;
-    int         mRestoreTimeCount;
-    Replay&     mReplayer;
+    CommitQueue  mCommitQueue;
+    seq_t        mCheckpointCommitted;
+    seq_t        mCheckpointErrChksum;
+    seq_t        mLastCommitted;
+    int64_t      mBlockStartLogSeq;
+    int64_t      mLastBlockSeq;
+    int64_t      mLastLogAheadSeq;
+    int64_t      mLogAheadErrChksum;
+    int64_t      mSubEntryCount;
+    int64_t      mLogSegmentTimeUsec;
+    int          mRestoreTimeCount;
+    Replay&      mReplayer;
+    MetaRequest* mCurOp;
 private:
     ReplayState(const ReplayState&);
     ReplayState& operator=(const ReplayState&);
@@ -1370,6 +1379,153 @@ replay_clear_obj_store_delete(DETokenizer& c)
     return true;
 }
 
+static bool
+replay_cs_hello(DETokenizer& c)
+{
+    const DETokenizer::Token& verb  = c.front();
+    ReplayState&              state = ReplayState::get(c);
+    MetaHello*                op;
+    if (3 == verb.len) {
+        if (0 != state.mSubEntryCount) {
+            return false;
+        }
+        c.pop_front();
+        int64_t n;
+        if (! pop_num(n, "e", c, true) || n < 0) {
+            return false;
+        }
+        if ("l" != c.front()) {
+            return false;
+        }
+        c.pop_front();
+        state.mSubEntryCount = n;
+        op = new MetaHello();
+        state.mCurOp = op;
+        op->replayFlag = true;
+        const DETokenizer::Token& loc = c.front();
+        if (! op->location.FromString(loc.ptr, loc.len, 16 == c.getIntBase())) {
+            return false;
+        }
+        c.pop_front();
+        if (! pop_num(n, "s", c, true) || n < 0) {
+            return false;
+        }
+        op->numChunks = (int)n;
+        if (! pop_num(n, "n", c, true) || n < 0) {
+            return false;
+        }
+        op->numNotStableChunks = (int)n;
+        if (! pop_num(n, "a", c, true) || n < 0) {
+            return false;
+        }
+        op->numNotStableAppendChunks = (int)n;
+        if (! pop_num(n, "m", c, true) || n < 0) {
+            return false;
+        }
+        op->numMissingChunks = (int)n;
+        if (! pop_num(n, "d", c, true) || n < 0) {
+            return false;
+        }
+        op->deletedCount = (size_t)n;
+        if (! pop_num(n, "r", c, true)) {
+            return false;
+        }
+        op->resumeStep = (int)n;
+        if (! pop_num(n, "z", c, true) || n < 0) {
+            return false;
+        }
+        op->logseq = n;
+        if (n != state.mLastLogAheadSeq + 1) {
+            return false;
+        }
+        op->chunks.reserve(op->numChunks);
+        op->notStableChunks.reserve(op->numNotStableChunks);
+        op->notStableAppendChunks.reserve(op->numNotStableAppendChunks);
+        op->missingChunks.reserve(op->numMissingChunks);
+    } else {
+        if (4 != verb.len || ! state.mCurOp) {
+            return false;
+        }
+        op = static_cast<MetaHello*>(state.mCurOp);
+        if ('c' == verb.ptr[3]) {
+            c.pop_front();
+            if (c.empty()) {
+                return false;
+            }
+            MetaHello::ChunkInfo info;
+            while (! c.empty()) {
+                info.chunkId = c.toNumber();
+                if (! c.isLastOk() || info.chunkId < 0) {
+                    return false;
+                }
+                c.pop_front();
+                if (c.empty()) {
+                    return false;
+                }
+                info.chunkVersion = c.toNumber();
+                if (! c.isLastOk() || info.chunkVersion < 0) {
+                    return false;
+                }
+                c.pop_front();
+                if (op->chunks.size() < (size_t)op->numChunks) {
+                    op->chunks.push_back(info);
+                } else if (op->notStableChunks.size() <
+                        (size_t)op->numNotStableChunks) {
+                    op->chunks.push_back(info);
+                } else if (op->notStableAppendChunks.size() <
+                        (size_t)op->numNotStableAppendChunks) {
+                    op->chunks.push_back(info);
+                } else {
+                    return false;
+                }
+            }
+        } else {
+            if ('m' != verb.ptr[3] ||
+                    op->chunks.size() != (size_t)op->numChunks ||
+                    op->notStableChunks.size() !=
+                        (size_t)op->numNotStableChunks ||
+                    op->notStableAppendChunks.size() !=
+                        (size_t)op->numNotStableAppendChunks) {
+                return false;
+            }
+            c.pop_front();
+            if (c.empty()) {
+                return false;
+            }
+            while (! c.empty()) {
+                const int64_t n = c.toNumber();
+                if (! c.isLastOk() || n < 0) {
+                    return false;
+                }
+                if ((size_t)op->numMissingChunks <= op->missingChunks.size()) {
+                    return false;
+                }
+                op->missingChunks.push_back(n);
+            }
+        }
+    }
+    if (1 == state.mSubEntryCount) {
+        if (op->chunks.size() != (size_t)op->numChunks ||
+                op->notStableChunks.size() != (size_t)op->numNotStableChunks ||
+                op->notStableAppendChunks.size() !=
+                    (size_t)op->numNotStableAppendChunks ||
+                op->missingChunks.size() != (size_t)op->numMissingChunks) {
+            return false;
+        }
+        if (state.mLastLogAheadSeq + 1 != op->logseq) {
+            panic("invalid chunk server hello log sequence");
+        }
+        op->seqno = MetaRequest::GetLogWriter().GetNextSeq();
+        op->handle();
+        op->replayFlag = false;
+        op->status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
+        state.mLogAheadErrChksum += op->status;
+        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+            op->logseq, op->status, fileID.getseed(), state.mLogAheadErrChksum));
+    }
+    return replay_sub_entry(c);
+}
+
 static DiskEntry&
 get_entry_map()
 {
@@ -1410,6 +1566,9 @@ get_entry_map()
     e.add_parser("gu",                      &replay_group_users);
     e.add_parser("guc",                     &replay_group_users);
     e.add_parser("commitreset",             &replay_commit_reset);
+    e.add_parser("csh",                     &replay_cs_hello);
+    e.add_parser("cshc",                    &replay_cs_hello);
+    e.add_parser("cshm",                    &replay_cs_hello);
     initied = true;
     return e;
 }

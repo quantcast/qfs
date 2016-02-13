@@ -1906,6 +1906,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "Chunkserver hello"; }
+    virtual bool log(ostream& os) const;
     bool Validate()
     {
         return (ServerLocation::IsValid() &&
@@ -3398,13 +3399,16 @@ struct MetaChunkEvacuate: public MetaRequest {
 };
 
 struct MetaChunkAvailable : public MetaRequest {
-    StringBufT<16 * 64 * 2> chunkIdAndVers; //!< input
-    ChunkServerPtr          server;
+    StringBufT<16 * 384 * 2> chunkIdAndVers; //!< input
+    ServerLocation           location;
+    ChunkServerPtr           server;
     MetaChunkAvailable(seq_t s = -1)
-        : MetaRequest(META_CHUNK_AVAILABLE, kLogNever, s),
+        : MetaRequest(META_CHUNK_AVAILABLE, kLogIfOk, s),
           chunkIdAndVers(),
+          location(),
           server()
         {}
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -3422,6 +3426,13 @@ struct MetaChunkAvailable : public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Chunk-ids-vers", "I", &MetaChunkAvailable::chunkIdAndVers)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("S", &MetaChunkAvailable::location)
+        .Def("C", &MetaChunkAvailable::chunkIdAndVers)
         ;
     }
 };

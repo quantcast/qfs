@@ -2932,11 +2932,17 @@ MetaToggleWORM::handle()
 /* virtual */ bool
 MetaHello::start()
 {
-    if (! server) {
+    if (! server && 0 == status) {
         status = -EINVAL;
+        // This is likely coming from the ClientSM.
+        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
+        KFS_LOG_EOM;
     }
     if (0 == status) {
         gLayoutManager.Start(*this);
+        if (0 != resumeStep && 0 == status) {
+            logAction = kLogIfOk;
+        }
     }
     return (0 == status);
 }
@@ -2944,17 +2950,67 @@ MetaHello::start()
 /* virtual */ void
 MetaHello::handle()
 {
-    if (! server) {
-        // This is likely coming from the ClientSM.
-        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
-        KFS_LOG_EOM;
-        status = -EINVAL;
-    }
-    if (status < 0) {
+    if (0 != status) {
         // bad hello request...possible cluster key mismatch
         return;
     }
     gLayoutManager.AddNewServer(this);
+}
+
+/* virtual */ bool
+MetaHello::log(ostream& os) const
+{
+    const size_t entrySizeLog2 = 6;
+    const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
+    size_t       subEntryCnt   =
+        1 +
+        ((chunks.size() +
+        notStableChunks.size() +
+        notStableAppendChunks.size() +
+        mask) >> entrySizeLog2) +
+        ((missingChunks.size() + mask) >> entrySizeLog2);
+    ReqOstream ros(os);
+    ros <<
+        "csh"
+        "/e/" << subEntryCnt <<
+        "/l/" << location <<
+        "/s/" << chunks.size() <<
+        "/n/" << notStableChunks.size() <<
+        "/a/" << notStableAppendChunks.size() <<
+        "/m/" << missingChunks.size() <<
+        "/d/" << deletedCount <<
+        "/r/" << resumeStep <<
+        "/z/" << logseq
+    ;
+    const ChunkInfos* const infos[] =
+        { &chunks, &notStableChunks, &notStableAppendChunks, 0 };
+    size_t cnt = 0;
+    for (const ChunkInfos*const* info = infos; *info; ++info) {
+        for (ChunkInfos::const_iterator it = (*info)->begin();
+                (*info)->end() != it;
+                ++it) {
+            if ((cnt++ & mask) == 0) {
+                ros << "\ncshc";
+                subEntryCnt--;
+            }
+            ros << "/" << it->chunkId << "/" << it->chunkVersion;
+        }
+    }
+    cnt = 0;
+    for (MissingChunks::const_iterator it = missingChunks.begin();
+            missingChunks.end() != it;
+            ++it) {
+        if ((cnt++ & mask) == 0) {
+            ros << "\ncshm";
+            subEntryCnt--;
+        }
+        ros << "/" << *it;
+    }
+    if (1 != subEntryCnt) {
+        panic("invalid sub entry count");
+    }
+    ros << "\n";
+    return true;
 }
 
 /* virtual */ void
@@ -3185,16 +3241,24 @@ MetaChunkEvacuate::handle()
     }
 }
 
+/* virtual */ bool
+MetaChunkAvailable::start()
+{
+    if (0 == status && ! server) {
+        status = -EINVAL;
+        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
+        KFS_LOG_EOM;
+    } else {
+        location = server->GetServerLocation();
+    }
+    return (0 == status);
+}
+
 /* virtual */ void
 MetaChunkAvailable::handle()
 {
-    if (server) {
+    if (0 == status) {
         gLayoutManager.ChunkAvailable(this);
-    } else {
-        // This is likely coming from the ClientSM.
-        KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
-        KFS_LOG_EOM;
-        status = -EINVAL;
     }
 }
 

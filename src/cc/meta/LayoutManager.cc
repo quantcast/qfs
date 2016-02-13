@@ -3167,6 +3167,9 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
 void
 LayoutManager::AddNewServer(MetaHello* r)
 {
+    if (r->replayFlag) {
+        return; // FIXME.
+    }
     if (r->server->IsDown()) {
         return;
     }
@@ -6929,6 +6932,9 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
 void
 LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
 {
+    if (r->replayFlag) {
+        return; // FIXME
+    }
     if (r->server->IsDown()) {
         return;
     }
