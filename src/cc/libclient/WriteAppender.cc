@@ -104,6 +104,7 @@ public:
           mMakeDirsFlag(false),
           mPreAllocationFlag(inPreAllocationFlag),
           mErrorCode(0),
+          mLastError(0),
           mSpaceAvailable(0),
           mSpaceReserveDisconnectCount(0),
           mRetryCount(0),
@@ -180,12 +181,12 @@ public:
         if (mOpenFlag) {
             if (inFileNamePtr == mPathName &&
                     inNumReplicas == mNumReplicas) {
-                return mErrorCode;
+                return GetErrorStatus();
             }
             return -EINVAL;
         }
         if (mErrorCode) {
-            return mErrorCode;
+            return GetErrorStatus();
         }
         if (mClosingFlag || mOpeningFlag || mSleepingFlag) {
             return -EAGAIN;
@@ -197,6 +198,7 @@ public:
         mNumReplicas           = inNumReplicas;
         mPathName              = inFileNamePtr;
         mErrorCode             = 0;
+        mLastError             = 0;
         mPathNamePos           = 0;
         mSpaceReserveOp.status = 0; // Do allocate with append flag.
         mMakeDirsFlag          = inMakeDirsFlag;
@@ -204,7 +206,7 @@ public:
         mMaxSTier              = inMaxSTier;
         QCASSERT(! mPathName.empty());
         LookupPath();
-        return mErrorCode;
+        return GetErrorStatus();
     }
     int Open(
         kfsFileId_t inFileId,
@@ -218,12 +220,12 @@ public:
         if (mOpenFlag) {
             if (inFileId == mLookupOp.fattr.fileId &&
                     inFileNamePtr == mPathName) {
-                return mErrorCode;
+                return GetErrorStatus();
             }
             return -EINVAL;
         }
         if (mErrorCode) {
-            return mErrorCode;
+            return GetErrorStatus();
         }
         if (mClosingFlag || mOpeningFlag || mSleepingFlag) {
             return -EAGAIN;
@@ -233,6 +235,7 @@ public:
         mPartialBuffersCount   = 0;
         mPathName              = inFileNamePtr;
         mErrorCode             = 0;
+        mLastError             = 0;
         mPathNamePos           = 0;
         mSpaceReserveOp.status = 0;  // Do allocate with append flag.
         mMakeDirsFlag          = false;
@@ -253,7 +256,7 @@ public:
             mOpeningFlag = true;
             LookupPath();
         }
-        return mErrorCode;
+        return GetErrorStatus();
     }
     int Close()
     {
@@ -264,7 +267,7 @@ public:
             return 0;
         }
         if (mErrorCode) {
-            return mErrorCode;
+            return GetErrorStatus();
         }
         if (mClosingFlag) {
             return -EAGAIN;
@@ -273,14 +276,14 @@ public:
         if (! mCurOpPtr) {
             StartAppend();
         }
-        return mErrorCode;
+        return GetErrorStatus();
     }
     int Append(
         IOBuffer& inBuffer,
         int       inLength)
     {
         if (mErrorCode) {
-            return mErrorCode;
+            return GetErrorStatus();
         }
         if (mClosingFlag || (! mOpenFlag && ! mOpeningFlag)) {
             return -EINVAL;
@@ -316,8 +319,7 @@ public:
         if (! mCurOpPtr && mOpenFlag) {
             StartAppend();
         }
-        return (mErrorCode ?
-            (mErrorCode < 0 ? mErrorCode : - mErrorCode) : inLength);
+        return (mErrorCode ? GetErrorStatus() : inLength);
     }
     void Shutdown()
     {
@@ -332,6 +334,7 @@ public:
         mOpeningFlag  = false;
         mOpenFlag     = false;
         mErrorCode    = 0;
+        mLastError    = 0;
         mWriteQueue.clear();
         mBuffer.Clear();
     }
@@ -358,7 +361,7 @@ public:
                 mErrorCode == 0 && ! mWriteQueue.empty()) {
             StartAppend();
         }
-        return mErrorCode;
+        return GetErrorStatus();
     }
     void Register(
         Completion* inCompletionPtr)
@@ -391,19 +394,19 @@ public:
         bool inFlag)
     {
         if (inFlag == mPreAllocationFlag) {
-            return mErrorCode;
+            return GetErrorStatus();
         }
         mPreAllocationFlag = inFlag;
         if (mPreAllocationFlag && ! mCurOpPtr && mOpenFlag &&
                 mErrorCode == 0 && ! mWriteQueue.empty()) {
             StartAppend();
         }
-        return mErrorCode;
+        return GetErrorStatus();
     }
     bool GetPreAllocation() const
         {  return mPreAllocationFlag; }
     bool GetErrorCode() const
-        { return mErrorCode; }
+        { return GetErrorStatus(); }
     void SetForcedAllocationInterval(
         int inInterval)
         { mForcedAllocationInterval = inInterval; }
@@ -491,6 +494,7 @@ private:
     bool                    mMakeDirsFlag;
     bool                    mPreAllocationFlag;
     int                     mErrorCode;
+    int                     mLastError;
     int                     mSpaceAvailable;
     int64_t                 mSpaceReserveDisconnectCount;
     int                     mRetryCount;
@@ -575,6 +579,27 @@ private:
             return false;
         }
         return true;
+    }
+    int GetErrorStatus() const
+    {
+        if (0 == mErrorCode) {
+            return 0;
+        }
+        if (0 < mErrorCode) {
+            return -EIO;
+        }
+        if (KfsNetClient::kErrorMaxRetryReached == mErrorCode &&
+                mLastError < 0) {
+            return mLastError;
+        }
+        if (kErrorOpCanceled == mErrorCode) {
+            return -ECANCELED;
+        }
+        if (kErrorMetaEnqueue == mErrorCode ||
+                kErrorChunkEnqueue == mErrorCode) {
+            return -EIO;
+        }
+        return mErrorCode;
     }
     void StopChunkServer()
     {
@@ -1673,6 +1698,7 @@ private:
     {
         inOp.seq           = 0;
         inOp.status        = 0;
+        inOp.lastError     = 0;
         inOp.statusMsg.clear();
         inOp.checksum      = 0;
         inOp.contentLength = 0;
@@ -1739,8 +1765,11 @@ private:
                 (inEnqueueErrorFlag ? "enqueue" : "") << " failure" <<
             KFS_LOG_EOM;
         }
-        if (! (mErrorCode = mCurOpPtr ? mCurOpPtr->status : -1)) {
-            mErrorCode = -1;
+        if (! mCurOpPtr || 0 <= mCurOpPtr->status) {
+            mErrorCode = -EIO;
+        }
+        if (mCurOpPtr) {
+            mLastError = mCurOpPtr->lastError;
         }
         // Meta operations are automatically retried by MetaServer.
         // Declare fatal error in the case of meta op failure.
@@ -1766,6 +1795,7 @@ private:
             ) {
             mRetryCount++;
             mErrorCode = 0;
+            mLastError = 0;
             const size_t theNoCSAccessCount = mNoCSAccessCount;
             mNoCSAccessCount = 0;
             mGetRecordAppendOpStatusIndex = 0;
@@ -1846,6 +1876,7 @@ private:
                 (mCurOpPtr ? mCurOpPtr->Show() : kKfsNullOp) <<
             KFS_LOG_EOM;
             mErrorCode = 0;
+            mLastError = 0;
             if (&mGetRecordAppendOpStatusOp != mCurOpPtr) {
                 Reset();
             }
@@ -1864,7 +1895,7 @@ private:
             mErrorCode = inErrorCode;
         }
         if (mErrorCode == 0) {
-            mErrorCode = -1;
+            mErrorCode = -EIO;
         }
         mOpenFlag    = false;
         mOpeningFlag = false;
@@ -1899,7 +1930,7 @@ private:
             mAppendRestartRetryCount = 0;
         }
         if (mCompletionPtr) {
-            mCompletionPtr->Done(mOuter, mErrorCode);
+            mCompletionPtr->Done(mOuter, GetErrorStatus());
         }
     }
     bool Sleep(int inSec)
