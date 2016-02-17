@@ -425,6 +425,7 @@ add_subdirectory (${KFS_DIR_PREFIX}src/test-scripts src/test-scripts)
 
 add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
 add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
+add_subdirectory (${KFS_DIR_PREFIX}contrib/plugins contrib/plugins)
 
 IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)

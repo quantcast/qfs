@@ -44,6 +44,7 @@
 #include "KfsClient.h"
 #include "RSStriper.h"
 #include "ClientPool.h"
+#include "Monitor.h"
 
 #include <sstream>
 #include <algorithm>
@@ -1316,6 +1317,11 @@ private:
                 if (inCanceledFlag) {
                     return;
                 }
+                Monitor::ReportError(
+                        Monitor::kReadOpError,
+                        mOuter.mMetaServer.GetServerLocation(),
+                        mChunkServer.GetServerLocation(),
+                        inOp.status);
                 mOpStartTime = inOp.mOpStartTime;
                 if (! inOp.mRetryIfFailsFlag && inOp.status != kErrorChecksum &&
                         mChunkServerIdx + 1 >=

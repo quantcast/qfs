@@ -33,6 +33,7 @@
 #include "utils.h"
 #include "KfsProtocolWorker.h"
 #include "RSStriper.h"
+#include "Monitor.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -1223,6 +1224,7 @@ private:
     typedef QCDLList<KfsClientImpl, 0> List;
     QCMutex        mMutex;
     KfsClientImpl* mList[1];
+    unsigned int   mNextClientId;
 
     static ClientsList* sInstance;
 
@@ -1361,8 +1363,19 @@ private:
     friend class Globals;
 
     ClientsList()
-        : mMutex()
-        { List::Init(mList); }
+        : mMutex(),
+          mNextClientId(0)
+    {
+        List::Init(mList);
+        // In cases where users forget to cleanup KfsClient instances,
+        // static Monitor instance relies on static ClientsList instance
+        // to invoke Monitor::RemoveClient for clients that are still alive
+        // at program termination. To make this work, we need to ensure
+        // static Monitor instance is not destroyed before static ClienstList
+        // instance. Constructing static Monitor instance before static
+        // ClientsList instance is how we achieve this.
+        Monitor::Instance();
+    }
     ~ClientsList()
         { assert(! "unexpected invocation"); }
     void InsertSelf(KfsClientImpl& client)
@@ -1379,6 +1392,7 @@ private:
             globals.mDefaultFileAttributeRevalidateTime;
         client.mFileAttributeRevalidateScan =
             globals.mDefaultFileAttributeRevalidateScan;
+        client.mClientId = mNextClientId++;
     }
     void RemoveSelf(KfsClientImpl& client)
     {
@@ -1558,7 +1572,9 @@ KfsClientImpl::KfsClientImpl(
       mProtocolWorkerAuthCtx(),
       mTargetDiskIoSize(1 << 20),
       mConfig(),
-      mMetaServer(metaServer)
+      mMetaServer(metaServer),
+      mIsMonitored(false),
+      mClientId(0)
 {
     if (mMetaServer) {
         mMetaServerLoc = mMetaServer->GetServerLocation();
@@ -1579,6 +1595,12 @@ KfsClientImpl::KfsClientImpl(
 KfsClientImpl::~KfsClientImpl()
 {
     if (! mMetaServer) {
+        if (mIsMonitored) {
+            Monitor::RemoveClient(this);
+            KFS_LOG_STREAM_INFO
+                << "Kfs client with id " << mClientId
+                << " is removed from monitoring." << KFS_LOG_EOM;
+        }
         ClientsList::Remove(*this);
     }
     QCStMutexLocker l(mMutex);
@@ -1599,6 +1621,12 @@ KfsClientImpl::~KfsClientImpl()
 void
 KfsClientImpl::Shutdown()
 {
+    if (mIsMonitored) {
+        Monitor::RemoveClient(this);
+        KFS_LOG_STREAM_INFO
+             << "Kfs client with id " << mClientId
+             << " is removed from monitoring." << KFS_LOG_EOM;
+    }
     QCStMutexLocker l(mMutex);
     ShutdownSelf();
 }
@@ -1726,6 +1754,53 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     if (! mIsInitialized) {
         mInitLookupRootFlag = true;
         ShutdownSelf();
+    }
+    // setup the client monitor specific parameters
+    char* monitorPluginPath = 0;
+    int monitorReportInterval = -1;
+    int monitorMaxErrorRecords = -1;
+    bool isMonitorEnabled = false;
+    if (properties) {
+        // try configuration file/QFS_CLIENT_CONFIG first
+        monitorPluginPath = (char*) properties->getValue(
+                "client.monitorPluginPath", (const char*) 0);
+        if(monitorPluginPath) {
+            isMonitorEnabled = true;
+            monitorReportInterval = properties->getValue(
+                    "client.monitorReportInterval", 15);
+            monitorMaxErrorRecords = properties->getValue(
+                    "client.monitorMaxErrorRecords", -1);
+        }
+    }
+    else {
+        // next, try monitor specific environment variables
+        monitorPluginPath = getenv("QFS_CLIENT_MONITOR_PLUGIN_PATH");
+        if (monitorPluginPath) {
+            isMonitorEnabled = true;
+            char* p = getenv("QFS_CLIENT_MONITOR_REPORT_INTERVAL");
+            if (p) {
+                monitorReportInterval = atoi(p);
+            }
+            else {
+                monitorReportInterval = 15;
+            }
+            p = getenv("QFS_CLIENT_MONITOR_MAX_ERROR_RECORDS");
+            if (p) {
+                monitorMaxErrorRecords = atoi(p);
+            }
+            else {
+                monitorMaxErrorRecords = -1;
+            }
+        }
+    }
+    if (isMonitorEnabled) {
+        bool success = Monitor::AddClient(this, monitorPluginPath,
+                monitorReportInterval, monitorMaxErrorRecords);
+        if (success) {
+            mIsMonitored = true;
+            KFS_LOG_STREAM_INFO << "Kfs client with id " << mClientId
+                    << " is being monitored!" << KFS_LOG_EOM;
+        }
     }
     return ret;
 }

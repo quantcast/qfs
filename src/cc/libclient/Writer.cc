@@ -47,6 +47,7 @@
 #include "KfsOps.h"
 #include "utils.h"
 #include "KfsClient.h"
+#include "Monitor.h"
 
 namespace KFS
 {
@@ -1255,6 +1256,11 @@ private:
                 Queue::Remove(mInFlightQueue, inOp);
                 Queue::PushBack(mPendingQueue, inOp);
                 if (! inCanceledFlag) {
+                    Monitor::ReportError(
+                            Monitor::kWriteOpError,
+                            mOuter.mMetaServer.GetServerLocation(),
+                            mChunkServer.GetServerLocation(),
+                            inOp.status);
                     mOpStartTime = inOp.mOpStartTime;
                     HandleError(inOp);
                 }

@@ -43,6 +43,7 @@ set (sources
     ECMethod.cc
     QCECMethod.cc
     ECMethodJerasure.cc
+    Monitor.cc
 )
 
 #

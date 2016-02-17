@@ -262,6 +262,8 @@ public:
 
     bool IsInitialized() { return mIsInitialized; };
 
+    unsigned int GetClientId() { return mClientId; };
+
     ///
     /// Provide a "cwd" like facility for KFS.
     /// @param[in] pathname  The pathname to change the "cwd" to
@@ -815,6 +817,8 @@ private:
     KfsNetClient* const            mMetaServer;
     KfsClientImpl*                 mPrevPtr[1];
     KfsClientImpl*                 mNextPtr[1];
+    bool                           mIsMonitored;
+    unsigned int                   mClientId;
 
     friend class QCDLListOp<KfsClientImpl, 0>;
     class ClientsList;
