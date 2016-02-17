@@ -587,6 +587,7 @@ public:
 
         const char*         theReasonPtr        = "network error";
         OpQueueEntry* const theOutstandingOpPtr = mOutstandingOpPtr;
+        int                 theError            = 0;
         switch (inCode) {
             case EVENT_NET_READ: {
                     assert(inDataPtr && mConnPtr &&
@@ -618,6 +619,7 @@ public:
                     break;
                 }
                 theReasonPtr = "inactivity timeout";
+                theError     = -ETIMEDOUT;
                 // Fall through.
             case EVENT_NET_ERROR:
                 if (mConnPtr) {
@@ -637,8 +639,20 @@ public:
                     }
                     if (mAuthContextPtr && mConnPtr->IsAuthFailure()) {
                         mAuthFailureCount++;
+                        theError = -EPERM;
                     } else {
                         mAuthFailureCount = 0;
+                        if (0 == theError) {
+                            if (inDataPtr) {
+                                theError =
+                                    *reinterpret_cast<const int*>(inDataPtr);
+                                if (0 <= theError) {
+                                    theError = -EIO;
+                                }
+                            } else {
+                                theError = -EIO;
+                            }
+                        }
                     }
                     mAllDataSentFlag = ! mConnPtr->IsWriteReady();
                     KFS_LOG_STREAM(mPendingOpQueue.empty() ?
@@ -669,7 +683,7 @@ public:
                     mStats.mConnectFailureCount++;
                 }
                 if (! mPendingOpQueue.empty()) {
-                    RetryConnect(theOutstandingOpPtr);
+                    RetryConnect(theOutstandingOpPtr, theError);
                 }
                 break;
 
@@ -1402,7 +1416,7 @@ private:
             KFS_LOG_EOM;
             delete &theSocket;
             mStats.mConnectFailureCount++;
-            RetryConnect();
+            RetryConnect(0, theErr);
             return;
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
@@ -1457,7 +1471,7 @@ private:
                     KFS_LOG_EOM;
                     // Assume communication failure.
                     mStats.mConnectFailureCount++;
-                    RetryConnect();
+                    RetryConnect(0, theStatus < 0 ? theStatus : -EIO);
                     return;
                 }
             }
@@ -1513,6 +1527,9 @@ private:
             if (theEntry.mRetryCount > mMaxRetryCount) {
                 mStats.mOpsTimeoutCount++;
                 theEntry.mOpPtr->status = kErrorMaxRetryReached;
+                if (0 == theEntry.mOpPtr->lastError) {
+                    theEntry.mOpPtr->lastError = -EIO;
+                }
                 theEntry.Done();
             } else {
                 if (inLastOpPtr != theEntry.mOpPtr &&
@@ -1591,7 +1608,8 @@ private:
         EnsureConnected();
     }
     void RetryConnect(
-        OpQueueEntry* inOutstandingOpPtr = 0)
+        OpQueueEntry* inOutstandingOpPtr,
+        int           inError)
     {
         if (mSleepingFlag) {
             return;
@@ -1633,13 +1651,14 @@ private:
                         static_cast<KfsOp*>(&mAuthOp))
             );
             const bool kAllowRetryFlag = false;
-            HandleSingleOpTimeout(theIt, kAllowRetryFlag);
+            HandleSingleOpTimeout(
+                theIt, kAllowRetryFlag, kErrorMaxRetryReached, inError);
         } else if (inOutstandingOpPtr && ! mFailAllOpsOnOpTimeoutFlag &&
                 ! mPendingOpQueue.empty() &&
                 &(mPendingOpQueue.begin()->second) == inOutstandingOpPtr) {
             const bool kAllowRetryFlag = true;
             HandleSingleOpTimeout(mPendingOpQueue.begin(), kAllowRetryFlag,
-                mAuthFailureCount ? -EPERM : kErrorMaxRetryReached);
+                mAuthFailureCount ? -EPERM : kErrorMaxRetryReached, inError);
         } else {
             const int theStatus = 0 < mAuthFailureCount ?
                 -EPERM : kErrorMaxRetryReached;
@@ -1653,7 +1672,8 @@ private:
                 if (! theIt->second.mOpPtr) {
                     continue;
                 }
-                theIt->second.mOpPtr->status = theStatus;
+                theIt->second.mOpPtr->status    = theStatus;
+                theIt->second.mOpPtr->lastError = inError;
                 theIt->second.Done();
             }
             mQueueStack.erase(theIt);
@@ -1661,14 +1681,16 @@ private:
     }
     void HandleSingleOpTimeout(
         OpQueue::iterator inIt,
-        bool              inAllowRetryFlag = true,
-        int               inStatus         = kErrorMaxRetryReached)
+        bool              inAllowRetryFlag,
+        int               inStatus,
+        int               inError)
     {
         OpQueueEntry& theEntry = inIt->second;
         if (inAllowRetryFlag && theEntry.mRetryCount < mMaxRetryCount) {
             theEntry.mRetryCount++;
         } else {
-            theEntry.mOpPtr->status = inStatus;
+            theEntry.mOpPtr->status    = inStatus;
+            theEntry.mOpPtr->lastError = inError;
             const int thePrefRefCount = GetRefCount();
             HandleOp(inIt);
             if (thePrefRefCount > GetRefCount()) {
@@ -1704,7 +1726,7 @@ private:
                     " pending ops: "       << mPendingOpQueue.size() <<
                     " resetting connecton" <<
                 KFS_LOG_EOM;
-                RetryConnect();
+                RetryConnect(0, -ETIMEDOUT);
             }
             return;
         }
@@ -1748,7 +1770,9 @@ private:
                     theStIt->swap(mPendingOpQueue);
                     break;
                 }
-                HandleSingleOpTimeout(theIt);
+                const bool kAllowRetryFlag = true;
+                HandleSingleOpTimeout(
+                    theIt, kAllowRetryFlag, kErrorMaxRetryReached, -ETIMEDOUT);
                 return;
             }
             if (theStIt == mQueueStack.end()) {
@@ -1790,7 +1814,8 @@ private:
                 mStats.mOpsTimeoutCount++;
             }
             if (theEntry.mRetryCount >= mMaxRetryCount) {
-                theEntry.mOpPtr->status = theCurStatus;
+                theEntry.mOpPtr->status    = theCurStatus;
+                theEntry.mOpPtr->lastError = -ETIMEDOUT;
                 theEntry.Done();
             } else {
                 mStats.mOpsRetriedCount += theRetryIncrement;

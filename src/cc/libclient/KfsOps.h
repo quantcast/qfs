@@ -146,6 +146,7 @@ struct KfsOp {
     KfsOp_t       op;
     kfsSeq_t      seq;
     int32_t       status;
+    int           lastError;
     uint32_t      checksum; // a checksum over the data
     int64_t       maxWaitMillisec;
     size_t        contentLength;
@@ -159,6 +160,7 @@ struct KfsOp {
         : op(o),
           seq(s),
           status(0),
+          lastError(0),
           checksum(0),
           maxWaitMillisec(-1),
           contentLength(0),

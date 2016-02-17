@@ -96,7 +96,8 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
             if (nread != 0) {
                 Close();
             }
-            mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
+            int err = nread;
+            mCallbackObj->HandleEvent(EVENT_NET_ERROR, &err);
         } else if (nread > 0) {
             mCallbackObj->HandleEvent(EVENT_NET_READ, &mInBuffer);
         }
@@ -127,12 +128,12 @@ NetConnection::HandleWriteEvent()
                 (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
             KFS_LOG_EOM;
             Close();
-            mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
+            mCallbackObj->HandleEvent(EVENT_NET_ERROR, &nwrote);
         } else if (forceInvokeErrHandlerFlag) {
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "write: forcing error handler invocation, wrote: " << nwrote <<
             KFS_LOG_EOM;
-            mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
+            mCallbackObj->HandleEvent(EVENT_NET_ERROR, 0);
         } else if (nwrote > 0 || wasConnectPending) {
             mCallbackObj->HandleEvent(EVENT_NET_WROTE, &mOutBuffer);
         }
@@ -147,13 +148,14 @@ NetConnection::HandleErrorEvent()
     if (IsGood()) {
         GetErrorMsg();
         IsAuthFailure();
+        int status = mAuthFailureFlag ? -EPERM : -GetSocketError();
         NET_CONNECTION_LOG_STREAM_DEBUG <<
             "closing connection due to error" <<
             (mAuthFailureFlag ? " auth failure" : "") <<
             (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
         KFS_LOG_EOM;
         Close();
-        mCallbackObj->HandleEvent(EVENT_NET_ERROR, NULL);
+        mCallbackObj->HandleEvent(EVENT_NET_ERROR, &status);
     } else {
         Update();
     }
@@ -176,7 +178,7 @@ NetConnection::HandleTimeoutEvent()
             (mNetManagerEntry.IsOut()   ? " +w" : "") <<
             (mNetManagerEntry.IsAdded() ? ""    : " -a") <<
         KFS_LOG_EOM;
-        mCallbackObj->HandleEvent(EVENT_INACTIVITY_TIMEOUT, NULL);
+        mCallbackObj->HandleEvent(EVENT_INACTIVITY_TIMEOUT, 0);
     }
     Update();
 }

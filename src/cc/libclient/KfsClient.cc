@@ -1171,6 +1171,13 @@ KfsClient::PropertiesIterator::Size() const
 namespace client
 {
 
+static inline int
+GetOpStatus(const KfsOp& op)
+{
+    return ((KfsNetClient::kErrorMaxRetryReached == op.status &&
+                op.lastError < 0) ? op.lastError : op.status);
+}
+
 class MatchingServer {
     ServerLocation loc;
 public:
@@ -1863,6 +1870,7 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
             continue;
         }
         if (res != -EEXIST) {
+            res = GetOpStatus(op);
             break;
         }
         fa = 0;
@@ -1912,7 +1920,7 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     );
     DoMetaOpWithRetry(&op);
     if (op.status < 0) {
-        return op.status;
+        return GetOpStatus(op);
     }
     time_t now = 0; // assign to suppress compiler warning.
     if (! op.userName.empty()) {
@@ -1950,7 +1958,7 @@ KfsClientImpl::Rmdir(const char *pathname)
         NextIdempotentOpId());
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, dirname));
-    return op.status;
+    return GetOpStatus(op);
 }
 
 ///
@@ -2067,7 +2075,7 @@ KfsClientImpl::RmdirsSelf(
     RmdirOp op(0, parentFid, dirname.c_str(), p.c_str(),
         idempotentFlag ? NextIdempotentOpId() : -1);
     DoMetaOpWithRetry(&op);
-    return (op.status < 0 ? errHandler(p, op.status) : 0);
+    return (op.status < 0 ? errHandler(p, GetOpStatus(op)) : 0);
 }
 
 int
@@ -2078,7 +2086,7 @@ KfsClientImpl::Remove(const string& dirname, kfsFileId_t dirFid,
     RemoveOp op(0, dirFid, filename.c_str(), pathname.c_str(),
         idempotentFlag ? NextIdempotentOpId() : -1);
     DoMetaOpWithRetry(&op);
-    return op.status;
+    return GetOpStatus(op);
 }
 
 class ReaddirResult
@@ -2360,7 +2368,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
     } else {
         result.clear();
     }
-    return op.status;
+    return GetOpStatus(op);
 }
 
 ///
@@ -2933,7 +2941,7 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
     }
     if (op.status != 0) {
         result.clear();
-        return op.status;
+        return GetOpStatus(op);
     }
     ComputeFilesizes(result, parser.fileChunkInfo);
 
@@ -3131,7 +3139,7 @@ KfsClientImpl::LookupAttr(kfsFileId_t parentFid, const string& filename,
     if (op.status < 0) {
         Delete(fa);
         fa = 0;
-        return op.status;
+        return GetOpStatus(op);
     }
     const time_t now = time(0);
     UpdateUserAndGroup(op, now);
@@ -3216,7 +3224,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         KFS_LOG_STREAM_ERROR <<
             pathname << ": create: " << op.status << " " << op.statusMsg <<
         KFS_LOG_EOM;
-        return op.status;
+        return GetOpStatus(op);
     }
     if (op.striperType != op.metaStriperType && forceTypeFlag) {
         KFS_LOG_STREAM_ERROR <<
@@ -3310,7 +3318,7 @@ KfsClientImpl::Remove(const char* pathname)
         NextIdempotentOpId());
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, filename));
-    return op.status;
+    return GetOpStatus(op);
 }
 
 bool
@@ -3424,7 +3432,7 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
         Delete(LookupFAttr(srcParentFid, srcFileName));
         Delete(LookupFAttr(dstParentFid, dstFileName));
     }
-    return op.status;
+    return GetOpStatus(op);
 }
 
 int
@@ -3554,7 +3562,7 @@ KfsClientImpl::CoalesceBlocks(const char* src, const char* dst, chunkOff_t *dstS
     }
     Delete(LookupFAttr(srcParentFid, srcFileName));
     Delete(LookupFAttr(dstParentFid, dstFileName));
-    return op.status;
+    return GetOpStatus(op);
 }
 
 int
@@ -3576,7 +3584,7 @@ KfsClientImpl::SetMtime(const char *pathname, const struct timeval &mtime)
     SetMtimeOp op(0, path.c_str(), mtime);
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, fileName));
-    return op.status;
+    return GetOpStatus(op);
 }
 
 int
@@ -3819,7 +3827,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
                 }
                 return fte;
             }
-            return op.status;
+            return GetOpStatus(op);
         }
         if (mUseOsUserAndGroupFlag && ! CheckAccess(
                 openMode,
@@ -4057,7 +4065,7 @@ KfsClientImpl::Truncate(const char* pathname, chunkOff_t offset)
     op.setEofHintFlag = attr.numStripes > 1;
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
-        return op.status;
+        return GetOpStatus(op);
     }
     InvalidateAttributeAndCounts(path);
     return 0;
@@ -4081,9 +4089,7 @@ KfsClientImpl::TruncateSelf(int fd, chunkOff_t offset)
     TruncateOp op(0, FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
     op.setEofHintFlag = fa->numStripes > 1;
     DoMetaOpWithRetry(&op);
-    int res = op.status;
-
-    if (res == 0) {
+    if (op.status == 0) {
         fa->fileSize = offset;
         if (fa->fileSize == 0) {
             fa->subCount1 = 0;
@@ -4094,7 +4100,7 @@ KfsClientImpl::TruncateSelf(int fd, chunkOff_t offset)
 
         gettimeofday(&fa->mtime, 0);
     }
-    return res;
+    return GetOpStatus(op);
 }
 
 int
@@ -4123,14 +4129,12 @@ KfsClientImpl::PruneFromHead(int fd, chunkOff_t offset)
     TruncateOp op(0, FdInfo(fd)->pathname.c_str(), fa->fileId, offset);
     op.pruneBlksFromHead = true;
     DoMetaOpWithRetry(&op);
-    int res = op.status;
-
-    if (res == 0) {
+    if (op.status == 0) {
         // chunkcount is off...but, that is ok; it is never exposed to
         // the end-client.
         gettimeofday(&fa->mtime, 0);
     }
-    return res;
+    return GetOpStatus(op);
 }
 
 int
@@ -4331,7 +4335,7 @@ KfsClientImpl::SetReplicationFactor(const char *pathname, int16_t numReplicas)
     ChangeFileReplicationOp op(0, attr.fileId, numReplicas);
     DoMetaOpWithRetry(&op);
     InvalidateAttributeAndCounts(path);
-    return (op.status <= 0 ? op.status : -op.status);
+    return (op.status <= 0 ? GetOpStatus(op) : -op.status);
 }
 
 int
@@ -4355,7 +4359,7 @@ KfsClientImpl::SetStorageTierRange(
     }
     DoMetaOpWithRetry(&op);
     InvalidateAttributeAndCounts(path);
-    return (op.status <= 0 ? op.status : -op.status);
+    return (op.status <= 0 ? GetOpStatus(op) : -op.status);
 }
 
 void
@@ -4607,7 +4611,7 @@ KfsClientImpl::LocateChunk(int fd, chunkOff_t chunkOffset, ChunkAttr& chunk)
             "locate chunk failure: " << op.status <<
             " " <<  ErrorCodeToStr(op.status) <<
         KFS_LOG_EOM;
-        return op.status;
+        return GetOpStatus(op);
     }
     chunk.chunkId        = op.chunkId;
     chunk.chunkVersion   = op.chunkVersion;
@@ -4785,7 +4789,7 @@ KfsClientImpl::UpdateFilesize(int fd)
         DoMetaOpWithRetry(&op);
         if (op.status < 0) {
             Delete(fa);
-            return op.status;
+            return GetOpStatus(op);
         }
         const time_t now = time(0);
         UpdateUserAndGroup(op, now);
@@ -4894,7 +4898,7 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
             " status: " << lop.status <<
             " "         << lop.statusMsg <<
         KFS_LOG_EOM;
-        return lop.status;
+        return GetOpStatus(lop);
     }
     if (lop.chunks.empty()) {
         return 0;
@@ -5051,6 +5055,8 @@ KfsClientImpl::InitUserAndGroupMode()
         " "         << lrop.Show() <<
         " status: " << lrop.status <<
         " "         << lrop.statusMsg <<
+        " error: "  << lrop.lastError <<
+        "  "        << ErrorCodeToStr(lrop.lastError) <<
         " user: "   << lrop.fattr.user <<
         " "         << lrop.userName <<
         " group: "  << lrop.fattr.group <<
@@ -5073,7 +5079,7 @@ KfsClientImpl::InitUserAndGroupMode()
             }
        }
     }
-    return lrop.status;
+    return GetOpStatus(lrop);
 }
 
 ///
@@ -5147,6 +5153,7 @@ KfsClientImpl::ExecuteMeta(KfsOp& op)
         " seq: "    << op.seq <<
         " status: " << op.status <<
         " msg: "    << op.statusMsg <<
+        " error: "  << op.lastError <<
         " "         << op.Show() <<
     KFS_LOG_EOM;
 }
@@ -5441,7 +5448,7 @@ KfsClientImpl::LookupSelf(LookupOp& op,
         if (fa) {
             Delete(fa);
         }
-        return op.status;
+        return GetOpStatus(op);
     }
     UpdateUserAndGroup(op, now);
     // Update i-node cache.
@@ -5611,7 +5618,7 @@ KfsClientImpl::GetReplication(const char* pathname,
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
-        return lop.status;
+        return GetOpStatus(lop);
     }
     maxChunkReplication = 0;
     if (lop.chunks.empty()) {
@@ -5652,7 +5659,7 @@ HandleDelegationResponse(
         if (outErrMsg) {
             *outErrMsg = delegateOp.statusMsg;
         }
-        return delegateOp.status;
+        return GetOpStatus(delegateOp);
     }
     if (delegateOp.access.empty()) {
         const char* const msg = "invalid empty response access token";
@@ -5777,7 +5784,7 @@ KfsClientImpl::CancelDelegation(
     if (delegateCancelOp.status <= 0 && outErrMsg) {
         *outErrMsg = delegateCancelOp.statusMsg;
     }
-    return delegateCancelOp.status;
+    return GetOpStatus(delegateCancelOp);
 }
 
 int
@@ -5841,7 +5848,7 @@ KfsClientImpl::EnumerateBlocks(
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
-        return lop.status;
+        return GetOpStatus(lop);
     }
 
     vector<ssize_t> chunksize;
@@ -5897,7 +5904,7 @@ KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
         KFS_LOG_EOM;
     }
     if (op.status < 0) {
-        return op.status;
+        return GetOpStatus(op);
     }
     const size_t numChecksums = CHUNKSIZE / CHECKSUM_BLOCKSIZE;
     if (op.contentLength < numChecksums * sizeof(*checksums)) {
@@ -5949,7 +5956,7 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
         KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
-        return lop.status;
+        return GetOpStatus(lop);
     }
     const size_t numChecksums = CHUNKSIZE / CHECKSUM_BLOCKSIZE;
     scoped_array<uint32_t> chunkChecksums1;
@@ -6021,7 +6028,7 @@ KfsClientImpl::GetFileOrChunkInfo(kfsFileId_t fileId, kfsChunkId_t chunkId,
     offset         = op.offset;
     chunkVersion   = op.chunkVersion;
     servers        = op.servers;
-    return op.status;
+    return GetOpStatus(op);
 }
 
 int
@@ -6047,7 +6054,7 @@ KfsClientImpl::Chmod(const char* pathname, kfsMode_t mode)
         kfsMode_t(Permissions::kFileModeMask)));
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
-        return op.status;
+        return GetOpStatus(op);
     }
     if (fa && fa->isDirectory) {
         InvalidateAllCachedAttrs();
@@ -6168,7 +6175,7 @@ KfsClientImpl::Chmod(int fd, kfsMode_t mode)
         kfsMode_t(Permissions::kFileModeMask)));
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
-        return op.status;
+        return GetOpStatus(op);
     }
     entry.fattr.mode = op.mode;
     if (entry.fattr.isDirectory) {
@@ -6202,7 +6209,7 @@ public:
             kfsMode_t(Permissions::kFileModeMask)));
         mCli.DoMetaOpWithRetry(&op);
         if (op.status != 0) {
-            const int ret = mErrHandler(path, op.status);
+            const int ret = mErrHandler(path, GetOpStatus(op));
             if (ret != 0) {
                 return ret;
             }
@@ -6354,7 +6361,7 @@ KfsClientImpl::ChownSelf(
     op.groupName = gn;
     DoMetaOpWithRetry(&op);
     if (op.status != 0) {
-        return op.status;
+        return GetOpStatus(op);
     }
     if (outUser) {
         *outUser = op.user;
@@ -6468,7 +6475,7 @@ public:
         op.groupName = mGroupName;
         mCli.DoMetaOpWithRetry(&op);
         if (op.status != 0) {
-            const int ret = mErrHandler(path, op.status);
+            const int ret = mErrHandler(path, GetOpStatus(op));
             if (ret != 0) {
                 return ret;
             }
@@ -6553,7 +6560,7 @@ public:
         ChangeFileReplicationOp op(0, attr.fileId, mReplication);
         mCli.DoMetaOpWithRetry(&op);
         if (op.status != 0) {
-            const int ret = mErrHandler(path, op.status);
+            const int ret = mErrHandler(path, GetOpStatus(op));
             if (ret != 0) {
                 return ret;
             }
@@ -6666,7 +6673,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         KFS_LOG_STREAM_ERROR << "get layout error: " <<
             ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
-        return lop.status;
+        return GetOpStatus(lop);
     }
     MdStream mdsAll;
     MdStream mds;
@@ -6835,7 +6842,7 @@ KfsClientImpl::GetChunkLease(
             " status: " << ErrorCodeToStr(theLeaseOp.status) <<
         KFS_LOG_EOM;
     }
-    return theLeaseOp.status;
+    return GetOpStatus(theLeaseOp);
 }
 
 int
@@ -6952,7 +6959,7 @@ KfsClientImpl::GetChunkSize(
         DoMetaOpWithRetry(&theLeaseRelinquishOp);
     }
     if (theSizeOp.status < 0) {
-        return theSizeOp.status;
+        return GetOpStatus(theSizeOp);
     }
     if (theSizeOp.size <= 0) {
         return 0;

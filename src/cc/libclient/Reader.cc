@@ -234,7 +234,7 @@ public:
         if (inLength <= 0) {
             IOBuffer theBuf;
             return (
-                ReportCompletion(0, 0, 0, inOffset, &theBuf, inRequestId) ?
+                ReportCompletion(0, 0, 0, 0, inOffset, &theBuf, inRequestId) ?
                 mErrorCode : 0
             );
         }
@@ -858,7 +858,7 @@ private:
                 mGetAllocOp.chunkId     = -1;
                 mLeaseAcquireOp.leaseId = -1;
                 mChunkServerSetFlag     = false;
-                ReportCompletion();
+                ReportCompletion(0);
                 return;
             }
             if (! CanRead()) {
@@ -1032,7 +1032,7 @@ private:
             if (inOp.status == kErrorNoEntry) {
                 // Fail all ops.
                 inOp.chunkId = -1;
-                ReportCompletionForAll(inOp.status);
+                ReportCompletionForAll(inOp.status, inOp.lastError);
                 return;
             }
             if (inOp.status != 0 || mGetAllocOp.chunkServers.empty()) {
@@ -1370,6 +1370,7 @@ private:
             const RequestId theRequestId        = inOp.mRequestId;
             const RequestId theStriperRequestId = inOp.mStriperRequestId;
             const int       theStatus           = min(0, inOp.status);
+            const int       theLastError        = inOp.lastError;
             Offset          theOffset = mGetAllocOp.fileOffset + inOp.offset;
             if (mOpsNoRetryCount > 0 &&
                     ! inOp.mRetryIfFailsFlag &&
@@ -1380,6 +1381,7 @@ private:
             inOp.Delete(inQueuePtr);
             if (theCompl.mRequests.empty()) {
                 if (! ReportCompletion(
+                        theLastError,
                         theStatus,
                         theOffset,
                         theSize,
@@ -1398,6 +1400,7 @@ private:
                     if (! theIt->mCancelFlag) {
                         theIt->mCancelFlag = true;
                         if (! ReportCompletion(
+                                theLastError,
                                 theStatus,
                                 theOffset,
                                 theIt->mSize,
@@ -1725,6 +1728,7 @@ private:
         {
             inOp.seq           = 0;
             inOp.status        = 0;
+            inOp.lastError     = 0;
             inOp.statusMsg.clear();
             inOp.checksum      = 0;
             inOp.contentLength = 0;
@@ -1862,13 +1866,15 @@ private:
                 KFS_LOG_EOM;
                 // Fail all ops.
                 ReportCompletionForAll(
-                    inOp.status < 0 ? inOp.status : kErrorIO);
+                    inOp.status < 0 ? inOp.status : kErrorIO,
+                    inOp.lastError);
                 return;
             }
             if (&mGetAllocOp == &inOp || &mSizeOp == &inOp ||
                     theReadLeaseOtherFalureFlag) {
                 if (! ReportCompletionForPendingWithNoRetryOnly(
-                        inOp.status < 0 ? inOp.status : kErrorIO)) {
+                        inOp.status < 0 ? inOp.status : kErrorIO,
+                        inOp.lastError)) {
                     return; // Unwind.
                 }
                 if (Queue::IsEmpty(mPendingQueue) &&
@@ -1894,7 +1900,8 @@ private:
             }
         }
         bool ReportCompletionForPendingWithNoRetryOnly(
-            int inStatus)
+            int inStatus,
+            int inLastError)
         {
             if (mOpsNoRetryCount <= 0) {
                 return true;
@@ -1908,28 +1915,31 @@ private:
                     Queue::PushBack(mCompletionQueue, *theOpPtr);
                 }
             }
-            return RunCompletionQueue(inStatus);
+            return RunCompletionQueue(inStatus, inLastError);
         }
         bool ReportCompletionForAll(
-            int inStatus)
+            int inStatus,
+            int inLastError)
         {
             Reset();
             QCRTASSERT(Queue::IsEmpty(mInFlightQueue));
             mOpsNoRetryCount = 0;
             Queue::PushBackList(mCompletionQueue, mPendingQueue);
             if (Queue::IsEmpty(mCompletionQueue)) {
-                return ReportCompletion();
+                return ReportCompletion(inLastError);
             }
-            return RunCompletionQueue(inStatus);
+            return RunCompletionQueue(inStatus, inLastError);
         }
         bool RunCompletionQueue(
-            int inStatus)
+            int inStatus,
+            int inLastError)
         {
             const int theStatus = (inStatus == kErrorNoEntry &&
                 mGetAllocOp.status != kErrorNoEntry) ? kErrorIO : inStatus;
             ReadOp* theOpPtr;
             while ((theOpPtr = Queue::Front(mCompletionQueue))) {
-                theOpPtr->status = theStatus;
+                theOpPtr->status    = theStatus;
+                theOpPtr->lastError = inLastError;
                 if (theOpPtr->mFailShortReadFlag && theStatus == kErrorNoEntry) {
                     ReadOp& theOp   = *theOpPtr;
                     theOp.status    = kErrorInvalChunkSize;
@@ -1976,6 +1986,7 @@ private:
             StartRead();
         }
         bool ReportCompletion(
+            int       inLastError,
             int       inStatus           = 0,
             Offset    inOffset           = 0,
             Offset    inSize             = 0,
@@ -1989,6 +2000,7 @@ private:
                 mRetryCount = 0;
             }
             return mOuter.ReportCompletion(
+                inLastError,
                 inStatus,
                 this,
                 inOffset,
@@ -2268,7 +2280,7 @@ private:
             return mErrorCode;
         }
         if (Readers::IsEmpty(mReaders)) {
-            return ((! ReportCompletion()) ?  0 : mErrorCode);
+            return ((! ReportCompletion(0)) ?  0 : mErrorCode);
         }
         Readers::Iterator theIt(mReaders);
         ChunkReader*      thePtr;
@@ -2434,6 +2446,7 @@ private:
         return theRetFlag;
     }
     bool ReportCompletion(
+        int          inLastError,
         int          inStatus           = 0,
         ChunkReader* inReaderPtr        = 0,
         Offset       inOffset           = 0,
@@ -2481,6 +2494,10 @@ private:
                 }
                 theStatus = 0;
             }
+            if (KfsNetClient::kErrorMaxRetryReached == theStatus &&
+                    inLastError < 0) {
+                theStatus = inLastError;
+            }
             if (mCompletionPtr) {
                 mCompletionPtr->Done(
                     mOuter,
@@ -2508,7 +2525,8 @@ private:
                 if (mCompletionPtr) {
                     mCompletionPtr->Done(
                         mOuter,
-                        mErrorCode,
+                        (KfsNetClient::kErrorMaxRetryReached == mErrorCode &&
+                            inLastError < 0) ? inLastError : mErrorCode,
                         0,
                         0,
                         0,
@@ -2641,6 +2659,7 @@ Reader::Striper::ReportCompletion(
     int64_t                    inRecoveriesCount)
 {
     return mOuter.ReportCompletion(
+        0,
         inStatus,
         0,
         inOffset,

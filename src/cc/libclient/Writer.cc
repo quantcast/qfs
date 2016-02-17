@@ -76,7 +76,8 @@ public:
         kErrorFault      = -EFAULT,
         kErrorNoEntry    = -ENOENT,
         kErrorReadOnly   = -EROFS,
-        kErrorSeek       = -ESPIPE
+        kErrorSeek       = -ESPIPE,
+        kErrorIo         = -EIO
     };
 
     Impl(
@@ -1469,6 +1470,7 @@ private:
         {
             inOp.seq           = 0;
             inOp.status        = 0;
+            inOp.lastError     = 0;
             inOp.statusMsg.clear();
             inOp.checksum      = 0;
             inOp.contentLength = 0;
@@ -1513,7 +1515,8 @@ private:
                     "no") << " data sent" <<
                 "\nRequest:\n"            << theOStream.str() <<
             KFS_LOG_EOM;
-            int theStatus = inOp.status;
+            int       theStatus    = inOp.status;
+            const int theLastError = inOp.lastError;
             if (&inOp == &mAllocOp) {
                 if (theStatus == kErrorNoEntry) {
                     // File deleted, and lease expired or meta server restarted.
@@ -1577,9 +1580,15 @@ private:
                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
                     "max retry reached: " << mRetryCount << ", giving up" <<
                 KFS_LOG_EOM;
-                mErrorCode = theStatus < 0 ? theStatus : -1;
+                if (0 <= theStatus) {
+                    theStatus = kErrorIo;
+                } else if (KfsNetClient::kErrorMaxRetryReached == theStatus &&
+                        theLastError < 0) {
+                    theStatus = theLastError;
+                }
+                mErrorCode = theStatus;
                 Reset();
-                mOuter.FatalError(theStatus < 0 ? theStatus : -1);
+                mOuter.FatalError(theStatus);
                 return;
             }
             // Treat alloc failure the same as chunk server failure.
@@ -1874,7 +1883,11 @@ private:
                     StartWrite();
                 }
             } else {
-                FatalError(mTruncateOp.status);
+                FatalError(
+                    (KfsNetClient::kErrorMaxRetryReached == mTruncateOp.status
+                        && mTruncateOp.lastError < 0) ?
+                    mTruncateOp.lastError : mTruncateOp.status
+                );
             }
         } else {
             mRetryCount = 0;
@@ -1978,7 +1991,7 @@ private:
             mErrorCode = inErrorCode;
         }
         if (mErrorCode == 0) {
-            mErrorCode = -1;
+            mErrorCode = kErrorIo;
         }
         mClosingFlag = false;
         ReportCompletion();
