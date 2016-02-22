@@ -2583,6 +2583,7 @@ protected:
     bool FindAccessProxy(const string& host, Servers& srvs);
     template<typename T>
     bool GetAccessProxy(T& req, Servers& servers);
+    void Replay(MetaHello& req);
 };
 
 extern LayoutManager& gLayoutManager;

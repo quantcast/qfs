@@ -341,7 +341,7 @@ ChunkServer::HelloDone(const MetaHello& r)
 }
 
 /* static */ KfsCallbackObj*
-ChunkServer::Create(const NetConnectionPtr &conn)
+ChunkServer::Create(const NetConnectionPtr& conn)
 {
     if (! conn || ! conn->IsGood()) {
         return 0;
@@ -354,9 +354,28 @@ ChunkServer::Create(const NetConnectionPtr &conn)
         KFS_LOG_EOM;
         return 0;
     }
-    ChunkServer* const ret = new ChunkServer(conn, conn->GetPeerName());
-    ret->mSelfPtr.reset(ret);
-    return ret;
+    return CreateSelf(conn, ServerLocation());
+}
+
+/* static */ ChunkServerPtr
+ChunkServer::Create(const NetConnectionPtr& conn, const ServerLocation& loc)
+{
+    ChunkServer* const ret = CreateSelf(conn, loc);
+    return (ret ? ret->GetSharedPtr() : ChunkServerPtr());
+}
+
+/* static */ ChunkServer*
+ChunkServer::CreateSelf(const NetConnectionPtr& conn, const ServerLocation& loc)
+{
+    if (! conn) {
+        return 0;
+    }
+    ChunkServer& srv = *(new ChunkServer(conn, conn->GetPeerName()));
+    srv.mSelfPtr.reset(&srv);
+    if (loc.IsValid()) {
+        srv.SetServerLocation(loc);
+    }
+    return &srv;
 }
 
 inline ChunkServerPtr
@@ -1619,6 +1638,10 @@ void
 ChunkServer::SetServerLocation(const ServerLocation& loc)
 {
     if (mLocation == loc) {
+        return;
+    }
+    if (mLocation.IsValid() || mHelloCompleteFlag || ! loc.IsValid()) {
+        panic("invalid attempt to chunk chunk server location");
         return;
     }
     mLocation = loc;
@@ -2926,6 +2949,23 @@ HibernatedChunkServer::HibernatedChunkServer(
         " valid: "      << sValidCount <<
         " chunks: "     << sChunkListsSize <<
     KFS_LOG_EOM;
+}
+
+void
+HibernatedChunkServer::SetReplay(bool flag)
+{
+    if ((mListsSize <= 0) == flag) {
+        return;
+    }
+    if (flag) {
+        Clear();
+    } else {
+        if (! mModifiedChunks.IsEmpty() || ! mDeletedChunks.IsEmpty()) {
+            panic("invalid hibernated chunk server state in replay");
+        }
+        mListsSize = 1;
+        sValidCount++;
+    }
 }
 
 void

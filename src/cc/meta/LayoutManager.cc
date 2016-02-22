@@ -3162,13 +3162,57 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
     return true;
 }
 
+void
+LayoutManager::Replay(MetaHello& req)
+{
+    if (! mChunkServers.empty() || req.server || ! req.location.IsValid()) {
+        panic("invalid chunk server hello replay");
+        req.status = -EFAULT;
+        return;
+    }
+    HibernatedServerInfos::iterator it;
+    HibernatedChunkServer*          cs = FindHibernatingCS(req.location, &it);
+    if (! cs) {
+        ChunkServerPtr srv(ChunkServer::Create(
+            NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
+            req.location));
+        if (! srv) {
+            req.status = -EFAULT;
+            return;
+        }
+        srv->ForceDown();
+        if (! mChunkToServerMap.AddServer(srv)) {
+            KFS_LOG_STREAM_WARN <<
+                "failed to add server: " << req.location <<
+                " no slots available "
+                " servers: "    << mChunkToServerMap.GetServerCount() <<
+                " hibernated: " << mChunkToServerMap.GetHibernatedCount() <<
+            KFS_LOG_EOM;
+            req.statusMsg = "out of chunk server slots, try again later";
+            req.status    = -ERANGE;
+            return;
+        }
+        size_t idx = ~size_t(0);
+        if (! mChunkToServerMap.SetHibernated(srv, idx, -1)) {
+            panic("failed to transition to hibernated state");
+            req.status = -EFAULT;
+            return;
+        }
+        it = mHibernatingServers.insert(it, HibernatingServerInfo(
+            req.location, TimeNow() + int64_t(10) * 365 * 24 * 60 * 60, idx));
+        cs = mChunkToServerMap.GetHiberantedServer(idx);
+        cs->SetReplay(true);
+    }
+}
+
 /// Add the newly joined server to the list of servers we have.  Also,
 /// update our state to include the chunks hosted on this server.
 void
 LayoutManager::AddNewServer(MetaHello* r)
 {
     if (r->replayFlag) {
-        return; // FIXME.
+        Replay(*r);
+        return;
     }
     if (r->server->IsDown()) {
         return;
@@ -11404,11 +11448,11 @@ LayoutManager::CSMapUnitTest(const Properties& props)
         }
     }
     for (int i = 0; i < kServers; i++) {
-        mChunkServers.push_back(ChunkServerPtr(
-            new ChunkServer(
+        mChunkServers.push_back(
+            ChunkServer::Create(
                 NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
-                string()
-        )));
+                ServerLocation("test", i + 1)
+        ));
         if (! mChunkToServerMap.AddServer(mChunkServers.back())) {
             panic("failed to add server");
         }
@@ -11574,6 +11618,7 @@ LayoutManager::CSMapUnitTest(const Properties& props)
     mChunkToServerMap.Clear();
     for (int i = 0; i < kServers; i++) {
         if (mChunkServers[i]->GetIndex() < 0) {
+            mChunkServers[i]->ForceDown();
             continue;
         }
         if (! mChunkToServerMap.RemoveServer(mChunkServers[i])) {

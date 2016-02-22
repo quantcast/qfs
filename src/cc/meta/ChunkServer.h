@@ -416,7 +416,6 @@ public:
         >
     > ChunkOpsInFlight;
 
-    static KfsCallbackObj* Create(const NetConnectionPtr &conn);
     ///
     /// Sequence:
     ///  Chunk server connects.
@@ -424,7 +423,9 @@ public:
     ///   - chunkserver sends a HELLO with config info
     ///   - send/recv messages with that chunkserver.
     ///
-    ChunkServer(const NetConnectionPtr& conn, const string& peerName);
+    static ChunkServerPtr Create(
+        const NetConnectionPtr& conn, const ServerLocation& loc);
+    static KfsCallbackObj* Create(const NetConnectionPtr& conn);
     ~ChunkServer();
 
     bool CanBeChunkMaster() const {
@@ -889,6 +890,9 @@ public:
         { return sMaxChunkServerCount; }
 
 protected:
+    ChunkServer(const NetConnectionPtr& conn, const string& peerName);
+    static ChunkServer* CreateSelf(
+        const NetConnectionPtr& conn, const ServerLocation& loc);
     /// Enqueue a request to be dispatched to this server
     /// @param[in] r  the request to be enqueued.
     /// allow override in layout emulator.
@@ -1250,6 +1254,7 @@ public:
         chunkId_t    ioLastResumeModifiedChunk);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
+    void SetReplay(bool flag);
     const DeletedChunks& GetDeletedChunks() const
         { return mDeletedChunks; }
     const ModifiedChunks& GetModifiedChunks() const
@@ -1297,6 +1302,7 @@ private:
     void Clear() {
         mDeletedChunks.Clear();
         mModifiedChunks.Clear();
+        mModifiedChecksum.Clear();
         if (mListsSize <= 0) {
             return;
         }
