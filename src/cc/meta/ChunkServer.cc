@@ -1960,6 +1960,20 @@ ChunkServer::TimeSinceLastHeartbeat() const
     return (TimeNow() - mLastHeartbeatSent);
 }
 
+void
+ChunkServer::Replay(MetaChunkRequest& r)
+{
+    if (! r.replayFlag || (mNetConnection && mNetConnection->IsGood())) {
+        panic("ChunkServer: invalid replay attempt");
+        r.status = -EFAULT;
+        r.resume();
+    }
+    if (! r.server) {
+        const_cast<ChunkServerPtr&>(r.server) = GetSelfPtr();
+    }
+    Enqueue(&r, 365 * 24 * 60 * 60);
+}
+
 ///
 /// Queue an RPC request
 ///
@@ -2607,7 +2621,7 @@ ChunkServer::SendResponse(MetaRequest* op)
         mPendingResponseOpsTailPtr = op;
         return false;
     }
-    if (! mNetConnection) {
+    if (! mNetConnection || ! mNetConnection->IsGood()) {
         return true;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();

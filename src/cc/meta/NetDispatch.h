@@ -72,6 +72,7 @@ public:
     bool IsRunning() const { return mRunningFlag; }
     void ChildAtFork();
     void PrepareCurrentThreadToFork();
+    void CurrentThreadForkDone();
     inline void PrepareToFork();
     inline void ForkDone();
     bool CancelToken(const DelegationToken& token);

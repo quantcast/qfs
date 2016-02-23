@@ -468,6 +468,13 @@ void
 NetDispatch::PrepareCurrentThreadToFork()
 {
     mClientManager.PrepareCurrentThreadToFork();
+    mMetaDataStore.PrepareToFork();
+}
+
+void
+NetDispatch::CurrentThreadForkDone()
+{
+    mMetaDataStore.ForkDone();
 }
 
 // Counters for the various ops
@@ -1313,7 +1320,6 @@ inline void
 NetDispatch::PrepareToFork()
 {
     mClientManager.PrepareToFork();
-    mMetaDataStore.PrepareToFork();
 }
 
 inline void
@@ -1326,7 +1332,6 @@ inline void
 NetDispatch::ForkDone()
 {
     mClientManager.ForkDone();
-    mMetaDataStore.ForkDone();
 }
 
 /* virtual */ void

@@ -3457,14 +3457,24 @@ static int DoFork(int childTimeLimit)
     if (logger) {
         logger->PrepareToFork();
     }
-    const int ret = fork();
+    int ret = fork();
     if (ret == 0) {
         ChildAtFork(childTimeLimit);
     } else {
+        if (ret < 0) {
+            ret = -errno;
+            if (0 == ret) {
+                ret = -EFAULT;
+            }
+            if (0 < ret) {
+                ret = -ret;
+            }
+        }
         if (logger) {
             logger->ForkDone();
         }
         AuditLog::ForkDone();
+        gNetDispatch.CurrentThreadForkDone();
     }
     return ret;
 }
@@ -3493,13 +3503,16 @@ MetaDumpChunkToServerMap::handle()
         gLayoutManager.DumpChunkToServerMap(gChunkmapDumpDir);
         _exit(0); // Child does not do graceful exit.
     }
-    KFS_LOG_STREAM_INFO << "chunk to server map writer pid: " << pid <<
-    KFS_LOG_EOM;
     // if fork() failed, let the sender know
     if (pid < 0) {
-        status = -1;
+        status = (int)pid;
+        KFS_LOG_STREAM_ERROR << "failed to start chunk server map writer: " <<
+            QCUtils::SysError(-status) <<
+        KFS_LOG_EOM;
         return;
     }
+    KFS_LOG_STREAM_INFO << "chunk to server map writer pid: " << pid <<
+    KFS_LOG_EOM;
     // hold on to the request until the child  finishes
     ostringstream& os = GetTmpOStringStream();
     os << gChunkmapDumpDir << "/chunkmap.txt";
@@ -3689,8 +3702,8 @@ MetaFsck::handle()
         _exit(failedFlag ? 3 : 0); // Child does not do graceful close.
     }
     if (pid < 0) {
-        status    = errno > 0 ? -errno : -EINVAL;
-        statusMsg = "fork failure";
+        status    = (int)pid;
+        statusMsg = QCUtils::SysError(-status, "fork failure");
         for (int i = 0; i < cnt; i++) {
             close(fd[i]);
             unlink(names[i].c_str());
@@ -3968,17 +3981,19 @@ MetaCheckpoint::handle()
     if (GetLogWriter().GetCommittedLogSeq() != runningCheckpointId) {
         panic("checkpoint: meta data changed after prepare to fork");
     }
-    KFS_LOG_STREAM(pid > 0 ?
-            MsgLogger::kLogLevelINFO :
-            MsgLogger::kLogLevelERROR) <<
+    finishLog = 0;
+    if (pid < 0) {
+        status = (int)pid;
+        KFS_LOG_STREAM_ERROR <<
+            "checkpoint: " << lastCheckpointId <<
+            " fork failure: " << QCUtils::SysError(-status) <<
+        KFS_LOG_EOM;
+        return;
+    }
+    KFS_LOG_STREAM_INFO <<
         "checkpoint: " << lastCheckpointId <<
         " pid: "       << pid <<
     KFS_LOG_EOM;
-    finishLog = 0;
-    if (pid < 0) {
-        status = -1;
-        return;
-    }
     suspended = true;
     gChildProcessTracker.Track(pid, this);
 }

@@ -882,6 +882,7 @@ public:
         { return mNumWrObjects; }
     void ScheduleDown(const char* message)
         { Error(message); }
+    void Replay(MetaChunkRequest& r);
     void SetHelloComplete()
         { mHelloCompleteFlag = true; }
     static void SetMaxChunkServerCount(int count)
