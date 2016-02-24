@@ -1,0 +1,19 @@
+.TH "qfsping" "1" "" "" "QFS"
+.SH "NAME"
+qfsping \- Send a ping to metaserver or chunk server
+.SH "SYNOPSIS"
+.B qfsping
+.RI [ options ] " files" ...
+.SH "DESCRIPTION"
+Send a ping to metaserver or chunk server.
+.SH "OPTIONS"
+Doing a metaserver ping returns list of chunk servers that are up and down.
+It also returns the usage stats of each up chunk server. Doing a chunk
+server ping returns a the chunk server stats.
+  Examples:
+    qfsping \-m \-s metaServer.hostname \-p metaServer.portg
+    qfsping \-c \-s chunkServer.hostname \-p chunkServer.port
+.TP
+.B \-?, \-\-help
+Show summary of options.
+.SH "SEE ALSO"
