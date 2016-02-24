@@ -5929,6 +5929,38 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
     buf.Move(&data);
 }
 
+MetaChunkLogCompletion::MetaChunkLogCompletion(
+    MetaChunkRequest* op)
+    : MetaRequest(META_CHUNK_OP_LOG_COMPLETION, kLogIfOk),
+      doneLogSeq(op ? op->logseq : -1),
+      doneStatus(op ? op->status : 0),
+      doneOp(op)
+{}
+
+/* virtual */ ostream&
+MetaChunkLogCompletion::ShowSelf(ostream& os) const
+{
+    return (os <<
+        "log chunk completion:"
+        " log seq: " << doneLogSeq <<
+        " status: "  << doneStatus <<
+        " op: "      << ShowReq(doneOp)
+    );
+}
+
+void
+MetaChunkLogCompletion::handle()
+{
+    if (replayFlag) {
+        return;
+    }
+    if (doneOp) {
+        doneOp->resume();
+    } else {
+        panic("invalid chunk RPC completion");
+    }
+}
+
 static LogWriter&
 MakeLogWriter()
 {

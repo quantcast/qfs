@@ -156,7 +156,8 @@ using std::less;
     f(LOG_CHUNK_ALLOCATE) \
     f(LOG_WRITER_CONTROL) \
     f(LOG_CLEAR_OBJ_STORE_DELETE) \
-    f(READ_META_DATA)
+    f(READ_META_DATA) \
+    f(CHUNK_OP_LOG_COMPLETION)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -2091,6 +2092,25 @@ struct MetaChown: public MetaRequest {
     }
 };
 
+struct MetaChunkRequest;
+struct MetaChunkLogCompletion : public MetaRequest {
+    seq_t             doneLogSeq;
+    int               doneStatus;
+    MetaChunkRequest* doneOp;
+
+    MetaChunkLogCompletion(MetaChunkRequest* op = 0);
+    virtual bool start() { return true; }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const;
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("L", &MetaChunkLogCompletion::doneLogSeq, seq_t(-1))
+        .Def("S", &MetaChunkLogCompletion::doneStatus, 0)
+        ;
+    }
+};
+
 /*!
  * \brief RPCs that go from meta server->chunk server are
  * MetaRequest's that define a method to generate the RPC
@@ -2114,7 +2134,12 @@ struct MetaChunkRequest : public MetaRequest {
     virtual void handle() {}
     void resume()
     {
-        submit_request(this);
+        if (! replayFlag && 1 == submitCount &&
+                (kLogIfOk == logAction || kLogAlways == logAction)) {
+            submit_request(new MetaChunkLogCompletion(this));
+        } else {
+            submit_request(this);
+        }
     }
 protected:
     virtual void request(ReqOstream& /* os */) {}

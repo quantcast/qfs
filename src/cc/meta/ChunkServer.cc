@@ -1961,17 +1961,30 @@ ChunkServer::TimeSinceLastHeartbeat() const
 }
 
 void
-ChunkServer::Replay(MetaChunkRequest& r)
+ChunkServer::Replay(MetaRequest& r)
 {
-    if (! r.replayFlag || (mNetConnection && mNetConnection->IsGood())) {
+    if (! r.replayFlag || r.logseq < 0 ||
+            (mNetConnection && mNetConnection->IsGood())) {
         panic("ChunkServer: invalid replay attempt");
         r.status = -EFAULT;
-        r.resume();
+        submit_request(&r);
     }
-    if (! r.server) {
-        const_cast<ChunkServerPtr&>(r.server) = GetSelfPtr();
+    if (META_CHUNK_OP_LOG_COMPLETION == r.op) {
+        MetaChunkLogCompletion& req = static_cast<MetaChunkLogCompletion&>(r);
+        MetaChunkRequest* const op = FindMatchingRequest(req.doneLogSeq);
+        if (op) {
+            op->status = req.doneStatus;
+            op->resume();
+        } else {
+            req.status = -ENOENT;
+        }
+    } else {
+        MetaChunkRequest& req = static_cast<MetaChunkRequest&>(r);
+        if (! req.server) {
+            const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
+        }
+        Enqueue(&req, 365 * 24 * 60 * 60);
     }
-    Enqueue(&r, 365 * 24 * 60 * 60);
 }
 
 ///
@@ -1997,7 +2010,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
         return;
     }
     if (! mDispatchedReqs.insert(make_pair(
-            r->opSeqno,
+            r->replayFlag ? r->logseq : r->opSeqno,
             make_pair(
                 mReqsTimeoutQueue.insert(make_pair(
                     TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
