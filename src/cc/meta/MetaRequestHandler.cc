@@ -392,7 +392,7 @@ public:
         const ServerLocation& inDefaultValue,
         ServerLocation&       outValue)
     {
-        const char* thePtr = inPtr + inLen;
+        const char* thePtr = inPtr + inLen - 1;
         while (inPtr < thePtr && (*thePtr != 'p')) {
             --thePtr;
         }
@@ -401,9 +401,9 @@ public:
             return;
         }
         ++thePtr;
-        if (! Unescape(outValue.hostname, inPtr, thePtr - (inPtr - 1)) ||
+        if (! Unescape(outValue.hostname, inPtr, thePtr - inPtr - 1) ||
                 ! HexIntParser::Parse(
-                    thePtr, inPtr + inLen - inPtr, outValue.port)) {
+                    thePtr, inPtr + inLen - thePtr, outValue.port)) {
             outValue = inDefaultValue;
         }
     }
@@ -723,6 +723,9 @@ MakeLogMetaRequestHandler(
     .MakeParser("CA",
         META_CHUNK_AVAILABLE,
         static_cast<const MetaChunkAvailable*>(0))
+    .MakeParser("LC",
+        META_CHUNK_OP_LOG_COMPLETION,
+        static_cast<const MetaChunkLogCompletion*>(0))
     ;
 }
 

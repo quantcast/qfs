@@ -2726,9 +2726,10 @@ LayoutManager::Shutdown()
     mResubmitQueueHead = 0;
     mResubmitQueueTail = 0;
     while (nextReq) {
-        MetaRequest* const req = nextReq;
-        nextReq = req->next;
-        MetaRequest::Release(req);
+        MetaRequest& req = *nextReq;
+        nextReq = req.next;
+        req.next = 0;
+        MetaRequest::Release(&req);
     }
 }
 
@@ -3165,43 +3166,44 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
 void
 LayoutManager::Replay(MetaHello& req)
 {
-    if (! mChunkServers.empty() || req.server || ! req.location.IsValid()) {
+    if (req.server) {
+        return;
+    }
+    if (! req.location.IsValid()) {
         panic("invalid chunk server hello replay");
         req.status = -EFAULT;
         return;
     }
-    HibernatedServerInfos::iterator it;
-    HibernatedChunkServer*          cs = FindHibernatingCS(req.location, &it);
-    if (! cs) {
-        ChunkServerPtr srv(ChunkServer::Create(
-            NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
-            req.location));
-        if (! srv) {
-            req.status = -EFAULT;
-            return;
+    req.server = ChunkServer::Create(
+        NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
+        req.location);
+    if (! req.server) {
+        req.status = -EFAULT;
+    } else {
+        req.clnt = req.server.get();
+        if (req.peerName.empty()) {
+            req.peerName = "replay";
         }
-        srv->ForceDown();
-        if (! mChunkToServerMap.AddServer(srv)) {
-            KFS_LOG_STREAM_WARN <<
-                "failed to add server: " << req.location <<
-                " no slots available "
-                " servers: "    << mChunkToServerMap.GetServerCount() <<
-                " hibernated: " << mChunkToServerMap.GetHibernatedCount() <<
-            KFS_LOG_EOM;
-            req.statusMsg = "out of chunk server slots, try again later";
-            req.status    = -ERANGE;
-            return;
-        }
-        size_t idx = ~size_t(0);
-        if (! mChunkToServerMap.SetHibernated(srv, idx, -1)) {
-            panic("failed to transition to hibernated state");
-            req.status = -EFAULT;
-            return;
-        }
-        it = mHibernatingServers.insert(it, HibernatingServerInfo(
-            req.location, TimeNow() + int64_t(10) * 365 * 24 * 60 * 60, idx));
-        cs = mChunkToServerMap.GetHiberantedServer(idx);
-        cs->SetReplay(true);
+    }
+}
+
+void
+LayoutManager::Replay(const ServerLocation& loc, MetaRequest& req)
+{
+    if (! req.replayFlag || ! loc.IsValid()) {
+        panic("invalid chunk server log completion replay");
+        req.status = -EFAULT;
+        return;
+    }
+    Servers::const_iterator const it = FindServer(loc);
+    if (mChunkServers.end() == it) {
+        req.status = -ENOENT;
+        return;
+    }
+    if (META_BYE == req.op) {
+        ServerDown(*it);
+    } else {
+        (*it)->Replay(req);
     }
 }
 
@@ -3212,7 +3214,9 @@ LayoutManager::AddNewServer(MetaHello* r)
 {
     if (r->replayFlag) {
         Replay(*r);
-        return;
+        if (0 != r->status) {
+            return;
+        }
     }
     if (r->server->IsDown()) {
         return;
@@ -3247,6 +3251,9 @@ LayoutManager::AddNewServer(MetaHello* r)
         }
         r->statusMsg += ", retry resume later";
         r->status = -EEXIST;
+        if (! r->replayFlag && (*existing)->IsReplay()) {
+            ServerDown(*existing);
+        }
         return;
     }
 
@@ -3324,7 +3331,7 @@ LayoutManager::AddNewServer(MetaHello* r)
             ));
         }
     } else {
-        KFS_LOG_STREAM_INFO << srvId <<
+        KFS_LOG_STREAM_DEBUG << srvId <<
             ": no rack specified: " << rackId <<
         KFS_LOG_EOM;
     }
@@ -3633,7 +3640,9 @@ LayoutManager::AddNewServer(MetaHello* r)
     }
     UpdateReplicationsThreshold();
     srv.SetHelloComplete();
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM(r->replayFlag ?
+            MsgLogger::kLogLevelDEBUG :
+            MsgLogger::kLogLevelINFO) <<
         msg << " chunk server: " << r->peerName << "/" <<
             srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
@@ -4950,8 +4959,8 @@ void
 LayoutManager::EnqueueServerDown(
     const ChunkServer& srv, const MetaChunkRequest& req)
 {
-    if ((req.chunkId < 0 && req.op != META_CHUNK_STALENOTIFY) ||
-            ! srv.IsDown()) {
+    const ChunkIdQueue* const ids = req.GetChunkIds();
+    if ((req.chunkId < 0 && ! ids) || ! srv.IsDown()) {
         return;
     }
     HibernatedChunkServer* const hsrv =
@@ -4960,10 +4969,8 @@ LayoutManager::EnqueueServerDown(
             hsrv->GetGeneration() != srv.GetHibernatedGeneration()) {
         return;
     }
-    if (req.op == META_CHUNK_STALENOTIFY) {
-        const MetaChunkStaleNotify& sop =
-            static_cast<const MetaChunkStaleNotify&>(req);
-        ChunkIdQueue::ConstIterator it(sop.staleChunkIds);
+    if (ids) {
+        ChunkIdQueue::ConstIterator it(*ids);
         const chunkId_t*            id;
         while ((id = it.Next())) {
             hsrv->UpdateLastInFlight(mChunkToServerMap, *id);
@@ -8427,7 +8434,7 @@ LayoutManager::AddServerToMakeStable(
 }
 
 void
-LayoutManager::ScheduleResubmitOrCancel(MetaLogMakeChunkStable& req)
+LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
 {
     if (req.next) {
         panic("invalid resubmit request attempt");

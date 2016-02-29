@@ -407,14 +407,7 @@ public:
         }
     };
 
-    typedef multimap <
-        chunkId_t,
-        const MetaChunkRequest*,
-        less<chunkId_t>,
-        StdFastAllocator<
-            pair<const chunkId_t, const MetaChunkRequest*>
-        >
-    > ChunkOpsInFlight;
+    typedef  MetaChunkRequest::ChunkOpsInFlight ChunkOpsInFlight;
 
     ///
     /// Sequence:
@@ -885,20 +878,24 @@ public:
     void Replay(MetaRequest& r);
     void SetHelloComplete()
         { mHelloCompleteFlag = true; }
+    void Enqueue(MetaChunkLogInFlight& r);
+    bool IsReplay() const { return mReplayFlag; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
         { return sMaxChunkServerCount; }
 
 protected:
-    ChunkServer(const NetConnectionPtr& conn, const string& peerName);
+    ChunkServer(const NetConnectionPtr& conn, const string& peerName,
+        bool replayFlag = false);
     static ChunkServer* CreateSelf(
         const NetConnectionPtr& conn, const ServerLocation& loc);
     /// Enqueue a request to be dispatched to this server
     /// @param[in] r  the request to be enqueued.
     /// allow override in layout emulator.
     virtual void EnqueueSelf(MetaChunkRequest* r);
-    void Enqueue(MetaChunkRequest* r, int timeout = -1);
+    void Enqueue(MetaChunkRequest* r, int timeout = -1,
+        bool loggedFlag = false);
     void SetServerLocation(const ServerLocation& loc);
 
     /// A sequence # associated with each RPC we send to
@@ -1105,6 +1102,7 @@ protected:
     bool               mShortRpcFormatFlag;
     uint64_t           mHibernatedGeneration;
     int                mPendingOpsCount;
+    bool const         mReplayFlag;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];

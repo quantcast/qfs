@@ -1379,6 +1379,31 @@ replay_clear_obj_store_delete(DETokenizer& c)
     return true;
 }
 
+static inline void
+replay_cur_op(ReplayState& state)
+{
+    MetaRequest* const op = state.mCurOp;
+    if (! op || 1 != state.mSubEntryCount) {
+        panic("invalid replay current op invocation");
+        return;
+    }
+    if (state.mLastLogAheadSeq + 1 != op->logseq) {
+        panic("invalid current op log sequence");
+        return;
+    }
+    op->seqno = MetaRequest::GetLogWriter().GetNextSeq();
+    op->handle();
+    if (op->suspended) {
+        state.mCurOp = 0;
+    } else {
+        op->replayFlag = false;
+    }
+    const int status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
+    state.mLogAheadErrChksum += op->status;
+    state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+        op->logseq, status, fileID.getseed(), state.mLogAheadErrChksum));
+}
+
 static bool
 replay_cs_hello(DETokenizer& c)
 {
@@ -1512,16 +1537,80 @@ replay_cs_hello(DETokenizer& c)
                 op->missingChunks.size() != (size_t)op->numMissingChunks) {
             return false;
         }
-        if (state.mLastLogAheadSeq + 1 != op->logseq) {
-            panic("invalid chunk server hello log sequence");
+        replay_cur_op(state);
+    }
+    return replay_sub_entry(c);
+}
+
+static bool
+replay_cs_inflight(DETokenizer& c)
+{
+    const DETokenizer::Token& verb  = c.front();
+    ReplayState&              state = ReplayState::get(c);
+    MetaChunkLogInFlight*     op;
+    if (3 == verb.len && 's' == verb.ptr[2]) {
+        op = static_cast<MetaChunkLogInFlight*>(state.mCurOp);
+        if (! op) {
+            return false;
         }
-        op->seqno = MetaRequest::GetLogWriter().GetNextSeq();
-        op->handle();
-        op->replayFlag = false;
-        op->status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
-        state.mLogAheadErrChksum += op->status;
-        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
-            op->logseq, op->status, fileID.getseed(), state.mLogAheadErrChksum));
+        c.pop_front();
+        while (! c.empty()) {
+            const int64_t n = c.toNumber();
+            if (! c.isLastOk() || n < 0) {
+                return false;
+            }
+            if ((size_t)op->idCount <= op->chunkIds.GetSize()) {
+                return false;
+            }
+            op->chunkIds.PushBack(n);
+        }
+        if (1 == state.mSubEntryCount &&
+                (size_t)op->idCount != op->chunkIds.GetSize()) {
+            return false;
+        }
+    } else {
+        if (0 != state.mSubEntryCount || state.mCurOp) {
+            return false;
+        }
+        c.pop_front();
+        int64_t n;
+        if (! pop_num(n, "e", c, true) || n < 0) {
+            return false;
+        }
+        if ("l" != c.front()) {
+            return false;
+        }
+        c.pop_front();
+        state.mSubEntryCount = n;
+        op = new MetaChunkLogInFlight();
+        state.mCurOp = op;
+        op->replayFlag = true;
+        const DETokenizer::Token& loc = c.front();
+        if (! op->location.FromString(loc.ptr, loc.len, 16 == c.getIntBase())) {
+            return false;
+        }
+        c.pop_front();
+        if (! pop_num(n, "s", c, true) || n < 0) {
+            return false;
+        }
+        op->idCount = n;
+        if (! pop_num(n, "c", c, true) || n < 0) {
+            return false;
+        }
+        op->chunkId = n;
+        if (! pop_num(n, "z", c, true) || n < 0) {
+            return false;
+        }
+        op->logseq = n;
+        if (n != state.mLastLogAheadSeq + 1) {
+            return false;
+        }
+        if ((op->chunkId < 0) != (0 < op->idCount)) {
+            return false;
+        }
+    }
+    if (1 == state.mSubEntryCount) {
+        replay_cur_op(state);
     }
     return replay_sub_entry(c);
 }
@@ -1569,6 +1658,8 @@ get_entry_map()
     e.add_parser("csh",                     &replay_cs_hello);
     e.add_parser("cshc",                    &replay_cs_hello);
     e.add_parser("cshm",                    &replay_cs_hello);
+    e.add_parser("cif",                     &replay_cs_inflight);
+    e.add_parser("cis",                     &replay_cs_inflight);
     initied = true;
     return e;
 }

@@ -1446,6 +1446,9 @@ public:
     void Handle(MetaLogClearObjStoreDelete& req);
     void UpdateObjectsCount(
         ChunkServer& srv, int64_t delta, int64_t writableDelta);
+    void Replay(const ServerLocation& loc, MetaRequest& req);
+    void ScheduleResubmitOrCancel(MetaRequest& r);
+
 protected:
     typedef vector<
         int,
@@ -2576,7 +2579,6 @@ protected:
     chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
         int& remScanCnt);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
-    void ScheduleResubmitOrCancel(MetaLogMakeChunkStable& r);
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
     bool FindAccessProxy(MetaAllocate& req);

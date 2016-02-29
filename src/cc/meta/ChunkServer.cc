@@ -331,7 +331,7 @@ ChunkServer::HelloDone(const MetaHello& r)
     mHelloDone         = true;
     mHeartbeatSent     = true;
     mLastHeartbeatSent = TimeNow();
-    if (mDown) {
+    if (mDown || mReplayFlag) {
         return;
     }
     Enqueue(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
@@ -370,7 +370,11 @@ ChunkServer::CreateSelf(const NetConnectionPtr& conn, const ServerLocation& loc)
     if (! conn) {
         return 0;
     }
-    ChunkServer& srv = *(new ChunkServer(conn, conn->GetPeerName()));
+    ChunkServer& srv = *(new ChunkServer(
+        conn,
+        conn->IsGood() ?  conn->GetPeerName() : string("replay"),
+        ! conn->IsGood()
+    ));
     srv.mSelfPtr.reset(&srv);
     if (loc.IsValid()) {
         srv.SetServerLocation(loc);
@@ -391,7 +395,10 @@ ChunkServer::Submit(MetaRequest& op)
     submit_request(&op);
 }
 
-ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
+ChunkServer::ChunkServer(
+    const NetConnectionPtr& conn,
+    const string&           peerName,
+    bool                    replayFlag)
     : KfsCallbackObj(),
       CSMapServerInfo(),
       SslFilterVerifyPeer(),
@@ -485,6 +492,7 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
       mShortRpcFormatFlag(false),
       mHibernatedGeneration(0),
       mPendingOpsCount(0),
+      mReplayFlag(replayFlag),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
 {
@@ -499,10 +507,13 @@ ChunkServer::ChunkServer(const NetConnectionPtr& conn, const string& peerName)
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mCanBeCandidateServerFlags[i] = false;
     }
-    KFS_LOG_STREAM_INFO <<
-        "new ChunkServer " << (const void*)this << " " <<
-        GetPeerName() <<
-        " total: " << sChunkServerCount <<
+    KFS_LOG_STREAM(mReplayFlag ?
+            MsgLogger::kLogLevelDEBUG :
+            MsgLogger::kLogLevelINFO)<<
+        "new ChunkServer " << (const void*)this <<
+        " "         << GetPeerName() <<
+        " replay: " << mReplayFlag <<
+        " total: "  << sChunkServerCount <<
     KFS_LOG_EOM;
 }
 
@@ -880,7 +891,7 @@ ChunkServer::HandleRequest(int code, void *data)
         break;
     }
     if (mHelloDone) {
-        if (mRecursionCount <= 1) {
+        if (mRecursionCount <= 1 && ! mReplayFlag) {
             const int hbTimeout = Heartbeat();
             const int opTimeout = TimeoutOps();
             if (! mDown && mNetConnection) {
@@ -1963,11 +1974,12 @@ ChunkServer::TimeSinceLastHeartbeat() const
 void
 ChunkServer::Replay(MetaRequest& r)
 {
-    if (! r.replayFlag || r.logseq < 0 ||
+    if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag ||
             (mNetConnection && mNetConnection->IsGood())) {
         panic("ChunkServer: invalid replay attempt");
         r.status = -EFAULT;
         submit_request(&r);
+        return;
     }
     if (META_CHUNK_OP_LOG_COMPLETION == r.op) {
         MetaChunkLogCompletion& req = static_cast<MetaChunkLogCompletion&>(r);
@@ -1987,11 +1999,35 @@ ChunkServer::Replay(MetaRequest& r)
     }
 }
 
+void
+ChunkServer::Enqueue(MetaChunkLogInFlight& r)
+{
+    MetaChunkRequest* const req = r.request;
+    r.request = 0;
+    if (r.replayFlag || r.submitCount <= 0 ||
+            (r.logseq < 0 && -ELOGFAILED != r.status) ||
+            ! req || 0 != req->submitCount || req != req->inFlightIt->second) {
+        panic("ChunkServer invalid submit attempt");
+        r.status = -EFAULT;
+    }
+    if (r.status != 0) {
+        if (req) {
+            req->status = r.status;
+            sChunkOpsInFlight.erase(req->inFlightIt);
+            req->resume();
+        }
+        return;
+    }
+    req->logCompletionSeq = r.logseq;
+    Enqueue(req, r.maxWaitMillisec, true);
+}
+
 ///
 /// Queue an RPC request
 ///
 void
-ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
+ChunkServer::Enqueue(MetaChunkRequest* r,
+    int timeout /* = -1 */, bool loggedFlag /* = false */)
 {
     if (! r || this != r->server.get()) {
         panic("ChunkServer::Enqueue: invalid request");
@@ -1999,12 +2035,29 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
         r->resume();
         return;
     }
+    if (mReplayFlag && ! r->replayFlag) {
+        if (0 == r->submitCount) {
+            r->submitTime = microseconds();
+        }
+        r->replayFlag = true;
+        r->status     = -EIO;
+        r->resume();
+        return;
+    }
+    r->suspended = true;
     r->shortRpcFormatFlag = mShortRpcFormatFlag;
+    if (! loggedFlag) {
+        r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
+        if (! r->replayFlag && MetaChunkLogInFlight::Log(*r, timeout)) {
+            return;
+        }
+    }
     if (0 == r->submitCount) {
         r->submitTime = microseconds();
     }
     if (mDown) {
         r->status = -EIO;
+        sChunkOpsInFlight.erase(r->inFlightIt);
         gLayoutManager.EnqueueServerDown(*this, *r);
         r->resume();
         return;
@@ -2016,10 +2069,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r, int timeout /* = -1 */)
                     TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
                     r
                 )),
-                sChunkOpsInFlight.insert(make_pair(
-                    r->chunkId,
-                    r
-                ))
+                r->inFlightIt
             ))).second) {
         panic("duplicate op sequence number");
     }
@@ -2490,10 +2540,9 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " failing op: " << op.Show() <<
         KFS_LOG_EOM;
-        if (op.op == META_CHUNK_STALENOTIFY) {
-            const MetaChunkStaleNotify& sop =
-                static_cast<const MetaChunkStaleNotify&>(op);
-            ChunkIdQueue::ConstIterator it(sop.staleChunkIds);
+        const ChunkIdQueue* const ids = op.GetChunkIds();
+        if (ids) {
+            ChunkIdQueue::ConstIterator it(*ids);
             const chunkId_t*            id;
             while ((id = it.Next())) {
                 mLastChunksInFlight.Insert(*id);

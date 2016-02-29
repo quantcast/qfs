@@ -64,6 +64,7 @@ namespace KFS {
 using std::ostream;
 using std::vector;
 using std::map;
+using std::multimap;
 using std::pair;
 using std::ostringstream;
 using std::dec;
@@ -157,7 +158,8 @@ using std::less;
     f(LOG_WRITER_CONTROL) \
     f(LOG_CLEAR_OBJ_STORE_DELETE) \
     f(READ_META_DATA) \
-    f(CHUNK_OP_LOG_COMPLETION)
+    f(CHUNK_OP_LOG_COMPLETION) \
+    f(CHUNK_OP_LOG_IN_FLIGHT)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -1956,16 +1958,23 @@ struct MetaHello : public MetaRequest, public ServerLocation {
  */
 struct MetaBye: public MetaRequest {
     ChunkServerPtr server; //!< The chunkserver that went down
+    ServerLocation location;
+
     MetaBye(seq_t s, const ChunkServerPtr& c)
         : MetaRequest(META_BYE, kLogQueue, s),
           server(c)
         {}
-    virtual bool start()
-        { return (0 == status); }
+    virtual bool start();
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "Chunkserver bye";
+        return os << "chunk server bye: " << location;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("C", &MetaBye::location)
+        ;
     }
 };
 
@@ -2070,8 +2079,7 @@ struct MetaChown: public MetaRequest {
             " status: " << status
         ;
     }
-    bool Validate()
-        { return (fid >= 0); }
+    bool Validate() { return (0 <= fid); }
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
@@ -2093,18 +2101,22 @@ struct MetaChown: public MetaRequest {
 };
 
 struct MetaChunkRequest;
+
 struct MetaChunkLogCompletion : public MetaRequest {
+    ServerLocation    doneLocation;
     seq_t             doneLogSeq;
     int               doneStatus;
     MetaChunkRequest* doneOp;
 
     MetaChunkLogCompletion(MetaChunkRequest* op = 0);
-    virtual bool start() { return true; }
+    virtual bool start() { return (0 == status); }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const;
+    bool Validate() { return (0 <= doneLogSeq && doneLocation.IsValid()); }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
+        .Def("C", &MetaChunkLogCompletion::doneLocation)
         .Def("L", &MetaChunkLogCompletion::doneLogSeq, seq_t(-1))
         .Def("S", &MetaChunkLogCompletion::doneStatus, 0)
         ;
@@ -2117,15 +2129,29 @@ struct MetaChunkLogCompletion : public MetaRequest {
  * request.
  */
 struct MetaChunkRequest : public MetaRequest {
-    chunkId_t            chunkId;
-    const ChunkServerPtr server; // The "owner".
-    seq_t                chunkVersion;
+    typedef multimap <
+        chunkId_t,
+        const MetaChunkRequest*,
+        less<chunkId_t>,
+        StdFastAllocator<
+            pair<const chunkId_t, const MetaChunkRequest*>
+        >
+    > ChunkOpsInFlight;
+
+    chunkId_t                  chunkId;
+    const ChunkServerPtr       server; // The "owner".
+    seq_t                      chunkVersion;
+    ChunkOpsInFlight::iterator inFlightIt;
+    seq_t                      logCompletionSeq;
+
     MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
         : MetaRequest(o, la, s),
           chunkId(cid),
           server(c),
-          chunkVersion(0)
+          chunkVersion(0),
+          inFlightIt(),
+          logCompletionSeq(-1)
         {}
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
@@ -2134,15 +2160,39 @@ struct MetaChunkRequest : public MetaRequest {
     virtual void handle() {}
     void resume()
     {
-        if (! replayFlag && 1 == submitCount &&
-                (kLogIfOk == logAction || kLogAlways == logAction)) {
+        if (0 <= logCompletionSeq) {
             submit_request(new MetaChunkLogCompletion(this));
         } else {
+            suspended = false;
             submit_request(this);
         }
     }
+    virtual const ChunkIdQueue* GetChunkIds() const { return 0; }
 protected:
     virtual void request(ReqOstream& /* os */) {}
+};
+
+struct MetaChunkLogInFlight : public MetaChunkRequest {
+    ServerLocation    location;
+    ChunkIdQueue      chunkIds;
+    int64_t           idCount;
+    MetaChunkRequest* request;
+
+    static bool Log(MetaChunkRequest& req, int timeout);
+    MetaChunkLogInFlight(
+        MetaChunkRequest* req    = 0,
+        int               tmeout = -1);
+    virtual bool start() { return (0 == status); }
+    virtual void handle();
+    virtual bool log(ostream& os) const;
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os << "log chunk in flight: " << ShowReq(request);
+    }
+    virtual const ChunkIdQueue* GetChunkIds() const
+    {
+        return (chunkIds.IsEmpty() ? 0 : &chunkIds);
+    }
 };
 
 /*!
@@ -2170,11 +2220,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "meta->chunk allocate:";
-        if (req) {
-            os << req->Show();
-        }
-        return os;
+        return os << "meta->chunk allocate: " << ShowReq(req);
     }
 };
 
@@ -2433,6 +2479,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     {
         return os << "meta->chunk stale notify";
     }
+    virtual const ChunkIdQueue* GetChunkIds() const { return &staleChunkIds; }
 };
 
 struct MetaBeginMakeChunkStable : public MetaChunkRequest {

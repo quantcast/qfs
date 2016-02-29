@@ -3013,10 +3013,21 @@ MetaHello::log(ostream& os) const
     return true;
 }
 
+/* virtual */ bool
+MetaBye::start()
+{
+    location = server->GetServerLocation();
+    return (0 == status);
+}
+
 /* virtual */ void
 MetaBye::handle()
 {
-    gLayoutManager.ServerDown(server);
+    if (server) {
+        gLayoutManager.ServerDown(server);
+    } else {
+        gLayoutManager.Replay(location, *this);
+    }
 }
 
 /* virtual */ void
@@ -5932,7 +5943,8 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
 MetaChunkLogCompletion::MetaChunkLogCompletion(
     MetaChunkRequest* op)
     : MetaRequest(META_CHUNK_OP_LOG_COMPLETION, kLogIfOk),
-      doneLogSeq(op ? op->logseq : -1),
+      doneLocation(op ? op->server->GetServerLocation() : ServerLocation()),
+      doneLogSeq(op ? op->logCompletionSeq : seq_t(-1)),
       doneStatus(op ? op->status : 0),
       doneOp(op)
 {}
@@ -5942,6 +5954,7 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
 {
     return (os <<
         "log chunk completion:"
+        " "          << doneLocation <<
         " log seq: " << doneLogSeq <<
         " status: "  << doneStatus <<
         " op: "      << ShowReq(doneOp)
@@ -5951,14 +5964,113 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
 void
 MetaChunkLogCompletion::handle()
 {
-    if (replayFlag) {
-        return;
-    }
     if (doneOp) {
-        doneOp->resume();
+        if (-ELOGFAILED == status) {
+            gLayoutManager.ScheduleResubmitOrCancel(*this);
+            return;
+        }
+        MetaChunkRequest& op = *doneOp;
+        doneOp = 0;
+        if (op.logCompletionSeq < 0) {
+            panic("MetaChunkLogCompletion: invalid log sequence");
+        }
+        op.logCompletionSeq = -1;
+        op.resume();
     } else {
-        panic("invalid chunk RPC completion");
+        if (replayFlag) {
+            gLayoutManager.Replay(doneLocation, *this);
+        } else {
+            panic("invalid chunk RPC completion");
+        }
     }
+}
+
+MetaChunkLogInFlight::MetaChunkLogInFlight(
+    MetaChunkRequest* req,
+    int               timeout)
+    : MetaChunkRequest(
+        META_CHUNK_OP_LOG_IN_FLIGHT,
+        0,
+        kLogIfOk,
+        req ? req->server  : ChunkServerPtr(),
+        req ? req->chunkId : chunkId_t(-1)),
+        location(req ? req->server->GetServerLocation() : ServerLocation()),
+        chunkIds(),
+        idCount(-1),
+        request(req)
+{
+    maxWaitMillisec = timeout;
+}
+
+/* static */ bool
+MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
+{
+    if (req.replayFlag || (req.chunkId < 0 && ! req.GetChunkIds()) ||
+            0 != req.status) {
+        return false;
+    }
+    submit_request(new MetaChunkLogInFlight(&req, timeout));
+    return true;
+}
+
+void
+MetaChunkLogInFlight::handle()
+{
+    if (replayFlag) {
+        gLayoutManager.Replay(location, *this);
+    } else {
+        server->Enqueue(*this);
+    }
+}
+
+bool
+MetaChunkLogInFlight::log(ostream& os) const
+{
+    const ChunkIdQueue* ids = 0;
+    if (! request ||
+            (request->chunkId < 0 && ! (ids = request->GetChunkIds()))) {
+        panic("invalid MetaChunkLogInFlight log attempt");
+        return false;
+    }
+    ReqOstream ros(os);
+    size_t subEntryCnt = 1;
+    if (ids) {
+        const size_t entrySizeLog2 = 6;
+        const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
+        subEntryCnt += (ids->GetSize() + mask) >> entrySizeLog2;
+        ros <<
+            "cif"
+            "/e/" << subEntryCnt <<
+            "/l/" << location <<
+            "/s/" << ids->GetSize() <<
+            "/c/" << chunkId_t(-1) <<
+            "/z/" << logseq
+        ;
+        size_t                      cnt = 0;
+        ChunkIdQueue::ConstIterator it(*ids);
+        const chunkId_t*            id;
+        while ((id = it.Next())) {
+            if ((cnt++ & mask) == 0) {
+                ros << "\ncis";
+                subEntryCnt--;
+            }
+            ros << "/" << *id;
+        }
+        if (1 != subEntryCnt) {
+            panic("MetaChunkLogInFlight: internal error");
+        }
+    } else {
+        ros <<
+            "cif"
+            "/e/" << subEntryCnt <<
+            "/l/" << location <<
+            "/s/" << size_t(0) <<
+            "/c/" << request->chunkId <<
+            "/z/" << logseq
+        ;
+    }
+    ros << "\n";
+    return true;
 }
 
 static LogWriter&
