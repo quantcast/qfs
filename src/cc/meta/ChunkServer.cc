@@ -949,7 +949,7 @@ ChunkServer::ForceDown()
     if (mDown) {
         return;
     }
-    KFS_LOG_STREAM(mNetConnection ?
+    KFS_LOG_STREAM((mNetConnection && ! mReplayFlag) ?
             MsgLogger::kLogLevelWARN : MsgLogger::kLogLevelDEBUG) <<
         "forcing chunk server " << GetServerLocation() <<
         "/" << (mNetConnection ? GetPeerName() :

@@ -4828,7 +4828,9 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     const size_t         blockCount  = server->GetChunkCount();
     string               reason      = server->DownReason();
 
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM(server->IsReplay() ?
+            MsgLogger::kLogLevelDEBUG :
+            MsgLogger::kLogLevelINFO) <<
         "server down: "  << loc <<
         " block count: " << blockCount <<
         " master: "      << canBeMaster <<

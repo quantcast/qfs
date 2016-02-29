@@ -1960,8 +1960,8 @@ struct MetaBye: public MetaRequest {
     ChunkServerPtr server; //!< The chunkserver that went down
     ServerLocation location;
 
-    MetaBye(seq_t s, const ChunkServerPtr& c)
-        : MetaRequest(META_BYE, kLogQueue, s),
+    MetaBye(seq_t s = 0, const ChunkServerPtr& c = ChunkServerPtr())
+        : MetaRequest(META_BYE, kLogIfOk, s),
           server(c)
         {}
     virtual bool start();
@@ -1969,6 +1969,10 @@ struct MetaBye: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os << "chunk server bye: " << location;
+    }
+    bool Validate()
+    {
+        return location.IsValid();
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
