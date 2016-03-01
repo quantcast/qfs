@@ -6985,9 +6985,6 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
 void
 LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
 {
-    if (r->replayFlag) {
-        return; // FIXME
-    }
     if (r->server->IsDown()) {
         return;
     }
@@ -7021,7 +7018,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "        << chunkVersion <<
                 " does not exist" <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            if (! r->replayFlag) {
+                staleChunks.PushBack(chunkId);
+            }
             continue;
         }
         const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
@@ -7043,7 +7042,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "            << chunkVersion <<
                 " mismatch, expected: " << ci.chunkVersion <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            if (! r->replayFlag) {
+                staleChunks.PushBack(chunkId);
+            }
             continue;
         }
         const ChunkLeases::WriteLease* const lease =
@@ -7054,7 +7055,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "        << chunkVersion <<
                 " write lease exists" <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            if (! r->replayFlag) {
+                staleChunks.PushBack(chunkId);
+            }
             continue;
         }
         if (! IsChunkStable(chunkId)) {
@@ -7079,7 +7082,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "             << chunkVersion <<
                 " sufficinet replicas: " << srvCnt <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            if (! r->replayFlag) {
+                staleChunks.PushBack(chunkId);
+            }
             continue;
         }
         bool incompleteChunkBlockFlag              = false;
@@ -7103,7 +7108,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " good: "             << goodCnt <<
                 " data stripes: "     << fa.numStripes <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            if (! r->replayFlag) {
+                staleChunks.PushBack(chunkId);
+            }
             continue;
         }
         if (incompleteChunkBlockWriteHasLeaseFlag) {
@@ -7112,7 +7119,9 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "          << chunkVersion <<
                 " partial chunk block has write lease" <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            if (! r->replayFlag) {
+                staleChunks.PushBack(chunkId);
+            }
             continue;
         }
         AddServer(*cmi, r->server);
@@ -7271,19 +7280,6 @@ LayoutManager::AddChunkToServerMapping(MetaFattr* fattr,
     // back.
     mChunkVersionRollBack.Erase(chunkId);
     return ret->GetChunkInfo();
-}
-
-int
-LayoutManager::UpdateChunkToServerMapping(chunkId_t chunkId, const ChunkServerPtr& s)
-{
-    // If the chunkid isn't present in the mapping table, it could be a
-    // stale chunk
-    CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
-    if (! ci) {
-        return -1;
-    }
-    AddHosted(chunkId, *ci, s);
-    return 0;
 }
 
 bool
@@ -7841,6 +7837,28 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaLogChunkAllocate* r)
     if (0 != r->status || r->objectStoreFileFlag) {
         return;
     }
+    if (r->initialChunkVersion < 0) {
+        CSMap::Entry* const ci = mChunkToServerMap.Find(r->chunkId);
+        if (! ci) {
+            panic("missing chunk mapping");
+            r->status = -EFAULT;
+            return;
+        }
+        for (ServerLocations::const_iterator
+                it = r->servers.begin();
+                it != r->servers.end();
+                ++it) {
+            Servers::const_iterator const sit = FindServer(*it);
+            if (sit == mChunkServers.end()) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "no chunk server: " << *it <<
+                    " " << r->Show() <<
+                KFS_LOG_EOM;
+                continue;
+            }
+            AddHosted(*ci, *sit);
+        }
+    }
     if (r->appendChunk) {
         // Create pending make stable in case of replay.
         ReplayPendingMakeStable(
@@ -7859,7 +7877,8 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
             panic("no striped file allocation entry");
         }
     }
-    if (mClientCSAuthRequiredFlag && 0 <= r->status) {
+    const int status = r->status;
+    if (mClientCSAuthRequiredFlag && 0 <= status) {
         r->clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if ((r->writeMasterKeyValidFlag = ! r->servers.empty() &&
                 r->servers.front()->GetCryptoKey(
@@ -7875,7 +7894,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     ChunkLeases::EntryKey const leaseKey(
         0 == r->numReplicas ? r->fid    : r->chunkId,
         0 == r->numReplicas ? r->offset : chunkOff_t(-1));
-    if (r->status >= 0) {
+    if (0 <= status) {
         // Tree::assignChunkId() succeeded.
         // File and chunk ids are valid and in sync with meta tree.
         const bool kAllocDoneFlag = true;

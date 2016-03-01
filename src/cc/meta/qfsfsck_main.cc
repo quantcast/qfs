@@ -111,21 +111,22 @@ static int
 FsckMain(int argc, char** argv)
 {
     // use options: -l for logdir -c for checkpoint dir
-    int         optchar;
-    string      logdir;
-    string      cpdir;
-    string      metahost;
-    string      lockFn;
-    bool        ok                       = true;
-    const char* configFileName           = 0;
-    int         metaport                 = -1;
-    bool        help                     = false;
-    bool        reportAbandonedFilesFlag = true;
-    bool        allowEmptyCheckpointFlag = false;
-    int         timeoutSec               = 30 * 60;
-    bool        includeLastLogFlag       = false;
+    int                 optchar;
+    string              logdir;
+    string              cpdir;
+    string              metahost;
+    string              lockFn;
+    bool                ok                       = true;
+    const char*         configFileName           = 0;
+    int                 metaport                 = -1;
+    bool                help                     = false;
+    bool                reportAbandonedFilesFlag = true;
+    bool                allowEmptyCheckpointFlag = false;
+    int                 timeoutSec               = 30 * 60;
+    bool                includeLastLogFlag       = false;
+    MsgLogger::LogLevel logLevel                 = MsgLogger::kLogLevelINFO;
 
-    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:f:A:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:f:A:v")) != -1) {
         switch (optchar) {
             case 'L':
                 lockFn = optarg;
@@ -161,6 +162,9 @@ FsckMain(int argc, char** argv)
             case 'A':
                 includeLastLogFlag = atoi(optarg) != 0;
                 break;
+            case 'v':
+                logLevel = MsgLogger::kLogLevelDEBUG;
+                break;
             default:
                 ok = false;
                 break;
@@ -180,12 +184,13 @@ FsckMain(int argc, char** argv)
             "[-e {0|1} allow empty checkpoint]\n"
             "[-f <config file>]\n"
             "[-A {0|1} include last log segment]\n"
+            "[-v verbose tracing]\n"
         ;
         return (ok ? 0 : 1);
     }
 
     MdStream::Init();
-    KFS::MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
+    KFS::MsgLogger::Init(0, logLevel);
 
     ok = metahost.empty() || metaport < 0;
     if (! ok) {

@@ -6005,7 +6005,9 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
 /* static */ bool
 MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
 {
-    if (req.replayFlag || (req.chunkId < 0 && ! req.GetChunkIds()) ||
+    if (req.replayFlag ||
+            (kLogIfOk == req.logAction && kLogAlways == req.logAction)  ||
+            (req.chunkId < 0 && ! req.GetChunkIds()) ||
             0 != req.status) {
         return false;
     }

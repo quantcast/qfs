@@ -1091,15 +1091,6 @@ public:
         chunkOff_t offset, chunkId_t chunkId, seq_t chunkVersion,
         bool& newEntryFlag);
 
-    /// Update the mapping from chunkId -> server.
-    /// @param[in] chunkId  chunkId that has been stored
-    /// on server c
-    /// @param[in] c   server that stores chunk chunkId.
-    /// @retval  0 if update is successful; -1 otherwise
-    /// Update will fail if chunkId is not present in the
-    /// chunkId -> server mapping table.
-    int UpdateChunkToServerMapping(chunkId_t chunkId, const ChunkServerPtr& s);
-
     /// Get the mapping from chunkId -> server.
     /// @param[in] chunkId  chunkId that has been stored
     /// on some server(s)

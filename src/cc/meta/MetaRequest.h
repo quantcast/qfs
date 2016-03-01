@@ -1393,17 +1393,17 @@ private:
 };
 
 struct MetaLogChunkAllocate : public MetaRequest {
-    MetaAllocate* const    alloc;
-    fid_t                  fid;
-    chunkOff_t             offset;
-    chunkId_t              chunkId;
-    seq_t                  initialChunkVersion;
-    seq_t                  chunkVersion;
-    int64_t                mtime;
-    bool                   appendChunk;
-    bool                   invalidateAllFlag;
-    bool                   objectStoreFileFlag;
-    vector<ServerLocation> servers;
+    MetaAllocate* const alloc;
+    fid_t               fid;
+    chunkOff_t          offset;
+    chunkId_t           chunkId;
+    seq_t               initialChunkVersion;
+    seq_t               chunkVersion;
+    int64_t             mtime;
+    bool                appendChunk;
+    bool                invalidateAllFlag;
+    bool                objectStoreFileFlag;
+    ServerLocations     servers;
 
     MetaLogChunkAllocate(
         MetaAllocate* a = 0)
