@@ -3188,7 +3188,61 @@ LayoutManager::Replay(MetaHello& req)
 }
 
 void
-LayoutManager::Replay(const ServerLocation& loc, MetaRequest& req)
+LayoutManager::Replay(MetaChunkLogInFlight& req)
+{
+    ChunkServerPtr server;
+    Replay(req.location, req, &server);
+    if (req.removeServerFlag && server) {
+        if (0 <= req.chunkId) {
+            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+            if (entry) {
+                mChunkToServerMap.RemoveServer(server, *entry);
+            }
+        }
+        const ChunkIdQueue* const ids = req.GetChunkIds();
+        if (ids) {
+            ChunkIdQueue::ConstIterator it(*ids);
+            const chunkId_t*            id;
+            while ((id = it.Next())) {
+                CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
+                if (entry) {
+                    mChunkToServerMap.RemoveServer(server, *entry);
+                }
+            }
+        }
+    }
+}
+
+void
+LayoutManager::Replay(MetaChunkLogCompletion& req)
+{
+    ChunkServerPtr server;
+    Replay(req.doneLocation, req, &server);
+    if (req.chunkId < 0 || ! server || 0 != req.status) {
+        return;
+    }
+    if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
+        if (0 == req.doneStatus && ! server->IsDown()) {
+            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+            if (entry &&
+                    entry->GetChunkInfo()->chunkVersion == req.chunkVersion) {
+                AddHosted(*entry, server);
+            }
+        }
+        return;
+    }
+    if (MetaChunkLogCompletion::kChunkOpTypeRemove == req.chunkOpType) {
+        CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+        if (entry && (req.chunkVersion < 0 ||
+                entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
+            mChunkToServerMap.RemoveServer(server, *entry);
+        }
+    }
+}
+
+void
+LayoutManager::Replay(const ServerLocation& loc, MetaRequest& req,
+    ChunkServerPtr* server /* = 0 */)
 {
     if (! req.replayFlag || ! loc.IsValid()) {
         panic("invalid chunk server log completion replay");
@@ -3199,6 +3253,9 @@ LayoutManager::Replay(const ServerLocation& loc, MetaRequest& req)
     if (mChunkServers.end() == it) {
         req.status = -ENOENT;
         return;
+    }
+    if (server) {
+        *server = *it;
     }
     if (META_BYE == req.op) {
         ServerDown(*it);
@@ -3706,7 +3763,8 @@ LayoutManager::AddNotStableChunk(
     // AddServerToMakeStable() invoked already.
     // Delete the replica if sufficient number of replicas already exists.
     const MetaFattr * const fa = pinfo.GetFattr();
-    if (fa && fa->numReplicas <= mChunkToServerMap.ServerCount(pinfo)) {
+    if (! server->IsReplay() && fa &&
+            fa->numReplicas <= mChunkToServerMap.ServerCount(pinfo)) {
         CancelPendingMakeStable(fileId, chunkId);
         return "sufficient number of replicas exists";
     }
@@ -3731,7 +3789,8 @@ LayoutManager::AddNotStableChunk(
         const bool beginMakeStableFlag = msi->mSize < 0;
         if (beginMakeStableFlag) {
             AddHosted(chunkId, pinfo, server);
-            if (InRecoveryPeriod() || ! mPendingBeginMakeStable.IsEmpty()) {
+            if (InRecoveryPeriod() || ! mPendingBeginMakeStable.IsEmpty() ||
+                    server->IsReplay()) {
                 // Allow chunk servers to connect back.
                 bool insertedFlag = false;
                 mPendingBeginMakeStable.Insert(
@@ -3755,6 +3814,9 @@ LayoutManager::AddNotStableChunk(
             );
             return 0;
         }
+        if (server->IsReplay()) {
+            return 0;
+        }
         const bool kPendingAddFlag = true;
         server->MakeChunkStable(
             fileId, chunkId, chunkVersion,
@@ -3776,6 +3838,10 @@ LayoutManager::AddNotStableChunk(
         // This indicates that part of meta server log or checkpoint
         // was lost, or rolled back to the previous state.
         return "higher chunk version";
+    }
+    if (server->IsReplay()) {
+        AddHosted(chunkId, pinfo, server);
+        return 0;
     }
     if (curChunkVersion != chunkVersion &&
             (appendFlag || ! wl || ! wl->allocInFlight)) {
@@ -8715,6 +8781,9 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         // files.
         return;
     }
+    if (req->server->IsReplay()) {
+        return;
+    }
     const char* const          logPrefix       = "MCS: done";
     string                     pathname;
     CSMap::Entry*              pinfo           = 0;
@@ -8722,7 +8791,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
     bool                       updateMTimeFlag = false;
     MakeChunkStableInfo* const it              =
         mNonStableChunks.Find(req->chunkId);
-    if (req->addPending) {
+    if (req->pendingAddFlag) {
         // Make chunk stable started in AddNotStableChunk() is now
         // complete. Sever can be added if nothing has changed since
         // the op was started.
@@ -10342,7 +10411,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         }
         req->suspended = true;
         const bool kMakeStableFlag = true;
-        const bool kPendingAddFlag = false;
+        const bool kPendingAddFlag = true; // Tell replay to add chunk.
         req->server->NotifyChunkVersChange(
             req->fid,
             req->chunkId,

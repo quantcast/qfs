@@ -1437,7 +1437,10 @@ public:
     void Handle(MetaLogClearObjStoreDelete& req);
     void UpdateObjectsCount(
         ChunkServer& srv, int64_t delta, int64_t writableDelta);
-    void Replay(const ServerLocation& loc, MetaRequest& req);
+    void Replay(MetaChunkLogInFlight& req);
+    void Replay(MetaChunkLogCompletion& req);
+    void Replay(const ServerLocation& loc, MetaRequest& req,
+        ChunkServerPtr* server = 0);
     void ScheduleResubmitOrCancel(MetaRequest& r);
 
 protected:

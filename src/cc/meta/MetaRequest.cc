@@ -5946,8 +5946,18 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
       doneLocation(op ? op->server->GetServerLocation() : ServerLocation()),
       doneLogSeq(op ? op->logCompletionSeq : seq_t(-1)),
       doneStatus(op ? op->status : 0),
-      doneOp(op)
-{}
+      doneOp(op),
+      chunkId(-1),
+      chunkVersion(-1),
+      chunkOpType(MetaChunkLogCompletion::kChunkOpTypeNone)
+{
+    if (op && op->pendingAddFlag &&
+            0 <= op->chunkId && 0 <= op->chunkVersion) {
+        chunkId      = op->chunkId;
+        chunkVersion = op->chunkVersion;
+        chunkOpType  = kChunkOpTypeAdd;
+    }
+}
 
 /* virtual */ ostream&
 MetaChunkLogCompletion::ShowSelf(ostream& os) const
@@ -5957,6 +5967,9 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
         " "          << doneLocation <<
         " log seq: " << doneLogSeq <<
         " status: "  << doneStatus <<
+        " map op: "  << chunkOpType <<
+        " chunkId: " << chunkId <<
+        " version: " << chunkVersion <<
         " op: "      << ShowReq(doneOp)
     );
 }
@@ -5978,7 +5991,7 @@ MetaChunkLogCompletion::handle()
         op.resume();
     } else {
         if (replayFlag) {
-            gLayoutManager.Replay(doneLocation, *this);
+            gLayoutManager.Replay(*this);
         } else {
             panic("invalid chunk RPC completion");
         }
@@ -5987,7 +6000,8 @@ MetaChunkLogCompletion::handle()
 
 MetaChunkLogInFlight::MetaChunkLogInFlight(
     MetaChunkRequest* req,
-    int               timeout)
+    int               timeout,
+    bool              removeFlag)
     : MetaChunkRequest(
         META_CHUNK_OP_LOG_IN_FLIGHT,
         0,
@@ -5997,6 +6011,7 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
         location(req ? req->server->GetServerLocation() : ServerLocation()),
         chunkIds(),
         idCount(-1),
+        removeServerFlag(removeFlag),
         request(req)
 {
     maxWaitMillisec = timeout;
@@ -6011,7 +6026,10 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
             0 != req.status) {
         return false;
     }
-    submit_request(new MetaChunkLogInFlight(&req, timeout));
+    submit_request(new MetaChunkLogInFlight(&req, timeout,
+        META_CHUNK_DELETE == req.op ||
+        META_CHUNK_STALENOTIFY == req.op
+    ));
     return true;
 }
 
@@ -6019,7 +6037,7 @@ void
 MetaChunkLogInFlight::handle()
 {
     if (replayFlag) {
-        gLayoutManager.Replay(location, *this);
+        gLayoutManager.Replay(*this);
     } else {
         server->Enqueue(*this);
     }
@@ -6046,6 +6064,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/l/" << location <<
             "/s/" << ids->GetSize() <<
             "/c/" << chunkId_t(-1) <<
+            "/x/" << (removeServerFlag ? 1 : 0) <<
             "/z/" << logseq
         ;
         size_t                      cnt = 0;
@@ -6068,6 +6087,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/l/" << location <<
             "/s/" << size_t(0) <<
             "/c/" << request->chunkId <<
+            "/x/" << (removeServerFlag ? 1 : 0) <<
             "/z/" << logseq
         ;
     }

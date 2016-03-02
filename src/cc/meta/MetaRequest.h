@@ -2107,10 +2107,20 @@ struct MetaChown: public MetaRequest {
 struct MetaChunkRequest;
 
 struct MetaChunkLogCompletion : public MetaRequest {
+    enum ChunkOpType
+    {
+        kChunkOpTypeNone   = 0,
+        kChunkOpTypeAdd    = 1,
+        kChunkOpTypeRemove = 2
+    };
+
     ServerLocation    doneLocation;
     seq_t             doneLogSeq;
     int               doneStatus;
     MetaChunkRequest* doneOp;
+    chunkId_t         chunkId;
+    seq_t             chunkVersion;
+    int               chunkOpType;
 
     MetaChunkLogCompletion(MetaChunkRequest* op = 0);
     virtual bool start() { return (0 == status); }
@@ -2120,9 +2130,12 @@ struct MetaChunkLogCompletion : public MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("C", &MetaChunkLogCompletion::doneLocation)
+        .Def("S", &MetaChunkLogCompletion::doneLocation)
         .Def("L", &MetaChunkLogCompletion::doneLogSeq, seq_t(-1))
-        .Def("S", &MetaChunkLogCompletion::doneStatus, 0)
+        .Def("R", &MetaChunkLogCompletion::doneStatus, 0)
+        .Def("C", &MetaChunkLogCompletion::chunkId, chunkId_t(-1))
+        .Def("V", &MetaChunkLogCompletion::chunkVersion, seq_t(-1))
+        .Def("O", &MetaChunkLogCompletion::chunkOpType, int(kChunkOpTypeNone))
         ;
     }
 };
@@ -2147,6 +2160,7 @@ struct MetaChunkRequest : public MetaRequest {
     seq_t                      chunkVersion;
     ChunkOpsInFlight::iterator inFlightIt;
     seq_t                      logCompletionSeq;
+    bool                       pendingAddFlag;
 
     MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
@@ -2155,7 +2169,8 @@ struct MetaChunkRequest : public MetaRequest {
           server(c),
           chunkVersion(0),
           inFlightIt(),
-          logCompletionSeq(-1)
+          logCompletionSeq(-1),
+          pendingAddFlag(false)
         {}
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
@@ -2180,12 +2195,14 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     ServerLocation    location;
     ChunkIdQueue      chunkIds;
     int64_t           idCount;
+    bool              removeServerFlag;
     MetaChunkRequest* request;
 
     static bool Log(MetaChunkRequest& req, int timeout);
     MetaChunkLogInFlight(
-        MetaChunkRequest* req    = 0,
-        int               tmeout = -1);
+        MetaChunkRequest* req        = 0,
+        int               tmeout     = -1,
+        bool              removeFlag = false);
     virtual bool start() { return (0 == status); }
     virtual void handle();
     virtual bool log(ostream& os) const;
@@ -2338,7 +2355,6 @@ struct MetaChunkVersChange: public MetaChunkRequest {
     fid_t               fid;
     seq_t               fromVersion;
     bool                makeStableFlag;
-    bool                pendingAddFlag;
     bool                verifyStableFlag;
     MetaChunkReplicate* replicate;
 
@@ -2357,11 +2373,11 @@ struct MetaChunkVersChange: public MetaChunkRequest {
           fid(f),
           fromVersion(fromVers),
           makeStableFlag(mkStableFlag),
-          pendingAddFlag(pendAddFlag),
           verifyStableFlag(verifyStblFlag),
           replicate(repl)
     {
-        chunkVersion = v;
+        pendingAddFlag = pendAddFlag;
+        chunkVersion   = v;
         if (replicate) {
             assert(! replicate->versChange);
             replicate->versChange = this;
@@ -2641,8 +2657,7 @@ struct MetaLogChunkVersionChange : public MetaRequest {
 struct MetaChunkMakeStable: public MetaChunkRequest {
     const fid_t      fid;   //!< input: we tell the chunkserver what it is
     const chunkOff_t chunkSize;
-    const bool       hasChunkChecksum:1;
-    const bool       addPending:1;
+    const bool       hasChunkChecksum;
     const uint32_t   chunkChecksum;
     MetaChunkMakeStable(
         seq_t                 inSeqNo,
@@ -2659,9 +2674,11 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
           fid(inFileId),
           chunkSize(inChunkSize),
           hasChunkChecksum(inHasChunkChecksum),
-          addPending(inAddPending),
           chunkChecksum(inChunkChecksum)
-        { chunkVersion = inChunkVersion; }
+    {
+        pendingAddFlag = inAddPending;
+        chunkVersion   = inChunkVersion;
+    }
     virtual void handle();
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const;

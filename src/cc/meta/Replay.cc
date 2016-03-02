@@ -1598,6 +1598,10 @@ replay_cs_inflight(DETokenizer& c)
             return false;
         }
         op->chunkId = n;
+        if (! pop_num(n, "x", c, true) || n < 0) {
+            return false;
+        }
+        op->removeServerFlag = 0 != n;
         if (! pop_num(n, "z", c, true) || n < 0) {
             return false;
         }

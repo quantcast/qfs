@@ -2248,8 +2248,10 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
         r->srcLocation.hostname.clear();
         r->srcLocation.port   = sMetaClientPort;
         r->longRpcFormatFlag  = false;
+        r->pendingAddFlag     = false; // Version change to add mapping.
     } else {
         r->longRpcFormatFlag = ! dataServer->IsShortRpcFormat();
+        r->pendingAddFlag    = true; // Add mapping in replay.
     }
     if (gLayoutManager.IsClientCSAuthRequired()) {
         r->issuedTime                 = TimeNow();
