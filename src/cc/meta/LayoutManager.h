@@ -1439,8 +1439,7 @@ public:
         ChunkServer& srv, int64_t delta, int64_t writableDelta);
     void Handle(MetaChunkLogInFlight& req);
     void Handle(MetaBye& req);
-    void Replay(MetaChunkLogCompletion& req);
-    void ScheduleResubmitOrCancel(MetaRequest& r);
+    void Handle(MetaChunkLogCompletion& req);
 
 protected:
     typedef vector<
@@ -2567,6 +2566,7 @@ protected:
         SetEUserAndEGroup(op);
         return true;
     }
+    void ScheduleResubmitOrCancel(MetaRequest& r);
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
     bool RunObjectBlockDeleteQueue();
     chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,

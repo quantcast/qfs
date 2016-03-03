@@ -3255,21 +3255,31 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
 }
 
 void
-LayoutManager::Replay(MetaChunkLogCompletion& req)
+LayoutManager::Handle(MetaChunkLogCompletion& req)
 {
-    if (req.doneOp || ! req.replayFlag || -ELOGFAILED == req.status) {
+    if (! req.doneOp != req.replayFlag ||
+            (req.replayFlag && -ELOGFAILED == req.status)) {
         panic("invalid chunk log completion");
         req.status = -EFAULT;
         return;
     }
-    const ChunkServerPtr* const cs = ReplayFindServer(req.doneLocation, req);
-    if (! cs) {
-        return;
-    }
-    const ChunkServerPtr server = *cs;
-    server->Replay(req);
-    if (req.chunkId < 0 || 0 != req.status) {
-        return;
+    ChunkServerPtr server;
+    if (req.doneOp) {
+        if (-ELOGFAILED == req.status) {
+            ScheduleResubmitOrCancel(req);
+            return;
+        }
+        server = req.doneOp->server;
+    } else {
+        const ChunkServerPtr* const cs = ReplayFindServer(req.doneLocation, req);
+        if (! cs) {
+            return;
+        }
+        server = *cs;
+        server->Replay(req);
+        if (req.chunkId < 0 || 0 != req.status) {
+            return;
+        }
     }
     if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
         if (0 == req.doneStatus && ! server->IsDown()) {
@@ -3279,14 +3289,21 @@ LayoutManager::Replay(MetaChunkLogCompletion& req)
                 AddHosted(*entry, server);
             }
         }
-        return;
-    }
-    if (MetaChunkLogCompletion::kChunkOpTypeRemove == req.chunkOpType) {
+    } else if (MetaChunkLogCompletion::kChunkOpTypeRemove == req.chunkOpType) {
         CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
         if (entry && (req.chunkVersion < 0 ||
                 entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
             mChunkToServerMap.RemoveServer(server, *entry);
         }
+    }
+    if (req.doneOp) {
+        MetaChunkRequest& op = *req.doneOp;
+        req.doneOp = 0;
+        if (op.logCompletionSeq < 0) {
+            panic("MetaChunkLogCompletion: invalid log sequence");
+        }
+        op.logCompletionSeq = -1;
+        op.resume();
     }
 }
 
@@ -4034,8 +4051,8 @@ LayoutManager::Done(MetaChunkVersChange& req)
         req.server->NotifyStaleChunk(req.chunkId);
         return;
     }
-    size_t srvCount = 0;
-    if (! AddHosted(*cmi, req.server, &srvCount)) {
+    // The chunk should have been added by MetaChunkLogCompletion.
+    if (! mChunkToServerMap.HasServer(req.server, *cmi)) {
         KFS_LOG_STREAM_ERROR << req.Show() <<
             " no such server, or mappings update failed" <<
         KFS_LOG_EOM;
@@ -4059,8 +4076,8 @@ LayoutManager::Done(MetaChunkVersChange& req)
         return;
     }
     // Cancel pending make stable not counting hibernated servers.
-    if (fa->numReplicas <= (0 < mChunkToServerMap.GetHibernatedCount() ?
-            mChunkToServerMap.ServerCount(*cmi) : srvCount)) {
+    const size_t srvCount = mChunkToServerMap.ServerCount(*cmi);
+    if (fa->numReplicas <= srvCount) {
         CancelPendingMakeStable(fileId, req.chunkId);
     }
     if (fa->numReplicas != srvCount) {
@@ -8907,25 +8924,18 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
             CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
             if (! ci) {
                 res = "no such chunk";
-            } else if (ci->HasServer(mChunkToServerMap,
-                    req->server->GetServerLocation())) {
-                res = "already added";
-                notifyStaleFlag = false;
+            } else if (! ci->HasServer(mChunkToServerMap, req->server)) {
+                res = "chunk log completion failure to add server";
             } else if ((li = mChunkLeases.GetChunkWriteLease(req->chunkId)) &&
-                (((! li->relinquishedFlag &&
-                    li->expires >= TimeNow()) ||
-                    li->chunkVersion !=
-                    req->chunkVersion))) {
+                    (((! li->relinquishedFlag && li->expires >= TimeNow()) ||
+                    li->chunkVersion != req->chunkVersion))) {
                 // No write lease existed when this was started.
                 res = "new write lease exists";
-            } else if (req->chunkVersion !=
-                    ci->GetChunkInfo()->chunkVersion) {
+            } else if (req->chunkVersion != ci->GetChunkInfo()->chunkVersion) {
                 res = "chunk version has changed";
             } else {
-                pinfo          = ci;
-                updateSizeFlag =
-                    ! mChunkToServerMap.HasServers(*pinfo);
-                AddHosted(*ci, req->server);
+                pinfo           = ci;
+                updateSizeFlag  = 1 == mChunkToServerMap.ServerCount(*pinfo);
                 notifyStaleFlag = false;
             }
         }
@@ -10403,8 +10413,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         // outs by the meta server. Theoretically this could be
         // conditional on the op status code, if it is guaranteed that
         // the chunk server never sends the op timed out status.
-        if (req->server->IsDown() ||
-                ci->HasServer(mChunkToServerMap, req->server)) {
+        if (req->server->IsDown()) {
             return;
         }
         if (! versChangeDoneFlag && fid == req->fid) {
@@ -10416,8 +10425,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
             return;
         }
         const MetaFattr* const fa = ci->GetFattr();
-        if (fa->HasRecovery() &&
-                mChunkToServerMap.ServerCount(*ci) == 1) {
+        if (fa->HasRecovery() && mChunkToServerMap.ServerCount(*ci) == 1) {
             KFS_LOG_STREAM_INFO <<
                 "chunk: " << req->chunkId <<
                 " fid: "  << req->fid << "/" << fid <<
@@ -10446,8 +10454,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
                         extraReplicas,
                         placement,
                         recoveryInfo) <= 0) {
-                SetReplicationState(*ci,
-                    CSMap::Entry::kStateNoDestination);
+                SetReplicationState(*ci, CSMap::Entry::kStateNoDestination);
             }
         }
         return;
@@ -10497,6 +10504,15 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         return;
     }
     UpdateReplicationState(*ci);
+    if (! mChunkToServerMap.HasServer(req->server, *ci)) {
+        KFS_LOG_STREAM_ERROR <<
+            req->server->GetServerLocation() <<
+            " chunk: " << req->chunkId <<
+            (replicationFlag ? " re-replication" : " recovery") <<
+            " chunk log completion failure to add server" <<
+        KFS_LOG_EOM;
+        return;
+    }
     // Yaeee...all good...
     KFS_LOG_STREAM_DEBUG <<
         req->server->GetServerLocation() <<
@@ -10504,7 +10520,6 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
         (replicationFlag ? " re-replication" : " recovery") <<
         " done" <<
     KFS_LOG_EOM;
-    AddHosted(*ci, req->server);
     req->server->MovingChunkDone(req->chunkId);
     StTmp<Servers> serversTmp(mServersTmp);
     Servers&       servers = serversTmp.Get();

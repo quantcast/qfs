@@ -5986,25 +5986,7 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
 void
 MetaChunkLogCompletion::handle()
 {
-    if (doneOp) {
-        if (-ELOGFAILED == status) {
-            gLayoutManager.ScheduleResubmitOrCancel(*this);
-            return;
-        }
-        MetaChunkRequest& op = *doneOp;
-        doneOp = 0;
-        if (op.logCompletionSeq < 0) {
-            panic("MetaChunkLogCompletion: invalid log sequence");
-        }
-        op.logCompletionSeq = -1;
-        op.resume();
-    } else {
-        if (replayFlag) {
-            gLayoutManager.Replay(*this);
-        } else {
-            panic("invalid chunk RPC completion");
-        }
-    }
+    gLayoutManager.Handle(*this);
 }
 
 MetaChunkLogInFlight::MetaChunkLogInFlight(
