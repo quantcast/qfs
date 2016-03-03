@@ -875,8 +875,6 @@ public:
         { return mNumWrObjects; }
     void ScheduleDown(const char* message)
         { Error(message); }
-    void SetHelloComplete()
-        { mHelloCompleteFlag = true; }
     void Replay(MetaChunkLogCompletion& req);
     void Replay(MetaChunkLogInFlight& req);
     void Enqueue(MetaChunkLogInFlight& req);
@@ -909,7 +907,6 @@ protected:
 
     /// Are we thru with processing HELLO message
     bool mHelloDone;
-    bool mHelloCompleteFlag;
 
     /// Boolean that tracks whether this server is down
     bool mDown;

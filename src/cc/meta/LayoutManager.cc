@@ -3777,7 +3777,6 @@ LayoutManager::AddNewServer(MetaHello* r)
         }
     }
     UpdateReplicationsThreshold();
-    srv.SetHelloComplete();
     KFS_LOG_STREAM(r->replayFlag ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO) <<

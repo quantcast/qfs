@@ -406,7 +406,6 @@ ChunkServer::ChunkServer(
       mAuthPendingSeq(-1),
       mNetConnection(conn),
       mHelloDone(false),
-      mHelloCompleteFlag(false),
       mDown(false),
       mHeartbeatSent(false),
       mHeartbeatSkipped(false),
@@ -1025,17 +1024,13 @@ ChunkServer::Error(const char* errorMsg)
     RemoveFromWriteAllocation();
     MetaRequest::Release(mAuthenticateOp);
     mAuthenticateOp = 0;
-    if (mHelloCompleteFlag) {
+    if (mHelloDone) {
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
         MetaBye* const mb = new MetaBye(0, mSelfPtr);
         mb->authUid = mAuthUid;
         mb->clnt    = this;
         Submit(*mb);
-        return;
-    }
-    if (mHelloDone) {
-        gLayoutManager.ServerDown(mSelfPtr);
         return;
     }
     ForceDown();
@@ -1651,7 +1646,7 @@ ChunkServer::SetServerLocation(const ServerLocation& loc)
     if (mLocation == loc) {
         return;
     }
-    if (mLocation.IsValid() || mHelloCompleteFlag || ! loc.IsValid()) {
+    if (mLocation.IsValid() || mHelloDone || ! loc.IsValid()) {
         panic("invalid attempt to chunk chunk server location");
         return;
     }
@@ -1974,7 +1969,7 @@ ChunkServer::TimeSinceLastHeartbeat() const
 bool
 ChunkServer::ReplayValidate(MetaRequest& r) const
 {
-    if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag || ! mReplayFlag) {
+    if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag) {
         panic("ChunkServer: invalid replay attempt");
         r.status = -EFAULT;
         submit_request(&r);
@@ -2572,6 +2567,10 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         MetaChunkRequest* const op = it->second.first->second;
         op->statusMsg = errMsg ? errMsg : "chunk server disconnect";
         op->status    = -EIO;
+        if (! mHelloDone && 0 <= op->logCompletionSeq) {
+            panic("chunk server: RPC was queued prior to hello completion");
+            op->logCompletionSeq = -1;
+        }
         op->resume();
     }
 }
