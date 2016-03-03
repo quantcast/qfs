@@ -3271,7 +3271,8 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
         }
         server = req.doneOp->server;
     } else {
-        const ChunkServerPtr* const cs = ReplayFindServer(req.doneLocation, req);
+        const ChunkServerPtr* const cs =
+            ReplayFindServer(req.doneLocation, req);
         if (! cs) {
             return;
         }
