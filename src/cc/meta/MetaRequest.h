@@ -104,7 +104,6 @@ using std::less;
     f(CHUNK_STALENOTIFY) /* Stale chunk notification RPC from meta->chunk */ \
     f(BEGIN_MAKE_CHUNK_STABLE) \
     f(CHUNK_MAKE_STABLE) /* Notify a chunkserver to make a chunk stable */ \
-    f(CHUNK_COALESCE_BLOCK) /* Notify a chunkserver to coalesce a chunk from file to another */ \
     f(CHUNK_VERSCHANGE) /* Notify chunkserver of version # change from meta->chunk */ \
     f(CHUNK_REPLICATE) /* Ask chunkserver to replicate a chunk */ \
     f(CHUNK_SIZE) /* Ask chunkserver for the size of a chunk */ \
@@ -1962,7 +1961,8 @@ struct MetaBye: public MetaRequest {
 
     MetaBye(seq_t s = 0, const ChunkServerPtr& c = ChunkServerPtr())
         : MetaRequest(META_BYE, kLogIfOk, s),
-          server(c)
+          server(c),
+          location()
         {}
     virtual bool start();
     virtual void handle();
@@ -2691,7 +2691,7 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
  */
 struct MetaChunkRetire: public MetaChunkRequest {
     MetaChunkRetire(seq_t n, const ChunkServerPtr& s):
-        MetaChunkRequest(META_CHUNK_RETIRE, n, kLogNever, s, -1) { }
+        MetaChunkRequest(META_CHUNK_RETIRE, n, kLogQueue, s, -1) { }
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2703,7 +2703,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
     const string serverProps;
     MetaChunkSetProperties(seq_t n, const ChunkServerPtr& s,
             const Properties& props)
-        : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, kLogNever, s, -1),
+        : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, kLogQueue, s, -1),
           serverProps(Properties2Str(props))
         {}
     virtual void request(ReqOstream &os);
@@ -2721,7 +2721,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
 
 struct MetaChunkServerRestart : public MetaChunkRequest {
     MetaChunkServerRestart(seq_t n, const ChunkServerPtr& s)
-        : MetaChunkRequest(META_CHUNK_SERVER_RESTART, n, kLogNever, s, -1)
+        : MetaChunkRequest(META_CHUNK_SERVER_RESTART, n, kLogQueue, s, -1)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -3386,9 +3386,10 @@ struct MetaChunkCorrupt: public MetaRequest {
     bool           dirOkFlag;   //!< input
     int            chunkCount;  //!< input
     string         chunkDir;    //!< input
+    ServerLocation location;
     ChunkServerPtr server;      //!< The chunkserver that sent us this message
     MetaChunkCorrupt(seq_t s = -1, fid_t f = -1, chunkId_t c = -1)
-        : MetaRequest(META_CHUNK_CORRUPT, kLogNever, s),
+        : MetaRequest(META_CHUNK_CORRUPT, kLogIfOk, s),
           fid(f),
           chunkId(c),
           chunkIdsStr(),
@@ -3397,8 +3398,10 @@ struct MetaChunkCorrupt: public MetaRequest {
           dirOkFlag(false),
           chunkCount(0),
           chunkDir(),
+          location(),
           server()
         {}
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -3406,7 +3409,10 @@ struct MetaChunkCorrupt: public MetaRequest {
         return os <<
             (isChunkLost ? "lost" : "corrupt") <<
             " fid: "   << fid <<
-            " chunk: " << chunkId
+            " chunk: " << chunkId <<
+            " count: " << chunkCount <<
+            " dir: "   << chunkDir <<
+            " ok: "    << dirOkFlag
         ;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
@@ -3427,6 +3433,17 @@ struct MetaChunkCorrupt: public MetaRequest {
         .Def2("Ids",           "I", &MetaChunkCorrupt::chunkIdsStr)
         ;
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("S", &MetaChunkCorrupt::location)
+        .Def("P", &MetaChunkCorrupt::fid,             fid_t(-1))
+        .Def("H", &MetaChunkCorrupt::chunkId,     chunkId_t(-1))
+        .Def("L", &MetaChunkCorrupt::isChunkLost,         false)
+        .Def("C", &MetaChunkCorrupt::chunkCount,              0)
+        .Def("I", &MetaChunkCorrupt::chunkIdsStr)
+        ;
+    }
 };
 
 /*!
@@ -3445,7 +3462,7 @@ struct MetaChunkEvacuate: public MetaRequest {
     StringBufT<21 * 32> chunkIds; //!< input
     ChunkServerPtr      server;
     MetaChunkEvacuate(seq_t s = -1)
-        : MetaRequest(META_CHUNK_EVACUATE, kLogNever, s),
+        : MetaRequest(META_CHUNK_EVACUATE, kLogQueue, s),
           totalSpace(-1),
           totalFsSpace(-1),
           usedSpace(-1),

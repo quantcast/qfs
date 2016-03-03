@@ -3023,11 +3023,7 @@ MetaBye::start()
 /* virtual */ void
 MetaBye::handle()
 {
-    if (server) {
-        gLayoutManager.ServerDown(server);
-    } else {
-        gLayoutManager.Replay(location, *this);
-    }
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void
@@ -3221,21 +3217,32 @@ MetaChown::handle()
     }
 }
 
-/* virtual */ void
-MetaChunkCorrupt::handle()
+/* virtual */ bool
+MetaChunkCorrupt::start()
 {
     if (server) {
-        if (! chunkDir.empty()) {
-            server->SetChunkDirStatus(chunkDir, dirOkFlag);
-        }
-        if (0 < chunkId || 0 < chunkCount) {
-            gLayoutManager.ChunkCorrupt(this);
+        location = server->GetServerLocation();
+        if (! location.IsValid()) {
+            panic("chunk corrupt: invalid server location");
+            status = -EFAULT;
         }
     } else {
         // This is likely coming from the ClientSM.
         KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
         KFS_LOG_EOM;
         status = -EINVAL;
+    }
+    return (0 == status);
+}
+
+/* virtual */ void
+MetaChunkCorrupt::handle()
+{
+    if (! chunkDir.empty() && 0 == status) {
+        server->SetChunkDirStatus(chunkDir, dirOkFlag);
+    }
+    if (0 < chunkId || 0 < chunkCount || 0 != status) {
+        gLayoutManager.ChunkCorrupt(this);
     }
 }
 
@@ -3261,6 +3268,10 @@ MetaChunkAvailable::start()
         KFS_LOG_EOM;
     } else {
         location = server->GetServerLocation();
+        if (! location.IsValid()) {
+            panic("chunks available: invalid server location");
+            status = -EFAULT;
+        }
     }
     return (0 == status);
 }
@@ -3268,9 +3279,7 @@ MetaChunkAvailable::start()
 /* virtual */ void
 MetaChunkAvailable::handle()
 {
-    if (0 == status) {
-        gLayoutManager.ChunkAvailable(this);
-    }
+    gLayoutManager.ChunkAvailable(this);
 }
 
 /* virtual */ void
@@ -6036,11 +6045,7 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
 void
 MetaChunkLogInFlight::handle()
 {
-    if (replayFlag) {
-        gLayoutManager.Replay(*this);
-    } else {
-        server->Enqueue(*this);
-    }
+    gLayoutManager.Handle(*this);
 }
 
 bool

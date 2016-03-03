@@ -1403,6 +1403,34 @@ LayoutManager::GetAccessProxy(T& req, LayoutManager::Servers& servers)
     return true;
 }
 
+template<typename T> bool
+LayoutManager::HandleReplay(T& req)
+{
+    if (! req.replayFlag) {
+        if (-ELOGFAILED == req.status) {
+            ScheduleResubmitOrCancel(req);
+            return true;
+        }
+        return false;
+    }
+    if (req.server || req.location.IsValid() || -ELOGFAILED == req.status) {
+        panic("invalid RPC in replay");
+        req.status = -EFAULT;
+        return true;
+    }
+    Servers::const_iterator const it = FindServer(req.location);
+    if (mChunkServers.end() == it) {
+        KFS_LOG_STREAM_DEBUG <<
+            "no chunk server: " << req.location <<
+            " " << req.Show() <<
+        KFS_LOG_EOM;
+        req.status = -ENOENT;
+        return true;
+    }
+    req.server = *it;
+    return false;
+}
+
 bool
 LayoutManager::FindAccessProxy(MetaAllocate& req)
 {
@@ -3163,6 +3191,105 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
     return true;
 }
 
+template<typename T> const ChunkServerPtr*
+LayoutManager::ReplayFindServer(const ServerLocation& loc, T& req)
+{
+    if (! req.replayFlag || ! loc.IsValid()) {
+        panic("invalid chunk server log completion replay");
+        req.status = -EFAULT;
+        return 0;
+    }
+    Servers::const_iterator const it = FindServer(loc);
+    if (mChunkServers.end() == it) {
+        req.status = -ENOENT;
+        return 0;
+    }
+    return &*it;
+}
+
+void
+LayoutManager::Handle(MetaChunkLogInFlight& req)
+{
+    if ((! req.request != ! req.server) || ! req.request != req.replayFlag) {
+        panic("invalid chunk log in flight");
+        req.status = -EFAULT;
+        return;
+    }
+    if (-ELOGFAILED == req.status) {
+        if (req.replayFlag) {
+            panic("invalid chunk log in flight log failed status in replay");
+            req.status = -EFAULT;
+        } else {
+            ScheduleResubmitOrCancel(req);
+        }
+        return;
+    }
+    if (req.replayFlag) {
+        const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
+        if (cs) {
+            (*cs)->Replay(req);
+        }
+    }
+    if (req.removeServerFlag && req.server) {
+        if (0 <= req.chunkId) {
+            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+            if (entry) {
+                mChunkToServerMap.RemoveServer(req.server, *entry);
+            }
+        }
+        const ChunkIdQueue* const ids = req.GetChunkIds();
+        if (ids) {
+            ChunkIdQueue::ConstIterator it(*ids);
+            const chunkId_t*            id;
+            while ((id = it.Next())) {
+                CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
+                if (entry) {
+                    mChunkToServerMap.RemoveServer(req.server, *entry);
+                }
+            }
+        }
+    }
+    if (! req.replayFlag) {
+        req.server->Enqueue(req);
+    }
+}
+
+void
+LayoutManager::Replay(MetaChunkLogCompletion& req)
+{
+    if (req.doneOp || ! req.replayFlag || -ELOGFAILED == req.status) {
+        panic("invalid chunk log completion");
+        req.status = -EFAULT;
+        return;
+    }
+    const ChunkServerPtr* const cs = ReplayFindServer(req.doneLocation, req);
+    if (! cs) {
+        return;
+    }
+    const ChunkServerPtr server = *cs;
+    server->Replay(req);
+    if (req.chunkId < 0 || 0 != req.status) {
+        return;
+    }
+    if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
+        if (0 == req.doneStatus && ! server->IsDown()) {
+            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+            if (entry &&
+                    entry->GetChunkInfo()->chunkVersion == req.chunkVersion) {
+                AddHosted(*entry, server);
+            }
+        }
+        return;
+    }
+    if (MetaChunkLogCompletion::kChunkOpTypeRemove == req.chunkOpType) {
+        CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+        if (entry && (req.chunkVersion < 0 ||
+                entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
+            mChunkToServerMap.RemoveServer(server, *entry);
+        }
+    }
+}
+
 void
 LayoutManager::Replay(MetaHello& req)
 {
@@ -3188,79 +3315,15 @@ LayoutManager::Replay(MetaHello& req)
 }
 
 void
-LayoutManager::Replay(MetaChunkLogInFlight& req)
+LayoutManager::Handle(MetaBye& req)
 {
-    ChunkServerPtr server;
-    Replay(req.location, req, &server);
-    if (req.removeServerFlag && server) {
-        if (0 <= req.chunkId) {
-            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-            if (entry) {
-                mChunkToServerMap.RemoveServer(server, *entry);
-            }
+    if (! req.server) {
+        const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
+        if (cs) {
+            ServerDown(*cs);
         }
-        const ChunkIdQueue* const ids = req.GetChunkIds();
-        if (ids) {
-            ChunkIdQueue::ConstIterator it(*ids);
-            const chunkId_t*            id;
-            while ((id = it.Next())) {
-                CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
-                if (entry) {
-                    mChunkToServerMap.RemoveServer(server, *entry);
-                }
-            }
-        }
-    }
-}
-
-void
-LayoutManager::Replay(MetaChunkLogCompletion& req)
-{
-    ChunkServerPtr server;
-    Replay(req.doneLocation, req, &server);
-    if (req.chunkId < 0 || ! server || 0 != req.status) {
-        return;
-    }
-    if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
-        if (0 == req.doneStatus && ! server->IsDown()) {
-            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-            if (entry &&
-                    entry->GetChunkInfo()->chunkVersion == req.chunkVersion) {
-                AddHosted(*entry, server);
-            }
-        }
-        return;
-    }
-    if (MetaChunkLogCompletion::kChunkOpTypeRemove == req.chunkOpType) {
-        CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-        if (entry && (req.chunkVersion < 0 ||
-                entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
-            mChunkToServerMap.RemoveServer(server, *entry);
-        }
-    }
-}
-
-void
-LayoutManager::Replay(const ServerLocation& loc, MetaRequest& req,
-    ChunkServerPtr* server /* = 0 */)
-{
-    if (! req.replayFlag || ! loc.IsValid()) {
-        panic("invalid chunk server log completion replay");
-        req.status = -EFAULT;
-        return;
-    }
-    Servers::const_iterator const it = FindServer(loc);
-    if (mChunkServers.end() == it) {
-        req.status = -ENOENT;
-        return;
-    }
-    if (server) {
-        *server = *it;
-    }
-    if (META_BYE == req.op) {
-        ServerDown(*it);
     } else {
-        (*it)->Replay(req);
+        ServerDown(req.server);
     }
 }
 
@@ -3901,6 +3964,9 @@ LayoutManager::AddNotStableChunk(
 void
 LayoutManager::Done(MetaChunkVersChange& req)
 {
+    if (req.replayFlag) {
+        return;
+    }
     if (req.replicate) {
         assert(req.replicate->versChange = &req);
         ChunkReplicationDone(req.replicate);
@@ -6909,6 +6975,9 @@ LayoutManager::LeaseRenew(MetaLeaseRenew* req)
 void
 LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
 {
+    if (HandleReplay(*r) || 0 != r->status) {
+        return;
+    }
     const char* p = r->chunkIdsStr.GetPtr();
     const char* e = p + r->chunkIdsStr.GetSize();
     for (int i = -1; i < 0 || i < r->chunkCount; i++) {
@@ -6924,7 +6993,9 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
         if (! r->isChunkLost) {
             r->server->IncCorruptChunks();
         }
-        KFS_LOG_STREAM_INFO <<
+        KFS_LOG_STREAM(r->replayFlag ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelINFO) <<
             "server " << r->server->GetServerLocation() <<
             " claims chunk: <" <<
             r->fid << "," << chunkId <<
@@ -6937,20 +7008,22 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
 
 void
 LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
-        bool notifyStale)
+        bool notifyStale /* = true */)
 {
     CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
     if (! ci) {
-        if (server && ! server->IsDown()) {
+        if (notifyStale && ! server->IsDown()) {
             server->NotifyStaleChunk(chunkId);
         }
         return;
     }
-    const bool removedFlag = ci->Remove(mChunkToServerMap, server);
+    const bool existedFlag = notifyStale ?
+        ci->HasServer(mChunkToServerMap, server) :
+        ci->Remove(mChunkToServerMap, server);
     mChunkLeases.ReplicaLost(chunkId, server.get());
     // Invalidate cache.
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
-    if (removedFlag) {
+    if (existedFlag) {
         // check the replication state when the replicaiton checker gets to it
         CheckReplication(*ci);
     }
@@ -6960,7 +7033,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         ci->GetFileId() << "," << chunkId <<
         "> lost" <<
         " servers: " << mChunkToServerMap.ServerCount(*ci) <<
-        (removedFlag ? " -1" : " -0") <<
+        (existedFlag ? " -1" : " -0") <<
         " replication: " << fa->numReplicas <<
         " recovery: "    << fa->numRecoveryStripes <<
     KFS_LOG_EOM;
@@ -7051,7 +7124,7 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
 void
 LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
 {
-    if (r->server->IsDown()) {
+    if (HandleReplay(*r) || 0 != r->status || r->server->IsDown()) {
         return;
     }
     vector<MetaChunkInfo*> cblk;
@@ -8781,7 +8854,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         // files.
         return;
     }
-    if (req->server->IsReplay()) {
+    if (req->replayFlag) {
         return;
     }
     const char* const          logPrefix       = "MCS: done";
@@ -10459,20 +10532,18 @@ LayoutManager::RemoveRetiring(
             i++;
             continue;
         }
-        if (! mChunkToServerMap.RemoveServer(server, ci)) {
-            panic("failed to remove server");
-        }
-        if (! server->IsDown()) {
-            if (server->IsRetiring()) {
-                if (server->GetChunkCount() <= 0) {
-                    server->Retire();
-                } else if (deleteRetiringFlag) {
-                    server->DeleteChunk(chunkId);
-                }
-            } else {
-                const bool kEvacuateChunkFlag = true;
-                server->NotifyStaleChunk(
-                    chunkId, kEvacuateChunkFlag);
+        if (server->IsDown() || ! server->IsRetiring()) {
+            // Queue RPC to log and remove entry, and replica.
+            const bool kEvacuateChunkFlag = true;
+            server->NotifyStaleChunk(chunkId, kEvacuateChunkFlag);
+        } else {
+            if (deleteRetiringFlag) {
+                server->DeleteChunk(chunkId);
+            } else if (! mChunkToServerMap.RemoveServer(server, ci)) {
+                panic("failed to remove server");
+            }
+            if (server->GetChunkCount() <= 0) {
+                server->Retire();
             }
         }
         servers.erase(servers.begin() + i);
@@ -10836,7 +10907,6 @@ LayoutManager::DeleteAddlChunkReplicas(
             ++it) {
         const ChunkServerPtr& server = *it;
         server->DeleteChunk(chunkId);
-        entry.Remove(mChunkToServerMap, server);
     }
 }
 

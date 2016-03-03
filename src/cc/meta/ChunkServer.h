@@ -875,10 +875,11 @@ public:
         { return mNumWrObjects; }
     void ScheduleDown(const char* message)
         { Error(message); }
-    void Replay(MetaRequest& r);
     void SetHelloComplete()
         { mHelloCompleteFlag = true; }
-    void Enqueue(MetaChunkLogInFlight& r);
+    void Replay(MetaChunkLogCompletion& req);
+    void Replay(MetaChunkLogInFlight& req);
+    void Enqueue(MetaChunkLogInFlight& req);
     bool IsReplay() const { return mReplayFlag; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1238,6 +1239,7 @@ protected:
     void RemoveFromWriteAllocation();
     inline void Submit(MetaRequest& op);
     inline ChunkServerPtr GetSelfPtr();
+    bool ReplayValidate(MetaRequest& r) const;
 };
 
 class CSMap;
@@ -1253,7 +1255,6 @@ public:
         chunkId_t    ioLastResumeModifiedChunk);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
-    void SetReplay(bool flag);
     const DeletedChunks& GetDeletedChunks() const
         { return mDeletedChunks; }
     const ModifiedChunks& GetModifiedChunks() const

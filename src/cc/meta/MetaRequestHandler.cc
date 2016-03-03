@@ -726,6 +726,9 @@ MakeLogMetaRequestHandler(
     .MakeParser("LC",
         META_CHUNK_OP_LOG_COMPLETION,
         static_cast<const MetaChunkLogCompletion*>(0))
+    .MakeParser("CC",
+        META_CHUNK_CORRUPT,
+        static_cast<const MetaChunkCorrupt*>(0))
     .MakeParser("MB",
         META_BYE,
         static_cast<const MetaBye*>(0))

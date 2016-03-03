@@ -1437,10 +1437,9 @@ public:
     void Handle(MetaLogClearObjStoreDelete& req);
     void UpdateObjectsCount(
         ChunkServer& srv, int64_t delta, int64_t writableDelta);
-    void Replay(MetaChunkLogInFlight& req);
+    void Handle(MetaChunkLogInFlight& req);
+    void Handle(MetaBye& req);
     void Replay(MetaChunkLogCompletion& req);
-    void Replay(const ServerLocation& loc, MetaRequest& req,
-        ChunkServerPtr* server = 0);
     void ScheduleResubmitOrCancel(MetaRequest& r);
 
 protected:
@@ -2580,6 +2579,9 @@ protected:
     template<typename T>
     bool GetAccessProxy(T& req, Servers& servers);
     void Replay(MetaHello& req);
+    template<typename T> const ChunkServerPtr* ReplayFindServer(
+        const ServerLocation& loc, T& req);
+    template<typename T> bool HandleReplay(T& req);
 };
 
 extern LayoutManager& gLayoutManager;

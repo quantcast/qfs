@@ -1971,32 +1971,43 @@ ChunkServer::TimeSinceLastHeartbeat() const
     return (TimeNow() - mLastHeartbeatSent);
 }
 
-void
-ChunkServer::Replay(MetaRequest& r)
+bool
+ChunkServer::ReplayValidate(MetaRequest& r) const
 {
-    if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag ||
-            (mNetConnection && mNetConnection->IsGood())) {
+    if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag || ! mReplayFlag) {
         panic("ChunkServer: invalid replay attempt");
         r.status = -EFAULT;
         submit_request(&r);
+        return false;
+    }
+    return true;
+}
+
+void
+ChunkServer::Replay(MetaChunkLogCompletion& req)
+{
+    if (! ReplayValidate(req)) {
         return;
     }
-    if (META_CHUNK_OP_LOG_COMPLETION == r.op) {
-        MetaChunkLogCompletion& req = static_cast<MetaChunkLogCompletion&>(r);
-        MetaChunkRequest* const op = FindMatchingRequest(req.doneLogSeq);
-        if (op) {
-            op->status = req.doneStatus;
-            op->resume();
-        } else {
-            req.status = -ENOENT;
-        }
+    MetaChunkRequest* const op = FindMatchingRequest(req.doneLogSeq);
+    if (op) {
+        op->status = req.doneStatus;
+        op->resume();
     } else {
-        MetaChunkRequest& req = static_cast<MetaChunkRequest&>(r);
-        if (! req.server) {
-            const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
-        }
-        Enqueue(&req, 365 * 24 * 60 * 60);
+        req.status = -ENOENT;
     }
+}
+
+void
+ChunkServer::Replay(MetaChunkLogInFlight& req)
+{
+    if (! ReplayValidate(req)) {
+        return;
+    }
+    if (! req.server) {
+        const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
+    }
+    Enqueue(&req, 365 * 24 * 60 * 60);
 }
 
 void
@@ -3017,7 +3028,9 @@ HibernatedChunkServer::HibernatedChunkServer(
     mListsSize = 1 + size;
     sValidCount++;
     sChunkListsSize += size;
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM(server.IsReplay() ?
+            MsgLogger::kLogLevelDEBUG :
+            MsgLogger::kLogLevelINFO) <<
         " hibernated: " << server.GetServerLocation() <<
         " index: "      << server.GetIndex() <<
         " chunks: "     << server.GetChunkCount() <<
@@ -3027,23 +3040,6 @@ HibernatedChunkServer::HibernatedChunkServer(
         " valid: "      << sValidCount <<
         " chunks: "     << sChunkListsSize <<
     KFS_LOG_EOM;
-}
-
-void
-HibernatedChunkServer::SetReplay(bool flag)
-{
-    if ((mListsSize <= 0) == flag) {
-        return;
-    }
-    if (flag) {
-        Clear();
-    } else {
-        if (! mModifiedChunks.IsEmpty() || ! mDeletedChunks.IsEmpty()) {
-            panic("invalid hibernated chunk server state in replay");
-        }
-        mListsSize = 1;
-        sValidCount++;
-    }
 }
 
 void
