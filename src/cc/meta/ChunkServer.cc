@@ -997,7 +997,7 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 void
 ChunkServer::Error(const char* errorMsg)
 {
-    if (mDown || ! mNetConnection) {
+    if (mDown || ! mNetConnection || mReplayFlag) {
         return;
     }
     if (! mSelfPtr) {
@@ -2035,8 +2035,11 @@ void
 ChunkServer::Enqueue(MetaChunkRequest* r,
     int timeout /* = -1 */, bool loggedFlag /* = false */)
 {
-    if (! r || this != r->server.get()) {
-        panic("ChunkServer::Enqueue: invalid request");
+    if (! r || this != r->server.get() || ! mHelloDone) {
+        panic(mHelloDone ?
+            "ChunkServer::Enqueue: invalid request" :
+            "ChunkServer::Enqueue: invalid enqueue attempt"
+        );
         r->status = -EFAULT;
         r->resume();
         return;
@@ -3018,7 +3021,8 @@ HibernatedChunkServer::HibernatedChunkServer(
       mDeletedReportCount(0),
       mListsSize(0),
       mGeneration(++sGeneration),
-      mModifiedChecksum()
+      mModifiedChecksum(),
+      mReplayFlag(server.IsReplay())
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mModifiedChecksum,
         mDeletedChunks, lastResumeModifiedChunk, mGeneration);
@@ -3407,10 +3411,21 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
 /* static */ void
 HibernatedChunkServer::SetParameters(const Properties& props)
 {
-    sMaxChunkListsSize = props.getValue(
+    const size_t maxChunkListsSize = props.getValue(
         "metaServer.maxHibernatedChunkListSize",
         sMaxChunkListsSize * 2
     ) / 2;
+    if (maxChunkListsSize != sMaxChunkListsSize) {
+        submit_request(new MetaHibernateParamsUpdate(maxChunkListsSize));
+    }
+}
+
+/* static */ void
+HibernatedChunkServer::Handle(MetaHibernateParamsUpdate& req)
+{
+    if (0 == req.status && 0 <= req.maxChunkListsSize) {
+        sMaxChunkListsSize = (size_t)req.maxChunkListsSize;
+    }
 }
 
 size_t   HibernatedChunkServer::sValidCount(0);

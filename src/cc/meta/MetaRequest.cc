@@ -2909,13 +2909,21 @@ MetaCoalesceBlocks::handle()
     KFS_LOG_EOM;
 }
 
+/* virtual */ bool
+MetaRetireChunkserver::start()
+{
+    if (! HasMetaServerAdminAccess(*this)) {
+        return false;
+    }
+    return (0 == status);
+}
+
 /* virtual */ void
 MetaRetireChunkserver::handle()
 {
-    if (! HasMetaServerAdminAccess(*this)) {
-        return;
+    if (0 == status) {
+        status = gLayoutManager.RetireServer(location, nSecsDown);
     }
-    status = gLayoutManager.RetireServer(location, nSecsDown);
 }
 
 /* virtual */ void
@@ -6080,6 +6088,18 @@ MetaChunkLogInFlight::log(ostream& os) const
     }
     ros << "\n";
     return true;
+}
+
+/* virtual */ void
+MetaHibernateParamsUpdate::handle()
+{
+    gLayoutManager.Handle(*this);
+}
+
+/* virtual */ void
+MetaHibernateRemove::handle()
+{
+    gLayoutManager.Handle(*this);
 }
 
 static LogWriter&

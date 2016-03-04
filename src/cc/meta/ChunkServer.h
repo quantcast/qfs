@@ -1269,6 +1269,8 @@ public:
         int64_t         deletedReportCount);
     uint64_t GetGeneration() const
         { return mGeneration; }
+    bool IsReplay() const
+        { return mReplayFlag; }
     void UpdateLastInFlight(const CSMap& csMap, chunkId_t chunkId);
     static void SetParameters(const Properties& props);
     class Display
@@ -1285,6 +1287,7 @@ public:
         CSMap&                       mCsMap;
     };
     ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
+    static void Handle(MetaHibernateParamsUpdate& req);
 private:
     void RemoveHosted(chunkId_t chunkId, seq_t vers, int index);
     void SetVersion(chunkId_t chunkId, seq_t curVers, seq_t vers, int index);
@@ -1320,6 +1323,7 @@ private:
     size_t         mListsSize;
     uint64_t       mGeneration;
     CIdChecksum    mModifiedChecksum;
+    const bool     mReplayFlag;
 
     static size_t   sValidCount;
     static size_t   sChunkListsSize;

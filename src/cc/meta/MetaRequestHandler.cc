@@ -732,6 +732,15 @@ MakeLogMetaRequestHandler(
     .MakeParser("MB",
         META_BYE,
         static_cast<const MetaBye*>(0))
+    .MakeParser("SR",
+        META_RETIRE_CHUNKSERVER,
+        static_cast<const MetaRetireChunkserver*>(0))
+    .MakeParser("HU",
+        META_HIBERNATE_PARAMS_UPDATE,
+        static_cast<const MetaHibernateParamsUpdate*>(0))
+    .MakeParser("HR",
+        META_HIBERNATE_REMOVE,
+        static_cast<const MetaHibernateRemove*>(0))
     ;
 }
 

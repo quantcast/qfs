@@ -1440,6 +1440,8 @@ public:
     void Handle(MetaChunkLogInFlight& req);
     void Handle(MetaBye& req);
     void Handle(MetaChunkLogCompletion& req);
+    void Handle(MetaHibernateParamsUpdate& req);
+    void Handle(MetaHibernateRemove& req);
 
 protected:
     typedef vector<

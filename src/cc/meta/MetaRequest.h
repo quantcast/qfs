@@ -158,7 +158,9 @@ using std::less;
     f(LOG_CLEAR_OBJ_STORE_DELETE) \
     f(READ_META_DATA) \
     f(CHUNK_OP_LOG_COMPLETION) \
-    f(CHUNK_OP_LOG_IN_FLIGHT)
+    f(CHUNK_OP_LOG_IN_FLIGHT) \
+    f(HIBERNATE_PARAMS_UPDATE) \
+    f(HIBERNATE_REMOVE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -1774,11 +1776,12 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
     ServerLocation& location;  //<! Location of this server
     int             nSecsDown; //<! set to -1, we retire; otherwise, # of secs of down time
     MetaRetireChunkserver()
-        : MetaRequest(META_RETIRE_CHUNKSERVER, kLogNever),
+        : MetaRequest(META_RETIRE_CHUNKSERVER, kLogIfOk),
           ServerLocation(),
           location(*this),
           nSecsDown(-1)
         {}
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -1799,6 +1802,14 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
         .Def2("Chunk-server-name", "H", &ServerLocation::hostname            )
         .Def2("Chunk-server-port", "P", &ServerLocation::port,             -1)
         .Def2("Downtime",          "D", &MetaRetireChunkserver::nSecsDown, -1)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("H", &MetaRetireChunkserver::hostname     )
+        .Def("P", &MetaRetireChunkserver::port,      -1)
+        .Def("D", &MetaRetireChunkserver::nSecsDown, -1)
         ;
     }
 };
@@ -4076,6 +4087,69 @@ struct MetaReadMetaData : public MetaRequest {
         .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag, false)
         .Def2("Read-size",  "S", &MetaReadMetaData::readSize,       -1)
         .Def2("Read-pos",   "O", &MetaReadMetaData::readPos,       int64_t(-1))
+        ;
+    }
+};
+
+struct MetaHibernateParamsUpdate : public MetaRequest {
+    int64_t maxChunkListsSize;
+    MetaHibernateParamsUpdate(
+        int64_t maxSize = -1)
+        : MetaRequest(META_HIBERNATE_PARAMS_UPDATE, kLogIfOk),
+          maxChunkListsSize(maxSize)
+        {}
+    bool Validate()
+        { return (0 <= maxChunkListsSize); }
+    virtual bool start()
+    {
+        if (! Validate()) {
+            status = -EINVAL;
+        }
+        return (0 == status);
+    }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "hibernated servers parameters update:"
+            " max chunk list size: " << maxChunkListsSize
+        );
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("M", &MetaHibernateParamsUpdate::maxChunkListsSize, int64_t(-1))
+        ;
+    }
+};
+
+struct MetaHibernateRemove : public MetaRequest {
+    ServerLocation location;
+    MetaHibernateRemove(
+        const ServerLocation& loc = ServerLocation())
+        : MetaRequest(META_HIBERNATE_REMOVE, kLogIfOk),
+          location(loc)
+        {}
+    bool Validate()
+        { return location.IsValid(); }
+    virtual bool start()
+    {
+        if (! Validate()) {
+            status = -EINVAL;
+        }
+        return (0 == status);
+    }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "remove hibernated server: " << location
+        );
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("S", &MetaHibernateRemove::location)
         ;
     }
 };
