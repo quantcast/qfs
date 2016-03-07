@@ -181,9 +181,11 @@ if [ $start -ne 0 ]; then
             sed -e 's/^\(chunkServer.diskIo.crashOnError.*\)$/# \1/' \
                 -e 's/^\(chunkServer.ioBufferPool.partitionBufferCount.*\)$/# \1/' \
                 -e 's/^\(chunkServer.bufferManager.maxClientQuota.*\)$/# \1/' \
+                -e 's/^\(chunkServer.obj.*\)$/# \1/' \
                 ChunkServer.prp > ChunkServer-recovery.prp
         else
             sed -e 's/^\(chunkServer.diskIo.crashOnError.*\)$/# \1/' \
+                -e 's/^\(chunkServer.obj.*\)$/# \1/' \
                 ChunkServer.prp > ChunkServer-recovery.prp
         fi
         {
