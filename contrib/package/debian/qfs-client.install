@@ -1,0 +1,2 @@
+usr/bin/qfs_fuse
+usr/bin/tools/*  /usr/bin/

@@ -1,0 +1,2 @@
+usr/bin/chunk*
+#install -m 644 $SOURCE_DIR/qfs/conf/ChunkServer.prp $QFS_BUILD_ROOT$NAME"_"$VERSION$QFS_INSTALL_PREFIX/conf

@@ -1,0 +1,127 @@
+Last-Update: 2014-12-04
+Forwarded: not-needed
+Author: Dmitry Smirnov <onlyjob@member.fsf.org>
+Description: set default paths
+
+--- a/conf/MetaServer.prp
++++ b/conf/MetaServer.prp
+@@ -1,36 +1,17 @@
+-#
+-# $Id#
+-#
+-# Copyright 2008-2014 Quantcast Corp.
+-#
+-# Author: Mike Ovsiannikov
+-#
+-# This file is part of Kosmos File System (KFS).
+-#
+-# Licensed under the Apache License, Version 2.0
+-# (the "License"); you may not use this file except in compliance with
+-# the License. You may obtain a copy of the License at
+-#
+-# http://www.apache.org/licenses/LICENSE-2.0
+-#
+-# Unless required by applicable law or agreed to in writing, software
+-# distributed under the License is distributed on an "AS IS" BASIS,
+-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+-# implied. See the License for the specific language governing
+-# permissions and limitations under the License.
++# QFS meta server configuration file.
+ 
+ # Client listener port.
+ metaServer.clientPort = 20000
+ 
+ # Chunk server listener port.
+ metaServer.chunkServerPort = 30000
+ 
+-# Meta serve transactions log directory.
+-metaServer.logDir = meta/transaction_logs
++# Meta server transactions log directory.
++metaServer.logDir = /var/lib/qfs/transaction_logs
+ 
+ # Meta server checkpoint directory.
+-metaServer.cpDir = meta/checkpoint
++metaServer.cpDir = /var/lib/qfs/checkpoints
+ 
+ # Allow to automatically create an empty file system if checkpoint file does
+ # not exist.
+ # The default is 0, as under the normal circumstances where the file system
+--- a/webui/server.conf
++++ b/webui/server.conf
+@@ -22,9 +22,9 @@
+ webServer.metaserverPort = 20000
+ webServer.metaserverHost = 127.0.0.1
+ webServer.host = 0.0.0.0
+ webServer.port = 20050
+-webServer.docRoot = files
++webServer.docRoot = /usr/share/qfs-webui/files
+ webserver.allmachinesfn = /dev/null
+ [chunk]
+ refreshInterval = 5
+ currentSize = 30
+--- a/conf/ChunkServer.prp
++++ b/conf/ChunkServer.prp
+@@ -1,26 +1,5 @@
+-#
+-# $Id$
+-#
+-# Copyright 2008-2012 Quantcast Corp.
+-#
+-# Author: Mike Ovsiannikov
+-#
+-# This file is part of Kosmos File System (KFS).
+-#
+-# Licensed under the Apache License, Version 2.0
+-# (the "License"); you may not use this file except in compliance with
+-# the License. You may obtain a copy of the License at
+-#
+-# http://www.apache.org/licenses/LICENSE-2.0
+-#
+-# Unless required by applicable law or agreed to in writing, software
+-# distributed under the License is distributed on an "AS IS" BASIS,
+-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+-# implied. See the License for the specific language governing
+-# permissions and limitations under the License.
+-#
+-# The chunk server configuration.
++# QFS chunk server configuration.
+ 
+ # The following parameters set must be specified at startup time. Other
+ # parameters can be changed at runtime, and it usually more convenient to
+ # specify these in meta server configuration. The meta server broadcasts the
+@@ -46,9 +25,10 @@
+ # All available directories are periodically scanned, if the directory becomes
+ # "unavailable" all chunks in this directory are declared lost, and the
+ # gets added to "not available" directories which are periodically scanned as
+ # described the above.
+-chunkServer.chunkDir = chunks
++
++#chunkServer.chunkDir = /var/lib/qfs/hdd1  /var/lib/qfs/hdd1
+ 
+ # Number of io threads (max. number of disk io requests in flight) per host file
+ # system.
+ # The typical setup is to have one host file system per physical disk.
+@@ -95,10 +75,10 @@
+ # Normally all the log message output performed by the message writer (thread)
+ # that deals with log io stall by dropping log messages. This redirection is for
+ # extra safety to handle the case if some library function attempting to write
+ # into stdout / stderror.
+-chunkServer.stdout = /dev/null
+-chunkServer.stderr = /dev/null
++#chunkServer.stdout = /dev/null
++#chunkServer.stderr = /dev/null
+ 
+ # The following parameter defines max size of io buffer memory used by the chunk
+ # server.
+ # The value set here, 128K means 128K * 4K buffer = 512M of buffers
+@@ -108,9 +88,9 @@
+ # the io (read, write) concurrency -- the number of concurrent "clients". The
+ # memory should be increased if large number of concurrent write appenders is
+ # expected. Ideally the disk io request should be around 1MB, thus for each
+ # chunk opened for append at least 1MB of io buffers is recommended.
+-chunkServer.ioBufferPool.partitionBufferCount = 131072
++#chunkServer.ioBufferPool.partitionBufferCount = 131072
+ 
+ # Buffer manager portion of all io buffers.
+ # This value defines max amount of io buffers that can be used for servicing
+ # "client" requests, chunk re-replication, and recovery.

@@ -1,0 +1,73 @@
+Last-Update: 2014-12-04
+Forwarded: not-needed
+Author: Dmitry Smirnov <onlyjob@member.fsf.org>
+Description: use system "libjerasure-dev"
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -81,9 +81,9 @@
+ 
+ IF (${CMAKE_MAJOR_VERSION} LESS 2)
+ ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+ ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+-    set (HAS_EXTERNAL_PROJECT ON)
++#    set (HAS_EXTERNAL_PROJECT ON)
+ ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
+ 
+ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
+     # gf-complete autoconf overrides CFGLAGS. Use CPPFLAGS to add compiler flags.
+@@ -173,15 +173,15 @@
+         )
+     ENDIF (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
+ ELSE (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
+     IF (NOT QFS_OMIT_JERASURE)
+-        message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
+-        message(STATUS "WARNING: Jerasure will not be compiled")
+-        set (QFS_OMIT_JERASURE ON)
++#        message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
++#        message(STATUS "WARNING: Jerasure will not be compiled")
++#        set (QFS_OMIT_JERASURE ON)
+     ELSE (NOT QFS_OMIT_JERASURE)
+         message(STATUS "Jerasure will not be compiled")
+     ENDIF (NOT QFS_OMIT_JERASURE)
+-    add_definitions(-DQFS_OMIT_JERASURE=1)
++#    add_definitions(-DQFS_OMIT_JERASURE=1)
+ ENDIF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
+ 
+ # Locate the path to jni.h
+ IF (NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
+--- a/src/cc/libclient/CMakeLists.txt
++++ b/src/cc/libclient/CMakeLists.txt
+@@ -68,28 +68,24 @@
+ add_dependencies (kfsClient-shared
+     kfsIO-shared
+     kfsrs-shared
+ )
+-if (NOT QFS_OMIT_JERASURE)
++
+     include_directories (
+         ${Gf_complete_INCLUDE}
+-        ${Jerasure_INCLUDE}
+-        ${Jerasure_INCLUDE}/jerasure
++        /usr/include/jerasure
+     )
+-    add_dependencies(kfsClient        Jerasure_proj)
+-    add_dependencies(kfsClient-shared Jerasure_proj)
+-endif (NOT QFS_OMIT_JERASURE)
+ 
+ # get everthing into one
+ target_link_libraries (kfsClient
+     kfsIO
+     kfsrs
+-    ${JERASURE_STATIC_LIBRARIES}
++    Jerasure
+ )
+ target_link_libraries (kfsClient-shared
+     kfsIO-shared
+     kfsrs-shared
+-    ${JERASURE_SHARED_LIBRARIES}
++    Jerasure
+ )
+ 
+ install (TARGETS kfsClient kfsClient-shared
+     LIBRARY DESTINATION lib

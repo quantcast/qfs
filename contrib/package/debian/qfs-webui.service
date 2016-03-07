@@ -1,0 +1,16 @@
+[Unit]
+Description=QFS metaserver/chunkserver web frontend
+After=network.target rpcbind.service
+
+[Service]
+ExecStart=/usr/bin/python /usr/share/qfs-webui/qfsstatus.py /etc/qfs/qfs-webui.conf
+User=www-data
+Group=www-data
+## restart if failed; 1 min. delay after failure; max. 4 restarts per 5 min.:
+Restart=on-abnormal
+RestartSec=60
+StartLimitInterval=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target

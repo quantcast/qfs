@@ -1,0 +1,70 @@
+Last-Update: 2014-12-04
+Forwarded: no
+Author: Dmitry Smirnov <onlyjob@member.fsf.org>
+Description: init scripts' corrections
+ * init.d-script-missing-start
+ * init.d-script-missing-dependency-on-remote_fs
+
+--- a/contrib/initscripts/qfs-chunkserver
++++ b/contrib/initscripts/qfs-chunkserver
+@@ -7,14 +7,14 @@
+ #              chunkserver service.
+ 
+ ### BEGIN INIT INFO
+ # Provides: qfs-chunkserver
+-# Required-Start:
+-# Required-Stop:
++# Required-Start: $remote_fs
++# Required-Stop: $remote_fs
+ # Should-Start:
+ # Should-Stop:
+-# Default-Start: 3 4 5
+-# Default-Stop: 0 1 2 6
++# Default-Start: 2 3 4 5
++# Default-Stop: 0 1 6
+ # Short-Description: Starts a QFS chunkserver.
+ # Description: Starts a QFS chunkserver service.
+ ### END INIT INFO
+ 
+--- a/contrib/initscripts/qfs-metaserver
++++ b/contrib/initscripts/qfs-metaserver
+@@ -7,14 +7,14 @@
+ #              metaserver service.
+ 
+ ### BEGIN INIT INFO
+ # Provides: qfs-metaserver
+-# Required-Start:
+-# Required-Stop:
++# Required-Start: $remote_fs
++# Required-Stop: $remote_fs
+ # Should-Start:
+ # Should-Stop:
+-# Default-Start: 3 4 5
+-# Default-Stop: 0 1 2 6
++# Default-Start: 2 3 4 5
++# Default-Stop: 0 1 6
+ # Short-Description: Starts a QFS metaserver.
+ # Description: Starts a QFS metaserver service.
+ ### END INIT INFO
+ 
+--- a/contrib/initscripts/qfs-webui
++++ b/contrib/initscripts/qfs-webui
+@@ -8,14 +8,14 @@
+ #              chunkserver status.
+ 
+ ### BEGIN INIT INFO
+ # Provides: qfs-webui
+-# Required-Start:
+-# Required-Stop:
++# Required-Start: $remote_fs
++# Required-Stop: $remote_fs
+ # Should-Start:
+ # Should-Stop:
+-# Default-Start: 3 4 5
+-# Default-Stop: 0 1 2 6
++# Default-Start: 2 3 4 5
++# Default-Stop: 0 1 6
+ # Short-Description: Starts the QFS monitoring web UI.
+ # Description: Starts the QFS monitoring web UI service.
+ ### END INIT INFO
+ 

@@ -691,6 +691,7 @@ class UpServer:
 
             if hasattr(self, 's'):
                 setattr(self, 'host', self.s)
+                setattr(self, 'ip', socket.gethostbyname(self.s))
                 delattr(self, 's')
 
             if hasattr(self, 'p'):
@@ -794,7 +795,7 @@ class UpServer:
 
     def __cmp__(self, other):
         """ Order by IP"""
-        return cmp(socket.inet_aton(self.host), socket.inet_aton(other.host))
+        return cmp(socket.inet_aton(self.ip), socket.inet_aton(other.ip))
 
     def setRetiring(self, status):
         self.retiring = 1

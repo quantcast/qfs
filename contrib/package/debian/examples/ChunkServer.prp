@@ -1,0 +1,14 @@
+# IP address of the metaserver, host names should not be used
+chunkServer.metaServer.hostname = 192.168.0.1
+
+# metaserver port for chunk server to use
+chunkServer.metaServer.port = 30000
+
+# chunk server client listener port
+chunkServer.clientPort = 22000
+
+# locations to store chunk data, independent spindles should be used
+chunkServer.chunkDir = /mnt/data0 /mnt/data1
+
+# unique cluster id
+chunkServer.clusterKey = my-fs-unique-identifier
