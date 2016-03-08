@@ -145,6 +145,12 @@ fi
 datastripes=`echo "$filecreateparams" | cut -d , -f 2`
 
 if [ $start -ne 0 ]; then
+    if [ -d "$qfstestdir" ]; then
+        true
+    else
+        echo "Directory $qfstestdir does not exist, execute qfstest.sh first."
+        exit 1
+    fi
     cd "$qfstestdir"/meta || exit
     kill -KILL `cat metaserver.pid` 2>/dev/null
     rm -f kfscp/* kfslog/*
@@ -185,8 +191,11 @@ if [ $start -ne 0 ]; then
                 ChunkServer.prp > ChunkServer-recovery.prp
         else
             sed -e 's/^\(chunkServer.diskIo.crashOnError.*\)$/# \1/' \
+                -e 's/^\(chunkServer.ioBufferPool.partitionBufferCount.*\)$/# \1/' \
                 -e 's/^\(chunkServer.obj.*\)$/# \1/' \
                 ChunkServer.prp > ChunkServer-recovery.prp
+            echo "chunkServer.ioBufferPool.partitionBufferCount=10000" \
+                >> ChunkServer-recovery.prp
         fi
         {
             echo "chunkServer.rsReader.maxRecoverChunkSize=$maxrecovsize"
