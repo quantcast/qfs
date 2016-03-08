@@ -2752,9 +2752,8 @@ private:
         Offset   inEndChunkSize,
         int      inEndPosHead) const
     {
-        return max(0,
-            (int)(inEndChunkSize - inEndPosHead -
-                GetChunkPos(inRequest.mRecoveryPos))
+        return max(0, (int)(inEndChunkSize - inEndPosHead -
+            GetChunkPos(inRequest.mRecoveryPos))
         );
     }
     bool SetBufIterator(
@@ -2769,7 +2768,8 @@ private:
         int&     ioEndPosIdx,
         int&     ioEndPos,
         int&     ioEndPosHead,
-        Offset&  ioEndChunkSize)
+        Offset&  ioEndChunkSize,
+        Offset&  ioMaxChunkSize)
     {
         BufIterator& theIt     = mBufIteratorsPtr[inIdx];
         int          theRdSize = 0;
@@ -2819,25 +2819,26 @@ private:
             }
             return true;
         }
+        Offset theChunkSize = theBuf.mChunkSize;
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "read recovery:"
-            " req: "                       << inRequest.mPos    <<
-            ","                            << inRequest.mSize   <<
-            " stripe: "                    << inIdx             <<
+            " req: "                       << inRequest.mPos  <<
+            ","                            << inRequest.mSize <<
+            " stripe: "                    << inIdx           <<
             " chunk:"
-            " id: "                        << theBuf.mChunkId   <<
-            " size: "                      << theBuf.mChunkSize <<
+            " id: "                        << theBuf.mChunkId <<
+            " size: "                      << theChunkSize    <<
             " read:"
             " pos: "                       <<
-                GetChunkPos(inRequest.mRecoveryPos)             <<
+                GetChunkPos(inRequest.mRecoveryPos)           <<
             " head: "                      <<
-                inRequest.mRecoveryPos % mStripeSize            <<
-            " size: "                      << theRdSize         <<
-            " recovery size: "             << ioRecoverySize    <<
+                inRequest.mRecoveryPos % mStripeSize          <<
+            " size: "                      << theRdSize       <<
+            " recovery size: "             << ioRecoverySize  <<
             " end:"
-            " stripe: "                    << ioEndPosIdx       <<
-            " pos: "                       << ioEndPos          <<
-            " head: "                      << ioEndPosHead      <<
+            " stripe: "                    << ioEndPosIdx     <<
+            " pos: "                       << ioEndPos        <<
+            " head: "                      << ioEndPosHead    <<
         KFS_LOG_EOM;
         if (inIdx >= mStripeCount) {
             if (ioFirstGoodRecoveryStripeIdx < 0) {
@@ -2858,7 +2859,9 @@ private:
                                 (ioEndPosIdx == i ?
                                     mStripeSize - ioEndPosHead :
                                     0));
-                            if (theSize + theExtraSize < theRdSize) {
+                            if (theSize + theExtraSize < theRdSize ||
+                                theCBuf.mChunkSize + theExtraSize <
+                                    theChunkSize) {
                                 KFS_LOG_STREAM_ERROR << mLogPrefix          <<
                                     "read recovery failure:"
                                     " req: "      << inRequest.mPos         <<
@@ -2887,7 +2890,8 @@ private:
                             }
                         }
                     }
-                    ioMaxRd = theRdSize;
+                    ioMaxRd        = theRdSize;
+                    ioMaxChunkSize = theChunkSize;
                 }
             }
             if (theRdSize != ioMaxRd) {
@@ -2914,8 +2918,10 @@ private:
         } else if (ioMaxRd < theRdSize) {
             if (ioMaxRd >= 0) {
                 if (1 < inIdx && 0 <= ioEndPosHead &&
+                        theChunkSize <= ioMaxChunkSize +
+                            mStripeSize - ioEndPosHead &&
                         theRdSize <= ioMaxRd + mStripeSize - ioEndPosHead &&
-                        theBuf.mChunkSize % mStripeSize == 0 &&
+                        theChunkSize % mStripeSize == 0 &&
                         IsTailAllZeros(
                             theIt.GetBuffer(), theRdSize - ioMaxRd)) {
                     // NOTE 1.
@@ -2947,7 +2953,8 @@ private:
                         " size: "       << theBuf.mChunkSize     <<
                         " eof: "        << mFileSize             <<
                     KFS_LOG_EOM;
-                    theRdSize = ioMaxRd;
+                    theRdSize    = ioMaxRd;
+                    theChunkSize = ioMaxChunkSize;
                 } else {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "read recovery failure:"
@@ -2968,7 +2975,8 @@ private:
                     return false;
                 }
             } else {
-                ioMaxRd = theRdSize;
+                ioMaxRd        = theRdSize;
+                ioMaxChunkSize = theChunkSize;
             }
         } else if (theRdSize + mStripeSize < ioMaxRd) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
@@ -2997,7 +3005,7 @@ private:
                 inRequest, ioEndChunkSize, ioEndPosHead));
             if (1 < inIdx &&
                     theRdSize <= ioEndPos - ioEndPosHead + mStripeSize &&
-                    theBuf.mChunkSize % mStripeSize == 0 &&
+                    theChunkSize % mStripeSize == 0 &&
                     IsTailAllZeros(
                         theIt.GetBuffer(), theRdSize - theFrontSize)) {
                 // See NOTE 1. the above, the asme applies here.
@@ -3049,15 +3057,15 @@ private:
             // to determine the stripe position where RS block ends.
             // The two if conditions and the first part of the second if
             // condition below is to avoid modulo operation (%), when possible.
-            if ((Offset)CHUNKSIZE <= theBuf.mChunkSize ||
+            if ((Offset)CHUNKSIZE <= theChunkSize ||
                     (0 <= ioEndPosHead &&
                         inIdx != ioFirstGoodRecoveryStripeIdx)) {
                 return true;
             }
             const int theChunkPos = GetChunkPos(inRequest.mRecoveryPos);
-            if (theChunkPos + mStripeSize <= theBuf.mChunkSize ||
+            if (theChunkPos + mStripeSize <= theChunkSize ||
                     theChunkPos - theChunkPos % mStripeSize +
-                        mStripeSize <= theBuf.mChunkSize) {
+                        mStripeSize <= theChunkSize) {
                 return true;
             }
         }
@@ -3065,16 +3073,16 @@ private:
             if (ioEndPosHead < 0) {
                 ioEndPosIdx    = inIdx;
                 ioEndPos       = theRdSize;
-                ioEndPosHead   = theBuf.mChunkSize % mStripeSize;
-                ioEndChunkSize = theBuf.mChunkSize;
-                if (ioEndPosHead == 0 &&
-                        theBuf.mChunkSize < (Offset)CHUNKSIZE) {
+                ioEndPosHead   = theChunkSize % mStripeSize;
+                ioEndChunkSize = theChunkSize;
+                ioMaxChunkSize = theChunkSize;
+                if (ioEndPosHead == 0 && theChunkSize < (Offset)CHUNKSIZE) {
                     // If end is stripe aligned, see if the end is in preceding
                     // stripes. The stripe with the end that isn't stripe
                     // aligned is where the end is. If the recovery size is less
                     // than stripe size, the read of this stripe might not not
                     // return less that recovery size.
-                    const Offset theMinSize = theBuf.mChunkSize + mStripeSize;
+                    const Offset theMinSize = theChunkSize + mStripeSize;
                     for (int i = inIdx - 2; 0 <= i; i--) {
                         const Buffer& theCBuf = inRequest.GetBuffer(i);
                         if (! theCBuf.IsFailed() &&
@@ -3088,34 +3096,47 @@ private:
                         }
                     }
                 }
-            } else if (ioEndPosHead == 0 && ioMaxRd <= ioEndPos) {
-                if (ioEndPos != theRdSize) {
-                    ioEndPosHead = mStripeSize - (ioEndPos - theRdSize);
-                    if (ioEndPosHead < 0 || ioEndPosHead >= mStripeSize) {
+            } else if (ioEndPosHead == 0 && theChunkSize != ioEndChunkSize) {
+                ioEndPosHead = mStripeSize - (ioEndChunkSize - theChunkSize);
+                if (ioEndPosHead < 0 || mStripeSize <= ioEndPosHead) {
+                    InternalError("undetected previous short read");
+                    inRequest.mStatus = kErrorIO;
+                    return false;
+                }
+                ioEndChunkSize = theChunkSize;
+                ioEndPosIdx    = inIdx;
+                ioEndPos       = theRdSize;
+            }
+        } else {
+            if (ioEndPosHead <= 0) {
+                if (0 == ioEndPosHead) {
+                    ioEndPosHead = theChunkSize - ioEndChunkSize;
+                    if (ioEndPosHead < 0 || mStripeSize < ioEndPosHead) {
                         InternalError("undetected previous short read");
                         inRequest.mStatus = kErrorIO;
                         return false;
                     }
+                    if (ioEndPosHead == mStripeSize) {
+                        ioEndPosHead = 0;
+                    }
+                } else {
+                    ioEndPosHead = theChunkSize % mStripeSize;
                 }
-                ioEndPosIdx = inIdx;
-                ioEndPos    = theRdSize;
-            }
-        } else {
-            if (ioEndPosHead <= 0) {
-                ioEndPosHead = theBuf.mChunkSize % mStripeSize;
-                ioEndPos     = theRdSize;
                 if (ioEndPosHead != 0) {
                     // Partial first stripe, otherwise recovery end is stripe
                     // aligned. It is possible to get here with 1+3 encoding
                     // (which probably makes sense for testing only) when the
                     // first stripe is missing.
                     ioEndPosIdx    = 0;
-                    ioEndChunkSize = theBuf.mChunkSize;
-                } else if (ioEndPosIdx < 0) {
-                    ioEndPosIdx    = mStripeCount - 1;
-                    ioEndChunkSize = theBuf.mChunkSize;
+                    ioEndChunkSize = theChunkSize;
+                } else if (ioEndPosIdx < 0 || theChunkSize <= ioEndChunkSize) {
+                    ioEndPosIdx    = mStripeCount;
+                    ioEndChunkSize = theChunkSize;
                 }
+                ioEndPos = theRdSize;
             }
+            ioRecoverySize = theRdSize;
+            UpdateMaxLength(theRdSize, ioMaxLength);
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                 "read recovery:"
                 " req: "                       << inRequest.mPos  <<
@@ -3126,9 +3147,8 @@ private:
                 " stripe: "                    << ioEndPosIdx     <<
                 " pos: "                       << ioEndPos        <<
                 " head: "                      << ioEndPosHead    <<
+                " chunk size: "                << ioEndChunkSize  <<
             KFS_LOG_EOM;
-            ioRecoverySize = theRdSize;
-            UpdateMaxLength(theRdSize, ioMaxLength);
         }
         return true;
     }
@@ -3230,6 +3250,7 @@ private:
         int        theBufToCopyCount = mStripeCount;
         int        theEndPosHead     = -1;
         Offset     theEndChunkSize   = -1;
+        Offset     theMaxChunkSize   = -1;
         theMissingIdx[mRecoveryStripeCount] = -1; // Jerasure end of list.
         for (int thePos = 0; thePos < theSize; ) {
             int theLen = theSize - thePos;
@@ -3250,7 +3271,8 @@ private:
                         theEndPosIdx,
                         theEndPos,
                         theEndPosHead,
-                        theEndChunkSize)) {
+                        theEndChunkSize,
+                        theMaxChunkSize)) {
                     QCASSERT(
                         mRecoverStripeIdx < mStripeCount ||
                         inRequest.mStatus != 0
@@ -3318,20 +3340,23 @@ private:
             if (thePos == 0) {
                 mRecoveriesCount++;
                 if (theEndPosHead >= 0) {
-                    const Offset theBlockPos        =
+                    const Offset theBlockPos =
                         inRequest.mPos < mChunkBlockSize ? Offset(0) :
                         inRequest.mPos - inRequest.mPos % mChunkBlockSize;
-                    const Offset theHolePos         =
+                    const Offset theHolePos  =
                         theBlockPos +
                         (theEndChunkSize - theEndPosHead) * mStripeCount +
-                        theEndPosIdx * mStripeSize +
-                        theEndPosHead;
+                        (theEndPosIdx < mStripeCount ?
+                            theEndPosIdx * mStripeSize + theEndPosHead :
+                            Offset(0));
                     KFS_LOG_STREAM_INFO << mLogPrefix <<
                         "read recovery:"
                         " req: "        << inRequest.mPos  <<
                         ","             << inRequest.mSize <<
                         " block: "      << theBlockPos     <<
-                        " chunk size: " << theEndChunkSize <<
+                        " chunk size:"
+                        " end: "        << theEndChunkSize <<
+                        " max: "        << theMaxChunkSize <<
                         " stripe: "     << theEndPosIdx    <<
                         " head: "       << theEndPosHead   <<
                         " hole: "       << theHolePos      <<
@@ -3424,6 +3449,9 @@ private:
                     if (theEndPosIdx < mRecoverStripeIdx &&
                             mRecoverStripeIdx < mStripeCount) {
                         theSize = theNextEndPos;
+                        if (theSize <= 0) {
+                            break;
+                        }
                     }
                 }
             }
