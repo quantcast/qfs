@@ -1,0 +1,39 @@
+# enable container based builds (can't use sudo)
+sudo: false
+language: cpp
+
+compiler:
+    - gcc
+    # - clang
+
+script:
+    - make
+    # The qfs tests are currently run through qfstest.sh. This fails on travis
+    # ci with an error:
+    #
+    #   ../../src/test-scripts/qfstest.sh: 533: kill: No such process
+    #
+    # We have a plan to move the qfs tests to use a proper testing framework.
+    # Until that can be done or we can get the current unit tests to work on
+    # travis ci, unit tests are disabled.
+    #
+    # - make test-release
+
+addons:
+    apt:
+        packages:
+            - git
+            - cmake
+            - libboost-regex-dev
+            - xfslibs-dev
+            - libssl-dev
+            - default-jdk
+            - python-dev
+            - fuse-dev
+
+notifications:
+    email:
+        recipients:
+            - qfs-dev@quantcast.com
+        on_success: change
+        on_failure: always

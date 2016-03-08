@@ -1,6 +1,5 @@
-Quantcast File System
-=====================
-
+Quantcast File System [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)
+================================================================================
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
 reading and writing large files sequentially.
