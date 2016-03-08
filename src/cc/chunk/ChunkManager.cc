@@ -1429,7 +1429,7 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
     }
     while (0 < mCorruptChunkOp.chunkCount) {
         mPendingNotifyLostChunks->Erase(
-            mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount--]);
+            mCorruptChunkOp.chunkIds[--mCorruptChunkOp.chunkCount]);
     }
     if (mPendingNotifyLostChunks->IsEmpty()) {
         delete mPendingNotifyLostChunks;
