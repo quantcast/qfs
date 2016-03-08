@@ -1434,6 +1434,8 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
     if (mPendingNotifyLostChunks->IsEmpty()) {
         delete mPendingNotifyLostChunks;
         mPendingNotifyLostChunks = 0;
+    } else {
+        ScheduleNotifyLostChunk();
     }
 }
 
