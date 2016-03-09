@@ -2896,7 +2896,7 @@ private:
                     ioMaxChunkSize = theChunkSize;
                 }
             }
-            if (theRdSize != ioMaxRd) {
+            if (theRdSize != ioMaxRd || theChunkSize != ioMaxChunkSize) {
                 KFS_LOG_STREAM_ERROR << mLogPrefix                   <<
                     "read recovery failure:"
                     " req: "         << inRequest.mPos               <<
