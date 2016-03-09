@@ -45,6 +45,7 @@ fi
 testblocksizes=${testblocksizes-'26214399 26214400 29358894 26214401'}
 testtailblocksize=${testtailblocksize-1}
 filecreateparams=${filecreateparams-'fs.createParams=1,6,3,1048576,2,15,15'}
+rsrecoveryreadsize=${rsrecoveryreadsize-524288}
 csstartport=${csstartport-20400}
 csendport=${csendport-`expr $csstartport + 1`}
 valgrind_cmd=${valgrind_cmd-''}
@@ -201,6 +202,7 @@ if [ $start -ne 0 ]; then
             echo "chunkServer.rsReader.maxRecoverChunkSize=$maxrecovsize"
             echo "chunkServer.rsReader.panicOnInvalidChunk=1"
             echo "chunkServer.rsReader.debugCheckThread=1"
+            echo "chunkServer.rsReader.maxReadSize=$rsrecoveryreadsize"
         } >> ChunkServer-recovery.prp
         $valgrind_cmd "$chunkdir"/chunkserver ChunkServer-recovery.prp \
             > chunkserver-recovery.log 2>&1 &
