@@ -1413,7 +1413,7 @@ LayoutManager::HandleReplay(T& req)
         }
         return false;
     }
-    if (req.server || req.location.IsValid() || -ELOGFAILED == req.status) {
+    if (req.server || ! req.location.IsValid() || -ELOGFAILED == req.status) {
         panic("invalid RPC in replay");
         req.status = -EFAULT;
         return true;
@@ -3371,19 +3371,6 @@ LayoutManager::Replay(MetaHello& req)
     }
 }
 
-void
-LayoutManager::Handle(MetaBye& req)
-{
-    if (! req.server) {
-        const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
-        if (cs) {
-            ServerDown(*cs);
-        }
-    } else {
-        ServerDown(req.server);
-    }
-}
-
 /// Add the newly joined server to the list of servers we have.  Also,
 /// update our state to include the chunks hosted on this server.
 void
@@ -3429,7 +3416,7 @@ LayoutManager::AddNewServer(MetaHello* r)
         r->statusMsg += ", retry resume later";
         r->status = -EEXIST;
         if (! r->replayFlag && (*existing)->IsReplay()) {
-            ServerDown(*existing);
+            (*existing)->ScheduleDown("reconnect");
         }
         return;
     }
@@ -4982,8 +4969,17 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
 }
 
 void
-LayoutManager::ServerDown(const ChunkServerPtr& server)
+LayoutManager::Handle(MetaBye& req)
 {
+    if (! req.server) {
+        const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
+        if (! cs) {
+            req.status = -ENOENT;
+            return;
+        }
+        req.server = *cs;
+    }
+    const ChunkServerPtr& server = req.server;
     server->ForceDown();
     const bool validFlag = mChunkToServerMap.Validate(server);
     Servers::const_iterator const i = FindServer(server->GetServerLocation());
@@ -4992,7 +4988,20 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
         return;
     }
     if (! validFlag) {
+        req.status = -ENOENT;
         return;
+    }
+    if (! (server->GetChunkCount() && req.chunkCount &&
+            server->GetChecksum() == req.cIdChecksum)) {
+        KFS_LOG_STREAM_ERROR <<
+            "chunk server bye inventory mismatch" <<
+            " server: "      << server->GetServerLocation() <<
+            " chunk count: " << server->GetChunkCount() <<
+            " expected: "    << req.chunkCount <<
+            " checksum: "    << server->GetChecksum() <<
+            " expected: "    << req.cIdChecksum <<
+        KFS_LOG_EOM;
+        req.status = -EBADCKSUM;
     }
     RackInfos::iterator const rackIter = FindRack(server->GetRack());
     if (rackIter != mRacks.end()) {
@@ -5011,7 +5020,6 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
     mChunkLeases.ServerDown(server, mARAChunkCache, mChunkToServerMap);
 
     const bool           canBeMaster = server->CanBeChunkMaster();
-    const time_t         now         = TimeNow();
     const ServerLocation loc         = server->GetServerLocation();
     const size_t         blockCount  = server->GetChunkCount();
     string               reason      = server->DownReason();
@@ -5068,7 +5076,7 @@ LayoutManager::ServerDown(const ChunkServerPtr& server)
         "s="        << loc.hostname <<
         ", p="      << loc.port <<
         ", down="   <<
-            DisplayDateTime(int64_t(now) * kSecs2MicroSecs) <<
+            DisplayDateTime(req.timeUsec) <<
         ", reason=" << reason <<
     "\t";
     mDownServers.push_back(os.str());
@@ -7038,7 +7046,11 @@ LayoutManager::ChunkCorrupt(MetaChunkCorrupt* r)
     const char* e = p + r->chunkIdsStr.GetSize();
     for (int i = -1; i < 0 || i < r->chunkCount; i++) {
         chunkId_t chunkId = i < 0 ? r->chunkId : chunkId_t(-1);
-        if (0 <= i && ! r->ParseInt(p, e - p, chunkId)) {
+        if (i < 0) {
+            if (chunkId < 0) {
+                continue;
+            }
+        } else if (! r->ParseInt(p, e - p, chunkId)) {
             r->status    = -EINVAL;
             r->statusMsg = "chunk id list parse error";
             KFS_LOG_STREAM_ERROR <<  r->Show() << " : " <<
@@ -7084,7 +7096,10 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         CheckReplication(*ci);
     }
     const MetaFattr* const fa = ci->GetFattr();
-    KFS_LOG_STREAM_INFO << "server " << server->GetServerLocation() <<
+    KFS_LOG_STREAM(server->IsReplay() ?
+            MsgLogger::kLogLevelDEBUG :
+            MsgLogger::kLogLevelINFO) <<
+        "server " << server->GetServerLocation() <<
         " declaring: <" <<
         ci->GetFileId() << "," << chunkId <<
         "> lost" <<

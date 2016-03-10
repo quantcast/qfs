@@ -82,7 +82,6 @@ public:
         bool reportAllFlag, bool verbose, ostream& os);
     seq_t  GetChunkversion(chunkId_t cid) const;
     size_t GetChunkSize(chunkId_t cid) const;
-    void MarkServerDown(const ServerLocation& loc);
     int GetNumBlksRebalanced() const
     {
         return mNumBlksRebalanced;

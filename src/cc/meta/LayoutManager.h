@@ -945,14 +945,7 @@ public:
     /// Use it to configure information about that server
     /// @param[in] r  The MetaHello request sent by the
     /// new chunk server.
-    void AddNewServer(MetaHello *r);
-
-    /// Our connection to a chunkserver went down.  So,
-    /// for all chunks hosted on this server, update the
-    /// mapping table to indicate that we can't
-    /// get to the data.
-    /// @param[in] server  The server that is down
-    void ServerDown(const ChunkServerPtr& server);
+    void AddNewServer(MetaHello* r);
 
     /// A server is being taken down: if downtime is > 0, it is a
     /// value in seconds that specifies the time interval within

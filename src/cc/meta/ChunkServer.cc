@@ -1027,10 +1027,12 @@ ChunkServer::Error(const char* errorMsg)
     if (mHelloDone) {
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
-        MetaBye* const mb = new MetaBye(0, mSelfPtr);
-        mb->authUid = mAuthUid;
-        mb->clnt    = this;
-        Submit(*mb);
+        MetaBye& mb = *(new MetaBye(mSelfPtr));
+        mb.chunkCount  = GetChunkCount();
+        mb.cIdChecksum = GetChecksum();
+        mb.authUid     = mAuthUid;
+        mb.clnt        = this;
+        Submit(mb);
         return;
     }
     ForceDown();
@@ -3034,7 +3036,7 @@ HibernatedChunkServer::HibernatedChunkServer(
     KFS_LOG_STREAM(server.IsReplay() ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO) <<
-        " hibernated: " << server.GetServerLocation() <<
+        "hibernated: "  << server.GetServerLocation() <<
         " index: "      << server.GetIndex() <<
         " chunks: "     << server.GetChunkCount() <<
         " modified: "   << mModifiedChunks.Size() <<

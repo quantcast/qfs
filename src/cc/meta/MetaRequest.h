@@ -1866,6 +1866,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     size_t             chunkCount;
     int64_t            reReplicationCount;
     CIdChecksum        checksum;
+    int64_t            timeUsec;
     IOBuffer           responseBuf;
 
     MetaHello()
@@ -1912,6 +1913,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           chunkCount(0),
           reReplicationCount(0),
           checksum(),
+          timeUsec(-1),
           responseBuf()
         {}
     virtual bool start();
@@ -1969,11 +1971,17 @@ struct MetaHello : public MetaRequest, public ServerLocation {
 struct MetaBye: public MetaRequest {
     ChunkServerPtr server; //!< The chunkserver that went down
     ServerLocation location;
+    size_t         chunkCount;
+    CIdChecksum    cIdChecksum;
+    int64_t        timeUsec;  // Log current time for debugging.
 
-    MetaBye(seq_t s = 0, const ChunkServerPtr& c = ChunkServerPtr())
-        : MetaRequest(META_BYE, kLogIfOk, s),
+    MetaBye(const ChunkServerPtr& c = ChunkServerPtr())
+        : MetaRequest(META_BYE, kLogIfOk, 0),
           server(c),
-          location()
+          location(),
+          chunkCount(0),
+          cIdChecksum(),
+          timeUsec(-1)
         {}
     virtual bool start();
     virtual void handle();
@@ -1989,6 +1997,9 @@ struct MetaBye: public MetaRequest {
     {
         return MetaRequest::LogIoDef(parser)
         .Def("C", &MetaBye::location)
+        .Def("K", &MetaBye::cIdChecksum)
+        .Def("S", &MetaBye::chunkCount, size_t(0))
+        .Def("T", &MetaBye::timeUsec, int64_t(-1))
         ;
     }
 };
@@ -2137,16 +2148,24 @@ struct MetaChunkLogCompletion : public MetaRequest {
     virtual bool start() { return (0 == status); }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const;
-    bool Validate() { return (0 <= doneLogSeq && doneLocation.IsValid()); }
+    bool Validate()
+    {
+        return (
+            0 <= doneLogSeq &&
+            doneLocation.IsValid() &&
+            kChunkOpTypeNone <= chunkOpType &&
+            chunkOpType <= kChunkOpTypeRemove
+        );
+    }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkLogCompletion::doneLocation)
-        .Def("L", &MetaChunkLogCompletion::doneLogSeq, seq_t(-1))
-        .Def("R", &MetaChunkLogCompletion::doneStatus, 0)
-        .Def("C", &MetaChunkLogCompletion::chunkId, chunkId_t(-1))
+        .Def("L", &MetaChunkLogCompletion::doneLogSeq,   seq_t(-1))
+        .Def("R", &MetaChunkLogCompletion::doneStatus,   0)
+        .Def("C", &MetaChunkLogCompletion::chunkId,      chunkId_t(-1))
         .Def("V", &MetaChunkLogCompletion::chunkVersion, seq_t(-1))
-        .Def("O", &MetaChunkLogCompletion::chunkOpType, int(kChunkOpTypeNone))
+        .Def("O", &MetaChunkLogCompletion::chunkOpType,  int(kChunkOpTypeNone))
         ;
     }
 };

@@ -341,7 +341,7 @@ public:
         const T&    inDefaultValue,
         T&          outValue)
     {
-        ValueParserT<HexIntParser>::SetValue(
+        MetaReqValueParserT<HexIntParser>::SetValue(
             inPtr, inLen, inDefaultValue, outValue);
     }
     static void SetValue(

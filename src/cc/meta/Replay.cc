@@ -1456,6 +1456,10 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->resumeStep = (int)n;
+        if (! pop_num(n, "t", c, true)) {
+            return false;
+        }
+        op->timeUsec = n;
         if (! pop_num(n, "z", c, true) || n < 0) {
             return false;
         }

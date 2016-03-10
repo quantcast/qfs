@@ -2947,6 +2947,7 @@ MetaHello::start()
         KFS_LOG_EOM;
     }
     if (0 == status) {
+        timeUsec = submitTime;
         gLayoutManager.Start(*this);
         if (0 != resumeStep && 0 == status) {
             logAction = kLogIfOk;
@@ -2988,6 +2989,7 @@ MetaHello::log(ostream& os) const
         "/m/" << missingChunks.size() <<
         "/d/" << deletedCount <<
         "/r/" << resumeStep <<
+        "/t/" << timeUsec <<
         "/z/" << logseq
     ;
     const ChunkInfos* const infos[] =
@@ -3025,6 +3027,7 @@ MetaHello::log(ostream& os) const
 MetaBye::start()
 {
     location = server->GetServerLocation();
+    timeUsec = submitTime;
     return (0 == status);
 }
 

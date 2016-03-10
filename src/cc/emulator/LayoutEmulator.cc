@@ -223,22 +223,6 @@ LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate* req)
     return addedFlag;
 }
 
-void
-LayoutEmulator::MarkServerDown(const ServerLocation& loc)
-{
-    Loc2Server::iterator const it = mLoc2Server.find(loc);
-    if (it == mLoc2Server.end()) {
-        KFS_LOG_STREAM_ERROR <<
-            "server down: no such server: " << loc <<
-        KFS_LOG_EOM;
-        return;
-    }
-    ServerDown(it->second);
-    mLoc2Server.erase(it);
-    KFS_LOG_STREAM_INFO << "server down: " << loc <<
-    KFS_LOG_EOM;
-}
-
 seq_t
 LayoutEmulator::GetChunkversion(chunkId_t cid) const
 {
