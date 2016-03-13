@@ -37,12 +37,14 @@
 #include "kfsio/CryptoKeys.h"
 #include "common/MdStream.h"
 #include "qcdio/QCUtils.h"
+#include "qcdio/qcdebug.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
 #include "common/IntToString.h"
 
 #include <boost/bind.hpp>
+#include <boost/static_assert.hpp>
 
 #include <cassert>
 #include <string>
@@ -64,6 +66,7 @@ using std::sort;
 using std::setprecision;
 using std::scientific;
 using std::fixed;
+using std::pair;
 using libkfsio::globalNetManager;
 using boost::bind;
 
@@ -217,6 +220,24 @@ size_t ChunkServer::sChunkDirsCount = 0;
 const int kMaxReadAhead             = 4 << 10;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
 const int kMaxRequestResponseHeader = 64 << 10;
+
+inline ChunkServer::DispatchedReqsIterator::DispatchedReqsIterator()
+{
+    BOOST_STATIC_ASSERT(sizeof(DispatchedReqs::iterator) <= sizeof(mStorage));
+    QCVERIFY(
+        new (&mStorage) DispatchedReqs::iterator() ==
+        &GetDispatchedReqsIterator(*this)
+    );
+}
+
+template<typename T>
+inline static void Destroy(T& ptr) { ptr.~T(); }
+
+inline
+ChunkServer::DispatchedReqsIterator::~DispatchedReqsIterator()
+{
+    Destroy(GetDispatchedReqsIterator(*this));
+}
 
 void ChunkServer::SetParameters(const Properties& prop, int clientPort)
 {
@@ -439,7 +460,9 @@ ChunkServer::ChunkServer(
       mNumObjects(0),
       mNumWrObjects(0),
       mDispatchedReqs(),
+      mLogInFlightReqs(),
       mReqsTimeoutQueue(),
+      mTmpReqQueue(),
       mLostChunks(0),
       mUptime(0),
       mHeartbeatProperties(),
@@ -498,6 +521,7 @@ ChunkServer::ChunkServer(
     assert(mNetConnection);
     ChunkServersList::Init(*this);
     PendingHelloList::Init(*this);
+    LogInFlightReqs::Init(mLogInFlightReqs);
     ChunkServersList::PushBack(sChunkServersPtr, *this);
     SET_HANDLER(this, &ChunkServer::HandleRequest);
     mNetConnection->SetInactivityTimeout(sHeartbeatInterval);
@@ -824,7 +848,7 @@ ChunkServer::HandleRequest(int code, void *data)
                     mDispatchedReqs.lower_bound(mAuthPendingSeq);
                 mAuthPendingSeq = -1;
                 while (it != mDispatchedReqs.end()) {
-                    MetaChunkRequest* const op = it->second.first->second;
+                    MetaChunkRequest* const op = it->second.second;
                     ++it;
                     EnqueueSelf(op);
                 }
@@ -1955,9 +1979,14 @@ ChunkServer::FindMatchingRequest(seq_t cseq)
     if (it == mDispatchedReqs.end()) {
         return 0;
     }
-    MetaChunkRequest* const op = it->second.first->second;
+    MetaChunkRequest* const op = it->second.second;
     mReqsTimeoutQueue.erase(it->second.first);
-    sChunkOpsInFlight.erase(it->second.second);
+    it->second.first = ReqsTimeoutQueue::iterator();
+    if (op->logCompletionSeq < 0) {
+        sChunkOpsInFlight.erase(op->inFlightIt);
+    } else {
+        LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
+    }
     mDispatchedReqs.erase(it);
     return op;
 }
@@ -1981,15 +2010,35 @@ ChunkServer::ReplayValidate(MetaRequest& r) const
 }
 
 void
-ChunkServer::Replay(MetaChunkLogCompletion& req)
+ChunkServer::Handle(MetaChunkLogCompletion& req)
 {
-    if (! ReplayValidate(req)) {
+    if (mReplayFlag && ! ReplayValidate(req)) {
         return;
     }
-    MetaChunkRequest* const op = FindMatchingRequest(req.doneLogSeq);
+    MetaChunkRequest* op;
+    if (req.replayFlag) {
+        op = FindMatchingRequest(req.doneLogSeq);
+    } else {
+        if (req.doneOp) {
+            if (! LogInFlightReqs::IsInList(mLogInFlightReqs, *req.doneOp)) {
+                panic("ChunkServer: no matching log in flight op");
+                op = 0;
+            } else {
+                op = req.doneOp;
+                LogInFlightReqs::Remove(mLogInFlightReqs, *op);
+            }
+        } else {
+            panic("ChunkServer: invalid log in flight op");
+            op = 0;
+        }
+    }
     if (op) {
-        op->status = req.doneStatus;
-        op->resume();
+        if (! req.doneOp) {
+            req.doneOp = op;
+        } else if (op != req.doneOp) {
+            req.status = -EFAULT;
+            panic("Invalid chunk RPC completion");
+        }
     } else {
         req.status = -ENOENT;
     }
@@ -2073,16 +2122,23 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         r->resume();
         return;
     }
-    if (! mDispatchedReqs.insert(make_pair(
+    ReqsTimeoutQueue::iterator const it = mReqsTimeoutQueue.insert(make_pair(
+        TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
+        DispatchedReqsIterator()
+    ));
+    pair<DispatchedReqs::iterator, bool> const res =
+        mDispatchedReqs.insert(make_pair(
             r->replayFlag ? r->logseq : r->opSeqno,
-            make_pair(
-                mReqsTimeoutQueue.insert(make_pair(
-                    TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
-                    r
-                )),
-                r->inFlightIt
-            ))).second) {
+            make_pair(it, r)
+        ));
+    if (res.second) {
+        GetDispatchedReqsIterator(it->second) = res.first;
+    } else {
         panic("duplicate op sequence number");
+        mReqsTimeoutQueue.erase(it);
+        sChunkOpsInFlight.erase(r->inFlightIt);
+        r->status = -EFAULT;
+        r->resume();
     }
     if (r->op == META_CHUNK_REPLICATE) {
         KFS_LOG_STREAM_INFO << r->Show() << KFS_LOG_EOM;
@@ -2497,41 +2553,47 @@ ChunkServer::Heartbeat()
 int
 ChunkServer::TimeoutOps()
 {
-    if (! mHelloDone || mDown || ! mNetConnection) {
+    if (! mHelloDone || mDown || ! mNetConnection || mReplayFlag) {
         return -1;
     }
     time_t const                     now = TimeNow();
     ReqsTimeoutQueue::iterator const end =
         mReqsTimeoutQueue.lower_bound(now);
-    ReqsTimeoutQueue                 timedOut;
     for (ReqsTimeoutQueue::iterator it = mReqsTimeoutQueue.begin();
             it != end;
             ) {
-        assert(it->second);
         DispatchedReqs::iterator const dri =
-            mDispatchedReqs.find(it->second->opSeqno);
-        if (dri == mDispatchedReqs.end()) {
+            GetDispatchedReqsIterator(it->second);
+        MetaChunkRequest* const        op  = dri->second.second;
+        if (op->replayFlag) {
             panic("invalid timeout queue entry");
         }
-        sChunkOpsInFlight.erase(dri->second.second);
+        if (op->logCompletionSeq < 0) {
+            sChunkOpsInFlight.erase(op->inFlightIt);
+        } else {
+            dri->second.first = ReqsTimeoutQueue::iterator();
+            LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
+        }
         mDispatchedReqs.erase(dri);
-        timedOut.insert(*it);
-        mReqsTimeoutQueue.erase(it++);
-    }
-    for (ReqsTimeoutQueue::iterator it = timedOut.begin();
-            it != timedOut.end();
-            ++it) {
+        mTmpReqQueue.push_back(op);
         KFS_LOG_STREAM_INFO << GetServerLocation() <<
             " request timed out"
             " expired: "   << (now - it->first) <<
             " in flight: " << mDispatchedReqs.size() <<
             " total: "     << sChunkOpsInFlight.size() <<
-            " "            << it->second->Show() <<
+            " "            << op->Show() <<
         KFS_LOG_EOM;
-        it->second->statusMsg = "request timed out";
-        it->second->status    = -EIO;
-        it->second->resume();
+        mReqsTimeoutQueue.erase(it++);
     }
+    for (TmpReqQueue::iterator it = mTmpReqQueue.begin();
+            it != mTmpReqQueue.end();
+            ++it) {
+        MetaChunkRequest* const op = *it;
+        op->statusMsg = "request timed out";
+        op->status    = -EIO;
+        op->resume();
+    }
+    mTmpReqQueue.clear();
     return (mReqsTimeoutQueue.empty() ?
         -1 : int(mReqsTimeoutQueue.begin()->first - now + 1));
 }
@@ -2549,7 +2611,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {
-        const MetaChunkRequest& op = *(it->second.first->second);
+        const MetaChunkRequest& op = *(it->second.second);
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " failing op: " << op.Show() <<
         KFS_LOG_EOM;
@@ -2563,13 +2625,13 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         } else if (0 <= op.chunkId) {
             mLastChunksInFlight.Insert(op.chunkId);
         }
-        sChunkOpsInFlight.erase(it->second.second);
+        sChunkOpsInFlight.erase(op.inFlightIt);
     }
     // Fail in the same order as these were queued.
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {
-        MetaChunkRequest* const op = it->second.first->second;
+        MetaChunkRequest* const op = it->second.second;
         op->statusMsg = errMsg ? errMsg : "chunk server disconnect";
         op->status    = -EIO;
         if (! mHelloDone && 0 <= op->logCompletionSeq) {
@@ -2978,6 +3040,85 @@ ChunkServer::Verify(
         }
     }
     return true;
+}
+
+template <typename TS, typename TC>
+inline static TS&
+CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
+{
+    return (os << ((0 == (cnt++ & 0x1F)) ? pref : "/") << id);
+}
+
+template <typename T>
+inline static T&
+CpInsertChunkOp(T& os, const char* cmdPref, const char* pref,
+    const MetaChunkRequest& op)
+{
+    os << "\npif/" << op.logCompletionSeq;
+    const ChunkIdQueue* const ids = op.GetChunkIds();
+    if (ids && ! ids->IsEmpty()) {
+        os << "/" << ids->GetSize() << "/";
+        unsigned int                cnt = 1;
+        ChunkIdQueue::ConstIterator it(*ids);
+        const chunkId_t*            id;
+        while ((id = it.Next())) {
+            CpInsertChunkId(os, pref, cnt, *id);
+        }
+    } else if (0 <= op.chunkId) {
+        os << "/1/" << op.chunkId;
+    } else {
+        os << "/0";
+    }
+    return os;
+}
+
+ostream&
+ChunkServer::Checkpoint(ostream& ost)
+{
+    ReqOstream os(ost);
+    os << "cs"
+        "/loc/"      << GetServerLocation() <<
+        "/idx/"      << GetIndex() <<
+        "/chunks/"   << GetChunkCount() <<
+        "/chksum/"   << GetChecksum() <<
+        "/retire/"   << mIsRetiring <<
+        "/retstart/" << mRetireStartTime <<
+        "/replay/"   << (mReplayFlag ? 1 : 0) <<
+        "/clif/"     << mLastChunksInFlight.Size()
+    ;
+    const char* const pref = "\ncif/";
+    unsigned int      cnt  = 0;
+    const chunkId_t*  id;
+    mLastChunksInFlight.First();
+    while ((id = mLastChunksInFlight.Next()) && ost) {
+        CpInsertChunkId(os, pref, cnt, *id);
+    }
+    for (DispatchedReqs::const_iterator it = mDispatchedReqs.begin();
+            it != mDispatchedReqs.end() && ost;
+            ++it) {
+        const MetaChunkRequest& op  = *(it->second.second);
+        if (op.logCompletionSeq < 0) {
+            continue;
+        }
+        CpInsertChunkOp(os, "\nrif/", pref, op);
+    }
+    LogInFlightReqs::Iterator it(mLogInFlightReqs);
+    const MetaChunkRequest*   op;
+    while ((op = it.Next())) {
+        if (op->logCompletionSeq < 0) {
+            panic("invalid log in flight op sequence");
+            continue;
+        }
+        CpInsertChunkOp(os, "\nlif/", pref, *op);
+    }
+    os << "\n";
+    return ost;
+}
+
+/* static */ ostream&
+ChunkServer::StartCheckpoint(ostream& os)
+{
+    return os;
 }
 
 inline void
@@ -3407,6 +3548,43 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
         " checksum: " << GetChecksum() <<
         " modified: " << modCount <<
     "\n";
+    return os;
+}
+
+ostream&
+HibernatedChunkServer::Checkpoint(ostream& ost,
+    const ServerLocation& loc, time_t expTime)
+{
+    ReqOstream os(ost);
+    os << "hcs"
+        "/loc/"       << loc <<
+        "/idx/"       << GetIndex() <<
+        "/chunks/"    << GetChunkCount() <<
+        "/chksum/"    << GetChecksum() <<
+        "/expire/"    << expTime <<
+        "/replay/"    << (mReplayFlag ? 1 : 0)  <<
+        "/deleted/"   << mDeletedChunks.GetSize()  <<
+        "/modified/"  << mModifiedChunks.Size() <<
+        "/dreport/"   << mDeletedReportCount <<
+        "/modchksum/" << mModifiedChecksum
+    ;
+    const char*      pref = "\nhcsd/";
+    unsigned int     cnt = 0;
+    const chunkId_t* id;
+    for (ChunkIdQueue::ConstIterator it(mDeletedChunks); (id = it.Next()); ) {
+        CpInsertChunkId(os, pref, cnt, *id);
+    }
+    pref = "\nhcsm/";
+    for (mModifiedChunks.First(); (id = mModifiedChunks.Next()); ) {
+        CpInsertChunkId(os, pref, cnt, *id);
+    }
+    os << "\n";
+    return ost;
+}
+
+/* static */ ostream&
+HibernatedChunkServer::StartCheckpoint(ostream& os)
+{
     return os;
 }
 

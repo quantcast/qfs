@@ -3278,30 +3278,30 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
             return;
         }
         server = *cs;
-        server->Replay(req);
-        if (req.chunkId < 0 || 0 != req.status) {
-            return;
-        }
     }
-    if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
-        if (0 == req.doneStatus && ! server->IsDown()) {
-            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-            if (entry &&
-                    entry->GetChunkInfo()->chunkVersion == req.chunkVersion) {
-                AddHosted(*entry, server);
+    server->Handle(req);
+    if (0 <= req.chunkId && 0 == req.status) {
+        if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
+            if (0 == req.doneStatus && ! server->IsDown()) {
+                CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+                if (entry && entry->GetChunkInfo()->chunkVersion ==
+                        req.chunkVersion) {
+                    AddHosted(*entry, server);
+                }
             }
-        }
-    } else if (MetaChunkLogCompletion::kChunkOpTypeRemove == req.chunkOpType) {
-        CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-        if (entry && (req.chunkVersion < 0 ||
-                entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
-            mChunkToServerMap.RemoveServer(server, *entry);
+        } else if (MetaChunkLogCompletion::kChunkOpTypeRemove ==
+                req.chunkOpType) {
+            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
+            if (entry && (req.chunkVersion < 0 ||
+                    entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
+                mChunkToServerMap.RemoveServer(server, *entry);
+            }
         }
     }
     if (req.doneOp) {
         MetaChunkRequest& op = *req.doneOp;
         req.doneOp = 0;
-        if (op.logCompletionSeq < 0) {
+        if (! op.suspended || (op.logCompletionSeq < 0 && ! op.replayFlag)) {
             panic("MetaChunkLogCompletion: invalid log sequence");
         }
         op.logCompletionSeq = -1;
@@ -12357,6 +12357,30 @@ LayoutManager::WritePendingObjStoreDelete(ostream& os)
             "osd/" << dfe->GetVal().first <<
             "/"    << (-dfe->GetVal().second - 1) <<
         "\n";
+    }
+    return (os ? 0 : -EIO);
+}
+
+int
+LayoutManager::WriteChunkServers(ostream& os) const
+{
+    ChunkServer::StartCheckpoint(os);
+    for (Servers::const_iterator it = mChunkServers.begin();
+            os && mChunkServers.end() != it;
+            ++it) {
+        (*it)->Checkpoint(os);
+    }
+    HibernatedChunkServer::StartCheckpoint(os);
+    for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
+            os && mHibernatingServers.end() != it;
+            ++it) {
+        if (it->IsHibernated()) {
+            HibernatedChunkServer* const srv =
+                mChunkToServerMap.GetHiberantedServer(it->csmapIdx);
+            if (srv) {
+                srv->Checkpoint(os, it->location, it->sleepEndTime);
+            }
+        }
     }
     return (os ? 0 : -EIO);
 }

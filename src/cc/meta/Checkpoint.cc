@@ -121,7 +121,10 @@ Checkpoint::write(
         os << "time/" << DisplayIsoDateTime() << '\n';
         os << "setintbase/16\n" << hex;
         os << "log/" << logname << "\n\n";
-        status = write_leaves(os);
+        status = gLayoutManager.WriteChunkServers(os);
+        if (status == 0 && os) {
+            status = write_leaves(os);
+        }
         if (status == 0 && os) {
             status = gLayoutManager.WritePendingMakeStable(os);
         }

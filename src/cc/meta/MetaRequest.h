@@ -2184,6 +2184,7 @@ struct MetaChunkRequest : public MetaRequest {
             pair<const chunkId_t, const MetaChunkRequest*>
         >
     > ChunkOpsInFlight;
+    typedef QCDLList<MetaChunkRequest, 0> List;
 
     chunkId_t                  chunkId;
     const ChunkServerPtr       server; // The "owner".
@@ -2201,7 +2202,7 @@ struct MetaChunkRequest : public MetaRequest {
           inFlightIt(),
           logCompletionSeq(-1),
           pendingAddFlag(false)
-        {}
+        { List::Init(*this); }
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
     virtual void request(ReqOstream& os, IOBuffer& /* buf */) { request(os); }
@@ -2219,6 +2220,10 @@ struct MetaChunkRequest : public MetaRequest {
     virtual const ChunkIdQueue* GetChunkIds() const { return 0; }
 protected:
     virtual void request(ReqOstream& /* os */) {}
+private:
+    MetaChunkRequest* mPrevPtr[1];
+    MetaChunkRequest* mNextPtr[1];
+    friend class QCDLListOp<MetaChunkRequest, 0>;
 };
 
 struct MetaChunkLogInFlight : public MetaChunkRequest {

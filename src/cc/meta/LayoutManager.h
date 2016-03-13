@@ -1435,6 +1435,7 @@ public:
     void Handle(MetaChunkLogCompletion& req);
     void Handle(MetaHibernateParamsUpdate& req);
     void Handle(MetaHibernateRemove& req);
+    int WriteChunkServers(ostream& os) const;
 
 protected:
     typedef vector<

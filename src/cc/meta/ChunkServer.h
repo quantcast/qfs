@@ -55,6 +55,7 @@
 #include <ostream>
 #include <istream>
 #include <map>
+#include <vector>
 
 #include <boost/shared_ptr.hpp>
 #include <boost/enable_shared_from_this.hpp>
@@ -70,6 +71,7 @@ using std::map;
 using std::multimap;
 using std::pair;
 using std::less;
+using std::vector;
 
 /// Chunk server connects to the meta server, sends a HELLO
 /// message to configure its state with the meta server,  and
@@ -875,10 +877,12 @@ public:
         { return mNumWrObjects; }
     void ScheduleDown(const char* message)
         { Error(message); }
-    void Replay(MetaChunkLogCompletion& req);
+    void Handle(MetaChunkLogCompletion& req);
     void Replay(MetaChunkLogInFlight& req);
     void Enqueue(MetaChunkLogInFlight& req);
     bool IsReplay() const { return mReplayFlag; }
+    ostream& Checkpoint(ostream& os);
+    static ostream& StartCheckpoint(ostream& os);
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -1020,35 +1024,59 @@ protected:
     int64_t mNumObjects;
     int64_t mNumWrObjects;
 
+    class DispatchedReqsIterator
+    {
+    public:
+        inline DispatchedReqsIterator();
+        inline ~DispatchedReqsIterator();
+        struct {  // Make it struct aligned.
+            char mArray[sizeof(map<seq_t, void*>::iterator)];
+        } mStorage;
+    };
     typedef multimap <
         time_t,
-        MetaChunkRequest*,
+        DispatchedReqsIterator,
         less<time_t>,
         StdFastAllocator<
-            pair<const time_t,  MetaChunkRequest*>
+            pair<const time_t, DispatchedReqsIterator>
         >
     > ReqsTimeoutQueue;
     typedef map <
         seq_t,
         pair<
             ReqsTimeoutQueue::iterator,
-            ChunkOpsInFlight::iterator
+            MetaChunkRequest*
         >,
         less<seq_t>,
         StdFastAllocator<
-            pair<const seq_t,  ReqsTimeoutQueue::iterator>
+            pair<
+                const seq_t,
+                pair <
+                    ReqsTimeoutQueue::iterator,
+                    MetaChunkRequest*
+                >
+            >
         >
     > DispatchedReqs;
+    static inline ChunkServer::DispatchedReqs::iterator&
+    GetDispatchedReqsIterator(ChunkServer::DispatchedReqsIterator& it)
+    {
+        return *reinterpret_cast<DispatchedReqs::iterator*>(&it.mStorage);
+    }
+    typedef MetaChunkRequest::List LogInFlightReqs;
     typedef set <
         string,
         less<string>,
         StdFastAllocator<string>
     > LostChunkDirs;
+    typedef vector<MetaChunkRequest*> TmpReqQueue;
 
     enum { kChunkSrvListsCount = 2 };
     /// RPCs that we have sent to this chunk server.
     DispatchedReqs     mDispatchedReqs;
+    MetaChunkRequest*  mLogInFlightReqs[1];
     ReqsTimeoutQueue   mReqsTimeoutQueue;
+    TmpReqQueue        mTmpReqQueue;
     int64_t            mLostChunks;
     int64_t            mUptime;
     Properties         mHeartbeatProperties;
@@ -1287,6 +1315,9 @@ public:
         CSMap&                       mCsMap;
     };
     ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
+    ostream& Checkpoint(ostream& os,
+        const ServerLocation& loc, time_t expTime);
+    static ostream& StartCheckpoint(ostream& os);
     static void Handle(MetaHibernateParamsUpdate& req);
 private:
     void RemoveHosted(chunkId_t chunkId, seq_t vers, int index);
