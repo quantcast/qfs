@@ -1984,6 +1984,7 @@ ChunkServer::FindMatchingRequest(seq_t cseq)
     it->second.first = ReqsTimeoutQueue::iterator();
     if (op->logCompletionSeq < 0) {
         sChunkOpsInFlight.erase(op->inFlightIt);
+        op->inFlightIt = ChunkOpsInFlight::iterator();
     } else {
         LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
     }
@@ -2067,10 +2068,11 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
         panic("ChunkServer invalid submit attempt");
         r.status = -EFAULT;
     }
-    if (r.status != 0) {
+    if (0 != r.status || mDown) {
         if (req) {
-            req->status = r.status;
+            req->status = mDown ? -EIO : r.status;
             sChunkOpsInFlight.erase(req->inFlightIt);
+            req->inFlightIt = ChunkOpsInFlight::iterator();
             req->resume();
         }
         return;
@@ -2104,6 +2106,11 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         r->resume();
         return;
     }
+    if (mDown) {
+        r->status = -EIO;
+        r->resume();
+        return;
+    }
     r->suspended = true;
     r->shortRpcFormatFlag = mShortRpcFormatFlag;
     if (! loggedFlag) {
@@ -2114,13 +2121,6 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     }
     if (0 == r->submitCount) {
         r->submitTime = microseconds();
-    }
-    if (mDown) {
-        r->status = -EIO;
-        sChunkOpsInFlight.erase(r->inFlightIt);
-        gLayoutManager.EnqueueServerDown(*this, *r);
-        r->resume();
-        return;
     }
     ReqsTimeoutQueue::iterator const it = mReqsTimeoutQueue.insert(make_pair(
         TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
@@ -2137,6 +2137,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         panic("duplicate op sequence number");
         mReqsTimeoutQueue.erase(it);
         sChunkOpsInFlight.erase(r->inFlightIt);
+        r->inFlightIt = ChunkOpsInFlight::iterator();
         r->status = -EFAULT;
         r->resume();
     }
@@ -2570,6 +2571,7 @@ ChunkServer::TimeoutOps()
         }
         if (op->logCompletionSeq < 0) {
             sChunkOpsInFlight.erase(op->inFlightIt);
+            op->inFlightIt = ChunkOpsInFlight::iterator();
         } else {
             dri->second.first = ReqsTimeoutQueue::iterator();
             LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
@@ -2611,7 +2613,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {
-        const MetaChunkRequest& op = *(it->second.second);
+        MetaChunkRequest& op = *(it->second.second);
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " failing op: " << op.Show() <<
         KFS_LOG_EOM;
@@ -2626,6 +2628,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
             mLastChunksInFlight.Insert(op.chunkId);
         }
         sChunkOpsInFlight.erase(op.inFlightIt);
+        op.inFlightIt = ChunkOpsInFlight::iterator();
     }
     // Fail in the same order as these were queued.
     for (DispatchedReqs::iterator it = reqs.begin();
@@ -3421,7 +3424,7 @@ HibernatedChunkServer::ResumeRestart(
     if (! CanBeResumed()) {
         return;
     }
-    mGeneration = 0; // Turn off updates from EnqueueServerDown()
+    mGeneration = 0;
     size_t size = 0;
     if (! staleChunkIds.IsEmpty()) {
         const size_t delReportCount =

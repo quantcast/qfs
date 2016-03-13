@@ -2131,9 +2131,8 @@ struct MetaChunkRequest;
 struct MetaChunkLogCompletion : public MetaRequest {
     enum ChunkOpType
     {
-        kChunkOpTypeNone   = 0,
-        kChunkOpTypeAdd    = 1,
-        kChunkOpTypeRemove = 2
+        kChunkOpTypeNone = 0,
+        kChunkOpTypeAdd  = 1
     };
 
     ServerLocation    doneLocation;
@@ -2154,7 +2153,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
             0 <= doneLogSeq &&
             doneLocation.IsValid() &&
             kChunkOpTypeNone <= chunkOpType &&
-            chunkOpType <= kChunkOpTypeRemove
+            chunkOpType <= kChunkOpTypeAdd
         );
     }
     template<typename T> static T& LogIoDef(T& parser)

@@ -3202,10 +3202,19 @@ LayoutManager::ReplayFindServer(const ServerLocation& loc, T& req)
     }
     Servers::const_iterator const it = FindServer(loc);
     if (mChunkServers.end() == it) {
-        req.status = -ENOENT;
         return 0;
     }
     return &*it;
+}
+
+HibernatedChunkServer*
+LayoutManager::FindHibernatedServer(const ServerLocation& loc)
+{
+    const HibernatingServerInfo* const hsi = FindHibernatingCSInfo(loc);
+    if (hsi && hsi->IsHibernated()) {
+        return mChunkToServerMap.GetHiberantedServer(hsi->csmapIdx);
+    }
+    return 0;
 }
 
 void
@@ -3229,6 +3238,38 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
         if (cs) {
             (*cs)->Replay(req);
+        }
+    }
+    if (! req.server || req.server->IsDown()) {
+        if (req.server && req.location != req.server->GetServerLocation()) {
+            panic("invalid chunk log in flight down server location");
+            req.status = -EFAULT;
+        } else {
+            HibernatedChunkServer* const hs =
+                FindHibernatedServer(req.location);
+            if (hs) {
+                if (req.server && hs->GetGeneration() !=
+                        req.server->GetHibernatedGeneration()) {
+                    panic("invalid chunk log in flight down server"
+                        " hibernated generation");
+                    req.status = -EFAULT;
+                } else {
+                    const ChunkIdQueue* const ids = req.GetChunkIds();
+                    if (ids) {
+                        ChunkIdQueue::ConstIterator it(*ids);
+                        const chunkId_t*            id;
+                        while ((id = it.Next())) {
+                            hs->UpdateLastInFlight(mChunkToServerMap, *id);
+                        }
+                    } else if (0 <= req.chunkId) {
+                        hs->UpdateLastInFlight(
+                            mChunkToServerMap, req.chunkId);
+                    }
+                    req.status = -EIO;
+                }
+            } else {
+                req.status = -ENOENT;
+            }
         }
     }
     if (req.removeServerFlag && req.server) {
@@ -3274,27 +3315,30 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     } else {
         const ChunkServerPtr* const cs =
             ReplayFindServer(req.doneLocation, req);
-        if (! cs) {
-            return;
+        if (cs) {
+            server = *cs;
         }
-        server = *cs;
     }
-    server->Handle(req);
+    if (server) {
+        server->Handle(req);
+    }
     if (0 <= req.chunkId && 0 == req.status) {
         if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
-            if (0 == req.doneStatus && ! server->IsDown()) {
-                CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-                if (entry && entry->GetChunkInfo()->chunkVersion ==
-                        req.chunkVersion) {
-                    AddHosted(*entry, server);
+            if (server && ! server->IsDown()) {
+                if (0 == req.doneStatus) {
+                    CSMap::Entry* const entry =
+                        mChunkToServerMap.Find(req.chunkId);
+                    if (entry && entry->GetChunkInfo()->chunkVersion ==
+                            req.chunkVersion) {
+                        AddHosted(*entry, server);
+                    }
                 }
-            }
-        } else if (MetaChunkLogCompletion::kChunkOpTypeRemove ==
-                req.chunkOpType) {
-            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-            if (entry && (req.chunkVersion < 0 ||
-                    entry->GetChunkInfo()->chunkVersion == req.chunkVersion)) {
-                mChunkToServerMap.RemoveServer(server, *entry);
+            } else {
+                HibernatedChunkServer* const hs =
+                    FindHibernatedServer(req.doneLocation);
+                if (hs) {
+                    hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
+                }
             }
         }
     }
@@ -5151,31 +5195,6 @@ LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
     }
     return ((it != mHibernatingServers.end() && loc == it->location) ?
         &(*it) : 0);
-}
-
-void
-LayoutManager::EnqueueServerDown(
-    const ChunkServer& srv, const MetaChunkRequest& req)
-{
-    const ChunkIdQueue* const ids = req.GetChunkIds();
-    if ((req.chunkId < 0 && ! ids) || ! srv.IsDown()) {
-        return;
-    }
-    HibernatedChunkServer* const hsrv =
-        mChunkToServerMap.GetHiberantedServer(srv.GetHibernatedIndex());
-    if (! hsrv || hsrv->GetIndex() < 0 ||
-            hsrv->GetGeneration() != srv.GetHibernatedGeneration()) {
-        return;
-    }
-    if (ids) {
-        ChunkIdQueue::ConstIterator it(*ids);
-        const chunkId_t*            id;
-        while ((id = it.Next())) {
-            hsrv->UpdateLastInFlight(mChunkToServerMap, *id);
-        }
-    } else if (0 <= req.chunkId) {
-        hsrv->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
-    }
 }
 
 void

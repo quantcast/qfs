@@ -1411,7 +1411,6 @@ public:
     void ScheduleDumpsterCleanup(fid_t fid, const string& name);
     void DumpsterCleanupDone(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
-    void EnqueueServerDown(const ChunkServer& srv, const MetaChunkRequest& req);
     void SetDisableTimerFlag(bool flag);
     void ChangeChunkVersion(chunkId_t chunkId, seq_t version, MetaAllocate* r);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
@@ -2578,6 +2577,7 @@ protected:
     template<typename T> const ChunkServerPtr* ReplayFindServer(
         const ServerLocation& loc, T& req);
     template<typename T> bool HandleReplay(T& req);
+    HibernatedChunkServer* FindHibernatedServer(const ServerLocation& loc);
 };
 
 extern LayoutManager& gLayoutManager;
