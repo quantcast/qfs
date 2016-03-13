@@ -542,7 +542,8 @@ ChunkServer::ChunkServer(
 
 ChunkServer::~ChunkServer()
 {
-    if (0 != mRecursionCount || mSelfPtr || 0 != mPendingOpsCount) {
+    if (0 != mRecursionCount || mSelfPtr || 0 != mPendingOpsCount ||
+            ! LogInFlightReqs::IsEmpty(mLogInFlightReqs)) {
         panic("chunk server: invalid destructor invocation");
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
@@ -2566,7 +2567,7 @@ ChunkServer::TimeoutOps()
         DispatchedReqs::iterator const dri =
             GetDispatchedReqsIterator(it->second);
         MetaChunkRequest* const        op  = dri->second.second;
-        if (op->replayFlag) {
+        if (op->replayFlag || dri->second.first != it) {
             panic("invalid timeout queue entry");
         }
         if (op->logCompletionSeq < 0) {
@@ -2639,8 +2640,8 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         op->status    = -EIO;
         if (! mHelloDone && 0 <= op->logCompletionSeq) {
             panic("chunk server: RPC was queued prior to hello completion");
-            op->logCompletionSeq = -1;
         }
+        op->logCompletionSeq = -1; // Do not create (log) completion entry.
         op->resume();
     }
 }

@@ -6037,10 +6037,11 @@ LayoutManager::GetInFlightChunkModificationOpCount(
     LayoutManager::Servers* srvs             /* = 0 */) const
 {
     MetaOp const types[] = {
-        META_CHUNK_REPLICATE,  // Recovery or replication.
-        META_CHUNK_VERSCHANGE, // Always runs after recovery.
+        META_CHUNK_REPLICATE,        // Recovery or replication.
+        META_CHUNK_VERSCHANGE,       // Always runs after recovery.
         META_CHUNK_MAKE_STABLE,
-        META_NUM_OPS_COUNT     // Sentinel
+        META_CHUNK_OP_LOG_IN_FLIGHT, // Queued in replay.
+        META_NUM_OPS_COUNT           // Sentinel
     };
     return GetInFlightChunkOpsCount(chunkId, types, objStoreBlockPos, srvs);
 }
@@ -10147,7 +10148,8 @@ LayoutManager::HandoutChunkReplicationWork()
         META_CHUNK_REPLICATE,
         META_CHUNK_VERSCHANGE,
         META_CHUNK_MAKE_STABLE,
-        META_NUM_OPS_COUNT     // Sentinel
+        META_CHUNK_OP_LOG_IN_FLIGHT, // Replay only.
+        META_NUM_OPS_COUNT           // Sentinel
     };
 
     int64_t   now          = microseconds();
