@@ -514,6 +514,64 @@ restore_objstore_delete(DETokenizer& c)
         chunkId, osdFlag ? last : chunkOff_t(0), last);
 }
 
+static bool
+restore_chunk_server_start(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    if (c.front() != "loc") {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& ltok = c.front();
+    ServerLocation loc;
+    if (! loc.FromString(ltok.ptr, ltok.len, c.getIntBase() == 16)) {
+        return false;
+    }
+    int64_t idx;
+    if (! pop_num(idx, "idx", c, true)) {
+        return false;
+    }
+    int64_t chunks;
+    if (! pop_num(chunks, "chunks", c, true) || chunks < 0) {
+        return false;
+    }
+    if (c.empty() || c.front() != "chksum") {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    CIdChecksum chksum;
+    const DETokenizer::Token& ctk = c.front();
+    const char* ptr = ctk.ptr;
+    if (! (c.getIntBase() == 16 ?
+            chksum.Parse<HexIntParser>(ptr, ctk.len) :
+            chksum.Parse<DecIntParser>(ptr, ctk.len))) {
+        return false;
+    }
+    int64_t n = 0;
+    if (! pop_num(n, "retire", c, true)) {
+        return false;
+    }
+    const bool retiringFlag = 0 != n;
+    int64_t retstart = 0;
+    if (! pop_num(retstart, "retstart", c, true)) {
+        return false;
+    }
+    if (! pop_num(n, "replay", c, true)) {
+        return false;
+    }
+    return gLayoutManager.RestoreChunkServer(
+        loc, idx, chunks, chksum, retiringFlag, retstart);
+}
+
 static const DiskEntry&
 get_entry_map()
 {
@@ -544,6 +602,8 @@ get_entry_map()
     e.add_parser("gur",                     &restore_group_users_reset);
     e.add_parser("osx",                     &restore_objstore_delete);
     e.add_parser("osd",                     &restore_objstore_delete);
+    e.add_parser("cs",                      &restore_chunk_server_start);
+    Replay::AddRestotreEntries(e);
     initied = true;
     return e;
 }
@@ -585,8 +645,9 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
         return false;
     }
 
-    const DiskEntry& entrymap = get_entry_map();
-        DETokenizer tokenizer(file);
+    const DiskEntry&  entrymap = get_entry_map();
+    Replay::Tokenizer replayTokenizer(file, 0);
+    DETokenizer&      tokenizer = replayTokenizer.Get();
 
     restoreChecksum.clear();
     lastLineChecksumFlag = false;

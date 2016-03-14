@@ -29,12 +29,14 @@
 #include "common/MdStream.h"
 
 #include <string>
+#include <istream>
 #include <fstream>
 
 namespace KFS
 {
 using std::string;
 using std::ifstream;
+using std::istream;
 
 class DETokenizer;
 class DiskEntry;
@@ -111,9 +113,21 @@ public:
         size_t   skip;
         uint32_t checksum;
     };
+    class ReplayState;
+    class Tokenizer
+    {
+    public:
+        Tokenizer(istream& file, Replay* replay);
+        ~Tokenizer();
+        DETokenizer& Get() { return tokenizer; }
+        ReplayState& GetState() { return state; }
+    private:
+        ReplayState& state;
+        DETokenizer& tokenizer;
+    };
+    static void AddRestotreEntries(DiskEntry& e);
 private:
     typedef MdStreamT<BlockChecksum> MdStream;
-    class ReplayState;
 
     ifstream         file;   //!< the log file being replayed
     string           path;   //!< path name for log file
@@ -133,8 +147,7 @@ private:
     string           tmplogname;
     string           logdir;
     MdStream         mds;
-    ReplayState&     state;
-    DETokenizer&     tokenizer;
+    Tokenizer        replayTokenizer;
     const DiskEntry& entrymap;
     BlockChecksum    blockChecksum;
     seq_t            maxLogNum;

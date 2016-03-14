@@ -94,7 +94,7 @@ public:
     > CommitQueue;
 
     ReplayState(
-        Replay& replay)
+        Replay* replay)
         : mCommitQueue(),
           mCheckpointCommitted(-1),
           mCheckpointErrChksum(-1),
@@ -139,19 +139,19 @@ public:
     static ReplayState& get(const DETokenizer& c)
         { return *reinterpret_cast<ReplayState*>(c.getUserData()); }
 
-    CommitQueue  mCommitQueue;
-    seq_t        mCheckpointCommitted;
-    seq_t        mCheckpointErrChksum;
-    seq_t        mLastCommitted;
-    int64_t      mBlockStartLogSeq;
-    int64_t      mLastBlockSeq;
-    int64_t      mLastLogAheadSeq;
-    int64_t      mLogAheadErrChksum;
-    int64_t      mSubEntryCount;
-    int64_t      mLogSegmentTimeUsec;
-    int          mRestoreTimeCount;
-    Replay&      mReplayer;
-    MetaRequest* mCurOp;
+    CommitQueue   mCommitQueue;
+    seq_t         mCheckpointCommitted;
+    seq_t         mCheckpointErrChksum;
+    seq_t         mLastCommitted;
+    int64_t       mBlockStartLogSeq;
+    int64_t       mLastBlockSeq;
+    int64_t       mLastLogAheadSeq;
+    int64_t       mLogAheadErrChksum;
+    int64_t       mSubEntryCount;
+    int64_t       mLogSegmentTimeUsec;
+    int           mRestoreTimeCount;
+    Replay* const mReplayer;
+    MetaRequest*  mCurOp;
 private:
     ReplayState(const ReplayState&);
     ReplayState& operator=(const ReplayState&);
@@ -161,7 +161,7 @@ class Replay::ReplayState : public KFS::ReplayState
 {
 public:
     ReplayState(
-        Replay& replay)
+        Replay* replay)
         : KFS::ReplayState(replay)
         {}
 };
@@ -1031,7 +1031,7 @@ replay_rollseeds(DETokenizer& c)
     }
     chunkID.setseed(chunkID.getseed() + roll);
     fileID.setseed(fileID.getseed() + roll);
-    ReplayState::get(c).mReplayer.setRollSeeds(roll);
+    ReplayState::get(c).mReplayer->setRollSeeds(roll);
     return true;
 }
 
@@ -1203,11 +1203,13 @@ replay_log_ahead_entry(DETokenizer& c)
         KFS_LOG_EOM;
         return false;
     }
-    status = status < 0 ? SysToKfsErrno(-status) : 0;
-    state.mLogAheadErrChksum += status;
-    state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
-        logSeq, status, fileID.getseed(), state.mLogAheadErrChksum));
-    state.mLastLogAheadSeq = logSeq;
+    if (state.mReplayer) {
+        status = status < 0 ? SysToKfsErrno(-status) : 0;
+        state.mLogAheadErrChksum += status;
+        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+            logSeq, status, fileID.getseed(), state.mLogAheadErrChksum));
+        state.mLastLogAheadSeq = logSeq;
+    }
     return (0 == state.mSubEntryCount);
 }
 
@@ -1398,10 +1400,12 @@ replay_cur_op(ReplayState& state)
     } else {
         op->replayFlag = false;
     }
-    const int status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
-    state.mLogAheadErrChksum += op->status;
-    state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
-        op->logseq, status, fileID.getseed(), state.mLogAheadErrChksum));
+    if (state.mReplayer) {
+        const int status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
+        state.mLogAheadErrChksum += op->status;
+        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+            op->logseq, status, fileID.getseed(), state.mLogAheadErrChksum));
+    }
 }
 
 static bool
@@ -1464,7 +1468,7 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->logseq = n;
-        if (n != state.mLastLogAheadSeq + 1) {
+        if (state.mReplayer && n != state.mLastLogAheadSeq + 1) {
             return false;
         }
         op->chunks.reserve(op->numChunks);
@@ -1606,11 +1610,22 @@ replay_cs_inflight(DETokenizer& c)
             return false;
         }
         op->removeServerFlag = 0 != n;
+        if ("r" != c.front()) {
+            return false;
+        }
+        c.pop_front();
+        if (c.empty()) {
+            return false;
+        }
+        // Original request type, presently used for debugging.
+        const DETokenizer::Token& rtype = c.front();
+        op->reqType = MetaRequest::GetId(TokenValue(rtype.ptr, rtype.len));
+        c.pop_front();
         if (! pop_num(n, "z", c, true) || n < 0) {
             return false;
         }
         op->logseq = n;
-        if (n != state.mLastLogAheadSeq + 1) {
+        if (state.mReplayer && n != state.mLastLogAheadSeq + 1) {
             return false;
         }
         if ((op->chunkId < 0) != (0 < op->idCount)) {
@@ -1621,6 +1636,13 @@ replay_cs_inflight(DETokenizer& c)
         replay_cur_op(state);
     }
     return replay_sub_entry(c);
+}
+
+static bool
+restore_chunk_server_end(DETokenizer& c)
+{
+    c.pop_front();
+    return replay_inc_seq(c);
 }
 
 static DiskEntry&
@@ -1672,6 +1694,14 @@ get_entry_map()
     return e;
 }
 
+/* static */ void
+Replay::AddRestotreEntries(DiskEntry& e)
+{
+    e.add_parser("cif", &replay_cs_inflight);
+    e.add_parser("cis", &replay_cs_inflight);
+    e.add_parser("cse", &restore_chunk_server_end);
+}
+
 Replay::BlockChecksum::BlockChecksum()
     : skip(0),
       checksum(kKfsNullChecksum)
@@ -1698,6 +1728,17 @@ Replay::BlockChecksum::write(const char* buf, size_t len)
     return true;
 }
 
+Replay::Tokenizer::Tokenizer(istream& file, Replay* replay)
+     : state(*(new ReplayState(replay))),
+       tokenizer(*(new DETokenizer(file, &state)))
+{}
+
+Replay::Tokenizer::~Tokenizer()
+{
+    delete &tokenizer;
+    delete &state;
+}
+
 const DETokenizer::Token kAheadLogEntry ("a", 1);
 const DETokenizer::Token kCommitLogEntry("c", 1);
 
@@ -1720,8 +1761,7 @@ Replay::Replay()
       tmplogname(),
       logdir(),
       mds(),
-      state(*(new ReplayState(*this))),
-      tokenizer(*(new DETokenizer(file, &state))),
+      replayTokenizer(file, this),
       entrymap(get_entry_map()),
       blockChecksum(),
       maxLogNum(-1),
@@ -1729,10 +1769,7 @@ Replay::Replay()
     {}
 
 Replay::~Replay()
-{
-    delete &tokenizer;
-    delete &state;
-}
+{}
 
 int
 Replay::playLine(const char* line, int len, seq_t blockSeq)
@@ -1740,6 +1777,8 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
     if (len <= 0) {
         return 0;
     }
+    DETokenizer& tokenizer = replayTokenizer.Get();
+    ReplayState& state     = replayTokenizer.GetState();
     tokenizer.setIntBase(16);
     if (0 <= blockSeq) {
         state.mLastBlockSeq = blockSeq - 1;
@@ -1805,12 +1844,14 @@ Replay::playlog(bool& lastEntryChecksumFlag)
     }
 
     lastLogStart             = committed;
+    ReplayState& state       = replayTokenizer.GetState();
     state.mLastBlockSeq      = -1;
     state.mLastLogAheadSeq   = committed;
     state.mBlockStartLogSeq  = committed;
     state.mLogAheadErrChksum = errChecksum;
     state.mSubEntryCount     = 0;
-    int status = 0;
+    int          status    = 0;
+    DETokenizer& tokenizer = replayTokenizer.Get();
     tokenizer.reset();
     while (tokenizer.next(&mds)) {
         if (tokenizer.empty()) {
@@ -1889,6 +1930,7 @@ Replay::playLogs(bool includeLastLogFlag)
         appendToLastLogFlag = false;
         return 0;
     }
+    ReplayState& state = replayTokenizer.GetState();
     state.mLastCommitted       = -1; // Log commit can be less than checkpoint.
     state.mCheckpointCommitted = committed;
     state.mCheckpointErrChksum = errChecksum;
@@ -1904,8 +1946,9 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     lastLineChecksumFlag       = false;
     lastLogIntBase             = -1;
     bool lastEntryChecksumFlag = false;
-    bool completeSegmentFlag   = true;
-    int  status                = 0;
+    bool         completeSegmentFlag = true;
+    int          status              = 0;
+    ReplayState& state               = replayTokenizer.GetState();
     for (seq_t i = number; ; i++) {
         if (! includeLastLogFlag && last < i) {
             break;

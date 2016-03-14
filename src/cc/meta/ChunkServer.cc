@@ -3046,80 +3046,49 @@ ChunkServer::Verify(
     return true;
 }
 
-template <typename TS, typename TC>
-inline static TS&
-CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
-{
-    return (os << ((0 == (cnt++ & 0x1F)) ? pref : "/") << id);
-}
-
-template <typename T>
-inline static T&
-CpInsertChunkOp(T& os, const char* cmdPref, const char* pref,
-    const MetaChunkRequest& op)
-{
-    os << "\npif/" << op.logCompletionSeq;
-    const ChunkIdQueue* const ids = op.GetChunkIds();
-    if (ids && ! ids->IsEmpty()) {
-        os << "/" << ids->GetSize() << "/";
-        unsigned int                cnt = 1;
-        ChunkIdQueue::ConstIterator it(*ids);
-        const chunkId_t*            id;
-        while ((id = it.Next())) {
-            CpInsertChunkId(os, pref, cnt, *id);
-        }
-    } else if (0 <= op.chunkId) {
-        os << "/1/" << op.chunkId;
-    } else {
-        os << "/0";
-    }
-    return os;
-}
-
-ostream&
+bool
 ChunkServer::Checkpoint(ostream& ost)
 {
+    if (mLastChunksInFlight.IsEmpty() || mDown) {
+        panic("checkpoint: invalid chunk server state");
+        return false;
+    }
     ReqOstream os(ost);
     os << "cs"
         "/loc/"      << GetServerLocation() <<
         "/idx/"      << GetIndex() <<
         "/chunks/"   << GetChunkCount() <<
         "/chksum/"   << GetChecksum() <<
-        "/retire/"   << mIsRetiring <<
+        "/retire/"   << (mIsRetiring ? 1 : 0) <<
         "/retstart/" << mRetireStartTime <<
-        "/replay/"   << (mReplayFlag ? 1 : 0) <<
-        "/clif/"     << mLastChunksInFlight.Size()
+        "/replay/"   << (mReplayFlag ? 1 : 0)
     ;
-    const char* const pref = "\ncif/";
-    unsigned int      cnt  = 0;
-    const chunkId_t*  id;
-    mLastChunksInFlight.First();
-    while ((id = mLastChunksInFlight.Next()) && ost) {
-        CpInsertChunkId(os, pref, cnt, *id);
-    }
+    os.flush();
     for (DispatchedReqs::const_iterator it = mDispatchedReqs.begin();
             it != mDispatchedReqs.end() && ost;
             ++it) {
-        const MetaChunkRequest& op  = *(it->second.second);
-        if (op.logCompletionSeq < 0) {
-            continue;
+        if (! MetaChunkLogInFlight::Checkpoint(ost, *(it->second.second))) {
+            return false;
         }
-        CpInsertChunkOp(os, "\nrif/", pref, op);
     }
     LogInFlightReqs::Iterator it(mLogInFlightReqs);
-    const MetaChunkRequest*   op;
+    MetaChunkRequest*         op;
     while ((op = it.Next())) {
-        if (op->logCompletionSeq < 0) {
-            panic("invalid log in flight op sequence");
+        if (op->logCompletionSeq < 0 || op->replayFlag || mReplayFlag) {
+            panic("invalid log in flight op sequence or replay flag");
             continue;
         }
-        CpInsertChunkOp(os, "\nlif/", pref, *op);
+        if (! MetaChunkLogInFlight::Checkpoint(ost, *op)) {
+            return false;
+        }
     }
-    os << "\n";
-    return ost;
+    os <<
+        "\n"
+        "cse\n";
+    return (!! ost);
 }
 
-/* static */ ostream&
+/* static */ bool
 ChunkServer::StartCheckpoint(ostream& os)
 {
     return os;
@@ -3555,7 +3524,14 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
     return os;
 }
 
-ostream&
+template <typename TS, typename TC>
+inline static TS&
+CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
+{
+    return (os << ((0 == (cnt++ & 0x1F)) ? pref : "/") << id);
+}
+
+bool
 HibernatedChunkServer::Checkpoint(ostream& ost,
     const ServerLocation& loc, time_t expTime)
 {
@@ -3582,11 +3558,13 @@ HibernatedChunkServer::Checkpoint(ostream& ost,
     for (mModifiedChunks.First(); (id = mModifiedChunks.Next()); ) {
         CpInsertChunkId(os, pref, cnt, *id);
     }
-    os << "\n";
+    os <<
+        "\n"
+        "hcse\n";
     return ost;
 }
 
-/* static */ ostream&
+/* static */ bool
 HibernatedChunkServer::StartCheckpoint(ostream& os)
 {
     return os;

@@ -2231,8 +2231,10 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     int64_t           idCount;
     bool              removeServerFlag;
     MetaChunkRequest* request;
+    int               reqType;
 
     static bool Log(MetaChunkRequest& req, int timeout);
+    static bool Checkpoint(ostream& os, MetaChunkRequest& req);
     MetaChunkLogInFlight(
         MetaChunkRequest* req        = 0,
         int               tmeout     = -1,
@@ -2242,7 +2244,10 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     virtual bool log(ostream& os) const;
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "log chunk in flight: " << ShowReq(request);
+        os << "log chunk in flight: " << ShowReq(request) <<
+            " type: ";
+        TokenValue name = GetName(reqType);
+        return os.write(name.mPtr, name.mLen);
     }
     virtual const ChunkIdQueue* GetChunkIds() const
     {

@@ -1435,7 +1435,9 @@ public:
     void Handle(MetaHibernateParamsUpdate& req);
     void Handle(MetaHibernateRemove& req);
     int WriteChunkServers(ostream& os) const;
-
+    bool RestoreChunkServer(const ServerLocation& loc,
+        int64_t idx, int64_t chunks, const CIdChecksum& chksum,
+        bool retiringFlag, int64_t retstart);
 protected:
     typedef vector<
         int,

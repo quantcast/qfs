@@ -3391,6 +3391,15 @@ LayoutManager::Handle(MetaHibernateRemove& req)
     mHibernatingServers.erase(it);
 }
 
+bool
+LayoutManager::RestoreChunkServer(
+    const ServerLocation& loc,
+    int64_t idx, int64_t chunks, const CIdChecksum& chksum,
+    bool retiringFlag, int64_t retstart)
+{
+    return true;
+}
+
 void
 LayoutManager::Replay(MetaHello& req)
 {
@@ -12389,7 +12398,9 @@ LayoutManager::WriteChunkServers(ostream& os) const
     for (Servers::const_iterator it = mChunkServers.begin();
             os && mChunkServers.end() != it;
             ++it) {
-        (*it)->Checkpoint(os);
+        if (! (*it)->Checkpoint(os)) {
+            return -EIO;
+        }
     }
     HibernatedChunkServer::StartCheckpoint(os);
     for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
@@ -12399,7 +12410,9 @@ LayoutManager::WriteChunkServers(ostream& os) const
             HibernatedChunkServer* const srv =
                 mChunkToServerMap.GetHiberantedServer(it->csmapIdx);
             if (srv) {
-                srv->Checkpoint(os, it->location, it->sleepEndTime);
+                if (! srv->Checkpoint(os, it->location, it->sleepEndTime)) {
+                    return -EIO;
+                }
             }
         }
     }

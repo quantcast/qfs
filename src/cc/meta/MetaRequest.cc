@@ -6014,7 +6014,8 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
         chunkIds(),
         idCount(-1),
         removeServerFlag(removeFlag),
-        request(req)
+        request(req),
+        reqType(req ? req->op : -1)
 {
     maxWaitMillisec = timeout;
 }
@@ -6023,7 +6024,8 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
 MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
 {
     if (req.replayFlag ||
-            (kLogIfOk == req.logAction && kLogAlways == req.logAction)  ||
+            kLogIfOk == req.logAction ||
+            kLogAlways == req.logAction ||
             (req.chunkId < 0 && ! req.GetChunkIds()) ||
             0 != req.status) {
         return false;
@@ -6033,6 +6035,36 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
         META_CHUNK_STALENOTIFY == req.op
     ));
     return true;
+}
+
+/* static */ bool
+MetaChunkLogInFlight::Checkpoint(ostream& os, MetaChunkRequest& req)
+{
+    if (0 != req.status) {
+        return os;
+    }
+    const bool kOmitDefaultsFlag = true;
+    if ((kLogIfOk == req.logAction || kLogAlways == req.logAction) &&
+            META_CHUNK_OP_LOG_IN_FLIGHT != req.op) {
+        if (req.logseq < 0) {
+            panic("checkpoint chunk in flight: invalid log sequence");
+            return false;
+        }
+        return (req.WriteLog(os, kOmitDefaultsFlag) && os);
+    }
+    if (((req.logCompletionSeq < 0 && META_CHUNK_OP_LOG_IN_FLIGHT != req.op) ||
+            (req.chunkId < 0 && ! req.GetChunkIds()))) {
+        return os;
+    }
+    const bool kRemoveFlag = false; // Revoal is already done..
+    MetaChunkLogInFlight lreq(&req, -1, kRemoveFlag);
+    lreq.logseq = META_CHUNK_OP_LOG_IN_FLIGHT != req.op ?
+        req.logseq : req.logCompletionSeq;
+    if (lreq.logseq < 0) {
+        panic("checkpoint chunk in flight: invalid log sequence");
+        return false;
+    }
+    return (lreq.start() && lreq.WriteLog(os, kOmitDefaultsFlag) && os);
 }
 
 void
@@ -6052,6 +6084,7 @@ MetaChunkLogInFlight::log(ostream& os) const
     }
     ReqOstream ros(os);
     size_t subEntryCnt = 1;
+    const TokenValue name = MetaRequest::GetName(request->op);
     if (ids) {
         const size_t entrySizeLog2 = 6;
         const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
@@ -6063,6 +6096,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/s/" << ids->GetSize() <<
             "/c/" << chunkId_t(-1) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
+            "/r/"; ros.write(name.mPtr, name.mLen) <<
             "/z/" << logseq
         ;
         size_t                      cnt = 0;
@@ -6086,6 +6120,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/s/" << size_t(0) <<
             "/c/" << request->chunkId <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
+            "/r/"; ros.write(name.mPtr, name.mLen) <<
             "/z/" << logseq
         ;
     }
