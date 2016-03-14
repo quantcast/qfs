@@ -50,4 +50,22 @@ foreach (exe_file ${exe_files})
     endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
 
+# Include all tests in their respective subdirectories into libqfstest
+include(QfsUtil)
 
+set(test_sources
+    integtest.cc
+    integtest_main.cc
+)
+
+SUBDIRLIST(test_dirs ${CMAKE_CURRENT_LIST_DIR})
+foreach(test_dir ${test_dirs})
+    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/${test_dir})
+endforeach()
+
+add_executable(test.t ${test_sources})
+target_link_libraries(test.t libgtest)
+
+install (TARGETS test.t
+    RUNTIME DESTINATION bin/tests
+)

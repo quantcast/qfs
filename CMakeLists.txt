@@ -34,6 +34,7 @@ find_package(JNI REQUIRED)
 find_package(Krb5 REQUIRED krb5)
 find_package(OpenSSL)
 find_package(FUSE)
+find_package(gtest)
 
 # Define various options based on the library configuration we use
 if(KRB5_FLAVOR)
