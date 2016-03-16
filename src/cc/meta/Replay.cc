@@ -1619,7 +1619,7 @@ replay_cs_inflight(DETokenizer& c)
         }
         // Original request type, presently used for debugging.
         const DETokenizer::Token& rtype = c.front();
-        op->reqType = MetaRequest::GetId(TokenValue(rtype.ptr, rtype.len));
+        op->reqType = MetaChunkLogInFlight::GetReqId(rtype.ptr, rtype.len);
         c.pop_front();
         if (! pop_num(n, "z", c, true) || n < 0) {
             return false;

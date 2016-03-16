@@ -2138,6 +2138,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     ServerLocation    doneLocation;
     seq_t             doneLogSeq;
     int               doneStatus;
+    bool              doneTimedOutFlag;
     MetaChunkRequest* doneOp;
     chunkId_t         chunkId;
     seq_t             chunkVersion;
@@ -2160,11 +2161,12 @@ struct MetaChunkLogCompletion : public MetaRequest {
     {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkLogCompletion::doneLocation)
-        .Def("L", &MetaChunkLogCompletion::doneLogSeq,   seq_t(-1))
-        .Def("R", &MetaChunkLogCompletion::doneStatus,   0)
-        .Def("C", &MetaChunkLogCompletion::chunkId,      chunkId_t(-1))
-        .Def("V", &MetaChunkLogCompletion::chunkVersion, seq_t(-1))
-        .Def("O", &MetaChunkLogCompletion::chunkOpType,  int(kChunkOpTypeNone))
+        .Def("L", &MetaChunkLogCompletion::doneLogSeq,       seq_t(-1))
+        .Def("R", &MetaChunkLogCompletion::doneStatus,       0)
+        .Def("T", &MetaChunkLogCompletion::doneTimedOutFlag, false)
+        .Def("C", &MetaChunkLogCompletion::chunkId,          chunkId_t(-1))
+        .Def("V", &MetaChunkLogCompletion::chunkVersion,     seq_t(-1))
+        .Def("O", &MetaChunkLogCompletion::chunkOpType,      int(kChunkOpTypeNone))
         ;
     }
 };
@@ -2191,6 +2193,7 @@ struct MetaChunkRequest : public MetaRequest {
     ChunkOpsInFlight::iterator inFlightIt;
     seq_t                      logCompletionSeq;
     bool                       pendingAddFlag;
+    bool                       timedOutFlag;
 
     MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
@@ -2200,7 +2203,8 @@ struct MetaChunkRequest : public MetaRequest {
           chunkVersion(0),
           inFlightIt(),
           logCompletionSeq(-1),
-          pendingAddFlag(false)
+          pendingAddFlag(false),
+          timedOutFlag(false)
         { List::Init(*this); }
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
@@ -2244,15 +2248,24 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     virtual bool log(ostream& os) const;
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "log chunk in flight: " << ShowReq(request) <<
-            " type: ";
-        TokenValue name = GetName(reqType);
-        return os.write(name.mPtr, name.mLen);
+        return (os <<
+            "log chunk in flight: " << ShowReq(request) <<
+            " type: " << GetReqName(reqType)
+        );
     }
     virtual const ChunkIdQueue* GetChunkIds() const
     {
         return (chunkIds.IsEmpty() ? 0 : &chunkIds);
     }
+    static const char* GetReqName(int id);
+    static int GetReqId(const char* name, size_t len);
+private:
+    struct NameTable
+    {
+        int        id;
+        const char name[8];
+    };
+    static NameTable const sNameTable[];
 };
 
 /*!
@@ -2447,6 +2460,7 @@ struct MetaChunkSize: public MetaChunkRequest {
     fid_t      fid; // redundant, for debug purposes only.
     chunkOff_t chunkSize; //!< output: the chunk size
     bool       retryFlag;
+    bool       checkChunkFlag;
     MetaChunkSize(
             seq_t                 n = 0,
             const ChunkServerPtr& s = ChunkServerPtr(),
@@ -2457,7 +2471,8 @@ struct MetaChunkSize: public MetaChunkRequest {
         : MetaChunkRequest(META_CHUNK_SIZE, n, kLogIfOk, s, c),
           fid(f),
           chunkSize(-1),
-          retryFlag(retry)
+          retryFlag(retry),
+          checkChunkFlag(false)
         { chunkVersion = v; }
     bool Validate() { return true; }
     virtual bool start();

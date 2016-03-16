@@ -5966,9 +5966,12 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
       doneLocation(op ? op->server->GetServerLocation() : ServerLocation()),
       doneLogSeq(op ? op->logCompletionSeq : seq_t(-1)),
       doneStatus(op ? op->status : 0),
+      doneTimedOutFlag(op && op->timedOutFlag && 0 <= op->chunkId &&
+        0 <= op->chunkVersion &&
+        META_CHUNK_DELETE != op->op && META_CHUNK_STALENOTIFY != op->op),
       doneOp(op),
-      chunkId(-1),
-      chunkVersion(-1),
+      chunkId(op ? op->chunkId : chunkId_t(-1)),
+      chunkVersion(doneTimedOutFlag ? op->chunkVersion : seq_t(-1)),
       chunkOpType(MetaChunkLogCompletion::kChunkOpTypeNone)
 {
     if (op && op->pendingAddFlag &&
@@ -5984,13 +5987,14 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
 {
     return (os <<
         "log chunk completion:"
-        " "          << doneLocation <<
-        " log seq: " << doneLogSeq <<
-        " status: "  << doneStatus <<
-        " map op: "  << chunkOpType <<
-        " chunkId: " << chunkId <<
-        " version: " << chunkVersion <<
-        " op: "      << ShowReq(doneOp)
+        " "           << doneLocation <<
+        " log seq: "  << doneLogSeq <<
+        " status: "   << doneStatus <<
+        " map op: "   << chunkOpType <<
+        " chunkId: "  << chunkId <<
+        " version: "  << chunkVersion <<
+        " timedout: " << doneTimedOutFlag <<
+        " op: "       << ShowReq(doneOp)
     );
 }
 
@@ -6084,7 +6088,7 @@ MetaChunkLogInFlight::log(ostream& os) const
     }
     ReqOstream ros(os);
     size_t subEntryCnt = 1;
-    const TokenValue name = MetaRequest::GetName(request->op);
+    const char* const name = GetReqName(request->op);
     if (ids) {
         const size_t entrySizeLog2 = 6;
         const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
@@ -6096,7 +6100,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/s/" << ids->GetSize() <<
             "/c/" << chunkId_t(-1) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
-            "/r/"; ros.write(name.mPtr, name.mLen) <<
+            "/r/" << name <<
             "/z/" << logseq
         ;
         size_t                      cnt = 0;
@@ -6120,12 +6124,49 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/s/" << size_t(0) <<
             "/c/" << request->chunkId <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
-            "/r/"; ros.write(name.mPtr, name.mLen) <<
+            "/r/" << name <<
             "/z/" << logseq
         ;
     }
     ros << "\n";
     return true;
+}
+
+MetaChunkLogInFlight::NameTable const MetaChunkLogInFlight::sNameTable[] = {
+    // Only the chunk ops that are logged using "log in flight".
+    // Presently intended for debugging.
+    { META_CHUNK_ALLOCATE,          { "ALC"  }},
+    { META_CHUNK_DELETE,            { "DEL"  }},
+    { META_CHUNK_STALENOTIFY,       { "STL"  }},
+    { META_BEGIN_MAKE_CHUNK_STABLE, { "BMCS" }},
+    { META_CHUNK_MAKE_STABLE,       { "MCS"  }},
+    { META_CHUNK_VERSCHANGE,        { "VC"   }},
+    { META_CHUNK_REPLICATE,         { "REPL" }},
+    { META_CHUNK_SIZE,              { "SZ"   }},
+    { META_CHUNK_OP_LOG_IN_FLIGHT,  { "LIF"  }},
+    { -1, { "" }} // Sentinel
+};
+
+/* static */ const char*
+MetaChunkLogInFlight::GetReqName(int type)
+{
+    for (const NameTable* ptr = sNameTable; *ptr->name; ++ptr) {
+        if (ptr->id == type) {
+            return ptr->name;
+        }
+    }
+    return "";
+}
+
+/* static */ int
+MetaChunkLogInFlight::GetReqId(const char* name, size_t len)
+{
+    for (const NameTable* ptr = sNameTable; *ptr->name; ++ptr) {
+        if (strncmp(ptr->name, name, len) == 0) {
+            return ptr->id;
+        }
+    }
+    return -1;
 }
 
 /* virtual */ void

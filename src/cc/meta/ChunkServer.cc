@@ -199,6 +199,7 @@ int ChunkServer::sMakeStableTimeout    = 330;
 int ChunkServer::sReplicationTimeout   = 510;
 int ChunkServer::sRequestTimeout       = 600;
 int ChunkServer::sMetaClientPort       = 0;
+int ChunkServer::sTimedoutExpireTime   = 10;
 size_t ChunkServer::sMaxChunksToEvacuate  = 2 << 10; // Max queue size
 // sHeartbeatInterval * sSrvLoadSamplerSampleCount -- boxcar FIR filter
 // if sSrvLoadSamplerSampleCount > 0
@@ -274,6 +275,9 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sMaxChunksToEvacuate = max(size_t(1), prop.getValue(
         "metaServer.chunkServer.maxChunksToEvacuate",
         sMaxChunksToEvacuate));
+    sTimedoutExpireTime = max(0, prop.getValue(
+        "metaServer.chunkServer.timedoutExpireTime",
+        sTimedoutExpireTime));
     if (clientPort > 0) {
         sMetaClientPort = clientPort;
     }
@@ -462,6 +466,8 @@ ChunkServer::ChunkServer(
       mDispatchedReqs(),
       mLogInFlightReqs(),
       mReqsTimeoutQueue(),
+      mDoneTimedoutChunks(),
+      mDoneTimedoutList(),
       mTmpReqQueue(),
       mLostChunks(0),
       mUptime(0),
@@ -2041,6 +2047,20 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             req.status = -EFAULT;
             panic("Invalid chunk RPC completion");
         }
+        if (0 <= req.chunkId && 0 <= req.chunkVersion) {
+            if (req.doneTimedOutFlag) {
+                bool          insertedFlag = false;
+                TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(
+                    req.chunkId,
+                    TimeoutEntry(req.chunkVersion, TimeNow()),
+                    insertedFlag
+                );
+                DoneTimedoutList::Insert(*entry,
+                    DoneTimedoutList::GetPrev(mDoneTimedoutList));
+            } else {
+                mDoneTimedoutChunks.Erase(req.chunkId);
+            }
+        }
     } else {
         req.status = -ENOENT;
     }
@@ -2119,6 +2139,10 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         if (! r->replayFlag && MetaChunkLogInFlight::Log(*r, timeout)) {
             return;
         }
+    }
+    if (0 <= r->logseq && 0 <= r->chunkId &&
+            (0 <= r->chunkVersion || META_CHUNK_STALENOTIFY == r->op)) {
+        mDoneTimedoutChunks.Erase(r->chunkId);
     }
     if (0 == r->submitCount) {
         r->submitTime = microseconds();
@@ -2592,18 +2616,51 @@ ChunkServer::TimeoutOps()
             it != mTmpReqQueue.end();
             ++it) {
         MetaChunkRequest* const op = *it;
-        op->statusMsg = "request timed out";
-        op->status    = -EIO;
+        op->statusMsg    = "request timed out";
+        op->status       = -EIO;
+        op->timedOutFlag = true;
         op->resume();
     }
     mTmpReqQueue.clear();
+    TimeoutEntry* entry;
+    time_t        expired = TimeNow() - sTimedoutExpireTime;
+    while ((entry = &DoneTimedoutList::GetNext(mDoneTimedoutList)) !=
+            &mDoneTimedoutList && entry->GetTime() <= expired) {
+        // Run chunk size RPC to check if chunk is present and
+        // remove the entries in replay.
+        MetaChunkSize* op = new MetaChunkSize(0, mSelfPtr);
+        op->logAction      = MetaChunkSize::kLogNever;
+        op->chunkId        = entry->GetKey();
+        op->chunkVersion   = entry->GetChunkVersion();
+        op->checkChunkFlag = true;
+        mDoneTimedoutChunks.Erase(op->chunkId);
+        Enqueue(op);
+    }
     return (mReqsTimeoutQueue.empty() ?
         -1 : int(mReqsTimeoutQueue.begin()->first - now + 1));
+}
+
+template<typename T> inline static void
+AppendInFlightChunks(T& dest, const MetaChunkRequest& op)
+{
+    const ChunkIdQueue* const ids = op.GetChunkIds();
+    if (ids) {
+        ChunkIdQueue::ConstIterator it(*ids);
+        const chunkId_t*            id;
+        while ((id = it.Next())) {
+            dest.Insert(*id);
+        }
+    } else if (0 <= op.chunkId) {
+        dest.Insert(op.chunkId);
+    }
 }
 
 void
 ChunkServer::FailDispatchedOps(const char* errMsg)
 {
+    if (mReplayFlag && ! LogInFlightReqs::IsEmpty(mLogInFlightReqs)) {
+        panic("chunk server: replay: invalid non empty log in flight queue");
+    }
     DispatchedReqs   reqs;
     ReqsTimeoutQueue reqTimeouts;
     mReqsTimeoutQueue.swap(reqTimeouts);
@@ -2618,29 +2675,29 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " failing op: " << op.Show() <<
         KFS_LOG_EOM;
-        const ChunkIdQueue* const ids = op.GetChunkIds();
-        if (ids) {
-            ChunkIdQueue::ConstIterator it(*ids);
-            const chunkId_t*            id;
-            while ((id = it.Next())) {
-                mLastChunksInFlight.Insert(*id);
-            }
-        } else if (0 <= op.chunkId) {
-            mLastChunksInFlight.Insert(op.chunkId);
+        if (! mHelloDone && 0 <= op.logCompletionSeq) {
+            panic("chunk server: RPC was queued prior to hello completion");
         }
+        AppendInFlightChunks(mLastChunksInFlight, op);
         sChunkOpsInFlight.erase(op.inFlightIt);
         op.inFlightIt = ChunkOpsInFlight::iterator();
+    }
+    // Add to the last in flight ops waiting for log completion, regardless
+    // of whether or not those can change  (add) chunk mapping after the log
+    // write completion, in order to match the replay case when the surrogate
+    // ops (log in flight) are in the dispatched queue.
+    LogInFlightReqs::Iterator it(mLogInFlightReqs);
+    MetaChunkRequest*         op;
+    while ((op = it.Next())) {
+        AppendInFlightChunks(mLastChunksInFlight, *op);
     }
     // Fail in the same order as these were queued.
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
             ++it) {
         MetaChunkRequest* const op = it->second.second;
-        op->statusMsg = errMsg ? errMsg : "chunk server disconnect";
-        op->status    = -EIO;
-        if (! mHelloDone && 0 <= op->logCompletionSeq) {
-            panic("chunk server: RPC was queued prior to hello completion");
-        }
+        op->statusMsg        = errMsg ? errMsg : "chunk server disconnect";
+        op->status           = -EIO;
         op->logCompletionSeq = -1; // Do not create (log) completion entry.
         op->resume();
     }
@@ -3049,8 +3106,9 @@ ChunkServer::Verify(
 bool
 ChunkServer::Checkpoint(ostream& ost)
 {
-    if (mLastChunksInFlight.IsEmpty() || mDown) {
-        panic("checkpoint: invalid chunk server state");
+    if (! mLastChunksInFlight.IsEmpty() || mDown ||
+            (mReplayFlag && ! LogInFlightReqs::IsEmpty(mLogInFlightReqs))) {
+        panic("chunk server: checkpoint: invalid state");
         return false;
     }
     ReqOstream os(ost);
@@ -3061,8 +3119,16 @@ ChunkServer::Checkpoint(ostream& ost)
         "/chksum/"   << GetChecksum() <<
         "/retire/"   << (mIsRetiring ? 1 : 0) <<
         "/retstart/" << mRetireStartTime <<
-        "/replay/"   << (mReplayFlag ? 1 : 0)
+        "/replay/"   << (mReplayFlag ? 1 : 0) <<
+        "/timedout/" << mDoneTimedoutChunks.GetSize()
     ;
+    unsigned int        cnt = 0;
+    const TimeoutEntry* entry;
+    while ((entry = &DoneTimedoutList::GetNext(mDoneTimedoutList)) !=
+            &mDoneTimedoutList) {
+        os << ((cnt++ & 0xFF) ? "\ntmd/" : "/") << entry->GetKey() <<
+            "/" << entry->GetChunkVersion();
+    }
     os.flush();
     for (DispatchedReqs::const_iterator it = mDispatchedReqs.begin();
             it != mDispatchedReqs.end() && ost;
@@ -3074,7 +3140,7 @@ ChunkServer::Checkpoint(ostream& ost)
     LogInFlightReqs::Iterator it(mLogInFlightReqs);
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
-        if (op->logCompletionSeq < 0 || op->replayFlag || mReplayFlag) {
+        if (op->logCompletionSeq < 0 || op->replayFlag) {
             panic("invalid log in flight op sequence or replay flag");
             continue;
         }

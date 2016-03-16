@@ -3397,6 +3397,26 @@ LayoutManager::RestoreChunkServer(
     int64_t idx, int64_t chunks, const CIdChecksum& chksum,
     bool retiringFlag, int64_t retstart)
 {
+    Servers::const_iterator const it = lower_bound(
+        mChunkServers.begin(), mChunkServers.end(),
+        loc, bind(&ChunkServer::GetServerLocation, _1) < loc
+    );
+    if ( mChunkServers.end() != it && (*it)->GetServerLocation() == loc) {
+        KFS_LOG_STREAM_ERROR <<
+            "duplicate chunk server location: " << loc <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    ChunkServerPtr const server = ChunkServer::Create(
+        NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
+        loc
+    );
+    /*
+    if (! mChunkToServerMap.AddServer(server, idx)) {
+        return false;
+    }
+    */
+    mChunkServers.insert(it, server);
     return true;
 }
 
@@ -9398,6 +9418,37 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
 {
     if (req->chunkVersion < 0) {
         return -ENOENT; // Object store block.
+    }
+    if (req->checkChunkFlag) {
+        if (0 <= req->logseq) {
+            panic("chunk size: check chunk only: invalid log sequence");
+            return -EFAULT;
+        }
+        if (0 == req->status && req->server && 0 < req->chunkId) {
+            // If chunk server has the replica that isn't in the map, delete it.
+            const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
+            if ((! ci || ! mChunkToServerMap.HasServer(req->server, *ci)) &&
+                     ! req->server->IsDown()) {
+                MetaOp const types[] = {
+                    META_CHUNK_ALLOCATE,
+                    META_CHUNK_DELETE,
+                    META_CHUNK_REPLICATE,
+                    META_CHUNK_VERSCHANGE,
+                    META_BEGIN_MAKE_CHUNK_STABLE,
+                    META_CHUNK_MAKE_STABLE,
+                    META_NUM_OPS_COUNT     // Sentinel
+                };
+                Servers          srvs;
+                const chunkOff_t kObjStoreBlockPos = -1;
+                if (! ci || (0 < GetInFlightChunkOpsCount(
+                            req->chunkId, types, kObjStoreBlockPos, &srvs) &&
+                        find(srvs.begin(), srvs.end(), req->server) ==
+                            srvs.end())) {
+                    req->server->NotifyStaleChunk(req->chunkId);
+                }
+            }
+        }
+        return req->status;
     }
     if (0 <= req->status && req->logseq < 0) {
         panic("chunk size: invalid log sequence");

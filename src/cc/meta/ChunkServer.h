@@ -1070,12 +1070,59 @@ protected:
         StdFastAllocator<string>
     > LostChunkDirs;
     typedef vector<MetaChunkRequest*> TmpReqQueue;
+    class TimeoutEntry
+    {
+    public:
+        typedef chunkId_t                   Key;
+        typedef TimeoutEntry                Val;
+        typedef QCDLListOp<TimeoutEntry, 0> List;
+
+        explicit TimeoutEntry(
+            time_t time         = -1,
+            seq_t  chunkVersion = -1)
+            : mChunkId(-1),
+              mChunkVersion(chunkVersion),
+              mTime(time)
+            { List::Init(*this); }
+        explicit TimeoutEntry(
+            Key                 chunkId,
+            const TimeoutEntry& entry)
+            : mChunkId(chunkId),
+              mChunkVersion(entry.mChunkVersion),
+              mTime(entry.mTime)
+            { List::Init(*this); }
+        ~TimeoutEntry()
+            { List::Remove(*this); }
+        const Key& GetKey()     const { return mChunkId; }
+        const Val& GetVal()     const { return *this; }
+        Val& GetVal()                 { return *this; }
+        time_t GetTime()        const { return mTime; }
+        seq_t GetChunkVersion() const { return mChunkVersion; }
+    private:
+        chunkId_t const mChunkId;
+        seq_t     const mChunkVersion;
+        time_t    const mTime;
+        TimeoutEntry*   mPrevPtr[1];
+        TimeoutEntry*   mNextPtr[1];
+        friend class QCDLListOp<TimeoutEntry, 0>;
+
+        TimeoutEntry& operator=(const TimeoutEntry&);
+    };
+    typedef LinearHash<
+        TimeoutEntry,
+        KeyCompare<TimeoutEntry::Key>,
+        DynamicArray<SingleLinkedList<TimeoutEntry>*>,
+        StdFastAllocator<TimeoutEntry>
+    > DoneTimedoutChunks;
+    typedef TimeoutEntry::List DoneTimedoutList;
 
     enum { kChunkSrvListsCount = 2 };
     /// RPCs that we have sent to this chunk server.
     DispatchedReqs     mDispatchedReqs;
     MetaChunkRequest*  mLogInFlightReqs[1];
     ReqsTimeoutQueue   mReqsTimeoutQueue;
+    DoneTimedoutChunks mDoneTimedoutChunks;
+    TimeoutEntry       mDoneTimedoutList;
     TmpReqQueue        mTmpReqQueue;
     int64_t            mLostChunks;
     int64_t            mUptime;
@@ -1145,6 +1192,7 @@ protected:
     static int64_t          sHelloBytesCommitted;
     static int64_t          sHelloBytesInFlight;
     static int              sEvacuateRateUpdateInterval;
+    static int              sTimedoutExpireTime;
     static size_t           sChunkDirsCount;
 
     friend class QCDLListOp<ChunkServer, 0>;
