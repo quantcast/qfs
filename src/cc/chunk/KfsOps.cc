@@ -3204,6 +3204,12 @@ SizeOp::Response(ReqOstream& os)
     if (! OkHeader(this, os)) {
         return;
     }
+    if (checkFlag && 0 <= chunkVersion) {
+        os << (shortRpcFormatFlag ? "V:"  : "Chunk-version: ") <<
+            chunkVersion << "\r\n";
+        os << (shortRpcFormatFlag ? "SC:" : "Stable-flag: ") <<
+            (stableFlag ? 1 : 0) << "\r\n";
+    }
     os << (shortRpcFormatFlag ? "S:" : "Size: ") << size << "\r\n\r\n";
 }
 
@@ -3422,6 +3428,9 @@ SizeOp::Request(ReqOstream& os)
     (shortRpcFormatFlag ? "c:" : "Cseq: ") << seq << "\r\n";
     if (! shortRpcFormatFlag) {
         os << "Version: "       << KFS_VERSION_STR << "\r\n";
+    }
+    if (checkFlag) {
+        os << (shortRpcFormatFlag ? "K:1" : "Chunk-check: 1") << "\r\n";
     }
     os <<
     (shortRpcFormatFlag ? "H:" : "Chunk-handle: ")  << chunkId << "\r\n" <<

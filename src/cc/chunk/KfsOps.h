@@ -1777,10 +1777,14 @@ struct ReadOp : public KfsClientChunkOp {
 struct SizeOp : public KfsClientChunkOp {
     kfsFileId_t fileId; // optional
     int64_t     size; /* result */
+    bool        checkFlag;
+    bool        stableFlag;
     SizeOp()
         : KfsClientChunkOp(CMD_SIZE),
           fileId(-1),
-          size(-1)
+          size(-1),
+          checkFlag(false),
+          stableFlag(false)
         { SET_HANDLER(this, &SizeOp::HandleChunkMetaReadDone); }
 
     void Request(ReqOstream& os);
@@ -1806,7 +1810,8 @@ struct SizeOp : public KfsClientChunkOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
-        .Def2("File-handle", "P", &SizeOp::fileId, kfsFileId_t(-1))
+        .Def2("File-handle", "P", &SizeOp::fileId,    kfsFileId_t(-1))
+        .Def2("Chunk-check", "K", &SizeOp::checkFlag, false)
         ;
     }
 };

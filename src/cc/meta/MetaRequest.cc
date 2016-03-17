@@ -4149,6 +4149,23 @@ MetaRequest::~MetaRequest()
     sMetaRequestCount--;
 }
 
+/* static */ MetaChunkRequest::ChunkOpsInFlight::iterator
+MetaChunkRequest::MakeNullIterator()
+{
+    static ChunkOpsInFlight sNull;
+    return sNull.end();
+}
+const MetaChunkRequest::ChunkOpsInFlight::iterator
+    MetaChunkRequest::kNullIterator(MetaChunkRequest::MakeNullIterator());
+
+/* virtual */
+MetaChunkRequest::~MetaChunkRequest()
+{
+    if (kNullIterator != inFlightIt) {
+        panic("invalid in flight iterator in meta chunk request destructor");
+    }
+}
+
 /* virtual */ void
 MetaRequest::handle()
 {
@@ -5664,6 +5681,9 @@ MetaChunkSize::request(ReqOstream& os)
     if (! shortRpcFormatFlag) {
         os << "Version: KFS/1.0\r\n";
     }
+    if (checkChunkFlag) {
+        os << (shortRpcFormatFlag ? "K:1" : "Chunk-check: 1") << "\r\n";
+    }
     os <<
     (shortRpcFormatFlag ? "P:" : "File-handle: ")   << fid          << "\r\n" <<
     (shortRpcFormatFlag ? "V:" : "Chunk-version: ") << chunkVersion << "\r\n" <<
@@ -5966,9 +5986,14 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
       doneLocation(op ? op->server->GetServerLocation() : ServerLocation()),
       doneLogSeq(op ? op->logCompletionSeq : seq_t(-1)),
       doneStatus(op ? op->status : 0),
-      doneTimedOutFlag(op && op->timedOutFlag && 0 <= op->chunkId &&
+      doneTimedOutFlag(
+        op &&
+        op->timedOutFlag &&
+        0 <= op->chunkId &&
         0 <= op->chunkVersion &&
-        META_CHUNK_DELETE != op->op && META_CHUNK_STALENOTIFY != op->op),
+        META_CHUNK_DELETE      != op->op &&
+        META_CHUNK_STALENOTIFY != op->op &&
+        META_CHUNK_SIZE        != op->op),
       doneOp(op),
       chunkId(op ? op->chunkId : chunkId_t(-1)),
       chunkVersion(doneTimedOutFlag ? op->chunkVersion : seq_t(-1)),
@@ -6030,6 +6055,7 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
     if (req.replayFlag ||
             kLogIfOk == req.logAction ||
             kLogAlways == req.logAction ||
+            req.chunkVersion < 0 || // do not log object store RPCs
             (req.chunkId < 0 && ! req.GetChunkIds()) ||
             0 != req.status) {
         return false;

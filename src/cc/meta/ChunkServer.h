@@ -1078,17 +1078,14 @@ protected:
         typedef QCDLListOp<TimeoutEntry, 0> List;
 
         explicit TimeoutEntry(
-            time_t time         = -1,
-            seq_t  chunkVersion = -1)
+            time_t time = -1)
             : mChunkId(-1),
-              mChunkVersion(chunkVersion),
               mTime(time)
             { List::Init(*this); }
         explicit TimeoutEntry(
             Key                 chunkId,
             const TimeoutEntry& entry)
             : mChunkId(chunkId),
-              mChunkVersion(entry.mChunkVersion),
               mTime(entry.mTime)
             { List::Init(*this); }
         ~TimeoutEntry()
@@ -1097,11 +1094,10 @@ protected:
         const Val& GetVal()     const { return *this; }
         Val& GetVal()                 { return *this; }
         time_t GetTime()        const { return mTime; }
-        seq_t GetChunkVersion() const { return mChunkVersion; }
+        void SetTime(time_t time)     { mTime = time; }
     private:
         chunkId_t const mChunkId;
-        seq_t     const mChunkVersion;
-        time_t    const mTime;
+        time_t          mTime;
         TimeoutEntry*   mPrevPtr[1];
         TimeoutEntry*   mNextPtr[1];
         friend class QCDLListOp<TimeoutEntry, 0>;
@@ -1313,6 +1309,7 @@ protected:
     inline void Submit(MetaRequest& op);
     inline ChunkServerPtr GetSelfPtr();
     bool ReplayValidate(MetaRequest& r) const;
+    inline void RemoveInFlight(MetaChunkRequest& req);
 };
 
 class CSMap;

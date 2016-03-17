@@ -4374,7 +4374,7 @@ ChunkManager::ChunkSize(SizeOp* op)
         op->statusMsg = "chunk replication in progress";
         return true;
     }
-    if (0 <= cih->chunkInfo.chunkVersion &&
+    if (0 <= cih->chunkInfo.chunkVersion && ! op->checkFlag &&
             op->chunkVersion != cih->chunkInfo.chunkVersion) {
         op->status    = -EBADVERS;
         op->statusMsg = "chunk version mismatch";
@@ -4384,6 +4384,10 @@ ChunkManager::ChunkSize(SizeOp* op)
             ! gAtomicRecordAppendManager.IsChunkStable(op->chunkId)) {
         op->statusMsg = "write append in progress, returning max chunk size";
         op->size      = CHUNKSIZE;
+        if (op->checkFlag) {
+            op->chunkVersion = cih->chunkInfo.chunkVersion;
+            op->stableFlag   = false;
+        }
         KFS_LOG_STREAM_DEBUG <<
             op->statusMsg <<
             " chunk: " << op->chunkId <<
@@ -4395,9 +4399,15 @@ ChunkManager::ChunkSize(SizeOp* op)
     if ((! mChunkSizeSkipHeaderVerifyFlag ||
             cih->chunkInfo.chunkVersion < 0) &&
             ! cih->chunkInfo.AreChecksumsLoaded()) {
+        if (op->checkFlag) {
+            op->chunkVersion = cih->chunkInfo.chunkVersion;
+        }
         return false;
     }
     op->size = cih->chunkInfo.chunkSize;
+    if (op->checkFlag) {
+        op->chunkVersion = cih->GetTargetStateAndVersion(op->stableFlag);
+    }
     return true;
 }
 

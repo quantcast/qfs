@@ -2177,6 +2177,14 @@ struct MetaChunkLogCompletion : public MetaRequest {
  * request.
  */
 struct MetaChunkRequest : public MetaRequest {
+    chunkId_t            chunkId;
+    const ChunkServerPtr server; // The "owner".
+    seq_t                chunkVersion;
+    seq_t                logCompletionSeq;
+    bool                 pendingAddFlag;
+    bool                 timedOutFlag;
+
+private:
     typedef multimap <
         chunkId_t,
         const MetaChunkRequest*,
@@ -2187,13 +2195,15 @@ struct MetaChunkRequest : public MetaRequest {
     > ChunkOpsInFlight;
     typedef QCDLList<MetaChunkRequest, 0> List;
 
-    chunkId_t                  chunkId;
-    const ChunkServerPtr       server; // The "owner".
-    seq_t                      chunkVersion;
     ChunkOpsInFlight::iterator inFlightIt;
-    seq_t                      logCompletionSeq;
-    bool                       pendingAddFlag;
-    bool                       timedOutFlag;
+    MetaChunkRequest*          mPrevPtr[1];
+    MetaChunkRequest*          mNextPtr[1];
+    friend class QCDLListOp<MetaChunkRequest, 0>;
+    friend class ChunkServer;
+
+    static ChunkOpsInFlight::iterator MakeNullIterator();
+public:
+    static const ChunkOpsInFlight::iterator kNullIterator;
 
     MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
@@ -2201,11 +2211,12 @@ struct MetaChunkRequest : public MetaRequest {
           chunkId(cid),
           server(c),
           chunkVersion(0),
-          inFlightIt(),
           logCompletionSeq(-1),
           pendingAddFlag(false),
-          timedOutFlag(false)
+          timedOutFlag(false),
+          inFlightIt(kNullIterator)
         { List::Init(*this); }
+    virtual ~MetaChunkRequest();
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
     virtual void request(ReqOstream& os, IOBuffer& /* buf */) { request(os); }
@@ -2223,10 +2234,6 @@ struct MetaChunkRequest : public MetaRequest {
     virtual const ChunkIdQueue* GetChunkIds() const { return 0; }
 protected:
     virtual void request(ReqOstream& /* os */) {}
-private:
-    MetaChunkRequest* mPrevPtr[1];
-    MetaChunkRequest* mNextPtr[1];
-    friend class QCDLListOp<MetaChunkRequest, 0>;
 };
 
 struct MetaChunkLogInFlight : public MetaChunkRequest {
@@ -2461,6 +2468,8 @@ struct MetaChunkSize: public MetaChunkRequest {
     chunkOff_t chunkSize; //!< output: the chunk size
     bool       retryFlag;
     bool       checkChunkFlag;
+    seq_t      replyChunkVersion;
+    bool       stableFlag;
     MetaChunkSize(
             seq_t                 n = 0,
             const ChunkServerPtr& s = ChunkServerPtr(),
@@ -2472,7 +2481,9 @@ struct MetaChunkSize: public MetaChunkRequest {
           fid(f),
           chunkSize(-1),
           retryFlag(retry),
-          checkChunkFlag(false)
+          checkChunkFlag(false),
+          replyChunkVersion(-1),
+          stableFlag(false)
         { chunkVersion = v; }
     bool Validate() { return true; }
     virtual bool start();
@@ -2481,17 +2492,24 @@ struct MetaChunkSize: public MetaChunkRequest {
     virtual void handleReply(const Properties& prop)
     {
         chunkSize = prop.getValue(
-            shortRpcFormatFlag ? "S" : "Size", (chunkOff_t) -1);
+            shortRpcFormatFlag ? "S"  : "Size",          chunkOff_t(-1));
+        replyChunkVersion = prop.getValue(
+            shortRpcFormatFlag ? "V"  : "Chunk-version", seq_t(-1));
+        stableFlag = prop.getValue(
+            shortRpcFormatFlag ? "SC" : "Stable-flag",   false);
     }
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
             " get size:"
-            " fid: "          << fid <<
-            " chunkId: "      << chunkId <<
-            " chunkVersion: " << chunkVersion <<
-            " size: "         << chunkSize <<
-            " retry: "        << retryFlag
+            " fid: "           << fid <<
+            " chunkId: "       << chunkId <<
+            " chunkVersion: "  << chunkVersion <<
+            " size: "          << chunkSize <<
+            " retry: "         << retryFlag <<
+            " check: "         << checkChunkFlag <<
+            " stable: "        << stableFlag <<
+            " targetVersion: " << replyChunkVersion
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)

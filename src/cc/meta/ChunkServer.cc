@@ -275,7 +275,7 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sMaxChunksToEvacuate = max(size_t(1), prop.getValue(
         "metaServer.chunkServer.maxChunksToEvacuate",
         sMaxChunksToEvacuate));
-    sTimedoutExpireTime = max(0, prop.getValue(
+    sTimedoutExpireTime = max(2, prop.getValue(
         "metaServer.chunkServer.timedoutExpireTime",
         sTimedoutExpireTime));
     if (clientPort > 0) {
@@ -418,6 +418,15 @@ ChunkServer::Submit(MetaRequest& op)
 {
     mPendingOpsCount++;
     submit_request(&op);
+}
+
+inline void
+ChunkServer::RemoveInFlight(MetaChunkRequest& req)
+{
+    if (0 <= req.chunkId) {
+        sChunkOpsInFlight.erase(req.inFlightIt);
+        req.inFlightIt = MetaChunkRequest::kNullIterator;
+    }
 }
 
 ChunkServer::ChunkServer(
@@ -1107,7 +1116,7 @@ ChunkServer::ShowLines(MsgLogger::LogLevel logLevel, const string& prefix,
     istream&     is       = mIStream.Set(iobuf, len);
     int          maxLines = linesToShow;
     string       line;
-    size_t const prefLen  = truncatePrefix ? strlen(truncatePrefix) : 0; 
+    size_t const prefLen  = truncatePrefix ? strlen(truncatePrefix) : 0;
     while (--maxLines >= 0 && getline(is, line)) {
         string::iterator last = line.end();
         if (last != line.begin() && *--last == '\r') {
@@ -1990,8 +1999,7 @@ ChunkServer::FindMatchingRequest(seq_t cseq)
     mReqsTimeoutQueue.erase(it->second.first);
     it->second.first = ReqsTimeoutQueue::iterator();
     if (op->logCompletionSeq < 0) {
-        sChunkOpsInFlight.erase(op->inFlightIt);
-        op->inFlightIt = ChunkOpsInFlight::iterator();
+        RemoveInFlight(*op);
     } else {
         LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
     }
@@ -2035,6 +2043,7 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
                 op = req.doneOp;
                 LogInFlightReqs::Remove(mLogInFlightReqs, *op);
             }
+            RemoveInFlight(*req.doneOp);
         } else {
             panic("ChunkServer: invalid log in flight op");
             op = 0;
@@ -2051,10 +2060,7 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             if (req.doneTimedOutFlag) {
                 bool          insertedFlag = false;
                 TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(
-                    req.chunkId,
-                    TimeoutEntry(req.chunkVersion, TimeNow()),
-                    insertedFlag
-                );
+                    req.chunkId,  TimeoutEntry(TimeNow()), insertedFlag);
                 DoneTimedoutList::Insert(*entry,
                     DoneTimedoutList::GetPrev(mDoneTimedoutList));
             } else {
@@ -2092,8 +2098,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     if (0 != r.status || mDown) {
         if (req) {
             req->status = mDown ? -EIO : r.status;
-            sChunkOpsInFlight.erase(req->inFlightIt);
-            req->inFlightIt = ChunkOpsInFlight::iterator();
+            RemoveInFlight(*req);
             req->resume();
         }
         return;
@@ -2135,13 +2140,14 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     r->suspended = true;
     r->shortRpcFormatFlag = mShortRpcFormatFlag;
     if (! loggedFlag) {
-        r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
+        if (0 <= r->chunkId) {
+            r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
+        }
         if (! r->replayFlag && MetaChunkLogInFlight::Log(*r, timeout)) {
             return;
         }
     }
-    if (0 <= r->logseq && 0 <= r->chunkId &&
-            (0 <= r->chunkVersion || META_CHUNK_STALENOTIFY == r->op)) {
+    if (0 <= r->logseq && 0 <= r->chunkId && 0 <= r->chunkVersion) {
         mDoneTimedoutChunks.Erase(r->chunkId);
     }
     if (0 == r->submitCount) {
@@ -2161,8 +2167,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     } else {
         panic("duplicate op sequence number");
         mReqsTimeoutQueue.erase(it);
-        sChunkOpsInFlight.erase(r->inFlightIt);
-        r->inFlightIt = ChunkOpsInFlight::iterator();
+        RemoveInFlight(*r);
         r->status = -EFAULT;
         r->resume();
     }
@@ -2595,8 +2600,7 @@ ChunkServer::TimeoutOps()
             panic("invalid timeout queue entry");
         }
         if (op->logCompletionSeq < 0) {
-            sChunkOpsInFlight.erase(op->inFlightIt);
-            op->inFlightIt = ChunkOpsInFlight::iterator();
+            RemoveInFlight(*op);
         } else {
             dri->second.first = ReqsTimeoutQueue::iterator();
             LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
@@ -2622,18 +2626,29 @@ ChunkServer::TimeoutOps()
         op->resume();
     }
     mTmpReqQueue.clear();
-    TimeoutEntry* entry;
-    time_t        expired = TimeNow() - sTimedoutExpireTime;
-    while ((entry = &DoneTimedoutList::GetNext(mDoneTimedoutList)) !=
-            &mDoneTimedoutList && entry->GetTime() <= expired) {
+    TimeoutEntry* entry   = &DoneTimedoutList::GetNext(mDoneTimedoutList);
+    time_t const  expired = now - sTimedoutExpireTime;
+    while (&mDoneTimedoutList != entry && entry->GetTime() < expired) {
         // Run chunk size RPC to check if chunk is present and
         // remove the entries in replay.
+        TimeoutEntry& cur = *entry;
+        if (cur.GetKey() < 0) {
+            panic("chunk server: invalid timed out queue entry");
+            entry = &DoneTimedoutList::GetNext(*entry);
+            mDoneTimedoutChunks.Erase(cur.GetKey());
+            continue;
+        }
         MetaChunkSize* op = new MetaChunkSize(0, mSelfPtr);
         op->logAction      = MetaChunkSize::kLogNever;
-        op->chunkId        = entry->GetKey();
-        op->chunkVersion   = entry->GetChunkVersion();
+        op->chunkId        = cur.GetKey();
+        op->chunkVersion   = 0;
         op->checkChunkFlag = true;
-        mDoneTimedoutChunks.Erase(op->chunkId);
+        entry = &DoneTimedoutList::GetNext(cur);
+        // Do not remove, just put it back, execution of size op should remove
+        // it.
+        cur.SetTime(now + 4 * 365 * 24 * 60 * 60);
+        DoneTimedoutList::Insert(cur,
+            DoneTimedoutList::GetPrev(mDoneTimedoutList));
         Enqueue(op);
     }
     return (mReqsTimeoutQueue.empty() ?
@@ -2679,8 +2694,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
             panic("chunk server: RPC was queued prior to hello completion");
         }
         AppendInFlightChunks(mLastChunksInFlight, op);
-        sChunkOpsInFlight.erase(op.inFlightIt);
-        op.inFlightIt = ChunkOpsInFlight::iterator();
+        RemoveInFlight(op);
     }
     // Add to the last in flight ops waiting for log completion, regardless
     // of whether or not those can change  (add) chunk mapping after the log
@@ -2691,6 +2705,12 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     while ((op = it.Next())) {
         AppendInFlightChunks(mLastChunksInFlight, *op);
     }
+    const TimeoutEntry* entry = &mDoneTimedoutList;
+    while (&mDoneTimedoutList != (entry = &DoneTimedoutList::GetNext(*entry))) {
+        mLastChunksInFlight.Insert(entry->GetKey());
+    }
+    mDoneTimedoutChunks.Clear();
+    assert(! DoneTimedoutList::IsInList(mDoneTimedoutList));
     // Fail in the same order as these were queued.
     for (DispatchedReqs::iterator it = reqs.begin();
             it != reqs.end();
@@ -3122,13 +3142,15 @@ ChunkServer::Checkpoint(ostream& ost)
         "/replay/"   << (mReplayFlag ? 1 : 0) <<
         "/timedout/" << mDoneTimedoutChunks.GetSize()
     ;
-    unsigned int        cnt = 0;
-    const TimeoutEntry* entry;
-    while ((entry = &DoneTimedoutList::GetNext(mDoneTimedoutList)) !=
-            &mDoneTimedoutList) {
-        os << ((cnt++ & 0xFF) ? "\ntmd/" : "/") << entry->GetKey() <<
-            "/" << entry->GetChunkVersion();
+    size_t              cnt   = 0;
+    const TimeoutEntry* entry = &mDoneTimedoutList;
+    while (&mDoneTimedoutList != (entry = &DoneTimedoutList::GetNext(*entry))) {
+        os << ((cnt++ & 0xFF) ? "\ntmd/" : "/") << entry->GetKey();
     }
+    if (cnt != mDoneTimedoutChunks.GetSize()) {
+        panic("chunk server: checkpoint: invalid timed out chunks list");
+    }
+    os << "\n";
     os.flush();
     for (DispatchedReqs::const_iterator it = mDispatchedReqs.begin();
             it != mDispatchedReqs.end() && ost;

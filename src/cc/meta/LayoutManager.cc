@@ -9425,19 +9425,23 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
             return -EFAULT;
         }
         if (0 == req->status && req->server && 0 < req->chunkId) {
-            // If chunk server has the replica that isn't in the map, delete it.
+            MetaOp const types[] = {
+                META_CHUNK_ALLOCATE,
+                META_CHUNK_DELETE,
+                META_CHUNK_REPLICATE,
+                META_CHUNK_VERSCHANGE,
+                META_BEGIN_MAKE_CHUNK_STABLE,
+                META_CHUNK_MAKE_STABLE,
+                META_NUM_OPS_COUNT     // Sentinel
+            };
+            // If chunk server has the replica that isn't in the map, or
+            // chunk version doesn't match, then delete it.
+            // Do not consider version roll back, for now, to keep it simple.
             const CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
-            if ((! ci || ! mChunkToServerMap.HasServer(req->server, *ci)) &&
+            if ((! ci || ! mChunkToServerMap.HasServer(req->server, *ci) ||
+                    req->replyChunkVersion !=
+                        ci->GetChunkInfo()->chunkVersion) &&
                      ! req->server->IsDown()) {
-                MetaOp const types[] = {
-                    META_CHUNK_ALLOCATE,
-                    META_CHUNK_DELETE,
-                    META_CHUNK_REPLICATE,
-                    META_CHUNK_VERSCHANGE,
-                    META_BEGIN_MAKE_CHUNK_STABLE,
-                    META_CHUNK_MAKE_STABLE,
-                    META_NUM_OPS_COUNT     // Sentinel
-                };
                 Servers          srvs;
                 const chunkOff_t kObjStoreBlockPos = -1;
                 if (! ci || (0 < GetInFlightChunkOpsCount(
