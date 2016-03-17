@@ -18,37 +18,40 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
-#
-# Do not assume gnumake -- keep it as simple as possible
 
-all: release
+ifeq ($(origin BUILD_TYPE),undefined)
+ifeq ($(DEBUG),true)
+BUILD_TYPE := debug
+CMAKE_OPTIONS :=
+else
+BUILD_TYPE := release
+CMAKE_OPTIONS := -D CMAKE_BUILD_TYPE=RelWithDebInfo
+endif
+endif
 
-prep:
-	test -d build || mkdir build
+V=@
+ifeq ($(VERBOSE),true)
+V=
+endif
 
-release: prep
-	cd build && \
-	{ test -d release || mkdir release; } && \
-	cd release && \
-	cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ../.. && \
-	$(MAKE) --no-print-directory install
-	./src/java/javabuild.sh clean
-	if test -x "`which mvn 2>/dev/null`"; then \
-		./src/java/javabuild.sh ; fi
+.PHONY: all
+all: build java
 
-debug: prep
-	cd build && \
-	{ test -d debug || mkdir debug; } && \
-	cd debug && \
-	cmake ../.. && \
-	$(MAKE) --no-print-directory install
-	./src/java/javabuild.sh clean
-	if test -x "`which mvn 2>/dev/null`"; then \
-		./src/java/javabuild.sh ; fi
+.PHONY: build
+build:
+	$Vmkdir -p build/${BUILD_TYPE}
+	$Vcd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+	$Vcd build/${BUILD_TYPE} && $(MAKE) --no-print-directory install
 
-hadoop-jars: release
-	./src/java/javabuild.sh clean
-	if test -x "`which mvn 2>/dev/null`"; then \
+.PHONY: java
+java: build
+	$V./src/java/javabuild.sh clean
+	$Vwhich mvn > /dev/null && ./src/java/javabuild.sh
+
+.PHONY: hadoop-jars
+hadoop-jars: build
+	$V./src/java/javabuild.sh clean
+	$Vif test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh clean   && \
 		./src/java/javabuild.sh 0.23.4  && \
 		./src/java/javabuild.sh 0.23.11 && \
@@ -57,9 +60,10 @@ hadoop-jars: release
 		./src/java/javabuild.sh 2.5.1      \
 	; fi
 
+.PHONY: tarball
 tarball: hadoop-jars
-	cd build && \
-	myuname=`uname -s`; \
+	$Vcd build && \
+	$Vmyuname=`uname -s`; \
 	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
 	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
@@ -89,19 +93,16 @@ tarball: hadoop-jars
 	if ls -1 ./java/hadoop-qfs/hadoop-*.jar > /dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
-	rm -rf tmpreldir
+	$Vrm -rf tmpreldir
 
-python-release: release
-	cd build/release && python ../../src/cc/access/kfs_setup.py build
+.PHONY: python
+python: build
+	$Vcd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
 
-python-debug: debug
-	cd build/debug && python ../../src/cc/access/kfs_setup.py build
+.PHONY: test
+test: build
+	$Vcd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh
 
-test-debug: debug
-	cd build/debug && ../../src/test-scripts/qfstest.sh
-
-test-release: release
-	cd build/release && ../../src/test-scripts/qfstest.sh
-
+.PHONY: clean
 clean:
-	rm -rf build/release build/debug build/qfs-*.tgz build/java
+	$Vrm -rf build
