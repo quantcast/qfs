@@ -80,7 +80,7 @@ else
     branch=`git branch --no-color | awk '{if($1=="*") { if ($3 != "branch)") printf("%s", $2); exit; }}'`
 fi
 
-tmpfile="$outfile.$$.tmp";
+tmpfile=$(mktemp)
 
 {
 echo '
@@ -97,7 +97,7 @@ const std::string KFS_BUILD_INFO_STRING='
 echo KFS_BUILD_INFO_START
 echo "host: `hostname`"
 echo "user: $USER"
-echo "date: `date`" 
+echo "date: $(date)"
 echo "build type: $buildtype"
 while [ $# -gt 0 ]; do
     echo "$1"
@@ -151,5 +151,17 @@ const std::string KFS_SOURCE_REVISION_STRING(
 }
 '
 
-} > "$tmpfile"
-mv "$tmpfile" $outfile
+} > $tmpfile
+
+a=$(mktemp)
+b=$(mktemp)
+
+grep -v 'date: ' $tmpfile > $a
+grep -v 'date: ' $outfile > $b
+
+cmp --silent $a $b
+if [ $? != 0 ]; then
+    cp $tmpfile $outfile
+fi
+
+rm $a $b $tmpfile
