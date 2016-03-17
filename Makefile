@@ -31,7 +31,7 @@ release: prep
 	{ test -d release || mkdir release; } && \
 	cd release && \
 	cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ../.. && \
-	$(MAKE) install
+	$(MAKE) --no-print-directory install
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh ; fi
@@ -41,7 +41,7 @@ debug: prep
 	{ test -d debug || mkdir debug; } && \
 	cd debug && \
 	cmake ../.. && \
-	$(MAKE) install
+	$(MAKE) --no-print-directory install
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh ; fi

@@ -421,6 +421,12 @@ ClientSM::HandleRequestSelf(int code, void *data)
         }
         // Fall through.
     case EVENT_INACTIVITY_TIMEOUT:
+        if (EVENT_INACTIVITY_TIMEOUT == code && 0 < mPendingOpsCount &&
+                ! mNetConnection->IsWriteReady()) {
+            // Ops pending, do not close connection, unless the client
+            // isn't unloading / reading the data.
+            break;
+        }
         KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
             " closing connection " <<
             (code == EVENT_INACTIVITY_TIMEOUT ?
