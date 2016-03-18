@@ -1,2 +1,0 @@
-## RPATH to private libraries in "/usr/lib/qfs":
-#binary-or-shlib-defines-rpath usr/bin/* ../lib/qfs

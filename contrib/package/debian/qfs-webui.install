@@ -1,2 +1,0 @@
-webui/*    /usr/share/qfs-webui/
-webui/*.conf  /etc/qfs/

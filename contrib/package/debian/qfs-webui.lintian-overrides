@@ -1,2 +1,0 @@
-## Intentional:
-package-contains-broken-symlink usr/share/qfs-webui/server.conf etc/qfs/qfs-webui.conf

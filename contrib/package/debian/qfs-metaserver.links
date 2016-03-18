@@ -1,3 +1,0 @@
-/usr/share/qfs/qfs_backup               /usr/bin/qfs_backup
-/usr/share/qfs/qfs_checkpoint_prune.py  /usr/bin/qfs_checkpoint_prune
-/usr/share/qfs/qfs_log_prune.py         /usr/bin/qfs_log_prune

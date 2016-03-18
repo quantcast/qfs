@@ -1,4 +1,0 @@
-/etc/qfs
-var/log/qfs
-var/lib/qfs/checkpoints
-var/lib/qfs/transaction_logs
