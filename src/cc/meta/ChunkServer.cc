@@ -3139,13 +3139,12 @@ ChunkServer::Checkpoint(ostream& ost)
         "/chksum/"   << GetChecksum() <<
         "/retire/"   << (mIsRetiring ? 1 : 0) <<
         "/retstart/" << mRetireStartTime <<
-        "/replay/"   << (mReplayFlag ? 1 : 0) <<
-        "/timedout/" << mDoneTimedoutChunks.GetSize()
+        "/replay/"   << (mReplayFlag ? 1 : 0)
     ;
     size_t              cnt   = 0;
     const TimeoutEntry* entry = &mDoneTimedoutList;
     while (&mDoneTimedoutList != (entry = &DoneTimedoutList::GetNext(*entry))) {
-        os << ((cnt++ & 0xFF) ? "\ntmd/" : "/") << entry->GetKey();
+        os << ((cnt++ & 0xFF) ? "\ncst/" : "/") << entry->GetKey();
     }
     if (cnt != mDoneTimedoutChunks.GetSize()) {
         panic("chunk server: checkpoint: invalid timed out chunks list");
@@ -3172,8 +3171,32 @@ ChunkServer::Checkpoint(ostream& ost)
     }
     os <<
         "\n"
-        "cse\n";
+        "cse/" << mDoneTimedoutChunks.GetSize() <<
+        "/"    << mDispatchedReqs.size() <<
+        "\n";
     return (!! ost);
+}
+
+bool
+ChunkServer::Restore(int type, size_t idx, int64_t n)
+{
+    if ('t' == type) {
+        if (n < 0) {
+            return false;
+        }
+        bool          insertedFlag = false;
+        TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(
+            n,  TimeoutEntry(TimeNow()), insertedFlag);
+        if (insertedFlag) {
+            return false;
+        }
+        DoneTimedoutList::Insert(*entry,
+            DoneTimedoutList::GetPrev(mDoneTimedoutList));
+        return  true;
+    }
+    return ('e' == type && 0 <= n && (1 < idx ||
+        (idx == 0 ? mDoneTimedoutChunks.GetSize() : mDispatchedReqs.size()) ==
+        (size_t)n));
 }
 
 /* static */ bool
@@ -3631,8 +3654,6 @@ HibernatedChunkServer::Checkpoint(ostream& ost,
         "/chksum/"    << GetChecksum() <<
         "/expire/"    << expTime <<
         "/replay/"    << (mReplayFlag ? 1 : 0)  <<
-        "/deleted/"   << mDeletedChunks.GetSize()  <<
-        "/modified/"  << mModifiedChunks.Size() <<
         "/dreport/"   << mDeletedReportCount <<
         "/modchksum/" << mModifiedChecksum
     ;
@@ -3648,14 +3669,50 @@ HibernatedChunkServer::Checkpoint(ostream& ost,
     }
     os <<
         "\n"
-        "hcse\n";
+        "hcse/" << mDeletedChunks.GetSize() <<
+        "/"     << mModifiedChunks.Size() <<
+        "\n";
     return ost;
+}
+
+bool
+HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
+{
+    if ('d' == type) {
+        if (n < 0) {
+            return false;
+        }
+        mDeletedChunks.PushBack(n);
+        return true;
+    }
+    if ('m' == type) {
+        if (n < 0) {
+            return false;
+        }
+        return mModifiedChunks.Insert(n);
+    }
+    return ('e' == type && (1 < idx ||
+        (0 == idx ? mDeletedChunks.GetSize() : mModifiedChunks.Size()) ==
+        (size_t)n));
 }
 
 /* static */ bool
 HibernatedChunkServer::StartCheckpoint(ostream& os)
 {
-    return os;
+    os << "hscp/" << sMaxChunkListsSize << "\n";
+    return (!!os);
+}
+
+/* static */ bool
+HibernatedChunkServer::StartRestore(int type, size_t idx, int64_t n)
+{
+    if ('p' == type && 0 == idx) {
+        if (n < 0) {
+            return false;
+        }
+        sMaxChunkListsSize = (size_t)n;
+    }
+    return true;
 }
 
 /* static */ void

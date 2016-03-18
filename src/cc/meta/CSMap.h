@@ -595,6 +595,35 @@ public:
         Validate();
         return true;
     }
+    bool RestoreServer(const ChunkServerPtr& server, size_t idx,
+            size_t chunkCount, CIdChecksum  cIdChecksum) {
+        if (! server || Validate(server) || ! RestoreSlot(idx)) {
+            return false;
+        }
+        mServers[idx] = server;
+        server->SetIndex(idx, mDebugValidateFlag);
+        server->ClearHosted();
+        mServerCount++;
+        server->mChunkCount  = chunkCount;
+        server->mCIdChecksum = cIdChecksum;
+        Validate();
+        return true;
+    }
+    bool RestoreHibernatedServer(HibernatedChunkServer& server, size_t idx,
+            size_t chunkCount, CIdChecksum  cIdChecksum) {
+        if (! RestoreSlot(idx)) {
+            return false;
+        }
+        mHibernatedCount++;
+        assert(0 < mHibernatedCount);
+        mHibernatedServers[idx].reset(&server);
+        server.SetIndex(idx, mDebugValidateFlag);
+        assert((size_t)server.GetIndex() == idx);
+        server.mChunkCount  = chunkCount;
+        server.mCIdChecksum = cIdChecksum;
+        Validate();
+        return true;
+    }
     bool RemoveServer(const ChunkServerPtr& server) {
         if (! server || ! Validate(server)) {
             return false;
@@ -1436,6 +1465,45 @@ private:
         }
         mHibernatedCount--;
         return true;
+    }
+    bool RestoreSlot(size_t idx)
+    {
+        if (Entry::kMaxServers <= idx) {
+            return false;
+        }
+        const size_t theSize = mServers.size();
+        if (mHibernatedServers.size() != theSize) {
+            InternalError("invalid hibernated servers slot count");
+            return false;
+        }
+        if (theSize <= idx) {
+            mServers.resize(idx + 1);
+            mHibernatedServers.resize(idx + 1);
+            for (size_t i = mServers.size(); i < idx; i++) {
+                mNullSlots.push_back(i);
+            }
+            return true;
+        }
+        if (mServers[idx] || mHibernatedServers[idx]) {
+            return false;
+        }
+        for (SlotIndexes::const_iterator it = mPendingRemove.begin();
+                mPendingRemove.end() != it;
+                ++it) {
+            if (idx == *it) {
+                return false;
+            }
+        }
+        for (SlotIndexes::iterator it = mNullSlots.begin();
+                mNullSlots.end() != it;
+                ++it) {
+            if (idx == *it) {
+                mNullSlots.erase(it);
+                return true;
+            }
+        }
+        InternalError("invalid null slot indexes");
+        return false;
     }
     static void InternalError(const char* errMsg) {
         panic(errMsg ? errMsg : "internal error", false);

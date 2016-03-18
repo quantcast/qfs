@@ -1436,8 +1436,12 @@ public:
     void Handle(MetaHibernateRemove& req);
     int WriteChunkServers(ostream& os) const;
     bool RestoreChunkServer(const ServerLocation& loc,
-        int64_t idx, int64_t chunks, const CIdChecksum& chksum,
+        size_t idx, size_t chunks, const CIdChecksum& chksum,
         bool retiringFlag, int64_t retstart);
+    const ChunkServerPtr& RestoreGetChunkServer()
+        { return mRestoreChunkServerPtr; }
+    void RestoreClearChunkServer()
+        { mRestoreChunkServerPtr.reset(); }
 protected:
     typedef vector<
         int,
@@ -2370,6 +2374,7 @@ protected:
     ObjStoreFilesDeleteQueue mObjStoreFilesDeleteQueue;
     ObjBlocksDeleteRequeue   mObjBlocksDeleteRequeue;
     ObjBlocksDeleteInFlight  mObjBlocksDeleteInFlight;
+    ChunkServerPtr           mRestoreChunkServerPtr;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;

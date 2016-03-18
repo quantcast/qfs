@@ -1801,6 +1801,7 @@ LayoutManager::LayoutManager() :
     mObjStoreFilesDeleteQueue(),
     mObjBlocksDeleteRequeue(),
     mObjBlocksDeleteInFlight(),
+    mRestoreChunkServerPtr(),
     mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -3394,9 +3395,12 @@ LayoutManager::Handle(MetaHibernateRemove& req)
 bool
 LayoutManager::RestoreChunkServer(
     const ServerLocation& loc,
-    int64_t idx, int64_t chunks, const CIdChecksum& chksum,
+    size_t idx, size_t chunks, const CIdChecksum& chksum,
     bool retiringFlag, int64_t retstart)
 {
+    if (mRestoreChunkServerPtr) {
+        return false;
+    }
     Servers::const_iterator const it = lower_bound(
         mChunkServers.begin(), mChunkServers.end(),
         loc, bind(&ChunkServer::GetServerLocation, _1) < loc
@@ -3411,12 +3415,11 @@ LayoutManager::RestoreChunkServer(
         NetConnectionPtr(new NetConnection(new TcpSocket(), 0)),
         loc
     );
-    /*
-    if (! mChunkToServerMap.AddServer(server, idx)) {
+    if (! mChunkToServerMap.RestoreServer(server, idx, chunks, chksum)) {
         return false;
     }
-    */
     mChunkServers.insert(it, server);
+    mRestoreChunkServerPtr = server;
     return true;
 }
 
@@ -10377,6 +10380,11 @@ void LayoutManager::Timeout()
 
 void LayoutManager::ScheduleCleanup(size_t maxScanCount /* = 1 */)
 {
+    if (! gNetDispatch.IsRunning()) {
+        // Perform full cleanup in replay.
+        mChunkToServerMap.RemoveServerCleanup(0);
+        return;
+    }
     if (mChunkToServerMap.RemoveServerCleanup(maxScanCount)) {
         if (! mCleanupScheduledFlag) {
             mCleanupScheduledFlag = true;

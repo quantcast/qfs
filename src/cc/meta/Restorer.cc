@@ -569,7 +569,62 @@ restore_chunk_server_start(DETokenizer& c)
         return false;
     }
     return gLayoutManager.RestoreChunkServer(
-        loc, idx, chunks, chksum, retiringFlag, retstart);
+        loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag, retstart);
+}
+
+static bool
+restore_chunk_server(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty() || 3 != c.front().len) {
+        return false;
+    }
+    const int type = c.front().ptr[2] & 0xFF;
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    ChunkServerPtr const server = gLayoutManager.RestoreGetChunkServer();
+    if (! server) {
+        return false;
+    }
+    size_t idx = 0;
+    while (! c.empty()) {
+        const int64_t n = c.toNumber();
+        if (! c.isLastOk() && ! server->Restore(type, idx, n)) {
+            return false;
+        }
+        c.pop_front();
+        idx++;
+    }
+    if ('e' == type) {
+        gLayoutManager.RestoreClearChunkServer();
+    }
+    return true;
+}
+
+static bool
+restore_hibernated_cs_params(DETokenizer& c)
+{
+    if (c.empty() || 4 != c.front().len) {
+        return false;
+    }
+    const int type = c.front().ptr[3] & 0xFF;
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    size_t idx = 0;
+    while (! c.empty()) {
+        const int64_t n = c.toNumber();
+        if (! c.isLastOk() &&
+                ! HibernatedChunkServer::StartRestore(type, idx, n)) {
+            return false;
+        }
+        c.pop_front();
+        idx++;
+    }
+    return true;
 }
 
 static const DiskEntry&
@@ -603,6 +658,9 @@ get_entry_map()
     e.add_parser("osx",                     &restore_objstore_delete);
     e.add_parser("osd",                     &restore_objstore_delete);
     e.add_parser("cs",                      &restore_chunk_server_start);
+    e.add_parser("cst",                     &restore_chunk_server);
+    e.add_parser("cse",                     &restore_chunk_server);
+    e.add_parser("hscp",                    &restore_hibernated_cs_params);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;

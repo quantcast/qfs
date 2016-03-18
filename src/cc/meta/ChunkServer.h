@@ -882,6 +882,7 @@ public:
     void Enqueue(MetaChunkLogInFlight& req);
     bool IsReplay() const { return mReplayFlag; }
     bool Checkpoint(ostream& os);
+    bool Restore(int type, size_t idx, int64_t n);
     static bool StartCheckpoint(ostream& os);
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1362,7 +1363,9 @@ public:
     ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
     bool Checkpoint(ostream& os,
         const ServerLocation& loc, time_t expTime);
+    bool Restore(int type, size_t idx, int64_t n);
     static bool StartCheckpoint(ostream& os);
+    static bool StartRestore(int type, size_t idx, int64_t n);
     static void Handle(MetaHibernateParamsUpdate& req);
 private:
     void RemoveHosted(chunkId_t chunkId, seq_t vers, int index);

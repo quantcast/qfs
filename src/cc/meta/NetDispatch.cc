@@ -646,13 +646,17 @@ public:
     void OpDone(
         const MetaRequest& op)
     {
+        if (! gNetDispatch.IsRunning()) {
+            // Do not count RPCs during initialization restore / replay.
+            return;
+        }
         const int64_t timeNowUsec     = microseconds();
         const int64_t reqTimeUsec     = timeNowUsec - op.submitTime;
         const int64_t reqProcTimeUsec = timeNowUsec - op.processTime;
         MetaOpCounters::Update(op.op, reqProcTimeUsec);
         if (reqProcTimeUsec > mOpTimeWarningThresholdMicroSec) {
             KFS_LOG_STREAM_INFO <<
-                "Time spent processing: " << op.Show() <<
+                "time spent processing: " << op.Show() <<
                 " is: "            << (reqProcTimeUsec * 1e-6) <<
                 " total: "         << (reqTimeUsec * 1e-6) <<
                 " was submitted: " << op.submitCount <<
