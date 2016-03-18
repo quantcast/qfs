@@ -7,7 +7,7 @@ compiler:
     # - clang
 
 script:
-    - make
+    - make -j 2 tarball
     # The qfs tests are currently run through qfstest.sh. This fails on travis
     # ci with an error:
     #
@@ -18,6 +18,21 @@ script:
     # travis ci, unit tests are disabled.
     #
     # - make test-release
+
+before_deploy:
+    - mkdir artifacts
+    - mv build/*.tgz artifacts
+
+deploy:
+    provider: s3
+    bucket: quantcast-qfs
+    skip_cleanup: true
+    region: us-east-1
+    local_dir: artifacts
+    access_key_id:
+        - secure: IvmQ1sHBE+/USw+/adukFk1Wxq9Pn49PTvlbbRoI1D3W+ILc7u7+rFuNwQqAexXfBP71oMEE8YDR4U9dcoD4NinMd02lciFzrbtzErQ2Re2fU6k3I2OiyJ8ApAalKLxNmFC8jPTPufFT8gfCfOjoSDIpEffA75EzJVmDdDOspvw=
+    secret_access_key:
+        - secure: HkCLJKSX7jUPzsbZeiK3pSwECP79q6ypRnzudsTlRzmbW/eKloJHLwPEZycAakH9S24cqgjKTvv1O8XZ8sTGx0lhonRRBOXeYN9tVKrwL7CIbDHy4fOJkVQYG321EmKr3UIL9rAYZyR01WC1hEJ6pPJK7xgcFTDhZ0e47wegUlI=
 
 addons:
     apt:
