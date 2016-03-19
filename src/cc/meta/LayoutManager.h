@@ -1438,10 +1438,18 @@ public:
     bool RestoreChunkServer(const ServerLocation& loc,
         size_t idx, size_t chunks, const CIdChecksum& chksum,
         bool retiringFlag, int64_t retstart);
-    const ChunkServerPtr& RestoreGetChunkServer()
+    const ChunkServerPtr& RestoreGetChunkServer() const
         { return mRestoreChunkServerPtr; }
     void RestoreClearChunkServer()
         { mRestoreChunkServerPtr.reset(); }
+    bool RestoreHibernatedCS(
+        const ServerLocation& loc, size_t idx,
+        size_t chunks, const CIdChecksum& chksum,
+        const CIdChecksum& modChksum, size_t delReport);
+    const HibernatedChunkServerPtr& RestoreGetHibernatedCS() const
+        { return mRestoreHibernatedCSPtr; }
+    const HibernatedChunkServerPtr& RestoreClearHibernatedCS() const
+        { return mRestoreHibernatedCSPtr; }
 protected:
     typedef vector<
         int,
@@ -2375,6 +2383,7 @@ protected:
     ObjBlocksDeleteRequeue   mObjBlocksDeleteRequeue;
     ObjBlocksDeleteInFlight  mObjBlocksDeleteInFlight;
     ChunkServerPtr           mRestoreChunkServerPtr;
+    HibernatedChunkServerPtr mRestoreHibernatedCSPtr;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;

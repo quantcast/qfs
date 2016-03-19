@@ -1324,6 +1324,9 @@ public:
         ChunkServer& server,
         const CSMap& csMap,
         chunkId_t    ioLastResumeModifiedChunk);
+    HibernatedChunkServer(
+        const CIdChecksum& modChksum,
+        size_t             delReport);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
     const DeletedChunks& GetDeletedChunks() const

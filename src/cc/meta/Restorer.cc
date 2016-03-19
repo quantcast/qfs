@@ -575,7 +575,6 @@ restore_chunk_server_start(DETokenizer& c)
 static bool
 restore_chunk_server(DETokenizer& c)
 {
-    c.pop_front();
     if (c.empty() || 3 != c.front().len) {
         return false;
     }
@@ -627,6 +626,110 @@ restore_hibernated_cs_params(DETokenizer& c)
     return true;
 }
 
+static bool
+restore_hibernated_cs_start(DETokenizer& c)
+{
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    if (c.front() != "loc") {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& ltok = c.front();
+    ServerLocation loc;
+    if (! loc.FromString(ltok.ptr, ltok.len, c.getIntBase() == 16)) {
+        return false;
+    }
+    int64_t idx;
+    if (! pop_num(idx, "idx", c, true)) {
+        return false;
+    }
+    int64_t chunks;
+    if (! pop_num(chunks, "chunks", c, true) || chunks < 0) {
+        return false;
+    }
+    if (c.empty() || c.front() != "chksum") {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    CIdChecksum chksum;
+    const DETokenizer::Token& ctk = c.front();
+    const char* ptr = ctk.ptr;
+    if (! (c.getIntBase() == 16 ?
+            chksum.Parse<HexIntParser>(ptr, ctk.len) :
+            chksum.Parse<DecIntParser>(ptr, ctk.len))) {
+        return false;
+    }
+    int64_t expire = 0;
+    if (! pop_num(expire, "expire", c, true)) {
+        return false;
+    }
+    int64_t n = 0;
+    if (! pop_num(n, "replay", c, true)) {
+        return false;
+    }
+    int64_t delReport = 0;
+    if (! pop_num(n, "dreport", c, true) || delReport < 0) {
+        return false;
+    }
+    if (c.empty() || c.front() != "modchksum") {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    CIdChecksum modChksum;
+    const DETokenizer::Token& mtk = c.front();
+    ptr = mtk.ptr;
+    if (! (c.getIntBase() == 16 ?
+            chksum.Parse<HexIntParser>(ptr, mtk.len) :
+            chksum.Parse<DecIntParser>(ptr, mtk.len))) {
+        return false;
+    }
+    return gLayoutManager.RestoreHibernatedCS(
+        loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport);
+}
+
+static bool
+restore_hibernated_cs(DETokenizer& c)
+{
+    if (c.empty() || 4 != c.front().len) {
+        return false;
+    }
+    const int type = c.front().ptr[3] & 0xFF;
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    HibernatedChunkServerPtr const server =
+        gLayoutManager.RestoreGetHibernatedCS();
+    if (! server) {
+        return false;
+    }
+    size_t idx = 0;
+    while (! c.empty()) {
+        const int64_t n = c.toNumber();
+        if (! c.isLastOk() && ! server->Restore(type, idx, n)) {
+            return false;
+        }
+        c.pop_front();
+        idx++;
+    }
+    if ('e' == type) {
+        gLayoutManager.RestoreClearHibernatedCS();
+    }
+    return true;
+}
+
 static const DiskEntry&
 get_entry_map()
 {
@@ -661,6 +764,10 @@ get_entry_map()
     e.add_parser("cst",                     &restore_chunk_server);
     e.add_parser("cse",                     &restore_chunk_server);
     e.add_parser("hscp",                    &restore_hibernated_cs_params);
+    e.add_parser("hsc",                     &restore_hibernated_cs_start);
+    e.add_parser("hscd",                    &restore_hibernated_cs);
+    e.add_parser("hscm",                    &restore_hibernated_cs);
+    e.add_parser("hsce",                    &restore_hibernated_cs);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;

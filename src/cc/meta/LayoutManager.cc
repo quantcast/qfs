@@ -1802,6 +1802,7 @@ LayoutManager::LayoutManager() :
     mObjBlocksDeleteRequeue(),
     mObjBlocksDeleteInFlight(),
     mRestoreChunkServerPtr(),
+    mRestoreHibernatedCSPtr(),
     mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -3407,7 +3408,7 @@ LayoutManager::RestoreChunkServer(
     );
     if ( mChunkServers.end() != it && (*it)->GetServerLocation() == loc) {
         KFS_LOG_STREAM_ERROR <<
-            "duplicate chunk server location: " << loc <<
+            "duplicate chunk server: " << loc <<
         KFS_LOG_EOM;
         return false;
     }
@@ -3420,6 +3421,33 @@ LayoutManager::RestoreChunkServer(
     }
     mChunkServers.insert(it, server);
     mRestoreChunkServerPtr = server;
+    return true;
+}
+
+bool
+LayoutManager::RestoreHibernatedCS(
+    const ServerLocation& loc, size_t idx,
+    size_t chunks, const CIdChecksum& chksum,
+    const CIdChecksum& modChksum, size_t delReport)
+{
+    if (mRestoreHibernatedCSPtr) {
+        return false;
+    }
+    HibernatedServerInfos::iterator it;
+    if (FindHibernatingCSInfo(loc, &it)) {
+        KFS_LOG_STREAM_ERROR <<
+            "duplicate hibernated chunk server: " << loc <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    HibernatedChunkServerPtr const server(
+        new HibernatedChunkServer(modChksum, delReport));
+    if (! mChunkToServerMap.RestoreHibernatedServer(server, idx, chunks, chksum)) {
+        return false;
+    }
+    mHibernatingServers.insert(it, HibernatingServerInfo(
+        loc, TimeNow() + mServerDownReplicationDelay, idx));
+    mRestoreHibernatedCSPtr = server;
     return true;
 }
 
@@ -5163,21 +5191,19 @@ LayoutManager::Handle(MetaBye& req)
 
     if (! isHibernating && 0 < server->GetChunkCount()) {
         const int kMinReplicationDelay = 15;
-        const int replicationDelay     = mServerDownReplicationDelay -
-            server->TimeSinceLastHeartbeat();
-        if (replicationDelay > kMinReplicationDelay) {
-            // Delay replication by marking server as hibernated,
-            // to allow the server to reconnect back.
-            size_t idx = ~size_t(0);
-            if (! mChunkToServerMap.SetHibernated(server, idx,
-                    mLastResumeModifiedChunk)) {
-                panic("failed to initiate hibernation");
-            }
-            mLastResumeModifiedChunk = -1;
-            mHibernatingServers.insert(it, HibernatingServerInfo(
-                loc, TimeNow() + replicationDelay, idx));
-            isHibernating = true;
+        const int replicationDelay     = max(kMinReplicationDelay,
+            mServerDownReplicationDelay - server->TimeSinceLastHeartbeat());
+        // Delay replication by marking server as hibernated,
+        // to allow the server to reconnect back.
+        size_t idx = ~size_t(0);
+        if (! mChunkToServerMap.SetHibernated(server, idx,
+                mLastResumeModifiedChunk)) {
+            panic("failed to initiate hibernation");
         }
+        mLastResumeModifiedChunk = -1;
+        mHibernatingServers.insert(it, HibernatingServerInfo(
+            loc, TimeNow() + replicationDelay, idx));
+        isHibernating = true;
     }
 
     if (canBeMaster) {

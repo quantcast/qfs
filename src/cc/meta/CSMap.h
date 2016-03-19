@@ -609,18 +609,18 @@ public:
         Validate();
         return true;
     }
-    bool RestoreHibernatedServer(HibernatedChunkServer& server, size_t idx,
-            size_t chunkCount, CIdChecksum  cIdChecksum) {
+    bool RestoreHibernatedServer(const HibernatedChunkServerPtr& server,
+            size_t idx, size_t chunkCount, CIdChecksum  cIdChecksum) {
         if (! RestoreSlot(idx)) {
             return false;
         }
         mHibernatedCount++;
         assert(0 < mHibernatedCount);
-        mHibernatedServers[idx].reset(&server);
-        server.SetIndex(idx, mDebugValidateFlag);
-        assert((size_t)server.GetIndex() == idx);
-        server.mChunkCount  = chunkCount;
-        server.mCIdChecksum = cIdChecksum;
+        mHibernatedServers[idx] = server;
+        server->SetIndex(idx, mDebugValidateFlag);
+        assert((size_t)server->GetIndex() == idx);
+        server->mChunkCount  = chunkCount;
+        server->mCIdChecksum = cIdChecksum;
         Validate();
         return true;
     }

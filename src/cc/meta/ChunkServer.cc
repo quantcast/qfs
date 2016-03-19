@@ -3272,6 +3272,19 @@ HibernatedChunkServer::HibernatedChunkServer(
     KFS_LOG_EOM;
 }
 
+HibernatedChunkServer::HibernatedChunkServer(
+    const CIdChecksum& modChksum,
+    size_t             delReport)
+    : CSMapServerInfo(),
+      mDeletedChunks(),
+      mModifiedChunks(),
+      mDeletedReportCount(delReport),
+      mListsSize(0),
+      mGeneration(++sGeneration),
+      mModifiedChecksum(modChksum),
+      mReplayFlag(true)
+{}
+
 void
 HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, seq_t vers, int index)
 {
@@ -3419,6 +3432,8 @@ HibernatedChunkServer::HelloResumeReply(
     }
     if (GetChunkCount() < mModifiedChunks.Size()) {
         panic("resume reply: invalid modified chunks list size");
+        r.statusMsg = "cannot be resumed due to internal error"
+        r.status    = -EAGAIN;
         return false;
     }
     r.deletedCount       = 0;
@@ -3691,9 +3706,14 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
         }
         return mModifiedChunks.Insert(n);
     }
-    return ('e' == type && (1 < idx ||
-        (0 == idx ? mDeletedChunks.GetSize() : mModifiedChunks.Size()) ==
-        (size_t)n));
+    if ('e' != type) {
+        return false;
+    }
+    if (idx == 0) {
+        return (mDeletedChunks.GetSize() == (size_t)n &&
+            mDeletedReportCount <= (size_t)n);
+    }
+    return (1 < idx || mModifiedChunks.Size() == (size_t)n);
 }
 
 /* static */ bool
