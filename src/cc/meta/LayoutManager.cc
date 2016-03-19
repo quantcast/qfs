@@ -3867,15 +3867,13 @@ LayoutManager::AddNewServer(MetaHello* r)
         mLastResumeModifiedChunk = -1;
     }
     // All ops are queued at this point, make sure that the server is still up.
+    // Chunk server cannot possibly go down here, as after HelloDone()
+    // it can only transition down as a result of "bye" internal RPC execution,
+    // and the later must be successfully written into the transaction log prior
+    // to the execution.
     if (srv.IsDown()) {
-        if (0 < r->resumeStep) {
-            HibernatedChunkServer* const cs = FindHibernatingCS(r->location);
-            if (cs && cs->GetIndex() == (int)hibernatedIdx) {
-                cs->ResumeRestart(mChunkToServerMap,
-                    staleChunkIds, modififedChunks, r->deletedReportCount);
-            }
-        }
-        KFS_LOG_STREAM_ERROR << srvId <<
+        panic("add new server: invalid state transition to down");
+        KFS_LOG_STREAM_FATAL << srvId <<
             ": went down in the process of adding it" <<
         KFS_LOG_EOM;
         return;

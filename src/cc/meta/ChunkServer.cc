@@ -424,6 +424,10 @@ inline void
 ChunkServer::RemoveInFlight(MetaChunkRequest& req)
 {
     if (0 <= req.chunkId) {
+        if (MetaChunkRequest::kNullIterator == req.inFlightIt) {
+            panic("chunk server invalid chunks in flight iterator");
+            return;
+        }
         sChunkOpsInFlight.erase(req.inFlightIt);
         req.inFlightIt = MetaChunkRequest::kNullIterator;
     }
@@ -3432,7 +3436,7 @@ HibernatedChunkServer::HelloResumeReply(
     }
     if (GetChunkCount() < mModifiedChunks.Size()) {
         panic("resume reply: invalid modified chunks list size");
-        r.statusMsg = "cannot be resumed due to internal error"
+        r.statusMsg = "cannot be resumed due to internal error";
         r.status    = -EAGAIN;
         return false;
     }
@@ -3497,92 +3501,6 @@ HibernatedChunkServer::HelloResumeReply(
     }
     writer.Close();
     return true;
-}
-
-void
-HibernatedChunkServer::ResumeRestart(
-    const CSMap&                           csMap,
-    ChunkIdQueue&                          staleChunkIds,
-    HibernatedChunkServer::ModifiedChunks& modifiedChunks,
-    int64_t                                deletedReportCount)
-{
-    KFS_LOG_STREAM_DEBUG <<
-        "hibernated: "      << GetIndex() <<
-        " resume restart:"
-        " stale: "          << staleChunkIds.GetSize() <<
-        " / "               << mDeletedChunks.GetSize() <<
-        " modified: "       << modifiedChunks.Size() <<
-        " / "               << mModifiedChunks.Size() <<
-        " delete report: "  << deletedReportCount <<
-        " / "               << mDeletedReportCount <<
-        " lists size: "     << mListsSize <<
-    KFS_LOG_EOM;
-    if (! CanBeResumed()) {
-        return;
-    }
-    mGeneration = 0;
-    size_t size = 0;
-    if (! staleChunkIds.IsEmpty()) {
-        const size_t delReportCount =
-            (size_t)max(int64_t(0), deletedReportCount);
-        if (delReportCount <= staleChunkIds.GetSize()) {
-            if (mDeletedReportCount != mDeletedChunks.GetSize()) {
-                panic("invalid delete report count");
-            }
-            mDeletedReportCount += delReportCount;
-        }
-        if (mDeletedChunks.IsEmpty()) {
-            mDeletedChunks.Swap(staleChunkIds);
-            size += mDeletedChunks.GetSize();
-        } else {
-            const size_t sz = staleChunkIds.GetSize();
-            if (size_t(32) < sz && mDeletedChunks.GetSize() * 2 < sz * 3) {
-                mDeletedChunks.Swap(staleChunkIds);
-            }
-            ChunkIdQueue::ConstIterator it(staleChunkIds);
-            const chunkId_t* id;
-            while ((id = it.Next())) {
-                mDeletedChunks.PushBack(*id);
-                size++;
-            }
-            staleChunkIds.Clear();
-            size += sz;
-        }
-    }
-    if (! modifiedChunks.IsEmpty()) {
-        modifiedChunks.First();
-        const chunkId_t* id;
-        while ((id = modifiedChunks.Next())) {
-            const CSMap::Entry* const p = csMap.Find(*id);
-            if (! p) {
-                panic("resume restart invalid modified list");
-                continue;
-            }
-            if (mModifiedChunks.Find(*id)) {
-                continue;
-            }
-            mModifiedChecksum.Add(*id, p->GetChunkVersion());
-        }
-        if (mModifiedChunks.IsEmpty()) {
-            mModifiedChunks.Swap(modifiedChunks);
-            size += mModifiedChunks.Size();
-        } else {
-            const size_t sz = modifiedChunks.Size();
-            if (size_t(32) < sz && mModifiedChunks.Size() * 2 < sz * 3) {
-                modifiedChunks.Swap(modifiedChunks);
-            }
-            modifiedChunks.First();
-            const chunkId_t* id;
-            while ((id = modifiedChunks.Next())) {
-                if (mModifiedChunks.Insert(*id)) {
-                    size++;
-                }
-            }
-            modifiedChunks.Clear();
-        }
-    }
-    mListsSize += size;
-    sChunkListsSize += size;
 }
 
 ostream&

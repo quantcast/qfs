@@ -1339,11 +1339,6 @@ public:
         { return (mListsSize <= 0 ? 0 : mListsSize - 1); }
     bool HelloResumeReply(MetaHello& r, const CSMap& csMap,
         ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
-    void ResumeRestart(
-        const CSMap&    csMap,
-        ChunkIdQueue&   staleChunkIds,
-        ModifiedChunks& modifiedChunks,
-        int64_t         deletedReportCount);
     uint64_t GetGeneration() const
         { return mGeneration; }
     bool IsReplay() const
