@@ -450,6 +450,7 @@ ChunkServer::ChunkServer(
       mLastHeartbeatSent(TimeNow()),
       mCanBeChunkMaster(false),
       mIsRetiring(false),
+      mRetireDownTime(-1),
       mDisconnectReason(),
       mRetireStartTime(0),
       mLastHeard(),
@@ -2471,13 +2472,17 @@ ChunkServer::NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers
 }
 
 void
-ChunkServer::SetRetiring()
+ChunkServer::SetRetiring(int64_t startTime, int downTime)
 {
-    mIsRetiring = true;
-    mRetireStartTime = TimeNow();
+    mIsRetiring      = true;
+    mRetireDownTime  = downTime;
+    mRetireStartTime = (time_t)startTime;
     mChunksToEvacuate.Clear();
-    KFS_LOG_STREAM_INFO << GetServerLocation() <<
-        " initiation of retire for " << mNumChunks << " chunks" <<
+    KFS_LOG_STREAM(mReplayFlag ?
+            MsgLogger::kLogLevelDEBUG :
+            MsgLogger::kLogLevelINFO) <<
+        GetServerLocation() <<
+        " initiation of retire for " << GetChunkCount() << " chunks" <<
     KFS_LOG_EOM;
 }
 
@@ -3143,6 +3148,7 @@ ChunkServer::Checkpoint(ostream& ost)
         "/chksum/"   << GetChecksum() <<
         "/retire/"   << (mIsRetiring ? 1 : 0) <<
         "/retstart/" << mRetireStartTime <<
+        "/retdown/"  << mRetireDownTime <<
         "/replay/"   << (mReplayFlag ? 1 : 0)
     ;
     size_t              cnt   = 0;

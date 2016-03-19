@@ -3397,7 +3397,7 @@ bool
 LayoutManager::RestoreChunkServer(
     const ServerLocation& loc,
     size_t idx, size_t chunks, const CIdChecksum& chksum,
-    bool retiringFlag, int64_t retstart)
+    bool retiringFlag, int64_t retStart, int64_t retDown)
 {
     if (mRestoreChunkServerPtr) {
         return false;
@@ -3419,6 +3419,20 @@ LayoutManager::RestoreChunkServer(
     if (! mChunkToServerMap.RestoreServer(server, idx, chunks, chksum)) {
         return false;
     }
+    if (retiringFlag) {
+        server->SetRetiring(retStart, (int)retDown);
+        if (0 < retDown) {
+            HibernatedServerInfos::iterator it;
+            if (FindHibernatingCSInfo(loc, &it)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "duplicate retiring server: " << loc <<
+                KFS_LOG_EOM;
+                return false;
+            }
+            mHibernatingServers.insert(it,
+                HibernatingServerInfo(loc, retStart + retDown));
+        }
+    }
     mChunkServers.insert(it, server);
     mRestoreChunkServerPtr = server;
     return true;
@@ -3428,7 +3442,7 @@ bool
 LayoutManager::RestoreHibernatedCS(
     const ServerLocation& loc, size_t idx,
     size_t chunks, const CIdChecksum& chksum,
-    const CIdChecksum& modChksum, size_t delReport)
+    const CIdChecksum& modChksum, size_t delReport, int64_t expire)
 {
     if (mRestoreHibernatedCSPtr) {
         return false;
@@ -3442,11 +3456,12 @@ LayoutManager::RestoreHibernatedCS(
     }
     HibernatedChunkServerPtr const server(
         new HibernatedChunkServer(modChksum, delReport));
-    if (! mChunkToServerMap.RestoreHibernatedServer(server, idx, chunks, chksum)) {
+    if (! mChunkToServerMap.RestoreHibernatedServer(
+            server, idx, chunks, chksum)) {
         return false;
     }
-    mHibernatingServers.insert(it, HibernatingServerInfo(
-        loc, TimeNow() + mServerDownReplicationDelay, idx));
+    mHibernatingServers.insert(
+        it, HibernatingServerInfo(loc, (time_t)expire, idx));
     mRestoreHibernatedCSPtr = server;
     return true;
 }
@@ -5272,7 +5287,8 @@ LayoutManager::FindHibernatingCS(const ServerLocation& loc,
 }
 
 int
-LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
+LayoutManager::RetireServer(const ServerLocation &loc,
+    int64_t start, int downtime)
 {
     if (! mAllowChunkServerRetireFlag && downtime <= 0) {
         KFS_LOG_STREAM_INFO << "chunk server retire is not enabled" <<
@@ -5305,15 +5321,15 @@ LayoutManager::RetireServer(const ServerLocation &loc, int downtime)
         // Change from retiring to hibernating state.
     }
 
-    server->SetRetiring();
+    server->SetRetiring(start, (int)downtime);
     if (0 < downtime) {
         HibernatedServerInfos::iterator it;
         HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc, &it);
         if (hs) {
-            hs->sleepEndTime = TimeNow() + downtime;
+            hs->sleepEndTime = start + downtime;
         } else {
-            mHibernatingServers.insert(it, HibernatingServerInfo(
-                loc, TimeNow() + downtime));
+            mHibernatingServers.insert(it,
+                HibernatingServerInfo(loc, start + downtime));
         }
         KFS_LOG_STREAM_INFO << "hibernating server: " << loc <<
             " down time: " << downtime <<

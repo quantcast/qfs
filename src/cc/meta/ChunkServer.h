@@ -527,7 +527,7 @@ public:
     /// During the stage where the server is being retired, we don't
     /// want to send any new write traffic to the server.
     ///
-    void SetRetiring();
+    void SetRetiring(int64_t startTime, int downTime);
 
     bool IsRetiring() const {
         return mIsRetiring;
@@ -944,6 +944,7 @@ protected:
 
     /// is the server being retired
     bool mIsRetiring;
+    int  mRetireDownTime;
     string mDisconnectReason;
     /// when we did we get the retire request
     time_t mRetireStartTime;

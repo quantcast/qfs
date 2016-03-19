@@ -2915,6 +2915,7 @@ MetaRetireChunkserver::start()
     if (! HasMetaServerAdminAccess(*this)) {
         return false;
     }
+    startTime = globalNetManager().Now();
     return (0 == status);
 }
 
@@ -2922,7 +2923,7 @@ MetaRetireChunkserver::start()
 MetaRetireChunkserver::handle()
 {
     if (0 == status) {
-        status = gLayoutManager.RetireServer(location, nSecsDown);
+        status = gLayoutManager.RetireServer(location, startTime, nSecsDown);
     }
 }
 

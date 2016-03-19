@@ -565,11 +565,16 @@ restore_chunk_server_start(DETokenizer& c)
     if (! pop_num(retstart, "retstart", c, true)) {
         return false;
     }
-    if (! pop_num(n, "replay", c, true)) {
+    int64_t retdown = 0;
+    if (! pop_num(retdown, "retdown", c, true)) {
+        return false;
+    }
+    if (! pop_num(n, "replay", c, true) && 1 != n && 0 != n) {
         return false;
     }
     return gLayoutManager.RestoreChunkServer(
-        loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag, retstart);
+        loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag,
+        retstart, retdown);
 }
 
 static bool
@@ -696,7 +701,8 @@ restore_hibernated_cs_start(DETokenizer& c)
         return false;
     }
     return gLayoutManager.RestoreHibernatedCS(
-        loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport);
+        loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport,
+        expire);
 }
 
 static bool

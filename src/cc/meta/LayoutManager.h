@@ -952,7 +952,7 @@ public:
     /// which the server will connect back.  If it doesn't connect
     /// within that interval, the server is assumed to be down and
     /// re-replication will start.
-    int RetireServer(const ServerLocation &loc, int downtime);
+    int RetireServer(const ServerLocation &loc, int64_t start, int downtime);
 
     /// Allocate space to hold a chunk on some
     /// chunkserver.
@@ -1437,7 +1437,7 @@ public:
     int WriteChunkServers(ostream& os) const;
     bool RestoreChunkServer(const ServerLocation& loc,
         size_t idx, size_t chunks, const CIdChecksum& chksum,
-        bool retiringFlag, int64_t retstart);
+        bool retiringFlag, int64_t retStart, int64_t retDown);
     const ChunkServerPtr& RestoreGetChunkServer() const
         { return mRestoreChunkServerPtr; }
     void RestoreClearChunkServer()
@@ -1445,7 +1445,8 @@ public:
     bool RestoreHibernatedCS(
         const ServerLocation& loc, size_t idx,
         size_t chunks, const CIdChecksum& chksum,
-        const CIdChecksum& modChksum, size_t delReport);
+        const CIdChecksum& modChksum, size_t delReport,
+        int64_t expire);
     const HibernatedChunkServerPtr& RestoreGetHibernatedCS() const
         { return mRestoreHibernatedCSPtr; }
     const HibernatedChunkServerPtr& RestoreClearHibernatedCS() const

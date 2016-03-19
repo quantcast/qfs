@@ -1775,11 +1775,13 @@ struct MetaCoalesceBlocks: public MetaRequest {
 struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
     ServerLocation& location;  //<! Location of this server
     int             nSecsDown; //<! set to -1, we retire; otherwise, # of secs of down time
+    int64_t         startTime;
     MetaRetireChunkserver()
         : MetaRequest(META_RETIRE_CHUNKSERVER, kLogIfOk),
           ServerLocation(),
           location(*this),
-          nSecsDown(-1)
+          nSecsDown(-1),
+          startTime(0)
         {}
     virtual bool start();
     virtual void handle();
@@ -1810,6 +1812,7 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
         .Def("H", &MetaRetireChunkserver::hostname     )
         .Def("P", &MetaRetireChunkserver::port,      -1)
         .Def("D", &MetaRetireChunkserver::nSecsDown, -1)
+        .Def("S", &MetaRetireChunkserver::startTime, int64_t(0))
         ;
     }
 };
