@@ -1069,9 +1069,11 @@ ChunkServer::Error(const char* errorMsg)
     RemoveFromWriteAllocation();
     MetaRequest::Release(mAuthenticateOp);
     mAuthenticateOp = 0;
-    if (mHelloDone) {
+    if (mHelloDone || 0 < mPendingOpsCount) {
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
+        // If hello is already in flight, i.e. not done, and being logged
+        // bye must be issued to ensure replay correctness..
         MetaBye& mb = *(new MetaBye(mSelfPtr));
         mb.chunkCount  = GetChunkCount();
         mb.cIdChecksum = GetChecksum();
