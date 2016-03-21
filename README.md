@@ -4,8 +4,6 @@ Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
 reading and writing large files sequentially.
 
-We have released QFS to open source, at http://quantcast.github.com/qfs.
-
 The implementation details and features of QFS are discussed in the project
 Wiki at https://github.com/quantcast/qfs/wiki/Introduction-To-QFS
 
