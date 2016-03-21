@@ -633,10 +633,10 @@ public:
     bool Restore(Entry& entry, const char* idxs, size_t len,
         ParserT* parser = 0)
     {
-        const char* ptr = idxs;
-        const char* end = idxs + len;
-        size_t      cnt = 0;
-        size_t      idx;
+        const char*       ptr = idxs;
+        const char* const end = idxs + len;
+        size_t            cnt = 0;
+        size_t            idx;
         while (ParserT::Parse(ptr, end - ptr, idx)) {
             if (end == ptr) {
                 return (cnt == idx);
