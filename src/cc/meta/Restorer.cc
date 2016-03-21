@@ -314,12 +314,36 @@ restore_chunkinfo(DETokenizer& c)
     if (! fa) {
         return false;
     }
-        const chunkOff_t boundary = chunkStartOffset(offset);
+    const char* idxs;
+    size_t      idxsLen;
+    if (! c.empty() && "si" == c.front()) {
+        c.pop_front();
+        if (c.empty()) {
+            return false;
+        }
+        const DETokenizer::Token tok = c.front();
+        idxs    = tok.ptr;
+        idxsLen = tok.len;
+        if (idxsLen <= 0) {
+            return false;
+        }
+    } else {
+        idxs    = 0;
+        idxsLen = 0;
+    }
+    const chunkOff_t boundary = chunkStartOffset(offset);
     bool newEntryFlag = false;
     MetaChunkInfo* const ch = gLayoutManager.AddChunkToServerMapping(
         fa, boundary, cid, chunkVersion, newEntryFlag);
     if (! ch || ! newEntryFlag) {
         return false;
+    }
+    if (0 < idxsLen) {
+        if (! gLayoutManager.Restore(
+                *ch, idxs, idxsLen, 16 == c.getIntBase())) {
+            return false;
+        }
+        c.pop_front();
     }
     if (metatree.insert(ch) != 0) {
         return false;
@@ -533,6 +557,7 @@ restore_chunk_server_start(DETokenizer& c)
     if (! loc.FromString(ltok.ptr, ltok.len, c.getIntBase() == 16)) {
         return false;
     }
+    c.pop_front();
     int64_t idx;
     if (! pop_num(idx, "idx", c, true)) {
         return false;
@@ -556,17 +581,18 @@ restore_chunk_server_start(DETokenizer& c)
             chksum.Parse<DecIntParser>(ptr, ctk.len))) {
         return false;
     }
+    c.pop_front();
     int64_t n = 0;
     if (! pop_num(n, "retire", c, true)) {
         return false;
     }
     const bool retiringFlag = 0 != n;
     int64_t retstart = 0;
-    if (! pop_num(retstart, "retstart", c, true)) {
+    if (! pop_num(retstart, "retirestart", c, true)) {
         return false;
     }
     int64_t retdown = 0;
-    if (! pop_num(retdown, "retdown", c, true)) {
+    if (! pop_num(retdown, "retiredown", c, true)) {
         return false;
     }
     if (! pop_num(n, "replay", c, true) && 1 != n && 0 != n) {
@@ -603,6 +629,7 @@ restore_chunk_server(DETokenizer& c)
     }
     if ('e' == type) {
         gLayoutManager.RestoreClearChunkServer();
+        return restore_chunk_server_end(c);
     }
     return true;
 }
@@ -611,6 +638,10 @@ static bool
 restore_hibernated_cs_params(DETokenizer& c)
 {
     if (c.empty() || 4 != c.front().len) {
+        return false;
+    }
+    if (gLayoutManager.RestoreGetChunkServer() ||
+            gLayoutManager.RestoreGetHibernatedCS()) {
         return false;
     }
     const int type = c.front().ptr[3] & 0xFF;
@@ -650,6 +681,7 @@ restore_hibernated_cs_start(DETokenizer& c)
     if (! loc.FromString(ltok.ptr, ltok.len, c.getIntBase() == 16)) {
         return false;
     }
+    c.pop_front();
     int64_t idx;
     if (! pop_num(idx, "idx", c, true)) {
         return false;
@@ -673,6 +705,7 @@ restore_hibernated_cs_start(DETokenizer& c)
             chksum.Parse<DecIntParser>(ptr, ctk.len))) {
         return false;
     }
+    c.pop_front();
     int64_t expire = 0;
     if (! pop_num(expire, "expire", c, true)) {
         return false;
@@ -700,6 +733,7 @@ restore_hibernated_cs_start(DETokenizer& c)
             chksum.Parse<DecIntParser>(ptr, mtk.len))) {
         return false;
     }
+    c.pop_front();
     return gLayoutManager.RestoreHibernatedCS(
         loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport,
         expire);
@@ -804,6 +838,9 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
         KFS_LOG_STREAM_FATAL <<
             cpname << ": initial fs / meta tree is not empty" <<
         KFS_LOG_EOM;
+        return false;
+    }
+    if (! gLayoutManager.RestoreStart()) {
         return false;
     }
     minReplicasPerFile = minReplicas;

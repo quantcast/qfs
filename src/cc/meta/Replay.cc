@@ -1638,10 +1638,9 @@ replay_cs_inflight(DETokenizer& c)
     return replay_sub_entry(c);
 }
 
-static bool
+bool
 restore_chunk_server_end(DETokenizer& c)
 {
-    c.pop_front();
     return replay_inc_seq(c);
 }
 
@@ -1699,7 +1698,6 @@ Replay::AddRestotreEntries(DiskEntry& e)
 {
     e.add_parser("cif", &replay_cs_inflight);
     e.add_parser("cis", &replay_cs_inflight);
-    e.add_parser("cse", &restore_chunk_server_end);
 }
 
 Replay::BlockChecksum::BlockChecksum()

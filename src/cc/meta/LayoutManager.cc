@@ -3402,6 +3402,12 @@ LayoutManager::RestoreChunkServer(
     if (mRestoreChunkServerPtr) {
         return false;
     }
+    if (! mChunkToServerMap.SetDebugValidate(false)) {
+        KFS_LOG_STREAM_ERROR <<
+            "chunk server map debug validate cannot be set with replay" <<
+        KFS_LOG_EOM;
+        return false;
+    }
     Servers::const_iterator const it = lower_bound(
         mChunkServers.begin(), mChunkServers.end(),
         loc, bind(&ChunkServer::GetServerLocation, _1) < loc
@@ -3419,6 +3425,7 @@ LayoutManager::RestoreChunkServer(
     if (! mChunkToServerMap.RestoreServer(server, idx, chunks, chksum)) {
         return false;
     }
+    server->HelloDone(0);
     if (retiringFlag) {
         server->SetRetiring(retStart, (int)retDown);
         if (0 < retDown) {
@@ -3620,38 +3627,40 @@ LayoutManager::AddNewServer(MetaHello* r)
     }
     UpdateSrvLoadAvg(srv, 0, 0);
 
-    if (mAssignMasterByIpFlag) {
-        // if the server node # is odd, it is master; else slave
-        const string&           ipaddr    = r->location.hostname;
-        string::size_type const len       = ipaddr.length();
-        int                     lastDigit = -1;
-        if (0 < len) {
-            const int sym = ipaddr[len - 1] & 0xFF;
-            if ('0' <= sym && sym <= '9') {
-                lastDigit = sym - '0'; // ipv4 or ipv6 last digit
-            } else if (sym == ':' ) {
-                lastDigit = 0; // ipv6 16 bit 0
-            } else if ('a' <= sym && sym <= 'f') {
-                lastDigit = sym - 'a' + 10; // ipv6 last digit
-            } else if ('A' <= sym && sym <= 'F') {
-                lastDigit = sym - 'A' + 10; // ipv6 last digit
+    if (! srv.IsReplay()) {
+        if (mAssignMasterByIpFlag) {
+            // if the server node # is odd, it is master; else slave
+            const string&           ipaddr    = r->location.hostname;
+            string::size_type const len       = ipaddr.length();
+            int                     lastDigit = -1;
+            if (0 < len) {
+                const int sym = ipaddr[len - 1] & 0xFF;
+                if ('0' <= sym && sym <= '9') {
+                    lastDigit = sym - '0'; // ipv4 or ipv6 last digit
+                } else if (sym == ':' ) {
+                    lastDigit = 0; // ipv6 16 bit 0
+                } else if ('a' <= sym && sym <= 'f') {
+                    lastDigit = sym - 'a' + 10; // ipv6 last digit
+                } else if ('A' <= sym && sym <= 'F') {
+                    lastDigit = sym - 'A' + 10; // ipv6 last digit
+                }
             }
-        }
-        if (lastDigit < 0) {
-            srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
+            if (lastDigit < 0) {
+                srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
+            } else {
+                srv.SetCanBeChunkMaster((lastDigit & 0x1) != 0);
+            }
         } else {
-            srv.SetCanBeChunkMaster((lastDigit & 0x1) != 0);
+            srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
         }
-    } else {
-        srv.SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
-    }
-    if (srv.CanBeChunkMaster()) {
-        mMastersCount++;
-    } else {
-        mSlavesCount++;
+        if (srv.CanBeChunkMaster()) {
+            mMastersCount++;
+        } else {
+            mSlavesCount++;
+        }
     }
 
-    srv.HelloDone(*r);
+    srv.HelloDone(r);
     if (! mChunkServersProps.empty() && ! srv.IsDown()) {
         srv.SetProperties(mChunkServersProps);
     }
@@ -5218,20 +5227,21 @@ LayoutManager::Handle(MetaBye& req)
             loc, TimeNow() + replicationDelay, idx));
         isHibernating = true;
     }
-
-    if (canBeMaster) {
-        if (mMastersCount > 0) {
-            mMastersCount--;
+    if (! server->IsReplay()) {
+        if (canBeMaster) {
+            if (mMastersCount > 0) {
+                mMastersCount--;
+            }
+        } else if (mSlavesCount > 0) {
+            mSlavesCount--;
         }
-    } else if (mSlavesCount > 0) {
-        mSlavesCount--;
-    }
-    if (server->IsRestartScheduled()) {
-        if (mCSToRestartCount > 0) {
-            mCSToRestartCount--;
-        }
-        if (mMastersToRestartCount > 0 && server->CanBeChunkMaster()) {
-            mMastersToRestartCount--;
+        if (server->IsRestartScheduled()) {
+            if (mCSToRestartCount > 0) {
+                mCSToRestartCount--;
+            }
+            if (mMastersToRestartCount > 0 && server->CanBeChunkMaster()) {
+                mMastersToRestartCount--;
+            }
         }
     }
     if (! isHibernating) {
@@ -5241,7 +5251,7 @@ LayoutManager::Handle(MetaBye& req)
     }
     // Convert const_iterator to iterator below to make erase() compile.
     mChunkServers.erase(mChunkServers.begin() + (i - mChunkServers.begin()));
-    if (! mAssignMasterByIpFlag &&
+    if (! server->IsReplay() && ! mAssignMasterByIpFlag &&
             mMastersCount == 0 && ! mChunkServers.empty()) {
         assert(mSlavesCount > 0 &&
             ! mChunkServers.front()->CanBeChunkMaster());
@@ -12494,6 +12504,21 @@ LayoutManager::WritePendingObjStoreDelete(ostream& os)
     return (os ? 0 : -EIO);
 }
 
+bool
+LayoutManager::RestoreStart()
+{
+    if (! mChunkServers.empty() || ! mHibernatingServers.empty() ||
+            0 < mChunkToServerMap.GetServerCount() ||
+            0 < mChunkToServerMap.GetHibernatedCount() ||
+            mChunkToServerMap.RemoveServerCleanup(0)) {
+        KFS_LOG_STREAM_FATAL <<
+            "restore: invalid initial state" <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    return true;
+}
+
 int
 LayoutManager::WriteChunkServers(ostream& os) const
 {
@@ -12520,6 +12545,24 @@ LayoutManager::WriteChunkServers(ostream& os) const
         }
     }
     return (os ? 0 : -EIO);
+}
+
+ostream&
+LayoutManager::Checkpoint(ostream& os, const MetaChunkInfo& info) const
+{
+    return mChunkToServerMap.Checkpoint(os, CSMap::Entry::GetCsEntry(info));
+}
+
+bool
+LayoutManager::Restore(MetaChunkInfo& info,
+    const char* restoreIdxs, size_t restoreIdxsLen, bool hexFmtFlag)
+{
+    return (hexFmtFlag ?
+        mChunkToServerMap.Restore<HexIntParser>(CSMap::Entry::GetCsEntry(info),
+            restoreIdxs, restoreIdxsLen) :
+        mChunkToServerMap.Restore<DecIntParser>(CSMap::Entry::GetCsEntry(info),
+            restoreIdxs, restoreIdxsLen)
+    );
 }
 
 } // namespace KFS

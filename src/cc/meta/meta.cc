@@ -25,7 +25,7 @@
 
 #include "meta.h"
 #include "kfstree.h"
-#include "CSMap.h"
+#include "LayoutManager.h"
 #include "util.h"
 
 #include <iostream>
@@ -111,12 +111,13 @@ MetaChunkInfo::DeleteChunk()
 inline ostream&
 MetaChunkInfo::showSelf(ostream& os) const
 {
-    return (os <<
+    os <<
     "chunkinfo/fid/" << id() <<
     "/chunkid/"      << chunkId <<
     "/offset/"       << offset <<
-    "/chunkVersion/" << chunkVersion
-    );
+    "/chunkVersion/" << chunkVersion <<
+    "/si/";
+    return gLayoutManager.Checkpoint(os, *this);
 }
 
 void

@@ -527,6 +527,7 @@ public:
           mServers(),
           mPendingRemove(),
           mNullSlots(),
+          mValidServersBitSet(0),
           mServerCount(0),
           mHibernatedCount(0),
           mRemoveServerScanPtr(0),
@@ -550,7 +551,7 @@ public:
         mMap.SetDeleteObserver(0);
     }
     bool SetDebugValidate(bool flag) {
-        if (GetServerCount() > 0) {
+        if (0 < GetServerCount() || 0 < GetHibernatedCount()) {
             return (mDebugValidateFlag == flag);
         }
         mDebugValidateFlag = flag;
@@ -575,12 +576,14 @@ public:
             InternalError("invalid hibernated servers slot count");
             return false;
         }
+        Entry::AllocIdx idx;
         if (mNullSlots.empty()) {
-            server->SetIndex(mServers.size(), mDebugValidateFlag);
+            idx = mServers.size();
+            server->SetIndex(idx, mDebugValidateFlag);
             mServers.push_back(server);
             mHibernatedServers.push_back(HibernatedChunkServerPtr());
         } else {
-            Entry::AllocIdx const idx = mNullSlots.back();
+            idx = mNullSlots.back();
             mNullSlots.pop_back();
             if (mServers.size() <= idx || mServers[idx] ||
                     mHibernatedServers[idx]) {
@@ -592,6 +595,7 @@ public:
         }
         server->ClearHosted();
         mServerCount++;
+        mValidServersBitSet |= ValidServersBitSet(1) << idx;
         Validate();
         return true;
     }
@@ -604,6 +608,7 @@ public:
         server->SetIndex(idx, mDebugValidateFlag);
         server->ClearHosted();
         mServerCount++;
+        mValidServersBitSet |= ValidServersBitSet(1) << idx;
         server->mChunkCount  = chunkCount;
         server->mCIdChecksum = cIdChecksum;
         Validate();
@@ -624,6 +629,45 @@ public:
         Validate();
         return true;
     }
+    template<typename ParserT>
+    bool Restore(Entry& entry, const char* idxs, size_t len,
+        ParserT* parser = 0)
+    {
+        const char* ptr = idxs;
+        const char* end = idxs + len;
+        size_t      cnt = 0;
+        size_t      idx;
+        while (ParserT::Parse(ptr, end - ptr, idx)) {
+            if (end == ptr) {
+                return (cnt == idx);
+            }
+            if (0 == (mValidServersBitSet & (ValidServersBitSet(1) << idx))) {
+                // No servers to remove must exists, all indexes must be valid.
+                return false;
+            }
+            entry.AddIndex(idx);
+            cnt++;
+            // Do not update chunk server checksum and count, restore must
+            // already set both these in restore server or restore hibernated
+            // server the above.
+        }
+        return false;
+    }
+    template<typename ST>
+    ST& Checkpoint(ST& os, const Entry& entry) const
+    {
+        size_t const cnt  = entry.ServerCount();
+        size_t       scnt = 0;
+        for (size_t i = 0; i < cnt; i++) {
+            const size_t idx = entry.IndexAt(i);
+            if (0 != (mValidServersBitSet & (ValidServersBitSet(1) << idx))) {
+                os << idx << ' ';
+                scnt++;
+            }
+        }
+        os << scnt;
+        return os;
+    }
     bool RemoveServer(const ChunkServerPtr& server) {
         if (! server || ! Validate(server)) {
             return false;
@@ -631,6 +675,7 @@ public:
         Validate();
         mServers[server->GetIndex()].reset();
         mPendingRemove.push_back(server->GetIndex());
+        mValidServersBitSet = ~(ValidServersBitSet(1) << server->GetIndex());
         server->SetIndex(-1, mDebugValidateFlag);
         mServerCount--;
         server->ClearHosted();
@@ -682,6 +727,7 @@ public:
         }
         assert(! mServers[idx] && 0 < mServerCount);
         mPendingRemove.push_back(idx);
+        mValidServersBitSet = ~(ValidServersBitSet(1) << idx);
         mServerCount--;
         // Start or restart full scan.
         RemoveServerScanFirst();
@@ -1175,23 +1221,25 @@ public:
 private:
     typedef vector<Entry::AllocIdx>          SlotIndexes;
     typedef vector<HibernatedChunkServerPtr> HibernatedServers;
+    typedef uint64_t                         ValidServersBitSet;
 
-    Map               mMap;
-    Servers           mServers;
-    SlotIndexes       mPendingRemove;
-    SlotIndexes       mNullSlots;
-    size_t            mServerCount;
-    size_t            mHibernatedCount;
-    Entry*            mRemoveServerScanPtr;
-    Entry*            mCachedEntry;
-    chunkId_t         mCachedChunkId;
-    bool              mDebugValidateFlag;
-    HibernatedServers mHibernatedServers;
-    Entry*            mPrevPtr[Entry::kStateCount];
-    Entry*            mNextPtr[Entry::kStateCount];
-    size_t            mCounts[Entry::kStateCount];
-    Entry             mLists[Entry::kStateCount + 1];
-    Entry             mNextEnd[Entry::kStateCount];
+    Map                mMap;
+    Servers            mServers;
+    SlotIndexes        mPendingRemove;
+    SlotIndexes        mNullSlots;
+    ValidServersBitSet mValidServersBitSet;
+    size_t             mServerCount;
+    size_t             mHibernatedCount;
+    Entry*             mRemoveServerScanPtr;
+    Entry*             mCachedEntry;
+    chunkId_t          mCachedChunkId;
+    bool               mDebugValidateFlag;
+    HibernatedServers  mHibernatedServers;
+    Entry*             mPrevPtr[Entry::kStateCount];
+    Entry*             mNextPtr[Entry::kStateCount];
+    size_t             mCounts[Entry::kStateCount];
+    Entry              mLists[Entry::kStateCount + 1];
+    Entry              mNextEnd[Entry::kStateCount];
 
     void Erasing(Entry& entry) {
         if (EList::IsInList(entry)) {
@@ -1477,9 +1525,10 @@ private:
             return false;
         }
         if (theSize <= idx) {
+            size_t i = mServers.size();
             mServers.resize(idx + 1);
             mHibernatedServers.resize(idx + 1);
-            for (size_t i = mServers.size(); i < idx; i++) {
+            for ( ; i < idx; i++) {
                 mNullSlots.push_back(i);
             }
             return true;

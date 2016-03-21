@@ -1435,6 +1435,7 @@ public:
     void Handle(MetaHibernateParamsUpdate& req);
     void Handle(MetaHibernateRemove& req);
     int WriteChunkServers(ostream& os) const;
+    bool RestoreStart();
     bool RestoreChunkServer(const ServerLocation& loc,
         size_t idx, size_t chunks, const CIdChecksum& chksum,
         bool retiringFlag, int64_t retStart, int64_t retDown);
@@ -1451,6 +1452,9 @@ public:
         { return mRestoreHibernatedCSPtr; }
     const HibernatedChunkServerPtr& RestoreClearHibernatedCS() const
         { return mRestoreHibernatedCSPtr; }
+    ostream& Checkpoint(ostream& os, const MetaChunkInfo& info) const;
+    bool Restore(MetaChunkInfo& info,
+        const char* restoreIdxs, size_t restoreIdxsLen, bool hexFmtFlag);
 protected:
     typedef vector<
         int,

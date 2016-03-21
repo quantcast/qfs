@@ -345,9 +345,10 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
 }
 
 void
-ChunkServer::HelloDone(const MetaHello& r)
+ChunkServer::HelloDone(const MetaHello* r)
 {
-    if (this != r.server.get() || this != r.clnt) {
+    if (r ? (this != r->server.get() || this != r->clnt) :
+            ! mReplayFlag) {
         panic("invalid hello done invocation");
     }
     if (mHelloDone) {
@@ -1073,7 +1074,7 @@ ChunkServer::Error(const char* errorMsg)
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
         // If hello is already in flight, i.e. not done, and being logged
-        // bye must be issued to ensure replay correctness..
+        // bye must be issued to ensure replay correctness.
         MetaBye& mb = *(new MetaBye(mSelfPtr));
         mb.chunkCount  = GetChunkCount();
         mb.cIdChecksum = GetChecksum();
@@ -3144,14 +3145,14 @@ ChunkServer::Checkpoint(ostream& ost)
     }
     ReqOstream os(ost);
     os << "cs"
-        "/loc/"      << GetServerLocation() <<
-        "/idx/"      << GetIndex() <<
-        "/chunks/"   << GetChunkCount() <<
-        "/chksum/"   << GetChecksum() <<
-        "/retire/"   << (mIsRetiring ? 1 : 0) <<
-        "/retstart/" << mRetireStartTime <<
-        "/retdown/"  << mRetireDownTime <<
-        "/replay/"   << (mReplayFlag ? 1 : 0)
+        "/loc/"         << GetServerLocation() <<
+        "/idx/"         << GetIndex() <<
+        "/chunks/"      << GetChunkCount() <<
+        "/chksum/"      << GetChecksum() <<
+        "/retire/"      << (mIsRetiring ? 1 : 0) <<
+        "/retirestart/" << mRetireStartTime <<
+        "/retiredown/"  << mRetireDownTime <<
+        "/replay/"      << (mReplayFlag ? 1 : 0)
     ;
     size_t              cnt   = 0;
     const TimeoutEntry* entry = &mDoneTimedoutList;
@@ -3182,7 +3183,6 @@ ChunkServer::Checkpoint(ostream& ost)
         }
     }
     os <<
-        "\n"
         "cse/" << mDoneTimedoutChunks.GetSize() <<
         "/"    << mDispatchedReqs.size() <<
         "\n";

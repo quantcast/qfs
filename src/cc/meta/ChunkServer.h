@@ -868,7 +868,7 @@ public:
         InFlightChunks& chunks, CIdChecksum& chunksChecksum,
         ChunkIdQueue& chunksDelete, chunkId_t lastResumeModifiedChunk,
         uint64_t generation);
-    void HelloDone(const MetaHello& r);
+    void HelloDone(const MetaHello* r);
     uint64_t GetHibernatedGeneration() const
         { return mHibernatedGeneration; }
     const int64_t GetOpenObjectCount() const

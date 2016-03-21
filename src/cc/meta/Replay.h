@@ -166,6 +166,7 @@ private:
     Replay& operator=(const Replay&);
 };
 
+bool restore_chunk_server_end(DETokenizer& c);
 extern Replay replayer;
 
 }
