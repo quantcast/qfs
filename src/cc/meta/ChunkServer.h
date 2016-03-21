@@ -517,7 +517,8 @@ public:
     /// write load towards it.  We detect loaded servers to be
     /// those that don't respond to heartbeat messages.
     bool IsResponsiveServer() const {
-        return (! mDown && ! mHeartbeatSkipped && mNetConnection);
+        return (! mDown && ! mHeartbeatSkipped &&
+            mNetConnection && ! mReplayFlag);
     }
 
     /// To support scheduled down-time and allow maintenance to be

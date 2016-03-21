@@ -566,6 +566,7 @@ echo "Starting copy test. Test file sizes: $sizes"
 # Run normal test first, then rs test.
 # Enable read ahead and set buffer size to an odd value.
 # For RS disable read ahead and set odd buffer size.
+# Schedule meta server checkpoint after the first two tests.
 cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
@@ -578,6 +579,7 @@ cppidf="cptest${pidsuf}"
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
     mv cptest.log cptest-0.log && \
+    kill -USR1 $metapid && \
     cptokfsopts='-S -m 2 -l 2 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh && \
