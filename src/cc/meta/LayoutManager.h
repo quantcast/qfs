@@ -1242,6 +1242,7 @@ public:
     void Done(MetaChunkVersChange& req);
     virtual void Timeout();
     bool Validate(MetaHello& r);
+    bool CanAddServer(size_t pendingAddSize);
     void Start(MetaHello& r);
     void UpdateDelayedRecovery(const MetaFattr& fa, bool forceUpdateFlag = false);
     bool HasWriteAppendLease(chunkId_t chunkId) const;

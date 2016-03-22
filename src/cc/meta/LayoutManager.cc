@@ -2636,6 +2636,13 @@ LayoutManager::Validate(MetaHello& r)
     return true;
 }
 
+bool
+LayoutManager::CanAddServer(size_t pendingAddSize)
+{
+    return (mChunkToServerMap.GetAvailableServerSlotCount()
+        > pendingAddSize);
+}
+
 void
 LayoutManager::Start(MetaHello& r)
 {
@@ -3577,16 +3584,27 @@ LayoutManager::AddNewServer(MetaHello* r)
         // Add server first, then add chunks, otherwise if/when the server goes
         // down in the process of adding chunks, taking out server from chunk
         // info will not work in ServerDown().
-        if ( ! mChunkToServerMap.AddServer(r->server)) {
-            KFS_LOG_STREAM_WARN <<
-                "failed to add server: " << srvId <<
-                " no slots available "
-                " servers: " << mChunkToServerMap.GetServerCount() <<
-                " / " << mChunkServers.size() <<
-            KFS_LOG_EOM;
-            r->statusMsg = "out of chunk server slots, try again later";
-            r->status    = -ERANGE;
-            return;
+        bool addedFlag;
+        if (! (addedFlag = mChunkToServerMap.AddServer(r->server))) {
+            if (r->replayFlag) {
+                mChunkToServerMap.RemoveServerCleanup(0);
+                addedFlag = mChunkToServerMap.AddServer(r->server);
+            }
+            if (! addedFlag) {
+                KFS_LOG_STREAM_FATAL <<
+                    "failed to add server: " << srvId <<
+                    " no slots available "
+                    " servers: " << mChunkToServerMap.GetServerCount() <<
+                    " / " << mChunkServers.size() <<
+                    " hibernated: " << mChunkToServerMap.GetHibernatedCount() <<
+                    " slots: " <<
+                        mChunkToServerMap.GetAvailableServerSlotCount() <<
+                KFS_LOG_EOM;
+                panic("out of chunk servers slots");
+                r->statusMsg = "out of chunk server slots, try again later";
+                r->status    = -EAGAIN;
+                return;
+            }
         }
     }
     mChunkServers.insert(existing, r->server);
@@ -12507,7 +12525,9 @@ LayoutManager::WritePendingObjStoreDelete(ostream& os)
 bool
 LayoutManager::RestoreStart()
 {
-    if (! mChunkServers.empty() || ! mHibernatingServers.empty() ||
+    if (! mChunkServers.empty() ||
+            ! mHibernatingServers.empty() ||
+            0 < mChunkToServerMap.Size() ||
             0 < mChunkToServerMap.GetServerCount() ||
             0 < mChunkToServerMap.GetHibernatedCount() ||
             mChunkToServerMap.RemoveServerCleanup(0)) {

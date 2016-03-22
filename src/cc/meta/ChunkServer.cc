@@ -208,6 +208,7 @@ string ChunkServer::sSrvLoadPropName("Buffer-usec-wait-avg");
 bool ChunkServer::sRestartCSOnInvalidClusterKeyFlag = false;
 ChunkServer::ChunkOpsInFlight ChunkServer::sChunkOpsInFlight;
 ChunkServer* ChunkServer::sChunkServersPtr[kChunkSrvListsCount] = { 0, 0 };
+ChunkServer::HelloInFlight ChunkServer::sHelloInFlight;
 int ChunkServer::sChunkServerCount    = 0;
 int ChunkServer::sMaxChunkServerCount = 0;
 int ChunkServer::sPendingHelloCount    = 0;
@@ -791,12 +792,22 @@ ChunkServer::HandleRequest(int code, void *data)
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data &&
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
-        if (! mHelloDone && META_HELLO == op->op && 0 != op->status &&
-                -EAGAIN != op->status && mDisconnectReason.empty()) {
-            if (op->statusMsg.empty()) {
-                mDisconnectReason = "hello error";
-            } else {
-                mDisconnectReason = op->statusMsg;
+        if (META_HELLO == op->op) {
+            if (! mHelloDone && 0 != op->status &&
+                    -EAGAIN != op->status && mDisconnectReason.empty()) {
+                if (op->statusMsg.empty()) {
+                    mDisconnectReason = "hello error";
+                } else {
+                    mDisconnectReason = op->statusMsg;
+                }
+            }
+            MetaHello& helloOp = *static_cast<MetaHello*>(op);
+            if (mDown || this != helloOp.server.get() ||
+                    1 != sHelloInFlight.erase(helloOp.location)) {
+                panic("chunk server:  invalid hello completion");
+            }
+            if (! mNetConnection) {
+                SubmitMetaBye();
             }
         }
         const bool deleteOpFlag = op != mAuthenticateOp;
@@ -1041,6 +1052,17 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 }
 
 void
+ChunkServer::SubmitMetaBye()
+{
+    MetaBye& mb = *(new MetaBye(mSelfPtr));
+    mb.chunkCount  = GetChunkCount();
+    mb.cIdChecksum = GetChecksum();
+    mb.authUid     = mAuthUid;
+    mb.clnt        = this;
+    Submit(mb);
+}
+
+void
 ChunkServer::Error(const char* errorMsg)
 {
     if (mDown || ! mNetConnection || mReplayFlag) {
@@ -1070,17 +1092,19 @@ ChunkServer::Error(const char* errorMsg)
     RemoveFromWriteAllocation();
     MetaRequest::Release(mAuthenticateOp);
     mAuthenticateOp = 0;
-    if (mHelloDone || 0 < mPendingOpsCount) {
+    if (mHelloDone) {
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
-        // If hello is already in flight, i.e. not done, and being logged
-        // bye must be issued to ensure replay correctness.
-        MetaBye& mb = *(new MetaBye(mSelfPtr));
-        mb.chunkCount  = GetChunkCount();
-        mb.cIdChecksum = GetChecksum();
-        mb.authUid     = mAuthUid;
-        mb.clnt        = this;
-        Submit(mb);
+        SubmitMetaBye();
+        return;
+    } else if (0 < mPendingOpsCount) {
+        // If hello is already in flight, i.e. not done, and being logged.
+        // In this case bye must be issued to ensure replay correctness.
+        HelloInFlight::const_iterator const it = sHelloInFlight.find(
+            GetServerLocation());
+        if (sHelloInFlight.end() == it || this != it->second->server.get()) {
+            panic("chunk server: invalid pending ops count");
+        }
         return;
     }
     ForceDown();
@@ -1650,6 +1674,13 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         // Create response and set timeout, the chunk server
         // should disconnect when it restarts.
         return 0;
+    }
+    if (! gLayoutManager.CanAddServer(sHelloInFlight.size())) {
+        return DeclareHelloError(-EAGAIN, "no slots available");
+    }
+    if (! sHelloInFlight.insert(
+            make_pair(mHelloOp->location, mHelloOp)).second) {
+        return DeclareHelloError(-EAGAIN, "hello is in progress");
     }
     mNetConnection->SetMaxReadAhead(kMaxReadAhead);
     mHelloOp->peerName        = GetPeerName();

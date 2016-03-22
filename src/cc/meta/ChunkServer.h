@@ -1067,7 +1067,7 @@ protected:
         return *reinterpret_cast<DispatchedReqs::iterator*>(&it.mStorage);
     }
     typedef MetaChunkRequest::List LogInFlightReqs;
-    typedef set <
+    typedef set<
         string,
         less<string>,
         StdFastAllocator<string>
@@ -1114,6 +1114,12 @@ protected:
         StdFastAllocator<TimeoutEntry>
     > DoneTimedoutChunks;
     typedef TimeoutEntry::List DoneTimedoutList;
+    typedef map<
+        ServerLocation,
+        MetaHello*,
+        less<ServerLocation>,
+        StdFastAllocator<pair<const ServerLocation, MetaHello*> >
+    > HelloInFlight;
 
     enum { kChunkSrvListsCount = 2 };
     /// RPCs that we have sent to this chunk server.
@@ -1183,6 +1189,7 @@ protected:
 
     static ChunkOpsInFlight sChunkOpsInFlight;
     static ChunkServer*     sChunkServersPtr[kChunkSrvListsCount];
+    static HelloInFlight    sHelloInFlight;
     static int              sChunkServerCount;
     static int              sMaxChunkServerCount;
     static int              sPendingHelloCount;
@@ -1313,6 +1320,7 @@ protected:
     inline ChunkServerPtr GetSelfPtr();
     bool ReplayValidate(MetaRequest& r) const;
     inline void RemoveInFlight(MetaChunkRequest& req);
+    void SubmitMetaBye();
 };
 
 class CSMap;

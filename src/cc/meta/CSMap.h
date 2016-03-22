@@ -551,7 +551,7 @@ public:
         mMap.SetDeleteObserver(0);
     }
     bool SetDebugValidate(bool flag) {
-        if (0 < GetServerCount() || 0 < GetHibernatedCount()) {
+        if (0 < mServerCount) {
             return (mDebugValidateFlag == flag);
         }
         mDebugValidateFlag = flag;
@@ -619,8 +619,9 @@ public:
         if (! RestoreSlot(idx)) {
             return false;
         }
+        mServerCount++;
         mHibernatedCount++;
-        assert(0 < mHibernatedCount);
+        assert(0 < mServerCount && 0 < mHibernatedCount);
         mHibernatedServers[idx] = server;
         server->SetIndex(idx, mDebugValidateFlag);
         assert((size_t)server->GetIndex() == idx);
@@ -1093,6 +1094,11 @@ public:
                 Entry::kMaxServers &&
             server && ! Validate(server)
         );
+    }
+    size_t GetAvailableServerSlotCount() const {
+        return (Entry::kMaxServers -
+            min(size_t(Entry::kMaxServers),
+            mServerCount + mPendingRemove.size()));
     }
     bool Validate(const Entry& entry) const {
         const char* const reason = ValidateSelf(entry);
