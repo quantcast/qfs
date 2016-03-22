@@ -3377,7 +3377,7 @@ LayoutManager::Handle(MetaHibernateParamsUpdate& req)
 }
 
 void
-LayoutManager::Handle(MetaHibernateRemove& req)
+LayoutManager::Handle(MetaHibernatedRemove& req)
 {
     if (-ELOGFAILED == req.status) {
         if (req.replayFlag) {
@@ -3394,7 +3394,11 @@ LayoutManager::Handle(MetaHibernateRemove& req)
         req.status = -ENOENT;
         return;
     }
-    if (! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
+    if (! req.replayFlag && it->removeOp != &req) {
+        panic("invalid hibernated server remove completion");
+    }
+    if (it->IsHibernated() &&
+            ! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
         panic("failed to remove hibernated server");
     }
     mHibernatingServers.erase(it);
@@ -10212,6 +10216,9 @@ LayoutManager::CheckHibernatingServersStatus()
     for (HibernatedServerInfos::iterator iter = mHibernatingServers.begin();
             iter != mHibernatingServers.end();
             ) {
+        if (iter->removeOp) {
+            continue;
+        }
         Servers::const_iterator const i = FindServer(iter->location);
         if (i == mChunkServers.end()) {
             const HibernatedChunkServer* hsrv;
@@ -10250,7 +10257,8 @@ LayoutManager::CheckHibernatingServersStatus()
                 " is NOT back as promised" <<
             KFS_LOG_EOM;
         }
-        submit_request(new MetaHibernateRemove(iter->location));
+        iter->removeOp = new MetaHibernatedRemove(iter->location);
+        submit_request(iter->removeOp);
         ++iter;
     }
 }

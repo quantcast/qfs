@@ -1434,7 +1434,7 @@ public:
     void Handle(MetaBye& req);
     void Handle(MetaChunkLogCompletion& req);
     void Handle(MetaHibernateParamsUpdate& req);
-    void Handle(MetaHibernateRemove& req);
+    void Handle(MetaHibernatedRemove& req);
     int WriteChunkServers(ostream& os) const;
     bool RestoreStart();
     bool RestoreChunkServer(const ServerLocation& loc,
@@ -1966,15 +1966,17 @@ protected:
                 size_t                idx     = ~size_t(0))
             : location(loc),
               sleepEndTime(size_t(0)),
-              csmapIdx(idx)
+              csmapIdx(idx),
+              removeOp(0)
               {}
         bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
         // the server we put in hibernation
-        ServerLocation location;
+        ServerLocation        location;
         // when is it likely to wake up
-        time_t         sleepEndTime;
+        time_t                sleepEndTime;
         // CSMap server index to remove hibernated server.
-        size_t         csmapIdx;
+        size_t                csmapIdx;
+        MetaHibernatedRemove* removeOp;
     };
     typedef vector<
         HibernatingServerInfo,

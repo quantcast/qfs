@@ -740,7 +740,7 @@ MakeLogMetaRequestHandler(
         static_cast<const MetaHibernateParamsUpdate*>(0))
     .MakeParser("HR",
         META_HIBERNATE_REMOVE,
-        static_cast<const MetaHibernateRemove*>(0))
+        static_cast<const MetaHibernatedRemove*>(0))
     ;
 }
 

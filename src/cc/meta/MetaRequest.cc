@@ -6203,7 +6203,7 @@ MetaHibernateParamsUpdate::handle()
 }
 
 /* virtual */ void
-MetaHibernateRemove::handle()
+MetaHibernatedRemove::handle()
 {
     gLayoutManager.Handle(*this);
 }

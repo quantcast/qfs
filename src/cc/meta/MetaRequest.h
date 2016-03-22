@@ -4187,9 +4187,9 @@ struct MetaHibernateParamsUpdate : public MetaRequest {
     }
 };
 
-struct MetaHibernateRemove : public MetaRequest {
+struct MetaHibernatedRemove : public MetaRequest {
     ServerLocation location;
-    MetaHibernateRemove(
+    MetaHibernatedRemove(
         const ServerLocation& loc = ServerLocation())
         : MetaRequest(META_HIBERNATE_REMOVE, kLogIfOk),
           location(loc)
@@ -4213,7 +4213,7 @@ struct MetaHibernateRemove : public MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("S", &MetaHibernateRemove::location)
+        .Def("S", &MetaHibernatedRemove::location)
         ;
     }
 };
