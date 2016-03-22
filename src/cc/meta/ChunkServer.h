@@ -421,7 +421,7 @@ public:
     static ChunkServerPtr Create(
         const NetConnectionPtr& conn, const ServerLocation& loc);
     static KfsCallbackObj* Create(const NetConnectionPtr& conn);
-    ~ChunkServer();
+    virtual ~ChunkServer();
 
     bool CanBeChunkMaster() const {
         return mCanBeChunkMaster;

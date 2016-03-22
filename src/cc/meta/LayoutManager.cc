@@ -3611,37 +3611,43 @@ LayoutManager::AddNewServer(MetaHello* r)
 
     const uint64_t allocSpace = r->chunks.size() * CHUNKSIZE;
     srv.SetSpace(r->totalSpace, r->usedSpace, allocSpace);
-    RackId rackId;
-    if (mUseCSRackAssignmentFlag && 0 <= r->rackId) {
-        rackId = r->rackId;
-    } else {
-        rackId = GetRackId(srvId);
-        if (rackId < 0 && 0 <= r->rackId) {
-            rackId = r->rackId;
-        }
-    }
-    srv.SetRack(rackId);
     // Ensure that rack exists before invoking UpdateSrvLoadAvg(), as it
     // can update rack possible allocation candidates count.
-    if (rackId >= 0) {
-        RackInfos::iterator const rackIter = lower_bound(
-            mRacks.begin(), mRacks.end(),
-            rackId, bind(&RackInfo::id, _1) < rackId
-        );
-        if (rackIter != mRacks.end() && rackIter->id() == rackId) {
-            rackIter->addServer(r->server);
+    RackId rackId;
+    if (! srv.IsReplay()) {
+        if (mUseCSRackAssignmentFlag && 0 <= r->rackId) {
+            rackId = r->rackId;
         } else {
-            RackWeights::const_iterator const it = mRackWeights.find(rackId);
-            mRacks.insert(rackIter, RackInfo(
-                rackId,
-                it != mRackWeights.end() ? it->second : double(1),
-                r->server
-            ));
+            rackId = GetRackId(srvId);
+            if (rackId < 0 && 0 <= r->rackId) {
+                rackId = r->rackId;
+            }
+        }
+        srv.SetRack(rackId);
+        if (rackId >= 0) {
+            RackInfos::iterator const rackIter = lower_bound(
+                mRacks.begin(), mRacks.end(),
+                rackId, bind(&RackInfo::id, _1) < rackId
+            );
+            if (rackIter != mRacks.end() && rackIter->id() == rackId) {
+                rackIter->addServer(r->server);
+            } else {
+                RackWeights::const_iterator const it =
+                    mRackWeights.find(rackId);
+                mRacks.insert(rackIter, RackInfo(
+                    rackId,
+                    it != mRackWeights.end() ? it->second : double(1),
+                    r->server
+                ));
+            }
+        } else {
+            KFS_LOG_STREAM_DEBUG << srvId <<
+                ": no rack specified: " << rackId <<
+            KFS_LOG_EOM;
         }
     } else {
-        KFS_LOG_STREAM_DEBUG << srvId <<
-            ": no rack specified: " << rackId <<
-        KFS_LOG_EOM;
+        rackId = -1;
+        srv.SetRack(rackId);
     }
     UpdateSrvLoadAvg(srv, 0, 0);
 

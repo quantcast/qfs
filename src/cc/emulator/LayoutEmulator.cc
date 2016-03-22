@@ -528,6 +528,35 @@ LayoutEmulator::PrintChunkserverBlockCount(ostream& os) const
 int
 LayoutEmulator::ReadNetworkDefn(const string& networkFn)
 {
+    // Clear checkpoint / replay chunk server and chunk map.
+    for (Servers::const_iterator it = mChunkServers.begin();
+            it != mChunkServers.end();
+            ++it) {
+        const ChunkServerPtr& srv = *it;
+        if (srv->GetIndex() < 0) {
+            srv->ForceDown();
+            continue;
+        }
+        if (! mChunkToServerMap.RemoveServer(srv)) {
+            panic("failed to remove server");
+            return -EFAULT;
+        }
+        srv->ForceDown();
+    }
+    mChunkServers.clear();
+    for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
+            mHibernatingServers.end() != it;
+            ++it) {
+        if (it->IsHibernated()) {
+            if (! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
+                panic("failed to remove hibernated server");
+                return -EFAULT;
+            }
+        }
+    }
+    mHibernatingServers.clear();
+    mChunkToServerMap.RemoveServerCleanup(0);
+
     ifstream file(networkFn.c_str());
     if (! file) {
         const int err = errno;
