@@ -70,7 +70,9 @@ public:
           mNumRecoveryStripes(0),
           mMinSTier(kKfsSTierMax),
           mMaxSTier(kKfsSTierMax),
-          mStartPos(0)
+          mStartPos(0),
+          mAsyncWritesFlag(false),
+          mMaxOutstandingAsyncWrites(-1)
     {}
     ~CpToKfs()
     {
@@ -100,6 +102,8 @@ private:
     kfsSTier_t mMinSTier;
     kfsSTier_t mMaxSTier;
     int64_t    mStartPos;
+    bool       mAsyncWritesFlag;
+    int        mMaxOutstandingAsyncWrites;
 
     bool Mkdirs(string path);
 
@@ -148,7 +152,7 @@ CpToKfs::Run(int argc, char **argv)
     int                 optchar;
 
     while ((optchar = getopt(argc, argv,
-            "d:hk:p:s:W:r:vniatxXb:w:u:y:z:R:D:T:Sm:l:B:f:F:")) != -1) {
+            "d:hk:p:s:W:r:c:vniaAtxXb:w:u:y:z:R:D:T:Sm:l:B:f:F:")) != -1) {
         switch (optchar) {
             case 'd':
                 sourcePath = optarg;
@@ -173,6 +177,12 @@ CpToKfs::Run(int argc, char **argv)
                 break;
             case 'W':
                 mTestNumReWrites = atoi(optarg);
+                break;
+            case 'A':
+                mAsyncWritesFlag = true;
+                break;
+            case 'c':
+                mMaxOutstandingAsyncWrites = atoi(optarg);
                 break;
             case 'n':
                 mDryRunFlag = true;
@@ -254,6 +264,8 @@ CpToKfs::Run(int argc, char **argv)
             " [-v] -- verbose debug trace\n"
             " [-r] -- replication factor; default 3\n"
             " [-W] -- testing -- number test rewrites\n"
+            " [-A] -- testing -- use asynchronous writes\n"
+            " [-c] -- testing -- max number of asynchronous writes allowed\n"
             " [-n] -- dry run\n"
             " [-a] -- append\n"
             " [-b] -- input buffer size in bytes; default is 8MB\n"
@@ -501,12 +513,17 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
             return(-1);
         }
     }
-
+    // keep track of the number of outstanding asynchronous writes
+    // if the async write flag is on and a max limit is defined.
+    int numCurrAsyncWrites = 0;
     ssize_t nRead;
     while ((nRead = read(srcFd, mReadBuf, mBufSize)) > 0) {
         for (char* p = mReadBuf, * const e = p + nRead; p < e; ) {
             for (int i = 0; ;) {
-                const int res = mKfsClient->Write(kfsfd, p, e - p);
+                const int res = (!mAsyncWritesFlag ?
+                        mKfsClient->Write(kfsfd, p, e - p) :
+                        mKfsClient->WriteAsync(kfsfd, p, e - p)
+                        );
                 if (res <= 0 || (mAppendMode && p + res != e)) {
                     ReportError(mAppendMode ? "append" : "write",
                         kfsfilename, res);
@@ -516,6 +533,18 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
                 }
                 if (++i > mTestNumReWrites || mAppendMode) {
                     p += res;
+                    if (mAsyncWritesFlag && mMaxOutstandingAsyncWrites > 0 &&
+                            mMaxOutstandingAsyncWrites <= ++numCurrAsyncWrites) {
+                        int waitRes = mKfsClient->WriteAsyncCompletionHandler(kfsfd);
+                        if (waitRes < 0) {
+                            ReportError("write async completion handler",
+                                    kfsfilename, waitRes);
+                            close(srcFd);
+                            mKfsClient->Close(kfsfd);
+                            return(-1);
+                        }
+                        numCurrAsyncWrites = 0;
+                    }
                     break;
                 }
                 mKfsClient->Sync(kfsfd);
@@ -529,6 +558,16 @@ CpToKfs::BackupFile2(string srcfilename, string kfsfilename)
         ReportError("read", srcfilename, -errno);
         if (mIgnoreSrcErrorsFlag) {
             nRead = 0;
+        }
+    }
+    if (0 != numCurrAsyncWrites) {
+        int waitRes = mKfsClient->WriteAsyncCompletionHandler(kfsfd);
+        if (waitRes < 0) {
+            ReportError("write async completion handler",
+                    kfsfilename, waitRes);
+            close(srcFd);
+            mKfsClient->Close(kfsfd);
+            return(-1);
         }
     }
     close(srcFd);
