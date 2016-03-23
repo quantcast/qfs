@@ -53,6 +53,7 @@
 #include "common/TimerWheel.h"
 #include "common/BufferInputStream.h"
 #include "common/PoolAllocator.h"
+#include "common/SingleLinkedQueue.h"
 
 #include "qcdio/QCDLList.h"
 
@@ -952,7 +953,7 @@ public:
     /// which the server will connect back.  If it doesn't connect
     /// within that interval, the server is assumed to be down and
     /// re-replication will start.
-    int RetireServer(const ServerLocation &loc, int64_t start, int downtime);
+    void RetireServer(MetaRetireChunkserver& req);
 
     /// Allocate space to hold a chunk on some
     /// chunkserver.
@@ -1456,6 +1457,7 @@ public:
     ostream& Checkpoint(ostream& os, const MetaChunkInfo& info) const;
     bool Restore(MetaChunkInfo& info,
         const char* restoreIdxs, size_t restoreIdxsLen, bool hexFmtFlag);
+    void StartServicing();
 protected:
     typedef vector<
         int,
@@ -1581,6 +1583,7 @@ protected:
             true             // bool   TForceCleanupFlag
        >
     > ObjBlocksDeleteInFlight;
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> RequestQueue;
     class RebalanceCtrs
     {
     public:
@@ -1963,11 +1966,13 @@ protected:
         HibernatingServerInfo(
                 const ServerLocation& loc     = ServerLocation(),
                 time_t                endTime = time_t(),
+                bool                  rplFlag = false,
                 size_t                idx     = ~size_t(0))
             : location(loc),
               sleepEndTime(size_t(0)),
               csmapIdx(idx),
-              removeOp(0)
+              removeOp(0),
+              replayFlag(rplFlag)
               {}
         bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
         // the server we put in hibernation
@@ -1977,6 +1982,7 @@ protected:
         // CSMap server index to remove hibernated server.
         size_t                csmapIdx;
         MetaHibernatedRemove* removeOp;
+        bool                  replayFlag;
     };
     typedef vector<
         HibernatingServerInfo,
@@ -2379,8 +2385,7 @@ protected:
     FileRecoveryInFlightCount mFileRecoveryInFlightCount;
     IdempotentRequestTracker mIdempotentRequestTracker;
 
-    MetaRequest* mResubmitQueueHead;
-    MetaRequest* mResubmitQueueTail;
+    RequestQueue mResubmitQueue;
 
     int                      mObjStoreDeleteMaxSchedulePerRun;
     int                      mObjStoreMaxDeletesPerServer;
@@ -2392,6 +2397,7 @@ protected:
     ObjBlocksDeleteInFlight  mObjBlocksDeleteInFlight;
     ChunkServerPtr           mRestoreChunkServerPtr;
     HibernatedChunkServerPtr mRestoreHibernatedCSPtr;
+    size_t                   mReplayServerCount;
 
     BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;

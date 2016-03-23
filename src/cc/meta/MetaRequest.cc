@@ -2922,9 +2922,7 @@ MetaRetireChunkserver::start()
 /* virtual */ void
 MetaRetireChunkserver::handle()
 {
-    if (0 == status) {
-        status = gLayoutManager.RetireServer(location, startTime, nSecsDown);
-    }
+    gLayoutManager.RetireServer(*this);
 }
 
 /* virtual */ void
@@ -4089,6 +4087,9 @@ MetaRequest::Submit()
             panic("submit: invalid request suspended");
         }
         if (kLogNever != logAction) {
+            if (replayFlag) {
+                panic("submit: invalid request replay flag");
+            }
             const bool logFlag = start();
             if (1 != submitCount || next || suspended) {
                 panic("submit: invalid request start completion");
@@ -4097,7 +4098,7 @@ MetaRequest::Submit()
                 logAction = kLogNever;
             }
         }
-        if (GetLogWriter().Enqueue(*this)) {
+        if (! replayFlag && GetLogWriter().Enqueue(*this)) {
             processTime = microseconds() - processTime;
             if (--recursionCount != 0) {
                 panic("submit: invalid request recursion count");

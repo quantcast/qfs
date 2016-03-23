@@ -1976,7 +1976,7 @@ struct MetaBye: public MetaRequest {
     ServerLocation location;
     size_t         chunkCount;
     CIdChecksum    cIdChecksum;
-    int64_t        timeUsec;  // Log current time for debugging.
+    int64_t        timeUsec;  // current / start time.
 
     MetaBye(const ChunkServerPtr& c = ChunkServerPtr())
         : MetaRequest(META_BYE, kLogIfOk, 0),

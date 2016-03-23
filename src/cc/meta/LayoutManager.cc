@@ -187,7 +187,8 @@ inline bool
 LayoutManager::InRecovery() const
 {
     return (
-        mChunkServers.size() < mMinChunkserversToExitRecovery ||
+        mChunkServers.size() < mReplayServerCount +
+            mMinChunkserversToExitRecovery ||
         InRecoveryPeriod()
     );
 }
@@ -645,7 +646,7 @@ ChunkLeases::ReplicaLost(
     const ChunkServer*   chunkServer)
 {
     WriteLease& wl = we;
-    if (wl.chunkServer.get() == chunkServer && ! wl.relinquishedFlag &&
+    if (chunkServer == &*wl.chunkServer && ! wl.relinquishedFlag &&
             ! wl.allocInFlight) {
         const time_t now = TimeNow();
         if (wl.stripedFileFlag && now <= wl.expires) {
@@ -680,7 +681,7 @@ ChunkLeases::ServerDown(
                 csmap.HasServer(chunkServer, *ci)) {
             arac.Invalidate(ci->GetFileId(), chunkId);
         }
-        ReplicaLost(*const_cast<WEntry*>(entry), chunkServer.get());
+        ReplicaLost(*const_cast<WEntry*>(entry), &*chunkServer);
     }
 }
 
@@ -1791,8 +1792,7 @@ LayoutManager::LayoutManager() :
     mHelloResumeFailureTraceFileName(),
     mFileRecoveryInFlightCount(),
     mIdempotentRequestTracker(),
-    mResubmitQueueHead(0),
-    mResubmitQueueTail(0),
+    mResubmitQueue(),
     mObjStoreDeleteMaxSchedulePerRun(16 << 10),
     mObjStoreMaxDeletesPerServer(128),
     mObjStoreDeleteDelay(2 * LEASE_INTERVAL_SECS),
@@ -1803,6 +1803,7 @@ LayoutManager::LayoutManager() :
     mObjBlocksDeleteInFlight(),
     mRestoreChunkServerPtr(),
     mRestoreHibernatedCSPtr(),
+    mReplayServerCount(0),
     mTmpParseStream(),
     mChunkInfosTmp(),
     mChunkInfos2Tmp(),
@@ -2760,14 +2761,11 @@ LayoutManager::Shutdown()
     mClientAuthContext.Clear();
     mCSAuthContext.Clear();
     mIdempotentRequestTracker.Clear();
-    MetaRequest* nextReq = mResubmitQueueHead;
-    mResubmitQueueHead = 0;
-    mResubmitQueueTail = 0;
-    while (nextReq) {
-        MetaRequest& req = *nextReq;
-        nextReq = req.next;
-        req.next = 0;
-        MetaRequest::Release(&req);
+    RequestQueue queue;
+    queue.PushBack(mResubmitQueue);
+    MetaRequest* req;
+    while ((req = queue.PopFront())) {
+        MetaRequest::Release(req);
     }
 }
 
@@ -3358,7 +3356,11 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
             panic("MetaChunkLogCompletion: invalid log sequence");
         }
         op.logCompletionSeq = -1;
-        op.resume();
+        if (op.replayFlag) {
+            MetaRequest::Release(&op);
+        } else {
+            op.resume();
+        }
     }
 }
 
@@ -3447,9 +3449,12 @@ LayoutManager::RestoreChunkServer(
                 KFS_LOG_EOM;
                 return false;
             }
-            mHibernatingServers.insert(it,
-                HibernatingServerInfo(loc, retStart + retDown));
+            mHibernatingServers.insert(it, HibernatingServerInfo(
+                loc, retStart + retDown, server->IsReplay()));
         }
+    }
+    if (server->IsReplay()) {
+        mReplayServerCount++;
     }
     mChunkServers.insert(it, server);
     mRestoreChunkServerPtr = server;
@@ -3478,8 +3483,8 @@ LayoutManager::RestoreHibernatedCS(
             server, idx, chunks, chksum)) {
         return false;
     }
-    mHibernatingServers.insert(
-        it, HibernatingServerInfo(loc, (time_t)expire, idx));
+    mHibernatingServers.insert(it, HibernatingServerInfo(
+        loc, (time_t)expire, server->IsReplay(), idx));
     mRestoreHibernatedCSPtr = server;
     return true;
 }
@@ -3501,7 +3506,7 @@ LayoutManager::Replay(MetaHello& req)
     if (! req.server) {
         req.status = -EFAULT;
     } else {
-        req.clnt = req.server.get();
+        req.clnt = &*req.server;
         if (req.peerName.empty()) {
             req.peerName = "replay";
         }
@@ -3610,6 +3615,9 @@ LayoutManager::AddNewServer(MetaHello* r)
                 return;
             }
         }
+    }
+    if (r->server->IsReplay()) {
+        mReplayServerCount++;
     }
     mChunkServers.insert(existing, r->server);
 
@@ -5252,7 +5260,8 @@ LayoutManager::Handle(MetaBye& req)
         }
         mLastResumeModifiedChunk = -1;
         mHibernatingServers.insert(it, HibernatingServerInfo(
-            loc, TimeNow() + replicationDelay, idx));
+            loc, (time_t)(req.timeUsec / 1000000) + replicationDelay,
+            req.replayFlag, idx));
         isHibernating = true;
     }
     if (! server->IsReplay()) {
@@ -5276,6 +5285,12 @@ LayoutManager::Handle(MetaBye& req)
         if (! mChunkToServerMap.RemoveServer(server)) {
             panic("remove server failure");
         }
+    }
+    if (server->IsReplay()) {
+        if (mReplayServerCount <= 0) {
+            panic("invalid replay server count");
+        }
+        mReplayServerCount--;
     }
     // Convert const_iterator to iterator below to make erase() compile.
     mChunkServers.erase(mChunkServers.begin() + (i - mChunkServers.begin()));
@@ -5324,65 +5339,75 @@ LayoutManager::FindHibernatingCS(const ServerLocation& loc,
     return mChunkToServerMap.GetHiberantedServer(hs->csmapIdx);
 }
 
-int
-LayoutManager::RetireServer(const ServerLocation &loc,
-    int64_t start, int downtime)
+void
+LayoutManager::RetireServer(MetaRetireChunkserver& req)
 {
-    if (! mAllowChunkServerRetireFlag && downtime <= 0) {
-        KFS_LOG_STREAM_INFO << "chunk server retire is not enabled" <<
-        KFS_LOG_EOM;
-        return -EPERM;
+    if (0 != req.status) {
+        return;
     }
-    Servers::const_iterator const si = FindServer(loc);
+    if (! req.replayFlag &&
+            ! mAllowChunkServerRetireFlag && req.nSecsDown <= 0) {
+        req.status    = -EPERM;
+        req.statusMsg = "chunk server retire is not enabled";
+        KFS_LOG_STREAM_INFO << req.statusMsg <<
+        KFS_LOG_EOM;
+        return;
+    }
+    Servers::const_iterator const si = FindServer(req.location);
     if (si == mChunkServers.end() || (*si)->IsDown()) {
         // Update down time, and let hibernation status check to
         // take appropriate action.
-        HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc);
+        HibernatingServerInfo* const hs = FindHibernatingCSInfo(req.location);
         if (hs) {
-            hs->sleepEndTime = TimeNow() + max(0, downtime);
-            return 0;
+            hs->sleepEndTime = req.startTime + max(0, req.nSecsDown);
+            hs->replayFlag   = req.replayFlag;
+            return;
         }
-        return -ENOENT;
+        req.status    = -ENOENT;
+        req.statusMsg = "no such server";
+        return;
     }
 
     mMightHaveRetiringServersFlag = true;
     ChunkServerPtr const server(*si);
     if (server->IsRetiring()) {
-        KFS_LOG_STREAM_INFO << "server: " << loc <<
+        KFS_LOG_STREAM_INFO <<
+            "server: " << req.location <<
             " has already retiring status" <<
-            " down time: " << downtime <<
+            " down time: " << req.nSecsDown <<
         KFS_LOG_EOM;
-        if (downtime <= 0) {
+        if (req.nSecsDown <= 0) {
             // The server is already retiring.
-            return 0;
+            return;
         }
         // Change from retiring to hibernating state.
     }
 
-    server->SetRetiring(start, (int)downtime);
-    if (0 < downtime) {
+    server->SetRetiring(req.startTime, (int)req.nSecsDown);
+    if (0 < req.nSecsDown) {
         HibernatedServerInfos::iterator it;
-        HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc, &it);
+        HibernatingServerInfo* const hs =
+            FindHibernatingCSInfo(req.location, &it);
         if (hs) {
-            hs->sleepEndTime = start + downtime;
+            hs->sleepEndTime = req.startTime + req.nSecsDown;
         } else {
-            mHibernatingServers.insert(it,
-                HibernatingServerInfo(loc, start + downtime));
+            mHibernatingServers.insert(it, HibernatingServerInfo(
+                req.location, req.startTime + req.nSecsDown, req.replayFlag));
         }
-        KFS_LOG_STREAM_INFO << "hibernating server: " << loc <<
-            " down time: " << downtime <<
+        KFS_LOG_STREAM_INFO << "hibernating server: " << req.location <<
+            " down time: " << req.nSecsDown <<
         KFS_LOG_EOM;
         server->Retire(); // Remove when connection will go down.
-        return 0;
+        return;
     }
 
     if (server->GetChunkCount() <= 0) {
         server->Retire();
-        return 0;
+        return;
     }
 
     InitCheckAllChunks();
-    return 0;
+    return;
 }
 
 int64_t
@@ -6763,7 +6788,7 @@ LayoutManager::MakeChunkAccess(
     Servers&       servers = serversTmp.Get();
     mChunkToServerMap.GetServers(cs, servers);
     if (writeMaster && (servers.empty() ||
-            writeMaster != servers.front().get())) {
+            writeMaster != &*servers.front())) {
         KFS_LOG_STREAM_ERROR <<
             (servers.empty() ? "empty" : "") <<
             "invalid replication chain with write lease renew"
@@ -7218,7 +7243,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
     const bool existedFlag = notifyStale ?
         ci->HasServer(mChunkToServerMap, server) :
         ci->Remove(mChunkToServerMap, server);
-    mChunkLeases.ReplicaLost(chunkId, server.get());
+    mChunkLeases.ReplicaLost(chunkId, &*server);
     // Invalidate cache.
     mARAChunkCache.Invalidate(ci->GetFileId(), chunkId);
     if (existedFlag) {
@@ -8022,20 +8047,17 @@ LayoutManager::LeaseCleanup(
         mResubmitClearObjectStoreDeleteFlag = false;
         submit_request(new MetaLogClearObjStoreDelete());
     }
-    MetaRequest* nextReq = mResubmitQueueHead;
-    mResubmitQueueTail = 0;
-    mResubmitQueueHead = 0;
-    while (nextReq) {
-        MetaRequest& req = *nextReq;
-        nextReq = req.next;
-        req.next         = 0;
-        req.status       = 0;
-        req.statusMsg.clear();
-        req.submitCount  = 0;
-        req.seqno        = -1;
-        req.logseq       = -1;
-        req.suspended    = false;
-        submit_request(&req);
+    RequestQueue queue;
+    queue.PushBack(mResubmitQueue);
+    MetaRequest* req;
+    while ((req = queue.PopFront())) {
+        req->status       = 0;
+        req->statusMsg.clear();
+        req->submitCount  = 0;
+        req->seqno        = -1;
+        req->logseq       = -1;
+        req->suspended    = false;
+        submit_request(req);
     }
     ScheduleChunkServersRestart();
 }
@@ -8078,7 +8100,7 @@ LayoutManager::ScheduleChunkServersRestart()
     const int64_t maxCSUptime  = GetMaxCSUptime();
     const size_t  minMastersUp = max(size_t(1), mSlavesCount / 3 * 2);
     while (! servers.empty()) {
-        ChunkServer& srv = *servers.front().get();
+        ChunkServer& srv = *servers.front();
         if (srv.Uptime() < maxCSUptime) {
             break;
         }
@@ -8803,12 +8825,7 @@ LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
     req.next      = 0;
     req.logAction = MetaRequest::kLogIfOk;
     req.suspended = true;
-    if (mResubmitQueueTail) {
-        mResubmitQueueTail->next = &req;
-    } else {
-        mResubmitQueueHead = &req;
-    }
-    mResubmitQueueTail = &req;
+    mResubmitQueue.PushBack(req);
 }
 
 void
@@ -10212,21 +10229,17 @@ void
 LayoutManager::CheckHibernatingServersStatus()
 {
     const time_t now = TimeNow();
-
+    RequestQueue queue;
     for (HibernatedServerInfos::iterator iter = mHibernatingServers.begin();
             iter != mHibernatingServers.end();
-            ) {
-        if (iter->removeOp) {
+            ++iter) {
+        if (iter->removeOp || iter->replayFlag) {
             continue;
         }
         Servers::const_iterator const i = FindServer(iter->location);
         if (i == mChunkServers.end()) {
-            const HibernatedChunkServer* hsrv;
-            if (now < iter->sleepEndTime ||
-                    ((hsrv = mChunkToServerMap.GetHiberantedServer(
-                        iter->csmapIdx)) && hsrv->IsReplay())) {
+            if (now < iter->sleepEndTime) {
                 // Within the time windo or created by replay.
-                ++iter;
                 continue;
             }
         }
@@ -10258,17 +10271,26 @@ LayoutManager::CheckHibernatingServersStatus()
             KFS_LOG_EOM;
         }
         iter->removeOp = new MetaHibernatedRemove(iter->location);
-        submit_request(iter->removeOp);
-        ++iter;
+        queue.PushBack(*iter->removeOp);
+    }
+    MetaRequest* req;
+    while ((req = queue.PopFront())) {
+        submit_request(req);
     }
 }
 
 int
 LayoutManager::CountServersAvailForReReplication() const
 {
+    if (mChunkServers.size() <= mReplayServerCount) {
+        return 0;
+    }
     int anyAvail = 0;
     for (uint32_t i = 0; i < mChunkServers.size(); i++) {
-        const ChunkServer& cs = *mChunkServers[i].get();
+        const ChunkServer& cs = *mChunkServers[i];
+        if (cs.IsReplay()) {
+            continue;
+        }
         if (cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) >
                 mMaxSpaceUtilizationThreshold) {
             continue;
@@ -10505,6 +10527,10 @@ struct EvacuateChunkChecker
 void
 LayoutManager::ChunkReplicationChecker()
 {
+    if (mDisableTimerFlag) {
+        ScheduleCleanup(mMaxServerCleanupScan);
+        return;
+    }
     if (! mPendingBeginMakeStable.IsEmpty() && ! InRecoveryPeriod()) {
         ProcessPendingBeginMakeStable();
     }
@@ -10533,8 +10559,7 @@ LayoutManager::ChunkReplicationChecker()
             // isn't completely reliable -- notification only.
             // Tell servers to retire if they are still here.
             for_each(mChunkServers.begin(), mChunkServers.end(),
-                EvacuateChunkChecker(
-                    mMightHaveRetiringServersFlag));
+                EvacuateChunkChecker(mMightHaveRetiringServersFlag));
         }
     }
     if (! RunObjectBlockDeleteQueue() && runRebalanceFlag &&
@@ -12332,6 +12357,9 @@ LayoutManager::GetAccessProxyForHost(
 bool
 LayoutManager::RunObjectBlockDeleteQueue()
 {
+    if (mChunkServers.size() <= mReplayServerCount) {
+        return false;
+    }
     int          rem         = mObjStoreDeleteMaxSchedulePerRun;
     const size_t kMaxRandCnt = 4;
     size_t       randCnt     = 0;
@@ -12579,6 +12607,31 @@ LayoutManager::WriteChunkServers(ostream& os) const
         }
     }
     return (os ? 0 : -EIO);
+}
+
+void
+LayoutManager::StartServicing()
+{
+    if (mDisableTimerFlag) {
+        return; // FIXME for now assume secondary / replay only.
+    }
+    for (Servers::const_iterator it = mChunkServers.begin();
+            mChunkServers.end() != it;
+            ++it) {
+        const ChunkServerPtr& srv = *it;
+        if (! srv->IsReplay()) {
+            srv->ScheduleDown("start servicing");
+        }
+    }
+    for (HibernatedServerInfos::iterator it = mHibernatingServers.begin();
+            mHibernatingServers.end() != it;
+            ++it) {
+        // Extend hibernated interval to the of the recovery interval, in order
+        // to attempt partial chunk inventory synchronization.
+        it->sleepEndTime = max(it->sleepEndTime,
+            TimeNow() + mRecoveryIntervalSec);
+        it->replayFlag   = false;
+    }
 }
 
 ostream&

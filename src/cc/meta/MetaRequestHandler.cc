@@ -842,8 +842,10 @@ MetaRequest::Replay(const char* buf, size_t len, seq_t& logseq, int& status)
         ret = true;
     }
     logseq = req->logseq;
-    req->replayFlag = false;
-    MetaRequest::Release(req);
+    if (! req->suspended) {
+        req->replayFlag = false;
+        MetaRequest::Release(req);
+    }
     return ret;
 }
 

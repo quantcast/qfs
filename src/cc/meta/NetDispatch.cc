@@ -436,6 +436,7 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
             );
             const bool              kWakeupAndCleanupFlag = true;
             MainThreadPrepareToFork prepareToFork(mClientManager);
+            gLayoutManager.StartServicing();
             // Run main thread event processing.
             globalNetManager().MainLoop(
                 GetMutex(),

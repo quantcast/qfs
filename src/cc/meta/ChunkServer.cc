@@ -348,7 +348,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
 void
 ChunkServer::HelloDone(const MetaHello* r)
 {
-    if (r ? (this != r->server.get() || this != r->clnt) :
+    if (r ? (this != &*r->server || this != r->clnt) :
             ! mReplayFlag) {
         panic("invalid hello done invocation");
     }
@@ -802,7 +802,7 @@ ChunkServer::HandleRequest(int code, void *data)
                 }
             }
             MetaHello& helloOp = *static_cast<MetaHello*>(op);
-            if (mDown || this != helloOp.server.get() ||
+            if (mDown || this != &*helloOp.server ||
                     1 != sHelloInFlight.erase(helloOp.location)) {
                 panic("chunk server:  invalid hello completion");
             }
@@ -1102,7 +1102,7 @@ ChunkServer::Error(const char* errorMsg)
         // In this case bye must be issued to ensure replay correctness.
         HelloInFlight::const_iterator const it = sHelloInFlight.find(
             GetServerLocation());
-        if (sHelloInFlight.end() == it || this != it->second->server.get()) {
+        if (sHelloInFlight.end() == it || this != &*it->second->server) {
             panic("chunk server: invalid pending ops count");
         }
         return;
@@ -2090,10 +2090,13 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
     }
     if (op) {
         if (! req.doneOp) {
+            if (! req.replayFlag || ! op->replayFlag) {
+                panic("chunk server: invalid chunk RPC replay");
+            }
             req.doneOp = op;
         } else if (op != req.doneOp) {
             req.status = -EFAULT;
-            panic("Invalid chunk RPC completion");
+            panic("chunk server: invalid chunk RPC completion");
         }
         if (0 <= req.chunkId && 0 <= req.chunkVersion) {
             if (req.doneTimedOutFlag) {
@@ -2153,7 +2156,7 @@ void
 ChunkServer::Enqueue(MetaChunkRequest* r,
     int timeout /* = -1 */, bool loggedFlag /* = false */)
 {
-    if (! r || this != r->server.get() || ! mHelloDone) {
+    if (! r || this != &*r->server || ! mHelloDone) {
         panic(mHelloDone ?
             "ChunkServer::Enqueue: invalid request" :
             "ChunkServer::Enqueue: invalid enqueue attempt"
