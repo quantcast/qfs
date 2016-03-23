@@ -1,10 +1,3 @@
-QFS servers have been tested extensively on Linux machines running CentOS 5 and
-CentOS 6 on 64-bit architectures. The file system servers run on other Linux
-variants as well.
-
-The QFS client tools can be compiled and run on Linux variants, Mac OS X, and
-Cygwin.
-
 Prerequisites
 =============
 To compile and run QFS you need to have the following software packages
@@ -36,14 +29,6 @@ installed in your development system.
 
 The description below assumes that you're using a CentOS 64-bit machine.
 Please interpret paths accordingly if you use a different architecture.
-
-Obtaining The Source Code
-=========================
-**Note**: There can be issues with HTTPS cloning if you have an old git version.
-Please ensure you have **git 1.7.10** or higher. Refer to
-[this page](https://help.github.com/articles/https-cloning-errors) for details.
-
-    $ git clone https://github.com/quantcast/qfs.git
 
 Code Layout
 -----------
