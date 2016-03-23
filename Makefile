@@ -46,7 +46,7 @@ build:
 .PHONY: java
 java: build
 	$V./src/java/javabuild.sh clean
-	$Vwhich mvn > /dev/null && ./src/java/javabuild.sh
+	$V./src/java/javabuild.sh
 
 .PHONY: hadoop-jars
 hadoop-jars: build
