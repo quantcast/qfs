@@ -18,8 +18,9 @@ QFS is available through various channels.
   based systems are available through the [BigTop project][packages].
 - **Binary Distributions**: There are various binary distributions packaged as
   tarballs available on the [Binary Distributions Page][bd].
-- QFS can be compiled on Linux variants, Mac OS X, and Cygwin. See the
-  [wiki][develop] for more information on how to build QFS yourself.
+- **Compile from source**: QFS can be compiled on Linux variants, Mac OS X, and
+  Cygwin. See the [wiki][develop] for more information on how to build QFS
+  yourself.
 
 Trying QFS
 ==========
