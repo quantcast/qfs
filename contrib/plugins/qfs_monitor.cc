@@ -26,11 +26,23 @@ using std::remove;
 using std::rename;
 using std::string;
 
-#define MONITOR_LOG_DIRECTORY "/mnt/ram_monitor/qfsmonitor/"
+#define DEFAULT_MONITOR_LOG_DIRECTORY "/mnt/prime/shared/ram_monitor/qfsmonitor/"
 
-int prepareLogPath()
+string getLogPath()
 {
-    string monitorLogDir = MONITOR_LOG_DIRECTORY;
+    string monitorLogDir;
+    char* monitorLogDirEnv = getenv("QFS_CLIENT_MONITOR_LOG_DIR");
+    if (monitorLogDirEnv) {
+        monitorLogDir = monitorLogDirEnv;
+    }
+    else {
+        monitorLogDir = DEFAULT_MONITOR_LOG_DIRECTORY;
+    }
+    return monitorLogDir;
+}
+
+int prepareLogPath(string monitorLogDir)
+{
     char* cstr = strdup(monitorLogDir.c_str());
     char* ptr = strtok(cstr, "/");
     string path;
@@ -51,7 +63,8 @@ int prepareLogPath()
 
 extern "C" int init()
 {
-    int ret = access(MONITOR_LOG_DIRECTORY, F_OK | W_OK);
+    string monitorLogDir = getLogPath();
+    int ret = access(monitorLogDir.c_str(), F_OK | W_OK);
     if (ret != -1) {
         return 0;
     }
@@ -59,7 +72,7 @@ extern "C" int init()
     // try to create the log path, if access failed because
     // a parent directory does not exist.
     if(errno == ENOENT) {
-        return prepareLogPath();
+        return prepareLogPath(monitorLogDir);
     }
 
     perror("Monitor plugin can't access the log directory: ");
@@ -117,7 +130,7 @@ extern "C" void reportStatus(
         ChunkServerErrorMap& errorCounters)
 {
     int pid = getpid();
-    string logFilePath = MONITOR_LOG_DIRECTORY;
+    string logFilePath = getLogPath();
     logFilePath += metaserverHost;
     logFilePath += "_";
     AppendDecIntToString(logFilePath, metaserverPort);
