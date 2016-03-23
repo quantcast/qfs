@@ -80,7 +80,7 @@ else
     branch=`git branch --no-color | awk '{if($1=="*") { if ($3 != "branch)") printf("%s", $2); exit; }}'`
 fi
 
-tmpfile=$(mktemp)
+tmpfile=$(mktemp tmp.XXXXXXXXXX)
 
 {
 echo '
@@ -153,8 +153,8 @@ const std::string KFS_SOURCE_REVISION_STRING(
 
 } > $tmpfile
 
-a=$(mktemp)
-b=$(mktemp)
+a=$(mktemp tmp.XXXXXXXXXX)
+b=$(mktemp tmp.XXXXXXXXXX)
 
 grep -v 'date: ' $tmpfile > $a
 grep -v 'date: ' $outfile > $b

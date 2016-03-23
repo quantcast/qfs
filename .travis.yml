@@ -1,23 +1,22 @@
-# enable container based builds (can't use sudo)
-sudo: false
+sudo: false # enable container based builds (can't use sudo)
 language: cpp
+script: make tarball
 
 compiler:
     - gcc
     # - clang
 
-script:
-    - make -j 2 tarball
-    # The qfs tests are currently run through qfstest.sh. This fails on travis
-    # ci with an error:
-    #
-    #   ../../src/test-scripts/qfstest.sh: 533: kill: No such process
-    #
-    # We have a plan to move the qfs tests to use a proper testing framework.
-    # Until that can be done or we can get the current unit tests to work on
-    # travis ci, unit tests are disabled.
-    #
-    # - make test-release
+os:
+    - linux
+    - osx
+
+before_install:
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install git || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install cmake || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install maven || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install boost || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export JAVA_HOME=$(/usr/libexec/java_home) ; fi
 
 before_deploy:
     - mkdir artifacts
