@@ -1,5 +1,5 @@
 Quantcast File System [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)
---------------------------------------------------------------------------------
+================================================================================
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
 reading and writing large files sequentially.
@@ -11,7 +11,7 @@ The implementation details and features of QFS are discussed in detail in the
 project [wiki](https://github.com/quantcast/qfs/wiki/Introduction-To-QFS).
 
 Getting QFS
-===========
+-----------
 QFS is available through various channels.
 
 - **[BigTop][bigtop]**: QFS packages for rpm and debian
@@ -23,7 +23,7 @@ QFS is available through various channels.
   yourself.
 
 Trying QFS
-==========
+----------
 Once you have aquired QFS through one of the methods above, you can take QFS for
 a quick test drive. Setting up a single node configuration to familiarize
 yourself with QFS is very easy.
@@ -79,28 +79,28 @@ replication 1.
         $ ./examples/sampleservers/sample_setup.py -a uninstall
 
 Benchmarking QFS
-================
+----------------
 A performance comparison between QFS and HDFS 1.0.2 shows QFS is faster both at
 reading and writing 20 TB of uncompressed data on our test system, a
 heterogeneous cluster with 6,500 disk drives. See more information regarding
 this in our [wiki][perf].
 
 Contributing to QFS
-===================
+-------------------
 We welcome contributions to QFS in the form of enhancement requests, patches,
 additional tests, bug reports, new ideas, and so on. Please submit issues using
 [GitHub Issues][issues] and refer to the [QFS code contribution policy][ccp]
 when doing so.
 
 Have Questions?
-===============
+---------------
 Join the QFS Developer mailing list or search the archives at the
 [Google Group](http://groups.google.com/group/qfs-devel).
 
 Post comments or questions to qfs-devel@googlegroups.com.
 
 License
-========
+--------
 QFS is released under the Apache 2.0 license.
 
 [bd]: https://github.com/quantcast/qfs/wiki/Binary-Distributions
