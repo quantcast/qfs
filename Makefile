@@ -63,7 +63,7 @@ hadoop-jars: build
 .PHONY: tarball
 tarball: hadoop-jars
 	$Vcd build && \
-	$Vmyuname=`uname -s`; \
+	myuname=`uname -s`; \
 	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
 	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
@@ -93,7 +93,7 @@ tarball: hadoop-jars
 	if ls -1 ./java/hadoop-qfs/hadoop-*.jar > /dev/null 2>&1; then \
 	    cp ./java/hadoop-qfs/hadoop-*.jar "tmpreldir/$$tarname/lib/"; fi && \
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
-	$Vrm -rf tmpreldir
+	rm -rf tmpreldir
 
 .PHONY: python
 python: build
