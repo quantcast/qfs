@@ -25,8 +25,17 @@ pages is available on the right sidebar.
 - [[Performance Comparison to HDFS]]
 - [[QFS Client Reference]]
 
-This page describes the steps necessary to test-drive QFS on your computer. For
-multi-node setups, please refer to the [[Deployment Guide]].
+Updating the QFS Wiki
+=====================
+The community is encouraged to update the QFS wiki as they wish. However, public
+editing has been turned off on the github wiki itself. Instead, the wiki
+documents are mirrored in the `wiki` directory of the QFS source code. This
+allows for a few things:
+
+- Wiki documentation is distributed along with the qfs source code
+- The community can use pull requests to submit changes to the wiki
+- The community can request updates to the wiki in the same pull request as code
+  changes are made, keeping code and documentation in sync
 
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
 
