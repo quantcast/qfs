@@ -89,8 +89,8 @@ Contributing to QFS
 -------------------
 We welcome contributions to QFS in the form of enhancement requests, patches,
 additional tests, bug reports, new ideas, and so on. Please submit issues using
-[GitHub Issues][issues] and refer to the [QFS code contribution policy][ccp]
-when doing so.
+our [JIRA instance][issues] and refer to the [QFS code contribution policy][ccp]
+when contributing code.
 
 Have Questions?
 ---------------
@@ -106,7 +106,7 @@ QFS is released under the Apache 2.0 license.
 [bd]: https://github.com/quantcast/qfs/wiki/Binary-Distributions
 [bigtop]: https://bigtop.apache.org/
 [ccp]: https://github.com/quantcast/qfs/wiki/Code-Contribution-Policy
-[issues]: https://github.com/quantcast/qfs/issues
+[issues]: https://quantcast.atlassian.net
 [packages]: https://ci.bigtop.apache.org/view/Packages/job/Bigtop-trunk-packages
 [perf]: https://github.com/quantcast/qfs/wiki/Performance-Comparison-to-HDFS
 [develop]: https://github.com/quantcast/qfs/wiki/Developer-Documentation
