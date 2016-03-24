@@ -2556,6 +2556,11 @@ LayoutManager::UpdateReplicationsThreshold()
 bool
 LayoutManager::Validate(MetaHello& r)
 {
+    if (r.replayFlag) {
+        panic("invalid chunk server hello replay attempt");
+        r.status = -EFAULT;
+        return false;
+    }
     if (! r.location.IsValid()) {
         r.statusMsg = "invalid chunk server location: " + r.location.ToString();
         r.status    = -EINVAL;
@@ -2565,15 +2570,17 @@ LayoutManager::Validate(MetaHello& r)
         r.statusMsg = "cluster key mismatch:"
             " expect: "   + mClusterKey +
             " received: " + r.clusterKey;
-        r.status = -EBADCLUSTERKEY;
+        r.status     = -EBADCLUSTERKEY;
+        r.retireFlag = mRetireOnCSRestartFlag;
         return false;
     }
     if (! mChunkServerMd5sums.empty() && find(
                 mChunkServerMd5sums.begin(),
                 mChunkServerMd5sums.end(),
                 r.md5sum) == mChunkServerMd5sums.end()) {
-        r.statusMsg = "MD5sum mismatch: received: " + r.md5sum;
-        r.status    = -EBADCLUSTERKEY;
+        r.statusMsg  = "MD5sum mismatch: received: " + r.md5sum;
+        r.status     = -EBADCLUSTERKEY;
+        r.retireFlag = mRetireOnCSRestartFlag;
         return false;
     }
     if (0 <= mDebugPanicOnHelloResumeFailureCount &&
@@ -2606,8 +2613,19 @@ LayoutManager::Validate(MetaHello& r)
         }
         panic("hello resume failure detected: " + r.location.ToString());
     }
+    const HibernatingServerInfo* const hsi = FindHibernatingCSInfo(r.location);
+    if (hsi && hsi->retiredFlag && TimeNow() < hsi->startTime + r.uptime) {
+        // Chunk server must restart when it gets retire request.
+        // Uptime is used to detect if retire is lost due to communication error,
+        // and hibernation can be achieved by re-issuing retire.
+        r.statusMsg  = "retire retry";
+        r.status     = -EAGAIN;
+        r.retireFlag = true;
+        return true;
+    }
     if (0 <= r.resumeStep) {
-        const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
+        const HibernatedChunkServer* const cs = (hsi && hsi->IsHibernated()) ?
+            mChunkToServerMap.GetHiberantedServer(hsi->csmapIdx) : 0;
         if (cs) {
             if (cs->CanBeResumed()) {
                 const size_t kChunkIdReplayBytes = 17; // Hex encoded.
@@ -3410,7 +3428,7 @@ bool
 LayoutManager::RestoreChunkServer(
     const ServerLocation& loc,
     size_t idx, size_t chunks, const CIdChecksum& chksum,
-    bool retiringFlag, int64_t retStart, int64_t retDown)
+    bool retiringFlag, int64_t retStart, int64_t retDown, bool retiredFlag)
 {
     if (mRestoreChunkServerPtr) {
         return false;
@@ -3450,7 +3468,8 @@ LayoutManager::RestoreChunkServer(
                 return false;
             }
             mHibernatingServers.insert(it, HibernatingServerInfo(
-                loc, retStart + retDown, server->IsReplay()));
+                loc, retStart, max(int64_t(0), retDown), server->IsReplay())
+            )->retiredFlag = retiredFlag;
         }
     }
     if (server->IsReplay()) {
@@ -3465,7 +3484,8 @@ bool
 LayoutManager::RestoreHibernatedCS(
     const ServerLocation& loc, size_t idx,
     size_t chunks, const CIdChecksum& chksum,
-    const CIdChecksum& modChksum, size_t delReport, int64_t expire)
+    const CIdChecksum& modChksum, size_t delReport,
+    int64_t startTime, int64_t endTime, bool retiredFlag)
 {
     if (mRestoreHibernatedCSPtr) {
         return false;
@@ -3484,7 +3504,8 @@ LayoutManager::RestoreHibernatedCS(
         return false;
     }
     mHibernatingServers.insert(it, HibernatingServerInfo(
-        loc, (time_t)expire, server->IsReplay(), idx));
+        loc, startTime, endTime - startTime, server->IsReplay(), idx,
+        retiredFlag));
     mRestoreHibernatedCSPtr = server;
     return true;
 }
@@ -3541,7 +3562,7 @@ LayoutManager::AddNewServer(MetaHello* r)
         KFS_LOG_STREAM_DEBUG <<
             "duplicate server: " << srvId <<
             " possible reconnect:"
-            " existing: " << (const void*)existing->get() <<
+            " existing: " << (const void*)&*existing <<
             " new: "      << (const void*)&srv <<
             " resume: "   << r->resumeStep <<
         KFS_LOG_EOM;
@@ -3557,7 +3578,8 @@ LayoutManager::AddNewServer(MetaHello* r)
         }
         r->statusMsg += ", retry resume later";
         r->status = -EEXIST;
-        if (! r->replayFlag && (*existing)->IsReplay()) {
+        if (! r->replayFlag && (*existing)->IsReplay() &&
+                ! mDisableTimerFlag) {
             (*existing)->ScheduleDown("reconnect");
         }
         return;
@@ -4014,9 +4036,9 @@ LayoutManager::AddNotStableChunk(
                 (appendFlag ? " append " : "") <<
             " <"                   << fileId <<
             ","                    << chunkId << ">" <<
-            " already hosted on: " << (const void*)cs.get() <<
-            " new server: "        << (const void*)server.get() <<
-            (cs.get() == server.get() ?
+            " already hosted on: " << (const void*)&*cs <<
+            " new server: "        << (const void*)&*server <<
+            (&*cs == &*server ?
             " duplicate chunk entry" :
             " possible stale chunk to server mapping entry") <<
         KFS_LOG_EOM;
@@ -5153,16 +5175,25 @@ LayoutManager::Handle(MetaBye& req)
         req.status = -ENOENT;
         return;
     }
-    if (! (server->GetChunkCount() && req.chunkCount &&
+    if (! (server->GetChunkCount() == req.chunkCount &&
             server->GetChecksum() == req.cIdChecksum)) {
-        KFS_LOG_STREAM_ERROR <<
+        // In flight "log in flight", or "log completion" at the time when bye
+        // was submitted might result in mismatch.
+        KFS_LOG_STREAM((req.completionInFlightFlag ||
+                req.completionInFlightFlag) ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR) <<
             "chunk server bye inventory mismatch" <<
             " server: "      << server->GetServerLocation() <<
             " chunk count: " << server->GetChunkCount() <<
             " expected: "    << req.chunkCount <<
             " checksum: "    << server->GetChecksum() <<
             " expected: "    << req.cIdChecksum <<
+            " log:"
+            " in flight: "   << req.logInFlightCount <<
+            " completions: " << req.completionInFlightFlag <<
         KFS_LOG_EOM;
+         // Set error code to detect replay commit mismatch.
         req.status = -EBADCKSUM;
     }
     RackInfos::iterator const rackIter = FindRack(server->GetRack());
@@ -5260,7 +5291,7 @@ LayoutManager::Handle(MetaBye& req)
         }
         mLastResumeModifiedChunk = -1;
         mHibernatingServers.insert(it, HibernatingServerInfo(
-            loc, (time_t)(req.timeUsec / 1000000) + replicationDelay,
+            loc, (time_t)(req.timeUsec / 1000000), replicationDelay,
             req.replayFlag, idx));
         isHibernating = true;
     }
@@ -5348,7 +5379,8 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
     if (! req.replayFlag &&
             ! mAllowChunkServerRetireFlag && req.nSecsDown <= 0) {
         req.status    = -EPERM;
-        req.statusMsg = "chunk server retire is not enabled";
+        req.statusMsg = "chunk server retire is deprecated,"
+            "please use chunk directory evacuation ";
         KFS_LOG_STREAM_INFO << req.statusMsg <<
         KFS_LOG_EOM;
         return;
@@ -5359,6 +5391,7 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
         // take appropriate action.
         HibernatingServerInfo* const hs = FindHibernatingCSInfo(req.location);
         if (hs) {
+            hs->startTime    = req.startTime;
             hs->sleepEndTime = req.startTime + max(0, req.nSecsDown);
             hs->replayFlag   = req.replayFlag;
             return;
@@ -5392,11 +5425,12 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
             hs->sleepEndTime = req.startTime + req.nSecsDown;
         } else {
             mHibernatingServers.insert(it, HibernatingServerInfo(
-                req.location, req.startTime + req.nSecsDown, req.replayFlag));
+                req.location, req.startTime, req.nSecsDown, req.replayFlag));
         }
         KFS_LOG_STREAM_INFO << "hibernating server: " << req.location <<
             " down time: " << req.nSecsDown <<
         KFS_LOG_EOM;
+        hs->retiredFlag = true;
         server->Retire(); // Remove when connection will go down.
         return;
     }
@@ -10239,29 +10273,27 @@ LayoutManager::CheckHibernatingServersStatus()
         Servers::const_iterator const i = FindServer(iter->location);
         if (i == mChunkServers.end()) {
             if (now < iter->sleepEndTime) {
-                // Within the time windo or created by replay.
+                // Within the time window.
                 continue;
             }
         }
         if (i != mChunkServers.end()) {
-            if (! iter->IsHibernated()) {
-                if (iter->sleepEndTime + 10 * 60 < now) {
-                    KFS_LOG_STREAM_INFO <<
-                        "hibernated server: " <<
-                            iter->location  <<
-                        " still connected, canceling"
-                        " hibernation" <<
-                    KFS_LOG_EOM;
-                    iter = mHibernatingServers.erase(iter);
-                } else {
-                    ++iter;
+            if (iter->IsHibernated()) {
+                KFS_LOG_STREAM_INFO <<
+                    "hibernated server: " << iter->location  <<
+                    " is back as promised" <<
+                KFS_LOG_EOM;
+            } else {
+                if (now < iter->sleepEndTime + 5 * 60) {
+                    continue;
                 }
-                continue;
+                KFS_LOG_STREAM_INFO <<
+                    "hibernated server: " <<
+                        iter->location  <<
+                    " still connected, canceling"
+                    " hibernation" <<
+                KFS_LOG_EOM;
             }
-            KFS_LOG_STREAM_INFO <<
-                "hibernated server: " << iter->location  <<
-                " is back as promised" <<
-            KFS_LOG_EOM;
         } else {
             // server hasn't come back as promised...so, check
             // re-replication for the blocks that were on that node
@@ -12600,7 +12632,8 @@ LayoutManager::WriteChunkServers(ostream& os) const
             HibernatedChunkServer* const srv =
                 mChunkToServerMap.GetHiberantedServer(it->csmapIdx);
             if (srv) {
-                if (! srv->Checkpoint(os, it->location, it->sleepEndTime)) {
+                if (! srv->Checkpoint(os, it->location,
+                        it->startTime, it->sleepEndTime, it->retiredFlag)) {
                     return -EIO;
                 }
             }

@@ -1248,8 +1248,6 @@ public:
     void UpdateDelayedRecovery(const MetaFattr& fa, bool forceUpdateFlag = false);
     bool HasWriteAppendLease(chunkId_t chunkId) const;
     void ScheduleRestartChunkServers();
-    bool IsRetireOnCSRestart() const
-        { return mRetireOnCSRestartFlag; }
     void UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
         const StorageTierInfo* stiersDelta, bool canBeCandidateFlag = true);
     int16_t GetMaxReplicasPerFile() const
@@ -1440,7 +1438,8 @@ public:
     bool RestoreStart();
     bool RestoreChunkServer(const ServerLocation& loc,
         size_t idx, size_t chunks, const CIdChecksum& chksum,
-        bool retiringFlag, int64_t retStart, int64_t retDown);
+        bool retiringFlag, int64_t retStart, int64_t retDown,
+        bool retiredFlag);
     const ChunkServerPtr& RestoreGetChunkServer() const
         { return mRestoreChunkServerPtr; }
     void RestoreClearChunkServer()
@@ -1449,11 +1448,11 @@ public:
         const ServerLocation& loc, size_t idx,
         size_t chunks, const CIdChecksum& chksum,
         const CIdChecksum& modChksum, size_t delReport,
-        int64_t expire);
+        int64_t startTime, int64_t endTime, bool retiredFlag);
     const HibernatedChunkServerPtr& RestoreGetHibernatedCS() const
         { return mRestoreHibernatedCSPtr; }
-    const HibernatedChunkServerPtr& RestoreClearHibernatedCS() const
-        { return mRestoreHibernatedCSPtr; }
+    void RestoreClearHibernatedCS()
+        { mRestoreHibernatedCSPtr.reset(); }
     ostream& Checkpoint(ostream& os, const MetaChunkInfo& info) const;
     bool Restore(MetaChunkInfo& info,
         const char* restoreIdxs, size_t restoreIdxsLen, bool hexFmtFlag);
@@ -1964,25 +1963,31 @@ protected:
     struct HibernatingServerInfo
     {
         HibernatingServerInfo(
-                const ServerLocation& loc     = ServerLocation(),
-                time_t                endTime = time_t(),
-                bool                  rplFlag = false,
-                size_t                idx     = ~size_t(0))
+                const ServerLocation& loc       = ServerLocation(),
+                time_t                startTime = time_t(),
+                int64_t               downTime  = 0,
+                bool                  rplFlag   = false,
+                size_t                idx       = ~size_t(0),
+                bool                  rtrFlag   = false)
             : location(loc),
-              sleepEndTime(size_t(0)),
+              startTime(startTime),
+              sleepEndTime((time_t)(startTime + downTime)),
               csmapIdx(idx),
               removeOp(0),
-              replayFlag(rplFlag)
+              replayFlag(rplFlag),
+              retiredFlag(rtrFlag)
               {}
         bool IsHibernated() const { return (csmapIdx != ~size_t(0)) ; }
         // the server we put in hibernation
         ServerLocation        location;
+        time_t                startTime;
         // when is it likely to wake up
         time_t                sleepEndTime;
         // CSMap server index to remove hibernated server.
         size_t                csmapIdx;
         MetaHibernatedRemove* removeOp;
         bool                  replayFlag;
+        bool                  retiredFlag;
     };
     typedef vector<
         HibernatingServerInfo,

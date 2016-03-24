@@ -625,6 +625,7 @@ public:
         mHibernatedServers[idx] = server;
         server->SetIndex(idx, mDebugValidateFlag);
         assert((size_t)server->GetIndex() == idx);
+        mValidServersBitSet |= ValidServersBitSet(1) << idx;
         server->mChunkCount  = chunkCount;
         server->mCIdChecksum = cIdChecksum;
         Validate();

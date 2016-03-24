@@ -168,7 +168,7 @@ MakeAuthUid(const MetaHello& op, const string& authName)
     MdStream::MD md;
     const size_t len = sha1Stream.GetMdBin(md);
     if (! sha1Stream || len <= 0) {
-        panic("failed to calculate sha1");
+        panic("chunk server: failed to calculate sha1");
         return kKfsUserNone;
     }
     kfsUid_t authUid = 0;
@@ -350,7 +350,7 @@ ChunkServer::HelloDone(const MetaHello* r)
 {
     if (r ? (this != &*r->server || this != r->clnt) :
             ! mReplayFlag) {
-        panic("invalid hello done invocation");
+        panic("chunk server: invalid hello done invocation");
     }
     if (mHelloDone) {
         return;
@@ -452,6 +452,7 @@ ChunkServer::ChunkServer(
       mLastHeartbeatSent(TimeNow()),
       mCanBeChunkMaster(false),
       mIsRetiring(false),
+      mRetiredFlag(false),
       mRetireDownTime(-1),
       mDisconnectReason(),
       mRetireStartTime(0),
@@ -480,11 +481,12 @@ ChunkServer::ChunkServer(
       mNumObjects(0),
       mNumWrObjects(0),
       mDispatchedReqs(),
-      mLogInFlightReqs(),
+      mLogCompletionInFlightReqs(),
       mReqsTimeoutQueue(),
       mDoneTimedoutChunks(),
       mDoneTimedoutList(),
       mTmpReqQueue(),
+      mLogInFlightCount(0),
       mLostChunks(0),
       mUptime(0),
       mHeartbeatProperties(),
@@ -543,7 +545,7 @@ ChunkServer::ChunkServer(
     assert(mNetConnection);
     ChunkServersList::Init(*this);
     PendingHelloList::Init(*this);
-    LogInFlightReqs::Init(mLogInFlightReqs);
+    LogInFlightReqs::Init(mLogCompletionInFlightReqs);
     ChunkServersList::PushBack(sChunkServersPtr, *this);
     SET_HANDLER(this, &ChunkServer::HandleRequest);
     mNetConnection->SetInactivityTimeout(sHeartbeatInterval);
@@ -565,7 +567,7 @@ ChunkServer::ChunkServer(
 ChunkServer::~ChunkServer()
 {
     if (0 != mRecursionCount || mSelfPtr || 0 != mPendingOpsCount ||
-            ! LogInFlightReqs::IsEmpty(mLogInFlightReqs)) {
+            ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) {
         panic("chunk server: invalid destructor invocation");
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
@@ -707,13 +709,13 @@ ChunkServer::PutHelloBytes(MetaHello* req)
         return;
     }
     if (sHelloBytesCommitted < req->bufferBytes) {
-        panic("invalid hello request byte counter");
+        panic("hibernated server: invalid hello request byte counter");
         sHelloBytesCommitted = 0;
     } else {
         sHelloBytesCommitted -= req->bufferBytes;
     }
     if (sHelloBytesInFlight < req->bytesReceived) {
-        panic("invalid hello received byte counter");
+        panic("hibernated server: invalid hello received byte counter");
         sHelloBytesInFlight = 0;
     } else {
         sHelloBytesInFlight -= req->bytesReceived;
@@ -1055,10 +1057,13 @@ void
 ChunkServer::SubmitMetaBye()
 {
     MetaBye& mb = *(new MetaBye(mSelfPtr));
-    mb.chunkCount  = GetChunkCount();
-    mb.cIdChecksum = GetChecksum();
-    mb.authUid     = mAuthUid;
-    mb.clnt        = this;
+    mb.chunkCount             = GetChunkCount();
+    mb.cIdChecksum            = GetChecksum();
+    mb.authUid                = mAuthUid;
+    mb.logInFlightCount       = mLogInFlightCount;
+    mb.completionInFlightFlag =
+        ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs);
+    mb.clnt                   = this;
     Submit(mb);
 }
 
@@ -1636,7 +1641,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             iobuf->Consume(contentLength);
         }
     }
-    if (mHelloOp->status == -EBADCLUSTERKEY) {
+    if (mHelloOp->status == -EBADCLUSTERKEY || mHelloOp->retireFlag) {
         iobuf->Clear();
         if (! mNetConnection) {
             MetaRequest::Release(mHelloOp);
@@ -1650,13 +1655,12 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             " msg: "    << mHelloOp->statusMsg <<
             " initiating chunk server restart" <<
         KFS_LOG_EOM;
-        // Tell him hello is OK in order to make the restart
-        // work.
+        // Tell him hello is OK in order to make the restart work.
         mHelloOp->status = 0;
         IOBuffer& ioBuf = mNetConnection->GetOutBuffer();
         mOstream.Set(ioBuf);
         ChunkServerResponse(*mHelloOp, mOstream, ioBuf);
-        if (gLayoutManager.IsRetireOnCSRestart()) {
+        if (mHelloOp->retireFlag) {
             MetaChunkRetire retire(NextSeq(), mSelfPtr);
             ChunkServerRequest(retire, mOstream, ioBuf);
             mDisconnectReason = "retiring chunk server";
@@ -2040,7 +2044,7 @@ ChunkServer::FindMatchingRequest(seq_t cseq)
     if (op->logCompletionSeq < 0) {
         RemoveInFlight(*op);
     } else {
-        LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
+        LogInFlightReqs::PushBack(mLogCompletionInFlightReqs, *op);
     }
     mDispatchedReqs.erase(it);
     return op;
@@ -2075,12 +2079,13 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
         op = FindMatchingRequest(req.doneLogSeq);
     } else {
         if (req.doneOp) {
-            if (! LogInFlightReqs::IsInList(mLogInFlightReqs, *req.doneOp)) {
+            if (! LogInFlightReqs::IsInList(
+                    mLogCompletionInFlightReqs, *req.doneOp)) {
                 panic("ChunkServer: no matching log in flight op");
                 op = 0;
             } else {
                 op = req.doneOp;
-                LogInFlightReqs::Remove(mLogInFlightReqs, *op);
+                LogInFlightReqs::Remove(mLogCompletionInFlightReqs, *op);
             }
             RemoveInFlight(*req.doneOp);
         } else {
@@ -2134,8 +2139,13 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     if (r.replayFlag || r.submitCount <= 0 ||
             (r.logseq < 0 && -ELOGFAILED != r.status) ||
             ! req || 0 != req->submitCount || req != req->inFlightIt->second) {
-        panic("ChunkServer invalid submit attempt");
+        panic("chunk server: invalid submit attempt");
         r.status = -EFAULT;
+    }
+    if (mLogInFlightCount <= 0) {
+        panic("chunk server: invalid log in flight count");
+    } else {
+        mLogInFlightCount--;
     }
     if (0 != r.status || mDown) {
         if (req) {
@@ -2185,8 +2195,12 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         if (0 <= r->chunkId) {
             r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
         }
-        if (! r->replayFlag && MetaChunkLogInFlight::Log(*r, timeout)) {
-            return;
+        if (! r->replayFlag) {
+            mLogInFlightCount++;
+            if (MetaChunkLogInFlight::Log(*r, timeout)) {
+                return;
+            }
+            mLogInFlightCount--;
         }
     }
     if (0 <= r->logseq && 0 <= r->chunkId && 0 <= r->chunkVersion) {
@@ -2207,7 +2221,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     if (res.second) {
         GetDispatchedReqsIterator(it->second) = res.first;
     } else {
-        panic("duplicate op sequence number");
+        panic("chunk server: duplicate op sequence number");
         mReqsTimeoutQueue.erase(it);
         RemoveInFlight(*r);
         r->status = -EFAULT;
@@ -2371,7 +2385,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
         NextSeq(), GetSelfPtr(), fid, chunkId,
         dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it);
     if (! dataServer) {
-        panic("invalid null replication source");
+        panic("chunk server: invalid null replication source");
         r->status = -EINVAL;
         r->resume();
         return -EINVAL;
@@ -2526,6 +2540,7 @@ ChunkServer::SetRetiring(int64_t startTime, int downTime)
 void
 ChunkServer::Retire()
 {
+    mRetiredFlag = true;
     Enqueue(new MetaChunkRetire(NextSeq(), GetSelfPtr()));
 }
 
@@ -2643,13 +2658,13 @@ ChunkServer::TimeoutOps()
             GetDispatchedReqsIterator(it->second);
         MetaChunkRequest* const        op  = dri->second.second;
         if (op->replayFlag || dri->second.first != it) {
-            panic("invalid timeout queue entry");
+            panic("chunk server: invalid timeout queue entry");
         }
         if (op->logCompletionSeq < 0) {
             RemoveInFlight(*op);
         } else {
             dri->second.first = ReqsTimeoutQueue::iterator();
-            LogInFlightReqs::PushBack(mLogInFlightReqs, *op);
+            LogInFlightReqs::PushBack(mLogCompletionInFlightReqs, *op);
         }
         mDispatchedReqs.erase(dri);
         mTmpReqQueue.push_back(op);
@@ -2719,7 +2734,7 @@ AppendInFlightChunks(T& dest, const MetaChunkRequest& op)
 void
 ChunkServer::FailDispatchedOps(const char* errMsg)
 {
-    if (mReplayFlag && ! LogInFlightReqs::IsEmpty(mLogInFlightReqs)) {
+    if (mReplayFlag && ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) {
         panic("chunk server: replay: invalid non empty log in flight queue");
     }
     DispatchedReqs   reqs;
@@ -2746,7 +2761,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     // of whether or not those can change  (add) chunk mapping after the log
     // write completion, in order to match the replay case when the surrogate
     // ops (log in flight) are in the dispatched queue.
-    LogInFlightReqs::Iterator it(mLogInFlightReqs);
+    LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
         AppendInFlightChunks(mLastChunksInFlight, *op);
@@ -3173,7 +3188,8 @@ bool
 ChunkServer::Checkpoint(ostream& ost)
 {
     if (! mLastChunksInFlight.IsEmpty() || mDown ||
-            (mReplayFlag && ! LogInFlightReqs::IsEmpty(mLogInFlightReqs))) {
+            (mReplayFlag &&
+                ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs))) {
         panic("chunk server: checkpoint: invalid state");
         return false;
     }
@@ -3186,6 +3202,7 @@ ChunkServer::Checkpoint(ostream& ost)
         "/retire/"      << (mIsRetiring ? 1 : 0) <<
         "/retirestart/" << mRetireStartTime <<
         "/retiredown/"  << mRetireDownTime <<
+        "/retired/"     << (mRetiredFlag ? 1 : 0) <<
         "/replay/"      << (mReplayFlag ? 1 : 0)
     ;
     size_t              cnt   = 0;
@@ -3205,11 +3222,12 @@ ChunkServer::Checkpoint(ostream& ost)
             return false;
         }
     }
-    LogInFlightReqs::Iterator it(mLogInFlightReqs);
+    LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
         if (op->logCompletionSeq < 0 || op->replayFlag) {
-            panic("invalid log in flight op sequence or replay flag");
+            panic("chunk server: "
+                "invalid log in flight op sequence or replay flag");
             continue;
         }
         if (! MetaChunkLogInFlight::Checkpoint(ost, *op)) {
@@ -3401,7 +3419,7 @@ HibernatedChunkServer::UpdateLastInFlight(const CSMap& csMap, chunkId_t chunkId)
         return;
     }
     if (mModifiedChunks.Find(chunkId)) {
-        panic("invalid modified chunk entry");
+        panic("hibernated server: invalid modified chunk entry");
         return;
     }
     mListsSize++;
@@ -3421,7 +3439,7 @@ HibernatedChunkServer::HelloResumeReply(
     HibernatedChunkServer::ModifiedChunks& modifiedChunks)
 {
     if (! r.server) {
-        panic("invalid hello, null server");
+        panic("hibernated server: invalid hello, null server");
         return false;
     }
     if (r.status != 0 || r.resumeStep < 0) {
@@ -3469,7 +3487,8 @@ HibernatedChunkServer::HelloResumeReply(
             }
         }
         if (! modifiedChunks.IsEmpty()) {
-            panic("resume reply: invalid non empty modified chunks list");
+            panic("hibernated server: "
+                "resume reply: invalid non empty modified chunks list");
             modifiedChunks.Clear();
         }
         modifiedChunks.Swap(mModifiedChunks);
@@ -3477,7 +3496,8 @@ HibernatedChunkServer::HelloResumeReply(
         return false;
     }
     if (GetChunkCount() < mModifiedChunks.Size()) {
-        panic("resume reply: invalid modified chunks list size");
+        panic("hibernated server: "
+            "resume reply: invalid modified chunks list size");
         r.statusMsg = "cannot be resumed due to internal error";
         r.status    = -EAGAIN;
         return false;
@@ -3518,7 +3538,7 @@ HibernatedChunkServer::HelloResumeReply(
     KFS_LOG_EOM;
     if (mListsSize <= 1) {
         if (! mModifiedChunks.IsEmpty() || ! mDeletedChunks.IsEmpty()) {
-            panic("hibernated server invalid lists size");
+            panic("hibernated server: invalid lists size");
         }
         return true;
     }
@@ -3618,8 +3638,8 @@ CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
 }
 
 bool
-HibernatedChunkServer::Checkpoint(ostream& ost,
-    const ServerLocation& loc, time_t expTime)
+HibernatedChunkServer::Checkpoint(ostream& ost, const ServerLocation& loc,
+    uint64_t startTime, uint64_t endTime, bool retiredFlag)
 {
     ReqOstream os(ost);
     os << "hcs"
@@ -3627,7 +3647,9 @@ HibernatedChunkServer::Checkpoint(ostream& ost,
         "/idx/"       << GetIndex() <<
         "/chunks/"    << GetChunkCount() <<
         "/chksum/"    << GetChecksum() <<
-        "/expire/"    << expTime <<
+        "/start/"     << startTime <<
+        "/end/"       << endTime <<
+        "/retired/"   << retiredFlag <<
         "/replay/"    << (mReplayFlag ? 1 : 0)  <<
         "/dreport/"   << mDeletedReportCount <<
         "/modchksum/" << mModifiedChecksum
@@ -3679,7 +3701,7 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
 /* static */ bool
 HibernatedChunkServer::StartCheckpoint(ostream& os)
 {
-    os << "hscp/" << sMaxChunkListsSize << "\n";
+    os << "hcsp/" << sMaxChunkListsSize << "\n";
     return (!!os);
 }
 

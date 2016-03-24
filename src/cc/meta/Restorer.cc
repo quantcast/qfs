@@ -595,12 +595,16 @@ restore_chunk_server_start(DETokenizer& c)
     if (! pop_num(retdown, "retiredown", c, true)) {
         return false;
     }
+    if (! pop_num(n, "retired", c, true)) {
+        return false;
+    }
+    const bool retiredFlag = 0 != n;
     if (! pop_num(n, "replay", c, true) && 1 != n && 0 != n) {
         return false;
     }
     return gLayoutManager.RestoreChunkServer(
         loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag,
-        retstart, retdown);
+        retstart, retdown, retiredFlag);
 }
 
 static bool
@@ -621,7 +625,7 @@ restore_chunk_server(DETokenizer& c)
     size_t idx = 0;
     while (! c.empty()) {
         const int64_t n = c.toNumber();
-        if (! c.isLastOk() && ! server->Restore(type, idx, n)) {
+        if (! c.isLastOk() || ! server->Restore(type, idx, n)) {
             return false;
         }
         c.pop_front();
@@ -652,7 +656,7 @@ restore_hibernated_cs_params(DETokenizer& c)
     size_t idx = 0;
     while (! c.empty()) {
         const int64_t n = c.toNumber();
-        if (! c.isLastOk() &&
+        if (! c.isLastOk() ||
                 ! HibernatedChunkServer::StartRestore(type, idx, n)) {
             return false;
         }
@@ -706,11 +710,19 @@ restore_hibernated_cs_start(DETokenizer& c)
         return false;
     }
     c.pop_front();
-    int64_t expire = 0;
-    if (! pop_num(expire, "expire", c, true)) {
+    int64_t start = 0;
+    if (! pop_num(start, "start", c, true)) {
+        return false;
+    }
+    int64_t end = 0;
+    if (! pop_num(start, "end", c, true)) {
         return false;
     }
     int64_t n = 0;
+    if (! pop_num(n, "retired", c, true)) {
+        return false;
+    }
+    const bool retiredFlag = 0 != n;
     if (! pop_num(n, "replay", c, true)) {
         return false;
     }
@@ -736,7 +748,7 @@ restore_hibernated_cs_start(DETokenizer& c)
     c.pop_front();
     return gLayoutManager.RestoreHibernatedCS(
         loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport,
-        expire);
+        start, end, retiredFlag);
 }
 
 static bool
@@ -758,7 +770,7 @@ restore_hibernated_cs(DETokenizer& c)
     size_t idx = 0;
     while (! c.empty()) {
         const int64_t n = c.toNumber();
-        if (! c.isLastOk() && ! server->Restore(type, idx, n)) {
+        if (! c.isLastOk() || ! server->Restore(type, idx, n)) {
             return false;
         }
         c.pop_front();
@@ -803,11 +815,11 @@ get_entry_map()
     e.add_parser("cs",                      &restore_chunk_server_start);
     e.add_parser("cst",                     &restore_chunk_server);
     e.add_parser("cse",                     &restore_chunk_server);
-    e.add_parser("hscp",                    &restore_hibernated_cs_params);
-    e.add_parser("hsc",                     &restore_hibernated_cs_start);
-    e.add_parser("hscd",                    &restore_hibernated_cs);
-    e.add_parser("hscm",                    &restore_hibernated_cs);
-    e.add_parser("hsce",                    &restore_hibernated_cs);
+    e.add_parser("hcsp",                    &restore_hibernated_cs_params);
+    e.add_parser("hcs",                     &restore_hibernated_cs_start);
+    e.add_parser("hcsd",                    &restore_hibernated_cs);
+    e.add_parser("hcsm",                    &restore_hibernated_cs);
+    e.add_parser("hcse",                    &restore_hibernated_cs);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;

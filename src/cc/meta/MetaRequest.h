@@ -1870,6 +1870,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            reReplicationCount;
     CIdChecksum        checksum;
     int64_t            timeUsec;
+    bool               retireFlag;
     IOBuffer           responseBuf;
 
     MetaHello()
@@ -1917,6 +1918,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           reReplicationCount(0),
           checksum(),
           timeUsec(-1),
+          retireFlag(false),
           responseBuf()
         {}
     virtual bool start();
@@ -1977,6 +1979,8 @@ struct MetaBye: public MetaRequest {
     size_t         chunkCount;
     CIdChecksum    cIdChecksum;
     int64_t        timeUsec;  // current / start time.
+    int64_t        logInFlightCount;
+    bool           completionInFlightFlag;
 
     MetaBye(const ChunkServerPtr& c = ChunkServerPtr())
         : MetaRequest(META_BYE, kLogIfOk, 0),
@@ -1984,7 +1988,9 @@ struct MetaBye: public MetaRequest {
           location(),
           chunkCount(0),
           cIdChecksum(),
-          timeUsec(-1)
+          timeUsec(-1),
+          logInFlightCount(0),
+          completionInFlightFlag(false)
         {}
     virtual bool start();
     virtual void handle();
@@ -2001,8 +2007,10 @@ struct MetaBye: public MetaRequest {
         return MetaRequest::LogIoDef(parser)
         .Def("C", &MetaBye::location)
         .Def("K", &MetaBye::cIdChecksum)
-        .Def("S", &MetaBye::chunkCount, size_t(0))
-        .Def("T", &MetaBye::timeUsec, int64_t(-1))
+        .Def("S", &MetaBye::chunkCount,             size_t(0))
+        .Def("T", &MetaBye::timeUsec,               int64_t(-1))
+        .Def("L", &MetaBye::logInFlightCount,       int64_t(0))
+        .Def("I", &MetaBye::completionInFlightFlag, false)
         ;
     }
 };

@@ -945,6 +945,7 @@ protected:
 
     /// is the server being retired
     bool mIsRetiring;
+    bool mRetiredFlag;
     int  mRetireDownTime;
     string mDisconnectReason;
     /// when we did we get the retire request
@@ -1124,11 +1125,12 @@ protected:
     enum { kChunkSrvListsCount = 2 };
     /// RPCs that we have sent to this chunk server.
     DispatchedReqs     mDispatchedReqs;
-    MetaChunkRequest*  mLogInFlightReqs[1];
+    MetaChunkRequest*  mLogCompletionInFlightReqs[1];
     ReqsTimeoutQueue   mReqsTimeoutQueue;
     DoneTimedoutChunks mDoneTimedoutChunks;
     TimeoutEntry       mDoneTimedoutList;
     TmpReqQueue        mTmpReqQueue;
+    int64_t            mLogInFlightCount;
     int64_t            mLostChunks;
     int64_t            mUptime;
     Properties         mHeartbeatProperties;
@@ -1369,8 +1371,8 @@ public:
         CSMap&                       mCsMap;
     };
     ostream& DisplaySelf(ostream& os, CSMap& csMap) const;
-    bool Checkpoint(ostream& os,
-        const ServerLocation& loc, time_t expTime);
+    bool Checkpoint(ostream& os, const ServerLocation& loc,
+        uint64_t startTime, uint64_t endTime, bool retiredFlag);
     bool Restore(int type, size_t idx, int64_t n);
     static bool StartCheckpoint(ostream& os);
     static bool StartRestore(int type, size_t idx, int64_t n);
