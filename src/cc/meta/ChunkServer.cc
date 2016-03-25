@@ -546,6 +546,7 @@ ChunkServer::ChunkServer(
     ChunkServersList::Init(*this);
     PendingHelloList::Init(*this);
     LogInFlightReqs::Init(mLogCompletionInFlightReqs);
+    DoneTimedoutList::Init(mDoneTimedoutList);
     ChunkServersList::PushBack(sChunkServersPtr, *this);
     SET_HANDLER(this, &ChunkServer::HandleRequest);
     mNetConnection->SetInactivityTimeout(sHeartbeatInterval);
