@@ -3439,7 +3439,7 @@ LayoutManager::RestoreChunkServer(
         KFS_LOG_EOM;
         return false;
     }
-    Servers::const_iterator const it = lower_bound(
+    Servers::iterator const it = lower_bound(
         mChunkServers.begin(), mChunkServers.end(),
         loc, bind(&ChunkServer::GetServerLocation, _1) < loc
     );

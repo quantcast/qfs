@@ -2138,7 +2138,10 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     r.request = 0;
     if (r.replayFlag || r.submitCount <= 0 ||
             (r.logseq < 0 && -ELOGFAILED != r.status) ||
-            ! req || 0 != req->submitCount || req != req->inFlightIt->second) {
+            ! req || 0 != req->submitCount ||
+                (0 <= req->chunkId ?
+                    req != req->inFlightIt->second :
+                    MetaChunkRequest::kNullIterator != req->inFlightIt)) {
         panic("chunk server: invalid submit attempt");
         r.status = -EFAULT;
     }
