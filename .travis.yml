@@ -16,11 +16,15 @@ before_install:
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install cmake || true ; fi
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install maven || true ; fi
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install boost || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install puppet || true ; fi
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export JAVA_HOME=$(/usr/libexec/java_home) ; fi
 
 before_deploy:
     - mkdir artifacts
-    - mv build/*.tgz artifacts
+    - export OS=$(facter operatingsystem | awk '{print tolower($0)}')
+    - export OSVERSION=$(facter operatingsystemrelease)
+    - export ARCH=$(uname -i)
+    - mv build/*.tgz artifacts/qfs-$OS-$OSVERSION-master-$ARCH.tgz
 
 deploy:
     provider: s3
@@ -44,6 +48,7 @@ addons:
             - default-jdk
             - python-dev
             - fuse-dev
+            - puppet # not a qfs dependency, but for facter above
 
 notifications:
     email:
