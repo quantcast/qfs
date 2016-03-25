@@ -638,7 +638,7 @@ public:
         const char*       ptr = idxs;
         const char* const end = idxs + len;
         size_t            cnt = 0;
-        size_t            idx;
+        size_t            idx = 0;
         while (ParserT::Parse(ptr, end - ptr, idx)) {
             if (end == ptr) {
                 return (cnt == idx);

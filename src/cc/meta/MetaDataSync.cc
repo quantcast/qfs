@@ -892,7 +892,7 @@ private:
             return;
         }
         int  theRdSize;
-        bool theEofFlag;
+        bool theEofFlag = false;
         do {
             theRdSize = theOpPtr->mBuffer.BytesConsumable();
             if (mReadPipelineFlag && mPos != theOpPtr->mPos && 0 < theRdSize) {
