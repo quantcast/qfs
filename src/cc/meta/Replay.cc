@@ -1504,10 +1504,10 @@ replay_cs_hello(DETokenizer& c)
                     op->chunks.push_back(info);
                 } else if (op->notStableChunks.size() <
                         (size_t)op->numNotStableChunks) {
-                    op->chunks.push_back(info);
+                    op->notStableChunks.push_back(info);
                 } else if (op->notStableAppendChunks.size() <
                         (size_t)op->numNotStableAppendChunks) {
-                    op->chunks.push_back(info);
+                    op->notStableAppendChunks.push_back(info);
                 } else {
                     return false;
                 }

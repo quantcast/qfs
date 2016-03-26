@@ -2709,7 +2709,7 @@ ChunkServer::TimeoutOps()
         op->chunkVersion   = 0;
         op->checkChunkFlag = true;
         entry = &DoneTimedoutList::GetNext(cur);
-        // Do not remove, just put it back, execution of size op should remove
+        // Do not remove, just move it back, execution of size op should remove
         // it.
         cur.SetTime(now + 4 * 365 * 24 * 60 * 60);
         DoneTimedoutList::Insert(cur,

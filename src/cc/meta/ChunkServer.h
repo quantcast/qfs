@@ -1081,12 +1081,21 @@ protected:
         typedef TimeoutEntry                Val;
         typedef QCDLListOp<TimeoutEntry, 0> List;
 
+        TimeoutEntry()
+            : mChunkId(-1),
+              mTime(-1)
+            { List::Init(*this); }
         explicit TimeoutEntry(
-            time_t time = -1)
+            time_t time)
             : mChunkId(-1),
               mTime(time)
             { List::Init(*this); }
         explicit TimeoutEntry(
+            const TimeoutEntry& entry)
+            : mChunkId(entry.mChunkId),
+              mTime(entry.mTime)
+            { List::Init(*this); }
+        TimeoutEntry(
             Key                 chunkId,
             const TimeoutEntry& entry)
             : mChunkId(chunkId),
