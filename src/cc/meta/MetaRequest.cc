@@ -6117,7 +6117,7 @@ MetaChunkLogInFlight::log(ostream& os) const
     ReqOstream ros(os);
     size_t subEntryCnt = 1;
     const char* const name = GetReqName(request->op);
-    if (ids) {
+    if (ids &&  1 != ids->GetSize()) {
         const size_t entrySizeLog2 = 6;
         const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
         subEntryCnt += (ids->GetSize() + mask) >> entrySizeLog2;
@@ -6150,7 +6150,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/e/" << subEntryCnt <<
             "/l/" << location <<
             "/s/" << size_t(0) <<
-            "/c/" << request->chunkId <<
+            "/c/" << (ids ? ids->Front() : request->chunkId) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
             "/z/" << logseq
