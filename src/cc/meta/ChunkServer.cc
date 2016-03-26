@@ -3212,7 +3212,7 @@ ChunkServer::Checkpoint(ostream& ost)
     size_t              cnt   = 0;
     const TimeoutEntry* entry = &mDoneTimedoutList;
     while (&mDoneTimedoutList != (entry = &DoneTimedoutList::GetNext(*entry))) {
-        os << ((cnt++ & 0xFF) ? "\ncst/" : "/") << entry->GetKey();
+        os << (0 == (cnt++ & 0xFF) ? "\ncst/" : "/") << entry->GetKey();
     }
     if (cnt != mDoneTimedoutChunks.GetSize()) {
         panic("chunk server: checkpoint: invalid timed out chunks list");
@@ -3638,7 +3638,7 @@ template <typename TS, typename TC>
 inline static TS&
 CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
 {
-    return (os << ((0 == (cnt++ & 0x1F)) ? pref : "/") << id);
+    return (os << (0 == (cnt++ & 0x1F) ? pref : "/") << id);
 }
 
 bool
