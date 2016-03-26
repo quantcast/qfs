@@ -2703,7 +2703,7 @@ ChunkServer::TimeoutOps()
             mDoneTimedoutChunks.Erase(cur.GetKey());
             continue;
         }
-        MetaChunkSize* op = new MetaChunkSize(0, mSelfPtr);
+        MetaChunkSize* const op = new MetaChunkSize(NextSeq(), mSelfPtr);
         op->logAction      = MetaChunkSize::kLogNever;
         op->chunkId        = cur.GetKey();
         op->chunkVersion   = 0;
