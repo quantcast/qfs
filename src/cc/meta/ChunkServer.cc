@@ -805,11 +805,11 @@ ChunkServer::HandleRequest(int code, void *data)
                 }
             }
             MetaHello& helloOp = *static_cast<MetaHello*>(op);
-            if (mDown || this != &*helloOp.server ||
+            if (mDown || helloOp.replayFlag || this != &*helloOp.server ||
                     1 != sHelloInFlight.erase(helloOp.location)) {
                 panic("chunk server:  invalid hello completion");
             }
-            if (! mNetConnection) {
+            if (0 == op->status && ! mNetConnection) {
                 SubmitMetaBye();
             }
         }
