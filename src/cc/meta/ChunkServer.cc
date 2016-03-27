@@ -794,7 +794,9 @@ ChunkServer::HandleRequest(int code, void *data)
         mPendingOpsCount--;
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data &&
-            (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO));
+            (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO ||
+                (META_BYE == op->op && 0 == mPendingOpsCount &&
+                ! mNetConnection)));
         if (META_HELLO == op->op) {
             if (! mHelloDone && 0 != op->status &&
                     -EAGAIN != op->status && mDisconnectReason.empty()) {
