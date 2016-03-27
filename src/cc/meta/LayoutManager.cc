@@ -646,7 +646,7 @@ ChunkLeases::ReplicaLost(
     const ChunkServer*   chunkServer)
 {
     WriteLease& wl = we;
-    if (chunkServer == &*wl.chunkServer && ! wl.relinquishedFlag &&
+    if (chunkServer == wl.chunkServer.get() && ! wl.relinquishedFlag &&
             ! wl.allocInFlight) {
         const time_t now = TimeNow();
         if (wl.stripedFileFlag && now <= wl.expires) {
