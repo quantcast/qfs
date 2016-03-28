@@ -104,7 +104,7 @@ MetaServerSM::MetaServerSM()
       mTraceRequestResponseFlag(false),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
-      mGenerationCount(0),
+      mGenerationCount(1),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -960,6 +960,7 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
             }
         }
         iobuf.Consume(cmdLen);
+        op->generation = mGenerationCount;
     }
     mContentLength = op->GetContentLength();
     const int rem = mContentLength - iobuf.BytesConsumable();
@@ -1074,7 +1075,8 @@ MetaServerSM::EnqueueOp(KfsOp* op)
 bool
 MetaServerSM::SendResponse(KfsOp* op)
 {
-    const bool discardFlag = ! mSentHello || ! IsConnected();
+    const bool discardFlag = ! mSentHello ||
+        op->generation != mGenerationCount || ! IsConnected();
     KFS_LOG_STREAM_DEBUG <<
         (discardFlag ? "discard" : "send") <<
         " meta reply:"

@@ -617,6 +617,7 @@ KfsOp::KfsOp(KfsOp_t o)
       maxWaitMillisec(-1),
       statusMsg(),
       clnt(0),
+      generation(0),
       startTime(microseconds()),
       bufferBytes(),
       next(0),
@@ -1293,7 +1294,6 @@ AllocChunkOp::Execute()
     }
     // Check if chunk exists, if it does then load chunk meta data.
     SET_HANDLER(this, &AllocChunkOp::HandleChunkMetaReadDone);
-    startGeneration = gMetaServerSM.GetGenerationCount();
     const bool addObjectBlockMappingFlag = mustExistFlag;
     int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
         addObjectBlockMappingFlag);
@@ -1331,7 +1331,7 @@ AllocChunkOp::HandleChunkMetaReadDone(int code, void* data)
     } else if (data) {
         status = *reinterpret_cast<const int*>(data);
     }
-    if (0 <= status && startGeneration != gMetaServerSM.GetGenerationCount()) {
+    if (0 <= status && generation != gMetaServerSM.GetGenerationCount()) {
         status = -EAGAIN;
         gLogger.Submit(this);
         return 0;
@@ -1506,7 +1506,6 @@ MakeChunkStableOp::Execute()
         return;
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
-    startGeneration = gMetaServerSM.GetGenerationCount();
     const bool kAddObjectBlockMappingFlag = false;
     const int ret = gChunkManager.ReadChunkMetadata(
         chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
@@ -1522,7 +1521,7 @@ MakeChunkStableOp::HandleChunkMetaReadDone(int code, void *data)
     if (status >= 0 && data) {
         status = *reinterpret_cast<const int*>(data);
     }
-    if (0 <= status && startGeneration != gMetaServerSM.GetGenerationCount()) {
+    if (0 <= status && generation != gMetaServerSM.GetGenerationCount()) {
         status = -EAGAIN;
     }
     if (status < 0) {
@@ -1596,7 +1595,6 @@ ChangeChunkVersOp::Execute()
         }
     }
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);
-    startGeneration = gMetaServerSM.GetGenerationCount();
     const bool kAddObjectBlockMappingFlag = false;
     const int ret = gChunkManager.ReadChunkMetadata(
         chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
@@ -1612,7 +1610,7 @@ ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void *data)
     if (status >= 0 && data) {
         status = *(int *) data;
     }
-    if (0 <= status && startGeneration != gMetaServerSM.GetGenerationCount()) {
+    if (0 <= status && generation != gMetaServerSM.GetGenerationCount()) {
         status = -EAGAIN;
     }
     if (status < 0) {
