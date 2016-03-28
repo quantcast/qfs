@@ -2189,6 +2189,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     if (mReplayFlag && ! r->replayFlag) {
         if (0 == r->submitCount) {
             r->submitTime = microseconds();
+            r->submitCount++; // Bump to ensure request won't be logged...
         }
         r->replayFlag = true;
         r->status     = -EIO;
