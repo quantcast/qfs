@@ -3245,7 +3245,7 @@ LayoutManager::FindHibernatedServer(const ServerLocation& loc)
 void
 LayoutManager::Handle(MetaChunkLogInFlight& req)
 {
-    if ((! req.request != ! req.server) || ! req.request != req.replayFlag) {
+    if (req.replayFlag ? 0 != req.request : (! req.request || ! req.server)) {
         panic("invalid chunk log in flight");
         req.status = -EFAULT;
         return;
@@ -3259,7 +3259,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         }
         return;
     }
-    if (req.replayFlag) {
+    if (req.replayFlag && ! req.server) {
         const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
         if (cs) {
             (*cs)->Replay(req);
