@@ -16,8 +16,13 @@ before_install:
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install cmake || true ; fi
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install maven || true ; fi
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install boost || true ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install puppet || true ; fi
+
+    # travis ci on mac os x doesn't set java home properly
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export JAVA_HOME=$(/usr/libexec/java_home) ; fi
+
+    # install facter to determine operating system and release version
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install caskroom/cask/brew-cask || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew cask install facter || true ; fi
 
 before_deploy:
     - mkdir artifacts
