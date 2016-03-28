@@ -2131,6 +2131,11 @@ ChunkServer::Replay(MetaChunkLogInFlight& req)
     if (! req.server) {
         const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
     }
+    if (0 == req.submitCount) {
+        // Bump submit count to prevent it from going into transaction log.
+        req.submitTime = microseconds();
+        req.submitCount++;
+    }
     Enqueue(&req, 365 * 24 * 60 * 60);
 }
 
