@@ -10,8 +10,7 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
-set(CMAKE_LEGACY_CYGWIN_WIN32 0) # Remove when CMake >= 2.8.4 is required
-cmake_minimum_required(VERSION 2.4.6 FATAL_ERROR)
+cmake_minimum_required(VERSION 2.8.4 FATAL_ERROR)
 
 IF (COMMAND cmake_policy)
     IF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
