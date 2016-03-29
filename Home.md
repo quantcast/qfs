@@ -29,16 +29,20 @@ Updating the QFS Wiki
 ---------------------
 The community is encouraged to update the QFS wiki as they wish. However, public
 editing has been turned off on the github wiki itself. Instead, the wiki
-documents are mirrored in the `wiki` directory of the QFS source code. This
-allows for a few things:
+documents are mirrored in the [`wiki`][wiki] directory of the QFS source code.
+This allows for a few things:
 
 - Wiki documentation is distributed along with the qfs source code
 - The community can use pull requests to submit changes to the wiki
 - The community can request updates to the wiki in the same pull request as code
   changes are made, keeping code and documentation in sync
 
+If you would like to make a change to the wiki, please submit a pull request and
+we will be happy to accept it!
+
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
 
 [mailto]: mailto:qfs-devel@googlegroups.com
 [group]: http://groups.google.com/group/qfs-devel
 [paper]: http://db.disi.unitn.eu/pages/VLDBProgram/pdf/industry/p808-ovsiannikov.pdf
+[wiki]: https://github.com/quantcast/qfs/tree/master/wiki
