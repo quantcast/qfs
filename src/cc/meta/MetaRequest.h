@@ -2268,7 +2268,15 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     {
         return (os <<
             "log chunk in flight: " << ShowReq(request) <<
-            " type: " << GetReqName(reqType)
+            " logseq: "  << logseq <<
+            " type: "    << GetReqName(reqType) <<
+            " chunkId: " << chunkId <<
+            " version: " << chunkVersion <<
+            " remove: "  << removeServerFlag <<
+            " chunks:"
+            " size: "    << chunkIds.GetSize() <<
+            " first: "   << (chunkIds.IsEmpty() ?
+                chunkId_t(-1) : chunkIds.Front())
         );
     }
     virtual const ChunkIdQueue* GetChunkIds() const

@@ -3342,6 +3342,8 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
             ReplayFindServer(req.doneLocation, req);
         if (cs) {
             server = *cs;
+        } else {
+            req.status = -ENOENT;
         }
     }
     if (server) {

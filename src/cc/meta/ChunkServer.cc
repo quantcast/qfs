@@ -2063,7 +2063,7 @@ bool
 ChunkServer::ReplayValidate(MetaRequest& r) const
 {
     if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag) {
-        panic("ChunkServer: invalid replay attempt");
+        panic("chunk server: invalid replay attempt");
         r.status = -EFAULT;
         submit_request(&r);
         return false;
@@ -2084,7 +2084,7 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
         if (req.doneOp) {
             if (! LogInFlightReqs::IsInList(
                     mLogCompletionInFlightReqs, *req.doneOp)) {
-                panic("ChunkServer: no matching log in flight op");
+                panic("chunk server: no matching log in flight op");
                 op = 0;
             } else {
                 op = req.doneOp;
@@ -2092,7 +2092,7 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             }
             RemoveInFlight(*req.doneOp);
         } else {
-            panic("ChunkServer: invalid log in flight op");
+            panic("chunk server: invalid log in flight op");
             op = 0;
         }
     }
@@ -2106,7 +2106,11 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             req.status = -EFAULT;
             panic("chunk server: invalid chunk RPC completion");
         }
-        if (0 <= req.chunkId && 0 <= req.chunkVersion) {
+        if (mDown) {
+            if (0 == req.status) {
+                req.status = -ENOENT;
+            }
+        } else if (0 <= req.chunkId && 0 <= req.chunkVersion) {
             if (req.doneTimedOutFlag) {
                 bool          insertedFlag = false;
                 TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(

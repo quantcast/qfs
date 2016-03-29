@@ -1402,7 +1402,7 @@ replay_cur_op(ReplayState& state)
     }
     if (state.mReplayer) {
         const int status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
-        state.mLogAheadErrChksum += op->status;
+        state.mLogAheadErrChksum += status;
         state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
             op->logseq, status, fileID.getseed(), state.mLogAheadErrChksum));
     }
@@ -1530,6 +1530,7 @@ replay_cs_hello(DETokenizer& c)
                 if (! c.isLastOk() || n < 0) {
                     return false;
                 }
+                c.pop_front();
                 if ((size_t)op->numMissingChunks <= op->missingChunks.size()) {
                     return false;
                 }
@@ -1567,6 +1568,7 @@ replay_cs_inflight(DETokenizer& c)
             if (! c.isLastOk() || n < 0) {
                 return false;
             }
+            c.pop_front();
             if ((size_t)op->idCount <= op->chunkIds.GetSize()) {
                 return false;
             }
@@ -1602,7 +1604,7 @@ replay_cs_inflight(DETokenizer& c)
             return false;
         }
         op->idCount = n;
-        if (! pop_num(n, "c", c, true) || n < 0) {
+        if (! pop_num(n, "c", c, true) || (n < 0 && 0 == op->idCount)) {
             return false;
         }
         op->chunkId = n;
