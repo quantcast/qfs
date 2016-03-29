@@ -1,14 +1,3 @@
-#
-# $Id$
-#
-# Created 2006/10/20
-# Author: Sriram Rao (Kosmix Corp)
-#
-# Copyright 2008-2012 Quantcast Corp.
-# Copyright 2006 Kosmix Corp.
-#
-# This file is part of Kosmos File System (KFS).
-#
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
 # the License. You may obtain a copy of the License at
@@ -20,8 +9,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
-#
-#
 
 set(CMAKE_LEGACY_CYGWIN_WIN32 0) # Remove when CMake >= 2.8.4 is required
 cmake_minimum_required(VERSION 2.4.6 FATAL_ERROR)
@@ -41,14 +28,7 @@ IF (COMMAND cmake_policy)
 ENDIF (COMMAND cmake_policy)
 
 project (QFS)
-
-IF (DEFINED KFS_DIR_PREFIX)
-    message (STATUS "Qfs source dir prefix: ${KFS_DIR_PREFIX}")
-    set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}cmake/Modules)
-ELSE (DEFINED KFS_DIR_PREFIX)
-    set(KFS_DIR_PREFIX "")
-    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
-ENDIF (DEFINED KFS_DIR_PREFIX)
+set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
 IF (NOT DEFINED Boost_NO_BOOST_CMAKE)
     IF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND
@@ -88,11 +68,7 @@ ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
 IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     # gf-complete autoconf overrides CFGLAGS. Use CPPFLAGS to add compiler flags.
     include(ExternalProject)
-    IF (KFS_DIR_PREFIX STREQUAL "")
-        set (KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
-    ELSE (KFS_DIR_PREFIX STREQUAL "")
-        set (KFS_EXTERNAL_PROJECT_DIR ${KFS_DIR_PREFIX}ext/)
-    ENDIF (KFS_DIR_PREFIX STREQUAL "")
+    set (KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
 
     set (Gf_complete          "gf-complete")
     set (Gf_complete_CPPFLAGS
@@ -384,7 +360,7 @@ include_directories(
     ${Boost_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIR}
     ${KRB5_INCLUDE_DIRS}
-    ${KFS_DIR_PREFIX}src/cc
+    ${CMAKE_SOURCE_DIR}/src/cc
 )
 
 IF (JNI_FOUND)
@@ -407,30 +383,30 @@ ELSE  (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
 ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
 
 # get the subdirs we want
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/chunk src/cc/chunk)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/common src/cc/common)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/devtools src/cc/devtools)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/emulator src/cc/emulator)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/kfsio src/cc/kfsio)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/krb src/cc/krb)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/libclient src/cc/libclient)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/meta src/cc/meta)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcdio src/cc/qcdio)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/qcrs src/cc/qcrs)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/qfsc src/cc/qfsc)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/s3io src/cc/s3io)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/tests src/cc/tests)
-add_subdirectory (${KFS_DIR_PREFIX}src/cc/tools src/cc/tools)
-add_subdirectory (${KFS_DIR_PREFIX}src/test-scripts src/test-scripts)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/chunk src/cc/chunk)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/common src/cc/common)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/devtools src/cc/devtools)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/emulator src/cc/emulator)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/kfsio src/cc/kfsio)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/krb src/cc/krb)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/libclient src/cc/libclient)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/meta src/cc/meta)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/qcdio src/cc/qcdio)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/qcrs src/cc/qcrs)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/qfsc src/cc/qfsc)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/s3io src/cc/s3io)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/tests src/cc/tests)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/tools src/cc/tools)
+add_subdirectory (${CMAKE_SOURCE_DIR}/src/test-scripts src/test-scripts)
 
-add_subdirectory (${KFS_DIR_PREFIX}examples/cc examples/cc)
-add_subdirectory (${KFS_DIR_PREFIX}benchmarks/mstress benchmarks/mstress)
-add_subdirectory (${KFS_DIR_PREFIX}contrib/plugins contrib/plugins)
+add_subdirectory (${CMAKE_SOURCE_DIR}/examples/cc examples/cc)
+add_subdirectory (${CMAKE_SOURCE_DIR}/benchmarks/mstress benchmarks/mstress)
+add_subdirectory (${CMAKE_SOURCE_DIR}/contrib/plugins contrib/plugins)
 
 IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
-    add_subdirectory (${KFS_DIR_PREFIX}src/cc/fuse src/cc/fuse)
+    add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/fuse src/cc/fuse)
 ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
 
 IF (JNI_FOUND)
-    add_subdirectory (${KFS_DIR_PREFIX}src/cc/access src/cc/access)
+    add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/access src/cc/access)
 ENDIF (JNI_FOUND)
