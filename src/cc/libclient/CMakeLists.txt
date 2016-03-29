@@ -84,11 +84,13 @@ endif (NOT QFS_OMIT_JERASURE)
 target_link_libraries (kfsClient
     kfsIO
     kfsrs
+    ${CMAKE_DL_LIBS}
     ${JERASURE_STATIC_LIBRARIES}
 )
 target_link_libraries (kfsClient-shared
     kfsIO-shared
     kfsrs-shared
+    ${CMAKE_DL_LIBS}
     ${JERASURE_SHARED_LIBRARIES}
 )
 
