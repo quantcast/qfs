@@ -65,12 +65,6 @@ shift
 outfile=$1
 shift
 
-if [ x"$qfs_release_version" != x ]; then
-    kfs_version_prefix="${qfs_release_version}-"
-else
-    kfs_version_prefix=''
-fi
-
 lastchangeid=`git log -n 1 --pretty=format:%H -- "$sourcedir" 2>/dev/null`
 if [ x"$lastchangeid" = x ]; then
     remote='unspecified'
