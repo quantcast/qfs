@@ -2156,7 +2156,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     MetaChunkRequest* const req = r.request;
     r.request = 0;
     if (r.replayFlag || r.submitCount <= 0 ||
-            (r.logseq < 0 && -ELOGFAILED != r.status) ||
+            (r.logseq < 0 && 0 <= r.status) ||
             ! req || 0 != req->submitCount ||
                 (0 <= req->chunkId ?
                     req != req->inFlightIt->second :
