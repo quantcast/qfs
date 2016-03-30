@@ -2749,6 +2749,9 @@ ChunkServer::TimeoutOps()
 template<typename T> inline static void
 AppendInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
+    if (op.chunkVersion < 0) {
+        return;
+    }
     const ChunkIdQueue* const ids = op.GetChunkIds();
     if (ids) {
         ChunkIdQueue::ConstIterator it(*ids);

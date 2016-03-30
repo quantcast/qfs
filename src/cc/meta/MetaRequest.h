@@ -2157,7 +2157,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     bool              staleChunkIdFlag;
 
     MetaChunkLogCompletion(MetaChunkRequest* op = 0);
-    virtual bool start() { return (0 == status); }
+    virtual bool start();
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const;
     bool Validate()

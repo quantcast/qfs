@@ -3304,7 +3304,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             }
         }
     }
-    if (req.removeServerFlag && req.server) {
+    if (req.removeServerFlag && req.server && ! req.server->IsDown()) {
         if (0 <= req.chunkId) {
             CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
             if (entry) {

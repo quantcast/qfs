@@ -6026,6 +6026,16 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
     );
 }
 
+/* virtual */ bool
+MetaChunkLogCompletion::start()
+{
+    if (! doneOp || ! doneOp->server || doneOp->server->IsDown()) {
+        // Handle re-submit after server down event.
+        status = -EINVAL;
+    }
+    return (0 == status);
+}
+
 void
 MetaChunkLogCompletion::handle()
 {
