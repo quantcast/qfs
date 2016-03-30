@@ -1142,7 +1142,8 @@ ReplayState::runCommitQueue(
                     " error checksum: " << cit->errChecksum <<
                     " status: "         << cit->status <<
                     " [" << (cit->status == 0 ? string("OK") :
-                        QCUtils::SysError(KfsToSysErrno(cit->status))) << "]" <<
+                        ErrorCodeToString(-KfsToSysErrno(cit->status))) <<
+                    "]" <<
                 KFS_LOG_EOM;
                 if (cit == it) {
                     break;
@@ -1153,9 +1154,9 @@ ReplayState::runCommitQueue(
                 " sequence: " << logSeq <<
                 " status mismatch"
                 " expected: " << status <<
-                " [" << QCUtils::SysError(KfsToSysErrno(status)) << "]"
+                " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]"
                 " actual: "   << f.status <<
-                " [" << QCUtils::SysError(KfsToSysErrno(f.status)) << "]" <<
+                " [" << ErrorCodeToString(-KfsToSysErrno(f.status)) << "]" <<
                 " seed:"
                 " expected: " << f.seed <<
                 " actual: "   << seed <<
@@ -1176,7 +1177,7 @@ ReplayState::runCommitQueue(
                 seq_t(-1) : mCommitQueue.front().logSeq) <<
             " status mismatch"
             " status: "         << status <<
-            " [" << QCUtils::SysError(KfsToSysErrno(status)) << "]" <<
+            " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]" <<
             " seed:"            << seed <<
             " error checksum: " << errChecksum <<
             " commit queue: "   << mCommitQueue.size() <<

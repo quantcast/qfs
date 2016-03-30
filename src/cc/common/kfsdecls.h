@@ -30,6 +30,8 @@
 
 #include "kfstypes.h"
 
+#include "qcdio/QCUtils.h"
+
 #include <string>
 
 namespace KFS
@@ -197,6 +199,8 @@ public:
 };
 
 typedef PermissionsT<UserAndGroupNone> Permissions;
+
+string ErrorCodeToString(int status);
 
 }
 
