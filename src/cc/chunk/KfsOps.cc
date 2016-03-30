@@ -4096,7 +4096,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
         resumeDeleted.clear();
         return false;
     }
-    resumeModified.reserve(deletedCount);
+    resumeModified.reserve(modifiedCount);
     for (i = 0; i < modifiedCount && (is >> chunkId) && 0 <= chunkId; i++) {
         resumeModified.push_back(chunkId);
     }
