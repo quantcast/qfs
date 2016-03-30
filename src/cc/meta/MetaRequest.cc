@@ -6085,8 +6085,8 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
         return false;
     }
     submit_request(new MetaChunkLogInFlight(&req, timeout,
-        META_CHUNK_DELETE == req.op ||
-        META_CHUNK_STALENOTIFY == req.op
+        ! req.staleChunkIdFlag &&
+            (META_CHUNK_DELETE == req.op || META_CHUNK_STALENOTIFY == req.op)
     ));
     return true;
 }
