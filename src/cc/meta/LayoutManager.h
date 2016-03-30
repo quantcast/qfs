@@ -2538,7 +2538,8 @@ protected:
     void ScheduleCleanup(size_t maxScanCount = 1);
     void RemoveRetiring(CSMap::Entry& ci, Servers& servers, int numReplicas,
         bool deleteRetiringFlag = false);
-    void DeleteChunk(fid_t fid, chunkId_t chunkId, const Servers& servers);
+    void DeleteChunk(fid_t fid, chunkId_t chunkId, const Servers& servers,
+        bool staleChunkIdFlag = false);
     void UpdateGoodCandidateLoadAvg();
     inline static CSMap::Entry& GetCsEntry(MetaChunkInfo& chunkInfo);
     inline static CSMap::Entry* GetCsEntry(MetaChunkInfo* chunkInfo);

@@ -2154,6 +2154,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     chunkId_t         chunkId;
     seq_t             chunkVersion;
     int               chunkOpType;
+    bool              staleChunkIdFlag;
 
     MetaChunkLogCompletion(MetaChunkRequest* op = 0);
     virtual bool start() { return (0 == status); }
@@ -2178,6 +2179,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
         .Def("C", &MetaChunkLogCompletion::chunkId,          chunkId_t(-1))
         .Def("V", &MetaChunkLogCompletion::chunkVersion,     seq_t(-1))
         .Def("O", &MetaChunkLogCompletion::chunkOpType,      int(kChunkOpTypeNone))
+        .Def("X", &MetaChunkLogCompletion::staleChunkIdFlag, false)
         ;
     }
 };
@@ -2194,6 +2196,7 @@ struct MetaChunkRequest : public MetaRequest {
     seq_t                logCompletionSeq;
     bool                 pendingAddFlag;
     bool                 timedOutFlag;
+    bool                 staleChunkIdFlag;
 
 private:
     typedef multimap <
@@ -2225,6 +2228,7 @@ public:
           logCompletionSeq(-1),
           pendingAddFlag(false),
           timedOutFlag(false),
+          staleChunkIdFlag(false),
           inFlightIt(kNullIterator)
         { List::Init(*this); }
     virtual ~MetaChunkRequest();
@@ -2261,7 +2265,7 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
         MetaChunkRequest* req        = 0,
         int               tmeout     = -1,
         bool              removeFlag = false);
-    virtual bool start() { return (0 == status); }
+    virtual bool start();
     virtual void handle();
     virtual bool log(ostream& os) const;
     virtual ostream& ShowSelf(ostream& os) const

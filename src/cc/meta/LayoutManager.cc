@@ -3250,12 +3250,19 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         req.status = -EFAULT;
         return;
     }
-    if (-ELOGFAILED == req.status) {
+    if (0 != req.status) {
         if (req.replayFlag) {
-            panic("invalid chunk log in flight log failed status in replay");
-            req.status = -EFAULT;
+            if (! req.server || ! req.server->IsDown()) {
+                panic(
+                    "invalid chunk log in flight log failed status in replay");
+                req.status = -EFAULT;
+            }
         } else {
-            ScheduleResubmitOrCancel(req);
+            if (-ELOGFAILED == req.status) {
+                ScheduleResubmitOrCancel(req);
+            } else {
+                req.server->Enqueue(req);
+            }
         }
         return;
     }
@@ -7575,12 +7582,13 @@ LayoutManager::DeleteChunk(CSMap::Entry& entry)
         " servers: " << MetaRequest::InsertServers(servers) <<
     KFS_LOG_EOM;
     mChunkToServerMap.Erase(chunkId);
-    DeleteChunk(fid, chunkId, servers);
+    const bool kStaleChunkIdFlag = true;
+    DeleteChunk(fid, chunkId, servers, kStaleChunkIdFlag);
 }
 
 void
 LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
-    const LayoutManager::Servers& servers)
+    const LayoutManager::Servers& servers, bool staleChunkIdFlag /* = false */)
 {
     // Make a copy to deal with possible recursion.
     Servers const cs(servers);
@@ -7604,7 +7612,7 @@ LayoutManager::DeleteChunk(fid_t fid, chunkId_t chunkId,
 
     // submit an RPC request
     for_each(cs.begin(), cs.end(),
-        bind(&ChunkServer::DeleteChunk, _1, chunkId));
+        bind(&ChunkServer::DeleteChunk, _1, chunkId, staleChunkIdFlag));
 }
 
 void
@@ -12489,8 +12497,9 @@ LayoutManager::DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
             mObjBlocksDeleteInFlight.Insert(
                 entry.GetKey(), entry.GetVal(), insertedFlag);
             if (insertedFlag) {
+                const bool kStaleChunkIdFlag = false;
                 mChunkServers[mObjStoreDeleteSrvIdx++
-                    ]->DeleteChunkVers(fid, chunkVersion);
+                    ]->DeleteChunkVers(fid, chunkVersion, kStaleChunkIdFlag);
             }
         }
     }

@@ -5999,7 +5999,8 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
       doneOp(op),
       chunkId(op ? op->chunkId : chunkId_t(-1)),
       chunkVersion(doneTimedOutFlag ? op->chunkVersion : seq_t(-1)),
-      chunkOpType(MetaChunkLogCompletion::kChunkOpTypeNone)
+      chunkOpType(MetaChunkLogCompletion::kChunkOpTypeNone),
+      staleChunkIdFlag(op && op->staleChunkIdFlag)
 {
     if (op && op->pendingAddFlag &&
             0 <= op->chunkId && 0 <= op->chunkVersion) {
@@ -6049,6 +6050,17 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
         reqType(req ? req->op : -1)
 {
     maxWaitMillisec = timeout;
+}
+
+/* virtual */ bool
+MetaChunkLogInFlight::start()
+{
+    if (! server || server->IsDown()) {
+        // Handle re-submit after server down event, primarily to make it
+        // work with transaction log write error simulation.
+        status = -EINVAL;
+    }
+    return (0 == status);
 }
 
 /* static */ bool

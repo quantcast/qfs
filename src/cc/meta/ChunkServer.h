@@ -452,9 +452,14 @@ public:
     /// @retval 0 on success; -1 on failure
     ///
     int DeleteChunk(chunkId_t chunkId) {
-        return DeleteChunkVers(chunkId, 0);
+        const bool kStaleChunkIdFlag = false;
+        return DeleteChunkVers(chunkId, 0, kStaleChunkIdFlag);
     }
-    int DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion);
+    int DeleteChunk(chunkId_t chunkId, bool staleChunkIdFlag) {
+        return DeleteChunkVers(chunkId, 0, staleChunkIdFlag);
+    }
+    int DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
+        bool staleChunkIdFlag);
 
     ///
     /// Send a message to the server asking it to go down.
@@ -899,8 +904,17 @@ protected:
     /// @param[in] r  the request to be enqueued.
     /// allow override in layout emulator.
     virtual void EnqueueSelf(MetaChunkRequest* r);
-    void Enqueue(MetaChunkRequest* r, int timeout = -1,
-        bool loggedFlag = false);
+    void Enqueue(MetaChunkRequest* r, int timeout,
+        bool staleChunkIdFlag, bool loggedFlag);
+    void Enqueue(MetaChunkRequest* r, int timeout, bool staleChunkIdFlag) {
+        Enqueue(r, timeout, staleChunkIdFlag, false);
+    }
+    void Enqueue(MetaChunkRequest* r, int timeout) {
+        Enqueue(r, timeout, false);
+    }
+    void Enqueue(MetaChunkRequest* r) {
+        Enqueue(r, -1);
+    }
     void SetServerLocation(const ServerLocation& loc);
 
     /// A sequence # associated with each RPC we send to
@@ -1185,6 +1199,7 @@ protected:
     MetaRequest*       mPendingResponseOpsHeadPtr;
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
+    InFlightChunks     mStaleChunkIdsInFlight;
     int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;

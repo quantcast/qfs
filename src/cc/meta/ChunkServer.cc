@@ -532,6 +532,7 @@ ChunkServer::ChunkServer(
       mPendingResponseOpsHeadPtr(0),
       mPendingResponseOpsTailPtr(0),
       mLastChunksInFlight(),
+      mStaleChunkIdsInFlight(),
       mHelloDoneCount(0),
       mHelloResumeCount(0),
       mHelloResumeFailedCount(0),
@@ -2096,6 +2097,12 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             op = 0;
         }
     }
+    if (req.staleChunkIdFlag) {
+        if (req.chunkId < 0 || (req.doneOp && req.doneOp->chunkVersion < 0) ||
+                1 != mStaleChunkIdsInFlight.Erase(req.chunkId)) {
+            panic("chunk server: invalid log in flight op stale chunk flag");
+        }
+    }
     if (op) {
         if (! req.doneOp) {
             if (! req.replayFlag || ! op->replayFlag) {
@@ -2171,7 +2178,9 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
         return;
     }
     req->logCompletionSeq = r.logseq;
-    Enqueue(req, r.maxWaitMillisec, true);
+    const bool kLoggedFlag       = true;
+    const bool kStaleChunkIdFlag = false;
+    Enqueue(req, r.maxWaitMillisec, kStaleChunkIdFlag, kLoggedFlag);
 }
 
 ///
@@ -2179,7 +2188,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
 ///
 void
 ChunkServer::Enqueue(MetaChunkRequest* r,
-    int timeout /* = -1 */, bool loggedFlag /* = false */)
+    int timeout, bool staleChunkIdFlag, bool loggedFlag)
 {
     if (! r || this != &*r->server || ! mHelloDone) {
         panic(mHelloDone ?
@@ -2190,10 +2199,13 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         r->resume();
         return;
     }
+    if (staleChunkIdFlag && 0 <= r->chunkId && 0 <= r->chunkVersion) {
+        r->staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(r->chunkId);
+    }
     if (mReplayFlag && ! r->replayFlag) {
         if (0 == r->submitCount) {
             r->submitTime = microseconds();
-            r->submitCount++; // Bump to ensure request won't be logged...
+            r->submitCount++; // Bump to ensure request won't be logged.
         }
         r->replayFlag = true;
         r->status     = -EIO;
@@ -2349,13 +2361,15 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
 }
 
 int
-ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion)
+ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
+    bool staleChunkIdFlag)
 {
     if (0 <= chunkVersion) {
         mChunksToEvacuate.Erase(chunkId);
     }
     Enqueue(new MetaChunkDelete(
-        NextSeq(), shared_from_this(), chunkId, chunkVersion));
+        NextSeq(), shared_from_this(), chunkId, chunkVersion),
+        -1, staleChunkIdFlag);
     return 0;
 }
 
@@ -2781,6 +2795,11 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
         AppendInFlightChunks(mLastChunksInFlight, *op);
+    }
+    const chunkId_t* id;
+    mStaleChunkIdsInFlight.First();
+    while ((id = mStaleChunkIdsInFlight.Next())) {
+        mLastChunksInFlight.Insert(*id);
     }
     const TimeoutEntry* entry = &mDoneTimedoutList;
     while (&mDoneTimedoutList != (entry = &DoneTimedoutList::GetNext(*entry))) {
