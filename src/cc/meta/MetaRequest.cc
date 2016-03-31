@@ -5987,8 +5987,8 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
     : MetaRequest(META_CHUNK_OP_LOG_COMPLETION, kLogIfOk),
       doneLocation(op ? op->server->GetServerLocation() : ServerLocation()),
       doneLogSeq(op ? op->logCompletionSeq : seq_t(-1)),
-      doneStatus(op ? SysToKfsErrno(op->status : 0),
-      doneKfsStatus(doneStatus < 0 ? SysToKfsErrno(-doneStatus) : 0)
+      doneStatus(op ? op->status : 0),
+      doneKfsStatus(doneStatus < 0 ? SysToKfsErrno(-doneStatus) : 0),
       doneTimedOutFlag(
         op &&
         op->timedOutFlag &&
