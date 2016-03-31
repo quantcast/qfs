@@ -16,37 +16,37 @@ cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH
 project (QFS)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
-IF (NOT DEFINED Boost_USE_STATIC_LIBS)
+if(NOT DEFINED Boost_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS OFF)
-ENDIF (NOT DEFINED Boost_USE_STATIC_LIBS)
+endif()
 
 set(Boost_USE_MULTITHREADED ON)
 
-IF (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
     find_package(Boost COMPONENTS regex system REQUIRED)
-ELSE (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
+else()
     find_package(Boost COMPONENTS regex REQUIRED)
-ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
+endif()
 
 message(STATUS "Boost includes: ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost libs:     ${Boost_LIBRARIES}")
 
-IF (${CMAKE_MAJOR_VERSION} LESS 2)
-ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
-ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
-    set (HAS_EXTERNAL_PROJECT ON)
-ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
+if(${CMAKE_MAJOR_VERSION} LESS 2)
+elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+else()
+    set(HAS_EXTERNAL_PROJECT ON)
+endif()
 
-IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
+if(HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
     # gf-complete autoconf overrides CFGLAGS. Use CPPFLAGS to add compiler flags.
     include(ExternalProject)
-    set (KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
+    set(KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
 
-    set (Gf_complete          "gf-complete")
-    set (Gf_complete_CPPFLAGS
+    set(Gf_complete          "gf-complete")
+    set(Gf_complete_CPPFLAGS
         "-I${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/include")
-    set (Gf_complete_CC        ${CMAKE_C_COMPILER})
-    set (Gf_complete_PREFIX    ${CMAKE_CURRENT_BINARY_DIR}/${Gf_complete})
+    set(Gf_complete_CC        ${CMAKE_C_COMPILER})
+    set(Gf_complete_PREFIX    ${CMAKE_CURRENT_BINARY_DIR}/${Gf_complete})
     ExternalProject_Add(Gf_complete_proj
         DOWNLOAD_COMMAND  ""
         SOURCE_DIR        ${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}
@@ -58,8 +58,8 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
             --prefix=${Gf_complete_PREFIX}
         BUILD_COMMAND ${MAKE}
     )
-    set (Gf_complete_INCLUDE ${Gf_complete_PREFIX}/include)
-    set (Gf_complete_LIB_DIR ${Gf_complete_PREFIX}/lib/)
+    set(Gf_complete_INCLUDE ${Gf_complete_PREFIX}/include)
+    set(Gf_complete_LIB_DIR ${Gf_complete_PREFIX}/lib/)
     set(Gf_complete_STATIC_LIB
         ${Gf_complete_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}gf_complete${CMAKE_STATIC_LIBRARY_SUFFIX}
     )
@@ -67,12 +67,12 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
         ${Gf_complete_LIB_DIR}${CMAKE_SHARED_LIBRARY_PREFIX}gf_complete${CMAKE_SHARED_LIBRARY_SUFFIX}
     )
 
-    set (Jerasure          "jerasure")
-    set (Jerasure_CPPFLAGS
+    set(Jerasure          "jerasure")
+    set(Jerasure_CPPFLAGS
         "-I${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/include -I${Gf_complete_INCLUDE}")
-    set (Jerasure_LDFLAGS  "-L${Gf_complete_LIB_DIR}")
-    set (Jerasure_CC       ${CMAKE_C_COMPILER})
-    set (Jerasure_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
+    set(Jerasure_LDFLAGS  "-L${Gf_complete_LIB_DIR}")
+    set(Jerasure_CC       ${CMAKE_C_COMPILER})
+    set(Jerasure_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
     ExternalProject_Add(Jerasure_proj
         DEPENDS           Gf_complete_proj
         DOWNLOAD_COMMAND  ""
@@ -86,27 +86,27 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
             --prefix=${Jerasure_PREFIX}
         BUILD_COMMAND ${MAKE}
     )
-    set (Jerasure_INCLUDE ${Jerasure_PREFIX}/include)
-    set (Jerasure_LIB_DIR ${Jerasure_PREFIX}/lib/)
-    set (Jerasure_STATIC_LIB
+    set(Jerasure_INCLUDE ${Jerasure_PREFIX}/include)
+    set(Jerasure_LIB_DIR ${Jerasure_PREFIX}/lib/)
+    set(Jerasure_STATIC_LIB
         ${Jerasure_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}Jerasure${CMAKE_STATIC_LIBRARY_SUFFIX}
     )
-    set (Jerasure_SHARED_LIB
+    set(Jerasure_SHARED_LIB
         ${Jerasure_LIB_DIR}${CMAKE_SHARED_LIBRARY_PREFIX}Jerasure${CMAKE_SHARED_LIBRARY_SUFFIX}
     )
 
     install (FILES ${Gf_complete_STATIC_LIB} ${Jerasure_STATIC_LIB}
         DESTINATION lib/static
     )
-    set (JERASURE_STATIC_LIBRARIES
+    set(JERASURE_STATIC_LIBRARIES
         ${Jerasure_STATIC_LIB}
         ${Gf_complete_STATIC_LIB}
     )
-    IF (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
+    if(CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
         # It appears that on cygwin only static libs are built, and it is
         # possible to link client library dll against them.
-        set (JERASURE_SHARED_LIBRARIES ${JERASURE_STATIC_LIBRARIES})
-    ELSE (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
+        set(JERASURE_SHARED_LIBRARIES ${JERASURE_STATIC_LIBRARIES})
+    else()
         # Shared library are sym linked, install both sym link and the targets
         # by using pattern. Allow version suffix that follows library suffix.
         install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
@@ -115,64 +115,63 @@ IF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
             FILES_MATCHING PATTERN
                 "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
         )
-        set (JERASURE_SHARED_LIBRARIES
+        set(JERASURE_SHARED_LIBRARIES
             ${Jerasure_SHARED_LIB}
             ${Gf_complete_SHARED_LIB}
         )
-    ENDIF (CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
-ELSE (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
-    IF (NOT QFS_OMIT_JERASURE)
+    endif()
+else()
+    if(NOT QFS_OMIT_JERASURE)
         message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
         message(STATUS "WARNING: Jerasure will not be compiled")
-        set (QFS_OMIT_JERASURE ON)
-    ELSE (NOT QFS_OMIT_JERASURE)
+        set(QFS_OMIT_JERASURE ON)
+    else()
         message(STATUS "Jerasure will not be compiled")
-    ENDIF (NOT QFS_OMIT_JERASURE)
+    endif()
     add_definitions(-DQFS_OMIT_JERASURE=1)
-ENDIF (HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
+endif()
 
 # Locate the path to jni.h
-IF (NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
+if(NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
     find_package(JNI)
-ENDIF (NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
+endif()
 
-IF (NOT DEFINED JNI_FOUND AND NOT "${JAVA_INCLUDE_PATH}" STREQUAL "")
+if(NOT DEFINED JNI_FOUND AND NOT "${JAVA_INCLUDE_PATH}" STREQUAL "")
     set(JNI_FOUND TRUE)
-ENDIF (NOT DEFINED JNI_FOUND AND NOT "${JAVA_INCLUDE_PATH}" STREQUAL "")
+endif()
 
-IF (NOT OPENSSL_FOUND)
+if(NOT OPENSSL_FOUND)
     find_package(OpenSSL REQUIRED)
-ENDIF (NOT OPENSSL_FOUND)
+endif()
 
-IF (NOT KRB5_FOUND)
+if(NOT KRB5_FOUND)
     find_package(Krb5 REQUIRED krb5)
-    IF (NOT KRB5_FOUND)
+    if(NOT KRB5_FOUND)
         iF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-            set (KRB5_INSTALL_INFO
+            set(KRB5_INSTALL_INFO
                 " Kerberos5 mac port required.")
-            set (KRB5_INSTALL_INFO
+            set(KRB5_INSTALL_INFO
                 "${KRB5_INSTALL_INFO} To install: sudo port kerberos5")
-        ENDIF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        endif()
         message(FATAL_ERROR
             "Cannot find Kerberos5 libraries.${KRB5_INSTALL_INFO}")
-    ENDIF (NOT KRB5_FOUND)
-ENDIF (NOT KRB5_FOUND)
-IF (KRB5_FLAVOR)
+    endif()
+endif()
+if(KRB5_FLAVOR)
     add_definitions(-DKFS_KRB_USE_${KRB5_FLAVOR})
-ENDIF (KRB5_FLAVOR)
-IF (KRB5_USE_KRB5H)
+endif()
+if(KRB5_USE_KRB5H)
     add_definitions(-DKFS_KRB_USE_KRB5H)
-ENDIF (KRB5_USE_KRB5H)
-IF ("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR
+endif()
+if("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR
         KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
     add_definitions(-DKFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT)
-ENDIF ("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR
-        KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
-IF (KRB5_HAS_krb5_unparse_name_flags_ext)
+endif()
+if(KRB5_HAS_krb5_unparse_name_flags_ext)
     add_definitions(-DKRB5_HAS_krb5_unparse_name_flags_ext)
-ENDIF (KRB5_HAS_krb5_unparse_name_flags_ext)
+endif()
 
-IF (NOT DEFINED OPENSSL_VERSION)
+if(NOT DEFINED OPENSSL_VERSION)
     execute_process(
         COMMAND openssl version
         ERROR_QUIET
@@ -180,93 +179,93 @@ IF (NOT DEFINED OPENSSL_VERSION)
     )
     string(REGEX REPLACE "^[^ ]+ +([^ ]+).*$" "\\1"
         OPENSSL_VERSION "${OPENSSL_VERSION}")
-ENDIF (NOT DEFINED OPENSSL_VERSION)
+endif()
 
-IF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+if(NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(STATUS "WARNING: Open SSL version ${OPENSSL_VERSION}")
     message(STATUS
         "WARNING: QFS authentication support requires Open SSL version 1.0 or greater")
     message(STATUS "WARNING: QFS authentication will not work")
-ENDIF (NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
+endif()
 
 
 ENABLE_TESTING()
 
 # Change this to where the install directory is located
-IF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     set(CMAKE_INSTALL_PREFIX "." CACHE PATH
         "installation directory prefix" FORCE)
-ENDIF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+endif()
 
 # Build with statically linked libraries; the value for this variable has to be
 # defined here overwriting whatever is in the cache.
-# When set to ON, we build with statically linked libraries; when off we
+# When setto ON, we build with statically linked libraries; when off we
 # link with dynamically linked libs
 
-IF (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
+if(NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
     # Statically linked binaries don't work on solaris
-    set (QFS_USE_STATIC_LIB_LINKAGE NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-ENDIF  (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
+    set(QFS_USE_STATIC_LIB_LINKAGE NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+endif()
 
-IF (QFS_USE_STATIC_LIB_LINKAGE)
-    message (STATUS "Build binaries with statically linked QFS libraries")
-ELSE (QFS_USE_STATIC_LIB_LINKAGE)
-    message (STATUS "Build binaries with dynamically linked QFS libraries")
-ENDIF (QFS_USE_STATIC_LIB_LINKAGE)
-set (USE_STATIC_LIB_LINKAGE ${QFS_USE_STATIC_LIB_LINKAGE} CACHE BOOL
+if(QFS_USE_STATIC_LIB_LINKAGE)
+    message(STATUS "Build binaries with statically linked QFS libraries")
+else()
+    message(STATUS "Build binaries with dynamically linked QFS libraries")
+endif()
+set(USE_STATIC_LIB_LINKAGE ${QFS_USE_STATIC_LIB_LINKAGE} CACHE BOOL
     "Build binaries with statically linked libraries" FORCE)
 
-IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    IF (BUILD_CPU_MODE STREQUAL "32")
-        message (STATUS "Building 32-bit mode on Solaris")
+if(CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+    if(BUILD_CPU_MODE STREQUAL "32")
+        message(STATUS "Building 32-bit mode on Solaris")
         # If we are asked to build 32 bit mode
         add_definitions (
             -D_FILE_OFFSET_BITS=64
             -D_LARGEFILE_SOURCE
             -D_LARGE_FILES
         )
-    ELSE (BUILD_CPU_MODE STREQUAL "32")
+    else()
         # On solaris, use 64-bit mode
         set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
         set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -m64")
         set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
-    ENDIF (BUILD_CPU_MODE STREQUAL "32")
+    endif()
     # Cmake does whacky relink on solaris and messes things up; avoid this
-    set (CMAKE_SKIP_RPATH ON)
-ELSE (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    IF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
-        message (STATUS "Enabling largefile source flags")
+    set(CMAKE_SKIP_RPATH ON)
+else()
+    if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
+        message(STATUS "Enabling largefile source flags")
         add_definitions (
             -D_FILE_OFFSET_BITS=64
             -D_LARGEFILE_SOURCE
             -D_LARGEFILE64_SOURCE
             -D_LARGE_FILES
         )
-    ENDIF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
-ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
+    endif()
+endif()
 
-IF (ENABLE_PROFILING)
-    message (STATUS "Enabling profiling with gprof")
+if(ENABLE_PROFILING)
+    message(STATUS "Enabling profiling with gprof")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")
     set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -pg")
     set(CMAKE_SHAREDBoost_USE_MULTITHREADED_LINKER_FLAGS
         "${CMAKE_SHARED_LINKER_FLAGS} -pg")
     set(CMAKE_EXE_FLAGS  "${CMAKE_EXE_FLAGS} -pg")
-ENDIF (ENABLE_PROFILING)
+endif()
 
 # Change the line to Release to build release binaries
 # For servers, build with debugging info; for tools, build Release
 #
 
-IF (NOT CMAKE_BUILD_TYPE)
-    message (STATUS "Setting build type to Debug")
-    set (CMAKE_BUILD_TYPE "Debug")
-ENDIF (NOT CMAKE_BUILD_TYPE)
+if(NOT CMAKE_BUILD_TYPE)
+    message(STATUS "Setting build type to Debug")
+    set(CMAKE_BUILD_TYPE "Debug")
+endif()
 
-IF (CMAKE_BUILD_TYPE STREQUAL "Release")
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
     message(STATUS "Enabling -D NDEBUG flag")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
-ENDIF(CMAKE_BUILD_TYPE STREQUAL "Release")
+endif()
 
 set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
 string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
@@ -276,38 +275,37 @@ add_definitions (-D${KFS_OS_NAME})
 # Find the path to libfuse.so
 #
 
-IF (${CMAKE_MAJOR_VERSION} LESS 2)
-ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
-ELSEIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
+if(${CMAKE_MAJOR_VERSION} LESS 2)
+elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
+elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND
         ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
-ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND
-        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
-    SET(USE_FIND_FUSE_CMAKE_MODULE TRUE)
-    IF (NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
+else()
+    set(USE_FIND_FUSE_CMAKE_MODULE TRUE)
+    if(NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
         find_package(FUSE)
-    ENDIF (NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
-ENDIF (${CMAKE_MAJOR_VERSION} LESS 2)
+    endif()
+endif()
 
-IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
-    IF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+if(NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
+    if(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
         INCLUDE(UsePkgConfig)
         PKGCONFIG("fuse"
             FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIRS FUSE_LIBRARIES FUSE_DEFINITIONS)
-        IF (DEFINED FUSE_LIBRARIES)
+        if(DEFINED FUSE_LIBRARIES)
             set(FUSE_FOUND TRUE)
             STRING(REGEX REPLACE "-pthread" ""
                 FUSE_LIBRARIES "${FUSE_LIBRARIES}")
             STRING(REGEX REPLACE " +-l" ";"
                 FUSE_LIBRARIES "${FUSE_LIBRARIES}")
-        ENDIF (DEFINED FUSE_LIBRARIES)
-    ELSE (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+        endif()
+    else()
         INCLUDE(FindPkgConfig)
         pkg_search_module(FUSE "fuse")
         set(FUSE_DEFINITIONS ${FUSE_CFLAGS} CACHE STRING INTERNAL FORCE)
-    ENDIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
-    IF (FUSE_FOUND)
+    endif()
+    if(FUSE_FOUND)
         set(FUSE_LIBS_LIST "")
-        FOREACH(name ${FUSE_LIBRARIES})
+        foreach(name ${FUSE_LIBRARIES})
             # Look for this library.
             find_library(FUSE_${name}_LIBRARY
                 NAMES ${name}
@@ -315,17 +313,17 @@ IF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
             )
             # If any library is not found then the whole package is not found.
             IF(NOT FUSE_${name}_LIBRARY)
-                SET(FUSE_FOUND FALSE CACHE BOOL INTERNAL FORCE)
-            ENDIF(NOT FUSE_${name}_LIBRARY)
+                set(FUSE_FOUND FALSE CACHE BOOL INTERNAL FORCE)
+            endif()
             list(APPEND FUSE_LIBS_LIST "${FUSE_${name}_LIBRARY}")
         ENDFOREACH(name)
-        IF (FUSE_FOUND)
+        if(FUSE_FOUND)
             set(FUSE_LIBRARIES ${FUSE_LIBS_LIST} CACHE LIST INTERNAL FORCE)
-        ELSE (FUSE_FOUND)
+        else()
             set(FUSE_LIBRARIES "")
-        ENDIF (FUSE_FOUND)
-    ENDIF (FUSE_FOUND)
-ENDIF (NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
+        endif()
+    endif()
+endif()
 
 # include dirs
 include_directories(
@@ -335,14 +333,14 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/src/cc
 )
 
-IF (JNI_FOUND)
+if(JNI_FOUND)
     message(STATUS "JNI found: building qfs_access")
     include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
-ELSE (JNI_FOUND)
+else()
     message(STATUS "JNI NOT found: NOT building qfs_access")
-ENDIF (JNI_FOUND)
+endif()
 
-IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+if(NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     message(STATUS "Building qfs_fuse")
     message(STATUS "fuse libs:         ${FUSE_LIBRARIES}")
     message(STATUS "fuse include dirs: ${FUSE_INCLUDE_DIRS}")
@@ -350,35 +348,35 @@ IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     add_definitions(${FUSE_DEFINITIONS})
     add_definitions(-D FUSE_USE_VERSION=26)
     include_directories(${FUSE_INCLUDE_DIRS})
-ELSE  (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+else()
     message(STATUS "Not building qfs_fuse")
-ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+endif()
 
 # get the subdirs we want
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/chunk src/cc/chunk)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/common src/cc/common)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/devtools src/cc/devtools)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/emulator src/cc/emulator)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/kfsio src/cc/kfsio)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/krb src/cc/krb)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/libclient src/cc/libclient)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/meta src/cc/meta)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/qcdio src/cc/qcdio)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/qcrs src/cc/qcrs)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/qfsc src/cc/qfsc)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/s3io src/cc/s3io)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/tests src/cc/tests)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/tools src/cc/tools)
-add_subdirectory (${CMAKE_SOURCE_DIR}/src/test-scripts src/test-scripts)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/chunk src/cc/chunk)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/common src/cc/common)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/devtools src/cc/devtools)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/emulator src/cc/emulator)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/kfsio src/cc/kfsio)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/krb src/cc/krb)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/libclient src/cc/libclient)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/meta src/cc/meta)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/qcdio src/cc/qcdio)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/qcrs src/cc/qcrs)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/qfsc src/cc/qfsc)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/s3io src/cc/s3io)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/tests src/cc/tests)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/tools src/cc/tools)
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/test-scripts src/test-scripts)
 
-add_subdirectory (${CMAKE_SOURCE_DIR}/examples/cc examples/cc)
-add_subdirectory (${CMAKE_SOURCE_DIR}/benchmarks/mstress benchmarks/mstress)
-add_subdirectory (${CMAKE_SOURCE_DIR}/contrib/plugins contrib/plugins)
+add_subdirectory(${CMAKE_SOURCE_DIR}/examples/cc examples/cc)
+add_subdirectory(${CMAKE_SOURCE_DIR}/benchmarks/mstress benchmarks/mstress)
+add_subdirectory(${CMAKE_SOURCE_DIR}/contrib/plugins contrib/plugins)
 
-IF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
-    add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/fuse src/cc/fuse)
-ENDIF (NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+if(NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/fuse src/cc/fuse)
+endif()
 
-IF (JNI_FOUND)
-    add_subdirectory (${CMAKE_SOURCE_DIR}/src/cc/access src/cc/access)
-ENDIF (JNI_FOUND)
+if(JNI_FOUND)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/access src/cc/access)
+endif()
