@@ -31,13 +31,7 @@ endif()
 message(STATUS "Boost includes: ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost libs:     ${Boost_LIBRARIES}")
 
-if(${CMAKE_MAJOR_VERSION} LESS 2)
-elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
-else()
-    set(HAS_EXTERNAL_PROJECT ON)
-endif()
-
-if(HAS_EXTERNAL_PROJECT AND NOT QFS_OMIT_JERASURE)
+if(NOT QFS_OMIT_JERASURE)
     # gf-complete autoconf overrides CFGLAGS. Use CPPFLAGS to add compiler flags.
     include(ExternalProject)
     set(KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
