@@ -835,7 +835,7 @@ MetaRequest::Replay(const char* buf, size_t len, seq_t& logseq, int& status)
     }
     req->seqno = GetLogWriter().GetNextSeq();
     bool ret = false;
-    if (0 <= logseq && logseq == req->logseq) {
+    if (logseq < 0 || logseq == req->logseq) {
         req->replayFlag = true;
         req->handle();
         status = req->status;

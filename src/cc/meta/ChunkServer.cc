@@ -2100,7 +2100,12 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
     if (req.staleChunkIdFlag) {
         if (req.chunkId < 0 || (req.doneOp && req.doneOp->chunkVersion < 0) ||
                 1 != mStaleChunkIdsInFlight.Erase(req.chunkId)) {
-            panic("chunk server: invalid log in flight op stale chunk flag");
+            if (mReplayFlag) {
+                req.status = -EFAULT;
+            } else {
+                panic(
+                    "chunk server: invalid log in flight op stale chunk flag");
+            }
         }
     }
     if (op) {
@@ -3222,6 +3227,13 @@ ChunkServer::Verify(
     return true;
 }
 
+template <typename TS, typename TC>
+inline static TS&
+CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
+{
+    return (os << (0 == (cnt++ & 0x1F) ? pref : "/") << id);
+}
+
 bool
 ChunkServer::Checkpoint(ostream& ost)
 {
@@ -3246,10 +3258,16 @@ ChunkServer::Checkpoint(ostream& ost)
     size_t              cnt   = 0;
     const TimeoutEntry* entry = &mDoneTimedoutList;
     while (&mDoneTimedoutList != (entry = &DoneTimedoutList::GetNext(*entry))) {
-        os << (0 == (cnt++ & 0xFF) ? "\ncst/" : "/") << entry->GetKey();
+        CpInsertChunkId(os, "\ncst/", cnt, entry->GetKey());
     }
     if (cnt != mDoneTimedoutChunks.GetSize()) {
         panic("chunk server: checkpoint: invalid timed out chunks list");
+    }
+    cnt = 0;
+    const chunkId_t* id;
+    mStaleChunkIdsInFlight.First();
+    while ((id = mStaleChunkIdsInFlight.Next())) {
+        CpInsertChunkId(os, "\ncss/", cnt, *id);
     }
     os << "\n";
     os.flush();
@@ -3275,6 +3293,7 @@ ChunkServer::Checkpoint(ostream& ost)
     os <<
         "cse/" << mDoneTimedoutChunks.GetSize() <<
         "/"    << mDispatchedReqs.size() <<
+        "/"    << mStaleChunkIdsInFlight.Size() <<
         "\n";
     return (!! ost);
 }
@@ -3289,15 +3308,20 @@ ChunkServer::Restore(int type, size_t idx, int64_t n)
         bool          insertedFlag = false;
         TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(
             n,  TimeoutEntry(TimeNow()), insertedFlag);
-        if (insertedFlag) {
+        if (! insertedFlag) {
             return false;
         }
         DoneTimedoutList::Insert(*entry,
             DoneTimedoutList::GetPrev(mDoneTimedoutList));
         return  true;
     }
-    return ('e' == type && 0 <= n && (1 < idx ||
-        (idx == 0 ? mDoneTimedoutChunks.GetSize() : mDispatchedReqs.size()) ==
+    if ('s' == type) {
+        return (0 <= n && mStaleChunkIdsInFlight.Insert(n));
+    }
+    return ('e' == type && 0 <= n && (2 < idx ||
+        (idx == 0 ? mDoneTimedoutChunks.GetSize() :
+            (idx == 1 ? mDispatchedReqs.size() :
+                mStaleChunkIdsInFlight.Size())) ==
         (size_t)n));
 }
 
@@ -3666,13 +3690,6 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
         " modified: " << modCount <<
     "\n";
     return os;
-}
-
-template <typename TS, typename TC>
-inline static TS&
-CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
-{
-    return (os << (0 == (cnt++ & 0x1F) ? pref : "/") << id);
 }
 
 bool

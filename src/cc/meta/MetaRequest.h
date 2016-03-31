@@ -1996,7 +1996,15 @@ struct MetaBye: public MetaRequest {
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "chunk server bye: " << location;
+        return (os <<
+            "chunk server bye: " << location <<
+            " logseq: "          << logseq <<
+            " chunks: "          << chunkCount <<
+            " checksum: "        << cIdChecksum <<
+            " log:"
+            " in flight: "       << logInFlightCount <<
+            " completion: "      << (completionInFlightFlag ? "yes" : "no")
+        );
     }
     bool Validate()
     {
@@ -2271,7 +2279,8 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "log chunk in flight: " << ShowReq(request) <<
+            "log chunk in flight: " << location <<
+            " "          << ShowReq(request) <<
             " logseq: "  << logseq <<
             " type: "    << GetReqName(reqType) <<
             " chunkId: " << chunkId <<

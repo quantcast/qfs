@@ -1196,7 +1196,8 @@ replay_log_ahead_entry(DETokenizer& c)
     const DETokenizer::Token& token  = c.front();
     int                       status = 0;
     ReplayState&              state  = ReplayState::get(c);
-    seq_t logSeq = state.mLastLogAheadSeq + 1;
+    seq_t                     logSeq = state.mReplayer ?
+        state.mLastLogAheadSeq + 1 : seq_t(-1);
     if (! MetaRequest::Replay(token.ptr, token.len, logSeq, status)) {
         KFS_LOG_STREAM_ERROR <<
             "replay failure: seq: " << logSeq <<
@@ -1390,7 +1391,7 @@ replay_cur_op(ReplayState& state)
         panic("invalid replay current op invocation");
         return;
     }
-    if (state.mLastLogAheadSeq + 1 != op->logseq) {
+    if (state.mReplayer && state.mLastLogAheadSeq + 1 != op->logseq) {
         panic("invalid current op log sequence");
         return;
     }

@@ -814,6 +814,7 @@ get_entry_map()
     e.add_parser("osd",                     &restore_objstore_delete);
     e.add_parser("cs",                      &restore_chunk_server_start);
     e.add_parser("cst",                     &restore_chunk_server);
+    e.add_parser("css",                     &restore_chunk_server);
     e.add_parser("cse",                     &restore_chunk_server);
     e.add_parser("hcsp",                    &restore_hibernated_cs_params);
     e.add_parser("hcs",                     &restore_hibernated_cs_start);

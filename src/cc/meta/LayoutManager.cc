@@ -5198,9 +5198,7 @@ LayoutManager::Handle(MetaBye& req)
             " expected: "    << req.chunkCount <<
             " checksum: "    << server->GetChecksum() <<
             " expected: "    << req.cIdChecksum <<
-            " log:"
-            " in flight: "   << req.logInFlightCount <<
-            " completions: " << req.completionInFlightFlag <<
+            " "              << req.Show() <<
         KFS_LOG_EOM;
          // Set error code to detect replay commit mismatch.
         req.status = -EBADCKSUM;
@@ -5233,6 +5231,7 @@ LayoutManager::Handle(MetaBye& req)
         " block count: " << blockCount <<
         " master: "      << canBeMaster <<
         (reason.empty() ? "" : " reason: " ) << reason <<
+        " "              << req.Show() <<
     KFS_LOG_EOM;
 
     // check if this server was sent to hibernation
@@ -9164,7 +9163,6 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
             notifyStaleFlag = false;
         } else if (req->status != 0) {
             res = "request failed";
-            notifyStaleFlag = false;
         } else {
             CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
             if (! ci) {
