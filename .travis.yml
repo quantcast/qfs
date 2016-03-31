@@ -28,7 +28,7 @@ before_deploy:
     - mkdir artifacts
     - export OS=$(facter operatingsystem | awk '{print tolower($0)}')
     - export OSVERSION=$(facter operatingsystemrelease)
-    - export ARCH=$(uname -i)
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export ARCH=$(uname -p) ; else export ARCH=$(uname -i) ; fi
     - mv build/*.tgz artifacts/qfs-$OS-$OSVERSION-master-$ARCH.tgz
 
 deploy:
