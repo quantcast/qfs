@@ -22,6 +22,7 @@ endif()
 
 set(Boost_USE_MULTITHREADED ON)
 
+# Require the packages we need to build
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
     find_package(Boost COMPONENTS regex system REQUIRED)
 else()
@@ -31,112 +32,9 @@ endif()
 message(STATUS "Boost includes: ${Boost_INCLUDE_DIRS}")
 message(STATUS "Boost libs:     ${Boost_LIBRARIES}")
 
-if(NOT QFS_OMIT_JERASURE)
-    # gf-complete autoconf overrides CFGLAGS. Use CPPFLAGS to add compiler flags.
-    include(ExternalProject)
-    set(KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
-
-    set(Gf_complete          "gf-complete")
-    set(Gf_complete_CPPFLAGS
-        "-I${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/include")
-    set(Gf_complete_CC        ${CMAKE_C_COMPILER})
-    set(Gf_complete_PREFIX    ${CMAKE_CURRENT_BINARY_DIR}/${Gf_complete})
-    ExternalProject_Add(Gf_complete_proj
-        DOWNLOAD_COMMAND  ""
-        SOURCE_DIR        ${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}
-        CONFIGURE_COMMAND ${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/configure
-            CC=${Gf_complete_CC}
-            CPPFLAGS=${Gf_complete_CPPFLAGS}
-            --enable-static=yes
-            --enable-shared=yes
-            --prefix=${Gf_complete_PREFIX}
-        BUILD_COMMAND ${MAKE}
-    )
-    set(Gf_complete_INCLUDE ${Gf_complete_PREFIX}/include)
-    set(Gf_complete_LIB_DIR ${Gf_complete_PREFIX}/lib/)
-    set(Gf_complete_STATIC_LIB
-        ${Gf_complete_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}gf_complete${CMAKE_STATIC_LIBRARY_SUFFIX}
-    )
-    set(Gf_complete_SHARED_LIB
-        ${Gf_complete_LIB_DIR}${CMAKE_SHARED_LIBRARY_PREFIX}gf_complete${CMAKE_SHARED_LIBRARY_SUFFIX}
-    )
-
-    set(Jerasure          "jerasure")
-    set(Jerasure_CPPFLAGS
-        "-I${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/include -I${Gf_complete_INCLUDE}")
-    set(Jerasure_LDFLAGS  "-L${Gf_complete_LIB_DIR}")
-    set(Jerasure_CC       ${CMAKE_C_COMPILER})
-    set(Jerasure_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
-    ExternalProject_Add(Jerasure_proj
-        DEPENDS           Gf_complete_proj
-        DOWNLOAD_COMMAND  ""
-        SOURCE_DIR        ${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}
-        CONFIGURE_COMMAND ${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/configure
-            CC=${Jerasure_CC}
-            CPPFLAGS=${Jerasure_CPPFLAGS}
-            LDFLAGS=${Jerasure_LDFLAGS}
-            --enable-static=yes
-            --enable-shared=yes
-            --prefix=${Jerasure_PREFIX}
-        BUILD_COMMAND ${MAKE}
-    )
-    set(Jerasure_INCLUDE ${Jerasure_PREFIX}/include)
-    set(Jerasure_LIB_DIR ${Jerasure_PREFIX}/lib/)
-    set(Jerasure_STATIC_LIB
-        ${Jerasure_LIB_DIR}${CMAKE_STATIC_LIBRARY_PREFIX}Jerasure${CMAKE_STATIC_LIBRARY_SUFFIX}
-    )
-    set(Jerasure_SHARED_LIB
-        ${Jerasure_LIB_DIR}${CMAKE_SHARED_LIBRARY_PREFIX}Jerasure${CMAKE_SHARED_LIBRARY_SUFFIX}
-    )
-
-    install (FILES ${Gf_complete_STATIC_LIB} ${Jerasure_STATIC_LIB}
-        DESTINATION lib/static
-    )
-    set(JERASURE_STATIC_LIBRARIES
-        ${Jerasure_STATIC_LIB}
-        ${Gf_complete_STATIC_LIB}
-    )
-    if(CYGWIN AND NOT QFS_JERASURE_CYGWIN_USE_SHARED_LIBS)
-        # It appears that on cygwin only static libs are built, and it is
-        # possible to link client library dll against them.
-        set(JERASURE_SHARED_LIBRARIES ${JERASURE_STATIC_LIBRARIES})
-    else()
-        # Shared library are sym linked, install both sym link and the targets
-        # by using pattern. Allow version suffix that follows library suffix.
-        install (DIRECTORY  ${Gf_complete_LIB_DIR} ${Jerasure_LIB_DIR}
-            DESTINATION lib
-            USE_SOURCE_PERMISSIONS
-            FILES_MATCHING PATTERN
-                "${CMAKE_SHARED_LIBRARY_PREFIX}*${CMAKE_SHARED_LIBRARY_SUFFIX}*"
-        )
-        set(JERASURE_SHARED_LIBRARIES
-            ${Jerasure_SHARED_LIB}
-            ${Gf_complete_SHARED_LIB}
-        )
-    endif()
-else()
-    if(NOT QFS_OMIT_JERASURE)
-        message(STATUS "WARNING: Jerasure requires cmake 2.8.0 or greater")
-        message(STATUS "WARNING: Jerasure will not be compiled")
-        set(QFS_OMIT_JERASURE ON)
-    else()
-        message(STATUS "Jerasure will not be compiled")
-    endif()
-    add_definitions(-DQFS_OMIT_JERASURE=1)
-endif()
-
-# Locate the path to jni.h
-if(NOT JNI_FOUND AND NOT QFS_OMIT_JNI)
-    find_package(JNI)
-endif()
-
-if(NOT DEFINED JNI_FOUND AND NOT "${JAVA_INCLUDE_PATH}" STREQUAL "")
-    set(JNI_FOUND TRUE)
-endif()
-
-if(NOT OPENSSL_FOUND)
-    find_package(OpenSSL REQUIRED)
-endif()
+find_package(Jerasure REQUIRED)
+find_package(JNI REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 if(NOT KRB5_FOUND)
     find_package(Krb5 REQUIRED krb5)
@@ -165,25 +63,13 @@ if(KRB5_HAS_krb5_unparse_name_flags_ext)
     add_definitions(-DKRB5_HAS_krb5_unparse_name_flags_ext)
 endif()
 
-if(NOT DEFINED OPENSSL_VERSION)
-    execute_process(
-        COMMAND openssl version
-        ERROR_QUIET
-        OUTPUT_VARIABLE OPENSSL_VERSION
-    )
-    string(REGEX REPLACE "^[^ ]+ +([^ ]+).*$" "\\1"
-        OPENSSL_VERSION "${OPENSSL_VERSION}")
-endif()
-
+# Warn about old versions
 if(NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
     message(STATUS "WARNING: Open SSL version ${OPENSSL_VERSION}")
     message(STATUS
         "WARNING: QFS authentication support requires Open SSL version 1.0 or greater")
-    message(STATUS "WARNING: QFS authentication will not work")
+    message(STATUS "WARNING: QFS authentication will not work properly")
 endif()
-
-
-ENABLE_TESTING()
 
 # Change this to where the install directory is located
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -325,14 +211,9 @@ include_directories(
     ${OPENSSL_INCLUDE_DIR}
     ${KRB5_INCLUDE_DIRS}
     ${CMAKE_SOURCE_DIR}/src/cc
+    ${JAVA_INCLUDE_PATH}
+    ${JAVA_INCLUDE_PATH2}
 )
-
-if(JNI_FOUND)
-    message(STATUS "JNI found: building qfs_access")
-    include_directories ( ${JAVA_INCLUDE_PATH} ${JAVA_INCLUDE_PATH2} )
-else()
-    message(STATUS "JNI NOT found: NOT building qfs_access")
-endif()
 
 if(NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     message(STATUS "Building qfs_fuse")
@@ -347,6 +228,7 @@ else()
 endif()
 
 # get the subdirs we want
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/access src/cc/access)
 add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/chunk src/cc/chunk)
 add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/common src/cc/common)
 add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/devtools src/cc/devtools)
@@ -369,8 +251,4 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/contrib/plugins contrib/plugins)
 
 if(NOT QFS_OMIT_FUSE AND FUSE_FOUND)
     add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/fuse src/cc/fuse)
-endif()
-
-if(JNI_FOUND)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/access src/cc/access)
 endif()
