@@ -29,34 +29,19 @@ else()
     find_package(Boost COMPONENTS regex REQUIRED)
 endif()
 
-message(STATUS "Boost includes: ${Boost_INCLUDE_DIRS}")
-message(STATUS "Boost libs:     ${Boost_LIBRARIES}")
-
 find_package(Jerasure REQUIRED)
 find_package(JNI REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(Krb5 REQUIRED krb5)
 
-if(NOT KRB5_FOUND)
-    find_package(Krb5 REQUIRED krb5)
-    if(NOT KRB5_FOUND)
-        iF (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-            set(KRB5_INSTALL_INFO
-                " Kerberos5 mac port required.")
-            set(KRB5_INSTALL_INFO
-                "${KRB5_INSTALL_INFO} To install: sudo port kerberos5")
-        endif()
-        message(FATAL_ERROR
-            "Cannot find Kerberos5 libraries.${KRB5_INSTALL_INFO}")
-    endif()
-endif()
+# Define various options based on the library configuration we use
 if(KRB5_FLAVOR)
     add_definitions(-DKFS_KRB_USE_${KRB5_FLAVOR})
 endif()
 if(KRB5_USE_KRB5H)
     add_definitions(-DKFS_KRB_USE_KRB5H)
 endif()
-if("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR
-        KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
+if("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR KRB5_HAS_krb5_get_init_creds_opt_set_out_ccache)
     add_definitions(-DKFS_KRB_USE_KRB5_GET_INIT_CREDS_OPT)
 endif()
 if(KRB5_HAS_krb5_unparse_name_flags_ext)
@@ -65,16 +50,14 @@ endif()
 
 # Warn about old versions
 if(NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
-    message(STATUS "WARNING: Open SSL version ${OPENSSL_VERSION}")
-    message(STATUS
-        "WARNING: QFS authentication support requires Open SSL version 1.0 or greater")
+    message(STATUS "WARNING: openssl version ${OPENSSL_VERSION}")
+    message(STATUS "WARNING: QFS requires openssl version 1.0 or greater")
     message(STATUS "WARNING: QFS authentication will not work properly")
 endif()
 
 # Change this to where the install directory is located
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(CMAKE_INSTALL_PREFIX "." CACHE PATH
-        "installation directory prefix" FORCE)
+    set(CMAKE_INSTALL_PREFIX "." CACHE PATH "install directory prefix" FORCE)
 endif()
 
 # Build with statically linked libraries; the value for this variable has to be
@@ -135,15 +118,11 @@ endif()
 
 # Change the line to Release to build release binaries
 # For servers, build with debugging info; for tools, build Release
-#
-
 if(NOT CMAKE_BUILD_TYPE)
-    message(STATUS "Setting build type to Debug")
     set(CMAKE_BUILD_TYPE "Debug")
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    message(STATUS "Enabling -D NDEBUG flag")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
 endif()
 
@@ -151,10 +130,7 @@ set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
 string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
 add_definitions (-D${KFS_OS_NAME})
 
-#
 # Find the path to libfuse.so
-#
-
 if(${CMAKE_MAJOR_VERSION} LESS 2)
 elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
 elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND
