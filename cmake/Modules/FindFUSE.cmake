@@ -169,3 +169,42 @@ fusedebug("FUSE_LIBRARIES")
 fusedebug("FUSE_MAJOR_VERSION")
 fusedebug("FUSE_MINOR_VERSION")
 fusedebug("FUSE_VERSION")
+
+if(NOT FUSE_FOUND)
+    if(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+        INCLUDE(UsePkgConfig)
+        PKGCONFIG("fuse"
+            FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIRS FUSE_LIBRARIES FUSE_DEFINITIONS)
+        if(DEFINED FUSE_LIBRARIES)
+            set(FUSE_FOUND TRUE)
+            STRING(REGEX REPLACE "-pthread" ""
+                FUSE_LIBRARIES "${FUSE_LIBRARIES}")
+            STRING(REGEX REPLACE " +-l" ";"
+                FUSE_LIBRARIES "${FUSE_LIBRARIES}")
+        endif()
+    else()
+        INCLUDE(FindPkgConfig)
+        pkg_search_module(FUSE "fuse")
+        set(FUSE_DEFINITIONS ${FUSE_CFLAGS} CACHE STRING INTERNAL FORCE)
+    endif()
+    if(FUSE_FOUND)
+        set(FUSE_LIBS_LIST "")
+        foreach(name ${FUSE_LIBRARIES})
+            # Look for this library.
+            find_library(FUSE_${name}_LIBRARY
+                NAMES ${name}
+                PATHS ${FUSE_LIBRARY_DIRS}
+            )
+            # If any library is not found then the whole package is not found.
+            IF(NOT FUSE_${name}_LIBRARY)
+                set(FUSE_FOUND FALSE CACHE BOOL INTERNAL FORCE)
+            endif()
+            list(APPEND FUSE_LIBS_LIST "${FUSE_${name}_LIBRARY}")
+        ENDFOREACH(name)
+        if(FUSE_FOUND)
+            set(FUSE_LIBRARIES ${FUSE_LIBS_LIST} CACHE LIST INTERNAL FORCE)
+        else()
+            set(FUSE_LIBRARIES "")
+        endif()
+    endif()
+endif()

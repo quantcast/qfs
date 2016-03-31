@@ -31,8 +31,9 @@ endif()
 
 find_package(Jerasure REQUIRED)
 find_package(JNI REQUIRED)
-find_package(OpenSSL REQUIRED)
 find_package(Krb5 REQUIRED krb5)
+find_package(OpenSSL)
+find_package(FUSE)
 
 # Define various options based on the library configuration we use
 if(KRB5_FLAVOR)
@@ -130,57 +131,6 @@ set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
 string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
 add_definitions (-D${KFS_OS_NAME})
 
-# Find the path to libfuse.so
-if(${CMAKE_MAJOR_VERSION} LESS 2)
-elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 8)
-elseif(${CMAKE_MAJOR_VERSION} EQUAL 2 AND
-        ${CMAKE_MINOR_VERSION} EQUAL 8 AND ${CMAKE_PATCH_VERSION} LESS 3)
-else()
-    set(USE_FIND_FUSE_CMAKE_MODULE TRUE)
-    if(NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
-        find_package(FUSE)
-    endif()
-endif()
-
-if(NOT USE_FIND_FUSE_CMAKE_MODULE AND NOT QFS_OMIT_FUSE AND NOT FUSE_FOUND)
-    if(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
-        INCLUDE(UsePkgConfig)
-        PKGCONFIG("fuse"
-            FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIRS FUSE_LIBRARIES FUSE_DEFINITIONS)
-        if(DEFINED FUSE_LIBRARIES)
-            set(FUSE_FOUND TRUE)
-            STRING(REGEX REPLACE "-pthread" ""
-                FUSE_LIBRARIES "${FUSE_LIBRARIES}")
-            STRING(REGEX REPLACE " +-l" ";"
-                FUSE_LIBRARIES "${FUSE_LIBRARIES}")
-        endif()
-    else()
-        INCLUDE(FindPkgConfig)
-        pkg_search_module(FUSE "fuse")
-        set(FUSE_DEFINITIONS ${FUSE_CFLAGS} CACHE STRING INTERNAL FORCE)
-    endif()
-    if(FUSE_FOUND)
-        set(FUSE_LIBS_LIST "")
-        foreach(name ${FUSE_LIBRARIES})
-            # Look for this library.
-            find_library(FUSE_${name}_LIBRARY
-                NAMES ${name}
-                PATHS ${FUSE_LIBRARY_DIRS}
-            )
-            # If any library is not found then the whole package is not found.
-            IF(NOT FUSE_${name}_LIBRARY)
-                set(FUSE_FOUND FALSE CACHE BOOL INTERNAL FORCE)
-            endif()
-            list(APPEND FUSE_LIBS_LIST "${FUSE_${name}_LIBRARY}")
-        ENDFOREACH(name)
-        if(FUSE_FOUND)
-            set(FUSE_LIBRARIES ${FUSE_LIBS_LIST} CACHE LIST INTERNAL FORCE)
-        else()
-            set(FUSE_LIBRARIES "")
-        endif()
-    endif()
-endif()
-
 # include dirs
 include_directories(
     ${Boost_INCLUDE_DIRS}
@@ -191,7 +141,7 @@ include_directories(
     ${JAVA_INCLUDE_PATH2}
 )
 
-if(NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+if(FUSE_FOUND)
     message(STATUS "Building qfs_fuse")
     message(STATUS "fuse libs:         ${FUSE_LIBRARIES}")
     message(STATUS "fuse include dirs: ${FUSE_INCLUDE_DIRS}")
@@ -225,6 +175,6 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/examples/cc examples/cc)
 add_subdirectory(${CMAKE_SOURCE_DIR}/benchmarks/mstress benchmarks/mstress)
 add_subdirectory(${CMAKE_SOURCE_DIR}/contrib/plugins contrib/plugins)
 
-if(NOT QFS_OMIT_FUSE AND FUSE_FOUND)
+if(FUSE_FOUND)
     add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/fuse src/cc/fuse)
 endif()
