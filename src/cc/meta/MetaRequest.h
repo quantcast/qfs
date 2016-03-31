@@ -2157,6 +2157,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     ServerLocation    doneLocation;
     seq_t             doneLogSeq;
     int               doneStatus;
+    int               doneKfsStatus;
     bool              doneTimedOutFlag;
     MetaChunkRequest* doneOp;
     chunkId_t         chunkId;
@@ -2182,7 +2183,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkLogCompletion::doneLocation)
         .Def("L", &MetaChunkLogCompletion::doneLogSeq,       seq_t(-1))
-        .Def("R", &MetaChunkLogCompletion::doneStatus,       0)
+        .Def("R", &MetaChunkLogCompletion::doneKfsStatus,    0)
         .Def("T", &MetaChunkLogCompletion::doneTimedOutFlag, false)
         .Def("C", &MetaChunkLogCompletion::chunkId,          chunkId_t(-1))
         .Def("V", &MetaChunkLogCompletion::chunkVersion,     seq_t(-1))

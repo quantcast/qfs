@@ -4002,24 +4002,26 @@ LayoutManager::AddNewServer(MetaHello* r)
         msg << " chunk server: " << r->peerName << "/" <<
             srv.GetServerLocation() <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
-        " resume: "          << r->resumeStep <<
-        " rack: "            << r->rackId << " => " << rackId <<
-        " chunks:"           << r->server->GetChunkCount() << 
-        " stable: "          << r->chunks.size() <<
-        " not stable: "      << r->notStableChunks.size() <<
-        " append: "          << r->notStableAppendChunks.size() <<
-        " +wid: "            << r->numAppendsWithWid <<
-        " writes: "          << srv.GetNumChunkWrites() <<
-        " +wid: "            << srv.GetNumAppendsWithWid() <<
-        " stale: "           << staleCnt <<
-        " - "                << r->deletedReportCount <<
-        " masters: "         << mMastersCount <<
-        " slaves: "          << mSlavesCount <<
-        " total: "           << mChunkServers.size() <<
-        " uptime: "          << srv.Uptime() <<
-        " restart: "         << srv.IsRestartScheduled() <<
-        " 2restart: "        << mCSToRestartCount <<
-        " 2restartmasters: " << mMastersToRestartCount <<
+        " logseq: "             << r->logseq <<
+        " resume: "             << r->resumeStep <<
+        " rack: "               << r->rackId << " => " << rackId <<
+        " checksum: "           << r->server->GetChecksum() <<
+        " chunks: "             << r->server->GetChunkCount() <<
+        " stable: "             << r->chunks.size() <<
+        " not stable: "         << r->notStableChunks.size() <<
+        " append: "             << r->notStableAppendChunks.size() <<
+        " +wid: "               << r->numAppendsWithWid <<
+        " writes: "             << srv.GetNumChunkWrites() <<
+        " +wid: "               << srv.GetNumAppendsWithWid() <<
+        " stale: "              << staleCnt <<
+        " - "                   << r->deletedReportCount <<
+        " masters: "            << mMastersCount <<
+        " slaves: "             << mSlavesCount <<
+        " total: "              << mChunkServers.size() <<
+        " uptime: "             << srv.Uptime() <<
+        " restart: "            << srv.IsRestartScheduled() <<
+        " to restart: "         << mCSToRestartCount <<
+        " to restart masters: " << mMastersToRestartCount <<
     KFS_LOG_EOM;
 }
 
@@ -5189,7 +5191,7 @@ LayoutManager::Handle(MetaBye& req)
         // In flight "log in flight", or "log completion" at the time when bye
         // was submitted might result in mismatch.
         KFS_LOG_STREAM((req.completionInFlightFlag ||
-                req.completionInFlightFlag) ?
+                req.completionInFlightFlag || server->IsReplay()) ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) <<
             "chunk server bye inventory mismatch" <<
@@ -5200,8 +5202,8 @@ LayoutManager::Handle(MetaBye& req)
             " expected: "    << req.cIdChecksum <<
             " "              << req.Show() <<
         KFS_LOG_EOM;
-         // Set error code to detect replay commit mismatch.
-        req.status = -EBADCKSUM;
+         // For now do not set error code as chunk inventory during replay
+         // might be different due to pending non stable chunk ops.
     }
     RackInfos::iterator const rackIter = FindRack(server->GetRack());
     if (rackIter != mRacks.end()) {
