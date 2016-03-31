@@ -11,20 +11,7 @@
 # permissions and limitations under the License.
 
 cmake_minimum_required(VERSION 2.8.4 FATAL_ERROR)
-
-IF (COMMAND cmake_policy)
-    IF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
-        message(
-            STATUS
-            "Not setting version policy: ${QFS_DONT_SET_CMAMKE_POLICY_VERISON}"
-        )
-    ELSE (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
-        cmake_policy(
-            VERSION
-            ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION}
-        )
-    ENDIF (DEFINED QFS_DONT_SET_CMAMKE_POLICY_VERISON)
-ENDIF (COMMAND cmake_policy)
+cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION})
 
 project (QFS)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
