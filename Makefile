@@ -17,10 +17,11 @@ CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo
 MAKE_OPTIONS ?=
 
 .PHONY: all
-all: build java
+all: build
 
 .PHONY: build
 build:
+	export BUILD_TYPE=${BUILD_TYPE}
 	mkdir -p build/${BUILD_TYPE}
 	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
@@ -31,7 +32,7 @@ java: build
 	./src/java/javabuild.sh
 
 .PHONY: hadoop-jars
-hadoop-jars: build
+hadoop-jars: build java
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh clean   && \
@@ -84,6 +85,10 @@ python: build
 .PHONY: test
 test: build
 	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh
+
+.PHONY: gtest
+gtest: build
+	build/${BUILD_TYPE}/src/cc/tests/test.t
 
 .PHONY: clean
 clean:

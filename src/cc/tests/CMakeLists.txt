@@ -45,6 +45,11 @@ include(QfsUtil)
 set(test_sources
     integtest.cc
     integtest_main.cc
+
+    environments/MetaserverEnvironment.cc
+    environments/ChunkserverEnvironment.cc
+
+    common/StrUtils_T.cc
 )
 
 SUBDIRLIST(test_dirs ${CMAKE_CURRENT_LIST_DIR})
@@ -52,16 +57,26 @@ foreach(test_dir ${test_dirs})
     add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/${test_dir})
 endforeach()
 
-add_executable(test.t ${test_sources})
-target_link_libraries(test.t libgtest)
+set(test_binary test.t)
+message(STATUS "Test sources: ${test_sources}")
+add_executable(${test_binary} ${test_sources})
+target_link_libraries(${test_binary} libgtest)
+
+if(USE_STATIC_LIB_LINKAGE)
+    add_dependencies(${test_binary} kfsCommon)
+    target_link_libraries(${test_binary} kfsCommon)
+else()
+    add_dependencies(${test_binary} kfsCommon-shared)
+    target_link_libraries(${test_binary} kfsCommon-shared)
+endif()
 
 # cmake and centos <= 6 try to use the libc pthreads and set
 # CMAKE_THREAD_LIBS_INIT to be empty. This doesn't work with the libgtest
 # library which requires pthread at link time. Add it here directly. This isn't
 # great and we need to find a better way to do it in the future but this is good
 # enough for now, unfortunately.
-target_link_libraries(test.t pthread)
+target_link_libraries(${test_binary} pthread)
 
-install(TARGETS test.t
+install(TARGETS ${test_binary}
     RUNTIME DESTINATION bin/tests
 )
