@@ -5548,19 +5548,14 @@ ChunkManager::AppendToHostedList(
 
 bool
 ChunkManager::IsTargetChunkVersionStable(
-    const ChunkInfoHandle& cih, kfsSeq_t* vers /* = 0 */) const
+    const ChunkInfoHandle& cih, kfsSeq_t& vers) const
 {
     if (cih.IsBeingReplicated()) {
-        if (vers) {
-            *vers = -1;
-        }
+        vers = -1;
         return false;
     }
-    bool           stableFlag = false;
-    const kfsSeq_t version    = cih.GetTargetStateAndVersion(stableFlag);
-    if (vers) {
-        *vers = version;
-    }
+    bool stableFlag = false;
+    vers = cih.GetTargetStateAndVersion(stableFlag);
     return stableFlag;
 }
 
@@ -5594,9 +5589,10 @@ ChunkManager::GetHostedChunksResume(
             if (mLastPendingInFlight.Find(chunkId)) {
                 continue;
             }
-            const ChunkInfoHandle* const cih = p->GetVal();
+            kfsSeq_t                     vers = -1;
+            const ChunkInfoHandle* const cih  = p->GetVal();
             if (! cih->IsBeingReplicated() &&
-                    ! IsTargetChunkVersionStable(*cih)) {
+                    (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0)) {
                 (*missing.first)++;
                 (*missing.second) << chunkId << ' ';
             }
@@ -5621,7 +5617,7 @@ ChunkManager::GetHostedChunksResume(
             continue;
         }
         kfsSeq_t vers = -1;
-        if (! IsTargetChunkVersionStable(*cih, &vers) || vers < 0) {
+        if (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0) {
             AppendToHostedList(
                 *cih, stable, notStableAppend, notStable, noFidsFlag);
             continue;
@@ -5700,7 +5696,7 @@ ChunkManager::GetHostedChunksResume(
                 continue;
             }
             kfsSeq_t vers = -1;
-            if (! IsTargetChunkVersionStable(**cih, &vers) || vers < 0) {
+            if (! IsTargetChunkVersionStable(**cih, vers) || vers <= 0) {
                 // Only report stable chunks here, all unstable are
                 // reported already the above.
                 continue;

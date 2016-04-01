@@ -3516,7 +3516,7 @@ HibernatedChunkServer::HelloResumeReply(
         // Ensure that next step has correct counts. The counts should
         // correspond to the counts sent on the previous step.
         const size_t deletedCount = mDeletedChunks.GetSize();
-        if (deletedCount < r.deletedCount) {
+        if (! r.replayFlag && deletedCount < r.deletedCount) {
             r.statusMsg = "invalid resume response";
             r.status    = -EINVAL;
         } else {

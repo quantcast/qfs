@@ -1079,7 +1079,7 @@ private:
     inline bool NotifyLostChunk(kfsChunkId_t chunkId, kfsSeq_t vers);
     inline bool ScheduleNotifyLostChunk();
     inline bool IsTargetChunkVersionStable(
-        const ChunkInfoHandle& cih, kfsSeq_t* vers = 0) const;
+        const ChunkInfoHandle& cih, kfsSeq_t& vers) const;
     template<typename T> void ClearTable(T& table);
     template<typename T> void RunIoCompletion(T& table);
 
