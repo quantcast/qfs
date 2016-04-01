@@ -8102,6 +8102,9 @@ LayoutManager::LeaseCleanup(
         req->seqno        = -1;
         req->logseq       = -1;
         req->suspended    = false;
+        KFS_LOG_STREAM_DEBUG <<
+            "resubmitting: " << req->Show() <<
+        KFS_LOG_EOM;
         submit_request(req);
     }
     ScheduleChunkServersRestart();
