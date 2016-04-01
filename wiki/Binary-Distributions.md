@@ -13,7 +13,7 @@ Started|Home]] for how to use them.
 [1.1.4]: https://github.com/quantcast/qfs/tree/1.1.4
 
 [master,ubuntu-12.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-12.04-master-x86_64.tgz
-[master,macos]: https://s3.amazonaws.com/quantcast-qfs/qfs-darwin-13.4.0-master-x86_64.tgz
+[master,macos]: https://s3.amazonaws.com/quantcast-qfs/qfs-darwin-13.4.0-master-i386.tgz
 
 [1.1.4,ubuntu-15.10]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-15.10-1.1.4-x86_64.tgz
 [1.1.4,ubuntu-12.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-12.04.5-1.1.4-x86_64.tgz
