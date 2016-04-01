@@ -3,11 +3,13 @@ Welcome to the QFS Wiki
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
 reading and writing large files sequentially. This wiki provides various pieces
-of information regarding QFS, its setup, best practices, etc. If there are any
-specific questions or comments you have that aren't answered in this wiki,
-please feel free to reach out to us through our mailing list
+of information regarding QFS, its setup, best practices, etc.
+
+If there are any specific questions or comments you have that aren't answered in
+this wiki, please feel free to reach out to us through our mailing list
 [**qfs-devel@googlegroups.com**][mailto] or search the archives at the
-[QFS Developer Mailing List][group].
+[QFS Developer Mailing List][group]. You can also ask questions, report bugs, or
+request improvements to qfs on our [JIRA issue tracker][jira].
 
 For an indepth view into QFS and how it works, please read the
 [QFS paper presented at VLDB][paper].
@@ -42,7 +44,8 @@ we will be happy to accept it!
 
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
 
-[mailto]: mailto:qfs-devel@googlegroups.com
 [group]: http://groups.google.com/group/qfs-devel
+[jira]: https://quantcast.atlassian.net
+[mailto]: mailto:qfs-devel@googlegroups.com
 [paper]: http://db.disi.unitn.eu/pages/VLDBProgram/pdf/industry/p808-ovsiannikov.pdf
 [wiki]: https://github.com/quantcast/qfs/tree/master/wiki
