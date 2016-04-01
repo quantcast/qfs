@@ -16,6 +16,17 @@ cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH
 project (QFS)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
 
+IF (NOT DEFINED Boost_NO_BOOST_CMAKE)
+    IF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND
+            5 LESS ${CMAKE_PATCH_VERSION})
+        # Turn off by default with 2.8.5 < cmake < 2.9.0 to
+        # work around cmake28 and boost libraries problem on centos 6.
+        # Boost_NO_BOOST_CMAKE was introduced int cmake 2.8.6
+        set(Boost_NO_BOOST_CMAKE ON)
+    ENDIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND
+        5 LESS ${CMAKE_PATCH_VERSION})
+ENDIF (NOT DEFINED Boost_NO_BOOST_CMAKE)
+
 if(NOT DEFINED Boost_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS OFF)
 endif()
