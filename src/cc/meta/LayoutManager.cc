@@ -4132,8 +4132,10 @@ LayoutManager::AddNotStableChunk(
         const bool beginMakeStableFlag = msi->mSize < 0;
         if (beginMakeStableFlag) {
             AddHosted(chunkId, pinfo, server);
-            if (InRecoveryPeriod() || ! mPendingBeginMakeStable.IsEmpty() ||
-                    server->IsReplay()) {
+            if (server->IsReplay()) {
+                return 0;
+            }
+            if (InRecoveryPeriod() || ! mPendingBeginMakeStable.IsEmpty()) {
                 // Allow chunk servers to connect back.
                 bool insertedFlag = false;
                 mPendingBeginMakeStable.Insert(
