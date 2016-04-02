@@ -167,6 +167,18 @@ IsObjectStoreBlock(fid_t fid, chunkOff_t pos)
         pos <= fa->nextChunkOffset());
 }
 
+static inline void
+ResubmitRequest(MetaRequest* req)
+{
+        req->status       = 0;
+        req->statusMsg.clear();
+        req->submitCount  = 0;
+        req->seqno        = -1;
+        req->logseq       = -1;
+        req->suspended    = false;
+        submit_request(req);
+}
+
 class ChunkIdMatcher
 {
     const chunkId_t myid;
@@ -3250,6 +3262,13 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         req.status = -EFAULT;
         return;
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "CLIF done:"
+        " status: " << req.status <<
+        " "         << req.statusMsg <<
+        " down: "   << (req.server && req.server->IsDown()) <<
+        " "         << req.Show() <<
+    KFS_LOG_EOM;
     if (0 != req.status) {
         if (req.replayFlag) {
             if (! req.server || ! req.server->IsDown()) {
@@ -3272,6 +3291,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             (*cs)->Replay(req);
         }
     }
+    int count = 0;
     if (! req.server || req.server->IsDown()) {
         if (req.server && req.location != req.server->GetServerLocation()) {
             panic("invalid chunk log in flight down server location");
@@ -3292,10 +3312,12 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                         const chunkId_t*            id;
                         while ((id = it.Next())) {
                             hs->UpdateLastInFlight(mChunkToServerMap, *id);
+                            count++;
                         }
                     } else if (0 <= req.chunkId) {
                         hs->UpdateLastInFlight(
                             mChunkToServerMap, req.chunkId);
+                        count++;
                     }
                     req.status = -EIO;
                 }
@@ -3307,8 +3329,9 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
     if (req.removeServerFlag && req.server && ! req.server->IsDown()) {
         if (0 <= req.chunkId) {
             CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-            if (entry) {
-                mChunkToServerMap.RemoveServer(req.server, *entry);
+            if (entry &&
+                    mChunkToServerMap.RemoveServer(req.server, *entry)) {
+                count++;
             }
         }
         const ChunkIdQueue* const ids = req.GetChunkIds();
@@ -3317,12 +3340,21 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             const chunkId_t*            id;
             while ((id = it.Next())) {
                 CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
-                if (entry) {
-                    mChunkToServerMap.RemoveServer(req.server, *entry);
+                if (entry &&
+                        mChunkToServerMap.RemoveServer(req.server, *entry)) {
+                    count++;
                 }
             }
         }
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "CLIF done:"
+        " status: "  << req.status <<
+        " "          << req.statusMsg <<
+        " down: "    << (req.server && req.server->IsDown()) <<
+        " updated: " << count <<
+        " "          << req.Show() <<
+    KFS_LOG_EOM;
     if (! req.replayFlag) {
         req.server->Enqueue(req);
     }
@@ -3356,6 +3388,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     if (server) {
         server->Handle(req);
     }
+    bool updatedFlag = false;
     if (0 <= req.chunkId && 0 == req.status) {
         if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
             if (server && ! server->IsDown()) {
@@ -3364,7 +3397,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                         mChunkToServerMap.Find(req.chunkId);
                     if (entry && entry->GetChunkInfo()->chunkVersion ==
                             req.chunkVersion) {
-                        AddHosted(*entry, server);
+                        updatedFlag = AddHosted(*entry, server);
                     }
                 }
             } else {
@@ -3372,10 +3405,19 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     FindHibernatedServer(req.doneLocation);
                 if (hs) {
                     hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
+                    updatedFlag = true;
                 }
             }
         }
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "CLC done:"
+        " status: "  << req.status <<
+        " "          << req.statusMsg <<
+        " down: "    << (server && server->IsDown()) <<
+        " updated: " << updatedFlag <<
+        " "          << req.Show() <<
+    KFS_LOG_EOM;
     if (req.doneOp) {
         MetaChunkRequest& op = *req.doneOp;
         req.doneOp = 0;
@@ -3525,7 +3567,7 @@ LayoutManager::Replay(MetaHello& req)
     if (req.server) {
         return;
     }
-    if (! req.location.IsValid()) {
+    if (! req.location.IsValid() || 0 != req.status) {
         panic("invalid chunk server hello replay");
         req.status = -EFAULT;
         return;
@@ -3554,7 +3596,7 @@ LayoutManager::AddNewServer(MetaHello* r)
             return;
         }
     }
-    if (r->server->IsDown()) {
+    if (0 != r->status || r->server->IsDown()) {
         return;
     }
     ChunkServer&          srv   = *(r->server);
@@ -5166,7 +5208,19 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
 void
 LayoutManager::Handle(MetaBye& req)
 {
-    if (! req.server) {
+    if (req.server) {
+        if (req.replayFlag) {
+            panic("invalid meta bye in replay");
+            return;
+        }
+        if (-ELOGFAILED == req.status) {
+            ScheduleResubmitOrCancel(req);
+            return;
+        }
+        if (0 != req.status) {
+            return;
+        }
+    } else {
         const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
         if (! cs) {
             req.status = -ENOENT;
@@ -5342,6 +5396,32 @@ LayoutManager::Handle(MetaBye& req)
         mSlavesCount--;
         mMastersCount++;
         mChunkServers.front()->SetCanBeChunkMaster(true);
+    }
+    if (0 < server->GetLogInFlightCount() ||
+            server->HasLogCompletionInFlight()) {
+        // Resubmit chunk server's log ops to effectively cancel them.
+        // The primary intention is to make test with log failure error
+        // simulation work by canceling all outstanding log requests before
+        // the next hello arrival.
+        RequestQueue queue;
+        queue.PushBack(mResubmitQueue);
+        MetaRequest*            req;
+        const MetaChunkRequest* op;
+        while ((req = queue.PopFront())) {
+            if ((META_CHUNK_OP_LOG_IN_FLIGHT == req->op &&
+                    static_cast<const MetaChunkLogInFlight*>(
+                        req)->server == server) ||
+                    (META_CHUNK_OP_LOG_COMPLETION == req->op &&
+                        (op = static_cast<const MetaChunkLogCompletion*>(
+                        req)->doneOp) && op->server == server)) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "server down resubmitting: " << req->Show() <<
+                KFS_LOG_EOM;
+                ResubmitRequest(req);
+            } else {
+                mResubmitQueue.PushBack(*req);
+            }
+        }
     }
     UpdateReplicationsThreshold();
     ScheduleCleanup();
@@ -7304,6 +7384,8 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         "> lost" <<
         " servers: " << mChunkToServerMap.ServerCount(*ci) <<
         (existedFlag ? " -1" : " -0") <<
+        " notify: "      << notifyStale <<
+        " down: "        << server->IsDown() <<
         " replication: " << fa->numReplicas <<
         " recovery: "    << fa->numRecoveryStripes <<
     KFS_LOG_EOM;
@@ -8096,16 +8178,10 @@ LayoutManager::LeaseCleanup(
     queue.PushBack(mResubmitQueue);
     MetaRequest* req;
     while ((req = queue.PopFront())) {
-        req->status       = 0;
-        req->statusMsg.clear();
-        req->submitCount  = 0;
-        req->seqno        = -1;
-        req->logseq       = -1;
-        req->suspended    = false;
         KFS_LOG_STREAM_DEBUG <<
             "resubmitting: " << req->Show() <<
         KFS_LOG_EOM;
-        submit_request(req);
+        ResubmitRequest(req);
     }
     ScheduleChunkServersRestart();
 }

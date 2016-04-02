@@ -6017,7 +6017,7 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
     return (os <<
         "log chunk completion:"
         " "           << doneLocation <<
-        " log seq: "  << doneLogSeq <<
+        " logseq: "   << doneLogSeq <<
         " status: "   << doneStatus <<
         " map op: "   << chunkOpType <<
         " chunkId: "  << chunkId <<

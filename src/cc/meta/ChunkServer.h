@@ -889,6 +889,12 @@ public:
     bool IsReplay() const { return mReplayFlag; }
     bool Checkpoint(ostream& os);
     bool Restore(int type, size_t idx, int64_t n);
+    int GetPendingOpsCount() const
+        { return mPendingOpsCount; }
+    int GetLogInFlightCount() const
+        { return mLogInFlightCount; }
+    bool HasLogCompletionInFlight() const
+        { return ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs); }
     static bool StartCheckpoint(ostream& os);
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1153,7 +1159,7 @@ protected:
     DoneTimedoutChunks mDoneTimedoutChunks;
     TimeoutEntry       mDoneTimedoutList;
     TmpReqQueue        mTmpReqQueue;
-    int64_t            mLogInFlightCount;
+    int                mLogInFlightCount;
     int64_t            mLostChunks;
     int64_t            mUptime;
     Properties         mHeartbeatProperties;

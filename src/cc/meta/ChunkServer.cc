@@ -569,7 +569,8 @@ ChunkServer::ChunkServer(
 ChunkServer::~ChunkServer()
 {
     if (0 != mRecursionCount || mSelfPtr || 0 != mPendingOpsCount ||
-            ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) {
+            ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs) ||
+            ! ChunkServersList::IsInList(sChunkServersPtr, *this)) {
         panic("chunk server: invalid destructor invocation");
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
