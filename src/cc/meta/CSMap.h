@@ -685,8 +685,7 @@ public:
         RemoveServerScanFirst();
         return true;
     }
-    bool SetHibernated(const ChunkServerPtr& server, size_t& idx,
-            chunkId_t lastModifiedChunk) {
+    bool SetHibernated(const ChunkServerPtr& server, size_t& idx) {
         if (! server || ! Validate(server)) {
             return false;
         }
@@ -699,17 +698,9 @@ public:
             InternalError("invalid hibernated servers slot count");
             return false;
         }
-        if (0 <= lastModifiedChunk) {
-            Entry* const entry = Find(lastModifiedChunk);
-            if (entry) {
-                AddServer(server, *entry);
-            } else {
-                lastModifiedChunk = -1;
-            }
-        }
         ChunkServerPtr& srv = mServers[idx];
         HibernatedChunkServer* const hsrv =
-            new HibernatedChunkServer(*server, *this, lastModifiedChunk);
+            new HibernatedChunkServer(*server, *this);
         mHibernatedCount++;
         assert(0 < mHibernatedCount);
         mHibernatedServers[idx].reset(hsrv);

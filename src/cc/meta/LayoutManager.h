@@ -1999,7 +1999,6 @@ protected:
     /// to take a node down for maintenance and bring it back up
     /// without incurring re-replication overheads.
     HibernatedServerInfos mHibernatingServers;
-    chunkId_t             mLastResumeModifiedChunk;
 
     /// Track when servers went down so we can report it
     typedef deque<string> DownServers;

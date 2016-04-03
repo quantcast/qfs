@@ -3335,19 +3335,14 @@ ChunkServer::StartCheckpoint(ostream& os)
 inline void
 ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkServer::InFlightChunks& chunks, CIdChecksum& chunksChecksum,
-    ChunkIdQueue& chunksDelete, chunkId_t lastResumeModifiedChunk,
-    uint64_t generation)
+    ChunkIdQueue& chunksDelete, uint64_t generation)
 {
     KFS_LOG_STREAM_DEBUG <<
         " server: "           << GetServerLocation() <<
         " index: "            << GetIndex() <<
         " chunks: "           << GetChunkCount() <<
         " in flight chunks: " << mLastChunksInFlight.Size() <<
-        " last chunk id: "    << lastResumeModifiedChunk <<
     KFS_LOG_EOM;
-    if (0 <= lastResumeModifiedChunk) {
-        mLastChunksInFlight.Insert(lastResumeModifiedChunk);
-    }
     ChunkServerPtr const srv = GetSelfPtr();
     const chunkId_t* id;
     mLastChunksInFlight.First();
@@ -3367,8 +3362,7 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
 
 HibernatedChunkServer::HibernatedChunkServer(
     ChunkServer& server,
-    const CSMap& csMap,
-    chunkId_t    lastResumeModifiedChunk)
+    const CSMap& csMap)
     : CSMapServerInfo(),
       mDeletedChunks(),
       mModifiedChunks(),
@@ -3379,7 +3373,7 @@ HibernatedChunkServer::HibernatedChunkServer(
       mReplayFlag(server.IsReplay())
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mModifiedChecksum,
-        mDeletedChunks, lastResumeModifiedChunk, mGeneration);
+        mDeletedChunks, mGeneration);
     mDeletedReportCount = mDeletedChunks.GetSize();
     const size_t size = mModifiedChunks.Size() + mDeletedReportCount;
     mListsSize = 1 + size;

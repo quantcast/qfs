@@ -1627,7 +1627,6 @@ LayoutManager::LayoutManager() :
     mMinChunkserversToExitRecovery(1),
     mChunkServers(),
     mHibernatingServers(),
-    mLastResumeModifiedChunk(-1),
     mMastersCount(0),
     mSlavesCount(0),
     mAssignMasterByIpFlag(false),
@@ -3773,7 +3772,6 @@ LayoutManager::AddNewServer(MetaHello* r)
     if (! mChunkServersProps.empty() && ! srv.IsDown()) {
         srv.SetProperties(mChunkServersProps);
     }
-    mLastResumeModifiedChunk = -1;
     int maxLogInfoCnt = 32;
     for (MetaHello::ChunkInfos::const_iterator it = r->chunks.begin();
             it != r->chunks.end() && ! srv.IsDown();
@@ -3782,7 +3780,6 @@ LayoutManager::AddNewServer(MetaHello* r)
         const char*         staleReason  = 0;
         CSMap::Entry* const cmi          = mChunkToServerMap.Find(chunkId);
         seq_t               chunkVersion = -1;
-        mLastResumeModifiedChunk = -1;
         if (cmi) {
             CSMap::Entry& c = *cmi;
             if (0 < r->resumeStep) {
@@ -3791,7 +3788,6 @@ LayoutManager::AddNewServer(MetaHello* r)
                     if (! removedFlag) {
                         panic("stable: invalid modified chunk list");
                     }
-                    mLastResumeModifiedChunk = chunkId;
                 }
             }
             const fid_t          fileId = c.GetFileId();
@@ -3866,10 +3862,8 @@ LayoutManager::AddNewServer(MetaHello* r)
                 " => stale" <<
             KFS_LOG_EOM;
             staleChunkIds.PushBack(it->chunkId);
-            mStaleChunkCount->Update(1);
         }
     }
-    mLastResumeModifiedChunk = -1;
     for (int i = 0; i < 2; i++) {
         const MetaHello::ChunkInfos& chunks = i == 0 ?
             r->notStableAppendChunks : r->notStableChunks;
@@ -3879,7 +3873,6 @@ LayoutManager::AddNewServer(MetaHello* r)
                 ++it) {
             const char* staleReason = 0;
             if (0 < r->resumeStep) {
-                mLastResumeModifiedChunk = -1;
                 CSMap::Entry* const cmi = mChunkToServerMap.Find(it->chunkId);
                 if (cmi) {
                     const bool removedFlag =
@@ -3891,7 +3884,6 @@ LayoutManager::AddNewServer(MetaHello* r)
                                 ": invalid modified chunk list"
                             );
                         }
-                        mLastResumeModifiedChunk = it->chunkId;
                     }
                 } else {
                     if (modififedChunks.Find(it->chunkId)) {
@@ -3926,12 +3918,10 @@ LayoutManager::AddNewServer(MetaHello* r)
             KFS_LOG_EOM;
             if (staleReason) {
                 staleChunkIds.PushBack(it->chunkId);
-                mStaleChunkCount->Update(1);
             }
             // MakeChunkStableDone will process pending recovery.
         }
     }
-    mLastResumeModifiedChunk = -1;
     const size_t staleCnt = staleChunkIds.GetSize();
     if (0 < staleCnt && ! srv.IsDown()) {
         size_t skipFront = 0;
@@ -3981,7 +3971,6 @@ LayoutManager::AddNewServer(MetaHello* r)
                 continue;
             }
             seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
-            mLastResumeModifiedChunk = chunkId;
             bool                kMakeStableFlag   = false;
             bool                kPendingAddFlag   = true;
             bool                kVerifyStableFlag = true;
@@ -3997,7 +3986,6 @@ LayoutManager::AddNewServer(MetaHello* r)
                 kVerifyStableFlag
             );
         }
-        mLastResumeModifiedChunk = -1;
     }
     // All ops are queued at this point, make sure that the server is still up.
     // Chunk server cannot possibly go down here, as after HelloDone()
@@ -4097,6 +4085,10 @@ LayoutManager::AddNotStableChunk(
         KFS_LOG_EOM;
         return 0;
     }
+    if (server->IsReplay()) {
+        AddHosted(chunkId, pinfo, server);
+        return 0;
+    }
     const char* staleReason = 0;
     if (AddServerToMakeStable(pinfo, server,
             chunkId, chunkVersion, staleReason) || staleReason) {
@@ -4106,8 +4098,7 @@ LayoutManager::AddNotStableChunk(
     // AddServerToMakeStable() invoked already.
     // Delete the replica if sufficient number of replicas already exists.
     const MetaFattr * const fa = pinfo.GetFattr();
-    if (! server->IsReplay() && fa &&
-            fa->numReplicas <= mChunkToServerMap.ServerCount(pinfo)) {
+    if (fa && fa->numReplicas <= mChunkToServerMap.ServerCount(pinfo)) {
         CancelPendingMakeStable(fileId, chunkId);
         return "sufficient number of replicas exists";
     }
@@ -4132,9 +4123,6 @@ LayoutManager::AddNotStableChunk(
         const bool beginMakeStableFlag = msi->mSize < 0;
         if (beginMakeStableFlag) {
             AddHosted(chunkId, pinfo, server);
-            if (server->IsReplay()) {
-                return 0;
-            }
             if (InRecoveryPeriod() || ! mPendingBeginMakeStable.IsEmpty()) {
                 // Allow chunk servers to connect back.
                 bool insertedFlag = false;
@@ -4159,9 +4147,6 @@ LayoutManager::AddNotStableChunk(
             );
             return 0;
         }
-        if (server->IsReplay()) {
-            return 0;
-        }
         const bool kPendingAddFlag = true;
         server->MakeChunkStable(
             fileId, chunkId, chunkVersion,
@@ -4183,10 +4168,6 @@ LayoutManager::AddNotStableChunk(
         // This indicates that part of meta server log or checkpoint
         // was lost, or rolled back to the previous state.
         return "higher chunk version";
-    }
-    if (server->IsReplay()) {
-        AddHosted(chunkId, pinfo, server);
-        return 0;
     }
     if (curChunkVersion != chunkVersion &&
             (appendFlag || ! wl || ! wl->allocInFlight)) {
@@ -5300,9 +5281,7 @@ LayoutManager::Handle(MetaBye& req)
         HibernatingServerInfo& hsi               = *hs;
         const bool             wasHibernatedFlag = hsi.IsHibernated();
         const size_t           prevIdx           = hsi.csmapIdx;
-        if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx,
-                mLastResumeModifiedChunk)) {
-            mLastResumeModifiedChunk = -1;
+        if (mChunkToServerMap.SetHibernated(server, hsi.csmapIdx)) {
             if (wasHibernatedFlag) {
                 if (prevIdx == hsi.csmapIdx ||
                         ! mChunkToServerMap.RemoveHibernatedServer(prevIdx)) {
@@ -5351,11 +5330,9 @@ LayoutManager::Handle(MetaBye& req)
         // Delay replication by marking server as hibernated,
         // to allow the server to reconnect back.
         size_t idx = ~size_t(0);
-        if (! mChunkToServerMap.SetHibernated(server, idx,
-                mLastResumeModifiedChunk)) {
+        if (! mChunkToServerMap.SetHibernated(server, idx)) {
             panic("failed to initiate hibernation");
         }
-        mLastResumeModifiedChunk = -1;
         mHibernatingServers.insert(it, HibernatingServerInfo(
             loc, (time_t)(req.timeUsec / 1000000), replicationDelay,
             req.replayFlag, idx));
@@ -12118,7 +12095,7 @@ LayoutManager::CSMapUnitTest(const Properties& props)
             continue;
         }
         size_t idx = 0;
-        if (! mChunkToServerMap.SetHibernated(mChunkServers[i], idx, -1)) {
+        if (! mChunkToServerMap.SetHibernated(mChunkServers[i], idx)) {
             panic("failed to hibernate server");
         }
         idxs.push_back(idx);

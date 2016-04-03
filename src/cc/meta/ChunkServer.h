@@ -872,8 +872,7 @@ public:
     typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,
         InFlightChunks& chunks, CIdChecksum& chunksChecksum,
-        ChunkIdQueue& chunksDelete, chunkId_t lastResumeModifiedChunk,
-        uint64_t generation);
+        ChunkIdQueue& chunksDelete, uint64_t generation);
     void HelloDone(const MetaHello* r);
     uint64_t GetHibernatedGeneration() const
         { return mHibernatedGeneration; }
@@ -1364,8 +1363,7 @@ public:
 
     HibernatedChunkServer(
         ChunkServer& server,
-        const CSMap& csMap,
-        chunkId_t    ioLastResumeModifiedChunk);
+        const CSMap& csMap);
     HibernatedChunkServer(
         const CIdChecksum& modChksum,
         size_t             delReport);
