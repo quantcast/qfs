@@ -202,7 +202,7 @@ ProcessInFlightChunks(T& dest, const MetaChunkRequest& op, bool insertFlag)
             if (insertFlag) {
                 dest.Insert(*id);
             } else {
-                dest.Insert(*id);
+                dest.Erase(*id);
             }
         }
     } else if (0 <= op.chunkId) {
@@ -3269,7 +3269,7 @@ ChunkServer::Checkpoint(ostream& ost)
     if (! mLastChunksInFlight.IsEmpty() || mDown ||
             (mReplayFlag &&
                 ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) ||
-            (! mReplayFlag && mHelloReplayChunks.IsEmpty())) {
+            (! mReplayFlag && ! mHelloReplayChunks.IsEmpty())) {
         panic("chunk server: checkpoint: invalid state");
         return false;
     }
