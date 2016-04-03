@@ -324,10 +324,10 @@ else
     mindiskspace=$minrequreddiskspace
 fi
 
-df -P -k "$testdir" | awk -v msp="${mindiskspace}" '
+df -P -k "$testdir" | awk '
     { lns = lns $0 "\n" }
     /^\// {
-    if ($4 * 1024 < msp) {
+    if ($4 * 1024 < '""${mindiskspace}""') {
         print lns
         printf(\
             "Insufficient host file system available space:" \
