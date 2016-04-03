@@ -3300,7 +3300,7 @@ ChunkServer::Checkpoint(ostream& ost)
         CpInsertChunkId(os, "\ncss/", cnt, *id);
     }
     cnt = 0;
-    mStaleChunkIdsInFlight.First();
+    mHelloReplayChunks.First();
     while ((id = mHelloReplayChunks.Next())) {
         CpInsertChunkId(os, "\ncsr/", cnt, *id);
     }
