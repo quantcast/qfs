@@ -6116,7 +6116,7 @@ MetaChunkLogInFlight::Checkpoint(ostream& os, MetaChunkRequest& req)
     }
     const bool kRemoveFlag = false; // Revoal is already done..
     MetaChunkLogInFlight lreq(&req, -1, kRemoveFlag);
-    lreq.logseq = META_CHUNK_OP_LOG_IN_FLIGHT != req.op ?
+    lreq.logseq = META_CHUNK_OP_LOG_IN_FLIGHT == req.op ?
         req.logseq : req.logCompletionSeq;
     if (lreq.logseq < 0) {
         panic("checkpoint chunk in flight: invalid log sequence");

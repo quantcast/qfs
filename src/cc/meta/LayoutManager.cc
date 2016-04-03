@@ -3346,6 +3346,9 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             }
         }
     }
+    if (META_CHUNK_STALENOTIFY == req.reqType) {
+        mStaleChunkCount->Update(count);
+    }
     KFS_LOG_STREAM_DEBUG <<
         "CLIF done:"
         " status: "  << req.status <<
@@ -3993,13 +3996,14 @@ LayoutManager::AddNewServer(MetaHello* r)
     // and the later must be successfully written into the transaction log prior
     // to the execution.
     if (srv.IsDown()) {
-        panic("add new server: invalid state transition to down");
         KFS_LOG_STREAM_FATAL << srvId <<
             ": went down in the process of adding it" <<
         KFS_LOG_EOM;
+        panic("add new server: invalid state transition to down");
         return;
     }
-    // Hello done.
+    // Hello processing done.
+    srv.HelloEnd();
     // Update the list since a new server appeared.
     CheckHibernatingServersStatus();
 

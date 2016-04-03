@@ -894,6 +894,8 @@ public:
         { return mLogInFlightCount; }
     bool HasLogCompletionInFlight() const
         { return ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs); }
+    void HelloEnd()
+        { mHelloReplayFlag = false; }
     static bool StartCheckpoint(ostream& os);
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
@@ -1205,6 +1207,8 @@ protected:
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
     InFlightChunks     mStaleChunkIdsInFlight;
+    InFlightChunks     mHelloReplayChunks;
+    bool               mHelloReplayFlag;
     int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;
