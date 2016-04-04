@@ -12725,7 +12725,7 @@ LayoutManager::StartServicing()
             mChunkServers.end() != it;
             ++it) {
         const ChunkServerPtr& srv = *it;
-        if (! srv->IsReplay()) {
+        if (srv->IsReplay()) {
             srv->ScheduleDown("start servicing");
         }
     }
