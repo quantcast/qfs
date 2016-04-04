@@ -881,7 +881,10 @@ public:
     const int64_t GetWritableObjectCount() const
         { return mNumWrObjects; }
     void ScheduleDown(const char* message)
-        { Error(message); }
+    {
+        const bool kIgnoreReplayFlag = true;
+        Error(message, kIgnoreReplayFlag);
+    }
     void Handle(MetaChunkLogCompletion& req);
     void Replay(MetaChunkLogInFlight& req);
     void Enqueue(MetaChunkLogInFlight& req);
@@ -1300,7 +1303,7 @@ protected:
     /// The chunk server went down.  So, stop the network timer event;
     /// also, fail all the dispatched ops.
     ///
-    void Error(const char* errorMsg);
+    void Error(const char* errorMsg, bool ignoreReplayFlag = false);
     void FailDispatchedOps(const char* errorMsg);
     /// Periodically, send a heartbeat message to the chunk server.
     int Heartbeat();

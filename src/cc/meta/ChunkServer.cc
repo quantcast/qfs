@@ -1114,9 +1114,9 @@ ChunkServer::SubmitMetaBye()
 }
 
 void
-ChunkServer::Error(const char* errorMsg)
+ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
 {
-    if (mDown || ! mNetConnection || mReplayFlag) {
+    if (mDown || ! mNetConnection || (mReplayFlag && ! ignoreReplayFlag)) {
         return;
     }
     if (! mSelfPtr) {
