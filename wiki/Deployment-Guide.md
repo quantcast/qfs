@@ -361,6 +361,21 @@ tolerate one or two racks out of service. Configuration
     # unique cluster id
     chunkServer.clusterKey = my-fs-unique-identifier
 
+FUSE
+----
+You can use the `qfs_fuse` binary directly or via /etc/fstab.
+
+1. Direct usage:
+    - Mount using `$ sudo ./qfs_fuse <metaserver>:20000 /mnt/qfs -o allow_other,ro`
+    - Unmount using `$ sudo umount /mnt/qfs`
+1. Editing /etc/fstab to mount automatically at startup:
+    - Create a symlink to qfs\_fuse `$ ln -s <path-to-qfs_fuse> /sbin/mount.qfs`
+    - Add the following line to /etc/fstab:`<metaserver>:20000 /mnt/qfs qfs ro,allow_other 0 0`
+
+Due to licensing issues, you can include FUSE only if it is licensed under LGPL
+or any other license that is compatible with Apache 2.0 license.
+
+
 Best Practices
 --------------
 - Use a reliable service manager for both the meta and chunk servers such as
