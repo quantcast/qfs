@@ -3058,7 +3058,7 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
         return -EBADF;
     }
     bool stableFlag = false;
-    if (cih->IsRenameInFlight()) {
+    if (chunkVersion < 0 || cih->IsRenameInFlight()) {
         if (chunkVersion != cih->GetTargetStateAndVersion(stableFlag)) {
             statusMsg = (stableFlag ? "" : "not ");
             statusMsg += "stable target version mismatch";
@@ -3100,7 +3100,7 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
     }
     gLeaseClerk.UnRegisterLease(
         cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion);
-    if (cleanupPendingWritesOnlyFlag) {
+    if (cleanupPendingWritesOnlyFlag || (stableFlag && chunkVersion < 0)) {
         if (cih->IsChunkReadable()) {
             int64_t res = 0;
             cb->HandleEvent(EVENT_DISK_RENAME_DONE, &res);
