@@ -96,7 +96,7 @@ public:
     }
 private:
     Monitor();
-    virtual ~Monitor();
+    ~Monitor();
     bool AddClientSelf(
             KfsClientImpl* client,
             char* pluginPath,
@@ -110,7 +110,6 @@ private:
             int errCode);
     void RemoveClientSelf(
             KfsClientImpl* client);
-    bool mPluginExists;
     Impl* mImpl;
 };
 

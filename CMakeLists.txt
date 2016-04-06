@@ -13,8 +13,12 @@
 cmake_minimum_required(VERSION 2.8.4 FATAL_ERROR)
 cmake_policy(VERSION ${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION})
 
+IF (NOT DEFINED KFS_DIR_PREFIX)
+    set (KFS_DIR_PREFIX ${CMAKE_SOURCE_DIR})
+ENDIF (NOT DEFINED KFS_DIR_PREFIX)
+
 project (QFS)
-set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
+set(CMAKE_MODULE_PATH ${KFS_DIR_PREFIX}/cmake/Modules)
 
 IF (NOT DEFINED Boost_NO_BOOST_CMAKE)
     IF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND
@@ -26,6 +30,10 @@ IF (NOT DEFINED Boost_NO_BOOST_CMAKE)
     ENDIF (${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} EQUAL 8 AND
         5 LESS ${CMAKE_PATCH_VERSION})
 ENDIF (NOT DEFINED Boost_NO_BOOST_CMAKE)
+
+if(NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
+    set(QFS_USE_STATIC_LIB_LINKAGE)
+endif()
 
 if(NOT DEFINED Boost_USE_STATIC_LIBS)
     set(Boost_USE_STATIC_LIBS OFF)
@@ -78,11 +86,6 @@ endif()
 # When setto ON, we build with statically linked libraries; when off we
 # link with dynamically linked libs
 
-if(NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
-    # Statically linked binaries don't work on solaris
-    set(QFS_USE_STATIC_LIB_LINKAGE NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-endif()
-
 if(QFS_USE_STATIC_LIB_LINKAGE)
     message(STATUS "Build binaries with statically linked QFS libraries")
 else()
@@ -91,33 +94,14 @@ endif()
 set(USE_STATIC_LIB_LINKAGE ${QFS_USE_STATIC_LIB_LINKAGE} CACHE BOOL
     "Build binaries with statically linked libraries" FORCE)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    if(BUILD_CPU_MODE STREQUAL "32")
-        message(STATUS "Building 32-bit mode on Solaris")
-        # If we are asked to build 32 bit mode
-        add_definitions (
-            -D_FILE_OFFSET_BITS=64
-            -D_LARGEFILE_SOURCE
-            -D_LARGE_FILES
-        )
-    else()
-        # On solaris, use 64-bit mode
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -m64")
-        set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
-    endif()
-    # Cmake does whacky relink on solaris and messes things up; avoid this
-    set(CMAKE_SKIP_RPATH ON)
-else()
-    if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
-        message(STATUS "Enabling largefile source flags")
-        add_definitions (
-            -D_FILE_OFFSET_BITS=64
-            -D_LARGEFILE_SOURCE
-            -D_LARGEFILE64_SOURCE
-            -D_LARGE_FILES
-        )
-    endif()
+if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
+    message(STATUS "Enabling largefile source flags")
+    add_definitions (
+        -D_FILE_OFFSET_BITS=64
+        -D_LARGEFILE_SOURCE
+        -D_LARGEFILE64_SOURCE
+        -D_LARGE_FILES
+    )
 endif()
 
 if(ENABLE_PROFILING)
@@ -148,7 +132,7 @@ include_directories(
     ${Boost_INCLUDE_DIRS}
     ${OPENSSL_INCLUDE_DIR}
     ${KRB5_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/src/cc
+    ${KFS_DIR_PREFIX}/src/cc
     ${JAVA_INCLUDE_PATH}
     ${JAVA_INCLUDE_PATH2}
 )
@@ -166,27 +150,27 @@ else()
 endif()
 
 # get the subdirs we want
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/access src/cc/access)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/chunk src/cc/chunk)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/common src/cc/common)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/devtools src/cc/devtools)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/emulator src/cc/emulator)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/kfsio src/cc/kfsio)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/krb src/cc/krb)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/libclient src/cc/libclient)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/meta src/cc/meta)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/qcdio src/cc/qcdio)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/qcrs src/cc/qcrs)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/qfsc src/cc/qfsc)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/s3io src/cc/s3io)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/tests src/cc/tests)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/tools src/cc/tools)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src/test-scripts src/test-scripts)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/access src/cc/access)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/chunk src/cc/chunk)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/common src/cc/common)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/devtools src/cc/devtools)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/emulator src/cc/emulator)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/kfsio src/cc/kfsio)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/krb src/cc/krb)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/libclient src/cc/libclient)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/meta src/cc/meta)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/qcdio src/cc/qcdio)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/qcrs src/cc/qcrs)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/qfsc src/cc/qfsc)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/s3io src/cc/s3io)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/tests src/cc/tests)
+add_subdirectory(${KFS_DIR_PREFIX}/src/cc/tools src/cc/tools)
+add_subdirectory(${KFS_DIR_PREFIX}/src/test-scripts src/test-scripts)
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/examples/cc examples/cc)
-add_subdirectory(${CMAKE_SOURCE_DIR}/benchmarks/mstress benchmarks/mstress)
-add_subdirectory(${CMAKE_SOURCE_DIR}/contrib/plugins contrib/plugins)
+add_subdirectory(${KFS_DIR_PREFIX}/examples/cc examples/cc)
+add_subdirectory(${KFS_DIR_PREFIX}/benchmarks/mstress benchmarks/mstress)
+add_subdirectory(${KFS_DIR_PREFIX}/contrib/plugins contrib/plugins)
 
 if(FUSE_FOUND)
-    add_subdirectory(${CMAKE_SOURCE_DIR}/src/cc/fuse src/cc/fuse)
+    add_subdirectory(${KFS_DIR_PREFIX}/src/cc/fuse src/cc/fuse)
 endif()
