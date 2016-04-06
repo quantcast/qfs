@@ -125,6 +125,34 @@ and performs various checks, it may take a couple of minutes to complete. If you
 are running this from a partition that is nearly full, the test may fail. Please
 refer to `maxSpaceUtilizationThreshold` in [[Configuration Reference]].
 
+#### Writing Tests
+C++ tests are stored in `src/cc/tests`. QFS uses [Google Test][gt] as its
+testing framework. Unit tests which test specific functionality in a function or
+library can simply use a bare test, e.g. `TEST(Foo, Bar)`. However, all
+integration tests (tests which interact with the metaserver or chunkserver)
+should use test fixtures, subclassing the `QFSTest` class. For example, you
+could add a new test class like so:
+
+    #include <gtest/gtest.h>
+    #include "tests/integtest.h"
+
+    class FooTest : public QFSTest {
+    public:
+        virtual void SetUp() { ... }
+        virtual void TearDown() { ... }
+    };
+
+    TEST_F(FooTest, TestBar) {
+        ...
+    }
+
+Furthermore, you should place tests in the corresponding directory for which
+functionality you are testing. For example, if you are testing functionality for
+code stored in the `libclient` directory, place the tests in
+`src/cc/tests/libclient`. Either a unit or integration test should be added for
+each functionality change to QFS. Please see the tests in `src/cc/tests` for
+some examples on how QFS has already implemented various tests.
+
 ### Developing a C++ client
 To develop a c++ client, see the sample code in the
 `examples/cc/qfssample_main.cc` file. The QFS client library API is
@@ -193,3 +221,5 @@ example,
     $ python examples/python/qfssample.py
 
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
+
+[gt]: https://github.com/google/googletest
