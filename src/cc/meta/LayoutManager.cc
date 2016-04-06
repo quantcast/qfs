@@ -8010,7 +8010,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
         const ChunkLeases::WriteLease* const lease =
             mChunkLeases.GetWriteLease(key);
         if (lease && lease->relinquishedFlag) {
-            mChunkLeases.DeleteWriteLease(req->fid, key, lease->leaseId);
+            mChunkLeases.DeleteWriteLease(key, lease->leaseId);
         }
         return;
     }
