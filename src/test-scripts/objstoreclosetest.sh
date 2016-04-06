@@ -196,7 +196,7 @@ echo "Starting taest.The test will take about $closedelay seconds."
     $cptoqfsextraopts \
     $logverbose \
     -r 0 -k test.dat -d - || exit
-    
+
 "$toolsdir"/cpfromqfs -s "$metahost" -p "$metaport" -f "$clicfg" $logverbose \
     -k test.dat -d "$qfstestdir/test.dat" || exit
 cmp "$qfstestdir/exp.test.dat" "$qfstestdir/test.dat" || exit
