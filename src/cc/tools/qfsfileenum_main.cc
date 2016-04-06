@@ -43,16 +43,18 @@ using std::setw;
 int
 main(int argc, char **argv)
 {
-    bool        help           = false;
-    const char* server         = 0;
-    const char* filename       = 0;
-    const char* config         = 0;
-    int         port           = -1;
-    bool        verboseLogging = false;
-    int         retval;
+    bool        help               = false;
+    bool        showErrorsOnlyFlag = false;
+    bool        showFileNameFlag   = true;
+    const char* server             = 0;
+    const char* filename           = 0;
+    const char* config             = 0;
+    int         port               = -1;
+    bool        verboseLogging     = false;
+    int         ret                = 0;
     int         optchar;
 
-    while ((optchar = getopt(argc, argv, "hs:p:f:vc:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hs:p:f:vc:e")) != -1) {
         switch (optchar) {
             case 's':
                 server = optarg;
@@ -61,7 +63,8 @@ main(int argc, char **argv)
                 port = atoi(optarg);
                 break;
             case 'f':
-                filename = optarg;
+                filename         = optarg;
+                showFileNameFlag = false;
                 break;
             case 'h':
                 help = true;
@@ -72,16 +75,20 @@ main(int argc, char **argv)
             case 'c':
                 config = optarg;
                 break;
+            case 'e':
+                showErrorsOnlyFlag = true;
+                break;
             default:
                 help = true;
                 break;
         }
     }
 
-    if (help || ! server || port < 0 || ! filename) {
+    if (help || ! server || port < 0) {
         cout << "Usage: " << argv[0] <<
-            " -s <server name> -p <port> -f <path> [-v] -c <config file>\n"
-            "Enumerate the chunks and sizes of the given file.\n";
+            " -s <server name> -p <port> [-f <path>] [-v] -c <config file>"
+            " [-e] [<path>] ...\n"
+            "Enumerate blocks and sizes of the files.\n";
         return 1;
     }
 
@@ -93,50 +100,77 @@ main(int argc, char **argv)
         cout << "qfs client failed to initialize\n";
         return 1;
     }
-
-    KfsClient::BlockInfos infos;
-    retval = kfsClient->EnumerateBlocks(filename, infos);
-    if (retval < 0) {
-        cout << filename << ": " << ErrorCodeToStr(retval) << "\n";
-    } else {
-        int64_t space = 0;
-        cout << "block count: " << infos.size() << " blocks:\n";
-        const KfsClient::BlockInfo* pbi = 0;
-        for (KfsClient::BlockInfos::const_iterator it = infos.begin();
-                it != infos.end();
-                ++it) {
-            KfsClient::BlockInfo bi = *it;
-            cout <<
-                "position: "  << setw(10) << bi.offset  << setw(0) <<
-                " id: "       << setw(10) << bi.id      << setw(0) <<
-                " version: "  << setw(3)  << bi.version << setw(0) <<
-                " size: "     << setw(8)  << bi.size    << setw(0) <<
-                " location: " << setw(12) << bi.server  << setw(0)
-            ;
-            if (pbi && pbi->id == bi.id) {
-                if (pbi->offset != bi.offset) {
-                    cout << " *position mismatch*";
-                    retval = -EINVAL;
+    int i = optind;
+    if (! filename && i < argc) {
+        filename = argv[i++];
+    }
+    string msg;
+    while (filename) {
+        KfsClient::BlockInfos infos;
+        int status = kfsClient->EnumerateBlocks(filename, infos);
+        if (status < 0) {
+            cout << filename << ": " << ErrorCodeToStr(status) << "\n";
+        } else {
+            int64_t space = 0;
+            if (! showErrorsOnlyFlag) {
+                if (showFileNameFlag) {
+                    cout << filename << "\n";
                 }
-                if (pbi->version != bi.version) {
-                    cout << " *version mismatch*";
-                    retval = -EINVAL;
+                cout << "block count: " << infos.size() << " blocks:\n";
+            }
+            const KfsClient::BlockInfo* pbi = 0;
+            for (KfsClient::BlockInfos::const_iterator it = infos.begin();
+                    it != infos.end();
+                    ++it) {
+                KfsClient::BlockInfo bi = *it;
+                msg.clear();
+                if (pbi && pbi->id == bi.id) {
+                    if (pbi->offset != bi.offset) {
+                        msg += " *position mismatch*";
+                        status = -EINVAL;
+                    }
+                    if (pbi->version != bi.version) {
+                        msg += " *version mismatch*";
+                        status = -EINVAL;
+                    }
+                    if (pbi->size != bi.size) {
+                        msg += " *size mismatch*";
+                        status = -EINVAL;
+                    }
                 }
-                if (pbi->size != bi.size) {
-                    cout << " *size mismatch*";
-                    retval = -EINVAL;
+                if (! showErrorsOnlyFlag || bi.size <= 0 || ! msg.empty()) {
+                    if (showErrorsOnlyFlag) {
+                        cout << filename << ": ";
+                        if (bi.size <= 0) {
+                            msg = " *missing or invalid size";
+                        }
+                    }
+                    cout <<
+                        "position: "  << setw(10) << bi.offset  << setw(0) <<
+                        " id: "       << setw(10) << bi.id      << setw(0) <<
+                        " version: "  << setw(3)  << bi.version << setw(0) <<
+                        " size: "     << setw(8)  << bi.size    << setw(0) <<
+                        " location: " << setw(12) << bi.server  << setw(0) <<
+                        msg << "\n";
+                    ;
+                }
+                pbi = &bi;
+                if (bi.size > 0) {
+                    space += bi.size;
                 }
             }
-            pbi = &bi;
-            cout << "\n";
-            if (bi.size > 0) {
-                space += bi.size;
+            if (! showErrorsOnlyFlag) {
+                cout << "total space: " << space << "\n";
             }
         }
-        cout << "total space: " << space << "\n";
+        if (0 != status) {
+            ret = 1;
+        }
+        filename = i < argc ? argv[i] : 0;
+        i++;
     }
     delete kfsClient;
-    return (retval >= 0 ? 0 : 1);
+    return ret;
 }
 
 

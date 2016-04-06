@@ -4943,9 +4943,47 @@ KfsClientImpl::UpdateFilesize(int fd)
 }
 
 void
-KfsClientImpl::GetLayout(GetLayoutOp& inOp)
+KfsClientImpl::GetLayout(GetLayoutOp& inOp, const FileAttr* inAttrPtr)
 {
     inOp.chunks.clear();
+    if (inAttrPtr && 0 == inAttrPtr->numReplicas) {
+        ChunkLayoutInfo chunk;
+        GetAllocOp      op(0, inOp.fid, 0);
+        op.objectStoreFlag = true;
+        inOp.chunks.reserve(
+            (size_t)max(int64_t(0), inAttrPtr->fileSize / (int64_t)CHUNKSIZE));
+        for (chunkOff_t pos = inOp.startOffset;
+                pos < inAttrPtr->fileSize;
+                pos += (chunkOff_t)CHUNKSIZE) {
+            op.fileOffset = pos;
+            op.status     = 0;
+            op.statusMsg.clear();
+            DoMetaOpWithRetry(&op);
+            if (op.status < 0) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "locate chunk failure:"
+                    " pos: "    << pos <<
+                    " status: " << op.status <<
+                    " "         << op.statusMsg <<
+                    " "         << ErrorCodeToStr(op.status) <<
+                KFS_LOG_EOM;
+                if (! inOp.continueIfNoReplicasFlag) {
+                    inOp.chunks.clear();
+                    inOp.numChunks = 0;
+                    inOp.status    = op.status;
+                    inOp.statusMsg = op.statusMsg;
+                    return;
+                }
+            }
+            chunk.chunkId      = op.chunkId;
+            chunk.chunkVersion = op.chunkVersion;
+            chunk.fileOffset   = op.fileOffset;
+            chunk.chunkServers.swap(op.chunkServers);
+            inOp.chunks.push_back(chunk);
+        }
+        inOp.numChunks = (int)inOp.chunks.size();
+        return;
+    }
     inOp.maxChunks = 384;
     for (; ;) {
         inOp.contentLength = 0;
@@ -4987,7 +5025,7 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
     time_t const endTime   = startTime + mRetryDelaySec * mMaxNumRetriesPerOp;
     for (int retry = 0; ; retry++) {
         lop.lastChunkOnlyFlag = true;
-        GetLayout(lop);
+        GetLayout(lop, 0);
         if (mMaxNumRetriesPerOp <= retry ||
                 (lop.status != -EAGAIN && lop.status != -EHOSTUNREACH)) {
             break;
@@ -5710,7 +5748,7 @@ KfsClientImpl::GetReplication(const char* pathname,
     GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = 0 < attr.numRecoveryStripes;
     lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
-    GetLayout(lop);
+    GetLayout(lop, &attr);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
              << ErrorCodeToStr(lop.status) <<
@@ -5940,10 +5978,11 @@ KfsClientImpl::EnumerateBlocks(
     GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = true;
     lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
-    GetLayout(lop);
+    GetLayout(lop, &attr);
     if (lop.status < 0) {
-        KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
-             << ErrorCodeToStr(lop.status) <<
+        KFS_LOG_STREAM_ERROR <<
+            "get layout failed on path: " << pathname <<
+            " " << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return GetOpStatus(lop);
     }
@@ -5980,11 +6019,13 @@ KfsClientImpl::EnumerateBlocks(
 
 int
 KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
-    kfsChunkId_t chunkId, uint32_t *checksums, bool readVerifyFlag)
+    kfsChunkId_t chunkId, int64_t chunkVersion, uint32_t *checksums,
+    bool readVerifyFlag)
 {
     GetChunkMetadataOp op(0, chunkId, readVerifyFlag);
     int64_t leaseId   = -1;
-    int     theStatus = GetChunkAccess(loc, chunkId, op.access, leaseId);
+    int     theStatus = GetChunkAccess(
+        loc, chunkId, chunkVersion, op.access, leaseId);
     if (theStatus < 0) {
         return theStatus;
     }
@@ -6025,7 +6066,7 @@ KfsClientImpl::VerifyDataChecksums(const char* pathname)
     if (attr.isDirectory) {
         return -EISDIR;
     }
-    return VerifyDataChecksumsFid(attr.fileId);
+    return VerifyDataChecksumsFid(attr);
 }
 
 int
@@ -6040,15 +6081,15 @@ KfsClientImpl::VerifyDataChecksums(int fd)
     if (entry.fattr.isDirectory) {
         return -EISDIR;
     }
-    return VerifyDataChecksumsFid(entry.fattr.fileId);
+    return VerifyDataChecksumsFid(entry.fattr);
 }
 
 int
-KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
+KfsClientImpl::VerifyDataChecksumsFid(const FileAttr& attr)
 {
-    GetLayoutOp lop(0, fileId);
+    GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = true;
-    GetLayout(lop);
+    GetLayout(lop, &attr);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
              << ErrorCodeToStr(lop.status) <<
@@ -6075,7 +6116,8 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
             continue;
         }
         if ((ret = GetDataChecksums(
-                i->chunkServers[0], i->chunkId, chunkChecksums1.get())) < 0) {
+                i->chunkServers[0], i->chunkId, i->chunkVersion,
+                chunkChecksums1.get())) < 0) {
             KFS_LOG_STREAM_ERROR << "failed to get checksums from server " <<
                 i->chunkServers[0] << " " << ErrorCodeToStr(ret) <<
             KFS_LOG_EOM;
@@ -6086,7 +6128,7 @@ KfsClientImpl::VerifyDataChecksumsFid(kfsFileId_t fileId)
         }
         for (size_t k = 1; k < i->chunkServers.size(); k++) {
             if ((ret = GetDataChecksums(
-                    i->chunkServers[k], i->chunkId,
+                    i->chunkServers[k], i->chunkId, i->chunkVersion,
                     chunkChecksums2.get())) < 0) {
                 KFS_LOG_STREAM_ERROR << "failed get checksums from server: " <<
                     i->chunkServers[k] << " " << ErrorCodeToStr(ret) <<
@@ -6731,7 +6773,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     GetLayoutOp lop(0, attr.fileId);
     lop.continueIfNoReplicasFlag = true;
     lop.chunks.reserve((size_t)max(int64_t(0), attr.chunkCount()));
-    GetLayout(lop);
+    GetLayout(lop, &attr);
     if (lop.status < 0) {
         KFS_LOG_STREAM_ERROR << "get layout error: " <<
             ErrorCodeToStr(lop.status) <<
@@ -6754,7 +6796,8 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         ChunkServerAccess  chunkServerAccess;
         int64_t            leaseId = -1;
         const int status = GetChunkLease(
-            i->chunkId, pathname, -1, chunkServerAccess, leaseId);
+            i->chunkId, i->chunkVersion, pathname, -1,
+            chunkServerAccess, leaseId);
         if (status != 0) {
             return status;
         }
@@ -6839,6 +6882,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
 int
 KfsClientImpl::GetChunkLease(
     kfsChunkId_t       inChunkId,
+    int64_t            inChunkVersion,
     const char*        inPathNamePtr,
     int                inLeaseTime,
     ChunkServerAccess& inChunkServerAccess,
@@ -6846,6 +6890,8 @@ KfsClientImpl::GetChunkLease(
 {
     LeaseAcquireOp theLeaseOp(0, inChunkId, inPathNamePtr);
     theLeaseOp.leaseTimeout = inLeaseTime;
+    theLeaseOp.chunkPos     = inChunkVersion < 0 ?
+        -(int64_t)inChunkVersion - 1 : int64_t(-1);
     const int maxLeaseWaitTimeSec = max(LEASE_INTERVAL_SECS * 3 / 2,
         (mMaxNumRetriesPerOp - 1) * (mRetryDelaySec + mDefaultOpTimeout));
     const int leseRetryDelaySec    = min(3, max(1, mRetryDelaySec));
@@ -6865,6 +6911,7 @@ KfsClientImpl::GetChunkLease(
         KFS_LOG_STREAM((endTime - maxLeaseWaitTimeSec + 15 < now) ?
                 MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
             "chunk: "        << inChunkId <<
+            " version: "     << inChunkVersion <<
             " lease: "       << theLeaseOp.statusMsg <<
             " retrying in: " << leseRetryDelaySec << " sec." <<
             " retry: "       << retryCnt <<
@@ -6946,6 +6993,7 @@ int
 KfsClientImpl::GetChunkAccess(
     const ServerLocation& inLocation,
     kfsChunkId_t          inChunkId,
+    int64_t               inChunkVersion,
     string&               outAccess,
     int64_t&              outLeaseId,
     ChunkServerAccess*    outAccessPtr)
@@ -6960,6 +7008,7 @@ KfsClientImpl::GetChunkAccess(
         const char* const kPathNamePtr = "";
         const int theStatus = GetChunkLease(
             inChunkId,
+            inChunkVersion,
             kPathNamePtr,
             kLeaseTime,
             theChunkServerAccess,
@@ -6984,7 +7033,8 @@ KfsClientImpl::GetChunkSize(
     int64_t           theLeaseId = -1;
     ChunkServerAccess theAccess;
     int               theStatus  = GetChunkAccess(
-        inLocation, inChunkId, theSizeOp.access, theLeaseId, &theAccess);
+        inLocation, inChunkId, inChunkVersion,
+        theSizeOp.access, theLeaseId, &theAccess);
     if (theStatus < 0) {
         if (outUsedLeaseLocationsFlagPtr && ! theAccess.IsEmpty()) {
             *outUsedLeaseLocationsFlagPtr = true;
