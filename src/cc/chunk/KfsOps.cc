@@ -1103,7 +1103,7 @@ CloseOp::Execute()
         bool allowCSClearTextFlag = chunkAccessTokenValidFlag &&
             (chunkAccessFlags & ChunkAccessToken::kAllowClearTextFlag) != 0;
         if (chunkAccessTokenValidFlag) {
-            if (myPos == 0) {
+            if (myPos == 0 || numServers <= 0) {
                 const bool hasValidLeaseFlag = gLeaseClerk.IsLeaseValid(
                     chunkId, chunkVersion,
                     &syncReplicationAccess, &allowCSClearTextFlag);
