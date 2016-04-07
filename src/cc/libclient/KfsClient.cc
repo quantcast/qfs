@@ -5909,7 +5909,7 @@ KfsClientImpl::EnumerateBlocks(
 }
 
 int
-KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
+KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
     kfsChunkId_t chunkId, int64_t chunkVersion, uint32_t *checksums,
     bool readVerifyFlag)
 {
@@ -5920,9 +5920,14 @@ KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
     if (theStatus < 0) {
         return theStatus;
     }
+    CloseOp closeOp(0, chunkId);
+    closeOp.chunkVersion = chunkVersion;
+    closeOp.access       = op.access;
     DoChunkServerOp(loc, op);
     if (0 <= leaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, chunkId, leaseId);
+        theLeaseRelinquishOp.chunkPos = chunkVersion < 0 ?
+            -(int64_t)chunkVersion - 1 : int64_t(-1);
         DoMetaOpWithRetry(&theLeaseRelinquishOp);
     }
     if (op.status == -EBADCKSUM) {
@@ -5932,6 +5937,7 @@ KfsClientImpl::GetDataChecksums(const ServerLocation &loc,
             " chunk: " << chunkId <<
         KFS_LOG_EOM;
     }
+    DoChunkServerOp(loc, closeOp);
     if (op.status < 0) {
         return GetOpStatus(op);
     }
@@ -6789,6 +6795,8 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         }
         if (0 <= leaseId) {
             LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
+            lrelOp.chunkPos = i->chunkVersion < 0 ?
+                -(int64_t)i->chunkVersion - 1 : int64_t(-1);
             DoMetaOpWithRetry(&lrelOp);
             if (lrelOp.status < 0) {
                 KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
@@ -6954,7 +6962,9 @@ KfsClientImpl::GetChunkSize(
     int64_t               inChunkVersion,
     bool*                 outUsedLeaseLocationsFlagPtr)
 {
-    SizeOp theSizeOp(0, inChunkId, inChunkVersion);
+    SizeOp  theSizeOp(0, inChunkId, inChunkVersion);
+    CloseOp theCloseOp(0, inChunkId);
+    theCloseOp.chunkVersion = inChunkVersion;
     int64_t           theLeaseId = -1;
     ChunkServerAccess theAccess;
     int               theStatus  = GetChunkAccess(
@@ -6979,21 +6989,29 @@ KfsClientImpl::GetChunkSize(
                 );
                 theSizeOp.access.assign(
                     thePtr->chunkAccess.mPtr, thePtr->chunkAccess.mLen);
+                theCloseOp.access = theSizeOp.access;
                 theSizeOp.status = 0;
                 theSizeOp.statusMsg.clear();
                 DoChunkServerOp(theLocation, theSizeOp);
                 if (0 <= theSizeOp.status) {
                     break;
                 }
+                theCloseOp.status = 0;
+                theCloseOp.statusMsg.clear();
+                DoChunkServerOp(theLocation, theCloseOp);
             }
         } else {
             theSizeOp.status = theStatus;
         }
     } else {
+        theCloseOp.access = theSizeOp.access;
         DoChunkServerOp(inLocation, theSizeOp);
+        DoChunkServerOp(inLocation, theCloseOp);
     }
     if (0 <= theLeaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, inChunkId, theLeaseId);
+        theLeaseRelinquishOp.chunkPos = inChunkVersion < 0 ?
+            -(int64_t)inChunkVersion - 1 : int64_t(-1);
         DoMetaOpWithRetry(&theLeaseRelinquishOp);
     }
     if (theSizeOp.status < 0) {
