@@ -1527,7 +1527,7 @@ private:
                     return;
                 }
                 if (theStatus == kErrorReadOnly && mClosingFlag &&
-                        0 <= mCloseOp.chunkId && mKeepLeaseFlag) {
+                        0 < mCloseOp.chunkId && mKeepLeaseFlag) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "object store block is now stable stable" <<
                     KFS_LOG_EOM;
