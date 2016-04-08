@@ -122,7 +122,7 @@ main(int argc, char **argv)
             for (KfsClient::BlockInfos::const_iterator it = infos.begin();
                     it != infos.end();
                     ++it) {
-                KfsClient::BlockInfo bi = *it;
+                const KfsClient::BlockInfo& bi = *it;
                 msg.clear();
                 if (pbi && pbi->id == bi.id) {
                     if (pbi->offset != bi.offset) {
