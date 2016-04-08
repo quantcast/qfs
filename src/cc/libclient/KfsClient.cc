@@ -4733,7 +4733,8 @@ struct RespondingServer
     {
         bool usedLeaseLocationsFlag = false;
         size = client.GetChunkSize(
-            loc, layout.chunkId, layout.chunkVersion, &usedLeaseLocationsFlag);
+            loc, layout.chunkId, layout.chunkVersion, layout.fileOffset,
+            &usedLeaseLocationsFlag);
         if (size < 0) {
             status = (int)size;
             size = -1;
@@ -4753,7 +4754,8 @@ struct RespondingServer2
         {}
     ssize_t operator() (const ServerLocation& loc)
     {
-        return client.GetChunkSize(loc, layout.chunkId, layout.chunkVersion);
+        return client.GetChunkSize(
+            loc, layout.chunkId, layout.chunkVersion, layout.fileOffset);
     }
 };
 
@@ -5027,7 +5029,7 @@ KfsClientImpl::ComputeFilesizes(vector<KfsFileAttr>& fattrs,
             continue;
         }
         chunkOff_t const size = GetChunkSize(
-            loc, cattr.chunkId, cattr.chunkVersion);
+            loc, cattr.chunkId, cattr.chunkVersion, cattr.chunkOffset);
         if (size <= 0) {
             return;
         }
@@ -5908,15 +5910,23 @@ KfsClientImpl::EnumerateBlocks(
     return 0;
 }
 
+inline static int64_t
+GetReadLeasePosition(
+    int64_t    inChunkVersion,
+    chunkOff_t inChunkPosition)
+{
+    return (inChunkVersion < 0 ? (int64_t)inChunkPosition : int64_t(-1));
+}
+
 int
 KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
-    kfsChunkId_t chunkId, int64_t chunkVersion, uint32_t *checksums,
-    bool readVerifyFlag)
+    kfsChunkId_t chunkId, int64_t chunkVersion, chunkOff_t chunkPosition,
+    uint32_t* checksums, bool readVerifyFlag)
 {
     GetChunkMetadataOp op(0, chunkId, readVerifyFlag);
     int64_t leaseId   = -1;
     int     theStatus = GetChunkAccess(
-        loc, chunkId, chunkVersion, op.access, leaseId);
+        loc, chunkId, chunkVersion, chunkPosition, op.access, leaseId);
     if (theStatus < 0) {
         return theStatus;
     }
@@ -5926,8 +5936,8 @@ KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
     DoChunkServerOp(loc, op);
     if (0 <= leaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, chunkId, leaseId);
-        theLeaseRelinquishOp.chunkPos = chunkVersion < 0 ?
-            -(int64_t)chunkVersion - 1 : int64_t(-1);
+        theLeaseRelinquishOp.chunkPos =
+            GetReadLeasePosition(chunkVersion, chunkPosition);
         DoMetaOpWithRetry(&theLeaseRelinquishOp);
     }
     if (op.status == -EBADCKSUM) {
@@ -6013,7 +6023,7 @@ KfsClientImpl::VerifyDataChecksumsFid(const FileAttr& attr)
             continue;
         }
         if ((ret = GetDataChecksums(
-                i->chunkServers[0], i->chunkId, i->chunkVersion,
+                i->chunkServers[0], i->chunkId, i->chunkVersion, i->fileOffset,
                 chunkChecksums1.get())) < 0) {
             KFS_LOG_STREAM_ERROR << "failed to get checksums from server " <<
                 i->chunkServers[0] << " " << ErrorCodeToStr(ret) <<
@@ -6026,7 +6036,7 @@ KfsClientImpl::VerifyDataChecksumsFid(const FileAttr& attr)
         for (size_t k = 1; k < i->chunkServers.size(); k++) {
             if ((ret = GetDataChecksums(
                     i->chunkServers[k], i->chunkId, i->chunkVersion,
-                    chunkChecksums2.get())) < 0) {
+                    i->fileOffset, chunkChecksums2.get())) < 0) {
                 KFS_LOG_STREAM_ERROR << "failed get checksums from server: " <<
                     i->chunkServers[k] << " " << ErrorCodeToStr(ret) <<
                 KFS_LOG_EOM;
@@ -6727,7 +6737,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         ChunkServerAccess  chunkServerAccess;
         int64_t            leaseId = -1;
         const int status = GetChunkLease(
-            i->chunkId, i->chunkVersion, pathname, -1,
+            i->chunkId, i->chunkVersion, i->fileOffset, pathname, -1,
             chunkServerAccess, leaseId);
         if (status != 0) {
             return status;
@@ -6795,8 +6805,8 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         }
         if (0 <= leaseId) {
             LeaseRelinquishOp lrelOp(0, i->chunkId, leaseId);
-            lrelOp.chunkPos = i->chunkVersion < 0 ?
-                -(int64_t)i->chunkVersion - 1 : int64_t(-1);
+            lrelOp.chunkPos =
+                GetReadLeasePosition(i->chunkVersion, i->fileOffset);
             DoMetaOpWithRetry(&lrelOp);
             if (lrelOp.status < 0) {
                 KFS_LOG_STREAM_ERROR << "failed to relinquish lease:" <<
@@ -6816,6 +6826,7 @@ int
 KfsClientImpl::GetChunkLease(
     kfsChunkId_t       inChunkId,
     int64_t            inChunkVersion,
+    chunkOff_t         inChunkPosition,
     const char*        inPathNamePtr,
     int                inLeaseTime,
     ChunkServerAccess& inChunkServerAccess,
@@ -6823,8 +6834,8 @@ KfsClientImpl::GetChunkLease(
 {
     LeaseAcquireOp theLeaseOp(0, inChunkId, inPathNamePtr);
     theLeaseOp.leaseTimeout = inLeaseTime;
-    theLeaseOp.chunkPos     = inChunkVersion < 0 ?
-        -(int64_t)inChunkVersion - 1 : int64_t(-1);
+    theLeaseOp.chunkPos     =
+        GetReadLeasePosition(inChunkVersion, inChunkPosition);
     const int maxLeaseWaitTimeSec = max(LEASE_INTERVAL_SECS * 3 / 2,
         (mMaxNumRetriesPerOp - 1) * (mRetryDelaySec + mDefaultOpTimeout));
     const int leseRetryDelaySec    = min(3, max(1, mRetryDelaySec));
@@ -6927,6 +6938,7 @@ KfsClientImpl::GetChunkAccess(
     const ServerLocation& inLocation,
     kfsChunkId_t          inChunkId,
     int64_t               inChunkVersion,
+    chunkOff_t            inChunkPosition,
     string&               outAccess,
     int64_t&              outLeaseId,
     ChunkServerAccess*    outAccessPtr)
@@ -6942,6 +6954,7 @@ KfsClientImpl::GetChunkAccess(
         const int theStatus = GetChunkLease(
             inChunkId,
             inChunkVersion,
+            inChunkPosition,
             kPathNamePtr,
             kLeaseTime,
             theChunkServerAccess,
@@ -6960,6 +6973,7 @@ KfsClientImpl::GetChunkSize(
     const ServerLocation& inLocation,
     kfsChunkId_t          inChunkId,
     int64_t               inChunkVersion,
+    chunkOff_t            inChunkPosition,
     bool*                 outUsedLeaseLocationsFlagPtr)
 {
     SizeOp  theSizeOp(0, inChunkId, inChunkVersion);
@@ -6968,7 +6982,7 @@ KfsClientImpl::GetChunkSize(
     int64_t           theLeaseId = -1;
     ChunkServerAccess theAccess;
     int               theStatus  = GetChunkAccess(
-        inLocation, inChunkId, inChunkVersion,
+        inLocation, inChunkId, inChunkVersion, inChunkPosition,
         theSizeOp.access, theLeaseId, &theAccess);
     if (theStatus < 0) {
         if (outUsedLeaseLocationsFlagPtr && ! theAccess.IsEmpty()) {
@@ -7010,8 +7024,8 @@ KfsClientImpl::GetChunkSize(
     }
     if (0 <= theLeaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, inChunkId, theLeaseId);
-        theLeaseRelinquishOp.chunkPos = inChunkVersion < 0 ?
-            -(int64_t)inChunkVersion - 1 : int64_t(-1);
+        theLeaseRelinquishOp.chunkPos =
+            GetReadLeasePosition(inChunkVersion, inChunkPosition);
         DoMetaOpWithRetry(&theLeaseRelinquishOp);
     }
     if (theSizeOp.status < 0) {
