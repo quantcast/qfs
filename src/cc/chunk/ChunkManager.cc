@@ -5550,7 +5550,8 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
                 mChunkTable.Find(cih->chunkInfo.chunkId) : 0;
             if (! ci ||
                     &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
-                    ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion)) {
+                    (((*ci)->IsStable() || cih->IsStable()) &&
+                        ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion))) {
                 KfsCallbackObj& cb = StaleChunkDeleteCompletion::Make(
                     mStaleChunkCompletion, cih->DetachStaleDeleteCompletionOp());
                 bool ok;
