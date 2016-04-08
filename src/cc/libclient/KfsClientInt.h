@@ -964,7 +964,7 @@ private:
     void ReleaseFileTableEntry(int fte);
 
     int GetDataChecksums(const ServerLocation &loc,
-        kfsChunkId_t chunkId, int64_t chunkVersion,
+        kfsChunkId_t chunkId, int64_t chunkVersion, chunkOff_t chunkPosition,
         uint32_t *checksums, bool readVerifyFlag = true);
 
     int VerifyDataChecksumsFid(const FileAttr& attr);
@@ -1062,6 +1062,7 @@ private:
     int GetChunkLease(
         kfsChunkId_t       inChunkId,
         int64_t            inChunkVersion,
+        chunkOff_t         inChunkPosition,
         const char*        inPathNamePtr,
         int                inLeaseTime,
         ChunkServerAccess& inChunkServerAccess,
@@ -1075,6 +1076,7 @@ private:
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
         int64_t               inChunkVersion,
+        chunkOff_t            inChunkPosition,
         string&               outAccess,
         int64_t&              outLeaseId,
         ChunkServerAccess*    outAccessPtr = 0);
@@ -1082,6 +1084,7 @@ private:
         const ServerLocation& inLocation,
         kfsChunkId_t          inChunkId,
         int64_t               inChunkVersion,
+        chunkOff_t            inChunkPosition,
         bool*                 inUsedLeaseLocationsFlagPtr = 0);
     void GetLayout(
         GetLayoutOp&    inOp,
