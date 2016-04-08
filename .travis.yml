@@ -1,14 +1,34 @@
-sudo: false # enable container based builds (can't use sudo)
+sudo: required
+
 language: cpp
-script: make tarball
 
 compiler:
     - gcc
-    # - clang
 
 os:
-    - linux
     - osx
+    - linux
+
+env:
+    global:
+    - DEPS_UBUNTU="g++ cmake libboost-regex-dev libkrb5-dev xfslibs-dev libssl-dev python-dev libfuse-dev default-jdk"
+    - DEPS_CENTOS="gcc-c++ make cmake boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel"
+    matrix:		
+    - CONTAINER_LINUX_DISTRO=none # we need one row in the build matrix for osx build
+    - CONTAINER_LINUX_DISTRO=ubuntu VER=14.04
+    - CONTAINER_LINUX_DISTRO=centos VER=6
+
+matrix:
+    exclude:
+    - os: osx
+      env: CONTAINER_LINUX_DISTRO=ubuntu VER=14.04
+    - os: osx
+      env: CONTAINER_LINUX_DISTRO=centos VER=6
+    - os: linux
+      env: CONTAINER_LINUX_DISTRO=none
+
+services:
+    - docker
 
 before_install:
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update ; fi
@@ -22,14 +42,25 @@ before_install:
 
     # install facter to determine operating system and release version
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install caskroom/cask/brew-cask || true ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew cask install facter || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew cask install facter || true ; fi    
+    
+    # we use docker to build on linux distros, so pull the corresponding docker image.
+    - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then docker pull $CONTAINER_LINUX_DISTRO:$VER ; fi
+
+script:
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then make tarball ; fi
+
+    - if [[ "$TRAVIS_OS_NAME" == "linux" && "$CONTAINER_LINUX_DISTRO" == "ubuntu" ]]; then
+      docker run --rm -v `pwd`:`pwd` -w `pwd` $CONTAINER_LINUX_DISTRO:$VER /bin/bash -c
+      "sudo apt-get update && sudo apt-get install -y $DEPS_UBUNTU && make tarball" ; fi
+
+    - if [[ "$TRAVIS_OS_NAME" == "linux" && "$CONTAINER_LINUX_DISTRO" == "centos" ]]; then
+      docker run --rm -v `pwd`:`pwd` -w `pwd` $CONTAINER_LINUX_DISTRO:$VER /bin/bash -c
+      "yum install -y $DEPS_CENTOS && make tarball" ; fi
 
 before_deploy:
     - mkdir artifacts
-    - export OS=$(facter operatingsystem | awk '{print tolower($0)}')
-    - export OSVERSION=$(facter operatingsystemrelease)
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export ARCH=$(uname -p) ; else export ARCH=$(uname -i) ; fi
-    - mv build/*.tgz artifacts/qfs-$OS-$OSVERSION-master-$ARCH.tgz
+    - mv build/*.tgz artifacts/
 
 deploy:
     provider: s3
@@ -46,11 +77,3 @@ addons:
     apt:
         packages:
             - git
-            - cmake
-            - libboost-regex-dev
-            - xfslibs-dev
-            - libssl-dev
-            - default-jdk
-            - python-dev
-            - fuse-dev
-            - puppet # not a qfs dependency, but for facter above
