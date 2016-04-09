@@ -11,56 +11,59 @@ os:
 
 env:
     global:
-    - DEPS_UBUNTU="g++ cmake libboost-regex-dev libkrb5-dev xfslibs-dev libssl-dev python-dev libfuse-dev default-jdk"
-    - DEPS_CENTOS="gcc-c++ make cmake boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel"
-    matrix:		
-    - CONTAINER_LINUX_DISTRO=none # we need one row in the build matrix for osx build
-    - CONTAINER_LINUX_DISTRO=ubuntu VER=14.04
-    - CONTAINER_LINUX_DISTRO=centos VER=6
+        - DEPS_UBUNTU="g++ cmake libboost-regex-dev libkrb5-dev xfslibs-dev libssl-dev python-dev libfuse-dev default-jdk"
+        - DEPS_CENTOS="gcc-c++ make cmake boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel"
+    matrix:
+        - DISTRO=none # need a row in the build matrix for osx
+        - DISTRO=ubuntu VER=14.04
+        - DISTRO=centos VER=6
 
 matrix:
     exclude:
-    - os: osx
-      env: CONTAINER_LINUX_DISTRO=ubuntu VER=14.04
-    - os: osx
-      env: CONTAINER_LINUX_DISTRO=centos VER=6
-    - os: linux
-      env: CONTAINER_LINUX_DISTRO=none
+        - os: osx
+          env: DISTRO=ubuntu VER=14.04
+        - os: osx
+          env: DISTRO=centos VER=6
+        - os: linux
+          env: DISTRO=none
 
 services:
     - docker
 
 before_install:
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install git || true ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install cmake || true ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install maven || true ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install boost || true ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
+          brew update
+          brew install git
+          brew install cmake
+          brew install maven
+          brew install boost
 
-    # travis ci on mac os x doesn't set java home properly
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export JAVA_HOME=$(/usr/libexec/java_home) ; fi
+          # travis ci on mac os x doesn't set java home properly
+          export JAVA_HOME=$(/usr/libexec/java_home)
+      fi
 
-    # install facter to determine operating system and release version
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install caskroom/cask/brew-cask || true ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew cask install facter || true ; fi    
-    
-    # we use docker to build on linux distros, so pull the corresponding docker image.
-    - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then docker pull $CONTAINER_LINUX_DISTRO:$VER ; fi
+    # use docker to build on linux; pull the corresponding docker image
+    - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+          docker pull $DISTRO:$VER
+      fi
 
 script:
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then make tarball ; fi
-
-    - if [[ "$TRAVIS_OS_NAME" == "linux" && "$CONTAINER_LINUX_DISTRO" == "ubuntu" ]]; then
-      docker run --rm -v `pwd`:`pwd` -w `pwd` $CONTAINER_LINUX_DISTRO:$VER /bin/bash -c
-      "sudo apt-get update && sudo apt-get install -y $DEPS_UBUNTU && make tarball" ; fi
-
-    - if [[ "$TRAVIS_OS_NAME" == "linux" && "$CONTAINER_LINUX_DISTRO" == "centos" ]]; then
-      docker run --rm -v `pwd`:`pwd` -w `pwd` $CONTAINER_LINUX_DISTRO:$VER /bin/bash -c
-      "yum install -y $DEPS_CENTOS && make tarball" ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]] ; then make tarball ; fi
+    - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
+          if [[ "$DISTRO" == "ubuntu" ]] ; then
+              DEPS=$DEPS_UBUNTU
+              INSTALL_COMMAND=apt-get
+          elif [[ "$DISTRO" == "centos" ]] ; then
+              DEPS=$DEPS_CENTOS
+              INSTALL_COMMAND=yum
+          fi
+          docker run --rm -v $(pwd):$(pwd) -w $(pwd) $DISTRO:$VER /bin/bash -c
+          "sudo $INSTALL_COMMAND install -y $DEPS && make tarball"
+      fi
 
 before_deploy:
     - mkdir artifacts
-    - mv build/*.tgz artifacts/
+    - sudo mv build/*.tgz artifacts # docker uses root when writing tarball
 
 deploy:
     provider: s3
