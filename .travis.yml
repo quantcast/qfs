@@ -1,18 +1,19 @@
 sudo: required
-
 language: cpp
-
-compiler:
-    - gcc
+compiler: gcc
+script: travis/script.sh
+before_install:
+    # Travis CI's mac os environment doesn't set java home properly. This is
+    # done here and not in the before_install.sh script since exporting the
+    # variable in a called script won't update the caller environment scope.
+    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export JAVA_HOME=$(/usr/libexec/java_home) ; fi
+    - travis/before_install.sh
 
 os:
     - osx
     - linux
 
 env:
-    global:
-        - DEPS_UBUNTU="g++ cmake libboost-regex-dev libkrb5-dev xfslibs-dev libssl-dev python-dev libfuse-dev default-jdk"
-        - DEPS_CENTOS="gcc-c++ make cmake boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel"
     matrix:
         - DISTRO=none # need a row in the build matrix for osx
         - DISTRO=ubuntu VER=14.04
@@ -30,37 +31,6 @@ matrix:
 services:
     - docker
 
-before_install:
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
-          brew update
-          brew install git
-          brew install cmake
-          brew install maven
-          brew install boost
-
-          # travis ci on mac os x doesn't set java home properly
-          export JAVA_HOME=$(/usr/libexec/java_home)
-      fi
-
-    # use docker to build on linux; pull the corresponding docker image
-    - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-          docker pull $DISTRO:$VER
-      fi
-
-script:
-    - if [[ "$TRAVIS_OS_NAME" == "osx" ]] ; then make tarball ; fi
-    - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
-          if [[ "$DISTRO" == "ubuntu" ]] ; then
-              DEPS=$DEPS_UBUNTU
-              INSTALL_COMMAND=apt-get
-          elif [[ "$DISTRO" == "centos" ]] ; then
-              DEPS=$DEPS_CENTOS
-              INSTALL_COMMAND=yum
-          fi
-          docker run --rm -v $(pwd):$(pwd) -w $(pwd) $DISTRO:$VER /bin/bash -c
-          "sudo $INSTALL_COMMAND install -y $DEPS && make tarball"
-      fi
-
 before_deploy:
     - mkdir artifacts
     - sudo mv build/*.tgz artifacts # docker uses root when writing tarball
@@ -75,8 +45,3 @@ deploy:
         - secure: IvmQ1sHBE+/USw+/adukFk1Wxq9Pn49PTvlbbRoI1D3W+ILc7u7+rFuNwQqAexXfBP71oMEE8YDR4U9dcoD4NinMd02lciFzrbtzErQ2Re2fU6k3I2OiyJ8ApAalKLxNmFC8jPTPufFT8gfCfOjoSDIpEffA75EzJVmDdDOspvw=
     secret_access_key:
         - secure: HkCLJKSX7jUPzsbZeiK3pSwECP79q6ypRnzudsTlRzmbW/eKloJHLwPEZycAakH9S24cqgjKTvv1O8XZ8sTGx0lhonRRBOXeYN9tVKrwL7CIbDHy4fOJkVQYG321EmKr3UIL9rAYZyR01WC1hEJ6pPJK7xgcFTDhZ0e47wegUlI=
-
-addons:
-    apt:
-        packages:
-            - git
