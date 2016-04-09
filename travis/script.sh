@@ -10,7 +10,7 @@ DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev xfslibs-dev libssl-dev
 DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel"
 
 if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
-    make tarball
+    make gtest tarball
 fi
 
 if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
@@ -21,7 +21,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CMD="yum install -y $DEPS_CENTOS"
     fi
 
-    CMD="$CMD && make tarball"
+    CMD="$CMD && make gtest tarball"
     docker run --rm -v $(pwd):$(pwd) -w $(pwd) $DISTRO:$VER /bin/bash -c "$CMD"
 fi
 
