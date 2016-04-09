@@ -184,7 +184,7 @@ EOF
 
 cspidfile=$qfstestdir/chunk/$csendport/chunkserver.pid
 
-echo "Starting taest. The test will take about $closedelay seconds."
+echo "Starting test. The test will take about $closedelay seconds."
 
 {
     cat "$qfstestdir/exp.test.dat"
