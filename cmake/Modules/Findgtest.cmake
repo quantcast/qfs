@@ -2,8 +2,8 @@
 # systems don't package libgtest (static libraries) any longer and only have
 # the header files.
 find_package(Threads REQUIRED)
-include(ExternalProject)
 
+include(ExternalProject)
 ExternalProject_Add(
     gtest
     URL https://github.com/google/googletest/archive/release-1.7.0.zip
@@ -18,7 +18,7 @@ add_dependencies(libgtest gtest)
 ExternalProject_Get_Property(gtest source_dir binary_dir)
 set_target_properties(libgtest PROPERTIES
     "IMPORTED_LOCATION" "${binary_dir}/libgtest.a"
-    "IMPORTED_LINK_INTERFACE_LIBRARIES" "${CMAKE_THREAD_LIBS_INIT}"
+    "INTERFACE_LINK_LIBRARIES" "${CMAKE_THREAD_LIBS_INIT}"
 )
 
 include_directories("${source_dir}/include")
