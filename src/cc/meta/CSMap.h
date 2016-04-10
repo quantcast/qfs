@@ -482,7 +482,7 @@ public:
             size_t i;
             for (i = kAddrIdxPos; i < size && idx != indexes[i]; i++)
                 {}
-            if (i >= indexes[1]) {
+            if (i >= size) {
                 return false;
             }
             for (size_t k = i + 1; k < size; k++, i++) {
