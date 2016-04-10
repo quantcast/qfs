@@ -3291,7 +3291,12 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         }
     }
     int count = 0;
-    if (! req.server || req.server->IsDown()) {
+    if (req.server && ! req.server->IsDown()) {
+        if (! mChunkToServerMap.Validate(req.server)) {
+            panic("invalid chunk log in flight up server");
+            req.status = -EFAULT;
+        }
+    } else {
         if (req.server && req.location != req.server->GetServerLocation()) {
             panic("invalid chunk log in flight down server location");
             req.status = -EFAULT;
@@ -3394,6 +3399,10 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     if (0 <= req.chunkId && 0 == req.status) {
         if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
             if (server && ! server->IsDown()) {
+                if (! mChunkToServerMap.Validate(server)) {
+                    panic("invalid chunk log completion op server");
+                    req.status = -EFAULT;
+                }
                 if (0 == req.doneStatus) {
                     CSMap::Entry* const entry =
                         mChunkToServerMap.Find(req.chunkId);

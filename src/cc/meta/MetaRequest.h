@@ -2277,26 +2277,9 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     virtual bool start();
     virtual void handle();
     virtual bool log(ostream& os) const;
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return (os <<
-            "log chunk in flight: " << location <<
-            " "          << ShowReq(request) <<
-            " logseq: "  << logseq <<
-            " type: "    << GetReqName(reqType) <<
-            " chunkId: " << chunkId <<
-            " version: " << chunkVersion <<
-            " remove: "  << removeServerFlag <<
-            " chunks:"
-            " size: "    << chunkIds.GetSize() <<
-            " first: "   << (chunkIds.IsEmpty() ?
-                chunkId_t(-1) : chunkIds.Front())
-        );
-    }
+    virtual ostream& ShowSelf(ostream& os) const;
     virtual const ChunkIdQueue* GetChunkIds() const
-    {
-        return (chunkIds.IsEmpty() ? 0 : &chunkIds);
-    }
+        { return (chunkIds.IsEmpty() ? 0 : &chunkIds); }
     static const char* GetReqName(int id);
     static int GetReqId(const char* name, size_t len);
 private:
@@ -2600,10 +2583,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
           skipFront(0)
         {}
     virtual void request(ReqOstream& os, IOBuffer& buf);
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return os << "meta->chunk stale notify";
-    }
+    virtual ostream& ShowSelf(ostream& os) const;
     virtual const ChunkIdQueue* GetChunkIds() const { return &staleChunkIds; }
 };
 

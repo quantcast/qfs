@@ -5342,6 +5342,21 @@ ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
     return (hexFormatFlag ? IntToHexString(id, end) : IntToDecString(id, end));
 }
 
+/* virtual */ ostream&
+MetaChunkStaleNotify::ShowSelf(ostream& os) const
+{
+    os << "meta->chunk stale notify:"
+        " size: " << staleChunkIds.GetSize() <<
+        " ids: "
+    ;
+    ChunkIdQueue::ConstIterator it(staleChunkIds);
+    const chunkId_t*            id;
+    while (os && (id = it.Next())) {
+        os << " " << *id;
+    }
+    return os;
+}
+
 void
 MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
 {
@@ -6014,7 +6029,7 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
 /* virtual */ ostream&
 MetaChunkLogCompletion::ShowSelf(ostream& os) const
 {
-    return (os <<
+    os <<
         "log chunk completion:"
         " "           << doneLocation <<
         " logseq: "   << doneLogSeq <<
@@ -6022,9 +6037,16 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
         " map op: "   << chunkOpType <<
         " chunkId: "  << chunkId <<
         " version: "  << chunkVersion <<
-        " timedout: " << doneTimedOutFlag <<
-        " op: "       << ShowReq(doneOp)
-    );
+        " timedout: " << doneTimedOutFlag
+    ;
+    if (doneOp) {
+        os << " seq: " << doneOp->opSeqno;
+        if (! doneOp->statusMsg.empty()) {
+            os << " msg: " << doneOp->statusMsg;
+        }
+        os << " " << doneOp->Show();
+    }
+    return os;
 }
 
 /* virtual */ bool
@@ -6125,6 +6147,31 @@ MetaChunkLogInFlight::Checkpoint(ostream& os, MetaChunkRequest& req)
     return (lreq.start() && lreq.WriteLog(os, kOmitDefaultsFlag) && os);
 }
 
+/* virtual */ ostream&
+MetaChunkLogInFlight::ShowSelf(ostream& os) const
+{
+    os << "log chunk in flight:"
+        " "          << location <<
+        " logseq: "  << logseq <<
+        " type: "    << GetReqName(reqType) <<
+        " chunkId: " << chunkId <<
+        " version: " << chunkVersion <<
+        " remove: "  << removeServerFlag
+    ;
+    if (! chunkIds.IsEmpty()) {
+        os << " chunks: size: " << chunkIds.GetSize() << " ids:";
+        ChunkIdQueue::ConstIterator it(chunkIds);
+        const chunkId_t*            id;
+        while (os && (id = it.Next())) {
+            os << " " << *id;
+        }
+    }
+    if (request) {
+        os << " " << request->Show();
+    }
+    return os;
+}
+
 void
 MetaChunkLogInFlight::handle()
 {
@@ -6143,7 +6190,7 @@ MetaChunkLogInFlight::log(ostream& os) const
     ReqOstream ros(os);
     size_t subEntryCnt = 1;
     const char* const name = GetReqName(request->op);
-    if (ids &&  1 != ids->GetSize()) {
+    if (ids && 1 != ids->GetSize()) {
         const size_t entrySizeLog2 = 6;
         const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
         subEntryCnt += (ids->GetSize() + mask) >> entrySizeLog2;
