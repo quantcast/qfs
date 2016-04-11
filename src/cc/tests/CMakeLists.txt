@@ -55,6 +55,13 @@ endforeach()
 add_executable(test.t ${test_sources})
 target_link_libraries(test.t libgtest)
 
+# cmake and centos <= 6 try to use the libc pthreads and set
+# CMAKE_THREAD_LIBS_INIT to be empty. This doesn't work with the libgtest
+# library which requires pthread at link time. Add it here directly. This isn't
+# great and we need to find a better way to do it in the future but this is good
+# enough for now, unfortunately.
+target_link_libraries(test.t pthread)
+
 install(TARGETS test.t
     RUNTIME DESTINATION bin/tests
 )
