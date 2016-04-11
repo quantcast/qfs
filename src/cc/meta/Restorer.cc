@@ -639,34 +639,6 @@ restore_chunk_server(DETokenizer& c)
 }
 
 static bool
-restore_hibernated_cs_params(DETokenizer& c)
-{
-    if (c.empty() || 4 != c.front().len) {
-        return false;
-    }
-    if (gLayoutManager.RestoreGetChunkServer() ||
-            gLayoutManager.RestoreGetHibernatedCS()) {
-        return false;
-    }
-    const int type = c.front().ptr[3] & 0xFF;
-    c.pop_front();
-    if (c.empty()) {
-        return false;
-    }
-    size_t idx = 0;
-    while (! c.empty()) {
-        const int64_t n = c.toNumber();
-        if (! c.isLastOk() ||
-                ! HibernatedChunkServer::StartRestore(type, idx, n)) {
-            return false;
-        }
-        c.pop_front();
-        idx++;
-    }
-    return true;
-}
-
-static bool
 restore_hibernated_cs_start(DETokenizer& c)
 {
     c.pop_front();
@@ -817,7 +789,6 @@ get_entry_map()
     e.add_parser("css",                     &restore_chunk_server);
     e.add_parser("csr",                     &restore_chunk_server);
     e.add_parser("cse",                     &restore_chunk_server);
-    e.add_parser("hcsp",                    &restore_hibernated_cs_params);
     e.add_parser("hcs",                     &restore_hibernated_cs_start);
     e.add_parser("hcsd",                    &restore_hibernated_cs);
     e.add_parser("hcsm",                    &restore_hibernated_cs);

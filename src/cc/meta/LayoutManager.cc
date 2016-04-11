@@ -3445,17 +3445,22 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
 }
 
 void
-LayoutManager::Handle(MetaHibernateParamsUpdate& req)
+LayoutManager::Handle(MetaHibernatedPrune& req)
 {
-    if (-ELOGFAILED == req.status) {
-        if (req.replayFlag) {
-            panic("invalid meta hibernate params update");
-            return;
-        }
-        ScheduleResubmitOrCancel(req);
+    if (-ELOGFAILED == req.status && req.replayFlag) {
+        panic("invalid meta hibernate prune");
         return;
     }
-    HibernatedChunkServer::Handle(req);
+    HibernatedChunkServer* hs;
+    if (0 == req.status) {
+        hs = FindHibernatedServer(req.location);
+        if (! hs) {
+            req.status = -ENOENT;
+        }
+    } else {
+        hs = 0;
+    }
+    HibernatedChunkServer::Handle(hs, req);
 }
 
 void
@@ -3560,7 +3565,7 @@ LayoutManager::RestoreHibernatedCS(
         return false;
     }
     HibernatedChunkServerPtr const server(
-        new HibernatedChunkServer(modChksum, delReport));
+        new HibernatedChunkServer(loc, modChksum, delReport));
     if (! mChunkToServerMap.RestoreHibernatedServer(
             server, idx, chunks, chksum)) {
         return false;
@@ -12714,7 +12719,6 @@ LayoutManager::RestoreStart()
 int
 LayoutManager::WriteChunkServers(ostream& os) const
 {
-    ChunkServer::StartCheckpoint(os);
     for (Servers::const_iterator it = mChunkServers.begin();
             os && mChunkServers.end() != it;
             ++it) {
@@ -12722,7 +12726,6 @@ LayoutManager::WriteChunkServers(ostream& os) const
             return -EIO;
         }
     }
-    HibernatedChunkServer::StartCheckpoint(os);
     for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
             os && mHibernatingServers.end() != it;
             ++it) {

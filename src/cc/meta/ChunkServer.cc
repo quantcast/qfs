@@ -3367,12 +3367,6 @@ ChunkServer::Restore(int type, size_t idx, int64_t n)
         (size_t)n));
 }
 
-/* static */ bool
-ChunkServer::StartCheckpoint(ostream& os)
-{
-    return os;
-}
-
 inline void
 ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkServer::InFlightChunks& chunks, CIdChecksum& chunksChecksum,
@@ -3412,6 +3406,7 @@ HibernatedChunkServer::HibernatedChunkServer(
     ChunkServer& server,
     const CSMap& csMap)
     : CSMapServerInfo(),
+      mLocation(server.GetServerLocation()),
       mDeletedChunks(),
       mModifiedChunks(),
       mDeletedReportCount(0),
@@ -3430,7 +3425,7 @@ HibernatedChunkServer::HibernatedChunkServer(
     KFS_LOG_STREAM(server.IsReplay() ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO) <<
-        "hibernated: "  << server.GetServerLocation() <<
+        "hibernated: "  << mLocation <<
         " index: "      << server.GetIndex() <<
         " chunks: "     << server.GetChunkCount() <<
         " modified: "   << mModifiedChunks.Size() <<
@@ -3442,9 +3437,11 @@ HibernatedChunkServer::HibernatedChunkServer(
 }
 
 HibernatedChunkServer::HibernatedChunkServer(
-    const CIdChecksum& modChksum,
-    size_t             delReport)
+    const ServerLocation& loc,
+    const CIdChecksum&    modChksum,
+    size_t                delReport)
     : CSMapServerInfo(),
+      mLocation(loc),
       mDeletedChunks(),
       mModifiedChunks(),
       mDeletedReportCount(delReport),
@@ -3810,48 +3807,46 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
     return (1 < idx);
 }
 
-/* static */ bool
-HibernatedChunkServer::StartCheckpoint(ostream& os)
+void
+HibernatedChunkServer::Prune()
 {
-    os << "hcsp/" << sMaxChunkListsSize << "\n";
-    return (!!os);
+    if (mListsSize <= 0 || gLayoutManager.IsTimerDisabled()) {
+        return;
+    }
+    const size_t size = sMaxChunkListsSize + sPruneInFlightCount;
+    if (sChunkListsSize <= size ||
+            (uint64_t)sValidCount * (mListsSize - 1) < size) {
+        return;
+    }
+    const size_t pruneSize = mListsSize - 1;
+    sPruneInFlightCount += pruneSize;
+    submit_request(new MetaHibernatedPrune(mLocation, pruneSize));
 }
 
-/* static */ bool
-HibernatedChunkServer::StartRestore(int type, size_t idx, int64_t n)
+/* static */ void
+HibernatedChunkServer::Handle(
+    HibernatedChunkServer* server, MetaHibernatedPrune& req)
 {
-    if ('p' == type && 0 == idx) {
-        if (n < 0) {
-            return false;
-        }
-        sMaxChunkListsSize = (size_t)n;
+    sPruneInFlightCount = sPruneInFlightCount < req.listSize ?
+        size_t(0) : sPruneInFlightCount - req.listSize;
+    if (server) {
+        server->Clear();
     }
-    return true;
 }
 
 /* static */ void
 HibernatedChunkServer::SetParameters(const Properties& props)
 {
-    const size_t maxChunkListsSize = props.getValue(
+    sMaxChunkListsSize = props.getValue(
         "metaServer.maxHibernatedChunkListSize",
         sMaxChunkListsSize * 2
     ) / 2;
-    if (maxChunkListsSize != sMaxChunkListsSize) {
-        submit_request(new MetaHibernateParamsUpdate(maxChunkListsSize));
-    }
-}
-
-/* static */ void
-HibernatedChunkServer::Handle(MetaHibernateParamsUpdate& req)
-{
-    if (0 == req.status && 0 <= req.maxChunkListsSize) {
-        sMaxChunkListsSize = (size_t)req.maxChunkListsSize;
-    }
 }
 
 size_t   HibernatedChunkServer::sValidCount(0);
 size_t   HibernatedChunkServer::sChunkListsSize(0);
 size_t   HibernatedChunkServer::sMaxChunkListsSize(size_t(16) << 20);
+size_t   HibernatedChunkServer::sPruneInFlightCount = 0;
 uint64_t HibernatedChunkServer::sGeneration = 0;
 
 } // namespace KFS

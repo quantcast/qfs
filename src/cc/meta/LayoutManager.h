@@ -1412,6 +1412,8 @@ public:
     void DumpsterCleanupDone(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void SetDisableTimerFlag(bool flag);
+    bool IsTimerDisabled() const
+        { return mDisableTimerFlag; }
     void ChangeChunkVersion(chunkId_t chunkId, seq_t version, MetaAllocate* r);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
     bool IsObjectStoreEnabled() const
@@ -1432,7 +1434,7 @@ public:
     void Handle(MetaChunkLogInFlight& req);
     void Handle(MetaBye& req);
     void Handle(MetaChunkLogCompletion& req);
-    void Handle(MetaHibernateParamsUpdate& req);
+    void Handle(MetaHibernatedPrune& req);
     void Handle(MetaHibernatedRemove& req);
     int WriteChunkServers(ostream& os) const;
     bool RestoreStart();

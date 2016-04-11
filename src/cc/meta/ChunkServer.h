@@ -899,7 +899,6 @@ public:
         { return ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs); }
     void HelloEnd()
         { mHelloReplayFlag = false; }
-    static bool StartCheckpoint(ostream& os);
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -1372,8 +1371,9 @@ public:
         ChunkServer& server,
         const CSMap& csMap);
     HibernatedChunkServer(
-        const CIdChecksum& modChksum,
-        size_t             delReport);
+        const ServerLocation& loc,
+        const CIdChecksum&    modChksum,
+        size_t                delReport);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
     const DeletedChunks& GetDeletedChunks() const
@@ -1409,21 +1409,14 @@ public:
     bool Checkpoint(ostream& os, const ServerLocation& loc,
         uint64_t startTime, uint64_t endTime, bool retiredFlag);
     bool Restore(int type, size_t idx, int64_t n);
-    static bool StartCheckpoint(ostream& os);
-    static bool StartRestore(int type, size_t idx, int64_t n);
-    static void Handle(MetaHibernateParamsUpdate& req);
+    static void Handle(HibernatedChunkServer* server, MetaHibernatedPrune& req);
 private:
     void RemoveHosted(chunkId_t chunkId, seq_t vers, int index);
     void SetVersion(chunkId_t chunkId, seq_t curVers, seq_t vers, int index);
     void Modified(chunkId_t chunkId, seq_t curVers, seq_t vers);
-    void Prune() {
-        if (sChunkListsSize <= sMaxChunkListsSize ||
-                (uint64_t)sValidCount * (mListsSize - 1) < sMaxChunkListsSize) {
-            return;
-        }
-        Clear();
-    }
-    void Clear() {
+    void Prune();
+    void Clear()
+    {
         mDeletedChunks.Clear();
         mModifiedChunks.Clear();
         mModifiedChecksum.Clear();
@@ -1441,17 +1434,19 @@ private:
         mListsSize = 0;
     }
 private:
-    DeletedChunks  mDeletedChunks;
-    ModifiedChunks mModifiedChunks;
-    size_t         mDeletedReportCount;
-    size_t         mListsSize;
-    uint64_t       mGeneration;
-    CIdChecksum    mModifiedChecksum;
-    const bool     mReplayFlag;
+    ServerLocation const mLocation;
+    DeletedChunks        mDeletedChunks;
+    ModifiedChunks       mModifiedChunks;
+    size_t               mDeletedReportCount;
+    size_t               mListsSize;
+    uint64_t             mGeneration;
+    CIdChecksum          mModifiedChecksum;
+    const bool           mReplayFlag;
 
     static size_t   sValidCount;
     static size_t   sChunkListsSize;
     static size_t   sMaxChunkListsSize;
+    static size_t   sPruneInFlightCount;
     static uint64_t sGeneration;
 private:
     HibernatedChunkServer(const HibernatedChunkServer&);

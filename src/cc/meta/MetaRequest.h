@@ -159,8 +159,8 @@ using std::less;
     f(READ_META_DATA) \
     f(CHUNK_OP_LOG_COMPLETION) \
     f(CHUNK_OP_LOG_IN_FLIGHT) \
-    f(HIBERNATE_PARAMS_UPDATE) \
-    f(HIBERNATE_REMOVE)
+    f(HIBERNATED_PRUNE) \
+    f(HIBERNATED_REMOVE)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -4177,15 +4177,18 @@ struct MetaReadMetaData : public MetaRequest {
     }
 };
 
-struct MetaHibernateParamsUpdate : public MetaRequest {
-    int64_t maxChunkListsSize;
-    MetaHibernateParamsUpdate(
-        int64_t maxSize = -1)
-        : MetaRequest(META_HIBERNATE_PARAMS_UPDATE, kLogIfOk),
-          maxChunkListsSize(maxSize)
+struct MetaHibernatedPrune : public MetaRequest {
+    ServerLocation location;
+    size_t         listSize;
+    MetaHibernatedPrune(
+        const ServerLocation& loc = ServerLocation(),
+        size_t                ls  = 0)
+        : MetaRequest(META_HIBERNATED_PRUNE, kLogIfOk),
+          location(loc),
+          listSize(ls)
         {}
     bool Validate()
-        { return (0 <= maxChunkListsSize); }
+        { return location.IsValid(); }
     virtual bool start()
     {
         if (! Validate()) {
@@ -4197,14 +4200,14 @@ struct MetaHibernateParamsUpdate : public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "hibernated servers parameters update:"
-            " max chunk list size: " << maxChunkListsSize
+            "prune hibernated server: " << location <<
+            " size: " << listSize
         );
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("M", &MetaHibernateParamsUpdate::maxChunkListsSize, int64_t(-1))
+        .Def("S", &MetaHibernatedPrune::location)
         ;
     }
 };
@@ -4213,7 +4216,7 @@ struct MetaHibernatedRemove : public MetaRequest {
     ServerLocation location;
     MetaHibernatedRemove(
         const ServerLocation& loc = ServerLocation())
-        : MetaRequest(META_HIBERNATE_REMOVE, kLogIfOk),
+        : MetaRequest(META_HIBERNATED_REMOVE, kLogIfOk),
           location(loc)
         {}
     bool Validate()

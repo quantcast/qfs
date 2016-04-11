@@ -735,11 +735,11 @@ MakeLogMetaRequestHandler(
     .MakeParser("SR",
         META_RETIRE_CHUNKSERVER,
         static_cast<const MetaRetireChunkserver*>(0))
-    .MakeParser("HU",
-        META_HIBERNATE_PARAMS_UPDATE,
-        static_cast<const MetaHibernateParamsUpdate*>(0))
+    .MakeParser("HP",
+        META_HIBERNATED_PRUNE,
+        static_cast<const MetaHibernatedPrune*>(0))
     .MakeParser("HR",
-        META_HIBERNATE_REMOVE,
+        META_HIBERNATED_REMOVE,
         static_cast<const MetaHibernatedRemove*>(0))
     ;
 }

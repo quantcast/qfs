@@ -6271,7 +6271,7 @@ MetaChunkLogInFlight::GetReqId(const char* name, size_t len)
 }
 
 /* virtual */ void
-MetaHibernateParamsUpdate::handle()
+MetaHibernatedPrune::handle()
 {
     gLayoutManager.Handle(*this);
 }
