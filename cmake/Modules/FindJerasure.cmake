@@ -1,6 +1,6 @@
 # gf-complete autoconf overrides CFGLAGS. Use CPPFLAGS to add compiler flags.
 include(ExternalProject)
-set(KFS_EXTERNAL_PROJECT_DIR ${CMAKE_SOURCE_DIR}/ext/)
+set(KFS_EXTERNAL_PROJECT_DIR ${KFS_DIR_PREFIX}/ext/)
 
 set(Gf_complete          "gf-complete")
 set(Gf_complete_CPPFLAGS

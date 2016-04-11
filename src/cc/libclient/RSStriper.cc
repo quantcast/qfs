@@ -2828,6 +2828,7 @@ private:
             " chunk:"
             " id: "                        << theBuf.mChunkId <<
             " size: "                      << theChunkSize    <<
+            " max: "                       << ioMaxChunkSize  <<
             " read:"
             " pos: "                       <<
                 GetChunkPos(inRequest.mRecoveryPos)           <<
@@ -2843,7 +2844,7 @@ private:
         if (inIdx >= mStripeCount) {
             if (ioFirstGoodRecoveryStripeIdx < 0) {
                 ioFirstGoodRecoveryStripeIdx = inIdx;
-                if (ioMaxRd < theRdSize) {
+                if (ioMaxRd < theRdSize || ioMaxChunkSize < theChunkSize) {
                     if (ioMaxRd >= 0) {
                         for (int i = mStripeCount - 1; i >= 0; i--) {
                             Buffer&   theCBuf = inRequest.GetBuffer(i);
@@ -2980,7 +2981,8 @@ private:
                 ioMaxRd        = theRdSize;
                 ioMaxChunkSize = theChunkSize;
             }
-        } else if (theRdSize + mStripeSize < ioMaxRd) {
+        } else if (theRdSize + mStripeSize < ioMaxRd ||
+                theChunkSize + mStripeSize < ioMaxChunkSize) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "read recovery failure:"
                 " req: "        << inRequest.mPos        <<
@@ -2994,6 +2996,7 @@ private:
                 " chunk: "      << theBuf.mChunkId       <<
                 " version: "    << theBuf.mChunkVersion  <<
                 " size: "       << theBuf.mChunkSize     <<
+                " max size: "   << ioMaxChunkSize        <<
                 " eof: "        << mFileSize             <<
             KFS_LOG_EOM;
             InvalidChunkSize(inRequest, theBuf);

@@ -681,10 +681,10 @@ private:
                     }
                     return;
                 }
-                if (0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
+                if (mKeepLeaseFlag) {
                     if (&mAllocOp != mLastOpPtr &&
                             &mWriteIdAllocOp != mLastOpPtr) {
-                         // Re-allocate object block to force to create lease.
+                        // Re-allocate object block to force to create lease.
                         Reset();
                         AllocateChunk();
                     }
@@ -909,7 +909,7 @@ private:
                 (time_t)max(
                     int64_t(1), mAllocOp.chunkLeaseDuration - kLeaseRenewTime));
             UpdateLeaseExpirationTime();
-            mKeepLeaseFlag   = mAllocOp.chunkVersion < 0;
+            mKeepLeaseFlag = mAllocOp.chunkVersion < 0;
             AllocateWriteId();
         }
         bool SheduleLeaseUpdate()
@@ -1383,6 +1383,7 @@ private:
                     " ignored" <<
                 KFS_LOG_EOM;
             }
+            mKeepLeaseFlag = false;
             mCloseOp.chunkId = -1;
             Reset();
             StartWrite();
@@ -1526,10 +1527,11 @@ private:
                     return;
                 }
                 if (theStatus == kErrorReadOnly && mClosingFlag &&
-                        0 < mCloseOp.chunkId && mCloseOp.chunkVersion < 0) {
+                        0 < mCloseOp.chunkId && mKeepLeaseFlag) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "object store block is now stable stable" <<
                     KFS_LOG_EOM;
+                    mKeepLeaseFlag = false;
                     mCloseOp.chunkId = -1;
                     Reset();
                     StartWrite();

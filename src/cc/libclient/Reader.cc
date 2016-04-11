@@ -1062,7 +1062,7 @@ private:
             mLeaseAcquireOp.allowCSClearTextFlag          = false;
             mLeaseAcquireOp.chunkPos                      =
                 mGetAllocOp.chunkVersion < 0 ?
-                    -(int64_t)mGetAllocOp.chunkVersion - 1 : int64_t(-1);
+                    (int64_t)mGetAllocOp.fileOffset : int64_t(-1);
             if (mGetAllocOp.chunkVersion < 0 &&
                     ! mGetAllocOp.chunkServers.empty()) {
                 mLeaseAcquireOp.chunkServer = mGetAllocOp.chunkServers.front();

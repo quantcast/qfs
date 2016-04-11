@@ -8002,6 +8002,16 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable* req)
     if (req->chunkVersion < 0) {
         // Client is responsible for updating logical EOF for object store
         // files.
+        if (0 != req->status) {
+            return;
+        }
+        ChunkLeases::EntryKey const key(req->chunkId,
+            ChunkVersionToObjFileBlockPos(req->chunkVersion));
+        const ChunkLeases::WriteLease* const lease =
+            mChunkLeases.GetWriteLease(key);
+        if (lease && lease->relinquishedFlag) {
+            mChunkLeases.DeleteWriteLease(key, lease->leaseId);
+        }
         return;
     }
     const char* const                  logPrefix       = "MCS: done";

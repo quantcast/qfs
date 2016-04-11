@@ -203,12 +203,12 @@ doDirListPlusAttr(KfsClient *kfsClient, string kfsdirname, bool humanReadable,
             const int ret = doDirListPlusAttr(
                 kfsClient, prefix + fileInfo[i].filename, humanReadable,
                 timeInSecs, recursive, longMode, ++level);
-            if (ret) {
-                return ret;
+            if (ret && ! res) {
+                res = ret;
             }
         }
     }
-    return 0;
+    return res;
 }
 
 typedef map<kfsUid_t, string, less<kfsUid_t>,
