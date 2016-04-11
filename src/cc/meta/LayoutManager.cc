@@ -3863,7 +3863,7 @@ LayoutManager::AddNewServer(MetaHello* r)
         }
         if (staleReason) {
             maxLogInfoCnt--;
-            KFS_LOG_STREAM((maxLogInfoCnt > 0) ?
+            KFS_LOG_STREAM((0 < maxLogInfoCnt && ! r->replayFlag) ?
                     MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelDEBUG) <<
                 srvId <<
@@ -3917,7 +3917,7 @@ LayoutManager::AddNewServer(MetaHello* r)
                 );
             }
             maxLogInfoCnt--;
-            KFS_LOG_STREAM((maxLogInfoCnt > 0) ?
+            KFS_LOG_STREAM((0 < maxLogInfoCnt && ! r->replayFlag) ?
                     MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelDEBUG) <<
                 srvId <<
@@ -3978,11 +3978,14 @@ LayoutManager::AddNewServer(MetaHello* r)
             const chunkId_t chunkId = *id;
             modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
-            if (! cmi || ! cmi->Remove(mChunkToServerMap, r->server)) {
+            if (! cmi || ! (r->replayFlag ?
+                    cmi->HasServer(mChunkToServerMap, r->server) :
+                    cmi->Remove(mChunkToServerMap, r->server))) {
                 panic("invalid modified chunk list");
                 continue;
             }
-            seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
+            seq_t const         chunkVersion      =
+                cmi->GetChunkInfo()->chunkVersion;
             bool                kMakeStableFlag   = false;
             bool                kPendingAddFlag   = true;
             bool                kVerifyStableFlag = true;
@@ -9420,7 +9423,7 @@ LayoutManager::ReplayPendingMakeStable(
     const char*               res             = 0;
     seq_t                     curChunkVersion = -1;
     const CSMap::Entry* const ci              = mChunkToServerMap.Find(chunkId);
-    MsgLogger::LogLevel logLevel = MsgLogger::kLogLevelDEBUG;
+    MsgLogger::LogLevel       logLevel        = MsgLogger::kLogLevelDEBUG;
     if (! ci) {
         res = "no such chunk";
     } else if ((curChunkVersion = ci->GetChunkInfo()->chunkVersion) !=
@@ -9464,7 +9467,7 @@ LayoutManager::ReplayPendingMakeStable(
         PendingMakeStableEntry* const it = mPendingMakeStable.Find(chunkId);
         if (! it) {
             res      = "no such entry";
-            logLevel = MsgLogger::kLogLevelERROR;
+            logLevel = MsgLogger::kLogLevelDEBUG;
         } else {
             const bool warn =
                 it->mChunkVersion != chunkVersion ||
@@ -9723,8 +9726,11 @@ LayoutManager::GetChunkSizeDone(MetaChunkSize* req)
     if (req->status < 0) {
         // Do not pay attention to lease, as lease might be discarded, if
         // allocation fails.
-        const bool retryFlag = req->retryFlag && IsChunkStable(req->chunkId);
-        KFS_LOG_STREAM_ERROR <<
+        const bool retryFlag = ! req->replayFlag &&
+            req->retryFlag && IsChunkStable(req->chunkId);
+        KFS_LOG_STREAM(req->replayFlag ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelERROR) <<
             "log: "     << req->logseq <<
             " "         << req->Show() <<
             " status: " << req->status <<

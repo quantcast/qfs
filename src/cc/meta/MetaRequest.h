@@ -400,7 +400,7 @@ struct MetaRequest {
         { return recursionCount; }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
-    static bool Replay(const char* buf, size_t len, seq_t& logseq, int& status);
+    static MetaRequest* ReadReplay(const char* buf, size_t len);
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
@@ -1925,7 +1925,19 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     virtual void handle();
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
-        { return os << "Chunkserver hello"; }
+    {
+        return (os <<
+            "chunk server hello: " << location <<
+            " logseq: "    << logseq <<
+            " resume: "    << resumeStep <<
+            " chunks: "
+            " stable: "    << chunks.size() <<
+            " not stable " << notStableAppendChunks.size() <<
+            " missing: "   << missingChunks.size() <<
+            " count: "     << chunkCount <<
+            " checksum: "  << checksum
+        );
+    }
     virtual bool log(ostream& os) const;
     bool Validate()
     {

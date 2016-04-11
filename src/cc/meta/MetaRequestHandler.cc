@@ -825,28 +825,10 @@ ValidateMetaReplayIoHandler(
     );
 }
 
-/* static */ bool
-MetaRequest::Replay(const char* buf, size_t len, seq_t& logseq, int& status)
+/* static */ MetaRequest*
+MetaRequest::ReadReplay(const char* buf, size_t len)
 {
-    MetaRequest* req = sMetaReplayIoHandler.Handle(buf, len);
-    if (! req) {
-        logseq = -1;
-        return false;
-    }
-    req->seqno = GetLogWriter().GetNextSeq();
-    bool ret = false;
-    if (logseq < 0 || logseq == req->logseq) {
-        req->replayFlag = true;
-        req->handle();
-        status = req->status;
-        ret = true;
-    }
-    logseq = req->logseq;
-    if (! req->suspended) {
-        req->replayFlag = false;
-        MetaRequest::Release(req);
-    }
-    return ret;
+    return sMetaReplayIoHandler.Handle(buf, len);
 }
 
 bool

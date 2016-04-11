@@ -51,6 +51,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <sstream>
+#include <iomanip>
 #include <deque>
 #include <set>
 
@@ -60,6 +61,8 @@ using std::ostringstream;
 using std::deque;
 using std::set;
 using std::less;
+using std::hex;
+using std::dec;
 
 inline void
 Replay::setRollSeeds(int64_t roll)
@@ -1138,6 +1141,7 @@ ReplayState::runCommitQueue(
                 KFS_LOG_STREAM_ERROR <<
                     "commit"
                     " sequence: "       << cit->logSeq <<
+                    " "                 << hex << cit->logSeq << dec <<
                     " seed: "           << cit->seed <<
                     " error checksum: " << cit->errChecksum <<
                     " status: "         << cit->status <<
@@ -1152,6 +1156,7 @@ ReplayState::runCommitQueue(
             KFS_LOG_STREAM_ERROR <<
                 "log commit:"
                 " sequence: " << logSeq <<
+                " "           << hex << logSeq << dec <<
                 " status mismatch"
                 " expected: " << status <<
                 " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]"
@@ -1186,33 +1191,71 @@ ReplayState::runCommitQueue(
     return (0 == status);
 }
 
+static inline void
+replay_op(ReplayState& state)
+{
+    MetaRequest* const op = state.mCurOp;
+    op->seqno = MetaRequest::GetLogWriter().GetNextSeq();
+    op->handle();
+    KFS_LOG_STREAM_DEBUG <<
+        (state.mReplayer ? "replay:" : "handle:") <<
+        " logseq: " << op->logseq <<
+        " "         << hex << op->logseq << dec <<
+        " status: " << op->status <<
+        " "         << op->statusMsg <<
+        " "         << op->Show() <<
+    KFS_LOG_EOM;
+    if (state.mReplayer) {
+        const int status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
+        state.mLogAheadErrChksum += status;
+        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+            op->logseq, status, fileID.getseed(), state.mLogAheadErrChksum));
+    }
+    if (op->suspended) {
+        state.mCurOp = 0;
+    } else {
+        op->replayFlag = false;
+    }
+}
+
 static bool
 replay_log_ahead_entry(DETokenizer& c)
 {
+    ReplayState& state = ReplayState::get(c);
+    if (0 != state.mSubEntryCount || state.mCurOp) {
+        KFS_LOG_STREAM_ERROR <<
+            "invalid replay state:"
+            " sub entry count: " << state.mSubEntryCount <<
+            " cur op: "          << MetaRequest::ShowReq(state.mCurOp) <<
+        KFS_LOG_EOM;
+        return false;
+    }
     c.pop_front();
     if (c.empty()) {
         return false;
     }
-    const DETokenizer::Token& token  = c.front();
-    int                       status = 0;
-    ReplayState&              state  = ReplayState::get(c);
-    seq_t                     logSeq = state.mReplayer ?
-        state.mLastLogAheadSeq + 1 : seq_t(-1);
-    if (! MetaRequest::Replay(token.ptr, token.len, logSeq, status)) {
+    const DETokenizer::Token& token = c.front();
+    state.mCurOp = MetaRequest::ReadReplay(token.ptr, token.len);
+    if (! state.mCurOp) {
         KFS_LOG_STREAM_ERROR <<
-            "replay failure: seq: " << logSeq <<
-            " expected: "           << state.mLastLogAheadSeq + 1 <<
+            "replay parse failure:"
+            " logseq: " << state.mLastLogAheadSeq <<
+            " "         << token <<
         KFS_LOG_EOM;
         return false;
     }
-    if (state.mReplayer) {
-        status = status < 0 ? SysToKfsErrno(-status) : 0;
-        state.mLogAheadErrChksum += status;
-        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
-            logSeq, status, fileID.getseed(), state.mLogAheadErrChksum));
-        state.mLastLogAheadSeq = logSeq;
+    if (state.mReplayer && state.mLastLogAheadSeq + 1 != state.mCurOp->logseq) {
+        KFS_LOG_STREAM_ERROR <<
+            "replay logseq mismatch:"
+            " expected: "  << state.mLastLogAheadSeq + 1 <<
+            " actual: "    << state.mCurOp->logseq <<
+            " "            << state.mCurOp->Show() <<
+        KFS_LOG_EOM;
+        return false;
     }
-    return (0 == state.mSubEntryCount);
+    state.mCurOp->replayFlag = true;
+    replay_op(state);
+    return state.incSeq();
 }
 
 static bool
@@ -1395,19 +1438,7 @@ replay_cur_op(ReplayState& state)
         panic("invalid current op log sequence");
         return;
     }
-    op->seqno = MetaRequest::GetLogWriter().GetNextSeq();
-    op->handle();
-    if (op->suspended) {
-        state.mCurOp = 0;
-    } else {
-        op->replayFlag = false;
-    }
-    if (state.mReplayer) {
-        const int status = op->status < 0 ? SysToKfsErrno(-op->status) : 0;
-        state.mLogAheadErrChksum += status;
-        state.mCommitQueue.push_back(ReplayState::CommitQueueEntry(
-            op->logseq, status, fileID.getseed(), state.mLogAheadErrChksum));
-    }
+    replay_op(state);
 }
 
 static bool

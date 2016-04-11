@@ -3313,6 +3313,7 @@ ChunkServer::Checkpoint(ostream& ost)
             return false;
         }
     }
+    cnt = 0;
     LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
@@ -3324,10 +3325,11 @@ ChunkServer::Checkpoint(ostream& ost)
         if (! MetaChunkLogInFlight::Checkpoint(ost, *op)) {
             return false;
         }
+        cnt++;
     }
     os <<
         "cse/" << mDoneTimedoutChunks.GetSize() <<
-        "/"    << mDispatchedReqs.size() <<
+        "/"    << mDispatchedReqs.size() + cnt <<
         "/"    << mStaleChunkIdsInFlight.Size() <<
         "/"    << mHelloReplayChunks.Size() <<
         "\n";
@@ -3563,9 +3565,9 @@ HibernatedChunkServer::HelloResumeReply(
         } else {
             r.statusMsg.clear();
         }
-        KFS_LOG_STREAM(r.status == 0 ?
-                MsgLogger::kLogLevelINFO :
-                MsgLogger::kLogLevelERROR) <<
+        KFS_LOG_STREAM(r.replayFlag ? MsgLogger::kLogLevelDEBUG :
+                r.status == 0 ? MsgLogger::kLogLevelINFO :
+                    MsgLogger::kLogLevelERROR) <<
             "hibernated: "  << GetIndex() <<
             " server: "     << r.server->GetServerLocation() <<
             " status: "     << r.status <<
@@ -3756,6 +3758,7 @@ HibernatedChunkServer::Checkpoint(ostream& ost, const ServerLocation& loc,
     for (ChunkIdQueue::ConstIterator it(mDeletedChunks); (id = it.Next()); ) {
         CpInsertChunkId(os, pref, cnt, *id);
     }
+    cnt  = 0;
     pref = "\nhcsm/";
     for (mModifiedChunks.First(); (id = mModifiedChunks.Next()); ) {
         CpInsertChunkId(os, pref, cnt, *id);
@@ -3787,11 +3790,24 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
     if ('e' != type) {
         return false;
     }
-    if (idx == 0) {
+    if (0 == idx) {
         return (mDeletedChunks.GetSize() == (size_t)n &&
             mDeletedReportCount <= (size_t)n);
     }
-    return (1 < idx || mModifiedChunks.Size() == (size_t)n);
+    if (1 == idx) {
+        if (mModifiedChunks.Size() != (size_t)n) {
+            return false;
+        }
+        if (0 != mListsSize) {
+            panic("hibernated server: restore: invalid lists size");
+        }
+        const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
+        mListsSize = 1 + size;
+        sValidCount++;
+        sChunkListsSize += size;
+        return true;
+    }
+    return (1 < idx);
 }
 
 /* static */ bool
