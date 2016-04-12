@@ -3447,8 +3447,12 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
 void
 LayoutManager::Handle(MetaHibernatedPrune& req)
 {
-    if (-ELOGFAILED == req.status && req.replayFlag) {
-        panic("invalid meta hibernate prune");
+    if (-ELOGFAILED == req.status) {
+        if (req.replayFlag) {
+            panic("invalid meta hibernate prune");
+        } else {
+            ScheduleResubmitOrCancel(req);
+        }
         return;
     }
     HibernatedChunkServer* hs;
