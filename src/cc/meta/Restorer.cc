@@ -885,6 +885,14 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
             is_ok = false;
         }
     }
+    if (gLayoutManager.RestoreGetChunkServer() ||
+            gLayoutManager.RestoreGetHibernatedCS()) {
+        KFS_LOG_STREAM_FATAL <<
+            cpname <<
+            ": invalid incomplete chunk server entry" <<
+        KFS_LOG_EOM;
+        is_ok = false;
+    }
     const MetaFattr* fa;
     if (is_ok && ! (
             (fa = metatree.getFattr(ROOTFID)) &&

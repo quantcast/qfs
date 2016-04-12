@@ -2244,6 +2244,12 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         r->resume();
         return;
     }
+    const bool restoreFlag = gLayoutManager.RestoreGetChunkServer();
+    if (restoreFlag &&
+            (this != &*gLayoutManager.RestoreGetChunkServer() || mDown)) {
+        panic("chunk server: invalid restore attempt");
+        return;
+    }
     if (staleChunkIdFlag && 0 <= r->chunkId && 0 <= r->chunkVersion) {
         r->staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(r->chunkId);
     }
@@ -2272,7 +2278,9 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
             r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
         }
         if (r->replayFlag) {
-            RemoveInFlightChunks(mHelloReplayChunks, *r);
+            if (! restoreFlag) {
+                RemoveInFlightChunks(mHelloReplayChunks, *r);
+            }
         } else {
             mLogInFlightCount++;
             if (MetaChunkLogInFlight::Log(*r, timeout)) {
@@ -2281,7 +2289,8 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
             mLogInFlightCount--;
         }
     }
-    if (0 <= r->logseq && 0 <= r->chunkId && 0 <= r->chunkVersion) {
+    if (0 <= r->logseq && 0 <= r->chunkId && 0 <= r->chunkVersion &&
+            ! restoreFlag) {
         mDoneTimedoutChunks.Erase(r->chunkId);
     }
     if (0 == r->submitCount) {
