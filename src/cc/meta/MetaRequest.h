@@ -2281,7 +2281,7 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     int               reqType;
 
     static bool Log(MetaChunkRequest& req, int timeout);
-    static bool Checkpoint(ostream& os, MetaChunkRequest& req);
+    static bool Checkpoint(ostream& os, const MetaChunkRequest& req);
     MetaChunkLogInFlight(
         MetaChunkRequest* req        = 0,
         int               tmeout     = -1,

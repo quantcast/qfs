@@ -43,7 +43,6 @@
 #include "common/RequestParser.h"
 #include "common/IntToString.h"
 
-#include <boost/bind.hpp>
 #include <boost/static_assert.hpp>
 
 #include <cassert>
@@ -68,7 +67,6 @@ using std::scientific;
 using std::fixed;
 using std::pair;
 using libkfsio::globalNetManager;
-using boost::bind;
 
 static inline time_t TimeNow()
 {
@@ -2153,12 +2151,12 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
     if (op) {
         if (! req.doneOp) {
             if (! req.replayFlag || ! op->replayFlag) {
-                panic("chunk server: invalid chunk RPC replay");
+                panic("chunk server: invalid chunk op replay");
             }
             req.doneOp = op;
         } else if (op != req.doneOp) {
             req.status = -EFAULT;
-            panic("chunk server: invalid chunk RPC completion");
+            panic("chunk server: invalid chunk op completion");
         }
         if (mDown) {
             if (0 == req.status) {
@@ -2819,9 +2817,11 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
             " failing op: " << op.Show() <<
         KFS_LOG_EOM;
         if (! mHelloDone && 0 <= op.logCompletionSeq) {
-            panic("chunk server: RPC was queued prior to hello completion");
+            panic("chunk server: op was queued prior to hello completion");
         }
-        AppendInFlightChunks(mLastChunksInFlight, op);
+        if (0 <= op.logCompletionSeq) {
+            AppendInFlightChunks(mLastChunksInFlight, op);
+        }
         RemoveInFlight(op);
     }
     // Add to the last in flight ops waiting for log completion, regardless
@@ -2831,6 +2831,9 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
+        if (op->logCompletionSeq < 0) {
+            panic("chunk server: invalid log completion queue entry");
+        }
         AppendInFlightChunks(mLastChunksInFlight, *op);
     }
     const chunkId_t* id;
@@ -3306,30 +3309,38 @@ ChunkServer::Checkpoint(ostream& ost)
     }
     os << "\n";
     os.flush();
+    if (! ost) {
+        return false;
+    }
+    cnt = 0;
     for (DispatchedReqs::const_iterator it = mDispatchedReqs.begin();
             it != mDispatchedReqs.end() && ost;
             ++it) {
-        if (! MetaChunkLogInFlight::Checkpoint(ost, *(it->second.second))) {
+        if (MetaChunkLogInFlight::Checkpoint(ost, *(it->second.second))) {
+            cnt++;
+        }
+        if (! ost) {
             return false;
         }
     }
-    cnt = 0;
     LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
-    MetaChunkRequest*         op;
+    const MetaChunkRequest*   op;
     while ((op = it.Next())) {
         if (op->logCompletionSeq < 0 || op->replayFlag) {
             panic("chunk server: "
                 "invalid log in flight op sequence or replay flag");
             continue;
         }
-        if (! MetaChunkLogInFlight::Checkpoint(ost, *op)) {
+        if (MetaChunkLogInFlight::Checkpoint(ost, *op)) {
+            cnt++;
+        }
+        if (! ost) {
             return false;
         }
-        cnt++;
     }
     os <<
         "cse/" << mDoneTimedoutChunks.GetSize() <<
-        "/"    << mDispatchedReqs.size() + cnt <<
+        "/"    << cnt <<
         "/"    << mStaleChunkIdsInFlight.Size() <<
         "/"    << mHelloReplayChunks.Size() <<
         "\n";

@@ -2968,15 +2968,15 @@ MetaHello::handle()
 /* virtual */ bool
 MetaHello::log(ostream& os) const
 {
-    const size_t entrySizeLog2 = 6;
-    const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
-    size_t       subEntryCnt   =
+    const size_t kEntrySizeLog2 = 6;
+    const size_t kMask          = (size_t(1) << kEntrySizeLog2) - 1;
+    size_t       subEntryCnt    =
         1 +
         ((chunks.size() +
         notStableChunks.size() +
         notStableAppendChunks.size() +
-        mask) >> entrySizeLog2) +
-        ((missingChunks.size() + mask) >> entrySizeLog2);
+        kMask) >> kEntrySizeLog2) +
+        ((missingChunks.size() + kMask) >> kEntrySizeLog2);
     ReqOstream ros(os);
     ros <<
         "csh"
@@ -2998,7 +2998,7 @@ MetaHello::log(ostream& os) const
         for (ChunkInfos::const_iterator it = (*info)->begin();
                 (*info)->end() != it;
                 ++it) {
-            if ((cnt++ & mask) == 0) {
+            if ((cnt++ & kMask) == 0) {
                 ros << "\ncshc";
                 subEntryCnt--;
             }
@@ -3009,7 +3009,7 @@ MetaHello::log(ostream& os) const
     for (MissingChunks::const_iterator it = missingChunks.begin();
             missingChunks.end() != it;
             ++it) {
-        if ((cnt++ & mask) == 0) {
+        if ((cnt++ & kMask) == 0) {
             ros << "\ncshm";
             subEntryCnt--;
         }
@@ -6078,12 +6078,12 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
         kLogIfOk,
         req ? req->server  : ChunkServerPtr(),
         req ? req->chunkId : chunkId_t(-1)),
-        location(req ? req->server->GetServerLocation() : ServerLocation()),
-        chunkIds(),
-        idCount(-1),
-        removeServerFlag(removeFlag),
-        request(req),
-        reqType(req ? req->op : -1)
+      location(req ? req->server->GetServerLocation() : ServerLocation()),
+      chunkIds(),
+      idCount(-1),
+      removeServerFlag(removeFlag),
+      request(req),
+      reqType(req ? req->op : -1)
 {
     maxWaitMillisec = timeout;
 }
@@ -6118,32 +6118,27 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
 }
 
 /* static */ bool
-MetaChunkLogInFlight::Checkpoint(ostream& os, MetaChunkRequest& req)
+MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
 {
-    if (0 != req.status) {
-        return os;
+    if ((META_CHUNK_OP_LOG_IN_FLIGHT != req.op && req.logCompletionSeq < 0) ||
+            (req.chunkId < 0 && ! req.GetChunkIds())) {
+        return false;
     }
-    const bool kOmitDefaultsFlag = true;
-    if ((kLogIfOk == req.logAction || kLogAlways == req.logAction) &&
-            META_CHUNK_OP_LOG_IN_FLIGHT != req.op) {
-        if (req.logseq < 0) {
-            panic("checkpoint chunk in flight: invalid log sequence");
-            return false;
-        }
-        return (req.WriteLog(os, kOmitDefaultsFlag) && os);
+    const bool kRemoveFlag = false; // Removal is already done at this point.
+    const int  kTimeout    = -1;
+    MetaChunkLogInFlight lreq(
+        const_cast<MetaChunkRequest*>(&req), kTimeout, kRemoveFlag);
+    if (META_CHUNK_OP_LOG_IN_FLIGHT == req.op) {
+        lreq.logseq  = req.logseq;
+        lreq.reqType = static_cast<const MetaChunkLogInFlight&>(req).reqType;
+    } else {
+        lreq.logseq = req.logCompletionSeq;
     }
-    if (((req.logCompletionSeq < 0 && META_CHUNK_OP_LOG_IN_FLIGHT != req.op) ||
-            (req.chunkId < 0 && ! req.GetChunkIds()))) {
-        return os;
-    }
-    const bool kRemoveFlag = false; // Revoal is already done..
-    MetaChunkLogInFlight lreq(&req, -1, kRemoveFlag);
-    lreq.logseq = META_CHUNK_OP_LOG_IN_FLIGHT == req.op ?
-        req.logseq : req.logCompletionSeq;
     if (lreq.logseq < 0) {
         panic("checkpoint chunk in flight: invalid log sequence");
         return false;
     }
+    const bool kOmitDefaultsFlag = true;
     return (lreq.start() && lreq.WriteLog(os, kOmitDefaultsFlag) && os);
 }
 
@@ -6189,11 +6184,11 @@ MetaChunkLogInFlight::log(ostream& os) const
     }
     ReqOstream ros(os);
     size_t subEntryCnt = 1;
-    const char* const name = GetReqName(request->op);
+    const char* const name = GetReqName(reqType);
     if (ids && 1 != ids->GetSize()) {
-        const size_t entrySizeLog2 = 6;
-        const size_t mask          = (size_t(1) << entrySizeLog2) - 1;
-        subEntryCnt += (ids->GetSize() + mask) >> entrySizeLog2;
+        const size_t kEntrySizeLog2 = 6;
+        const size_t kMask          = (size_t(1) << kEntrySizeLog2) - 1;
+        subEntryCnt += (ids->GetSize() + kMask) >> kEntrySizeLog2;
         ros <<
             "cif"
             "/e/" << subEntryCnt <<
@@ -6208,7 +6203,7 @@ MetaChunkLogInFlight::log(ostream& os) const
         ChunkIdQueue::ConstIterator it(*ids);
         const chunkId_t*            id;
         while ((id = it.Next())) {
-            if ((cnt++ & mask) == 0) {
+            if ((cnt++ & kMask) == 0) {
                 ros << "\ncis";
                 subEntryCnt--;
             }
