@@ -5404,10 +5404,38 @@ ChunkManager::RemoveDirtyChunks()
         }
         struct dirent const* dent;
         while ((dent = readdir(dirStream))) {
-            const string name = dir + dent->d_name;
-            struct stat buf;
+            const  string name = dir + dent->d_name;
+            struct stat   buf;
             if (stat(name.c_str(), &buf) || ! S_ISREG(buf.st_mode)) {
                 continue;
+            }
+            // Parse file name, and add to notify queue, if valid, in order to
+            // attempt hello resume after restart.
+            const bool    kCheckChunkHeaderChecksumFlag = false;
+            const bool    kForceReadFlag                = false;
+            const int64_t kFileSize                     = KFS_CHUNK_HEADER_SIZE;
+            kfsFileId_t   fileId       = -1;
+            chunkId_t     chunkId      = -1;
+            kfsSeq_t      chunkVers    = -1;
+            int64_t       chunkSize    = -1;
+            int64_t       fileSystemId = -1;
+            int           ioTimeSec    = -1;
+            bool          readFlag     = false;
+            if (IsValidChunkFile(
+                    dir,
+                    dent->d_name,
+                    kFileSize,
+                    kCheckChunkHeaderChecksumFlag,
+                    kForceReadFlag,
+                    mChunkHeaderBuffer,
+                    fileId,
+                    chunkId,
+                    chunkVers,
+                    chunkSize,
+                    fileSystemId,
+                    ioTimeSec,
+                    readFlag)) {
+                NotifyLostChunk(chunkId, chunkVers);
             }
             KFS_LOG_STREAM_INFO <<
                 "cleaning out dirty chunk: " << name <<
@@ -5439,6 +5467,8 @@ ChunkManager::Restore()
         const DirChecker::ChunkInfo* ci;
         while ((ci = cit.Next())) {
             if (0 <= ci->mChunkSize && 0 <= ci->mChunkVersion) {
+                PendingNotifyLostChunks::Remove(
+                    mPendingNotifyLostChunks, ci->mChunkId);
                 AddMapping(
                     *it,
                     ci->mFileId,
@@ -5447,6 +5477,9 @@ ChunkManager::Restore()
                     ci->mChunkSize
                 );
             } else {
+                if (! mChunkTable.Find(ci->mChunkId)) {
+                    NotifyLostChunk(ci->mChunkId, ci->mChunkVersion);
+                }
                 const string name  = MakeChunkPathname(
                     string(),
                     ci->mFileId, ci->mChunkId, ci->mChunkVersion,
