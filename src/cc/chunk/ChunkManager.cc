@@ -5435,11 +5435,13 @@ ChunkManager::RemoveDirtyChunks()
                     fileSystemId,
                     ioTimeSec,
                     readFlag)) {
-                NotifyLostChunk(chunkId, chunkVers);
+                InsertLastInFlight(chunkId);
             }
             KFS_LOG_STREAM_INFO <<
                 "cleaning out dirty chunk: " << name <<
             KFS_LOG_EOM;
+            /*
+            FIXME -- schedule cleanup after hello completion.
             if (unlink(name.c_str())) {
                 const int err = errno;
                 KFS_LOG_STREAM_ERROR <<
@@ -5447,6 +5449,7 @@ ChunkManager::RemoveDirtyChunks()
                     " error: " << QCUtils::SysError(err) <<
                 KFS_LOG_EOM;
             }
+            */
         }
         closedir(dirStream);
     }
@@ -5476,7 +5479,7 @@ ChunkManager::Restore()
                 );
             } else {
                 if (! mChunkTable.Find(ci->mChunkId)) {
-                    NotifyLostChunk(ci->mChunkId, ci->mChunkVersion);
+                    InsertLastInFlight(ci->mChunkId);
                 }
                 const string name  = MakeChunkPathname(
                     string(),
