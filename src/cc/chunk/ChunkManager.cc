@@ -5467,8 +5467,6 @@ ChunkManager::Restore()
         const DirChecker::ChunkInfo* ci;
         while ((ci = cit.Next())) {
             if (0 <= ci->mChunkSize && 0 <= ci->mChunkVersion) {
-                PendingNotifyLostChunks::Remove(
-                    mPendingNotifyLostChunks, ci->mChunkId);
                 AddMapping(
                     *it,
                     ci->mFileId,
@@ -5658,12 +5656,14 @@ ChunkManager::GetHostedChunksResume(
         checksum.Add(p->GetKey(), vers);
         count++;
     }
-    if (mPendingNotifyLostChunks) {
+    PendingNotifyLostChunks* const pendingNotifyLostChunks =
+        hello.pendingNotifyLostChunks;
+    if (pendingNotifyLostChunks) {
         // Add all pending notify lost chunks. The chunks should not be
         // in the chunk table: AddMapping() deletes pending lost notify entries.
-        for (mPendingNotifyLostChunks->First(); ;) {
+        for (pendingNotifyLostChunks->First(); ;) {
             const PendingNotifyLostChunks::Entry* const p =
-                mPendingNotifyLostChunks->Next();
+                pendingNotifyLostChunks->Next();
             if (! p) {
                 break;
             }
@@ -5715,8 +5715,8 @@ ChunkManager::GetHostedChunksResume(
                     (*missing.second) << chunkId << ' ';
                 }
                 const kfsSeq_t* vers;
-                if (! cih && ! inFlightFlag && mPendingNotifyLostChunks &&
-                        (vers = mPendingNotifyLostChunks->Find(chunkId)) &&
+                if (! cih && ! inFlightFlag && pendingNotifyLostChunks &&
+                        (vers = pendingNotifyLostChunks->Find(chunkId)) &&
                         0 <= *vers) {
                     if (count <= 0) {
                         die("invalid CS chunk inventory count");
@@ -5859,13 +5859,13 @@ ChunkManager::GetHostedChunksResume(
             }
             os << "\n";
         }
-        if (mPendingNotifyLostChunks) {
+        if (pendingNotifyLostChunks) {
             os << "\npending lost[" <<
-                mPendingNotifyLostChunks->GetSize() <<
+                pendingNotifyLostChunks->GetSize() <<
             "]:";
-            for (mPendingNotifyLostChunks->First(); os; ) {
+            for (pendingNotifyLostChunks->First(); os; ) {
                 const PendingNotifyLostChunks::Entry* const p =
-                    mPendingNotifyLostChunks->Next();
+                    pendingNotifyLostChunks->Next();
                 if (! p) {
                     break;
                 }
