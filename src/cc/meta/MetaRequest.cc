@@ -5347,7 +5347,7 @@ MetaChunkStaleNotify::ShowSelf(ostream& os) const
 {
     os << "meta->chunk stale notify:"
         " size: " << staleChunkIds.GetSize() <<
-        " ids: "
+        " ids:"
     ;
     ChunkIdQueue::ConstIterator it(staleChunkIds);
     const chunkId_t*            id;

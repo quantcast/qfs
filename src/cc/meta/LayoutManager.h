@@ -2098,6 +2098,17 @@ protected:
         bool       mHasChecksum;
         uint32_t   mChecksum;
         seq_t      mChunkVersion;
+        bool operator==(const PendingMakeStableEntry& rhs) const
+        {
+            return (
+                mSize == rhs.mSize &&
+                mHasChecksum == rhs.mHasChecksum &&
+                mChecksum == rhs.mChecksum &&
+                mChunkVersion == rhs.mChunkVersion
+            );
+        }
+        bool operator!=(const PendingMakeStableEntry& rhs) const
+            { return (! (rhs == *this)); }
     };
     typedef KVPair<chunkId_t, PendingMakeStableEntry> PendingMakeStableKVEntry;
     typedef LinearHash<

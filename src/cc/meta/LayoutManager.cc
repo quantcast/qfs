@@ -3277,10 +3277,14 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             }
         } else {
             if (-ELOGFAILED == req.status) {
-                ScheduleResubmitOrCancel(req);
-            } else {
-                req.server->Enqueue(req);
+                // Schedule down, as re-trying might re-order ops.
+                // At the time of writing the intention is to handle log write
+                // failure simulation, and would possibly have no or negligible
+                // effect when primary election is implemented, by forcing chunk
+                // server to re-connect.
+                req.server->ScheduleDown(req.statusMsg.c_str());
             }
+            req.server->Enqueue(req);
         }
         return;
     }
@@ -3378,11 +3382,11 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     }
     ChunkServerPtr server;
     if (req.doneOp) {
-        if (-ELOGFAILED == req.status) {
-            ScheduleResubmitOrCancel(req);
-            return;
-        }
         server = req.doneOp->server;
+        if (-ELOGFAILED == req.status) {
+            // The logic in MetaChunkLogInFlight handling applies here as well.
+            server->ScheduleDown(req.statusMsg.c_str());
+        }
     } else {
         const ChunkServerPtr* const cs =
             ReplayFindServer(req.doneLocation, req);
@@ -9453,7 +9457,8 @@ LayoutManager::ReplayPendingMakeStable(
         PendingMakeStableEntry* const res =
             mPendingMakeStable.Insert(chunkId, entry, insertedFlag);
         if (! insertedFlag) {
-            KFS_LOG_STREAM((res->mHasChecksum || res->mSize >= 0) ?
+            KFS_LOG_STREAM(((res->mHasChecksum || res->mSize >= 0) &&
+                        *res != entry) ?
                     MsgLogger::kLogLevelWARN :
                     MsgLogger::kLogLevelDEBUG) <<
                 "replay MCS add:" <<
@@ -12381,11 +12386,8 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         " "      << op.Show() <<
     KFS_LOG_EOM;
     if (dstIt != mChunkServers.end()) {
-        // Ensure that replica is not already on the destination server,
-        // in order to prevent replicate chunk to panic.
-        mChunkToServerMap.RemoveServer(*dstIt, *entry);
+        const ChunkServerPtr srv = *dstIt;
         if (removeDstFlag) {
-            ChunkServerPtr const srv = *dstIt;
             srv->NotifyStaleChunk(op.chunkId);
             if (srv->IsDown()) {
                 op.status    = -EFAULT;
@@ -12398,8 +12400,12 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         StTmp<Servers>             candidatesTmp(mServers2Tmp);
         Servers&                   candidates = candidatesTmp.Get();
         tiers.push_back(fa->minSTier);
-        candidates.push_back(*dstIt);
+        candidates.push_back(srv);
         extraReplicas = 1;
+        // Ensure that replica is not already on the destination server,
+        // in order to prevent replicate chunk to panic.
+        const bool addBackFlag =
+            mChunkToServerMap.RemoveServer(srv, *entry);
         if (ReplicateChunk(
                 *entry,
                 extraReplicas,
@@ -12410,7 +12416,11 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
                 "admin forced") <= 0) {
             op.status    = -EAGAIN;
             op.statusMsg = "failed to start replication";
-            return;
+        }
+        if (addBackFlag) {
+            // Restore mapping, as otherwise primary / log / secondaries will
+            // diverge.
+            mChunkToServerMap.AddServer(srv, *entry);
         }
     } else {
         extraReplicas = max(1, extraReplicas + 1);
