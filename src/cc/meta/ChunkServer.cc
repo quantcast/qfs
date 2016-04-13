@@ -2233,7 +2233,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
 ///
 void
 ChunkServer::Enqueue(MetaChunkRequest* r,
-    int timeout, bool staleChunkIdFlag, bool loggedFlag)
+    int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag)
 {
     if (! r || this != &*r->server || ! mHelloDone) {
         panic(mHelloDone ?
@@ -2283,7 +2283,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
             }
         } else {
             mLogInFlightCount++;
-            if (MetaChunkLogInFlight::Log(*r, timeout)) {
+            if (MetaChunkLogInFlight::Log(*r, timeout, removeReplicaFlag)) {
                 return;
             }
             mLogInFlightCount--;
@@ -2468,7 +2468,8 @@ int
 ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     const ChunkServerPtr& dataServer, const ChunkRecoveryInfo& recoveryInfo,
     kfsSTier_t minSTier, kfsSTier_t maxSTier,
-    MetaChunkReplicate::FileRecoveryInFlightCount::iterator it)
+    MetaChunkReplicate::FileRecoveryInFlightCount::iterator it,
+    bool removeReplicaFlag)
 {
     MetaChunkReplicate* const r = new MetaChunkReplicate(
         NextSeq(), GetSelfPtr(), fid, chunkId,
@@ -2551,7 +2552,10 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     }
     mNumChunkWriteReplications++;
     NewChunkInTier(minSTier);
-    Enqueue(r, sReplicationTimeout);
+    const bool kStaleChunkIdFlag = false;
+    const bool kLoggedFlag       = false;
+    Enqueue(r, sReplicationTimeout,
+        kStaleChunkIdFlag, kLoggedFlag, removeReplicaFlag);
     return 0;
 }
 

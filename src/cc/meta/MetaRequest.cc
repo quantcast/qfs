@@ -6100,7 +6100,8 @@ MetaChunkLogInFlight::start()
 }
 
 /* static */ bool
-MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
+MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout,
+    bool removeServerFlag)
 {
     if (req.replayFlag ||
             kLogIfOk == req.logAction ||
@@ -6112,7 +6113,8 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout)
     }
     submit_request(new MetaChunkLogInFlight(&req, timeout,
         ! req.staleChunkIdFlag &&
-            (META_CHUNK_DELETE == req.op || META_CHUNK_STALENOTIFY == req.op)
+            (META_CHUNK_DELETE == req.op || META_CHUNK_STALENOTIFY == req.op ||
+            removeServerFlag)
     ));
     return true;
 }

@@ -9885,7 +9885,8 @@ LayoutManager::ReplicateChunk(
     const ChunkRecoveryInfo&      recoveryInfo,
     const vector<kfsSTier_t>&     tiers,
     kfsSTier_t                    maxSTier,
-    const char*                   reasonMsg)
+    const char*                   reasonMsg,
+    bool                          removeReplicaFlag)
 {
     // prefer a server that is being retired to the other nodes as
     // the source of the chunk replication
@@ -9905,7 +9906,8 @@ LayoutManager::ReplicateChunk(
         ChunkServer&          cs   = *c;
         const kfsSTier_t      tier = ti != tiers.end() ? *ti : kKfsSTierUndef;
         // verify that we got good candidates
-        if (find(servers.begin(), servers.end(), c) != servers.end()) {
+        if (! removeReplicaFlag &&
+                find(servers.begin(), servers.end(), c) != servers.end()) {
             panic("invalid replication candidate");
         }
         if (cs.IsDown()) {
@@ -9990,8 +9992,8 @@ LayoutManager::ReplicateChunk(
         }
         // Do not count synchronous failures.
         if (cs.ReplicateChunk(clli.GetFileId(), clli.GetChunkId(),
-                dataServer, recoveryInfo, tier, maxSTier, recovIt) == 0 &&
-                ! cs.IsDown()) {
+                dataServer, recoveryInfo, tier, maxSTier, recovIt,
+                removeReplicaFlag) == 0 && ! cs.IsDown()) {
             numDone++;
         }
     }
@@ -12402,10 +12404,6 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         tiers.push_back(fa->minSTier);
         candidates.push_back(srv);
         extraReplicas = 1;
-        // Ensure that replica is not already on the destination server,
-        // in order to prevent replicate chunk to panic.
-        const bool addBackFlag =
-            mChunkToServerMap.RemoveServer(srv, *entry);
         if (ReplicateChunk(
                 *entry,
                 extraReplicas,
@@ -12413,14 +12411,10 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
                 recoveryInfo,
                 tiers,
                 fa->maxSTier,
-                "admin forced") <= 0) {
+                "admin forced",
+                mChunkToServerMap.HasServer(srv, *entry)) <= 0) {
             op.status    = -EAGAIN;
             op.statusMsg = "failed to start replication";
-        }
-        if (addBackFlag) {
-            // Restore mapping, as otherwise primary / log / secondaries will
-            // diverge.
-            mChunkToServerMap.AddServer(srv, *entry);
         }
     } else {
         extraReplicas = max(1, extraReplicas + 1);

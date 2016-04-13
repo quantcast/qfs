@@ -2280,7 +2280,7 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     MetaChunkRequest* request;
     int               reqType;
 
-    static bool Log(MetaChunkRequest& req, int timeout);
+    static bool Log(MetaChunkRequest& req, int timeout, bool removeServerFlag);
     static bool Checkpoint(ostream& os, const MetaChunkRequest& req);
     MetaChunkLogInFlight(
         MetaChunkRequest* req        = 0,

@@ -2481,7 +2481,8 @@ protected:
         const ChunkRecoveryInfo&  recoveryInfo,
         const vector<kfsSTier_t>& tiers,
         kfsSTier_t                maxSTier,
-        const char*               reasonMsg = 0);
+        const char*               reasonMsg = 0,
+        bool                      removeReplicaFlag = false);
 
     /// From the candidates, handout work to nodes.  If any chunks are
     /// over-replicated/chunk is deleted from system, add them to delset.

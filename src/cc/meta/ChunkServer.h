@@ -478,7 +478,8 @@ public:
         const ChunkServerPtr&    dataServer,
         const ChunkRecoveryInfo& recoveryInfo,
         kfsSTier_t minSTier, kfsSTier_t maxSTier,
-        MetaChunkReplicate::FileRecoveryInFlightCount::iterator it);
+        MetaChunkReplicate::FileRecoveryInFlightCount::iterator it,
+        bool removeReplicaFlag);
     /// Start write append recovery when chunk master is non operational.
     int BeginMakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion);
     /// Notify a chunkserver that the writes to a chunk are done;
@@ -914,7 +915,11 @@ protected:
     /// allow override in layout emulator.
     virtual void EnqueueSelf(MetaChunkRequest* r);
     void Enqueue(MetaChunkRequest* r, int timeout,
-        bool staleChunkIdFlag, bool loggedFlag);
+        bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
+    void Enqueue(MetaChunkRequest* r, int timeout,
+        bool staleChunkIdFlag, bool loggedFlag) {
+        Enqueue(r, timeout, staleChunkIdFlag, loggedFlag, false);
+    }
     void Enqueue(MetaChunkRequest* r, int timeout, bool staleChunkIdFlag) {
         Enqueue(r, timeout, staleChunkIdFlag, false);
     }
