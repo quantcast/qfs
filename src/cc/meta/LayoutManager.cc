@@ -12762,8 +12762,8 @@ LayoutManager::StartServicing()
             ++it) {
         // Extend hibernated interval to the of the recovery interval, in order
         // to attempt partial chunk inventory synchronization.
-        it->sleepEndTime = max(it->sleepEndTime,
-            TimeNow() + mRecoveryIntervalSec);
+        it->sleepEndTime = max(it->sleepEndTime, TimeNow() +
+            max(2 * mServerDownReplicationDelay, mRecoveryIntervalSec));
         it->replayFlag   = false;
     }
 }

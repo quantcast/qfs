@@ -713,8 +713,8 @@ restore_hibernated_cs_start(DETokenizer& c)
     const DETokenizer::Token& mtk = c.front();
     ptr = mtk.ptr;
     if (! (c.getIntBase() == 16 ?
-            chksum.Parse<HexIntParser>(ptr, mtk.len) :
-            chksum.Parse<DecIntParser>(ptr, mtk.len))) {
+            modChksum.Parse<HexIntParser>(ptr, mtk.len) :
+            modChksum.Parse<DecIntParser>(ptr, mtk.len))) {
         return false;
     }
     c.pop_front();

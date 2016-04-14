@@ -3688,6 +3688,9 @@ HibernatedChunkServer::HelloResumeReply(
         " resume: "    << r.resumeStep <<
         " chunks: "    << GetChunkCount() <<
         " => "         << r.chunkCount <<
+        " checksum: "  << GetChecksum() <<
+        " mod: "       << mModifiedChecksum <<
+        " => "         << r.checksum <<
         " deleted: "   << mDeletedChunks.GetSize() <<
         " modified: "  << mModifiedChunks.Size() <<
     KFS_LOG_EOM;
