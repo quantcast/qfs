@@ -4235,9 +4235,7 @@ HelloMetaOp::Execute()
 
 HelloMetaOp::~HelloMetaOp()
 {
-    if (pendingNotifyLostChunks) {
-        gChunkManager.HelloDone(*this);
-    }
+    gChunkManager.HelloDone(*this);
     assert(! pendingNotifyLostChunks);
 }
 

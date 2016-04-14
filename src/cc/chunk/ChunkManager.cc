@@ -1446,6 +1446,8 @@ ChunkManager::HelloDone(HelloMetaOp& hello)
         hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
     if (gMetaServerSM.IsUp() && hello.resumeStep != 0) {
         mLastPendingInFlight.Clear();
+        // Re-enable clenup if it was disabled on startup.
+        mCleanupStaleChunksFlag = true;
     }
     ScheduleNotifyLostChunk();
 }
@@ -2030,6 +2032,7 @@ ChunkManager::ChunkManager()
       mPendingNotifyLostChunks(0),
       mCorruptChunkOp(-1),
       mLastPendingInFlight(),
+      mCleanupStaleChunksFlag(true),
       mDiskIoRequestAffinityFlag(false),
       mDiskIoSerializeMetaRequestsFlag(true),
       mObjStoreIoRequestAffinityFlag(true),
@@ -5379,6 +5382,26 @@ ChunkManager::Restart()
     return 0;
 }
 
+void
+ChunkManager::ScheduleCleanup(ChunkManager::ChunkDirInfo& dir,
+    kfsFileId_t fileId, chunkId_t chunkId, kfsSeq_t chunkVers,
+    int64_t chunkSize, bool stableFlag, bool forceDeleteFlag)
+{
+    ChunkInfoHandle* const cih  = new ChunkInfoHandle(dir, stableFlag);
+    const int64_t          size =
+        max(int64_t(0), min((int64_t)CHUNKSIZE, chunkSize));
+    cih->chunkInfo.fileId       = fileId;
+    cih->chunkInfo.chunkId      = chunkId;
+    cih->chunkInfo.chunkVersion = chunkVers;
+    cih->chunkInfo.chunkSize    = size;
+    if (0 <= size) {
+        mUsedSpace += size;
+        UpdateDirSpace(cih, size);
+    }
+    const bool kEvacuatedFlag = false;
+    gChunkManager.MakeStale(*cih, forceDeleteFlag, kEvacuatedFlag);
+}
+
 //
 // On a restart, whatever chunks were dirty need to be nuked: we may
 // have had writes pending to them and we never flushed them to disk.
@@ -5436,20 +5459,24 @@ ChunkManager::RemoveDirtyChunks()
                     ioTimeSec,
                     readFlag)) {
                 InsertLastInFlight(chunkId);
-            }
-            KFS_LOG_STREAM_INFO <<
-                "cleaning out dirty chunk: " << name <<
-            KFS_LOG_EOM;
-            /*
-            FIXME -- schedule cleanup after hello completion.
-            if (unlink(name.c_str())) {
-                const int err = errno;
-                KFS_LOG_STREAM_ERROR <<
-                    "unable to remove " << name <<
-                    " error: " << QCUtils::SysError(err) <<
+                const bool kStableFlag      = false;
+                const bool kForceDeleteFlag = true;
+                ScheduleCleanup(
+                    *it, fileId, chunkId, chunkVers,
+                    (int64_t)buf.st_size - (int64_t)KFS_CHUNK_HEADER_SIZE,
+                    kStableFlag, kForceDeleteFlag);
+            } else {
+                KFS_LOG_STREAM_INFO <<
+                    "cleaning out dirty chunk: " << name <<
                 KFS_LOG_EOM;
+                if (unlink(name.c_str())) {
+                    const int err = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "unable to remove " << name <<
+                        " error: " << QCUtils::SysError(err) <<
+                    KFS_LOG_EOM;
+                }
             }
-            */
         }
         closedir(dirStream);
     }
@@ -5458,6 +5485,7 @@ ChunkManager::RemoveDirtyChunks()
 void
 ChunkManager::Restore()
 {
+    mCleanupStaleChunksFlag = false; // Disable cleanup until hello completion.
     RemoveDirtyChunks();
     bool scheduleEvacuateFlag = false;
     for (ChunkDirs::iterator it = mChunkDirs.begin();
@@ -5478,21 +5506,34 @@ ChunkManager::Restore()
                     ci->mChunkSize
                 );
             } else {
-                if (! mChunkTable.Find(ci->mChunkId)) {
+                if (ci->mChunkVersion < 0 || ci->mChunkId < 0 ||
+                        mChunkTable.Find(ci->mChunkId)) {
+                    const string name  = MakeChunkPathname(
+                        string(),
+                        ci->mFileId, ci->mChunkId, ci->mChunkVersion,
+                        string());
+                    const string src(it->dirname + name);
+                    const string dst(it->dirname + mStaleChunksDir + name);
+                    if (rename(src.c_str(), dst.c_str())) {
+                        const int err = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "failed to rename " << src << " to " << dst <<
+                            " error: " << QCUtils::SysError(err) <<
+                        KFS_LOG_EOM;
+                    }
+                } else {
                     InsertLastInFlight(ci->mChunkId);
-                }
-                const string name  = MakeChunkPathname(
-                    string(),
-                    ci->mFileId, ci->mChunkId, ci->mChunkVersion,
-                    string());
-                const string src(it->dirname + name);
-                const string dst(it->dirname + mStaleChunksDir + name);
-                if (rename(src.c_str(), dst.c_str())) {
-                    const int err = errno;
-                    KFS_LOG_STREAM_ERROR <<
-                        "failed to rename " << src << " to " << dst <<
-                        " error: " << QCUtils::SysError(err) <<
-                    KFS_LOG_EOM;
+                    const bool kStableFlag      = true;
+                    const bool kForceDeleteFlag = false;
+                    ScheduleCleanup(
+                        *it,
+                        ci->mFileId,
+                        ci->mChunkId,
+                        ci->mChunkVersion,
+                        ci->mChunkSize,
+                        kStableFlag,
+                        kForceDeleteFlag
+                    );
                 }
             }
         }
@@ -5519,6 +5560,8 @@ ChunkManager::Restore()
             }
         }
     }
+    // Re-enable cleanup if it doesn't have to wait till hello completion.
+    mCleanupStaleChunksFlag = mLastPendingInFlight.IsEmpty();
 }
 
 static inline void
@@ -6129,8 +6172,11 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
         assert(mStaleChunkOpsInFlight > 0);
         mStaleChunkOpsInFlight--;
     }
+    if (! mCleanupStaleChunksFlag) {
+        return;
+    }
     ChunkList::Iterator it(mChunkInfoLists[kChunkStaleList]);
-    ChunkInfoHandle* cih;
+    ChunkInfoHandle*    cih;
     while (mStaleChunkOpsInFlight < mMaxStaleChunkOpsInFlight &&
             (cih = it.Next())) {
         // If disk queue has been already stopped, then the queue directory

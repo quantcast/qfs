@@ -965,19 +965,20 @@ private:
         StdFastAllocator<LastPendingInFlightEntry>
     > LastPendingInFlight;
     LastPendingInFlight mLastPendingInFlight;
+    bool                mCleanupStaleChunksFlag;
 
-    bool       mDiskIoRequestAffinityFlag;
-    bool       mDiskIoSerializeMetaRequestsFlag;
-    bool       mObjStoreIoRequestAffinityFlag;
-    bool       mObjStoreIoSerializeMetaRequestsFlag;
-    int        mObjStoreBlockWriteBufferSize;
-    bool       mObjStoreBufferDataIgnoreOverwriteFlag;
-    int        mObjStoreMaxWritableBlocks;
-    double     mObjStoreBufferDataRatio;
-    int        mObjStoreBufferDataMaxSizePerBlock;
-    int        mObjStoreBlockMaxNonStableDisconnectedTime;
-    int        mObjBlockDiscardMinMetaUptime;
-    int        mObjStoreIoThreadCount;
+    bool   mDiskIoRequestAffinityFlag;
+    bool   mDiskIoSerializeMetaRequestsFlag;
+    bool   mObjStoreIoRequestAffinityFlag;
+    bool   mObjStoreIoSerializeMetaRequestsFlag;
+    int    mObjStoreBlockWriteBufferSize;
+    bool   mObjStoreBufferDataIgnoreOverwriteFlag;
+    int    mObjStoreMaxWritableBlocks;
+    double mObjStoreBufferDataRatio;
+    int    mObjStoreBufferDataMaxSizePerBlock;
+    int    mObjStoreBlockMaxNonStableDisconnectedTime;
+    int    mObjBlockDiscardMinMetaUptime;
+    int    mObjStoreIoThreadCount;
 
     PrngIsaac64       mRand;
     ChunkHeaderBuffer mChunkHeaderBuffer;
@@ -1044,6 +1045,9 @@ private:
     /// Helper function to move a chunk to the stale dir
     int MarkChunkStale(ChunkInfoHandle *cih, KfsCallbackObj* cb);
 
+    void ScheduleCleanup(ChunkDirInfo& dir,
+        kfsFileId_t fileId, chunkId_t chunkId, kfsSeq_t chunkVers,
+        int64_t chunkSize, bool stableFlag, bool forceDeleteFlag);
     /// On a restart, nuke out all the dirty chunks
     void RemoveDirtyChunks();
 
