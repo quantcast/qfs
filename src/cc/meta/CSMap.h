@@ -41,11 +41,14 @@
 #include <stdint.h>
 #include <assert.h>
 #include <string.h>
+#include <vector>
+#include <bitset>
 #include <boost/static_assert.hpp>
 
 namespace KFS
 {
 using std::vector;
+using std::bitset;
 
 // chunkid to server(s) map
 class CSMap
@@ -524,10 +527,10 @@ public:
 
     CSMap()
         : mMap(),
+          mValidServersBitSet(),
           mServers(),
           mPendingRemove(),
           mNullSlots(),
-          mValidServersBitSet(0),
           mServerCount(0),
           mHibernatedCount(0),
           mRemoveServerScanPtr(0),
@@ -595,7 +598,7 @@ public:
         }
         server->ClearHosted();
         mServerCount++;
-        mValidServersBitSet |= ValidServersBitSet(1) << idx;
+        mValidServersBitSet[idx] = 1;
         Validate();
         return true;
     }
@@ -608,7 +611,7 @@ public:
         server->SetIndex(idx, mDebugValidateFlag);
         server->ClearHosted();
         mServerCount++;
-        mValidServersBitSet |= ValidServersBitSet(1) << idx;
+        mValidServersBitSet[idx] = 1;
         server->mChunkCount  = chunkCount;
         server->mCIdChecksum = cIdChecksum;
         Validate();
@@ -625,7 +628,7 @@ public:
         mHibernatedServers[idx] = server;
         server->SetIndex(idx, mDebugValidateFlag);
         assert((size_t)server->GetIndex() == idx);
-        mValidServersBitSet |= ValidServersBitSet(1) << idx;
+        mValidServersBitSet[idx] = 1;
         server->mChunkCount  = chunkCount;
         server->mCIdChecksum = cIdChecksum;
         Validate();
@@ -637,17 +640,18 @@ public:
     {
         const char*       ptr = idxs;
         const char* const end = idxs + len;
-        size_t            cnt = 0;
-        size_t            idx = 0;
+        uint32_t          cnt = 0;
+        uint32_t          idx = 0;
         while (ParserT::Parse(ptr, end - ptr, idx)) {
             if (end == ptr) {
                 return (cnt == idx);
             }
-            if (0 == (mValidServersBitSet & (ValidServersBitSet(1) << idx))) {
+            if (Entry::kMaxServers <= idx ||
+                    0 == mValidServersBitSet[idx] ||
+                    ! entry.AddIndex(idx)) {
                 // No servers to remove must exists, all indexes must be valid.
                 return false;
             }
-            entry.AddIndex(idx);
             cnt++;
             // Do not update chunk server checksum and count, restore must
             // already set both these in restore server or restore hibernated
@@ -662,7 +666,7 @@ public:
         size_t       scnt = 0;
         for (size_t i = 0; i < cnt; i++) {
             const size_t idx = entry.IndexAt(i);
-            if (0 != (mValidServersBitSet & (ValidServersBitSet(1) << idx))) {
+            if (mValidServersBitSet[idx]) {
                 os << idx << ' ';
                 scnt++;
             }
@@ -677,7 +681,7 @@ public:
         Validate();
         mServers[server->GetIndex()].reset();
         mPendingRemove.push_back(server->GetIndex());
-        mValidServersBitSet = ~(ValidServersBitSet(1) << server->GetIndex());
+        mValidServersBitSet[server->GetIndex()] = 0;
         server->SetIndex(-1, mDebugValidateFlag);
         mServerCount--;
         server->ClearHosted();
@@ -720,7 +724,7 @@ public:
         }
         assert(! mServers[idx] && 0 < mServerCount);
         mPendingRemove.push_back(idx);
-        mValidServersBitSet = ~(ValidServersBitSet(1) << idx);
+        mValidServersBitSet[idx] = 0;
         mServerCount--;
         // Start or restart full scan.
         RemoveServerScanFirst();
@@ -1219,13 +1223,13 @@ public:
 private:
     typedef vector<Entry::AllocIdx>          SlotIndexes;
     typedef vector<HibernatedChunkServerPtr> HibernatedServers;
-    typedef uint64_t                         ValidServersBitSet;
+    typedef bitset<Entry::kMaxServers>       ValidServersBitSet;
 
     Map                mMap;
+    ValidServersBitSet mValidServersBitSet;
     Servers            mServers;
     SlotIndexes        mPendingRemove;
     SlotIndexes        mNullSlots;
-    ValidServersBitSet mValidServersBitSet;
     size_t             mServerCount;
     size_t             mHibernatedCount;
     Entry*             mRemoveServerScanPtr;
