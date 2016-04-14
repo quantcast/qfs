@@ -948,6 +948,8 @@ public:
     /// new chunk server.
     void AddNewServer(MetaHello* r);
 
+    bool Validate(MetaRetireChunkserver& req);
+
     /// A server is being taken down: if downtime is > 0, it is a
     /// value in seconds that specifies the time interval within
     /// which the server will connect back.  If it doesn't connect
@@ -962,7 +964,7 @@ public:
     /// @retval 0 on success; -1 on failure
     int AllocateChunk(MetaAllocate *r, const vector<MetaChunkInfo*>& chunkBlock);
 
-        bool IsAllocationAllowed(MetaAllocate* req);
+    bool IsAllocationAllowed(MetaAllocate* req);
 
     /// When allocating a chunk for append, we try to re-use an
     /// existing chunk for a which a valid write lease exists.

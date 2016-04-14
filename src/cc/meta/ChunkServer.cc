@@ -399,7 +399,7 @@ ChunkServer::HelloDone(const MetaHello* r)
         return;
     }
     Enqueue(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
-            IsRetiring() ? int64_t(1) : (int64_t)mChunksToEvacuate.Size()),
+            mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size()),
         2 * sHeartbeatTimeout
     );
 }
@@ -490,7 +490,7 @@ ChunkServer::ChunkServer(
       mCanBeChunkMaster(false),
       mIsRetiring(false),
       mRetiredFlag(false),
-      mRetireDownTime(-1),
+      mHibernateDownTime(-1),
       mDisconnectReason(),
       mRetireStartTime(0),
       mLastHeard(),
@@ -2031,7 +2031,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
                 "===chunk=server: " << mLocation.hostname <<
                 ":" << mLocation.port <<
                 " responsive=" << IsResponsiveServer() <<
-                " retiring="  << IsRetiring() <<
+                " retiring="   << mIsRetiring <<
                 " restarting=" << IsRestartScheduled() <<
                 hbp <<
             KFS_LOG_EOM;
@@ -2130,6 +2130,14 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             } else {
                 op = req.doneOp;
                 LogInFlightReqs::Remove(mLogCompletionInFlightReqs, *op);
+                if (0 != req.status && ! mDown) {
+                    if (mNetConnection) {
+                        panic("chunk server: invalid log completion op status");
+                        ScheduleDown(req.statusMsg.c_str());
+                    }
+                    // Add to last in flight, as bye has not arrived yet.
+                    AppendInFlightChunks(mLastChunksInFlight, *op);
+                }
             }
             RemoveInFlight(*req.doneOp);
         } else {
@@ -2173,6 +2181,10 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
                 mDoneTimedoutChunks.Erase(req.chunkId);
             }
         }
+        if (0 != req.status && 0 <= op->status) {
+            op->status    = req.status;
+            op->statusMsg = req.statusMsg;
+        }
     } else {
         req.status = -ENOENT;
     }
@@ -2214,7 +2226,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     } else {
         mLogInFlightCount--;
     }
-    if (0 != r.status || mDown) {
+    if (mDown) {
         if (req) {
             req->status = mDown ? -EIO : r.status;
             RemoveInFlight(*req);
@@ -2222,7 +2234,17 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
         }
         return;
     }
-    req->logCompletionSeq = r.logseq;
+    if (0 == r.status) {
+        req->logCompletionSeq = r.logseq;
+    } else {
+        req->logCompletionSeq = -1;
+        req->status           = r.status;
+        // In the case of failure must already be scheduled down.
+        if (mNetConnection) {
+            panic("chunk server: invalid log in flight op status");
+            ScheduleDown(r.statusMsg.c_str());
+        }
+    }
     const bool kLoggedFlag       = true;
     const bool kStaleChunkIdFlag = false;
     Enqueue(req, r.maxWaitMillisec, kStaleChunkIdFlag, kLoggedFlag);
@@ -2616,17 +2638,23 @@ ChunkServer::NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers
 }
 
 void
-ChunkServer::SetRetiring(int64_t startTime, int downTime)
+ChunkServer::SetRetiring(int64_t startTime, int64_t downTime)
 {
-    mIsRetiring      = true;
-    mRetireDownTime  = downTime;
-    mRetireStartTime = (time_t)startTime;
-    mChunksToEvacuate.Clear();
+    mIsRetiring        = downTime <= 0;
+    mHibernateDownTime = mIsRetiring ? int64_t(-1) : downTime;
+    mRetireStartTime   = (time_t)startTime;
+    if (mIsRetiring) {
+        mChunksToEvacuate.Clear();
+    }
     KFS_LOG_STREAM(mReplayFlag ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO) <<
         GetServerLocation() <<
-        " initiation of retire for " << GetChunkCount() << " chunks" <<
+        " initiated " << (mIsRetiring ? "retire" : "hibernation") <<
+        " chunks: " << GetChunkCount() <<
+        " time: "
+        " start: "  << mRetireStartTime <<
+        " down: "   << mHibernateDownTime <<
     KFS_LOG_EOM;
 }
 
@@ -2721,7 +2749,7 @@ ChunkServer::Heartbeat()
         Enqueue(new MetaChunkHeartbeat(
                 NextSeq(),
                 mSelfPtr,
-                IsRetiring() ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
+                mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
                 reAuthenticateFlag
             ),
             2 * sHeartbeatTimeout
@@ -2819,7 +2847,6 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     ReqsTimeoutQueue reqTimeouts;
     mReqsTimeoutQueue.swap(reqTimeouts);
     mDispatchedReqs.swap(reqs);
-    mLastChunksInFlight.Clear();
     // Get all ops out of the in flight global queue first.
     // Remember all chunk ids that were in flight.
     for (DispatchedReqs::iterator it = reqs.begin();
@@ -2832,7 +2859,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         if (! mHelloDone && 0 <= op.logCompletionSeq) {
             panic("chunk server: op was queued prior to hello completion");
         }
-        if (0 <= op.logCompletionSeq) {
+        if (0 <= op.logCompletionSeq || op.replayFlag) {
             AppendInFlightChunks(mLastChunksInFlight, op);
         }
         RemoveInFlight(op);
@@ -2932,7 +2959,8 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", nchunksToMove=" << mChunksToMove.Size()
         << ", numDrives=" << mNumDrives
         << ", numWritableDrives=" <<
-            ((mIsRetiring || isOverloaded) ? 0 : mNumWritableDrives)
+            ((IsHibernatingOrRetiring() || isOverloaded) ?
+                0 : mNumWritableDrives)
         << ", overloaded=" << (isOverloaded ? 1 : 0)
         << ", numReplications=" << GetNumChunkReplications()
         << ", numReadReplications=" << GetReplicationReadLoad()
@@ -3282,7 +3310,8 @@ CpInsertChunkId(TS& os, const char* pref, TC& cnt, chunkId_t id)
 bool
 ChunkServer::Checkpoint(ostream& ost)
 {
-    if (! mLastChunksInFlight.IsEmpty() || mDown ||
+    if ((! mLastChunksInFlight.IsEmpty() && mNetConnection) ||
+            mDown ||
             (mReplayFlag &&
                 ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) ||
             (! mReplayFlag && ! mHelloReplayChunks.IsEmpty())) {
@@ -3297,7 +3326,7 @@ ChunkServer::Checkpoint(ostream& ost)
         "/chksum/"      << GetChecksum() <<
         "/retire/"      << (mIsRetiring ? 1 : 0) <<
         "/retirestart/" << mRetireStartTime <<
-        "/retiredown/"  << mRetireDownTime <<
+        "/retiredown/"  << mHibernateDownTime <<
         "/retired/"     << (mRetiredFlag ? 1 : 0) <<
         "/replay/"      << (mReplayFlag ? 1 : 0)
     ;

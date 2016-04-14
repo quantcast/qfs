@@ -2912,11 +2912,12 @@ MetaCoalesceBlocks::handle()
 /* virtual */ bool
 MetaRetireChunkserver::start()
 {
-    if (! HasMetaServerAdminAccess(*this)) {
-        return false;
-    }
     startTime = globalNetManager().Now();
-    return (0 == status);
+    return (
+        HasMetaServerAdminAccess(*this) &&
+        gLayoutManager.Validate(*this) &&
+        0 == status
+    );
 }
 
 /* virtual */ void

@@ -1764,7 +1764,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
  * \brief Notification to hibernate/retire a chunkserver:
  * Hibernation: when the server is put
  * in hibernation mode, the server is taken down temporarily with a promise that
- * it will come back N secs later; if the server doesnt' come up as promised
+ * it will come back N secs later; if the server doesn't come up as promised
  * then re-replication starts.
  *
  * Retirement: is extended downtime.  The server is taken down and we don't know
@@ -1774,7 +1774,7 @@ struct MetaCoalesceBlocks: public MetaRequest {
 
 struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
     ServerLocation& location;  //<! Location of this server
-    int             nSecsDown; //<! set to -1, we retire; otherwise, # of secs of down time
+    int             nSecsDown; //<! -1 to retire; otherwise secs of down time.
     int64_t         startTime;
     MetaRetireChunkserver()
         : MetaRequest(META_RETIRE_CHUNKSERVER, kLogIfOk),

@@ -3276,14 +3276,12 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                 req.status = -EFAULT;
             }
         } else {
-            if (-ELOGFAILED == req.status) {
-                // Schedule down, as re-trying might re-order ops.
-                // At the time of writing the intention is to handle log write
-                // failure simulation, and would possibly have no or negligible
-                // effect when primary election is implemented, by forcing chunk
-                // server to re-connect.
-                req.server->ScheduleDown(req.statusMsg.c_str());
-            }
+            // Schedule down, as re-trying might re-order ops.
+            // At the time of writing the intention is to handle log write
+            // failure simulation. Doing so would possibly have no or negligible
+            // effect when primary election is implemented, by forcing chunk
+            // server to re-connect.
+            req.server->ScheduleDown(req.statusMsg.c_str());
             req.server->Enqueue(req);
         }
         return;
@@ -3383,7 +3381,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     ChunkServerPtr server;
     if (req.doneOp) {
         server = req.doneOp->server;
-        if (-ELOGFAILED == req.status) {
+        if (0 != req.status) {
             // The logic in MetaChunkLogInFlight handling applies here as well.
             server->ScheduleDown(req.statusMsg.c_str());
         }
@@ -3482,19 +3480,20 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
         ScheduleResubmitOrCancel(req);
         return;
     }
-    HibernatedServerInfos::iterator    it;
-    const HibernatingServerInfo* const hs =
-        FindHibernatingCSInfo(req.location, &it);
-    if (! hs) {
+    HibernatedServerInfos::iterator it;
+    if (! FindHibernatingCSInfo(req.location, &it)) {
         req.status = -ENOENT;
         return;
     }
     if (! req.replayFlag && it->removeOp != &req) {
         panic("invalid hibernated server remove completion");
     }
-    if (it->IsHibernated() &&
-            ! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
-        panic("failed to remove hibernated server");
+    if (it->IsHibernated()) {
+        if (mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
+            ScheduleCleanup();
+        } else {
+            panic("failed to remove hibernated server");
+        }
     }
     mHibernatingServers.erase(it);
 }
@@ -3532,20 +3531,20 @@ LayoutManager::RestoreChunkServer(
         return false;
     }
     server->HelloDone(0);
-    if (retiringFlag) {
-        server->SetRetiring(retStart, (int)retDown);
-        if (0 < retDown) {
-            HibernatedServerInfos::iterator it;
-            if (FindHibernatingCSInfo(loc, &it)) {
-                KFS_LOG_STREAM_ERROR <<
-                    "duplicate retiring server: " << loc <<
-                KFS_LOG_EOM;
-                return false;
-            }
-            mHibernatingServers.insert(it, HibernatingServerInfo(
-                loc, retStart, max(int64_t(0), retDown), server->IsReplay())
-            )->retiredFlag = retiredFlag;
+    if (retiringFlag || 0 <= retDown) {
+        server->SetRetiring(retStart, retDown);
+    }
+    if (server->IsHibernating()) {
+        HibernatedServerInfos::iterator it;
+        if (FindHibernatingCSInfo(loc, &it)) {
+            KFS_LOG_STREAM_ERROR <<
+                "duplicate retiring server: " << loc <<
+            KFS_LOG_EOM;
+            return false;
         }
+        mHibernatingServers.insert(it, HibernatingServerInfo(
+            loc, retStart, max(int64_t(0), retDown), server->IsReplay())
+        )->retiredFlag = retiredFlag;
     }
     if (server->IsReplay()) {
         mReplayServerCount++;
@@ -5468,19 +5467,27 @@ LayoutManager::FindHibernatingCS(const ServerLocation& loc,
     return mChunkToServerMap.GetHiberantedServer(hs->csmapIdx);
 }
 
+bool
+LayoutManager::Validate(MetaRetireChunkserver& req)
+{
+    if (0 != req.status) {
+        return false;
+    }
+    if (mAllowChunkServerRetireFlag || 0 < req.nSecsDown) {
+        return true;
+    }
+    req.status    = -EPERM;
+    req.statusMsg = "chunk server retire is deprecated,"
+        "please use chunk directory evacuation ";
+    KFS_LOG_STREAM_INFO << req.statusMsg <<
+    KFS_LOG_EOM;
+    return false;
+}
+
 void
 LayoutManager::RetireServer(MetaRetireChunkserver& req)
 {
     if (0 != req.status) {
-        return;
-    }
-    if (! req.replayFlag &&
-            ! mAllowChunkServerRetireFlag && req.nSecsDown <= 0) {
-        req.status    = -EPERM;
-        req.statusMsg = "chunk server retire is deprecated,"
-            "please use chunk directory evacuation ";
-        KFS_LOG_STREAM_INFO << req.statusMsg <<
-        KFS_LOG_EOM;
         return;
     }
     Servers::const_iterator const si = FindServer(req.location);
@@ -5498,26 +5505,11 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
         req.statusMsg = "no such server";
         return;
     }
-
-    mMightHaveRetiringServersFlag = true;
     ChunkServerPtr const server(*si);
-    if (server->IsRetiring()) {
-        KFS_LOG_STREAM_INFO <<
-            "server: " << req.location <<
-            " has already retiring status" <<
-            " down time: " << req.nSecsDown <<
-        KFS_LOG_EOM;
-        if (req.nSecsDown <= 0) {
-            // The server is already retiring.
-            return;
-        }
-        // Change from retiring to hibernating state.
-    }
-
-    server->SetRetiring(req.startTime, (int)req.nSecsDown);
-    if (0 < req.nSecsDown) {
+    server->SetRetiring(req.startTime, req.nSecsDown);
+    if (server->IsHibernating()) {
         HibernatedServerInfos::iterator it;
-        HibernatingServerInfo* const hs =
+        HibernatingServerInfo* const    hs =
             FindHibernatingCSInfo(req.location, &it);
         if (hs) {
             hs->sleepEndTime = req.startTime + req.nSecsDown;
@@ -5532,12 +5524,11 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
         server->Retire(); // Remove when connection will go down.
         return;
     }
-
+    mMightHaveRetiringServersFlag = true;
     if (server->GetChunkCount() <= 0) {
         server->Retire();
         return;
     }
-
     InitCheckAllChunks();
     return;
 }
@@ -5629,7 +5620,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
     bool isPossibleCandidate = canBeCandidateFlag &&
         srv.GetAvailSpace() >= mChunkAllocMinAvailSpace &&
         srv.IsResponsiveServer() &&
-        ! srv.IsRetiring() &&
+        ! srv.IsHibernatingOrRetiring() &&
         ! srv.IsRestartScheduled();
     int candidateTiersCount = 0;
     int racksCandidatesDelta[kKfsSTierCount];
@@ -5671,7 +5662,7 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
                 " writes: "     << srv.GetNumChunkWrites() <<
                 " responsive: " << srv.IsResponsiveServer() <<
                 " restart: "    << srv.IsRestartScheduled() <<
-                " retiring: "   << srv.IsRetiring() <<
+                " retiring: "   << srv.IsHibernatingOrRetiring() <<
             KFS_LOG_EOM;
         }
         racksCandidatesDelta[i] = flag ? 1 : -1;
@@ -6095,7 +6086,7 @@ LayoutManager::AllocateChunk(
             if (! cs.IsResponsiveServer()) {
                 notResponsiveCount[i]++;
             }
-            if (cs.IsRetiring()) {
+            if (cs.IsHibernatingOrRetiring()) {
                 retiringCount[i]++;
             }
             if (cs.IsRestartScheduled()) {
@@ -6121,7 +6112,7 @@ LayoutManager::AllocateChunk(
                 " util: "             <<
                     cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
                 " max util: "         << mMaxSpaceUtilizationThreshold <<
-                " retire: "           << cs.IsRetiring() <<
+                " retire: "           << cs.IsHibernatingOrRetiring() <<
                 " responsive: "       << cs.IsResponsiveServer() <<
             KFS_LOG_EOM;
         }
@@ -7406,7 +7397,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
 void
 LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
 {
-    if (r->server->IsDown() || r->server->IsRetiring()) {
+    if (r->server->IsDown() || r->server->IsHibernatingOrRetiring()) {
         return;
     }
     r->server->UpdateSpace(*r);
@@ -10780,7 +10771,7 @@ LayoutManager::ChunkReplicationDone(MetaChunkReplicate* req)
                 mMaxConcurrentWriteReplicationsPerNode) ||
             (req->server->GetNumChunkReplications() * 5 / 4 <
                 mMaxConcurrentWriteReplicationsPerNode &&
-            ! req->server->IsRetiring() &&
+            ! req->server->IsHibernatingOrRetiring() &&
             ! req->server->IsDown())) {
         mChunkReplicator.ScheduleNext();
     }
@@ -11756,7 +11747,8 @@ LayoutManager::ExecuteRebalancePlan(
     int64_t maxTime, int& nextTimeCheck)
 {
     serverDownFlag = false;
-    if (! mIsExecutingRebalancePlan || c->IsRetiring() || c->IsDown()) {
+    if (! mIsExecutingRebalancePlan || c->IsHibernatingOrRetiring() ||
+            c->IsDown()) {
         c->ClearChunksToMove();
         return 0;
     }
