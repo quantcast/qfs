@@ -22,6 +22,6 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
     fi
 
     CMD="$CMD && make gtest tarball"
-    docker run --rm -v $(pwd):$(pwd) -w $(pwd) $DISTRO:$VER /bin/bash -c "$CMD"
+    docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER /bin/bash -c "$CMD"
 fi
 
