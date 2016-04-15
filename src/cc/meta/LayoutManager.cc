@@ -5286,11 +5286,9 @@ LayoutManager::Handle(MetaBye& req)
             server->GetChecksum() == req.cIdChecksum)) {
         // In flight "log in flight", or "log completion" at the time when bye
         // was submitted might result in mismatch.
-        KFS_LOG_STREAM((req.completionInFlightFlag ||
-                req.completionInFlightFlag || server->IsReplay()) ?
-                MsgLogger::kLogLevelDEBUG :
-                MsgLogger::kLogLevelERROR) <<
-            "chunk server bye inventory mismatch" <<
+        // Due to non stable chunks handling the secondaries has chunk super set
+        // of the primary.
+        KFS_LOG_STREAM_DEBUG << "bye:"
             " server: "      << server->GetServerLocation() <<
             " chunk count: " << server->GetChunkCount() <<
             " expected: "    << req.chunkCount <<
@@ -5298,8 +5296,6 @@ LayoutManager::Handle(MetaBye& req)
             " expected: "    << req.cIdChecksum <<
             " "              << req.Show() <<
         KFS_LOG_EOM;
-         // For now do not set error code as chunk inventory during replay
-         // might be different due to pending non stable chunk ops.
     }
     RackInfos::iterator const rackIter = FindRack(server->GetRack());
     if (rackIter != mRacks.end()) {
