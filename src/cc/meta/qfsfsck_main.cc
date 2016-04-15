@@ -32,6 +32,7 @@
 #include "Checkpoint.h"
 #include "Restorer.h"
 #include "Replay.h"
+#include "LayoutManager.h"
 
 #include "tools/MonClient.h"
 #include "common/MsgLogger.h"
@@ -41,6 +42,9 @@
 #include "libclient/KfsClient.h"
 
 #include <iostream>
+#include <fstream>
+
+#include <unistd.h>
 
 namespace KFS
 {
@@ -49,6 +53,7 @@ using namespace KFS::client;
 
 using std::cout;
 using std::cerr;
+using std::fstream;
 
 static bool
 getFsckInfo(MonClient& client, const ServerLocation& loc,
@@ -108,6 +113,78 @@ restoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
 }
 
 static int
+runFsck(const string& tmpName, bool reportAbandonedFilesFlag)
+{
+    const int cnt = gLayoutManager.FsckStreamCount(reportAbandonedFilesFlag);
+    if (cnt <= 0) {
+        KFS_LOG_STREAM_ERROR << "internal error" << KFS_LOG_EOM;
+        return -EINVAL;
+    }
+    const char* const    suffix    = ".XXXXXX";
+    const size_t         suffixLen = strlen(suffix);
+    StBufferT<char, 128> buf;
+    fstream*  const      streams   = new fstream[cnt];
+    ostream** const      ostreams  = new ostream*[cnt + 1];
+    int                  status    = 0;
+    ostreams[cnt] = 0;
+    for (int i = 0; i < cnt; i++) {
+        char* const ptr = buf.Resize(tmpName.length() + suffixLen + 1);
+        memcpy(ptr, tmpName.data(), tmpName.size());
+        strcpy(ptr + tmpName.size(), suffix);
+        const int tfd = mkstemp(ptr);
+        if (tfd < 0) {
+            status = errno > 0 ? -errno : -EINVAL;
+            KFS_LOG_STREAM_ERROR <<
+                "failed to create temporary file: " << ptr <<
+                QCUtils::SysError(-status) <<
+            KFS_LOG_EOM;
+            close(tfd);
+            break;
+        }
+        streams[i].open(ptr, fstream::in | fstream::out);
+        close(tfd);
+        unlink(ptr);
+        if (! streams[i]) {
+            status = errno > 0 ? -errno : -EINVAL;
+            KFS_LOG_STREAM_ERROR <<
+                "failed to open temporary file: " << ptr <<
+                QCUtils::SysError(-status) <<
+            KFS_LOG_EOM;
+            break;
+        }
+        ostreams[i] = streams + i;
+    }
+    if (0 == status) {
+        status = gLayoutManager.Fsck(
+            ostreams, reportAbandonedFilesFlag) ? 0 : -EINVAL;
+        char* const  ptr = buf.Resize(128 << 10);
+        const size_t len = buf.GetSize();
+        for (int i = 0; i < cnt; i++) {
+            streams[i].flush();
+            streams[i].seekp(0);
+            while (cout && streams[i]) {
+                streams[i].read(ptr, len);
+                cout.write(ptr, streams[i].gcount());
+            }
+            if (! streams[i].eof()) {
+                status = errno > 0 ? -errno : -EINVAL;
+                KFS_LOG_STREAM_ERROR <<
+                    "io error: " << QCUtils::SysError(-status) <<
+                KFS_LOG_EOM;
+                while (i < cnt) {
+                    streams[i].close();
+                }
+                break;
+            }
+            streams[i].close();
+        }
+    }
+    delete [] streams;
+    delete [] ostreams;
+    return status;
+}
+
+static int
 FsckMain(int argc, char** argv)
 {
     // use options: -l for logdir -c for checkpoint dir
@@ -125,8 +202,11 @@ FsckMain(int argc, char** argv)
     int                 timeoutSec               = 30 * 60;
     bool                includeLastLogFlag       = false;
     MsgLogger::LogLevel logLevel                 = MsgLogger::kLogLevelINFO;
+    string              tmpNamePrefix            = "tmp";
+    bool                runFsckFlag              = false;
 
-    while ((optchar = getopt(argc, argv, "hl:c:m:p:L:a:t:s:e:f:A:v")) != -1) {
+    while ((optchar = getopt(argc, argv,
+            "hl:c:m:p:L:a:t:s:e:f:A:vT:Fn")) != -1) {
         switch (optchar) {
             case 'L':
                 lockFn = optarg;
@@ -165,6 +245,12 @@ FsckMain(int argc, char** argv)
             case 'v':
                 logLevel = MsgLogger::kLogLevelDEBUG;
                 break;
+            case 'T':
+                tmpNamePrefix = optarg;
+                break;
+            case 'F':
+                runFsckFlag = true;
+                break;
             default:
                 ok = false;
                 break;
@@ -185,6 +271,8 @@ FsckMain(int argc, char** argv)
             "[-f <config file>]\n"
             "[-A {0|1} include last log segment]\n"
             "[-v verbose tracing]\n"
+            "[-T temporary name prefix to produce fsck report]\n"
+            "[-F emit fsck report after restore and replay]\n"
         ;
         return (ok ? 0 : 1);
     }
@@ -204,10 +292,14 @@ FsckMain(int argc, char** argv)
         metatree.disableFidToPathname();
         checkpointer_setup_paths(cpdir);
         replayer.setLogDir(logdir.c_str());
+        gLayoutManager.ReplaySetRack(true);
         ok =
             restoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
             replayer.playLogs(includeLastLogFlag) == 0
         ;
+        if (ok && runFsckFlag) {
+            ok = 0 == runFsck(tmpNamePrefix, reportAbandonedFilesFlag);
+        }
     }
     MdStream::Cleanup();
 

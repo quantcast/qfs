@@ -4589,7 +4589,7 @@ typedef LinearHash<
     // StdFastAllocator<KeyOnlyFattrPtr>
 > MetaFattrSet;
 
-void
+bool
 LayoutManager::Fsck(ostream& os, bool reportAbandonedFilesFlag)
 {
     // Do full scan, for added safety: the replication lists don't have to
@@ -4726,6 +4726,7 @@ LayoutManager::Fsck(ostream& os, bool reportAbandonedFilesFlag)
             "\n";
         }
     }
+    return files[kLostSet].IsEmpty();
 }
 
 class LayoutManager::FilesChecker
@@ -4885,10 +4886,10 @@ public:
         mStopFlag   = true;
     }
     const string& GetStopReason() const { return mStopReason; }
-    void Report(size_t chunkCount)
+    bool Report(size_t chunkCount)
     {
         if (! mOs[kStateNone]) {
-            return;
+            return (0 == mFileCounts[kLost]);
         }
         const char* const kStateNames[kStateCount] = {
             "none",
@@ -4990,6 +4991,7 @@ public:
             " recovery_stripes stripe_size chunk_count mtime"
             " path]\n"
         ;
+        return (0 == mFileCounts[kLost]);
     }
 private:
     typedef vector<const MetaDentry*> Path;
@@ -5195,16 +5197,18 @@ LayoutManager::FsckStreamCount(bool reportAbandonedFilesFlag) const
         FilesChecker::GetStreamsCount(reportAbandonedFilesFlag) : 1);
 }
 
-void
+bool
 LayoutManager::Fsck(ostream** os, bool reportAbandonedFilesFlag)
 {
     if (mFullFsckFlag) {
         FilesChecker fsck(*this, mMaxFsckFiles, os);
         metatree.iterateDentries(fsck);
-        fsck.Report(mChunkToServerMap.Size());
-    } else if (os && os[0]) {
-        Fsck(*(os[0]), reportAbandonedFilesFlag);
+        return fsck.Report(mChunkToServerMap.Size());
     }
+    if (os && os[0]) {
+        return Fsck(*(os[0]), reportAbandonedFilesFlag);
+    }
+    return false;
 }
 
 void

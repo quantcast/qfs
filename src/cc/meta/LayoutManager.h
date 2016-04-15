@@ -1121,7 +1121,7 @@ public:
     /// back files that are under-replicated.
     /// Returns true if the system is healthy.
     int  FsckStreamCount(bool reportAbandonedFilesFlag) const;
-    void Fsck(ostream** os, bool reportAbandonedFilesFlag);
+    bool Fsck(ostream** os, bool reportAbandonedFilesFlag);
 
     /// For monitoring purposes, dump out state of all the
     /// connected chunk servers.
@@ -2573,7 +2573,7 @@ protected:
     void CSMapUnitTest(const Properties& props);
     int64_t GetMaxCSUptime() const;
     bool ReadRebalancePlan(size_t nread);
-    void Fsck(ostream &os, bool reportAbandonedFilesFlag);
+    bool Fsck(ostream &os, bool reportAbandonedFilesFlag);
     void CheckFile(
         FilesChecker&     fsck,
         const MetaDentry& de,
