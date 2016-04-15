@@ -3707,7 +3707,6 @@ LayoutManager::AddNewServer(MetaHello* r)
 
     ChunkIdQueue                          staleChunkIds;
     HibernatedChunkServer::ModifiedChunks modififedChunks;
-    size_t                                hibernatedIdx = ~size_t(0);
     if (0 <= r->resumeStep) {
         HibernatedServerInfos::iterator it;
         HibernatedChunkServer* const    cs =
@@ -3721,10 +3720,9 @@ LayoutManager::AddNewServer(MetaHello* r)
                 *r, mChunkToServerMap, staleChunkIds, modififedChunks)) {
             return;
         }
-        hibernatedIdx = it->csmapIdx;
-        assert((int)hibernatedIdx == cs->GetIndex());
+        assert((int)it->csmapIdx == cs->GetIndex());
         if (! mChunkToServerMap.ReplaceHibernatedServer(
-                r->server, hibernatedIdx)) {
+                r->server, it->csmapIdx)) {
             panic("failed to replace hibernated server");
             r->statusMsg = "internal error";
             r->status    = -EFAULT;
