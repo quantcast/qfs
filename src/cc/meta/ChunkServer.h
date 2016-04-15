@@ -925,7 +925,7 @@ protected:
     void Enqueue(MetaChunkRequest* r, int timeout,
         bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
     void Enqueue(MetaChunkRequest* r, int timeout,
-        bool staleChunkIdFlag, bool loggedFlag) {
+            bool staleChunkIdFlag, bool loggedFlag) {
         Enqueue(r, timeout, staleChunkIdFlag, loggedFlag, false);
     }
     void Enqueue(MetaChunkRequest* r, int timeout, bool staleChunkIdFlag) {

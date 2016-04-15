@@ -2990,6 +2990,7 @@ MetaHello::log(ostream& os) const
         "/d/" << deletedCount <<
         "/r/" << resumeStep <<
         "/t/" << timeUsec <<
+        "/r/" << rackId <<
         "/z/" << logseq
     ;
     const ChunkInfos* const infos[] =

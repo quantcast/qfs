@@ -90,7 +90,6 @@ using std::less;
 using std::equal_to;
 using std::deque;
 using std::ostream;
-using std::ostringstream;
 using std::find;
 using std::ifstream;
 using std::lower_bound;
@@ -1443,7 +1442,7 @@ public:
     bool RestoreChunkServer(const ServerLocation& loc,
         size_t idx, size_t chunks, const CIdChecksum& chksum,
         bool retiringFlag, int64_t retStart, int64_t retDown,
-        bool retiredFlag);
+        bool retiredFlag, RackId rackId);
     const ChunkServerPtr& RestoreGetChunkServer() const
         { return mRestoreChunkServerPtr; }
     void RestoreClearChunkServer()
@@ -1461,6 +1460,8 @@ public:
     bool Restore(MetaChunkInfo& info,
         const char* restoreIdxs, size_t restoreIdxsLen, bool hexFmtFlag);
     void StartServicing();
+    void ReplaySetRack(bool flag)
+        { mReplaySetRackFlag = flag; }
 protected:
     typedef vector<
         int,
@@ -2261,6 +2262,7 @@ protected:
     typedef vector<string>             ChunkServersMd5sums;
     bool                mRackPrefixUsePortFlag;
     bool                mUseCSRackAssignmentFlag;
+    bool                mReplaySetRackFlag;
     RackPrefixes        mRackPrefixes;
     RackWeights         mRackWeights;
     ChunkServersMd5sums mChunkServerMd5sums;
@@ -2625,6 +2627,7 @@ protected:
     template<typename T>
     bool GetAccessProxy(T& req, Servers& servers);
     void Replay(MetaHello& req);
+    void SetRack(const ChunkServerPtr& server, RackId rackId);
     template<typename T> const ChunkServerPtr* ReplayFindServer(
         const ServerLocation& loc, T& req);
     template<typename T> bool HandleReplay(T& req);

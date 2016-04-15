@@ -602,9 +602,13 @@ restore_chunk_server_start(DETokenizer& c)
     if (! pop_num(n, "replay", c, true) && 1 != n && 0 != n) {
         return false;
     }
+    n = -1;
+    if (! pop_num(n, "rack", c, true)) {
+        n = -1;
+    }
     return gLayoutManager.RestoreChunkServer(
         loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag,
-        retstart, retdown, retiredFlag);
+        retstart, retdown, retiredFlag, (LayoutManager::RackId)n);
 }
 
 static bool

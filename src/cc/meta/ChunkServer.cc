@@ -3328,7 +3328,8 @@ ChunkServer::Checkpoint(ostream& ost)
         "/retirestart/" << mRetireStartTime <<
         "/retiredown/"  << mHibernateDownTime <<
         "/retired/"     << (mRetiredFlag ? 1 : 0) <<
-        "/replay/"      << (mReplayFlag ? 1 : 0)
+        "/replay/"      << (mReplayFlag ? 1 : 0) <<
+        "/rack/"        << mRackId
     ;
     size_t              cnt   = 0;
     const TimeoutEntry* entry = &mDoneTimedoutList;

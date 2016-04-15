@@ -1700,6 +1700,7 @@ LayoutManager::LayoutManager() :
     mMightHaveRetiringServersFlag(false),
     mRackPrefixUsePortFlag(false),
     mUseCSRackAssignmentFlag(false),
+    mReplaySetRackFlag(false),
     mRackPrefixes(),
     mRackWeights(),
     mChunkServerMd5sums(),
@@ -2694,6 +2695,12 @@ LayoutManager::Start(MetaHello& r)
         r.status = -EFAULT;
         return;
     }
+    if (! mUseCSRackAssignmentFlag || r.rackId < 0) {
+        RackId const rackId = GetRackId(r.location);
+        if (0 <= rackId) {
+            r.rackId = rackId;
+        }
+    }
     (*i)->ScheduleDown("chunk server re-connect");
 }
 
@@ -3372,8 +3379,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
 void
 LayoutManager::Handle(MetaChunkLogCompletion& req)
 {
-    if (! req.doneOp != req.replayFlag ||
-            (req.replayFlag && -ELOGFAILED == req.status)) {
+    if (! req.doneOp != req.replayFlag || (req.replayFlag && 0 != req.status)) {
         panic("invalid chunk log completion");
         req.status = -EFAULT;
         return;
@@ -3501,8 +3507,14 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
 bool
 LayoutManager::RestoreChunkServer(
     const ServerLocation& loc,
-    size_t idx, size_t chunks, const CIdChecksum& chksum,
-    bool retiringFlag, int64_t retStart, int64_t retDown, bool retiredFlag)
+    size_t                idx,
+    size_t                chunks,
+    const CIdChecksum&    chksum,
+    bool                  retiringFlag,
+    int64_t               retStart,
+    int64_t               retDown,
+    bool                  retiredFlag,
+    LayoutManager::RackId rackId)
 {
     if (mRestoreChunkServerPtr) {
         return false;
@@ -3529,6 +3541,9 @@ LayoutManager::RestoreChunkServer(
     );
     if (! mChunkToServerMap.RestoreServer(server, idx, chunks, chksum)) {
         return false;
+    }
+    if (! server->IsReplay() || mReplaySetRackFlag) {
+        SetRack(server, rackId);
     }
     server->HelloDone(0);
     if (retiringFlag || 0 <= retDown) {
@@ -3605,6 +3620,34 @@ LayoutManager::Replay(MetaHello& req)
         if (req.peerName.empty()) {
             req.peerName = "replay";
         }
+    }
+}
+
+void
+LayoutManager::SetRack(const ChunkServerPtr& server,
+    LayoutManager::RackId rackId)
+{
+    server->SetRack(rackId);
+    if (0 <= rackId) {
+        RackInfos::iterator const rackIter = lower_bound(
+            mRacks.begin(), mRacks.end(),
+            rackId, bind(&RackInfo::id, _1) < rackId
+        );
+        if (rackIter != mRacks.end() && rackIter->id() == rackId) {
+            rackIter->addServer(server);
+        } else {
+            RackWeights::const_iterator const it =
+                mRackWeights.find(rackId);
+            mRacks.insert(rackIter, RackInfo(
+                rackId,
+                it != mRackWeights.end() ? it->second : double(1),
+                server
+            ));
+        }
+    } else {
+        KFS_LOG_STREAM_DEBUG << server->GetServerLocation() <<
+            ": no rack specified: " << rackId <<
+        KFS_LOG_EOM;
     }
 }
 
@@ -3721,41 +3764,10 @@ LayoutManager::AddNewServer(MetaHello* r)
     srv.SetSpace(r->totalSpace, r->usedSpace, allocSpace);
     // Ensure that rack exists before invoking UpdateSrvLoadAvg(), as it
     // can update rack possible allocation candidates count.
-    RackId rackId;
-    if (! srv.IsReplay()) {
-        if (mUseCSRackAssignmentFlag && 0 <= r->rackId) {
-            rackId = r->rackId;
-        } else {
-            rackId = GetRackId(srvId);
-            if (rackId < 0 && 0 <= r->rackId) {
-                rackId = r->rackId;
-            }
-        }
-        srv.SetRack(rackId);
-        if (rackId >= 0) {
-            RackInfos::iterator const rackIter = lower_bound(
-                mRacks.begin(), mRacks.end(),
-                rackId, bind(&RackInfo::id, _1) < rackId
-            );
-            if (rackIter != mRacks.end() && rackIter->id() == rackId) {
-                rackIter->addServer(r->server);
-            } else {
-                RackWeights::const_iterator const it =
-                    mRackWeights.find(rackId);
-                mRacks.insert(rackIter, RackInfo(
-                    rackId,
-                    it != mRackWeights.end() ? it->second : double(1),
-                    r->server
-                ));
-            }
-        } else {
-            KFS_LOG_STREAM_DEBUG << srvId <<
-                ": no rack specified: " << rackId <<
-            KFS_LOG_EOM;
-        }
+    if (! srv.IsReplay() || mReplaySetRackFlag) {
+        SetRack(r->server, r->rackId);
     } else {
-        rackId = -1;
-        srv.SetRack(rackId);
+        srv.SetRack(-1);
     }
     UpdateSrvLoadAvg(srv, 0, 0);
 
@@ -4032,7 +4044,9 @@ LayoutManager::AddNewServer(MetaHello* r)
     CheckHibernatingServersStatus();
 
     const char* msg = "added";
-    if (IsChunkServerRestartAllowed() && mCSToRestartCount < mMaxCSRestarting) {
+    if (! r->replayFlag &&
+            IsChunkServerRestartAllowed() &&
+            mCSToRestartCount < mMaxCSRestarting) {
         if (srv.Uptime() >= GetMaxCSUptime() &&
                 ! srv.IsDown() &&
                 ! srv.IsRestartScheduled()) {
@@ -4062,7 +4076,7 @@ LayoutManager::AddNewServer(MetaHello* r)
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " logseq: "             << r->logseq <<
         " resume: "             << r->resumeStep <<
-        " rack: "               << r->rackId << " => " << rackId <<
+        " rack: "               << r->rackId <<
         " checksum: "           << r->server->GetChecksum() <<
         " chunks: "             << r->server->GetChunkCount() <<
         " stable: "             << r->chunks.size() <<
@@ -4250,7 +4264,6 @@ LayoutManager::AddNotStableChunk(
     }
     return 0;
 }
-
 
 void
 LayoutManager::Done(MetaChunkVersChange& req)
@@ -5403,32 +5416,6 @@ LayoutManager::Handle(MetaBye& req)
         mSlavesCount--;
         mMastersCount++;
         mChunkServers.front()->SetCanBeChunkMaster(true);
-    }
-    if (0 < server->GetLogInFlightCount() ||
-            server->HasLogCompletionInFlight()) {
-        // Resubmit chunk server's log ops to effectively cancel them.
-        // The primary intention is to make test with log failure error
-        // simulation work by canceling all outstanding log requests before
-        // the next hello arrival.
-        RequestQueue queue;
-        queue.PushBack(mResubmitQueue);
-        MetaRequest*            req;
-        const MetaChunkRequest* op;
-        while ((req = queue.PopFront())) {
-            if ((META_CHUNK_OP_LOG_IN_FLIGHT == req->op &&
-                    static_cast<const MetaChunkLogInFlight*>(
-                        req)->server == server) ||
-                    (META_CHUNK_OP_LOG_COMPLETION == req->op &&
-                        (op = static_cast<const MetaChunkLogCompletion*>(
-                        req)->doneOp) && op->server == server)) {
-                KFS_LOG_STREAM_DEBUG <<
-                    "server down resubmitting: " << req->Show() <<
-                KFS_LOG_EOM;
-                ResubmitRequest(req);
-            } else {
-                mResubmitQueue.PushBack(*req);
-            }
-        }
     }
     UpdateReplicationsThreshold();
     ScheduleCleanup();
