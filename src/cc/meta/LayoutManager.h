@@ -93,6 +93,7 @@ using std::ostream;
 using std::find;
 using std::ifstream;
 using std::lower_bound;
+using std::ostringstream;
 using std::min;
 using boost::bind;
 using libkfsio::globalNetManager;
@@ -2437,12 +2438,19 @@ protected:
     StTmp<ChunkPlacement>::Tmp mChunkPlacementTmp;
 
     PrngIsaac64     mRandom;
+    ostringstream   mTempOstream;
     StorageTierInfo mStorageTierInfo[kKfsSTierCount];
     double          mTierSpaceUtilizationThreshold[kKfsSTierCount];
     int             mTiersMaxWritesPerDriveThreshold[kKfsSTierCount];
     int             mTiersMaxWritesPerDrive[kKfsSTierCount];
     double          mTiersTotalWritableDrivesMult[kKfsSTierCount];
     int             mTierCandidatesCount[kKfsSTierCount];
+
+    ostringstream& GetTempOstream()
+    {
+        mTempOstream.str(string());
+        return mTempOstream;
+    }
 
     void DeleteNonStableEntry(
         chunkId_t            chunkId,

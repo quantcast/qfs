@@ -1548,7 +1548,7 @@ LayoutManager::GetChunkVersionRollBack(chunkId_t chunkId)
     seq_t* const it = mChunkVersionRollBack.Find(chunkId);
     if (it) {
         if (*it <= 0) {
-            ostringstream os;
+            ostringstream& os = GetTempOstream();
             os <<
             "invalid chunk roll back entry:"
             " chunk: "             << chunkId <<
@@ -1569,7 +1569,7 @@ LayoutManager::IncrementChunkVersionRollBack(chunkId_t chunkId)
     bool insertedFlag = false;
     seq_t* const res = mChunkVersionRollBack.Insert(chunkId, 0, insertedFlag);
     if (! insertedFlag && *res <= 0) {
-        ostringstream os;
+        ostringstream& os = GetTempOstream();
         os <<
         "invalid chunk roll back entry:"
         " chunk: "             << chunkId <<
@@ -1825,7 +1825,8 @@ LayoutManager::LayoutManager() :
     mServers4Tmp(),
     mPlacementTiersTmp(),
     mChunkPlacementTmp(),
-    mRandom()
+    mRandom(),
+    mTempOstream()
 {
     globals();
     mReplicationTodoStats    = new Counter("Num Replications Todo");
@@ -3544,6 +3545,8 @@ LayoutManager::RestoreChunkServer(
     }
     if (! server->IsReplay() || mReplaySetRackFlag) {
         SetRack(server, rackId);
+    } else {
+        server->SetRack(rackId);
     }
     server->HelloDone(0);
     if (retiringFlag || 0 <= retDown) {
@@ -3767,7 +3770,7 @@ LayoutManager::AddNewServer(MetaHello* r)
     if (! srv.IsReplay() || mReplaySetRackFlag) {
         SetRack(r->server, r->rackId);
     } else {
-        srv.SetRack(-1);
+        srv.SetRack(r->rackId);
     }
     UpdateSrvLoadAvg(srv, 0, 0);
 
@@ -4128,6 +4131,17 @@ LayoutManager::AddNotStableChunk(
         return 0;
     }
     if (server->IsReplay()) {
+        // In hello replay add mapping if chunk exists, regardless of the
+        // version, effectively deferring decision to the primary. The primary
+        // will eventually issue stale chunk, make stable, and/or version
+        // change which will be written into the transaction log. The chunk
+        // server cannot make chunk stable on its own, it always must be
+        // instructed by the meta server to do so. The chunk server must
+        // report all non stable chunk in meta hello, and remove non stable
+        // chunks from chunk inventory checksum, it follows that even if the
+        // primary fails to make or convey its decision. the chunk will be in
+        // the hello on chunk server reconnect -- no need to add chunk to the
+        // set of chunk ids produced as a result of processing hello.
         AddHosted(chunkId, pinfo, server);
         return 0;
     }
@@ -5299,10 +5313,10 @@ LayoutManager::Handle(MetaBye& req)
             mRacks.erase(rackIter);
         }
     }
-
-    // Schedule to expire write leases, and invalidate record append cache.
-    mChunkLeases.ServerDown(server, mARAChunkCache, mChunkToServerMap);
-
+    if (! server->IsReplay()) {
+        // Schedule to expire write leases, and invalidate record append cache.
+        mChunkLeases.ServerDown(server, mARAChunkCache, mChunkToServerMap);
+    }
     const bool           canBeMaster = server->CanBeChunkMaster();
     const ServerLocation loc         = server->GetServerLocation();
     const size_t         blockCount  = server->GetChunkCount();
@@ -5314,6 +5328,7 @@ LayoutManager::Handle(MetaBye& req)
         "server down: "  << loc <<
         " block count: " << blockCount <<
         " master: "      << canBeMaster <<
+        " replay: "      << server->IsReplay() <<
         (reason.empty() ? "" : " reason: " ) << reason <<
         " "              << req.Show() <<
     KFS_LOG_EOM;
@@ -5354,7 +5369,7 @@ LayoutManager::Handle(MetaBye& req)
         reason = "Unreachable";
     }
     // for reporting purposes, record when it went down
-    ostringstream os;
+    ostringstream& os = GetTempOstream();
     os <<
         "s="        << loc.hostname <<
         ", p="      << loc.port <<
@@ -6706,7 +6721,7 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate* req)
                     entry->numAppendersInChunk < mMaxAppendersPerChunk) {
                 req->responseAccessStr.clear();
                 req->tokenSeq = (MetaAllocate::TokenSeq)mRandom.Rand();
-                ostringstream os;
+                ostringstream& os = GetTempOstream();
                 ReqOstream ros(os);
                 req->writeChunkAccess(ros);
                 req->responseAccessStr = os.str();
@@ -6774,7 +6789,7 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
 
     CSMap::Entry& entry = GetCsEntry(*chunk);
     if (entry.GetFattr() != srcFattr) {
-        ostringstream os;
+        ostringstream& os = GetTempOstream();
         os <<
             "coalesce blocks: chunk: " << chunk->chunkId <<
             " undexpected file attr: " << (void*)entry.GetFattr() <<
@@ -8498,7 +8513,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate* r)
     }
     if (r->initialChunkVersion + GetChunkVersionRollBack(r->chunkId) !=
             r->chunkVersion) {
-        ostringstream os;
+        ostringstream& os = GetTempOstream();
         os <<
         "invalid chunk version transition:" <<
         " "    << r->initialChunkVersion <<
@@ -11106,7 +11121,7 @@ LayoutManager::ProcessInvalidStripes(MetaChunkReplicate& req)
             " eof: "     << fa->filesize <<
         KFS_LOG_EOM;
         if (mPanicOnInvalidChunkFlag && 0 < fa->filesize) {
-            ostringstream os;
+            ostringstream& os = GetTempOstream();
             os <<
             "invalid chunk detected:"
             " <"         << req.fid <<
