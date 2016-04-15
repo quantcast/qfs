@@ -56,7 +56,7 @@ using std::cerr;
 using std::fstream;
 
 static bool
-getFsckInfo(MonClient& client, const ServerLocation& loc,
+GetFsckInfo(MonClient& client, const ServerLocation& loc,
     bool reportAbandonedFilesFlag, int timeoutSec)
 {
     client.SetMaxContentLength(512 << 20);
@@ -99,7 +99,7 @@ getFsckInfo(MonClient& client, const ServerLocation& loc,
 }
 
 static int
-restoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
+RestoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
 {
     if (! lockfn.empty()) {
         acquire_lockfile(lockfn, 10);
@@ -113,7 +113,7 @@ restoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
 }
 
 static int
-runFsck(const string& tmpName, bool reportAbandonedFilesFlag)
+RunFsck(const string& tmpName, bool reportAbandonedFilesFlag)
 {
     const int cnt = gLayoutManager.FsckStreamCount(reportAbandonedFilesFlag);
     if (cnt <= 0) {
@@ -286,19 +286,19 @@ FsckMain(int argc, char** argv)
         const ServerLocation loc(metahost, metaport);
         ok =
             client.SetParameters(loc, configFileName) >= 0 &&
-            getFsckInfo(client, loc, reportAbandonedFilesFlag, timeoutSec);
+            GetFsckInfo(client, loc, reportAbandonedFilesFlag, timeoutSec);
     }
     if (ok && (! logdir.empty() || ! cpdir.empty())) {
         metatree.disableFidToPathname();
         checkpointer_setup_paths(cpdir);
         replayer.setLogDir(logdir.c_str());
-        gLayoutManager.ReplaySetRack(true);
+        gLayoutManager.ReplaySetRack(runFsckFlag);
         ok =
-            restoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
+            RestoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
             replayer.playLogs(includeLastLogFlag) == 0
         ;
         if (ok && runFsckFlag) {
-            ok = 0 == runFsck(tmpNamePrefix, reportAbandonedFilesFlag);
+            ok = 0 == RunFsck(tmpNamePrefix, reportAbandonedFilesFlag);
         }
     }
     MdStream::Cleanup();
