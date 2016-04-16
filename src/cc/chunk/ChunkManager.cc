@@ -3420,8 +3420,12 @@ ChunkManager::MarkChunkStale(ChunkInfoHandle* cih, KfsCallbackObj* cb)
 }
 
 int
-ChunkManager::StaleChunk(kfsChunkId_t chunkId,
-    bool forceDeleteFlag, bool evacuatedFlag, kfsSeq_t availChunksSeq)
+ChunkManager::StaleChunk(
+    kfsChunkId_t chunkId,
+    bool         forceDeleteFlag,
+    bool         evacuatedFlag,
+    kfsSeq_t     availChunksSeq,
+    KfsOp*       op)
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
     if (! ci) {
@@ -3498,23 +3502,29 @@ ChunkManager::StaleChunk(kfsChunkId_t chunkId,
             }
         }
     }
-    return StaleChunk(cih, forceDeleteFlag, evacuatedFlag);
+    return StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op);
 }
 
 int
-ChunkManager::StaleChunk(kfsChunkId_t chunkId,
-    bool forceDeleteFlag, bool evacuatedFlag)
+ChunkManager::StaleChunk(
+    kfsChunkId_t chunkId,
+    bool         forceDeleteFlag,
+    bool         evacuatedFlag,
+    KfsOp*       op)
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
     if (! ci) {
         return -EBADF;
     }
-    return StaleChunk(*ci, forceDeleteFlag, evacuatedFlag);
+    return StaleChunk(*ci, forceDeleteFlag, evacuatedFlag, op);
 }
 
 int
-ChunkManager::StaleChunk(ChunkInfoHandle* cih,
-    bool forceDeleteFlag, bool evacuatedFlag, KfsOp* op)
+ChunkManager::StaleChunk(
+    ChunkInfoHandle* cih,
+    bool             forceDeleteFlag,
+    bool             evacuatedFlag,
+    KfsOp*           op)
 {
     if (! cih) {
         die("null chunk table entry");
@@ -6132,38 +6142,79 @@ class StaleChunkDeleteCompletion : public KfsCallbackObj
 public:
     static KfsCallbackObj& Make(KfsCallbackObj& cb, KfsCallbackObj* otherCb)
     {
-        if (otherCb) {
-            return *(new StaleChunkDeleteCompletion(cb, *otherCb));
+        if (! otherCb) {
+            return cb;
         }
-        return cb;
+        StaleChunkDeleteCompletion* const ret = sFreeList.Get();
+        if (ret) {
+            ret->mCbPtr      = &cb;
+            ret->mOtherCbPtr = otherCb;
+            return *ret;
+        }
+        return *(new StaleChunkDeleteCompletion(cb, *otherCb));
     }
 private:
     StaleChunkDeleteCompletion(KfsCallbackObj& cb, KfsCallbackObj& otherCb)
         : KfsCallbackObj(),
-          mCb(cb),
-          mOtherCb(otherCb),
-          mDoneFlag(false)
+          mCbPtr(&cb),
+          mOtherCbPtr(&otherCb)
         { SET_HANDLER(this, &StaleChunkDeleteCompletion::Done); }
     virtual ~StaleChunkDeleteCompletion()
     {
-        if (mDoneFlag) {
-            return;
+        if (mOtherCbPtr) {
+            die("StaleChunkDeleteCompletion: invalid destructor invocation");
         }
-        int ret = -EIO;
-        mOtherCb.HandleEvent(EVENT_DISK_ERROR, &ret);
     }
     int Done(int code, void* data)
     {
-        mDoneFlag = true;
-        const int ret = mOtherCb.HandleEvent(code, data);
-        mCb.HandleEvent(code, data);
-        delete this;
+        if (! mOtherCbPtr) {
+            die("StaleChunkDeleteCompletion: invalid completion invocation");
+        }
+        KfsCallbackObj& other = *mOtherCbPtr;
+        mOtherCbPtr = 0;
+        const int ret = other.HandleEvent(code, data);
+        mCbPtr->HandleEvent(code, data);
+        sFreeList.Put(*this);
         return ret;
     }
-    KfsCallbackObj& mCb;
-    KfsCallbackObj& mOtherCb;
-    bool            mDoneFlag;
+    KfsCallbackObj* mCbPtr;
+    KfsCallbackObj* mOtherCbPtr;
+
+    class FreeList
+    {
+    public:
+        FreeList()
+            : mHeadPtr(0)
+            {}
+        ~FreeList()
+        {
+            StaleChunkDeleteCompletion* cur;
+            while ((cur = Get())) {
+                cur->mOtherCbPtr = 0;
+                delete cur;
+            }
+        }
+        void Put(StaleChunkDeleteCompletion& entry)
+        {
+            entry.mOtherCbPtr = mHeadPtr;
+            mHeadPtr = &entry;
+        }
+        StaleChunkDeleteCompletion* Get()
+        {
+            StaleChunkDeleteCompletion* const ret = mHeadPtr;
+            if (ret) {
+                mHeadPtr = static_cast<StaleChunkDeleteCompletion*>(
+                    ret->mOtherCbPtr);
+            }
+            return ret;
+        }
+    private:
+        StaleChunkDeleteCompletion* mHeadPtr;
+    };
+    static FreeList sFreeList;
+    friend class FreeList;
 };
+StaleChunkDeleteCompletion::FreeList StaleChunkDeleteCompletion::sFreeList;
 
 void
 ChunkManager::RunStaleChunksQueue(bool completionFlag)

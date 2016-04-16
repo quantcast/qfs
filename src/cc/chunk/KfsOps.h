@@ -905,12 +905,13 @@ struct HeartbeatOp : public KfsOp {
 
 struct StaleChunksOp : public KfsOp {
     typedef vector<kfsChunkId_t> StaleChunkIds;
-    int           contentLength; /* length of data that identifies the stale chunks */
+    int           contentLength;  /* request length */
     int           numStaleChunks; /* what the server tells us */
     bool          evacuatedFlag;
     bool          hexFormatFlag;
     kfsSeq_t      availChunksSeq;
-    StaleChunkIds staleChunkIds; /* data we parse out */
+    StaleChunkIds staleChunkIds;  /* data we parse out */
+    size_t        pendingCount;
 
     StaleChunksOp()
         : KfsOp(CMD_STALE_CHUNKS),
@@ -919,8 +920,9 @@ struct StaleChunksOp : public KfsOp {
           evacuatedFlag(false),
           hexFormatFlag(false),
           availChunksSeq(-1),
-          staleChunkIds()
-        {}
+          staleChunkIds(),
+          pendingCount(0)
+        { SET_HANDLER(this, &StaleChunksOp::Done); }
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
@@ -932,6 +934,7 @@ struct StaleChunksOp : public KfsOp {
     }
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is);
+    int Done(int code, void* data);
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)

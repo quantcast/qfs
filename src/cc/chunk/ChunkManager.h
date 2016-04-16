@@ -172,10 +172,17 @@ public:
     ///
     /// @param[in] chunkId id of the chunk being moved
     /// @retval status code
-    int StaleChunk(kfsChunkId_t chunkId,
-        bool forceDeleteFlag = false, bool evacuatedFlag = false);
-    int StaleChunk(kfsChunkId_t chunkId,
-        bool forceDeleteFlag, bool evacuatedFlag, kfsSeq_t availChunksSeq);
+    int StaleChunk(
+        kfsChunkId_t chunkId,
+        bool         forceDeleteFlag = false,
+        bool         evacuatedFlag   = false,
+        KfsOp*       op              = 0);
+    int StaleChunk(
+        kfsChunkId_t chunkId,
+        bool         forceDeleteFlag,
+        bool         evacuatedFlag,
+        kfsSeq_t     availChunksSeq,
+        KfsOp*       op);
 
     /// Truncate a chunk to the specified size
     /// @param[in] chunkId id of the chunk being truncated.

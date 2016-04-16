@@ -2084,19 +2084,45 @@ StaleChunksOp::ParseContent(istream& is)
 void
 StaleChunksOp::Execute()
 {
-    status = 0;
-    const bool forceDeleteFlag = true;
-    for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
-            it != staleChunkIds.end();
-            ++it) {
-        gChunkManager.StaleChunk(
-            *it, forceDeleteFlag, evacuatedFlag, availChunksSeq);
+    if (0 != pendingCount) {
+        die("delete stale chunks: invalid pending count in execute");
     }
     KFS_LOG_STREAM_INFO << "stale chunks: " <<
         (staleChunkIds.empty() ? kfsChunkId_t(-1) : staleChunkIds.front()) <<
         " count: " << staleChunkIds.size() <<
     KFS_LOG_EOM;
-    gLogger.Submit(this);
+    status = 0;
+    pendingCount = 0;
+    const bool forceDeleteFlag = true;
+    for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
+            it != staleChunkIds.end();
+            ++it) {
+        pendingCount++;
+        if (0 != gChunkManager.StaleChunk(
+                *it, forceDeleteFlag, evacuatedFlag, availChunksSeq, this)) {
+            pendingCount--;
+        }
+    }
+    if (pendingCount <= 0) {
+        gLogger.Submit(this);
+    }
+}
+
+int
+StaleChunksOp::Done(int code, void* data)
+{
+    if (code == EVENT_DISK_ERROR && 0 <= status) {
+        status = data ? *reinterpret_cast<const int*>(data) : -EIO;
+    }
+    if (pendingCount <= 0) {
+        die("delete stale chunks: invalid pending count in completion");
+    } else {
+        pendingCount--;
+    }
+    if (pendingCount <= 0) {
+        gLogger.Submit(this);
+    }
+    return 0;
 }
 
 void
