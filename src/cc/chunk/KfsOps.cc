@@ -2092,7 +2092,9 @@ StaleChunksOp::Execute()
         " count: " << staleChunkIds.size() <<
     KFS_LOG_EOM;
     status = 0;
-    pendingCount = 0;
+    // Set pending to 1 in order to protect against recursion, due to
+    // immediate / "synchronous" completion, by effectively self referencing.
+    pendingCount++;
     const bool forceDeleteFlag = true;
     for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
             it != staleChunkIds.end();
@@ -2103,6 +2105,7 @@ StaleChunksOp::Execute()
             pendingCount--;
         }
     }
+    pendingCount--;
     if (pendingCount <= 0) {
         gLogger.Submit(this);
     }
