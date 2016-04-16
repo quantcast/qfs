@@ -1222,7 +1222,7 @@ protected:
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
     InFlightChunks     mStaleChunkIdsInFlight;
-    InFlightChunks     mHelloReplayChunks;
+    InFlightChunks     mHelloReplayChunkIds;
     bool               mHelloReplayFlag;
     int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;

@@ -5273,7 +5273,7 @@ LayoutManager::Handle(MetaBye& req)
     const bool validFlag = mChunkToServerMap.Validate(server);
     Servers::const_iterator const i = FindServer(server->GetServerLocation());
     if (validFlag != (i != mChunkServers.end() && *i == server)) {
-        panic("stale server");
+        panic("bye: stale server");
         return;
     }
     if (! validFlag) {
@@ -5284,8 +5284,8 @@ LayoutManager::Handle(MetaBye& req)
             server->GetChecksum() == req.cIdChecksum)) {
         // In flight "log in flight", or "log completion" at the time when bye
         // was submitted might result in mismatch.
-        // Due to non stable chunks handling the secondaries has chunk super set
-        // of the primary.
+        // Due to non stable chunks replay handling the secondaries has chunk
+        // super set of the primary.
         KFS_LOG_STREAM_DEBUG << "bye:"
             " server: "      << server->GetServerLocation() <<
             " chunk count: " << server->GetChunkCount() <<
@@ -5296,16 +5296,14 @@ LayoutManager::Handle(MetaBye& req)
         KFS_LOG_EOM;
     }
     RackInfos::iterator const rackIter = FindRack(server->GetRack());
-    if (rackIter != mRacks.end()) {
-        rackIter->removeServer(server);
-        if (rackIter->getServers().empty()) {
-            // the entire rack of servers is gone
-            // so, take the rack out
-            KFS_LOG_STREAM_INFO << "all servers in rack " <<
-                server->GetRack() << " are down; taking out the rack" <<
-            KFS_LOG_EOM;
-            mRacks.erase(rackIter);
-        }
+    if (rackIter != mRacks.end() &&
+            rackIter->removeServer(server) &&
+            rackIter->getServers().empty()) {
+        // The entire rack of servers is gone take the rack out.
+        KFS_LOG_STREAM_INFO << "all servers in rack " <<
+            server->GetRack() << " are down; taking out the rack" <<
+        KFS_LOG_EOM;
+        mRacks.erase(rackIter);
     }
     if (! server->IsReplay()) {
         // Schedule to expire write leases, and invalidate record append cache.
@@ -5367,8 +5365,7 @@ LayoutManager::Handle(MetaBye& req)
     os <<
         "s="        << loc.hostname <<
         ", p="      << loc.port <<
-        ", down="   <<
-            DisplayDateTime(req.timeUsec) <<
+        ", down="   << DisplayDateTime(req.timeUsec) <<
         ", reason=" << reason <<
     "\t";
     mDownServers.push_back(os.str());

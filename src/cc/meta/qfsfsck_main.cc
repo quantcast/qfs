@@ -292,7 +292,6 @@ FsckMain(int argc, char** argv)
         metatree.disableFidToPathname();
         checkpointer_setup_paths(cpdir);
         replayer.setLogDir(logdir.c_str());
-        gLayoutManager.ReplaySetRack(runFsckFlag);
         ok =
             RestoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
             replayer.playLogs(includeLastLogFlag) == 0

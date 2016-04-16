@@ -652,12 +652,14 @@ public:
     void addServer(const ChunkServerPtr& server) {
         mServers.push_back(server);
     }
-    void removeServer(const ChunkServerPtr& server) {
+    bool removeServer(const ChunkServerPtr& server) {
         Servers::iterator const iter = find(
             mServers.begin(), mServers.end(), server);
         if (iter != mServers.end()) {
             mServers.erase(iter);
+            return true;
         }
+        return false;
     }
     const Servers& getServers() const {
         return mServers;
