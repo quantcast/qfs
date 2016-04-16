@@ -907,7 +907,7 @@ public:
     bool HasLogCompletionInFlight() const
         { return ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs); }
     void HelloEnd()
-        { mHelloReplayFlag = false; }
+        { mHelloProcessFlag = false; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -1222,8 +1222,8 @@ protected:
     MetaRequest*       mPendingResponseOpsTailPtr;
     InFlightChunks     mLastChunksInFlight;
     InFlightChunks     mStaleChunkIdsInFlight;
-    InFlightChunks     mHelloReplayChunkIds;
-    bool               mHelloReplayFlag;
+    InFlightChunks     mHelloChunkIds;
+    bool               mHelloProcessFlag;
     int64_t            mHelloDoneCount;
     int64_t            mHelloResumeCount;
     int64_t            mHelloResumeFailedCount;

@@ -6105,12 +6105,7 @@ MetaChunkLogInFlight::start()
 MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout,
     bool removeServerFlag)
 {
-    if (req.replayFlag ||
-            kLogIfOk == req.logAction ||
-            kLogAlways == req.logAction ||
-            req.chunkVersion < 0 || // do not log object store RPCs
-            (req.chunkId < 0 && ! req.GetChunkIds()) ||
-            0 != req.status) {
+    if (! IsToBeLogged(req)) {
         return false;
     }
     submit_request(new MetaChunkLogInFlight(&req, timeout,

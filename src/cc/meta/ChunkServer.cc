@@ -186,7 +186,8 @@ MakeAuthUid(const MetaHello& op, const string& authName)
     return authUid;
 }
 
-template<typename T> inline static void
+template<typename T>
+inline static void
 ProcessInFlightChunks(T& dest, const MetaChunkRequest& op, bool insertFlag)
 {
     if (op.chunkVersion < 0) {
@@ -212,16 +213,20 @@ ProcessInFlightChunks(T& dest, const MetaChunkRequest& op, bool insertFlag)
     }
 }
 
-template<typename T> inline static void
+template<typename T>
+inline static void
 AppendInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
     ProcessInFlightChunks(dest, op, true);
 }
 
-template<typename T> inline static void
+template<typename T>
+inline static void
 RemoveInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
-    ProcessInFlightChunks(dest, op, false);
+    if (! dest.IsEmpty()) {
+        ProcessInFlightChunks(dest, op, false);
+    }
 }
 
 const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
@@ -259,7 +264,8 @@ const int kMaxReadAhead             = 4 << 10;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
 const int kMaxRequestResponseHeader = 64 << 10;
 
-inline ChunkServer::DispatchedReqsIterator::DispatchedReqsIterator()
+inline
+ChunkServer::DispatchedReqsIterator::DispatchedReqsIterator()
 {
     BOOST_STATIC_ASSERT(sizeof(DispatchedReqs::iterator) <= sizeof(mStorage));
     QCVERIFY(
@@ -269,7 +275,8 @@ inline ChunkServer::DispatchedReqsIterator::DispatchedReqsIterator()
 }
 
 template<typename T>
-inline static void Destroy(T& ptr) { ptr.~T(); }
+inline static void
+Destroy(T& ptr) { ptr.~T(); }
 
 inline
 ChunkServer::DispatchedReqsIterator::~DispatchedReqsIterator()
@@ -391,13 +398,13 @@ ChunkServer::HelloDone(const MetaHello* r)
     if (mHelloDone) {
         return;
     }
-    mHelloDone         = true;
-    mHeartbeatSent     = true;
-    mLastHeartbeatSent = TimeNow();
-    mHelloReplayFlag   = mReplayFlag;
+    mHelloDone        = true;
+    mHeartbeatSent    = true;
+    mHelloProcessFlag = true;
     if (mDown || mReplayFlag) {
         return;
     }
+    mLastHeartbeatSent = TimeNow();
     Enqueue(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
             mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size()),
         2 * sHeartbeatTimeout
@@ -570,8 +577,8 @@ ChunkServer::ChunkServer(
       mPendingResponseOpsTailPtr(0),
       mLastChunksInFlight(),
       mStaleChunkIdsInFlight(),
-      mHelloReplayChunkIds(),
-      mHelloReplayFlag(false),
+      mHelloChunkIds(),
+      mHelloProcessFlag(false),
       mHelloDoneCount(0),
       mHelloResumeCount(0),
       mHelloResumeFailedCount(0),
@@ -2275,13 +2282,13 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     if (staleChunkIdFlag && 0 <= r->chunkId && 0 <= r->chunkVersion) {
         r->staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(r->chunkId);
     }
+    if (mHelloProcessFlag && MetaChunkLogInFlight::IsToBeLogged(*r)) {
+        AppendInFlightChunks(mHelloChunkIds, *r);
+    }
     if (mReplayFlag && ! r->replayFlag) {
         if (0 == r->submitCount) {
             r->submitTime = microseconds();
             r->submitCount++; // Bump to ensure request won't be logged.
-        }
-        if (mHelloReplayFlag) {
-            AppendInFlightChunks(mHelloReplayChunkIds, *r);
         }
         r->replayFlag = true;
         r->status     = -EIO;
@@ -2299,11 +2306,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         if (0 <= r->chunkId) {
             r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
         }
-        if (r->replayFlag) {
-            if (! restoreFlag) {
-                RemoveInFlightChunks(mHelloReplayChunkIds, *r);
-            }
-        } else {
+        if (! r->replayFlag) {
             mLogInFlightCount++;
             if (MetaChunkLogInFlight::Log(*r, timeout, removeReplicaFlag)) {
                 return;
@@ -2311,9 +2314,13 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
             mLogInFlightCount--;
         }
     }
-    if (0 <= r->logseq && 0 <= r->chunkId && 0 <= r->chunkVersion &&
-            ! restoreFlag) {
-        mDoneTimedoutChunks.Erase(r->chunkId);
+    if (! restoreFlag && 0 <= r->chunkVersion) {
+        if (0 <= r->logseq && 0 <= r->chunkId) {
+            mDoneTimedoutChunks.Erase(r->chunkId);
+        }
+        if (0 <= r->logseq || 0 <= r->logCompletionSeq) {
+            RemoveInFlightChunks(mHelloChunkIds, *r);
+        }
     }
     if (0 == r->submitCount) {
         r->submitTime = microseconds();
@@ -3313,8 +3320,7 @@ ChunkServer::Checkpoint(ostream& ost)
     if ((! mLastChunksInFlight.IsEmpty() && mNetConnection) ||
             mDown ||
             (mReplayFlag &&
-                ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) ||
-            (! mReplayFlag && ! mHelloReplayChunkIds.IsEmpty())) {
+                ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs))) {
         panic("chunk server: checkpoint: invalid state");
         return false;
     }
@@ -3346,8 +3352,8 @@ ChunkServer::Checkpoint(ostream& ost)
         CpInsertChunkId(os, "\ncss/", cnt, *id);
     }
     cnt = 0;
-    mHelloReplayChunkIds.First();
-    while ((id = mHelloReplayChunkIds.Next())) {
+    mHelloChunkIds.First();
+    while ((id = mHelloChunkIds.Next())) {
         CpInsertChunkId(os, "\ncsr/", cnt, *id);
     }
     os << "\n";
@@ -3385,7 +3391,7 @@ ChunkServer::Checkpoint(ostream& ost)
         "cse/" << mDoneTimedoutChunks.GetSize() <<
         "/"    << cnt <<
         "/"    << mStaleChunkIdsInFlight.Size() <<
-        "/"    << mHelloReplayChunkIds.Size() <<
+        "/"    << mHelloChunkIds.Size() <<
         "\n";
     return (!! ost);
 }
@@ -3411,13 +3417,13 @@ ChunkServer::Restore(int type, size_t idx, int64_t n)
         return (0 <= n && mStaleChunkIdsInFlight.Insert(n));
     }
     if ('r' == type) {
-        return (0 <= n && mHelloReplayChunkIds.Insert(n));
+        return (0 <= n && mHelloChunkIds.Insert(n));
     }
     return ('e' == type && 0 <= n && (3 < idx ||
         (0 == idx ? mDoneTimedoutChunks.GetSize() :
         (1 == idx ? mDispatchedReqs.size() :
         (2 == idx ? mStaleChunkIdsInFlight.Size() :
-                mHelloReplayChunkIds.Size()))) ==
+                mHelloChunkIds.Size()))) ==
         (size_t)n));
 }
 
@@ -3427,21 +3433,21 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkIdQueue& chunksDelete, uint64_t generation)
 {
     KFS_LOG_STREAM_DEBUG <<
-        " server: "              << GetServerLocation() <<
-        " index: "               << GetIndex() <<
-        " chunks: "              << GetChunkCount() <<
-        " in flight chunks: "    << mLastChunksInFlight.Size() <<
-        " hello replay chunks: " << mHelloReplayChunkIds.Size() <<
+        " server: "           << GetServerLocation() <<
+        " index: "            << GetIndex() <<
+        " chunks: "           << GetChunkCount() <<
+        " in flight chunks: " << mLastChunksInFlight.Size() <<
+        " hello chunks: "     << mHelloChunkIds.Size() <<
     KFS_LOG_EOM;
     ChunkServerPtr const srv = GetSelfPtr();
     for (int i = 0; i < 2; i++) {
         InFlightChunks& cur = i == 0 ?
-            mLastChunksInFlight : mHelloReplayChunkIds;
+            mLastChunksInFlight : mHelloChunkIds;
         const chunkId_t* id;
         cur.First();
         while ((id = cur.Next())) {
             if (0 == i) {
-                mHelloReplayChunkIds.Erase(*id);
+                mHelloChunkIds.Erase(*id);
             }
             const chunkId_t           chunkId = *id;
             const CSMap::Entry* const entry   = csMap.Find(chunkId);

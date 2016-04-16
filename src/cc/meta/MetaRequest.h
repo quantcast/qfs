@@ -2280,6 +2280,16 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     MetaChunkRequest* request;
     int               reqType;
 
+    static bool IsToBeLogged(const MetaChunkRequest& req) {
+        return  (
+            ! req.replayFlag &&
+            0 == req.status &&
+            kLogIfOk != req.logAction &&
+            kLogAlways != req.logAction &&
+            0 <= req.chunkVersion && // do not log object store RPCs
+            (0 <= req.chunkId || req.GetChunkIds())
+        );
+    }
     static bool Log(MetaChunkRequest& req, int timeout, bool removeServerFlag);
     static bool Checkpoint(ostream& os, const MetaChunkRequest& req);
     MetaChunkLogInFlight(
