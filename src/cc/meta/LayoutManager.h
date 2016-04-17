@@ -2542,10 +2542,6 @@ protected:
 
     inline bool IsChunkServerRestartAllowed() const;
     void ScheduleChunkServersRestart();
-    inline bool AddHosted(
-        CSMap::Entry& entry, const ChunkServerPtr& c, size_t* srvCount = 0);
-    inline bool AddHosted(
-        chunkId_t chunkId, CSMap::Entry& entry, const ChunkServerPtr& c);
     bool AddReplica(CSMap::Entry& entry, const ChunkServerPtr& c);
     void CheckChunkReplication(CSMap::Entry& entry);
     inline void UpdateReplicationState(CSMap::Entry& entry);
@@ -2625,6 +2621,10 @@ protected:
         return true;
     }
     void ScheduleResubmitOrCancel(MetaRequest& r);
+    inline bool AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c,
+        size_t* srvCount = 0);
+    inline bool AddHosted(chunkId_t chunkId, CSMap::Entry& entry,
+        const ChunkServerPtr& c);
     bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
     bool RunObjectBlockDeleteQueue();
     chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,

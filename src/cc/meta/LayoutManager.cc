@@ -3217,7 +3217,8 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
     }
     const MetaFattr&     fa = *(c.GetFattr());
     const MetaChunkInfo& ci = *(c.GetChunkInfo());
-    if (! server->IsDown() && ! fa.IsStriped() && fa.filesize < 0 &&
+    if (fa.filesize < 0 && ! fa.IsStriped() &&
+            ! server->IsDown() && ! server->IsReplay() &&
             ci.offset + (chunkOff_t)CHUNKSIZE >= fa.nextChunkOffset()) {
         KFS_LOG_STREAM_DEBUG << server->GetServerLocation() <<
             " chunk size: <" << fa.id() << "," << ci.chunkId << ">" <<
