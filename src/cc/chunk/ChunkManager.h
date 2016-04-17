@@ -987,8 +987,12 @@ private:
     int    mObjBlockDiscardMinMetaUptime;
     int    mObjStoreIoThreadCount;
 
-    PrngIsaac64       mRand;
-    ChunkHeaderBuffer mChunkHeaderBuffer;
+    PrngIsaac64 mRand;
+
+    class StaleChunkDeleteCompletion;
+    StaleChunkDeleteCompletion* mStaleChunkDeleteCompletionFreeList;
+
+    ChunkHeaderBuffer           mChunkHeaderBuffer;
 
     inline void Delete(ChunkInfoHandle& cih);
     inline void Release(ChunkInfoHandle& cih);
