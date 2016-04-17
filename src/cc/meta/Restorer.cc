@@ -604,11 +604,12 @@ restore_chunk_server_start(DETokenizer& c)
     }
     n = -1;
     if (! pop_num(n, "rack", c, true)) {
-        n = -1;
+        return false;
     }
+    const LayoutManager::RackId rack = (LayoutManager::RackId)n;
     return gLayoutManager.RestoreChunkServer(
         loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag,
-        retstart, retdown, retiredFlag, (LayoutManager::RackId)n);
+        retstart, retdown, retiredFlag, rack);
 }
 
 static bool

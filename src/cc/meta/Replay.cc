@@ -1497,9 +1497,10 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->timeUsec = n;
-        if (pop_num(n, "r", c, true) || 0 <= (int)n) {
-            op->rackId = (int)n;
+        if (! pop_num(n, "r", c, true)) {
+            return false;
         }
+        op->rackId = (int)n;
         if (! pop_num(n, "z", c, true) || n < 0) {
             return false;
         }
