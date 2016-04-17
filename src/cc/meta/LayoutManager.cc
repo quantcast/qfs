@@ -5890,11 +5890,11 @@ LayoutManager::AllocateChunk(
     StTmp<vector<kfsSTier_t> > tiersTmp(mPlacementTiersTmp);
     vector<kfsSTier_t>&        tiers = tiersTmp.Get();
 
-    // for non-record append case, take the server local to the machine on
-    // which the client is on make that the master; this avoids a network transfer.
-    // For the record append case, to avoid deadlocks when writing out large
-    // records, we are doing hierarchical allocation: a chunkserver that is
-    // a chunk master is never made a slave.
+    // For non-record append case, take the server local to the machine on
+    // which the client is on make that the master; this avoids a network
+    // transfer. For the record append case, to avoid deadlocks when writing
+    // out large records, we are doing hierarchical allocation: a chunkserver
+    // that is a chunk master is never made a slave.
     ChunkServerPtr localserver;
     int            replicaCnt = 0;
     Servers::const_iterator const li = (! (r->appendChunk ?
