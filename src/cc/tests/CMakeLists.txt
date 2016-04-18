@@ -58,7 +58,6 @@ foreach(test_dir ${test_dirs})
 endforeach()
 
 set(test_binary test.t)
-message(STATUS "Test sources: ${test_sources}")
 add_executable(${test_binary} ${test_sources})
 target_link_libraries(${test_binary} libgtest)
 

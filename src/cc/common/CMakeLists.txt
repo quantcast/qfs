@@ -78,7 +78,6 @@ set_target_properties (kfsCommon-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 target_link_libraries (kfsCommon qcdio)
 target_link_libraries (kfsCommon-shared qcdio-shared)
 
-#
 install (TARGETS kfsCommon-shared kfsCommon
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib/static)
