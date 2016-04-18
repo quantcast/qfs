@@ -26,7 +26,7 @@ using std::remove;
 using std::rename;
 using std::string;
 
-#define DEFAULT_MONITOR_LOG_DIRECTORY "/mnt/prime/shared/ram_monitor/qfsmonitor/"
+#define DEFAULT_MONITOR_LOG_DIRECTORY "/tmp/qfs-monitor/logs"
 
 string getLogPath()
 {
@@ -131,6 +131,7 @@ extern "C" void reportStatus(
 {
     int pid = getpid();
     string logFilePath = getLogPath();
+    logFilePath += "/";
     logFilePath += metaserverHost;
     logFilePath += "_";
     AppendDecIntToString(logFilePath, metaserverPort);
