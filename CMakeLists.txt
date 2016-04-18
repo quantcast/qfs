@@ -48,6 +48,9 @@ else()
     find_package(Boost COMPONENTS regex REQUIRED)
 endif()
 
+set(CMAKE_FIND_LIBRARY_PREFIXES ${CMAKE_FIND_LIBRARY_PREFIXES} "")
+set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} ".dll.a" ".lib")
+
 find_package(Jerasure REQUIRED)
 find_package(JNI REQUIRED)
 find_package(Krb5 REQUIRED krb5)
