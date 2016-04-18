@@ -52,7 +52,7 @@ int prepareLogPath(string monitorLogDir)
         int ret = mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
         if (ret == -1 && errno != EEXIST) {
             delete[] cstr;
-            perror("Monitor plugin can't create the log directory: ");
+            perror("Monitor plugin can't create the log directory");
             return -1;
         }
         ptr = strtok(0, "/");
@@ -75,7 +75,7 @@ extern "C" int init()
         return prepareLogPath(monitorLogDir);
     }
 
-    perror("Monitor plugin can't access the log directory: ");
+    perror("Monitor plugin can't access the log directory");
     return -1;
 }
 

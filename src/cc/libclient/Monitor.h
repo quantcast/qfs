@@ -21,8 +21,8 @@ struct ServerLocation;
 ///    of bytes received from all chunk-servers for read ops.
 ///    These metrics are collected by invoking GetStats function on a client
 ///    instance and present a detailed summary on the interaction between the
-///    client instance and the corresponding filesystem since the creation
-///    of client instance until the time of the metric collection.
+///    client instance and the corresponding filesystem between two subsequent
+///    reports.
 ///
 ///    * Set 2: Chunk-server level counters for errors occurred during
 ///    individual read and write ops. Each counter shows the total number
@@ -35,9 +35,9 @@ struct ServerLocation;
 ///    Monitor class is responsible for recording the total number of
 ///    occurrences of each error type for each chunk-server.
 ///
-///    Note that neither metrics in set 1 nor in set 2 are reset between
-///    subsequent reports to monitor plugin library, i.e. all metrics are
-///    non-decreasing.
+///    Note that for each counter in set 1 and set 2, we report the difference
+///    between new and old value. The only exception
+///    currently is the number of network sockets; Network.Sockets.
 ///
 /// Collection and report of metrics from all client instances in a process
 /// is orchestrated by a static Monitor class instance. Static Monitor instance
@@ -49,8 +49,6 @@ struct ServerLocation;
 ///
 /// Monitor thread reports metrics for a filesystem to plugin library
 /// either if there are still monitored client instances for that filesystem.
-/// Otherwise, the most recent snapshot of metrics for that filesystem is kept
-/// around, but is never sent to plugin library.
 class Monitor {
 
 private:
