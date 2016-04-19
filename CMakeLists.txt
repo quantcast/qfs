@@ -50,6 +50,7 @@ endif()
 
 set(CMAKE_FIND_LIBRARY_PREFIXES ${CMAKE_FIND_LIBRARY_PREFIXES} "")
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} ".dll.a" ".lib")
+add_definitions(-D__int64=int64_t)
 
 find_package(Jerasure REQUIRED)
 find_package(JNI REQUIRED)
