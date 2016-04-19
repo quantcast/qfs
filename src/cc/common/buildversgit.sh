@@ -91,7 +91,7 @@ const std::string KFS_BUILD_INFO_STRING='
 echo KFS_BUILD_INFO_START
 echo "host: `hostname`"
 echo "user: $USER"
-echo "date: $(date)"
+echo "date: `date`" 
 echo "build type: $buildtype"
 while [ $# -gt 0 ]; do
     echo "$1"
@@ -145,17 +145,5 @@ const std::string KFS_SOURCE_REVISION_STRING(
 }
 '
 
-} > $tmpfile
-
-a=$(mktemp tmp.XXXXXXXXXX)
-b=$(mktemp tmp.XXXXXXXXXX)
-
-grep -v 'date: ' $tmpfile > $a
-grep -v 'date: ' $outfile > $b
-
-cmp --silent $a $b
-if [ $? != 0 ]; then
-    cp $tmpfile $outfile
-fi
-
-rm $a $b $tmpfile
+} > "$tmpfile"
+mv "$tmpfile" $outfile
