@@ -4,16 +4,18 @@
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 
+#include <boost/lexical_cast.hpp>
 #include <iostream>
+#include <map>
 #include <string>
 
-#include "common/StrUtils.h"
 #include "tests/environments/MetaserverEnvironment.h"
 
 namespace KFS {
 namespace Test {
 
 using namespace std;
+using boost::lexical_cast;
 
 ChunkserverEnvironment::ChunkserverEnvironment(const MetaserverEnvironment* m)
     : mMetaserverPort(m->GetChunkserverPort())
@@ -26,18 +28,21 @@ ChunkserverEnvironment::GenerateConfig()
     mClientPort = QFSTestUtils::GetRandomPort(SOCK_STREAM, "127.0.0.1");
     mChunkDir = QFSTestUtils::CreateTempDirectory();
 
+    map<string, string> c;
+    c["chunkServer.metaServer.hostname"] = "localhost";
+    c["chunkServer.metaServer.port"] = lexical_cast<string>(mMetaserverPort);
+    c["chunkServer.clientPort"] = lexical_cast<string>(mClientPort);
+    c["chunkServer.chunkDir"] = mChunkDir;
+    c["chunkServer.clusterKey"] = "some-random-unique-identifier";
+    c["chunkServer.stdout"] = "/dev/null";
+    c["chunkServer.stderr"] = "/dev/null";
+    c["chunkServer.msgLogWriter.logLevel"] = "INFO";
+
     string config;
-    config += "chunkServer.metaServer.hostname = localhost\n";
-    config += StrUtils::str_printf("chunkServer.metaServer.port = %d\n",
-            mMetaserverPort);
-    config += StrUtils::str_printf("chunkServer.clientPort = %d\n",
-            mClientPort);
-    config += StrUtils::str_printf("chunkServer.chunkDir = %s\n",
-            mChunkDir.c_str());
-    config += "chunkServer.clusterKey = some-random-unique-identifier\n";
-    config += "chunkServer.stdout = /dev/null\n";
-    config += "chunkServer.stderr = /dev/null\n";
-    config += "chunkServer.msgLogWriter.logLevel = INFO\n";
+    for (map<string, string>::const_iterator itr = c.begin(); itr != c.end();
+            ++itr) {
+        config += itr->first + " = " + itr->second + "\n";
+    }
 
     return QFSTestUtils::WriteTempFile(config);
 }
@@ -50,8 +55,7 @@ ChunkserverEnvironment::Start()
     }
 
     string configPath = GenerateConfig();
-    string binaryPath = StrUtils::str_printf("build/%s/bin/chunkserver",
-            mBuildType.c_str());
+    string binaryPath = "build/" + mBuildType + "/bin/chunkserver";
 
     pid_t pid = fork();
     if (pid < 0) {
