@@ -55,6 +55,7 @@ int prepareLogPath(string monitorLogDir)
             perror("Monitor plugin can't create the log directory");
             return -1;
         }
+        chmod(path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
         ptr = strtok(0, "/");
     }
     delete[] cstr;
@@ -168,6 +169,8 @@ extern "C" void reportStatus(
     }
 
     fileStream.close();
+
+    chmod(tmpLogFilePath.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
     rename(tmpLogFilePath.c_str(), logFilePath.c_str());
 }
 
