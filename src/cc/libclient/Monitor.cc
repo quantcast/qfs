@@ -282,9 +282,7 @@ private:
             // for the corresponding filesystem.
             int numClients = fsMetrics.clients.size();
             if (numClients > 0) {
-                ClientCounters sumOfAliveClientCounters;
-                ClientCounters& sumOfRemovedClientCounters =
-                        fsMetrics.sumOfRemovedClientCounters;
+                ClientCounters  newSumOfClientCounters;
                 // Use the client lock to make sure no client instance is
                 // being removed, while we call GetStats through them.
                 QCStMutexLocker theClientRemovalLock(mClientRemovalMutex);
@@ -299,7 +297,7 @@ private:
                         Properties* removedClientCounters =
                                 mRemovedClients[clientId];
                         AggregateCounters(*removedClientCounters,
-                                sumOfRemovedClientCounters);
+                                newSumOfClientCounters);
                         KfsClient::DisposeProperties(removedClientCounters);
                         swap(fsMetrics.clients[clientInd],
                                 fsMetrics.clients[--numClients]);
@@ -309,7 +307,7 @@ private:
                     else {
                         Properties* clientCounters = clientPtr->GetStats();
                         AggregateCounters(*clientCounters,
-                                sumOfAliveClientCounters);
+                                newSumOfClientCounters);
                         KfsClient::DisposeProperties(clientCounters);
                         ++clientInd;
                     }
@@ -317,43 +315,61 @@ private:
                 theClientRemovalLock.Unlock();
                 fsMetrics.clients.erase(fsMetrics.clients.begin()+numClients,
                         fsMetrics.clients.end());
-                ClientCounters* sumOfAllClientCounters;
-                if (sumOfAliveClientCounters.empty()) {
-                    // All clients have been removed. The final sum is equal to
-                    // to the sum of removed clients.
-                    sumOfAllClientCounters = &sumOfRemovedClientCounters;
+
+                if (!fsMetrics.currSumOfClientCounters.empty() &&
+                        newSumOfClientCounters.size() !=
+                                fsMetrics.currSumOfClientCounters.size()) {
+                     // For each counter in newSumOfClientCounters,
+                     // there must be a matching counter in
+                     // currSumOfClientCounters.
+                     KFS_LOG_STREAM_ERROR
+                         << "Monitor: Number of counters "
+                         << "in new and current sum of client counters"
+                                 "don't match!"
+                         << KFS_LOG_EOM;
                 }
-                else if (sumOfRemovedClientCounters.empty()) {
-                    // No clients have been removed. The final sum is equal to
-                    // the sum of alive clients.
-                    sumOfAllClientCounters = &sumOfAliveClientCounters;
-                }
-                else {
-                    // We have both alive and removed clients. The final sum is
-                    // equal to the sum of both.
-                    if (sumOfRemovedClientCounters.size() !=
-                            sumOfAliveClientCounters.size()) {
-                        // For each counter in sumOfAliveClientCounters,
-                        // there must be a matching counter in
-                        // fsMetrics.sumOfRemovedClientCounters.
-                        KFS_LOG_STREAM_ERROR
-                            << "Monitor: Number of counters "
-                            << "in alive and removed clients don't match!"
-                            << KFS_LOG_EOM;
-                    }
+
+                if (!fsMetrics.currSumOfClientCounters.empty()) {
+                    // Calculate the difference between new and current sum of
+                    // client counters.
+                    ClientCounters diffOfCounters;
                     for(ClientCounters::iterator countersIt =
-                            sumOfAliveClientCounters.begin();
-                            countersIt != sumOfAliveClientCounters.end();
+                            newSumOfClientCounters.begin();
+                            countersIt != newSumOfClientCounters.end();
                             ++countersIt) {
                         string counterName  = countersIt->first;
-                        Counter& counterVal = countersIt->second;
-                        counterVal += sumOfRemovedClientCounters[counterName];
+                        Counter  newCounterVal = countersIt->second;
+                        Counter  currCounterVal =
+                                fsMetrics.currSumOfClientCounters[counterName];
+                        Counter  reportVal;
+                        if(counterName.compare("Network.Sockets") == 0) {
+                            // Network.Sockets counter is not accumulative, so
+                            // report the new value.
+                            reportVal = newCounterVal;
+                        }
+                        else {
+                            reportVal = newCounterVal - currCounterVal;
+                        }
+                        diffOfCounters.insert(make_pair(counterName, reportVal));
                     }
-                    sumOfAllClientCounters = &sumOfAliveClientCounters;
+                    mPluginReportFuncHandle(fsLoc.hostname, fsLoc.port,
+                            diffOfCounters, fsMetrics.errorCountersMap);
                 }
-                // Send aggregated client and failure counters to plugin.
-                mPluginReportFuncHandle(fsLoc.hostname, fsLoc.port,
-                        *sumOfAllClientCounters, fsMetrics.errorCountersMap);
+                else {
+                    // Since this is the first time that a report is sent to
+                    // plugin, there are no counters in current sum. Use values
+                    // in new sum directly.
+                    mPluginReportFuncHandle(fsLoc.hostname, fsLoc.port,
+                            newSumOfClientCounters, fsMetrics.errorCountersMap);
+                }
+                // Save new sum of client counters as current for next report.
+                swap(fsMetrics.currSumOfClientCounters, newSumOfClientCounters);
+                // Reset error counters for next report.
+                for (ChunkServerErrorMap::iterator it =
+                        fsMetrics.errorCountersMap.begin();
+                        it != fsMetrics.errorCountersMap.end(); ++it) {
+                    it->second.Clear();
+                }
             }
         }
     }
@@ -540,7 +556,7 @@ private:
     typedef vector<Client*> ClientList;
     struct FilesystemMetrics {
         ClientList clients;
-        ClientCounters sumOfRemovedClientCounters;
+        ClientCounters currSumOfClientCounters;
         ChunkServerErrorMap errorCountersMap;
     };
     // Maintain metrics for every filesystem accessed by client instances

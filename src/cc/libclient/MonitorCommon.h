@@ -58,6 +58,10 @@ struct ErrorCounters
 struct ChunkserverErrorCounters {
     ErrorCounters readErrors;
     ErrorCounters writeErrors;
+    void Clear() {
+        readErrors.Clear();
+        writeErrors.Clear();
+    }
 };
 
 typedef map<ServerLocation, ChunkserverErrorCounters> ChunkServerErrorMap;

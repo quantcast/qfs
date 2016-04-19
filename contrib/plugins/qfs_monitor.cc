@@ -26,7 +26,7 @@ using std::remove;
 using std::rename;
 using std::string;
 
-#define DEFAULT_MONITOR_LOG_DIRECTORY "/mnt/prime/shared/ram_monitor/qfsmonitor/"
+#define DEFAULT_MONITOR_LOG_DIRECTORY "/tmp/qfs-monitor/logs"
 
 string getLogPath()
 {
@@ -52,9 +52,10 @@ int prepareLogPath(string monitorLogDir)
         int ret = mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
         if (ret == -1 && errno != EEXIST) {
             delete[] cstr;
-            perror("Monitor plugin can't create the log directory: ");
+            perror("Monitor plugin can't create the log directory");
             return -1;
         }
+        chmod(path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
         ptr = strtok(0, "/");
     }
     delete[] cstr;
@@ -75,7 +76,7 @@ extern "C" int init()
         return prepareLogPath(monitorLogDir);
     }
 
-    perror("Monitor plugin can't access the log directory: ");
+    perror("Monitor plugin can't access the log directory");
     return -1;
 }
 
@@ -131,6 +132,7 @@ extern "C" void reportStatus(
 {
     int pid = getpid();
     string logFilePath = getLogPath();
+    logFilePath += "/";
     logFilePath += metaserverHost;
     logFilePath += "_";
     AppendDecIntToString(logFilePath, metaserverPort);
@@ -167,6 +169,8 @@ extern "C" void reportStatus(
     }
 
     fileStream.close();
+
+    chmod(tmpLogFilePath.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
     rename(tmpLogFilePath.c_str(), logFilePath.c_str());
 }
 
