@@ -62,8 +62,8 @@ if [ $# -eq 1 ]; then
     fi
 fi
 
-qfs_release_version=`sh ../cc/common/buildversgit.sh -v | head -1`
-qfs_source_revision=`sh ../cc/common/buildversgit.sh -v | tail -1`
+qfs_release_version=`sh ../cc/common/buildversgit.sh --release`
+qfs_source_revision=`sh ../cc/common/buildversgit.sh --head`
 if [ x"$qfs_source_revision" = x ]; then
     qfs_source_revision="00000000"
 fi
