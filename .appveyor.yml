@@ -11,6 +11,7 @@ environment:
 
 cache:
     - '%CYG_CACHE%'
+    - '%APPVEYOR_BUILD_FOLDER%\build' # appveyor is super slow -- cache the build so we only build diffs
 
 init:
     - git config --global core.autocrlf input
