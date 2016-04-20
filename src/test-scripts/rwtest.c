@@ -32,9 +32,6 @@
 #ifndef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
 #endif
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
 
 #include <unistd.h>
 #include <sys/types.h>
