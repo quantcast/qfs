@@ -86,8 +86,18 @@ using namespace KFS::libkfsio;
 
 ChunkManager gChunkManager;
 
-typedef QCDLList<ChunkInfoHandle, 0> ChunkList;
-typedef QCDLList<ChunkInfoHandle, 1> ChunkDirList;
+typedef QCDLList<
+    ChunkInfoHandle,
+    ChunkManager::kChunkInfoHandleListIndex
+> ChunkList;
+typedef QCDLList<
+    ChunkInfoHandle,
+    ChunkManager::kChunkInfoHDirListIndex
+> ChunkDirList;
+typedef QCDLList<
+    ChunkInfoHandle,
+    ChunkManager::kChunkInfoHelloNotifyListIndex
+> ChunkHelloNotifyList;
 typedef ChunkList ChunkLru;
 
 // Chunk directory state. The present production deployment use one chunk
@@ -711,7 +721,6 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     AvailableChunksOp      availableChunksOp;
     ChunkDirInfoOp         chunkDirInfoOp;
 
-    enum { kChunkInfoHDirListCount = kChunkInfoHandleListCount + 1 };
     enum ChunkListType
     {
         kChunkDirList         = 0,
@@ -868,6 +877,7 @@ public:
     {
         ChunkList::Init(*this);
         ChunkDirList::Init(*this);
+        ChunkHelloNotifyList::Init(*this);
         ChunkDirList::PushBack(mChunkDir.chunkLists[mChunkDirList], *this);
         SET_HANDLER(this, &ChunkInfoHandle::HandleChunkMetaWriteDone);
         mChunkDir.chunkCount++;
@@ -1209,8 +1219,8 @@ private:
     KfsOp*                      mReadableNotifyHead;
     KfsOp*                      mReadableNotifyTail;
     ChunkDirInfo&               mChunkDir;
-    ChunkInfoHandle*            mPrevPtr[ChunkDirInfo::kChunkInfoHDirListCount];
-    ChunkInfoHandle*            mNextPtr[ChunkDirInfo::kChunkInfoHDirListCount];
+    ChunkInfoHandle*            mPrevPtr[ChunkManager::kChunkInfoAllListCount];
+    ChunkInfoHandle*            mNextPtr[ChunkManager::kChunkInfoAllListCount];
 
     void DetachFromChunkDir(bool evacuateFlag) {
         if (mChunkDirList == ChunkDirInfo::kChunkDirListNone) {
@@ -1290,8 +1300,12 @@ private:
             op->HandleEvent(EVENT_CMD_DONE, &res);
         }
     }
-    friend class QCDLListOp<ChunkInfoHandle, 0>;
-    friend class QCDLListOp<ChunkInfoHandle, 1>;
+    friend class QCDLListOp<ChunkInfoHandle,
+        ChunkManager::kChunkInfoHandleListIndex>;
+    friend class QCDLListOp<ChunkInfoHandle,
+        ChunkManager::kChunkInfoHDirListIndex>;
+    friend class QCDLListOp<ChunkInfoHandle,
+        ChunkManager::kChunkInfoHelloNotifyListIndex>;
 private:
     ChunkInfoHandle(const  ChunkInfoHandle&);
     ChunkInfoHandle& operator=(const  ChunkInfoHandle&);
@@ -1638,6 +1652,10 @@ ChunkManager::Release(ChunkInfoHandle& cih)
 inline void
 ChunkManager::DeleteSelf(ChunkInfoHandle& cih)
 {
+    if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList) &&
+            0 < cih.chunkInfo.chunkVersion) {
+        ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, cih);
+    }
     cih.Delete(mChunkInfoLists);
 }
 
@@ -1657,22 +1675,38 @@ ChunkManager::Delete(ChunkInfoHandle& cih)
 }
 
 inline bool
+ChunkManager::RemoveFromChunkTable(ChunkInfoHandle& cih)
+{
+    if (mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
+        return false;
+    }
+    if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+        ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, cih);
+    }
+    return true;
+}
+
+inline bool
+ChunkManager::RemoveFromTable(ChunkInfoHandle& cih)
+{
+    return (0 <= cih.chunkInfo.chunkVersion ?
+        RemoveFromChunkTable(cih) :
+        0 < mObjTable.Erase(make_pair(
+            cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion))
+    );
+}
+
+inline bool
 ChunkManager::Remove(ChunkInfoHandle& cih)
 {
     if (mPendingWrites.HasChunkId(
             cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion)) {
         return false;
     }
-    if (0 <= cih.chunkInfo.chunkVersion) {
-        if (mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
-            return false;
-        }
-    } else {
-        ObjPendingWrites::Key const key(
-            cih.chunkInfo.chunkId, cih.chunkInfo.chunkVersion);
-        if (mObjTable.Erase(key) <= 0) {
-            return false;
-        }
+    if (! RemoveFromTable(cih)) {
+        return false;
+    }
+    if (cih.chunkInfo.chunkVersion < 0) {
         UpdateDirSpace(&cih, -cih.chunkInfo.chunkSize);
     }
     Delete(cih);
@@ -2042,6 +2076,7 @@ ChunkManager::ChunkManager()
       mChunkTable(),
       mObjTable(),
       mMaxIORequestSize(4 << 20),
+      mChunkInfoHelloNotifyList(),
       mNextChunkDirsCheckTime(globalNetManager().Now() - 360000),
       mChunkDirsCheckIntervalSecs(120),
       mNextGetFsSpaceAvailableTime(globalNetManager().Now() - 360000),
@@ -2132,6 +2167,7 @@ ChunkManager::ChunkManager()
     for (int i = 0; i < kChunkInfoListCount; i++) {
         ChunkList::Init(mChunkInfoLists[i]);
     }
+    ChunkHelloNotifyList::Init(mChunkInfoHelloNotifyList);
     globalNetManager().SetMaxAcceptsPerRead(4096);
 }
 
@@ -3610,10 +3646,7 @@ ChunkManager::StaleChunk(
         die("null chunk table entry");
         return -EFAULT;
     }
-    if ((0 <= cih->chunkInfo.chunkVersion ?
-            mChunkTable.Erase(cih->chunkInfo.chunkId) :
-            mObjTable.Erase(make_pair(cih->chunkInfo.chunkId,
-                        cih->chunkInfo.chunkVersion))) <= 0) {
+    if (! RemoveFromTable(*cih)) {
         return -EBADF;
     }
     gLeaseClerk.UnRegisterLease(
@@ -4302,15 +4335,10 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
             mBufferedIoFlag || cih->GetDirInfo().bufferedIoFlag)) {
         mCounters.mOpenErrorCount++;
         if ((openFlags & O_CREAT) != 0 || ! tempFailureFlag) {
-            //
-            // we are unable to open/create a file. notify the metaserver
+            // Failed to open/create a file. notify the metaserver
             // of lost data so that it can re-replicate if needed.
-            //
             NotifyMetaCorruptedChunk(cih, -EBADF);
-            if ((0 <= cih->chunkInfo.chunkVersion ?
-                    mChunkTable.Erase(cih->chunkInfo.chunkId) :
-                    mObjTable.Erase(make_pair(cih->chunkInfo.chunkId,
-                        cih->chunkInfo.chunkVersion))) > 0) {
+            if (RemoveFromTable(*cih)) {
                 const int64_t size = 0 <= cih->chunkInfo.chunkVersion ?
                     min(mUsedSpace, cih->chunkInfo.chunkSize) :
                     cih->chunkInfo.chunkSize;
@@ -5111,10 +5139,12 @@ ChunkManager::ReadChunkDone(ReadOp* op)
 
     ostringstream os;
     os <<
-        "checksum mismatch for chunk=" << op->chunkId <<
-        " offset="    << op->offset <<
-        " bytes="     << op->numBytesIO <<
-        ": expect: "  << cih->chunkInfo.chunkBlockChecksum[checksumBlock] <<
+        "checksum mismatch:"
+        " chunk: "    << op->chunkId <<
+        " offset: "   << op->offset <<
+        " bytes: "    << op->numBytesIO <<
+        " block: "    << checksumBlock <<
+        " expect: "   << cih->chunkInfo.chunkBlockChecksum[checksumBlock] <<
         " computed: " << op->checksum[obi] <<
         " try: "      << op->retryCnt <<
         ((mAbortOnChecksumMismatchFlag && ! retry) ? " abort" : "")
@@ -5266,7 +5296,7 @@ ChunkManager::NotifyMetaChunksLost(
             // get rid of chunkid from our list
             const bool staleFlag = staleChunksFlag || cih->IsStale();
             ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
-            if (ci && *ci == cih && mChunkTable.Erase(chunkId) <= 0) {
+            if (ci && *ci == cih && ! RemoveFromChunkTable(*cih)) {
                 die("corrupted chunk table");
                 continue;
             }
@@ -5752,12 +5782,15 @@ ChunkManager::GetHostedChunksResume(
             if (! p) {
                 break;
             }
+            ChunkInfoHandle* const cih = p->GetVal();
+            if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+                ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, *cih);
+            }
             const kfsChunkId_t chunkId = p->GetKey();
             if (mLastPendingInFlight.Find(chunkId)) {
                 continue;
             }
-            kfsSeq_t                     vers = -1;
-            const ChunkInfoHandle* const cih  = p->GetVal();
+            kfsSeq_t vers = -1;
             if (! cih->IsBeingReplicated() &&
                     (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0)) {
                 (*missing.first)++;
@@ -6053,11 +6086,22 @@ ChunkManager::GetHostedChunks(
     bool                                 noFidsFlag)
 {
     // walk thru the table and pick up the chunk-ids
+    const bool usePendingNotifyFlag = false && // FIXME
+        mMinChunkCountForHelloResume < (int64_t)mChunkTable.GetSize();
     mChunkTable.First();
     const CMapEntry* p;
     while ((p = mChunkTable.Next())) {
-        const ChunkInfoHandle* const cih = p->GetVal();
-        if (cih->IsBeingReplicated()) {
+        ChunkInfoHandle* const cih            = p->GetVal();
+        const bool             replicatedFlag = cih->IsBeingReplicated();
+        if (usePendingNotifyFlag && ! replicatedFlag &&
+                cih->IsChunkReadable() && ! cih->IsRenameInFlight()) {
+            ChunkHelloNotifyList::PushBack(mChunkInfoHelloNotifyList, *cih);
+            continue;
+        }
+        if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+            ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, *cih);
+        }
+        if (replicatedFlag) {
             // Do not report replicated chunks, replications should be canceled
             // on reconnect.
             continue;
@@ -7391,7 +7435,6 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
                 availableChunksOp.chunks[i].second,
                 kAddObjectBlockMappingFlag);
             if (! cih ||
-                ! cih ||
                 ! cih->IsPendingAvailable() ||
                 cih->chunkInfo.chunkVersion !=
                     availableChunksOp.chunks[i].second ||

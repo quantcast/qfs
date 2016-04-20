@@ -395,7 +395,16 @@ public:
         { return mMaxDirCheckDiskTimeouts; }
     void MetaServerConnectionLost();
     void SetChunkSize(ChunkInfo_t& ci, int64_t chunkSize);
-    enum { kChunkInfoHandleListCount = 1 };
+    enum
+    {
+        kChunkInfoHandleListIndex      = 0,
+        kChunkInfoHandleListCount      = kChunkInfoHandleListIndex + 1,
+        kChunkInfoHDirListIndex        = kChunkInfoHandleListCount,
+        kChunkInfoHDirListCount        = kChunkInfoHDirListIndex + 1,
+        kChunkInfoHelloNotifyListIndex = kChunkInfoHDirListCount,
+        kChunkInfoHelloNotifyListCount = kChunkInfoHelloNotifyListIndex + 1,
+        kChunkInfoAllListCount         = kChunkInfoHelloNotifyListCount
+    };
     enum ChunkListType
     {
         kChunkLruList = 0,
@@ -424,7 +433,6 @@ public:
     inline void MakeStale(ChunkInfoHandle& cih,
         bool forceDeleteFlag, bool evacuatedFlag, KfsOp* op = 0);
     inline void DeleteSelf(ChunkInfoHandle& cih);
-    inline bool Remove(ChunkInfoHandle& cih);
     BufferManager* FindDeviceBufferManager(
         kfsChunkId_t chunkId, int64_t chunkVersion);
     const CryptoKeys& GetCryptoKeys() const
@@ -882,9 +890,10 @@ private:
     /// table that maps chunkIds to their associated state
     CMap     mChunkTable;
     ObjTable mObjTable;
-    size_t mMaxIORequestSize;
+    size_t   mMaxIORequestSize;
     /// Chunk lru, and stale chunks list heads.
-    ChunkLists mChunkInfoLists[kChunkInfoListCount];
+    ChunkLists       mChunkInfoLists[kChunkInfoListCount];
+    ChunkInfoHandle* mChunkInfoHelloNotifyList[kChunkInfoHelloNotifyListCount];
 
     /// Periodically do an IO and check the chunk dirs and identify failed drives
     time_t mNextChunkDirsCheckTime;
@@ -994,6 +1003,9 @@ private:
 
     ChunkHeaderBuffer           mChunkHeaderBuffer;
 
+    inline bool Remove(ChunkInfoHandle& cih);
+    inline bool RemoveFromChunkTable(ChunkInfoHandle& cih);
+    inline bool RemoveFromTable(ChunkInfoHandle& cih);
     inline void Delete(ChunkInfoHandle& cih);
     inline void Release(ChunkInfoHandle& cih);
 
