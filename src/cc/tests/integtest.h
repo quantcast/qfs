@@ -92,7 +92,13 @@ protected:
 class QFSTest : public ::testing::Test
 {
 public:
-    static void init(int numChunkservers);
+    /**
+     * Init initializes the qfs test class. This function needs to only be
+     * called once during a test run.
+     *
+     * @param numChunkservers The number of chunkservers to simulate
+     */
+    static void Init(int numChunkservers);
 
     /**
      * SetUp handles setting up the individual test before the actual code for a
