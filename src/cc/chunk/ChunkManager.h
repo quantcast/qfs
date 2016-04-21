@@ -285,6 +285,8 @@ public:
         const HostedChunkList& notStableAppend,
         const HostedChunkList& notStable,
         bool                   noFidsFlag);
+    void RunHelloNotifyQueue(AvailableChunksOp* cop);
+    int HelloNotifyDone(int code, void* data);
 
     typedef EvacuateChunksOp::StorageTierInfo  StorageTierInfo;
     typedef EvacuateChunksOp::StorageTiersInfo StorageTiersInfo;
@@ -894,6 +896,9 @@ private:
     /// Chunk lru, and stale chunks list heads.
     ChunkLists       mChunkInfoLists[kChunkInfoListCount];
     ChunkInfoHandle* mChunkInfoHelloNotifyList[kChunkInfoHelloNotifyListCount];
+    KfsCallbackObj   mHelloNotifyCb;
+    int              mHelloNotifyInFlightCount;
+    int              mMaxHelloNotifyInFlightCount;
 
     /// Periodically do an IO and check the chunk dirs and identify failed drives
     time_t mNextChunkDirsCheckTime;

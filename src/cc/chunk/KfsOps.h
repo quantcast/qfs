@@ -2262,7 +2262,7 @@ struct HelloMetaOp : public KfsOp {
 };
 
 struct CorruptChunkOp : public KfsOp {
-    enum { kMaxChunkIds = 128 };
+    enum { kMaxChunkIds = 256 };
     kfsChunkId_t chunkIds[kMaxChunkIds];
     int          chunkCount;
     // input: set if chunk was lost---happens when we disconnect from metaserver and miss messages

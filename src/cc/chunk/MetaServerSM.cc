@@ -168,6 +168,14 @@ MetaServerSM::Shutdown()
     }
 }
 
+void
+MetaServerSM::ForceDown()
+{
+    if (mNetConnection) {
+        HandleRequest(EVENT_INACTIVITY_TIMEOUT, 0);
+    }
+}
+
 int
 MetaServerSM::SetParameters(const Properties& prop)
 {

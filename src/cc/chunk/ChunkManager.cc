@@ -1509,7 +1509,26 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
         return;
     }
     mCorruptChunkOp.notifyChunkManagerFlag = false;
-    if (! gMetaServerSM.IsUp()) {
+    bool upFlag = gMetaServerSM.IsUp();
+    if (upFlag) {
+        if (-ELOGFAILED == op.status) {
+            // Handle transaction log write error by retrying.
+            ScheduleNotifyLostChunk();
+            return;
+        }
+        if (0 != op.status) {
+            KFS_LOG_STREAM_ERROR <<
+                "forcing meta server connection down due to protocol"
+                " or communication error:"
+                " status: " << op.status <<
+                " "         << op.statusMsg <<
+                " "         << op.Show() <<
+            KFS_LOG_EOM;
+            gMetaServerSM.ForceDown();
+            upFlag = false;
+        }
+    }
+    if (! upFlag) {
         while (0 < mCorruptChunkOp.chunkCount) {
             InsertLastInFlight(
                 mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount--]);
@@ -1536,12 +1555,13 @@ ChunkManager::HelloDone(HelloMetaOp& hello)
 {
     PendingNotifyLostChunks::Move(
         hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
-    if (gMetaServerSM.IsUp() && hello.resumeStep != 0) {
+    if (gMetaServerSM.IsUp() && 0 != hello.resumeStep) {
         mLastPendingInFlight.Clear();
         // Re-enable clenup if it was disabled on startup.
         mCleanupStaleChunksFlag = true;
     }
     ScheduleNotifyLostChunk();
+    RunHelloNotifyQueue(0);
 }
 
 inline bool
@@ -2077,6 +2097,9 @@ ChunkManager::ChunkManager()
       mObjTable(),
       mMaxIORequestSize(4 << 20),
       mChunkInfoHelloNotifyList(),
+      mHelloNotifyCb(),
+      mHelloNotifyInFlightCount(0),
+      mMaxHelloNotifyInFlightCount(10 << 10),
       mNextChunkDirsCheckTime(globalNetManager().Now() - 360000),
       mChunkDirsCheckIntervalSecs(120),
       mNextGetFsSpaceAvailableTime(globalNetManager().Now() - 360000),
@@ -2169,6 +2192,7 @@ ChunkManager::ChunkManager()
     }
     ChunkHelloNotifyList::Init(mChunkInfoHelloNotifyList);
     globalNetManager().SetMaxAcceptsPerRead(4096);
+    mHelloNotifyCb.SetHandler(this, &ChunkManager::HelloNotifyDone);
 }
 
 ChunkManager::~ChunkManager()
@@ -2522,6 +2546,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mMinChunkCountForHelloResume = prop.getValue(
         "chunkServer.minChunkCountForHelloResume",
         mMinChunkCountForHelloResume);
+    mMaxHelloNotifyInFlightCount = prop.getValue(
+        "chunkServer.maxHelloNotifyInFlightCount",
+        mMaxHelloNotifyInFlightCount);
     mHelloResumeFailureTraceFileName = prop.getValue(
         "chunkServer.helloResumeFailureTraceFileName",
         mHelloResumeFailureTraceFileName);
@@ -3552,14 +3579,17 @@ ChunkManager::StaleChunk(
         die("null chunk table entry");
         return -EFAULT;
     }
+    // The following code relies on the protocol message order where the chunks
+    // available reply would normally arrive *after* "related" stale chunks RPC
+    // requests. Presently the message can arrive after the chunk available RPC
+    // reply in the case of chunk server re-authentication.
     ChunkDirInfo& dir = cih->GetDirInfo();
-    if (dir.availableChunksOpInFlightFlag &&
+    if ((availChunksSeq < 0 ||
+            mHelloNotifyInFlightCount <= 0 ||
+            &dir.availableChunksOp !=
+                gMetaServerSM.FindInFlightOp(availChunksSeq)) &&
+            dir.availableChunksOpInFlightFlag &&
             dir.availableChunksOp.seq != availChunksSeq) {
-        // The following condition and correspond warning trace message relies
-        // on the protocol message order where the chunks available reply would
-        // normally arrive *after* "related" stale chunks rpc requests.
-        // Presently the message can arrive after the chunk available RPC reply
-        // in the case of chunk server re-authentication.
         if (0 <= availChunksSeq) {
             KFS_LOG_STREAM_NOTICE <<
                 "detected possible available chunks message reording:"
@@ -3588,34 +3618,25 @@ ChunkManager::StaleChunk(
         if (entry < dir.availableChunksOp.chunks +
                 dir.availableChunksOp.numChunks &&
                 entry->first == chunkId) {
-            if (dir.availableChunksOp.seq == availChunksSeq) {
-                KFS_LOG_STREAM_DEBUG <<
-                    "stale available"
-                    " chunk: "   << chunkId <<
-                    " version: " << entry->second <<
-                    " seq: "     << availChunksSeq <<
-                KFS_LOG_EOM;
-            } else {
-                KFS_LOG_STREAM(availChunksSeq < 0 ?
-                        MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
-                    "keeping stale availabe"
-                    " chunk: "   << chunkId <<
-                    " version: " << entry->second <<
-                    " seq: "     << availChunksSeq <<
-                    " != "       << dir.availableChunksOp.seq <<
-                KFS_LOG_EOM;
-                // The meta server must explicitly tell to delete this chunk by
-                // setting chunk available rpc sequence number in stale chunk
-                // request.
-                // The available chunks rpc sequence numbers are used here to
-                // disambiguate possible stale chunks requests sent in response
-                // to other "events". In particular in response to chunk
-                // replication or recovery, or version change completion
-                // [failures], or in the cases if meta server decides to
-                // "timeout" such (or any other relevant) requests, and send
-                // stale chunk request in order to ensure proper cleanup.
-                return -EAGAIN;
-            }
+            KFS_LOG_STREAM(availChunksSeq < 0 ?
+                    MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
+                "keeping stale availabe"
+                " chunk: "   << chunkId <<
+                " version: " << entry->second <<
+                " seq: "     << availChunksSeq <<
+                " != "       << dir.availableChunksOp.seq <<
+            KFS_LOG_EOM;
+            // The meta server must explicitly tell to delete this chunk by
+            // setting chunk available rpc sequence number in stale chunk
+            // request.
+            // The available chunks rpc sequence numbers are used here to
+            // disambiguate possible stale chunks requests sent in response
+            // to other "events". In particular in response to chunk
+            // replication or recovery, or version change completion
+            // [failures], or in the cases if meta server decides to
+            // "timeout" such (or any other relevant) requests, and send
+            // stale chunk request in order to ensure proper cleanup.
+            return -EAGAIN;
         }
     }
     return StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op);
@@ -6086,7 +6107,7 @@ ChunkManager::GetHostedChunks(
     bool                                 noFidsFlag)
 {
     // walk thru the table and pick up the chunk-ids
-    const bool usePendingNotifyFlag = false && // FIXME
+    const bool usePendingNotifyFlag = 0 < mMaxHelloNotifyInFlightCount &&
         mMinChunkCountForHelloResume < (int64_t)mChunkTable.GetSize();
     mChunkTable.First();
     const CMapEntry* p;
@@ -6111,6 +6132,73 @@ ChunkManager::GetHostedChunks(
     }
     PendingNotifyLostChunks::Move(
         hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
+}
+
+void
+ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
+{
+    if (! gMetaServerSM.IsUp() ||
+            ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+        delete cop;
+        return;
+    }
+    AvailableChunksOp* cur = cop;
+    if (cur) {
+        cur->status    = 0;
+        cur->numChunks = 0;
+        cur->statusMsg.clear();
+    }
+    do {
+        AvailableChunksOp& op =
+            cur ? *cur : *(new AvailableChunksOp(&mHelloNotifyCb));
+        cur = 0;
+        ChunkInfoHandle* cih;
+        while (op.numChunks < AvailableChunksOp::kMaxChunkIds &&
+                (cih = ChunkHelloNotifyList::PopFront(mChunkInfoHelloNotifyList))) {
+            AvailableChunksOp::Chunks& chunk = op.chunks[op.numChunks++];
+            chunk.first  = cih->chunkInfo.chunkId;
+            chunk.second = cih->chunkInfo.chunkVersion;
+        }
+        mHelloNotifyInFlightCount += op.numChunks;
+        gMetaServerSM.EnqueueOp(&op);
+    } while (mHelloNotifyInFlightCount < mMaxHelloNotifyInFlightCount &&
+        ! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList) &&
+        gMetaServerSM.IsUp());
+}
+
+int
+ChunkManager::HelloNotifyDone(int code, void* data)
+{
+    if (code != EVENT_CMD_DONE || ! data || mHelloNotifyInFlightCount <= 0) {
+        die("HelloNotifyDone: invalid completion");
+    }
+    AvailableChunksOp& op = *reinterpret_cast<AvailableChunksOp*>(data);
+    if (op.numChunks <= mHelloNotifyInFlightCount) {
+        mHelloNotifyInFlightCount -= op.numChunks;
+    } else {
+        die("HelloNotifyDone: invalid in flight count");
+        mHelloNotifyInFlightCount = 0;
+    }
+    if (0 != op.status && gMetaServerSM.IsUp()) {
+        if (-ELOGFAILED == op.status) {
+            // Handle transaction log write error by retrying.
+            mHelloNotifyInFlightCount += op.numChunks;
+            op.status = 0;
+            op.statusMsg.clear();
+            gMetaServerSM.EnqueueOp(&op);
+        } else {
+            KFS_LOG_STREAM_ERROR <<
+                "forcing meta server connection down due to protocol"
+                " or communication error:"
+                " status: " << op.status <<
+                " "         << op.statusMsg <<
+                " "         << op.Show() <<
+            KFS_LOG_EOM;
+            gMetaServerSM.ForceDown();
+        }
+    }
+    ChunkManager::RunHelloNotifyQueue(&op);
+    return 0;
 }
 
 ChunkInfoHandle*
@@ -7409,16 +7497,11 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
         return -EINVAL;
     }
     availableChunksOpInFlightFlag = false;
-    // In case of meta server disconnect:
-    // re-queue the chunks that were part of the last op, unless these
-    // were modified or "touched" in any way.
-    // The chunks need to be removed from the chunk table to effectively
-    // prevent the chunk ids to be sent in the chunk server hello.
-    // All this isn't strictly nesessary though as the chunk ids would be
-    // send on the chunk server restart anyway if the newly available chunk
-    // directory would still be "available".
+    // Re-queue to handle meta server transaction log failure.
+    // If meta server connection went down then add chunks to last in flight
+    // chunks regardless of the status in order for hello resume to succeed.
     const bool metaDownFlag = ! gMetaServerSM.IsUp();
-    const bool requeueFlag  = metaDownFlag &&
+    const bool requeueFlag  = ! metaDownFlag &&
         ! notifyAvailableChunksStartFlag &&
         0 <= availableSpace &&
         availableChunksOp.status < 0;
@@ -7435,17 +7518,17 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
                 availableChunksOp.chunks[i].second,
                 kAddObjectBlockMappingFlag);
             if (! cih ||
-                ! cih->IsPendingAvailable() ||
-                cih->chunkInfo.chunkVersion !=
-                    availableChunksOp.chunks[i].second ||
-                &(cih->GetDirInfo()) != this ||
-                ! cih->IsChunkReadable(kIgnorePendingAvailableFlag) ||
-                cih->IsRenameInFlight() ||
-                cih->IsStale() ||
-                cih->IsBeingReplicated() ||
-                cih->readChunkMetaOp ||
-                cih->dataFH ||
-                cih->chunkInfo.AreChecksumsLoaded()) {
+                    ! cih->IsPendingAvailable() ||
+                    cih->chunkInfo.chunkVersion !=
+                        availableChunksOp.chunks[i].second ||
+                    &(cih->GetDirInfo()) != this ||
+                    ! cih->IsChunkReadable(kIgnorePendingAvailableFlag) ||
+                    cih->IsRenameInFlight() ||
+                    cih->IsStale() ||
+                    cih->IsBeingReplicated() ||
+                    cih->readChunkMetaOp ||
+                    cih->dataFH ||
+                    cih->chunkInfo.AreChecksumsLoaded()) {
             if (cih && cih->IsPendingAvailable() &&
                     &(cih->GetDirInfo()) == this) {
                 cih->SetPendingAvailable(false); // Reset.

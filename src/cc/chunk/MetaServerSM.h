@@ -149,8 +149,15 @@ public:
 
     void Shutdown();
 
+    void ForceDown();
+
     uint64_t GetGenerationCount() const {
         return mGenerationCount;
+    }
+
+    const KfsOp* FindInFlightOp(seq_t seq) const {
+        DispatchedOps::const_iterator const it = mDispatchedOps.find(seq);
+        return (mDispatchedOps.end() == it ? 0 : it->second);
     }
 private:
     typedef deque<KfsOp*> OpsQueue;
