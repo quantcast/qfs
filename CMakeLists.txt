@@ -108,6 +108,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
     )
 endif()
 
+if(ENABLE_COVERAGE)
+    message(STATUS "Enabling code coverage with gcov")
+    set(CMAKE_CXX_FLAGS  "-coverage")
+    set(CMAKE_C_FLAGS "-coverage")
+endif()
+
 if(ENABLE_PROFILING)
     message(STATUS "Enabling profiling with gprof")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")

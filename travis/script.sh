@@ -17,11 +17,13 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
     if [[ "$DISTRO" == "ubuntu" ]]; then
         CMD="sudo apt-get update"
         CMD="$CMD && sudo apt-get install -y $DEPS_UBUNTU"
+        CMD="$CMD && CMAKE_OPTIONS=\"-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo\" make gtest tarball"
+        CMD="$CMD && gcov -o build/debug/src/cc/tests/CMakeFiles/test.t.dir/ integtest_main.cc.o"
     elif [[ "$DISTRO" == "centos" ]]; then
         CMD="yum install -y $DEPS_CENTOS"
+        CMD="$CMD && make gtest tarball"
     fi
 
-    CMD="$CMD && make gtest tarball"
     docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER /bin/bash -c "$CMD"
 fi
 
