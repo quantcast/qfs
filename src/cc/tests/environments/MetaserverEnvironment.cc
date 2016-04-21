@@ -5,15 +5,16 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <boost/lexical_cast.hpp>
 #include <iostream>
+#include <map>
 #include <string>
-
-#include "common/StrUtils.h"
 
 namespace KFS {
 namespace Test {
 
 using namespace std;
+using boost::lexical_cast;
 
 MetaserverEnvironment::MetaserverEnvironment()
     : mClientPort(-1)
@@ -29,19 +30,22 @@ MetaserverEnvironment::GenerateConfig()
     mTransactionLogDir = QFSTestUtils::CreateTempDirectory();
     mCheckpointDir = QFSTestUtils::CreateTempDirectory();
 
+    map<string, string> c;
+    c["metaServer.clientPort"] = lexical_cast<string>(mClientPort);
+    c["metaServer.chunkServerPort"] = lexical_cast<string>(mChunkserverPort);
+    c["metaServer.logDir"] = mTransactionLogDir;
+    c["metaServer.cpDir"] = mCheckpointDir;
+    c["metaServer.recoveryInterval"] = "30";
+    c["metaServer.createEmptyFs"] = "1";
+    c["metaServer.clusterKey"] = "some-random-unique-identifier";
+    c["metaServer.msgLogWriter.logLevel"] = "INFO";
+    c["chunkServer.msgLogWriter.logLevel"] = "NOTICE";
+
     string config;
-    config += StrUtils::str_printf("metaServer.clientPort = %d\n", mClientPort);
-    config += StrUtils::str_printf("metaServer.chunkServerPort = %d\n",
-            mChunkserverPort);
-    config += StrUtils::str_printf("metaServer.logDir = %s\n",
-            mTransactionLogDir.c_str());
-    config += StrUtils::str_printf("metaServer.cpDir = %s\n",
-            mCheckpointDir.c_str());
-    config += "metaServer.recoveryInterval = 30\n";
-    config += "metaServer.createEmptyFs = 1\n";
-    config += "metaServer.clusterKey = some-random-unique-identifier\n";
-    config += "metaServer.msgLogWriter.logLevel = INFO\n";
-    config += "chunkServer.msgLogWriter.logLevel = NOTICE\n";
+    for (map<string, string>::const_iterator itr = c.begin(); itr != c.end();
+            ++itr) {
+        config += itr->first + " = " + itr->second + "\n";
+    }
 
     return QFSTestUtils::WriteTempFile(config);
 }
@@ -54,8 +58,7 @@ MetaserverEnvironment::Start()
     }
 
     string configPath = GenerateConfig();
-    string binaryPath = StrUtils::str_printf("build/%s/bin/metaserver",
-            mBuildType.c_str());
+    string binaryPath = "build/" + mBuildType + "/bin/metaserver";
 
     int fd = QFSTestUtils::CreateTempFile(&mLogFile);
 

@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <vector>
 
 #include <arpa/inet.h>
@@ -18,7 +19,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include "common/StrUtils.h"
 #include "tests/environments/MetaserverEnvironment.h"
 #include "tests/environments/ChunkserverEnvironment.h"
 
@@ -230,8 +230,7 @@ QFSTestUtils::RemoveForcefully(const string& path)
                 continue;
             }
 
-            string newpath = StrUtils::str_printf("%s/%s", path.c_str(),
-                    de->d_name);
+            string newpath = path + de->d_name;
             RemoveForcefully(newpath);
         }
 
@@ -244,7 +243,9 @@ QFSTestUtils::RemoveForcefully(const string& path)
 }
 
 string QFSTestUtils::GetProcessName(pid_t pid) {
-    string path = StrUtils::str_printf("/proc/%d/exe", pid);
+    ostringstream oss;
+    oss << "/proc/" << pid << "/exe";
+    string path = oss.str();
 
     if (!QFSTestUtils::FileExists(path)) {
         return "unknown";

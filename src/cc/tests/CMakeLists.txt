@@ -49,7 +49,7 @@ set(test_sources
     environments/MetaserverEnvironment.cc
     environments/ChunkserverEnvironment.cc
 
-    common/StrUtils_T.cc
+    common/Test_T.cc
 )
 
 SUBDIRLIST(test_dirs ${CMAKE_CURRENT_LIST_DIR})
