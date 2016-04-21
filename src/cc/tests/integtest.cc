@@ -31,7 +31,7 @@ static const string kBuildTypeDebug = "debug";
 static const string kBuildTypeRelease = "release";
 static const string kContinuousIntegrationEnvironmentVariable = "CI";
 
-MetaserverEnvironment* QFSTest::sMetaserver = new MetaserverEnvironment;
+MetaserverEnvironment* QFSTest::sMetaserver;
 vector<ChunkserverEnvironment*> QFSTest::sChunkservers;
 
 QFSTestEnvironment::QFSTestEnvironment()
@@ -74,7 +74,10 @@ QFSTestEnvironment::TearDown()
 }
 
 void
-QFSTest::init(int numChunkservers) {
+QFSTest::Init(int numChunkservers)
+{
+    QFSTest::sMetaserver = new MetaserverEnvironment;;
+
     for (int i = 0; i < numChunkservers; i++) {
         ChunkserverEnvironment* env =
             new ChunkserverEnvironment(QFSTest::sMetaserver);

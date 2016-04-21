@@ -75,7 +75,7 @@ main(int argc, char **argv)
     testing::InitGoogleTest(&argc, argv);
 
     static const int kNumChunkServers = 3;
-    QFSTest::init(kNumChunkServers);
+    QFSTest::Init(kNumChunkServers);
 
     testing::AddGlobalTestEnvironment(QFSTest::sMetaserver);
     for (unsigned int i = 0; i < kNumChunkServers; i++) {
