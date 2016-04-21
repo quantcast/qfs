@@ -1,5 +1,6 @@
 #include "tests/integtest.h"
 
+#include <fstream>
 #include <iostream>
 #include <vector>
 
@@ -28,6 +29,7 @@ using namespace std;
 
 static const string kBuildTypeDebug = "debug";
 static const string kBuildTypeRelease = "release";
+static const string kContinuousIntegrationEnvironmentVariable = "CI";
 
 MetaserverEnvironment* QFSTest::sMetaserver = new MetaserverEnvironment;
 vector<ChunkserverEnvironment*> QFSTest::sChunkservers;
@@ -54,6 +56,14 @@ void
 QFSTestEnvironment::TearDown()
 {
     ASSERT_TRUE(Stop());
+
+    if (getenv(kContinuousIntegrationEnvironmentVariable.c_str()) != NULL) {
+        ifstream in(mLogFile.c_str());
+        string line;
+        while (getline(in, line)) {
+            cout << line << endl;
+        }
+    }
 
     if (!QFSTestUtils::IsProcessAlive(mPid)) {
         return;
@@ -84,23 +94,33 @@ QFSTest::TearDown()
 
 }
 
-string
-QFSTestUtils::WriteTempFile(const string& data)
+int
+QFSTestUtils::CreateTempFile(string* path)
 {
      string filename = QFSTestUtils::kTestHome + "/tmp_file.XXXXXX";
      int fd = mkstemp(const_cast<char*>(filename.c_str()));
      EXPECT_NE(-1, fd) << "Could not mkstep: " << strerror(errno);
 
-     size_t bytes = 0;
-     do {
-         ssize_t ret = write(fd, data.data() + bytes, data.size() - bytes);
-         EXPECT_NE(-1, ret);
+     path->assign(filename);
+     return fd;
+}
 
-         bytes += ret;
-     } while (bytes < data.size());
+string
+QFSTestUtils::WriteTempFile(const string& data)
+{
+    string filename;
+    int fd = QFSTestUtils::CreateTempFile(&filename);
 
-     close(fd);
-     return filename;
+    size_t bytes = 0;
+    do {
+        ssize_t ret = write(fd, data.data() + bytes, data.size() - bytes);
+        EXPECT_NE(-1, ret);
+
+        bytes += ret;
+    } while (bytes < data.size());
+
+    close(fd);
+    return filename;
 }
 
 bool

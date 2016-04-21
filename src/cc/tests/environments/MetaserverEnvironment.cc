@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <gtest/gtest.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <string>
@@ -56,6 +57,8 @@ MetaserverEnvironment::Start()
     string binaryPath = StrUtils::str_printf("build/%s/bin/metaserver",
             mBuildType.c_str());
 
+    int fd = QFSTestUtils::CreateTempFile(&mLogFile);
+
     pid_t pid = fork();
     if (pid < 0) {
         ADD_FAILURE() << "metaserver: fork failed: " << strerror(errno);
@@ -63,13 +66,17 @@ MetaserverEnvironment::Start()
     }
     else if (pid == 0) {
         setsid();
+        EXPECT_NE(-1, dup2(fd, fileno(stderr)));
+        close(fd);
 
         execl(binaryPath.c_str(), binaryPath.c_str(), configPath.c_str(), NULL);
         ADD_FAILURE() << binaryPath << ": execl failed: " << strerror(errno);
         abort();
     }
 
-    cout << "starting metaserver (pid: " << pid << ")" << endl;
+    cout << "starting metaserver (pid: " << pid
+        << ", logfile: " << mLogFile
+        << ")" << endl;
 
     // TODO(fsareshwala): replace this sleep with a check by the KFS client to
     // the metaserver that we can connect.

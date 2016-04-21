@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <gtest/gtest.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <string>
@@ -53,6 +54,8 @@ ChunkserverEnvironment::Start()
     string binaryPath = StrUtils::str_printf("build/%s/bin/chunkserver",
             mBuildType.c_str());
 
+    int fd = QFSTestUtils::CreateTempFile(&mLogFile);
+
     pid_t pid = fork();
     if (pid < 0) {
         ADD_FAILURE() << "chunkserver: fork failed: " << strerror(errno);
@@ -60,13 +63,17 @@ ChunkserverEnvironment::Start()
     }
     else if (pid == 0) {
         setsid();
+        EXPECT_NE(-1, dup2(fd, fileno(stderr)));
+        close(fd);
 
         execl(binaryPath.c_str(), binaryPath.c_str(), configPath.c_str(), NULL);
         ADD_FAILURE() << binaryPath << ": execl failed: " << strerror(errno);
         abort();
     }
 
-    cout << "starting chunkserver (pid: " << pid << ")" << endl;
+    cout << "starting chunkserver (pid: " << pid
+        << ", logfile: " << mLogFile
+        << ")" << endl;
 
     // TODO(fsareshwala): replace this sleep with a check by the KFS client to
     // the chunkserver that we can connect.

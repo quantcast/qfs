@@ -67,6 +67,15 @@ protected:
     virtual bool Stop() { return true; }
 
     /**
+     * mLogFile is the path to the logfile which contains the output of the
+     * service simulated by this instance of QFSTestEnvironment. These logfiles
+     * are available for review by developers when running tests. On continuous
+     * integration platforms, where inspection is harder, these logfiles are
+     * emitted onto stdout.
+     */
+    string mLogFile;
+
+    /**
      * QFS builds support two types of builds: debug and release. Each build
      * type enables different compiler flags, e.g. for optimization. The debug
      * and release binaries are also stored in different locations. The
@@ -124,6 +133,17 @@ class QFSTestUtils
 {
 public:
     static const string kTestHome;
+
+    /**
+     * Creates a temporary file in the filesystem to be used somehow by the
+     * caller.
+     *
+     * @param path Output parameter set to the path of the new temporary file.
+     * @return The file descriptor number that can be used to write to the
+     * temporary file. The caller must close the file descriptor once they are
+     * finished writing.
+     */
+    static int CreateTempFile(string* path);
 
     /**
      * Writes a string to a new temporary file.
