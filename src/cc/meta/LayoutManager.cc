@@ -3968,9 +3968,9 @@ LayoutManager::AddNewServer(MetaHello* r)
             skipFront = r->deletedReportCount;
         }
         if (skipFront < staleCnt) {
-            const bool                      kEvacuatedFlag        = false;
-            const bool                      kClearStaleChunksFlag = true;
-            const MetaChunkAvailable* const ca                    = 0;
+            const bool                kEvacuatedFlag        = false;
+            const bool                kClearStaleChunksFlag = true;
+            MetaChunkAvailable* const ca                    = 0;
             srv.NotifyStaleChunks(staleChunkIds,
                 kEvacuatedFlag, kClearStaleChunksFlag, ca, skipFront);
         }

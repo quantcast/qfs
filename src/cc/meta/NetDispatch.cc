@@ -923,11 +923,6 @@ UpdatePathToFidCacheHit(int count)
     MetaOpCounters::UpdatePathToFidCacheHit(count);
 }
 
-///
-/// Poll the logger to see if any op's have finished execution.  For
-/// such ops, send a response back to the client.  Also, if there any
-/// layout related RPCs, dispatch them now.
-///
 void
 NetDispatch::Dispatch(MetaRequest *r)
 {

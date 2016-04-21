@@ -573,8 +573,7 @@ ChunkServer::ChunkServer(
       mCryptoKey(),
       mRecoveryMetaAccess(),
       mRecoveryMetaAccessEndTime(),
-      mPendingResponseOpsHeadPtr(0),
-      mPendingResponseOpsTailPtr(0),
+      mPendingResponseOps(),
       mLastChunksInFlight(),
       mStaleChunkIdsInFlight(),
       mHelloChunkIds(),
@@ -637,13 +636,10 @@ ChunkServer::~ChunkServer()
 void
 ChunkServer::ReleasePendingResponses(bool sendResponseFlag /* = false */)
 {
-    MetaRequest* next = mPendingResponseOpsHeadPtr;
-    mPendingResponseOpsTailPtr = 0;
-    mPendingResponseOpsHeadPtr = 0;
-    while (next) {
-        MetaRequest* const op = next;
-        next = op->next;
-        op->next = 0;
+    PendingResponseOps queue;
+    queue.PushBack(mPendingResponseOps);
+    MetaRequest* op;
+    while ((op = queue.PopFront())) {
         if (! sendResponseFlag || SendResponse(op)) {
             MetaRequest::Release(op);
         }
@@ -923,10 +919,10 @@ ChunkServer::HandleRequest(int code, void *data)
                 " pending seq:"
                 " requests: "  << mAuthPendingSeq <<
                     " +" << (mSeqNo - mAuthPendingSeq) <<
-                " responses: " << (mPendingResponseOpsHeadPtr ?
-                    mPendingResponseOpsHeadPtr->opSeqno : seq_t(-1)) <<
-                " "            << (mPendingResponseOpsTailPtr ?
-                        mPendingResponseOpsTailPtr->opSeqno : seq_t(-1)) <<
+                " responses: " << (mPendingResponseOps.IsEmpty() ? seq_t(-1) :
+                    mPendingResponseOps.Front()->opSeqno) <<
+                " "            << (mPendingResponseOps.IsEmpty() ? seq_t(-1) :
+                        mPendingResponseOps.Back()->opSeqno) <<
             KFS_LOG_EOM;
             if (mHelloDone && 0 <= mAuthPendingSeq) {
                 // Enqueue rpcs that were waiting for authentication to finish.
@@ -2590,12 +2586,19 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 
 void
 ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
-    bool evacuatedFlag, bool clearStaleChunksFlag, const MetaChunkAvailable* ca,
+    bool evacuatedFlag, bool clearStaleChunksFlag, MetaChunkAvailable* ca,
     size_t skipFront)
 {
+    if (ca && ! ca->replayFlag && 0 <= ca->logseq) {
+        ca->suspended = true;
+    }
     MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
-        NextSeq(), GetSelfPtr(), evacuatedFlag,
-        mStaleChunksHexFormatFlag, ca ? &ca->opSeqno : 0);
+        NextSeq(),
+        GetSelfPtr(),
+        evacuatedFlag,
+        mStaleChunksHexFormatFlag,
+        (ca && ! ca->replayFlag && ca->suspended) ? ca : 0
+    );
     r->skipFront = skipFront;
     if (clearStaleChunksFlag) {
         r->staleChunkIds.Swap(staleChunkIds);
@@ -3019,12 +3022,7 @@ ChunkServer::SendResponse(MetaRequest* op)
 {
     if (mAuthenticateOp && mAuthenticateOp != op) {
         op->next = 0;
-        if (mPendingResponseOpsHeadPtr) {
-            mPendingResponseOpsTailPtr->next = op;
-        } else {
-            mPendingResponseOpsHeadPtr = op;
-        }
-        mPendingResponseOpsTailPtr = op;
+        mPendingResponseOps.PushBack(*op);
         return false;
     }
     if (! mNetConnection || ! mNetConnection->IsGood()) {

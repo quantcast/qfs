@@ -3291,6 +3291,10 @@ MetaChunkAvailable::start()
 /* virtual */ void
 MetaChunkAvailable::handle()
 {
+    if (handledFlag) {
+        return;
+    }
+    handledFlag = true;
     gLayoutManager.ChunkAvailable(this);
 }
 
@@ -5344,10 +5348,21 @@ ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
     return (hexFormatFlag ? IntToHexString(id, end) : IntToDecString(id, end));
 }
 
+MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
+    bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req)
+    : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, kLogNever, s, -1),
+      staleChunkIds(),
+      evacuatedFlag(evacFlag),
+      hexFormatFlag(hexFmtFlag),
+      skipFront(0),
+      chunkAvailableReq(req)
+{}
+
 /* virtual */ ostream&
 MetaChunkStaleNotify::ShowSelf(ostream& os) const
 {
     os << "meta->chunk stale notify:"
+        " sseq: " << (chunkAvailableReq ? chunkAvailableReq->opSeqno : -1) <<
         " size: " << staleChunkIds.GetSize() <<
         " ids:"
     ;
@@ -5385,9 +5400,9 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     if (hexFormatFlag) {
         os << (shortRpcFormatFlag ? "HF:1\r\n" : "HexFormat: 1\r\n");
     }
-    if (hasAvailChunksSeqFlag) {
+    if (chunkAvailableReq) {
         os << (shortRpcFormatFlag ? "AC:" : "AvailChunksSeq: ") <<
-            availChunksSeq << "\r\n";
+            chunkAvailableReq->opSeqno << "\r\n";
     }
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
@@ -5427,6 +5442,17 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     } else {
         os.flush();
         buf.Move(&ioBuf);
+    }
+}
+
+void
+MetaChunkStaleNotify::ReleaseSelf()
+{
+    MetaChunkAvailable* const op = chunkAvailableReq;
+    chunkAvailableReq = 0;
+    MetaChunkRequest::ReleaseSelf();
+    if (op) {
+        submit_request(op);
     }
 }
 

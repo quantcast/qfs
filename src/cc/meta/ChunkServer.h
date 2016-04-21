@@ -36,20 +36,23 @@
 #ifndef META_CHUNKSERVER_H
 #define META_CHUNKSERVER_H
 
+#include "MetaRequest.h"
 
-#include "common/LinearHash.h"
-#include "kfsio/KfsCallbackObj.h"
-#include "kfsio/NetConnection.h"
-#include "kfsio/SslFilter.h"
-#include "kfsio/CryptoKeys.h"
 #include "qcdio/QCDLList.h"
+
 #include "common/kfstypes.h"
+#include "common/LinearHash.h"
 #include "common/Properties.h"
 #include "common/ValueSampler.h"
 #include "common/StdAllocator.h"
 #include "common/MsgLogger.h"
 #include "common/CIdChecksum.h"
-#include "MetaRequest.h"
+#include "common/SingleLinkedQueue.h"
+
+#include "kfsio/KfsCallbackObj.h"
+#include "kfsio/NetConnection.h"
+#include "kfsio/SslFilter.h"
+#include "kfsio/CryptoKeys.h"
 
 #include <string>
 #include <ostream>
@@ -581,10 +584,8 @@ public:
     /// notify the chunk server of the stale data.
     void NotifyStaleChunks(ChunkIdQueue& staleChunks,
         bool evacuatedFlag = false, bool clearStaleChunksFlag = true,
-        const MetaChunkAvailable* ca = 0, size_t skipFront = 0);
-    void NotifyStaleChunks(
-        ChunkIdQueue&             staleChunks,
-        const MetaChunkAvailable& ca)
+        MetaChunkAvailable* ca = 0, size_t skipFront = 0);
+    void NotifyStaleChunks(ChunkIdQueue& staleChunks, MetaChunkAvailable& ca)
         { NotifyStaleChunks(staleChunks, false, true, &ca); }
     void NotifyStaleChunk(chunkId_t staleChunk, bool evacuatedFlag = false);
 
@@ -1166,6 +1167,10 @@ protected:
         less<ServerLocation>,
         StdFastAllocator<pair<const ServerLocation, MetaHello*> >
     > HelloInFlight;
+    typedef SingleLinkedQueue<
+        MetaRequest,
+        MetaRequest::GetNext
+    > PendingResponseOps;
 
     enum { kChunkSrvListsCount = 2 };
     /// RPCs that we have sent to this chunk server.
@@ -1218,8 +1223,7 @@ protected:
     CryptoKeys::Key    mCryptoKey;
     string             mRecoveryMetaAccess;
     time_t             mRecoveryMetaAccessEndTime;
-    MetaRequest*       mPendingResponseOpsHeadPtr;
-    MetaRequest*       mPendingResponseOpsTailPtr;
+    PendingResponseOps mPendingResponseOps;
     InFlightChunks     mLastChunksInFlight;
     InFlightChunks     mStaleChunkIdsInFlight;
     InFlightChunks     mHelloChunkIds;

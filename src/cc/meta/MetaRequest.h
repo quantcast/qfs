@@ -2218,7 +2218,6 @@ struct MetaChunkRequest : public MetaRequest {
     bool                 pendingAddFlag;
     bool                 timedOutFlag;
     bool                 staleChunkIdFlag;
-
 private:
     typedef multimap <
         chunkId_t,
@@ -2237,9 +2236,7 @@ private:
     friend class ChunkServer;
 
     static ChunkOpsInFlight::iterator MakeNullIterator();
-public:
-    static const ChunkOpsInFlight::iterator kNullIterator;
-
+protected:
     MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
         : MetaRequest(o, la, s),
@@ -2252,6 +2249,8 @@ public:
           staleChunkIdFlag(false),
           inFlightIt(kNullIterator)
         { List::Init(*this); }
+public:
+    static const ChunkOpsInFlight::iterator kNullIterator;
     virtual ~MetaChunkRequest();
     //!< generate a request message (in string format) as per the
     //!< KFS protocol.
@@ -2587,26 +2586,20 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
  * tells the chunk servers the id's of stale chunks, which the chunk
  * server should get rid of.
  */
+struct MetaChunkAvailable;
 struct MetaChunkStaleNotify: public MetaChunkRequest {
     ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
     bool         evacuatedFlag;
     bool         hexFormatFlag;
-    bool         hasAvailChunksSeqFlag;
-    seq_t        availChunksSeq;
     size_t       skipFront;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
-            bool evacFlag, bool hexFmtFlag, const seq_t* acSeq)
-        : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, kLogNever, s, -1),
-          staleChunkIds(),
-          evacuatedFlag(evacFlag),
-          hexFormatFlag(hexFmtFlag),
-          hasAvailChunksSeqFlag(acSeq != 0),
-          availChunksSeq(acSeq ? *acSeq : -1),
-          skipFront(0)
-        {}
+            bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req);
     virtual void request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const;
     virtual const ChunkIdQueue* GetChunkIds() const { return &staleChunkIds; }
+protected:
+    virtual void ReleaseSelf();
+    MetaChunkAvailable* chunkAvailableReq;
 };
 
 struct MetaBeginMakeChunkStable : public MetaChunkRequest {
@@ -3623,7 +3616,8 @@ struct MetaChunkAvailable : public MetaRequest {
         : MetaRequest(META_CHUNK_AVAILABLE, kLogIfOk, s),
           chunkIdAndVers(),
           location(),
-          server()
+          server(),
+          handledFlag(false)
         {}
     virtual bool start();
     virtual void handle();
@@ -3652,6 +3646,8 @@ struct MetaChunkAvailable : public MetaRequest {
         .Def("C", &MetaChunkAvailable::chunkIdAndVers)
         ;
     }
+private:
+    bool handledFlag;
 };
 
 struct MetaChunkDirInfo : public MetaRequest {
