@@ -104,6 +104,16 @@ public:
     static void init(int numChunkservers);
 
     /**
+     * Destroy is responsible for bringing down all currently running
+     * environments. This function usually doesn't need to be called. The Google
+     * Test framework should bring down all environments cleanly at test end.
+     * However, should the test program not exit cleanly, this function can be
+     * used to make sure that all spawned processes from the test program are
+     * properly killed.
+     */
+    static void Destroy();
+
+    /**
      * SetUp handles setting up the individual test before the actual code for a
      * given test is run. It is called directly by the Google Test framework and
      * casing (SetUp) is very important.

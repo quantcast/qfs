@@ -4,6 +4,7 @@
 #include <vector>
 
 #include <limits.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -14,13 +15,34 @@
 #include "tests/environments/MetaserverEnvironment.h"
 #include "tests/integtest.h"
 
-// TODO(fsareshwala): catch SIGINT and remove kill all environments and remove
-// all files
-
 using namespace KFS::Test;
 using namespace std;
 
 const string QFSTestUtils::kTestHome = "/tmp/qfs";
+
+/**
+ * HandleSignal is the signal handler for various signals which are sent to the
+ * integration test program. On signal receipt, the HandleSignal function is
+ * responsible for tearing down any currently running environments. Without
+ * this, pressing a simple ctrl+c when running tests will leave random
+ * processes and files on the test system.
+ */
+void
+HandleSignal(int signum)
+{
+    cout << "Caught signal: " << strsignal(signum) << endl;
+
+    switch (signum) {
+        case SIGSEGV:
+        case SIGINT:
+            cout << "Terminating environments..." << endl;
+            QFSTest::Destroy();
+            exit(1);
+            break;
+        default:
+            break;
+    }
+}
 
 static void
 RandInit()
@@ -38,6 +60,9 @@ RandInit()
 GTEST_API_ int
 main(int argc, char **argv)
 {
+    signal(SIGINT, HandleSignal);
+    signal(SIGSEGV, HandleSignal);
+
     RandInit();
 
     if (QFSTestUtils::FileExists(QFSTestUtils::kTestHome)) {

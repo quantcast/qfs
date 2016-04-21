@@ -83,6 +83,15 @@ QFSTest::init(int numChunkservers) {
 }
 
 void
+QFSTest::Destroy()
+{
+    QFSTest::sMetaserver->TearDown();
+    for (unsigned int i = 0; i < QFSTest::sChunkservers.size(); i++) {
+        QFSTest::sChunkservers[i]->TearDown();
+    }
+}
+
+void
 QFSTest::SetUp()
 {
 
