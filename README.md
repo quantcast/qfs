@@ -1,4 +1,4 @@
-Quantcast File System [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)
+Quantcast File System
 ================================================================================
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
@@ -6,6 +6,13 @@ reading and writing large files sequentially.
 
 QFS servers have been tested on 64-bit CentOS 6 extensively and run on Linux
 variants. The QFS client tools work on OS X and Cygwin as well.
+
+| Platform     | Build Status                                                                                                                                                          |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Mac OS X     | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
+| Ubuntu 14.04 | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
+| CentOS 6     | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
+| Windows      | [![Build status](https://ci.appveyor.com/api/projects/status/bqua7eyb5civ6gc8/branch/master?svg=true)](https://ci.appveyor.com/project/fsareshwala/qfs/branch/master) |
 
 The implementation details and features of QFS are discussed in detail in the
 project [wiki](https://github.com/quantcast/qfs/wiki/Introduction-To-QFS).
