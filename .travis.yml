@@ -2,12 +2,17 @@ sudo: required
 language: cpp
 compiler: gcc
 script: travis/script.sh
+
 before_install:
     # Travis CI's mac os environment doesn't set java home properly. This is
     # done here and not in the before_install.sh script since exporting the
     # variable in a called script won't update the caller environment scope.
     - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export JAVA_HOME=$(/usr/libexec/java_home) ; fi
     - travis/before_install.sh
+
+after_success:
+    # We run code coverage only on ubuntu.
+    - if [[ "$TRAVIS_OS_NAME" == "linux" && "$DISTRO" == "ubuntu" ]]; then bash <(curl -s https://codecov.io/bash) ; fi
 
 os:
     - osx
