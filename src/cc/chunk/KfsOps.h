@@ -2376,7 +2376,7 @@ struct EvacuateChunksOp : public KfsOp {
 };
 
 struct AvailableChunksOp : public KfsOp {
-    enum { kMaxChunkIds = 384 };
+    enum { kMaxChunkIds = 256 };
     typedef pair<kfsChunkId_t, int64_t> Chunks;
     Chunks chunks[kMaxChunkIds];
     int    numChunks;
