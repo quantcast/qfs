@@ -2300,7 +2300,10 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     virtual bool log(ostream& os) const;
     virtual ostream& ShowSelf(ostream& os) const;
     virtual const ChunkIdQueue* GetChunkIds() const
-        { return (chunkIds.IsEmpty() ? 0 : &chunkIds); }
+    {
+        return (request ? request->GetChunkIds() :
+            (chunkIds.IsEmpty() ? 0 : &chunkIds));
+    }
     static const char* GetReqName(int id);
     static int GetReqId(const char* name, size_t len);
 private:
