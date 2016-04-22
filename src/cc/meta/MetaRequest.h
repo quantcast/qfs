@@ -3609,14 +3609,16 @@ struct MetaChunkEvacuate: public MetaRequest {
 };
 
 struct MetaChunkAvailable : public MetaRequest {
-    StringBufT<16 * 384 * 2> chunkIdAndVers; //!< input
-    ServerLocation           location;
-    ChunkServerPtr           server;
+    StringBufT<(16 + 2) * 256 * 2> chunkIdAndVers; //!< input
+    ServerLocation                 location;
+    ChunkServerPtr                 server;
+    MetaChunkStaleNotify*          staleNotify;
     MetaChunkAvailable(seq_t s = -1)
         : MetaRequest(META_CHUNK_AVAILABLE, kLogIfOk, s),
           chunkIdAndVers(),
           location(),
           server(),
+          staleNotify(0),
           handledFlag(false)
         {}
     virtual bool start();
@@ -3648,6 +3650,8 @@ struct MetaChunkAvailable : public MetaRequest {
     }
 private:
     bool handledFlag;
+
+    virtual void ReleaseSelf();
 };
 
 struct MetaChunkDirInfo : public MetaRequest {

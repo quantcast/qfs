@@ -229,6 +229,17 @@ RemoveInFlightChunks(T& dest, const MetaChunkRequest& op)
     }
 }
 
+static inline void
+MarkSubmitted(MetaRequest& req)
+{
+    // Bump submit count to prevent it from going into transaction log.
+    if (0 == req.submitCount) {
+        req.submitTime  = microseconds();
+        req.processTime = req.submitTime;
+        req.submitCount++;
+    }
+}
+
 const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
 
 int ChunkServer::sHeartbeatTimeout     = 60;
@@ -2202,11 +2213,7 @@ ChunkServer::Replay(MetaChunkLogInFlight& req)
     if (! req.server) {
         const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
     }
-    if (0 == req.submitCount) {
-        // Bump submit count to prevent it from going into transaction log.
-        req.submitTime = microseconds();
-        req.submitCount++;
-    }
+    MarkSubmitted(req);
     Enqueue(&req, 365 * 24 * 60 * 60);
 }
 
@@ -2282,10 +2289,7 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         AppendInFlightChunks(mHelloChunkIds, *r);
     }
     if (mReplayFlag && ! r->replayFlag) {
-        if (0 == r->submitCount) {
-            r->submitTime = microseconds();
-            r->submitCount++; // Bump to ensure request won't be logged.
-        }
+        MarkSubmitted(*r);
         r->replayFlag = true;
         r->status     = -EIO;
         r->resume();
@@ -2589,15 +2593,12 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
     bool evacuatedFlag, bool clearStaleChunksFlag, MetaChunkAvailable* ca,
     size_t skipFront)
 {
-    if (ca && ! ca->replayFlag && 0 <= ca->logseq) {
-        ca->suspended = true;
-    }
     MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
         NextSeq(),
         GetSelfPtr(),
         evacuatedFlag,
         mStaleChunksHexFormatFlag,
-        (ca && ! ca->replayFlag && ca->suspended) ? ca : 0
+        (ca && ! ca->replayFlag && 0 <= ca->logseq) ? ca : 0
     );
     r->skipFront = skipFront;
     if (clearStaleChunksFlag) {

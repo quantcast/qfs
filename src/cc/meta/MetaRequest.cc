@@ -5355,8 +5355,14 @@ MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
       evacuatedFlag(evacFlag),
       hexFormatFlag(hexFmtFlag),
       skipFront(0),
-      chunkAvailableReq(req)
-{}
+      chunkAvailableReq(0)
+{
+    if (req && ! req->staleNotify && server && req->clnt == &*server) {
+        req->staleNotify  = this;
+        req->clnt         = 0;
+        chunkAvailableReq = req;
+    }
+}
 
 /* virtual */ ostream&
 MetaChunkStaleNotify::ShowSelf(ostream& os) const
@@ -5374,7 +5380,7 @@ MetaChunkStaleNotify::ShowSelf(ostream& os) const
     return os;
 }
 
-void
+/* virtual */ void
 MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
 {
     size_t count = staleChunkIds.GetSize();
@@ -5445,14 +5451,37 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     }
 }
 
-void
+/* virtual */ void
 MetaChunkStaleNotify::ReleaseSelf()
 {
     MetaChunkAvailable* const op = chunkAvailableReq;
+    if (op && op->staleNotify) {
+        if (this != op->staleNotify || op->clnt || ! server) {
+            panic("invalid stale notify op release");
+        }
+        op->staleNotify = 0;
+        op->clnt        = &*server;
+    }
     chunkAvailableReq = 0;
     MetaChunkRequest::ReleaseSelf();
     if (op) {
+        // Send response.
         submit_request(op);
+    }
+}
+
+/* virtual */ void
+MetaChunkAvailable::ReleaseSelf()
+{
+    if (staleNotify) {
+        if (submitCount <= 0) {
+            // Prepare for resubmit to send response.
+            submitCount = 1;
+            submitTime  = microseconds();
+            processTime = submitTime;
+        }
+    } else {
+        MetaRequest::ReleaseSelf();
     }
 }
 
