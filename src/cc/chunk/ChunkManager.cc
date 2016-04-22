@@ -6152,6 +6152,7 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
         AvailableChunksOp& op =
             cur ? *cur : *(new AvailableChunksOp(&mHelloNotifyCb));
         cur = 0;
+        op.helloFlag = true;
         ChunkInfoHandle* cih;
         while (op.numChunks < AvailableChunksOp::kMaxChunkIds &&
                 (cih = ChunkHelloNotifyList::PopFront(mChunkInfoHelloNotifyList))) {
@@ -6169,7 +6170,7 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
 int
 ChunkManager::HelloNotifyDone(int code, void* data)
 {
-    if (code != EVENT_CMD_DONE || ! data || mHelloNotifyInFlightCount <= 0) {
+    if (EVENT_CMD_DONE != code || ! data || mHelloNotifyInFlightCount <= 0) {
         die("HelloNotifyDone: invalid completion");
     }
     AvailableChunksOp& op = *reinterpret_cast<AvailableChunksOp*>(data);

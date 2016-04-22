@@ -2380,10 +2380,12 @@ struct AvailableChunksOp : public KfsOp {
     typedef pair<kfsChunkId_t, int64_t> Chunks;
     Chunks chunks[kMaxChunkIds];
     int    numChunks;
+    bool   helloFlag;
 
     AvailableChunksOp(KfsCallbackObj* c = 0)
         : KfsOp(CMD_AVAILABLE_CHUNKS),
-          numChunks(0)
+          numChunks(0),
+          helloFlag(false)
     {
         clnt = c;
         SET_HANDLER(this, &AvailableChunksOp::HandleDone);

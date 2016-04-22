@@ -3981,6 +3981,10 @@ AvailableChunksOp::Request(ReqOstream& os)
     if (! shortRpcFormatFlag) {
         os << "Version: " << KFS_VERSION_STR << "\r\n";
     }
+    os <<
+        (shortRpcFormatFlag ? "N:" : "Num-chunks:") << numChunks << "\r\n" <<
+        (shortRpcFormatFlag ? "H:" : "Hello:") << (helloFlag ? 1 : 0) << "\r\n"
+    ;
     os << (shortRpcFormatFlag ? "I:" : "Chunk-ids-vers:");
     os << hex;
     for (int i = 0; i < numChunks; i++) {
