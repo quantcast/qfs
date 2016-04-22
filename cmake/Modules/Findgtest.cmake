@@ -6,7 +6,8 @@ find_package(Threads REQUIRED)
 include(ExternalProject)
 ExternalProject_Add(
     gtest
-    URL https://github.com/google/googletest/archive/release-1.7.0.zip
+    URL http://github.com/google/googletest/archive/release-1.7.0.zip
+    URL_MD5 ef5e700c8a0f3ee123e2e0209b8b4961
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/gtest
     INSTALL_COMMAND "" # Disable install step
 )
