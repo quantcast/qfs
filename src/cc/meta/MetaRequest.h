@@ -3609,13 +3609,19 @@ struct MetaChunkEvacuate: public MetaRequest {
 };
 
 struct MetaChunkAvailable : public MetaRequest {
-    StringBufT<(16 + 2) * 256 * 2> chunkIdAndVers; //!< input
-    ServerLocation                 location;
-    ChunkServerPtr                 server;
-    MetaChunkStaleNotify*          staleNotify;
+    StringBufT<(16 + 3) * 256> chunkIdAndVers; //!< input
+    int                        numChunks;
+    bool                       helloFlag;
+    int                        useThreshold;
+    ServerLocation             location;
+    ChunkServerPtr             server;
+    MetaChunkStaleNotify*      staleNotify;
     MetaChunkAvailable(seq_t s = -1)
         : MetaRequest(META_CHUNK_AVAILABLE, kLogIfOk, s),
           chunkIdAndVers(),
+          numChunks(-1),
+          helloFlag(false),
+          useThreshold(-1),
           location(),
           server(),
           staleNotify(0),
@@ -3626,7 +3632,7 @@ struct MetaChunkAvailable : public MetaRequest {
     virtual void response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "chunk available: ";
+        os << "chunk available[" << numChunks << "]: ";
         os.write(chunkIdAndVers.GetPtr(), chunkIdAndVers.GetSize());
         return os;
     }
@@ -3639,6 +3645,8 @@ struct MetaChunkAvailable : public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Chunk-ids-vers", "I", &MetaChunkAvailable::chunkIdAndVers)
+        .Def2("Num-chunks",     "N", &MetaChunkAvailable::numChunks,  -1)
+        .Def2("Hello",          "H", &MetaChunkAvailable::helloFlag, false)
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
@@ -3646,6 +3654,8 @@ struct MetaChunkAvailable : public MetaRequest {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkAvailable::location)
         .Def("C", &MetaChunkAvailable::chunkIdAndVers)
+        .Def("N", &MetaChunkAvailable::numChunks,    -1)
+        .Def("T", &MetaChunkAvailable::useThreshold, -1)
         ;
     }
 private:

@@ -2621,6 +2621,12 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
             mChunksToEvacuate.Erase(*id);
         }
     }
+    if (ca && 0 <= ca->logseq) {
+        // Treat partial hello, and chunk directory re-appearance the same way
+        // by adding to the hello chunk set, as the modification to the chunk
+        // inventory took effect as result chunk available processing..
+        AppendInFlightChunks(mHelloChunkIds, *r);
+    }
     Enqueue(r);
 
 }

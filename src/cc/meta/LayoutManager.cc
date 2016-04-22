@@ -7463,6 +7463,10 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
     }
 }
 
+// Chunk available used with partial hello, where chunk server hello has only
+// non stable chunks inventory, and all the stable chunk inventory is
+// communicated with chunk available, and in the case if previously unavailable
+// chunk directory becomes available again.
 // Chunk replicas became available again: the disk / directory came back.
 // Use these replicas only if absolutely must -- no other replicas exists,
 // and / or the chunk replica cannot be recovered, or there is only one replica
@@ -7470,16 +7474,28 @@ LayoutManager::ChunkEvacuate(MetaChunkEvacuate* r)
 // If disk / chunk directory goes off line it is better not not use it as it is
 // unreliable, except for the case where there is some kind of "DoS attack"
 // affecting multiple nodes at the same time.
+
 void
-LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
+LayoutManager::Start(MetaChunkAvailable& req)
 {
-    if (HandleReplay(*r) || 0 != r->status || r->server->IsDown()) {
+    if (0 != req.status) {
+        return;
+    }
+    req.useThreshold = req.helloFlag ? -1 :
+        mChunkAvailableUseReplicationOrRecoveryThreshold;
+}
+
+void
+LayoutManager::Handle(MetaChunkAvailable& req)
+{
+    if (HandleReplay(req) || 0 != req.status || req.server->IsDown()) {
         return;
     }
     vector<MetaChunkInfo*> cblk;
     ChunkIdQueue           staleChunks;
-    const char*            p = r->chunkIdAndVers.GetPtr();
-    const char*            e = p + r->chunkIdAndVers.GetSize();
+    const char*            p   = req.chunkIdAndVers.GetPtr();
+    const char*            e   = p + req.chunkIdAndVers.GetSize();
+    int                    cnt = 0;
     while (p < e) {
         chunkId_t chunkId        = -1;
         seq_t     chunkVersion   = -1;
@@ -7490,15 +7506,17 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
             while (p < e && *p <= ' ') {
                 p++;
             }
-            if (! gotVersionFlag || p != e) {
-                r->status    = -EINVAL;
-                r->statusMsg = "chunk id list parse error";
-                KFS_LOG_STREAM_ERROR << r->Show() << " : " <<
-                    r->statusMsg <<
+            if (! gotVersionFlag || p != e ||
+                    (0 <= req.numChunks && cnt != req.numChunks)) {
+                req.status    = -EINVAL;
+                req.statusMsg = "chunk id list parse error";
+                KFS_LOG_STREAM_ERROR << req.Show() << " : " <<
+                    req.statusMsg <<
                 KFS_LOG_EOM;
             }
             break;
         }
+        cnt++;
         CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
         if (! cmi) {
             KFS_LOG_STREAM_DEBUG <<
@@ -7506,13 +7524,11 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "        << chunkVersion <<
                 " does not exist" <<
             KFS_LOG_EOM;
-            if (! r->replayFlag) {
-                staleChunks.PushBack(chunkId);
-            }
+            staleChunks.PushBack(chunkId);
             continue;
         }
         const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
-        if (cmi->HasServer(mChunkToServerMap, r->server)) {
+        if (cmi->HasServer(mChunkToServerMap, req.server)) {
             KFS_LOG_STREAM_ERROR <<
                 "available chunk: " << chunkId <<
                 " version: "        << chunkVersion <<
@@ -7530,9 +7546,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "            << chunkVersion <<
                 " mismatch, expected: " << ci.chunkVersion <<
             KFS_LOG_EOM;
-            if (! r->replayFlag) {
-                staleChunks.PushBack(chunkId);
-            }
+            staleChunks.PushBack(chunkId);
             continue;
         }
         const ChunkLeases::WriteLease* const lease =
@@ -7543,9 +7557,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "        << chunkVersion <<
                 " write lease exists" <<
             KFS_LOG_EOM;
-            if (! r->replayFlag) {
-                staleChunks.PushBack(chunkId);
-            }
+            staleChunks.PushBack(chunkId);
             continue;
         }
         if (! IsChunkStable(chunkId)) {
@@ -7554,7 +7566,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "        << chunkVersion <<
                 " not stable" <<
             KFS_LOG_EOM;
-            // Available chunks are always stable. If the version is matches
+            // Available chunks are always stable. If the version matches
             // then it is likely that the replica became stable but make stable
             // reply was "lost" due chunk server disconnect or chunk directory
             // transition into "lost" state.
@@ -7562,33 +7574,28 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
         const MetaFattr& fa     = *(cmi->GetFattr());
         const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
         if (0 < srvCnt && (fa.numReplicas <= srvCnt ||
-                (0 <= mChunkAvailableUseReplicationOrRecoveryThreshold &&
-                    fa.numReplicas <= srvCnt +
-                        mChunkAvailableUseReplicationOrRecoveryThreshold))) {
+                (0 <= req.useThreshold &&
+                    fa.numReplicas <= srvCnt + req.useThreshold))) {
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "      << chunkId <<
                 " version: "             << chunkVersion <<
                 " sufficinet replicas: " << srvCnt <<
             KFS_LOG_EOM;
-            if (! r->replayFlag) {
-                staleChunks.PushBack(chunkId);
-            }
+            staleChunks.PushBack(chunkId);
             continue;
         }
         bool incompleteChunkBlockFlag              = false;
         bool incompleteChunkBlockWriteHasLeaseFlag = false;
         int  goodCnt                               = 0;
-        if (0 < fa.numRecoveryStripes &&
+        if (0 <= req.useThreshold &&
+                0 < fa.numRecoveryStripes &&
                 CanBeRecovered(
                     *cmi,
                     incompleteChunkBlockFlag,
                     &incompleteChunkBlockWriteHasLeaseFlag,
                     cblk,
                     &goodCnt) &&
-                0 <= mChunkAvailableUseReplicationOrRecoveryThreshold &&
-                (int)fa.numStripes +
-                    mChunkAvailableUseReplicationOrRecoveryThreshold <=
-                    goodCnt) {
+                (int)fa.numStripes + req.useThreshold <= goodCnt) {
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "   << chunkId <<
                 " version: "          << chunkVersion <<
@@ -7596,9 +7603,7 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " good: "             << goodCnt <<
                 " data stripes: "     << fa.numStripes <<
             KFS_LOG_EOM;
-            if (! r->replayFlag) {
-                staleChunks.PushBack(chunkId);
-            }
+            staleChunks.PushBack(chunkId);
             continue;
         }
         if (incompleteChunkBlockWriteHasLeaseFlag) {
@@ -7607,17 +7612,18 @@ LayoutManager::ChunkAvailable(MetaChunkAvailable* r)
                 " version: "          << chunkVersion <<
                 " partial chunk block has write lease" <<
             KFS_LOG_EOM;
-            if (! r->replayFlag) {
-                staleChunks.PushBack(chunkId);
-            }
+            staleChunks.PushBack(chunkId);
             continue;
         }
-        AddServer(*cmi, r->server);
+        AddServer(*cmi, req.server);
     }
-    // The chunk's server logic presently "prefers" stale chunk's RPC arrival
-    // prior to chunk available RPC response.
+    // Chunk's server logic requires stale chunk's RPC arrival prior to chunk
+    // available RPC response. The order and chunk available RPC sequence
+    // number is used by chunk server to disambiguate between "regular" stale
+    // chunk notifications, and stale chunk notifications issued as a result
+    // of processing of chunk available notification.
     if (! staleChunks.IsEmpty()) {
-        r->server->NotifyStaleChunks(staleChunks, *r);
+        req.server->NotifyStaleChunks(staleChunks, req);
     }
 }
 

@@ -3280,7 +3280,9 @@ MetaChunkAvailable::start()
         KFS_LOG_EOM;
     } else {
         location = server->GetServerLocation();
-        if (! location.IsValid()) {
+        if (location.IsValid()) {
+            gLayoutManager.Start(*this);
+        } else {
             panic("chunks available: invalid server location");
             status = -EFAULT;
         }
@@ -3295,7 +3297,7 @@ MetaChunkAvailable::handle()
         return;
     }
     handledFlag = true;
-    gLayoutManager.ChunkAvailable(this);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void

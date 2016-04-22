@@ -608,7 +608,7 @@ private:
         const char*       thePPtr   = thePtr;
         while (thePtr < theEndPtr) {
             const int theSym = *thePtr & 0xFF;
-            if (theSym <= ' ' || 0xFF <= theSym || strchr("%=;/,", theSym)) {
+            if (theSym < ' ' || 0xFF <= theSym || strchr("%=;/,", theSym)) {
                 if (thePPtr < thePtr) {
                     mOStream.write(thePPtr, thePtr - thePPtr);
                 }
