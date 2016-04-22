@@ -2600,24 +2600,30 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
         mStaleChunksHexFormatFlag,
         (ca && ! ca->replayFlag && 0 <= ca->logseq) ? ca : 0
     );
-    r->skipFront = skipFront;
-    if (clearStaleChunksFlag) {
-        r->staleChunkIds.Swap(staleChunkIds);
+    if (0 < skipFront) {
+        if (skipFront < staleChunkIds.GetSize()) {
+            ChunkIdQueue::ConstIterator it(staleChunkIds);
+            for (size_t i = 0; i < skipFront && it.Next(); i++)
+                {}
+            const chunkId_t* id;
+            while ((id = it.Next())) {
+                r->staleChunkIds.PushBack(*id);
+            }
+        }
+        if (clearStaleChunksFlag) {
+            staleChunkIds.Clear();
+        }
     } else {
-        r->staleChunkIds = staleChunkIds;
+        if (clearStaleChunksFlag) {
+            r->staleChunkIds.Swap(staleChunkIds);
+        } else {
+            r->staleChunkIds = staleChunkIds;
+        }
     }
     if (! mChunksToEvacuate.IsEmpty()) {
-        size_t skip = 0;
-        if (0 < skipFront && skipFront <= r->staleChunkIds.GetSize()) {
-            skip = skipFront;
-        }
         ChunkIdQueue::ConstIterator it(r->staleChunkIds);
         const chunkId_t*            id;
         while ((id = it.Next())) {
-            if (0 < skip) {
-                --skip;
-                continue;
-            }
             mChunksToEvacuate.Erase(*id);
         }
     }

@@ -2591,7 +2591,6 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
     bool         evacuatedFlag;
     bool         hexFormatFlag;
-    size_t       skipFront;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
             bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req);
     virtual void request(ReqOstream& os, IOBuffer& buf);

@@ -5356,7 +5356,6 @@ MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
       staleChunkIds(),
       evacuatedFlag(evacFlag),
       hexFormatFlag(hexFmtFlag),
-      skipFront(0),
       chunkAvailableReq(0)
 {
     if (req && ! req->staleNotify && server && req->clnt == &*server) {
@@ -5385,13 +5384,7 @@ MetaChunkStaleNotify::ShowSelf(ostream& os) const
 /* virtual */ void
 MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
 {
-    size_t count = staleChunkIds.GetSize();
-    size_t skip  = skipFront;
-    if (skip <= count) {
-        count -= skip;
-    } else {
-        skip = 0;
-    }
+    size_t const count = staleChunkIds.GetSize();
     if (shortRpcFormatFlag) {
         os << hex;
     }
@@ -5415,7 +5408,7 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
     char* const end = tmpBuf + kBufEnd;
-    if (skip <= 0 && count <= 1) {
+    if (count <= 1) {
         char* const p   = count < 1 ? end :
             ChunkIdToString(staleChunkIds.Front(), hexFormatFlag, end);
         size_t      len = end - p;
@@ -5431,10 +5424,6 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     IOBufferWriter              writer(ioBuf);
     tmpBuf[kBufEnd] = (char)' ';
     while ((id = it.Next())) {
-        if (0 < skip) {
-            --skip;
-            continue;
-        }
         char* const p = ChunkIdToString(*id, hexFormatFlag, end);
         writer.Write(p, (int)(end - p + 1));
     }
