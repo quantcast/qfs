@@ -107,7 +107,7 @@ public:
     virtual void Timeout();
 
     /// Return the meta server name/port information
-    ServerLocation GetLocation() const {
+    const ServerLocation& GetLocation() const {
         return mLocation;
     }
 

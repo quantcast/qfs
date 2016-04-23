@@ -6153,6 +6153,8 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
             cur ? *cur : *(new AvailableChunksOp(&mHelloNotifyCb));
         cur = 0;
         op.helloFlag = true;
+        op.noRetry   = true;
+        op.noReply   = false;
         ChunkInfoHandle* cih;
         while (op.numChunks < AvailableChunksOp::kMaxChunkIds &&
                 (cih = ChunkHelloNotifyList::PopFront(mChunkInfoHelloNotifyList))) {
@@ -6180,22 +6182,28 @@ ChunkManager::HelloNotifyDone(int code, void* data)
         die("HelloNotifyDone: invalid in flight count");
         mHelloNotifyInFlightCount = 0;
     }
-    if (0 != op.status && gMetaServerSM.IsUp()) {
-        if (-ELOGFAILED == op.status) {
-            // Handle transaction log write error by retrying.
-            mHelloNotifyInFlightCount += op.numChunks;
-            op.status = 0;
-            op.statusMsg.clear();
-            gMetaServerSM.EnqueueOp(&op);
+    if (0 != op.status) {
+        if (gMetaServerSM.IsUp()) {
+            if (-ELOGFAILED == op.status) {
+                // Handle transaction log write error by retrying.
+                mHelloNotifyInFlightCount += op.numChunks;
+                op.status = 0;
+                op.statusMsg.clear();
+                gMetaServerSM.EnqueueOp(&op);
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "forcing meta server connection down due to protocol"
+                    " or communication error:"
+                    " status: " << op.status <<
+                    " "         << op.statusMsg <<
+                    " "         << op.Show() <<
+                KFS_LOG_EOM;
+                gMetaServerSM.ForceDown();
+            }
         } else {
-            KFS_LOG_STREAM_ERROR <<
-                "forcing meta server connection down due to protocol"
-                " or communication error:"
-                " status: " << op.status <<
-                " "         << op.statusMsg <<
-                " "         << op.Show() <<
-            KFS_LOG_EOM;
-            gMetaServerSM.ForceDown();
+            for (int i = 0; i < op.numChunks; i++) {
+                InsertLastInFlight(op.chunks[i].first);
+            }
         }
     }
     ChunkManager::RunHelloNotifyQueue(&op);
@@ -7342,6 +7350,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
     }
     if (gMetaServerSM.IsUp()) {
         availableChunksOp.noReply = false;
+        availableChunksOp.noRetry = true;
         if (notifyAvailableChunksStartFlag) {
             notifyAvailableChunksStartFlag = false;
             availableChunksOp.status = 0;
@@ -7473,19 +7482,22 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
         // Queue an empty op, to get this method called again when meta server connection
         // gets established and chunk server hello completes
         availableChunksOp.numChunks = 0;
-        availableChunksOp.noReply   = ! availableChunks.IsEmpty();
+        availableChunksOp.noReply   = true;
+        availableChunksOp.noRetry   = true;
     }
     if (timeoutPendingFlag) {
         timeoutPendingFlag = false;
         globalNetManager().UnRegisterTimeoutHandler(this);
     }
     if ((availableChunksOp.numChunks <= 0 && ! availableChunksOp.noReply) ||
-            ! globalNetManager().IsRunning()) {
+            ! globalNetManager().IsRunning() ||
+            ! gMetaServerSM.GetLocation().IsValid()) {
         return;
     }
     availableChunksOpInFlightFlag     = true;
     chunksAvailableInFlightSortedFlag = false;
-    availableChunksOp.status          = 0;
+    availableChunksOp.status = 0;
+    availableChunksOp.statusMsg.clear();
     gMetaServerSM.EnqueueOp(&availableChunksOp);
 }
 

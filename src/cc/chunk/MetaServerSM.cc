@@ -157,15 +157,15 @@ MetaServerSM::Shutdown()
     mGenerationCount++;
     mNetConnection.reset();
     globalNetManager().UnRegisterTimeoutHandler(this);
+    if (mLocation.IsValid()) {
+        mLocation.port = -mLocation.port;
+    }
     CleanupOpInFlight();
     DiscardPendingResponses();
     FailOps(true);
     DetachAndDeleteOp(mHelloOp);
     DetachAndDeleteOp(mAuthOp);
     mAuthContext.Clear();
-    if (mLocation.IsValid()) {
-        mLocation.port = -mLocation.port;
-    }
 }
 
 void
@@ -624,7 +624,7 @@ void
 MetaServerSM::FailOps(bool shutdownFlag)
 {
     // Fail all no retry ops, if any, or all ops on shutdown.
-    OpsQueue   doneOps;
+    OpsQueue doneOps;
     for (DispatchedOps::iterator it = mDispatchedOps.begin();
             it != mDispatchedOps.end();
             ) {
