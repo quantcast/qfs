@@ -1450,6 +1450,19 @@ private:
     }
 };
 
+inline void
+ForceMetaServerDown(const KfsOp& op)
+{
+    KFS_LOG_STREAM_ERROR <<
+        "forcing meta server connection down due to protocol"
+        " or communication error:"
+        " status: " << op.status <<
+        " "         << op.statusMsg <<
+        " "         << op.Show() <<
+    KFS_LOG_EOM;
+    gMetaServerSM.ForceDown();
+}
+
 inline bool
 ChunkManager::InsertLastInFlight(kfsChunkId_t chunkId)
 {
@@ -1517,14 +1530,7 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
             return;
         }
         if (0 != op.status) {
-            KFS_LOG_STREAM_ERROR <<
-                "forcing meta server connection down due to protocol"
-                " or communication error:"
-                " status: " << op.status <<
-                " "         << op.statusMsg <<
-                " "         << op.Show() <<
-            KFS_LOG_EOM;
-            gMetaServerSM.ForceDown();
+            ForceMetaServerDown(op);
             upFlag = false;
         }
     }
@@ -5786,6 +5792,9 @@ ChunkManager::GetHostedChunksResume(
     const ChunkManager::HostedChunkList& missing,
     bool                                 noFidsFlag)
 {
+    if (0 != mHelloNotifyInFlightCount) {
+        die("hello resume while pending hello notify in flight");
+    }
     if (hello.resumeStep == 0) {
         // Tell meta server to exclude last in flight and all non stable chunks
         // from checksum.
@@ -5803,17 +5812,19 @@ ChunkManager::GetHostedChunksResume(
             if (! p) {
                 break;
             }
-            ChunkInfoHandle* const cih = p->GetVal();
-            if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
-                ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, *cih);
-            }
             const kfsChunkId_t chunkId = p->GetKey();
             if (mLastPendingInFlight.Find(chunkId)) {
                 continue;
             }
-            kfsSeq_t vers = -1;
+            ChunkInfoHandle* const cih  = p->GetVal();
+            kfsSeq_t               vers = -1;
             if (! cih->IsBeingReplicated() &&
                     (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0)) {
+                if (! ChunkHelloNotifyList::IsEmpty(
+                        mChunkInfoHelloNotifyList)) {
+                    ChunkHelloNotifyList::Remove(
+                        mChunkInfoHelloNotifyList, *cih);
+                }
                 (*missing.first)++;
                 (*missing.second) << chunkId << ' ';
             }
@@ -5833,14 +5844,20 @@ ChunkManager::GetHostedChunksResume(
         if (mLastPendingInFlight.Find(p->GetKey())) {
             continue;
         }
-        const ChunkInfoHandle* const cih = p->GetVal();
+        ChunkInfoHandle* const cih = p->GetVal();
         if (cih->IsBeingReplicated()) {
             continue;
         }
         kfsSeq_t vers = -1;
         if (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0) {
+            if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+                ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, *cih);
+            }
             AppendToHostedList(
                 *cih, stable, notStableAppend, notStable, noFidsFlag);
+            continue;
+        }
+        if (ChunkHelloNotifyList::IsInList(mChunkInfoHelloNotifyList, *cih)) {
             continue;
         }
         checksum.Add(p->GetKey(), vers);
@@ -6029,6 +6046,7 @@ ChunkManager::GetHostedChunksResume(
             os << ' ' << p->GetKey();
         }
         os << "\nchunks[" << mChunkTable.GetSize() << "]:\n";
+        size_t helloNotifyCnt = 0;
         for (mChunkTable.First(); os; ) {
             const CMapEntry* const p = mChunkTable.Next();
             if (! p) {
@@ -6046,6 +6064,11 @@ ChunkManager::GetHostedChunksResume(
             } else {
                 os << chunkId << " " << cih->chunkInfo.chunkVersion <<
                     (IsChunkStable(cih) ? " S" : " N");
+            }
+            if (ChunkHelloNotifyList::IsInList(
+                    mChunkInfoHelloNotifyList, *cih)) {
+                os << " H";
+                helloNotifyCnt++;
             }
             os << "\n";
         }
@@ -6079,6 +6102,9 @@ ChunkManager::GetHostedChunksResume(
             os << ' ' << *it;
         }
         os << "\n";
+        if (0 < helloNotifyCnt) {
+            os << "pending hello total: " << helloNotifyCnt << "\n";
+        }
     KFS_LOG_STREAM_END;
     if (traceTee) {
         *traceTee << "\n";
@@ -6106,6 +6132,9 @@ ChunkManager::GetHostedChunks(
     const ChunkManager::HostedChunkList& notStable,
     bool                                 noFidsFlag)
 {
+    if (0 != mHelloNotifyInFlightCount) {
+        die("hello while pending hello notify in flight");
+    }
     // walk thru the table and pick up the chunk-ids
     const bool usePendingNotifyFlag = 0 < mMaxHelloNotifyInFlightCount &&
         mMinChunkCountForHelloResume < (int64_t)mChunkTable.GetSize();
@@ -6191,14 +6220,7 @@ ChunkManager::HelloNotifyDone(int code, void* data)
                 op.statusMsg.clear();
                 gMetaServerSM.EnqueueOp(&op);
             } else {
-                KFS_LOG_STREAM_ERROR <<
-                    "forcing meta server connection down due to protocol"
-                    " or communication error:"
-                    " status: " << op.status <<
-                    " "         << op.statusMsg <<
-                    " "         << op.Show() <<
-                KFS_LOG_EOM;
-                gMetaServerSM.ForceDown();
+                ForceMetaServerDown(op);
             }
         } else {
             for (int i = 0; i < op.numChunks; i++) {
@@ -7510,6 +7532,11 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
         return -EINVAL;
     }
     availableChunksOpInFlightFlag = false;
+    if (0 != availableChunksOp.status &&
+            -ELOGFAILED != availableChunksOp.status &&
+            gMetaServerSM.IsUp()) {
+        ForceMetaServerDown(availableChunksOp);
+    }
     // Re-queue to handle meta server transaction log failure.
     // If meta server connection went down then add chunks to last in flight
     // chunks regardless of the status in order for hello resume to succeed.
@@ -7517,7 +7544,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
     const bool requeueFlag  = ! metaDownFlag &&
         ! notifyAvailableChunksStartFlag &&
         0 <= availableSpace &&
-        availableChunksOp.status < 0;
+        -ELOGFAILED == availableChunksOp.status;
     const bool kIgnorePendingAvailableFlag = true;
     for (int i = 0; i < availableChunksOp.numChunks; i++) {
         const kfsChunkId_t chunkId = availableChunksOp.chunks[i].first;
