@@ -5886,7 +5886,7 @@ ChunkManager::GetHostedChunksResume(
         }
     }
     // Do not delete chunks just yet, exclude those from checksum, and
-    // report those back to the meta server, as the meta server will
+    // report those back to the meta server, to make the meta server
     // explicitly delete those after hello completion.
     // Pending in flight will be re-submitted again after hello completion,
     // in flight chunks have already been removed from inventory count and
