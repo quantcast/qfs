@@ -2643,7 +2643,6 @@ protected:
     template<typename T> const ChunkServerPtr* ReplayFindServer(
         const ServerLocation& loc, T& req);
     template<typename T> bool HandleReplay(T& req);
-    HibernatedChunkServer* FindHibernatedServer(const ServerLocation& loc);
 };
 
 extern LayoutManager& gLayoutManager;

@@ -3256,16 +3256,6 @@ LayoutManager::ReplayFindServer(const ServerLocation& loc, T& req)
     return &*it;
 }
 
-HibernatedChunkServer*
-LayoutManager::FindHibernatedServer(const ServerLocation& loc)
-{
-    const HibernatingServerInfo* const hsi = FindHibernatingCSInfo(loc);
-    if (hsi && hsi->IsHibernated()) {
-        return mChunkToServerMap.GetHiberantedServer(hsi->csmapIdx);
-    }
-    return 0;
-}
-
 void
 LayoutManager::Handle(MetaChunkLogInFlight& req)
 {
@@ -3316,8 +3306,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             panic("invalid chunk log in flight down server location");
             req.status = -EFAULT;
         } else {
-            HibernatedChunkServer* const hs =
-                FindHibernatedServer(req.location);
+            HibernatedChunkServer* const hs = FindHibernatingCS(req.location);
             if (hs) {
                 if (req.server && hs->GetGeneration() !=
                         req.server->GetHibernatedGeneration()) {
@@ -3427,7 +3416,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                 }
             } else {
                 HibernatedChunkServer* const hs =
-                    FindHibernatedServer(req.doneLocation);
+                    FindHibernatingCS(req.doneLocation);
                 if (hs) {
                     hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
                     updatedFlag = true;
@@ -3471,7 +3460,7 @@ LayoutManager::Handle(MetaHibernatedPrune& req)
     }
     HibernatedChunkServer* hs;
     if (0 == req.status) {
-        hs = FindHibernatedServer(req.location);
+        hs = FindHibernatingCS(req.location);
         if (! hs) {
             req.status = -ENOENT;
         }
@@ -3484,13 +3473,12 @@ LayoutManager::Handle(MetaHibernatedPrune& req)
 void
 LayoutManager::Handle(MetaHibernatedRemove& req)
 {
-    if (-ELOGFAILED == req.status) {
+    if (0 != req.status) {
         if (req.replayFlag) {
             panic("invalid meta hibernate remove");
-            return;
+        } else if (-ELOGFAILED != req.status) {
+            panic("invalid meta hibernate remove status");
         }
-        ScheduleResubmitOrCancel(req);
-        return;
     }
     HibernatedServerInfos::iterator it;
     if (! FindHibernatingCSInfo(req.location, &it)) {
@@ -3499,6 +3487,12 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
     }
     if (! req.replayFlag && it->removeOp != &req) {
         panic("invalid hibernated server remove completion");
+    }
+    if (0 != req.status) {
+        // Handle transaction log write failure, by resetting pointer, and
+        // relying on the timer cleanup to re-issue remove again.
+        it->removeOp = 0;
+        return;
     }
     if (it->IsHibernated()) {
         if (mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
@@ -3747,6 +3741,21 @@ LayoutManager::AddNewServer(MetaHello* r)
         }
         mHibernatingServers.erase(it);
     } else {
+        HibernatedServerInfos::iterator it;
+        HibernatingServerInfo* const    hs =
+            FindHibernatingCSInfo(r->location, &it);
+        if (hs) {
+            if (it->IsHibernated()) {
+                KFS_LOG_STREAM_INFO <<
+                    "hibernated server: " << it->location  <<
+                    " is back as promised" <<
+                KFS_LOG_EOM;
+                if (! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
+                    panic("failed to remove hibernated server");
+                }
+            }
+            mHibernatingServers.erase(it);
+        }
         // Add server first, then add chunks, otherwise if/when the server goes
         // down in the process of adding chunks, taking out server from chunk
         // info will not work in ServerDown().
@@ -5468,7 +5477,12 @@ LayoutManager::FindHibernatingCS(const ServerLocation& loc,
     if (! hs || ! hs->IsHibernated()) {
         return 0;
     }
-    return mChunkToServerMap.GetHiberantedServer(hs->csmapIdx);
+    HibernatedChunkServer* const ret =
+        mChunkToServerMap.GetHiberantedServer(hs->csmapIdx);
+    if (! ret) {
+        panic("invalid hibernated server info index");
+    }
+    return ret;
 }
 
 bool
@@ -10393,10 +10407,8 @@ LayoutManager::CheckHibernatingServersStatus()
         }
         if (i != mChunkServers.end()) {
             if (iter->IsHibernated()) {
-                KFS_LOG_STREAM_INFO <<
-                    "hibernated server: " << iter->location  <<
-                    " is back as promised" <<
-                KFS_LOG_EOM;
+                // Must be removed by hello processing in AddNewServer().
+                panic("invalid stale hibernated server info");
             } else {
                 if (now < iter->sleepEndTime + 5 * 60) {
                     continue;
