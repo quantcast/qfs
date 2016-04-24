@@ -598,31 +598,52 @@ private:
     size_t                  mPrefixLen;
     ostream::fmtflags const mFlags;
 
+    void Escape(int inSym)
+    {
+        const char* const kHexChars = "0123456789ABCDEF";
+        char              theBuf[3];
+        theBuf[0] = '%';
+        theBuf[1] = kHexChars[(inSym >> 4) & 0xF];
+        theBuf[2] = kHexChars[inSym & 0xF];
+        mOStream.write(theBuf, 3);
+    }
     void Escape(
         const char* inPtr,
         size_t      inLen)
     {
-        const char* const kHexChars = "0123456789ABCDEF";
-        const char*       thePtr    = inPtr;
-        const char* const theEndPtr = thePtr + inLen;
-        const char*       thePPtr   = thePtr;
+        if (inLen <= 0) {
+            return;
+        }
+        // Always escape the first leading and the last trailing spaces, if any,
+        // in order to ensure leading and trailing spaces are not discarded by
+        // key value tokenizer.
+        const int         kSpace           = ' ';
+        const bool        theLastSpaceFlag =
+            kSpace == (inPtr[inLen - 1] & 0xFF);
+        const char*       thePtr           = inPtr;
+        const char* const theEndPtr        = thePtr + inLen -
+            (theLastSpaceFlag ? 1 : 0);
+        if (thePtr < theEndPtr && kSpace == (*thePtr & 0xFF)) {
+            Escape(kSpace);
+            ++thePtr;
+        }
+        const char* thePPtr = thePtr;
         while (thePtr < theEndPtr) {
             const int theSym = *thePtr & 0xFF;
-            if (theSym < ' ' || 0xFF <= theSym || strchr("%=;/,", theSym)) {
+            if (theSym < kSpace || 0xFF <= theSym || strchr("%=;/,", theSym)) {
                 if (thePPtr < thePtr) {
                     mOStream.write(thePPtr, thePtr - thePPtr);
                 }
-                char theBuf[3];
-                theBuf[0] = '%';
-                theBuf[1] = kHexChars[(theSym >> 4) & 0xF];
-                theBuf[2] = kHexChars[theSym & 0xF];
-                mOStream.write(theBuf, 3);
+                Escape(theSym);
                 thePPtr = thePtr + 1;
             }
             ++thePtr;
         }
         if (thePPtr < theEndPtr) {
             mOStream.write(thePPtr, theEndPtr - thePPtr);
+        }
+        if (theLastSpaceFlag) {
+            Escape(kSpace);
         }
     }
 };
