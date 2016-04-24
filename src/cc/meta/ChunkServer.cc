@@ -2590,8 +2590,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 
 void
 ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
-    bool evacuatedFlag, bool clearStaleChunksFlag, MetaChunkAvailable* ca,
-    size_t skipFront)
+    bool evacuatedFlag, bool clearStaleChunksFlag, MetaChunkAvailable* ca)
 {
     MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
         NextSeq(),
@@ -2600,25 +2599,10 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
         mStaleChunksHexFormatFlag,
         (ca && ! ca->replayFlag && 0 <= ca->logseq) ? ca : 0
     );
-    if (0 < skipFront) {
-        if (skipFront < staleChunkIds.GetSize()) {
-            ChunkIdQueue::ConstIterator it(staleChunkIds);
-            for (size_t i = 0; i < skipFront && it.Next(); i++)
-                {}
-            const chunkId_t* id;
-            while ((id = it.Next())) {
-                r->staleChunkIds.PushBack(*id);
-            }
-        }
-        if (clearStaleChunksFlag) {
-            staleChunkIds.Clear();
-        }
+    if (clearStaleChunksFlag) {
+        r->staleChunkIds.Swap(staleChunkIds);
     } else {
-        if (clearStaleChunksFlag) {
-            r->staleChunkIds.Swap(staleChunkIds);
-        } else {
-            r->staleChunkIds = staleChunkIds;
-        }
+        r->staleChunkIds = staleChunkIds;
     }
     if (! mChunksToEvacuate.IsEmpty()) {
         ChunkIdQueue::ConstIterator it(r->staleChunkIds);
@@ -3652,6 +3636,7 @@ HibernatedChunkServer::HelloResumeReply(
             for (size_t i = r.deletedCount; i < deletedCount; i++) {
                 staleChunkIds.PushBack(mDeletedChunks[i]);
             }
+            mDeletedChunks.Clear();
         }
         if (! modifiedChunks.IsEmpty()) {
             panic("hibernated server: "
@@ -3659,7 +3644,6 @@ HibernatedChunkServer::HelloResumeReply(
             modifiedChunks.Clear();
         }
         modifiedChunks.Swap(mModifiedChunks);
-        mModifiedChecksum.Clear();
         return false;
     }
     if (GetChunkCount() < mModifiedChunks.Size()) {

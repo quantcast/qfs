@@ -3961,20 +3961,8 @@ LayoutManager::AddNewServer(MetaHello* r)
         }
     }
     const size_t staleCnt = staleChunkIds.GetSize();
-    if (0 < staleCnt && ! srv.IsDown()) {
-        size_t skipFront = 0;
-        if (0 < r->resumeStep &&
-                (size_t)max(int64_t(0), r->deletedReportCount) <= staleCnt) {
-            skipFront = r->deletedReportCount;
-        }
-        if (skipFront < staleCnt) {
-            const bool                kEvacuatedFlag        = false;
-            const bool                kClearStaleChunksFlag = true;
-            MetaChunkAvailable* const ca                    = 0;
-            srv.NotifyStaleChunks(staleChunkIds,
-                kEvacuatedFlag, kClearStaleChunksFlag, ca, skipFront);
-        }
-        staleChunkIds.Clear();
+    if (! staleChunkIds.IsEmpty() && ! srv.IsDown()) {
+        srv.NotifyStaleChunks(staleChunkIds);
     }
     if (0 < r->resumeStep) {
         for (MetaHello::MissingChunks::const_iterator
