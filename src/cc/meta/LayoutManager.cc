@@ -1420,11 +1420,7 @@ template<typename T> bool
 LayoutManager::HandleReplay(T& req)
 {
     if (! req.replayFlag) {
-        if (-ELOGFAILED == req.status) {
-            ScheduleResubmitOrCancel(req);
-            return true;
-        }
-        return false;
+        return (-ELOGFAILED == req.status);
     }
     if (req.server || ! req.location.IsValid() || -ELOGFAILED == req.status) {
         panic("invalid RPC in replay");
