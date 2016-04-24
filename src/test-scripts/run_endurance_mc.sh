@@ -413,6 +413,7 @@ metaServer.rootDirMode = 0777
 
 metaServer.appendPlacementIgnoreMasterSlave = 1
 metaServer.startupAbortOnPanic = 1
+metaServer.debugSimulateDenyHelloResumeInterval = 10
 metaServer.debugPanicOnHelloResumeFailureCount = 0
 metaServer.helloResumeFailureTraceFileName = helloresumefail.log
 

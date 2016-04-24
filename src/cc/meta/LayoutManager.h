@@ -2402,6 +2402,7 @@ protected:
     int                   mMaxDataStripeCount;
     int                   mMaxRecoveryStripeCount;
     int                   mMaxRSDataStripeCount;
+    int64_t               mDebugSimulateDenyHelloResumeInterval;
     int64_t               mDebugPanicOnHelloResumeFailureCount;
     string                mHelloResumeFailureTraceFileName;
 

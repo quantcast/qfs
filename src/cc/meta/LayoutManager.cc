@@ -1800,6 +1800,7 @@ LayoutManager::LayoutManager() :
     mMaxDataStripeCount(KFS_MAX_DATA_STRIPE_COUNT),
     mMaxRecoveryStripeCount(min(32, KFS_MAX_RECOVERY_STRIPE_COUNT)),
     mMaxRSDataStripeCount(min(64, KFS_MAX_DATA_STRIPE_COUNT)),
+    mDebugSimulateDenyHelloResumeInterval(0),
     mDebugPanicOnHelloResumeFailureCount(-1),
     mHelloResumeFailureTraceFileName(),
     mFileRecoveryInFlightCount(),
@@ -2459,6 +2460,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.maxRecoveryStripeCount", mMaxRecoveryStripeCount));
     mMaxRSDataStripeCount = min(KFS_MAX_DATA_STRIPE_COUNT, props.getValue(
         "metaServer.maxRSDataStripeCount", mMaxRSDataStripeCount));
+    mDebugSimulateDenyHelloResumeInterval = props.getValue(
+        "metaServer.debugSimulateDenyHelloResumeInterval",
+        mDebugSimulateDenyHelloResumeInterval);
     mDebugPanicOnHelloResumeFailureCount = props.getValue(
         "metaServer.debugPanicOnHelloResumeFailureCount",
         mDebugPanicOnHelloResumeFailureCount);
@@ -3717,6 +3721,18 @@ LayoutManager::AddNewServer(MetaHello* r)
             r->status    = -EAGAIN;
             return;
         }
+        if (0 == r->resumeStep) {
+            if (0 <= r->logseq) {
+                // Step 0 is not written into transaction log.
+                panic("invalid hello resume step logged / replayed");
+            }
+            if (0 < mDebugSimulateDenyHelloResumeInterval &&
+                    0 == Rand(mDebugSimulateDenyHelloResumeInterval)) {
+                r->statusMsg = "simulating resume deny";
+                r->status    = -EAGAIN;
+                return;
+            }
+        }
         if (cs->HelloResumeReply(
                 *r, mChunkToServerMap, staleChunkIds, modififedChunks)) {
             return;
@@ -3740,6 +3756,8 @@ LayoutManager::AddNewServer(MetaHello* r)
                 mChunkToServerMap.RemoveServerCleanup(0);
                 addedFlag = mChunkToServerMap.AddServer(r->server);
             }
+            // Hello start method must ensure that sufficient number of slots
+            // is available, therefore adding server must not fail here.
             if (! addedFlag) {
                 KFS_LOG_STREAM_FATAL <<
                     "failed to add server: " << srvId <<
@@ -4128,7 +4146,7 @@ LayoutManager::AddNotStableChunk(
         // chunks from chunk inventory checksum, it follows that even if the
         // primary fails to make or convey its decision. the chunk will be in
         // the hello on chunk server reconnect -- no need to add chunk to the
-        // set of chunk ids produced as a result of processing hello.
+        // set of chunk ids "manipulated" as a result of processing hello.
         AddHosted(chunkId, pinfo, server);
         return 0;
     }
