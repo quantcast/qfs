@@ -1412,13 +1412,10 @@ DeleteChunkOp::Execute()
         gLogger.Submit(this);
         return;
     }
-    if (chunkVersion < 0) {
-        SET_HANDLER(this, &DeleteChunkOp::Done);
-    }
-    const bool objStoreBlockFlag = chunkVersion < 0;
-    status = gChunkManager.DeleteChunk(chunkId, chunkVersion,
-        objStoreBlockFlag ? this : 0);
-    if (! objStoreBlockFlag || status < 0) {
+    SET_HANDLER(this, &DeleteChunkOp::Done);
+    const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion, this);
+    if (ret < 0) {
+        status = ret;
         gLogger.Submit(this);
     }
 }
@@ -2100,9 +2097,13 @@ StaleChunksOp::Execute()
             it != staleChunkIds.end();
             ++it) {
         pendingCount++;
-        if (0 != gChunkManager.StaleChunk(
-                *it, forceDeleteFlag, evacuatedFlag, availChunksSeq, this)) {
+        const int ret = gChunkManager.StaleChunk(
+                *it, forceDeleteFlag, evacuatedFlag, availChunksSeq, this);
+        if (ret < 0) {
             pendingCount--;
+            if (0 == status) {
+                status = ret;
+            }
         }
     }
     pendingCount--;
