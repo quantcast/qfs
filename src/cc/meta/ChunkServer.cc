@@ -640,6 +640,7 @@ ChunkServer::~ChunkServer()
     MetaRequest::Release(mHelloOp);
     MetaRequest::Release(mAuthenticateOp);
     ReleasePendingResponses();
+    mRecursionCount--; // To catch double delete.
     ChunkServersList::Remove(sChunkServersPtr, *this);
     sChunkServerCount--;
 }
