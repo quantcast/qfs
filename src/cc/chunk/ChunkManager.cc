@@ -6220,9 +6220,9 @@ ChunkManager::HelloNotifyDone(int code, void* data)
                 op.status = 0;
                 op.statusMsg.clear();
                 gMetaServerSM.EnqueueOp(&op);
-            } else {
-                ForceMetaServerDown(op);
+                return 0;
             }
+            ForceMetaServerDown(op);
         } else {
             for (int i = 0; i < op.numChunks; i++) {
                 InsertLastInFlight(op.chunks[i].first);
