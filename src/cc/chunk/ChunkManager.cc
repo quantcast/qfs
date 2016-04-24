@@ -6223,10 +6223,9 @@ ChunkManager::HelloNotifyDone(int code, void* data)
                 return 0;
             }
             ForceMetaServerDown(op);
-        } else {
-            for (int i = 0; i < op.numChunks; i++) {
-                InsertLastInFlight(op.chunks[i].first);
-            }
+        }
+        for (int i = 0; i < op.numChunks; i++) {
+            InsertLastInFlight(op.chunks[i].first);
         }
     }
     ChunkManager::RunHelloNotifyQueue(&op);
