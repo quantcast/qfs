@@ -4275,6 +4275,7 @@ ChunkManager::AddMapping(ChunkManager::ChunkDirInfo& dir,
             staleName = MakeStaleChunkPathname(cih);
             keepName  = MakeChunkPathname(
                 dir.dirname, fileId, chunkId, chunkVers, string());
+            RemoveFromChunkTable(*cih);
             Delete(*cih);
             cih = 0;
         } else {
