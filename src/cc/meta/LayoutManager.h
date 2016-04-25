@@ -948,7 +948,7 @@ public:
     /// Use it to configure information about that server
     /// @param[in] r  The MetaHello request sent by the
     /// new chunk server.
-    void AddNewServer(MetaHello* r);
+    void AddNewServer(MetaHello& req);
 
     bool Validate(MetaRetireChunkserver& req);
 

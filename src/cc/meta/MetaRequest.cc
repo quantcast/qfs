@@ -2959,11 +2959,7 @@ MetaHello::start()
 /* virtual */ void
 MetaHello::handle()
 {
-    if (0 != status) {
-        // bad hello request...possible cluster key mismatch
-        return;
-    }
-    gLayoutManager.AddNewServer(this);
+    gLayoutManager.AddNewServer(*this);
 }
 
 /* virtual */ bool
