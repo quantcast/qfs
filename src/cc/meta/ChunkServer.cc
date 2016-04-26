@@ -588,6 +588,7 @@ ChunkServer::ChunkServer(
       mLastChunksInFlight(),
       mStaleChunkIdsInFlight(),
       mHelloChunkIds(),
+      mHelloPendingStaleChunks(),
       mHelloProcessFlag(false),
       mHelloDoneCount(0),
       mHelloResumeCount(0),
@@ -1311,7 +1312,7 @@ public:
         }
         if (mFieldIdx == 2 && ! mPrevSpaceFlag) {
             mCur.chunkVersion = mVal;
-            mFieldIdx = 0;
+            mFieldIdx = mStartFieldIdx;
             mVal      = 0;
             return &mCur;
         }
@@ -1523,7 +1524,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     (int64_t)max(0, mHelloOp->numChunks) +
                     (int64_t)max(0, mHelloOp->numNotStableAppendChunks) +
                     (int64_t)max(0, mHelloOp->numNotStableChunks) +
-                    (int64_t)max(0, mHelloOp->numMissingChunks))) {
+                    (int64_t)max(0, mHelloOp->numMissingChunks) +
+                    (int64_t)max(0, mHelloOp->numPendingStaleChunks))) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " malformed hello:"
                 " content length: "       << mHelloOp->contentLength <<
@@ -1531,6 +1533,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 " + "                     << mHelloOp->numNotStableAppendChunks <<
                 " + "                     << mHelloOp->numNotStableChunks <<
                 " + "                     << mHelloOp->numMissingChunks <<
+                " + "                     << mHelloOp->numPendingStaleChunks <<
             KFS_LOG_EOM;
             mHelloOp = 0;
             MetaRequest::Release(op);
@@ -1644,21 +1647,27 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     }
                 }
             }
-            const size_t numMissing = max(0, mHelloOp->numMissingChunks);
-            if (0 < numMissing && ! hexParser.IsError()) {
-                mHelloOp->missingChunks.reserve(numMissing);
-                int i = mHelloOp->numMissingChunks;
-                if (mHelloOp->contentIntBase == 16) {
+            for (int k = 0; k < 2 && ! hexParser.IsError(); k++) {
+                int count = 0 == k ?
+                    mHelloOp->numMissingChunks :
+                    mHelloOp->numPendingStaleChunks;
+                if (count <= 0) {
+                    continue;
+                }
+                MetaHello::ChunkIdList& list = 0 == k ?
+                    mHelloOp->missingChunks : mHelloOp->pendingStaleChunks;
+                list.reserve((size_t)count);
+                if (16 == mHelloOp->contentIntBase) {
                     hexParser.SetIdOnly(true);
                     const MetaHello::ChunkInfo* c;
-                    while (i-- > 0 && (c = hexParser.Next()) &&
+                    while (count-- > 0 && (c = hexParser.Next()) &&
                             0 <= c->chunkId) {
-                        mHelloOp->missingChunks.push_back(c->chunkId);
+                        list.push_back(c->chunkId);
                     }
                 } else {
                     chunkId_t chunkId;
-                    while (i-- > 0 && (is >> chunkId) && 0 <= chunkId) {
-                        mHelloOp->missingChunks.push_back(chunkId);
+                    while (count-- > 0 && (is >> chunkId) && 0 <= chunkId) {
+                        list.push_back(chunkId);
                     }
                 }
             }
@@ -1668,19 +1677,23 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     mHelloOp->notStableAppendChunks.size() !=
                         nonStableAppendNum ||
                     mHelloOp->notStableChunks.size() != nonStableNum ||
-                    numMissing != mHelloOp->missingChunks.size() ||
+                    (size_t)max(0, mHelloOp->numMissingChunks) !=
+                        mHelloOp->missingChunks.size() ||
+                    (size_t)max(0, mHelloOp->numPendingStaleChunks) !=
+                        mHelloOp->pendingStaleChunks.size() ||
                     hexParser.IsError()) {
                 KFS_LOG_STREAM_ERROR << GetPeerName() <<
                     " invalid or short chunk list:"
                     " expected: " << mHelloOp->numChunks <<
-                    "/"      << mHelloOp->numNotStableAppendChunks <<
-                    "/"      << mHelloOp->numNotStableChunks <<
-                    "/"      << mHelloOp->numMissingChunks <<
-                    " got: " << mHelloOp->chunks.size() <<
-                    "/"      <<
-                        mHelloOp->notStableAppendChunks.size() <<
-                    "/"      << mHelloOp->notStableChunks.size() <<
-                    "/"      << mHelloOp->missingChunks.size() <<
+                    "/"           << mHelloOp->numNotStableAppendChunks <<
+                    "/"           << mHelloOp->numNotStableChunks <<
+                    "/"           << mHelloOp->numMissingChunks <<
+                    "/"           << mHelloOp->numPendingStaleChunks <<
+                    " actual: "   << mHelloOp->chunks.size() <<
+                    "/"           << mHelloOp->notStableAppendChunks.size() <<
+                    "/"           << mHelloOp->notStableChunks.size() <<
+                    "/"           << mHelloOp->missingChunks.size() <<
+                    "/"           << mHelloOp->pendingStaleChunks.size() <<
                     " last good chunk: " <<
                         (mHelloOp->chunks.empty() ? -1 :
                         mHelloOp->chunks.back().chunkId) <<
@@ -1690,6 +1703,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                         mHelloOp->notStableChunks.back().chunkId) <<
                     "/" << (mHelloOp->missingChunks.empty() ? -1 :
                         mHelloOp->missingChunks.back()) <<
+                    "/" << (mHelloOp->pendingStaleChunks.empty() ? -1 :
+                        mHelloOp->pendingStaleChunks.back()) <<
                     " content length: " << contentLength <<
                 KFS_LOG_EOM;
                 MetaRequest::Release(mHelloOp);
@@ -2171,6 +2186,9 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             }
         }
     }
+    if (req.flushStaleQueueFlag) {
+        mHelloPendingStaleChunks.clear();
+    }
     if (op) {
         if (! req.doneOp) {
             if (! req.replayFlag || ! op->replayFlag) {
@@ -2590,8 +2608,12 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 }
 
 void
-ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
-    bool evacuatedFlag, bool clearStaleChunksFlag, MetaChunkAvailable* ca)
+ChunkServer::NotifyStaleChunks(
+    ChunkIdQueue&       staleChunkIds,
+    bool                evacuatedFlag,
+    bool                clearStaleChunksFlag,
+    MetaChunkAvailable* ca,
+    MetaHello*          hello)
 {
     MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
         NextSeq(),
@@ -2611,6 +2633,10 @@ ChunkServer::NotifyStaleChunks(ChunkIdQueue& staleChunkIds,
         while ((id = it.Next())) {
             mChunksToEvacuate.Erase(*id);
         }
+    }
+    if (hello) {
+        r->flushStaleQueueFlag = true;
+        mHelloPendingStaleChunks.swap(hello->pendingStaleChunks);
     }
     Enqueue(r);
 }
@@ -3345,6 +3371,12 @@ ChunkServer::Checkpoint(ostream& ost)
     while ((id = mHelloChunkIds.Next())) {
         CpInsertChunkId(os, "\ncsr/", cnt, *id);
     }
+    cnt = 0;
+    for (ChunkIdList::const_iterator it = mHelloPendingStaleChunks.begin();
+            it != mHelloPendingStaleChunks.end();
+            ++it) {
+        CpInsertChunkId(os, "\ncsp/", cnt, *it);
+    }
     os << "\n";
     os.flush();
     if (! ost) {
@@ -3381,6 +3413,7 @@ ChunkServer::Checkpoint(ostream& ost)
         "/"    << cnt <<
         "/"    << mStaleChunkIdsInFlight.Size() <<
         "/"    << mHelloChunkIds.Size() <<
+        "/"    << mHelloPendingStaleChunks.size() <<
         "\n";
     return (!! ost);
 }
@@ -3408,11 +3441,19 @@ ChunkServer::Restore(int type, size_t idx, int64_t n)
     if ('r' == type) {
         return (0 <= n && mHelloChunkIds.Insert(n));
     }
-    return ('e' == type && 0 <= n && (3 < idx ||
+    if ('p' == type) {
+        if (n < 0) {
+            return false;
+        }
+        mHelloPendingStaleChunks.push_back(n);
+        return true;
+    }
+    return ('e' == type && 0 <= n && (4 < idx ||
         (0 == idx ? mDoneTimedoutChunks.GetSize() :
         (1 == idx ? mDispatchedReqs.size() :
         (2 == idx ? mStaleChunkIdsInFlight.Size() :
-                mHelloChunkIds.Size()))) ==
+        (3 == idx ? mHelloChunkIds.Size() :
+            mHelloPendingStaleChunks.size())))) ==
         (size_t)n));
 }
 
@@ -3422,12 +3463,20 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkIdQueue& chunksDelete, uint64_t generation)
 {
     KFS_LOG_STREAM_DEBUG <<
-        " server: "           << GetServerLocation() <<
-        " index: "            << GetIndex() <<
-        " chunks: "           << GetChunkCount() <<
-        " in flight chunks: " << mLastChunksInFlight.Size() <<
-        " hello chunks: "     << mHelloChunkIds.Size() <<
+        " server: "        << GetServerLocation() <<
+        " index: "         << GetIndex() <<
+        " chunks: "        << GetChunkCount() <<
+        " in flight: "     << mLastChunksInFlight.Size() <<
+        " hello: "         << mHelloChunkIds.Size() <<
+        " pending stale: " << mHelloPendingStaleChunks.size() <<
     KFS_LOG_EOM;
+    // Treat pending stale as last in flight, requesting chunk server to report
+    // status of these chunks back.
+    for (ChunkIdList::const_iterator it = mHelloPendingStaleChunks.begin();
+            it != mHelloPendingStaleChunks.end();
+            ++it) {
+        mLastChunksInFlight.Insert(*it);
+    }
     ChunkServerPtr const srv = GetSelfPtr();
     for (int i = 0; i < 2; i++) {
         InFlightChunks& cur = i == 0 ?
@@ -3445,6 +3494,12 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
                 chunksChecksum.Add(chunkId, entry->GetChunkVersion());
             } else {
                 chunksDelete.PushBack(chunkId);
+            }
+            ChunkIdList::iterator const it = lower_bound(
+                mHelloPendingStaleChunks.begin(),
+                mHelloPendingStaleChunks.end(), chunkId);
+            if (mHelloPendingStaleChunks.end() != it) {
+                *it = -1;
             }
         }
         cur.Clear();
@@ -3662,7 +3717,7 @@ HibernatedChunkServer::HelloResumeReply(
     r.checksum.Remove(mModifiedChecksum);
     // Chunk server assumes responsibility for ensuring that list has no
     // duplicate entries.
-    for (MetaHello::MissingChunks::const_iterator
+    for (MetaHello::ChunkIdList::const_iterator
             it = r.missingChunks.begin(); it != r.missingChunks.end(); ++it) {
         const chunkId_t     chunkId = *it;
         const CSMap::Entry* ce;

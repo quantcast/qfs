@@ -909,6 +909,7 @@ struct StaleChunksOp : public KfsOp {
     int           numStaleChunks; /* what the server tells us */
     bool          evacuatedFlag;
     bool          hexFormatFlag;
+    bool          flushStaleQueueFlag;
     kfsSeq_t      availChunksSeq;
     StaleChunkIds staleChunkIds;  /* data we parse out */
     size_t        pendingCount;
@@ -919,6 +920,7 @@ struct StaleChunksOp : public KfsOp {
           numStaleChunks(0),
           evacuatedFlag(false),
           hexFormatFlag(false),
+          flushStaleQueueFlag(false),
           availChunksSeq(-1),
           staleChunkIds(),
           pendingCount(0)
@@ -929,7 +931,9 @@ struct StaleChunksOp : public KfsOp {
             "stale chunks:"
             " seq: "       << seq <<
             " count: "     << numStaleChunks <<
-            " evacuated: " << evacuatedFlag
+            " evacuated: " << evacuatedFlag <<
+            " availseq: "  << availChunksSeq <<
+            " flush: "     << flushStaleQueueFlag
         ;
     }
     virtual int GetContentLength() const { return contentLength; }
@@ -940,8 +944,9 @@ struct StaleChunksOp : public KfsOp {
         return KfsOp::ParserDef(parser)
         .Def2("Content-length", "l",  &StaleChunksOp::contentLength)
         .Def2("Num-chunks",     "C",  &StaleChunksOp::numStaleChunks)
-        .Def2("Evacuated",      "E",  &StaleChunksOp::evacuatedFlag,  false)
-        .Def2("HexFormat",      "HF", &StaleChunksOp::hexFormatFlag,  false)
+        .Def2("Evacuated",      "E",  &StaleChunksOp::evacuatedFlag,         false)
+        .Def2("HexFormat",      "HF", &StaleChunksOp::hexFormatFlag,         false)
+        .Def2("Flush-queue",    "FQ", &StaleChunksOp::flushStaleQueueFlag,   false)
         .Def2("AvailChunksSeq", "AC", &StaleChunksOp::availChunksSeq, kfsSeq_t(-1))
         ;
     }
@@ -2168,7 +2173,8 @@ struct HelloMetaOp : public KfsOp {
         kNotStableAppendChunkList = 1,
         kNotStableChunkList       = 2,
         kMissingList              = 3,
-        kChunkListCount           = 4
+        kPendingStaleList         = 4,
+        kChunkListCount           = 5
     };
 
     ServerLocation           myLocation;

@@ -794,6 +794,7 @@ get_entry_map()
     e.add_parser("css",                     &restore_chunk_server);
     e.add_parser("csr",                     &restore_chunk_server);
     e.add_parser("cse",                     &restore_chunk_server);
+    e.add_parser("csp",                     &restore_chunk_server);
     e.add_parser("hcs",                     &restore_hibernated_cs_start);
     e.add_parser("hcsd",                    &restore_hibernated_cs);
     e.add_parser("hcsm",                    &restore_hibernated_cs);

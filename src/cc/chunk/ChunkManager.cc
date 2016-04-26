@@ -1375,77 +1375,106 @@ public:
 class ChunkManager::StaleChunkDeleteCompletion : public KfsCallbackObj
 {
 public:
-    typedef StaleChunkDeleteCompletion* FreeList;
+    enum
+    {
+        kFreeList     = 0,
+        kInFlightList = 1,
+        kListCount    = 2
+    };
+    typedef QCDLList<StaleChunkDeleteCompletion> List;
+    typedef StaleChunkDeleteCompletion*          ListHead[1];
+    typedef ListHead                             Lists[kListCount];
 
-    static KfsCallbackObj& Make(
-        KfsCallbackObj& cb,
-        KfsCallbackObj* otherCb,
-        FreeList&       freeList)
+    static StaleChunkDeleteCompletion& Create(
+        kfsChunkId_t    chunkId,
+        KfsCallbackObj* cb,
+        Lists           lists)
     {
-        if (! otherCb) {
-            return cb;
-        }
-        StaleChunkDeleteCompletion* const ret = Get(freeList);
+        StaleChunkDeleteCompletion* ret = List::PopFront(lists[kFreeList]);
         if (ret) {
-            ret->mCbPtr      = &cb;
-            ret->mOtherCbPtr = otherCb;
-            return *ret;
+            ret->mChunkId = chunkId;
+            ret->mCbPtr   = cb;
+        } else {
+            ret = new StaleChunkDeleteCompletion(chunkId, cb);
         }
-        return *(new StaleChunkDeleteCompletion(cb, *otherCb, freeList));
+        List::PushBack(lists[kInFlightList], *ret);
+        return *ret;
     }
-    static void Destroy(FreeList& freeList)
+    static void Cleanup(
+        Lists lists)
     {
+        if (! List::IsEmpty(lists[kInFlightList])) {
+            die("chunk stale delete destroy: non empty in flight list");
+        }
         StaleChunkDeleteCompletion* cur;
-        while ((cur = Get(freeList))) {
-            cur->mOtherCbPtr = 0;
+        while ((cur =  List::PopFront(lists[kFreeList]))) {
             delete cur;
         }
     }
+    static void Release(
+        StaleChunkDeleteCompletion& cb,
+        Lists                       lists)
+    {
+        if (cb.mCbPtr) {
+            KfsCallbackObj* const op = cb.mCbPtr;
+            cb.mCbPtr = 0;
+            int res = -EIO;
+            op->HandleEvent(EVENT_DISK_ERROR, &res);
+        }
+        List::Remove(lists[kInFlightList], cb);
+        List::PushBack(lists[kFreeList],   cb);
+    }
+    static void Init(
+        Lists lists)
+    {
+        for (int i = 0; i < kListCount; i++) {
+            List::Init(lists[i]);
+        }
+    }
+    template<typename T>
+    static void GetInFlight(
+        Lists lists,
+        T&    dst)
+    {
+        List::Iterator                    it(lists[kInFlightList]);
+        const StaleChunkDeleteCompletion* cb;
+        while ((cb = it.Next())) {
+            if (0 <= cb->mChunkId) {
+                bool insertedFlag = false;
+                dst.Insert(cb->mChunkId, cb->mChunkId, insertedFlag);
+            }
+        }
+    }
 private:
-    KfsCallbackObj* mCbPtr;
-    KfsCallbackObj* mOtherCbPtr;
-    FreeList&       mFreeList;
+    kfsChunkId_t                mChunkId;
+    KfsCallbackObj*             mCbPtr;
+    StaleChunkDeleteCompletion* mPrevPtr[1];
+    StaleChunkDeleteCompletion* mNextPtr[1];
+
+    friend class QCDLListOp<StaleChunkDeleteCompletion, 0>;
 
     StaleChunkDeleteCompletion(
-        KfsCallbackObj& cb,
-        KfsCallbackObj& otherCb,
-        FreeList&       freeList)
+        kfsChunkId_t    chunkId,
+        KfsCallbackObj* cb)
         : KfsCallbackObj(),
-          mCbPtr(&cb),
-          mOtherCbPtr(&otherCb),
-          mFreeList(freeList)
-        { SET_HANDLER(this, &StaleChunkDeleteCompletion::Done); }
+          mChunkId(chunkId),
+          mCbPtr(cb)
+    {
+        List::Init(*this);
+        SET_HANDLER(this, &StaleChunkDeleteCompletion::Done);
+    }
     virtual ~StaleChunkDeleteCompletion()
     {
-        if (mOtherCbPtr) {
+        if (mCbPtr) {
             die("StaleChunkDeleteCompletion: invalid destructor invocation");
         }
     }
     int Done(int code, void* data)
     {
-        if (! mOtherCbPtr) {
-            die("StaleChunkDeleteCompletion: invalid completion invocation");
-        }
-        KfsCallbackObj& other = *mOtherCbPtr;
-        mOtherCbPtr = 0;
-        const int ret = other.HandleEvent(code, data);
-        mCbPtr->HandleEvent(code, data);
-        Put();
-        return ret;
-    }
-    void Put()
-    {
-        mOtherCbPtr = mFreeList;
-        mFreeList = this;
-    }
-    static StaleChunkDeleteCompletion* Get(
-        FreeList& freeList)
-    {
-        StaleChunkDeleteCompletion* const ret = freeList;
-        if (ret) {
-            freeList = static_cast<StaleChunkDeleteCompletion*>(
-                ret->mOtherCbPtr);
-        }
+        KfsCallbackObj* const cb = mCbPtr;
+        mCbPtr = 0;
+        const int ret = cb ? cb->HandleEvent(code, data) : 0;
+        gChunkManager.RunStaleChunksQueue(this);
         return ret;
     }
 };
@@ -1751,6 +1780,9 @@ inline void
 ChunkManager::MakeStale(ChunkInfoHandle& cih,
     bool forceDeleteFlag, bool evacuatedFlag, KfsOp* op)
 {
+    if (! cih.IsStale()) {
+        mStaleChunksCount++;
+    }
     cih.MakeStale(mChunkInfoLists,
         (! forceDeleteFlag && ! mForceDeleteStaleChunksFlag) ||
         (evacuatedFlag && mKeepEvacuatedChunksFlag),
@@ -2121,7 +2153,6 @@ ChunkManager::ChunkManager()
       mRequireChunkHeaderChecksumFlag(false),
       mForceDeleteStaleChunksFlag(false),
       mKeepEvacuatedChunksFlag(false),
-      mStaleChunkCompletion(*this),
       mStaleChunkOpsInFlight(0),
       mMaxStaleChunkOpsInFlight(4),
       mMaxDirCheckDiskTimeouts(4),
@@ -2188,7 +2219,11 @@ ChunkManager::ChunkManager()
       mObjBlockDiscardMinMetaUptime(90),
       mObjStoreIoThreadCount(-1),
       mRand(),
-      mStaleChunkDeleteCompletionFreeList(0),
+      mFlushStaleChunksOp(0),
+      mFlushStaleChunksCount(0),
+      mDoneStaleChunksCount(0),
+      mStaleChunksCount(0),
+      mResumeHelloMaxPendingStaleCount(16 << 10),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -2199,6 +2234,7 @@ ChunkManager::ChunkManager()
     ChunkHelloNotifyList::Init(mChunkInfoHelloNotifyList);
     globalNetManager().SetMaxAcceptsPerRead(4096);
     mHelloNotifyCb.SetHandler(this, &ChunkManager::HelloNotifyDone);
+    StaleChunkDeleteCompletion::Init(mStaleChunkDeleteCompletionLists);
 }
 
 ChunkManager::~ChunkManager()
@@ -2207,7 +2243,7 @@ ChunkManager::~ChunkManager()
     assert(mObjTable.IsEmpty());
     globalNetManager().UnRegisterTimeoutHandler(this);
     delete mPendingNotifyLostChunks;
-    StaleChunkDeleteCompletion::Destroy(mStaleChunkDeleteCompletionFreeList);
+    StaleChunkDeleteCompletion::Cleanup(mStaleChunkDeleteCompletionLists);
 }
 
 template<typename T> void
@@ -2618,6 +2654,9 @@ ChunkManager::SetParameters(const Properties& prop)
     } else {
         ret = ret && err == 0;
     }
+    mResumeHelloMaxPendingStaleCount = prop.getValue(
+        "chunkServer.resumeHelloMaxPendingStaleCount",
+        mResumeHelloMaxPendingStaleCount);
     sExitDebugCheckFlag = prop.getValue(
         "chunkServer.exitDebugCheck", sExitDebugCheckFlag ? 1 : 0);
     return ret;
@@ -5547,7 +5586,7 @@ ChunkManager::ScheduleCleanup(ChunkManager::ChunkDirInfo& dir,
         UpdateDirSpace(cih, size);
     }
     const bool kEvacuatedFlag = false;
-    gChunkManager.MakeStale(*cih, forceDeleteFlag, kEvacuatedFlag);
+    MakeStale(*cih, forceDeleteFlag, kEvacuatedFlag);
 }
 
 //
@@ -5606,13 +5645,13 @@ ChunkManager::RemoveDirtyChunks()
                     fileSystemId,
                     ioTimeSec,
                     readFlag)) {
-                InsertLastInFlight(chunkId);
                 const bool kStableFlag      = false;
                 const bool kForceDeleteFlag = true;
                 ScheduleCleanup(
                     *it, fileId, chunkId, chunkVers,
                     (int64_t)buf.st_size - (int64_t)KFS_CHUNK_HEADER_SIZE,
                     kStableFlag, kForceDeleteFlag);
+                InsertLastInFlight(chunkId);
             } else {
                 KFS_LOG_STREAM_INFO <<
                     "cleaning out dirty chunk: " << name <<
@@ -5670,7 +5709,6 @@ ChunkManager::Restore()
                         KFS_LOG_EOM;
                     }
                 } else {
-                    InsertLastInFlight(ci->mChunkId);
                     const bool kStableFlag      = true;
                     const bool kForceDeleteFlag = false;
                     ScheduleCleanup(
@@ -5682,6 +5720,7 @@ ChunkManager::Restore()
                         kStableFlag,
                         kForceDeleteFlag
                     );
+                    InsertLastInFlight(ci->mChunkId);
                 }
             }
         }
@@ -5709,7 +5748,7 @@ ChunkManager::Restore()
         }
     }
     // Re-enable cleanup if it doesn't have to wait till hello completion.
-    mCleanupStaleChunksFlag = mLastPendingInFlight.IsEmpty();
+    mCleanupStaleChunksFlag = mStaleChunksCount <= mDoneStaleChunksCount;
 }
 
 static inline void
@@ -5722,11 +5761,12 @@ AppendToHostedListSelf(
     (*list.first)++;
     if (! noFidsFlag) {
         (*list.second) <<
-            chunkInfo.fileId  << ' ';
+            ' ' << chunkInfo.fileId
+        ;
     }
     (*list.second) <<
-        chunkInfo.chunkId << ' ' <<
-        chunkVersion      << ' '
+        ' ' << chunkInfo.chunkId <<
+        ' ' << chunkVersion
     ;
 }
 
@@ -5791,6 +5831,7 @@ ChunkManager::GetHostedChunksResume(
     const ChunkManager::HostedChunkList& notStableAppend,
     const ChunkManager::HostedChunkList& notStable,
     const ChunkManager::HostedChunkList& missing,
+    const ChunkManager::HostedChunkList& pendingStale,
     bool                                 noFidsFlag)
 {
     if (0 != mHelloNotifyInFlightCount) {
@@ -5806,7 +5847,7 @@ ChunkManager::GetHostedChunksResume(
                 break;
             }
             (*missing.first)++;
-            (*missing.second) << p->GetKey() << ' ';
+            (*missing.second) << ' ' << p->GetKey();
         }
         for (mChunkTable.First(); ;) {
             const CMapEntry* const p = mChunkTable.Next();
@@ -5827,7 +5868,7 @@ ChunkManager::GetHostedChunksResume(
                         mChunkInfoHelloNotifyList, *cih);
                 }
                 (*missing.first)++;
-                (*missing.second) << chunkId << ' ';
+                (*missing.second) << ' ' << chunkId;
             }
         }
         return;
@@ -5920,7 +5961,7 @@ ChunkManager::GetHostedChunksResume(
             if (! cih || (*cih)->IsBeingReplicated()) {
                 if (0 < pass) {
                     (*missing.first)++;
-                    (*missing.second) << chunkId << ' ';
+                    (*missing.second) << ' ' << chunkId;
                 }
                 const kfsSeq_t* vers;
                 if (! cih && ! inFlightFlag && pendingNotifyLostChunks &&
@@ -5979,7 +6020,7 @@ ChunkManager::GetHostedChunksResume(
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
                 (*missing.first)++;
-                (*missing.second) << chunkId << ' ';
+                (*missing.second) << ' ' << chunkId;
                 continue;
             }
             AppendToHostedList(
@@ -5988,16 +6029,41 @@ ChunkManager::GetHostedChunksResume(
     }
     if (0 <= hello.resumeStep &&
             count == hello.chunkCount && checksum == hello.checksum) {
-         KFS_LOG_STREAM_NOTICE <<
+        // Store chunk id that are currently in the stale queue in the meta
+        // server transaction log / checkpoint, until the chunk files are
+        // deleted. The meta server will add these to the in flight list on
+        // its side, and exclude them from checksum if chunk server disconnects
+        // or exit prior to deletion completion. This is need to handle chunk
+        // server disconnect, then reconnect, followed by the exit with
+        // stale chunk deletes in flight from the prior hello resume.
+        // Limit the size of the list, in order to reduce meta server's side
+        // processing at the cost of possible hello resume failure in the case
+        // of chunk server restart previously described.
+        if (mStaleChunksCount <= mDoneStaleChunksCount +
+                mResumeHelloMaxPendingStaleCount) {
+            for (int i = 0; i < 2; i++) {
+                ChunkList::Iterator it(mChunkInfoLists[
+                    0 == i ? kChunkPendingStaleList : kChunkStaleList]);
+                ChunkInfoHandle*    cih;
+                while ((cih = it.Next())) {
+                    if (0 <= cih->chunkInfo.chunkVersion) {
+                        (*pendingStale.first)++;
+                        (*pendingStale.second) << ' ' << cih->chunkInfo.chunkId;
+                    }
+                }
+            }
+        }
+        KFS_LOG_STREAM_NOTICE <<
             "hello resume succeeded:"
-            " chunks: "    << count <<
-            " / "          << hello.chunkCount <<
-            " checksum: "  << checksum <<
-            " / "          << hello.checksum <<
-            " deleted: "   << hello.resumeDeleted.size() <<
-            " modified: "  << hello.resumeModified.size() <<
-            " lastInflt: " << mLastPendingInFlight.GetSize() <<
-            " / "          << mCorruptChunkOp.chunkCount <<
+            " chunks: "     << count <<
+            " / "           << hello.chunkCount <<
+            " checksum: "   << checksum <<
+            " / "           << hello.checksum <<
+            " deleted: "    << hello.resumeDeleted.size() <<
+            " modified: "   << hello.resumeModified.size() <<
+            " lastInflt: "  << mLastPendingInFlight.GetSize() <<
+            " / "           << mCorruptChunkOp.chunkCount <<
+            " staleInFlt: " << *pendingStale.first <<
         KFS_LOG_EOM;
         hello.resumeStep = 1;
         return;
@@ -6381,18 +6447,20 @@ ChunkManager::GetWriteStatus(int64_t writeId)
 }
 
 void
-ChunkManager::RunStaleChunksQueue(bool completionFlag)
+ChunkManager::RunStaleChunksQueue(
+    StaleChunkDeleteCompletion* completion /* = 0 */)
 {
-    if (completionFlag) {
-        assert(mStaleChunkOpsInFlight > 0);
+    if (completion) {
+        StaleChunkDeleteCompletion::Release(
+            *completion, mStaleChunkDeleteCompletionLists);
+        assert(0 < mStaleChunkOpsInFlight);
         mStaleChunkOpsInFlight--;
-    }
-    if (! mCleanupStaleChunksFlag) {
-        return;
+        mDoneStaleChunksCount++;
     }
     ChunkList::Iterator it(mChunkInfoLists[kChunkStaleList]);
     ChunkInfoHandle*    cih;
-    while (mStaleChunkOpsInFlight < mMaxStaleChunkOpsInFlight &&
+    while (mCleanupStaleChunksFlag &&
+            mStaleChunkOpsInFlight < mMaxStaleChunkOpsInFlight &&
             (cih = it.Next())) {
         // If disk queue has been already stopped, then the queue directory
         // prefix has already been removed, and it will not be possible to
@@ -6415,11 +6483,13 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
                     &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
                     (((*ci)->IsStable() || cih->IsStable()) &&
                         ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion))) {
-                KfsCallbackObj& cb = StaleChunkDeleteCompletion::Make(
-                    mStaleChunkCompletion,
-                    cih->DetachStaleDeleteCompletionOp(),
-                    mStaleChunkDeleteCompletionFreeList
-                );
+                StaleChunkDeleteCompletion& cb =
+                    StaleChunkDeleteCompletion::Create(
+                        0 <= cih->chunkInfo.chunkVersion ?
+                            cih->chunkInfo.chunkId : kfsChunkId_t(-1),
+                        cih->DetachStaleDeleteCompletionOp(),
+                        mStaleChunkDeleteCompletionLists
+                    );
                 bool ok;
                 if (cih->IsKeep()) {
                     ok = MarkChunkStale(cih, &cb) == 0;
@@ -6437,10 +6507,16 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
                 }
                 if (ok) {
                     mStaleChunkOpsInFlight++;
-                } else if (&cb != &mStaleChunkCompletion) {
-                    delete &cb;
+                } else {
+                    StaleChunkDeleteCompletion::Release(
+                        cb, mStaleChunkDeleteCompletionLists);
+                    mDoneStaleChunksCount++;
                 }
+            } else {
+                mDoneStaleChunksCount++;
             }
+        } else {
+            mDoneStaleChunksCount++;
         }
         const int64_t size = min(mUsedSpace, cih->chunkInfo.chunkSize);
         UpdateDirSpace(cih, -size);
@@ -6449,6 +6525,30 @@ ChunkManager::RunStaleChunksQueue(bool completionFlag)
         }
         Delete(*cih);
     }
+    if (mFlushStaleChunksOp &&
+            mFlushStaleChunksCount <= mDoneStaleChunksCount) {
+        KfsOp* const op = mFlushStaleChunksOp;
+        mFlushStaleChunksOp = 0;
+        op->HandleEvent(EVENT_DISK_DELETE_DONE, 0);
+    }
+}
+
+int
+ChunkManager::FlushStaleQueue(KfsOp& op)
+{
+    KfsOp* const cur = mFlushStaleChunksOp;
+    mFlushStaleChunksOp    = &op;
+    mFlushStaleChunksCount = mStaleChunksCount;
+    if (cur && cur != mFlushStaleChunksOp) {
+        // Submit previous op waiting.
+        cur->HandleEvent(EVENT_DISK_DELETE_DONE, 0);
+    }
+    if (mFlushStaleChunksCount <= mDoneStaleChunksCount) {
+        KfsOp* const op = mFlushStaleChunksOp;
+        mFlushStaleChunksOp = 0;
+        op->HandleEvent(EVENT_DISK_DELETE_DONE, 0);
+    }
+    return 0;
 }
 
 void
@@ -7951,7 +8051,7 @@ ChunkManager::CheckChunkDirs()
         if (mCheckDirWritableFlag) {
             name += mCheckDirWritableTmpFileName;
         }
-        if ((mCheckDirWritableFlag ? 
+        if ((mCheckDirWritableFlag ?
             ! DiskIo::CheckDirWritable(
                 name.c_str(),
                 it->bufferedIoFlag,

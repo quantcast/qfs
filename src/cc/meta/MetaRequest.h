@@ -1826,7 +1826,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         seq_t     chunkVersion;
     };
     typedef vector<ChunkInfo, StdAllocator<ChunkInfo> > ChunkInfos;
-    typedef vector<chunkId_t>                           MissingChunks;
+    typedef vector<chunkId_t>                           ChunkIdList;
 
     ChunkServerPtr     server;                   //!< The chunkserver that sent the hello message
     ServerLocation&    location;                 //<! Location of this server
@@ -1845,13 +1845,15 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int                numNotStableAppendChunks; //!< # of not stable append chunks hosted on this server
     int                numNotStableChunks;       //!< # of not stable chunks hosted on this server
     int                numMissingChunks;
+    int                numPendingStaleChunks;
     int                contentLength;            //!< Length of the message body
     int64_t            numAppendsWithWid;
     int                contentIntBase;
     ChunkInfos         chunks;                   //!< Chunks  hosted on this server
     ChunkInfos         notStableChunks;
     ChunkInfos         notStableAppendChunks;
-    MissingChunks      missingChunks;
+    ChunkIdList        missingChunks;
+    ChunkIdList        pendingStaleChunks;
     int                bytesReceived;
     bool               staleChunksHexFormatFlag;
     bool               deleteAllChunksFlag;
@@ -1893,6 +1895,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           numNotStableAppendChunks(0),
           numNotStableChunks(0),
           numMissingChunks(0),
+          numPendingStaleChunks(0),
           contentLength(0),
           numAppendsWithWid(0),
           contentIntBase(10),
@@ -1900,6 +1903,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           notStableChunks(),
           notStableAppendChunks(),
           missingChunks(),
+          pendingStaleChunks(),
           bytesReceived(0),
           staleChunksHexFormatFlag(false),
           deleteAllChunksFlag(false),
@@ -1974,6 +1978,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def2("Chunks",                       "C",  &MetaHello::chunkCount                      )
         .Def2("Checksum",                     "K",  &MetaHello::checksum                        )
         .Def2("Num-missing",                  "CM", &MetaHello::numMissingChunks                )
+        .Def2("Num-stale",                    "PS", &MetaHello::numPendingStaleChunks           )
         .Def2("Num-hello-done",               "HD", &MetaHello::helloDoneCount                  )
         .Def2("Num-resume",                   "NR", &MetaHello::helloResumeCount                )
         .Def2("Num-resume-fail",              "RF", &MetaHello::helloResumeFailedCount          )
@@ -2176,6 +2181,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     seq_t             chunkVersion;
     int               chunkOpType;
     bool              staleChunkIdFlag;
+    bool              flushStaleQueueFlag;
 
     MetaChunkLogCompletion(MetaChunkRequest* op = 0);
     virtual bool start();
@@ -2194,13 +2200,14 @@ struct MetaChunkLogCompletion : public MetaRequest {
     {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkLogCompletion::doneLocation)
-        .Def("L", &MetaChunkLogCompletion::doneLogSeq,       seq_t(-1))
-        .Def("R", &MetaChunkLogCompletion::doneKfsStatus,    0)
-        .Def("T", &MetaChunkLogCompletion::doneTimedOutFlag, false)
-        .Def("C", &MetaChunkLogCompletion::chunkId,          chunkId_t(-1))
-        .Def("V", &MetaChunkLogCompletion::chunkVersion,     seq_t(-1))
-        .Def("O", &MetaChunkLogCompletion::chunkOpType,      int(kChunkOpTypeNone))
-        .Def("X", &MetaChunkLogCompletion::staleChunkIdFlag, false)
+        .Def("L", &MetaChunkLogCompletion::doneLogSeq,          seq_t(-1))
+        .Def("R", &MetaChunkLogCompletion::doneKfsStatus,       0)
+        .Def("T", &MetaChunkLogCompletion::doneTimedOutFlag,    false)
+        .Def("C", &MetaChunkLogCompletion::chunkId,             chunkId_t(-1))
+        .Def("V", &MetaChunkLogCompletion::chunkVersion,        seq_t(-1))
+        .Def("O", &MetaChunkLogCompletion::chunkOpType,         int(kChunkOpTypeNone))
+        .Def("X", &MetaChunkLogCompletion::staleChunkIdFlag,    false)
+        .Def("F", &MetaChunkLogCompletion::flushStaleQueueFlag, false)
         ;
     }
 };
@@ -2594,6 +2601,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
     bool         evacuatedFlag;
     bool         hexFormatFlag;
+    bool         flushStaleQueueFlag;
     MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
             bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req);
     virtual void request(ReqOstream& os, IOBuffer& buf);

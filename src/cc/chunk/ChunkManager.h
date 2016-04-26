@@ -278,6 +278,7 @@ public:
         const ChunkManager::HostedChunkList& notStableAppend,
         const ChunkManager::HostedChunkList& notStable,
         const ChunkManager::HostedChunkList& missing,
+        const ChunkManager::HostedChunkList& pendingStale,
         bool                                 noFidsFlag);
     void GetHostedChunks(
         HelloMetaOp&           hello,
@@ -456,6 +457,7 @@ public:
         }
         return mObjectStoreStatus;
     }
+    int FlushStaleQueue(KfsOp& op);
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:
@@ -812,21 +814,6 @@ private:
         >
     > StorageTiers;
 
-    struct StaleChunkCompletion : public KfsCallbackObj
-    {
-        StaleChunkCompletion(
-            ChunkManager& m)
-            : KfsCallbackObj(),
-              mMgr(m)
-            { SET_HANDLER(this, &StaleChunkCompletion::Done); }
-        int Done(int /* code */, void* /* data */) {
-            const bool completionFlag = true;
-            mMgr.RunStaleChunksQueue(completionFlag);
-            return 0;
-        }
-        ChunkManager& mMgr;
-    };
-
     bool StartDiskIo();
 
     /// Map from a chunk id to a chunk handle
@@ -919,7 +906,6 @@ private:
     bool mRequireChunkHeaderChecksumFlag;
     bool mForceDeleteStaleChunksFlag;
     bool mKeepEvacuatedChunksFlag;
-    StaleChunkCompletion mStaleChunkCompletion;
     int mStaleChunkOpsInFlight;
     int mMaxStaleChunkOpsInFlight;
     int mMaxDirCheckDiskTimeouts;
@@ -1004,7 +990,12 @@ private:
     PrngIsaac64 mRand;
 
     class StaleChunkDeleteCompletion;
-    StaleChunkDeleteCompletion* mStaleChunkDeleteCompletionFreeList;
+    StaleChunkDeleteCompletion* mStaleChunkDeleteCompletionLists[2][1];
+    KfsOp*                      mFlushStaleChunksOp;
+    uint64_t                    mFlushStaleChunksCount;
+    uint64_t                    mDoneStaleChunksCount;
+    uint64_t                    mStaleChunksCount;
+    uint64_t                    mResumeHelloMaxPendingStaleCount;
 
     ChunkHeaderBuffer           mChunkHeaderBuffer;
 
@@ -1088,7 +1079,7 @@ private:
     /// Update the checksums in the chunk metadata based on the op.
     void UpdateChecksums(ChunkInfoHandle *cih, WriteOp *op);
     bool IsChunkStable(const ChunkInfoHandle* cih) const;
-    void RunStaleChunksQueue(bool completionFlag = false);
+    void RunStaleChunksQueue(StaleChunkDeleteCompletion* completion = 0);
     int OpenChunk(ChunkInfoHandle* cih, int openFlags);
     void SendChunkDirInfo();
     void SetStorageTiers(const Properties& props);

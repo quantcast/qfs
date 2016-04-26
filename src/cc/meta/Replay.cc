@@ -1485,6 +1485,14 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->numMissingChunks = (int)n;
+        if (pop_num(n, "p", c, true)) {
+            if (n < 0) {
+                return false;
+            }
+            op->numPendingStaleChunks = (int)n;
+        } else {
+            op->numPendingStaleChunks = 0;
+        }
         if (! pop_num(n, "d", c, true) || n < 0) {
             return false;
         }
@@ -1550,28 +1558,28 @@ replay_cs_hello(DETokenizer& c)
                 }
             }
         } else {
-            if ('m' != verb.ptr[3] ||
-                    op->chunks.size() != (size_t)op->numChunks ||
-                    op->notStableChunks.size() !=
-                        (size_t)op->numNotStableChunks ||
-                    op->notStableAppendChunks.size() !=
-                        (size_t)op->numNotStableAppendChunks) {
+            const int type = verb.ptr[3] & 0xFF;
+            if ('m' != type && 'p' != type) {
                 return false;
             }
             c.pop_front();
             if (c.empty()) {
                 return false;
             }
+            MetaHello::ChunkIdList& list = 'm' == type ?
+                op->missingChunks : op->pendingStaleChunks;
+            const size_t            cnt  = max(0, 'm' == type ?
+                op->numMissingChunks : op->numPendingStaleChunks);
             while (! c.empty()) {
                 const int64_t n = c.toNumber();
                 if (! c.isLastOk() || n < 0) {
                     return false;
                 }
                 c.pop_front();
-                if ((size_t)op->numMissingChunks <= op->missingChunks.size()) {
+                if (cnt <= list.size()) {
                     return false;
                 }
-                op->missingChunks.push_back(n);
+                list.push_back(n);
             }
         }
     }
@@ -1580,7 +1588,9 @@ replay_cs_hello(DETokenizer& c)
                 op->notStableChunks.size() != (size_t)op->numNotStableChunks ||
                 op->notStableAppendChunks.size() !=
                     (size_t)op->numNotStableAppendChunks ||
-                op->missingChunks.size() != (size_t)op->numMissingChunks) {
+                op->missingChunks.size() != (size_t)op->numMissingChunks ||
+                op->pendingStaleChunks.size() !=
+                    (size_t)op->numPendingStaleChunks) {
             return false;
         }
         replay_cur_op(state);
@@ -1641,7 +1651,7 @@ replay_cs_inflight(DETokenizer& c)
             return false;
         }
         op->idCount = n;
-        if (! pop_num(n, "c", c, true) || (n < 0 && 0 == op->idCount)) {
+        if (! pop_num(n, "c", c, true) || (0 < op->idCount && 0 <= n)) {
             return false;
         }
         op->chunkId = n;
@@ -1665,9 +1675,6 @@ replay_cs_inflight(DETokenizer& c)
         }
         op->logseq = n;
         if (state.mReplayer && n != state.mLastLogAheadSeq + 1) {
-            return false;
-        }
-        if ((op->chunkId < 0) != (0 < op->idCount)) {
             return false;
         }
     }
@@ -1726,6 +1733,7 @@ get_entry_map()
     e.add_parser("csh",                     &replay_cs_hello);
     e.add_parser("cshc",                    &replay_cs_hello);
     e.add_parser("cshm",                    &replay_cs_hello);
+    e.add_parser("cshp",                    &replay_cs_hello);
     e.add_parser("cif",                     &replay_cs_inflight);
     e.add_parser("cis",                     &replay_cs_inflight);
     initied = true;

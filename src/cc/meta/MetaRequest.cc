@@ -2971,9 +2971,9 @@ MetaHello::log(ostream& os) const
         1 +
         ((chunks.size() +
         notStableChunks.size() +
-        notStableAppendChunks.size() +
-        kMask) >> kEntrySizeLog2) +
-        ((missingChunks.size() + kMask) >> kEntrySizeLog2);
+        notStableAppendChunks.size() + kMask) >> kEntrySizeLog2) +
+        ((missingChunks.size() + kMask) >> kEntrySizeLog2) +
+        ((pendingStaleChunks.size() + kMask) >> kEntrySizeLog2);
     ReqOstream ros(os);
     ros <<
         "csh"
@@ -2983,6 +2983,7 @@ MetaHello::log(ostream& os) const
         "/n/" << notStableChunks.size() <<
         "/a/" << notStableAppendChunks.size() <<
         "/m/" << missingChunks.size() <<
+        "/p/" << pendingStaleChunks.size() <<
         "/d/" << deletedCount <<
         "/r/" << resumeStep <<
         "/t/" << timeUsec <<
@@ -3003,15 +3004,19 @@ MetaHello::log(ostream& os) const
             ros << "/" << it->chunkId << "/" << it->chunkVersion;
         }
     }
-    cnt = 0;
-    for (MissingChunks::const_iterator it = missingChunks.begin();
-            missingChunks.end() != it;
-            ++it) {
-        if ((cnt++ & kMask) == 0) {
-            ros << "\ncshm";
-            subEntryCnt--;
+    for (int k = 0; k < 2; k++) {
+        cnt = 0;
+        const ChunkIdList& list = 0 == k ? missingChunks : pendingStaleChunks;
+        const char* const  pref = 0 == k ? "\ncshm" : "\ncshp";
+        for (ChunkIdList::const_iterator it = list.begin();
+                list.end() != it;
+                ++it) {
+            if ((cnt++ & kMask) == 0) {
+                ros << pref;
+                subEntryCnt--;
+            }
+            ros << "/" << *it;
         }
-        ros << "/" << *it;
     }
     if (1 != subEntryCnt) {
         panic("invalid sub entry count");
@@ -5352,6 +5357,7 @@ MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
       staleChunkIds(),
       evacuatedFlag(evacFlag),
       hexFormatFlag(hexFmtFlag),
+      flushStaleQueueFlag(false),
       chunkAvailableReq(0)
 {
     if (req && ! req->staleNotify && server && req->clnt == &*server) {
@@ -5400,6 +5406,9 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     if (chunkAvailableReq) {
         os << (shortRpcFormatFlag ? "AC:" : "AvailChunksSeq: ") <<
             chunkAvailableReq->opSeqno << "\r\n";
+    }
+    if (flushStaleQueueFlag) {
+        os << (shortRpcFormatFlag ? "FQ:1" : "Flush-queue: 1") << "\r\n";
     }
     const int   kBufEnd = 30;
     char        tmpBuf[kBufEnd + 1];
@@ -6060,7 +6069,9 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
       chunkId(op ? op->chunkId : chunkId_t(-1)),
       chunkVersion(doneTimedOutFlag ? op->chunkVersion : seq_t(-1)),
       chunkOpType(MetaChunkLogCompletion::kChunkOpTypeNone),
-      staleChunkIdFlag(op && op->staleChunkIdFlag)
+      staleChunkIdFlag(op && op->staleChunkIdFlag),
+      flushStaleQueueFlag(op && META_CHUNK_STALENOTIFY == op->op &&
+        static_cast<const MetaChunkStaleNotify*>(op)->flushStaleQueueFlag)
 {
     if (op && op->pendingAddFlag &&
             0 <= op->chunkId && 0 <= op->chunkVersion) {

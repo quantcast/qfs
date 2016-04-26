@@ -2106,6 +2106,16 @@ StaleChunksOp::Execute()
             }
         }
     }
+    if (flushStaleQueueFlag) {
+        pendingCount++;
+        const int ret = gChunkManager.FlushStaleQueue(*this);
+        if (ret < 0) {
+            if (0 == status) {
+                status = ret;
+            }
+            pendingCount--;
+        }
+    }
     pendingCount--;
     if (pendingCount <= 0) {
         gLogger.Submit(this);
@@ -4053,6 +4063,10 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         os << (shortRpcFormatFlag ? "CM:" : "Num-missing: ") <<
             chunkLists[kMissingList].count << "\r\n";
     }
+    if (0 < chunkLists[kPendingStaleList].count) {
+        os << (shortRpcFormatFlag ? "PS:" : "Num-stale: ") <<
+            chunkLists[kPendingStaleList].count << "\r\n";
+    }
     if (noFidsFlag) {
         os << (shortRpcFormatFlag ? "NF:1\r\n" : "NoFids: 1\r\n");
     }
@@ -4073,7 +4087,7 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         (shortRpcFormatFlag ? "K:" : "Checksum: ") << checksum      << "\r\n"
         ;
     }
-    int64_t contentLength = 0;
+    int64_t contentLength = 1;
     for (int i = 0; i < kChunkListCount; i++) {
         contentLength += chunkLists[i].ioBuf.BytesConsumable();
     }
@@ -4086,11 +4100,13 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         kStableChunkList,
         kNotStableAppendChunkList,
         kNotStableChunkList,
-        kMissingList
+        kMissingList,
+        kPendingStaleList
     };
     for (int i = 0; i < kChunkListCount; i++) {
         buf.Move(&chunkLists[kChunkListsOrder[i]].ioBuf);
     }
+    buf.CopyIn("\n", 1);
 }
 
 bool
@@ -4234,6 +4250,7 @@ HelloMetaOp::Execute()
             lists[kNotStableAppendChunkList],
             lists[kNotStableChunkList],
             lists[kMissingList],
+            lists[kPendingStaleList],
             noFidsFlag
         );
         if (resumeStep < 0) {

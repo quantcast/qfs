@@ -3993,12 +3993,8 @@ LayoutManager::AddNewServer(MetaHello& req)
             // MakeChunkStableDone will process pending recovery.
         }
     }
-    const size_t staleCnt = staleChunkIds.GetSize();
-    if (! staleChunkIds.IsEmpty()) {
-        srv.NotifyStaleChunks(staleChunkIds);
-    }
     if (0 < req.resumeStep) {
-        for (MetaHello::MissingChunks::const_iterator
+        for (MetaHello::ChunkIdList::const_iterator
                 it = req.missingChunks.begin();
                 it != req.missingChunks.end();
                 ++it) {
@@ -4048,6 +4044,14 @@ LayoutManager::AddNewServer(MetaHello& req)
                 kVerifyStableFlag
             );
         }
+    }
+    const size_t staleCnt = staleChunkIds.GetSize();
+    if (0 < staleCnt || ! req.pendingStaleChunks.empty()) {
+        // Even with no stale chunks, if hello has pending stale chunks wait
+        // for chunk server's stale queue to advance past the point of where it
+        // is at this moment in order to ensure that that the chunks in the
+        // stale queue are deleted.
+        srv.NotifyStaleChunks(staleChunkIds, req);
     }
     // All ops are queued at this point, make sure that the server is still up.
     // Chunk server cannot possibly go down here, as with hello already in
