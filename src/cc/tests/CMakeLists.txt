@@ -40,8 +40,6 @@ foreach(exe_file ${exe_files})
 endforeach()
 
 # Include all tests in their respective subdirectories into libqfstest
-include(QfsUtil)
-
 set(test_sources
     integtest.cc
     integtest_main.cc
@@ -51,11 +49,6 @@ set(test_sources
 
     common/Test_T.cc
 )
-
-SUBDIRLIST(test_dirs ${CMAKE_CURRENT_LIST_DIR})
-foreach(test_dir ${test_dirs})
-    add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/${test_dir})
-endforeach()
 
 set(test_binary test.t)
 add_executable(${test_binary} ${test_sources})
