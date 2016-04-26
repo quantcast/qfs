@@ -6,8 +6,8 @@ find_package(Threads REQUIRED)
 include(ExternalProject)
 ExternalProject_Add(
     gtest
-    URL http://github.com/google/googletest/archive/release-1.7.0.zip
-    URL_MD5 ef5e700c8a0f3ee123e2e0209b8b4961
+    # we provide our own command here, since default curl binary used by Cmake might not support SSL.
+    DOWNLOAD_COMMAND /bin/sh -c "wget https://github.com/google/googletest/archive/release-1.7.0.zip && unzip release-1.7.0.zip &&  mv googletest-release-1.7.0/* gtest/ && rm -rf googletest-release-1.7.0"
     PREFIX ${CMAKE_CURRENT_BINARY_DIR}/gtest
     INSTALL_COMMAND "" # Disable install step
 )
