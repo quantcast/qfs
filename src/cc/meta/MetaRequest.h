@@ -2355,19 +2355,24 @@ struct MetaChunkAllocate : public MetaChunkRequest {
  * \brief Delete RPC from meta server to chunk server
  */
 struct MetaChunkDelete: public MetaChunkRequest {
+    bool deleteStaleChunkIdFlag;
     MetaChunkDelete(
         seq_t                 n,
         const ChunkServerPtr& s,
         chunkId_t             c,
-        seq_t                 v)
-        : MetaChunkRequest(META_CHUNK_DELETE, n, kLogNever, s, c)
+        seq_t                 v,
+        bool                  staleIdFlag)
+        : MetaChunkRequest(META_CHUNK_DELETE, n, kLogNever, s, c),
+          deleteStaleChunkIdFlag(staleIdFlag)
         { chunkVersion = v; }
     virtual void handle();
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta->chunk delete: chunkId: " << chunkId <<
-            " version: " << chunkVersion;
+        return (os << "meta->chunk delete:"
+            " chunkId: " << chunkId <<
+            " version: " << chunkVersion <<
+            " staleId: " << deleteStaleChunkIdFlag);
     }
 };
 

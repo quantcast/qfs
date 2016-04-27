@@ -149,7 +149,8 @@ public:
     /// Delete a previously allocated chunk file.
     /// @param[in] chunkId id of the chunk being deleted.
     /// @retval status code
-    int DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* cb = 0);
+    int DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion,
+            bool staleChunkIdFlag, KfsOp* cb);
 
     /// Dump chunk map with information about chunkID and chunkSize
     void DumpChunkMap();
@@ -383,6 +384,12 @@ public:
     /// metaserver will re-replicate this chunk and for now, won't
     /// send us traffic for this chunk.
     void NotifyMetaCorruptedChunk(ChunkInfoHandle *cih, int err);
+    int StaleChunk(
+        ChunkInfoHandle& cih,
+        bool             forceDeleteFlag,
+        bool             evacuatedFlag,
+        kfsSeq_t         availChunksSeq,
+        KfsOp*           op);
     int  StaleChunk(
         ChunkInfoHandle* cih,
         bool             forceDeleteFlag = false,

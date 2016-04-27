@@ -5322,6 +5322,9 @@ MetaChunkDelete::request(ReqOstream& os)
         os << (shortRpcFormatFlag ? "V:" : "Chunk-version: ") <<
             chunkVersion << "\r\n";
     }
+    if (deleteStaleChunkIdFlag) {
+        os << (shortRpcFormatFlag ? "S:1" : "Chunk-id-stale: 1") << "\r\n";
+    }
     os << "\r\n";
 }
 

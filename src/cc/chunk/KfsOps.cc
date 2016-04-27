@@ -1283,7 +1283,9 @@ AllocChunkOp::Execute()
     mustExistFlag = mustExistFlag || 1 < chunkVersion;
     const bool deleteIfExistsFlag = ! mustExistFlag && 0 <= chunkVersion;
     if (deleteIfExistsFlag) {
-        const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion);
+        const bool kStaleChunkIdFlag = false;
+        const int  ret               = gChunkManager.DeleteChunk(
+            chunkId, chunkVersion, kStaleChunkIdFlag, 0);
         if (ret != -EBADF) {
             KFS_LOG_STREAM_WARN <<
                 "allocate: delete existing"
@@ -1413,7 +1415,8 @@ DeleteChunkOp::Execute()
         return;
     }
     SET_HANDLER(this, &DeleteChunkOp::Done);
-    const int ret = gChunkManager.DeleteChunk(chunkId, chunkVersion, this);
+    const int ret = gChunkManager.DeleteChunk(
+        chunkId, chunkVersion, staleChunkIdFlag, this);
     if (ret < 0) {
         status = ret;
         gLogger.Submit(this);

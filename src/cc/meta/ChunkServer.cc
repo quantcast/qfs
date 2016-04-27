@@ -2475,7 +2475,7 @@ ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
         mChunksToEvacuate.Erase(chunkId);
     }
     Enqueue(new MetaChunkDelete(
-        NextSeq(), shared_from_this(), chunkId, chunkVersion),
+        NextSeq(), shared_from_this(), chunkId, chunkVersion, staleChunkIdFlag),
         -1, staleChunkIdFlag);
     return 0;
 }

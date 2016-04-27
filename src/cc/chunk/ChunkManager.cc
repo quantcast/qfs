@@ -3327,7 +3327,8 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
 }
 
 int
-ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* op)
+ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion,
+    bool staleChunkIdFlag, KfsOp* op)
 {
     ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion);
     if (! cih) {
@@ -3338,11 +3339,16 @@ ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion, KfsOp* op)
         " version: " << chunkVersion <<
         " / "        << cih->chunkInfo.chunkVersion <<
         " readble: " << cih->IsChunkReadable() <<
+        " staleId: " << staleChunkIdFlag <<
     KFS_LOG_EOM;
     cih->SetForceDeleteObjectStoreBlock(chunkVersion < 0);
-    const bool forceDeleteFlag = true;
-    const bool evacuatedFlag   = false;
-    return StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op);
+    const bool  forceDeleteFlag = true;
+    const bool  evacuatedFlag   = false;
+    const seq_t availSeq        = -1;
+    return (staleChunkIdFlag ?
+        StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op) :
+        StaleChunk(*cih, forceDeleteFlag, evacuatedFlag, availSeq, op)
+    );
 }
 
 void
@@ -3639,21 +3645,33 @@ ChunkManager::StaleChunk(
         die("null chunk table entry");
         return -EFAULT;
     }
+    return StaleChunk(*cih, forceDeleteFlag, evacuatedFlag, availChunksSeq, op);
+}
+
+int
+ChunkManager::StaleChunk(
+    ChunkInfoHandle& cih,
+    bool             forceDeleteFlag,
+    bool             evacuatedFlag,
+    kfsSeq_t         availChunksSeq,
+    KfsOp*           op)
+{
     // The following code relies on the protocol message order where the chunks
     // available reply would normally arrive *after* "related" stale chunks RPC
     // requests. Presently the message can arrive after the chunk available RPC
     // reply in the case of chunk server re-authentication.
-    if ((cih->IsHelloNotify() || cih->IsPendingAvailable()) &&
+    if (0 <= cih.chunkInfo.chunkVersion &&
+            (cih.IsHelloNotify() || cih.IsPendingAvailable()) &&
             (availChunksSeq < 0 ||
                 ! gMetaServerSM.FindInFlightOp(availChunksSeq))) {
         KFS_LOG_STREAM(availChunksSeq < 0 ?
                 MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
             "keeping stale"
-            " chunk: "             << chunkId <<
-            " version: "           << cih->chunkInfo.chunkVersion <<
+            " chunk: "             << cih.chunkInfo.chunkId <<
+            " version: "           << cih.chunkInfo.chunkVersion <<
             " seq: "               << availChunksSeq <<
-            " pending available: " << cih->IsPendingAvailable() <<
-            " hello notify: "      << cih->IsHelloNotify() <<
+            " pending available: " << cih.IsPendingAvailable() <<
+            " hello notify: "      << cih.IsHelloNotify() <<
         KFS_LOG_EOM;
         // The meta server must explicitly tell to delete this chunk by
         // setting chunk available rpc sequence number in stale chunk
@@ -3667,7 +3685,7 @@ ChunkManager::StaleChunk(
         // stale chunk request in order to ensure proper cleanup.
         return -EAGAIN;
     }
-    return StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op);
+    return StaleChunk(&cih, forceDeleteFlag, evacuatedFlag, op);
 }
 
 int
