@@ -5474,7 +5474,7 @@ MetaChunkAvailable::ReleaseSelf()
             // Prepare for resubmit to send response.
             submitCount = 1;
             submitTime  = microseconds();
-            processTime = submitTime;
+            processTime = 0;
         }
     } else {
         MetaRequest::ReleaseSelf();

@@ -1422,7 +1422,7 @@ LayoutManager::HandleReplay(T& req)
     if (! req.replayFlag) {
         return (-ELOGFAILED == req.status);
     }
-    if (req.server || ! req.location.IsValid() || -ELOGFAILED == req.status) {
+    if (req.server || ! req.location.IsValid() || 0 != req.status) {
         panic("invalid RPC in replay");
         req.status = -EFAULT;
         return true;
@@ -3294,7 +3294,30 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
     }
     int count = 0;
     if (req.server && ! req.server->IsDown()) {
-        if (! mChunkToServerMap.Validate(req.server)) {
+        if (mChunkToServerMap.Validate(req.server)) {
+            if (req.removeServerFlag) {
+                if (0 <= req.chunkId) {
+                    CSMap::Entry* const entry =
+                        mChunkToServerMap.Find(req.chunkId);
+                    if (entry && mChunkToServerMap.RemoveServer(
+                            req.server, *entry)) {
+                        count++;
+                    }
+                }
+                const ChunkIdQueue* const ids = req.GetChunkIds();
+                if (ids) {
+                    ChunkIdQueue::ConstIterator it(*ids);
+                    const chunkId_t*            id;
+                    while ((id = it.Next())) {
+                        CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
+                        if (entry && mChunkToServerMap.RemoveServer(
+                                req.server, *entry)) {
+                            count++;
+                        }
+                    }
+                }
+            }
+        } else {
             panic("invalid chunk log in flight up server");
             req.status = -EFAULT;
         }
@@ -3311,6 +3334,10 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                         " hibernated generation");
                     req.status = -EFAULT;
                 } else {
+                    if (0 <= req.chunkId) {
+                        hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
+                        count++;
+                    }
                     const ChunkIdQueue* const ids = req.GetChunkIds();
                     if (ids) {
                         ChunkIdQueue::ConstIterator it(*ids);
@@ -3319,36 +3346,11 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                             hs->UpdateLastInFlight(mChunkToServerMap, *id);
                             count++;
                         }
-                    } else if (0 <= req.chunkId) {
-                        hs->UpdateLastInFlight(
-                            mChunkToServerMap, req.chunkId);
-                        count++;
                     }
                     req.status = -EIO;
                 }
             } else {
                 req.status = -ENOENT;
-            }
-        }
-    }
-    if (req.removeServerFlag && req.server && ! req.server->IsDown()) {
-        if (0 <= req.chunkId) {
-            CSMap::Entry* const entry = mChunkToServerMap.Find(req.chunkId);
-            if (entry &&
-                    mChunkToServerMap.RemoveServer(req.server, *entry)) {
-                count++;
-            }
-        }
-        const ChunkIdQueue* const ids = req.GetChunkIds();
-        if (ids) {
-            ChunkIdQueue::ConstIterator it(*ids);
-            const chunkId_t*            id;
-            while ((id = it.Next())) {
-                CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
-                if (entry &&
-                        mChunkToServerMap.RemoveServer(req.server, *entry)) {
-                    count++;
-                }
             }
         }
     }
@@ -7551,6 +7553,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: " << chunkId <<
                 " version: "        << chunkVersion <<
+                " hello: "          << req.helloFlag <<
                 " does not exist" <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
@@ -7562,7 +7565,8 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                 "available chunk: " << chunkId <<
                 " version: "        << chunkVersion <<
                 " hosted version: " << ci.chunkVersion <<
-                " replica is already hosted" <<
+                " replica is already hosted"
+                " hello: "          << req.helloFlag <<
             KFS_LOG_EOM;
             // This is likely the result of the replication or recovery, or
             // previous chunk available rpc that the chunk server considered
@@ -7574,6 +7578,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                 "available chunk: "     << chunkId <<
                 " version: "            << chunkVersion <<
                 " mismatch, expected: " << ci.chunkVersion <<
+                " hello: "              << req.helloFlag <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
             continue;
@@ -7582,8 +7587,9 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             mChunkLeases.GetChunkWriteLease(chunkId);
         if (lease) {
             KFS_LOG_STREAM_DEBUG <<
-                "available chunk: " << chunkId <<
-                " version: "        << chunkVersion <<
+                "available chunk: "   << chunkId <<
+                " version: "          << chunkVersion <<
+                " hello: "            << req.helloFlag <<
                 " write lease exists" <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
@@ -7593,6 +7599,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             KFS_LOG_STREAM_INFO <<
                 "available chunk: " << chunkId <<
                 " version: "        << chunkVersion <<
+                " hello: "          << req.helloFlag <<
                 " not stable" <<
             KFS_LOG_EOM;
             // Available chunks are always stable. If the version matches
@@ -7608,6 +7615,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "      << chunkId <<
                 " version: "             << chunkVersion <<
+                " hello: "               << req.helloFlag <<
                 " sufficinet replicas: " << srvCnt <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
@@ -7628,6 +7636,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "   << chunkId <<
                 " version: "          << chunkVersion <<
+                " hello: "            << req.helloFlag <<
                 " can be recovered: "
                 " good: "             << goodCnt <<
                 " data stripes: "     << fa.numStripes <<
@@ -7639,12 +7648,19 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             KFS_LOG_STREAM_DEBUG <<
                 "available chunk: "   << chunkId <<
                 " version: "          << chunkVersion <<
+                " hello: "            << req.helloFlag <<
                 " partial chunk block has write lease" <<
             KFS_LOG_EOM;
             staleChunks.PushBack(chunkId);
             continue;
         }
-        AddServer(*cmi, req.server);
+        const bool addedFlag = AddServer(*cmi, req.server);
+        KFS_LOG_STREAM_DEBUG <<
+            "available chunk: " << chunkId <<
+            " version: "        << chunkVersion <<
+            " hello: "          << req.helloFlag <<
+            " added "           << addedFlag <<
+        KFS_LOG_EOM;
     }
     // Chunk's server logic requires stale chunk's RPC arrival prior to chunk
     // available RPC response. The order and chunk available RPC sequence

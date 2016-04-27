@@ -235,8 +235,8 @@ MarkSubmitted(MetaRequest& req)
     // Bump submit count to prevent it from going into transaction log.
     if (0 == req.submitCount) {
         req.submitTime  = microseconds();
-        req.processTime = req.submitTime;
-        req.submitCount++;
+        req.processTime = 0;
+        req.submitCount = 1;
     }
 }
 
