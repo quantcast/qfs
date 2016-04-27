@@ -146,7 +146,6 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           availableChunksOpInFlightFlag(false),
           notifyAvailableChunksStartFlag(false),
           timeoutPendingFlag(false),
-          chunksAvailableInFlightSortedFlag(false),
           lastEvacuationActivityTime(
             globalNetManager().Now() - 365 * 24 * 60 * 60),
           startTime(globalNetManager().Now()),
@@ -700,7 +699,6 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     bool                   availableChunksOpInFlightFlag:1;
     bool                   notifyAvailableChunksStartFlag:1;
     bool                   timeoutPendingFlag:1;
-    bool                   chunksAvailableInFlightSortedFlag:1;
     time_t                 lastEvacuationActivityTime;
     time_t                 startTime;
     time_t                 stopTime;
@@ -862,6 +860,7 @@ public:
           mInDoneHandlerFlag(false),
           mKeepFlag(false),
           mPendingAvailableFlag(false),
+          mHelloNotifyFlag(false),
           mForceDeleteObjectStoreBlockFlag(false),
           mWriteIdIssuedFlag(false),
           mChunkList(ChunkManager::kChunkLruList),
@@ -932,6 +931,12 @@ public:
     }
     bool IsPendingAvailable() const {
         return mPendingAvailableFlag;
+    }
+    void SetHelloNotify(bool flag) {
+        mHelloNotifyFlag = flag;
+    }
+    bool IsHelloNotify() const {
+        return mHelloNotifyFlag;
     }
 
     ChunkInfo_t      chunkInfo;
@@ -1205,6 +1210,7 @@ private:
     bool                        mInDoneHandlerFlag:1;
     bool                        mKeepFlag:1;
     bool                        mPendingAvailableFlag:1;
+    bool                        mHelloNotifyFlag:1;
     bool                        mForceDeleteObjectStoreBlockFlag:1;
     bool                        mWriteIdIssuedFlag:1;
     ChunkManager::ChunkListType mChunkList:2;
@@ -1415,20 +1421,24 @@ public:
         StaleChunkDeleteCompletion& cb,
         Lists                       lists)
     {
-        if (cb.mCbPtr) {
-            KfsCallbackObj* const op = cb.mCbPtr;
-            cb.mCbPtr = 0;
+        KfsCallbackObj* const op = cb.mCbPtr;
+        cb.mCbPtr = 0;
+        List::Remove(lists[kInFlightList], cb);
+        List::PushBack(lists[kFreeList],   cb);
+        if (op) {
             int res = -EIO;
             op->HandleEvent(EVENT_DISK_ERROR, &res);
         }
-        List::Remove(lists[kInFlightList], cb);
-        List::PushBack(lists[kFreeList],   cb);
     }
     static void Init(
-        Lists lists)
+        Lists lists,
+        int   freeListSize)
     {
         for (int i = 0; i < kListCount; i++) {
             List::Init(lists[i]);
+        }
+        for (int i = 0; i < freeListSize; i++) {
+            Release(Create(-1, 0, lists), lists);
         }
     }
     template<typename T>
@@ -1593,7 +1603,10 @@ ChunkManager::HelloDone(HelloMetaOp& hello)
     if (gMetaServerSM.IsUp() && 0 != hello.resumeStep) {
         mLastPendingInFlight.Clear();
         // Re-enable clenup if it was disabled on startup.
-        mCleanupStaleChunksFlag = true;
+        if (! mCleanupStaleChunksFlag) {
+            mCleanupStaleChunksFlag = true;
+            RunStaleChunksQueue();
+        }
     }
     ScheduleNotifyLostChunk();
     RunHelloNotifyQueue(0);
@@ -2155,6 +2168,7 @@ ChunkManager::ChunkManager()
       mKeepEvacuatedChunksFlag(false),
       mStaleChunkOpsInFlight(0),
       mMaxStaleChunkOpsInFlight(4),
+      mRunStaleQueueRecursionCount(0),
       mMaxDirCheckDiskTimeouts(4),
       mChunkPlacementPendingReadWeight(0),
       mChunkPlacementPendingWriteWeight(0),
@@ -2234,7 +2248,8 @@ ChunkManager::ChunkManager()
     ChunkHelloNotifyList::Init(mChunkInfoHelloNotifyList);
     globalNetManager().SetMaxAcceptsPerRead(4096);
     mHelloNotifyCb.SetHandler(this, &ChunkManager::HelloNotifyDone);
-    StaleChunkDeleteCompletion::Init(mStaleChunkDeleteCompletionLists);
+    StaleChunkDeleteCompletion::Init(
+        mStaleChunkDeleteCompletionLists, mMaxStaleChunkOpsInFlight);
 }
 
 ChunkManager::~ChunkManager()
@@ -3628,61 +3643,29 @@ ChunkManager::StaleChunk(
     // available reply would normally arrive *after* "related" stale chunks RPC
     // requests. Presently the message can arrive after the chunk available RPC
     // reply in the case of chunk server re-authentication.
-    ChunkDirInfo& dir = cih->GetDirInfo();
-    if ((availChunksSeq < 0 ||
-            mHelloNotifyInFlightCount <= 0 ||
-            &dir.availableChunksOp !=
-                gMetaServerSM.FindInFlightOp(availChunksSeq)) &&
-            dir.availableChunksOpInFlightFlag &&
-            dir.availableChunksOp.seq != availChunksSeq) {
-        if (0 <= availChunksSeq) {
-            KFS_LOG_STREAM_NOTICE <<
-                "detected possible available chunks message reording:"
-                " received: " << availChunksSeq <<
-                " current: "  << dir.availableChunksOp.seq <<
-            KFS_LOG_EOM;
-        }
-        if (! dir.chunksAvailableInFlightSortedFlag) {
-            dir.chunksAvailableInFlightSortedFlag = true;
-            if (1 < dir.availableChunksOp.numChunks) {
-                sort(dir.availableChunksOp.chunks,
-                    dir.availableChunksOp.chunks +
-                        dir.availableChunksOp.numChunks,
-                    bind(&AvailableChunksOp::Chunks::first, _1) <
-                        bind(&AvailableChunksOp::Chunks::first, _2)
-                );
-            }
-        }
-        const AvailableChunksOp::Chunks* const entry = lower_bound(
-            dir.availableChunksOp.chunks,
-            dir.availableChunksOp.chunks +
-                dir.availableChunksOp.numChunks,
-            chunkId,
-            bind(&AvailableChunksOp::Chunks::first, _1) < chunkId
-        );
-        if (entry < dir.availableChunksOp.chunks +
-                dir.availableChunksOp.numChunks &&
-                entry->first == chunkId) {
-            KFS_LOG_STREAM(availChunksSeq < 0 ?
-                    MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
-                "keeping stale availabe"
-                " chunk: "   << chunkId <<
-                " version: " << entry->second <<
-                " seq: "     << availChunksSeq <<
-                " != "       << dir.availableChunksOp.seq <<
-            KFS_LOG_EOM;
-            // The meta server must explicitly tell to delete this chunk by
-            // setting chunk available rpc sequence number in stale chunk
-            // request.
-            // The available chunks rpc sequence numbers are used here to
-            // disambiguate possible stale chunks requests sent in response
-            // to other "events". In particular in response to chunk
-            // replication or recovery, or version change completion
-            // [failures], or in the cases if meta server decides to
-            // "timeout" such (or any other relevant) requests, and send
-            // stale chunk request in order to ensure proper cleanup.
-            return -EAGAIN;
-        }
+    if ((cih->IsHelloNotify() || cih->IsPendingAvailable()) &&
+            (availChunksSeq < 0 ||
+                ! gMetaServerSM.FindInFlightOp(availChunksSeq))) {
+        KFS_LOG_STREAM(availChunksSeq < 0 ?
+                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelNOTICE) <<
+            "keeping stale"
+            " chunk: "             << chunkId <<
+            " version: "           << cih->chunkInfo.chunkVersion <<
+            " seq: "               << availChunksSeq <<
+            " pending available: " << cih->IsPendingAvailable() <<
+            " hello notify: "      << cih->IsHelloNotify() <<
+        KFS_LOG_EOM;
+        // The meta server must explicitly tell to delete this chunk by
+        // setting chunk available rpc sequence number in stale chunk
+        // request.
+        // The available chunks rpc sequence numbers are used here to
+        // disambiguate possible stale chunks requests sent in response
+        // to other "events". In particular in response to chunk
+        // replication or recovery, or version change completion
+        // [failures], or in the cases if meta server decides to
+        // "timeout" such (or any other relevant) requests, and send
+        // stale chunk request in order to ensure proper cleanup.
+        return -EAGAIN;
     }
     return StaleChunk(cih, forceDeleteFlag, evacuatedFlag, op);
 }
@@ -6233,6 +6216,14 @@ ChunkManager::GetHostedChunks(
 void
 ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
 {
+    if (cop) {
+        for (int i = 0; i < cop->numChunks; i++) {
+            ChunkInfoHandle** const ci = mChunkTable.Find(cop->chunks[i].first);
+            if (ci && *ci) {
+                (*ci)->SetHelloNotify(false);
+            }
+        }
+    }
     if (! gMetaServerSM.IsUp() ||
             ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
         delete cop;
@@ -6257,6 +6248,7 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
             AvailableChunksOp::Chunks& chunk = op.chunks[op.numChunks++];
             chunk.first  = cih->chunkInfo.chunkId;
             chunk.second = cih->chunkInfo.chunkVersion;
+            cih->SetHelloNotify(true);
         }
         mHelloNotifyInFlightCount += op.numChunks;
         gMetaServerSM.EnqueueOp(&op);
@@ -6453,19 +6445,24 @@ ChunkManager::RunStaleChunksQueue(
     if (completion) {
         StaleChunkDeleteCompletion::Release(
             *completion, mStaleChunkDeleteCompletionLists);
-        assert(0 < mStaleChunkOpsInFlight);
-        mStaleChunkOpsInFlight--;
-        mDoneStaleChunksCount++;
+        if (mStaleChunkOpsInFlight <= 0) {
+            die("invalid stale chunk queue in flight count");
+        } else {
+            mStaleChunkOpsInFlight--;
+            mDoneStaleChunksCount++;
+        }
     }
+    mRunStaleQueueRecursionCount++;
     ChunkList::Iterator it(mChunkInfoLists[kChunkStaleList]);
     ChunkInfoHandle*    cih;
-    while (mCleanupStaleChunksFlag &&
+    while (mCleanupStaleChunksFlag && mRunStaleQueueRecursionCount <= 1 &&
             mStaleChunkOpsInFlight < mMaxStaleChunkOpsInFlight &&
             (cih = it.Next())) {
         // If disk queue has been already stopped, then the queue directory
         // prefix has already been removed, and it will not be possible to
         // queue disk io request (delete or rename) anyway, and attempt to do
         // so will return an error.
+        bool inFlightFlag = false;
         if ((0 <= cih->chunkInfo.chunkVersion ||
                 cih->GetForceDeleteObjectStoreBlockFlag()) &&
                 cih->GetDirInfo().diskQueue) {
@@ -6490,32 +6487,29 @@ ChunkManager::RunStaleChunksQueue(
                         cih->DetachStaleDeleteCompletionOp(),
                         mStaleChunkDeleteCompletionLists
                     );
-                bool ok;
                 if (cih->IsKeep()) {
-                    ok = MarkChunkStale(cih, &cb) == 0;
+                    inFlightFlag = MarkChunkStale(cih, &cb) == 0;
                 } else {
                     const string fileName = MakeChunkPathname(cih);
                     string       err;
-                    ok = DiskIo::Delete(fileName.c_str(), &cb, &err);
-                    KFS_LOG_STREAM(ok ?
+                    inFlightFlag = DiskIo::Delete(fileName.c_str(), &cb, &err);
+                    KFS_LOG_STREAM(inFlightFlag ?
                             MsgLogger::kLogLevelINFO :
                             MsgLogger::kLogLevelERROR) <<
                         "deleting stale chunk: " << fileName <<
-                        (ok ? " ok" : " error: ") << err <<
+                        (inFlightFlag ? " ok" : " error: ") << err <<
                         " in flight: " << mStaleChunkOpsInFlight <<
                     KFS_LOG_EOM;
                 }
-                if (ok) {
+                if (inFlightFlag) {
                     mStaleChunkOpsInFlight++;
                 } else {
                     StaleChunkDeleteCompletion::Release(
                         cb, mStaleChunkDeleteCompletionLists);
-                    mDoneStaleChunksCount++;
                 }
-            } else {
-                mDoneStaleChunksCount++;
             }
-        } else {
+        }
+        if (! inFlightFlag) {
             mDoneStaleChunksCount++;
         }
         const int64_t size = min(mUsedSpace, cih->chunkInfo.chunkSize);
@@ -6525,6 +6519,7 @@ ChunkManager::RunStaleChunksQueue(
         }
         Delete(*cih);
     }
+    mRunStaleQueueRecursionCount--;
     if (mFlushStaleChunksOp &&
             mFlushStaleChunksCount <= mDoneStaleChunksCount) {
         KfsOp* const op = mFlushStaleChunksOp;
@@ -7616,8 +7611,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
             ! gMetaServerSM.GetLocation().IsValid()) {
         return;
     }
-    availableChunksOpInFlightFlag     = true;
-    chunksAvailableInFlightSortedFlag = false;
+    availableChunksOpInFlightFlag = true;
     availableChunksOp.status = 0;
     availableChunksOp.statusMsg.clear();
     gMetaServerSM.EnqueueOp(&availableChunksOp);

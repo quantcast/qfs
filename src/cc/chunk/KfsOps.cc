@@ -2084,10 +2084,6 @@ StaleChunksOp::Execute()
     if (0 != pendingCount) {
         die("delete stale chunks: invalid pending count in execute");
     }
-    KFS_LOG_STREAM_INFO << "stale chunks: " <<
-        (staleChunkIds.empty() ? kfsChunkId_t(-1) : staleChunkIds.front()) <<
-        " count: " << staleChunkIds.size() <<
-    KFS_LOG_EOM;
     status = 0;
     // Set pending to 1 in order to protect against recursion, due to
     // immediate / "synchronous" completion, by effectively self referencing.

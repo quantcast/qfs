@@ -908,6 +908,7 @@ private:
     bool mKeepEvacuatedChunksFlag;
     int mStaleChunkOpsInFlight;
     int mMaxStaleChunkOpsInFlight;
+    int mRunStaleQueueRecursionCount;
     int mMaxDirCheckDiskTimeouts;
     double mChunkPlacementPendingReadWeight;
     double mChunkPlacementPendingWriteWeight;
