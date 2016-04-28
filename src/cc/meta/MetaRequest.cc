@@ -2151,6 +2151,7 @@ MetaAllocate::handle()
     if (status == -EEXIST) {
         initialChunkVersion = chunkVersion;
         // Attempt to obtain a new lease.
+        status = 0;
         gLayoutManager.GetChunkWriteLease(*this);
         if (suspended) {
             panic("chunk allocation suspended after lease acquistion");
@@ -3067,6 +3068,7 @@ MetaLeaseAcquire::handle()
             return;
         }
     }
+    status = 0;
     gLayoutManager.Handle(*this);
 }
 
@@ -3384,7 +3386,7 @@ MetaChunkSize::start()
 /* virtual */ void
 MetaChunkSize::handle()
 {
-    // Invoke regardless of status, in order to retry.
+    // Invoke regardless of status, in order to schedule retry.
     gLayoutManager.Handle(*this);
 }
 
