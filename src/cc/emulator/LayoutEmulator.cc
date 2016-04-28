@@ -176,46 +176,46 @@ LayoutEmulator::Parse(
 
 // override what is in the layout manager (only for the emulator code)
 bool
-LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate* req)
+LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate& req)
 {
     mOngoingReplicationStats->Update(-1);
     // Book-keeping....
     if (mNumOngoingReplications > 0) {
         mNumOngoingReplications--;
     }
-    req->server->ReplicateChunkDone(req->chunkId);
-    if (req->srcLocation.IsValid() && req->dataServer) {
-        req->dataServer->UpdateReplicationReadLoad(-1);
+    req.server->ReplicateChunkDone(req.chunkId);
+    if (req.srcLocation.IsValid() && req.dataServer) {
+        req.dataServer->UpdateReplicationReadLoad(-1);
     }
-    req->dataServer.reset();
-    if (req->status != 0) {
+    req.dataServer.reset();
+    if (req.status != 0) {
         // Replication failed...we will try again later
         KFS_LOG_STREAM_ERROR <<
             "replication failed"
-            " chunk: "  << req->chunkId <<
-            " status: " << req->status <<
-            " server: " << req->server->GetServerLocation() <<
+            " chunk: "  << req.chunkId <<
+            " status: " << req.status <<
+            " server: " << req.server->GetServerLocation() <<
         KFS_LOG_EOM;
         mFailedReplicationStats->Update(1);
         return false;
     }
     mNumBlksRebalanced++;
     // replication succeeded: book-keeping
-    CSMap::Entry* const ci = mChunkToServerMap.Find(req->chunkId);
+    CSMap::Entry* const ci = mChunkToServerMap.Find(req.chunkId);
     if (! ci) {
         KFS_LOG_STREAM_ERROR <<
-            "replication completion: no such chunk: " << req->chunkId <<
+            "replication completion: no such chunk: " << req.chunkId <<
         KFS_LOG_EOM;
         return false;
     }
-    const bool addedFlag = AddReplica(*ci, req->server);
+    const bool addedFlag = AddReplica(*ci, req.server);
     if (addedFlag) {
-        GetCSEmulator(*(req->server)).HostingChunk(
-            req->chunkId, GetChunkSize(*ci));
+        GetCSEmulator(*(req.server)).HostingChunk(
+            req.chunkId, GetChunkSize(*ci));
     } else {
             KFS_LOG_STREAM_ERROR <<
-                "chunk: "        << req->chunkId <<
-                " add server: "  << req->server->GetServerLocation() <<
+                "chunk: "        << req.chunkId <<
+                " add server: "  << req.server->GetServerLocation() <<
                 " failed" <<
             KFS_LOG_EOM;
     }

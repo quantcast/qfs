@@ -2040,7 +2040,7 @@ MetaAllocate::handle()
         status    = -EPERM;
         return;
     }
-    if (! gLayoutManager.IsAllocationAllowed(this)) {
+    if (! gLayoutManager.IsAllocationAllowed(*this)) {
         if (0 <= status) {
             statusMsg = "allocation not allowed";
             status    = -EPERM;
@@ -2064,7 +2064,7 @@ MetaAllocate::handle()
     if (appendChunk) {
         // pick a chunk for which a write lease exists
         status = 0;
-        if (gLayoutManager.AllocateChunkForAppend(this) == 0) {
+        if (gLayoutManager.AllocateChunkForAppend(*this) == 0) {
             // all good
             KFS_LOG_STREAM_DEBUG <<
                 " req: " << opSeqno <<
@@ -2151,7 +2151,7 @@ MetaAllocate::handle()
     if (status == -EEXIST) {
         initialChunkVersion = chunkVersion;
         // Attempt to obtain a new lease.
-        status = gLayoutManager.GetChunkWriteLease(this);
+        gLayoutManager.GetChunkWriteLease(*this);
         if (suspended) {
             panic("chunk allocation suspended after lease acquistion");
         }
@@ -2163,7 +2163,7 @@ MetaAllocate::handle()
                     status    = -EFAULT;
                     suspended = false;
                 } else {
-                    servers.front()->AllocateChunk(this, leaseId, minSTier);
+                    servers.front()->AllocateChunk(*this, leaseId, minSTier);
                 }
             } else {
                 submit_request(new MetaLogChunkVersionChange(this));
@@ -2172,7 +2172,7 @@ MetaAllocate::handle()
         return;
     }
     suspended = true;
-    const int ret = gLayoutManager.AllocateChunk(this, chunkBlock);
+    const int ret = gLayoutManager.AllocateChunk(*this, chunkBlock);
     if (0 == ret) {
         return;
     }
@@ -2219,25 +2219,25 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
     // Invalidate all replicas might make it stale if it comes while this op
     // is in flight. Do not do any cleanup if the op is invalid: all required
     // cleanup has already been done.
-    if (gLayoutManager.Validate(this) && 0 != status) {
+    if (gLayoutManager.Validate(*this) && 0 != status) {
         // we have a problem: it is possible that the server
         // went down.  ask the client to retry....
         if (0 <= status) {
             status = -EALLOCFAILED;
         }
         if (0 <= initialChunkVersion) {
-            gLayoutManager.CommitOrRollBackChunkVersion(this);
+            gLayoutManager.CommitOrRollBackChunkVersion(*this);
         } else {
             // this is the first time the chunk was allocated.
             // since the allocation failed, remove existence of this chunk
             // on the metaserver.
-            gLayoutManager.DeleteChunk(this);
+            gLayoutManager.DeleteChunk(*this);
         }
     } else if (0 != status && initialChunkVersion < 0) {
         // Cleanup stale chunk in the case when client has already invalidated
         // the chunk, and the chunk didn't exist. In this case a new chunk id
         // was created.
-        gLayoutManager.DeleteChunk(this);
+        gLayoutManager.DeleteChunk(*this);
     }
     if (0 == status) {
         assert(! MetaRequest::next);
@@ -2397,7 +2397,7 @@ MetaLogChunkAllocate::handle()
                 } else if (status == -ENOENT ||
                         (status == -EEXIST && curChunkId != chunkId)) {
                     if (alloc) {
-                        gLayoutManager.DeleteChunk(alloc);
+                        gLayoutManager.DeleteChunk(*alloc);
                         alloc->servers.clear();
                     }
                 }
@@ -2409,7 +2409,7 @@ MetaLogChunkAllocate::handle()
         alloc->statusMsg = statusMsg;
     }
     if (! invalidateAllFlag) {
-        gLayoutManager.CommitOrRollBackChunkVersion(this);
+        gLayoutManager.CommitOrRollBackChunkVersion(*this);
     }
     if (alloc) {
         const bool kCountAllocTimeFlag = false;
@@ -2698,7 +2698,7 @@ MetaLogChunkVersionChange::handle()
     }
     for (size_t i = alloc->servers.size(); i-- > 0; ) {
         alloc->servers[i]->AllocateChunk(
-            alloc, i == 0 ? alloc->leaseId : -1, alloc->minSTier);
+            *alloc, i == 0 ? alloc->leaseId : -1, alloc->minSTier);
     }
 }
 
@@ -3067,7 +3067,7 @@ MetaLeaseAcquire::handle()
             return;
         }
     }
-    status = gLayoutManager.GetChunkReadLease(this);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void
@@ -3079,13 +3079,13 @@ MetaLeaseRenew::handle()
     if (status < 0) {
         return;
     }
-    status = gLayoutManager.LeaseRenew(this);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void
 MetaLeaseRelinquish::handle()
 {
-    status = gLayoutManager.LeaseRelinquish(this);
+    gLayoutManager.Handle(*this);
     KFS_LOG_STREAM(status == 0 ?
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         Show() << " status: " << status <<
@@ -3255,7 +3255,7 @@ MetaChunkCorrupt::handle()
         server->SetChunkDirStatus(chunkDir, dirOkFlag);
     }
     if (0 < chunkId || 0 < chunkCount || 0 != status) {
-        gLayoutManager.ChunkCorrupt(this);
+        gLayoutManager.Handle(*this);
     }
 }
 
@@ -3263,7 +3263,7 @@ MetaChunkCorrupt::handle()
 MetaChunkEvacuate::handle()
 {
     if (server) {
-        gLayoutManager.ChunkEvacuate(this);
+        gLayoutManager.Handle(*this);
     } else {
         // This is likely coming from the ClientSM.
         KFS_LOG_STREAM_DEBUG << "no server invalid cmd: " << Show() <<
@@ -3294,10 +3294,6 @@ MetaChunkAvailable::start()
 /* virtual */ void
 MetaChunkAvailable::handle()
 {
-    if (handledFlag) {
-        return;
-    }
-    handledFlag = true;
     gLayoutManager.Handle(*this);
 }
 
@@ -3324,7 +3320,7 @@ MetaChunkReplicationCheck::handle()
 /* virtual */ void
 MetaBeginMakeChunkStable::handle()
 {
-    gLayoutManager.BeginMakeChunkStableDone(this);
+    gLayoutManager.BeginMakeChunkStableDone(*this);
     status = 0;
 }
 
@@ -3337,7 +3333,7 @@ MetaLogMakeChunkStable::handle()
             chunkId, chunkVersion, chunkSize, hasChunkChecksum, chunkChecksum,
             kAddFlag);
     } else {
-        gLayoutManager.LogMakeChunkStableDone(this);
+        gLayoutManager.LogMakeChunkStableDone(*this);
     }
 }
 
@@ -3355,7 +3351,7 @@ MetaLogMakeChunkStableDone::handle()
 /* virtual */ void
 MetaChunkMakeStable::handle()
 {
-    gLayoutManager.MakeChunkStableDone(this);
+    gLayoutManager.MakeChunkStableDone(*this);
     status = 0;
 }
 
@@ -3379,7 +3375,7 @@ MetaChunkMakeStable::ShowSelf(ostream& os) const
 /* virtual */ bool
 MetaChunkSize::start()
 {
-    if (0 == status && gLayoutManager.Start(this)) {
+    if (0 == status && gLayoutManager.Start(*this)) {
         return (0 == status);
     }
     return false;
@@ -3389,16 +3385,13 @@ MetaChunkSize::start()
 MetaChunkSize::handle()
 {
     // Invoke regardless of status, in order to retry.
-    const int res = gLayoutManager.GetChunkSizeDone(this);
-    if (0 <= status) {
-        status = res;
-    }
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void
 MetaChunkReplicate::handle()
 {
-    gLayoutManager.ChunkReplicationDone(this);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ ostream&
@@ -4900,6 +4893,15 @@ MetaChunkEvacuate::response(ReqOstream& os)
 void
 MetaChunkAvailable::response(ReqOstream& os)
 {
+    // If stale notify set, then it will send response.
+    if (! staleNotify) {
+        responseSelf(os);
+    }
+}
+
+void
+MetaChunkAvailable::responseSelf(ReqOstream& os)
+{
     PutHeader(this, os) << "\r\n";
 }
 
@@ -5365,7 +5367,6 @@ MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
 {
     if (req && ! req->staleNotify && server && req->clnt == &*server) {
         req->staleNotify  = this;
-        req->clnt         = 0;
         chunkAvailableReq = req;
     }
 }
@@ -5448,38 +5449,38 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
         os.flush();
         buf.Move(&ioBuf);
     }
+
+    // Send available chunk reply immediately after.
+    if (chunkAvailableReq) {
+        if (this != chunkAvailableReq->staleNotify ||
+                &*server != chunkAvailableReq->clnt) {
+            panic("invalid stale notify op");
+        }
+        os.flush();
+        chunkAvailableReq->responseSelf(os);
+    }
 }
 
 /* virtual */ void
 MetaChunkStaleNotify::ReleaseSelf()
 {
-    MetaChunkAvailable* const op = chunkAvailableReq;
-    if (op && op->staleNotify) {
-        if (this != op->staleNotify || op->clnt || ! server) {
+    if (chunkAvailableReq) {
+        if (this != chunkAvailableReq->staleNotify ||
+                &*server != chunkAvailableReq->clnt) {
             panic("invalid stale notify op release");
         }
-        op->staleNotify = 0;
-        op->clnt        = &*server;
+        chunkAvailableReq->staleNotify = 0;
+        MetaChunkAvailable* const aop = chunkAvailableReq;
+        chunkAvailableReq = 0;
+        Release(aop);
     }
-    chunkAvailableReq = 0;
     MetaChunkRequest::ReleaseSelf();
-    if (op) {
-        // Send response.
-        submit_request(op);
-    }
 }
 
 /* virtual */ void
 MetaChunkAvailable::ReleaseSelf()
 {
-    if (staleNotify) {
-        if (submitCount <= 0) {
-            // Prepare for resubmit to send response.
-            submitCount = 1;
-            submitTime  = microseconds();
-            processTime = 0;
-        }
-    } else {
+    if (! staleNotify) {
         MetaRequest::ReleaseSelf();
     }
 }

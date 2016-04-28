@@ -80,7 +80,7 @@ public:
     }
 
 protected:
-    virtual void EnqueueSelf(MetaChunkRequest* r);
+    virtual void EnqueueSelf(MetaChunkRequest& r);
 
 private:
     typedef vector<MetaChunkRequest*> PendingReqs;

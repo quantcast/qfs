@@ -416,8 +416,8 @@ ChunkServer::HelloDone(const MetaHello* r)
         return;
     }
     mLastHeartbeatSent = TimeNow();
-    Enqueue(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
-            mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size()),
+    Enqueue(*(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
+            mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size())),
         2 * sHeartbeatTimeout
     );
 }
@@ -945,7 +945,7 @@ ChunkServer::HandleRequest(int code, void *data)
                 while (it != mDispatchedReqs.end()) {
                     MetaChunkRequest* const op = it->second.second;
                     ++it;
-                    EnqueueSelf(op);
+                    EnqueueSelf(*op);
                 }
             }
             const bool kSendResponseFlag = true;
@@ -2233,7 +2233,7 @@ ChunkServer::Replay(MetaChunkLogInFlight& req)
         const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
     }
     MarkSubmitted(req);
-    Enqueue(&req, 365 * 24 * 60 * 60);
+    Enqueue(req, 365 * 24 * 60 * 60);
 }
 
 void
@@ -2276,23 +2276,23 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     }
     const bool kLoggedFlag       = true;
     const bool kStaleChunkIdFlag = false;
-    Enqueue(req, r.maxWaitMillisec, kStaleChunkIdFlag, kLoggedFlag);
+    Enqueue(*req, r.maxWaitMillisec, kStaleChunkIdFlag, kLoggedFlag);
 }
 
 ///
 /// Queue an RPC request
 ///
 void
-ChunkServer::Enqueue(MetaChunkRequest* r,
+ChunkServer::Enqueue(MetaChunkRequest& req,
     int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag)
 {
-    if (! r || this != &*r->server || ! mHelloDone) {
+    if (this != &*req.server || ! mHelloDone) {
         panic(mHelloDone ?
             "ChunkServer::Enqueue: invalid request" :
             "ChunkServer::Enqueue: invalid enqueue attempt"
         );
-        r->status = -EFAULT;
-        r->resume();
+        req.status = -EFAULT;
+        req.resume();
         return;
     }
     const bool restoreFlag = gLayoutManager.RestoreGetChunkServer();
@@ -2301,48 +2301,49 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
         panic("chunk server: invalid restore attempt");
         return;
     }
-    if (staleChunkIdFlag && 0 <= r->chunkId && 0 <= r->chunkVersion) {
-        r->staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(r->chunkId);
+    if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
+        req.staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
     }
-    if (mHelloProcessFlag && MetaChunkLogInFlight::IsToBeLogged(*r)) {
-        AppendInFlightChunks(mHelloChunkIds, *r);
+    if (mHelloProcessFlag && MetaChunkLogInFlight::IsToBeLogged(req)) {
+        AppendInFlightChunks(mHelloChunkIds, req);
     }
-    if (mReplayFlag && ! r->replayFlag) {
-        MarkSubmitted(*r);
-        r->replayFlag = true;
-        r->status     = -EIO;
-        r->resume();
+    if (mReplayFlag && ! req.replayFlag) {
+        MarkSubmitted(req);
+        req.replayFlag = true;
+        req.status     = -EIO;
+        req.resume();
         return;
     }
     if (mDown) {
-        r->status = -EIO;
-        r->resume();
+        req.status = -EIO;
+        req.resume();
         return;
     }
-    r->suspended = true;
-    r->shortRpcFormatFlag = mShortRpcFormatFlag;
+    req.suspended = true;
+    req.shortRpcFormatFlag = mShortRpcFormatFlag;
     if (! loggedFlag) {
-        if (0 <= r->chunkId) {
-            r->inFlightIt = sChunkOpsInFlight.insert(make_pair(r->chunkId, r));
+        if (0 <= req.chunkId) {
+            req.inFlightIt = sChunkOpsInFlight.insert(
+                make_pair(req.chunkId, &req));
         }
-        if (! r->replayFlag) {
+        if (! req.replayFlag) {
             mLogInFlightCount++;
-            if (MetaChunkLogInFlight::Log(*r, timeout, removeReplicaFlag)) {
+            if (MetaChunkLogInFlight::Log(req, timeout, removeReplicaFlag)) {
                 return;
             }
             mLogInFlightCount--;
         }
     }
-    if (! restoreFlag && 0 <= r->chunkVersion) {
-        if (0 <= r->logseq && 0 <= r->chunkId) {
-            mDoneTimedoutChunks.Erase(r->chunkId);
+    if (! restoreFlag && 0 <= req.chunkVersion) {
+        if (0 <= req.logseq && 0 <= req.chunkId) {
+            mDoneTimedoutChunks.Erase(req.chunkId);
         }
-        if (0 <= r->logseq || 0 <= r->logCompletionSeq) {
-            RemoveInFlightChunks(mHelloChunkIds, *r);
+        if (0 <= req.logseq || 0 <= req.logCompletionSeq) {
+            RemoveInFlightChunks(mHelloChunkIds, req);
         }
     }
-    if (0 == r->submitCount) {
-        r->submitTime = microseconds();
+    if (0 == req.submitCount) {
+        req.submitTime = microseconds();
     }
     ReqsTimeoutQueue::iterator const it = mReqsTimeoutQueue.insert(make_pair(
         TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
@@ -2350,37 +2351,37 @@ ChunkServer::Enqueue(MetaChunkRequest* r,
     ));
     pair<DispatchedReqs::iterator, bool> const res =
         mDispatchedReqs.insert(make_pair(
-            r->replayFlag ? r->logseq : r->opSeqno,
-            make_pair(it, r)
+            req.replayFlag ? req.logseq : req.opSeqno,
+            make_pair(it, &req)
         ));
     if (res.second) {
         GetDispatchedReqsIterator(it->second) = res.first;
     } else {
         panic("chunk server: duplicate op sequence number");
         mReqsTimeoutQueue.erase(it);
-        RemoveInFlight(*r);
-        r->status = -EFAULT;
-        r->resume();
+        RemoveInFlight(req);
+        req.status = -EFAULT;
+        req.resume();
     }
-    if (r->op == META_CHUNK_REPLICATE) {
-        KFS_LOG_STREAM_INFO << r->Show() << KFS_LOG_EOM;
+    if (req.op == META_CHUNK_REPLICATE) {
+        KFS_LOG_STREAM_INFO << req.Show() << KFS_LOG_EOM;
     }
     if (mNetConnection && mNetConnection->IsGood()) {
-        EnqueueSelf(r);
+        EnqueueSelf(req);
     }
 }
 
 void
-ChunkServer::EnqueueSelf(MetaChunkRequest* r)
+ChunkServer::EnqueueSelf(MetaChunkRequest& req)
 {
     if (mReAuthSentFlag || mAuthenticateOp) {
         if (mAuthPendingSeq < 0) {
-            mAuthPendingSeq = r->opSeqno;
+            mAuthPendingSeq = req.opSeqno;
         }
         return;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
-    ChunkServerRequest(*r, mOstream.Set(buf), buf);
+    ChunkServerRequest(req, mOstream.Set(buf), buf);
     mOstream.Reset();
     if (mRecursionCount <= 0) {
         mNetConnection->StartFlush();
@@ -2388,16 +2389,16 @@ ChunkServer::EnqueueSelf(MetaChunkRequest* r)
 }
 
 int
-ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
+ChunkServer::AllocateChunk(MetaAllocate& alc, int64_t leaseId, kfsSTier_t tier)
 {
-    if (0 < r->numReplicas) {
+    if (0 < alc.numReplicas) {
         NewChunkInTier(tier);
     }
-    MetaChunkAllocate* const req = new MetaChunkAllocate(
-        NextSeq(), r, GetSelfPtr(), leaseId, tier, r->maxSTier
-    );
+    MetaChunkAllocate& req = *(new MetaChunkAllocate(
+        NextSeq(), &alc, GetSelfPtr(), leaseId, tier, alc.maxSTier
+    ));
     size_t sz;
-    if (0 <= leaseId && 0 < r->validForTime && 1 < (sz = r->servers.size())) {
+    if (0 <= leaseId && 0 < alc.validForTime && 1 < (sz = alc.servers.size())) {
         // Create synchronous replication chain access tokens. The write master
         // uses these tokens to setup synchronous replication chain.
         DelegationToken::TokenSeq tokenSeq =
@@ -2410,17 +2411,17 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
         CryptoKeys::KeyId keyKeyId = 0;
         CryptoKeys::Key   keyKey;
         for (size_t i = 0; i < sz - 1; i++) {
-            const kfsUid_t authUid = r->servers[i]->GetAuthUid();
+            const kfsUid_t authUid = alc.servers[i]->GetAuthUid();
             if (0 < i) {
                 // Encrypt the session keys that will be passed via synchronous
                 // replication chain.
                 keyKeyId = keyId;
                 keyKey   = key;
             }
-            if (! r->servers[i + 1]->GetCryptoKey(keyId, key)) {
-                req->status    = -EFAULT;
-                req->statusMsg = "no valid crypto key";
-                req->resume();
+            if (! alc.servers[i + 1]->GetCryptoKey(keyId, key)) {
+                req.status    = -EFAULT;
+                req.statusMsg = "no valid crypto key";
+                req.resume();
                 return -EFAULT;
             }
             DelegationToken::WriteTokenAndSessionKey(
@@ -2428,9 +2429,9 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
                 authUid,
                 tokenSeq,
                 keyId,
-                r->issuedTime,
+                alc.issuedTime,
                 kDelegationFlags,
-                r->validForTime,
+                alc.validForTime,
                 key.GetPtr(),
                 key.GetSize(),
                 0, // Subject pointer
@@ -2441,14 +2442,14 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
             srvAccessOs << "\n";
             ChunkAccessToken::WriteToken(
                 chunkAccessOs,
-                r->chunkId,
+                alc.chunkId,
                 authUid,
                 tokenSeq,
                 keyId,
-                r->issuedTime,
+                alc.issuedTime,
                 ChunkAccessToken::kAllowWriteFlag |
                     DelegationToken::kChunkServerFlag |
-                    (r->clientCSAllowClearTextFlag ?
+                    (alc.clientCSAllowClearTextFlag ?
                         ChunkAccessToken::kAllowClearTextFlag : 0),
                 LEASE_INTERVAL_SECS * 2,
                 key.GetPtr(),
@@ -2457,25 +2458,26 @@ ChunkServer::AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier)
             chunkAccessOs << "\n";
             tokenSeq++;
         }
-        req->chunkServerAccessStr = srvAccessOs.str();
-        req->chunkAccessStr       = chunkAccessOs.str();
+        req.chunkServerAccessStr = srvAccessOs.str();
+        req.chunkAccessStr       = chunkAccessOs.str();
     }
     Enqueue(
         req,
-        r->initialChunkVersion >= 0 ? sChunkReallocTimeout : sChunkAllocTimeout
+        alc.initialChunkVersion >= 0 ? sChunkReallocTimeout : sChunkAllocTimeout
     );
     return 0;
 }
 
 int
 ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
-    bool staleChunkIdFlag)
+    bool staleChunkIdFlag, bool forceDeleteFlag)
 {
     if (0 <= chunkVersion) {
         mChunksToEvacuate.Erase(chunkId);
     }
-    Enqueue(new MetaChunkDelete(
-        NextSeq(), shared_from_this(), chunkId, chunkVersion, staleChunkIdFlag),
+    Enqueue(*(new MetaChunkDelete(
+        NextSeq(), shared_from_this(), chunkId, chunkVersion,
+                staleChunkIdFlag || forceDeleteFlag)),
         -1, staleChunkIdFlag);
     return 0;
 }
@@ -2484,18 +2486,18 @@ int
 ChunkServer::GetChunkSize(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
     bool retryFlag)
 {
-    Enqueue(new MetaChunkSize(NextSeq(), GetSelfPtr(),
-        fid, chunkId, chunkVersion, retryFlag));
+    Enqueue(*(new MetaChunkSize(NextSeq(), GetSelfPtr(),
+        fid, chunkId, chunkVersion, retryFlag)));
     return 0;
 }
 
 int
 ChunkServer::BeginMakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion)
 {
-    Enqueue(new MetaBeginMakeChunkStable(
+    Enqueue(*(new MetaBeginMakeChunkStable(
         NextSeq(), GetSelfPtr(),
         mLocation, fid, chunkId, chunkVersion
-    ), sMakeStableTimeout);
+    )), sMakeStableTimeout);
     return 0;
 }
 
@@ -2504,11 +2506,11 @@ ChunkServer::MakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
     chunkOff_t chunkSize, bool hasChunkChecksum, uint32_t chunkChecksum,
     bool addPending)
 {
-    Enqueue(new MetaChunkMakeStable(
+    Enqueue(*(new MetaChunkMakeStable(
         NextSeq(), GetSelfPtr(),
         fid, chunkId, chunkVersion,
         chunkSize, hasChunkChecksum, chunkChecksum, addPending
-    ), sMakeStableTimeout);
+    )), sMakeStableTimeout);
     return 0;
 }
 
@@ -2519,90 +2521,90 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     MetaChunkReplicate::FileRecoveryInFlightCount::iterator it,
     bool removeReplicaFlag)
 {
-    MetaChunkReplicate* const r = new MetaChunkReplicate(
+    MetaChunkReplicate& req = *(new MetaChunkReplicate(
         NextSeq(), GetSelfPtr(), fid, chunkId,
-        dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it);
+        dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it));
     if (! dataServer) {
         panic("chunk server: invalid null replication source");
-        r->status = -EINVAL;
-        r->resume();
+        req.status = -EINVAL;
+        req.resume();
         return -EINVAL;
     }
-    if (recoveryInfo.HasRecovery() && r->server == dataServer) {
-        r->chunkVersion       = recoveryInfo.version;
-        r->chunkOffset        = recoveryInfo.offset;
-        r->striperType        = recoveryInfo.striperType;
-        r->numStripes         = recoveryInfo.numStripes;
-        r->numRecoveryStripes = recoveryInfo.numRecoveryStripes;
-        r->stripeSize         = recoveryInfo.stripeSize;
-        r->fileSize           = recoveryInfo.fileSize;
-        r->dataServer.reset();
-        r->srcLocation.hostname.clear();
-        r->srcLocation.port   = sMetaClientPort;
-        r->longRpcFormatFlag  = false;
-        r->pendingAddFlag     = false; // Version change to add mapping.
+    if (recoveryInfo.HasRecovery() && req.server == dataServer) {
+        req.chunkVersion       = recoveryInfo.version;
+        req.chunkOffset        = recoveryInfo.offset;
+        req.striperType        = recoveryInfo.striperType;
+        req.numStripes         = recoveryInfo.numStripes;
+        req.numRecoveryStripes = recoveryInfo.numRecoveryStripes;
+        req.stripeSize         = recoveryInfo.stripeSize;
+        req.fileSize           = recoveryInfo.fileSize;
+        req.dataServer.reset();
+        req.srcLocation.hostname.clear();
+        req.srcLocation.port   = sMetaClientPort;
+        req.longRpcFormatFlag  = false;
+        req.pendingAddFlag     = false; // Version change to add mapping.
     } else {
-        r->longRpcFormatFlag = ! dataServer->IsShortRpcFormat();
-        r->pendingAddFlag    = true; // Add mapping in replay.
+        req.longRpcFormatFlag = ! dataServer->IsShortRpcFormat();
+        req.pendingAddFlag    = true; // Add mapping in replay.
     }
     if (gLayoutManager.IsClientCSAuthRequired()) {
-        r->issuedTime                 = TimeNow();
-        r->validForTime               = (uint32_t)max(0,
+        req.issuedTime                 = TimeNow();
+        req.validForTime               = (uint32_t)max(0,
             gLayoutManager.GetCSAccessValidForTime());
-        r->clientCSAllowClearTextFlag =
+        req.clientCSAllowClearTextFlag =
             gLayoutManager.IsClientCSAllowClearText();
         if (mAuthUid == kKfsUserNone) {
-            r->status    = -EFAULT;
-            r->statusMsg = "destination server has invalid id";
-            r->resume();
+            req.status    = -EFAULT;
+            req.statusMsg = "destination server has invalid id";
+            req.resume();
             return -EFAULT;
         }
-        r->authUid  = mAuthUid;
-        r->tokenSeq =
+        req.authUid  = mAuthUid;
+        req.tokenSeq =
             (DelegationToken::TokenSeq)gLayoutManager.GetRandom().Rand();
-        if (r->dataServer) {
-            if (! r->dataServer->GetCryptoKey(r->keyId, r->key)) {
-                r->status    = -EFAULT;
-                r->statusMsg = "source has no valid crypto key";
-                r->resume();
+        if (req.dataServer) {
+            if (! req.dataServer->GetCryptoKey(req.keyId, req.key)) {
+                req.status    = -EFAULT;
+                req.statusMsg = "source has no valid crypto key";
+                req.resume();
                 return -EFAULT;
             }
         } else {
             const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
             if (! keys || ! keys->GetCurrentKey(
-                    r->keyId, r->key, r->validForTime)) {
-                r->status    = -EFAULT;
-                r->statusMsg = "has no current valid crypto key";
-                r->resume();
+                    req.keyId, req.key, req.validForTime)) {
+                req.status    = -EFAULT;
+                req.statusMsg = "has no current valid crypto key";
+                req.resume();
                 return -EFAULT;
             }
             if (mRecoveryMetaAccess.empty() || mRecoveryMetaAccessEndTime <
-                    r->issuedTime + max(5 * 60, sReplicationTimeout * 2)) {
+                    req.issuedTime + max(5 * 60, sReplicationTimeout * 2)) {
                 ostringstream& os = GetTmpOStringStream();
                 DelegationToken::WriteTokenAndSessionKey(
                     os,
-                    r->authUid,
-                    r->tokenSeq,
-                    r->keyId,
-                    r->issuedTime,
+                    req.authUid,
+                    req.tokenSeq,
+                    req.keyId,
+                    req.issuedTime,
                     DelegationToken::kChunkServerFlag,
-                    r->validForTime,
-                    r->key.GetPtr(),
-                    r->key.GetSize()
+                    req.validForTime,
+                    req.key.GetPtr(),
+                    req.key.GetSize()
                 );
-                mRecoveryMetaAccessEndTime = r->issuedTime + r->validForTime;
+                mRecoveryMetaAccessEndTime = req.issuedTime + req.validForTime;
                 mRecoveryMetaAccess        = os.str();
             }
-            r->metaServerAccess = mRecoveryMetaAccess;
+            req.metaServerAccess = mRecoveryMetaAccess;
         }
     } else {
-        r->validForTime = 0;
+        req.validForTime = 0;
     }
     mNumChunkWriteReplications++;
     NewChunkInTier(minSTier);
     const bool kStaleChunkIdFlag = false;
     const bool kLoggedFlag       = false;
-    Enqueue(r, sReplicationTimeout,
+    Enqueue(req, sReplicationTimeout,
         kStaleChunkIdFlag, kLoggedFlag, removeReplicaFlag);
     return 0;
 }
@@ -2615,41 +2617,41 @@ ChunkServer::NotifyStaleChunks(
     MetaChunkAvailable* ca,
     MetaHello*          hello)
 {
-    MetaChunkStaleNotify* const r = new MetaChunkStaleNotify(
+    MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
         NextSeq(),
         GetSelfPtr(),
         evacuatedFlag,
         mStaleChunksHexFormatFlag,
         (ca && ! ca->replayFlag && 0 <= ca->logseq) ? ca : 0
-    );
+    ));
     if (clearStaleChunksFlag) {
-        r->staleChunkIds.Swap(staleChunkIds);
+        req.staleChunkIds.Swap(staleChunkIds);
     } else {
-        r->staleChunkIds = staleChunkIds;
+        req.staleChunkIds = staleChunkIds;
     }
     if (! mChunksToEvacuate.IsEmpty()) {
-        ChunkIdQueue::ConstIterator it(r->staleChunkIds);
+        ChunkIdQueue::ConstIterator it(req.staleChunkIds);
         const chunkId_t*            id;
         while ((id = it.Next())) {
             mChunksToEvacuate.Erase(*id);
         }
     }
     if (hello) {
-        r->flushStaleQueueFlag = true;
+        req.flushStaleQueueFlag = true;
         mHelloPendingStaleChunks.swap(hello->pendingStaleChunks);
     }
-    Enqueue(r);
+    Enqueue(req);
 }
 
 void
 ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 {
-    MetaChunkStaleNotify * const r = new MetaChunkStaleNotify(
+    MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
         NextSeq(), GetSelfPtr(), evacuatedFlag,
-        mStaleChunksHexFormatFlag, 0);
-    r->staleChunkIds.PushBack(staleChunkId);
+        mStaleChunksHexFormatFlag, 0));
+    req.staleChunkIds.PushBack(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
-    Enqueue(r);
+    Enqueue(req);
 }
 
 void
@@ -2657,10 +2659,10 @@ ChunkServer::NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers
     seq_t fromVersion, bool makeStableFlag, bool pendingAddFlag,
     MetaChunkReplicate* replicate, bool verifyStableFlag)
 {
-    Enqueue(new MetaChunkVersChange(
+    Enqueue(*(new MetaChunkVersChange(
         NextSeq(), GetSelfPtr(), fid, chunkId, chunkVers,
         fromVersion, makeStableFlag, pendingAddFlag, replicate,
-        verifyStableFlag),
+        verifyStableFlag)),
         sMakeStableTimeout);
 }
 
@@ -2689,13 +2691,13 @@ void
 ChunkServer::Retire()
 {
     mRetiredFlag = true;
-    Enqueue(new MetaChunkRetire(NextSeq(), GetSelfPtr()));
+    Enqueue(*(new MetaChunkRetire(NextSeq(), GetSelfPtr())));
 }
 
 void
 ChunkServer::SetProperties(const Properties& props)
 {
-    Enqueue(new MetaChunkSetProperties(NextSeq(), GetSelfPtr(), props));
+    Enqueue(*(new MetaChunkSetProperties(NextSeq(), GetSelfPtr(), props)));
 }
 
 void
@@ -2703,10 +2705,10 @@ ChunkServer::Restart(bool justExitFlag)
 {
     mRestartQueuedFlag = true;
     if (justExitFlag) {
-        Enqueue(new MetaChunkRetire(NextSeq(), GetSelfPtr()));
+        Enqueue(*(new MetaChunkRetire(NextSeq(), GetSelfPtr())));
         return;
     }
-    Enqueue(new MetaChunkServerRestart(NextSeq(), GetSelfPtr()));
+    Enqueue(*(new MetaChunkServerRestart(NextSeq(), GetSelfPtr())));
 }
 
 int
@@ -2773,12 +2775,12 @@ ChunkServer::Heartbeat()
                 " vs: " << authCtx.GetUpdateCount() <<
             KFS_LOG_EOM;
         }
-        Enqueue(new MetaChunkHeartbeat(
+        Enqueue(*(new MetaChunkHeartbeat(
                 NextSeq(),
                 mSelfPtr,
                 mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
                 reAuthenticateFlag
-            ),
+            )),
             2 * sHeartbeatTimeout
         );
         mReAuthSentFlag = reAuthenticateFlag;
@@ -2847,11 +2849,11 @@ ChunkServer::TimeoutOps()
             mDoneTimedoutChunks.Erase(cur.GetKey());
             continue;
         }
-        MetaChunkSize* const op = new MetaChunkSize(NextSeq(), mSelfPtr);
-        op->logAction      = MetaChunkSize::kLogNever;
-        op->chunkId        = cur.GetKey();
-        op->chunkVersion   = 0;
-        op->checkChunkFlag = true;
+        MetaChunkSize& op = *(new MetaChunkSize(NextSeq(), mSelfPtr));
+        op.logAction      = MetaChunkSize::kLogNever;
+        op.chunkId        = cur.GetKey();
+        op.chunkVersion   = 0;
+        op.checkChunkFlag = true;
         entry = &DoneTimedoutList::GetNext(cur);
         // Do not remove, just move it back, execution of size op should remove
         // it.

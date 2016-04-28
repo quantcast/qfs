@@ -59,9 +59,9 @@ ChunkServerEmulator::~ChunkServerEmulator()
 }
 
 void
-ChunkServerEmulator::EnqueueSelf(MetaChunkRequest* r)
+ChunkServerEmulator::EnqueueSelf(MetaChunkRequest& r)
 {
-    mPendingReqs.push_back(r);
+    mPendingReqs.push_back(&r);
 }
 
 size_t
@@ -79,7 +79,7 @@ ChunkServerEmulator::Dispatch()
         }
         if (r->op == META_CHUNK_REPLICATE) {
             MetaChunkReplicate* const mcr = static_cast<MetaChunkReplicate*>(r);
-            if (gLayoutEmulator.ChunkReplicationDone(mcr)) {
+            if (gLayoutEmulator.ChunkReplicationDone(*mcr)) {
                 KFS_LOG_STREAM_DEBUG <<
                     "moved chunk: " << mcr->chunkId <<
                     " to " << mcr->server->GetServerLocation() <<
@@ -122,7 +122,7 @@ ChunkServerEmulator::FailPendingOps()
         if (r->op == META_CHUNK_REPLICATE) {
             MetaChunkReplicate* const mcr = static_cast<MetaChunkReplicate*>(r);
             mcr->status = -EIO;
-            gLayoutEmulator.ChunkReplicationDone(mcr);
+            gLayoutEmulator.ChunkReplicationDone(*mcr);
         }
         MetaRequest::Release(r);
     }

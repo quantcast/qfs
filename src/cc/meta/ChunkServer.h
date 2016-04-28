@@ -444,7 +444,7 @@ public:
     /// @param[in] leaseId the id associated with the write lease.
     /// @retval 0 on success; -1 on failure
     ///
-    int AllocateChunk(MetaAllocate* r, int64_t leaseId, kfsSTier_t tier);
+    int AllocateChunk(MetaAllocate& alc, int64_t leaseId, kfsSTier_t tier);
 
     /// Send an RPC to delete a chunk on this server.
     /// An RPC request is enqueued and the call returns.
@@ -456,13 +456,22 @@ public:
     ///
     int DeleteChunk(chunkId_t chunkId) {
         const bool kStaleChunkIdFlag = false;
-        return DeleteChunkVers(chunkId, 0, kStaleChunkIdFlag);
+        const bool kforceDeleteFlag  = false;
+        return DeleteChunkVers(chunkId, 0,
+            kStaleChunkIdFlag, kforceDeleteFlag);
     }
     int DeleteChunk(chunkId_t chunkId, bool staleChunkIdFlag) {
-        return DeleteChunkVers(chunkId, 0, staleChunkIdFlag);
+        return DeleteChunkVers(chunkId, 0,
+            staleChunkIdFlag, staleChunkIdFlag);
+    }
+    int ForceDeleteChunk(chunkId_t chunkId) {
+        const bool kStaleChunkIdFlag = false;
+        const bool kforceDeleteFlag  = true;
+        return DeleteChunkVers(chunkId, 0,
+            kStaleChunkIdFlag, kforceDeleteFlag);
     }
     int DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
-        bool staleChunkIdFlag);
+        bool staleChunkIdFlag, bool forceDeleteFlag);
 
     ///
     /// Send a message to the server asking it to go down.
@@ -924,21 +933,21 @@ protected:
     /// Enqueue a request to be dispatched to this server
     /// @param[in] r  the request to be enqueued.
     /// allow override in layout emulator.
-    virtual void EnqueueSelf(MetaChunkRequest* r);
-    void Enqueue(MetaChunkRequest* r, int timeout,
+    virtual void EnqueueSelf(MetaChunkRequest& req);
+    void Enqueue(MetaChunkRequest& req, int timeout,
         bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
-    void Enqueue(MetaChunkRequest* r, int timeout,
+    void Enqueue(MetaChunkRequest& req, int timeout,
             bool staleChunkIdFlag, bool loggedFlag) {
-        Enqueue(r, timeout, staleChunkIdFlag, loggedFlag, false);
+        Enqueue(req, timeout, staleChunkIdFlag, loggedFlag, false);
     }
-    void Enqueue(MetaChunkRequest* r, int timeout, bool staleChunkIdFlag) {
-        Enqueue(r, timeout, staleChunkIdFlag, false);
+    void Enqueue(MetaChunkRequest& req, int timeout, bool staleChunkIdFlag) {
+        Enqueue(req, timeout, staleChunkIdFlag, false);
     }
-    void Enqueue(MetaChunkRequest* r, int timeout) {
-        Enqueue(r, timeout, false);
+    void Enqueue(MetaChunkRequest& req, int timeout) {
+        Enqueue(req, timeout, false);
     }
-    void Enqueue(MetaChunkRequest* r) {
-        Enqueue(r, -1);
+    void Enqueue(MetaChunkRequest& req) {
+        Enqueue(req, -1);
     }
     void SetServerLocation(const ServerLocation& loc);
 

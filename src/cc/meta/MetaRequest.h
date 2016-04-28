@@ -1361,11 +1361,11 @@ struct MetaAllocate: public MetaRequest, public  KfsCallbackObj {
     virtual ~MetaAllocate()
         { delete pendingLeaseRelinquish; }
     virtual void handle();
-    virtual void response(ReqOstream &os);
+    virtual void response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const;
-    void responseSelf(ReqOstream &os);
+    void responseSelf(ReqOstream& os);
     void LayoutDone(int64_t chunkAllocProcessTime);
-    int PendingLeaseRelinquish(int code, void *data);
+    int PendingLeaseRelinquish(int code, void* data);
     bool ChunkAllocDone(const MetaChunkAllocate& chunkAlloc);
     void writeChunkAccess(ReqOstream& os);
     virtual bool dispatch(ClientSM& sm);
@@ -3639,8 +3639,7 @@ struct MetaChunkAvailable : public MetaRequest {
           useThreshold(-1),
           location(),
           server(),
-          staleNotify(0),
-          handledFlag(false)
+          staleNotify(0)
         {}
     virtual bool start();
     virtual void handle();
@@ -3652,6 +3651,7 @@ struct MetaChunkAvailable : public MetaRequest {
         return os;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
+    void responseSelf(ReqOstream& os);
     bool Validate()
     {
         return true;
@@ -3673,9 +3673,7 @@ struct MetaChunkAvailable : public MetaRequest {
         .Def("T", &MetaChunkAvailable::useThreshold, -1)
         ;
     }
-private:
-    bool handledFlag;
-
+protected:
     virtual void ReleaseSelf();
 };
 

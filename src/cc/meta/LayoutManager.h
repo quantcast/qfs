@@ -964,9 +964,10 @@ public:
     /// @param[in] r The request associated with the
     /// write-allocation call.
     /// @retval 0 on success; -1 on failure
-    int AllocateChunk(MetaAllocate *r, const vector<MetaChunkInfo*>& chunkBlock);
+    int AllocateChunk(MetaAllocate& req,
+        const vector<MetaChunkInfo*>& chunkBlock);
 
-    bool IsAllocationAllowed(MetaAllocate* req);
+    bool IsAllocationAllowed(MetaAllocate& req);
 
     /// When allocating a chunk for append, we try to re-use an
     /// existing chunk for a which a valid write lease exists.
@@ -974,7 +975,7 @@ public:
     /// write-allocation call.  When an existing chunk is re-used,
     /// the chunkid/version is returned back to the caller.
     /// @retval 0 on success; -1 on failure
-    int AllocateChunkForAppend(MetaAllocate *r);
+    int AllocateChunkForAppend(MetaAllocate& r);
 
     void ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
         MetaChunkInfo* chunk);
@@ -987,12 +988,12 @@ public:
     /// @param[in] r The request associated with the
     /// write-allocation call.
     /// @retval status code
-    int GetChunkWriteLease(MetaAllocate *r);
+    void GetChunkWriteLease(MetaAllocate& r);
 
     /// Delete a chunk on the server that holds it.
     /// @param[in] chunkId The id of the chunk being deleted
     void DeleteChunk(CSMap::Entry& entry);
-    void DeleteChunk(MetaAllocate *req);
+    void DeleteChunk(MetaAllocate& req);
     bool InvalidateAllChunkReplicas(fid_t fid, chunkOff_t offset,
         chunkId_t chunkId, seq_t& chunkVersion);
 
@@ -1001,24 +1002,24 @@ public:
     /// hosted on that chunkserver any more; re-replication will take
     /// care of recovering that chunk.
     /// @param[in] r  The request that describes the corrupted chunk
-    void ChunkCorrupt(MetaChunkCorrupt *r);
+    void Handle(MetaChunkCorrupt& r);
     void ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         bool notifyStale = true);
-    void ChunkEvacuate(MetaChunkEvacuate* r);
+    void Handle(MetaChunkEvacuate& req);
     void Start(MetaChunkAvailable& req);
     void Handle(MetaChunkAvailable& req);
     /// Handlers to acquire and renew leases.  Unexpired leases
     /// will typically be renewed.
-    int GetChunkReadLeases(MetaLeaseAcquire& req);
-    int GetChunkReadLease(MetaLeaseAcquire *r);
-    int LeaseRenew(MetaLeaseRenew *r);
+    void Handle(MetaLeaseAcquire& req);
+    void GetChunkReadLeases(MetaLeaseAcquire& req);
+    void Handle(MetaLeaseRenew& req);
 
     /// Handler to let a lease owner relinquish a lease.
-    int LeaseRelinquish(MetaLeaseRelinquish *r);
+    void Handle(MetaLeaseRelinquish& req);
 
-    bool Validate(MetaAllocate* r);
-    void CommitOrRollBackChunkVersion(MetaAllocate* op);
-    void CommitOrRollBackChunkVersion(MetaLogChunkAllocate* r);
+    bool Validate(MetaAllocate& req);
+    void CommitOrRollBackChunkVersion(MetaAllocate& req);
+    void CommitOrRollBackChunkVersion(MetaLogChunkAllocate& req);
 
     /// Is a valid lease issued on any of the chunks in the
     /// vector of MetaChunkInfo's?
@@ -1042,9 +1043,9 @@ public:
         chunkId_t      chunkId,
         seq_t          chunkVersion,
         const char*&   errMsg);
-    void BeginMakeChunkStableDone(const MetaBeginMakeChunkStable* req);
-    void LogMakeChunkStableDone(MetaLogMakeChunkStable* req);
-    void MakeChunkStableDone(const MetaChunkMakeStable* req);
+    void BeginMakeChunkStableDone(const MetaBeginMakeChunkStable& req);
+    void LogMakeChunkStableDone(MetaLogMakeChunkStable& req);
+    void MakeChunkStableDone(const MetaChunkMakeStable& req);
     void ReplayPendingMakeStable(
         chunkId_t  chunkId,
         seq_t      chunkVersion,
@@ -1071,8 +1072,8 @@ public:
     int WritePendingChunkVersionChange(ostream& os);
     int WritePendingMakeStable(ostream& os);
     void CancelPendingMakeStable(fid_t fid, chunkId_t chunkId);
-    bool Start(MetaChunkSize* req);
-    int GetChunkSizeDone(MetaChunkSize* req);
+    bool Start(MetaChunkSize& req);
+    void Handle(MetaChunkSize& req);
     bool IsChunkStable(chunkId_t chunkId) const;
     const char* AddNotStableChunk(
         const ChunkServerPtr& server,
@@ -1170,7 +1171,7 @@ public:
     /// of a new replica.
     /// @param[in] req  The op that we sent to a chunk server asking
     /// it to do the replication.
-    void ChunkReplicationDone(MetaChunkReplicate *req);
+    void Handle(MetaChunkReplicate& req);
 
     /// Degree of replication for chunk has changed.  When the replication
     /// checker runs, have it check the status for this chunk.
@@ -1419,7 +1420,8 @@ public:
     void SetDisableTimerFlag(bool flag);
     bool IsTimerDisabled() const
         { return mDisableTimerFlag; }
-    void ChangeChunkVersion(chunkId_t chunkId, seq_t version, MetaAllocate* r);
+    void ChangeChunkVersion(chunkId_t chunkId, seq_t version,
+        MetaAllocate* req);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }

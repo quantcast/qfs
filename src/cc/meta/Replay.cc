@@ -664,7 +664,7 @@ replay_allocate(DETokenizer& c)
                 logAlloc.objectStoreFileFlag = 0 == fa->numReplicas;
                 logAlloc.initialChunkVersion = chunkVersion;
                 logAlloc.mtime               = gottime ? mtime : fa->mtime;
-                gLayoutManager.CommitOrRollBackChunkVersion(&logAlloc);
+                gLayoutManager.CommitOrRollBackChunkVersion(logAlloc);
                 status = logAlloc.status;
                 // assign updates the mtime; so, set it to what is in the log.
                 if (0 == status && gottime) {
