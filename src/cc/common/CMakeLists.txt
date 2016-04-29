@@ -49,13 +49,18 @@ set_source_files_properties(${VERSION_CC} PROPERTIES GENERATED ON)
 # used everywhere, associate that symbol with the STATIC library.
 #
 
+string (REPLACE ";" "," Boost_LIBRARIES_STR "${Boost_LIBRARIES}")
 add_custom_target (
     version ALL COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/buildversgit.sh
-        ${CMAKE_BUILD_TYPE}
-        ${CMAKE_SOURCE_DIR}
-        ${VERSION_CC}
-        "boost: ${Boost_INCLUDE_DIRS} ${Boost_LIBRARIES}"
-        "source dir: ${CMAKE_SOURCE_DIR}"
+        --generate
+        --build-type ${CMAKE_BUILD_TYPE}
+        --source-dir ${CMAKE_SOURCE_DIR}
+        --outfile ${VERSION_CC}
+        --extra "boost:"
+        --extra "${Boost_INCLUDE_DIRS}"
+        --extra "${Boost_LIBRARIES_STR}"
+        --extra "source dir:"
+        --extra "${CMAKE_SOURCE_DIR}"
     VERBATIM
 )
 

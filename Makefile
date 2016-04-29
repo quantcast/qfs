@@ -66,7 +66,7 @@ tarball: hadoop-jars
 		myflavor=$$myuname ; \
 	    fi ; \
 	fi ; \
-	qfsversion=`../src/cc/common/buildversgit.sh -v 2> /dev/null | head -1` ; \
+	qfsversion=`../src/cc/common/buildversgit.sh --release` ; \
 	tarname="qfs-$$myflavor-$$qfsversion-`uname -m`" ;\
 	tarname=`echo "$$tarname" | tr A-Z a-z` ; \
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
