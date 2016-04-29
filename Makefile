@@ -19,10 +19,13 @@ MAKE_OPTIONS ?=
 .PHONY: all
 all: build
 
-.PHONY: build
-build:
+.PHONY: dir
+dir:
 	export BUILD_TYPE=${BUILD_TYPE}
 	mkdir -p build/${BUILD_TYPE}
+
+.PHONY: build
+build: dir
 	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
 
@@ -89,6 +92,11 @@ test: build
 .PHONY: gtest
 gtest: build
 	build/${BUILD_TYPE}/src/cc/tests/test.t
+
+.PHONY: rat
+rat: dir
+	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} rat
 
 .PHONY: clean
 clean:

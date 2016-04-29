@@ -184,3 +184,10 @@ add_subdirectory(${KFS_DIR_PREFIX}/contrib/plugins contrib/plugins)
 if(FUSE_FOUND)
     add_subdirectory(${KFS_DIR_PREFIX}/src/cc/fuse src/cc/fuse)
 endif()
+
+add_custom_target (
+    rat ALL wget http://mirror.cogentco.com/pub/apache//creadur/apache-rat-0.11/apache-rat-0.11-bin.tar.gz
+    COMMAND sh -c "tar -xf apache-rat-0.11-bin.tar.gz && java -jar apache-rat-0.11/apache-rat-0.11.jar --dir . -E .ratignore | egrep '^==\.'"
+    COMMENT "Running license release audit tool (rat)"
+    VERBATIM
+)
