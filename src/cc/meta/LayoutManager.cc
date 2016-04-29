@@ -10915,11 +10915,11 @@ LayoutManager::Handle(MetaChunkReplicate& req)
         KFS_LOG_EOM;
         mFailedReplicationStats->Update(1);
         UpdateReplicationState(*ci);
-        // Aways send stale chunk notification properly handle op time
-        // outs by the meta server. Theoretically this could be
-        // conditional on the op status code, if it is guaranteed that
-        // the chunk server never sends the op timed out status.
-        if (req.server->IsDown()) {
+        // Send stale chunk notification if setver is still up, and
+        // status isn't EEXIST. The EEXIST is used by the chunk server to
+        // for chunks that exists but aren't communicated to the meta server
+        // yet.
+        if (-EEXIST == req.status || req.server->IsDown()) {
             return;
         }
         if (! versChangeDoneFlag && fid == req.fid) {

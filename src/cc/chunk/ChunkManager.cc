@@ -1718,11 +1718,24 @@ ChunkManager::Release(ChunkInfoHandle& cih)
 }
 
 inline void
+ChunkManager::HelloNotifyRemove(ChunkInfoHandle& cih)
+{
+    if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+        ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, cih);
+    }
+}
+
+inline bool
+ChunkManager::IsPendingHelloNotify(const ChunkInfoHandle& cih) const
+{
+    return ChunkHelloNotifyList::IsInList(mChunkInfoHelloNotifyList, cih);
+}
+
+inline void
 ChunkManager::DeleteSelf(ChunkInfoHandle& cih)
 {
-    if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList) &&
-            0 < cih.chunkInfo.chunkVersion) {
-        ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, cih);
+    if (0 <= cih.chunkInfo.chunkVersion) {
+        HelloNotifyRemove(cih);
     }
     cih.Delete(mChunkInfoLists);
 }
@@ -1748,9 +1761,7 @@ ChunkManager::RemoveFromChunkTable(ChunkInfoHandle& cih)
     if (mChunkTable.Erase(cih.chunkInfo.chunkId) <= 0) {
         return false;
     }
-    if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
-        ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, cih);
-    }
+    HelloNotifyRemove(cih);
     return true;
 }
 
@@ -3009,9 +3020,19 @@ ChunkManager::AllocChunk(
                 // invocation, and set must exist to false.
                 return -EINVAL;
             }
-            if (0 <= chunkReplicationTargetVersion &&
-                    cih->IsChunkReadable() &&
-                    cih->CanHaveVersion(chunkReplicationTargetVersion)) {
+            const bool kIgnorePendingAvailableFlag = true;
+            if (0 <= chunkReplicationTargetVersion && (
+                    cih->IsHelloNotify() ||
+                    cih->IsPendingAvailable() ||
+                    (IsPendingHelloNotify(*cih) &&
+                        cih->chunkInfo.chunkVersion ==
+                            chunkReplicationTargetVersion &&
+                        cih->IsChunkReadable(kIgnorePendingAvailableFlag) &&
+                        ! cih->IsRenameInFlight()))) {
+                // Let chunk available / hello notify to finish notifying meta
+                // server about this chunk. Return EEXIST to ensure that the
+                // meta server will not issue stale chunk notification in
+                // response to the chunk replication / recovery error.
                 return -EEXIST;
             }
             const bool forceDeleteFlag = true;
@@ -5773,12 +5794,13 @@ AppendToHostedListSelf(
 
 inline void
 ChunkManager::AppendToHostedList(
-    const ChunkInfoHandle&               cih,
+    ChunkInfoHandle&                     cih,
     const ChunkManager::HostedChunkList& stable,
     const ChunkManager::HostedChunkList& notStableAppend,
     const ChunkManager::HostedChunkList& notStable,
     bool                                 noFidsFlag)
 {
+    HelloNotifyRemove(cih);
     if (cih.IsRenameInFlight()) {
         // Tell meta server the target version. It comes here when the
         // meta server connection breaks while make stable or version change
@@ -5863,11 +5885,7 @@ ChunkManager::GetHostedChunksResume(
             kfsSeq_t               vers = -1;
             if (! cih->IsBeingReplicated() &&
                     (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0)) {
-                if (! ChunkHelloNotifyList::IsEmpty(
-                        mChunkInfoHelloNotifyList)) {
-                    ChunkHelloNotifyList::Remove(
-                        mChunkInfoHelloNotifyList, *cih);
-                }
+                HelloNotifyRemove(*cih);
                 (*missing.first)++;
                 (*missing.second) << ' ' << chunkId;
             }
@@ -5889,18 +5907,17 @@ ChunkManager::GetHostedChunksResume(
         }
         ChunkInfoHandle* const cih = p->GetVal();
         if (cih->IsBeingReplicated()) {
+            // Must not be in hello notify, ensure that it really isn't.
+            HelloNotifyRemove(*cih);
             continue;
         }
         kfsSeq_t vers = -1;
         if (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0) {
-            if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
-                ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, *cih);
-            }
             AppendToHostedList(
                 *cih, stable, notStableAppend, notStable, noFidsFlag);
             continue;
         }
-        if (ChunkHelloNotifyList::IsInList(mChunkInfoHelloNotifyList, *cih)) {
+        if (IsPendingHelloNotify(*cih)) {
             continue;
         }
         checksum.Add(p->GetKey(), vers);
@@ -5918,14 +5935,12 @@ ChunkManager::GetHostedChunksResume(
                 break;
             }
             const kfsChunkId_t chunkId = p->GetKey();
-            if (mLastPendingInFlight.Find(chunkId) ||
-                    mChunkTable.Find(chunkId)) {
-                continue;
-            }
-            if (0 < p->GetVal()) {
+            if (! mLastPendingInFlight.Find(chunkId) &&
+                    ! mChunkTable.Find(chunkId) &&
+                    0 < p->GetVal()) {
                 checksum.Add(chunkId, p->GetVal());
+                count++;
             }
-            count++;
         }
     }
     // Do not delete chunks just yet, exclude those from checksum, and
@@ -5984,7 +5999,7 @@ ChunkManager::GetHostedChunksResume(
                 // reported already the above.
                 continue;
             }
-            if (! inFlightFlag) {
+            if (! inFlightFlag && ! IsPendingHelloNotify(**cih)) {
                 if (count <= 0) {
                     die("invalid CS chunk inventory count");
                     hello.resumeStep = -1;
@@ -6133,8 +6148,7 @@ ChunkManager::GetHostedChunksResume(
                 os << chunkId << " " << cih->chunkInfo.chunkVersion <<
                     (IsChunkStable(cih) ? " S" : " N");
             }
-            if (ChunkHelloNotifyList::IsInList(
-                    mChunkInfoHelloNotifyList, *cih)) {
+            if (IsPendingHelloNotify(*cih)) {
                 os << " H";
                 helloNotifyCnt++;
             }
@@ -6216,12 +6230,10 @@ ChunkManager::GetHostedChunks(
             ChunkHelloNotifyList::PushBack(mChunkInfoHelloNotifyList, *cih);
             continue;
         }
-        if (! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
-            ChunkHelloNotifyList::Remove(mChunkInfoHelloNotifyList, *cih);
-        }
         if (replicatedFlag) {
             // Do not report replicated chunks, replications should be canceled
             // on reconnect.
+            HelloNotifyRemove(*cih);
             continue;
         }
         AppendToHostedList(

@@ -1102,7 +1102,7 @@ private:
     void SetDirCheckerIoTimeout();
     template<typename T> ChunkDirInfo* GetDirForChunkT(T start, T end);
     void AppendToHostedList(
-        const ChunkInfoHandle&               cih,
+        ChunkInfoHandle&                     cih,
         const ChunkManager::HostedChunkList& stable,
         const ChunkManager::HostedChunkList& notStableAppend,
         const ChunkManager::HostedChunkList& notStable,
@@ -1111,6 +1111,8 @@ private:
     inline bool ScheduleNotifyLostChunk();
     inline bool IsTargetChunkVersionStable(
         const ChunkInfoHandle& cih, kfsSeq_t& vers) const;
+    inline void HelloNotifyRemove(ChunkInfoHandle& cih);
+    inline bool IsPendingHelloNotify(const ChunkInfoHandle& cih) const;
     template<typename T> void ClearTable(T& table);
     template<typename T> void RunIoCompletion(T& table);
 
