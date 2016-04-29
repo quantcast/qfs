@@ -184,3 +184,9 @@ add_subdirectory(${KFS_DIR_PREFIX}/contrib/plugins contrib/plugins)
 if(FUSE_FOUND)
     add_subdirectory(${KFS_DIR_PREFIX}/src/cc/fuse src/cc/fuse)
 endif()
+
+add_custom_target (
+    rat ALL COMMAND ../../scripts/rat.sh ../..
+    COMMENT "Running license release audit tool (rat)"
+    VERBATIM
+)
