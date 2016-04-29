@@ -1,0 +1,14 @@
+# Individual files
+.*.cmake
+.gitignore
+.appveyor.yml
+.ratignore
+.travis.yml
+README.md
+tags
+
+# Directories
+ext
+wiki
+travis
+build
