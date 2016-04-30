@@ -3513,7 +3513,8 @@ LayoutManager::RestoreChunkServer(
     int64_t               retStart,
     int64_t               retDown,
     bool                  retiredFlag,
-    LayoutManager::RackId rackId)
+    LayoutManager::RackId rackId,
+    bool                  pendingHelloNotifyFlag)
 {
     if (mRestoreChunkServerPtr) {
         return false;
@@ -3547,6 +3548,7 @@ LayoutManager::RestoreChunkServer(
         server->SetRack(rackId);
     }
     server->HelloDone(0);
+    server->SetPendingHelloNotify(pendingHelloNotifyFlag);
     if (retiringFlag || 0 <= retDown) {
         server->SetRetiring(retStart, retDown);
     }
@@ -3572,10 +3574,16 @@ LayoutManager::RestoreChunkServer(
 
 bool
 LayoutManager::RestoreHibernatedCS(
-    const ServerLocation& loc, size_t idx,
-    size_t chunks, const CIdChecksum& chksum,
-    const CIdChecksum& modChksum, size_t delReport,
-    int64_t startTime, int64_t endTime, bool retiredFlag)
+    const ServerLocation& loc,
+    size_t                idx,
+    size_t                chunks,
+    const CIdChecksum&    chksum,
+    const CIdChecksum&    modChksum,
+    size_t                delReport,
+    int64_t               startTime,
+    int64_t               endTime,
+    bool                  retiredFlag,
+    bool                  pendingHelloNotifyFlag)
 {
     if (mRestoreHibernatedCSPtr) {
         return false;
@@ -3587,8 +3595,8 @@ LayoutManager::RestoreHibernatedCS(
         KFS_LOG_EOM;
         return false;
     }
-    HibernatedChunkServerPtr const server(
-        new HibernatedChunkServer(loc, modChksum, delReport));
+    HibernatedChunkServerPtr const server(new HibernatedChunkServer(
+        loc, modChksum, delReport, pendingHelloNotifyFlag));
     if (! mChunkToServerMap.RestoreHibernatedServer(
             server, idx, chunks, chksum)) {
         return false;
@@ -7727,6 +7735,9 @@ LayoutManager::Handle(MetaChunkAvailable& req)
     // of processing of chunk available notification.
     if (! staleChunks.IsEmpty()) {
         req.server->NotifyStaleChunks(staleChunks, req);
+    }
+    if (req.helloFlag) {
+        req.server->SetPendingHelloNotify(! req.endOfNotifyFlag);
     }
 }
 

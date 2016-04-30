@@ -1777,7 +1777,28 @@ Replicator::GetCounters(Replicator::Counters& counters)
 void
 Replicator::Run(ReplicateChunkOp* op)
 {
-    assert(op && ! gClientManager.GetCurrentClientThreadPtr());
+    if (! op || gClientManager.GetCurrentClientThreadPtr()) {
+        die("invalid replicator invocation");
+        if (op) {
+            op->status    = -EEXIST;
+            op->statusMsg = "internal error";
+            SubmitOpResponse(op);
+        }
+        return;
+    }
+    op->status = gChunkManager.CanStartReplicationOrRecovery(op->chunkId);
+    if (op->status < 0) {
+        if (-EEXIST == op->status) {
+            op->statusMsg = "chunk already exists";
+        }
+        KFS_LOG_STREAM_ERROR <<
+            (op->location.IsValid() ? "replication: " : "recovery: ") <<
+            op->statusMsg <<
+            " " << op->Show() <<
+        KFS_LOG_EOM;
+        SubmitOpResponse(op);
+        return;
+    }
     KFS_LOG_STREAM_DEBUG << op->Show() << KFS_LOG_EOM;
 
     const char*       p = op->chunkServerAccess.GetPtr();

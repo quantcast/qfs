@@ -87,18 +87,9 @@ public:
     /// binary update or are running versions that the metaserver
     /// doesn't know about and shouldn't be inlcuded in the system.
     int SetMetaInfo(const ServerLocation &metaLoc, const string &clusterKey,
-        int rackId, const string &md5sum, const Properties& prop);
+        int rackId, const string& md5sum, const Properties& prop);
 
     void Init();
-
-    /// Send HELLO message.  This sends an op down to the event
-    /// processor to get all the info.
-    int SendHello();
-
-    /// Generic event handler to handle RPC requests sent by the meta server.
-    int HandleRequest(int code, void* data);
-
-    bool HandleMsg(IOBuffer& iobuf, int msgLen);
 
     void EnqueueOp(KfsOp *op);
 
@@ -135,6 +126,10 @@ public:
 
     void GetCounters(Counters& counters) {
         counters = mCounters;
+    }
+
+    Counters::Counter GetHelloDoneCount() const {
+        return mCounters.mHelloDoneCount;
     }
 
     void Reconnect() {
@@ -246,6 +241,15 @@ private:
     IOBuffer::IStream             mIStream;
     IOBuffer::WOStream            mWOStream;
 
+    /// Generic event handler to handle RPC requests sent by the meta server.
+    int HandleRequest(int code, void* data);
+
+    bool HandleMsg(IOBuffer& iobuf, int msgLen);
+
+    /// Send HELLO message.  This sends an op down to the event
+    /// processor to get all the info.
+    void SendHello();
+
     /// Connect to the meta server
     /// @retval 0 if connect was successful; -1 otherwise
     int Connect();
@@ -267,6 +271,7 @@ private:
 
     /// We reconnected to the metaserver; so, resend all the pending ops.
     void ResubmitOps();
+    void Error(const char* msg);
     void FailOps(bool shutdownFlag);
     void HandleAuthResponse(IOBuffer& ioBuf);
     void CleanupOpInFlight();

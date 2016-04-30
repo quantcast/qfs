@@ -606,10 +606,12 @@ restore_chunk_server_start(DETokenizer& c)
     if (! pop_num(n, "rack", c, true)) {
         return false;
     }
+    const bool pendingHelloNotifyFlag =
+        pop_num(n, "pnotify", c, true) && 0 != n;
     const LayoutManager::RackId rack = (LayoutManager::RackId)n;
     return gLayoutManager.RestoreChunkServer(
         loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag,
-        retstart, retdown, retiredFlag, rack);
+        retstart, retdown, retiredFlag, rack, pendingHelloNotifyFlag);
 }
 
 static bool
@@ -723,9 +725,11 @@ restore_hibernated_cs_start(DETokenizer& c)
         return false;
     }
     c.pop_front();
+    const bool pendingHelloNotifyFlag =
+        pop_num(n, "pnotify", c, true) && 0 != n;
     return gLayoutManager.RestoreHibernatedCS(
         loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport,
-        start, end, retiredFlag);
+        start, end, retiredFlag, pendingHelloNotifyFlag);
 }
 
 static bool

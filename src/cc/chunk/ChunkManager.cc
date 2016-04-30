@@ -1600,13 +1600,14 @@ ChunkManager::HelloDone(HelloMetaOp& hello)
 {
     PendingNotifyLostChunks::Move(
         hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
-    if (gMetaServerSM.IsUp() && 0 != hello.resumeStep) {
-        mLastPendingInFlight.Clear();
-        // Re-enable clenup if it was disabled on startup.
-        if (! mCleanupStaleChunksFlag) {
-            mCleanupStaleChunksFlag = true;
-            RunStaleChunksQueue();
-        }
+    if (! gMetaServerSM.IsUp() || 0 == hello.resumeStep) {
+        return;
+    }
+    mLastPendingInFlight.Clear();
+    // Re-enable clenup if it was disabled on startup.
+    if (! mCleanupStaleChunksFlag) {
+        mCleanupStaleChunksFlag = true;
+        RunStaleChunksQueue();
     }
     ScheduleNotifyLostChunk();
     RunHelloNotifyQueue(0);
@@ -2990,6 +2991,26 @@ ChunkManager::Init(const vector<string>& chunkDirs, const Properties& prop)
     }
     // force a stat of the dirs and update space usage counts
     return StartDiskIo();
+}
+
+int
+ChunkManager::CanStartReplicationOrRecovery(kfsChunkId_t chunkId)
+{
+    ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
+    if (! ci || *ci) {
+        return 0;
+    }
+    ChunkInfoHandle& cih = **ci;
+    if  (cih.IsHelloNotify() || cih.IsPendingAvailable()) {
+        return -EEXIST;
+    }
+    if (IsPendingHelloNotify(cih)) {
+        // Move it to the front of the notification queue, to notify meta server
+        // ASAP.
+        ChunkHelloNotifyList::PushFront(mChunkInfoHelloNotifyList, cih);
+        return -EEXIST;
+    }
+    return 0;
 }
 
 int
@@ -6055,8 +6076,12 @@ ChunkManager::GetHostedChunksResume(
         // Limit the size of the list, in order to reduce meta server's side
         // processing at the cost of possible hello resume failure in the case
         // of chunk server restart previously described.
-        if (mStaleChunksCount <= mDoneStaleChunksCount +
-                mResumeHelloMaxPendingStaleCount) {
+        const bool pendingNotifyFlag = hello.pendingNotifyFlag;
+        hello.pendingNotifyFlag =
+            ! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList);
+        if (! hello.pendingNotifyFlag &&
+                mStaleChunksCount <=
+                    mDoneStaleChunksCount + mResumeHelloMaxPendingStaleCount) {
             for (int i = 0; i < 2; i++) {
                 ChunkList::Iterator it(mChunkInfoLists[
                     0 == i ? kChunkPendingStaleList : kChunkStaleList]);
@@ -6071,20 +6096,30 @@ ChunkManager::GetHostedChunksResume(
         }
         KFS_LOG_STREAM_NOTICE <<
             "hello resume succeeded:"
-            " chunks: "     << count <<
-            " / "           << hello.chunkCount <<
-            " checksum: "   << checksum <<
-            " / "           << hello.checksum <<
-            " deleted: "    << hello.resumeDeleted.size() <<
-            " modified: "   << hello.resumeModified.size() <<
-            " lastInflt: "  << mLastPendingInFlight.GetSize() <<
-            " / "           << mCorruptChunkOp.chunkCount <<
-            " staleInFlt: " << *pendingStale.first <<
+            " chunks: "         << count <<
+            " / "               << hello.chunkCount <<
+            " checksum: "       << checksum <<
+            " / "               << hello.checksum <<
+            " deleted: "        << hello.resumeDeleted.size() <<
+            " modified: "       << hello.resumeModified.size() <<
+            " lastInflt: "      << mLastPendingInFlight.GetSize() <<
+            " / "               << mCorruptChunkOp.chunkCount <<
+            " staleInFlt: "     << *pendingStale.first <<
+            " pending notify: " << pendingNotifyFlag <<
+            " -> "              << hello.pendingNotifyFlag <<
         KFS_LOG_EOM;
         hello.resumeStep = 1;
         return;
     }
-    mCounters.mHelloResumeFailedCount++;
+    if (hello.pendingNotifyFlag) {
+        mCounters.mPartialHelloResumeFailedCount++;
+    }
+    // Do not count first resume failure after restart, if prior the restart
+    // partial hello was in progress, in order to make endurance test restart
+    // work.
+    if (! hello.pendingNotifyFlag || 0  < gMetaServerSM.GetHelloDoneCount()) {
+        mCounters.mHelloResumeFailedCount++;
+    }
     ofstream* traceTee = 0;
     if (! mHelloResumeFailureTraceFileName.empty()) {
         static ofstream sTraceTee;
@@ -6099,17 +6134,18 @@ ChunkManager::GetHostedChunksResume(
         logStream.GetStream() <<
         "hello resume failure:"
         " chunks:"
-        " all: "       << mChunkTable.GetSize() <<
-        " cs: "        << count <<
-        " meta: "      << hello.chunkCount <<
-        " checksum: "  << checksum <<
-        " meta: "      << hello.checksum <<
-        " deleted: "   << hello.resumeDeleted.size() <<
-        " report: "    << hello.deletedReport <<
-        " modified: "  << hello.resumeModified.size() <<
-        " lastInflt: " << mLastPendingInFlight.GetSize() <<
-        " / "          << mCorruptChunkOp.chunkCount <<
-        " resume: "    << hello.resumeStep
+        " all: "            << mChunkTable.GetSize() <<
+        " cs: "             << count <<
+        " meta: "           << hello.chunkCount <<
+        " checksum: "       << checksum <<
+        " meta: "           << hello.checksum <<
+        " deleted: "        << hello.resumeDeleted.size() <<
+        " report: "         << hello.deletedReport <<
+        " modified: "       << hello.resumeModified.size() <<
+        " lastInflt: "      << mLastPendingInFlight.GetSize() <<
+        " / "               << mCorruptChunkOp.chunkCount <<
+        " resume: "         << hello.resumeStep <<
+        " pending notify: " << hello.pendingNotifyFlag
         ;
     KFS_LOG_STREAM_END;
     if (traceTee) {
@@ -6241,6 +6277,8 @@ ChunkManager::GetHostedChunks(
     }
     PendingNotifyLostChunks::Move(
         hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
+    hello.pendingNotifyFlag =
+        ! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList);
 }
 
 void
@@ -6281,6 +6319,8 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
             cih->SetHelloNotify(true);
         }
         mHelloNotifyInFlightCount += op.numChunks;
+        op.endOfNotifyFlag         =
+            ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList);
         gMetaServerSM.EnqueueOp(&op);
     } while (mHelloNotifyInFlightCount < mMaxHelloNotifyInFlightCount &&
         ! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList) &&

@@ -112,7 +112,7 @@ MetaServerSM::MetaServerSM()
     // Force net manager construction here, to insure that net manager
     // destructor is called after gMetaServerSM destructor.
     globalNetManager();
-    SET_HANDLER(this, &MetaServerSM::HandleRequest);
+    SetHandler(this, &MetaServerSM::HandleRequest);
     mCounters.Clear();
 }
 
@@ -163,6 +163,7 @@ MetaServerSM::Shutdown()
     CleanupOpInFlight();
     DiscardPendingResponses();
     FailOps(true);
+    mSentHello = false;
     DetachAndDeleteOp(mHelloOp);
     DetachAndDeleteOp(mAuthOp);
     mAuthContext.Clear();
@@ -172,7 +173,7 @@ void
 MetaServerSM::ForceDown()
 {
     if (mNetConnection) {
-        HandleRequest(EVENT_INACTIVITY_TIMEOUT, 0);
+        Error("protocol error");
     }
 }
 
@@ -237,10 +238,9 @@ MetaServerSM::Timeout()
 {
     if (mReconnectFlag) {
         mReconnectFlag = false;
-        KFS_LOG_STREAM_WARN <<
-            "meta server reconnect requested" <<
-        KFS_LOG_EOM;
-        HandleRequest(EVENT_INACTIVITY_TIMEOUT, 0);
+        const char* const msg = "meta server reconnect requested";
+        KFS_LOG_STREAM_WARN << msg << KFS_LOG_EOM;
+        Error(msg);
     }
     const time_t now = globalNetManager().Now();
     if (IsConnected() &&
@@ -250,15 +250,15 @@ MetaServerSM::Timeout()
             "meta server inactivity timeout, last request received: " <<
             (now - mLastRecvCmdTime) << " secs ago" <<
         KFS_LOG_EOM;
-        HandleRequest(EVENT_INACTIVITY_TIMEOUT, 0);
+        Error("heartbeat request timeout");
     }
     if (! IsConnected()) {
         if (mHelloOp) {
             if (! mSentHello) {
                 return; // Wait for hello to come back.
             }
-            DetachAndDeleteOp(mHelloOp);
             mSentHello = false;
+            DetachAndDeleteOp(mHelloOp);
         }
         if (mLastConnectTime + 1 < now) {
             mLastConnectTime = now;
@@ -354,17 +354,20 @@ IsIpHostedAndNotLoopBack(const char* ip)
     return ((name == "::1" || name == "::") ?  -EACCES : 0);
 }
 
-int
+void
 MetaServerSM::SendHello()
 {
     if (mHelloOp || mAuthOp) {
-        return 0;
+        return;
     }
     if (! IsConnected()) {
         KFS_LOG_STREAM_DEBUG <<
             "unable to connect to meta server" <<
         KFS_LOG_EOM;
-        return -1;
+        if (mNetConnection) {
+            Error("network error");
+        }
+        return;
     }
     if (gChunkServer.CanUpdateServerIp()) {
         // Advertise the same ip address to the clients, as used
@@ -375,8 +378,8 @@ MetaServerSM::SendHello()
             KFS_LOG_STREAM_ERROR <<
                 "getsockname: " << QCUtils::SysError(-res) <<
             KFS_LOG_EOM;
-            mNetConnection->Close();
-            return -1;
+            Error("get socket name error");
+            return;
         }
         // Paperover for cygwin / win 7 with no nics configured:
         // check if getsockname returns INADDR_ANY, and retry if it does.
@@ -391,8 +394,8 @@ MetaServerSM::SendHello()
                 "invalid chunk server location: " << loc <<
                 " resetting meta server connection" <<
             KFS_LOG_EOM;
-            mNetConnection->Close();
-            return -1;
+            Error("invalid socket address");
+            return;
         }
         const string prevIp = gChunkServer.GetLocation().hostname;
         if (loc.hostname != prevIp) {
@@ -419,7 +422,7 @@ MetaServerSM::SendHello()
     if (! Authenticate()) {
         SubmitHello();
     }
-    return 0;
+    return;
 }
 
 bool
@@ -450,7 +453,7 @@ MetaServerSM::Authenticate()
             errMsg <<
         KFS_LOG_EOM;
         DetachAndDeleteOp(mAuthOp);
-        HandleRequest(EVENT_NET_ERROR, 0);
+        Error("authentication error");
         return true;
     }
     Request(*mAuthOp);
@@ -463,15 +466,15 @@ MetaServerSM::DispatchHello()
 {
     if (mSentHello || mAuthOp) {
         die("dispatch hello: invalid invocation");
-        HandleRequest(EVENT_NET_ERROR, 0);
+        Error("internal error");
         return;
     }
     if (! IsConnected()) {
         // don't have a connection...so, need to start the process again...
+        mSentHello            = false;
+        mUpdateCurrentKeyFlag = false;
         DetachAndDeleteOp(mAuthOp);
         DetachAndDeleteOp(mHelloOp);
-        mSentHello = false;
-        mUpdateCurrentKeyFlag = false;
         return;
     }
     mSentHello = true;
@@ -535,7 +538,8 @@ MetaServerSM::HandleRequest(int code, void* data)
                         string("not connected")) <<
                 KFS_LOG_EOM;
                 iobuf.Clear();
-                return HandleRequest(EVENT_NET_ERROR, 0);
+                Error("protocol parse error");
+                break;
             }
         }
         break;
@@ -583,41 +587,47 @@ MetaServerSM::HandleRequest(int code, void* data)
     case EVENT_NET_ERROR:
         if (mAuthOp && ! mOp && IsUp() && ! mNetConnection->GetFilter()) {
             HandleAuthResponse(mNetConnection->GetInBuffer());
-            return 0;
+            break;
         }
+    // Fall through.
     case EVENT_INACTIVITY_TIMEOUT:
-        CleanupOpInFlight();
-        DetachAndDeleteOp(mAuthOp);
-        DiscardPendingResponses();
-        if (mNetConnection) {
-            mGenerationCount++;
-            KFS_LOG_STREAM(globalNetManager().IsRunning() ?
-                    MsgLogger::kLogLevelERROR :
-                    MsgLogger::kLogLevelDEBUG) <<
-                mLocation <<
-                " closing meta server connection due to " <<
-                (code == EVENT_INACTIVITY_TIMEOUT ?
-                    "inactivity timeout" : "network error") <<
-            KFS_LOG_EOM;
-            mNetConnection->Close();
-            mNetConnection->GetInBuffer().Clear();
-            // Drop all leases.
-            gLeaseClerk.UnregisterAllLeases();
-            // Meta server will fail all replication requests on
-            // disconnect anyway.
-            Replicator::CancelAll();
-            gChunkManager.MetaServerConnectionLost();
-        }
-        FailOps(! globalNetManager().IsRunning());
-        DetachAndDeleteOp(mHelloOp);
-        mSentHello = false;
+        Error(code == EVENT_INACTIVITY_TIMEOUT ?
+            "inactivity timeout" : "network error");
         break;
 
     default:
-        assert(!"Unknown event");
+        die("meta server state machine: unknown event");
         break;
     }
     return 0;
+}
+
+void
+MetaServerSM::Error(const char* msg)
+{
+    CleanupOpInFlight();
+    DetachAndDeleteOp(mAuthOp);
+    DiscardPendingResponses();
+    if (mNetConnection) {
+        mGenerationCount++;
+        KFS_LOG_STREAM(globalNetManager().IsRunning() ?
+                MsgLogger::kLogLevelERROR :
+                MsgLogger::kLogLevelDEBUG) <<
+            mLocation <<
+            " closing meta server connection due to " <<
+            (msg ? msg : "error") <<
+        KFS_LOG_EOM;
+        mNetConnection->Close();
+        mNetConnection->GetInBuffer().Clear();
+        // Drop all leases.
+        gLeaseClerk.UnregisterAllLeases();
+        // Meta server will fail all replication requests on disconnect anyway.
+        Replicator::CancelAll();
+        gChunkManager.MetaServerConnectionLost();
+    }
+    FailOps(! globalNetManager().IsRunning());
+    mSentHello = false;
+    DetachAndDeleteOp(mHelloOp);
 }
 
 void
@@ -625,17 +635,32 @@ MetaServerSM::FailOps(bool shutdownFlag)
 {
     // Fail all no retry ops, if any, or all ops on shutdown.
     OpsQueue doneOps;
-    for (DispatchedOps::iterator it = mDispatchedOps.begin();
-            it != mDispatchedOps.end();
-            ) {
-        KfsOp* const op = it->second;
-        if (op->noRetry || shutdownFlag) {
-            mDispatchedOps.erase(it++);
-            doneOps.push_back(op);
-        } else {
-            ++it;
+    if (! shutdownFlag) {
+        for (OpsQueue::iterator it = mPendingOps.begin();
+                mPendingOps.end() != it;
+                ) {
+            KfsOp* const op = *it;
+            if (op->noRetry) {
+                doneOps.push_back(op);
+                mPendingOps.erase(it++);
+            } else {
+                ++it;
+            }
         }
     }
+    for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
+            it != mDispatchedOps.end();
+            ++it) {
+        KfsOp* const op = it->second;
+        if (op->noRetry || shutdownFlag) {
+            doneOps.push_back(op);
+        } else {
+            // Re-queue.
+            op->seq = nextSeq();
+            mPendingOps.push_back(op);
+        }
+    }
+    mDispatchedOps.clear();
     for (; ;) {
         for (OpsQueue::const_iterator it = doneOps.begin();
                 it != doneOps.end();
@@ -721,7 +746,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     seq << "/" << mAuthOp->seq <<
                     " " << mAuthOp->Show() <<
                 KFS_LOG_EOM;
-                HandleRequest(EVENT_NET_ERROR, 0);
+                Error("authentication protocol error");
                 return false;
             }
             mAuthOp->status                = status;
@@ -735,7 +760,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     " seq: "         << op->seq <<
                     " "              << op->Show() <<
                 KFS_LOG_EOM;
-                HandleRequest(EVENT_NET_ERROR, 0);
+                Error("invalid meta server response");
                 return false;
             }
             HandleAuthResponse(iobuf);
@@ -813,6 +838,9 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 mHelloOp->deletedReport = prop.getValue(
                     kRpcFormatShort == mRpcFormat ? "DR": "Deleted-report",
                         mHelloOp->deletedCount);
+                mHelloOp->pendingNotifyFlag = prop.getValue(
+                    kRpcFormatShort == mRpcFormat? "PN" : "Pending-notify",
+                    0) != 0;
             } else {
                 mHelloOp->resumeStep = -1;
                 mSentHello    = false;
@@ -827,7 +855,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     mCurrentKeyId = mHelloOp->currentKeyId;
                 }
                 if (errorFlag) {
-                    HandleRequest(EVENT_NET_ERROR, 0);
+                    Error("handshake error");
                     return false;
                 }
                 mConnectedTime = globalNetManager().Now();
@@ -856,7 +884,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 KFS_LOG_STREAM_ERROR << "meta reply:"
                     " no op found for: " << reply <<
                 KFS_LOG_EOM;
-                HandleRequest(EVENT_NET_ERROR, 0);
+                Error("protocol invalid sequence");
                 return false;
             }
             op = iter->second;
@@ -870,7 +898,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     " seq: "         << op->seq <<
                     " "              << op->Show() <<
                 KFS_LOG_EOM;
-                HandleRequest(EVENT_NET_ERROR, 0);
+                Error("meta response parse error");
                 return false;
             }
         }
@@ -900,7 +928,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                 " "              << op->Show() <<
                 " content len: " << len <<
             KFS_LOG_EOM;
-            HandleRequest(EVENT_NET_ERROR, 0);
+            Error("response body parse error");
             return false;
         }
     }
@@ -954,7 +982,7 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
                 KFS_LOG_EOM;
             }
             iobuf.Clear();
-            HandleRequest(EVENT_NET_ERROR, 0);
+            Error("request parse error");
             // got a bogus command
             return false;
         }
@@ -993,7 +1021,7 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
                 " cmd: " << op->Show() <<
             KFS_LOG_EOM;
             delete op;
-            HandleRequest(EVENT_NET_ERROR, 0);
+            Error("request body parse error");
             return false;
         }
         iobuf.Consume(mContentLength);
@@ -1138,23 +1166,18 @@ MetaServerSM::SendResponse(KfsOp* op)
 void
 MetaServerSM::DispatchOps()
 {
-    OpsQueue doneOps;
-    while (! mPendingOps.empty() && ! mAuthOp && IsHandshakeDone()) {
-        if (! IsConnected()) {
-            KFS_LOG_STREAM_INFO <<
-                "meta handshake is not done, will dispatch later" <<
-            KFS_LOG_EOM;
-            return;
+    if (IsUp() || ! mAuthOp) {
+        while (! mPendingOps.empty()) {
+            KfsOp* const op = mPendingOps.front();
+            mPendingOps.pop_front();
+            assert(op->op != CMD_META_HELLO);
+            if (op->noReply) {
+                mDispatchedNoReplyOps.push_back(op);
+            } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
+                die("duplicate seq. number");
+            }
+            Request(*op);
         }
-        KfsOp* const op = mPendingOps.front();
-        mPendingOps.pop_front();
-        assert(op->op != CMD_META_HELLO);
-        if (op->noReply) {
-            mDispatchedNoReplyOps.push_back(op);
-        } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
-            die("duplicate seq. number");
-        }
-        Request(*op);
     }
     while (! mDispatchedNoReplyOps.empty()) {
         KfsOp* const op = mDispatchedNoReplyOps.front();
@@ -1180,7 +1203,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     if (! mAuthOp || ! mNetConnection) {
         die("handle auth response: invalid invocation");
         DetachAndDeleteOp(mAuthOp);
-        HandleRequest(EVENT_NET_ERROR, 0);
+        Error("internal error");
         return;
     }
     const int rem = mAuthOp->ReadResponseContent(ioBuf);
@@ -1237,7 +1260,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     KFS_LOG_EOM;
     DetachAndDeleteOp(mAuthOp);
     if (! okFlag) {
-        HandleRequest(EVENT_NET_ERROR, 0);
+        Error("authentication protocol error");
         return;
     }
     if (IsHandshakeDone()) {
@@ -1246,7 +1269,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
             mPendingResponses.pop_front();
             if (! SendResponse(op)) {
                 die("invalid send response completion");
-                HandleRequest(EVENT_NET_ERROR, 0);
+                Error("internal error");
                 return;
             }
             delete op;
@@ -1258,7 +1281,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
     }
     if (mHelloOp) {
         die("hello op in flight prior to authentication completion");
-        HandleRequest(EVENT_NET_ERROR, 0);
+        Error("internal error");
         return;
     }
     if (! mPendingResponses.empty()) {

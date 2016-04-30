@@ -2989,6 +2989,7 @@ MetaHello::log(ostream& os) const
         "/r/" << resumeStep <<
         "/t/" << timeUsec <<
         "/r/" << rackId <<
+        "/P/" << (pendingNotifyFlag ? 1 : 0) <<
         "/z/" << logseq
     ;
     const ChunkInfos* const infos[] =
@@ -4853,6 +4854,9 @@ MetaHello::response(ReqOstream& os, IOBuffer& buf)
     if (0 <= resumeStep) {
         os << (shortRpcFormatFlag ? "R:" : "Resume: ") <<
             resumeStep   << "\r\n";
+    }
+    if (pendingNotifyFlag) {
+        os << (shortRpcFormatFlag ? "PN:1" : "Pending-notify: 1") << "\r\n";
     }
     if (0 == resumeStep) {
         os <<

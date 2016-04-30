@@ -93,6 +93,7 @@ public:
         Counter mReadSkipDiskVerifyChecksumByteCount;
         Counter mHelloResumeCount;
         Counter mHelloResumeFailedCount;
+        Counter mPartialHelloResumeFailedCount;
 
         void Clear()
         {
@@ -113,6 +114,7 @@ public:
             mReadSkipDiskVerifyChecksumByteCount = 0;
             mHelloResumeCount                    = 0;
             mHelloResumeFailedCount              = 0;
+            mPartialHelloResumeFailedCount       = 0;
         }
     };
 
@@ -465,6 +467,7 @@ public:
         return mObjectStoreStatus;
     }
     int FlushStaleQueue(KfsOp& op);
+    int CanStartReplicationOrRecovery(kfsChunkId_t chunkId);
     static bool GetExitDebugCheckFlag()
         { return sExitDebugCheckFlag; }
 private:

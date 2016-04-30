@@ -920,6 +920,10 @@ public:
         { return ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs); }
     void HelloEnd()
         { mHelloProcessFlag = false; }
+    bool IsHelloNotifyPending() const
+        { return mPendingHelloNotifyFlag; }
+    void SetPendingHelloNotify(bool flag)
+        { mPendingHelloNotifyFlag = flag; }
     static void SetMaxChunkServerCount(int count)
         { sMaxChunkServerCount = count; }
     static int GetMaxChunkServerCount()
@@ -1247,6 +1251,7 @@ protected:
     bool               mShortRpcFormatFlag;
     uint64_t           mHibernatedGeneration;
     int                mPendingOpsCount;
+    bool               mPendingHelloNotifyFlag;
     bool const         mReplayFlag;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
@@ -1403,7 +1408,8 @@ public:
     HibernatedChunkServer(
         const ServerLocation& loc,
         const CIdChecksum&    modChksum,
-        size_t                delReport);
+        size_t                delReport,
+        bool                  pendingHelloNotifyFlag);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
     const DeletedChunks& GetDeletedChunks() const
@@ -1471,6 +1477,7 @@ private:
     size_t               mListsSize;
     uint64_t             mGeneration;
     CIdChecksum          mModifiedChecksum;
+    bool                 mPendingHelloNotifyFlag;
     const bool           mReplayFlag;
 
     static size_t   sValidCount;

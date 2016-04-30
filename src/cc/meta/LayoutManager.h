@@ -1448,7 +1448,7 @@ public:
     bool RestoreChunkServer(const ServerLocation& loc,
         size_t idx, size_t chunks, const CIdChecksum& chksum,
         bool retiringFlag, int64_t retStart, int64_t retDown,
-        bool retiredFlag, RackId rackId);
+        bool retiredFlag, RackId rackId, bool pendingHelloNotifyFlag);
     const ChunkServerPtr& RestoreGetChunkServer() const
         { return mRestoreChunkServerPtr; }
     void RestoreClearChunkServer()
@@ -1457,7 +1457,8 @@ public:
         const ServerLocation& loc, size_t idx,
         size_t chunks, const CIdChecksum& chksum,
         const CIdChecksum& modChksum, size_t delReport,
-        int64_t startTime, int64_t endTime, bool retiredFlag);
+        int64_t startTime, int64_t endTime, bool retiredFlag,
+        bool pendingHelloNotifyFlag);
     const HibernatedChunkServerPtr& RestoreGetHibernatedCS() const
         { return mRestoreHibernatedCSPtr; }
     void RestoreClearHibernatedCS()

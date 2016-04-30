@@ -3991,10 +3991,13 @@ AvailableChunksOp::Request(ReqOstream& os)
     if (! shortRpcFormatFlag) {
         os << "Version: " << KFS_VERSION_STR << "\r\n";
     }
-    os <<
-        (shortRpcFormatFlag ? "N:" : "Num-chunks:") << numChunks << "\r\n" <<
-        (shortRpcFormatFlag ? "H:" : "Hello:") << (helloFlag ? 1 : 0) << "\r\n"
-    ;
+    if (helloFlag) {
+        os << (shortRpcFormatFlag ? "H:1" : "Hello: 1") << "\r\n";
+    }
+    if (endOfNotifyFlag) {
+        os << (shortRpcFormatFlag ? "E:1" : "End-notify: 1") << "\r\n";
+    }
+    os << (shortRpcFormatFlag ? "N:" : "Num-chunks:") << numChunks << "\r\n";
     os << (shortRpcFormatFlag ? "I:" : "Chunk-ids-vers:");
     os << hex;
     for (int i = 0; i < numChunks; i++) {
@@ -4055,6 +4058,9 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         helloResumeFailedCount << "\r\n" <<
     (shortRpcFormatFlag ? "IB:" : "Content-int-base: ") << 16 << "\r\n"
     ;
+    if (pendingNotifyFlag) {
+        os << (shortRpcFormatFlag ? "PN:1" : "Pending-notify: 1") << "\r\n";
+    }
     if (reqShortRpcFmtFlag || shortRpcFormatFlag) {
         os << (shortRpcFormatFlag ? "f:1\r\n" : "Short-rpc-fmt: 1\r\n");
     }

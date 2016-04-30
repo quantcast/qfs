@@ -412,6 +412,9 @@ ChunkServer::HelloDone(const MetaHello* r)
     mHelloDone        = true;
     mHeartbeatSent    = true;
     mHelloProcessFlag = true;
+    if (r) {
+        mPendingHelloNotifyFlag = r->pendingNotifyFlag;
+    }
     if (mDown || mReplayFlag) {
         return;
     }
@@ -596,6 +599,7 @@ ChunkServer::ChunkServer(
       mShortRpcFormatFlag(false),
       mHibernatedGeneration(0),
       mPendingOpsCount(0),
+      mPendingHelloNotifyFlag(false),
       mReplayFlag(replayFlag),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
@@ -3352,7 +3356,8 @@ ChunkServer::Checkpoint(ostream& ost)
         "/retiredown/"  << mHibernateDownTime <<
         "/retired/"     << (mRetiredFlag ? 1 : 0) <<
         "/replay/"      << (mReplayFlag ? 1 : 0) <<
-        "/rack/"        << mRackId
+        "/rack/"        << mRackId <<
+        "/pnotify/"     << (mPendingHelloNotifyFlag ? 1 : 0)
     ;
     size_t              cnt   = 0;
     const TimeoutEntry* entry = &mDoneTimedoutList;
@@ -3520,6 +3525,7 @@ HibernatedChunkServer::HibernatedChunkServer(
       mListsSize(0),
       mGeneration(++sGeneration),
       mModifiedChecksum(),
+      mPendingHelloNotifyFlag(server.IsHelloNotifyPending()),
       mReplayFlag(server.IsReplay())
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mModifiedChecksum,
@@ -3546,7 +3552,8 @@ HibernatedChunkServer::HibernatedChunkServer(
 HibernatedChunkServer::HibernatedChunkServer(
     const ServerLocation& loc,
     const CIdChecksum&    modChksum,
-    size_t                delReport)
+    size_t                delReport,
+    bool                  pendingHelloNotifyFlag)
     : CSMapServerInfo(),
       mLocation(loc),
       mDeletedChunks(),
@@ -3555,6 +3562,7 @@ HibernatedChunkServer::HibernatedChunkServer(
       mListsSize(0),
       mGeneration(++sGeneration),
       mModifiedChecksum(modChksum),
+      mPendingHelloNotifyFlag(pendingHelloNotifyFlag),
       mReplayFlag(true)
 {}
 
@@ -3711,6 +3719,7 @@ HibernatedChunkServer::HelloResumeReply(
         r.status    = -EAGAIN;
         return false;
     }
+    r.pendingNotifyFlag  = mPendingHelloNotifyFlag;
     r.deletedCount       = 0;
     r.modifiedCount      = 0;
     r.chunkCount         = GetChunkCount() - mModifiedChunks.Size();
@@ -3857,7 +3866,8 @@ HibernatedChunkServer::Checkpoint(ostream& ost, const ServerLocation& loc,
         "/retired/"   << retiredFlag <<
         "/replay/"    << (mReplayFlag ? 1 : 0)  <<
         "/dreport/"   << mDeletedReportCount <<
-        "/modchksum/" << mModifiedChecksum
+        "/modchksum/" << mModifiedChecksum <<
+        "/pnotify/"   << (mPendingHelloNotifyFlag ? 1 : 0)
     ;
     const char*      pref = "\nhcsd/";
     unsigned int     cnt = 0;

@@ -1864,6 +1864,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            helloResumeFailedCount;
     int64_t            deletedReportCount;
     bool               noFidsFlag;
+    bool               pendingNotifyFlag;
     int                resumeStep;
     int                bufferBytes;
     size_t             deletedCount;
@@ -1914,6 +1915,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           helloResumeFailedCount(0),
           deletedReportCount(0),
           noFidsFlag(false),
+          pendingNotifyFlag(false),
           resumeStep(-1),
           bufferBytes(0),
           deletedCount(0),
@@ -1983,6 +1985,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def2("Num-resume",                   "NR", &MetaHello::helloResumeCount                )
         .Def2("Num-resume-fail",              "RF", &MetaHello::helloResumeFailedCount          )
         .Def2("Num-re-replications",          "RR", &MetaHello::reReplicationCount              )
+        .Def2("Pending-notify",               "PN", &MetaHello::pendingNotifyFlag,         false)
         ;
     }
 };
@@ -3627,6 +3630,7 @@ struct MetaChunkAvailable : public MetaRequest {
     StringBufT<(16 + 3) * 256> chunkIdAndVers; //!< input
     int                        numChunks;
     bool                       helloFlag;
+    bool                       endOfNotifyFlag;
     int                        useThreshold;
     ServerLocation             location;
     ChunkServerPtr             server;
@@ -3636,6 +3640,7 @@ struct MetaChunkAvailable : public MetaRequest {
           chunkIdAndVers(),
           numChunks(-1),
           helloFlag(false),
+          endOfNotifyFlag(false),
           useThreshold(-1),
           location(),
           server(),
@@ -3659,9 +3664,10 @@ struct MetaChunkAvailable : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
-        .Def2("Chunk-ids-vers", "I", &MetaChunkAvailable::chunkIdAndVers)
-        .Def2("Num-chunks",     "N", &MetaChunkAvailable::numChunks,  -1)
-        .Def2("Hello",          "H", &MetaChunkAvailable::helloFlag, false)
+        .Def2("Chunk-ids-vers", "I", &MetaChunkAvailable::chunkIdAndVers        )
+        .Def2("Num-chunks",     "N", &MetaChunkAvailable::numChunks,          -1)
+        .Def2("Hello",          "H", &MetaChunkAvailable::helloFlag,       false)
+        .Def2("End-notify",     "E", &MetaChunkAvailable::endOfNotifyFlag, false)
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
@@ -3669,8 +3675,9 @@ struct MetaChunkAvailable : public MetaRequest {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkAvailable::location)
         .Def("C", &MetaChunkAvailable::chunkIdAndVers)
-        .Def("N", &MetaChunkAvailable::numChunks,    -1)
-        .Def("T", &MetaChunkAvailable::useThreshold, -1)
+        .Def("N", &MetaChunkAvailable::numChunks,          -1)
+        .Def("T", &MetaChunkAvailable::useThreshold,       -1)
+        .Def("E", &MetaChunkAvailable::endOfNotifyFlag, false)
         ;
     }
 protected:

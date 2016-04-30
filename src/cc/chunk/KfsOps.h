@@ -2198,6 +2198,7 @@ struct HelloMetaOp : public KfsOp {
     int64_t                  metaFileSystemId;
     bool                     deleteAllChunksFlag;
     bool                     noFidsFlag;
+    bool                     pendingNotifyFlag;
     int                      resumeStep;
     uint64_t                 deletedCount;
     uint64_t                 modifiedCount;
@@ -2231,6 +2232,7 @@ struct HelloMetaOp : public KfsOp {
           metaFileSystemId(-1),
           deleteAllChunksFlag(false),
           noFidsFlag(false),
+          pendingNotifyFlag(false),
           resumeStep(-1),
           deletedCount(0),
           modifiedCount(0),
@@ -2391,11 +2393,13 @@ struct AvailableChunksOp : public KfsOp {
     Chunks chunks[kMaxChunkIds];
     int    numChunks;
     bool   helloFlag;
+    bool   endOfNotifyFlag;
 
     AvailableChunksOp(KfsCallbackObj* c = 0)
         : KfsOp(CMD_AVAILABLE_CHUNKS),
           numChunks(0),
-          helloFlag(false)
+          helloFlag(false),
+          endOfNotifyFlag(false)
     {
         clnt = c;
         SET_HANDLER(this, &AvailableChunksOp::HandleDone);
@@ -2412,7 +2416,11 @@ struct AvailableChunksOp : public KfsOp {
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "available chunks: seq: " << seq;
+        os << "available chunks:"
+            " seq: "   << seq <<
+            " end: "   << endOfNotifyFlag <<
+            " count: " << numChunks
+        ;
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunks[i].first << "." << chunks[i].second;
         }

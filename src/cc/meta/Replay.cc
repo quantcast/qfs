@@ -1509,6 +1509,7 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->rackId = (int)n;
+        op->pendingNotifyFlag = pop_num(n, "P", c, true) && 0 != n;
         if (! pop_num(n, "z", c, true) || n < 0) {
             return false;
         }
