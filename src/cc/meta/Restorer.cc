@@ -606,9 +606,12 @@ restore_chunk_server_start(DETokenizer& c)
     if (! pop_num(n, "rack", c, true)) {
         return false;
     }
-    const bool pendingHelloNotifyFlag =
-        pop_num(n, "pnotify", c, true) && 0 != n;
     const LayoutManager::RackId rack = (LayoutManager::RackId)n;
+    n = -1;
+    if (! pop_num(n, "pnotify", c, true)) {
+        return false;
+    }
+    const bool pendingHelloNotifyFlag = 0 != n;
     return gLayoutManager.RestoreChunkServer(
         loc, (size_t)idx, (size_t)chunks, chksum, retiringFlag,
         retstart, retdown, retiredFlag, rack, pendingHelloNotifyFlag);

@@ -3744,9 +3744,9 @@ LayoutManager::AddNewServer(MetaHello& req)
                 req, mChunkToServerMap, staleChunkIds, modififedChunks)) {
             return;
         }
-        assert((int)it->csmapIdx == cs->GetIndex());
-        if (! mChunkToServerMap.ReplaceHibernatedServer(
-                req.server, it->csmapIdx)) {
+        if ((int)it->csmapIdx != cs->GetIndex() ||
+                ! mChunkToServerMap.ReplaceHibernatedServer(
+                    req.server, it->csmapIdx)) {
             panic("failed to replace hibernated server");
             req.statusMsg = "internal error";
             req.status    = -EFAULT;
