@@ -1439,6 +1439,7 @@ public:
     void UpdateObjectsCount(
         ChunkServer& srv, int64_t delta, int64_t writableDelta);
     void Handle(MetaChunkLogInFlight& req);
+    void Start(MetaBye& req);
     void Handle(MetaBye& req);
     void Handle(MetaChunkLogCompletion& req);
     void Handle(MetaHibernatedPrune& req);

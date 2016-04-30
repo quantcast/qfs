@@ -1634,7 +1634,7 @@ LayoutManager::LayoutManager() :
     mMinAppendersPerChunk(96),
     mMaxAppendersPerChunk(4 << 10),
     mReservationOvercommitFactor(1.0),
-    mServerDownReplicationDelay(2 * 60),
+    mServerDownReplicationDelay(MetaBye::kDefaultReplicationDelay),
     mMaxDownServersHistorySize(4 << 10),
     mChunkServersProps(),
     mCSToRestartCount(0),
@@ -3728,17 +3728,14 @@ LayoutManager::AddNewServer(MetaHello& req)
             req.status    = -EAGAIN;
             return;
         }
-        if (0 == req.resumeStep) {
-            if (0 <= req.logseq) {
-                // Step 0 is not written into transaction log.
-                panic("invalid hello resume step logged / replayed");
-            }
-            if (0 < mDebugSimulateDenyHelloResumeInterval &&
-                    0 == Rand(mDebugSimulateDenyHelloResumeInterval)) {
-                req.statusMsg = "simulating resume deny";
-                req.status    = -EAGAIN;
-                return;
-            }
+        if (0 == req.resumeStep && 0 <= req.logseq) {
+            // Step 0 is not written into transaction log.
+            const char* const msg =
+                "invalid hello resume step logged / replayed";
+            panic(msg);
+            req.statusMsg = msg;
+            req.status    = -EFAULT;
+            return;
         }
         if (cs->HelloResumeReply(
                 req, mChunkToServerMap, staleChunkIds, modififedChunks)) {
@@ -3747,8 +3744,9 @@ LayoutManager::AddNewServer(MetaHello& req)
         if ((int)it->csmapIdx != cs->GetIndex() ||
                 ! mChunkToServerMap.ReplaceHibernatedServer(
                     req.server, it->csmapIdx)) {
-            panic("failed to replace hibernated server");
-            req.statusMsg = "internal error";
+            const char* const msg = "failed to replace hibernated server";
+            panic(msg);
+            req.statusMsg = msg;
             req.status    = -EFAULT;
             return;
         }
@@ -5281,6 +5279,21 @@ LayoutManager::DumpChunkToServerMap(ostream& os)
 }
 
 void
+LayoutManager::Start(MetaBye& req)
+{
+    if (0 != req.status) {
+        return;
+    }
+    const bool simulateResumeDenyFlag =
+        0 < mDebugSimulateDenyHelloResumeInterval &&
+        0 == Rand(mDebugSimulateDenyHelloResumeInterval);
+    const int kMinReplicationDelay    = 20;
+    req.replicationDelay = simulateResumeDenyFlag ? -kMinReplicationDelay :
+        max(kMinReplicationDelay, mServerDownReplicationDelay -
+            req.server->TimeSinceLastHeartbeat());
+}
+
+void
 LayoutManager::Handle(MetaBye& req)
 {
     if (req.server) {
@@ -5408,11 +5421,7 @@ LayoutManager::Handle(MetaBye& req)
         mDownServers.erase(mDownServers.begin(), mDownServers.begin() +
             mDownServers.size() - mMaxDownServersHistorySize);
     }
-
     if (! isHibernating && 0 < server->GetChunkCount()) {
-        const int kMinReplicationDelay = 15;
-        const int replicationDelay     = max(kMinReplicationDelay,
-            mServerDownReplicationDelay - server->TimeSinceLastHeartbeat());
         // Delay replication by marking server as hibernated,
         // to allow the server to reconnect back.
         size_t idx = ~size_t(0);
@@ -5420,7 +5429,7 @@ LayoutManager::Handle(MetaBye& req)
             panic("failed to initiate hibernation");
         }
         mHibernatingServers.insert(it, HibernatingServerInfo(
-            loc, (time_t)(req.timeUsec / 1000000), replicationDelay,
+            loc, (time_t)(req.timeUsec / 1000000), req.replicationDelay,
             req.replayFlag, idx));
         isHibernating = true;
     }
@@ -5464,6 +5473,9 @@ LayoutManager::Handle(MetaBye& req)
     }
     UpdateReplicationsThreshold();
     ScheduleCleanup();
+    if (! req.replayFlag && req.replicationDelay <= 0) {
+        CheckHibernatingServersStatus();
+    }
 }
 
 LayoutManager::HibernatingServerInfo*
@@ -10502,11 +10514,9 @@ LayoutManager::CheckHibernatingServersStatus()
             continue;
         }
         Servers::const_iterator const i = FindServer(iter->location);
-        if (i == mChunkServers.end()) {
-            if (now < iter->sleepEndTime) {
-                // Within the time window.
-                continue;
-            }
+        if (i == mChunkServers.end() && now < iter->sleepEndTime) {
+            // Within the time window.
+            continue;
         }
         if (i != mChunkServers.end()) {
             if (iter->IsHibernated()) {

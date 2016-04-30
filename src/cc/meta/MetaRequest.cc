@@ -3032,6 +3032,7 @@ MetaBye::start()
 {
     location = server->GetServerLocation();
     timeUsec = submitTime;
+    gLayoutManager.Start(*this);
     return (0 == status);
 }
 

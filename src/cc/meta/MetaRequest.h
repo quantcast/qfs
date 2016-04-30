@@ -2000,7 +2000,10 @@ struct MetaBye: public MetaRequest {
     CIdChecksum    cIdChecksum;
     int64_t        timeUsec;  // current / start time.
     int64_t        logInFlightCount;
+    int            replicationDelay;
     bool           completionInFlightFlag;
+
+    enum { kDefaultReplicationDelay = 60 };
 
     MetaBye(const ChunkServerPtr& c = ChunkServerPtr())
         : MetaRequest(META_BYE, kLogIfOk, 0),
@@ -2010,6 +2013,7 @@ struct MetaBye: public MetaRequest {
           cIdChecksum(),
           timeUsec(-1),
           logInFlightCount(0),
+          replicationDelay(kDefaultReplicationDelay),
           completionInFlightFlag(false)
         {}
     virtual bool start();
@@ -2023,6 +2027,7 @@ struct MetaBye: public MetaRequest {
             " checksum: "        << cIdChecksum <<
             " log:"
             " in flight: "       << logInFlightCount <<
+            " repl delay: "      << replicationDelay <<
             " completion: "      << (completionInFlightFlag ? "yes" : "no")
         );
     }
@@ -2039,6 +2044,7 @@ struct MetaBye: public MetaRequest {
         .Def("T", &MetaBye::timeUsec,               int64_t(-1))
         .Def("L", &MetaBye::logInFlightCount,       int64_t(0))
         .Def("I", &MetaBye::completionInFlightFlag, false)
+        .Def("D", &MetaBye::replicationDelay,       int(kDefaultReplicationDelay))
         ;
     }
 };
