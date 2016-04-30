@@ -636,15 +636,16 @@ MetaServerSM::FailOps(bool shutdownFlag)
     // Fail all no retry ops, if any, or all ops on shutdown.
     OpsQueue doneOps;
     if (! shutdownFlag) {
-        for (OpsQueue::iterator it = mPendingOps.begin();
-                mPendingOps.end() != it;
-                ) {
+        OpsQueue pendingOps;
+        pendingOps.swap(mPendingOps);
+        for (OpsQueue::const_iterator it = pendingOps.begin();
+                pendingOps.end() != it;
+                ++it) {
             KfsOp* const op = *it;
             if (op->noRetry) {
                 doneOps.push_back(op);
-                mPendingOps.erase(it++);
             } else {
-                ++it;
+                mPendingOps.push_back(op);
             }
         }
     }
