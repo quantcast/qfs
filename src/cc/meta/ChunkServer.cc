@@ -838,12 +838,12 @@ ChunkServer::HandleRequest(int code, void *data)
                         "failed to parse hello message"));
                 break;
             }
-            if (0 < retval || mAuthenticateOp || mDown) {
+            if (0 < retval || mAuthenticateOp || ! mNetConnection) {
                 break; // Need more data, or down
             }
             msgLen = 0;
         }
-        if (! mDown && ! gotMsgHdr &&
+        if (mNetConnection && ! gotMsgHdr &&
                 iobuf.BytesConsumable() > kMaxRequestResponseHeader) {
             iobuf.Clear();
             Error(mHelloDone ?
@@ -977,7 +977,7 @@ ChunkServer::HandleRequest(int code, void *data)
 
     case EVENT_NET_ERROR: {
         NetConnection::Filter* filter;
-        if (! mDown && mAuthenticateOp &&
+        if (mAuthenticateOp &&
                 mNetConnection && mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter()) &&
                 filter->IsShutdownReceived()) {
@@ -1019,10 +1019,10 @@ ChunkServer::HandleRequest(int code, void *data)
         if (mRecursionCount <= 1 && ! mReplayFlag) {
             const int hbTimeout = Heartbeat();
             const int opTimeout = TimeoutOps();
-            if (! mDown && mNetConnection) {
+            if (mNetConnection) {
                 mNetConnection->StartFlush();
             }
-            if (! mDown && mNetConnection && mNetConnection->IsGood()) {
+            if (mNetConnection && mNetConnection->IsGood()) {
                 mNetConnection->SetInactivityTimeout(
                     NetManager::Timer::MinTimeout(hbTimeout, opTimeout));
             }
@@ -1031,7 +1031,7 @@ ChunkServer::HandleRequest(int code, void *data)
         if (code != EVENT_INACTIVITY_TIMEOUT) {
             mLastHeartbeatSent = TimeNow();
         }
-        if (mRecursionCount <= 1 && ! mDown && mNetConnection) {
+        if (mRecursionCount <= 1 && mNetConnection) {
             mNetConnection->StartFlush();
         }
     }
