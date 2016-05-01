@@ -269,6 +269,7 @@ int64_t ChunkServer::sHelloBytesCommitted = 0;
 int64_t ChunkServer::sHelloBytesInFlight  = 0;
 int64_t ChunkServer::sMaxHelloBufferBytes = 256 << 20;
 int ChunkServer::sMaxReadAhead = 4 << 10;
+int ChunkServer::sMaxPendingOpsCount = 196;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
 size_t ChunkServer::sChunkDirsCount = 0;
 
@@ -336,6 +337,9 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sMaxReadAhead = max(1 << 10, prop.getValue(
         "metaServer.chunkServer.maxReadAhead",
         sMaxReadAhead));
+    sMaxPendingOpsCount = max(8, prop.getValue(
+        "metaServer.chunkServer.maxPendingOpsCount",
+        sMaxPendingOpsCount));
     if (clientPort > 0) {
         sMetaClientPort = clientPort;
     }
@@ -1858,7 +1862,19 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     op->clnt               = this;
     op->authUid            = mAuthUid;
     op->shortRpcFormatFlag = mShortRpcFormatFlag;
-    Submit(*op);
+    if (sMaxPendingOpsCount <= mPendingOpsCount) {
+        KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+            " exceeded limit of " << sMaxPendingOpsCount <<
+            " pending ops: "      << mPendingOpsCount <<
+            " failing op: "       << op->Show() <<
+        KFS_LOG_EOM;
+        op->statusMsg = "exceeded pending ops limit of ";
+        AppendDecIntToString(op->statusMsg, sMaxPendingOpsCount);
+        op->status = -ESERVERBUSY;
+        HandleRequest(EVENT_CMD_DONE, op);
+    } else {
+        Submit(*op);
+    }
     return 0;
 }
 

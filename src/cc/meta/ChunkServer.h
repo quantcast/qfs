@@ -1272,6 +1272,7 @@ protected:
     static int              sEvacuateRateUpdateInterval;
     static int              sTimedoutExpireTime;
     static int              sMaxReadAhead;
+    static int              sMaxPendingOpsCount;
     static size_t           sChunkDirsCount;
 
     friend class QCDLListOp<ChunkServer, 0>;
