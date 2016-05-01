@@ -1102,8 +1102,8 @@ MetaServerSM::EnqueueOp(KfsOp* op)
             SubmitOpResponse(op);
             return;
         }
+        globalNetManager().Wakeup();
     }
-    globalNetManager().Wakeup();
 }
 
 ///
@@ -1126,7 +1126,7 @@ MetaServerSM::SendResponse(KfsOp* op)
         " "          << op->Show() <<
     KFS_LOG_EOM;
     if (discardFlag) {
-        // Hello does full chunk inventory synchronization.
+        // Hello does chunk inventory synchronization.
         // Meta server assumes undefined state for all requests that were in
         // in flight at the time of disconnect, and will discard the responses
         // anyway, as it will purge its pending response queue at the time of
@@ -1162,7 +1162,6 @@ MetaServerSM::SendResponse(KfsOp* op)
             KFS_LOG_EOM;
         }
     }
-    globalNetManager().Wakeup();
     return true;
 }
 
