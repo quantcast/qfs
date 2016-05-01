@@ -129,6 +129,12 @@ public:
         }
         mHeadPtr = &inNode;
     }
+    static Entry* GetNext(
+        Entry& inNode)
+        { return Accessor::Next(inNode); }
+    static const Entry* GetNext(
+        const Entry& inNode)
+        { return Accessor::Next(inNode); }
 private:
     Entry* mHeadPtr;
     Entry* mTailPtr;

@@ -41,6 +41,7 @@
 #include "common/kfstypes.h"
 #include "common/nofilelimit.h"
 #include "common/IntToString.h"
+#include "common/SingleLinkedQueue.h"
 
 #include "kfsio/Counter.h"
 #include "kfsio/checksum.h"
@@ -782,7 +783,9 @@ struct WriteChunkMetaOp : public KfsOp
     kfsChunkId_t const chunkId;
     DiskIo* const      diskIo;  /* disk connection used for writing data */
     IOBuffer           dataBuf; /* buffer with the data to be written */
+private:
     WriteChunkMetaOp*  next;
+public:
     int64_t            diskIOTime;
     const kfsSeq_t     targetVersion;
     const bool         renameFlag;
@@ -834,6 +837,15 @@ struct WriteChunkMetaOp : public KfsOp
         delete this;
         return 0;
     }
+    class GetNext
+    {
+    public:
+        static WriteChunkMetaOp*& Next(WriteChunkMetaOp& op)
+            { return op.next; }
+        static WriteChunkMetaOp*const& Next(const WriteChunkMetaOp& op)
+            { return op.next; }
+    };
+    friend class GetNext;
 };
 
 /// Encapsulate a chunk file descriptor and information about the
@@ -868,8 +880,7 @@ public:
           mRenamesInFlight(0),
           mWritesInFlight(0),
           mPendingSpaceReservationSize(0),
-          mWriteMetaOpsHead(0),
-          mWriteMetaOpsTail(0),
+          mWriteMetaOps(),
           mReadableNotifyHead(0),
           mReadableNotifyTail(0),
           mChunkDir(chunkdir)
@@ -890,7 +901,7 @@ public:
             mWriteAppenderOwnsFlag = false;
             gAtomicRecordAppendManager.DeleteChunk(chunkInfo.chunkId);
         }
-        if (mWriteMetaOpsHead || mInDoneHandlerFlag) {
+        if (! mWriteMetaOps.IsEmpty() || mInDoneHandlerFlag) {
             mDeleteFlag = true;
             const bool runHanlder = ! mInDoneHandlerFlag &&
                 mWritesInFlight > 0 && mWaitForWritesInFlightFlag;
@@ -982,9 +993,9 @@ public:
             WriteStats(op->status, op->numBytesIO, op->diskIOTime);
         }
         if (mWritesInFlight == 0 && mWaitForWritesInFlightFlag) {
-            assert(mWriteMetaOpsHead);
+            assert(! mWriteMetaOps.IsEmpty());
             mWaitForWritesInFlightFlag = false;
-            int res = mWriteMetaOpsHead->Start(this);
+            int res = mWriteMetaOps.Front()->Start(this);
             if (res < 0) {
                 HandleEvent(EVENT_DISK_ERROR, &res);
             }
@@ -1000,14 +1011,14 @@ public:
         return IsFileEquals(diskIoPtr.get());
     }
     bool DiscardMeta() {
-        if (mWriteMetaOpsHead || 0 < mWritesInFlight) {
+        if (! mWriteMetaOps.IsEmpty() || 0 < mWritesInFlight) {
             return false;
         }
         mMetaDirtyFlag = false;
         return true;
     }
     bool SyncMeta() {
-        if (mWriteMetaOpsHead || 0 < mWritesInFlight) {
+        if (! mWriteMetaOps.IsEmpty() || 0 < mWritesInFlight) {
             return true;
         }
         if (mMetaDirtyFlag) {
@@ -1030,21 +1041,21 @@ public:
                 chunkInfo.chunkVersion : kfsSeq_t(0));
     }
     kfsSeq_t GetTargetStateAndVersion(bool& stableFlag) const {
-        if (! mWriteMetaOpsTail || mRenamesInFlight <= 0) {
+        if (mWriteMetaOps.IsEmpty() || mRenamesInFlight <= 0) {
             stableFlag = mStableFlag;
             return chunkInfo.chunkVersion;
         }
-        if (mWriteMetaOpsTail->renameFlag) {
-            stableFlag = mWriteMetaOpsTail->stableFlag;
-            return mWriteMetaOpsTail->targetVersion;
+        if (mWriteMetaOps.Back()->renameFlag) {
+            stableFlag = mWriteMetaOps.Back()->stableFlag;
+            return mWriteMetaOps.Back()->targetVersion;
         }
         stableFlag = mStableFlag;
         kfsSeq_t theRet = chunkInfo.chunkVersion;
-        for (const WriteChunkMetaOp*
-                op = mWriteMetaOpsHead; op; op = op->next) {
+        for (const WriteChunkMetaOp* op = mWriteMetaOps.Front();
+                op; op = WriteMetaOps::GetNext(*op)) {
             if (op->renameFlag) {
                 theRet = op->targetVersion;
-                stableFlag = mWriteMetaOpsTail->stableFlag;
+                stableFlag = mWriteMetaOps.Back()->stableFlag;
             }
         }
         return theRet;
@@ -1053,8 +1064,8 @@ public:
         if (vers == chunkInfo.chunkVersion) {
             return true;
         }
-        for (const WriteChunkMetaOp*
-                op = mWriteMetaOpsHead; op; op = op->next) {
+        for (const WriteChunkMetaOp* op = mWriteMetaOps.Front();
+                op; op = WriteMetaOps::GetNext(*op)) {
             if (op->renameFlag && vers == op->targetVersion) {
                 return true;
             }
@@ -1062,7 +1073,7 @@ public:
         return false;
     }
     bool IsChunkReadable(bool ignorePendingAvailable = false) const {
-        return (! mWriteMetaOpsHead && mStableFlag && mWritesInFlight <= 0 &&
+        return (mWriteMetaOps.IsEmpty() && mStableFlag && mWritesInFlight <= 0 &&
             (ignorePendingAvailable || ! mPendingAvailableFlag));
     }
     bool IsRenameInFlight() const {
@@ -1201,6 +1212,11 @@ public:
         ChunkLists* chunkInfoLists);
 
 private:
+    typedef SingleLinkedQueue<
+        WriteChunkMetaOp,
+        WriteChunkMetaOp::GetNext
+    > WriteMetaOps;
+
     bool                        mBeingReplicatedFlag:1;
     bool                        mDeleteFlag:1;
     bool                        mWriteAppenderOwnsFlag:1;
@@ -1220,8 +1236,7 @@ private:
     // write in flight.
     int                         mWritesInFlight;
     int                         mPendingSpaceReservationSize;
-    WriteChunkMetaOp*           mWriteMetaOpsHead;
-    WriteChunkMetaOp*           mWriteMetaOpsTail;
+    WriteMetaOps                mWriteMetaOps;
     KfsOp*                      mReadableNotifyHead;
     KfsOp*                      mReadableNotifyTail;
     ChunkDirInfo&               mChunkDir;
@@ -1251,7 +1266,7 @@ private:
     }
     int HandleChunkMetaWriteDone(int code, void *data);
     virtual ~ChunkInfoHandle() {
-        if (mWriteMetaOpsHead) {
+        if (! mWriteMetaOps.IsEmpty()) {
             // Object is the "client" of this op.
             die("attempt to delete chunk info handle "
                 "with meta data write in flight");
@@ -1274,7 +1289,7 @@ private:
             return;
         }
         if (mDeleteFlag || IsStale()) {
-            if (! mWriteMetaOpsHead) {
+            if (mWriteMetaOps.IsEmpty()) {
                 if (mReadableNotifyHead) {
                     WaitChunkReadableDone(
                         (IsStale() || ! IsChunkReadable()) ? -EIO : 0);
@@ -1675,7 +1690,7 @@ ChunkInfoHandle::LruUpdate(ChunkInfoHandle::ChunkLists* chunkInfoLists)
     }
     lastIOTime = globalNetManager().Now();
     if (! mWriteAppenderOwnsFlag && ! mBeingReplicatedFlag &&
-            ! mWriteMetaOpsHead) {
+            mWriteMetaOps.IsEmpty()) {
         ChunkList::PushBack(chunkInfoLists[mChunkList], *this);
         assert(gChunkManager.IsInLru(*this));
     } else {
@@ -1930,7 +1945,7 @@ ChunkInfoHandle::WriteChunkMetadata(
     if ((chunkInfo.chunkVersion < 0 ||
             (targetVersion > 0 && chunkInfo.chunkVersion != targetVersion)) &&
             mWritesInFlight <= 0 &&
-            ! IsStable() && ! stableFlag && ! mWriteMetaOpsTail &&
+            ! IsStable() && ! stableFlag && mWriteMetaOps.IsEmpty() &&
             ! mInDoneHandlerFlag && IsFileOpen() &&
             ! mDeleteFlag && ! IsStale()) {
         mMetaDirtyFlag         = true;
@@ -1966,7 +1981,7 @@ ChunkInfoHandle::WriteChunkMetadata(
             if (! cb) {
                 return 0;
             }
-            if (! mWriteMetaOpsTail) {
+            if (mWriteMetaOps.IsEmpty()) {
                 assert(mRenamesInFlight <= 0);
                 int res = 0;
                 cb->HandleEvent(EVENT_DISK_WROTE, &res);
@@ -1982,7 +1997,7 @@ ChunkInfoHandle::WriteChunkMetadata(
             mMetaDirtyFlag = false;
         } else {
             // Add to pending meta op to completion queue.
-            assert(mWriteMetaOpsTail);
+            assert(! mWriteMetaOps.IsEmpty());
         }
     }
     WriteChunkMetaOp* const wcm = new WriteChunkMetaOp(chunkInfo.chunkId,
@@ -2012,26 +2027,20 @@ ChunkInfoHandle::WriteChunkMetadata(
         mRenamesInFlight++;
         assert(mRenamesInFlight > 0);
     }
-    if (mWriteMetaOpsTail) {
-        assert(mWriteMetaOpsHead);
-        while (mWriteMetaOpsTail->next) {
-            mWriteMetaOpsTail = mWriteMetaOpsTail->next;
-        }
-        mWriteMetaOpsTail->next = wcm;
-        mWriteMetaOpsTail = wcm;
+    const bool wasEmptyFlag = mWriteMetaOps.IsEmpty();
+    mWriteMetaOps.PushBack(*wcm);
+    if (! wasEmptyFlag) {
         return 0;
     }
-    assert(! mWriteMetaOpsHead);
-    mWriteMetaOpsHead = wcm;
-    mWriteMetaOpsTail = wcm;
-    if (mWritesInFlight > 0) {
+    if (0 < mWritesInFlight) {
         mWaitForWritesInFlightFlag = true;
         return 0;
     }
     const int res = wcm->Start(this);
     if (res < 0) {
-        mWriteMetaOpsHead = 0;
-        mWriteMetaOpsTail = 0;
+        if (mWriteMetaOps.PopFront() != wcm) {
+            die("invalid write meta queue"); 
+        }
         delete wcm;
     }
     return (res >= 0 ? 0 : res);
@@ -2048,28 +2057,28 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
     void*   data = dataIn;
     // Do not rely on compiler to unroll tail recursion, use loop.
     for (; ;) {
-        assert(mWriteMetaOpsHead);
+        assert(! mWriteMetaOps.IsEmpty());
         int status = data ? *reinterpret_cast<const int*>(data) : -EIO;
         if (code == EVENT_DISK_ERROR && status >= 0) {
             status = -EIO;
         }
         if ((! mDeleteFlag && ! IsStale()) && status < 0) {
-            KFS_LOG_STREAM_ERROR << mWriteMetaOpsHead->Show() <<
+            KFS_LOG_STREAM_ERROR << mWriteMetaOps.Front()->Show() <<
                 " failed: status: " << status <<
-                " op: status: "     << mWriteMetaOpsHead->status <<
-                " msg: "            << mWriteMetaOpsHead->statusMsg <<
+                " op: status: "     << mWriteMetaOps.Front()->status <<
+                " msg: "            << mWriteMetaOps.Front()->statusMsg <<
             KFS_LOG_EOM;
             if (! mBeingReplicatedFlag) {
                 gChunkManager.ChunkIOFailed(this, status);
             }
         }
-        if (0 <= mWriteMetaOpsHead->status) {
-            mWriteMetaOpsHead->status = status;
+        if (0 <= mWriteMetaOps.Front()->status) {
+            mWriteMetaOps.Front()->status = status;
         }
-        if (mWriteMetaOpsHead->renameFlag) {
+        if (mWriteMetaOps.Front()->renameFlag) {
             assert(0 < mRenamesInFlight);
             mRenamesInFlight--;
-            if (mWriteMetaOpsHead->status == 0) {
+            if (mWriteMetaOps.Front()->status == 0) {
                 if (code != EVENT_DISK_RENAME_DONE) {
                     ostringstream os;
                     os << "chunk meta write completion:"
@@ -2077,10 +2086,10 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
                     die(os.str());
                 }
                 const bool updateFlag =
-                    mWriteMetaOpsHead->stableFlag != mStableFlag &&
+                    mWriteMetaOps.Front()->stableFlag != mStableFlag &&
                     IsFileOpen();
-                mStableFlag = mWriteMetaOpsHead->stableFlag;
-                chunkInfo.chunkVersion = mWriteMetaOpsHead->targetVersion;
+                mStableFlag = mWriteMetaOps.Front()->stableFlag;
+                chunkInfo.chunkVersion = mWriteMetaOps.Front()->targetVersion;
                 if (updateFlag) {
                     UpdateDirStableCount();
                 }
@@ -2092,20 +2101,16 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
         } else {
             const int64_t nowUsec = microseconds();
             WriteStats(status, ChunkHeaderBuffer::GetSize(),
-                max(int64_t(0), nowUsec - mWriteMetaOpsHead->diskIOTime));
-            mWriteMetaOpsHead->diskIOTime = nowUsec;
+                max(int64_t(0), nowUsec - mWriteMetaOps.Front()->diskIOTime));
+            mWriteMetaOps.Front()->diskIOTime = nowUsec;
         }
-        WriteChunkMetaOp* const cur = mWriteMetaOpsHead;
-        mWriteMetaOpsHead = cur->next;
-        const bool doneFlag = ! mWriteMetaOpsHead;
-        if (doneFlag) {
-            mWriteMetaOpsTail = 0;
-        }
+        WriteChunkMetaOp* const cur = mWriteMetaOps.PopFront();
+        const bool doneFlag = mWriteMetaOps.IsEmpty();
         cur->HandleEvent(code, data);
         if (doneFlag) {
             break;
         }
-        if (mWriteMetaOpsHead->IsWaiting()) {
+        if (mWriteMetaOps.Front()->IsWaiting()) {
             // Call the completion, this op was waiting for the one that
             // just completed.
             continue;
@@ -2118,13 +2123,13 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
             err = -EBADF;
         } else if (status < 0) {
             err = status;
-        } else if (mWriteMetaOpsHead->renameFlag &&
-                ! mWriteMetaOpsHead->IsRenameNeeded(this)) {
+        } else if (mWriteMetaOps.Front()->renameFlag &&
+                ! mWriteMetaOps.Front()->IsRenameNeeded(this)) {
             res  = 0;
             data = &res;
             code = EVENT_DISK_RENAME_DONE;
             continue;
-        } else if (0 <= (err = mWriteMetaOpsHead->Start(this))) {
+        } else if (0 <= (err = mWriteMetaOps.Front()->Start(this))) {
             break;
         }
         data = &err;
