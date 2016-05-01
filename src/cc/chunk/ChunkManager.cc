@@ -881,8 +881,7 @@ public:
           mWritesInFlight(0),
           mPendingSpaceReservationSize(0),
           mWriteMetaOps(),
-          mReadableNotifyHead(0),
-          mReadableNotifyTail(0),
+          mReadableNotify(),
           mChunkDir(chunkdir)
     {
         ChunkList::Init(*this);
@@ -1112,7 +1111,10 @@ public:
         }
         WaitChunkReadableDone(-EIO);
         if (op) {
-            mReadableNotifyTail = op;
+            if (! mReadableNotify.IsEmpty()) {
+                die("non empty readable notify");
+            }
+            mReadableNotify.PushBack(*op);
         }
     }
     KfsOp* DetachStaleDeleteCompletionOp()
@@ -1120,8 +1122,10 @@ public:
         if (! IsStale()) {
             return 0;
         }
-        KfsOp* const op = mReadableNotifyTail;
-        mReadableNotifyTail = 0;
+        KfsOp* const op = mReadableNotify.PopFront();
+        if (! mReadableNotify.IsEmpty()) {
+            die("detach stale completion non empty readable notify");
+        }
         return op;
     }
     void UpdateStale(ChunkLists* chunkInfoLists) {
@@ -1179,16 +1183,11 @@ public:
         }
     }
     void AddWaitChunkReadable(KfsOp* op) {
-        if (! op || op->next != 0) {
+        if (! op) {
             die("invalid AddWaitChunkReadable invocation");
             return;
         }
-        if (mReadableNotifyTail) {
-            mReadableNotifyTail->next = op;
-        } else {
-            mReadableNotifyHead = op;
-        }
-        mReadableNotifyTail = op;
+        mReadableNotify.PushBack(*op);
         if (IsChunkReadable()) {
             WaitChunkReadableDone(IsStale() ? -EIO : 0);
         }
@@ -1216,6 +1215,10 @@ private:
         WriteChunkMetaOp,
         WriteChunkMetaOp::GetNext
     > WriteMetaOps;
+    typedef SingleLinkedQueue<
+        KfsOp,
+        KfsOp::GetNext
+    > ReadableNotify;
 
     bool                        mBeingReplicatedFlag:1;
     bool                        mDeleteFlag:1;
@@ -1237,8 +1240,7 @@ private:
     int                         mWritesInFlight;
     int                         mPendingSpaceReservationSize;
     WriteMetaOps                mWriteMetaOps;
-    KfsOp*                      mReadableNotifyHead;
-    KfsOp*                      mReadableNotifyTail;
+    ReadableNotify              mReadableNotify;
     ChunkDirInfo&               mChunkDir;
     ChunkInfoHandle*            mPrevPtr[ChunkManager::kChunkInfoAllListCount];
     ChunkInfoHandle*            mNextPtr[ChunkManager::kChunkInfoAllListCount];
@@ -1276,7 +1278,7 @@ private:
             int res = -EIO;
             op->HandleEvent(EVENT_DISK_ERROR, &res);
         }
-        if (mReadableNotifyHead) {
+        if (! mReadableNotify.IsEmpty()) {
             WaitChunkReadableDone(
                 (IsStale() || ! IsChunkReadable()) ? -EIO : 0);
         }
@@ -1290,7 +1292,7 @@ private:
         }
         if (mDeleteFlag || IsStale()) {
             if (mWriteMetaOps.IsEmpty()) {
-                if (mReadableNotifyHead) {
+                if (! mReadableNotify.IsEmpty()) {
                     WaitChunkReadableDone(
                         (IsStale() || ! IsChunkReadable()) ? -EIO : 0);
                 }
@@ -1302,21 +1304,16 @@ private:
             }
         } else {
             gChunkManager.LruUpdate(*this);
-            if (mReadableNotifyHead && IsChunkReadable()) {
+            if (! mReadableNotify.IsEmpty() && IsChunkReadable()) {
                 WaitChunkReadableDone();
             }
         }
     }
-    void WaitChunkReadableDone(
-        int status = 0)
-    {
-        KfsOp* cur = mReadableNotifyHead;
-        mReadableNotifyHead = 0;
-        mReadableNotifyTail = 0;
-        while (cur) {
-            KfsOp* const op = cur;
-            cur = cur->next;
-            op->next = 0;
+    void WaitChunkReadableDone(int status = 0) {
+        ReadableNotify notify;
+        notify.PushBack(mReadableNotify);
+        KfsOp* op;
+        while ((op = notify.PopFront())) {
             int res = status;
             op->HandleEvent(EVENT_CMD_DONE, &res);
         }
@@ -2039,7 +2036,7 @@ ChunkInfoHandle::WriteChunkMetadata(
     const int res = wcm->Start(this);
     if (res < 0) {
         if (mWriteMetaOps.PopFront() != wcm) {
-            die("invalid write meta queue"); 
+            die("invalid write meta queue");
         }
         delete wcm;
     }
