@@ -1874,6 +1874,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     CIdChecksum        checksum;
     int64_t            timeUsec;
     bool               retireFlag;
+    int                maxPendingOpsCount;
     IOBuffer           responseBuf;
 
     MetaHello()
@@ -1925,6 +1926,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           checksum(),
           timeUsec(-1),
           retireFlag(false),
+          maxPendingOpsCount(128),
           responseBuf()
         {}
     virtual bool start();
@@ -2592,11 +2594,13 @@ struct MetaChunkSize: public MetaChunkRequest {
 struct MetaChunkHeartbeat: public MetaChunkRequest {
     int64_t evacuateCount;
     bool    reAuthenticateFlag;
+    int     maxPendingOpsCount;
     MetaChunkHeartbeat(seq_t n, const ChunkServerPtr& s,
-            int64_t evacuateCnt, bool reAuthFlag = false)
+            int64_t evacuateCnt, bool reAuthFlag, int maxPendingOpsCnt)
         : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, kLogNever, s, -1),
           evacuateCount(evacuateCnt),
-          reAuthenticateFlag(reAuthFlag)
+          reAuthenticateFlag(reAuthFlag),
+          maxPendingOpsCount(maxPendingOpsCnt)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const

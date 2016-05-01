@@ -875,6 +875,7 @@ struct ReplicateChunkOp : public KfsOp {
 struct HeartbeatOp : public KfsOp {
     int64_t           metaEvacuateCount; // input
     bool              authenticateFlag;
+    int               maxPendingOps;
     IOBuffer          response;
     string            cmdShow;
     bool              sendCurrentKeyFlag;
@@ -885,6 +886,7 @@ struct HeartbeatOp : public KfsOp {
         : KfsOp(CMD_HEARTBEAT),
           metaEvacuateCount(-1),
           authenticateFlag(false),
+          maxPendingOps(96),
           response(),
           cmdShow(),
           sendCurrentKeyFlag(false),
@@ -906,8 +908,9 @@ struct HeartbeatOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def2("Num-evacuate", "E", &HeartbeatOp::metaEvacuateCount, int64_t(-1))
-        .Def2("Authenticate", "A", &HeartbeatOp::authenticateFlag, false)
+        .Def2("Num-evacuate", "E",  &HeartbeatOp::metaEvacuateCount, int64_t(-1))
+        .Def2("Authenticate", "A",  &HeartbeatOp::authenticateFlag, false)
+        .Def2("Max-pending",  "MP", &HeartbeatOp::maxPendingOps, 96)
         ;
     }
 };

@@ -104,6 +104,7 @@ MetaServerSM::MetaServerSM()
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
       mGenerationCount(1),
+      mMaxPendingOpsCount(96),
       mCounters(),
       mIStream(),
       mWOStream()
@@ -581,6 +582,9 @@ MetaServerSM::HandleRequest(int code, void* data)
                 delete op;
             }
         }
+        if (! mPendingOps.IsEmpty()) {
+            DispatchOps();
+        }
         break;
 
     case EVENT_NET_ERROR:
@@ -834,8 +838,11 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                     kRpcFormatShort == mRpcFormat ? "DR": "Deleted-report",
                         mHelloOp->deletedCount);
                 mHelloOp->pendingNotifyFlag = prop.getValue(
-                    kRpcFormatShort == mRpcFormat? "PN" : "Pending-notify",
+                    kRpcFormatShort == mRpcFormat ? "PN" : "Pending-notify",
                     0) != 0;
+                mMaxPendingOpsCount = (size_t)max(1, prop.getValue(
+                    kRpcFormatShort == mRpcFormat ? "MP" : "Max-pending",
+                    96));
             } else {
                 mHelloOp->resumeStep = -1;
                 mSentHello    = false;
@@ -1029,12 +1036,13 @@ MetaServerSM::HandleCmd(IOBuffer& iobuf, int cmdLen)
         " seq: " << op->seq <<
         " "      << op->Show() <<
     KFS_LOG_EOM;
-    if (! mAuthOp && op->op == CMD_HEARTBEAT &&
-            static_cast<HeartbeatOp*>(op)->authenticateFlag) {
-        if (Authenticate() && ! IsUp()) {
+    if (! mAuthOp && CMD_HEARTBEAT == op->op) {
+        const HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
+        if (hb.authenticateFlag && Authenticate() && ! IsUp()) {
             delete op;
             return false;
         }
+        mMaxPendingOpsCount = (size_t)max(1, hb.maxPendingOps);
     }
     SubmitOp(op);
     return true;
@@ -1076,7 +1084,8 @@ void
 MetaServerSM::EnqueueOp(KfsOp* op)
 {
     op->seq = nextSeq();
-    if (! mAuthOp && mPendingOps.IsEmpty() && IsUp()) {
+    if (! mAuthOp && mPendingOps.IsEmpty() && IsUp() &&
+            mDispatchedOps.size() < mMaxPendingOpsCount) {
         if (! op->noReply &&
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
@@ -1160,18 +1169,20 @@ MetaServerSM::SendResponse(KfsOp* op)
 void
 MetaServerSM::DispatchOps()
 {
-    if (! IsUp() || mAuthOp) {
+    if (! IsUp() || mAuthOp || mPendingOps.IsEmpty()) {
         return;
     }
     OpsQueue doneOps;
     KfsOp*   op;
-    while ((op = mPendingOps.PopFront())) {
+    size_t   cnt = mDispatchedOps.size();
+    while (cnt < mMaxPendingOpsCount && (op = mPendingOps.PopFront())) {
         assert(CMD_META_HELLO != op->op);
         if (op->noReply) {
             doneOps.PushBack(*op);
         } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
         }
+        cnt++;
         Request(*op);
     }
     while ((op = doneOps.PopFront())) {

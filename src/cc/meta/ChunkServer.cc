@@ -269,7 +269,7 @@ int64_t ChunkServer::sHelloBytesCommitted = 0;
 int64_t ChunkServer::sHelloBytesInFlight  = 0;
 int64_t ChunkServer::sMaxHelloBufferBytes = 256 << 20;
 int ChunkServer::sMaxReadAhead = 4 << 10;
-int ChunkServer::sMaxPendingOpsCount = 196;
+int ChunkServer::sMaxPendingOpsCount = 128;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
 size_t ChunkServer::sChunkDirsCount = 0;
 
@@ -426,8 +426,10 @@ ChunkServer::HelloDone(const MetaHello* r)
         return;
     }
     mLastHeartbeatSent = TimeNow();
+    const bool kReauthenticateFlag = false;
     Enqueue(*(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
-            mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size())),
+            mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
+            kReauthenticateFlag, sMaxPendingOpsCount)),
         2 * sHeartbeatTimeout
     );
 }
@@ -1442,8 +1444,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 return DeclareHelloError(-EPERM, msg.c_str());
             }
         }
-        mHelloOp           = static_cast<MetaHello*>(op);
-        mHelloOp->authName = mAuthName;
+        mHelloOp = static_cast<MetaHello*>(op);
+        mHelloOp->maxPendingOpsCount = sMaxPendingOpsCount;
+        mHelloOp->authName           = mAuthName;
         if (mAuthName.empty() &&
                 gLayoutManager.GetCSAuthContext().IsAuthRequired()) {
             return DeclareHelloError(-EPERM, "authentication required");
@@ -2802,7 +2805,8 @@ ChunkServer::Heartbeat()
                 NextSeq(),
                 mSelfPtr,
                 mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
-                reAuthenticateFlag
+                reAuthenticateFlag,
+                sMaxPendingOpsCount
             )),
             2 * sHeartbeatTimeout
         );

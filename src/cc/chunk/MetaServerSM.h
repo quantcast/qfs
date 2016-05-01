@@ -237,6 +237,7 @@ private:
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
     uint64_t                      mGenerationCount;
+    size_t                        mMaxPendingOpsCount;
     PendingResponses              mPendingResponses;
     Counters                      mCounters;
     IOBuffer::IStream             mIStream;

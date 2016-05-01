@@ -4859,6 +4859,8 @@ MetaHello::response(ReqOstream& os, IOBuffer& buf)
     if (pendingNotifyFlag) {
         os << (shortRpcFormatFlag ? "PN:1" : "Pending-notify: 1") << "\r\n";
     }
+    os << (shortRpcFormatFlag ? "MP:" : "Max-pending: ") <<
+        maxPendingOpsCount << "\r\n";
     if (0 == resumeStep) {
         os <<
             (shortRpcFormatFlag ? "D:" : "Deleted: ") <<
@@ -5351,6 +5353,8 @@ MetaChunkHeartbeat::request(ReqOstream& os)
     }
     os << (shortRpcFormatFlag ? "E:" : "Num-evacuate: ") <<
         evacuateCount << "\r\n";
+    os << (shortRpcFormatFlag ? "MP:" : "Max-pending: ") <<
+        maxPendingOpsCount << "\r\n";
     if (reAuthenticateFlag) {
         os << (shortRpcFormatFlag ? "A:1\r\n" : "Authenticate: 1\r\n");
     }
