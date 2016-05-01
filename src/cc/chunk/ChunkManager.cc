@@ -5430,7 +5430,7 @@ ChunkManager::NotifyMetaChunksLost(
             }
         }
     }
-    if (gMetaServerSM.IsConnected()) {
+    if (gMetaServerSM.IsUp()) {
         CorruptChunkOp* const op = new CorruptChunkOp(-1, &dir.dirname);
         // Do not count as corrupt.
         op->isChunkLost = true;
@@ -6640,7 +6640,7 @@ ChunkManager::Timeout()
         GetFsSpaceAvailable();
         mNextGetFsSpaceAvailableTime = now + mGetFsSpaceAvailableIntervalSecs;
     }
-    if (mNextSendChunDirInfoTime < now && gMetaServerSM.IsConnected()) {
+    if (mNextSendChunDirInfoTime < now && gMetaServerSM.IsUp()) {
         SendChunkDirInfo();
         mNextSendChunDirInfoTime = now + mSendChunDirInfoIntervalSecs;
     }

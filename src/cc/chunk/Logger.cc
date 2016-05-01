@@ -42,14 +42,10 @@ Logger gLogger;
 void
 Logger::Submit(KfsOp *op)
 {
-    if (op->op == CMD_CHECKPOINT) {
-        delete op;
-        return;
-    }
     if (op->op == CMD_WRITE) {
         KFS::SubmitOpResponse(op);
     } else {
-        assert(op->clnt != NULL);
+        assert(op->clnt);
         op->clnt->HandleEvent(EVENT_CMD_DONE, op);
     }
 }
@@ -59,7 +55,7 @@ Logger::GetVersionFromCkpt()
 {
     const string lastCP(mLogDir + "/ckpt_latest");
     ifstream ifs(lastCP.c_str(), ifstream::in);
-    if (!ifs) {
+    if (! ifs) {
         return KFS_LOG_VERSION;
     }
 

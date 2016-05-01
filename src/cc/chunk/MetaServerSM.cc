@@ -380,7 +380,7 @@ MetaServerSM::SendHello()
             Error("get socket name error");
             return;
         }
-        // Paperover for cygwin / win 7 with no nics configured:
+        // Paper over for cygwin / win 7 with no nics configured:
         // check if getsockname returns INADDR_ANY, and retry if it does.
         // Moving this logic into TcpSocket isn't appropriate: INADDR_ANY is
         // valid for unconnected socket bound to INADDR_ANY.
@@ -865,7 +865,7 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
                             ++it) {
                         EnqueueOp(new CorruptChunkOp(-1, &(*it), false));
                     }
-                    ResubmitOps();
+                    DispatchOps();
                 }
                 return true;
             }
@@ -1176,17 +1176,6 @@ MetaServerSM::DispatchOps()
     }
     while ((op = doneOps.PopFront())) {
         SubmitOpResponse(op);
-    }
-}
-
-// After re-establishing connection to the server, resubmit the ops.
-void
-MetaServerSM::ResubmitOps()
-{
-    for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
-            it != mDispatchedOps.end();
-            ++it) {
-        Request(*(it->second));
     }
 }
 

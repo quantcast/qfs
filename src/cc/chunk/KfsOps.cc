@@ -422,14 +422,14 @@ FindPeer(
 }
 
 void
-SubmitOp(KfsOp *op)
+SubmitOp(KfsOp* op)
 {
     op->type = OP_REQUEST;
     op->Execute();
 }
 
 void
-SubmitOpResponse(KfsOp *op)
+SubmitOpResponse(KfsOp* op)
 {
     op->type = OP_RESPONSE;
     op->HandleEvent(EVENT_CMD_DONE, op);

@@ -270,8 +270,6 @@ private:
     /// Submit all the enqueued ops
     void DispatchOps();
 
-    /// We reconnected to the metaserver; so, resend all the pending ops.
-    void ResubmitOps();
     void Error(const char* msg);
     void FailOps(bool shutdownFlag);
     void HandleAuthResponse(IOBuffer& ioBuf);

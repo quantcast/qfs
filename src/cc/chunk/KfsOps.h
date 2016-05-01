@@ -122,7 +122,6 @@ enum KfsOp_t {
     CMD_STATS,
     CMD_DUMP_CHUNKMAP,
     // Internally generated ops
-    CMD_CHECKPOINT,
     CMD_WRITE,
     CMD_WRITE_CHUNKMETA, // write out the chunk meta-data
     CMD_READ_CHUNKMETA, // read out the chunk meta-data
@@ -2283,7 +2282,6 @@ struct CorruptChunkOp : public KfsOp {
     enum { kMaxChunkIds = 256 };
     kfsChunkId_t chunkIds[kMaxChunkIds];
     int          chunkCount;
-    // input: set if chunk was lost---happens when we disconnect from metaserver and miss messages
     bool         isChunkLost;
     bool         dirOkFlag;
     bool         notifyChunkManagerFlag;

@@ -268,10 +268,10 @@ int ChunkServer::sMinHelloWaitingBytes = 0;
 int64_t ChunkServer::sHelloBytesCommitted = 0;
 int64_t ChunkServer::sHelloBytesInFlight  = 0;
 int64_t ChunkServer::sMaxHelloBufferBytes = 256 << 20;
+int ChunkServer::sMaxReadAhead = 4 << 10;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
 size_t ChunkServer::sChunkDirsCount = 0;
 
-const int kMaxReadAhead             = 4 << 10;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
 const int kMaxRequestResponseHeader = 64 << 10;
 
@@ -333,6 +333,9 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sTimedoutExpireTime = max(2, prop.getValue(
         "metaServer.chunkServer.timedoutExpireTime",
         sTimedoutExpireTime));
+    sMaxReadAhead = max(1 << 10, prop.getValue(
+        "metaServer.chunkServer.maxReadAhead",
+        sMaxReadAhead));
     if (clientPort > 0) {
         sMetaClientPort = clientPort;
     }
@@ -612,7 +615,7 @@ ChunkServer::ChunkServer(
     ChunkServersList::PushBack(sChunkServersPtr, *this);
     SET_HANDLER(this, &ChunkServer::HandleRequest);
     mNetConnection->SetInactivityTimeout(sHeartbeatInterval);
-    mNetConnection->SetMaxReadAhead(kMaxReadAhead);
+    mNetConnection->SetMaxReadAhead(sMaxReadAhead);
     sChunkServerCount++;
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mCanBeCandidateServerFlags[i] = false;
@@ -1578,7 +1581,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 sHelloBytesInFlight += nAvail - mHelloOp->bytesReceived;
                 mHelloOp->bytesReceived = nAvail;
             }
-            mNetConnection->SetMaxReadAhead(max(kMaxReadAhead,
+            mNetConnection->SetMaxReadAhead(max(sMaxReadAhead,
                 mHelloOp->status == 0 ?
                     mHelloOp->contentLength - nAvail :
                     kMaxRequestResponseHeader
@@ -1764,7 +1767,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             make_pair(mHelloOp->location, mHelloOp)).second) {
         return DeclareHelloError(-EAGAIN, "hello is in progress");
     }
-    mNetConnection->SetMaxReadAhead(kMaxReadAhead);
+    mNetConnection->SetMaxReadAhead(sMaxReadAhead);
     mHelloOp->peerName        = GetPeerName();
     mHelloOp->clnt            = this;
     mHelloOp->server          = mSelfPtr;

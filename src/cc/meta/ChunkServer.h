@@ -1271,6 +1271,7 @@ protected:
     static int64_t          sHelloBytesInFlight;
     static int              sEvacuateRateUpdateInterval;
     static int              sTimedoutExpireTime;
+    static int              sMaxReadAhead;
     static size_t           sChunkDirsCount;
 
     friend class QCDLListOp<ChunkServer, 0>;
