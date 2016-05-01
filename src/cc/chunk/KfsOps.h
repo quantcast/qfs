@@ -272,6 +272,12 @@ struct KfsOp : public KfsCallbackObj
     private:
         const KfsOp& mOp;
     };
+    class GetNext
+    {
+    public:
+        static KfsOp*& Next(KfsOp& inReq)
+            { return inReq.next; }
+    };
 
     const KfsOp_t   op;
     OpType_t        type;
@@ -435,7 +441,7 @@ struct KfsClientChunkOp : public KfsOp
         return KfsOp::ParserDef(parser)
         .Def2("Chunk-handle",  "H", &KfsClientChunkOp::chunkId, kfsChunkId_t(-1))
         .Def2("C-access",      "C", &KfsClientChunkOp::chunkAccessVal)
-        .Def2("Subject-id",    "I", &KfsClientChunkOp::subjectId, int64_t(-1))
+        .Def2("Subject-id",    "I", &KfsClientChunkOp::subjectId,    int64_t(-1))
         .Def2("Chunk-version", "V", &KfsClientChunkOp::chunkVersion,  int64_t(0))
         ;
     }

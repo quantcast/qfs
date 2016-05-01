@@ -37,18 +37,20 @@
 #include "kfsio/NetConnection.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/ClientAuthContext.h"
+
 #include "common/StdAllocator.h"
+#include "common/SingleLinkedQueue.h"
 
 #include <map>
-#include <deque>
 #include <string>
 #include <inttypes.h>
 
 namespace KFS
 {
 using std::string;
-using std::deque;
 using std::map;
+using std::less;
+using std::pair;
 
 class MetaServerSMTimeoutImpl;
 class Properties;
@@ -155,14 +157,14 @@ public:
         return (mDispatchedOps.end() == it ? 0 : it->second);
     }
 private:
-    typedef deque<KfsOp*> OpsQueue;
-    typedef OpsQueue      PendingResponses;
-    typedef std::map<
+    typedef SingleLinkedQueue<KfsOp, KfsOp::GetNext> OpsQueue;
+    typedef OpsQueue                                 PendingResponses;
+    typedef map<
         kfsSeq_t,
         KfsOp*,
-        std::less<kfsSeq_t>,
+        less<kfsSeq_t>,
         StdFastAllocator<
-            std::pair<const kfsSeq_t, KfsOp*>
+            pair<const kfsSeq_t, KfsOp*>
         >
     > DispatchedOps;
 
@@ -204,7 +206,6 @@ private:
     /// dispatcher.  When the network dispatcher runs, it pulls ops
     /// from this queue and stashes them away in the dispatched list.
     OpsQueue mPendingOps;
-    OpsQueue mDispatchedNoReplyOps;
 
     /// ops that we have sent to metaserver and are waiting for reply.
     DispatchedOps mDispatchedOps;

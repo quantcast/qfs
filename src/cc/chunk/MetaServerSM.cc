@@ -79,7 +79,6 @@ MetaServerSM::MetaServerSM()
       mHelloOp(0),
       mAuthOp(0),
       mPendingOps(),
-      mDispatchedNoReplyOps(),
       mDispatchedOps(),
       mNetConnection(),
       mInactivityTimeout(65),
@@ -637,44 +636,39 @@ MetaServerSM::FailOps(bool shutdownFlag)
     OpsQueue doneOps;
     if (! shutdownFlag) {
         OpsQueue pendingOps;
-        pendingOps.swap(mPendingOps);
-        for (OpsQueue::const_iterator it = pendingOps.begin();
-                pendingOps.end() != it;
-                ++it) {
-            KfsOp* const op = *it;
+        pendingOps.PushBack(mPendingOps);
+        KfsOp* op;
+        while ((op = pendingOps.PopFront())) {
             if (op->noRetry) {
-                doneOps.push_back(op);
+                doneOps.PushBack(*op);
             } else {
-                mPendingOps.push_back(op);
+                mPendingOps.PushBack(*op);
             }
         }
     }
-    for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
-            it != mDispatchedOps.end();
+    for (DispatchedOps::const_reverse_iterator it = mDispatchedOps.rbegin();
+            it != mDispatchedOps.rend();
             ++it) {
         KfsOp* const op = it->second;
         if (op->noRetry || shutdownFlag) {
-            doneOps.push_back(op);
+            doneOps.PutFront(*op);
         } else {
             // Re-queue.
             op->seq = nextSeq();
-            mPendingOps.push_back(op);
+            mPendingOps.PutFront(*op);
         }
     }
     mDispatchedOps.clear();
     for (; ;) {
-        for (OpsQueue::const_iterator it = doneOps.begin();
-                it != doneOps.end();
-                ++it) {
-            KfsOp* const op = *it;
+        KfsOp* op;
+        while ((op = doneOps.PopFront())) {
             op->status = -EHOSTUNREACH;
             SubmitOpResponse(op);
         }
-        if (! shutdownFlag || mPendingOps.empty()) {
+        if (! shutdownFlag || mPendingOps.IsEmpty()) {
             break;
         }
-        doneOps.clear();
-        mPendingOps.swap(doneOps);
+        doneOps.PushBack(mPendingOps);
     }
 }
 
@@ -1082,7 +1076,7 @@ void
 MetaServerSM::EnqueueOp(KfsOp* op)
 {
     op->seq = nextSeq();
-    if (! mAuthOp && mPendingOps.empty() && IsUp()) {
+    if (! mAuthOp && mPendingOps.IsEmpty() && IsUp()) {
         if (! op->noReply &&
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
@@ -1093,7 +1087,7 @@ MetaServerSM::EnqueueOp(KfsOp* op)
         }
     } else {
         if (globalNetManager().IsRunning() && mLocation.IsValid()) {
-            mPendingOps.push_back(op);
+            mPendingOps.PushBack(*op);
         } else {
             op->status = -EHOSTUNREACH;
             SubmitOpResponse(op);
@@ -1131,11 +1125,10 @@ MetaServerSM::SendResponse(KfsOp* op)
         return true;
     }
     if (mAuthOp) {
-        mPendingResponses.push_back(op);
+        mPendingResponses.PushBack(*op);
         return false;
     }
-    // fire'n'forget.
-    if (op->op == CMD_ALLOC_CHUNK) {
+    if (CMD_ALLOC_CHUNK == op->op) {
         mCounters.mAllocCount++;
         if (op->status < 0) {
             mCounters.mAllocErrorCount++;
@@ -1167,22 +1160,21 @@ MetaServerSM::SendResponse(KfsOp* op)
 void
 MetaServerSM::DispatchOps()
 {
-    if (IsUp() || ! mAuthOp) {
-        while (! mPendingOps.empty()) {
-            KfsOp* const op = mPendingOps.front();
-            mPendingOps.pop_front();
-            assert(op->op != CMD_META_HELLO);
-            if (op->noReply) {
-                mDispatchedNoReplyOps.push_back(op);
-            } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
-                die("duplicate seq. number");
-            }
-            Request(*op);
-        }
+    if (! IsUp() || mAuthOp) {
+        return;
     }
-    while (! mDispatchedNoReplyOps.empty()) {
-        KfsOp* const op = mDispatchedNoReplyOps.front();
-        mDispatchedNoReplyOps.pop_front();
+    OpsQueue doneOps;
+    KfsOp*   op;
+    while ((op = mPendingOps.PopFront())) {
+        assert(CMD_META_HELLO != op->op);
+        if (op->noReply) {
+            doneOps.PushBack(*op);
+        } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
+            die("duplicate seq. number");
+        }
+        Request(*op);
+    }
+    while ((op = doneOps.PopFront())) {
         SubmitOpResponse(op);
     }
 }
@@ -1265,9 +1257,8 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
         return;
     }
     if (IsHandshakeDone()) {
-        while (! mPendingResponses.empty()) {
-            KfsOp* const op = mPendingResponses.front();
-            mPendingResponses.pop_front();
+        KfsOp* op;
+        while ((op = mPendingResponses.PopFront())) {
             if (! SendResponse(op)) {
                 die("invalid send response completion");
                 Error("internal error");
@@ -1275,7 +1266,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
             }
             delete op;
         }
-        if (! mPendingOps.empty()) {
+        if (! mPendingOps.IsEmpty()) {
             globalNetManager().Wakeup();
         }
         return;
@@ -1285,7 +1276,7 @@ MetaServerSM::HandleAuthResponse(IOBuffer& ioBuf)
         Error("internal error");
         return;
     }
-    if (! mPendingResponses.empty()) {
+    if (! mPendingResponses.IsEmpty()) {
         die("non empty pending responses");
         DiscardPendingResponses();
     }
@@ -1317,9 +1308,8 @@ MetaServerSM::SubmitHello()
 void
 MetaServerSM::DiscardPendingResponses()
 {
-    while (! mPendingResponses.empty()) {
-        KfsOp* const op = mPendingResponses.front();
-        mPendingResponses.pop_front();
+    KfsOp* op;
+    while ((op = mPendingResponses.PopFront())) {
         delete op;
     }
 }
