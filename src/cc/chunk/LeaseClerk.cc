@@ -334,8 +334,7 @@ LeaseClerk::Timeout()
             " lease: "      << lease.leaseId <<
             " expires in: " << (lease.expires - now) << " sec" <<
         KFS_LOG_EOM;
-        op->noRetry = true;
-        op->clnt    = this;
+        op->clnt = this;
         lease.leaseRenewSent = true;
         gMetaServerSM.EnqueueOp(op);
     }
@@ -376,7 +375,6 @@ LeaseClerk::RelinquishLease(kfsChunkId_t chunkId, int64_t chunkVersion,
         " size: "       << size <<
         " checksum: "   << (hasChecksum ? int64_t(checksum) : int64_t(-1)) <<
     KFS_LOG_EOM;
-    op->noRetry       = true; // On disconnect meta server expires write leases.
     op->hasChecksum   = hasChecksum;
     op->chunkChecksum = checksum;
     op->chunkSize     = size;

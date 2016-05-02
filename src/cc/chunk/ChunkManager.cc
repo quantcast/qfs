@@ -494,7 +494,6 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
               mLastWriteCounters()
         {
             noReply = true;
-            noRetry = true;
             SET_HANDLER(this, &ChunkDirInfoOp::HandleDone);
         }
         virtual ~ChunkDirInfoOp()
@@ -1546,8 +1545,6 @@ ChunkManager::ScheduleNotifyLostChunk()
             ! gMetaServerSM.IsUp()) {
         return false;
     }
-    mCorruptChunkOp.noReply     = false;
-    mCorruptChunkOp.noRetry     = true;
     mCorruptChunkOp.isChunkLost = true;
     mPendingNotifyLostChunks->First();
     const PendingNotifyLostChunks::Entry* p;
@@ -6310,8 +6307,6 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
             cur ? *cur : *(new AvailableChunksOp(&mHelloNotifyCb));
         cur = 0;
         op.helloFlag = true;
-        op.noRetry   = true;
-        op.noReply   = false;
         ChunkInfoHandle* cih;
         while (op.numChunks < AvailableChunksOp::kMaxChunkIds &&
                 (cih = ChunkHelloNotifyList::PopFront(mChunkInfoHelloNotifyList))) {
@@ -7539,7 +7534,6 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
     }
     if (gMetaServerSM.IsUp()) {
         availableChunksOp.noReply = false;
-        availableChunksOp.noRetry = true;
         if (notifyAvailableChunksStartFlag) {
             notifyAvailableChunksStartFlag = false;
             availableChunksOp.status = 0;
@@ -7672,7 +7666,6 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
         // gets established and chunk server hello completes
         availableChunksOp.numChunks = 0;
         availableChunksOp.noReply   = true;
-        availableChunksOp.noRetry   = true;
     }
     if (timeoutPendingFlag) {
         timeoutPendingFlag = false;

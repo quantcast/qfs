@@ -638,31 +638,13 @@ MetaServerSM::FailOps(bool shutdownFlag)
 {
     // Fail all no retry ops, if any, or all ops on shutdown.
     OpsQueue doneOps;
-    if (! shutdownFlag) {
-        OpsQueue pendingOps;
-        pendingOps.PushBack(mPendingOps);
-        KfsOp* op;
-        while ((op = pendingOps.PopFront())) {
-            if (op->noRetry) {
-                doneOps.PushBack(*op);
-            } else {
-                mPendingOps.PushBack(*op);
-            }
-        }
-    }
-    for (DispatchedOps::const_reverse_iterator it = mDispatchedOps.rbegin();
-            it != mDispatchedOps.rend();
+    for (DispatchedOps::const_iterator it = mDispatchedOps.begin();
+            it != mDispatchedOps.end();
             ++it) {
-        KfsOp* const op = it->second;
-        if (op->noRetry || shutdownFlag) {
-            doneOps.PutFront(*op);
-        } else {
-            // Re-queue.
-            op->seq = nextSeq();
-            mPendingOps.PutFront(*op);
-        }
+        doneOps.PushBack(*(it->second));
     }
     mDispatchedOps.clear();
+    doneOps.PushBack(mPendingOps);
     for (; ;) {
         KfsOp* op;
         while ((op = doneOps.PopFront())) {
@@ -1083,9 +1065,9 @@ MetaServerSM::Request(KfsOp& op)
 void
 MetaServerSM::EnqueueOp(KfsOp* op)
 {
-    op->seq = nextSeq();
     if (! mAuthOp && mPendingOps.IsEmpty() && IsUp() &&
             mDispatchedOps.size() < mMaxPendingOpsCount) {
+        op->seq = nextSeq();
         if (! op->noReply &&
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
@@ -1176,6 +1158,7 @@ MetaServerSM::DispatchOps()
     size_t   cnt = mDispatchedOps.size();
     while (cnt < mMaxPendingOpsCount && (op = mPendingOps.PopFront())) {
         assert(CMD_META_HELLO != op->op);
+        op->seq = nextSeq();
         if (op->noReply) {
             doneOps.PushBack(*op);
         } else if (! mDispatchedOps.insert(make_pair(op->seq, op)).second) {

@@ -285,7 +285,6 @@ struct KfsOp : public KfsCallbackObj
     bool            cancelled:1;
     bool            done:1;
     bool            noReply:1;
-    bool            noRetry:1;
     bool            clientSMFlag:1;
     bool            shortRpcFormatFlag:1;
     bool            initialShortRpcFormatFlag:1;
@@ -947,6 +946,11 @@ struct StaleChunksOp : public KfsOp {
             " availseq: "  << availChunksSeq <<
             " flush: "     << flushStaleQueueFlag
         ;
+        for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
+                staleChunkIds.end() != it;
+                ++it) {
+            os << ' ' << *it;
+        }
     }
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is);
@@ -2303,8 +2307,6 @@ struct CorruptChunkOp : public KfsOp {
         if (0 <= c) {
             chunkCount = 1;
         }
-        noReply = true;
-        noRetry = true;
         SET_HANDLER(this, &CorruptChunkOp::HandleDone);
     }
     void Request(ReqOstream& os);

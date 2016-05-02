@@ -610,7 +610,6 @@ KfsOp::KfsOp(KfsOp_t o)
       cancelled(false),
       done(false),
       noReply(false),
-      noRetry(false),
       clientSMFlag(false),
       shortRpcFormatFlag(false),
       initialShortRpcFormatFlag(false),
