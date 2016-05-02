@@ -2015,10 +2015,18 @@ struct PingOp : public KfsOp {
 
 // used to dump chunk map
 struct DumpChunkMapOp : public KfsOp {
+    IOBuffer response;
+
     DumpChunkMapOp()
-       : KfsOp(CMD_DUMP_CHUNKMAP)
+       : KfsOp(CMD_DUMP_CHUNKMAP),
+         response()
        {}
-    void Response(ReqOstream& os);
+    virtual void Response(ReqOstream& os);
+    virtual void ResponseContent(IOBuffer*& buf, int& size)
+    {
+        buf  = status >= 0 ? &response : 0;
+        size = buf ? response.BytesConsumable() : 0;
+    }
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {

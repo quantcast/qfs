@@ -57,7 +57,6 @@
 
 #include <algorithm>
 #include <iomanip>
-#include <iterator>
 #include <stdlib.h>
 
 #ifdef KFS_OS_NAME_SUNOS
@@ -68,8 +67,6 @@ namespace KFS {
 
 using std::map;
 using std::string;
-using std::ofstream;
-using std::ifstream;
 using std::ostringstream;
 using std::istream;
 using std::ostream;
@@ -77,8 +74,6 @@ using std::for_each;
 using std::vector;
 using std::min;
 using std::make_pair;
-using std::ostream_iterator;
-using std::copy;
 using std::hex;
 using std::dec;
 using std::max;
@@ -3163,10 +3158,15 @@ PingOp::Execute()
 void
 DumpChunkMapOp::Execute()
 {
-   // Dump chunk map
-   gChunkManager.DumpChunkMap();
-   status = 0;
-   gLogger.Submit(this);
+    // Dump chunk map
+    gChunkManager.DumpChunkMap();
+    response.Clear();
+    IOBuffer::WOStream cos;
+    cos.Set(response);
+    gChunkManager.DumpChunkMap(cos);
+    cos.Reset();
+    status = 0;
+    gLogger.Submit(this);
 }
 
 void
@@ -3684,15 +3684,10 @@ BeginMakeChunkStableOp::Response(ReqOstream& os)
 void
 DumpChunkMapOp::Response(ReqOstream& os)
 {
-    ostringstream v;
-    gChunkManager.DumpChunkMap(v);
     PutHeader(this, os) <<
     (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
-        v.str().length() << "\r\n"
+        response.BytesConsumable() << "\r\n"
     "\r\n";
-    if (v.str().length() > 0) {
-       os << v.str();
-    }
 }
 
 void
