@@ -541,6 +541,9 @@ MetaServerSM::HandleRequest(int code, void* data)
                 Error("protocol parse error");
                 break;
             }
+            if (! mPendingOps.IsEmpty()) {
+                DispatchOps();
+            }
         }
         break;
 
@@ -581,9 +584,6 @@ MetaServerSM::HandleRequest(int code, void* data)
             if (SendResponse(op)) {
                 delete op;
             }
-        }
-        if (! mPendingOps.IsEmpty()) {
-            DispatchOps();
         }
         break;
 
