@@ -305,8 +305,8 @@ public:
         HelloMetaOp::LostChunkDirs* lostChunkDirs = 0,
         StorageTiersInfo* tiersInfo = 0,
         int64_t* devWaitAvgUsec = 0);
-    int64_t GetUsedSpace() const { return mUsedSpace; };
-    long GetNumChunks() const { return mChunkTable.GetSize(); };
+    int64_t GetUsedSpace() const { return mUsedSpace; }
+    long GetNumChunks() const { return mChunkTable.GetSize(); }
     long GetNumWritableChunks() const;
     long GetNumWritableObjects() const;
     long GetNumOpenObjects() const;
