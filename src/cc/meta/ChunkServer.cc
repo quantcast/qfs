@@ -1802,6 +1802,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     SetServerLocation(mHelloOp->location);
     mHelloOp->authUid = mAuthUid;
+    mNumChunks              = max(int64_t(0), mHelloOp->totalChunks);
     mMd5Sum                 = mHelloOp->md5sum;
     mHelloDoneCount         = mHelloOp->helloDoneCount;
     mHelloResumeCount       = mHelloOp->helloResumeCount;

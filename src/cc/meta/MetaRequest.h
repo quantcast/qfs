@@ -1867,6 +1867,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     bool               pendingNotifyFlag;
     int                resumeStep;
     int                bufferBytes;
+    int64_t            totalChunks;
     size_t             deletedCount;
     size_t             modifiedCount;
     size_t             chunkCount;
@@ -1919,6 +1920,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           pendingNotifyFlag(false),
           resumeStep(-1),
           bufferBytes(0),
+          totalChunks(0),
           deletedCount(0),
           modifiedCount(0),
           chunkCount(0),
@@ -1988,6 +1990,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def2("Num-resume-fail",              "RF", &MetaHello::helloResumeFailedCount          )
         .Def2("Num-re-replications",          "RR", &MetaHello::reReplicationCount              )
         .Def2("Pending-notify",               "PN", &MetaHello::pendingNotifyFlag,         false)
+        .Def2("Total-chunks",                 "TC", &MetaHello::totalChunks,          int64_t(0))
         ;
     }
 };
