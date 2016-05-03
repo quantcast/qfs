@@ -143,7 +143,7 @@ struct KfsOp {
         const KfsOp& mOp;
     };
 
-    KfsOp_t       op;
+    KfsOp_t const op;
     kfsSeq_t      seq;
     int32_t       status;
     int           lastError;
@@ -968,27 +968,48 @@ struct AllocateOp : public KfsOp {
     string                 chunkAccess;
     string                 chunkServerAccessToken;
     CryptoKeys::Key        chunkServerAccessKey;
-    AllocateOp(kfsSeq_t s, kfsFileId_t f, const string &p) :
-        KfsOp(CMD_ALLOCATE, s),
-        fid(f),
-        fileOffset(0),
-        pathname(p),
-        chunkId(-1),
-        chunkVersion(-1),
-        chunkServers(),
-        append(false),
-        spaceReservationSize(1 << 20),
-        maxAppendersPerChunk(64),
-        invalidateAllFlag(false),
-        allowCSClearTextFlag(false),
-        allCSShortRpcFlag(false),
-        chunkLeaseDuration(-1),
-        chunkServerAccessValidForTime(0),
-        chunkServerAccessIssuedTime(0),
-        chunkAccess(),
-        chunkServerAccessToken(),
-        chunkServerAccessKey()
+    AllocateOp(kfsSeq_t s, kfsFileId_t f, const string& p)
+        : KfsOp(CMD_ALLOCATE, s),
+          fid(f),
+          fileOffset(0),
+          pathname(p),
+          chunkId(-1),
+          chunkVersion(-1),
+          chunkServers(),
+          append(false),
+          spaceReservationSize(1 << 20),
+          maxAppendersPerChunk(64),
+          invalidateAllFlag(false),
+          allowCSClearTextFlag(false),
+          allCSShortRpcFlag(false),
+          chunkLeaseDuration(-1),
+          chunkServerAccessValidForTime(0),
+          chunkServerAccessIssuedTime(0),
+          chunkAccess(),
+          chunkServerAccessToken(),
+          chunkServerAccessKey()
         {}
+    void Reset(kfsFileId_t f, const string& p)
+    {
+        fid                           = f;
+        fileOffset                    = 0;
+        pathname                      = p;
+        chunkId                       = -1,
+        chunkVersion                  = -1,
+        chunkServers.clear();
+        append                        = false;
+        spaceReservationSize          = 1 << 20;
+        maxAppendersPerChunk          = 64;
+        invalidateAllFlag             = false;
+        allowCSClearTextFlag          = false;
+        allCSShortRpcFlag             = false;
+        chunkLeaseDuration            = -1;
+        chunkServerAccessValidForTime = 0;
+        chunkServerAccessIssuedTime   = 0;
+        chunkAccess.clear();
+        chunkServerAccessToken.clear();
+        chunkServerAccessKey          = CryptoKeys::Key();
+    }
     void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {

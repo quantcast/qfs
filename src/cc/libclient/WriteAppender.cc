@@ -879,7 +879,7 @@ private:
         } else {
             theOffset = -1;
         }
-        mAllocOp = AllocateOp(0, mLookupOp.fattr.fileId, mPathName);
+        mAllocOp.Reset(mLookupOp.fattr.fileId, mPathName);
         mAllocOp.append               = true;
         mAllocOp.chunkId              = 0;
         mAllocOp.fileOffset           = theOffset;
