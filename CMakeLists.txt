@@ -186,7 +186,7 @@ if(FUSE_FOUND)
 endif()
 
 add_custom_target (
-    rat ALL COMMAND ../../scripts/rat.sh ../..
+    rat ../../scripts/rat.sh ../..
     COMMENT "Running license release audit tool (rat)"
     VERBATIM
 )
