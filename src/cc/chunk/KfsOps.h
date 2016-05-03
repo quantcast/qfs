@@ -320,7 +320,7 @@ struct KfsOp : public KfsCallbackObj
     Display Show() const { return Display(*this); }
     // If the execution of an op suspends and then resumes and
     // finishes, this method should be invoked to signify completion.
-    virtual int HandleDone(int code, void *data);
+    virtual int HandleDone(int code, void* data);
     virtual int GetContentLength() const { return 0; }
     virtual bool ParseContent(istream& is) { return true; }
     virtual bool ParseResponse(
@@ -525,8 +525,8 @@ struct AllocChunkOp : public KfsOp {
         {}
     void Execute();
     // handlers for reading/writing out the chunk meta-data
-    int HandleChunkMetaReadDone(int code, void *data);
-    int HandleChunkAllocDone(int code, void *data);
+    int HandleChunkMetaReadDone(int code, void* data);
+    int HandleChunkAllocDone(int code, void* data);
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is)
     {
@@ -629,8 +629,8 @@ struct MakeChunkStableOp : public KfsOp {
           checksumVal()
         {}
     void Execute();
-    int HandleChunkMetaReadDone(int code, void *data);
-    int HandleMakeStableDone(int code, void *data);
+    int HandleChunkMetaReadDone(int code, void* data);
+    int HandleMakeStableDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "make-chunk-stable:"
@@ -678,8 +678,8 @@ struct ChangeChunkVersOp : public KfsOp {
         {}
     void Execute();
     // handler for reading in the chunk meta-data
-    int HandleChunkMetaReadDone(int code, void *data);
-    int HandleChunkMetaWriteDone(int code, void *data);
+    int HandleChunkMetaReadDone(int code, void* data);
+    int HandleChunkMetaWriteDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "change-chunk-vers:"
@@ -747,8 +747,8 @@ struct TruncateChunkOp : public KfsOp {
         {}
     void Execute();
     // handler for reading in the chunk meta-data
-    int HandleChunkMetaReadDone(int code, void *data);
-    int HandleChunkMetaWriteDone(int code, void *data);
+    int HandleChunkMetaReadDone(int code, void* data);
+    int HandleChunkMetaWriteDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "truncate-chunk:"
@@ -1059,7 +1059,7 @@ struct CloseOp : public KfsClientChunkOp {
         const ServerLocation& loc,
         bool                  wrtieMasterFlag,
         bool                  allowCSClearTextFlag);
-    int HandlePeerReply(int code, void *data);
+    int HandlePeerReply(int code, void* data);
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsClientChunkOp::ParserDef(parser)
@@ -1288,8 +1288,8 @@ struct WriteIdAllocOp : public ChunkAccessRequestOp {
         const ServerLocation& loc,
         bool                  wrtieMasterFlag,
         bool                  allowCSClearTextFlag);
-    int HandlePeerReply(int code, void *data);
-    int Done(int code, void *data);
+    int HandlePeerReply(int code, void* data);
+    int Done(int code, void* data);
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
         const Properties::String* const wids = props.getValue(
@@ -1390,7 +1390,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
         const ServerLocation& loc,
         bool                  wrtieMasterFlag,
         bool                  allowCSClearTextFlag);
-    int Done(int code, void *data);
+    int Done(int code, void* data);
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
     {
@@ -1534,8 +1534,8 @@ struct WriteOp : public KfsOp {
     // for record appends, this handler will be called back; on the
     // callback, notify the atomic record appender of
     // completion status
-    int HandleRecordAppendDone(int code, void *data);
-    int HandleWriteDone(int code, void *data);
+    int HandleRecordAppendDone(int code, void* data);
+    int HandleWriteDone(int code, void* data);
 
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -1605,7 +1605,7 @@ struct WriteSyncOp : public ChunkAccessRequestOp {
         const ServerLocation& loc,
         bool                  wrtieMasterFlag,
         bool                  allowCSClearTextFlag);
-    int Done(int code, void *data);
+    int Done(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -1669,7 +1669,7 @@ struct ReadChunkMetaOp : public KfsOp {
     }
     // Update internal data structures and then notify the waiting op
     // that read of meta-data is done.
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
 };
 
 struct GetChunkMetadataOp;
@@ -1747,13 +1747,13 @@ struct ReadOp : public KfsClientChunkOp {
         size = buf ? numBytesIO : 0;
     }
     void Execute();
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
     // handler for reading in the chunk meta-data
-    int HandleChunkMetaReadDone(int code, void *data);
+    int HandleChunkMetaReadDone(int code, void* data);
     // handler for dealing with re-replication events
     void VerifyReply();
-    int HandleReplicatorDone(int code, void *data);
-    int HandleScrubReadDone(int code, void *data);
+    int HandleReplicatorDone(int code, void* data);
+    int HandleScrubReadDone(int code, void* data);
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
@@ -1821,7 +1821,7 @@ struct SizeOp : public KfsClientChunkOp {
             " size: "    << size
         ;
     }
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
     virtual bool ParseResponse(const Properties& props, IOBuffer& /* iobuf */)
     {
         size = props.getValue(shortRpcFormatFlag ? "S" : "Size", int64_t(-1));
@@ -1936,12 +1936,12 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
         {}
     void Execute();
     // handler for reading in the chunk meta-data
-    int HandleChunkMetaReadDone(int code, void *data);
+    int HandleChunkMetaReadDone(int code, void* data);
 
     // We scrub the chunk 1MB at a time and validate checksums; once
     // the chunk is fully scrubbed and checksums are good, we return
     // the values to the client
-    int HandleScrubReadDone(int code, void *data);
+    int HandleScrubReadDone(int code, void* data);
 
     void Request(ReqOstream& os);
     void Response(ReqOstream& os);
@@ -1958,7 +1958,7 @@ struct GetChunkMetadataOp : public KfsClientChunkOp {
             " version: " << chunkVersion
         ;
     }
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
     virtual bool IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId) {
         outChunkId  = chunkId;
         outNumBytes = readVerifyFlag ? kChunkReadSize : kChunkMetaReadSize;
@@ -2116,7 +2116,7 @@ struct LeaseRenewOp : public KfsOp {
     }
     void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2160,7 +2160,7 @@ struct LeaseRelinquishOp : public KfsOp {
     }
     void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2324,7 +2324,7 @@ struct CorruptChunkOp : public KfsOp {
     }
     void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
-    int HandleDone(int code, void *data);
+    int HandleDone(int code, void* data);
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2391,7 +2391,7 @@ struct EvacuateChunksOp : public KfsOp {
     }
     void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
-    int HandleDone(int code, void *data) {
+    int HandleDone(int code, void* data) {
         if (clnt) {
             return KfsOp::HandleDone(code, data);
         }
@@ -2428,7 +2428,7 @@ struct AvailableChunksOp : public KfsOp {
     }
     void Request(ReqOstream& os);
     // To be called whenever we get a reply from the server
-    int HandleDone(int code, void *data) {
+    int HandleDone(int code, void* data) {
         if (clnt) {
             return KfsOp::HandleDone(code, data);
         }

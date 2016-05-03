@@ -290,12 +290,12 @@ public:
         { return mBytesReserved; }
     bool WantsToKeepLease() const
         { return (IsMaster() && ! IsChunkStable()); }
-    void AllocateWriteId(WriteIdAllocOp *op, int replicationPos,
+    void AllocateWriteId(WriteIdAllocOp* op, int replicationPos,
         const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
     int  ChangeChunkSpaceReservaton(
         int64_t writeId, size_t nBytesIn, bool releaseFlag, string* errMsg);
     int  InvalidateWriteId(int64_t writeId, bool declareFailureFlag);
-    void AppendChunkBegin(RecordAppendOp *op, int replicationPos,
+    void AppendChunkBegin(RecordAppendOp* op, int replicationPos,
         const ServerLocation& peerLoc)
     {
         QCStMutexLocker lock(mMutex);
@@ -322,7 +322,7 @@ public:
             FlushFullBlocks();
         }
     }
-    int  EventHandler(int code, void *data);
+    int  EventHandler(int code, void* data);
     void DeleteChunk();
     bool Delete();
     bool IsOpen() const
@@ -475,7 +475,7 @@ private:
     }
     inline void SetCanDoLowOnBuffersFlushFlag(bool flag);
     void UpdateMasterCommittedOffset(int64_t masterCommittedOffset);
-    void AppendCommit(RecordAppendOp *op);
+    void AppendCommit(RecordAppendOp* op);
     // helper function that flushes the buffered data.  the input
     // argument specifies whether the flush on the buffered data
     // should be aligned to checksum blocks.
@@ -515,7 +515,7 @@ private:
     bool DeleteSelf();
     void BeginMakeStable(BeginMakeChunkStableOp* op = 0);
     void MakeChunkStable(MakeChunkStableOp* op = 0);
-    void AppendBegin(RecordAppendOp *op, int replicationPos,
+    void AppendBegin(RecordAppendOp* op, int replicationPos,
         const ServerLocation& peerLoc);
     bool IsMaster() const
         { return (mReplicationPos == 0); }
@@ -1819,7 +1819,7 @@ AtomicRecordAppender::OpDone(RecordAppendOp* op)
 }
 
 void
-AtomicRecordAppender::AppendCommit(RecordAppendOp *op)
+AtomicRecordAppender::AppendCommit(RecordAppendOp* op)
 {
     mLastActivityTime = Now();
     if (mState != kStateOpen) {
@@ -2578,7 +2578,7 @@ AtomicRecordAppender::OpDone(ReadOp* op)
 }
 
 void
-AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp *op /* = 0 */)
+AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp* op /* = 0 */)
 {
     mLastActivityTime = Now();
     if (op) {
@@ -2924,7 +2924,7 @@ AtomicRecordAppender::FlushSelf(bool flushFullChecksumBlocks)
 }
 
 void
-AtomicRecordAppender::OpDone(WriteOp *op)
+AtomicRecordAppender::OpDone(WriteOp* op)
 {
     assert(
         op->chunkId == mChunkId && mIoOpsInFlight > 0 &&

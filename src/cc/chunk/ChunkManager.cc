@@ -827,7 +827,7 @@ public:
     }
     // Notify the op that is waiting for the write to finish that all
     // is done
-    int HandleDone(int code, void *data)
+    int HandleDone(int code, void* data)
     {
         if (clnt) {
             clnt->HandleEvent(code, data);
@@ -1264,7 +1264,7 @@ private:
             mChunkDir.ChunkEvacuateDone();
         }
     }
-    int HandleChunkMetaWriteDone(int code, void *data);
+    int HandleChunkMetaWriteDone(int code, void* data);
     virtual ~ChunkInfoHandle() {
         if (! mWriteMetaOps.IsEmpty()) {
             // Object is the "client" of this op.

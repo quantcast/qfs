@@ -869,7 +869,7 @@ bool MakeChunkStableOp::Validate()
 /// it up and dispatch it.
 ///
 int
-KfsOp::HandleDone(int code, void *data)
+KfsOp::HandleDone(int code, void* data)
 {
     Submit();
     return 0;
@@ -880,7 +880,7 @@ KfsOp::HandleDone(int code, void *data)
 /// alongwith the data and notify the client.
 ///
 int
-ReadOp::HandleDone(int code, void *data)
+ReadOp::HandleDone(int code, void* data)
 {
     if (code == EVENT_DISK_ERROR) {
         UpdateStatus(code, data);
@@ -1003,7 +1003,7 @@ ReadOp::VerifyReply()
 }
 
 int
-ReadOp::HandleReplicatorDone(int code, void *data)
+ReadOp::HandleReplicatorDone(int code, void* data)
 {
     // notify the replicator object that the read it had submitted to
     // the peer has finished.
@@ -1011,7 +1011,7 @@ ReadOp::HandleReplicatorDone(int code, void *data)
 }
 
 int
-WriteOp::HandleRecordAppendDone(int code, void *data)
+WriteOp::HandleRecordAppendDone(int code, void* data)
 {
     gChunkManager.WriteDone(this);
     if (code == EVENT_DISK_ERROR) {
@@ -1034,7 +1034,7 @@ WriteOp::HandleRecordAppendDone(int code, void *data)
 }
 
 int
-ReadOp::HandleScrubReadDone(int code, void *data)
+ReadOp::HandleScrubReadDone(int code, void* data)
 {
     return scrubOp->HandleScrubReadDone(code, data);
 }
@@ -1053,7 +1053,7 @@ ReadOp::IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId)
 }
 
 int
-WriteOp::HandleWriteDone(int code, void *data)
+WriteOp::HandleWriteDone(int code, void* data)
 {
     gChunkManager.WriteDone(this);
     if (isFromReReplication) {
@@ -1435,7 +1435,7 @@ TruncateChunkOp::Execute()
 }
 
 int
-TruncateChunkOp::HandleChunkMetaReadDone(int code, void *data)
+TruncateChunkOp::HandleChunkMetaReadDone(int code, void* data)
 {
     if (status >= 0 && data) {
         status = *(int *) data;
@@ -1521,7 +1521,7 @@ MakeChunkStableOp::HandleChunkMetaReadDone(int code, void* data)
 }
 
 int
-MakeChunkStableOp::HandleMakeStableDone(int code, void *data)
+MakeChunkStableOp::HandleMakeStableDone(int code, void* data)
 {
     UpdateStatus(code, data);
     if (0 <= status && 0 <= chunkSize && chunkVersion  < 0) {
@@ -1586,7 +1586,7 @@ ChangeChunkVersOp::Execute()
 }
 
 int
-ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void *data)
+ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void* data)
 {
     if (status >= 0 && data) {
         status = *(int *) data;
@@ -2160,7 +2160,7 @@ ReadOp::Execute()
 }
 
 int
-ReadOp::HandleChunkMetaReadDone(int code, void *data)
+ReadOp::HandleChunkMetaReadDone(int code, void* data)
 {
     if (status >= 0 && data) {
         status = *(int *) data;
@@ -2341,7 +2341,7 @@ WriteIdAllocOp::ForwardToPeer(
 }
 
 int
-WriteIdAllocOp::HandlePeerReply(int code, void *data)
+WriteIdAllocOp::HandlePeerReply(int code, void* data)
 {
     assert(code == EVENT_CMD_DONE && data == fwdedOp);
 
@@ -2379,7 +2379,7 @@ WriteIdAllocOp::ReadChunkMetadata()
 }
 
 int
-WriteIdAllocOp::Done(int code, void *data)
+WriteIdAllocOp::Done(int code, void* data)
 {
     UpdateStatus(code, data);
     if (status != 0) {
@@ -2786,7 +2786,7 @@ WriteSyncOp::ForwardToPeer(
 }
 
 int
-WriteSyncOp::Done(int code, void *data)
+WriteSyncOp::Done(int code, void* data)
 {
     if (status >= 0 && fwdedOp && fwdedOp->status < 0) {
         status    = fwdedOp->status;
@@ -2992,7 +2992,7 @@ GetChunkMetadataOp::Execute()
 }
 
 int
-GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void *data)
+GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void* data)
 {
     if (status >= 0 && data) {
         status = *(int *) data;
@@ -3667,7 +3667,7 @@ StatsOp::Response(ReqOstream& os)
 ////////////////////////////////////////////////
 
 int
-SizeOp::HandleDone(int code, void *data)
+SizeOp::HandleDone(int code, void* data)
 {
     // notify the owning object that the op finished
     Submit();
@@ -3675,7 +3675,7 @@ SizeOp::HandleDone(int code, void *data)
 }
 
 int
-GetChunkMetadataOp::HandleDone(int code, void *data)
+GetChunkMetadataOp::HandleDone(int code, void* data)
 {
     // notify the owning object that the op finished
     Submit();
@@ -3702,7 +3702,7 @@ private:
 };
 
 int
-ReadChunkMetaOp::HandleDone(int code, void *data)
+ReadChunkMetaOp::HandleDone(int code, void* data)
 {
     IOBuffer* dataBuf = 0;
     if (code == EVENT_DISK_ERROR) {
