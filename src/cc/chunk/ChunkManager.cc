@@ -905,7 +905,7 @@ public:
             mWaitForWritesInFlightFlag = false;
             mWritesInFlight = 0;
             if (runHanlder) {
-                int res = -1;
+                int res = -EIO;
                 HandleEvent(EVENT_DISK_ERROR, &res);
             }
         } else {
@@ -2056,7 +2056,7 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
     for (; ;) {
         assert(! mWriteMetaOps.IsEmpty());
         int status = data ? *reinterpret_cast<const int*>(data) : -EIO;
-        if (code == EVENT_DISK_ERROR && status >= 0) {
+        if (EVENT_DISK_ERROR == code && 0 <= status) {
             status = -EIO;
         }
         if ((! mDeleteFlag && ! IsStale()) && status < 0) {
@@ -2076,7 +2076,7 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
             assert(0 < mRenamesInFlight);
             mRenamesInFlight--;
             if (mWriteMetaOps.Front()->status == 0) {
-                if (code != EVENT_DISK_RENAME_DONE) {
+                if (EVENT_DISK_RENAME_DONE != code) {
                     ostringstream os;
                     os << "chunk meta write completion:"
                         " unexpected event code: " << code;
@@ -3854,7 +3854,7 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
     }
     if (op->verifyStableFlag && stableFlag && targetVers == op->chunkVersion) {
         // Nothing to do, invoke successful completion.
-        int res = 0;
+        int64_t res = 0;
         op->HandleEvent(cih->IsRenameInFlight() ?
             EVENT_DISK_RENAME_DONE : EVENT_DISK_WROTE, &res);
         return 0;
@@ -6576,7 +6576,8 @@ ChunkManager::RunStaleChunksQueue(
             mFlushStaleChunksCount <= mDoneStaleChunksCount) {
         KfsOp* const op = mFlushStaleChunksOp;
         mFlushStaleChunksOp = 0;
-        op->HandleEvent(EVENT_DISK_DELETE_DONE, 0);
+        int64_t res = 0;
+        op->HandleEvent(EVENT_DISK_DELETE_DONE, &res);
     }
 }
 
@@ -6588,12 +6589,14 @@ ChunkManager::FlushStaleQueue(KfsOp& op)
     mFlushStaleChunksCount = mStaleChunksCount;
     if (cur && cur != mFlushStaleChunksOp) {
         // Submit previous op waiting.
-        cur->HandleEvent(EVENT_DISK_DELETE_DONE, 0);
+        int64_t res = 0;
+        cur->HandleEvent(EVENT_DISK_DELETE_DONE, &res);
     }
     if (mFlushStaleChunksCount <= mDoneStaleChunksCount) {
         KfsOp* const op = mFlushStaleChunksOp;
         mFlushStaleChunksOp = 0;
-        op->HandleEvent(EVENT_DISK_DELETE_DONE, 0);
+        int64_t res = 0;
+        op->HandleEvent(EVENT_DISK_DELETE_DONE, &res);
     }
     return 0;
 }

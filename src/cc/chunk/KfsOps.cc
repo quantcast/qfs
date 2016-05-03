@@ -895,19 +895,23 @@ ReadOp::HandleDone(int code, void* data)
                 chunkId, chunkVersion, status, diskIo.get());
         }
     } else if (code == EVENT_DISK_READ) {
-        assert(data);
-        IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
-        // Order matters...when we append b, we take the data from b
-        // and put it into our buffer.
-        dataBuf.Move(b);
-        // verify checksum
-        if (! gChunkManager.ReadChunkDone(this)) {
-            return 0; // Retry.
-        }
-        numBytesIO = dataBuf.BytesConsumable();
-        if (status == 0) {
-            // checksum verified
-            status = numBytesIO;
+        if (data) {
+            IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
+            // Order matters...when we append b, we take the data from b
+            // and put it into our buffer.
+            dataBuf.Move(b);
+            // verify checksum
+            if (! gChunkManager.ReadChunkDone(this)) {
+                return 0; // Retry.
+            }
+            numBytesIO = dataBuf.BytesConsumable();
+            if (status == 0) {
+                // checksum verified
+                status = numBytesIO;
+            }
+        } else {
+            die("read: invalid write event data");
+            status = -EFAULT;
         }
     }
 
@@ -1023,12 +1027,13 @@ WriteOp::HandleRecordAppendDone(int code, void* data)
             " status: "   << status <<
             " chunk: "    << chunkId <<
         KFS_LOG_EOM;
-    } else if (code == EVENT_DISK_WROTE) {
-        status = *(int *) data;
+    } else if (code == EVENT_DISK_WROTE && data) {
+        status = *reinterpret_cast<const int*>(data);
         numBytesIO = status;
         dataBuf.Consume(numBytesIO);
     } else {
-        die("unexpected event code");
+        die("write: unexpected event code or data");
+        status = -EFAULT;
     }
     return Submit();
 }
@@ -1058,11 +1063,19 @@ WriteOp::HandleWriteDone(int code, void* data)
     gChunkManager.WriteDone(this);
     if (isFromReReplication) {
         if (code == EVENT_DISK_WROTE) {
-            status = min(*(int *) data, int(numBytes));
-            numBytesIO = status;
-        }
-        else {
-            status = -1;
+            if (data) {
+                status = min(
+                    *reinterpret_cast<const int*>(data), int(numBytes));
+                numBytesIO = status;
+            } else {
+                die("write: invalid write event data");
+                status = -EFAULT;
+            }
+        } else {
+            UpdateStatus(code, data);
+            if (0 < status) {
+                status = -EIO;
+            }
         }
         return clnt->HandleEvent(code, this);
     }
@@ -1086,7 +1099,12 @@ WriteOp::HandleWriteDone(int code, void* data)
         wpop->HandleEvent(EVENT_CMD_DONE, this);
         return 0;
     } else if (code == EVENT_DISK_WROTE) {
-        status = *(int *) data;
+        if (data) {
+            status = *reinterpret_cast<const int*>(data);
+        } else {
+            die("write: invalid write event data");
+            status = -EFAULT;
+        }
         if (numBytesIO != status || status < (int)numBytes) {
             // write didn't do everything that was asked; we need to retry
             KFS_LOG_STREAM_INFO <<
@@ -1437,14 +1455,11 @@ TruncateChunkOp::Execute()
 int
 TruncateChunkOp::HandleChunkMetaReadDone(int code, void* data)
 {
-    if (status >= 0 && data) {
-        status = *(int *) data;
-    }
+    UpdateStatus(code, data);
     if (status < 0) {
         Submit();
         return 0;
     }
-
     status = gChunkManager.TruncateChunk(chunkId, chunkSize);
     if (status < 0) {
         Submit();
@@ -1588,9 +1603,7 @@ ChangeChunkVersOp::Execute()
 int
 ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void* data)
 {
-    if (status >= 0 && data) {
-        status = *(int *) data;
-    }
+    UpdateStatus(code, data);
     if (0 <= status && generation != gMetaServerSM.GetGenerationCount()) {
         status = -EAGAIN;
     }
@@ -2162,14 +2175,11 @@ ReadOp::Execute()
 int
 ReadOp::HandleChunkMetaReadDone(int code, void* data)
 {
-    if (status >= 0 && data) {
-        status = *(int *) data;
-    }
+    UpdateStatus(code, data);
     if (status < 0) {
         Submit();
         return 0;
     }
-
     SET_HANDLER(this, &ReadOp::HandleDone);
     status = gChunkManager.ReadChunk(this);
 
@@ -2994,9 +3004,7 @@ GetChunkMetadataOp::Execute()
 int
 GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void* data)
 {
-    if (status >= 0 && data) {
-        status = *(int *) data;
-    }
+    UpdateStatus(code, data);
     if (status < 0) {
         Submit();
         return 0;
@@ -3055,21 +3063,26 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void* data)
         Submit();
         return 0;
     } else if (code == EVENT_DISK_READ) {
-        IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
-        // Order matters...when we append b, we take the data from b
-        // and put it into our buffer.
-        readOp.dataBuf.Move(b);
-        if (((size_t)(readOp.offset + readOp.dataBuf.BytesConsumable()) >
-                (size_t)chunkSize) &&
-            ((size_t)readOp.dataBuf.BytesConsumable() >
-                (size_t)readOp.numBytes)) {
-            // trim the extra stuff off the end.
-            readOp.dataBuf.Trim(readOp.numBytes);
+        if (data) {
+            IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
+            // Order matters...when we append b, we take the data from b
+            // and put it into our buffer.
+            readOp.dataBuf.Move(b);
+            if (((size_t)(readOp.offset + readOp.dataBuf.BytesConsumable()) >
+                    (size_t)chunkSize) &&
+                ((size_t)readOp.dataBuf.BytesConsumable() >
+                    (size_t)readOp.numBytes)) {
+                // trim the extra stuff off the end.
+                readOp.dataBuf.Trim(readOp.numBytes);
+            }
+            // verify checksum
+            gChunkManager.ReadChunkDone(&readOp);
+            status = readOp.status;
+        } else {
+            die("read: invalid read event data");
+            status = -EFAULT;
         }
-        // verify checksum
-        gChunkManager.ReadChunkDone(&readOp);
-        status = readOp.status;
-        if (status == 0) {
+        if (0 == status) {
             KFS_LOG_STREAM_DEBUG << "scrub read succeeded"
                 " chunk: "   << chunkId <<
                 " version: " << chunkVersion <<
@@ -3713,7 +3726,7 @@ ReadChunkMetaOp::HandleDone(int code, void* data)
             " version: " << chunkVersion <<
             " status: "  << status <<
         KFS_LOG_EOM;
-    } else if (code == EVENT_DISK_READ) {
+    } else if (code == EVENT_DISK_READ && data) {
         dataBuf = reinterpret_cast<IOBuffer*>(data);
     } else {
         status = -EINVAL;
