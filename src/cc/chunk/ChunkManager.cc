@@ -30,7 +30,6 @@
 #include "LeaseClerk.h"
 #include "AtomicRecordAppender.h"
 #include "utils.h"
-#include "Logger.h"
 #include "DiskIo.h"
 #include "Replicator.h"
 #include "BufferManager.h"
@@ -638,7 +637,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
         // To be called whenever we get a reply from the server
         int HandleDone(int code, void* data)
         {
-            if (code != EVENT_CMD_DONE || data != this || ! mInFlightFlag) {
+            if (EVENT_CMD_DONE != code || this != data || ! mInFlightFlag) {
                 die("ChunkDirInfoOp: invalid completion");
             }
             mInFlightFlag = false;
@@ -1313,8 +1312,12 @@ private:
         notify.PushBack(mReadableNotify);
         KfsOp* op;
         while ((op = notify.PopFront())) {
-            int res = status;
-            op->HandleEvent(EVENT_CMD_DONE, &res);
+            if (0 == status) {
+                op->HandleEvent(EVENT_CMD_DONE, op);
+            } else {
+                int res = status;
+                op->HandleEvent(EVENT_DISK_ERROR, &res);
+            }
         }
     }
     friend class QCDLListOp<ChunkInfoHandle,
@@ -3393,18 +3396,6 @@ ChunkManager::DeleteChunk(kfsChunkId_t chunkId, int64_t chunkVersion,
 }
 
 void
-ChunkManager::DumpChunkMap()
-{
-    ofstream ofs;
-    ofs.open("chunkdump.txt");
-    if (ofs) {
-        DumpChunkMap(ofs);
-    }
-    ofs.flush();
-    ofs.close();
-}
-
-void
 ChunkManager::DumpChunkMap(ostream &ofs)
 {
    // Dump chunk map in the format of
@@ -3466,8 +3457,7 @@ ChunkManager::ReadChunkMetadata(
 
     LruUpdate(*cih);
     if (cih->chunkInfo.AreChecksumsLoaded()) {
-        int res = 0;
-        cb->HandleEvent(EVENT_CMD_DONE, &res);
+        cb->HandleEvent(EVENT_CMD_DONE, cb);
         return 0;
     }
     if (cih->chunkInfo.chunkVersion < 0 && ! cih->IsStable()) {
@@ -3496,15 +3486,16 @@ ChunkManager::ReadChunkMetadata(
         return -ESERVERBUSY;
     }
     rcm->diskIo.reset(d);
+    cih->readChunkMetaOp = rcm;
     const size_t headerSize = KFS_MIN_CHUNK_HEADER_SIZE;
     const int    res        = rcm->diskIo->Read(0, headerSize);
     if (res < 0) {
+        cih->readChunkMetaOp = 0;
         cih->ReadStats(res, (int64_t)headerSize, 0);
         ReportIOFailure(cih, res);
         delete rcm;
         return res;
     }
-    cih->readChunkMetaOp = rcm;
     return 0;
 }
 
@@ -5601,12 +5592,6 @@ ChunkManager::SetupDiskIo(ChunkInfoHandle *cih, KfsCallbackObj* op)
 int
 ChunkManager::Restart()
 {
-    if (gLogger.GetVersionFromCkpt() != gLogger.GetLoggerVersionNum()) {
-        KFS_LOG_STREAM_FATAL <<
-            "Unsupported log version. Copy out the data and copy it back in." <<
-        KFS_LOG_EOM;
-        return -1;
-    }
     Restore();
     return 0;
 }
@@ -6002,7 +5987,7 @@ ChunkManager::GetHostedChunksResume(
                 const kfsSeq_t* vers;
                 if (! cih && ! inFlightFlag && pendingNotifyLostChunks &&
                         (vers = pendingNotifyLostChunks->Find(chunkId)) &&
-                        0 <= *vers) {
+                        0 < *vers) {
                     if (count <= 0) {
                         die("invalid CS chunk inventory count");
                         hello.resumeStep = -1;
@@ -7448,7 +7433,7 @@ ChunkManager::ChunkDirInfo::CheckEvacuateFileDone(int code, void* data)
 int
 ChunkManager::ChunkDirInfo::EvacuateChunksDone(int code, void* data)
 {
-    if (code != EVENT_CMD_DONE || data != &evacuateChunksOp ||
+    if (code != EVENT_CMD_DONE || &evacuateChunksOp != data ||
             ! evacuateChunksOpInFlightFlag) {
         die("EvacuateChunksDone invalid completion");
     }
@@ -7685,7 +7670,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
 int
 ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
 {
-    if (code != EVENT_CMD_DONE || data != &availableChunksOp ||
+    if (EVENT_CMD_DONE != code || &availableChunksOp != data ||
             ! availableChunksOpInFlightFlag) {
         die("AvailableChunksDone invalid completion");
         return -EINVAL;
@@ -7997,8 +7982,7 @@ ChunkManager::GetNumOpenObjects() const
 void
 ChunkManager::CheckChunkDirs()
 {
-    KFS_LOG_STREAM_DEBUG << "Checking chunk dirs" << KFS_LOG_EOM;
-
+    KFS_LOG_STREAM_DEBUG << "checking chunk dirs" << KFS_LOG_EOM;
     DirChecker::DirsAvailable dirs;
     mDirChecker.GetNewlyAvailable(dirs);
     bool getFsSpaceAvailFlag             = false;

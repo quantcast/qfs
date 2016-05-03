@@ -155,9 +155,6 @@ public:
             bool staleChunkIdFlag, KfsOp* cb);
 
     /// Dump chunk map with information about chunkID and chunkSize
-    void DumpChunkMap();
-
-    /// Dump chunk map with information about chunkID and chunkSize
     /// to a string stream
     void DumpChunkMap(ostream& ofs);
 

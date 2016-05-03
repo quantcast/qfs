@@ -38,7 +38,6 @@
 #include "utils.h"
 #include "RemoteSyncSM.h"
 #include "KfsOps.h"
-#include "Logger.h"
 #include "BufferManager.h"
 #include "DiskIo.h"
 #include "ChunkManager.h"

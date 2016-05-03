@@ -26,7 +26,6 @@
 
 #include "ChunkServer.h"
 #include "ChunkManager.h"
-#include "Logger.h"
 #include "AtomicRecordAppender.h"
 #include "RemoteSyncSM.h"
 #include "MetaServerSM.h"

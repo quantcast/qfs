@@ -1010,7 +1010,7 @@ AtomicRecordAppender::EventHandler(int code, void* data)
                     *reinterpret_cast<int*>(data)
                 ) : -1;
             MetaWriteDone(
-                (code == EVENT_DISK_ERROR && status > 0) ? -1 : status
+                (code == EVENT_DISK_ERROR && 0 < status) ? -EIO : status
             );
         }
         break;

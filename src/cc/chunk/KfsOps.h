@@ -394,6 +394,8 @@ protected:
         // fill this method if the op requires a message to be sent to a server.
     };
     virtual ostream& ShowSelf(ostream& os) const = 0;
+    inline int Submit();
+    inline void UpdateStatus(int code, const void* data);
     static const KfsOp& GetNullOp();
     class NullOp;
 private:
@@ -1534,7 +1536,6 @@ struct WriteOp : public KfsOp {
     // completion status
     int HandleRecordAppendDone(int code, void *data);
     int HandleWriteDone(int code, void *data);
-    int HandleLoggingDone(int code, void *data);
 
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -2230,6 +2231,7 @@ struct HelloMetaOp : public KfsOp {
     int64_t                  helloDoneCount;
     int64_t                  helloResumeCount;
     int64_t                  helloResumeFailedCount;
+    int64_t                  totalChunks;
     PendingNotifyLostChunks* pendingNotifyLostChunks;
 
     HelloMetaOp(const ServerLocation& l,
@@ -2264,6 +2266,7 @@ struct HelloMetaOp : public KfsOp {
           helloDoneCount(0),
           helloResumeCount(0),
           helloResumeFailedCount(0),
+          totalChunks(0),
           pendingNotifyLostChunks(0)
         {}
     virtual ~HelloMetaOp();
@@ -2273,21 +2276,23 @@ struct HelloMetaOp : public KfsOp {
     {
         return os <<
             "meta-hello:"
-            " seq: "         << seq <<
-            " mylocation: "  << myLocation <<
-            " cluster-key: " << clusterKey <<
-            " md5sum: "      << md5sum <<
-            " rackId: "      << rackId <<
-            " space: "       << totalSpace <<
-            " used: "        << usedSpace <<
-            " chunks: "      << chunkLists[kStableChunkList].count <<
-            " not-stable: "  << chunkLists[kNotStableChunkList].count <<
-            " append: "      << chunkLists[kNotStableAppendChunkList].count <<
-            " missing: "     << chunkLists[kMissingList].count <<
-            " fsid: "        << fileSystemId <<
-            " metafsid: "    << metaFileSystemId <<
-            " delete flag: " << deleteAllChunksFlag <<
-            " resume: "      << resumeStep
+            " seq: "          << seq <<
+            " mylocation: "   << myLocation <<
+            " cluster-key: "  << clusterKey <<
+            " md5sum: "       << md5sum <<
+            " rackId: "       << rackId <<
+            " space: "        << totalSpace <<
+            " used: "         << usedSpace <<
+            " chunks:"
+            " statble: "      << chunkLists[kStableChunkList].count <<
+            " not-stable: "   << chunkLists[kNotStableChunkList].count <<
+            " append: "       << chunkLists[kNotStableAppendChunkList].count <<
+            " missing: "      << chunkLists[kMissingList].count <<
+            " fsid: "         << fileSystemId <<
+            " metafsid: "     << metaFileSystemId <<
+            " delete flag: "  << deleteAllChunksFlag <<
+            " total chunks: " << totalChunks <<
+            " resume: "       << resumeStep
         ;
     }
     virtual bool ParseResponseContent(istream& is, int len);

@@ -30,7 +30,6 @@
 #include "ClientManager.h"
 #include "ChunkManager.h"
 #include "MetaServerSM.h"
-#include "Logger.h"
 #include "utils.h"
 
 #include "common/MsgLogger.h"
@@ -148,12 +147,10 @@ ChunkServer::MainLoop(
         gClientManager.Shutdown();
         return false;
     }
-    gLogger.Init(logDir);
     if (gChunkManager.Restart() != 0) {
         gClientManager.Shutdown();
         return false;
     }
-    gLogger.Start();
     gChunkManager.Start();
     if (! gClientManager.StartListening()) {
         KFS_LOG_STREAM_FATAL <<

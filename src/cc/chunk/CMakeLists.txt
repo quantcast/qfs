@@ -34,7 +34,6 @@ add_executable (chunkserver
     DiskIo.cc
     KfsOps.cc
     LeaseClerk.cc
-    Logger.cc
     MetaServerSM.cc
     RemoteSyncSM.cc
     Replicator.cc
