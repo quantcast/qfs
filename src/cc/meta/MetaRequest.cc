@@ -3566,7 +3566,7 @@ MetaDumpChunkReplicationCandidates::handle()
     if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
-    gLayoutManager.DumpChunkReplicationCandidates(this);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void
@@ -3735,7 +3735,7 @@ MetaFsck::handle()
             }
         }
         delete [] streams;
-        _exit(failedFlag ? 3 : 0); // Child does not do graceful close.
+        _exit(failedFlag ? 3 : 0); // Child does not attemp graceful exit.
     }
     if (pid < 0) {
         status    = (int)pid;

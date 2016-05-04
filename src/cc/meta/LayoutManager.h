@@ -1120,7 +1120,7 @@ public:
 
     /// Dump out the list of chunks that are currently replication
     /// candidates.
-    void DumpChunkReplicationCandidates(MetaDumpChunkReplicationCandidates* op);
+    void Handle(MetaDumpChunkReplicationCandidates& req);
 
     /// Check the replication level of all the blocks and report
     /// back files that are under-replicated.

@@ -4507,12 +4507,12 @@ LayoutManager::DumpChunkToServerMap(const string& dirToUse)
 }
 
 void
-LayoutManager::DumpChunkReplicationCandidates(MetaDumpChunkReplicationCandidates* op)
+LayoutManager::Handle(MetaDumpChunkReplicationCandidates& req)
 {
     int64_t total   = 0;
     int64_t outLeft = mMaxFsckFiles;
-    op->resp.Clear();
-    ostream& os = mWOstream.Set(op->resp, mMaxResponseSize);
+    req.resp.Clear();
+    ostream& os = mWOstream.Set(req.resp, mMaxResponseSize);
     for (int state = CSMap::Entry::kStateCheckReplication;
             state < CSMap::Entry::kStateCount;
             ++state) {
@@ -4532,17 +4532,17 @@ LayoutManager::DumpChunkReplicationCandidates(MetaDumpChunkReplicationCandidates
     }
     os.flush();
     if (! os) {
-        op->status     = -ENOMEM;
-        op->statusMsg  = "response exceeds max. size";
+        req.status     = -ENOMEM;
+        req.statusMsg  = "response exceeds max. size";
     }
     mWOstream.Reset();
-    if (op->status == 0) {
-        op->numReplication     = total;
-        op->numPendingRecovery = mChunkToServerMap.GetCount(
+    if (req.status == 0) {
+        req.numReplication     = total;
+        req.numPendingRecovery = mChunkToServerMap.GetCount(
             CSMap::Entry::kStatePendingRecovery);
     } else {
-        op->numReplication     = 0;
-        op->numPendingRecovery = 0;
+        req.numReplication     = 0;
+        req.numPendingRecovery = 0;
     }
 }
 
@@ -10586,12 +10586,12 @@ LayoutManager::HandoutChunkReplicationWork()
     // Completion of any op in this list must transition chunk from this
     // list (usually by invoking UpdateReplicationState()) as the list is
     // not scanned by the timer.
-    MetaOp const makePendingOpTypes[] = {
+    MetaOp const kPendingOpTypes[] = {
         META_CHUNK_REPLICATE,
         META_CHUNK_VERSCHANGE,
         META_CHUNK_MAKE_STABLE,
-        META_CHUNK_OP_LOG_IN_FLIGHT, // Replay only.
-        META_NUM_OPS_COUNT           // Sentinel
+        META_CHUNK_DELETE, // Possible extra replicas delete.
+        META_NUM_OPS_COUNT // Sentinel
     };
 
     int64_t   now          = microseconds();
@@ -10669,16 +10669,14 @@ LayoutManager::HandoutChunkReplicationWork()
             CSMap::Entry::kStateCheckReplication);
         if (! cur) {
             // See if all chunks check was requested.
-            if (! (cur = mChunkToServerMap.Next(
-                    CSMap::Entry::kStateNone))) {
+            if (! (cur = mChunkToServerMap.Next(CSMap::Entry::kStateNone))) {
                 mCheckAllChunksInProgressFlag = false;
                 nextRunLowPriorityFlag = true;
                 if (! (cur = mChunkToServerMap.Next(
                             CSMap::Entry::kStateNoDestination)) &&
                         ! (cur = mChunkToServerMap.Next(
                             CSMap::Entry::kStateDelayedRecovery))) {
-                    mChunkToServerMap.First(
-                        CSMap::Entry::kStateNoDestination);
+                    mChunkToServerMap.First(CSMap::Entry::kStateNoDestination);
                     mChunkToServerMap.First(
                         CSMap::Entry::kStateDelayedRecovery);
                     break; // Done.
@@ -10690,8 +10688,7 @@ LayoutManager::HandoutChunkReplicationWork()
         }
         CSMap::Entry& entry = *cur;
 
-        if (GetInFlightChunkOpsCount(entry.GetChunkId(),
-                makePendingOpTypes) > 0) {
+        if (0 < GetInFlightChunkOpsCount(entry.GetChunkId(), kPendingOpTypes)) {
             // This chunk is being re-replicated, or in transition.
             // Replication check will get scheduled again when the
             // corresponding op completes.
@@ -10718,15 +10715,13 @@ LayoutManager::HandoutChunkReplicationWork()
                 placement,
                 recoveryInfo);
             if (numStarted <= 0) {
-                SetReplicationState(entry,
-                    CSMap::Entry::kStateNoDestination);
+                SetReplicationState(entry, CSMap::Entry::kStateNoDestination);
             }
             count += numStarted;
             avail -= numStarted;
         } else {
             if (extraReplicas < 0) {
-                DeleteAddlChunkReplicas(
-                    entry, -extraReplicas, placement);
+                DeleteAddlChunkReplicas(entry, -extraReplicas, placement);
             }
             if (hibernatedReplicaCount <= 0) {
                 // Sufficient replicas, now no need to make
@@ -10743,8 +10738,7 @@ LayoutManager::HandoutChunkReplicationWork()
             break;
         }
     }
-    mLastReplicationCheckRunEndTime =
-        pass == kCheckTime ? now : microseconds();
+    mLastReplicationCheckRunEndTime = pass == kCheckTime ? now : microseconds();
     return timedOutFlag;
 }
 
@@ -12737,8 +12731,14 @@ LayoutManager::DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
 void
 LayoutManager::Done(MetaChunkDelete& req)
 {
-    if (0 <= req.chunkVersion ||
-            mObjBlocksDeleteInFlight.Erase(ObjBlocksDeleteInFlightEntry::Key(
+    if (0 <= req.chunkVersion) {
+        CSMap::Entry* const ci = mChunkToServerMap.Find(req.chunkId);
+        if (ci) {
+            UpdateReplicationState(*ci);
+        }
+        return;
+    }
+    if (mObjBlocksDeleteInFlight.Erase(ObjBlocksDeleteInFlightEntry::Key(
                 req.chunkId, req.chunkVersion)) <= 0) {
         return;
     }
