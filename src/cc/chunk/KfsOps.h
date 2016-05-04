@@ -395,6 +395,7 @@ protected:
     };
     virtual ostream& ShowSelf(ostream& os) const = 0;
     inline int Submit();
+    inline int Submit(int res);
     inline void UpdateStatus(int code, const void* data);
     static const KfsOp& GetNullOp();
     class NullOp;

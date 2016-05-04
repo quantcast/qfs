@@ -602,9 +602,31 @@ KfsOp::UpdateStatus(int code, const void* data)
         status = -EIO;
     }
     if (statusMsg.empty()) {
-        statusMsg = status != -ETIMEDOUT ?
-            "IO error" : "IO timed out";
+        statusMsg = status != -ETIMEDOUT ? "IO error" : "IO timed out";
     }
+}
+
+inline int
+KfsOp::Submit()
+{
+    if (! clnt) {
+        die("KfsOp null client");
+        return -1;
+    }
+    return clnt->HandleEvent(EVENT_CMD_DONE, this);
+}
+
+inline int
+KfsOp::Submit(int ret)
+{
+    if (0 <= ret) {
+        // Completion might be already invoked; this might not be valid.
+        return 0;
+    }
+    if (0 <= status) {
+        status = ret;
+    }
+    return Submit();
 }
 
 QCMutex* KfsOp::sMutex      = 0;
@@ -652,16 +674,6 @@ KfsOp::~KfsOp()
     OpsList::Remove(sOpsList, *this);
     clnt = 0;
     const_cast<KfsOp_t&>(op) = CMD_UNKNOWN; // To catch double delete.
-}
-
-int
-KfsOp::Submit()
-{
-    if (! clnt) {
-        die("KfsOp null client");
-        return -1;
-    }
-    return clnt->HandleEvent(EVENT_CMD_DONE, this);
 }
 
 /* static */ uint32_t
@@ -1202,11 +1214,11 @@ CloseOp::Execute()
                         waitReadableFlag ? this          : 0,
                         waitReadableFlag ? &readMetaFlag : 0
                 );
-                if (ret != 0) {
+                if (ret < 0) {
                     status    = ret;
                     statusMsg = "invalid write or chunk id";
                 }
-                if (waitReadableFlag && 0 == ret) {
+                if (waitReadableFlag && 0 <= ret) {
                     return;
                 }
             } else {
@@ -1258,15 +1270,19 @@ int
 CloseOp::HandleDone(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (status == 0 && readMetaFlag && chunkVersion < 0) {
+    if (0 <= status && readMetaFlag && chunkVersion < 0) {
         readMetaFlag = false;
         const int ret = gChunkManager.CloseChunkWrite(
             chunkId, chunkVersion, -1, this, &readMetaFlag);
-        if (ret == 0) {
+        if (0 <= ret) {
             return 0;
         }
-        status    = ret;
-        statusMsg = "invalid write or chunk id";
+        if (0 <= status) {
+            status = ret;
+        }
+        if (statusMsg.empty()) {
+            statusMsg = "invalid write or chunk id";
+        }
     }
     Submit();
     return 0;
@@ -1357,13 +1373,8 @@ AllocChunkOp::HandleChunkMetaReadDone(int code, void* data)
     // in the case if chunk exists.
     mustExistFlag = true;
     const bool stableFlag = false;
-    const int ret = gChunkManager.ChangeChunkVers(
-        chunkId, chunkVersion, stableFlag, this);
-    if (ret < 0) {
-        statusMsg = "change version failure";
-        status = ret;
-        Submit();
-    }
+    Submit(gChunkManager.ChangeChunkVers(
+        chunkId, chunkVersion, stableFlag, this));
     return 0;
 }
 
@@ -1371,7 +1382,7 @@ int
 AllocChunkOp::HandleChunkAllocDone(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (status >= 0) {
+    if (0 <= status) {
         if (leaseId >= 0) {
             OpCounters::WriteMaster();
         }
@@ -1406,7 +1417,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void* data)
                 return 0;
             }
         }
-        if (status >= 0 && leaseId >= 0) {
+        if (0 <= status && 0 <= leaseId) {
             gLeaseClerk.RegisterLease(*this);
         }
     }
@@ -1424,12 +1435,8 @@ DeleteChunkOp::Execute()
         return;
     }
     SET_HANDLER(this, &DeleteChunkOp::Done);
-    const int ret = gChunkManager.DeleteChunk(
-        chunkId, chunkVersion, staleChunkIdFlag, this);
-    if (ret < 0) {
-        status = ret;
-        Submit();
-    }
+    Submit(gChunkManager.DeleteChunk(
+        chunkId, chunkVersion, staleChunkIdFlag, this));
 }
 
 int
@@ -1445,11 +1452,8 @@ TruncateChunkOp::Execute()
 {
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaReadDone);
     const bool kAddObjectBlockMappingFlag = false;
-    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this,
-            kAddObjectBlockMappingFlag) < 0) {
-        status = -EINVAL;
-        Submit();
-    }
+    Submit(gChunkManager.ReadChunkMetadata(chunkId, 0, this,
+            kAddObjectBlockMappingFlag));
 }
 
 int
@@ -1466,11 +1470,7 @@ TruncateChunkOp::HandleChunkMetaReadDone(int code, void* data)
         return 0;
     }
     SET_HANDLER(this, &TruncateChunkOp::HandleChunkMetaWriteDone);
-    const int ret = gChunkManager.WriteChunkMetadata(chunkId, 0, this);
-    if (ret != 0) {
-        status = ret;
-        Submit();
-    }
+    Submit(gChunkManager.WriteChunkMetadata(chunkId, 0, this));
     return 0;
 }
 
@@ -1508,12 +1508,8 @@ MakeChunkStableOp::Execute()
     }
     SET_HANDLER(this, &MakeChunkStableOp::HandleChunkMetaReadDone);
     const bool kAddObjectBlockMappingFlag = false;
-    const int ret = gChunkManager.ReadChunkMetadata(
-        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
-    if (ret < 0) {
-        status = ret;
-        Submit();
-    }
+    Submit(gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag));
 }
 
 int
@@ -1539,15 +1535,14 @@ int
 MakeChunkStableOp::HandleMakeStableDone(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (0 <= status && 0 <= chunkSize && chunkVersion  < 0) {
+    if (0 <= status && 0 <= chunkSize && chunkVersion < 0) {
         const ChunkInfo_t* const ci =
             gChunkManager.GetChunkInfo(chunkId, chunkVersion);
         // Verify that the object store block size matches.
         if (! ci || ! ci->AreChecksumsLoaded()) {
             statusMsg = "checksums not unloaded";
             status    = -EAGAIN;
-        }
-        if (ci->chunkSize != chunkSize) {
+        } else if (ci->chunkSize != chunkSize) {
             statusMsg = "object block size do not match";
             status    = -EINVAL;
         }
@@ -1584,7 +1579,7 @@ ChangeChunkVersOp::Execute()
             } else {
                 status = 0;
             }
-            if (status != 0 || chunkVersion == ci->chunkVersion) {
+            if (0 != status || chunkVersion == ci->chunkVersion) {
                 Submit();
                 return;
             }
@@ -1592,12 +1587,8 @@ ChangeChunkVersOp::Execute()
     }
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaReadDone);
     const bool kAddObjectBlockMappingFlag = false;
-    const int ret = gChunkManager.ReadChunkMetadata(
-        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag);
-    if (ret < 0) {
-        status = -EINVAL;
-        Submit();
-    }
+    Submit(gChunkManager.ReadChunkMetadata(
+        chunkId, chunkVersion, this, kAddObjectBlockMappingFlag));
 }
 
 int
@@ -1612,9 +1603,7 @@ ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void* data)
         return 0;
     }
     SET_HANDLER(this, &ChangeChunkVersOp::HandleChunkMetaWriteDone);
-    if (gChunkManager.ChangeChunkVers(this) < 0) {
-        Submit();
-    }
+    Submit(gChunkManager.ChangeChunkVers(this));
     return 0;
 }
 
@@ -2167,7 +2156,9 @@ ReadOp::Execute()
             " version: " << chunkVersion <<
             " status: "  << res <<
         KFS_LOG_EOM;
-        status = res;
+        if (0 <= status) {
+            status = res;
+        }
         Submit();
     }
 }
@@ -2176,21 +2167,21 @@ int
 ReadOp::HandleChunkMetaReadDone(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (status < 0) {
-        Submit();
-        return 0;
-    }
-    SET_HANDLER(this, &ReadOp::HandleDone);
-    status = gChunkManager.ReadChunk(this);
-
-    if (status < 0) {
-        if (wop) {
-            // resume execution of write
-            wop->Execute();
-        } else {
-            // we are done with this op; this needs draining
-            Submit();
+    if (0 <= status) {
+        SET_HANDLER(this, &ReadOp::HandleDone);
+        const int ret = gChunkManager.ReadChunk(this);
+        if (0 <= ret) {
+            return 0;
         }
+        if (0 <= status) {
+            status = ret;
+        }
+    }
+    if (wop) {
+        // resume execution of write
+        wop->Execute();
+    } else {
+        Submit();
     }
     return 0;
 }
@@ -2292,10 +2283,10 @@ WriteIdAllocOp::Execute()
         return;
     }
     const int res = gChunkManager.AllocateWriteId(this, myPos, peerLoc);
-    if (res != 0 && status == 0) {
-        status = res < 0 ? res : -res;
+    if (res < 0 && 0 <= status) {
+        status = res;
     }
-    if (status != 0) {
+    if (0 != status) {
         Done(EVENT_CMD_DONE, this);
         return;
     }
@@ -2360,7 +2351,7 @@ WriteIdAllocOp::HandlePeerReply(int code, void* data)
         statusMsg = fwdedOp->statusMsg.empty() ?
             string("forwarding failed") : fwdedOp->statusMsg;
     }
-    if (status != 0) {
+    if (0 != status) {
         return Done(EVENT_CMD_DONE, this);
     }
     writeIdStr.Append(' ');
@@ -2381,19 +2372,25 @@ WriteIdAllocOp::ReadChunkMetadata()
     // if the read was successful, the call to read will callback handle-done
     SET_HANDLER(this, &WriteIdAllocOp::Done);
     const bool kAddObjectBlockMappingFlag = false;
-    int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
+    const int ret = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
         kAddObjectBlockMappingFlag);
-    if (res < 0) {
-        Done(EVENT_CMD_DONE, this);
+    if (0 <= ret) {
+        return;
     }
+    if (0 <= status) {
+        status = ret;
+    }
+    Done(EVENT_CMD_DONE, this);
 }
 
 int
 WriteIdAllocOp::Done(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (status != 0) {
-        statusMsg = "chunk meta data read failed";
+    if (0 != status) {
+        if (statusMsg.empty()) {
+            statusMsg = "chunk meta data read failed";
+        }
         if (isForRecordAppend) {
             if (! writeIdStr.empty()) {
                 gAtomicRecordAppendManager.InvalidateWriteIdDeclareFailure(
@@ -2830,16 +2827,23 @@ WriteSyncOp::Done(int code, void* data)
 void
 WriteOp::Execute()
 {
-    status = gChunkManager.WriteChunk(this);
-
-    if (status < 0) {
-        if (isFromRecordAppend) {
-            HandleEvent(EVENT_CMD_DONE, this);
-            return;
-        }
-        assert(wpop);
-        wpop->HandleEvent(EVENT_CMD_DONE, this);
+    const int ret = gChunkManager.WriteChunk(this);
+    if (0 <= ret) {
+        return;
     }
+    if (0 <= status) {
+        status = ret;
+    }
+    if (isFromRecordAppend) {
+        HandleEvent(EVENT_CMD_DONE, this);
+        return;
+    }
+    if (! wpop) {
+        die("invalid null write prepare op");
+        Submit();
+        return;
+    }
+    wpop->HandleEvent(EVENT_CMD_DONE, this);
 }
 
 void
@@ -2994,11 +2998,8 @@ GetChunkMetadataOp::Execute()
 {
     SET_HANDLER(this, &GetChunkMetadataOp::HandleChunkMetaReadDone);
     bool const kAddObjectBlockMappingFlag = true;
-    if (gChunkManager.ReadChunkMetadata(chunkId, 0, this,
-            kAddObjectBlockMappingFlag) < 0) {
-        status = -EINVAL;
-        Submit();
-    }
+    Submit(gChunkManager.ReadChunkMetadata(chunkId, 0, this,
+            kAddObjectBlockMappingFlag));
 }
 
 int
@@ -3040,11 +3041,7 @@ GetChunkMetadataOp::HandleChunkMetaReadDone(int code, void* data)
 
     readOp.SetScrubOp(this);
     SET_HANDLER(this, &GetChunkMetadataOp::HandleScrubReadDone);
-    status = gChunkManager.ReadChunk(&readOp);
-    if (status < 0) {
-        Submit();
-        return 0;
-    }
+    Submit(gChunkManager.ReadChunk(&readOp));
     return 0;
 }
 
@@ -3053,7 +3050,8 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void* data)
 {
     if (code == EVENT_DISK_ERROR) {
         UpdateStatus(code, data);
-        KFS_LOG_STREAM_ERROR << "disk error:"
+        KFS_LOG_STREAM_ERROR <<
+            "disk error:"
             " chunk: "   << chunkId <<
             " version: " << chunkVersion <<
             " status: "  << status <<
@@ -3062,61 +3060,68 @@ GetChunkMetadataOp::HandleScrubReadDone(int code, void* data)
             chunkId, chunkVersion, status, readOp.diskIo.get());
         Submit();
         return 0;
-    } else if (code == EVENT_DISK_READ) {
-        if (data) {
-            IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
-            // Order matters...when we append b, we take the data from b
-            // and put it into our buffer.
-            readOp.dataBuf.Move(b);
-            if (((size_t)(readOp.offset + readOp.dataBuf.BytesConsumable()) >
-                    (size_t)chunkSize) &&
-                ((size_t)readOp.dataBuf.BytesConsumable() >
-                    (size_t)readOp.numBytes)) {
-                // trim the extra stuff off the end.
-                readOp.dataBuf.Trim(readOp.numBytes);
-            }
-            // verify checksum
-            gChunkManager.ReadChunkDone(&readOp);
-            status = readOp.status;
-        } else {
-            die("read: invalid read event data");
-            status = -EFAULT;
-        }
-        if (0 == status) {
-            KFS_LOG_STREAM_DEBUG << "scrub read succeeded"
-                " chunk: "   << chunkId <<
-                " version: " << chunkVersion <<
-                " offset: "  << readOp.offset <<
+    }
+    if (code != EVENT_DISK_READ || ! data) {
+        die("scrub read: unexpected event or event data");
+        status = -EFAULT;
+        Submit();
+        return 0;
+    }
+    IOBuffer* const b = reinterpret_cast<IOBuffer*>(data);
+    readOp.dataBuf.Move(b);
+    if ((size_t)chunkSize <
+            (size_t)(readOp.offset + readOp.dataBuf.BytesConsumable()) &&
+            (size_t)readOp.numBytes <
+                (size_t)readOp.dataBuf.BytesConsumable()) {
+        // trim the extra stuff off the end.
+        readOp.dataBuf.Trim(readOp.numBytes);
+    }
+    // verify checksum
+    gChunkManager.ReadChunkDone(&readOp);
+    status = readOp.status;
+    if (0 <= status) {
+        KFS_LOG_STREAM_DEBUG <<
+            "scrub read succeeded"
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " offset: "  << readOp.offset <<
+        KFS_LOG_EOM;
+        // checksum verified; setup the next read
+        numBytesScrubbed += readOp.dataBuf.BytesConsumable();
+        readOp.offset += readOp.dataBuf.BytesConsumable();
+        readOp.numBytes = min((int64_t)kChunkReadSize,
+            chunkSize - numBytesScrubbed);
+        // throw away the data
+        readOp.dataBuf.Clear();
+        if (chunkSize <= numBytesScrubbed) {
+            KFS_LOG_STREAM_DEBUG <<
+                "scrub succeeded"
+                " chunk: "      << chunkId <<
+                " version: "    << chunkVersion <<
+                " bytes read: " << numBytesScrubbed <<
             KFS_LOG_EOM;
-            // checksum verified; setup the next read
-            numBytesScrubbed += readOp.dataBuf.BytesConsumable();
-            readOp.offset += readOp.dataBuf.BytesConsumable();
-            readOp.numBytes = min((int64_t)kChunkReadSize, chunkSize - numBytesScrubbed);
-            // throw away the data
-            readOp.dataBuf.Consume(readOp.dataBuf.BytesConsumable());
-            if (numBytesScrubbed >= chunkSize) {
-                KFS_LOG_STREAM_DEBUG << "scrub succeeded"
-                    " chunk: "      << chunkId <<
-                    " version: "    << chunkVersion <<
-                    " bytes read: " << numBytesScrubbed <<
-                KFS_LOG_EOM;
-                Submit();
-                return 0;
-            }
-            status = gChunkManager.ReadChunk(&readOp);
+            Submit();
+            return 0;
+        }
+        const int ret = gChunkManager.ReadChunk(&readOp);
+        if (0 <= ret) {
+            return 0;
+        }
+        if (0 <= status) {
+            status = ret;
         }
     }
     if (status < 0) {
-        KFS_LOG_STREAM_INFO << "scrub read failed: "
+        readOp.dataBuf.Clear();
+        KFS_LOG_STREAM_ERROR <<
+            "scrub read failed:"
             " chunk: "   << chunkId <<
             " version: " << chunkVersion <<
             " status: "  << status <<
         KFS_LOG_EOM;
         Submit();
-        return 0;
     }
     return 0;
-
 }
 
 void

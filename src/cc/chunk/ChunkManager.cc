@@ -4797,7 +4797,7 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
             // computed.
             if (! op->rop) {
                 // issue a read
-                ReadOp *rop = new ReadOp(op, offset - off, blkSize);
+                ReadOp* const rop = new ReadOp(op, offset - off, blkSize);
                 KFS_LOG_STREAM_DEBUG <<
                     "write triggered a read for offset=" << offset <<
                 KFS_LOG_EOM;
@@ -4817,7 +4817,8 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
                 op->rop->wop = 0;
                 delete op->rop;
                 op->rop = 0;
-                return op->HandleDone(EVENT_DISK_ERROR, 0);
+                int res = op->status;
+                return op->HandleDone(EVENT_DISK_ERROR, &res);
             }
             // All is good.  So, get on with checksumming
             op->rop->dataBuf.ReplaceKeepBuffersFull(
@@ -5709,7 +5710,7 @@ ChunkManager::Restore()
             continue;
         }
         DirChecker::ChunkInfos::Iterator cit(it->availableChunks);
-        const DirChecker::ChunkInfo* ci;
+        const DirChecker::ChunkInfo*     ci;
         while ((ci = cit.Next())) {
             if (0 <= ci->mChunkSize && 0 <= ci->mChunkVersion) {
                 AddMapping(
@@ -5950,7 +5951,10 @@ ChunkManager::GetHostedChunksResume(
     }
     // Do not delete chunks just yet, exclude those from checksum, and
     // report those back to the meta server, to make the meta server
-    // explicitly delete those after hello completion.
+    // explicitly delete those after hello completion, effectively storing
+    // stale queue state on the meta server side, in order to handle resume
+    // after chunk server restart with non empty stale queue and resume in
+    // flight.
     // Pending in flight will be re-submitted again after hello completion,
     // in flight chunks have already been removed from inventory count and
     // checksum.
