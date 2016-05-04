@@ -5942,7 +5942,7 @@ KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
     }
     if (op.status == -EBADCKSUM) {
         KFS_LOG_STREAM_INFO <<
-            "Server " << loc <<
+            "server " << loc <<
             " reports checksum mismatch for scrub read on"
             " chunk: " << chunkId <<
         KFS_LOG_EOM;
