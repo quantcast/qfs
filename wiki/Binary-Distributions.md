@@ -40,4 +40,4 @@ Started|Home]] for how to use them.
 
 [master,macos]: https://s3.amazonaws.com/quantcast-qfs/qfs-darwin-master-x86_64.tgz
 
-[//]: vim: set tw=0:
+[//]: # vim: set tw=0:
