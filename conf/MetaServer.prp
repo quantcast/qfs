@@ -857,7 +857,7 @@ metaServer.msgLogWriter.logLevel = INFO
 # and/or possibly increase IO throughput, in the cases where chunk server
 # communication channel is considered to have adequate security for the purpose
 # at hands.
-# Default if "off" / "no"
+# Default is "off" / "no"
 # metaServer.clientCSAllowClearText = 0
 
 # Chunk server access token maximum lifetime.
