@@ -39,5 +39,3 @@ Started|Home]] for how to use them.
 [1.0.1,centos]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.0.1-x86_64.tgz
 
 [master,macos]: https://s3.amazonaws.com/quantcast-qfs/qfs-darwin-master-x86_64.tgz
-
-[//]: # vim: set tw=0:
