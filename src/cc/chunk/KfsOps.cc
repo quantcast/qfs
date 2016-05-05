@@ -106,6 +106,12 @@ struct OpCounters : private map<KfsOp_t, Counter *>
         sInstance->mWriteDuration.Update(1);
         sInstance->mWriteDuration.UpdateTime(time);
     }
+    static void Init()
+    {
+        if (! sInstance) {
+            sInstance = MakeInstance();
+        }
+    }
 private:
     Counter mWriteMaster;
     Counter mWriteDuration;
@@ -175,7 +181,7 @@ private:
         globals().counterManager.AddCounter(&instance.mWriteDuration);
         return &instance;
     }
-}* OpCounters::sInstance(OpCounters::MakeInstance());
+}* OpCounters::sInstance(0);
 
 template <typename T, typename VP> inline static bool
 needToForwardToPeer(
@@ -599,6 +605,8 @@ KfsOp::Init()
 {
     static bool doneFlag = false;
     if (! doneFlag) {
+        doneFlag = true;
+        OpCounters::Init();
         if (0 != KfsOp::GetOpsCount()) {
             const char* const msg = "invalid kfs op init invocation\n";
             if (write(2, msg, strlen(msg))) {
@@ -606,7 +614,6 @@ KfsOp::Init()
             }
             abort();
         }
-        doneFlag = true;
         OpsList::Init(sOpsList);
         static CleanupChecker sChecker;
         GetNullOp();
