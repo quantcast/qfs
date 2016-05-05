@@ -84,8 +84,6 @@ using boost::bind;
 
 using namespace KFS::libkfsio;
 
-ChunkManager gChunkManager;
-
 typedef QCDLList<
     ChunkInfoHandle,
     ChunkManager::kChunkInfoHandleListIndex
@@ -2396,8 +2394,6 @@ ChunkManager::IsWriteAppenderOwns(
     return (ci && ci->IsWriteAppenderOwns());
 }
 
-bool ChunkManager::sExitDebugCheckFlag = false;
-
 void
 ChunkManager::SetDirCheckerIoTimeout()
 {
@@ -2686,8 +2682,9 @@ ChunkManager::SetParameters(const Properties& prop)
     mResumeHelloMaxPendingStaleCount = prop.getValue(
         "chunkServer.resumeHelloMaxPendingStaleCount",
         mResumeHelloMaxPendingStaleCount);
-    sExitDebugCheckFlag = prop.getValue(
-        "chunkServer.exitDebugCheck", sExitDebugCheckFlag ? 1 : 0);
+    KfsOp::SetExitDebugCheck(0 != prop.getValue(
+        "chunkServer.exitDebugCheck",
+        KfsOp::GetExitDebugCheckFlag() ? 1 : 0));
     return ret;
 }
 

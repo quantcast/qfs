@@ -286,7 +286,7 @@ private:
     MetaServerSM& operator=(const MetaServerSM&);
 };
 
-extern MetaServerSM gMetaServerSM;
+extern MetaServerSM& gMetaServerSM;
 
 }
 

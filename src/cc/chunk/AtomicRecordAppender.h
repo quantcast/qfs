@@ -245,7 +245,7 @@ private:
     inline void UpdatePendingFlushIterators(AtomicRecordAppender& appender);
 };
 
-extern AtomicRecordAppendManager gAtomicRecordAppendManager;
+extern AtomicRecordAppendManager& gAtomicRecordAppendManager;
 }
 
 #endif // CHUNK_ATOMICRECORDAPPENDER_H

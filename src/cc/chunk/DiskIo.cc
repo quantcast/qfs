@@ -1378,7 +1378,7 @@ private:
     }
 };
 
-static DiskIoQueues* sDiskIoQueuesPtr;
+static DiskIoQueues* sDiskIoQueuesPtr = 0;
 
     /* static */ bool
 DiskIo::Init(
@@ -2829,10 +2829,10 @@ DiskIo::IoCompletion(
     } else if (inCheckStatusFlag) {
         mCallbackObjPtr->HandleEvent(EVENT_CHECK_OPEN_STATUS_DONE, 0);
     } else if (inBufferPtr) {
-        globals().ctrDiskBytesRead.Update(int(mIoRetCode));
+        globals().ctrDiskBytesRead.Update(mIoRetCode);
         mCallbackObjPtr->HandleEvent(EVENT_DISK_READ, inBufferPtr);
     } else {
-        globals().ctrDiskBytesWritten.Update(int(mIoRetCode));
+        globals().ctrDiskBytesWritten.Update(mIoRetCode);
         mCallbackObjPtr->HandleEvent(EVENT_DISK_WROTE, &inRetCode);
     }
 }

@@ -41,9 +41,6 @@ namespace KFS {
 using std::string;
 using libkfsio::globalNetManager;
 
-
-ChunkServer gChunkServer;
-
 bool
 ChunkServer::Init(
     const ServerLocation& clientListener,
@@ -137,8 +134,7 @@ private:
 bool
 ChunkServer::MainLoop(
     const vector<string>& chunkDirs,
-    const Properties&     props,
-    const string&         logDir)
+    const Properties&     props)
 {
     QCStMutexLocker lock(mMutex);
 

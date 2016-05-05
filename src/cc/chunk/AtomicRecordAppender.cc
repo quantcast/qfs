@@ -3689,6 +3689,4 @@ AtomicRecordAppendManager::Shutdown()
     }
 }
 
-AtomicRecordAppendManager gAtomicRecordAppendManager;
-
 }

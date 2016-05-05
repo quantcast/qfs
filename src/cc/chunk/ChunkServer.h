@@ -30,7 +30,6 @@
 #include "common/kfsdecls.h"
 #include "RemoteSyncSM.h"
 
-#include <list>
 #include <vector>
 #include <string>
 
@@ -40,7 +39,6 @@ namespace KFS
 {
 using std::string;
 using std::vector;
-using std::list;
 
 // Chunk server globals and main event loop.
 class ChunkServer
@@ -62,8 +60,7 @@ public:
         int                   firstCpuIdx);
     bool MainLoop(
         const vector<string>& chunkDirs,
-        const Properties&     props,
-        const string&         logDir);
+        const Properties&     props);
     bool IsLocalServer(const ServerLocation& location) const {
         return mLocation == location;
     }
@@ -115,7 +112,7 @@ private:
     ChunkServer& operator=(const ChunkServer&);
 };
 
-extern ChunkServer gChunkServer;
+extern ChunkServer& gChunkServer;
 }
 
 #endif // _CHUNKSERVER_H

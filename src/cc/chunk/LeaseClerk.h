@@ -139,7 +139,7 @@ private:
     LeaseClerk& operator=(const LeaseClerk&);
 };
 
-extern LeaseClerk gLeaseClerk;
+extern LeaseClerk& gLeaseClerk;
 
 }
 

@@ -559,7 +559,6 @@ protected:
     static const KfsOp& sNullOp;
     friend struct KfsOp;
 };
-const KfsOp& KfsOp::NullOp::sNullOp = KfsOp::GetNullOp(); // Force construction.
 
 /* static */ const KfsOp&
 KfsOp::GetNullOp()
@@ -572,7 +571,11 @@ class KfsOp::CleanupChecker
 {
 public:
     CleanupChecker()
-        { assert(KfsOp::GetOpsCount() == 0); }
+    {
+        if (0 != KfsOp::GetOpsCount()) {
+            abort();
+        }
+    }
     ~CleanupChecker()
     {
         const int64_t cnt = KfsOp::GetOpsCount();
@@ -585,11 +588,31 @@ public:
         if (write(2, buffer, sizeof(buffer))) {
             QCUtils::SetLastIgnoredError(errno);
         }
-        if (ChunkManager::GetExitDebugCheckFlag()) {
+        if (KfsOp::GetExitDebugCheckFlag()) {
             abort();
         }
     }
 };
+
+/* static */ bool
+KfsOp::Init()
+{
+    static bool doneFlag = false;
+    if (! doneFlag) {
+        if (0 != KfsOp::GetOpsCount()) {
+            const char* const msg = "invalid kfs op init invocation\n";
+            if (write(2, msg, strlen(msg))) {
+                QCUtils::SetLastIgnoredError(errno);
+            }
+            abort();
+        }
+        doneFlag = true;
+        OpsList::Init(sOpsList);
+        static CleanupChecker sChecker;
+        GetNullOp();
+    }
+    return doneFlag;
+}
 
 inline void
 KfsOp::UpdateStatus(int code, const void* data)
@@ -629,9 +652,10 @@ KfsOp::Submit(int ret)
     return Submit();
 }
 
-QCMutex* KfsOp::sMutex      = 0;
-int64_t  KfsOp::sOpsCount   = 0;
-KfsOp*   KfsOp::sOpsList[1] = {0};
+QCMutex* KfsOp::sMutex              = 0;
+int64_t  KfsOp::sOpsCount           = 0;
+KfsOp*   KfsOp::sOpsList[1]         = {0};
+bool     KfsOp::sExitDebugCheckFlag = false;
 
 KfsOp::KfsOp(KfsOp_t o)
     : KfsCallbackObj(),
@@ -657,7 +681,6 @@ KfsOp::KfsOp(KfsOp_t o)
     OpsList::Init(*this);
     SET_HANDLER(this, &KfsOp::HandleDone);
     QCStMutexLocker theLocker(sMutex);
-    static CleanupChecker checker;
     sOpsCount++;
     OpsList::PushBack(sOpsList, *this);
 }

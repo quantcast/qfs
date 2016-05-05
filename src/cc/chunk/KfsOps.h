@@ -389,6 +389,11 @@ struct KfsOp : public KfsCallbackObj
     inline static Display ShowOp(const KfsOp* op)
         { return (op ? Display(*op) : Display(GetNullOp())); }
     virtual bool CheckAccess(ClientSM& sm);
+    static bool Init();
+    static void SetExitDebugCheck(bool flag)
+        { sExitDebugCheckFlag = flag; }
+    static bool GetExitDebugCheckFlag()
+        { return sExitDebugCheckFlag; }
 protected:
     virtual void Request(ReqOstream& /* os */) {
         // fill this method if the op requires a message to be sent to a server.
@@ -407,7 +412,8 @@ private:
     static KfsOp*   sOpsList[1];
     static int64_t  sOpsCount;
     static QCMutex* sMutex;
-    class CleanupChecker;;
+    static bool     sExitDebugCheckFlag;
+    class CleanupChecker;
     friend class QCDLListOp<KfsOp>;
 private:
     KfsOp(const KfsOp&);

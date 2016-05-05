@@ -239,7 +239,7 @@ private:
     ClientManager& operator=(const ClientManager&);
 };
 
-extern ClientManager gClientManager;
+extern ClientManager& gClientManager;
 
 }
 

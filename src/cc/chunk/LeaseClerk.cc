@@ -38,8 +38,6 @@ namespace KFS
 using std::make_pair;
 using KFS::libkfsio::globalNetManager;
 
-LeaseClerk gLeaseClerk;
-
 static const string  kWriteLease("WRITE_LEASE");
 static const int64_t kNullVersion = 0;
 

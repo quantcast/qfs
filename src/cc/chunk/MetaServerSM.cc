@@ -52,8 +52,6 @@ using std::string;
 using std::max;
 using KFS::libkfsio::globalNetManager;
 
-MetaServerSM gMetaServerSM;
-
 template<typename T> inline void
 MetaServerSM::DetachAndDeleteOp(T*& op)
 {
@@ -109,9 +107,6 @@ MetaServerSM::MetaServerSM()
       mIStream(),
       mWOStream()
 {
-    // Force net manager construction here, to insure that net manager
-    // destructor is called after gMetaServerSM destructor.
-    globalNetManager();
     SetHandler(this, &MetaServerSM::HandleRequest);
     mCounters.Clear();
 }

@@ -465,8 +465,6 @@ public:
     }
     int FlushStaleQueue(KfsOp& op);
     int CanStartReplicationOrRecovery(kfsChunkId_t chunkId);
-    static bool GetExitDebugCheckFlag()
-        { return sExitDebugCheckFlag; }
 private:
     template<typename IDT>
     class PendingWritesT
@@ -1116,7 +1114,6 @@ private:
     template<typename T> void ClearTable(T& table);
     template<typename T> void RunIoCompletion(T& table);
 
-    static bool sExitDebugCheckFlag;
 private:
     // No copy.
     ChunkManager(const ChunkManager&);
@@ -1142,7 +1139,7 @@ inline ChunkManager::PendingWritesT<IDT>::WriteIdEntry::WriteIdEntry(WriteOp* op
     : OpListEntry(), mOp(op)
 {}
 
-extern ChunkManager gChunkManager;
+extern ChunkManager& gChunkManager;
 
 }
 

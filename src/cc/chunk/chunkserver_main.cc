@@ -29,14 +29,19 @@
 #include "AtomicRecordAppender.h"
 #include "RemoteSyncSM.h"
 #include "MetaServerSM.h"
+#include "KfsOps.h"
+#include "LeaseClerk.h"
+#include "ClientManager.h"
 
 #include "common/Properties.h"
 #include "common/MdStream.h"
 #include "common/MemLock.h"
+
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/NetErrorSimulator.h"
+
 #include "qcdio/QCUtils.h"
 
 #include <signal.h>
@@ -315,7 +320,6 @@ class ChunkServerMain
 public:
     ChunkServerMain()
         : mProp(),
-          mLogDir(),
           mChunkDirs(),
           mMD5Sum(),
           mMetaServerLoc(),
@@ -332,7 +336,6 @@ public:
 
 private:
     Properties     mProp;
-    string         mLogDir;
     vector<string> mChunkDirs;
     string         mMD5Sum;
     ServerLocation mMetaServerLoc;
@@ -460,9 +463,6 @@ ChunkServerMain::LoadParams(const char* fileName)
         mChunkDirs.push_back(dir);
     }
 
-    mLogDir = mProp.getValue("chunkServer.logDir", "logs");
-    KFS_LOG_STREAM_INFO << "log dir: " << mLogDir << KFS_LOG_EOM;
-
     mChunkServerRackId = mProp.getValue("chunkServer.rackId", mChunkServerRackId);
     KFS_LOG_STREAM_INFO << "rack: " << mChunkServerRackId <<
     KFS_LOG_EOM;
@@ -547,7 +547,6 @@ ChunkServerMain::Run(int argc, char **argv)
     sRestarter.Init(argc, argv);
     MsgLogger::Init(argc > 2 ? argv[2] : 0);
     srand((int)microseconds());
-    InitGlobals();
     MdStream::Init();
 
     SslFilter::Error err = SslFilter::Initialize();
@@ -565,7 +564,7 @@ ChunkServerMain::Run(int argc, char **argv)
     rlim.rlim_cur = RLIM_INFINITY;
     rlim.rlim_max = RLIM_INFINITY;
     if (setrlimit(RLIMIT_CORE, &rlim)) {
-        KFS_LOG_STREAM_INFO << "Unable to increase coredump file size: " <<
+        KFS_LOG_STREAM_INFO << "unable to increase coredump file size: " <<
             QCUtils::SysError(errno, "RLIMIT_CORE") <<
         KFS_LOG_EOM;
     }
@@ -581,7 +580,7 @@ ChunkServerMain::Run(int argc, char **argv)
         return 1;
     }
 
-    KFS_LOG_STREAM_INFO << "Starting chunkserver..." << KFS_LOG_EOM;
+    KFS_LOG_STREAM_INFO << "starting chunkserver..." << KFS_LOG_EOM;
     KFS_LOG_STREAM_INFO <<
         "md5sum to send to metaserver: " << mMD5Sum <<
     KFS_LOG_EOM;
@@ -602,7 +601,7 @@ ChunkServerMain::Run(int argc, char **argv)
                 mChunkServerHostname,
                 mClientThreadCount,
                 mFirstCpuIndex)) {
-        ret = gChunkServer.MainLoop(mChunkDirs, mProp, mLogDir) ? 0 : 1;
+        ret = gChunkServer.MainLoop(mChunkDirs, mProp) ? 0 : 1;
     }
     NetErrorSimulatorConfigure(globalNetManager());
     err = SslFilter::Cleanup();
@@ -616,6 +615,36 @@ ChunkServerMain::Run(int argc, char **argv)
 
     return ret;
 }
+
+// Enforce construction and destruction order here.
+static bool
+InitChunkServerGlobals()
+{
+    InitGlobals();
+    globalNetManager();
+    return KfsOp::Init();
+}
+static const bool sChunkServerGlobalsInitializedFlag = InitChunkServerGlobals();
+
+static AtomicRecordAppendManager sAtomicRecordAppendManager;
+AtomicRecordAppendManager& gAtomicRecordAppendManager =
+    sAtomicRecordAppendManager;
+
+static LeaseClerk sLeaseClerk;
+LeaseClerk& gLeaseClerk = sLeaseClerk;
+
+static ClientManager sClientManager;
+ClientManager& gClientManager = sClientManager;
+
+static MetaServerSM sMetaServerSM;
+MetaServerSM& gMetaServerSM = sMetaServerSM;
+
+static ChunkServer sChunkServer;
+ChunkServer& gChunkServer = sChunkServer;
+
+static ChunkManager sChunkManager;
+ChunkManager& gChunkManager = sChunkManager;
+
 static ChunkServerMain sChunkServerMain;
 
 } // namespace KFS

@@ -175,8 +175,6 @@ private:
         const Auth& inAuth);
 };
 
-ClientManager gClientManager;
-
 ClientManager::ClientManager()
     : mAcceptorPtr(0),
       mIoTimeoutSec(5 * 60),
