@@ -2633,7 +2633,7 @@ LayoutManager::Validate(MetaHello& r)
         // Uptime is used to detect if retire is lost due to communication error,
         // and hibernation can be achieved by re-issuing retire.
         r.statusMsg  = "retire retry";
-        r.status     = -EAGAIN;
+        r.status     = -EINVAL;
         r.retireFlag = true;
         return true;
     }
@@ -3792,7 +3792,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                 KFS_LOG_EOM;
                 panic("add new server: out of chunk servers slots");
                 req.statusMsg = "out of chunk server slots, try again later";
-                req.status    = -EAGAIN;
+                req.status    = -EBUSY;
                 return;
             }
         }

@@ -645,6 +645,8 @@ ChunkServer::~ChunkServer()
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " ~ChunkServer " << (const void*)this <<
+        " "              << GetPeerName() <<
+        " / "            << GetServerLocation() <<
         " total: " << sChunkServerCount <<
     KFS_LOG_EOM;
     if (mNetConnection) {
@@ -992,8 +994,8 @@ ChunkServer::HandleRequest(int code, void *data)
                     mNetConnection->GetOutBuffer().IsEmpty()) {
                 // Ssl shutdown from the other side.
                 if (mNetConnection->Shutdown() == 0) {
-                    KFS_LOG_STREAM_DEBUG << GetPeerName() <<
-                        " chunk server: " << GetServerLocation() <<
+                    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+                        " / " << GetPeerName() <<
                         " shutdown filter: " <<
                             (void*)mNetConnection->GetFilter() <<
                     KFS_LOG_EOM;
@@ -1004,8 +1006,8 @@ ChunkServer::HandleRequest(int code, void *data)
                     }
                 }
             } else {
-                KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                    " chunk server: " << GetServerLocation() <<
+                KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+                    " / " << GetServerLocation() <<
                     " invalid filter (ssl) shutdown: "
                     " error: " << mNetConnection->GetErrorMsg() <<
                     " read: "  << mNetConnection->GetNumBytesToRead() <<
@@ -1082,10 +1084,9 @@ ChunkServer::ForceDown()
     }
     KFS_LOG_STREAM((mNetConnection && ! mReplayFlag) ?
             MsgLogger::kLogLevelWARN : MsgLogger::kLogLevelDEBUG) <<
-        "forcing chunk server " << GetServerLocation() <<
-        "/" << (mNetConnection ? GetPeerName() :
-            string("not connected")) <<
-        " down" <<
+        GetServerLocation() <<
+        " / " << (mNetConnection ? GetPeerName() : string("not connected")) <<
+        " forcing down chunk server" <<
     KFS_LOG_EOM;
     if (mNetConnection) {
         mNetConnection->Close();
@@ -1251,7 +1252,7 @@ ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
     if (0 <= ParseCommand(iobuf, msgLen, &op, 0, mShortRpcFormatFlag)) {
         if (! mSelfPtr) {
             KFS_LOG_STREAM_ERROR <<
-                GetHostPortStr() + "/" + GetPeerName() <<
+                GetHostPortStr() + " / " + GetPeerName() <<
                 " server down: " << op->Show() <<
             KFS_LOG_EOM;
             MetaRequest::Release(op);
@@ -1363,8 +1364,13 @@ ChunkServer::DeclareHelloError(
     if (mHelloOp->statusMsg.empty()) {
         mHelloOp->statusMsg = "invalid chunk server hello";
     }
-    KFS_LOG_STREAM_ERROR << GetPeerName() << " " <<
-        mHelloOp->statusMsg <<
+    KFS_LOG_STREAM_ERROR <<
+        mHelloOp->location <<
+        " / "              << GetPeerName() <<
+        " hello error: "   << mHelloOp->status <<
+        " "                << mHelloOp->statusMsg <<
+        " seq: "           << mHelloOp->opSeqno <<
+        " "                << mHelloOp->Show() <<
     KFS_LOG_EOM;
     mNetConnection->GetInBuffer().Clear();
     mNetConnection->SetMaxReadAhead(0);
@@ -1441,7 +1447,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     mAuthName)) {
                 string msg("invalid chunk server peer id: ");
                 msg +=  filter->GetPeerId();
-                return DeclareHelloError(-EPERM, msg.c_str());
+                return DeclareHelloError(-EACCES, msg.c_str());
             }
         }
         mHelloOp = static_cast<MetaHello*>(op);
@@ -1474,9 +1480,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         if (! gLayoutManager.Validate(*mHelloOp)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " hello"
-                " location: " << mHelloOp->ToString() <<
+                " seq: "      << mHelloOp->opSeqno <<
+                " location: " << mHelloOp->location <<
                 " error: "    << op->status <<
                 " "           << op->statusMsg <<
+                " "           << mHelloOp->Show() <<
             KFS_LOG_EOM;
             if (mHelloOp->status != -EBADCLUSTERKEY) {
                 mHelloOp = 0;
@@ -1498,7 +1506,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         if (mHelloOp->status == 0 &&
                 sMaxHelloBufferBytes < mHelloOp->bufferBytes) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " hello buffer bytes: "   << mHelloOp->bufferBytes <<
+                " hello: "
+                " location: "             << mHelloOp->location <<
+                " buffer bytes: "         << mHelloOp->bufferBytes <<
                 " content length: "       << mHelloOp->contentLength <<
                 " exceeds max. allowed: " << sMaxHelloBufferBytes <<
             KFS_LOG_EOM;
@@ -1513,7 +1523,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     0 < mHelloOp->numNotStableChunks) &&
                 gLayoutManager.IsFileSystemIdRequired()) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
-                " hello: invalid file system id" <<
+                " hello:"
+                " location: "               << mHelloOp->location <<
+                " invalid file system id: " << mHelloOp->fileSystemId <<
             KFS_LOG_EOM;
             mHelloOp = 0;
             MetaRequest::Release(op);
@@ -1542,6 +1554,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                     (int64_t)max(0, mHelloOp->numPendingStaleChunks))) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " malformed hello:"
+                " location: "             << mHelloOp->location <<
                 " content length: "       << mHelloOp->contentLength <<
                 " invalid chunk counts: " << mHelloOp->numChunks <<
                 " + "                     << mHelloOp->numNotStableAppendChunks <<
@@ -1558,13 +1571,13 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 iobuf->BytesConsumable() < mHelloOp->bufferBytes &&
                 GetHelloBytes(mHelloOp) < 0) {
             KFS_LOG_STREAM_INFO << GetPeerName() <<
-                " hello buffer bytes: " <<
-                    mHelloOp->bufferBytes <<
+                " location: "           << mHelloOp->location <<
+                " hello buffer bytes: " << mHelloOp->bufferBytes <<
                 " adding to pending list"
-                " ops: "       << sPendingHelloCount <<
+                " ops: "                << sPendingHelloCount <<
                 " bytes:"
-                " committed: " << sHelloBytesCommitted <<
-                " received: "  << sHelloBytesInFlight <<
+                " committed: "          << sHelloBytesCommitted <<
+                " received: "           << sHelloBytesInFlight <<
             KFS_LOG_EOM;
             mNetConnection->SetMaxReadAhead(0);
             AddToPendingHelloList();
@@ -1600,6 +1613,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             // Emit log message to have time stamp of when hello is
             // fully received, and parsing of chunk lists starts.
             KFS_LOG_STREAM_INFO << GetPeerName() <<
+                " location: "        << mHelloOp->location <<
                 " receiving hello: " << contentLength << " bytes done" <<
             KFS_LOG_EOM;
             PutHelloBytes(mHelloOp);
@@ -1697,6 +1711,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                         mHelloOp->pendingStaleChunks.size() ||
                     hexParser.IsError()) {
                 KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                    " location: " << mHelloOp->location <<
                     " invalid or short chunk list:"
                     " expected: " << mHelloOp->numChunks <<
                     "/"           << mHelloOp->numNotStableAppendChunks <<
@@ -1736,11 +1751,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             mHelloOp = 0;
             return -1;
         }
-        KFS_LOG_STREAM_INFO <<
-            mHelloOp->ToString() <<
-            " "         << mHelloOp->Show() <<
-            " status: " << mHelloOp->status <<
-            " msg: "    << mHelloOp->statusMsg <<
+        KFS_LOG_STREAM_INFO << GetPeerName() <<
+            " location: " << mHelloOp->location <<
+            " "           << mHelloOp->Show() <<
+            " status: "   << mHelloOp->status <<
+            " msg: "      << mHelloOp->statusMsg <<
             " initiating chunk server restart" <<
         KFS_LOG_EOM;
         // Tell him hello is OK in order to make the restart work.
@@ -1768,11 +1783,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         return 0;
     }
     if (! gLayoutManager.CanAddServer(sHelloInFlight.size())) {
-        return DeclareHelloError(-EAGAIN, "no slots available");
+        return DeclareHelloError(-EBUSY, "no slots available");
     }
     if (! sHelloInFlight.insert(
             make_pair(mHelloOp->location, mHelloOp)).second) {
-        return DeclareHelloError(-EAGAIN, "hello is in progress");
+        return DeclareHelloError(-EBUSY, "hello is in progress");
     }
     mNetConnection->SetMaxReadAhead(sMaxReadAhead);
     mHelloOp->peerName        = GetPeerName();
@@ -1790,10 +1805,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mHelloOp->notStableChunks.size()), mNumWritableDrives);
     // Emit message to time parse.
     KFS_LOG_STREAM_INFO << GetPeerName() <<
-        " submit hello" <<
-        " resume: " << mHelloOp->resumeStep <<
+        " submit hello:"
+        " seq: "    << mHelloOp->opSeqno <<
         " status: " << mHelloOp->status <<
         " "         << mHelloOp->statusMsg <<
+        " "         << mHelloOp->Show() <<
     KFS_LOG_EOM;
     if (mAuthName.empty()) {
         mAuthUid = kKfsUserNone;
@@ -2050,7 +2066,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
             loadAvg = srvLoad;
         }
         if (loadAvg < 0) {
-            KFS_LOG_STREAM_INFO <<
+            KFS_LOG_STREAM_INFO << GetServerLocation() <<
                 " load average: " << loadAvg <<
                 " resetting sampler" <<
             KFS_LOG_EOM;
@@ -2390,9 +2406,11 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         req.status = -EFAULT;
         req.resume();
     }
-    if (req.op == META_CHUNK_REPLICATE) {
-        KFS_LOG_STREAM_INFO << req.Show() << KFS_LOG_EOM;
-    }
+    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+        " send: " << (mNetConnection && mNetConnection->IsGood()) <<
+        " seq: "  << req.opSeqno <<
+        " "       << req.Show() <<
+    KFS_LOG_EOM;
     if (mNetConnection && mNetConnection->IsGood()) {
         EnqueueSelf(req);
     }
@@ -3283,7 +3301,7 @@ ChunkServer::ParseCryptoKey(
         return false;
     }
     const char* p = keyId.GetPtr();
-    if (! (hexFormatFlag ? 
+    if (! (hexFormatFlag ?
             HexIntParser::Parse(p, keyId.GetSize(), mCryptoKeyId) :
             DecIntParser::Parse(p, keyId.GetSize(), mCryptoKeyId))) {
         KFS_LOG_STREAM_ERROR << GetPeerName() << " " << GetServerLocation() <<
@@ -3607,7 +3625,8 @@ HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, seq_t vers, int index)
     }
     CSMapServerInfo::RemoveHosted(chunkId, vers, index);
     KFS_LOG_STREAM_DEBUG <<
-        "hibernated: "  << GetIndex() <<
+        "hibernated: "  << mLocation <<
+        " index: "      << GetIndex() <<
         " / "           << index <<
         " remove: "     << chunkId <<
         " lists size: " << mListsSize <<
@@ -3639,7 +3658,8 @@ HibernatedChunkServer::Modified(chunkId_t chunkId, seq_t curVers, seq_t vers)
         }
     }
     KFS_LOG_STREAM_DEBUG <<
-        "hibernated: "  << GetIndex() <<
+        "hibernated: "  << mLocation <<
+        " index: "      << GetIndex() <<
         " modified: "   << chunkId <<
         " version: "    << curVers <<
         " => "          << vers <<
@@ -3704,7 +3724,8 @@ HibernatedChunkServer::HelloResumeReply(
         KFS_LOG_STREAM(r.replayFlag ? MsgLogger::kLogLevelDEBUG :
                 r.status == 0 ? MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelERROR) <<
-            "hibernated: "  << GetIndex() <<
+            "hibernated: "  << mLocation <<
+            " index: "      << GetIndex() <<
             " server: "     << r.server->GetServerLocation() <<
             " status: "     << r.status <<
             " msg: "        << r.statusMsg <<
@@ -3770,7 +3791,8 @@ HibernatedChunkServer::HelloResumeReply(
         r.checksum.Remove(chunkId, ce->GetChunkVersion());
     }
     KFS_LOG_STREAM_INFO <<
-        "hibernated: " << GetIndex() <<
+        "hibernated: " << mLocation <<
+        " index: "     << GetIndex() <<
         " server: "    << r.server->GetServerLocation() <<
         " resume: "    << r.resumeStep <<
         " chunks: "    << GetChunkCount() <<
