@@ -62,8 +62,6 @@
 #include <string>
 #include <set>
 
-#include <boost/bind.hpp>
-
 namespace KFS
 {
 using std::ofstream;
@@ -78,11 +76,10 @@ using std::sort;
 using std::unique;
 using std::greater;
 using std::set;
-using std::binary_function;
 using std::lower_bound;
-using boost::bind;
 
-using namespace KFS::libkfsio;
+using libkfsio::globals;
+using libkfsio::globalNetManager;
 
 typedef QCDLList<
     ChunkInfoHandle,
@@ -2832,13 +2829,14 @@ ChunkManager::SetBufferedIo(const Properties& props)
     mBufferedIoSetFlag = true;
 }
 
-static string AddTrailingPathSeparator(const string& dir)
+static string
+AddTrailingPathSeparator(const string& dir)
 {
     return ((! dir.empty() && dir[dir.length() - 1] != '/') ?
         dir + "/" : dir);
 }
 
-struct EqualPrefixStr : public binary_function<string, string, bool>
+struct EqualPrefixStr
 {
     bool operator()(const string& x, const string& y) const
     {
@@ -4846,14 +4844,6 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
         return -ESERVERBUSY;
     }
     op->diskIo.reset(d);
-
-    /*
-    KFS_LOG_STREAM_DEBUG <<
-        "Checksum for chunk: " << op->chunkId << ", offset=" << op->offset <<
-        ", bytes=" << op->numBytesIO << ", # of cksums=" << op->checksums.size() <<
-    KFS_LOG_EOM;
-    */
-
     op->diskIOTime = microseconds();
     int res = op->diskIo->Write(
         offset + cih->chunkInfo.GetHeaderSize(), numBytesIO, &op->dataBuf);
@@ -6385,8 +6375,8 @@ ChunkManager::AllocateWriteId(
     const ServerLocation& peerLoc)
 {
     const bool kAddObjectBlockMappingFlag = false;
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(wi->chunkId, wi->chunkVersion,
-        kAddObjectBlockMappingFlag);
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(
+        wi->chunkId, wi->chunkVersion, kAddObjectBlockMappingFlag);
     if (! cih) {
         wi->statusMsg = "no such chunk";
         wi->status = -EBADF;
@@ -7240,7 +7230,8 @@ ChunkManager::SendChunkDirInfo()
 }
 
 BufferManager*
-ChunkManager::FindDeviceBufferManager(kfsChunkId_t chunkId, int64_t chunkVersion)
+ChunkManager::FindDeviceBufferManager(
+    kfsChunkId_t chunkId, int64_t chunkVersion)
 {
     if (! mDiskBufferManagerEnabledFlag) {
         return 0;
