@@ -18,7 +18,6 @@ Some selected pages for you to read are available below. A full list of all wiki
 pages is available on the right sidebar.
 
 - [[Introduction To QFS]]
-- [[Repository Organization]]
 - [[Administrator's Guide]]
 - [[Deployment Guide]]
 - [[Configuration Reference]]

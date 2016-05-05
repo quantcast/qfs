@@ -33,7 +33,9 @@ Furthermore, when making your pull request, ensure the following:
 
   - Your change is based on the current master branch (rebase if necessary).
   - The code builds properly and tests all pass
-  - You have added appropriate unit and integration tests for your changes/fixes
+  - You have added appropriate unit and integration tests for your
+    changes/fixes. See the [[Developer-Documentation]] for more information on
+    writing unit and integration tests.
   - Code changes are well documented and readable. You should update the
     documentation within the wiki directory if necessary.
   - Your changes conform to the style guide listed below.

@@ -119,3 +119,167 @@ will allocate a different set of 9 chunks (again 6 chunks for original data and
 3 more for parity) and more likely store them in a different set of 9
 chunkservers, assuming the number of available chunkservers is sufficiently
 large.
+
+## QFS Client Properties
+
+Throughout the related text, we refer to two values; write-stride and read-stride. 
+write-stride is defined as _(number of data stripes + number of recovery stripes) * stripe size_,
+whereas read-stride is defined as _number of data stripes * stripe size_.
+
+### File Properties
+
+* *ioBufferSize:* Serves as write-behind threshold and governs when buffered data
+gets actually written. During file creation/opening, QFS client sets _ioBufferSize_
+to _defaultIOBufferSize_ (see _defaultIOBufferSize_ below for details). During file
+creation/opening, QFS client ensures that _ioBufferSize_ for Reed-Solomon files does
+not go below (_number of data stripes_+_number of recovery stripes_)\*_targetDiskIoSize_
+and it is write-stride size aligned. After file creation/opening, users can overwrite
+the value set by QFS client by calling `KfsClient::SetIoBufferSize(int fd, size_t size)`.
+Note that `KfsClient::SetIoBufferSize(int fd, size_t size)` does not have an effect on
+previously submitted write requests.
+
+* *readAheadBufferSize:* Defines the minimum number of bytes read from a file regardless
+of the actual number of bytes that a read call intents to read. &nbsp;During file
+creation/opening, QFS client automatically sets _readAheadBufferSize_ to _defaultReadAheadBufferSize_
+(see _defaultReadAheadBufferSize_ below for details). During file creation/opening, QFS client
+ensures that _readAheadBufferSize_ for Reed-Solomon files does not go below _number of
+data stripes_\*_targetDiskIoSize_ and it is read-stride size aligned. After file
+creation/opening, users can overwrite the value set by QFS client by
+calling `KfsClient::SetReadAheadSize(int fd, size_t size)`. Note that 
+`KfsClient::SetReadAheadSize(int fd, size_t size)` does not have an effect
+on previously submitted read requests.
+
+* *diskIOReadSize:* Defines the maximum number of bytes read from a file each time
+data is received from a chunk server. Consequently, it also controls the size of
+the disk IO read operation at the chunk server -- how many bytes that the chunk server
+reads from the underlying storage device at each access. Currently, it is set to
+_maxReadSize_ (see below _maxReadSize_ for details) for all types of read operations
+(regular read, read-ahead, prefetch read).
+
+* *diskIOWriteSize:* Defines the maximum number of bytes written to a file each
+time data is sent to a chunk server. Consequently, it also controls the size of
+the disk IO write operation at the chunk server -- how many bytes that the chunk
+server writes to the underlying storage device at each access. For 3x Replication
+files, _diskIOWriteSize_ is set to _ioBufferSize_, whereas for Reed-Solomon files
+it is set to _ioBufferSize_ / _(number of data stripes+number of recovery stripes)_
+and it is checksum block size aligned. Note that _diskIOWriteSize_ can’t go beyond
+4MB or QFS client’s global _maxWriteSize_ (see _maxWriteSize_ below for details).
+
+### Global Client Properties
+
+* *targetDiskIoSize*: Ensures a minimum value for _ioBufferSize_ and _readAheadBufferSize_
+of a Reed-Solomon file during file creation/opening (see _ioBufferSize_ and
+_readAheadBufferSize_ above for details), so that size of each disk IO for reads/writes
+in a chunk server satisfies the target value. Users can set _targetDiskIoSize_ during
+QFS client initialization by setting QFS_CLIENT_CONFIG environment variable to
+client.targetDiskIoSize=\<value\>. Otherwise, _targetDiskIoSize_ is set to 1MB.
+
+* *defaultIOBufferSize:* Used to set _ioBufferSize_ of a file during file creation/opening
+(see _ioBufferSize_ above for details). When necessary conditions are satisfied, it is also
+used to set _defaultReadAheadBufferSize_ (see _defaultReadAheadBufferSize_ below for details).
+Users can set _defaultIOBufferSize_ during QFS client initialization by setting QFS_CLIENT_CONFIG
+environment variable to client.defaultIoBufferSize=\<value\>. Note that if users don’t provide
+a value or the provided value is less than checksum block size (64KB), _defaultIOBufferSize_
+is set to _max(1MB, targetDiskIoSize)_. Once QFS client is initialized, users can overwrite
+the value of _defaultIOBufferSize_ by calling `KfsClient::SetDefaultIoBufferSize(size_t size)`.
+Note that `KfsClient::SetDefaultIoBufferSize(size_t size)` will not have an effect on already
+created or opened files.
+
+* *defaultReadAheadBufferSize:* Used to set _readAheadBufferSize_ of a file during file
+creation/opening (see _readAheadBufferSize_ above for details). Users can set
+_defaultReadAheadBufferSize_ during QFS client initialization by setting QFS_CLIENT_CONFIG
+environment variable to client.defaultReadAheadBufferSize=\<value\>. Note that _defaultReadAheadBufferSize_
+is set to _defaultIOBufferSize_, if users don’t provide a value and _defaultIOBufferSize_
+is greater than checksum block size (64KB). Otherwise, it is set to 1MB. Once QFS client is
+initialized, users can overwrite the value of _defaultReadAheadBufferSize_ by calling `KfsClient::SetDefaultReadAheadSize(size_t size)`.
+Note that `KfsClient::SetDefaultReadAheadSize(size_t size)`
+will not have an effect on already created or opened files.
+
+* *maxReadSize:* Provides a maximum value for _diskIOReadSize_ of a file. Users can set _maxReadSize_
+during QFS client initialization by setting QFS_CLIENT_CONFIG environment variable to
+client.maxReadSize=\<value\>. If users don’t provide a value or the provided value is less
+than the checksum block size (64KB), _maxReadSize_ is set to _max(4MB, targetDiskIoSize)_.
+
+* *maxWriteSize:* Provides a maximum value for _diskIOWriteSize_ of a file. Users can set
+_maxWriteSize_ during QFS client initialization by setting QFS_CLIENT_CONFIG environment
+variable to client.maxWriteSize=\<value\>_._ If users don’t provide a value,
+_maxWriteSize_ is set to _targetDiskIoSize_.
+
+* *randomWriteThreshold:* Users can set _randomWriteThreshold_ during QFS client
+initialization by setting QFS_CLIENT_CONFIG environment variable to client.randomWriteThreshold=\<value\>.
+If users don’t provide a value, _randomWriteThreshold_ is set to _maxWriteSize_
+(if provided in the environment variable).
+
+* *connectionPool*: A flag that tells whether a chunk server connection pool should
+be used by QFS client. This is used to reduce the number of chunk server connections
+and presently used only with radix sort with write append. Users can set
+_connectionPool_ during QFS client initialization by setting QFS_CLIENT_CONFIG
+environment variable to client.connectionPool=\<value\>. Default value is false.
+
+* *fullSparseFileSupport*: A flag that tells whether the filesystem might be hosting
+sparse files. When it is set, a short read operation does not produce an error, but
+instead is accounted as a read on a sparse file. Users can set _fullSparseFileSupport_
+during QFS client initialization by setting QFS_CLIENT_CONFIG environment variable to
+client.fullSparseFileSupport=\<value\>. Once QFS client is initialized, users can
+change the current value by calling `KfsClient::SetDefaultFullSparseFileSupport(bool flag)`.
+Default value is false.
+
+## Read and Write Functions
+
+### `KfsClient::Read(int fd, char* buf, size_t numBytes)`
+Used for blocking reads with a read-ahead logic managed by QFS client. 
+QFS client performs the following steps in order.
+
+* Checks if the current read call could be served from an 
+ongoing prefetch read. The number of remaining bytes to read
+is updated accordingly.
+
+* Checks if the remaining number of bytes could be read from
+the existing content in the read-ahead buffer. The number of
+remaining bytes to read is updated accordingly.
+
+* Next, if the number of remaining bytes is sufficiently less
+than _read-ahead buffer size_, a new read-ahead operation is issued
+and the remaining bytes to read for the current read call are served
+from the new content of the read-ahead buffer. Note that QFS client
+allocates an additional buffer for read-ahead operations on a file.
+
+* If previous step is skipped, QFS client creates a regular blocking
+read operation. Note that it does not make a copy of the source buffer. 
+Once the read is over, it issues a new read-ahead operation for subsequent
+read calls on the same file. This read-ahead operation is performed
+in a non-blocking fashion.
+
+### `KfsClient::ReadPrefetch(int fd, char* buf, size_t numBytes)`
+Used for non-blocking reads in which user provides a prefetch buffer.
+QFS client does not make a copy of the prefetch buffer, so users
+should ensure that the provided prefetch buffer is not used until the
+prefetch operation completes. Completion handling is done when user makes
+a blocking read call. If data prefetched is less than what is asked in
+blocking read, the blocking read call will read the remaining data.
+
+### `KfsClient::WriteAsync(int fd, const char* buf, size_t numBytes)`
+*Note:* This mode of write is yet to be fully supported.
+
+Used for non-blocking writes. QFS client doesn’t make a copy of the
+user provided source buffer, so user should not use the source buffer
+until the write gets completed. Completion handling is done by invoking
+`KfsClient::WriteAsyncCompletionHandler(int fd)`. This function will wait 
+until all of the non-blocking write requests on that file complete.
+
+### `KfsClient::Write(int fd, const char\* buf, size_t numBytes)`
+Used for blocking writes. However, how QFS client actually performs the
+write depends on 1) the number of bytes that we want to write with the
+current call (denoted as&nbsp;_numBytes_ below), 2) the number of pending
+bytes to be written from previous calls (denoted as _pending_ below) and
+3) write-behind threshold. Following two cases are possible.
+
+* _numBytes + pending < write-behind threshold_: QFS client makes a
+copy of the source buffer. Write operation is delayed until the number
+of pending bytes (including the bytes from the current write call) exceeds
+_write-behind threshold_ by subsequent write calls or until user calls
+`KfsClient::Sync(int fd)`.
+
+* _numBytes + pending >= write-behind threshold_: QFS client makes
+a copy of the source buffer only if _write-behind threshold_ is greater than
+zero. Write is performed in a blocking fashion.
