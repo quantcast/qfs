@@ -3823,7 +3823,8 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
                 op->status    = -EINVAL;
                 return op->status;
             }
-        } else if (op->fromChunkVersion != cih->GetTargetStateAndVersion(stableFlag)) {
+        } else if (op->fromChunkVersion !=
+                cih->GetTargetStateAndVersion(stableFlag)) {
             op->statusMsg = (stableFlag ? "" : "not ");
             op->statusMsg += "stable target version mismatch";
             op->status    = -EINVAL;
@@ -3927,16 +3928,19 @@ ChunkManager::ChangeChunkVers(
                 " -> "       << targetStable <<
                 " <- "       << stableFlag <<
         KFS_LOG_EOM;
+        // Client / writer uses EROFS status to detect that the chunk is stable.
         return ((chunkVersion == cih->chunkInfo.chunkVersion && ! stableFlag) ?
             (cih->IsStable() ? -EROFS : -EAGAIN) : -EINVAL);
     }
     KFS_LOG_STREAM_INFO <<
-        "chunk " << MakeChunkPathname(cih) <<
-        " already exists; changing version #" <<
-        " from " << cih->chunkInfo.chunkVersion << " to " << chunkVersion <<
-        " stable: " << cih->IsStable() << "=>" << stableFlag <<
+        "changing version:"
+        " chunk: "  << cih->chunkInfo.chunkId <<
+        " from: "   << cih->chunkInfo.chunkVersion <<
+        " to: "     << chunkVersion <<
+        " stable: " << cih->IsStable() <<
+        " -> "      << stableFlag <<
+        " file: "   << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
-
     if (! mPendingWrites.Delete(
             cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion)) {
         ostringstream os;
@@ -5895,9 +5899,6 @@ ChunkManager::GetHostedChunksResume(
         if (! p) {
             break;
         }
-        if (mLastPendingInFlight.Find(p->GetKey())) {
-            continue;
-        }
         ChunkInfoHandle* const cih = p->GetVal();
         if (cih->IsBeingReplicated()) {
             // Must not be in hello notify, ensure that it really isn't.
@@ -5908,6 +5909,9 @@ ChunkManager::GetHostedChunksResume(
         if (! IsTargetChunkVersionStable(*cih, vers) || vers <= 0) {
             AppendToHostedList(
                 *cih, stable, notStableAppend, notStable, noFidsFlag);
+            continue;
+        }
+        if (mLastPendingInFlight.Find(p->GetKey())) {
             continue;
         }
         if (IsPendingHelloNotify(*cih)) {

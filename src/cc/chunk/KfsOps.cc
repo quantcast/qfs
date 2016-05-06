@@ -1358,7 +1358,7 @@ AllocChunkOp::Execute()
     const bool addObjectBlockMappingFlag = mustExistFlag;
     int res = gChunkManager.ReadChunkMetadata(chunkId, chunkVersion, this,
         addObjectBlockMappingFlag);
-    if (res == 0) {
+    if (0 <= res) {
         // The completion handler will be or already invoked: "this" might not
         // be valid at this point, as it might have been deleted already:
         // do not attempt to access.
@@ -1413,7 +1413,7 @@ AllocChunkOp::HandleChunkAllocDone(int code, void* data)
 {
     UpdateStatus(code, data);
     if (0 <= status) {
-        if (leaseId >= 0) {
+        if (0 <= leaseId) {
             OpCounters::WriteMaster();
         }
         if (! diskIo) {

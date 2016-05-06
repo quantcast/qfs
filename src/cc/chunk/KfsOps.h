@@ -690,12 +690,14 @@ struct ChangeChunkVersOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "change-chunk-vers:"
-            " seq: "         << seq <<
-            " file: "        << fileId <<
-            " chunk: "       << chunkId <<
-            " version: "     << chunkVersion <<
-            " make stable: " << makeStableFlag <<
-            " verify: "      << verifyStableFlag
+            " seq: "           << seq <<
+            " file: "          << fileId <<
+            " chunk: "         << chunkId <<
+            " version:"
+            " from: "          << fromChunkVersion <<
+            " to: "            << chunkVersion <<
+            " make stable: "   << makeStableFlag <<
+            " verify stable: " << verifyStableFlag
         ;
     }
     template<typename T> static T& ParserDef(T& parser)

@@ -603,11 +603,11 @@ MetaServerSM::HandleRequest(int code, void* data)
 void
 MetaServerSM::Error(const char* msg)
 {
+    mGenerationCount++;
     CleanupOpInFlight();
     DetachAndDeleteOp(mAuthOp);
     DiscardPendingResponses();
     if (mNetConnection) {
-        mGenerationCount++;
         KFS_LOG_STREAM(globalNetManager().IsRunning() ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) <<
