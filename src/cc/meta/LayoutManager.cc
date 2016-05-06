@@ -7663,11 +7663,11 @@ LayoutManager::Handle(MetaChunkAvailable& req)
         }
         // Add chunk replicas in replay, as leases don't exist in replay, and
         // chunk replicas might be off due to lag of the updates from the
-        // primary, and wait for the primary to delete these by issuing stale
-        // chunks notifications. Stale chunks notification are replayed prior
-        // to being issued to the chunk server, as it required to be logged
-        // successfully before it can be issued to the chunk server. In the
-        // case of the log failure or chunk disconnect the chunk server will
+        // primary. Rely on the primary to delete chunks, if necessary, by
+        // issuing stale chunks notification. Stale chunks notification replayed
+        // prior to being issued to the chunk server, as it required to be
+        // logged successfully before it can be issued to the chunk server. In
+        // the case of the log failure or chunk disconnect the chunk server will
         // not receive chunk available completion, and therefore will mark the
         // corresponding chunks as in flight, and must add these to hello
         // resume.
