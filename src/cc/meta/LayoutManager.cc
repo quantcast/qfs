@@ -7647,7 +7647,10 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             // timed out, and retried.
             continue;
         }
-        if (ci.chunkVersion != chunkVersion) {
+        if (ci.chunkVersion != chunkVersion &&
+                (chunkVersion < ci.chunkVersion ||
+                    ci.chunkVersion + GetChunkVersionRollBack(chunkId) <
+                    chunkVersion)) {
             KFS_LOG_STREAM_DEBUG <<
                 loc <<
                 " available chunk: "    << chunkId <<
@@ -7658,80 +7661,114 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             staleChunks.PushBack(chunkId);
             continue;
         }
-        const ChunkLeases::WriteLease* const lease =
-            mChunkLeases.GetChunkWriteLease(chunkId);
-        if (lease) {
-            KFS_LOG_STREAM_DEBUG <<
-                loc <<
-                " available chunk: "  << chunkId <<
-                " version: "          << chunkVersion <<
-                " hello: "            << req.helloFlag <<
-                " write lease exists" <<
-            KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
-            continue;
+        // Add chunk replicas in replay, as leases don't exist in replay, as
+        // chunk replicas might be off due to lag of the updates from the
+        // primary, and wait for the primary to delete these by issuing stale
+        // chunks notifications. Stale chunks notification are replayed prior
+        // to being issued to the chunk server, as it required to be logged
+        // successfully before it can be issued to the chunk server. In the
+        // case of the log failure or chunk disconnect the chunk server will
+        // not receive chunk available completion, and therefore will mark the
+        // corresponding chunks as in flight, and must add these to hello
+        // resume.
+        if (! req.replayFlag) {
+            const ChunkLeases::WriteLease* const lease =
+                mChunkLeases.GetChunkWriteLease(chunkId);
+            if (lease && lease->allocInFlight &&
+                    0 == lease->allocInFlight->status) {
+                KFS_LOG_STREAM_DEBUG <<
+                    loc <<
+                    " available chunk: "  << chunkId <<
+                    " version: "          << chunkVersion <<
+                    " hello: "            << req.helloFlag <<
+                    " write lease exists" <<
+                KFS_LOG_EOM;
+                staleChunks.PushBack(chunkId);
+                continue;
+            }
+            if (! IsChunkStable(chunkId)) {
+                KFS_LOG_STREAM_INFO <<
+                    loc <<
+                    " available chunk: " << chunkId <<
+                    " version: "         << chunkVersion <<
+                    " hello: "           << req.helloFlag <<
+                    " not stable" <<
+                KFS_LOG_EOM;
+                // Available chunks are always stable. If the version matches
+                // then it is likely that the replica became stable but make
+                // stable reply was "lost" due chunk server disconnect or
+                // chunk directory transition into "lost" state.
+            }
+            const MetaFattr& fa     = *(cmi->GetFattr());
+            const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
+            if (! req.replayFlag && 0 < srvCnt && (fa.numReplicas <= srvCnt ||
+                    (0 <= req.useThreshold &&
+                        fa.numReplicas <= srvCnt + req.useThreshold))) {
+                KFS_LOG_STREAM_DEBUG <<
+                    loc <<
+                    " available chunk: "     << chunkId <<
+                    " version: "             << chunkVersion <<
+                    " hello: "               << req.helloFlag <<
+                    " sufficient replicas: " << srvCnt <<
+                    " replay: "              << req.replayFlag <<
+                KFS_LOG_EOM;
+                staleChunks.PushBack(chunkId);
+                continue;
+            }
+            bool incompleteChunkBlockFlag              = false;
+            bool incompleteChunkBlockWriteHasLeaseFlag = false;
+            int  goodCnt                               = 0;
+            if (0 <= req.useThreshold &&
+                    0 < fa.numRecoveryStripes &&
+                    CanBeRecovered(
+                        *cmi,
+                        incompleteChunkBlockFlag,
+                        &incompleteChunkBlockWriteHasLeaseFlag,
+                        cblk,
+                        &goodCnt) &&
+                    (int)fa.numStripes + req.useThreshold <= goodCnt) {
+                KFS_LOG_STREAM_DEBUG <<
+                    loc <<
+                    " available chunk: "  << chunkId <<
+                    " version: "          << chunkVersion <<
+                    " hello: "            << req.helloFlag <<
+                    " can be recovered: "
+                    " good: "             << goodCnt <<
+                    " data stripes: "     << fa.numStripes <<
+                KFS_LOG_EOM;
+                staleChunks.PushBack(chunkId);
+                continue;
+            }
+            if (incompleteChunkBlockWriteHasLeaseFlag) {
+                KFS_LOG_STREAM_DEBUG <<
+                    loc <<
+                    " available chunk: "  << chunkId <<
+                    " version: "          << chunkVersion <<
+                    " hello: "            << req.helloFlag <<
+                    " partial chunk block has write lease" <<
+                KFS_LOG_EOM;
+                staleChunks.PushBack(chunkId);
+                continue;
+            }
         }
-        if (! IsChunkStable(chunkId)) {
-            KFS_LOG_STREAM_INFO <<
+        if (ci.chunkVersion != chunkVersion) {
+            KFS_LOG_STREAM_DEBUG <<
                 loc <<
                 " available chunk: " << chunkId <<
                 " version: "         << chunkVersion <<
                 " hello: "           << req.helloFlag <<
-                " not stable" <<
+                " change version "   << ci.chunkVersion <<
             KFS_LOG_EOM;
-            // Available chunks are always stable. If the version matches
-            // then it is likely that the replica became stable but make stable
-            // reply was "lost" due chunk server disconnect or chunk directory
-            // transition into "lost" state.
-        }
-        const MetaFattr& fa     = *(cmi->GetFattr());
-        const size_t     srvCnt = mChunkToServerMap.ServerCount(*cmi);
-        if (0 < srvCnt && (fa.numReplicas <= srvCnt ||
-                (0 <= req.useThreshold &&
-                    fa.numReplicas <= srvCnt + req.useThreshold))) {
-            KFS_LOG_STREAM_DEBUG <<
-                loc <<
-                " available chunk: "     << chunkId <<
-                " version: "             << chunkVersion <<
-                " hello: "               << req.helloFlag <<
-                " sufficinet replicas: " << srvCnt <<
-            KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
-            continue;
-        }
-        bool incompleteChunkBlockFlag              = false;
-        bool incompleteChunkBlockWriteHasLeaseFlag = false;
-        int  goodCnt                               = 0;
-        if (0 <= req.useThreshold &&
-                0 < fa.numRecoveryStripes &&
-                CanBeRecovered(
-                    *cmi,
-                    incompleteChunkBlockFlag,
-                    &incompleteChunkBlockWriteHasLeaseFlag,
-                    cblk,
-                    &goodCnt) &&
-                (int)fa.numStripes + req.useThreshold <= goodCnt) {
-            KFS_LOG_STREAM_DEBUG <<
-                loc <<
-                " available chunk: "  << chunkId <<
-                " version: "          << chunkVersion <<
-                " hello: "            << req.helloFlag <<
-                " can be recovered: "
-                " good: "             << goodCnt <<
-                " data stripes: "     << fa.numStripes <<
-            KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
-            continue;
-        }
-        if (incompleteChunkBlockWriteHasLeaseFlag) {
-            KFS_LOG_STREAM_DEBUG <<
-                loc <<
-                " available chunk: "  << chunkId <<
-                " version: "          << chunkVersion <<
-                " hello: "            << req.helloFlag <<
-                " partial chunk block has write lease" <<
-            KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            bool kMakeStableFlag = false;
+            bool kPendingAddFlag = true;
+            req.server->NotifyChunkVersChange(
+                cmi->GetFattr()->id(),
+                chunkId,
+                ci.chunkVersion, // to
+                chunkVersion,    // from
+                kMakeStableFlag,
+                kPendingAddFlag
+            );
             continue;
         }
         const bool addedFlag = AddServer(*cmi, req.server);
