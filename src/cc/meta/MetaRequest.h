@@ -2519,7 +2519,8 @@ struct MetaChunkVersChange: public MetaChunkRequest {
             " chunkId: "        << chunkId <<
             " version: from: "  << fromVersion <<
             " => to: "          << chunkVersion <<
-            " make stable: "    << makeStableFlag
+            " make stable: "    << makeStableFlag <<
+            " verify stable: "  << verifyStableFlag
         ;
     }
 };

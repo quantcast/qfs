@@ -3873,22 +3873,21 @@ LayoutManager::AddNewServer(MetaHello& req)
             const ChunkServerPtr cs     = c.GetServer(
                 mChunkToServerMap, srv.GetServerLocation());
             if (cs) {
-                if (&*cs != &srv) {
-                    panic("invalid duplicate chunk to server mapping");
-                }
+                const bool duplicateEntryFlag = &*cs == &srv;
                 KFS_LOG_STREAM_ERROR << srvId <<
                     " stable chunk: <"     << fileId << "," << chunkId << ">" <<
                     " already hosted on: " << (const void*)&*cs <<
-                    " new server: "        << (const void*)&srv <<
-                    " has the same location: " << srv.GetServerLocation() <<
-                    (&*cs == &srv ?
+                    " / "                  << (const void*)&srv <<
+                    " location: "          << srv.GetServerLocation() <<
+                    (duplicateEntryFlag ?
                         " duplicate chunk entry" :
-                        " possible stale chunk to server mapping entry") <<
+                        " stale chunk to server mapping") <<
                 KFS_LOG_EOM;
-                if (&*cs == &srv) {
+                if (duplicateEntryFlag) {
                     // Ignore duplicate chunk inventory entries.
                     continue;
                 }
+                panic("invalid duplicate chunk to server mapping");
             }
             const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
             chunkVersion = ci.chunkVersion;
@@ -3934,10 +3933,10 @@ LayoutManager::AddNewServer(MetaHello& req)
                     MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelDEBUG) <<
                 srvId <<
-                " stable chunk: <x," << chunkId << ">"
-                " version: " << it->chunkVersion <<
-                "/" << chunkVersion <<
-                " " << staleReason <<
+                " stable chunk: " << chunkId <<
+                " version: "      << it->chunkVersion <<
+                "/"               << chunkVersion <<
+                " "               << staleReason <<
                 " => stale" <<
             KFS_LOG_EOM;
             staleChunkIds.PushBack(it->chunkId);
@@ -3988,10 +3987,9 @@ LayoutManager::AddNewServer(MetaHello& req)
                     MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelDEBUG) <<
                 srvId <<
-                " not stable chunk:" <<
-                (i == 0 ? " append" : "") <<
-                " <" << it->chunkId << ">"
-                " version: " << it->chunkVersion <<
+                " not stable" << (i == 0 ? " append" : "") <<
+                " chunk: "    << it->chunkId <<
+                " version: "  << it->chunkVersion <<
                 " " << (staleReason ? staleReason : "") <<
                 (staleReason ? " => stale" : "added back") <<
             KFS_LOG_EOM;
@@ -4035,8 +4033,13 @@ LayoutManager::AddNewServer(MetaHello& req)
                 panic("invalid modified chunk list");
                 continue;
             }
-            seq_t const         chunkVersion      =
-                cmi->GetChunkInfo()->chunkVersion;
+            seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
+            KFS_LOG_STREAM_DEBUG << srvId <<
+                " change stable modified"
+                " chunk: "   << chunkId <<
+                " version: " << chunkVersion + GetChunkVersionRollBack(chunkId) <<
+                " -> "       << chunkVersion <<
+            KFS_LOG_EOM;
             bool                kMakeStableFlag   = false;
             bool                kPendingAddFlag   = true;
             bool                kVerifyStableFlag = true;
@@ -8697,7 +8700,8 @@ LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version,
                     it != req->servers.end();
                     ++it) {
                 req->allChunkServersShortRpcFlag =
-                    req->allChunkServersShortRpcFlag && (*it)->IsShortRpcFormat();
+                    req->allChunkServersShortRpcFlag &&
+                    (*it)->IsShortRpcFormat();
                 if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
                     req->status = -ENOSPC;
                     break;
