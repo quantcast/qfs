@@ -7661,7 +7661,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             staleChunks.PushBack(chunkId);
             continue;
         }
-        // Add chunk replicas in replay, as leases don't exist in replay, as
+        // Add chunk replicas in replay, as leases don't exist in replay, and
         // chunk replicas might be off due to lag of the updates from the
         // primary, and wait for the primary to delete these by issuing stale
         // chunks notifications. Stale chunks notification are replayed prior
