@@ -64,8 +64,6 @@ using std::vector;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::globals;
 
-NetDispatch gNetDispatch;
-
 class NetDispatch::CanceledTokens : public ITimeout
 {
 public:

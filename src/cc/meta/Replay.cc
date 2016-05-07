@@ -169,8 +169,6 @@ public:
         {}
 };
 
-Replay replayer;
-
 /*!
  * \brief open saved log file for replay
  * \param[in] p a path in the form "<logdir>/log.<number>"

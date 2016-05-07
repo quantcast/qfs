@@ -40,11 +40,16 @@ namespace KFS
 using std::vector;
 using std::ostream;
 
+class LayoutEmulator;
+
 class ChunkServerEmulator : private TcpSocket, public ChunkServer
 {
 public:
     ChunkServerEmulator(
-        const ServerLocation& loc, int rack, const string& peerName);
+        const ServerLocation& loc,
+        int                   rack,
+        const string&         peerName,
+        LayoutEmulator&       emulator);
     virtual ~ChunkServerEmulator();
 
     size_t Dispatch();
@@ -84,8 +89,9 @@ protected:
 
 private:
     typedef vector<MetaChunkRequest*> PendingReqs;
-    PendingReqs mPendingReqs;
-    ostream*    mOut;
+    PendingReqs     mPendingReqs;
+    ostream*        mOut;
+    LayoutEmulator& mLayoutEmulator;
 private:
     ChunkServerEmulator(const ChunkServerEmulator&);
     ChunkServerEmulator& operator=(const ChunkServerEmulator&);

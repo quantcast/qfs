@@ -291,7 +291,8 @@ LayoutEmulator::AddServer(
     os << loc.hostname << ":" << loc.port;
     const string peerName = os.str();
     ChunkServerPtr c;
-    ChunkServerEmulator& srv = *(new ChunkServerEmulator(loc, rack, peerName));
+    ChunkServerEmulator& srv =
+        *(new ChunkServerEmulator(loc, rack, peerName, *this));
     c.reset(&srv);
 
     srv.InitSpace(totalSpace, usedSpace, mUseFsTotalSpaceFlag);
@@ -933,9 +934,17 @@ LayoutEmulator::RunFsck(
     return err;
 }
 
-LayoutEmulator gLayoutEmulator;
-LayoutManager& gLayoutManager = gLayoutEmulator;
-const UserAndGroup& MetaUserAndGroup::sUserAndGroup =
-    gLayoutManager.GetUserAndGroup();
+/* static */ LayoutEmulator&
+LayoutEmulator::Instance()
+{
+    static LayoutEmulator sLayoutEmulator;
+    return sLayoutEmulator;
+}
+
+/* static */ LayoutManager&
+LayoutManager::Create()
+{
+    return LayoutEmulator::Instance();
+}
 
 } // namespace KFS

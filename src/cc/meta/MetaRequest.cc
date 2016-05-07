@@ -731,27 +731,40 @@ CheckCreatePerms(T& req, bool dirFlag)
 
 class MetaRequestNull : public MetaRequest
 {
+public:
+    static const MetaRequest& Get()
+    {
+        static MetaRequestNull sNullReq;
+        return sNullReq;
+    }
 protected:
     MetaRequestNull()
         : MetaRequest(META_NUM_OPS_COUNT, kLogNever)
         {}
     virtual ostream& ShowSelf(ostream& os) const
         { return os << "null"; }
-    static const MetaRequest& Instance()
-    {
-        static const MetaRequestNull sInstance;
-        return sInstance;
-    }
-    static const MetaRequest& sNullReq;
-    friend struct MetaRequest;
 };
-// Force construction;
-const MetaRequest& MetaRequestNull::sNullReq = MetaRequestNull::Instance();
 
 /* static */ const MetaRequest&
 MetaRequest::GetNullReq()
 {
-    return MetaRequestNull::Instance();
+    return MetaRequestNull::Get();
+}
+
+/* static */ bool
+MetaRequest::Initialize()
+{
+    const bool initedFlag = false;
+    if (initedFlag) {
+        return true;
+    }
+    if (0 != sMetaRequestCount) {
+        panic("invalid meta request initialize attempt");
+        return false;
+    }
+    MetaRequestsList::Init(sMetaRequestsPtr);
+    GetNullReq();
+    return true;
 }
 
 inline bool
@@ -6343,13 +6356,5 @@ MetaHibernatedRemove::handle()
 {
     gLayoutManager.Handle(*this);
 }
-
-static LogWriter&
-MakeLogWriter()
-{
-    static LogWriter sLogWriter;
-    return sLogWriter;
-}
-LogWriter& MetaRequest::sLogWriter = MakeLogWriter();
 
 } /* namespace KFS */

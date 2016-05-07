@@ -42,8 +42,6 @@ using std::pair;
 using std::back_inserter;
 using std::make_pair;
 
-ChildProcessTrackingTimer gChildProcessTracker;
-
 void ChildProcessTrackingTimer::Track(pid_t pid, MetaRequest *r)
 {
     if (mPending.empty()) {

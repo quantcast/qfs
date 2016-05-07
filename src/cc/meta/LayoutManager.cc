@@ -1577,8 +1577,8 @@ LayoutManager::Rand(int64_t interval)
     return (int64_t)(mRandom.Rand() % interval);
 }
 
-LayoutManager::ChunkPlacement::ChunkPlacement()
-    : Super(gLayoutManager)
+LayoutManager::ChunkPlacement::ChunkPlacement(LayoutManager* layoutManager)
+    : Super(layoutManager ? *layoutManager : gLayoutManager)
 {
     Reserve(512);
 }
@@ -1814,7 +1814,7 @@ LayoutManager::LayoutManager() :
     mServers3Tmp(),
     mServers4Tmp(),
     mPlacementTiersTmp(),
-    mChunkPlacementTmp(),
+    mChunkPlacementTmp(this),
     mRandom(),
     mTempOstream()
 {
@@ -4795,7 +4795,7 @@ public:
         int64_t         maxFilesToReport,
         ostream**       os)
         : mLayoutManager(layoutManager),
-          mPlacement(),
+          mPlacement(&layoutManager),
           mStartTime(microseconds()),
           mMaxToReportFileCount(maxFilesToReport),
           mPath(),

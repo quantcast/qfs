@@ -36,12 +36,6 @@ namespace KFS
 {
 using std::ostringstream;
 
-/*
- * Seed the unique id generators for files/chunks to start at 2
- */
-UniqueID fileID(0, ROOTFID);
-UniqueID chunkID(1, ROOTFID);
-
 inline ostream&
 MetaDentry::showSelf(ostream& os) const
 {

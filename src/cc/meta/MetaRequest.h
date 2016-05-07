@@ -400,13 +400,14 @@ struct MetaRequest {
         { return recursionCount; }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
+    void Submit();
     static MetaRequest* ReadReplay(const char* buf, size_t len);
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);
     static TokenValue GetName(int id);
     static LogWriter& GetLogWriter()
         { return sLogWriter; }
-    void Submit();
+    static bool Initialize();
 protected:
     virtual void response(ReqOstream& /* os */) {}
     virtual ~MetaRequest();

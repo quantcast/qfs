@@ -45,6 +45,7 @@ public:
     static void PrepareToFork();
     static void ForkDone();
     static void ChildAtFork();
+    static bool Init();
 };
 
 };

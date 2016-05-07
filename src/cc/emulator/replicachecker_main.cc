@@ -109,19 +109,20 @@ main(int argc, char** argv)
 
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
-    Properties props;
-    int fsckStatus = 0;
-    int status     = 0;
+    LayoutEmulator& emulator   = LayoutEmulator::Instance();
+    int             fsckStatus = 0;
+    int             status     = 0;
+    Properties      props;
     if (propsFn.empty() ||
             (status = props.loadProperties(propsFn.c_str(), char('=')))
             == 0) {
-        gLayoutEmulator.SetParameters(props);
-        if ((status = EmulatorSetup(logdir, cpdir, networkFn, chunkmapFn)) ==
-                0) {
+        emulator.SetParameters(props);
+        if ((status = EmulatorSetup(
+                emulator, logdir, cpdir, networkFn, chunkmapFn)) == 0) {
             if (! fsckFn.empty()) {
-                fsckStatus = gLayoutEmulator.RunFsck(fsckFn);
+                fsckStatus = emulator.RunFsck(fsckFn);
             }
-            status = gLayoutEmulator.VerifyRackAwareReplication(
+            status = emulator.VerifyRackAwareReplication(
                         reportAllFlag, verboseFlag, cout);
         }
     }

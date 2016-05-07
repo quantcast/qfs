@@ -38,6 +38,11 @@ public:
     template<typename Tp> class TmpT
     {
     public:
+        template<typename ARGT>
+        TmpT(ARGT inArg)
+            : mTmp(inArg),
+              mInUseFlag(false)
+            {}
         TmpT()
             : mTmp(),
               mInUseFlag(false)

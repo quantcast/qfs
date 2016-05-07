@@ -46,7 +46,7 @@ using std::cerr;
 
 using namespace KFS;
 
-static void HandleStop(int) { gLayoutEmulator.Stop(); }
+static void HandleStop(int) { LayoutEmulator::Instance().Stop(); }
 
 int
 main(int argc, char** argv)
@@ -148,33 +148,34 @@ main(int argc, char** argv)
         return 1;
     }
 
+    LayoutEmulator& emulator = LayoutEmulator::Instance();
     Properties props;
     int status = 0;
     if (propsFn.empty() ||
             (status = props.loadProperties(propsFn.c_str(), char('=')))
             == 0) {
-        gLayoutEmulator.SetParameters(props);
-        gLayoutEmulator.SetupForRebalancePlanning(variationFromAvg);
-        status = EmulatorSetup(logdir, cpdir, networkFn, chunkmapFn,
+        emulator.SetParameters(props);
+        emulator.SetupForRebalancePlanning(variationFromAvg);
+        status = EmulatorSetup(emulator, logdir, cpdir, networkFn, chunkmapFn,
             minReplication, minReplication > 1);
         if (status == 0 &&
-                (status = gLayoutEmulator.SetRebalancePlanOutFile(
+                (status = emulator.SetRebalancePlanOutFile(
                     rebalancePlanFn)) == 0) {
             if (debugFlag) {
-                gLayoutEmulator.PrintChunkserverBlockCount(cout);
+                emulator.PrintChunkserverBlockCount(cout);
             }
             KFS_LOG_STREAM_NOTICE << "creating re-balance plan: " <<
                 rebalancePlanFn <<
             KFS_LOG_EOM;
-            gLayoutEmulator.BuildRebalancePlan();
+            emulator.BuildRebalancePlan();
             if (! chunkMapDir.empty()) {
-                gLayoutEmulator.DumpChunkToServerMap(chunkMapDir);
+                emulator.DumpChunkToServerMap(chunkMapDir);
             }
             if (debugFlag) {
-                gLayoutEmulator.PrintChunkserverBlockCount(cout);
+                emulator.PrintChunkserverBlockCount(cout);
             }
             KFS_LOG_STREAM_NOTICE << "replicated chunks: " <<
-                gLayoutEmulator.GetNumBlksRebalanced() <<
+                emulator.GetNumBlksRebalanced() <<
             KFS_LOG_EOM;
         }
     }

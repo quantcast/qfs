@@ -689,7 +689,7 @@ extractAll(Node *n, int kp, const MATCH &k, vector <T *> &result)
     }
 }
 
-extern Tree metatree;
+extern Tree& metatree;
 extern void makeDumpsterDir();
 extern void emptyDumpsterDir();
 extern int  checkDumpsterExists();

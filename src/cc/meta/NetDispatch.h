@@ -115,7 +115,7 @@ private:
     int                mClientThreadsStartCpuAffinity;
 };
 
-extern NetDispatch gNetDispatch;
+extern NetDispatch& gNetDispatch;
 }
 
 #endif // META_NETDISPATCH_H

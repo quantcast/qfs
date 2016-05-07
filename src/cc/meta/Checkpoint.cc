@@ -177,22 +177,4 @@ Checkpoint::write(
     return status;
 }
 
-// default values
-static string sCPDIR("./kfscp");           //!< directory for CP files
-static string sLASTCP(sCPDIR + "/latest"); //!< most recent CP file (link)
-Checkpoint cp(CPDIR);
-
-const string& CPDIR  = sCPDIR;
-const string& LASTCP = sLASTCP;
-
-void
-checkpointer_setup_paths(const string& cpdir)
-{
-    if (! cpdir.empty()) {
-        sCPDIR = cpdir;
-        sLASTCP = cpdir + "/latest";
-        cp.setCPDir(cpdir);
-    }
-}
-
 }

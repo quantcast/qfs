@@ -36,14 +36,16 @@ namespace KFS
 using std::string;
 using std::ostream;
 
+class LayoutEmulator;
 // pass an optional argument that enables changing the degree of replication for a file.
 int EmulatorSetup(
-    string&  logdir,
-    string&  cpdir,
-    string&  networkFn,
-    string&  chunkmapFn,
-    int16_t  minReplicasPerFile = 1,
-    bool     addChunksToReplicationChecker = false);
+    LayoutEmulator& emulator,
+    string&         logdir,
+    string&         cpdir,
+    string&         networkFn,
+    string&         chunkmapFn,
+    int16_t         minReplicasPerFile = 1,
+    bool            addChunksToReplicationChecker = false);
 }
 
 #endif // EMULATOR_EMULATORSETUP_H

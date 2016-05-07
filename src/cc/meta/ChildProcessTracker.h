@@ -58,7 +58,7 @@ private:
     Pending mPending;
 };
 
-extern ChildProcessTrackingTimer gChildProcessTracker;
+extern ChildProcessTrackingTimer& gChildProcessTracker;
 
 }
 

@@ -46,12 +46,13 @@ using std::string;
 
 int
 EmulatorSetup(
-    string&  logdir,
-    string&  cpdir,
-    string&  networkFn,
-    string&  chunkmapFn,
-    int16_t  minReplicasPerFile,
-    bool     addChunksToReplicationChecker)
+    LayoutEmulator& emulator,
+    string&         logdir,
+    string&         cpdir,
+    string&         networkFn,
+    string&         chunkmapFn,
+    int16_t         minReplicasPerFile,
+    bool            addChunksToReplicationChecker)
 {
     checkpointer_setup_paths(cpdir);
 
@@ -61,7 +62,7 @@ EmulatorSetup(
     if (file_exists(LASTCP)) {
         Restorer r;
         status = r.rebuild(LASTCP, minReplicasPerFile) ? 0 : -EIO;
-        // gLayoutEmulator.InitRecoveryStartTime();
+        // emulator.InitRecoveryStartTime();
     } else {
         status = metatree.new_tree();
     }
@@ -80,13 +81,13 @@ EmulatorSetup(
     metatree.enableFidToPathname();
     KFS_LOG_STREAM_INFO << "reading network defn: " << networkFn <<
     KFS_LOG_EOM;
-    status = gLayoutEmulator.ReadNetworkDefn(networkFn);
+    status = emulator.ReadNetworkDefn(networkFn);
     if (status != 0) {
         return status;
     }
     KFS_LOG_STREAM_INFO << "loading chunkmap: " << chunkmapFn <<
     KFS_LOG_EOM;
-    status = gLayoutEmulator.LoadChunkmap(
+    status = emulator.LoadChunkmap(
         chunkmapFn, addChunksToReplicationChecker);
     KFS_LOG_STREAM_INFO << "fs layout emulator setup complete." << KFS_LOG_EOM;
     return status;

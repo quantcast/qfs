@@ -37,12 +37,16 @@ namespace KFS
 using std::numeric_limits;
 
 ChunkServerEmulator::ChunkServerEmulator(
-    const ServerLocation& loc, int rack, const string& peerName)
+    const ServerLocation& loc,
+    int                   rack,
+    const string&         peerName,
+    LayoutEmulator&       emulator)
     : TcpSocket(numeric_limits<int>::max()), // Fake fd, for IsGood()
       ChunkServer(NetConnectionPtr(
         new NetConnection(this, this, false, false)), peerName),
       mPendingReqs(),
-      mOut(0)
+      mOut(0),
+      mLayoutEmulator(emulator)
 {
     SetServerLocation(loc);
     SetRack(rack);
@@ -79,7 +83,7 @@ ChunkServerEmulator::Dispatch()
         }
         if (r->op == META_CHUNK_REPLICATE) {
             MetaChunkReplicate* const mcr = static_cast<MetaChunkReplicate*>(r);
-            if (gLayoutEmulator.ChunkReplicationDone(*mcr)) {
+            if (mLayoutEmulator.ChunkReplicationDone(*mcr)) {
                 KFS_LOG_STREAM_DEBUG <<
                     "moved chunk: " << mcr->chunkId <<
                     " to " << mcr->server->GetServerLocation() <<
@@ -94,7 +98,7 @@ ChunkServerEmulator::Dispatch()
             MetaChunkDelete* const mcd = static_cast<MetaChunkDelete*>(r);
             if (mNumChunks > 0) {
                 mNumChunks--;
-                mUsedSpace -= gLayoutEmulator.GetChunkSize(mcd->chunkId);
+                mUsedSpace -= mLayoutEmulator.GetChunkSize(mcd->chunkId);
                 if (mUsedSpace < 0 || mNumChunks <= 0) {
                     mUsedSpace = 0;
                 }
@@ -122,7 +126,7 @@ ChunkServerEmulator::FailPendingOps()
         if (r->op == META_CHUNK_REPLICATE) {
             MetaChunkReplicate* const mcr = static_cast<MetaChunkReplicate*>(r);
             mcr->status = -EIO;
-            gLayoutEmulator.ChunkReplicationDone(*mcr);
+            mLayoutEmulator.ChunkReplicationDone(*mcr);
         }
         MetaRequest::Release(r);
     }

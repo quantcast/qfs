@@ -121,6 +121,13 @@ GetAuditMsgWriter()
     return sAuditMsgWriter;
 }
 
+/* static */ bool
+AuditLog::Init()
+{
+    GetAuditMsgWriter();
+    return true;
+}
+
 /* static */ void
 AuditLog::Log(
     const MetaRequest& inOp)

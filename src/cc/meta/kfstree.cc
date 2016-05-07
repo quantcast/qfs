@@ -36,8 +36,6 @@ using std::for_each;
 using std::hex;
 using std::cerr;
 
-Tree metatree;
-
 /*!
  * \brief Insert a child node at the indicated position.
  * \param[in] child the node to be inserted

@@ -454,8 +454,8 @@ public:
     }
 };
 
-extern UniqueID fileID;   //!< Instance for generating unique fid
-extern UniqueID chunkID;  //!< Instance for generating unique chunkId
+extern UniqueID& fileID;   //!< Instance for generating unique fid
+extern UniqueID& chunkID;  //!< Instance for generating unique chunkId
 
 // return a string representation of the timeval. the string is written out
 // to logs/checkpoints

@@ -46,20 +46,7 @@ using std::string;
 class LayoutEmulator : public LayoutManager
 {
 public:
-    LayoutEmulator()
-        : mVariationFromMean(0),
-          mNumBlksRebalanced(0),
-          mStopFlag(false),
-          mPlanFile(),
-          mLoc2Server()
-    {
-        SetMinChunkserversToExitRecovery(0);
-        ToggleRebalancing(true);
-    }
-    ~LayoutEmulator()
-    {
-        mPlanFile.close();
-    }
+    static LayoutEmulator& Instance();
     // Given a chunk->location data in a file, rebuild the chunk->location map.
     //
     int LoadChunkmap(const string& chunkLocationFn,
@@ -91,6 +78,21 @@ public:
         mStopFlag = true;
     }
     int RunFsck(const string& fileName);
+protected:
+    LayoutEmulator()
+        : mVariationFromMean(0),
+          mNumBlksRebalanced(0),
+          mStopFlag(false),
+          mPlanFile(),
+          mLoc2Server()
+    {
+        SetMinChunkserversToExitRecovery(0);
+        ToggleRebalancing(true);
+    }
+    ~LayoutEmulator()
+    {
+        mPlanFile.close();
+    }
 private:
     typedef map<ServerLocation, ChunkServerPtr> Loc2Server;
     class PlacementVerifier;
@@ -133,7 +135,6 @@ private:
     LayoutEmulator& operator=(const LayoutEmulator&);
 };
 
-extern LayoutEmulator gLayoutEmulator;
 }
 
 #endif // EMULATOR_LAYOUTEMULATOR_H

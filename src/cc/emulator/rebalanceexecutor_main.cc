@@ -111,25 +111,26 @@ main(int argc, char** argv)
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    Properties props;
-    int status = 0;
+    LayoutEmulator& emulator = LayoutEmulator::Instance();
+    int             status = 0;
+    Properties      props;
     if ((propsFn.empty() ||
             (status = props.loadProperties(propsFn.c_str(), char('=')))
                 == 0)) {
-        gLayoutEmulator.SetParameters(props);
-        if ((status = EmulatorSetup(logdir, cpdir, networkFn, chunkmapFn))
-                == 0 &&
-                (status = gLayoutEmulator.LoadRebalancePlan(rebalancePlanFn))
+        emulator.SetParameters(props);
+        if ((status = EmulatorSetup(
+                emulator, logdir, cpdir, networkFn, chunkmapFn)) == 0 &&
+                (status = emulator.LoadRebalancePlan(rebalancePlanFn))
                 == 0) {
             if (debugFlag) {
-                gLayoutEmulator.PrintChunkserverBlockCount(cout);
+                emulator.PrintChunkserverBlockCount(cout);
             }
-            gLayoutEmulator.ExecuteRebalancePlan();
+            emulator.ExecuteRebalancePlan();
             if (! chunkMapDir.empty()) {
-                gLayoutEmulator.DumpChunkToServerMap(chunkMapDir);
+                emulator.DumpChunkToServerMap(chunkMapDir);
             }
             if (debugFlag) {
-                gLayoutEmulator.PrintChunkserverBlockCount(cout);
+                emulator.PrintChunkserverBlockCount(cout);
             }
         }
     }

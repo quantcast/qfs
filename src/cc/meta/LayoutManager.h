@@ -646,6 +646,28 @@ public:
             mTierCandidateCount[i] = 0;
         }
     }
+    RackInfo(
+        const RackInfo& info)
+        : mRackId(info.mRackId),
+          mPossibleCandidatesCount(info.mPossibleCandidatesCount),
+          mRackWeight(info.mRackWeight),
+          mServers(info.mServers)
+    {
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mTierCandidateCount[i] = info.mTierCandidateCount[i];
+            mStorageTierInfo[i]    = info.mStorageTierInfo[i];
+        }
+    }
+    RackInfo& operator=(const RackInfo& info) {
+        mRackId                  = info.mRackId;
+        mPossibleCandidatesCount = info.mPossibleCandidatesCount;
+        mRackWeight              = info.mRackWeight;
+        mServers                 = info.mServers;
+        for (size_t i = 0; i < kKfsSTierCount; i++) {
+            mTierCandidateCount[i] = info.mTierCandidateCount[i];
+        }
+        return *this;
+    }
     RackId id() const {
         return mRackId;
     }
@@ -814,6 +836,9 @@ private:
     > Map;
     Map      mMap;
     TmpClear mTmpClear;
+private:
+    ARAChunkCache(const ARAChunkCache&);
+    ARAChunkCache& operator=(const ARAChunkCache&);
 };
 
 // Run operation on a timer.
@@ -931,6 +956,10 @@ ChunkRecoveryInfo()
 ///
 class LayoutManager : public ITimeout
 {
+protected:
+    LayoutManager();
+    virtual ~LayoutManager();
+
 public:
     typedef CSMap::Servers               Servers;
     typedef ChunkServer::ChunkIdSet      ChunkIdSet;
@@ -938,9 +967,7 @@ public:
     typedef ChunkServer::StorageTierInfo StorageTierInfo;
     typedef DelegationToken::TokenSeq    TokenSeq;
 
-    LayoutManager();
-
-    virtual ~LayoutManager();
+    static LayoutManager& Create();
 
     void Shutdown();
 
@@ -2438,10 +2465,11 @@ protected:
     StTmp<Servers>::Tmp                 mServers4Tmp;
     StTmp<vector<kfsSTier_t> >::Tmp     mPlacementTiersTmp;
 
-    struct ChunkPlacement : public KFS::ChunkPlacement<LayoutManager>
+    class ChunkPlacement : public KFS::ChunkPlacement<LayoutManager>
     {
+    public:
         typedef KFS::ChunkPlacement<LayoutManager> Super;
-        ChunkPlacement();
+        ChunkPlacement(LayoutManager* layoutManager = 0);
     };
     StTmp<ChunkPlacement>::Tmp mChunkPlacementTmp;
 
@@ -2647,6 +2675,9 @@ protected:
     template<typename T> const ChunkServerPtr* ReplayFindServer(
         const ServerLocation& loc, T& req);
     template<typename T> bool HandleReplay(T& req);
+private:
+    LayoutManager(const LayoutManager&);
+    LayoutManager& operator=(LayoutManager);
 };
 
 extern LayoutManager& gLayoutManager;

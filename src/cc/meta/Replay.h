@@ -167,7 +167,7 @@ private:
 };
 
 bool restore_chunk_server_end(DETokenizer& c);
-extern Replay replayer;
+extern Replay& replayer;
 
 }
 #endif // !defined(KFS_REPLAY_H)
