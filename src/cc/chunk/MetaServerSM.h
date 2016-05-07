@@ -124,6 +124,10 @@ public:
         return (IsConnected() && IsHandshakeDone());
     }
 
+    bool HasPendingOps() const {
+        return (! mPendingOps.IsEmpty());
+    }
+
     time_t ConnectionUptime() const;
 
     void GetCounters(Counters& counters) {
@@ -194,17 +198,10 @@ private:
     /// Track if we have sent a "HELLO" to metaserver
     bool mSentHello;
 
-    /// a handle to the hello op.  The model: the network processor
-    /// queues the hello op to the event processor; the event
-    /// processor pulls the result and enqueues the op back to us; the
-    /// network processor dispatches the op and gets rid of it.
     HelloMetaOp*    mHelloOp;
     AuthenticateOp* mAuthOp;
 
-    /// list of ops that need to be dispatched: this is the queue that
-    /// is shared between the event processor and the network
-    /// dispatcher.  When the network dispatcher runs, it pulls ops
-    /// from this queue and stashes them away in the dispatched list.
+    /// list of ops that need to be dispatched:
     OpsQueue mPendingOps;
 
     /// ops that we have sent to metaserver and are waiting for reply.

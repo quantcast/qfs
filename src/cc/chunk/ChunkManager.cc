@@ -1543,6 +1543,10 @@ ChunkManager::ScheduleNotifyLostChunk()
             ! gMetaServerSM.IsUp()) {
         return false;
     }
+    if (mPendingNotifyLostChunks->IsEmpty()) {
+        die("invalid empty pending stale notify chunk list");
+        return false;
+    }
     mCorruptChunkOp.isChunkLost = true;
     mPendingNotifyLostChunks->First();
     const PendingNotifyLostChunks::Entry* p;
@@ -1550,7 +1554,12 @@ ChunkManager::ScheduleNotifyLostChunk()
             mCorruptChunkOp.chunkCount < CorruptChunkOp::kMaxChunkIds &&
                 ((p = mPendingNotifyLostChunks->Next()));
             mCorruptChunkOp.chunkCount++) {
-        mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount] = p->GetKey();
+        const kfsChunkId_t chunkId = p->GetKey();
+        if (mChunkTable.Find(chunkId)) {
+            die("invalid pending stale notify chunk list");
+        } else {
+            mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount] = chunkId;
+        }
     }
     if (mCorruptChunkOp.chunkCount <= 0) {
         return false;
@@ -1648,8 +1657,9 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
         die("add mapping failure");
         return 0; // Eliminate lint warning.
     }
-    if (PendingNotifyLostChunks::Remove(
-            mPendingNotifyLostChunks, cih->chunkInfo.chunkId) &&
+    if (0 <= cih->chunkInfo.chunkVersion &&
+            PendingNotifyLostChunks::Remove(
+                mPendingNotifyLostChunks, cih->chunkInfo.chunkId) &&
             ! newEntryFlag) {
         die("chunk entry was in pending lost notify chunks");
     }
@@ -3083,7 +3093,6 @@ ChunkManager::AllocChunk(
     } else if (mustExistFlag) {
         return -EBADF;
     }
-
     if (chunkVersion < 0 && 0 < mObjStoreBufferDataMaxSizePerBlock) {
         if (mObjStoreMaxWritableBlocks < 0) {
             const BufferManager& bufMgr = DiskIo::GetBufferManager();
@@ -3119,6 +3128,27 @@ ChunkManager::AllocChunk(
             }
         }
     }
+    if (0 < chunkVersion &&
+            mCorruptChunkOp.notifyChunkManagerFlag &&
+            mPendingNotifyLostChunks &&
+            mPendingNotifyLostChunks->Find(chunkId)) {
+        for (int i = 0; i < mCorruptChunkOp.chunkCount; i++) {
+            if (chunkId == mCorruptChunkOp.chunkIds[i]) {
+                const char* const msg =
+                    "pending notify lost in flight, retry later";
+                KFS_LOG_STREAM_ERROR <<
+                    "allocate:"
+                    " chunk: "   << chunkId <<
+                    " version: " << chunkVersion <<
+                    " error: "   << msg <<
+                KFS_LOG_EOM;
+                if (op && 0 <= op->status && op->statusMsg.empty()) {
+                    op->statusMsg = msg;
+                }
+                return -EAGAIN;
+            }
+        }
+    }
     // Find the directory to use
     ChunkDirInfo* const chunkdir = GetDirForChunk(
         chunkVersion < 0,
@@ -3132,14 +3162,12 @@ ChunkManager::AllocChunk(
         KFS_LOG_EOM;
         return -ENOSPC;
     }
-
     // Chunks are dirty until they are made stable: A chunk becomes
     // stable when the write lease on the chunk expires and the
     // metaserver says the chunk is now stable.  Dirty chunks are
     // stored in a "dirty" dir; chunks in this dir will get nuked
     // on a chunkserver restart.  This provides a very simple failure
     // handling model.
-
     const bool stableFlag = false;
     ChunkInfoHandle* const cih = new ChunkInfoHandle(*chunkdir, stableFlag);
     cih->chunkInfo.Init(fileId, chunkId, chunkVersion);
@@ -3149,22 +3177,10 @@ ChunkManager::AllocChunk(
     );
     cih->SetBeingReplicated(isBeingReplicated);
     cih->SetMetaDirty();
-    bool newEntryFlag = false;
-    if (! (0 <= cih->chunkInfo.chunkVersion ?
-        mChunkTable.Insert(cih->chunkInfo.chunkId, cih, newEntryFlag) :
-        mObjTable.Insert(make_pair(
-                cih->chunkInfo.chunkId, cih->chunkInfo.chunkVersion),
-            cih, newEntryFlag)) || ! newEntryFlag) {
+    if (AddMapping(cih) != cih) {
         die("chunk insertion failure");
         cih->Delete(mChunkInfoLists);
         return -EFAULT;
-    }
-    PendingNotifyLostChunks::Remove(mPendingNotifyLostChunks, chunkId);
-    KFS_LOG_STREAM_INFO << "Creating chunk: " << MakeChunkPathname(cih) <<
-    KFS_LOG_EOM;
-    if (cih->chunkInfo.chunkVersion < 0 &&
-            ! cih->ScheduleObjTableCleanup(mChunkInfoLists)) {
-        die("alloc object schedule cleanup failure");
     }
     KFS_LOG_STREAM_INFO << "creating chunk: " << MakeChunkPathname(cih) <<
     KFS_LOG_EOM;
@@ -5272,7 +5288,6 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
     } else {
         mCounters.mCorruptedChunksCount++;
     }
-
     KFS_LOG_STREAM_ERROR <<
         (err == 0 ? "lost" : "corrupted") <<
         " chunk: "     << cih->chunkInfo.chunkId <<
@@ -5285,7 +5300,6 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
         " lost: "      << mCounters.mLostChunksCount <<
         " corrupted: " << mCounters.mCorruptedChunksCount <<
     KFS_LOG_EOM;
-
     if (0 <= cih->chunkInfo.chunkVersion) {
         bool stableFlag = false;
         NotifyLostChunk(
@@ -6272,7 +6286,9 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
         }
     }
     if (! gMetaServerSM.IsUp() ||
-            ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList)) {
+            ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList) ||
+            (0 < mMaxHelloNotifyInFlightCount &&
+                gMetaServerSM.HasPendingOps())) {
         delete cop;
         return;
     }
@@ -6301,7 +6317,7 @@ ChunkManager::RunHelloNotifyQueue(AvailableChunksOp* cop)
         gMetaServerSM.EnqueueOp(&op);
     } while (mHelloNotifyInFlightCount < mMaxHelloNotifyInFlightCount &&
         ! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList) &&
-        gMetaServerSM.IsUp());
+        gMetaServerSM.IsUp() && ! gMetaServerSM.HasPendingOps());
 }
 
 int
