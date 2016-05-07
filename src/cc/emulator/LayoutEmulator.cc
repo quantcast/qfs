@@ -942,7 +942,7 @@ LayoutEmulator::Instance()
 }
 
 /* static */ LayoutManager&
-LayoutManager::Create()
+LayoutManager::Instance()
 {
     return LayoutEmulator::Instance();
 }

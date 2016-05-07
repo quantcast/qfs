@@ -30,7 +30,7 @@ namespace KFS
 {
 
 /* static */ LayoutManager&
-LayoutManager::Create()
+LayoutManager::Instance()
 {
     static LayoutManager sLayoutManager;
     return sLayoutManager;

@@ -82,7 +82,7 @@ LogWriter& MetaRequest::sLogWriter = sLogWriterInstance;
 
 static const bool sMetaRequestInitedFlag = MetaRequest::Initialize();
 
-LayoutManager& gLayoutManager = LayoutManager::Create();
+LayoutManager& gLayoutManager = LayoutManager::Instance();
 const UserAndGroup& MetaUserAndGroup::sUserAndGroup =
     gLayoutManager.GetUserAndGroup();
 

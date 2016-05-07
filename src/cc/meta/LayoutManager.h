@@ -968,7 +968,7 @@ public:
     typedef ChunkServer::StorageTierInfo StorageTierInfo;
     typedef DelegationToken::TokenSeq    TokenSeq;
 
-    static LayoutManager& Create();
+    static LayoutManager& Instance();
 
     void Shutdown();
 
