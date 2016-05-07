@@ -163,6 +163,9 @@ public:
     }
     ostream& showSelf(ostream& os) const;
     void showChildren() const;
+private:
+    Node(const Node&);
+    Node& operator=(const Node&);
 };
 
 /*!
@@ -664,6 +667,9 @@ public:
     ChunkIterator getAlloc(fid_t fid, MetaFattr*& fa) const;
     DentryIterator readDir(fid_t dir) const;
     fid_t getDumpsterDirId();
+private:
+    Tree(const Tree&);
+    Tree& operator=(const Tree&);
 };
 
 /*!
