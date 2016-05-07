@@ -232,7 +232,7 @@ public:
         kfsUid_t             delegationUser;
     };
 
-    ChunkLeases();
+    ChunkLeases(time_t now);
 
     inline const WriteLease* GetWriteLease(
         const EntryKey& key) const;
@@ -1498,6 +1498,8 @@ public:
     void StartServicing();
     void ReplaySetRack(bool flag)
         { mReplaySetRackFlag = flag; }
+    time_t TimeNow() const
+        { return mNetManager.Now(); }
 protected:
     typedef vector<
         int,
@@ -1944,6 +1946,8 @@ protected:
     > StripedFilesAllocationsInFlight;
 
     class FilesChecker;
+
+    NetManager& mNetManager;
 
     /// A counter to track the # of ongoing chunk replications
     int mNumOngoingReplications;

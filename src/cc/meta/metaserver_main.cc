@@ -158,7 +158,9 @@ public:
         } else {
             MsgLogger::Init(0);
         }
-        const bool okFlag = sInstance.Startup(argv[0], createEmptyFsFlag);
+        static MetaServer sServer;
+        const bool        okFlag = sServer.Startup(argv[0], createEmptyFsFlag);
+        sServer.Cleanup();
         AuditLog::Stop();
         sslErr = SslFilter::Cleanup();
         if (sslErr) {
@@ -224,12 +226,36 @@ private:
           mMaxLockedMemorySize(0),
           mMaxFdLimit(-1),
           mLogWriterRunningFlag(false),
+          mTimerRegisteredFlag(false),
+          mCleanupDoneFlag(false),
           mMetaDataSync(globalNetManager())
-        {}
+    {
+        if (! sInstance) {
+            sInstance = this;
+        }
+    }
     ~MetaServer()
     {
-        globalNetManager().UnRegisterTimeoutHandler(this);
-        signal(SIGHUP, SIG_DFL);
+        MetaServer::Cleanup();
+        if (this == sInstance) {
+            sInstance = 0;
+        }
+    }
+    void Cleanup()
+    {
+        if (mCleanupDoneFlag) {
+            return;
+        }
+        mCleanupDoneFlag = true;
+        if (mTimerRegisteredFlag) {
+            mTimerRegisteredFlag = false;
+            globalNetManager().UnRegisterTimeoutHandler(this);
+        }
+        signal(SIGUSR1, SIG_DFL);
+        signal(SIGHUP,  SIG_DFL);
+        signal(SIGQUIT, SIG_DFL);
+        signal(SIGALRM, SIG_DFL);
+        signal(SIGCHLD, SIG_DFL);
     }
     bool Startup(const char* fileName, bool createEmptyFsFlag)
     {
@@ -284,15 +310,15 @@ private:
     bool Startup(const Properties& props, bool createEmptyFsFlag);
     void SetParameters(const Properties& props);
     static void Usr1Signal(int)
-        { sInstance.mCheckpointFlag = true; }
+        { sInstance->mCheckpointFlag = true; }
     static void HupSignal(int)
-        { sInstance.mSetParametersFlag = true; }
+        { sInstance->mSetParametersFlag = true; }
     static void QuitSignal(int)
         { globalNetManager().Shutdown(); }
     static void ChildSignal(int)
         { /* nothing, process tracker does waitpd */ }
     static void AlarmSignal(int)
-        { sInstance.mRestartChunkServersFlag = true; }
+        { sInstance->mRestartChunkServersFlag = true; }
     static string GetFullPath(string fileName)
     {
         if (! fileName.empty() && fileName[0] == '/') {
@@ -338,10 +364,12 @@ private:
     int64_t        mMaxLockedMemorySize;
     int            mMaxFdLimit;
     bool           mLogWriterRunningFlag;
+    bool           mTimerRegisteredFlag;
+    bool           mCleanupDoneFlag;
     MetaDataSync   mMetaDataSync;
 
-    static MetaServer sInstance;
-} MetaServer::sInstance;
+    static MetaServer* sInstance;
+}* MetaServer::sInstance = 0;
 
 void
 MetaServer::SetParameters(const Properties& props)
@@ -401,14 +429,6 @@ MetaServer::SetParameters(const Properties& props)
     }
 }
 
-///
-/// Read and validate the configuration settings for the meta
-/// server. The configuration file is assumed to contain lines of the
-/// form: xxx.yyy.zzz = <value>
-/// @result 0 on success; -1 on failure
-/// @param[in] fileName File that contains configuration information
-/// for the chunk server.
-///
 bool
 MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
 {
@@ -551,6 +571,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     bool okFlag = gLayoutManager.SetParameters(
         props, mClientListenerLocation.port);
     if (okFlag) {
+        mTimerRegisteredFlag = true;
         globalNetManager().RegisterTimeoutHandler(this);
         okFlag = gNetDispatch.Bind(
             mClientListenerLocation,
