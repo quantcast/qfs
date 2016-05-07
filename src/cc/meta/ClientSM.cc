@@ -196,20 +196,12 @@ ClientSM::~ClientSM()
 void
 ClientSM::SendResponse(MetaRequest *op)
 {
-    if (op->op == META_ALLOCATE && (op->status < 0 ||
-            op->logAction != MetaRequest::kLogNever ||
-            MsgLogger::GetLogger()->IsLogLevelEnabled(
-                MsgLogger::kLogLevelDEBUG))) {
-        // for chunk allocations, for debugging purposes, need to know
-        // where the chunk was placed.
-        KFS_LOG_STREAM_INFO << PeerName(mNetConnection) <<
-            " -seq: "   << op->opSeqno <<
-            " status: " << op->status <<
-            (op->statusMsg.empty() ?
-                "" : " msg: ") << op->statusMsg <<
-            " "         << op->Show() <<
-        KFS_LOG_EOM;
-    }
+    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+        " -seq: "                               << op->opSeqno <<
+        " status: "                             << op->status <<
+        (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
+        " "                                     << op->Show() <<
+    KFS_LOG_EOM;
     if (! mNetConnection) {
         return;
     }
@@ -552,7 +544,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     }
     if (op->clientProtoVers < mClientProtoVers && op->op != META_ACK) {
         mClientProtoVers = op->clientProtoVers;
-        KFS_LOG_STREAM_WARN << PeerName(mNetConnection) <<
+        KFS_LOG_STREAM_NOTICE << PeerName(mNetConnection) <<
             " command with old protocol version: " <<
             op->clientProtoVers << ' ' << op->Show() <<
         KFS_LOG_EOM;

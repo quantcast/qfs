@@ -1426,11 +1426,7 @@ struct MetaLogChunkAllocate : public MetaRequest {
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "log allocate: ";
-        if (alloc) {
-            os << alloc->Show();
-        }
-        return os;
+        return os << "log allocate: " << ShowReq(alloc);
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
@@ -2827,7 +2823,7 @@ struct MetaChunkRetire: public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "chunkserver retire";
+        return os << "chunkserver-retire";
     }
 };
 
@@ -2841,7 +2837,7 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "chunkserver set properties";
+        return os << "chunkserver-set-properties";
     }
     static string Properties2Str(const Properties& props)
     {
@@ -2858,7 +2854,7 @@ struct MetaChunkServerRestart : public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "chunkserver restart";
+        return os << "chunkserver-restart";
     }
 };
 
@@ -2936,7 +2932,7 @@ struct MetaToggleWORM: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            (value ? "Toggle WORM: Enabled" : "Toggle WORM: Disabled");
+            (value ? "toggle-WORM-on" : "toggle-WORM-off");
     }
     bool Validate()
     {
@@ -3018,7 +3014,7 @@ struct MetaDumpChunkToServerMap: public MetaRequest {
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "dump chunk2server map";
+        return os << "dump-chunk2server-map";
     }
     bool Validate()
     {
@@ -3074,7 +3070,7 @@ struct MetaDumpChunkReplicationCandidates: public MetaRequest {
     virtual void response(ReqOstream &os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "dump chunk replication candidates";
+        return os << "dump-chunk-replication-candidates";
     }
     bool Validate()
     {
@@ -3158,7 +3154,7 @@ struct MetaOpenFiles: public MetaRequest {
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "open files";
+        return os << "open-files";
     }
     bool Validate()
     {
@@ -3181,7 +3177,7 @@ struct MetaSetChunkServersProperties : public MetaRequest {
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        string ret("set chunk servers properties ");
+        string ret("set-chunk-servers-properties ");
         properties.getList(ret, "", ";");
         return os << ret;
     }
@@ -3222,7 +3218,7 @@ struct MetaGetChunkServersCounters : public MetaRequest {
     virtual void response(ReqOstream &os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "get chunk servers counters";
+        return os << "get-chunk-servers-counters";
     }
     bool Validate()
     {
@@ -3249,7 +3245,7 @@ struct MetaGetChunkServerDirsCounters : public MetaRequest {
     virtual void response(ReqOstream &os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "get chunk servers dir counters";
+        return os << "get-chunk-servers-dir-counters";
     }
     bool Validate()
     {
@@ -3275,7 +3271,7 @@ struct MetaGetRequestCounters : public MetaRequest {
     virtual void response(ReqOstream &os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "get request counters ";
+        return os << "get-request-counters";
     }
     bool Validate()
     {
@@ -3480,7 +3476,7 @@ struct MetaDelegateCancel : public MetaRequest {
     }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
-        { return (os << "delegate cancel " <<  token.Show()); }
+        { return (os << "delegate-cancel: " << token.Show()); }
     virtual void response(ReqOstream& os);
     bool Validate();
     template<typename T> static T& ParserDef(T& parser)
@@ -3539,12 +3535,14 @@ struct MetaChunkCorrupt: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            (isChunkLost ? "lost" : "corrupt") <<
+            "chunk-currupt:"
             " fid: "   << fid <<
             " chunk: " << chunkId <<
             " count: " << chunkCount <<
+            " lost: "  << isChunkLost <<
             " dir: "   << chunkDir <<
-            " ok: "    << dirOkFlag
+            " ok: "    << dirOkFlag <<
+            " ids: "   << chunkIdsStr
         ;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
@@ -3609,9 +3607,15 @@ struct MetaChunkEvacuate: public MetaRequest {
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "evacuate: ";
-        os.write(chunkIds.GetPtr(), chunkIds.GetSize());
-        return os;
+        return os <<
+            "evacuate: "
+            " space:"
+            " total: "      << totalSpace <<
+            " fs: "         << totalFsSpace <<
+            " used: "       << usedSpace <<
+            " drives: "     << numDrives <<
+            " in flight: "  << numEvacuateInFlight <<
+            " ids: "        << chunkIds;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     bool Validate()
@@ -3665,9 +3669,12 @@ struct MetaChunkAvailable : public MetaRequest {
     virtual void response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "chunk available[" << numChunks << "]: ";
-        os.write(chunkIdAndVers.GetPtr(), chunkIdAndVers.GetSize());
-        return os;
+        return os <<
+            "chunk-available:"
+            " hello: " << helloFlag <<
+            " count: " << numChunks <<
+            " ids: "   << chunkIdAndVers
+        ;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     void responseSelf(ReqOstream& os);
@@ -3719,7 +3726,7 @@ struct MetaChunkDirInfo : public MetaRequest {
     virtual void response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "chunk dir info";
+        return os << "chunk-dir-info: " << dirName;
     }
     virtual void setChunkServer(const ChunkServerPtr& cs) { server = cs; }
     bool Validate()
@@ -3816,9 +3823,9 @@ struct MetaLeaseAcquire: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            " lease acquire:"
+            " lease-acquire:"
             " chunkId: " << chunkId <<
-            (flushFlag ? " flush" : "") <<
+            " flush: "   << flushFlag <<
             " caccess: " << chunkAccess.GetSize() <<
             " "          << pathname
         ;
@@ -3890,12 +3897,12 @@ struct MetaLeaseRenew: public MetaRequest {
         { chunkServer = cs.get(); }
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return (os <<
-            (leaseType == READ_LEASE ? "read" : "write") <<
-            " lease renew"
+        return os <<
+            "lease-renew: "
+            " type: "    << (leaseType == READ_LEASE ? "read" : "write") <<
             " chunkId: " << chunkId <<
-            " " << pathname
-        );
+            " "          << pathname
+        ;
     }
     bool Validate()
     {
@@ -3932,7 +3939,7 @@ struct MetaLeaseCleanup: public MetaRequest {
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "lease cleanup";
+        return os << "lease-cleanup";
     }
     bool Validate() { return true; }
 };
@@ -3950,7 +3957,7 @@ struct MetaChunkReplicationCheck : public MetaRequest {
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "chunk replication check";
+        return os << "chunk-replication-check";
     }
 };
 
@@ -3973,7 +3980,7 @@ struct MetaForceChunkReplication : public ServerLocation, public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         const ServerLocation& dst = *this;
-        return os << "force replication:"
+        return os << "force-replication:"
             " chunk: "             << chunkId <<
             " recovery: "          << recoveryFlag <<
             " remove: "            << removeFlag <<
@@ -4043,8 +4050,9 @@ struct MetaRemoveFromDumpster : public MetaRequest {
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return (os <<
-            "remove from dumpster: " << name << " fid: " << fid);
+        return os <<
+            "remove-from-dumpster: " << name <<
+            " fid: "                 << fid;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
@@ -4113,7 +4121,7 @@ struct MetaLogWriterControl : public MetaRequest {
     {
         if (kWriteBlock == type) {
             os <<
-                "log write"
+                "log-write"
                 " block: ["          << blockStartSeq <<
                 ":"                  << blockEndSeq <<
                 "] length: "         << blockData.BytesConsumable() <<
@@ -4122,7 +4130,7 @@ struct MetaLogWriterControl : public MetaRequest {
                 " block seq: "       << blockSeq
             ;
         } else {
-            os << "log control: ";
+            os << "log-control: ";
             switch (type) {
                 case kNop:           os << "nop";            break;
                 case kNewLog:        os << "new log";        break;
@@ -4165,7 +4173,7 @@ struct MetaLogClearObjStoreDelete : public MetaRequest {
     virtual void response(ReqOstream& /* os */)
         { /* No response; */ }
     virtual ostream& ShowSelf(ostream& os) const
-        { return (os << "clear object store delete"); }
+        { return (os << "clear-object-store-delete"); }
     template<typename T> static T& ParserDef(T& parser)
     {
         return  MetaRequest::ParserDef(parser)
@@ -4214,7 +4222,7 @@ struct MetaReadMetaData : public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "read " << (checkpointFlag ? "checkpoint" : "log") <<
+            "read-" << (checkpointFlag ? "checkpoint" : "log") <<
             " start seq: " << startLogSeq <<
             " size: "      << readSize
         );
@@ -4254,7 +4262,7 @@ struct MetaHibernatedPrune : public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "prune hibernated server: " << location <<
+            "prune-hibernated-server: " << location <<
             " size: " << listSize
         );
     }
@@ -4286,7 +4294,7 @@ struct MetaHibernatedRemove : public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "remove hibernated server: " << location
+            "remove-hibernated-server: " << location
         );
     }
     template<typename T> static T& LogIoDef(T& parser)

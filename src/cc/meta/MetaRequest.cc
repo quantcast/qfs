@@ -5385,7 +5385,7 @@ MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
 /* virtual */ ostream&
 MetaChunkStaleNotify::ShowSelf(ostream& os) const
 {
-    os << "meta->chunk stale notify:"
+    os << "chunk-stale-notify:"
         " sseq: " << (chunkAvailableReq ? chunkAvailableReq->opSeqno : -1) <<
         " size: " << staleChunkIds.GetSize() <<
         " ids:"
@@ -6100,7 +6100,7 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
 MetaChunkLogCompletion::ShowSelf(ostream& os) const
 {
     os <<
-        "log chunk completion:"
+        "log-chunk-completion:"
         " "           << doneLocation <<
         " logseq: "   << doneLogSeq <<
         " status: "   << doneStatus <<
@@ -6212,7 +6212,7 @@ MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
 /* virtual */ ostream&
 MetaChunkLogInFlight::ShowSelf(ostream& os) const
 {
-    os << "log chunk in flight:"
+    os << "log-chunk-in-flight:"
         " "          << location <<
         " logseq: "  << logseq <<
         " type: "    << GetReqName(reqType) <<
