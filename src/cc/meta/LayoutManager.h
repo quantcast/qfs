@@ -665,6 +665,7 @@ public:
         mServers                 = info.mServers;
         for (size_t i = 0; i < kKfsSTierCount; i++) {
             mTierCandidateCount[i] = info.mTierCandidateCount[i];
+            mStorageTierInfo[i]    = info.mStorageTierInfo[i];
         }
         return *this;
     }
