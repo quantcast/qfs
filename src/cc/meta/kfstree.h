@@ -93,16 +93,16 @@ class Node: public MetaNode {
     void closeHole(int pos, int skip);
     Node *leftNeighbor(int pos)
     {
-        return (pos == 0) ? NULL : child(pos - 1);
+        return (pos == 0) ? 0 : child(pos - 1);
     }
     Node *rightNeighbor(int pos)
     {
-        return (pos == count - 1) ? NULL : child(pos + 1);
+        return (pos == count - 1) ? 0 : child(pos + 1);
     }
     void shiftLeft(Node *dest, int nshift);
     void shiftRight(Node *dest, int nshift);
 protected:
-    Node(int f): MetaNode(KFS_INTERNAL, f), count(0), next(NULL) { }
+    Node(int f): MetaNode(KFS_INTERNAL, f), count(0), next(0) { }
     ~Node() {}
 public:
     static Node* create(int f) { return new (allocate<Node>()) Node(f); }
@@ -422,7 +422,7 @@ public:
           mDumpsterDirId(-1)
     {
         root = Node::create(META_ROOT|META_LEVEL1);
-        root->insertData(new Key(KFS_SENTINEL, 0), NULL, 0);
+        root->insertData(new Key(KFS_SENTINEL, 0), 0, 0);
         first = root;
         hgt = 1;
     }
@@ -686,7 +686,7 @@ template <typename MATCH, typename T> void
 extractAll(Node *n, int kp, const MATCH &k, vector <T *> &result)
 {
     int p = kp;
-    while (n != NULL && k == n->getkey(p)) {
+    while (n && k == n->getkey(p)) {
         result.push_back(refine<T>(n->leaf(p)));
         if (++p == n->children()) {
             p = 0;

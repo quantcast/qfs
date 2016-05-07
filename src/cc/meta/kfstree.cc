@@ -69,7 +69,7 @@ Node::moveChildren(Node *dest, int start, int n)
     for (int i = 0; i != n; i++)
         dest->appendChild(childKey[start + i], childNode[start + i]);
     childKey[start] = Key(KFS_SENTINEL, 0);
-    childNode[start] = NULL;
+    childNode[start] = 0;
 }
 
 /*!
@@ -94,7 +94,7 @@ Node::split(Tree *t, Node *father, int pos)
     linkToPeer(brother);
     moveChildren(brother, count - NSPLIT, NSPLIT);
     count -= NSPLIT;
-    if (father == NULL) {   // this must be the root
+    if (! father) {   // this must be the root
         assert(t->getroot() == this);
         t->pushroot(brother);
     } else {
@@ -137,7 +137,7 @@ Node::closeHole(int pos, int skip)
         childNode[i] = childNode[i + skip];
     }
     childKey[count] = Key(KFS_SENTINEL, 0);
-    childNode[count] = NULL;
+    childNode[count] = 0;
 }
 
 /*
@@ -189,10 +189,10 @@ Node::mergeNeighbor(int pos)
     int mkids = middle->children();
     int base;
 
-    if (left != NULL && mkids + left->children() < NKEY) {
+    if (left && mkids + left->children() < NKEY) {
         middle->absorb(left);
         base = pos - 1;
-    } else if (right != NULL && mkids + right->children() < NKEY) {
+    } else if (right && mkids + right->children() < NKEY) {
         right->absorb(middle);
         base = pos;
     } else
@@ -248,7 +248,7 @@ void
 Node::resetKey(int pos)
 {
     Node *c = child(pos);
-    assert(c != NULL);
+    assert(c);
     childKey[pos] = c->key();
 }
 
@@ -268,11 +268,11 @@ Node::balanceNeighbor(int pos)
     Node *left = leftNeighbor(pos);
     Node *right = rightNeighbor(pos);
     Node *middle = child(pos);
-    int lc = (left == NULL) ? -1 : left->children();
-    int rc = (right == NULL) ? -1 : right->children();
+    int lc = left  ? left->children()  :  -1;
+    int rc = right ? right->children() :  -1;
 
     Node *donor = (lc >= rc) ? left : right;
-    if (donor == NULL)
+    if (! donor)
         return false;
 
     int nmove = donor->excess();
@@ -312,7 +312,7 @@ int
 Tree::insert(Meta *item)
 {
     Key mkey = item->key();
-    Node *n = root, *dad = NULL;
+    Node *n = root, *dad = 0;
     int cpos, dpos = -1;
 
     for (;;) {
@@ -435,7 +435,7 @@ Tree::del(Meta *m)
      * may invalidate the saved path.
      */
     bool balanced = false;
-    dad = NULL;
+    dad = 0;
     while (!path.empty() && !balanced) {
         pathlink pl = path.back();
         path.pop_back();
@@ -512,7 +512,7 @@ Node::showSelf(ostream& os) const
 void
 showNode(MetaNode *n)
 {
-    if (n != NULL)
+    if (n)
         n->show(cerr) << '\n';
 }
 
@@ -528,7 +528,7 @@ Node::showChildren() const
 void
 Tree::printleaves()
 {
-    for (Node *n = first; n != NULL; n = n->peer()) {
+    for (Node *n = first; n; n = n->peer()) {
         showNode(n);
         n->showChildren();
     }
