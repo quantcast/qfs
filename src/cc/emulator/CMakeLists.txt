@@ -42,41 +42,15 @@ target_link_libraries(kfsEmulator
     kfsMeta
 )
 
-if (NOT USE_STATIC_LIB_LINKAGE)
-    add_library (kfsEmulator-shared SHARED ${lib_srcs})
-    set_target_properties (kfsEmulator-shared
-        PROPERTIES OUTPUT_NAME "qfs_emulator")
-    set_target_properties (kfsEmulator-shared
-        PROPERTIES CLEAN_DIRECT_OUTPUT 1)
-    add_dependencies (kfsEmulator-shared
-        kfsMeta-shared
-    )
-    target_link_libraries(kfsEmulator-shared
-        kfsMeta-shared
-    )
-    install (TARGETS kfsEmulator-shared
-        RUNTIME DESTINATION bin/emulator
-        LIBRARY DESTINATION lib)
-endif (NOT USE_STATIC_LIB_LINKAGE)
-
 set (exe_files rebalanceplanner rebalanceexecutor replicachecker)
 foreach (exe_file ${exe_files})
     add_executable (${exe_file} ${exe_file}_main.cc)
-    if (USE_STATIC_LIB_LINKAGE)
-        target_link_libraries (${exe_file}
-            kfsEmulator
-        )
-        add_dependencies (${exe_file}
-            kfsEmulator
-        )
-    else (USE_STATIC_LIB_LINKAGE)
-        target_link_libraries (${exe_file}
-            kfsEmulator-shared
-        )
-        add_dependencies (${exe_file}
-            kfsEmulator-shared
-        )
-    endif (USE_STATIC_LIB_LINKAGE)
+    target_link_libraries (${exe_file}
+        kfsEmulator
+    )
+    add_dependencies (${exe_file}
+        kfsEmulator
+    )
 endforeach (exe_file)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
