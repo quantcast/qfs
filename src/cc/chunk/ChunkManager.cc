@@ -4452,7 +4452,7 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
         if ((openFlags & O_CREAT) != 0 || ! tempFailureFlag) {
             // Failed to open/create a file. notify the metaserver
             // of lost data so that it can re-replicate if needed.
-            NotifyMetaCorruptedChunk(cih, -EBADF);
+            NotifyMetaCorruptedChunk(cih, -EIO);
             if (RemoveFromTable(*cih)) {
                 const int64_t size = 0 <= cih->chunkInfo.chunkVersion ?
                     min(mUsedSpace, cih->chunkInfo.chunkSize) :
@@ -4463,6 +4463,7 @@ ChunkManager::OpenChunk(ChunkInfoHandle* cih, int openFlags)
                 }
             }
             Delete(*cih);
+            ScheduleNotifyLostChunk();
         } else {
             cih->dataFH.reset();
         }
@@ -5304,7 +5305,6 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
         bool stableFlag = false;
         NotifyLostChunk(
             cih->chunkInfo.chunkId, cih->GetTargetStateAndVersion(stableFlag));
-        ScheduleNotifyLostChunk();
         // Meta server automatically cleans up leases for corrupted chunks.
         gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId,
             cih->chunkInfo.chunkVersion);
@@ -5365,6 +5365,7 @@ ChunkManager::ChunkIOFailed(ChunkInfoHandle* cih, int err)
 {
     NotifyMetaCorruptedChunk(cih, err);
     StaleChunk(cih);
+    ScheduleNotifyLostChunk();
 }
 
 void
