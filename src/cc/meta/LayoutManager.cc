@@ -51,7 +51,6 @@
 #include <fstream>
 #include <limits>
 #include <iomanip>
-#include <boost/mem_fn.hpp>
 #include <boost/bind.hpp>
 
 namespace KFS {
@@ -59,8 +58,6 @@ namespace KFS {
 using std::for_each;
 using std::find;
 using std::sort;
-using std::unique;
-using std::random_shuffle;
 using std::vector;
 using std::min;
 using std::max;
@@ -78,15 +75,11 @@ using std::ofstream;
 using std::ifstream;
 using std::numeric_limits;
 using std::iter_swap;
-using std::setw;
-using std::setfill;
-using std::hex;
 using std::setprecision;
 using std::fixed;
 using std::lower_bound;
 using std::swap;
 using std::ofstream;
-using boost::mem_fn;
 using boost::bind;
 using boost::ref;
 
@@ -7965,8 +7958,11 @@ LayoutManager::GetChunkFileId(chunkId_t chunkId, fid_t& fileId,
 }
 
 int
-LayoutManager::GetChunkToServerMapping(MetaChunkInfo& chunkInfo,
-    LayoutManager::Servers& c, MetaFattr*& fa, bool* orderReplicasFlag /* = 0 */)
+LayoutManager::GetChunkToServerMapping(
+    MetaChunkInfo&          chunkInfo,
+    LayoutManager::Servers& c,
+    MetaFattr*&             fa,
+    bool*                   orderReplicasFlag /* = 0 */)
 {
     const CSMap::Entry& entry = GetCsEntry(chunkInfo);
     fa = entry.GetFattr();
@@ -7989,7 +7985,7 @@ LayoutManager::GetChunkToServerMapping(MetaChunkInfo& chunkInfo,
         loadAvgSum += (*it)->GetLoadAvg() + kLoadAvgFloor;
     }
     *orderReplicasFlag = true;
-    for (size_t i = c.size(); i >= 2; ) {
+    for (size_t i = c.size(); 2 <= i; ) {
         assert(loadAvgSum > 0);
         int64_t rnd = Rand(loadAvgSum);
         size_t  ri  = i--;
