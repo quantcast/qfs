@@ -617,40 +617,49 @@ ChunkServerMain::Run(int argc, char **argv)
 }
 
 // Enforce construction and destruction order here.
-static bool
+struct ChunkServerGlobals
+{
+    ChunkServerGlobals()
+    : mAtomicRecordAppendManager(),
+      mLeaseClerk(),
+      mClientManager(),
+      mMetaServerSM(),
+      mChunkServer(),
+      mChunkManager(),
+      mChunkServerMain()
+    {}
+    AtomicRecordAppendManager mAtomicRecordAppendManager;
+    LeaseClerk                mLeaseClerk;
+    ClientManager             mClientManager;
+    MetaServerSM              mMetaServerSM;
+    ChunkServer               mChunkServer;
+    ChunkManager              mChunkManager;
+    ChunkServerMain           mChunkServerMain;
+};
+
+static ChunkServerGlobals&
 InitChunkServerGlobals()
 {
     InitGlobals();
     globalNetManager();
-    return KfsOp::Init();
+    KfsOp::Init();
+    static ChunkServerGlobals sChunkServerGlobals;
+    return sChunkServerGlobals;
 }
-static const bool sChunkServerGlobalsInitializedFlag = InitChunkServerGlobals();
+static ChunkServerGlobals& sChunkServerGlobals = InitChunkServerGlobals();
 
-static AtomicRecordAppendManager sAtomicRecordAppendManager;
 AtomicRecordAppendManager& gAtomicRecordAppendManager =
-    sAtomicRecordAppendManager;
-
-static LeaseClerk sLeaseClerk;
-LeaseClerk& gLeaseClerk = sLeaseClerk;
-
-static ClientManager sClientManager;
-ClientManager& gClientManager = sClientManager;
-
-static MetaServerSM sMetaServerSM;
-MetaServerSM& gMetaServerSM = sMetaServerSM;
-
-static ChunkServer sChunkServer;
-ChunkServer& gChunkServer = sChunkServer;
-
-static ChunkManager sChunkManager;
-ChunkManager& gChunkManager = sChunkManager;
-
-static ChunkServerMain sChunkServerMain;
+    sChunkServerGlobals.mAtomicRecordAppendManager;
+LeaseClerk&    gLeaseClerk    = sChunkServerGlobals.mLeaseClerk;
+ClientManager& gClientManager = sChunkServerGlobals.mClientManager;
+MetaServerSM&  gMetaServerSM  = sChunkServerGlobals.mMetaServerSM;
+ChunkServer&   gChunkServer   = sChunkServerGlobals.mChunkServer;
+ChunkManager&  gChunkManager  = sChunkServerGlobals.mChunkManager;
 
 } // namespace KFS
 
 int
 main(int argc, char **argv)
 {
-    return KFS::sChunkServerMain.Run(argc, argv);
+    return KFS::sChunkServerGlobals.mChunkServerMain.Run(argc, argv);
 }

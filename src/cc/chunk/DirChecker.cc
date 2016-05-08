@@ -1147,10 +1147,17 @@ private:
                 " enabling FD_CLOEXEC" <<
             KFS_LOG_EOM;
         }
-        if (flock(theFd, LOCK_EX | LOCK_NB)) {
+#ifndef LOCK_EX
+	struct flock theLock = {0};
+	theLock.l_type = F_WRLCK;
+	if (fcntl(theFd, F_SETLK, &theLock))
+#else
+        if (flock(theFd, LOCK_EX | LOCK_NB))
+#endif
+	{
             const int theErr = errno;
             close(theFd);
-            return (theErr > 0 ? -theErr : -1);
+            return (0 < theErr ? -theErr : -EAGAIN);
         }
         const time_t theStart    = time(0);
         int          theErr      = 0;
