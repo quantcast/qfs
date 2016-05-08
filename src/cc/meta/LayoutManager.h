@@ -856,7 +856,7 @@ public:
         globalNetManager().RegisterTimeoutHandler(this);
     }
     virtual ~PeriodicOp() {
-        assert(! mInProgress);
+        assert(! mInProgress || ! globalNetManager().IsRunning());
         globalNetManager().UnRegisterTimeoutHandler(this);
     }
     void SetTimeoutInterval(int ms) {
