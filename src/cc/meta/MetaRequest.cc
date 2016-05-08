@@ -2046,7 +2046,8 @@ MetaAllocate::handle()
         return;
     }
     startedFlag = true;
-    KFS_LOG_STREAM_DEBUG << "starting layout for req: " << opSeqno <<
+    KFS_LOG_STREAM_DEBUG <<
+        "starting layout: " << Show() <<
     KFS_LOG_EOM;
     if (gWormMode && ! IsWormMutationAllowed(pathname.GetStr())) {
         statusMsg = "worm mode";
@@ -2647,6 +2648,7 @@ MetaAllocate::ShowSelf(ostream& os) const
         " chunkId: "   << chunkId      <<
         " offset: "    << offset       <<
         " client: "    << clientHost   <<
+        " / "          << clientIp     <<
         " replicas: "  << numReplicas  <<
         " append: "    << appendChunk  <<
         " valid for: " << validForTime

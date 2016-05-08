@@ -1151,15 +1151,13 @@ ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
         panic("ChunkServer::Error: invalid null self reference");
         return;
     }
-    KFS_LOG_STREAM_ERROR <<
-        "chunk server " << GetServerLocation() <<
-        "/" << (mNetConnection ? GetPeerName() :
-            string("not connected")) <<
-        " down" <<
-        (mRestartQueuedFlag ? " restart" : "") <<
-        " reason: " << (errorMsg ? errorMsg : "unspecified") <<
+    KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+        " / "             <<
+            (mNetConnection ? GetPeerName().c_str() : "not connected") <<
+        " chunk server down"
+        " reason: "       << (errorMsg ? errorMsg : "unspecified") <<
         " socket error: " << (mNetConnection ?
-            mNetConnection->GetErrorMsg() : string("none")) <<
+            mNetConnection->GetErrorMsg().c_str() : "none") <<
     KFS_LOG_EOM;
     mNetConnection->Close();
     mNetConnection->GetInBuffer().Clear();
@@ -1262,7 +1260,7 @@ ChunkServer::GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix)
         return op;
     }
     ShowLines(MsgLogger::kLogLevelERROR,
-        GetHostPortStr() + "/" + GetPeerName() + " " +
+        GetHostPortStr() + " / " + GetPeerName() + " " +
             (errMsgPrefix ? errMsgPrefix : "") + ": ",
         iobuf,
         msgLen

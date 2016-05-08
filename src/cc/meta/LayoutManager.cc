@@ -3935,7 +3935,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                 srvId <<
                 " stable chunk: " << chunkId <<
                 " version: "      << it->chunkVersion <<
-                "/"               << chunkVersion <<
+                " / "             << chunkVersion <<
                 " "               << staleReason <<
                 " => stale" <<
             KFS_LOG_EOM;
@@ -4108,8 +4108,9 @@ LayoutManager::AddNewServer(MetaHello& req)
     KFS_LOG_STREAM(req.replayFlag ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO) <<
-        msg << " chunk server: " << req.peerName << "/" <<
-            srv.GetServerLocation() <<
+        msg <<
+        " chunk server: "       << srv.GetServerLocation() <<
+        " / "                   << req.peerName <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " logseq: "             << req.logseq <<
         " resume: "             << req.resumeStep <<
@@ -6177,27 +6178,27 @@ LayoutManager::AllocateChunk(
             " chunkId: "    << req.chunkId <<
             " append: "     << req.appendChunk <<
             " repl: "       << req.numReplicas <<
-                "/" << replicaCnt <<
+            "/"             << replicaCnt <<
             " servers: "    << numFound <<
-                "/" << mChunkServers.size() <<
+            "/"             << mChunkServers.size() <<
             " dont like: "  << dontLikeCount[0] <<
-                "/" << dontLikeCount[1] <<
+            "/"             << dontLikeCount[1] <<
             " no space: "   << outOfSpaceCount[0] <<
-                "/" << outOfSpaceCount[1] <<
-            " slow: "   <<  notResponsiveCount[0] <<
-                "/" << notResponsiveCount[1] <<
+            "/"             << outOfSpaceCount[1] <<
+            " slow: "       << notResponsiveCount[0] <<
+            "/"             << notResponsiveCount[1] <<
             " retire: "     << retiringCount[0] <<
-                "/" << retiringCount[1] <<
+            "/"             << retiringCount[1] <<
             " restart: "    << restartingCount[0] <<
-                "/" << restartingCount[1] <<
+            "/"             << restartingCount[1] <<
             " racks: "      << placement.GetCandidateRackCount() <<
             " candidates: " << numCandidates <<
             " masters: "    << mastersSkipped <<
-                "/" << mMastersCount <<
+            "/"             << mMastersCount <<
             " slaves: "     << slavesSkipped <<
-                "/" << mSlavesCount <<
+            "/"             << mSlavesCount <<
             " to restart: " << mCSToRestartCount <<
-                "/"    << mMastersToRestartCount <<
+            "/"             << mMastersToRestartCount <<
             " request: "    << req.Show() <<
         KFS_LOG_EOM;
         return -ENOSPC;
@@ -9143,7 +9144,8 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable& req)
     KFS_LOG_STREAM_DEBUG << logPrefix <<
         " <" << req.fid << "," << req.chunkId << ">"
         " name: "     << info.pathname <<
-        " servers: "  << info.numAckMsg << "/" << info.numServers <<
+        " servers: "  << info.numAckMsg <<
+        "/"           << info.numServers <<
         " size: "     << info.chunkSize <<
         " checksum: " << info.chunkChecksum <<
         " " << req.Show() <<
@@ -9475,12 +9477,12 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
             " <" << req.fid << "," << req.chunkId  << ">"
             " name: "     << info.pathname <<
             " servers: "  << info.numAckMsg <<
-                "/" << info.numServers <<
+            "/"           << info.numServers <<
             " size: "     << req.chunkSize <<
-                "/" << info.chunkSize <<
+            "/"           << info.chunkSize <<
             " checksum: " << req.chunkChecksum <<
-                "/" << info.chunkChecksum <<
-            " " << req.Show() <<
+            "/"           << info.chunkChecksum <<
+            " "           << req.Show() <<
         KFS_LOG_EOM;
         if (req.status != 0 && ! req.server->IsDown()) {
             ChunkCorrupt(req.chunkId, req.server);
@@ -10965,7 +10967,8 @@ LayoutManager::Handle(MetaChunkReplicate& req)
             req.server->GetServerLocation() <<
             ": re-replication failed"
             " chunk: "           << req.chunkId <<
-            " fid: "             << req.fid << "/" << fid <<
+            " fid: "             << req.fid <<
+            "/"                  << fid <<
             " status: "          << req.status <<
             " in flight: "       <<
                 GetInFlightChunkOpsCount(
@@ -10993,7 +10996,8 @@ LayoutManager::Handle(MetaChunkReplicate& req)
         if (fa->HasRecovery() && mChunkToServerMap.ServerCount(*ci) == 1) {
             KFS_LOG_STREAM_INFO <<
                 "chunk: " << req.chunkId <<
-                " fid: "  << req.fid << "/" << fid <<
+                " fid: "  << req.fid <<
+                " / "     << fid <<
                 " attempting to use recovery"
                 " instead of replication" <<
             KFS_LOG_EOM;
