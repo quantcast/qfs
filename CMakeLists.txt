@@ -256,9 +256,8 @@ ENDIF (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 # link with dynamically linked libs
 
 IF (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
-    # Statically linked binaries don't work on solaris
-    set (QFS_USE_STATIC_LIB_LINKAGE NOT CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-ENDIF  (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
+    set (QFS_USE_STATIC_LIB_LINKAGE TRUE)
+ENDIF (NOT DEFINED QFS_USE_STATIC_LIB_LINKAGE)
 
 IF (QFS_USE_STATIC_LIB_LINKAGE)
     message (STATUS "Build binaries with statically linked QFS libraries")
@@ -267,35 +266,6 @@ ELSE (QFS_USE_STATIC_LIB_LINKAGE)
 ENDIF (QFS_USE_STATIC_LIB_LINKAGE)
 set (USE_STATIC_LIB_LINKAGE ${QFS_USE_STATIC_LIB_LINKAGE} CACHE BOOL
     "Build binaries with statically linked libraries" FORCE)
-
-IF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    IF (BUILD_CPU_MODE STREQUAL "32")
-        message (STATUS "Building 32-bit mode on Solaris")
-        # If we are asked to build 32 bit mode
-        add_definitions (
-            -D_FILE_OFFSET_BITS=64
-            -D_LARGEFILE_SOURCE
-            -D_LARGE_FILES
-        )
-    ELSE (BUILD_CPU_MODE STREQUAL "32")
-        # On solaris, use 64-bit mode
-        set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -m64")
-        set(CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -m64")
-        set(CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS} -m64")
-    ENDIF (BUILD_CPU_MODE STREQUAL "32")
-    # Cmake does whacky relink on solaris and messes things up; avoid this
-    set (CMAKE_SKIP_RPATH ON)
-ELSE (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
-    IF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
-        message (STATUS "Enabling largefile source flags")
-        add_definitions (
-            -D_FILE_OFFSET_BITS=64
-            -D_LARGEFILE_SOURCE
-            -D_LARGEFILE64_SOURCE
-            -D_LARGE_FILES
-        )
-    ENDIF (CMAKE_SIZEOF_VOID_P EQUAL 4 AND NOT CYGWIN)
-ENDIF (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
 IF (ENABLE_PROFILING)
     message (STATUS "Enabling profiling with gprof")
