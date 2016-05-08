@@ -41,48 +41,60 @@ namespace KFS
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
-static bool InitializeIoGlobals()
+struct MetaServerGlobals
+{
+    MetaServerGlobals()
+        : mCPDIR("./kfscp"),           //!< directory for CP files
+          mLASTCP(mCPDIR + "/latest"), //!< most recent CP file (link)
+          mFileID(0, ROOTFID),
+          mChunkID(1, ROOTFID),
+          mMetatree(),
+          mCheckpoint(mLASTCP),
+          mReplayer(),
+          mChildProcessTracker(),
+          mNetDispatch(),
+          mLogWriter()
+        {}
+    string                    mCPDIR;
+    string                    mLASTCP;
+    UniqueID                  mFileID;
+    UniqueID                  mChunkID;
+    Tree                      mMetatree;
+    Checkpoint                mCheckpoint;
+    Replay                    mReplayer;
+    ChildProcessTrackingTimer mChildProcessTracker;
+    NetDispatch               mNetDispatch;
+    LogWriter                 mLogWriter;
+};
+
+static MetaServerGlobals&
+InitializeMetaServerGlobals()
 {
     InitGlobals();
     globalNetManager();
-    return true;
+    static MetaServerGlobals sMetaServerGlobals;
+    return sMetaServerGlobals;
 }
-static const bool sIoGlobalsInitializedFlag = InitializeIoGlobals();
+static MetaServerGlobals& sMetaServerGlobals = InitializeMetaServerGlobals();
 
-static string sCPDIR("./kfscp");           //!< directory for CP files
-static string sLASTCP(sCPDIR + "/latest"); //!< most recent CP file (link)
-const string& CPDIR  = sCPDIR;
-const string& LASTCP = sLASTCP;
+const string& LASTCP                  = sMetaServerGlobals.mLASTCP;
+UniqueID&     fileID                  = sMetaServerGlobals.mFileID;
+UniqueID&     chunkID                 = sMetaServerGlobals.mChunkID;
+Tree&         metatree                = sMetaServerGlobals.mMetatree;
+Checkpoint&   cp                      = sMetaServerGlobals.mCheckpoint;
+Replay&       replayer                = sMetaServerGlobals.mReplayer;
+ChildProcessTrackingTimer& gChildProcessTracker =
+    sMetaServerGlobals.mChildProcessTracker;
+NetDispatch&  gNetDispatch            = sMetaServerGlobals.mNetDispatch;
+LogWriter&    MetaRequest::sLogWriter = sMetaServerGlobals.mLogWriter;
 
-/*
- * Seed the unique id generators for files/chunks to start at 2
- */
-static UniqueID sFileID(0, ROOTFID);
-static UniqueID sChunkID(1, ROOTFID);
-UniqueID& fileID  = sFileID;
-UniqueID& chunkID = sChunkID;
-
-static Tree sMetatree;
-Tree& metatree = sMetatree;
-
-static Checkpoint sCheckpoint(CPDIR);
-Checkpoint& cp = sCheckpoint;
-
-static Replay sReplayer;
-Replay& replayer = sReplayer;
-
-static ChildProcessTrackingTimer sChildProcessTracker;
-ChildProcessTrackingTimer& gChildProcessTracker = sChildProcessTracker;
-
-static NetDispatch sNetDispatch;
-NetDispatch& gNetDispatch = sNetDispatch;
-
-static LogWriter sLogWriterInstance;
-LogWriter& MetaRequest::sLogWriter = sLogWriterInstance;
-
-static const bool sMetaRequestInitedFlag = MetaRequest::Initialize();
-
-LayoutManager& gLayoutManager = LayoutManager::Instance();
+static LayoutManager&
+InitializeLayoutManager()
+{
+    MetaRequest::Initialize();
+    return LayoutManager::Instance();
+}
+LayoutManager& gLayoutManager = InitializeLayoutManager();
 const UserAndGroup& MetaUserAndGroup::sUserAndGroup =
     gLayoutManager.GetUserAndGroup();
 
@@ -90,8 +102,8 @@ void
 checkpointer_setup_paths(const string& cpdir)
 {
     if (! cpdir.empty()) {
-        sCPDIR = cpdir;
-        sLASTCP = cpdir + "/latest";
+        sMetaServerGlobals.mCPDIR = cpdir;
+        sMetaServerGlobals.mLASTCP = cpdir + "/latest";
         cp.setCPDir(cpdir);
     }
 }
