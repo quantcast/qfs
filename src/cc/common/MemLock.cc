@@ -152,6 +152,9 @@ LockProcessMemory(
     }
     int         theRet    = 0;
 #ifndef KFS_OS_NAME_CYGWIN
+#   if ! defined(KFS_OS_NAME_LINUX) && ! defined(RLIMIT_MEMLOCK)
+#       define RLIMIT_MEMLOCK RLIMIT_AS
+#   endif
     const char* theMsgPtr = 0;
     if (inMaxLockedMemorySize == 0 && munlockall()) {
         theRet    = errno;

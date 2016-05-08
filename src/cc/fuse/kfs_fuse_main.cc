@@ -528,8 +528,11 @@ initfuse(char* kfs_host_address, const char* mountpoint,
             delete client;
             fatal("fuse_new:");
         }
-
+#ifdef KFS_OS_NAME_SUNOS
+        fuse_loop(fuse);
+#else
         fuse_loop_mt(fuse);
+#endif
         fuse_unmount(mountpoint, ch);
         fuse_destroy(fuse);
         delete client;

@@ -161,7 +161,8 @@ public:
 namespace KFS
 {
 
-#if ! defined(KRB5_HAS_krb5_unparse_name_flags_ext)
+#if ! defined(KRB5_HAS_krb5_unparse_name_flags_ext) &&\
+     ! defined(KRB5_PRINCIPAL_UNPARSE_SHORT)
 enum
 {
     KRB5_PRINCIPAL_UNPARSE_SHORT     = 0x1,

@@ -61,8 +61,8 @@ public:
     ST& flush() { mStream.flush(); return *this; }
     template<typename CT>
     ST& put(CT inChar) { mStream.put(inChar); return *this; }
-    template<typename CT, typename SS>
-    ST& write(const CT* inPtr, SS inCount)
+    template<typename CT, typename SST>
+    ST& write(const CT* inPtr, SST inCount)
         { mStream.write(inPtr, inCount); return *this; }
     T& Get() const { return mStream; }
 private:

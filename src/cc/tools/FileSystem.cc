@@ -322,7 +322,8 @@ public:
             inPath += thePtr->d_name;
             bool theDirFlag;
 #if defined(QC_OS_NAME_CYGWIN) || \
-    (defined(QC_OS_NAME_LINUX) && ! defined(_DIRENT_HAVE_D_TYPE))
+    (defined(QC_OS_NAME_LINUX) && ! defined(_DIRENT_HAVE_D_TYPE)) || \
+    ! defined(DT_UNKNOWN)
             // Cygwin has no d_type, all other supported platforms have the file
             // type
             struct stat theStat;

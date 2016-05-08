@@ -54,6 +54,8 @@
 
 namespace KFS
 {
+#ifdef GLOB_ALTDIRFUNC
+
 namespace client
 {
 using std::vector;
@@ -444,6 +446,8 @@ KfsOpenDir::Glob::StRef KfsOpenDir::Glob::sInstanceRef(
 
 } // namespace client
 
+#endif /* defined GLOB_ALTDIRFUNC */
+
 int
 KfsGlob(
     KfsClient&  inClient,
@@ -452,8 +456,12 @@ KfsGlob(
     int (*inErrorHandlerPtr)(const char* inErrPathPtr, int inError),
     glob_t*     inResultPtr)
 {
+#ifndef GLOB_ALTDIRFUNC
+    return -ENXIO;
+#else
     return client::KfsOpenDir::Glob::Expand(
         inClient, inGlobPtr, inGlobFlags, inErrorHandlerPtr, inResultPtr);
+#endif
 }
 
 }
