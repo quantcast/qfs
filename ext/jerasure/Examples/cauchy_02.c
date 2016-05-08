@@ -48,6 +48,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <strings.h>
 #include <gf_rand.h>
 #include "jerasure.h"
 #include "cauchy.h"

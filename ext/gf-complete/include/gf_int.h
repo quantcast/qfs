@@ -14,6 +14,7 @@
 #include "gf_complete.h"
 
 #include <string.h>
+#include <strings.h>
 
 extern void     timer_start (double *t);
 extern double   timer_split (const double *t);
