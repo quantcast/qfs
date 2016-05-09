@@ -1783,7 +1783,7 @@ private:
         if ((&mLookupOp == mCurOpPtr || &mCreateOp == mCurOpPtr ||
                 &mMkdirOp == mCurOpPtr || &mLookupPathOp == mCurOpPtr ||
                 &mLeaseAcquireOp == mCurOpPtr) &&
-                -ELOGFAILED != mErrorCode) {
+                -ELOGFAILED != mCurOpPtr->status) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "meta operation failed, giving up" <<
             KFS_LOG_EOM;
