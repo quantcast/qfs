@@ -42,13 +42,16 @@
 #include "kfsio/IOBufferWriter.h"
 #include "kfsio/DelegationToken.h"
 #include "kfsio/ChunkAccessToken.h"
+
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
 #include "common/IntToString.h"
-#include "qcdio/QCUtils.h"
-#include "qcdio/qcstutils.h"
+#include "common/SingleLinkedQueue.h"
 #include "common/time.h"
 #include "common/kfserrno.h"
+
+#include "qcdio/QCUtils.h"
+#include "qcdio/qcstutils.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -469,8 +472,7 @@ public:
         bool        ownsCondFlag = false)
         : ITimeout(),
           mCond(cond),
-          mFront(0),
-          mBack(0),
+          mQueue(),
           mCur(0),
           mDeletedFlag(0),
           mNetManager(netManager),
@@ -479,7 +481,7 @@ public:
         {}
     virtual ~RequestWaitQueue()
     {
-        if (mFront) {
+        if (! mQueue.IsEmpty()) {
             mNetManager.UnRegisterTimeoutHandler(this);
             // leave requests suspended
         }
@@ -495,14 +497,9 @@ public:
         int  opsCount    = 0;
         bool deletedFlag = false;
         mDeletedFlag = &deletedFlag;
-        while (mFront && mCond(*mFront)) {
-            mCur = mFront;
-            mFront = mCur->next;
-            if (! mFront) {
-                assert(mCur == mBack);
-                mBack = 0;
-            }
-            mCur->next = 0;
+        MetaRequest* thePtr;
+        while ((thePtr = mQueue.Front()) && mCond(*thePtr)) {
+            mCur = mQueue.PopFront();
             mCur->suspended = false;
             submit_request(mCur);
             if (deletedFlag) {
@@ -510,14 +507,14 @@ public:
             }
             mCur = 0;
             if (mMaxOpsPerLoop <= ++opsCount) {
-                if (mFront && mCond(*mFront)) {
+                if ((thePtr = mQueue.Front()) && mCond(*thePtr)) {
                     mNetManager.Wakeup();
                 }
                 break;
             }
         }
         mDeletedFlag = 0;
-        if (! mFront) {
+        if (mQueue.IsEmpty()) {
             mNetManager.UnRegisterTimeoutHandler(this);
         }
     }
@@ -531,25 +528,21 @@ public:
     }
     void Add(MetaRequest* req)
     {
-        if (! req || req->next || req == mFront || req == mBack) {
+        if (! req || req->next ||
+                mQueue.Front() == req || mQueue.Back() == req) {
             panic("request is null "
                 "or already in this or another queue", false);
             return;
         }
         req->suspended = true;
-        if (mBack) {
-            assert(mFront);
-            mBack->next = req;
-            mBack = req;
-        } else {
-            assert(! mFront);
-            mFront = req;
-            mBack  = req;
+        const bool wasEmptyFlag = mQueue.IsEmpty();
+        mQueue.PushBack(*req);
+        if (wasEmptyFlag) {
             mNetManager.RegisterTimeoutHandler(this);
         }
     }
     bool HasPendingRequests() const
-        { return (mFront != 0); }
+        { return (! mQueue.IsEmpty()); }
     void Wakeup()
     {
         if (! HasPendingRequests()) {
@@ -565,9 +558,10 @@ public:
         );
     }
 private:
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
+
     CondT&       mCond;
-    MetaRequest* mFront;
-    MetaRequest* mBack;
+    Queue        mQueue;
     MetaRequest* mCur;
     bool*        mDeletedFlag;
     NetManager&  mNetManager;

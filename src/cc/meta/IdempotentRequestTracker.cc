@@ -33,6 +33,7 @@
 #include "common/StdAllocator.h"
 #include "common/LinearHash.h"
 #include "common/time.h"
+#include "common/SingleLinkedQueue.h"
 
 #include "kfsio/CryptoKeys.h"
 #include "kfsio/ITimeout.h"
@@ -365,6 +366,7 @@ private:
         DynamicArray<SingleLinkedList<UCEntry>*, 10>,
         StdFastAllocator<UCEntry>
     > UserEntryCounts;
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
 
     struct SearchKey : public MetaIdempotentRequest
     {
@@ -419,9 +421,8 @@ private:
             return;
         }
         int64_t const theExpirationTime = inNow - mExpirationTimeMicroSec;
-        Entry*       thePtr     = &mLru;
-        MetaRequest* theHeadPtr = 0;
-        MetaRequest* theTailPtr = 0;
+        Entry*        thePtr            = &mLru;
+        Queue         theQueue;
         while (&mLru != (thePtr = &Lru::GetPrev(*thePtr)) &&
                 thePtr->mReqPtr->submitTime < theExpirationTime) {
             // mTables[thePtr->mReqPtr->op]->Erase(*thePtr);
@@ -433,20 +434,13 @@ private:
             theAck.euser   = thePtr->mReqPtr->euser;
             theAck.authUid = thePtr->mReqPtr->authUid;
             theAck.next    = 0;
-            if (theTailPtr) {
-                theTailPtr->next = &theAck;
-            } else {
-                theHeadPtr = &theAck;
-            }
-            theTailPtr = &theAck;
+            theQueue.PushBack(theAck);
             mOutstandingExpireAckCount++;
         }
-        while (theHeadPtr) {
-            MetaRequest& theReq = *theHeadPtr;
-            theHeadPtr = theReq.next;
-            theReq.next = 0;
-            theReq.clnt = &mNullCallback;
-            submit_request(&theReq);
+        MetaRequest* theOpPtr;
+        while ((theOpPtr = theQueue.PopFront())) {
+            theOpPtr->clnt = &mNullCallback;
+            submit_request(theOpPtr);
         }
     }
 public:

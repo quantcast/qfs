@@ -34,6 +34,7 @@
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
 #include "common/StBuffer.h"
+#include "common/SingleLinkedQueue.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
@@ -91,10 +92,8 @@ public:
           mId(-1),
           mReplayerPtr(0),
           mWriteOpFreeListPtr(0),
-          mCompletionQueueHeadPtr(0),
-          mCompletionQueueTailPtr(0),
-          mPendingSubmitHeadPtr(0),
-          mPendingSubmitTailPtr(0)
+          mCompletionQueue(),
+          mPendingSubmitQueue()
     {
         List::Init(mConnectionsHeadPtr);
         mParseBuffer.Resize(mParseBuffer.Capacity());
@@ -257,18 +256,16 @@ public:
     }
     bool Dispatch()
     {
-        MetaRequest* thePtr              = mCompletionQueueHeadPtr;
+        Queue theCompletionQueue;
+        theCompletionQueue.PushBack(mCompletionQueue);
+        MetaRequest* thePtr              = theCompletionQueue.Front();
         const bool   theAckBroadcastFlag = 0 != thePtr;
-        mCompletionQueueHeadPtr = 0;
-        mCompletionQueueTailPtr = 0;
-        seq_t theNextSeq = (thePtr && thePtr->status != 0) ?
+        seq_t        theNextSeq          = (thePtr && thePtr->status != 0) ?
             static_cast<MetaLogWriterControl*>(thePtr)->blockStartSeq :
             mCommittedLogSeq;
-        while (thePtr) {
+        while ((thePtr = theCompletionQueue.PopFront())) {
             MetaLogWriterControl& theCur =
                 *static_cast<MetaLogWriterControl*>(thePtr);
-            thePtr = thePtr->next;
-            theCur.next = 0;
             KFS_LOG_STREAM_DEBUG <<
                 "complete: " << theCur.Show() <<
             KFS_LOG_EOM;
@@ -297,18 +294,14 @@ public:
             // Or extraneous / stale write, the sequence is committed already.
             mLastWriteSeq = mCommittedLogSeq;
         }
-        const bool theRetFlag = 0 != mPendingSubmitHeadPtr;
-        thePtr = mPendingSubmitHeadPtr;
-        mPendingSubmitHeadPtr = 0;
-        mPendingSubmitTailPtr = 0;
-        while (thePtr) {
-            MetaRequest& theCur = *thePtr;
-            thePtr = thePtr->next;
-            theCur.next = 0;
+        Queue thePendingSubmitQueue;
+        thePendingSubmitQueue.PushBack(mPendingSubmitQueue);
+        const bool theRetFlag = ! thePendingSubmitQueue.IsEmpty();
+        while ((thePtr = thePendingSubmitQueue.PopFront())) {
             KFS_LOG_STREAM_DEBUG <<
-                "submit: " << theCur.Show() <<
+                "submit: " << thePtr->Show() <<
             KFS_LOG_EOM;
-            submit_request(&theCur);
+            submit_request(thePtr);
         }
         if (theAckBroadcastFlag) {
             mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
@@ -336,13 +329,8 @@ public:
         }
         MetaRequest& theOp = *reinterpret_cast<MetaRequest*>(inDataPtr);
         const bool theWakeupFlag = ! IsAwake();
-        if (mCompletionQueueTailPtr) {
-            mCompletionQueueTailPtr->next = &theOp;
-        } else {
-            mCompletionQueueHeadPtr = &theOp;
-        }
-        mCompletionQueueTailPtr = &theOp;
         theOp.next = 0;
+        mCompletionQueue.PushBack(theOp);
         if (theWakeupFlag) {
             Wakeup();
         }
@@ -363,13 +351,8 @@ public:
             "pending submit: " << inOp.Show()   <<
             " wakeup: "        << theWakeupFlag <<
         KFS_LOG_EOM;
-        if (mPendingSubmitTailPtr) {
-            mPendingSubmitTailPtr->next = &inOp;
-        } else {
-            mPendingSubmitHeadPtr = &inOp;
-        }
-        mPendingSubmitTailPtr = &inOp;
         inOp.next = 0;
+        mPendingSubmitQueue.PushBack(inOp);
         if (theWakeupFlag) {
             Wakeup();
         }
@@ -391,7 +374,8 @@ public:
         BroadcastAck();
     }
 private:
-    typedef StBufferT<char, kMinParseBufferSize> ParseBuffer;
+    typedef StBufferT<char, kMinParseBufferSize>                 ParseBuffer;
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
 
     int            mReAuthTimeout;
     int            mMaxReadAhead;
@@ -410,10 +394,8 @@ private:
     int64_t        mId;
     Replayer*      mReplayerPtr;
     MetaRequest*   mWriteOpFreeListPtr;
-    MetaRequest*   mCompletionQueueHeadPtr;
-    MetaRequest*   mCompletionQueueTailPtr;
-    MetaRequest*   mPendingSubmitHeadPtr;
-    MetaRequest*   mPendingSubmitTailPtr;
+    Queue          mCompletionQueue;
+    Queue          mPendingSubmitQueue;
     Connection*    mConnectionsHeadPtr[1];
 
     ~Impl()
@@ -429,26 +411,32 @@ private:
     }
     void ClearQueues()
     {
-        ClearQueue(mCompletionQueueHeadPtr, mCompletionQueueTailPtr);
-        ClearQueue(mPendingSubmitHeadPtr,   mPendingSubmitTailPtr);
-        ClearQueue(mWriteOpFreeListPtr,     mWriteOpFreeListPtr);
+        ClearQueue(mCompletionQueue);
+        ClearQueue(mPendingSubmitQueue);
+        MetaRequest* thePtr = mWriteOpFreeListPtr;
+        mWriteOpFreeListPtr = 0;
+        while (thePtr) {
+            MetaRequest& theCur = *thePtr;
+            thePtr = theCur.next;
+            theCur.next = 0;
+            MetaRequest::Release(&theCur);
+        }
     }
     static void ClearQueue(
-        MetaRequest*& ioHeadPtr,
-        MetaRequest*& ioTailPtr)
+        Queue& inQueue)
     {
-        MetaRequest* thePtr = ioHeadPtr;
-        ioHeadPtr = 0;
-        ioTailPtr = 0;
-        while (thePtr) {
-            MetaRequest* const theCurPtr = thePtr;
-            thePtr = thePtr->next;
-            theCurPtr->next = 0;
-            MetaRequest::Release(theCurPtr);
+        Queue theQueue;
+        theQueue.PushBack(inQueue);
+        MetaRequest* thePtr;
+        while ((thePtr = theQueue.PopFront())) {
+            MetaRequest::Release(thePtr);
         }
     }
     bool IsAwake() const
-        { return (0 != mPendingSubmitTailPtr || 0 != mCompletionQueueTailPtr); }
+    {
+        return (! mPendingSubmitQueue.IsEmpty() ||
+            ! mCompletionQueue.IsEmpty());
+    }
     void BroadcastAck();
 private:
     Impl(
@@ -486,8 +474,7 @@ public:
           mDownFlag(false),
           mIdSentFlag(false),
           mReAuthPendingFlag(false),
-          mAuthPendingResponsesHeadPtr(0),
-          mAuthPendingResponsesTailPtr(0),
+          mAuthPendingResponsesQueue(),
           mIStream(),
           mOstream()
     {
@@ -507,14 +494,11 @@ public:
                 mPendingOpsCount != 0) {
             panic("LogReceiver::~Impl::Connection invalid invocation");
         }
-        MetaRequest* thePtr = mAuthPendingResponsesHeadPtr;
-        mAuthPendingResponsesHeadPtr = 0;
-        mAuthPendingResponsesTailPtr = 0;
-        while (thePtr) {
-            MetaRequest& theReq = *thePtr;
-            thePtr = theReq.next;
-            theReq.next = 0;
-            MetaRequest::Release(&theReq);
+        Queue theAuthPendingResponsesQueue;
+        theAuthPendingResponsesQueue.PushBack(mAuthPendingResponsesQueue);
+        MetaRequest* thePtr;
+        while ((thePtr = mAuthPendingResponsesQueue.PopFront())) {
+            MetaRequest::Release(thePtr);
         }
         MetaRequest::Release(mAuthenticateOpPtr);
         mImpl.Done(*this);
@@ -628,8 +612,9 @@ public:
         SendAckSelf();
     }
 private:
-    typedef MetaLogWriterControl::Lines Lines;
-    typedef uint32_t                    Checksum;
+    typedef MetaLogWriterControl::Lines                          Lines;
+    typedef uint32_t                                             Checksum;
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
 
     Impl&                  mImpl;
     string                 mAuthName;
@@ -648,8 +633,7 @@ private:
     bool                   mDownFlag;
     bool                   mIdSentFlag;
     bool                   mReAuthPendingFlag;
-    MetaRequest*           mAuthPendingResponsesHeadPtr;
-    MetaRequest*           mAuthPendingResponsesTailPtr;
+    Queue                  mAuthPendingResponsesQueue;
     IOBuffer::IStream      mIStream;
     IOBuffer::WOStream     mOstream;
     Connection*            mPrevPtr[1];
@@ -774,15 +758,13 @@ private:
                 (mSessionExpirationTime - TimeNow()) << " sec." <<
         KFS_LOG_EOM;
         mAuthCount++;
-        MetaRequest* thePtr = mAuthPendingResponsesHeadPtr;
-        mAuthPendingResponsesHeadPtr = 0;
-        mAuthPendingResponsesTailPtr = 0;
-        while (thePtr && ! mDownFlag) {
-            MetaRequest& theReq = *thePtr;
-            thePtr = theReq.next;
-            theReq.next = 0;
-            SendResponse(theReq);
-            MetaRequest::Release(&theReq);
+        Queue theAuthPendingResponsesQueue;
+        theAuthPendingResponsesQueue.PushBack(mAuthPendingResponsesQueue);
+        MetaRequest* thePtr;
+        while ((thePtr = theAuthPendingResponsesQueue.PopFront()) &&
+                ! mDownFlag) {
+            SendResponse(*thePtr);
+            MetaRequest::Release(thePtr);
         }
     }
     bool HandleSslShutdown()
@@ -873,12 +855,8 @@ private:
         }
         mPendingOpsCount--;
         if (mAuthenticateOpPtr && ! mDownFlag) {
-            if (mAuthPendingResponsesTailPtr) {
-                mAuthPendingResponsesTailPtr->next = &inReq;
-            } else {
-                mAuthPendingResponsesHeadPtr = &inReq;
-            }
-            mAuthPendingResponsesTailPtr = &inReq;
+            mAuthPendingResponsesQueue.PushBack(inReq);
+            return;
         }
         SendResponse(inReq);
         MetaRequest::Release(&inReq);

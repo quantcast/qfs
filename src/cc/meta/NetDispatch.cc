@@ -42,11 +42,14 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/CryptoKeys.h"
+
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
 #include "common/time.h"
 #include "common/rusage.h"
+#include "common/SingleLinkedQueue.h"
 #include "common/StdAllocator.h"
+
 #include "qcdio/QCThread.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
@@ -957,8 +960,7 @@ public:
           mNetManager(),
           mLogReceiver(),
           mThread(),
-          mPendingCommitHead(0),
-          mPendingCommitTail(0),
+          mPendingCommitQueue(),
           mLastCommit(-1),
           mWakeupFlag(false),
           mStartedFlag(false),
@@ -1050,13 +1052,8 @@ public:
             MetaRequest::Release(&inOp);
             return;
         }
-        if (mPendingCommitTail) {
-            mPendingCommitTail->next = &inOp;
-        } else {
-            mPendingCommitHead = &inOp;
-        }
-        mPendingCommitTail = &inOp;
         inOp.next = 0;
+        mPendingCommitQueue.PushBack(inOp);
         if (inOp.blockCommitted <= mLastCommit) {
             if (inOp.blockCommitted < mLastCommit) {
                 panic("log block: invalid commit sequence");
@@ -1064,9 +1061,9 @@ public:
             return;
         }
         mLastCommit = inOp.blockCommitted;
-        MetaRequest* thePtr = mPendingCommitHead;
         bool         theUpdateCommittedFlag = false;
-        while (thePtr) {
+        MetaRequest* thePtr;
+        while ((thePtr = mPendingCommitQueue.Front())) {
             MetaLogWriterControl& theCur =
                 *static_cast<MetaLogWriterControl*>(thePtr);
             if (mLastCommit < theCur.blockEndSeq) {
@@ -1075,8 +1072,7 @@ public:
             KFS_LOG_STREAM_DEBUG <<
                 "replaying: " << theCur.Show() <<
             KFS_LOG_EOM;
-            thePtr = theCur.next;
-            theCur.next = 0;
+            mPendingCommitQueue.PopFront();
             const int*       theLenPtr     = theCur.blockLines.GetPtr();
             const int* const theLendEndPtr =
                 theLenPtr + theCur.blockLines.GetSize();
@@ -1107,10 +1103,6 @@ public:
                 theUpdateCommittedFlag = true;
             }
             MetaRequest::Release(&theCur);
-        }
-        mPendingCommitHead = thePtr;
-        if (! mPendingCommitHead) {
-            mPendingCommitTail = mPendingCommitHead;
         }
         if (theUpdateCommittedFlag) {
             MetaRequest::GetLogWriter().SetCommitted(
@@ -1145,12 +1137,13 @@ public:
     LogReceiver::Replayer& GetReplayer()
         { return *this; }
 private:
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
+
     Properties                mParameters;
     NetManager                mNetManager;
     LogReceiver               mLogReceiver;
     QCThread                  mThread;
-    MetaRequest*              mPendingCommitHead;
-    MetaRequest*              mPendingCommitTail;
+    Queue                     mPendingCommitQueue;
     seq_t                     mLastCommit;
     bool                      mWakeupFlag;
     bool                      mStartedFlag;
@@ -1370,12 +1363,9 @@ public:
           mThread(),
           mNetManager(),
           mWOStream(),
-          mReqHead(0),
-          mReqTail(0),
-          mCliHead(0),
-          mCliTail(0),
-          mReqPendingHead(0),
-          mReqPendingTail(0),
+          mReqQueue(),
+          mCliQueue(),
+          mReqPendingQueue(),
           mFlushQueue(8 << 10),
           mAuthContext(),
           mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
@@ -1391,7 +1381,7 @@ public:
             mThread.Join();
         }
         ClientThread::DispatchStart();
-        assert(! mCliHead && ! mCliTail);
+        assert(mCliQueue.IsEmpty());
     }
     bool Start(QCMutex* mutex, int cpuIndex)
     {
@@ -1421,9 +1411,8 @@ public:
     }
     virtual void DispatchStart()
     {
-        MetaRequest* nextReq = mReqPendingHead;
-        mReqPendingHead = 0;
-        mReqPendingTail = 0;
+        ReqQueue reqPendingQueue;
+        reqPendingQueue.PushBack(mReqPendingQueue);
 
         // Keep the lock acquisition and PrepareToFork() next to each other, in
         // order to ensure that the mutext is locked while dispatching requests
@@ -1436,41 +1425,34 @@ public:
                 mAuthContext.GetUserAndGroupUpdateCount()) {
             mAuthContext.SetUserAndGroup(gLayoutManager.GetUserAndGroup());
         }
-        assert(! mReqPendingHead && ! mReqPendingTail);
+        assert(mReqPendingQueue.IsEmpty());
         // Dispatch requests.
-        while (nextReq) {
-            MetaRequest& op = *nextReq;
-            nextReq = op.next;
-            op.next = 0;
-            submit_request(&op);
+        MetaRequest* op;
+        while ((op = reqPendingQueue.PopFront())) {
+            submit_request(op);
         }
         MetaRequest::GetLogWriter().ScheduleFlush();
         gNetDispatch.ForkDone();
         dispatchLocker.Unlock();
 
-        ClientSM* nextCli;
+        CliQueue cliQueue;
+        ReqQueue reqQueue;
         QCStMutexLocker threadQueuesLocker(mMutex);
-        nextReq  = mReqHead;
-        mReqHead = 0;
-        mReqTail = 0;
-        nextCli  = mCliHead;
-        mCliHead = 0;
-        mCliTail = 0;
+        reqQueue.PushBack(mReqQueue);
+        cliQueue.PushBack(mCliQueue);
         threadQueuesLocker.Unlock();
 
         // Send responses. Try to minimize number of system calls by
         // attempting to send multiple responses with single write call.
         FlushQueue::iterator it = mFlushQueue.begin();
         NetConnectionPtr conn;
-        while (nextReq) {
-            MetaRequest& op = *nextReq;
-            nextReq = op.next;
-            op.next = &op;
-            const NetConnectionPtr& cn = GetConnection(op);
+        while ((op = reqQueue.PopFront())) {
+            op->next = op; // Mark op, for the client manager's dispatch.
+            const NetConnectionPtr& cn = GetConnection(*op);
             if (cn && ! cn->IsWriteReady()) {
                 conn = cn; // Has no data pending.
             }
-            op.clnt->HandleEvent(EVENT_CMD_DONE, &op);
+            op->clnt->HandleEvent(EVENT_CMD_DONE, op);
             if (! conn) {
                 continue;
             }
@@ -1494,13 +1476,11 @@ public:
         }
         // Add new connections to the net manager.
         const bool runningFlag = mNetManager.IsRunning();
-        while (nextCli) {
-            ClientSM& cli = *nextCli;
-            nextCli = cli.GetNext();
-            cli.GetNext() = 0;
-            const NetConnectionPtr& conn = cli.GetConnection();
+        ClientSM*  cli;
+        while ((cli = cliQueue.PopFront())) {
+            const NetConnectionPtr& conn = cli->GetConnection();
             assert(conn);
-            conn->SetOwningKfsCallbackObj(&cli);
+            conn->SetOwningKfsCallbackObj(cli);
             if (runningFlag) {
                 mNetManager.AddConnection(conn);
             } else {
@@ -1522,16 +1502,13 @@ public:
             return;
         }
         QCStMutexLocker locker(mMutex);
+        const bool wasEmptyFlag = mReqQueue.IsEmpty();
         op.next = 0;
-        if (mReqTail) {
-            mReqTail->next = &op;
-            mReqTail = &op;
-            return;
-        }
-        mReqHead = &op;
-        mReqTail = &op;
+        mReqQueue.PushBack(op);
         locker.Unlock();
-        mNetManager.Wakeup();
+        if (wasEmptyFlag) {
+            mNetManager.Wakeup();
+        }
     }
     void Add(NetConnectionPtr& conn)
     {
@@ -1543,27 +1520,18 @@ public:
             conn, this, &mWOStream, mParseBuffer);
         assert(cli->GetConnection() == conn);
         conn.reset(); // Take the ownership. ClientSM ref. self.
-        if (mCliTail) {
-            mCliTail->GetNext() = cli;
-            mCliTail = cli;
-            return;
-        }
-        mCliHead = cli;
-        mCliTail = cli;
+        const bool wasEmptyFlag = mCliQueue.IsEmpty();
+        mCliQueue.PushBack(*cli);
         locker.Unlock();
-        mNetManager.Wakeup();
+        if (wasEmptyFlag) {
+            mNetManager.Wakeup();
+        }
     }
     void Add(MetaRequest& op)
     {
         // This method must be called from the client thread: ClientSM
         // adds request to the pending processing queue.
-        if (mReqPendingTail) {
-            mReqPendingTail->next = &op;
-            mReqPendingTail = &op;
-            return;
-        }
-        mReqPendingHead = &op;
-        mReqPendingTail = &op;
+        mReqPendingQueue.PushBack(op);
         mNetManager.Wakeup();
     }
     bool IsStarted() const
@@ -1577,18 +1545,23 @@ public:
     AuthContext& GetAuthContext()
         { return mAuthContext; }
 private:
-    typedef vector<NetConnectionPtr> FlushQueue;
+    class CliAccessor
+    {
+    public:
+        static ClientSM*& Next(ClientSM& cli)
+            { return cli.GetNext(); }
+    };
+    typedef vector<NetConnectionPtr>                             FlushQueue;
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> ReqQueue;
+    typedef SingleLinkedQueue<ClientSM,    CliAccessor>          CliQueue;
 
     QCMutex*           mMutex;
     QCThread           mThread;
     NetManager         mNetManager;
     IOBuffer::WOStream mWOStream;
-    MetaRequest*       mReqHead;
-    MetaRequest*       mReqTail;
-    ClientSM*          mCliHead;
-    ClientSM*          mCliTail;
-    MetaRequest*       mReqPendingHead;
-    MetaRequest*       mReqPendingTail;
+    ReqQueue           mReqQueue;
+    CliQueue           mCliQueue;
+    ReqQueue           mReqPendingQueue;
     FlushQueue         mFlushQueue;
     AuthContext        mAuthContext;
     uint64_t           mAuthCtxUpdateCount;

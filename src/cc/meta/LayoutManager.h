@@ -1511,7 +1511,9 @@ protected:
         class Entry
         {
         public:
-            Entry* GetNext() const
+            static Entry*& Next(Entry& entry)
+                { return entry.mNext; }
+            const Entry* GetNext() const
                 { return mNext; }
             const time_t mTime;
             const fid_t  mFid;
@@ -1532,50 +1534,38 @@ protected:
             friend class ObjStoreFilesDeleteQueue;
         };
         ObjStoreFilesDeleteQueue()
-            : mHead(0),
-              mTail(0),
+            : mQueue(),
               mSize(0),
               mAllocator()
             {}
         ~ObjStoreFilesDeleteQueue()
             { ObjStoreFilesDeleteQueue::Clear(); }
         Entry* Front()
-            { return mHead; }
+            { return mQueue.Front(); }
         bool IsEmpty() const
-            { return (! mHead); }
+            { return mQueue.IsEmpty(); }
         void Add(time_t time, fid_t fid, chunkOff_t last)
         {
             Entry* const entry =
                 new (mAllocator.Allocate()) Entry(time, fid, last);
-            if (mTail) {
-                mTail->mNext = entry;
-            } else {
-                mHead = entry;
-            }
-            mTail = entry;
+            mQueue.PushBack(*entry);
             mSize++;
         }
         void Remove()
         {
-            if (mHead) {
-                Entry* const entry = mHead;
-                mHead = entry->mNext;
-                if (! mHead) {
-                    mTail = 0;
-                }
+            Entry* const entry = mQueue.PopFront();
+            if (entry) {
                 mSize--;
                 Delete(entry);
             }
         }
         void Clear()
         {
-            Entry* next = mHead;
-            mHead = 0;
-            mTail = 0;
+            Queue queue;
+            queue.PushBack(mQueue);
             mSize = 0;
-            while (next) {
-                Entry* const entry = next;
-                next = entry->mNext;
+            Entry* entry;
+            while ((entry = queue.PopFront())) {
                 Delete(entry);
             }
         }
@@ -1588,8 +1578,8 @@ protected:
             size_t(8) << 20, // size_t TMaxStorageAlloc,
             true             // bool   TForceCleanupFlag
         > Allocator;
-        Entry*    mHead;
-        Entry*    mTail;
+        typedef SingleLinkedQueue<Entry, Entry> Queue;
+        Queue     mQueue;
         size_t    mSize;
         Allocator mAllocator;
 
