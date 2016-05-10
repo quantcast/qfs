@@ -41,6 +41,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
     private ByteBuffer readBuffer;
     private int kfsFd = -1;
     private KfsAccess kfsAccess;
+    private boolean isReadAheadOff = false;
 
     private final static native
     int read(long cPtr, int fd, ByteBuffer buf, int begin, int end);
@@ -76,7 +77,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
             // Fill input buffer if it's empty
             if (!readBuffer.hasRemaining()) {
                 readBuffer.clear();
-                readDirect(readBuffer);
+                readDirect(readBuffer, dst.remaining());
                 readBuffer.flip();
 
                 // If we failed to get anything, call that EOF
@@ -114,18 +115,20 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
     ByteBuffer readNext() throws IOException
     {
         readBuffer.clear();
-        readDirect(readBuffer);
+        readDirect(readBuffer, 0);
         readBuffer.flip();
         return readBuffer;
     }
 
-    private void readDirect(ByteBuffer buf) throws IOException
+    private void readDirect(ByteBuffer buf, int remRequestedBytes) throws IOException
     {
         if (!buf.isDirect()) {
             throw new IllegalArgumentException("need direct buffer");
         }
         final int pos = buf.position();
-        final int sz  = read(kfsAccess.getCPtr(), kfsFd, buf, pos, buf.limit());
+        final int end = (isReadAheadOff && remRequestedBytes > 0) ?
+                Math.min(buf.limit(), pos + remRequestedBytes) : buf.limit();
+        final int sz  = read(kfsAccess.getCPtr(), kfsFd, buf, pos, end);
         kfsAccess.kfs_retToIOException(sz);
         buf.position(pos + sz);
     }
@@ -197,6 +200,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
     public void setReadAheadSize(long readAheadSize) {
         if(readAheadSize >= 0) {
             kfsAccess.kfs_setReadAheadSize(kfsFd, readAheadSize);
+            isReadAheadOff = readAheadSize <= 0;
         }
     }
 }
