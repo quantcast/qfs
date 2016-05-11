@@ -96,6 +96,7 @@ objectstoredir="/mnt/data3/$USER/test/object_store"
 cabundlefile="`dirname "$objectstoredir"`/ca-bundle.crt"
 cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
+prevlogsdir='prev_logs'
 
 if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
     auth=${auth-yes}
@@ -302,7 +303,6 @@ else
     fi
 fi
 
-
 ulimit -c unlimited || exit
 ulimit -n 65535 || exit
 ulimit -u `ulimit -Hu`
@@ -452,7 +452,11 @@ metaServer.chunkServer.replicationTimeout    = 8
 EOF
 fi
 
-rm -f *.log*
+mkdir -p "$prevlogsdir" || exit
+rm -f "$prevlogsdir"/* 2>/dev/null
+mv *.log* "$prevlogsdir"/ 2>/dev/null
+rm -f core* 2>/dev/null
+
 if [ -f "kfscp/latest" ]; then
     true
 else
@@ -534,6 +538,10 @@ for n in $chunkrundirs; do
         dir="$chunksrvdir/$i"
         mkdir -p "$dir" || exit
         mkdir -p "$dir/kfschunk" || exit
+        mkdir -p "$dir/$prevlogsdir" || exit
+        rm -f "$dir"/core* 2>/dev/null
+        rm -f "$dir/$prevlogsdir"/* 2>/dev/null
+        mv    "$dir"/*.log* "$dir/$prevlogsdir"/ 2>/dev/null
         cat > "$dir/$chunksrvprop" << EOF
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
@@ -611,7 +619,6 @@ EOF
 fi
         (
         cd "$dir" || exit
-        rm -f *.log*
         echo "Starting chunk server $i"
         trap '' HUP INT
         eval $cscmdline \
