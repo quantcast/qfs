@@ -692,7 +692,9 @@ private:
                 panic("invalid log write write buffer length");
                 theStatus = -EFAULT;
             } else {
+                seq_t theViewId = 0;
                 theStatus = mLogTransmitter.TransmitBlock(
+                    theViewId,
                     inLogSeq,
                     (int)(inLogSeq - mNextLogSeq),
                     theStartPtr,
@@ -875,6 +877,7 @@ private:
             return;
         }
         const int theStatus = mLogTransmitter.TransmitBlock(
+            inRequest.viewId,
             inRequest.blockEndSeq,
             (int)(inRequest.blockEndSeq - inRequest.blockStartSeq),
             mMdStream.GetBufferedStart() + thePos,

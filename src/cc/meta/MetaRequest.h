@@ -4076,6 +4076,7 @@ struct MetaLogWriterControl : public MetaRequest {
     typedef StBufferT<int, 64> Lines;
 
     Type               type;
+    seq_t              viewId;
     seq_t              committed;
     seq_t              lastLogSeq;
     seq_t              logSegmentNum;
@@ -4096,6 +4097,7 @@ struct MetaLogWriterControl : public MetaRequest {
         MetaRequest* c = 0)
         : MetaRequest(META_LOG_WRITER_CONTROL, kLogAlways),
           type(t),
+          viewId(-1),
           committed(-1),
           lastLogSeq(-1),
           logSegmentNum(-1),
