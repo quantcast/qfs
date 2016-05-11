@@ -1531,15 +1531,16 @@ public:
     {
         // This method must be called from the client thread: ClientSM
         // adds request to the pending processing queue.
+        const bool wasEmptyFlag = mReqPendingQueue.IsEmpty();
         mReqPendingQueue.PushBack(op);
-        mNetManager.Wakeup();
+        if (wasEmptyFlag) {
+            mNetManager.Wakeup();
+        }
     }
     bool IsStarted() const
         { return mThread.IsStarted(); }
     void ChildAtFork()
-    {
-        mNetManager.ChildAtFork();
-    }
+        { mNetManager.ChildAtFork(); }
     void Wakeup()
         { mNetManager.Wakeup(); }
     AuthContext& GetAuthContext()

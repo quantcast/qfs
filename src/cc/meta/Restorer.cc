@@ -830,7 +830,7 @@ lookupFattr(fid_t dir, const string& name)
  * \return      true if successful
  */
 bool
-Restorer::rebuild(const string cpname, int16_t minReplicas)
+Restorer::rebuild(const string& cpname, int16_t minReplicas)
 {
     if (metatree.getFattr(ROOTFID)) {
         KFS_LOG_STREAM_FATAL <<
@@ -935,7 +935,7 @@ Restorer::rebuild(const string cpname, int16_t minReplicas)
 }
 
 int
-try_to_acquire_lockfile(const string &lockfn)
+try_to_acquire_lockfile(const string& lockfn)
 {
     const int fd = open(lockfn.c_str(), O_APPEND|O_CREAT|O_RDWR, 0644);
     if (fd < 0) {
@@ -954,7 +954,7 @@ try_to_acquire_lockfile(const string &lockfn)
 }
 
 int
-acquire_lockfile(const string &lockfn, int ntries)
+acquire_lockfile(const string& lockfn, int ntries)
 {
     for (int i = 0; i < ntries; i++) {
         const int ret = try_to_acquire_lockfile(lockfn);

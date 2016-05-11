@@ -50,7 +50,7 @@ public:
      * the specified value, bump up replication.  this allows us to change
      * the filesystem wide degree of replication in a simple manner.
      */
-    bool rebuild(string cpname, int16_t minNumReplicasPerFile = 1);
+    bool rebuild(const string& cpname, int16_t minNumReplicasPerFile = 1);
 private:
     ifstream file;          //!< the CP file
 private:

@@ -8317,7 +8317,6 @@ LayoutManager::LeaseCleanup(
     if (mDisableTimerFlag) {
         return;
     }
-
     const time_t now = (time_t)startTime;
     mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap);
@@ -8786,6 +8785,9 @@ LayoutManager::Handle(MetaLeaseRelinquish& req)
 void
 LayoutManager::CheckAllLeases()
 {
+    if (mDisableTimerFlag) {
+        return;
+    }
     mChunkLeases.Timer(TimeNow(), mLeaseOwnerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap);
 }

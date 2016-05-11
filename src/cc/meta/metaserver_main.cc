@@ -88,7 +88,7 @@ public:
         return buf;
     }
     virtual void Deallocate(
-    char* inBufferPtr)
+        char* inBufferPtr)
         { mBufferPool.Put(inBufferPtr); }
     QCIoBufferPool& GetBufferPool()
         { return mBufferPool; }
@@ -473,7 +473,6 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         props.getValue("metaServer.bufferPool.lockMemory",0) != 0 ||
             mMaxLockedMemorySize > 0
     );
-    globalNetManager().SetMaxAcceptsPerRead(1024);
     if (err != 0) {
         KFS_LOG_STREAM_FATAL <<
             QCUtils::SysError(err, "io buffer pool create: ") <<
@@ -486,6 +485,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
         KFS_LOG_EOM;
         return false;
     }
+    globalNetManager().SetMaxAcceptsPerRead(1024);
     mClientListenerLocation.port = props.getValue("metaServer.clientPort",
         mClientListenerLocation.port);
     if (mClientListenerLocation.port < 0) {
