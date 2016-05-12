@@ -4829,12 +4829,20 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
             }
             // If the read failed, cleanup and bail
             if (op->rop->status < 0) {
-                op->status = op->rop->status;
+                if (0 <= op->status) {
+                    op->status = op->rop->status;
+                    op->statusMsg.swap(op->rop->statusMsg);
+                }
                 op->rop->wop = 0;
                 delete op->rop;
                 op->rop = 0;
-                int res = op->status;
-                return op->HandleDone(EVENT_DISK_ERROR, &res);
+                if (op->diskIo) {
+                    die("invalid read modify write completion");
+                    int res = op->status;
+                    op->HandleEvent(EVENT_DISK_ERROR, &res);
+                    return 0;
+                }
+                return op->status;
             }
             // All is good.  So, get on with checksumming
             op->rop->dataBuf.ReplaceKeepBuffersFull(
@@ -4941,13 +4949,17 @@ ChunkManager::ReadChunkDone(ReadOp* op)
             (staleRead = ! cih->IsFileEquals(op->diskIo))) {
         op->dataBuf.Clear();
         if (cih) {
-            KFS_LOG_STREAM_INFO << "Version # mismatch (have=" <<
-                cih->chunkInfo.chunkVersion <<
-                " vs asked=" << op->chunkVersion << ")" <<
+            KFS_LOG_STREAM_INFO <<
+                "read complete:"
+                " chunk: "    << cih->chunkInfo.chunkId <<
+                " version:"
+                " actual: "   << cih->chunkInfo.chunkVersion <<
+                " expected: " << op->chunkVersion << ")" <<
                 (staleRead ? " stale read" : "") <<
             KFS_LOG_EOM;
         }
-        op->status = -EBADVERS;
+        op->status    = -EBADVERS;
+        op->statusMsg = staleRead ? "stale read" : "version mismatch";
         return true;
     }
 

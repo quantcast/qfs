@@ -2556,10 +2556,17 @@ WritePrepareOp::Execute()
         " checksum: " << checksum <<
     KFS_LOG_EOM;
 
-    status = gChunkManager.WriteChunk(writeOp);
-    if (status < 0) {
-        Done(EVENT_CMD_DONE, this);
+    const int ret = gChunkManager.WriteChunk(writeOp);
+    if (0 <= ret) {
+        return;
     }
+    if (0 <= status) {
+        status = ret;
+        if (writeOp) {
+            statusMsg = writeOp->statusMsg;
+        }
+    }
+    Done(EVENT_CMD_DONE, this);
 }
 
 void
@@ -2586,7 +2593,7 @@ WritePrepareOp::ForwardToPeer(
 int
 WritePrepareOp::Done(int code, void* data)
 {
-    if (status >= 0 && writeFwdOp && writeFwdOp->status < 0) {
+    if (0 <= status && writeFwdOp && writeFwdOp->status < 0) {
         status    = writeFwdOp->status;
         statusMsg = writeFwdOp->statusMsg;
     }
