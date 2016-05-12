@@ -4596,8 +4596,8 @@ bool
 ChunkManager::ChunkSize(SizeOp* op)
 {
     const bool kAddObjectBlockMappingFlag = false;
-    ChunkInfoHandle* const cih = GetChunkInfoHandle(op->chunkId, op->chunkVersion,
-        kAddObjectBlockMappingFlag);
+    ChunkInfoHandle* const cih = GetChunkInfoHandle(
+        op->chunkId, op->chunkVersion, kAddObjectBlockMappingFlag);
     if (! cih) {
         if (op->chunkVersion < 0) {
             return false;
