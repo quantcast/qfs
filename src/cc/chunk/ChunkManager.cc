@@ -6553,6 +6553,7 @@ ChunkManager::RunStaleChunksQueue(
                 0 <= cih->chunkInfo.chunkVersion ?
                 mChunkTable.Find(cih->chunkInfo.chunkId) : 0;
             if (! ci ||
+                    (*ci)->chunkInfo.fileId != cih->chunkInfo.fileId ||
                     &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
                     (((*ci)->IsStable() || cih->IsStable()) &&
                         ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion))) {
