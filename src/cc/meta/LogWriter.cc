@@ -117,6 +117,10 @@ public:
           mLastLogName("last"),
           mLastLogPath(mLogDir + "/" + mLastLogName),
           mFailureSimulationInterval(0),
+          mPrepareToForkFlag(false),
+          mPrepareToForkDoneFlag(false),
+          mPrepareToForkCond(),
+          mForkDoneCond(),
           mRandom(),
           mLogFileNamePrefix("log")
         { mLogName.reserve(1 << 10); }
@@ -352,6 +356,30 @@ public:
             mNetManagerPtr = 0;
         }
     }
+    void PrepareToFork()
+    {
+        QCStMutexLocker theLocker(mMutex);
+        if (mPrepareToForkFlag) {
+            panic("log writer: invalid prepare to fork invocation");
+            return;
+        }
+        mPrepareToForkFlag = true;
+        mNetManager.Wakeup();
+        while (! mPrepareToForkDoneFlag) {
+            mPrepareToForkCond.Wait(mMutex);
+        }
+    }
+    void ForkDone()
+    {
+        QCStMutexLocker theLocker(mMutex);
+        if (! mPrepareToForkDoneFlag || ! mPrepareToForkFlag) {
+            panic("log writer: invalid fork done invocation");
+            return;
+        }
+        mPrepareToForkDoneFlag = false;
+        mPrepareToForkFlag     = false;
+        mForkDoneCond.Notify();
+    }
     void ChildAtFork()
     {
         mNetManager.ChildAtFork();
@@ -435,6 +463,10 @@ private:
     string         mLastLogName;
     string         mLastLogPath;
     int64_t        mFailureSimulationInterval;
+    bool           mPrepareToForkFlag;
+    bool           mPrepareToForkDoneFlag;
+    QCCondVar      mPrepareToForkCond;
+    QCCondVar      mForkDoneCond;
     PrngIsaac64    mRandom;
     const string   mLogFileNamePrefix;
 
@@ -499,6 +531,13 @@ private:
     virtual void DispatchStart()
     {
         QCStMutexLocker theLocker(mMutex);
+        if (mPrepareToForkFlag) {
+            mPrepareToForkDoneFlag = true;
+            mPrepareToForkCond.Notify();
+            while (mPrepareToForkFlag) {
+                mForkDoneCond.Wait(mMutex);
+            }
+        }
         if (mStopFlag) {
             mNetManager.Shutdown();
         }
@@ -1217,6 +1256,17 @@ LogWriter::GetCommittedLogSeq() const
 LogWriter::ScheduleFlush()
 {
    mImpl.ScheduleFlush();
+}
+    void
+LogWriter::PrepareToFork()
+{
+   mImpl.PrepareToFork();
+}
+
+    void
+LogWriter::ForkDone()
+{
+   mImpl.ForkDone();
 }
 
     void

@@ -3509,13 +3509,15 @@ static void ChildAtFork(int childTimeLimit)
     }
     AuditLog::ChildAtFork();
     globalNetManager().ChildAtFork();
-    gNetDispatch.ChildAtFork();
     MetaRequest::GetLogWriter().ChildAtFork();
+    gNetDispatch.ChildAtFork();
 }
 
 static int DoFork(int childTimeLimit)
 {
     gNetDispatch.PrepareCurrentThreadToFork();
+    MetaRequest::GetLogWriter().PrepareToFork();
+    gLayoutManager.GetUserAndGroup().PrepareToFork();
     AuditLog::PrepareToFork();
     MsgLogger* const logger = MsgLogger::GetLogger();
     if (logger) {
@@ -3538,6 +3540,8 @@ static int DoFork(int childTimeLimit)
             logger->ForkDone();
         }
         AuditLog::ForkDone();
+        gLayoutManager.GetUserAndGroup().ForkDone();
+        MetaRequest::GetLogWriter().ForkDone();
         gNetDispatch.CurrentThreadForkDone();
     }
     return ret;

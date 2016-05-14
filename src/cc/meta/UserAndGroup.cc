@@ -88,6 +88,7 @@ public:
           mUpdateCount(0),
           mCurUpdateCount(0),
           mThread(),
+          mForkMutex(),
           mMutex(),
           mCond(),
           mUpdateAppliedCond(),
@@ -382,6 +383,14 @@ public:
         }
         return (thePtr < theEndPtr ? -EINVAL : 0);
     }
+    void PrepareToFork()
+    {
+        mForkMutex.Lock();
+    }
+    void ForkDone()
+    {
+        mForkMutex.Unlock();
+    }
 private:
     int StartSelf()
     {
@@ -416,6 +425,7 @@ private:
                 break;
             }
             mUpdateFlag = false;
+            QCStMutexLocker theForkLocker(mForkMutex);
             Update();
         }
     }
@@ -1025,6 +1035,7 @@ private:
     volatile uint64_t                mUpdateCount;
     volatile uint64_t                mCurUpdateCount;
     QCThread                         mThread;
+    QCMutex                          mForkMutex;
     QCMutex                          mMutex;
     QCCondVar                        mCond;
     QCCondVar                        mUpdateAppliedCond;
@@ -1274,6 +1285,18 @@ UserAndGroup::ReadGroup(
     bool        inHexFlag)
 {
     return mImpl.ReadGroup(inBufPtr, inLen, inAppendFlag, inHexFlag);
+}
+
+    void
+UserAndGroup::PrepareToFork()
+{
+    mImpl.PrepareToFork();
+}
+
+    void
+UserAndGroup::ForkDone()
+{
+    mImpl.ForkDone();
 }
 
 const string                    UserAndGroup::kEmptyString;

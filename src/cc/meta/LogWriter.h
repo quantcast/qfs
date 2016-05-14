@@ -83,6 +83,8 @@ public:
         int     inStatus);
     seq_t GetCommittedLogSeq() const;
     void ScheduleFlush();
+    void PrepareToFork();
+    void ForkDone();
     void ChildAtFork();
     void Shutdown();
     seq_t GetNextSeq()
