@@ -81,18 +81,20 @@ InitialSeq()
     return ((theRet < 0 ? -theRet : theRet) >> 1);
 }
 
-    static string
+    static int
 CallMonInit()
 {
+    // kludge to call ssl init before auth context ctor
     MonInit();
-    return string();
+    const int kNetManagerTimeoutMs = 1000;
+    return kNetManagerTimeoutMs;
 }
 
 MonClient::MonClient()
-    : NetManager(),
+    : NetManager(CallMonInit()),
       KfsNetClient(
         *this,
-        CallMonInit(),// inHost kludge to call ssl init before auth context ctor
+        string(),     // inHost
         0,            // inPort
         3,            // inMaxRetryCount
         10,           // inTimeSecBetweenRetries
