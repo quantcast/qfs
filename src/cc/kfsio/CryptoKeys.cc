@@ -156,6 +156,7 @@ public:
           QCRunnable(),
           mNetManager(inNetManager),
           mMutexPtr(inMutexPtr ? inMutexPtr : new QCMutex()),
+          mForkMutex(),
           mOwnsMutexFlag(! inMutexPtr),
           mKeys(),
           mKeysExpirationQueue(),
@@ -654,6 +655,7 @@ public:
             if (! mRunFlag) {
                 break;
             }
+            QCStMutexLocker theForkLock(mForkMutex);
             mWritingFlag = true;
             mWriteFlag   = false;
             if (! mFileName.empty()) {
@@ -672,6 +674,14 @@ public:
             }
         }
     }
+    void PrepareToFork()
+    {
+        mForkMutex.Lock();
+    }
+    void ForkDone()
+    {
+        mForkMutex.Unlock();
+    }
 private:
     typedef map<
         KeyId,
@@ -686,6 +696,7 @@ private:
     > KeysExpirationQueue;
     NetManager&         mNetManager;
     QCMutex* const      mMutexPtr;
+    QCMutex             mForkMutex;
     bool const          mOwnsMutexFlag;
     Keys                mKeys;
     KeysExpirationQueue mKeysExpirationQueue;
@@ -850,6 +861,18 @@ CryptoKeys::GetCurrentKey(
     uint32_t&          outKeyValidForSec) const
 {
     return mImpl.GetCurrentKey(outKeyId, outKey, outKeyValidForSec);
+}
+
+    void
+CryptoKeys::PrepareToFork()
+{
+    mImpl.PrepareToFork();
+}
+
+    void
+CryptoKeys::ForkDone()
+{
+    mImpl.ForkDone();
 }
 
     /* static */ bool

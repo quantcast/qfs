@@ -126,6 +126,8 @@ public:
         KeyId theId;
         return GetCurrentKeyId(theId);
     }
+    void PrepareToFork();
+    void ForkDone();
     static bool PseudoRand(
         void*  inPtr,
         size_t inLen);
