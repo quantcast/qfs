@@ -229,6 +229,8 @@ public:
         size_t      inLen,
         bool        inAppendFlag,
         bool        inHexFlag);
+    void PrepareToFork();
+    void ForkDone();
 private:
     class Impl;
     Impl&                                   mImpl;

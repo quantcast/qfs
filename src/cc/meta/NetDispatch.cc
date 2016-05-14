@@ -471,11 +471,17 @@ NetDispatch::PrepareCurrentThreadToFork()
 {
     mClientManager.PrepareCurrentThreadToFork();
     mMetaDataStore.PrepareToFork();
+    if (mCryptoKeys) {
+        mCryptoKeys->PrepareToFork();
+    }
 }
 
 void
 NetDispatch::CurrentThreadForkDone()
 {
+    if (mCryptoKeys) {
+        mCryptoKeys->ForkDone();
+    }
     mMetaDataStore.ForkDone();
 }
 
