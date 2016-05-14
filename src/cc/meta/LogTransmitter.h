@@ -58,7 +58,7 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
     int TransmitBlock(
-        seq_t       inViewId,
+        seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,
         const char* inBlockPtr,
