@@ -632,19 +632,19 @@ private:
         globals().counterManager.AddCounter(&mPathToFidCacheHit);
         globals().counterManager.AddCounter(&mPathToFidCacheMiss);
     }
+private:
+    MetaOpCounters(const MetaOpCounters&);
+    MetaOpCounters& operator=(const MetaOpCounters&);
 }* MetaOpCounters::sInstance(MetaOpCounters::MakeInstance());
 
-static class RequestStatsGatherer
+class RequestStatsGatherer
 {
 public:
-    RequestStatsGatherer()
-        : mNextTime(0),
-          mStatsIntervalMicroSec(30000000),
-          mOpTimeWarningThresholdMicroSec(200000),
-          mUserCpuMicroSec(0),
-          mSystemCpuMicroSec(0),
-          mWOStream()
-        {}
+    static RequestStatsGatherer& Instance()
+    {
+        static RequestStatsGatherer sRequestStatsGatherer;
+        return sRequestStatsGatherer;
+    }
     void OpDone(
         const MetaRequest& op)
     {
@@ -786,7 +786,8 @@ private:
         kCpuSys            = kCpuUser + 1,
         kReqTypesCnt       = kCpuSys + 1
     };
-    struct Counter {
+    struct Counter
+    {
         Counter()
             : mCnt(0),
               mErr(0),
@@ -806,6 +807,15 @@ private:
     Counter            mRequest[kReqTypesCnt];
     IOBuffer::WOStream mWOStream;
 
+    RequestStatsGatherer()
+        : mNextTime(0),
+          mStatsIntervalMicroSec(30000000),
+          mOpTimeWarningThresholdMicroSec(200000),
+          mUserCpuMicroSec(0),
+          mSystemCpuMicroSec(0),
+          mWOStream()
+        {}
+
     static const char* GetRowName(
         int idx)
     {
@@ -822,8 +832,12 @@ private:
         };
         return ((idx < 0 || idx >= kReqTypesCnt) ? "" : kNames[idx]);
     }
-} sReqStatsGatherer;
-
+private:
+    RequestStatsGatherer(const RequestStatsGatherer&);
+    RequestStatsGatherer& operator=(const RequestStatsGatherer&);
+};
+static RequestStatsGatherer& sReqStatsGatherer =
+    RequestStatsGatherer::Instance();
 
 void NetDispatch::SetParameters(const Properties& props)
 {
@@ -1345,8 +1359,8 @@ MainThreadPrepareToFork::DispatchEnd()
 // The core of the request processing submit_request() / MetaRequest::handle()
 // is serialized with the mutex. The attempt is made to process requests in
 // batches in order to reduce lock acquisition frequency.
-// The client thread run loop is in Timeout() method below, which is invoked
-// from NetManager::MainLoop().
+// The client thread run loop is in DispatchStart() method below, which is
+// invoked from NetManager::MainLoop().
 // The pending requests queue depth governed by the ClientSM parameters.
 // ClientSM logic limits number of outstanding requests as well as pending io
 // bytes to ensure request processing "fairness" in respect to all the client

@@ -497,8 +497,8 @@ public:
         int  opsCount    = 0;
         bool deletedFlag = false;
         mDeletedFlag = &deletedFlag;
-        MetaRequest* thePtr;
-        while ((thePtr = mQueue.Front()) && mCond(*thePtr)) {
+        MetaRequest* req;
+        while ((req = mQueue.Front()) && mCond(*req)) {
             mCur = mQueue.PopFront();
             mCur->suspended = false;
             submit_request(mCur);
@@ -507,7 +507,7 @@ public:
             }
             mCur = 0;
             if (mMaxOpsPerLoop <= ++opsCount) {
-                if ((thePtr = mQueue.Front()) && mCond(*thePtr)) {
+                if ((req = mQueue.Front()) && mCond(*req)) {
                     mNetManager.Wakeup();
                 }
                 break;
@@ -516,6 +516,17 @@ public:
         mDeletedFlag = 0;
         if (mQueue.IsEmpty()) {
             mNetManager.UnRegisterTimeoutHandler(this);
+        }
+    }
+    void CancelAll()
+    {
+        MetaRequest* req;
+        Queue        queue;
+        queue.PushBack(mQueue);
+        while ((req = queue.PopFront())) {
+            req->suspended = false;
+            req->status    = -ECANCELED;
+            submit_request(req);
         }
     }
     bool SuspendIfNeeded(MetaRequest& req)
@@ -575,22 +586,24 @@ private:
 class EnoughBuffersCond
 {
 public:
-    bool operator() (MetaRequest& req)
+    bool operator() (MetaRequest& req) const
     {
         return gLayoutManager.HasEnoughFreeBuffers(&req);
     }
 };
 
-static EnoughBuffersCond&
-GetEnoughBuffersCond()
+typedef RequestWaitQueue<EnoughBuffersCond> BuffersWaitQueue;
+
+static BuffersWaitQueue&
+MakeBufferWaitQueue()
 {
+    NetManager& netManager = globalNetManager();
     static EnoughBuffersCond sEnoughBuffersCond;
-    return sEnoughBuffersCond;
+    static BuffersWaitQueue  sBuffersWaitQueue(netManager, sEnoughBuffersCond);
+    return sBuffersWaitQueue;
 }
 
-typedef RequestWaitQueue<EnoughBuffersCond> BuffersWaitQueue;
-static BuffersWaitQueue sBuffersWaitQueue(
-    globalNetManager(), GetEnoughBuffersCond());
+static BuffersWaitQueue& sBuffersWaitQueue = MakeBufferWaitQueue();
 
 void
 CheckIfIoBuffersAvailable()
@@ -599,6 +612,12 @@ CheckIfIoBuffersAvailable()
             gLayoutManager.HasEnoughFreeBuffers()) {
         sBuffersWaitQueue.Wakeup();
     }
+}
+
+void
+CancelRequestsWaitingForBuffers()
+{
+    sBuffersWaitQueue.CancelAll();
 }
 
 void

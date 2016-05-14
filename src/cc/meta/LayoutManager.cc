@@ -2791,6 +2791,7 @@ LayoutManager::SetChunkServersProperties(const Properties& props)
 void
 LayoutManager::Shutdown()
 {
+    CancelRequestsWaitingForBuffers();
     // Return io buffers back into the pool.
     mCSCountersResponse.Clear();
     mCSDirCountersResponse.Clear();

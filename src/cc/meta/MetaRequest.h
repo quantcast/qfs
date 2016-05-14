@@ -4321,14 +4321,10 @@ int ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
 int ParseLogRecvCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     char* threadParseBuffer);
 
-void printleaves();
-
-void setClusterKey(const char *key);
-void setMD5SumFn(const char *md5sumFn);
 void setWORMMode(bool value);
-void setMaxReplicasPerFile(int16_t value);
 void setChunkmapDumpDir(string dir);
 void CheckIfIoBuffersAvailable();
+void CancelRequestsWaitingForBuffers();
 void SetRequestParameters(const Properties& props);
 
 /* update counters for # of files/dirs/chunks in the system */
