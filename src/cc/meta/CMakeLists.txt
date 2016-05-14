@@ -81,11 +81,9 @@ foreach (exe_file ${exe_files})
         )
         target_link_libraries (${exe_file}
             kfsMeta
-            tools
         )
         add_dependencies (${exe_file}
             kfsMeta
-            tools
         )
     else (USE_STATIC_LIB_LINKAGE)
         add_executable (${exe_file}
@@ -93,14 +91,20 @@ foreach (exe_file ${exe_files})
         )
         target_link_libraries (${exe_file}
             kfsMeta-shared
-            tools-shared
         )
         add_dependencies (${exe_file}
             kfsCommon-shared
-            tools-shared
         )
     endif (USE_STATIC_LIB_LINKAGE)
 endforeach (exe_file)
+
+if (USE_STATIC_LIB_LINKAGE)
+    target_link_libraries (qfsfsck tools)
+    add_dependencies      (qfsfsck tools)
+else (USE_STATIC_LIB_LINKAGE)
+    target_link_libraries (qfsfsck tools-shared)
+    add_dependencies      (qfsfsck tools-shared)
+endif (USE_STATIC_LIB_LINKAGE)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
    # mtmalloc seemed to worsen metaserver startup time; it took
