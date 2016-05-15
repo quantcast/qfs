@@ -605,6 +605,8 @@ else
 fi
 
 if [ x"`uname`" = x'SunOS' ]; then
+    qfstoolpid=
+else
     qfstoolpidf="qfstooltest${pidsuf}"
     qfstoolmeta="$metahosturl:$metasrvport" \
     qfstooltrace=on \
@@ -613,8 +615,6 @@ if [ x"`uname`" = x'SunOS' ]; then
         1>qfs_tool-test.out 2>qfs_tool-test.log &
     qfstoolpid=$!
     echo "$qfstoolpid" > "$qfstoolpidf"
-else
-    qfstoolpid=
 fi
 
 qfscpidf="qfsctest${pidsuf}"
