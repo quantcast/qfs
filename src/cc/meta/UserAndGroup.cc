@@ -625,11 +625,14 @@ private:
         }
 
         setgrent();
-        for (; ;) {
+        for (int i = 0; ; i++) {
             errno = 0;
             const struct group* const theEntryPtr = getgrent();
             if (! theEntryPtr) {
                 theError = errno;
+                if (i < 0 && ENOENT == theError) {
+                    theError = 0; // cent os 7 kludge.
+                }
                 if (theError != 0) {
                     KFS_LOG_STREAM_ERROR <<
                         "getgrent error: " << QCUtils::SysError(theError) <<
