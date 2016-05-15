@@ -49,8 +49,6 @@ class MetaDataSync;
 class NetDispatch
 {
 public:
-    NetDispatch();
-    ~NetDispatch();
     void SetMaxClientSockets(int count);
     int GetMaxClientCount() const;
     bool Bind(
@@ -101,6 +99,10 @@ public:
     MetaDataStore& GetMetaDataStore()
         { return mMetaDataStore; }
 private:
+    NetDispatch();
+    ~NetDispatch();
+    friend class MetaServerGlobals;
+
     class CanceledTokens;
 
     ClientManager      mClientManager; //!< tracks the connected clients
@@ -113,6 +115,9 @@ private:
     bool               mRunningFlag;
     int                mClientThreadCount;
     int                mClientThreadsStartCpuAffinity;
+private:
+    NetDispatch(const NetDispatch&);
+    NetDispatch& operator=(const NetDispatch&);
 };
 
 extern NetDispatch& gNetDispatch;

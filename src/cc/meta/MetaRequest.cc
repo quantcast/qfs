@@ -3487,17 +3487,20 @@ MetaRecomputeDirsize::handle()
     metatree.recomputeDirSize();
 }
 
-static void SigHupHandler(int /* sinum */)
+static void
+SigHupHandler(int /* sinum */)
 {
     _exit(1);
 }
 
-static void SigAlarmHandler(int /* sinum */)
+static void
+SigAlarmHandler(int /* sinum */)
 {
     _exit(2);
 }
 
-static void ChildAtFork(int childTimeLimit)
+static void
+ChildAtFork(int childTimeLimit)
 {
     signal(SIGHUP, &SigHupHandler);
     signal(SIGALRM, &SigAlarmHandler);
@@ -3513,7 +3516,8 @@ static void ChildAtFork(int childTimeLimit)
     gNetDispatch.ChildAtFork();
 }
 
-static int DoFork(int childTimeLimit)
+static int
+DoFork(int childTimeLimit)
 {
     gNetDispatch.PrepareCurrentThreadToFork();
     MetaRequest::GetLogWriter().PrepareToFork();

@@ -44,8 +44,6 @@ class DiskEntry;
 class Replay
 {
 public:
-    Replay();
-    ~Replay();
     bool verifyLogSegmentsPresent()
     {
         lastLogNum = -1;
@@ -153,6 +151,9 @@ private:
     seq_t            maxLogNum;
     seq_t            logSeqStartNum;
 
+    friend class MetaServerGlobals;
+    Replay();
+    ~Replay();
     int playLogs(seq_t lastlog, bool includeLastLogFlag);
     int playlog(bool& lastEntryChecksumFlag);
     int getLastLogNum();

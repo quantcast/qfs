@@ -308,7 +308,9 @@ const int FID_CACHE_CLEANUP_INTERVAL = 600;
  * A tree is just a pointer to the root node and a pointer
  * to the first (leftmost) leaf node.
  */
-class Tree {
+class Tree
+{
+private:
     Node *root;         //!< root node
     Node *first;            //!< leftmost level-1 node
     int hgt;            //!< height of tree
@@ -405,7 +407,6 @@ class Tree {
     void setFileSize(MetaFattr* fa, chunkOff_t size,
         int64_t nfiles, int64_t ndirs);
     int moveToDumpster(fid_t dir, const string& fname, fid_t fid);
-public:
     Tree()
         : root(0),
           first(0),
@@ -426,6 +427,10 @@ public:
         first = root;
         hgt = 1;
     }
+    ~Tree()
+        {}
+    friend class MetaServerGlobals;
+public:
     void SetFsInfo(int64_t id, int64_t crtime)
     {
         mFileSystemId = id;

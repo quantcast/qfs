@@ -54,12 +54,6 @@ class Checkpoint
 {
 public:
     static const int VERSION = 1;
-    Checkpoint(const string& d = string())
-        : cpdir(d),
-          writesync(true),
-          writebuffersize(16 << 20),
-          cpname()
-        {}
     void setCPDir(const string& d)
         { cpdir = d; }
     const string name() const { return cpname; }
@@ -79,6 +73,15 @@ private:
     size_t  writebuffersize;
     string  cpname;
 
+    friend class MetaServerGlobals;
+    Checkpoint(const string& dir)
+        : cpdir(dir),
+          writesync(true),
+          writebuffersize(16 << 20),
+          cpname()
+        {}
+    ~Checkpoint()
+        {}
     int write_leaves(ostream& os);
 private:
     // No copy.

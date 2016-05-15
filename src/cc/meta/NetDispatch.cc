@@ -35,6 +35,7 @@
 #include "LogReceiver.h"
 #include "Replay.h"
 #include "MetaDataSync.h"
+#include "ChildProcessTracker.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -448,6 +449,7 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
     } else {
         err = -EINVAL;
     }
+    gChildProcessTracker.CancelAll();
     mMetaDataStore.Shutdown();
     mClientManager.Shutdown();
     metaDataSync.Shutdown();

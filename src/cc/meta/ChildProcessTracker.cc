@@ -27,13 +27,16 @@
 //
 //----------------------------------------------------------------------------
 
-#include <vector>
-#include <sys/wait.h>
-
 #include "MetaRequest.h"
 #include "ChildProcessTracker.h"
 #include "kfsio/Globals.h"
 #include "common/MsgLogger.h"
+
+#include <vector>
+#include <map>
+
+#include <sys/wait.h>
+#include <errno.h>
 
 namespace KFS
 {
@@ -41,16 +44,26 @@ using std::vector;
 using std::pair;
 using std::back_inserter;
 using std::make_pair;
+using libkfsio::globalNetManager;
 
-void ChildProcessTrackingTimer::Track(pid_t pid, MetaRequest *r)
+ChildProcessTrackingTimer::~ChildProcessTrackingTimer()
+{
+    if (! mPending.empty()) {
+        globalNetManager().RegisterTimeoutHandler(this);
+    }
+}
+
+void
+ChildProcessTrackingTimer::Track(pid_t pid, MetaRequest *r)
 {
     if (mPending.empty()) {
-        libkfsio::globalNetManager().RegisterTimeoutHandler(this);
+        globalNetManager().RegisterTimeoutHandler(this);
     }
     mPending.insert(make_pair(pid, r));
 }
 
-void ChildProcessTrackingTimer::Timeout()
+void
+ChildProcessTrackingTimer::Timeout()
 {
     while (! mPending.empty()) {
         int         status = 0;
@@ -69,15 +82,16 @@ void ChildProcessTrackingTimer::Timeout()
             KFS_LOG_EOM;
             continue;
         }
-        typedef vector<pair<pid_t, MetaRequest*> > Requests;
-        Requests reqs;
-        copy(range.first, range.second, back_inserter(reqs));
+        mTmpRequests.clear();
+        copy(range.first, range.second, back_inserter(mTmpRequests));
         mPending.erase(range.first, range.second);
         const bool lastReqFlag = mPending.empty();
         if (lastReqFlag) {
-            libkfsio::globalNetManager().UnRegisterTimeoutHandler(this);
+            globalNetManager().UnRegisterTimeoutHandler(this);
         }
-        for (Requests::const_iterator it = reqs.begin(); it != reqs.end(); ++it) {
+        for (Requests::const_iterator it = mTmpRequests.begin();
+                it != mTmpRequests.end();
+                ++it) {
             MetaRequest* const req = it->second;
             req->status = WIFEXITED(status) ? WEXITSTATUS(status) :
                 (WIFSIGNALED(status) ? -WTERMSIG(status) : -11111);
@@ -90,10 +104,26 @@ void ChildProcessTrackingTimer::Timeout()
             KFS_LOG_EOM;
             submit_request(req);
         }
+        mTmpRequests.clear();
         if (lastReqFlag) {
             return;
         }
     }
+}
+
+void
+ChildProcessTrackingTimer::CancelAll()
+{
+    mTmpRequests.clear();
+    copy(mPending.begin(), mPending.end(), back_inserter(mTmpRequests));
+    for (Requests::const_iterator it = mTmpRequests.begin();
+            it != mTmpRequests.end();
+            ++it) {
+        MetaRequest* const req = it->second;
+        req->status = -ECANCELED;
+        submit_request(req);
+    }
+    mTmpRequests.clear();
 }
 
 }

@@ -41,8 +41,9 @@ namespace KFS
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
-struct MetaServerGlobals
+class MetaServerGlobals
 {
+public:
     MetaServerGlobals()
         : mCPDIR("./kfscp"),           //!< directory for CP files
           mLASTCP(mCPDIR + "/latest"), //!< most recent CP file (link)
@@ -65,6 +66,9 @@ struct MetaServerGlobals
     ChildProcessTrackingTimer mChildProcessTracker;
     NetDispatch               mNetDispatch;
     LogWriter                 mLogWriter;
+private:
+    MetaServerGlobals(const MetaServerGlobals&);
+    MetaServerGlobals& operator=(const MetaServerGlobals&);
 };
 
 static MetaServerGlobals&

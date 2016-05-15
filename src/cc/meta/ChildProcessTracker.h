@@ -33,29 +33,41 @@
 #include <sys/wait.h>
 
 #include <map>
+#include <vector>
 
 namespace KFS
 {
-
 using std::multimap;
+using std::vector;
+
 struct MetaRequest;
 
 class ChildProcessTrackingTimer : public ITimeout
 {
 public:
-    ChildProcessTrackingTimer(int timeoutMilliSec = 500) {
-        SetTimeoutInterval(timeoutMilliSec);
-    };
     // On a timeout check the child processes for exit status
     virtual void Timeout();
     // track the process with pid and return the exit status to MetaRequest
     void Track(pid_t pid, MetaRequest *r);
-    size_t GetProcessCount() const {
-        return mPending.size();
-    }
+    size_t GetProcessCount() const
+        { return mPending.size(); }
+    void CancelAll();
 private:
-    typedef multimap<pid_t, MetaRequest*> Pending;
-    Pending mPending;
+    typedef multimap<pid_t, MetaRequest*>      Pending;
+    typedef vector<pair<pid_t, MetaRequest*> > Requests;
+    Pending   mPending;
+    Requests  mTmpRequests;
+
+    friend class MetaServerGlobals;
+
+    ChildProcessTrackingTimer(int timeoutMilliSec = 500)
+        : mPending(),
+          mTmpRequests()
+        { SetTimeoutInterval(timeoutMilliSec); };
+    ~ChildProcessTrackingTimer();
+private:
+    ChildProcessTrackingTimer(const ChildProcessTrackingTimer&);
+    ChildProcessTrackingTimer& operator=(const ChildProcessTrackingTimer&);
 };
 
 extern ChildProcessTrackingTimer& gChildProcessTracker;
