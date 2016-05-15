@@ -838,7 +838,7 @@ private:
     {
         static size_t Hash(
             const ObjTableEntry::Key& inVal)
-            { return size_t(inVal.first); }
+            { return size_t(inVal.first ^ (-inVal.second)); }
     };
     typedef LinearHash<
         ObjTableEntry,
