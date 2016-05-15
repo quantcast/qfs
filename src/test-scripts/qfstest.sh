@@ -604,13 +604,18 @@ else
     qfstoolrootauthcfg=
 fi
 
-qfstoolpidf="qfstooltest${pidsuf}"
-qfstoolmeta="$metahosturl:$metasrvport" \
-qfstooltrace=on \
-qfstoolrootauthcfg=$qfstoolrootauthcfg \
-qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' 1>qfs_tool-test.out 2>qfs_tool-test.log &
-qfstoolpid=$!
-echo "$qfstoolpid" > "$qfstoolpidf"
+if [ x"`uname`" = x'SunOS' ]; then
+    qfstoolpidf="qfstooltest${pidsuf}"
+    qfstoolmeta="$metahosturl:$metasrvport" \
+    qfstooltrace=on \
+    qfstoolrootauthcfg=$qfstoolrootauthcfg \
+    qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
+        1>qfs_tool-test.out 2>qfs_tool-test.log &
+    qfstoolpid=$!
+    echo "$qfstoolpid" > "$qfstoolpidf"
+else
+    qfstoolpid=
+fi
 
 qfscpidf="qfsctest${pidsuf}"
 test-qfsc "$metahost:$metasrvport" 1>test-qfsc.out 2>test-qfsc.log &
@@ -680,11 +685,14 @@ rm "$cppidf"
 
 cat cptest.out
 
-wait $qfstoolpid
-qfstoolstatus=$?
-rm "$qfstoolpidf"
-
-cat qfs_tool-test.out
+if [ x"$qfstoolpid" = x ]; then
+    qfstoolstatus=0
+else
+    wait $qfstoolpid
+    qfstoolstatus=$?
+    rm "$qfstoolpidf"
+    cat qfs_tool-test.out
+fi
 
 wait $qfscpid
 qfscstatus=$?
