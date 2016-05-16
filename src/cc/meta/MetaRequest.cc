@@ -36,6 +36,7 @@
 #include "AuditLog.h"
 #include "ClientSM.h"
 #include "Replay.h"
+#include "MetaVrOps.h"
 
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
@@ -6378,6 +6379,12 @@ MetaHibernatedPrune::handle()
 MetaHibernatedRemove::handle()
 {
     gLayoutManager.Handle(*this);
+}
+
+bool
+MetaVrRequest::ResponseHeader(ReqOstream& os)
+{
+    return OkHeader(this, os);
 }
 
 } /* namespace KFS */

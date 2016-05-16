@@ -26,6 +26,7 @@
 //----------------------------------------------------------------------------
 
 #include "MetaRequest.h"
+#include "MetaVrOps.h"
 #include "LogWriter.h"
 
 #include "common/RequestParser.h"
@@ -49,8 +50,6 @@ using std::vector;
 using std::map;
 using std::set;
 using std::ostringstream;
-
-using libkfsio::globalNetManager;
 
 template<typename T>
     T&
@@ -239,15 +238,39 @@ MakeMetaRequestHandler(
 }
 
 template<typename T>
+    static T&
+AddVrLogOps(
+    T& inHandler)
+{
+    return inHandler
+    .MakeParser("VDVC",
+        META_VR_DO_VIEW_CHANGE,
+        static_cast<const MetaVrDoViewChange*>(0))
+    .MakeParser("VSV",
+        META_VR_START_VIEW,
+        static_cast<const MetaVrStartView*>(0))
+    .MakeParser("VRCN",
+        META_VR_RECONFIGURATION,
+        static_cast<const MetaVrReconfiguration*>(0))
+    .MakeParser("VSE",
+        META_VR_START_EPOCH,
+        static_cast<const MetaVrStartEpoch*>(0))
+    ;
+}
+
+template<typename T>
     static const T&
 MakeMetaRequestLogRecvHandler(
     const T* inNullPtr = 0)
 {
     static T sHandler;
-    return sHandler
+    return AddVrLogOps(sHandler)
     .MakeParser("AUTHENTICATE",
         META_AUTHENTICATE,
         static_cast<const MetaAuthenticate*>(0))
+    .MakeParser("VSVC",
+        META_VR_START_VIEW_CHANGE,
+        static_cast<const MetaVrStartViewChange*>(0))
     ;
 }
 

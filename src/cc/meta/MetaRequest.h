@@ -160,7 +160,12 @@ using std::less;
     f(CHUNK_OP_LOG_COMPLETION) \
     f(CHUNK_OP_LOG_IN_FLIGHT) \
     f(HIBERNATED_PRUNE) \
-    f(HIBERNATED_REMOVE)
+    f(HIBERNATED_REMOVE) \
+    f(VR_START_VIEW_CHANGE) \
+    f(VR_DO_VIEW_CHANGE) \
+    f(VR_START_VIEW) \
+    f(VR_RECONFIGURATION) \
+    f(VR_START_EPOCH)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,

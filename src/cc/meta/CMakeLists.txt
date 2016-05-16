@@ -50,6 +50,7 @@ set (lib_srcs
     LogTransmitter.cc
     MetaDataStore.cc
     MetaDataSync.cc
+    MetaVrSM.cc
     globals.cc
 )
 
