@@ -57,24 +57,20 @@ set_target_properties (kfsIO PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 set_target_properties (kfsIO-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
 add_dependencies (kfsIO
-    qcdio
     kfsCommon
     qfskrb
 )
 add_dependencies (kfsIO-shared
-    qcdio-shared
     kfsCommon-shared
     qfskrb-shared
 )
 target_link_libraries (kfsIO
-    qcdio
     kfsCommon
     qfskrb
     z
     ${OPENSSL_LIBRARIES}
 )
 target_link_libraries (kfsIO-shared
-    qcdio-shared
     kfsCommon-shared
     qfskrb-shared
     z
