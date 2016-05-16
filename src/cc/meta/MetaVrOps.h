@@ -76,7 +76,11 @@ public:
     static T& LogIoDef(
         T& inParser)
     {
-        return MetaVrRequest::MetaVrRequest(inParser);
+        return MetaRequest::LogIoDef(inParser)
+        .Def("E", &MetaVrRequest::mEpochSeq,  seq_t(-1))
+        .Def("V", &MetaVrRequest::mViewSeq,   seq_t(-1))
+        .Def("C", &MetaVrRequest::mCommitSeq, seq_t(-1))
+        ;
     }
     virtual bool start()
     {

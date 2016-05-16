@@ -742,7 +742,7 @@ MakeLogMetaRequestHandler(
 {
     const bool kShortNamesFlag = true;
     static T sHandler;
-    return AddMetaRequestLog(sHandler, kShortNamesFlag)
+    return AddVrLogOps(AddMetaRequestLog(sHandler, kShortNamesFlag))
     .MakeParser("CS",
         META_CHUNK_SIZE,
         static_cast<const MetaChunkSize*>(0))
