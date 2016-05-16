@@ -44,14 +44,6 @@ using std::vector;
 class ChunkServer
 {
 public:
-    ChunkServer() :
-        mOpCount(0),
-        mUpdateServerIpFlag(false),
-        mLocation(),
-        mRemoteSyncers(),
-        mMutex(0)
-        {}
-
     bool Init(
         const ServerLocation& clientListener,
         bool                  ipV6OnlyFlag,
@@ -106,6 +98,17 @@ private:
     ServerLocation   mLocation;
     RemoteSyncSMList mRemoteSyncers;
     QCMutex*         mMutex;
+
+    ChunkServer()
+        : mOpCount(0),
+          mUpdateServerIpFlag(false),
+          mLocation(),
+          mRemoteSyncers(),
+          mMutex(0)
+        {}
+    ~ChunkServer()
+        {}
+    friend class ChunkServerGlobals;
 private:
     // No copy.
     ChunkServer(const ChunkServer&);

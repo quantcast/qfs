@@ -56,10 +56,6 @@ struct AllocChunkOp;
 class LeaseClerk : public KfsCallbackObj
 {
 public:
-
-    LeaseClerk();
-    ~LeaseClerk()
-        {}
     /// Register a lease with the clerk.  The clerk will renew the
     /// lease with the server. 
     /// @param[in] chunkId The chunk associated with the lease.
@@ -129,11 +125,14 @@ private:
     time_t            mLastLeaseCheckTime;
     TmpExpireQueue    mTmpExpireQueue;
 
+    LeaseClerk();
+    ~LeaseClerk()
+        {}
     void LeaseRenewed(LeaseRenewOp& op);
     inline static LeaseMapEntry::Key MakeKey(
         chunkId_t chunkId, int64_t chunkVersion);
-
     inline static time_t Now();
+    friend class ChunkServerGlobals;
 private:
     LeaseClerk(const LeaseClerk&);
     LeaseClerk& operator=(const LeaseClerk&);

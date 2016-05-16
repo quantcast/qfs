@@ -79,9 +79,6 @@ public:
         }
     };
 
-    MetaServerSM();
-    ~MetaServerSM();
-
     /// In each hello to the metaserver, we send an MD5 sum of the
     /// binaries.  This should be "acceptable" to the metaserver and
     /// only then is the chunkserver allowed in.  This provides a
@@ -240,6 +237,9 @@ private:
     IOBuffer::IStream             mIStream;
     IOBuffer::WOStream            mWOStream;
 
+    MetaServerSM();
+    ~MetaServerSM();
+
     /// Generic event handler to handle RPC requests sent by the meta server.
     int HandleRequest(int code, void* data);
 
@@ -277,6 +277,7 @@ private:
     void SubmitHello();
     void Request(KfsOp& op);
     template<typename T> inline void DetachAndDeleteOp(T*& op);
+    friend class ChunkServerGlobals;
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);

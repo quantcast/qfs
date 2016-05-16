@@ -318,20 +318,6 @@ private:
 class ChunkServerMain
 {
 public:
-    ChunkServerMain()
-        : mProp(),
-          mChunkDirs(),
-          mMD5Sum(),
-          mMetaServerLoc(),
-          mClientListener(),
-          mClientListenerIpV6OnlyFlag(false),
-          mClientThreadCount(0),
-          mFirstCpuIndex(-1),
-          mChunkServerHostname(),
-          mClusterKey(),
-          mChunkServerRackId(-1),
-          mMaxLockedMemorySize(0)
-        {}
     int Run(int argc, char **argv);
 
 private:
@@ -348,8 +334,28 @@ private:
     int            mChunkServerRackId;
     int64_t        mMaxLockedMemorySize;
 
+    ChunkServerMain()
+        : mProp(),
+          mChunkDirs(),
+          mMD5Sum(),
+          mMetaServerLoc(),
+          mClientListener(),
+          mClientListenerIpV6OnlyFlag(false),
+          mClientThreadCount(0),
+          mFirstCpuIndex(-1),
+          mChunkServerHostname(),
+          mClusterKey(),
+          mChunkServerRackId(-1),
+          mMaxLockedMemorySize(0)
+        {}
+    ~ChunkServerMain()
+        {}
     void ComputeMD5(const char *pathname);
     bool LoadParams(const char *fileName);
+    friend class ChunkServerGlobals;
+private:
+    ChunkServerMain(const ChunkServerMain&);
+    ChunkServerMain& operator=(const ChunkServerMain&);
 };
 
 void
@@ -617,17 +623,18 @@ ChunkServerMain::Run(int argc, char **argv)
 }
 
 // Enforce construction and destruction order here.
-struct ChunkServerGlobals
+class ChunkServerGlobals
 {
+public:
     ChunkServerGlobals()
-    : mAtomicRecordAppendManager(),
-      mLeaseClerk(),
-      mClientManager(),
-      mMetaServerSM(),
-      mChunkServer(),
-      mChunkManager(),
-      mChunkServerMain()
-    {}
+        : mAtomicRecordAppendManager(),
+          mLeaseClerk(),
+          mClientManager(),
+          mMetaServerSM(),
+          mChunkServer(),
+          mChunkManager(),
+          mChunkServerMain()
+        {}
     AtomicRecordAppendManager mAtomicRecordAppendManager;
     LeaseClerk                mLeaseClerk;
     ClientManager             mClientManager;

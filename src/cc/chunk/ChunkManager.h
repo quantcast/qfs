@@ -118,9 +118,6 @@ public:
         }
     };
 
-    ChunkManager();
-    ~ChunkManager();
-
     bool SetParameters(const Properties& prop);
     /// Init function to configure the chunk manager object.
     bool Init(const vector<string>& chunkDirs, const Properties& prop);
@@ -1005,6 +1002,9 @@ private:
 
     ChunkHeaderBuffer           mChunkHeaderBuffer;
 
+    ChunkManager();
+    ~ChunkManager();
+
     inline bool Remove(ChunkInfoHandle& cih);
     inline bool RemoveFromChunkTable(ChunkInfoHandle& cih);
     inline bool RemoveFromTable(ChunkInfoHandle& cih);
@@ -1113,7 +1113,7 @@ private:
     inline bool IsPendingHelloNotify(const ChunkInfoHandle& cih) const;
     template<typename T> void ClearTable(T& table);
     template<typename T> void RunIoCompletion(T& table);
-
+    friend class ChunkServerGlobals;
 private:
     // No copy.
     ChunkManager(const ChunkManager&);

@@ -116,8 +116,6 @@ public:
             mLowOnBuffersFlushCount = 0;
         }
     };
-    AtomicRecordAppendManager();
-    ~AtomicRecordAppendManager();
     void SetParameters(const Properties& props);
     void AllocateChunk(AllocChunkOp *op, int replicationPos,
         const ServerLocation& peerLoc, const DiskIo::FilePtr& chunkFileHandle);
@@ -242,7 +240,13 @@ private:
     const uint64_t        mInstanceNum;
     Counters              mCounters;
 
+    AtomicRecordAppendManager();
+    ~AtomicRecordAppendManager();
     inline void UpdatePendingFlushIterators(AtomicRecordAppender& appender);
+    friend class ChunkServerGlobals;
+private:
+    AtomicRecordAppendManager(const AtomicRecordAppendManager&);
+    AtomicRecordAppendManager& operator=(const AtomicRecordAppendManager&);
 };
 
 extern AtomicRecordAppendManager& gAtomicRecordAppendManager;

@@ -101,8 +101,6 @@ public:
             mOverClientLimitCount       = 0;
         }
     };
-    ClientManager();
-    virtual ~ClientManager();
     bool BindAcceptor(
         const ServerLocation& clientListener,
         bool                  ipV6OnlyFlag,
@@ -233,6 +231,9 @@ private:
     int           mThreadCount;
     ClientThread* mThreadsPtr;
 
+    ClientManager();
+    ~ClientManager();
+    friend class ChunkServerGlobals;
 private:
     // No copy.
     ClientManager(const ClientManager&);
