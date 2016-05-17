@@ -390,8 +390,8 @@ replay_create(DETokenizer& c)
         return false;
     }
     if (maxSTier < minSTier ||
-            minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||
-            maxSTier < kKfsSTierMin || maxSTier > kKfsSTierMax) {
+            ! IsValidSTier(minSTier) ||
+            ! IsValidSTier(maxSTier)) {
         return false;
     }
     // for all creates that were successful during normal operation,

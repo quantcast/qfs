@@ -144,8 +144,8 @@ public:
         RackId     rackIdToUse        = -1)
     {
         assert(
-            kKfsSTierMin <= minSTier && minSTier <= kKfsSTierMax &&
-            kKfsSTierMin <= maxSTier && maxSTier <= kKfsSTierMax &&
+            IsValidSTier(minSTier) &&
+            IsValidSTier(maxSTier) &&
             minSTier <= maxSTier
         );
         Reset();
@@ -181,8 +181,8 @@ public:
         RackId     rackIdToUse = -1)
     {
         assert(
-            kKfsSTierMin <= minSTier && minSTier <= kKfsSTierMax &&
-            kKfsSTierMin <= maxSTier && maxSTier <= kKfsSTierMax &&
+            IsValidSTier(minSTier) &&
+            IsValidSTier(maxSTier) &&
             minSTier <= maxSTier
         );
         Reset();

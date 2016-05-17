@@ -926,8 +926,8 @@ MetaCreate::start()
         }
     }
     if (maxSTier < minSTier ||
-            minSTier < kKfsSTierMin || minSTier > kKfsSTierMax ||
-            maxSTier < kKfsSTierMin || maxSTier > kKfsSTierMax) {
+            ! IsValidSTier(minSTier) ||
+            ! IsValidSTier(maxSTier)) {
         status    = -EINVAL;
         statusMsg = "invalid storage tier range";
         return false;

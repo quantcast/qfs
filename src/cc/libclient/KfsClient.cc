@@ -198,11 +198,9 @@ ValidateCreateParams(
         (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
             ! RSStriperValidate(
                 stripedType, numStripes, numRecoveryStripes, stripeSize, 0)) ||
-        (minSTier > maxSTier ||
-            maxSTier > kKfsSTierMax ||
-            minSTier > kKfsSTierMax ||
-            maxSTier < kKfsSTierMin ||
-            minSTier < kKfsSTierMin)
+        (maxSTier < minSTier ||
+            ! IsValidSTier(minSTier) ||
+            ! IsValidSTier(maxSTier))
         ) ? -EINVAL : 0
     );
 }
@@ -491,12 +489,19 @@ KfsClient::ParseCreateParams(const char* params,
         if (numReplicas < 0) {
             return -EINVAL;
         }
+        int minTier = minSTier;
+        int maxTier = maxSTier;
         if (*p == ',') numStripes         = (int)strtol(p + 1, &p, 10);
         if (*p == ',') numRecoveryStripes = (int)strtol(p + 1, &p, 10);
         if (*p == ',') stripeSize         = (int)strtol(p + 1, &p, 10);
         if (*p == ',') stripedType        = (int)strtol(p + 1, &p, 10);
-        if (*p == ',') minSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
-        if (*p == ',') maxSTier           = (kfsSTier_t)strtol(p + 1, &p, 10);
+        if (*p == ',') minTier            = (int)strtol(p + 1, &p, 10);
+        if (*p == ',') maxTier            = (int)strtol(p + 1, &p, 10);
+        if (! IsValidSTier(minTier) || ! IsValidSTier(maxTier)) {
+            return -EINVAL;
+        }
+        minSTier = (kfsSTier_t)minTier;
+        maxSTier = (kfsSTier_t)maxTier;
         if (stripedType == KFS_STRIPED_FILE_TYPE_NONE) {
             numStripes         = 0;
             numRecoveryStripes = 0;
@@ -4328,8 +4333,12 @@ KfsClientImpl::SetReplicationFactor(const char *pathname, int16_t numReplicas)
 
 int
 KfsClientImpl::SetStorageTierRange(
-    const char *pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier)
+    const char* pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
+    if ((kKfsSTierUndef != minSTier && ! IsValidSTier(minSTier)) ||
+            (kKfsSTierUndef != maxSTier && ! IsValidSTier(maxSTier))) {
+        return -EINVAL;
+    }
     QCStMutexLocker l(mMutex);
 
     KfsFileAttr attr;
@@ -4339,12 +4348,8 @@ KfsClientImpl::SetStorageTierRange(
         return (res < 0 ? res : -res);
     }
     ChangeFileReplicationOp op(0, attr.fileId, 0);
-    if (0 <= minSTier) {
-        op.minSTier = (kfsSTier_t)minSTier;
-    }
-    if (0 <= maxSTier) {
-        op.maxSTier = (kfsSTier_t)maxSTier;
-    }
+    op.minSTier = (kfsSTier_t)minSTier;
+    op.maxSTier = (kfsSTier_t)maxSTier;
     DoMetaOpWithRetry(&op);
     InvalidateAttributeAndCounts(path);
     return (op.status <= 0 ? GetOpStatus(op) : -op.status);

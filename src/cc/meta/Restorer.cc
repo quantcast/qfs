@@ -245,8 +245,8 @@ restore_fattr(DETokenizer& c)
             }
             f->maxSTier = (kfsSTier_t)n;
             if (f->maxSTier < f->minSTier ||
-                    f->minSTier < kKfsSTierMin || f->minSTier > kKfsSTierMax ||
-                    f->maxSTier < kKfsSTierMin || f->maxSTier > kKfsSTierMax) {
+                    ! IsValidSTier(f->minSTier) ||
+                    ! IsValidSTier(f->maxSTier)) {
                 f->destroy();
                 return false;
             }

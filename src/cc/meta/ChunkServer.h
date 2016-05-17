@@ -1142,7 +1142,8 @@ protected:
             : mChunkId(-1),
               mTime(time)
             { List::Init(*this); }
-        explicit TimeoutEntry(
+        // explicit For now do not delcare explicit to work around gcc bug.
+        TimeoutEntry(
             const TimeoutEntry& entry)
             : mChunkId(entry.mChunkId),
               mTime(entry.mTime)

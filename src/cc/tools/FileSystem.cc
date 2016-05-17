@@ -1276,7 +1276,10 @@ public:
         int           inMaxSTier)
     {
         return KfsClient::SetStorageTierRange(
-            inPath.c_str(), inMinSTier, inMaxSTier);
+            inPath.c_str(),
+            inMinSTier < 0 ? kKfsSTierUndef : (kfsSTier_t)inMinSTier,
+            inMaxSTier < 0 ? kKfsSTierUndef : (kfsSTier_t)inMaxSTier
+        );
     }
     virtual int Glob(
         const string& inPattern,

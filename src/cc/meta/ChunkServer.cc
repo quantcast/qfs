@@ -395,7 +395,7 @@ ChunkServer::NewChunkInTier(kfsSTier_t tier)
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mStorageTiersInfoDelta[i].Clear();
     }
-    if (kKfsSTierMin <= tier && tier <= kKfsSTierMax &&
+    if (IsValidSTier(tier) &&
             mStorageTiersInfo[tier].GetDeviceCount() > 0) {
         mStorageTiersInfoDelta[tier] = mStorageTiersInfo[tier];
         mStorageTiersInfo[tier].AddInFlightAlloc();
@@ -3187,11 +3187,10 @@ ChunkServer::UpdateStorageTiersSelf(
             if (tier == kKfsSTierUndef) {
                 continue;
             }
-            if (tier < kKfsSTierMin) {
-                tier = kKfsSTierMin;
-            }
-            if (tier > kKfsSTierMax) {
+            if (kKfsSTierMax < tier) {
                 tier = kKfsSTierMax;
+            } else if (! IsValidSTier(tier)) {
+                tier = kKfsSTierMin;
             }
             mStorageTiersInfo[tier].Set(
                 deviceCount,

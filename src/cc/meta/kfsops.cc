@@ -2127,10 +2127,8 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
         // directory replication.
         return -EISDIR;
     }
-    if (((minSTier != kKfsSTierUndef &&
-            (minSTier < kKfsSTierMin || kKfsSTierMax < minSTier)) ||
-            (maxSTier != kKfsSTierUndef &&
-                (maxSTier < kKfsSTierMin || kKfsSTierMax < maxSTier)))) {
+    if ((minSTier != kKfsSTierUndef && ! IsValidSTier(minSTier)) ||
+            (maxSTier != kKfsSTierUndef && ! IsValidSTier(maxSTier))) {
         return -EINVAL;
     }
     if (minSTier != kKfsSTierUndef) {

@@ -5827,15 +5827,15 @@ LayoutManager::UpdateChunkWritesPerDrive(
 bool
 LayoutManager::FindStorageTiersRange(kfsSTier_t& minTier, kfsSTier_t& maxTier)
 {
-    if (minTier < kKfsSTierMin) {
-        minTier = kKfsSTierMin;
-    } else if (minTier > kKfsSTierMax) {
+    if (kKfsSTierMax < minTier) {
         minTier = kKfsSTierMax;
+    } else if (! IsValidSTier(minTier)) {
+        minTier = kKfsSTierMin;
     }
-    if (maxTier < kKfsSTierMin) {
-        maxTier = kKfsSTierMin;
-    } else if (maxTier > kKfsSTierMax) {
+    if (kKfsSTierMax < maxTier) {
         maxTier = kKfsSTierMax;
+    } else if (! IsValidSTier(maxTier)) {
+        maxTier = kKfsSTierMin;
     }
     while (minTier <= maxTier && mTierCandidatesCount[minTier] <= 0) {
         ++minTier;

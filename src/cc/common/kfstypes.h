@@ -66,10 +66,19 @@ const kfsUid_t   kKfsUserNone   = ~kfsUid_t(0);
 const kfsGid_t   kKfsGroupRoot  = 0;
 const kfsGid_t   kKfsGroupNone  = ~kfsGid_t(0);
 const kfsMode_t  kKfsModeUndef  = ~kfsMode_t(0);
+
 const kfsSTier_t kKfsSTierMin   = 0;
 const kfsSTier_t kKfsSTierMax   = 15;
 const kfsSTier_t kKfsSTierUndef = 127;
 const size_t     kKfsSTierCount = size_t(kKfsSTierMax) + 1;
+
+static inline bool IsValidSTier(
+    int inTier)
+{ return ((int)kKfsSTierMin <= inTier && inTier <= (int)kKfsSTierMax); }
+
+static inline bool IsValidSTier(
+    kfsSTier_t inTier)
+{ return ( /* kKfsSTierMin <= inTier && */ inTier <= kKfsSTierMax); }
 
 const size_t CHUNKSIZE = 64u << 20; //!< (64MB)
 const int MAX_RPC_HEADER_LEN = 16 << 10; //!< Max length of header in RPC req/response
