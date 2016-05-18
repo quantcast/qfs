@@ -6305,6 +6305,7 @@ LayoutManager::ProcessBeginChangeChunkVersion(
 int
 LayoutManager::WritePendingChunkVersionChange(ostream& os)
 {
+    ReqOstream ros(os);
     const ChunkVersionRollBackEntry* it;
     mChunkVersionRollBack.First();
     while ((it = mChunkVersionRollBack.Next()) && os) {
@@ -6327,12 +6328,13 @@ LayoutManager::WritePendingChunkVersionChange(ostream& os)
             continue;
         }
         const seq_t vers = ci->GetChunkInfo()->chunkVersion;
-        os << "beginchunkversionchange"
+        ros << "beginchunkversionchange"
             "/file/"         << ci->GetFileId() <<
             "/chunkId/"      << it->GetKey() <<
             "/chunkVersion/" << (vers + it->GetVal()) <<
         "\n";
     }
+    ros.flush();
     return (os ? 0 : -EIO);
 }
 
@@ -9726,11 +9728,12 @@ LayoutManager::DeleteNonStableEntry(
 int
 LayoutManager::WritePendingMakeStable(ostream& os)
 {
+    ReqOstream ros(os);
     // Write all entries in restore_makestable() format.
     const PendingMakeStableKVEntry* it;
     mPendingMakeStable.First();
     while ((it = mPendingMakeStable.Next()) && os) {
-        os <<
+        ros <<
             "mkstable"
             "/chunkId/"      << it->GetKey() <<
             "/chunkVersion/" << it->GetVal().mChunkVersion  <<
@@ -9739,6 +9742,7 @@ LayoutManager::WritePendingMakeStable(ostream& os)
             "/hasChecksum/"  << (it->GetVal().mHasChecksum ? 1 : 0) <<
         "\n";
     }
+    ros.flush();
     return (os ? 0 : -EIO);
 }
 
@@ -12858,10 +12862,11 @@ LayoutManager::AddPendingObjStoreDelete(
 int
 LayoutManager::WritePendingObjStoreDelete(ostream& os)
 {
+    ReqOstream ros(os);
     const ObjStoreFilesDeleteQueue::Entry* fde =
         mObjStoreFilesDeleteQueue.Front();
     while (fde) {
-        os <<
+        ros <<
             "osx/" << fde->mFid <<
             "/"    << fde->mLast <<
         "\n";
@@ -12870,7 +12875,7 @@ LayoutManager::WritePendingObjStoreDelete(ostream& os)
     const ObjBlockDeleteQueueEntry* dre;
     ObjBlocksDeleteRequeue::ConstIterator rit(mObjBlocksDeleteRequeue);
     while ((dre = rit.Next())) {
-        os <<
+        ros <<
             "osd/" << dre->first <<
             "/"    << dre->second <<
         "\n";
@@ -12878,11 +12883,12 @@ LayoutManager::WritePendingObjStoreDelete(ostream& os)
     const ObjBlocksDeleteInFlightEntry* dfe;
     mObjBlocksDeleteInFlight.First();
     while ((dfe = mObjBlocksDeleteInFlight.Next())) {
-        os <<
+        ros <<
             "osd/" << dfe->GetVal().first <<
             "/"    << (-dfe->GetVal().second - 1) <<
         "\n";
     }
+    ros.flush();
     return (os ? 0 : -EIO);
 }
 
