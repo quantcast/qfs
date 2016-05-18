@@ -1764,9 +1764,9 @@ private:
             bool theReadLeaseOtherFalureFlag = false;
             if ((&mLeaseRenewOp == &inOp || &mLeaseAcquireOp == &inOp) &&
                     ! (theReadLeaseOtherFalureFlag =
-                        inOp.status != kErrorBusy &&
-                        inOp.status != kErrorLeaseExpired &&
-                        inOp.status != KfsNetClient::kErrorMaxRetryReached)) {
+                        kErrorBusy                          != inOp.status &&
+                        kErrorLeaseExpired                  != inOp.status &&
+                        KfsNetClient::kErrorMaxRetryReached != inOp.status)) {
                 mOuter.mStats.mGetLeaseRetryCount++;
                 mLeaseRetryCount++;
                 theTimeToNextRetry = max(1, min(
@@ -1776,9 +1776,9 @@ private:
                 ));
                 // Meta ops communication failures are automatically
                 // retried, declare failure if it isn't lease busy error.
-                theFailFlag = (inOp.status != kErrorBusy &&
-                    (&mLeaseRenewOp != &inOp ||
-                        inOp.status != kErrorLeaseExpired)) ||
+                theFailFlag = (
+                        kErrorBusy         != inOp.status &&
+                        kErrorLeaseExpired != inOp.status) ||
                     mLeaseWaitStartTime + mOuter.mLeaseWaitTimeout <= Now();
             } else if (&mGetAllocOp == &inOp) {
                 if (inOp.status == kErrorTryAgain) {
