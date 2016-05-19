@@ -39,7 +39,7 @@ class QFSImpl implements IFSImpl {
   private FileSystem.Statistics statistics;
   private final long BLOCK_SIZE  = 1 << 26;
   private final long ACCESS_TIME = 0;
-
+  private final String CREATE_PARAMS;
   public QFSImpl(String metaServerHost, int metaServerPort,
                  FileSystem.Statistics stats,
                  Configuration cfg) throws IOException {
@@ -53,6 +53,7 @@ class QFSImpl implements IFSImpl {
     final String groupsSeparator = ","; // No regex special symbols.
     final String groupsCfg       = cfg.get(groupsCfgName, "");
     long[]       groups          = null;
+    CREATE_PARAMS                = cfg.get("fs.qfs.createParams", "S");
     if (kDefaultUser != euser && (euser < 0 || kMaxUserGroupId <= euser)) {
             throw new IOException("invalid effective user id: " + euser);
     }
@@ -247,6 +248,15 @@ class QFSImpl implements IFSImpl {
       kfsAccess, path, replication, overwrite, append, mode), statistics);
   }
 
+  public FSDataOutputStream create(String path, boolean overwrite,
+          String createParams) throws IOException {
+    if(createParams == null || createParams.length() == 0) {
+        createParams = CREATE_PARAMS;
+    }
+    return new FSDataOutputStream(createQFSOutputStream(kfsAccess, path, 
+            overwrite, createParams), statistics);
+  }
+  
   public FSDataInputStream open(String path, int bufferSize)
     throws IOException {
       return new FSDataInputStream(createQFSInputStream(kfsAccess, path,
@@ -283,6 +293,11 @@ class QFSImpl implements IFSImpl {
     return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode);
   }
 
+  protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
+          boolean overwrite, String createParams) throws IOException {
+      return new QFSOutputStream(kfsAccess, path, overwrite, createParams);
+  }
+ 
   protected QFSInputStream createQFSInputStream(KfsAccess kfsAccess, String path,
                                                 FileSystem.Statistics stats) throws IOException {
     return new QFSInputStream(kfsAccess, path, stats);

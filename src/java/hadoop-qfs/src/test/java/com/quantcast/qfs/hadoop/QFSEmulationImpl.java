@@ -208,6 +208,13 @@ public class QFSEmulationImpl implements IFSImpl {
     return localFS.create(new Path(path));
   }
 
+  public FSDataOutputStream create(String path, boolean overwrite,
+          String createParams) throws IOException {
+      // besides path/overwrite, the other args don't matter for
+      // testing purposes.
+      return localFS.create(new Path(path));
+  }
+
   public FSDataInputStream open(String path, int bufferSize)
     throws IOException {
     return localFS.open(new Path(path));

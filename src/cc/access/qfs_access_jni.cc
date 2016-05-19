@@ -122,7 +122,11 @@ extern "C" {
     jint Java_com_quantcast_qfs_access_KfsAccess_create(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas, jboolean jexclusive,
         jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType,
-        jboolean foreceType, jint mode);
+        jboolean foreceType, jint mode, jint jminSTier, jint jmaxSTier);
+
+    jint Java_com_quantcast_qfs_access_KfsAccess_create2(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jexclusive,
+        jstring jcreateParams);
 
     jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize);
@@ -476,7 +480,7 @@ jint Java_com_quantcast_qfs_access_KfsOutputChannel_close(
 jint Java_com_quantcast_qfs_access_KfsAccess_create(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas, jboolean jexclusive,
     jint jnumStripes, jint jnumRecoveryStripes, jint jstripeSize, jint jstripedType,
-    jboolean foreceType, jint mode)
+    jboolean foreceType, jint mode, jint minSTier, jint maxSTier)
 {
     if (! jptr) {
         return -EFAULT;
@@ -486,7 +490,23 @@ jint Java_com_quantcast_qfs_access_KfsAccess_create(
     string path;
     setStr(path, jenv, jpath);
     return clnt->Create(path.c_str(), jnumReplicas, jexclusive,
-        jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, foreceType, (kfsMode_t)mode);
+        jnumStripes, jnumRecoveryStripes, jstripeSize, jstripedType, foreceType,
+        (kfsMode_t)mode, (kfsSTier_t)minSTier, (kfsSTier_t)maxSTier);
+}
+
+jint Java_com_quantcast_qfs_access_KfsAccess_create2(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jexclusive,
+    jstring jcreateParams)
+{
+    if (! jptr) {
+        return -EFAULT;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    string path, createParams;
+    setStr(path, jenv, jpath);
+    setStr(createParams, jenv, jcreateParams);
+    return clnt->Create(path.c_str(), (bool) jexclusive, createParams.c_str());
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_remove(
