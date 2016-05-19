@@ -177,6 +177,16 @@ public class QuantcastFileSystem extends FileSystem {
       replication, bufferSize, overwrite, permission.toShort());
   }
 
+  public FSDataOutputStream create(Path file, boolean overwrite,
+          String createParams) throws IOException {
+    Path parent = file.getParent();
+    if (parent != null && !mkdirs(parent)) {
+        throw new IOException("Mkdirs failed to create " + parent);
+    }
+    return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
+            overwrite, createParams);
+  }
+
   public FSDataOutputStream createNonRecursive(Path file,
                                    FsPermission permission,
                                    boolean overwrite, int bufferSize,

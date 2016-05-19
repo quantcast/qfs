@@ -97,7 +97,10 @@ final public class KfsAccess
     private final static native
     int create(long ptr, String path, int numReplicas, boolean exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-        boolean forceType, int mode);
+        boolean forceType, int mode, int minSTier, int maxSTier);
+
+    private final static native
+    int create2(long ptr, String path, boolean exclusive, String createParams);
 
     private final static native
     int remove(long ptr, String path);
@@ -558,8 +561,21 @@ final public class KfsAccess
             int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
             boolean forceType, int mode) throws IOException
     {
+        int minSTier = 15;
+        int maxSTier = 15;
+        return kfs_create_ex(path, numReplicas, exclusive, bufferSize, readAheadSize,
+                numStripes, numRecoveryStripes, stripeSize, stripedType, forceType,
+                mode, minSTier, maxSTier);
+    }
+
+    public KfsOutputChannel kfs_create_ex(String path, int numReplicas, boolean exclusive,
+            long bufferSize, long readAheadSize,
+            int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
+            boolean forceType, int mode, int minSTier, int maxSTier) throws IOException
+    {
         final int fd = create(cPtr, path, numReplicas, exclusive,
-                numStripes, numRecoveryStripes, stripeSize, stripedType, forceType, mode);
+                numStripes, numRecoveryStripes, stripeSize, stripedType, forceType,
+                mode, minSTier, maxSTier);
         kfs_retToIOException(fd, path);
         if (bufferSize >= 0) {
             setIoBufferSize(cPtr, fd, bufferSize);
@@ -567,6 +583,23 @@ final public class KfsAccess
         if (readAheadSize >= 0) {
             setReadAheadSize(cPtr, fd, readAheadSize);
         }
+        KfsOutputChannel chan = null;
+        try {
+            final boolean append = false;
+            chan = new KfsOutputChannel(this, fd, append);
+        } finally {
+            if (chan == null) {
+                close(cPtr, fd);
+            }
+        }
+        return chan;
+    }
+
+    public KfsOutputChannel kfs_create_ex(String path, boolean exclusive,
+            String createParams) throws IOException
+    {
+        final int fd = create2(cPtr, path, exclusive, createParams);
+        kfs_retToIOException(fd, path);
         KfsOutputChannel chan = null;
         try {
             final boolean append = false;

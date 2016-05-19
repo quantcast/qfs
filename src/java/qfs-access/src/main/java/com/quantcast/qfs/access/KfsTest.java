@@ -345,6 +345,9 @@ public class KfsTest
                 System.exit(1);
             }
 
+            // test new create methods
+            testCreateAPI(kfsAccess, basedir);
+
             final Iterator<Map.Entry<String, String> > it =
                 kfsAccess.kfs_getStats().entrySet().iterator();
             System.out.println("Clients stats:");
@@ -444,5 +447,60 @@ public class KfsTest
             return kfsAccess.kfs_remove(path);
         }
         return kfsAccess.kfs_rmdirs(path);
+    }
+ 
+    private static void testCreateAPI(KfsAccess kfsAccess, String baseDir)
+            throws IOException {
+        String filePath1 = baseDir + "/sample_file.1";
+        String createParams = "1,6,3,1048576,2,15,15";
+        KfsOutputChannel outputChannel = kfsAccess.kfs_create_ex(filePath1,
+                true, createParams);
+        if (outputChannel == null) {
+            System.out.println("Unable to call create");
+            System.exit(1);
+        }
+        verifyFileAttr(kfsAccess, outputChannel, filePath1);
+
+        String filePath2 = baseDir + "/sample_file.2";
+        outputChannel = kfsAccess.kfs_create_ex(filePath2, 1, true, -1, -1,
+                6, 3, 1048576, 2, false, 0666, 15, 15);
+        if (outputChannel == null) {
+            System.out.println("Unable to call create");
+            System.exit(1);
+        }
+        verifyFileAttr(kfsAccess, outputChannel, filePath2);
+
+        delete(kfsAccess, filePath1);
+        delete(kfsAccess, filePath2);
+    }
+
+    private static void verifyFileAttr(KfsAccess kfsAccess,
+            KfsOutputChannel outputChannel, String filePath)
+             throws IOException {
+        int numBytes = 1048576;
+        char[] dataBuf = new char[numBytes];
+        generateData(dataBuf, numBytes);
+        String s = new String(dataBuf);
+        byte[] buf = s.getBytes();
+        ByteBuffer b = ByteBuffer.wrap(buf, 0, buf.length);
+        int res = outputChannel.write(b);
+        if (res != buf.length) {
+            System.out.println("Was able to write only: " + res);
+            System.exit(1);
+        }
+        outputChannel.sync();
+        outputChannel.close();
+        KfsFileAttr attr = new KfsFileAttr();
+        final int ret = kfsAccess.kfs_stat(filePath, attr);
+        if (ret != 0) {
+            System.out.println(filePath + ": stat failed: " + ret);
+            System.exit(1);
+        }
+        if (numBytes != attr.filesize || attr.replication != 1 ||
+                attr.striperType != 2 || attr.numStripes != 6 ||
+                attr.numRecoveryStripes != 3 || attr.stripeSize != 1048576) {
+            System.out.println("File attributes don't match.");
+            System.exit(1);
+        }
     }
 }
