@@ -6584,6 +6584,20 @@ ChunkManager::RunStaleChunksQueue(
                     StaleChunkDeleteCompletion::Release(
                         cb, mStaleChunkDeleteCompletionLists);
                 }
+            } else {
+                bool           targetStableFlag = false;
+                kfsSeq_t const targetVersion    =
+                    (*ci)->GetTargetStateAndVersion(targetStableFlag);
+                KFS_LOG_STREAM_DEBUG <<
+                    "not deleting:"
+                    " chunk: "   << cih->chunkInfo.chunkId <<
+                    " version: " << cih->chunkInfo.chunkVersion <<
+                    " / "        << (*ci)->chunkInfo.chunkVersion <<
+                    " / "        << targetVersion <<
+                    " stable: "  << cih->IsStable() <<
+                    " / "        << (*ci)->IsStable() <<
+                    " / "        << targetStableFlag <<
+                KFS_LOG_EOM;
             }
         }
         if (! inFlightFlag) {
