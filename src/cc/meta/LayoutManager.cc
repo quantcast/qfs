@@ -3321,7 +3321,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                     META_CHUNK_REPLICATE == req.request->op &&
                     0 <= req.request->status) {
                 // Check if chunk replica has appeared while the request was
-                // being logged. If it was, then hunk available was in the log
+                // being logged. If it was, then chunk available was in the log
                 // queue when replication was scheduled. Cancel replication if
                 // chunk replica already exists.
                 const CSMap::Entry* const entry =
