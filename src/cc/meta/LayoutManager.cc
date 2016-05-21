@@ -3317,6 +3317,22 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                         }
                     }
                 }
+            } else if (! req.replayFlag && req.request &&
+                    META_CHUNK_REPLICATE == req.request->op &&
+                    0 <= req.request->status) {
+                // Check if chunk replica has appeared while the request was
+                // being logged. If it was, then hunk available was in the log
+                // queue when replication was scheduled. Cancel replication if
+                // chunk replica already exists.
+                const CSMap::Entry* const entry =
+                    mChunkToServerMap.Find(req.chunkId);
+                if (entry && entry->HasServer(mChunkToServerMap, req.server)) {
+                    req.request->status    = -EEXIST;
+                    req.request->statusMsg = "CLIF: chunk replica exists";
+                    KFS_LOG_STREAM_DEBUG <<
+                        "CLIF: canceled: " << req.Show() <<
+                    KFS_LOG_EOM;
+                }
             }
         } else {
             panic("invalid chunk log in flight up server");

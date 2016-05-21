@@ -2404,13 +2404,23 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         req.status = -EFAULT;
         req.resume();
     }
+    const bool sendFlag = mNetConnection && mNetConnection->IsGood();
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
-        " send: " << (mNetConnection && mNetConnection->IsGood()) <<
-        " seq: "  << req.opSeqno <<
-        " "       << req.Show() <<
+        " send: "   << sendFlag <<
+        " seq: "    << req.opSeqno <<
+        " status: " << req.status <<
+        " "         << req.Show() <<
     KFS_LOG_EOM;
-    if (mNetConnection && mNetConnection->IsGood()) {
-        EnqueueSelf(req);
+    if (sendFlag) {
+        if (req.status < 0 && ! mReplayFlag) {
+            if (&req == FindMatchingRequest(req.opSeqno)) {
+                req.resume();
+            } else {
+                panic("chunk server: invalid dispatch queue");
+            }
+        } else {
+            EnqueueSelf(req);
+        }
     }
 }
 
