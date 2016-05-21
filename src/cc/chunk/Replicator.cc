@@ -953,7 +953,8 @@ private:
             " chunk: "           << mChunkId <<
         KFS_LOG_EOM;
         if (mClientThreadPtr &&
-                ! mClientThreadPtr->GetThread().IsCurrentThread()) {
+                ! mClientThreadPtr->GetThread().IsCurrentThread() &&
+                mClientThreadPtr->GetThread().IsStarted()) {
             FatalError("invalid dectructor invocation from different thread");
         }
         if (mPendingCloseFlag || ! mReplicationDoneFlag ||
