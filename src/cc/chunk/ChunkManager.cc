@@ -1052,6 +1052,25 @@ public:
         }
         return theRet;
     }
+    bool CanHaveSameFileName(const ChunkInfo_t& info, bool stableFlag) const {
+        // Given that single meta op can be in flight at a time, see if the
+        // front op is rename, and if it is, then use its stable flag and
+        // target version. Non-op renames cannot possibly be in flight as
+        // these are never started / queued into disk IO, instead completion
+        // for non op rename is invoked directly by the start method.
+        const WriteChunkMetaOp* op;
+        return (
+            chunkInfo.fileId  == info.fileId  &&
+            chunkInfo.chunkId == info.chunkId &&
+            (((op = mWriteMetaOps.Front()) && op->IsRenameNeeded(this)) ?
+                op->stableFlag    == stableFlag &&
+                op->targetVersion == info.chunkVersion
+                :
+                chunkInfo.chunkVersion == info.chunkVersion &&
+                mStableFlag            == stableFlag
+            )
+        );
+    }
     bool CanHaveVersion(kfsSeq_t vers) const {
         if (vers == chunkInfo.chunkVersion) {
             return true;
@@ -1069,7 +1088,7 @@ public:
             (ignorePendingAvailable || ! mPendingAvailableFlag));
     }
     bool IsRenameInFlight() const {
-        return (mRenamesInFlight > 0);
+        return (0 < mRenamesInFlight);
     }
     bool HasWritesInFlight() const {
         return (mWritesInFlight > 0);
@@ -1124,7 +1143,7 @@ public:
     void UpdateStale(ChunkLists* chunkInfoLists) {
         const bool evacuateFlag = IsEvacuate();
         ChunkList::Remove(chunkInfoLists[mChunkList], *this);
-        mChunkList = mRenamesInFlight > 0 ?
+        mChunkList = 0 < mRenamesInFlight ?
             ChunkManager::kChunkPendingStaleList :
             ChunkManager::kChunkStaleList;
         ChunkList::PushBack(chunkInfoLists[mChunkList], *this);
@@ -1227,9 +1246,9 @@ private:
     bool                        mWriteIdIssuedFlag:1;
     ChunkManager::ChunkListType mChunkList:2;
     ChunkDirInfo::ChunkListType mChunkDirList:2;
-    unsigned int                mRenamesInFlight:19;
     // Chunk meta data updates need to be executed in order, allow only one
-    // write in flight.
+    // meta data op in flight.
+    int                         mRenamesInFlight;
     int                         mWritesInFlight;
     int                         mPendingSpaceReservationSize;
     WriteMetaOps                mWriteMetaOps;
@@ -1938,7 +1957,7 @@ ChunkInfoHandle::WriteChunkMetadata(
     bool            stableFlag,
     kfsSeq_t        targetVersion)
 {
-    if (renameFlag && (int)mRenamesInFlight + 1 <= 0) {
+    if (renameFlag && mRenamesInFlight + 1 <= 0) {
         // Overflow: too many renames in flight.
         return -ESERVERBUSY;
     }
@@ -2027,7 +2046,7 @@ ChunkInfoHandle::WriteChunkMetadata(
     }
     if (wcm->renameFlag) {
         mRenamesInFlight++;
-        assert(mRenamesInFlight > 0);
+        assert(0 < mRenamesInFlight);
     }
     const bool wasEmptyFlag = mWriteMetaOps.IsEmpty();
     mWriteMetaOps.PushBack(*wcm);
@@ -2060,7 +2079,8 @@ ChunkInfoHandle::HandleChunkMetaWriteDone(int codeIn, void* dataIn)
     // Do not rely on compiler to unroll tail recursion, use loop.
     for (; ;) {
         assert(! mWriteMetaOps.IsEmpty());
-        int status = data ? *reinterpret_cast<const int*>(data) : -EIO;
+        int status = (EVENT_DISK_ERROR == code || EVENT_DISK_WROTE == code) ?
+            (data ? *reinterpret_cast<const int*>(data) : -EIO) : 0;
         if (EVENT_DISK_ERROR == code && 0 <= status) {
             status = -EIO;
         }
@@ -6534,6 +6554,9 @@ ChunkManager::RunStaleChunksQueue(
     while (mCleanupStaleChunksFlag && mRunStaleQueueRecursionCount <= 1 &&
             mStaleChunkOpsInFlight < mMaxStaleChunkOpsInFlight &&
             (cih = it.Next())) {
+        if (cih->IsRenameInFlight()) {
+            die("attempt to delete stale chunk with rename in flight");
+        }
         // If disk queue has been already stopped, then the queue directory
         // prefix has already been removed, and it will not be possible to
         // queue disk io request (delete or rename) anyway, and attempt to do
@@ -6543,20 +6566,16 @@ ChunkManager::RunStaleChunksQueue(
                 cih->GetForceDeleteObjectStoreBlockFlag()) &&
                 cih->GetDirInfo().diskQueue) {
             // If the chunk with target version already exists withing the same
-            // chunk directory, then do not issue delete.
-            // If the existing chunk is already stable but the chunk to delete
-            // has the same version but it is not stable, then the file is
-            // likely have already been deleted, when the existing chunk
-            // transitioned into stable version. If not then unstable chunk will
-            // be cleaned up on the next restart.
+            // chunk directory, then do not issue delete. A new chunk file can
+            // be created by replication or recovery while the previous chunk
+            // handle as in the pending stale queue.
             const ChunkInfoHandle* const* const ci =
                 0 <= cih->chunkInfo.chunkVersion ?
                 mChunkTable.Find(cih->chunkInfo.chunkId) : 0;
             if (! ci ||
-                    (*ci)->chunkInfo.fileId != cih->chunkInfo.fileId ||
                     &((*ci)->GetDirInfo()) != &(cih->GetDirInfo()) ||
-                    (((*ci)->IsStable() || cih->IsStable()) &&
-                        ! (*ci)->CanHaveVersion(cih->chunkInfo.chunkVersion))) {
+                    ! (*ci)->CanHaveSameFileName(
+                        cih->chunkInfo, cih->IsStable())) {
                 StaleChunkDeleteCompletion& cb =
                     StaleChunkDeleteCompletion::Create(
                         0 <= cih->chunkInfo.chunkVersion ?
