@@ -39,6 +39,7 @@ class MetaVrDoViewChange;
 class MetaVrStartView;
 class MetaVrReconfiguration;
 class MetaVrStartEpoch;
+class Properties;
 
 class MetaVrSM
 {
@@ -61,6 +62,26 @@ public:
         MetaVrReconfiguration& inReq);
     void Handle(
         MetaVrStartEpoch& inReq);
+    void HandleReply(
+        MetaVrStartViewChange& inReq,
+        seq_t                  inSeq,
+        const Properties&      inProps);
+    void HandleReply(
+        MetaVrDoViewChange& inReq,
+        seq_t               inSeq,
+        const Properties&   inProps);
+    void HandleReply(
+        MetaVrStartView&  inReq,
+        seq_t             inSeq,
+        const Properties& inProps);
+    void HandleReply(
+        MetaVrReconfiguration& inReq,
+        seq_t                  inSeq,
+        const Properties&      inProps);
+    void HandleReply(
+        MetaVrStartEpoch& inReq,
+        seq_t             inSeq,
+        const Properties& inProps);
 private:
     class Impl;
     Impl& mImpl;

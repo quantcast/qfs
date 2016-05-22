@@ -35,6 +35,7 @@ namespace KFS {
 
 class Properties;
 class NetManager;
+class MetaVrRequest;
 
 class LogTransmitter
 {
@@ -66,6 +67,8 @@ public:
         uint32_t    inChecksum,
         size_t      inChecksumStartPos);
     bool IsUp();
+    void QueueVrRequest(
+        MetaVrRequest& inVrReq);
 private:
     class Impl;
 

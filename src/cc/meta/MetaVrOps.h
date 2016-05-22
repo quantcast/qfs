@@ -32,11 +32,14 @@
 
 #include "MetaRequest.h"
 #include "MetaVrSM.h"
+#include "util.h"
 
 #include <errno.h>
 
 namespace KFS
 {
+
+class Properties;
 
 class MetaVrRequest : public MetaRequest
 {
@@ -49,8 +52,10 @@ public:
           mEpochSeq(-1),
           mViewSeq(-1),
           mCommitSeq(-1),
-          mVrSmPtr(0)
+          mVrSmPtr(0),
+          mRefCount(0)
     {
+        MetaVrRequest::Ref();
         shortRpcFormatFlag = false;
     }
 
@@ -89,11 +94,27 @@ public:
         }
         return (0 == status);
     }
+    virtual void HandleResponse(
+        seq_t             inSeq,
+        const Properties& inProps) = 0;
+    void Ref()
+        { mRefCount++; }
+    void Unref()
+    {
+        if (--mRefCount <= 0) {
+            delete this;
+        }
+    }
 protected:
     MetaVrSM* mVrSmPtr;
+    int       mRefCount;
 
     virtual ~MetaVrRequest()
-        {}
+    {
+        if (0 != mRefCount) {
+            panic("~MetaVrRequest: invalid ref count");
+        }
+    }
     bool ResponseHeader(
         ReqOstream& inOs);
     virtual void response(
@@ -115,6 +136,18 @@ protected:
             status = -EINVAL;
         }
     }
+    template<typename T>
+    void HandleReply(
+        T&                inReq,
+        seq_t             inSeq,
+        const Properties& inProps)
+    {
+        if (mVrSmPtr) {
+            mVrSmPtr->HandleReply(inReq, inSeq, inProps);
+        }
+    }
+    virtual void ReleaseSelf()
+        { Unref(); }
 private:
     MetaVrRequest(
         const MetaVrRequest& inRequest);
@@ -140,6 +173,10 @@ public:
     }
     virtual void handle()
         { Handle(*this); }
+    virtual void HandleResponse(
+        seq_t             inSeq,
+        const Properties& inProps)
+        { HandleReply(*this, inSeq, inProps); }
 protected:
     virtual ~MetaVrStartViewChange()
         {}
@@ -163,6 +200,10 @@ public:
     }
     virtual void handle()
         { Handle(*this); }
+    virtual void HandleResponse(
+        seq_t             inSeq,
+        const Properties& inProps)
+        { HandleReply(*this, inSeq, inProps); }
 protected:
     virtual ~MetaVrDoViewChange()
         {}
@@ -186,6 +227,10 @@ public:
     }
     virtual void handle()
         { Handle(*this); }
+    virtual void HandleResponse(
+        seq_t             inSeq,
+        const Properties& inProps)
+        { HandleReply(*this, inSeq, inProps); }
 protected:
     virtual ~MetaVrStartView()
         {}
@@ -209,6 +254,10 @@ public:
     }
     virtual void handle()
         { Handle(*this); }
+    virtual void HandleResponse(
+        seq_t             inSeq,
+        const Properties& inProps)
+        { HandleReply(*this, inSeq, inProps); }
 protected:
     virtual ~MetaVrReconfiguration()
         {}
@@ -232,6 +281,10 @@ public:
     }
     virtual void handle()
         { Handle(*this); }
+    virtual void HandleResponse(
+        seq_t             inSeq,
+        const Properties& inProps)
+        { HandleReply(*this, inSeq, inProps); }
 protected:
     virtual ~MetaVrStartEpoch()
         {}

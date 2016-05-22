@@ -28,6 +28,7 @@
 #include "LogTransmitter.h"
 
 #include "MetaRequest.h"
+#include "MetaVrOps.h"
 #include "util.h"
 
 #include "common/kfstypes.h"
@@ -158,7 +159,7 @@ public:
         size_t      inChecksumStartPos)
     {
         if (inBlockSeqLen < 0) {
-            panic("invalid block sequence length");
+            panic("log transmitter: invalid block sequence length");
             return;
         }
         Checksum theChecksum = inChecksum;
@@ -212,6 +213,8 @@ public:
         Transmitter& inTransmitter);
     int GetAuthType() const
         { return mAuthType; }
+    void QueueVrRequest(
+        MetaVrRequest& inVrReq);
 private:
     typedef Properties::String       String;
     typedef multiset<ServerLocation> Locations;
@@ -269,6 +272,8 @@ public:
           mBlocksQueue(),
           mConnectionPtr(),
           mAuthenticateOpPtr(0),
+          mVrOpPtr(0),
+          mVrOpSeq(-1),
           mNextSeq(mImpl.RandomSeq()),
           mRecursionCount(0),
           mCompactBlockCount(0),
@@ -296,6 +301,7 @@ public:
         if (mSleepingFlag) {
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
+        VrDisconnect();
         mImpl.Remove(*this);
     }
     int SetParameters(
@@ -312,6 +318,29 @@ public:
             &outErrMsg,
             kVerifyFlag
         );
+    }
+    void QueueVrRequest(
+        MetaVrRequest& inReq)
+    {
+        if (! mPendingSend.IsEmpty()) {
+            Reset("queueing Vr request");
+        }
+        if (0 <= mVrOpSeq) {
+            Shutdown();
+        }
+        if (mVrOpPtr) {
+            panic("log transmitter: invalid Vr op");
+            MetaRequest::Release(mVrOpPtr);
+        }
+        inReq.Ref();
+        mVrOpSeq = -1;
+        mVrOpPtr = &inReq;
+        if (mConnectionPtr) {
+            if (! mAuthenticateOpPtr) {
+            }
+        } else {
+            Start();
+        }
     }
     void Start()
     {
@@ -335,7 +364,7 @@ public:
                 break;
             case EVENT_CMD_DONE:
                 if (! inDataPtr) {
-                    panic("invalid null command completion");
+                    panic("log transmitter: invalid null command completion");
                     break;
                 }
                 HandleCmdDone(*reinterpret_cast<MetaRequest*>(inDataPtr));
@@ -353,7 +382,7 @@ public:
                 Error("connection timed out");
                 break;
             default:
-                panic("LogReceiver: unexpected event");
+                panic("log transmitter: unexpected event");
                 break;
         }
         if (mRecursionCount <= 1) {
@@ -382,6 +411,7 @@ public:
             mSleepingFlag = false;
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
+        VrDisconnect();
     }
     const ServerLocation& GetServerLocation() const
         { return mServer; }
@@ -457,6 +487,8 @@ private:
     BlocksQueue        mBlocksQueue;
     NetConnectionPtr   mConnectionPtr;
     MetaAuthenticate*  mAuthenticateOpPtr;
+    MetaVrRequest*     mVrOpPtr;
+    seq_t              mVrOpSeq;
     seq_t              mNextSeq;
     int                mRecursionCount;
     int                mCompactBlockCount;
@@ -486,7 +518,10 @@ private:
         size_t      inChecksumStartPos)
     {
         if (inBlockSeqLen < 0) {
-            panic("invalid block sequence length");
+            panic("log transmitter: invalid block sequence length");
+            return false;
+        }
+        if (mVrOpPtr) {
             return false;
         }
         const int thePos = mPendingSend.BytesConsumable();
@@ -514,7 +549,8 @@ private:
     {
         if (inViewSeq < mLastSentViewSeq || (inViewSeq == mLastSentViewSeq &&
                 inBlockSeq < mLastSentBlockSeq)) {
-            panic("block sequence is invalid: less than last sent");
+            panic("log transmitter: "
+                "block sequence is invalid: less than last sent");
             return false;
         }
         mLastSentViewSeq  = inViewSeq;
@@ -525,15 +561,18 @@ private:
         }
         return (!! mConnectionPtr);
     }
-    void ExceededMaxPending()
+    void Reset(
+        const char* inErrMsgPtr)
     {
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
         mLastSentBlockSeq  = -1;
         mLastSentViewSeq   = -1;
-        Error("exceeded max pending send");
+        Error(inErrMsgPtr);
     }
+    void ExceededMaxPending()
+        { Reset("exceeded max pending send"); }
     void CompactIfNeeded()
     {
         mCompactBlockCount++;
@@ -595,7 +634,8 @@ private:
             return false;
         }
         if (mAuthenticateOpPtr) {
-            panic("invalid authenticate invocation: auth is in flight");
+            panic("log transmitter: "
+                "invalid authenticate invocation: auth is in flight");
             return true;
         }
         mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
@@ -667,7 +707,8 @@ private:
         IOBuffer& inBuffer)
     {
         if (! mAuthenticateOpPtr || ! mConnectionPtr) {
-            panic("handle auth response: invalid invocation");
+            panic("log transmitter: "
+                "handle auth response: invalid invocation");
             MetaRequest::Release(mAuthenticateOpPtr);
             mAuthenticateOpPtr = 0;
             Error();
@@ -737,8 +778,15 @@ private:
             return;
         }
         if (mAuthenticateOpPtr) {
-            panic("invalid start send invocation: "
+            panic("log transmitter: "
+                "invalid start send invocation: "
                 "authentication is in progress");
+            return;
+        }
+        if (mVrOpPtr) {
+            mVrOpSeq = GetNextSeq();
+            mVrOpPtr->opSeqno = mVrOpSeq;
+            Request(*mVrOpPtr);
             return;
         }
         if (! mPendingSend.IsEmpty()) {
@@ -765,7 +813,7 @@ private:
     bool SendHeartbeat()
     {
         if ((0 <= mAckBlockSeq && mAckBlockSeq < mLastSentBlockSeq) ||
-                ! mBlocksQueue.empty()) {
+                ! mBlocksQueue.empty() || mVrOpPtr) {
             return false;
         }
         SendBlockSelf(
@@ -801,7 +849,8 @@ private:
                 break;
             }
             if (mPendingSend.Consume(theFront.second) != theFront.second) {
-                panic("invalid pending send buffer or queue");
+                panic("log transmitter: "
+                    "invalid pending send buffer or queue");
             }
             mBlocksQueue.pop_front();
             if (0 < mCompactBlockCount) {
@@ -934,7 +983,9 @@ private:
         }
         // For now only handle authentication response.
         seq_t const theSeq = mReplyProps.getValue("c", seq_t(-1));
-        if (! mAuthenticateOpPtr || theSeq != mAuthenticateOpPtr->opSeqno) {
+        if ((! mVrOpPtr || theSeq != mVrOpSeq) &&
+                (! mAuthenticateOpPtr ||
+                    theSeq != mAuthenticateOpPtr->opSeqno)) {
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "unexpected reply, authentication: " <<
@@ -946,25 +997,31 @@ private:
             return -1;
         }
         inBuffer.Consume(inHeaderLen);
-        mAuthenticateOpPtr->contentLength         =
-            mReplyProps.getValue("l", 0);
-        mAuthenticateOpPtr->authType              =
-            mReplyProps.getValue("A", int(kAuthenticationTypeUndef));
-        mAuthenticateOpPtr->useSslFlag            =
-            mReplyProps.getValue("US", 0) != 0;
-        int64_t theCurrentTime                    =
-            mReplyProps.getValue("CT", int64_t(-1));
-        mAuthenticateOpPtr->sessionExpirationTime =
-            mReplyProps.getValue("ET", int64_t(-1));
-        KFS_LOG_STREAM_DEBUG <<
-            mServer << ": "
-            "authentication reply:"
-            " cur time: "   << theCurrentTime <<
-            " delta: "      << (TimeNow() - theCurrentTime) <<
-            " expires in: " <<
-                (mAuthenticateOpPtr->sessionExpirationTime - theCurrentTime) <<
-        KFS_LOG_EOM;
-        HandleAuthResponse(inBuffer);
+        if (mAuthenticateOpPtr) {
+            mAuthenticateOpPtr->contentLength         =
+                mReplyProps.getValue("l", 0);
+            mAuthenticateOpPtr->authType              =
+                mReplyProps.getValue("A", int(kAuthenticationTypeUndef));
+            mAuthenticateOpPtr->useSslFlag            =
+                mReplyProps.getValue("US", 0) != 0;
+            int64_t theCurrentTime                    =
+                mReplyProps.getValue("CT", int64_t(-1));
+            mAuthenticateOpPtr->sessionExpirationTime =
+                mReplyProps.getValue("ET", int64_t(-1));
+            KFS_LOG_STREAM_DEBUG <<
+                mServer << ": "
+                "authentication reply:"
+                " cur time: "   << theCurrentTime <<
+                " delta: "      << (TimeNow() - theCurrentTime) <<
+                " expires in: " <<
+                    (mAuthenticateOpPtr->sessionExpirationTime -
+                        theCurrentTime) <<
+            KFS_LOG_EOM;
+            HandleAuthResponse(inBuffer);
+        } else {
+            VrUpdate(theSeq);
+        }
+        mReplyProps.clear();
         return (mConnectionPtr ? 0 : -1);
     }
     int HanldeRequest(
@@ -989,8 +1046,8 @@ private:
     void Request(
         MetaRequest& inReq)
     {
-        // For now authentication only.
-        if (&inReq != mAuthenticateOpPtr) {
+        // For now authentication or Vr ops.
+        if (&inReq != mAuthenticateOpPtr && &inReq != mVrOpPtr) {
             panic("LogTransmitter::Impl::Transmitter: invalid request");
             return;
         }
@@ -1022,6 +1079,7 @@ private:
         mAuthenticateOpPtr   = 0;
         AdvancePendingQueue();
         mAckBlockSeq = -1;
+        VrDisconnect();
         mImpl.Update(*this);
         if (mSleepingFlag) {
             return;
@@ -1030,6 +1088,23 @@ private:
         SetTimeoutInterval(mImpl.GetRetryInterval());
         mImpl.GetNetManager().RegisterTimeoutHandler(this);
     }
+    void VrUpdate(
+        seq_t inSeq)
+    {
+        if (! mVrOpPtr) {
+            return;
+        }
+        MetaVrRequest& theReq = *mVrOpPtr;
+        if (inSeq != mVrOpSeq) {
+            mReplyProps.clear();
+        }
+        mVrOpSeq = -1;
+        mVrOpPtr = 0;
+        theReq.HandleResponse(inSeq, mReplyProps);
+        MetaRequest::Release(&theReq);
+    }
+    void VrDisconnect()
+        { VrUpdate(-1); }
     void MsgLogLines(
         MsgLogger::LogLevel inLogLevel,
         const char*         inPrefixPtr,
@@ -1213,12 +1288,12 @@ LogTransmitter::Impl::IdChanged(
 {
     Transmitter* const theHeadPtr = List::Front(mTransmittersPtr);
     if (! theHeadPtr) {
-        panic("transmitter list empty");
+        panic("log transmitter: transmitter list empty");
         return;
     }
     if (theHeadPtr == List::Back(mTransmittersPtr)) {
         if (&inTransmitter != theHeadPtr) {
-            panic("transmitter list invalid");
+            panic("log transmitter: transmitter list invalid");
             return;
         }
     } else {
@@ -1355,7 +1430,7 @@ LogTransmitter::Impl::TransmitBlock(
 LogTransmitter::Impl::EndOfTransmit()
 {
     if (! mSendingFlag) {
-        panic("invalid end of transmit invocation");
+        panic("log transmitter: invalid end of transmit invocation");
     }
     mSendingFlag = false;
     Transmitter* thePtr;
@@ -1446,6 +1521,17 @@ LogTransmitter::Impl::Update()
     }
 }
 
+    void
+LogTransmitter::Impl::QueueVrRequest(
+    MetaVrRequest& inVrReq)
+{
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        thePtr->QueueVrRequest(inVrReq);
+    }
+}
+
 LogTransmitter::LogTransmitter(
     NetManager&                     inNetManager,
     LogTransmitter::CommitObserver& inCommitObserver)
@@ -1485,5 +1571,11 @@ LogTransmitter::IsUp()
     return mImpl.IsUp();
 }
 
+    void
+LogTransmitter::QueueVrRequest(
+    MetaVrRequest& inVrReq)
+{
+    mImpl.QueueVrRequest(inVrReq);
+}
 
 } // namespace KFS

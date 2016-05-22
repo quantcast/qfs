@@ -67,6 +67,36 @@ public:
         MetaVrStartEpoch& inReq)
     {
     }
+    void HandleReply(
+        MetaVrStartViewChange& inReq,
+        seq_t                  inSeq,
+        const Properties&      inProps)
+    {
+    }
+    void HandleReply(
+        MetaVrDoViewChange& inReq,
+        seq_t               inSeq,
+        const Properties&   inProps)
+    {
+    }
+    void HandleReply(
+        MetaVrStartView&  inReq,
+        seq_t             inSeq,
+        const Properties& inProps)
+    {
+    }
+    void HandleReply(
+        MetaVrReconfiguration& inReq,
+        seq_t                  inSeq,
+        const Properties&      inProps)
+    {
+    }
+    void HandleReply(
+        MetaVrStartEpoch&  inReq,
+        seq_t              inSeq,
+        const Properties&  inProps)
+    {
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -129,6 +159,51 @@ MetaVrSM::Handle(
     MetaVrStartEpoch& inReq)
 {
     mImpl.Handle(inReq);
+}
+
+    void
+MetaVrSM::HandleReply(
+    MetaVrStartViewChange& inReq,
+    seq_t                  inSeq,
+    const Properties&      inProps)
+{
+    mImpl.HandleReply(inReq, inSeq, inProps);
+}
+
+    void
+MetaVrSM::HandleReply(
+    MetaVrDoViewChange& inReq,
+    seq_t               inSeq,
+    const Properties&   inProps)
+{
+    mImpl.HandleReply(inReq, inSeq, inProps);
+}
+
+    void
+MetaVrSM::HandleReply(
+    MetaVrStartView&  inReq,
+    seq_t             inSeq,
+    const Properties& inProps)
+{
+    mImpl.HandleReply(inReq, inSeq, inProps);
+}
+
+    void
+MetaVrSM::HandleReply(
+    MetaVrReconfiguration& inReq,
+    seq_t                  inSeq,
+    const Properties&      inProps)
+{
+    mImpl.HandleReply(inReq, inSeq, inProps);
+}
+
+    void
+MetaVrSM::HandleReply(
+    MetaVrStartEpoch& inReq,
+    seq_t             inSeq,
+    const Properties& inProps)
+{
+    mImpl.HandleReply(inReq, inSeq, inProps);
 }
 
 } // namespace KFS
