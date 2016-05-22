@@ -4342,10 +4342,12 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     AppendDecIntToString(ret, chunkVersion);
     if (chunkVersion < 0 && 0 <= mFileSystemId) {
         if (mFileSystemIdSuffix.empty()) {
+            char bytes[sizeof(mFileSystemId)];
+            const size_t len = IntToBytes(bytes, mFileSystemId) - bytes;
             char buf[Base64::EncodedLength(sizeof(mFileSystemId)) + 1];
             buf[0] = '.';
             mFileSystemIdSuffix.assign(buf, UrlSafeBase64Encode(
-                &mFileSystemId, sizeof(mFileSystemId), buf + 1));
+                bytes, len, buf + 1));
         }
         ret += mFileSystemIdSuffix;
     }
