@@ -611,6 +611,7 @@ public:
         ostream::precision(6);
         ostream::width(0);
         ostream::fill(' ');
+        ostream::tie(0);
         return *this;
     }
     ostream& Set(
@@ -649,6 +650,7 @@ public:
         StreamBuffer::SetReadOnly(iobuf, maxReadLength);
         istream::clear();
         istream::flags(ostream::dec | istream::skipws);
+        istream::tie(0);
         rdbuf(this);
         return *this;
     }

@@ -2480,6 +2480,12 @@ protected:
     ostringstream& GetTempOstream()
     {
         mTempOstream.str(string());
+        mTempOstream.clear();
+        mTempOstream.flags(ostream::dec | ostream::skipws);
+        mTempOstream.precision(6);
+        mTempOstream.width(0);
+        mTempOstream.fill(' ');
+        mTempOstream.tie(0);
         return mTempOstream;
     }
 
