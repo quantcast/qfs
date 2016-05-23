@@ -3838,9 +3838,11 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
         const    size_t kBlockIdSize = sizeof(chunkId) + sizeof(chunkVersion);
         char     buf[max(
             (size_t)Base64::EncodedLength(sizeof(crc32)) + 1, kBlockIdSize)];
+        char     crc32buf[sizeof(crc32)];
         IntToBytes(IntToBytes(buf, chunkId), chunkVersion);
         crc32 = ComputeCrc32(buf, kBlockIdSize);
-        size_t len = UrlSafeBase64Encode(&crc32, sizeof(crc32), buf);
+        size_t len = IntToBytes(crc32buf, crc32) - crc32buf;
+        len = UrlSafeBase64Encode(crc32buf, len, buf);
         buf[len++] = '.';
         ret.append(buf, len);
     }
