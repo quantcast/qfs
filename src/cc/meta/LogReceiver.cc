@@ -92,6 +92,8 @@ public:
           mId(-1),
           mReplayerPtr(0),
           mWriteOpFreeListPtr(0),
+          mPendingResponseQueue(),
+          mResponseQueue(),
           mCompletionQueue(),
           mPendingSubmitQueue()
     {
@@ -306,6 +308,7 @@ public:
         if (theAckBroadcastFlag) {
             mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
         }
+        mResponseQueue.PushBack(mPendingResponseQueue);
         return theRetFlag;
     }
     void Release(
@@ -329,8 +332,11 @@ public:
         }
         MetaRequest& theOp = *reinterpret_cast<MetaRequest*>(inDataPtr);
         const bool theWakeupFlag = ! IsAwake();
-        theOp.next = 0;
-        mCompletionQueue.PushBack(theOp);
+        if (META_LOG_WRITER_CONTROL == theOp.op) {
+            mCompletionQueue.PushBack(theOp);
+        } else {
+            mPendingResponseQueue.PushBack(theOp);
+        }
         if (theWakeupFlag) {
             Wakeup();
         }
@@ -351,7 +357,6 @@ public:
             "pending submit: " << inOp.Show()   <<
             " wakeup: "        << theWakeupFlag <<
         KFS_LOG_EOM;
-        inOp.next = 0;
         mPendingSubmitQueue.PushBack(inOp);
         if (theWakeupFlag) {
             Wakeup();
@@ -367,6 +372,17 @@ public:
     }
     virtual void Timeout()
     {
+        MetaRequest* theReqPtr;
+        while ((theReqPtr = mResponseQueue.PopFront())) {
+            if (this == theReqPtr->clnt || ! theReqPtr->clnt) {
+                MetaRequest::Release(theReqPtr);
+            } else {
+                // Mark to let connection's handle event logic know that it
+                // should process it.
+                theReqPtr->next = theReqPtr;
+                theReqPtr->clnt->HandleEvent(EVENT_CMD_DONE, theReqPtr);
+            }
+        }
         if (! mAckBroadcastFlag) {
             return;
         }
@@ -394,6 +410,8 @@ private:
     int64_t        mId;
     Replayer*      mReplayerPtr;
     MetaRequest*   mWriteOpFreeListPtr;
+    Queue          mPendingResponseQueue;
+    Queue          mResponseQueue;
     Queue          mCompletionQueue;
     Queue          mPendingSubmitQueue;
     Connection*    mConnectionsHeadPtr[1];
@@ -411,6 +429,8 @@ private:
     }
     void ClearQueues()
     {
+        ClearQueue(mPendingResponseQueue);
+        ClearQueue(mResponseQueue);
         ClearQueue(mCompletionQueue);
         ClearQueue(mPendingSubmitQueue);
         MetaRequest* thePtr = mWriteOpFreeListPtr;
@@ -434,8 +454,11 @@ private:
     }
     bool IsAwake() const
     {
-        return (! mPendingSubmitQueue.IsEmpty() ||
-            ! mCompletionQueue.IsEmpty());
+        return (
+            ! mPendingSubmitQueue.IsEmpty() ||
+            ! mCompletionQueue.IsEmpty() ||
+            ! mPendingResponseQueue.IsEmpty()
+        );
     }
     void BroadcastAck();
 private:
@@ -555,6 +578,17 @@ public:
         int   inType,
         void* inDataPtr)
     {
+        if (EVENT_CMD_DONE == inType) {
+            // Command completion can be invoked from a different thread.
+            MetaRequest* const theReqPtr =
+                reinterpret_cast<MetaRequest*>(inDataPtr);
+            if (theReqPtr) {
+                if (theReqPtr->next != theReqPtr) {
+                    return mImpl.HandleEvent(inType, inDataPtr);
+                }
+                theReqPtr->next = 0;
+            }
+        }
         mRecursionCount++;
         QCASSERT(0 < mRecursionCount);
         switch (inType) {
@@ -932,6 +966,7 @@ private:
             return -1;
         }
         mPendingOpsCount++;
+        theReqPtr->clnt = this;
         mImpl.Submit(*theReqPtr);
         return 0;
     }
