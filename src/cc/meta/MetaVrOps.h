@@ -38,7 +38,6 @@
 
 namespace KFS
 {
-
 class Properties;
 
 class MetaVrRequest : public MetaRequest

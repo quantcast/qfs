@@ -30,9 +30,20 @@
 #define META_VRSM_H
 
 #include "common/kfstypes.h"
+#include "common/kfsdecls.h"
+#include "common/StdAllocator.h"
+
+#include <vector>
+#include <map>
+#include <utility>
 
 namespace KFS
 {
+using std::vector;
+using std::map;
+using std::pair;
+using std::less;
+using std::make_pair;
 
 class MetaVrStartViewChange;
 class MetaVrDoViewChange;
@@ -44,6 +55,124 @@ class Properties;
 class MetaVrSM
 {
 public:
+    class Config
+    {
+    public:
+        typedef int64_t                NodeId;
+        typedef uint64_t               Flags;
+        typedef vector<ServerLocation> Locations;
+        enum
+        {
+            kFlagsNone   = 0,
+            kFlagWitness = 0x1,
+            kFlagActive  = 0x2
+        };
+        class Node
+        {
+        public:
+            Node()
+                : mFlags(kFlagsNone),
+                  mLocations()
+                {}
+            template<typename ST>
+            ST& Insert(
+                ST& inStream) const
+            {
+                inStream << mLocations.size() << " " << mFlags;
+                for (Locations::const_iterator theIt = mLocations.begin();
+                        mLocations.end() != theIt;
+                        ++theIt) {
+                    inStream << " " << *theIt;
+                }
+                return inStream;
+            }
+            template<typename ST>
+            ST& Extract(
+                ST& inStream)
+            {
+                Clear();
+                size_t theSize;
+                if (! (inStream >> theSize) || ! (inStream >> mFlags)) {
+                    return inStream;
+                }
+                mLocations.reserve(theSize);
+                while (mLocations.size() < theSize) {
+                    ServerLocation theLocation;
+                    if (! (inStream >> theLocation)) {
+                        Clear();
+                        break;
+                    }
+                    mLocations.push_back(theLocation);
+                }
+                return inStream;
+            }
+            void Clear()
+            {
+                mFlags = kFlagsNone;
+                mLocations.clear();
+            }
+            const Locations& GetLocations() const
+                { return mLocations; }
+            Flags GetFlags() const
+                { return mFlags; }
+        private:
+            Flags     mFlags;
+            Locations mLocations;
+        };
+        typedef map<
+            NodeId,
+            Node,
+            less<NodeId>,
+            StdFastAllocator<pair<const NodeId, Node> >
+        > Nodes;
+
+        Config()
+            : mNodes()
+            {}
+        template<typename ST>
+        ST& Insert(
+            ST& inStream) const
+        {
+            inStream << mNodes.size();
+            for (Nodes::const_iterator theIt = mNodes.begin();
+                    mNodes.end() != theIt;
+                    ++theIt) {
+                inStream  << " " << theIt->first << " ";
+                theIt->second.Insert(inStream);
+            }
+        }
+        template<typename ST>
+        ST& Extract(
+            ST& inStream)
+        {
+            mNodes.clear();
+            size_t theSize;
+            if (! (inStream >> theSize)) {
+                return inStream;
+            }
+            while (mNodes.size() < theSize) {
+                Node theNode;
+                NodeId theId = -1;
+                if (! (inStream >> theId) ||
+                        theId < 0 ||
+                        ! theNode.Extract(inStream)) {
+                    mNodes.clear();
+                    if (theId < 0 && inStream) {
+                        inStream.setstate(ST::failbit);
+                    }
+                    break;
+                }
+                mNodes.insert(make_pair(theId, theNode));
+            }
+            return inStream;
+        }
+        const Nodes& GetNodes() const
+            { return mNodes; }
+        bool Validate() const ;
+    private:
+        Nodes mNodes;
+    };
+
     MetaVrSM();
     ~MetaVrSM();
     int HandleLogBlock(
@@ -91,6 +220,24 @@ private:
     MetaVrSM& operator=(
         const MetaVrSM& inSm);
 };
+
+template<typename ST>
+    static inline ST&
+operator<<(
+    ST&                          inStream,
+    const MetaVrSM::Config& inConfig)
+{
+    return inConfig.Insert(inStream);
+}
+
+template<typename ST>
+    static inline ST&
+operator>>(
+    ST&               inStream,
+    MetaVrSM::Config& inConfig)
+{
+    return inConfig.Extract(inStream);
+}
 
 } // namespace KFS
 
