@@ -348,6 +348,9 @@ public class KfsTest
             // test new create methods
             testCreateAPI(kfsAccess, basedir);
 
+            // test read when read-ahead is disabled
+            testDisableReadAhead(kfsAccess, basedir);
+
             final Iterator<Map.Entry<String, String> > it =
                 kfsAccess.kfs_getStats().entrySet().iterator();
             System.out.println("Clients stats:");
@@ -502,5 +505,86 @@ public class KfsTest
             System.out.println("File attributes don't match.");
             System.exit(1);
         }
+    }
+
+    private static void testDisableReadAhead(KfsAccess kfsAccess, String baseDir)
+            throws IOException {
+        String filePath = baseDir + "/sample_file.1";
+        String createParams = "S";
+        KfsOutputChannel outputChannel = kfsAccess.kfs_create_ex(filePath,
+                true, createParams);
+        int numBytes = 1048576;
+        char[] dataBuf = new char[numBytes];
+        generateData(dataBuf, numBytes);
+        String s = new String(dataBuf);
+        byte[] buf = s.getBytes();
+        ByteBuffer b = ByteBuffer.wrap(buf, 0, buf.length);
+        int res = outputChannel.write(b);
+        if (res != buf.length) {
+            System.out.println("Was able to write only: " + res);
+            System.exit(1);
+        }
+        if (outputChannel == null) {
+            System.out.println("Unable to call create");
+            System.exit(1);
+        }
+        outputChannel.sync();
+        outputChannel.close();
+
+        KfsInputChannel inputChannel = kfsAccess.kfs_open(filePath);
+        if (inputChannel == null) {
+            System.out.println("open on " + filePath + "failed!");
+            System.exit(1);
+        }
+
+        inputChannel.setReadAheadSize(0);
+
+        byte[] dstBuf = new byte[128];
+        res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        s = new String(dstBuf);
+        for (int i = 0; i < 128; i++) {
+            if (dataBuf[i] != s.charAt(i)) {
+                System.out.println("Data mismatch at char: " + i);
+                System.exit(1);
+            }
+        }
+
+        inputChannel.seek(512);
+        long pos = inputChannel.tell();
+        if (pos != 512) {
+            System.out.println("Couldn't seek to byte 512. Pos: " + pos);
+            System.exit(1);
+        }
+
+        res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        s = new String(dstBuf);
+        for (int i = 0; i < 128; i++) {
+            if (dataBuf[512+i] != s.charAt(i)) {
+                System.out.println("Data mismatch at char " + i +
+                                   " after seeking to byte 512");
+                System.exit(1);
+            }
+        }
+
+        // seek to the beginning, enable read-ahead and make a small read
+        inputChannel.seek(0);
+        pos = inputChannel.tell();
+        if (pos != 0) {
+            System.out.println("Couldn't seek to the beginning. Pos: " + pos);
+            System.exit(1);
+        }
+
+        inputChannel.setReadAheadSize(1048576);
+
+        res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        s = new String(dstBuf);
+        for (int i = 0; i < 128; i++) {
+            if (dataBuf[i] != s.charAt(i)) {
+                System.out.println("Data mismatch at char " + i +
+                                   " after seeking to the beginning");
+                System.exit(1);
+            }
+        }
+        inputChannel.close();
     }
 }
