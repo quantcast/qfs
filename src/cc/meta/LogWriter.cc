@@ -29,6 +29,7 @@
 #include "LogTransmitter.h"
 #include "MetaRequest.h"
 #include "MetaDataStore.h"
+#include "MetaVrSM.h"
 #include "util.h"
 
 #include "common/MsgLogger.h"
@@ -73,6 +74,7 @@ public:
           mMetaDataStorePtr(0),
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
+          mMetaVrSM(mLogTransmitter),
           mTransmitCommitted(-1),
           mTransmitterUpFlag(false),
           mMaxDoneLogSeq(-1),
@@ -425,6 +427,7 @@ private:
     MetaDataStore* mMetaDataStorePtr;
     NetManager     mNetManager;
     LogTransmitter mLogTransmitter;
+    MetaVrSM       mMetaVrSM;
     seq_t          mTransmitCommitted;
     bool           mTransmitterUpFlag;
     seq_t          mMaxDoneLogSeq;
@@ -598,6 +601,9 @@ private:
             const bool            theTransmitterUpFlag   = mTransmitterUpFlag;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
+                if (mMetaVrSM.Handle(*thePtr)) {
+                    continue;
+                }
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
                     theCtlPtr = static_cast<MetaLogWriterControl*>(thePtr);
                     if (Control(*theCtlPtr)) {

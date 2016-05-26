@@ -104,6 +104,8 @@ public:
             delete this;
         }
     }
+    virtual void handle()
+        { /* nothing */ }
 protected:
     MetaVrSM* mVrSmPtr;
     int       mRefCount;
@@ -121,19 +123,6 @@ protected:
     {
         ResponseHeader(inOs);
         inOs << "\r\n";
-    }
-    template<typename T>
-    void Handle(
-        T& inReq)
-    {
-        if (0 != status) {
-            return;
-        }
-        if (mVrSmPtr) {
-            mVrSmPtr->Handle(inReq);
-        } else {
-            status = -EINVAL;
-        }
     }
     template<typename T>
     void HandleReply(
@@ -158,7 +147,7 @@ class MetaVrStartViewChange : public MetaVrRequest
 {
 public:
     MetaVrStartViewChange()
-        : MetaVrRequest(META_VR_START_VIEW_CHANGE, kLogQueue)
+        : MetaVrRequest(META_VR_START_VIEW_CHANGE, kLogIfOk)
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
@@ -170,8 +159,6 @@ public:
             " commit: " << mCommitSeq
         );
     }
-    virtual void handle()
-        { Handle(*this); }
     virtual void HandleResponse(
         seq_t             inSeq,
         const Properties& inProps)
@@ -197,8 +184,6 @@ public:
             " commit: " << mCommitSeq
         );
     }
-    virtual void handle()
-        { Handle(*this); }
     virtual void HandleResponse(
         seq_t             inSeq,
         const Properties& inProps)
@@ -224,8 +209,6 @@ public:
             " commit: " << mCommitSeq
         );
     }
-    virtual void handle()
-        { Handle(*this); }
     virtual void HandleResponse(
         seq_t             inSeq,
         const Properties& inProps)
@@ -251,8 +234,6 @@ public:
             " commit: " << mCommitSeq
         );
     }
-    virtual void handle()
-        { Handle(*this); }
     virtual void HandleResponse(
         seq_t             inSeq,
         const Properties& inProps)
@@ -278,8 +259,6 @@ public:
             " commit: " << mCommitSeq
         );
     }
-    virtual void handle()
-        { Handle(*this); }
     virtual void HandleResponse(
         seq_t             inSeq,
         const Properties& inProps)

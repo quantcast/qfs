@@ -45,12 +45,14 @@ using std::pair;
 using std::less;
 using std::make_pair;
 
+struct MetaRequest;
 class MetaVrStartViewChange;
 class MetaVrDoViewChange;
 class MetaVrStartView;
 class MetaVrReconfiguration;
 class MetaVrStartEpoch;
 class Properties;
+class LogTransmitter;
 
 class MetaVrSM
 {
@@ -173,7 +175,8 @@ public:
         Nodes mNodes;
     };
 
-    MetaVrSM();
+    MetaVrSM(
+        LogTransmitter& inLogTransmitter);
     ~MetaVrSM();
     int HandleLogBlock(
         seq_t inEpochSeq,
@@ -181,16 +184,8 @@ public:
         seq_t inLogSeq,
         seq_t inBlockLenSeq,
         seq_t inCommitSeq);
-    void Handle(
-        MetaVrStartViewChange& inReq);
-    void Handle(
-        MetaVrDoViewChange& inReq);
-    void Handle(
-        MetaVrStartView& inReq);
-    void Handle(
-        MetaVrReconfiguration& inReq);
-    void Handle(
-        MetaVrStartEpoch& inReq);
+    bool Handle(
+        MetaRequest& inReq);
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,

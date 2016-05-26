@@ -27,6 +27,7 @@
 //----------------------------------------------------------------------------
 
 #include "MetaVrSM.h"
+#include "MetaVrOps.h"
 
 namespace KFS
 {
@@ -34,7 +35,9 @@ namespace KFS
 class MetaVrSM::Impl
 {
 public:
-    Impl()
+    Impl(
+        LogTransmitter& inLogTransmitter)
+        : mLogTransmitter(inLogTransmitter)
         {}
     ~Impl()
         {}
@@ -47,25 +50,24 @@ public:
     {
         return 0;
     }
-    void Handle(
-        MetaVrStartViewChange& inReq)
+    bool Handle(
+        MetaRequest& inReq)
     {
-    }
-    void Handle(
-        MetaVrDoViewChange& inReq)
-    {
-    }
-    void Handle(
-        MetaVrStartView& inReq)
-    {
-    }
-    void Handle(
-        MetaVrReconfiguration& inReq)
-    {
-    }
-    void Handle(
-        MetaVrStartEpoch& inReq)
-    {
+        switch (inReq.op) {
+            case META_VR_START_VIEW_CHANGE:
+                return Handle(static_cast<MetaVrStartViewChange&>(inReq));
+            case META_VR_DO_VIEW_CHANGE:
+                return Handle(static_cast<MetaVrDoViewChange&>(inReq));
+            case META_VR_START_VIEW:
+                return Handle(static_cast<MetaVrStartView&>(inReq));
+            case META_VR_RECONFIGURATION:
+                return Handle(static_cast<MetaVrReconfiguration&>(inReq));
+            case META_VR_START_EPOCH:
+                return Handle(static_cast<MetaVrStartEpoch&>(inReq));
+            default:
+                break;
+        }
+        return false;
     }
     void HandleReply(
         MetaVrStartViewChange& inReq,
@@ -98,14 +100,42 @@ public:
     {
     }
 private:
+    LogTransmitter& mLogTransmitter;
+
     Impl(
         const Impl& inImpl);
     Impl operator=(
         const Impl& inImpl);
+    bool Handle(
+        MetaVrStartViewChange& inReq)
+    {
+        return true;
+    }
+    bool Handle(
+        MetaVrDoViewChange& inReq)
+    {
+        return true;
+    }
+    bool Handle(
+        MetaVrStartView& inReq)
+    {
+        return true;
+    }
+    bool Handle(
+        MetaVrReconfiguration& inReq)
+    {
+        return true;
+    }
+    bool Handle(
+        MetaVrStartEpoch& inReq)
+    {
+        return true;
+    }
 };
 
-MetaVrSM::MetaVrSM()
-    : mImpl(*(new Impl()))
+MetaVrSM::MetaVrSM(
+    LogTransmitter& inLogTransmitter)
+    : mImpl(*(new Impl(inLogTransmitter)))
 {
 }
 
@@ -126,39 +156,11 @@ MetaVrSM::HandleLogBlock(
         inEpochSeq, inViewSeq, inLogSeq, inBlockLenSeq, inCommitSeq);
 }
 
-    void
+    bool
 MetaVrSM::Handle(
-    MetaVrStartViewChange& inReq)
+    MetaRequest& inReq)
 {
-    mImpl.Handle(inReq);
-}
-
-    void
-MetaVrSM::Handle(
-    MetaVrDoViewChange& inReq)
-{
-    mImpl.Handle(inReq);
-}
-
-    void
-MetaVrSM::Handle(
-    MetaVrStartView& inReq)
-{
-    mImpl.Handle(inReq);
-}
-
-    void
-MetaVrSM::Handle(
-    MetaVrReconfiguration& inReq)
-{
-    mImpl.Handle(inReq);
-}
-
-    void
-MetaVrSM::Handle(
-    MetaVrStartEpoch& inReq)
-{
-    mImpl.Handle(inReq);
+    return mImpl.Handle(inReq);
 }
 
     void
