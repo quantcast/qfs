@@ -43,6 +43,8 @@ class Properties;
 class MetaVrRequest : public MetaRequest
 {
 public:
+    typedef MetaVrSM::Config::NodeId NodeId;
+
     MetaVrRequest(
         MetaOp    inOpType,
         LogAction inLogAction,
@@ -95,7 +97,8 @@ public:
     }
     virtual void HandleResponse(
         seq_t             inSeq,
-        const Properties& inProps) = 0;
+        const Properties& inProps,
+        NodeId            inId) = 0;
     void Ref()
         { mRefCount++; }
     void Unref()
@@ -128,10 +131,11 @@ protected:
     void HandleReply(
         T&                inReq,
         seq_t             inSeq,
-        const Properties& inProps)
+        const Properties& inProps,
+        NodeId            inNodeId)
     {
         if (mVrSmPtr) {
-            mVrSmPtr->HandleReply(inReq, inSeq, inProps);
+            mVrSmPtr->HandleReply(inReq, inSeq, inProps, inNodeId);
         }
     }
     virtual void ReleaseSelf()
@@ -161,8 +165,9 @@ public:
     }
     virtual void HandleResponse(
         seq_t             inSeq,
-        const Properties& inProps)
-        { HandleReply(*this, inSeq, inProps); }
+        const Properties& inProps,
+        NodeId            inNodeId)
+        { HandleReply(*this, inSeq, inProps, inNodeId); }
 protected:
     virtual ~MetaVrStartViewChange()
         {}
@@ -186,8 +191,9 @@ public:
     }
     virtual void HandleResponse(
         seq_t             inSeq,
-        const Properties& inProps)
-        { HandleReply(*this, inSeq, inProps); }
+        const Properties& inProps,
+        NodeId            inNodeId)
+        { HandleReply(*this, inSeq, inProps, inNodeId); }
 protected:
     virtual ~MetaVrDoViewChange()
         {}
@@ -211,8 +217,9 @@ public:
     }
     virtual void HandleResponse(
         seq_t             inSeq,
-        const Properties& inProps)
-        { HandleReply(*this, inSeq, inProps); }
+        const Properties& inProps,
+        NodeId            inNodeId)
+        { HandleReply(*this, inSeq, inProps, inNodeId); }
 protected:
     virtual ~MetaVrStartView()
         {}
@@ -236,8 +243,9 @@ public:
     }
     virtual void HandleResponse(
         seq_t             inSeq,
-        const Properties& inProps)
-        { HandleReply(*this, inSeq, inProps); }
+        const Properties& inProps,
+        NodeId            inNodeId)
+        { HandleReply(*this, inSeq, inProps, inNodeId); }
 protected:
     virtual ~MetaVrReconfiguration()
         {}
@@ -261,8 +269,9 @@ public:
     }
     virtual void HandleResponse(
         seq_t             inSeq,
-        const Properties& inProps)
-        { HandleReply(*this, inSeq, inProps); }
+        const Properties& inProps,
+        NodeId            inNodeId)
+        { HandleReply(*this, inSeq, inProps, inNodeId); }
 protected:
     virtual ~MetaVrStartEpoch()
         {}

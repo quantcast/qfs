@@ -36,6 +36,7 @@ namespace KFS {
 class Properties;
 class NetManager;
 class MetaVrRequest;
+class MetaVrSM;
 
 class LogTransmitter
 {
@@ -69,6 +70,8 @@ public:
     bool IsUp();
     void QueueVrRequest(
         MetaVrRequest& inVrReq);
+    void Update(
+        MetaVrSM& inMetaVrSM);
 private:
     class Impl;
 

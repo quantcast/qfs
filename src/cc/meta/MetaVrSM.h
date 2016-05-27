@@ -74,17 +74,22 @@ public:
         public:
             Node()
                 : mFlags(kFlagsNone),
+                  mPrimaryOrder(0),
                   mLocations()
                 {}
             template<typename ST>
             ST& Insert(
-                ST& inStream) const
+                ST&         inStream,
+                const char* inDelimPtr = " ") const
             {
-                inStream << mLocations.size() << " " << mFlags;
+                inStream <<
+                    mLocations.size() <<
+                    inDelimPtr << mFlags <<
+                    inDelimPtr << mPrimaryOrder;
                 for (Locations::const_iterator theIt = mLocations.begin();
                         mLocations.end() != theIt;
                         ++theIt) {
-                    inStream << " " << *theIt;
+                    inStream << inDelimPtr << *theIt;
                 }
                 return inStream;
             }
@@ -94,31 +99,40 @@ public:
             {
                 Clear();
                 size_t theSize;
-                if (! (inStream >> theSize) || ! (inStream >> mFlags)) {
+                if (! (inStream >> theSize) || ! (inStream >> mFlags) ||
+                        ! (inStream >> mPrimaryOrder)) {
                     return inStream;
                 }
                 mLocations.reserve(theSize);
                 while (mLocations.size() < theSize) {
                     ServerLocation theLocation;
-                    if (! (inStream >> theLocation)) {
-                        Clear();
+                    if (! (inStream >> theLocation) ||
+                            ! theLocation.IsValid()) {
                         break;
                     }
                     mLocations.push_back(theLocation);
+                }
+                if (mLocations.size() != theSize) {
+                    inStream.setstate(ST::failbit);
+                    Clear();
                 }
                 return inStream;
             }
             void Clear()
             {
-                mFlags = kFlagsNone;
+                mFlags        = kFlagsNone;
+                mPrimaryOrder = 0;
                 mLocations.clear();
             }
             const Locations& GetLocations() const
                 { return mLocations; }
             Flags GetFlags() const
                 { return mFlags; }
+        int GetPrimaryOrder() const
+            { return mPrimaryOrder; }
         private:
             Flags     mFlags;
+            int       mPrimaryOrder;
             Locations mLocations;
         };
         typedef map<
@@ -133,14 +147,16 @@ public:
             {}
         template<typename ST>
         ST& Insert(
-            ST& inStream) const
+            ST&         inStream,
+            const char* inDelimPtr     = " ",
+            const char* inNodeDelimPtr = " ") const
         {
             inStream << mNodes.size();
             for (Nodes::const_iterator theIt = mNodes.begin();
                     mNodes.end() != theIt;
                     ++theIt) {
-                inStream  << " " << theIt->first << " ";
-                theIt->second.Insert(inStream);
+                inStream  << inNodeDelimPtr << theIt->first << inDelimPtr;
+                theIt->second.Insert(inStream, inDelimPtr);
             }
         }
         template<typename ST>
@@ -159,12 +175,18 @@ public:
                         theId < 0 ||
                         ! theNode.Extract(inStream)) {
                     mNodes.clear();
-                    if (theId < 0 && inStream) {
-                        inStream.setstate(ST::failbit);
-                    }
                     break;
                 }
-                mNodes.insert(make_pair(theId, theNode));
+                pair<Nodes::iterator, bool> const theRes =
+                    mNodes.insert(make_pair(theId, theNode));
+                if (! theRes.second &&
+                        theNode.GetPrimaryOrder() <
+                            theRes.first->second.GetPrimaryOrder()) {
+                    mNodes[theId] = theNode;
+                }
+            }
+            if (mNodes.size() != theSize) {
+                inStream.setstate(ST::failbit);
             }
             return inStream;
         }
@@ -174,6 +196,8 @@ public:
     private:
         Nodes mNodes;
     };
+
+    typedef Config::NodeId NodeId;
 
     MetaVrSM(
         LogTransmitter& inLogTransmitter);
@@ -189,23 +213,31 @@ public:
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
-        const Properties&      inProps);
+        const Properties&      inProps,
+        NodeId                 inNodeId);
     void HandleReply(
         MetaVrDoViewChange& inReq,
         seq_t               inSeq,
-        const Properties&   inProps);
+        const Properties&   inProps,
+        NodeId              inNodeId);
     void HandleReply(
         MetaVrStartView&  inReq,
         seq_t             inSeq,
-        const Properties& inProps);
+        const Properties& inProps,
+        NodeId            inNodeId);
     void HandleReply(
         MetaVrReconfiguration& inReq,
         seq_t                  inSeq,
-        const Properties&      inProps);
+        const Properties&      inProps,
+        NodeId                 inNodeId);
     void HandleReply(
         MetaVrStartEpoch& inReq,
         seq_t             inSeq,
-        const Properties& inProps);
+        const Properties& inProps,
+        NodeId            inNodeId);
+    const Config& GetConfig() const;
+    int GetQuorum() const;
+    bool IsPrimary() const;
 private:
     class Impl;
     Impl& mImpl;

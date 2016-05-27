@@ -29,6 +29,7 @@
 
 #include "MetaRequest.h"
 #include "MetaVrOps.h"
+#include "MetaVrSM.h"
 #include "util.h"
 
 #include "common/kfstypes.h"
@@ -62,12 +63,15 @@ using std::max;
 using std::multiset;
 using std::deque;
 using std::pair;
+using std::find;
 
 class LogTransmitter::Impl
 {
 private:
     class Transmitter;
 public:
+    typedef MetaVrSM::Config      Config;
+    typedef Config::NodeId        NodeId;
     typedef QCDLList<Transmitter> List;
     typedef uint32_t              Checksum;
 
@@ -87,15 +91,14 @@ public:
             kAuthenticationTypeX509 |
             kAuthenticationTypePSK),
           mAuthTypeStr("Krb5 X509 PSK"),
-          mServers(),
           mCommitObserver(inCommitObserver),
           mIdsCount(0),
           mSendingFlag(false),
           mPendingUpdateFlag(false),
+          mTransmitFlag(false),
           mUpFlag(false)
     {
         List::Init(mTransmittersPtr);
-        List::Init(mPendingIdChangePtr);
         mTmpBuf[kTmpBufSize] = 0;
         mSeqBuf[kSeqBufSize] = 0;
     }
@@ -142,9 +145,6 @@ public:
     void Remove(
         Transmitter& inTransmitter);
     void Shutdown();
-    void IdChanged(
-        int64_t      inPrevId,
-        Transmitter& inTransmitter);
     void Acked(
         seq_t        inPrevAck,
         Transmitter& inTransmitter);
@@ -215,9 +215,10 @@ public:
         { return mAuthType; }
     void QueueVrRequest(
         MetaVrRequest& inVrReq);
+    void Update(
+        MetaVrSM& inMetaVrSM);
 private:
-    typedef Properties::String       String;
-    typedef multiset<ServerLocation> Locations;
+    typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
     enum { kSeqBufSize = 2 * kTmpBufSize };
 
@@ -231,14 +232,13 @@ private:
     seq_t           mCommitted;
     int             mAuthType;
     string          mAuthTypeStr;
-    String          mServers;
     CommitObserver& mCommitObserver;
     int             mIdsCount;
     bool            mSendingFlag;
     bool            mPendingUpdateFlag;
+    bool            mTransmitFlag;
     bool            mUpFlag;
     Transmitter*    mTransmittersPtr[1];
-    Transmitter*    mPendingIdChangePtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
     char            mSeqBuf[kSeqBufSize + 1];
@@ -260,11 +260,14 @@ class LogTransmitter::Impl::Transmitter :
     public ITimeout
 {
 public:
-    typedef Impl::List List;
+    typedef Impl::List   List;
+    typedef Impl::NodeId NodeId;
 
     Transmitter(
         Impl&                 inImpl,
-        const ServerLocation& inServer)
+        const ServerLocation& inServer,
+        NodeId                inNodeId,
+        bool                  inActiveFlag)
         : KfsCallbackObj(),
           mImpl(inImpl),
           mServer(inServer),
@@ -287,7 +290,9 @@ public:
           mIstream(),
           mOstream(),
           mSleepingFlag(false),
-          mId(-1)
+          mReceivedIdFlag(false),
+          mActiveFlag(inActiveFlag),
+          mId(inNodeId)
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
         List::Init(*this);
@@ -337,6 +342,7 @@ public:
         mVrOpPtr = &inReq;
         if (mConnectionPtr) {
             if (! mAuthenticateOpPtr) {
+                StartSend();
             }
         } else {
             Start();
@@ -477,6 +483,13 @@ public:
         { return mId; }
     seq_t GetAck() const
         { return mAckBlockSeq; }
+    const ServerLocation& GetLocation() const
+        { return mServer; }
+    bool IsActive() const
+        { return mActiveFlag; }
+    void SetActive(
+        bool inFlag)
+        { mActiveFlag = inFlag; }
 private:
     typedef ClientAuthContext::RequestCtx RequestCtx;
     typedef deque<pair<seq_t, int> >      BlocksQueue;
@@ -502,7 +515,9 @@ private:
     IOBuffer::IStream  mIstream;
     IOBuffer::WOStream mOstream;
     bool               mSleepingFlag;
-    int64_t            mId;
+    bool               mReceivedIdFlag;
+    bool               mActiveFlag;
+    NodeId const       mId;
     Transmitter*       mPrevPtr[1];
     Transmitter*       mNextPtr[1];
 
@@ -611,6 +626,7 @@ private:
         if (! mServer.IsValid()) {
             return;
         }
+        mReceivedIdFlag = false;
         TcpSocket* theSocketPtr = new TcpSocket();
         mConnectionPtr.reset(new NetConnection(theSocketPtr, this));
         const bool kNonBlockingFlag = false;
@@ -928,22 +944,38 @@ private:
             Error("ack checksum mismatch");
             return -1;
         }
-        if (theHasIdFlag) {
-            if (0 <= mId) {
-                KFS_LOG_STREAM_INFO <<
-                    mServer << ": "
-                    " server id has changed from: " << mId <<
-                    " to: " << theId <<
+        if (! mReceivedIdFlag) {
+            if (theHasIdFlag) {
+                mReceivedIdFlag = true;
+                if (! mActiveFlag && mId != theId) {
+                    KFS_LOG_STREAM_NOTICE <<
+                        mServer << ": " << "inactive node ack id mismatch:" <<
+                        " expected: " << mId <<
+                        " actual:: "  << theId <<
+                    KFS_LOG_EOM;
+                }
+            } else {
+                const char* const theMsgPtr = "first ack wihout node id";
+                KFS_LOG_STREAM_ERROR <<
+                    mServer << ": " << theMsgPtr <<
                 KFS_LOG_EOM;
-            }
-            if (theId != mId) {
-                const int64_t thePrevId = mId;
-                mId = theId;
-                mImpl.IdChanged(thePrevId, *this);
+                Error(theMsgPtr);
+                return -1;
             }
         }
+        if (theHasIdFlag && mActiveFlag && mId != theId) {
+            KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
+                "ack node id mismatch:"
+                " expected: " << mId <<
+                " actual:: "  << theId <<
+            KFS_LOG_EOM;
+            Error("ack node id mismatch");
+            return -1;
+        }
         KFS_LOG_STREAM_DEBUG <<
-            "log recv id: " << mId <<
+            "log recv id: " << theId <<
+            " / "           << mId <<
             " ack: "        << thePrevAckSeq <<
             " => "          << mAckBlockSeq <<
             " sent: "       << mLastSentBlockSeq <<
@@ -952,7 +984,7 @@ private:
             " bytes: "      << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
         AdvancePendingQueue();
-        if (thePrevAckSeq != mAckBlockSeq) {
+        if (thePrevAckSeq != mAckBlockSeq && mActiveFlag) {
             mImpl.Acked(thePrevAckSeq, *this);
         }
         inBuffer.Consume(inHeaderLen);
@@ -1100,7 +1132,7 @@ private:
         }
         mVrOpSeq = -1;
         mVrOpPtr = 0;
-        theReq.HandleResponse(inSeq, mReplyProps);
+        theReq.HandleResponse(inSeq, mReplyProps, mId);
         MetaRequest::Release(&theReq);
     }
     void VrDisconnect()
@@ -1169,9 +1201,6 @@ LogTransmitter::Impl::SetParameters(
     mHeartbeatInterval = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "heartbeatInterval"), mHeartbeatInterval);
-    mMinAckToCommit = inParameters.getValue(
-        theParamName.Truncate(thePrefixLen).Append(
-        "minAckToCommit"), mMinAckToCommit);
     mMaxPending = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "maxPending"), mMaxPending);
@@ -1202,38 +1231,6 @@ LogTransmitter::Impl::SetParameters(
             mAuthType |= kAuthenticationTypeX509;
         }
     }
-    const String* const theServersPtr = inParameters.getValue(
-        theParamName.Truncate(thePrefixLen).Append(
-        "servers"));
-    if (theServersPtr && *theServersPtr != mServers) {
-        mIdsCount = 0;
-        ServerLocation    theLocation;
-        Locations         theLocations;
-        const char*       thePtr      = theServersPtr->GetPtr();
-        const char* const theEndPtr   = thePtr + theServersPtr->GetSize();
-        const bool        kHexFmtFlag = false;
-        while (thePtr < theEndPtr && theLocation.ParseString(
-                thePtr, theEndPtr - thePtr, kHexFmtFlag)) {
-            theLocations.insert(theLocation);
-        }
-        List::Iterator theIt(mTransmittersPtr);
-        Transmitter*   theTPtr;
-        while ((theTPtr = theIt.Next())) {
-            Locations::iterator const theIt =
-                theLocations.find(theTPtr->GetServerLocation());
-            if (theIt == theLocations.end()) {
-                delete theTPtr;
-            } else {
-                theLocations.erase(theIt);
-            }
-        }
-        Locations::iterator theLIt;
-        while ((theLIt = theLocations.begin()) != theLocations.end()) {
-            new Transmitter(*this, *theLIt);
-            theLocations.erase(theLIt);
-        }
-        mServers = *theServersPtr;
-    }
     const char* const  theAuthPrefixPtr =
         theParamName.Truncate(thePrefixLen).Append("auth.").c_str();
     ClientAuthContext* theAuthCtxPtr    =
@@ -1258,7 +1255,7 @@ LogTransmitter::Impl::SetParameters(
             if (theRet == 0) {
                 theRet = theErr;
             }
-        } else {
+        } else if (mTransmitFlag) {
             theTPtr->Start();
         }
         if (! theAuthCtxPtr) {
@@ -1279,32 +1276,6 @@ LogTransmitter::Impl::Shutdown()
     while ((thePtr = List::Back(mTransmittersPtr))) {
         delete thePtr;
     }
-}
-
-    void
-LogTransmitter::Impl::IdChanged(
-    int64_t                            inPrevId,
-    LogTransmitter::Impl::Transmitter& inTransmitter)
-{
-    Transmitter* const theHeadPtr = List::Front(mTransmittersPtr);
-    if (! theHeadPtr) {
-        panic("log transmitter: transmitter list empty");
-        return;
-    }
-    if (theHeadPtr == List::Back(mTransmittersPtr)) {
-        if (&inTransmitter != theHeadPtr) {
-            panic("log transmitter: transmitter list invalid");
-            return;
-        }
-    } else {
-        List::Remove(mTransmittersPtr, inTransmitter);
-        if (mSendingFlag) {
-            List::PushBack(mPendingIdChangePtr, inTransmitter);
-            return;
-        }
-        Insert(inTransmitter);
-    }
-    Update(inTransmitter);
 }
 
     void
@@ -1337,16 +1308,20 @@ LogTransmitter::Impl::Acked(
     seq_t                              inPrevAck,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
+    if (! inTransmitter.IsActive()) {
+        return;
+    }
     const seq_t theAck = inTransmitter.GetAck();
     if (0 < theAck && mCommitted < theAck) {
         int64_t        thePrevId    = -1;
-        int            theCnt       = 0;
         int            theAckCnt    = 0;
         seq_t          theCommitted = theAck;
         List::Iterator theIt(mTransmittersPtr);
         Transmitter*   thePtr;
         while ((thePtr = theIt.Next())) {
-            theCnt++;
+            if (! thePtr->IsActive()) {
+                continue;
+            }
             const seq_t theCurAck = thePtr->GetAck();
             if (theCurAck < 0) {
                 continue;
@@ -1360,7 +1335,7 @@ LogTransmitter::Impl::Acked(
                 }
             }
         }
-        if (min(mMinAckToCommit, theCnt) <= theAckCnt) {
+        if (mMinAckToCommit <= theAckCnt) {
             mCommitted = theCommitted;
             mCommitObserver.Notify(mCommitted);
         }
@@ -1408,22 +1383,20 @@ LogTransmitter::Impl::TransmitBlock(
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
-    int            theCnt      = 0;
-    int            theTotalCnt = 0;
-    int64_t        thePrevId   = -1;
+    int            theCnt    = 0;
+    int64_t        thePrevId = -1;
     while ((thePtr = theIt.Next())) {
         const int64_t theId = thePtr->GetId();
         if (thePtr->SendBlock(inViewSeq,
                     inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
-            if (0 <= theId && theId != thePrevId) {
+            if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
                 theCnt++;
             }
             thePrevId = theId;
         }
-        theTotalCnt++;
     }
     EndOfTransmit();
-    return (theCnt < min(theTotalCnt, mMinAckToCommit) ? -EIO : 0);
+    return (theCnt < mMinAckToCommit ? -EIO : 0);
 }
 
     void
@@ -1433,10 +1406,6 @@ LogTransmitter::Impl::EndOfTransmit()
         panic("log transmitter: invalid end of transmit invocation");
     }
     mSendingFlag = false;
-    Transmitter* thePtr;
-    while ((thePtr = List::PopFront(mPendingIdChangePtr))) {
-        Insert(*thePtr);
-    }
     if (mPendingUpdateFlag) {
         Update();
     }
@@ -1477,7 +1446,7 @@ LogTransmitter::Impl::Update()
             theIdCnt++;
             thePrevAllId = theId;
         }
-        if (0 <= theAck) {
+        if (thePtr->IsActive() && 0 <= theAck) {
             theUpCnt++;
             if (theId != thePrevId) {
                 theIdUpCnt++;
@@ -1499,7 +1468,7 @@ LogTransmitter::Impl::Update()
         }
         theTotalCnt++;
     }
-    const bool theUpFlag     = min(theTotalCnt, mMinAckToCommit) <= theIdUpCnt;
+    const bool theUpFlag     = mMinAckToCommit <= theIdUpCnt;
     const bool theNotifyFlag = theUpFlag != mUpFlag;
     KFS_LOG_STREAM(theNotifyFlag ?
             MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
@@ -1529,6 +1498,59 @@ LogTransmitter::Impl::QueueVrRequest(
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {
         thePtr->QueueVrRequest(inVrReq);
+    }
+}
+
+    void
+LogTransmitter::Impl::Update(
+    MetaVrSM& inMetaVrSM)
+{
+    const Config&        theConfig = inMetaVrSM.GetConfig();
+    const Config::Nodes& theNodes  = theConfig.GetNodes();
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   theTPtr;
+    while ((theTPtr = theIt.Next())) {
+        Config::Nodes::const_iterator const theIt =
+            theNodes.find(theTPtr->GetId());
+        if (theNodes.end() == theIt) {
+            delete theTPtr;
+            continue;
+        }
+        const Config::Node&      theNode      = theIt->second;
+        const Config::Locations& theLocations = theNode.GetLocations();
+        Config::Locations::const_iterator const theLIt = find(
+            theLocations.begin(), theLocations.end(), theTPtr->GetLocation());
+        if (theLocations.end() == theLIt) {
+            delete theTPtr;
+        }
+        theTPtr->SetActive(0 != (theNode.GetFlags() & Config::kFlagActive));
+    }
+    for (Config::Nodes::const_iterator theIt = theNodes.begin();
+            theNodes.end() != theIt;
+            ++theIt) {
+        const Config::NodeId     theId        = theIt->first;
+        const Config::Node&      theNode      = theIt->second;
+        const Config::Locations& theLocations = theNode.GetLocations();
+        for (Config::Locations::const_iterator theIt = theLocations.begin();
+                theLocations.end() != theIt;
+                ++theIt) {
+            const ServerLocation& theLocation = *theIt;
+            if (! theLocation.IsValid()) {
+                continue;
+            }
+            Insert(*(new Transmitter(*this, theLocation, theId,
+                0 != (theNode.GetFlags() & Config::kFlagActive))));
+        }
+    }
+    mMinAckToCommit = inMetaVrSM.GetQuorum();
+    mTransmitFlag   = inMetaVrSM.IsPrimary();
+    if (mTransmitFlag) {
+        List::Iterator theIt(mTransmittersPtr);
+        Transmitter*   theTPtr;
+        while ((theTPtr = theIt.Next())) {
+            theTPtr->Start();
+        }
+        Update();
     }
 }
 
@@ -1576,6 +1598,13 @@ LogTransmitter::QueueVrRequest(
     MetaVrRequest& inVrReq)
 {
     mImpl.QueueVrRequest(inVrReq);
+}
+
+    void
+LogTransmitter::Update(
+    MetaVrSM& inMetaVrSM)
+{
+    mImpl.Update(inMetaVrSM);
 }
 
 } // namespace KFS

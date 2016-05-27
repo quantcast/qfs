@@ -37,7 +37,9 @@ class MetaVrSM::Impl
 public:
     Impl(
         LogTransmitter& inLogTransmitter)
-        : mLogTransmitter(inLogTransmitter)
+        : mLogTransmitter(inLogTransmitter),
+          mConfig(),
+          mQuorum(0)
         {}
     ~Impl()
         {}
@@ -72,35 +74,49 @@ public:
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
-        const Properties&      inProps)
+        const Properties&      inProps,
+        NodeId                 inNodeId)
     {
     }
     void HandleReply(
         MetaVrDoViewChange& inReq,
         seq_t               inSeq,
-        const Properties&   inProps)
+        const Properties&   inProps,
+        NodeId              inNodeId)
     {
     }
     void HandleReply(
         MetaVrStartView&  inReq,
         seq_t             inSeq,
-        const Properties& inProps)
+        const Properties& inProps,
+        NodeId            inNodeId)
     {
     }
     void HandleReply(
         MetaVrReconfiguration& inReq,
         seq_t                  inSeq,
-        const Properties&      inProps)
+        const Properties&      inProps,
+        NodeId                 inNodeId)
     {
     }
     void HandleReply(
         MetaVrStartEpoch&  inReq,
         seq_t              inSeq,
-        const Properties&  inProps)
+        const Properties&  inProps,
+        NodeId             inNodeId)
     {
     }
+    const Config& GetConfig() const
+        { return mConfig; }
+    int GetQuorum() const
+        { return mQuorum; }
+    bool IsPrimary() const
+        { return mPrimaryFlag; }
 private:
     LogTransmitter& mLogTransmitter;
+    Config          mConfig;
+    int             mQuorum;
+    bool            mPrimaryFlag;
 
     Impl(
         const Impl& inImpl);
@@ -167,45 +183,68 @@ MetaVrSM::Handle(
 MetaVrSM::HandleReply(
     MetaVrStartViewChange& inReq,
     seq_t                  inSeq,
-    const Properties&      inProps)
+    const Properties&      inProps,
+    MetaVrSM::NodeId       inNodeId)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
 }
 
     void
 MetaVrSM::HandleReply(
     MetaVrDoViewChange& inReq,
     seq_t               inSeq,
-    const Properties&   inProps)
+    const Properties&   inProps,
+    MetaVrSM::NodeId    inNodeId)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
 }
 
     void
 MetaVrSM::HandleReply(
     MetaVrStartView&  inReq,
     seq_t             inSeq,
-    const Properties& inProps)
+    const Properties& inProps,
+    MetaVrSM::NodeId  inNodeId)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
 }
 
     void
 MetaVrSM::HandleReply(
     MetaVrReconfiguration& inReq,
     seq_t                  inSeq,
-    const Properties&      inProps)
+    const Properties&      inProps,
+    MetaVrSM::NodeId       inNodeId)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
 }
 
     void
 MetaVrSM::HandleReply(
     MetaVrStartEpoch& inReq,
     seq_t             inSeq,
-    const Properties& inProps)
+    const Properties& inProps,
+    MetaVrSM::NodeId  inNodeId)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
+}
+
+    const MetaVrSM::Config&
+MetaVrSM::GetConfig() const
+{
+    return mImpl.GetConfig();
+}
+
+    int
+MetaVrSM::GetQuorum() const
+{
+    return mImpl.GetQuorum();
+}
+
+    bool
+MetaVrSM::IsPrimary() const
+{
+    return mImpl.IsPrimary();
 }
 
 } // namespace KFS
