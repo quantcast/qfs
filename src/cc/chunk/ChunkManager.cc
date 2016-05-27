@@ -3859,6 +3859,12 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
             const size_t len = IntToBytes(bytes, mFileSystemId) - bytes;
             char buf[Base64::EncodedLength(sizeof(mFileSystemId)) + 1];
             buf[0] = '.';
+            // The "len" below is one byte short, therefore the 4 most
+            // significant bits of file system ID are not included in the
+            // suffix. The most significant bit is always 0, i.e. only 3 bits
+            // are actually lost. Do not attempt to "fix" / change this, as
+            // doing now so will break backward compatibility with the existing
+            // object store QFS file systems.
             mFileSystemIdSuffix.assign(buf, UrlSafeBase64Encode(
                 bytes, len, buf + 1));
         }
