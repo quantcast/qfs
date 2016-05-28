@@ -1070,6 +1070,9 @@ private:
     void HandleCmdDone(
         MetaRequest& inReq)
     {
+        KFS_LOG_STREAM_FATAL <<
+            "unexpected invocation: " << inReq.Show() <<
+        KFS_LOG_EOM;
         panic("LogTransmitter::Impl::Transmitter::HandleCmdDone "
             "unexpected invocation");
     }

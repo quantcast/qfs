@@ -92,6 +92,7 @@ public:
           mId(-1),
           mReplayerPtr(0),
           mWriteOpFreeListPtr(0),
+          mLastAckSentTime(0),
           mPendingResponseQueue(),
           mResponseQueue(),
           mCompletionQueue(),
@@ -189,6 +190,7 @@ public:
         mReplayerPtr     = &inReplayer;
         mCommittedLogSeq = inCommittedLogSeq;
         mLastWriteSeq    = mCommittedLogSeq;
+        mLastAckSentTime = inNetManager.Now() - 365 * 24 * 60 * 60;
         return 0;
     }
     void Shutdown();
@@ -389,6 +391,8 @@ public:
         mAckBroadcastFlag = false;
         BroadcastAck();
     }
+    void AckSent(
+        Connection& inConnection);
 private:
     typedef StBufferT<char, kMinParseBufferSize>                 ParseBuffer;
     typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
@@ -410,6 +414,7 @@ private:
     int64_t        mId;
     Replayer*      mReplayerPtr;
     MetaRequest*   mWriteOpFreeListPtr;
+    time_t         mLastAckSentTime;
     Queue          mPendingResponseQueue;
     Queue          mResponseQueue;
     Queue          mCompletionQueue;
@@ -497,6 +502,7 @@ public:
           mDownFlag(false),
           mIdSentFlag(false),
           mReAuthPendingFlag(false),
+          mFirstAckFlag(true),
           mAuthPendingResponsesQueue(),
           mIStream(),
           mOstream()
@@ -645,6 +651,8 @@ public:
         }
         SendAckSelf();
     }
+    time_t TimeNow()
+        { return mConnectionPtr->TimeNow(); }
 private:
     typedef MetaLogWriterControl::Lines                          Lines;
     typedef uint32_t                                             Checksum;
@@ -667,6 +675,7 @@ private:
     bool                   mDownFlag;
     bool                   mIdSentFlag;
     bool                   mReAuthPendingFlag;
+    bool                   mFirstAckFlag;
     Queue                  mAuthPendingResponsesQueue;
     IOBuffer::IStream      mIStream;
     IOBuffer::WOStream     mOstream;
@@ -677,8 +686,6 @@ private:
 
     string GetPeerName()
         { return mConnectionPtr->GetPeerName(); }
-    time_t TimeNow()
-        { return mConnectionPtr->TimeNow(); }
     AuthContext& GetAuthContext()
         { return mImpl.GetAuthContext(); }
     int Authenticate(
@@ -1121,6 +1128,11 @@ private:
         theStream << theChecksum;
         theStream << "\r\n\r\n";
         theStream.flush();
+        if (mFirstAckFlag) {
+            mFirstAckFlag = false;
+        } else if (! mDownFlag) {
+            mImpl.AckSent(*this);
+        }
         if (mRecursionCount <= 0) {
             mConnectionPtr->StartFlush();
         }
@@ -1238,7 +1250,7 @@ LogReceiver::Impl::CreateKfsCallbackObj(
 
     void
 LogReceiver::Impl::New(
-    Connection& inConnection)
+    LogReceiver::Impl::Connection& inConnection)
 {
     mConnectionCount++;
     List::PushBack(mConnectionsHeadPtr, inConnection);
@@ -1249,7 +1261,7 @@ LogReceiver::Impl::New(
 
     void
 LogReceiver::Impl::Done(
-    Connection& inConnection)
+    LogReceiver::Impl::Connection& inConnection)
 {
     if (mConnectionCount <= 0) {
         panic("LogReceiver::Impl::Done: invalid connections count");
@@ -1259,6 +1271,13 @@ LogReceiver::Impl::Done(
     if (mDeleteFlag && mConnectionCount <= 0) {
         delete this;
     }
+}
+
+    void
+LogReceiver::Impl::AckSent(
+    LogReceiver::Impl::Connection& inConnection)
+{
+    mLastAckSentTime = inConnection.TimeNow();
 }
 
     void
