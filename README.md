@@ -59,7 +59,7 @@ yourself with QFS is very easy.
 1. Create a file containing "Hello World", Reed-Solomon encoded, with
 replication 1.
 
-        $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -S -r 1 -k /qfs/tmp/helloworld -d -
+        $ echo 'Hello World' | cptoqfs -s localhost -p 20000 -S -k /qfs/tmp/helloworld -d -
 
 1. Cat the file content.
 
