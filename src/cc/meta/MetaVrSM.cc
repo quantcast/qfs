@@ -100,10 +100,21 @@ public:
     {
     }
     void HandleReply(
-        MetaVrStartEpoch&  inReq,
-        seq_t              inSeq,
-        const Properties&  inProps,
-        NodeId             inNodeId)
+        MetaVrStartEpoch& inReq,
+        seq_t             inSeq,
+        const Properties& inProps,
+        NodeId            inNodeId)
+    {
+    }
+    void SetLastLogReceivedTime(
+        time_t inTime)
+    {
+    }
+    void Process(
+        time_t inTimeNow)
+    {
+    }
+    void Shutdown()
     {
     }
     const Config& GetConfig() const
@@ -227,6 +238,26 @@ MetaVrSM::HandleReply(
     MetaVrSM::NodeId  inNodeId)
 {
     mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
+}
+
+    void
+MetaVrSM::SetLastLogReceivedTime(
+    time_t inTime)
+{
+    mImpl.SetLastLogReceivedTime(inTime);
+}
+
+    void
+MetaVrSM::Process(
+    time_t inTimeNow)
+{
+    mImpl.Process(inTimeNow);
+}
+
+    void
+MetaVrSM::Shutdown()
+{
+    mImpl.Shutdown();
 }
 
     const MetaVrSM::Config&

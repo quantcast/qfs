@@ -33,6 +33,8 @@
 #include "common/kfsdecls.h"
 #include "common/StdAllocator.h"
 
+#include <time.h>
+
 #include <vector>
 #include <map>
 #include <utility>
@@ -235,6 +237,11 @@ public:
         seq_t             inSeq,
         const Properties& inProps,
         NodeId            inNodeId);
+    void SetLastLogReceivedTime(
+        time_t inTime);
+    void Process(
+        time_t inTimeNow);
+    void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;
     bool IsPrimary() const;

@@ -1135,6 +1135,9 @@ public:
             );
         }
     }
+    virtual void SetLastAckSentTime(
+        time_t inLastAckTime)
+        { MetaRequest::GetLogWriter().SetLastLogReceivedTime(inLastAckTime); }
     virtual void Wakeup()
     {
         mWakeupFlag = true;

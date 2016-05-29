@@ -121,6 +121,9 @@ public:
           mFailureSimulationInterval(0),
           mPrepareToForkFlag(false),
           mPrepareToForkDoneFlag(false),
+          mLastLogReceivedTime(-1),
+          mVrLastLogReceivedTime(-1),
+          mVrPrevLogReceivedTime(-1),
           mPrepareToForkCond(),
           mForkDoneCond(),
           mRandom(),
@@ -227,9 +230,12 @@ public:
         if (! IsLogStreamGood()) {
             return mError;
         }
-        outCurLogFileName = mLogName;
-        mStopFlag         = false;
-        mNetManagerPtr    = &inNetManager;
+        outCurLogFileName      = mLogName;
+        mStopFlag              = false;
+        mNetManagerPtr         = &inNetManager;
+        mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
+        mVrLastLogReceivedTime = mLastLogReceivedTime;
+        mVrPrevLogReceivedTime = mLastLogReceivedTime;
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -338,6 +344,7 @@ public:
         QCStMutexLocker theLock(mMutex);
         mPendingCommitted = mCommitted;
         mInQueue.PushBack(mPendingQueue);
+        mVrLastLogReceivedTime = mLastLogReceivedTime;
         theLock.Unlock();
         mNetManager.Wakeup();
     }
@@ -399,6 +406,9 @@ public:
             // mNetManager.Wakeup();
         }
     }
+    void SetLastLogReceivedTime(
+        time_t inTime)
+        { mLastLogReceivedTime = inTime; }
 private:
     typedef uint32_t Checksum;
     class Committed
@@ -468,6 +478,9 @@ private:
     int64_t        mFailureSimulationInterval;
     bool           mPrepareToForkFlag;
     bool           mPrepareToForkDoneFlag;
+    time_t         mLastLogReceivedTime;
+    time_t         mVrLastLogReceivedTime;
+    time_t         mVrPrevLogReceivedTime;
     QCCondVar      mPrepareToForkCond;
     QCCondVar      mForkDoneCond;
     PrngIsaac64    mRandom;
@@ -478,14 +491,13 @@ private:
         if (mPendingCount <= 0) {
             return;
         }
+        Queue theDoneQueue;
         QCStMutexLocker theLock(mMutex);
-        MetaRequest* theDonePtr = mOutQueue.Front();
-        mOutQueue.Reset();
+        theDoneQueue.Swap(mOutQueue);
         theLock.Unlock();
-        while (theDonePtr) {
-            MetaRequest& theReq = *theDonePtr;
-            theDonePtr = theReq.next;
-            theReq.next = 0;
+        MetaRequest* thePtr;
+        while ((thePtr = theDoneQueue.PopFront())) {
+            MetaRequest& theReq = *thePtr;
             if (0 <= theReq.logseq) {
                 if (theReq.logseq <= mMaxDoneLogSeq) {
                     panic("log writer: invalid log sequence number");
@@ -541,22 +553,27 @@ private:
                 mForkDoneCond.Wait(mMutex);
             }
         }
-        if (mStopFlag) {
+        const bool theStopFlag = mStopFlag;
+        if (theStopFlag) {
             mNetManager.Shutdown();
         }
         mInFlightCommitted = mPendingCommitted;
-        if (mInQueue.IsEmpty()) {
-            if (mWokenFlag) {
-                Queue theTmp;
-                ProcessPendingAckQueue(theTmp);
-            }
-            return;
-        }
         Queue theWriteQueue;
         mInQueue.Swap(theWriteQueue);
+        const time_t theVrLastLogReceivedTime = mVrLastLogReceivedTime;
         theLocker.Unlock();
         mWokenFlag = true;
-        Write(*theWriteQueue.Front());
+        if (mVrPrevLogReceivedTime != theVrLastLogReceivedTime) {
+            mVrPrevLogReceivedTime = theVrLastLogReceivedTime;
+            mMetaVrSM.SetLastLogReceivedTime(mVrPrevLogReceivedTime);
+        }
+        if (theStopFlag) {
+            mMetaVrSM.Shutdown();
+        }
+        mMetaVrSM.Process(mNetManager.Now());
+        if (! theWriteQueue.IsEmpty()) {
+            Write(*theWriteQueue.Front());
+        }
         ProcessPendingAckQueue(theWriteQueue);
     }
     virtual void DispatchEnd()
@@ -1285,6 +1302,13 @@ LogWriter::ChildAtFork()
 LogWriter::Shutdown()
 {
    mImpl.Shutdown();
+}
+
+    void
+LogWriter::SetLastLogReceivedTime(
+    time_t inTime)
+{
+    mImpl.SetLastLogReceivedTime(inTime);
 }
 
 } // namespace KFS

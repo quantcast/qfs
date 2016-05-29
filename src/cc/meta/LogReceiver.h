@@ -31,6 +31,8 @@
 
 #include "common/kfstypes.h"
 
+#include <time.h>
+
 namespace KFS
 {
 
@@ -47,6 +49,8 @@ public:
     public:
         virtual void Apply(
             MetaLogWriterControl& inOp) = 0;
+        virtual void SetLastAckSentTime(
+            time_t inLastAckTime) = 0;
         virtual void Wakeup() = 0;
     protected:
         Replayer()

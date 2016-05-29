@@ -93,6 +93,7 @@ public:
           mReplayerPtr(0),
           mWriteOpFreeListPtr(0),
           mLastAckSentTime(0),
+          mDispatchLastAckSentTime(0),
           mPendingResponseQueue(),
           mResponseQueue(),
           mCompletionQueue(),
@@ -187,10 +188,11 @@ public:
             return -ENOTCONN;
         }
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
-        mReplayerPtr     = &inReplayer;
-        mCommittedLogSeq = inCommittedLogSeq;
-        mLastWriteSeq    = mCommittedLogSeq;
-        mLastAckSentTime = inNetManager.Now() - 365 * 24 * 60 * 60;
+        mReplayerPtr             = &inReplayer;
+        mCommittedLogSeq         = inCommittedLogSeq;
+        mLastWriteSeq            = mCommittedLogSeq;
+        mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
+        mDispatchLastAckSentTime = mLastAckSentTime;
         return 0;
     }
     void Shutdown();
@@ -311,6 +313,10 @@ public:
             mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
         }
         mResponseQueue.PushBack(mPendingResponseQueue);
+        if (mDispatchLastAckSentTime != mLastAckSentTime && mReplayerPtr) {
+            mDispatchLastAckSentTime = mLastAckSentTime;
+            mReplayerPtr->SetLastAckSentTime(mDispatchLastAckSentTime);
+        }
         return theRetFlag;
     }
     void Release(
@@ -415,6 +421,7 @@ private:
     Replayer*      mReplayerPtr;
     MetaRequest*   mWriteOpFreeListPtr;
     time_t         mLastAckSentTime;
+    time_t         mDispatchLastAckSentTime;
     Queue          mPendingResponseQueue;
     Queue          mResponseQueue;
     Queue          mCompletionQueue;
@@ -462,7 +469,8 @@ private:
         return (
             ! mPendingSubmitQueue.IsEmpty() ||
             ! mCompletionQueue.IsEmpty() ||
-            ! mPendingResponseQueue.IsEmpty()
+            ! mPendingResponseQueue.IsEmpty() ||
+            mDispatchLastAckSentTime != mLastAckSentTime
         );
     }
     void BroadcastAck();
@@ -1277,7 +1285,11 @@ LogReceiver::Impl::Done(
 LogReceiver::Impl::AckSent(
     LogReceiver::Impl::Connection& inConnection)
 {
+    const bool theWakeupFlag = ! IsAwake();
     mLastAckSentTime = inConnection.TimeNow();
+    if (theWakeupFlag && mLastAckSentTime != mDispatchLastAckSentTime) {
+        Wakeup();
+    }
 }
 
     void

@@ -30,6 +30,8 @@
 
 #include "common/kfstypes.h"
 
+#include <time.h>
+
 #include <string>
 
 namespace KFS
@@ -89,6 +91,8 @@ public:
     void Shutdown();
     seq_t GetNextSeq()
         { return ++mNextSeq; }
+    void SetLastLogReceivedTime(
+        time_t inTime);
 private:
     class Impl;
     seq_t mNextSeq;
