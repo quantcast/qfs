@@ -108,6 +108,7 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
     int TransmitBlock(
+        seq_t       inEpochSeq,
         seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,
@@ -150,6 +151,7 @@ public:
         Transmitter& inTransmitter);
     void WriteBlock(
         IOBuffer&   inBuffer,
+        seq_t       inEpochSeq,
         seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,
@@ -282,6 +284,7 @@ public:
           mCompactBlockCount(0),
           mAuthContext(),
           mAuthRequestCtx(),
+          mLastSentEpochSeq(-1),
           mLastSentViewSeq(-1),
           mLastSentBlockSeq(-1),
           mAckBlockSeq(-1),
@@ -430,12 +433,14 @@ public:
         Connect();
     }
     bool SendBlock(
+        seq_t     inEpochSeq,
         seq_t     inViewSeq,
         seq_t     inBlockSeq,
         IOBuffer& inBuffer,
         int       inLen)
     {
         if (inBlockSeq <= mAckBlockSeq || inLen <= 0 ||
+                inEpochSeq < mLastSentEpochSeq ||
                 inViewSeq < mLastSentViewSeq ||
                 (inViewSeq == mLastSentViewSeq &&
                 inBlockSeq <= mLastSentBlockSeq)) {
@@ -450,9 +455,10 @@ public:
             mConnectionPtr->GetOutBuffer().Copy(&inBuffer, inLen);
         }
         CompactIfNeeded();
-        return FlushBlock(inViewSeq, inBlockSeq, inLen);
+        return FlushBlock(inEpochSeq, inViewSeq, inBlockSeq, inLen);
     }
     bool SendBlock(
+        seq_t       inEpochSeq,
         seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,
@@ -462,12 +468,16 @@ public:
         size_t      inChecksumStartPos)
     {
         if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0 ||
-                inViewSeq < mLastSentViewSeq ||
-                (inViewSeq == mLastSentViewSeq &&
-                inBlockSeq <= mLastSentBlockSeq)) {
+                inEpochSeq < mLastSentEpochSeq ||
+                (inEpochSeq == mLastSentEpochSeq &&
+                    inViewSeq < mLastSentViewSeq) ||
+                (inEpochSeq == mLastSentEpochSeq &&
+                    inViewSeq == mLastSentViewSeq &&
+                    inBlockSeq <= mLastSentBlockSeq)) {
             return true;
         }
         return SendBlockSelf(
+            inEpochSeq,
             inViewSeq,
             inBlockSeq,
             inBlockSeqLen,
@@ -507,6 +517,7 @@ private:
     int                mCompactBlockCount;
     ClientAuthContext  mAuthContext;
     RequestCtx         mAuthRequestCtx;
+    seq_t              mLastSentEpochSeq;
     seq_t              mLastSentViewSeq;
     seq_t              mLastSentBlockSeq;
     seq_t              mAckBlockSeq;
@@ -524,6 +535,7 @@ private:
     friend class QCDLListOp<Transmitter>;
 
     bool SendBlockSelf(
+        seq_t       inEpochSeq,
         seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,
@@ -545,29 +557,37 @@ private:
             return false;
         }
         if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
-            WriteBlock(mPendingSend, inViewSeq, inBlockSeq, inBlockSeqLen,
-                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+            WriteBlock(mPendingSend, inEpochSeq, inViewSeq, inBlockSeq,
+                inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
+                inChecksumStartPos);
         } else {
             IOBuffer theBuffer;
-            WriteBlock(theBuffer, inViewSeq, inBlockSeq, inBlockSeqLen,
-                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+            WriteBlock(theBuffer, inEpochSeq, inViewSeq, inBlockSeq,
+                inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
+                inChecksumStartPos);
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
         }
-        return FlushBlock(
+        return FlushBlock(inEpochSeq,
             inViewSeq, inBlockSeq, mPendingSend.BytesConsumable() - thePos);
     }
     bool FlushBlock(
+        seq_t inEpochSeq,
         seq_t inViewSeq,
         seq_t inBlockSeq,
         int   inLen)
     {
-        if (inViewSeq < mLastSentViewSeq || (inViewSeq == mLastSentViewSeq &&
-                inBlockSeq < mLastSentBlockSeq)) {
+        if (inEpochSeq < mLastSentEpochSeq ||
+                (inEpochSeq == mLastSentEpochSeq &&
+                    inViewSeq < mLastSentViewSeq) ||
+                (inEpochSeq == mLastSentEpochSeq &&
+                    inViewSeq == mLastSentViewSeq &&
+                    inBlockSeq < mLastSentBlockSeq)) {
             panic("log transmitter: "
                 "block sequence is invalid: less than last sent");
             return false;
         }
+        mLastSentEpochSeq = inEpochSeq;
         mLastSentViewSeq  = inViewSeq;
         mLastSentBlockSeq = inBlockSeq;
         mBlocksQueue.push_back(make_pair(inBlockSeq, inLen));
@@ -601,6 +621,7 @@ private:
     }
     void WriteBlock(
         IOBuffer&   inBuffer,
+        seq_t       inEpochSeq,
         seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,
@@ -609,8 +630,9 @@ private:
         Checksum    inChecksum,
         size_t      inChecksumStartPos)
     {
-        mImpl.WriteBlock(inBuffer, inViewSeq, inBlockSeq, inBlockSeqLen,
-            inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+        mImpl.WriteBlock(inBuffer, inEpochSeq, inViewSeq, inBlockSeq,
+            inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
+            inChecksumStartPos);
         if (! mConnectionPtr || mAuthenticateOpPtr) {
             return;
         }
@@ -833,6 +855,7 @@ private:
             return false;
         }
         SendBlockSelf(
+            max(seq_t(0), mLastSentEpochSeq),
             max(seq_t(0), mLastSentViewSeq),
             max(seq_t(0), mLastSentBlockSeq),
             0, "", 0, kKfsNullChecksum, 0);
@@ -1350,6 +1373,7 @@ LogTransmitter::Impl::Acked(
 
     int
 LogTransmitter::Impl::TransmitBlock(
+    seq_t                          inEpochSeq,
     seq_t                          inViewSeq,
     seq_t                          inBlockSeq,
     int                            inBlockSeqLen,
@@ -1375,14 +1399,14 @@ LogTransmitter::Impl::TransmitBlock(
     mSendingFlag = true;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
         const int theRet = (List::Front(mTransmittersPtr)->SendBlock(
-                inViewSeq, inBlockSeq, inBlockSeqLen,
+                inEpochSeq, inViewSeq, inBlockSeq, inBlockSeqLen,
                 inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
             ? 0 : -EIO);
         EndOfTransmit();
         return theRet;
     }
     IOBuffer theBuffer;
-    WriteBlock(theBuffer, inViewSeq, inBlockSeq, inBlockSeqLen,
+    WriteBlock(theBuffer, inEpochSeq, inViewSeq, inBlockSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
@@ -1390,7 +1414,7 @@ LogTransmitter::Impl::TransmitBlock(
     int64_t        thePrevId = -1;
     while ((thePtr = theIt.Next())) {
         const int64_t theId = thePtr->GetId();
-        if (thePtr->SendBlock(inViewSeq,
+        if (thePtr->SendBlock(inEpochSeq, inViewSeq,
                     inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
             if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
                 theCnt++;
@@ -1578,6 +1602,7 @@ LogTransmitter::SetParameters(
 
     int
 LogTransmitter::TransmitBlock(
+    seq_t       inEpochSeq,
     seq_t       inViewSeq,
     seq_t       inBlockSeq,
     int         inBlockSeqLen,
@@ -1586,7 +1611,7 @@ LogTransmitter::TransmitBlock(
     uint32_t    inChecksum,
     size_t      inChecksumStartPos)
 {
-    return mImpl.TransmitBlock(inViewSeq, inBlockSeq, inBlockSeqLen,
+    return mImpl.TransmitBlock(inEpochSeq, inViewSeq, inBlockSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
 }
 

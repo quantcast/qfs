@@ -44,13 +44,15 @@ public:
     ~Impl()
         {}
     int HandleLogBlock(
-        seq_t inEpochSeq,
-        seq_t inViewSeq,
-        seq_t inLogSeq,
-        seq_t inBlockLenSeq,
-        seq_t inCommitSeq)
+        seq_t  inEpochSeq,
+        seq_t  inViewSeq,
+        seq_t  inLogSeq,
+        seq_t& outEpochSeq,
+        seq_t& outViewSeq)
     {
-        return 0;
+        outEpochSeq = -1;
+        outViewSeq  = -1;
+        return -EVRNOTPRIMARY;
     }
     bool Handle(
         MetaRequest& inReq)
@@ -173,14 +175,14 @@ MetaVrSM::~MetaVrSM()
 
     int 
 MetaVrSM::HandleLogBlock(
-    seq_t inEpochSeq,
-    seq_t inViewSeq,
-    seq_t inLogSeq,
-    seq_t inBlockLenSeq,
-    seq_t inCommitSeq)
+    seq_t  inLogSeq,
+    seq_t  inBlockLenSeq,
+    seq_t  inCommitSeq,
+    seq_t& outEpochSeq,
+    seq_t& outViewSeq)
 {
     return mImpl.HandleLogBlock(
-        inEpochSeq, inViewSeq, inLogSeq, inBlockLenSeq, inCommitSeq);
+        inLogSeq, inBlockLenSeq, inCommitSeq, outEpochSeq, outViewSeq);
 }
 
     bool

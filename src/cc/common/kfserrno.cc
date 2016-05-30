@@ -176,6 +176,7 @@ SysToKfsErrno(
         case EBADCLUSTERKEY:
         case EINVALCHUNKSIZE:
         case ELOGFAILED:
+        case EVRNOTPRIMARY:
         default:
             break;
     }

@@ -120,6 +120,8 @@ const int EINVALCHUNKSIZE = 1007;
 // transaction log write failure.
 const int ELOGFAILED = 1008;
 
+const int EVRNOTPRIMARY = 1009;
+
 #define KFS_FOR_EACH_EC_METHOD(f) \
     f(STRIPED_FILE_TYPE_RS) \
     f(STRIPED_FILE_TYPE_RS_JERASURE)

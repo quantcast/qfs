@@ -60,6 +60,7 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
     int TransmitBlock(
+        seq_t       inEpochSeq,
         seq_t       inViewSeq,
         seq_t       inBlockSeq,
         int         inBlockSeqLen,

@@ -205,11 +205,11 @@ public:
         LogTransmitter& inLogTransmitter);
     ~MetaVrSM();
     int HandleLogBlock(
-        seq_t inEpochSeq,
-        seq_t inViewSeq,
-        seq_t inLogSeq,
-        seq_t inBlockLenSeq,
-        seq_t inCommitSeq);
+        seq_t  inLogSeq,
+        seq_t  inBlockLenSeq,
+        seq_t  inCommitSeq,
+        seq_t& outEpochSeq,
+        seq_t& outViewSeq);
     bool Handle(
         MetaRequest& inReq);
     void HandleReply(

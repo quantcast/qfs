@@ -718,6 +718,15 @@ private:
     void FlushBlock(
         seq_t inLogSeq)
     {
+        seq_t theEpochSeq = -1;
+        seq_t theViewSeq  = -1;
+        const int theVrStatus = mMetaVrSM.HandleLogBlock(
+            inLogSeq,
+            inLogSeq - mNextLogSeq,
+            mInFlightCommitted.mSeq,
+            theEpochSeq,
+            theViewSeq
+        );
         ++mNextBlockSeq;
         mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
@@ -747,16 +756,16 @@ private:
         mReqOstream << mBlockChecksum << "\n";
         mReqOstream.flush();
         // Transmit all blocks, except first one, which has only block header.
-        if (0 < mNextBlockSeq) {
+        if (0 < mNextBlockSeq && 0 == theVrStatus) {
             theStartPtr = mMdStream.GetBufferedStart();
             int theStatus;
             if (mMdStream.GetBufferedEnd() < theStartPtr + theTxLen) {
                 panic("invalid log write write buffer length");
                 theStatus = -EFAULT;
             } else {
-                seq_t theViewId = 0;
                 theStatus = mLogTransmitter.TransmitBlock(
-                    theViewId,
+                    theEpochSeq,
+                    theViewSeq,
                     inLogSeq,
                     (int)(inLogSeq - mNextLogSeq),
                     theStartPtr,
@@ -938,24 +947,53 @@ private:
             inRequest.statusMsg = "log write: invalid block format";
             return;
         }
-        const int theStatus = mLogTransmitter.TransmitBlock(
-            inRequest.viewId,
+        seq_t theEpochSeq = -1;
+        seq_t theViewSeq  = -1;
+        const int theVrStatus = mMetaVrSM.HandleLogBlock(
             inRequest.blockEndSeq,
-            (int)(inRequest.blockEndSeq - inRequest.blockStartSeq),
-            mMdStream.GetBufferedStart() + thePos,
-            theLen,
-            inRequest.blockChecksum,
-            theLen
+            inRequest.blockEndSeq - inRequest.blockStartSeq,
+            theBlockCommitted.mSeq,
+            theEpochSeq,
+            theViewSeq
         );
-        if (0 != theStatus) {
-            KFS_LOG_STREAM_ERROR <<
-                "write block: block transmit failure:"
-                " ["    << inRequest.blockStartSeq  <<
-                ":"     << inRequest.blockEndSeq <<
-                "]"
-                " status: " << theStatus <<
-            KFS_LOG_EOM;
-            mTransmitterUpFlag = false;
+        if (0 == theVrStatus) {
+            int theStatus;
+            if (theEpochSeq != inRequest.epochSeq ||
+                    theViewSeq != inRequest.viewSeq) {
+                theStatus = -EINVAL;
+                KFS_LOG_STREAM_ERROR <<
+                    "write block: block transmit failure:"
+                    " ["    << inRequest.blockStartSeq  <<
+                    ":"     << inRequest.blockEndSeq <<
+                    "]"
+                    " status: "   << theStatus <<
+                    " epoch: "    << inRequest.epochSeq <<
+                    " expected: " << theEpochSeq <<
+                    " view: "     << inRequest.viewSeq <<
+                    " expected: " << theViewSeq <<
+                KFS_LOG_EOM;
+            } else {
+                theStatus = mLogTransmitter.TransmitBlock(
+                    inRequest.epochSeq,
+                    inRequest.viewSeq,
+                    inRequest.blockEndSeq,
+                    (int)(inRequest.blockEndSeq - inRequest.blockStartSeq),
+                    mMdStream.GetBufferedStart() + thePos,
+                    theLen,
+                    inRequest.blockChecksum,
+                    theLen
+                );
+                if (0 != theStatus) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "write block: block transmit failure:"
+                        " ["    << inRequest.blockStartSeq  <<
+                        ":"     << inRequest.blockEndSeq <<
+                        "]"
+                        " status: " << theStatus <<
+                    KFS_LOG_EOM;
+                    mTransmitterUpFlag = false;
+                }
+            }
         }
         mMdStream.SetSync(true);
         mReqOstream.flush();
