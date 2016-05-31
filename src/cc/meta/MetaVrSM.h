@@ -56,6 +56,8 @@ class MetaVrStartEpoch;
 class Properties;
 class LogTransmitter;
 
+const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
+
 class MetaVrSM
 {
 public:
@@ -192,6 +194,8 @@ public:
             }
             return inStream;
         }
+        bool IsEmpty() const
+            { return mNodes.empty(); }
         const Nodes& GetNodes() const
             { return mNodes; }
         bool Validate() const ;
@@ -241,6 +245,9 @@ public:
         time_t inTime);
     void Process(
         time_t inTimeNow);
+    int SetParameters(
+        const char*       inPrefixPtr,
+        const Properties& inParameters);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;

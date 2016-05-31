@@ -1145,10 +1145,15 @@ private:
             theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
             mFailureSimulationInterval);
         mLastLogPath = mLogDir + "/" + mLastLogName;
-        return mLogTransmitter.SetParameters(
+        const int theStatus = mLogTransmitter.SetParameters(
             theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),
             inParameters
         );
+        const int theVrStatus = mMetaVrSM.SetParameters(
+            theName.Truncate(thePrefixLen).Append("Vr.").c_str(),
+            inParameters
+        );
+        return (0 == theStatus ? theVrStatus : theStatus);
     }
     bool IsLogStreamGood()
     {

@@ -93,6 +93,7 @@ public:
           mAuthTypeStr("Krb5 X509 PSK"),
           mCommitObserver(inCommitObserver),
           mIdsCount(0),
+          mNodeId(-1),
           mSendingFlag(false),
           mPendingUpdateFlag(false),
           mTransmitFlag(false),
@@ -236,6 +237,7 @@ private:
     string          mAuthTypeStr;
     CommitObserver& mCommitObserver;
     int             mIdsCount;
+    NodeId          mNodeId;
     bool            mSendingFlag;
     bool            mPendingUpdateFlag;
     bool            mTransmitFlag;
@@ -1288,9 +1290,17 @@ LogTransmitter::Impl::SetParameters(
             theAuthCtxPtr = &theTPtr->GetAuthCtx();
         }
     }
+    mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
     if (List::IsEmpty(mTransmittersPtr) && ! mUpFlag) {
         mUpFlag = true;
         mCommitObserver.Notify(mCommitted);
+    } else {
+        if (mNodeId < 0 && 0 == theRet) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid VR node id: " << mNodeId <<
+            KFS_LOG_EOM;
+            theRet = -EINVAL;
+        }
     }
     return theRet;
 }

@@ -38,6 +38,7 @@ public:
     Impl(
         LogTransmitter& inLogTransmitter)
         : mLogTransmitter(inLogTransmitter),
+          mNodeId(-1),
           mConfig(),
           mQuorum(0)
         {}
@@ -52,7 +53,7 @@ public:
     {
         outEpochSeq = -1;
         outViewSeq  = -1;
-        return -EVRNOTPRIMARY;
+        return ((mConfig.IsEmpty() && mNodeId <= 0) ? 0 : -EVRNOTPRIMARY);
     }
     bool Handle(
         MetaRequest& inReq)
@@ -119,6 +120,13 @@ public:
     void Shutdown()
     {
     }
+    int SetParameters(
+        const char*       inPrefixPtr,
+        const Properties& inParameters)
+    {
+        mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        return 0;
+    }
     const Config& GetConfig() const
         { return mConfig; }
     int GetQuorum() const
@@ -127,14 +135,11 @@ public:
         { return mPrimaryFlag; }
 private:
     LogTransmitter& mLogTransmitter;
+    NodeId          mNodeId;
     Config          mConfig;
     int             mQuorum;
     bool            mPrimaryFlag;
 
-    Impl(
-        const Impl& inImpl);
-    Impl operator=(
-        const Impl& inImpl);
     bool Handle(
         MetaVrStartViewChange& inReq)
     {
@@ -160,6 +165,11 @@ private:
     {
         return true;
     }
+private:
+    Impl(
+        const Impl& inImpl);
+    Impl& operator=(
+        const Impl& inImpl);
 };
 
 MetaVrSM::MetaVrSM(
@@ -260,6 +270,14 @@ MetaVrSM::Process(
 MetaVrSM::Shutdown()
 {
     mImpl.Shutdown();
+}
+
+    int
+MetaVrSM::SetParameters(
+    const char*       inPrefixPtr,
+    const Properties& inParameters)
+{
+    return mImpl.SetParameters(inPrefixPtr, inParameters);
 }
 
     const MetaVrSM::Config&

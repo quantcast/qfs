@@ -28,6 +28,7 @@
 #include "LogReceiver.h"
 #include "AuthContext.h"
 #include "MetaRequest.h"
+#include "MetaVrSM.h"
 #include "util.h"
 
 #include "common/kfstypes.h"
@@ -135,13 +136,11 @@ public:
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
-        mId = inParameters.getValue(
-            theParamName.Truncate(thePrefixLen).Append(
-            "id"), mId);
+        mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
         mAuthContext.SetParameters(
             theParamName.Truncate(thePrefixLen).Append("auth.").c_str(),
             inParameters);
-        return (! theListenOn.empty());
+        return (! theListenOn.empty() && 0 <= mId);
     }
     int Start(
         NetManager& inNetManager,
