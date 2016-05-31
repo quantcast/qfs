@@ -1,6 +1,7 @@
 #include "common/kfsdecls.h"
 #include "common/IntToString.h"
 #include "libclient/MonitorCommon.h"
+#include "qcdio/QCUtils.h"
 
 #include <cstdio>
 #include <fstream>
@@ -142,7 +143,7 @@ extern "C" void reportStatus(
     string tmpLogFilePath = logFilePath + ".tmp";
 
     ofstream fileStream(tmpLogFilePath.c_str(), std::ios::out);
-    if (fileStream.fail()) {
+    if (!fileStream) {
         string errMsg = "Monitor plugin can't open the log file " +
                 tmpLogFilePath + " for writing: ";
         perror(errMsg.c_str());
@@ -150,14 +151,14 @@ extern "C" void reportStatus(
     }
 
     for (ClientCounters::const_iterator it = clientCounters.begin();
-            it != clientCounters.end(); ++it) {
+	 it != clientCounters.end() && fileStream; ++it) {
         string counterName = it->first;
         Counter counterVal = it->second;
-        fileStream << counterName << "=" << counterVal << endl;
+        fileStream << counterName << "=" << counterVal << "\n";
     }
 
     for (ChunkServerErrorMap::const_iterator it = errorCounters.begin();
-            it != errorCounters.end(); ++it) {
+	 it != errorCounters.end() && fileStream; ++it) {
         const ServerLocation& chunkserverLoc = it->first;
         const ErrorCounters& readErrors = it->second.readErrors;
         const ErrorCounters& writeErrors = it->second.writeErrors;
@@ -169,6 +170,18 @@ extern "C" void reportStatus(
     }
 
     fileStream.close();
+    int lastError = errno;
+
+    if (!fileStream) {
+        string errMsg = "Monitor plugin can't write the log file to "
+                + tmpLogFilePath + ": ";
+        if(lastError == 0) {
+            lastError = EIO;
+        }
+        cout << QCUtils::SysError(lastError, errMsg.c_str()) << endl;
+        remove(tmpLogFilePath.c_str());
+        return;
+    }
 
     chmod(tmpLogFilePath.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
     rename(tmpLogFilePath.c_str(), logFilePath.c_str());
