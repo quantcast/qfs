@@ -110,6 +110,10 @@ AddMetaRequestLog(
         inShortNamesFlag ? "A" : "ACK",
         META_ACK,
         static_cast<const MetaAck*>(0))
+    .MakeParser(
+        inShortNamesFlag ? "VRRC" : "VR_RECONFIG",
+        META_VR_RECONFIGURATION,
+        static_cast<const MetaVrReconfiguration*>(0))
     ;
 }
 
@@ -249,9 +253,6 @@ AddVrLogOps(
     .MakeParser("VSV",
         META_VR_START_VIEW,
         static_cast<const MetaVrStartView*>(0))
-    .MakeParser("VRCN",
-        META_VR_RECONFIGURATION,
-        static_cast<const MetaVrReconfiguration*>(0))
     .MakeParser("VSE",
         META_VR_START_EPOCH,
         static_cast<const MetaVrStartEpoch*>(0))

@@ -4242,7 +4242,8 @@ bool MetaRequest::sVerifyHeaderChecksumFlag   = true;
 int  MetaRequest::sMetaRequestCount           = 0;
 MetaRequest* MetaRequest::sMetaRequestsPtr[1] = {0};
 
-bool MetaCreate::Validate()
+bool
+MetaCreate::Validate()
 {
     return (dir >= 0 && ! name.empty() && 0 <= numReplicas);
 }
@@ -6385,6 +6386,38 @@ bool
 MetaVrRequest::ResponseHeader(ReqOstream& os)
 {
     return OkHeader(this, os);
+}
+
+/* virtual */ bool
+MetaVrReconfiguration::start()
+{
+    if (0 == status && ! Validate()) {
+        status = -EINVAL;
+        return false;
+    }
+    if (! HasMetaServerAdminAccess(*this)) {
+        return false;
+    }
+    StIdempotentRequestHandler handler(*this);
+    return true;
+}
+
+/* virtual */ void
+MetaVrReconfiguration::handle()
+{
+    if (IsHandled()) {
+        return;
+    }
+    GetLogWriter().GetMetaVrSM().Handle(*this);
+}
+
+void
+MetaVrReconfiguration::response(ReqOstream &os)
+{
+    if (! IdempotentAck(os)) {
+        return;
+    }
+    os << "\r\n";
 }
 
 } /* namespace KFS */

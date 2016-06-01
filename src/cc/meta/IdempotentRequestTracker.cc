@@ -376,7 +376,7 @@ private:
                 kfsUid_t inUid,
                 kfsUid_t inAuthUid)
             : MetaIdempotentRequest(
-                MetaOp(inOpType), kLogNever, -1, 0)
+                MetaOp(inOpType), kLogNever, 0)
         {
             reqId   = inReqId;
             authUid = inAuthUid;

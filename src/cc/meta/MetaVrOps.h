@@ -31,6 +31,7 @@
 #include "common/kfstypes.h"
 
 #include "MetaRequest.h"
+#include "LogWriter.h"
 #include "MetaVrSM.h"
 #include "util.h"
 
@@ -53,7 +54,7 @@ public:
           mEpochSeq(-1),
           mViewSeq(-1),
           mCommitSeq(-1),
-          mVrSmPtr(0),
+          mVrSMPtr(0),
           mRefCount(0)
     {
         MetaVrRequest::Ref();
@@ -109,8 +110,13 @@ public:
     }
     virtual void handle()
         { /* nothing */ }
+    MetaVrSM* GetVrSMPtr() const
+        { return mVrSMPtr; }
+    void SetVrSMPtr(
+        MetaVrSM* inPtr)
+        { mVrSMPtr = inPtr; }
 protected:
-    MetaVrSM* mVrSmPtr;
+    MetaVrSM* mVrSMPtr;
     int       mRefCount;
 
     virtual ~MetaVrRequest()
@@ -134,8 +140,8 @@ protected:
         const Properties& inProps,
         NodeId            inNodeId)
     {
-        if (mVrSmPtr) {
-            mVrSmPtr->HandleReply(inReq, inSeq, inProps, inNodeId);
+        if (mVrSMPtr) {
+            mVrSMPtr->HandleReply(inReq, inSeq, inProps, inNodeId);
         }
     }
     virtual void ReleaseSelf()
@@ -225,27 +231,89 @@ protected:
         {}
 };
 
-class MetaVrReconfiguration : public MetaVrRequest
+class MetaVrReconfiguration : public MetaIdempotentRequest
 {
 public:
+    enum
+    {
+        kOpTypeNone       = 0,
+        kOpTypeAddNode    = 1,
+        kOpTypeRemoveNode = 2,
+        kOpTypeModifyNode = 3
+    };
+    typedef MetaVrSM::Config Config;
+    typedef Config::NodeId   NodeId;
+    typedef Config::Flags    Flags;
+
+    int             mOpType;
+    int             mLocationsCount;
+    Flags           mNodeFlags;
+    NodeId          mNodeId;
+    StringBufT<256> mLocationsStr;
+
     MetaVrReconfiguration()
-        : MetaVrRequest(META_VR_RECONFIGURATION, kLogIfOk)
+        : MetaIdempotentRequest(META_VR_RECONFIGURATION, kLogIfOk),
+          mOpType(kOpTypeNone),
+          mLocationsCount(0),
+          mNodeFlags(Config::kFlagsNone),
+          mNodeId(-1),
+          mLocationsStr()
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
     {
         return (inOs <<
-            "vr-reconfiguration" <<
-            " epoch: "  << mEpochSeq <<
-            " view: "   << mViewSeq <<
-            " commit: " << mCommitSeq
+            "vr-reconfiguration:"
+            " type: "  << mOpType <<
+            " flags: " << mNodeFlags <<
+            " node: "  << mNodeId <<
+            " locations:"
+            " "        << mLocationsCount <<
+            " "        << mLocationsStr
         );
     }
-    virtual void HandleResponse(
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
-        { HandleReply(*this, inSeq, inProps, inNodeId); }
+    virtual bool start();
+    bool Validate()
+        { return (0 <= mNodeId && kOpTypeNone < mOpType); }
+    virtual void handle();
+    virtual void response(
+        ReqOstream& inStream);
+    template<typename T>
+    static T& ParserDef(T& parser)
+    {
+        return MetaIdempotentRequest::ParserDef(parser)
+        .Def2("Op-type",   "T", &MetaVrReconfiguration::mOpType,
+                int(kOpTypeNone))
+        .Def2("Loc-count", "C", &MetaVrReconfiguration::mLocationsCount, 0)
+        .Def2("Flags",     "F", &MetaVrReconfiguration::mNodeFlags,
+                Flags(Config::kFlagsNone))
+        .Def2("Node-id",   "N", &MetaVrReconfiguration::mNodeId,
+                NodeId(-1))
+        .Def2("Locations", "L", &MetaVrReconfiguration::mLocationsStr)
+        ;
+    }
+    template<typename T>
+    static T& IoParserDef(T& parser)
+    {
+        // Keep everything except locations for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
+        .Def("C", &MetaVrReconfiguration::mLocationsCount,                    0)
+        .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
+        .Def("N", &MetaVrReconfiguration::mNodeId,                   NodeId(-1))
+        ;
+    }
+    template<typename T>
+    static T& LogIoDef(T& parser)
+    {
+        return MetaIdempotentRequest::LogIoDef(parser)
+        .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
+        .Def("C", &MetaVrReconfiguration::mLocationsCount,                    0)
+        .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
+        .Def("N", &MetaVrReconfiguration::mNodeId,                   NodeId(-1))
+        .Def("L", &MetaVrReconfiguration::mLocationsStr)
+        ;
+    }
 protected:
     virtual ~MetaVrReconfiguration()
         {}

@@ -43,6 +43,7 @@ class Properties;
 class NetManager;
 class MdStateCtx;
 class MetaDataStore;
+class MetaVrSM;
 
 class LogWriter
 {
@@ -93,6 +94,7 @@ public:
         { return ++mNextSeq; }
     void SetLastLogReceivedTime(
         time_t inTime);
+    MetaVrSM& GetMetaVrSM();
 private:
     class Impl;
     seq_t mNextSeq;

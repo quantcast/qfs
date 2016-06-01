@@ -478,8 +478,8 @@ struct MetaIdempotentRequest : public MetaRequest {
     // Derived classes' request() method must be const, i.e. not modify "this".
     seq_t reqId;
     seq_t ackId;
-    MetaIdempotentRequest(MetaOp o, LogAction la, seq_t opSeq = -1, int rc = 1)
-        : MetaRequest(o, la, opSeq),
+    MetaIdempotentRequest(MetaOp o, LogAction la, int rc = 1)
+        : MetaRequest(o, la),
           reqId(-1),
           ackId(-1),
           ref(rc),

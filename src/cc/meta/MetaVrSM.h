@@ -248,6 +248,9 @@ public:
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);
+    void Commit(
+        seq_t inLogSeq);
+    void Start();
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;

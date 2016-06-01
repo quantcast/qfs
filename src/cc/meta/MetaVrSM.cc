@@ -28,6 +28,12 @@
 
 #include "MetaVrSM.h"
 #include "MetaVrOps.h"
+#include "util.h"
+
+#include "NetDispatch.h"
+
+#include "qcdio/QCMutex.h"
+#include "qcdio/qcstutils.h"
 
 namespace KFS
 {
@@ -35,9 +41,21 @@ namespace KFS
 class MetaVrSM::Impl
 {
 public:
+    enum State
+    {
+        kStateNone            = 0,
+        kStateReconfiguration = 1,
+        kStatePrimary         = 2,
+        kStateBackup          = 3
+    };
+
     Impl(
-        LogTransmitter& inLogTransmitter)
+        LogTransmitter& inLogTransmitter,
+        MetaVrSM&       inMetaVrSM)
         : mLogTransmitter(inLogTransmitter),
+          mMetaVrSM(inMetaVrSM),
+          mMutexPtr(0),
+          mState(kStateNone),
           mNodeId(-1),
           mConfig(),
           mQuorum(0)
@@ -101,6 +119,16 @@ public:
         const Properties&      inProps,
         NodeId                 inNodeId)
     {
+        const char* const theMsgPtr =
+            "VR: invalid reconfiguration reply handling attempt";
+        KFS_LOG_STREAM_FATAL <<
+            theMsgPtr <<
+            " seq: "   << inSeq <<
+            " props: " << inProps.size() <<
+            " node: "  << inNodeId <<
+            " "        << inReq <<
+        KFS_LOG_EOM;
+        panic(theMsgPtr);
     }
     void HandleReply(
         MetaVrStartEpoch& inReq,
@@ -117,6 +145,9 @@ public:
         time_t inTimeNow)
     {
     }
+    void Start()
+    {
+    }
     void Shutdown()
     {
     }
@@ -127,14 +158,38 @@ public:
         mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
         return 0;
     }
+    void Commit(
+        seq_t inLogSeq)
+    {
+    }
     const Config& GetConfig() const
         { return mConfig; }
     int GetQuorum() const
         { return mQuorum; }
     bool IsPrimary() const
         { return mPrimaryFlag; }
+    static const char* GetStateName(
+        State inState)
+    {
+        switch (inState)
+        {
+            case kStateNone:
+                return "none";
+            case kStateReconfiguration:
+                return "reconfiguration";
+            case kStatePrimary:
+                return "primary";
+            case kStateBackup:
+                return "backup";
+            default: break;
+        }
+        return "invalid";
+    }
 private:
     LogTransmitter& mLogTransmitter;
+    MetaVrSM&       mMetaVrSM;
+    QCMutex*        mMutexPtr;
+    State           mState;
     NodeId          mNodeId;
     Config          mConfig;
     int             mQuorum;
@@ -158,12 +213,48 @@ private:
     bool Handle(
         MetaVrReconfiguration& inReq)
     {
-        return true;
+        if (0 != inReq.status) {
+            if (inReq.replayFlag) {
+                panic("VR: invalid reconfiguration request replay");
+            }
+            return true;
+        }
+        if (inReq.logseq <= 0) {
+            if (inReq.replayFlag) {
+                panic("VR: invalid reconfiguration request");
+                inReq.status    = -EFAULT;
+                inReq.statusMsg = "internal error";
+                return true;
+            }
+            if (MetaRequest::kLogIfOk != inReq.logAction &&
+                    MetaRequest::kLogAlways != inReq.logAction) {
+                return false;
+            }
+            StartReconfiguration(inReq);
+        } else {
+            if (inReq.replayFlag) {
+                StartReconfiguration(inReq);
+                Commit(inReq.logseq);
+            }
+            // If not replay, then prepare and commit are handled by the log
+            // writer.
+        }
+        return (0 != inReq.status);
+    }
+    void StartReconfiguration(
+        MetaVrReconfiguration& inReq)
+    {
+        if (kStatePrimary != mState && kStateBackup != mState) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "reconfiguration is not possible, state: ";
+            inReq.statusMsg += GetStateName(mState);
+            return;
+        }
     }
     bool Handle(
         MetaVrStartEpoch& inReq)
     {
-        return true;
+        return false;
     }
 private:
     Impl(
@@ -174,7 +265,7 @@ private:
 
 MetaVrSM::MetaVrSM(
     LogTransmitter& inLogTransmitter)
-    : mImpl(*(new Impl(inLogTransmitter)))
+    : mImpl(*(new Impl(inLogTransmitter, *this)))
 {
 }
 
@@ -267,9 +358,22 @@ MetaVrSM::Process(
 }
 
     void
+MetaVrSM::Start()
+{
+    mImpl.Start();
+}
+
+    void
 MetaVrSM::Shutdown()
 {
     mImpl.Shutdown();
+}
+
+    void
+MetaVrSM::Commit(
+    seq_t inLogSeq)
+{
+    mImpl.Commit(inLogSeq);
 }
 
     int

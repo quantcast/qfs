@@ -236,6 +236,7 @@ public:
         mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
         mVrPrevLogReceivedTime = mLastLogReceivedTime;
+        mMetaVrSM.Start();
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -399,6 +400,7 @@ public:
     {
         const bool theWakeupFlag = mTransmitCommitted < inSeq &&
             ! mWokenFlag;
+        mMetaVrSM.Commit(inSeq);
         mTransmitCommitted = inSeq;
         mTransmitterUpFlag = mLogTransmitter.IsUp();
         if (theWakeupFlag) {
@@ -409,6 +411,8 @@ public:
     void SetLastLogReceivedTime(
         time_t inTime)
         { mLastLogReceivedTime = inTime; }
+    MetaVrSM& GetMetaVrSM()
+        { return mMetaVrSM; }
 private:
     typedef uint32_t Checksum;
     class Committed
@@ -1354,4 +1358,11 @@ LogWriter::SetLastLogReceivedTime(
     mImpl.SetLastLogReceivedTime(inTime);
 }
 
-} // namespace KFS
+    MetaVrSM&
+LogWriter::GetMetaVrSM()
+{
+    return mImpl.GetMetaVrSM();
+}
+
+}
+ // namespace KFS
