@@ -269,9 +269,12 @@ private:
         }
         mErrorRecordsTmp.Clear();
 
-        KFS_LOG_STREAM_INFO
-            << "Monitor: Number of clients removed from monitoring "
-            << "since last report: " << mRemovedClients.size() << KFS_LOG_EOM;
+        int numRemovedClients = mRemovedClients.size();
+        if (numRemovedClients > 0) {
+            KFS_LOG_STREAM_INFO
+                << "Monitor: Number of clients removed from monitoring "
+                << "since last report: " << numRemovedClients << KFS_LOG_EOM;
+        }
 
         for(FilesystemMetricsMap::iterator fsMetricsMapIt =
                 mFsMetricsMap.begin(); fsMetricsMapIt != mFsMetricsMap.end();
