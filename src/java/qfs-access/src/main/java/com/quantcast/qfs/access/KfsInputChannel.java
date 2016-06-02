@@ -200,7 +200,7 @@ final public class KfsInputChannel implements ReadableByteChannel, Positionable
     public void setReadAheadSize(long readAheadSize) {
         if(readAheadSize >= 0) {
             kfsAccess.kfs_setReadAheadSize(kfsFd, readAheadSize);
-            isReadAheadOff = readAheadSize <= 0;
+            isReadAheadOff = readAheadSize == 0;
         }
     }
 }
