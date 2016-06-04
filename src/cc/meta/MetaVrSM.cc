@@ -222,19 +222,32 @@ private:
     class RmoveFunc
     {
     public:
+        RmoveFunc(
+            Impl& inImpl)
+            : mImpl(inImpl)
+            {}
         bool operator()(
             int&                 /* ioStatus */,
             string&              /* ioErr */,
             NodeId               inId,
             Config::Nodes&       inNodes,
-            const Config::Node& /* inNode */) const
+            const Config::Node&  inNode) const
         {
+            for (Locations::const_iterator
+                    theIt = inNode.GetLocations().begin();
+                    inNode.GetLocations().end() != theIt;
+                    ++theIt) {
+                mImpl.RemoveLocation(*theIt);
+            }
             if (inNodes.erase(inId) <= 0) {
                 panic("VR: remove node failure");
             }
             return true;
         }
+    private:
+        Impl& mImpl;
     };
+    friend class RmoveFunc;
 
     class ChangeActiveFunc
     {
@@ -578,7 +591,7 @@ private:
         const MetaVrReconfiguration& inReq)
     {
         const bool kActiveFlag = false;
-        ApplyT(kActiveFlag, mConfig.GetNodes(), RmoveFunc());
+        ApplyT(kActiveFlag, mConfig.GetNodes(), RmoveFunc(*this));
     }
     void CommitModifyActiveStatus(
         const MetaVrReconfiguration& inReq,
