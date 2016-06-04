@@ -43,6 +43,8 @@ namespace KFS
 {
 using std::lower_bound;
 using std::find;
+using std::sort;
+using std::unique;
 
 class MetaVrSM::Impl
 {
@@ -64,6 +66,8 @@ public:
           mState(kStateNone),
           mNodeId(-1),
           mReconfigureReqPtr(0),
+          mPendingLocations(),
+          mPendingNodeIds(),
           mConfig(),
           mLocations(),
           mQuorum(0)
@@ -201,6 +205,62 @@ public:
     }
 private:
     typedef Config::Locations Locations;
+    typedef vector<NodeId>    NodeIds;
+
+    class NopFunc
+    {
+    public:
+        bool operator()(
+            int&                 /* ioStatus */,
+            string&              /* ioErr */,
+            NodeId               /* inId */,
+            const Config::Nodes& /* inNodes */,
+            const Config::Node&  /* inNode */) const
+            { return true; }
+    };
+
+    class RmoveFunc
+    {
+    public:
+        bool operator()(
+            int&                 /* ioStatus */,
+            string&              /* ioErr */,
+            NodeId               inId,
+            Config::Nodes&       inNodes,
+            const Config::Node& /* inNode */) const
+        {
+            if (inNodes.erase(inId) <= 0) {
+                panic("VR: remove node failure");
+            }
+            return true;
+        }
+    };
+
+    class ChangeActiveFunc
+    {
+    public:
+        ChangeActiveFunc(
+            const bool inActivateFlag)
+            : mActivateFlag(inActivateFlag)
+            {}
+        bool operator()(
+            int&                 /* ioStatus */,
+            string&              /* ioErr */,
+            NodeId               /* inId */,
+            const Config::Nodes& /* inNodes */,
+            Config::Node&        inNode) const
+        {
+            if (mActivateFlag) {
+                inNode.SetFlags(inNode.GetFlags() | Config::kFlagActive);
+            } else {
+                inNode.SetFlags(inNode.GetFlags() &
+                    ~Config::Flags(Config::kFlagActive));
+            }
+            return true;
+        }
+    private:
+        const bool mActivateFlag;
+    };
 
     LogTransmitter&              mLogTransmitter;
     MetaVrSM&                    mMetaVrSM;
@@ -209,6 +269,7 @@ private:
     NodeId                       mNodeId;
     const MetaVrReconfiguration* mReconfigureReqPtr;
     Locations                    mPendingLocations;
+    NodeIds                      mPendingNodeIds;
     Config                       mConfig;
     Locations                    mLocations;
     int                          mQuorum;
@@ -269,7 +330,7 @@ private:
             inReq.statusMsg += GetStateName(mState);
             return;
         }
-        if (inReq.mLocationsCount <= 0) {
+        if (inReq.mListSize <= 0) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: no listeners specified";
             return;
@@ -284,16 +345,22 @@ private:
             case MetaVrReconfiguration::kOpTypeAddNode:
                 AddNode(inReq);
                 break;
-            case MetaVrReconfiguration::kOpTypeRemoveNode:
-                RemoveNode(inReq);
+            case MetaVrReconfiguration::kOpTypeRemoveNodes:
+                RemoveNodes(inReq);
                 break;
-            case MetaVrReconfiguration::kOpTypeModifyNode:
-                ModifyNode(inReq);
+            case MetaVrReconfiguration::kOpTypeActivateNodes:
+                ModifyActiveStatus(inReq, true);
+                break;
+            case MetaVrReconfiguration::kOpTypeInactivateNodes:
+                ModifyActiveStatus(inReq, false);
                 break;
             default:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "invalid operation type";
                 break;
+        }
+        if (0 == inReq.status) {
+            mReconfigureReqPtr = &inReq;
         }
     }
     void AddNode(
@@ -311,8 +378,8 @@ private:
             return;
         }
         mPendingLocations.clear();
-        const char*       thePtr    = inReq.mLocationsStr.GetPtr();
-        const char* const theEndPtr = thePtr + inReq.mLocationsStr.GetSize();
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
         ServerLocation    theLocation;
         while (thePtr < theEndPtr) {
             if (theLocation.ParseString(
@@ -334,21 +401,127 @@ private:
             }
             mPendingLocations.push_back(theLocation);
         }
-        if ((int)mPendingLocations.size() != inReq.mLocationsCount) {
+        if ((int)mPendingLocations.size() != inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: listeners list parse failure";
             mPendingLocations.clear();
             return;
         }
-        mReconfigureReqPtr = &inReq;
     }
-    void RemoveNode(
+    void RemoveNodes(
         MetaVrReconfiguration& inReq)
     {
+        if (inReq.mListSize <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "change active status: empty node id list";
+            return;
+        }
+        if (! ParseNodeIdList(inReq)) {
+            return;
+        }
+        const bool kActiveFlag = false;
+        ApplyT(inReq, kActiveFlag, mConfig.GetNodes(), NopFunc());
     }
-    void ModifyNode(
+    void ModifyActiveStatus(
+        MetaVrReconfiguration& inReq,
+        bool                   inActivateFlag)
+    {
+        if (inReq.mListSize <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "change active status: empty node id list";
+            return;
+        }
+        if (! ParseNodeIdList(inReq)) {
+            return;
+        }
+        ApplyT(inReq, ! inActivateFlag, mConfig.GetNodes(), NopFunc());
+    }
+    template<typename NT, typename T>
+    void ApplyT(
+        int&     outStatus,
+        string&  outErr,
+        bool     inActiveFlag,
+        NT&      inNodes,
+        const T& inFunc)
+    {
+        for (NodeIds::const_iterator theIt = mPendingNodeIds.begin();
+                mPendingNodeIds.end() != theIt;
+                ++theIt) {
+            typename NT::iterator const theNodeIt = inNodes.find(*theIt);
+            if (inNodes.end() == theNodeIt) {
+                outStatus = -EINVAL;
+                outErr    = "change active status: no such node: ";
+                AppendDecIntToString(outErr, *theIt);
+                return;
+            }
+            Config::Node& theNode = theNodeIt->second;
+            if ((0 != (theNode.GetFlags() & Config::kFlagActive)) !=
+                    inActiveFlag) {
+                outStatus = -EINVAL;
+                outErr    = inActiveFlag ?
+                    "node not active: " : "node active: ";
+                AppendDecIntToString(outErr, *theIt);
+                return;
+            }
+            if (! inFunc(outStatus, outErr, *theIt, inNodes, theNode)) {
+                return;
+            }
+        }
+    }
+    template<typename RT, typename NT, typename T>
+    void ApplyT(
+        RT&      inReq,
+        bool     inActiveFlag,
+        NT&      inNodes,
+        const T& inFunc)
+    {
+        ApplyT(inReq.status, inReq.statusMsg, inActiveFlag, inNodes, inFunc);
+    }
+    template<typename NT, typename T>
+    void ApplyT(
+        bool     inActiveFlag,
+        NT&      inNodes,
+        const T& inFunc)
+    {
+        int    status;
+        string statusMsg;
+        ApplyT(status, statusMsg, inActiveFlag, inNodes, inFunc);
+        if (0 != status) {
+            panic("VR: " + statusMsg);
+        }
+    }
+    bool ParseNodeIdList(
         MetaVrReconfiguration& inReq)
     {
+        mPendingNodeIds.clear();
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        while (thePtr < theEndPtr) {
+            NodeId theNodeId = -1;
+            if (! inReq.ParseInt(thePtr, theEndPtr - thePtr, theNodeId) ||
+                    theNodeId < 0) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "invalid node id";
+                mPendingNodeIds.clear();
+                return false;
+            }
+            mPendingNodeIds.push_back(theNodeId);
+        }
+        if ((int)mPendingNodeIds.size() != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "node id list size mismatch";
+            mPendingNodeIds.clear();
+            return false;
+        }
+        sort(mPendingNodeIds.begin(), mPendingNodeIds.end());
+        if (mPendingNodeIds.end() !=
+                unique(mPendingNodeIds.begin(), mPendingNodeIds.end())) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "invalid duplicate node id";
+            mPendingNodeIds.clear();
+            return false;
+        }
+        return true;
     }
     bool Handle(
         MetaVrStartEpoch& inReq)
@@ -361,27 +534,32 @@ private:
         if (0 != inReq.status) {
             return;
         }
-        switch (inReq.mOpType)
-        {
+        switch (inReq.mOpType) {
             case MetaVrReconfiguration::kOpTypeAddNode:
                 CommitAddNode(inReq);
                 break;
-            case MetaVrReconfiguration::kOpTypeRemoveNode:
-                CommitRemoveNode(inReq);
+            case MetaVrReconfiguration::kOpTypeRemoveNodes:
+                CommitRemoveNodes(inReq);
                 break;
-            case MetaVrReconfiguration::kOpTypeModifyNode:
-                CommitModifyNode(inReq);
+            case MetaVrReconfiguration::kOpTypeActivateNodes:
+                CommitModifyActiveStatus(inReq, true);
+                break;
+            case MetaVrReconfiguration::kOpTypeInactivateNodes:
+                CommitModifyActiveStatus(inReq, false);
                 break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
                 break;
+        }
+        if (0 != inReq.status) {
+            panic("VR: reconfiguration commit failure");
         }
         mLogTransmitter.Update(mMetaVrSM);
     }
     void CommitAddNode(
         const MetaVrReconfiguration& inReq)
     {
-        if ((int)mPendingLocations.size() != inReq.mLocationsCount) {
+        if ((int)mPendingLocations.size() != inReq.mListSize) {
             panic("VR: commit add node: invalid locations");
             return;
         }
@@ -396,13 +574,18 @@ private:
             AddLocation(*theIt);
         }
     }
-    void CommitRemoveNode(
+    void CommitRemoveNodes(
         const MetaVrReconfiguration& inReq)
     {
+        const bool kActiveFlag = false;
+        ApplyT(kActiveFlag, mConfig.GetNodes(), RmoveFunc());
     }
-    void CommitModifyNode(
-        const MetaVrReconfiguration& inReq)
+    void CommitModifyActiveStatus(
+        const MetaVrReconfiguration& inReq,
+        bool                         inActivateFlag)
     {
+        ApplyT(! inActivateFlag, mConfig.GetNodes(),
+            ChangeActiveFunc(inActivateFlag));
     }
     bool HasLocation(
         const ServerLocation& inLocation) const

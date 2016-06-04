@@ -135,6 +135,9 @@ public:
                 { return mLocations; }
             Flags GetFlags() const
                 { return mFlags; }
+            void SetFlags(
+                Flags inFlags)
+                { mFlags = inFlags; }
         int GetPrimaryOrder() const
             { return mPrimaryOrder; }
         private:
@@ -201,11 +204,16 @@ public:
             { return mNodes.empty(); }
         const Nodes& GetNodes() const
             { return mNodes; }
+        Nodes& GetNodes()
+            { return mNodes; }
         bool Validate() const;
         bool AddNode(
             NodeId      inId,
             const Node& inNode)
             { return mNodes.insert(make_pair(inId, inNode)).second; }
+        bool RemoveNode(
+            NodeId inId)
+            { return (0 < mNodes.erase(inId)); }
     private:
         Nodes mNodes;
     };

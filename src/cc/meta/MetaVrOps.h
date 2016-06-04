@@ -236,30 +236,32 @@ class MetaVrReconfiguration : public MetaIdempotentRequest
 public:
     enum
     {
-        kOpTypeNone       = 0,
-        kOpTypeAddNode    = 1,
-        kOpTypeRemoveNode = 2,
-        kOpTypeModifyNode = 3
+        kOpTypeNone            = 0,
+        kOpTypeAddNode         = 1,
+        kOpTypeRemoveNodes     = 2,
+        kOpTypeActivateNodes   = 3,
+        kOpTypeInactivateNodes = 4,
+        kOpTypesCount
     };
     typedef MetaVrSM::Config Config;
     typedef Config::NodeId   NodeId;
     typedef Config::Flags    Flags;
 
     int             mOpType;
-    int             mLocationsCount;
+    int             mListSize;
     int             mPrimaryOrder;
     Flags           mNodeFlags;
     NodeId          mNodeId;
-    StringBufT<256> mLocationsStr;
+    StringBufT<256> mListStr;
 
     MetaVrReconfiguration()
         : MetaIdempotentRequest(META_VR_RECONFIGURATION, kLogIfOk),
           mOpType(kOpTypeNone),
-          mLocationsCount(0),
+          mListSize(0),
           mPrimaryOrder(0),
           mNodeFlags(Config::kFlagsNone),
           mNodeId(-1),
-          mLocationsStr()
+          mListStr()
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
@@ -269,14 +271,17 @@ public:
             " type: "  << mOpType <<
             " flags: " << mNodeFlags <<
             " node: "  << mNodeId <<
-            " locations:"
-            " "        << mLocationsCount <<
-            " "        << mLocationsStr
+            " list:"
+            " size: "  << mListSize <<
+            " "        << mListStr
         );
     }
     virtual bool start();
     bool Validate()
-        { return (0 <= mNodeId && kOpTypeNone < mOpType); }
+    {
+        return ((kOpTypeAddNode == mOpType ? 0 <= mNodeId : 0 < mListSize) &&
+            kOpTypeNone < mOpType && mOpType < kOpTypesCount);
+    }
     virtual void handle();
     virtual void response(
         ReqOstream& inStream);
@@ -286,22 +291,22 @@ public:
         return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Op-type",   "T", &MetaVrReconfiguration::mOpType,
                 int(kOpTypeNone))
-        .Def2("Loc-count", "C", &MetaVrReconfiguration::mLocationsCount, 0)
+        .Def2("List-size", "S", &MetaVrReconfiguration::mListSize, 0)
         .Def2("Flags",     "F", &MetaVrReconfiguration::mNodeFlags,
                 Flags(Config::kFlagsNone))
         .Def2("Prim-ord",  "O", &MetaVrReconfiguration::mPrimaryOrder, 0)
         .Def2("Node-id",   "N", &MetaVrReconfiguration::mNodeId,
                 NodeId(-1))
-        .Def2("Locations", "L", &MetaVrReconfiguration::mLocationsStr)
+        .Def2("List",      "L", &MetaVrReconfiguration::mListStr)
         ;
     }
     template<typename T>
     static T& IoParserDef(T& parser)
     {
-        // Keep everything except locations for debugging.
+        // Keep everything except list for debugging.
         return MetaIdempotentRequest::IoParserDef(parser)
         .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
-        .Def("C", &MetaVrReconfiguration::mLocationsCount,                    0)
+        .Def("S", &MetaVrReconfiguration::mListSize,                          0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
         .Def("O", &MetaVrReconfiguration::mPrimaryOrder,                      0)
         .Def("N", &MetaVrReconfiguration::mNodeId,                   NodeId(-1))
@@ -312,11 +317,11 @@ public:
     {
         return MetaIdempotentRequest::LogIoDef(parser)
         .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
-        .Def("C", &MetaVrReconfiguration::mLocationsCount,                    0)
+        .Def("S", &MetaVrReconfiguration::mListSize,                          0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
         .Def("O", &MetaVrReconfiguration::mPrimaryOrder,                      0)
         .Def("N", &MetaVrReconfiguration::mNodeId,                   NodeId(-1))
-        .Def("L", &MetaVrReconfiguration::mLocationsStr)
+        .Def("L", &MetaVrReconfiguration::mListStr)
         ;
     }
 protected:
