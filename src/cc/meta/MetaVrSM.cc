@@ -29,14 +29,20 @@
 #include "MetaVrSM.h"
 #include "MetaVrOps.h"
 #include "util.h"
-
+#include "LogTransmitter.h"
 #include "NetDispatch.h"
 
 #include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
 
+#include "common/IntToString.h"
+
+#include <algorithm>
+
 namespace KFS
 {
+using std::lower_bound;
+using std::find;
 
 class MetaVrSM::Impl
 {
@@ -57,7 +63,9 @@ public:
           mMutexPtr(0),
           mState(kStateNone),
           mNodeId(-1),
+          mReconfigureReqPtr(0),
           mConfig(),
+          mLocations(),
           mQuorum(0)
         {}
     ~Impl()
@@ -161,6 +169,12 @@ public:
     void Commit(
         seq_t inLogSeq)
     {
+        if (! mReconfigureReqPtr || inLogSeq < mReconfigureReqPtr->logseq) {
+            return;
+        }
+        const MetaVrReconfiguration& theReq = *mReconfigureReqPtr;
+        mReconfigureReqPtr = 0;
+        Commit(theReq);
     }
     const Config& GetConfig() const
         { return mConfig; }
@@ -186,14 +200,19 @@ public:
         return "invalid";
     }
 private:
-    LogTransmitter& mLogTransmitter;
-    MetaVrSM&       mMetaVrSM;
-    QCMutex*        mMutexPtr;
-    State           mState;
-    NodeId          mNodeId;
-    Config          mConfig;
-    int             mQuorum;
-    bool            mPrimaryFlag;
+    typedef Config::Locations Locations;
+
+    LogTransmitter&              mLogTransmitter;
+    MetaVrSM&                    mMetaVrSM;
+    QCMutex*                     mMutexPtr;
+    State                        mState;
+    NodeId                       mNodeId;
+    const MetaVrReconfiguration* mReconfigureReqPtr;
+    Locations                    mPendingLocations;
+    Config                       mConfig;
+    Locations                    mLocations;
+    int                          mQuorum;
+    bool                         mPrimaryFlag;
 
     bool Handle(
         MetaVrStartViewChange& inReq)
@@ -234,7 +253,7 @@ private:
         } else {
             if (inReq.replayFlag) {
                 StartReconfiguration(inReq);
-                Commit(inReq.logseq);
+                Commit(inReq);
             }
             // If not replay, then prepare and commit are handled by the log
             // writer.
@@ -250,11 +269,180 @@ private:
             inReq.statusMsg += GetStateName(mState);
             return;
         }
+        if (inReq.mLocationsCount <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: no listeners specified";
+            return;
+        }
+        if (mReconfigureReqPtr) {
+            inReq.status    = -EAGAIN;
+            inReq.statusMsg = "reconfiguration is in progress";
+            return;
+        }
+        switch (inReq.mOpType)
+        {
+            case MetaVrReconfiguration::kOpTypeAddNode:
+                AddNode(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeRemoveNode:
+                RemoveNode(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeModifyNode:
+                ModifyNode(inReq);
+                break;
+            default:
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "invalid operation type";
+                break;
+        }
+    }
+    void AddNode(
+        MetaVrReconfiguration& inReq)
+    {
+        const Config::Nodes& theNodes = mConfig.GetNodes();
+        if (theNodes.find(inReq.mNodeId) != theNodes.end()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: node already exists";
+            return;
+        }
+        if (0 != (inReq.mNodeFlags & Config::kFlagActive)) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: node active flag must not set";
+            return;
+        }
+        mPendingLocations.clear();
+        const char*       thePtr    = inReq.mLocationsStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mLocationsStr.GetSize();
+        ServerLocation    theLocation;
+        while (thePtr < theEndPtr) {
+            if (theLocation.ParseString(
+                    thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "add node: node active flag must not set";
+                mPendingLocations.clear();
+                return;
+            }
+            if (HasLocation(theLocation)) {
+                inReq.status = -EINVAL;
+                inReq.statusMsg = "add node: litener: ";
+                inReq.statusMsg += theLocation.ToString();
+                inReq.statusMsg += " already assigned to ";
+                AppendDecIntToString(
+                    inReq.statusMsg, FindNodeByLocation(theLocation));
+                mPendingLocations.clear();
+                return;
+            }
+            mPendingLocations.push_back(theLocation);
+        }
+        if ((int)mPendingLocations.size() != inReq.mLocationsCount) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: listeners list parse failure";
+            mPendingLocations.clear();
+            return;
+        }
+        mReconfigureReqPtr = &inReq;
+    }
+    void RemoveNode(
+        MetaVrReconfiguration& inReq)
+    {
+    }
+    void ModifyNode(
+        MetaVrReconfiguration& inReq)
+    {
     }
     bool Handle(
         MetaVrStartEpoch& inReq)
     {
         return false;
+    }
+    void Commit(
+        const MetaVrReconfiguration& inReq)
+    {
+        if (0 != inReq.status) {
+            return;
+        }
+        switch (inReq.mOpType)
+        {
+            case MetaVrReconfiguration::kOpTypeAddNode:
+                CommitAddNode(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeRemoveNode:
+                CommitRemoveNode(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeModifyNode:
+                CommitModifyNode(inReq);
+                break;
+            default:
+                panic("VR: invalid reconfiguration commit attempt");
+                break;
+        }
+        mLogTransmitter.Update(mMetaVrSM);
+    }
+    void CommitAddNode(
+        const MetaVrReconfiguration& inReq)
+    {
+        if ((int)mPendingLocations.size() != inReq.mLocationsCount) {
+            panic("VR: commit add node: invalid locations");
+            return;
+        }
+        if (! mConfig.AddNode(inReq.mNodeId, Config::Node(
+                inReq.mNodeFlags, inReq.mPrimaryOrder, mPendingLocations))) {
+            panic("VR: commit add node: duplicate node id");
+            return;
+        }
+        for (Locations::const_iterator theIt = mPendingLocations.begin();
+                mPendingLocations.end() != theIt;
+                ++theIt) {
+            AddLocation(*theIt);
+        }
+    }
+    void CommitRemoveNode(
+        const MetaVrReconfiguration& inReq)
+    {
+    }
+    void CommitModifyNode(
+        const MetaVrReconfiguration& inReq)
+    {
+    }
+    bool HasLocation(
+        const ServerLocation& inLocation) const
+    {
+        Locations::const_iterator const theIt = lower_bound(
+            mLocations.begin(), mLocations.end(), inLocation);
+        return (theIt != mLocations.end() && inLocation == *theIt);
+    }
+    void AddLocation(
+        const ServerLocation& inLocation)
+    {
+        mLocations.insert(lower_bound(
+            mLocations.begin(), mLocations.end(), inLocation), inLocation);
+    }
+    bool RemoveLocation(
+        const ServerLocation& inLocation)
+    {
+        Locations::iterator const theIt = lower_bound(
+            mLocations.begin(), mLocations.end(), inLocation);
+        if (mLocations.end() == theIt || inLocation != *theIt) {
+            return false;
+        }
+        mLocations.erase(theIt);
+        return true;
+    }
+    NodeId FindNodeByLocation(
+        const ServerLocation& inLocation)
+    {
+        const Config::Nodes& theNodes = mConfig.GetNodes();
+        for (Config::Nodes::const_iterator theIt = theNodes.begin();
+                theNodes.end() != theIt;
+                ++theIt) {
+            const Config::Locations& theLocations =
+                theIt->second.GetLocations();
+            if (find(theLocations.begin(), theLocations.end(), inLocation) !=
+                    theLocations.end()) {
+                return theIt->first;
+            }
+        }
+        return -1;
     }
 private:
     Impl(

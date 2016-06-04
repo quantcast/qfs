@@ -76,10 +76,13 @@ public:
         class Node
         {
         public:
-            Node()
-                : mFlags(kFlagsNone),
-                  mPrimaryOrder(0),
-                  mLocations()
+            Node(
+                Flags            inFlags        = kFlagsNone,
+                int              inPrimaryOrder = 0,
+                const Locations& inLocations    = Locations())
+                : mFlags(inFlags),
+                  mPrimaryOrder(inPrimaryOrder),
+                  mLocations(inLocations)
                 {}
             template<typename ST>
             ST& Insert(
@@ -198,7 +201,11 @@ public:
             { return mNodes.empty(); }
         const Nodes& GetNodes() const
             { return mNodes; }
-        bool Validate() const ;
+        bool Validate() const;
+        bool AddNode(
+            NodeId      inId,
+            const Node& inNode)
+            { return mNodes.insert(make_pair(inId, inNode)).second; }
     private:
         Nodes mNodes;
     };

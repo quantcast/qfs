@@ -247,6 +247,7 @@ public:
 
     int             mOpType;
     int             mLocationsCount;
+    int             mPrimaryOrder;
     Flags           mNodeFlags;
     NodeId          mNodeId;
     StringBufT<256> mLocationsStr;
@@ -255,6 +256,7 @@ public:
         : MetaIdempotentRequest(META_VR_RECONFIGURATION, kLogIfOk),
           mOpType(kOpTypeNone),
           mLocationsCount(0),
+          mPrimaryOrder(0),
           mNodeFlags(Config::kFlagsNone),
           mNodeId(-1),
           mLocationsStr()
@@ -287,6 +289,7 @@ public:
         .Def2("Loc-count", "C", &MetaVrReconfiguration::mLocationsCount, 0)
         .Def2("Flags",     "F", &MetaVrReconfiguration::mNodeFlags,
                 Flags(Config::kFlagsNone))
+        .Def2("Prim-ord",  "O", &MetaVrReconfiguration::mPrimaryOrder, 0)
         .Def2("Node-id",   "N", &MetaVrReconfiguration::mNodeId,
                 NodeId(-1))
         .Def2("Locations", "L", &MetaVrReconfiguration::mLocationsStr)
@@ -300,6 +303,7 @@ public:
         .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
         .Def("C", &MetaVrReconfiguration::mLocationsCount,                    0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
+        .Def("O", &MetaVrReconfiguration::mPrimaryOrder,                      0)
         .Def("N", &MetaVrReconfiguration::mNodeId,                   NodeId(-1))
         ;
     }
@@ -310,6 +314,7 @@ public:
         .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
         .Def("C", &MetaVrReconfiguration::mLocationsCount,                    0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
+        .Def("O", &MetaVrReconfiguration::mPrimaryOrder,                      0)
         .Def("N", &MetaVrReconfiguration::mNodeId,                   NodeId(-1))
         .Def("L", &MetaVrReconfiguration::mLocationsStr)
         ;
