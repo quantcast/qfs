@@ -3160,10 +3160,10 @@ MetaGetPathName::handle()
                 chunkInfo->chunkVersion << "\r\n"
             ;
         }
-        os << (shortRpcFormatFlag ? "R:" : "Num-replicas: ") <<
+        os << (shortRpcFormatFlag ? "NR:" : "Num-replicas: ") <<
             srvs.size() << "\r\n";
         if (! srvs.empty()) {
-            os << (shortRpcFormatFlag ? "S:" : "Replicas: ") <<
+            os << (shortRpcFormatFlag ? "SL:" : "Replicas: ") <<
                 InsertServers(srvs) << "\r\n";
         }
     } else {

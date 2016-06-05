@@ -1591,17 +1591,17 @@ GetPathNameOp::ParseResponseHeaderSelf(const Properties& prop)
 {
     ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
     pathname     = prop.getValue(
-        shortRpcFormatFlag ? "N" : "Path-name", string());
+        shortRpcFormatFlag ? "N" :  "Path-name", string());
     offset       = prop.getValue(
-        shortRpcFormatFlag ? "O" : "Chunk-offset", chunkOff_t(-1));
+        shortRpcFormatFlag ? "O" :  "Chunk-offset", chunkOff_t(-1));
     chunkVersion = prop.getValue(
-        shortRpcFormatFlag ? "V" : "Chunk-version", int64_t(-1));
+        shortRpcFormatFlag ? "V" :  "Chunk-version", int64_t(-1));
     const int numReplicas = prop.getValue(
-        shortRpcFormatFlag ? "R" : "Num-replicas", 0);
+        shortRpcFormatFlag ? "NR" : "Num-replicas", 0);
     servers.clear();
     if (0 < numReplicas) {
         const Properties::String* const replicas = prop.getValue(
-            shortRpcFormatFlag ? "S" : "Replicas");
+            shortRpcFormatFlag ? "SL" : "Replicas");
         if (replicas) {
             const char*       ptr = replicas->data();
             const char* const end = ptr + replicas->size();
