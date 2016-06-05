@@ -67,7 +67,7 @@ public:
           mNodeId(-1),
           mReconfigureReqPtr(0),
           mPendingLocations(),
-          mPendingNodeIds(),
+          mPendingChangesList(),
           mConfig(),
           mLocations(),
           mQuorum(0)
@@ -204,8 +204,15 @@ public:
         return "invalid";
     }
 private:
-    typedef Config::Locations Locations;
-    typedef vector<NodeId>    NodeIds;
+    typedef Config::Locations   Locations;
+    typedef pair<NodeId, int>   ChangeEntry;
+    typedef vector<ChangeEntry> ChangesList;
+    enum ActiveCheck
+    {
+        kActiveCheckNone      = 0,
+        kActiveCheckActive    = 1,
+        kActiveCheckNotActive = 2
+    };
 
     class NopFunc
     {
@@ -213,7 +220,7 @@ private:
         bool operator()(
             int&                 /* ioStatus */,
             string&              /* ioErr */,
-            NodeId               /* inId */,
+            const ChangeEntry&   /* inChange */,
             const Config::Nodes& /* inNodes */,
             const Config::Node&  /* inNode */) const
             { return true; }
@@ -229,7 +236,7 @@ private:
         bool operator()(
             int&                 /* ioStatus */,
             string&              /* ioErr */,
-            NodeId               inId,
+            const ChangeEntry&   inChange,
             Config::Nodes&       inNodes,
             const Config::Node&  inNode) const
         {
@@ -239,7 +246,7 @@ private:
                     ++theIt) {
                 mImpl.RemoveLocation(*theIt);
             }
-            if (inNodes.erase(inId) <= 0) {
+            if (inNodes.erase(inChange.first) <= 0) {
                 panic("VR: remove node failure");
             }
             return true;
@@ -259,7 +266,7 @@ private:
         bool operator()(
             int&                 /* ioStatus */,
             string&              /* ioErr */,
-            NodeId               /* inId */,
+            const ChangeEntry&   /* inChange */,
             const Config::Nodes& /* inNodes */,
             Config::Node&        inNode) const
         {
@@ -275,6 +282,21 @@ private:
         const bool mActivateFlag;
     };
 
+    class ChangePrimaryOrderFunc
+    {
+    public:
+        bool operator()(
+            int&                 /* ioStatus */,
+            string&              /* ioErr */,
+            const ChangeEntry&   inChange,
+            const Config::Nodes& /* inNodes */,
+            Config::Node&        inNode) const
+        {
+            inNode.SetPrimaryOrder(inChange.second);
+            return true;
+        }
+    };
+
     LogTransmitter&              mLogTransmitter;
     MetaVrSM&                    mMetaVrSM;
     QCMutex*                     mMutexPtr;
@@ -282,7 +304,7 @@ private:
     NodeId                       mNodeId;
     const MetaVrReconfiguration* mReconfigureReqPtr;
     Locations                    mPendingLocations;
-    NodeIds                      mPendingNodeIds;
+    ChangesList                  mPendingChangesList;
     Config                       mConfig;
     Locations                    mLocations;
     int                          mQuorum;
@@ -367,6 +389,9 @@ private:
             case MetaVrReconfiguration::kOpTypeInactivateNodes:
                 ModifyActiveStatus(inReq, false);
                 break;
+            case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
+                SetPrimaryOrder(inReq);
+                break;
             default:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "invalid operation type";
@@ -387,7 +412,7 @@ private:
         }
         if (0 != (inReq.mNodeFlags & Config::kFlagActive)) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "add node: node active flag must not set";
+            inReq.statusMsg = "add node: node active flag must not be set";
             return;
         }
         mPendingLocations.clear();
@@ -432,8 +457,7 @@ private:
         if (! ParseNodeIdList(inReq)) {
             return;
         }
-        const bool kActiveFlag = false;
-        ApplyT(inReq, kActiveFlag, mConfig.GetNodes(), NopFunc());
+        ApplyT(inReq, kActiveCheckNotActive, NopFunc());
     }
     void ModifyActiveStatus(
         MetaVrReconfiguration& inReq,
@@ -447,58 +471,110 @@ private:
         if (! ParseNodeIdList(inReq)) {
             return;
         }
-        ApplyT(inReq, ! inActivateFlag, mConfig.GetNodes(), NopFunc());
+        ApplyT(inReq, inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
+            NopFunc());
+        if (0 == inReq.status && kStatePrimary == mState) {
+            mState = kStateReconfiguration;
+        }
     }
-    template<typename NT, typename T>
-    void ApplyT(
-        int&     outStatus,
-        string&  outErr,
-        bool     inActiveFlag,
-        NT&      inNodes,
-        const T& inFunc)
+    void SetPrimaryOrder(
+        MetaVrReconfiguration& inReq)
     {
-        for (NodeIds::const_iterator theIt = mPendingNodeIds.begin();
-                mPendingNodeIds.end() != theIt;
+        if (inReq.mListSize <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "modify primary order: empty list";
+            return;
+        }
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        while (thePtr < theEndPtr) {
+            NodeId theNodeId = -1;
+            int    theOrder  = 0;
+            if (! inReq.ParseInt(thePtr, theEndPtr - thePtr, theNodeId) ||
+                    theNodeId < 0 ||
+                    ! inReq.ParseInt(thePtr, theEndPtr - thePtr, theOrder)) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "invalid node id order pair";
+                mPendingChangesList.clear();
+                return;
+            }
+            mPendingChangesList.push_back(make_pair(theNodeId, theOrder));
+        }
+        sort(mPendingChangesList.begin(), mPendingChangesList.end());
+        if (! mPendingChangesList.empty()) {
+            for (ChangesList::const_iterator
+                    theIt = mPendingChangesList.begin(), theNIt = theIt;
+                    mPendingChangesList.end() != ++theNIt;
+                    theIt = theNIt) {
+                if (theIt->first == theNIt->first) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "duplicate node id";
+                    mPendingChangesList.clear();
+                    return;
+                }
+            }
+        }
+        if ((int)mPendingChangesList.size() != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "id list list size mismatch";
+            mPendingChangesList.clear();
+            return;
+        }
+        ApplyT(inReq, kActiveCheckNone, NopFunc());
+        if (0 == inReq.status && kStatePrimary == mState) {
+            mState = kStateReconfiguration;
+        }
+    }
+    template<typename T>
+    void ApplyT(
+        int&        outStatus,
+        string&     outErr,
+        ActiveCheck inActiveCheck,
+        const T&    inFunc)
+    {
+        Config::Nodes& theNodes = mConfig.GetNodes();
+        for (ChangesList::const_iterator theIt = mPendingChangesList.begin();
+                mPendingChangesList.end() != theIt;
                 ++theIt) {
-            typename NT::iterator const theNodeIt = inNodes.find(*theIt);
-            if (inNodes.end() == theNodeIt) {
+            const NodeId                  theNodeId = theIt->first;
+            Config::Nodes::iterator const theNodeIt = theNodes.find(theNodeId);
+            if (theNodes.end() == theNodeIt) {
                 outStatus = -EINVAL;
-                outErr    = "change active status: no such node: ";
-                AppendDecIntToString(outErr, *theIt);
+                outErr    = "no such node: ";
+                AppendDecIntToString(outErr, theNodeId);
                 return;
             }
             Config::Node& theNode = theNodeIt->second;
-            if ((0 != (theNode.GetFlags() & Config::kFlagActive)) !=
-                    inActiveFlag) {
+            if (kActiveCheckNone != inActiveCheck &&
+                    (0 != (theNode.GetFlags() & Config::kFlagActive)) !=
+                    (kActiveCheckActive == inActiveCheck)) {
                 outStatus = -EINVAL;
-                outErr    = inActiveFlag ?
+                outErr    = kActiveCheckActive == inActiveCheck ?
                     "node not active: " : "node active: ";
-                AppendDecIntToString(outErr, *theIt);
+                AppendDecIntToString(outErr, theNodeId);
                 return;
             }
-            if (! inFunc(outStatus, outErr, *theIt, inNodes, theNode)) {
+            if (! inFunc(outStatus, outErr, *theIt, theNodes, theNode)) {
                 return;
             }
         }
     }
-    template<typename RT, typename NT, typename T>
+    template<typename RT, typename T>
     void ApplyT(
-        RT&      inReq,
-        bool     inActiveFlag,
-        NT&      inNodes,
-        const T& inFunc)
+        RT&         inReq,
+        ActiveCheck inActiveCheck,
+        const T&    inFunc)
     {
-        ApplyT(inReq.status, inReq.statusMsg, inActiveFlag, inNodes, inFunc);
+        ApplyT(inReq.status, inReq.statusMsg, inActiveCheck, inFunc);
     }
-    template<typename NT, typename T>
+    template<typename T>
     void ApplyT(
-        bool     inActiveFlag,
-        NT&      inNodes,
-        const T& inFunc)
+        ActiveCheck inActiveCheck,
+        const T&    inFunc)
     {
         int    status;
         string statusMsg;
-        ApplyT(status, statusMsg, inActiveFlag, inNodes, inFunc);
+        ApplyT(status, statusMsg, inActiveCheck, inFunc);
         if (0 != status) {
             panic("VR: " + statusMsg);
         }
@@ -506,7 +582,7 @@ private:
     bool ParseNodeIdList(
         MetaVrReconfiguration& inReq)
     {
-        mPendingNodeIds.clear();
+        mPendingChangesList.clear();
         const char*       thePtr    = inReq.mListStr.GetPtr();
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
         while (thePtr < theEndPtr) {
@@ -515,23 +591,24 @@ private:
                     theNodeId < 0) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "invalid node id";
-                mPendingNodeIds.clear();
+                mPendingChangesList.clear();
                 return false;
             }
-            mPendingNodeIds.push_back(theNodeId);
+            mPendingChangesList.push_back(make_pair(theNodeId, -1));
         }
-        if ((int)mPendingNodeIds.size() != inReq.mListSize) {
+        if ((int)mPendingChangesList.size() != inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "node id list size mismatch";
-            mPendingNodeIds.clear();
+            mPendingChangesList.clear();
             return false;
         }
-        sort(mPendingNodeIds.begin(), mPendingNodeIds.end());
-        if (mPendingNodeIds.end() !=
-                unique(mPendingNodeIds.begin(), mPendingNodeIds.end())) {
+        sort(mPendingChangesList.begin(), mPendingChangesList.end());
+        if (mPendingChangesList.end() !=
+                unique(mPendingChangesList.begin(),
+                    mPendingChangesList.end())) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "invalid duplicate node id";
-            mPendingNodeIds.clear();
+            mPendingChangesList.clear();
             return false;
         }
         return true;
@@ -559,6 +636,9 @@ private:
                 break;
             case MetaVrReconfiguration::kOpTypeInactivateNodes:
                 CommitModifyActiveStatus(inReq, false);
+                break;
+            case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
+                CommitSetPrimaryOrder(inReq);
                 break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
@@ -590,15 +670,25 @@ private:
     void CommitRemoveNodes(
         const MetaVrReconfiguration& inReq)
     {
-        const bool kActiveFlag = false;
-        ApplyT(kActiveFlag, mConfig.GetNodes(), RmoveFunc(*this));
+        ApplyT(kActiveCheckNotActive, RmoveFunc(*this));
     }
     void CommitModifyActiveStatus(
         const MetaVrReconfiguration& inReq,
         bool                         inActivateFlag)
     {
-        ApplyT(! inActivateFlag, mConfig.GetNodes(),
+        ApplyT(inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
             ChangeActiveFunc(inActivateFlag));
+        if (0 == inReq.status && kStateReconfiguration == mState) {
+            mState = kStatePrimary;
+        }
+    }
+    void CommitSetPrimaryOrder(
+        const MetaVrReconfiguration& inReq)
+    {
+        ApplyT(kActiveCheckNotActive, ChangePrimaryOrderFunc());
+        if (0 == inReq.status && kStateReconfiguration == mState) {
+            mState = kStatePrimary;
+        }
     }
     bool HasLocation(
         const ServerLocation& inLocation) const

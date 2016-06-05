@@ -138,6 +138,9 @@ public:
             void SetFlags(
                 Flags inFlags)
                 { mFlags = inFlags; }
+            void SetPrimaryOrder(
+                int inOrder)
+                { mPrimaryOrder = inOrder; }
         int GetPrimaryOrder() const
             { return mPrimaryOrder; }
         private:
