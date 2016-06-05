@@ -220,6 +220,8 @@ public:
         MetaVrRequest& inVrReq);
     void Update(
         MetaVrSM& inMetaVrSM);
+    void GetStatus(
+        StatusReporter& inReporter);
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
@@ -297,6 +299,7 @@ public:
           mSleepingFlag(false),
           mReceivedIdFlag(false),
           mActiveFlag(inActiveFlag),
+          mReceivedId(-1),
           mId(inNodeId)
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
@@ -491,8 +494,10 @@ public:
     }
     ClientAuthContext& GetAuthCtx()
         { return mAuthContext; }
-    int64_t GetId() const
+    NodeId GetId() const
         { return mId; }
+    NodeId GetReceivedId() const
+        { return mReceivedId; }
     seq_t GetAck() const
         { return mAckBlockSeq; }
     const ServerLocation& GetLocation() const
@@ -530,6 +535,7 @@ private:
     bool               mSleepingFlag;
     bool               mReceivedIdFlag;
     bool               mActiveFlag;
+    NodeId             mReceivedId;
     NodeId const       mId;
     Transmitter*       mPrevPtr[1];
     Transmitter*       mNextPtr[1];
@@ -930,7 +936,7 @@ private:
         }
         const bool theHasIdFlag = mAckBlockFlags &
             (uint64_t(1) << kLogBlockAckHasServerIdBit);
-        int64_t    theId        = -1;
+        NodeId     theId        = -1;
         if (theHasIdFlag  &&
                 (! HexIntParser::Parse(thePtr, theEndPtr - thePtr, theId) ||
                 theId < 0)) {
@@ -970,6 +976,7 @@ private:
             return -1;
         }
         if (! mReceivedIdFlag) {
+            mReceivedId = theId;
             if (theHasIdFlag) {
                 mReceivedIdFlag = true;
                 if (! mActiveFlag && mId != theId) {
@@ -988,7 +995,7 @@ private:
                 return -1;
             }
         }
-        if (theHasIdFlag && mActiveFlag && mId != theId) {
+        if (theHasIdFlag && mId != theId) {
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "ack node id mismatch:"
@@ -1324,8 +1331,8 @@ LogTransmitter::Impl::Insert(
         return;
     }
     // Insertion sort.
-    const int64_t theId  = inTransmitter.GetId();
-    Transmitter*  thePtr = theHeadPtr;
+    const NodeId theId  = inTransmitter.GetId();
+    Transmitter* thePtr = theHeadPtr;
     while (theId < thePtr->GetId()) {
         if (theHeadPtr == (thePtr = &List::GetNext(*thePtr))) {
             List::PushBack(mTransmittersPtr, inTransmitter);
@@ -1349,7 +1356,7 @@ LogTransmitter::Impl::Acked(
     }
     const seq_t theAck = inTransmitter.GetAck();
     if (0 < theAck && mCommitted < theAck) {
-        int64_t        thePrevId    = -1;
+        NodeId         thePrevId    = -1;
         int            theAckCnt    = 0;
         seq_t          theCommitted = theAck;
         List::Iterator theIt(mTransmittersPtr);
@@ -1362,7 +1369,7 @@ LogTransmitter::Impl::Acked(
             if (theCurAck < 0) {
                 continue;
             }
-            const int64_t theId = thePtr->GetId();
+            const NodeId theId = thePtr->GetId();
             if (mCommitted < theCurAck) {
                 theCommitted = min(theCommitted, theCurAck);
                 if (theId != thePrevId) {
@@ -1421,9 +1428,9 @@ LogTransmitter::Impl::TransmitBlock(
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     int            theCnt    = 0;
-    int64_t        thePrevId = -1;
+    NodeId         thePrevId = -1;
     while ((thePtr = theIt.Next())) {
-        const int64_t theId = thePtr->GetId();
+        const NodeId theId = thePtr->GetId();
         if (thePtr->SendBlock(inEpochSeq, inViewSeq,
                     inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
             if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
@@ -1469,7 +1476,7 @@ LogTransmitter::Impl::Update()
     int            theIdUpCnt   = 0;
     int            theTotalCnt  = 0;
     int            thePrevAllId = -1;
-    int64_t        thePrevId    = -1;
+    NodeId         thePrevId    = -1;
     seq_t          theMinAck    = -1;
     seq_t          theMaxAck    = -1;
     seq_t          theCurMinAck = -1;
@@ -1477,8 +1484,8 @@ LogTransmitter::Impl::Update()
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {
-        const int64_t theId  = thePtr->GetId();
-        const seq_t   theAck = thePtr->GetAck();
+        const NodeId theId  = thePtr->GetId();
+        const seq_t  theAck = thePtr->GetAck();
         if (0 <= theId && theId != thePrevAllId) {
             theIdCnt++;
             thePrevAllId = theId;
@@ -1524,6 +1531,25 @@ LogTransmitter::Impl::Update()
     mUpFlag   = theUpFlag;
     if (theNotifyFlag) {
         mCommitObserver.Notify(mCommitted);
+    }
+}
+
+    void
+LogTransmitter::Impl::GetStatus(
+    LogTransmitter::StatusReporter& inReporter)
+{
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        if (! inReporter.Report(
+                thePtr->GetLocation(),
+                thePtr->GetId(),
+                thePtr->IsActive(),
+                thePtr->GetReceivedId(),
+                thePtr->GetAck(),
+                mCommitted)) {
+            break;
+        }
     }
 }
 
@@ -1643,6 +1669,13 @@ LogTransmitter::Update(
     MetaVrSM& inMetaVrSM)
 {
     mImpl.Update(inMetaVrSM);
+}
+
+    void
+LogTransmitter::GetStatus(
+    LogTransmitter::StatusReporter& inReporter)
+{
+    return mImpl.GetStatus(inReporter);
 }
 
 } // namespace KFS

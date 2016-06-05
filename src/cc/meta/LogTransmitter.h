@@ -29,6 +29,8 @@
 #ifndef KFS_META_LOG_TRANSMITTER_H
 #define KFS_META_LOG_TRANSMITTER_H
 
+#include "MetaVrSM.h"
+
 #include "common/kfstypes.h"
 
 namespace KFS {
@@ -36,11 +38,13 @@ namespace KFS {
 class Properties;
 class NetManager;
 class MetaVrRequest;
-class MetaVrSM;
 
 class LogTransmitter
 {
 public:
+    typedef MetaVrSM::Config Config;
+    typedef Config::NodeId   NodeId;
+
     class CommitObserver
     {
     public:
@@ -52,6 +56,24 @@ public:
         virtual ~CommitObserver()
             {}
     };
+
+    class StatusReporter
+    {
+    public:
+        virtual bool Report(
+            const ServerLocation& inLocation,
+            NodeId                inId,
+            bool                  inActiveFlag,
+            NodeId                inActualId,
+            seq_t                 inAck,
+            seq_t                 inCommitted) = 0;
+    protected:
+        StatusReporter()
+            {}
+        virtual ~StatusReporter()
+            {}
+    };
+
     LogTransmitter(
         NetManager&     inNetManager,
         CommitObserver& inCommitObserver);
@@ -73,6 +95,8 @@ public:
         MetaVrRequest& inVrReq);
     void Update(
         MetaVrSM& inMetaVrSM);
+    void GetStatus(
+        StatusReporter& inReporter);
 private:
     class Impl;
 
