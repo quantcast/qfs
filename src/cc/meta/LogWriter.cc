@@ -34,7 +34,6 @@
 
 #include "common/MsgLogger.h"
 #include "common/MdStream.h"
-#include "common/time.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
 #include "common/SingleLinkedQueue.h"
@@ -112,7 +111,7 @@ public:
           mLogNum(0),
           mLogName(),
           mWriteState(kWriteStateNone),
-          mLogRotateInterval(600 * 1000 * 1000),
+          mLogRotateInterval(600),
           mPanicOnIoErrorFlag(false),
           mSyncFlag(false),
           mWokenFlag(false),
@@ -171,7 +170,7 @@ public:
         if (inLogAppendMdStatePtr) {
             SetLogName(inLogSeq,
                 inLogNameHasSeqFlag ? inLogAppendStartSeq : seq_t(-1));
-            mCurLogStartTime = microseconds();
+            mCurLogStartTime = mNetManager.Now();
             mCurLogStartSeq  = inLogAppendStartSeq;
             mMdStream.SetMdState(*inLogAppendMdStatePtr);
             if (! mMdStream) {
@@ -468,12 +467,12 @@ private:
     int            mError;
     MdStream       mMdStream;
     ReqOstream     mReqOstream;
-    int64_t        mCurLogStartTime;
+    time_t         mCurLogStartTime;
     seq_t          mCurLogStartSeq;
     seq_t          mLogNum;
     string         mLogName;
     WriteState     mWriteState;
-    int64_t        mLogRotateInterval;
+    time_t         mLogRotateInterval;
     bool           mPanicOnIoErrorFlag;
     bool           mSyncFlag;
     bool           mWokenFlag;
@@ -694,8 +693,7 @@ private:
             theCurPtr = theEndPtr;
         }
         if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
-                mCurLogStartTime + mLogRotateInterval <
-                microseconds()) {
+                mCurLogStartTime + mLogRotateInterval < mNetManager.Now()) {
             StartNextLog();
         }
     }
@@ -1063,7 +1061,7 @@ private:
         seq_t inLogSeq)
     {
         Close();
-        mCurLogStartTime = microseconds();
+        mCurLogStartTime = mNetManager.Now();
         mNextBlockSeq    = -1;
         mError           = 0;
         mWriteState      = kWriteStateNone;
@@ -1136,9 +1134,9 @@ private:
         mLastLogName = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("lastLogName"),
             mLastLogName);
-        mLogRotateInterval = (int64_t)(inParameters.getValue(
+        mLogRotateInterval = (time_t)max(4., inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("rotateIntervalSec"),
-            mLogRotateInterval * 1e-6) * 1e6);
+            mLogRotateInterval * 1.));
         mPanicOnIoErrorFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("panicOnIoError"),
             mPanicOnIoErrorFlag ? 1 : 0) != 0;
