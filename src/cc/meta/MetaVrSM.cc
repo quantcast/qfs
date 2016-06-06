@@ -297,6 +297,82 @@ private:
         }
     };
 
+    class TxStatusCheck : public LogTransmitter::StatusReporter
+    {
+    public:
+        TxStatusCheck(
+            ChangesList& inList,
+            MetaRequest& inReq)
+            : LogTransmitter::StatusReporter(),
+              mList(inList),
+              mReq(inReq),
+              mUpCount(0),
+              mTotalUpCount(0)
+            {}
+        virtual ~TxStatusCheck()
+            {}
+        virtual bool Report(
+            const ServerLocation& inLocation,
+            NodeId                inId,
+            bool                  inActiveFlag,
+            NodeId                inActualId,
+            seq_t                 inAck,
+            seq_t                 inCommitted)
+        {
+            if (0 != mReq.status) {
+                return false;
+            }
+            for (ChangesList::iterator theIt = mList.begin();
+                    mList.end() != theIt;
+                    ++theIt) {
+                if (inId == theIt->first) {
+                    if (inActiveFlag) {
+                        mReq.status    = -EINVAL;
+                        mReq.statusMsg =
+                            "invalid transmitter active status node: ";
+                        AppendDecIntToString(mReq.statusMsg, inId);
+                        mReq.statusMsg += " location: ";
+                        mReq.statusMsg += inLocation.ToString();
+                    } else if (0 <= inActualId && inId != inActualId) {
+                        mReq.status    = -EINVAL;
+                        mReq.statusMsg = "node id mismatch: expected: ";
+                        AppendDecIntToString(mReq.statusMsg, inId);
+                        mReq.statusMsg += " actual: ";
+                        AppendDecIntToString(mReq.statusMsg, inActualId);
+                        mReq.statusMsg += " location: ";
+                        mReq.statusMsg += inLocation.ToString();
+                    }
+                    if (0 != mReq.status) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "tranmit channel: " <<
+                            mReq.statusMsg <<
+                        KFS_LOG_EOM;
+                        return false;
+                    }
+                    if (0 <= inAck && inCommitted <= inAck) {
+                        if (theIt->second <= 0) {
+                            theIt->second = 1;
+                            mUpCount++;
+                        } else {
+                            theIt->second++;
+                        }
+                        mTotalUpCount++;
+                    }
+                }
+            }
+            return true;
+        }
+        size_t GetUpCount() const
+            { return mUpCount; }
+        size_t GetTotalUpCount() const
+            { return mTotalUpCount; }
+    private:
+        ChangesList& mList;
+        MetaRequest& mReq;
+        size_t       mUpCount;
+        size_t       mTotalUpCount;
+    };
+
     LogTransmitter&              mLogTransmitter;
     MetaVrSM&                    mMetaVrSM;
     QCMutex*                     mMutexPtr;
@@ -474,7 +550,36 @@ private:
         ApplyT(inReq, inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
             NopFunc());
         if (0 == inReq.status && kStatePrimary == mState) {
-            mState = kStateReconfiguration;
+            TxStatusCheck theCheck(mPendingChangesList, inReq);
+            mLogTransmitter.GetStatus(theCheck);
+            if (0 == inReq.status) {
+                if (theCheck.GetUpCount() != mPendingChangesList.size()) {
+                    if (theCheck.GetUpCount() < mPendingChangesList.size()) {
+                        for (ChangesList::const_iterator
+                                theIt = mPendingChangesList.begin();
+                                mPendingChangesList.end() != theIt;
+                                ++theIt) {
+                            if (theIt->second <= 0) {
+                                if (0 == inReq.status) {
+                                    inReq.status    = -EINVAL;
+                                    inReq.statusMsg =
+                                        "no communication with nodes:";
+                                }
+                                inReq.statusMsg += " ";
+                                AppendDecIntToString(
+                                    inReq.statusMsg, theIt->first);
+                            }
+                        }
+                    }
+                    if (0 == inReq.status) {
+                        panic("VR: invalid status check result");
+                        inReq.status    = -EINVAL;
+                        inReq.statusMsg = "internal error";
+                    }
+                } else {
+                    mState = kStateReconfiguration;
+                }
+            }
         }
     }
     void SetPrimaryOrder(
@@ -748,7 +853,7 @@ MetaVrSM::~MetaVrSM()
     delete &mImpl;
 }
 
-    int 
+    int
 MetaVrSM::HandleLogBlock(
     seq_t  inLogSeq,
     seq_t  inBlockLenSeq,
