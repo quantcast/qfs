@@ -56,6 +56,7 @@ public:
         kStatePrimary         = 2,
         kStateBackup          = 3
     };
+    enum { kMinActiveCount = 3 };
 
     Impl(
         LogTransmitter& inLogTransmitter,
@@ -70,6 +71,7 @@ public:
           mPendingChangesList(),
           mConfig(),
           mLocations(),
+          mActiveCount(0),
           mQuorum(0)
         {}
     ~Impl()
@@ -83,7 +85,9 @@ public:
     {
         outEpochSeq = -1;
         outViewSeq  = -1;
-        return ((mConfig.IsEmpty() && mNodeId <= 0) ? 0 : -EVRNOTPRIMARY);
+        return ((kStatePrimary == mState ||
+                (mConfig.IsEmpty() && mNodeId <= 0)) ?
+            0 : -EVRNOTPRIMARY);
     }
     bool Handle(
         MetaRequest& inReq)
@@ -185,7 +189,7 @@ public:
     int GetQuorum() const
         { return mQuorum; }
     bool IsPrimary() const
-        { return mPrimaryFlag; }
+        { return (kStatePrimary == mState); }
     static const char* GetStateName(
         State inState)
     {
@@ -383,8 +387,8 @@ private:
     ChangesList                  mPendingChangesList;
     Config                       mConfig;
     Locations                    mLocations;
+    int                          mActiveCount;
     int                          mQuorum;
-    bool                         mPrimaryFlag;
 
     bool Handle(
         MetaVrStartViewChange& inReq)
@@ -577,7 +581,17 @@ private:
                         inReq.statusMsg = "internal error";
                     }
                 } else {
-                    mState = kStateReconfiguration;
+                    const int theActiveCount = inActivateFlag ?
+                        mActiveCount + mPendingChangesList.size() :
+                        mActiveCount - mPendingChangesList.size();
+                    if (theActiveCount < kMinActiveCount &&
+                            (0 != theActiveCount || inActivateFlag)) {
+                        inReq.status    = -EINVAL;
+                        inReq.statusMsg =
+                            "configuration must have at least 3 active nodes";
+                    } else {
+                        mState = kStateReconfiguration;
+                    }
                 }
             }
         }
@@ -783,8 +797,20 @@ private:
     {
         ApplyT(inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
             ChangeActiveFunc(inActivateFlag));
-        if (0 == inReq.status && kStateReconfiguration == mState) {
-            mState = kStatePrimary;
+        if (0 == inReq.status) {
+            if (kStateReconfiguration == mState) {
+                mState = kStatePrimary;
+            }
+            if (inActivateFlag) {
+                mActiveCount += mPendingChangesList.size();
+            } else {
+                mActiveCount -= mPendingChangesList.size();
+            }
+            if (mActiveCount < kMinActiveCount &&
+                    (0 != mActiveCount || inActivateFlag)) {
+                panic("VR: invalid actvie node count");
+            }
+            mQuorum = mActiveCount - (mActiveCount - 1) / 2;
         }
     }
     void CommitSetPrimaryOrder(
