@@ -34,6 +34,8 @@
 #include "Checkpoint.h"
 #include "LayoutManager.h"
 #include "NetDispatch.h"
+#include "LogWriter.h"
+#include "MetaVrSM.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
@@ -766,6 +768,22 @@ restore_hibernated_cs(DETokenizer& c)
     return true;
 }
 
+static bool
+restore_viewstamped_config(DETokenizer& c)
+{
+    if (c.empty() || 4 != c.front().len) {
+        return false;
+    }
+    const int type = c.front().ptr[3] & 0xFF;
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& tok = c.front();
+    return MetaRequest::GetLogWriter().GetMetaVrSM().Restore(
+        16 == c.getIntBase(), type, tok.ptr, tok.len);
+}
+
 static const DiskEntry&
 get_entry_map()
 {
@@ -806,6 +824,8 @@ get_entry_map()
     e.add_parser("hcsd",                    &restore_hibernated_cs);
     e.add_parser("hcsm",                    &restore_hibernated_cs);
     e.add_parser("hcse",                    &restore_hibernated_cs);
+    e.add_parser("vrcn",                    &restore_viewstamped_config);
+    e.add_parser("vrce",                    &restore_viewstamped_config);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;

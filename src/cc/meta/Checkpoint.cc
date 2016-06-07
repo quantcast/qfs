@@ -37,6 +37,8 @@
 #include "MetaRequest.h"
 #include "NetDispatch.h"
 #include "LayoutManager.h"
+#include "LogWriter.h"
+#include "MetaVrSM.h"
 #include "util.h"
 
 #include "common/MdStream.h"
@@ -142,6 +144,9 @@ Checkpoint::write(
         }
         if (status == 0 && os) {
             status = gLayoutManager.WritePendingObjStoreDelete(os);
+        }
+        if (status == 0 && os) {
+            status = MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
         }
         if (status == 0) {
             os << "time/" << DisplayIsoDateTime() << '\n';

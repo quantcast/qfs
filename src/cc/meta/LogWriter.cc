@@ -235,7 +235,9 @@ public:
         mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
         mVrPrevLogReceivedTime = mLastLogReceivedTime;
-        mMetaVrSM.Start();
+        if (0 != (mError = mMetaVrSM.Start())) {
+            return mError;
+        }
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);

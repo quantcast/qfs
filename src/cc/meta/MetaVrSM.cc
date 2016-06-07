@@ -36,6 +36,7 @@
 #include "qcdio/qcstutils.h"
 
 #include "common/IntToString.h"
+#include "common/BufferInputStream.h"
 
 #include <algorithm>
 
@@ -49,6 +50,8 @@ using std::unique;
 class MetaVrSM::Impl
 {
 public:
+    typedef MetaVrSM::Config Config;
+
     enum State
     {
         kStateNone            = 0,
@@ -64,7 +67,7 @@ public:
         : mLogTransmitter(inLogTransmitter),
           mMetaVrSM(inMetaVrSM),
           mMutexPtr(0),
-          mState(kStateNone),
+          mState(kStateBackup),
           mNodeId(-1),
           mReconfigureReqPtr(0),
           mPendingLocations(),
@@ -72,7 +75,9 @@ public:
           mConfig(),
           mLocations(),
           mActiveCount(0),
-          mQuorum(0)
+          mQuorum(0),
+          mStartedFlag(false),
+          mInputStream()
         {}
     ~Impl()
         {}
@@ -85,9 +90,7 @@ public:
     {
         outEpochSeq = -1;
         outViewSeq  = -1;
-        return ((kStatePrimary == mState ||
-                (mConfig.IsEmpty() && mNodeId <= 0)) ?
-            0 : -EVRNOTPRIMARY);
+        return (IsPrimary() ? 0 : -EVRNOTPRIMARY);
     }
     bool Handle(
         MetaRequest& inReq)
@@ -161,8 +164,18 @@ public:
         time_t inTimeNow)
     {
     }
-    void Start()
+    int Start()
     {
+        if (mNodeId < 0) {
+            mConfig.Clear();
+            mActiveCount = 0;
+            mQuorum      = 0;
+            mState       = kStatePrimary;
+        } else {
+            mState = kStateBackup;
+        }
+        mStartedFlag = true;
+        return 0;
     }
     void Shutdown()
     {
@@ -171,7 +184,9 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters)
     {
-        mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        if (! mStartedFlag || mNodeId < 0) {
+            mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        }
         return 0;
     }
     void Commit(
@@ -206,6 +221,73 @@ public:
             default: break;
         }
         return "invalid";
+    }
+    bool Restore(
+        bool        inHexFmtFlag,
+        int         inType,
+        const char* inBufPtr,
+        size_t      inLen)
+    {
+        if ('n' != inType && 'e' != inType) {
+            return false;
+        }
+        istream& theStream = mInputStream.Set(inBufPtr, inLen);
+        theStream.clear();
+        theStream.flags(
+            (inHexFmtFlag ? istream::hex :  istream::dec) | istream::skipws);
+        Config::NodeId theNodeId = -1;
+        Config::Node   theNode;
+        if ('n' == inType) {
+            if (! (theStream >> theNodeId) ||
+                    theNodeId < 0 ||
+                    ! theNode.Extract(theStream) ||
+                    ! mConfig.AddNode(theNodeId, theNode)) {
+                mConfig.Clear();
+                return false;
+            }
+        } else {
+            size_t theCount = 0;
+            if (! (theStream >> theCount) ||
+                    theCount != mConfig.GetNodes().size()) {
+                mConfig.Clear();
+                return false;
+            }
+            int theTimeout = -1;
+            if (! (theStream >> theTimeout) || theTimeout < 0) {
+                mConfig.Clear();
+                return false;
+            }
+            mConfig.SetPrimaryTimeout(theTimeout);
+            theTimeout = -1;
+            if (! (theStream >> theTimeout) || theTimeout < 0) {
+                mConfig.Clear();
+                return false;
+            }
+            mConfig.SetBackupTimeout(theTimeout);
+        }
+        return true;
+    }
+    int Checkpoint(
+        ostream& inStream) const
+    {
+        const Config::Nodes& theNodes = mConfig.GetNodes();
+        if (theNodes.empty()) {
+            return (inStream ? 0 : -EIO);
+        }
+        ReqOstream theStream(inStream);
+        for (Config::Nodes::const_iterator theIt = theNodes.begin();
+                theNodes.end() != theIt && inStream;
+                ++theIt) {
+            theStream << "vrcn/" << theIt->first << " ";
+            theIt->second.Insert(inStream) << "\n";
+        }
+        if (inStream) {
+            theStream << "vrce/" << theNodes.size() <<
+                " " << mConfig.GetPrimaryTimeout() <<
+                " " << mConfig.GetBackupTimeout() <<
+            "\n";
+        }
+        return (inStream ? 0 : -EIO);
     }
 private:
     typedef Config::Locations   Locations;
@@ -389,6 +471,8 @@ private:
     Locations                    mLocations;
     int                          mActiveCount;
     int                          mQuorum;
+    bool                         mStartedFlag;
+    BufferInputStream            mInputStream;
 
     bool Handle(
         MetaVrStartViewChange& inReq)
@@ -551,8 +635,11 @@ private:
         if (! ParseNodeIdList(inReq)) {
             return;
         }
-        ApplyT(inReq, inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
-            NopFunc());
+        ApplyT(
+            inReq,
+            inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
+            NopFunc()
+        );
         if (0 == inReq.status && kStatePrimary == mState) {
             TxStatusCheck theCheck(mPendingChangesList, inReq);
             mLogTransmitter.GetStatus(theCheck);
@@ -962,10 +1049,10 @@ MetaVrSM::Process(
     mImpl.Process(inTimeNow);
 }
 
-    void
+    int
 MetaVrSM::Start()
 {
-    mImpl.Start();
+    return mImpl.Start();
 }
 
     void
@@ -1005,6 +1092,23 @@ MetaVrSM::GetQuorum() const
 MetaVrSM::IsPrimary() const
 {
     return mImpl.IsPrimary();
+}
+
+    bool
+MetaVrSM::Restore(
+    bool        inHexFmtFlag,
+    int         inType,
+    const char* inBufPtr,
+    size_t      inLen)
+{
+    return mImpl.Restore(inHexFmtFlag, inType, inBufPtr, inLen);
+}
+
+    int
+MetaVrSM::Checkpoint(
+    ostream& inStream) const
+{
+    return mImpl.Checkpoint(inStream);
 }
 
 } // namespace KFS

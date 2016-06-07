@@ -38,11 +38,13 @@
 #include <vector>
 #include <map>
 #include <utility>
+#include <ostream>
 
 namespace KFS
 {
 using std::vector;
 using std::map;
+using std::ostream;
 using std::pair;
 using std::less;
 using std::make_pair;
@@ -156,7 +158,9 @@ public:
         > Nodes;
 
         Config()
-            : mNodes()
+            : mNodes(),
+              mPrimaryTimeout(4),
+              mBackupTimeout(8)
             {}
         template<typename ST>
         ST& Insert(
@@ -181,6 +185,14 @@ public:
             if (! (inStream >> theSize)) {
                 return inStream;
             }
+            int thePrimaryTimeout = -1;
+            if (! (inStream >> thePrimaryTimeout)) {
+                return inStream;
+            }
+            int theBackupTimeout = -1;
+            if (! (inStream >> theBackupTimeout)) {
+                return inStream;
+            }
             while (mNodes.size() < theSize) {
                 Node theNode;
                 NodeId theId = -1;
@@ -199,7 +211,11 @@ public:
                 }
             }
             if (mNodes.size() != theSize) {
+                mNodes.clear();
                 inStream.setstate(ST::failbit);
+            } else if (inStream) {
+                mPrimaryTimeout = thePrimaryTimeout;
+                mBackupTimeout  = theBackupTimeout;
             }
             return inStream;
         }
@@ -217,8 +233,26 @@ public:
         bool RemoveNode(
             NodeId inId)
             { return (0 < mNodes.erase(inId)); }
+        void Clear()
+        {
+            mNodes.clear();
+            mPrimaryTimeout = 4;
+            mBackupTimeout  = 8;
+        }
+        int GetPrimaryTimeout() const
+            { return mPrimaryTimeout; }
+        int GetBackupTimeout() const
+            { return mBackupTimeout; }
+        void SetPrimaryTimeout(
+            int inTimeout)
+            { mPrimaryTimeout = inTimeout; }
+        void SetBackupTimeout(
+            int inTimeout)
+            { mBackupTimeout = inTimeout; }
     private:
         Nodes mNodes;
+        int   mPrimaryTimeout;
+        int   mBackupTimeout;
     };
 
     typedef Config::NodeId NodeId;
@@ -268,11 +302,18 @@ public:
         const Properties& inParameters);
     void Commit(
         seq_t inLogSeq);
-    void Start();
+    int Start();
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;
     bool IsPrimary() const;
+    bool Restore(
+        bool        inHexFmtFlag,
+        int         inType,
+        const char* inBufPtr,
+        size_t      inLen);
+    int Checkpoint(
+        ostream& inStream) const;
 private:
     class Impl;
     Impl& mImpl;
@@ -286,7 +327,7 @@ private:
 template<typename ST>
     static inline ST&
 operator<<(
-    ST&                          inStream,
+    ST&                     inStream,
     const MetaVrSM::Config& inConfig)
 {
     return inConfig.Insert(inStream);
