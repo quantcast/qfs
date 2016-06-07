@@ -79,6 +79,8 @@ public:
           mStartedFlag(false),
           mPendingPrimaryTimeout(0),
           mPendingBackupTimeout(0),
+          mEpochSeq(0),
+          mViewSeq(0),
           mInputStream()
         {}
     ~Impl()
@@ -90,8 +92,8 @@ public:
         seq_t& outEpochSeq,
         seq_t& outViewSeq)
     {
-        outEpochSeq = -1;
-        outViewSeq  = -1;
+        outEpochSeq = mEpochSeq;
+        outViewSeq  = mViewSeq;
         return (IsPrimary() ? 0 : -EVRNOTPRIMARY);
     }
     bool Handle(
@@ -266,6 +268,19 @@ public:
                 return false;
             }
             mConfig.SetBackupTimeout(theTimeout);
+            seq_t theSeq = -1;
+            if (! (theStream >> theSeq) || theSeq <= 0) {
+                mConfig.Clear();
+                return false;
+            }
+            mEpochSeq = theSeq;
+            theSeq = -1;
+            if (! (theStream >> theSeq) || theSeq < 0) {
+                mEpochSeq = 0;
+                mConfig.Clear();
+                return false;
+            }
+            mViewSeq = theSeq;
         }
         return true;
     }
@@ -287,6 +302,8 @@ public:
             theStream << "vrce/" << theNodes.size() <<
                 " " << mConfig.GetPrimaryTimeout() <<
                 " " << mConfig.GetBackupTimeout() <<
+                " " << mEpochSeq <<
+                " " << mViewSeq <<
             "\n";
         }
         return (inStream ? 0 : -EIO);
@@ -476,6 +493,8 @@ private:
     bool                         mStartedFlag;
     int                          mPendingPrimaryTimeout;
     int                          mPendingBackupTimeout;
+    seq_t                        mEpochSeq;
+    seq_t                        mViewSeq;
     BufferInputStream            mInputStream;
 
     bool Handle(
@@ -933,9 +952,6 @@ private:
         ApplyT(inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
             ChangeActiveFunc(inActivateFlag));
         if (0 == inReq.status) {
-            if (kStateReconfiguration == mState) {
-                mState = kStatePrimary;
-            }
             if (inActivateFlag) {
                 mActiveCount += mPendingChangesList.size();
             } else {
@@ -947,13 +963,35 @@ private:
             }
             mQuorum = mActiveCount - (mActiveCount - 1) / 2;
         }
+        CommitReconfiguration(inReq);
     }
     void CommitSetPrimaryOrder(
         const MetaVrReconfiguration& inReq)
     {
         ApplyT(kActiveCheckNotActive, ChangePrimaryOrderFunc());
-        if (0 == inReq.status && kStateReconfiguration == mState) {
-            mState = kStatePrimary;
+        CommitReconfiguration(inReq);
+    }
+    void CommitReconfiguration(
+        const MetaVrReconfiguration& inReq)
+    {
+        if (0 != inReq.status) {
+            return;
+        }
+        mEpochSeq++;
+        mViewSeq = 1;
+        if (kStateReconfiguration == mState) {
+            const Config::Nodes& theNodes = mConfig.GetNodes();
+            Config::Nodes::const_iterator const theIt =
+                theNodes.find(mNodeId);
+            if (theNodes.end() == theIt) {
+                panic("VR: invalid primary reconfiguration completion");
+            } else {
+                if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
+                    mState = kStatePrimary;
+                } else {
+                    mState = kStateBackup;
+                }
+            }
         }
     }
     void CommitSetTimeouts(
