@@ -242,6 +242,7 @@ public:
         kOpTypeActivateNodes   = 3,
         kOpTypeInactivateNodes = 4,
         kOpTypeSetPrimaryOrder = 5,
+        kOpTypeSetTimeouts     = 6,
         kOpTypesCount
     };
     typedef MetaVrSM::Config Config;

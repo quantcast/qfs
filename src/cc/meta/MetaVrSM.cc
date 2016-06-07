@@ -77,6 +77,8 @@ public:
           mActiveCount(0),
           mQuorum(0),
           mStartedFlag(false),
+          mPendingPrimaryTimeout(0),
+          mPendingBackupTimeout(0),
           mInputStream()
         {}
     ~Impl()
@@ -472,6 +474,8 @@ private:
     int                          mActiveCount;
     int                          mQuorum;
     bool                         mStartedFlag;
+    int                          mPendingPrimaryTimeout;
+    int                          mPendingBackupTimeout;
     BufferInputStream            mInputStream;
 
     bool Handle(
@@ -555,6 +559,9 @@ private:
                 break;
             case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
                 SetPrimaryOrder(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeSetTimeouts:
+                SetTimeouts(inReq);
                 break;
             default:
                 inReq.status    = -EINVAL;
@@ -731,6 +738,44 @@ private:
             mState = kStateReconfiguration;
         }
     }
+    static bool ValidateTimeouts(
+        int inPrimaryTimeout,
+        int inBackupTimeout)
+    {
+        return (
+            0 < inPrimaryTimeout &&
+            inPrimaryTimeout + 3 <= inBackupTimeout
+        );
+    }
+    void SetTimeouts(
+        MetaVrReconfiguration& inReq)
+    {
+        if (2 != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "set timeouts: invalid list size";
+            return;
+        }
+        int               thePrimaryTimeout = -1;
+        int               theBackupTimeout  = -1;
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        if (! inReq.ParseInt(thePtr, theEndPtr - thePtr, thePrimaryTimeout) ||
+                ! inReq.ParseInt(
+                    thePtr, theEndPtr - thePtr, theBackupTimeout) ||
+                ! ValidateTimeouts(theBackupTimeout, theBackupTimeout)) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "set timeouts: timeout values; "
+                "primary timeout must be greater than 0; backup "
+                "timeout must be at least 3 seconds greater than primary "
+                "timeout";
+            return;
+        }
+        mPendingPrimaryTimeout = thePrimaryTimeout;
+        mPendingBackupTimeout  = theBackupTimeout;
+        if (kStatePrimary == mState && kMinActiveCount <= mActiveCount) {
+            mState = kStateReconfiguration;
+        }
+    }
     template<typename T>
     void ApplyT(
         int&        outStatus,
@@ -846,6 +891,9 @@ private:
             case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
                 CommitSetPrimaryOrder(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeSetTimeouts:
+                CommitSetTimeouts(inReq);
+                break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
                 break;
@@ -905,6 +953,19 @@ private:
     {
         ApplyT(kActiveCheckNotActive, ChangePrimaryOrderFunc());
         if (0 == inReq.status && kStateReconfiguration == mState) {
+            mState = kStatePrimary;
+        }
+    }
+    void CommitSetTimeouts(
+        const MetaVrReconfiguration& inReq)
+    {
+        if (! ValidateTimeouts(
+                mPendingPrimaryTimeout, mPendingBackupTimeout)) {
+            panic("VR: invalid timeouts");
+        }
+        if (0 == inReq.status && kStateReconfiguration == mState) {
+            mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
+            mConfig.SetBackupTimeout(mPendingBackupTimeout);
             mState = kStatePrimary;
         }
     }
