@@ -97,6 +97,8 @@ public:
         MetaVrSM& inMetaVrSM);
     void GetStatus(
         StatusReporter& inReporter);
+    void SetHeartbeatInterval(
+        int inInterval);
 private:
     class Impl;
 

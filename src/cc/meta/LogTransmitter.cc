@@ -133,6 +133,9 @@ public:
         { return mMaxReadAhead; }
     int GetHeartbeatInterval() const
         { return mHeartbeatInterval; }
+    void SetHeartbeatInterval(
+        int inInterval)
+        { mHeartbeatInterval = max(1, inInterval); }
     seq_t GetCommitted() const
         { return mCommitted; }
     void SetCommitted(
@@ -1233,9 +1236,6 @@ LogTransmitter::Impl::SetParameters(
     mMaxReadAhead = max(512, min(64 << 20, inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "maxReadAhead"), mMaxReadAhead)));
-    mHeartbeatInterval = inParameters.getValue(
-        theParamName.Truncate(thePrefixLen).Append(
-        "heartbeatInterval"), mHeartbeatInterval);
     mMaxPending = inParameters.getValue(
         theParamName.Truncate(thePrefixLen).Append(
         "maxPending"), mMaxPending);
@@ -1676,6 +1676,13 @@ LogTransmitter::GetStatus(
     LogTransmitter::StatusReporter& inReporter)
 {
     return mImpl.GetStatus(inReporter);
+}
+
+    void
+LogTransmitter::SetHeartbeatInterval(
+    int inInterval)
+{
+    mImpl.SetHeartbeatInterval(inInterval);
 }
 
 } // namespace KFS

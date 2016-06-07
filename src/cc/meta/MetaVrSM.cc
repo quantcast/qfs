@@ -77,10 +77,12 @@ public:
           mActiveCount(0),
           mQuorum(0),
           mStartedFlag(false),
+          mActiveFlag(false),
           mPendingPrimaryTimeout(0),
           mPendingBackupTimeout(0),
           mEpochSeq(0),
           mViewSeq(0),
+          mLastReceivedTime(0),
           mInputStream()
         {}
     ~Impl()
@@ -163,10 +165,16 @@ public:
     void SetLastLogReceivedTime(
         time_t inTime)
     {
+        mLastReceivedTime = inTime;
     }
     void Process(
         time_t inTimeNow)
     {
+        if (! mActiveFlag) {
+            return;
+        }
+        if (kStateBackup == mState) {
+        }
     }
     int Start()
     {
@@ -178,6 +186,7 @@ public:
         } else {
             mState = kStateBackup;
         }
+        mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mStartedFlag = true;
         return 0;
     }
@@ -196,6 +205,11 @@ public:
     void Commit(
         seq_t inLogSeq)
     {
+        if (kMinActiveCount <= mActiveCount &&
+                mActiveFlag &&
+                (kStatePrimary == mState || kStateReconfiguration == mState) &&
+                ! mLogTransmitter.IsUp()) {
+        }
         if (! mReconfigureReqPtr || inLogSeq < mReconfigureReqPtr->logseq) {
             return;
         }
@@ -491,10 +505,12 @@ private:
     int                          mActiveCount;
     int                          mQuorum;
     bool                         mStartedFlag;
+    bool                         mActiveFlag;
     int                          mPendingPrimaryTimeout;
     int                          mPendingBackupTimeout;
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
+    time_t                       mLastReceivedTime;
     BufferInputStream            mInputStream;
 
     bool Handle(
@@ -979,19 +995,23 @@ private:
         }
         mEpochSeq++;
         mViewSeq = 1;
+        const Config::Nodes&                theNodes = mConfig.GetNodes();
+        Config::Nodes::const_iterator const theIt    = theNodes.find(mNodeId);
         if (kStateReconfiguration == mState) {
-            const Config::Nodes& theNodes = mConfig.GetNodes();
-            Config::Nodes::const_iterator const theIt =
-                theNodes.find(mNodeId);
             if (theNodes.end() == theIt) {
                 panic("VR: invalid primary reconfiguration completion");
             } else {
-                if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
+                mActiveFlag =
+                    0 != (Config::kFlagActive & theIt->second.GetFlags());
+                if (mActiveFlag) {
                     mState = kStatePrimary;
                 } else {
                     mState = kStateBackup;
                 }
             }
+        } else {
+            mActiveFlag = theNodes.end() != theIt &&
+                0 != (Config::kFlagActive & theIt->second.GetFlags());
         }
     }
     void CommitSetTimeouts(
@@ -1002,10 +1022,11 @@ private:
             panic("VR: invalid timeouts");
         }
         if (0 == inReq.status) {
-            if (kStateReconfiguration == mState ||
-                kStateBackup == mState) {
+            if (kStateReconfiguration == mState || kStateBackup == mState) {
                 mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
                 mConfig.SetBackupTimeout(mPendingBackupTimeout);
+                mLogTransmitter.SetHeartbeatInterval(
+                    mConfig.GetPrimaryTimeout());
             }
             if (kStateReconfiguration == mState) {
                 mState = kStatePrimary;
