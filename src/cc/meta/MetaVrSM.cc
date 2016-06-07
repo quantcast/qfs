@@ -963,10 +963,15 @@ private:
                 mPendingPrimaryTimeout, mPendingBackupTimeout)) {
             panic("VR: invalid timeouts");
         }
-        if (0 == inReq.status && kStateReconfiguration == mState) {
-            mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
-            mConfig.SetBackupTimeout(mPendingBackupTimeout);
-            mState = kStatePrimary;
+        if (0 == inReq.status) {
+            if (kStateReconfiguration == mState ||
+                kStateBackup == mState) {
+                mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
+                mConfig.SetBackupTimeout(mPendingBackupTimeout);
+            }
+            if (kStateReconfiguration == mState) {
+                mState = kStatePrimary;
+            }
         }
     }
     bool HasLocation(
