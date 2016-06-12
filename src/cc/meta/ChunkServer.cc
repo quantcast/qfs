@@ -766,10 +766,7 @@ ChunkServer::GetHelloBytes(MetaHello* req /* = 0 */)
     if (req->bytesReceived < 0) {
         req->bytesReceived = 0;
     }
-    if (avail <= 0) {
-        return avail;
-    }
-    if (avail >= req->bufferBytes) {
+    if (req->bufferBytes <= avail) {
         sHelloBytesCommitted += req->bufferBytes;
     }
     return (avail - req->bufferBytes);
@@ -1451,6 +1448,10 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mHelloOp = static_cast<MetaHello*>(op);
         mHelloOp->maxPendingOpsCount = sMaxPendingOpsCount;
         mHelloOp->authName           = mAuthName;
+        // Mark hello by setting bytesReceived to a negative value, such that
+        // PutHelloBytes(), if invoked, has no effect, in the case if hello does
+        // not go through the buffer commit, i.e. GetHelloBytes() is not invoked.
+        mHelloOp->bytesReceived      = -1;
         if (mAuthName.empty() &&
                 gLayoutManager.GetCSAuthContext().IsAuthRequired()) {
             return DeclareHelloError(-EPERM, "authentication required");
@@ -1555,7 +1556,8 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 " location: "             << mHelloOp->location <<
                 " content length: "       << mHelloOp->contentLength <<
                 " invalid chunk counts: " << mHelloOp->numChunks <<
-                " + "                     << mHelloOp->numNotStableAppendChunks <<
+                " + "                     <<
+                    mHelloOp->numNotStableAppendChunks <<
                 " + "                     << mHelloOp->numNotStableChunks <<
                 " + "                     << mHelloOp->numMissingChunks <<
                 " + "                     << mHelloOp->numPendingStaleChunks <<
@@ -1564,31 +1566,30 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             MetaRequest::Release(op);
             return -1;
         }
-        if (mHelloOp->status == 0 &&
+        if (0 == mHelloOp->status &&
                 0 < mHelloOp->bufferBytes &&
                 iobuf->BytesConsumable() < mHelloOp->bufferBytes &&
                 GetHelloBytes(mHelloOp) < 0) {
             KFS_LOG_STREAM_INFO << GetPeerName() <<
-                " location: "           << mHelloOp->location <<
-                " hello buffer bytes: " << mHelloOp->bufferBytes <<
-                " adding to pending list"
-                " ops: "                << sPendingHelloCount <<
+                " location: "    << mHelloOp->location <<
+                " hello:"
                 " bytes:"
-                " committed: "          << sHelloBytesCommitted <<
-                " received: "           << sHelloBytesInFlight <<
+                " received: "    << mHelloOp->bytesReceived <<
+                " buffered: "    << mHelloOp->bufferBytes <<
+                " pending list:"
+                " ops: "         << sPendingHelloCount <<
+                " bytes:"
+                " committed: "   << sHelloBytesCommitted <<
+                " received: "    << sHelloBytesInFlight <<
+                " min waiting: " << sMinHelloWaitingBytes <<
             KFS_LOG_EOM;
             mNetConnection->SetMaxReadAhead(0);
             AddToPendingHelloList();
             return 1;
-        } else {
-            // Hello didn't go through the buffer commit process,
-            // mark it such that PutHelloBytes() if invoked has no
-            // effect.
-            mHelloOp->bytesReceived = -1;
         }
     }
     // make sure we have the chunk ids...
-    if (mHelloOp->contentLength > 0) {
+    if (0 < mHelloOp->contentLength) {
         const int nAvail = iobuf->BytesConsumable();
         if (nAvail < mHelloOp->contentLength) {
             // need to wait for data...
@@ -1607,20 +1608,31 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return 1;
         }
         const int contentLength = mHelloOp->contentLength;
-        if (hasHelloOpFlag && mHelloOp->status == 0) {
-            // Emit log message to have time stamp of when hello is
-            // fully received, and parsing of chunk lists starts.
-            KFS_LOG_STREAM_INFO << GetPeerName() <<
-                " location: "        << mHelloOp->location <<
-                " receiving hello: " << contentLength << " bytes done" <<
-            KFS_LOG_EOM;
-            PutHelloBytes(mHelloOp);
-        }
+        // Emit log message to have time stamp of when hello is
+        // fully received, and parsing of chunk lists starts.
+        KFS_LOG_STREAM(hasHelloOpFlag ?
+                MsgLogger::kLogLevelINFO :
+                MsgLogger::kLogLevelDEBUG) << GetPeerName() <<
+            " location: "    << mHelloOp->location <<
+            " hello:"
+            " status: "      << mHelloOp->status <<
+            " bytes:"
+            " received: "    << mHelloOp->bytesReceived <<
+            " buffered: "    << mHelloOp->bufferBytes <<
+            " done: "        << contentLength <<
+            " pending list:"
+            " ops: "         << sPendingHelloCount <<
+            " bytes:"
+            " committed: "   << sHelloBytesCommitted <<
+            " received: "    << sHelloBytesInFlight <<
+            " min waiting: " << sMinHelloWaitingBytes <<
+        KFS_LOG_EOM;
+        PutHelloBytes(mHelloOp);
         mHelloOp->chunks.clear();
         mHelloOp->notStableChunks.clear();
         mHelloOp->notStableAppendChunks.clear();
         mHelloOp->missingChunks.clear();
-        if (mHelloOp->status == 0) {
+        if (0 == mHelloOp->status) {
             const size_t numStable(max(0, mHelloOp->numChunks));
             mHelloOp->chunks.reserve(mHelloOp->numChunks);
             const size_t nonStableAppendNum(
