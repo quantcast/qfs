@@ -125,7 +125,7 @@ main(int argc, char **argv)
                 const KfsClient::BlockInfo& bi = *it;
                 msg.clear();
                 if (pbi && pbi->id == bi.id &&
-                        (0 <= bi.version || bi.version == bi.version)) {
+                        (0 <= bi.version || bi.version == pbi->version)) {
                     if (pbi->offset != bi.offset) {
                         msg += " *position mismatch*";
                         status = -EINVAL;
