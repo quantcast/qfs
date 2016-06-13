@@ -880,6 +880,7 @@ ChunkServer::HandleRequest(int code, void *data)
                     1 != sHelloInFlight.erase(helloOp.location)) {
                 panic("chunk server:  invalid hello completion");
             }
+            PutHelloBytes(&helloOp);
             if (0 == op->status && ! mNetConnection) {
                 SubmitMetaBye();
             }
@@ -1367,6 +1368,7 @@ ChunkServer::DeclareHelloError(
         " seq: "           << mHelloOp->opSeqno <<
         " "                << mHelloOp->Show() <<
     KFS_LOG_EOM;
+    PutHelloBytes(mHelloOp);
     mNetConnection->GetInBuffer().Clear();
     mNetConnection->SetMaxReadAhead(0);
     mNetConnection->SetInactivityTimeout(sRequestTimeout);
@@ -1627,14 +1629,13 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             " received: "    << sHelloBytesInFlight <<
             " min waiting: " << sMinHelloWaitingBytes <<
         KFS_LOG_EOM;
-        PutHelloBytes(mHelloOp);
         mHelloOp->chunks.clear();
         mHelloOp->notStableChunks.clear();
         mHelloOp->notStableAppendChunks.clear();
         mHelloOp->missingChunks.clear();
         if (0 == mHelloOp->status) {
             const size_t numStable(max(0, mHelloOp->numChunks));
-            mHelloOp->chunks.reserve(mHelloOp->numChunks);
+            mHelloOp->chunks.reserve(numStable);
             const size_t nonStableAppendNum(
                 max(0, mHelloOp->numNotStableAppendChunks));
             mHelloOp->notStableAppendChunks.reserve(nonStableAppendNum);
@@ -1746,6 +1747,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                         mHelloOp->pendingStaleChunks.back()) <<
                     " content length: " << contentLength <<
                 KFS_LOG_EOM;
+                PutHelloBytes(mHelloOp);
                 MetaRequest::Release(mHelloOp);
                 mHelloOp = 0;
                 return -1;
@@ -1756,6 +1758,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     if (mHelloOp->status == -EBADCLUSTERKEY || mHelloOp->retireFlag) {
         iobuf->Clear();
+        PutHelloBytes(mHelloOp);
         if (! mNetConnection) {
             MetaRequest::Release(mHelloOp);
             mHelloOp = 0;
@@ -1791,6 +1794,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         // Create response and set timeout, the chunk server
         // should disconnect when it restarts.
         return 0;
+    }
+    if (0 != mHelloOp->status) {
+        PutHelloBytes(mHelloOp);
     }
     if (! gLayoutManager.CanAddServer(sHelloInFlight.size())) {
         return DeclareHelloError(-EBUSY, "no slots available");
