@@ -196,7 +196,7 @@ protected:
         if (mNextSize <= 0) {
             return false;
         }
-        if (mCurPtr + inSize < mEndPtr) {
+        if (mCurPtr + inSize <= mEndPtr) {
             return true;
         }
         const size_t theCurSize = mCurPtr - mBufferPtr;
