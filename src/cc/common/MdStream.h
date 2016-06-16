@@ -84,6 +84,7 @@ public:
           mBufferPtr(new char[GetMinBufSize(inBufSize)]),
           mCurPtr(mBufferPtr),
           mEndPtr(mCurPtr + GetMinBufSize(inBufSize)),
+          mMdPtr(mCurPtr),
           mSyncFlag(inSyncFlag),
           mWriteTroughFlag(inBufSize <= 0),
           mStreamPtr(inStreamPtr),
@@ -210,6 +211,7 @@ protected:
         mBufferPtr = thePtr;
         mCurPtr    = thePtr + theCurSize;
         mEndPtr    = thePtr + mNextSize;
+        mMdPtr     = mBufferPtr;
         return true;
     }
     virtual int overflow(
@@ -283,13 +285,20 @@ protected:
         if (mCurPtr <= mBufferPtr) {
             return theRet;
         }
-        const size_t theSize = mCurPtr - mBufferPtr;
-        if (! fail() && ! EVP_DigestUpdate(
-                &mCtx, mBufferPtr, theSize)) {
-            setstate(failbit);
-            theRet = -1;
+        if (! fail() && mMdPtr < mCurPtr) {
+            if (EVP_DigestUpdate(&mCtx, mMdPtr, mCurPtr - mMdPtr)) {
+                mMdPtr = mCurPtr;
+            } else {
+                setstate(failbit);
+                theRet = -1;
+            }
         }
+        if (! mSyncFlag && ! mWriteTroughFlag && 0 < mNextSize) {
+            return theRet;
+        }
+        const size_t theSize = mCurPtr - mBufferPtr;
         mCurPtr = mBufferPtr;
+        mMdPtr  = mCurPtr;
         if (mStreamPtr) {
             if (! mStreamPtr->write(mBufferPtr, theSize)) {
                 setstate(failbit);
@@ -312,6 +321,7 @@ private:
     char*        mBufferPtr;
     char*        mCurPtr;
     char*        mEndPtr;
+    const char*  mMdPtr;
     bool         mSyncFlag;
     bool         mWriteTroughFlag;
     OStreamT*    mStreamPtr;
