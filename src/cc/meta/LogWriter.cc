@@ -1046,10 +1046,10 @@ private:
                 }
             }
             mWriteState = kWriteStateNone;
-            mMdStream.SetSync(true);
             mMdStream << "time/" << DisplayIsoDateTime() << "\n";
             const string theChecksum = mMdStream.GetMd();
             mMdStream << "checksum/" << theChecksum << "\n";
+            mMdStream.SetSync(true);
             mMdStream.flush();
         } else {
             mLastLogSeq = mNextLogSeq;

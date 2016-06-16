@@ -38,11 +38,13 @@
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
 #include "common/juliantime.h"
+#include "common/StBuffer.h"
 
 #include "kfsio/checksum.h"
 
 #include "qcdio/QCUtils.h"
 
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -205,7 +207,7 @@ Replay::openlog(const string& name)
         tmplogname.clear();
         return -EINVAL;
     }
-    file.open(tmplogname.c_str());
+    file.open(tmplogname.c_str(), ifstream::in | ifstream::binary);
     if (file.fail()) {
         const int err = errno;
         KFS_LOG_STREAM_FATAL <<
@@ -2070,10 +2072,84 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     return status;
 }
 
-typedef set<
+static int
+ValidateLogSegmentTrailer(
+    const char* name,
+    bool        completeSegmentFlag)
+{
+    int                       ret       = 0;
+    ifstream::streamoff const kTailSize = 1 << 10;
+    ifstream::streamoff       pos       = -1;
+    ifstream fs(name, ifstream::in | ifstream::binary);
+    if (fs && fs.seekg(0, ifstream::end) && 0 <= (pos = fs.tellg())) {
+        ifstream::streamoff sz;
+        if (kTailSize < pos) {
+            sz = kTailSize;
+            pos -= kTailSize;
+        } else {
+            sz  = pos;
+            pos = 0;
+        }
+        StBufferT<char, 1> buf;
+        char* const        ptr = buf.Resize(sz + ifstream::streamoff(1));
+        if (fs.seekg(pos, ifstream::beg) && fs.read(ptr, sz)) {
+            if (sz != fs.gcount()) {
+                KFS_LOG_STREAM_FATAL <<
+                    name << ": "
+                    "invalid read size:"
+                    " actual: "   << fs.gcount() <<
+                    " expected: " << sz <<
+                KFS_LOG_EOM;
+                ret = -EIO;
+            } else {
+                ptr[sz] = 0;
+                const char*       p = ptr + sz - 1;
+                const char* const b = ptr;
+                if (p <= b || '\n' != *p) {
+                    ret = -EINVAL;
+                    KFS_LOG_STREAM_FATAL <<
+                        name << ": no trailing new line: " <<
+                        ptr <<
+                    KFS_LOG_EOM;
+                } else {
+                    // Last line must start with log block trailer
+                    // if segment is not complete / closed or checksum line
+                    // otherwise.
+                    --p;
+                    while (b < p && '\n' != *p) {
+                        --p;
+                    }
+                    if (p <= b ||
+                            ((completeSegmentFlag || ptr + sz < p + 3 ||
+                                    0 != memcmp("c/", p + 1, 2)) &&
+                            (ptr + sz < p + 10 ||
+                                0 != memcmp("checksum/", p + 1, 9)))) {
+                        KFS_LOG_STREAM_FATAL <<
+                            name << ": invalid log segment trailer: " <<
+                            (p + 1) <<
+                        KFS_LOG_EOM;
+                        ret = -EINVAL;
+                    }
+                }
+            }
+        }
+    }
+    if (0 == ret && (! fs || pos < 0)) {
+        const int err = errno;
+        KFS_LOG_STREAM_FATAL <<
+            name << ": " << QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+        ret = 0 < err ? -err : (err == 0 ? -EIO : err);
+    }
+    fs.close();
+    return ret;
+}
+
+typedef map<
     seq_t,
+    string,
     less<seq_t>,
-    StdFastAllocator<seq_t>
+    StdFastAllocator<pair<const seq_t, string> >
 > LogSegmentNumbers;
 
 int
@@ -2103,7 +2179,7 @@ Replay::getLastLogNum()
                 lastlog <<
                 ": " << QCUtils::SysError(err) <<
             KFS_LOG_EOM;
-            return (err > 0 ? -err : (err == 0 ? -1 : err));
+            return (0 < err ? -err : (err == 0 ? -EIO : err));
         }
     }
     if (0 <= lastLogNum && lastst.st_nlink != 2) {
@@ -2185,7 +2261,7 @@ Replay::getLastLogNum()
             break;
         }
         if ((verifyAllLogSegmentsPresetFlag || number <= num) &&
-                ! logNums.insert(num).second) {
+                ! logNums.insert(make_pair(num, ent->d_name)).second) {
             KFS_LOG_STREAM_FATAL <<
                 "duplicate log segment number: " << num <<
                 " " << dirName << "/" << ent->d_name <<
@@ -2193,7 +2269,9 @@ Replay::getLastLogNum()
             ret = -EINVAL;
             break;
         }
-        maxLogNum = max(num, maxLogNum);
+        if (maxLogNum < num) {
+            maxLogNum = num;
+        }
     }
     closedir(dir);
     if (0 == ret && maxLogNum < 0) {
@@ -2204,22 +2282,34 @@ Replay::getLastLogNum()
     }
     LogSegmentNumbers::const_iterator it = logNums.begin();
     if (logNums.end() == it || (verifyAllLogSegmentsPresetFlag ?
-            logNums.find(number) == logNums.end() : *it != number)) {
+            logNums.find(number) == logNums.end() : it->first != number)) {
         KFS_LOG_STREAM_FATAL <<
             "missing log segmnet: " << number <<
         KFS_LOG_EOM;
         ret = -EINVAL;
     } else {
-        seq_t n = *it;
+        seq_t n = it->first;
         while (logNums.end() != ++it) {
-            if (++n != *it) {
+            if (++n != it->first) {
                 KFS_LOG_STREAM_FATAL <<
                     "missing log segmnets:"
                     " from: " << n  <<
-                    " to: "   << *it <<
+                    " to: "   << it->first <<
                 KFS_LOG_EOM;
-                n = *it;
+                n = it->first;
                 ret = -EINVAL;
+            }
+        }
+    }
+    if (0 == ret && 0 <= logSeqStartNum) {
+        it = logNums.find(logSeqStartNum);
+        string name;
+        while (logNums.end() != it) {
+            name = dirName + "/" + it->second;
+            ++it;
+            if (0 != (ret = ValidateLogSegmentTrailer(
+                    name.c_str(), logNums.end() != it))) {
+                break;
             }
         }
     }
