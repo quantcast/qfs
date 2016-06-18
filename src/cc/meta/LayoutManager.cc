@@ -3415,6 +3415,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
         server->Handle(req);
     }
     bool updatedFlag = false;
+    bool staleFlag   = false;
     if (0 <= req.chunkId && 0 == req.status) {
         if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
             if (server && ! server->IsDown()) {
@@ -3428,6 +3429,18 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     if (entry && entry->GetChunkInfo()->chunkVersion ==
                             req.chunkVersion) {
                         updatedFlag = AddHosted(*entry, server);
+                    } else if (0 <= req.chunkId && 0 <= req.chunkVersion) {
+                        // Treat chunk as chunk with stale id even in the case
+                        // version mismatch in order to handle possible
+                        // transaction log failure, by inserting id into in
+                        // flight pending stale set.
+                        server->DeleteChunkWithStaleId(req.chunkId);
+                        staleFlag = true;
+                        if (req.doneOp) {
+                            // Mark it for completion as already deleted.
+                            req.doneOp->status          = -EINVAL;
+                            req.doneOp->staleChunkIdFlag = true;
+                        }
                     }
                 }
             } else {
@@ -3446,6 +3459,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
         " "          << req.statusMsg <<
         " down: "    << (server && server->IsDown()) <<
         " updated: " << updatedFlag <<
+        " stale: "   << staleFlag <<
         " "          << req.Show() <<
     KFS_LOG_EOM;
     if (req.doneOp) {
@@ -4347,18 +4361,19 @@ LayoutManager::Done(MetaChunkVersChange& req)
         }
         return;
     }
-
     CSMap::Entry* const cmi = mChunkToServerMap.Find(req.chunkId);
     if (! cmi) {
         KFS_LOG_STREAM_INFO << req.Show() <<
             " chunk no longer esists,"
             " declaring stale replica" <<
         KFS_LOG_EOM;
-        req.server->ForceDeleteChunk(req.chunkId);
+        if (0 == req.status || ! req.staleChunkIdFlag) {
+            req.server->DeleteChunkWithStaleId(req.chunkId);
+        }
         return;
     }
     UpdateReplicationState(*cmi);
-    if (req.status != 0) {
+    if (0 != req.status) {
         KFS_LOG_STREAM_ERROR << req.Show() <<
             " status: "     << req.status <<
             " msg: "        << req.statusMsg <<
@@ -7480,7 +7495,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
     CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
     if (! ci) {
         if (notifyStale && ! server->IsDown()) {
-            server->ForceDeleteChunk(chunkId);
+            server->DeleteChunkWithStaleId(chunkId);
         }
         return;
     }
@@ -9874,17 +9889,17 @@ LayoutManager::Handle(MetaChunkSize& req)
                     req.replyChunkVersion !=
                         ci->GetChunkInfo()->chunkVersion) &&
                      ! req.server->IsDown()) {
-                Servers          srvs;
-                const chunkOff_t kObjStoreBlockPos = -1;
-                if (! ci || (0 < GetInFlightChunkOpsCount(
-                            req.chunkId, types, kObjStoreBlockPos, &srvs) &&
-                        find(srvs.begin(), srvs.end(), req.server) ==
-                            srvs.end())) {
-                    if (ci) {
+                if (ci) {
+                    Servers          srvs;
+                    const chunkOff_t kObjStoreBlockPos = -1;
+                    if (0 < GetInFlightChunkOpsCount(
+                                req.chunkId, types, kObjStoreBlockPos, &srvs) &&
+                            find(srvs.begin(), srvs.end(), req.server) ==
+                                srvs.end()) {
                         req.server->NotifyStaleChunk(req.chunkId);
-                    } else {
-                        req.server->ForceDeleteChunk(req.chunkId);
                     }
+                } else {
+                    req.server->DeleteChunkWithStaleId(req.chunkId);
                 }
             }
         }
@@ -10980,10 +10995,12 @@ LayoutManager::Handle(MetaChunkReplicate& req)
             "chunk " << req.chunkId <<
             " mapping no longer exists" <<
         KFS_LOG_EOM;
-        req.server->ForceDeleteChunk(req.chunkId);
+        if (0 == req.status || ! req.staleChunkIdFlag) {
+            req.server->DeleteChunkWithStaleId(req.chunkId);
+        }
         return;
     }
-    if (req.status != 0 || req.server->IsDown()) {
+    if (0 != req.status || req.server->IsDown()) {
         // Replication failed...we will try again later
         const fid_t fid = ci->GetFileId();
         KFS_LOG_STREAM_INFO <<

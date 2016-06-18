@@ -464,6 +464,10 @@ public:
         return DeleteChunkVers(chunkId, 0,
             staleChunkIdFlag, staleChunkIdFlag);
     }
+    int DeleteChunkWithStaleId(chunkId_t chunkId) {
+        const bool kStaleChunkIdFlag = true;
+        return DeleteChunk(chunkId, kStaleChunkIdFlag);
+    }
     int ForceDeleteChunk(chunkId_t chunkId) {
         const bool kStaleChunkIdFlag = false;
         const bool kforceDeleteFlag  = true;
