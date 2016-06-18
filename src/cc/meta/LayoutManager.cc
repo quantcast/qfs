@@ -3436,7 +3436,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                         // flight pending stale set.
                         server->DeleteChunkWithStaleId(req.chunkId);
                         staleFlag = true;
-                        if (req.doneOp) {
+                        if (! req.replayFlag && req.doneOp) {
                             // Mark it for completion as already deleted.
                             req.doneOp->status          = -EINVAL;
                             req.doneOp->staleChunkIdFlag = true;
