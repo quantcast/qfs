@@ -2292,7 +2292,7 @@ ChunkServer::Replay(MetaChunkLogInFlight& req)
         const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
     }
     MarkSubmitted(req);
-    Enqueue(req, 365 * 24 * 60 * 60);
+    Enqueue(req, 365 * 24 * 60 * 60, req.staleChunkIdFlag);
 }
 
 void
@@ -2360,9 +2360,6 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         panic("chunk server: invalid restore attempt");
         return;
     }
-    if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
-        req.staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
-    }
     if (mHelloProcessFlag && MetaChunkLogInFlight::IsToBeLogged(req)) {
         AppendInFlightChunks(mHelloChunkIds, req);
     }
@@ -2372,6 +2369,14 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         req.status     = -EIO;
         req.resume();
         return;
+    }
+    if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
+        const bool insertedFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
+        if ((restoreFlag || req.replayFlag) &&
+                req.staleChunkIdFlag != insertedFlag) {
+            panic("chunk server: restore: invalid stale chunk ids");
+        }
+        req.staleChunkIdFlag = insertedFlag;
     }
     if (mDown) {
         req.status = -EIO;
