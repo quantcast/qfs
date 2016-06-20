@@ -2356,7 +2356,8 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     }
     const bool restoreFlag = gLayoutManager.RestoreGetChunkServer();
     if (restoreFlag &&
-            (this != &*gLayoutManager.RestoreGetChunkServer() || mDown)) {
+            (! req.replayFlag ||
+                this != &*gLayoutManager.RestoreGetChunkServer() || mDown)) {
         panic("chunk server: invalid restore attempt");
         return;
     }
@@ -2372,8 +2373,11 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     }
     if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
         const bool insertedFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
-        if ((restoreFlag || req.replayFlag) &&
-                req.staleChunkIdFlag != insertedFlag) {
+        // In case of restore the chunk ids must already be in the stale chunk
+        // ids set, as the set is checkpointed and restored first.
+        if (req.replayFlag && (restoreFlag ?
+                insertedFlag == req.staleChunkIdFlag :
+                insertedFlag != req.staleChunkIdFlag)) {
             panic("chunk server: restore: invalid stale chunk ids");
         }
         req.staleChunkIdFlag = insertedFlag;
