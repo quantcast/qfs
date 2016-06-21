@@ -6194,9 +6194,6 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
       reqType(req ? req->op : -1)
 {
     maxWaitMillisec = timeout;
-    if (req && req->staleChunkIdFlag) {
-        staleChunkIdFlag = true;
-    }
 }
 
 /* virtual */ bool
@@ -6304,7 +6301,6 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/s/" << ids->GetSize() <<
             "/c/" << chunkId_t(-1) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
-            "/X/" << staleChunkIdFlag <<
             "/r/" << name <<
             "/z/" << logseq
         ;
@@ -6329,7 +6325,6 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/s/" << size_t(0) <<
             "/c/" << (ids ? ids->Front() : request->chunkId) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
-            "/X/" << staleChunkIdFlag <<
             "/r/" << name <<
             "/z/" << logseq
         ;

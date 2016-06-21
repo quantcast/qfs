@@ -2292,7 +2292,7 @@ ChunkServer::Replay(MetaChunkLogInFlight& req)
         const_cast<ChunkServerPtr&>(req.server) = GetSelfPtr();
     }
     MarkSubmitted(req);
-    Enqueue(req, 365 * 24 * 60 * 60, req.staleChunkIdFlag);
+    Enqueue(req, 365 * 24 * 60 * 60);
 }
 
 void
@@ -2364,23 +2364,19 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     if (mHelloProcessFlag && MetaChunkLogInFlight::IsToBeLogged(req)) {
         AppendInFlightChunks(mHelloChunkIds, req);
     }
+    if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
+        if (req.replayFlag) {
+            panic("chunk server: stale chunk id flag in replay");
+            return;
+        }
+        req.staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
+    }
     if (mReplayFlag && ! req.replayFlag) {
         MarkSubmitted(req);
         req.replayFlag = true;
         req.status     = -EIO;
         req.resume();
         return;
-    }
-    if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
-        const bool insertedFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
-        // In case of restore the chunk ids must already be in the stale chunk
-        // ids set, as the set is checkpointed and restored first.
-        if (req.replayFlag && (restoreFlag ?
-                insertedFlag == req.staleChunkIdFlag :
-                insertedFlag != req.staleChunkIdFlag)) {
-            panic("chunk server: restore: invalid stale chunk ids");
-        }
-        req.staleChunkIdFlag = insertedFlag;
     }
     if (mDown) {
         req.status = -EIO;

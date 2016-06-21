@@ -3434,11 +3434,12 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                         // version mismatch in order to handle possible
                         // transaction log failure, by inserting id into in
                         // flight pending stale set.
-                        server->DeleteChunkWithStaleId(req.chunkId);
+                        const bool kStaleChunkIdFlag = true;
+                        server->DeleteChunk(req.chunkId, kStaleChunkIdFlag);
                         staleFlag = true;
                         if (! req.replayFlag && req.doneOp) {
                             // Mark it for completion as already deleted.
-                            req.doneOp->status          = -EINVAL;
+                            req.doneOp->status           = -EINVAL;
                             req.doneOp->staleChunkIdFlag = true;
                         }
                     }
@@ -4368,7 +4369,7 @@ LayoutManager::Done(MetaChunkVersChange& req)
             " declaring stale replica" <<
         KFS_LOG_EOM;
         if (0 == req.status || ! req.staleChunkIdFlag) {
-            req.server->DeleteChunkWithStaleId(req.chunkId);
+            req.server->ForceDeleteChunk(req.chunkId);
         }
         return;
     }
@@ -7495,7 +7496,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
     CSMap::Entry* const ci = mChunkToServerMap.Find(chunkId);
     if (! ci) {
         if (notifyStale && ! server->IsDown()) {
-            server->DeleteChunkWithStaleId(chunkId);
+            server->ForceDeleteChunk(chunkId);
         }
         return;
     }
@@ -9899,7 +9900,7 @@ LayoutManager::Handle(MetaChunkSize& req)
                         req.server->NotifyStaleChunk(req.chunkId);
                     }
                 } else {
-                    req.server->DeleteChunkWithStaleId(req.chunkId);
+                    req.server->ForceDeleteChunk(req.chunkId);
                 }
             }
         }
@@ -10996,7 +10997,7 @@ LayoutManager::Handle(MetaChunkReplicate& req)
             " mapping no longer exists" <<
         KFS_LOG_EOM;
         if (0 == req.status || ! req.staleChunkIdFlag) {
-            req.server->DeleteChunkWithStaleId(req.chunkId);
+            req.server->ForceDeleteChunk(req.chunkId);
         }
         return;
     }
