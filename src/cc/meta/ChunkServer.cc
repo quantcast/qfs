@@ -2367,6 +2367,7 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     if (staleChunkIdFlag && 0 <= req.chunkId && 0 <= req.chunkVersion) {
         if (req.replayFlag) {
             panic("chunk server: stale chunk id flag in replay");
+            req.status = -EFAULT;
             return;
         }
         req.staleChunkIdFlag = mStaleChunkIdsInFlight.Insert(req.chunkId);
