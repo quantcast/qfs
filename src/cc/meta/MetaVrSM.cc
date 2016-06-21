@@ -56,8 +56,10 @@ public:
     {
         kStateNone            = 0,
         kStateReconfiguration = 1,
-        kStatePrimary         = 2,
-        kStateBackup          = 3
+        kStateViewChange      = 2,
+        kStatePrimary         = 3,
+        kStateBackup          = 4,
+        kStatesCount
     };
     enum { kMinActiveCount = 3 };
 
@@ -232,6 +234,8 @@ public:
                 return "none";
             case kStateReconfiguration:
                 return "reconfiguration";
+            case kStateViewChange:
+                return "view_change";
             case kStatePrimary:
                 return "primary";
             case kStateBackup:
@@ -910,6 +914,10 @@ private:
         if (0 != inReq.status) {
             return;
         }
+        if (inReq.logseq < 0) {
+            panic("VR: invalid commit reconfiguration log sequence");
+            return;
+        }
         switch (inReq.mOpType) {
             case MetaVrReconfiguration::kOpTypeAddNode:
                 CommitAddNode(inReq);
@@ -1003,11 +1011,7 @@ private:
             } else {
                 mActiveFlag =
                     0 != (Config::kFlagActive & theIt->second.GetFlags());
-                if (mActiveFlag) {
-                    mState = kStatePrimary;
-                } else {
-                    mState = kStateBackup;
-                }
+                PrimaryReconfigurationStartViewChange(inReq.logseq);
             }
         } else {
             mActiveFlag = theNodes.end() != theIt &&
@@ -1022,6 +1026,18 @@ private:
             panic("VR: invalid timeouts");
         }
         if (0 == inReq.status) {
+            const Config::Nodes&                theNodes = mConfig.GetNodes();
+            Config::Nodes::const_iterator const theIt    =
+                theNodes.find(mNodeId);
+            if ((theNodes.end() != theIt &&
+                    0 != (Config::kFlagActive & theIt->second.GetFlags())) !=
+                    mActiveFlag) {
+                panic("VR: set timeouts completion:"
+                    " invalid node activity change");
+                return;
+            }
+            mEpochSeq++;
+            mViewSeq = 1;
             if (kStateReconfiguration == mState || kStateBackup == mState) {
                 mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
                 mConfig.SetBackupTimeout(mPendingBackupTimeout);
@@ -1029,7 +1045,7 @@ private:
                     mConfig.GetPrimaryTimeout());
             }
             if (kStateReconfiguration == mState) {
-                mState = kStatePrimary;
+                PrimaryReconfigurationStartViewChange(inReq.logseq);
             }
         }
     }
@@ -1072,6 +1088,34 @@ private:
             }
         }
         return -1;
+    }
+    void PrimaryReconfigurationStartViewChange(
+        seq_t inCommitSeq)
+    {
+        if (kStateReconfiguration != mState) {
+            panic("VR: invalid end reconfiguration primary state");
+            return;
+        }
+        if (! mActiveFlag) {
+            // Primary starts view change.
+            mState = kStateBackup;
+            return;
+        }
+        StartViewChange(inCommitSeq);
+    }
+    void StartViewChange(
+        seq_t inCommitSeq)
+    {
+        if (! mActiveFlag) {
+            panic("VR: start view change: node non active");
+            return;
+        }
+        mState = kStateViewChange;
+        MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
+        theOp.mEpochSeq  = mEpochSeq;
+        theOp.mViewSeq   = mViewSeq;
+        theOp.mCommitSeq = max(seq_t(0), inCommitSeq) + 1000;
+        mLogTransmitter.QueueVrRequest(theOp);
     }
 private:
     Impl(
