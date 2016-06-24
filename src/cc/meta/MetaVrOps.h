@@ -54,6 +54,7 @@ public:
           mEpochSeq(-1),
           mViewSeq(-1),
           mCommitSeq(-1),
+          mNodeId(-1),
           mVrSMPtr(0),
           mRefCount(0)
     {
@@ -61,9 +62,10 @@ public:
         shortRpcFormatFlag = false;
     }
 
-    seq_t mEpochSeq;
-    seq_t mViewSeq;
-    seq_t mCommitSeq;
+    seq_t  mEpochSeq;
+    seq_t  mViewSeq;
+    seq_t  mCommitSeq;
+    NodeId mNodeId;
 
     bool Validate() const
     {
@@ -77,6 +79,7 @@ public:
         .Def("E", &MetaVrRequest::mEpochSeq,  seq_t(-1))
         .Def("V", &MetaVrRequest::mViewSeq,   seq_t(-1))
         .Def("C", &MetaVrRequest::mCommitSeq, seq_t(-1))
+        .Def("N", &MetaVrRequest::mNodeId,    NodeId(-1))
         ;
     }
     template<typename T>
@@ -87,6 +90,7 @@ public:
         .Def("E", &MetaVrRequest::mEpochSeq,  seq_t(-1))
         .Def("V", &MetaVrRequest::mViewSeq,   seq_t(-1))
         .Def("C", &MetaVrRequest::mCommitSeq, seq_t(-1))
+        .Def("N", &MetaVrRequest::mNodeId,    NodeId(-1))
         ;
     }
     virtual bool start()
@@ -164,6 +168,7 @@ public:
     {
         return (inOs <<
             "vr-start-view-change" <<
+            " node: "   << mNodeId <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " commit: " << mCommitSeq
@@ -190,6 +195,7 @@ public:
     {
         return (inOs <<
             "vr-do-view-change" <<
+            " node: "   << mNodeId <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " commit: " << mCommitSeq
@@ -216,6 +222,7 @@ public:
     {
         return (inOs <<
             "vr-start-view" <<
+            " node: "   << mNodeId <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " commit: " << mCommitSeq
@@ -342,6 +349,7 @@ public:
     {
         return (inOs <<
             "vr-start-epoch" <<
+            " node: "   << mNodeId <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " commit: " << mCommitSeq
