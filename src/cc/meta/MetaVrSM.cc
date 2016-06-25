@@ -37,8 +37,10 @@
 
 #include "common/IntToString.h"
 #include "common/BufferInputStream.h"
+#include "common/StdAllocator.h"
 
 #include <algorithm>
+#include <set>
 
 namespace KFS
 {
@@ -46,6 +48,8 @@ using std::lower_bound;
 using std::find;
 using std::sort;
 using std::unique;
+using std::set;
+using std::less;
 
 class MetaVrSM::Impl
 {
@@ -85,6 +89,7 @@ public:
           mEpochSeq(0),
           mViewSeq(0),
           mLastReceivedTime(0),
+          mStartViewChangeNodeIds(),
           mInputStream()
         {}
     ~Impl()
@@ -507,6 +512,12 @@ private:
         size_t       mTotalUpCount;
     };
 
+    typedef set<
+        NodeId,
+        less<NodeId>,
+        StdFastAllocator<NodeId>
+    > NodesSet;
+
     LogTransmitter&              mLogTransmitter;
     MetaVrSM&                    mMetaVrSM;
     QCMutex*                     mMutexPtr;
@@ -526,6 +537,7 @@ private:
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
     time_t                       mLastReceivedTime;
+    NodesSet                     mStartViewChangeNodeIds;
     BufferInputStream            mInputStream;
 
     void Show(
@@ -586,7 +598,21 @@ private:
                 StartViewChange(inReq.mCommitSeq);
             } else {
                 if (kStateViewChange == mState) {
-                    // SendDoViewChange();
+                    if (inReq.mNodeId != mNodeId &&
+                            mStartViewChangeNodeIds.insert(
+                                inReq.mNodeId).second &&
+                            mStartViewChangeNodeIds.size() ==
+                                (size_t)(mActiveCount - mQuorum)) {
+                        MetaVrDoViewChange& theOp =
+                            *(new MetaVrDoViewChange());
+                        theOp.mNodeId    = mNodeId;
+                        theOp.mEpochSeq  = mEpochSeq;
+                        theOp.mViewSeq   = mViewSeq;
+                        theOp.mCommitSeq = max(seq_t(1), inReq.mCommitSeq);
+                        mLogTransmitter.QueueVrRequest(theOp);
+                        // Ignore replies.
+                        MetaRequest::Release(&theOp);
+                    }
                 } else {
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "unexpected state: ";
@@ -1201,7 +1227,9 @@ private:
             return;
         }
         mState = kStateViewChange;
+        mStartViewChangeNodeIds.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
+        theOp.mNodeId    = mNodeId;
         theOp.mEpochSeq  = mEpochSeq;
         theOp.mViewSeq   = mViewSeq;
         theOp.mCommitSeq = max(seq_t(1), inCommitSeq);

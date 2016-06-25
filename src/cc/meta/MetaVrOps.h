@@ -93,6 +93,8 @@ public:
         .Def("N", &MetaVrRequest::mNodeId,    NodeId(-1))
         ;
     }
+    void Request(
+        ReqOstream& inStream) const;
     virtual bool start()
     {
         if (0 == status && ! Validate()) {

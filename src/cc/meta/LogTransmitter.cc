@@ -1126,7 +1126,11 @@ private:
         }
         IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
         ReqOstream theStream(mOstream.Set(theBuf));
-        mAuthenticateOpPtr->Request(theStream);
+        if (&inReq == mVrOpPtr) {
+            mVrOpPtr->Request(theStream);
+        } else {
+            mAuthenticateOpPtr->Request(theStream);
+        }
         mOstream.Reset();
         if (mRecursionCount <= 0) {
             mConnectionPtr->StartFlush();

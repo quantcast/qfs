@@ -28,6 +28,7 @@
 #include "MetaRequest.h"
 #include "MetaVrOps.h"
 #include "LogWriter.h"
+#include "util.h"
 
 #include "common/RequestParser.h"
 #include "common/CIdChecksum.h"
@@ -247,9 +248,6 @@ AddVrLogOps(
     T& inHandler)
 {
     return inHandler
-    .MakeParser("VDVC",
-        META_VR_DO_VIEW_CHANGE,
-        static_cast<const MetaVrDoViewChange*>(0))
     .MakeParser("VSV",
         META_VR_START_VIEW,
         static_cast<const MetaVrStartView*>(0))
@@ -261,7 +259,7 @@ AddVrLogOps(
 
 template<typename T>
     static const T&
-MakeMetaRequestLogRecvHandler(
+MakeMetaRequestLogXmitHandler(
     const T* inNullPtr = 0)
 {
     static T sHandler;
@@ -269,6 +267,9 @@ MakeMetaRequestLogRecvHandler(
     .MakeParser("AUTHENTICATE",
         META_AUTHENTICATE,
         static_cast<const MetaAuthenticate*>(0))
+    .MakeParser("VDVC",
+        META_VR_DO_VIEW_CHANGE,
+        static_cast<const MetaVrDoViewChange*>(0))
     .MakeParser("VSVC",
         META_VR_START_VIEW_CHANGE,
         static_cast<const MetaVrStartViewChange*>(0))
@@ -329,6 +330,68 @@ typedef RequestHandler<
 static const MetaRequestHandler& sMetaRequestHandler =
     MakeMetaRequestHandler<MetaRequestHandler>();
 
+class RequestOstream
+{
+public:
+    RequestOstream(
+        ReqOstream& inStream,
+        const char* inPrefixPtr = 0,
+        size_t      inPrefixLen = 0)
+        : mOStream(inStream),
+          mFlags(inStream.Get().flags())
+    {
+        mOStream.Get().flags(mFlags | ostream::hex);
+        mOStream.Get().width(0);
+    }
+    ~RequestOstream()
+        { mOStream.Get().flags(mFlags); }
+    template<typename T>
+    RequestOstream& WriteKeyVal(
+            const char* inKeyPtr,
+            size_t      inKeyLen,
+            const T&    inVal,
+            char        inSeparator,
+            char        inDelimiter)
+    {
+        mOStream.write(inKeyPtr, inKeyLen);
+        mOStream.put(inSeparator);
+        WriteVal(inVal);
+        mOStream.put(inDelimiter);
+        return *this;
+    }
+    RequestOstream& WriteName(
+        const char* inPtr,
+        size_t      inLen,
+        char        inDelimiter)
+    {
+        mOStream.write(inPtr, inLen);
+        mOStream.put(inDelimiter);
+        return *this;
+    }
+private:
+    ReqOstream&             mOStream;
+    ostream::fmtflags const mFlags;
+
+    template<typename T>
+    void WriteVal(
+        const T& inVal)
+        { mOStream << inVal; }
+    void WriteVal(
+        const char inVal)
+        { mOStream << ((int)(inVal) & 0xFF); }
+    void WriteVal(
+        const signed char inVal)
+        { mOStream << (signed int)inVal; }
+    void WriteVal(
+        const unsigned char inVal)
+        { mOStream << (unsigned int)inVal; }
+private:
+    RequestOstream(
+        const RequestOstream& inStream);
+    RequestOstream& operator=(
+        const RequestOstream& inStream);
+};
+
 template <typename SUPER, typename OBJ>
 class MetaShortNamesClientRequestParser : public RequestParser<
     SUPER,
@@ -336,24 +399,33 @@ class MetaShortNamesClientRequestParser : public RequestParser<
     MetaReqValueParserT<HexIntParser>,
     true, // Use short names / format.
     PropertiesTokenizer,
-    NopOstream,
+    RequestOstream,
     true,  // Invoke Validate
     MetaRequestDeleter,
     RequestParserShortNamesDictionary
 > {};
 typedef RequestHandler<
     MetaRequest,
-    MetaShortNamesClientRequestParser
+    MetaShortNamesClientRequestParser,
+    ParserDefinitionMethod,
+    RequestOstream
 > MetaRequestHandlerShortFmt;
 static const MetaRequestHandlerShortFmt& sMetaRequestHandlerShortFmt =
     MakeMetaRequestHandler<MetaRequestHandlerShortFmt>();
 
-typedef RequestHandler<
-    MetaRequest,
-    MetaShortNamesClientRequestParser
-> MetaRequestLogRecvHandler;
-static const MetaRequestLogRecvHandler& sMetaRequestLogRecvHandler =
-    MakeMetaRequestLogRecvHandler<MetaRequestLogRecvHandler>();
+typedef MetaRequestHandlerShortFmt MetaRequestLogXmitHandler;
+static const MetaRequestLogXmitHandler& sMetaRequestLogXmitHandler =
+    MakeMetaRequestLogXmitHandler<MetaRequestLogXmitHandler>();
+
+void
+MetaVrRequest::Request(
+    ReqOstream& inStream) const
+{
+    RequestOstream theStream(inStream);
+    if (! sMetaRequestLogXmitHandler.Write(theStream, this, op)) {
+        panic("VR: no request definition");
+    }
+}
 
 class StringEscapeIoParser
 {
@@ -670,6 +742,11 @@ private:
             Escape(kSpace);
         }
     }
+private:
+    StringInsertEscapeOStream(
+        const StringInsertEscapeOStream& inParser);
+    StringInsertEscapeOStream& operator=(
+        const StringInsertEscapeOStream& inParser);
 };
 
 template<typename T>
@@ -1005,7 +1082,7 @@ ParseLogRecvCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
         threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
     assert(reqLen == len);
     *res = (reqLen == len) ?
-        sMetaRequestLogRecvHandler.Handle(buf, reqLen) :
+        sMetaRequestLogXmitHandler.Handle(buf, reqLen) :
         0;
     return (*res ? 0 : -1);
 }
