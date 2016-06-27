@@ -623,7 +623,7 @@ private:
             const bool            theTransmitterUpFlag   = mTransmitterUpFlag;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
-                if (mMetaVrSM.Handle(*thePtr)) {
+                if (mMetaVrSM.Handle(*thePtr, mLastLogSeq + 1)) {
                     continue;
                 }
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {

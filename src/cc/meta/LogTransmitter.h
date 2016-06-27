@@ -92,7 +92,8 @@ public:
         size_t      inChecksumStartPos);
     bool IsUp();
     void QueueVrRequest(
-        MetaVrRequest& inVrReq);
+        MetaVrRequest& inVrReq,
+        NodeId         inNodeId);
     void Update(
         MetaVrSM& inMetaVrSM);
     void GetStatus(

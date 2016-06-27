@@ -220,7 +220,8 @@ public:
     int GetAuthType() const
         { return mAuthType; }
     void QueueVrRequest(
-        MetaVrRequest& inVrReq);
+        MetaVrRequest& inVrReq,
+        NodeId         inNodeId);
     void Update(
         MetaVrSM& inMetaVrSM);
     void GetStatus(
@@ -1559,12 +1560,18 @@ LogTransmitter::Impl::GetStatus(
 
     void
 LogTransmitter::Impl::QueueVrRequest(
-    MetaVrRequest& inVrReq)
+    MetaVrRequest&               inVrReq,
+    LogTransmitter::Impl::NodeId inNodeId)
 {
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {
-        thePtr->QueueVrRequest(inVrReq);
+        if (inNodeId < 0 || thePtr->GetId() == inNodeId) {
+            thePtr->QueueVrRequest(inVrReq);
+            if (0 <= inNodeId) {
+                break;
+            }
+        }
     }
 }
 
@@ -1663,9 +1670,10 @@ LogTransmitter::IsUp()
 
     void
 LogTransmitter::QueueVrRequest(
-    MetaVrRequest& inVrReq)
+    MetaVrRequest&         inVrReq,
+    LogTransmitter::NodeId inNodeId)
 {
-    mImpl.QueueVrRequest(inVrReq);
+    mImpl.QueueVrRequest(inVrReq, inNodeId);
 }
 
     void

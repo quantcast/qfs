@@ -267,7 +267,8 @@ public:
         seq_t& outEpochSeq,
         seq_t& outViewSeq);
     bool Handle(
-        MetaRequest& inReq);
+        MetaRequest& inReq,
+        seq_t        inNextLogSeq);
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,

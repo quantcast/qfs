@@ -55,6 +55,7 @@ public:
           mViewSeq(-1),
           mCommitSeq(-1),
           mNodeId(-1),
+          mRetryCount(0),
           mVrSMPtr(0),
           mRefCount(0)
     {
@@ -66,6 +67,7 @@ public:
     seq_t  mViewSeq;
     seq_t  mCommitSeq;
     NodeId mNodeId;
+    int    mRetryCount;
 
     bool Validate() const
     {
@@ -189,18 +191,22 @@ protected:
 class MetaVrDoViewChange : public MetaVrRequest
 {
 public:
+    NodeId mPimaryNodeId;
+
     MetaVrDoViewChange()
-        : MetaVrRequest(META_VR_DO_VIEW_CHANGE, kLogIfOk)
+        : MetaVrRequest(META_VR_DO_VIEW_CHANGE, kLogIfOk),
+          mPimaryNodeId(-1)
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
     {
         return (inOs <<
             "vr-do-view-change" <<
-            " node: "   << mNodeId <<
-            " epoch: "  << mEpochSeq <<
-            " view: "   << mViewSeq <<
-            " commit: " << mCommitSeq
+            " node: "    << mNodeId <<
+            " epoch: "   << mEpochSeq <<
+            " view: "    << mViewSeq <<
+            " commit: "  << mCommitSeq <<
+            " primary: " << mPimaryNodeId
         );
     }
     virtual void HandleResponse(
@@ -208,6 +214,22 @@ public:
         const Properties& inProps,
         NodeId            inNodeId)
         { HandleReply(*this, inSeq, inProps, inNodeId); }
+    template<typename T>
+    static T& ParserDef(
+        T& inParser)
+    {
+        return MetaVrRequest::ParserDef(inParser)
+        .Def("P", &MetaVrDoViewChange::mPimaryNodeId,  seq_t(-1))
+        ;
+    }
+    template<typename T>
+    static T& LogIoDef(
+        T& inParser)
+    {
+        return MetaVrRequest::LogIoDef(inParser)
+        .Def("P", &MetaVrDoViewChange::mPimaryNodeId,  seq_t(-1))
+        ;
+    }
 protected:
     virtual ~MetaVrDoViewChange()
         {}

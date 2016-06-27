@@ -32,7 +32,6 @@
 #include "LogTransmitter.h"
 #include "NetDispatch.h"
 
-#include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
 
 #include "common/IntToString.h"
@@ -41,6 +40,7 @@
 
 #include <algorithm>
 #include <set>
+#include <limits>
 
 namespace KFS
 {
@@ -50,6 +50,7 @@ using std::sort;
 using std::unique;
 using std::set;
 using std::less;
+using std::numeric_limits;
 
 class MetaVrSM::Impl
 {
@@ -72,7 +73,6 @@ public:
         MetaVrSM&       inMetaVrSM)
         : mLogTransmitter(inLogTransmitter),
           mMetaVrSM(inMetaVrSM),
-          mMutexPtr(0),
           mState(kStateBackup),
           mNodeId(-1),
           mReconfigureReqPtr(0),
@@ -88,12 +88,22 @@ public:
           mPendingBackupTimeout(0),
           mEpochSeq(0),
           mViewSeq(0),
-          mLastReceivedTime(0),
+          mNextLogSeq(-1),
+          mTimeNow(),
+          mLastProcessTime(mTimeNow),
+          mLastReceivedTime(mTimeNow),
+          mLastUpTime(mTimeNow),
+          mViewChangeStartTime(mTimeNow),
+          mStartViewCompletionCount(0),
+          mStartViewChangePtr(0),
+          mDoViewChangePtr(0),
           mStartViewChangeNodeIds(),
           mInputStream()
         {}
     ~Impl()
-        {}
+    {
+        Impl::CanceViewChange();
+    }
     int HandleLogBlock(
         seq_t  inEpochSeq,
         seq_t  inViewSeq,
@@ -106,8 +116,12 @@ public:
         return (IsPrimary() ? 0 : -EVRNOTPRIMARY);
     }
     bool Handle(
-        MetaRequest& inReq)
+        MetaRequest& inReq,
+        seq_t        inNextLogSeq)
     {
+        if (0 <= inNextLogSeq) {
+            mNextLogSeq = inNextLogSeq;
+        }
         switch (inReq.op) {
             case META_VR_START_VIEW_CHANGE:
                 return Handle(static_cast<MetaVrStartViewChange&>(inReq));
@@ -124,23 +138,31 @@ public:
         }
         return false;
     }
+    static string Show(
+        const Properties& inProps)
+    {
+        string theRet;
+        inProps.getList(theRet, string(), string(";"));
+        return theRet;
+    }
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
         const Properties&      inProps,
         NodeId                 inNodeId)
     {
-        const char* const theMsgPtr =
-            "VR: invalid start view change replay invocation";
-        KFS_LOG_STREAM_FATAL <<
-            theMsgPtr <<
-            " seq: "        << inSeq <<
-            " props size: " << inProps.size() <<
-            " status: "     << inReq.status <<
-            " "             << inReq.statusMsg <<
-            " "             << inReq.Show() <<
+        if (&inReq != mStartViewChangePtr || inReq.GetVrSMPtr() != &mMetaVrSM) {
+            panic("VR: invalid start view change completion");
+            return;
+        }
+        KFS_LOG_STREAM_DEBUG <<
+            " seq: "      << inSeq <<
+            " node: "     << inNodeId <<
+            " '"          << inReq.Show() <<
+            " response: " << Show(inProps) <<
         KFS_LOG_EOM;
-        panic(theMsgPtr);
+        mStartViewCompletionCount++;
+        StartDoViewChangeIfPossible(mNextLogSeq);
     }
     void HandleReply(
         MetaVrDoViewChange& inReq,
@@ -148,6 +170,16 @@ public:
         const Properties&   inProps,
         NodeId              inNodeId)
     {
+        if (&inReq != mDoViewChangePtr || inReq.GetVrSMPtr() != &mMetaVrSM) {
+            panic("VR: invalid do view change completion");
+            return;
+        }
+        KFS_LOG_STREAM_DEBUG <<
+            " seq: "      << inSeq <<
+            " node: "     << inNodeId <<
+            " '"          << inReq.Show() <<
+            " response: " << Show(inProps) <<
+        KFS_LOG_EOM;
     }
     void HandleReply(
         MetaVrStartView&  inReq,
@@ -166,10 +198,10 @@ public:
             "VR: invalid reconfiguration reply handling attempt";
         KFS_LOG_STREAM_FATAL <<
             theMsgPtr <<
-            " seq: "   << inSeq <<
-            " props: " << inProps.size() <<
-            " node: "  << inNodeId <<
-            " "        << inReq <<
+            " seq: "      << inSeq <<
+            " node: "     << inNodeId <<
+            " "           << inReq.Show() <<
+            " response: " << Show(inProps) <<
         KFS_LOG_EOM;
         panic(theMsgPtr);
     }
@@ -188,11 +220,31 @@ public:
     void Process(
         time_t inTimeNow)
     {
+        mTimeNow = inTimeNow;
         if (! mActiveFlag) {
+            mLastProcessTime = TimeNow();
             return;
         }
         if (kStateBackup == mState) {
+            if (mLastReceivedTime + mConfig.GetBackupTimeout() < TimeNow()) {
+                mViewSeq++;
+                StartViewChange(mNextLogSeq);
+            }
+        } else if (kStatePrimary == mState) {
+            if (mLogTransmitter.IsUp()) {
+                mLastUpTime = inTimeNow;
+            } else {
+                if (mLastUpTime + mConfig.GetPrimaryTimeout() < TimeNow()) {
+                    mViewSeq++;
+                    StartViewChange(mNextLogSeq + (10 << 10));
+                }
+            }
+        } else if (kStateViewChange == mState) {
+            if (TimeNow() != mLastProcessTime) {
+                StartDoViewChangeIfPossible(mNextLogSeq);
+            }
         }
+        mLastProcessTime = TimeNow();
     }
     int Start()
     {
@@ -201,6 +253,7 @@ public:
             mActiveCount = 0;
             mQuorum      = 0;
             mState       = kStatePrimary;
+            mLastUpTime  = TimeNow();
         } else {
             mState = kStateBackup;
         }
@@ -210,6 +263,8 @@ public:
     }
     void Shutdown()
     {
+        CanceViewChange();
+        mStartedFlag = false;
     }
     int SetParameters(
         const char*       inPrefixPtr,
@@ -520,7 +575,6 @@ private:
 
     LogTransmitter&              mLogTransmitter;
     MetaVrSM&                    mMetaVrSM;
-    QCMutex*                     mMutexPtr;
     State                        mState;
     NodeId                       mNodeId;
     const MetaVrReconfiguration* mReconfigureReqPtr;
@@ -536,10 +590,20 @@ private:
     int                          mPendingBackupTimeout;
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
+    seq_t                        mNextLogSeq;
+    time_t                       mTimeNow;
+    time_t                       mLastProcessTime;
     time_t                       mLastReceivedTime;
+    time_t                       mLastUpTime;
+    time_t                       mViewChangeStartTime;
+    int                          mStartViewCompletionCount;
+    MetaVrStartViewChange*       mStartViewChangePtr;
+    MetaVrDoViewChange*          mDoViewChangePtr;
     NodesSet                     mStartViewChangeNodeIds;
     BufferInputStream            mInputStream;
 
+    time_t TimeNow() const
+        { return mTimeNow; }
     void Show(
         const MetaVrRequest& inReq)
     {
@@ -555,6 +619,47 @@ private:
             " viw: "    << mViewSeq             <<
             " "         << inReq.Show()         <<
         KFS_LOG_EOM;
+    }
+    void RetryStartViewChange(
+        const char* inMsgPtr)
+    {
+        if (TimeNow() <=
+                mViewChangeStartTime + mConfig.GetBackupTimeout()) {
+            // Start next round after timeout.
+            return;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            "view change failed: " << inMsgPtr <<
+        KFS_LOG_EOM;
+        if (mStartViewCompletionCount < mActiveCount) {
+            mLastReceivedTime = TimeNow();
+            StartViewChange(mNextLogSeq);
+        }
+    }
+    void StartDoViewChangeIfPossible(
+        seq_t inCommitSeq)
+    {
+        if (mDoViewChangePtr) {
+            return;
+        }
+        const size_t theSz = mStartViewChangeNodeIds.size();
+        if (theSz < (size_t)(mActiveCount - mQuorum)) {
+            RetryStartViewChange("not sufficient number of noded responded");
+            return;
+        }
+        if (theSz < mActiveCount &&
+                mStartViewCompletionCount < mActiveCount &&
+                TimeNow() <=
+                    mViewChangeStartTime + mConfig.GetPrimaryTimeout()) {
+            // Wait for more nodes to repsond.
+            return;
+        }
+        const NodeId thePrimaryId = GetPrimaryId();
+        if (thePrimaryId < 0) {
+            RetryStartViewChange("no primary available");
+            return;
+        }
+        StartDoViewChange(inCommitSeq, thePrimaryId);
     }
     bool IsActive(
         NodeId inNodeId) const
@@ -594,24 +699,20 @@ private:
         Show(inReq);
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq) {
-                mViewSeq = inReq.mViewSeq;
-                StartViewChange(inReq.mCommitSeq);
+                if (kStatePrimary == mState ||
+                        (kStateBackup == mState &&
+                            mLastReceivedTime + mConfig.GetBackupTimeout() <
+                                TimeNow())) {
+                    mViewSeq = inReq.mViewSeq;
+                    StartViewChange(inReq.mCommitSeq);
+                }
             } else {
                 if (kStateViewChange == mState) {
-                    if (inReq.mNodeId != mNodeId &&
+                    if (! mDoViewChangePtr &&
+                            inReq.mNodeId != mNodeId &&
                             mStartViewChangeNodeIds.insert(
-                                inReq.mNodeId).second &&
-                            mStartViewChangeNodeIds.size() ==
-                                (size_t)(mActiveCount - mQuorum)) {
-                        MetaVrDoViewChange& theOp =
-                            *(new MetaVrDoViewChange());
-                        theOp.mNodeId    = mNodeId;
-                        theOp.mEpochSeq  = mEpochSeq;
-                        theOp.mViewSeq   = mViewSeq;
-                        theOp.mCommitSeq = max(seq_t(1), inReq.mCommitSeq);
-                        mLogTransmitter.QueueVrRequest(theOp);
-                        // Ignore replies.
-                        MetaRequest::Release(&theOp);
+                                inReq.mNodeId).second) {
+                        StartDoViewChangeIfPossible(inReq.mCommitSeq);
                     }
                 } else {
                     inReq.status    = -EINVAL;
@@ -1219,6 +1320,53 @@ private:
         }
         StartViewChange(inCommitSeq);
     }
+    NodeId GetPrimaryId()
+    {
+        NodeId theId       = -1;
+        int    theMinOrder = numeric_limits<int>::max();
+        const Config::Nodes& theNodes = mConfig.GetNodes();
+        for (Config::Nodes::const_iterator theIt = theNodes.begin();
+                theNodes.end() != theIt;
+                ++theIt) {
+            const NodeId        theNodeId = theIt->first;
+            const Config::Node& theNode   = theIt->second;
+            const Config::Flags theFlags  = theNode.GetFlags();
+            if (0 == (Config::kFlagActive & theFlags) ||
+                    0 != (Config::kFlagWitness & theFlags)) {
+                continue;
+            }
+            if (theNodeId != mNodeId &&
+                    mStartViewChangeNodeIds.find(theNodeId) ==
+                    mStartViewChangeNodeIds.end()) {
+                continue;
+            }
+            const int theOrder = theNode.GetPrimaryOrder();
+            if (theMinOrder <= theOrder && 0 <= theId) {
+                continue;
+            }
+            theMinOrder = theOrder;
+            theId       = theNodeId;
+        }
+        return theId;
+    }
+    template<typename T>
+    static void Cancel(
+        T*& inReqPtr)
+    {
+        if (! inReqPtr) {
+            return;
+        }
+        T* const thePtr = inReqPtr;
+        inReqPtr = 0;
+        thePtr->SetVrSMPtr(0);
+        MetaRequest::Release(thePtr);
+    }
+    void CanceViewChange()
+    {
+        Cancel(mStartViewChangePtr);
+        mStartViewCompletionCount = 0;
+        Cancel(mDoViewChangePtr);
+    }
     void StartViewChange(
         seq_t inCommitSeq)
     {
@@ -1226,16 +1374,40 @@ private:
             panic("VR: start view change: node non active");
             return;
         }
-        mState = kStateViewChange;
+        CanceViewChange();
+        mState               = kStateViewChange;
+        mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         theOp.mNodeId    = mNodeId;
         theOp.mEpochSeq  = mEpochSeq;
         theOp.mViewSeq   = mViewSeq;
         theOp.mCommitSeq = max(seq_t(1), inCommitSeq);
-        mLogTransmitter.QueueVrRequest(theOp);
+        theOp.SetVrSMPtr(&mMetaVrSM);
+        mStartViewChangePtr = &theOp;
+        const NodeId kBroadcast = -1;
+        mLogTransmitter.QueueVrRequest(theOp, kBroadcast);
         // Ignore replies.
         MetaRequest::Release(&theOp);
+    }
+    void StartDoViewChange(
+        seq_t  inCommitSeq,
+        NodeId inPrimaryId)
+    {
+        if (! mActiveFlag || inPrimaryId < 0) {
+            panic("VR: do view change: node non active");
+            return;
+        }
+        CanceViewChange();
+        MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
+        theOp.mNodeId       = mNodeId;
+        theOp.mEpochSeq     = mEpochSeq;
+        theOp.mViewSeq      = mViewSeq;
+        theOp.mCommitSeq    = max(seq_t(1), inCommitSeq);
+        theOp.mPimaryNodeId = inPrimaryId;
+        theOp.SetVrSMPtr(&mMetaVrSM);
+        mDoViewChangePtr = &theOp;
+        mLogTransmitter.QueueVrRequest(theOp, theOp.mPimaryNodeId);
     }
 private:
     Impl(
@@ -1269,9 +1441,10 @@ MetaVrSM::HandleLogBlock(
 
     bool
 MetaVrSM::Handle(
-    MetaRequest& inReq)
+    MetaRequest& inReq,
+    seq_t        inNextLogSeq)
 {
-    return mImpl.Handle(inReq);
+    return mImpl.Handle(inReq, inNextLogSeq);
 }
 
     void

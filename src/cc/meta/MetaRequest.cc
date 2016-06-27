@@ -6408,7 +6408,7 @@ MetaVrReconfiguration::handle()
     if (IsHandled()) {
         return;
     }
-    GetLogWriter().GetMetaVrSM().Handle(*this);
+    GetLogWriter().GetMetaVrSM().Handle(*this, -1);
 }
 
 void
