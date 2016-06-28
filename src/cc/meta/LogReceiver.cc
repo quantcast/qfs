@@ -970,6 +970,7 @@ private:
             return -1;
         }
         inBuffer.Consume(inMsgLen);
+        theReqPtr->shortRpcFormatFlag = true;
         if (META_AUTHENTICATE == theReqPtr->op) {
             mAuthenticateOpPtr = static_cast<MetaAuthenticate*>(theReqPtr);
             mReAuthPendingFlag = false;

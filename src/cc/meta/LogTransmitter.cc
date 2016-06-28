@@ -1563,6 +1563,7 @@ LogTransmitter::Impl::QueueVrRequest(
     MetaVrRequest&               inVrReq,
     LogTransmitter::Impl::NodeId inNodeId)
 {
+    inVrReq.shortRpcFormatFlag = true;
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {

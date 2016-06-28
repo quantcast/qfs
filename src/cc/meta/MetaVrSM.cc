@@ -94,6 +94,7 @@ public:
           mLastReceivedTime(mTimeNow),
           mLastUpTime(mTimeNow),
           mViewChangeStartTime(mTimeNow),
+          mStartViewChangeRecvViewSeq(-1),
           mStartViewCompletionCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -163,6 +164,24 @@ public:
             " '"          << inReq.Show() <<
             " response: " << Show(inProps) <<
         KFS_LOG_EOM;
+        const int theStatus = inProps.getValue("s", -1);
+        if (0 != theStatus) {
+            const seq_t theEpochSeq = inProps.getValue(
+                kMetaVrEpochSeqFiledNamePtr, -1);
+            if (theEpochSeq == mEpochSeq) {
+                const seq_t theViewSeq = inProps.getValue(
+                    kMetaVrViewSeqFiledNamePtr, -1);
+                if (0 <= theViewSeq) {
+                    const int theState = inProps.getValue(
+                        kMetaVrStateFiledNamePtr, -1);
+                    if ((kStatePrimary == theState ||
+                            kStateViewChange == theState) &&
+                            mStartViewChangeRecvViewSeq < theViewSeq) {
+                        mStartViewChangeRecvViewSeq = theViewSeq;
+                    }
+                }
+            }
+        }
         mStartViewCompletionCount++;
         StartDoViewChangeIfPossible(mNextLogSeq);
     }
@@ -608,6 +627,7 @@ private:
     time_t                       mLastReceivedTime;
     time_t                       mLastUpTime;
     time_t                       mViewChangeStartTime;
+    seq_t                        mStartViewChangeRecvViewSeq;
     int                          mStartViewCompletionCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -647,6 +667,9 @@ private:
         KFS_LOG_EOM;
         if (mStartViewCompletionCount < mActiveCount) {
             mLastReceivedTime = TimeNow();
+            if (mViewSeq < mStartViewChangeRecvViewSeq) {
+                mViewSeq = mStartViewChangeRecvViewSeq + 1;
+            }
             StartViewChange(mNextLogSeq);
         }
     }
@@ -701,7 +724,9 @@ private:
         } else if (inReq.mViewSeq < mViewSeq) {
             inReq.status     = -EINVAL;
             inReq.statusMsg  = "view sequence is less than current";
-            inReq.mRetCurViewSeq = mViewSeq;
+            inReq.mRetCurViewSeq  = mViewSeq;
+            inReq.mRetCurEpochSeq = mEpochSeq;
+            inReq.mRetCurState    = mState;
         } else {
             inReq.status = 0;
             return true;
@@ -733,7 +758,9 @@ private:
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "ignored state: ";
                     inReq.statusMsg += GetStateName(mState);
-                    inReq.mRetCurViewSeq = mViewSeq;
+                    inReq.mRetCurViewSeq  = mViewSeq;
+                    inReq.mRetCurEpochSeq = mEpochSeq;
+                    inReq.mRetCurState    = mState;
                 }
             }
         }
@@ -1409,6 +1436,7 @@ private:
         mStartViewCompletionCount = 0;
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
+        mStartViewChangeRecvViewSeq = -1;
     }
     void StartViewChange(
         seq_t inCommitSeq)
