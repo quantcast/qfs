@@ -41,6 +41,8 @@ namespace KFS
 {
 class Properties;
 
+const char* const kMetaVrViewSeqFiledNamePtr = "VS";
+
 class MetaVrRequest : public MetaRequest
 {
 public:
@@ -55,7 +57,7 @@ public:
           mViewSeq(-1),
           mCommitSeq(-1),
           mNodeId(-1),
-          mRetryCount(0),
+          mRetCurViewSeq(-1),
           mVrSMPtr(0),
           mRefCount(0)
     {
@@ -67,7 +69,7 @@ public:
     seq_t  mViewSeq;
     seq_t  mCommitSeq;
     NodeId mNodeId;
-    int    mRetryCount;
+    seq_t  mRetCurViewSeq;
 
     bool Validate() const
     {
@@ -139,6 +141,10 @@ protected:
         ReqOstream& inOs)
     {
         ResponseHeader(inOs);
+        if (0 <= mRetCurViewSeq) {
+            inOs << kMetaVrViewSeqFiledNamePtr <<
+                ":" << mRetCurViewSeq << "\r\n";
+        }
         inOs << "\r\n";
     }
     template<typename T>

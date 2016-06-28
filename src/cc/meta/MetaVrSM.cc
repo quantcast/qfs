@@ -97,7 +97,9 @@ public:
           mStartViewCompletionCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
+          mStartViewPtr(0),
           mStartViewChangeNodeIds(),
+          mDoViewChangeNodeIds(),
           mInputStream()
         {}
     ~Impl()
@@ -187,6 +189,16 @@ public:
         const Properties& inProps,
         NodeId            inNodeId)
     {
+        if (&inReq != mStartViewPtr || inReq.GetVrSMPtr() != &mMetaVrSM) {
+            panic("VR: invalid start view completion");
+            return;
+        }
+        KFS_LOG_STREAM_DEBUG <<
+            " seq: "      << inSeq <<
+            " node: "     << inNodeId <<
+            " '"          << inReq.Show() <<
+            " response: " << Show(inProps) <<
+        KFS_LOG_EOM;
     }
     void HandleReply(
         MetaVrReconfiguration& inReq,
@@ -571,7 +583,7 @@ private:
         NodeId,
         less<NodeId>,
         StdFastAllocator<NodeId>
-    > NodesSet;
+    > NodeIdSet;
 
     LogTransmitter&              mLogTransmitter;
     MetaVrSM&                    mMetaVrSM;
@@ -599,7 +611,9 @@ private:
     int                          mStartViewCompletionCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
-    NodesSet                     mStartViewChangeNodeIds;
+    MetaVrStartView*             mStartViewPtr;
+    NodeIdSet                    mStartViewChangeNodeIds;
+    NodeIdSet                    mDoViewChangeNodeIds;
     BufferInputStream            mInputStream;
 
     time_t TimeNow() const
@@ -685,8 +699,9 @@ private:
             inReq.status    = -EINVAL;
             inReq.statusMsg = "epoch does not match";
         } else if (inReq.mViewSeq < mViewSeq) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "view sequence is less than current";
+            inReq.status     = -EINVAL;
+            inReq.statusMsg  = "view sequence is less than current";
+            inReq.mRetCurViewSeq = mViewSeq;
         } else {
             inReq.status = 0;
             return true;
@@ -716,8 +731,9 @@ private:
                     }
                 } else {
                     inReq.status    = -EINVAL;
-                    inReq.statusMsg = "unexpected state: ";
+                    inReq.statusMsg = "ignored state: ";
                     inReq.statusMsg += GetStateName(mState);
+                    inReq.mRetCurViewSeq = mViewSeq;
                 }
             }
         }
@@ -729,24 +745,48 @@ private:
     {
         Show(inReq);
         if (VerifyViewChange(inReq)) {
-            if (mViewSeq != inReq.mViewSeq) {
+            if (mNodeId != inReq.mPimaryNodeId) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "primary node id mismatch, state: ";
+                inReq.statusMsg += GetStateName(mState);
+            } else if (mViewSeq != inReq.mViewSeq) {
                 mViewSeq = inReq.mViewSeq;
                 StartViewChange(inReq.mCommitSeq);
+                mDoViewChangeNodeIds.insert(inReq.mNodeId);
             } else {
                 if (kStateViewChange == mState) {
-                    // const NodeId thePrimaryId = GetPrimary();
+                    if (mDoViewChangeNodeIds.insert(inReq.mNodeId).second &&
+                            (size_t)mQuorum <= mDoViewChangeNodeIds.size()) {
+                        KFS_LOG_STREAM_INFO <<
+                            "start view: " << mViewSeq <<
+                            " epoch: "     << mEpochSeq <<
+                        KFS_LOG_EOM;
+                        StartView(mNextLogSeq);
+                    }
                 } else {
                     inReq.status    = -EINVAL;
-                    inReq.statusMsg = "unexpected state: ";
+                    inReq.statusMsg = "ignored, state: ";
                     inReq.statusMsg += GetStateName(mState);
                 }
             }
         }
+        Show(inReq);
         return true;
     }
     bool Handle(
         MetaVrStartView& inReq)
     {
+        Show(inReq);
+        if (VerifyViewChange(inReq)) {
+            if (mViewSeq != inReq.mViewSeq || kStateViewChange != mState) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "ignored, state: ";
+                inReq.statusMsg += GetStateName(mState);
+            } else {
+                mState = kStateBackup;
+            }
+        }
+        Show(inReq);
         return true;
     }
     bool Handle(
@@ -1337,7 +1377,9 @@ private:
             }
             if (theNodeId != mNodeId &&
                     mStartViewChangeNodeIds.find(theNodeId) ==
-                    mStartViewChangeNodeIds.end()) {
+                        mStartViewChangeNodeIds.end() &&
+                    mDoViewChangeNodeIds.find(theNodeId) ==
+                        mDoViewChangeNodeIds.end()) {
                 continue;
             }
             const int theOrder = theNode.GetPrimaryOrder();
@@ -1366,6 +1408,7 @@ private:
         Cancel(mStartViewChangePtr);
         mStartViewCompletionCount = 0;
         Cancel(mDoViewChangePtr);
+        Cancel(mStartViewPtr);
     }
     void StartViewChange(
         seq_t inCommitSeq)
@@ -1378,6 +1421,7 @@ private:
         mState               = kStateViewChange;
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
+        mDoViewChangeNodeIds.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         theOp.mNodeId    = mNodeId;
         theOp.mEpochSeq  = mEpochSeq;
@@ -1408,6 +1452,25 @@ private:
         theOp.SetVrSMPtr(&mMetaVrSM);
         mDoViewChangePtr = &theOp;
         mLogTransmitter.QueueVrRequest(theOp, theOp.mPimaryNodeId);
+    }
+    void StartView(
+        seq_t inCommitSeq)
+    {
+        if (! mActiveFlag) {
+            panic("VR: start view: node non active");
+            return;
+        }
+        CanceViewChange();
+        mState = kStatePrimary;
+        MetaVrStartView& theOp = *(new MetaVrStartView());
+        theOp.mNodeId    = mNodeId;
+        theOp.mEpochSeq  = mEpochSeq;
+        theOp.mViewSeq   = mViewSeq;
+        theOp.mCommitSeq = inCommitSeq;
+        theOp.SetVrSMPtr(&mMetaVrSM);
+        mStartViewPtr = &theOp;
+        const NodeId kBroadcast = -1;
+        mLogTransmitter.QueueVrRequest(theOp, kBroadcast);
     }
 private:
     Impl(
