@@ -3873,8 +3873,11 @@ ChunkManager::ChangeChunkVers(ChangeChunkVersOp* op)
             return op->status;
         }
         targetVers = cih->chunkInfo.chunkVersion;
-        if (targetVers < op->fromChunkVersion ||
-                op->chunkVersion < targetVers) {
+        if ((op->fromChunkVersion < op->chunkVersion ?
+                (targetVers < op->fromChunkVersion ||
+                    op->chunkVersion < targetVers) :
+                (targetVers < op->chunkVersion ||
+                    op->fromChunkVersion < targetVers))) {
             op->statusMsg = "version is out of range";
             op->status    = -EINVAL;
             return op->status;

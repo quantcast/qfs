@@ -3429,19 +3429,32 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     if (entry && entry->GetChunkInfo()->chunkVersion ==
                             req.chunkVersion) {
                         updatedFlag = AddHosted(*entry, server);
-                    } else if (0 <= req.chunkId && 0 <= req.chunkVersion) {
+                    } else {
                         // Treat chunk as chunk with stale id even in the case
                         // version mismatch in order to handle possible
                         // transaction log failure, by inserting id into in
                         // flight pending stale set.
-                        const bool kStaleChunkIdFlag = true;
-                        server->DeleteChunk(req.chunkId, kStaleChunkIdFlag);
                         staleFlag = true;
-                        if (! req.replayFlag && req.doneOp) {
-                            // Mark it for completion as already deleted.
-                            req.doneOp->status           = -EINVAL;
-                            req.doneOp->staleChunkIdFlag = true;
+                    }
+                } else {
+                    // Replica wasn't added to the mapping even though it
+                    // possibly exists but has a different version, or stable
+                    // state. Issue delete with stale id flag to add chunk id to
+                    // the in flight stale delete in order to handle possible
+                    // future "chunk log in flight" transaction log write
+                    // failure.
+                    staleFlag = true;
+                }
+                if (staleFlag && (staleFlag =
+                        0 <= req.chunkId && 0 <= req.chunkVersion)) {
+                    const bool kStaleChunkIdFlag = true;
+                    server->DeleteChunk(req.chunkId, kStaleChunkIdFlag);
+                    if (! req.replayFlag && req.doneOp) {
+                        // Mark it for completion as already deleted.
+                        if (0 == req.doneOp->status) {
+                            req.doneOp->status = -EINVAL;
                         }
+                        req.doneOp->staleChunkIdFlag = true;
                     }
                 }
             } else {
@@ -4381,7 +4394,9 @@ LayoutManager::Done(MetaChunkVersChange& req)
             " pendingAdd: " << req.pendingAddFlag <<
         KFS_LOG_EOM;
         if (req.pendingAddFlag) {
-            if (! req.server->IsDown()) {
+            // In case of pending add log completion must have already issued
+            // chunk delete.
+            if (! req.staleChunkIdFlag && ! req.server->IsDown()) {
                 req.server->NotifyStaleChunk(req.chunkId);
             }
         } else {
@@ -9464,7 +9479,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
         if (req.server->IsDown()) {
             res = "server down";
             notifyStaleFlag = false;
-        } else if (req.status != 0) {
+        } else if (0 != req.status) {
             res = "request failed";
         } else {
             CSMap::Entry* const ci = mChunkToServerMap.Find(req.chunkId);
@@ -9493,7 +9508,8 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
                 (notifyStaleFlag ? " => stale" : "") <<
                 "; " << req.Show() <<
             KFS_LOG_EOM;
-            if (notifyStaleFlag) {
+            if (notifyStaleFlag &&
+                    (0 == req.status || ! req.staleChunkIdFlag)) {
                 req.server->NotifyStaleChunk(req.chunkId);
             }
             // List of servers hosting the chunk remains unchanged.

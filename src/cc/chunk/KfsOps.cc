@@ -1602,8 +1602,11 @@ ChangeChunkVersOp::Execute()
             if (! ci) {
                 statusMsg = "no such chunk";
                 status    = -ENOENT;
-            } else if (ci->chunkVersion < fromChunkVersion ||
-                    chunkVersion < ci->chunkVersion) {
+            } else if ((fromChunkVersion < chunkVersion ?
+                    (ci->chunkVersion < fromChunkVersion ||
+                        chunkVersion < ci->chunkVersion) :
+                    (ci->chunkVersion < chunkVersion ||
+                        fromChunkVersion < ci->chunkVersion))) {
                 statusMsg = "version out of range";
                 status    = -EINVAL;
             } else {
