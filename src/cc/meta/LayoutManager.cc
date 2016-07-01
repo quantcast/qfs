@@ -3440,10 +3440,17 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     // Replica wasn't added to the mapping even though it
                     // possibly exists but has a different version, or stable
                     // state. Issue delete with stale id flag to add chunk id to
-                    // the in flight stale delete in order to handle possible
+                    // the in flight stale id set in order to handle possible
                     // future "chunk log in flight" transaction log write
                     // failure.
-                    staleFlag = true;
+                    // Replication is a special case, as on failure chunk server
+                    // guarantees that it has no replica, except in the case
+                    // where replica existed prior to replication which is
+                    // handled by replication completion.
+                    staleFlag = req.doneOp && META_CHUNK_REPLICATE !=
+                        (META_CHUNK_OP_LOG_IN_FLIGHT == req.doneOp->op ?
+                            static_cast<const MetaChunkLogInFlight*>(
+                                req.doneOp)->reqType : req.doneOp->op);
                 }
                 if (staleFlag && (staleFlag =
                         0 <= req.chunkId && 0 <= req.chunkVersion)) {
