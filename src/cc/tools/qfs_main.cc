@@ -3912,7 +3912,7 @@ private:
                 return -EISDIR;
             }
             int64_t theRet = inFs.Seek(
-                theFd, -min(mStat.st_size, mSize), SEEK_END);
+                theFd, -min((int64_t)mStat.st_size, mSize), SEEK_END);
             if (theRet < 0) {
                 inFs.Close(theFd);
                 return (int)theRet;

@@ -114,6 +114,13 @@ if (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
    target_link_libraries(kfsMeta umem)
 endif (CMAKE_SYSTEM_NAME STREQUAL "SunOS")
 
+if (CYGWIN)
+    # Workaround for "too many sections" asm failure by turning on optimization
+    # for compiler to inline for all build types.
+    set_source_files_properties(
+        MetaRequestHandler.cc PROPERTIES COMPILE_FLAGS -O2)
+endif (CYGWIN)
+
 #
 # Install them
 #

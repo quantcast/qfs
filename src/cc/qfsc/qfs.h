@@ -23,6 +23,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 // TODO(sday): Add size checks at compile for size of off_t, size_t, ssize_t,
 // uid_t, gid_t and mode_t to ensure they match qfs. We're not going to add a

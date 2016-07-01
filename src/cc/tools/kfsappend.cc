@@ -45,7 +45,7 @@ handleAppend(KfsClient* kfsClient, const vector<string>& args)
         cout << "Usage: append src dst " << "\n";
         return -EINVAL;
     }
-    off_t offset = -1;
+    chunkOff_t offset = -1;
     const int ret = kfsClient->CoalesceBlocks(
         args[0].c_str(), args[1].c_str(), &offset);
     cout << "append status: " << ErrorCodeToStr(ret) <<

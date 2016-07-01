@@ -568,6 +568,13 @@ echo "Starting copy test. Test file sizes: $sizes"
 # Enable read ahead and set buffer size to an odd value.
 # For RS disable read ahead and set odd buffer size.
 # Schedule meta server checkpoint after the first two tests.
+if uname | grep CYGWIN > /dev/null; then
+    # Sleep on cygwin before renaming test directories to ensure that all files
+    # are closed / flushed by cygwin / os
+    cptestendsleeptime=3
+else
+    cptestendsleeptime=0
+fi
 cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
@@ -575,20 +582,25 @@ cppidf="cptest${pidsuf}"
     cptokfsopts='-r 0 -m 15 -l 15 -R 20 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh &&\
+    sleep $cptestendsleeptime &&\
     mv cptest.log cptest-os.log && \
     cptokfsopts='-r 3 -m 1 -l 15 -w -1' \
     cpfromkfsopts='-r 1e6 -w 65537' \
     cptest.sh && \
+    sleep $cptestendsleeptime && \
     mv cptest.log cptest-0.log && \
     kill -USR1 $metapid && \
     cptokfsopts='-S -m 2 -l 2 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh && \
-    [ x"$jerasuretest" = x'no' ] || { \
-        mv cptest.log cptest-rs.log && \
-        cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1' \
-        cpfromkfsopts='-r 0 -w 65537' \
-        cptest.sh ; \
+    { \
+        [ x"$jerasuretest" = x'no' ] || { \
+            sleep $cptestendsleeptime && \
+            mv cptest.log cptest-rs.log && \
+            cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1' \
+            cpfromkfsopts='-r 0 -w 65537' \
+            cptest.sh ; \
+        } \
     }
 } > cptest.out 2>&1 &
 cppid=$!

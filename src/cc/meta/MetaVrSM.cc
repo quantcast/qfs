@@ -684,7 +684,7 @@ private:
             RetryStartViewChange("not sufficient number of noded responded");
             return;
         }
-        if (theSz < mActiveCount &&
+        if (theSz < (size_t)mActiveCount &&
                 mStartViewCompletionCount < mActiveCount &&
                 TimeNow() <=
                     mViewChangeStartTime + mConfig.GetPrimaryTimeout()) {
