@@ -1662,7 +1662,7 @@ replay_cs_inflight(DETokenizer& c)
         if (! pop_num(n, "x", c, true) || n < 0) {
             return false;
         }
-        op->staleChunkIdFlag = 0 != n;
+        op->removeServerFlag = 0 != n;
         if ("r" != c.front()) {
             return false;
         }
