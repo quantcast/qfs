@@ -11043,7 +11043,7 @@ LayoutManager::Handle(MetaChunkReplicate& req)
         UpdateReplicationState(*ci);
         // Send stale chunk notification if setver is still up, and
         // status isn't EEXIST. The EEXIST is used by the chunk server to
-        // for chunks that exists but aren't communicated to the meta server
+        // for chunks that exist but aren't communicated to the meta server
         // yet.
         if (-EEXIST == req.status || req.server->IsDown()) {
             return;
@@ -11051,9 +11051,12 @@ LayoutManager::Handle(MetaChunkReplicate& req)
         if (! versChangeDoneFlag && fid == req.fid) {
             ProcessInvalidStripes(req);
         }
-        req.server->NotifyStaleChunk(req.chunkId);
-        if (! replicationFlag || req.server->IsDown() ||
-                versChangeDoneFlag) {
+        if (! req.staleChunkIdFlag) {
+            // Send stale chunk notification, unless it was already scheduled by
+            // chunk log completion.
+            req.server->NotifyStaleChunk(req.chunkId);
+        }
+        if (! replicationFlag || req.server->IsDown() || versChangeDoneFlag) {
             return;
         }
         const MetaFattr* const fa = ci->GetFattr();
