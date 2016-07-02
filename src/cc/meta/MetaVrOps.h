@@ -41,9 +41,10 @@ namespace KFS
 {
 class Properties;
 
-const char* const kMetaVrViewSeqFiledNamePtr  = "VV";
-const char* const kMetaVrEpochSeqFiledNamePtr = "VE";
-const char* const kMetaVrStateFiledNamePtr    = "VS";
+const char* const kMetaVrViewSeqFieldNamePtr   = "VV";
+const char* const kMetaVrEpochSeqFieldNamePtr  = "VE";
+const char* const kMetaVrCommittedFieldNamePtr = "VC";
+const char* const kMetaVrStateFieldNamePtr     = "VS";
 
 class MetaVrRequest : public MetaRequest
 {
@@ -61,6 +62,7 @@ public:
           mNodeId(-1),
           mRetCurViewSeq(-1),
           mRetCurEpochSeq(-1),
+          mRetCommittedSeq(-1),
           mRetCurState(-1),
           mVrSMPtr(0),
           mRefCount(0)
@@ -75,6 +77,7 @@ public:
     NodeId mNodeId;
     seq_t  mRetCurViewSeq;
     seq_t  mRetCurEpochSeq;
+    seq_t  mRetCommittedSeq;
     int    mRetCurState;
 
     bool Validate() const
@@ -148,16 +151,20 @@ protected:
     {
         ResponseHeader(inOs);
         if (0 <= mRetCurViewSeq) {
-            inOs << kMetaVrViewSeqFiledNamePtr <<
+            inOs << kMetaVrViewSeqFieldNamePtr <<
                 ":" << mRetCurViewSeq << "\r\n";
         }
         if (0 <= mRetCurEpochSeq) {
-            inOs << kMetaVrEpochSeqFiledNamePtr <<
+            inOs << kMetaVrEpochSeqFieldNamePtr <<
                 ":" << mRetCurEpochSeq << "\r\n";
         }
         if (0 <= mRetCurState) {
-            inOs << kMetaVrStateFiledNamePtr <<
+            inOs << kMetaVrStateFieldNamePtr <<
                 ":" << mRetCurState << "\r\n";
+        }
+        if (0 <= mRetCommittedSeq) {
+            inOs << kMetaVrCommittedFieldNamePtr <<
+                ":" << mRetCommittedSeq << "\r\n";
         }
         inOs << "\r\n";
     }

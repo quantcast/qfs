@@ -88,6 +88,7 @@ public:
           mPendingBackupTimeout(0),
           mEpochSeq(0),
           mViewSeq(0),
+          mCommittedSeq(-1),
           mNextLogSeq(-1),
           mTimeNow(),
           mLastProcessTime(mTimeNow),
@@ -95,6 +96,8 @@ public:
           mLastUpTime(mTimeNow),
           mViewChangeStartTime(mTimeNow),
           mStartViewChangeRecvViewSeq(-1),
+          mStartViewMaxCommittedSeq(-1),
+          mStartViewEpochMismatchCount(0),
           mStartViewCompletionCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -110,13 +113,15 @@ public:
     int HandleLogBlock(
         seq_t  inEpochSeq,
         seq_t  inViewSeq,
-        seq_t  inLogSeq,
+        seq_t  inCommittedSeq,
         seq_t& outEpochSeq,
         seq_t& outViewSeq)
     {
+        mCommittedSeq = inCommittedSeq;
         outEpochSeq = mEpochSeq;
         outViewSeq  = mViewSeq;
-        return (IsPrimary() ? 0 : -EVRNOTPRIMARY);
+        return ((kStatePrimary == mState || kStateBackup == mState) ?
+            0 : -EVRNOTPRIMARY);
     }
     bool Handle(
         MetaRequest& inReq,
@@ -166,19 +171,25 @@ public:
         KFS_LOG_EOM;
         const int theStatus = inProps.getValue("s", -1);
         if (0 != theStatus) {
-            const seq_t theEpochSeq = inProps.getValue(
-                kMetaVrEpochSeqFiledNamePtr, -1);
-            if (theEpochSeq == mEpochSeq) {
-                const seq_t theViewSeq = inProps.getValue(
-                    kMetaVrViewSeqFiledNamePtr, -1);
-                if (0 <= theViewSeq) {
-                    const int theState = inProps.getValue(
-                        kMetaVrStateFiledNamePtr, -1);
-                    if ((kStatePrimary == theState ||
-                            kStateViewChange == theState) &&
-                            mStartViewChangeRecvViewSeq < theViewSeq) {
-                        mStartViewChangeRecvViewSeq = theViewSeq;
+            const int theState = inProps.getValue(
+                kMetaVrStateFieldNamePtr, -1);
+            if (kStatePrimary == theState || kStateViewChange == theState) {
+                const seq_t theEpochSeq = inProps.getValue(
+                    kMetaVrEpochSeqFieldNamePtr, seq_t(-1));
+                if (theEpochSeq == mEpochSeq) {
+                    const seq_t theViewSeq = inProps.getValue(
+                        kMetaVrViewSeqFieldNamePtr, seq_t(-1));
+                    if (0 <= theViewSeq) {
+                        if (mStartViewChangeRecvViewSeq < theViewSeq) {
+                            mStartViewChangeRecvViewSeq = theViewSeq;
+                            const seq_t theCommittedSeq = inProps.getValue(
+                                kMetaVrCommittedFieldNamePtr, seq_t(-1));
+                            mStartViewMaxCommittedSeq =
+                                max(theCommittedSeq, mStartViewMaxCommittedSeq);
+                        }
                     }
+                } else {
+                    mStartViewEpochMismatchCount++;
                 }
             }
         }
@@ -246,7 +257,9 @@ public:
     void SetLastLogReceivedTime(
         time_t inTime)
     {
-        mLastReceivedTime = inTime;
+        if (kStatePrimary == mState || kStateBackup == mState) {
+            mLastReceivedTime = inTime;
+        }
     }
     void Process(
         time_t inTimeNow)
@@ -621,6 +634,7 @@ private:
     int                          mPendingBackupTimeout;
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
+    seq_t                        mCommittedSeq;
     seq_t                        mNextLogSeq;
     time_t                       mTimeNow;
     time_t                       mLastProcessTime;
@@ -628,6 +642,8 @@ private:
     time_t                       mLastUpTime;
     time_t                       mViewChangeStartTime;
     seq_t                        mStartViewChangeRecvViewSeq;
+    seq_t                        mStartViewMaxCommittedSeq;
+    int                          mStartViewEpochMismatchCount;
     int                          mStartViewCompletionCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -724,9 +740,10 @@ private:
         } else if (inReq.mViewSeq < mViewSeq) {
             inReq.status     = -EINVAL;
             inReq.statusMsg  = "view sequence is less than current";
-            inReq.mRetCurViewSeq  = mViewSeq;
-            inReq.mRetCurEpochSeq = mEpochSeq;
-            inReq.mRetCurState    = mState;
+            inReq.mRetCurViewSeq   = mViewSeq;
+            inReq.mRetCurEpochSeq  = mEpochSeq;
+            inReq.mRetCurState     = mState;
+            inReq.mRetCommittedSeq = mCommittedSeq;
         } else {
             inReq.status = 0;
             return true;
@@ -758,9 +775,10 @@ private:
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "ignored state: ";
                     inReq.statusMsg += GetStateName(mState);
-                    inReq.mRetCurViewSeq  = mViewSeq;
-                    inReq.mRetCurEpochSeq = mEpochSeq;
-                    inReq.mRetCurState    = mState;
+                    inReq.mRetCurViewSeq   = mViewSeq;
+                    inReq.mRetCurEpochSeq  = mEpochSeq;
+                    inReq.mRetCurState     = mState;
+                    inReq.mRetCommittedSeq = mCommittedSeq;
                 }
             }
         }
@@ -1436,7 +1454,9 @@ private:
         mStartViewCompletionCount = 0;
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
-        mStartViewChangeRecvViewSeq = -1;
+        mStartViewChangeRecvViewSeq  = -1;
+        mStartViewMaxCommittedSeq    = -1;
+        mStartViewEpochMismatchCount = 0;
     }
     void StartViewChange(
         seq_t inCommitSeq)
@@ -1522,12 +1542,12 @@ MetaVrSM::~MetaVrSM()
 MetaVrSM::HandleLogBlock(
     seq_t  inLogSeq,
     seq_t  inBlockLenSeq,
-    seq_t  inCommitSeq,
+    seq_t  inCommittedSeq,
     seq_t& outEpochSeq,
     seq_t& outViewSeq)
 {
     return mImpl.HandleLogBlock(
-        inLogSeq, inBlockLenSeq, inCommitSeq, outEpochSeq, outViewSeq);
+        inLogSeq, inBlockLenSeq, inCommittedSeq, outEpochSeq, outViewSeq);
 }
 
     bool

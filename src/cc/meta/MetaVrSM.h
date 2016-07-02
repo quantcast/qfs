@@ -263,7 +263,7 @@ public:
     int HandleLogBlock(
         seq_t  inLogSeq,
         seq_t  inBlockLenSeq,
-        seq_t  inCommitSeq,
+        seq_t  inCommittedSeq,
         seq_t& outEpochSeq,
         seq_t& outViewSeq);
     bool Handle(
