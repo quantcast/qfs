@@ -58,10 +58,11 @@ public:
         : MetaRequest(inOpType, inLogAction, inOpSequence),
           mEpochSeq(-1),
           mViewSeq(-1),
-          mCommitSeq(-1),
+          mCommittedSeq(-1),
+          mNextLogSeq(-1),
           mNodeId(-1),
-          mRetCurViewSeq(-1),
           mRetCurEpochSeq(-1),
+          mRetCurViewSeq(-1),
           mRetCommittedSeq(-1),
           mRetCurState(-1),
           mVrSMPtr(0),
@@ -73,10 +74,11 @@ public:
 
     seq_t  mEpochSeq;
     seq_t  mViewSeq;
-    seq_t  mCommitSeq;
+    seq_t  mCommittedSeq;
+    seq_t  mNextLogSeq;
     NodeId mNodeId;
-    seq_t  mRetCurViewSeq;
     seq_t  mRetCurEpochSeq;
+    seq_t  mRetCurViewSeq;
     seq_t  mRetCommittedSeq;
     int    mRetCurState;
 
@@ -89,10 +91,11 @@ public:
         T& inParser)
     {
         return MetaRequest::ParserDef(inParser)
-        .Def("E", &MetaVrRequest::mEpochSeq,  seq_t(-1))
-        .Def("V", &MetaVrRequest::mViewSeq,   seq_t(-1))
-        .Def("C", &MetaVrRequest::mCommitSeq, seq_t(-1))
-        .Def("N", &MetaVrRequest::mNodeId,    NodeId(-1))
+        .Def("E", &MetaVrRequest::mEpochSeq,     seq_t(-1))
+        .Def("V", &MetaVrRequest::mViewSeq,      seq_t(-1))
+        .Def("C", &MetaVrRequest::mCommittedSeq, seq_t(-1))
+        .Def("L", &MetaVrRequest::mNextLogSeq,   seq_t(-1))
+        .Def("N", &MetaVrRequest::mNodeId,       NodeId(-1))
         ;
     }
     template<typename T>
@@ -100,10 +103,11 @@ public:
         T& inParser)
     {
         return MetaRequest::LogIoDef(inParser)
-        .Def("E", &MetaVrRequest::mEpochSeq,  seq_t(-1))
-        .Def("V", &MetaVrRequest::mViewSeq,   seq_t(-1))
-        .Def("C", &MetaVrRequest::mCommitSeq, seq_t(-1))
-        .Def("N", &MetaVrRequest::mNodeId,    NodeId(-1))
+        .Def("E", &MetaVrRequest::mEpochSeq,     seq_t(-1))
+        .Def("V", &MetaVrRequest::mViewSeq,      seq_t(-1))
+        .Def("C", &MetaVrRequest::mCommittedSeq, seq_t(-1))
+        .Def("L", &MetaVrRequest::mNextLogSeq,   seq_t(-1))
+        .Def("N", &MetaVrRequest::mNodeId,       NodeId(-1))
         ;
     }
     void Request(
@@ -199,10 +203,10 @@ public:
     {
         return (inOs <<
             "vr-start-view-change" <<
-            " node: "   << mNodeId <<
-            " epoch: "  << mEpochSeq <<
-            " view: "   << mViewSeq <<
-            " commit: " << mCommitSeq
+            " node: "      << mNodeId <<
+            " epoch: "     << mEpochSeq <<
+            " view: "      << mViewSeq <<
+            " committed: " << mCommittedSeq
         );
     }
     virtual void HandleResponse(
@@ -229,11 +233,11 @@ public:
     {
         return (inOs <<
             "vr-do-view-change" <<
-            " node: "    << mNodeId <<
-            " epoch: "   << mEpochSeq <<
-            " view: "    << mViewSeq <<
-            " commit: "  << mCommitSeq <<
-            " primary: " << mPimaryNodeId
+            " node: "      << mNodeId <<
+            " epoch: "     << mEpochSeq <<
+            " view: "      << mViewSeq <<
+            " committed: " << mCommittedSeq <<
+            " primary: "   << mPimaryNodeId
         );
     }
     virtual void HandleResponse(
@@ -273,10 +277,10 @@ public:
     {
         return (inOs <<
             "vr-start-view" <<
-            " node: "   << mNodeId <<
-            " epoch: "  << mEpochSeq <<
-            " view: "   << mViewSeq <<
-            " commit: " << mCommitSeq
+            " node: "      << mNodeId <<
+            " epoch: "     << mEpochSeq <<
+            " view: "      << mViewSeq <<
+            " committed: " << mCommittedSeq
         );
     }
     virtual void HandleResponse(
@@ -400,10 +404,10 @@ public:
     {
         return (inOs <<
             "vr-start-epoch" <<
-            " node: "   << mNodeId <<
-            " epoch: "  << mEpochSeq <<
-            " view: "   << mViewSeq <<
-            " commit: " << mCommitSeq
+            " node: "      << mNodeId <<
+            " epoch: "     << mEpochSeq <<
+            " view: "      << mViewSeq <<
+            " committed: " << mCommittedSeq
         );
     }
     virtual void HandleResponse(

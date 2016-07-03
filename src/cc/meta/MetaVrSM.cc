@@ -117,7 +117,9 @@ public:
         seq_t& outEpochSeq,
         seq_t& outViewSeq)
     {
-        mCommittedSeq = inCommittedSeq;
+        if (kStateBackup == mState) {
+            mCommittedSeq = inCommittedSeq;
+        }
         outEpochSeq = mEpochSeq;
         outViewSeq  = mViewSeq;
         return ((kStatePrimary == mState || kStateBackup == mState) ?
@@ -141,7 +143,15 @@ public:
                 return Handle(static_cast<MetaVrReconfiguration&>(inReq));
             case META_VR_START_EPOCH:
                 return Handle(static_cast<MetaVrStartEpoch&>(inReq));
+            case META_LOG_WRITER_CONTROL:
+                return false;
             default:
+                if (kStatePrimary != mState) {
+                    inReq.status    = -EVRNOTPRIMARY;
+                    inReq.statusMsg = "not primary, state: ";
+                    inReq.statusMsg += GetStateName(mState);
+                    return true;
+                }
                 break;
         }
         return false;
@@ -272,7 +282,7 @@ public:
         if (kStateBackup == mState) {
             if (mLastReceivedTime + mConfig.GetBackupTimeout() < TimeNow()) {
                 mViewSeq++;
-                StartViewChange(mNextLogSeq);
+                StartViewChange();
             }
         } else if (kStatePrimary == mState) {
             if (mLogTransmitter.IsUp()) {
@@ -280,7 +290,7 @@ public:
             } else {
                 if (mLastUpTime + mConfig.GetPrimaryTimeout() < TimeNow()) {
                     mViewSeq++;
-                    StartViewChange(mNextLogSeq + (10 << 10));
+                    StartViewChange();
                 }
             }
         } else if (kStateViewChange == mState) {
@@ -322,11 +332,16 @@ public:
     void Commit(
         seq_t inLogSeq)
     {
-        if (kMinActiveCount <= mActiveCount &&
-                mActiveFlag &&
-                (kStatePrimary == mState || kStateReconfiguration == mState) &&
-                ! mLogTransmitter.IsUp()) {
+        if (inLogSeq < 0 ||
+                (kStatePrimary != mState && kStateReconfiguration != mState)) {
+            return;
         }
+        if (kStateReconfiguration == mState && (! mReconfigureReqPtr ||
+                mReconfigureReqPtr->logseq < inLogSeq)) {
+            panic("VR: invalid commit sequence in reconfiguration");
+            return;
+        }
+        mCommittedSeq = inLogSeq;
         if (! mReconfigureReqPtr || inLogSeq < mReconfigureReqPtr->logseq) {
             return;
         }
@@ -582,7 +597,7 @@ private:
                     }
                     if (0 != mReq.status) {
                         KFS_LOG_STREAM_ERROR <<
-                            "tranmit channel: " <<
+                            "transmit channel: " <<
                             mReq.statusMsg <<
                         KFS_LOG_EOM;
                         return false;
@@ -686,7 +701,7 @@ private:
             if (mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq + 1;
             }
-            StartViewChange(mNextLogSeq);
+            StartViewChange();
         }
     }
     void StartDoViewChangeIfPossible(
@@ -712,7 +727,7 @@ private:
             RetryStartViewChange("no primary available");
             return;
         }
-        StartDoViewChange(inCommitSeq, thePrimaryId);
+        StartDoViewChange(thePrimaryId);
     }
     bool IsActive(
         NodeId inNodeId) const
@@ -761,7 +776,7 @@ private:
                             mLastReceivedTime + mConfig.GetBackupTimeout() <
                                 TimeNow())) {
                     mViewSeq = inReq.mViewSeq;
-                    StartViewChange(inReq.mCommitSeq);
+                    StartViewChange();
                 }
             } else {
                 if (kStateViewChange == mState) {
@@ -769,7 +784,7 @@ private:
                             inReq.mNodeId != mNodeId &&
                             mStartViewChangeNodeIds.insert(
                                 inReq.mNodeId).second) {
-                        StartDoViewChangeIfPossible(inReq.mCommitSeq);
+                        StartDoViewChangeIfPossible(inReq.mCommittedSeq);
                     }
                 } else {
                     inReq.status    = -EINVAL;
@@ -796,7 +811,7 @@ private:
                 inReq.statusMsg += GetStateName(mState);
             } else if (mViewSeq != inReq.mViewSeq) {
                 mViewSeq = inReq.mViewSeq;
-                StartViewChange(inReq.mCommitSeq);
+                StartViewChange();
                 mDoViewChangeNodeIds.insert(inReq.mNodeId);
             } else {
                 if (kStateViewChange == mState) {
@@ -1313,7 +1328,7 @@ private:
             } else {
                 mActiveFlag =
                     0 != (Config::kFlagActive & theIt->second.GetFlags());
-                PrimaryReconfigurationStartViewChange(inReq.logseq);
+                PrimaryReconfigurationStartViewChange();
             }
         } else {
             mActiveFlag = theNodes.end() != theIt &&
@@ -1347,7 +1362,7 @@ private:
                     mConfig.GetPrimaryTimeout());
             }
             if (kStateReconfiguration == mState) {
-                PrimaryReconfigurationStartViewChange(inReq.logseq);
+                PrimaryReconfigurationStartViewChange();
             }
         }
     }
@@ -1391,8 +1406,7 @@ private:
         }
         return -1;
     }
-    void PrimaryReconfigurationStartViewChange(
-        seq_t inCommitSeq)
+    void PrimaryReconfigurationStartViewChange()
     {
         if (kStateReconfiguration != mState) {
             panic("VR: invalid end reconfiguration primary state");
@@ -1403,7 +1417,7 @@ private:
             mState = kStateBackup;
             return;
         }
-        StartViewChange(inCommitSeq);
+        StartViewChange();
     }
     NodeId GetPrimaryId()
     {
@@ -1450,6 +1464,7 @@ private:
     }
     void CanceViewChange()
     {
+        mReconfigureReqPtr = 0;
         Cancel(mStartViewChangePtr);
         mStartViewCompletionCount = 0;
         Cancel(mDoViewChangePtr);
@@ -1458,8 +1473,7 @@ private:
         mStartViewMaxCommittedSeq    = -1;
         mStartViewEpochMismatchCount = 0;
     }
-    void StartViewChange(
-        seq_t inCommitSeq)
+    void StartViewChange()
     {
         if (! mActiveFlag) {
             panic("VR: start view change: node non active");
@@ -1471,10 +1485,11 @@ private:
         mStartViewChangeNodeIds.clear();
         mDoViewChangeNodeIds.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
-        theOp.mNodeId    = mNodeId;
-        theOp.mEpochSeq  = mEpochSeq;
-        theOp.mViewSeq   = mViewSeq;
-        theOp.mCommitSeq = max(seq_t(1), inCommitSeq);
+        theOp.mNodeId       = mNodeId;
+        theOp.mEpochSeq     = mEpochSeq;
+        theOp.mViewSeq      = mViewSeq;
+        theOp.mCommittedSeq = mCommittedSeq;
+        theOp.mNextLogSeq   = mNextLogSeq;
         theOp.SetVrSMPtr(&mMetaVrSM);
         mStartViewChangePtr = &theOp;
         const NodeId kBroadcast = -1;
@@ -1483,7 +1498,6 @@ private:
         MetaRequest::Release(&theOp);
     }
     void StartDoViewChange(
-        seq_t  inCommitSeq,
         NodeId inPrimaryId)
     {
         if (! mActiveFlag || inPrimaryId < 0) {
@@ -1495,7 +1509,8 @@ private:
         theOp.mNodeId       = mNodeId;
         theOp.mEpochSeq     = mEpochSeq;
         theOp.mViewSeq      = mViewSeq;
-        theOp.mCommitSeq    = max(seq_t(1), inCommitSeq);
+        theOp.mCommittedSeq = mCommittedSeq;
+        theOp.mNextLogSeq   = mNextLogSeq;
         theOp.mPimaryNodeId = inPrimaryId;
         theOp.SetVrSMPtr(&mMetaVrSM);
         mDoViewChangePtr = &theOp;
@@ -1511,10 +1526,10 @@ private:
         CanceViewChange();
         mState = kStatePrimary;
         MetaVrStartView& theOp = *(new MetaVrStartView());
-        theOp.mNodeId    = mNodeId;
-        theOp.mEpochSeq  = mEpochSeq;
-        theOp.mViewSeq   = mViewSeq;
-        theOp.mCommitSeq = inCommitSeq;
+        theOp.mNodeId       = mNodeId;
+        theOp.mEpochSeq     = mEpochSeq;
+        theOp.mViewSeq      = mViewSeq;
+        theOp.mCommittedSeq = mCommittedSeq;
         theOp.SetVrSMPtr(&mMetaVrSM);
         mStartViewPtr = &theOp;
         const NodeId kBroadcast = -1;
