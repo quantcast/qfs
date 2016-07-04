@@ -41,10 +41,12 @@ namespace KFS
 {
 class Properties;
 
-const char* const kMetaVrViewSeqFieldNamePtr   = "VV";
-const char* const kMetaVrEpochSeqFieldNamePtr  = "VE";
-const char* const kMetaVrCommittedFieldNamePtr = "VC";
-const char* const kMetaVrStateFieldNamePtr     = "VS";
+const char* const kMetaVrViewSeqFieldNamePtr       = "VV";
+const char* const kMetaVrEpochSeqFieldNamePtr      = "VE";
+const char* const kMetaVrCommittedViewFieldNamePtr = "VCV";
+const char* const kMetaVrCommittedFieldNamePtr     = "VC";
+const char* const kMetaVrNextLogSeqFieldNamePtr    = "VN";
+const char* const kMetaVrStateFieldNamePtr         = "VS";
 
 class MetaVrRequest : public MetaRequest
 {
@@ -58,12 +60,15 @@ public:
         : MetaRequest(inOpType, inLogAction, inOpSequence),
           mEpochSeq(-1),
           mViewSeq(-1),
+          mCommittedViewSeq(-1),
           mCommittedSeq(-1),
           mNextLogSeq(-1),
           mNodeId(-1),
           mRetCurEpochSeq(-1),
           mRetCurViewSeq(-1),
+          mRetCommittedViewSeq(-1),
           mRetCommittedSeq(-1),
+          mRetNextLogSeq(-1),
           mRetCurState(-1),
           mVrSMPtr(0),
           mRefCount(0)
@@ -74,12 +79,15 @@ public:
 
     seq_t  mEpochSeq;
     seq_t  mViewSeq;
+    seq_t  mCommittedViewSeq;
     seq_t  mCommittedSeq;
     seq_t  mNextLogSeq;
     NodeId mNodeId;
     seq_t  mRetCurEpochSeq;
     seq_t  mRetCurViewSeq;
+    seq_t  mRetCommittedViewSeq;
     seq_t  mRetCommittedSeq;
+    seq_t  mRetNextLogSeq;
     int    mRetCurState;
 
     bool Validate() const
@@ -90,25 +98,13 @@ public:
     static T& ParserDef(
         T& inParser)
     {
-        return MetaRequest::ParserDef(inParser)
-        .Def("E", &MetaVrRequest::mEpochSeq,     seq_t(-1))
-        .Def("V", &MetaVrRequest::mViewSeq,      seq_t(-1))
-        .Def("C", &MetaVrRequest::mCommittedSeq, seq_t(-1))
-        .Def("L", &MetaVrRequest::mNextLogSeq,   seq_t(-1))
-        .Def("N", &MetaVrRequest::mNodeId,       NodeId(-1))
-        ;
+        return LogAndIoDefs(MetaRequest::ParserDef(inParser));
     }
     template<typename T>
     static T& LogIoDef(
         T& inParser)
     {
-        return MetaRequest::LogIoDef(inParser)
-        .Def("E", &MetaVrRequest::mEpochSeq,     seq_t(-1))
-        .Def("V", &MetaVrRequest::mViewSeq,      seq_t(-1))
-        .Def("C", &MetaVrRequest::mCommittedSeq, seq_t(-1))
-        .Def("L", &MetaVrRequest::mNextLogSeq,   seq_t(-1))
-        .Def("N", &MetaVrRequest::mNodeId,       NodeId(-1))
-        ;
+        return LogAndIoDefs(MetaRequest::LogIoDef(inParser));
     }
     void Request(
         ReqOstream& inStream) const;
@@ -166,9 +162,17 @@ protected:
             inOs << kMetaVrStateFieldNamePtr <<
                 ":" << mRetCurState << "\r\n";
         }
+        if (0 <= mRetCommittedViewSeq) {
+            inOs << kMetaVrCommittedViewFieldNamePtr <<
+                ":" << mRetCommittedViewSeq << "\r\n";
+        }
         if (0 <= mRetCommittedSeq) {
             inOs << kMetaVrCommittedFieldNamePtr <<
                 ":" << mRetCommittedSeq << "\r\n";
+        }
+        if (0 <= mRetNextLogSeq) {
+            inOs << kMetaVrNextLogSeqFieldNamePtr <<
+                ":" << mRetNextLogSeq << "\r\n";
         }
         inOs << "\r\n";
     }
@@ -185,6 +189,19 @@ protected:
     }
     virtual void ReleaseSelf()
         { Unref(); }
+    template<typename T>
+    static T& LogAndIoDefs(
+        T& inParser)
+    {
+        return inParser
+        .Def("E",  &MetaVrRequest::mEpochSeq,         seq_t(-1))
+        .Def("V",  &MetaVrRequest::mViewSeq,          seq_t(-1))
+        .Def("CV", &MetaVrRequest::mCommittedViewSeq, seq_t(-1))
+        .Def("C",  &MetaVrRequest::mCommittedSeq,     seq_t(-1))
+        .Def("L",  &MetaVrRequest::mNextLogSeq,       seq_t(-1))
+        .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
+        ;
+    }
 private:
     MetaVrRequest(
         const MetaVrRequest& inRequest);
