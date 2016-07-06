@@ -181,6 +181,21 @@ Properties::loadProperties(
         }
         removeLTSpaces(line, 0, pos, key, keysAsciiToLower);
         removeLTSpaces(line, pos + 1, string::npos, val);
+        // if val starts with "$", read the value from the
+        // specified environment variable
+        if((val.c_str())[0] == '$') {
+            const char* envVarName = &(val.c_str())[1];
+            char* envVarVal = getenv(envVarName);
+            if (!envVarVal) {
+                if (verbose) {
+                    (*verbose) << "Skipping key " << key <<
+                            " since $" << envVarName <<
+                            " is not defined " << endl;
+                }
+                continue;
+            }
+            val.Copy(String(envVarVal));
+        }
         if (multiline) {
             // allow properties to span across multiple lines
             propmap[key].Append(val);
