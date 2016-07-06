@@ -97,14 +97,16 @@ public:
           mLastUpTime(mTimeNow),
           mViewChangeStartTime(mTimeNow),
           mStartViewChangeRecvViewSeq(-1),
+          mStartViewChangeRecvCommittedViewSeq(-1),
           mStartViewMaxCommittedSeq(-1),
           mStartViewEpochMismatchCount(0),
-          mStartViewCompletionCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
           mStartViewPtr(0),
           mStartViewChangeNodeIds(),
           mDoViewChangeNodeIds(),
+          mStartViewCompletionIds(),
+          mStartViewMaxCommittedNodeIds(),
           mInputStream()
         {}
     ~Impl()
@@ -190,6 +192,10 @@ public:
             " "           << inReq.Show() <<
             " response: " << Show(inProps) <<
         KFS_LOG_EOM;
+        if (! IsActive(inNodeId)) {
+            return;
+        }
+        const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
         const int theStatus = inProps.getValue("s", -1);
         if (0 != theStatus) {
             const int theState = inProps.getValue(
@@ -198,18 +204,39 @@ public:
                 const seq_t theEpochSeq = inProps.getValue(
                     kMetaVrEpochSeqFieldNamePtr, seq_t(-1));
                 if (theEpochSeq == mEpochSeq) {
-                    const seq_t theViewSeq = inProps.getValue(
-                        kMetaVrViewSeqFieldNamePtr, seq_t(-1));
-                    if (0 <= theViewSeq) {
-                        if (mStartViewChangeRecvViewSeq < theViewSeq) {
-                            mStartViewChangeRecvViewSeq = theViewSeq;
+                    const seq_t theCommittedViewSeq = inProps.getValue(
+                        kMetaVrCommittedViewFieldNamePtr, seq_t(-1));
+                    if (0 <= theCommittedViewSeq) {
+                        if (mStartViewChangeRecvCommittedViewSeq <=
+                                theCommittedViewSeq) {
                             const seq_t theCommittedSeq = inProps.getValue(
                                 kMetaVrCommittedFieldNamePtr, seq_t(-1));
-                            mStartViewMaxCommittedSeq =
-                                max(theCommittedSeq, mStartViewMaxCommittedSeq);
+                            if (0 <= theCommittedSeq) {
+                                if (mStartViewChangeRecvCommittedViewSeq <
+                                        theCommittedViewSeq) {
+                                    mStartViewMaxCommittedSeq = -1;
+                                }
+                                mStartViewChangeRecvCommittedViewSeq =
+                                    theCommittedViewSeq;
+                                if (mStartViewMaxCommittedSeq <=
+                                        theCommittedSeq) {
+                                    mStartViewMaxCommittedSeq = theCommittedSeq;
+                                    if (mStartViewMaxCommittedSeq <
+                                            theCommittedSeq) {
+                                        mStartViewMaxCommittedNodeIds.clear();
+                                    }
+                                    mStartViewMaxCommittedNodeIds.insert(
+                                        inNodeId);
+                                }
+                            }
                         }
                     }
-                } else {
+                    const seq_t theViewSeq = inProps.getValue(
+                        kMetaVrViewSeqFieldNamePtr, seq_t(-1));
+                    if (mStartViewChangeRecvViewSeq < theViewSeq) {
+                        mStartViewChangeRecvViewSeq = theViewSeq;
+                    }
+                } else if (theNewFlag) {
                     mStartViewEpochMismatchCount++;
                 }
             }
@@ -217,11 +244,13 @@ public:
                 " seq: "            << inSeq <<
                 " node: "           << inNodeId <<
                 " epoch mismatch: " << mStartViewEpochMismatchCount <<
-                " max committed: "  << mStartViewMaxCommittedSeq <<
+                " max committed:"
+                " seq: "            << mStartViewMaxCommittedSeq <<
+                " count: "          << mStartViewMaxCommittedNodeIds.size() <<
+                " responses: "      << mStartViewCompletionIds.size() <<
                 " "                 << inReq.Show() <<
             KFS_LOG_EOM;
         }
-        mStartViewCompletionCount++;
         StartDoViewChangeIfPossible();
     }
     void HandleReply(
@@ -677,14 +706,16 @@ private:
     time_t                       mLastUpTime;
     time_t                       mViewChangeStartTime;
     seq_t                        mStartViewChangeRecvViewSeq;
+    seq_t                        mStartViewChangeRecvCommittedViewSeq;
     seq_t                        mStartViewMaxCommittedSeq;
     int                          mStartViewEpochMismatchCount;
-    int                          mStartViewCompletionCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
     MetaVrStartView*             mStartViewPtr;
     NodeIdSet                    mStartViewChangeNodeIds;
     NodeIdSet                    mDoViewChangeNodeIds;
+    NodeIdSet                    mStartViewCompletionIds;
+    NodeIdSet                    mStartViewMaxCommittedNodeIds;
     BufferInputStream            mInputStream;
 
     time_t TimeNow() const
@@ -716,7 +747,7 @@ private:
         KFS_LOG_STREAM_ERROR <<
             "view change failed: " << inMsgPtr <<
         KFS_LOG_EOM;
-        if (mStartViewCompletionCount < mActiveCount) {
+        if (mStartViewCompletionIds.size() < mActiveCount) {
             mLastReceivedTime = TimeNow();
             if (mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq + 1;
@@ -729,13 +760,22 @@ private:
         if (mDoViewChangePtr) {
             return;
         }
+        if (mCommittedViewSeq < mStartViewChangeRecvCommittedViewSeq ||
+                (mCommittedViewSeq == mStartViewChangeRecvCommittedViewSeq &&
+                mNextLogSeq <= mStartViewMaxCommittedSeq)) {
+            // Need to feetch log / checkpoint.
+            if (mStartViewMaxCommittedNodeIds.empty()) {
+                panic("VR: invalid empty committed node ids");
+            }
+            return;
+        }
         const size_t theSz = mStartViewChangeNodeIds.size();
         if (theSz < (size_t)(mActiveCount - mQuorum)) {
             RetryStartViewChange("not sufficient number of noded responded");
             return;
         }
         if (theSz < (size_t)mActiveCount &&
-                mStartViewCompletionCount < mActiveCount &&
+                mStartViewCompletionIds.size() < mActiveCount &&
                 TimeNow() <=
                     mViewChangeStartTime + mConfig.GetPrimaryTimeout()) {
             // Wait for more nodes to repsond.
@@ -1495,12 +1535,13 @@ private:
     {
         mReconfigureReqPtr = 0;
         Cancel(mStartViewChangePtr);
-        mStartViewCompletionCount = 0;
+        mStartViewCompletionIds.clear();
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
-        mStartViewChangeRecvViewSeq  = -1;
-        mStartViewMaxCommittedSeq    = -1;
-        mStartViewEpochMismatchCount = 0;
+        mStartViewChangeRecvViewSeq          = -1;
+        mStartViewChangeRecvCommittedViewSeq = -1;
+        mStartViewMaxCommittedSeq            = -1;
+        mStartViewEpochMismatchCount         = 0;
     }
     void Init(
         MetaVrRequest& inReq)
@@ -1524,6 +1565,7 @@ private:
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
         mDoViewChangeNodeIds.clear();
+        mStartViewMaxCommittedNodeIds.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         Init(theOp);
         mStartViewChangePtr = &theOp;
