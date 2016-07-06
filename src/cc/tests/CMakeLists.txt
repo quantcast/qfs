@@ -47,6 +47,7 @@ set(test_sources
     environments/MetaserverEnvironment.cc
     environments/ChunkserverEnvironment.cc
 
+    common/Properties_T.cc
     common/Test_T.cc
 )
 
