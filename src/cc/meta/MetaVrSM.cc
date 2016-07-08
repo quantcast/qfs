@@ -764,8 +764,12 @@ private:
                 (mCommittedViewSeq == mStartViewChangeRecvCommittedViewSeq &&
                 mNextLogSeq <= mStartViewMaxCommittedSeq)) {
             // Need to feetch log / checkpoint.
-            if (mStartViewMaxCommittedNodeIds.empty()) {
+            if (mActiveFlag && mStartViewMaxCommittedNodeIds.empty()) {
                 panic("VR: invalid empty committed node ids");
+            }
+            if (mActiveFlag &&
+                    mCommittedViewSeq == mStartViewChangeRecvCommittedViewSeq) {
+                
             }
             return;
         }

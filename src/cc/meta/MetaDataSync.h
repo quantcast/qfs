@@ -30,10 +30,13 @@
 
 #include "LogReceiver.h"
 
-#include "common/kfstypes.h"
+#include "common/kfsdecls.h"
+
+#include <vector>
 
 namespace KFS
 {
+using std::vector;
 
 class Properties;
 class NetManager;
@@ -41,6 +44,8 @@ class NetManager;
 class MetaDataSync
 {
 public:
+    typedef vector<ServerLocation> Servers;
+
     MetaDataSync(
         NetManager& inNetManager);
     ~MetaDataSync();
@@ -55,6 +60,10 @@ public:
     void StartLogSync(
         seq_t                  inLogSeq,
         LogReceiver::Replayer& inReplayer);
+    void ScheduleLogSync(
+        const Servers& inServers,
+        seq_t          inLogStartSeq,
+        seq_t          inLogEndSeq);
 private:
     class Impl;
     Impl& mImpl;

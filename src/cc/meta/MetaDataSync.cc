@@ -32,6 +32,8 @@
 
 #include "qcdio/qcdebug.h"
 #include "qcdio/QCThread.h"
+#include "qcdio/QCMutex.h"
+#include "qcdio/qcstutils.h"
 
 #include "common/MsgLogger.h"
 #include "common/SingleLinkedQueue.h"
@@ -125,6 +127,8 @@ private:
     };
     typedef SingleLinkedQueue<ReadOp, ReadOp::GetNext> ReadQueue;
 public:
+    typedef vector<ServerLocation> Servers;
+
     Impl(
         NetManager& inNetManager)
         : OpOwner(),
@@ -135,6 +139,11 @@ public:
           mStartupNetManager(),
           mKfsNetClient(mStartupNetManager),
           mServers(),
+          mPendingSyncServers(),
+          mPendingSyncLogSeq(-1),
+          mPendingSyncLogEndSeq(-1),
+          mSyncScheduledCount(0),
+          mMutex(),
           mFileName(),
           mCheckpointDir(),
           mLogDir(),
@@ -403,28 +412,51 @@ public:
         mLogSeq          = inLogSeq;
         mWriteToFileFlag = false;
         mStatus          = 0;
-        mKfsNetClient.SetNetManager(mRuntimeNetManager);
+        if (&mRuntimeNetManager != &mKfsNetClient.GetNetManager()) {
+            mKfsNetClient.SetNetManager(mRuntimeNetManager);
+            mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
+        }
         if (mServers.empty()) {
             return;
         }
         LogFetchStart();
     }
+    void ScheduleLogSync(
+        const Servers& inServers,
+        seq_t          inLogStartSeq,
+        seq_t          inLogEndSeq)
+    {
+        if (! mReadOpsPtr) {
+            return;
+        }
+        QCStMutexLocker theLocker(mMutex);
+        const bool theUpdateFlag = inServers != mPendingSyncServers ||
+                inLogStartSeq != mPendingSyncLogSeq ||
+                inLogEndSeq != mPendingSyncLogEndSeq;
+        if (theUpdateFlag) {
+            mPendingSyncServers   = inServers;
+            mPendingSyncLogSeq    = inLogStartSeq;
+            mPendingSyncLogEndSeq = inLogEndSeq;
+            SyncAddAndFetch(mSyncScheduledCount, 1);
+        }
+        theLocker.Unlock();
+        if (theUpdateFlag) {
+            mRuntimeNetManager.Wakeup();
+        }
+    }
     virtual void Run()
     {
+        mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
         mKfsNetClient.GetNetManager().MainLoop();
         Reset();
-        if (mSleepingFlag) {
-            mSleepingFlag = false;
-            mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
-        }
+        mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
+        mSleepingFlag = false;
     }
     void Shutdown()
     {
         StopKeepData();
-        if (mSleepingFlag) {
-            mSleepingFlag = false;
-            mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
-        }
+        mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
+        mSleepingFlag = false;
         Reset();
         delete [] mReadOpsPtr;
         mReadOpsPtr = 0;
@@ -496,10 +528,18 @@ public:
     }
     virtual void Timeout()
     {
+        if (mReplayerPtr && 0 < SyncAddAndFetch(mSyncScheduledCount, 0)) {
+            QCStMutexLocker theLocker(mMutex);
+            mServers = mPendingSyncServers;
+            mServerIdx = 0;
+            mSyncScheduledCount = 0;
+            const seq_t theLogSeq = mPendingSyncLogSeq;
+            theLocker.Unlock();
+            StartLogSync(theLogSeq, *mReplayerPtr);
+        }
         if (! mSleepingFlag) {
             return;
         }
-        mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
         mSleepingFlag = false;
         if (mMaxRetryCount < mRetryCount) {
             HandleError();
@@ -509,7 +549,6 @@ public:
     }
 private:
     enum { kMaxCommitLineLen = 512 };
-    typedef vector<ServerLocation> Servers;
     typedef SingleLinkedQueue<
         MetaRequest,
         MetaRequest::GetNext
@@ -520,6 +559,11 @@ private:
     NetManager        mStartupNetManager;
     KfsNetClient      mKfsNetClient;
     Servers           mServers;
+    Servers           mPendingSyncServers;
+    seq_t             mPendingSyncLogSeq;
+    seq_t             mPendingSyncLogEndSeq;
+    int               mSyncScheduledCount;
+    QCMutex           mMutex;
     string            mFileName;
     string            mCheckpointDir;
     string            mLogDir;
@@ -1789,6 +1833,15 @@ MetaDataSync::StartLogSync(
     LogReceiver::Replayer& inReplayer)
 {
     mImpl.StartLogSync(inLogSeq, inReplayer);
+}
+
+    void
+MetaDataSync::ScheduleLogSync(
+    const MetaDataSync::Servers& inServers,
+    seq_t                        inLogStartSeq,
+    seq_t                        inLogEndSeq)
+{
+    mImpl.ScheduleLogSync(inServers, inLogStartSeq, inLogEndSeq);
 }
 
     void
