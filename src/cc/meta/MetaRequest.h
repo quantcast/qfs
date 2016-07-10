@@ -3851,7 +3851,7 @@ struct MetaLeaseAcquire: public MetaRequest {
         .Def2("Chunk-ids",           "I", &MetaLeaseAcquire::chunkIds)
         .Def2("Get-locations",       "L", &MetaLeaseAcquire::getChunkLocationsFlag,      false)
         .Def2("Append-recovery",     "A", &MetaLeaseAcquire::appendRecoveryFlag,         false)
-        .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::leaseId,              int64_t(-1))
+        .Def2("Append-recovery-loc", "R", &MetaLeaseAcquire::appendRecoveryLocations          )
         .Def2("Chunk-server",        "C", &MetaLeaseAcquire::chunkServerName                  )
         ;
     }
