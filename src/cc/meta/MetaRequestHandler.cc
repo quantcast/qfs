@@ -251,9 +251,6 @@ AddVrLogOps(
     .MakeParser("VSV",
         META_VR_START_VIEW,
         static_cast<const MetaVrStartView*>(0))
-    .MakeParser("VSE",
-        META_VR_START_EPOCH,
-        static_cast<const MetaVrStartEpoch*>(0))
     ;
 }
 

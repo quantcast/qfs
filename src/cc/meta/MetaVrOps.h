@@ -410,33 +410,6 @@ protected:
         {}
 };
 
-class MetaVrStartEpoch : public MetaVrRequest
-{
-public:
-    MetaVrStartEpoch()
-        : MetaVrRequest(META_VR_START_EPOCH, kLogIfOk)
-        {}
-    virtual ostream& ShowSelf(
-        ostream& inOs) const
-    {
-        return (inOs <<
-            "vr-start-epoch" <<
-            " node: "      << mNodeId <<
-            " epoch: "     << mEpochSeq <<
-            " view: "      << mViewSeq <<
-            " committed: " << mCommittedSeq
-        );
-    }
-    virtual void HandleResponse(
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
-        { HandleReply(*this, inSeq, inProps, inNodeId); }
-protected:
-    virtual ~MetaVrStartEpoch()
-        {}
-};
-
 } // namespace KFS
 
 #endif /* META_VROPS_H */

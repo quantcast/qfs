@@ -54,7 +54,6 @@ class MetaVrStartViewChange;
 class MetaVrDoViewChange;
 class MetaVrStartView;
 class MetaVrReconfiguration;
-class MetaVrStartEpoch;
 class Properties;
 class LogTransmitter;
 class MetaDataSync;
@@ -290,11 +289,6 @@ public:
         seq_t                  inSeq,
         const Properties&      inProps,
         NodeId                 inNodeId);
-    void HandleReply(
-        MetaVrStartEpoch& inReq,
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId);
     void SetLastLogReceivedTime(
         time_t inTime);
     void Process(

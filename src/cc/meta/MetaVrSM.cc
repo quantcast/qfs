@@ -154,8 +154,6 @@ public:
                 return Handle(static_cast<MetaVrStartView&>(inReq));
             case META_VR_RECONFIGURATION:
                 return Handle(static_cast<MetaVrReconfiguration&>(inReq));
-            case META_VR_START_EPOCH:
-                return Handle(static_cast<MetaVrStartEpoch&>(inReq));
             case META_LOG_WRITER_CONTROL:
                 return false;
             default:
@@ -306,13 +304,6 @@ public:
             " response: " << Show(inProps) <<
         KFS_LOG_EOM;
         panic(theMsgPtr);
-    }
-    void HandleReply(
-        MetaVrStartEpoch& inReq,
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
-    {
     }
     void SetLastLogReceivedTime(
         time_t inTime)
@@ -1327,11 +1318,6 @@ private:
         }
         return true;
     }
-    bool Handle(
-        MetaVrStartEpoch& inReq)
-    {
-        return false;
-    }
     void Commit(
         const MetaVrReconfiguration& inReq)
     {
@@ -1712,16 +1698,6 @@ MetaVrSM::HandleReply(
     seq_t                  inSeq,
     const Properties&      inProps,
     MetaVrSM::NodeId       inNodeId)
-{
-    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
-}
-
-    void
-MetaVrSM::HandleReply(
-    MetaVrStartEpoch& inReq,
-    seq_t             inSeq,
-    const Properties& inProps,
-    MetaVrSM::NodeId  inNodeId)
 {
     mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
 }
