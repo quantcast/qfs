@@ -812,6 +812,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
             gNetDispatch.GetMetaDataStore(),
+            mMetaDataSync,
             replayer.getLogNum() + ((writeCheckpointFlag ||
                 replayer.getAppendToLastLogFlag()) ? 0 : 1),
             replayer.getCommitted(),

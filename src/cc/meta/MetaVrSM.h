@@ -57,6 +57,7 @@ class MetaVrReconfiguration;
 class MetaVrStartEpoch;
 class Properties;
 class LogTransmitter;
+class MetaDataSync;
 
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
@@ -303,7 +304,8 @@ public:
         const Properties& inParameters);
     void Commit(
         seq_t inLogSeq);
-    int Start();
+    int Start(
+        MetaDataSync& inMetaDataSync);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;

@@ -44,6 +44,7 @@ class NetManager;
 class MdStateCtx;
 class MetaDataStore;
 class MetaVrSM;
+class MetaDataSync;
 
 class LogWriter
 {
@@ -55,6 +56,7 @@ public:
     int Start(
         NetManager&       inNetManager,
         MetaDataStore&    inMetaDataStore,
+        MetaDataSync&     inMetaDataSync,
         seq_t             inLogNum,
         seq_t             inLogSeq,
         seq_t             inCommittedLogSeq,

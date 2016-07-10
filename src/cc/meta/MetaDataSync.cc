@@ -530,12 +530,15 @@ public:
     {
         if (mReplayerPtr && 0 < SyncAddAndFetch(mSyncScheduledCount, 0)) {
             QCStMutexLocker theLocker(mMutex);
-            mServers = mPendingSyncServers;
-            mServerIdx = 0;
-            mSyncScheduledCount = 0;
-            const seq_t theLogSeq = mPendingSyncLogSeq;
-            theLocker.Unlock();
-            StartLogSync(theLogSeq, *mReplayerPtr);
+            if (mServers != mPendingSyncServers || mLogSeq < mPendingSyncLogSeq ||
+                    0 != mStatus) {
+                mServers = mPendingSyncServers;
+                mServerIdx = 0;
+                mSyncScheduledCount = 0;
+                const seq_t theLogSeq = mPendingSyncLogSeq;
+                theLocker.Unlock();
+                StartLogSync(theLogSeq, *mReplayerPtr);
+            }
         }
         if (! mSleepingFlag) {
             return;

@@ -30,6 +30,7 @@
 #include "MetaVrOps.h"
 #include "util.h"
 #include "LogTransmitter.h"
+#include "MetaDataSync.h"
 #include "NetDispatch.h"
 
 #include "qcdio/qcstutils.h"
@@ -72,6 +73,7 @@ public:
         LogTransmitter& inLogTransmitter,
         MetaVrSM&       inMetaVrSM)
         : mLogTransmitter(inLogTransmitter),
+          mMetaDataSyncPtr(0),
           mMetaVrSM(inMetaVrSM),
           mState(kStateBackup),
           mNodeId(-1),
@@ -107,6 +109,7 @@ public:
           mDoViewChangeNodeIds(),
           mStartViewCompletionIds(),
           mStartViewMaxCommittedNodeIds(),
+          mSyncServers(),
           mInputStream()
         {}
     ~Impl()
@@ -347,8 +350,10 @@ public:
         }
         mLastProcessTime = TimeNow();
     }
-    int Start()
+    int Start(
+        MetaDataSync& inMetaDataSync)
     {
+        mMetaDataSyncPtr = &inMetaDataSync;
         if (mNodeId < 0) {
             mConfig.Clear();
             mActiveCount = 0;
@@ -681,6 +686,7 @@ private:
     > NodeIdSet;
 
     LogTransmitter&              mLogTransmitter;
+    MetaDataSync*                mMetaDataSyncPtr;
     MetaVrSM&                    mMetaVrSM;
     State                        mState;
     NodeId                       mNodeId;
@@ -716,6 +722,7 @@ private:
     NodeIdSet                    mDoViewChangeNodeIds;
     NodeIdSet                    mStartViewCompletionIds;
     NodeIdSet                    mStartViewMaxCommittedNodeIds;
+    MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
 
     time_t TimeNow() const
@@ -767,9 +774,36 @@ private:
             if (mActiveFlag && mStartViewMaxCommittedNodeIds.empty()) {
                 panic("VR: invalid empty committed node ids");
             }
-            if (mActiveFlag &&
+            if (mActiveFlag && mMetaDataSyncPtr &&
                     mCommittedViewSeq == mStartViewChangeRecvCommittedViewSeq) {
-                
+                mSyncServers.clear();
+                const Config::Nodes&  theNodes = mConfig.GetNodes();
+                for (NodeIdSet::const_iterator theIt =
+                        mStartViewMaxCommittedNodeIds.begin();
+                        mStartViewMaxCommittedNodeIds.end() != theIt;
+                        ++theIt) {
+                    Config::Nodes::const_iterator theNodeIt;
+                    if (*theIt != mNodeId &&
+                            (theNodeIt = theNodes.find(*theIt)) !=
+                            theNodes.end() &&
+                            0 != (Config::kFlagActive &
+                                theNodeIt->second.GetFlags())) {
+                        const Config::Locations& theLocs =
+                            theNodeIt->second.GetLocations();
+                       for (Config::Locations::const_iterator
+                                theIt = theLocs.begin();
+                                theLocs.end() != theIt;
+                                ++theIt) {
+                            if (find(mSyncServers.begin(),
+                                    mSyncServers.end(),
+                                    *theIt) == mSyncServers.end()) {
+                                mSyncServers.push_back(*theIt);
+                            }
+                        }
+                    }
+                }
+                mMetaDataSyncPtr->ScheduleLogSync(
+                    mSyncServers, mNextLogSeq, mStartViewMaxCommittedSeq);
             }
             return;
         }
@@ -1707,9 +1741,10 @@ MetaVrSM::Process(
 }
 
     int
-MetaVrSM::Start()
+MetaVrSM::Start(
+    MetaDataSync& inMetaDataSync)
 {
-    return mImpl.Start();
+    return mImpl.Start(inMetaDataSync);
 }
 
     void

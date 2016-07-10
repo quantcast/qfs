@@ -133,6 +133,7 @@ public:
     int Start(
         NetManager&       inNetManager,
         MetaDataStore&    inMetaDataStore,
+        MetaDataSync&     inMetaDataSync,
         seq_t             inLogNum,
         seq_t             inLogSeq,
         seq_t             inCommittedLogSeq,
@@ -235,7 +236,7 @@ public:
         mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
         mVrPrevLogReceivedTime = mLastLogReceivedTime;
-        if (0 != (mError = mMetaVrSM.Start())) {
+        if (0 != (mError = mMetaVrSM.Start(inMetaDataSync))) {
             return mError;
         }
         const int kStackSize = 64 << 10;
@@ -1235,6 +1236,7 @@ LogWriter::~LogWriter()
 LogWriter::Start(
     NetManager&       inNetManager,
     MetaDataStore&    inMetaDataStore,
+    MetaDataSync&     inMetaDataSync,
     seq_t             inLogNum,
     seq_t             inLogSeq,
     seq_t             inCommittedLogSeq,
@@ -1253,6 +1255,7 @@ LogWriter::Start(
     return mImpl.Start(
         inNetManager,
         inMetaDataStore,
+        inMetaDataSync,
         inLogNum,
         inLogSeq,
         inCommittedLogSeq,
