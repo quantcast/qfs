@@ -1814,7 +1814,6 @@ LayoutManager::LayoutManager()
       mRestoreChunkServerPtr(),
       mRestoreHibernatedCSPtr(),
       mReplayServerCount(0),
-      mTmpParseStream(),
       mChunkInfosTmp(),
       mChunkInfos2Tmp(),
       mServersTmp(),
@@ -7241,24 +7240,21 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
                     return;
                 }
             }
-            istream& is = mTmpParseStream.Set(
-                req.appendRecoveryLocations.data(),
-                req.appendRecoveryLocations.size());
             MetaLeaseAcquire::ChunkAccessInfo info(
                 ServerLocation(), req.chunkId, req.authUid);
             req.chunkAccess.Clear();
-            while ((is >> info.serverLocation)) {
-                if (info.serverLocation.IsValid()) {
-                    Servers::const_iterator const it =
-                        FindServer(info.serverLocation);
-                    if (it != mChunkServers.end()) {
-                        if ((*it)->GetCryptoKey(info.keyId, info.key)) {
-                            req.chunkAccess.Append(info);
-                        }
+            const char*       ptr = req.appendRecoveryLocations.data();
+            const char* const end = ptr + req.appendRecoveryLocations.size();
+            while (info.serverLocation.ParseString(
+                    ptr, end - ptr, req.shortRpcFormatFlag)) {
+                Servers::const_iterator const it =
+                    FindServer(info.serverLocation);
+                if (it != mChunkServers.end()) {
+                    if ((*it)->GetCryptoKey(info.keyId, info.key)) {
+                        req.chunkAccess.Append(info);
                     }
                 }
             }
-            mTmpParseStream.Reset();
             if (req.chunkAccess.IsEmpty()) {
                 // For now retry even in the case of parse errors.
                 req.statusMsg = "no chunk servers available";

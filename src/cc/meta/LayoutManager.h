@@ -2451,7 +2451,6 @@ protected:
     HibernatedChunkServerPtr mRestoreHibernatedCSPtr;
     size_t                   mReplayServerCount;
 
-    BufferInputStream                   mTmpParseStream;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;
     StTmp<Servers>::Tmp                 mServersTmp;

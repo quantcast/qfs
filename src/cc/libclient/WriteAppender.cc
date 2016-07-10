@@ -424,9 +424,11 @@ protected:
                 "<- " << inOpPtr->Show() <<
                 (inCanceledFlag ? " canceled" : "") <<
                 " buffer: " << (void*)inBufferPtr <<
-                "/" << (inBufferPtr ? inBufferPtr->BytesConsumable() : 0) <<
+                "/"         <<
+                    (inBufferPtr ? inBufferPtr->BytesConsumable() : 0) <<
+                " seq: "    << inOpPtr->seq <<
                 " status: " << inOpPtr->status <<
-                " seq: " << inOpPtr->seq <<
+                (inOpPtr->statusMsg.empty() ? "" : " ") << inOpPtr->statusMsg <<
             KFS_LOG_EOM;
         } else {
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
