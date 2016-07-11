@@ -6711,11 +6711,11 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate& req)
         return -1;
     }
 
-    KFS_LOG_STREAM_DEBUG << "Append on file " << req.fid <<
-        " with offset " << req.offset <<
-        " max offset  " << entry->offset <<
-        (entry->IsAllocationPending() ?
-            " allocation in progress" : "") <<
+    KFS_LOG_STREAM_DEBUG << "append"
+        " file: "       << req.fid <<
+        " pos: "        << req.offset <<
+        " entry pos:  " << entry->offset <<
+        (entry->IsAllocationPending() ? " allocation in progress" : "") <<
         " appenders: "  << entry->numAppendersInChunk <<
     KFS_LOG_EOM;
 
