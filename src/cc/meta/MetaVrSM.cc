@@ -952,15 +952,17 @@ private:
         Show(inReq);
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq || kStateViewChange != mState) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg = "ignored, state: ";
-                inReq.statusMsg += GetStateName(mState);
+                if (kStatePrimary != mState || mNodeId != inReq.mNodeId) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "ignored, state: ";
+                    inReq.statusMsg += GetStateName(mState);
+                }
             } else {
                 mState = kStateBackup;
             }
         }
         Show(inReq);
-        return true;
+        return (0 == inReq.status); // Write to log if ok
     }
     bool Handle(
         MetaVrReconfiguration& inReq)

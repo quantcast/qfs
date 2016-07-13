@@ -6279,6 +6279,9 @@ MetaChunkLogInFlight::ShowSelf(ostream& os) const
 void
 MetaChunkLogInFlight::handle()
 {
+    if (replayFlag && 0 <= chunkId && 0 <= chunkVersion) {
+        chunkID.setseed(max(chunkID.getseed(), chunkId));
+    }
     gLayoutManager.Handle(*this);
 }
 
