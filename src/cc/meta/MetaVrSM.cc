@@ -113,7 +113,8 @@ public:
           mStartViewMaxCommittedNodeIds(),
           mSyncServers(),
           mInputStream(),
-          mOutputStream()
+          mOutputStream(),
+          mEmptyString()
         {}
     ~Impl()
     {
@@ -505,14 +506,13 @@ public:
         bool    inHexFlag,
         string& outStrBuf)
     {
-        outStrBuf.clear();
-        outStrBuf.reserve(4 << 10);
-        mOutputStream.str(outStrBuf);
+        mOutputStream.str(mEmptyString);
         mOutputStream.flags(inHexFlag ? ostream::hex : ostream::dec);
         if (0 != Checkpoint(mOutputStream)) {
             panic("VR: checkpoint write failure");
         }
-        mOutputStream.str(string());
+        outStrBuf = mOutputStream.str();
+        mOutputStream.str(mEmptyString);
     }
 private:
     typedef Config::Locations   Locations;
@@ -730,6 +730,7 @@ private:
     MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
     ostringstream                mOutputStream;
+    string const                 mEmptyString;
 
     time_t TimeNow() const
         { return mTimeNow; }
