@@ -78,7 +78,8 @@ int
 Checkpoint::write(
     const string& logname,
     seq_t         logseq,
-    int64_t       errchksum)
+    int64_t       errchksum,
+    const string* vrCheckpont)
 {
     if (logname.empty()) {
         return -EINVAL;
@@ -121,7 +122,9 @@ Checkpoint::write(
         os << "fid/" << fileID.getseed() << '\n';
         os << "chunkId/" << chunkID.getseed() << '\n';
         os << "time/" << DisplayIsoDateTime() << '\n';
-        os << "setintbase/16\n" << hex;
+        if (kHexIntFormatFlag) {
+            os << "setintbase/16\n" << hex;
+        }
         os << "log/" << logname << "\n\n";
         status = gLayoutManager.WriteChunkServers(os);
         if (status == 0 && os) {
@@ -146,7 +149,9 @@ Checkpoint::write(
             status = gLayoutManager.WritePendingObjStoreDelete(os);
         }
         if (status == 0 && os) {
-            status = MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
+            status = vrCheckpont ?
+                (os.write(vrCheckpont->data(), vrCheckpont->size()) ? 0 : -EIO) :
+                MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
         }
         if (status == 0) {
             os << "time/" << DisplayIsoDateTime() << '\n';

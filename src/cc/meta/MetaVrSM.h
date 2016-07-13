@@ -311,6 +311,9 @@ public:
         size_t      inLen);
     int Checkpoint(
         ostream& inStream) const;
+    void Checkpoint(
+        bool    inHexFlag,
+        string& outStrBuf) const;
 private:
     class Impl;
     Impl& mImpl;

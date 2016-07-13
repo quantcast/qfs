@@ -3999,7 +3999,7 @@ MetaCheckpoint::handle()
             return; // Retry later.
         }
         finishLog = new MetaLogWriterControl(
-            MetaLogWriterControl::kNewLog, this);
+            MetaLogWriterControl::kCheckpointNewLog, this);
         suspended = true;
         submit_request(finishLog);
         return;
@@ -4046,7 +4046,11 @@ MetaCheckpoint::handle()
             cp.setWriteSyncFlag(checkpointWriteSyncFlag);
             cp.setWriteBufferSize(checkpointWriteBufferSize);
             status = cp.write(
-                finishLog->logName, runningCheckpointId, errChecksum);
+                finishLog->logName,
+                runningCheckpointId,
+                errChecksum,
+                &finishLog->vrCheckpont
+            );
         }
         // Child does not attempt graceful exit.
         _exit(status == 0 ? 0 : 1);

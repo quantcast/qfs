@@ -4074,6 +4074,7 @@ struct MetaLogWriterControl : public MetaRequest {
     {
         kNop,
         kNewLog,
+        kCheckpointNewLog,
         kSetParameters,
         kWriteBlock
     };
@@ -4088,6 +4089,7 @@ struct MetaLogWriterControl : public MetaRequest {
     Properties         params;
     string             paramsPrefix;
     string             logName;
+    string             vrCheckpont;
     MetaRequest* const completion;
     uint32_t           blockChecksum;
     seq_t              blockSeq;
@@ -4110,6 +4112,7 @@ struct MetaLogWriterControl : public MetaRequest {
           params(),
           paramsPrefix(),
           logName(),
+          vrCheckpont(),
           completion(c),
           blockChecksum(0),
           blockSeq(-1),

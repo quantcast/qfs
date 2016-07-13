@@ -42,6 +42,7 @@
 #include <algorithm>
 #include <set>
 #include <limits>
+#include <sstream>
 
 namespace KFS
 {
@@ -52,6 +53,7 @@ using std::unique;
 using std::set;
 using std::less;
 using std::numeric_limits;
+using std::ostringstream;
 
 class MetaVrSM::Impl
 {
@@ -110,7 +112,8 @@ public:
           mStartViewCompletionIds(),
           mStartViewMaxCommittedNodeIds(),
           mSyncServers(),
-          mInputStream()
+          mInputStream(),
+          mOutputStream()
         {}
     ~Impl()
     {
@@ -461,7 +464,8 @@ public:
             }
             mConfig.SetBackupTimeout(theTimeout);
             seq_t theSeq = -1;
-            if (! (theStream >> theSeq) || theSeq <= 0) {
+            if (! (theStream >> theSeq) || theSeq < 0 ||
+                    (0 == theSeq && 0 != theCount)) {
                 mConfig.Clear();
                 return false;
             }
@@ -480,9 +484,6 @@ public:
         ostream& inStream) const
     {
         const Config::Nodes& theNodes = mConfig.GetNodes();
-        if (theNodes.empty()) {
-            return (inStream ? 0 : -EIO);
-        }
         ReqOstream theStream(inStream);
         for (Config::Nodes::const_iterator theIt = theNodes.begin();
                 theNodes.end() != theIt && inStream;
@@ -499,6 +500,19 @@ public:
             "\n";
         }
         return (inStream ? 0 : -EIO);
+    }
+    void Checkpoint(
+        bool    inHexFlag,
+        string& outStrBuf)
+    {
+        outStrBuf.clear();
+        outStrBuf.reserve(4 << 10);
+        mOutputStream.str(outStrBuf);
+        mOutputStream.flags(inHexFlag ? ostream::hex : ostream::dec);
+        if (0 != Checkpoint(mOutputStream)) {
+            panic("VR: checkpoint write failure");
+        }
+        mOutputStream.str(string());
     }
 private:
     typedef Config::Locations   Locations;
@@ -715,6 +729,7 @@ private:
     NodeIdSet                    mStartViewMaxCommittedNodeIds;
     MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
+    ostringstream                mOutputStream;
 
     time_t TimeNow() const
         { return mTimeNow; }
@@ -1777,6 +1792,14 @@ MetaVrSM::Checkpoint(
     ostream& inStream) const
 {
     return mImpl.Checkpoint(inStream);
+}
+
+    void
+MetaVrSM::Checkpoint(
+    bool    inHexFlag,
+    string& outStrBuf) const
+{
+    return mImpl.Checkpoint(inHexFlag, outStrBuf);
 }
 
 } // namespace KFS

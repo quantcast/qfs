@@ -53,14 +53,21 @@ using std::string;
 class Checkpoint
 {
 public:
-    static const int VERSION = 1;
+    static const int  VERSION           = 1;
+    static const bool kHexIntFormatFlag = true;
     void setCPDir(const string& d)
         { cpdir = d; }
     const string name() const { return cpname; }
     int write(
         const string& logname,
         seq_t         committedseq,
-        int64_t       errchksum);        //!< do the actual work
+        int64_t       errchksum,
+        const string* vrCheckpont); //!< do the actual work
+    int write(
+        const string& logname,
+        seq_t         committedseq,
+        int64_t       errchksum)
+        { return write(logname, committedseq, errchksum, 0); }
     bool getWriteSyncFlag() const { return writesync; }
     void setWriteSyncFlag(bool flag) { writesync = flag; }
     size_t getWriteBufferSize() const { return writebuffersize; }
