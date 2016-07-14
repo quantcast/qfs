@@ -74,17 +74,42 @@ Checkpoint::write_leaves(ostream& os)
     return status;
 }
 
+string
+Checkpoint::cpfile(
+    seq_t committedseq,
+    seq_t epoch,
+    seq_t view)
+{
+    string fname = makename(cpdir, "chkpt", epoch);
+    fname += '.';
+    AppendDecIntToString(fname, view);
+    fname += '.';
+    AppendDecIntToString(fname, committedseq);
+    return fname;
+}
+
 int
 Checkpoint::write(
     const string& logname,
     seq_t         logseq,
     int64_t       errchksum,
-    const string* vrCheckpont)
+    const string* vrCheckpont,
+    seq_t         epoch,
+    seq_t         view)
 {
     if (logname.empty()) {
         return -EINVAL;
     }
-    cpname = cpfile(logseq);
+    seq_t epochseq = -1;
+    seq_t viewseq  = -1;
+    if (0 <= epoch && 0 <= view) {
+        epochseq = epoch;
+        viewseq  = view;
+    } else {
+        MetaRequest::GetLogWriter().GetMetaVrSM().GetEpochAndViewSeq(
+            epochseq, viewseq);
+    }
+    cpname = cpfile(logseq, epochseq, viewseq);
     StringBufT<256> tmpStr(cpname.data(), cpname.size());
     tmpStr.Append('.');
     const size_t prefLen = tmpStr.GetSize();

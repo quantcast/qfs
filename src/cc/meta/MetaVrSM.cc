@@ -346,7 +346,9 @@ public:
         mLastProcessTime = TimeNow();
     }
     int Start(
-        MetaDataSync& inMetaDataSync)
+        MetaDataSync& inMetaDataSync,
+        seq_t&        outEpochSeq,
+        seq_t&        outViewSeq)
     {
         mMetaDataSyncPtr = &inMetaDataSync;
         if (mNodeId < 0) {
@@ -360,6 +362,8 @@ public:
         }
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mStartedFlag = true;
+        outEpochSeq  = mEpochSeq;
+        outViewSeq   = mViewSeq;
         return 0;
     }
     void Shutdown()
@@ -513,6 +517,14 @@ public:
         }
         outStrBuf = mOutputStream.str();
         mOutputStream.str(mEmptyString);
+    }
+    int GetEpochAndViewSeq(
+        seq_t& outEpochSeq,
+        seq_t& outViewSeq)
+    {
+        outEpochSeq = mEpochSeq;
+        outViewSeq  = mViewSeq;
+        return 0;
     }
 private:
     typedef Config::Locations   Locations;
@@ -1736,9 +1748,11 @@ MetaVrSM::Process(
 
     int
 MetaVrSM::Start(
-    MetaDataSync& inMetaDataSync)
+    MetaDataSync& inMetaDataSync,
+    seq_t&        outEpochSeq,
+    seq_t&        outViewSeq)
 {
-    return mImpl.Start(inMetaDataSync);
+    return mImpl.Start(inMetaDataSync, outEpochSeq, outViewSeq);
 }
 
     void
@@ -1803,6 +1817,14 @@ MetaVrSM::Checkpoint(
     string& outStrBuf) const
 {
     return mImpl.Checkpoint(inHexFlag, outStrBuf);
+}
+
+    int
+MetaVrSM::GetEpochAndViewSeq(
+    seq_t& outEpochSeq,
+    seq_t& outViewSeq)
+{
+    return mImpl.GetEpochAndViewSeq(outEpochSeq, outViewSeq);
 }
 
 } // namespace KFS

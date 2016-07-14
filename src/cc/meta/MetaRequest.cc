@@ -3948,11 +3948,14 @@ MetaCheckpoint::handle()
         } else {
             failedCount = 0;
             lastCheckpointId = runningCheckpointId;
-            const string fileName = cp.cpfile(lastCheckpointId);
+            const string fileName = cp.cpfile(
+                    lastCheckpointId, epochSeq, viewSeq);
             gNetDispatch.GetMetaDataStore().RegisterCheckpoint(
                 fileName.c_str(),
                 lastCheckpointId,
-                runningCheckpointLogSegmentNum
+                runningCheckpointLogSegmentNum,
+                epochSeq,
+                viewSeq
             );
         }
         if (lockFd >= 0) {
@@ -4049,7 +4052,9 @@ MetaCheckpoint::handle()
                 finishLog->logName,
                 runningCheckpointId,
                 errChecksum,
-                &finishLog->vrCheckpont
+                &finishLog->vrCheckpont,
+                finishLog->epochSeq,
+                finishLog->viewSeq
             );
         }
         // Child does not attempt graceful exit.
@@ -4058,6 +4063,8 @@ MetaCheckpoint::handle()
     if (GetLogWriter().GetCommittedLogSeq() != runningCheckpointId) {
         panic("checkpoint: meta data changed after prepare to fork");
     }
+    epochSeq = finishLog->epochSeq,
+    viewSeq  = finishLog->viewSeq;
     finishLog = 0;
     if (pid < 0) {
         status = (int)pid;
@@ -6280,6 +6287,7 @@ void
 MetaChunkLogInFlight::handle()
 {
     if (replayFlag && 0 <= chunkId && 0 <= chunkVersion) {
+        // Advance seed if needed,
         chunkID.setseed(max(chunkID.getseed(), chunkId));
     }
     gLayoutManager.Handle(*this);

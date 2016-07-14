@@ -364,7 +364,9 @@ public:
     void RegisterCheckpoint(
         const char* inFileNamePtr,
         seq_t       inLogSeq,
-        seq_t       inLogSegmentNumber)
+        seq_t       inLogSegmentNumber,
+        seq_t       inEpochSeq,
+        seq_t       inViewSeq)
     {
         QCStMutexLocker theLock(mMutex);
         if (! inFileNamePtr || ! *inFileNamePtr || inLogSeq < 0 ||
@@ -388,7 +390,9 @@ public:
     void RegisterLogSegment(
         const char* inFileNamePtr,
         seq_t       inStartSeq,
-        seq_t       inEndSeq)
+        seq_t       inEndSeq,
+        seq_t       inEpochSeq,
+        seq_t       inViewSeq)
     {
         QCStMutexLocker theLock(mMutex);
         if (mLogSegments.empty()) {
@@ -813,6 +817,20 @@ private:
         return ('0' <= theSym && theSym <= '9');
     }
     template<typename T>
+    static bool ParseSeqNum(
+        const char*& ioPtr,
+        const char*  inEndPtr,
+        int          inSep,
+        T&           outVal)
+    {
+        return (
+            IsDigit(*ioPtr) &&
+            DecIntParser::Parse(ioPtr, inEndPtr - ioPtr, outVal) &&
+            0 <= outVal &&
+            (0 == inSep || (ioPtr < inEndPtr && (*ioPtr++ & 0xFF) == inSep))
+        );
+    }
+    template<typename T>
     static int LoadDir(
         const char* inDirNamePtr,
         const char* inNamePrefixPtr,
@@ -821,6 +839,7 @@ private:
         char        inSeqSeparator,
         bool        inRemoveTmpFlag,
         bool        inLatestRequiredFlag,
+        bool        inHasSeqNumFlag,
         T&          inFunctor)
     {
         DIR* const theDirPtr = opendir(inDirNamePtr);
@@ -863,19 +882,23 @@ private:
             if (strncmp(theNamePtr, inNamePrefixPtr, thePrefixLen) != 0) {
                 continue;
             }
-            const char*       theCurPtr = theNamePtr + thePrefixLen;
-            const char* const theEndPtr = theCurPtr + strlen(theCurPtr);
-            seq_t             theLogSeq = -1;
-            seq_t             theNumSeq = -1;
-            if (! IsDigit(*theCurPtr) ||
-                    ! DecIntParser::Parse(
-                        theCurPtr, theEndPtr - theCurPtr, theLogSeq) ||
-                    theLogSeq < 0 || (theCurPtr < theEndPtr &&
-                        (*theCurPtr != inSeqSeparator || theEndPtr <= ++theCurPtr ||
-                            ! IsDigit(*theCurPtr) ||
-                            ! DecIntParser::Parse(
-                                theCurPtr, theEndPtr - theCurPtr, theNumSeq) ||
-                            theCurPtr != theEndPtr))) {
+            const char*       theCurPtr   = theNamePtr + thePrefixLen;
+            const char* const theEndPtr   = theCurPtr + strlen(theCurPtr);
+            seq_t             theEpochSeq = -1;
+            seq_t             theViewSeq  = -1;
+            seq_t             theLogSeq   = -1;
+            seq_t             theNumSeq   = -1;
+            if (! ParseSeqNum(
+                        theCurPtr, theEndPtr, inSeqSeparator, theEpochSeq) ||
+                    ! ParseSeqNum(
+                        theCurPtr, theEndPtr, inSeqSeparator, theViewSeq) ||
+                    ! ParseSeqNum(
+                        theCurPtr, theEndPtr,
+                            inHasSeqNumFlag ? inSeqSeparator : 0, theLogSeq) ||
+                    (inHasSeqNumFlag &&
+                    ! ParseSeqNum(
+                        theCurPtr, theEndPtr, 0,              theNumSeq)) ||
+                    theCurPtr != theEndPtr) {
                 if (inTmpSuffixPtr && (0 == theTmpSufLen ||
                         (theNamePtr + thePrefixLen + theTmpSufLen <= theEndPtr &&
                         memcmp(theEndPtr - theTmpSufLen,
@@ -1163,14 +1186,16 @@ private:
         }
         CheckpointLoader theCheckpointLoader(*this, inCheckpointDirPtr);
         const bool       kLatestFileRequiredFlag = true;
+        const bool       kCpHasSeqNumFlag        = false;
         int theRet = LoadDir(
             inCheckpointDirPtr,
             "chkpt.",
             "latest",
             ".tmp",
-            0,
+            '.',
             inRemoveTmpFilesFlag,
             kLatestFileRequiredFlag,
+            kCpHasSeqNumFlag,
             theCheckpointLoader
         );
         if (0 != theRet) {
@@ -1194,6 +1219,7 @@ private:
         LogSegmentLoader theLogSegmentLoader(*this, inLogDirPtr);
         const char* const kLastFileNamePtr      = "last";
         const bool        kLastFileRequiredFlag = false;
+        const bool        kHasSeqNumFlag        = true;
         theRet = LoadDir(
             inLogDirPtr,
             "log.",
@@ -1202,6 +1228,7 @@ private:
             '.',
             inRemoveTmpFilesFlag,
             kLastFileRequiredFlag,
+            kHasSeqNumFlag,
             theLogSegmentLoader
         );
         if (0 != theRet) {
@@ -1427,18 +1454,24 @@ MetaDataStore::Handle(
 MetaDataStore::RegisterCheckpoint(
     const char* inFileNamePtr,
     seq_t       inLogSeq,
-    seq_t       inLogSegmentNumber)
+    seq_t       inLogSegmentNumber,
+    seq_t       inEpochSeq,
+    seq_t       inViewSeq)
 {
-    mImpl.RegisterCheckpoint(inFileNamePtr, inLogSeq, inLogSegmentNumber);
+    mImpl.RegisterCheckpoint(inFileNamePtr, inLogSeq, inLogSegmentNumber,
+        inEpochSeq, inViewSeq);
 }
 
     void
 MetaDataStore::RegisterLogSegment(
     const char* inFileNamePtr,
     seq_t       inStartSeq,
-    seq_t       inEndSeq)
+    seq_t       inEndSeq,
+    seq_t       inEpochSeq,
+    seq_t       inViewSeq)
 {
-    mImpl.RegisterLogSegment(inFileNamePtr, inStartSeq, inEndSeq);
+    mImpl.RegisterLogSegment(
+        inFileNamePtr, inStartSeq, inEndSeq, inEpochSeq, inViewSeq);
 }
 
 int

@@ -31,6 +31,7 @@
 #include "DiskEntry.h"
 #include "kfstree.h"
 #include "LayoutManager.h"
+#include "MetaVrSM.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
@@ -255,6 +256,15 @@ Replay::logfile(seq_t num)
     }
     tmplogname.erase(tmplogprefixlen);
     if (logSegmentHasLogSeq(num)) {
+        seq_t epoch = -1;
+        seq_t view  = -1;
+        if (MetaRequest::GetLogWriter().GetMetaVrSM().GetEpochAndViewSeq(
+                epoch, view) == 0) {
+            AppendDecIntToString(tmplogname, epoch);
+            tmplogname += '.';
+            AppendDecIntToString(tmplogname, view);
+            tmplogname += '.';
+        }
         AppendDecIntToString(tmplogname, committed);
         tmplogname += '.';
     }

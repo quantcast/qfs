@@ -51,11 +51,15 @@ public:
     void RegisterCheckpoint(
         const char* inFileNamePtr,
         seq_t       inLogSeq,
-        seq_t       inLogSegmentNumber);
+        seq_t       inLogSegmentNumber,
+        seq_t       inEpochSeq,
+        seq_t       inViewSeq);
     void RegisterLogSegment(
         const char* inFileNamePtr,
         seq_t       inStartSeq,
-        seq_t       inEndSeq);
+        seq_t       inEndSeq,
+        seq_t       inEpochSeq,
+        seq_t       inViewSeq);
     int Load(
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr,

@@ -3310,6 +3310,8 @@ struct MetaCheckpoint : public MetaRequest {
           lastCheckpointId(-1),
           runningCheckpointId(-1),
           runningCheckpointLogSegmentNum(-1),
+          epochSeq(-1),
+          viewSeq(-1),
           lastRun(0),
           finishLog(0)
         { clnt = c; }
@@ -3333,6 +3335,8 @@ private:
     seq_t                 lastCheckpointId;
     seq_t                 runningCheckpointId;
     seq_t                 runningCheckpointLogSegmentNum;
+    seq_t                 epochSeq;
+    seq_t                 viewSeq;
     time_t                lastRun;
     MetaLogWriterControl* finishLog;
 };

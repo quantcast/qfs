@@ -299,7 +299,9 @@ public:
     void Commit(
         seq_t inLogSeq);
     int Start(
-        MetaDataSync& inMetaDataSync);
+        MetaDataSync& inMetaDataSync,
+        seq_t&        outEpochSeq,
+        seq_t&        outViewSeq);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;
@@ -314,6 +316,9 @@ public:
     void Checkpoint(
         bool    inHexFlag,
         string& outStrBuf) const;
+    int GetEpochAndViewSeq(
+        seq_t& outEpochSeq,
+        seq_t& outViewSeq);
 private:
     class Impl;
     Impl& mImpl;

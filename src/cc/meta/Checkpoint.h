@@ -62,18 +62,22 @@ public:
         const string& logname,
         seq_t         committedseq,
         int64_t       errchksum,
-        const string* vrCheckpont); //!< do the actual work
+        const string* vrCheckpont,
+        seq_t         epoch,
+        seq_t         view); //!< do the actual work
     int write(
         const string& logname,
         seq_t         committedseq,
         int64_t       errchksum)
-        { return write(logname, committedseq, errchksum, 0); }
+        { return write(logname, committedseq, errchksum, 0, -1, -1); }
     bool getWriteSyncFlag() const { return writesync; }
     void setWriteSyncFlag(bool flag) { writesync = flag; }
     size_t getWriteBufferSize() const { return writebuffersize; }
     void setWriteBufferSize(size_t size) { writebuffersize = size; }
-    string cpfile(seq_t highest) const //!< generate the next file name
-        { return makename(cpdir, "chkpt", highest); }
+    string cpfile(
+        seq_t committedseq,
+        seq_t epoch,
+        seq_t view);
 private:
     string  cpdir;       //!< dir for CP files
     bool    writesync;

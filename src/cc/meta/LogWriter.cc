@@ -108,6 +108,8 @@ public:
             ),
           mReqOstream(mMdStream),
           mCurLogStartTime(-1),
+          mEpochSeq(0),
+          mViewSeq(0),
           mCurLogStartSeq(-1),
           mLogNum(0),
           mLogName(),
@@ -169,6 +171,12 @@ public:
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         mMetaDataStorePtr  = &inMetaDataStore;
+        if (0 != (mError = mMetaVrSM.Start(
+                inMetaDataSync, mEpochSeq, mViewSeq))) {
+            return mError;
+        }
+        mCommitted.mEpochSeq = mEpochSeq;
+        mCommitted.mViewSeq  = mViewSeq;
         if (inLogAppendMdStatePtr) {
             SetLogName(inLogSeq,
                 inLogNameHasSeqFlag ? inLogAppendStartSeq : seq_t(-1));
@@ -237,9 +245,6 @@ public:
         mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
         mVrPrevLogReceivedTime = mLastLogReceivedTime;
-        if (0 != (mError = mMetaVrSM.Start(inMetaDataSync))) {
-            return mError;
-        }
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -421,12 +426,16 @@ private:
     class Committed
     {
     public:
+        seq_t   mEpochSeq;
+        seq_t   mViewSeq;
         seq_t   mSeq;
         fid_t   mFidSeed;
         int64_t mErrChkSum;
         int     mStatus;
         Committed()
-            : mSeq(-1),
+            : mEpochSeq(-1),
+              mViewSeq(-1),
+              mSeq(-1),
               mFidSeed(-1),
               mErrChkSum(0),
               mStatus(0)
@@ -472,6 +481,8 @@ private:
     MdStream       mMdStream;
     ReqOstream     mReqOstream;
     time_t         mCurLogStartTime;
+    seq_t          mEpochSeq;
+    seq_t          mViewSeq;
     seq_t          mCurLogStartSeq;
     seq_t          mLogNum;
     string         mLogName;
@@ -733,6 +744,10 @@ private:
             theEpochSeq,
             theViewSeq
         );
+        if (0 == theVrStatus) {
+            mEpochSeq = theEpochSeq;
+            mViewSeq  = theViewSeq;
+        }
         ++mNextBlockSeq;
         mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
@@ -856,6 +871,8 @@ private:
                 return false; // Do not start new record block.
         }
         inRequest.committed     = mInFlightCommitted.mSeq;
+        inRequest.epochSeq      = mEpochSeq;
+        inRequest.viewSeq       = mViewSeq;
         inRequest.lastLogSeq    = mLastLogSeq;
         inRequest.logName       = mLogName;
         inRequest.logSegmentNum = mLogNum;
@@ -967,6 +984,8 @@ private:
             theViewSeq
         );
         if (0 == theVrStatus) {
+            mEpochSeq = theEpochSeq;
+            mViewSeq  = theViewSeq;
             int theStatus;
             if (theEpochSeq != inRequest.epochSeq ||
                     theViewSeq != inRequest.viewSeq) {
@@ -1096,7 +1115,8 @@ private:
         if (IsLogStreamGood()) {
             mNextLogSeq = mLastLogSeq;
             mMetaDataStorePtr->RegisterLogSegment(
-                mLogName.c_str(), mCurLogStartSeq, -mLogNum);
+                mLogName.c_str(), mCurLogStartSeq, -mLogNum,
+                mEpochSeq, mViewSeq);
         } else {
             mLastLogSeq = mNextLogSeq;
         }
@@ -1117,6 +1137,10 @@ private:
         }
         mLogName += mLogFileNamePrefix;
         if (0 <= inLogStartSeqNum) {
+            mLogName += '.';
+            AppendDecIntToString(mLogName, mEpochSeq);
+            mLogName += '.';
+            AppendDecIntToString(mLogName, mViewSeq);
             mLogName += '.';
             AppendDecIntToString(mLogName, inLogStartSeqNum);
         }
