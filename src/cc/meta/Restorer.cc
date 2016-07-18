@@ -66,15 +66,32 @@ checkpoint_seq(DETokenizer& c)
     if (highest < 0 || ! c.isLastOk()) {
         return false;
     }
-    replayer.setCommitted(highest);
     c.pop_front();
     if (! c.empty()) {
         const int64_t chksum = c.toNumber();
         if (! c.isLastOk()) {
             return false;
         }
+        c.pop_front();
         replayer.setErrChksum(chksum);
     }
+    seq_t epoch = 0;
+    seq_t view  = 0;
+    if (! c.empty()) {
+        epoch = c.toNumber();
+        if (! c.isLastOk() || epoch < 0) {
+            return false;
+        }
+        c.pop_front();
+        if (c.empty()) {
+            return false;
+        }
+        view = c.toNumber();
+        if (! c.isLastOk() || view < 0 ) {
+            return false;
+        }
+    }
+    replayer.setCommitted(MetaVrLogSeq(epoch, view, highest));
     return true;
 }
 

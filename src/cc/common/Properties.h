@@ -42,6 +42,9 @@ using std::string;
 using std::istream;
 using std::ostream;
 
+class HexIntParser;
+class DecIntParser;
+
 // Key: value properties.
 // Can be used to parse rfc822 style request headers, or configuration files.
 class Properties
@@ -109,6 +112,24 @@ public:
     }
     const String* getValue(const char* key) const
         { return getValue(String(key)); }
+    template<typename KeyT, typename ValT>
+    ValT parseValue(const KeyT& key, const ValT& def = ValT()) const
+    {
+        const String* const str = getValue(key);
+        if (! str) {
+            return def;
+        }
+        ValT        val;
+        const char* ptr = str->data();
+        return (
+            (16 == intbase ?
+                val.Parse(ptr, str->size(),
+                    static_cast<const HexIntParser*>(0)) :
+                val.Parse(ptr, str->size(),
+                    static_cast<const DecIntParser*>(0))) ?
+            val : def
+        );
+    }
     void setValue(const string& key, const string& value);
     void setValue(const String& key, const string& value);
     template<typename TKey>
@@ -147,6 +168,8 @@ public:
     }
     void setIntBase(int base)
         { intbase = base; }
+    int getIntBase() const
+        { return intbase; }
     bool operator==(const Properties& p) const
         { return (intbase == p.intbase && propmap == p.propmap); }
     bool operator!=(const Properties& p) const

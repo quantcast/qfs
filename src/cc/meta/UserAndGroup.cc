@@ -1025,7 +1025,7 @@ private:
                 panic("invalid log group users completion");
             }
             seqno  = -1;
-            logseq = -1;
+            logseq = MetaVrLogSeq();
             status = 0;
             statusMsg.clear();
             return 0;
@@ -1109,7 +1109,7 @@ private:
         if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
             return;
         }
-        if (0 <= mMetaLogGroupUsers.logseq) {
+        if (mMetaLogGroupUsers.logseq.IsValid()) {
             panic("invalid start pending update invocation");
         }
         mMetaLogGroupUsersInFlightFlag =

@@ -983,7 +983,7 @@ public:
           mLogReceiver(),
           mThread(),
           mPendingCommitQueue(),
-          mLastCommit(-1),
+          mLastCommit(),
           mWakeupFlag(false),
           mStartedFlag(false),
           mParametersUpdatePendingFlag(false),
@@ -1169,7 +1169,7 @@ private:
     LogReceiver               mLogReceiver;
     QCThread                  mThread;
     Queue                     mPendingCommitQueue;
-    seq_t                     mLastCommit;
+    MetaVrLogSeq              mLastCommit;
     bool                      mWakeupFlag;
     bool                      mStartedFlag;
     bool                      mParametersUpdatePendingFlag;

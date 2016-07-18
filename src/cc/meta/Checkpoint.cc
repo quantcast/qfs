@@ -39,6 +39,7 @@
 #include "LayoutManager.h"
 #include "LogWriter.h"
 #include "MetaVrSM.h"
+#include "MetaVrLogSeq.h"
 #include "util.h"
 
 #include "common/MdStream.h"
@@ -59,8 +60,9 @@ namespace KFS
 using std::hex;
 using std::dec;
 
+template<typename OST>
 int
-Checkpoint::write_leaves(ostream& os)
+Checkpoint::write_leaves(OST& os)
 {
     LeafIter li(metatree.firstLeaf(), 0);
     Meta *m = li.current();
@@ -76,40 +78,27 @@ Checkpoint::write_leaves(ostream& os)
 
 string
 Checkpoint::cpfile(
-    seq_t committedseq,
-    seq_t epoch,
-    seq_t view)
+    const MetaVrLogSeq& committedseq)
 {
-    string fname = makename(cpdir, "chkpt", epoch);
+    string fname = makename(cpdir, "chkpt", committedseq.mEpochSeq);
     fname += '.';
-    AppendDecIntToString(fname, view);
+    AppendDecIntToString(fname, committedseq.mViewSeq);
     fname += '.';
-    AppendDecIntToString(fname, committedseq);
+    AppendDecIntToString(fname, committedseq.mLogSeq);
     return fname;
 }
 
 int
 Checkpoint::write(
-    const string& logname,
-    seq_t         logseq,
-    int64_t       errchksum,
-    const string* vrCheckpont,
-    seq_t         epoch,
-    seq_t         view)
+    const string&       logname,
+    const MetaVrLogSeq& logseq,
+    int64_t             errchksum,
+    const string*       vrCheckpont)
 {
     if (logname.empty()) {
         return -EINVAL;
     }
-    seq_t epochseq = -1;
-    seq_t viewseq  = -1;
-    if (0 <= epoch && 0 <= view) {
-        epochseq = epoch;
-        viewseq  = view;
-    } else {
-        MetaRequest::GetLogWriter().GetMetaVrSM().GetEpochAndViewSeq(
-            epochseq, viewseq);
-    }
-    cpname = cpfile(logseq, epochseq, viewseq);
+    cpname = cpfile(logseq);
     StringBufT<256> tmpStr(cpname.data(), cpname.size());
     tmpStr.Append('.');
     const size_t prefLen = tmpStr.GetSize();
@@ -139,7 +128,8 @@ Checkpoint::write(
         const bool kSyncFlag = false;
         MdStreamT<FdWriter> os(&fdw, kSyncFlag, string(), writebuffersize);
         os << dec;
-        os << "checkpoint/" << logseq << "/" << errchksum << '\n';
+        os << "checkpoint/" << logseq.mLogSeq << "/" << errchksum <<
+            "/" << logseq.mEpochSeq << "/" << logseq.mViewSeq << '\n';
         os << "checksum/last-line\n";
         os << "version/" << VERSION << '\n';
         os << "filesysteminfo/fsid/" << metatree.GetFsId() << "/crtime/" <<

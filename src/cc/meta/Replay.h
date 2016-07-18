@@ -25,6 +25,8 @@
 #if !defined(KFS_REPLAY_H)
 #define KFS_REPLAY_H
 
+#include "MetaVrLogSeq.h"
+
 #include "common/kfstypes.h"
 #include "common/MdStream.h"
 
@@ -63,11 +65,11 @@ public:
     int64_t getRollSeeds() const { return rollSeeds; }
     int64_t getErrChksum() const
         { return errChecksum; }
-    seq_t getCommitted() const
+    MetaVrLogSeq getCommitted() const
         { return committed; }
     void setErrChksum(int64_t sum)
         { errChecksum = sum; }
-    void setCommitted(seq_t seq)
+    void setCommitted(const MetaVrLogSeq& seq)
     {
         checkpointCommitted = seq;
         committed           = seq;
@@ -87,7 +89,7 @@ public:
         { return mds.GetMdState(); }
     seq_t getLogNum() const
         { return number; }
-    seq_t getLastLogStart() const
+    MetaVrLogSeq getLastLogStart() const
         { return lastLogStart; }
     seq_t getLastBlockSeq() const
         { return lastBlockSeq; }
@@ -97,7 +99,7 @@ public:
     void verifyAllLogSegmentsPreset(bool flag)
         { verifyAllLogSegmentsPresetFlag = flag; }
     void setLogDir(const char* dir);
-    seq_t getCheckpointCommitted() const
+    MetaVrLogSeq getCheckpointCommitted() const
         { return checkpointCommitted; }
 
     class BlockChecksum
@@ -134,9 +136,9 @@ private:
     int              lastLogIntBase;
     bool             appendToLastLogFlag;
     bool             verifyAllLogSegmentsPresetFlag;
-    seq_t            checkpointCommitted;
-    seq_t            committed;
-    seq_t            lastLogStart;
+    MetaVrLogSeq     checkpointCommitted;
+    MetaVrLogSeq     committed;
+    MetaVrLogSeq     lastLogStart;
     seq_t            lastBlockSeq;
     int64_t          errChecksum;
     int64_t          rollSeeds;

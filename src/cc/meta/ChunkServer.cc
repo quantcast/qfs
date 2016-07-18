@@ -952,8 +952,8 @@ ChunkServer::HandleRequest(int code, void *data)
             KFS_LOG_EOM;
             if (mHelloDone && 0 <= mAuthPendingSeq) {
                 // Enqueue rpcs that were waiting for authentication to finish.
-                DispatchedReqs::const_iterator it =
-                    mDispatchedReqs.lower_bound(mAuthPendingSeq);
+                DispatchedReqs::const_iterator it = mDispatchedReqs.lower_bound(
+                    CseqToVrLogSeq(mAuthPendingSeq));
                 mAuthPendingSeq = -1;
                 while (it != mDispatchedReqs.end()) {
                     MetaChunkRequest* const op = it->second.second;
@@ -2165,7 +2165,7 @@ ChunkServer::ParseResponse(istream& is, Properties& prop)
 /// Request/responses are matched based on sequence #'s.
 ///
 MetaChunkRequest*
-ChunkServer::FindMatchingRequest(seq_t cseq)
+ChunkServer::FindMatchingRequest(const MetaVrLogSeq& cseq)
 {
     DispatchedReqs::iterator const it = mDispatchedReqs.find(cseq);
     if (it == mDispatchedReqs.end()) {
@@ -2174,10 +2174,10 @@ ChunkServer::FindMatchingRequest(seq_t cseq)
     MetaChunkRequest* const op = it->second.second;
     mReqsTimeoutQueue.erase(it->second.first);
     it->second.first = ReqsTimeoutQueue::iterator();
-    if (op->logCompletionSeq < 0) {
-        RemoveInFlight(*op);
-    } else {
+    if (op->logCompletionSeq.IsValid()) {
         LogInFlightReqs::PushBack(mLogCompletionInFlightReqs, *op);
+    } else {
+        RemoveInFlight(*op);
     }
     mDispatchedReqs.erase(it);
     return op;
@@ -2192,7 +2192,7 @@ ChunkServer::TimeSinceLastHeartbeat() const
 bool
 ChunkServer::ReplayValidate(MetaRequest& r) const
 {
-    if (! r.replayFlag || r.logseq < 0 || ! mReplayFlag) {
+    if (! r.replayFlag || ! r.logseq.IsValid() || ! mReplayFlag) {
         panic("chunk server: invalid replay attempt");
         r.status = -EFAULT;
         submit_request(&r);
@@ -2301,7 +2301,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     MetaChunkRequest* const req = r.request;
     r.request = 0;
     if (r.replayFlag || r.submitCount <= 0 ||
-            (r.logseq < 0 && 0 <= r.status) ||
+            (! r.logseq.IsValid() && 0 <= r.status) ||
             ! req || 0 != req->submitCount ||
                 (0 <= req->chunkId ?
                     req != req->inFlightIt->second :
@@ -2325,7 +2325,7 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     if (0 == r.status) {
         req->logCompletionSeq = r.logseq;
     } else {
-        req->logCompletionSeq = -1;
+        req->logCompletionSeq = MetaVrLogSeq();
         req->status           = r.status;
         // In the case of failure must already be scheduled down.
         if (mNetConnection) {
@@ -2400,10 +2400,10 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         }
     }
     if (! restoreFlag && 0 <= req.chunkVersion) {
-        if (0 <= req.logseq && 0 <= req.chunkId) {
+        if (req.logseq.IsValid() && 0 <= req.chunkId) {
             mDoneTimedoutChunks.Erase(req.chunkId);
         }
-        if (0 <= req.logseq || 0 <= req.logCompletionSeq) {
+        if (req.logseq.IsValid() || req.logCompletionSeq.IsValid()) {
             RemoveInFlightChunks(mHelloChunkIds, req);
         }
     }
@@ -2416,7 +2416,7 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     ));
     pair<DispatchedReqs::iterator, bool> const res =
         mDispatchedReqs.insert(make_pair(
-            req.replayFlag ? req.logseq : req.opSeqno,
+            req.replayFlag ? req.logseq : CseqToVrLogSeq(req.opSeqno),
             make_pair(it, &req)
         ));
     if (res.second) {
@@ -2699,7 +2699,7 @@ ChunkServer::NotifyStaleChunks(
         GetSelfPtr(),
         evacuatedFlag,
         mStaleChunksHexFormatFlag,
-        (ca && ! ca->replayFlag && 0 <= ca->logseq) ? ca : 0
+        (ca && ! ca->replayFlag && ca->logseq.IsValid()) ? ca : 0
     ));
     if (clearStaleChunksFlag) {
         req.staleChunkIds.Swap(staleChunkIds);
@@ -2888,11 +2888,11 @@ ChunkServer::TimeoutOps()
         if (op->replayFlag || dri->second.first != it) {
             panic("chunk server: invalid timeout queue entry");
         }
-        if (op->logCompletionSeq < 0) {
-            RemoveInFlight(*op);
-        } else {
+        if (op->logCompletionSeq.IsValid()) {
             dri->second.first = ReqsTimeoutQueue::iterator();
             LogInFlightReqs::PushBack(mLogCompletionInFlightReqs, *op);
+        } else {
+            RemoveInFlight(*op);
         }
         mDispatchedReqs.erase(dri);
         mTmpReqQueue.push_back(op);
@@ -2963,10 +2963,10 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " failing op: " << op.Show() <<
         KFS_LOG_EOM;
-        if (! mHelloDone && 0 <= op.logCompletionSeq) {
+        if (! mHelloDone && op.logCompletionSeq.IsValid()) {
             panic("chunk server: op was queued prior to hello completion");
         }
-        if (0 <= op.logCompletionSeq || op.replayFlag) {
+        if (op.logCompletionSeq.IsValid() || op.replayFlag) {
             AppendInFlightChunks(mLastChunksInFlight, op);
         }
         RemoveInFlight(op);
@@ -2978,7 +2978,7 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
     LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
     MetaChunkRequest*         op;
     while ((op = it.Next())) {
-        if (op->logCompletionSeq < 0) {
+        if (! op->logCompletionSeq.IsValid()) {
             panic("chunk server: invalid log completion queue entry");
         }
         AppendInFlightChunks(mLastChunksInFlight, *op);
@@ -3001,7 +3001,8 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
         MetaChunkRequest* const op = it->second.second;
         op->statusMsg        = errMsg ? errMsg : "chunk server disconnect";
         op->status           = -EIO;
-        op->logCompletionSeq = -1; // Do not create (log) completion entry.
+        // Do not create (log) completion entry.
+        op->logCompletionSeq = MetaVrLogSeq();
         op->resume();
     }
 }
@@ -3476,7 +3477,7 @@ ChunkServer::Checkpoint(ostream& ost)
     LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
     const MetaChunkRequest*   op;
     while ((op = it.Next())) {
-        if (op->logCompletionSeq < 0 || op->replayFlag) {
+        if (! op->logCompletionSeq.IsValid() || op->replayFlag) {
             panic("chunk server: "
                 "invalid log in flight op sequence or replay flag");
             continue;

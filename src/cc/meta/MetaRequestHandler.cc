@@ -306,6 +306,17 @@ public:
             outValue = inDefaultValue;
         }
     }
+    static void SetValue(
+        const char*         inPtr,
+        size_t              inLen,
+        const MetaVrLogSeq& inDefaultValue,
+        MetaVrLogSeq&       outValue)
+    {
+        const char* thePtr = inPtr;
+        if (! outValue.Parse<INT_PARSER_T>(thePtr, inLen)) {
+            outValue = inDefaultValue;
+        }
+    }
 };
 
 template <typename SUPER, typename OBJ>

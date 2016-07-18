@@ -167,7 +167,7 @@ ResubmitRequest(MetaRequest& req)
     req.statusMsg.clear();
     req.submitCount  = 0;
     req.seqno        = -1;
-    req.logseq       = -1;
+    req.logseq       = MetaVrLogSeq();
     req.suspended    = false;
     submit_request(&req);
 }
@@ -3485,10 +3485,11 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     if (req.doneOp) {
         MetaChunkRequest& op = *req.doneOp;
         req.doneOp = 0;
-        if (! op.suspended || (op.logCompletionSeq < 0 && ! op.replayFlag)) {
+        if (! op.suspended ||
+                (! op.logCompletionSeq.IsValid() && ! op.replayFlag)) {
             panic("MetaChunkLogCompletion: invalid log sequence");
         }
-        op.logCompletionSeq = -1;
+        op.logCompletionSeq = MetaVrLogSeq();
         if (op.replayFlag) {
             MetaRequest::Release(&op);
         } else {
@@ -3779,7 +3780,7 @@ LayoutManager::AddNewServer(MetaHello& req)
             req.status    = -EAGAIN;
             return;
         }
-        if (0 == req.resumeStep && 0 <= req.logseq) {
+        if (0 == req.resumeStep && req.logseq.IsValid()) {
             // Step 0 is not written into transaction log.
             const char* const msg =
                 "invalid hello resume step logged / replayed";
@@ -9886,7 +9887,7 @@ LayoutManager::Handle(MetaChunkSize& req)
         return;
     }
     if (req.checkChunkFlag) {
-        if (0 <= req.logseq) {
+        if (req.logseq.IsValid()) {
             panic("chunk size: check chunk only: invalid log sequence");
             req.status = -EFAULT;
             return;
@@ -9925,7 +9926,7 @@ LayoutManager::Handle(MetaChunkSize& req)
         }
         return;
     }
-    if (0 <= req.status && req.logseq < 0) {
+    if (0 <= req.status && ! req.logseq.IsValid()) {
         panic("chunk size: invalid log sequence");
         req.status = -EFAULT;
         return;

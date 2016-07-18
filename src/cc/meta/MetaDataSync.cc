@@ -28,6 +28,7 @@
 #include "MetaDataSync.h"
 #include "MetaRequest.h"
 #include "LogReceiver.h"
+#include "MetaDataStore.h"
 #include "util.h"
 
 #include "qcdio/qcdebug.h"
@@ -93,8 +94,8 @@ private:
             contentLength  = 0;
             status         = 0;
             fileSystemId   = -1;
-            startLogSeq    = -1;
-            endLogSeq      = -1;
+            startLogSeq    = MetaVrLogSeq();
+            endLogSeq      = MetaVrLogSeq();
             readPos        = -1;
             checkpointFlag = false;
             readSize       = -1;
@@ -140,8 +141,8 @@ public:
           mKfsNetClient(mStartupNetManager),
           mServers(),
           mPendingSyncServers(),
-          mPendingSyncLogSeq(-1),
-          mPendingSyncLogEndSeq(-1),
+          mPendingSyncLogSeq(),
+          mPendingSyncLogEndSeq(),
           mSyncScheduledCount(0),
           mMutex(),
           mFileName(),
@@ -167,7 +168,7 @@ public:
           mPos(0),
           mNextReadPos(0),
           mFileSize(-1),
-          mLogSeq(-1),
+          mLogSeq(),
           mNextLogSegIdx(-1),
           mCheckpointFlag(false),
           mBuffer(),
@@ -355,7 +356,7 @@ public:
         }
         if (! theEmptyFsFlag) {
             mLogSeq = GetLastLogSeq();
-            if (mLogSeq < 0) {
+            if (! mLogSeq.IsValid()) {
                 KFS_LOG_STREAM_ERROR <<
                     "failed to obtain log segment sequence" <<
                 KFS_LOG_EOM;
@@ -369,7 +370,7 @@ public:
                 return mStatus;
             }
         }
-        if (mLogSeq < 0) {
+        if (! mLogSeq.IsValid()) {
             const size_t theCnt = mServers.size();
             if (1 < theCnt) {
                 // Randomly choose server to download from.
@@ -392,7 +393,7 @@ public:
             if (0 != theRet) {
                 return theRet;
             }
-            mLogSeq = -mLogSeq;
+            mLogSeq.mLogSeq = -mLogSeq.mLogSeq;
         }
         LogSeqCheckStart();
         int kStackSize = 64 << 10;
@@ -400,7 +401,7 @@ public:
         return 0;
     }
     void StartLogSync(
-        seq_t                  inLogSeq,
+        const MetaVrLogSeq&    inLogSeq,
         LogReceiver::Replayer& inReplayer)
     {
         if (! mReadOpsPtr) {
@@ -422,9 +423,9 @@ public:
         LogFetchStart();
     }
     void ScheduleLogSync(
-        const Servers& inServers,
-        seq_t          inLogStartSeq,
-        seq_t          inLogEndSeq)
+        const Servers&      inServers,
+        const MetaVrLogSeq& inLogStartSeq,
+        const MetaVrLogSeq& inLogEndSeq)
     {
         if (! mReadOpsPtr) {
             return;
@@ -500,13 +501,13 @@ public:
             if (theOp.mPos != theOp.readPos) {
                 theOp.status    = -EINVAL;
                 theOp.statusMsg = "invalid read position";
-            } else if (theOp.startLogSeq < 0) {
+            } else if (! theOp.startLogSeq.IsValid()) {
                 theOp.status    = -EINVAL;
                 theOp.statusMsg = "invalid log sequence";
             } else if (theOp.fileSystemId < 0) {
                 theOp.status    = -EINVAL;
                 theOp.statusMsg = "invalid file system id";
-            } else if (0 <= theOp.endLogSeq && ! theOp.checkpointFlag &&
+            } else if (theOp.endLogSeq.IsValid() && ! theOp.checkpointFlag &&
                     theOp.endLogSeq <= theOp.startLogSeq) {
                 theOp.status    = -EINVAL;
                 theOp.statusMsg = "invalid log end sequence";
@@ -535,7 +536,7 @@ public:
                 mServers = mPendingSyncServers;
                 mServerIdx = 0;
                 mSyncScheduledCount = 0;
-                const seq_t theLogSeq = mPendingSyncLogSeq;
+                const MetaVrLogSeq theLogSeq = mPendingSyncLogSeq;
                 theLocker.Unlock();
                 StartLogSync(theLogSeq, *mReplayerPtr);
             }
@@ -563,8 +564,8 @@ private:
     KfsNetClient      mKfsNetClient;
     Servers           mServers;
     Servers           mPendingSyncServers;
-    seq_t             mPendingSyncLogSeq;
-    seq_t             mPendingSyncLogEndSeq;
+    MetaVrLogSeq      mPendingSyncLogSeq;
+    MetaVrLogSeq      mPendingSyncLogEndSeq;
     int               mSyncScheduledCount;
     QCMutex           mMutex;
     string            mFileName;
@@ -590,7 +591,7 @@ private:
     int64_t           mPos;
     int64_t           mNextReadPos;
     int64_t           mFileSize;
-    seq_t             mLogSeq;
+    MetaVrLogSeq      mLogSeq;
     seq_t             mNextLogSegIdx;
     bool              mCheckpointFlag;
     IOBuffer          mBuffer;
@@ -648,7 +649,7 @@ private:
     void LogFetchStart(
         bool inCheckLogSeqOnlyFlag = false)
     {
-        QCASSERT(0 <= mLogSeq && ! mServers.empty());
+        QCASSERT(mLogSeq.IsValid() && ! mServers.empty());
         mStatus = 0;
         if (0 <= mFd) {
             close(mFd);
@@ -695,7 +696,7 @@ private:
         StopAndClearPending();
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mStatus               = 0;
-        mLogSeq               = -1;
+        mLogSeq               = MetaVrLogSeq();
         mCheckpointFlag       = true;
         mWriteToFileFlag      = true;
         mCheckStartLogSeqFlag = false;
@@ -757,7 +758,7 @@ private:
     void Handle(
         ReadOp& inOp)
     {
-        if (0 <= mLogSeq && ((0 != mPos || mWriteToFileFlag) ?
+        if (mLogSeq.IsValid() && ((0 != mPos || mWriteToFileFlag) ?
                 mLogSeq != inOp.startLogSeq : mLogSeq < inOp.startLogSeq)) {
             KFS_LOG_STREAM_ERROR <<
                 "start log sequence has chnaged:"
@@ -788,7 +789,7 @@ private:
                 HandleReadError(inOp);
                 return;
             }
-            if (mCheckStartLogSeqFlag && 0 <= mLogSeq &&
+            if (mCheckStartLogSeqFlag && mLogSeq.IsValid() &&
                     mLogSeq != inOp.startLogSeq) {
                 KFS_LOG_STREAM_ERROR <<
                     "start log sequence mismatch:"
@@ -840,29 +841,27 @@ private:
                 return;
             }
             if (mWriteToFileFlag && mFd < 0) {
-                size_t const theDotPos = inOp.fileName.find('.');
-                size_t const theEndPos = mCheckpointFlag ?
-                    inOp.fileName.size() : inOp.fileName.rfind('.');
-                seq_t theSeq    = -1;
-                seq_t theSegIdx = -1;
-                const char* thePtr = inOp.fileName.data() + theDotPos + 1;
-                if (string::npos == theDotPos || string::npos == theEndPos ||
-                        theEndPos <= theDotPos ||
-                        ! DecIntParser::Parse(
-                            thePtr, theEndPos - theDotPos - 1, theSeq) ||
-                        theSeq != mLogSeq ||
-                        inOp.fileName.find('/') != string::npos ||
-                        (! mCheckpointFlag && (! DecIntParser::Parse(
-                                ++thePtr,
-                                inOp.fileName.size() - theEndPos - 1,
-                                theSegIdx) ||
-                            (0 < mNextLogSegIdx &&
-                                theSegIdx != mNextLogSegIdx)))) {
+                const char* const thePrefixPtr = mCheckpointFlag ?
+                    MetaDataStore::GetCheckpointFileNamePrefixPtr() :
+                    MetaDataStore::GetLogSegmentFileNamePrefixPtr();
+                size_t const       thePrefixLen = strlen(thePrefixPtr);
+                size_t const       theNameLen   = inOp.fileName.size();
+                const char* const  theNamePtr   = inOp.fileName.c_str();
+                MetaVrLogSeq       theLogSeq;
+                seq_t              theSegIdx    = -1;
+                if (theNameLen < thePrefixLen ||
+                        0 != memcmp(thePrefixPtr, theNamePtr, thePrefixLen) ||
+                        ! MetaDataStore::GetLogSequenceFromFileName(
+                            theNamePtr, theNameLen, theLogSeq,
+                            mCheckpointFlag ? 0 : &theSegIdx) ||
+                        theLogSeq != mLogSeq ||
+                        (! mCheckpointFlag && 0 < mNextLogSegIdx &&
+                            theSegIdx != mNextLogSegIdx)) {
                     KFS_LOG_STREAM_ERROR <<
                         "invalid file name: " << inOp.Show() <<
                         " log sequence:"
                         " expected: " << mLogSeq <<
-                        " actual: "   << theSeq <<
+                        " actual: "   << theLogSeq <<
                         " segment:"
                         " expected: " << mNextLogSegIdx <<
                         " actual: "   << theSegIdx <<
@@ -983,8 +982,12 @@ private:
                 }
             }
             if (theEofFlag && ! mCheckpointFlag) {
-                mLogSeq = theOpPtr->endLogSeq < 0 ?
-                    -theOpPtr->startLogSeq : theOpPtr->endLogSeq;
+                if (theOpPtr->endLogSeq.IsValid()) {
+                    mLogSeq = theOpPtr->endLogSeq;
+                } else {
+                    mLogSeq = theOpPtr->startLogSeq;
+                    mLogSeq.mLogSeq = -mLogSeq.mLogSeq;
+                }
                 mNextLogSegIdx++;
             }
             theOpPtr->Reset();
@@ -1036,7 +1039,7 @@ private:
             if (mCheckpointFlag) {
                 mCheckpointFileName.assign(
                     mFileName.data(), mFileName.size());
-            } else if (0 <= mLogSeq) {
+            } else if (mLogSeq.IsValid()) {
                 mLastLogFileName.assign(
                     mFileName.data(), mFileName.size());
             }
@@ -1044,7 +1047,7 @@ private:
         mBuffer.Clear();
         mRetryCount     = 0;
         mCheckpointFlag = false;
-        if (0 <= mLogSeq) {
+        if (mLogSeq.IsValid()) {
             mCheckStartLogSeqFlag = true;
             InitRead();
             if (! StartRead()) {
@@ -1063,7 +1066,7 @@ private:
                 MsgLogger::kLogLevelERROR)
             "sync complte:"
             " status: "   << mStatus <<
-            " seq: "      << -mLogSeq <<
+            " seq: "      << mLogSeq <<
             " shutdown: " << mShutdownNetManagerFlag <<
         KFS_LOG_EOM;
         if (mShutdownNetManagerFlag) {
@@ -1189,6 +1192,21 @@ private:
         mPos         = 0;
         mNextReadPos = 0;
     }
+    class FieldParser
+    {
+    public:
+        template<typename T>
+        static bool Parse(
+            const char*& ioPtr,
+            size_t       inLen,
+            T&           outVal)
+            { return HexIntParser::Parse(ioPtr, inLen, outVal); }
+        static bool Parse(
+            const char*&  ioPtr,
+            size_t        inLen,
+            MetaVrLogSeq& outVal)
+            { return outVal.Parse<HexIntParser>(ioPtr, inLen); }
+    };
     template<typename T>
     bool ParseField(
         const char*& ioPtr,
@@ -1200,10 +1218,8 @@ private:
             ++ioPtr;
         }
         if (ioPtr < inEndPtr &&
-                HexIntParser::Parse(
-                    theStartPtr,
-                    ioPtr - theStartPtr,
-                    outVal)) {
+                FieldParser::Parse(
+                    theStartPtr, ioPtr - theStartPtr, outVal)) {
             ++ioPtr;
             return true;
         }
@@ -1252,22 +1268,22 @@ private:
             const char* const theEndPtr   = theStartPtr + theLen;
             const char*       thePtr      = theStartPtr;
             thePtr += 2;
-            seq_t   theCommitted   = -1;
-            fid_t   theFid         = -1;
-            int64_t theErrChkSum   = -1;
-            int     theBlockStatus = -1;
-            seq_t   theLogSeq      = -1;
-            int     theBlockSeqLen = -1;
+            MetaVrLogSeq theCommitted;
+            fid_t        theFid         = -1;
+            int64_t      theErrChkSum   = -1;
+            int          theBlockStatus = -1;
+            MetaVrLogSeq theLogSeq;
+            int          theBlockSeqLen = -1;
             if (! (ParseField(thePtr, theEndPtr, theCommitted) &&
                     ParseField(thePtr, theEndPtr, theFid) &&
                     ParseField(thePtr, theEndPtr, theErrChkSum) &&
                     ParseField(thePtr, theEndPtr, theBlockStatus) &&
                     ParseField(thePtr, theEndPtr, theLogSeq) &&
                     ParseField(thePtr, theEndPtr, theBlockSeqLen) &&
-                    0 <= theCommitted &&
+                    theCommitted.IsValid() &&
                     0 <= theBlockStatus &&
                     theCommitted <= theLogSeq &&
-                    theBlockSeqLen <= theLogSeq)) {
+                    theBlockSeqLen <= theLogSeq.mLogSeq)) {
                 KFS_LOG_STREAM_ERROR <<
                     "invalid log commit line:" <<
                     IOBuffer::DisplayData(mBuffer, theLen) <<
@@ -1275,7 +1291,8 @@ private:
                 HandleError();
                 return;
             }
-            theOp.blockStartSeq = theLogSeq - theBlockSeqLen;
+            theOp.blockStartSeq = theLogSeq;
+            theOp.blockStartSeq.mLogSeq -= theBlockSeqLen;
             theOp.blockEndSeq   = theLogSeq;
             const int theCopyLen  = (int)(thePtr - theStartPtr);
             int64_t   theBlockSeq = -1;
@@ -1674,7 +1691,9 @@ private:
     {
     public:
         GetMaxLogSeq()
-            : mSeq(-1)
+            : mPrefixPtr(MetaDataStore::GetLogSegmentFileNamePrefixPtr()),
+              mPrefixLen(strlen(mPrefixPtr)),
+              mSeq()
             {}
         int operator()(
             const char* inNamePtr,
@@ -1684,35 +1703,34 @@ private:
             if (inTmpSuffixFlag) {
                 return 0;
             }
-            const char* thePtr = strchr(inNamePtr, '.');
-            if (thePtr) {
-                const char* theEndPtr = strchr(++thePtr, '.');
-                if (theEndPtr) {
-                    seq_t theSeq = -1;
-                    if (DecIntParser::Parse(
-                            thePtr, theEndPtr - thePtr, theSeq)) {
-                        mSeq = max(mSeq, theSeq);
-                    }
-                }
+            MetaVrLogSeq theLogSeq;
+            seq_t        theSegIdx = -1;
+            if (mPrefixLen <= inLength &&
+                    0 == memcmp(mPrefixPtr, inNamePtr, mPrefixLen) &&
+                    MetaDataStore::GetLogSequenceFromFileName(
+                        inNamePtr, inLength, theLogSeq, &theSegIdx)) {
+                mSeq = max(mSeq, theLogSeq);
             }
             return 0;
         }
-        seq_t Get() const
+        const MetaVrLogSeq& Get() const
             { return mSeq; }
     private:
-        seq_t mSeq;
+        const char* const mPrefixPtr;
+        const size_t      mPrefixLen;
+        MetaVrLogSeq      mSeq;
     private:
         GetMaxLogSeq(
             const GetMaxLogSeq&);
         GetMaxLogSeq& operator=(
             const GetMaxLogSeq&);
     };
-    seq_t GetLastLogSeq()
+    MetaVrLogSeq GetLastLogSeq()
     {
         GetMaxLogSeq theFunc;
         const int theStatus = ListDirEntries(mLogDir.c_str(), theFunc);
         if (theStatus < 0) {
-            return theStatus;
+            return MetaVrLogSeq(0, 0, theStatus);
         }
         return theFunc.Get();
     }
@@ -1832,7 +1850,7 @@ MetaDataSync::Start(
 
     void
 MetaDataSync::StartLogSync(
-    seq_t                  inLogSeq,
+    const MetaVrLogSeq&    inLogSeq,
     LogReceiver::Replayer& inReplayer)
 {
     mImpl.StartLogSync(inLogSeq, inReplayer);
@@ -1841,8 +1859,8 @@ MetaDataSync::StartLogSync(
     void
 MetaDataSync::ScheduleLogSync(
     const MetaDataSync::Servers& inServers,
-    seq_t                        inLogStartSeq,
-    seq_t                        inLogEndSeq)
+    const MetaVrLogSeq&          inLogStartSeq,
+    const MetaVrLogSeq&          inLogEndSeq)
 {
     mImpl.ScheduleLogSync(inServers, inLogStartSeq, inLogEndSeq);
 }

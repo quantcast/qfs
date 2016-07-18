@@ -31,6 +31,7 @@
 #include "MetaDataStore.h"
 #include "MetaVrSM.h"
 #include "Checkpoint.h"
+#include "MetaVrLogSeq.h"
 #include "util.h"
 
 #include "common/MsgLogger.h"
@@ -75,9 +76,9 @@ public:
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
           mMetaVrSM(mLogTransmitter),
-          mTransmitCommitted(-1),
+          mTransmitCommitted(),
           mTransmitterUpFlag(false),
-          mMaxDoneLogSeq(-1),
+          mMaxDoneLogSeq(),
           mCommitted(),
           mThread(),
           mMutex(),
@@ -92,9 +93,9 @@ public:
           mPendingAckQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
-          mNextLogSeq(-1),
+          mNextLogSeq(),
           mNextBlockSeq(-1),
-          mLastLogSeq(-1),
+          mLastLogSeq(),
           mBlockChecksum(kKfsNullChecksum),
           mNextBlockChecksum(kKfsNullChecksum),
           mLogFd(-1),
@@ -108,9 +109,7 @@ public:
             ),
           mReqOstream(mMdStream),
           mCurLogStartTime(-1),
-          mEpochSeq(0),
-          mViewSeq(0),
-          mCurLogStartSeq(-1),
+          mCurLogStartSeq(),
           mLogNum(0),
           mLogName(),
           mWriteState(kWriteStateNone),
@@ -134,25 +133,25 @@ public:
     ~Impl()
         { Impl::Shutdown(); }
     int Start(
-        NetManager&       inNetManager,
-        MetaDataStore&    inMetaDataStore,
-        MetaDataSync&     inMetaDataSync,
-        seq_t             inLogNum,
-        seq_t             inLogSeq,
-        seq_t             inCommittedLogSeq,
-        fid_t             inCommittedFidSeed,
-        int64_t           inCommittedErrCheckSum,
-        int               inCommittedStatus,
-        const MdStateCtx* inLogAppendMdStatePtr,
-        seq_t             inLogAppendStartSeq,
-        seq_t             inLogAppendLastBlockSeq,
-        bool              inLogAppendHexFlag,
-        bool              inLogNameHasSeqFlag,
-        const char*       inParametersPrefixPtr,
-        const Properties& inParameters,
-        string&           outCurLogFileName)
+        NetManager&         inNetManager,
+        MetaDataStore&      inMetaDataStore,
+        MetaDataSync&       inMetaDataSync,
+        seq_t               inLogNum,
+        const MetaVrLogSeq& inLogSeq,
+        const MetaVrLogSeq& inCommittedLogSeq,
+        fid_t               inCommittedFidSeed,
+        int64_t             inCommittedErrCheckSum,
+        int                 inCommittedStatus,
+        const MdStateCtx*   inLogAppendMdStatePtr,
+        const MetaVrLogSeq& inLogAppendStartSeq,
+        seq_t               inLogAppendLastBlockSeq,
+        bool                inLogAppendHexFlag,
+        bool                inLogNameHasSeqFlag,
+        const char*         inParametersPrefixPtr,
+        const Properties&   inParameters,
+        string&             outCurLogFileName)
     {
-        if (inLogNum < 0 || inLogSeq < 0 ||
+        if (inLogNum < 0 || ! inLogSeq.IsValid() ||
                 (inLogAppendMdStatePtr && inLogSeq < inLogAppendStartSeq) ||
                 (mThread.IsStarted() || mNetManagerPtr)) {
             return -EINVAL;
@@ -171,15 +170,12 @@ public:
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         mMetaDataStorePtr  = &inMetaDataStore;
-        if (0 != (mError = mMetaVrSM.Start(
-                inMetaDataSync, mEpochSeq, mViewSeq))) {
+        if (0 != (mError = mMetaVrSM.Start(inMetaDataSync, mCommitted.mSeq))) {
             return mError;
         }
-        mCommitted.mEpochSeq = mEpochSeq;
-        mCommitted.mViewSeq  = mViewSeq;
         if (inLogAppendMdStatePtr) {
             SetLogName(inLogSeq,
-                inLogNameHasSeqFlag ? inLogAppendStartSeq : seq_t(-1));
+                inLogNameHasSeqFlag ? inLogAppendStartSeq : MetaVrLogSeq());
             mCurLogStartTime = mNetManager.Now();
             mCurLogStartSeq  = inLogAppendStartSeq;
             mMdStream.SetMdState(*inLogAppendMdStatePtr);
@@ -293,14 +289,16 @@ public:
             }
         }
         inRequest.commitPendingFlag = false;
-        if (inRequest.logseq < 0) {
+        if (! inRequest.logseq.IsValid()) {
             return;
         }
         if (inRequest.suspended) {
             panic("request committed: invalid suspended state");
         }
-        if (mCommitted.mSeq + 1 != inRequest.logseq &&
-                0 <= mCommitted.mSeq) {
+        if (mCommitted.mSeq.IsValid() && (inRequest.logseq <= mCommitted.mSeq ||
+                (inRequest.logseq.mEpochSeq == mCommitted.mSeq.mEpochSeq &&
+                inRequest.logseq.mViewSeq == mCommitted.mSeq.mViewSeq &&
+                inRequest.logseq.mLogSeq != mCommitted.mSeq.mLogSeq + 1))) {
             panic("request committed: invalid out of order log sequence");
             return;
         }
@@ -321,13 +319,13 @@ public:
             KFS_LOG_EOM;
         }
     }
-    seq_t GetCommittedLogSeq() const
+    MetaVrLogSeq GetCommittedLogSeq() const
         { return mCommitted.mSeq; }
     void GetCommitted(
-        seq_t&   outLogSeq,
-        int64_t& outErrChecksum,
-        fid_t&   outFidSeed,
-        int&     outStatus) const
+        MetaVrLogSeq& outLogSeq,
+        int64_t&      outErrChecksum,
+        fid_t&        outFidSeed,
+        int&          outStatus) const
     {
         outLogSeq      = mCommitted.mSeq;
         outErrChecksum = mCommitted.mErrChkSum;
@@ -335,10 +333,10 @@ public:
         outStatus      = mCommitted.mStatus;
     }
     void SetCommitted(
-        seq_t   inLogSeq,
-        int64_t inErrChecksum,
-        fid_t   inFidSeed,
-        int     inStatus)
+        const MetaVrLogSeq& inLogSeq,
+        int64_t             inErrChecksum,
+        fid_t               inFidSeed,
+        int                 inStatus)
     {
         mCommitted.mSeq       = inLogSeq;
         mCommitted.mErrChkSum = inErrChecksum;
@@ -404,7 +402,7 @@ public:
         Close();
     }
     virtual void Notify(
-        seq_t inSeq)
+        const MetaVrLogSeq& inSeq)
     {
         const bool theWakeupFlag = mTransmitCommitted < inSeq &&
             ! mWokenFlag;
@@ -426,16 +424,12 @@ private:
     class Committed
     {
     public:
-        seq_t   mEpochSeq;
-        seq_t   mViewSeq;
-        seq_t   mSeq;
-        fid_t   mFidSeed;
-        int64_t mErrChkSum;
-        int     mStatus;
+        MetaVrLogSeq mSeq;
+        fid_t        mFidSeed;
+        int64_t      mErrChkSum;
+        int          mStatus;
         Committed()
-            : mEpochSeq(-1),
-              mViewSeq(-1),
-              mSeq(-1),
+            : mSeq(),
               mFidSeed(-1),
               mErrChkSum(0),
               mStatus(0)
@@ -454,9 +448,9 @@ private:
     NetManager     mNetManager;
     LogTransmitter mLogTransmitter;
     MetaVrSM       mMetaVrSM;
-    seq_t          mTransmitCommitted;
+    MetaVrLogSeq   mTransmitCommitted;
     bool           mTransmitterUpFlag;
-    seq_t          mMaxDoneLogSeq;
+    MetaVrLogSeq   mMaxDoneLogSeq;
     Committed      mCommitted;
     QCThread       mThread;
     QCMutex        mMutex;
@@ -471,9 +465,9 @@ private:
     Queue          mPendingAckQueue;
     Committed      mPendingCommitted;
     Committed      mInFlightCommitted;
-    seq_t          mNextLogSeq;
+    MetaVrLogSeq   mNextLogSeq;
     seq_t          mNextBlockSeq;
-    seq_t          mLastLogSeq;
+    MetaVrLogSeq   mLastLogSeq;
     Checksum       mBlockChecksum;
     Checksum       mNextBlockChecksum;
     int            mLogFd;
@@ -481,9 +475,7 @@ private:
     MdStream       mMdStream;
     ReqOstream     mReqOstream;
     time_t         mCurLogStartTime;
-    seq_t          mEpochSeq;
-    seq_t          mViewSeq;
-    seq_t          mCurLogStartSeq;
+    MetaVrLogSeq   mCurLogStartSeq;
     seq_t          mLogNum;
     string         mLogName;
     WriteState     mWriteState;
@@ -516,7 +508,7 @@ private:
         MetaRequest* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
             MetaRequest& theReq = *thePtr;
-            if (0 <= theReq.logseq) {
+            if (theReq.logseq.IsValid()) {
                 if (theReq.logseq <= mMaxDoneLogSeq) {
                     panic("log writer: invalid log sequence number");
                 }
@@ -631,12 +623,12 @@ private:
             mLastLogSeq = mNextLogSeq;
             MetaRequest*          thePtr                 = theCurPtr;
             seq_t                 theEndBlockSeq         =
-                mNextLogSeq + mMaxBlockSize;
+                mNextLogSeq.mLogSeq + mMaxBlockSize;
             const bool            theSimulateFailureFlag = IsSimulateFailure();
             const bool            theTransmitterUpFlag   = mTransmitterUpFlag;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
-                if (mMetaVrSM.Handle(*thePtr, mLastLogSeq + 1)) {
+                if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {
                     continue;
                 }
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
@@ -645,7 +637,7 @@ private:
                         break;
                     }
                     theCtlPtr = 0;
-                    theEndBlockSeq = mNextLogSeq + mMaxBlockSize;
+                    theEndBlockSeq = mNextLogSeq.mLogSeq + mMaxBlockSize;
                     continue;
                 }
                 if (! theStream || ! theTransmitterUpFlag) {
@@ -661,16 +653,17 @@ private:
                         KFS_LOG_EOM;
                         break;
                     }
-                    thePtr->logseq = ++mLastLogSeq;
+                    ++mLastLogSeq.mLogSeq;
+                    thePtr->logseq = mLastLogSeq;
                     if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
                         panic("log writer: invalid request ");
                     }
                     if (! theStream) {
-                        --mLastLogSeq;
+                        --mLastLogSeq.mLogSeq;
                         LogError(*thePtr);
                     }
                 }
-                if (theEndBlockSeq <= mLastLogSeq) {
+                if (theEndBlockSeq <= mLastLogSeq.mLogSeq) {
                     break;
                 }
                 if (mMdStream.GetBufferedStart() +
@@ -721,7 +714,7 @@ private:
     void LogError(
         MetaRequest& inReq)
     {
-        inReq.logseq    = -1;
+        inReq.logseq    = MetaVrLogSeq();
         inReq.status    = -ELOGFAILED;
         inReq.statusMsg = "transaction log write error";
     }
@@ -733,21 +726,13 @@ private:
         mBlockChecksum = inStartCheckSum;
     }
     void FlushBlock(
-        seq_t inLogSeq)
+        const MetaVrLogSeq& inLogSeq)
     {
-        seq_t theEpochSeq = -1;
-        seq_t theViewSeq  = -1;
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
+            mNextLogSeq,
             inLogSeq,
-            inLogSeq - mNextLogSeq,
-            mInFlightCommitted.mSeq,
-            theEpochSeq,
-            theViewSeq
+            mInFlightCommitted.mSeq
         );
-        if (0 == theVrStatus) {
-            mEpochSeq = theEpochSeq;
-            mViewSeq  = theViewSeq;
-        }
         ++mNextBlockSeq;
         mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
@@ -755,7 +740,7 @@ private:
             "/" << mInFlightCommitted.mErrChkSum <<
             "/" << mInFlightCommitted.mStatus <<
             "/" << inLogSeq <<
-            "/" << (int)(inLogSeq - mNextLogSeq) <<
+            "/" << (inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) <<
             "/"
         ;
         mReqOstream.flush();
@@ -785,10 +770,8 @@ private:
                 theStatus = -EFAULT;
             } else {
                 theStatus = mLogTransmitter.TransmitBlock(
-                    theEpochSeq,
-                    theViewSeq,
                     inLogSeq,
-                    (int)(inLogSeq - mNextLogSeq),
+                    (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq),
                     theStartPtr,
                     theTxLen,
                     theTxChecksum,
@@ -871,8 +854,6 @@ private:
                 return false; // Do not start new record block.
         }
         inRequest.committed     = mInFlightCommitted.mSeq;
-        inRequest.epochSeq      = mEpochSeq;
-        inRequest.viewSeq       = mViewSeq;
         inRequest.lastLogSeq    = mLastLogSeq;
         inRequest.logName       = mLogName;
         inRequest.logSegmentNum = mLogNum;
@@ -945,10 +926,10 @@ private:
         const char* const theEndPtr = thePtr;
         thePtr = theEndPtr - inRequest.blockLines.Back();
         inRequest.blockLines.Back() += theTrailerLen;
-        inRequest.blockCommitted = -1;
-        seq_t     theLogSeq      = -1;
-        int       theBlockLen    = -1;
-        Committed theBlockCommitted;
+        inRequest.blockCommitted = MetaVrLogSeq();
+        MetaVrLogSeq theLogSeq;
+        int          theBlockLen = -1;
+        Committed    theBlockCommitted;
         if (thePtr + 2 < theEndPtr &&
                 (*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
             thePtr += 2;
@@ -958,70 +939,46 @@ private:
                     ParseField(thePtr, theEndPtr, theBlockCommitted.mStatus) &&
                     ParseField(thePtr, theEndPtr, theLogSeq) &&
                     ParseField(thePtr, theEndPtr, theBlockLen) &&
-                    0 <= theBlockCommitted.mSeq &&
+                    theBlockCommitted.mSeq.IsValid() &&
                     0 <= theBlockCommitted.mStatus &&
                     theBlockCommitted.mSeq <= theLogSeq &&
                     theLogSeq == inRequest.blockEndSeq &&
-                    inRequest.blockStartSeq + theBlockLen ==
-                        inRequest.blockEndSeq) {
+                    inRequest.blockStartSeq.mLogSeq + theBlockLen ==
+                        inRequest.blockEndSeq.mLogSeq) {
                 inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
         }
-        if (inRequest.blockCommitted < 0) {
+        if (! inRequest.blockCommitted.IsValid()) {
             mMdStream.ClearBuffer();
             --mNextBlockSeq;
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "log write: invalid block format";
             return;
         }
-        seq_t theEpochSeq = -1;
-        seq_t theViewSeq  = -1;
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
+            inRequest.blockStartSeq,
             inRequest.blockEndSeq,
-            inRequest.blockEndSeq - inRequest.blockStartSeq,
-            theBlockCommitted.mSeq,
-            theEpochSeq,
-            theViewSeq
+            theBlockCommitted.mSeq
         );
         if (0 == theVrStatus) {
-            mEpochSeq = theEpochSeq;
-            mViewSeq  = theViewSeq;
-            int theStatus;
-            if (theEpochSeq != inRequest.epochSeq ||
-                    theViewSeq != inRequest.viewSeq) {
-                theStatus = -EINVAL;
+        const int theStatus = mLogTransmitter.TransmitBlock(
+                inRequest.blockEndSeq,
+                (int)(inRequest.blockEndSeq.mLogSeq -
+                    inRequest.blockStartSeq.mLogSeq),
+                mMdStream.GetBufferedStart() + thePos,
+                theLen,
+                inRequest.blockChecksum,
+                theLen
+            );
+            if (0 != theStatus) {
                 KFS_LOG_STREAM_ERROR <<
                     "write block: block transmit failure:"
                     " ["    << inRequest.blockStartSeq  <<
                     ":"     << inRequest.blockEndSeq <<
                     "]"
-                    " status: "   << theStatus <<
-                    " epoch: "    << inRequest.epochSeq <<
-                    " expected: " << theEpochSeq <<
-                    " view: "     << inRequest.viewSeq <<
-                    " expected: " << theViewSeq <<
+                    " status: " << theStatus <<
                 KFS_LOG_EOM;
-            } else {
-                theStatus = mLogTransmitter.TransmitBlock(
-                    inRequest.epochSeq,
-                    inRequest.viewSeq,
-                    inRequest.blockEndSeq,
-                    (int)(inRequest.blockEndSeq - inRequest.blockStartSeq),
-                    mMdStream.GetBufferedStart() + thePos,
-                    theLen,
-                    inRequest.blockChecksum,
-                    theLen
-                );
-                if (0 != theStatus) {
-                    KFS_LOG_STREAM_ERROR <<
-                        "write block: block transmit failure:"
-                        " ["    << inRequest.blockStartSeq  <<
-                        ":"     << inRequest.blockEndSeq <<
-                        "]"
-                        " status: " << theStatus <<
-                    KFS_LOG_EOM;
-                    mTransmitterUpFlag = false;
-                }
+                mTransmitterUpFlag = false;
             }
         }
         mMdStream.SetSync(true);
@@ -1040,6 +997,21 @@ private:
             inRequest.statusMsg = "log write error";
         }
     }
+    class FieldParser
+    {
+    public:
+        template<typename T>
+        static bool Parse(
+            const char*& ioPtr,
+            size_t       inLen,
+            T&           outVal)
+            { return HexIntParser::Parse(ioPtr, inLen, outVal); }
+        static bool Parse(
+            const char*&  ioPtr,
+            size_t        inLen,
+            MetaVrLogSeq& outVal)
+            { return outVal.Parse<HexIntParser>(ioPtr, inLen); }
+    };
     template<typename T>
     bool ParseField(
         const char*& ioPtr,
@@ -1051,10 +1023,7 @@ private:
             ++ioPtr;
         }
         if (ioPtr < inEndPtr &&
-                HexIntParser::Parse(
-                    theStartPtr,
-                    ioPtr - theStartPtr,
-                    outVal)) {
+                FieldParser::Parse(theStartPtr, ioPtr - theStartPtr, outVal)) {
             ++ioPtr;
             return true;
         }
@@ -1085,7 +1054,7 @@ private:
         }
     }
     void NewLog(
-        seq_t inLogSeq)
+        const MetaVrLogSeq& inLogSeq)
     {
         Close();
         mCurLogStartTime = mNetManager.Now();
@@ -1115,18 +1084,17 @@ private:
         if (IsLogStreamGood()) {
             mNextLogSeq = mLastLogSeq;
             mMetaDataStorePtr->RegisterLogSegment(
-                mLogName.c_str(), mCurLogStartSeq, -mLogNum,
-                mEpochSeq, mViewSeq);
+                mLogName.c_str(), mCurLogStartSeq, mLogNum);
         } else {
             mLastLogSeq = mNextLogSeq;
         }
     }
     void SetLogName(
-        seq_t inLogSeq)
+        const MetaVrLogSeq& inLogSeq)
         { SetLogName(inLogSeq, inLogSeq); }
     void SetLogName(
-        seq_t inLogSeq,
-        seq_t inLogStartSeqNum)
+        const MetaVrLogSeq& inLogSeq,
+        const MetaVrLogSeq& inLogStartSeqNum)
     {
         mCurLogStartSeq = inLogSeq;
         mNextLogSeq     = inLogSeq;
@@ -1136,13 +1104,13 @@ private:
             mLogName += '/';
         }
         mLogName += mLogFileNamePrefix;
-        if (0 <= inLogStartSeqNum) {
+        if (inLogStartSeqNum.IsValid()) {
             mLogName += '.';
-            AppendDecIntToString(mLogName, mEpochSeq);
+            AppendDecIntToString(mLogName, inLogStartSeqNum.mEpochSeq);
             mLogName += '.';
-            AppendDecIntToString(mLogName, mViewSeq);
+            AppendDecIntToString(mLogName, inLogStartSeqNum.mViewSeq);
             mLogName += '.';
-            AppendDecIntToString(mLogName, inLogStartSeqNum);
+            AppendDecIntToString(mLogName, inLogStartSeqNum.mLogSeq);
         }
         mLogName += '.';
         AppendDecIntToString(mLogName, mLogNum);
@@ -1263,23 +1231,23 @@ LogWriter::~LogWriter()
 
     int
 LogWriter::Start(
-    NetManager&       inNetManager,
-    MetaDataStore&    inMetaDataStore,
-    MetaDataSync&     inMetaDataSync,
-    seq_t             inLogNum,
-    seq_t             inLogSeq,
-    seq_t             inCommittedLogSeq,
-    fid_t             inCommittedFidSeed,
-    int64_t           inCommittedErrCheckSum,
-    int               inCommittedStatus,
-    const MdStateCtx* inLogAppendMdStatePtr,
-    seq_t             inLogAppendStartSeq,
-    seq_t             inLogAppendLastBlockSeq,
-    bool              inLogAppendHexFlag,
-    bool              inLogNameHasSeqFlag,
-    const char*       inParametersPrefixPtr,
-    const Properties& inParameters,
-    string&           outCurLogFileName)
+    NetManager&         inNetManager,
+    MetaDataStore&      inMetaDataStore,
+    MetaDataSync&       inMetaDataSync,
+    seq_t               inLogNum,
+    const MetaVrLogSeq& inLogSeq,
+    const MetaVrLogSeq& inCommittedLogSeq,
+    fid_t               inCommittedFidSeed,
+    int64_t             inCommittedErrCheckSum,
+    int                 inCommittedStatus,
+    const MdStateCtx*   inLogAppendMdStatePtr,
+    const MetaVrLogSeq& inLogAppendStartSeq,
+    seq_t               inLogAppendLastBlockSeq,
+    bool                inLogAppendHexFlag,
+    bool                inLogNameHasSeqFlag,
+    const char*         inParametersPrefixPtr,
+    const Properties&   inParameters,
+    string&             outCurLogFileName)
 {
     return mImpl.Start(
         inNetManager,
@@ -1320,10 +1288,10 @@ LogWriter::Committed(
 
     void
 LogWriter::GetCommitted(
-    seq_t&   outLogSeq,
-    int64_t& outErrChecksum,
-    fid_t&   outFidSeed,
-    int&     outStatus) const
+    MetaVrLogSeq& outLogSeq,
+    int64_t&      outErrChecksum,
+    fid_t&        outFidSeed,
+    int&          outStatus) const
 {
     mImpl.GetCommitted(
         outLogSeq,
@@ -1335,10 +1303,10 @@ LogWriter::GetCommitted(
 
     void
 LogWriter::SetCommitted(
-    seq_t   inLogSeq,
-    int64_t inErrChecksum,
-    fid_t   inFidSeed,
-    int     inStatus)
+    const MetaVrLogSeq& inLogSeq,
+    int64_t             inErrChecksum,
+    fid_t               inFidSeed,
+    int                 inStatus)
 {
     mImpl.SetCommitted(
         inLogSeq,
@@ -1348,7 +1316,7 @@ LogWriter::SetCommitted(
     );
 }
 
-    seq_t
+    MetaVrLogSeq
 LogWriter::GetCommittedLogSeq() const
 {
     return mImpl.GetCommittedLogSeq();

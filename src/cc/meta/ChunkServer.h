@@ -1086,7 +1086,7 @@ protected:
         inline DispatchedReqsIterator();
         inline ~DispatchedReqsIterator();
         struct {  // Make it struct aligned.
-            char mArray[sizeof(map<seq_t, void*>::iterator)];
+            char mArray[sizeof(map<MetaVrLogSeq, void*>::iterator)];
         } mStorage;
     };
     typedef multimap <
@@ -1098,15 +1098,15 @@ protected:
         >
     > ReqsTimeoutQueue;
     typedef map <
-        seq_t,
+        MetaVrLogSeq,
         pair<
             ReqsTimeoutQueue::iterator,
             MetaChunkRequest*
         >,
-        less<seq_t>,
+        less<MetaVrLogSeq>,
         StdFastAllocator<
             pair<
-                const seq_t,
+                const MetaVrLogSeq,
                 pair <
                     ReqsTimeoutQueue::iterator,
                     MetaChunkRequest*
@@ -1320,7 +1320,11 @@ protected:
     /// @retval The matching request if one exists; NULL
     /// otherwise
     ///
-    MetaChunkRequest *FindMatchingRequest(seq_t cseq);
+    MetaChunkRequest* FindMatchingRequest(const MetaVrLogSeq& cseq);
+    MetaVrLogSeq CseqToVrLogSeq(seq_t cseq)
+        { return MetaVrLogSeq(cseq, cseq, cseq); }
+    MetaChunkRequest* FindMatchingRequest(seq_t cseq)
+        { return FindMatchingRequest(CseqToVrLogSeq(cseq)); }
 
     MetaRequest* GetOp(IOBuffer& iobuf, int msgLen, const char* errMsgPrefix);
 

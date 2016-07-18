@@ -1925,8 +1925,8 @@ MetaReadMetaData::Request(ReqOstream& os)
 void
 MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
 {
-    startLogSeq  = prop.getValue(
-        shortRpcFormatFlag ? "L" :  "Start-log", (kfsSeq_t)-1);
+    startLogSeq  = prop.parseValue(
+        shortRpcFormatFlag ? "L" :  "Start-log", MetaVrLogSeq());
     checksum     = prop.getValue(
         shortRpcFormatFlag ? "K" :  "Crc32",     (uint32_t)0);
     fileSystemId = prop.getValue(
@@ -1935,8 +1935,8 @@ MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ?  "S" : "Size",      (int64_t)-1);
     fileName     = prop.getValue(
         shortRpcFormatFlag ?  "N" : "Name",      string());
-    endLogSeq    = prop.getValue(
-        shortRpcFormatFlag ?  "E" : "End-log",   (kfsSeq_t)-1);
+    endLogSeq    = prop.parseValue(
+        shortRpcFormatFlag ?  "E" : "End-log",   MetaVrLogSeq());
     maxReadSize  = prop.getValue(
         shortRpcFormatFlag ? "M" :  "Max-rd-size",  -1);
 }

@@ -43,9 +43,8 @@ class Properties;
 
 const char* const kMetaVrViewSeqFieldNamePtr       = "VV";
 const char* const kMetaVrEpochSeqFieldNamePtr      = "VE";
-const char* const kMetaVrCommittedViewFieldNamePtr = "VCV";
 const char* const kMetaVrCommittedFieldNamePtr     = "VC";
-const char* const kMetaVrNextLogSeqFieldNamePtr    = "VN";
+const char* const kMetaVrLastLogSeqFieldNamePtr    = "VL";
 const char* const kMetaVrStateFieldNamePtr         = "VS";
 
 class MetaVrRequest : public MetaRequest
@@ -60,15 +59,13 @@ public:
         : MetaRequest(inOpType, inLogAction, inOpSequence),
           mEpochSeq(-1),
           mViewSeq(-1),
-          mCommittedViewSeq(-1),
-          mCommittedSeq(-1),
-          mNextLogSeq(-1),
+          mCommittedSeq(),
+          mLastLogSeq(),
           mNodeId(-1),
           mRetCurEpochSeq(-1),
           mRetCurViewSeq(-1),
-          mRetCommittedViewSeq(-1),
-          mRetCommittedSeq(-1),
-          mRetNextLogSeq(-1),
+          mRetCommittedSeq(),
+          mRetLastLogSeq(),
           mRetCurState(-1),
           mVrSMPtr(0),
           mRefCount(0)
@@ -77,18 +74,16 @@ public:
         shortRpcFormatFlag = false;
     }
 
-    seq_t  mEpochSeq;
-    seq_t  mViewSeq;
-    seq_t  mCommittedViewSeq;
-    seq_t  mCommittedSeq;
-    seq_t  mNextLogSeq;
-    NodeId mNodeId;
-    seq_t  mRetCurEpochSeq;
-    seq_t  mRetCurViewSeq;
-    seq_t  mRetCommittedViewSeq;
-    seq_t  mRetCommittedSeq;
-    seq_t  mRetNextLogSeq;
-    int    mRetCurState;
+    seq_t        mEpochSeq;
+    seq_t        mViewSeq;
+    MetaVrLogSeq mCommittedSeq;
+    MetaVrLogSeq mLastLogSeq;
+    NodeId       mNodeId;
+    seq_t        mRetCurEpochSeq;
+    seq_t        mRetCurViewSeq;
+    MetaVrLogSeq mRetCommittedSeq;
+    MetaVrLogSeq mRetLastLogSeq;
+    int          mRetCurState;
 
     bool Validate() const
     {
@@ -162,17 +157,13 @@ protected:
             inOs << kMetaVrStateFieldNamePtr <<
                 ":" << mRetCurState << "\r\n";
         }
-        if (0 <= mRetCommittedViewSeq) {
-            inOs << kMetaVrCommittedViewFieldNamePtr <<
-                ":" << mRetCommittedViewSeq << "\r\n";
-        }
-        if (0 <= mRetCommittedSeq) {
+        if (mRetCommittedSeq.IsValid()) {
             inOs << kMetaVrCommittedFieldNamePtr <<
                 ":" << mRetCommittedSeq << "\r\n";
         }
-        if (0 <= mRetNextLogSeq) {
-            inOs << kMetaVrNextLogSeqFieldNamePtr <<
-                ":" << mRetNextLogSeq << "\r\n";
+        if (mRetLastLogSeq.IsValid()) {
+            inOs << kMetaVrLastLogSeqFieldNamePtr <<
+                ":" << mRetLastLogSeq << "\r\n";
         }
         inOs << "\r\n";
     }
@@ -194,11 +185,10 @@ protected:
         T& inParser)
     {
         return inParser
-        .Def("E",  &MetaVrRequest::mEpochSeq,         seq_t(-1))
-        .Def("V",  &MetaVrRequest::mViewSeq,          seq_t(-1))
-        .Def("CV", &MetaVrRequest::mCommittedViewSeq, seq_t(-1))
-        .Def("C",  &MetaVrRequest::mCommittedSeq,     seq_t(-1))
-        .Def("L",  &MetaVrRequest::mNextLogSeq,       seq_t(-1))
+        .Def("E",  &MetaVrRequest::mEpochSeq,          seq_t(-1))
+        .Def("V",  &MetaVrRequest::mViewSeq,           seq_t(-1))
+        .Def("C",  &MetaVrRequest::mCommittedSeq                )
+        .Def("L",  &MetaVrRequest::mLastLogSeq                  )
         .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
         ;
     }

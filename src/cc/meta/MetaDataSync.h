@@ -40,6 +40,7 @@ using std::vector;
 
 class Properties;
 class NetManager;
+class MetaVrLogSeq;
 
 class MetaDataSync
 {
@@ -58,12 +59,12 @@ public:
         const char* inLogDirPtr);
     void Shutdown();
     void StartLogSync(
-        seq_t                  inLogSeq,
+        const MetaVrLogSeq&    inLogSeq,
         LogReceiver::Replayer& inReplayer);
     void ScheduleLogSync(
-        const Servers& inServers,
-        seq_t          inLogStartSeq,
-        seq_t          inLogEndSeq);
+        const Servers&      inServers,
+        const MetaVrLogSeq& inLogStartSeq,
+        const MetaVrLogSeq& inLogEndSeq);
 private:
     class Impl;
     Impl& mImpl;

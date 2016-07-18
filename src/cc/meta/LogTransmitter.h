@@ -38,6 +38,7 @@ namespace KFS {
 class Properties;
 class NetManager;
 class MetaVrRequest;
+class MetaVrLogSeq;
 
 class LogTransmitter
 {
@@ -49,7 +50,7 @@ public:
     {
     public:
         virtual void Notify(
-            seq_t inSeq) = 0;
+            const MetaVrLogSeq& inSeq) = 0;
     protected:
         CommitObserver()
             {}
@@ -65,8 +66,8 @@ public:
             NodeId                inId,
             bool                  inActiveFlag,
             NodeId                inActualId,
-            seq_t                 inAck,
-            seq_t                 inCommitted) = 0;
+            const MetaVrLogSeq&   inAck,
+            const MetaVrLogSeq&   inCommitted) = 0;
     protected:
         StatusReporter()
             {}
@@ -82,14 +83,12 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
     int TransmitBlock(
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq,
-        seq_t       inBlockSeq,
-        int         inBlockSeqLen,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        uint32_t    inChecksum,
-        size_t      inChecksumStartPos);
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
+        const char*         inBlockPtr,
+        size_t              inBlockLen,
+        uint32_t            inChecksum,
+        size_t              inChecksumStartPos);
     bool IsUp();
     void QueueVrRequest(
         MetaVrRequest& inVrReq,

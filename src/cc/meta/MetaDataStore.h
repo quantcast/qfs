@@ -36,6 +36,7 @@ namespace KFS
 struct MetaReadMetaData;
 class  Properties;
 class  NetManager;
+class  MetaVrLogSeq;
 
 class MetaDataStore
 {
@@ -49,17 +50,13 @@ public:
     void Handle(
         MetaReadMetaData& inReadOp);
     void RegisterCheckpoint(
-        const char* inFileNamePtr,
-        seq_t       inLogSeq,
-        seq_t       inLogSegmentNumber,
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq);
+        const char*         inFileNamePtr,
+        const MetaVrLogSeq& inStartSeq,
+        seq_t               inLogSegmentNumber);
     void RegisterLogSegment(
-        const char* inFileNamePtr,
-        seq_t       inStartSeq,
-        seq_t       inEndSeq,
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq);
+        const char*         inFileNamePtr,
+        const MetaVrLogSeq& inStartSeq,
+        seq_t               inLogSegmentNumber);
     int Load(
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr,
@@ -70,6 +67,15 @@ public:
     void PrepareToFork();
     void ForkDone();
     void ChildAtFork();
+    static bool GetLogSequenceFromFileName(
+        const char*   inFileNamePtr,
+        size_t        inFileNameLen,
+        MetaVrLogSeq& outLogSeq,
+        seq_t*        outSegNumPtr);
+    static const char* GetCheckpointFileNamePrefixPtr()
+        { return "chkpt."; }
+    static const char* GetLogSegmentFileNamePrefixPtr()
+        { return "log."; }
 private:
     class Impl;
     Impl& mImpl;

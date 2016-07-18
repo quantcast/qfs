@@ -57,6 +57,7 @@ class MetaVrReconfiguration;
 class Properties;
 class LogTransmitter;
 class MetaDataSync;
+class MetaVrLogSeq;
 
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
@@ -261,14 +262,12 @@ public:
         LogTransmitter& inLogTransmitter);
     ~MetaVrSM();
     int HandleLogBlock(
-        seq_t  inLogSeq,
-        seq_t  inBlockLenSeq,
-        seq_t  inCommittedSeq,
-        seq_t& outEpochSeq,
-        seq_t& outViewSeq);
+        const MetaVrLogSeq& inBlockStartSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
+        const MetaVrLogSeq& inCommittedSeq);
     bool Handle(
-        MetaRequest& inReq,
-        seq_t        inNextLogSeq);
+        MetaRequest&        inReq,
+        const MetaVrLogSeq& inLastLogSeq);
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
@@ -297,11 +296,10 @@ public:
         const char*       inPrefixPtr,
         const Properties& inParameters);
     void Commit(
-        seq_t inLogSeq);
+        const MetaVrLogSeq& inLogSeq);
     int Start(
-        MetaDataSync& inMetaDataSync,
-        seq_t&        outEpochSeq,
-        seq_t&        outViewSeq);
+        MetaDataSync&       inMetaDataSync,
+        const MetaVrLogSeq& inCommittedSeq);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;

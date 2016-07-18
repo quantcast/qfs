@@ -92,17 +92,16 @@ public:
           mPendingBackupTimeout(0),
           mEpochSeq(0),
           mViewSeq(0),
-          mCommittedViewSeq(-1),
-          mCommittedSeq(-1),
-          mNextLogSeq(-1),
+          mCommittedSeq(),
+          mLastLogSeq(),
           mTimeNow(),
           mLastProcessTime(mTimeNow),
           mLastReceivedTime(mTimeNow),
           mLastUpTime(mTimeNow),
           mViewChangeStartTime(mTimeNow),
           mStartViewChangeRecvViewSeq(-1),
-          mStartViewChangeRecvCommittedViewSeq(-1),
-          mStartViewMaxCommittedSeq(-1),
+          mStartViewChangeRecvCommittedSeq(),
+          mStartViewMaxCommittedSeq(),
           mStartViewEpochMismatchCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -121,13 +120,11 @@ public:
         Impl::CanceViewChange();
     }
     int HandleLogBlock(
-        seq_t  inLogEndSeq,
-        seq_t  inBlockLenSeq,
-        seq_t  inCommittedSeq,
-        seq_t& outEpochSeq,
-        seq_t& outViewSeq)
+        const MetaVrLogSeq& inBlockStartSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
+        const MetaVrLogSeq& inCommittedSeq)
     {
-        if (inLogEndSeq < inCommittedSeq || inCommittedSeq < 0) {
+        if (inBlockEndSeq < inCommittedSeq || ! inCommittedSeq.IsValid()) {
             panic("VR: invalid log block commit sequence");
             return -EINVAL;
         }
@@ -135,19 +132,16 @@ public:
             return -EVRNOTPRIMARY;
         }
         if (mCommittedSeq < inCommittedSeq) {
-            mCommittedSeq     = inCommittedSeq;
-            mCommittedViewSeq = mViewSeq;
+            mCommittedSeq = inCommittedSeq;
         }
-        if (mNextLogSeq < inLogEndSeq + 1) {
-            mNextLogSeq = inLogEndSeq + 1;
+        if (mLastLogSeq < inBlockEndSeq) {
+            mLastLogSeq = inBlockEndSeq;
         }
-        outEpochSeq = mEpochSeq;
-        outViewSeq  = mViewSeq;
         return 0;
     }
     bool Handle(
-        MetaRequest& inReq,
-        seq_t        inNextLogSeq)
+        MetaRequest&        inReq,
+        const MetaVrLogSeq& inLastLogSeq)
     {
         switch (inReq.op) {
             case META_VR_START_VIEW_CHANGE:
@@ -167,8 +161,8 @@ public:
                     inReq.statusMsg += GetStateName(mState);
                     return true;
                 }
-                if (0 <= inNextLogSeq) {
-                    mNextLogSeq = inNextLogSeq;
+                if (inLastLogSeq.IsValid()) {
+                    mLastLogSeq = inLastLogSeq;
                 }
                 break;
         }
@@ -209,31 +203,16 @@ public:
                 const seq_t theEpochSeq = inProps.getValue(
                     kMetaVrEpochSeqFieldNamePtr, seq_t(-1));
                 if (theEpochSeq == mEpochSeq) {
-                    const seq_t theCommittedViewSeq = inProps.getValue(
-                        kMetaVrCommittedViewFieldNamePtr, seq_t(-1));
-                    if (0 <= theCommittedViewSeq) {
-                        if (mStartViewChangeRecvCommittedViewSeq <=
-                                theCommittedViewSeq) {
-                            const seq_t theCommittedSeq = inProps.getValue(
-                                kMetaVrCommittedFieldNamePtr, seq_t(-1));
-                            if (0 <= theCommittedSeq) {
-                                if (mStartViewChangeRecvCommittedViewSeq <
-                                        theCommittedViewSeq) {
-                                    mStartViewMaxCommittedSeq = -1;
-                                }
-                                mStartViewChangeRecvCommittedViewSeq =
-                                    theCommittedViewSeq;
-                                if (mStartViewMaxCommittedSeq <=
-                                        theCommittedSeq) {
-                                    mStartViewMaxCommittedSeq = theCommittedSeq;
-                                    if (mStartViewMaxCommittedSeq <
-                                            theCommittedSeq) {
-                                        mStartViewMaxCommittedNodeIds.clear();
-                                    }
-                                    mStartViewMaxCommittedNodeIds.insert(
-                                        inNodeId);
-                                }
+                    const MetaVrLogSeq theCommittedSeq = inProps.parseValue(
+                        kMetaVrCommittedFieldNamePtr, MetaVrLogSeq());
+                    if (theCommittedSeq.IsValid()) {
+                        mStartViewChangeRecvCommittedSeq = theCommittedSeq;
+                        if (mStartViewMaxCommittedSeq <= theCommittedSeq) {
+                            mStartViewMaxCommittedSeq = theCommittedSeq;
+                            if (mStartViewMaxCommittedSeq < theCommittedSeq) {
+                                mStartViewMaxCommittedNodeIds.clear();
                             }
+                            mStartViewMaxCommittedNodeIds.insert(inNodeId);
                         }
                     }
                     const seq_t theViewSeq = inProps.getValue(
@@ -346,9 +325,8 @@ public:
         mLastProcessTime = TimeNow();
     }
     int Start(
-        MetaDataSync& inMetaDataSync,
-        seq_t&        outEpochSeq,
-        seq_t&        outViewSeq)
+        MetaDataSync&       inMetaDataSync,
+        const MetaVrLogSeq& inCommittedSeq)
     {
         mMetaDataSyncPtr = &inMetaDataSync;
         if (mNodeId < 0) {
@@ -360,10 +338,9 @@ public:
         } else {
             mState = kStateBackup;
         }
+        mCommittedSeq = inCommittedSeq;
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mStartedFlag = true;
-        outEpochSeq  = mEpochSeq;
-        outViewSeq   = mViewSeq;
         return 0;
     }
     void Shutdown()
@@ -381,9 +358,9 @@ public:
         return 0;
     }
     void Commit(
-        seq_t inLogSeq)
+        const MetaVrLogSeq& inLogSeq)
     {
-        if (inLogSeq < 0 ||
+        if (! inLogSeq.IsValid() ||
                 (kStatePrimary != mState && kStateReconfiguration != mState)) {
             return;
         }
@@ -392,8 +369,7 @@ public:
             panic("VR: invalid commit sequence in reconfiguration");
             return;
         }
-        mCommittedSeq     = inLogSeq;
-        mCommittedViewSeq = mViewSeq;
+        mCommittedSeq = inLogSeq;
         if (! mReconfigureReqPtr || inLogSeq < mReconfigureReqPtr->logseq) {
             return;
         }
@@ -639,8 +615,8 @@ private:
             NodeId                inId,
             bool                  inActiveFlag,
             NodeId                inActualId,
-            seq_t                 inAck,
-            seq_t                 inCommitted)
+            const MetaVrLogSeq&   inAck,
+            const MetaVrLogSeq&   inCommitted)
         {
             if (0 != mReq.status) {
                 return false;
@@ -672,7 +648,7 @@ private:
                         KFS_LOG_EOM;
                         return false;
                     }
-                    if (0 <= inAck && inCommitted <= inAck) {
+                    if (inAck.IsValid() && inCommitted <= inAck) {
                         if (theIt->second <= 0) {
                             theIt->second = 1;
                             mUpCount++;
@@ -720,17 +696,16 @@ private:
     int                          mPendingBackupTimeout;
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
-    seq_t                        mCommittedViewSeq;
-    seq_t                        mCommittedSeq;
-    seq_t                        mNextLogSeq;
+    MetaVrLogSeq                 mCommittedSeq;
+    MetaVrLogSeq                 mLastLogSeq;
     time_t                       mTimeNow;
     time_t                       mLastProcessTime;
     time_t                       mLastReceivedTime;
     time_t                       mLastUpTime;
     time_t                       mViewChangeStartTime;
     seq_t                        mStartViewChangeRecvViewSeq;
-    seq_t                        mStartViewChangeRecvCommittedViewSeq;
-    seq_t                        mStartViewMaxCommittedSeq;
+    MetaVrLogSeq                 mStartViewChangeRecvCommittedSeq;
+    MetaVrLogSeq                 mStartViewMaxCommittedSeq;
     int                          mStartViewEpochMismatchCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -786,15 +761,14 @@ private:
         if (mDoViewChangePtr) {
             return;
         }
-        if (mCommittedViewSeq < mStartViewChangeRecvCommittedViewSeq ||
-                (mCommittedViewSeq == mStartViewChangeRecvCommittedViewSeq &&
-                mNextLogSeq <= mStartViewMaxCommittedSeq)) {
+        if (mCommittedSeq < mStartViewChangeRecvCommittedSeq ||
+                (mCommittedSeq == mStartViewChangeRecvCommittedSeq &&
+                mLastLogSeq < mStartViewMaxCommittedSeq)) {
             // Need to feetch log / checkpoint.
             if (mActiveFlag && mStartViewMaxCommittedNodeIds.empty()) {
                 panic("VR: invalid empty committed node ids");
             }
-            if (mActiveFlag && mMetaDataSyncPtr &&
-                    mCommittedViewSeq == mStartViewChangeRecvCommittedViewSeq) {
+            if (mActiveFlag && mMetaDataSyncPtr) {
                 mSyncServers.clear();
                 const Config::Nodes&  theNodes = mConfig.GetNodes();
                 for (NodeIdSet::const_iterator theIt =
@@ -822,7 +796,7 @@ private:
                     }
                 }
                 mMetaDataSyncPtr->ScheduleLogSync(
-                    mSyncServers, mNextLogSeq, mStartViewMaxCommittedSeq);
+                    mSyncServers, mLastLogSeq, mStartViewMaxCommittedSeq);
             }
             return;
         }
@@ -859,12 +833,11 @@ private:
     void SetReturnState(
         MetaVrRequest& inReq)
     {
-        inReq.mRetCurViewSeq       = mViewSeq;
-        inReq.mRetCurEpochSeq      = mEpochSeq;
-        inReq.mRetCurState         = mState;
-        inReq.mRetCommittedViewSeq = mCommittedViewSeq;
-        inReq.mRetCommittedSeq     = mCommittedSeq;
-        inReq.mRetNextLogSeq       = mNextLogSeq;
+        inReq.mRetCurViewSeq   = mViewSeq;
+        inReq.mRetCurEpochSeq  = mEpochSeq;
+        inReq.mRetCurState     = mState;
+        inReq.mRetCommittedSeq = mCommittedSeq;
+        inReq.mRetLastLogSeq   = mLastLogSeq;
     }
     bool VerifyViewChange(
         MetaVrRequest& inReq)
@@ -879,9 +852,8 @@ private:
             inReq.status    = -EINVAL;
             inReq.statusMsg = "epoch does not match";
         } else if (inReq.mViewSeq < mViewSeq ||
-                mCommittedViewSeq != inReq.mCommittedViewSeq ||
-                mNextLogSeq <= inReq.mCommittedSeq ||
-                inReq.mNextLogSeq < mCommittedSeq) {
+                mLastLogSeq < inReq.mCommittedSeq ||
+                inReq.mLastLogSeq < mCommittedSeq) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = inReq.mViewSeq < mViewSeq ?
                 "view sequence is less than current" :
@@ -985,7 +957,7 @@ private:
             }
             return true;
         }
-        if (inReq.logseq <= 0) {
+        if (! inReq.logseq.IsValid()) {
             if (inReq.replayFlag) {
                 panic("VR: invalid reconfiguration request");
                 inReq.status    = -EFAULT;
@@ -1010,7 +982,7 @@ private:
     void StartReconfiguration(
         MetaVrReconfiguration& inReq)
     {
-        if ((inReq.logseq < 0 ? kStatePrimary : kStateBackup) != mState) {
+        if ((inReq.logseq.IsValid() ? kStateBackup : kStatePrimary) != mState) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "reconfiguration is not possible, state: ";
             inReq.statusMsg += GetStateName(mState);
@@ -1354,7 +1326,7 @@ private:
         if (0 != inReq.status) {
             return;
         }
-        if (inReq.logseq < 0) {
+        if (! inReq.logseq.IsValid()) {
             panic("VR: invalid commit reconfiguration log sequence");
             return;
         }
@@ -1592,20 +1564,19 @@ private:
         mStartViewCompletionIds.clear();
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
-        mStartViewChangeRecvViewSeq          = -1;
-        mStartViewChangeRecvCommittedViewSeq = -1;
-        mStartViewMaxCommittedSeq            = -1;
-        mStartViewEpochMismatchCount         = 0;
+        mStartViewChangeRecvViewSeq      = -1;
+        mStartViewChangeRecvCommittedSeq = MetaVrLogSeq();
+        mStartViewMaxCommittedSeq        = MetaVrLogSeq();
+        mStartViewEpochMismatchCount     = 0;
     }
     void Init(
         MetaVrRequest& inReq)
     {
-        inReq.mNodeId           = mNodeId;
-        inReq.mEpochSeq         = mEpochSeq;
-        inReq.mViewSeq          = mViewSeq;
-        inReq.mCommittedViewSeq = mCommittedViewSeq;
-        inReq.mCommittedSeq     = mCommittedSeq;
-        inReq.mNextLogSeq       = mNextLogSeq;
+        inReq.mNodeId       = mNodeId;
+        inReq.mEpochSeq     = mEpochSeq;
+        inReq.mViewSeq      = mViewSeq;
+        inReq.mCommittedSeq = mCommittedSeq;
+        inReq.mLastLogSeq   = mLastLogSeq;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
     void StartViewChange()
@@ -1674,20 +1645,18 @@ MetaVrSM::~MetaVrSM()
 
     int
 MetaVrSM::HandleLogBlock(
-    seq_t  inLogEndSeq,
-    seq_t  inBlockLenSeq,
-    seq_t  inCommittedSeq,
-    seq_t& outEpochSeq,
-    seq_t& outViewSeq)
+    const MetaVrLogSeq& inBlockStartSeq,
+    const MetaVrLogSeq& inBlockEndSeq,
+    const MetaVrLogSeq& inCommittedSeq)
 {
     return mImpl.HandleLogBlock(
-        inLogEndSeq, inBlockLenSeq, inCommittedSeq, outEpochSeq, outViewSeq);
+        inBlockStartSeq, inBlockEndSeq, inCommittedSeq);
 }
 
     bool
 MetaVrSM::Handle(
-    MetaRequest& inReq,
-    seq_t        inNextLogSeq)
+    MetaRequest&        inReq,
+    const MetaVrLogSeq& inNextLogSeq)
 {
     return mImpl.Handle(inReq, inNextLogSeq);
 }
@@ -1748,11 +1717,10 @@ MetaVrSM::Process(
 
     int
 MetaVrSM::Start(
-    MetaDataSync& inMetaDataSync,
-    seq_t&        outEpochSeq,
-    seq_t&        outViewSeq)
+    MetaDataSync&       inMetaDataSync,
+    const MetaVrLogSeq& inCommittedSeq)
 {
-    return mImpl.Start(inMetaDataSync, outEpochSeq, outViewSeq);
+    return mImpl.Start(inMetaDataSync, inCommittedSeq);
 }
 
     void
@@ -1763,7 +1731,7 @@ MetaVrSM::Shutdown()
 
     void
 MetaVrSM::Commit(
-    seq_t inLogSeq)
+    const MetaVrLogSeq& inLogSeq)
 {
     mImpl.Commit(inLogSeq);
 }

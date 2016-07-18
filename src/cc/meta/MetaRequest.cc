@@ -3948,14 +3948,11 @@ MetaCheckpoint::handle()
         } else {
             failedCount = 0;
             lastCheckpointId = runningCheckpointId;
-            const string fileName = cp.cpfile(
-                    lastCheckpointId, epochSeq, viewSeq);
+            const string fileName = cp.cpfile(lastCheckpointId);
             gNetDispatch.GetMetaDataStore().RegisterCheckpoint(
                 fileName.c_str(),
                 lastCheckpointId,
-                runningCheckpointLogSegmentNum,
-                epochSeq,
-                viewSeq
+                runningCheckpointLogSegmentNum
             );
         }
         if (lockFd >= 0) {
@@ -3964,7 +3961,7 @@ MetaCheckpoint::handle()
         if (failedCount > maxFailedCount) {
             panic("checkpoint failures", false);
         }
-        runningCheckpointId = -1;
+        runningCheckpointId = MetaVrLogSeq();
         runningCheckpointLogSegmentNum = -(runningCheckpointLogSegmentNum + 1);
         pid = -1;
         return;
@@ -3974,10 +3971,10 @@ MetaCheckpoint::handle()
         return; // Disabled.
     }
     const time_t now = globalNetManager().Now();
-    if (lastCheckpointId < 0) {
+    if (! lastCheckpointId.IsValid()) {
         // First call -- init.
         lastCheckpointId = replayer.getCheckpointCommitted();
-        if (lastCheckpointId < 0) {
+        if (! lastCheckpointId.IsValid()) {
             lastCheckpointId = GetLogWriter().GetCommittedLogSeq();
         }
         lastRun = now;
@@ -4036,10 +4033,10 @@ MetaCheckpoint::handle()
     // fork logic, and checkpoint will not be valid. In such case do not write
     // the checkpoint in the child, and "panic" the parent.
     if ((pid = DoFork(checkpointWriteTimeoutSec)) == 0) {
-        seq_t   logSeq      = -1;
-        int64_t errChecksum = -1;
-        fid_t   fidSeed     = -1;
-        int     commStatus  = -1;
+        MetaVrLogSeq logSeq;
+        int64_t      errChecksum = -1;
+        fid_t        fidSeed     = -1;
+        int          commStatus  = -1;
         GetLogWriter().GetCommitted(logSeq, errChecksum, fidSeed, commStatus);
         if (runningCheckpointId != logSeq || fidSeed != fileID.getseed()) {
             status = -EINVAL;
@@ -4052,9 +4049,7 @@ MetaCheckpoint::handle()
                 finishLog->logName,
                 runningCheckpointId,
                 errChecksum,
-                &finishLog->vrCheckpont,
-                finishLog->epochSeq,
-                finishLog->viewSeq
+                &finishLog->vrCheckpont
             );
         }
         // Child does not attempt graceful exit.
@@ -4063,8 +4058,6 @@ MetaCheckpoint::handle()
     if (GetLogWriter().GetCommittedLogSeq() != runningCheckpointId) {
         panic("checkpoint: meta data changed after prepare to fork");
     }
-    epochSeq = finishLog->epochSeq,
-    viewSeq  = finishLog->viewSeq;
     finishLog = 0;
     if (pid < 0) {
         status = (int)pid;
@@ -6076,12 +6069,16 @@ MetaReadMetaData::handle()
             fileSystemId = fsId;
         }
     }
-    seq_t seq;
-    if (0 <= startLogSeq && readPos <= 0 &&
+    MetaVrLogSeq seq;
+    if (startLogSeq.IsValid() && readPos <= 0 &&
             (seq = GetLogWriter().GetCommittedLogSeq()) < startLogSeq) {
         status    = -ERANGE;
         statusMsg = "requested log sequence higher than committed: ";
-        AppendDecIntToString(statusMsg, seq);
+        AppendDecIntToString(statusMsg, seq.mEpochSeq);
+        statusMsg += " ";
+        AppendDecIntToString(statusMsg, seq.mViewSeq);
+        statusMsg += " ";
+        AppendDecIntToString(statusMsg, seq.mLogSeq);
     }
     handledFlag = true;
     gNetDispatch.GetMetaDataStore().Handle(*this);
@@ -6100,7 +6097,7 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
     (shortRpcFormatFlag ? "FI:" : "FsId: ")        << fileSystemId << "\r\n" <<
     (shortRpcFormatFlag ? "M:" :  "Max-rd-size: ") << maxReadSize << "\r\n" <<
     (shortRpcFormatFlag ? "K:"  : "Crc32: ")       << checksum    << "\r\n";
-    if (0 <= endLogSeq) {
+    if (endLogSeq.IsValid()) {
         os << (shortRpcFormatFlag ? "E:" : "End-log: ") << endLogSeq << "\r\n";
     }
     if (0 <= fileSize) {
@@ -6118,7 +6115,7 @@ MetaChunkLogCompletion::MetaChunkLogCompletion(
     MetaChunkRequest* op)
     : MetaRequest(META_CHUNK_OP_LOG_COMPLETION, kLogIfOk),
       doneLocation(op ? op->server->GetServerLocation() : ServerLocation()),
-      doneLogSeq(op ? op->logCompletionSeq : seq_t(-1)),
+      doneLogSeq(op ? op->logCompletionSeq : MetaVrLogSeq()),
       doneStatus(op ? op->status : 0),
       doneKfsStatus(doneStatus < 0 ? SysToKfsErrno(-doneStatus) : 0),
       doneTimedOutFlag(
@@ -6236,7 +6233,8 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout,
 /* static */ bool
 MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
 {
-    if ((META_CHUNK_OP_LOG_IN_FLIGHT != req.op && req.logCompletionSeq < 0) ||
+    if ((META_CHUNK_OP_LOG_IN_FLIGHT != req.op &&
+            ! req.logCompletionSeq.IsValid()) ||
             (req.chunkId < 0 && ! req.GetChunkIds())) {
         return false;
     }
@@ -6250,7 +6248,7 @@ MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
     } else {
         lreq.logseq = req.logCompletionSeq;
     }
-    if (lreq.logseq < 0) {
+    if (! lreq.logseq.IsValid()) {
         panic("checkpoint chunk in flight: invalid log sequence");
         return false;
     }
@@ -6423,7 +6421,7 @@ MetaVrReconfiguration::handle()
     if (IsHandled()) {
         return;
     }
-    GetLogWriter().GetMetaVrSM().Handle(*this, -1);
+    GetLogWriter().GetMetaVrSM().Handle(*this, MetaVrLogSeq());
 }
 
 void

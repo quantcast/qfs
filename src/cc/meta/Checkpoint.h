@@ -29,10 +29,12 @@
 #include <string>
 
 #include "kfstypes.h"
-#include "util.h"
 
-namespace KFS {
+namespace KFS
+{
 using std::string;
+
+class MetaVrLogSeq;
 
 /*!
  * \brief keeps track of checkpoint status
@@ -59,25 +61,21 @@ public:
         { cpdir = d; }
     const string name() const { return cpname; }
     int write(
-        const string& logname,
-        seq_t         committedseq,
-        int64_t       errchksum,
-        const string* vrCheckpont,
-        seq_t         epoch,
-        seq_t         view); //!< do the actual work
+        const string&       logname,
+        const MetaVrLogSeq& committedseq,
+        int64_t             errchksum,
+        const string*       vrCheckpont); //!< do the actual work
     int write(
-        const string& logname,
-        seq_t         committedseq,
-        int64_t       errchksum)
-        { return write(logname, committedseq, errchksum, 0, -1, -1); }
+        const string&       logname,
+        const MetaVrLogSeq& committedseq,
+        int64_t             errchksum)
+        { return write(logname, committedseq, errchksum, 0); }
     bool getWriteSyncFlag() const { return writesync; }
     void setWriteSyncFlag(bool flag) { writesync = flag; }
     size_t getWriteBufferSize() const { return writebuffersize; }
     void setWriteBufferSize(size_t size) { writebuffersize = size; }
     string cpfile(
-        seq_t committedseq,
-        seq_t epoch,
-        seq_t view);
+        const MetaVrLogSeq& committedseq);
 private:
     string  cpdir;       //!< dir for CP files
     bool    writesync;
@@ -93,7 +91,8 @@ private:
         {}
     ~Checkpoint()
         {}
-    int write_leaves(ostream& os);
+    template<typename OST>
+    int write_leaves(OST& os);
 private:
     // No copy.
     Checkpoint(const Checkpoint&);

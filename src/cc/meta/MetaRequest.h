@@ -36,6 +36,7 @@
 #include "kfstypes.h"
 #include "meta.h"
 #include "util.h"
+#include "MetaVrLogSeq.h"
 
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/IOBuffer.h"
@@ -256,7 +257,7 @@ struct MetaRequest {
     string          statusMsg;       //!< optional human readable status message
     seq_t           opSeqno;         //!< command sequence # sent by the client
     seq_t           seqno;           //!< sequence no. global ordering
-    seq_t           logseq;          //!< sequence no. in log
+    MetaVrLogSeq    logseq;          //!< sequence no. in log
     LogAction       logAction;       //!< mutates metatree
     bool            suspended;       //!< is this request suspended somewhere
     bool            fromChunkServerFlag;
@@ -286,7 +287,7 @@ struct MetaRequest {
           statusMsg(),
           opSeqno(opSeq),
           seqno(-1),
-          logseq(-1),
+          logseq(),
           logAction(la),
           suspended(false),
           fromChunkServerFlag(false),
@@ -371,7 +372,7 @@ struct MetaRequest {
         .Def("u", &MetaRequest::euser,               kKfsUserNone)
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
-        .Def("z", &MetaRequest::logseq,              seq_t(-1))
+        .Def("z", &MetaRequest::logseq)
         ;
         // Keep log sequence at the end of the line by using "z" key to
         // detect possibly truncated lines in the last log log segment.
@@ -427,7 +428,7 @@ protected:
         statusMsg           = string();
         opSeqno             = -1;
         seqno               = -1;
-        logseq              = -1;
+        logseq              = MetaVrLogSeq();
         logAction           = kLogNever;
         suspended           = false;
         fromChunkServerFlag = false;
@@ -2187,7 +2188,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     };
 
     ServerLocation    doneLocation;
-    seq_t             doneLogSeq;
+    MetaVrLogSeq      doneLogSeq;
     int               doneStatus;
     int               doneKfsStatus;
     bool              doneTimedOutFlag;
@@ -2205,7 +2206,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     bool Validate()
     {
         return (
-            0 <= doneLogSeq &&
+            doneLogSeq.IsValid() &&
             doneLocation.IsValid() &&
             kChunkOpTypeNone <= chunkOpType &&
             chunkOpType <= kChunkOpTypeAdd
@@ -2215,7 +2216,7 @@ struct MetaChunkLogCompletion : public MetaRequest {
     {
         return MetaRequest::LogIoDef(parser)
         .Def("S", &MetaChunkLogCompletion::doneLocation)
-        .Def("L", &MetaChunkLogCompletion::doneLogSeq,          seq_t(-1))
+        .Def("L", &MetaChunkLogCompletion::doneLogSeq)
         .Def("R", &MetaChunkLogCompletion::doneKfsStatus,       0)
         .Def("T", &MetaChunkLogCompletion::doneTimedOutFlag,    false)
         .Def("C", &MetaChunkLogCompletion::chunkId,             chunkId_t(-1))
@@ -2236,7 +2237,7 @@ struct MetaChunkRequest : public MetaRequest {
     chunkId_t            chunkId;
     const ChunkServerPtr server; // The "owner".
     seq_t                chunkVersion;
-    seq_t                logCompletionSeq;
+    MetaVrLogSeq         logCompletionSeq;
     bool                 pendingAddFlag;
     bool                 timedOutFlag;
     bool                 staleChunkIdFlag;
@@ -2265,7 +2266,7 @@ protected:
           chunkId(cid),
           server(c),
           chunkVersion(0),
-          logCompletionSeq(-1),
+          logCompletionSeq(),
           pendingAddFlag(false),
           timedOutFlag(false),
           staleChunkIdFlag(false),
@@ -2281,7 +2282,7 @@ public:
     virtual void handle() {}
     void resume()
     {
-        if (0 <= logCompletionSeq) {
+        if (logCompletionSeq.IsValid()) {
             submit_request(new MetaChunkLogCompletion(this));
         } else {
             suspended = false;
@@ -3307,11 +3308,9 @@ struct MetaCheckpoint : public MetaRequest {
           checkpointWriteTimeoutSec(60 * 60),
           checkpointWriteSyncFlag(true),
           checkpointWriteBufferSize(16 << 20),
-          lastCheckpointId(-1),
-          runningCheckpointId(-1),
+          lastCheckpointId(),
+          runningCheckpointId(),
           runningCheckpointLogSegmentNum(-1),
-          epochSeq(-1),
-          viewSeq(-1),
           lastRun(0),
           finishLog(0)
         { clnt = c; }
@@ -3332,11 +3331,9 @@ private:
     int                   checkpointWriteTimeoutSec;
     bool                  checkpointWriteSyncFlag;
     size_t                checkpointWriteBufferSize;
-    seq_t                 lastCheckpointId;
-    seq_t                 runningCheckpointId;
+    MetaVrLogSeq          lastCheckpointId;
+    MetaVrLogSeq          runningCheckpointId;
     seq_t                 runningCheckpointLogSegmentNum;
-    seq_t                 epochSeq;
-    seq_t                 viewSeq;
     time_t                lastRun;
     MetaLogWriterControl* finishLog;
 };
@@ -3499,7 +3496,7 @@ struct MetaDelegateCancel : public MetaRequest {
     {
         // No MetaRequest::LogIoDef(parser) -- log seq below sufficient.
         return parser
-        .Def("z", &MetaDelegateCancel::logseq, seq_t(-1))
+        .Def("z", &MetaDelegateCancel::logseq)
         .Def("E", &MetaDelegateCancel::tExp,   int64_t(0))
         .Def("I", &MetaDelegateCancel::tIssued,int64_t(0))
         .Def("U", &MetaDelegateCancel::tUid,   kKfsUserNone)
@@ -4085,10 +4082,8 @@ struct MetaLogWriterControl : public MetaRequest {
     typedef StBufferT<int, 64> Lines;
 
     Type               type;
-    seq_t              epochSeq;
-    seq_t              viewSeq;
-    seq_t              committed;
-    seq_t              lastLogSeq;
+    MetaVrLogSeq       committed;
+    MetaVrLogSeq       lastLogSeq;
     seq_t              logSegmentNum;
     Properties         params;
     string             paramsPrefix;
@@ -4097,9 +4092,9 @@ struct MetaLogWriterControl : public MetaRequest {
     MetaRequest* const completion;
     uint32_t           blockChecksum;
     seq_t              blockSeq;
-    seq_t              blockStartSeq;
-    seq_t              blockEndSeq;
-    seq_t              blockCommitted;
+    MetaVrLogSeq       blockStartSeq;
+    MetaVrLogSeq       blockEndSeq;
+    MetaVrLogSeq       blockCommitted;
     Lines              blockLines;
     IOBuffer           blockData;
 
@@ -4108,10 +4103,8 @@ struct MetaLogWriterControl : public MetaRequest {
         MetaRequest* c = 0)
         : MetaRequest(META_LOG_WRITER_CONTROL, kLogAlways),
           type(t),
-          epochSeq(-1),
-          viewSeq(-1),
-          committed(-1),
-          lastLogSeq(-1),
+          committed(),
+          lastLogSeq(),
           logSegmentNum(-1),
           params(),
           paramsPrefix(),
@@ -4120,9 +4113,9 @@ struct MetaLogWriterControl : public MetaRequest {
           completion(c),
           blockChecksum(0),
           blockSeq(-1),
-          blockStartSeq(-1),
-          blockEndSeq(-1),
-          blockCommitted(-1),
+          blockStartSeq(),
+          blockEndSeq(),
+          blockCommitted(),
           blockLines(),
           blockData()
         {}
@@ -4148,10 +4141,11 @@ struct MetaLogWriterControl : public MetaRequest {
         } else {
             os << "log-control: ";
             switch (type) {
-                case kNop:           os << "nop";            break;
-                case kNewLog:        os << "new log";        break;
-                case kSetParameters: os << "set parameters"; break;
-                default:             os << "invalid";        break;
+                case kNop:              os << "nop";            break;
+                case kNewLog:           os << "new log";        break;
+                case kCheckpointNewLog: os << "checkpoint";     break;
+                case kSetParameters:    os << "set parameters"; break;
+                default:                os << "invalid";        break;
             }
         }
         os << " status: "  << status;
@@ -4162,17 +4156,17 @@ struct MetaLogWriterControl : public MetaRequest {
         ResetSelf();
         logAction      = kLogAlways;
         type           = kNop;
-        committed      = -1;
-        lastLogSeq     = -1;
+        committed      = MetaVrLogSeq();
+        lastLogSeq     = MetaVrLogSeq();
         logSegmentNum  = 1;
         params.clear();
         paramsPrefix   = string();
         logName        = string();
         blockChecksum  = 0;
         blockSeq       = -1;
-        blockStartSeq  = -1;
-        blockEndSeq    = -1;
-        blockCommitted = -1;
+        blockStartSeq  = MetaVrLogSeq();
+        blockEndSeq    = MetaVrLogSeq();
+        blockCommitted = MetaVrLogSeq();
         blockLines.Clear();
         blockData.Clear();
     }
@@ -4203,24 +4197,24 @@ struct MetaLogClearObjStoreDelete : public MetaRequest {
 };
 
 struct MetaReadMetaData : public MetaRequest {
-    int64_t  fileSystemId;
-    seq_t    startLogSeq;
-    seq_t    endLogSeq;
-    int64_t  readPos;
-    bool     checkpointFlag;
-    int      readSize;
-    int      maxReadSize;
-    uint32_t checksum;
-    int64_t  fileSize;
-    bool     handledFlag;
-    string   filename;
-    IOBuffer data;
+    int64_t      fileSystemId;
+    MetaVrLogSeq startLogSeq;
+    MetaVrLogSeq endLogSeq;
+    int64_t      readPos;
+    bool         checkpointFlag;
+    int          readSize;
+    int          maxReadSize;
+    uint32_t     checksum;
+    int64_t      fileSize;
+    bool         handledFlag;
+    string       filename;
+    IOBuffer     data;
 
     MetaReadMetaData()
         : MetaRequest(META_READ_META_DATA, kLogNever),
           fileSystemId(-1),
-          startLogSeq(-1),
-          endLogSeq(-1),
+          startLogSeq(),
+          endLogSeq(),
           readPos(-1),
           checkpointFlag(false),
           readSize(-1),
@@ -4247,10 +4241,10 @@ struct MetaReadMetaData : public MetaRequest {
     {
         return  MetaRequest::ParserDef(parser)
         .Def2("FsId",      "FI", &MetaReadMetaData::fileSystemId, int64_t(-1))
-        .Def2("Start-log",  "L", &MetaReadMetaData::startLogSeq,    seq_t(-1))
-        .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag, false)
-        .Def2("Read-size",  "S", &MetaReadMetaData::readSize,       -1)
-        .Def2("Read-pos",   "O", &MetaReadMetaData::readPos,       int64_t(-1))
+        .Def2("Start-log",  "L", &MetaReadMetaData::startLogSeq              )
+        .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag,     false)
+        .Def2("Read-size",  "S", &MetaReadMetaData::readSize,              -1)
+        .Def2("Read-pos",   "O", &MetaReadMetaData::readPos,      int64_t(-1))
         ;
     }
 };

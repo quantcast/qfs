@@ -29,6 +29,7 @@
 
 #include "MetaRequest.h"
 #include "MetaVrOps.h"
+#include "MetaVrLogSeq.h"
 #include "MetaVrSM.h"
 #include "util.h"
 
@@ -85,7 +86,7 @@ public:
           mMinAckToCommit(numeric_limits<int>::max()),
           mMaxPending(4 << 20),
           mCompactionInterval(256),
-          mCommitted(-1),
+          mCommitted(),
           mAuthType(
             kAuthenticationTypeKrb5 |
             kAuthenticationTypeX509 |
@@ -109,14 +110,12 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
     int TransmitBlock(
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq,
-        seq_t       inBlockSeq,
-        int         inBlockSeqLen,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        Checksum    inChecksum,
-        size_t      inChecksumStartPos);
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
+        const char*         inBlockPtr,
+        size_t              inBlockLen,
+        Checksum            inChecksum,
+        size_t              inChecksumStartPos);
     static seq_t RandomSeq()
     {
         seq_t theReq = 0;
@@ -136,10 +135,10 @@ public:
     void SetHeartbeatInterval(
         int inInterval)
         { mHeartbeatInterval = max(1, inInterval); }
-    seq_t GetCommitted() const
+    MetaVrLogSeq GetCommitted() const
         { return mCommitted; }
     void SetCommitted(
-        seq_t inSeq)
+        const MetaVrLogSeq& inSeq)
         { mCommitted = inSeq; }
     int GetMaxPending() const
         { return mMaxPending; }
@@ -151,18 +150,16 @@ public:
         Transmitter& inTransmitter);
     void Shutdown();
     void Acked(
-        seq_t        inPrevAck,
-        Transmitter& inTransmitter);
+        const MetaVrLogSeq& inPrevAck,
+        Transmitter&        inTransmitter);
     void WriteBlock(
-        IOBuffer&   inBuffer,
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq,
-        seq_t       inBlockSeq,
-        int         inBlockSeqLen,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        Checksum    inChecksum,
-        size_t      inChecksumStartPos)
+        IOBuffer&           inBuffer,
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
+        const char*         inBlockPtr,
+        size_t              inBlockLen,
+        Checksum            inChecksum,
+        size_t              inChecksumStartPos)
     {
         if (inBlockSeqLen < 0) {
             panic("log transmitter: invalid block sequence length");
@@ -183,7 +180,11 @@ public:
         *--thePtr = '\n';
         thePtr = IntToHexString(inBlockSeqLen, thePtr);
         *--thePtr = ' ';
-        thePtr = IntToHexString(inBlockSeq, thePtr);
+        thePtr = IntToHexString(inBlockSeq.mLogSeq, thePtr);
+        *--thePtr = ' ';
+        thePtr = IntToHexString(inBlockSeq.mViewSeq, thePtr);
+        *--thePtr = ' ';
+        thePtr = IntToHexString(inBlockSeq.mEpochSeq, thePtr);
         // Non empty block checksum includes leading '\n'
         const int theChecksumFrontLen = 0 < inBlockLen ? 1 : 0;
         theChecksum = ChecksumBlocksCombine(
@@ -238,7 +239,7 @@ private:
     int             mMinAckToCommit;
     int             mMaxPending;
     int             mCompactionInterval;
-    seq_t           mCommitted;
+    MetaVrLogSeq    mCommitted;
     int             mAuthType;
     string          mAuthTypeStr;
     CommitObserver& mCommitObserver;
@@ -292,10 +293,8 @@ public:
           mCompactBlockCount(0),
           mAuthContext(),
           mAuthRequestCtx(),
-          mLastSentEpochSeq(-1),
-          mLastSentViewSeq(-1),
-          mLastSentBlockSeq(-1),
-          mAckBlockSeq(-1),
+          mLastSentBlockSeq(),
+          mAckBlockSeq(),
           mAckBlockFlags(0),
           mReplyProps(),
           mIstream(),
@@ -442,17 +441,13 @@ public:
         Connect();
     }
     bool SendBlock(
-        seq_t     inEpochSeq,
-        seq_t     inViewSeq,
-        seq_t     inBlockSeq,
-        IOBuffer& inBuffer,
-        int       inLen)
+        const MetaVrLogSeq& inBlockSeq,
+        IOBuffer&           inBuffer,
+        int                 inLen)
     {
-        if (inBlockSeq <= mAckBlockSeq || inLen <= 0 ||
-                inEpochSeq < mLastSentEpochSeq ||
-                inViewSeq < mLastSentViewSeq ||
-                (inViewSeq == mLastSentViewSeq &&
-                inBlockSeq <= mLastSentBlockSeq)) {
+        if (inBlockSeq <= mAckBlockSeq ||
+                inLen <= 0 ||
+                inBlockSeq <= mLastSentBlockSeq) {
             return true;
         }
         if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
@@ -464,30 +459,20 @@ public:
             mConnectionPtr->GetOutBuffer().Copy(&inBuffer, inLen);
         }
         CompactIfNeeded();
-        return FlushBlock(inEpochSeq, inViewSeq, inBlockSeq, inLen);
+        return FlushBlock(inBlockSeq, inLen);
     }
     bool SendBlock(
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq,
-        seq_t       inBlockSeq,
-        int         inBlockSeqLen,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        Checksum    inChecksum,
-        size_t      inChecksumStartPos)
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
+        const char*         inBlockPtr,
+        size_t              inBlockLen,
+        Checksum            inChecksum,
+        size_t              inChecksumStartPos)
     {
-        if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0 ||
-                inEpochSeq < mLastSentEpochSeq ||
-                (inEpochSeq == mLastSentEpochSeq &&
-                    inViewSeq < mLastSentViewSeq) ||
-                (inEpochSeq == mLastSentEpochSeq &&
-                    inViewSeq == mLastSentViewSeq &&
-                    inBlockSeq <= mLastSentBlockSeq)) {
+        if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0) {
             return true;
         }
         return SendBlockSelf(
-            inEpochSeq,
-            inViewSeq,
             inBlockSeq,
             inBlockSeqLen,
             inBlockPtr,
@@ -502,7 +487,7 @@ public:
         { return mId; }
     NodeId GetReceivedId() const
         { return mReceivedId; }
-    seq_t GetAck() const
+    MetaVrLogSeq GetAck() const
         { return mAckBlockSeq; }
     const ServerLocation& GetLocation() const
         { return mServer; }
@@ -512,8 +497,8 @@ public:
         bool inFlag)
         { mActiveFlag = inFlag; }
 private:
-    typedef ClientAuthContext::RequestCtx RequestCtx;
-    typedef deque<pair<seq_t, int> >      BlocksQueue;
+    typedef ClientAuthContext::RequestCtx   RequestCtx;
+    typedef deque<pair<MetaVrLogSeq, int> > BlocksQueue;
 
     Impl&              mImpl;
     ServerLocation     mServer;
@@ -528,10 +513,8 @@ private:
     int                mCompactBlockCount;
     ClientAuthContext  mAuthContext;
     RequestCtx         mAuthRequestCtx;
-    seq_t              mLastSentEpochSeq;
-    seq_t              mLastSentViewSeq;
-    seq_t              mLastSentBlockSeq;
-    seq_t              mAckBlockSeq;
+    MetaVrLogSeq       mLastSentBlockSeq;
+    MetaVrLogSeq       mAckBlockSeq;
     uint64_t           mAckBlockFlags;
     Properties         mReplyProps;
     IOBuffer::IStream  mIstream;
@@ -547,14 +530,12 @@ private:
     friend class QCDLListOp<Transmitter>;
 
     bool SendBlockSelf(
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq,
-        seq_t       inBlockSeq,
-        int         inBlockSeqLen,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        Checksum    inChecksum,
-        size_t      inChecksumStartPos)
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
+        const char*         inBlockPtr,
+        size_t              inBlockLen,
+        Checksum            inChecksum,
+        size_t              inChecksumStartPos)
     {
         if (inBlockSeqLen < 0) {
             panic("log transmitter: invalid block sequence length");
@@ -569,38 +550,28 @@ private:
             return false;
         }
         if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
-            WriteBlock(mPendingSend, inEpochSeq, inViewSeq, inBlockSeq,
+            WriteBlock(mPendingSend, inBlockSeq,
                 inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
                 inChecksumStartPos);
         } else {
             IOBuffer theBuffer;
-            WriteBlock(theBuffer, inEpochSeq, inViewSeq, inBlockSeq,
+            WriteBlock(theBuffer, inBlockSeq,
                 inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
                 inChecksumStartPos);
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
         }
-        return FlushBlock(inEpochSeq,
-            inViewSeq, inBlockSeq, mPendingSend.BytesConsumable() - thePos);
+        return FlushBlock(inBlockSeq, mPendingSend.BytesConsumable() - thePos);
     }
     bool FlushBlock(
-        seq_t inEpochSeq,
-        seq_t inViewSeq,
-        seq_t inBlockSeq,
-        int   inLen)
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inLen)
     {
-        if (inEpochSeq < mLastSentEpochSeq ||
-                (inEpochSeq == mLastSentEpochSeq &&
-                    inViewSeq < mLastSentViewSeq) ||
-                (inEpochSeq == mLastSentEpochSeq &&
-                    inViewSeq == mLastSentViewSeq &&
-                    inBlockSeq < mLastSentBlockSeq)) {
+        if (inBlockSeq < mLastSentBlockSeq) {
             panic("log transmitter: "
                 "block sequence is invalid: less than last sent");
             return false;
         }
-        mLastSentEpochSeq = inEpochSeq;
-        mLastSentViewSeq  = inViewSeq;
         mLastSentBlockSeq = inBlockSeq;
         mBlocksQueue.push_back(make_pair(inBlockSeq, inLen));
         if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
@@ -614,8 +585,7 @@ private:
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
-        mLastSentBlockSeq  = -1;
-        mLastSentViewSeq   = -1;
+        mLastSentBlockSeq  = MetaVrLogSeq();
         Error(inErrMsgPtr);
     }
     void ExceededMaxPending()
@@ -632,17 +602,15 @@ private:
         }
     }
     void WriteBlock(
-        IOBuffer&   inBuffer,
-        seq_t       inEpochSeq,
-        seq_t       inViewSeq,
-        seq_t       inBlockSeq,
-        int         inBlockSeqLen,
-        const char* inBlockPtr,
-        size_t      inBlockLen,
-        Checksum    inChecksum,
-        size_t      inChecksumStartPos)
+        IOBuffer&           inBuffer,
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
+        const char*         inBlockPtr,
+        size_t              inBlockLen,
+        Checksum            inChecksum,
+        size_t              inChecksumStartPos)
     {
-        mImpl.WriteBlock(inBuffer, inEpochSeq, inViewSeq, inBlockSeq,
+        mImpl.WriteBlock(inBuffer, inBlockSeq,
             inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
             inChecksumStartPos);
         if (! mConnectionPtr || mAuthenticateOpPtr) {
@@ -862,14 +830,13 @@ private:
     }
     bool SendHeartbeat()
     {
-        if ((0 <= mAckBlockSeq && mAckBlockSeq < mLastSentBlockSeq) ||
+        if ((mAckBlockSeq.IsValid() && mAckBlockSeq < mLastSentBlockSeq) ||
                 ! mBlocksQueue.empty() || mVrOpPtr) {
             return false;
         }
         SendBlockSelf(
-            max(seq_t(0), mLastSentEpochSeq),
-            max(seq_t(0), mLastSentViewSeq),
-            max(seq_t(0), mLastSentBlockSeq),
+            mLastSentBlockSeq.IsValid() ?
+                mLastSentBlockSeq : MetaVrLogSeq(0, 0, 0),
             0, "", 0, kKfsNullChecksum, 0);
         return true;
     }
@@ -914,11 +881,11 @@ private:
         int         inHeaderLen,
         IOBuffer&   inBuffer)
     {
-        const seq_t       thePrevAckSeq = mAckBlockSeq;
-        const char*       thePtr        = inHeaderPtr + 2;
-        const char* const theEndPtr     = thePtr + inHeaderLen;
-        if (! HexIntParser::Parse(
-                    thePtr, theEndPtr - thePtr, mAckBlockSeq) ||
+        const MetaVrLogSeq thePrevAckSeq = mAckBlockSeq;
+        const char*        thePtr        = inHeaderPtr + 2;
+        const char* const  theEndPtr     = thePtr + inHeaderLen;
+        if (! mAckBlockSeq.Parse<HexIntParser>(
+                    thePtr, theEndPtr - thePtr) ||
                 ! HexIntParser::Parse(
                     thePtr, theEndPtr - thePtr, mAckBlockFlags)) {
             MsgLogLines(MsgLogger::kLogLevelERROR,
@@ -926,7 +893,7 @@ private:
             Error("malformed ack");
             return -1;
         }
-        if (mAckBlockSeq < 0) {
+        if (! mAckBlockSeq.IsValid()) {
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "invalid ack block sequence: " << mAckBlockSeq <<
@@ -1153,7 +1120,7 @@ private:
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr   = 0;
         AdvancePendingQueue();
-        mAckBlockSeq = -1;
+        mAckBlockSeq = MetaVrLogSeq();
         VrDisconnect();
         mImpl.Update(*this);
         if (mSleepingFlag) {
@@ -1353,25 +1320,25 @@ LogTransmitter::Impl::Insert(
 
     void
 LogTransmitter::Impl::Acked(
-    seq_t                              inPrevAck,
+    const MetaVrLogSeq&                inPrevAck,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     if (! inTransmitter.IsActive()) {
         return;
     }
-    const seq_t theAck = inTransmitter.GetAck();
-    if (0 < theAck && mCommitted < theAck) {
+    const MetaVrLogSeq theAck = inTransmitter.GetAck();
+    if (theAck.IsValid() && mCommitted < theAck) {
         NodeId         thePrevId    = -1;
         int            theAckCnt    = 0;
-        seq_t          theCommitted = theAck;
+        MetaVrLogSeq   theCommitted = theAck;
         List::Iterator theIt(mTransmittersPtr);
         Transmitter*   thePtr;
         while ((thePtr = theIt.Next())) {
             if (! thePtr->IsActive()) {
                 continue;
             }
-            const seq_t theCurAck = thePtr->GetAck();
-            if (theCurAck < 0) {
+            const MetaVrLogSeq theCurAck = thePtr->GetAck();
+            if (! theCurAck.IsValid()) {
                 continue;
             }
             const NodeId theId = thePtr->GetId();
@@ -1388,16 +1355,14 @@ LogTransmitter::Impl::Acked(
             mCommitObserver.Notify(mCommitted);
         }
     }
-    if (inPrevAck < 0) {
+    if (! inPrevAck.IsValid()) {
         Update(inTransmitter);
     }
 }
 
     int
 LogTransmitter::Impl::TransmitBlock(
-    seq_t                          inEpochSeq,
-    seq_t                          inViewSeq,
-    seq_t                          inBlockSeq,
+    const MetaVrLogSeq&            inBlockSeq,
     int                            inBlockSeqLen,
     const char*                    inBlockPtr,
     size_t                         inBlockLen,
@@ -1421,14 +1386,14 @@ LogTransmitter::Impl::TransmitBlock(
     mSendingFlag = true;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
         const int theRet = (List::Front(mTransmittersPtr)->SendBlock(
-                inEpochSeq, inViewSeq, inBlockSeq, inBlockSeqLen,
+                inBlockSeq, inBlockSeqLen,
                 inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
             ? 0 : -EIO);
         EndOfTransmit();
         return theRet;
     }
     IOBuffer theBuffer;
-    WriteBlock(theBuffer, inEpochSeq, inViewSeq, inBlockSeq, inBlockSeqLen,
+    WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
@@ -1436,7 +1401,7 @@ LogTransmitter::Impl::TransmitBlock(
     NodeId         thePrevId = -1;
     while ((thePtr = theIt.Next())) {
         const NodeId theId = thePtr->GetId();
-        if (thePtr->SendBlock(inEpochSeq, inViewSeq,
+        if (thePtr->SendBlock(
                     inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
             if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
                 theCnt++;
@@ -1482,29 +1447,29 @@ LogTransmitter::Impl::Update()
     int            theTotalCnt  = 0;
     int            thePrevAllId = -1;
     NodeId         thePrevId    = -1;
-    seq_t          theMinAck    = -1;
-    seq_t          theMaxAck    = -1;
-    seq_t          theCurMinAck = -1;
-    seq_t          theCurMaxAck = -1;
+    MetaVrLogSeq   theMinAck;
+    MetaVrLogSeq   theMaxAck;
+    MetaVrLogSeq   theCurMinAck;
+    MetaVrLogSeq   theCurMaxAck;
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {
-        const NodeId theId  = thePtr->GetId();
-        const seq_t  theAck = thePtr->GetAck();
+        const NodeId       theId  = thePtr->GetId();
+        const MetaVrLogSeq theAck = thePtr->GetAck();
         if (0 <= theId && theId != thePrevAllId) {
             theIdCnt++;
             thePrevAllId = theId;
         }
-        if (thePtr->IsActive() && 0 <= theAck) {
+        if (thePtr->IsActive() && theAck.IsValid()) {
             theUpCnt++;
             if (theId != thePrevId) {
                 theIdUpCnt++;
-                if (theMinAck < 0) {
-                    theMinAck = theAck;
-                    theMaxAck = theAck;
-                } else {
+                if (theMinAck.IsValid()) {
                     theMinAck = min(theMinAck, theCurMinAck);
                     theMaxAck = max(theMaxAck, theCurMaxAck);
+                } else {
+                    theMinAck = theAck;
+                    theMaxAck = theAck;
                 }
                 theCurMinAck = theAck;
                 theCurMaxAck = theAck;
@@ -1650,16 +1615,14 @@ LogTransmitter::SetParameters(
 
     int
 LogTransmitter::TransmitBlock(
-    seq_t       inEpochSeq,
-    seq_t       inViewSeq,
-    seq_t       inBlockSeq,
-    int         inBlockSeqLen,
-    const char* inBlockPtr,
-    size_t      inBlockLen,
-    uint32_t    inChecksum,
-    size_t      inChecksumStartPos)
+    const MetaVrLogSeq& inBlockSeq,
+    int                 inBlockSeqLen,
+    const char*         inBlockPtr,
+    size_t              inBlockLen,
+    uint32_t            inChecksum,
+    size_t              inChecksumStartPos)
 {
-    return mImpl.TransmitBlock(inEpochSeq, inViewSeq, inBlockSeq, inBlockSeqLen,
+    return mImpl.TransmitBlock(inBlockSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
 }
 

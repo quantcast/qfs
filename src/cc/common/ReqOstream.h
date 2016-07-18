@@ -35,6 +35,7 @@ namespace KFS
 
 struct ServerLocation;
 class CIdChecksum;
+class MetaVrLogSeq;
 
 template<typename T>
 class ReqOstreamT
@@ -55,6 +56,8 @@ public:
     ST& operator<<(const ServerLocation& inLoc)
         { mStream << inLoc; return *this; }
     ST& operator<<(const CIdChecksum& inChecksum)
+        { mStream << inChecksum; return *this; }
+    ST& operator<<(const MetaVrLogSeq& inChecksum)
         { mStream << inChecksum; return *this; }
     template<typename VT>
     ST& operator<<(const VT& inVal) { mStream << inVal; return *this; }

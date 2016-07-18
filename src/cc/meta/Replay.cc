@@ -80,19 +80,19 @@ public:
     {
     public:
         CommitQueueEntry(
-            seq_t   ls = -1,
-            int     s  = 0,
-            fid_t   fs = -1,
-            int64_t ek = 0)
+            const MetaVrLogSeq& ls = MetaVrLogSeq(),
+            int                 s  = 0,
+            fid_t               fs = -1,
+            int64_t             ek = 0)
             : logSeq(ls),
               seed(fs),
               errChecksum(ek),
               status(s)
             {}
-        seq_t   logSeq;
-        fid_t   seed;
-        int64_t errChecksum;
-        int     status;
+        MetaVrLogSeq logSeq;
+        fid_t        seed;
+        int64_t      errChecksum;
+        int          status;
     };
 
     typedef deque<
@@ -102,12 +102,12 @@ public:
     ReplayState(
         Replay* replay)
         : mCommitQueue(),
-          mCheckpointCommitted(-1),
+          mCheckpointCommitted(),
           mCheckpointErrChksum(-1),
-          mLastCommitted(-1),
-          mBlockStartLogSeq(-1),
+          mLastCommitted(),
+          mBlockStartLogSeq(),
           mLastBlockSeq(-1),
-          mLastLogAheadSeq(0),
+          mLastLogAheadSeq(),
           mLogAheadErrChksum(0),
           mSubEntryCount(0),
           mLogSegmentTimeUsec(0),
@@ -121,10 +121,10 @@ public:
         mCurOp = 0;
     }
     bool runCommitQueue(
-        int64_t logSeq,
-        seq_t   seed,
-        int64_t status,
-        int64_t errChecksum);
+        const MetaVrLogSeq& logSeq,
+        seq_t               seed,
+        int64_t             status,
+        int64_t             errChecksum);
     bool incSeq()
     {
         if (0 != mSubEntryCount) {
@@ -132,7 +132,7 @@ public:
         }
         MetaRequest::Release(mCurOp);
         mCurOp = 0;
-        mLastLogAheadSeq++;
+        mLastLogAheadSeq.mLogSeq++;
         return true;
     }
     bool subEntry()
@@ -146,12 +146,12 @@ public:
         { return *reinterpret_cast<ReplayState*>(c.getUserData()); }
 
     CommitQueue   mCommitQueue;
-    seq_t         mCheckpointCommitted;
+    MetaVrLogSeq  mCheckpointCommitted;
     seq_t         mCheckpointErrChksum;
-    seq_t         mLastCommitted;
-    int64_t       mBlockStartLogSeq;
-    int64_t       mLastBlockSeq;
-    int64_t       mLastLogAheadSeq;
+    MetaVrLogSeq  mLastCommitted;
+    MetaVrLogSeq  mBlockStartLogSeq;
+    seq_t         mLastBlockSeq;
+    MetaVrLogSeq  mLastLogAheadSeq;
     int64_t       mLogAheadErrChksum;
     int64_t       mSubEntryCount;
     int64_t       mLogSegmentTimeUsec;
@@ -171,6 +171,20 @@ public:
         : KFS::ReplayState(replay)
         {}
 };
+
+static bool
+parse_vr_log_seq(DETokenizer& c, MetaVrLogSeq& outSeq)
+{
+    if (c.empty()) {
+        return false;
+    }
+    const char* cur = c.front().ptr;
+    return (
+        16 == c.getIntBase() ?
+        outSeq.Parse<HexIntParser>(cur, c.front().len) :
+        outSeq.Parse<DecIntParser>(cur, c.front().len)
+    );
+}
 
 /*!
  * \brief open saved log file for replay
@@ -256,16 +270,11 @@ Replay::logfile(seq_t num)
     }
     tmplogname.erase(tmplogprefixlen);
     if (logSegmentHasLogSeq(num)) {
-        seq_t epoch = -1;
-        seq_t view  = -1;
-        if (MetaRequest::GetLogWriter().GetMetaVrSM().GetEpochAndViewSeq(
-                epoch, view) == 0) {
-            AppendDecIntToString(tmplogname, epoch);
-            tmplogname += '.';
-            AppendDecIntToString(tmplogname, view);
-            tmplogname += '.';
-        }
-        AppendDecIntToString(tmplogname, committed);
+        AppendDecIntToString(tmplogname, committed.mEpochSeq);
+        tmplogname += '.';
+        AppendDecIntToString(tmplogname, committed.mViewSeq);
+        tmplogname += '.';
+        AppendDecIntToString(tmplogname, committed.mLogSeq);
         tmplogname += '.';
     }
     AppendDecIntToString(tmplogname, num);
@@ -1123,14 +1132,24 @@ replay_sub_entry(DETokenizer& c)
 
 bool
 ReplayState::runCommitQueue(
-    int64_t  logSeq,
-    seq_t    seed,
-    int64_t  status,
-    int64_t  errChecksum)
+    const MetaVrLogSeq& logSeq,
+    seq_t               seed,
+    int64_t             status,
+    int64_t             errChecksum)
 {
     if (logSeq <= mCheckpointCommitted) {
         if (logSeq == mCheckpointCommitted) {
-            return (errChecksum == mCheckpointErrChksum);
+            if (errChecksum == mCheckpointErrChksum) {
+                return true;
+            }
+            KFS_LOG_STREAM_ERROR <<
+                "commit"
+                " sequence: "       << logSeq <<
+                " checkpoint: "     << mCheckpointCommitted <<
+                " error checksum: " << errChecksum <<
+                " expected: "       << mCheckpointErrChksum <<
+            KFS_LOG_EOM;
+            return false;
         }
         return true;
     }
@@ -1189,7 +1208,7 @@ ReplayState::runCommitQueue(
             "log commit:"
             " sequence: "       << logSeq <<
             " / "               << (mCommitQueue.empty() ?
-                seq_t(-1) : mCommitQueue.front().logSeq) <<
+                MetaVrLogSeq() : mCommitQueue.front().logSeq) <<
             " status mismatch"
             " status: "         << status <<
             " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]" <<
@@ -1254,14 +1273,18 @@ replay_log_ahead_entry(DETokenizer& c)
         KFS_LOG_EOM;
         return false;
     }
-    if (state.mReplayer && state.mLastLogAheadSeq + 1 != state.mCurOp->logseq) {
-        KFS_LOG_STREAM_ERROR <<
-            "replay logseq mismatch:"
-            " expected: "  << state.mLastLogAheadSeq + 1 <<
-            " actual: "    << state.mCurOp->logseq <<
-            " "            << state.mCurOp->Show() <<
-        KFS_LOG_EOM;
-        return false;
+    if (state.mReplayer) {
+        MetaVrLogSeq next = state.mLastLogAheadSeq;
+        next.mLogSeq++;
+        if (next != state.mCurOp->logseq) {
+            KFS_LOG_STREAM_ERROR <<
+                "replay logseq mismatch:"
+                " expected: "  << next <<
+                " actual: "    << state.mCurOp->logseq <<
+                " "            << state.mCurOp->Show() <<
+            KFS_LOG_EOM;
+            return false;
+        }
     }
     state.mCurOp->replayFlag = true;
     replay_op(state);
@@ -1280,8 +1303,8 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     ReplayState&      state = ReplayState::get(c);
     blockChecksum.write(ptr, len);
     c.pop_front();
-    const int64_t commitSeq = c.toNumber();
-    if (! c.isLastOk()) {
+    MetaVrLogSeq commitSeq;
+    if (! parse_vr_log_seq(c, commitSeq) || ! commitSeq.IsValid()) {
         return false;
     }
     c.pop_front();
@@ -1300,14 +1323,14 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         return false;
     }
     c.pop_front();
-    const int64_t logSeq = c.toNumber();
-    if (! c.isLastOk() || logSeq != state.mLastLogAheadSeq) {
+    MetaVrLogSeq logSeq;
+    if (! parse_vr_log_seq(c, logSeq) || logSeq != state.mLastLogAheadSeq) {
         return false;
     }
     c.pop_front();
     const int64_t blockLen = c.toNumber();
     if (! c.isLastOk() || blockLen < 0 ||
-            state.mBlockStartLogSeq + blockLen != logSeq) {
+            state.mBlockStartLogSeq.mLogSeq + blockLen != logSeq.mLogSeq) {
         return false;
     }
     c.pop_front();
@@ -1359,8 +1382,8 @@ replay_commit_reset(DETokenizer& c)
         return false;
     }
     c.pop_front();
-    const int64_t commitSeq = c.toNumber();
-    if (! c.isLastOk()) {
+    MetaVrLogSeq commitSeq;
+    if (! parse_vr_log_seq(c, commitSeq) || ! commitSeq.IsValid()) {
         return false;
     }
     c.pop_front();
@@ -1379,10 +1402,11 @@ replay_commit_reset(DETokenizer& c)
         return false;
     }
     c.pop_front();
-    const int64_t logSeq = c.toNumber();
-    if (! c.isLastOk()) {
+    MetaVrLogSeq logSeq;
+    if (! parse_vr_log_seq(c, logSeq) || ! logSeq.IsValid()) {
         return false;
     }
+    c.pop_front();
     const int64_t blockSeq = c.toNumber();
     if (! c.isLastOk()) {
         return false;
@@ -1444,7 +1468,9 @@ replay_cur_op(ReplayState& state)
         panic("invalid replay current op invocation");
         return;
     }
-    if (state.mReplayer && state.mLastLogAheadSeq + 1 != op->logseq) {
+    MetaVrLogSeq next = state.mLastLogAheadSeq;
+    next.mLogSeq++;
+    if (state.mReplayer && next != op->logseq) {
         panic("invalid current op log sequence");
         return;
     }
@@ -1523,12 +1549,20 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->pendingNotifyFlag = 0 != n;
-        if (! pop_num(n, "z", c, true) || n < 0) {
+        if (1 != c.front().len || 'z' != c.front().ptr[0]) {
             return false;
         }
-        op->logseq = n;
-        if (state.mReplayer && n != state.mLastLogAheadSeq + 1) {
+        c.pop_front();
+        if (! parse_vr_log_seq(c, op->logseq) || ! op->logseq.IsValid()) {
             return false;
+        }
+        c.pop_front();
+        if (state.mReplayer) {
+            MetaVrLogSeq next = state.mLastLogAheadSeq;
+            next.mLogSeq++;
+            if (op->logseq != next) {
+                return false;
+            }
         }
         op->chunks.reserve(op->numChunks);
         op->notStableChunks.reserve(op->numNotStableChunks);
@@ -1684,12 +1718,20 @@ replay_cs_inflight(DETokenizer& c)
         const DETokenizer::Token& rtype = c.front();
         op->reqType = MetaChunkLogInFlight::GetReqId(rtype.ptr, rtype.len);
         c.pop_front();
-        if (! pop_num(n, "z", c, true) || n < 0) {
+        if (1 != c.front().len || 'z' != c.front().ptr[0]) {
             return false;
         }
-        op->logseq = n;
-        if (state.mReplayer && n != state.mLastLogAheadSeq + 1) {
+        c.pop_front();
+        if (! parse_vr_log_seq(c, op->logseq) || ! op->logseq.IsValid()) {
             return false;
+        }
+        c.pop_front();
+        if (state.mReplayer) {
+            MetaVrLogSeq next = state.mLastLogAheadSeq;
+            next.mLogSeq++;
+            if (next != op->logseq) {
+                return false;
+            }
         }
     }
     if (1 == state.mSubEntryCount) {
@@ -1809,9 +1851,9 @@ Replay::Replay()
       lastLogIntBase(-1),
       appendToLastLogFlag(false),
       verifyAllLogSegmentsPresetFlag(false),
-      checkpointCommitted(-1),
-      committed(0),
-      lastLogStart(0),
+      checkpointCommitted(),
+      committed(0, 0, 0),
+      lastLogStart(0, 0, 0),
       lastBlockSeq(-1),
       errChecksum(0),
       rollSeeds(0),
@@ -1990,7 +2032,8 @@ Replay::playLogs(bool includeLastLogFlag)
         return 0;
     }
     ReplayState& state = replayTokenizer.GetState();
-    state.mLastCommitted       = -1; // Log commit can be less than checkpoint.
+    // Log commit can be less than checkpoint.
+    state.mLastCommitted       = MetaVrLogSeq();
     state.mCheckpointCommitted = committed;
     state.mCheckpointErrChksum = errChecksum;
     const int status = getLastLogNum();
@@ -2066,9 +2109,13 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             lastCommittedStatus = 0;
         }
     }
-    if (status == 0 && ! state.runCommitQueue(
-            committed + 1, fileID.getseed(), 0, state.mLogAheadErrChksum)) {
-        status = -EINVAL;
+    if (status == 0) {
+        MetaVrLogSeq next = committed;
+        next.mLogSeq++;
+        if (! state.runCommitQueue(
+                next, fileID.getseed(), 0, state.mLogAheadErrChksum)) {
+            status = -EINVAL;
+        }
     }
     if (status == 0) {
         errChecksum = state.mLogAheadErrChksum;

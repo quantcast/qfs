@@ -85,8 +85,8 @@ public:
           mListenerAddress(),
           mAcceptorPtr(0),
           mAuthContext(),
-          mCommittedLogSeq(-1),
-          mLastWriteSeq(-1),
+          mCommittedLogSeq(),
+          mLastWriteSeq(),
           mDeleteFlag(false),
           mAckBroadcastFlag(false),
           mParseBuffer(),
@@ -143,9 +143,9 @@ public:
         return (! theListenOn.empty() && 0 <= mId);
     }
     int Start(
-        NetManager& inNetManager,
-        Replayer&   inReplayer,
-        seq_t       inCommittedLogSeq)
+        NetManager&         inNetManager,
+        Replayer&           inReplayer,
+        const MetaVrLogSeq& inCommittedLogSeq)
     {
         if (mDeleteFlag) {
             panic("LogReceiver::Impl::Start delete pending");
@@ -207,9 +207,9 @@ public:
         Connection& inConnection);
     void Done(
         Connection& inConnection);
-    seq_t GetCommittedLogSeq() const
+    MetaVrLogSeq GetCommittedLogSeq() const
         { return mCommittedLogSeq; }
-    seq_t GetLastWriteLogSeq() const
+    MetaVrLogSeq GetLastWriteLogSeq() const
         { return mLastWriteSeq; }
     void Delete()
     {
@@ -242,10 +242,10 @@ public:
         return mParseBuffer.GetPtr();
     }
     MetaLogWriterControl* GetBlockWriteOp(
-        seq_t inStartSeq,
-        seq_t ioEndSeq)
+        const MetaVrLogSeq& inStartSeq,
+        const MetaVrLogSeq& inEndSeq)
     {
-        if (ioEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq) {
+        if (inEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq) {
             return 0;
         }
         MetaRequest* thePtr = mWriteOpFreeListPtr;
@@ -265,7 +265,7 @@ public:
         theCompletionQueue.PushBack(mCompletionQueue);
         MetaRequest* thePtr              = theCompletionQueue.Front();
         const bool   theAckBroadcastFlag = 0 != thePtr;
-        seq_t        theNextSeq          = (thePtr && thePtr->status != 0) ?
+        MetaVrLogSeq theNextSeq          = (thePtr && thePtr->status != 0) ?
             static_cast<MetaLogWriterControl*>(thePtr)->blockStartSeq :
             mCommittedLogSeq;
         while ((thePtr = theCompletionQueue.PopFront())) {
@@ -323,9 +323,9 @@ public:
     {
         inOp.next = mWriteOpFreeListPtr;
         mWriteOpFreeListPtr = &inOp;
-        inOp.committed     = -1;
-        inOp.blockStartSeq = -1;
-        inOp.blockEndSeq   = -1;
+        inOp.committed     = MetaVrLogSeq();
+        inOp.blockStartSeq = MetaVrLogSeq();
+        inOp.blockEndSeq   = MetaVrLogSeq();
         inOp.blockData.Clear();
         inOp.blockLines.Clear();
     }
@@ -411,8 +411,8 @@ private:
     ServerLocation mListenerAddress;
     Acceptor*      mAcceptorPtr;
     AuthContext    mAuthContext;
-    seq_t          mCommittedLogSeq;
-    seq_t          mLastWriteSeq;
+    MetaVrLogSeq   mCommittedLogSeq;
+    MetaVrLogSeq   mLastWriteSeq;
     bool           mDeleteFlag;
     bool           mAckBroadcastFlag;
     ParseBuffer    mParseBuffer;
@@ -504,8 +504,8 @@ public:
           mPendingOpsCount(0),
           mBlockChecksum(0),
           mBodyChecksum(0),
-          mBlockStartSeq(-1),
-          mBlockEndSeq(-1),
+          mBlockStartSeq(),
+          mBlockEndSeq(),
           mDownFlag(false),
           mIdSentFlag(false),
           mReAuthPendingFlag(false),
@@ -677,8 +677,8 @@ private:
     int                    mPendingOpsCount;
     Checksum               mBlockChecksum;
     Checksum               mBodyChecksum;
-    int64_t                mBlockStartSeq;
-    int64_t                mBlockEndSeq;
+    MetaVrLogSeq           mBlockStartSeq;
+    MetaVrLogSeq           mBlockEndSeq;
     bool                   mDownFlag;
     bool                   mIdSentFlag;
     bool                   mReAuthPendingFlag;
@@ -1002,15 +1002,16 @@ private:
         const char* theStartPtr     = inBuffer.CopyOutOrGetBufPtr(
                 mImpl.GetParseBufferPtr(), theMaxHdrLen);
         const char* const theEndPtr = theStartPtr + theMaxHdrLen;
-        int64_t     theBlockEndSeq  = -1;
-        int         theBlockSeqLen  = -1;
+        MetaVrLogSeq theBlockEndSeq;
+        int          theBlockSeqLen = -1;
         const char* thePtr          = theStartPtr;
-        if (! HexIntParser::Parse(
-                thePtr, theEndPtr - thePtr, theBlockEndSeq) ||
+        if (! theBlockEndSeq.Parse<HexIntParser>(
+                    thePtr, theEndPtr - thePtr) ||
                 ! HexIntParser::Parse(
                     thePtr, theEndPtr - thePtr, theBlockSeqLen) ||
                 theBlockSeqLen < 0 ||
-                (theBlockEndSeq < theBlockSeqLen && 0 < theBlockSeqLen)) {
+                (theBlockEndSeq.mLogSeq < theBlockSeqLen &&
+                    0 < theBlockSeqLen)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " invalid block:"
                 " start: "    << mBlockStartSeq <<
@@ -1060,8 +1061,8 @@ private:
             }
             return (mDownFlag ? -1 : 0);
         }
-        if (theBlockEndSeq < 0  ||
-                    (0 <= mBlockEndSeq && theBlockEndSeq < mBlockEndSeq)) {
+        if (! theBlockEndSeq.IsValid() ||
+                    (mBlockEndSeq.IsValid() && theBlockEndSeq < mBlockEndSeq)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " invalid block:"
                 " sequence: " << theBlockEndSeq <<
@@ -1074,7 +1075,8 @@ private:
             return -1;
         }
         mBlockEndSeq   = theBlockEndSeq;
-        mBlockStartSeq = theBlockEndSeq - theBlockSeqLen;
+        mBlockStartSeq = theBlockEndSeq;
+        mBlockStartSeq.mLogSeq -= theBlockSeqLen;
         return ProcessBlock(inBuffer);
     }
     void Error(
@@ -1118,9 +1120,9 @@ private:
         if (! mIdSentFlag) {
             theAckFlags |= uint64_t(1) << kLogBlockAckHasServerIdBit;
         }
-        IOBuffer&   theBuf       = mConnectionPtr->GetOutBuffer();
-        const int   thePos       = theBuf.BytesConsumable();
-        const seq_t theCommitted = mImpl.GetCommittedLogSeq();
+        IOBuffer&          theBuf       = mConnectionPtr->GetOutBuffer();
+        const int          thePos       = theBuf.BytesConsumable();
+        const MetaVrLogSeq theCommitted = mImpl.GetCommittedLogSeq();
         ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
             "A " << theCommitted <<
@@ -1341,7 +1343,7 @@ LogReceiver::SetParameters(
 LogReceiver::Start(
     NetManager&            inNetManager,
     LogReceiver::Replayer& inReplayer,
-    seq_t                  inCommittedLogSeq)
+    const MetaVrLogSeq&    inCommittedLogSeq)
 {
     return mImpl.Start(inNetManager, inReplayer, inCommittedLogSeq);
 }

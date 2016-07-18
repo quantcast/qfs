@@ -45,6 +45,7 @@ class MdStateCtx;
 class MetaDataStore;
 class MetaVrSM;
 class MetaDataSync;
+class MetaVrLogSeq;
 
 class LogWriter
 {
@@ -54,39 +55,39 @@ public:
     LogWriter();
     ~LogWriter();
     int Start(
-        NetManager&       inNetManager,
-        MetaDataStore&    inMetaDataStore,
-        MetaDataSync&     inMetaDataSync,
-        seq_t             inLogNum,
-        seq_t             inLogSeq,
-        seq_t             inCommittedLogSeq,
-        fid_t             inCommittedFidSeed,
-        int64_t           inCommittedErrCheckSum,
-        int               inCommittedStatus,
-        const MdStateCtx* inLogAppendMdStatePtr,
-        seq_t             inLogAppendStartSeq,
-        seq_t             inLogAppendLastBlockSeq,
-        bool              inLogAppendHexFlag,
-        bool              inLogNameHasSeqFlag,
-        const char*       inParametersPrefixPtr,
-        const Properties& inParameters,
-        string&           outCurLogFileName);
+        NetManager&         inNetManager,
+        MetaDataStore&      inMetaDataStore,
+        MetaDataSync&       inMetaDataSync,
+        seq_t               inLogNum,
+        const MetaVrLogSeq& inLogSeq,
+        const MetaVrLogSeq& inCommittedLogSeq,
+        fid_t               inCommittedFidSeed,
+        int64_t             inCommittedErrCheckSum,
+        int                 inCommittedStatus,
+        const MdStateCtx*   inLogAppendMdStatePtr,
+        const MetaVrLogSeq& inLogAppendStartSeq,
+        seq_t               inLogAppendLastBlockSeq,
+        bool                inLogAppendHexFlag,
+        bool                inLogNameHasSeqFlag,
+        const char*         inParametersPrefixPtr,
+        const Properties&   inParameters,
+        string&             outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);
     void Committed(
         MetaRequest& inRequest,
         fid_t        inFidSeed);
     void GetCommitted(
-        seq_t&   outLogSeq,
-        int64_t& outErrChecksum,
-        fid_t&   outFidSeed,
-        int&     outStatus) const;
+        MetaVrLogSeq& outLogSeq,
+        int64_t&      outErrChecksum,
+        fid_t&        outFidSeed,
+        int&          outStatus) const;
     void SetCommitted(
-        seq_t   inLogSeq,
-        int64_t inErrChecksum,
-        fid_t   inFidSeed,
-        int     inStatus);
-    seq_t GetCommittedLogSeq() const;
+        const MetaVrLogSeq& inLogSeq,
+        int64_t             inErrChecksum,
+        fid_t               inFidSeed,
+        int                 inStatus);
+    MetaVrLogSeq GetCommittedLogSeq() const;
     void ScheduleFlush();
     void PrepareToFork();
     void ForkDone();

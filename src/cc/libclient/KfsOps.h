@@ -34,6 +34,7 @@
 #include "common/ReqOstream.h"
 #include "kfsio/NetConnection.h"
 #include "kfsio/CryptoKeys.h"
+#include "meta/MetaVrLogSeq.h"
 #include "KfsAttr.h"
 
 #include <algorithm>
@@ -1851,22 +1852,22 @@ struct FsckOp : public KfsMonOp {
 };
 
 struct MetaReadMetaData : public KfsMonOp {
-    int64_t  fileSystemId;
-    kfsSeq_t startLogSeq;
-    kfsSeq_t endLogSeq;
-    int64_t  readPos;
-    bool     checkpointFlag;
-    int      readSize;
-    int      maxReadSize;
-    uint32_t checksum;
-    int64_t  fileSize;
-    string   fileName;
+    int64_t      fileSystemId;
+    MetaVrLogSeq startLogSeq;
+    MetaVrLogSeq endLogSeq;
+    int64_t      readPos;
+    bool         checkpointFlag;
+    int          readSize;
+    int          maxReadSize;
+    uint32_t     checksum;
+    int64_t      fileSize;
+    string       fileName;
 
     MetaReadMetaData(kfsSeq_t inSeq)
         : KfsMonOp(CMD_META_READ_META_DATA, inSeq),
           fileSystemId(-1),
-          startLogSeq(-1),
-          endLogSeq(-1),
+          startLogSeq(),
+          endLogSeq(),
           readPos(-1),
           checkpointFlag(false),
           readSize(0),
