@@ -331,7 +331,8 @@ public:
             }
         }
         mLastProcessTime = TimeNow();
-        outVrStatus      = kStatePrimary == mState ? 0 : -EVRNOTPRIMARY;
+        outVrStatus      = kStatePrimary == mState ? 0 :
+            (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED);
     }
     int Start(
         MetaDataSync&       inMetaDataSync,

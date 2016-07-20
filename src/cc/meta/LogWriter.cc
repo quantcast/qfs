@@ -701,9 +701,10 @@ private:
                         theEndPtr != thePtr;
                         thePtr = thePtr->next) {
                     if (META_LOG_WRITER_CONTROL != thePtr->op &&
-                            ((MetaRequest::kLogIfOk == thePtr->logAction &&
+                            (((MetaRequest::kLogIfOk == thePtr->logAction &&
                                 0 == thePtr->status) ||
-                            MetaRequest::kLogAlways == thePtr->logAction)) {
+                            MetaRequest::kLogAlways == thePtr->logAction) ||
+                                0 != mVrStatus)) {
                         LogError(*thePtr);
                     }
                 }
@@ -728,9 +729,14 @@ private:
     void LogError(
         MetaRequest& inReq)
     {
-        inReq.logseq    = MetaVrLogSeq();
-        inReq.status    = -ELOGFAILED;
-        inReq.statusMsg = "transaction log write error";
+        inReq.logseq = MetaVrLogSeq();
+        if (-EVRNOTPRIMARY == mVrStatus) {
+            inReq.status    = mVrStatus;
+            inReq.statusMsg = "not primary";
+        } else {
+            inReq.status    = -ELOGFAILED;
+            inReq.statusMsg = "transaction log write error";
+        }
     }
     void StartBlock(
         Checksum inStartCheckSum)
