@@ -76,6 +76,8 @@ public:
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
           mMetaVrSM(mLogTransmitter),
+          mVrStatus(0),
+          mEnqueueVrStatus(0),
           mTransmitCommitted(),
           mTransmitterUpFlag(false),
           mMaxDoneLogSeq(),
@@ -256,11 +258,11 @@ public:
             return false;
         }
         int* const theCounterPtr = inRequest.GetLogQueueCounter();
-        if ((mPendingCount <= 0 ||
+        if (((mPendingCount <= 0 ||
                     ! theCounterPtr || *theCounterPtr <= 0) &&
                 (MetaRequest::kLogNever == inRequest.logAction ||
                 (MetaRequest::kLogIfOk == inRequest.logAction &&
-                    0 != inRequest.status))) {
+                    0 != inRequest.status))) && mEnqueueVrStatus == 0) {
             return false;
         }
         if (theCounterPtr) {
@@ -448,6 +450,8 @@ private:
     NetManager     mNetManager;
     LogTransmitter mLogTransmitter;
     MetaVrSM       mMetaVrSM;
+    int            mVrStatus;
+    volatile int   mEnqueueVrStatus;
     MetaVrLogSeq   mTransmitCommitted;
     bool           mTransmitterUpFlag;
     MetaVrLogSeq   mMaxDoneLogSeq;
@@ -580,7 +584,16 @@ private:
         if (theStopFlag) {
             mMetaVrSM.Shutdown();
         }
-        mMetaVrSM.Process(mNetManager.Now());
+        const int theVrStatus = mVrStatus;
+        mMetaVrSM.Process(mNetManager.Now(), mVrStatus);
+        if (0 != mVrStatus) {
+            if (0 == theVrStatus && 0 == mEnqueueVrStatus) {
+                mEnqueueVrStatus = theVrStatus - 1;
+                SyncAddAndFetch(mEnqueueVrStatus, 1);
+            }
+        } else {
+            mEnqueueVrStatus = 0;
+        }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
         }
@@ -625,7 +638,8 @@ private:
             seq_t                 theEndBlockSeq         =
                 mNextLogSeq.mLogSeq + mMaxBlockSize;
             const bool            theSimulateFailureFlag = IsSimulateFailure();
-            const bool            theTransmitterUpFlag   = mTransmitterUpFlag;
+            const bool            theTransmitterUpFlag   =
+                mTransmitterUpFlag && 0 == mVrStatus;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {

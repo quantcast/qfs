@@ -100,8 +100,8 @@ public:
           mLastUpTime(mTimeNow),
           mViewChangeStartTime(mTimeNow),
           mStartViewChangeRecvViewSeq(-1),
-          mStartViewChangeRecvCommittedSeq(),
-          mStartViewMaxCommittedSeq(),
+          mStartViewChangeMaxLastLogSeq(),
+          mStartViewChangeMaxCommittedSeq(),
           mStartViewEpochMismatchCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -109,7 +109,7 @@ public:
           mStartViewChangeNodeIds(),
           mDoViewChangeNodeIds(),
           mStartViewCompletionIds(),
-          mStartViewMaxCommittedNodeIds(),
+          mStartViewMaxLastLogNodeIds(),
           mSyncServers(),
           mInputStream(),
           mOutputStream(),
@@ -195,7 +195,7 @@ public:
             return;
         }
         const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
-        const int theStatus = inProps.getValue("s", -1);
+        const int  theStatus  = inProps.getValue("s", -1);
         if (0 != theStatus) {
             const int theState = inProps.getValue(
                 kMetaVrStateFieldNamePtr, -1);
@@ -205,14 +205,19 @@ public:
                 if (theEpochSeq == mEpochSeq) {
                     const MetaVrLogSeq theCommittedSeq = inProps.parseValue(
                         kMetaVrCommittedFieldNamePtr, MetaVrLogSeq());
-                    if (theCommittedSeq.IsValid()) {
-                        mStartViewChangeRecvCommittedSeq = theCommittedSeq;
-                        if (mStartViewMaxCommittedSeq <= theCommittedSeq) {
-                            mStartViewMaxCommittedSeq = theCommittedSeq;
-                            if (mStartViewMaxCommittedSeq < theCommittedSeq) {
-                                mStartViewMaxCommittedNodeIds.clear();
+                    const MetaVrLogSeq theLastLogSeq   = inProps.parseValue(
+                        kMetaVrLastLogSeqFieldNamePtr, MetaVrLogSeq());
+                    if (theCommittedSeq.IsValid() && theLastLogSeq.IsValid() &&
+                            theCommittedSeq <= theLastLogSeq) {
+                        mStartViewChangeMaxCommittedSeq =
+                            max(mStartViewChangeMaxCommittedSeq, theCommittedSeq);
+                        mStartViewChangeMaxLastLogSeq = theCommittedSeq;
+                        if (mStartViewChangeMaxLastLogSeq <= theLastLogSeq) {
+                            if (mStartViewChangeMaxLastLogSeq < theLastLogSeq) {
+                                mStartViewMaxLastLogNodeIds.clear();
                             }
-                            mStartViewMaxCommittedNodeIds.insert(inNodeId);
+                            mStartViewChangeMaxLastLogSeq = theLastLogSeq;
+                            mStartViewMaxLastLogNodeIds.insert(inNodeId);
                         }
                     }
                     const seq_t theViewSeq = inProps.getValue(
@@ -228,9 +233,10 @@ public:
                 " seq: "            << inSeq <<
                 " node: "           << inNodeId <<
                 " epoch mismatch: " << mStartViewEpochMismatchCount <<
-                " max committed:"
-                " seq: "            << mStartViewMaxCommittedSeq <<
-                " count: "          << mStartViewMaxCommittedNodeIds.size() <<
+                " max:"
+                " committed:"       << mStartViewChangeMaxCommittedSeq <<
+                " last:"            << mStartViewChangeMaxLastLogSeq <<
+                " count: "          << mStartViewMaxLastLogNodeIds.size() <<
                 " responses: "      << mStartViewCompletionIds.size() <<
                 " "                 << inReq.Show() <<
             KFS_LOG_EOM;
@@ -296,11 +302,13 @@ public:
         }
     }
     void Process(
-        time_t inTimeNow)
+        time_t inTimeNow,
+        int&   outVrStatus)
     {
         mTimeNow = inTimeNow;
         if (! mActiveFlag) {
             mLastProcessTime = TimeNow();
+            outVrStatus = -EVRNOTPRIMARY;
             return;
         }
         if (kStateBackup == mState) {
@@ -323,6 +331,7 @@ public:
             }
         }
         mLastProcessTime = TimeNow();
+        outVrStatus      = kStatePrimary == mState ? 0 : -EVRNOTPRIMARY;
     }
     int Start(
         MetaDataSync&       inMetaDataSync,
@@ -335,6 +344,7 @@ public:
             mQuorum      = 0;
             mState       = kStatePrimary;
             mLastUpTime  = TimeNow();
+            mActiveFlag  = true;
         } else {
             mState = kStateBackup;
         }
@@ -704,8 +714,8 @@ private:
     time_t                       mLastUpTime;
     time_t                       mViewChangeStartTime;
     seq_t                        mStartViewChangeRecvViewSeq;
-    MetaVrLogSeq                 mStartViewChangeRecvCommittedSeq;
-    MetaVrLogSeq                 mStartViewMaxCommittedSeq;
+    MetaVrLogSeq                 mStartViewChangeMaxLastLogSeq;
+    MetaVrLogSeq                 mStartViewChangeMaxCommittedSeq;
     int                          mStartViewEpochMismatchCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -713,7 +723,7 @@ private:
     NodeIdSet                    mStartViewChangeNodeIds;
     NodeIdSet                    mDoViewChangeNodeIds;
     NodeIdSet                    mStartViewCompletionIds;
-    NodeIdSet                    mStartViewMaxCommittedNodeIds;
+    NodeIdSet                    mStartViewMaxLastLogNodeIds;
     MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
     ostringstream                mOutputStream;
@@ -761,19 +771,17 @@ private:
         if (mDoViewChangePtr) {
             return;
         }
-        if (mCommittedSeq < mStartViewChangeRecvCommittedSeq ||
-                (mCommittedSeq == mStartViewChangeRecvCommittedSeq &&
-                mLastLogSeq < mStartViewMaxCommittedSeq)) {
+        if (mLastLogSeq < mStartViewChangeMaxLastLogSeq) {
             // Need to feetch log / checkpoint.
-            if (mActiveFlag && mStartViewMaxCommittedNodeIds.empty()) {
+            if (mActiveFlag && mStartViewMaxLastLogNodeIds.empty()) {
                 panic("VR: invalid empty committed node ids");
             }
             if (mActiveFlag && mMetaDataSyncPtr) {
                 mSyncServers.clear();
                 const Config::Nodes&  theNodes = mConfig.GetNodes();
                 for (NodeIdSet::const_iterator theIt =
-                        mStartViewMaxCommittedNodeIds.begin();
-                        mStartViewMaxCommittedNodeIds.end() != theIt;
+                        mStartViewMaxLastLogNodeIds.begin();
+                        mStartViewMaxLastLogNodeIds.end() != theIt;
                         ++theIt) {
                     Config::Nodes::const_iterator theNodeIt;
                     if (*theIt != mNodeId &&
@@ -796,7 +804,7 @@ private:
                     }
                 }
                 mMetaDataSyncPtr->ScheduleLogSync(
-                    mSyncServers, mLastLogSeq, mStartViewMaxCommittedSeq);
+                    mSyncServers, mLastLogSeq, mStartViewChangeMaxLastLogSeq);
             }
             return;
         }
@@ -848,16 +856,29 @@ private:
         } else if (IsActive(inReq.mNodeId)) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "request from inactive node";
+        } else if (inReq.mEpochSeq < inReq.mLastLogSeq.mEpochSeq ||
+                inReq.mViewSeq <= inReq.mLastLogSeq.mViewSeq) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "invalid request: last log sequence";
+        } else if (inReq.mLastLogSeq < mCommittedSeq) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "invalid request: committed or last log sequence";
         } else if (mEpochSeq != inReq.mEpochSeq) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "epoch does not match";
-        } else if (inReq.mViewSeq < mViewSeq ||
-                mLastLogSeq < inReq.mCommittedSeq ||
-                inReq.mLastLogSeq < mCommittedSeq) {
+        } else if (inReq.mViewSeq < mViewSeq) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = inReq.mViewSeq < mViewSeq ?
-                "view sequence is less than current" :
-                "committed sequence or view mismatch";
+            inReq.statusMsg = "lower view sequence";
+        } else if (mLastLogSeq != inReq.mLastLogSeq &&
+                (kStatePrimary != mState ||
+                    (inReq.mLastLogSeq < mCommittedSeq &&
+                        (inReq.mLastLogSeq.mEpochSeq != mLastLogSeq.mEpochSeq ||
+                        inReq.mLastLogSeq.mViewSeq != mLastLogSeq.mViewSeq ||
+                        inReq.mLastLogSeq.mLogSeq + (32 << 10) <
+                            mLastLogSeq.mLogSeq
+                    )))) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "log sequence mismatch";
         } else {
             inReq.status = 0;
             return true;
@@ -1564,10 +1585,10 @@ private:
         mStartViewCompletionIds.clear();
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
-        mStartViewChangeRecvViewSeq      = -1;
-        mStartViewChangeRecvCommittedSeq = MetaVrLogSeq();
-        mStartViewMaxCommittedSeq        = MetaVrLogSeq();
-        mStartViewEpochMismatchCount     = 0;
+        mStartViewChangeRecvViewSeq     = -1;
+        mStartViewChangeMaxLastLogSeq   = MetaVrLogSeq();
+        mStartViewChangeMaxCommittedSeq = MetaVrLogSeq();
+        mStartViewEpochMismatchCount    = 0;
     }
     void Init(
         MetaVrRequest& inReq)
@@ -1590,7 +1611,7 @@ private:
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
         mDoViewChangeNodeIds.clear();
-        mStartViewMaxCommittedNodeIds.clear();
+        mStartViewMaxLastLogNodeIds.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         Init(theOp);
         mStartViewChangePtr = &theOp;
@@ -1710,9 +1731,10 @@ MetaVrSM::SetLastLogReceivedTime(
 
     void
 MetaVrSM::Process(
-    time_t inTimeNow)
+    time_t inTimeNow,
+    int&   outVrStatus)
 {
-    mImpl.Process(inTimeNow);
+    mImpl.Process(inTimeNow, outVrStatus);
 }
 
     int

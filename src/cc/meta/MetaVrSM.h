@@ -291,7 +291,8 @@ public:
     void SetLastLogReceivedTime(
         time_t inTime);
     void Process(
-        time_t inTimeNow);
+        time_t inTimeNow,
+        int&   outVrStatus);
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);

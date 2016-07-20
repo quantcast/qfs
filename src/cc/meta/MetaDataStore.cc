@@ -910,7 +910,7 @@ private:
         }
         struct stat theStat = {0};
         string theTmpStr;
-        bool   theHasLatesFlag = false;
+        bool   theHasLatestFlag = false;
         if (inLatestNamePtr) {
             theTmpStr.reserve(1 << 10);
             theTmpStr = inDirNamePtr;
@@ -926,7 +926,7 @@ private:
                     return -EINVAL;
                 }
             } else {
-                theHasLatesFlag = true;
+                theHasLatestFlag = true;
             }
         }
         int                  theRet       = 0;
@@ -981,7 +981,7 @@ private:
                 break;
             }
             if (0 != (theRet = inFunctor(theLogSeq, theSegNum, theNamePtr,
-                        theHasLatesFlag && theStat.st_ino == thePtr->d_ino))) {
+                        theHasLatestFlag && theStat.st_ino == thePtr->d_ino))) {
                 break;
             }
         }
