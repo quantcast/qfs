@@ -160,9 +160,10 @@ public:
 
         Config()
             : mNodes(),
-              mPrimaryTimeout(4),
-              mBackupTimeout(8)
-            {}
+              mPrimaryTimeout(),
+              mBackupTimeout(),
+              mChangeVewMaxLogDistance()
+            { Config::Clear(); }
         template<typename ST>
         ST& Insert(
             ST&         inStream,
@@ -237,8 +238,9 @@ public:
         void Clear()
         {
             mNodes.clear();
-            mPrimaryTimeout = 4;
-            mBackupTimeout  = 8;
+            mPrimaryTimeout          = 4;
+            mBackupTimeout           = 8;
+            mChangeVewMaxLogDistance = 64 << 10;
         }
         int GetPrimaryTimeout() const
             { return mPrimaryTimeout; }
@@ -250,10 +252,16 @@ public:
         void SetBackupTimeout(
             int inTimeout)
             { mBackupTimeout = inTimeout; }
+        seq_t GetChangeVewMaxLogDistance() const
+            { return mChangeVewMaxLogDistance; }
+        void SetChangeVewMaxLogDistance(
+            seq_t inDistance)
+            { mChangeVewMaxLogDistance = inDistance; }
     private:
         Nodes mNodes;
         int   mPrimaryTimeout;
         int   mBackupTimeout;
+        seq_t mChangeVewMaxLogDistance;
     };
 
     typedef Config::NodeId NodeId;

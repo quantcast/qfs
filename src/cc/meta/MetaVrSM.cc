@@ -90,6 +90,7 @@ public:
           mActiveFlag(false),
           mPendingPrimaryTimeout(0),
           mPendingBackupTimeout(0),
+          mPendingChangeVewMaxLogDistance(-1),
           mEpochSeq(0),
           mViewSeq(0),
           mCommittedSeq(),
@@ -456,6 +457,12 @@ public:
             }
             mConfig.SetBackupTimeout(theTimeout);
             seq_t theSeq = -1;
+            if (! (theStream >> theSeq) || theSeq < 0) {
+                mConfig.Clear();
+                return false;
+            }
+            mConfig.SetChangeVewMaxLogDistance(theSeq);
+            theSeq = -1;
             if (! (theStream >> theSeq) || theSeq < 0 ||
                     (0 == theSeq && 0 != theCount)) {
                 mConfig.Clear();
@@ -487,6 +494,7 @@ public:
             theStream << "vrce/" << theNodes.size() <<
                 " " << mConfig.GetPrimaryTimeout() <<
                 " " << mConfig.GetBackupTimeout() <<
+                " " << mConfig.GetChangeVewMaxLogDistance() <<
                 " " << mEpochSeq <<
                 " " << mViewSeq <<
             "\n";
@@ -705,6 +713,7 @@ private:
     bool                         mActiveFlag;
     int                          mPendingPrimaryTimeout;
     int                          mPendingBackupTimeout;
+    seq_t                        mPendingChangeVewMaxLogDistance;
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
     MetaVrLogSeq                 mCommittedSeq;
@@ -875,7 +884,8 @@ private:
                     (inReq.mLastLogSeq < mCommittedSeq &&
                         (inReq.mLastLogSeq.mEpochSeq != mLastLogSeq.mEpochSeq ||
                         inReq.mLastLogSeq.mViewSeq != mLastLogSeq.mViewSeq ||
-                        inReq.mLastLogSeq.mLogSeq + (32 << 10) <
+                        inReq.mLastLogSeq.mLogSeq +
+                                mConfig.GetChangeVewMaxLogDistance() <
                             mLastLogSeq.mLogSeq
                     )))) {
             inReq.status    = -EINVAL;
@@ -1033,8 +1043,8 @@ private:
             case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
                 SetPrimaryOrder(inReq);
                 break;
-            case MetaVrReconfiguration::kOpTypeSetTimeouts:
-                SetTimeouts(inReq);
+            case MetaVrReconfiguration::kOpTypeSetParameters:
+                SetParameters(inReq);
                 break;
             default:
                 inReq.status    = -EINVAL;
@@ -1225,7 +1235,7 @@ private:
             inPrimaryTimeout + 3 <= inBackupTimeout
         );
     }
-    void SetTimeouts(
+    void SetParameters(
         MetaVrReconfiguration& inReq)
     {
         if (2 != inReq.mListSize) {
@@ -1233,14 +1243,17 @@ private:
             inReq.statusMsg = "set timeouts: invalid list size";
             return;
         }
-        int               thePrimaryTimeout = -1;
-        int               theBackupTimeout  = -1;
+        int               thePrimaryTimeout                 = -1;
+        int               theBackupTimeout                  = -1;
+        seq_t             thePendingChangeVewMaxLogDistance = -1;
         const char*       thePtr    = inReq.mListStr.GetPtr();
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
         if (! inReq.ParseInt(thePtr, theEndPtr - thePtr, thePrimaryTimeout) ||
                 ! inReq.ParseInt(
                     thePtr, theEndPtr - thePtr, theBackupTimeout) ||
-                ! ValidateTimeouts(theBackupTimeout, theBackupTimeout)) {
+                ! ValidateTimeouts(theBackupTimeout, theBackupTimeout) ||
+                ! inReq.ParseInt(thePtr, theEndPtr - thePtr,
+                    thePendingChangeVewMaxLogDistance)) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "set timeouts: timeout values; "
                 "primary timeout must be greater than 0; backup "
@@ -1248,8 +1261,9 @@ private:
                 "timeout";
             return;
         }
-        mPendingPrimaryTimeout = thePrimaryTimeout;
-        mPendingBackupTimeout  = theBackupTimeout;
+        mPendingPrimaryTimeout          = thePrimaryTimeout;
+        mPendingBackupTimeout           = theBackupTimeout;
+        mPendingChangeVewMaxLogDistance = thePendingChangeVewMaxLogDistance;
         if (kStatePrimary == mState && kMinActiveCount <= mActiveCount) {
             mState = kStateReconfiguration;
         }
@@ -1368,8 +1382,8 @@ private:
             case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
                 CommitSetPrimaryOrder(inReq);
                 break;
-            case MetaVrReconfiguration::kOpTypeSetTimeouts:
-                CommitSetTimeouts(inReq);
+            case MetaVrReconfiguration::kOpTypeSetParameters:
+                CommitSetParameters(inReq);
                 break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
@@ -1452,7 +1466,7 @@ private:
                 0 != (Config::kFlagActive & theIt->second.GetFlags());
         }
     }
-    void CommitSetTimeouts(
+    void CommitSetParameters(
         const MetaVrReconfiguration& inReq)
     {
         if (! ValidateTimeouts(
@@ -1475,6 +1489,10 @@ private:
             if (kStateReconfiguration == mState || kStateBackup == mState) {
                 mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
                 mConfig.SetBackupTimeout(mPendingBackupTimeout);
+                if (0 <= mPendingChangeVewMaxLogDistance) {
+                    mConfig.SetChangeVewMaxLogDistance(
+                        mPendingChangeVewMaxLogDistance);
+                }
                 mLogTransmitter.SetHeartbeatInterval(
                     mConfig.GetPrimaryTimeout());
             }
