@@ -748,6 +748,14 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
                 mCPDir.c_str(), mLogDir.c_str()))) {
             return false;
         }
+        if (gNetDispatch.GetMetaDataStore().Load(
+                mCPDir.c_str(),
+                mLogDir.c_str(),
+                mStartupProperties.getValue(
+                    "metaServer.cleanupTempFiles", 1) != 0,
+                ! veifyAllLogSegmentsPresentFlag)) {
+            return false;
+        }
         // Init fs id if needed, leave create time 0, restorer will set these
         // unless fsinfo entry doesn't exit.
         Restorer r;
@@ -835,13 +843,22 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         return false;
     }
     mLogWriterRunningFlag = true;
-    if (writeCheckpointFlag &&
-            (status = cp.write(logFileName,
+    if (writeCheckpointFlag) {
+        if ((status = cp.write(logFileName,
                 replayer.getCommitted(), replayer.getErrChksum())) != 0) {
-        KFS_LOG_STREAM_FATAL << "checkpoint initialization failure: " <<
-            QCUtils::SysError(-status) <<
-        KFS_LOG_EOM;
-        return false;
+            KFS_LOG_STREAM_FATAL << "checkpoint initialization failure: " <<
+                QCUtils::SysError(-status) <<
+            KFS_LOG_EOM;
+            return false;
+        }
+        if (gNetDispatch.GetMetaDataStore().Load(
+                mCPDir.c_str(),
+                mLogDir.c_str(),
+                mStartupProperties.getValue(
+                    "metaServer.cleanupTempFiles", 1) != 0,
+                ! veifyAllLogSegmentsPresentFlag)) {
+            return false;
+        }
     }
     const int err = gLayoutManager.GetUserAndGroup().Start();
     if (err != 0) {
@@ -849,13 +866,6 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             "failed to load user and grop info: " <<
                 QCUtils::SysError(err) <<
         KFS_LOG_EOM;
-        return false;
-    }
-    if (gNetDispatch.GetMetaDataStore().Load(
-            mCPDir.c_str(),
-            mLogDir.c_str(),
-            mStartupProperties.getValue("metaServer.cleanupTempFiles", 1) != 0,
-            ! veifyAllLogSegmentsPresentFlag)) {
         return false;
     }
     if (metatree.GetFsId() <= 0) {

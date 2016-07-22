@@ -1245,6 +1245,8 @@ private:
             KFS_LOG_EOM;
             return -EINVAL;
         }
+        mCheckpoints.clear();
+        mLogSegments.clear();
         CheckpointLoader theCheckpointLoader(*this, inCheckpointDirPtr);
         const bool       kLatestFileRequiredFlag = true;
         const bool       kCpHasSeqNumFlag        = false;
