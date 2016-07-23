@@ -4684,7 +4684,10 @@ const char* const KfsTool::sHelpStrings[] =
 
     "put", "<localsrc> ... <dst>",
     "Copy files from the local file system\n\t\t"
-    "into fs.\n",
+    "into fs. The default file configuration\n\t\t"
+    "is 6+3 Reed-Solomon Encoding with 64KB stripe size\n\t\t"
+    "and each chunk having 1 replica. Please use cptoqfs\n\t\t"
+    "tool to pass more options for file configuration.\n",
 
     "copyFromLocal", "<localsrc> ... <dst>",
     "Identical to the -put command.\n",
