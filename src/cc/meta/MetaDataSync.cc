@@ -266,8 +266,9 @@ public:
         mKfsNetClient.SetTimeSecBetweenRetries(inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("timeBetweenRetries"),
                 mKfsNetClient.GetTimeSecBetweenRetries()));
-        const Properties::String* const theServersPtr = inParameters.getValue(
-            theName.Truncate(thePrefLen).Append("servers"));
+        const Properties::String* const theServersPtr = mReplayerPtr ? 0 :
+            inParameters.getValue(
+                theName.Truncate(thePrefLen).Append("servers"));
         bool theOkFlag = true;
         if (theServersPtr) {
             const char*       thePtr      = theServersPtr->GetPtr();

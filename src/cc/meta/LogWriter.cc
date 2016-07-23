@@ -981,15 +981,15 @@ private:
             theBlockCommitted.mSeq
         );
         if (0 == theVrStatus) {
-        const int theStatus = mLogTransmitter.TransmitBlock(
-                inRequest.blockEndSeq,
-                (int)(inRequest.blockEndSeq.mLogSeq -
-                    inRequest.blockStartSeq.mLogSeq),
-                mMdStream.GetBufferedStart() + thePos,
-                theLen,
-                inRequest.blockChecksum,
-                theLen
-            );
+            const int theStatus = mLogTransmitter.TransmitBlock(
+                    inRequest.blockEndSeq,
+                    (int)(inRequest.blockEndSeq.mLogSeq -
+                        inRequest.blockStartSeq.mLogSeq),
+                    mMdStream.GetBufferedStart() + thePos,
+                    theLen,
+                    inRequest.blockChecksum,
+                    theLen
+                );
             if (0 != theStatus) {
                 KFS_LOG_STREAM_ERROR <<
                     "write block: block transmit failure:"

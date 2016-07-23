@@ -67,6 +67,7 @@ public:
         kStateViewChange      = 2,
         kStatePrimary         = 3,
         kStateBackup          = 4,
+        kStateLogSync         = 5,
         kStatesCount
     };
     enum { kMinActiveCount = 3 };
@@ -125,11 +126,14 @@ public:
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq)
     {
-        if (inBlockEndSeq < inCommittedSeq || ! inCommittedSeq.IsValid()) {
+        if (inBlockEndSeq < inBlockStartSeq ||
+                inBlockStartSeq < inCommittedSeq ||
+                ! inCommittedSeq.IsValid()) {
             panic("VR: invalid log block commit sequence");
             return -EINVAL;
         }
-        if (kStatePrimary != mState && kStateBackup != mState) {
+        if (kStatePrimary != mState && kStateBackup != mState &&
+                kStateLogSync != mState) {
             return -EVRNOTPRIMARY;
         }
         if (mCommittedSeq < inCommittedSeq) {
@@ -137,6 +141,10 @@ public:
         }
         if (mLastLogSeq < inBlockEndSeq) {
             mLastLogSeq = inBlockEndSeq;
+            if (kStateLogSync == mState &&
+                    mStartViewChangeMaxLastLogSeq <= mLastLogSeq) {
+                StartViewChange();
+            }
         }
         return 0;
     }
@@ -410,6 +418,8 @@ public:
                 return "primary";
             case kStateBackup:
                 return "backup";
+            case kStateLogSync:
+                return "log_sync";
             default: break;
         }
         return "invalid";
@@ -813,6 +823,7 @@ private:
                         }
                     }
                 }
+                mState = kStateLogSync;
                 mMetaDataSyncPtr->ScheduleLogSync(
                     mSyncServers, mLastLogSeq, mStartViewChangeMaxLastLogSeq);
             }
