@@ -12,33 +12,6 @@
 #
 #
 
-set(exe_files
-    dirfile_test
-    dirscan_test
-    reader_perftest
-    reader_test
-    readwrite_test
-    recordappend_test
-    seekwrite_test
-    truncate_test
-    writer_perftest
-    writer_test
-)
-
-#
-# Every executable depends on its namesake source with _main.cc
-#
-foreach(exe_file ${exe_files})
-    add_executable(${exe_file} ${exe_file}_main.cc)
-    if(USE_STATIC_LIB_LINKAGE)
-        add_dependencies(${exe_file} kfsClient)
-        target_link_libraries(${exe_file} kfsClient)
-    else()
-        add_dependencies(${exe_file} kfsClient-shared)
-        target_link_libraries(${exe_file} kfsClient-shared)
-    endif()
-endforeach()
-
 # Include all tests in their respective subdirectories into libqfstest
 set(test_sources
     integtest.cc
