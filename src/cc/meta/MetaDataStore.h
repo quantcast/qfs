@@ -76,6 +76,10 @@ public:
         { return "chkpt."; }
     static const char* GetLogSegmentFileNamePrefixPtr()
         { return "log."; }
+    static const char* GetCheckpointLatestFileNamePtr()
+        { return "latest"; }
+    static const char* GetLogSegmentLastFileNamePtr()
+        { return "last"; }
 private:
     class Impl;
     Impl& mImpl;

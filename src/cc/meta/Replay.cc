@@ -32,6 +32,7 @@
 #include "kfstree.h"
 #include "LayoutManager.h"
 #include "MetaVrSM.h"
+#include "MetaDataStore.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
@@ -284,7 +285,7 @@ Replay::logfile(seq_t num)
 string
 Replay::getLastLog()
 {
-    const char* kLast = "last";
+    const char* kLast = MetaDataStore::GetLogSegmentLastFileNamePtr();
     const string::size_type pos = path.rfind('/');
     if (string::npos != pos) {
         return path.substr(0, pos + 1) + kLast;

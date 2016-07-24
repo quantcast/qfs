@@ -1478,11 +1478,13 @@ private:
         if (0 != (theRet = RenameTmp(mCheckpointDir))) {
             return theRet;
         }
-        if (0 != (theRet = LinkLatest(mCheckpointFileName, "latest"))) {
+        if (0 != (theRet = LinkLatest(mCheckpointFileName,
+                MetaDataStore::GetCheckpointLatestFileNamePtr()))) {
             return theRet;
         }
         return (mLastLogFileName.empty() ? 0 :
-            LinkLatest(mLastLogFileName, "last"));
+            LinkLatest(mLastLogFileName,
+            MetaDataStore::GetLogSegmentLastFileNamePtr()));
     }
     template<typename FuncT>
     int ListDirEntries(
@@ -1744,7 +1746,7 @@ private:
             theFileName += '/';
         }
         outEmpytFsFlag = false;
-        theFileName +=  "latest";
+        theFileName +=  MetaDataStore::GetCheckpointLatestFileNamePtr();
         const int theFd = open(theFileName.c_str(), O_RDONLY);
         if (theFd < 0) {
             const int theErr = errno;

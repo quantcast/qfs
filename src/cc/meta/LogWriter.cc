@@ -119,8 +119,11 @@ public:
           mPanicOnIoErrorFlag(false),
           mSyncFlag(false),
           mWokenFlag(false),
-          mLastLogName("last"),
-          mLastLogPath(mLogDir + "/" + mLastLogName),
+          mLastLogPath(mLogDir + "/" +
+            MetaDataStore::GetLogSegmentLastFileNamePtr()),
+          mLogFilePos(0),
+          mLogFilePrevPos(0),
+          mLogFileMaxSize(8 << 20),
           mFailureSimulationInterval(0),
           mPrepareToForkFlag(false),
           mPrepareToForkDoneFlag(false),
@@ -222,6 +225,8 @@ public:
                 inLogAppendHexFlag ? ostream::hex : ostream::dec,
                 ostream::basefield
             );
+            mLogFilePos     = theSize;
+            mLogFilePrevPos = mLogFilePos;
             mNextBlockSeq = inLogAppendLastBlockSeq;
             if (inLogAppendLastBlockSeq < 0 || ! inLogAppendHexFlag ||
                     ! inLogNameHasSeqFlag) {
@@ -487,8 +492,10 @@ private:
     bool           mPanicOnIoErrorFlag;
     bool           mSyncFlag;
     bool           mWokenFlag;
-    string         mLastLogName;
     string         mLastLogPath;
+    int64_t        mLogFilePos;
+    int64_t        mLogFilePrevPos;
+    int64_t        mLogFileMaxSize;
     int64_t        mFailureSimulationInterval;
     bool           mPrepareToForkFlag;
     bool           mPrepareToForkDoneFlag;
@@ -716,7 +723,8 @@ private:
             theCurPtr = theEndPtr;
         }
         if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
-                mCurLogStartTime + mLogRotateInterval < mNetManager.Now()) {
+                (mLogFileMaxSize <= mLogFilePos ||
+                mCurLogStartTime + mLogRotateInterval < mNetManager.Now())) {
             StartNextLog();
         }
     }
@@ -807,10 +815,15 @@ private:
                 mTransmitterUpFlag = false;
             }
         }
+        LogStreamFlush();
+        StartBlock(mNextBlockChecksum);
+    }
+    void LogStreamFlush()
+    {
         mMdStream.SetSync(true);
+        mLogFilePrevPos = mLogFilePos;
         mReqOstream.flush();
         Sync();
-        StartBlock(mNextBlockChecksum);
     }
     void Sync()
     {
@@ -1001,9 +1014,7 @@ private:
                 mTransmitterUpFlag = false;
             }
         }
-        mMdStream.SetSync(true);
-        mReqOstream.flush();
-        Sync();
+        LogStreamFlush();
         if (IsLogStreamGood()) {
             inRequest.blockSeq  = mNextBlockSeq;
             mLastLogSeq         = inRequest.blockEndSeq;
@@ -1063,12 +1074,11 @@ private:
             mMdStream << "time/" << DisplayIsoDateTime() << "\n";
             const string theChecksum = mMdStream.GetMd();
             mMdStream << "checksum/" << theChecksum << "\n";
-            mMdStream.SetSync(true);
-            mMdStream.flush();
+            LogStreamFlush();
         } else {
             mLastLogSeq = mNextLogSeq;
+            Sync();
         }
-        Sync();
         if (0 <= mLogFd && Close() && link_latest(mLogName, mLastLogPath)) {
             IoError(errno, "failed to link to: " + mLastLogPath);
         }
@@ -1078,6 +1088,8 @@ private:
     {
         Close();
         mCurLogStartTime = mNetManager.Now();
+        mLogFilePos      = 0;
+        mLogFilePrevPos  = 0;
         mNextBlockSeq    = -1;
         mError           = 0;
         mWriteState      = kWriteStateNone;
@@ -1151,9 +1163,6 @@ private:
         mLogDir = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("logDir"),
             mLogDir);
-        mLastLogName = inParameters.getValue(
-            theName.Truncate(thePrefixLen).Append("lastLogName"),
-            mLastLogName);
         mLogRotateInterval = (time_t)max(4., inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("rotateIntervalSec"),
             mLogRotateInterval * 1.));
@@ -1166,7 +1175,10 @@ private:
         mFailureSimulationInterval = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
             mFailureSimulationInterval);
-        mLastLogPath = mLogDir + "/" + mLastLogName;
+        mLastLogPath = mLogDir + "/" + MetaDataStore::GetLogSegmentLastFileNamePtr();
+        mLogFileMaxSize = max(int64_t(64 << 10), inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("logFileMaxSize"),
+            mLogFileMaxSize));
         const int theStatus = mLogTransmitter.SetParameters(
             theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),
             inParameters
@@ -1208,10 +1220,51 @@ private:
             ssize_t           theNWr    = 0;
             while (thePtr < theEndPtr && 0 <= (theNWr = ::write(
                         mLogFd, inBufPtr, theEndPtr - thePtr))) {
-                thePtr += theNWr;
+                thePtr      += theNWr;
+                mLogFilePos += theNWr;
             }
             if (theNWr < 0) {
-                IoError(errno);
+                const int theErr = errno;
+                if (0 <= mLogFilePrevPos && mLogFilePrevPos <= mLogFilePos) {
+                    // Attempt to truncate the log segment in the hope that
+                    // in case of out of disk space doing so will produce valid
+                    // log segment.
+                    KFS_LOG_STREAM_ERROR <<
+                        "transaction log writer error:" <<
+                         " " << mLogName << ": " << QCUtils::SysError(theErr) <<
+                        " current position: "          << mLogFilePos <<
+                        " attempting to truncate to: " << mLogFilePrevPos <<
+                    KFS_LOG_EOM;
+                    if (ftruncate(mLogFd, mLogFilePrevPos)) {
+                        const int theErr = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "transaction log truncate error:" <<
+                             " " << mLogName << ": " <<
+                                QCUtils::SysError(theErr) <<
+                        KFS_LOG_EOM;
+                    } else {
+                        const off_t thePos =
+                            lseek(mLogFd, mLogFilePrevPos, SEEK_SET);
+                        if (thePos < 0) {
+                            const int theErr = errno;
+                            KFS_LOG_STREAM_ERROR <<
+                                "transaction log seek error:" <<
+                                 " "  << mLogName <<
+                                 ": " << QCUtils::SysError(theErr) <<
+                            KFS_LOG_EOM;
+                        } else {
+                            if (thePos != mLogFilePrevPos) {
+                                KFS_LOG_STREAM_ERROR <<
+                                    "transaction log seek error:" <<
+                                     " " << mLogName << ": "
+                                     "expected position: " << mLogFilePrevPos <<
+                                     " actual: "           << thePos <<
+                                KFS_LOG_EOM;
+                            }
+                        }
+                    }
+                }
+                IoError(theErr);
             }
         }
         return IsLogStreamGood();

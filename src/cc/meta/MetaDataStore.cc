@@ -1253,7 +1253,7 @@ private:
         int theRet = LoadDir(
             inCheckpointDirPtr,
             MetaDataStore::GetCheckpointFileNamePrefixPtr(),
-            "latest",
+            MetaDataStore::GetCheckpointLatestFileNamePtr(),
             ".tmp",
             '.',
             inRemoveTmpFilesFlag,
@@ -1280,7 +1280,8 @@ private:
             return -EINVAL;
         }
         LogSegmentLoader  theLogSegmentLoader(*this, inLogDirPtr);
-        const char* const kLastFileNamePtr      = "last";
+        const char* const kLastFileNamePtr      =
+            MetaDataStore::GetLogSegmentLastFileNamePtr();
         const bool        kLastFileRequiredFlag = false;
         const bool        kHasSeqNumFlag        = true;
         theRet = LoadDir(

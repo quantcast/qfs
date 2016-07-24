@@ -31,6 +31,7 @@
 #include "Replay.h"
 #include "ChildProcessTracker.h"
 #include "LayoutManager.h"
+#include "MetaDataStore.h"
 #include "meta.h"
 #include "kfstree.h"
 
@@ -107,7 +108,8 @@ checkpointer_setup_paths(const string& cpdir)
 {
     if (! cpdir.empty()) {
         sMetaServerGlobals.mCPDIR = cpdir;
-        sMetaServerGlobals.mLASTCP = cpdir + "/latest";
+        sMetaServerGlobals.mLASTCP = cpdir + "/" +
+            MetaDataStore::GetCheckpointLatestFileNamePtr();
         cp.setCPDir(cpdir);
     }
 }
