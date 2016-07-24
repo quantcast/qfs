@@ -116,7 +116,7 @@ public:
           mLogName(),
           mWriteState(kWriteStateNone),
           mLogRotateInterval(600),
-          mPanicOnIoErrorFlag(false),
+          mPanicOnIoErrorFlag(true),
           mSyncFlag(false),
           mWokenFlag(false),
           mLastLogPath(mLogDir + "/" +
@@ -1260,6 +1260,10 @@ private:
                                      "expected position: " << mLogFilePrevPos <<
                                      " actual: "           << thePos <<
                                 KFS_LOG_EOM;
+                            } else {
+                                mLogFilePos = mLogFilePrevPos;
+                                // mdstream state has no be restored in order to write
+                                // correct trailer.
                             }
                         }
                     }
