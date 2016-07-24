@@ -86,6 +86,7 @@ public:
           mMutex(),
           mStopFlag(false),
           mOmitDefaultsFlag(true),
+          mCommitUpdatedFlag(false),
           mMaxBlockSize(256),
           mPendingCount(0),
           mLogDir("./kfslog"),
@@ -325,6 +326,7 @@ public:
                 " chksum: " << mCommitted.mErrChkSum <<
             KFS_LOG_EOM;
         }
+        mCommitUpdatedFlag = true;
     }
     MetaVrLogSeq GetCommittedLogSeq() const
         { return mCommitted.mSeq; }
@@ -352,7 +354,7 @@ public:
     }
     void ScheduleFlush()
     {
-        if (mPendingQueue.IsEmpty()) {
+        if (mPendingQueue.IsEmpty() && ! mCommitUpdatedFlag) {
             return;
         }
         QCStMutexLocker theLock(mMutex);
@@ -465,6 +467,7 @@ private:
     QCMutex        mMutex;
     bool           mStopFlag;
     bool           mOmitDefaultsFlag;
+    bool           mCommitUpdatedFlag;
     int            mMaxBlockSize;
     int            mPendingCount;
     string         mLogDir;
@@ -1262,8 +1265,8 @@ private:
                                 KFS_LOG_EOM;
                             } else {
                                 mLogFilePos = mLogFilePrevPos;
-                                // mdstream state has no be restored in order to write
-                                // correct trailer.
+                                // MD stream state has no be restored in order
+                                // to produce correct trailer's MD.
                             }
                         }
                     }
