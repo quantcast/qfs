@@ -91,6 +91,8 @@ public:
         { return number; }
     MetaVrLogSeq getLastLogStart() const
         { return lastLogStart; }
+    MetaVrLogSeq getLastLogSeq() const
+        { return lastLogSeq; }
     seq_t getLastBlockSeq() const
         { return lastBlockSeq; }
     int playLine(const char* line, int len, seq_t blockSeq);
@@ -139,6 +141,7 @@ private:
     MetaVrLogSeq     checkpointCommitted;
     MetaVrLogSeq     committed;
     MetaVrLogSeq     lastLogStart;
+    MetaVrLogSeq     lastLogSeq;
     seq_t            lastBlockSeq;
     int64_t          errChecksum;
     int64_t          rollSeeds;
