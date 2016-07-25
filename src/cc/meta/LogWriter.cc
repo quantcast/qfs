@@ -615,6 +615,11 @@ private:
             Queue theTmp;
             ProcessPendingAckQueue(theTmp);
         }
+        if (0 != mVrStatus) {
+            mVrStatus = mMetaVrSM.GetStatus();
+            if (0 == mVrStatus) {
+            }
+        }
     }
     virtual void DispatchExit()
         {}

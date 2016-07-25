@@ -323,9 +323,7 @@ public:
     void Checkpoint(
         bool    inHexFlag,
         string& outStrBuf) const;
-    int GetEpochAndViewSeq(
-        seq_t& outEpochSeq,
-        seq_t& outViewSeq);
+    int GetStatus() const;
 private:
     class Impl;
     Impl& mImpl;

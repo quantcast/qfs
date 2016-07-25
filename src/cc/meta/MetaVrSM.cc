@@ -62,12 +62,13 @@ public:
 
     enum State
     {
-        kStateNone            = 0,
-        kStateReconfiguration = 1,
-        kStateViewChange      = 2,
-        kStatePrimary         = 3,
-        kStateBackup          = 4,
-        kStateLogSync         = 5,
+        kStateNone             = 0,
+        kStateReconfiguration  = 1,
+        kStateViewChange       = 2,
+        kStatePrimary          = 3,
+        kStateBackup           = 4,
+        kStateLogSync          = 5,
+        kStateStartViewPrimary = 6,
         kStatesCount
     };
     enum { kMinActiveCount = 3 };
@@ -105,6 +106,7 @@ public:
           mStartViewChangeMaxLastLogSeq(),
           mStartViewChangeMaxCommittedSeq(),
           mStartViewEpochMismatchCount(0),
+          mStartViewReplayCount(0),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
           mStartViewPtr(0),
@@ -119,7 +121,7 @@ public:
         {}
     ~Impl()
     {
-        Impl::CanceViewChange();
+        Impl::CancelViewChange();
     }
     int HandleLogBlock(
         const MetaVrLogSeq& inBlockStartSeq,
@@ -284,7 +286,42 @@ public:
             " node: "     << inNodeId <<
             " '"          << inReq.Show() <<
             " response: " << Show(inProps) <<
+            " replies: "  << mStartViewReplayCount <<
         KFS_LOG_EOM;
+        if (! IsActive(inNodeId) || kStateStartViewPrimary != mState) {
+            return;
+        }
+        const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
+        if (! theNewFlag) {
+            return;
+        }
+        const int theStatus = inProps.getValue("s", -1);
+        if (0 != theStatus) {
+            return;
+        }
+        const int theState = inProps.getValue(kMetaVrStateFieldNamePtr, -1);
+        if (! (theState == kStateViewChange ||
+                (theState == kStateStartViewPrimary && inNodeId == mNodeId))) {
+            return;
+        }
+        const seq_t theEpochSeq = inProps.getValue(
+            kMetaVrEpochSeqFieldNamePtr, seq_t(-1));
+        if (theEpochSeq != mEpochSeq) {
+            return;
+        }
+        const MetaVrLogSeq theLastLogSeq   = inProps.parseValue(
+            kMetaVrLastLogSeqFieldNamePtr, MetaVrLogSeq());
+        if (theLastLogSeq != mLastLogSeq) {
+            return;
+        }
+        if (mStartViewReplayCount++ < mQuorum) {
+            return;
+        }
+        CancelViewChange();
+        KFS_LOG_STREAM_INFO <<
+            "primary starting view: " << mEpochSeq << " " << mViewSeq <<
+        KFS_LOG_EOM;
+        mState = kStatePrimary;
     }
     void HandleReply(
         MetaVrReconfiguration& inReq,
@@ -309,6 +346,11 @@ public:
         if (kStatePrimary == mState || kStateBackup == mState) {
             mLastReceivedTime = inTime;
         }
+    }
+    int GetStatus() const
+    {
+        return (! mActiveFlag ?-EVRNOTPRIMARY : (kStatePrimary == mState ? 0 :
+            (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
     void Process(
         time_t inTimeNow,
@@ -340,8 +382,7 @@ public:
             }
         }
         mLastProcessTime = TimeNow();
-        outVrStatus      = kStatePrimary == mState ? 0 :
-            (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED);
+        outVrStatus      = GetStatus();
     }
     int Start(
         MetaDataSync&       inMetaDataSync,
@@ -365,7 +406,7 @@ public:
     }
     void Shutdown()
     {
-        CanceViewChange();
+        CancelViewChange();
         mStartedFlag = false;
     }
     int SetParameters(
@@ -420,6 +461,8 @@ public:
                 return "backup";
             case kStateLogSync:
                 return "log_sync";
+            case kStateStartViewPrimary:
+                return "start_view_primary";
             default: break;
         }
         return "invalid";
@@ -737,6 +780,7 @@ private:
     MetaVrLogSeq                 mStartViewChangeMaxLastLogSeq;
     MetaVrLogSeq                 mStartViewChangeMaxCommittedSeq;
     int                          mStartViewEpochMismatchCount;
+    int                          mStartViewReplayCount;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
     MetaVrStartView*             mStartViewPtr;
@@ -989,7 +1033,7 @@ private:
             }
         }
         Show(inReq);
-        return (0 == inReq.status); // Write to log if ok
+        return true;
     }
     bool Handle(
         MetaVrReconfiguration& inReq)
@@ -1608,7 +1652,7 @@ private:
         thePtr->SetVrSMPtr(0);
         MetaRequest::Release(thePtr);
     }
-    void CanceViewChange()
+    void CancelViewChange()
     {
         mReconfigureReqPtr = 0;
         Cancel(mStartViewChangePtr);
@@ -1619,6 +1663,7 @@ private:
         mStartViewChangeMaxLastLogSeq   = MetaVrLogSeq();
         mStartViewChangeMaxCommittedSeq = MetaVrLogSeq();
         mStartViewEpochMismatchCount    = 0;
+        mStartViewReplayCount           = 0;
     }
     void Init(
         MetaVrRequest& inReq)
@@ -1636,7 +1681,7 @@ private:
             panic("VR: start view change: node non active");
             return;
         }
-        CanceViewChange();
+        CancelViewChange();
         mState               = kStateViewChange;
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
@@ -1655,7 +1700,7 @@ private:
             panic("VR: do view change: node non active");
             return;
         }
-        CanceViewChange();
+        CancelViewChange();
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
         theOp.mPimaryNodeId = inPrimaryId;
@@ -1668,8 +1713,8 @@ private:
             panic("VR: start view: node non active");
             return;
         }
-        CanceViewChange();
-        mState = kStatePrimary;
+        CancelViewChange();
+        mState = kStateStartViewPrimary;
         MetaVrStartView& theOp = *(new MetaVrStartView());
         Init(theOp);
         mStartViewPtr = &theOp;
@@ -1840,11 +1885,9 @@ MetaVrSM::Checkpoint(
 }
 
     int
-MetaVrSM::GetEpochAndViewSeq(
-    seq_t& outEpochSeq,
-    seq_t& outViewSeq)
+MetaVrSM::GetStatus() const
 {
-    return mImpl.GetEpochAndViewSeq(outEpochSeq, outViewSeq);
+    return mImpl.GetStatus();
 }
 
 } // namespace KFS
