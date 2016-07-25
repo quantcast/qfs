@@ -802,7 +802,8 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         return false;
     }
     metatree.cleanupDumpster();
-    if (rollChunkIdSeedFlag) {
+    if (rollChunkIdSeedFlag && ! replayer.logSegmentHasLogSeq()) {
+        // Roll seeds only with prior log format with no chunk server inventory.
         const int64_t minRollChunkIdSeed = mStartupProperties.getValue(
             "metaServer.rollChunkIdSeed", int64_t(64) << 10);
         if (0 < minRollChunkIdSeed &&
