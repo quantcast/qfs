@@ -823,7 +823,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             mMetaDataSync,
             replayer.getLogNum() + ((writeCheckpointFlag ||
                 replayer.getAppendToLastLogFlag()) ? 0 : 1),
-            replayer.getCommitted(),
+            replayer.getLastLogSeq(),
             replayer.getCommitted(),
             fileID.getseed(),
             replayer.getErrChksum(),
