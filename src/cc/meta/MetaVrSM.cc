@@ -148,7 +148,7 @@ public:
                 StartViewChange();
             }
         }
-        return 0;
+        return GetStatus();
     }
     bool Handle(
         MetaRequest&        inReq,
@@ -349,7 +349,7 @@ public:
     }
     int GetStatus() const
     {
-        return (! mActiveFlag ?-EVRNOTPRIMARY : (kStatePrimary == mState ? 0 :
+        return (! mActiveFlag ? -EVRNOTPRIMARY : (kStatePrimary == mState ? 0 :
             (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
     void Process(
