@@ -195,25 +195,6 @@ RandomSeqNo()
     return ((ret < 0 ? -ret : ret) >> 1);
 }
 
-static int
-ValidateCreateParams(
-    int numReplicas, int numStripes, int numRecoveryStripes,
-    int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier)
-{
-    return (
-        (numReplicas < 0 ||
-        (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
-            ! RSStriperValidate(
-                stripedType, numStripes, numRecoveryStripes, stripeSize, 0)) ||
-        (minSTier > maxSTier ||
-            maxSTier > kKfsSTierMax ||
-            minSTier > kKfsSTierMax ||
-            maxSTier < kKfsSTierMin ||
-            minSTier < kKfsSTierMin)
-        ) ? -EINVAL : 0
-    );
-}
-
 KfsClient::KfsClient(KfsNetClient* metaServer)
     : mImpl(new KfsClientImpl(metaServer))
 {
@@ -461,6 +442,39 @@ int
 KfsClient::VerifyDataChecksums(int fd)
 {
     return mImpl->VerifyDataChecksums(fd);
+}
+
+/*static*/ int
+KfsClient::ValidateCreateParams(
+    int numReplicas, int numStripes, int numRecoveryStripes,
+    int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier,
+    string* outErrMsgPtr)
+{
+    if (numReplicas < 0) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "invalid parameters: number of replicas can't be less than 0";
+        }
+        return -EINVAL;
+    }
+
+    if (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
+            ! RSStriperValidate(
+                stripedType, numStripes, numRecoveryStripes, stripeSize, outErrMsgPtr)) {
+        return -EINVAL;
+    }
+
+    if (minSTier > maxSTier ||
+            maxSTier > kKfsSTierMax ||
+            minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin ||
+            minSTier < kKfsSTierMin) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "invalid parameters: invalid tier configuration";
+        }
+        return -EINVAL;
+    }
+
+    return 0;
 }
 
 /* static */ int
@@ -3300,7 +3314,7 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     }
 
     assert(mMutex.IsOwned());
-    int res = ValidateCreateParams(numReplicas, numStripes, numRecoveryStripes,
+    int res = KfsClient::ValidateCreateParams(numReplicas, numStripes, numRecoveryStripes,
         stripeSize, stripedType, minSTier, maxSTier);
     if (res < 0) {
         return res;

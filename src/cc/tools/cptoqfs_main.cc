@@ -283,6 +283,15 @@ CpToKfs::Run(int argc, char **argv)
         mStriperType = KFS_STRIPED_FILE_TYPE_RS;
     }
 
+    string valErrorMsg;
+    int valErrCode = KfsClient::ValidateCreateParams(
+        mNumReplicas, mNumStripes, mNumRecoveryStripes, mStripeSize, mStriperType,
+        mMinSTier, mMaxSTier, &valErrorMsg);
+    if (valErrCode) {
+        cout << valErrorMsg << "\n";
+        return(-1);
+    }
+
     MsgLogger::Init(0, logLevel);
     mKfsClient = KfsClient::Connect(serverHost, port, config);
     if (!mKfsClient) {
