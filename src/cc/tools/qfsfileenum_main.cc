@@ -86,9 +86,17 @@ main(int argc, char **argv)
 
     if (help || ! server || port < 0) {
         cout << "Usage: " << argv[0] <<
-            " -s <server name> -p <port> [-f <path>] [-v] -c <config file>"
-            " [-e] [<path>] ...\n"
-            "Enumerate blocks and sizes of the files.\n";
+            " -s <server name> -p <port> [-f <path>] [-v] [-c <config file>]"
+            " [-e] <path> ...\n"
+            "Enumerate blocks and sizes of the files.\n"
+            " -s              -- meta server name or ip\n"
+            " -p              -- meta server port\n"
+            " [-f <path>]     -- enumerate blocks for the given file path\n"
+            "                    and don't display the filename in output\n"
+            " [-v]            -- verbose debug trace\n"
+            " [-c <cfg-file>] -- use given configuration file\n"
+            " [-e]            -- only show missing blocks or blocks with invalid size\n"
+            " <path> ...      -- one or more file paths to enumerate\n";
         return 1;
     }
 
