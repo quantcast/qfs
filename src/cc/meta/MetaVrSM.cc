@@ -164,16 +164,14 @@ public:
             case META_VR_RECONFIGURATION:
                 return Handle(static_cast<MetaVrReconfiguration&>(inReq));
             case META_LOG_WRITER_CONTROL:
+            case META_VR_LOG_START_VIEW:
                 return false;
             default:
-                if (kStatePrimary != mState) {
+                if (kStateBackup == mState) {
                     inReq.status    = -EVRNOTPRIMARY;
                     inReq.statusMsg = "not primary, state: ";
                     inReq.statusMsg += GetStateName(mState);
                     return true;
-                }
-                if (inLastLogSeq.IsValid()) {
-                    mLastLogSeq = inLastLogSeq;
                 }
                 break;
         }
@@ -206,7 +204,7 @@ public:
             return;
         }
         const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
-        const int  theStatus  = inProps.getValue("s", -1);
+        const int  theStatus  = inProps.getValue("s", -ETIMEDOUT);
         if (0 != theStatus) {
             const int theState = inProps.getValue(
                 kMetaVrStateFieldNamePtr, -1);
@@ -295,7 +293,7 @@ public:
         if (! theNewFlag) {
             return;
         }
-        const int theStatus = inProps.getValue("s", -1);
+        const int theStatus = inProps.getValue("s", -ETIMEDOUT);
         if (0 != theStatus) {
             return;
         }
@@ -353,9 +351,11 @@ public:
             (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
     void Process(
-        time_t inTimeNow,
-        int&   outVrStatus)
+        time_t       inTimeNow,
+        int&         outVrStatus,
+        MetaRequest* outReqPtr)
     {
+        outReqPtr = 0;
         mTimeNow = inTimeNow;
         if (! mActiveFlag) {
             mLastProcessTime = TimeNow();
@@ -1806,10 +1806,11 @@ MetaVrSM::SetLastLogReceivedTime(
 
     void
 MetaVrSM::Process(
-    time_t inTimeNow,
-    int&   outVrStatus)
+    time_t       inTimeNow,
+    int&         outVrStatus,
+    MetaRequest* outReqPtr)
 {
-    mImpl.Process(inTimeNow, outVrStatus);
+    mImpl.Process(inTimeNow, outVrStatus, outReqPtr);
 }
 
     int

@@ -165,7 +165,8 @@ using std::less;
     f(VR_START_VIEW_CHANGE) \
     f(VR_DO_VIEW_CHANGE) \
     f(VR_START_VIEW) \
-    f(VR_RECONFIGURATION)
+    f(VR_RECONFIGURATION) \
+    f(VR_LOG_START_VIEW)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,

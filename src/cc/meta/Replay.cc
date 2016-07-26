@@ -32,6 +32,7 @@
 #include "kfstree.h"
 #include "LayoutManager.h"
 #include "MetaVrSM.h"
+#include "MetaVrOps.h"
 #include "MetaDataStore.h"
 
 #include "common/MdStream.h"
@@ -163,19 +164,33 @@ public:
             handleOp(*mCurOp);
         }
     }
+    bool IsCurOpLogSeqValid() const
+    {
+        if (! mReplayer || ! mCurOp) {
+            return true;
+        }
+        MetaVrLogSeq next = mLastLogAheadSeq;
+        next.mLogSeq++;
+        if (next == mCurOp->logseq || META_VR_LOG_START_VIEW == mCurOp->op) {
+            return true;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            "replay logseq mismatch:"
+            " expected: "  << next <<
+            " actual: "    << mCurOp->logseq <<
+            " "            << mCurOp->Show() <<
+        KFS_LOG_EOM;
+        return false;
+    }
     void replayCurOp()
     {
         if (! mCurOp || 1 != mSubEntryCount) {
             panic("invalid replay current op invocation");
             return;
         }
-        if (mReplayer) {
-            MetaVrLogSeq next = mLastLogAheadSeq;
-            next.mLogSeq++;
-            if (next != mCurOp->logseq) {
-                panic("invalid current op log sequence");
-                return;
-            }
+        if (! IsCurOpLogSeqValid()) {
+            panic("invalid current op log sequence");
+            return;
         }
         handle();
     }
@@ -235,6 +250,9 @@ public:
         mLastCommitted    = mBlockStartLogSeq;
         mCommitQueue.clear();
         return true;
+    }
+    void handleStartView(MetaVrLogStartView& op)
+    {
     }
 
     CommitQueue   mCommitQueue;
@@ -1347,18 +1365,8 @@ replay_log_ahead_entry(DETokenizer& c)
         KFS_LOG_EOM;
         return false;
     }
-    if (state.mReplayer) {
-        MetaVrLogSeq next = state.mLastLogAheadSeq;
-        next.mLogSeq++;
-        if (next != state.mCurOp->logseq) {
-            KFS_LOG_STREAM_ERROR <<
-                "replay logseq mismatch:"
-                " expected: "  << next <<
-                " actual: "    << state.mCurOp->logseq <<
-                " "            << state.mCurOp->Show() <<
-            KFS_LOG_EOM;
-            return false;
-        }
+    if (! state.IsCurOpLogSeqValid()) {
+        return false;
     }
     state.mCurOp->replayFlag = true;
     state.handle();
@@ -2363,6 +2371,20 @@ Replay::getLastLogNum()
         }
     }
     return ret;
+}
+
+void
+Replay::handle(MetaVrLogStartView& op)
+{
+    if (0 != op.status || ! op.Validate()) {
+        panic("replay: invalid log start view log entry");
+        op.status = -EINVAL;
+        return;
+    }
+    if (! op.replayFlag) {
+        return;
+    }
+    replayTokenizer.GetState().handleStartView(op);
 }
 
 } // namespace KFS

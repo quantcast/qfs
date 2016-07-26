@@ -243,24 +243,15 @@ MakeMetaRequestHandler(
 }
 
 template<typename T>
-    static T&
-AddVrLogOps(
-    T& inHandler)
-{
-    return inHandler
-    .MakeParser("VSV",
-        META_VR_START_VIEW,
-        static_cast<const MetaVrStartView*>(0))
-    ;
-}
-
-template<typename T>
     static const T&
 MakeMetaRequestLogXmitHandler(
     const T* inNullPtr = 0)
 {
     static T sHandler;
-    return AddVrLogOps(sHandler)
+    return sHandler
+    .MakeParser("VSV",
+        META_VR_START_VIEW,
+        static_cast<const MetaVrStartView*>(0))
     .MakeParser("AUTHENTICATE",
         META_AUTHENTICATE,
         static_cast<const MetaAuthenticate*>(0))
@@ -828,7 +819,7 @@ MakeLogMetaRequestHandler(
 {
     const bool kShortNamesFlag = true;
     static T sHandler;
-    return AddVrLogOps(AddMetaRequestLog(sHandler, kShortNamesFlag))
+    return AddMetaRequestLog(sHandler, kShortNamesFlag)
     .MakeParser("CS",
         META_CHUNK_SIZE,
         static_cast<const MetaChunkSize*>(0))
@@ -871,6 +862,9 @@ MakeLogMetaRequestHandler(
     .MakeParser("HR",
         META_HIBERNATED_REMOVE,
         static_cast<const MetaHibernatedRemove*>(0))
+    .MakeParser("VRSV",
+        META_VR_LOG_START_VIEW,
+        static_cast<const MetaVrLogStartView*>(0))
     ;
 }
 

@@ -52,6 +52,17 @@ class MetaVrRequest : public MetaRequest
 public:
     typedef MetaVrSM::Config::NodeId NodeId;
 
+    seq_t        mEpochSeq;
+    seq_t        mViewSeq;
+    MetaVrLogSeq mCommittedSeq;
+    MetaVrLogSeq mLastLogSeq;
+    NodeId       mNodeId;
+    seq_t        mRetCurEpochSeq;
+    seq_t        mRetCurViewSeq;
+    MetaVrLogSeq mRetCommittedSeq;
+    MetaVrLogSeq mRetLastLogSeq;
+    int          mRetCurState;
+
     MetaVrRequest(
         MetaOp    inOpType,
         LogAction inLogAction,
@@ -73,18 +84,6 @@ public:
         MetaVrRequest::Ref();
         shortRpcFormatFlag = false;
     }
-
-    seq_t        mEpochSeq;
-    seq_t        mViewSeq;
-    MetaVrLogSeq mCommittedSeq;
-    MetaVrLogSeq mLastLogSeq;
-    NodeId       mNodeId;
-    seq_t        mRetCurEpochSeq;
-    seq_t        mRetCurViewSeq;
-    MetaVrLogSeq mRetCommittedSeq;
-    MetaVrLogSeq mRetLastLogSeq;
-    int          mRetCurState;
-
     bool Validate() const
     {
         return (0 <= mEpochSeq && 0 <= mViewSeq);
@@ -93,13 +92,13 @@ public:
     static T& ParserDef(
         T& inParser)
     {
-        return LogAndIoDefs(MetaRequest::ParserDef(inParser));
-    }
-    template<typename T>
-    static T& LogIoDef(
-        T& inParser)
-    {
-        return LogAndIoDefs(MetaRequest::LogIoDef(inParser));
+        return inParser
+        .Def("E",  &MetaVrRequest::mEpochSeq,          seq_t(-1))
+        .Def("V",  &MetaVrRequest::mViewSeq,           seq_t(-1))
+        .Def("C",  &MetaVrRequest::mCommittedSeq                )
+        .Def("L",  &MetaVrRequest::mLastLogSeq                  )
+        .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
+        ;
     }
     void Request(
         ReqOstream& inStream) const;
@@ -129,18 +128,6 @@ public:
     void SetVrSMPtr(
         MetaVrSM* inPtr)
         { mVrSMPtr = inPtr; }
-protected:
-    MetaVrSM* mVrSMPtr;
-    int       mRefCount;
-
-    virtual ~MetaVrRequest()
-    {
-        if (0 != mRefCount) {
-            panic("~MetaVrRequest: invalid ref count");
-        }
-    }
-    bool ResponseHeader(
-        ReqOstream& inOs);
     virtual void response(
         ReqOstream& inOs)
     {
@@ -167,6 +154,18 @@ protected:
         }
         inOs << "\r\n";
     }
+protected:
+    MetaVrSM* mVrSMPtr;
+    int       mRefCount;
+
+    virtual ~MetaVrRequest()
+    {
+        if (0 != mRefCount) {
+            panic("~MetaVrRequest: invalid ref count");
+        }
+    }
+    bool ResponseHeader(
+        ReqOstream& inOs);
     template<typename T>
     void HandleReply(
         T&                inReq,
@@ -180,18 +179,6 @@ protected:
     }
     virtual void ReleaseSelf()
         { Unref(); }
-    template<typename T>
-    static T& LogAndIoDefs(
-        T& inParser)
-    {
-        return inParser
-        .Def("E",  &MetaVrRequest::mEpochSeq,          seq_t(-1))
-        .Def("V",  &MetaVrRequest::mViewSeq,           seq_t(-1))
-        .Def("C",  &MetaVrRequest::mCommittedSeq                )
-        .Def("L",  &MetaVrRequest::mLastLogSeq                  )
-        .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
-        ;
-    }
 private:
     MetaVrRequest(
         const MetaVrRequest& inRequest);
@@ -257,14 +244,6 @@ public:
         T& inParser)
     {
         return MetaVrRequest::ParserDef(inParser)
-        .Def("P", &MetaVrDoViewChange::mPimaryNodeId,  seq_t(-1))
-        ;
-    }
-    template<typename T>
-    static T& LogIoDef(
-        T& inParser)
-    {
-        return MetaVrRequest::LogIoDef(inParser)
         .Def("P", &MetaVrDoViewChange::mPimaryNodeId,  seq_t(-1))
         ;
     }
@@ -397,6 +376,73 @@ public:
     }
 protected:
     virtual ~MetaVrReconfiguration()
+        {}
+};
+
+class MetaVrLogStartView : public MetaRequest
+{
+public:
+    typedef MetaVrSM::Config::NodeId NodeId;
+
+    MetaVrLogSeq mCommittedSeq;
+    MetaVrLogSeq mNewLogSeq;
+    NodeId       mNodeId;
+    seq_t        mSeed;
+    int64_t      mErrorChecksum;
+    int          mLastStatus;
+
+    MetaVrLogStartView()
+        : MetaRequest(META_VR_LOG_START_VIEW, kLogIfOk),
+          mCommittedSeq(),
+          mNewLogSeq(),
+          mNodeId(-1),
+          mSeed(-1),
+          mErrorChecksum(-1),
+          mLastStatus(-1)
+        {}
+    bool Validate()
+    {
+        return (0 <= mNodeId && mCommittedSeq.IsValid() &&
+            mNewLogSeq.IsValid() && mCommittedSeq < mNewLogSeq);
+    }
+    virtual bool start()
+    {
+        if (! Validate()) {
+            status    = -EINVAL;
+            statusMsg = "invalid VR vr-log-start-view";
+        }
+        return (0 == status);
+    }
+    virtual void handle();
+    virtual void response(
+        ReqOstream& /* inStream */)
+    {
+        panic("vr-log-start-view: unexpected response method invocation");
+    }
+    virtual ostream& ShowSelf(
+        ostream& inOs) const
+    {
+        return (inOs <<
+            "vr-log-start-view:"
+            " committed: " << mCommittedSeq <<
+            " new log: "   << mNewLogSeq <<
+            " node: "      << mNodeId
+        );
+    }
+    template<typename T>
+    static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("C",  &MetaVrLogStartView::mCommittedSeq              )
+        .Def("L",  &MetaVrLogStartView::mNewLogSeq                 )
+        .Def("N",  &MetaVrLogStartView::mNodeId,         NodeId(-1))
+        .Def("S",  &MetaVrLogStartView::mSeed,            seq_t(-1))
+        .Def("K",  &MetaVrLogStartView::mErrorChecksum, int64_t(-1))
+        .Def("LS", &MetaVrLogStartView::mLastStatus,        int(-1))
+        ;
+    }
+protected:
+    virtual ~MetaVrLogStartView()
         {}
 };
 

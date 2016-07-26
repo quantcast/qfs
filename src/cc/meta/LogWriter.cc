@@ -32,6 +32,7 @@
 #include "MetaVrSM.h"
 #include "Checkpoint.h"
 #include "MetaVrLogSeq.h"
+#include "MetaVrOps.h"
 #include "util.h"
 
 #include "common/MsgLogger.h"
@@ -594,15 +595,18 @@ private:
         if (theStopFlag) {
             mMetaVrSM.Shutdown();
         }
-        const int theVrStatus = mVrStatus;
-        mMetaVrSM.Process(mNetManager.Now(), mVrStatus);
-        if (0 != mVrStatus) {
-            if (0 == theVrStatus && 0 == mEnqueueVrStatus) {
+        int theVrStatus = mVrStatus;
+        MetaRequest* theReqPtr = 0;
+        mMetaVrSM.Process(mNetManager.Now(), theVrStatus, theReqPtr);
+        if (theReqPtr) {
+            theWriteQueue.PushBack(*theReqPtr);
+        }
+        if (0 != theVrStatus) {
+            if (0 == mVrStatus && 0 == mEnqueueVrStatus) {
                 mEnqueueVrStatus = theVrStatus - 1;
                 SyncAddAndFetch(mEnqueueVrStatus, 1);
             }
-        } else {
-            mEnqueueVrStatus = 0;
+            mVrStatus = theVrStatus;
         }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
@@ -614,11 +618,6 @@ private:
         if (mWokenFlag) {
             Queue theTmp;
             ProcessPendingAckQueue(theTmp);
-        }
-        if (0 != mVrStatus) {
-            mVrStatus = mMetaVrSM.GetStatus();
-            if (0 == mVrStatus) {
-            }
         }
     }
     virtual void DispatchExit()
@@ -669,7 +668,11 @@ private:
                     theEndBlockSeq = mNextLogSeq.mLogSeq + mMaxBlockSize;
                     continue;
                 }
-                if (! theStream || ! theTransmitterUpFlag) {
+                if (META_VR_LOG_START_VIEW == thePtr->op && theStream) {
+                    if (thePtr != theCurPtr) {
+                        break;
+                    }
+                } else if (! theStream || ! theTransmitterUpFlag) {
                     continue;
                 }
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
@@ -703,12 +706,27 @@ private:
             }
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
             if (mNextLogSeq < mLastLogSeq &&
-                    theTransmitterUpFlag && IsLogStreamGood()) {
+                    (theTransmitterUpFlag ||
+                        META_VR_LOG_START_VIEW == theCurPtr->op) &&
+                    IsLogStreamGood()) {
                 FlushBlock(mLastLogSeq);
             }
-            if (IsLogStreamGood() &&
-                    ! theSimulateFailureFlag && theTransmitterUpFlag) {
-                mNextLogSeq = mLastLogSeq;
+            if (IsLogStreamGood() && ! theSimulateFailureFlag &&
+                    (theTransmitterUpFlag ||
+                        META_VR_LOG_START_VIEW == theCurPtr->op)) {
+                if (META_VR_LOG_START_VIEW == theCurPtr->op) {
+                    MetaVrLogStartView& theOp =
+                        *static_cast<MetaVrLogStartView*>(theCurPtr);
+                    mNextLogSeq = theOp.mNewLogSeq;
+                    mLastLogSeq = mNextLogSeq;
+                } else {
+                    mNextLogSeq = mLastLogSeq;
+                }
+                mVrStatus = mMetaVrSM.GetStatus();
+                if (0 == mVrStatus) {
+                    mEnqueueVrStatus = 0;
+                }
+                mNetManager.Wakeup();
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.

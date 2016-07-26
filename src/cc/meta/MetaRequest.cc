@@ -6433,4 +6433,10 @@ MetaVrReconfiguration::response(ReqOstream &os)
     os << "\r\n";
 }
 
+void
+MetaVrLogStartView::handle()
+{
+    replayer.handle(*this);
+}
+
 } /* namespace KFS */
