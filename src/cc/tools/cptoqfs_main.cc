@@ -45,7 +45,6 @@
 namespace KFS
 {
 using std::cout;
-using std::endl;
 using std::string;
 
 class CpToKfs
@@ -127,8 +126,7 @@ private:
         cout <<
             (what ? what : "") <<
             " " << fname <<
-            " " << ErrorCodeToStr(err) <<
-        endl;
+            " " << ErrorCodeToStr(err) << "\n";
     }
 };
 
@@ -295,7 +293,7 @@ CpToKfs::Run(int argc, char **argv)
     MsgLogger::Init(0, logLevel);
     mKfsClient = KfsClient::Connect(serverHost, port, config);
     if (!mKfsClient) {
-        cout << "qfs client failed to initialize" << endl;
+        cout << "qfs client failed to initialize\n";
         return(-1);
     }
     if (maxRetry > 0) {
