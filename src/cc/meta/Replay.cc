@@ -268,6 +268,40 @@ public:
     void handleStartView(MetaVrLogStartView& op)
     {
     }
+    bool setReplayState(
+        const MetaVrLogSeq& committed,
+        int64_t             errChecksum,
+        int                 lastCommittedStatus,
+        MetaRequest*        commitQueue)
+    {
+        if (mCurOp || ! mReplayer) {
+            return false;
+        }
+        if (! mCommitQueue.empty() && ! runCommitQueue(
+                committed,
+                fileID.getseed(),
+                lastCommittedStatus,
+                errChecksum)) {
+            return false;
+        }
+        mLastCommitted       = committed;
+        mBlockStartLogSeq    = committed;
+        mLastLogAheadSeq     = committed;
+        mLogAheadErrChksum   = errChecksum;
+        mLastCommittedStatus = lastCommittedStatus;
+        mLogAheadErrChksum   = errChecksum;
+        mSubEntryCount       = 0;
+        MetaRequest* next = commitQueue;
+        while (next) {
+            MetaRequest& op = *next;
+            next = op.next;
+            op.next = 0;
+            mLastLogAheadSeq = op.logseq;
+            mCommitQueue.push_back(
+                ReplayState::CommitQueueEntry(op.logseq, 0, 0, 0, &op));
+        }
+        return true;
+    }
 
     CommitQueue   mCommitQueue;
     MetaVrLogSeq  mCheckpointCommitted;
@@ -2399,6 +2433,17 @@ Replay::handle(MetaVrLogStartView& op)
         return;
     }
     replayTokenizer.GetState().handleStartView(op);
+}
+
+bool
+Replay::setReplayState(
+    const MetaVrLogSeq& committed,
+    int64_t             errChecksum,
+    int                 lastCommittedStatus,
+    MetaRequest*        commitQueue)
+{
+    return replayTokenizer.GetState().setReplayState(
+        committed, errChecksum, lastCommittedStatus, commitQueue);
 }
 
 } // namespace KFS

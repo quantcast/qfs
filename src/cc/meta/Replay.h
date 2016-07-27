@@ -43,6 +43,7 @@ using std::istream;
 class DETokenizer;
 class DiskEntry;
 class MetaVrLogStartView;
+struct MetaRequest;
 
 class Replay
 {
@@ -105,6 +106,11 @@ public:
     MetaVrLogSeq getCheckpointCommitted() const
         { return checkpointCommitted; }
     void handle(MetaVrLogStartView& op);
+    bool setReplayState(
+        const MetaVrLogSeq& committed,
+        int64_t             errChecksum,
+        int                 lastCommittedStatus,
+        MetaRequest*        commitQueue);
 
     class BlockChecksum
     {
