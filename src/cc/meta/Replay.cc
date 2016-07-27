@@ -123,8 +123,7 @@ public:
         {}
     ~ReplayState()
     {
-        MetaRequest::Release(mCurOp);
-        mCurOp = 0;
+        curOpDone();
     }
     bool runCommitQueue(
         const MetaVrLogSeq& logSeq,
@@ -136,8 +135,7 @@ public:
         if (0 != mSubEntryCount) {
             return false;
         }
-        MetaRequest::Release(mCurOp);
-        mCurOp = 0;
+        curOpDone();
         mLastLogAheadSeq.mLogSeq++;
         return true;
     }
@@ -210,27 +208,25 @@ public:
         entry.status      = status;
         entry.op          = 0;
         if (&op != mCurOp && ! op.suspended) {
-            MetaRequest::Release(&op);
+            opDone(op);
         }
     }
     void handleOp(MetaRequest& op)
     {
-        op.seqno = MetaRequest::GetLogWriter().GetNextSeq();
+        if (op.replayFlag) {
+            op.seqno = MetaRequest::GetLogWriter().GetNextSeq();
+        }
         op.handle();
         KFS_LOG_STREAM_DEBUG <<
-            (mReplayer ? "replay:" : "handle:") <<
+            (mReplayer ? (op.replayFlag ? "replay:" : "commit") : "handle:") <<
             " logseq: " << op.logseq <<
             " "         << hex << op.logseq << dec <<
             " status: " << op.status <<
             " "         << op.statusMsg <<
             " "         << op.Show() <<
         KFS_LOG_EOM;
-        if (op.suspended) {
-            if (&op == mCurOp) {
-                mCurOp = 0;
-            }
-        } else {
-            op.replayFlag = false;
+        if (op.suspended && &op == mCurOp) {
+            mCurOp = 0;
         }
     }
     bool commmitAll()
@@ -250,6 +246,24 @@ public:
         mLastCommitted    = mBlockStartLogSeq;
         mCommitQueue.clear();
         return true;
+    }
+    void curOpDone()
+    {
+        if (! mCurOp) {
+            return;
+        }
+        MetaRequest& op = *mCurOp;
+        mCurOp = 0;
+        opDone(op);
+    }
+    static void opDone(MetaRequest& op)
+    {
+        if (op.replayFlag) {
+            op.replayFlag = false;
+            MetaRequest::Release(&op);
+        } else {
+            submit_request(&op);
+        }
     }
     void handleStartView(MetaVrLogStartView& op)
     {
