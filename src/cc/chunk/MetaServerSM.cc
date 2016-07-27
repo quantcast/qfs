@@ -700,8 +700,10 @@ MetaServerSM::HandleReply(IOBuffer& iobuf, int msgLen)
         if (mHelloOp) {
             if (status == -EBADCLUSTERKEY) {
                 KFS_LOG_STREAM_FATAL <<
-                    "exiting due to cluster key mismatch; our key: " <<
-                    mClusterKey <<
+                    "exiting due to cluster key mismatch," <<
+                    " or md5sum mismatch;" <<
+                    " our key: " << mClusterKey <<
+                    " our md5sum: " << mMD5Sum <<
                 KFS_LOG_EOM;
                 globalNetManager().Shutdown();
                 return false;
