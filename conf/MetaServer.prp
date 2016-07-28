@@ -18,6 +18,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
+#
+# The metaserver configuration.
+# Additional information can be found in
+# https://github.com/quantcast/qfs/wiki/Configuration-Reference.
 
 # Client listener port.
 metaServer.clientPort = 20000
@@ -60,7 +64,7 @@ metaServer.cpDir = meta/checkpoint
 # automatically creating an empty fs will have the same effect as conventional
 # "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint
 # and logs later won't be sufficient to recover the data.
-# Use "-c" command line option to create new empty file system. For exampe:
+# Use "-c" command line option to create new empty file system. For example:
 # metaserver -c MetaServer.prp
 # metaServer.createEmptyFs = 0
 
@@ -529,7 +533,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # ---------------------------------- Message log. ------------------------------
 
 # Message log level FATAL, ALERT, CRIT, ERROR, WARN, NOTICE, INFO, DEBUG
-# Defaul is DEBUG, except for non debug builds with NDEBUG defined INFO is
+# Default is DEBUG, except for non debug builds with NDEBUG defined INFO is
 # default.
 metaServer.msgLogWriter.logLevel = INFO
 
