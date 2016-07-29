@@ -1074,8 +1074,6 @@ public:
             MetaRequest::Release(&inOp);
             return;
         }
-        inOp.next = 0;
-        mPendingCommitQueue.PushBack(inOp);
         if (inOp.blockCommitted <= mLastCommit) {
             if (inOp.blockCommitted < mLastCommit) {
                 panic("log block: invalid commit sequence");
@@ -1083,14 +1081,13 @@ public:
             return;
         }
         mLastCommit = inOp.blockCommitted;
+        inOp.next = 0;
+        mPendingCommitQueue.PushBack(inOp);
         bool         theUpdateCommittedFlag = false;
         MetaRequest* thePtr;
         while ((thePtr = mPendingCommitQueue.Front())) {
             MetaLogWriterControl& theCur =
                 *static_cast<MetaLogWriterControl*>(thePtr);
-            if (mLastCommit < theCur.blockEndSeq) {
-                break;
-            }
             KFS_LOG_STREAM_DEBUG <<
                 "replaying: " << theCur.Show() <<
             KFS_LOG_EOM;

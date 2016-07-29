@@ -33,6 +33,7 @@
 #include "Checkpoint.h"
 #include "MetaVrLogSeq.h"
 #include "MetaVrOps.h"
+#include "Replay.h"
 #include "util.h"
 
 #include "common/MsgLogger.h"
@@ -88,6 +89,7 @@ public:
           mStopFlag(false),
           mOmitDefaultsFlag(true),
           mCommitUpdatedFlag(false),
+          mSetReplayStateFlag(false),
           mMaxBlockSize(256),
           mPendingCount(0),
           mLogDir("./kfslog"),
@@ -95,6 +97,7 @@ public:
           mInQueue(),
           mOutQueue(),
           mPendingAckQueue(),
+          mReplayCommitQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
           mNextLogSeq(),
@@ -469,6 +472,7 @@ private:
     bool           mStopFlag;
     bool           mOmitDefaultsFlag;
     bool           mCommitUpdatedFlag;
+    bool           mSetReplayStateFlag;
     int            mMaxBlockSize;
     int            mPendingCount;
     string         mLogDir;
@@ -476,6 +480,7 @@ private:
     Queue          mInQueue;
     Queue          mOutQueue;
     Queue          mPendingAckQueue;
+    Queue          mReplayCommitQueue;
     Committed      mPendingCommitted;
     Committed      mInFlightCommitted;
     MetaVrLogSeq   mNextLogSeq;
@@ -513,12 +518,18 @@ private:
 
     virtual void Timeout()
     {
-        if (mPendingCount <= 0) {
+        if (mPendingCount <= 0 && ! mSetReplayStateFlag) {
             return;
         }
         Queue theDoneQueue;
         QCStMutexLocker theLock(mMutex);
         theDoneQueue.Swap(mOutQueue);
+        MetaRequest* const theReplayCommitHeadPtr =
+            mReplayCommitQueue.Front();
+        mReplayCommitQueue.Reset();
+        const bool theSetReplayStateFlag =
+            mSetReplayStateFlag || theReplayCommitHeadPtr;
+        mSetReplayStateFlag = false;
         theLock.Unlock();
         MetaRequest* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
@@ -534,9 +545,17 @@ private:
             }
             submit_request(&theReq);
         }
+        if (theSetReplayStateFlag && ! replayer.setReplayState(
+                mCommitted.mSeq,
+                mCommitted.mErrChkSum,
+                mCommitted.mStatus,
+                theReplayCommitHeadPtr)) {
+            panic("log writer: set replay state failed");
+        }
     }
     void ProcessPendingAckQueue(
-        Queue& inDoneQueue)
+        Queue& inDoneQueue,
+        bool   inSetReplayStateFlag)
     {
         mWokenFlag = false;
         mPendingAckQueue.PushBack(inDoneQueue);
@@ -561,11 +580,17 @@ private:
         if (! thePtr) {
             inDoneQueue.PushBack(mPendingAckQueue);
         }
-        if (inDoneQueue.IsEmpty()) {
+        if (inDoneQueue.IsEmpty() &&
+                (0 == mVrStatus || mPendingAckQueue.IsEmpty())) {
             return;
         }
         QCStMutexLocker theLocker(mMutex);
         mOutQueue.PushBack(inDoneQueue);
+        if (0 != mVrStatus) {
+            mReplayCommitQueue.PushBack(mPendingAckQueue);
+            mSetReplayStateFlag =
+                inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
+        }
         mNetManagerPtr->Wakeup();
     }
     virtual void DispatchStart()
@@ -601,23 +626,23 @@ private:
         if (theReqPtr) {
             theWriteQueue.PushBack(*theReqPtr);
         }
-        if (0 != theVrStatus) {
-            if (0 == mVrStatus && 0 == mEnqueueVrStatus) {
-                mEnqueueVrStatus = theVrStatus - 1;
-                SyncAddAndFetch(mEnqueueVrStatus, 1);
-            }
-            mVrStatus = theVrStatus;
+        const bool theVrBecameNonPrimaryFlag =
+            0 != theVrStatus && 0 == mVrStatus;
+        mVrStatus = theVrStatus;
+        if (theVrBecameNonPrimaryFlag && 0 == mEnqueueVrStatus) {
+            mEnqueueVrStatus = theVrStatus - 1;
+            SyncAddAndFetch(mEnqueueVrStatus, 1);
         }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
         }
-        ProcessPendingAckQueue(theWriteQueue);
+        ProcessPendingAckQueue(theWriteQueue, theVrBecameNonPrimaryFlag);
     }
     virtual void DispatchEnd()
     {
         if (mWokenFlag) {
             Queue theTmp;
-            ProcessPendingAckQueue(theTmp);
+            ProcessPendingAckQueue(theTmp, false);
         }
     }
     virtual void DispatchExit()
@@ -838,7 +863,11 @@ private:
                     " seq: "    << inLogSeq  <<
                     " status: " << theStatus <<
                 KFS_LOG_EOM;
-                mTransmitterUpFlag = false;
+                if (mTransmitterUpFlag) {
+                    // The flag must be reset in Notify() method.
+                    panic("log write: invalid transmitter up flag");
+                    mTransmitterUpFlag = false;
+                }
             }
         }
         LogStreamFlush();
@@ -1037,7 +1066,10 @@ private:
                     "]"
                     " status: " << theStatus <<
                 KFS_LOG_EOM;
-                mTransmitterUpFlag = false;
+                if (mTransmitterUpFlag) {
+                    panic("log write: invalid transmitter up flag");
+                    mTransmitterUpFlag = false;
+                }
             }
         }
         LogStreamFlush();

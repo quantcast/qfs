@@ -437,6 +437,10 @@ public:
         const MetaVrReconfiguration& theReq = *mReconfigureReqPtr;
         mReconfigureReqPtr = 0;
         Commit(theReq);
+        if (kStatePrimary == mState && ! mLogTransmitter.IsUp()) {
+            mViewSeq++;
+            StartViewChange();
+        }
     }
     const Config& GetConfig() const
         { return mConfig; }
