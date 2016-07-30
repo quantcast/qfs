@@ -908,7 +908,7 @@ replay_allocate(DETokenizer& c)
                 if (0 == status && gottime) {
                     fa->mtime = mtime;
                 }
-                if chunkID.getseed() < cid) {
+                if (chunkID.getseed() < cid) {
                     // Update here should only be executed for old style write
                     // behind log. Write append id update should be executed by
                     // log chunk in flight op handler.
