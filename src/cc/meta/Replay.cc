@@ -908,18 +908,11 @@ replay_allocate(DETokenizer& c)
                 if (0 == status && gottime) {
                     fa->mtime = mtime;
                 }
-                if (cid > chunkID.getseed()) {
-                    // chunkID are handled by a two-stage
-                    // allocation: the seed is updated in
-                    // the first part of the allocation and
-                    // the chunk is attached to the file
-                    // after the chunkservers have ack'ed
-                    // the allocation.  We can have a run
-                    // where: (1) the seed is updated, (2)
-                    // a checkpoint is taken, (3) allocation
-                    // is done and written to log file.  If
-                    // we crash, then the cid in log < seed in ckpt.
-                    updateSeed(chunkID, cid);
+                if chunkID.getseed() < cid) {
+                    // Update here should only be executed for old style write
+                    // behind log. Write append id update should be executed by
+                    // log chunk in flight op handler.
+                    chunkID.setseed(cid);
                 }
             }
         }
