@@ -274,8 +274,12 @@ public:
             KFS_LOG_STREAM_DEBUG <<
                 "complete: " << theCur.Show() <<
             KFS_LOG_EOM;
-            if (theCur.blockStartSeq != (theCur.status == 0 ?
-                        mCommittedLogSeq : theNextSeq) ||
+            const MetaVrLogSeq& theStart = theCur.status == 0 ?
+                mCommittedLogSeq : theNextSeq;
+            if ((theCur.blockStartSeq.mLogSeq != theStart.mLogSeq &&
+                    theCur.blockStartSeq.mEpochSeq == theStart.mEpochSeq &&
+                    theCur.blockStartSeq.mViewSeq  == theStart.mViewSeq) ||
+                    theCur.blockStartSeq < theStart ||
                     mLastWriteSeq < theCur.blockEndSeq ||
                     theCur.blockEndSeq < theCur.blockStartSeq) {
                 panic("log write completion: invalid block sequence");
@@ -289,6 +293,7 @@ public:
                 }
             }
             if (mCommittedLogSeq < theCur.committed) {
+                // Last log sequence written by log writer.
                 mCommittedLogSeq = theCur.committed;
             }
             Release(theCur);

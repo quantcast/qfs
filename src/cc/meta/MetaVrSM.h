@@ -273,6 +273,11 @@ public:
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq);
+    void LogBlockWriteDone(
+        const MetaVrLogSeq& inBlockStartSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
+        const MetaVrLogSeq& inCommittedSeq,
+        bool                inWriteOkFlag);
     bool Handle(
         MetaRequest&        inReq,
         const MetaVrLogSeq& inLastLogSeq);
@@ -296,10 +301,9 @@ public:
         seq_t                  inSeq,
         const Properties&      inProps,
         NodeId                 inNodeId);
-    void SetLastLogReceivedTime(
-        time_t inTime);
     void Process(
         time_t              inTimeNow,
+        time_t              inLastReceivedTime,
         const MetaVrLogSeq& inCommittedSeq,
         const MetaVrLogSeq& inLastLogSeq,
         int&                outVrStatus,

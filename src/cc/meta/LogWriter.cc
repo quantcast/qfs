@@ -136,7 +136,6 @@ public:
           mPrepareToForkDoneFlag(false),
           mLastLogReceivedTime(-1),
           mVrLastLogReceivedTime(-1),
-          mVrPrevLogReceivedTime(-1),
           mPrepareToForkCond(),
           mForkDoneCond(),
           mRandom(),
@@ -256,7 +255,6 @@ public:
         mNetManagerPtr         = &inNetManager;
         mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
-        mVrPrevLogReceivedTime = mLastLogReceivedTime;
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -521,7 +519,6 @@ private:
     bool           mPrepareToForkDoneFlag;
     time_t         mLastLogReceivedTime;
     time_t         mVrLastLogReceivedTime;
-    time_t         mVrPrevLogReceivedTime;
     QCCondVar      mPrepareToForkCond;
     QCCondVar      mForkDoneCond;
     PrngIsaac64    mRandom;
@@ -619,22 +616,18 @@ private:
             mNetManager.Shutdown();
         }
         mInFlightCommitted = mPendingCommitted;
-        Queue theWriteQueue;
+        const time_t       theVrLastLogReceivedTime = mVrLastLogReceivedTime;
+        const MetaVrLogSeq theReplayLogSeq          = mPendingReplayLogSeq;
+        Queue              theWriteQueue;
         mInQueue.Swap(theWriteQueue);
-        const time_t theVrLastLogReceivedTime = mVrLastLogReceivedTime;
-        const MetaVrLogSeq theReplayLogSeq = mPendingReplayLogSeq;
         theLocker.Unlock();
         mWokenFlag = true;
-        if (mVrPrevLogReceivedTime != theVrLastLogReceivedTime) {
-            mVrPrevLogReceivedTime = theVrLastLogReceivedTime;
-            mMetaVrSM.SetLastLogReceivedTime(mVrPrevLogReceivedTime);
-        }
         if (theStopFlag) {
             mMetaVrSM.Shutdown();
         }
         int theVrStatus = mVrStatus;
         MetaRequest* theReqPtr = 0;
-        mMetaVrSM.Process(mNetManager.Now(),
+        mMetaVrSM.Process(mNetManager.Now(), theVrLastLogReceivedTime,
             mInFlightCommitted.mSeq, theReplayLogSeq, theVrStatus, theReqPtr);
         if (theReqPtr) {
             theWriteQueue.PushBack(*theReqPtr);
@@ -890,6 +883,12 @@ private:
             }
         }
         LogStreamFlush();
+        mMetaVrSM.LogBlockWriteDone(
+            mNextLogSeq,
+            inLogSeq,
+            mInFlightCommitted.mSeq,
+            IsLogStreamGood()
+        );
         StartBlock(mNextBlockChecksum);
     }
     void LogStreamFlush()
@@ -1092,7 +1091,14 @@ private:
             }
         }
         LogStreamFlush();
-        if (IsLogStreamGood()) {
+        const bool theStreamGoodFlag = IsLogStreamGood();
+        mMetaVrSM.LogBlockWriteDone(
+            inRequest.blockStartSeq,
+            inRequest.blockEndSeq,
+            theBlockCommitted.mSeq,
+            theStreamGoodFlag
+        );
+        if (theStreamGoodFlag) {
             inRequest.blockSeq  = mNextBlockSeq;
             mLastLogSeq         = inRequest.blockEndSeq;
             mNextLogSeq         = mLastLogSeq;

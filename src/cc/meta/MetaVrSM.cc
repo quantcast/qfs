@@ -135,14 +135,35 @@ public:
             panic("VR: invalid log block commit sequence");
             return -EINVAL;
         }
+        return GetStatus();
+    }
+    void LogBlockWriteDone(
+        const MetaVrLogSeq& inBlockStartSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
+        const MetaVrLogSeq& inCommittedSeq,
+        bool                inWriteOkFlag)
+    {
+        if (inBlockEndSeq < inBlockStartSeq ||
+                inBlockStartSeq < inCommittedSeq ||
+                ! inCommittedSeq.IsValid()) {
+            panic("VR: invalid log block commit sequence");
+            return;
+        }
+        if (! inWriteOkFlag) {
+            if (kStatePrimary == mState || kStateBackup == mState) {
+                mViewSeq++;
+                StartViewChange();
+            }
+            return;
+        }
         if (kStatePrimary != mState && kStateBackup != mState &&
                 kStateLogSync != mState) {
-            return -EVRNOTPRIMARY;
+            return;
         }
         if (mLastLogSeq < inBlockEndSeq) {
             mLastLogSeq = inBlockEndSeq;
         }
-        if (kStatePrimary != mState) {
+        if (kStatePrimary == mState) {
             // Update only if primary, backups are updated after queuing into
             // replay, in Process().
             if (mCommittedSeq < inCommittedSeq) {
@@ -150,7 +171,6 @@ public:
             }
             mReplayLastLogSeq = mLastLogSeq;
         }
-        return GetStatus();
     }
     bool Handle(
         MetaRequest&        inReq,
@@ -346,13 +366,6 @@ public:
         KFS_LOG_EOM;
         panic(theMsgPtr);
     }
-    void SetLastLogReceivedTime(
-        time_t inTime)
-    {
-        if (kStatePrimary == mState || kStateBackup == mState) {
-            mLastReceivedTime = inTime;
-        }
-    }
     int GetStatus() const
     {
         return (! mActiveFlag ? -EVRNOTPRIMARY : (kStatePrimary == mState ? 0 :
@@ -360,11 +373,16 @@ public:
     }
     void Process(
         time_t              inTimeNow,
+        time_t              inLastReceivedTime,
         const MetaVrLogSeq& inCommittedSeq,
         const MetaVrLogSeq& inLastLogSeq,
         int&                outVrStatus,
         MetaRequest*        outReqPtr)
     {
+        if ((kStatePrimary == mState || kStateBackup == mState) &&
+                mLastReceivedTime < inLastReceivedTime) {
+            mLastReceivedTime = inLastReceivedTime;
+        }
         if (mCommittedSeq < inCommittedSeq) {
             mCommittedSeq = inCommittedSeq;
         }
@@ -1781,6 +1799,17 @@ MetaVrSM::HandleLogBlock(
         inBlockStartSeq, inBlockEndSeq, inCommittedSeq);
 }
 
+    void
+MetaVrSM::LogBlockWriteDone(
+    const MetaVrLogSeq& inBlockStartSeq,
+    const MetaVrLogSeq& inBlockEndSeq,
+    const MetaVrLogSeq& inCommittedSeq,
+    bool                inWriteOkFlag)
+{
+    mImpl.LogBlockWriteDone(
+        inBlockStartSeq, inBlockEndSeq, inCommittedSeq, inWriteOkFlag);
+}
+
     bool
 MetaVrSM::Handle(
     MetaRequest&        inReq,
@@ -1830,21 +1859,15 @@ MetaVrSM::HandleReply(
 }
 
     void
-MetaVrSM::SetLastLogReceivedTime(
-    time_t inTime)
-{
-    mImpl.SetLastLogReceivedTime(inTime);
-}
-
-    void
 MetaVrSM::Process(
     time_t              inTimeNow,
+    time_t              inLastReceivedTime,
     const MetaVrLogSeq& inCommittedSeq,
     const MetaVrLogSeq& inLastLogSeq,
     int&                outVrStatus,
     MetaRequest*        outReqPtr)
 {
-    mImpl.Process(inTimeNow,
+    mImpl.Process(inTimeNow, inLastReceivedTime,
         inCommittedSeq, inLastLogSeq, outVrStatus, outReqPtr);
 }
 
