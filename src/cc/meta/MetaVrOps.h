@@ -387,23 +387,23 @@ public:
     MetaVrLogSeq mCommittedSeq;
     MetaVrLogSeq mNewLogSeq;
     NodeId       mNodeId;
-    seq_t        mSeed;
-    int64_t      mErrorChecksum;
-    int          mLastStatus;
 
     MetaVrLogStartView()
         : MetaRequest(META_VR_LOG_START_VIEW, kLogIfOk),
           mCommittedSeq(),
           mNewLogSeq(),
-          mNodeId(-1),
-          mSeed(-1),
-          mErrorChecksum(-1),
-          mLastStatus(-1)
+          mNodeId(-1)
         {}
     bool Validate()
     {
-        return (0 <= mNodeId && mCommittedSeq.IsValid() &&
-            mNewLogSeq.IsValid() && mCommittedSeq < mNewLogSeq);
+        return (
+            0 <= mNodeId &&
+            mCommittedSeq.IsValid() &&
+            mNewLogSeq.IsValid() &&
+            (mCommittedSeq.mEpochSeq < mNewLogSeq.mEpochSeq ||
+                mCommittedSeq.mViewSeq < mNewLogSeq.mViewSeq) &&
+            (! logseq.IsValid() || logseq == mNewLogSeq)
+        );
     }
     virtual bool start()
     {
@@ -433,12 +433,9 @@ public:
     static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("C",  &MetaVrLogStartView::mCommittedSeq              )
-        .Def("L",  &MetaVrLogStartView::mNewLogSeq                 )
-        .Def("N",  &MetaVrLogStartView::mNodeId,         NodeId(-1))
-        .Def("S",  &MetaVrLogStartView::mSeed,            seq_t(-1))
-        .Def("K",  &MetaVrLogStartView::mErrorChecksum, int64_t(-1))
-        .Def("LS", &MetaVrLogStartView::mLastStatus,        int(-1))
+        .Def("C",  &MetaVrLogStartView::mCommittedSeq      )
+        .Def("L",  &MetaVrLogStartView::mNewLogSeq         )
+        .Def("N",  &MetaVrLogStartView::mNodeId, NodeId(-1))
         ;
     }
 protected:

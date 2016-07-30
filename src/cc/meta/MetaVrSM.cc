@@ -110,6 +110,7 @@ public:
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
           mStartViewPtr(0),
+          mMetaVrLogStartViewPtr(0),
           mStartViewChangeNodeIds(),
           mDoViewChangeNodeIds(),
           mStartViewCompletionIds(),
@@ -320,6 +321,12 @@ public:
             "primary starting view: " << mEpochSeq << " " << mViewSeq <<
         KFS_LOG_EOM;
         mState = kStatePrimary;
+        MetaRequest::Release(mMetaVrLogStartViewPtr);
+        mMetaVrLogStartViewPtr = new MetaVrLogStartView();
+        mMetaVrLogStartViewPtr->mCommittedSeq = mLastLogSeq;
+        mMetaVrLogStartViewPtr->mNewLogSeq    =
+            MetaVrLogSeq(mEpochSeq, mViewSeq, mLastLogSeq.mLogSeq + 1);
+        mMetaVrLogStartViewPtr->mNodeId       = mNodeId;
     }
     void HandleReply(
         MetaVrReconfiguration& inReq,
@@ -376,6 +383,8 @@ public:
                     StartViewChange();
                 }
             }
+            outReqPtr = mMetaVrLogStartViewPtr;
+            mMetaVrLogStartViewPtr = 0;
         } else if (kStateViewChange == mState) {
             if (TimeNow() != mLastProcessTime) {
                 StartDoViewChangeIfPossible();
@@ -788,6 +797,7 @@ private:
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
     MetaVrStartView*             mStartViewPtr;
+    MetaVrLogStartView*          mMetaVrLogStartViewPtr;
     NodeIdSet                    mStartViewChangeNodeIds;
     NodeIdSet                    mDoViewChangeNodeIds;
     NodeIdSet                    mStartViewCompletionIds;
@@ -1663,6 +1673,8 @@ private:
         mStartViewCompletionIds.clear();
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
+        MetaRequest::Release(mMetaVrLogStartViewPtr);
+        mMetaVrLogStartViewPtr = 0;
         mStartViewChangeRecvViewSeq     = -1;
         mStartViewChangeMaxLastLogSeq   = MetaVrLogSeq();
         mStartViewChangeMaxCommittedSeq = MetaVrLogSeq();

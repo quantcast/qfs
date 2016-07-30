@@ -110,6 +110,7 @@ public:
           mCheckpointCommitted(),
           mCheckpointErrChksum(-1),
           mLastCommitted(),
+          mPrevViewCommitted(),
           mBlockStartLogSeq(),
           mLastBlockSeq(-1),
           mLastLogAheadSeq(),
@@ -148,19 +149,28 @@ public:
     }
     static ReplayState& get(const DETokenizer& c)
         { return *reinterpret_cast<ReplayState*>(c.getUserData()); }
-    void handle()
+    bool handle()
     {
         if (! mCurOp) {
             panic("replay: no current op");
-            return;
+            return false;
         }
         if (mReplayer) {
-            mCommitQueue.push_back(
-                ReplayState::CommitQueueEntry(mCurOp->logseq, 0, 0, 0, mCurOp));
-            mCurOp = 0;
+            if (META_VR_LOG_START_VIEW == mCurOp->op) {
+                handleOp(*mCurOp);
+                if (mCurOp && 0 != mCurOp->status) {
+                    curOpDone();
+                    return false;
+                }
+            } else {
+                mCommitQueue.push_back(ReplayState::CommitQueueEntry(
+                    mCurOp->logseq, 0, 0, 0, mCurOp));
+                mCurOp = 0;
+            }
         } else {
             handleOp(*mCurOp);
         }
+        return true;
     }
     bool IsCurOpLogSeqValid() const
     {
@@ -242,8 +252,9 @@ public:
                 ++it) {
             commit(*it);
         }
-        mBlockStartLogSeq = mCommitQueue.back().logSeq;
-        mLastCommitted    = mBlockStartLogSeq;
+        mBlockStartLogSeq  = mCommitQueue.back().logSeq;
+        mLastCommitted     = mBlockStartLogSeq;
+        mPrevViewCommitted = mLastCommitted;
         mCommitQueue.clear();
         return true;
     }
@@ -267,6 +278,52 @@ public:
     }
     void handleStartView(MetaVrLogStartView& op)
     {
+        if (0 != op.status) {
+            KFS_LOG_STREAM_ERROR <<
+                " status: " << op.status <<
+                " "         << op.statusMsg <<
+                " logseq: " << op.logseq <<
+                " "         << op.Show() <<
+            KFS_LOG_EOM;
+            return;
+        }
+        if (! op.Validate()) {
+            op.status    = -EINVAL;
+            op.statusMsg = "invalid log start view log entry";
+            return;
+        }
+        if (op.mCommittedSeq < mLastCommitted) {
+            op.status    = -EINVAL;
+            op.statusMsg = "invalid log start view committed sequence";
+            return;
+        }
+        CommitQueue::iterator it;
+        for (it = mCommitQueue.begin(); mCommitQueue.end() != it &&
+                mLastCommitted < op.mCommittedSeq; ++it) {
+            commit(*it);
+        }
+        if (op.mCommittedSeq != mLastCommitted) {
+            op.status    = -EINVAL;
+            op.statusMsg = "log start view: no queue entry";
+            return;
+        }
+        // Set failure status for the remaining, if any.
+        for (; mCommitQueue.end() != it; ++it) {
+            if (! it->op) {
+                continue;
+            }
+            MetaRequest& cur = *it->op;
+            cur.status = -EVRNOTPRIMARY;
+            if (! op.replayFlag) {
+                cur.statusMsg = "primary node might have changed";
+            }
+            opDone(cur);
+        }
+        mCommitQueue.clear();
+        mPrevViewCommitted = mLastCommitted;
+        mLastCommitted     = op.mNewLogSeq;
+        mLastLogAheadSeq   = op.mNewLogSeq;
+        mBlockStartLogSeq  = op.mNewLogSeq;
     }
     bool setReplayState(
         const MetaVrLogSeq& committed,
@@ -274,7 +331,8 @@ public:
         int                 lastCommittedStatus,
         MetaRequest*        commitQueue)
     {
-        if (mCurOp || ! mReplayer) {
+        if (mCurOp || ! mReplayer ||
+                (commitQueue && commitQueue->logseq <= committed)) {
             return false;
         }
         if (! mCommitQueue.empty() && ! runCommitQueue(
@@ -284,6 +342,7 @@ public:
                 errChecksum)) {
             return false;
         }
+        mPrevViewCommitted   = committed;
         mLastCommitted       = committed;
         mBlockStartLogSeq    = committed;
         mLastLogAheadSeq     = committed;
@@ -307,6 +366,7 @@ public:
     MetaVrLogSeq  mCheckpointCommitted;
     seq_t         mCheckpointErrChksum;
     MetaVrLogSeq  mLastCommitted;
+    MetaVrLogSeq  mPrevViewCommitted;
     MetaVrLogSeq  mBlockStartLogSeq;
     seq_t         mLastBlockSeq;
     MetaVrLogSeq  mLastLogAheadSeq;
@@ -1417,8 +1477,7 @@ replay_log_ahead_entry(DETokenizer& c)
         return false;
     }
     state.mCurOp->replayFlag = true;
-    state.handle();
-    return state.incSeq();
+    return (state.handle() && state.incSeq());
 }
 
 static bool
@@ -1482,12 +1541,16 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         KFS_LOG_EOM;
         return false;
     }
-    if (commitSeq < state.mLastCommitted ||
-            state.mLastLogAheadSeq < commitSeq) {
+    if ((commitSeq < state.mLastCommitted ||
+            state.mLastLogAheadSeq < commitSeq) && (
+                commitSeq.mEpochSeq != state.mPrevViewCommitted.mEpochSeq ||
+                commitSeq.mViewSeq  != state.mPrevViewCommitted.mViewSeq ||
+                state.mPrevViewCommitted.mLogSeq < commitSeq.mLogSeq)) {
         KFS_LOG_STREAM_ERROR <<
             "committed:"
             " expected range: [" << state.mLastCommitted <<
             ","                  << state.mLastLogAheadSeq << "]"
+            " preve view: "      << state.mPrevViewCommitted <<
             " actual: "          << commitSeq <<
         KFS_LOG_EOM;
         return false;
@@ -1498,9 +1561,11 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     if (0 != state.mSubEntryCount) {
         return false;
     }
-    state.mBlockStartLogSeq = logSeq;
-    state.mLastBlockSeq     = blockSeq;
-    state.mLastCommitted    = commitSeq;
+    state.mBlockStartLogSeq  = logSeq;
+    state.mLastBlockSeq      = blockSeq;
+    if (state.mLastCommitted < commitSeq) {
+        state.mLastCommitted = commitSeq;
+    }
     return true;
 }
 
@@ -2424,15 +2489,19 @@ Replay::getLastLogNum()
 void
 Replay::handle(MetaVrLogStartView& op)
 {
-    if (0 != op.status || ! op.Validate()) {
-        panic("replay: invalid log start view log entry");
-        op.status = -EINVAL;
-        return;
-    }
-    if (! op.replayFlag) {
+    if (0 != op.status) {
+        if (op.replayFlag) {
+            return;
+        }
+        if (-ELOGFAILED != op.status) {
+            panic("replay: invalid start view op status");
+        }
         return;
     }
     replayTokenizer.GetState().handleStartView(op);
+    if (0 != op.status && ! op.replayFlag) {
+        panic("replay: invalid start view op completion");
+    }
 }
 
 bool

@@ -734,24 +734,27 @@ private:
                     (theTransmitterUpFlag ||
                         META_VR_LOG_START_VIEW == theCurPtr->op) &&
                     IsLogStreamGood()) {
-                FlushBlock(mLastLogSeq);
+                const int theBlkLen =
+                    (int)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq);
+                if (META_VR_LOG_START_VIEW == theCurPtr->op) {
+                    MetaVrLogStartView& theOp =
+                        *static_cast<MetaVrLogStartView*>(theCurPtr);
+                    mLastLogSeq    = theOp.mNewLogSeq;
+                    thePtr->logseq = mLastLogSeq;
+                }
+                FlushBlock(mLastLogSeq, theBlkLen);
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag ||
                         META_VR_LOG_START_VIEW == theCurPtr->op)) {
+                mNextLogSeq = mLastLogSeq;
                 if (META_VR_LOG_START_VIEW == theCurPtr->op) {
-                    MetaVrLogStartView& theOp =
-                        *static_cast<MetaVrLogStartView*>(theCurPtr);
-                    mNextLogSeq = theOp.mNewLogSeq;
-                    mLastLogSeq = mNextLogSeq;
-                } else {
-                    mNextLogSeq = mLastLogSeq;
+                    mVrStatus = mMetaVrSM.GetStatus();
+                    if (0 == mVrStatus) {
+                        mEnqueueVrStatus = 0;
+                    }
+                    mNetManager.Wakeup();
                 }
-                mVrStatus = mMetaVrSM.GetStatus();
-                if (0 == mVrStatus) {
-                    mEnqueueVrStatus = 0;
-                }
-                mNetManager.Wakeup();
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.
@@ -805,13 +808,16 @@ private:
         mBlockChecksum = inStartCheckSum;
     }
     void FlushBlock(
-        const MetaVrLogSeq& inLogSeq)
+        const MetaVrLogSeq& inLogSeq,
+        int                 inBlockLen = -1)
     {
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             mNextLogSeq,
             inLogSeq,
             mInFlightCommitted.mSeq
         );
+        const int theBlockLen = inBlockLen < 0 ?
+            (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) : inBlockLen;
         ++mNextBlockSeq;
         mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
@@ -819,7 +825,7 @@ private:
             "/" << mInFlightCommitted.mErrChkSum <<
             "/" << mInFlightCommitted.mStatus <<
             "/" << inLogSeq <<
-            "/" << (inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) <<
+            "/" << theBlockLen <<
             "/"
         ;
         mReqOstream.flush();
@@ -850,7 +856,7 @@ private:
             } else {
                 theStatus = mLogTransmitter.TransmitBlock(
                     inLogSeq,
-                    (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq),
+                    theBlockLen,
                     theStartPtr,
                     theTxLen,
                     theTxChecksum,
