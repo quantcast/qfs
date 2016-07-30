@@ -139,15 +139,16 @@ public:
                 kStateLogSync != mState) {
             return -EVRNOTPRIMARY;
         }
-        if (mCommittedSeq < inCommittedSeq) {
-            mCommittedSeq = inCommittedSeq;
-        }
         if (mLastLogSeq < inBlockEndSeq) {
             mLastLogSeq = inBlockEndSeq;
-            if (kStateLogSync == mState &&
-                    mStartViewChangeMaxLastLogSeq <= mLastLogSeq) {
-                StartViewChange();
+        }
+        if (kStatePrimary != mState) {
+            // Update only if primary, backups are updated after queuing into
+            // replay, in Process().
+            if (mCommittedSeq < inCommittedSeq) {
+                mCommittedSeq = inCommittedSeq;
             }
+            mReplayLastLogSeq = mLastLogSeq;
         }
         return GetStatus();
     }
@@ -358,10 +359,21 @@ public:
             (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
     void Process(
-        time_t       inTimeNow,
-        int&         outVrStatus,
-        MetaRequest* outReqPtr)
+        time_t              inTimeNow,
+        const MetaVrLogSeq& inCommittedSeq,
+        const MetaVrLogSeq& inLastLogSeq,
+        int&                outVrStatus,
+        MetaRequest*        outReqPtr)
     {
+        if (mCommittedSeq < inCommittedSeq) {
+            mCommittedSeq = inCommittedSeq;
+        }
+        if (mLastLogSeq < inLastLogSeq) {
+            mLastLogSeq = inLastLogSeq;
+        }
+        if (mReplayLastLogSeq < inLastLogSeq) {
+            mReplayLastLogSeq = inLastLogSeq;
+        }
         outReqPtr = 0;
         mTimeNow = inTimeNow;
         if (! mActiveFlag) {
@@ -389,6 +401,9 @@ public:
             if (TimeNow() != mLastProcessTime) {
                 StartDoViewChangeIfPossible();
             }
+        } else if (kStateLogSync == mState &&
+                    mStartViewChangeMaxLastLogSeq <= mReplayLastLogSeq) {
+            StartViewChange();
         }
         mLastProcessTime = TimeNow();
         outVrStatus      = GetStatus();
@@ -784,6 +799,7 @@ private:
     seq_t                        mViewSeq;
     MetaVrLogSeq                 mCommittedSeq;
     MetaVrLogSeq                 mLastLogSeq;
+    MetaVrLogSeq                 mReplayLastLogSeq;
     time_t                       mTimeNow;
     time_t                       mLastProcessTime;
     time_t                       mLastReceivedTime;
@@ -1822,11 +1838,14 @@ MetaVrSM::SetLastLogReceivedTime(
 
     void
 MetaVrSM::Process(
-    time_t       inTimeNow,
-    int&         outVrStatus,
-    MetaRequest* outReqPtr)
+    time_t              inTimeNow,
+    const MetaVrLogSeq& inCommittedSeq,
+    const MetaVrLogSeq& inLastLogSeq,
+    int&                outVrStatus,
+    MetaRequest*        outReqPtr)
 {
-    mImpl.Process(inTimeNow, outVrStatus, outReqPtr);
+    mImpl.Process(inTimeNow,
+        inCommittedSeq, inLastLogSeq, outVrStatus, outReqPtr);
 }
 
     int

@@ -1128,7 +1128,8 @@ public:
                 replayer.getCommitted(),
                 fileID.getseed(),
                 replayer.getErrChksum(),
-                replayer.getLastCommittedStatus()
+                replayer.getLastCommittedStatus(),
+                replayer.getLastLogSeq()
             );
         }
     }

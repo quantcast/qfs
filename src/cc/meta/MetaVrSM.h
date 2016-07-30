@@ -299,9 +299,11 @@ public:
     void SetLastLogReceivedTime(
         time_t inTime);
     void Process(
-        time_t       inTimeNow,
-        int&         outVrStatus,
-        MetaRequest* outReqPtr);
+        time_t              inTimeNow,
+        const MetaVrLogSeq& inCommittedSeq,
+        const MetaVrLogSeq& inLastLogSeq,
+        int&                outVrStatus,
+        MetaRequest*        outReqPtr);
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);

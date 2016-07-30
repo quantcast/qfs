@@ -173,6 +173,7 @@ private:
     const string& logfile(seq_t num);
     bool logSegmentHasLogSeq(seq_t num) const
         { return  (0 <= logSeqStartNum && logSeqStartNum <= num); }
+    void update();
     string getLastLog();
 private:
     // No copy.

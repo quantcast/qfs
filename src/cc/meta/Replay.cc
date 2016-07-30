@@ -2025,9 +2025,6 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
             status = -EINVAL;
         }
     }
-    if (0 == status) {
-        lastCommittedStatus = state.mLastCommittedStatus;
-    }
     if (0 <= blockSeq || 0 != status) {
         blockChecksum.blockEnd(0);
         blockChecksum.write("\n", 1);
@@ -2044,6 +2041,7 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
     } else {
         blockChecksum.write(line, len);
     }
+    update();
     return status;
 }
 
@@ -2228,10 +2226,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         status = state.commmitAll() ? 0 : -EINVAL;
     }
     if (status == 0) {
-        lastLogSeq          = state.mLastLogAheadSeq;
-        committed           = state.mLastCommitted;
-        errChecksum         = state.mLogAheadErrChksum;
-        lastCommittedStatus = state.mLastCommittedStatus;
+        update();
         // For now update checkpont committed in order to make replay line
         // work at startup with all requests already committed.
         state.mCheckpointCommitted = state.mLastCommitted;
@@ -2502,6 +2497,7 @@ Replay::handle(MetaVrLogStartView& op)
     if (0 != op.status && ! op.replayFlag) {
         panic("replay: invalid start view op completion");
     }
+    update();
 }
 
 bool
@@ -2511,8 +2507,20 @@ Replay::setReplayState(
     int                 lastCommittedStatus,
     MetaRequest*        commitQueue)
 {
-    return replayTokenizer.GetState().setReplayState(
+    const bool okFlag = replayTokenizer.GetState().setReplayState(
         committed, errChecksum, lastCommittedStatus, commitQueue);
+    update();
+    return okFlag;
+}
+
+void
+Replay::update()
+{
+    const ReplayState& state = replayTokenizer.GetState();
+    lastLogSeq          = state.mLastLogAheadSeq;
+    committed           = state.mLastCommitted;
+    errChecksum         = state.mLogAheadErrChksum;
+    lastCommittedStatus = state.mLastCommittedStatus;
 }
 
 } // namespace KFS

@@ -100,6 +100,8 @@ public:
           mReplayCommitQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
+          mPendingReplayLogSeq(),
+          mReplayLogSeq(),
           mNextLogSeq(),
           mNextBlockSeq(-1),
           mLastLogSeq(),
@@ -177,6 +179,8 @@ public:
         mCommitted.mSeq       = inCommittedLogSeq;
         mCommitted.mFidSeed   = inCommittedFidSeed;
         mCommitted.mStatus    = inCommittedStatus;
+        mReplayLogSeq         = inLogSeq;
+        mPendingReplayLogSeq  = inLogSeq;
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         mMetaDataStorePtr  = &inMetaDataStore;
@@ -349,20 +353,25 @@ public:
         const MetaVrLogSeq& inLogSeq,
         int64_t             inErrChecksum,
         fid_t               inFidSeed,
-        int                 inStatus)
+        int                 inStatus,
+        const MetaVrLogSeq& inLastReplayLogSeq)
     {
         mCommitted.mSeq       = inLogSeq;
         mCommitted.mErrChkSum = inErrChecksum;
         mCommitted.mFidSeed   = inFidSeed;
         mCommitted.mStatus    = inStatus;
+        mReplayLogSeq         = inLastReplayLogSeq;
+        mCommitUpdatedFlag    = true;
     }
     void ScheduleFlush()
     {
         if (mPendingQueue.IsEmpty() && ! mCommitUpdatedFlag) {
             return;
         }
+        mCommitUpdatedFlag = false;
         QCStMutexLocker theLock(mMutex);
         mPendingCommitted = mCommitted;
+        mPendingReplayLogSeq = mReplayLogSeq;
         mInQueue.PushBack(mPendingQueue);
         mVrLastLogReceivedTime = mLastLogReceivedTime;
         theLock.Unlock();
@@ -483,6 +492,8 @@ private:
     Queue          mReplayCommitQueue;
     Committed      mPendingCommitted;
     Committed      mInFlightCommitted;
+    MetaVrLogSeq   mPendingReplayLogSeq;
+    MetaVrLogSeq   mReplayLogSeq;
     MetaVrLogSeq   mNextLogSeq;
     seq_t          mNextBlockSeq;
     MetaVrLogSeq   mLastLogSeq;
@@ -611,6 +622,7 @@ private:
         Queue theWriteQueue;
         mInQueue.Swap(theWriteQueue);
         const time_t theVrLastLogReceivedTime = mVrLastLogReceivedTime;
+        const MetaVrLogSeq theReplayLogSeq = mPendingReplayLogSeq;
         theLocker.Unlock();
         mWokenFlag = true;
         if (mVrPrevLogReceivedTime != theVrLastLogReceivedTime) {
@@ -622,7 +634,8 @@ private:
         }
         int theVrStatus = mVrStatus;
         MetaRequest* theReqPtr = 0;
-        mMetaVrSM.Process(mNetManager.Now(), theVrStatus, theReqPtr);
+        mMetaVrSM.Process(mNetManager.Now(),
+            mInFlightCommitted.mSeq, theReplayLogSeq, theVrStatus, theReqPtr);
         if (theReqPtr) {
             theWriteQueue.PushBack(*theReqPtr);
         }
@@ -1447,13 +1460,15 @@ LogWriter::SetCommitted(
     const MetaVrLogSeq& inLogSeq,
     int64_t             inErrChecksum,
     fid_t               inFidSeed,
-    int                 inStatus)
+    int                 inStatus,
+    const MetaVrLogSeq& inLastReplayLogSeq)
 {
     mImpl.SetCommitted(
         inLogSeq,
         inErrChecksum,
         inFidSeed,
-        inStatus
+        inStatus,
+        inLastReplayLogSeq
     );
 }
 
