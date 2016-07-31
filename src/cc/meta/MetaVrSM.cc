@@ -543,7 +543,7 @@ public:
         istream& theStream = mInputStream.Set(inBufPtr, inLen);
         theStream.clear();
         theStream.flags(
-            (inHexFmtFlag ? istream::hex :  istream::dec) | istream::skipws);
+            (inHexFmtFlag ? istream::hex : istream::dec) | istream::skipws);
         Config::NodeId theNodeId = -1;
         Config::Node   theNode;
         if ('n' == inType) {
@@ -1459,7 +1459,7 @@ private:
         ActiveCheck inActiveCheck,
         const T&    inFunc)
     {
-        int    status;
+        int    status = 0;
         string statusMsg;
         ApplyT(status, statusMsg, inActiveCheck, inFunc);
         if (0 != status) {

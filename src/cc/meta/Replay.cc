@@ -2216,7 +2216,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         update();
     }
     if (status == 0 &&
-            MetaRequest::GetLogWriter().GetMetaVrSM().GetConfig().IsEmpty()) {
+            MetaRequest::GetLogWriter().GetMetaVrSM().GetQuorum() <= 0) {
         status = state.commmitAll() ? 0 : -EINVAL;
     }
     if (status == 0) {
