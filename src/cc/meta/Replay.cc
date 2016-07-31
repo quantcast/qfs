@@ -489,11 +489,11 @@ Replay::logfile(seq_t num)
     }
     tmplogname.erase(tmplogprefixlen);
     if (logSegmentHasLogSeq(num)) {
-        AppendDecIntToString(tmplogname, committed.mEpochSeq);
+        AppendDecIntToString(tmplogname, lastLogSeq.mEpochSeq);
         tmplogname += '.';
-        AppendDecIntToString(tmplogname, committed.mViewSeq);
+        AppendDecIntToString(tmplogname, lastLogSeq.mViewSeq);
         tmplogname += '.';
-        AppendDecIntToString(tmplogname, committed.mLogSeq);
+        AppendDecIntToString(tmplogname, lastLogSeq.mLogSeq);
         tmplogname += '.';
     }
     AppendDecIntToString(tmplogname, num);
@@ -2213,6 +2213,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             appendToLastLogFlag = true;
             break;
         }
+        update();
     }
     if (status == 0 &&
             MetaRequest::GetLogWriter().GetMetaVrSM().GetConfig().IsEmpty()) {

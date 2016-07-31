@@ -75,6 +75,8 @@ public:
     {
         checkpointCommitted = seq;
         committed           = seq;
+        lastLogStart        = seq;
+        lastLogSeq          = seq;
     }
     const string& getCurLog() const
         { return path; }

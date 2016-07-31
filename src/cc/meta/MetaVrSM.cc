@@ -433,8 +433,9 @@ public:
         const MetaVrLogSeq& inCommittedSeq)
     {
         mMetaDataSyncPtr = &inMetaDataSync;
-        if (mNodeId < 0) {
+        if (mNodeId < 0 || mConfig.IsEmpty()) {
             mConfig.Clear();
+            mLogTransmitter.Update(mMetaVrSM);
             mActiveCount = 0;
             mQuorum      = 0;
             mState       = kStatePrimary;
@@ -442,6 +443,7 @@ public:
             mActiveFlag  = true;
         } else {
             mState = kStateBackup;
+            mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
         }
         mCommittedSeq = inCommittedSeq;
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
