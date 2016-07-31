@@ -85,7 +85,9 @@ using std::istringstream;
     ) \
     f(UPSERVERS,                        "debug: show connected chunk servers") \
     f(READ_META_DATA,                   "retrieve transaction log or" \
-                                        " checkpoint block")
+                                        " checkpoint block") \
+    f(VR_RECONFIGURATION,               "viewstamped replication"\
+                                        " reconfiguration")
 
     static string
 ToLower(

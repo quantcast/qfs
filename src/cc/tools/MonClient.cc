@@ -166,6 +166,8 @@ MonClient::OpDone(
     KFS_LOG_STREAM_DEBUG <<
         (inCanceledFlag ? "op canceled: " : "op completed: ") <<
         inOpPtr->Show() << " status: " << inOpPtr->status <<
+        (inOpPtr->status < 0 ?
+            (" " + ErrorCodeToString(inOpPtr->status)) : string()) <<
         " msg: " << inOpPtr->statusMsg <<
     KFS_LOG_EOM;
     KfsNetClient::GetNetManager().Shutdown(); // Exit service loop.
