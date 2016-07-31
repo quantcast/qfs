@@ -331,6 +331,7 @@ public:
         bool    inHexFlag,
         string& outStrBuf) const;
     int GetStatus() const;
+    bool HasValidNodeId() const;
 private:
     class Impl;
     Impl& mImpl;

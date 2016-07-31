@@ -869,18 +869,14 @@ private:
                     theTxLen
                 );
             }
-            if (0 != theStatus) {
-                KFS_LOG_STREAM_ERROR <<
-                    "block transmit failure:"
-                    " seq: "    << inLogSeq  <<
-                    " status: " << theStatus <<
-                KFS_LOG_EOM;
-                if (mTransmitterUpFlag) {
-                    // The flag must be reset in Notify() method.
-                    panic("log write: invalid transmitter up flag");
-                    mTransmitterUpFlag = false;
-                }
-            }
+            KFS_LOG_STREAM_DEBUG <<
+                "flush log block: block transmit" <<
+                    (0 == theStatus ? "OK" : "failure") <<
+                " seq: "    << inLogSeq  <<
+                " status: " << theStatus <<
+                (theStatus < 0 ?
+                    " " + ErrorCodeToString(theStatus) : string()) <<
+            KFS_LOG_EOM;
         }
         LogStreamFlush();
         mMetaVrSM.LogBlockWriteDone(
@@ -1076,19 +1072,16 @@ private:
                     inRequest.blockChecksum,
                     theLen
                 );
-            if (0 != theStatus) {
-                KFS_LOG_STREAM_ERROR <<
-                    "write block: block transmit failure:"
-                    " ["    << inRequest.blockStartSeq  <<
-                    ":"     << inRequest.blockEndSeq <<
-                    "]"
-                    " status: " << theStatus <<
-                KFS_LOG_EOM;
-                if (mTransmitterUpFlag) {
-                    panic("log write: invalid transmitter up flag");
-                    mTransmitterUpFlag = false;
-                }
-            }
+            KFS_LOG_STREAM_DEBUG <<
+                "write block: block transmit" <<
+                    (0 == theStatus ? "OK" : "failure") <<
+                ": ["   << inRequest.blockStartSeq  <<
+                ":"     << inRequest.blockEndSeq <<
+                "]"
+                " status: " << theStatus <<
+                (theStatus < 0 ?
+                    " " + ErrorCodeToString(theStatus) : string()) <<
+            KFS_LOG_EOM;
         }
         LogStreamFlush();
         const bool theStreamGoodFlag = IsLogStreamGood();
@@ -1262,12 +1255,12 @@ private:
         mLogFileMaxSize = max(int64_t(64 << 10), inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("logFileMaxSize"),
             mLogFileMaxSize));
-        const int theStatus = mLogTransmitter.SetParameters(
-            theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),
-            inParameters
-        );
         const int theVrStatus = mMetaVrSM.SetParameters(
             theName.Truncate(thePrefixLen).Append("Vr.").c_str(),
+            inParameters
+        );
+        const int theStatus = mLogTransmitter.SetParameters(
+            theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),
             inParameters
         );
         return (0 == theStatus ? theVrStatus : theStatus);

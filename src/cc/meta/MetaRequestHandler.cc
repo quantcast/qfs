@@ -112,7 +112,7 @@ AddMetaRequestLog(
         META_ACK,
         static_cast<const MetaAck*>(0))
     .MakeParser(
-        inShortNamesFlag ? "VRRC" : "VR_RECONFIG",
+        inShortNamesFlag ? "VRRC" : "VR_RECONFIGURATION",
         META_VR_RECONFIGURATION,
         static_cast<const MetaVrReconfiguration*>(0))
     ;

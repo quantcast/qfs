@@ -371,6 +371,8 @@ public:
         return (! mActiveFlag ? -EVRNOTPRIMARY : (kStatePrimary == mState ? 0 :
             (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
+    bool HasValidNodeId() const
+        { return (0 <= mNodeId); }
     void Process(
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
@@ -1182,10 +1184,10 @@ private:
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
         ServerLocation    theLocation;
         while (thePtr < theEndPtr) {
-            if (theLocation.ParseString(
+            if (! theLocation.ParseString(
                     thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "add node: node active flag must not set";
+                inReq.statusMsg = "add node: listener address parse error";
                 mPendingLocations.clear();
                 return;
             }
@@ -1947,6 +1949,12 @@ MetaVrSM::Checkpoint(
 MetaVrSM::GetStatus() const
 {
     return mImpl.GetStatus();
+}
+
+    bool
+MetaVrSM::HasValidNodeId() const
+{
+    return mImpl.HasValidNodeId();
 }
 
 } // namespace KFS

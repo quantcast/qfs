@@ -6411,6 +6411,11 @@ MetaVrReconfiguration::start()
     if (! HasMetaServerAdminAccess(*this)) {
         return false;
     }
+    if (! GetLogWriter().GetMetaVrSM().HasValidNodeId()) {
+        status    = -ENOENT;
+        statusMsg = "no valid VR node id assigned by configuration";
+        return false;
+    }
     StIdempotentRequestHandler handler(*this);
     return true;
 }
