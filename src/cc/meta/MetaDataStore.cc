@@ -1372,7 +1372,7 @@ private:
                     // The segment end sequence cannot be determined without
                     // opending and reading end of segment.
                     thePrevIt->second.mLogEndSeq = thePrevIt->second.mLogSeq;
-                } else if (thePrevIt->second.mLogEndSeq.IsValid()) {
+                } else if (! thePrevIt->second.mLogEndSeq.IsValid()) {
                     // Allow sequence gaps between old style segments, and set
                     // set end sequence equal to beginning sequence.
                     thePrevIt->second.mLogEndSeq = thePrevIt->second.mLogSeq;
