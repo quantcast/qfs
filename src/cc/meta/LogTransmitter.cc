@@ -1279,6 +1279,8 @@ LogTransmitter::Impl::SetParameters(
                 "invalid VR node id: " << mNodeId <<
             KFS_LOG_EOM;
             theRet = -EINVAL;
+        } else {
+            Update();
         }
     }
     return theRet;
@@ -1590,8 +1592,8 @@ LogTransmitter::Impl::Update(
         while ((theTPtr = theIt.Next())) {
             theTPtr->Start();
         }
-        Update();
     }
+    Update();
 }
 
 LogTransmitter::LogTransmitter(

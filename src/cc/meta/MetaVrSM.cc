@@ -337,6 +337,10 @@ public:
         if (mStartViewReplayCount++ < mQuorum) {
             return;
         }
+        PirmaryCommitStartView();
+    }
+    void PirmaryCommitStartView()
+    {
         CancelViewChange();
         KFS_LOG_STREAM_INFO <<
             "primary starting view: " << mEpochSeq << " " << mViewSeq <<
@@ -432,6 +436,10 @@ public:
         MetaDataSync&       inMetaDataSync,
         const MetaVrLogSeq& inCommittedSeq)
     {
+        if (mMetaDataSyncPtr) {
+            // Already started.
+            return -EINVAL;
+        }
         mMetaDataSyncPtr = &inMetaDataSync;
         if (mNodeId < 0 || mConfig.IsEmpty()) {
             mConfig.Clear();
@@ -442,8 +450,14 @@ public:
             mLastUpTime  = TimeNow();
             mActiveFlag  = true;
         } else {
-            mState = kStateBackup;
-            mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
+            if (mActiveCount <= 0 && mQuorum <= 0) {
+                mState      = kStatePrimary;
+                mLastUpTime = TimeNow();
+                mActiveFlag = true;
+            } else {
+                mState = kStateBackup;
+                mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
+            }
         }
         mCommittedSeq = inCommittedSeq;
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
@@ -541,6 +555,7 @@ public:
                 return false;
             }
         } else {
+            mLocations.clear();
             size_t theCount = 0;
             if (! (theStream >> theCount) ||
                     theCount != mConfig.GetNodes().size()) {
@@ -579,6 +594,28 @@ public:
                 return false;
             }
             mViewSeq = theSeq;
+            const Config::Nodes& theNodes = mConfig.GetNodes();
+            for (Config::Nodes::const_iterator theIt = theNodes.begin();
+                    theNodes.end() != theIt;
+                    ++theIt) {
+                const Config::Locations& theLocs = theIt->second.GetLocations();
+                for (Locations::const_iterator theLocIt = theLocs.begin();
+                        theLocs.end() != theLocIt;
+                        ++theLocIt) {
+                    const ServerLocation& theLoc = *theLocIt;
+                    if (HasLocation(theLoc)) {
+                        KFS_LOG_STREAM_ERROR <<
+                            "duplicate location: " << theLoc <<
+                            " node id: "           << theIt->first <<
+                        KFS_LOG_EOM;
+                        mEpochSeq = 0;
+                        mConfig.Clear();
+                        mLocations.clear();
+                        return false;
+                    }
+                    AddLocation(theLoc);
+                }
+            }
         }
         return true;
     }
@@ -1111,6 +1148,7 @@ private:
         } else {
             if (inReq.replayFlag) {
                 StartReconfiguration(inReq);
+                mReconfigureReqPtr = 0;
                 Commit(inReq);
             }
             // If not replay, then prepare and commit are handled by the log
@@ -1128,7 +1166,6 @@ private:
             return;
         }
         if (mReconfigureReqPtr) {
-            panic("VR: invalid reconfiguration state");
             inReq.status    = -EAGAIN;
             inReq.statusMsg = "reconfiguration is in progress";
             return;
@@ -1736,6 +1773,10 @@ private:
             return;
         }
         CancelViewChange();
+        if (mQuorum <= 0) {
+            PirmaryCommitStartView();
+            return;
+        }
         mState               = kStateViewChange;
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
