@@ -1578,6 +1578,8 @@ private:
         if (0 != inReq.status) {
             panic("VR: reconfiguration commit failure");
         }
+        mPendingChangesList.clear();
+        mPendingLocations.clear();
         mLogTransmitter.Update(mMetaVrSM);
     }
     void CommitAddNode(
