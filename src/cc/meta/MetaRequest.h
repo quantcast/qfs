@@ -294,7 +294,7 @@ struct MetaRequest {
           fromChunkServerFlag(false),
           validDelegationFlag(false),
           fromClientSMFlag(false),
-          shortRpcFormatFlag(false),
+          shortRpcFormatFlag(true),
           replayFlag(false),
           commitPendingFlag(false),
           clientIp(),
@@ -374,6 +374,7 @@ struct MetaRequest {
         .Def("g", &MetaRequest::egroup,              kKfsGroupNone)
         .Def("a", &MetaRequest::authUid,             kKfsUserNone)
         .Def("z", &MetaRequest::logseq)
+        .Def("x", &MetaRequest::shortRpcFormatFlag,  true)
         ;
         // Keep log sequence at the end of the line by using "z" key to
         // detect possibly truncated lines in the last log log segment.

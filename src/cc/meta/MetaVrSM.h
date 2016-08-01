@@ -58,6 +58,7 @@ class Properties;
 class LogTransmitter;
 class MetaDataSync;
 class MetaVrLogSeq;
+class NetManager;
 
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
@@ -315,6 +316,7 @@ public:
         const MetaVrLogSeq& inLogSeq);
     int Start(
         MetaDataSync&       inMetaDataSync,
+        NetManager&         inNetManager,
         const MetaVrLogSeq& inCommittedSeq);
     void Shutdown();
     const Config& GetConfig() const;

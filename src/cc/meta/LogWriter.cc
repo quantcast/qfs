@@ -183,7 +183,8 @@ public:
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         mMetaDataStorePtr  = &inMetaDataStore;
-        if (0 != (mError = mMetaVrSM.Start(inMetaDataSync, mCommitted.mSeq))) {
+        if (0 != (mError = mMetaVrSM.Start(
+                inMetaDataSync, mNetManager, mCommitted.mSeq))) {
             return mError;
         }
         if (inLogAppendMdStatePtr) {

@@ -31,13 +31,16 @@
 #include "util.h"
 #include "LogTransmitter.h"
 #include "MetaDataSync.h"
-#include "NetDispatch.h"
 
+#include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
 
 #include "common/IntToString.h"
 #include "common/BufferInputStream.h"
 #include "common/StdAllocator.h"
+#include "common/MsgLogger.h"
+
+#include "kfsio/NetManager.h"
 
 #include <algorithm>
 #include <set>
@@ -78,6 +81,7 @@ public:
         MetaVrSM&       inMetaVrSM)
         : mLogTransmitter(inLogTransmitter),
           mMetaDataSyncPtr(0),
+          mNetManagerPtr(0),
           mMetaVrSM(inMetaVrSM),
           mState(kStateBackup),
           mNodeId(-1),
@@ -85,7 +89,7 @@ public:
           mPendingLocations(),
           mPendingChangesList(),
           mConfig(),
-          mLocations(),
+          mAllUniqueLocations(),
           mActiveCount(0),
           mQuorum(0),
           mStartedFlag(false),
@@ -118,7 +122,10 @@ public:
           mSyncServers(),
           mInputStream(),
           mOutputStream(),
-          mEmptyString()
+          mEmptyString(),
+          mMutex(),
+          mReconfigureCompletionCondVar(),
+          mPendingReconfigureReqPtr(0)
         {}
     ~Impl()
     {
@@ -385,6 +392,15 @@ public:
         int&                outVrStatus,
         MetaRequest*        outReqPtr)
     {
+        if (mPendingReconfigureReqPtr) {
+            QCStMutexLocker theLocker(mMutex);
+            MetaVrReconfiguration& theReq = *mPendingReconfigureReqPtr;
+            StartReconfiguration(theReq);
+            mReconfigureReqPtr = 0;
+            Commit(theReq);
+            mPendingReconfigureReqPtr = 0;
+            mReconfigureCompletionCondVar.Notify();
+        }
         if ((kStatePrimary == mState || kStateBackup == mState) &&
                 mLastReceivedTime < inLastReceivedTime) {
             mLastReceivedTime = inLastReceivedTime;
@@ -434,13 +450,15 @@ public:
     }
     int Start(
         MetaDataSync&       inMetaDataSync,
+        NetManager&         inNetManager,
         const MetaVrLogSeq& inCommittedSeq)
     {
-        if (mMetaDataSyncPtr) {
+        if (mStartedFlag) {
             // Already started.
             return -EINVAL;
         }
         mMetaDataSyncPtr = &inMetaDataSync;
+        mNetManagerPtr   = &inNetManager;
         if (mNodeId < 0 || mConfig.IsEmpty()) {
             mConfig.Clear();
             mLogTransmitter.Update(mMetaVrSM);
@@ -555,7 +573,7 @@ public:
                 return false;
             }
         } else {
-            mLocations.clear();
+            mAllUniqueLocations.clear();
             size_t theCount = 0;
             if (! (theStream >> theCount) ||
                     theCount != mConfig.GetNodes().size()) {
@@ -610,10 +628,14 @@ public:
                         KFS_LOG_EOM;
                         mEpochSeq = 0;
                         mConfig.Clear();
-                        mLocations.clear();
+                        mAllUniqueLocations.clear();
                         return false;
                     }
-                    AddLocation(theLoc);
+                }
+                for (Locations::const_iterator theLocIt = theLocs.begin();
+                        theLocs.end() != theLocIt;
+                        ++theLocIt) {
+                    AddLocation(*theLocIt);
                 }
             }
         }
@@ -839,6 +861,7 @@ private:
 
     LogTransmitter&              mLogTransmitter;
     MetaDataSync*                mMetaDataSyncPtr;
+    NetManager*                  mNetManagerPtr;
     MetaVrSM&                    mMetaVrSM;
     State                        mState;
     NodeId                       mNodeId;
@@ -846,7 +869,7 @@ private:
     Locations                    mPendingLocations;
     ChangesList                  mPendingChangesList;
     Config                       mConfig;
-    Locations                    mLocations;
+    Locations                    mAllUniqueLocations;
     int                          mActiveCount;
     int                          mQuorum;
     bool                         mStartedFlag;
@@ -881,6 +904,9 @@ private:
     BufferInputStream            mInputStream;
     ostringstream                mOutputStream;
     string const                 mEmptyString;
+    QCMutex                      mMutex;
+    QCCondVar                    mReconfigureCompletionCondVar;
+    MetaVrReconfiguration*       mPendingReconfigureReqPtr;
 
     time_t TimeNow() const
         { return mTimeNow; }
@@ -1146,10 +1172,26 @@ private:
             }
             StartReconfiguration(inReq);
         } else {
-            if (inReq.replayFlag) {
-                StartReconfiguration(inReq);
-                mReconfigureReqPtr = 0;
-                Commit(inReq);
+            if (inReq.replayFlag && 0 == inReq.status) {
+                if (mStartedFlag) {
+                    QCStMutexLocker theLocker(mMutex);
+                    if (mPendingReconfigureReqPtr) {
+                        panic("VR: invalid pending reconfiguration in replay");
+                        inReq.status = -EFAULT;
+                    } else {
+                        mReconfigureReqPtr = 0;
+                        mPendingReconfigureReqPtr = &inReq;
+                        mNetManagerPtr->Wakeup();
+                        while (&inReq == mPendingReconfigureReqPtr) {
+                            mReconfigureCompletionCondVar.Wait(mMutex);
+                        }
+                    }
+                } else {
+                    mReconfigureReqPtr = 0;
+                    StartReconfiguration(inReq);
+                    mReconfigureReqPtr = 0;
+                    Commit(inReq);
+                }
             }
             // If not replay, then prepare and commit are handled by the log
             // writer.
@@ -1649,24 +1691,29 @@ private:
         const ServerLocation& inLocation) const
     {
         Locations::const_iterator const theIt = lower_bound(
-            mLocations.begin(), mLocations.end(), inLocation);
-        return (theIt != mLocations.end() && inLocation == *theIt);
+            mAllUniqueLocations.begin(), mAllUniqueLocations.end(), inLocation);
+        return (theIt != mAllUniqueLocations.end() && inLocation == *theIt);
     }
-    void AddLocation(
+    bool AddLocation(
         const ServerLocation& inLocation)
     {
-        mLocations.insert(lower_bound(
-            mLocations.begin(), mLocations.end(), inLocation), inLocation);
+        Locations::iterator const theIt = lower_bound(
+            mAllUniqueLocations.begin(), mAllUniqueLocations.end(), inLocation);
+        if (mAllUniqueLocations.end() == theIt || inLocation != *theIt) {
+            mAllUniqueLocations.insert(theIt, inLocation);
+            return true;
+        }
+        return false;
     }
     bool RemoveLocation(
         const ServerLocation& inLocation)
     {
         Locations::iterator const theIt = lower_bound(
-            mLocations.begin(), mLocations.end(), inLocation);
-        if (mLocations.end() == theIt || inLocation != *theIt) {
+            mAllUniqueLocations.begin(), mAllUniqueLocations.end(), inLocation);
+        if (mAllUniqueLocations.end() == theIt || inLocation != *theIt) {
             return false;
         }
-        mLocations.erase(theIt);
+        mAllUniqueLocations.erase(theIt);
         return true;
     }
     NodeId FindNodeByLocation(
@@ -1919,9 +1966,10 @@ MetaVrSM::Process(
     int
 MetaVrSM::Start(
     MetaDataSync&       inMetaDataSync,
+    NetManager&         inNetManager,
     const MetaVrLogSeq& inCommittedSeq)
 {
-    return mImpl.Start(inMetaDataSync, inCommittedSeq);
+    return mImpl.Start(inMetaDataSync, inNetManager, inCommittedSeq);
 }
 
     void

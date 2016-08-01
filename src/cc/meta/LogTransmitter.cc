@@ -1386,32 +1386,39 @@ LogTransmitter::Impl::TransmitBlock(
         return 0;
     }
     mSendingFlag = true;
+    int          theCnt = 0;
+    Transmitter* thePtr;
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
-        const int theRet = (List::Front(mTransmittersPtr)->SendBlock(
-                inBlockSeq, inBlockSeqLen,
-                inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)
-            ? 0 : -EIO);
-        EndOfTransmit();
-        return theRet;
-    }
-    IOBuffer theBuffer;
-    WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
-        inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
-    List::Iterator theIt(mTransmittersPtr);
-    Transmitter*   thePtr;
-    int            theCnt    = 0;
-    NodeId         thePrevId = -1;
-    while ((thePtr = theIt.Next())) {
+        thePtr = List::Front(mTransmittersPtr);
         const NodeId theId = thePtr->GetId();
         if (thePtr->SendBlock(
-                    inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
-            if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
-                theCnt++;
+                    inBlockSeq, inBlockSeqLen,
+                    inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos) &&
+                0 <= theId && thePtr->IsActive()) {
+            theCnt++;
+        }
+    } else {
+        IOBuffer theBuffer;
+        WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
+            inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+        NodeId         thePrevId = -1;
+        List::Iterator theIt(mTransmittersPtr);
+        while ((thePtr = theIt.Next())) {
+            const NodeId theId = thePtr->GetId();
+            if (thePtr->SendBlock(
+                        inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
+                if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
+                    theCnt++;
+                }
+                thePrevId = theId;
             }
-            thePrevId = theId;
         }
     }
     EndOfTransmit();
+    if (mMinAckToCommit <= 0 && mCommitted < inBlockSeq) {
+        mCommitted = inBlockSeq;
+        mCommitObserver.Notify(mCommitted);
+    }
     return (theCnt < mMinAckToCommit ? -EIO : 0);
 }
 
