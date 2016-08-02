@@ -41,6 +41,7 @@
 namespace KFS
 {
 class Properties;
+struct MetaSetGroupUsers;
 
 using std::string;
 using std::set;
@@ -229,6 +230,8 @@ public:
         size_t      inLen,
         bool        inAppendFlag,
         bool        inHexFlag);
+    void Handle(
+        MetaSetGroupUsers& inOp);
     void PrepareToFork();
     void ForkDone();
 private:

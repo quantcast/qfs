@@ -6383,6 +6383,29 @@ MetaChunkLogInFlight::GetReqId(const char* name, size_t len)
     return -1;
 }
 
+/* virtual */ bool
+MetaSetFsInfo::start()
+{
+    if (fileSystemId < 0 || 0 < metatree.GetFsId()) {
+        status = -EINVAL;
+    }
+    return (0 == status);
+}
+
+/* virtual */ void
+MetaSetFsInfo::handle()
+{
+    metatree.SetFsInfo(fileSystemId, createTime);
+}
+
+/* virtual */ void
+MetaSetGroupUsers::handle()
+{
+    if (0 == status) {
+        gLayoutManager.GetUserAndGroup().Handle(*this);
+    }
+}
+
 /* virtual */ void
 MetaHibernatedPrune::handle()
 {

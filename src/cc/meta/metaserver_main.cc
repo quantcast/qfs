@@ -635,47 +635,6 @@ CheckDirWritable(
     return true;
 }
 
-struct MetaSetFsInfo : public MetaRequest
-{
-public:
-    MetaSetFsInfo(
-        int64_t fsid,
-        int64_t crTime)
-        : MetaRequest(META_SET_FILE_SYSTEM_INFO, kLogIfOk),
-          fileSystemId(fsid),
-          createTime(crTime)
-        {}
-    virtual bool start()
-    {
-        if (fileSystemId < 0 || 0 < metatree.GetFsId()) {
-            status = -EINVAL;
-        }
-        return (0 == status);
-    }
-    virtual void handle()
-    {
-        metatree.SetFsInfo(fileSystemId, createTime);
-    }
-    virtual bool log(ostream& os) const
-    {
-        os << "setfsinfo"
-            "/fsid/"   << fileSystemId <<
-            "/crtime/" << ShowTime(createTime) <<
-        "\n";
-        return true;
-    }
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return (os <<
-            "fsid: "  << fileSystemId <<
-            " time: " << createTime
-        );
-    }
-private:
-    const int64_t fileSystemId;
-    const int64_t createTime;
-};
-
 bool
 MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
 {

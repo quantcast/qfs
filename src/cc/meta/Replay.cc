@@ -1563,26 +1563,71 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
 }
 
 static bool
-replay_group_users_reset(DETokenizer& c)
+replay_setfsinfo(DETokenizer& c)
 {
-    if (! restore_group_users_reset(c) || c.empty()) {
+    c.pop_front();
+    int64_t fsid   = -1;
+    int64_t crtime = 0;
+    bool ok = pop_num(fsid,      "fsid", c, true);
+    ok =      pop_time(crtime, "crtime", c, ok);
+    if (! ok || fsid < 0) {
         return false;
     }
     ReplayState& state = ReplayState::get(c);
-    state.mSubEntryCount = c.toNumber();
-    return (0 <= state.mSubEntryCount && c.isLastOk());
+    if (state.mCurOp) {
+        return false;
+    }
+    state.mCurOp = new MetaSetFsInfo(fsid, crtime);
+    state.mCurOp->logseq = state.mLastLogAheadSeq;
+    state.mCurOp->logseq.mLogSeq++;
+    state.mCurOp->replayFlag = true;
+    return (state.handle() && state.incSeq());
 }
 
 static bool
-replay_setfsinfo(DETokenizer& c)
+replay_group_users_reset(DETokenizer& c)
 {
-    return (restore_filesystem_info(c) && replay_inc_seq(c));
+    ReplayState& state = ReplayState::get(c);
+    if (c.empty() || state.mCurOp || ! state.mLastLogAheadSeq.IsValid()) {
+        return false;
+    }
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const int64_t n = c.toNumber();
+    if (! c.isLastOk() || n < 0) {
+        return false;
+    }
+    c.pop_front();
+    state.mSubEntryCount = n;
+    state.mCurOp = new MetaSetGroupUsers(16 == c.getIntBase());
+    state.mCurOp->logseq = state.mLastLogAheadSeq;
+    state.mCurOp->logseq.mLogSeq++;
+    state.mCurOp->replayFlag = true;
+    return true;
 }
 
 static bool
 replay_group_users(DETokenizer& c)
 {
-    return (restore_group_users(c) && replay_sub_entry(c));
+    ReplayState& state = ReplayState::get(c);
+    if (c.empty() || ! state.mCurOp ||
+            META_SET_GROUP_USERS != state.mCurOp->op) {
+        return false;
+    }
+    const bool appendFlag = 3 == c.front().len;
+    c.pop_front();
+    if (c.empty()) {
+        return false;
+    }
+    const DETokenizer::Token& token = c.front();
+    MetaSetGroupUsers& op = *static_cast<MetaSetGroupUsers*>(state.mCurOp);
+    op.AddEntry(appendFlag, token.ptr, token.len);
+    if (1 == state.mSubEntryCount) {
+        state.replayCurOp();
+    }
+    return replay_sub_entry(c);
 }
 
 static bool

@@ -152,6 +152,7 @@ using std::less;
     f(SET_FILE_SYSTEM_INFO) \
     f(FORCE_CHUNK_REPLICATION) \
     f(LOG_GROUP_USERS) \
+    f(SET_GROUP_USERS) \
     f(ACK) \
     f(REMOVE_FROM_DUMPSTER) \
     f(LOG_CHUNK_ALLOCATE) \
@@ -4172,6 +4173,90 @@ struct MetaLogWriterControl : public MetaRequest {
         blockLines.Clear();
         blockData.Clear();
     }
+};
+
+struct MetaSetFsInfo : public MetaRequest {
+    MetaSetFsInfo(int64_t fsid, int64_t crTime)
+        : MetaRequest(META_SET_FILE_SYSTEM_INFO, kLogIfOk),
+          fileSystemId(fsid),
+          createTime(crTime)
+        {}
+    virtual bool start();
+    virtual void handle();
+    virtual bool log(ostream& os) const
+    {
+        os << "setfsinfo"
+            "/fsid/"   << fileSystemId <<
+            "/crtime/" << ShowTime(createTime) <<
+        "\n";
+        return true;
+    }
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os << "setfsinfo "
+            "fsid: "  << fileSystemId <<
+            " time: " << createTime
+        );
+    }
+private:
+    const int64_t fileSystemId;
+    const int64_t createTime;
+};
+
+struct MetaSetGroupUsers : public MetaRequest {
+    const bool hexFlag;
+    MetaSetGroupUsers(bool f)
+        : MetaRequest(META_SET_GROUP_USERS, kLogNever),
+          hexFlag(f),
+          buf()
+        {}
+    virtual bool start()
+    {
+        if (0 == status && buf.empty()) {
+            status = -EINVAL;
+        }
+        return (0 == status);
+    }
+    virtual void handle();
+    void AddEntry(bool appendFlag, const char* ptr, size_t len)
+    {
+        if (len <= 0) {
+            return;
+        }
+        const int64_t alen = appendFlag ? -(int64_t)len :  (int64_t)len;
+        buf.append(reinterpret_cast<const char*>(&alen), sizeof(alen));
+        buf.append(ptr, len);
+    }
+    bool Next(const char*& ptr, size_t& len, bool& appendFlag) const
+    {
+        int64_t alen;
+        if (ptr) {
+            ptr += len;
+            if (buf.data() + buf.size() < ptr + sizeof(alen)) {
+                len = 0;
+                return false;
+            }
+        } else {
+            ptr = buf.data();
+        }
+        char* dst = reinterpret_cast<char*>(&alen);
+        for (const char* end = ptr + sizeof(alen); ptr < end; ptr++) {
+            *dst++ = *ptr;
+        }
+        if (alen < 0) {
+            appendFlag = true;
+            len = (size_t)-alen;
+        } else {
+            len = (size_t)alen;
+        }
+        return true;
+    }
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os << "set-group_users");
+    }
+private:
+    string buf;
 };
 
 struct MetaLogClearObjStoreDelete : public MetaRequest {

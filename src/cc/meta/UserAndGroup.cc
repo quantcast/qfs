@@ -353,35 +353,7 @@ public:
         bool        inHexFlag)
     {
         QCStMutexLocker theLock(mMutex);
-        kfsUid_t theUid;
-        const char*       thePtr     = inBufPtr;
-        const char* const theEndPtr = thePtr + inLen;
-        if (! (inHexFlag ?
-                HexIntParser::Parse(thePtr, theEndPtr - thePtr, theUid) :
-                DecIntParser::Parse(thePtr, theEndPtr - thePtr, theUid)) ||
-                theUid == kKfsUserNone) {
-            return -EINVAL;
-        }
-        bool theInsertedFlag = false;
-        UsersSet* const theUsersPtr =
-            mGroupUsersMap.Insert(theUid, UsersSet(), theInsertedFlag);
-        if (! theInsertedFlag && ! inAppendFlag) {
-            theUsersPtr->clear();
-        }
-        kfsGid_t theGid;
-        while (thePtr < theEndPtr && (inHexFlag ?
-                HexIntParser::Parse(thePtr, theEndPtr - thePtr, theGid) :
-                DecIntParser::Parse(thePtr, theEndPtr - thePtr, theGid)) &&
-                kKfsGroupNone != theGid) {
-            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
-                ++thePtr;
-            }
-            theUsersPtr->insert(theGid);
-        }
-        if (theUsersPtr->empty() || thePtr < theEndPtr) {
-            mGroupUsersMap.Erase(theUid);
-        }
-        return (thePtr < theEndPtr ? -EINVAL : 0);
+        return ReadGroupSelf(inBufPtr, inLen, inAppendFlag, inHexFlag);
     }
     void PrepareToFork()
     {
@@ -962,6 +934,22 @@ private:
         }
         return theError;
     }
+    void Handle(
+        MetaSetGroupUsers& inOp)
+    {
+        QCStMutexLocker theLock(mMutex);
+        mGroupUsersMap.Clear();
+        size_t      theLen        = 0;
+        bool        theAppendFlag = false;
+        const char* thePtr        = 0;
+        while (inOp.Next(thePtr, theLen, theAppendFlag)) {
+            if (0 != (inOp.status = ReadGroupSelf(
+                    thePtr, theLen, theAppendFlag, inOp.hexFlag))) {
+                inOp.statusMsg = "invalid group user entry";
+                break;
+            }
+        }
+    }
 private:
     typedef set<
         string,
@@ -1203,6 +1191,42 @@ private:
         }
         return theError;
     }
+    int ReadGroupSelf(
+        const char* inBufPtr,
+        size_t      inLen,
+        bool        inAppendFlag,
+        bool        inHexFlag)
+    {
+        kfsUid_t theUid;
+        const char*       thePtr     = inBufPtr;
+        const char* const theEndPtr = thePtr + inLen;
+        if (! (inHexFlag ?
+                HexIntParser::Parse(thePtr, theEndPtr - thePtr, theUid) :
+                DecIntParser::Parse(thePtr, theEndPtr - thePtr, theUid)) ||
+                theUid == kKfsUserNone) {
+            return -EINVAL;
+        }
+        bool theInsertedFlag = false;
+        UsersSet* const theUsersPtr =
+            mGroupUsersMap.Insert(theUid, UsersSet(), theInsertedFlag);
+        if (! theInsertedFlag && ! inAppendFlag) {
+            theUsersPtr->clear();
+        }
+        kfsGid_t theGid;
+        while (thePtr < theEndPtr && (inHexFlag ?
+                HexIntParser::Parse(thePtr, theEndPtr - thePtr, theGid) :
+                DecIntParser::Parse(thePtr, theEndPtr - thePtr, theGid)) &&
+                kKfsGroupNone != theGid) {
+            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+                ++thePtr;
+            }
+            theUsersPtr->insert(theGid);
+        }
+        if (theUsersPtr->empty() || thePtr < theEndPtr) {
+            mGroupUsersMap.Erase(theUid);
+        }
+        return (thePtr < theEndPtr ? -EINVAL : 0);
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -1288,6 +1312,13 @@ UserAndGroup::ReadGroup(
     bool        inHexFlag)
 {
     return mImpl.ReadGroup(inBufPtr, inLen, inAppendFlag, inHexFlag);
+}
+
+    void
+UserAndGroup::Handle(
+    MetaSetGroupUsers& inOp)
+{
+    return mImpl.Handle(inOp);
 }
 
     void

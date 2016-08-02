@@ -507,7 +507,7 @@ restore_idempotent_request(DETokenizer& c)
         token.ptr, token.len) == 0;
 }
 
-bool
+static bool
 restore_group_users_reset(DETokenizer& c)
 {
     c.pop_front();
@@ -520,7 +520,7 @@ restore_group_users_reset(DETokenizer& c)
 
 static const DETokenizer::Token kGUContinue("guc");
 
-bool
+static bool
 restore_group_users(DETokenizer& c)
 {
     const bool appendFlag = c.front() == kGUContinue;
