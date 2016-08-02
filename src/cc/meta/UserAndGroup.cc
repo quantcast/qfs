@@ -150,6 +150,7 @@ public:
           mSetDefaultsFlag(inUseDefaultsFlag),
           mWaitingUpdateCompletionhFlag(false),
           mMetaLogGroupUsersInFlightFlag(false),
+          mNextUpdateRetryTime(globalNetManager().Now() - 24 * 60 * 60),
           mMetaLogGroupUsers(*this, mPendingGroupUsersMap)
         {}
     ~Impl()
@@ -488,6 +489,8 @@ private:
         mMetaLogGroupUsersInFlightFlag = false;
         if (mMetaLogGroupUsers.status == 0) {
             ApplyPendingUpdate();
+        } else {
+            mNextUpdateRetryTime = globalNetManager().Now() + 10;
         }
     }
     void ApplyPendingUpdate()
@@ -1088,6 +1091,7 @@ private:
     bool                             mSetDefaultsFlag;
     bool                             mWaitingUpdateCompletionhFlag;
     bool                             mMetaLogGroupUsersInFlightFlag;
+    time_t                           mNextUpdateRetryTime;
     MetaLogGroupUsers                mMetaLogGroupUsers;
 
     friend class UserAndGroup;
@@ -1095,6 +1099,9 @@ private:
     void StartPendingUpdate()
     {
         if (mUpdateCount == mCurUpdateCount || mMetaLogGroupUsersInFlightFlag) {
+            return;
+        }
+        if (globalNetManager().Now() < mNextUpdateRetryTime) {
             return;
         }
         if (mMetaLogGroupUsers.logseq.IsValid()) {
