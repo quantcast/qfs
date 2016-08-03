@@ -645,6 +645,13 @@ public:
                 ResetConfig();
                 return false;
             }
+            if (0 < mActiveCount && mActiveCount < kMinActiveCount) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid active node count: " << mActiveCount <<
+                KFS_LOG_EOM;
+                ResetConfig();
+                return false;
+            }
             mQuorum = mActiveCount - (mActiveCount - 1) / 2;
         }
         return true;
