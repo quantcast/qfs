@@ -1496,6 +1496,7 @@ public:
     bool Restore(MetaChunkInfo& info,
         const char* restoreIdxs, size_t restoreIdxsLen, bool hexFmtFlag);
     void StartServicing();
+    void StopServicing();
     void ReplaySetRack(bool flag)
         { mReplaySetRackFlag = flag; }
     time_t TimeNow() const

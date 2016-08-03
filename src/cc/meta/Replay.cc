@@ -119,6 +119,7 @@ public:
           mLogSegmentTimeUsec(0),
           mLastCommittedStatus(0),
           mRestoreTimeCount(0),
+          mPendingStopServicingFlag(false),
           mReplayer(replay),
           mCurOp(0)
         {}
@@ -230,6 +231,7 @@ public:
     {
         if (op.replayFlag) {
             op.seqno = MetaRequest::GetLogWriter().GetNextSeq();
+            stopServicing();
         }
         op.handle();
         KFS_LOG_STREAM_DEBUG <<
@@ -367,6 +369,14 @@ public:
         }
         return true;
     }
+    void stopServicing()
+    {
+        if (mPendingStopServicingFlag && mReplayer) {
+            mPendingStopServicingFlag = false;
+            gLayoutManager.StopServicing();
+            gLayoutManager.SetDisableTimerFlag(true);
+        }
+    }
 
     CommitQueue   mCommitQueue;
     MetaVrLogSeq  mCheckpointCommitted;
@@ -381,6 +391,7 @@ public:
     int64_t       mLogSegmentTimeUsec;
     int           mLastCommittedStatus;
     int           mRestoreTimeCount;
+    bool          mPendingStopServicingFlag;
     Replay* const mReplayer;
     MetaRequest*  mCurOp;
 private:
@@ -2553,12 +2564,16 @@ Replay::handle(MetaVrLogStartView& op)
         }
         return;
     }
-    replayTokenizer.GetState().handleStartView(op);
+    ReplayState& state = replayTokenizer.GetState();
+    state.handleStartView(op);
     if (0 != op.status && ! op.replayFlag) {
         panic("replay: invalid start view op completion");
     }
     update();
-    if (! op.replayFlag) {
+    if (op.replayFlag) {
+        state.stopServicing();
+    } else {
+        state.mPendingStopServicingFlag = false;
         gLayoutManager.SetDisableTimerFlag(false);
         gLayoutManager.StartServicing();
     }
@@ -2571,10 +2586,12 @@ Replay::setReplayState(
     int                 lastCommittedStatus,
     MetaRequest*        commitQueue)
 {
-    const bool okFlag = replayTokenizer.GetState().setReplayState(
+    ReplayState& state = replayTokenizer.GetState();
+    state.mPendingStopServicingFlag = true;
+    gLayoutManager.SetDisableTimerFlag(true);
+    const bool okFlag = state.setReplayState(
         committed, errChecksum, lastCommittedStatus, commitQueue);
     update();
-    gLayoutManager.SetDisableTimerFlag(true);
     return okFlag;
 }
 

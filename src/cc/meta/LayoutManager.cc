@@ -13018,6 +13018,19 @@ LayoutManager::StartServicing()
     }
 }
 
+void
+LayoutManager::StopServicing()
+{
+    for (Servers::const_iterator it = mChunkServers.begin();
+            mChunkServers.end() != it;
+            ++it) {
+        const ChunkServerPtr& srv = *it;
+        if (! srv->IsReplay()) {
+            srv->ScheduleDown("stop servicing");
+        }
+    }
+}
+
 ostream&
 LayoutManager::Checkpoint(ostream& os, const MetaChunkInfo& info) const
 {
