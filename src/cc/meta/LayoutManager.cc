@@ -1414,7 +1414,7 @@ template<typename T> bool
 LayoutManager::HandleReplay(T& req)
 {
     if (! req.replayFlag) {
-        return (-ELOGFAILED == req.status);
+        return IsMetaLogWriteOrVrError(req.status);
     }
     if (req.server || ! req.location.IsValid() || 0 != req.status) {
         panic("invalid RPC in replay");
@@ -3501,7 +3501,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
 void
 LayoutManager::Handle(MetaHibernatedPrune& req)
 {
-    if (-ELOGFAILED == req.status) {
+    if (IsMetaLogWriteOrVrError(req.status)) {
         if (req.replayFlag) {
             panic("invalid meta hibernate prune");
         } else {
@@ -3527,7 +3527,7 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
     if (0 != req.status) {
         if (req.replayFlag) {
             panic("invalid meta hibernate remove");
-        } else if (-ELOGFAILED != req.status) {
+        } else if (! IsMetaLogWriteOrVrError(req.status)) {
             panic("invalid meta hibernate remove status");
         }
     }
@@ -5360,7 +5360,7 @@ LayoutManager::Handle(MetaBye& req)
             panic("invalid meta bye in replay");
             return;
         }
-        if (-ELOGFAILED == req.status) {
+        if (IsMetaLogWriteOrVrError(req.status)) {
             ScheduleResubmitOrCancel(req);
             return;
         }

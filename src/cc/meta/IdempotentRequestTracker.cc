@@ -243,7 +243,7 @@ public:
             }
             const MetaIdempotentRequest& theReq = *(thePtr->mReqPtr);
             if (0 <= theReq.seqno && ! theReq.commitPendingFlag &&
-                    -ELOGFAILED != theReq.status) {
+                    ! IsMetaLogWriteOrVrError(theReq.status)) {
                 // Only write completed RPCs.
                 // Not completed RPCs will be written into transaction log.
                 // Do not write RPCs with log write failures, though those

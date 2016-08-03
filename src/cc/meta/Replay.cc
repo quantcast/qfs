@@ -209,13 +209,18 @@ public:
         }
         MetaRequest& op = *entry.op;
         handleOp(op);
-        const int status = op.status < 0 ? SysToKfsErrno(-op.status) : 0;
-        mLastCommittedStatus = status;
-        mLogAheadErrChksum  += status;
+        if (op.logseq.IsValid()) {
+            const int status = op.status < 0 ? SysToKfsErrno(-op.status) : 0;
+            mLastCommittedStatus = status;
+            mLogAheadErrChksum  += status;
+            entry.status = status;
+        } else if (op.replayFlag) {
+            panic("replay: commit invalid op log sequence");
+            return;
+        }
         entry.logSeq      = op.logseq;
         entry.seed        = fileID.getseed();
         entry.errChecksum = mLogAheadErrChksum;
-        entry.status      = status;
         entry.op          = 0;
         if (&op != mCurOp && ! op.suspended) {
             opDone(op);
@@ -331,8 +336,9 @@ public:
         int                 lastCommittedStatus,
         MetaRequest*        commitQueue)
     {
-        if (mCurOp || ! mReplayer ||
-                (commitQueue && commitQueue->logseq <= committed)) {
+        if (mCurOp || ! mReplayer || ! committed.IsValid() ||
+                (commitQueue && commitQueue->logseq.IsValid() &&
+                    commitQueue->logseq <= committed)) {
             return false;
         }
         if (! mCommitQueue.empty() && ! runCommitQueue(
@@ -1365,7 +1371,8 @@ ReplayState::runCommitQueue(
         }
         return true;
     }
-    CommitQueue::iterator it = mCommitQueue.begin();
+    CommitQueue::iterator it        = mCommitQueue.begin();
+    bool                  foundFlag = false;
     while (mCommitQueue.end() != it) {
         CommitQueueEntry& f = *it;
         if (logSeq < f.logSeq) {
@@ -1373,47 +1380,52 @@ ReplayState::runCommitQueue(
         }
         commit(f);
         if (logSeq == f.logSeq) {
-            if (f.status == status && f.seed == seed &&
-                    f.errChecksum == errChecksum) {
-                mCommitQueue.erase(mCommitQueue.begin(), it);
-                return true;
-            }
-            for (CommitQueue::const_iterator cit = mCommitQueue.begin();
-                    ; ++cit) {
-                KFS_LOG_STREAM_ERROR <<
-                    "commit"
-                    " sequence: "       << cit->logSeq <<
-                    " "                 << hex << cit->logSeq << dec <<
-                    " seed: "           << cit->seed <<
-                    " error checksum: " << cit->errChecksum <<
-                    " status: "         << cit->status <<
-                    " [" << (cit->status == 0 ? string("OK") :
-                        ErrorCodeToString(-KfsToSysErrno(cit->status))) <<
-                    "]" <<
-                KFS_LOG_EOM;
-                if (cit == it) {
-                    break;
+            foundFlag = true;
+            if (f.status != status ||
+                    f.seed != seed ||
+                    f.errChecksum != errChecksum) {
+                for (CommitQueue::const_iterator cit = mCommitQueue.begin();
+                        ; ++cit) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "commit"
+                        " sequence: "       << cit->logSeq <<
+                        " x "               << hex << cit->logSeq << dec <<
+                        " seed: "           << cit->seed <<
+                        " error checksum: " << cit->errChecksum <<
+                        " status: "         << cit->status <<
+                        " [" << (cit->status == 0 ? string("OK") :
+                            ErrorCodeToString(-KfsToSysErrno(cit->status))) <<
+                        "]" <<
+                    KFS_LOG_EOM;
+                    if (cit == it) {
+                        break;
+                    }
                 }
+                KFS_LOG_STREAM_ERROR <<
+                    "log commit:"
+                    " sequence: " << logSeq <<
+                    " x "         << hex << logSeq << dec <<
+                    " status mismatch"
+                    " expected: " << status <<
+                    " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]"
+                    " actual: "   << f.status <<
+                    " [" << ErrorCodeToString(-KfsToSysErrno(f.status)) <<
+                        "]" <<
+                    " seed:"
+                    " expected: " << f.seed <<
+                    " actual: "   << seed <<
+                    " error checksum:"
+                    " expected: " << f.errChecksum <<
+                    " actual: "   << errChecksum <<
+                KFS_LOG_EOM;
+                return false;
             }
-            KFS_LOG_STREAM_ERROR <<
-                "log commit:"
-                " sequence: " << logSeq <<
-                " "           << hex << logSeq << dec <<
-                " status mismatch"
-                " expected: " << status <<
-                " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]"
-                " actual: "   << f.status <<
-                " [" << ErrorCodeToString(-KfsToSysErrno(f.status)) << "]" <<
-                " seed:"
-                " expected: " << f.seed <<
-                " actual: "   << seed <<
-                " error checksum:"
-                " expected: " << f.errChecksum <<
-                " actual: "   << errChecksum <<
-            KFS_LOG_EOM;
-            return false;
         }
         ++it;
+    }
+    if (foundFlag) {
+        mCommitQueue.erase(mCommitQueue.begin(), it);
+        return true;
     }
     // Commit sequence must always be at the log block end.
     if (it != mCommitQueue.begin() ||
@@ -1436,8 +1448,9 @@ ReplayState::runCommitQueue(
             " expected: "       << mLogAheadErrChksum <<
             " commit queue: "   << mCommitQueue.size() <<
         KFS_LOG_EOM;
+        return false;
     }
-    return false;
+    return true;
 }
 
 static bool
@@ -1479,10 +1492,18 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     if (c.size() < 9) {
         return false;
     }
+    ReplayState& state = ReplayState::get(c);
+    if (state.mCurOp) {
+        KFS_LOG_STREAM_ERROR <<
+            "replay invalid state:"
+            " non null current op at the end of log block: " <<
+            state.mCurOp->Show() <<
+        KFS_LOG_EOM;
+        return false;
+    }
     const char* const ptr   = c.front().ptr;
     const size_t      len   = c.back().ptr - ptr;
     const size_t      skip  = len + c.back().len;
-    ReplayState&      state = ReplayState::get(c);
     blockChecksum.write(ptr, len);
     c.pop_front();
     MetaVrLogSeq commitSeq;
@@ -2527,7 +2548,7 @@ Replay::handle(MetaVrLogStartView& op)
         if (op.replayFlag) {
             return;
         }
-        if (-ELOGFAILED != op.status) {
+        if (! IsMetaLogWriteOrVrError(op.status)) {
             panic("replay: invalid start view op status");
         }
         return;

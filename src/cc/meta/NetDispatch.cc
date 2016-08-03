@@ -1083,7 +1083,6 @@ public:
         mLastCommit = inOp.blockCommitted;
         inOp.next = 0;
         mPendingCommitQueue.PushBack(inOp);
-        bool         theUpdateCommittedFlag = false;
         MetaRequest* thePtr;
         while ((thePtr = mPendingCommitQueue.Front())) {
             MetaLogWriterControl& theCur =
@@ -1119,18 +1118,15 @@ public:
                     panic("log block apply failure");
                 }
                 theCur.blockData.Consume(theLen);
-                theUpdateCommittedFlag = true;
+                MetaRequest::GetLogWriter().SetCommitted(
+                    replayer.getCommitted(),
+                    fileID.getseed(),
+                    replayer.getErrChksum(),
+                    replayer.getLastCommittedStatus(),
+                    replayer.getLastLogSeq()
+                );
             }
             MetaRequest::Release(&theCur);
-        }
-        if (theUpdateCommittedFlag) {
-            MetaRequest::GetLogWriter().SetCommitted(
-                replayer.getCommitted(),
-                fileID.getseed(),
-                replayer.getErrChksum(),
-                replayer.getLastCommittedStatus(),
-                replayer.getLastLogSeq()
-            );
         }
     }
     virtual void SetLastAckSentTime(
@@ -1729,7 +1725,7 @@ ClientManager::Impl::PrepareCurrentThreadToFork()
     }
     globalNetManager().Wakeup();
     mLogReceiverThread.PrepareToFork();
-    while (mPrepareToForkCnt < mClientThreadCount) {
+    while (mPrepareToForkCnt < GetPrepareToForkCount()) {
         mPrepareToForkDoneCond.Wait(*mutex);
     }
 }

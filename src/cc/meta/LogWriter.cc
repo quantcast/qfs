@@ -552,6 +552,25 @@ private:
             if (--mPendingCount < 0) {
                 panic("log writer: request completion invalid pending count");
             }
+            if (0 == theReq.status && META_LOG_WRITER_CONTROL == thePtr->op) {
+                MetaLogWriterControl& theCtl =
+                    static_cast<MetaLogWriterControl&>(theReq);
+                // Run checkpoint completion after the replay queue advances,
+                // unless if the corresponding log sequence is already
+                // committed.
+                if (MetaLogWriterControl::kCheckpointNewLog == theCtl.type &&
+                        theCtl.lastLogSeq != mCommitted.mSeq) {
+                    if (replayer.setReplayState(
+                            mCommitted.mSeq,
+                            mCommitted.mErrChkSum,
+                            mCommitted.mStatus,
+                            &theCtl)) {
+                        continue;
+                    }
+                    panic("log writer: checkpoint new log"
+                        " set replay state failure");
+                }
+            }
             submit_request(&theReq);
         }
         if (theSetReplayStateFlag && ! replayer.setReplayState(
@@ -1061,7 +1080,7 @@ private:
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             inRequest.blockStartSeq,
             inRequest.blockEndSeq,
-            theBlockCommitted.mSeq
+            mInFlightCommitted.mSeq
         );
         if (0 == theVrStatus) {
             const int theStatus = mLogTransmitter.TransmitBlock(
@@ -1089,7 +1108,7 @@ private:
         mMetaVrSM.LogBlockWriteDone(
             inRequest.blockStartSeq,
             inRequest.blockEndSeq,
-            theBlockCommitted.mSeq,
+            mInFlightCommitted.mSeq,
             theStreamGoodFlag
         );
         if (theStreamGoodFlag) {
@@ -1098,7 +1117,6 @@ private:
             mNextLogSeq         = mLastLogSeq;
             inRequest.status    = 0;
             inRequest.committed = mLastLogSeq;
-            mInFlightCommitted  = theBlockCommitted;
             StartBlock(mNextBlockChecksum);
         } else {
             inRequest.status    = -EIO;

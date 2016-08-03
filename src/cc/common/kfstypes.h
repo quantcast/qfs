@@ -120,7 +120,13 @@ const int EINVALCHUNKSIZE = 1007;
 // transaction log write failure.
 const int ELOGFAILED = 1008;
 
+// Not VR primary node.
 const int EVRNOTPRIMARY = 1009;
+
+inline static bool IsMetaLogWriteOrVrError(int status)
+{
+    return (-ELOGFAILED == status || -EVRNOTPRIMARY == status);
+}
 
 #define KFS_FOR_EACH_EC_METHOD(f) \
     f(STRIPED_FILE_TYPE_RS) \

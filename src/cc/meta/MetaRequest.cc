@@ -800,7 +800,7 @@ MetaIdempotentRequest::IsHandled()
             }
             return true;
         }
-        if (-ELOGFAILED == status) {
+        if (IsMetaLogWriteOrVrError(status)) {
             // Remove RPC from the tracker, as otherwise ACK reply will
             // fail in replay due to missing log record, but succeeds at
             // run time (now).
