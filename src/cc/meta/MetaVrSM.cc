@@ -473,7 +473,8 @@ public:
                 mLastUpTime = TimeNow();
                 mActiveFlag = true;
             } else {
-                mState = kStateBackup;
+                mActiveFlag = IsActive(mNodeId);
+                mState      = kStateBackup;
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
         }
@@ -599,8 +600,7 @@ public:
             }
             mConfig.SetChangeVewMaxLogDistance(theSeq);
             theSeq = -1;
-            if (! (theStream >> theSeq) || theSeq < 0 ||
-                    (0 == theSeq && 0 != theCount)) {
+            if (! (theStream >> theSeq) || theSeq < 0) {
                 mConfig.Clear();
                 return false;
             }
@@ -612,6 +612,7 @@ public:
                 return false;
             }
             mViewSeq = theSeq;
+            mActiveCount = 0;
             const Config::Nodes& theNodes = mConfig.GetNodes();
             for (Config::Nodes::const_iterator theIt = theNodes.begin();
                     theNodes.end() != theIt;
@@ -626,9 +627,7 @@ public:
                             "duplicate location: " << theLoc <<
                             " node id: "           << theIt->first <<
                         KFS_LOG_EOM;
-                        mEpochSeq = 0;
-                        mConfig.Clear();
-                        mAllUniqueLocations.clear();
+                        ResetConfig();
                         return false;
                     }
                 }
@@ -637,7 +636,19 @@ public:
                         ++theLocIt) {
                     AddLocation(*theLocIt);
                 }
+                if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
+                    mActiveCount++;
+                }
             }
+            if (0 < mActiveCount && mEpochSeq <= 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid epoch: " << mEpochSeq <<
+                    " active nodes: " << mActiveCount <<
+                KFS_LOG_EOM;
+                ResetConfig();
+                return false;
+            }
+            mQuorum = mActiveCount - (mActiveCount - 1) / 2;
         }
         return true;
     }
@@ -908,6 +919,15 @@ private:
     QCCondVar                    mReconfigureCompletionCondVar;
     MetaVrReconfiguration*       mPendingReconfigureReqPtr;
 
+    void ResetConfig()
+    {
+        mConfig.Clear();
+        mAllUniqueLocations.clear();
+        mActiveCount = 0;
+        mQuorum      = 0;
+        mEpochSeq    = 0;
+        mViewSeq     = 0;
+    }
     time_t TimeNow() const
         { return mTimeNow; }
     void Show(
