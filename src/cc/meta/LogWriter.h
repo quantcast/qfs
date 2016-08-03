@@ -99,10 +99,13 @@ public:
     void SetLastLogReceivedTime(
         time_t inTime);
     MetaVrSM& GetMetaVrSM();
+    int GetVrStatus() const
+        { return mVrStatus; }
 private:
     class Impl;
-    seq_t mNextSeq;
-    Impl& mImpl;
+    seq_t        mNextSeq;
+    volatile int mVrStatus;
+    Impl&        mImpl;
 };
 
 } // namespace KFS

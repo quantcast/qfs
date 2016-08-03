@@ -36,6 +36,7 @@
 #include "Replay.h"
 #include "MetaDataSync.h"
 #include "ChildProcessTracker.h"
+#include "MetaVrSM.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -1015,8 +1016,6 @@ public:
         if (err) {
             return err;
         }
-        // For now disable timers if log receiver.
-        gLayoutManager.SetDisableTimerFlag(true);
         mStartedFlag = true;
         if (mutex) {
             int kStackSize = 64 << 10;
@@ -1029,6 +1028,7 @@ public:
     {
         assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
         inParameters.copyWithPrefix(kLogReciverParamsPrefix, mParameters);
+        inParameters.copyWithPrefix(kMetaVrNodeIdParameterNamePtr, mParameters);
         if (! mStartedFlag) {
             return;
         }

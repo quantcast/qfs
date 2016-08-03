@@ -2558,6 +2558,10 @@ Replay::handle(MetaVrLogStartView& op)
         panic("replay: invalid start view op completion");
     }
     update();
+    if (! op.replayFlag) {
+        gLayoutManager.SetDisableTimerFlag(false);
+        gLayoutManager.StartServicing();
+    }
 }
 
 bool
@@ -2570,6 +2574,7 @@ Replay::setReplayState(
     const bool okFlag = replayTokenizer.GetState().setReplayState(
         committed, errChecksum, lastCommittedStatus, commitQueue);
     update();
+    gLayoutManager.SetDisableTimerFlag(true);
     return okFlag;
 }
 

@@ -68,7 +68,8 @@ class LogWriter::Impl :
     private NetManager::Dispatcher
 {
 public:
-    Impl()
+    Impl(
+        volatile int& inVrStatus)
         : ITimeout(),
           QCRunnable(),
           LogTransmitter::CommitObserver(),
@@ -79,7 +80,7 @@ public:
           mLogTransmitter(mNetManager, *this),
           mMetaVrSM(mLogTransmitter),
           mVrStatus(0),
-          mEnqueueVrStatus(0),
+          mEnqueueVrStatus(inVrStatus),
           mTransmitCommitted(),
           mTransmitterUpFlag(false),
           mMaxDoneLogSeq(),
@@ -470,7 +471,7 @@ private:
     LogTransmitter mLogTransmitter;
     MetaVrSM       mMetaVrSM;
     int            mVrStatus;
-    volatile int   mEnqueueVrStatus;
+    volatile int&  mEnqueueVrStatus;
     MetaVrLogSeq   mTransmitCommitted;
     bool           mTransmitterUpFlag;
     MetaVrLogSeq   mMaxDoneLogSeq;
@@ -658,6 +659,7 @@ private:
         if (theVrBecameNonPrimaryFlag && 0 == mEnqueueVrStatus) {
             mEnqueueVrStatus = theVrStatus - 1;
             SyncAddAndFetch(mEnqueueVrStatus, 1);
+            mNetManagerPtr->Wakeup();
         }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
@@ -1393,7 +1395,8 @@ private:
 
 LogWriter::LogWriter()
     : mNextSeq(0),
-      mImpl(*(new Impl()))
+      mVrStatus(0),
+      mImpl(*(new Impl(mVrStatus)))
 {}
 
 LogWriter::~LogWriter()

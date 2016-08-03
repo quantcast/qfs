@@ -136,11 +136,13 @@ public:
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
-        mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        if (! mReplayerPtr) {
+            mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        }
         mAuthContext.SetParameters(
             theParamName.Truncate(thePrefixLen).Append("auth.").c_str(),
             inParameters);
-        return (! theListenOn.empty() && 0 <= mId);
+        return (mListenerAddress.IsValid() && 0 <= mId);
     }
     int Start(
         NetManager&         inNetManager,

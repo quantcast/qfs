@@ -12997,7 +12997,7 @@ void
 LayoutManager::StartServicing()
 {
     if (mDisableTimerFlag) {
-        return; // FIXME for now assume secondary / replay only.
+        return;
     }
     for (Servers::const_iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
