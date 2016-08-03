@@ -45,7 +45,6 @@
 #include <algorithm>
 #include <set>
 #include <limits>
-#include <sstream>
 
 namespace KFS
 {
@@ -56,7 +55,6 @@ using std::unique;
 using std::set;
 using std::less;
 using std::numeric_limits;
-using std::ostringstream;
 
 class MetaVrSM::Impl
 {
@@ -121,7 +119,6 @@ public:
           mStartViewMaxLastLogNodeIds(),
           mSyncServers(),
           mInputStream(),
-          mOutputStream(),
           mEmptyString(),
           mMutex(),
           mReconfigureCompletionCondVar(),
@@ -674,18 +671,6 @@ public:
         }
         return (inStream ? 0 : -EIO);
     }
-    void Checkpoint(
-        bool    inHexFlag,
-        string& outStrBuf)
-    {
-        mOutputStream.str(mEmptyString);
-        mOutputStream.flags(inHexFlag ? ostream::hex : ostream::dec);
-        if (0 != Checkpoint(mOutputStream)) {
-            panic("VR: checkpoint write failure");
-        }
-        outStrBuf = mOutputStream.str();
-        mOutputStream.str(mEmptyString);
-    }
     int GetEpochAndViewSeq(
         seq_t& outEpochSeq,
         seq_t& outViewSeq)
@@ -913,7 +898,6 @@ private:
     NodeIdSet                    mStartViewMaxLastLogNodeIds;
     MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
-    ostringstream                mOutputStream;
     string const                 mEmptyString;
     QCMutex                      mMutex;
     QCCondVar                    mReconfigureCompletionCondVar;
@@ -2048,14 +2032,6 @@ MetaVrSM::Checkpoint(
     ostream& inStream) const
 {
     return mImpl.Checkpoint(inStream);
-}
-
-    void
-MetaVrSM::Checkpoint(
-    bool    inHexFlag,
-    string& outStrBuf) const
-{
-    return mImpl.Checkpoint(inHexFlag, outStrBuf);
 }
 
     int

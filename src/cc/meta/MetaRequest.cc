@@ -4048,8 +4048,7 @@ MetaCheckpoint::handle()
             status = cp.write(
                 finishLog->logName,
                 runningCheckpointId,
-                errChecksum,
-                &finishLog->vrCheckpont
+                errChecksum
             );
         }
         // Child does not attempt graceful exit.

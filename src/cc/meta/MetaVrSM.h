@@ -329,9 +329,6 @@ public:
         size_t      inLen);
     int Checkpoint(
         ostream& inStream) const;
-    void Checkpoint(
-        bool    inHexFlag,
-        string& outStrBuf) const;
     int GetStatus() const;
     bool HasValidNodeId() const;
 private:

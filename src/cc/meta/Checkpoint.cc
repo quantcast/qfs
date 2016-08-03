@@ -92,8 +92,7 @@ int
 Checkpoint::write(
     const string&       logname,
     const MetaVrLogSeq& logseq,
-    int64_t             errchksum,
-    const string*       vrCheckpont)
+    int64_t             errchksum)
 {
     if (logname.empty()) {
         return -EINVAL;
@@ -164,9 +163,7 @@ Checkpoint::write(
             status = gLayoutManager.WritePendingObjStoreDelete(os);
         }
         if (status == 0 && os) {
-            status = vrCheckpont ?
-                (os.write(vrCheckpont->data(), vrCheckpont->size()) ? 0 : -EIO) :
-                MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
+            status = MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
         }
         if (status == 0) {
             os << "time/" << DisplayIsoDateTime() << '\n';

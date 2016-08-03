@@ -30,7 +30,6 @@
 #include "MetaRequest.h"
 #include "MetaDataStore.h"
 #include "MetaVrSM.h"
-#include "Checkpoint.h"
 #include "MetaVrLogSeq.h"
 #include "MetaVrOps.h"
 #include "Replay.h"
@@ -960,8 +959,6 @@ private:
                 theRetFlag = false;
                 break;
             case MetaLogWriterControl::kCheckpointNewLog:
-                mMetaVrSM.Checkpoint(
-                    Checkpoint::kHexIntFormatFlag, inRequest.vrCheckpont);
                 // Fall through.
             case MetaLogWriterControl::kNewLog:
                 if (mCurLogStartSeq < mLastLogSeq) {

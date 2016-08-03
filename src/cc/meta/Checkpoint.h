@@ -63,13 +63,7 @@ public:
     int write(
         const string&       logname,
         const MetaVrLogSeq& committedseq,
-        int64_t             errchksum,
-        const string*       vrCheckpont); //!< do the actual work
-    int write(
-        const string&       logname,
-        const MetaVrLogSeq& committedseq,
-        int64_t             errchksum)
-        { return write(logname, committedseq, errchksum, 0); }
+        int64_t             errchksum); //!< do the actual work
     bool getWriteSyncFlag() const { return writesync; }
     void setWriteSyncFlag(bool flag) { writesync = flag; }
     size_t getWriteBufferSize() const { return writebuffersize; }
