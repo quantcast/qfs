@@ -656,8 +656,8 @@ private:
             0 != theVrStatus && 0 == mVrStatus;
         mVrStatus = theVrStatus;
         if (theVrBecameNonPrimaryFlag && 0 == mEnqueueVrStatus) {
-            mEnqueueVrStatus = theVrStatus - 1;
-            SyncAddAndFetch(mEnqueueVrStatus, 1);
+            mEnqueueVrStatus = theVrStatus;
+            SyncAddAndFetch(mEnqueueVrStatus, 0);
             mNetManagerPtr->Wakeup();
         }
         if (! theWriteQueue.IsEmpty()) {
