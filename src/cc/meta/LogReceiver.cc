@@ -90,6 +90,7 @@ public:
           mDeleteFlag(false),
           mAckBroadcastFlag(false),
           mParseBuffer(),
+          mFileSystemId(-1),
           mId(-1),
           mReplayerPtr(0),
           mWriteOpFreeListPtr(0),
@@ -147,7 +148,8 @@ public:
     int Start(
         NetManager&         inNetManager,
         Replayer&           inReplayer,
-        const MetaVrLogSeq& inCommittedLogSeq)
+        const MetaVrLogSeq& inCommittedLogSeq,
+        int64_t             inFileSystemId)
     {
         if (mDeleteFlag) {
             panic("LogReceiver::Impl::Start delete pending");
@@ -194,6 +196,7 @@ public:
         mLastWriteSeq            = mCommittedLogSeq;
         mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
         mDispatchLastAckSentTime = mLastAckSentTime;
+        mFileSystemId            = inFileSystemId;
         return 0;
     }
     void Shutdown();
@@ -213,6 +216,8 @@ public:
         { return mCommittedLogSeq; }
     MetaVrLogSeq GetLastWriteLogSeq() const
         { return mLastWriteSeq; }
+    int64_t GetFileSystemId() const
+        { return mFileSystemId; }
     void Delete()
     {
         Shutdown();
@@ -225,7 +230,7 @@ public:
     int64_t GetId() const
         { return mId; }
 
-    enum { kMaxBlockHeaderLen  = (int)sizeof(seq_t) * 2 + 1 + 16 };
+    enum { kMaxBlockHeaderLen  = 5 * ((int)sizeof(seq_t) * 2 + 1) + 1 + 16 };
     enum { kMinParseBufferSize = kMaxBlockHeaderLen <= MAX_RPC_HEADER_LEN ?
         MAX_RPC_HEADER_LEN : kMaxBlockHeaderLen };
 
@@ -423,6 +428,7 @@ private:
     bool           mDeleteFlag;
     bool           mAckBroadcastFlag;
     ParseBuffer    mParseBuffer;
+    int64_t        mFileSystemId;
     int64_t        mId;
     Replayer*      mReplayerPtr;
     MetaRequest*   mWriteOpFreeListPtr;
@@ -1012,7 +1018,10 @@ private:
         MetaVrLogSeq theBlockEndSeq;
         int          theBlockSeqLen = -1;
         const char* thePtr          = theStartPtr;
-        if (! theBlockEndSeq.Parse<HexIntParser>(
+        int64_t     theFileSystemId = -1;
+        if (! HexIntParser::Parse(
+                    thePtr, theEndPtr - thePtr, theFileSystemId) ||
+                ! theBlockEndSeq.Parse<HexIntParser>(
                     thePtr, theEndPtr - thePtr) ||
                 ! HexIntParser::Parse(
                     thePtr, theEndPtr - thePtr, theBlockSeqLen) ||
@@ -1021,6 +1030,7 @@ private:
                     0 < theBlockSeqLen)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " invalid block:"
+                " fsid: "     << theFileSystemId <<
                 " start: "    << mBlockStartSeq <<
                 " / "         << theBlockEndSeq <<
                 " end: "      << mBlockEndSeq <<
@@ -1061,6 +1071,14 @@ private:
             Error("block checksum mimatch");
             return -1;
         }
+        if (theFileSystemId != mImpl.GetFileSystemId()) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " file system id mismatch: " << theFileSystemId <<
+                " expected: "                << mImpl.GetFileSystemId() <<
+            KFS_LOG_EOM;
+            Error("file system id mimatch");
+            return -1;
+        }
         if (mBlockLength <= 0) {
             SendAckSelf();
             if (! mDownFlag) {
@@ -1099,7 +1117,8 @@ private:
             " socket error: "   << mConnectionPtr->GetErrorMsg() <<
         KFS_LOG_EOM;
         mConnectionPtr->Close();
-        mDownFlag = true;
+        mDownFlag   = true;
+        mIdSentFlag = false;
     }
     void SendAckSelf()
     {
@@ -1350,9 +1369,11 @@ LogReceiver::SetParameters(
 LogReceiver::Start(
     NetManager&            inNetManager,
     LogReceiver::Replayer& inReplayer,
-    const MetaVrLogSeq&    inCommittedLogSeq)
+    const MetaVrLogSeq&    inCommittedLogSeq,
+    int64_t                inFileSystemId)
 {
-    return mImpl.Start(inNetManager, inReplayer, inCommittedLogSeq);
+    return mImpl.Start(
+        inNetManager, inReplayer, inCommittedLogSeq, inFileSystemId);
 }
 
     void

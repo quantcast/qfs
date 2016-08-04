@@ -37,6 +37,7 @@
 #include "MetaDataSync.h"
 #include "ChildProcessTracker.h"
 #include "MetaVrSM.h"
+#include "kfstree.h"
 
 #include "kfsio/Acceptor.h"
 #include "kfsio/KfsCallbackObj.h"
@@ -1012,7 +1013,8 @@ public:
         }
         const int err = mLogReceiver.Start(
             mutex ? mNetManager : globalNetManager(), *this,
-            MetaRequest::GetLogWriter().GetCommittedLogSeq());
+            MetaRequest::GetLogWriter().GetCommittedLogSeq(),
+            metatree.GetFsId());
         if (err) {
             return err;
         }

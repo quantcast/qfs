@@ -46,6 +46,7 @@ const char* const kMetaVrEpochSeqFieldNamePtr      = "VE";
 const char* const kMetaVrCommittedFieldNamePtr     = "VC";
 const char* const kMetaVrLastLogSeqFieldNamePtr    = "VL";
 const char* const kMetaVrStateFieldNamePtr         = "VS";
+const char* const kMetaVrFsIdFieldNamePtr          = "VI";
 
 class MetaVrRequest : public MetaRequest
 {
@@ -57,11 +58,13 @@ public:
     MetaVrLogSeq mCommittedSeq;
     MetaVrLogSeq mLastLogSeq;
     NodeId       mNodeId;
+    int64_t      mFileSystemId;
     seq_t        mRetCurEpochSeq;
     seq_t        mRetCurViewSeq;
     MetaVrLogSeq mRetCommittedSeq;
     MetaVrLogSeq mRetLastLogSeq;
     int          mRetCurState;
+    int64_t      mRetFileSystemId;
 
     MetaVrRequest(
         MetaOp    inOpType,
@@ -78,6 +81,7 @@ public:
           mRetCommittedSeq(),
           mRetLastLogSeq(),
           mRetCurState(-1),
+          mRetFileSystemId(-1),
           mVrSMPtr(0),
           mRefCount(0)
     {
@@ -98,6 +102,7 @@ public:
         .Def("C",  &MetaVrRequest::mCommittedSeq                )
         .Def("L",  &MetaVrRequest::mLastLogSeq                  )
         .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
+        .Def("I",  &MetaVrRequest::mFileSystemId,    int64_t(-1))
         ;
     }
     void Request(
@@ -151,6 +156,10 @@ public:
         if (mRetLastLogSeq.IsValid()) {
             inOs << kMetaVrLastLogSeqFieldNamePtr <<
                 ":" << mRetLastLogSeq << "\r\n";
+        }
+        if (mRetLastLogSeq.IsValid()) {
+            inOs << kMetaVrFsIdFieldNamePtr <<
+                ":" << mRetFileSystemId << "\r\n";
         }
         inOs << "\r\n";
     }

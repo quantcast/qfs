@@ -99,6 +99,8 @@ public:
         StatusReporter& inReporter);
     void SetHeartbeatInterval(
         int inInterval);
+    void SetFileSystemId(
+        int64_t inFsId);
 private:
     class Impl;
 

@@ -71,6 +71,7 @@ public:
         bool                inLogNameHasSeqFlag,
         const char*         inParametersPrefixPtr,
         const Properties&   inParameters,
+        int64_t             inFileSystemId,
         string&             outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);

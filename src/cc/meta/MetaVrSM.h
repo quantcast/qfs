@@ -317,7 +317,8 @@ public:
     int Start(
         MetaDataSync&       inMetaDataSync,
         NetManager&         inNetManager,
-        const MetaVrLogSeq& inCommittedSeq);
+        const MetaVrLogSeq& inCommittedSeq,
+        int64_t             inFileSystemId);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;

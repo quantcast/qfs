@@ -74,7 +74,8 @@ public:
     int Start(
         NetManager&         inNetManager,
         Replayer&           inReplayer,
-        const MetaVrLogSeq& inCommittedLogSeq);
+        const MetaVrLogSeq& inCommittedLogSeq,
+        int64_t             inFileSystemId);
     void Shutdown();
     static int ParseBlockLines(
         const IOBuffer&       inBuffer,

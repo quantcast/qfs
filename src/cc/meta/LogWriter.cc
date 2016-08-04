@@ -160,13 +160,15 @@ public:
         bool                inLogNameHasSeqFlag,
         const char*         inParametersPrefixPtr,
         const Properties&   inParameters,
+        int64_t             inFileSystemId,
         string&             outCurLogFileName)
     {
         if (inLogNum < 0 || ! inLogSeq.IsValid() ||
                 (inLogAppendMdStatePtr && inLogSeq < inLogAppendStartSeq) ||
-                (mThread.IsStarted() || mNetManagerPtr)) {
+                (mThread.IsStarted() || mNetManagerPtr) || inFileSystemId < 0) {
             return -EINVAL;
         }
+        mLogTransmitter.SetFileSystemId(inFileSystemId);
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mLogNum = inLogNum;
         const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
@@ -184,7 +186,8 @@ public:
         mInFlightCommitted = mPendingCommitted;
         mMetaDataStorePtr  = &inMetaDataStore;
         if (0 != (mError = mMetaVrSM.Start(
-                inMetaDataSync, mNetManager, mCommitted.mSeq))) {
+                inMetaDataSync, mNetManager, mCommitted.mSeq,
+                inFileSystemId))) {
             return mError;
         }
         if (inLogAppendMdStatePtr) {
@@ -1419,6 +1422,7 @@ LogWriter::Start(
     bool                inLogNameHasSeqFlag,
     const char*         inParametersPrefixPtr,
     const Properties&   inParameters,
+    int64_t             inFileSystemId,
     string&             outCurLogFileName)
 {
     return mImpl.Start(
@@ -1438,6 +1442,7 @@ LogWriter::Start(
         inLogNameHasSeqFlag,
         inParametersPrefixPtr,
         inParameters,
+        inFileSystemId,
         outCurLogFileName
     );
 }

@@ -98,7 +98,8 @@ public:
           mSendingFlag(false),
           mPendingUpdateFlag(false),
           mTransmitFlag(false),
-          mUpFlag(false)
+          mUpFlag(false),
+          mFileSystemId(-1)
     {
         List::Init(mTransmittersPtr);
         mTmpBuf[kTmpBufSize] = 0;
@@ -122,6 +123,9 @@ public:
         CryptoKeys::PseudoRand(&theReq, sizeof(theReq));
         return ((theReq < 0 ? -theReq : theReq) >> 1);
     }
+    void SetFileSystemId(
+        int64_t inFsId)
+        { mFileSystemId = inFsId; }
     char* GetParseBufferPtr()
         { return mParseBuffer; }
     NetManager& GetNetManager()
@@ -185,6 +189,8 @@ public:
         thePtr = IntToHexString(inBlockSeq.mViewSeq, thePtr);
         *--thePtr = ' ';
         thePtr = IntToHexString(inBlockSeq.mEpochSeq, thePtr);
+        *--thePtr = ' ';
+        thePtr = IntToHexString(mFileSystemId, thePtr);
         // Non empty block checksum includes leading '\n'
         const int theChecksumFrontLen = 0 < inBlockLen ? 1 : 0;
         theChecksum = ChecksumBlocksCombine(
@@ -230,7 +236,7 @@ public:
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
-    enum { kSeqBufSize = 2 * kTmpBufSize };
+    enum { kSeqBufSize = 5 * kTmpBufSize };
 
     NetManager&     mNetManager;
     int             mRetryInterval;
@@ -249,6 +255,7 @@ private:
     bool            mPendingUpdateFlag;
     bool            mTransmitFlag;
     bool            mUpFlag;
+    int64_t         mFileSystemId;
     Transmitter*    mTransmittersPtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
@@ -1612,6 +1619,13 @@ LogTransmitter::LogTransmitter(
 LogTransmitter::~LogTransmitter()
 {
     delete &mImpl;
+}
+
+    void
+LogTransmitter::SetFileSystemId(
+    int64_t inFsId)
+{
+    mImpl.SetFileSystemId(inFsId);
 }
 
     int

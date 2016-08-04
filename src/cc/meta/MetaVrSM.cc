@@ -81,6 +81,7 @@ public:
           mMetaDataSyncPtr(0),
           mNetManagerPtr(0),
           mMetaVrSM(inMetaVrSM),
+          mFileSystemId(-1),
           mState(kStateBackup),
           mNodeId(-1),
           mReconfigureReqPtr(0),
@@ -376,7 +377,8 @@ public:
     }
     int GetStatus() const
     {
-        return (! mActiveFlag ? -EVRNOTPRIMARY : (kStatePrimary == mState ? 0 :
+        return ((! mActiveFlag && 0 < mQuorum) ? -EVRNOTPRIMARY :
+            (kStatePrimary == mState ? 0 :
             (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
     bool HasValidNodeId() const
@@ -413,7 +415,7 @@ public:
         }
         outReqPtr = 0;
         mTimeNow = inTimeNow;
-        if (! mActiveFlag) {
+        if (! mActiveFlag && 0 < mQuorum) {
             mLastProcessTime = TimeNow();
             outVrStatus = -EVRNOTPRIMARY;
             return;
@@ -448,7 +450,8 @@ public:
     int Start(
         MetaDataSync&       inMetaDataSync,
         NetManager&         inNetManager,
-        const MetaVrLogSeq& inCommittedSeq)
+        const MetaVrLogSeq& inCommittedSeq,
+        int64_t             inFileSystemId)
     {
         if (mStartedFlag) {
             // Already started.
@@ -456,7 +459,7 @@ public:
         }
         mMetaDataSyncPtr = &inMetaDataSync;
         mNetManagerPtr   = &inNetManager;
-        if (mNodeId < 0 || mConfig.IsEmpty()) {
+        if (mConfig.IsEmpty()) {
             mConfig.Clear();
             mLogTransmitter.Update(mMetaVrSM);
             mActiveCount = 0;
@@ -468,16 +471,17 @@ public:
             if (mActiveCount <= 0 && mQuorum <= 0) {
                 mState      = kStatePrimary;
                 mLastUpTime = TimeNow();
-                mActiveFlag = true;
             } else {
-                mActiveFlag = IsActive(mNodeId);
-                mState      = kStateBackup;
+                mState            = kStateBackup;
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
+            mActiveFlag = IsActive(mNodeId);
         }
         mCommittedSeq = inCommittedSeq;
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
-        mStartedFlag = true;
+        mLogTransmitter.Update(mMetaVrSM);
+        mFileSystemId = inFileSystemId;
+        mStartedFlag  = true;
         return 0;
     }
     void Shutdown()
@@ -866,6 +870,7 @@ private:
     MetaDataSync*                mMetaDataSyncPtr;
     NetManager*                  mNetManagerPtr;
     MetaVrSM&                    mMetaVrSM;
+    int64_t                      mFileSystemId;
     State                        mState;
     NodeId                       mNodeId;
     const MetaVrReconfiguration* mReconfigureReqPtr;
@@ -1037,11 +1042,15 @@ private:
         inReq.mRetCurState     = mState;
         inReq.mRetCommittedSeq = mCommittedSeq;
         inReq.mRetLastLogSeq   = mLastLogSeq;
+        inReq.mFileSystemId    = mFileSystemId;
     }
     bool VerifyViewChange(
         MetaVrRequest& inReq)
     {
-        if (! mActiveFlag) {
+        if (mFileSystemId != inReq.mFileSystemId) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "file system id does not match";
+        } if (! mActiveFlag) {
             inReq.status    = -ENOENT;
             inReq.statusMsg = "node inactive";
         } else if (IsActive(inReq.mNodeId)) {
@@ -1824,6 +1833,7 @@ private:
         inReq.mViewSeq      = mViewSeq;
         inReq.mCommittedSeq = mCommittedSeq;
         inReq.mLastLogSeq   = mLastLogSeq;
+        inReq.mFileSystemId = mFileSystemId;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
     void StartViewChange()
@@ -1980,9 +1990,11 @@ MetaVrSM::Process(
 MetaVrSM::Start(
     MetaDataSync&       inMetaDataSync,
     NetManager&         inNetManager,
-    const MetaVrLogSeq& inCommittedSeq)
+    const MetaVrLogSeq& inCommittedSeq,
+    int64_t             inFileSystemId)
 {
-    return mImpl.Start(inMetaDataSync, inNetManager, inCommittedSeq);
+    return mImpl.Start(
+        inMetaDataSync, inNetManager, inCommittedSeq, inFileSystemId);
 }
 
     void
