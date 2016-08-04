@@ -20,6 +20,8 @@
 # permissions and limitations under the License.
 #
 # The chunk server configuration.
+# Additional information can be found in
+# https://github.com/quantcast/qfs/wiki/Configuration-Reference.
 
 # The following parameters set must be specified at startup time. Other
 # parameters can be changed at runtime, and it usually more convenient to
