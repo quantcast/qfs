@@ -15,6 +15,7 @@
 BUILD_TYPE ?= debug
 CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo
 MAKE_OPTIONS ?=
+QFSTEST_OPTIONS ?=
 
 .PHONY: all
 all: build
@@ -87,7 +88,7 @@ python: build
 
 .PHONY: test
 test: build
-	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh
+	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS}
 
 .PHONY: gtest
 gtest: build
