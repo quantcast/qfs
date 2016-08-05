@@ -1007,14 +1007,15 @@ private:
             return -1;
         }
         KFS_LOG_STREAM_DEBUG <<
-            "log recv id: " << theId <<
-            " / "           << mId <<
-            " ack: "        << thePrevAckSeq <<
-            " => "          << mAckBlockSeq <<
-            " sent: "       << mLastSentBlockSeq <<
+            mServer <<
+            " log recv id: " << theId <<
+            " / "            << mId <<
+            " ack: "         << thePrevAckSeq <<
+            " => "           << mAckBlockSeq <<
+            " sent: "        << mLastSentBlockSeq <<
             " pending:"
-            " blocks: "     << mBlocksQueue.size() <<
-            " bytes: "      << mPendingSend.BytesConsumable() <<
+            " blocks: "      << mBlocksQueue.size() <<
+            " bytes: "       << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
         AdvancePendingQueue();
         if (thePrevAckSeq != mAckBlockSeq && mActiveFlag) {

@@ -75,6 +75,7 @@ public:
         NetManager&         inNetManager,
         Replayer&           inReplayer,
         const MetaVrLogSeq& inCommittedLogSeq,
+        const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId);
     void Shutdown();
     static int ParseBlockLines(

@@ -984,8 +984,6 @@ public:
           mNetManager(),
           mLogReceiver(),
           mThread(),
-          mPendingCommitQueue(),
-          mLastCommit(),
           mWakeupFlag(false),
           mStartedFlag(false),
           mParametersUpdatePendingFlag(false),
@@ -1013,8 +1011,10 @@ public:
         }
         const int err = mLogReceiver.Start(
             mutex ? mNetManager : globalNetManager(), *this,
-            MetaRequest::GetLogWriter().GetCommittedLogSeq(),
-            metatree.GetFsId());
+            replayer.getCommitted(),
+            replayer.getLastLogSeq(),
+            metatree.GetFsId()
+        );
         if (err) {
             return err;
         }
@@ -1076,60 +1076,53 @@ public:
             MetaRequest::Release(&inOp);
             return;
         }
-        if (inOp.blockCommitted <= mLastCommit) {
-            if (inOp.blockCommitted < mLastCommit) {
-                panic("log block: invalid commit sequence");
+        KFS_LOG_STREAM_DEBUG <<
+            "replaying: " << inOp.Show() <<
+        KFS_LOG_EOM;
+        const int*       theLenPtr     = inOp.blockLines.GetPtr();
+        const int* const theLendEndPtr = theLenPtr + inOp.blockLines.GetSize();
+        while (theLenPtr < theLendEndPtr) {
+            int theLen = *theLenPtr++;
+            if (theLen <= 0) {
+                continue;
             }
-            return;
+            char* const       theBufPtr  = mBuffer.Reserve(theLen);
+            const char* const theLinePtr =
+                inOp.blockData.CopyOutOrGetBufPtr(theBufPtr, theLen);
+            const int theStatus = replayer.playLine(
+                theLinePtr,
+                theLen,
+                theLenPtr < theLendEndPtr ? seq_t(-1) : inOp.blockSeq
+            );
+            if (theStatus != 0) {
+                KFS_LOG_STREAM_FATAL <<
+                    "log block replay failure: " << inOp.Show() <<
+                    " commit: " << inOp.blockCommitted <<
+                    " status: " << theStatus <<
+                    " line: "   <<
+                        IOBuffer::DisplayData(inOp.blockData, theLen) <<
+                KFS_LOG_EOM;
+                panic("log block apply failure");
+            }
+            inOp.blockData.Consume(theLen);
+            MetaRequest::GetLogWriter().SetCommitted(
+                replayer.getCommitted(),
+                fileID.getseed(),
+                replayer.getErrChksum(),
+                replayer.getLastCommittedStatus(),
+                replayer.getLastLogSeq()
+            );
         }
-        mLastCommit = inOp.blockCommitted;
-        inOp.next = 0;
-        mPendingCommitQueue.PushBack(inOp);
-        MetaRequest* thePtr;
-        while ((thePtr = mPendingCommitQueue.Front())) {
-            MetaLogWriterControl& theCur =
-                *static_cast<MetaLogWriterControl*>(thePtr);
-            KFS_LOG_STREAM_DEBUG <<
-                "replaying: " << theCur.Show() <<
+        if (replayer.getCommitted() != inOp.blockCommitted) {
+            KFS_LOG_STREAM_FATAL <<
+                "log block replay failure: " << inOp.Show() <<
+                " commit:"
+                " block: "  << inOp.blockCommitted <<
+                " replay: " << replayer.getCommitted() <<
             KFS_LOG_EOM;
-            mPendingCommitQueue.PopFront();
-            const int*       theLenPtr     = theCur.blockLines.GetPtr();
-            const int* const theLendEndPtr =
-                theLenPtr + theCur.blockLines.GetSize();
-            while (theLenPtr < theLendEndPtr) {
-                int theLen = *theLenPtr++;
-                if (theLen <= 0) {
-                    continue;
-                }
-                char* const       theBufPtr  = mBuffer.Reserve(theLen);
-                const char* const theLinePtr =
-                    theCur.blockData.CopyOutOrGetBufPtr(theBufPtr, theLen);
-                const int theStatus = replayer.playLine(
-                    theLinePtr,
-                    theLen,
-                    theLenPtr < theLendEndPtr ? seq_t(-1) : theCur.blockSeq
-                );
-                if (theStatus != 0) {
-                    KFS_LOG_STREAM_FATAL <<
-                        "log block replay failure: " << theCur.Show() <<
-                        " commit: " << mLastCommit <<
-                        " status: " << theStatus <<
-                        " line: "   <<
-                            IOBuffer::DisplayData(theCur.blockData, theLen) <<
-                    KFS_LOG_EOM;
-                    panic("log block apply failure");
-                }
-                theCur.blockData.Consume(theLen);
-                MetaRequest::GetLogWriter().SetCommitted(
-                    replayer.getCommitted(),
-                    fileID.getseed(),
-                    replayer.getErrChksum(),
-                    replayer.getLastCommittedStatus(),
-                    replayer.getLastLogSeq()
-                );
-            }
-            MetaRequest::Release(&theCur);
+            panic("log block apply failure");
         }
+        MetaRequest::Release(&inOp);
     }
     virtual void SetLastAckSentTime(
         time_t inLastAckTime)
@@ -1164,8 +1157,6 @@ private:
     NetManager                mNetManager;
     LogReceiver               mLogReceiver;
     QCThread                  mThread;
-    Queue                     mPendingCommitQueue;
-    MetaVrLogSeq              mLastCommit;
     bool                      mWakeupFlag;
     bool                      mStartedFlag;
     bool                      mParametersUpdatePendingFlag;

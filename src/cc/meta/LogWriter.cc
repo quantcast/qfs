@@ -986,23 +986,28 @@ private:
     void WriteBlock(
         MetaLogWriterControl& inRequest)
     {
-        if (inRequest.blockData.BytesConsumable() <= 0) {
-            panic("write block: invalid block length");
-            inRequest.status = -EFAULT;
-            return;
-        }
-        if (inRequest.blockLines.IsEmpty()) {
-            panic("write block: invalid invocation, no log lines");
-            inRequest.status = -EFAULT;
-            return;
-        }
         if (mLastLogSeq != mNextLogSeq) {
             panic("invalid write block invocation");
             inRequest.status = -EFAULT;
             return;
         }
-        inRequest.committed = mLastLogSeq;
+        if (inRequest.blockStartSeq != inRequest.blockEndSeq) {
+            if (inRequest.blockData.BytesConsumable() <= 0) {
+                panic("write block: invalid block length");
+                inRequest.status = -EFAULT;
+                return;
+            }
+            if (inRequest.blockLines.IsEmpty()) {
+                panic("write block: invalid invocation, no log lines");
+                inRequest.status = -EFAULT;
+                return;
+            }
+        }
+        inRequest.lastLogSeq = mLastLogSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
+            if (inRequest.blockStartSeq <= inRequest.blockEndSeq &&
+                    mLastLogSeq < inRequest.blockStartSeq) {
+            }
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "invalid block start sequence";
             return;
@@ -1114,11 +1119,11 @@ private:
             theStreamGoodFlag
         );
         if (theStreamGoodFlag) {
-            inRequest.blockSeq  = mNextBlockSeq;
-            mLastLogSeq         = inRequest.blockEndSeq;
-            mNextLogSeq         = mLastLogSeq;
-            inRequest.status    = 0;
-            inRequest.committed = mLastLogSeq;
+            inRequest.blockSeq   = mNextBlockSeq;
+            mLastLogSeq          = inRequest.blockEndSeq;
+            mNextLogSeq          = mLastLogSeq;
+            inRequest.status     = 0;
+            inRequest.lastLogSeq = mLastLogSeq;
             StartBlock(mNextBlockChecksum);
         } else {
             inRequest.status    = -EIO;

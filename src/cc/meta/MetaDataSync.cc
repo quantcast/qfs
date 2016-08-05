@@ -1391,19 +1391,19 @@ private:
         MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
             inDataPtr);
         const bool theErrorFlag = 0 != theOp.status &&
-            theOp.blockStartSeq == theOp.committed;
+            theOp.blockStartSeq == theOp.lastLogSeq;
         KFS_LOG_STREAM(theErrorFlag ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) <<
             "log write:"
             " status: "    << theOp.status <<
             " "            << theOp.statusMsg <<
-            " committed: " << theOp.committed <<
+            " log end: "   << theOp.lastLogSeq <<
             " in flight: " << mLogWritesInFlightCount <<
             " "            << theOp.Show() <<
         KFS_LOG_EOM;
         if (0 == theOp.status &&
-                theOp.committed == theOp.blockEndSeq &&
+                theOp.lastLogSeq == theOp.blockEndSeq &&
                 mReplayerPtr) {
             mReplayerPtr->Apply(theOp);
             return 0;

@@ -87,6 +87,7 @@ public:
           mAuthContext(),
           mCommittedLogSeq(),
           mLastWriteSeq(),
+          mSubmittedWriteSeq(),
           mDeleteFlag(false),
           mAckBroadcastFlag(false),
           mParseBuffer(),
@@ -149,6 +150,7 @@ public:
         NetManager&         inNetManager,
         Replayer&           inReplayer,
         const MetaVrLogSeq& inCommittedLogSeq,
+        const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId)
     {
         if (mDeleteFlag) {
@@ -170,7 +172,13 @@ public:
         }
         if (mId < 0) {
             KFS_LOG_STREAM_ERROR <<
-                "server id is not set: " << mId <<
+                "server node id is not set: " << mId <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (inFileSystemId < 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "file sytem id is not set: " << inFileSystemId <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
@@ -193,7 +201,8 @@ public:
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
         mReplayerPtr             = &inReplayer;
         mCommittedLogSeq         = inCommittedLogSeq;
-        mLastWriteSeq            = mCommittedLogSeq;
+        mLastWriteSeq            = inLastLogSeq;
+        mSubmittedWriteSeq       = inLastLogSeq;
         mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
         mDispatchLastAckSentTime = mLastAckSentTime;
         mFileSystemId            = inFileSystemId;
@@ -216,6 +225,8 @@ public:
         { return mCommittedLogSeq; }
     MetaVrLogSeq GetLastWriteLogSeq() const
         { return mLastWriteSeq; }
+    MetaVrLogSeq GetSubmittedWriteSeq() const
+        { return mSubmittedWriteSeq; }
     int64_t GetFileSystemId() const
         { return mFileSystemId; }
     void Delete()
@@ -252,7 +263,7 @@ public:
         const MetaVrLogSeq& inStartSeq,
         const MetaVrLogSeq& inEndSeq)
     {
-        if (inEndSeq <= mLastWriteSeq || inStartSeq != mLastWriteSeq) {
+        if (inEndSeq <= mSubmittedWriteSeq) {
             return 0;
         }
         MetaRequest* thePtr = mWriteOpFreeListPtr;
@@ -274,7 +285,7 @@ public:
         const bool   theAckBroadcastFlag = 0 != thePtr;
         MetaVrLogSeq theNextSeq          = (thePtr && thePtr->status != 0) ?
             static_cast<MetaLogWriterControl*>(thePtr)->blockStartSeq :
-            mCommittedLogSeq;
+            mLastWriteSeq;
         while ((thePtr = theCompletionQueue.PopFront())) {
             MetaLogWriterControl& theCur =
                 *static_cast<MetaLogWriterControl*>(thePtr);
@@ -282,34 +293,25 @@ public:
                 "complete: " << theCur.Show() <<
             KFS_LOG_EOM;
             const MetaVrLogSeq& theStart = theCur.status == 0 ?
-                mCommittedLogSeq : theNextSeq;
+                mLastWriteSeq : theNextSeq;
             if ((theCur.blockStartSeq.mLogSeq != theStart.mLogSeq &&
                     theCur.blockStartSeq.mEpochSeq == theStart.mEpochSeq &&
                     theCur.blockStartSeq.mViewSeq  == theStart.mViewSeq) ||
                     theCur.blockStartSeq < theStart ||
-                    mLastWriteSeq < theCur.blockEndSeq ||
                     theCur.blockEndSeq < theCur.blockStartSeq) {
                 panic("log write completion: invalid block sequence");
             }
             theNextSeq = theCur.blockEndSeq;
-            if (theCur.status == 0) {
-                mCommittedLogSeq = theNextSeq;
+            if (0 == theCur.status) {
+                mLastWriteSeq = theCur.lastLogSeq;
                 if (mReplayerPtr) {
+                    const MetaVrLogSeq theSeq = theCur.blockCommitted;
                     mReplayerPtr->Apply(theCur);
+                    mCommittedLogSeq = theSeq;
                     continue;
                 }
             }
-            if (mCommittedLogSeq < theCur.committed) {
-                // Last log sequence written by log writer.
-                mCommittedLogSeq = theCur.committed;
-            }
             Release(theCur);
-        }
-        if (mCommittedLogSeq < theNextSeq || mLastWriteSeq < mCommittedLogSeq) {
-            // Log write failure, all subsequent write ops must fail too, as
-            // those won't be adjacent in log sequence space.
-            // Or extraneous / stale write, the sequence is committed already.
-            mLastWriteSeq = mCommittedLogSeq;
         }
         Queue thePendingSubmitQueue;
         thePendingSubmitQueue.PushBack(mPendingSubmitQueue);
@@ -338,6 +340,7 @@ public:
         inOp.committed     = MetaVrLogSeq();
         inOp.blockStartSeq = MetaVrLogSeq();
         inOp.blockEndSeq   = MetaVrLogSeq();
+        inOp.lastLogSeq    = MetaVrLogSeq();
         inOp.blockData.Clear();
         inOp.blockLines.Clear();
     }
@@ -364,7 +367,7 @@ public:
     void SubmitLogWrite(
         MetaLogWriterControl& inOp)
     {
-        mLastWriteSeq = inOp.blockEndSeq;
+        mSubmittedWriteSeq = inOp.blockEndSeq;
         inOp.clnt = this;
         Submit(inOp);
     }
@@ -425,6 +428,7 @@ private:
     AuthContext    mAuthContext;
     MetaVrLogSeq   mCommittedLogSeq;
     MetaVrLogSeq   mLastWriteSeq;
+    MetaVrLogSeq   mSubmittedWriteSeq;
     bool           mDeleteFlag;
     bool           mAckBroadcastFlag;
     ParseBuffer    mParseBuffer;
@@ -1079,13 +1083,6 @@ private:
             Error("file system id mimatch");
             return -1;
         }
-        if (mBlockLength <= 0) {
-            SendAckSelf();
-            if (! mDownFlag) {
-                mConnectionPtr->SetMaxReadAhead(mImpl.GetMaxReadAhead());
-            }
-            return (mDownFlag ? -1 : 0);
-        }
         if (! theBlockEndSeq.IsValid() ||
                     (mBlockEndSeq.IsValid() && theBlockEndSeq < mBlockEndSeq)) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
@@ -1146,12 +1143,12 @@ private:
         if (! mIdSentFlag) {
             theAckFlags |= uint64_t(1) << kLogBlockAckHasServerIdBit;
         }
-        IOBuffer&          theBuf       = mConnectionPtr->GetOutBuffer();
-        const int          thePos       = theBuf.BytesConsumable();
-        const MetaVrLogSeq theCommitted = mImpl.GetCommittedLogSeq();
+        IOBuffer&          theBuf        = mConnectionPtr->GetOutBuffer();
+        const int          thePos        = theBuf.BytesConsumable();
+        const MetaVrLogSeq theLastLogSeq = mImpl.GetLastWriteLogSeq();
         ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
-            "A " << theCommitted <<
+            "A " << theLastLogSeq <<
             " "  << theAckFlags <<
             " ";
         if (! mIdSentFlag) {
@@ -1180,13 +1177,12 @@ private:
             Error("invalid negative block length");
             return -1;
         }
-        MetaLogWriterControl* const theOpPtr =
-            0 < mBlockLength ? mImpl.GetBlockWriteOp(
-                mBlockStartSeq, mBlockEndSeq) : 0;
+        MetaLogWriterControl* const theOpPtr = mImpl.GetBlockWriteOp(
+                mBlockStartSeq, mBlockEndSeq);
         if (theOpPtr) {
             MetaLogWriterControl& theOp = *theOpPtr;
-            const int theRem = LogReceiver::ParseBlockLines(
-                inBuffer, mBlockLength, theOp, '/');
+            const int theRem = 0 < mBlockLength ? LogReceiver::ParseBlockLines(
+                inBuffer, mBlockLength, theOp, '/') : 0;
             if (0 < theRem) {
                 panic("LogReceiver::Impl::Connection::ProcessBlock:"
                     " internal error");
@@ -1215,9 +1211,10 @@ private:
                 " [" << mBlockStartSeq <<
                 ","  << mBlockEndSeq   <<
                 "]"
-                " length: "     << mBlockLength <<
-                " committed: "  << mImpl.GetCommittedLogSeq() <<
-                " last write: " << mImpl.GetLastWriteLogSeq() <<
+                " length: "          << mBlockLength <<
+                " committed: "       << mImpl.GetCommittedLogSeq() <<
+                " last write: "      << mImpl.GetLastWriteLogSeq() <<
+                " submitted write: " << mImpl.GetSubmittedWriteSeq() <<
             KFS_LOG_EOM;
             inBuffer.Consume(mBlockLength);
         }
@@ -1370,10 +1367,11 @@ LogReceiver::Start(
     NetManager&            inNetManager,
     LogReceiver::Replayer& inReplayer,
     const MetaVrLogSeq&    inCommittedLogSeq,
+    const MetaVrLogSeq&    inLastLogSeq,
     int64_t                inFileSystemId)
 {
-    return mImpl.Start(
-        inNetManager, inReplayer, inCommittedLogSeq, inFileSystemId);
+    return mImpl.Start(inNetManager, inReplayer,
+        inCommittedLogSeq, inLastLogSeq, inFileSystemId);
 }
 
     void
