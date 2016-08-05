@@ -1182,6 +1182,13 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.maxConcurrentWriteReplicationsPerNode default.
 # chunkServer.rsReader.maxRecoveryThreads = 5
 
+# Assign chunk directories to storage tiers by specifying directory prefixes and
+# tier. For example assign all chunk directories that start with /mnt/flash to
+# tier 14, and /mnt/ram to tier 13, and all others to 15.
+# chunkServer.storageTierPrefixes = /mnt/flash 14 /mnt/ram 13
+# Default is assign all chunk directories to tier 15.
+# chunkServer.storageTierPrefixes =
+
 # ==================== AWS S3 object store =====================================
 #
 # Global toggle to enable object store.
@@ -1212,6 +1219,18 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # unrecoverable write failure.
 # Default is 0.
 # metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 0
+
+# If more than one object store directory specified, the following parameter
+# must be set to assign each object store directory to a single tier.
+# Note that changing tier assignment for object store directories that already
+# exist and not empty is not supported, as the object store block names include
+# storage tier id. The syntax is the same as for chunkServer.storageTierPrefixes
+# parameter.
+# For example assign s3://aws14. to tier 14, and the other directory, if any,
+# to tier 15
+# chunkServer.objecStorageTierPrefixes = s3://aws14. 14
+# Default is to assign object store directory, if any, to tier 15.
+# chunkServer.objecStorageTierPrefixes =
 
 # Object "directory" parameters.
 # For <object-store-directory-prefix> description please see
