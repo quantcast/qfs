@@ -99,7 +99,8 @@ public:
           mPendingUpdateFlag(false),
           mTransmitFlag(false),
           mUpFlag(false),
-          mFileSystemId(-1)
+          mFileSystemId(-1),
+          mMetaVrSMPtr(0)
     {
         List::Init(mTransmittersPtr);
         mTmpBuf[kTmpBufSize] = 0;
@@ -230,9 +231,14 @@ public:
         MetaVrRequest& inVrReq,
         NodeId         inNodeId);
     void Update(
-        MetaVrSM& inMetaVrSM);
+        const MetaVrSM& inMetaVrSM);
     void GetStatus(
         StatusReporter& inReporter);
+    MetaVrLogSeq GetLastLogSeq() const
+    {
+        return (mMetaVrSMPtr ? mMetaVrSMPtr->GetLastLogSeq() :
+            MetaVrLogSeq());
+    }
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
@@ -256,6 +262,7 @@ private:
     bool            mTransmitFlag;
     bool            mUpFlag;
     int64_t         mFileSystemId;
+    const MetaVrSM* mMetaVrSMPtr;
     Transmitter*    mTransmittersPtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
@@ -285,7 +292,8 @@ public:
         Impl&                 inImpl,
         const ServerLocation& inServer,
         NodeId                inNodeId,
-        bool                  inActiveFlag)
+        bool                  inActiveFlag,
+        const MetaVrLogSeq&   inLastLogSeq)
         : KfsCallbackObj(),
           mImpl(inImpl),
           mServer(inServer),
@@ -300,7 +308,7 @@ public:
           mCompactBlockCount(0),
           mAuthContext(),
           mAuthRequestCtx(),
-          mLastSentBlockSeq(),
+          mLastSentBlockSeq(inLastLogSeq),
           mAckBlockSeq(),
           mAckBlockFlags(0),
           mReplyProps(),
@@ -466,7 +474,8 @@ public:
             mConnectionPtr->GetOutBuffer().Copy(&inBuffer, inLen);
         }
         CompactIfNeeded();
-        return FlushBlock(inBlockSeq, inLen);
+        const bool kHeartbeatFlag = false;
+        return FlushBlock(inBlockSeq, inLen, kHeartbeatFlag);
     }
     bool SendBlock(
         const MetaVrLogSeq& inBlockSeq,
@@ -479,13 +488,15 @@ public:
         if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0) {
             return true;
         }
+        const bool kHeartbeatFlag = false;
         return SendBlockSelf(
             inBlockSeq,
             inBlockSeqLen,
             inBlockPtr,
             inBlockLen,
             inChecksum,
-            inChecksumStartPos
+            inChecksumStartPos,
+            kHeartbeatFlag
         );
     }
     ClientAuthContext& GetAuthCtx()
@@ -542,7 +553,8 @@ private:
         const char*         inBlockPtr,
         size_t              inBlockLen,
         Checksum            inChecksum,
-        size_t              inChecksumStartPos)
+        size_t              inChecksumStartPos,
+        bool                inHeartbeatFlag)
     {
         if (inBlockSeqLen < 0) {
             panic("log transmitter: invalid block sequence length");
@@ -568,21 +580,29 @@ private:
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
         }
-        return FlushBlock(inBlockSeq, mPendingSend.BytesConsumable() - thePos);
+        return FlushBlock(inBlockSeq, mPendingSend.BytesConsumable() - thePos,
+            inHeartbeatFlag);
     }
     bool FlushBlock(
         const MetaVrLogSeq& inBlockSeq,
-        int                 inLen)
+        int                 inLen,
+        bool                inHeartbeatFlag)
     {
-        if (inBlockSeq < mLastSentBlockSeq) {
-            panic("log transmitter: "
-                "block sequence is invalid: less than last sent");
+        if (inBlockSeq < mLastSentBlockSeq || inLen <= 0) {
+            panic(
+                "log transmitter: "
+                "block sequence is invalid: less than last sent, "
+                "or invalid length"
+            );
             return false;
         }
         mLastSentBlockSeq = inBlockSeq;
-        mBlocksQueue.push_back(make_pair(inBlockSeq, inLen));
-        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
-            mConnectionPtr->StartFlush();
+        // Allow to cleanup heartbeats by assigning negative / invalid sequence.
+        mBlocksQueue.push_back(make_pair(
+            inHeartbeatFlag ? MetaVrLogSeq() : inBlockSeq, inLen));
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr &&
+                mConnectionPtr->GetOutBuffer().IsEmpty()) {
+            StartSend();
         }
         return (!! mConnectionPtr);
     }
@@ -592,7 +612,7 @@ private:
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
-        mLastSentBlockSeq  = MetaVrLogSeq();
+        mLastSentBlockSeq  = mImpl.GetLastLogSeq();
         Error(inErrMsgPtr);
     }
     void ExceededMaxPending()
@@ -837,14 +857,17 @@ private:
     }
     bool SendHeartbeat()
     {
-        if ((mAckBlockSeq.IsValid() && mAckBlockSeq < mLastSentBlockSeq) ||
+        if ((mActiveFlag &&
+                mAckBlockSeq.IsValid() &&
+                mAckBlockSeq < mLastSentBlockSeq) ||
                 ! mBlocksQueue.empty() || mVrOpPtr) {
             return false;
         }
+        const bool kHeartbeatFlag = true;
         SendBlockSelf(
             mLastSentBlockSeq.IsValid() ?
                 mLastSentBlockSeq : MetaVrLogSeq(0, 0, 0),
-            0, "", 0, kKfsNullChecksum, 0);
+            0, "", 0, kKfsNullChecksum, 0, kHeartbeatFlag);
         return true;
     }
     int HandleMsg(
@@ -1559,10 +1582,12 @@ LogTransmitter::Impl::QueueVrRequest(
 
     void
 LogTransmitter::Impl::Update(
-    MetaVrSM& inMetaVrSM)
+    const MetaVrSM& inMetaVrSM)
 {
-    const Config&        theConfig = inMetaVrSM.GetConfig();
-    const Config::Nodes& theNodes  = theConfig.GetNodes();
+    mMetaVrSMPtr = &inMetaVrSM;
+    const MetaVrLogSeq   theLastLogSeq = inMetaVrSM.GetLastLogSeq();
+    const Config&        theConfig     = inMetaVrSM.GetConfig();
+    const Config::Nodes& theNodes      = theConfig.GetNodes();
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   theTPtr;
     while ((theTPtr = theIt.Next())) {
@@ -1595,7 +1620,8 @@ LogTransmitter::Impl::Update(
                 continue;
             }
             Insert(*(new Transmitter(*this, theLocation, theId,
-                0 != (theNode.GetFlags() & Config::kFlagActive))));
+                0 != (theNode.GetFlags() & Config::kFlagActive),
+                theLastLogSeq)));
         }
     }
     mMinAckToCommit = inMetaVrSM.GetQuorum();
@@ -1665,7 +1691,7 @@ LogTransmitter::QueueVrRequest(
 
     void
 LogTransmitter::Update(
-    MetaVrSM& inMetaVrSM)
+    const MetaVrSM& inMetaVrSM)
 {
     mImpl.Update(inMetaVrSM);
 }

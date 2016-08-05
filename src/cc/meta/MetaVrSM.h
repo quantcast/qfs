@@ -318,6 +318,7 @@ public:
         MetaDataSync&       inMetaDataSync,
         NetManager&         inNetManager,
         const MetaVrLogSeq& inCommittedSeq,
+        const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId);
     void Shutdown();
     const Config& GetConfig() const;
@@ -332,6 +333,7 @@ public:
         ostream& inStream) const;
     int GetStatus() const;
     bool HasValidNodeId() const;
+    MetaVrLogSeq GetLastLogSeq() const;
 private:
     class Impl;
     Impl& mImpl;

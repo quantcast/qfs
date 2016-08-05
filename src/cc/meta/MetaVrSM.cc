@@ -451,6 +451,7 @@ public:
         MetaDataSync&       inMetaDataSync,
         NetManager&         inNetManager,
         const MetaVrLogSeq& inCommittedSeq,
+        const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId)
     {
         if (mStartedFlag) {
@@ -461,7 +462,6 @@ public:
         mNetManagerPtr   = &inNetManager;
         if (mConfig.IsEmpty()) {
             mConfig.Clear();
-            mLogTransmitter.Update(mMetaVrSM);
             mActiveCount = 0;
             mQuorum      = 0;
             mState       = kStatePrimary;
@@ -477,7 +477,9 @@ public:
             }
             mActiveFlag = IsActive(mNodeId);
         }
-        mCommittedSeq = inCommittedSeq;
+        mCommittedSeq     = inCommittedSeq;
+        mLastLogSeq       = inLastLogSeq;
+        mReplayLastLogSeq = inLastLogSeq;
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mLogTransmitter.Update(mMetaVrSM);
         mFileSystemId = inFileSystemId;
@@ -690,6 +692,8 @@ public:
         outViewSeq  = mViewSeq;
         return 0;
     }
+    MetaVrLogSeq GetLastLogSeq() const
+        { return mLastLogSeq; }
 private:
     typedef Config::Locations   Locations;
     typedef pair<NodeId, int>   ChangeEntry;
@@ -1991,10 +1995,13 @@ MetaVrSM::Start(
     MetaDataSync&       inMetaDataSync,
     NetManager&         inNetManager,
     const MetaVrLogSeq& inCommittedSeq,
+    const MetaVrLogSeq& inLastLogSeq,
     int64_t             inFileSystemId)
 {
     return mImpl.Start(
-        inMetaDataSync, inNetManager, inCommittedSeq, inFileSystemId);
+        inMetaDataSync, inNetManager, inCommittedSeq, inLastLogSeq,
+        inFileSystemId
+    );
 }
 
     void
@@ -2063,6 +2070,12 @@ MetaVrSM::GetStatus() const
 MetaVrSM::HasValidNodeId() const
 {
     return mImpl.HasValidNodeId();
+}
+
+    MetaVrLogSeq
+MetaVrSM::GetLastLogSeq() const
+{
+    return mImpl.GetLastLogSeq();
 }
 
 } // namespace KFS

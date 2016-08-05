@@ -187,7 +187,7 @@ public:
         mMetaDataStorePtr  = &inMetaDataStore;
         if (0 != (mError = mMetaVrSM.Start(
                 inMetaDataSync, mNetManager, mCommitted.mSeq,
-                inFileSystemId))) {
+                mReplayLogSeq, inFileSystemId))) {
             return mError;
         }
         if (inLogAppendMdStatePtr) {
@@ -239,7 +239,7 @@ public:
             );
             mLogFilePos     = theSize;
             mLogFilePrevPos = mLogFilePos;
-            mNextBlockSeq = inLogAppendLastBlockSeq;
+            mNextBlockSeq   = inLogAppendLastBlockSeq;
             if (inLogAppendLastBlockSeq < 0 || ! inLogAppendHexFlag ||
                     ! inLogNameHasSeqFlag) {
                 // Previous / "old" log format.
