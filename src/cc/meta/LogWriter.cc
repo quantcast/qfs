@@ -144,24 +144,25 @@ public:
     ~Impl()
         { Impl::Shutdown(); }
     int Start(
-        NetManager&         inNetManager,
-        MetaDataStore&      inMetaDataStore,
-        MetaDataSync&       inMetaDataSync,
-        seq_t               inLogNum,
-        const MetaVrLogSeq& inLogSeq,
-        const MetaVrLogSeq& inCommittedLogSeq,
-        fid_t               inCommittedFidSeed,
-        int64_t             inCommittedErrCheckSum,
-        int                 inCommittedStatus,
-        const MdStateCtx*   inLogAppendMdStatePtr,
-        const MetaVrLogSeq& inLogAppendStartSeq,
-        seq_t               inLogAppendLastBlockSeq,
-        bool                inLogAppendHexFlag,
-        bool                inLogNameHasSeqFlag,
-        const char*         inParametersPrefixPtr,
-        const Properties&   inParameters,
-        int64_t             inFileSystemId,
-        string&             outCurLogFileName)
+        NetManager&           inNetManager,
+        MetaDataStore&        inMetaDataStore,
+        MetaDataSync&         inMetaDataSync,
+        seq_t                 inLogNum,
+        const MetaVrLogSeq&   inLogSeq,
+        const MetaVrLogSeq&   inCommittedLogSeq,
+        fid_t                 inCommittedFidSeed,
+        int64_t               inCommittedErrCheckSum,
+        int                   inCommittedStatus,
+        const MdStateCtx*     inLogAppendMdStatePtr,
+        const MetaVrLogSeq&   inLogAppendStartSeq,
+        seq_t                 inLogAppendLastBlockSeq,
+        bool                  inLogAppendHexFlag,
+        bool                  inLogNameHasSeqFlag,
+        const char*           inParametersPrefixPtr,
+        const Properties&     inParameters,
+        int64_t               inFileSystemId,
+        const ServerLocation& inDataStoreLocation,
+        string&               outCurLogFileName)
     {
         if (inLogNum < 0 || ! inLogSeq.IsValid() ||
                 (inLogAppendMdStatePtr && inLogSeq < inLogAppendStartSeq) ||
@@ -187,7 +188,7 @@ public:
         mMetaDataStorePtr  = &inMetaDataStore;
         if (0 != (mError = mMetaVrSM.Start(
                 inMetaDataSync, mNetManager, mCommitted.mSeq,
-                mReplayLogSeq, inFileSystemId))) {
+                mReplayLogSeq, inFileSystemId, inDataStoreLocation))) {
             return mError;
         }
         if (inLogAppendMdStatePtr) {
@@ -1411,24 +1412,25 @@ LogWriter::~LogWriter()
 
     int
 LogWriter::Start(
-    NetManager&         inNetManager,
-    MetaDataStore&      inMetaDataStore,
-    MetaDataSync&       inMetaDataSync,
-    seq_t               inLogNum,
-    const MetaVrLogSeq& inLogSeq,
-    const MetaVrLogSeq& inCommittedLogSeq,
-    fid_t               inCommittedFidSeed,
-    int64_t             inCommittedErrCheckSum,
-    int                 inCommittedStatus,
-    const MdStateCtx*   inLogAppendMdStatePtr,
-    const MetaVrLogSeq& inLogAppendStartSeq,
-    seq_t               inLogAppendLastBlockSeq,
-    bool                inLogAppendHexFlag,
-    bool                inLogNameHasSeqFlag,
-    const char*         inParametersPrefixPtr,
-    const Properties&   inParameters,
-    int64_t             inFileSystemId,
-    string&             outCurLogFileName)
+    NetManager&           inNetManager,
+    MetaDataStore&        inMetaDataStore,
+    MetaDataSync&         inMetaDataSync,
+    seq_t                 inLogNum,
+    const MetaVrLogSeq&   inLogSeq,
+    const MetaVrLogSeq&   inCommittedLogSeq,
+    fid_t                 inCommittedFidSeed,
+    int64_t               inCommittedErrCheckSum,
+    int                   inCommittedStatus,
+    const MdStateCtx*     inLogAppendMdStatePtr,
+    const MetaVrLogSeq&   inLogAppendStartSeq,
+    seq_t                 inLogAppendLastBlockSeq,
+    bool                  inLogAppendHexFlag,
+    bool                  inLogNameHasSeqFlag,
+    const char*           inParametersPrefixPtr,
+    const Properties&     inParameters,
+    int64_t               inFileSystemId,
+    const ServerLocation& inDataStoreLocation,
+    string&               outCurLogFileName)
 {
     return mImpl.Start(
         inNetManager,
@@ -1448,6 +1450,7 @@ LogWriter::Start(
         inParametersPrefixPtr,
         inParameters,
         inFileSystemId,
+        inDataStoreLocation,
         outCurLogFileName
     );
 }

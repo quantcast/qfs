@@ -163,6 +163,7 @@ using std::less;
     f(CHUNK_OP_LOG_IN_FLIGHT) \
     f(HIBERNATED_PRUNE) \
     f(HIBERNATED_REMOVE) \
+    f(VR_HELLO) \
     f(VR_START_VIEW_CHANGE) \
     f(VR_DO_VIEW_CHANGE) \
     f(VR_START_VIEW) \

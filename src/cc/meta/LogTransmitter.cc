@@ -77,9 +77,11 @@ public:
     typedef uint32_t              Checksum;
 
     Impl(
+        LogTransmitter& inTransmitter,
         NetManager&     inNetManager,
         CommitObserver& inCommitObserver)
-        : mNetManager(inNetManager),
+        : mTransmitter(inTransmitter),
+          mNetManager(inNetManager),
           mRetryInterval(2),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mHeartbeatInterval(16),
@@ -231,7 +233,7 @@ public:
         MetaVrRequest& inVrReq,
         NodeId         inNodeId);
     void Update(
-        const MetaVrSM& inMetaVrSM);
+        MetaVrSM& inMetaVrSM);
     void GetStatus(
         StatusReporter& inReporter);
     MetaVrLogSeq GetLastLogSeq() const
@@ -239,11 +241,19 @@ public:
         return (mMetaVrSMPtr ? mMetaVrSMPtr->GetLastLogSeq() :
             MetaVrLogSeq());
     }
+    bool Init(
+        MetaVrHello&          inHello,
+        const ServerLocation& inPeer)
+    {
+        return (mMetaVrSMPtr &&
+            mMetaVrSMPtr->Init(inHello, inPeer, mTransmitter));
+    }
 private:
     typedef Properties::String String;
-    enum { kTmpBufSize = 2 + 1 + sizeof(long long) * 2 + 4 };
+    enum { kTmpBufSize = 2 + 1 + sizeof(seq_t) * 2 + 4 };
     enum { kSeqBufSize = 5 * kTmpBufSize };
 
+    LogTransmitter& mTransmitter;
     NetManager&     mNetManager;
     int             mRetryInterval;
     int             mMaxReadAhead;
@@ -262,7 +272,7 @@ private:
     bool            mTransmitFlag;
     bool            mUpFlag;
     int64_t         mFileSystemId;
-    const MetaVrSM* mMetaVrSMPtr;
+    MetaVrSM*       mMetaVrSMPtr;
     Transmitter*    mTransmittersPtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
@@ -317,8 +327,11 @@ public:
           mSleepingFlag(false),
           mReceivedIdFlag(false),
           mActiveFlag(inActiveFlag),
+          mSendHelloFlag(false),
+          mMetaVrHello(*(new MetaVrHello())),
           mReceivedId(-1),
-          mId(inNodeId)
+          mId(inNodeId),
+          mPeer()
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
         List::Init(*this);
@@ -333,6 +346,7 @@ public:
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
         VrDisconnect();
+        MetaRequest::Release(&mMetaVrHello);
         mImpl.Remove(*this);
     }
     int SetParameters(
@@ -444,6 +458,10 @@ public:
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
         VrDisconnect();
+        mPeer.port = -1;
+        mPeer.hostname.clear();
+        mSendHelloFlag = true;
+        mReplyProps.clear();
     }
     const ServerLocation& GetServerLocation() const
         { return mServer; }
@@ -540,8 +558,11 @@ private:
     bool               mSleepingFlag;
     bool               mReceivedIdFlag;
     bool               mActiveFlag;
+    bool               mSendHelloFlag;
+    MetaVrHello&       mMetaVrHello;
     NodeId             mReceivedId;
     NodeId const       mId;
+    ServerLocation     mPeer;
     Transmitter*       mPrevPtr[1];
     Transmitter*       mNextPtr[1];
 
@@ -829,17 +850,28 @@ private:
             return;
         }
         if (mVrOpPtr) {
+            mSendHelloFlag = false;
             mVrOpSeq = GetNextSeq();
             mVrOpPtr->opSeqno = mVrOpSeq;
             Request(*mVrOpPtr);
             return;
         }
-        if (! mPendingSend.IsEmpty()) {
+        mRecursionCount++;
+        if (mSendHelloFlag) {
+            mSendHelloFlag = false;
+            mMetaVrHello.shortRpcFormatFlag = true;
+            if (mImpl.Init(mMetaVrHello, GetPeerLocation())) {
+                mMetaVrHello.opSeqno = GetNextSeq();
+                Request(mMetaVrHello);
+            }
+        }
+        if (mPendingSend.IsEmpty()) {
+            SendHeartbeat();
+        } else {
             mConnectionPtr->GetOutBuffer().Copy(
                 &mPendingSend, mPendingSend.BytesConsumable());
-        } else {
-            SendHeartbeat();
         }
+        mRecursionCount--;
         if (mRecursionCount <= 0) {
             mConnectionPtr->StartFlush();
         }
@@ -1033,6 +1065,15 @@ private:
         }
         return (mConnectionPtr ? 0 : -1);
     }
+    const ServerLocation& GetPeerLocation()
+    {
+        if (! mPeer.IsValid() && mConnectionPtr &&
+                0 != mConnectionPtr->GetPeerLocation(mPeer)) {
+            mPeer.port = -1;
+            mPeer.hostname.clear();
+        }
+        return mPeer;
+    }
     int HandleReply(
         const char* inHeaderPtr,
         int         inHeaderLen,
@@ -1050,6 +1091,7 @@ private:
         // For now only handle authentication response.
         seq_t const theSeq = mReplyProps.getValue("c", seq_t(-1));
         if ((! mVrOpPtr || theSeq != mVrOpSeq) &&
+                (mMetaVrHello.opSeqno < 0 || theSeq != mMetaVrHello.opSeqno) &&
                 (! mAuthenticateOpPtr ||
                     theSeq != mAuthenticateOpPtr->opSeqno)) {
             KFS_LOG_STREAM_ERROR <<
@@ -1084,6 +1126,22 @@ private:
                         theCurrentTime) <<
             KFS_LOG_EOM;
             HandleAuthResponse(inBuffer);
+        } else if (theSeq == mMetaVrHello.opSeqno) {
+            KFS_LOG_STREAM_DEBUG <<
+                "seq: "     << theSeq <<
+                " status: " << mMetaVrHello.status <<
+                " "         << mMetaVrHello.statusMsg <<
+                " "         << mMetaVrHello.Show() <<
+            KFS_LOG_EOM;
+            mMetaVrHello.HandleResponse(theSeq, mReplyProps, mId,
+                GetPeerLocation());
+            mMetaVrHello.opSeqno = -1;
+            if (0 != mMetaVrHello.status) {
+                Error(mMetaVrHello.statusMsg.empty() ?
+                    "VR hello error" : mMetaVrHello.statusMsg.c_str());
+                mReplyProps.clear();
+                return -1;
+            }
         } else {
             VrUpdate(theSeq);
         }
@@ -1116,7 +1174,8 @@ private:
         MetaRequest& inReq)
     {
         // For now authentication or Vr ops.
-        if (&inReq != mAuthenticateOpPtr && &inReq != mVrOpPtr) {
+        if (&inReq != mAuthenticateOpPtr && &inReq != mVrOpPtr &&
+                &inReq != &mMetaVrHello) {
             panic("LogTransmitter::Impl::Transmitter: invalid request");
             return;
         }
@@ -1127,6 +1186,8 @@ private:
         ReqOstream theStream(mOstream.Set(theBuf));
         if (&inReq == mVrOpPtr) {
             mVrOpPtr->Request(theStream);
+        } else if (&inReq == &mMetaVrHello) {
+            mMetaVrHello.Request(theStream);
         } else {
             mAuthenticateOpPtr->Request(theStream);
         }
@@ -1173,11 +1234,19 @@ private:
         }
         mVrOpSeq = -1;
         mVrOpPtr = 0;
-        theReq.HandleResponse(inSeq, mReplyProps, mId);
+        theReq.HandleResponse(inSeq, mReplyProps, mId, GetPeerLocation());
         MetaRequest::Release(&theReq);
     }
     void VrDisconnect()
-        { VrUpdate(-1); }
+    {
+        if (0 <= mMetaVrHello.opSeqno) {
+            mMetaVrHello.opSeqno = -1;
+            mReplyProps.clear();
+            mMetaVrHello.HandleResponse(mMetaVrHello.opSeqno, mReplyProps, mId,
+                GetPeerLocation());
+        }
+        VrUpdate(-1);
+    }
     void MsgLogLines(
         MsgLogger::LogLevel inLogLevel,
         const char*         inPrefixPtr,
@@ -1583,7 +1652,7 @@ LogTransmitter::Impl::QueueVrRequest(
 
     void
 LogTransmitter::Impl::Update(
-    const MetaVrSM& inMetaVrSM)
+    MetaVrSM& inMetaVrSM)
 {
     mMetaVrSMPtr = &inMetaVrSM;
     const MetaVrLogSeq   theLastLogSeq = inMetaVrSM.GetLastLogSeq();
@@ -1640,7 +1709,7 @@ LogTransmitter::Impl::Update(
 LogTransmitter::LogTransmitter(
     NetManager&                     inNetManager,
     LogTransmitter::CommitObserver& inCommitObserver)
-    : mImpl(*(new Impl(inNetManager, inCommitObserver)))
+    : mImpl(*(new Impl(*this, inNetManager, inCommitObserver)))
     {}
 
 LogTransmitter::~LogTransmitter()
@@ -1692,7 +1761,7 @@ LogTransmitter::QueueVrRequest(
 
     void
 LogTransmitter::Update(
-    const MetaVrSM& inMetaVrSM)
+    MetaVrSM& inMetaVrSM)
 {
     mImpl.Update(inMetaVrSM);
 }

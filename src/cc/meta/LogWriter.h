@@ -46,6 +46,7 @@ class MetaDataStore;
 class MetaVrSM;
 class MetaDataSync;
 class MetaVrLogSeq;
+struct ServerLocation;
 
 class LogWriter
 {
@@ -55,24 +56,25 @@ public:
     LogWriter();
     ~LogWriter();
     int Start(
-        NetManager&         inNetManager,
-        MetaDataStore&      inMetaDataStore,
-        MetaDataSync&       inMetaDataSync,
-        seq_t               inLogNum,
-        const MetaVrLogSeq& inLogSeq,
-        const MetaVrLogSeq& inCommittedLogSeq,
-        fid_t               inCommittedFidSeed,
-        int64_t             inCommittedErrCheckSum,
-        int                 inCommittedStatus,
-        const MdStateCtx*   inLogAppendMdStatePtr,
-        const MetaVrLogSeq& inLogAppendStartSeq,
-        seq_t               inLogAppendLastBlockSeq,
-        bool                inLogAppendHexFlag,
-        bool                inLogNameHasSeqFlag,
-        const char*         inParametersPrefixPtr,
-        const Properties&   inParameters,
-        int64_t             inFileSystemId,
-        string&             outCurLogFileName);
+        NetManager&           inNetManager,
+        MetaDataStore&        inMetaDataStore,
+        MetaDataSync&         inMetaDataSync,
+        seq_t                 inLogNum,
+        const MetaVrLogSeq&   inLogSeq,
+        const MetaVrLogSeq&   inCommittedLogSeq,
+        fid_t                 inCommittedFidSeed,
+        int64_t               inCommittedErrCheckSum,
+        int                   inCommittedStatus,
+        const MdStateCtx*     inLogAppendMdStatePtr,
+        const MetaVrLogSeq&   inLogAppendStartSeq,
+        seq_t                 inLogAppendLastBlockSeq,
+        bool                  inLogAppendHexFlag,
+        bool                  inLogNameHasSeqFlag,
+        const char*           inParametersPrefixPtr,
+        const Properties&     inParameters,
+        int64_t               inFileSystemId,
+        const ServerLocation& inDataStoreLocation,
+        string&               outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);
     void Committed(

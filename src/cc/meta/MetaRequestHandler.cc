@@ -249,6 +249,9 @@ MakeMetaRequestLogXmitHandler(
 {
     static T sHandler;
     return sHandler
+    .MakeParser("VRH",
+        META_VR_HELLO,
+        static_cast<const MetaVrHello*>(0))
     .MakeParser("VSV",
         META_VR_START_VIEW,
         static_cast<const MetaVrStartView*>(0))
@@ -424,6 +427,7 @@ MetaVrRequest::Request(
     if (! sMetaRequestLogXmitHandler.Write(theStream, this, op)) {
         panic("VR: no request definition");
     }
+    inStream.write("\r\n\r\n", 4);
 }
 
 class StringEscapeIoParser

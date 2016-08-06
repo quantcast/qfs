@@ -29,6 +29,7 @@
 #define META_VROPS_H
 
 #include "common/kfstypes.h"
+#include "common/kfsdecls.h"
 
 #include "MetaRequest.h"
 #include "LogWriter.h"
@@ -41,30 +42,36 @@ namespace KFS
 {
 class Properties;
 
-const char* const kMetaVrViewSeqFieldNamePtr       = "VV";
-const char* const kMetaVrEpochSeqFieldNamePtr      = "VE";
-const char* const kMetaVrCommittedFieldNamePtr     = "VC";
-const char* const kMetaVrLastLogSeqFieldNamePtr    = "VL";
-const char* const kMetaVrStateFieldNamePtr         = "VS";
-const char* const kMetaVrFsIdFieldNamePtr          = "VI";
+const char* const kMetaVrViewSeqFieldNamePtr         = "VV";
+const char* const kMetaVrEpochSeqFieldNamePtr        = "VE";
+const char* const kMetaVrCommittedFieldNamePtr       = "VC";
+const char* const kMetaVrLastLogSeqFieldNamePtr      = "VL";
+const char* const kMetaVrStateFieldNamePtr           = "VS";
+const char* const kMetaVrFsIdFieldNamePtr            = "VI";
+const char* const kMetaVrMDSLocationHostFieldNamePtr = "VH";
+const char* const kMetaVrMDSLocationPortFieldNamePtr = "VP";
 
 class MetaVrRequest : public MetaRequest
 {
 public:
     typedef MetaVrSM::Config::NodeId NodeId;
 
-    seq_t        mEpochSeq;
-    seq_t        mViewSeq;
-    MetaVrLogSeq mCommittedSeq;
-    MetaVrLogSeq mLastLogSeq;
-    NodeId       mNodeId;
-    int64_t      mFileSystemId;
-    seq_t        mRetCurEpochSeq;
-    seq_t        mRetCurViewSeq;
-    MetaVrLogSeq mRetCommittedSeq;
-    MetaVrLogSeq mRetLastLogSeq;
-    int          mRetCurState;
-    int64_t      mRetFileSystemId;
+    seq_t          mEpochSeq;
+    seq_t          mViewSeq;
+    MetaVrLogSeq   mCommittedSeq;
+    MetaVrLogSeq   mLastLogSeq;
+    NodeId         mNodeId;
+    int            mCurState;
+    int64_t        mFileSystemId;
+    string         mMetaDataStoreHost;
+    int            mMetaDataStorePort;
+    seq_t          mRetCurEpochSeq;
+    seq_t          mRetCurViewSeq;
+    MetaVrLogSeq   mRetCommittedSeq;
+    MetaVrLogSeq   mRetLastLogSeq;
+    int            mRetCurState;
+    int64_t        mRetFileSystemId;
+    ServerLocation mRetMetaDataStoreLocation;
 
     MetaVrRequest(
         MetaOp    inOpType,
@@ -76,12 +83,17 @@ public:
           mCommittedSeq(),
           mLastLogSeq(),
           mNodeId(-1),
+          mCurState(-1),
+          mFileSystemId(-1),
+          mMetaDataStoreHost(),
+          mMetaDataStorePort(-1),
           mRetCurEpochSeq(-1),
           mRetCurViewSeq(-1),
           mRetCommittedSeq(),
           mRetLastLogSeq(),
           mRetCurState(-1),
           mRetFileSystemId(-1),
+          mRetMetaDataStoreLocation(),
           mVrSMPtr(0),
           mRefCount(0)
     {
@@ -96,13 +108,16 @@ public:
     static T& ParserDef(
         T& inParser)
     {
-        return inParser
+        return MetaRequest::ParserDef(inParser)
         .Def("E",  &MetaVrRequest::mEpochSeq,          seq_t(-1))
         .Def("V",  &MetaVrRequest::mViewSeq,           seq_t(-1))
         .Def("C",  &MetaVrRequest::mCommittedSeq                )
         .Def("L",  &MetaVrRequest::mLastLogSeq                  )
         .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
+        .Def("S",  &MetaVrRequest::mCurState,                 -1)
         .Def("I",  &MetaVrRequest::mFileSystemId,    int64_t(-1))
+        .Def("MP", &MetaVrRequest::mMetaDataStorePort,        -1)
+        .Def("MH", &MetaVrRequest::mMetaDataStoreHost           )
         ;
     }
     void Request(
@@ -115,9 +130,10 @@ public:
         return (0 == status);
     }
     virtual void HandleResponse(
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inId) = 0;
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer) = 0;
     void Ref()
         { mRefCount++; }
     void Unref()
@@ -161,6 +177,14 @@ public:
             inOs << kMetaVrFsIdFieldNamePtr <<
                 ":" << mRetFileSystemId << "\r\n";
         }
+        if (0 < mRetMetaDataStoreLocation.port) {
+            inOs << kMetaVrMDSLocationPortFieldNamePtr <<
+                ":" << mRetMetaDataStoreLocation.port << "\r\n";
+        }
+        if (! mRetMetaDataStoreLocation.hostname.empty()) {
+            inOs << kMetaVrMDSLocationHostFieldNamePtr <<
+                ":" << mRetMetaDataStoreLocation.hostname << "\r\n";
+        }
         inOs << "\r\n";
     }
 protected:
@@ -177,13 +201,14 @@ protected:
         ReqOstream& inOs);
     template<typename T>
     void HandleReply(
-        T&                inReq,
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
+        T&                    inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
     {
         if (mVrSMPtr) {
-            mVrSMPtr->HandleReply(inReq, inSeq, inProps, inNodeId);
+            mVrSMPtr->HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
         }
     }
     virtual void ReleaseSelf()
@@ -193,6 +218,35 @@ private:
         const MetaVrRequest& inRequest);
     MetaVrRequest& operator=(
         const MetaVrRequest& inRequest);
+};
+
+class MetaVrHello : public MetaVrRequest
+{
+public:
+    MetaVrHello()
+        : MetaVrRequest(META_VR_HELLO, kLogIfOk)
+        {}
+    virtual ostream& ShowSelf(
+        ostream& inOs) const
+    {
+        return (inOs <<
+            "vr-hello" <<
+            " fsid: "      << mFileSystemId <<
+            " node: "      << mNodeId <<
+            " epoch: "     << mEpochSeq <<
+            " view: "      << mViewSeq <<
+            " committed: " << mCommittedSeq
+        );
+    }
+    virtual void HandleResponse(
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
+        { HandleReply(*this, inSeq, inProps, inNodeId, inPeer); }
+protected:
+    virtual ~MetaVrHello()
+        {}
 };
 
 class MetaVrStartViewChange : public MetaVrRequest
@@ -206,6 +260,7 @@ public:
     {
         return (inOs <<
             "vr-start-view-change" <<
+            " fsid: "      << mFileSystemId <<
             " node: "      << mNodeId <<
             " epoch: "     << mEpochSeq <<
             " view: "      << mViewSeq <<
@@ -213,10 +268,11 @@ public:
         );
     }
     virtual void HandleResponse(
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
-        { HandleReply(*this, inSeq, inProps, inNodeId); }
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
+        { HandleReply(*this, inSeq, inProps, inNodeId, inPeer); }
 protected:
     virtual ~MetaVrStartViewChange()
         {}
@@ -236,6 +292,7 @@ public:
     {
         return (inOs <<
             "vr-do-view-change" <<
+            " fsid: "      << mFileSystemId <<
             " node: "      << mNodeId <<
             " epoch: "     << mEpochSeq <<
             " view: "      << mViewSeq <<
@@ -244,10 +301,11 @@ public:
         );
     }
     virtual void HandleResponse(
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
-        { HandleReply(*this, inSeq, inProps, inNodeId); }
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
+        { HandleReply(*this, inSeq, inProps, inNodeId, inPeer); }
     template<typename T>
     static T& ParserDef(
         T& inParser)
@@ -272,6 +330,7 @@ public:
     {
         return (inOs <<
             "vr-start-view" <<
+            " fsid: "      << mFileSystemId <<
             " node: "      << mNodeId <<
             " epoch: "     << mEpochSeq <<
             " view: "      << mViewSeq <<
@@ -279,10 +338,11 @@ public:
         );
     }
     virtual void HandleResponse(
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
-        { HandleReply(*this, inSeq, inProps, inNodeId); }
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
+        { HandleReply(*this, inSeq, inProps, inNodeId, inPeer); }
 protected:
     virtual ~MetaVrStartView()
         {}

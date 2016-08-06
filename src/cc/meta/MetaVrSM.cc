@@ -118,6 +118,7 @@ public:
           mDoViewChangeNodeIds(),
           mStartViewCompletionIds(),
           mStartViewMaxLastLogNodeIds(),
+          mMetaDataStoreLocation(),
           mSyncServers(),
           mInputStream(),
           mEmptyString(),
@@ -182,6 +183,8 @@ public:
         const MetaVrLogSeq& inLastLogSeq)
     {
         switch (inReq.op) {
+            case META_VR_HELLO:
+                return Handle(static_cast<MetaVrHello&>(inReq));
             case META_VR_START_VIEW_CHANGE:
                 return Handle(static_cast<MetaVrStartViewChange&>(inReq));
             case META_VR_DO_VIEW_CHANGE:
@@ -211,11 +214,45 @@ public:
         inProps.getList(theRet, string(), string(";"));
         return theRet;
     }
+    bool Init(
+        MetaVrHello&          inReq,
+        const ServerLocation& inPeer,
+        LogTransmitter&       inLogTransmitter)
+    {
+        Init(inReq);
+        KFS_LOG_STREAM_DEBUG <<
+            "init"
+            " peer: " << inPeer <<
+            " "       << inReq.Show() <<
+        KFS_LOG_EOM;
+        return true;
+    }
+    void HandleReply(
+        MetaVrHello&          inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
+    {
+        if (inReq.GetVrSMPtr() != &mMetaVrSM) {
+            panic("VR: invalid hello completion");
+            return;
+        }
+        KFS_LOG_STREAM_DEBUG <<
+            "seq: "       << inSeq <<
+            " node: "     << inNodeId <<
+            " peer: "     << inPeer <<
+            " "           << inReq.Show() <<
+            " response: " << Show(inProps) <<
+        KFS_LOG_EOM;
+        inReq.SetVrSMPtr(0);
+    }
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
         const Properties&      inProps,
-        NodeId                 inNodeId)
+        NodeId                 inNodeId,
+        const ServerLocation&  inPeer)
     {
         if (&inReq != mStartViewChangePtr || inReq.GetVrSMPtr() != &mMetaVrSM) {
             panic("VR: invalid start view change completion");
@@ -224,6 +261,7 @@ public:
         KFS_LOG_STREAM_DEBUG <<
             " seq: "      << inSeq <<
             " node: "     << inNodeId <<
+            " peer: "     << inPeer <<
             " "           << inReq.Show() <<
             " response: " << Show(inProps) <<
         KFS_LOG_EOM;
@@ -280,10 +318,11 @@ public:
         StartDoViewChangeIfPossible();
     }
     void HandleReply(
-        MetaVrDoViewChange& inReq,
-        seq_t               inSeq,
-        const Properties&   inProps,
-        NodeId              inNodeId)
+        MetaVrDoViewChange&   inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
     {
         if (&inReq != mDoViewChangePtr || inReq.GetVrSMPtr() != &mMetaVrSM) {
             panic("VR: invalid do view change completion");
@@ -292,15 +331,17 @@ public:
         KFS_LOG_STREAM_DEBUG <<
             " seq: "      << inSeq <<
             " node: "     << inNodeId <<
+            " peer: "     << inPeer <<
             " '"          << inReq.Show() <<
             " response: " << Show(inProps) <<
         KFS_LOG_EOM;
     }
     void HandleReply(
-        MetaVrStartView&  inReq,
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId)
+        MetaVrStartView&      inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer)
     {
         if (&inReq != mStartViewPtr || inReq.GetVrSMPtr() != &mMetaVrSM) {
             panic("VR: invalid start view completion");
@@ -309,6 +350,7 @@ public:
         KFS_LOG_STREAM_DEBUG <<
             " seq: "      << inSeq <<
             " node: "     << inNodeId <<
+            " peer: "     << inPeer <<
             " '"          << inReq.Show() <<
             " response: " << Show(inProps) <<
             " replies: "  << mStartViewReplayCount <<
@@ -344,6 +386,25 @@ public:
         }
         PirmaryCommitStartView();
     }
+    void HandleReply(
+        MetaVrReconfiguration& inReq,
+        seq_t                  inSeq,
+        const Properties&      inProps,
+        NodeId                 inNodeId,
+        const ServerLocation&  inPeer)
+    {
+        const char* const theMsgPtr =
+            "VR: invalid reconfiguration reply handling attempt";
+        KFS_LOG_STREAM_FATAL <<
+            theMsgPtr <<
+            " seq: "      << inSeq <<
+            " node: "     << inNodeId <<
+            " peer: "     << inPeer <<
+            " "           << inReq.Show() <<
+            " response: " << Show(inProps) <<
+        KFS_LOG_EOM;
+        panic(theMsgPtr);
+    }
     void PirmaryCommitStartView()
     {
         CancelViewChange();
@@ -357,23 +418,6 @@ public:
         mMetaVrLogStartViewPtr->mNewLogSeq    =
             MetaVrLogSeq(mEpochSeq, mViewSeq, mLastLogSeq.mLogSeq + 1);
         mMetaVrLogStartViewPtr->mNodeId       = mNodeId;
-    }
-    void HandleReply(
-        MetaVrReconfiguration& inReq,
-        seq_t                  inSeq,
-        const Properties&      inProps,
-        NodeId                 inNodeId)
-    {
-        const char* const theMsgPtr =
-            "VR: invalid reconfiguration reply handling attempt";
-        KFS_LOG_STREAM_FATAL <<
-            theMsgPtr <<
-            " seq: "      << inSeq <<
-            " node: "     << inNodeId <<
-            " "           << inReq.Show() <<
-            " response: " << Show(inProps) <<
-        KFS_LOG_EOM;
-        panic(theMsgPtr);
     }
     int GetStatus() const
     {
@@ -448,11 +492,12 @@ public:
         outVrStatus      = GetStatus();
     }
     int Start(
-        MetaDataSync&       inMetaDataSync,
-        NetManager&         inNetManager,
-        const MetaVrLogSeq& inCommittedSeq,
-        const MetaVrLogSeq& inLastLogSeq,
-        int64_t             inFileSystemId)
+        MetaDataSync&         inMetaDataSync,
+        NetManager&           inNetManager,
+        const MetaVrLogSeq&   inCommittedSeq,
+        const MetaVrLogSeq&   inLastLogSeq,
+        int64_t               inFileSystemId,
+        const ServerLocation& inDataStoreLocation)
     {
         if (mStartedFlag) {
             // Already started.
@@ -477,12 +522,13 @@ public:
             }
             mActiveFlag = IsActive(mNodeId);
         }
-        mCommittedSeq     = inCommittedSeq;
-        mLastLogSeq       = inLastLogSeq;
-        mReplayLastLogSeq = inLastLogSeq;
+        mCommittedSeq          = inCommittedSeq;
+        mLastLogSeq            = inLastLogSeq;
+        mReplayLastLogSeq      = inLastLogSeq;
+        mFileSystemId          = inFileSystemId;
+        mMetaDataStoreLocation = inDataStoreLocation;
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mLogTransmitter.Update(mMetaVrSM);
-        mFileSystemId = inFileSystemId;
         mStartedFlag  = true;
         return 0;
     }
@@ -497,6 +543,15 @@ public:
     {
         if (! mStartedFlag || mNodeId < 0) {
             mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        }
+        const Properties::String* const theStrPtr = inParameters.getValue(
+            "metaServer.Vr.metaDataStoreLocation");
+        if (theStrPtr) {
+            ServerLocation theLocation;
+            if (theLocation.FromString(
+                    theStrPtr->GetPtr(), theStrPtr->GetSize())) {
+                mMetaDataStoreLocation = theLocation;
+            }
         }
         return 0;
     }
@@ -694,6 +749,8 @@ public:
     }
     MetaVrLogSeq GetLastLogSeq() const
         { return mLastLogSeq; }
+    const ServerLocation& GetMetaDataStoreLocation() const
+        { return mMetaDataStoreLocation; }
 private:
     typedef Config::Locations   Locations;
     typedef pair<NodeId, int>   ChangeEntry;
@@ -912,6 +969,7 @@ private:
     NodeIdSet                    mDoViewChangeNodeIds;
     NodeIdSet                    mStartViewCompletionIds;
     NodeIdSet                    mStartViewMaxLastLogNodeIds;
+    ServerLocation               mMetaDataStoreLocation;
     MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
     string const                 mEmptyString;
@@ -1090,6 +1148,30 @@ private:
         }
         SetReturnState(inReq);
         return false;
+    }
+    bool Handle(
+        MetaVrHello& inReq)
+    {
+        if (0 == inReq.status) {
+            if (mFileSystemId != inReq.mFileSystemId) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "file system id does not match";
+            } else if (kStatePrimary == inReq.mCurState &&
+                    0 < mQuorum && mActiveFlag) {
+                if (kStatePrimary == mState) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "cuuent node state: ";
+                    inReq.statusMsg += GetStateName(mState);
+                } else if (inReq.mLastLogSeq < mCommittedSeq) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg =
+                        "last log sequence is less than committed";
+                }
+            }
+        }
+        Show(inReq);
+        SetReturnState(inReq);
+        return true;
     }
     bool Handle(
         MetaVrStartViewChange& inReq)
@@ -1832,12 +1914,15 @@ private:
     void Init(
         MetaVrRequest& inReq)
     {
-        inReq.mNodeId       = mNodeId;
-        inReq.mEpochSeq     = mEpochSeq;
-        inReq.mViewSeq      = mViewSeq;
-        inReq.mCommittedSeq = mCommittedSeq;
-        inReq.mLastLogSeq   = mLastLogSeq;
-        inReq.mFileSystemId = mFileSystemId;
+        inReq.mCurState          = mState;
+        inReq.mNodeId            = mNodeId;
+        inReq.mEpochSeq          = mEpochSeq;
+        inReq.mViewSeq           = mViewSeq;
+        inReq.mCommittedSeq      = mCommittedSeq;
+        inReq.mLastLogSeq        = mLastLogSeq;
+        inReq.mFileSystemId      = mFileSystemId;
+        inReq.mMetaDataStoreHost = mMetaDataStoreLocation.hostname;
+        inReq.mMetaDataStorePort = mMetaDataStoreLocation.port;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
     void StartViewChange()
@@ -1937,34 +2022,57 @@ MetaVrSM::Handle(
     return mImpl.Handle(inReq, inNextLogSeq);
 }
 
+    bool
+MetaVrSM::Init(
+    MetaVrHello&          inReq,
+    const ServerLocation& inPeer,
+    LogTransmitter&       inLogTransmitter)
+{
+    return mImpl.Init(inReq, inPeer, inLogTransmitter);
+}
+
+    void
+MetaVrSM::HandleReply(
+    MetaVrHello&          inReq,
+    seq_t                 inSeq,
+    const Properties&     inProps,
+    MetaVrSM::NodeId      inNodeId,
+    const ServerLocation& inPeer)
+{
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
+}
+
     void
 MetaVrSM::HandleReply(
     MetaVrStartViewChange& inReq,
     seq_t                  inSeq,
     const Properties&      inProps,
-    MetaVrSM::NodeId       inNodeId)
+    MetaVrSM::NodeId       inNodeId,
+    const ServerLocation&  inPeer)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
 }
 
     void
 MetaVrSM::HandleReply(
-    MetaVrDoViewChange& inReq,
-    seq_t               inSeq,
-    const Properties&   inProps,
-    MetaVrSM::NodeId    inNodeId)
+    MetaVrDoViewChange&   inReq,
+    seq_t                 inSeq,
+    const Properties&     inProps,
+    MetaVrSM::NodeId      inNodeId,
+    const ServerLocation& inPeer)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
 }
 
     void
 MetaVrSM::HandleReply(
-    MetaVrStartView&  inReq,
-    seq_t             inSeq,
-    const Properties& inProps,
-    MetaVrSM::NodeId  inNodeId)
+    MetaVrStartView&      inReq,
+    seq_t                 inSeq,
+    const Properties&     inProps,
+    MetaVrSM::NodeId      inNodeId,
+    const ServerLocation& inPeer)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
 }
 
     void
@@ -1972,9 +2080,10 @@ MetaVrSM::HandleReply(
     MetaVrReconfiguration& inReq,
     seq_t                  inSeq,
     const Properties&      inProps,
-    MetaVrSM::NodeId       inNodeId)
+    MetaVrSM::NodeId       inNodeId,
+    const ServerLocation&  inPeer)
 {
-    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId);
+    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
 }
 
     void
@@ -1992,15 +2101,16 @@ MetaVrSM::Process(
 
     int
 MetaVrSM::Start(
-    MetaDataSync&       inMetaDataSync,
-    NetManager&         inNetManager,
-    const MetaVrLogSeq& inCommittedSeq,
-    const MetaVrLogSeq& inLastLogSeq,
-    int64_t             inFileSystemId)
+    MetaDataSync&         inMetaDataSync,
+    NetManager&           inNetManager,
+    const MetaVrLogSeq&   inCommittedSeq,
+    const MetaVrLogSeq&   inLastLogSeq,
+    int64_t               inFileSystemId,
+    const ServerLocation& inDataStoreLocation)
 {
     return mImpl.Start(
         inMetaDataSync, inNetManager, inCommittedSeq, inLastLogSeq,
-        inFileSystemId
+        inFileSystemId, inDataStoreLocation
     );
 }
 
@@ -2076,6 +2186,12 @@ MetaVrSM::HasValidNodeId() const
 MetaVrSM::GetLastLogSeq() const
 {
     return mImpl.GetLastLogSeq();
+}
+
+    const ServerLocation&
+MetaVrSM::GetMetaDataStoreLocation() const
+{
+    return mImpl.GetMetaDataStoreLocation();
 }
 
 } // namespace KFS

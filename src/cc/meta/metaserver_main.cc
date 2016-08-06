@@ -796,6 +796,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             kLogWriterParamsPrefix,
             mStartupProperties,
             metatree.GetFsId(),
+            mClientListenerLocation,
             logFileName)) != 0) {
         KFS_LOG_STREAM_FATAL <<
             "transaction log writer initialization failure: " <<

@@ -59,6 +59,7 @@ class LogTransmitter;
 class MetaDataSync;
 class MetaVrLogSeq;
 class NetManager;
+class MetaVrHello;
 
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
@@ -282,26 +283,40 @@ public:
     bool Handle(
         MetaRequest&        inReq,
         const MetaVrLogSeq& inLastLogSeq);
+    bool Init(
+        MetaVrHello&          inReq,
+        const ServerLocation& inPeer,
+        LogTransmitter&       inLogTransmitter);
+    void HandleReply(
+        MetaVrHello&          inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer);
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
         const Properties&      inProps,
-        NodeId                 inNodeId);
+        NodeId                 inNodeId,
+        const ServerLocation&  inPeer);
     void HandleReply(
-        MetaVrDoViewChange& inReq,
-        seq_t               inSeq,
-        const Properties&   inProps,
-        NodeId              inNodeId);
+        MetaVrDoViewChange&   inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer);
     void HandleReply(
-        MetaVrStartView&  inReq,
-        seq_t             inSeq,
-        const Properties& inProps,
-        NodeId            inNodeId);
+        MetaVrStartView&      inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer);
     void HandleReply(
         MetaVrReconfiguration& inReq,
         seq_t                  inSeq,
         const Properties&      inProps,
-        NodeId                 inNodeId);
+        NodeId                 inNodeId,
+        const ServerLocation&  inPeer);
     void Process(
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
@@ -315,11 +330,12 @@ public:
     void Commit(
         const MetaVrLogSeq& inLogSeq);
     int Start(
-        MetaDataSync&       inMetaDataSync,
-        NetManager&         inNetManager,
-        const MetaVrLogSeq& inCommittedSeq,
-        const MetaVrLogSeq& inLastLogSeq,
-        int64_t             inFileSystemId);
+        MetaDataSync&         inMetaDataSync,
+        NetManager&           inNetManager,
+        const MetaVrLogSeq&   inCommittedSeq,
+        const MetaVrLogSeq&   inLastLogSeq,
+        int64_t               inFileSystemId,
+        const ServerLocation& inDataStoreLocation);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;
@@ -334,6 +350,7 @@ public:
     int GetStatus() const;
     bool HasValidNodeId() const;
     MetaVrLogSeq GetLastLogSeq() const;
+    const ServerLocation& GetMetaDataStoreLocation() const;
 private:
     class Impl;
     Impl& mImpl;

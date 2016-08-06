@@ -94,7 +94,7 @@ public:
         MetaVrRequest& inVrReq,
         NodeId         inNodeId);
     void Update(
-        const MetaVrSM& inMetaVrSM);
+        MetaVrSM& inMetaVrSM);
     void GetStatus(
         StatusReporter& inReporter);
     void SetHeartbeatInterval(
