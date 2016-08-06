@@ -108,7 +108,7 @@ public:
 private:
     /// A handle to a network connection
     NetConnectionPtr                   mNetConnection;
-    const string                       mClientIp;
+    const ServerLocation               mClientLocation;
     int                                mPendingOpsCount;
     IOBuffer::WOStream&                mOstream;
     char* const                        mParseBuffer;

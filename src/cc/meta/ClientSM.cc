@@ -55,25 +55,12 @@ using std::max;
 using std::string;
 using std::ostringstream;
 
-
-inline string
-PeerName(const NetConnectionPtr& conn)
+inline ServerLocation
+GetPeerLocaton(const NetConnectionPtr& conn)
 {
-    return (conn ? conn->GetPeerName() : string("unknown"));
-}
-
-inline string
-PeerIp(const NetConnectionPtr& conn)
-{
-    if (! conn) {
-        return string();
-    }
-    const string peer = conn->GetPeerName();
-    const size_t pos  = peer.rfind(':');
-    if (pos == string::npos) {
-        return peer;
-    }
-    return peer.substr(0, pos);
+    ServerLocation loc;
+    conn->GetPeerLocation(loc);
+    return loc;
 }
 
 int  ClientSM::sMaxPendingOps             = 1;
@@ -137,7 +124,7 @@ ClientSM::ClientSM(
       SslFilterVerifyPeer(),
       SslFilterServerPsk(),
       mNetConnection(conn),
-      mClientIp(PeerIp(conn)),
+      mClientLocation(GetPeerLocaton(conn)),
       mPendingOpsCount(0),
       mOstream(wostr ? *wostr : sWOStream),
       mParseBuffer(parseBuffer),
@@ -196,7 +183,7 @@ ClientSM::~ClientSM()
 void
 ClientSM::SendResponse(MetaRequest *op)
 {
-    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+    KFS_LOG_STREAM_DEBUG << mClientLocation <<
         " -seq: "                               << op->opSeqno <<
         " status: "                             << op->status <<
         (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
@@ -288,7 +275,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mNetConnection->SetMaxReadAhead(sMaxReadAhead);
                 break;
             }
-            KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+            KFS_LOG_STREAM_ERROR << mClientLocation <<
                 " exceeded max request header size: " <<
                     mLastReadLeft <<
                 " > " << MAX_RPC_HEADER_LEN <<
@@ -333,13 +320,13 @@ ClientSM::HandleRequestSelf(int code, void *data)
                     mNetConnection->HasPendingRead()) {
                 mDisconnectFlag = true;
                 if (mAuthenticateOp->status != 0) {
-                    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                    KFS_LOG_STREAM_ERROR << mClientLocation <<
                         " authentication failure:" <<
                         " status: " << mAuthenticateOp->status <<
                         " " << mAuthenticateOp->statusMsg <<
                     KFS_LOG_EOM;
                 } else {
-                    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                    KFS_LOG_STREAM_ERROR << mClientLocation <<
                         " authentication failure:" <<
                         " status: " << mAuthenticateOp->status <<
                         " out of order data received" <<
@@ -371,7 +358,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                         if (errMsg.empty()) {
                             errMsg = QCUtils::SysError(err < 0 ? -err : err);
                         }
-                        KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+                        KFS_LOG_STREAM_ERROR << mClientLocation <<
                             " failed to set ssl filer:" <<
                             " status: " << err <<
                             " " << errMsg <<
@@ -380,7 +367,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
                     }
                 }
                 if (! mDisconnectFlag) {
-                    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+                    KFS_LOG_STREAM_DEBUG << mClientLocation <<
                         " auth reply sent:" <<
                         " ssl: "  << (filter ? 1 : 0) <<
                         " name: " << authName <<
@@ -419,7 +406,7 @@ ClientSM::HandleRequestSelf(int code, void *data)
             // isn't unloading / reading the data.
             break;
         }
-        KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+        KFS_LOG_STREAM_DEBUG << mClientLocation <<
             " closing connection " <<
             (code == EVENT_INACTIVITY_TIMEOUT ?
                 string(" timed out") :
@@ -496,7 +483,7 @@ ClientSM::CloseConnection(const char* msg /* = 0 */)
         return;
     }
     if (msg) {
-        KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+        KFS_LOG_STREAM_ERROR << mClientLocation <<
             " closing connection: " << msg <<
         KFS_LOG_EOM;
     }
@@ -533,7 +520,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         char buf[128];
         int  maxLines = 16;
         while (maxLines-- > 0 && is.getline(buf, sizeof(buf))) {
-            KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+            KFS_LOG_STREAM_ERROR << mClientLocation <<
                 " invalid request: " << buf <<
             KFS_LOG_EOM;
         }
@@ -544,7 +531,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     }
     if (op->clientProtoVers < mClientProtoVers && op->op != META_ACK) {
         mClientProtoVers = op->clientProtoVers;
-        KFS_LOG_STREAM_NOTICE << PeerName(mNetConnection) <<
+        KFS_LOG_STREAM_NOTICE << mClientLocation <<
             " command with old protocol version: " <<
             op->clientProtoVers << ' ' << op->Show() <<
         KFS_LOG_EOM;
@@ -555,14 +542,14 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     } else {
         iobuf.Consume(cmdLen);
     }
-    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+    KFS_LOG_STREAM_DEBUG << mClientLocation <<
         " +seq: " << op->opSeqno <<
         " "       << op->Show() <<
         " pending:"
         " rd: "   << mNetConnection->GetNumBytesToRead() <<
         " wr: "   << mNetConnection->GetNumBytesToWrite() <<
     KFS_LOG_EOM;
-    op->clientIp            = mClientIp;
+    op->clientIp            = mClientLocation.hostname;
     op->fromClientSMFlag    = true;
     op->clnt                = this;
     op->validDelegationFlag = mDelegationValidFlag;
@@ -619,7 +606,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
             mUserAndGroupUpdateCount = count;
             if (! mAuthContext.GetUserNameAndGroup(
                     mAuthUid, mAuthGid, mAuthEUid, mAuthEGid)) {
-                KFS_LOG_STREAM_ERROR << PeerName(mNetConnection)  <<
+                KFS_LOG_STREAM_ERROR << mClientLocation  <<
                     "user id: " << mAuthUid <<
                     " is no longer valid, clossing connection" <<
                 KFS_LOG_EOM;
@@ -916,7 +903,7 @@ ClientSM::Verify(
     int64_t       inEndTime,
     bool          inEndTimeValidFlag)
 {
-    KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection)  <<
+    KFS_LOG_STREAM_DEBUG << mClientLocation  <<
         " auth. verify:"    <<
         " name: "           << inPeerName <<
         " prev: "           << ioFilterAuthName <<
@@ -932,7 +919,7 @@ ClientSM::Verify(
             (((authUid = mAuthContext.GetUid(
                 inPeerName, mAuthGid, mAuthEUid, mAuthEGid)) == kKfsUserNone) ||
             (mAuthUid != kKfsUserNone && mAuthUid != authUid)))) {
-        KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+        KFS_LOG_STREAM_ERROR << mClientLocation <<
             " autentication failure:"
             " peer: "       << inPeerName <<
             " depth: "      << inCurCertDepth <<
@@ -1019,7 +1006,7 @@ ClientSM::GetPsk(
                     mDelegationIssuedTime + mDelegationValidForTime;
                 mSessionExpirationTime  = min(mSessionExpirationTime,
                     mDelegationIssuedTime + mDelegationValidForTime);
-                KFS_LOG_STREAM_DEBUG << PeerName(mNetConnection) <<
+                KFS_LOG_STREAM_DEBUG << mClientLocation <<
                     " authentication:" <<
                     " name: "          << theNamePtr <<
                     " delegation: "    << theDelegationToken.Show() <<
@@ -1030,7 +1017,7 @@ ClientSM::GetPsk(
             theErrMsg = "invalid delegation token";
         }
     }
-    KFS_LOG_STREAM_ERROR << PeerName(mNetConnection) <<
+    KFS_LOG_STREAM_ERROR << mClientLocation <<
         " authentication failure: " << theErrMsg <<
         " delegation: "             << theDelegationToken.Show() <<
     KFS_LOG_EOM;
