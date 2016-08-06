@@ -513,6 +513,7 @@ public:
           mAuthName(),
           mSessionExpirationTime(0),
           mConnectionPtr(inConnectionPtr),
+          mPeerLocation(GetPeerLocation(inConnectionPtr)),
           mAuthenticateOpPtr(0),
           mAuthCount(0),
           mAuthCtxUpdateCount(0),
@@ -566,7 +567,7 @@ public:
         int64_t       inEndTime,
         bool          inEndTimeValidFlag)
     {
-        KFS_LOG_STREAM_DEBUG << GetPeerName() <<
+        KFS_LOG_STREAM_DEBUG << mPeerLocation <<
             " log auth. verify:" <<
             " name: "           << inPeerName <<
             " prev: "           << ioFilterAuthName <<
@@ -583,7 +584,7 @@ public:
                     GetAuthContext().GetUid(theAuthName) == kKfsUserNone :
                     ! GetAuthContext().RemapAndValidate(theAuthName)) ||
                 (! mAuthName.empty() && theAuthName != mAuthName)))) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            KFS_LOG_STREAM_ERROR << mPeerLocation <<
                 " log receiver authentication failure:"
                 " peer: "  << inPeerName <<
                 " name: "  << theAuthName <<
@@ -686,6 +687,7 @@ private:
     string                 mAuthName;
     int64_t                mSessionExpirationTime;
     NetConnectionPtr const mConnectionPtr;
+    ServerLocation   const mPeerLocation;
     MetaAuthenticate*      mAuthenticateOpPtr;
     int64_t                mAuthCount;
     uint64_t               mAuthCtxUpdateCount;
@@ -708,8 +710,15 @@ private:
 
     friend class QCDLListOp<Connection>;
 
-    string GetPeerName()
-        { return mConnectionPtr->GetPeerName(); }
+    static ServerLocation GetPeerLocation(
+        const NetConnectionPtr& inConnPtr)
+    {
+        ServerLocation theLocation;
+        if (inConnPtr) {
+            inConnPtr->GetPeerLocation(theLocation);
+        }
+        return theLocation;
+    }
     AuthContext& GetAuthContext()
         { return mImpl.GetAuthContext(); }
     int Authenticate(
@@ -756,7 +765,7 @@ private:
         mAuthCtxUpdateCount = GetAuthContext().GetUpdateCount();
         KFS_LOG_STREAM(mAuthenticateOpPtr->status == 0 ?
             MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
-            GetPeerName()           << " log receiver authentication"
+            mPeerLocation           << " log receiver authentication"
             " type: "               << mAuthenticateOpPtr->sendAuthType <<
             " name: "               << mAuthenticateOpPtr->authName <<
             " filter: "             <<
@@ -815,7 +824,7 @@ private:
         mSessionExpirationTime = mAuthenticateOpPtr->sessionExpirationTime;
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr  = 0;
-        KFS_LOG_STREAM_INFO << GetPeerName() <<
+        KFS_LOG_STREAM_INFO << mPeerLocation <<
             (0 < mAuthCount ? " re-" : " ") <<
             "authentication [" << mAuthCount << "]"
             " complete:"
@@ -849,7 +858,7 @@ private:
             if (mConnectionPtr->Shutdown() != 0) {
                 return false;
             }
-            KFS_LOG_STREAM_DEBUG << GetPeerName() <<
+            KFS_LOG_STREAM_DEBUG << mPeerLocation <<
                 " log receiver: shutdown filter: " <<
                     reinterpret_cast<const void*>(
                         mConnectionPtr->GetFilter()) <<
@@ -860,7 +869,7 @@ private:
             HandleAuthWrite();
             return (! mDownFlag);
         }
-        KFS_LOG_STREAM_ERROR << GetPeerName() <<
+        KFS_LOG_STREAM_ERROR << mPeerLocation <<
             " log receiver: "
             " invalid filter (ssl) shutdown: "
             " error: " << mConnectionPtr->GetErrorMsg() <<
@@ -977,7 +986,8 @@ private:
                     mImpl.GetParseBufferPtr()) ||
                 ! theReqPtr) {
             MetaRequest::Release(theReqPtr);
-            const string thePrefix = GetPeerName() + " invalid request: ";
+            const string thePrefix =
+                mPeerLocation.ToString() + " invalid request: ";
             MsgLogLines(
                 MsgLogger::kLogLevelERROR,
                 thePrefix.c_str(),
@@ -988,6 +998,7 @@ private:
         }
         inBuffer.Consume(inMsgLen);
         theReqPtr->shortRpcFormatFlag = true;
+        theReqPtr->clientIp           = mPeerLocation.hostname;
         if (META_AUTHENTICATE == theReqPtr->op) {
             mAuthenticateOpPtr = static_cast<MetaAuthenticate*>(theReqPtr);
             mReAuthPendingFlag = false;
@@ -1032,7 +1043,7 @@ private:
                 theBlockSeqLen < 0 ||
                 (theBlockEndSeq.mLogSeq < theBlockSeqLen &&
                     0 < theBlockSeqLen)) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            KFS_LOG_STREAM_ERROR << mPeerLocation <<
                 " invalid block:"
                 " fsid: "     << theFileSystemId <<
                 " start: "    << mBlockStartSeq <<
@@ -1050,7 +1061,7 @@ private:
             thePtr++;
         }
         if (theEndPtr <= thePtr && theMaxHdrLen < mBlockLength) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            KFS_LOG_STREAM_ERROR << mPeerLocation <<
                 " invalid block header:" << theBlockEndSeq  <<
                 " length: "              << mBlockLength <<
             KFS_LOG_EOM;
@@ -1067,7 +1078,7 @@ private:
         const Checksum theChecksum     = ChecksumBlocksCombine(
             theHdrChecksum, mBodyChecksum, mBlockLength);
         if (theChecksum != mBlockChecksum) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            KFS_LOG_STREAM_ERROR << mPeerLocation <<
                 " received block checksum: " << theChecksum <<
                 " expected: "                << mBlockChecksum <<
                 " length: "                  << mBlockLength <<
@@ -1076,7 +1087,7 @@ private:
             return -1;
         }
         if (theFileSystemId != mImpl.GetFileSystemId()) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            KFS_LOG_STREAM_ERROR << mPeerLocation <<
                 " file system id mismatch: " << theFileSystemId <<
                 " expected: "                << mImpl.GetFileSystemId() <<
             KFS_LOG_EOM;
@@ -1085,7 +1096,7 @@ private:
         }
         if (! theBlockEndSeq.IsValid() ||
                     (mBlockEndSeq.IsValid() && theBlockEndSeq < mBlockEndSeq)) {
-            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            KFS_LOG_STREAM_ERROR << mPeerLocation <<
                 " invalid block:"
                 " sequence: " << theBlockEndSeq <<
                 " last: "     << mBlockEndSeq <<
@@ -1107,7 +1118,7 @@ private:
         if (mDownFlag) {
             return;
         }
-        KFS_LOG_STREAM_ERROR << GetPeerName() <<
+        KFS_LOG_STREAM_ERROR << mPeerLocation <<
             " error: " << (inMsgPtr ? inMsgPtr : "")  <<
             " closing connection"
             " last block end: " << mBlockEndSeq <<
@@ -1127,7 +1138,7 @@ private:
             mReAuthPendingFlag = theUpdateCount != mAuthCtxUpdateCount ||
                 mSessionExpirationTime < TimeNow() + mImpl.GetReAuthTimeout();
             if (mReAuthPendingFlag) {
-                KFS_LOG_STREAM_INFO << GetPeerName() <<
+                KFS_LOG_STREAM_INFO << mPeerLocation <<
                     " requesting re-authentication:"
                     " update count: " << theUpdateCount <<
                     " / "             << mAuthCtxUpdateCount <<

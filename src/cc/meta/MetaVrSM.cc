@@ -117,7 +117,7 @@ public:
           mStartViewChangeNodeIds(),
           mDoViewChangeNodeIds(),
           mStartViewCompletionIds(),
-          mStartViewMaxLastLogNodeIds(),
+          mNodeIdAndMDSLocations(),
           mMetaDataStoreLocation(),
           mSyncServers(),
           mInputStream(),
@@ -288,10 +288,11 @@ public:
                         mStartViewChangeMaxLastLogSeq = theCommittedSeq;
                         if (mStartViewChangeMaxLastLogSeq <= theLastLogSeq) {
                             if (mStartViewChangeMaxLastLogSeq < theLastLogSeq) {
-                                mStartViewMaxLastLogNodeIds.clear();
+                                mNodeIdAndMDSLocations.clear();
                             }
                             mStartViewChangeMaxLastLogSeq = theLastLogSeq;
-                            mStartViewMaxLastLogNodeIds.insert(inNodeId);
+                            mNodeIdAndMDSLocations.insert(make_pair(inNodeId,
+                                GetDataStoreLocation(inProps, inPeer)));
                         }
                     }
                     const seq_t theViewSeq = inProps.getValue(
@@ -310,7 +311,7 @@ public:
                 " max:"
                 " committed:"       << mStartViewChangeMaxCommittedSeq <<
                 " last:"            << mStartViewChangeMaxLastLogSeq <<
-                " count: "          << mStartViewMaxLastLogNodeIds.size() <<
+                " count: "          << mNodeIdAndMDSLocations.size() <<
                 " responses: "      << mStartViewCompletionIds.size() <<
                 " "                 << inReq.Show() <<
             KFS_LOG_EOM;
@@ -926,6 +927,11 @@ private:
         less<NodeId>,
         StdFastAllocator<NodeId>
     > NodeIdSet;
+    typedef set<
+        pair<NodeId, ServerLocation>,
+        less<pair<NodeId, ServerLocation> >,
+        StdFastAllocator<pair<NodeId, ServerLocation> >
+    > NodeIdAndMDSLocations;
 
     LogTransmitter&              mLogTransmitter;
     MetaDataSync*                mMetaDataSyncPtr;
@@ -968,7 +974,7 @@ private:
     NodeIdSet                    mStartViewChangeNodeIds;
     NodeIdSet                    mDoViewChangeNodeIds;
     NodeIdSet                    mStartViewCompletionIds;
-    NodeIdSet                    mStartViewMaxLastLogNodeIds;
+    NodeIdAndMDSLocations        mNodeIdAndMDSLocations;
     ServerLocation               mMetaDataStoreLocation;
     MetaDataSync::Servers        mSyncServers;
     BufferInputStream            mInputStream;
@@ -1014,6 +1020,7 @@ private:
         }
         KFS_LOG_STREAM_ERROR <<
             "view change failed: " << inMsgPtr <<
+            " state: "             << GetStateName(mState) <<
         KFS_LOG_EOM;
         if (mStartViewCompletionIds.size() < mActiveCount) {
             mLastReceivedTime = TimeNow();
@@ -1030,35 +1037,32 @@ private:
         }
         if (mLastLogSeq < mStartViewChangeMaxLastLogSeq) {
             // Need to feetch log / checkpoint.
-            if (mActiveFlag && mStartViewMaxLastLogNodeIds.empty()) {
+            if (mActiveFlag && mNodeIdAndMDSLocations.empty()) {
                 panic("VR: invalid empty committed node ids");
             }
             if (mActiveFlag && mMetaDataSyncPtr) {
                 mSyncServers.clear();
-                const Config::Nodes&  theNodes = mConfig.GetNodes();
-                for (NodeIdSet::const_iterator theIt =
-                        mStartViewMaxLastLogNodeIds.begin();
-                        mStartViewMaxLastLogNodeIds.end() != theIt;
+                for (NodeIdAndMDSLocations::const_iterator theIt =
+                        mNodeIdAndMDSLocations.begin();
+                        mNodeIdAndMDSLocations.end() != theIt;
                         ++theIt) {
-                    Config::Nodes::const_iterator theNodeIt;
-                    if (*theIt != mNodeId &&
-                            (theNodeIt = theNodes.find(*theIt)) !=
-                            theNodes.end() &&
-                            0 != (Config::kFlagActive &
-                                theNodeIt->second.GetFlags())) {
-                        const Config::Locations& theLocs =
-                            theNodeIt->second.GetLocations();
-                       for (Config::Locations::const_iterator
-                                theIt = theLocs.begin();
-                                theLocs.end() != theIt;
-                                ++theIt) {
-                            if (find(mSyncServers.begin(),
-                                    mSyncServers.end(),
-                                    *theIt) == mSyncServers.end()) {
-                                mSyncServers.push_back(*theIt);
-                            }
-                        }
+                    if (! theIt->second.IsValid()) {
+                        continue;
                     }
+                    NodeId const          theNodeId   = theIt->first;
+                    const ServerLocation& theLocation = theIt->second;
+                    if (theNodeId != mNodeId && IsActive(theNodeId) &&
+                            find(mSyncServers.begin(), mSyncServers.end(),
+                                theLocation) == mSyncServers.end()) {
+                        mSyncServers.push_back(theLocation);
+                    }
+                }
+                if (mSyncServers.empty()) {
+                    KFS_LOG_STREAM_ERROR <<
+                        GetStateName(mState) <<
+                        "no valid meta data store addresses available" <<
+                    KFS_LOG_EOM;
+                    return;
                 }
                 mState = kStateLogSync;
                 mMetaDataSyncPtr->ScheduleLogSync(
@@ -1149,6 +1153,48 @@ private:
         SetReturnState(inReq);
         return false;
     }
+    static ServerLocation GetDataStoreLocation(
+        const Properties&     inProps,
+        const ServerLocation& inPeer)
+    {
+        ServerLocation theLocation;
+        theLocation.port = inProps.getValue(
+            kMetaVrMDSLocationPortFieldNamePtr, theLocation.port);
+        if (0 < theLocation.port) {
+            theLocation.hostname = inProps.getValue(
+                kMetaVrMDSLocationHostFieldNamePtr, theLocation.hostname);
+            if (theLocation.hostname.empty() ||
+                    ! TcpSocket::IsValidConnectToAddress(theLocation)) {
+                theLocation.hostname = inPeer.hostname;
+                if (! TcpSocket::IsValidConnectToAddress(theLocation)) {
+                    theLocation.hostname.clear();
+                    theLocation.port = - theLocation.port;
+                }
+            }
+        }
+        return theLocation;
+    }
+    static ServerLocation GetDataStoreLocation(
+        const MetaVrRequest& inReq)
+    {
+        if (inReq.mMetaDataStorePort < 0) {
+            return ServerLocation();
+        }
+        ServerLocation theLocation(
+            inReq.mMetaDataStoreHost.empty() ?
+                inReq.clientIp : inReq.mMetaDataStoreHost,
+            inReq.mMetaDataStorePort
+        );
+        if (! inReq.mMetaDataStoreHost.empty() &&
+                ! TcpSocket::IsValidConnectToAddress(theLocation)) {
+            theLocation.hostname = inReq.clientIp;
+        }
+        if (! TcpSocket::IsValidConnectToAddress(theLocation)) {
+            theLocation.hostname.clear();
+            theLocation.port = - theLocation.port;
+        }
+        return theLocation;
+    }
     bool Handle(
         MetaVrHello& inReq)
     {
@@ -1171,6 +1217,24 @@ private:
         }
         Show(inReq);
         SetReturnState(inReq);
+        if (0 == inReq.status &&
+                mNodeId != inReq.mNodeId &&
+                kStatePrimary == inReq.mCurState &&
+                mLastLogSeq < inReq.mLastLogSeq &&
+                kStateLogSync != mState &&
+                (! mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0))) {
+            const ServerLocation theLocation = GetDataStoreLocation(inReq);
+            if (theLocation.IsValid()) {
+                mState = kStateLogSync;
+                mSyncServers.clear();
+                mSyncServers.push_back(theLocation);
+                mMetaDataSyncPtr->ScheduleLogSync(
+                        mSyncServers,
+                        mLastLogSeq,
+                        inReq.mLastLogSeq
+                );
+            }
+        }
         return true;
     }
     bool Handle(
@@ -1940,7 +2004,7 @@ private:
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
         mDoViewChangeNodeIds.clear();
-        mStartViewMaxLastLogNodeIds.clear();
+        mNodeIdAndMDSLocations.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         Init(theOp);
         mStartViewChangePtr = &theOp;
