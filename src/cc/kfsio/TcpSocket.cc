@@ -36,7 +36,7 @@
 #include "Globals.h"
 
 #include <cerrno>
-#include <poll.h>
+#include <string.h>
 #include <netdb.h>
 #include <sys/time.h>
 #include <arpa/inet.h>
@@ -148,6 +148,27 @@ struct TcpSocket::Address
         ret.append(portBuf.GetPtr());
         return ret;
     }
+    static bool IsValidConnectToAddress(const ServerLocation& location)
+    {
+        if (location.port <= 0) {
+            return 0;
+        }
+        if (location.hostname.find(':') != string::npos) {
+            struct sockaddr_in6 addr = {0};
+            if (inet_pton(AF_INET6, location.hostname.c_str(),
+                    &addr.sin6_addr)) {
+                return (0 == memcmp(
+                    &addr.sin6_addr, &in6addr_any, sizeof(in6addr_any)));
+            }
+        } else {
+            struct sockaddr_in addr = {0};
+            if (inet_aton(location.hostname.c_str(), &addr.sin_addr)) {
+                return (addr.sin_addr.s_addr != htonl(INADDR_ANY) &&
+                    addr.sin_addr.s_addr != htonl(INADDR_NONE));
+            }
+        }
+        return true;
+    }
     int Set(const ServerLocation& location)
     {
         bool useResolverFlag = true;
@@ -238,6 +259,12 @@ private:
             sizeof(mIp.v4.sin_addr) : sizeof(mIp.v6.sin6_addr));
     }
 };
+
+bool
+TcpSocket::IsValidConnectToAddress(const ServerLocation& location)
+{
+    return Address::IsValidConnectToAddress(location);
+}
 
 QCMutex TcpSocket::Address::sLookupMutex;
 
