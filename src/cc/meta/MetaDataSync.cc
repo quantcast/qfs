@@ -305,7 +305,7 @@ public:
         ClientAuthContext* const kNullCtxPtr = 0;
         string* const            kNullStrPtr = 0;
         const int theRet = mAuthContext.SetParameters(
-            theName.Truncate(thePrefLen).Append("authentication.").GetPtr(),
+            theName.Truncate(thePrefLen).Append("auth.").GetPtr(),
             inParameters,
             kNullCtxPtr,
             kNullStrPtr,
@@ -323,9 +323,6 @@ public:
                 "meta data sync: invalid parameters" <<
             KFS_LOG_EOM;
             return -EINVAL;
-        }
-        if (mServers.empty()) {
-            return 0;
         }
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mReadOpsPtr = new ReadOp[mReadOpsCount];
@@ -354,6 +351,9 @@ public:
                 " actual: "   << theFsId <<
             KFS_LOG_EOM;
             return -EINVAL;
+        }
+        if (mServers.empty()) {
+            return 0;
         }
         if (! theEmptyFsFlag) {
             mLogSeq = GetLastLogSeq();

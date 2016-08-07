@@ -138,7 +138,7 @@ public:
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
-        if (! mReplayerPtr) {
+        if (! mReplayerPtr || mId < 0) {
             mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
         }
         mAuthContext.SetParameters(

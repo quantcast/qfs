@@ -102,7 +102,9 @@ public:
           mTransmitFlag(false),
           mUpFlag(false),
           mFileSystemId(-1),
-          mMetaVrSMPtr(0)
+          mMetaVrSMPtr(0),
+          mTransmitterAuthParamsPrefix(),
+          mTransmitterAuthParams()
     {
         List::Init(mTransmittersPtr);
         mTmpBuf[kTmpBufSize] = 0;
@@ -273,6 +275,8 @@ private:
     bool            mUpFlag;
     int64_t         mFileSystemId;
     MetaVrSM*       mMetaVrSMPtr;
+    string          mTransmitterAuthParamsPrefix;
+    Properties      mTransmitterAuthParams;
     Transmitter*    mTransmittersPtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
@@ -282,6 +286,8 @@ private:
         Transmitter& inTransmitter);
     void EndOfTransmit();
     void Update();
+    int StartTransmitters(
+        ClientAuthContext* inAuthCtxPtr);
 
 private:
     Impl(
@@ -1338,10 +1344,22 @@ LogTransmitter::Impl::SetParameters(
             mAuthType |= kAuthenticationTypeX509;
         }
     }
-    const char* const  theAuthPrefixPtr =
-        theParamName.Truncate(thePrefixLen).Append("auth.").c_str();
-    ClientAuthContext* theAuthCtxPtr    =
-        List::IsEmpty(mTransmittersPtr) ? 0 :
+    mTransmitterAuthParamsPrefix =
+        theParamName.Truncate(thePrefixLen).Append("auth.").GetStr();
+    inParameters.copyWithPrefix(
+        mTransmitterAuthParamsPrefix, mTransmitterAuthParams);
+    return StartTransmitters(0);
+}
+
+    int
+LogTransmitter::Impl::StartTransmitters(
+    ClientAuthContext* inAuthCtxPtr)
+{
+    if (List::IsEmpty(mTransmittersPtr)) {
+        return 0;
+    }
+    const char* const  theAuthPrefixPtr = mTransmitterAuthParamsPrefix.c_str();
+    ClientAuthContext* theAuthCtxPtr    = inAuthCtxPtr ? inAuthCtxPtr :
         &(List::Front(mTransmittersPtr)->GetAuthCtx());
     int                theRet           = 0;
     List::Iterator     theIt(mTransmittersPtr);
@@ -1349,7 +1367,7 @@ LogTransmitter::Impl::SetParameters(
     while ((theTPtr = theIt.Next())) {
         string    theErrMsg;
         const int theErr = theTPtr->SetParameters(
-            theAuthCtxPtr, theAuthPrefixPtr, inParameters, theErrMsg);
+            theAuthCtxPtr, theAuthPrefixPtr, mTransmitterAuthParams, theErrMsg);
         if (0 != theErr) {
             if (theErrMsg.empty()) {
                 theErrMsg = QCUtils::SysError(theErr,
@@ -1359,7 +1377,7 @@ LogTransmitter::Impl::SetParameters(
                 theTPtr->GetServerLocation() << ": " <<
                 theErrMsg <<
             KFS_LOG_EOM;
-            if (theRet == 0) {
+            if (0 == theRet) {
                 theRet = theErr;
             }
         } else if (mTransmitFlag) {
@@ -1367,20 +1385,6 @@ LogTransmitter::Impl::SetParameters(
         }
         if (! theAuthCtxPtr) {
             theAuthCtxPtr = &theTPtr->GetAuthCtx();
-        }
-    }
-    mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
-    if (List::IsEmpty(mTransmittersPtr) && ! mUpFlag) {
-        mUpFlag = true;
-        mCommitObserver.Notify(mCommitted);
-    } else {
-        if (mNodeId < 0 && 0 == theRet) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid VR node id: " << mNodeId <<
-            KFS_LOG_EOM;
-            theRet = -EINVAL;
-        } else {
-            Update();
         }
     }
     return theRet;
@@ -1491,9 +1495,9 @@ LogTransmitter::Impl::TransmitBlock(
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
         thePtr = List::Front(mTransmittersPtr);
         const NodeId theId = thePtr->GetId();
-        if (thePtr->SendBlock(
+        if ((theId == mNodeId || thePtr->SendBlock(
                     inBlockSeq, inBlockSeqLen,
-                    inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos) &&
+                    inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)) &&
                 0 <= theId && thePtr->IsActive()) {
             theCnt++;
         }
@@ -1505,7 +1509,7 @@ LogTransmitter::Impl::TransmitBlock(
         List::Iterator theIt(mTransmittersPtr);
         while ((thePtr = theIt.Next())) {
             const NodeId theId = thePtr->GetId();
-            if (thePtr->SendBlock(
+            if (theId == mNodeId || thePtr->SendBlock(
                         inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
                 if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
                     theCnt++;
@@ -1676,6 +1680,8 @@ LogTransmitter::Impl::Update(
         }
         theTPtr->SetActive(0 != (theNode.GetFlags() & Config::kFlagActive));
     }
+    ClientAuthContext* const theAuthCtxPtr = List::IsEmpty(mTransmittersPtr) ?
+        0 : &(List::Front(mTransmittersPtr)->GetAuthCtx());
     for (Config::Nodes::const_iterator theIt = theNodes.begin();
             theNodes.end() != theIt;
             ++theIt) {
@@ -1694,15 +1700,10 @@ LogTransmitter::Impl::Update(
                 theLastLogSeq)));
         }
     }
+    mNodeId         = inMetaVrSM.GetNodeId();
     mMinAckToCommit = inMetaVrSM.GetQuorum();
     mTransmitFlag   = inMetaVrSM.IsPrimary();
-    if (mTransmitFlag) {
-        List::Iterator theIt(mTransmittersPtr);
-        Transmitter*   theTPtr;
-        while ((theTPtr = theIt.Next())) {
-            theTPtr->Start();
-        }
-    }
+    StartTransmitters(theAuthCtxPtr);
     Update();
 }
 

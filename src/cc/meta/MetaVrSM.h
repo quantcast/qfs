@@ -348,7 +348,9 @@ public:
     int Checkpoint(
         ostream& inStream) const;
     int GetStatus() const;
-    bool HasValidNodeId() const;
+    NodeId GetNodeId() const;
+    bool HasValidNodeId() const
+        { return (0 <= GetNodeId()); }
     MetaVrLogSeq GetLastLogSeq() const;
     const ServerLocation& GetMetaDataStoreLocation() const;
 private:

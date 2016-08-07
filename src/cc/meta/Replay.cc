@@ -2293,7 +2293,8 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         update();
     }
     if (status == 0 &&
-            MetaRequest::GetLogWriter().GetMetaVrSM().GetQuorum() <= 0) {
+            MetaRequest::GetLogWriter().GetMetaVrSM().GetQuorum() <= 0 &&
+            ! MetaRequest::GetLogWriter().GetMetaVrSM().HasValidNodeId()) {
         status = state.commmitAll() ? 0 : -EINVAL;
     }
     if (status == 0) {

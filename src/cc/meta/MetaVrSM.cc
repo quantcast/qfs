@@ -426,8 +426,8 @@ public:
             (kStatePrimary == mState ? 0 :
             (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
     }
-    bool HasValidNodeId() const
-        { return (0 <= mNodeId); }
+    NodeId GetNodeId() const
+        { return mNodeId; }
     void Process(
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
@@ -460,9 +460,9 @@ public:
         }
         outReqPtr = 0;
         mTimeNow = inTimeNow;
-        if (! mActiveFlag && 0 < mQuorum) {
+        if (! mActiveFlag) {
             mLastProcessTime = TimeNow();
-            outVrStatus = -EVRNOTPRIMARY;
+            outVrStatus      = GetStatus();
             return;
         }
         if (kStateBackup == mState) {
@@ -506,15 +506,15 @@ public:
         }
         mMetaDataSyncPtr = &inMetaDataSync;
         mNetManagerPtr   = &inNetManager;
-        if (mConfig.IsEmpty()) {
-            mConfig.Clear();
+        if (mConfig.IsEmpty() && mNodeId < 0) {
             mActiveCount = 0;
             mQuorum      = 0;
             mState       = kStatePrimary;
             mLastUpTime  = TimeNow();
             mActiveFlag  = true;
         } else {
-            if (mActiveCount <= 0 && mQuorum <= 0) {
+            if (mActiveCount <= 0 && mQuorum <= 0 &&
+                    (mNodeId < 0 || AllInactiveFindPrimary() == mNodeId)) {
                 mState      = kStatePrimary;
                 mLastUpTime = TimeNow();
             } else {
@@ -523,11 +523,13 @@ public:
             }
             mActiveFlag = IsActive(mNodeId);
         }
-        mCommittedSeq          = inCommittedSeq;
-        mLastLogSeq            = inLastLogSeq;
-        mReplayLastLogSeq      = inLastLogSeq;
-        mFileSystemId          = inFileSystemId;
-        mMetaDataStoreLocation = inDataStoreLocation;
+        mCommittedSeq     = inCommittedSeq;
+        mLastLogSeq       = inLastLogSeq;
+        mReplayLastLogSeq = inLastLogSeq;
+        mFileSystemId     = inFileSystemId;
+        if (! mMetaDataStoreLocation.IsValid()) {
+            mMetaDataStoreLocation = inDataStoreLocation;
+        }
         mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mLogTransmitter.Update(mMetaVrSM);
         mStartedFlag  = true;
@@ -1948,6 +1950,28 @@ private:
         }
         return theId;
     }
+    NodeId AllInactiveFindPrimary()
+    {
+        if (0 < mQuorum || 0 < mActiveCount) {
+            return -1;
+        }
+        NodeId theId       = -1;
+        int    theMinOrder = numeric_limits<int>::max();
+        const Config::Nodes& theNodes = mConfig.GetNodes();
+        for (Config::Nodes::const_iterator theIt = theNodes.begin();
+                theNodes.end() != theIt;
+                ++theIt) {
+            const NodeId        theNodeId = theIt->first;
+            const Config::Node& theNode   = theIt->second;
+            const int           theOrder  = theNode.GetPrimaryOrder();
+            if (theMinOrder <= theOrder && 0 <= theId) {
+                continue;
+            }
+            theMinOrder = theOrder;
+            theId       = theNodeId;
+        }
+        return theId;
+    }
     template<typename T>
     static void Cancel(
         T*& inReqPtr)
@@ -2240,10 +2264,10 @@ MetaVrSM::GetStatus() const
     return mImpl.GetStatus();
 }
 
-    bool
-MetaVrSM::HasValidNodeId() const
+    MetaVrSM::NodeId
+MetaVrSM::GetNodeId() const
 {
-    return mImpl.HasValidNodeId();
+    return mImpl.GetNodeId();
 }
 
     MetaVrLogSeq
