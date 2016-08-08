@@ -28,9 +28,10 @@
 
 #include "MetaVrSM.h"
 #include "MetaVrOps.h"
-#include "util.h"
 #include "LogTransmitter.h"
 #include "MetaDataSync.h"
+#include "Replay.h"
+#include "util.h"
 
 #include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
@@ -238,13 +239,7 @@ public:
             panic("VR: invalid hello completion");
             return;
         }
-        KFS_LOG_STREAM_DEBUG <<
-            "seq: "       << inSeq <<
-            " node: "     << inNodeId <<
-            " peer: "     << inPeer <<
-            " "           << inReq.Show() <<
-            " response: " << Show(inProps) <<
-        KFS_LOG_EOM;
+        Show(inReq, inSeq, inProps, inNodeId, inPeer);
         inReq.SetVrSMPtr(0);
     }
     void HandleReply(
@@ -258,13 +253,7 @@ public:
             panic("VR: invalid start view change completion");
             return;
         }
-        KFS_LOG_STREAM_DEBUG <<
-            " seq: "      << inSeq <<
-            " node: "     << inNodeId <<
-            " peer: "     << inPeer <<
-            " "           << inReq.Show() <<
-            " response: " << Show(inProps) <<
-        KFS_LOG_EOM;
+        Show(inReq, inSeq, inProps, inNodeId, inPeer);
         if (! IsActive(inNodeId)) {
             return;
         }
@@ -329,13 +318,7 @@ public:
             panic("VR: invalid do view change completion");
             return;
         }
-        KFS_LOG_STREAM_DEBUG <<
-            " seq: "      << inSeq <<
-            " node: "     << inNodeId <<
-            " peer: "     << inPeer <<
-            " '"          << inReq.Show() <<
-            " response: " << Show(inProps) <<
-        KFS_LOG_EOM;
+        Show(inReq, inSeq, inProps, inNodeId, inPeer);
     }
     void HandleReply(
         MetaVrStartView&      inReq,
@@ -348,13 +331,9 @@ public:
             panic("VR: invalid start view completion");
             return;
         }
+        Show(inReq, inSeq, inProps, inNodeId, inPeer);
         KFS_LOG_STREAM_DEBUG <<
-            " seq: "      << inSeq <<
-            " node: "     << inNodeId <<
-            " peer: "     << inPeer <<
-            " '"          << inReq.Show() <<
-            " response: " << Show(inProps) <<
-            " replies: "  << mStartViewReplayCount <<
+            "replies: " << mStartViewReplayCount <<
         KFS_LOG_EOM;
         if (! IsActive(inNodeId) || kStateStartViewPrimary != mState) {
             return;
@@ -495,8 +474,7 @@ public:
     int Start(
         MetaDataSync&         inMetaDataSync,
         NetManager&           inNetManager,
-        const MetaVrLogSeq&   inCommittedSeq,
-        const MetaVrLogSeq&   inLastLogSeq,
+        Replay&               inReplayer,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation)
     {
@@ -512,27 +490,38 @@ public:
             mState       = kStatePrimary;
             mLastUpTime  = TimeNow();
             mActiveFlag  = true;
+            inReplayer.commitAll();
         } else {
+            if (! mConfig.IsEmpty() && mNodeId < 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "Invalid or unspecified VR node id: " << mNodeId <<
+                    " with non empty VR config" <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
             if (mActiveCount <= 0 && mQuorum <= 0 &&
-                    (mNodeId < 0 || AllInactiveFindPrimary() == mNodeId)) {
+                    (mConfig.IsEmpty() ||
+                        AllInactiveFindPrimary() == mNodeId)) {
                 mState      = kStatePrimary;
                 mLastUpTime = TimeNow();
+                inReplayer.commitAll();
             } else {
                 mState            = kStateBackup;
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
             mActiveFlag = IsActive(mNodeId);
         }
-        mCommittedSeq     = inCommittedSeq;
-        mLastLogSeq       = inLastLogSeq;
-        mReplayLastLogSeq = inLastLogSeq;
+        mCommittedSeq     = inReplayer.getCommitted();
+        mLastLogSeq       = inReplayer.getLastLogSeq();
+        mReplayLastLogSeq = mLastLogSeq;
         mFileSystemId     = inFileSystemId;
+        mEpochSeq         = mCommittedSeq.mEpochSeq;
+        mViewSeq          = mCommittedSeq.mViewSeq;
         if (! mMetaDataStoreLocation.IsValid()) {
             mMetaDataStoreLocation = inDataStoreLocation;
         }
-        mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         mLogTransmitter.Update(mMetaVrSM);
-        mStartedFlag  = true;
+        mStartedFlag = true;
         return 0;
     }
     void Shutdown()
@@ -1012,6 +1001,23 @@ private:
             " "         << inReq.Show()         <<
         KFS_LOG_EOM;
     }
+    void Show(
+        MetaVrRequest&        inReq,
+        seq_t                 inSeq,
+        const Properties&     inProps,
+        NodeId                inNodeId,
+        const ServerLocation& inPeer) const
+    {
+        KFS_LOG_STREAM_DEBUG <<
+            "seq: "       << inSeq <<
+            " node: "     << inNodeId <<
+            " peer: "     << inPeer <<
+            " status: "   << inProps.getValue("s", -1) <<
+            " "           << inProps.getValue("m", string()) <<
+            " "           << inReq.Show() <<
+            " response: " << Show(inProps) <<
+        KFS_LOG_EOM;
+    }
     void RetryStartViewChange(
         const char* inMsgPtr)
     {
@@ -1110,7 +1116,7 @@ private:
         inReq.mRetCurState     = mState;
         inReq.mRetCommittedSeq = mCommittedSeq;
         inReq.mRetLastLogSeq   = mLastLogSeq;
-        inReq.mFileSystemId    = mFileSystemId;
+        inReq.mRetFileSystemId = mFileSystemId;
     }
     bool VerifyViewChange(
         MetaVrRequest& inReq)
@@ -1373,7 +1379,9 @@ private:
     void StartReconfiguration(
         MetaVrReconfiguration& inReq)
     {
-        if ((inReq.logseq.IsValid() ? kStateBackup : kStatePrimary) != mState) {
+        if ((inReq.logseq.IsValid() ?
+                ((kStateBackup != mState && kStateLogSync != mState) ||
+                    ! inReq.replayFlag) : (kStatePrimary != mState))) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "reconfiguration is not possible, state: ";
             inReq.statusMsg += GetStateName(mState);
@@ -2191,13 +2199,12 @@ MetaVrSM::Process(
 MetaVrSM::Start(
     MetaDataSync&         inMetaDataSync,
     NetManager&           inNetManager,
-    const MetaVrLogSeq&   inCommittedSeq,
-    const MetaVrLogSeq&   inLastLogSeq,
+    Replay&               inReplayer,
     int64_t               inFileSystemId,
     const ServerLocation& inDataStoreLocation)
 {
     return mImpl.Start(
-        inMetaDataSync, inNetManager, inCommittedSeq, inLastLogSeq,
+        inMetaDataSync, inNetManager, inReplayer,
         inFileSystemId, inDataStoreLocation
     );
 }

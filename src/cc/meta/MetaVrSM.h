@@ -60,6 +60,7 @@ class MetaDataSync;
 class MetaVrLogSeq;
 class NetManager;
 class MetaVrHello;
+class Replay;
 
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
@@ -332,8 +333,7 @@ public:
     int Start(
         MetaDataSync&         inMetaDataSync,
         NetManager&           inNetManager,
-        const MetaVrLogSeq&   inCommittedSeq,
-        const MetaVrLogSeq&   inLastLogSeq,
+        Replay&               inReplayer,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation);
     void Shutdown();

@@ -75,6 +75,7 @@ public:
           NetManager::Dispatcher(),
           mNetManagerPtr(0),
           mMetaDataStorePtr(0),
+          mReplayerPtr(0),
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
           mMetaVrSM(mLogTransmitter),
@@ -147,28 +148,20 @@ public:
         NetManager&           inNetManager,
         MetaDataStore&        inMetaDataStore,
         MetaDataSync&         inMetaDataSync,
+        const UniqueID&       inFileId,
+        Replay&               inReplayer,
         seq_t                 inLogNum,
-        const MetaVrLogSeq&   inLogSeq,
-        const MetaVrLogSeq&   inCommittedLogSeq,
-        fid_t                 inCommittedFidSeed,
-        int64_t               inCommittedErrCheckSum,
-        int                   inCommittedStatus,
-        const MdStateCtx*     inLogAppendMdStatePtr,
-        const MetaVrLogSeq&   inLogAppendStartSeq,
-        seq_t                 inLogAppendLastBlockSeq,
-        bool                  inLogAppendHexFlag,
-        bool                  inLogNameHasSeqFlag,
         const char*           inParametersPrefixPtr,
         const Properties&     inParameters,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
         string&               outCurLogFileName)
     {
-        if (inLogNum < 0 || ! inLogSeq.IsValid() ||
-                (inLogAppendMdStatePtr && inLogSeq < inLogAppendStartSeq) ||
+        if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
                 (mThread.IsStarted() || mNetManagerPtr) || inFileSystemId < 0) {
             return -EINVAL;
         }
+        mReplayerPtr = &inReplayer;
         mLogTransmitter.SetFileSystemId(inFileSystemId);
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mLogNum = inLogNum;
@@ -176,27 +169,35 @@ public:
         if (0 != theErr) {
             return theErr;
         }
+        if (0 != (mError = mMetaVrSM.Start(
+                inMetaDataSync,
+                mNetManager,
+                *mReplayerPtr,
+                inFileSystemId,
+                inDataStoreLocation))) {
+            return mError;
+        }
         mMdStream.Reset(this);
-        mCommitted.mErrChkSum = inCommittedErrCheckSum;
-        mCommitted.mSeq       = inCommittedLogSeq;
-        mCommitted.mFidSeed   = inCommittedFidSeed;
-        mCommitted.mStatus    = inCommittedStatus;
-        mReplayLogSeq         = inLogSeq;
-        mPendingReplayLogSeq  = inLogSeq;
+        mReplayerPtr = &inReplayer;
+        mCommitted.mErrChkSum = mReplayerPtr->getErrChksum();
+        mCommitted.mSeq       = mReplayerPtr->getCommitted();
+        mCommitted.mFidSeed   = inFileId.getseed();
+        mCommitted.mStatus    = mReplayerPtr->getLastCommittedStatus();
+        mReplayLogSeq         = mReplayerPtr->getLastLogSeq();
+        mPendingReplayLogSeq  = mReplayLogSeq;
         mPendingCommitted  = mCommitted;
         mInFlightCommitted = mPendingCommitted;
         mMetaDataStorePtr  = &inMetaDataStore;
-        if (0 != (mError = mMetaVrSM.Start(
-                inMetaDataSync, mNetManager, mCommitted.mSeq,
-                mReplayLogSeq, inFileSystemId, inDataStoreLocation))) {
-            return mError;
-        }
-        if (inLogAppendMdStatePtr) {
-            SetLogName(inLogSeq,
-                inLogNameHasSeqFlag ? inLogAppendStartSeq : MetaVrLogSeq());
+        if (mReplayerPtr->getAppendToLastLogFlag()) {
+            const bool theLogAppendHexFlag =
+                16 == mReplayerPtr->getLastLogIntBase();
+            const bool theHasLogSeqFlag    =
+                mReplayerPtr->logSegmentHasLogSeq();
+            mCurLogStartSeq  = mReplayerPtr->getLastLogStart();
+            SetLogName(mReplayLogSeq,
+                theHasLogSeqFlag ? mCurLogStartSeq : MetaVrLogSeq());
             mCurLogStartTime = mNetManager.Now();
-            mCurLogStartSeq  = inLogAppendStartSeq;
-            mMdStream.SetMdState(*inLogAppendMdStatePtr);
+            mMdStream.SetMdState(mReplayerPtr->getMdState());
             if (! mMdStream) {
                 KFS_LOG_STREAM_ERROR <<
                     "log append:" <<
@@ -223,26 +224,28 @@ public:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
+            const seq_t theLogAppendLastBlockSeq =
+                mReplayerPtr->getLastBlockSeq();
             KFS_LOG_STREAM_INFO <<
                 "log append:" <<
                 " idx: "      << mLogNum <<
                 " start: "    << mCurLogStartSeq <<
                 " cur: "      << mNextLogSeq <<
-                " block: "    << inLogAppendLastBlockSeq <<
-                " hex: "      << inLogAppendHexFlag <<
+                " block: "    << theLogAppendLastBlockSeq <<
+                " hex: "      << theLogAppendHexFlag <<
                 " file: "     << mLogName <<
                 " size: "     << theSize <<
                 " checksum: " << mMdStream.GetMd() <<
             KFS_LOG_EOM;
             mMdStream.setf(
-                inLogAppendHexFlag ? ostream::hex : ostream::dec,
+                theLogAppendHexFlag ? ostream::hex : ostream::dec,
                 ostream::basefield
             );
             mLogFilePos     = theSize;
             mLogFilePrevPos = mLogFilePos;
-            mNextBlockSeq   = inLogAppendLastBlockSeq;
-            if (inLogAppendLastBlockSeq < 0 || ! inLogAppendHexFlag ||
-                    ! inLogNameHasSeqFlag) {
+            mNextBlockSeq   = theLogAppendLastBlockSeq;
+            if (theLogAppendLastBlockSeq < 0 || ! theLogAppendHexFlag ||
+                    ! theHasLogSeqFlag) {
                 // Previous / "old" log format.
                 // Close the log segment even if it is empty and start new one.
                 StartNextLog();
@@ -250,7 +253,7 @@ public:
                 StartBlock(mNextBlockChecksum);
             }
         } else {
-            NewLog(inLogSeq);
+            NewLog(mReplayLogSeq);
         }
         if (! IsLogStreamGood()) {
             return mError;
@@ -470,6 +473,7 @@ private:
 
     NetManager*    mNetManagerPtr;
     MetaDataStore* mMetaDataStorePtr;
+    Replay*        mReplayerPtr;
     NetManager     mNetManager;
     LogTransmitter mLogTransmitter;
     MetaVrSM       mMetaVrSM;
@@ -564,7 +568,7 @@ private:
                 // committed.
                 if (MetaLogWriterControl::kCheckpointNewLog == theCtl.type &&
                         theCtl.lastLogSeq != mCommitted.mSeq) {
-                    if (replayer.setReplayState(
+                    if (mReplayerPtr->setReplayState(
                             mCommitted.mSeq,
                             mCommitted.mErrChkSum,
                             mCommitted.mStatus,
@@ -577,7 +581,7 @@ private:
             }
             submit_request(&theReq);
         }
-        if (theSetReplayStateFlag && ! replayer.setReplayState(
+        if (theSetReplayStateFlag && ! mReplayerPtr->setReplayState(
                 mCommitted.mSeq,
                 mCommitted.mErrChkSum,
                 mCommitted.mStatus,
@@ -1415,17 +1419,9 @@ LogWriter::Start(
     NetManager&           inNetManager,
     MetaDataStore&        inMetaDataStore,
     MetaDataSync&         inMetaDataSync,
+    const UniqueID&       inFileId,
+    Replay&               inReplayer,
     seq_t                 inLogNum,
-    const MetaVrLogSeq&   inLogSeq,
-    const MetaVrLogSeq&   inCommittedLogSeq,
-    fid_t                 inCommittedFidSeed,
-    int64_t               inCommittedErrCheckSum,
-    int                   inCommittedStatus,
-    const MdStateCtx*     inLogAppendMdStatePtr,
-    const MetaVrLogSeq&   inLogAppendStartSeq,
-    seq_t                 inLogAppendLastBlockSeq,
-    bool                  inLogAppendHexFlag,
-    bool                  inLogNameHasSeqFlag,
     const char*           inParametersPrefixPtr,
     const Properties&     inParameters,
     int64_t               inFileSystemId,
@@ -1436,17 +1432,9 @@ LogWriter::Start(
         inNetManager,
         inMetaDataStore,
         inMetaDataSync,
+        inFileId,
+        inReplayer,
         inLogNum,
-        inLogSeq,
-        inCommittedLogSeq,
-        inCommittedFidSeed,
-        inCommittedErrCheckSum,
-        inCommittedStatus,
-        inLogAppendMdStatePtr,
-        inLogAppendStartSeq,
-        inLogAppendLastBlockSeq,
-        inLogAppendHexFlag,
-        inLogNameHasSeqFlag,
         inParametersPrefixPtr,
         inParameters,
         inFileSystemId,

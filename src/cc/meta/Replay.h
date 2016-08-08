@@ -113,6 +113,7 @@ public:
         int64_t             errChecksum,
         int                 lastCommittedStatus,
         MetaRequest*        commitQueue);
+    bool commitAll();
 
     class BlockChecksum
     {

@@ -246,7 +246,7 @@ public:
             mCurOp = 0;
         }
     }
-    bool commmitAll()
+    bool commitAll()
     {
         if (0 != mSubEntryCount) {
             return false;
@@ -1366,21 +1366,35 @@ ReplayState::runCommitQueue(
     int64_t             status,
     int64_t             errChecksum)
 {
-    if (logSeq <= mCheckpointCommitted) {
-        if (logSeq == mCheckpointCommitted) {
-            if (errChecksum == mCheckpointErrChksum) {
-                return true;
-            }
-            KFS_LOG_STREAM_ERROR <<
-                "commit"
-                " sequence: "       << logSeq <<
-                " checkpoint: "     << mCheckpointCommitted <<
-                " error checksum: " << errChecksum <<
-                " expected: "       << mCheckpointErrChksum <<
-            KFS_LOG_EOM;
-            return false;
+    if (logSeq < mCheckpointCommitted) {
+        // Commit preseeds checkpoint.
+        if (mCommitQueue.empty()) {
+            return true;
         }
-        return true;
+        KFS_LOG_STREAM_ERROR <<
+            "commit"
+            " sequence: "   << logSeq <<
+            " checkpoint: " << mCheckpointCommitted <<
+            " non empty commit queue:"
+            " starts: "     << mCommitQueue.front().logSeq <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (logSeq == mCheckpointCommitted) {
+        // Checkpoint has no inof about the last op status.
+        if (errChecksum == mCheckpointErrChksum && fileID.getseed() == seed) {
+            return true;
+        }
+        KFS_LOG_STREAM_ERROR <<
+            "commit"
+            " sequence: "       << logSeq <<
+            " checkpoint: "     << mCheckpointCommitted <<
+            " error checksum: " << errChecksum <<
+            " expected: "       << mCheckpointErrChksum <<
+            " seed: "           << seed <<
+            " expected: "       << fileID.getseed() <<
+        KFS_LOG_EOM;
+        return false;
     }
     CommitQueue::iterator it        = mCommitQueue.begin();
     bool                  foundFlag = false;
@@ -2292,17 +2306,8 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
         }
         update();
     }
-    if (status == 0 &&
-            MetaRequest::GetLogWriter().GetMetaVrSM().GetQuorum() <= 0 &&
-            ! MetaRequest::GetLogWriter().GetMetaVrSM().HasValidNodeId()) {
-        status = state.commmitAll() ? 0 : -EINVAL;
-    }
     if (status == 0) {
         update();
-        // For now update checkpont committed in order to make replay line
-        // work at startup with all requests already committed.
-        state.mCheckpointCommitted = state.mLastCommitted;
-        state.mCheckpointErrChksum = state.mLogAheadErrChksum;
     } else {
         appendToLastLogFlag = false;
     }
@@ -2592,6 +2597,14 @@ Replay::setReplayState(
     gLayoutManager.SetDisableTimerFlag(true);
     const bool okFlag = state.setReplayState(
         committed, errChecksum, lastCommittedStatus, commitQueue);
+    update();
+    return okFlag;
+}
+
+bool
+Replay::commitAll()
+{
+    const bool okFlag = replayTokenizer.GetState().commitAll();
     update();
     return okFlag;
 }

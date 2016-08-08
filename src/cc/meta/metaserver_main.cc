@@ -499,7 +499,7 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
     mClientListenerIpV6OnlyFlag =
         props.getValue("metaServer.clientIpV6Only",
         mClientListenerIpV6OnlyFlag ? 1 : 0) != 0;
-    KFS_LOG_STREAM_INFO << "meta server client listner: " <<
+    KFS_LOG_STREAM_INFO << "meta server client listener: " <<
         mClientListenerLocation <<
         (mClientListenerIpV6OnlyFlag ? " ipv6 only" : "") <<
     KFS_LOG_EOM;
@@ -775,24 +775,15 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
     if (mIsPathToFidCacheEnabled) {
         metatree.enablePathToFidCache();
     }
-    string     logFileName;
-    MdStateCtx mds = replayer.getMdState();
+    string logFileName;
     if ((status = MetaRequest::GetLogWriter().Start(
             globalNetManager(),
             gNetDispatch.GetMetaDataStore(),
             mMetaDataSync,
+            fileID,
+            replayer,
             replayer.getLogNum() + ((writeCheckpointFlag ||
                 replayer.getAppendToLastLogFlag()) ? 0 : 1),
-            replayer.getLastLogSeq(),
-            replayer.getCommitted(),
-            fileID.getseed(),
-            replayer.getErrChksum(),
-            replayer.getLastCommittedStatus(),
-            replayer.getAppendToLastLogFlag() ? &mds : (MdStateCtx*)0,
-            replayer.getLastLogStart(),
-            replayer.getLastBlockSeq(),
-            16 == replayer.getLastLogIntBase(),
-            replayer.logSegmentHasLogSeq(),
             kLogWriterParamsPrefix,
             mStartupProperties,
             metatree.GetFsId(),

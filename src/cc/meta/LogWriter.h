@@ -38,7 +38,9 @@ namespace KFS
 {
 using std::string;
 
+struct ServerLocation;
 struct MetaRequest;
+class UniqueID;
 class Properties;
 class NetManager;
 class MdStateCtx;
@@ -46,7 +48,7 @@ class MetaDataStore;
 class MetaVrSM;
 class MetaDataSync;
 class MetaVrLogSeq;
-struct ServerLocation;
+class Replay;
 
 class LogWriter
 {
@@ -59,17 +61,9 @@ public:
         NetManager&           inNetManager,
         MetaDataStore&        inMetaDataStore,
         MetaDataSync&         inMetaDataSync,
+        const UniqueID&       inFileId,
+        Replay&               inReplayer,
         seq_t                 inLogNum,
-        const MetaVrLogSeq&   inLogSeq,
-        const MetaVrLogSeq&   inCommittedLogSeq,
-        fid_t                 inCommittedFidSeed,
-        int64_t               inCommittedErrCheckSum,
-        int                   inCommittedStatus,
-        const MdStateCtx*     inLogAppendMdStatePtr,
-        const MetaVrLogSeq&   inLogAppendStartSeq,
-        seq_t                 inLogAppendLastBlockSeq,
-        bool                  inLogAppendHexFlag,
-        bool                  inLogNameHasSeqFlag,
         const char*           inParametersPrefixPtr,
         const Properties&     inParameters,
         int64_t               inFileSystemId,

@@ -56,7 +56,7 @@ public:
      * \brief generate a new id
      */
     fid_t genid() { return ++seed; }
-    fid_t getseed() { return seed; }
+    fid_t getseed() const { return seed; }
     void setseed(seqid_t s) { seed = s; }
     UniqueID(seqid_t id, seqid_t s): n(id), seed(s) { }
     UniqueID(): n(0), seed(0) { }

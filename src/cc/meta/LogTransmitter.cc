@@ -1659,29 +1659,15 @@ LogTransmitter::Impl::Update(
     MetaVrSM& inMetaVrSM)
 {
     mMetaVrSMPtr = &inMetaVrSM;
-    const MetaVrLogSeq   theLastLogSeq = inMetaVrSM.GetLastLogSeq();
-    const Config&        theConfig     = inMetaVrSM.GetConfig();
-    const Config::Nodes& theNodes      = theConfig.GetNodes();
-    List::Iterator theIt(mTransmittersPtr);
-    Transmitter*   theTPtr;
-    while ((theTPtr = theIt.Next())) {
-        Config::Nodes::const_iterator const theIt =
-            theNodes.find(theTPtr->GetId());
-        if (theNodes.end() == theIt) {
-            delete theTPtr;
-            continue;
-        }
-        const Config::Node&      theNode      = theIt->second;
-        const Config::Locations& theLocations = theNode.GetLocations();
-        Config::Locations::const_iterator const theLIt = find(
-            theLocations.begin(), theLocations.end(), theTPtr->GetLocation());
-        if (theLocations.end() == theLIt) {
-            delete theTPtr;
-        }
-        theTPtr->SetActive(0 != (theNode.GetFlags() & Config::kFlagActive));
-    }
+    const MetaVrLogSeq       theLastLogSeq = inMetaVrSM.GetLastLogSeq();
+    const Config&            theConfig     = inMetaVrSM.GetConfig();
+    const Config::Nodes&     theNodes      = theConfig.GetNodes();
     ClientAuthContext* const theAuthCtxPtr = List::IsEmpty(mTransmittersPtr) ?
         0 : &(List::Front(mTransmittersPtr)->GetAuthCtx());
+    Transmitter*             theTransmittersPtr[1];
+    theTransmittersPtr[0] = mTransmittersPtr[0];
+    mTransmittersPtr[0] = 0;
+    SetHeartbeatInterval(theConfig.GetPrimaryTimeout());
     for (Config::Nodes::const_iterator theIt = theNodes.begin();
             theNodes.end() != theIt;
             ++theIt) {
@@ -1695,10 +1681,29 @@ LogTransmitter::Impl::Update(
             if (! theLocation.IsValid()) {
                 continue;
             }
-            Insert(*(new Transmitter(*this, theLocation, theId,
-                0 != (theNode.GetFlags() & Config::kFlagActive),
-                theLastLogSeq)));
+            List::Iterator theTIt(theTransmittersPtr);
+            Transmitter*   theTPtr;
+            while ((theTPtr = theTIt.Next())) {
+                if (theTPtr->GetId() == theId &&
+                        theTPtr->GetLocation() == theLocation) {
+                    List::Remove(theTransmittersPtr, *theTPtr);
+                    break;
+                }
+            }
+            if (theTPtr) {
+                theTPtr->SetActive(
+                    0 != (theNode.GetFlags() & Config::kFlagActive));
+            } else {
+                theTPtr = new Transmitter(*this, theLocation, theId,
+                    0 != (theNode.GetFlags() & Config::kFlagActive),
+                    theLastLogSeq);
+            }
+            Insert(*theTPtr);
         }
+    }
+    Transmitter* theTPtr;
+    while ((theTPtr = List::PopFront(theTransmittersPtr))) {
+        delete theTPtr;
     }
     mNodeId         = inMetaVrSM.GetNodeId();
     mMinAckToCommit = inMetaVrSM.GetQuorum();

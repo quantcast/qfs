@@ -6420,7 +6420,8 @@ MetaHibernatedRemove::handle()
 bool
 MetaVrRequest::ResponseHeader(ReqOstream& os)
 {
-    return OkHeader(this, os);
+    const bool kCheckStatusFlag = false;
+    return OkHeader(this, os, kCheckStatusFlag);
 }
 
 /* virtual */ bool
