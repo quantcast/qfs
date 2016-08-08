@@ -571,11 +571,13 @@ cppidf="cptest${pidsuf}"
     cptokfsopts='-S -m 2 -l 2 -w -1' \
     cpfromkfsopts='-r 0 -w 65537' \
     cptest.sh && \
-    [ x"$jerasuretest" = x'no' ] || { \
+    { \
+	[ x"$jerasuretest" = x'no' ] || { \
         mv cptest.log cptest-rs.log && \
         cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1' \
         cpfromkfsopts='-r 0 -w 65537' \
         cptest.sh ; \
+	} \
     }
 } > cptest.out 2>&1 &
 cppid=$!
