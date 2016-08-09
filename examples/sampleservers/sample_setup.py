@@ -279,6 +279,9 @@ def parse_command_line():
     parser.add_option('-u', '--auth', action='store_true',
         help="Configure QFS authentication.")
 
+    parser.add_option('-o', '--os', action='store_true',
+        help="Configure object store (S3) support.")
+
     parser.add_option('-h', '--help', action='store_true',
         help="Print this help message and exit.")
 
@@ -464,7 +467,7 @@ def check_directories(config):
     print 'Check directories - OK.'
 
 
-def setup_config_files(config, authFlag):
+def setup_config_files(config, authFlag, osFlag):
     if config.has_section('client'):
         clientDir = config.get('client', 'rundir')
     else:
@@ -507,7 +510,13 @@ def setup_config_files(config, authFlag):
     metaserverClientPort = config.getint('metaserver', 'clientport')
     metaserverChunkPort = config.getint('metaserver', 'chunkport')
     clusterKey = config.get('metaserver', 'clusterkey')
-
+    if osFlag:
+        bucketName = config.get('metaserver', 'bucketName')
+        accessKeyId = config.get('metaserver', 'accessKeyId')
+        secretAccessKey = config.get('metaserver', 'secretAccessKey')
+        if not bucketName or not accessKeyId or not secretAccessKey:
+            sys.exit('Configuration file must set bucket name,'
+                'access key id, and secret access key.')
     # Metaserver.
     metaFile = open(metaRunDir + '/conf/MetaServer.prp', 'w')
     print >> metaFile, 'metaServer.clientPort = %d' % metaserverClientPort
@@ -534,6 +543,12 @@ def setup_config_files(config, authFlag):
         print >> metaFile, 'metaServer.CSAuthentication.X509.PKeyPemFile     = %s/meta.key' % certsDir
         print >> metaFile, 'metaServer.CSAuthentication.X509.CAFile          = %s/qfs_ca/cacert.pem' % certsDir
         print >> metaFile, 'metaServer.CSAuthentication.blackList            = none'
+    if osFlag:
+        print >> metaFile, '# S3 parameters'
+        print >> metaFile, 'metaServer.objectStoreEnabled = 1'
+        print >> metaFile, 'chunkServer.diskQueue.aws.bucketName = %s' % bucketName
+        print >> metaFile, 'chunkServer.diskQueue.aws.accessKeyId = %s' % accessKeyId
+        print >> metaFile, 'chunkServer.diskQueue.aws.secretAccessKey = %s' % secretAccessKey
     metaFile.close()
 
     # Chunkservers.
@@ -567,6 +582,9 @@ def setup_config_files(config, authFlag):
                     print >> chunkFile, 'chunkserver.meta.auth.X509.X509PemFile = %s/chunk%d.crt' % (certsDir, chunkClientPort)
                     print >> chunkFile, 'chunkserver.meta.auth.X509.PKeyPemFile = %s/chunk%d.key' % (certsDir, chunkClientPort)
                     print >> chunkFile, 'chunkserver.meta.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
+                if osFlag:
+                    print >> chunkFile, '# S3 parameters'
+                    print >> chunkFile, 'chunkServer.objectDir = s3://aws.'
                 chunkFile.close()
 
     # Webserver.
@@ -737,7 +755,7 @@ if __name__ == '__main__':
     check_ports(config)
     if opts.action == 'install':
         setup_directories(config, opts.auth)
-        setup_config_files(config, opts.auth)
+        setup_config_files(config, opts.auth, opts.os)
         copy_files(config, opts.source_dir)
     elif opts.action == 'start':
         check_directories(config)
