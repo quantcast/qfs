@@ -366,25 +366,6 @@ public:
         }
         PirmaryCommitStartView();
     }
-    void HandleReply(
-        MetaVrReconfiguration& inReq,
-        seq_t                  inSeq,
-        const Properties&      inProps,
-        NodeId                 inNodeId,
-        const ServerLocation&  inPeer)
-    {
-        const char* const theMsgPtr =
-            "VR: invalid reconfiguration reply handling attempt";
-        KFS_LOG_STREAM_FATAL <<
-            theMsgPtr <<
-            " seq: "      << inSeq <<
-            " node: "     << inNodeId <<
-            " peer: "     << inPeer <<
-            " "           << inReq.Show() <<
-            " response: " << Show(inProps) <<
-        KFS_LOG_EOM;
-        panic(theMsgPtr);
-    }
     void PirmaryCommitStartView()
     {
         CancelViewChange();
@@ -1392,6 +1373,14 @@ private:
             inReq.statusMsg = "reconfiguration is in progress";
             return;
         }
+        if (! inReq.logseq.IsValid() && mNodeId < 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "reconfiguration: node id is not configured or"
+                " valid; node id can be configured by setting the following"
+                " configuration file parameter: ";
+            inReq.statusMsg += kMetaVrNodeIdParameterNamePtr;
+            return;
+        }
         switch (inReq.mOpType)
         {
             case MetaVrReconfiguration::kOpTypeAddNode:
@@ -1440,6 +1429,33 @@ private:
             inReq.statusMsg = "add node: node active flag must not be set";
             return;
         }
+        if (! inReq.logseq.IsValid()) {
+            // Initial boot strap: do no allow other node to become primary
+            // in the case if all the nodes are inactive.
+            if (mConfig.IsEmpty()) {
+                if (mNodeId != inReq.mNodeId) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "add node: first node id to add must"
+                        " be equal to this node id; and must have"
+                        " smallest node id, or smallest primary order";
+                    return;
+                }
+            } else {
+                if (mActiveCount <= 0 && mQuorum <= 0 &&
+                        inReq.mNodeId != mNodeId) {
+                    Config::Nodes::const_iterator const theIt =
+                        mConfig.GetNodes().find(mNodeId);
+                    if (inReq.mPrimaryOrder < theIt->second.GetPrimaryOrder() ||
+                            inReq.mNodeId < mNodeId) {
+                        inReq.status    = -EINVAL;
+                        inReq.statusMsg = "node order cannot be lower than this"
+                            " node order, or if order is equal, the node id"
+                            " cannot be smaller that this node id";
+                        return;
+                    }
+                }
+            }
+        }
         mPendingLocations.clear();
         const char*       thePtr    = inReq.mListStr.GetPtr();
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
@@ -1481,6 +1497,25 @@ private:
         }
         if (! ParseNodeIdList(inReq)) {
             return;
+        }
+        if (! inReq.logseq.IsValid() &&
+                size_t(1) < mConfig.GetNodes().size() &&
+                mActiveCount <= 0 && mQuorum <= 0) {
+            // Initial boot strap: do no allow to remove primary
+            // in the case if all the nodes are inactive.
+            for (ChangesList::const_iterator theIt =
+                    mPendingChangesList.begin();
+                    mPendingChangesList.end() != theIt;
+                    ++theIt) {
+                if (theIt->first == mNodeId) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "removing primary node is not supported"
+                        " all nodes are inactive,"
+                        " and configuration containing more than one node";
+                    mPendingChangesList.clear();
+                    return;
+                }
+            }
         }
         ApplyT(inReq, kActiveCheckNotActive, NopFunc());
     }
@@ -1567,18 +1602,48 @@ private:
             }
             mPendingChangesList.push_back(make_pair(theNodeId, theOrder));
         }
+        if (mPendingChangesList.empty()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "no changes specified";
+            return;
+        }
         sort(mPendingChangesList.begin(), mPendingChangesList.end());
-        if (! mPendingChangesList.empty()) {
-            for (ChangesList::const_iterator
-                    theIt = mPendingChangesList.begin(), theNIt = theIt;
-                    mPendingChangesList.end() != ++theNIt;
-                    theIt = theNIt) {
-                if (theIt->first == theNIt->first) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "duplicate node id";
-                    mPendingChangesList.clear();
-                    return;
-                }
+        ChangesList::const_iterator theMinIt = mPendingChangesList.begin();
+        for (ChangesList::const_iterator
+                theIt = mPendingChangesList.begin(), theNIt = theIt;
+                mPendingChangesList.end() != ++theNIt;
+                theIt = theNIt) {
+            if (theIt->first == theNIt->first) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "duplicate node id";
+                mPendingChangesList.clear();
+                return;
+            }
+            if (theIt->second < theMinIt->second) {
+                theMinIt = theIt;
+            }
+        }
+        if (! inReq.logseq.IsValid() &&
+                size_t(1) < mConfig.GetNodes().size() &&
+                mPendingChangesList.end() != theMinIt &&
+                mActiveCount <= 0 && mQuorum <= 0) {
+            // Initial boot strap: do no allow to choose new primary by changing
+            // the order.
+            Config::Nodes::const_iterator const theIt =
+                mConfig.GetNodes().find(mNodeId);
+            if (theIt != mConfig.GetNodes().end() &&
+                    ((theMinIt->first == mNodeId &&
+                        theIt->second.GetPrimaryOrder() < theMinIt->second) ||
+                    theMinIt->second < theIt->second.GetPrimaryOrder() ||
+                    (theMinIt->second == theIt->second.GetPrimaryOrder() &&
+                        theMinIt->first < theIt->first))) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "changing node primary order is not supported"
+                    " when all nodes are inactive,"
+                    " and setting primary order makes primary a different node,"
+                    " or increases order of this / current primary node";
+                mPendingChangesList.clear();
+                return;
             }
         }
         if ((int)mPendingChangesList.size() != inReq.mListSize) {
@@ -2167,17 +2232,6 @@ MetaVrSM::HandleReply(
     const Properties&     inProps,
     MetaVrSM::NodeId      inNodeId,
     const ServerLocation& inPeer)
-{
-    mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
-}
-
-    void
-MetaVrSM::HandleReply(
-    MetaVrReconfiguration& inReq,
-    seq_t                  inSeq,
-    const Properties&      inProps,
-    MetaVrSM::NodeId       inNodeId,
-    const ServerLocation&  inPeer)
 {
     mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
 }

@@ -53,7 +53,6 @@ struct MetaRequest;
 class MetaVrStartViewChange;
 class MetaVrDoViewChange;
 class MetaVrStartView;
-class MetaVrReconfiguration;
 class Properties;
 class LogTransmitter;
 class MetaDataSync;
@@ -312,12 +311,6 @@ public:
         const Properties&     inProps,
         NodeId                inNodeId,
         const ServerLocation& inPeer);
-    void HandleReply(
-        MetaVrReconfiguration& inReq,
-        seq_t                  inSeq,
-        const Properties&      inProps,
-        NodeId                 inNodeId,
-        const ServerLocation&  inPeer);
     void Process(
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
