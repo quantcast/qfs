@@ -1030,7 +1030,7 @@ private:
             "view change failed: " << inMsgPtr <<
             " state: "             << GetStateName(mState) <<
         KFS_LOG_EOM;
-        if (mStartViewCompletionIds.size() < mActiveCount) {
+        if ((int)mStartViewCompletionIds.size() < mActiveCount) {
             mLastReceivedTime = TimeNow();
             if (mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq + 1;
@@ -1084,7 +1084,7 @@ private:
             return;
         }
         if (theSz < (size_t)mActiveCount &&
-                mStartViewCompletionIds.size() < mActiveCount &&
+                (int)mStartViewCompletionIds.size() < mActiveCount &&
                 TimeNow() <=
                     mViewChangeStartTime + mConfig.GetPrimaryTimeout()) {
             // Wait for more nodes to repsond.

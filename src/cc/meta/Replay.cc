@@ -107,13 +107,13 @@ public:
     ReplayState(
         Replay* replay)
         : mCommitQueue(),
-          mCheckpointCommitted(),
-          mCheckpointErrChksum(-1),
-          mLastCommitted(),
-          mPrevViewCommitted(),
-          mBlockStartLogSeq(),
+          mCheckpointCommitted(0, 0, 0),
+          mCheckpointErrChksum(0),
+          mLastCommitted(0, 0, 0),
+          mPrevViewCommitted(0, 0, 0),
+          mBlockStartLogSeq(0, 0, 0),
           mLastBlockSeq(-1),
-          mLastLogAheadSeq(),
+          mLastLogAheadSeq(0, 0, 0),
           mLogAheadErrChksum(0),
           mSubEntryCount(0),
           mLogSegmentTimeUsec(0),
@@ -2057,19 +2057,19 @@ Replay::Replay()
       lastLogIntBase(-1),
       appendToLastLogFlag(false),
       verifyAllLogSegmentsPresetFlag(false),
-      checkpointCommitted(),
-      committed(0, 0, 0),
-      lastLogStart(0, 0, 0),
-      lastLogSeq(0, 0, 0),
-      lastBlockSeq(-1),
-      errChecksum(0),
+      replayTokenizer(file, this),
+      checkpointCommitted(replayTokenizer.GetState().mCheckpointCommitted),
+      committed(replayTokenizer.GetState().mLastCommitted),
+      lastLogStart(checkpointCommitted),
+      lastLogSeq(replayTokenizer.GetState().mLastLogAheadSeq),
+      lastBlockSeq(replayTokenizer.GetState().mLastBlockSeq),
+      errChecksum(replayTokenizer.GetState().mLogAheadErrChksum),
       rollSeeds(0),
       lastCommittedStatus(0),
       tmplogprefixlen(0),
       tmplogname(),
       logdir(),
       mds(),
-      replayTokenizer(file, this),
       entrymap(get_entry_map()),
       blockChecksum(),
       maxLogNum(-1),
@@ -2125,7 +2125,6 @@ Replay::playLine(const char* line, int len, seq_t blockSeq)
     } else {
         blockChecksum.write(line, len);
     }
-    update();
     return status;
 }
 
@@ -2149,11 +2148,10 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         return 0;
     }
 
-    ReplayState& state       = replayTokenizer.GetState();
-    lastLogStart             = state.mLastLogAheadSeq;
-    state.mLastBlockSeq      = -1;
-    state.mSubEntryCount     = 0;
-    state.mLogAheadErrChksum = errChecksum;
+    ReplayState& state     = replayTokenizer.GetState();
+    lastLogStart           = state.mLastLogAheadSeq;
+    state.mLastBlockSeq    = -1;
+    state.mSubEntryCount   = 0;
     int          status    = 0;
     DETokenizer& tokenizer = replayTokenizer.Get();
     tokenizer.reset();
@@ -2208,9 +2206,6 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         status = -EIO;
     }
     if (status == 0) {
-        errChecksum    = state.mLogAheadErrChksum;
-        lastLogIntBase = tokenizer.getIntBase();
-        lastBlockSeq   = state.mLastBlockSeq;
         mds.SetStream(0);
     }
     file.close();
@@ -2233,11 +2228,6 @@ Replay::playLogs(bool includeLastLogFlag)
         appendToLastLogFlag = false;
         return 0;
     }
-    ReplayState& state = replayTokenizer.GetState();
-    // Log commit can be less than checkpoint.
-    state.mLastCommitted       = MetaVrLogSeq();
-    state.mCheckpointCommitted = committed;
-    state.mCheckpointErrChksum = errChecksum;
     const int status = getLastLogNum();
     return (status == 0 ?
         playLogs(lastLogNum, includeLastLogFlag) : status);
@@ -2246,15 +2236,15 @@ Replay::playLogs(bool includeLastLogFlag)
 int
 Replay::playLogs(seq_t last, bool includeLastLogFlag)
 {
-    appendToLastLogFlag        = false;
-    lastLineChecksumFlag       = false;
-    lastLogIntBase             = -1;
-    bool lastEntryChecksumFlag = false;
-    bool         completeSegmentFlag = true;
-    int          status              = 0;
-    ReplayState& state               = replayTokenizer.GetState();
-    state.mLastLogAheadSeq   = committed;
-    state.mBlockStartLogSeq  = committed;
+    appendToLastLogFlag  = false;
+    lastLineChecksumFlag = false;
+    lastLogIntBase       = -1;
+    bool         lastEntryChecksumFlag = false;
+    bool         completeSegmentFlag   = true;
+    int          status                = 0;
+    ReplayState& state                 = replayTokenizer.GetState();
+    state.mCheckpointErrChksum = errChecksum;
+    state.mBlockStartLogSeq    = checkpointCommitted;
     for (seq_t i = number; ; i++) {
         if (! includeLastLogFlag && last < i) {
             break;
@@ -2304,11 +2294,8 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             appendToLastLogFlag = true;
             break;
         }
-        update();
     }
-    if (status == 0) {
-        update();
-    } else {
+    if (0 != status) {
         appendToLastLogFlag = false;
     }
     return status;
@@ -2575,7 +2562,6 @@ Replay::handle(MetaVrLogStartView& op)
     if (0 != op.status && ! op.replayFlag) {
         panic("replay: invalid start view op completion");
     }
-    update();
     if (op.replayFlag) {
         state.stopServicing();
     } else {
@@ -2597,26 +2583,13 @@ Replay::setReplayState(
     gLayoutManager.SetDisableTimerFlag(true);
     const bool okFlag = state.setReplayState(
         committed, errChecksum, lastCommittedStatus, commitQueue);
-    update();
     return okFlag;
 }
 
 bool
 Replay::commitAll()
 {
-    const bool okFlag = replayTokenizer.GetState().commitAll();
-    update();
-    return okFlag;
-}
-
-void
-Replay::update()
-{
-    const ReplayState& state = replayTokenizer.GetState();
-    lastLogSeq          = state.mLastLogAheadSeq;
-    committed           = state.mLastCommitted;
-    errChecksum         = state.mLogAheadErrChksum;
-    lastCommittedStatus = state.mLastCommittedStatus;
+    return replayTokenizer.GetState().commitAll();
 }
 
 } // namespace KFS
