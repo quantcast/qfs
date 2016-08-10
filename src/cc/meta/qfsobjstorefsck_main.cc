@@ -52,6 +52,7 @@ using std::cout;
 using std::cin;
 using std::cerr;
 using std::string;
+using std::vector;
 using boost::dynamic_bitset;
 
 typedef dynamic_bitset<> BlocksBitmap;
