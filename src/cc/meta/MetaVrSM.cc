@@ -1663,7 +1663,7 @@ private:
     {
         return (
             0 < inPrimaryTimeout &&
-            inPrimaryTimeout + 3 <= inBackupTimeout
+            inPrimaryTimeout <= inBackupTimeout - 3
         );
     }
     void SetParameters(
