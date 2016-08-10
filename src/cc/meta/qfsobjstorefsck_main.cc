@@ -72,7 +72,7 @@ HasBitmapSet(
     const MetaFattr& theFattr)
 {
     const size_t kBits = 8 * sizeof(theFattr.subcount1);
-    return (kBits * CHUNKSIZE <= theFattr.nextChunkOffset());
+    return ((int64_t)(kBits * CHUNKSIZE) <= theFattr.nextChunkOffset());
 }
 
     inline static int
@@ -398,7 +398,7 @@ ObjectStoreFsck(
                         theMissingIdx++, theBit <<= 1)
                     {}
             }
-            if (theMissingIdx * CHUNKSIZE < theFattr.filesize) {
+            if (theMissingIdx * (chunkOff_t)CHUNKSIZE < theFattr.filesize) {
                 const kfsChunkId_t kChunkId   = -1;
                 chunkOff_t         theOffset  = -1;
                 int64_t            theVersion = 0;
