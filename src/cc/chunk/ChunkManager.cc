@@ -45,7 +45,7 @@
 #include "kfsio/Counter.h"
 #include "kfsio/checksum.h"
 #include "kfsio/Globals.h"
-#include "kfsio/Base64.h"
+#include "kfsio/blockname.h"
 
 #include "qcdio/QCUtils.h"
 
@@ -4274,44 +4274,6 @@ ChunkManager::MakeChunkPathname(
     );
 }
 
-template<typename T>
-inline static char*
-IntToBytes(char* buf, const T& val)
-{
-    char* ptr  = buf;
-    T     byte = val;
-    for (char* const end = ptr + sizeof(T); ;) {
-        *ptr++ = (char)byte;
-        if (end <= ptr) {
-            break;
-        }
-        byte >>= 8;
-    }
-    return ptr;
-}
-
-static inline size_t
-UrlSafeBase64Encode(const void* data, size_t size, char* buf)
-{
-    int len = Base64::Encode(
-        reinterpret_cast<const char*>(data), (int)size, buf);
-    if (len <= 0) {
-        die("base64 encoding failure");
-    }
-    // Convert to url safe encoding with no padding.
-    while (0 < len && (buf[len - 1] & 0xFF) == '=') {
-        len--;
-    }
-    for (int i = 0; i < len; i++) {
-        switch (buf[i] & 0xFF) {
-            case '/': buf[i] = '_'; break;
-            case '+': buf[i] = '-'; break;
-            default:                break;
-        }
-    }
-    return len;
-}
-
 string
 ChunkManager::MakeChunkPathname(const string& chunkdir,
     kfsFileId_t fid, kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
@@ -4325,42 +4287,10 @@ ChunkManager::MakeChunkPathname(const string& chunkdir,
     );
     ret.assign(chunkdir.data(), chunkdir.size());
     ret.append(subDir.data(), subDir.size());
-    if (chunkVersion < 0) {
-        uint32_t crc32;
-        const    size_t kBlockIdSize = sizeof(chunkId) + sizeof(chunkVersion);
-        char     buf[max(
-            (size_t)Base64::EncodedLength(sizeof(crc32)) + 1, kBlockIdSize)];
-        char     crc32buf[sizeof(crc32)];
-        IntToBytes(IntToBytes(buf, chunkId), chunkVersion);
-        crc32 = ComputeCrc32(buf, kBlockIdSize);
-        size_t len = IntToBytes(crc32buf, crc32) - crc32buf;
-        len = UrlSafeBase64Encode(crc32buf, len, buf);
-        buf[len++] = '.';
-        ret.append(buf, len);
-    }
-    if (0 <= chunkVersion || fid != chunkId) {
-        AppendDecIntToString(ret, fid);
-        ret += '.';
-    }
-    AppendDecIntToString(ret, chunkId);
-    ret += '.';
-    AppendDecIntToString(ret, chunkVersion);
-    if (chunkVersion < 0 && 0 <= mFileSystemId) {
-        if (mFileSystemIdSuffix.empty()) {
-            char bytes[sizeof(mFileSystemId)];
-            const size_t len = IntToBytes(bytes, mFileSystemId) - bytes;
-            char buf[Base64::EncodedLength(sizeof(mFileSystemId)) + 1];
-            buf[0] = '.';
-            // The "len" below is one byte short, therefore the 4 most
-            // significant bits of file system ID are not included in the
-            // suffix. The most significant bit is always 0, i.e. only 3 bits
-            // are actually lost. Do not attempt to "fix" / change this, as
-            // doing now so will break backward compatibility with the existing
-            // object store QFS file systems.
-            mFileSystemIdSuffix.assign(buf, UrlSafeBase64Encode(
-                bytes, len, buf + 1));
-        }
-        ret += mFileSystemIdSuffix;
+    if (! AppendChunkFileNameOrObjectStoreBlockKey(
+            ret, mFileSystemId, fid, chunkId, chunkVersion,
+            mFileSystemIdSuffix)) {
+        die("failed to create chunk or block file name");
     }
     return ret;
 }

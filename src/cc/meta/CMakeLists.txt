@@ -73,7 +73,7 @@ if (NOT USE_STATIC_LIB_LINKAGE)
         LIBRARY DESTINATION lib)
 endif (NOT USE_STATIC_LIB_LINKAGE)
 
-set (exe_files metaserver logcompactor filelister qfsfsck)
+set (exe_files metaserver logcompactor filelister qfsfsck qfsobjstorefsck)
 foreach (exe_file ${exe_files})
     if (USE_STATIC_LIB_LINKAGE)
         add_executable (${exe_file}
