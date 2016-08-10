@@ -45,6 +45,7 @@ set (sources
     TransactionalClient.cc
     HttpResponseHeaders.cc
     HttpChunkedDecoder.cc
+    blockname.cc
 )
 
 add_library (kfsIO STATIC ${sources})
