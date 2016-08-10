@@ -27,7 +27,7 @@
 
 #include "blockname.h"
 #include "Base64.h"
-#include "Checksum.h"
+#include "checksum.h"
 
 #include "common/IntToString.h"
 
