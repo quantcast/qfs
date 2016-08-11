@@ -316,7 +316,7 @@ public:
                 theIt++;
             }
             if (theIt == mLogSegments.end()) {
-                inReadOp.status    = -EINVAL;
+                inReadOp.status    = -ENOENT;
                 inReadOp.statusMsg = "no such log sequence";
                 return;
             }
@@ -336,6 +336,15 @@ public:
                         theIt->second.mLogEndSeq == theIt->second.mLogSeq) {
                     theIt--;
                 }
+            }
+            while (theIt != mLogSegments.end() &&
+                    theIt->second.mLogSeq == theIt->second.mLogEndSeq) {
+                ++theIt;
+            }
+            if (theIt == mLogSegments.end()) {
+                inReadOp.status    = -EINVAL;
+                inReadOp.statusMsg = "no such log sequence";
+                return;
             }
             LogSegments::const_iterator theNextIt = theIt;
             if (theIt->second.mLogSeq == theIt->second.mLogEndSeq ||
@@ -711,8 +720,12 @@ private:
         bool              inSetSizeFlag)
     {
         QCRTASSERT(0 <= inReadOp.readPos && 0 <= inReadOp.status);
-        typename TableT::iterator const theIt =
+        typename TableT::iterator theIt =
             inTable.find(inReadOp.startLogSeq);
+        while (theIt != mLogSegments.end() &&
+                theIt->second.mLogSeq == theIt->second.mLogEndSeq) {
+            ++theIt;
+        }
         if (theIt == inTable.end()) {
             inReadOp.status    = -EFAULT;
             inReadOp.statusMsg = "internal error -- no such entry";

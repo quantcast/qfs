@@ -658,7 +658,7 @@ replay_create(DETokenizer& c)
         t, n, nr, ss, todumpster, user, group, mode,
         kKfsUserRoot, kKfsGroupRoot, &fa,
         gottime ? ctime : ReplayState::get(c).mLogSegmentTimeUsec);
-    if (status == 0) {
+    if (0 == status) {
         assert(fa);
         updateSeed(fileID, me);
         if (gottime) {
@@ -676,7 +676,7 @@ replay_create(DETokenizer& c)
         " name: " << myname <<
         " id: "   << me <<
     KFS_LOG_EOM;
-    return (status == 0);
+    return (0 == status);
 }
 
 /*!
@@ -737,7 +737,7 @@ replay_mkdir(DETokenizer& c)
     MetaFattr* fa = 0;
     status = metatree.mkdir(parent, myname, user, group, mode,
         kKfsUserRoot, kKfsGroupRoot, &me, &fa, mtime);
-    if (status == 0) {
+    if (0 == status) {
         assert(fa);
         updateSeed(fileID, me);
         if (gottime) {
@@ -748,7 +748,7 @@ replay_mkdir(DETokenizer& c)
         " name: " << myname <<
         " id: "   << me <<
     KFS_LOG_EOM;
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -775,7 +775,7 @@ replay_remove(DETokenizer& c)
         status = metatree.remove(parent, myname, "", todumpster,
         kKfsUserRoot, kKfsGroupRoot, mtime);
     }
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -798,7 +798,7 @@ replay_rmdir(DETokenizer& c)
         status = metatree.rmdir(parent, myname, "",
             kKfsUserRoot, kKfsGroupRoot, mtime);
     }
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -833,7 +833,7 @@ replay_rename(DETokenizer& c)
         status = metatree.rename(parent, oldname, newpath, oldpath,
             true, todumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
     }
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -895,11 +895,11 @@ replay_allocate(DETokenizer& c)
             }
             status = 0;
         }
-        if (status == 0) {
+        if (0 == status) {
             assert(cid == logChunkId);
             status = metatree.assignChunkId(fid, offset,
                             cid, logChunkVersion, 0, 0, append);
-            if (status == 0) {
+            if (0 == status) {
                 fid_t cfid = 0;
                 if (chunkExists &&
                         (! gLayoutManager.GetChunkFileId(
@@ -934,7 +934,7 @@ replay_allocate(DETokenizer& c)
             }
         }
     }
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -998,7 +998,7 @@ replay_truncate(DETokenizer& c)
             gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec,
             kKfsUserRoot, kKfsGroupRoot, endOffset, kSetEofHintFlag);
     }
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -1022,7 +1022,7 @@ replay_pruneFromHead(DETokenizer& c)
         status = metatree.pruneFromHead(fid, offset,
             gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec);
     }
-    return (ok && status == 0);
+    return (ok && 0 == status);
 }
 
 /*!
@@ -2190,14 +2190,14 @@ Replay::playlog(bool& lastEntryChecksumFlag)
             restoreChecksum.clear();
         }
     }
-    if (status == 0 && 0 != state.mSubEntryCount) {
+    if (0 == status && 0 != state.mSubEntryCount) {
         KFS_LOG_STREAM_FATAL <<
             "error " << path <<
             " invalid sub entry count: " << state.mSubEntryCount <<
         KFS_LOG_EOM;
         status = -EIO;
     }
-    if (status == 0 && ! file.eof()) {
+    if (0 == status && ! file.eof()) {
         KFS_LOG_STREAM_FATAL <<
             "error " << path <<
             ":" << tokenizer.getEntryCount() <<
@@ -2205,7 +2205,8 @@ Replay::playlog(bool& lastEntryChecksumFlag)
         KFS_LOG_EOM;
         status = -EIO;
     }
-    if (status == 0) {
+    if (0 == status) {
+        lastLogIntBase = tokenizer.getIntBase();
         mds.SetStream(0);
     }
     file.close();
@@ -2229,7 +2230,7 @@ Replay::playLogs(bool includeLastLogFlag)
         return 0;
     }
     const int status = getLastLogNum();
-    return (status == 0 ?
+    return (0 == status ?
         playLogs(lastLogNum, includeLastLogFlag) : status);
 }
 
