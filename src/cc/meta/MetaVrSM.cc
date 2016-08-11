@@ -481,12 +481,19 @@ public:
                 return -EINVAL;
             }
             if (mActiveCount <= 0 && mQuorum <= 0 &&
-                    (mConfig.IsEmpty() ||
+                    ((mConfig.IsEmpty() && 0 == mNodeId) ||
                         AllInactiveFindPrimary() == mNodeId)) {
                 mState      = kStatePrimary;
                 mLastUpTime = TimeNow();
                 inReplayer.commitAll();
             } else {
+                if (mActiveCount <= 0 && mQuorum <= 0 && mConfig.IsEmpty()) {
+                    KFS_LOG_STREAM_WARN <<
+                        "transition into backup state with empty VR"
+                        " configuration, and node id non 0"
+                        " node id: " << mNodeId <<
+                    KFS_LOG_EOM;
+                }
                 mState            = kStateBackup;
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
@@ -1663,7 +1670,7 @@ private:
     {
         return (
             0 < inPrimaryTimeout &&
-            inPrimaryTimeout <= inBackupTimeout - 3
+            (int64_t)inPrimaryTimeout + 3 <= inBackupTimeout
         );
     }
     void SetParameters(
