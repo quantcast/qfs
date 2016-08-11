@@ -72,8 +72,8 @@ RestoreCheckpoint(
 HasBitmapSet(
     const MetaFattr& theFattr)
 {
-    const size_t kBits = 8 * sizeof(theFattr.subcount1);
-    return ((int64_t)(kBits * CHUNKSIZE) <= theFattr.nextChunkOffset());
+    const int64_t kBits = 8 * sizeof(theFattr.subcount1);
+    return (kBits * (int64_t)CHUNKSIZE <= theFattr.nextChunkOffset());
 }
 
     inline static int
