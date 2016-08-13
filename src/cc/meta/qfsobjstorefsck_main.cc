@@ -30,6 +30,7 @@
 #include "Restorer.h"
 #include "Replay.h"
 #include "MetaRequest.h"
+#include "Logger.h"
 #include "util.h"
 
 #include "common/MdStream.h"
@@ -392,7 +393,7 @@ ObjStoreFsck::RunSelf(
     string              theCpDir;
     string              theLockFile;
     ServerLocation      theMetaServer;
-    const char*         theLogDirPtr         = 0;
+    string              theLogDir;
     const char*         theConfigFileNamePtr = 0;
     MsgLogger::LogLevel theLogLevel          = MsgLogger::kLogLevelINFO;
     MsgLogger::LogLevel theLogLevelNoFile    = MsgLogger::kLogLevelDEBUG;
@@ -410,7 +411,7 @@ ObjStoreFsck::RunSelf(
                 theLockFile = optarg;
                 break;
             case 'l':
-                theLogDirPtr = optarg;
+                theLogDir = optarg;
                 break;
             case 'c':
                 theCpDir = optarg;
@@ -488,8 +489,8 @@ ObjStoreFsck::RunSelf(
     if (! theCpDir.empty()) {
         checkpointer_setup_paths(theCpDir);
     }
-    if (theLogDirPtr && theLogDirPtr[0]) {
-        replayer.setLogDir(theLogDirPtr);
+    if (! theLogDir.empty()) {
+        logger_setup_paths(theLogDir);
     }
     if (0 == (theStatus = SetParameters(
                 theMetaServer, theConfigFileNamePtr))) {
