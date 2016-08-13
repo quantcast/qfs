@@ -8319,7 +8319,9 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
             mObjBlocksDeleteRequeue.GetSize() << "\t"
         "Object store first delete time= " <<
             (mObjStoreFilesDeleteQueue.IsEmpty() ? time_t(0) :
-                TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime)
+                TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime) << "\t"
+        "File count= " << GetNumFiles() << "\t"
+        "Dir count= "  << GetNumDirs()
     ;
     mWOstream.flush();
     mWOstream.Reset();
