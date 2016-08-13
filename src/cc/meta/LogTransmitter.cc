@@ -901,6 +901,9 @@ private:
                 ! mBlocksQueue.empty() || mVrOpPtr) {
             return false;
         }
+        if (! mLastSentBlockSeq.IsValid()) {
+            mLastSentBlockSeq = mImpl.GetLastLogSeq();
+        }
         const bool kHeartbeatFlag = true;
         SendBlockSelf(
             mLastSentBlockSeq.IsValid() ?
