@@ -58,6 +58,7 @@ displayName = ''
 autoRefresh = 60
 displayPorts = False
 displayChunkServerStorageTiers = True
+objectStoreMode = False
 
 kServerName="XMeta-server-location" #todo - put it to config file
 kChunkDirName="Chunk-server-dir"
@@ -809,7 +810,7 @@ class UpServer:
             trclass = 'class="retiring"'
         elif self.nevacuate > 0:
             trclass = 'class="evacuating"'
-        elif self.overloaded:
+        elif not objectStoreMode and self.overloaded:
             trclass = 'class="overloaded"'
         elif not self.good or self.down:
             trclass = 'class="notgood"'
@@ -1969,6 +1970,11 @@ if __name__ == '__main__':
         pass
     PORT = config.getint('webserver', 'webServer.port')
     allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
+    try:
+        objectStoreMode = config.getboolean('webserver', 'webServer.objectStoreMode')
+    except:
+        objectStoreMode = False
+        pass
     if metaserverHost != '127.0.0.1' and metaserverHost != 'localhost':
         displayName = metaserverHost
     else:
