@@ -176,7 +176,7 @@ private:
                     ) <<
                 KFS_LOG_EOM;
                 if (0 == mError) {
-                    mError = -inOpPtr->status;
+                    mError = inOpPtr->status;
                 }
             }
         } else {
