@@ -562,7 +562,8 @@ ObjStoreFsck::RunSelf(
             }
             MetaFattr* const theFattrPtr = metatree.getFattr(theFid);
             if (! theFattrPtr) {
-                KFS_LOG_STREAM(theLogLevelNoFile) <<
+                KFS_LOG_STREAM(fileID.getseed() < theFid ?
+                        MsgLogger::kLogLevelDEBUG : theLogLevelNoFile) <<
                     theBlockKey << ": invalid key: no such file" <<
                 KFS_LOG_EOM;
                 continue;
@@ -643,6 +644,7 @@ ObjStoreFsck::RunSelf(
             " total:"
             " files: "       << GetNumFiles() << 
             " directories: " << GetNumDirs() <<
+            " max fid: "     << fileID.getseed() <<
         KFS_LOG_EOM;
         // Traverse leaf nodes and query the the status for files with missing
         // blocks.
