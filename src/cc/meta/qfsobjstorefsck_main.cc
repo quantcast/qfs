@@ -29,15 +29,22 @@
 #include "Checkpoint.h"
 #include "Restorer.h"
 #include "Replay.h"
+#include "MetaRequest.h"
 #include "util.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
+#include "common/Properties.h"
 
 #include "kfsio/blockname.h"
+#include "kfsio/ClientAuthContext.h"
+#include "kfsio/NetManager.h"
+#include "kfsio/SslFilter.h"
 
 #include "libclient/KfsClient.h"
+#include "libclient/KfsNetClient.h"
+#include "libclient/KfsOps.h"
 
 #include <iostream>
 #include <string>
@@ -45,6 +52,8 @@
 
 #include <boost/static_assert.hpp>
 #include <boost/dynamic_bitset.hpp>
+
+#include <signal.h>
 
 namespace KFS
 {
@@ -55,56 +64,327 @@ using std::string;
 using std::vector;
 using boost::dynamic_bitset;
 
-typedef dynamic_bitset<> BlocksBitmap;
+using namespace client;
 
-    inline static int
-RestoreCheckpoint(
-    const string& inLockFileName)
+class ObjStoreFsck : public KfsNetClient::OpOwner
 {
-    if (! inLockFileName.empty()) {
-        acquire_lockfile(inLockFileName, 10);
+public:
+    static int Run(
+        int    inArgCnt,
+        char** inArgaPtr)
+    {
+        MsgLogger::Init(0, MsgLogger::kLogLevelERROR);
+        signal(SIGPIPE, SIG_IGN);
+        libkfsio::InitGlobals();
+        MdStream::Init();
+        int theStatus;
+        const SslFilter::Error theError = SslFilter::Initialize();
+        if (0 != theError) {
+            KFS_LOG_STREAM_FATAL <<
+                "failed to initialize ssl status: " << theError <<
+                " " << SslFilter::GetErrorMsg(theError) <<
+            KFS_LOG_EOM;
+            theStatus = -1;
+        } else {
+            ObjStoreFsck theFsck;
+            theStatus = theFsck.RunSelf(inArgCnt, inArgaPtr);
+        }
+        SslFilter::Cleanup();
+        MdStream::Cleanup();
+        MsgLogger::Stop();
+        return (0 == theStatus ? 0 : 1);
     }
-    Restorer theRestorer;
-    return (theRestorer.rebuild(LASTCP) ? 0 : -EIO);
-}
+private:
+    typedef dynamic_bitset<> BlocksBitmap;
 
-    inline static bool
-HasBitmapSet(
-    const MetaFattr& theFattr)
-{
-    const int64_t kBits = 8 * sizeof(theFattr.subcount1);
-    return (kBits * (int64_t)CHUNKSIZE <= theFattr.nextChunkOffset());
-}
+    ClientAuthContext mAuthContext;
+    NetManager        mNetManager;
+    KfsNetClient      mKfsNetClient;
+    LeafIter          mLeafIter;
+    bool              mQueryFlag;
+    int64_t           mLostCount;
+    int               mError;
+    int               mInFlightCnt;
+    int               mMaxInFlightCnt;
 
-    inline static int
-GetFileName(
-    const MetaFattr& inFattr,
-    string&          outFileName)
-{
-    outFileName = metatree.getPathname(&inFattr);
-    return 0;
-}
+    ObjStoreFsck()
+    : OpOwner(),
+      mAuthContext(),
+      mNetManager(),
+      mKfsNetClient(
+        mNetManager,
+        string(),     // inHost
+        0,            // inPort
+        3,            // inMaxRetryCount
+        10,           // inTimeSecBetweenRetries
+        5  * 60,      // inOpTimeoutSec
+        30 * 60,      // inIdleTimeoutSec
+        InitialSeq()  // inInitialSeqNum,
+      ),
+      mLeafIter(0, 0),
+      mQueryFlag(false),
+      mLostCount(0),
+      mError(0),
+      mInFlightCnt(0),
+      mMaxInFlightCnt(1 << 10)
+        { mKfsNetClient.SetAuthContext(&mAuthContext); }
+    virtual ~ObjStoreFsck()
+    {
+        if (0 != mInFlightCnt) {
+            panic("~ObjStoreFsck non 0 in flight count");
+        }
+        mInFlightCnt = -1000;
+    }
+    virtual void OpDone(
+        KfsOp*    inOpPtr,
+        bool      inCanceledFlag,
+        IOBuffer* inBufferPtr)
+    {
+        if (! inOpPtr || inBufferPtr) {
+            panic("invalid null op completion");
+            return;
+        }
+        KFS_LOG_STREAM_DEBUG <<
+            "done:"
+            " status: "    << inOpPtr->status <<
+            (inOpPtr->statusMsg.empty() ? "" : " ")
+                << inOpPtr->statusMsg <<
+            " "            << inOpPtr->Show() <<
+            " in flight: " << mInFlightCnt <<
+        KFS_LOG_EOM;
+        if (! mQueryFlag) {
+            if (0 != mInFlightCnt) {
+                panic("invalid non zero in flight count");
+            }
+            mKfsNetClient.Stop();
+            mNetManager.Shutdown();
+            return;
+        }
+        mInFlightCnt--;
+        if (inCanceledFlag) {
+            delete inOpPtr;
+            return;
+        }
+        GetPathNameOp& theOp = *static_cast<GetPathNameOp*>(inOpPtr);
+        if (inOpPtr->status < 0) {
+            if (-ENOENT != theOp.status) {
+                KFS_LOG_STREAM_ERROR <<
+                    "file id: " << theOp.fid << ": " <<
+                    (theOp.statusMsg.empty() ?
+                        ErrorCodeToStr(theOp.status) :
+                        theOp.statusMsg
+                    ) <<
+                KFS_LOG_EOM;
+                if (0 == mError) {
+                    mError = -inOpPtr->status;
+                }
+            }
+        } else {
+            ReportLost(theOp.pathname);
+        }
+        Next(&theOp);
+        if (mInFlightCnt <= 0) {
+            mKfsNetClient.Stop();
+            mNetManager.Shutdown();
+        }
+    }
+    void ReportLost(
+        const string& inPathName)
+    {
+        mLostCount++;
+        cout << inPathName << "\n";
+    }
+    static int64_t InitialSeq()
+    {
+        int64_t theRet = 0;
+        CryptoKeys::PseudoRand(&theRet, sizeof(theRet));
+        return ((theRet < 0 ? -theRet : theRet) >> 1);
+    }
+    static int RestoreCheckpoint(
+        const string& inLockFileName)
+    {
+        if (! inLockFileName.empty()) {
+            acquire_lockfile(inLockFileName, 10);
+        }
+        Restorer theRestorer;
+        return (theRestorer.rebuild(LASTCP) ? 0 : -EIO);
+    }
+    static bool HasBitmapSet(
+        const MetaFattr& theFattr)
+    {
+        const int64_t kBits = 8 * sizeof(theFattr.subcount1);
+        return (kBits * (int64_t)CHUNKSIZE <= theFattr.nextChunkOffset());
+    }
+    static BlocksBitmap* GetBitmapPtr(
+        const MetaFattr& inFattr)
+    {
+        BOOST_STATIC_ASSERT(sizeof(BlocksBitmap*) <= sizeof(inFattr.subcount1));
+        char* const kNullPtr = 0;
+        return reinterpret_cast<BlocksBitmap*>(kNullPtr + inFattr.chunkcount());
+    }
+    static void SetBitmapPtr(
+        MetaFattr&    inFattr,
+        BlocksBitmap* inPtr)
+    {
+        const char* const kNullPtr = 0;
+        inFattr.chunkcount() = reinterpret_cast<const char*>(inPtr) - kNullPtr;
+    }
+    int SetParameters(
+        const ServerLocation& inMetaLocation,
+        const char*           inConfigFileNamePtr)
+    {
+        Properties  theProperties;
+        int         theStatus    = 0;
+        const char* theConfigPtr = inConfigFileNamePtr;
+        if (inConfigFileNamePtr) {
+            const char kDelimeter = '=';
+            theStatus = theProperties.loadProperties(theConfigPtr, kDelimeter);
+        } else {
+            theStatus = KfsClient::LoadProperties(
+                inMetaLocation.hostname.c_str(),
+                inMetaLocation.port,
+                0,
+                theProperties,
+                theConfigPtr
+            );
+        }
+        if (theStatus == 0 && theConfigPtr) {
+            const bool         kVerifyFlag  = true;
+            ClientAuthContext* kOtherCtxPtr = 0;
+            string*            kErrMsgPtr   = 0;
+            theStatus = mAuthContext.SetParameters(
+                "client.auth.",
+                theProperties,
+                kOtherCtxPtr,
+                kErrMsgPtr,
+                kVerifyFlag
+            );
+        }
+        return theStatus;
+    }
+    int Start(
+        const ServerLocation inLocation)
+    {
+        if (0 < mInFlightCnt) {
+            panic("invalid start invocation with ops in flight");
+            return -EINVAL;
+        }
+        mLostCount = 0;
+        mError     = 0;
+        mQueryFlag = false;
+        if (! inLocation.IsValid()) {
+            return 0;
+        }
+        mNetManager.UpdateTimeNow();
+        if (! mKfsNetClient.SetServer(inLocation)) {
+            return -EHOSTUNREACH;
+        }
+        GetPathNameOp theOp(0, ROOTFID, -1);
+        if (! mKfsNetClient.Enqueue(&theOp, this)) {
+            KFS_LOG_STREAM_FATAL << "failed to enqueue op: " <<
+                theOp.Show() <<
+            KFS_LOG_EOM;
+            return -EFAULT;
+        }
+        const bool     kWakeupAndCleanupFlag = false;
+        QCMutex* const kNullMutexPtr         = 0;
+        mNetManager.MainLoop(kNullMutexPtr, kWakeupAndCleanupFlag);
+        mKfsNetClient.Cancel();
+        mKfsNetClient.Stop();
+        if (theOp.status < 0) {
+            KFS_LOG_STREAM_ERROR <<
+                (theOp.statusMsg.empty() ?
+                    ErrorCodeToStr(theOp.status) :
+                    theOp.statusMsg
+                ) <<
+            KFS_LOG_EOM;
+        }
+        mQueryFlag = 0 == theOp.status;
+        return theOp.status;
+    }
+    void Next(
+        GetPathNameOp* inOpPtr)
+    {
+        GetPathNameOp* theOpPtr = inOpPtr;
+        for (const Meta* theNPtr = 0;
+                mLeafIter.parent() && (theNPtr = mLeafIter.current());
+                mLeafIter.next()) {
+            if (KFS_FATTR != theNPtr->metaType()) {
+                continue;
+            }
+            const MetaFattr& theFattr = *static_cast<const MetaFattr*>(theNPtr);
+            if (KFS_FILE != theFattr.type || 0 != theFattr.numReplicas ||
+                   theFattr.filesize <= 0) {
+                continue;
+            }
+            chunkOff_t theMissingIdx = 0;
+            if (HasBitmapSet(theFattr)) {
+                const BlocksBitmap* const thePtr = GetBitmapPtr(theFattr);
+                if (thePtr) {
+                    for (theMissingIdx = 0;
+                            theMissingIdx < (chunkOff_t)thePtr->size() &&
+                                (*thePtr)[theMissingIdx];
+                            ++theMissingIdx)
+                        {}
+                    // Do not do cleanup to speedup (reduce CPU utilization).
+                    // thePtr->chunkcount() = 0;
+                    // delete thePtr;
+                }
+            } else {
+                const int64_t theBits = theFattr.chunkcount();
+                const int64_t theEnd  = theFattr.nextChunkOffset() / CHUNKSIZE;
+                int64_t       theBit  = 1;
+                for (theMissingIdx = 0;
+                        theMissingIdx <= theEnd && 0 != (theBits & theBit);
+                        theMissingIdx++, theBit <<= 1)
+                    {}
+            }
+            if (theMissingIdx * (chunkOff_t)CHUNKSIZE < theFattr.filesize) {
+                if (mQueryFlag) {
+                    if (theOpPtr) {
+                        theOpPtr->fid     = theFattr.id();
+                        theOpPtr->chunkId = -1;
+                        theOpPtr->status  = 0;
+                        theOpPtr->statusMsg.clear();
+                        theOpPtr->pathname.clear();
+                    } else if (mMaxInFlightCnt <= mInFlightCnt) {
+                        break;
+                    } else {
+                        theOpPtr = new GetPathNameOp(0, theFattr.id(), -1);
+                    }
+                    mInFlightCnt++;
+                    if (mKfsNetClient.Enqueue(theOpPtr, this)) {
+                        theOpPtr = 0;
+                    } else {
+                        KFS_LOG_STREAM_ERROR <<
+                            "enqueue error, id: " << theFattr.id() <<
+                        KFS_LOG_EOM;
+                        if (0 == mError) {
+                            mError = -EFAULT;
+                        }
+                        mInFlightCnt--;
+                        break;
+                    }
+                } else {
+                    ReportLost(metatree.getPathname(&theFattr));
+                }
+            }
+        }
+        delete theOpPtr;
+    }
+    int RunSelf(
+        int    inArgCnt,
+        char** inArgaPtr);
+private:
+    ObjStoreFsck(
+        const ObjStoreFsck& inFsck);
+    ObjStoreFsck& operator=(
+        const ObjStoreFsck& inFsck);
+};
 
-    inline static BlocksBitmap*
-GetBitmapPtr(
-    const MetaFattr& inFattr)
-{
-    BOOST_STATIC_ASSERT(sizeof(BlocksBitmap*) <= sizeof(inFattr.subcount1));
-    char* const kNullPtr = 0;
-    return reinterpret_cast<BlocksBitmap*>(kNullPtr + inFattr.chunkcount());
-}
 
-    inline static void
-SetBitmapPtr(
-    MetaFattr&    inFattr,
-    BlocksBitmap* inPtr)
-{
-    const char* const kNullPtr = 0;
-    inFattr.chunkcount() = reinterpret_cast<const char*>(inPtr) - kNullPtr;
-}
-
-    static int
-ObjectStoreFsck(
+    int
+ObjStoreFsck::RunSelf(
     int    inArgCnt,
     char** inArgaPtr)
 {
@@ -115,12 +395,13 @@ ObjectStoreFsck(
     const char*         theLogDirPtr         = 0;
     const char*         theConfigFileNamePtr = 0;
     MsgLogger::LogLevel theLogLevel          = MsgLogger::kLogLevelINFO;
+    MsgLogger::LogLevel theLogLevelNoFile    = MsgLogger::kLogLevelDEBUG;
     int                 theStatus            = 0;
     bool                theHelpFlag          = false;
     bool                theReplayLastLogFlag = false;
     const char*         thePtr;
 
-    while ((theOpt = getopt(inArgCnt, inArgaPtr, "vhal:c:L:s:p:f:")) != -1) {
+    while ((theOpt = getopt(inArgCnt, inArgaPtr, "vhail:c:L:s:p:f:x:")) != -1) {
         switch (theOpt) {
             case 'a':
                 theReplayLastLogFlag = true;
@@ -136,6 +417,9 @@ ObjectStoreFsck(
                 break;
             case 's':
                 theMetaServer.hostname = optarg;
+                break;
+            case 'i':
+                theLogLevelNoFile = MsgLogger::kLogLevelINFO;
                 break;
             case 'p':
                 thePtr = optarg;
@@ -153,12 +437,21 @@ ObjectStoreFsck(
             case 'f':
                 theConfigFileNamePtr = optarg;
                 break;
+            case 'x':
+                thePtr = optarg;
+                if (! DecIntParser::Parse(
+                        thePtr, strlen(thePtr), mMaxInFlightCnt)) {
+                    mMaxInFlightCnt = -1;
+                }
+                break;
+                break;
             default:
                 theStatus = -EINVAL;
                 break;
         }
     }
     if (theHelpFlag || 0 != theStatus ||
+            (mMaxInFlightCnt <= 0 && theMetaServer.IsValid()) ||
             (! theMetaServer.hostname.empty() && ! theMetaServer.IsValid())) {
         cerr <<
             "Usage: " << inArgaPtr[0] << "\n"
@@ -169,6 +462,7 @@ ObjectStoreFsck(
             "[-c <checkpoint directory>] default: kfscp\n"
             "[-f <client configuration file>] default: none\n"
             "[-a replay last log segment] default: don't replay last segment\n"
+            "[-x <max pipelined get info meta ops>] default: 1024\n"
             "[-s <meta server host>]\n"
             "[-p <meta server port>]\n"
             "\n"
@@ -190,43 +484,21 @@ ObjectStoreFsck(
         ;
         return 1;
     }
-    MdStream::Init();
-    MsgLogger::Init(0, theLogLevel);
-
+    MsgLogger::SetLevel(theLogLevel);
     if (! theCpDir.empty()) {
         checkpointer_setup_paths(theCpDir);
     }
     if (theLogDirPtr && theLogDirPtr[0]) {
         replayer.setLogDir(theLogDirPtr);
     }
-    int64_t          theLostCount = 0;
-    KfsClient* const theClientPtr =  theMetaServer.IsValid() ? 
-        KfsClient::Connect(
-            theMetaServer.hostname, theMetaServer.port, theConfigFileNamePtr)
-        : 0;
-    if (theClientPtr) {
-        // Make sure that the client is configured correctly prior to checkpoint
-        // load and replay, by retrieving root node info.
-        const kfsChunkId_t     kChunkId   = -1;
-        chunkOff_t             theOffset  = -1;
-        int64_t                theVersion = 0;
-        KfsFileAttr            theCliAttr;
-        vector<ServerLocation> theServers;
-        theStatus = theClientPtr->GetFileOrChunkInfo(
-            ROOTFID,
-            kChunkId,
-            theCliAttr,
-            theOffset,
-            theVersion,
-            theServers
-        );
-    } else if (theMetaServer.IsValid()) {
-        theStatus = -ENOTCONN;
+    if (0 == (theStatus = SetParameters(
+                theMetaServer, theConfigFileNamePtr))) {
+        theStatus = Start(theMetaServer);
     }
     if (0 == theStatus &&
             (theStatus = RestoreCheckpoint(theLockFile)) == 0 &&
             (theStatus = replayer.playLogs(theReplayLastLogFlag)) == 0) {
-        if (! theClientPtr) {
+        if (! mQueryFlag) {
             // Setup back pointers, to get file names retrival working.
             metatree.setUpdatePathSpaceUsage(true);
             metatree.enableFidToPathname();
@@ -237,6 +509,7 @@ ObjectStoreFsck(
         string        theFsIdSuffix;
         theExpectedKey.reserve(256);
         theBlockKey.reserve(256);
+        int64_t theKeysCount = 0;
         while (getline(cin, theBlockKey)) {
             KFS_LOG_STREAM_DEBUG <<
                 "key: " << theBlockKey <<
@@ -249,6 +522,7 @@ ObjectStoreFsck(
             const int kSeparator = '.';
             thePtr = reinterpret_cast<const char*>(
                 memchr(thePtr, kSeparator, theEndPtr - thePtr));
+            theKeysCount++;
             fid_t theFid     = -1;
             seq_t theVersion = 0;
             if (! thePtr ||
@@ -288,7 +562,7 @@ ObjectStoreFsck(
             }
             MetaFattr* const theFattrPtr = metatree.getFattr(theFid);
             if (! theFattrPtr) {
-                KFS_LOG_STREAM_DEBUG <<
+                KFS_LOG_STREAM(theLogLevelNoFile) <<
                     theBlockKey << ": invalid key: no such file" <<
                 KFS_LOG_EOM;
                 continue;
@@ -364,69 +638,20 @@ ObjectStoreFsck(
                 theFattrPtr->chunkcount() |= theBit;
             }
         }
+        KFS_LOG_STREAM_INFO
+            "read keys: "    << theKeysCount <<
+            " total:"
+            " files: "       << GetNumFiles() << 
+            " directories: " << GetNumDirs() <<
+        KFS_LOG_EOM;
         // Traverse leaf nodes and query the the status for files with missing
         // blocks.
-        KfsFileAttr            theCliAttr;
-        vector<ServerLocation> theServers;
-        LeafIter theIt(metatree.firstLeaf(), 0);
-        for (const Meta* theNPtr = 0;
-                theIt.parent() && (theNPtr = theIt.current());
-                theIt.next()) {
-            if (KFS_FATTR != theNPtr->metaType()) {
-                continue;
-            }
-            const MetaFattr& theFattr = *static_cast<const MetaFattr*>(theNPtr);
-            if (KFS_FILE != theFattr.type || 0 != theFattr.numReplicas ||
-                   theFattr.filesize <= 0) {
-                continue;
-            }
-            chunkOff_t theMissingIdx = 0;
-            if (HasBitmapSet(theFattr)) {
-                const BlocksBitmap* const thePtr = GetBitmapPtr(theFattr);
-                if (thePtr) {
-                    for (theMissingIdx = 0;
-                            theMissingIdx < (chunkOff_t)thePtr->size() &&
-                                (*thePtr)[theMissingIdx];
-                            ++theMissingIdx)
-                        {}
-                }
-            } else {
-                const int64_t theBits = theFattr.chunkcount();
-                const int64_t theEnd  = theFattr.nextChunkOffset() / CHUNKSIZE;
-                int64_t       theBit  = 1;
-                for (theMissingIdx = 0;
-                        theMissingIdx <= theEnd && 0 != (theBits & theBit);
-                        theMissingIdx++, theBit <<= 1)
-                    {}
-            }
-            if (theMissingIdx * (chunkOff_t)CHUNKSIZE < theFattr.filesize) {
-                const kfsChunkId_t kChunkId   = -1;
-                chunkOff_t         theOffset  = -1;
-                int64_t            theVersion = 0;
-                const int theRet = theClientPtr ?
-                    theClientPtr->GetFileOrChunkInfo(
-                        theFattr.id(),
-                        kChunkId,
-                        theCliAttr,
-                        theOffset,
-                        theVersion,
-                        theServers
-                    ) : GetFileName(theFattr, theCliAttr.filename);
-                if (0 == theRet) {
-                    cout << theCliAttr.filename << "\n";
-                    theLostCount++;
-                } else if (-ENOENT != theRet) {
-                    KFS_LOG_STREAM_ERROR <<
-                        "failed to get file info:"
-                        " fid: "  << theFattr.id() <<
-                        " "       << ErrorCodeToStr(theRet) <<
-                    KFS_LOG_EOM;
-                    if (0 == theStatus) {
-                        theStatus = theRet;
-                    }
-                }
-            }
+        mLeafIter.reset(metatree.firstLeaf(), 0);
+        Next(0);
+        if (0 < mInFlightCnt) {
+            mNetManager.MainLoop();
         }
+        theStatus = mError;
     }
     if (0 != theStatus) {
         KFS_LOG_STREAM_ERROR <<
@@ -434,13 +659,10 @@ ObjectStoreFsck(
         KFS_LOG_EOM;
     } else {
         KFS_LOG_STREAM_INFO <<
-            "lost files: " << theLostCount <<
+            "lost files: " << mLostCount <<
         KFS_LOG_EOM;
     }
-    delete theClientPtr;
-    MsgLogger::Stop();
-    MdStream::Cleanup();
-    return ((0 == theStatus && 0 == theLostCount) ? 0 : 1);
+    return (0 == theStatus ? (0 < mLostCount ? -EINVAL : 0) : theStatus);
 }
 
 } // namespace KFS
@@ -448,5 +670,5 @@ ObjectStoreFsck(
 int
 main(int argc, char **argv)
 {
-    return KFS::ObjectStoreFsck(argc, argv);
+    return KFS::ObjStoreFsck::Run(argc, argv);
 }
