@@ -1371,12 +1371,25 @@ ReplayState::runCommitQueue(
         if (mCommitQueue.empty()) {
             return true;
         }
+        // Skip all pending entries with no log sequence.
+        CommitQueue::const_iterator it;
+        for (it = mCommitQueue.begin(); mCommitQueue.end() != it; ++it) {
+            if (it->logSeq.IsValid()) {
+                if (logSeq < it->logSeq) {
+                    return true;
+                }
+                break;
+            }
+        }
+        if (mCommitQueue.end() == it) {
+            return true;
+        }
         KFS_LOG_STREAM_ERROR <<
             "commit"
             " sequence: "   << logSeq <<
             " checkpoint: " << mCheckpointCommitted <<
             " non empty commit queue:"
-            " starts: "     << mCommitQueue.front().logSeq <<
+            " starts: "     << it->logSeq <<
         KFS_LOG_EOM;
         return false;
     }
@@ -1580,7 +1593,8 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         KFS_LOG_EOM;
         return false;
     }
-    if ((commitSeq < state.mLastCommitted ||
+    if (((commitSeq < state.mLastCommitted &&
+                state.mCheckpointCommitted != state.mLastCommitted) ||
             state.mLastLogAheadSeq < commitSeq) && (
                 commitSeq.mEpochSeq != state.mPrevViewCommitted.mEpochSeq ||
                 commitSeq.mViewSeq  != state.mPrevViewCommitted.mViewSeq ||
