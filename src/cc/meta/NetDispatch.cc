@@ -1107,8 +1107,8 @@ public:
             inOp.blockData.Consume(theLen);
             MetaRequest::GetLogWriter().SetCommitted(
                 replayer.getCommitted(),
-                fileID.getseed(),
                 replayer.getErrChksum(),
+                fileID.getseed(),
                 replayer.getLastCommittedStatus(),
                 replayer.getLastLogSeq()
             );
