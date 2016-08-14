@@ -574,7 +574,16 @@ public:
         if (mMaxRetryCount < mRetryCount) {
             HandleError();
         } else {
-            StartRead();
+            if (mServerIdx < mServers.size() &&
+                    mKfsNetClient.GetServerLocation() != mServers[mServerIdx]) {
+                if (mCheckpointFlag) {
+                    InitCheckpoint();
+                } else {
+                    LogFetchStart(mCheckLogSeqOnlyFlag);
+                }
+            } else {
+                StartRead();
+            }
         }
     }
 private:
