@@ -1623,28 +1623,6 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
 }
 
 static bool
-replay_setfsinfo(DETokenizer& c)
-{
-    c.pop_front();
-    int64_t fsid   = -1;
-    int64_t crtime = 0;
-    bool ok = pop_num(fsid,      "fsid", c, true);
-    ok =      pop_time(crtime, "crtime", c, ok);
-    if (! ok || fsid < 0) {
-        return false;
-    }
-    ReplayState& state = ReplayState::get(c);
-    if (state.mCurOp) {
-        return false;
-    }
-    state.mCurOp = new MetaSetFsInfo(fsid, crtime);
-    state.mCurOp->logseq = state.mLastLogAheadSeq;
-    state.mCurOp->logseq.mLogSeq++;
-    state.mCurOp->replayFlag = true;
-    return (state.handle() && state.incSeq());
-}
-
-static bool
 replay_group_users_reset(DETokenizer& c)
 {
     ReplayState& state = ReplayState::get(c);
@@ -2002,7 +1980,6 @@ get_entry_map()
     e.add_parser("filesysteminfo",          &restore_filesystem_info);
     e.add_parser("clearobjstoredelete",     &replay_clear_obj_store_delete);
     // Write ahead log entries.
-    e.add_parser("setfsinfo",               &replay_setfsinfo);
     e.add_parser("gur",                     &replay_group_users_reset);
     e.add_parser("gu",                      &replay_group_users);
     e.add_parser("guc",                     &replay_group_users);

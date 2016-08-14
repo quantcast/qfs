@@ -4175,21 +4175,17 @@ struct MetaLogWriterControl : public MetaRequest {
 };
 
 struct MetaSetFsInfo : public MetaRequest {
-    MetaSetFsInfo(int64_t fsid, int64_t crTime)
+    MetaSetFsInfo(
+        int64_t fsid   = -1,
+        int64_t crTime = -1)
         : MetaRequest(META_SET_FILE_SYSTEM_INFO, kLogIfOk),
           fileSystemId(fsid),
           createTime(crTime)
         {}
     virtual bool start();
     virtual void handle();
-    virtual bool log(ostream& os) const
-    {
-        os << "setfsinfo"
-            "/fsid/"   << fileSystemId <<
-            "/crtime/" << ShowTime(createTime) <<
-        "\n";
-        return true;
-    }
+    bool Validate()
+        { return (0 <= fileSystemId); }
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os << "setfsinfo "
@@ -4197,9 +4193,16 @@ struct MetaSetFsInfo : public MetaRequest {
             " time: " << createTime
         );
     }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("I", &MetaSetFsInfo::fileSystemId, int64_t(-1))
+        .Def("C", &MetaSetFsInfo::createTime,   int64_t(-1))
+        ;
+    }
 private:
-    const int64_t fileSystemId;
-    const int64_t createTime;
+    int64_t fileSystemId;
+    int64_t createTime;
 };
 
 struct MetaSetGroupUsers : public MetaRequest {
