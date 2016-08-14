@@ -68,6 +68,7 @@ public:
         const Properties&     inParameters,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
+        const string&         inMetaMd,
         string&               outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);

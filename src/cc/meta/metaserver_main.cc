@@ -68,6 +68,7 @@ namespace KFS
 
 using std::cerr;
 using std::ofstream;
+using std::ifstream;
 using libkfsio::globalNetManager;
 using libkfsio::SetIOBufferAllocator;
 
@@ -159,7 +160,13 @@ public:
             MsgLogger::Init(0);
         }
         static MetaServer sServer;
-        const bool        okFlag = sServer.Startup(argv[0], createEmptyFsFlag);
+#ifdef KFS_OS_NAME_LINUX
+        sServer.mMetaMd = ComputeMd("/proc/self/exe");
+#endif
+        if (sServer.mMetaMd.empty()) {
+            sServer.mMetaMd = ComputeMd(myname);
+        }
+        const bool okFlag = sServer.Startup(argv[0], createEmptyFsFlag);
         sServer.Cleanup();
         AuditLog::Stop();
         sslErr = SslFilter::Cleanup();
@@ -228,7 +235,8 @@ private:
           mLogWriterRunningFlag(false),
           mTimerRegisteredFlag(false),
           mCleanupDoneFlag(false),
-          mMetaDataSync(globalNetManager())
+          mMetaDataSync(globalNetManager()),
+          mMetaMd()
     {
         if (! sInstance) {
             sInstance = this;
@@ -334,6 +342,33 @@ private:
         string ret = cwd;
         return (ret + "/" + fileName);
     }
+    static string ComputeMd(const char* pathname)
+    {
+        const size_t kBufSize = size_t(1) << 20;
+        char* const  buf      = new char[kBufSize];
+        ifstream     is(pathname, ifstream::in | ifstream::binary);
+        MdStream     mds(0, false, string(), 0);
+
+        while (is && mds) {
+            is.read(buf, kBufSize);
+            mds.write(buf, is.gcount());
+        }
+        delete [] buf;
+        string ret;
+        if (! is.eof() || ! mds) {
+            const int err = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "md5sum " << QCUtils::SysError(err, pathname) <<
+            KFS_LOG_EOM;
+        } else {
+            ret = mds.GetMd();
+            KFS_LOG_STREAM_INFO <<
+                "md5sum " << pathname << ": " << ret <<
+            KFS_LOG_EOM;
+        }
+        is.close();
+        return ret;
+    }
     bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag);
 
     // This is to get settings from the core file.
@@ -367,6 +402,7 @@ private:
     bool           mTimerRegisteredFlag;
     bool           mCleanupDoneFlag;
     MetaDataSync   mMetaDataSync;
+    string         mMetaMd;
 
     static MetaServer* sInstance;
 }* MetaServer::sInstance = 0;
@@ -712,7 +748,8 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
                 mLogDir.c_str(),
                 mStartupProperties.getValue(
                     "metaServer.cleanupTempFiles", 1) != 0,
-                ! veifyAllLogSegmentsPresentFlag)) {
+                ! veifyAllLogSegmentsPresentFlag,
+                mMetaMd.c_str())) {
             return false;
         }
         // Init fs id if needed, leave create time 0, restorer will set these
@@ -788,6 +825,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             mStartupProperties,
             metatree.GetFsId(),
             mClientListenerLocation,
+            mMetaMd,
             logFileName)) != 0) {
         KFS_LOG_STREAM_FATAL <<
             "transaction log writer initialization failure: " <<
@@ -809,7 +847,8 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
                 mLogDir.c_str(),
                 mStartupProperties.getValue(
                     "metaServer.cleanupTempFiles", 1) != 0,
-                ! veifyAllLogSegmentsPresentFlag)) {
+                ! veifyAllLogSegmentsPresentFlag,
+                mMetaMd.c_str())) {
             return false;
         }
     }

@@ -85,6 +85,9 @@ public:
           mFileSystemId(-1),
           mState(kStateBackup),
           mNodeId(-1),
+          mClusterKey(),
+          mMetaMd(),
+          mMetaMds(),
           mReconfigureReqPtr(0),
           mPendingLocations(),
           mPendingChangesList(),
@@ -242,6 +245,40 @@ public:
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
         inReq.SetVrSMPtr(0);
     }
+    bool ValidateClusterKeyAndMd(
+        MetaVrRequest&    inReq,
+        seq_t             inSeq,
+        const Properties& inProps,
+        NodeId            inNodeId)
+    {
+        const char* const theCKeyPtr =
+            inProps.getValue(kMetaVrClusterKeyFieldNamePtr, "");
+        if (mClusterKey != theCKeyPtr) {
+            KFS_LOG_STREAM_ERROR <<
+                " seq: "      << inSeq <<
+                " node: "     << inNodeId <<
+                " cluster key mismatch: " <<
+                " expected: " << mClusterKey <<
+                " actual: "   << theCKeyPtr <<
+                " "           << inReq.Show() <<
+            KFS_LOG_EOM;
+            return false;
+        }
+        if (! mMetaMds.empty()) {
+            const string theMetaMd =
+                inProps.getValue(kMetaVrMetaMdFieldNamePtr, string());
+            if (mMetaMds.find(theMetaMd) == mMetaMds.end()) {
+                KFS_LOG_STREAM_ERROR <<
+                    " seq: "                    << inSeq <<
+                    " node: "                   << inNodeId <<
+                    " invalid meta server md: " << theMetaMd <<
+                    " "                         << inReq.Show() <<
+                KFS_LOG_EOM;
+                return false;
+            }
+        }
+        return true;
+    }
     void HandleReply(
         MetaVrStartViewChange& inReq,
         seq_t                  inSeq,
@@ -254,7 +291,8 @@ public:
             return;
         }
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
-        if (! IsActive(inNodeId)) {
+        if (! IsActive(inNodeId) ||
+                ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
             return;
         }
         const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
@@ -335,7 +373,8 @@ public:
         KFS_LOG_STREAM_DEBUG <<
             "replies: " << mStartViewReplayCount <<
         KFS_LOG_EOM;
-        if (! IsActive(inNodeId) || kStateStartViewPrimary != mState) {
+        if (! IsActive(inNodeId) || kStateStartViewPrimary != mState||
+                ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
             return;
         }
         const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
@@ -457,7 +496,8 @@ public:
         NetManager&           inNetManager,
         Replay&               inReplayer,
         int64_t               inFileSystemId,
-        const ServerLocation& inDataStoreLocation)
+        const ServerLocation& inDataStoreLocation,
+        const string&         inMetaMd)
     {
         if (mStartedFlag) {
             // Already started.
@@ -465,6 +505,7 @@ public:
         }
         mMetaDataSyncPtr = &inMetaDataSync;
         mNetManagerPtr   = &inNetManager;
+        mMetaMd          = inMetaMd;
         if (mConfig.IsEmpty() && mNodeId < 0) {
             mActiveCount = 0;
             mQuorum      = 0;
@@ -532,6 +573,20 @@ public:
                     theStrPtr->GetPtr(), theStrPtr->GetSize())) {
                 mMetaDataStoreLocation = theLocation;
             }
+        }
+        mClusterKey = inParameters.getValue(
+            kMetaClusterKeyParamNamePtr, mClusterKey);
+        const Properties::String* const theMdStrPtr =
+            inParameters.getValue(kMetaserverMetaMdsParamNamePtr);
+        if (theMdStrPtr) {
+            mMetaMds.clear();
+            istream& theStream = mInputStream.Set(
+                theMdStrPtr->GetPtr(), theMdStrPtr->GetSize());
+            string theMd;
+            while ((theStream >> theMd)) {
+                mMetaMds.insert(theMd);
+            }
+            mInputStream.Reset();
         }
         return 0;
     }
@@ -911,6 +966,11 @@ private:
         less<pair<NodeId, ServerLocation> >,
         StdFastAllocator<pair<NodeId, ServerLocation> >
     > NodeIdAndMDSLocations;
+    typedef set<
+        string,
+        less<string>,
+        StdFastAllocator<string>
+    > MetaMds;
 
     LogTransmitter&              mLogTransmitter;
     MetaDataSync*                mMetaDataSyncPtr;
@@ -919,6 +979,9 @@ private:
     int64_t                      mFileSystemId;
     State                        mState;
     NodeId                       mNodeId;
+    string                       mClusterKey;
+    string                       mMetaMd;
+    MetaMds                      mMetaMds;
     const MetaVrReconfiguration* mReconfigureReqPtr;
     Locations                    mPendingLocations;
     ChangesList                  mPendingChangesList;
@@ -1061,8 +1124,10 @@ private:
                     return;
                 }
                 mState = kStateLogSync;
+                const bool kAllowNonPrimaryFlag = true;
                 mMetaDataSyncPtr->ScheduleLogSync(
-                    mSyncServers, mLastLogSeq, mStartViewChangeMaxLastLogSeq);
+                    mSyncServers, mLastLogSeq, mStartViewChangeMaxLastLogSeq,
+                    kAllowNonPrimaryFlag);
             }
             return;
         }
@@ -1105,13 +1170,22 @@ private:
         inReq.mRetCommittedSeq = mCommittedSeq;
         inReq.mRetLastLogSeq   = mLastLogSeq;
         inReq.mRetFileSystemId = mFileSystemId;
+        inReq.mRetClusterKey   = mClusterKey;
+        inReq.mRetMetaMd       = mMetaMd;
     }
     bool VerifyViewChange(
         MetaVrRequest& inReq)
     {
-        if (mFileSystemId != inReq.mFileSystemId) {
+        if (mClusterKey != inReq.mClusterKey) {
+            inReq.status    = -EBADCLUSTERKEY;
+            inReq.statusMsg = "cluster key does not match";
+        } else if (mFileSystemId != inReq.mFileSystemId) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "file system id does not match";
+        } else if (! mMetaMds.empty() &&
+                mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "invalid meta server MD";
         } if (! mActiveFlag) {
             inReq.status    = -ENOENT;
             inReq.statusMsg = "node inactive";
@@ -1195,7 +1269,14 @@ private:
         MetaVrHello& inReq)
     {
         if (0 == inReq.status) {
-            if (mFileSystemId != inReq.mFileSystemId) {
+            if (mClusterKey != inReq.mClusterKey) {
+                inReq.status    = -EBADCLUSTERKEY;
+                inReq.statusMsg = "cluster key does not match";
+            } else if (! mMetaMds.empty() &&
+                    mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "invalid meta server MD";
+            } else if (mFileSystemId != inReq.mFileSystemId) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "file system id does not match";
             } else if (kStatePrimary == inReq.mCurState &&
@@ -1224,10 +1305,12 @@ private:
                 mState = kStateLogSync;
                 mSyncServers.clear();
                 mSyncServers.push_back(theLocation);
+                const bool kAllowNonPrimaryFlag = true;
                 mMetaDataSyncPtr->ScheduleLogSync(
                         mSyncServers,
                         mLastLogSeq,
-                        inReq.mLastLogSeq
+                        inReq.mLastLogSeq,
+                        kAllowNonPrimaryFlag
                 );
             }
         }
@@ -2091,6 +2174,8 @@ private:
         inReq.mFileSystemId      = mFileSystemId;
         inReq.mMetaDataStoreHost = mMetaDataStoreLocation.hostname;
         inReq.mMetaDataStorePort = mMetaDataStoreLocation.port;
+        inReq.mClusterKey        = mClusterKey;
+        inReq.mMetaMd            = mMetaMd;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
     void StartViewChange()
@@ -2262,11 +2347,12 @@ MetaVrSM::Start(
     NetManager&           inNetManager,
     Replay&               inReplayer,
     int64_t               inFileSystemId,
-    const ServerLocation& inDataStoreLocation)
+    const ServerLocation& inDataStoreLocation,
+    const string&         inMetaMd)
 {
     return mImpl.Start(
         inMetaDataSync, inNetManager, inReplayer,
-        inFileSystemId, inDataStoreLocation
+        inFileSystemId, inDataStoreLocation, inMetaMd
     );
 }
 

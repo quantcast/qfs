@@ -4288,12 +4288,15 @@ struct MetaReadMetaData : public MetaRequest {
     MetaVrLogSeq endLogSeq;
     int64_t      readPos;
     bool         checkpointFlag;
+    bool         allowNotPrimaryFlag;
     int          readSize;
     int          maxReadSize;
     uint32_t     checksum;
     int64_t      fileSize;
     bool         handledFlag;
     string       filename;
+    string       clusterKey;
+    string       metaMd;
     IOBuffer     data;
 
     MetaReadMetaData()
@@ -4303,12 +4306,15 @@ struct MetaReadMetaData : public MetaRequest {
           endLogSeq(),
           readPos(-1),
           checkpointFlag(false),
+          allowNotPrimaryFlag(false),
           readSize(-1),
           maxReadSize(-1),
           checksum(0),
           fileSize(-1),
           handledFlag(false),
           filename(),
+          clusterKey(),
+          metaMd(),
           data()
         {}
     bool Validate()
@@ -4326,11 +4332,12 @@ struct MetaReadMetaData : public MetaRequest {
     template<typename T> static T& ParserDef(T& parser)
     {
         return  MetaRequest::ParserDef(parser)
-        .Def2("FsId",      "FI", &MetaReadMetaData::fileSystemId, int64_t(-1))
-        .Def2("Start-log",  "L", &MetaReadMetaData::startLogSeq              )
-        .Def2("Checkpoint", "C", &MetaReadMetaData::checkpointFlag,     false)
-        .Def2("Read-size",  "S", &MetaReadMetaData::readSize,              -1)
-        .Def2("Read-pos",   "O", &MetaReadMetaData::readPos,      int64_t(-1))
+        .Def2("FsId",       "FI", &MetaReadMetaData::fileSystemId,  int64_t(-1))
+        .Def2("Start-log",   "L", &MetaReadMetaData::startLogSeq               )
+        .Def2("Checkpoint",  "C", &MetaReadMetaData::checkpointFlag,      false)
+        .Def2("Read-size",   "S", &MetaReadMetaData::readSize,               -1)
+        .Def2("Read-pos",    "O", &MetaReadMetaData::readPos,       int64_t(-1))
+        .Def2("Not-prm-ok", "NP", &MetaReadMetaData::allowNotPrimaryFlag, false)
         ;
     }
 };
@@ -4400,6 +4407,9 @@ struct MetaHibernatedRemove : public MetaRequest {
         ;
     }
 };
+
+const char* const kMetaClusterKeyParamNamePtr    = "metaServer.clusterKey";
+const char* const kMetaserverMetaMdsParamNamePtr = "metaServer.metaMds";
 
 enum LogBlockAckFlags
 {

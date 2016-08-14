@@ -1918,6 +1918,8 @@ MetaReadMetaData::Request(ReqOstream& os)
         (checkpointFlag ? 1 : 0) << "\r\n" <<
     (shortRpcFormatFlag ? "S:"  : "Read-size: ")  << readSize << "\r\n" <<
     (shortRpcFormatFlag ? "O:"  : "Read-pos: ")   << readPos << "\r\n" <<
+    (shortRpcFormatFlag ? "NP:" : "Not-prm-ok: ") <<
+        (allowNotPrimaryFlag ? 1 : 0) << "\r\n"
     "\r\n"
     ;
 }
@@ -1939,6 +1941,10 @@ MetaReadMetaData::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ?  "E" : "End-log",   MetaVrLogSeq());
     maxReadSize  = prop.getValue(
         shortRpcFormatFlag ? "M" :  "Max-rd-size",  -1);
+    clusterKey   = prop.getValue(
+        shortRpcFormatFlag ? "CK" : "Cluster-key", string());
+    metaMd       = prop.getValue(
+        shortRpcFormatFlag ? "MM" : "Meta-md",     string());
 }
 
 void

@@ -50,6 +50,8 @@ const char* const kMetaVrStateFieldNamePtr           = "VS";
 const char* const kMetaVrFsIdFieldNamePtr            = "VI";
 const char* const kMetaVrMDSLocationHostFieldNamePtr = "VH";
 const char* const kMetaVrMDSLocationPortFieldNamePtr = "VP";
+const char* const kMetaVrClusterKeyFieldNamePtr      = "VK";
+const char* const kMetaVrMetaMdFieldNamePtr          = "VM";
 
 class MetaVrRequest : public MetaRequest
 {
@@ -65,12 +67,16 @@ public:
     int64_t        mFileSystemId;
     string         mMetaDataStoreHost;
     int            mMetaDataStorePort;
+    string         mClusterKey;
+    string         mMetaMd;
     seq_t          mRetCurEpochSeq;
     seq_t          mRetCurViewSeq;
     MetaVrLogSeq   mRetCommittedSeq;
     MetaVrLogSeq   mRetLastLogSeq;
     int            mRetCurState;
     int64_t        mRetFileSystemId;
+    string         mRetClusterKey;
+    string         mRetMetaMd;
     ServerLocation mRetMetaDataStoreLocation;
 
     MetaVrRequest(
@@ -87,12 +93,16 @@ public:
           mFileSystemId(-1),
           mMetaDataStoreHost(),
           mMetaDataStorePort(-1),
+          mClusterKey(),
+          mMetaMd(),
           mRetCurEpochSeq(-1),
           mRetCurViewSeq(-1),
           mRetCommittedSeq(),
           mRetLastLogSeq(),
           mRetCurState(-1),
           mRetFileSystemId(-1),
+          mRetClusterKey(),
+          mRetMetaMd(),
           mRetMetaDataStoreLocation(),
           mVrSMPtr(0),
           mRefCount(0)
@@ -118,6 +128,8 @@ public:
         .Def("I",  &MetaVrRequest::mFileSystemId,    int64_t(-1))
         .Def("MP", &MetaVrRequest::mMetaDataStorePort,        -1)
         .Def("MH", &MetaVrRequest::mMetaDataStoreHost           )
+        .Def("CK", &MetaVrRequest::mClusterKey                  )
+        .Def("MD", &MetaVrRequest::mMetaMd                      )
         ;
     }
     void Request(
@@ -184,6 +196,14 @@ public:
         if (! mRetMetaDataStoreLocation.hostname.empty()) {
             inOs << kMetaVrMDSLocationHostFieldNamePtr <<
                 ":" << mRetMetaDataStoreLocation.hostname << "\r\n";
+        }
+        if (! mRetClusterKey.empty()) {
+            inOs << kMetaVrClusterKeyFieldNamePtr <<
+                ":" << mRetClusterKey <<  "\r\n";
+        }
+        if (! mRetMetaMd.empty()) {
+            inOs << kMetaVrMetaMdFieldNamePtr <<
+                ":" << mRetMetaMd <<  "\r\n";
         }
         inOs << "\r\n";
     }

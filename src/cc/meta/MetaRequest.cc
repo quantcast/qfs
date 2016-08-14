@@ -6105,6 +6105,14 @@ MetaReadMetaData::response(ReqOstream& os, IOBuffer& buf)
     if (! filename.empty()) {
         os << (shortRpcFormatFlag ? "N:" : "Name: ") << filename << "\r\n";
     }
+    if (! clusterKey.empty()) {
+        os << (shortRpcFormatFlag ? "CK:" : "Cluster-key: ") <<
+            clusterKey << "\r\n";
+    }
+    if (! metaMd.empty()) {
+        os << (shortRpcFormatFlag ? "MM:" : "Meta-md: ") <<
+            metaMd << "\r\n";
+    }
     os << "\r\n";
     os.flush();
     buf.Move(&data);
