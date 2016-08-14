@@ -155,6 +155,7 @@ public:
         const Properties&     inParameters,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
+        const string&         inMetaMd,
         string&               outCurLogFileName)
     {
         if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
@@ -174,7 +175,8 @@ public:
                 mNetManager,
                 *mReplayerPtr,
                 inFileSystemId,
-                inDataStoreLocation))) {
+                inDataStoreLocation,
+                inMetaMd))) {
             return mError;
         }
         mMdStream.Reset(this);
@@ -797,6 +799,9 @@ private:
                         theEndPtr != thePtr;
                         thePtr = thePtr->next) {
                     if (META_LOG_WRITER_CONTROL != thePtr->op &&
+                            (META_READ_META_DATA != thePtr->op ||
+                                 ! static_cast<const MetaReadMetaData*>(
+                                    thePtr)->allowNotPrimaryFlag) &&
                             (((MetaRequest::kLogIfOk == thePtr->logAction &&
                                 0 == thePtr->status) ||
                             MetaRequest::kLogAlways == thePtr->logAction) ||
@@ -1426,6 +1431,7 @@ LogWriter::Start(
     const Properties&     inParameters,
     int64_t               inFileSystemId,
     const ServerLocation& inDataStoreLocation,
+    const string&         inMetaMd,
     string&               outCurLogFileName)
 {
     return mImpl.Start(
@@ -1439,6 +1445,7 @@ LogWriter::Start(
         inParameters,
         inFileSystemId,
         inDataStoreLocation,
+        inMetaMd,
         outCurLogFileName
     );
 }

@@ -1857,11 +1857,14 @@ struct MetaReadMetaData : public KfsMonOp {
     MetaVrLogSeq endLogSeq;
     int64_t      readPos;
     bool         checkpointFlag;
+    bool         allowNotPrimaryFlag;
     int          readSize;
     int          maxReadSize;
     uint32_t     checksum;
     int64_t      fileSize;
     string       fileName;
+    string       clusterKey;
+    string       metaMd;
 
     MetaReadMetaData(kfsSeq_t inSeq)
         : KfsMonOp(CMD_META_READ_META_DATA, inSeq),
@@ -1870,11 +1873,14 @@ struct MetaReadMetaData : public KfsMonOp {
           endLogSeq(),
           readPos(-1),
           checkpointFlag(false),
+          allowNotPrimaryFlag(false),
           readSize(0),
           maxReadSize(0),
           checksum(0),
           fileSize(-1),
-          fileName()
+          fileName(),
+          clusterKey(),
+          metaMd()
         {}
     virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -1886,10 +1892,13 @@ struct MetaReadMetaData : public KfsMonOp {
             " end: "        << endLogSeq <<
             " pos: "        << readPos <<
             " checkpoint: " << checkpointFlag <<
+            " not prm ok:"  << allowNotPrimaryFlag <<
             " size: "       << readSize <<
             " max read: "   << maxReadSize <<
             " crc32: "      << checksum <<
-            " name: "       << fileName
+            " name: "       << fileName <<
+            " ckey: "       << clusterKey <<
+            " metamd: "     << metaMd
         ;
         return os;
     }

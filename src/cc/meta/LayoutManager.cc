@@ -2217,7 +2217,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             md5sum.clear();
         }
     }
-    mClusterKey = props.getValue("metaServer.clusterKey", string());
+    mClusterKey = props.getValue(kMetaClusterKeyParamNamePtr, mClusterKey);
 
     mMaxResponseSize = props.getValue(
         "metaServer.maxResponseSize",

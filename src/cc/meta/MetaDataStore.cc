@@ -216,7 +216,9 @@ public:
           mCurThreadIdx(0),
           mPendingCount(0),
           mNetManager(inNetManager),
-          mNow(inNetManager.Now())
+          mNow(inNetManager.Now()),
+          mMetaMd(),
+          mClusterKey()
         { mNetManager.RegisterTimeoutHandler(this); }
     ~Impl()
     {
@@ -239,6 +241,8 @@ public:
         mMaxCheckpointsToKeepCount = max(1, inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxCheckpointsToKeepCount"),
             mMaxCheckpointsToKeepCount));
+        mClusterKey = inParameters.getValue(
+            kMetaClusterKeyParamNamePtr, mClusterKey);
         if (! mWorkersPtr) {
             mWorkersCount = max(1, inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("threadCount"),
@@ -254,6 +258,8 @@ public:
         if (inReadOp.status < 0) {
             return;
         }
+        inReadOp.clusterKey = mClusterKey;
+        inReadOp.metaMd     = mMetaMd;
         QCStMutexLocker theLock(mMutex);
         if (! mWorkersPtr) {
             inReadOp.status    = -ENOENT;
@@ -442,7 +448,8 @@ public:
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr,
         bool        inRemoveTmpCheckupointsFlag,
-        bool        inIgnoreMissingSegmentsFlag)
+        bool        inIgnoreMissingSegmentsFlag,
+        const char* inMetaMdPtr)
     {
         if (mWorkersPtr || mWorkersCount <= 0) {
             KFS_LOG_STREAM_ERROR <<
@@ -450,6 +457,7 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
+        mMetaMd = inMetaMdPtr ? inMetaMdPtr : "";
         return LoadSelf(
             inCheckpointDirPtr,
             inLogDirPtr,
@@ -682,6 +690,8 @@ private:
     int          mPendingCount;
     NetManager&  mNetManager;
     time_t       mNow;
+    string       mMetaMd;
+    string       mClusterKey;
 
     template<typename T>
     static void CloseAll(
@@ -1557,13 +1567,15 @@ MetaDataStore::Load(
     const char* inCheckpointDirPtr,
     const char* inLogDirPtr,
     bool        inRemoveTmpFilesFlag,
-    bool        inIgnoreMissingSegmentsFlag)
+    bool        inIgnoreMissingSegmentsFlag,
+    const char* inMetaMdPtr)
 {
     return mImpl.Load(
         inCheckpointDirPtr,
         inLogDirPtr,
         inRemoveTmpFilesFlag,
-        inIgnoreMissingSegmentsFlag
+        inIgnoreMissingSegmentsFlag,
+        inMetaMdPtr
     );
 }
 

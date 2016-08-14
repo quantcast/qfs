@@ -328,7 +328,8 @@ public:
         NetManager&           inNetManager,
         Replay&               inReplayer,
         int64_t               inFileSystemId,
-        const ServerLocation& inDataStoreLocation);
+        const ServerLocation& inDataStoreLocation,
+        const string&         inMetaMd);
     void Shutdown();
     const Config& GetConfig() const;
     int GetQuorum() const;

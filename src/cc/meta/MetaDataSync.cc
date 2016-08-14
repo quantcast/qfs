@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <vector>
 #include <string>
+#include <sstream>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -62,6 +63,7 @@
 namespace KFS
 {
 using std::max;
+using std::istringstream;
 
 using client::KfsNetClient;
 using client::KfsOp;
@@ -143,6 +145,7 @@ public:
           mPendingSyncServers(),
           mPendingSyncLogSeq(),
           mPendingSyncLogEndSeq(),
+          mPendingAllowNotPrimaryFlag(false),
           mSyncScheduledCount(0),
           mMutex(),
           mFileName(),
@@ -171,6 +174,7 @@ public:
           mLogSeq(),
           mNextLogSegIdx(-1),
           mCheckpointFlag(false),
+          mAllowNotPrimaryFlag(false),
           mBuffer(),
           mFreeWriteOpList(),
           mFreeWriteOpCount(0),
@@ -191,7 +195,9 @@ public:
           mNoLogSeqCount(0),
           mStatus(0),
           mThread(),
-          mReplayerPtr(0)
+          mReplayerPtr(0),
+          mClusterKey(),
+          mMetaMds()
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
         mKfsNetClient.SetAuthContext(&mAuthContext);
@@ -266,6 +272,18 @@ public:
         mKfsNetClient.SetTimeSecBetweenRetries(inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("timeBetweenRetries"),
                 mKfsNetClient.GetTimeSecBetweenRetries()));
+        const Properties::String* const theMdsPtr =
+            inParameters.getValue(kMetaserverMetaMdsParamNamePtr);
+        if (theMdsPtr) {
+            mMetaMds.clear();
+            istringstream theStream(theMdsPtr->GetStr());
+            string theMd;
+            while ((theStream >> theMd)) {
+                mMetaMds.insert(theMd);
+            }
+        }
+        mClusterKey = inParameters.getValue(
+            kMetaClusterKeyParamNamePtr, mClusterKey);
         const Properties::String* const theServersPtr = mReplayerPtr ? 0 :
             inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("servers"));
@@ -410,10 +428,11 @@ public:
         }
         StopKeepData();
         Reset();
-        mReplayerPtr     = &inReplayer;
-        mLogSeq          = inLogSeq;
-        mWriteToFileFlag = false;
-        mStatus          = 0;
+        mReplayerPtr         = &inReplayer;
+        mLogSeq              = inLogSeq;
+        mWriteToFileFlag     = false;
+        mStatus              = 0;
+        mAllowNotPrimaryFlag = false;
         if (&mRuntimeNetManager != &mKfsNetClient.GetNetManager()) {
             mKfsNetClient.SetNetManager(mRuntimeNetManager);
             mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
@@ -426,7 +445,8 @@ public:
     void ScheduleLogSync(
         const Servers&      inServers,
         const MetaVrLogSeq& inLogStartSeq,
-        const MetaVrLogSeq& inLogEndSeq)
+        const MetaVrLogSeq& inLogEndSeq,
+        bool                inAllowNotPrimaryFlag)
     {
         if (! mReadOpsPtr) {
             return;
@@ -434,11 +454,13 @@ public:
         QCStMutexLocker theLocker(mMutex);
         const bool theUpdateFlag = inServers != mPendingSyncServers ||
                 inLogStartSeq != mPendingSyncLogSeq ||
-                inLogEndSeq != mPendingSyncLogEndSeq;
+                inLogEndSeq != mPendingSyncLogEndSeq ||
+                mAllowNotPrimaryFlag != mPendingAllowNotPrimaryFlag;
         if (theUpdateFlag) {
-            mPendingSyncServers   = inServers;
-            mPendingSyncLogSeq    = inLogStartSeq;
-            mPendingSyncLogEndSeq = inLogEndSeq;
+            mPendingAllowNotPrimaryFlag = inAllowNotPrimaryFlag;
+            mPendingSyncServers         = inServers;
+            mPendingSyncLogSeq          = inLogStartSeq;
+            mPendingSyncLogEndSeq       = inLogEndSeq;
             SyncAddAndFetch(mSyncScheduledCount, 1);
         }
         theLocker.Unlock();
@@ -533,8 +555,10 @@ public:
         if (mReplayerPtr && 0 < SyncAddAndFetch(mSyncScheduledCount, 0)) {
             QCStMutexLocker theLocker(mMutex);
             if (mServers != mPendingSyncServers || mLogSeq < mPendingSyncLogSeq ||
-                    0 != mStatus) {
-                mServers = mPendingSyncServers;
+                    0 != mStatus ||
+                    mAllowNotPrimaryFlag != mPendingAllowNotPrimaryFlag) {
+                mServers             = mPendingSyncServers;
+                mAllowNotPrimaryFlag = mPendingAllowNotPrimaryFlag;
                 mServerIdx = 0;
                 mSyncScheduledCount = 0;
                 const MetaVrLogSeq theLogSeq = mPendingSyncLogSeq;
@@ -558,6 +582,11 @@ private:
         MetaRequest,
         MetaRequest::GetNext
     > FreeWriteOpList;
+    typedef set<
+        string,
+        less<string>,
+        StdFastAllocator<string>
+    > MetaMds;
     typedef LogReceiver::Replayer Replayer;
 
     NetManager&       mRuntimeNetManager;
@@ -567,6 +596,7 @@ private:
     Servers           mPendingSyncServers;
     MetaVrLogSeq      mPendingSyncLogSeq;
     MetaVrLogSeq      mPendingSyncLogEndSeq;
+    bool              mPendingAllowNotPrimaryFlag;
     int               mSyncScheduledCount;
     QCMutex           mMutex;
     string            mFileName;
@@ -595,6 +625,7 @@ private:
     MetaVrLogSeq      mLogSeq;
     seq_t             mNextLogSegIdx;
     bool              mCheckpointFlag;
+    bool              mAllowNotPrimaryFlag;
     IOBuffer          mBuffer;
     FreeWriteOpList   mFreeWriteOpList;
     int               mFreeWriteOpCount;
@@ -616,6 +647,8 @@ private:
     int               mStatus;
     QCThread          mThread;
     Replayer*         mReplayerPtr;
+    string            mClusterKey;
+    MetaMds           mMetaMds;
     char              mCommmitBuf[kMaxCommitLineLen];
 
     void ClearPendingList()
@@ -736,17 +769,18 @@ private:
     bool StartRead(
         ReadOp& inOp)
     {
-        inOp.fileSystemId   = mFileSystemId;
-        inOp.startLogSeq    = mLogSeq;
-        inOp.readPos        = inOp.mPos;
-        inOp.checkpointFlag = mCheckpointFlag;
-        inOp.readSize       = 0 <= mFileSize ?
+        inOp.fileSystemId        = mFileSystemId;
+        inOp.startLogSeq         = mLogSeq;
+        inOp.readPos             = inOp.mPos;
+        inOp.checkpointFlag      = mCheckpointFlag;
+        inOp.allowNotPrimaryFlag = mAllowNotPrimaryFlag;
+        inOp.readSize            = 0 <= mFileSize ?
             (int)min(mFileSize - inOp.mPos, int64_t(mCurMaxReadSize)) :
             mCurMaxReadSize;
-        inOp.mInFlightFlag  = true;
-        inOp.mPos           = inOp.mPos;
-        inOp.fileSize       = -1;
-        inOp.status         = 0;
+        inOp.mInFlightFlag       = true;
+        inOp.mPos                = inOp.mPos;
+        inOp.fileSize            = -1;
+        inOp.status              = 0;
         inOp.fileName.clear();
         inOp.statusMsg.clear();
         inOp.mBuffer.Clear();
@@ -759,6 +793,19 @@ private:
     void Handle(
         ReadOp& inOp)
     {
+        if (inOp.clusterKey != mClusterKey) {
+            inOp.status    = -EINVAL;
+            inOp.statusMsg = "invalid cluster key";
+            HandleReadError(inOp);
+            return;
+        }
+        if (! mMetaMds.empty() &&
+                mMetaMds.find(inOp.metaMd) == mMetaMds.end()) {
+            inOp.status    = -EINVAL;
+            inOp.statusMsg = "invalid meta md";
+            HandleReadError(inOp);
+            return;
+        }
         if (mLogSeq.IsValid() && ((0 != mPos || mWriteToFileFlag) ?
                 mLogSeq != inOp.startLogSeq : mLogSeq < inOp.startLogSeq)) {
             KFS_LOG_STREAM_ERROR <<
@@ -1863,9 +1910,11 @@ MetaDataSync::StartLogSync(
 MetaDataSync::ScheduleLogSync(
     const MetaDataSync::Servers& inServers,
     const MetaVrLogSeq&          inLogStartSeq,
-    const MetaVrLogSeq&          inLogEndSeq)
+    const MetaVrLogSeq&          inLogEndSeq,
+    bool                         inAllowNotPrimaryFlag)
 {
-    mImpl.ScheduleLogSync(inServers, inLogStartSeq, inLogEndSeq);
+    mImpl.ScheduleLogSync(
+        inServers, inLogStartSeq, inLogEndSeq, inAllowNotPrimaryFlag);
 }
 
     void

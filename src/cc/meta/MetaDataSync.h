@@ -64,7 +64,8 @@ public:
     void ScheduleLogSync(
         const Servers&      inServers,
         const MetaVrLogSeq& inLogStartSeq,
-        const MetaVrLogSeq& inLogEndSeq);
+        const MetaVrLogSeq& inLogEndSeq,
+        bool                inAllowNotPrimaryFlag);
 private:
     class Impl;
     Impl& mImpl;

@@ -61,7 +61,8 @@ public:
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr,
         bool        inRemoveTmpFilesFlag,
-        bool        inIgnoreMissingSegmentsFlag);
+        bool        inIgnoreMissingSegmentsFlag,
+        const char* inMetaMdPtr);
     int Start();
     void Shutdown();
     void PrepareToFork();
