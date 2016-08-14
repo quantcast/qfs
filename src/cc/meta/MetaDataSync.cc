@@ -38,6 +38,7 @@
 
 #include "common/MsgLogger.h"
 #include "common/SingleLinkedQueue.h"
+#include "common/IntToString.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ClientAuthContext.h"
@@ -875,6 +876,7 @@ private:
                 }
                 return;
             }
+            const MetaVrLogSeq thePrevLogSeq = mLogSeq;
             mLogSeq         = inOp.startLogSeq;
             mCurMaxReadSize = min(mMaxReadSize, 0 < inOp.maxReadSize ?
                 inOp.maxReadSize : inOp.mBuffer.BytesConsumable());
@@ -904,7 +906,11 @@ private:
                             mCheckpointFlag ? 0 : &theSegIdx) ||
                         theLogSeq != mLogSeq ||
                         (! mCheckpointFlag && 0 < mNextLogSegIdx &&
-                            theSegIdx != mNextLogSegIdx)) {
+                            theSegIdx != mNextLogSegIdx &&
+                            (! thePrevLogSeq.IsValid() ||
+                                thePrevLogSeq != mLogSeq ||
+                                theSegIdx < mNextLogSegIdx)
+                        )) {
                     KFS_LOG_STREAM_ERROR <<
                         "invalid file name: " << inOp.Show() <<
                         " log sequence:"
@@ -923,13 +929,26 @@ private:
                     mFileName.assign(
                         mCheckpointDir.data(), mCheckpointDir.size());
                 } else {
-                    mNextLogSegIdx = theSegIdx;
+                    if (mNextLogSegIdx < 0) {
+                        mNextLogSegIdx = theSegIdx;
+                    }
                     mFileName.assign(mLogDir.data(), mLogDir.size());
                 }
                 if (! mFileName.empty() && '/' != *mFileName.rbegin()) {
                     mFileName += '/';
                 }
                 mFileName += inOp.fileName;
+                if (mNextLogSegIdx != theSegIdx) {
+                    const size_t thePos = mFileName.rfind('.');
+                    if (string::npos == thePos) {
+                        inOp.status    = -EINVAL;
+                        inOp.statusMsg = "invalid file name";
+                        HandleReadError(inOp);
+                        return;
+                    }
+                    mFileName.erase(thePos + 1);
+                    AppendDecIntToString(mFileName, mNextLogSegIdx);
+                }
                 mFileName += mTmpSuffix;
                 mFd = open(
                     mFileName.c_str(),
