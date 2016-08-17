@@ -562,26 +562,13 @@ private:
             if (--mPendingCount < 0) {
                 panic("log writer: request completion invalid pending count");
             }
-            if (0 == theReq.status && META_LOG_WRITER_CONTROL == thePtr->op) {
-                MetaLogWriterControl& theCtl =
-                    static_cast<MetaLogWriterControl&>(theReq);
-                // Run checkpoint completion after the replay queue advances,
-                // unless if the corresponding log sequence is already
-                // committed.
-                if (MetaLogWriterControl::kCheckpointNewLog == theCtl.type &&
-                        theCtl.lastLogSeq != mCommitted.mSeq) {
-                    if (mReplayerPtr->setReplayState(
-                            mCommitted.mSeq,
-                            mCommitted.mErrChkSum,
-                            mCommitted.mStatus,
-                            &theCtl)) {
-                        continue;
-                    }
-                    panic("log writer: checkpoint new log"
-                        " set replay state failure");
-                }
+            if (IsMetaLogWriteOrVrError(thePtr->status) ||
+                    (META_LOG_WRITER_CONTROL == thePtr->op &&
+                    MetaLogWriterControl::kCheckpointNewLog !=
+                        static_cast<MetaLogWriterControl*>(thePtr)->type) ||
+                    ! mReplayerPtr->submit(*thePtr)) {
+                submit_request(&theReq);
             }
-            submit_request(&theReq);
         }
         if (theSetReplayStateFlag && ! mReplayerPtr->setReplayState(
                 mCommitted.mSeq,

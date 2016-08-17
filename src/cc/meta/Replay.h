@@ -114,6 +114,14 @@ public:
         int                 lastCommittedStatus,
         MetaRequest*        commitQueue);
     bool commitAll();
+    bool submit(MetaRequest& req)
+    {
+        if (emptyQueueFlag) {
+            return false;
+        }
+        enqueue(req);
+        return true;
+    }
 
     class BlockChecksum
     {
@@ -126,16 +134,16 @@ public:
         size_t   skip;
         uint32_t checksum;
     };
-    class ReplayState;
+    class State;
     class Tokenizer
     {
     public:
-        Tokenizer(istream& file, Replay* replay);
+        Tokenizer(istream& file, Replay* replay, bool* emptyQueueFlag);
         ~Tokenizer();
         DETokenizer& Get() { return tokenizer; }
-        ReplayState& GetState() { return state; }
+        State& GetState() { return state; }
     private:
-        ReplayState& state;
+        State&       state;
         DETokenizer& tokenizer;
     };
     static void AddRestotreEntries(DiskEntry& e);
@@ -149,6 +157,7 @@ private:
     int              lastLogIntBase;
     bool             appendToLastLogFlag;
     bool             verifyAllLogSegmentsPresetFlag;
+    bool             emptyQueueFlag;
     Tokenizer        replayTokenizer;
     MetaVrLogSeq&    checkpointCommitted;
     MetaVrLogSeq&    committed;
@@ -178,6 +187,7 @@ private:
         { return  (0 <= logSeqStartNum && logSeqStartNum <= num); }
     void update();
     string getLastLog();
+    void enqueue(MetaRequest& req);
 private:
     // No copy.
     Replay(const Replay&);

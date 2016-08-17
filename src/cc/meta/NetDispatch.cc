@@ -1105,13 +1105,6 @@ public:
                 panic("log block apply failure");
             }
             inOp.blockData.Consume(theLen);
-            MetaRequest::GetLogWriter().SetCommitted(
-                replayer.getCommitted(),
-                replayer.getErrChksum(),
-                fileID.getseed(),
-                replayer.getLastCommittedStatus(),
-                replayer.getLastLogSeq()
-            );
         }
         if (replayer.getCommitted() != inOp.blockCommitted) {
             KFS_LOG_STREAM_FATAL <<

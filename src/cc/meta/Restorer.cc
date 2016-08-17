@@ -889,7 +889,7 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
     }
 
     const DiskEntry&  entrymap = get_entry_map();
-    Replay::Tokenizer replayTokenizer(file, 0);
+    Replay::Tokenizer replayTokenizer(file, 0, 0);
     DETokenizer&      tokenizer = replayTokenizer.Get();
 
     restoreChecksum.clear();

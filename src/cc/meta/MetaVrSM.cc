@@ -503,6 +503,12 @@ public:
             // Already started.
             return -EINVAL;
         }
+        if ((mConfig.IsEmpty() && mNodeId < 0) ||
+                (mActiveCount <= 0 && mQuorum <= 0 &&
+                    ((mConfig.IsEmpty() && 0 == mNodeId) ||
+                        AllInactiveFindPrimary() == mNodeId))) {
+            inReplayer.commitAll();
+        }
         mMetaDataSyncPtr = &inMetaDataSync;
         mNetManagerPtr   = &inNetManager;
         mMetaMd          = inMetaMd;
@@ -512,7 +518,6 @@ public:
             mState       = kStatePrimary;
             mLastUpTime  = TimeNow();
             mActiveFlag  = true;
-            inReplayer.commitAll();
         } else {
             if (! mConfig.IsEmpty() && mNodeId < 0) {
                 KFS_LOG_STREAM_ERROR <<
@@ -526,7 +531,6 @@ public:
                         AllInactiveFindPrimary() == mNodeId)) {
                 mState      = kStatePrimary;
                 mLastUpTime = TimeNow();
-                inReplayer.commitAll();
             } else {
                 if (mActiveCount <= 0 && mQuorum <= 0 && mConfig.IsEmpty()) {
                     KFS_LOG_STREAM_WARN <<
@@ -1588,8 +1592,10 @@ private:
         if (! ParseNodeIdList(inReq)) {
             return;
         }
+        ApplyT(inReq, kActiveCheckNotActive, NopFunc());
         if (! inReq.logseq.IsValid() &&
-                size_t(1) < mConfig.GetNodes().size() &&
+                0 == inReq.status &&
+                mPendingChangesList.size() != mConfig.GetNodes().size() &&
                 mActiveCount <= 0 && mQuorum <= 0) {
             // Initial boot strap: do no allow to remove primary
             // in the case if all the nodes are inactive.
@@ -1601,13 +1607,12 @@ private:
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "removing primary node is not supported"
                         " all nodes are inactive,"
-                        " and configuration containing more than one node";
+                        " and configuration with more than one node";
                     mPendingChangesList.clear();
                     return;
                 }
             }
         }
-        ApplyT(inReq, kActiveCheckNotActive, NopFunc());
     }
     void ModifyActiveStatus(
         MetaVrReconfiguration& inReq,
