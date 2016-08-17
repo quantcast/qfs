@@ -1193,7 +1193,7 @@ private:
         } if (! mActiveFlag) {
             inReq.status    = -ENOENT;
             inReq.statusMsg = "node inactive";
-        } else if (IsActive(inReq.mNodeId)) {
+        } else if (! IsActive(inReq.mNodeId)) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "request from inactive node";
         } else if (inReq.mEpochSeq < inReq.mLastLogSeq.mEpochSeq ||

@@ -54,11 +54,11 @@ public:
     ST& operator<<(unsigned long      inVal) { return InsertInt(inVal); }
     ST& operator<<(unsigned long long inVal) { return InsertInt(inVal); }
     ST& operator<<(const ServerLocation& inLoc)
-        { mStream << inLoc; return *this; }
+        { return Display(inLoc); }
     ST& operator<<(const CIdChecksum& inChecksum)
-        { mStream << inChecksum; return *this; }
-    ST& operator<<(const MetaVrLogSeq& inChecksum)
-        { mStream << inChecksum; return *this; }
+        { return Display(inChecksum); }
+    ST& operator<<(const MetaVrLogSeq& inVal)
+        { return Display(inVal); }
     template<typename VT>
     ST& operator<<(const VT& inVal) { mStream << inVal; return *this; }
     ST& flush() { mStream.flush(); return *this; }
@@ -69,6 +69,8 @@ public:
         { mStream.write(inPtr, inCount); return *this; }
     T& Get() const { return mStream; }
 private:
+    template<typename VT>
+    ST& Display(const VT& inVal) { return inVal.Display(*this); }
     enum { kBufSize = 2 + 1 + sizeof(long long) * 2 };
     T&   mStream;
     char mBuf[kBufSize + 1];

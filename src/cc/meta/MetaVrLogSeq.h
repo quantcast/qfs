@@ -93,7 +93,7 @@ public:
         return ! (*this == inRhs);
     }
     template<typename OST>
-    OST& Insert(
+    OST& Display(
         OST& inStream) const
     {
         return (inStream << mEpochSeq << " " << mViewSeq << " " << mLogSeq);
@@ -123,7 +123,7 @@ operator<<(
     OST&                inStream,
     const MetaVrLogSeq& inSeq)
 {
-    return inSeq.Insert(inStream);
+    return inSeq.Display(inStream);
 }
 
 } // namespace KFS
