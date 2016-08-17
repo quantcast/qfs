@@ -546,7 +546,7 @@ private:
 };
 
 template<typename TOKEN>
-class NameTonDictionaryKey
+class NameToDictionaryKey
 {
 public:
     typedef TOKEN Token;
@@ -613,7 +613,7 @@ public:
 
 template <typename TOKEN, typename VALUE>
 class RequestParserLongNamesDictionary : public RequestParserDictionaryT<
-    TOKEN, VALUE, NameTonDictionaryKey<TOKEN> >
+    TOKEN, VALUE, NameToDictionaryKey<TOKEN> >
 {};
 
 template <typename TOKEN, typename VALUE>
