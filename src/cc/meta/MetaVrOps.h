@@ -69,6 +69,7 @@ public:
     int            mMetaDataStorePort;
     string         mClusterKey;
     string         mMetaMd;
+
     seq_t          mRetCurEpochSeq;
     seq_t          mRetCurViewSeq;
     MetaVrLogSeq   mRetCommittedSeq;
@@ -233,6 +234,23 @@ protected:
     }
     virtual void ReleaseSelf()
         { Unref(); }
+    ostream& ShowFields(
+        ostream& inOs) const
+    {
+        return (inOs <<
+            " epoch: "     << mEpochSeq <<
+            " view: "      << mViewSeq <<
+            " committed: " << mCommittedSeq <<
+            " last: "      << mLastLogSeq <<
+            " node: "      << mNodeId <<
+            " state: "     << MetaVrSM::GetStateName(mCurState) <<
+            " fsid: "      << mFileSystemId <<
+            " mds: "       << mMetaDataStoreHost <<
+            " "            << mMetaDataStorePort <<
+            " ckey: "      << mClusterKey <<
+            " md: "        << mMetaMd
+        );
+    }
 private:
     MetaVrRequest(
         const MetaVrRequest& inRequest);
@@ -248,16 +266,7 @@ public:
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
-    {
-        return (inOs <<
-            "vr-hello" <<
-            " fsid: "      << mFileSystemId <<
-            " node: "      << mNodeId <<
-            " epoch: "     << mEpochSeq <<
-            " view: "      << mViewSeq <<
-            " committed: " << mCommittedSeq
-        );
-    }
+        { return ShowFields(inOs << "vr-hello"); }
     virtual void HandleResponse(
         seq_t                 inSeq,
         const Properties&     inProps,
@@ -277,16 +286,7 @@ public:
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
-    {
-        return (inOs <<
-            "vr-start-view-change" <<
-            " fsid: "      << mFileSystemId <<
-            " node: "      << mNodeId <<
-            " epoch: "     << mEpochSeq <<
-            " view: "      << mViewSeq <<
-            " committed: " << mCommittedSeq
-        );
-    }
+        { return ShowFields(inOs << "vr-start-view-change"); }
     virtual void HandleResponse(
         seq_t                 inSeq,
         const Properties&     inProps,
@@ -310,14 +310,9 @@ public:
     virtual ostream& ShowSelf(
         ostream& inOs) const
     {
-        return (inOs <<
-            "vr-do-view-change" <<
-            " fsid: "      << mFileSystemId <<
-            " node: "      << mNodeId <<
-            " epoch: "     << mEpochSeq <<
-            " view: "      << mViewSeq <<
-            " committed: " << mCommittedSeq <<
-            " primary: "   << mPimaryNodeId
+        return (
+            ShowFields(inOs << "vr-do-view-change") <<
+            " primary: " << mPimaryNodeId
         );
     }
     virtual void HandleResponse(
@@ -347,16 +342,7 @@ public:
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
-    {
-        return (inOs <<
-            "vr-start-view" <<
-            " fsid: "      << mFileSystemId <<
-            " node: "      << mNodeId <<
-            " epoch: "     << mEpochSeq <<
-            " view: "      << mViewSeq <<
-            " committed: " << mCommittedSeq
-        );
-    }
+        { return ShowFields(inOs << "vr-start-view"); }
     virtual void HandleResponse(
         seq_t                 inSeq,
         const Properties&     inProps,

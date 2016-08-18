@@ -57,6 +57,104 @@ using std::set;
 using std::less;
 using std::numeric_limits;
 
+class MetaVrResponse
+{
+public:
+    seq_t          mStatus;
+    string         mStatusMsg;
+    seq_t          mEpochSeq;
+    seq_t          mViewSeq;
+    MetaVrLogSeq   mCommittedSeq;
+    MetaVrLogSeq   mLastLogSeq;
+    int            mState;
+    int64_t        mFileSystemId;
+    StringBufT<32> mClusterKey;
+    StringBufT<32> mMetaMd;
+    ServerLocation mMetaDataStoreLocation;
+
+    MetaVrResponse()
+        : mStatus(-ETIMEDOUT),
+          mStatusMsg(),
+          mEpochSeq(-1),
+          mViewSeq(-1),
+          mCommittedSeq(),
+          mLastLogSeq(),
+          mState(-1),
+          mFileSystemId(-1),
+          mClusterKey(),
+          mMetaMd(),
+          mMetaDataStoreLocation()
+        {}
+    void Reset()
+        { *this = MetaVrResponse(); }
+    void Set(
+        const Properties& inProps)
+    {
+        Reset();
+        Get(inProps, "s",                           mStatus);
+        Get(inProps, "m",                           mStatusMsg);
+        Get(inProps, kMetaVrEpochSeqFieldNamePtr,   mEpochSeq);
+        Get(inProps, kMetaVrViewSeqFieldNamePtr,    mViewSeq);
+        Get(inProps, kMetaVrStateFieldNamePtr,      mState);
+        Get(inProps, kMetaVrCommittedFieldNamePtr,  mCommittedSeq);
+        Get(inProps, kMetaVrLastLogSeqFieldNamePtr, mLastLogSeq);
+        Get(inProps, kMetaVrFsIdFieldNamePtr,       mFileSystemId);
+        Get(inProps, kMetaVrMDSLocationPortFieldNamePtr,
+            mMetaDataStoreLocation.port);
+        Get(inProps, kMetaVrMDSLocationHostFieldNamePtr,
+            mMetaDataStoreLocation.hostname);
+        Get(inProps, kMetaVrClusterKeyFieldNamePtr, mClusterKey);
+        Get(inProps, kMetaVrMetaMdFieldNamePtr,     mMetaMd);
+    }
+    template<typename T>
+    T& Display(
+        T& inStream) const
+    {
+        return (inStream <<
+            "status: "  << mStatus <<
+            " "         << mStatusMsg <<
+            " epoch: "  << mEpochSeq <<
+            " view: "   << mViewSeq <<
+            " state: "  << MetaVrSM::GetStateName(mState) <<
+            " log:"
+            " commit: " << mCommittedSeq <<
+            " last: "   << mLastLogSeq <<
+            " fsid: "   << mFileSystemId <<
+            " mds: "    << mMetaDataStoreLocation <<
+            " ckey: "   << mClusterKey <<
+            " md: "     << mMetaMd
+        );
+    }
+    template<size_t SZ>
+    static void Get(
+        const Properties& inProps,
+        const char*       inKeyPtr,
+        StringBufT<SZ>&   outVal)
+    {
+        const Properties::String* thePtr = inProps.getValue(inKeyPtr);
+        if (thePtr) {
+            outVal = *thePtr;
+        }
+    }
+    static void Get(
+        const Properties& inProps,
+        const char*       inKeyPtr,
+        MetaVrLogSeq&     outVal)
+        { outVal = inProps.parseValue(inKeyPtr, outVal); }
+    template<typename T>
+    static void Get(
+        const Properties& inProps,
+        const char*       inKeyPtr,
+        T&                outVal)
+        { outVal = inProps.getValue(inKeyPtr, outVal); }
+};
+
+template<typename T>
+inline static T& operator<<(
+    T&                    inStream,
+    const MetaVrResponse& inResponse)
+{   return inResponse.Display(inStream); }
+
 class MetaVrSM::Impl
 {
 public:
@@ -128,7 +226,8 @@ public:
           mEmptyString(),
           mMutex(),
           mReconfigureCompletionCondVar(),
-          mPendingReconfigureReqPtr(0)
+          mPendingReconfigureReqPtr(0),
+          mVrResponse()
         {}
     ~Impl()
     {
@@ -242,6 +341,7 @@ public:
             panic("VR: invalid hello completion");
             return;
         }
+        mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
         inReq.SetVrSMPtr(0);
     }
@@ -290,42 +390,40 @@ public:
             panic("VR: invalid start view change completion");
             return;
         }
+        mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
         if (! IsActive(inNodeId) ||
                 ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
             return;
         }
         const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
-        const int  theStatus  = inProps.getValue("s", -ETIMEDOUT);
-        if (0 != theStatus) {
-            const int theState = inProps.getValue(
-                kMetaVrStateFieldNamePtr, -1);
-            if (kStatePrimary == theState || kStateViewChange == theState) {
-                const seq_t theEpochSeq = inProps.getValue(
-                    kMetaVrEpochSeqFieldNamePtr, seq_t(-1));
-                if (theEpochSeq == mEpochSeq) {
-                    const MetaVrLogSeq theCommittedSeq = inProps.parseValue(
-                        kMetaVrCommittedFieldNamePtr, MetaVrLogSeq());
-                    const MetaVrLogSeq theLastLogSeq   = inProps.parseValue(
-                        kMetaVrLastLogSeqFieldNamePtr, MetaVrLogSeq());
-                    if (theCommittedSeq.IsValid() && theLastLogSeq.IsValid() &&
-                            theCommittedSeq <= theLastLogSeq) {
+        if (0 != mVrResponse.mStatus) {
+            if (kStatePrimary == mVrResponse.mState ||
+                    kStateViewChange == mVrResponse.mState) {
+                if (mVrResponse.mEpochSeq == mEpochSeq) {
+                    if (mVrResponse.mCommittedSeq.IsValid() &&
+                            mVrResponse.mLastLogSeq.IsValid() &&
+                            mVrResponse.mCommittedSeq <=
+                                mVrResponse.mLastLogSeq) {
                         mStartViewChangeMaxCommittedSeq =
-                            max(mStartViewChangeMaxCommittedSeq, theCommittedSeq);
-                        mStartViewChangeMaxLastLogSeq = theCommittedSeq;
-                        if (mStartViewChangeMaxLastLogSeq <= theLastLogSeq) {
-                            if (mStartViewChangeMaxLastLogSeq < theLastLogSeq) {
+                            max(mStartViewChangeMaxCommittedSeq,
+                                mVrResponse.mCommittedSeq);
+                        mStartViewChangeMaxLastLogSeq =
+                            mVrResponse.mCommittedSeq;
+                        if (mStartViewChangeMaxLastLogSeq <=
+                                mVrResponse.mLastLogSeq) {
+                            if (mStartViewChangeMaxLastLogSeq <
+                                    mVrResponse.mLastLogSeq) {
                                 mNodeIdAndMDSLocations.clear();
                             }
-                            mStartViewChangeMaxLastLogSeq = theLastLogSeq;
+                            mStartViewChangeMaxLastLogSeq =
+                                mVrResponse.mLastLogSeq;
                             mNodeIdAndMDSLocations.insert(make_pair(inNodeId,
-                                GetDataStoreLocation(inProps, inPeer)));
+                                GetDataStoreLocation(mVrResponse, inPeer)));
                         }
                     }
-                    const seq_t theViewSeq = inProps.getValue(
-                        kMetaVrViewSeqFieldNamePtr, seq_t(-1));
-                    if (mStartViewChangeRecvViewSeq < theViewSeq) {
-                        mStartViewChangeRecvViewSeq = theViewSeq;
+                    if (mStartViewChangeRecvViewSeq < mVrResponse.mViewSeq) {
+                        mStartViewChangeRecvViewSeq = mVrResponse.mViewSeq;
                     }
                 } else if (theNewFlag) {
                     mStartViewEpochMismatchCount++;
@@ -356,6 +454,7 @@ public:
             panic("VR: invalid do view change completion");
             return;
         }
+        mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
     }
     void HandleReply(
@@ -369,6 +468,7 @@ public:
             panic("VR: invalid start view completion");
             return;
         }
+        mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
         KFS_LOG_STREAM_DEBUG <<
             "replies: " << mStartViewReplayCount <<
@@ -381,23 +481,18 @@ public:
         if (! theNewFlag) {
             return;
         }
-        const int theStatus = inProps.getValue("s", -ETIMEDOUT);
-        if (0 != theStatus) {
+        if (0 != mVrResponse.mStatus) {
             return;
         }
-        const int theState = inProps.getValue(kMetaVrStateFieldNamePtr, -1);
-        if (! (theState == kStateViewChange ||
-                (theState == kStateStartViewPrimary && inNodeId == mNodeId))) {
+        if (! (kStateViewChange == mVrResponse.mState ||
+                (kStateStartViewPrimary == mVrResponse.mState &&
+                    inNodeId == mNodeId))) {
             return;
         }
-        const seq_t theEpochSeq = inProps.getValue(
-            kMetaVrEpochSeqFieldNamePtr, seq_t(-1));
-        if (theEpochSeq != mEpochSeq) {
+        if (mVrResponse.mEpochSeq != mEpochSeq) {
             return;
         }
-        const MetaVrLogSeq theLastLogSeq   = inProps.parseValue(
-            kMetaVrLastLogSeqFieldNamePtr, MetaVrLogSeq());
-        if (theLastLogSeq != mLastLogSeq) {
+        if (mVrResponse.mLastLogSeq != mLastLogSeq) {
             return;
         }
         if (mStartViewReplayCount++ < mQuorum) {
@@ -1028,6 +1123,7 @@ private:
     QCMutex                      mMutex;
     QCCondVar                    mReconfigureCompletionCondVar;
     MetaVrReconfiguration*       mPendingReconfigureReqPtr;
+    MetaVrResponse               mVrResponse;
 
     void ResetConfig()
     {
@@ -1052,7 +1148,7 @@ private:
             " state: "  << GetStateName(mState) <<
             " active: " << mActiveFlag          <<
             " epoch: "  << mEpochSeq            <<
-            " viw: "    << mViewSeq             <<
+            " view: "   << mViewSeq             <<
             " "         << inReq.Show()         <<
         KFS_LOG_EOM;
     }
@@ -1067,10 +1163,8 @@ private:
             "seq: "       << inSeq <<
             " node: "     << inNodeId <<
             " peer: "     << inPeer <<
-            " status: "   << inProps.getValue("s", -1) <<
-            " "           << inProps.getValue("m", string()) <<
+            " reponse: "  << mVrResponse <<
             " "           << inReq.Show() <<
-            " response: " << Show(inProps) <<
         KFS_LOG_EOM;
     }
     void RetryStartViewChange(
@@ -1228,21 +1322,19 @@ private:
         return false;
     }
     static ServerLocation GetDataStoreLocation(
-        const Properties&     inProps,
+        const MetaVrResponse& inVrResponse,
         const ServerLocation& inPeer)
     {
         ServerLocation theLocation;
-        theLocation.port = inProps.getValue(
-            kMetaVrMDSLocationPortFieldNamePtr, theLocation.port);
+        theLocation.port = inVrResponse.mMetaDataStoreLocation.port;
         if (0 < theLocation.port) {
-            theLocation.hostname = inProps.getValue(
-                kMetaVrMDSLocationHostFieldNamePtr, theLocation.hostname);
+            theLocation.hostname = inVrResponse.mMetaDataStoreLocation.hostname;
             if (theLocation.hostname.empty() ||
                     ! TcpSocket::IsValidConnectToAddress(theLocation)) {
                 theLocation.hostname = inPeer.hostname;
                 if (! TcpSocket::IsValidConnectToAddress(theLocation)) {
                     theLocation.hostname.clear();
-                    theLocation.port = - theLocation.port;
+                    theLocation.port = -theLocation.port;
                 }
             }
         }
@@ -2439,6 +2531,13 @@ MetaVrSM::GetLastLogSeq() const
 MetaVrSM::GetMetaDataStoreLocation() const
 {
     return mImpl.GetMetaDataStoreLocation();
+}
+
+    /* static */ const char*
+MetaVrSM::GetStateName(
+    int inState)
+{
+    return Impl::GetStateName(Impl::State(inState));
 }
 
 } // namespace KFS

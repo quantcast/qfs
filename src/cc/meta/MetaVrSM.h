@@ -347,6 +347,8 @@ public:
         { return (0 <= GetNodeId()); }
     MetaVrLogSeq GetLastLogSeq() const;
     const ServerLocation& GetMetaDataStoreLocation() const;
+    static const char* GetStateName(
+        int inState);
 private:
     class Impl;
     Impl& mImpl;

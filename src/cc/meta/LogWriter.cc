@@ -697,6 +697,7 @@ private:
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
             mLastLogSeq = mNextLogSeq;
+            MetaRequest*          theVrPtr               = 0;
             MetaRequest*          thePtr                 = theCurPtr;
             seq_t                 theEndBlockSeq         =
                 mNextLogSeq.mLogSeq + mMaxBlockSize;
@@ -706,7 +707,8 @@ private:
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {
-                    continue;
+                    theVrPtr = thePtr;
+                    break;
                 }
                 if (META_LOG_WRITER_CONTROL == thePtr->op) {
                     theCtlPtr = static_cast<MetaLogWriterControl*>(thePtr);
@@ -782,8 +784,9 @@ private:
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.
+                MetaRequest* const theLastPtr = theVrPtr ? theVrPtr : theEndPtr;
                 for (thePtr = theCurPtr;
-                        theEndPtr != thePtr;
+                        theLastPtr != thePtr;
                         thePtr = thePtr->next) {
                     if (META_LOG_WRITER_CONTROL != thePtr->op &&
                             (META_READ_META_DATA != thePtr->op ||
