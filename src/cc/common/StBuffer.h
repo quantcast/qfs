@@ -395,7 +395,6 @@ public:
     StringBufT& Append(
         const string& inStr)
         { return Append(inStr.data(), inStr.size()); }
-    template<size_t CAPACITY>
     bool Comapre(
         const char* inBufPtr,
         size_t      inBufLen) const

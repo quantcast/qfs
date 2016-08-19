@@ -110,9 +110,15 @@ public:
     void handle(MetaVrLogStartView& op);
     bool setReplayState(
         const MetaVrLogSeq& committed,
+        seq_t               seed,
+        int64_t             status,
         int64_t             errChecksum,
-        int                 lastCommittedStatus,
         MetaRequest*        commitQueue);
+    bool runCommitQueue(
+        const MetaVrLogSeq& committed,
+        seq_t               seed,
+        int64_t             status,
+        int64_t             errChecksum);
     bool commitAll();
     bool submit(MetaRequest& req)
     {

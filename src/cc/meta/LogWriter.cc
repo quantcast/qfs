@@ -173,6 +173,7 @@ public:
         if (0 != (mError = mMetaVrSM.Start(
                 inMetaDataSync,
                 mNetManager,
+                inFileId,
                 *mReplayerPtr,
                 inFileSystemId,
                 inDataStoreLocation,
@@ -573,6 +574,7 @@ private:
         if (theSetReplayStateFlag && ! mReplayerPtr->setReplayState(
                 mCommitted.mSeq,
                 mCommitted.mErrChkSum,
+                mCommitted.mFidSeed,
                 mCommitted.mStatus,
                 theReplayCommitHeadPtr)) {
             panic("log writer: set replay state failed");
@@ -644,8 +646,16 @@ private:
         }
         int theVrStatus = mVrStatus;
         MetaRequest* theReqPtr = 0;
-        mMetaVrSM.Process(mNetManager.Now(), theVrLastLogReceivedTime,
-            mInFlightCommitted.mSeq, theReplayLogSeq, theVrStatus, theReqPtr);
+        mMetaVrSM.Process(
+            mNetManager.Now(),
+            theVrLastLogReceivedTime,
+            mInFlightCommitted.mSeq,
+            mInFlightCommitted.mErrChkSum,
+            mInFlightCommitted.mFidSeed,
+            mInFlightCommitted.mStatus,
+            theReplayLogSeq, theVrStatus,
+            theReqPtr
+        );
         if (theReqPtr) {
             theWriteQueue.PushBack(*theReqPtr);
         }

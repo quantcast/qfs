@@ -42,16 +42,19 @@ namespace KFS
 {
 class Properties;
 
-const char* const kMetaVrViewSeqFieldNamePtr         = "VV";
-const char* const kMetaVrEpochSeqFieldNamePtr        = "VE";
-const char* const kMetaVrCommittedFieldNamePtr       = "VC";
-const char* const kMetaVrLastLogSeqFieldNamePtr      = "VL";
-const char* const kMetaVrStateFieldNamePtr           = "VS";
-const char* const kMetaVrFsIdFieldNamePtr            = "VI";
-const char* const kMetaVrMDSLocationHostFieldNamePtr = "VH";
-const char* const kMetaVrMDSLocationPortFieldNamePtr = "VP";
-const char* const kMetaVrClusterKeyFieldNamePtr      = "VK";
-const char* const kMetaVrMetaMdFieldNamePtr          = "VM";
+const char* const kMetaVrViewSeqFieldNamePtr              = "VV";
+const char* const kMetaVrEpochSeqFieldNamePtr             = "VE";
+const char* const kMetaVrCommittedFieldNamePtr            = "VC";
+const char* const kMetaVrCommittedErrChecksumFieldNamePtr = "VCE";
+const char* const kMetaVrCommittedFidSeedFieldNamePtr     = "VCF";
+const char* const kMetaVrCommittedStatusFieldNamePtr      = "VCS";
+const char* const kMetaVrLastLogSeqFieldNamePtr           = "VL";
+const char* const kMetaVrStateFieldNamePtr                = "VS";
+const char* const kMetaVrFsIdFieldNamePtr                 = "VI";
+const char* const kMetaVrMDSLocationHostFieldNamePtr      = "VH";
+const char* const kMetaVrMDSLocationPortFieldNamePtr      = "VP";
+const char* const kMetaVrClusterKeyFieldNamePtr           = "VK";
+const char* const kMetaVrMetaMdFieldNamePtr               = "VM";
 
 class MetaVrRequest : public MetaRequest
 {
@@ -61,6 +64,9 @@ public:
     seq_t          mEpochSeq;
     seq_t          mViewSeq;
     MetaVrLogSeq   mCommittedSeq;
+    int64_t        mCommittedErrChecksum;
+    fid_t          mCommittedFidSeed;
+    int            mCommittedStatus;
     MetaVrLogSeq   mLastLogSeq;
     NodeId         mNodeId;
     int            mCurState;
@@ -73,6 +79,9 @@ public:
     seq_t          mRetCurEpochSeq;
     seq_t          mRetCurViewSeq;
     MetaVrLogSeq   mRetCommittedSeq;
+    int64_t        mRetCommittedErrChecksum;
+    fid_t          mRetCommittedFidSeed;
+    int            mRetCommittedStatus;
     MetaVrLogSeq   mRetLastLogSeq;
     int            mRetCurState;
     int64_t        mRetFileSystemId;
@@ -88,6 +97,9 @@ public:
           mEpochSeq(-1),
           mViewSeq(-1),
           mCommittedSeq(),
+          mCommittedErrChecksum(0),
+          mCommittedFidSeed(-1),
+          mCommittedStatus(0),
           mLastLogSeq(),
           mNodeId(-1),
           mCurState(-1),
@@ -99,6 +111,9 @@ public:
           mRetCurEpochSeq(-1),
           mRetCurViewSeq(-1),
           mRetCommittedSeq(),
+          mRetCommittedErrChecksum(0),
+          mRetCommittedFidSeed(-1),
+          mRetCommittedStatus(0),
           mRetLastLogSeq(),
           mRetCurState(-1),
           mRetFileSystemId(-1),
@@ -106,7 +121,8 @@ public:
           mRetMetaMd(),
           mRetMetaDataStoreLocation(),
           mVrSMPtr(0),
-          mRefCount(0)
+          mRefCount(0),
+          mScheduleCommitFlag(false)
     {
         MetaVrRequest::Ref();
         shortRpcFormatFlag = false;
@@ -120,17 +136,20 @@ public:
         T& inParser)
     {
         return MetaRequest::ParserDef(inParser)
-        .Def("E",  &MetaVrRequest::mEpochSeq,          seq_t(-1))
-        .Def("V",  &MetaVrRequest::mViewSeq,           seq_t(-1))
-        .Def("C",  &MetaVrRequest::mCommittedSeq                )
-        .Def("L",  &MetaVrRequest::mLastLogSeq                  )
-        .Def("N",  &MetaVrRequest::mNodeId,           NodeId(-1))
-        .Def("S",  &MetaVrRequest::mCurState,                 -1)
-        .Def("I",  &MetaVrRequest::mFileSystemId,    int64_t(-1))
-        .Def("MP", &MetaVrRequest::mMetaDataStorePort,        -1)
-        .Def("MH", &MetaVrRequest::mMetaDataStoreHost           )
-        .Def("CK", &MetaVrRequest::mClusterKey                  )
-        .Def("MD", &MetaVrRequest::mMetaMd                      )
+        .Def("E",  &MetaVrRequest::mEpochSeq,              seq_t(-1))
+        .Def("V",  &MetaVrRequest::mViewSeq,               seq_t(-1))
+        .Def("C",  &MetaVrRequest::mCommittedSeq                    )
+        .Def("CE", &MetaVrRequest::mCommittedErrChecksum, int64_t(0))
+        .Def("CF", &MetaVrRequest::mCommittedFidSeed,      seq_t(-1))
+        .Def("CS", &MetaVrRequest::mCommittedStatus,               0)
+        .Def("L",  &MetaVrRequest::mLastLogSeq                      )
+        .Def("N",  &MetaVrRequest::mNodeId,               NodeId(-1))
+        .Def("S",  &MetaVrRequest::mCurState,                     -1)
+        .Def("I",  &MetaVrRequest::mFileSystemId,        int64_t(-1))
+        .Def("MP", &MetaVrRequest::mMetaDataStorePort,            -1)
+        .Def("MH", &MetaVrRequest::mMetaDataStoreHost               )
+        .Def("CK", &MetaVrRequest::mClusterKey                      )
+        .Def("MD", &MetaVrRequest::mMetaMd                          )
         ;
     }
     void Request(
@@ -155,8 +174,7 @@ public:
             delete this;
         }
     }
-    virtual void handle()
-        { /* nothing */ }
+    virtual void handle();
     MetaVrSM* GetVrSMPtr() const
         { return mVrSMPtr; }
     void SetVrSMPtr(
@@ -181,6 +199,12 @@ public:
         if (mRetCommittedSeq.IsValid()) {
             inOs << kMetaVrCommittedFieldNamePtr <<
                 ":" << mRetCommittedSeq << "\r\n";
+            inOs << kMetaVrCommittedErrChecksumFieldNamePtr <<
+                ":" << mCommittedErrChecksum << "\r\n";
+            inOs << kMetaVrCommittedFidSeedFieldNamePtr <<
+                ":" << mCommittedFidSeed << "\r\n";
+            inOs << kMetaVrCommittedStatusFieldNamePtr <<
+                ":" << mCommittedStatus << "\r\n";
         }
         if (mRetLastLogSeq.IsValid()) {
             inOs << kMetaVrLastLogSeqFieldNamePtr <<
@@ -208,9 +232,12 @@ public:
         }
         inOs << "\r\n";
     }
+    void SetScheduleCommit()
+        { mScheduleCommitFlag = ! replayFlag && mCommittedSeq.IsValid(); }
 protected:
     MetaVrSM* mVrSMPtr;
     int       mRefCount;
+    bool      mScheduleCommitFlag;
 
     virtual ~MetaVrRequest()
     {

@@ -373,7 +373,7 @@ public:
     void QueueVrRequest(
         MetaVrRequest& inReq)
     {
-        if (! mPendingSend.IsEmpty()) {
+        if (! mPendingSend.IsEmpty() || mVrOpPtr) {
             Reset("queueing Vr request");
         }
         if (0 <= mVrOpSeq) {

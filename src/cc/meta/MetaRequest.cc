@@ -6432,6 +6432,26 @@ MetaVrRequest::ResponseHeader(ReqOstream& os)
     return OkHeader(this, os, kCheckStatusFlag);
 }
 
+/* virtual */ void
+MetaVrRequest::handle()
+{
+    // No status check, as commit scheduling does no depend on status.
+    if (! mScheduleCommitFlag) {
+        return;
+    }
+    mScheduleCommitFlag = false;
+    if (mCommittedSeq.IsValid() &&
+            mCommittedSeq <= replayer.getLastLogSeq() &&
+            replayer.getCommitted() < mCommittedSeq &&
+            ! replayer.runCommitQueue(
+                mCommittedSeq,
+                mCommittedFidSeed,
+                mCommittedStatus,
+                mCommittedErrChecksum)) {
+        panic("invalid VR request commit");
+    }
+}
+
 /* virtual */ bool
 MetaVrReconfiguration::start()
 {

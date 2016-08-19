@@ -79,7 +79,8 @@ ErrorCodeToString(int status)
         case EDATAUNAVAIL:    return "data not available";
         case ESERVERBUSY:     return "server busy";
         case EALLOCFAILED:    return "chunk allocation failed";
-        case EBADCLUSTERKEY:  return "cluster key or chunk server md5 mismatch";
+        case EBADCLUSTERKEY:
+            return "cluster key, or server md5, or FS ID mismatch";
         case EINVALCHUNKSIZE: return "invalid chunk size";
         case ELOGFAILED:
             return "meta server transaction log write failure";

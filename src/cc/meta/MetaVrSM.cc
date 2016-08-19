@@ -31,6 +31,7 @@
 #include "LogTransmitter.h"
 #include "MetaDataSync.h"
 #include "Replay.h"
+#include "meta.h"
 #include "util.h"
 
 #include "qcdio/QCMutex.h"
@@ -65,10 +66,13 @@ public:
     seq_t          mEpochSeq;
     seq_t          mViewSeq;
     MetaVrLogSeq   mCommittedSeq;
+    int64_t        mCommittedErrChecksum;
+    fid_t          mCommittedFidSeed;
+    int            mCommittedStatus;
     MetaVrLogSeq   mLastLogSeq;
     int            mState;
     int64_t        mFileSystemId;
-    StringBufT<32> mClusterKey;
+    StringBufT<64> mClusterKey;
     StringBufT<32> mMetaMd;
     ServerLocation mMetaDataStoreLocation;
 
@@ -78,6 +82,9 @@ public:
           mEpochSeq(-1),
           mViewSeq(-1),
           mCommittedSeq(),
+          mCommittedErrChecksum(0),
+          mCommittedFidSeed(-1),
+          mCommittedStatus(0),
           mLastLogSeq(),
           mState(-1),
           mFileSystemId(-1),
@@ -97,6 +104,12 @@ public:
         Get(inProps, kMetaVrViewSeqFieldNamePtr,    mViewSeq);
         Get(inProps, kMetaVrStateFieldNamePtr,      mState);
         Get(inProps, kMetaVrCommittedFieldNamePtr,  mCommittedSeq);
+        Get(inProps, kMetaVrCommittedErrChecksumFieldNamePtr,
+            mCommittedErrChecksum);
+        Get(inProps, kMetaVrCommittedFidSeedFieldNamePtr,
+            mCommittedFidSeed);
+        Get(inProps, kMetaVrCommittedStatusFieldNamePtr,
+            mCommittedStatus);
         Get(inProps, kMetaVrLastLogSeqFieldNamePtr, mLastLogSeq);
         Get(inProps, kMetaVrFsIdFieldNamePtr,       mFileSystemId);
         Get(inProps, kMetaVrMDSLocationPortFieldNamePtr,
@@ -117,7 +130,11 @@ public:
             " view: "   << mViewSeq <<
             " state: "  << MetaVrSM::GetStateName(mState) <<
             " log:"
-            " commit: " << mCommittedSeq <<
+            " committed:"
+            " seq: "    << mCommittedSeq <<
+            " ec: "     << mCommittedErrChecksum <<
+            " fids: "   << mCommittedFidSeed <<
+            " s: "      << mCommittedStatus <<
             " last: "   << mLastLogSeq <<
             " fsid: "   << mFileSystemId <<
             " mds: "    << mMetaDataStoreLocation <<
@@ -201,6 +218,9 @@ public:
           mEpochSeq(0),
           mViewSeq(0),
           mCommittedSeq(),
+          mCommittedErrChecksum(0),
+          mCommittedFidSeed(0),
+          mCommittedStatus(0),
           mLastLogSeq(),
           mTimeNow(),
           mLastProcessTime(mTimeNow),
@@ -275,9 +295,6 @@ public:
         if (kStatePrimary == mState) {
             // Update only if primary, backups are updated after queuing into
             // replay, in Process().
-            if (mCommittedSeq < inCommittedSeq) {
-                mCommittedSeq = inCommittedSeq;
-            }
             mReplayLastLogSeq = mLastLogSeq;
         }
     }
@@ -349,33 +366,28 @@ public:
         MetaVrRequest&    inReq,
         seq_t             inSeq,
         const Properties& inProps,
-        NodeId            inNodeId)
+        NodeId            inNodeId) const
     {
-        const char* const theCKeyPtr =
-            inProps.getValue(kMetaVrClusterKeyFieldNamePtr, "");
-        if (mClusterKey != theCKeyPtr) {
+        if (0 != mVrResponse.mClusterKey.Compare(mClusterKey)) {
             KFS_LOG_STREAM_ERROR <<
                 " seq: "      << inSeq <<
                 " node: "     << inNodeId <<
                 " cluster key mismatch: " <<
                 " expected: " << mClusterKey <<
-                " actual: "   << theCKeyPtr <<
+                " actual: "   << mVrResponse.mClusterKey <<
                 " "           << inReq.Show() <<
             KFS_LOG_EOM;
             return false;
         }
-        if (! mMetaMds.empty()) {
-            const string theMetaMd =
-                inProps.getValue(kMetaVrMetaMdFieldNamePtr, string());
-            if (mMetaMds.find(theMetaMd) == mMetaMds.end()) {
-                KFS_LOG_STREAM_ERROR <<
-                    " seq: "                    << inSeq <<
-                    " node: "                   << inNodeId <<
-                    " invalid meta server md: " << theMetaMd <<
-                    " "                         << inReq.Show() <<
-                KFS_LOG_EOM;
-                return false;
-            }
+        if (! mMetaMds.empty() &&
+                mMetaMds.find(mVrResponse.mMetaMd) == mMetaMds.end()) {
+            KFS_LOG_STREAM_ERROR <<
+                " seq: "                    << inSeq <<
+                " node: "                   << inNodeId <<
+                " invalid meta server md: " << mVrResponse.mMetaMd <<
+                " "                         << inReq.Show() <<
+            KFS_LOG_EOM;
+            return false;
         }
         return true;
     }
@@ -473,7 +485,7 @@ public:
         KFS_LOG_STREAM_DEBUG <<
             "replies: " << mStartViewReplayCount <<
         KFS_LOG_EOM;
-        if (! IsActive(inNodeId) || kStateStartViewPrimary != mState||
+        if (! IsActive(inNodeId) || kStateStartViewPrimary != mState ||
                 ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
             return;
         }
@@ -526,6 +538,9 @@ public:
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
         const MetaVrLogSeq& inCommittedSeq,
+        int64_t             inErrChecksum,
+        fid_t               inCommittedFidSeed,
+        int                 inCommittedStatus,
         const MetaVrLogSeq& inLastLogSeq,
         int&                outVrStatus,
         MetaRequest*        outReqPtr)
@@ -544,7 +559,10 @@ public:
             mLastReceivedTime = inLastReceivedTime;
         }
         if (mCommittedSeq < inCommittedSeq) {
-            mCommittedSeq = inCommittedSeq;
+            mCommittedSeq         = inCommittedSeq;
+            mCommittedErrChecksum = inErrChecksum;
+            mCommittedStatus      = inCommittedStatus;
+            mCommittedFidSeed     = inCommittedFidSeed;
         }
         if (mLastLogSeq < inLastLogSeq) {
             mLastLogSeq = inLastLogSeq;
@@ -589,6 +607,7 @@ public:
     int Start(
         MetaDataSync&         inMetaDataSync,
         NetManager&           inNetManager,
+        const UniqueID&       inFileId,
         Replay&               inReplayer,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
@@ -639,12 +658,20 @@ public:
             }
             mActiveFlag = IsActive(mNodeId);
         }
-        mCommittedSeq     = inReplayer.getCommitted();
-        mLastLogSeq       = inReplayer.getLastLogSeq();
-        mReplayLastLogSeq = mLastLogSeq;
-        mFileSystemId     = inFileSystemId;
-        mEpochSeq         = mCommittedSeq.mEpochSeq;
-        mViewSeq          = mCommittedSeq.mViewSeq;
+        mCommittedSeq         = inReplayer.getCommitted();
+        mCommittedErrChecksum = inReplayer.getErrChksum();
+        mCommittedFidSeed     = inFileId.getseed();
+        mCommittedStatus      = inReplayer.getLastCommittedStatus();
+        mLastLogSeq           = inReplayer.getLastLogSeq();
+        mReplayLastLogSeq     = mLastLogSeq;
+        mFileSystemId         = inFileSystemId;
+        if (mEpochSeq < mCommittedSeq.mEpochSeq) {
+            mEpochSeq = mCommittedSeq.mEpochSeq;
+            mViewSeq  = mCommittedSeq.mViewSeq;
+        } else if (mEpochSeq == mCommittedSeq.mEpochSeq &&
+                mViewSeq < mCommittedSeq.mViewSeq) {
+            mViewSeq = mCommittedSeq.mViewSeq;
+        }
         if (! mMetaDataStoreLocation.IsValid()) {
             mMetaDataStoreLocation = inDataStoreLocation;
         }
@@ -683,7 +710,7 @@ public:
                 theMdStrPtr->GetPtr(), theMdStrPtr->GetSize());
             string theMd;
             while ((theStream >> theMd)) {
-                mMetaMds.insert(theMd);
+                mMetaMds.insert(MetaMds::value_type(theMd));
             }
             mInputStream.Reset();
         }
@@ -701,7 +728,8 @@ public:
             panic("VR: invalid commit sequence in reconfiguration");
             return;
         }
-        mCommittedSeq = inLogSeq;
+        // Commit sequence will be set by process, once re-configuration goes
+        // through the replay.
         if (! mReconfigureReqPtr || inLogSeq < mReconfigureReqPtr->logseq) {
             return;
         }
@@ -1066,9 +1094,9 @@ private:
         StdFastAllocator<pair<NodeId, ServerLocation> >
     > NodeIdAndMDSLocations;
     typedef set<
-        string,
-        less<string>,
-        StdFastAllocator<string>
+        StringBufT<32>,
+        less<StringBufT<32> >,
+        StdFastAllocator<StringBufT<32> >
     > MetaMds;
 
     LogTransmitter&              mLogTransmitter;
@@ -1096,6 +1124,9 @@ private:
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
     MetaVrLogSeq                 mCommittedSeq;
+    int64_t                      mCommittedErrChecksum;
+    fid_t                        mCommittedFidSeed;
+    int                          mCommittedStatus;
     MetaVrLogSeq                 mLastLogSeq;
     MetaVrLogSeq                 mReplayLastLogSeq;
     time_t                       mTimeNow;
@@ -1262,14 +1293,17 @@ private:
     void SetReturnState(
         MetaVrRequest& inReq)
     {
-        inReq.mRetCurViewSeq   = mViewSeq;
-        inReq.mRetCurEpochSeq  = mEpochSeq;
-        inReq.mRetCurState     = mState;
-        inReq.mRetCommittedSeq = mCommittedSeq;
-        inReq.mRetLastLogSeq   = mLastLogSeq;
-        inReq.mRetFileSystemId = mFileSystemId;
-        inReq.mRetClusterKey   = mClusterKey;
-        inReq.mRetMetaMd       = mMetaMd;
+        inReq.mRetCurViewSeq           = mViewSeq;
+        inReq.mRetCurEpochSeq          = mEpochSeq;
+        inReq.mRetCurState             = mState;
+        inReq.mRetCommittedSeq         = mCommittedSeq;
+        inReq.mRetCommittedErrChecksum = mCommittedErrChecksum;
+        inReq.mRetCommittedStatus      = mCommittedStatus;
+        inReq.mRetCommittedFidSeed     = mCommittedFidSeed;
+        inReq.mRetLastLogSeq           = mLastLogSeq;
+        inReq.mRetFileSystemId         = mFileSystemId;
+        inReq.mRetClusterKey           = mClusterKey;
+        inReq.mRetMetaMd               = mMetaMd;
     }
     bool VerifyViewChange(
         MetaVrRequest& inReq)
@@ -1278,11 +1312,11 @@ private:
             inReq.status    = -EBADCLUSTERKEY;
             inReq.statusMsg = "cluster key does not match";
         } else if (mFileSystemId != inReq.mFileSystemId) {
-            inReq.status    = -EINVAL;
+            inReq.status    = -EBADCLUSTERKEY;
             inReq.statusMsg = "file system id does not match";
         } else if (! mMetaMds.empty() &&
                 mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
-            inReq.status    = -EINVAL;
+            inReq.status    = -EBADCLUSTERKEY;
             inReq.statusMsg = "invalid meta server MD";
         } if (! mActiveFlag) {
             inReq.status    = -ENOENT;
@@ -1370,10 +1404,10 @@ private:
                 inReq.statusMsg = "cluster key does not match";
             } else if (! mMetaMds.empty() &&
                     mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
-                inReq.status    = -EINVAL;
+                inReq.status    = -EBADCLUSTERKEY;
                 inReq.statusMsg = "invalid meta server MD";
             } else if (mFileSystemId != inReq.mFileSystemId) {
-                inReq.status    = -EINVAL;
+                inReq.status    = -EBADCLUSTERKEY;
                 inReq.statusMsg = "file system id does not match";
             } else if (kStatePrimary == inReq.mCurState &&
                     0 < mQuorum && mActiveFlag) {
@@ -1393,21 +1427,27 @@ private:
         if (0 == inReq.status &&
                 mNodeId != inReq.mNodeId &&
                 kStatePrimary == inReq.mCurState &&
-                mLastLogSeq < inReq.mLastLogSeq &&
                 kStateLogSync != mState &&
                 (! mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0))) {
-            const ServerLocation theLocation = GetDataStoreLocation(inReq);
-            if (theLocation.IsValid()) {
-                mState = kStateLogSync;
-                mSyncServers.clear();
-                mSyncServers.push_back(theLocation);
-                const bool kAllowNonPrimaryFlag = true;
-                mMetaDataSyncPtr->ScheduleLogSync(
-                        mSyncServers,
-                        mLastLogSeq,
-                        inReq.mLastLogSeq,
-                        kAllowNonPrimaryFlag
-                );
+            if (mLastLogSeq < inReq.mLastLogSeq) {
+                const ServerLocation theLocation = GetDataStoreLocation(inReq);
+                if (theLocation.IsValid()) {
+                    mState = kStateLogSync;
+                    mSyncServers.clear();
+                    mSyncServers.push_back(theLocation);
+                    const bool kAllowNonPrimaryFlag = true;
+                    mMetaDataSyncPtr->ScheduleLogSync(
+                            mSyncServers,
+                            mLastLogSeq,
+                            inReq.mLastLogSeq,
+                            kAllowNonPrimaryFlag
+                    );
+                }
+            } else if (mCommittedSeq < inReq.mCommittedSeq &&
+                    inReq.mCommittedSeq <= mLastLogSeq &&
+                    0 <= inReq.mCommittedFidSeed &&
+                    0 <= inReq.mCommittedStatus) {
+                inReq.SetScheduleCommit();
             }
         }
         return true;
@@ -1440,6 +1480,12 @@ private:
                     SetReturnState(inReq);
                 }
             }
+        } else if (inReq.status != -EBADCLUSTERKEY &&
+                mCommittedSeq < inReq.mCommittedSeq &&
+                inReq.mCommittedSeq <= mLastLogSeq &&
+                0 <= inReq.mCommittedFidSeed &&
+                0 <= inReq.mCommittedStatus) {
+            inReq.SetScheduleCommit();
         }
         Show(inReq);
         return true;
@@ -1457,6 +1503,10 @@ private:
                 mViewSeq = inReq.mViewSeq;
                 StartViewChange();
                 mDoViewChangeNodeIds.insert(inReq.mNodeId);
+            } else if (mLastLogSeq < inReq.mLastLogSeq) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "invalid last log sequence, state: ";
+                inReq.statusMsg += GetStateName(mState);
             } else {
                 if (kStateViewChange == mState) {
                     if (mDoViewChangeNodeIds.insert(inReq.mNodeId).second &&
@@ -2262,17 +2312,20 @@ private:
     void Init(
         MetaVrRequest& inReq)
     {
-        inReq.mCurState          = mState;
-        inReq.mNodeId            = mNodeId;
-        inReq.mEpochSeq          = mEpochSeq;
-        inReq.mViewSeq           = mViewSeq;
-        inReq.mCommittedSeq      = mCommittedSeq;
-        inReq.mLastLogSeq        = mLastLogSeq;
-        inReq.mFileSystemId      = mFileSystemId;
-        inReq.mMetaDataStoreHost = mMetaDataStoreLocation.hostname;
-        inReq.mMetaDataStorePort = mMetaDataStoreLocation.port;
-        inReq.mClusterKey        = mClusterKey;
-        inReq.mMetaMd            = mMetaMd;
+        inReq.mCurState             = mState;
+        inReq.mNodeId               = mNodeId;
+        inReq.mEpochSeq             = mEpochSeq;
+        inReq.mViewSeq              = mViewSeq;
+        inReq.mCommittedSeq         = mCommittedSeq;
+        inReq.mCommittedErrChecksum = mCommittedErrChecksum;
+        inReq.mCommittedStatus      = mCommittedStatus;
+        inReq.mCommittedFidSeed     = mCommittedFidSeed;
+        inReq.mLastLogSeq           = mLastLogSeq;
+        inReq.mFileSystemId         = mFileSystemId;
+        inReq.mMetaDataStoreHost    = mMetaDataStoreLocation.hostname;
+        inReq.mMetaDataStorePort    = mMetaDataStoreLocation.port;
+        inReq.mClusterKey           = mClusterKey;
+        inReq.mMetaMd               = mMetaMd;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
     void StartViewChange()
@@ -2430,25 +2483,31 @@ MetaVrSM::Process(
     time_t              inTimeNow,
     time_t              inLastReceivedTime,
     const MetaVrLogSeq& inCommittedSeq,
+    int64_t             inErrChecksum,
+    fid_t               inCommittedFidSeed,
+    int                 inCommittedStatus,
     const MetaVrLogSeq& inLastLogSeq,
     int&                outVrStatus,
     MetaRequest*        outReqPtr)
 {
     mImpl.Process(inTimeNow, inLastReceivedTime,
-        inCommittedSeq, inLastLogSeq, outVrStatus, outReqPtr);
+        inCommittedSeq, inErrChecksum, inCommittedFidSeed, inCommittedStatus,
+        inLastLogSeq, outVrStatus, outReqPtr
+    );
 }
 
     int
 MetaVrSM::Start(
     MetaDataSync&         inMetaDataSync,
     NetManager&           inNetManager,
+    const UniqueID&       inFileId,
     Replay&               inReplayer,
     int64_t               inFileSystemId,
     const ServerLocation& inDataStoreLocation,
     const string&         inMetaMd)
 {
     return mImpl.Start(
-        inMetaDataSync, inNetManager, inReplayer,
+        inMetaDataSync, inNetManager, inFileId, inReplayer,
         inFileSystemId, inDataStoreLocation, inMetaMd
     );
 }

@@ -352,8 +352,9 @@ public:
     }
     bool setReplayState(
         const MetaVrLogSeq& committed,
+        seq_t               seed,
+        int64_t             status,
         int64_t             errChecksum,
-        int                 lastCommittedStatus,
         MetaRequest*        commitQueue)
     {
         if (mCurOp || ! mReplayer || ! committed.IsValid() ||
@@ -363,8 +364,8 @@ public:
         }
         if (! mCommitQueue.empty() && ! runCommitQueue(
                 committed,
-                fileID.getseed(),
-                lastCommittedStatus,
+                seed,
+                status,
                 errChecksum)) {
             return false;
         }
@@ -378,8 +379,7 @@ public:
             mPrevViewCommitted = committed;
         }
         mLastCommitted       = committed;
-        mLogAheadErrChksum   = errChecksum;
-        mLastCommittedStatus = lastCommittedStatus;
+        mLastCommittedStatus = status;
         mLogAheadErrChksum   = errChecksum;
         mSubEntryCount       = 0;
         MetaRequest* next = commitQueue;
@@ -400,6 +400,10 @@ public:
                 okFlag = false;
             }
         }
+        if (okFlag && mLastLogAheadSeq <= committed && ! mCommitQueue.empty()) {
+            okFlag = runCommitQueue(committed, seed, status, errChecksum);
+        }
+        *mEmptyQueueFlagPtr = mCommitQueue.empty();
         update();
         return okFlag;
     }
@@ -1437,22 +1441,18 @@ ReplayState::runCommitQueue(
     int64_t             status,
     int64_t             errChecksum)
 {
+    while (! mCommitQueue.empty()) {
+        CommitQueueEntry& entry = mCommitQueue.front();
+        if (entry.logSeq.IsValid()) {
+            break;
+        }
+        commit(entry);
+        mCommitQueue.pop_front();
+    }
+    *mEmptyQueueFlagPtr = mCommitQueue.empty();
     if (logSeq < mCheckpointCommitted) {
         // Commit preseeds checkpoint.
-        if (mCommitQueue.empty()) {
-            return true;
-        }
-        // Skip all pending entries with no log sequence.
-        CommitQueue::const_iterator it;
-        for (it = mCommitQueue.begin(); mCommitQueue.end() != it; ++it) {
-            if (it->logSeq.IsValid()) {
-                if (logSeq < it->logSeq) {
-                    return true;
-                }
-                break;
-            }
-        }
-        if (mCommitQueue.end() == it) {
+        if (mCommitQueue.empty() || logSeq < mCommitQueue.front().logSeq) {
             return true;
         }
         KFS_LOG_STREAM_ERROR <<
@@ -1460,7 +1460,7 @@ ReplayState::runCommitQueue(
             " sequence: "   << logSeq <<
             " checkpoint: " << mCheckpointCommitted <<
             " non empty commit queue:"
-            " starts: "     << it->logSeq <<
+            " starts: "     << mCommitQueue.front().logSeq <<
         KFS_LOG_EOM;
         return false;
     }
@@ -2642,16 +2642,27 @@ Replay::handle(MetaVrLogStartView& op)
 bool
 Replay::setReplayState(
     const MetaVrLogSeq& committed,
+    seq_t               seed,
+    int64_t             status,
     int64_t             errChecksum,
-    int                 lastCommittedStatus,
     MetaRequest*        commitQueue)
 {
     ReplayState& state = replayTokenizer.GetState();
     state.mPendingStopServicingFlag = true;
     gLayoutManager.SetDisableTimerFlag(true);
-    const bool okFlag = state.setReplayState(
-        committed, errChecksum, lastCommittedStatus, commitQueue);
-    return okFlag;
+    return state.setReplayState(
+        committed, seed, status, errChecksum, commitQueue);
+}
+
+bool
+Replay::runCommitQueue(
+    const MetaVrLogSeq& committed,
+    seq_t               seed,
+    int64_t             status,
+    int64_t             errChecksum)
+{
+    ReplayState& state = replayTokenizer.GetState();
+    return state.runCommitQueue(committed, seed, status, errChecksum);
 }
 
 bool

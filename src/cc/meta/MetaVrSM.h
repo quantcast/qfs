@@ -60,6 +60,7 @@ class MetaVrLogSeq;
 class NetManager;
 class MetaVrHello;
 class Replay;
+class UniqueID;
 
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
@@ -315,6 +316,9 @@ public:
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
         const MetaVrLogSeq& inCommittedSeq,
+        int64_t             inErrChecksum,
+        fid_t               inCommittedFidSeed,
+        int                 inCommittedStatus,
         const MetaVrLogSeq& inLastLogSeq,
         int&                outVrStatus,
         MetaRequest*        outReqPtr);
@@ -326,6 +330,7 @@ public:
     int Start(
         MetaDataSync&         inMetaDataSync,
         NetManager&           inNetManager,
+        const UniqueID&       inFileId,
         Replay&               inReplayer,
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
