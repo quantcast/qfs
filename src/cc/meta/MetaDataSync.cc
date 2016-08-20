@@ -195,6 +195,10 @@ public:
           mKeepLogSegmentsInterval(10),
           mNoLogSeqCount(0),
           mStatus(0),
+          mDownloadStatus(0),
+          mDownloadDoneFlag(true),
+          mDownloadGeneration(0),
+          mCurDownloadGeneration(0),
           mThread(),
           mReplayerPtr(0),
           mClusterKey(),
@@ -422,7 +426,8 @@ public:
     }
     void StartLogSync(
         const MetaVrLogSeq&    inLogSeq,
-        LogReceiver::Replayer& inReplayer)
+        LogReceiver::Replayer& inReplayer,
+        bool                   inAllowNotPrimaryFlag)
     {
         if (! mReadOpsPtr) {
             return;
@@ -433,7 +438,7 @@ public:
         mLogSeq              = inLogSeq;
         mWriteToFileFlag     = false;
         mStatus              = 0;
-        mAllowNotPrimaryFlag = false;
+        mAllowNotPrimaryFlag = inAllowNotPrimaryFlag;
         if (&mRuntimeNetManager != &mKfsNetClient.GetNetManager()) {
             mKfsNetClient.SetNetManager(mRuntimeNetManager);
             mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
@@ -463,11 +468,21 @@ public:
             mPendingSyncLogSeq          = inLogStartSeq;
             mPendingSyncLogEndSeq       = inLogEndSeq;
             SyncAddAndFetch(mSyncScheduledCount, 1);
+            mDownloadGeneration++;
+            mDownloadStatus   = 0;
+            mDownloadDoneFlag = false;
         }
         theLocker.Unlock();
         if (theUpdateFlag) {
             mRuntimeNetManager.Wakeup();
         }
+    }
+    int GetLogFetchStatus(
+        bool& outProgressFlag)
+    {
+        QCStMutexLocker theLocker(mMutex);
+        outProgressFlag = ! mDownloadDoneFlag;
+        return mDownloadStatus;
     }
     virtual void Run()
     {
@@ -562,9 +577,10 @@ public:
                 mAllowNotPrimaryFlag = mPendingAllowNotPrimaryFlag;
                 mServerIdx = 0;
                 mSyncScheduledCount = 0;
+                mCurDownloadGeneration = mDownloadGeneration;
                 const MetaVrLogSeq theLogSeq = mPendingSyncLogSeq;
                 theLocker.Unlock();
-                StartLogSync(theLogSeq, *mReplayerPtr);
+                StartLogSync(theLogSeq, *mReplayerPtr, mAllowNotPrimaryFlag);
             }
         }
         if (! mSleepingFlag) {
@@ -655,6 +671,10 @@ private:
     int               mKeepLogSegmentsInterval;
     int               mNoLogSeqCount;
     int               mStatus;
+    int               mDownloadStatus;
+    bool              mDownloadDoneFlag;
+    unsigned int      mDownloadGeneration;
+    unsigned int      mCurDownloadGeneration;
     QCThread          mThread;
     Replayer*         mReplayerPtr;
     string            mClusterKey;
@@ -1148,6 +1168,11 @@ private:
         if (mShutdownNetManagerFlag) {
             mKfsNetClient.GetNetManager().Shutdown();
         }
+        QCStMutexLocker theLocker(mMutex);
+        if (mCurDownloadGeneration == mDownloadGeneration) {
+            mDownloadStatus   = mStatus;
+            mDownloadDoneFlag = true;
+        }
     }
     void HandleReadError(
         ReadOp& inReadOp)
@@ -1487,8 +1512,7 @@ private:
             Reset();
         }
         if (mReadOpsPtr) {
-            theOp.Reset();
-            theOp.type = MetaLogWriterControl::kWriteBlock;
+            theOp.Reset(MetaLogWriterControl::kWriteBlock);
             theOp.clnt = this;
             mFreeWriteOpCount++;
             mFreeWriteOpList.PutFront(theOp);
@@ -1931,7 +1955,8 @@ MetaDataSync::StartLogSync(
     const MetaVrLogSeq&    inLogSeq,
     LogReceiver::Replayer& inReplayer)
 {
-    mImpl.StartLogSync(inLogSeq, inReplayer);
+    const bool kAllowNotPrimaryFlag = false;
+    mImpl.StartLogSync(inLogSeq, inReplayer, kAllowNotPrimaryFlag);
 }
 
     void
@@ -1943,6 +1968,13 @@ MetaDataSync::ScheduleLogSync(
 {
     mImpl.ScheduleLogSync(
         inServers, inLogStartSeq, inLogEndSeq, inAllowNotPrimaryFlag);
+}
+
+    int
+MetaDataSync::GetLogFetchStatus(
+    bool& outProgressFlag)
+{
+    return mImpl.GetLogFetchStatus(outProgressFlag);
 }
 
     void

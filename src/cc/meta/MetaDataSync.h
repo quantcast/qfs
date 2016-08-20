@@ -66,6 +66,8 @@ public:
         const MetaVrLogSeq& inLogStartSeq,
         const MetaVrLogSeq& inLogEndSeq,
         bool                inAllowNotPrimaryFlag);
+    int GetLogFetchStatus(
+        bool& outInProgressFlag);
 private:
     class Impl;
     Impl& mImpl;

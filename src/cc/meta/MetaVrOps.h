@@ -126,6 +126,7 @@ public:
     {
         MetaVrRequest::Ref();
         shortRpcFormatFlag = false;
+        replayBypassFlag   = true;
     }
     bool Validate() const
     {

@@ -101,6 +101,7 @@ public:
         int inInterval);
     void SetFileSystemId(
         int64_t inFsId);
+    int GetChannelsCount() const;
 private:
     class Impl;
 

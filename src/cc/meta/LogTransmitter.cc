@@ -153,10 +153,8 @@ public:
         { return mMaxPending; }
     int GetCompactionInterval() const
         { return mCompactionInterval; }
-    void Add(
-        Transmitter& inTransmitter);
-    void Remove(
-        Transmitter& inTransmitter);
+    int GetChannelsCount() const
+        { return mTransmittersCount; }
     void Shutdown();
     void Acked(
         const MetaVrLogSeq& inPrevAck,
@@ -250,6 +248,8 @@ public:
         return (mMetaVrSMPtr &&
             mMetaVrSMPtr->Init(inHello, inPeer, mTransmitter));
     }
+    void Deleted(
+        Transmitter& inTransmitter);
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(seq_t) * 2 + 4 };
@@ -277,6 +277,7 @@ private:
     MetaVrSM*       mMetaVrSMPtr;
     string          mTransmitterAuthParamsPrefix;
     Properties      mTransmitterAuthParams;
+    int             mTransmittersCount;
     Transmitter*    mTransmittersPtr[1];
     char            mParseBuffer[MAX_RPC_HEADER_LEN];
     char            mTmpBuf[kTmpBufSize + 1];
@@ -341,7 +342,6 @@ public:
     {
         SET_HANDLER(this, &Transmitter::HandleEvent);
         List::Init(*this);
-        mImpl.Add(*this);
     }
     ~Transmitter()
     {
@@ -353,7 +353,7 @@ public:
         }
         VrDisconnect();
         MetaRequest::Release(&mMetaVrHello);
-        mImpl.Remove(*this);
+        mImpl.Deleted(*this);
     }
     int SetParameters(
         ClientAuthContext* inAuthCtxPtr,
@@ -453,7 +453,8 @@ public:
         QCASSERT(0 <= mRecursionCount);
         return 0;
     }
-    void Shutdown()
+    void Reset(
+        bool inShutdownFlag = false)
     {
         if (mConnectionPtr) {
             mConnectionPtr->Close();
@@ -463,11 +464,18 @@ public:
             mSleepingFlag = false;
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
-        VrDisconnect();
+        if (inShutdownFlag) {
+            VrDisconnect();
+        }
         mPeer.port = -1;
         mPeer.hostname.clear();
         mSendHelloFlag = true;
         mReplyProps.clear();
+    }
+    void Shutdown()
+    {
+        const bool kShutdownFlag = true;
+        Reset(kShutdownFlag);
     }
     const ServerLocation& GetServerLocation() const
         { return mServer; }
@@ -675,7 +683,7 @@ private:
     }
     void Connect()
     {
-        Shutdown();
+        Reset();
         if (! mImpl.GetNetManager().IsRunning()) {
             return;
         }
@@ -1287,20 +1295,6 @@ private:
         const Transmitter& inTransmitter);
 };
 
-    void
-LogTransmitter::Impl::Add(
-    Transmitter& inTransmitter)
-{
-    List::PushBack(mTransmittersPtr, inTransmitter);
-}
-
-    void
-LogTransmitter::Impl::Remove(
-    Transmitter& inTransmitter)
-{
-    List::Remove(mTransmittersPtr, inTransmitter);
-}
-
     int
 LogTransmitter::Impl::SetParameters(
     const char*       inParamPrefixPtr,
@@ -1397,8 +1391,17 @@ LogTransmitter::Impl::StartTransmitters(
 LogTransmitter::Impl::Shutdown()
 {
     Transmitter* thePtr;
-    while ((thePtr = List::Back(mTransmittersPtr))) {
+    while ((thePtr = List::PopBack(mTransmittersPtr))) {
         delete thePtr;
+    }
+}
+
+    void
+LogTransmitter::Impl::Deleted(
+    Transmitter& inTransmitter)
+{
+    if (List::IsInList(mTransmittersPtr, inTransmitter)) {
+        panic("log transmitter: invalid transmitter delete attempt");
     }
 }
 
@@ -1670,6 +1673,7 @@ LogTransmitter::Impl::Update(
     Transmitter*             theTransmittersPtr[1];
     theTransmittersPtr[0] = mTransmittersPtr[0];
     mTransmittersPtr[0] = 0;
+    int theTransmittersCount = 0;
     SetHeartbeatInterval(theConfig.GetPrimaryTimeout());
     for (Config::Nodes::const_iterator theIt = theNodes.begin();
             theNodes.end() != theIt;
@@ -1701,6 +1705,7 @@ LogTransmitter::Impl::Update(
                     0 != (theNode.GetFlags() & Config::kFlagActive),
                     theLastLogSeq);
             }
+            theTransmittersCount++;
             Insert(*theTPtr);
         }
     }
@@ -1708,9 +1713,10 @@ LogTransmitter::Impl::Update(
     while ((theTPtr = List::PopFront(theTransmittersPtr))) {
         delete theTPtr;
     }
-    mNodeId         = inMetaVrSM.GetNodeId();
-    mMinAckToCommit = inMetaVrSM.GetQuorum();
-    mTransmitFlag   = inMetaVrSM.IsPrimary();
+    mTransmittersCount = theTransmittersCount;
+    mNodeId            = inMetaVrSM.GetNodeId();
+    mMinAckToCommit    = inMetaVrSM.GetQuorum();
+    mTransmitFlag      = inMetaVrSM.IsPrimary();
     StartTransmitters(theAuthCtxPtr);
     Update();
 }
@@ -1787,6 +1793,12 @@ LogTransmitter::SetHeartbeatInterval(
     int inInterval)
 {
     mImpl.SetHeartbeatInterval(inInterval);
+}
+
+    int
+LogTransmitter::GetChannelsCount() const
+{
+    return mImpl.GetChannelsCount();
 }
 
 } // namespace KFS

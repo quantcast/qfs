@@ -269,6 +269,7 @@ struct MetaRequest {
     bool            shortRpcFormatFlag;
     bool            replayFlag;
     bool            commitPendingFlag;
+    bool            replayBypassFlag;
     string          clientIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
@@ -299,6 +300,7 @@ struct MetaRequest {
           shortRpcFormatFlag(true),
           replayFlag(false),
           commitPendingFlag(false),
+          replayBypassFlag(false),
           clientIp(),
           reqHeaders(),
           authUid(kKfsUserNone),
@@ -441,6 +443,7 @@ protected:
         shortRpcFormatFlag  = false;
         replayFlag          = false;
         commitPendingFlag   = false;
+        replayBypassFlag    = false;
         clientIp = string();
         reqHeaders.Clear();
         authUid             = kKfsUserNone;
@@ -4120,7 +4123,7 @@ struct MetaLogWriterControl : public MetaRequest {
           blockCommitted(),
           blockLines(),
           blockData()
-        {}
+        { replayBypassFlag = kCheckpointNewLog != type; }
     virtual bool start()  { return true; }
     virtual void handle()
     {
@@ -4153,22 +4156,23 @@ struct MetaLogWriterControl : public MetaRequest {
         os << " status: "  << status;
         return os;
     }
-    void Reset()
+    void Reset(Type t)
     {
         ResetSelf();
-        logAction      = kLogAlways;
-        type           = kNop;
-        committed      = MetaVrLogSeq();
-        lastLogSeq     = MetaVrLogSeq();
-        logSegmentNum  = 1;
+        logAction        = kLogAlways;
+        replayBypassFlag = kCheckpointNewLog != t;
+        type             = t;
+        committed        = MetaVrLogSeq();
+        lastLogSeq       = MetaVrLogSeq();
+        logSegmentNum    = 1;
         params.clear();
-        paramsPrefix   = string();
-        logName        = string();
-        blockChecksum  = 0;
-        blockSeq       = -1;
-        blockStartSeq  = MetaVrLogSeq();
-        blockEndSeq    = MetaVrLogSeq();
-        blockCommitted = MetaVrLogSeq();
+        paramsPrefix     = string();
+        logName          = string();
+        blockChecksum    = 0;
+        blockSeq         = -1;
+        blockStartSeq    = MetaVrLogSeq();
+        blockEndSeq      = MetaVrLogSeq();
+        blockCommitted   = MetaVrLogSeq();
         blockLines.Clear();
         blockData.Clear();
     }

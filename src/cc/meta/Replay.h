@@ -125,8 +125,7 @@ public:
         if (emptyQueueFlag) {
             return false;
         }
-        enqueue(req);
-        return true;
+        return enqueue(req);
     }
 
     class BlockChecksum
@@ -193,7 +192,7 @@ private:
         { return  (0 <= logSeqStartNum && logSeqStartNum <= num); }
     void update();
     string getLastLog();
-    void enqueue(MetaRequest& req);
+    bool enqueue(MetaRequest& req);
 private:
     // No copy.
     Replay(const Replay&);

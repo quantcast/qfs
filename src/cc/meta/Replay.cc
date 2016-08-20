@@ -407,11 +407,14 @@ public:
         update();
         return okFlag;
     }
-    void enqueue(MetaRequest& req)
+    bool enqueue(MetaRequest& req)
     {
+        if (req.replayBypassFlag) {
+            return false;
+        }
         if (mCurOp || ! mReplayer) {
             panic("replay: invalid enqueue attempt");
-            return;
+            return false;
         }
         mCurOp = &req;
         MetaVrLogSeq const nextSeq = mCurOp->logseq;
@@ -422,6 +425,7 @@ public:
             mLastLogAheadSeq = nextSeq;
         }
         update();
+        return true;
     }
     void stopServicing()
     {
@@ -2671,10 +2675,10 @@ Replay::commitAll()
     return replayTokenizer.GetState().commitAll();
 }
 
-void
+bool
 Replay::enqueue(MetaRequest& req)
 {
-    replayTokenizer.GetState().enqueue(req);
+    return replayTokenizer.GetState().enqueue(req);
 }
 
 } // namespace KFS

@@ -564,9 +564,7 @@ private:
                 panic("log writer: request completion invalid pending count");
             }
             if (IsMetaLogWriteOrVrError(thePtr->status) ||
-                    (META_LOG_WRITER_CONTROL == thePtr->op &&
-                    MetaLogWriterControl::kCheckpointNewLog !=
-                        static_cast<MetaLogWriterControl*>(thePtr)->type) ||
+                    thePtr->replayBypassFlag ||
                     ! mReplayerPtr->submit(*thePtr)) {
                 submit_request(&theReq);
             }
@@ -1016,7 +1014,7 @@ private:
         inRequest.lastLogSeq = mLastLogSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
             if (inRequest.blockStartSeq <= inRequest.blockEndSeq &&
-                    mLastLogSeq < inRequest.blockStartSeq) {
+                mLastLogSeq < inRequest.blockStartSeq) {
             }
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "invalid block start sequence";

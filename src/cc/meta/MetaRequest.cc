@@ -6051,8 +6051,13 @@ MetaReadMetaData::handle()
         suspended = false;
         return;
     }
-    if (status < 0 ||
-            (0 == submitCount && ! HasMetaServerAdminAccess(*this))) {
+    if (status < 0) {
+        if (! allowNotPrimaryFlag || ! IsMetaLogWriteOrVrError(status)) {
+            return;
+        }
+        status = 0;
+    }
+    if ((0 == submitCount && ! HasMetaServerAdminAccess(*this))) {
         return;
     }
     if (! HasEnoughIoBuffersForResponse(*this)) {
