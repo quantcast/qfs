@@ -188,15 +188,15 @@ public:
         mCommitted.mStatus    = mReplayerPtr->getLastCommittedStatus();
         mReplayLogSeq         = mReplayerPtr->getLastLogSeq();
         mPendingReplayLogSeq  = mReplayLogSeq;
-        mPendingCommitted  = mCommitted;
-        mInFlightCommitted = mPendingCommitted;
-        mMetaDataStorePtr  = &inMetaDataStore;
+        mPendingCommitted     = mCommitted;
+        mInFlightCommitted    = mPendingCommitted;
+        mMetaDataStorePtr     = &inMetaDataStore;
         if (mReplayerPtr->getAppendToLastLogFlag()) {
             const bool theLogAppendHexFlag =
                 16 == mReplayerPtr->getLastLogIntBase();
             const bool theHasLogSeqFlag    =
                 mReplayerPtr->logSegmentHasLogSeq();
-            mCurLogStartSeq  = mReplayerPtr->getLastLogStart();
+            mCurLogStartSeq                = mReplayerPtr->getLastLogStart();
             SetLogName(mReplayLogSeq,
                 theHasLogSeqFlag ? mCurLogStartSeq : MetaVrLogSeq());
             mCurLogStartTime = mNetManager.Now();
@@ -379,10 +379,10 @@ public:
         }
         mCommitUpdatedFlag = false;
         QCStMutexLocker theLock(mMutex);
-        mPendingCommitted = mCommitted;
-        mPendingReplayLogSeq = mReplayLogSeq;
-        mInQueue.PushBack(mPendingQueue);
+        mPendingCommitted      = mCommitted;
+        mPendingReplayLogSeq   = mReplayLogSeq;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
+        mInQueue.PushBack(mPendingQueue);
         theLock.Unlock();
         mNetManager.Wakeup();
     }
@@ -394,7 +394,7 @@ public:
         QCStMutexLocker theLock(mMutex);
         // Mark everything committed to cleanup queues.
         mTransmitCommitted = mNextLogSeq;
-        mStopFlag = true;
+        mStopFlag          = true;
         mNetManager.Wakeup();
         theLock.Unlock();
         mThread.Join();
@@ -1238,9 +1238,8 @@ private:
         const MetaVrLogSeq& inLogSeq,
         const MetaVrLogSeq& inLogStartSeqNum)
     {
-        mCurLogStartSeq = inLogSeq;
-        mNextLogSeq     = inLogSeq;
-        mLastLogSeq     = inLogSeq;
+        mNextLogSeq = inLogSeq;
+        mLastLogSeq = inLogSeq;
         mLogName.assign(mLogDir.data(), mLogDir.size());
         if (! mLogName.empty() && '/' != *mLogName.rbegin()) {
             mLogName += '/';
@@ -1253,6 +1252,9 @@ private:
             AppendDecIntToString(mLogName, inLogStartSeqNum.mViewSeq);
             mLogName += '.';
             AppendDecIntToString(mLogName, inLogStartSeqNum.mLogSeq);
+            mCurLogStartSeq = inLogStartSeqNum;
+        } else {
+            mCurLogStartSeq = inLogSeq;
         }
         mLogName += '.';
         AppendDecIntToString(mLogName, mLogNum);

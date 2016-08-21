@@ -3984,7 +3984,7 @@ MetaCheckpoint::handle()
         if (now < lastRun + intervalSec) {
             return;
         }
-        if (lastCheckpointId == GetLogWriter().GetCommittedLogSeq()) {
+        if (GetLogWriter().GetCommittedLogSeq() <= lastCheckpointId) {
             return;
         }
         if (0 <= lockFd) {
@@ -4042,7 +4042,7 @@ MetaCheckpoint::handle()
             status = -EINVAL;
         } else {
             metatree.disableFidToPathname();
-            metatree.recomputeDirSize();
+            metatree.setUpdatePathSpaceUsage(true);
             cp.setWriteSyncFlag(checkpointWriteSyncFlag);
             cp.setWriteBufferSize(checkpointWriteBufferSize);
             status = cp.write(
