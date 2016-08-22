@@ -23,6 +23,7 @@ env:
         - DISTRO=none # need a row in the build matrix for osx
         - DISTRO=ubuntu VER=14.04
         - DISTRO=centos VER=6
+        - DISTRO=centos VER=7
 
 matrix:
     exclude:
@@ -30,6 +31,8 @@ matrix:
           env: DISTRO=ubuntu VER=14.04
         - os: osx
           env: DISTRO=centos VER=6
+        - os: osx
+          env: DISTRO=centos VER=7
         - os: linux
           env: DISTRO=none
 
