@@ -249,21 +249,21 @@ MakeMetaRequestLogXmitHandler(
 {
     static T sHandler;
     return sHandler
-    .MakeParser("VRH",
-        META_VR_HELLO,
-        static_cast<const MetaVrHello*>(0))
-    .MakeParser("VSV",
-        META_VR_START_VIEW,
-        static_cast<const MetaVrStartView*>(0))
     .MakeParser("AUTHENTICATE",
         META_AUTHENTICATE,
         static_cast<const MetaAuthenticate*>(0))
-    .MakeParser("VDVC",
-        META_VR_DO_VIEW_CHANGE,
-        static_cast<const MetaVrDoViewChange*>(0))
+    .MakeParser("VRH",
+        META_VR_HELLO,
+        static_cast<const MetaVrHello*>(0))
     .MakeParser("VSVC",
         META_VR_START_VIEW_CHANGE,
         static_cast<const MetaVrStartViewChange*>(0))
+    .MakeParser("VDVC",
+        META_VR_DO_VIEW_CHANGE,
+        static_cast<const MetaVrDoViewChange*>(0))
+    .MakeParser("VSV",
+        META_VR_START_VIEW,
+        static_cast<const MetaVrStartView*>(0))
     ;
 }
 

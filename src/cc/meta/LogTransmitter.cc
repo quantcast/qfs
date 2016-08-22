@@ -373,7 +373,8 @@ public:
     void QueueVrRequest(
         MetaVrRequest& inReq)
     {
-        if (! mPendingSend.IsEmpty() || mVrOpPtr) {
+        if (! mPendingSend.IsEmpty() || mVrOpPtr ||
+                0 <= mMetaVrHello.opSeqno) {
             Reset("queueing Vr request");
         }
         if (0 <= mVrOpSeq) {
@@ -453,8 +454,7 @@ public:
         QCASSERT(0 <= mRecursionCount);
         return 0;
     }
-    void Reset(
-        bool inShutdownFlag = false)
+    void CloseConnection()
     {
         if (mConnectionPtr) {
             mConnectionPtr->Close();
@@ -464,18 +464,20 @@ public:
             mSleepingFlag = false;
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);
         }
-        if (inShutdownFlag) {
-            VrDisconnect();
-        }
         mPeer.port = -1;
         mPeer.hostname.clear();
         mSendHelloFlag = true;
+        mVrOpSeq = -1;
         mReplyProps.clear();
     }
     void Shutdown()
     {
-        const bool kShutdownFlag = true;
-        Reset(kShutdownFlag);
+        CloseConnection();
+        VrDisconnect();
+        mPeer.port = -1;
+        mPeer.hostname.clear();
+        mSendHelloFlag = true;
+        mReplyProps.clear();
     }
     const ServerLocation& GetServerLocation() const
         { return mServer; }
@@ -683,7 +685,7 @@ private:
     }
     void Connect()
     {
-        Reset();
+        CloseConnection();
         if (! mImpl.GetNetManager().IsRunning()) {
             return;
         }
@@ -1107,10 +1109,9 @@ private:
         }
         // For now only handle authentication response.
         seq_t const theSeq = mReplyProps.getValue("c", seq_t(-1));
-        if ((! mVrOpPtr || theSeq != mVrOpSeq) &&
-                (mMetaVrHello.opSeqno < 0 || theSeq != mMetaVrHello.opSeqno) &&
-                (! mAuthenticateOpPtr ||
-                    theSeq != mAuthenticateOpPtr->opSeqno)) {
+        if ((mVrOpPtr && 0 <= mVrOpSeq && theSeq != mVrOpSeq) ||
+                (0 <= mMetaVrHello.opSeqno && theSeq != mMetaVrHello.opSeqno) ||
+                (mAuthenticateOpPtr && theSeq != mAuthenticateOpPtr->opSeqno)) {
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "unexpected reply, authentication: " <<
@@ -1199,6 +1200,12 @@ private:
         if (! mConnectionPtr) {
             return;
         }
+        KFS_LOG_STREAM_DEBUG <<
+          mServer <<
+           " id: "   << mId <<
+           " +seq: " << inReq.opSeqno <<
+            " "      << inReq.Show() <<
+        KFS_LOG_EOM;
         IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
         ReqOstream theStream(mOstream.Set(theBuf));
         if (&inReq == mVrOpPtr) {

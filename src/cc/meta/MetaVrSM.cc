@@ -250,7 +250,7 @@ public:
           mMetaVrLogStartViewPtr(0),
           mStartViewChangeNodeIds(),
           mDoViewChangeNodeIds(),
-          mStartViewCompletionIds(),
+          mRespondedIds(),
           mNodeIdAndMDSLocations(),
           mLogFetchEndSeq(),
           mMetaDataStoreLocation(),
@@ -363,10 +363,12 @@ public:
             panic("VR: invalid hello completion");
             return;
         }
-        mReplyCount++;
+        inReq.SetVrSMPtr(0);
+        if (mStartViewChangePtr || mDoViewChangePtr || mStartViewPtr) {
+            return;
+        }
         mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
-        inReq.SetVrSMPtr(0);
     }
     void HandleReply(
         MetaVrStartViewChange& inReq,
@@ -387,7 +389,7 @@ public:
                 ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
             return;
         }
-        const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
+        const bool theNewFlag = mRespondedIds.insert(inNodeId).second;
         if (0 != mVrResponse.mStatus) {
             if (kStatePrimary == mVrResponse.mState ||
                     kStateBackup == mVrResponse.mState ||
@@ -430,7 +432,7 @@ public:
                 " committed:"       << mStartViewChangeMaxCommittedSeq <<
                 " last:"            << mStartViewChangeMaxLastLogSeq <<
                 " count: "          << mNodeIdAndMDSLocations.size() <<
-                " responses: "      << mStartViewCompletionIds.size() <<
+                " responses: "      << mRespondedIds.size() <<
                 " "                 << inReq.Show() <<
             KFS_LOG_EOM;
         }
@@ -466,14 +468,17 @@ public:
         const bool theOkFlag = mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
         KFS_LOG_STREAM_DEBUG <<
-            "replies: " << mStartViewReplyCount <<
+            "start view:"
+            " replies: " << mStartViewReplyCount <<
+            " total: "   << mReplyCount <<
+            (theOkFlag ? " ok" : " failed") <<
         KFS_LOG_EOM;
         if (! theOkFlag || ! IsActive(inNodeId) ||
                 kStateStartViewPrimary != mState ||
                 ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
             return;
         }
-        const bool theNewFlag = mStartViewCompletionIds.insert(inNodeId).second;
+        const bool theNewFlag = mRespondedIds.insert(inNodeId).second;
         if (! theNewFlag) {
             return;
         }
@@ -542,7 +547,18 @@ public:
         }
         outReqPtr = 0;
         mTimeNow  = inTimeNow;
-        if (kStateBackup == mState) {
+        if (kStateLogSync == mState) {
+            bool theProgressFlag = false;
+            if (mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag) < 0 ||
+                    ! theProgressFlag) {
+                mLogFetchEndSeq = MetaVrLogSeq();
+                if (mActiveFlag) {
+                    StartViewChange();
+                } else {
+                    mState = kStateBackup;
+                }
+            }
+        } else if (kStateBackup == mState) {
             if (mActiveFlag &&  mLastReceivedTime + mConfig.GetBackupTimeout() <
                     TimeNow()) {
                 AdvanceView();
@@ -559,17 +575,15 @@ public:
                 outReqPtr = mMetaVrLogStartViewPtr;
                 mMetaVrLogStartViewPtr = 0;
             }
-        } else if (kStateViewChange == mState) {
-            if (TimeNow() != mLastProcessTime && mActiveFlag) {
-                StartDoViewChangeIfPossible();
-            }
-        } else if (kStateLogSync == mState) {
-            bool theProgressFlag = false;
-            if (mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag) < 0 ||
-                    ! theProgressFlag) {
-                mLogFetchEndSeq = MetaVrLogSeq();
-                if (mActiveFlag) {
-                    StartViewChange();
+        } else {
+            if (mActiveFlag) {
+                if (TimeNow() != mLastProcessTime) {
+                    StartDoViewChangeIfPossible();
+                }
+            } else {
+                CancelViewChange();
+                if (mQuorum <= 0 && mActiveCount < 0) {
+                    NullQuorumStartView();
                 } else {
                     mState = kStateBackup;
                 }
@@ -1121,7 +1135,7 @@ private:
     MetaVrLogStartView*          mMetaVrLogStartViewPtr;
     NodeIdSet                    mStartViewChangeNodeIds;
     NodeIdSet                    mDoViewChangeNodeIds;
-    NodeIdSet                    mStartViewCompletionIds;
+    NodeIdSet                    mRespondedIds;
     NodeIdAndMDSLocations        mNodeIdAndMDSLocations;
     MetaVrLogSeq                 mLogFetchEndSeq;
     ServerLocation               mMetaDataStoreLocation;
@@ -1198,10 +1212,12 @@ private:
         KFS_LOG_STREAM(0 == inReq.status ?
                 MsgLogger::kLogLevelINFO :
                 MsgLogger::kLogLevelERROR) <<
-            "seq: "     << inReq.opSeqno        <<
+            "+seq: "    << inReq.opSeqno        <<
             " status: " << inReq.status         <<
             " "         << inReq.statusMsg      <<
             " state: "  << GetStateName(mState) <<
+            " DVC: "    <<
+                reinterpret_cast<const void*>(mDoViewChangePtr) <<
             " active: " << mActiveFlag          <<
             " epoch: "  << mEpochSeq            <<
             " view: "   << mViewSeq             <<
@@ -1216,9 +1232,13 @@ private:
         const ServerLocation& inPeer) const
     {
         KFS_LOG_STREAM_DEBUG <<
-            "seq: "       << inSeq <<
+            "-seq: "      << inSeq <<
             " node: "     << inNodeId <<
             " peer: "     << inPeer <<
+            " state: "    << GetStateName(mState) <<
+            " DVC: "      <<
+                reinterpret_cast<const void*>(mDoViewChangePtr) <<
+            " replies: "  << mReplyCount <<
             " reponse: "  << mVrResponse <<
             " "           << inReq.Show() <<
         KFS_LOG_EOM;
@@ -1237,14 +1257,17 @@ private:
             " view: "           << mViewSeq <<
             " change started: " << (TimeNow() - mViewChangeStartTime) <<
                 " sec. ago"
-            " completions: "    << mStartViewCompletionIds.size() <<
+            " responded: "      << mRespondedIds.size() <<
             " replies: "        << mReplyCount <<
+            " do view change: " <<
+                reinterpret_cast<const void*>(mDoViewChangePtr) <<
             " error: "          << inMsgPtr <<
         KFS_LOG_EOM;
-        if (mActiveCount <= (int)mStartViewCompletionIds.size() ||
-                mLogTransmitter.GetChannelsCount() <= mReplyCount) {
+        if ((mDoViewChangePtr ? 0 < mReplyCount :
+                (mActiveCount <= (int)mRespondedIds.size() ||
+                mLogTransmitter.GetChannelsCount() <= mReplyCount))) {
             mLastReceivedTime = TimeNow();
-            if (mViewSeq < mStartViewChangeRecvViewSeq) {
+            if (! mDoViewChangePtr && mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq;
             }
             StartViewChange();
@@ -1257,6 +1280,7 @@ private:
             return;
         }
         if (mDoViewChangePtr) {
+            RetryStartViewChange("do view change timed out");
             return;
         }
         if (mLastLogSeq < mStartViewChangeMaxLastLogSeq) {
@@ -1298,12 +1322,12 @@ private:
             return;
         }
         const size_t theSz = mStartViewChangeNodeIds.size();
-        if (theSz < (size_t)(mActiveCount - mQuorum)) {
+        if (theSz < mQuorum) {
             RetryStartViewChange("not sufficient number of noded responded");
             return;
         }
         if (theSz < (size_t)mActiveCount &&
-                (int)mStartViewCompletionIds.size() < mActiveCount &&
+                (int)mRespondedIds.size() < mActiveCount &&
                 TimeNow() <=
                     mViewChangeStartTime + mConfig.GetPrimaryTimeout()) {
             // Wait for more nodes to repsond.
@@ -1342,20 +1366,28 @@ private:
         inReq.mRetClusterKey           = mClusterKey;
         inReq.mRetMetaMd               = mMetaMd;
     }
-    bool VerifyViewChange(
+    bool VerifyClusterKey(
         MetaVrRequest& inReq)
     {
         if (mClusterKey != inReq.mClusterKey) {
-            inReq.status    = -EBADCLUSTERKEY;
             inReq.statusMsg = "cluster key does not match";
-        } else if (mFileSystemId != inReq.mFileSystemId) {
-            inReq.status    = -EBADCLUSTERKEY;
-            inReq.statusMsg = "file system id does not match";
         } else if (! mMetaMds.empty() &&
                 mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
-            inReq.status    = -EBADCLUSTERKEY;
-            inReq.statusMsg = "invalid meta server MD";
-        } if (! mActiveFlag) {
+            inReq.statusMsg = "invalid meta server executable's MD";
+        } else if (mFileSystemId != inReq.mFileSystemId) {
+            inReq.statusMsg = "file system ID does not match";
+        } else {
+            return true;
+        }
+        inReq.status = -EBADCLUSTERKEY;
+        return false;
+    }
+    bool VerifyViewChange(
+        MetaVrRequest& inReq)
+    {
+        if (! VerifyClusterKey(inReq)) {
+            // Set return state and return false at the end.
+        } else if (! mActiveFlag) {
             inReq.status    = -ENOENT;
             inReq.statusMsg = "node inactive";
         } else if (! IsActive(inReq.mNodeId)) {
@@ -1454,28 +1486,17 @@ private:
     bool Handle(
         MetaVrHello& inReq)
     {
-        if (0 == inReq.status) {
-            if (mClusterKey != inReq.mClusterKey) {
-                inReq.status    = -EBADCLUSTERKEY;
-                inReq.statusMsg = "cluster key does not match";
-            } else if (! mMetaMds.empty() &&
-                    mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
-                inReq.status    = -EBADCLUSTERKEY;
-                inReq.statusMsg = "invalid meta server MD";
-            } else if (mFileSystemId != inReq.mFileSystemId) {
-                inReq.status    = -EBADCLUSTERKEY;
-                inReq.statusMsg = "file system id does not match";
-            } else if (kStatePrimary == inReq.mCurState &&
-                    0 < mQuorum && mActiveFlag) {
-                if (kStatePrimary == mState) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "cuuent node state: ";
-                    inReq.statusMsg += GetStateName(mState);
-                } else if (inReq.mLastLogSeq < mCommittedSeq) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg =
-                        "last log sequence is less than committed";
-                }
+        if (0 == inReq.status && VerifyClusterKey(inReq) &&
+                kStatePrimary == inReq.mCurState &&
+                0 < mQuorum && mActiveFlag) {
+            if (kStatePrimary == mState) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "cuuent node state: ";
+                inReq.statusMsg += GetStateName(mState);
+            } else if (inReq.mLastLogSeq < mCommittedSeq) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg =
+                    "last log sequence is less than committed";
             }
         }
         Show(inReq);
@@ -1574,7 +1595,8 @@ private:
                         KFS_LOG_EOM;
                         StartView();
                     }
-                } else {
+                } else if (kStateStartViewPrimary != mState &&
+                        kStatePrimary != mState) {
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "ignored, state: ";
                     inReq.statusMsg += GetStateName(mState);
@@ -1597,13 +1619,15 @@ private:
                     inReq.statusMsg += GetStateName(mState);
                 }
             } else {
-                if (mNodeId != inReq.mNodeId) {
+                if (mNodeId == inReq.mNodeId) {
+                    if (kStateStartViewPrimary != mState &&
+                            kStatePrimary != mState) {
+                        inReq.status    = -EINVAL;
+                        inReq.statusMsg = "primary invalid state: ";
+                        inReq.statusMsg += GetStateName(mState);
+                    }
+                } else {
                     mState = kStateBackup;
-                } else if (mState != kStateStartViewPrimary &&
-                        mState != kStatePrimary) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "primary invalid state: ";
-                    inReq.statusMsg += GetStateName(mState);
                 }
             }
             SetReturnState(inReq);
@@ -2297,9 +2321,10 @@ private:
     }
     NodeId GetPrimaryId()
     {
-        NodeId theId       = -1;
-        int    theMinOrder = numeric_limits<int>::max();
-        const Config::Nodes& theNodes = mConfig.GetNodes();
+        NodeId               theId       = -1;
+        int                  theMinOrder = numeric_limits<int>::max();
+        const Config::Nodes& theNodes    = mConfig.GetNodes();
+        int                  theCnt      = 0;
         for (Config::Nodes::const_iterator theIt = theNodes.begin();
                 theNodes.end() != theIt;
                 ++theIt) {
@@ -2310,13 +2335,13 @@ private:
                     0 != (Config::kFlagWitness & theFlags)) {
                 continue;
             }
-            if (theNodeId != mNodeId &&
-                    mStartViewChangeNodeIds.find(theNodeId) ==
+            if (mStartViewChangeNodeIds.find(theNodeId) ==
                         mStartViewChangeNodeIds.end() &&
                     mDoViewChangeNodeIds.find(theNodeId) ==
                         mDoViewChangeNodeIds.end()) {
                 continue;
             }
+            theCnt++;
             const int theOrder = theNode.GetPrimaryOrder();
             if (theMinOrder <= theOrder && 0 <= theId) {
                 continue;
@@ -2324,7 +2349,7 @@ private:
             theMinOrder = theOrder;
             theId       = theNodeId;
         }
-        return theId;
+        return (theCnt < mQuorum ? -1 : theId);
     }
     NodeId AllInactiveFindPrimary()
     {
@@ -2364,7 +2389,7 @@ private:
     {
         mReconfigureReqPtr = 0;
         Cancel(mStartViewChangePtr);
-        mStartViewCompletionIds.clear();
+        mRespondedIds.clear();
         Cancel(mDoViewChangePtr);
         Cancel(mStartViewPtr);
         MetaRequest::Release(mMetaVrLogStartViewPtr);
@@ -2395,6 +2420,22 @@ private:
         inReq.mMetaMd               = mMetaMd;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
+    void NullQuorumStartView()
+    {
+        if (0 < mQuorum) {
+            panic("VR: null quorum start view invalid invocation");
+            return;
+        }
+        if ((mActiveCount <= 0 ?
+                (mConfig.IsEmpty() ?
+                    kBootstrapPrimaryNodeId :
+                    AllInactiveFindPrimary()) :
+                GetPrimaryId()) == mNodeId) {
+            PirmaryCommitStartView();
+        } else {
+            mState = kStateBackup;
+        }
+    }
     void StartViewChange()
     {
         if (! mActiveFlag) {
@@ -2403,15 +2444,7 @@ private:
         }
         CancelViewChange();
         if (mQuorum <= 0) {
-            if ((mActiveCount <= 0 ?
-                    (mConfig.IsEmpty() ?
-                        kBootstrapPrimaryNodeId :
-                        AllInactiveFindPrimary()) :
-                    GetPrimaryId()) == mNodeId) {
-                PirmaryCommitStartView();
-            } else {
-                mState = kStateBackup;
-            }
+            NullQuorumStartView();
             return;
         }
         mState               = kStateViewChange;
@@ -2433,6 +2466,7 @@ private:
             return;
         }
         CancelViewChange();
+        mViewChangeStartTime = TimeNow();
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
         theOp.mPimaryNodeId = inPrimaryId;
@@ -2446,7 +2480,8 @@ private:
             return;
         }
         CancelViewChange();
-        mState = kStateStartViewPrimary;
+        mState               = kStateStartViewPrimary;
+        mViewChangeStartTime = TimeNow();
         MetaVrStartView& theOp = *(new MetaVrStartView());
         Init(theOp);
         mStartViewPtr = &theOp;
