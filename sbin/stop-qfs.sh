@@ -1,5 +1,36 @@
 #!/usr/bin/env bash
 
+#
+# stop-qfs.sh
+#
+#	Written by Michael Kamprath <michael@kamprath.net>
+#
+# 	Stops QFS by terminating the Meta Server on the node this script is run on and
+#   terminating a Chunk Server on each node the in ${QFS_CONF_DIR}/chunk_servers.
+#	Will load ${QFS_CONF_DIR}/qfs-env.sh if it exists to set environment variables.
+#
+#	Environment Variables
+#
+#		QFS_HOME
+#			The file path to the QFS installation. Not settable in qfs-env.sh.
+#			Defaults to "/usr/local/qfs"
+#
+#		QFS_CONF_DIR
+#			The directory path of QFS configuration on all nodes. Not settable in qfs-env.sh
+#			Defaults to "${QFS_HOME}/conf"
+#
+#		QFS_USER
+#			The user that the QFS processes will be launched under.
+#			Defaults to the user that launched this script.
+#
+#		METASERVER_HOST_IP
+#			The address of the server that will run the Meta Server process
+#			Defaults to "localhost"
+#
+#		START_QFS_SH_DEBUG
+#			A boolean value indicating whether debug logging should be emitted from this script.
+#
+
 # remote_command_exec
 #	Executes a command remotely
 #
