@@ -241,6 +241,7 @@ public:
           mStartViewChangeRecvViewSeq(-1),
           mStartViewChangeMaxLastLogSeq(),
           mStartViewChangeMaxCommittedSeq(),
+          mChannelsCount(0),
           mStartViewEpochMismatchCount(0),
           mStartViewReplyCount(0),
           mReplyCount(0),
@@ -664,7 +665,7 @@ public:
         if (! mMetaDataStoreLocation.IsValid()) {
             mMetaDataStoreLocation = inDataStoreLocation;
         }
-        mLogTransmitter.Update(mMetaVrSM);
+        ConfigUpdate();
         mStartedFlag = true;
         return 0;
     }
@@ -1126,6 +1127,7 @@ private:
     seq_t                        mStartViewChangeRecvViewSeq;
     MetaVrLogSeq                 mStartViewChangeMaxLastLogSeq;
     MetaVrLogSeq                 mStartViewChangeMaxCommittedSeq;
+    int                          mChannelsCount;
     int                          mStartViewEpochMismatchCount;
     int                          mStartViewReplyCount;
     int                          mReplyCount;
@@ -1147,6 +1149,8 @@ private:
     MetaVrReconfiguration*       mPendingReconfigureReqPtr;
     MetaVrResponse               mVrResponse;
 
+    void ConfigUpdate()
+        { mChannelsCount = mLogTransmitter.Update(mMetaVrSM); }
     bool ValidateClusterKeyAndMd(
         MetaVrRequest&    inReq,
         seq_t             inSeq,
@@ -1207,12 +1211,14 @@ private:
     time_t TimeNow() const
         { return mTimeNow; }
     void Show(
-        const MetaVrRequest& inReq)
+        const MetaVrRequest& inReq,
+        const char*          inPrefixPtr = "")
     {
         KFS_LOG_STREAM(0 == inReq.status ?
                 MsgLogger::kLogLevelINFO :
                 MsgLogger::kLogLevelERROR) <<
-            "+seq: "    << inReq.opSeqno        <<
+            inPrefixPtr <<
+            "seq: "     << inReq.opSeqno        <<
             " status: " << inReq.status         <<
             " "         << inReq.statusMsg      <<
             " state: "  << GetStateName(mState) <<
@@ -1265,12 +1271,12 @@ private:
         KFS_LOG_EOM;
         if ((mDoViewChangePtr ? 0 < mReplyCount :
                 (mActiveCount <= (int)mRespondedIds.size() ||
-                mLogTransmitter.GetChannelsCount() <= mReplyCount))) {
+                mChannelsCount <= mReplyCount))) {
             mLastReceivedTime = TimeNow();
             if (! mDoViewChangePtr && mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq;
             }
-            StartViewChange();
+            AdvanceView();
         }
     }
     void StartDoViewChangeIfPossible()
@@ -1328,6 +1334,7 @@ private:
         }
         if (theSz < (size_t)mActiveCount &&
                 (int)mRespondedIds.size() < mActiveCount &&
+                mChannelsCount <= mReplyCount &&
                 TimeNow() <=
                     mViewChangeStartTime + mConfig.GetPrimaryTimeout()) {
             // Wait for more nodes to repsond.
@@ -1525,7 +1532,7 @@ private:
     bool Handle(
         MetaVrStartViewChange& inReq)
     {
-        Show(inReq);
+        Show(inReq, "+");
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq) {
                 if (kStateLogSync != mState &&
@@ -1572,11 +1579,13 @@ private:
     bool Handle(
         MetaVrDoViewChange& inReq)
     {
-        Show(inReq);
+        Show(inReq, "+");
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq) {
-                mViewSeq = inReq.mViewSeq;
-                StartViewChange();
+                if (kStateLogSync != mState) {
+                    mViewSeq = inReq.mViewSeq;
+                    StartViewChange();
+                }
             } else if (mNodeId != inReq.mPimaryNodeId) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "primary node id mismatch, state: ";
@@ -1610,9 +1619,10 @@ private:
     bool Handle(
         MetaVrStartView& inReq)
     {
-        Show(inReq);
+        Show(inReq, "+");
         if (VerifyViewChange(inReq)) {
-            if (mViewSeq != inReq.mViewSeq || kStateViewChange != mState) {
+            if (mViewSeq != inReq.mViewSeq || (kStateViewChange != mState &&
+                    kStateStartViewPrimary != mState)) {
                 if (kStatePrimary != mState || mNodeId != inReq.mNodeId) {
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "ignored, state: ";
@@ -2152,7 +2162,7 @@ private:
         }
         mPendingChangesList.clear();
         mPendingLocations.clear();
-        mLogTransmitter.Update(mMetaVrSM);
+        ConfigUpdate();
     }
     void CommitAddNode(
         const MetaVrReconfiguration& inReq)
@@ -2456,6 +2466,9 @@ private:
         Init(theOp);
         mStartViewChangePtr = &theOp;
         const NodeId kBroadcast = -1;
+        KFS_LOG_STREAM_INFO <<
+            "start view change: " << theOp.Show() <<
+        KFS_LOG_EOM;
         mLogTransmitter.QueueVrRequest(theOp, kBroadcast);
     }
     void StartDoViewChange(
@@ -2466,7 +2479,10 @@ private:
             return;
         }
         CancelViewChange();
-        mViewChangeStartTime = TimeNow();
+        if (mState != kStateViewChange) {
+            mViewChangeStartTime = TimeNow();
+            mState               = kStateViewChange;
+        }
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
         theOp.mPimaryNodeId = inPrimaryId;

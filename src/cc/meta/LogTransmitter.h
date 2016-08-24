@@ -93,7 +93,7 @@ public:
     void QueueVrRequest(
         MetaVrRequest& inVrReq,
         NodeId         inNodeId);
-    void Update(
+    int Update(
         MetaVrSM& inMetaVrSM);
     void GetStatus(
         StatusReporter& inReporter);

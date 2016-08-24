@@ -232,7 +232,7 @@ public:
     void QueueVrRequest(
         MetaVrRequest& inVrReq,
         NodeId         inNodeId);
-    void Update(
+    int Update(
         MetaVrSM& inMetaVrSM);
     void GetStatus(
         StatusReporter& inReporter);
@@ -375,7 +375,8 @@ public:
     {
         if (! mPendingSend.IsEmpty() || mVrOpPtr ||
                 0 <= mMetaVrHello.opSeqno) {
-            Reset("queueing Vr request");
+            Reset("resetting due queueing Vr request",
+                MsgLogger::kLogLevelDEBUG);
         }
         if (0 <= mVrOpSeq) {
             Shutdown();
@@ -644,13 +645,14 @@ private:
         return (!! mConnectionPtr);
     }
     void Reset(
-        const char* inErrMsgPtr)
+        const char*         inErrMsgPtr,
+        MsgLogger::LogLevel inLogLevel = MsgLogger::kLogLevelERROR)
     {
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
         mLastSentBlockSeq  = mImpl.GetLastLogSeq();
-        Error(inErrMsgPtr);
+        Error(inErrMsgPtr, inLogLevel);
     }
     void ExceededMaxPending()
         { Reset("exceeded max pending send"); }
@@ -1146,7 +1148,7 @@ private:
             HandleAuthResponse(inBuffer);
         } else if (theSeq == mMetaVrHello.opSeqno) {
             KFS_LOG_STREAM_DEBUG <<
-                "seq: "     << theSeq <<
+                "-seq: "    << theSeq <<
                 " status: " << mMetaVrHello.status <<
                 " "         << mMetaVrHello.statusMsg <<
                 " "         << mMetaVrHello.Show() <<
@@ -1221,15 +1223,20 @@ private:
         }
     }
     void Error(
-        const char* inMsgPtr = 0)
+        const char*          inMsgPtr   = 0,
+        MsgLogger::LogLevel  inLogLevel = MsgLogger::kLogLevelERROR)
     {
         if (! mConnectionPtr) {
             return;
         }
-        KFS_LOG_STREAM_ERROR <<
+        KFS_LOG_STREAM(inLogLevel) <<
             mServer << ": " <<
             (inMsgPtr ? inMsgPtr : "network error") <<
             " socket error: " << mConnectionPtr->GetErrorMsg() <<
+            " vr:"
+            " seq: "          << mVrOpSeq <<
+            " op: "           << MetaRequest::ShowReq(mVrOpPtr) <<
+            " hello seq: "    << mMetaVrHello.opSeqno <<
         KFS_LOG_EOM;
         mConnectionPtr->Close();
         mConnectionPtr.reset();
@@ -1667,7 +1674,7 @@ LogTransmitter::Impl::QueueVrRequest(
     }
 }
 
-    void
+    int
 LogTransmitter::Impl::Update(
     MetaVrSM& inMetaVrSM)
 {
@@ -1726,6 +1733,7 @@ LogTransmitter::Impl::Update(
     mTransmitFlag      = inMetaVrSM.IsPrimary();
     StartTransmitters(theAuthCtxPtr);
     Update();
+    return mTransmittersCount;
 }
 
 LogTransmitter::LogTransmitter(
@@ -1781,11 +1789,11 @@ LogTransmitter::QueueVrRequest(
     mImpl.QueueVrRequest(inVrReq, inNodeId);
 }
 
-    void
+    int
 LogTransmitter::Update(
     MetaVrSM& inMetaVrSM)
 {
-    mImpl.Update(inMetaVrSM);
+    return mImpl.Update(inMetaVrSM);
 }
 
     void
