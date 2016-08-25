@@ -375,11 +375,15 @@ public:
     {
         if (! mPendingSend.IsEmpty() || mVrOpPtr ||
                 0 <= mMetaVrHello.opSeqno) {
-            Reset("resetting due queueing Vr request",
-                MsgLogger::kLogLevelDEBUG);
-        }
-        if (0 <= mVrOpSeq) {
+            KFS_LOG_STREAM_DEBUG <<
+                mServer <<
+                " queue VR request:"
+                " pending: "   << mPendingSend.BytesConsumable() <<
+                " hello seq: " << mMetaVrHello.opSeqno <<
+                " cancel: "    << MetaRequest::ShowReq(mVrOpPtr) <<
+            KFS_LOG_EOM;
             Shutdown();
+            Reset("queue VR request");
         }
         if (mVrOpPtr) {
             panic("log transmitter: invalid Vr op");
