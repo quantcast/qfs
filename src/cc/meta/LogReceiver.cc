@@ -29,6 +29,7 @@
 #include "AuthContext.h"
 #include "MetaRequest.h"
 #include "MetaVrSM.h"
+#include "MetaVrOps.h"
 #include "util.h"
 
 #include "common/kfstypes.h"
@@ -71,6 +72,7 @@ private:
     class Connection;
 public:
     typedef QCDLList<Connection> List;
+    typedef MetaVrSM::NodeId     NodeId;
 
     Impl()
         : IAcceptorOwner(),
@@ -97,6 +99,8 @@ public:
           mWriteOpFreeListPtr(0),
           mLastAckSentTime(0),
           mDispatchLastAckSentTime(0),
+          mFilterLastAckTimeSentId(-1),
+          mDispatchFilterLastAckTimeSentId(-1),
           mPendingResponseQueue(),
           mResponseQueue(),
           mCompletionQueue(),
@@ -238,7 +242,7 @@ public:
         }
         delete this;
     }
-    int64_t GetId() const
+    NodeId GetId() const
         { return mId; }
 
     enum { kMaxBlockHeaderLen  = 5 * ((int)sizeof(seq_t) * 2 + 1) + 1 + 16 };
@@ -330,6 +334,7 @@ public:
             mDispatchLastAckSentTime = mLastAckSentTime;
             mReplayerPtr->SetLastAckSentTime(mDispatchLastAckSentTime);
         }
+        mFilterLastAckTimeSentId = mDispatchFilterLastAckTimeSentId;
         return theRetFlag;
     }
     void Release(
@@ -413,6 +418,9 @@ public:
     }
     void AckSent(
         Connection& inConnection);
+    void SetFilterLastAckTimeSentId(
+        NodeId inId)
+        { mDispatchFilterLastAckTimeSentId = inId; }
 private:
     typedef StBufferT<char, kMinParseBufferSize>                 ParseBuffer;
     typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
@@ -433,11 +441,13 @@ private:
     bool           mAckBroadcastFlag;
     ParseBuffer    mParseBuffer;
     int64_t        mFileSystemId;
-    int64_t        mId;
+    NodeId         mId;
     Replayer*      mReplayerPtr;
     MetaRequest*   mWriteOpFreeListPtr;
     time_t         mLastAckSentTime;
     time_t         mDispatchLastAckSentTime;
+    NodeId         mFilterLastAckTimeSentId;
+    NodeId         mDispatchFilterLastAckTimeSentId;
     Queue          mPendingResponseQueue;
     Queue          mResponseQueue;
     Queue          mCompletionQueue;
@@ -502,7 +512,8 @@ class LogReceiver::Impl::Connection :
     public SslFilterVerifyPeer
 {
 public:
-    typedef Impl::List List;
+    typedef Impl::List   List;
+    typedef Impl::NodeId NodeId;
 
     Connection(
         Impl&                   inImpl,
@@ -528,6 +539,7 @@ public:
           mIdSentFlag(false),
           mReAuthPendingFlag(false),
           mFirstAckFlag(true),
+          mTransmitterId(-1),
           mAuthPendingResponsesQueue(),
           mIStream(),
           mOstream()
@@ -678,6 +690,8 @@ public:
     }
     time_t TimeNow()
         { return mConnectionPtr->TimeNow(); }
+    NodeId GetTransmitterId() const
+        { return mTransmitterId; }
 private:
     typedef MetaLogWriterControl::Lines                          Lines;
     typedef uint32_t                                             Checksum;
@@ -702,6 +716,7 @@ private:
     bool                   mIdSentFlag;
     bool                   mReAuthPendingFlag;
     bool                   mFirstAckFlag;
+    NodeId                 mTransmitterId;
     Queue                  mAuthPendingResponsesQueue;
     IOBuffer::IStream      mIStream;
     IOBuffer::WOStream     mOstream;
@@ -1009,6 +1024,9 @@ private:
             return -1;
         }
         mPendingOpsCount++;
+        if (mTransmitterId < 0) {
+            mTransmitterId = MetaVrSM::GetNodeId(*theReqPtr);
+        }
         theReqPtr->clnt = this;
         mImpl.Submit(*theReqPtr);
         return 0;
@@ -1321,8 +1339,13 @@ LogReceiver::Impl::Done(
 LogReceiver::Impl::AckSent(
     LogReceiver::Impl::Connection& inConnection)
 {
+    if (mFilterLastAckTimeSentId < 0) {
+        return;
+    }
     const bool theWakeupFlag = ! IsAwake();
-    mLastAckSentTime = inConnection.TimeNow();
+    if (inConnection.GetTransmitterId() == mFilterLastAckTimeSentId) {
+        mLastAckSentTime = inConnection.TimeNow();
+    }
     if (theWakeupFlag && mLastAckSentTime != mDispatchLastAckSentTime) {
         Wakeup();
     }
@@ -1395,6 +1418,13 @@ LogReceiver::Shutdown()
 LogReceiver::Dispatch()
 {
     return mImpl.Dispatch();
+}
+
+    void
+LogReceiver::SetFilterLastAckTimeSentId(
+    int64_t inId)
+{
+    mImpl.SetFilterLastAckTimeSentId(inId);
 }
 
     int

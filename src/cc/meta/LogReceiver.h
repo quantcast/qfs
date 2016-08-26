@@ -78,6 +78,8 @@ public:
         const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId);
     void Shutdown();
+    void SetFilterLastAckTimeSentId(
+        int64_t inId);
     static int ParseBlockLines(
         const IOBuffer&       inBuffer,
         int                   inLength,

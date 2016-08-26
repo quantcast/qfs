@@ -505,7 +505,8 @@ public:
             mNewLogSeq.IsValid() &&
             (mCommittedSeq.mEpochSeq < mNewLogSeq.mEpochSeq ||
                 mCommittedSeq.mViewSeq < mNewLogSeq.mViewSeq) &&
-            (! logseq.IsValid() || logseq == mNewLogSeq)
+            (! logseq.IsValid() || (mCommittedSeq <= logseq &&
+                logseq < mNewLogSeq))
         );
     }
     virtual bool start()

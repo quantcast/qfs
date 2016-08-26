@@ -321,7 +321,7 @@ public:
         int                 inCommittedStatus,
         const MetaVrLogSeq& inLastLogSeq,
         int&                outVrStatus,
-        MetaRequest*        outReqPtr);
+        MetaRequest*&       outReqPtr);
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);
@@ -354,6 +354,8 @@ public:
     const ServerLocation& GetMetaDataStoreLocation() const;
     static const char* GetStateName(
         int inState);
+    static NodeId GetNodeId(
+        const MetaRequest& inReq);
 private:
     class Impl;
     Impl& mImpl;

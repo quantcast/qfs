@@ -127,6 +127,8 @@ public:
         }
         return enqueue(req);
     }
+    int64_t getPrimaryNodeId() const
+        { return primaryNodeId; }
 
     class BlockChecksum
     {
@@ -180,6 +182,7 @@ private:
     BlockChecksum    blockChecksum;
     seq_t            maxLogNum;
     seq_t            logSeqStartNum;
+    int64_t          primaryNodeId;
 
     friend class MetaServerGlobals;
     Replay();

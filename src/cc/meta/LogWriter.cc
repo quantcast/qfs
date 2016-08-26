@@ -93,6 +93,7 @@ public:
           mSetReplayStateFlag(false),
           mMaxBlockSize(256),
           mPendingCount(0),
+          mExraPendingCount(0),
           mLogDir("./kfslog"),
           mPendingQueue(),
           mInQueue(),
@@ -494,6 +495,7 @@ private:
     bool           mSetReplayStateFlag;
     int            mMaxBlockSize;
     int            mPendingCount;
+    int            mExraPendingCount;
     string         mLogDir;
     Queue          mPendingQueue;
     Queue          mInQueue;
@@ -550,6 +552,8 @@ private:
         const bool theSetReplayStateFlag =
             mSetReplayStateFlag || theReplayCommitHeadPtr;
         mSetReplayStateFlag = false;
+        mPendingCount += mExraPendingCount;
+        mExraPendingCount = 0;
         theLock.Unlock();
         MetaRequest* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
@@ -580,7 +584,8 @@ private:
     }
     void ProcessPendingAckQueue(
         Queue& inDoneQueue,
-        bool   inSetReplayStateFlag)
+        bool   inSetReplayStateFlag,
+        int    inExtraReqCount)
     {
         mWokenFlag = false;
         mPendingAckQueue.PushBack(inDoneQueue);
@@ -605,7 +610,7 @@ private:
         if (! thePtr) {
             inDoneQueue.PushBack(mPendingAckQueue);
         }
-        if (inDoneQueue.IsEmpty() &&
+        if (inDoneQueue.IsEmpty() && 0 == inExtraReqCount &&
                 (0 == mVrStatus || mPendingAckQueue.IsEmpty())) {
             return;
         }
@@ -616,6 +621,7 @@ private:
             mSetReplayStateFlag =
                 inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
         }
+        mExraPendingCount += inExtraReqCount;
         mNetManagerPtr->Wakeup();
     }
     virtual void DispatchStart()
@@ -668,13 +674,14 @@ private:
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
         }
-        ProcessPendingAckQueue(theWriteQueue, theVrBecameNonPrimaryFlag);
+        ProcessPendingAckQueue(theWriteQueue,
+            theVrBecameNonPrimaryFlag, theReqPtr ? 1 : 0);
     }
     virtual void DispatchEnd()
     {
         if (mWokenFlag) {
             Queue theTmp;
-            ProcessPendingAckQueue(theTmp, false);
+            ProcessPendingAckQueue(theTmp, false, 0);
         }
     }
     virtual void DispatchExit()
@@ -712,6 +719,7 @@ private:
             const bool            theSimulateFailureFlag = IsSimulateFailure();
             const bool            theTransmitterUpFlag   =
                 mTransmitterUpFlag && 0 == mVrStatus;
+            bool                  theStartViewFlag       = false;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
                 if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {
@@ -731,6 +739,7 @@ private:
                     if (thePtr != theCurPtr) {
                         break;
                     }
+                    theStartViewFlag = true;
                 } else if (! theStream || ! theTransmitterUpFlag) {
                     continue;
                 }
@@ -754,7 +763,7 @@ private:
                         LogError(*thePtr);
                     }
                 }
-                if (theEndBlockSeq <= mLastLogSeq.mLogSeq) {
+                if (theEndBlockSeq <= mLastLogSeq.mLogSeq || theStartViewFlag) {
                     break;
                 }
                 if (mMdStream.GetBufferedStart() +
@@ -765,24 +774,21 @@ private:
             }
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
             if (mNextLogSeq < mLastLogSeq &&
-                    (theTransmitterUpFlag ||
-                        META_VR_LOG_START_VIEW == theCurPtr->op) &&
+                    (theTransmitterUpFlag || theStartViewFlag) &&
                     IsLogStreamGood()) {
                 const int theBlkLen =
                     (int)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq);
-                if (META_VR_LOG_START_VIEW == theCurPtr->op) {
+                if (theStartViewFlag) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theCurPtr);
-                    mLastLogSeq    = theOp.mNewLogSeq;
-                    thePtr->logseq = mLastLogSeq;
+                    mLastLogSeq = theOp.mNewLogSeq;
                 }
                 FlushBlock(mLastLogSeq, theBlkLen);
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
-                    (theTransmitterUpFlag ||
-                        META_VR_LOG_START_VIEW == theCurPtr->op)) {
+                    (theTransmitterUpFlag || theStartViewFlag)) {
                 mNextLogSeq = mLastLogSeq;
-                if (META_VR_LOG_START_VIEW == theCurPtr->op) {
+                if (theStartViewFlag) {
                     mVrStatus = mMetaVrSM.GetStatus();
                     if (0 == mVrStatus) {
                         mEnqueueVrStatus = 0;

@@ -409,7 +409,7 @@ public:
     }
     bool enqueue(MetaRequest& req)
     {
-        if (req.replayBypassFlag) {
+        if (req.replayBypassFlag || IsMetaLogWriteOrVrError(req.status)) {
             return false;
         }
         if (mCurOp || ! mReplayer) {
@@ -2142,7 +2142,8 @@ Replay::Replay()
       entrymap(get_entry_map()),
       blockChecksum(),
       maxLogNum(-1),
-      logSeqStartNum(-1)
+      logSeqStartNum(-1),
+      primaryNodeId(-1)
     {}
 
 Replay::~Replay()
@@ -2633,13 +2634,16 @@ Replay::handle(MetaVrLogStartView& op)
     state.handleStartView(op);
     if (0 != op.status && ! op.replayFlag) {
         panic("replay: invalid start view op completion");
+        return;
     }
     if (op.replayFlag) {
         state.stopServicing();
+        primaryNodeId = op.mNodeId;
     } else {
         state.mPendingStopServicingFlag = false;
         gLayoutManager.SetDisableTimerFlag(false);
         gLayoutManager.StartServicing();
+        primaryNodeId = -1;
     }
 }
 

@@ -508,7 +508,7 @@ public:
         int                 inCommittedStatus,
         const MetaVrLogSeq& inLastLogSeq,
         int&                outVrStatus,
-        MetaRequest*        outReqPtr)
+        MetaRequest*&       outReqPtr)
     {
         if (mPendingReconfigureReqPtr) {
             QCStMutexLocker theLocker(mMutex);
@@ -902,6 +902,20 @@ public:
         { return mLastLogSeq; }
     const ServerLocation& GetMetaDataStoreLocation() const
         { return mMetaDataStoreLocation; }
+    static NodeId GetNodeId(
+        const MetaRequest& inReq)
+    {
+        switch (inReq.op) {
+            case META_VR_HELLO:
+            case META_VR_START_VIEW_CHANGE:
+            case META_VR_DO_VIEW_CHANGE:
+            case META_VR_START_VIEW:
+                return static_cast<const MetaVrRequest&>(inReq).mNodeId;
+            default:
+                break;
+        }
+        return -1;
+    }
 private:
     typedef Config::Locations   Locations;
     typedef pair<NodeId, int>   ChangeEntry;
@@ -1543,6 +1557,12 @@ private:
                                 TimeNow())) {
                     mViewSeq = inReq.mViewSeq;
                     StartViewChange();
+                    if (kStateViewChange == mState &&
+                            ! mDoViewChangePtr &&
+                            mStartViewChangeNodeIds.insert(
+                                inReq.mNodeId).second) {
+                        StartDoViewChangeIfPossible();
+                    }
                 }
             } else {
                 if (kStateViewChange == mState) {
@@ -1575,7 +1595,7 @@ private:
                 inReq.SetScheduleCommit();
             }
         }
-        Show(inReq);
+        Show(inReq, "=");
         return true;
     }
     bool Handle(
@@ -1616,7 +1636,7 @@ private:
             }
             SetReturnState(inReq);
         }
-        Show(inReq);
+        Show(inReq, "=");
         return true;
     }
     bool Handle(
@@ -1647,7 +1667,7 @@ private:
             }
             SetReturnState(inReq);
         }
-        Show(inReq);
+        Show(inReq, "=");
         return true;
     }
     bool Handle(
@@ -2620,7 +2640,7 @@ MetaVrSM::Process(
     int                 inCommittedStatus,
     const MetaVrLogSeq& inLastLogSeq,
     int&                outVrStatus,
-    MetaRequest*        outReqPtr)
+    MetaRequest*&       outReqPtr)
 {
     mImpl.Process(inTimeNow, inLastReceivedTime,
         inCommittedSeq, inErrChecksum, inCommittedFidSeed, inCommittedStatus,
@@ -2729,6 +2749,13 @@ MetaVrSM::GetStateName(
     int inState)
 {
     return Impl::GetStateName(Impl::State(inState));
+}
+
+    /* static */ MetaVrSM::NodeId
+MetaVrSM::GetNodeId(
+    const MetaRequest& inReq)
+{
+    return Impl::GetNodeId(inReq);
 }
 
 } // namespace KFS
