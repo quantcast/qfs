@@ -41,6 +41,7 @@
 #include "common/BufferInputStream.h"
 #include "common/StdAllocator.h"
 #include "common/MsgLogger.h"
+#include "common/kfserrno.h"
 
 #include "kfsio/NetManager.h"
 
@@ -121,6 +122,9 @@ public:
             mMetaDataStoreLocation.hostname);
         Get(inProps, kMetaVrClusterKeyFieldNamePtr, mClusterKey);
         Get(inProps, kMetaVrMetaMdFieldNamePtr,     mMetaMd);
+        if (mStatus < 0) {
+            mStatus = -KfsToSysErrno(-mStatus);
+        }
         return true;
     }
     template<typename T>
@@ -130,7 +134,7 @@ public:
         return (inStream <<
             "status: "  << mStatus <<
             " "         << ((mStatusMsg.empty() && mStatus < 0) ?
-                mStatusMsg.c_str() :  ErrorCodeToString(mStatus).c_str()) <<
+                mStatusMsg.c_str() : ErrorCodeToString(mStatus).c_str()) <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " state: "  << MetaVrSM::GetStateName(mState) <<
@@ -379,7 +383,8 @@ public:
         const ServerLocation&  inPeer)
     {
         if (&inReq != mStartViewChangePtr || inReq.GetVrSMPtr() != &mMetaVrSM ||
-                ! mActiveFlag || kStateViewChange != mState) {
+                ! mActiveFlag ||
+                (kStateViewChange != mState && kStateLogSync != mState)) {
             panic("VR: invalid start view change completion");
             return;
         }
@@ -1287,10 +1292,12 @@ private:
                 (mActiveCount <= (int)mRespondedIds.size() ||
                 mChannelsCount <= mReplyCount))) {
             mLastReceivedTime = TimeNow();
-            if (! mDoViewChangePtr && mViewSeq < mStartViewChangeRecvViewSeq) {
-                mViewSeq = mStartViewChangeRecvViewSeq;
+            if (mDoViewChangePtr) {
+                mViewSeq++;
+            } else if (mViewSeq < mStartViewChangeRecvViewSeq) {
+                mViewSeq = mStartViewChangeRecvViewSeq + 1;
             }
-            AdvanceView();
+            StartViewChange();
         }
     }
     void StartDoViewChangeIfPossible()
@@ -1328,16 +1335,22 @@ private:
                 if (mSyncServers.empty()) {
                     KFS_LOG_STREAM_ERROR <<
                         GetStateName(mState) <<
-                        "no valid meta data store addresses available" <<
+                        ": no valid meta data store addresses available" <<
                     KFS_LOG_EOM;
                     return;
                 }
-                mState = kStateLogSync;
-                const bool kAllowNonPrimaryFlag = true;
-                mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
-                mMetaDataSyncPtr->ScheduleLogSync(
-                    mSyncServers, mLastLogSeq, mStartViewChangeMaxLastLogSeq,
-                    kAllowNonPrimaryFlag);
+                if (kStateLogSync != mState ||
+                        mLogFetchEndSeq < mStartViewChangeMaxLastLogSeq) {
+                    mState          = kStateLogSync;
+                    mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
+                    const bool kAllowNonPrimaryFlag = true;
+                    mMetaDataSyncPtr->ScheduleLogSync(
+                        mSyncServers,
+                        mLastLogSeq,
+                        mStartViewChangeMaxLastLogSeq,
+                        kAllowNonPrimaryFlag
+                    );
+                }
             }
             return;
         }
@@ -1375,17 +1388,18 @@ private:
     void SetReturnState(
         MetaVrRequest& inReq)
     {
-        inReq.mRetCurViewSeq           = mViewSeq;
-        inReq.mRetCurEpochSeq          = mEpochSeq;
-        inReq.mRetCurState             = mState;
-        inReq.mRetCommittedSeq         = mCommittedSeq;
-        inReq.mRetCommittedErrChecksum = mCommittedErrChecksum;
-        inReq.mRetCommittedStatus      = mCommittedStatus;
-        inReq.mRetCommittedFidSeed     = mCommittedFidSeed;
-        inReq.mRetLastLogSeq           = mLastLogSeq;
-        inReq.mRetFileSystemId         = mFileSystemId;
-        inReq.mRetClusterKey           = mClusterKey;
-        inReq.mRetMetaMd               = mMetaMd;
+        inReq.mRetCurViewSeq            = mViewSeq;
+        inReq.mRetCurEpochSeq           = mEpochSeq;
+        inReq.mRetCurState              = mState;
+        inReq.mRetCommittedSeq          = mCommittedSeq;
+        inReq.mRetCommittedErrChecksum  = mCommittedErrChecksum;
+        inReq.mRetCommittedStatus       = mCommittedStatus;
+        inReq.mRetCommittedFidSeed      = mCommittedFidSeed;
+        inReq.mRetLastLogSeq            = mLastLogSeq;
+        inReq.mRetFileSystemId          = mFileSystemId;
+        inReq.mRetClusterKey            = mClusterKey;
+        inReq.mRetMetaMd                = mMetaMd;
+        inReq.mRetMetaDataStoreLocation = mMetaDataStoreLocation;
     }
     bool VerifyClusterKey(
         MetaVrRequest& inReq)
@@ -1626,6 +1640,12 @@ private:
                             " log seq: "   << mLastLogSeq <<
                         KFS_LOG_EOM;
                         StartView();
+                    } else if (! mDoViewChangePtr &&
+                            mStartViewChangeNodeIds.insert(
+                                inReq.mNodeId).second) {
+                        // Threat as start view change, in the do view change
+                        // has not been started yet.
+                        StartDoViewChangeIfPossible();
                     }
                 } else if (kStateStartViewPrimary != mState &&
                         kStatePrimary != mState) {

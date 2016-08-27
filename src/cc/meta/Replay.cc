@@ -348,6 +348,7 @@ public:
         mLastCommitted     = op.mNewLogSeq;
         mLastLogAheadSeq   = op.mNewLogSeq;
         mBlockStartLogSeq  = op.mNewLogSeq;
+        mBlockStartLogSeq.mLogSeq--;
         update();
     }
     bool setReplayState(
@@ -2637,8 +2638,15 @@ Replay::handle(MetaVrLogStartView& op)
         return;
     }
     if (op.replayFlag) {
-        state.stopServicing();
-        primaryNodeId = op.mNodeId;
+        if (0 == op.status) {
+            state.stopServicing();
+            primaryNodeId = op.mNodeId;
+            if (state.mLastLogAheadSeq == op.mNewLogSeq) {
+                // Decrement to account incSeq() at the end of state handle
+                // method
+                state.mLastLogAheadSeq.mLogSeq--;
+            }
+        }
     } else {
         state.mPendingStopServicingFlag = false;
         gLayoutManager.SetDisableTimerFlag(false);

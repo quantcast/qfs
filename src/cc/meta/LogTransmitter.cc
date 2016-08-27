@@ -465,6 +465,10 @@ public:
             mConnectionPtr->Close();
             mConnectionPtr.reset();
         }
+        MetaRequest::Release(mAuthenticateOpPtr);
+        mAuthenticateOpPtr = 0;
+        AdvancePendingQueue();
+        mAckBlockSeq = MetaVrLogSeq();
         if (mSleepingFlag) {
             mSleepingFlag = false;
             mImpl.GetNetManager().UnRegisterTimeoutHandler(this);

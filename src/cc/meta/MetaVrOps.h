@@ -503,6 +503,7 @@ public:
             0 <= mNodeId &&
             mCommittedSeq.IsValid() &&
             mNewLogSeq.IsValid() &&
+            0 < mNewLogSeq.mLogSeq &&
             (mCommittedSeq.mEpochSeq < mNewLogSeq.mEpochSeq ||
                 mCommittedSeq.mViewSeq < mNewLogSeq.mViewSeq) &&
             (! logseq.IsValid() || (mCommittedSeq <= logseq &&
@@ -530,7 +531,7 @@ public:
             "vr-log-start-view:"
             " committed: " << mCommittedSeq <<
             " new log: "   << mNewLogSeq <<
-            " node: "      << mNodeId
+            " primary: "   << mNodeId
         );
     }
     template<typename T>
