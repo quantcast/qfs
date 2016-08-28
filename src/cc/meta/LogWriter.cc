@@ -622,6 +622,7 @@ private:
                 inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
         }
         mExraPendingCount += inExtraReqCount;
+        theLocker.Unlock();
         mNetManagerPtr->Wakeup();
     }
     virtual void DispatchStart()
@@ -908,7 +909,7 @@ private:
                 );
             }
             KFS_LOG_STREAM_DEBUG <<
-                "flush log block: block transmit" <<
+                "flush log block: block transmit " <<
                     (0 == theStatus ? "OK" : "failure") <<
                 " seq: "    << inLogSeq  <<
                 " status: " << theStatus <<
@@ -1019,12 +1020,42 @@ private:
         }
         inRequest.lastLogSeq = mLastLogSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
-            if (inRequest.blockStartSeq <= inRequest.blockEndSeq &&
-                mLastLogSeq < inRequest.blockStartSeq) {
+            int theLnLen = -1;
+            if (inRequest.blockStartSeq < inRequest.blockEndSeq &&
+                    mLastLogSeq < inRequest.blockStartSeq &&
+                    2 == inRequest.blockLines.GetSize() &&
+                    3 < (theLnLen = inRequest.blockLines.Front()) &&
+                    theLnLen < inRequest.blockData.BytesConsumable()) {
+                StBufferT<char, 128> theBuf;
+                char* const          thePtr    = theBuf.Resize(theLnLen);
+                MetaRequest*         theReqPtr = 0;
+                if (inRequest.blockData.CopyOut(thePtr, theLnLen) == theLnLen &&
+                        'a' == (thePtr[0] & 0xFF) && '/' == (thePtr[1] & 0xFF) &&
+                        (theReqPtr = MetaRequest::ReadReplay(
+                            thePtr + 2, theLnLen - 2)) &&
+                        META_VR_LOG_START_VIEW == theReqPtr->op) {
+                    MetaVrLogStartView& theOp =
+                        *reinterpret_cast<MetaVrLogStartView*>(theReqPtr);
+                    if (! theOp.Validate() ||
+                            theOp.mNewLogSeq != inRequest.blockEndSeq ||
+                            mLastLogSeq < theOp.mCommittedSeq ||
+                            theOp.mCommittedSeq < mInFlightCommitted.mSeq) {
+                        inRequest.status    = -EINVAL;
+                        inRequest.statusMsg = "invalid start view entry";
+                        theLnLen = -1;
+                    }
+                } else {
+                    theLnLen = -1;
+                }
+                MetaRequest::Release(theReqPtr);
             }
-            inRequest.status    = -EINVAL;
-            inRequest.statusMsg = "invalid block start sequence";
-            return;
+            if (theLnLen <= 0) {
+                if (0 <= inRequest.status) {
+                    inRequest.status    = -EINVAL;
+                    inRequest.statusMsg = "invalid block start sequence";
+                }
+                return;
+            }
         }
         if (! IsLogStreamGood()) {
             inRequest.status    = -EIO;

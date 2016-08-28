@@ -111,7 +111,7 @@ public:
           mCheckpointCommitted(0, 0, 0),
           mCheckpointErrChksum(0),
           mLastCommitted(0, 0, 0),
-          mPrevViewCommitted(0, 0, 0),
+          mViewStart(0, 0, 0),
           mBlockStartLogSeq(0, 0, 0),
           mLastBlockSeq(-1),
           mLastLogAheadSeq(0, 0, 0),
@@ -214,17 +214,30 @@ public:
         if (! entry.op) {
             return;
         }
-        MetaRequest& op = *entry.op;
-        handleOp(op);
-        if (op.logseq.IsValid()) {
+        MetaRequest& op                  = *entry.op;
+        bool         updateCommittedFlag = op.logseq.IsValid();
+        if (! updateCommittedFlag && op.replayFlag) {
+            panic("replay: commit invalid op log sequence");
+            return;
+        }
+        if (updateCommittedFlag && op.logseq <= mViewStart) {
+            // Set failure status for the remaining ops from the previous view.
+            // The op is effectively canceled.
+            updateCommittedFlag = false;
+            op.status = -EVRNOTPRIMARY;
+            if (op.replayFlag) {
+                op.statusMsg = "primary node might have changed";
+            }
+            entry.status = 0;
+        } else {
+            handleOp(op);
+        }
+        if (updateCommittedFlag) {
             const int status = op.status < 0 ? SysToKfsErrno(-op.status) : 0;
             mLastCommitted       = op.logseq;
             mLastCommittedStatus = status;
             mLogAheadErrChksum  += status;
             entry.status = status;
-        } else if (op.replayFlag) {
-            panic("replay: commit invalid op log sequence");
-            return;
         }
         entry.logSeq      = op.logseq;
         entry.seed        = fileID.getseed();
@@ -270,10 +283,8 @@ public:
                 ++it) {
             commit(*it);
         }
-        mBlockStartLogSeq  = mCommitQueue.back().logSeq;
-        mLastCommitted     = mBlockStartLogSeq;
-        mPrevViewCommitted = mLastCommitted;
         mCommitQueue.clear();
+        mBlockStartLogSeq = mLastCommitted;
         *mEmptyQueueFlagPtr = true;
         return true;
     }
@@ -322,30 +333,23 @@ public:
         }
         CommitQueue::iterator it;
         for (it = mCommitQueue.begin(); mCommitQueue.end() != it &&
-                mLastCommitted < op.mCommittedSeq; ++it) {
+                it->logSeq <= op.mCommittedSeq; ++it) {
             commit(*it);
         }
+        if (op.mCommittedSeq != mLastCommitted &&
+                op.mCommittedSeq == mViewStart &&
+                (mCommitQueue.empty() ||
+                    mViewStart < mCommitQueue.front().logSeq)) {
+            mLastCommitted = mViewStart;
+        }
+        mCommitQueue.erase(mCommitQueue.begin(), it);
         if (op.mCommittedSeq != mLastCommitted) {
             op.status    = -EINVAL;
             op.statusMsg = "log start view: no queue entry";
             return;
         }
-        // Set failure status for the remaining, if any.
-        for (; mCommitQueue.end() != it; ++it) {
-            if (! it->op) {
-                continue;
-            }
-            MetaRequest& cur = *it->op;
-            cur.status = -EVRNOTPRIMARY;
-            if (! op.replayFlag) {
-                cur.statusMsg = "primary node might have changed";
-            }
-            opDone(cur);
-        }
-        mCommitQueue.clear();
-        *mEmptyQueueFlagPtr = true;
-        mPrevViewCommitted = mLastCommitted;
-        mLastCommitted     = op.mNewLogSeq;
+        *mEmptyQueueFlagPtr = mCommitQueue.empty();
+        mViewStart         = op.mNewLogSeq;
         mLastLogAheadSeq   = op.mNewLogSeq;
         mBlockStartLogSeq  = op.mNewLogSeq;
         mBlockStartLogSeq.mLogSeq--;
@@ -376,8 +380,9 @@ public:
         if (mLastLogAheadSeq < committed) {
             mLastLogAheadSeq = committed;
         }
-        if (mPrevViewCommitted < committed) {
-            mPrevViewCommitted = committed;
+        if (mViewStart.mEpochSeq < committed.mEpochSeq ||
+                mViewStart.mViewSeq < committed.mViewSeq) {
+            mViewStart = committed;
         }
         mLastCommitted       = committed;
         mLastCommittedStatus = status;
@@ -453,7 +458,7 @@ public:
     MetaVrLogSeq  mCheckpointCommitted;
     seq_t         mCheckpointErrChksum;
     MetaVrLogSeq  mLastCommitted;
-    MetaVrLogSeq  mPrevViewCommitted;
+    MetaVrLogSeq  mViewStart;
     MetaVrLogSeq  mBlockStartLogSeq;
     seq_t         mLastBlockSeq;
     MetaVrLogSeq  mLastLogAheadSeq;
@@ -1670,17 +1675,15 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         KFS_LOG_EOM;
         return false;
     }
-    if (((commitSeq < state.mLastCommitted &&
-                state.mCheckpointCommitted != state.mLastCommitted) ||
-            state.mLastLogAheadSeq < commitSeq) && (
-                commitSeq.mEpochSeq != state.mPrevViewCommitted.mEpochSeq ||
-                commitSeq.mViewSeq  != state.mPrevViewCommitted.mViewSeq ||
-                state.mPrevViewCommitted.mLogSeq < commitSeq.mLogSeq)) {
+    if ((commitSeq < state.mLastCommitted &&
+                state.mCheckpointCommitted != state.mLastCommitted &&
+                state.mViewStart <= commitSeq) ||
+            state.mLastLogAheadSeq < commitSeq) {
         KFS_LOG_STREAM_ERROR <<
             "committed:"
             " expected range: [" << state.mLastCommitted <<
             ","                  << state.mLastLogAheadSeq << "]"
-            " preve view: "      << state.mPrevViewCommitted <<
+            " view start: "      << state.mViewStart <<
             " actual: "          << commitSeq <<
         KFS_LOG_EOM;
         return false;

@@ -553,6 +553,10 @@ public:
             bool theProgressFlag = false;
             if (mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag) < 0 ||
                     ! theProgressFlag) {
+                if (mEpochSeq == mLastLogSeq.mEpochSeq &&
+                        mViewSeq < mLastLogSeq.mViewSeq) {
+                    mViewSeq = mLastLogSeq.mViewSeq;
+                }
                 mLogFetchEndSeq = MetaVrLogSeq();
                 if (mActiveFlag) {
                     StartViewChange();
@@ -665,6 +669,10 @@ public:
         } else if (mEpochSeq == mCommittedSeq.mEpochSeq &&
                 mViewSeq < mCommittedSeq.mViewSeq) {
             mViewSeq = mCommittedSeq.mViewSeq;
+        }
+        if (mEpochSeq == mLastLogSeq.mEpochSeq &&
+                mViewSeq < mLastLogSeq.mViewSeq) {
+            mViewSeq = mLastLogSeq.mViewSeq;
         }
         if (! mMetaDataStoreLocation.IsValid()) {
             mMetaDataStoreLocation = inDataStoreLocation;
@@ -1206,6 +1214,7 @@ private:
         KFS_LOG_EOM;
         mState         = kStatePrimary;
         mPrimaryNodeId = mNodeId;
+        mLastUpTime    = TimeNow();
         MetaRequest::Release(mMetaVrLogStartViewPtr);
         mMetaVrLogStartViewPtr = new MetaVrLogStartView();
         mMetaVrLogStartViewPtr->mCommittedSeq = mLastLogSeq;
@@ -1681,8 +1690,9 @@ private:
                     }
                 } else {
                     CancelViewChange();
-                    mState         = kStateBackup;
-                    mPrimaryNodeId = -inReq.mNodeId - 1;
+                    mState            = kStateBackup;
+                    mPrimaryNodeId    = -inReq.mNodeId - 1;
+                    mLastReceivedTime = TimeNow();
                 }
             }
             SetReturnState(inReq);
