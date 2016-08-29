@@ -6075,9 +6075,10 @@ MetaReadMetaData::handle()
     }
     MetaVrLogSeq seq;
     if (startLogSeq.IsValid() && readPos <= 0 &&
-            (seq = GetLogWriter().GetCommittedLogSeq()) < startLogSeq) {
+            (seq = max(replayer.getLastLogSeq(),
+                GetLogWriter().GetCommittedLogSeq())) < startLogSeq) {
         status    = -ERANGE;
-        statusMsg = "requested log sequence higher than committed: ";
+        statusMsg = "requested log sequence higher than last and committed: ";
         AppendDecIntToString(statusMsg, seq.mEpochSeq);
         statusMsg += " ";
         AppendDecIntToString(statusMsg, seq.mViewSeq);

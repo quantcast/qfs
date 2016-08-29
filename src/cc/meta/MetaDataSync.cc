@@ -458,7 +458,8 @@ public:
             return;
         }
         QCStMutexLocker theLocker(mMutex);
-        const bool theUpdateFlag = inServers != mPendingSyncServers ||
+        const bool theUpdateFlag = mDownloadDoneFlag ||
+                inServers != mPendingSyncServers ||
                 inLogStartSeq != mPendingSyncLogSeq ||
                 inLogEndSeq != mPendingSyncLogEndSeq ||
                 mAllowNotPrimaryFlag != mPendingAllowNotPrimaryFlag;
@@ -1051,8 +1052,8 @@ private:
             QCASSERT(mPos == theOpPtr->mPos || 0 == theRdSize);
             mPos += theRdSize;
             theEofFlag = 0 <= mFileSize ? mFileSize <= mPos :
-                (mCurMaxReadSize <= theOpPtr->maxReadSize ?
-                    theRdSize < mCurMaxReadSize : theRdSize <= 0);
+                theRdSize < max(1, min(
+                    theOpPtr->readSize, theOpPtr->maxReadSize));
             if (0 <= mFd) {
                 IOBuffer& theBuffer = theOpPtr->mBuffer;
                 mBuffer.Move(&theBuffer);
@@ -1074,7 +1075,9 @@ private:
                 if (theOpPtr->checkpointFlag || mCheckpointFlag) {
                     panic("metad data sync: attempt to replay checkpoint");
                 } else {
-                    SubmitLogBlock(theOpPtr->mBuffer);
+                    if (! SubmitLogBlock(theOpPtr->mBuffer)) {
+                        return;
+                    }
                 }
             }
             if (theEofFlag && ! mCheckpointFlag) {
@@ -1087,9 +1090,10 @@ private:
                 mNextLogSegIdx++;
             }
             theOpPtr->Reset();
-            mPendingList.PopFront();
+            QCVERIFY(mPendingList.PopFront() == theOpPtr);
             mFreeList.PutFront(*theOpPtr);
         } while (
+            ! theEofFlag &&
             (theOpPtr = mPendingList.Front()) &&
             ! theOpPtr->mInFlightFlag);
         if (theEofFlag) {
@@ -1326,7 +1330,7 @@ private:
         }
         return false;
     }
-    void SubmitLogBlock(
+    bool SubmitLogBlock(
         IOBuffer& inBuffer)
     {
         mBuffer.Move(&inBuffer);
@@ -1349,7 +1353,7 @@ private:
                     IOBuffer::DisplayData(mBuffer, 512) <<
                 KFS_LOG_EOM;
                 HandleError();
-                return;
+                return false;
             }
             MetaLogWriterControl& theOp = GetLogWriteOp();
             const int theRem = LogReceiver::ParseBlockLines(
@@ -1360,7 +1364,7 @@ private:
                     IOBuffer::DisplayData(mBuffer, 512) <<
                 KFS_LOG_EOM;
                 HandleError();
-                return;
+                return false;
             }
             // Copy log block body, i.e. except trailing / commit line.
             theOp.blockData.Move(&mBuffer, thePos);
@@ -1390,7 +1394,7 @@ private:
                     IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
                 HandleError();
-                return;
+                return false;
             }
             theOp.blockStartSeq = theLogSeq;
             theOp.blockStartSeq.mLogSeq -= theBlockSeqLen;
@@ -1406,7 +1410,7 @@ private:
                     " data: " << IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
                 HandleError();
-                return;
+                return false;
             }
             mNextBlockSeq++;
             const int theBlkSeqLen = thePtr - (theStartPtr + theCopyLen);
@@ -1418,7 +1422,7 @@ private:
                     " data: " << IOBuffer::DisplayData(mBuffer, theLen) <<
                 KFS_LOG_EOM;
                 HandleError();
-                return;
+                return false;
             }
             theOp.blockData.Move(&mBuffer, theCopyLen);
             theOp.blockChecksum = ComputeBlockChecksum(
@@ -1444,7 +1448,7 @@ private:
                     " computed: " << mCurBlockChecksum <<
                 KFS_LOG_EOM;
                 HandleError();
-                return;
+                return false;
             }
             theOp.blockLines.Back() -=
                 mBuffer.Consume(theLen - theCopyLen + 1);
@@ -1463,7 +1467,9 @@ private:
                 " data: "          << IOBuffer::DisplayData(mBuffer, 256) <<
             KFS_LOG_EOM;
             HandleError();
+            return false;
         }
+        return true;
     }
     MetaLogWriterControl& GetLogWriteOp()
     {

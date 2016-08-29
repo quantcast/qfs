@@ -575,9 +575,9 @@ private:
         }
         if (theSetReplayStateFlag && ! mReplayerPtr->setReplayState(
                 mCommitted.mSeq,
-                mCommitted.mErrChkSum,
                 mCommitted.mFidSeed,
                 mCommitted.mStatus,
+                mCommitted.mErrChkSum,
                 theReplayCommitHeadPtr)) {
             panic("log writer: set replay state failed");
         }

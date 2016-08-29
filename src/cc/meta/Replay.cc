@@ -422,6 +422,18 @@ public:
             panic("replay: invalid enqueue attempt");
             return false;
         }
+        while (! mCommitQueue.empty()) {
+            CommitQueueEntry& entry = mCommitQueue.front();
+            if (entry.logSeq.IsValid()) {
+                break;
+            }
+            commit(entry);
+            mCommitQueue.pop_front();
+        }
+        if (mCommitQueue.empty()) {
+            *mEmptyQueueFlagPtr = true;
+            return false;
+        }
         mCurOp = &req;
         MetaVrLogSeq const nextSeq = mCurOp->logseq;
         if (nextSeq.IsValid() && ! IsCurOpLogSeqValid()) {

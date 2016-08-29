@@ -1113,15 +1113,6 @@ public:
             }
             inOp.blockData.Consume(theLen);
         }
-        if (replayer.getCommitted() != inOp.blockCommitted) {
-            KFS_LOG_STREAM_FATAL <<
-                "log block replay failure: " << inOp.Show() <<
-                " commit:"
-                " block: "  << inOp.blockCommitted <<
-                " replay: " << replayer.getCommitted() <<
-            KFS_LOG_EOM;
-            panic("log block apply failure");
-        }
         MetaRequest::Release(&inOp);
     }
     virtual void SetLastAckSentTime(

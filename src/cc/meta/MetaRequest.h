@@ -4323,7 +4323,7 @@ struct MetaReadMetaData : public MetaRequest {
           clusterKey(),
           metaMd(),
           data()
-        {}
+        { replayBypassFlag = true; }
     bool Validate()
         { return true; }
     virtual void handle();
@@ -4333,6 +4333,7 @@ struct MetaReadMetaData : public MetaRequest {
         return (os <<
             "read-" << (checkpointFlag ? "checkpoint" : "log") <<
             " start seq: " << startLogSeq <<
+            " pos: "       << readPos <<
             " size: "      << readSize
         );
     }

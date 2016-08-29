@@ -134,7 +134,7 @@ public:
         return (inStream <<
             "status: "  << mStatus <<
             " "         << ((mStatusMsg.empty() && mStatus < 0) ?
-                mStatusMsg.c_str() : ErrorCodeToString(mStatus).c_str()) <<
+                ErrorCodeToString(mStatus).c_str() : mStatusMsg.c_str()) <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " state: "  << MetaVrSM::GetStateName(mState) <<
@@ -550,9 +550,18 @@ public:
         outReqPtr = 0;
         mTimeNow  = inTimeNow;
         if (kStateLogSync == mState) {
-            bool theProgressFlag = false;
-            if (mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag) < 0 ||
-                    ! theProgressFlag) {
+            bool      theProgressFlag = false;
+            const int theStatus       =
+                mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag);
+            if (theStatus < 0 || ! theProgressFlag) {
+                KFS_LOG_STREAM(theStatus < 0 ?
+                        MsgLogger::kLogLevelINFO :
+                        MsgLogger::kLogLevelERROR) <<
+                    "log fetch done:"
+                    " status: " << theStatus <<
+                    " end: "    << mLogFetchEndSeq <<
+                    " last: "   << mLastLogSeq <<
+                KFS_LOG_EOM;
                 if (mEpochSeq == mLastLogSeq.mEpochSeq &&
                         mViewSeq < mLastLogSeq.mViewSeq) {
                     mViewSeq = mLastLogSeq.mViewSeq;
@@ -632,7 +641,7 @@ public:
         } else {
             if (! mConfig.IsEmpty() && mNodeId < 0) {
                 KFS_LOG_STREAM_ERROR <<
-                    "Invalid or unspecified VR node id: " << mNodeId <<
+                    "invalid or unspecified VR node id: " << mNodeId <<
                     " with non empty VR config" <<
                 KFS_LOG_EOM;
                 return -EINVAL;
@@ -1350,6 +1359,14 @@ private:
                 }
                 if (kStateLogSync != mState ||
                         mLogFetchEndSeq < mStartViewChangeMaxLastLogSeq) {
+                    KFS_LOG_STREAM_INFO <<
+                        "scheduling log fetch:"
+                        " servers: "
+                        " total: "   << mSyncServers.size() <<
+                        " first: "   << mSyncServers.front() <<
+                        " ["  << mLastLogSeq <<
+                        ","   << mStartViewChangeMaxLastLogSeq <<
+                    KFS_LOG_EOM;
                     mState          = kStateLogSync;
                     mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
                     const bool kAllowNonPrimaryFlag = true;
@@ -1515,6 +1532,14 @@ private:
         bool                  inAllowNonPrimaryFlag)
     {
         if (inLocation.IsValid() && mLogFetchEndSeq < inLogSeq) {
+            KFS_LOG_STREAM_INFO <<
+                "scheduling log fetch:"
+                " "                   << inLocation <<
+                " ["                  << mLastLogSeq <<
+                ","                   << inLogSeq <<
+                "]"
+                "allow non primary: " << inAllowNonPrimaryFlag <<
+            KFS_LOG_EOM;
             mState = kStateLogSync;
             mSyncServers.clear();
             mSyncServers.push_back(inLocation);

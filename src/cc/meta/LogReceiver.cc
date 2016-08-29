@@ -87,7 +87,6 @@ public:
           mListenerAddress(),
           mAcceptorPtr(0),
           mAuthContext(),
-          mCommittedLogSeq(),
           mLastWriteSeq(),
           mSubmittedWriteSeq(),
           mDeleteFlag(false),
@@ -204,7 +203,6 @@ public:
         }
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
         mReplayerPtr             = &inReplayer;
-        mCommittedLogSeq         = inCommittedLogSeq;
         mLastWriteSeq            = inLastLogSeq;
         mSubmittedWriteSeq       = inLastLogSeq;
         mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
@@ -225,8 +223,6 @@ public:
         Connection& inConnection);
     void Done(
         Connection& inConnection);
-    MetaVrLogSeq GetCommittedLogSeq() const
-        { return mCommittedLogSeq; }
     MetaVrLogSeq GetLastWriteLogSeq() const
         { return mLastWriteSeq; }
     MetaVrLogSeq GetSubmittedWriteSeq() const
@@ -309,9 +305,7 @@ public:
             if (0 == theCur.status) {
                 mLastWriteSeq = theCur.lastLogSeq;
                 if (mReplayerPtr) {
-                    const MetaVrLogSeq theSeq = theCur.blockCommitted;
                     mReplayerPtr->Apply(theCur);
-                    mCommittedLogSeq = theSeq;
                     continue;
                 }
             }
@@ -434,7 +428,6 @@ private:
     ServerLocation mListenerAddress;
     Acceptor*      mAcceptorPtr;
     AuthContext    mAuthContext;
-    MetaVrLogSeq   mCommittedLogSeq;
     MetaVrLogSeq   mLastWriteSeq;
     MetaVrLogSeq   mSubmittedWriteSeq;
     bool           mDeleteFlag;
@@ -1241,7 +1234,6 @@ private:
                 ","  << mBlockEndSeq   <<
                 "]"
                 " length: "          << mBlockLength <<
-                " committed: "       << mImpl.GetCommittedLogSeq() <<
                 " last write: "      << mImpl.GetLastWriteLogSeq() <<
                 " submitted write: " << mImpl.GetSubmittedWriteSeq() <<
             KFS_LOG_EOM;
