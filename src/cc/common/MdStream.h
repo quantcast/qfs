@@ -189,7 +189,10 @@ public:
     size_t GetBufferSize() const
         { return (mEndPtr - mBufferPtr); }
     void ClearBuffer()
-        { mCurPtr = mBufferPtr; }
+    {
+        mCurPtr = mBufferPtr;
+        mMdPtr  = mCurPtr;
+    }
 protected:
     bool EnsureCapacity(
         size_t inSize)
@@ -241,7 +244,7 @@ protected:
             streamsize theSize = 0;
             streamsize theRem  = inSize;
             if (mCurPtr < mEndPtr) {
-                if (mCurPtr + inSize > mEndPtr) {
+                if (mEndPtr < mCurPtr + inSize) {
                     theSize = (streamsize)(mEndPtr - mCurPtr);
                 } else {
                     theSize = inSize;
@@ -258,9 +261,8 @@ protected:
             mCurPtr += theRem;
             return inSize;
         }
-        if (SyncSelf() == 0 &&
-                ! fail() && ! EVP_DigestUpdate(
-                &mCtx, inBufferPtr, inSize)) {
+        if (SyncSelf() == 0 && ! fail() &&
+                ! EVP_DigestUpdate(&mCtx, inBufferPtr, inSize)) {
             setstate(failbit);
         }
         if (mStreamPtr) {
@@ -279,30 +281,52 @@ protected:
         }
         return theRet;
     }
-    int SyncSelf()
+private:
+    const string mDigestName;
+    char*        mBufferPtr;
+    char*        mCurPtr;
+    char*        mEndPtr;
+    const char*  mMdPtr;
+    bool         mSyncFlag;
+    bool         mWriteTroughFlag;
+    OStreamT*    mStreamPtr;
+    EVP_MD_CTX   mCtx;
+    size_t       mNextSize;
+
+    bool UpdateMd()
     {
-        int theRet = 0;
-        if (mCurPtr <= mBufferPtr) {
-            return theRet;
-        }
         if (! fail() && mMdPtr < mCurPtr) {
             if (EVP_DigestUpdate(&mCtx, mMdPtr, mCurPtr - mMdPtr)) {
                 mMdPtr = mCurPtr;
             } else {
                 setstate(failbit);
-                theRet = -1;
+                return false;
             }
+        }
+        return true;
+    }
+    int SyncSelf()
+    {
+        if (mCurPtr <= mBufferPtr) {
+            return 0;
         }
         if (! mSyncFlag && ! mWriteTroughFlag && 0 < mNextSize) {
-            return theRet;
+            return 0;
         }
-        const size_t theSize = mCurPtr - mBufferPtr;
-        mCurPtr = mBufferPtr;
-        mMdPtr  = mCurPtr;
-        if (mStreamPtr) {
-            if (! mStreamPtr->write(mBufferPtr, theSize)) {
-                setstate(failbit);
+        int theRet = 0;
+        if (mNextSize <= 0 && ! UpdateMd()) {
+            theRet = -1;
+        }
+        if (! mStreamPtr ||
+                mStreamPtr->write(mBufferPtr, mCurPtr - mBufferPtr)) {
+            if (0 < mNextSize && ! UpdateMd()) {
+                theRet = -1;
             }
+            mCurPtr = mBufferPtr;
+            mMdPtr  = mCurPtr;
+        } else {
+            setstate(failbit);
+            theRet = -1;
         }
         return theRet;
     }
@@ -317,17 +341,6 @@ protected:
     }
 
 private:
-    const string mDigestName;
-    char*        mBufferPtr;
-    char*        mCurPtr;
-    char*        mEndPtr;
-    const char*  mMdPtr;
-    bool         mSyncFlag;
-    bool         mWriteTroughFlag;
-    OStreamT*    mStreamPtr;
-    EVP_MD_CTX   mCtx;
-    size_t       mNextSize;
-
     MdStreamT(const MdStreamT& inStream);
     MdStreamT& operator=( const MdStreamT& inStream);
 };

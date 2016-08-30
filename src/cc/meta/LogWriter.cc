@@ -107,7 +107,6 @@ public:
           mNextLogSeq(),
           mNextBlockSeq(-1),
           mLastLogSeq(),
-          mBlockChecksum(kKfsNullChecksum),
           mNextBlockChecksum(kKfsNullChecksum),
           mLogFd(-1),
           mError(0),
@@ -123,7 +122,6 @@ public:
           mCurLogStartSeq(),
           mLogNum(0),
           mLogName(),
-          mWriteState(kWriteStateNone),
           mLogRotateInterval(600),
           mPanicOnIoErrorFlag(true),
           mSyncFlag(false),
@@ -253,8 +251,6 @@ public:
                 // Previous / "old" log format.
                 // Close the log segment even if it is empty and start new one.
                 StartNextLog();
-            } else {
-                StartBlock(mNextBlockChecksum);
             }
         } else {
             NewLog(mReplayLogSeq);
@@ -509,7 +505,6 @@ private:
     MetaVrLogSeq   mNextLogSeq;
     seq_t          mNextBlockSeq;
     MetaVrLogSeq   mLastLogSeq;
-    Checksum       mBlockChecksum;
     Checksum       mNextBlockChecksum;
     int            mLogFd;
     int            mError;
@@ -519,7 +514,6 @@ private:
     MetaVrLogSeq   mCurLogStartSeq;
     seq_t          mLogNum;
     string         mLogName;
-    WriteState     mWriteState;
     time_t         mLogRotateInterval;
     bool           mPanicOnIoErrorFlag;
     bool           mSyncFlag;
@@ -658,10 +652,21 @@ private:
             mInFlightCommitted.mErrChkSum,
             mInFlightCommitted.mFidSeed,
             mInFlightCommitted.mStatus,
-            theReplayLogSeq, theVrStatus,
+            theReplayLogSeq,
+            theVrStatus,
             theReqPtr
         );
         if (theReqPtr) {
+            if (0 != theReqPtr->submitCount) {
+                panic("log writer: invalid VR log write request");
+            } else {
+                // Mark as submitted, as in MetaRequest::Submit(),
+                // with 0 process time.
+                theReqPtr->submitCount       = 1;
+                theReqPtr->commitPendingFlag = true;
+                theReqPtr->submitTime        = microseconds();
+                theReqPtr->processTime       = 0;
+            }
             theWriteQueue.PushBack(*theReqPtr);
         }
         const bool theVrBecameNonPrimaryFlag =
@@ -708,7 +713,6 @@ private:
         if (! mTransmitterUpFlag) {
             mTransmitterUpFlag = mLogTransmitter.IsUp();
         }
-        mMdStream.SetSync(false);
         ostream&     theStream = mMdStream;
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
@@ -774,7 +778,7 @@ private:
                 }
             }
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
-            if (mNextLogSeq < mLastLogSeq &&
+            if (mNextLogSeq < mLastLogSeq && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag) &&
                     IsLogStreamGood()) {
                 const int theBlkLen =
@@ -782,7 +786,14 @@ private:
                 if (theStartViewFlag) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theCurPtr);
+                    if (theOp.logseq != mLastLogSeq || ! theOp.Validate() ||
+                            0 != theOp.status) {
+                        panic("log writer: invalid VR log start view");
+                    }
                     mLastLogSeq = theOp.mNewLogSeq;
+                    KFS_LOG_STREAM_DEBUG <<
+                        "writing: " << theOp.Show() <<
+                    KFS_LOG_EOM;
                 }
                 FlushBlock(mLastLogSeq, theBlkLen);
             }
@@ -845,13 +856,6 @@ private:
             inReq.statusMsg = "transaction log write error";
         }
     }
-    void StartBlock(
-        Checksum inStartCheckSum)
-    {
-        mMdStream.SetSync(false);
-        mWriteState    = kUpdateBlockChecksum;
-        mBlockChecksum = inStartCheckSum;
-    }
     void FlushBlock(
         const MetaVrLogSeq& inLogSeq,
         int                 inBlockLen = -1)
@@ -864,6 +868,13 @@ private:
         const int theBlockLen = inBlockLen < 0 ?
             (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) : inBlockLen;
         ++mNextBlockSeq;
+        KFS_LOG_STREAM_DEBUG <<
+            "flush block: " << inLogSeq <<
+            " seq: "        << mNextBlockSeq <<
+            " len: "        << theBlockLen <<
+            " VR status: "  << theVrStatus <<
+            " "             << ErrorCodeToString(theVrStatus) <<
+        KFS_LOG_EOM;
         mReqOstream << "c"
             "/" << mInFlightCommitted.mSeq <<
             "/" << mInFlightCommitted.mFidSeed <<
@@ -874,22 +885,23 @@ private:
             "/"
         ;
         mReqOstream.flush();
-        const char*  theStartPtr = mMdStream.GetBufferedStart();
-        const size_t theTxLen    = mMdStream.GetBufferedEnd() - theStartPtr;
-        mBlockChecksum = ComputeBlockChecksum(
-            mBlockChecksum, theStartPtr, theTxLen);
-        Checksum const theTxChecksum = mBlockChecksum;
+        const char*  theStartPtr      = mMdStream.GetBufferedStart();
+        const size_t theTxLen         =
+            mMdStream.GetBufferedEnd() - theStartPtr;
+        Checksum     theBlockChecksum = ComputeBlockChecksum(
+            0 < mNextBlockSeq ? mNextBlockChecksum : kKfsNullChecksum,
+            theStartPtr, theTxLen);
+        Checksum const theTxChecksum = theBlockChecksum;
         mReqOstream <<
             mNextBlockSeq <<
             "/";
         mReqOstream.flush();
         theStartPtr = mMdStream.GetBufferedStart() + theTxLen;
-        mBlockChecksum = ComputeBlockChecksum(
-            mBlockChecksum,
+        theBlockChecksum = ComputeBlockChecksum(
+            theBlockChecksum,
             theStartPtr,
             mMdStream.GetBufferedEnd() - theStartPtr);
-        mWriteState = kWriteStateNone;
-        mReqOstream << mBlockChecksum << "\n";
+        mReqOstream << theBlockChecksum << "\n";
         mReqOstream.flush();
         // Transmit all blocks, except first one, which has only block header.
         if (0 < mNextBlockSeq && 0 == theVrStatus) {
@@ -924,14 +936,22 @@ private:
             mInFlightCommitted.mSeq,
             IsLogStreamGood()
         );
-        StartBlock(mNextBlockChecksum);
     }
     void LogStreamFlush()
     {
         mMdStream.SetSync(true);
         mLogFilePrevPos = mLogFilePos;
         mReqOstream.flush();
-        Sync();
+        if (IsLogStreamGood()) {
+            Sync();
+            if (mLogFilePrevPos < mLogFilePos && ! IsLogStreamGood()) {
+                TruncateOnError(-mError);
+            }
+        }
+        mMdStream.SetSync(false);
+        // Buffer should be empty if write succeeded, and has to be cleared /
+        // discarded in case of failure.
+        mMdStream.ClearBuffer();
     }
     void Sync()
     {
@@ -1001,22 +1021,43 @@ private:
     void WriteBlock(
         MetaLogWriterControl& inRequest)
     {
+        if (mNextBlockSeq < 0) {
+            panic("log writer: write block invalid block sequence");
+            return;
+        }
         if (mLastLogSeq != mNextLogSeq) {
             panic("invalid write block invocation");
             inRequest.status = -EFAULT;
             return;
         }
-        if (inRequest.blockStartSeq != inRequest.blockEndSeq) {
-            if (inRequest.blockData.BytesConsumable() <= 0) {
-                panic("write block: invalid block length");
-                inRequest.status = -EFAULT;
-                return;
+        if (0 != inRequest.status) {
+            KFS_LOG_STREAM_ERROR <<
+                "write block:"
+                " status: " << inRequest.status <<
+                " "         << inRequest.statusMsg <<
+                " "         << inRequest.Show() <<
+            KFS_LOG_EOM;
+            return;
+        }
+        if (inRequest.blockStartSeq == inRequest.blockEndSeq) {
+            if (! inRequest.blockLines.IsEmpty() ||
+                    0 < inRequest.blockData.BytesConsumable()) {
+                inRequest.status    = -EINVAL;
+                inRequest.statusMsg = "invalid non empty block / heartbeat";
+            } else {
+                // ignore heartbeats for now.
             }
-            if (inRequest.blockLines.IsEmpty()) {
-                panic("write block: invalid invocation, no log lines");
-                inRequest.status = -EFAULT;
-                return;
-            }
+            return;
+        }
+        if (inRequest.blockData.BytesConsumable() <= 0) {
+            panic("write block: invalid block length");
+            inRequest.status = -EFAULT;
+            return;
+        }
+        if (inRequest.blockLines.IsEmpty()) {
+            panic("write block: invalid invocation, no log lines");
+            inRequest.status = -EFAULT;
+            return;
         }
         inRequest.lastLogSeq = mLastLogSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
@@ -1055,7 +1096,7 @@ private:
                     inRequest.statusMsg = "invalid block start sequence";
                 }
                 return;
-            }
+             }
         }
         if (! IsLogStreamGood()) {
             inRequest.status    = -EIO;
@@ -1063,11 +1104,9 @@ private:
             return;
         }
         // Copy block data, and write block sequence and updated checksum.
-        mMdStream.SetSync(false);
-        mWriteState = kWriteStateNone;
         // To include leading \n, if any, "combine" block checksum.
-        mBlockChecksum = ChecksumBlocksCombine(
-            mBlockChecksum,
+        Checksum theBlockChecksum = ChecksumBlocksCombine(
+            mNextBlockChecksum,
             inRequest.blockChecksum,
             inRequest.blockData.BytesConsumable()
         );
@@ -1089,9 +1128,9 @@ private:
         const char* thePtr        = mMdStream.GetBufferedStart() +
             thePos + theLen;
         size_t      theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
-        mBlockChecksum = ComputeBlockChecksum(
-            mBlockChecksum, thePtr, theTrailerLen);
-        mReqOstream << mBlockChecksum << "\n";
+        theBlockChecksum = ComputeBlockChecksum(
+            theBlockChecksum, thePtr, theTrailerLen);
+        mReqOstream << theBlockChecksum << "\n";
         mReqOstream.flush();
         // Append trailer to make block replay work, and parse committed.
         thePtr        = mMdStream.GetBufferedStart() + thePos + theLen;
@@ -1136,14 +1175,14 @@ private:
         );
         if (0 == theVrStatus) {
             const int theStatus = mLogTransmitter.TransmitBlock(
-                    inRequest.blockEndSeq,
-                    (int)(inRequest.blockEndSeq.mLogSeq -
-                        inRequest.blockStartSeq.mLogSeq),
-                    mMdStream.GetBufferedStart() + thePos,
-                    theLen,
-                    inRequest.blockChecksum,
-                    theLen
-                );
+                inRequest.blockEndSeq,
+                (int)(inRequest.blockEndSeq.mLogSeq -
+                    inRequest.blockStartSeq.mLogSeq),
+                mMdStream.GetBufferedStart() + thePos,
+                theLen,
+                inRequest.blockChecksum,
+                theLen
+            );
             KFS_LOG_STREAM_DEBUG <<
                 "write block: block transmit" <<
                     (0 == theStatus ? "OK" : "failure") <<
@@ -1169,7 +1208,6 @@ private:
             mNextLogSeq          = mLastLogSeq;
             inRequest.status     = 0;
             inRequest.lastLogSeq = mLastLogSeq;
-            StartBlock(mNextBlockChecksum);
         } else {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
@@ -1191,7 +1229,7 @@ private:
             { return outVal.Parse<HexIntParser>(ioPtr, inLen); }
     };
     template<typename T>
-    bool ParseField(
+    static bool ParseField(
         const char*& ioPtr,
         const char*  inEndPtr,
         T&           outVal)
@@ -1217,7 +1255,6 @@ private:
                     return;
                 }
             }
-            mWriteState = kWriteStateNone;
             mMdStream << "time/" << DisplayIsoDateTime() << "\n";
             const string theChecksum = mMdStream.GetMd();
             mMdStream << "checksum/" << theChecksum << "\n";
@@ -1239,19 +1276,16 @@ private:
         mLogFilePrevPos  = 0;
         mNextBlockSeq    = -1;
         mError           = 0;
-        mWriteState      = kWriteStateNone;
         SetLogName(inLogSeq);
         if ((mLogFd = open(
                 mLogName.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666)) < 0) {
             IoError(errno);
             return;
         }
-        StartBlock(kKfsNullChecksum);
         mMdStream.Reset(this);
         mMdStream.clear();
         mReqOstream.Get().clear();
         mMdStream.setf(ostream::dec, ostream::basefield);
-        mMdStream.SetSync(false);
         mMdStream <<
             "version/" << int(LogWriter::VERSION) << "\n"
             "checksum/last-line\n"
@@ -1359,10 +1393,6 @@ private:
             panic("invalid write invocation");
             return false;
         }
-        if (kUpdateBlockChecksum == mWriteState) {
-            mBlockChecksum = ComputeBlockChecksum(
-                mBlockChecksum, inBufPtr, inSize);
-        }
         if (0 < inSize && IsLogStreamGood()) {
             const char*       thePtr    = inBufPtr;
             const char* const theEndPtr = thePtr + inSize;
@@ -1374,49 +1404,7 @@ private:
             }
             if (theNWr < 0) {
                 const int theErr = errno;
-                if (0 <= mLogFilePrevPos && mLogFilePrevPos <= mLogFilePos) {
-                    // Attempt to truncate the log segment in the hope that
-                    // in case of out of disk space doing so will produce valid
-                    // log segment.
-                    KFS_LOG_STREAM_ERROR <<
-                        "transaction log writer error:" <<
-                         " " << mLogName << ": " << QCUtils::SysError(theErr) <<
-                        " current position: "          << mLogFilePos <<
-                        " attempting to truncate to: " << mLogFilePrevPos <<
-                    KFS_LOG_EOM;
-                    if (ftruncate(mLogFd, mLogFilePrevPos)) {
-                        const int theErr = errno;
-                        KFS_LOG_STREAM_ERROR <<
-                            "transaction log truncate error:" <<
-                             " " << mLogName << ": " <<
-                                QCUtils::SysError(theErr) <<
-                        KFS_LOG_EOM;
-                    } else {
-                        const off_t thePos =
-                            lseek(mLogFd, mLogFilePrevPos, SEEK_SET);
-                        if (thePos < 0) {
-                            const int theErr = errno;
-                            KFS_LOG_STREAM_ERROR <<
-                                "transaction log seek error:" <<
-                                 " "  << mLogName <<
-                                 ": " << QCUtils::SysError(theErr) <<
-                            KFS_LOG_EOM;
-                        } else {
-                            if (thePos != mLogFilePrevPos) {
-                                KFS_LOG_STREAM_ERROR <<
-                                    "transaction log seek error:" <<
-                                     " " << mLogName << ": "
-                                     "expected position: " << mLogFilePrevPos <<
-                                     " actual: "           << thePos <<
-                                KFS_LOG_EOM;
-                            } else {
-                                mLogFilePos = mLogFilePrevPos;
-                                // MD stream state has no be restored in order
-                                // to produce correct trailer's MD.
-                            }
-                        }
-                    }
-                }
+                TruncateOnError(theErr);
                 IoError(theErr);
             }
         }
@@ -1424,6 +1412,61 @@ private:
     }
     bool flush()
         { return IsLogStreamGood(); }
+    void TruncateOnError(
+        int inError)
+    {
+        // Attempt to truncate the log segment in the hope that
+        // in case of out of disk space doing so will produce valid
+        // log segment.
+        KFS_LOG_STREAM_ERROR <<
+            "transaction log writer error:" <<
+             " " << mLogName << ": " << QCUtils::SysError(inError) <<
+            " current position: "          << mLogFilePos <<
+            " attempting to truncate to: " << mLogFilePrevPos <<
+        KFS_LOG_EOM;
+        if (mLogFilePrevPos < 0 || mLogFilePos <= mLogFilePrevPos) {
+            return;
+        }
+        if (ftruncate(mLogFd, mLogFilePrevPos)) {
+            const int theErr = errno;
+            KFS_LOG_STREAM_ERROR <<
+                "transaction log truncate error:" <<
+                 " " << mLogName << ": " <<
+                    QCUtils::SysError(theErr) <<
+            KFS_LOG_EOM;
+        } else {
+            const off_t thePos =
+                lseek(mLogFd, mLogFilePrevPos, SEEK_SET);
+            if (thePos < 0) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    "transaction log seek error:" <<
+                     " "  << mLogName <<
+                     ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+            } else {
+                if (thePos != mLogFilePrevPos) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "transaction log seek error:" <<
+                         " " << mLogName << ": "
+                         "expected position: " << mLogFilePrevPos <<
+                         " actual: "           << thePos <<
+                    KFS_LOG_EOM;
+                } else {
+                    if (fsync(mLogFd)) {
+                        const int theErr = errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "transaction log fsync error:" <<
+                             " "  << mLogName <<
+                             ": " << QCUtils::SysError(theErr) <<
+                        KFS_LOG_EOM;
+                    } else {
+                        mLogFilePos = mLogFilePrevPos;
+                    }
+                }
+            }
+        }
+    }
     bool IsSimulateFailure()
     {
         return (

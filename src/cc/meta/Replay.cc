@@ -164,9 +164,10 @@ public:
         if (mReplayer) {
             if (META_VR_LOG_START_VIEW == mCurOp->op) {
                 handleOp(*mCurOp);
-                if (mCurOp && 0 != mCurOp->status) {
+                if (mCurOp) {
+                    const bool ok = 0 == mCurOp->status;
                     curOpDone();
-                    return false;
+                    return ok;
                 }
             } else {
                 mCommitQueue.push_back(ReplayState::CommitQueueEntry(
@@ -2637,6 +2638,10 @@ Replay::getLastLogNum()
 void
 Replay::handle(MetaVrLogStartView& op)
 {
+    if (op.mHandledFlag) {
+        return;
+    }
+    op.mHandledFlag = true;
     if (0 != op.status) {
         if (op.replayFlag) {
             return;

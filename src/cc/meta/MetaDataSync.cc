@@ -130,6 +130,12 @@ private:
             const ReadOp& inReadOp);
     };
     typedef SingleLinkedQueue<ReadOp, ReadOp::GetNext> ReadQueue;
+    static int64_t RandomSeq()
+    {
+        int64_t theReq = 0;
+        CryptoKeys::PseudoRand(&theReq, sizeof(theReq));
+        return ((theReq < 0 ? -theReq : theReq) >> 1);
+    }
 public:
     typedef vector<ServerLocation> Servers;
 
@@ -141,7 +147,16 @@ public:
           QCRunnable(),
           mRuntimeNetManager(inNetManager),
           mStartupNetManager(),
-          mKfsNetClient(mStartupNetManager),
+          mKfsNetClient(
+            mStartupNetManager,
+            string(),          // inHost
+            0,                 // inPort
+            5,                 // inMaxRetryCount
+            4,                 // inTimeSecBetweenRetries
+            10,                // inOpTimeoutSec
+            4 * 60,            // inIdleTimeoutSec
+            RandomSeq()        // inInitialSeqNum
+          ),
           mServers(),
           mPendingSyncServers(),
           mPendingSyncLogSeq(),
@@ -398,9 +413,7 @@ public:
             const size_t theCnt = mServers.size();
             if (1 < theCnt) {
                 // Randomly choose server to download from.
-                unsigned int theRnd;
-                CryptoKeys::PseudoRand(&theRnd, sizeof(theRnd));
-                mServerIdx = theRnd % theCnt;
+                mServerIdx = (size_t)RandomSeq() % theCnt;
             }
             int theRet;
             if (0 != (theRet = PrepareToSync()) ||
@@ -1660,7 +1673,7 @@ private:
         SetPathName& operator=(
             const SetPathName&);
     };
-    class RenameTmpFunc : private SetPathName 
+    class RenameTmpFunc : private SetPathName
     {
     public:
         RenameTmpFunc(
@@ -1713,7 +1726,7 @@ private:
         RenameTmpFunc theFunc(inDirName, mTmpSuffix.size());
         return ListDirEntries(inDirName.c_str(), theFunc);
     }
-    class DeleteFunc : private SetPathName 
+    class DeleteFunc : private SetPathName
     {
     public:
         DeleteFunc(

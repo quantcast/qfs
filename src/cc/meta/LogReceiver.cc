@@ -286,6 +286,7 @@ public:
         MetaVrLogSeq theNextSeq          = (thePtr && thePtr->status != 0) ?
             static_cast<MetaLogWriterControl*>(thePtr)->blockStartSeq :
             mLastWriteSeq;
+        bool         theRetFlag          = false;
         while ((thePtr = theCompletionQueue.PopFront())) {
             MetaLogWriterControl& theCur =
                 *static_cast<MetaLogWriterControl*>(thePtr);
@@ -305,6 +306,7 @@ public:
             if (0 == theCur.status) {
                 mLastWriteSeq = theCur.lastLogSeq;
                 if (mReplayerPtr) {
+                    theRetFlag = true;
                     mReplayerPtr->Apply(theCur);
                     continue;
                 }
@@ -313,7 +315,7 @@ public:
         }
         Queue thePendingSubmitQueue;
         thePendingSubmitQueue.PushBack(mPendingSubmitQueue);
-        const bool theRetFlag = ! thePendingSubmitQueue.IsEmpty();
+        theRetFlag = theRetFlag || ! thePendingSubmitQueue.IsEmpty();
         while ((thePtr = thePendingSubmitQueue.PopFront())) {
             KFS_LOG_STREAM_DEBUG <<
                 "submit: " << thePtr->Show() <<

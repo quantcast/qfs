@@ -490,12 +490,16 @@ public:
     MetaVrLogSeq mCommittedSeq;
     MetaVrLogSeq mNewLogSeq;
     NodeId       mNodeId;
+    int64_t      mTime;
+    bool         mHandledFlag;
 
     MetaVrLogStartView()
         : MetaRequest(META_VR_LOG_START_VIEW, kLogIfOk),
           mCommittedSeq(),
           mNewLogSeq(),
-          mNodeId(-1)
+          mNodeId(-1),
+          mTime(0),
+          mHandledFlag(false)
         {}
     bool Validate()
     {
@@ -541,6 +545,7 @@ public:
         .Def("C",  &MetaVrLogStartView::mCommittedSeq      )
         .Def("L",  &MetaVrLogStartView::mNewLogSeq         )
         .Def("N",  &MetaVrLogStartView::mNodeId, NodeId(-1))
+        .Def("T",  &MetaVrLogStartView::mTime,   int64_t(0))
         ;
     }
 protected:

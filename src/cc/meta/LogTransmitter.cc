@@ -646,9 +646,12 @@ private:
         // Allow to cleanup heartbeats by assigning negative / invalid sequence.
         mBlocksQueue.push_back(make_pair(
             inHeartbeatFlag ? MetaVrLogSeq() : inBlockSeq, inLen));
-        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr &&
-                mConnectionPtr->GetOutBuffer().IsEmpty()) {
-            StartSend();
+        if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
+            if (mConnectionPtr->GetOutBuffer().IsEmpty()) {
+                StartSend();
+            } else {
+                mConnectionPtr->StartFlush();
+            }
         }
         return (!! mConnectionPtr);
     }
@@ -1510,9 +1513,6 @@ LogTransmitter::Impl::TransmitBlock(
         mCommitted = inBlockSeq;
         mCommitObserver.Notify(mCommitted);
         return 0;
-    }
-    if (! mUpFlag) {
-        return -EIO;
     }
     if (inBlockLen <= 0) {
         return 0;

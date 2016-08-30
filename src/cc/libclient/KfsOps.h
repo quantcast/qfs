@@ -1892,7 +1892,7 @@ struct MetaReadMetaData : public KfsMonOp {
             " end: "        << endLogSeq <<
             " pos: "        << readPos <<
             " checkpoint: " << checkpointFlag <<
-            " not prm ok:"  << allowNotPrimaryFlag <<
+            " not prm ok: " << allowNotPrimaryFlag <<
             " size: "       << readSize <<
             " max read: "   << maxReadSize <<
             " crc32: "      << checksum <<

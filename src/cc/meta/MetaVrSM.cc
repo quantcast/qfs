@@ -608,6 +608,9 @@ public:
         }
         mLastProcessTime = TimeNow();
         outVrStatus      = GetStatus();
+        if (kStatePrimary != mState && (mMetaVrLogStartViewPtr || outReqPtr)) {
+            panic("VR: invalid outstanding log start view");
+        }
     }
     int Start(
         MetaDataSync&         inMetaDataSync,
@@ -1219,8 +1222,15 @@ private:
     {
         CancelViewChange();
         KFS_LOG_STREAM_INFO <<
-            "primary starting view: " << mEpochSeq << " " << mViewSeq <<
+            "primary: "        << mNodeId <<
+            " starting view: " << mEpochSeq <<
+            " "                << mViewSeq <<
+            " last log: "      << mLastLogSeq <<
         KFS_LOG_EOM;
+        if (MetaVrLogSeq(mEpochSeq, mViewSeq, 0) <= mLastLogSeq) {
+            panic("VR: invalid epoch, view, or last log sequence");
+            return;
+        }
         mState         = kStatePrimary;
         mPrimaryNodeId = mNodeId;
         mLastUpTime    = TimeNow();
@@ -1230,6 +1240,11 @@ private:
         mMetaVrLogStartViewPtr->mNewLogSeq    =
             MetaVrLogSeq(mEpochSeq, mViewSeq, mLastLogSeq.mLogSeq + 1);
         mMetaVrLogStartViewPtr->mNodeId       = mNodeId;
+        mMetaVrLogStartViewPtr->mTime         = TimeNow();
+        if (! mMetaVrLogStartViewPtr->Validate()) {
+            panic("VR: invalid log start op");
+        }
+        mNetManagerPtr->Wakeup();
     }
     void AdvanceView()
     {
@@ -1361,11 +1376,14 @@ private:
                         mLogFetchEndSeq < mStartViewChangeMaxLastLogSeq) {
                     KFS_LOG_STREAM_INFO <<
                         "scheduling log fetch:"
+                        " state: "    << GetStateName(mState) <<
                         " servers: "
-                        " total: "   << mSyncServers.size() <<
-                        " first: "   << mSyncServers.front() <<
-                        " ["  << mLastLogSeq <<
-                        ","   << mStartViewChangeMaxLastLogSeq <<
+                        " total: "    << mSyncServers.size() <<
+                        " first: "    << mSyncServers.front() <<
+                        " ["          << mLastLogSeq <<
+                        ","           << mStartViewChangeMaxLastLogSeq <<
+                        "]"           <<
+                        " prev end: " << mLogFetchEndSeq <<
                     KFS_LOG_EOM;
                     mState          = kStateLogSync;
                     mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
@@ -1534,11 +1552,11 @@ private:
         if (inLocation.IsValid() && mLogFetchEndSeq < inLogSeq) {
             KFS_LOG_STREAM_INFO <<
                 "scheduling log fetch:"
-                " "                   << inLocation <<
-                " ["                  << mLastLogSeq <<
-                ","                   << inLogSeq <<
+                " "                    << inLocation <<
+                " ["                   << mLastLogSeq <<
+                ","                    << inLogSeq <<
                 "]"
-                "allow non primary: " << inAllowNonPrimaryFlag <<
+                " allow non primary: " << inAllowNonPrimaryFlag <<
             KFS_LOG_EOM;
             mState = kStateLogSync;
             mSyncServers.clear();
