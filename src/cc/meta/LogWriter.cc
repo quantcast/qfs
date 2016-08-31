@@ -268,9 +268,40 @@ public:
         mNetManagerPtr->RegisterTimeoutHandler(this);
         return 0;
     }
+    bool EnqueueStart(
+        MetaRequest& inRequest)
+    {
+        if (inRequest.next) {
+            panic("log writer enqueue: invalid request non null next field");
+            return false;
+        }
+        if (inRequest.suspended) {
+            panic("log writer enqueue: invalid request suspended");
+            return false;
+        }
+        if (MetaRequest::kLogNever != inRequest.logAction) {
+            if (inRequest.replayFlag) {
+                panic("log writer enqueue: invalid request replay flag");
+                return false;
+            }
+            const bool theLogFlag = inRequest.start();
+            if (1 != inRequest.submitCount || inRequest.next ||
+                    inRequest.suspended) {
+                panic("log writer enqueue: invalid request start completion");
+                return false;
+            }
+            if (! theLogFlag) {
+                inRequest.logAction = MetaRequest::kLogNever;
+            }
+        }
+        return (! inRequest.replayFlag);
+    }
     bool Enqueue(
         MetaRequest& inRequest)
     {
+        if (! EnqueueStart(inRequest)) {
+            return false;
+        }
         inRequest.next = 0;
         if (mStopFlag) {
             inRequest.status    = -ELOGFAILED;
@@ -287,7 +318,7 @@ public:
         }
         if (theCounterPtr) {
             if (++*theCounterPtr <= 0) {
-                panic("request enqueue: invalid log queue counter");
+                panic("log writer enqueue: invalid log queue counter");
             }
         }
         inRequest.commitPendingFlag = true;
@@ -666,6 +697,9 @@ private:
                 theReqPtr->commitPendingFlag = true;
                 theReqPtr->submitTime        = microseconds();
                 theReqPtr->processTime       = 0;
+                if (! EnqueueStart(*theReqPtr)) {
+                    panic("log writer: VR log write start failure");
+                }
             }
             theWriteQueue.PushBack(*theReqPtr);
         }

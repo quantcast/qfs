@@ -124,14 +124,13 @@ public:
             return 0;
         }
         unsigned int theLen = 0;
-        if (! EVP_DigestFinal_ex(&theCtx, inMd, &theLen)) {
+        if ((mMdPtr < mCurPtr &&
+                ! EVP_DigestUpdate(&theCtx, mMdPtr, mCurPtr - mMdPtr)) ||
+                ! EVP_DigestFinal_ex(&theCtx, inMd, &theLen)) {
             setstate(failbit);
         }
         EVP_MD_CTX_cleanup(&theCtx);
-        if (fail()) {
-            return 0;
-        }
-        return theLen;
+        return (fail() ? 0 : theLen);
     }
     string GetMd()
     {

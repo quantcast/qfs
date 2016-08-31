@@ -4126,25 +4126,7 @@ MetaRequest::Submit()
     if (0 == submitCount++) {
         submitTime  = tstart;
         processTime = tstart;
-        if (next) {
-            panic("submit: invalid request non null next field");
-        }
-        if (suspended) {
-            panic("submit: invalid request suspended");
-        }
-        if (kLogNever != logAction) {
-            if (replayFlag) {
-                panic("submit: invalid request replay flag");
-            }
-            const bool logFlag = start();
-            if (1 != submitCount || next || suspended) {
-                panic("submit: invalid request start completion");
-            }
-            if (! logFlag) {
-                logAction = kLogNever;
-            }
-        }
-        if (! replayFlag && GetLogWriter().Enqueue(*this)) {
+        if (GetLogWriter().Enqueue(*this)) {
             processTime = microseconds() - processTime;
             if (--recursionCount != 0) {
                 panic("submit: invalid request recursion count");

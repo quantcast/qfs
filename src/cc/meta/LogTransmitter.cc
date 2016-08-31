@@ -323,6 +323,7 @@ public:
           mNextSeq(mImpl.RandomSeq()),
           mRecursionCount(0),
           mCompactBlockCount(0),
+          mHeartbeatSendTimeoutCount(0),
           mAuthContext(),
           mAuthRequestCtx(),
           mLastSentBlockSeq(inLastLogSeq),
@@ -419,6 +420,7 @@ public:
                 HandleRead();
                 break;
             case EVENT_NET_WROTE:
+                mHeartbeatSendTimeoutCount = 0;
                 break;
             case EVENT_CMD_DONE:
                 if (! inDataPtr) {
@@ -435,6 +437,9 @@ public:
                 break;
             case EVENT_INACTIVITY_TIMEOUT:
                 if (SendHeartbeat()) {
+                    break;
+                }
+                if (++mHeartbeatSendTimeoutCount < 2) {
                     break;
                 }
                 Error("connection timed out");
@@ -572,6 +577,7 @@ private:
     seq_t              mNextSeq;
     int                mRecursionCount;
     int                mCompactBlockCount;
+    int                mHeartbeatSendTimeoutCount;
     ClientAuthContext  mAuthContext;
     RequestCtx         mAuthRequestCtx;
     MetaVrLogSeq       mLastSentBlockSeq;
@@ -717,6 +723,8 @@ private:
         if (theErr != 0) {
             mConnectionPtr->SetDoingNonblockingConnect();
         }
+        mConnectionPtr->SetInactivityTimeout(
+            mImpl.GetHeartbeatInterval() * 3 / 2);
         mConnectionPtr->EnableReadIfOverloaded();
         mImpl.GetNetManager().AddConnection(mConnectionPtr);
         if (! Authenticate()) {
@@ -1696,7 +1704,7 @@ LogTransmitter::Impl::Update(
     theTransmittersPtr[0] = mTransmittersPtr[0];
     mTransmittersPtr[0] = 0;
     int theTransmittersCount = 0;
-    SetHeartbeatInterval(theConfig.GetPrimaryTimeout());
+    SetHeartbeatInterval(theConfig.GetPrimaryTimeout() / 2);
     for (Config::Nodes::const_iterator theIt = theNodes.begin();
             theNodes.end() != theIt;
             ++theIt) {

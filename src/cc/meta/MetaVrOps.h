@@ -510,7 +510,7 @@ public:
             0 < mNewLogSeq.mLogSeq &&
             (mCommittedSeq.mEpochSeq < mNewLogSeq.mEpochSeq ||
                 mCommittedSeq.mViewSeq < mNewLogSeq.mViewSeq) &&
-            (! logseq.IsValid() || (mCommittedSeq <= logseq &&
+            (! logseq.IsValid() || (mCommittedSeq < logseq &&
                 logseq < mNewLogSeq))
         );
     }

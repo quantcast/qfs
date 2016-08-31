@@ -121,12 +121,7 @@ public:
         int64_t             errChecksum);
     bool commitAll();
     bool submit(MetaRequest& req)
-    {
-        if (emptyQueueFlag) {
-            return false;
-        }
-        return enqueue(req);
-    }
+        { return (enqueueFlag && enqueue(req)); }
     int64_t getPrimaryNodeId() const
         { return primaryNodeId; }
 
@@ -145,7 +140,7 @@ public:
     class Tokenizer
     {
     public:
-        Tokenizer(istream& file, Replay* replay, bool* emptyQueueFlag);
+        Tokenizer(istream& file, Replay* replay, bool* enqueueFlag);
         ~Tokenizer();
         DETokenizer& Get() { return tokenizer; }
         State& GetState() { return state; }
@@ -164,7 +159,7 @@ private:
     int              lastLogIntBase;
     bool             appendToLastLogFlag;
     bool             verifyAllLogSegmentsPresetFlag;
-    bool             emptyQueueFlag;
+    bool             enqueueFlag;
     Tokenizer        replayTokenizer;
     MetaVrLogSeq&    checkpointCommitted;
     MetaVrLogSeq&    committed;
