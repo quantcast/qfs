@@ -1064,6 +1064,7 @@ private:
             inRequest.status = -EFAULT;
             return;
         }
+        inRequest.lastLogSeq = mLastLogSeq;
         if (0 != inRequest.status) {
             KFS_LOG_STREAM_ERROR <<
                 "write block:"
@@ -1093,7 +1094,6 @@ private:
             inRequest.status = -EFAULT;
             return;
         }
-        inRequest.lastLogSeq = mLastLogSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
             int theLnLen = -1;
             if (inRequest.blockStartSeq < inRequest.blockEndSeq &&

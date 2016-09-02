@@ -3933,7 +3933,7 @@ MetaGetRequestCounters::handle()
 MetaCheckpoint::handle()
 {
     suspended = false;
-    if (pid > 0) {
+    if (0 < pid) {
         // Child finished.
         KFS_LOG_STREAM(status == 0 ?
                 MsgLogger::kLogLevelINFO :
@@ -3967,6 +3967,7 @@ MetaCheckpoint::handle()
         return;
     }
     status = 0;
+    statusMsg.clear();
     if (intervalSec <= 0) {
         return; // Disabled.
     }
@@ -4005,7 +4006,8 @@ MetaCheckpoint::handle()
         return;
     }
     if (finishLog->status != 0) {
-        KFS_LOG_STREAM_ERROR << "failed to finish log:"
+        KFS_LOG_STREAM_ERROR <<
+            "failed to finish log:"
             " "        << finishLog->logName <<
             " status:" << finishLog->status <<
             " "        << finishLog->statusMsg <<
@@ -4019,12 +4021,27 @@ MetaCheckpoint::handle()
     if (finishLog->logName.empty()) {
         panic("invalid empty next log segment name");
     }
-    lastRun = now;
-    runningCheckpointId = GetLogWriter().GetCommittedLogSeq();
+    const MetaVrLogSeq committedSeq = GetLogWriter().GetCommittedLogSeq();
+    if (committedSeq != finishLog->lastLogSeq &&
+            (finishLog->lastLogSeq.mEpochSeq != committedSeq.mEpochSeq ||
+            finishLog->lastLogSeq.mViewSeq != committedSeq.mViewSeq)) {
+        KFS_LOG_STREAM_INFO <<
+            "re-scheduling checkpoint due to pending view change:"
+            " finish log: " << finishLog->lastLogSeq <<
+            " committed: "  << committedSeq <<
+        KFS_LOG_EOM;
+        if (0 <= lockFd) {
+            close(lockFd);
+        }
+        finishLog = 0;
+        return;
+    }
+    runningCheckpointId = committedSeq;
     if (runningCheckpointId != finishLog->lastLogSeq ||
             runningCheckpointId < finishLog->committed) {
         panic("invalid finish log completion: log sequence mismatch");
     }
+    lastRun = now;
     runningCheckpointLogSegmentNum = finishLog->logSegmentNum;
     // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
     // global mutex by waiting on condition with this mutex, but must ensure

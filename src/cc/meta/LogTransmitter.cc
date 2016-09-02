@@ -248,6 +248,8 @@ public:
         return (mMetaVrSMPtr &&
             mMetaVrSMPtr->Init(inHello, inPeer, mTransmitter));
     }
+    NodeId GetNodeId() const
+        { return mNodeId; }
     void Deleted(
         Transmitter& inTransmitter);
 private:
@@ -505,12 +507,14 @@ public:
     }
     bool SendBlock(
         const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
         IOBuffer&           inBuffer,
         int                 inLen)
     {
         if (inBlockSeq <= mAckBlockSeq ||
                 inLen <= 0 ||
-                inBlockSeq <= mLastSentBlockSeq) {
+                inBlockSeq <= mLastSentBlockSeq ||
+                CanBypassSend(inBlockSeq, inBlockSeqLen)) {
             return true;
         }
         if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
@@ -533,7 +537,8 @@ public:
         Checksum            inChecksum,
         size_t              inChecksumStartPos)
     {
-        if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0) {
+        if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0 ||
+                CanBypassSend(inBlockSeq, inBlockSeqLen)) {
             return true;
         }
         const bool kHeartbeatFlag = false;
@@ -599,6 +604,25 @@ private:
 
     friend class QCDLListOp<Transmitter>;
 
+    bool CanBypassSend(
+        const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen)
+    {
+        if (inBlockSeqLen <= 0 || mImpl.GetNodeId() != mId || ! mActiveFlag) {
+            return false;
+        }
+        if (inBlockSeq <= mAckBlockSeq) {
+            return true;
+        }
+        mLastSentBlockSeq = inBlockSeq;
+        const MetaVrLogSeq thePrevAckSeq = mAckBlockSeq;
+        mAckBlockSeq = inBlockSeq;
+        if (1 < inBlockSeqLen) {
+            mAckBlockSeq.mLogSeq += inBlockSeqLen - 1;
+        }
+        mImpl.Acked(thePrevAckSeq, *this);
+        return true;
+    }
     bool SendBlockSelf(
         const MetaVrLogSeq& inBlockSeq,
         int                 inBlockSeqLen,
@@ -1468,16 +1492,17 @@ LogTransmitter::Impl::Acked(
     const MetaVrLogSeq&                inPrevAck,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
-    if (! inTransmitter.IsActive()) {
+    if (! inTransmitter.IsActive() || List::IsEmpty(mTransmittersPtr)) {
         return;
     }
     const MetaVrLogSeq theAck = inTransmitter.GetAck();
     if (theAck.IsValid() && mCommitted < theAck) {
         NodeId         thePrevId    = -1;
-        int            theAckCnt    = 0;
+        int            theAckAdvCnt = 0;
         MetaVrLogSeq   theCommitted = theAck;
+        MetaVrLogSeq   theCurMax    = mCommitted;
         List::Iterator theIt(mTransmittersPtr);
-        Transmitter*   thePtr;
+        Transmitter*   thePtr       = theIt.Next();
         while ((thePtr = theIt.Next())) {
             if (! thePtr->IsActive()) {
                 continue;
@@ -1487,15 +1512,22 @@ LogTransmitter::Impl::Acked(
                 continue;
             }
             const NodeId theId = thePtr->GetId();
-            if (mCommitted < theCurAck) {
-                theCommitted = min(theCommitted, theCurAck);
-                if (theId != thePrevId) {
-                    theAckCnt++;
-                    thePrevId = theId;
+            if (theId == thePrevId) {
+                theCurMax = max(theCurMax, theCurAck);
+            } else {
+                if (mCommitted < theCurMax) {
+                    theCommitted = min(theCommitted, theCurMax);
+                    theAckAdvCnt++;
                 }
+                theCurMax = theCurAck;
+                thePrevId = theId;
             }
         }
-        if (mMinAckToCommit <= theAckCnt) {
+        if (mCommitted < theCurMax) {
+            theCommitted = min(theCommitted, theCurMax);
+            theAckAdvCnt++;
+        }
+        if (mMinAckToCommit <= theAckAdvCnt) {
             mCommitted = theCommitted;
             mCommitObserver.Notify(mCommitted);
         }
@@ -1531,9 +1563,9 @@ LogTransmitter::Impl::TransmitBlock(
     if (List::Front(mTransmittersPtr) == List::Back(mTransmittersPtr)) {
         thePtr = List::Front(mTransmittersPtr);
         const NodeId theId = thePtr->GetId();
-        if ((theId == mNodeId || thePtr->SendBlock(
+        if (thePtr->SendBlock(
                     inBlockSeq, inBlockSeqLen,
-                    inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos)) &&
+                    inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos) &&
                 0 <= theId && thePtr->IsActive()) {
             theCnt++;
         }
@@ -1545,8 +1577,9 @@ LogTransmitter::Impl::TransmitBlock(
         List::Iterator theIt(mTransmittersPtr);
         while ((thePtr = theIt.Next())) {
             const NodeId theId = thePtr->GetId();
-            if (theId == mNodeId || thePtr->SendBlock(
-                        inBlockSeq, theBuffer, theBuffer.BytesConsumable())) {
+            if (thePtr->SendBlock(
+                        inBlockSeq, inBlockSeqLen,
+                        theBuffer, theBuffer.BytesConsumable())) {
                 if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
                     theCnt++;
                 }
@@ -1590,7 +1623,6 @@ LogTransmitter::Impl::Update()
     }
     mPendingUpdateFlag = false;
     int            theIdCnt     = 0;
-    int            theCnt       = 0;
     int            theUpCnt     = 0;
     int            theIdUpCnt   = 0;
     int            theTotalCnt  = 0;
@@ -1598,8 +1630,6 @@ LogTransmitter::Impl::Update()
     NodeId         thePrevId    = -1;
     MetaVrLogSeq   theMinAck;
     MetaVrLogSeq   theMaxAck;
-    MetaVrLogSeq   theCurMinAck;
-    MetaVrLogSeq   theCurMaxAck;
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {
@@ -1613,19 +1643,13 @@ LogTransmitter::Impl::Update()
             theUpCnt++;
             if (theId != thePrevId) {
                 theIdUpCnt++;
-                if (theMinAck.IsValid()) {
-                    theMinAck = min(theMinAck, theCurMinAck);
-                    theMaxAck = max(theMaxAck, theCurMaxAck);
-                } else {
-                    theMinAck = theAck;
-                    theMaxAck = theAck;
-                }
-                theCurMinAck = theAck;
-                theCurMaxAck = theAck;
-                theCnt++;
+            }
+            if (theMinAck.IsValid()) {
+                theMinAck = min(theMinAck, theAck);
+                theMaxAck = max(theMaxAck, theAck);
             } else {
-                theCurMinAck = min(theCurMinAck, theAck);
-                theCurMaxAck = max(theCurMaxAck, theAck);
+                theMinAck = theAck;
+                theMaxAck = theAck;
             }
             thePrevId = theId;
         }

@@ -304,7 +304,9 @@ public:
             }
             theNextSeq = theCur.blockEndSeq;
             if (0 == theCur.status) {
-                mLastWriteSeq = theCur.lastLogSeq;
+                if (theCur.lastLogSeq.IsValid()) {
+                    mLastWriteSeq = theCur.lastLogSeq;
+                }
                 if (mReplayerPtr) {
                     theRetFlag = true;
                     mReplayerPtr->Apply(theCur);
