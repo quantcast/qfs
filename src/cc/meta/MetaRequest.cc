@@ -4128,6 +4128,14 @@ MetaRequest::GetLogQueueCounter() const
 void
 MetaRequest::Submit()
 {
+    if (SubmitBegin()) {
+        SubmitEnd();
+    }
+}
+
+bool
+MetaRequest::SubmitBegin()
+{
     const int64_t tstart = microseconds();
     if (++recursionCount <= 0) {
         panic("submit: invalid request recursion count");
@@ -4148,13 +4156,19 @@ MetaRequest::Submit()
             if (--recursionCount != 0) {
                 panic("submit: invalid request recursion count");
             }
-            return;
+            return false;
         }
     } else {
         // accumulate processing time.
         processTime = tstart - processTime;
     }
     handle();
+    return true;
+}
+
+void
+MetaRequest::SubmitEnd()
+{
     if (commitPendingFlag) {
         GetLogWriter().Committed(*this, fileID.getseed());
     }

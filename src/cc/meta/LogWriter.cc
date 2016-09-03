@@ -352,7 +352,15 @@ public:
                 (inRequest.logseq.mEpochSeq == mCommitted.mSeq.mEpochSeq &&
                 inRequest.logseq.mViewSeq == mCommitted.mSeq.mViewSeq &&
                 inRequest.logseq.mLogSeq != mCommitted.mSeq.mLogSeq + 1))) {
-            panic("request committed: invalid out of order log sequence");
+            // Check if this log start view, and if it is, then the committed
+            // status has already been updated.
+            if (META_VR_LOG_START_VIEW != inRequest.op ||
+                    0 != inRequest.status ||
+                    mCommitted.mSeq <= inRequest.logseq ||
+                    0 != mCommitted.mStatus ||
+                    mCommitted.mFidSeed != inFidSeed) {
+                panic("request committed: invalid out of order log sequence");
+            }
             return;
         }
         const int theStatus = inRequest.status < 0 ?
@@ -643,7 +651,7 @@ private:
         mOutQueue.PushBack(inDoneQueue);
         if (0 != mVrStatus) {
             mReplayCommitQueue.PushBack(mPendingAckQueue);
-            mSetReplayStateFlag =
+            mSetReplayStateFlag = mSetReplayStateFlag ||
                 inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
         }
         mExraPendingCount += inExtraReqCount;

@@ -87,6 +87,7 @@ public:
           mListenerAddress(),
           mAcceptorPtr(0),
           mAuthContext(),
+          mLastLogSeq(),
           mLastWriteSeq(),
           mSubmittedWriteSeq(),
           mDeleteFlag(false),
@@ -203,6 +204,7 @@ public:
         }
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
         mReplayerPtr             = &inReplayer;
+        mLastLogSeq              = inLastLogSeq;
         mLastWriteSeq            = inLastLogSeq;
         mSubmittedWriteSeq       = inLastLogSeq;
         mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
@@ -225,6 +227,8 @@ public:
         Connection& inConnection);
     MetaVrLogSeq GetLastWriteLogSeq() const
         { return mLastWriteSeq; }
+    MetaVrLogSeq GetLastLogSeq() const
+        { return mLastLogSeq; }
     MetaVrLogSeq GetSubmittedWriteSeq() const
         { return mSubmittedWriteSeq; }
     int64_t GetFileSystemId() const
@@ -295,14 +299,17 @@ public:
             KFS_LOG_EOM;
             const MetaVrLogSeq& theStart = theCur.status == 0 ?
                 mLastWriteSeq : theNextSeq;
-            if ((theCur.blockStartSeq.mLogSeq != theStart.mLogSeq &&
+            if ((theCur.blockStartSeq != theCur.blockEndSeq ||
+                     ! theCur.blockLines.IsEmpty()) && (
+                    (theCur.blockStartSeq.mLogSeq != theStart.mLogSeq &&
                     theCur.blockStartSeq.mEpochSeq == theStart.mEpochSeq &&
                     theCur.blockStartSeq.mViewSeq  == theStart.mViewSeq) ||
                     theCur.blockStartSeq < theStart ||
-                    theCur.blockEndSeq < theCur.blockStartSeq) {
+                    theCur.blockEndSeq < theCur.blockStartSeq)) {
                 panic("log write completion: invalid block sequence");
             }
             theNextSeq = theCur.blockEndSeq;
+            mLastLogSeq = max(theCur.lastLogSeq, mLastLogSeq);
             if (0 == theCur.status) {
                 if (theCur.lastLogSeq.IsValid()) {
                     mLastWriteSeq = theCur.lastLogSeq;
@@ -315,6 +322,7 @@ public:
             }
             Release(theCur);
         }
+        mLastWriteSeq = max(mLastWriteSeq, mLastLogSeq);
         Queue thePendingSubmitQueue;
         thePendingSubmitQueue.PushBack(mPendingSubmitQueue);
         theRetFlag = theRetFlag || ! thePendingSubmitQueue.IsEmpty();
@@ -432,6 +440,7 @@ private:
     ServerLocation mListenerAddress;
     Acceptor*      mAcceptorPtr;
     AuthContext    mAuthContext;
+    MetaVrLogSeq   mLastLogSeq;
     MetaVrLogSeq   mLastWriteSeq;
     MetaVrLogSeq   mSubmittedWriteSeq;
     bool           mDeleteFlag;
@@ -1171,7 +1180,7 @@ private:
         }
         IOBuffer&          theBuf        = mConnectionPtr->GetOutBuffer();
         const int          thePos        = theBuf.BytesConsumable();
-        const MetaVrLogSeq theLastLogSeq = mImpl.GetLastWriteLogSeq();
+        const MetaVrLogSeq theLastLogSeq = mImpl.GetLastLogSeq();
         ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
             "A " << theLastLogSeq <<
@@ -1239,6 +1248,7 @@ private:
                 "]"
                 " length: "          << mBlockLength <<
                 " last write: "      << mImpl.GetLastWriteLogSeq() <<
+                " last log: "        << mImpl.GetLastLogSeq() <<
                 " submitted write: " << mImpl.GetSubmittedWriteSeq() <<
             KFS_LOG_EOM;
             inBuffer.Consume(mBlockLength);

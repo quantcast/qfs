@@ -271,7 +271,7 @@ public:
         entry.seed        = fileID.getseed();
         entry.errChecksum = mLogAheadErrChksum;
         entry.op          = 0;
-        if (&op != mCurOp && ! op.suspended) {
+        if (&op != mCurOp && (! op.suspended || ! op.replayFlag)) {
             opDone(op);
         }
     }
@@ -280,8 +280,12 @@ public:
         if (op.replayFlag) {
             op.seqno = MetaRequest::GetLogWriter().GetNextSeq();
             stopServicing();
+            op.handle();
+        } else {
+            if (! op.SubmitBegin()) {
+                panic("replay: invalid submit begin status");
+            }
         }
-        op.handle();
         KFS_LOG_STREAM_DEBUG <<
             (mReplayer ? (op.replayFlag ? "replay:" : "commit") : "handle:") <<
             " logseq: " << op.logseq <<
@@ -326,8 +330,7 @@ public:
             op.replayFlag = false;
             MetaRequest::Release(&op);
         } else {
-            update();
-            submit_request(&op);
+            op.SubmitEnd();
         }
     }
     void handleStartView(MetaVrLogStartView& op)
@@ -1500,8 +1503,7 @@ ReplayState::runCommitQueue(
     int64_t             status,
     int64_t             errChecksum)
 {
-    if (logSeq < mCheckpointCommitted ||
-            logSeq < mViewStart) {
+    if (logSeq < mCheckpointCommitted || logSeq < mViewStart) {
         // Commit preseeds checkpoint.
         if (mCommitQueue.empty() || logSeq < mCommitQueue.front().logSeq) {
             return true;
@@ -2674,7 +2676,8 @@ Replay::handle(MetaVrLogStartView& op)
         return;
     }
     ReplayState&               state = replayTokenizer.GetState();
-    ReplayState::EnterAndLeave enterAndLeave(state, 1);
+    ReplayState::EnterAndLeave enterAndLeave(state,
+        (op.replayFlag || enqueueFlag) ? 1 : 0);
     op.mHandledFlag = true;
     if (0 != op.status) {
         if (op.replayFlag) {
@@ -2688,6 +2691,7 @@ Replay::handle(MetaVrLogStartView& op)
     state.handleStartView(op);
     if (op.replayFlag) {
         if (0 == op.status) {
+            state.mPendingStopServicingFlag = true;
             state.stopServicing();
             primaryNodeId = op.mNodeId;
             if (state.mLastLogAheadSeq == op.mNewLogSeq) {
@@ -2722,7 +2726,8 @@ Replay::handle(MetaVrLogStartView& op)
             panic("replay: invalid start view op run commit queue completion");
             return;
         }
-        op.logseq = state.mViewStart;
+        state.mLastCommitted       = state.mViewStart;
+        state.mLastCommittedStatus = op.status;
     }
 }
 
@@ -2737,6 +2742,9 @@ Replay::setReplayState(
     ReplayState&               state = replayTokenizer.GetState();
     ReplayState::EnterAndLeave enterAndLeave(state);
     state.mPendingStopServicingFlag = true;
+    // Enqeue all new ops into replay.
+    // Log start view recustion counter now must be 1.
+    enqueueFlag = true;
     gLayoutManager.SetDisableTimerFlag(true);
     return state.setReplayState(
         committed, seed, status, errChecksum, commitQueue);

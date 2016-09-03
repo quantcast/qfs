@@ -412,6 +412,8 @@ struct MetaRequest {
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
     void Submit();
+    bool SubmitBegin();
+    void SubmitEnd();
     static MetaRequest* ReadReplay(const char* buf, size_t len);
     static MetaRequest* Read(const char* buf, size_t len);
     static int GetId(const TokenValue& name);

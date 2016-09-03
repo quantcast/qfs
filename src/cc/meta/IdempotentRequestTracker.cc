@@ -185,7 +185,7 @@ public:
             mOutstandingExpireAckCount--;
             inAck.clnt = 0;
         }
-        if (inAck.status != 0) {
+        if (0 != inAck.status) {
             return;
         }
         inAck.status = HandleAck(inAck.ack.data(), inAck.ack.size(),
