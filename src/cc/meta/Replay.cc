@@ -2747,7 +2747,8 @@ Replay::setReplayState(
     ReplayState::EnterAndLeave enterAndLeave(state);
     state.mPendingStopServicingFlag = true;
     // Enqeue all new ops into replay.
-    // Log start view recustion counter now must be 1.
+    // Log start view recursion counter now must be 1 when entering
+    // handle(MetaVrLogStartView&)
     enqueueFlag = true;
     gLayoutManager.SetDisableTimerFlag(true);
     return state.setReplayState(
