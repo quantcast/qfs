@@ -257,6 +257,10 @@ public:
             entry.status = 0;
             // Invalidate the log sequence, as the start view has effectively
             // deleted the op from the log.
+            op.logseq = MetaVrLogSeq();
+            if (! op.replayFlag) {
+                handleOp(op);
+            }
         } else {
             handleOp(op);
         }

@@ -738,7 +738,7 @@ private:
         mReceivedIdFlag = false;
         TcpSocket* theSocketPtr = new TcpSocket();
         mConnectionPtr.reset(new NetConnection(theSocketPtr, this));
-        const bool kNonBlockingFlag = false;
+        const bool kNonBlockingFlag = true;
         const int  theErr = theSocketPtr->Connect(mServer, kNonBlockingFlag);
         if (theErr != 0 && theErr != -EINPROGRESS) {
             Error("failed to connect");
