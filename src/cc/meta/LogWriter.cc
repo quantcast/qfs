@@ -413,14 +413,15 @@ public:
         if (mPendingQueue.IsEmpty() && ! mCommitUpdatedFlag) {
             return;
         }
-        mCommitUpdatedFlag = false;
         QCStMutexLocker theLock(mMutex);
+        const bool theSetReplayStateFlag = mSetReplayStateFlag;
         mPendingCommitted      = mCommitted;
         mPendingReplayLogSeq   = mReplayLogSeq;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
         mInQueue.PushBack(mPendingQueue);
         theLock.Unlock();
         mNetManager.Wakeup();
+        mCommitUpdatedFlag = ! theSetReplayStateFlag;
     }
     void Shutdown()
     {
@@ -582,12 +583,19 @@ private:
         MetaRequest* const theReplayCommitHeadPtr =
             mReplayCommitQueue.Front();
         mReplayCommitQueue.Reset();
-        const bool theSetReplayStateFlag =
-            mSetReplayStateFlag || theReplayCommitHeadPtr;
+        const bool theSetReplayStateFlag = mSetReplayStateFlag;
+        if (0 != theReplayCommitHeadPtr && ! theSetReplayStateFlag) {
+            panic("log writer: invalid set replay state flag");
+        }
         mSetReplayStateFlag = false;
         mPendingCount += mExraPendingCount;
         mExraPendingCount = 0;
+        const bool theWakeupFlag = theSetReplayStateFlag &&
+            (mCommitUpdatedFlag || ! mInQueue.IsEmpty());
         theLock.Unlock();
+        if (theWakeupFlag) {
+            mNetManager.Wakeup();
+        }
         MetaRequest* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
             MetaRequest& theReq = *thePtr;
@@ -606,13 +614,22 @@ private:
                 submit_request(&theReq);
             }
         }
-        if (theSetReplayStateFlag && ! mReplayerPtr->setReplayState(
-                mCommitted.mSeq,
-                mCommitted.mFidSeed,
-                mCommitted.mStatus,
-                mCommitted.mErrChkSum,
-                theReplayCommitHeadPtr)) {
-            panic("log writer: set replay state failed");
+        if (theSetReplayStateFlag) {
+            const MetaRequest* thePtr = theReplayCommitHeadPtr;
+            while (thePtr) {
+                if (--mPendingCount < 0) {
+                    panic("log writer: set replay state invalid pending count");
+                }
+                thePtr = thePtr->next;
+            }
+            if (! mReplayerPtr->setReplayState(
+                    mCommitted.mSeq,
+                    mCommitted.mFidSeed,
+                    mCommitted.mStatus,
+                    mCommitted.mErrChkSum,
+                    theReplayCommitHeadPtr)) {
+                panic("log writer: set replay state failed");
+            }
         }
     }
     void ProcessPendingAckQueue(
@@ -644,15 +661,26 @@ private:
             inDoneQueue.PushBack(mPendingAckQueue);
         }
         if (inDoneQueue.IsEmpty() && 0 == inExtraReqCount &&
-                (0 == mVrStatus || mPendingAckQueue.IsEmpty())) {
+                (0 == mVrStatus ||
+                (! inSetReplayStateFlag && mPendingAckQueue.IsEmpty()))) {
             return;
         }
         QCStMutexLocker theLocker(mMutex);
         mOutQueue.PushBack(inDoneQueue);
         if (0 != mVrStatus) {
             mReplayCommitQueue.PushBack(mPendingAckQueue);
-            mSetReplayStateFlag = mSetReplayStateFlag ||
-                inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
+            if (! mSetReplayStateFlag) {
+                mSetReplayStateFlag =
+                    inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
+                if (mSetReplayStateFlag) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        "queueing set replay state:"
+                        " replay queue empty: " <<
+                            mReplayCommitQueue.IsEmpty() <<
+                        " set replay flag: "    << inSetReplayStateFlag <<
+                    KFS_LOG_EOM;
+                }
+            }
         }
         mExraPendingCount += inExtraReqCount;
         theLocker.Unlock();
@@ -667,6 +695,13 @@ private:
             while (mPrepareToForkFlag) {
                 mForkDoneCond.Wait(mMutex);
             }
+        }
+        if (mSetReplayStateFlag) {
+            KFS_LOG_STREAM_DEBUG <<
+                "set replay state pending"
+                " write queue empty: " << mInQueue.IsEmpty() <<
+            KFS_LOG_EOM;
+            return;
         }
         const bool theStopFlag = mStopFlag;
         if (theStopFlag) {
@@ -714,10 +749,11 @@ private:
         const bool theVrBecameNonPrimaryFlag =
             0 != theVrStatus && 0 == mVrStatus;
         mVrStatus = theVrStatus;
-        if (theVrBecameNonPrimaryFlag && 0 == mEnqueueVrStatus) {
+        if (theVrBecameNonPrimaryFlag) {
             mEnqueueVrStatus = theVrStatus;
             SyncAddAndFetch(mEnqueueVrStatus, 0);
-            mNetManagerPtr->Wakeup();
+            Queue theTmp;
+            ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0);
         }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
@@ -727,9 +763,19 @@ private:
     }
     virtual void DispatchEnd()
     {
-        if (mWokenFlag) {
+        bool theVrBecameNonPrimaryFlag = false;
+        if (0 == mVrStatus) {
+            const int theVrStatus = mMetaVrSM.GetStatus();
+            if (0 != theVrStatus) {
+                theVrBecameNonPrimaryFlag = true;
+                mVrStatus        = theVrStatus;
+                mEnqueueVrStatus = theVrStatus;
+                SyncAddAndFetch(mEnqueueVrStatus, 0);
+            }
+        }
+        if (mWokenFlag || theVrBecameNonPrimaryFlag) {
             Queue theTmp;
-            ProcessPendingAckQueue(theTmp, false, 0);
+            ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0);
         }
     }
     virtual void DispatchExit()
@@ -841,14 +887,8 @@ private:
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag)) {
-                mNextLogSeq = mLastLogSeq;
-                if (theStartViewFlag) {
-                    mVrStatus = mMetaVrSM.GetStatus();
-                    if (0 == mVrStatus) {
-                        mEnqueueVrStatus = 0;
-                    }
-                    mNetManager.Wakeup();
-                }
+                mNextLogSeq      = mLastLogSeq;
+                mEnqueueVrStatus = mMetaVrSM.GetStatus();
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.
