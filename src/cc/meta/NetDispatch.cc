@@ -1183,6 +1183,7 @@ private:
         if (theFlushFlag) {
             MetaRequest::GetLogWriter().ScheduleFlush();
         }
+        gNetDispatch.ForkDone();
     }
     virtual void DispatchEnd()
         {}

@@ -795,6 +795,14 @@ MetaIdempotentRequest::IsHandled()
         }
     } else {
         if (req && req != this) {
+            if (IsMetaLogWriteOrVrError(status)) {
+                // Detach from pending request, the client must retry in order
+                // to determine the status, after this or other node becomes
+                // primary.
+                SetReq(0);
+                ackId = -1;
+                return true;
+            }
             if (req->seqno < 0 || req->commitPendingFlag) {
                 panic("invalid in-flight idempotent request");
             }
