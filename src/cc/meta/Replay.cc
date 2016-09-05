@@ -422,26 +422,11 @@ public:
         mSubEntryCount       = 0;
         MetaRequest* next = commitQueue;
         while (next) {
-            mCurOp = next;
-            next = mCurOp->next;
-            mCurOp->next = 0;
-            if (mCurOp->replayBypassFlag ||
-                    IsMetaLogWriteOrVrError(mCurOp->status)) {
-                MetaRequest* req = mCurOp;
-                mCurOp = 0;
-                submit_request(req);
-                continue;
-            }
-            MetaVrLogSeq const nextSeq = mCurOp->logseq;
-            if (nextSeq.IsValid() && ! IsCurOpLogSeqValid()) {
-                panic("replay: set replay state invalid log sequence");
-            }
-            if (handle()) {
-                if (mLastLogAheadSeq < nextSeq) {
-                    mLastLogAheadSeq = nextSeq;
-                }
-            } else {
-                panic("replay: set replay state invalid handle completion");
+            MetaRequest& op = *next;
+            next = op.next;
+            op.next = 0;
+            if (! enqueueSelf(op)) {
+                submit_request(&op);
             }
         }
         if (! runCommitQueue(committed, seed, status, errChecksum)) {
@@ -450,14 +435,22 @@ public:
     }
     bool enqueue(MetaRequest& req)
     {
-        if (req.replayBypassFlag || IsMetaLogWriteOrVrError(req.status)) {
-            return false;
-        }
-        if (mCurOp || ! mReplayer) {
+        if (! mReplayer) {
             panic("replay: invalid enqueue attempt");
             return false;
         }
         if (mViewStart <= mLastCommitted && mCommitQueue.empty()) {
+            return false;
+        }
+        return enqueueSelf(req);
+    }
+    bool enqueueSelf(MetaRequest& req)
+    {
+        if (mCurOp) {
+            panic("replay: invalid enqueue attempt: has pending op");
+            return false;
+        }
+        if (req.replayBypassFlag || IsMetaLogWriteOrVrError(req.status)) {
             return false;
         }
         mCurOp = &req;
