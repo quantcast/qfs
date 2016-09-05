@@ -244,12 +244,14 @@ public:
           mLastReceivedTime(mTimeNow),
           mLastUpTime(mTimeNow),
           mViewChangeStartTime(mTimeNow),
+          mStateSetTime(mTimeNow),
           mStartViewChangeRecvViewSeq(-1),
           mStartViewChangeMaxLastLogSeq(),
           mStartViewChangeMaxCommittedSeq(),
           mChannelsCount(0),
           mStartViewEpochMismatchCount(0),
           mReplyCount(0),
+          mLogTransmittersSuspendedFlag(false),
           mPrimaryNodeId(-1),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -576,7 +578,7 @@ public:
                 if (mActiveFlag) {
                     StartViewChange();
                 } else {
-                    mState         = kStateBackup;
+                    SetState(kStateBackup);
                     mPrimaryNodeId = -1;
                 }
             }
@@ -584,6 +586,15 @@ public:
             if (mActiveFlag && mLastReceivedTime + mConfig.GetBackupTimeout() <
                     TimeNow()) {
                 AdvanceView("backup receive timed out");
+            } else if (! mLogTransmittersSuspendedFlag &&
+                    (! mActiveFlag || 0 <= mPrimaryNodeId) &&
+                    mStateSetTime + 4 * mConfig.GetBackupTimeout() <
+                        TimeNow()) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "suspending log transmitter" <<
+                KFS_LOG_EOM;
+                mLogTransmittersSuspendedFlag = true;
+                mLogTransmitter.Suspend(mLogTransmittersSuspendedFlag);
             }
         } else if (kStatePrimary == mState) {
             if (mActiveFlag) {
@@ -612,7 +623,7 @@ public:
                 if (mQuorum <= 0 && mActiveCount < 0) {
                     NullQuorumStartView();
                 } else {
-                    mState         = kStateBackup;
+                    SetState(kStateBackup);
                     mPrimaryNodeId = -1;
                 }
             }
@@ -650,7 +661,7 @@ public:
         if (mConfig.IsEmpty() && mNodeId < 0) {
             mActiveCount = 0;
             mQuorum      = 0;
-            mState       = kStatePrimary;
+            SetState(kStatePrimary);
             mLastUpTime  = TimeNow();
             mActiveFlag  = true;
         } else {
@@ -665,7 +676,7 @@ public:
                     ((mConfig.IsEmpty() &&
                         kBootstrapPrimaryNodeId == mNodeId) ||
                         AllInactiveFindPrimary() == mNodeId)) {
-                mState      = kStatePrimary;
+                SetState(kStatePrimary);
                 mLastUpTime = TimeNow();
             } else {
                 if (mActiveCount <= 0 && mQuorum <= 0 && mConfig.IsEmpty()) {
@@ -675,7 +686,7 @@ public:
                         " node id: " << mNodeId <<
                     KFS_LOG_EOM;
                 }
-                mState            = kStateBackup;
+                SetState(kStateBackup);
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
             mActiveFlag = IsActive(mNodeId);
@@ -1182,12 +1193,14 @@ private:
     time_t                       mLastReceivedTime;
     time_t                       mLastUpTime;
     time_t                       mViewChangeStartTime;
+    time_t                       mStateSetTime;
     seq_t                        mStartViewChangeRecvViewSeq;
     MetaVrLogSeq                 mStartViewChangeMaxLastLogSeq;
     MetaVrLogSeq                 mStartViewChangeMaxCommittedSeq;
     int                          mChannelsCount;
     int                          mStartViewEpochMismatchCount;
     int                          mReplyCount;
+    bool                         mLogTransmittersSuspendedFlag;
     NodeId                       mPrimaryNodeId;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -1209,6 +1222,12 @@ private:
 
     void Wakeup()
         { mNetManagerPtr->Wakeup(); }
+    void SetState(
+        State inState)
+    {
+        mState        = inState;
+        mStateSetTime = TimeNow();
+    }
     bool HasPrimaryTimedOut() const
     {
         return (mLastUpTime + (mConfig.GetPrimaryTimeout() + 1) / 2 <
@@ -1254,11 +1273,12 @@ private:
             " "                << mViewSeq <<
             " last log: "      << mLastLogSeq <<
         KFS_LOG_EOM;
-        if (MetaVrLogSeq(mEpochSeq, mViewSeq, 0) <= mLastLogSeq) {
+        if (MetaVrLogSeq(mEpochSeq, mViewSeq, 0) <= mLastLogSeq ||
+                mLastLogSeq.mLogSeq < 0) {
             panic("VR: invalid epoch, view, or last log sequence");
             return;
         }
-        mState          = kStatePrimary;
+        SetState(kStatePrimary);
         mPrimaryNodeId  = mNodeId;
         mLastUpTime     = TimeNow();
         mLastCommitTime = mLastUpTime;
@@ -1282,9 +1302,13 @@ private:
         }
         KFS_LOG_STREAM_INFO <<
             "advance view: " << (inMsgPtr ? inMsgPtr : "") <<
+            " epoch: "       << mEpochSeq <<
+            " view: "        << mViewSeq <<
             " state: "       << GetStateName(mState) <<
             " quorum: "      << mQuorum <<
             " active: "      << mActiveCount <<
+            " last log: "    << mLastLogSeq <<
+            " committed: "   << mCommittedSeq <<
         KFS_LOG_EOM;
         mViewSeq++;
         StartViewChange();
@@ -1423,7 +1447,7 @@ private:
                         "]"           <<
                         " prev end: " << mLogFetchEndSeq <<
                     KFS_LOG_EOM;
-                    mState          = kStateLogSync;
+                    SetState(kStateLogSync);
                     mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
                     const bool kAllowNonPrimaryFlag = true;
                     mMetaDataSyncPtr->ScheduleLogSync(
@@ -1596,7 +1620,7 @@ private:
                 "]"
                 " allow non primary: " << inAllowNonPrimaryFlag <<
             KFS_LOG_EOM;
-            mState = kStateLogSync;
+            SetState(kStateLogSync);
             mSyncServers.clear();
             mSyncServers.push_back(inLocation);
             mLogFetchEndSeq = inLogSeq;
@@ -1771,7 +1795,7 @@ private:
                     }
                 } else {
                     CancelViewChange();
-                    mState            = kStateBackup;
+                    SetState(kStateBackup);
                     mPrimaryNodeId    = -inReq.mNodeId - 1;
                     mLastReceivedTime = TimeNow();
                 }
@@ -2046,7 +2070,7 @@ private:
                         inReq.statusMsg =
                             "configuration must have at least 3 active nodes";
                     } else {
-                        mState = kStateReconfiguration;
+                        SetState(kStateReconfiguration);
                     }
                 }
             }
@@ -2127,7 +2151,7 @@ private:
         }
         ApplyT(inReq, kActiveCheckNone, NopFunc());
         if (0 == inReq.status && kStatePrimary == mState) {
-            mState = kStateReconfiguration;
+            SetState(kStateReconfiguration);
         }
     }
     static bool ValidateTimeouts(
@@ -2169,7 +2193,7 @@ private:
         mPendingBackupTimeout           = theBackupTimeout;
         mPendingChangeVewMaxLogDistance = thePendingChangeVewMaxLogDistance;
         if (kStatePrimary == mState && kMinActiveCount <= mActiveCount) {
-            mState = kStateReconfiguration;
+            SetState(kStateReconfiguration);
         }
     }
     template<typename T>
@@ -2460,7 +2484,7 @@ private:
         }
         if (! mActiveFlag) {
             // Primary starts view change.
-            mState = kStateBackup;
+            SetState(kStateBackup);
             return;
         }
         StartViewChange();
@@ -2578,7 +2602,7 @@ private:
                 GetPrimaryId()) == mNodeId) {
             PirmaryCommitStartView();
         } else {
-            mState         = kStateBackup;
+            SetState(kStateBackup);
             mPrimaryNodeId = -1;
         }
     }
@@ -2594,7 +2618,7 @@ private:
             NullQuorumStartView();
             return;
         }
-        mState               = kStateViewChange;
+        SetState(kStateViewChange);
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
         mDoViewChangeNodeIds.clear();
@@ -2606,7 +2630,7 @@ private:
         KFS_LOG_STREAM_INFO <<
             "start view change: " << theOp.Show() <<
         KFS_LOG_EOM;
-        mLogTransmitter.QueueVrRequest(theOp, kBroadcast);
+        QueueVrRequest(theOp, kBroadcast);
     }
     void StartDoViewChange(
         NodeId inPrimaryId)
@@ -2618,13 +2642,13 @@ private:
         CancelViewChange();
         if (mState != kStateViewChange) {
             mViewChangeStartTime = TimeNow();
-            mState               = kStateViewChange;
+            SetState(kStateViewChange);
         }
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
         theOp.mPimaryNodeId = inPrimaryId;
         mDoViewChangePtr = &theOp;
-        mLogTransmitter.QueueVrRequest(theOp, theOp.mPimaryNodeId);
+        QueueVrRequest(theOp, theOp.mPimaryNodeId);
     }
     void StartView()
     {
@@ -2633,13 +2657,23 @@ private:
             return;
         }
         CancelViewChange();
-        mState               = kStateStartViewPrimary;
+        SetState(kStateStartViewPrimary);
         mViewChangeStartTime = TimeNow();
         MetaVrStartView& theOp = *(new MetaVrStartView());
         Init(theOp);
         mStartViewPtr = &theOp;
         const NodeId kBroadcast = -1;
-        mLogTransmitter.QueueVrRequest(theOp, kBroadcast);
+        QueueVrRequest(theOp, kBroadcast);
+    }
+    void QueueVrRequest(
+        MetaVrRequest& inOp,
+        NodeId         inNodeId)
+    {
+        if (mLogTransmittersSuspendedFlag) {
+            mLogTransmittersSuspendedFlag = false;
+            mLogTransmitter.Suspend(mLogTransmittersSuspendedFlag);
+        }
+        mLogTransmitter.QueueVrRequest(inOp, inNodeId);
     }
 private:
     Impl(

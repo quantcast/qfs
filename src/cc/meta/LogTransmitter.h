@@ -102,6 +102,8 @@ public:
     void SetFileSystemId(
         int64_t inFsId);
     int GetChannelsCount() const;
+    void Suspend(
+        bool inFlag);
 private:
     class Impl;
 

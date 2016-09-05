@@ -99,8 +99,8 @@ public:
           mNodeId(-1),
           mSendingFlag(false),
           mPendingUpdateFlag(false),
-          mTransmitFlag(false),
           mUpFlag(false),
+          mSuspendedFlag(false),
           mFileSystemId(-1),
           mMetaVrSMPtr(0),
           mTransmitterAuthParamsPrefix(),
@@ -252,6 +252,8 @@ public:
         { return mNodeId; }
     void Deleted(
         Transmitter& inTransmitter);
+    void Suspend(
+        bool inFlag);
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(seq_t) * 2 + 4 };
@@ -273,8 +275,8 @@ private:
     NodeId          mNodeId;
     bool            mSendingFlag;
     bool            mPendingUpdateFlag;
-    bool            mTransmitFlag;
     bool            mUpFlag;
+    bool            mSuspendedFlag;
     int64_t         mFileSystemId;
     MetaVrSM*       mMetaVrSMPtr;
     string          mTransmitterAuthParamsPrefix;
@@ -1412,6 +1414,8 @@ LogTransmitter::Impl::StartTransmitters(
     if (List::IsEmpty(mTransmittersPtr)) {
         return 0;
     }
+    const bool         theStartFlag     = ! mSuspendedFlag &&
+        mMetaVrSMPtr && mMetaVrSMPtr->IsPrimary();
     const char* const  theAuthPrefixPtr = mTransmitterAuthParamsPrefix.c_str();
     ClientAuthContext* theAuthCtxPtr    = inAuthCtxPtr ? inAuthCtxPtr :
         &(List::Front(mTransmittersPtr)->GetAuthCtx());
@@ -1434,7 +1438,7 @@ LogTransmitter::Impl::StartTransmitters(
             if (0 == theRet) {
                 theRet = theErr;
             }
-        } else if (mTransmitFlag) {
+        } else if (theStartFlag) {
             theTPtr->Start();
         }
         if (! theAuthCtxPtr) {
@@ -1770,10 +1774,31 @@ LogTransmitter::Impl::Update(
     mTransmittersCount = theTransmittersCount;
     mNodeId            = inMetaVrSM.GetNodeId();
     mMinAckToCommit    = inMetaVrSM.GetQuorum();
-    mTransmitFlag      = inMetaVrSM.IsPrimary();
     StartTransmitters(theAuthCtxPtr);
     Update();
     return mTransmittersCount;
+}
+
+    void
+LogTransmitter::Impl::Suspend(
+    bool inFlag)
+{
+    if (inFlag == mSuspendedFlag) {
+        return;
+    }
+    mSuspendedFlag = inFlag;
+    const bool     theStartFlag = ! mSuspendedFlag &&
+        mMetaVrSMPtr && mMetaVrSMPtr->IsPrimary();
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        if (mSuspendedFlag) {
+            thePtr->Shutdown();
+        } else if (theStartFlag) {
+            thePtr->Start();
+        }
+    }
+    Update();
 }
 
 LogTransmitter::LogTransmitter(
@@ -1819,6 +1844,13 @@ LogTransmitter::TransmitBlock(
 LogTransmitter::IsUp()
 {
     return mImpl.IsUp();
+}
+
+    void
+LogTransmitter::Suspend(
+    bool inFlag)
+{
+    return mImpl.Suspend(inFlag);
 }
 
     void
