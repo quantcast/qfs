@@ -1258,9 +1258,10 @@ private:
             panic("VR: invalid epoch, view, or last log sequence");
             return;
         }
-        mState         = kStatePrimary;
-        mPrimaryNodeId = mNodeId;
-        mLastUpTime    = TimeNow();
+        mState          = kStatePrimary;
+        mPrimaryNodeId  = mNodeId;
+        mLastUpTime     = TimeNow();
+        mLastCommitTime = mLastUpTime;
         MetaRequest::Release(mMetaVrLogStartViewPtr);
         mMetaVrLogStartViewPtr = new MetaVrLogStartView();
         mMetaVrLogStartViewPtr->mCommittedSeq = mLastLogSeq;

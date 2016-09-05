@@ -927,6 +927,16 @@ private:
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag)) {
                 mNextLogSeq = mLastLogSeq;
+                if (theStartViewFlag) {
+                    // Set to sequence to to the left of the start of the view,
+                    // in for both pending ACK queue advancement, and op
+                    // validate method to work.
+                    theCurPtr->logseq = mLastLogSeq;
+                    theCurPtr->logseq.mLogSeq--;
+                    if (! theCurPtr->logseq.IsValid()) {
+                        panic("log writer: invalid VR log start view sequence");
+                    }
+                }
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.
