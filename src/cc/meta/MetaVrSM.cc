@@ -589,7 +589,7 @@ public:
             if (mActiveFlag) {
                 if (mLogTransmitter.IsUp()) {
                     mLastUpTime = inTimeNow;
-                    if (mLastCommitSeq < mLastLogSeq &&
+                    if (0 < mQuorum && mLastCommitSeq < mLastLogSeq &&
                             mLastCommitTime + mConfig.GetPrimaryTimeout() <
                                 TimeNow()) {
                         AdvanceView("primary commit timed out");
@@ -1276,9 +1276,14 @@ private:
     void AdvanceView(
         const char* inMsgPtr)
     {
+        if (mQuorum <= 0 || ! mActiveFlag) {
+            return;
+        }
         KFS_LOG_STREAM_INFO <<
             "advance view: " << (inMsgPtr ? inMsgPtr : "") <<
             " state: "       << GetStateName(mState) <<
+            " quorum: "      << mQuorum <<
+            " active: "      << mActiveCount <<
         KFS_LOG_EOM;
         mViewSeq++;
         StartViewChange();
