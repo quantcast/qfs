@@ -622,14 +622,13 @@ private:
                 }
                 thePtr = thePtr->next;
             }
-            if (! mReplayerPtr->setReplayState(
-                    mCommitted.mSeq,
-                    mCommitted.mFidSeed,
-                    mCommitted.mStatus,
-                    mCommitted.mErrChkSum,
-                    theReplayCommitHeadPtr)) {
-                panic("log writer: set replay state failed");
-            }
+            mReplayerPtr->setReplayState(
+                mCommitted.mSeq,
+                mCommitted.mFidSeed,
+                mCommitted.mStatus,
+                mCommitted.mErrChkSum,
+                theReplayCommitHeadPtr
+            );
         }
     }
     void ProcessPendingAckQueue(
@@ -639,10 +638,10 @@ private:
     {
         mWokenFlag = false;
         mPendingAckQueue.PushBack(inDoneQueue);
-        MetaRequest* thePtr = 0;
+        MetaRequest* thePtr     = 0;
+        MetaRequest* thePrevPtr = 0;
         if (mTransmitCommitted < mNextLogSeq) {
             thePtr = mPendingAckQueue.Front();
-            MetaRequest* thePrevPtr = 0;
             while (thePtr) {
                 if (mTransmitCommitted < thePtr->logseq &&
                         0 == thePtr->status) {
@@ -665,6 +664,30 @@ private:
                 (! inSetReplayStateFlag && mPendingAckQueue.IsEmpty()))) {
             return;
         }
+        thePtr     = 0;
+        thePrevPtr = 0;
+        int theVrStatus = mVrStatus;
+        if (0 != mVrStatus && 0 == (theVrStatus = mMetaVrSM.GetStatus())) {
+            MetaRequest* thePrevLastPtr = 0;
+            MetaRequest* theCurPtr      = mPendingAckQueue.Front();
+            while (theCurPtr) {
+                if (META_VR_LOG_START_VIEW == theCurPtr->op) {
+                    thePrevLastPtr = thePrevPtr;
+                    thePtr         = theCurPtr;
+                }
+                thePrevPtr = theCurPtr;
+                theCurPtr  = theCurPtr->next;
+            }
+            if (thePtr) {
+                if (mPendingAckQueue.Front() == thePtr) {
+                    mPendingAckQueue.Reset();
+                } else {
+                    thePrevLastPtr->next = 0;
+                    mPendingAckQueue.Set(
+                        mPendingAckQueue.Front(), thePrevLastPtr);
+                }
+            }
+        }
         QCStMutexLocker theLocker(mMutex);
         mOutQueue.PushBack(inDoneQueue);
         if (0 != mVrStatus) {
@@ -674,16 +697,30 @@ private:
                     inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
                 if (mSetReplayStateFlag) {
                     KFS_LOG_STREAM_DEBUG <<
-                        "queueing set replay state:"
+                        "scheduling set replay state:"
                         " replay queue empty: " <<
                             mReplayCommitQueue.IsEmpty() <<
-                        " set replay flag: "    << inSetReplayStateFlag <<
+                        " set replay state flag: " << inSetReplayStateFlag <<
                     KFS_LOG_EOM;
                 }
+            }
+            if (! thePtr && 0 == theVrStatus) {
+                mVrStatus        = theVrStatus;
+                mEnqueueVrStatus = theVrStatus;
+                KFS_LOG_STREAM_DEBUG <<
+                    "log start view:"
+                    " comitted: "           << mTransmitCommitted <<
+                    " last log: "           << mNextLogSeq <<
+                    " replay queue empty: " << mReplayCommitQueue.IsEmpty() <<
+                    " set replay state: "   << mSetReplayStateFlag <<
+                KFS_LOG_EOM;
             }
         }
         mExraPendingCount += inExtraReqCount;
         theLocker.Unlock();
+        if (thePtr) {
+            mPendingAckQueue.Set(thePtr, thePrevPtr);
+        }
         mNetManagerPtr->Wakeup();
     }
     virtual void DispatchStart()
@@ -748,26 +785,28 @@ private:
         }
         const bool theVrBecameNonPrimaryFlag =
             0 != theVrStatus && 0 == mVrStatus;
-        mVrStatus = theVrStatus;
         if (theVrBecameNonPrimaryFlag) {
+            mVrStatus        = theVrStatus;
             mEnqueueVrStatus = theVrStatus;
             SyncAddAndFetch(mEnqueueVrStatus, 0);
             Queue theTmp;
             ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0);
+        } else if (0 != theVrStatus) {
+            // Update status if it's primary.
+            mVrStatus = theVrStatus;
         }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
         }
-        ProcessPendingAckQueue(theWriteQueue,
-            theVrBecameNonPrimaryFlag, theReqPtr ? 1 : 0);
+        ProcessPendingAckQueue(theWriteQueue, false, theReqPtr ? 1 : 0);
     }
     virtual void DispatchEnd()
     {
-        bool theVrBecameNonPrimaryFlag = false;
-        if (0 == mVrStatus) {
+        bool theVrBecameNonPrimaryFlag = 0 == mVrStatus;
+        if (theVrBecameNonPrimaryFlag) {
             const int theVrStatus = mMetaVrSM.GetStatus();
-            if (0 != theVrStatus) {
-                theVrBecameNonPrimaryFlag = true;
+            theVrBecameNonPrimaryFlag = 0 != theVrStatus;
+            if (theVrBecameNonPrimaryFlag) {
                 mVrStatus        = theVrStatus;
                 mEnqueueVrStatus = theVrStatus;
                 SyncAddAndFetch(mEnqueueVrStatus, 0);
@@ -887,8 +926,7 @@ private:
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag)) {
-                mNextLogSeq      = mLastLogSeq;
-                mEnqueueVrStatus = mMetaVrSM.GetStatus();
+                mNextLogSeq = mLastLogSeq;
             } else {
                 mLastLogSeq = mNextLogSeq;
                 // Write failure.
@@ -1104,7 +1142,7 @@ private:
         MetaLogWriterControl& inRequest)
     {
         if (mNextBlockSeq < 0) {
-            panic("log writer: write block invalid block sequence");
+            panic("log writer: write block: invalid block sequence");
             return;
         }
         if (mLastLogSeq != mNextLogSeq) {
@@ -1127,8 +1165,22 @@ private:
                     0 < inRequest.blockData.BytesConsumable()) {
                 inRequest.status    = -EINVAL;
                 inRequest.statusMsg = "invalid non empty block / heartbeat";
+            } else if (inRequest.blockStartSeq != mLastLogSeq) {
+                inRequest.status    = -EINVAL;
+                inRequest.statusMsg = "invalid heartbeat sequence";
             } else {
-                // ignore heartbeats for now.
+                // Valid heartbeat.
+                mMetaVrSM.HandleLogBlock(
+                    inRequest.blockStartSeq,
+                    inRequest.blockEndSeq,
+                    mInFlightCommitted.mSeq
+                );
+                mMetaVrSM.LogBlockWriteDone(
+                    inRequest.blockStartSeq,
+                    inRequest.blockEndSeq,
+                    mInFlightCommitted.mSeq,
+                    IsLogStreamGood()
+                );
             }
             return;
         }

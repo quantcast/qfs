@@ -108,7 +108,7 @@ public:
     MetaVrLogSeq getCheckpointCommitted() const
         { return checkpointCommitted; }
     void handle(MetaVrLogStartView& op);
-    bool setReplayState(
+    void setReplayState(
         const MetaVrLogSeq& committed,
         seq_t               seed,
         int64_t             status,

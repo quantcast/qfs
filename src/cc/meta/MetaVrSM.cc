@@ -237,6 +237,8 @@ public:
           mCommittedFidSeed(0),
           mCommittedStatus(0),
           mLastLogSeq(),
+          mLastCommitSeq(),
+          mLastCommitTime(0),
           mTimeNow(),
           mLastProcessTime(mTimeNow),
           mLastReceivedTime(mTimeNow),
@@ -298,7 +300,7 @@ public:
         }
         if (! inWriteOkFlag && mActiveFlag) {
             if (kStatePrimary == mState || kStateBackup == mState) {
-                AdvanceView();
+                AdvanceView("log write failure");
             }
             return;
         }
@@ -307,6 +309,10 @@ public:
             return;
         }
         if (mLastLogSeq < inBlockEndSeq) {
+            if (mLastLogSeq <= mLastCommitSeq) {
+                // Reset timer,
+                mLastCommitTime = TimeNow();
+            }
             mLastLogSeq = inBlockEndSeq;
         }
         if (kStatePrimary == mState) {
@@ -577,15 +583,20 @@ public:
         } else if (kStateBackup == mState) {
             if (mActiveFlag && mLastReceivedTime + mConfig.GetBackupTimeout() <
                     TimeNow()) {
-                AdvanceView();
+                AdvanceView("backup receive timed out");
             }
         } else if (kStatePrimary == mState) {
             if (mActiveFlag) {
                 if (mLogTransmitter.IsUp()) {
                     mLastUpTime = inTimeNow;
+                    if (mLastCommitSeq < mLastLogSeq &&
+                            mLastCommitTime + mConfig.GetPrimaryTimeout() <
+                                TimeNow()) {
+                        AdvanceView("primary commit timed out");
+                    }
                 } else {
-                    if (mLastUpTime + mConfig.GetPrimaryTimeout() < TimeNow()) {
-                        AdvanceView();
+                    if (HasPrimaryTimedOut()) {
+                        AdvanceView("primary timed out");
                     }
                 }
                 outReqPtr = mMetaVrLogStartViewPtr;
@@ -635,6 +646,7 @@ public:
         mNetManagerPtr   = &inNetManager;
         mMetaMd          = inMetaMd;
         mPrimaryNodeId   = -1;
+        mTimeNow         = mNetManagerPtr->Now();
         if (mConfig.IsEmpty() && mNodeId < 0) {
             mActiveCount = 0;
             mQuorum      = 0;
@@ -668,7 +680,9 @@ public:
             }
             mActiveFlag = IsActive(mNodeId);
         }
+        mLastCommitTime       = TimeNow();
         mCommittedSeq         = inReplayer.getCommitted();
+        mLastCommitSeq        = mCommittedSeq;
         mCommittedErrChecksum = inReplayer.getErrChksum();
         mCommittedFidSeed     = inFileId.getseed();
         mCommittedStatus      = inReplayer.getLastCommittedStatus();
@@ -744,15 +758,19 @@ public:
         }
         // Commit sequence will be set by process, once re-configuration goes
         // through the replay.
-        if (! mReconfigureReqPtr || inLogSeq < mReconfigureReqPtr->logseq) {
-            return;
+        if (mReconfigureReqPtr && mReconfigureReqPtr->logseq <= inLogSeq) {
+            const MetaVrReconfiguration& theReq = *mReconfigureReqPtr;
+            mReconfigureReqPtr = 0;
+            Commit(theReq);
         }
-        const MetaVrReconfiguration& theReq = *mReconfigureReqPtr;
-        mReconfigureReqPtr = 0;
-        Commit(theReq);
-        if (kStatePrimary == mState && mActiveFlag &&
-                ! mLogTransmitter.IsUp()) {
-            AdvanceView();
+        if (kStatePrimary == mState && mActiveFlag) {
+            if (mLastCommitSeq < inLogSeq && inLogSeq <= mLastLogSeq) {
+                mLastCommitSeq  = inLogSeq;
+                mLastCommitTime = TimeNow();
+            }
+            if (! mLogTransmitter.IsUp() && HasPrimaryTimedOut()) {
+                AdvanceView("primary log transmitter down");
+            }
         }
     }
     const Config& GetConfig() const
@@ -1157,6 +1175,8 @@ private:
     int                          mCommittedStatus;
     MetaVrLogSeq                 mLastLogSeq;
     MetaVrLogSeq                 mReplayLastLogSeq;
+    MetaVrLogSeq                 mLastCommitSeq;
+    time_t                       mLastCommitTime;
     time_t                       mTimeNow;
     time_t                       mLastProcessTime;
     time_t                       mLastReceivedTime;
@@ -1187,6 +1207,13 @@ private:
     MetaVrReconfiguration*       mPendingReconfigureReqPtr;
     MetaVrResponse               mVrResponse;
 
+    void Wakeup()
+        { mNetManagerPtr->Wakeup(); }
+    bool HasPrimaryTimedOut() const
+    {
+        return (mLastUpTime + (mConfig.GetPrimaryTimeout() + 1) / 2 <
+            TimeNow());
+    }
     void ConfigUpdate()
         { mChannelsCount = mLogTransmitter.Update(mMetaVrSM); }
     bool ValidateClusterKeyAndMd(
@@ -1244,10 +1271,15 @@ private:
         if (! mMetaVrLogStartViewPtr->Validate()) {
             panic("VR: invalid log start op");
         }
-        mNetManagerPtr->Wakeup();
+        Wakeup();
     }
-    void AdvanceView()
+    void AdvanceView(
+        const char* inMsgPtr)
     {
+        KFS_LOG_STREAM_INFO <<
+            "advance view: " << (inMsgPtr ? inMsgPtr : "") <<
+            " state: "       << GetStateName(mState) <<
+        KFS_LOG_EOM;
         mViewSeq++;
         StartViewChange();
     }
@@ -1774,7 +1806,7 @@ private:
                     } else {
                         mReconfigureReqPtr = 0;
                         mPendingReconfigureReqPtr = &inReq;
-                        mNetManagerPtr->Wakeup();
+                        Wakeup();
                         while (&inReq == mPendingReconfigureReqPtr) {
                             mReconfigureCompletionCondVar.Wait(mMutex);
                         }

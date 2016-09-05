@@ -385,7 +385,7 @@ public:
         mBlockStartLogSeq  = op.mNewLogSeq;
         mBlockStartLogSeq.mLogSeq--;
     }
-    bool setReplayState(
+    void setReplayState(
         const MetaVrLogSeq& committed,
         seq_t               seed,
         int64_t             status,
@@ -395,14 +395,16 @@ public:
         if (mCurOp || ! mReplayer || ! committed.IsValid() ||
                 (commitQueue && commitQueue->logseq.IsValid() &&
                     commitQueue->logseq <= committed)) {
-            return false;
+            panic("replay: set replay state invalid arguments");
+            return;
         }
         if (! mCommitQueue.empty() && ! runCommitQueue(
                 committed,
                 seed,
                 status,
                 errChecksum)) {
-            return false;
+            panic("replay: set replay state run commit queue failure");
+            return;
         }
         if (mBlockStartLogSeq < committed) {
             mBlockStartLogSeq = committed;
@@ -419,27 +421,26 @@ public:
         mLogAheadErrChksum   = errChecksum;
         mSubEntryCount       = 0;
         MetaRequest* next = commitQueue;
-        bool okFlag = true;
         while (next) {
             mCurOp = next;
             next = mCurOp->next;
             mCurOp->next = 0;
             MetaVrLogSeq const nextSeq = mCurOp->logseq;
             if (nextSeq.IsValid() && ! IsCurOpLogSeqValid()) {
-                okFlag = false;
+                panic("replay: set replay state invalid log sequence");
             }
             if (handle()) {
                 if (nextSeq.IsValid()) {
                     mLastLogAheadSeq = nextSeq;
                 }
             } else {
-                okFlag = false;
+                panic("replay: set replay state invalid handle completion");
             }
         }
-        if (okFlag && mLastLogAheadSeq <= committed && ! mCommitQueue.empty()) {
-            okFlag = runCommitQueue(committed, seed, status, errChecksum);
+        if (mLastLogAheadSeq <= committed && ! mCommitQueue.empty() &&
+                ! runCommitQueue(committed, seed, status, errChecksum)) {
+            panic("replay: set replay state run commit queue failure");
         }
-        return okFlag;
     }
     bool enqueue(MetaRequest& req)
     {
@@ -2735,7 +2736,7 @@ Replay::handle(MetaVrLogStartView& op)
     }
 }
 
-bool
+void
 Replay::setReplayState(
     const MetaVrLogSeq& committed,
     seq_t               seed,
@@ -2751,7 +2752,7 @@ Replay::setReplayState(
     // handle(MetaVrLogStartView&)
     enqueueFlag = true;
     gLayoutManager.SetDisableTimerFlag(true);
-    return state.setReplayState(
+    state.setReplayState(
         committed, seed, status, errChecksum, commitQueue);
 }
 
