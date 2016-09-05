@@ -425,20 +425,26 @@ public:
             mCurOp = next;
             next = mCurOp->next;
             mCurOp->next = 0;
+            if (mCurOp->replayBypassFlag ||
+                    IsMetaLogWriteOrVrError(mCurOp->status)) {
+                MetaRequest* req = mCurOp;
+                mCurOp = 0;
+                submit_request(req);
+                continue;
+            }
             MetaVrLogSeq const nextSeq = mCurOp->logseq;
             if (nextSeq.IsValid() && ! IsCurOpLogSeqValid()) {
                 panic("replay: set replay state invalid log sequence");
             }
             if (handle()) {
-                if (nextSeq.IsValid()) {
+                if (mLastLogAheadSeq < nextSeq) {
                     mLastLogAheadSeq = nextSeq;
                 }
             } else {
                 panic("replay: set replay state invalid handle completion");
             }
         }
-        if (mLastLogAheadSeq <= committed && ! mCommitQueue.empty() &&
-                ! runCommitQueue(committed, seed, status, errChecksum)) {
+        if (! runCommitQueue(committed, seed, status, errChecksum)) {
             panic("replay: set replay state run commit queue failure");
         }
     }
@@ -459,8 +465,13 @@ public:
         if (nextSeq.IsValid() && ! IsCurOpLogSeqValid()) {
             panic("replay: invalid enqueue log sequence");
         }
-        if (handle() && nextSeq.IsValid()) {
-            mLastLogAheadSeq = nextSeq;
+        if (handle()) {
+            if (mLastLogAheadSeq < nextSeq) {
+                mLastLogAheadSeq = nextSeq;
+            }
+        } else {
+            panic("replay: enqueue: invalid handle completion");
+            return false;
         }
         return true;
     }
@@ -1591,15 +1602,12 @@ ReplayState::runCommitQueue(
         }
         ++it;
     }
-    if (foundFlag) {
-        mCommitQueue.erase(mCommitQueue.begin(), it);
-        return true;
-    }
+    mCommitQueue.erase(mCommitQueue.begin(), it);
     // Commit sequence must always be at the log block end.
-    if (it != mCommitQueue.begin() ||
-            fileID.getseed() != seed ||
+    if (! foundFlag &&
+            (fileID.getseed() != seed ||
             mLastCommittedStatus != status ||
-            mLogAheadErrChksum != errChecksum) {
+            mLogAheadErrChksum != errChecksum)) {
         KFS_LOG_STREAM_ERROR <<
             "invliad log commit:"
             " sequence: "       << logSeq <<
