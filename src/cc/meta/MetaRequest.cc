@@ -652,6 +652,9 @@ static ResponseWOStream sWOStream;
 /* virtual */ void
 MetaLookup::handle()
 {
+    if (status < 0) {
+        return;
+    }
     authType = kAuthenticationTypeUndef; // always reset if op gets here.
     SetEUserAndEGroup(*this);
     MetaFattr* fa = 0;
@@ -669,6 +672,9 @@ MetaLookup::dispatch(ClientSM& sm)
 /* virtual */ void
 MetaLookupPath::handle()
 {
+    if (status < 0) {
+        return;
+    }
     SetEUserAndEGroup(*this);
     MetaFattr* fa = 0;
     if ((status = metatree.lookupPath(
@@ -1160,6 +1166,9 @@ GetDirAttr(fid_t dir, const vector<MetaDentry*>& v)
 /* virtual */ void
 MetaReaddir::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
@@ -1687,6 +1696,9 @@ MetaReaddirPlus::~MetaReaddirPlus()
 /* virtual */ void
 MetaReaddirPlus::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
@@ -1827,6 +1839,9 @@ MetaReaddirPlus::handle()
 /* virtual */ void
 MetaGetalloc::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (offset < 0) {
         status    = -EINVAL;
         statusMsg = "negative offset";
@@ -1919,6 +1934,9 @@ MetaGetalloc::handle()
 /* virtual */ void
 MetaGetlayout::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
@@ -2068,6 +2086,9 @@ MetaAllocate::handle()
         return;
     }
     startedFlag = true;
+    if (status < 0) {
+        return;
+    }
     KFS_LOG_STREAM_DEBUG <<
         "starting layout: " << Show() <<
     KFS_LOG_EOM;
@@ -2967,12 +2988,14 @@ MetaRetireChunkserver::handle()
 /* virtual */ void
 MetaToggleWORM::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
     KFS_LOG_STREAM_INFO << "Toggle WORM: " << value << KFS_LOG_EOM;
     setWORMMode(value);
-    status = 0;
 }
 
 /* virtual */ bool
@@ -3082,6 +3105,9 @@ MetaBye::handle()
 /* virtual */ void
 MetaLeaseAcquire::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (handleCount <= 0 && gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     }
@@ -3107,13 +3133,15 @@ MetaLeaseAcquire::handle()
             return;
         }
     }
-    status = 0;
     gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void
 MetaLeaseRenew::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (gLayoutManager.VerifyAllOpsPermissions()) {
         SetEUserAndEGroup(*this);
     }
@@ -3126,6 +3154,9 @@ MetaLeaseRenew::handle()
 /* virtual */ void
 MetaLeaseRelinquish::handle()
 {
+    if (status < 0) {
+        return;
+    }
     gLayoutManager.Handle(*this);
     KFS_LOG_STREAM(status == 0 ?
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
@@ -3136,15 +3167,21 @@ MetaLeaseRelinquish::handle()
 /* virtual */ void
 MetaLeaseCleanup::handle()
 {
-    const time_t now = globalNetManager().Now();
-    gLayoutManager.LeaseCleanup(now);
-    metatree.cleanupPathToFidCache(now);
+    if (0 <= status) {
+        const time_t now = globalNetManager().Now();
+        gLayoutManager.LeaseCleanup(now);
+        metatree.cleanupPathToFidCache(now);
+    }
     status = 0;
+    statusMsg.clear();
 }
 
 /* virtual */ void
 MetaGetPathName::handle()
 {
+    if (status < 0) {
+        return;
+    }
     ostringstream& oss = GetTmpOStringStream();
     ReqOstream os(oss);
     if (shortRpcFormatFlag) {
@@ -3468,6 +3505,9 @@ MetaPing::handle()
 /* virtual */ void
 MetaUpServers::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
@@ -3492,7 +3532,7 @@ MetaRecomputeDirsize::handle()
         return;
     }
     status = 0;
-    KFS_LOG_STREAM_INFO << "Processing a recompute dir size..." << KFS_LOG_EOM;
+    KFS_LOG_STREAM_INFO << "processing a recompute dir size..." << KFS_LOG_EOM;
     metatree.recomputeDirSize();
 }
 
@@ -3605,6 +3645,9 @@ MetaDumpChunkToServerMap::handle()
 /* virtual */ void
 MetaDumpChunkReplicationCandidates::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
@@ -3619,7 +3662,7 @@ MetaFsck::handle()
 {
     suspended = false;
     resp.Clear();
-    if (pid > 0) {
+    if (0 < pid) {
         if (! HasEnoughIoBuffersForResponse(*this)) {
             return;
         }
@@ -3702,6 +3745,9 @@ MetaFsck::handle()
             }
             resp.Clear();
         }
+        return;
+    }
+    if (status < 0) {
         return;
     }
     if (! HasMetaServerAdminAccess(*this)) {
@@ -3812,10 +3858,12 @@ int    MetaFsck::sMaxFsckResponseSize(20 << 20);
 /* virtual */ void
 MetaCheckLeases::handle()
 {
+    if (status < 0) {
+        return;
+    }
     if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
-    status = 0;
     gLayoutManager.CheckAllLeases();
 }
 
@@ -3834,6 +3882,9 @@ MetaStats::handle()
 /* virtual */ void
 MetaOpenFiles::handle()
 {
+    if (0 != status) {
+        return;
+    }
     if (! HasEnoughIoBuffersForResponse(*this)) {
         return;
     }
@@ -3889,6 +3940,9 @@ MetaOpenFiles::handle()
 /* virtual */ void
 MetaSetChunkServersProperties::handle()
 {
+    if (0 != status) {
+        return;
+    }
     if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
@@ -5946,6 +6000,9 @@ MetaDelegateCancel::response(ReqOstream& os)
 void
 MetaForceChunkReplication::handle()
 {
+    if (0 != status) {
+        return;
+    }
     if (! HasMetaServerAdminAccess(*this)) {
         return;
     }

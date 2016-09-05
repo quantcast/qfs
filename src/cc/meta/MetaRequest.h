@@ -2886,7 +2886,8 @@ struct MetaPing : public MetaRequest {
           resp()
     {
         // Suppress warning with requests with no version filed.
-        clientProtoVers = KFS_CLIENT_PROTO_VERS;
+        clientProtoVers  = KFS_CLIENT_PROTO_VERS;
+        replayBypassFlag = true;
     }
     virtual void handle();
     virtual void response(ReqOstream &os, IOBuffer& buf);
