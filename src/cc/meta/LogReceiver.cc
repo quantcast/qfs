@@ -1428,7 +1428,7 @@ LogReceiver::Dispatch()
 
     void
 LogReceiver::SetFilterLastAckTimeSentId(
-    int64_t inId)
+    vrNodeId_t inId)
 {
     mImpl.SetFilterLastAckTimeSentId(inId);
 }

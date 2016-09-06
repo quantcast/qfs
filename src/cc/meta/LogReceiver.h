@@ -79,7 +79,7 @@ public:
         int64_t             inFileSystemId);
     void Shutdown();
     void SetFilterLastAckTimeSentId(
-        int64_t inId);
+        vrNodeId_t inId);
     static int ParseBlockLines(
         const IOBuffer&       inBuffer,
         int                   inLength,

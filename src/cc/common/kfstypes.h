@@ -42,6 +42,7 @@ typedef int64_t seqid_t;      //!< sequence number id's for file/chunks
 typedef seqid_t fid_t;        //!< file ID
 typedef seqid_t chunkId_t;    //!< chunk ID
 typedef int64_t chunkOff_t;   //!< chunk offset
+typedef int64_t vrNodeId_t;
 const fid_t ROOTFID = 2;      //!< special fid for "/
 
 //!< Every time we change the protocol, rev. this one. We can use this value to

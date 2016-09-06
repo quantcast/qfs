@@ -432,14 +432,32 @@ public:
         }
         QCStMutexLocker theLock(mMutex);
         // Mark everything committed to cleanup queues.
-        mTransmitCommitted = mNextLogSeq;
-        mStopFlag          = true;
+        mSetReplayStateFlag = false;
+        mTransmitCommitted  = mNextLogSeq;
+        mStopFlag           = true;
         mNetManager.Wakeup();
         theLock.Unlock();
         mThread.Join();
         if (mNetManagerPtr) {
             mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mNetManagerPtr = 0;
+        }
+        MetaRequest* thePtr;
+        while ((thePtr = mPendingQueue.PopFront())) {
+            --mPendingCount;
+            MetaRequest::Release(thePtr);
+        }
+        while ((thePtr = mInQueue.PopFront())) {
+            MetaRequest::Release(thePtr);
+        }
+        while ((thePtr = mOutQueue.PopFront())) {
+            MetaRequest::Release(thePtr);
+        }
+        while ((thePtr = mPendingAckQueue.PopFront())) {
+            MetaRequest::Release(thePtr);
+        }
+        while ((thePtr = mReplayCommitQueue.PopFront())) {
+            MetaRequest::Release(thePtr);
         }
     }
     void PrepareToFork()

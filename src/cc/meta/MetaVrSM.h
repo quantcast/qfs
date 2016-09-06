@@ -70,7 +70,7 @@ public:
     class Config
     {
     public:
-        typedef int64_t                NodeId;
+        typedef vrNodeId_t             NodeId;
         typedef uint64_t               Flags;
         typedef vector<ServerLocation> Locations;
         enum

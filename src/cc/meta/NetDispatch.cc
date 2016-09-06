@@ -1073,11 +1073,6 @@ public:
     virtual void Apply(
         MetaLogWriterControl& inOp)
     {
-        const int64_t thePrimaryNodeId = replayer.getPrimaryNodeId();
-        if (thePrimaryNodeId != mPrimaryNodeId) {
-            mPrimaryNodeId = thePrimaryNodeId;
-            mLogReceiver.SetFilterLastAckTimeSentId(mPrimaryNodeId);
-        }
         assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
         if (0 != inOp.status) {
             MetaRequest::Release(&inOp);
@@ -1114,6 +1109,11 @@ public:
             inOp.blockData.Consume(theLen);
         }
         MetaRequest::Release(&inOp);
+        const vrNodeId_t thePrimaryNodeId = replayer.getPrimaryNodeId();
+        if (thePrimaryNodeId != mPrimaryNodeId) {
+            mPrimaryNodeId = thePrimaryNodeId;
+            mLogReceiver.SetFilterLastAckTimeSentId(mPrimaryNodeId);
+        }
     }
     virtual void SetLastAckSentTime(
         time_t inLastAckTime)
@@ -1151,7 +1151,7 @@ private:
     bool                      mWakeupFlag;
     bool                      mStartedFlag;
     bool                      mParametersUpdatePendingFlag;
-    int64_t                   mPrimaryNodeId;
+    vrNodeId_t                mPrimaryNodeId;
     volatile int              mSignalCnt;
     StBufferT<char, 10 << 10> mBuffer;
 
