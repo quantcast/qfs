@@ -443,8 +443,8 @@ public:
                 " node: "           << inNodeId <<
                 " epoch mismatch: " << mStartViewEpochMismatchCount <<
                 " max:"
-                " committed:"       << mStartViewChangeMaxCommittedSeq <<
-                " last:"            << mStartViewChangeMaxLastLogSeq <<
+                " committed: "      << mStartViewChangeMaxCommittedSeq <<
+                " last: "           << mStartViewChangeMaxLastLogSeq <<
                 " count: "          << mNodeIdAndMDSLocations.size() <<
                 " responses: "      << mRespondedIds.size() <<
                 " "                 << inReq.Show() <<
@@ -572,7 +572,7 @@ public:
                 KFS_LOG_EOM;
                 if (mEpochSeq == mLastLogSeq.mEpochSeq &&
                         mViewSeq < mLastLogSeq.mViewSeq) {
-                    mViewSeq = mLastLogSeq.mViewSeq;
+                    mViewSeq = mLastLogSeq.mViewSeq + 1;
                 }
                 mLogFetchEndSeq = MetaVrLogSeq();
                 if (mActiveFlag) {
@@ -1391,6 +1391,10 @@ private:
                 mViewSeq++;
             } else if (mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq + 1;
+            }
+            if (mEpochSeq == mLastLogSeq.mViewSeq &&
+                    mViewSeq <= mLastLogSeq.mViewSeq) {
+                mViewSeq = mLastLogSeq.mViewSeq + 1;
             }
             StartViewChange();
         }
