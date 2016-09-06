@@ -867,7 +867,9 @@ public:
         return mCmdIntervalMs;
     }
     int HandleEvent(int code, void *data) {
-        assert(mInProgress && code == EVENT_CMD_DONE && data == &mOp);
+        if (! mInProgress || EVENT_CMD_DONE != code || &mOp != data) {
+            panic("invalid periodic op completion");
+        }
         mInProgress = false;
         return 0;
     }
@@ -878,6 +880,8 @@ public:
         mOp.opSeqno++;
         mInProgress = true;
         ITimeout::SetTimeoutInterval(mCmdIntervalMs);
+        mOp.status = 0;
+        mOp.statusMsg.clear();
         submit_request(&mOp);
     }
     OPTYPE& GetOp() {

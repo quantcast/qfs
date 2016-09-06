@@ -139,7 +139,9 @@ public:
           mPrepareToForkCond(),
           mForkDoneCond(),
           mRandom(),
-          mLogFileNamePrefix("log")
+          mLogFileNamePrefix("log"),
+          mNotPrimaryErrorMsg(ErrorCodeToString(-ELOGFAILED)),
+          mLogWriteErrorMsg(ErrorCodeToString(-EVRNOTPRIMARY))
         { mLogName.reserve(1 << 10); }
     ~Impl()
         { Impl::Shutdown(); }
@@ -484,7 +486,10 @@ public:
     }
     void SetLastLogReceivedTime(
         time_t inTime)
-        { mLastLogReceivedTime = inTime; }
+    {
+        mLastLogReceivedTime = inTime;
+        mCommitUpdatedFlag   = true;
+    }
     MetaVrSM& GetMetaVrSM()
         { return mMetaVrSM; }
 private:
@@ -571,6 +576,8 @@ private:
     QCCondVar      mForkDoneCond;
     PrngIsaac64    mRandom;
     const string   mLogFileNamePrefix;
+    const string   mNotPrimaryErrorMsg;
+    const string   mLogWriteErrorMsg;
 
     virtual void Timeout()
     {
@@ -980,10 +987,10 @@ private:
         inReq.logseq = MetaVrLogSeq();
         if (-EVRNOTPRIMARY == mVrStatus) {
             inReq.status    = mVrStatus;
-            inReq.statusMsg = "not primary";
+            inReq.statusMsg = mNotPrimaryErrorMsg;
         } else {
             inReq.status    = -ELOGFAILED;
-            inReq.statusMsg = "transaction log write error";
+            inReq.statusMsg = mLogWriteErrorMsg;
         }
     }
     void FlushBlock(

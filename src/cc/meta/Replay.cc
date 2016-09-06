@@ -2424,7 +2424,9 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
             break;
         }
     }
+    // Enable updates, and reset primary node id at the end of replay.
     state.mUpdateLogWriterFlag = true;
+    primaryNodeId = -1;
     if (0 != status) {
         appendToLastLogFlag = false;
     }
@@ -2718,7 +2720,7 @@ Replay::handle(MetaVrLogStartView& op)
         primaryNodeId = -1;
         // Assign new log start in order to advance commit sequence in the log,
         // and run commit queue, as at this point view start must be written to
-        // quorum of primary and backup's logs, and therefore is committed, and
+        // quorum of primary and backup's logs, it is therefore committed, and
         // commit sequence need to be advanced. Run commit queue, must
         // effectively cancel all pending ops past the commit of the previous
         // view, and the start of this view, if any, by assigning VR failure
