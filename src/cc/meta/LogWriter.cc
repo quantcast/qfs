@@ -441,23 +441,11 @@ public:
             mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mNetManagerPtr = 0;
         }
-        MetaRequest* thePtr;
-        while ((thePtr = mPendingQueue.PopFront())) {
-            --mPendingCount;
-            MetaRequest::Release(thePtr);
-        }
-        while ((thePtr = mInQueue.PopFront())) {
-            MetaRequest::Release(thePtr);
-        }
-        while ((thePtr = mOutQueue.PopFront())) {
-            MetaRequest::Release(thePtr);
-        }
-        while ((thePtr = mPendingAckQueue.PopFront())) {
-            MetaRequest::Release(thePtr);
-        }
-        while ((thePtr = mReplayCommitQueue.PopFront())) {
-            MetaRequest::Release(thePtr);
-        }
+        Release(mInQueue);
+        Release(mOutQueue);
+        Release(mPendingQueue);
+        Release(mPendingAckQueue);
+        Release(mReplayCommitQueue);
     }
     void PrepareToFork()
     {
@@ -591,6 +579,17 @@ private:
     const string   mNotPrimaryErrorMsg;
     const string   mLogWriteErrorMsg;
 
+    void Release(
+        Queue& inQueue)
+    {
+        MetaRequest* thePtr;
+        while ((thePtr = inQueue.PopFront())) {
+            if (! thePtr->clnt) {
+                --mPendingCount;
+                MetaRequest::Release(thePtr);
+            }
+        }
+    }
     virtual void Timeout()
     {
         if (mPendingCount <= 0 && ! mSetReplayStateFlag) {
