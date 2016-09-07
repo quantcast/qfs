@@ -207,11 +207,13 @@ public:
 
     Impl(
         LogTransmitter& inLogTransmitter,
-        MetaVrSM&       inMetaVrSM)
+        MetaVrSM&       inMetaVrSM,
+        int&            inStatus)
         : mLogTransmitter(inLogTransmitter),
           mMetaDataSyncPtr(0),
           mNetManagerPtr(0),
           mMetaVrSM(inMetaVrSM),
+          mStatus(inStatus),
           mFileSystemId(-1),
           mState(kStateBackup),
           mNodeId(-1),
@@ -270,7 +272,7 @@ public:
           mReconfigureCompletionCondVar(),
           mPendingReconfigureReqPtr(0),
           mVrResponse()
-        {}
+        { mStatus = GetStatus(); }
     ~Impl()
     {
         Impl::CancelViewChange();
@@ -286,7 +288,7 @@ public:
             panic("VR: invalid log block commit sequence");
             return -EINVAL;
         }
-        return GetStatus();
+        return mStatus;
     }
     void LogBlockWriteDone(
         const MetaVrLogSeq& inBlockStartSeq,
@@ -504,12 +506,6 @@ public:
         }
         PirmaryCommitStartView();
     }
-    int GetStatus() const
-    {
-        return ((! mActiveFlag && 0 < mQuorum) ? -EVRNOTPRIMARY :
-            (kStatePrimary == mState ? 0 :
-            (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
-    }
     NodeId GetNodeId() const
         { return mNodeId; }
     void Process(
@@ -571,7 +567,7 @@ public:
                     " last: "   << mLastLogSeq <<
                 KFS_LOG_EOM;
                 if (mEpochSeq == mLastLogSeq.mEpochSeq &&
-                        mViewSeq < mLastLogSeq.mViewSeq) {
+                        mViewSeq <= mLastLogSeq.mViewSeq) {
                     mViewSeq = mLastLogSeq.mViewSeq + 1;
                 }
                 mLogFetchEndSeq = MetaVrLogSeq();
@@ -629,7 +625,7 @@ public:
             }
         }
         mLastProcessTime = TimeNow();
-        outVrStatus      = GetStatus();
+        outVrStatus      = mStatus;
         if (kStatePrimary != mState && (mMetaVrLogStartViewPtr || outReqPtr)) {
             panic("VR: invalid outstanding log start view");
         }
@@ -1160,6 +1156,7 @@ private:
     MetaDataSync*                mMetaDataSyncPtr;
     NetManager*                  mNetManagerPtr;
     MetaVrSM&                    mMetaVrSM;
+    int&                         mStatus;
     int64_t                      mFileSystemId;
     State                        mState;
     NodeId                       mNodeId;
@@ -1222,10 +1219,19 @@ private:
 
     void Wakeup()
         { mNetManagerPtr->Wakeup(); }
+    int GetStatus() const
+    {
+        return ((! mActiveFlag && 0 < mQuorum) ? -EVRNOTPRIMARY :
+            (kStatePrimary == mState ? 0 :
+            (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
+    }
     void SetState(
         State inState)
     {
-        mState        = inState;
+        if (mState != inState) {
+            mState  = inState;
+            mStatus = GetStatus();
+        }
         mStateSetTime = TimeNow();
     }
     bool HasPrimaryTimedOut() const
@@ -1234,7 +1240,10 @@ private:
             TimeNow());
     }
     void ConfigUpdate()
-        { mChannelsCount = mLogTransmitter.Update(mMetaVrSM); }
+    {
+        mChannelsCount = mLogTransmitter.Update(mMetaVrSM);
+        mStatus        = GetStatus();
+    }
     bool ValidateClusterKeyAndMd(
         MetaVrRequest&    inReq,
         seq_t             inSeq,
@@ -1392,7 +1401,7 @@ private:
             } else if (mViewSeq < mStartViewChangeRecvViewSeq) {
                 mViewSeq = mStartViewChangeRecvViewSeq + 1;
             }
-            if (mEpochSeq == mLastLogSeq.mViewSeq &&
+            if (mEpochSeq == mLastLogSeq.mEpochSeq &&
                     mViewSeq <= mLastLogSeq.mViewSeq) {
                 mViewSeq = mLastLogSeq.mViewSeq + 1;
             }
@@ -2688,7 +2697,8 @@ private:
 
 MetaVrSM::MetaVrSM(
     LogTransmitter& inLogTransmitter)
-    : mImpl(*(new Impl(inLogTransmitter, *this)))
+    : mStatus(0),
+      mImpl(*(new Impl(inLogTransmitter, *this, mStatus)))
 {
 }
 
@@ -2867,12 +2877,6 @@ MetaVrSM::Checkpoint(
     ostream& inStream) const
 {
     return mImpl.Checkpoint(inStream);
-}
-
-    int
-MetaVrSM::GetStatus() const
-{
-    return mImpl.GetStatus();
 }
 
     MetaVrSM::NodeId

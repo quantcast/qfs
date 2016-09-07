@@ -82,7 +82,6 @@ public:
           mVrStatus(0),
           mEnqueueVrStatus(inVrStatus),
           mTransmitCommitted(),
-          mTransmitterUpFlag(false),
           mMaxDoneLogSeq(),
           mCommitted(),
           mThread(),
@@ -492,14 +491,10 @@ public:
     virtual void Notify(
         const MetaVrLogSeq& inSeq)
     {
-        const bool theWakeupFlag = mTransmitCommitted < inSeq &&
-            ! mWokenFlag;
+        mWokenFlag = mWokenFlag || mTransmitCommitted < inSeq;
         mMetaVrSM.Commit(inSeq);
-        mTransmitCommitted = inSeq;
-        mTransmitterUpFlag = mLogTransmitter.IsUp();
-        if (theWakeupFlag) {
-            mWokenFlag = true;
-            // mNetManager.Wakeup();
+        if (mTransmitCommitted < inSeq) {
+            mTransmitCommitted = inSeq;
         }
     }
     void SetLastLogReceivedTime(
@@ -543,7 +538,6 @@ private:
     int            mVrStatus;
     volatile int&  mEnqueueVrStatus;
     MetaVrLogSeq   mTransmitCommitted;
-    bool           mTransmitterUpFlag;
     MetaVrLogSeq   mMaxDoneLogSeq;
     Committed      mCommitted;
     QCThread       mThread;
@@ -661,7 +655,6 @@ private:
         bool   inSetReplayStateFlag,
         int    inExtraReqCount)
     {
-        mWokenFlag = false;
         mPendingAckQueue.PushBack(inDoneQueue);
         MetaRequest* thePtr     = 0;
         MetaRequest* thePrevPtr = 0;
@@ -823,6 +816,7 @@ private:
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
         }
+        mWokenFlag = false;
         ProcessPendingAckQueue(theWriteQueue, false, theReqPtr ? 1 : 0);
     }
     virtual void DispatchEnd()
@@ -862,9 +856,6 @@ private:
                 NewLog(mNextLogSeq);
             }
         }
-        if (! mTransmitterUpFlag) {
-            mTransmitterUpFlag = mLogTransmitter.IsUp();
-        }
         ostream&     theStream = mMdStream;
         MetaRequest* theCurPtr = &inHead;
         while (theCurPtr) {
@@ -874,8 +865,7 @@ private:
             seq_t                 theEndBlockSeq         =
                 mNextLogSeq.mLogSeq + mMaxBlockSize;
             const bool            theSimulateFailureFlag = IsSimulateFailure();
-            const bool            theTransmitterUpFlag   =
-                mTransmitterUpFlag && 0 == mVrStatus;
+            const bool            theTransmitterUpFlag   = 0 == mVrStatus;
             bool                  theStartViewFlag       = false;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
@@ -953,7 +943,7 @@ private:
                     (theTransmitterUpFlag || theStartViewFlag)) {
                 mNextLogSeq = mLastLogSeq;
                 if (theStartViewFlag) {
-                    // Set to sequence to to the left of the start of the view,
+                    // Set sequence to one to the left of the start of the view,
                     // in for both pending ACK queue advancement, and op
                     // validate method to work.
                     theCurPtr->logseq = mLastLogSeq;

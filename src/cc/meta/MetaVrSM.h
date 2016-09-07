@@ -346,7 +346,8 @@ public:
         size_t      inLen);
     int Checkpoint(
         ostream& inStream) const;
-    int GetStatus() const;
+    int GetStatus() const
+        { return mStatus; }
     NodeId GetNodeId() const;
     bool HasValidNodeId() const
         { return (0 <= GetNodeId()); }
@@ -358,6 +359,7 @@ public:
         const MetaRequest& inReq);
 private:
     class Impl;
+    int   mStatus;
     Impl& mImpl;
 private:
     MetaVrSM(

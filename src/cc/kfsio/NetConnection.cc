@@ -75,6 +75,9 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
                         " net: "  << globals().ctrOpenDiskFds.GetValue() <<
                         " disk: " << globals().ctrOpenNetFds.GetValue() <<
                     KFS_LOG_EOM;
+                    if (mLstErrorMsg.empty()) {
+                        mLstErrorMsg = QCUtils::SysError(err);
+                    }
                 }
                 break;
             }
@@ -94,6 +97,9 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
                 (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
             KFS_LOG_EOM;
             if (nread != 0) {
+                if (mLstErrorMsg.empty()) {
+                    mLstErrorMsg = QCUtils::SysError(-nread);
+                }
                 Close();
             }
             int err = nread;
@@ -127,6 +133,9 @@ NetConnection::HandleWriteEvent()
                 (mAuthFailureFlag ? " auth failure" : "") <<
                 (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
             KFS_LOG_EOM;
+            if (mLstErrorMsg.empty()) {
+                mLstErrorMsg = QCUtils::SysError(-nwrote);
+            }
             Close();
             mCallbackObj->HandleEvent(EVENT_NET_ERROR, &nwrote);
         } else if (forceInvokeErrHandlerFlag) {
@@ -154,6 +163,9 @@ NetConnection::HandleErrorEvent()
             (mAuthFailureFlag ? " auth failure" : "") <<
             (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
         KFS_LOG_EOM;
+        if (status < 0 && mLstErrorMsg.empty()) {
+            mLstErrorMsg = QCUtils::SysError(-status);
+        }
         Close();
         mCallbackObj->HandleEvent(EVENT_NET_ERROR, &status);
     } else {
@@ -197,7 +209,7 @@ NetConnection::GetErrorMsg() const
     if (mFilter) {
         msg = mFilter->GetErrorMsg();
     }
-    if (mSock && msg.empty()) {
+    if (mSock && msg.empty() && mSock->IsGood()) {
         const int err = mSock->GetSocketError();
         if (err) {
             msg = QCUtils::SysError(err);

@@ -477,6 +477,7 @@ public:
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr = 0;
         AdvancePendingQueue();
+        const MetaVrLogSeq thePrevAckSeq = mAckBlockSeq;
         mAckBlockSeq = MetaVrLogSeq();
         if (mSleepingFlag) {
             mSleepingFlag = false;
@@ -487,6 +488,7 @@ public:
         mSendHelloFlag = true;
         mVrOpSeq = -1;
         mReplyProps.clear();
+        UpdateAck(thePrevAckSeq);
     }
     void Shutdown()
     {
@@ -529,7 +531,7 @@ public:
         }
         CompactIfNeeded();
         const bool kHeartbeatFlag = false;
-        return FlushBlock(inBlockSeq, inLen, kHeartbeatFlag);
+        return FlushBlock(inBlockSeq, inBlockSeqLen, inLen, kHeartbeatFlag);
     }
     bool SendBlock(
         const MetaVrLogSeq& inBlockSeq,
@@ -606,6 +608,13 @@ private:
 
     friend class QCDLListOp<Transmitter>;
 
+    void UpdateAck(
+        const MetaVrLogSeq& inPrevAck)
+    {
+        if (mActiveFlag && inPrevAck != mAckBlockSeq) {
+            mImpl.Acked(inPrevAck, *this);
+        }
+    }
     bool CanBypassSend(
         const MetaVrLogSeq& inBlockSeq,
         int                 inBlockSeqLen)
@@ -622,7 +631,7 @@ private:
         if (1 < inBlockSeqLen) {
             mAckBlockSeq.mLogSeq += inBlockSeqLen - 1;
         }
-        mImpl.Acked(thePrevAckSeq, *this);
+        UpdateAck(thePrevAckSeq);
         return true;
     }
     bool SendBlockSelf(
@@ -658,11 +667,16 @@ private:
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
         }
-        return FlushBlock(inBlockSeq, mPendingSend.BytesConsumable() - thePos,
-            inHeartbeatFlag);
+        return FlushBlock(
+            inBlockSeq,
+            inBlockSeqLen,
+            mPendingSend.BytesConsumable() - thePos,
+            inHeartbeatFlag
+        );
     }
     bool FlushBlock(
         const MetaVrLogSeq& inBlockSeq,
+        int                 inBlockSeqLen,
         int                 inLen,
         bool                inHeartbeatFlag)
     {
@@ -676,8 +690,14 @@ private:
         }
         mLastSentBlockSeq = inBlockSeq;
         // Allow to cleanup heartbeats by assigning negative / invalid sequence.
-        mBlocksQueue.push_back(make_pair(
-            inHeartbeatFlag ? MetaVrLogSeq() : inBlockSeq, inLen));
+        MetaVrLogSeq theEndSeq;
+        if (! inHeartbeatFlag) {
+            theEndSeq = inBlockSeq;
+            if (0 < inBlockSeqLen) {
+                theEndSeq.mLogSeq += inBlockSeqLen - 1;
+            }
+        }
+        mBlocksQueue.push_back(make_pair(theEndSeq, inLen));
         if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
             if (mConnectionPtr->GetOutBuffer().IsEmpty()) {
                 StartSend();
@@ -791,7 +811,7 @@ private:
             Error(theErrMsg.c_str());
             return true;
         }
-        KFS_LOG_STREAM_INFO <<
+        KFS_LOG_STREAM_DEBUG <<
             mServer << ": "
             "starting: " <<
             mAuthenticateOpPtr->Show() <<
@@ -1116,9 +1136,7 @@ private:
             " bytes: "       << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
         AdvancePendingQueue();
-        if (thePrevAckSeq != mAckBlockSeq && mActiveFlag) {
-            mImpl.Acked(thePrevAckSeq, *this);
-        }
+        UpdateAck(thePrevAckSeq);
         inBuffer.Consume(inHeaderLen);
         if (! mAuthenticateOpPtr &&
                 (mAckBlockFlags &
@@ -1282,15 +1300,19 @@ private:
             " seq: "          << mVrOpSeq <<
             " op: "           << MetaRequest::ShowReq(mVrOpPtr) <<
             " hello seq: "    << mMetaVrHello.opSeqno <<
+            " pending: "
+            " blocks: "       << mBlocksQueue.size() <<
+            " bytes: "        << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
         mConnectionPtr->Close();
         mConnectionPtr.reset();
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr   = 0;
         AdvancePendingQueue();
+        const MetaVrLogSeq thePrevAck = mAckBlockSeq;
         mAckBlockSeq = MetaVrLogSeq();
         VrDisconnect();
-        mImpl.Update(*this);
+        UpdateAck(thePrevAck);
         if (mSleepingFlag) {
             return;
         }
@@ -1500,13 +1522,13 @@ LogTransmitter::Impl::Acked(
         return;
     }
     const MetaVrLogSeq theAck = inTransmitter.GetAck();
-    if (theAck.IsValid() && mCommitted < theAck) {
-        NodeId         thePrevId    = -1;
-        int            theAckAdvCnt = 0;
-        MetaVrLogSeq   theCommitted = theAck;
-        MetaVrLogSeq   theCurMax    = mCommitted;
-        List::Iterator theIt(mTransmittersPtr);
-        Transmitter*   thePtr       = theIt.Next();
+    if (mCommitted < theAck) {
+        NodeId             thePrevId    = -1;
+        int                theAckAdvCnt = 0;
+        MetaVrLogSeq       theCommitted = theAck;
+        MetaVrLogSeq       theCurMax    = mCommitted;
+        List::Iterator     theIt(mTransmittersPtr);
+        const Transmitter* thePtr;
         while ((thePtr = theIt.Next())) {
             if (! thePtr->IsActive()) {
                 continue;
@@ -1536,7 +1558,7 @@ LogTransmitter::Impl::Acked(
             mCommitObserver.Notify(mCommitted);
         }
     }
-    if (! inPrevAck.IsValid()) {
+    if (inPrevAck.IsValid() != theAck.IsValid()) {
         Update(inTransmitter);
     }
 }
@@ -1666,13 +1688,15 @@ LogTransmitter::Impl::Update()
         "update:"
         " tranmitters: " << theTotalCnt <<
         " up: "          << theUpCnt <<
-        " id up: "       << theIdUpCnt <<
+        " ids up: "      << theIdUpCnt <<
+        " quorum: "      << mMinAckToCommit <<
+        " committed: "   << mCommitted <<
         " ack: ["        << theMinAck <<
         ","              << theMaxAck << "]"
-        " ids: "         << theIdCnt <<
-        " / "            << mIdsCount <<
-        " up: "          << theUpFlag <<
-        " / "            << mUpFlag <<
+        " ids: "         << mIdsCount <<
+        " => "           << theIdCnt <<
+        " up: "          << mUpFlag <<
+        " => "           << theUpFlag <<
     KFS_LOG_EOM;
     mIdsCount = theIdCnt;
     mUpFlag   = theUpFlag;
