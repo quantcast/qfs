@@ -508,6 +508,21 @@ public:
     }
     NodeId GetNodeId() const
         { return mNodeId; }
+    NodeId GetPrimaryNodeId() const
+    {
+        if (mActiveFlag && 0 < mQuorum) {
+            if (kStatePrimary == mState) {
+                return mNodeId;
+            }
+            if (kStateBackup == mState) {
+                if (0 <= mPrimaryNodeId) {
+                    return mPrimaryNodeId;
+                }
+                return (-mPrimaryNodeId - 1);
+            }
+        }
+        return -1;
+    }
     void Process(
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
@@ -2895,6 +2910,12 @@ MetaVrSM::GetLastLogSeq() const
 MetaVrSM::GetMetaDataStoreLocation() const
 {
     return mImpl.GetMetaDataStoreLocation();
+}
+
+    MetaVrSM::NodeId
+MetaVrSM::GetPrimaryNodeId() const
+{
+    return mImpl.GetPrimaryNodeId();
 }
 
     /* static */ const char*

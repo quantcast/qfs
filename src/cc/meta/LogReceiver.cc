@@ -101,6 +101,7 @@ public:
           mDispatchLastAckSentTime(0),
           mFilterLastAckTimeSentId(-1),
           mDispatchFilterLastAckTimeSentId(-1),
+          mPrimaryId(-1),
           mPendingResponseQueue(),
           mResponseQueue(),
           mCompletionQueue(),
@@ -233,6 +234,8 @@ public:
         { return mSubmittedWriteSeq; }
     int64_t GetFileSystemId() const
         { return mFileSystemId; }
+    NodeId GetPrimaryId() const
+        { return mPrimaryId; }
     void Delete()
     {
         Shutdown();
@@ -310,6 +313,7 @@ public:
             }
             theNextSeq = theCur.blockEndSeq;
             mLastLogSeq = max(theCur.lastLogSeq, mLastLogSeq);
+            mPrimaryId  = theCur.primaryNodeId;
             if (0 == theCur.status) {
                 if (theCur.lastLogSeq.IsValid()) {
                     mLastWriteSeq = theCur.lastLogSeq;
@@ -319,6 +323,9 @@ public:
                     mReplayerPtr->Apply(theCur);
                     continue;
                 }
+            } else if (mSubmittedWriteSeq <= theCur.blockEndSeq) {
+                // Reset to last log sequence, in case if write has failed.
+                mSubmittedWriteSeq = mLastLogSeq;
             }
             Release(theCur);
         }
@@ -346,14 +353,9 @@ public:
     void Release(
         MetaLogWriterControl& inOp)
     {
+        inOp.Reset(MetaLogWriterControl::kWriteBlock);
         inOp.next = mWriteOpFreeListPtr;
         mWriteOpFreeListPtr = &inOp;
-        inOp.committed     = MetaVrLogSeq();
-        inOp.blockStartSeq = MetaVrLogSeq();
-        inOp.blockEndSeq   = MetaVrLogSeq();
-        inOp.lastLogSeq    = MetaVrLogSeq();
-        inOp.blockData.Clear();
-        inOp.blockLines.Clear();
     }
     int HandleEvent(
         int   inType,
@@ -454,6 +456,7 @@ private:
     time_t         mDispatchLastAckSentTime;
     NodeId         mFilterLastAckTimeSentId;
     NodeId         mDispatchFilterLastAckTimeSentId;
+    NodeId         mPrimaryId;
     Queue          mPendingResponseQueue;
     Queue          mResponseQueue;
     Queue          mCompletionQueue;
@@ -1178,13 +1181,13 @@ private:
         if (! mIdSentFlag) {
             theAckFlags |= uint64_t(1) << kLogBlockAckHasServerIdBit;
         }
-        IOBuffer&          theBuf        = mConnectionPtr->GetOutBuffer();
-        const int          thePos        = theBuf.BytesConsumable();
-        const MetaVrLogSeq theLastLogSeq = mImpl.GetLastLogSeq();
+        IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+        const int thePos = theBuf.BytesConsumable();
         ReqOstream theStream(mOstream.Set(theBuf));
         theStream << hex <<
-            "A " << theLastLogSeq <<
+            "A " << mImpl.GetLastLogSeq() <<
             " "  << theAckFlags <<
+            " "  << mImpl.GetPrimaryId() <<
             " ";
         if (! mIdSentFlag) {
             mIdSentFlag = true;

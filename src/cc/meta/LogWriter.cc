@@ -138,6 +138,7 @@ public:
           mPrepareToForkCond(),
           mForkDoneCond(),
           mRandom(),
+          mTmpBuffer(),
           mLogFileNamePrefix("log"),
           mNotPrimaryErrorMsg(ErrorCodeToString(-ELOGFAILED)),
           mLogWriteErrorMsg(ErrorCodeToString(-EVRNOTPRIMARY))
@@ -516,6 +517,7 @@ private:
         kWriteStateNone,
         kUpdateBlockChecksum
     };
+    typedef StBufferT<char, 128> TmpBuffer;
 
     NetManager*    mNetManagerPtr;
     MetaDataStore* mMetaDataStorePtr;
@@ -575,6 +577,7 @@ private:
     QCCondVar      mPrepareToForkCond;
     QCCondVar      mForkDoneCond;
     PrngIsaac64    mRandom;
+    TmpBuffer      mTmpBuffer;
     const string   mLogFileNamePrefix;
     const string   mNotPrimaryErrorMsg;
     const string   mLogWriteErrorMsg;
@@ -973,6 +976,8 @@ private:
             if (theCtlPtr &&
                     MetaLogWriterControl::kWriteBlock == theCtlPtr->type) {
                 WriteBlock(*theCtlPtr);
+                theCtlPtr->primaryNodeId = mMetaVrSM.GetPrimaryNodeId();
+                theCtlPtr->lastLogSeq    = mLastLogSeq;
             }
             theCurPtr = theEndPtr;
         }
@@ -1156,6 +1161,7 @@ private:
                 );
                 return false; // Do not start new record block.
         }
+        inRequest.primaryNodeId = mMetaVrSM.GetPrimaryNodeId();
         inRequest.committed     = mInFlightCommitted.mSeq;
         inRequest.lastLogSeq    = mLastLogSeq;
         inRequest.logName       = mLogName;
@@ -1167,6 +1173,7 @@ private:
     {
         if (mNextBlockSeq < 0) {
             panic("log writer: write block: invalid block sequence");
+            inRequest.status = -EFAULT;
             return;
         }
         if (mLastLogSeq != mNextLogSeq) {
@@ -1174,7 +1181,6 @@ private:
             inRequest.status = -EFAULT;
             return;
         }
-        inRequest.lastLogSeq = mLastLogSeq;
         if (0 != inRequest.status) {
             KFS_LOG_STREAM_ERROR <<
                 "write block:"
@@ -1209,13 +1215,20 @@ private:
             return;
         }
         if (inRequest.blockData.BytesConsumable() <= 0) {
-            panic("write block: invalid block length");
-            inRequest.status = -EFAULT;
+            panic("write block: invalid block: no data");
+            inRequest.statusMsg = "invalid block: no data";
+            inRequest.status    = -EFAULT;
             return;
         }
         if (inRequest.blockLines.IsEmpty()) {
-            panic("write block: invalid invocation, no log lines");
-            inRequest.status = -EFAULT;
+            panic("write block: invalid block: no log lines");
+            inRequest.statusMsg = "invalid block: no log lines";
+            inRequest.status    = -EFAULT;
+            return;
+        }
+        if (0 == mVrStatus) {
+            inRequest.statusMsg = "block write rejected: VR state is primary";
+            inRequest.status    = -EROFS;
             return;
         }
         if (inRequest.blockStartSeq != mLastLogSeq) {
@@ -1225,22 +1238,25 @@ private:
                     2 == inRequest.blockLines.GetSize() &&
                     3 < (theLnLen = inRequest.blockLines.Front()) &&
                     theLnLen < inRequest.blockData.BytesConsumable()) {
-                StBufferT<char, 128> theBuf;
-                char* const          thePtr    = theBuf.Resize(theLnLen);
-                MetaRequest*         theReqPtr = 0;
+                // Set size to 0 to avoid data copy, use resize instead of
+                // clear, as resize does not free the buffer, just sets the
+                // size to 0.
+                mTmpBuffer.Resize(0);
+                char* const  thePtr    = mTmpBuffer.Resize(theLnLen);
+                MetaRequest* theReqPtr = 0;
                 if (inRequest.blockData.CopyOut(thePtr, theLnLen) == theLnLen &&
                         'a' == (thePtr[0] & 0xFF) && '/' == (thePtr[1] & 0xFF) &&
                         (theReqPtr = MetaRequest::ReadReplay(
                             thePtr + 2, theLnLen - 2)) &&
                         META_VR_LOG_START_VIEW == theReqPtr->op) {
                     MetaVrLogStartView& theOp =
-                        *reinterpret_cast<MetaVrLogStartView*>(theReqPtr);
+                        *static_cast<MetaVrLogStartView*>(theReqPtr);
                     if (! theOp.Validate() ||
                             theOp.mNewLogSeq != inRequest.blockEndSeq ||
                             mLastLogSeq < theOp.mCommittedSeq ||
                             theOp.mCommittedSeq < mInFlightCommitted.mSeq) {
                         inRequest.status    = -EINVAL;
-                        inRequest.statusMsg = "invalid start view entry";
+                        inRequest.statusMsg = "invalid log start view entry";
                         theLnLen = -1;
                     }
                 } else {
@@ -1342,14 +1358,14 @@ private:
                 theLen
             );
             KFS_LOG_STREAM_DEBUG <<
-                "write block: block transmit" <<
+                "write block: block transmit " <<
                     (0 == theStatus ? "OK" : "failure") <<
                 ": ["   << inRequest.blockStartSeq  <<
                 ":"     << inRequest.blockEndSeq <<
                 "]"
                 " status: " << theStatus <<
-                (theStatus < 0 ?
-                    " " + ErrorCodeToString(theStatus) : string()) <<
+                (theStatus < 0 ? " " : "") <<
+                (theStatus < 0 ? ErrorCodeToString(theStatus) : string()) <<
             KFS_LOG_EOM;
         }
         LogStreamFlush();
@@ -1365,7 +1381,6 @@ private:
             mLastLogSeq          = inRequest.blockEndSeq;
             mNextLogSeq          = mLastLogSeq;
             inRequest.status     = 0;
-            inRequest.lastLogSeq = mLastLogSeq;
         } else {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";

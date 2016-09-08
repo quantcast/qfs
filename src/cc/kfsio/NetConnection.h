@@ -136,9 +136,10 @@ public:
           mInBuffer(),
           mOutBuffer(),
           mInactivityTimeoutSecs(-1),
-          maxReadAhead(-1),
+          mMaxReadAhead(-1),
+          mLastError(0),
           mPeerName(),
-          mLstErrorMsg(),
+          mLastErrorMsg(),
           mFilter(filter) {
         assert(mSock);
     }
@@ -210,7 +211,7 @@ public:
 
     /// Do we expect data to be read in?
     bool IsReadReady() const {
-        return (maxReadAhead != 0);
+        return (mMaxReadAhead != 0);
     };
 
     /// Is data available for reading?
@@ -314,6 +315,8 @@ public:
         }
     }
 
+    int GetErrorCode() const;
+
     string GetErrorMsg() const;
 
     bool IsAuthFailure() const {
@@ -375,8 +378,8 @@ public:
     /// Set max read ahead.
     /// @param[in] read ahead amount, < 0 -- unlimited.
     void SetMaxReadAhead(int readAhead) {
-        const bool update = (maxReadAhead != 0) != (readAhead != 0);
-        maxReadAhead = readAhead;
+        const bool update = (mMaxReadAhead != 0) != (readAhead != 0);
+        mMaxReadAhead = readAhead;
         if (update) {
             Update(false);
         }
@@ -524,11 +527,13 @@ private:
     /// When was the last activity on this connection
     /// # of bytes from the out buffer that should be sent out.
     int             mInactivityTimeoutSecs;
-    int             maxReadAhead;
+    int             mMaxReadAhead;
+    int             mLastError;
     string          mPeerName;
-    string          mLstErrorMsg;
+    string          mLastErrorMsg;
     Filter*         mFilter;
 
+    inline void SetLastError(int status);
     friend class NetManagerEntry;
 private:
     // No copies.

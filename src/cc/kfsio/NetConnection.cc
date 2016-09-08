@@ -49,6 +49,22 @@ IsFatalError(int err)
     return (err != EAGAIN && err != EWOULDBLOCK && err != EINTR);
 }
 
+inline void
+NetConnection::SetLastError(int status)
+{
+    if (0 != mLastError) {
+        return;
+    }
+    if (mFilter) {
+        const int err = mFilter->GetErrorCode();
+        if (0 != err) {
+            mLastError = err;
+        }
+        return;
+    }
+    mLastError = status;
+}
+
 void
 NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
 {
@@ -75,17 +91,15 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
                         " net: "  << globals().ctrOpenDiskFds.GetValue() <<
                         " disk: " << globals().ctrOpenNetFds.GetValue() <<
                     KFS_LOG_EOM;
-                    if (mLstErrorMsg.empty()) {
-                        mLstErrorMsg = QCUtils::SysError(err);
-                    }
+                    SetLastError(err);
                 }
                 break;
             }
         } while (++i < maxAcceptsPerRead && IsGood());
     } else if (WantRead()) {
         const int nread = mFilter ?
-            mFilter->Read(*this, *mSock, mInBuffer, maxReadAhead) : 
-            mInBuffer.Read(mSock->GetFd(), maxReadAhead);
+            mFilter->Read(*this, *mSock, mInBuffer, mMaxReadAhead) :
+            mInBuffer.Read(mSock->GetFd(), mMaxReadAhead);
         if (nread <= 0 && IsFatalError(-nread)) {
             if (nread != 0) {
                 GetErrorMsg();
@@ -94,12 +108,10 @@ NetConnection::HandleReadEvent(int maxAcceptsPerRead /* = 1 */)
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "read: " << (nread == 0 ? "EOF" : QCUtils::SysError(-nread)) <<
                 (mAuthFailureFlag ? " auth failure" : "") <<
-                (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
+                (mLastErrorMsg.empty() ? "" : " ") << mLastErrorMsg <<
             KFS_LOG_EOM;
             if (nread != 0) {
-                if (mLstErrorMsg.empty()) {
-                    mLstErrorMsg = QCUtils::SysError(-nread);
-                }
+                SetLastError(nread);
                 Close();
             }
             int err = nread;
@@ -131,11 +143,9 @@ NetConnection::HandleWriteEvent()
             NET_CONNECTION_LOG_STREAM_DEBUG <<
                 "write: error: " << QCUtils::SysError(-nwrote) <<
                 (mAuthFailureFlag ? " auth failure" : "") <<
-                (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
+                (mLastErrorMsg.empty() ? "" : " ") << mLastErrorMsg <<
             KFS_LOG_EOM;
-            if (mLstErrorMsg.empty()) {
-                mLstErrorMsg = QCUtils::SysError(-nwrote);
-            }
+            SetLastError(nwrote);
             Close();
             mCallbackObj->HandleEvent(EVENT_NET_ERROR, &nwrote);
         } else if (forceInvokeErrHandlerFlag) {
@@ -161,10 +171,10 @@ NetConnection::HandleErrorEvent()
         NET_CONNECTION_LOG_STREAM_DEBUG <<
             "closing connection due to error" <<
             (mAuthFailureFlag ? " auth failure" : "") <<
-            (mLstErrorMsg.empty() ? "" : " ") << mLstErrorMsg <<
+            (mLastErrorMsg.empty() ? "" : " ") << mLastErrorMsg <<
         KFS_LOG_EOM;
-        if (status < 0 && mLstErrorMsg.empty()) {
-            mLstErrorMsg = QCUtils::SysError(-status);
+        if (status < 0) {
+            SetLastError(status);
         }
         Close();
         mCallbackObj->HandleEvent(EVENT_NET_ERROR, &status);
@@ -183,7 +193,7 @@ NetConnection::HandleTimeoutEvent()
         KFS_LOG_EOM;
     } else {
         NET_CONNECTION_LOG_STREAM_DEBUG << "inactivity timeout:" <<
-            " read-ahead: " << maxReadAhead <<
+            " read-ahead: " << mMaxReadAhead <<
             " in: "  << mInBuffer.BytesConsumable() <<
             " out: " << mOutBuffer.BytesConsumable() <<
             (mNetManagerEntry.IsIn()    ? " +r" : "") <<
@@ -202,24 +212,44 @@ NetConnection::Update(bool resetTimer)
         mNetManagerEntry, IsGood() ? mSock->GetFd() : -1, resetTimer);
 }
 
+int
+NetConnection::GetErrorCode() const
+{
+    if (0 != mLastError) {
+        return mLastError;
+    }
+    // Mutable
+    const_cast<NetConnection*>(this)->SetLastError(0);
+    if (0 == mLastError && mSock && mSock->IsGood()) {
+        const int err = mSock->GetSocketError();
+        if (0 != err) {
+            const_cast<NetConnection*>(this)->mLastError = err;
+        }
+    }
+    return mLastError;
+}
+
 string
 NetConnection::GetErrorMsg() const
 {
+    if (! mLastErrorMsg.empty()) {
+        return mLastErrorMsg;
+    }
     string msg;
     if (mFilter) {
         msg = mFilter->GetErrorMsg();
     }
-    if (mSock && msg.empty() && mSock->IsGood()) {
-        const int err = mSock->GetSocketError();
-        if (err) {
-            msg = QCUtils::SysError(err);
+    if (msg.empty()) {
+        const int err = GetErrorCode();
+        if (0 != err) {
+            msg = QCUtils::SysError(err < 0 ? -err : err);
         }
     }
     if (! msg.empty()) {
         // Mutable
-        const_cast<NetConnection*>(this)->mLstErrorMsg = msg;
+        const_cast<NetConnection*>(this)->mLastErrorMsg = msg;
     }
-    return mLstErrorMsg;
+    return mLastErrorMsg;
 }
 
 int

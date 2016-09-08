@@ -342,6 +342,7 @@ public:
           mSendHelloFlag(false),
           mMetaVrHello(*(new MetaVrHello())),
           mReceivedId(-1),
+          mPrimaryNodeId(-1),
           mId(inNodeId),
           mPeer()
     {
@@ -601,6 +602,7 @@ private:
     bool               mSendHelloFlag;
     MetaVrHello&       mMetaVrHello;
     NodeId             mReceivedId;
+    NodeId             mPrimaryNodeId;
     NodeId const       mId;
     ServerLocation     mPeer;
     Transmitter*       mPrevPtr[1];
@@ -1035,7 +1037,9 @@ private:
         if (! mAckBlockSeq.Parse<HexIntParser>(
                     thePtr, theEndPtr - thePtr) ||
                 ! HexIntParser::Parse(
-                    thePtr, theEndPtr - thePtr, mAckBlockFlags)) {
+                    thePtr, theEndPtr - thePtr, mAckBlockFlags) ||
+                ! HexIntParser::Parse(
+                    thePtr, theEndPtr - thePtr, mPrimaryNodeId)) {
             MsgLogLines(MsgLogger::kLogLevelERROR,
                 "malformed ack: ", inBuffer, inHeaderLen);
             Error("malformed ack");
@@ -1128,6 +1132,7 @@ private:
             mServer <<
             " log recv id: " << theId <<
             " / "            << mId <<
+            " primary: "     << mPrimaryNodeId <<
             " ack: "         << thePrevAckSeq <<
             " => "           << mAckBlockSeq <<
             " sent: "        << mLastSentBlockSeq <<

@@ -339,6 +339,7 @@ public:
     const Config& GetConfig() const;
     int GetQuorum() const;
     bool IsPrimary() const;
+    NodeId GetPrimaryNodeId() const;
     bool Restore(
         bool        inHexFmtFlag,
         int         inType,

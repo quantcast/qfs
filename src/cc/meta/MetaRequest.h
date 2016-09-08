@@ -4094,6 +4094,7 @@ struct MetaLogWriterControl : public MetaRequest {
     Type               type;
     MetaVrLogSeq       committed;
     MetaVrLogSeq       lastLogSeq;
+    vrNodeId_t         primaryNodeId;
     seq_t              logSegmentNum;
     Properties         params;
     string             paramsPrefix;
@@ -4114,6 +4115,7 @@ struct MetaLogWriterControl : public MetaRequest {
           type(t),
           committed(),
           lastLogSeq(),
+          primaryNodeId(-1),
           logSegmentNum(-1),
           params(),
           paramsPrefix(),
@@ -4156,7 +4158,8 @@ struct MetaLogWriterControl : public MetaRequest {
                 default:                os << "invalid";        break;
             }
         }
-        os << " status: "  << status;
+        os << " status: "  << status <<
+            (statusMsg.empty() ? "" : " ") << statusMsg;
         return os;
     }
     void Reset(Type t)
@@ -4167,7 +4170,8 @@ struct MetaLogWriterControl : public MetaRequest {
         type             = t;
         committed        = MetaVrLogSeq();
         lastLogSeq       = MetaVrLogSeq();
-        logSegmentNum    = 1;
+        primaryNodeId    = -1;
+        logSegmentNum    = -1;
         params.clear();
         paramsPrefix     = string();
         logName          = string();
