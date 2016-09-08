@@ -1778,7 +1778,7 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
         // try configuration file/QFS_CLIENT_CONFIG first
         monitorPluginPath = (char*) properties->getValue(
                 "client.monitorPluginPath", (const char*) 0);
-        if(monitorPluginPath) {
+        if (monitorPluginPath && strlen(monitorPluginPath)) {
             isMonitorEnabled = true;
             monitorReportInterval = properties->getValue(
                     "client.monitorReportInterval", 15);
@@ -1789,7 +1789,7 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     else {
         // next, try monitor specific environment variables
         monitorPluginPath = getenv("QFS_CLIENT_MONITOR_PLUGIN_PATH");
-        if (monitorPluginPath) {
+        if (monitorPluginPath && strlen(monitorPluginPath)) {
             isMonitorEnabled = true;
             char* p = getenv("QFS_CLIENT_MONITOR_REPORT_INTERVAL");
             if (p) {
