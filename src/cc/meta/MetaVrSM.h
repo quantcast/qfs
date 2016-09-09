@@ -275,7 +275,8 @@ public:
     int HandleLogBlock(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
-        const MetaVrLogSeq& inCommittedSeq);
+        const MetaVrLogSeq& inCommittedSeq,
+        MetaVrSM::NodeId    inTransmitterId);
     void LogBlockWriteDone(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
@@ -354,6 +355,9 @@ public:
         { return (0 <= GetNodeId()); }
     MetaVrLogSeq GetLastLogSeq() const;
     const ServerLocation& GetMetaDataStoreLocation() const;
+    bool ValidateAckPrimaryId(
+        NodeId inNodeId,
+        NodeId inPrimaryNodeId);
     static const char* GetStateName(
         int inState);
     static NodeId GetNodeId(

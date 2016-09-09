@@ -158,6 +158,7 @@ public:
     void Shutdown();
     void Acked(
         const MetaVrLogSeq& inPrevAck,
+        NodeId              inPrevPrimaryNodeId,
         Transmitter&        inTransmitter);
     void WriteBlock(
         IOBuffer&           inBuffer,
@@ -475,6 +476,8 @@ public:
             mConnectionPtr->Close();
             mConnectionPtr.reset();
         }
+        NodeId const thePrevPrimaryId = mPrimaryNodeId;
+        mPrimaryNodeId = -1;
         MetaRequest::Release(mAuthenticateOpPtr);
         mAuthenticateOpPtr = 0;
         AdvancePendingQueue();
@@ -489,7 +492,7 @@ public:
         mSendHelloFlag = true;
         mVrOpSeq = -1;
         mReplyProps.clear();
-        UpdateAck(thePrevAckSeq);
+        UpdateAck(thePrevAckSeq, thePrevPrimaryId);
     }
     void Shutdown()
     {
@@ -497,7 +500,6 @@ public:
         VrDisconnect();
         mPeer.port = -1;
         mPeer.hostname.clear();
-        mSendHelloFlag = true;
         mReplyProps.clear();
     }
     const ServerLocation& GetServerLocation() const
@@ -572,6 +574,8 @@ public:
     void SetActive(
         bool inFlag)
         { mActiveFlag = inFlag; }
+    NodeId GetPrimaryNodeId() const
+        { return mPrimaryNodeId; }
 private:
     typedef ClientAuthContext::RequestCtx   RequestCtx;
     typedef deque<pair<MetaVrLogSeq, int> > BlocksQueue;
@@ -611,10 +615,12 @@ private:
     friend class QCDLListOp<Transmitter>;
 
     void UpdateAck(
-        const MetaVrLogSeq& inPrevAck)
+        const MetaVrLogSeq& inPrevAck,
+        NodeId              inPrevPrimaryNodeId)
     {
-        if (mActiveFlag && inPrevAck != mAckBlockSeq) {
-            mImpl.Acked(inPrevAck, *this);
+        if (mActiveFlag && (inPrevAck != mAckBlockSeq ||
+                inPrevPrimaryNodeId != mPrimaryNodeId)) {
+            mImpl.Acked(inPrevAck, inPrevPrimaryNodeId, *this);
         }
     }
     bool CanBypassSend(
@@ -633,7 +639,7 @@ private:
         if (1 < inBlockSeqLen) {
             mAckBlockSeq.mLogSeq += inBlockSeqLen - 1;
         }
-        UpdateAck(thePrevAckSeq);
+        UpdateAck(thePrevAckSeq, mPrimaryNodeId);
         return true;
     }
     bool SendBlockSelf(
@@ -1031,9 +1037,10 @@ private:
         int         inHeaderLen,
         IOBuffer&   inBuffer)
     {
-        const MetaVrLogSeq thePrevAckSeq = mAckBlockSeq;
-        const char*        thePtr        = inHeaderPtr + 2;
-        const char* const  theEndPtr     = thePtr + inHeaderLen;
+        const NodeId       thePrevPrimaryId = mPrimaryNodeId;
+        const MetaVrLogSeq thePrevAckSeq    = mAckBlockSeq;
+        const char*        thePtr           = inHeaderPtr + 2;
+        const char* const  theEndPtr        = thePtr + inHeaderLen;
         if (! mAckBlockSeq.Parse<HexIntParser>(
                     thePtr, theEndPtr - thePtr) ||
                 ! HexIntParser::Parse(
@@ -1141,9 +1148,9 @@ private:
             " bytes: "       << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
         AdvancePendingQueue();
-        UpdateAck(thePrevAckSeq);
         inBuffer.Consume(inHeaderLen);
-        if (! mAuthenticateOpPtr &&
+        UpdateAck(thePrevAckSeq, thePrevPrimaryId);
+        if (mConnectionPtr && ! mAuthenticateOpPtr &&
                 (mAckBlockFlags &
                     (uint64_t(1) << kLogBlockAckReAuthFlagBit)) != 0) {
             KFS_LOG_STREAM_DEBUG <<
@@ -1309,6 +1316,8 @@ private:
             " blocks: "       << mBlocksQueue.size() <<
             " bytes: "        << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
+        const NodeId thePrevPrimaryId = mPrimaryNodeId;
+        mPrimaryNodeId = -1;
         mConnectionPtr->Close();
         mConnectionPtr.reset();
         MetaRequest::Release(mAuthenticateOpPtr);
@@ -1317,7 +1326,7 @@ private:
         const MetaVrLogSeq thePrevAck = mAckBlockSeq;
         mAckBlockSeq = MetaVrLogSeq();
         VrDisconnect();
-        UpdateAck(thePrevAck);
+        UpdateAck(thePrevAck, thePrevPrimaryId);
         if (mSleepingFlag) {
             return;
         }
@@ -1521,10 +1530,18 @@ LogTransmitter::Impl::Insert(
     void
 LogTransmitter::Impl::Acked(
     const MetaVrLogSeq&                inPrevAck,
+    LogTransmitter::Impl::NodeId       inPrimaryNodeId,
     LogTransmitter::Impl::Transmitter& inTransmitter)
 {
     if (! inTransmitter.IsActive() || List::IsEmpty(mTransmittersPtr)) {
         return;
+    }
+    const NodeId thePrimaryId = inTransmitter.GetPrimaryNodeId();
+    if (inPrimaryNodeId != thePrimaryId && 0 < thePrimaryId && mMetaVrSMPtr) {
+        if (! mMetaVrSMPtr->ValidateAckPrimaryId(
+                inTransmitter.GetId(), thePrimaryId)) {
+            return;
+        }
     }
     const MetaVrLogSeq theAck = inTransmitter.GetAck();
     if (mCommitted < theAck) {

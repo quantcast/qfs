@@ -1241,6 +1241,7 @@ private:
             theOp.blockChecksum = mBodyChecksum;
             theOp.blockStartSeq = mBlockStartSeq;
             theOp.blockEndSeq   = mBlockEndSeq;
+            theOp.transmitterId = mTransmitterId;
             theOp.blockData.Move(&inBuffer, mBlockLength);
             mImpl.SubmitLogWrite(theOp);
         } else {

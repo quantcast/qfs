@@ -254,6 +254,7 @@ public:
           mStartViewEpochMismatchCount(0),
           mReplyCount(0),
           mLogTransmittersSuspendedFlag(false),
+          mLogStartViewPendingRecvFlag(false),
           mPrimaryNodeId(-1),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -280,13 +281,21 @@ public:
     int HandleLogBlock(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
-        const MetaVrLogSeq& inCommittedSeq)
+        const MetaVrLogSeq& inCommittedSeq,
+        NodeId              inTransmitterId)
     {
         if (inBlockEndSeq < inBlockStartSeq ||
                 inBlockStartSeq < inCommittedSeq ||
                 ! inCommittedSeq.IsValid()) {
             panic("VR: invalid log block commit sequence");
             return -EINVAL;
+        }
+        const NodeId thePrimaryId = GetPrimaryNodeId();
+        if (0 <= thePrimaryId && inTransmitterId != thePrimaryId) {
+            if (inBlockStartSeq < inBlockEndSeq) {
+                AdvanceView("received non heartbeat from a different primary");
+            }
+            return -EROFS;
         }
         return mStatus;
     }
@@ -515,10 +524,7 @@ public:
                 return mNodeId;
             }
             if (kStateBackup == mState) {
-                if (0 <= mPrimaryNodeId) {
-                    return mPrimaryNodeId;
-                }
-                return (-mPrimaryNodeId - 1);
+                return mPrimaryNodeId;
             }
         }
         return -1;
@@ -558,12 +564,13 @@ public:
         }
         if (mReplayLastLogSeq < inLastLogSeq) {
             mReplayLastLogSeq = inLastLogSeq;
-            if (mPrimaryNodeId < 0 && kStateBackup == mState && mActiveFlag &&
+            if (mLogStartViewPendingRecvFlag &&
+                    kStateBackup == mState && mActiveFlag &&
                     0 < mActiveCount && 0 < mQuorum) {
-                // Make primary node ID valid on backup after the first
+                // Mark primary node ID valid on backup after the first
                 // successful reply to ignore start view change from all nodes
                 // except primary.
-                mPrimaryNodeId = -mPrimaryNodeId - 1;
+                mLogStartViewPendingRecvFlag = false;
             }
         }
         outReqPtr = 0;
@@ -598,8 +605,9 @@ public:
                     TimeNow()) {
                 AdvanceView("backup receive timed out");
             } else if (! mLogTransmittersSuspendedFlag &&
-                    (! mActiveFlag || 0 <= mPrimaryNodeId) &&
-                    mStateSetTime + 4 * mConfig.GetBackupTimeout() <
+                    (! mActiveFlag || (0 <= mPrimaryNodeId &&
+                        ! mLogStartViewPendingRecvFlag)) &&
+                    mStateSetTime + 2 * mConfig.GetBackupTimeout() <
                         TimeNow()) {
                 KFS_LOG_STREAM_DEBUG <<
                     "suspending log transmitter" <<
@@ -609,16 +617,16 @@ public:
             }
         } else if (kStatePrimary == mState) {
             if (mActiveFlag) {
-                if (mLogTransmitter.IsUp()) {
-                    mLastUpTime = inTimeNow;
-                    if (0 < mQuorum && mLastCommitSeq < mLastLogSeq &&
+                if (HasPrimaryTimedOut()) {
+                    AdvanceView("primary timed out");
+                } else if (mLogTransmitter.IsUp()) {
+                    if (0 < mQuorum &&
+                            mLastCommitSeq < mLastLogSeq &&
                             mLastCommitTime + mConfig.GetPrimaryTimeout() <
                                 TimeNow()) {
                         AdvanceView("primary commit timed out");
-                    }
-                } else {
-                    if (HasPrimaryTimedOut()) {
-                        AdvanceView("primary timed out");
+                    } else {
+                        mLastUpTime = TimeNow();
                     }
                 }
                 outReqPtr = mMetaVrLogStartViewPtr;
@@ -967,6 +975,20 @@ public:
         { return mLastLogSeq; }
     const ServerLocation& GetMetaDataStoreLocation() const
         { return mMetaDataStoreLocation; }
+    bool ValidateAckPrimaryId(
+        NodeId inNodeId,
+        NodeId inPrimaryNodeId)
+    {
+        if (! mActiveFlag || ! IsActive(inNodeId)) {
+            return true;
+        }
+        if (kStatePrimary == mState && 0 <= inPrimaryNodeId &&
+                inPrimaryNodeId != mNodeId) {
+            AdvanceView("received ACK from a different primary");
+            return false;
+        }
+        return true;
+    }
     static NodeId GetNodeId(
         const MetaRequest& inReq)
     {
@@ -1213,6 +1235,7 @@ private:
     int                          mStartViewEpochMismatchCount;
     int                          mReplyCount;
     bool                         mLogTransmittersSuspendedFlag;
+    bool                         mLogStartViewPendingRecvFlag;
     NodeId                       mPrimaryNodeId;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -1489,7 +1512,7 @@ private:
             return;
         }
         const size_t theSz = mStartViewChangeNodeIds.size();
-        if (theSz < mQuorum) {
+        if ((int)theSz < mQuorum) {
             RetryStartViewChange("not sufficient number of noded responded");
             return;
         }
@@ -1708,6 +1731,7 @@ private:
                 if (kStateLogSync != mState &&
                         (kStateBackup != mState ||
                             mPrimaryNodeId < 0 ||
+                            mLogStartViewPendingRecvFlag ||
                             inReq.mNodeId == mPrimaryNodeId ||
                             mLastReceivedTime + mConfig.GetBackupTimeout() <
                                 TimeNow())) {
@@ -1824,8 +1848,10 @@ private:
                 } else {
                     CancelViewChange();
                     SetState(kStateBackup);
-                    mPrimaryNodeId    = -inReq.mNodeId - 1;
-                    mLastReceivedTime = TimeNow();
+                    // Mark as not valid until replay
+                    mLogStartViewPendingRecvFlag = true;
+                    mPrimaryNodeId               = inReq.mNodeId;
+                    mLastReceivedTime            = TimeNow();
                 }
             }
             SetReturnState(inReq);
@@ -2188,7 +2214,7 @@ private:
     {
         return (
             0 < inPrimaryTimeout &&
-            (int64_t)inPrimaryTimeout + 3 <= inBackupTimeout
+            3 <= inBackupTimeout - inPrimaryTimeout
         );
     }
     void SetParameters(
@@ -2640,7 +2666,8 @@ private:
             panic("VR: start view change: node non active");
             return;
         }
-        mPrimaryNodeId = -1;
+        mLogStartViewPendingRecvFlag = false;
+        mPrimaryNodeId               = -1;
         CancelViewChange();
         if (mQuorum <= 0) {
             NullQuorumStartView();
@@ -2726,10 +2753,11 @@ MetaVrSM::~MetaVrSM()
 MetaVrSM::HandleLogBlock(
     const MetaVrLogSeq& inBlockStartSeq,
     const MetaVrLogSeq& inBlockEndSeq,
-    const MetaVrLogSeq& inCommittedSeq)
+    const MetaVrLogSeq& inCommittedSeq,
+    MetaVrSM::NodeId    inTransmitterId)
 {
     return mImpl.HandleLogBlock(
-        inBlockStartSeq, inBlockEndSeq, inCommittedSeq);
+        inBlockStartSeq, inBlockEndSeq, inCommittedSeq, inTransmitterId);
 }
 
     void
@@ -2916,6 +2944,14 @@ MetaVrSM::GetMetaDataStoreLocation() const
 MetaVrSM::GetPrimaryNodeId() const
 {
     return mImpl.GetPrimaryNodeId();
+}
+
+    bool
+MetaVrSM::ValidateAckPrimaryId(
+    MetaVrSM::NodeId inNodeId,
+    MetaVrSM::NodeId inPrimaryNodeId)
+{
+    return mImpl.ValidateAckPrimaryId(inNodeId, inPrimaryNodeId);
 }
 
     /* static */ const char*

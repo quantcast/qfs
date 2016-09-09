@@ -135,6 +135,7 @@ public:
           mPrepareToForkDoneFlag(false),
           mLastLogReceivedTime(-1),
           mVrLastLogReceivedTime(-1),
+          mVrNodeId(-1),
           mPrepareToForkCond(),
           mForkDoneCond(),
           mRandom(),
@@ -260,6 +261,7 @@ public:
         if (! IsLogStreamGood()) {
             return mError;
         }
+        mVrNodeId              = mMetaVrSM.GetNodeId();
         outCurLogFileName      = mLogName;
         mStopFlag              = false;
         mNetManagerPtr         = &inNetManager;
@@ -517,6 +519,7 @@ private:
         kWriteStateNone,
         kUpdateBlockChecksum
     };
+    typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
 
     NetManager*    mNetManagerPtr;
@@ -574,6 +577,7 @@ private:
     bool           mPrepareToForkDoneFlag;
     time_t         mLastLogReceivedTime;
     time_t         mVrLastLogReceivedTime;
+    NodeId         mVrNodeId;
     QCCondVar      mPrepareToForkCond;
     QCCondVar      mForkDoneCond;
     PrngIsaac64    mRandom;
@@ -1012,7 +1016,8 @@ private:
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             mNextLogSeq,
             inLogSeq,
-            mInFlightCommitted.mSeq
+            mInFlightCommitted.mSeq,
+            mVrNodeId
         );
         const int theBlockLen = inBlockLen < 0 ?
             (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) : inBlockLen;
@@ -1200,11 +1205,18 @@ private:
                 inRequest.statusMsg = "invalid heartbeat sequence";
             } else {
                 // Valid heartbeat.
-                mMetaVrSM.HandleLogBlock(
+                const int theVrStatus = mMetaVrSM.HandleLogBlock(
                     inRequest.blockStartSeq,
                     inRequest.blockEndSeq,
-                    mInFlightCommitted.mSeq
+                    mInFlightCommitted.mSeq,
+                    inRequest.transmitterId
                 );
+                if (0 != theVrStatus &&
+                        ! IsMetaLogWriteOrVrError(theVrStatus)) {
+                    inRequest.status    = theVrStatus;
+                    inRequest.statusMsg = "VR error";
+                    return;
+                }
                 mMetaVrSM.LogBlockWriteDone(
                     inRequest.blockStartSeq,
                     inRequest.blockEndSeq,
@@ -1345,8 +1357,17 @@ private:
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             inRequest.blockStartSeq,
             inRequest.blockEndSeq,
-            mInFlightCommitted.mSeq
+            mInFlightCommitted.mSeq,
+            inRequest.transmitterId
         );
+        if (0 != theVrStatus &&
+                ! IsMetaLogWriteOrVrError(theVrStatus)) {
+            mMdStream.ClearBuffer();
+            --mNextBlockSeq;
+            inRequest.status    = theVrStatus;
+            inRequest.statusMsg = "VR error";
+            return;
+        }
         if (0 == theVrStatus) {
             const int theStatus = mLogTransmitter.TransmitBlock(
                 inRequest.blockEndSeq,
