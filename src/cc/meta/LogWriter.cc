@@ -1558,7 +1558,8 @@ private:
             mLogFileMaxSize));
         const int theVrStatus = mMetaVrSM.SetParameters(
             theName.Truncate(thePrefixLen).Append("Vr.").c_str(),
-            inParameters
+            inParameters,
+            mLogDir
         );
         const int theStatus = mLogTransmitter.SetParameters(
             theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),

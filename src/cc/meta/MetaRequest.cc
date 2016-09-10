@@ -784,6 +784,7 @@ MetaRequest::Initialize()
     }
     MetaRequestsList::Init(sMetaRequestsPtr);
     GetNullReq();
+    MetaChunkRequest::MakeNullIterator();
     return true;
 }
 

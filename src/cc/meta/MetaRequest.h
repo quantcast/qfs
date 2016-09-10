@@ -2266,6 +2266,7 @@ private:
     MetaChunkRequest*          mNextPtr[1];
     friend class QCDLListOp<MetaChunkRequest, 0>;
     friend class ChunkServer;
+    friend bool MetaRequest::Initialize();
 
     static ChunkOpsInFlight::iterator MakeNullIterator();
 protected:

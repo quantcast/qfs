@@ -446,9 +446,8 @@ ChunkLeases::Renew(
     time_t  now)
 {
     WriteLease& wl = we;
-    const time_t exp = now + LEASE_INTERVAL_SECS;
-    if (wl.expires < exp) {
-        wl.expires = exp;
+    if (wl.expires < now + LEASE_INTERVAL_SECS) {
+        wl.expires = now + LEASE_INTERVAL_SECS;
         PutInExpirationList(we);
     }
 }
@@ -5555,8 +5554,24 @@ LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
 void
 LayoutManager::SetDisableTimerFlag(bool flag)
 {
+    if (mDisableTimerFlag == flag) {
+        return;
+    }
     mDisableTimerFlag = flag;
-    mIdempotentRequestTracker.SetDisableTimerFlag(flag);
+    mIdempotentRequestTracker.SetDisableTimerFlag(mDisableTimerFlag);
+    if (! mDisableTimerFlag) {
+        return;
+    }
+    RequestQueue queue;
+    queue.PushBack(mResubmitQueue);
+    MetaRequest* req;
+    while ((req = queue.PopFront())) {
+        KFS_LOG_STREAM_DEBUG <<
+            "canceling: " << req->Show() <<
+        KFS_LOG_EOM;
+        req->suspended = false;
+        submit_request(req);
+    }
 }
 
 HibernatedChunkServer*
@@ -9175,8 +9190,12 @@ LayoutManager::AddServerToMakeStable(
 void
 LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
 {
-    if (req.next) {
+    if (req.next || 0 <= req.status || req.logseq.IsValid() ||
+            req.submitCount <= 0) {
         panic("invalid resubmit request attempt");
+    }
+    if (mDisableTimerFlag) {
+        return;
     }
     req.next      = 0;
     req.logAction = MetaRequest::kLogIfOk;
@@ -10641,8 +10660,8 @@ LayoutManager::CheckHibernatingServersStatus()
                 KFS_LOG_EOM;
             }
         } else {
-            // server hasn't come back as promised...so, check
-            // re-replication for the blocks that were on that node
+            // Server hasn't come back as promised, initiate
+            // re-replication check for the blocks that were on that node.
             KFS_LOG_STREAM_INFO <<
                 "hibernated server: " << iter->location <<
                 " is NOT back as promised" <<

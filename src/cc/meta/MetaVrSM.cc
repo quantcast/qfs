@@ -38,12 +38,18 @@
 #include "qcdio/qcstutils.h"
 
 #include "common/IntToString.h"
+#include "common/RequestParser.h"
 #include "common/BufferInputStream.h"
 #include "common/StdAllocator.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 
 #include "kfsio/NetManager.h"
+#include "kfsio/checksum.h"
+
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include <algorithm>
 #include <set>
@@ -255,6 +261,9 @@ public:
           mReplyCount(0),
           mLogTransmittersSuspendedFlag(false),
           mLogStartViewPendingRecvFlag(false),
+          mMustSyncLogFlag(false),
+          mSyncVrStateFileFlag(true),
+          mPanicOnIoErrorFlag(true),
           mPrimaryNodeId(-1),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -267,8 +276,11 @@ public:
           mLogFetchEndSeq(),
           mMetaDataStoreLocation(),
           mSyncServers(),
-          mInputStream(),
+          mVrStateFileName(),
+          mVrStateTmpFileName(),
+          mVrStateIoStr(),
           mEmptyString(),
+          mInputStream(),
           mMutex(),
           mReconfigureCompletionCondVar(),
           mPendingReconfigureReqPtr(0),
@@ -734,8 +746,42 @@ public:
             mMetaDataStoreLocation = inDataStoreLocation;
         }
         ConfigUpdate();
+        NodeId theNodeId = -1;
         mStartedFlag = true;
-        return 0;
+        int theRet = ReadVrState(theNodeId);
+        if (0 == theRet) {
+            if (theNodeId != mNodeId) {
+                KFS_LOG_STREAM_ERROR <<
+                    mVrStateFileName <<
+                    ": valid VR state node id: "              << theNodeId <<
+                    " does not match configuration node id: " << mNodeId <<
+                    " please ensure that configuration is correct,"
+                    " node IDs are unique, "
+                    " and remove stale " << mVrStateFileName << " file" <<
+                KFS_LOG_EOM;
+                theRet = EINVAL;
+            }
+        } else {
+            mMustSyncLogFlag = 0 < mQuorum && mActiveFlag;
+            if (-ENOENT == theRet) {
+                theRet = 0;
+            } else if (! mVrStateFileName.empty() &&
+                        unlink(mVrStateFileName.c_str())) {
+                theRet = errno;
+                if (ENOENT == theRet) {
+                    theRet = 0;
+                } else {
+                    if (0 == theRet) {
+                        theRet = EIO;
+                    }
+                    KFS_LOG_STREAM_ERROR <<
+                        mVrStateFileName << ": " <<
+                        QCUtils::SysError(theRet) <<
+                    KFS_LOG_EOM;
+                }
+            }
+        }
+        return (0 < theRet ? -theRet : theRet);
     }
     void Shutdown()
     {
@@ -744,13 +790,22 @@ public:
     }
     int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        const string&     inLogDir)
     {
         if (! mStartedFlag || mNodeId < 0) {
             mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
         }
+        Properties::String theName(inPrefixPtr ? inPrefixPtr : "");
+        const size_t       thePrefixLen = theName.length();
+        mPanicOnIoErrorFlag = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("panicOnIoError"),
+            mPanicOnIoErrorFlag ? 1 : 0) != 0;
+        mSyncVrStateFileFlag = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("syncVrStateFile"),
+            mPanicOnIoErrorFlag ? 1 : 0) != 0;
         const Properties::String* const theStrPtr = inParameters.getValue(
-            "metaServer.Vr.metaDataStoreLocation");
+            theName.Truncate(thePrefixLen).Append("metaDataStoreLocation"));
         if (theStrPtr) {
             ServerLocation theLocation;
             if (theLocation.FromString(
@@ -772,7 +827,22 @@ public:
             }
             mInputStream.Reset();
         }
-        return 0;
+        if (inLogDir.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid empty log directory path name" <<
+            KFS_LOG_EOM;
+        } else {
+            mVrStateFileName.assign(inLogDir.data(), inLogDir.size());
+            if (*mVrStateFileName.rbegin() != '/') {
+                mVrStateFileName += "/";
+            }
+            mVrStateFileName += "vrstate";
+            mVrStateTmpFileName.reserve(mVrStateFileName.size() + 4);
+            mVrStateTmpFileName.assign(
+                mVrStateFileName.data(), mVrStateFileName.size());
+            mVrStateTmpFileName += ".tmp";
+        }
+        return (inLogDir.empty() ? -EINVAL : 0);
     }
     void Commit(
         const MetaVrLogSeq& inLogSeq)
@@ -1188,6 +1258,7 @@ private:
         less<StringBufT<32> >,
         StdFastAllocator<StringBufT<32> >
     > MetaMds;
+    enum { kMaxVrStateSize = 256 };
 
     LogTransmitter&              mLogTransmitter;
     MetaDataSync*                mMetaDataSyncPtr;
@@ -1236,6 +1307,9 @@ private:
     int                          mReplyCount;
     bool                         mLogTransmittersSuspendedFlag;
     bool                         mLogStartViewPendingRecvFlag;
+    bool                         mMustSyncLogFlag;
+    bool                         mSyncVrStateFileFlag;
+    bool                         mPanicOnIoErrorFlag;
     NodeId                       mPrimaryNodeId;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -1248,12 +1322,16 @@ private:
     MetaVrLogSeq                 mLogFetchEndSeq;
     ServerLocation               mMetaDataStoreLocation;
     MetaDataSync::Servers        mSyncServers;
-    BufferInputStream            mInputStream;
+    string                       mVrStateFileName;
+    string                       mVrStateTmpFileName;
+    string                       mVrStateIoStr;
     string const                 mEmptyString;
+    BufferInputStream            mInputStream;
     QCMutex                      mMutex;
     QCCondVar                    mReconfigureCompletionCondVar;
     MetaVrReconfiguration*       mPendingReconfigureReqPtr;
     MetaVrResponse               mVrResponse;
+    char                         mVrStateReadBuffer[kMaxVrStateSize];
 
     void Wakeup()
         { mNetManagerPtr->Wakeup(); }
@@ -2699,6 +2777,9 @@ private:
             mViewChangeStartTime = TimeNow();
             SetState(kStateViewChange);
         }
+        if (0 != WriteVrState(inPrimaryId) && mPanicOnIoErrorFlag) {
+            panic("VR: do view change write state io error");
+        }
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
         theOp.mPimaryNodeId = inPrimaryId;
@@ -2729,6 +2810,221 @@ private:
             mLogTransmitter.Suspend(mLogTransmittersSuspendedFlag);
         }
         mLogTransmitter.QueueVrRequest(inOp, inNodeId);
+    }
+    static string& AppendHexLogSeqToString(
+        string&             inStr,
+        const MetaVrLogSeq& inLogSeq)
+    {
+        AppendHexIntToString(inStr, inLogSeq.mEpochSeq);
+        inStr += " ";
+        AppendHexIntToString(inStr, inLogSeq.mViewSeq);
+        inStr += " ";
+        AppendHexIntToString(inStr, inLogSeq.mLogSeq);
+        return inStr;
+    }
+    int WriteVrState(
+        NodeId inPrimaryId)
+    {
+        if (mVrStateFileName.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid empty vr state file name" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        bool      theRenameErrorFlag = false;
+        int       theError = 0;
+        const int theFd = open(mVrStateTmpFileName.c_str(),
+            O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        if (theFd < 0) {
+            theError = errno;
+            if (0 == theError) {
+                theError = EIO;
+            }
+        } else {
+            mVrStateIoStr.reserve(1024);
+            mVrStateIoStr.clear();
+            AppendHexIntToString(mVrStateIoStr, mFileSystemId);
+            mVrStateIoStr += " ";
+            AppendHexIntToString(mVrStateIoStr, mEpochSeq);
+            mVrStateIoStr += " ";
+            AppendHexIntToString(mVrStateIoStr, mViewSeq);
+            mVrStateIoStr += " ";
+            AppendHexIntToString(mVrStateIoStr, mNodeId);
+            mVrStateIoStr += " ";
+            AppendHexIntToString(mVrStateIoStr, inPrimaryId);
+            mVrStateIoStr += " ";
+            AppendHexLogSeqToString(mVrStateIoStr, mLastLogSeq);
+            mVrStateIoStr += " ";
+            AppendHexLogSeqToString(mVrStateIoStr, mCommittedSeq);
+            mVrStateIoStr += " ";
+            const int64_t theTimeNow = TimeNow();
+            AppendHexIntToString(mVrStateIoStr, theTimeNow);
+            mVrStateIoStr += " ";
+            const uint32_t theCrc32 = ComputeCrc32(
+                mVrStateIoStr.data(), mVrStateIoStr.size());
+            AppendHexIntToString(mVrStateIoStr, theCrc32);
+            mVrStateIoStr += "\n";
+            const size_t theSize = mVrStateIoStr.size();
+            if (sizeof(mVrStateReadBuffer) <= theSize) {
+                close(theFd);
+                panic("vr state exceeded max length");
+                return -EFAULT;
+            }
+            bool theCloseErrorFlag = false;
+            if (write(theFd, mVrStateIoStr.data(), theSize) !=
+                    (ssize_t)theSize ||
+                    (mSyncVrStateFileFlag && 0 != fsync(theFd)) ||
+                    (theCloseErrorFlag = 0 != close(theFd)) ||
+                    (theRenameErrorFlag = 0 != rename(
+                        mVrStateTmpFileName.c_str(),
+                        mVrStateFileName.c_str()))) {
+                theError = errno;
+                if (0 == theError) {
+                    theError = EIO;
+                }
+                if (! theRenameErrorFlag && ! theCloseErrorFlag) {
+                    close(theFd);
+                }
+                unlink(mVrStateTmpFileName.c_str());
+            }
+        }
+        if (0 != theError) {
+            KFS_LOG_STREAM_ERROR <<
+                (theRenameErrorFlag ? "rename " : "") <<
+                mVrStateTmpFileName <<
+                (theRenameErrorFlag ? " to " : "") <<
+                (theRenameErrorFlag ? mVrStateFileName.c_str() : "") <<
+                " : " << QCUtils::SysError(theError) <<
+            KFS_LOG_EOM;
+        }
+        return (0 < theError ? -theError : theError);
+    }
+    int ReadVrState(
+        NodeId& outNodeId)
+    {
+        outNodeId = -1;
+        if (mVrStateFileName.empty()) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid empty vr state file name" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        int       theRet = 0;
+        const int theFd  = open(mVrStateFileName.c_str(), O_RDONLY);
+        if (0 <= theFd) {
+            const ssize_t theNRd = read(
+                theFd, mVrStateReadBuffer, sizeof(mVrStateReadBuffer));
+            if (theNRd < 0) {
+                theRet = errno;
+                if (0 == theRet) {
+                    theRet = EIO;
+                }
+                KFS_LOG_STREAM_ERROR <<
+                    mVrStateFileName << ": " << QCUtils::SysError(theRet) <<
+                KFS_LOG_EOM;
+            } else {
+                MetaVrLogSeq      theLastLogSeq;
+                MetaVrLogSeq      theCommittedSeq;
+                int64_t           theFsId      = -1;
+                seq_t             theEpochSeq  = -1;
+                seq_t             theViewSeq   = -1;
+                NodeId            thePrimaryId = -1;
+                NodeId            theNodeId    = -1;
+                int64_t           theTime      = -1;
+                const char*       thePtr       = mVrStateReadBuffer;
+                const char* const theEndPtr    = thePtr + theNRd;
+                if (theNRd == 0 ||
+                        sizeof(mVrStateReadBuffer) <= (size_t)theNRd ||
+                        (mVrStateReadBuffer[theNRd - 1] & 0xFF) != '\n' ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theFsId) ||
+                        theFsId < 0 ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theEpochSeq) ||
+                        theEpochSeq < 0 ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theViewSeq) ||
+                        theViewSeq < 0 ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theNodeId) ||
+                        theNodeId < 0 ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, thePrimaryId) ||
+                        ! theLastLogSeq.Parse<HexIntParser>(
+                            thePtr, theEndPtr - thePtr) ||
+                        ! theLastLogSeq.IsValid() ||
+                        ! theCommittedSeq.Parse<HexIntParser>(
+                            thePtr, theEndPtr - thePtr) ||
+                        ! theCommittedSeq.IsValid() ||
+                        ! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theTime) ||
+                        theEndPtr <= thePtr ||
+                        (*thePtr++ & 0xFF) != ' ' ||
+                        theEndPtr <= thePtr ||
+                        (*thePtr & 0xFF) <= ' ') {
+                    theRet = EINVAL;
+                } else {
+                    const uint32_t theActCrc32 = ComputeCrc32(
+                        mVrStateReadBuffer, thePtr - mVrStateReadBuffer);
+                    uint32_t       theCrc32    = 0;
+                    if (! HexIntParser::Parse(
+                            thePtr, theEndPtr - thePtr, theCrc32)) {
+                        theRet = EINVAL;
+                    } else if (theActCrc32 != theCrc32) {
+                        theRet = EBADCKSUM;
+                        KFS_LOG_STREAM_ERROR <<
+                            mVrStateFileName << ": checksum mismatch:"
+                            " expected:" << theCrc32 <<
+                            " actual: "  << theActCrc32 <<
+                        KFS_LOG_EOM;
+                    } else {
+                        if (theFsId != mFileSystemId ||
+                                mLastLogSeq < theLastLogSeq ||
+                                mLastCommitSeq < theCommittedSeq ||
+                                theEpochSeq < mEpochSeq ||
+                                theViewSeq < mViewSeq) {
+                            KFS_LOG_STREAM_ERROR <<
+                                mVrStateFileName <<
+                                ": invalid state state:"
+                                " fs id: "    << theFsId <<
+                                " / "         << mFileSystemId <<
+                                " node: "     << theNodeId <<
+                                " / "         << mNodeId <<
+                                " last log:"  << mLastLogSeq <<
+                                " < "         << theLastLogSeq <<
+                                " commited: " << mLastCommitSeq <<
+                                " < "         << theCommittedSeq <<
+                                " epoch: "    << theEpochSeq <<
+                                " < "         << mEpochSeq <<
+                                " view: "     << mViewSeq <<
+                                " "           << theViewSeq <<
+                                " primary: "  << thePrimaryId <<
+                            KFS_LOG_EOM;
+                            theRet = ENXIO;
+                        } else {
+                            outNodeId = theNodeId;
+                        }
+                    }
+                }
+            }
+            close(theFd);
+            if (EINVAL == theRet) {
+                KFS_LOG_STREAM_ERROR <<
+                    mVrStateFileName << ": invalid VR state file format" <<
+                KFS_LOG_EOM;
+            }
+        } else {
+            theRet = errno;
+            if (0 == theRet) {
+                theRet = EIO;
+            }
+            if (ENOENT != theRet) {
+                KFS_LOG_STREAM_ERROR <<
+                    mVrStateFileName << ": " << QCUtils::SysError(theRet) <<
+                KFS_LOG_EOM;
+            }
+        }
+        return (0 < theRet ? -theRet : theRet);
     }
 private:
     Impl(
@@ -2882,9 +3178,10 @@ MetaVrSM::Commit(
     int
 MetaVrSM::SetParameters(
     const char*       inPrefixPtr,
-    const Properties& inParameters)
+    const Properties& inParameters,
+    const string&     inLogDir)
 {
-    return mImpl.SetParameters(inPrefixPtr, inParameters);
+    return mImpl.SetParameters(inPrefixPtr, inParameters, inLogDir);
 }
 
     const MetaVrSM::Config&

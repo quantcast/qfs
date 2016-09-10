@@ -39,6 +39,7 @@
 #include <map>
 #include <utility>
 #include <ostream>
+#include <string>
 
 namespace KFS
 {
@@ -48,6 +49,7 @@ using std::ostream;
 using std::pair;
 using std::less;
 using std::make_pair;
+using std::string;
 
 struct MetaRequest;
 class MetaVrStartViewChange;
@@ -325,7 +327,8 @@ public:
         MetaRequest*&       outReqPtr);
     int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        const string&     inLogDir);
     void Commit(
         const MetaVrLogSeq& inLogSeq);
     int Start(
