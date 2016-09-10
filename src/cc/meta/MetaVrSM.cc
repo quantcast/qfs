@@ -703,6 +703,7 @@ public:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
+            mActiveFlag = IsActive(mNodeId);
             if (mActiveCount <= 0 && mQuorum <= 0 &&
                     ((mConfig.IsEmpty() &&
                         kBootstrapPrimaryNodeId == mNodeId) ||
@@ -716,11 +717,12 @@ public:
                         " configuration, and node id non 0"
                         " node id: " << mNodeId <<
                     KFS_LOG_EOM;
+                    SetState(kStateBackup);
+                } else {
+                    SetState(mActiveFlag ? kStateViewChange : kStateBackup);
                 }
-                SetState(kStateBackup);
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
-            mActiveFlag = IsActive(mNodeId);
         }
         mLastCommitTime       = TimeNow();
         mCommittedSeq         = inReplayer.getCommitted();
@@ -746,6 +748,12 @@ public:
             mMetaDataStoreLocation = inDataStoreLocation;
         }
         ConfigUpdate();
+        if (kStateViewChange == mState) {
+            // Start view has not been queued, pretend that all nodes have
+            // failed to respond in order to start new start view change round.
+            mReplyCount          = mChannelsCount;
+            mViewChangeStartTime = mLastReceivedTime;
+        }
         NodeId theNodeId = -1;
         mStartedFlag = true;
         int theRet = ReadVrState(theNodeId);
@@ -1893,6 +1901,9 @@ private:
                     }
                 } else if (kStateStartViewPrimary != mState &&
                         kStatePrimary != mState) {
+                    if (kStateBackup == mState) {
+                        AdvanceView("backup do view change");
+                    }
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "ignored, state: ";
                     inReq.statusMsg += GetStateName(mState);
@@ -1910,6 +1921,9 @@ private:
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq || (kStateViewChange != mState &&
                     kStateStartViewPrimary != mState)) {
+                if (kStateBackup == mState) {
+                    AdvanceView("backup start view");
+                }
                 if (kStatePrimary != mState || mNodeId != inReq.mNodeId) {
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "ignored, state: ";
