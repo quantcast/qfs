@@ -329,18 +329,18 @@ protected:
 class MetaVrDoViewChange : public MetaVrRequest
 {
 public:
-    NodeId mPimaryNodeId;
+    NodeId mPrimaryNodeId;
 
     MetaVrDoViewChange()
         : MetaVrRequest(META_VR_DO_VIEW_CHANGE, kLogIfOk),
-          mPimaryNodeId(-1)
+          mPrimaryNodeId(-1)
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
     {
         return (
             ShowFields(inOs << "vr-do-view-change") <<
-            " primary: " << mPimaryNodeId
+            " primary: " << mPrimaryNodeId
         );
     }
     virtual void HandleResponse(
@@ -354,7 +354,7 @@ public:
         T& inParser)
     {
         return MetaVrRequest::ParserDef(inParser)
-        .Def("P", &MetaVrDoViewChange::mPimaryNodeId,  seq_t(-1))
+        .Def("P", &MetaVrDoViewChange::mPrimaryNodeId,  seq_t(-1))
         ;
     }
 protected:

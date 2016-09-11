@@ -1898,7 +1898,7 @@ private:
                     mViewSeq = inReq.mViewSeq;
                     StartViewChange();
                 }
-            } else if (mNodeId != inReq.mPimaryNodeId) {
+            } else if (mNodeId != inReq.mPrimaryNodeId) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "primary node id mismatch, state: ";
                 inReq.statusMsg += GetStateName(mState);
@@ -1946,9 +1946,12 @@ private:
             if (mViewSeq != inReq.mViewSeq ||
                     (kStateViewChange != mState &&
                         kStateStartViewPrimary != mState) ||
+                    (mDoViewChangePtr &&
+                        inReq.mNodeId != mDoViewChangePtr->mPrimaryNodeId) ||
                     (kStateStartViewPrimary == mState &&
                         mNodeId != inReq.mNodeId)) {
                 if (kStateBackup == mState) {
+                    mViewSeq = inReq.mViewSeq;
                     AdvanceView("backup start view");
                 }
                 if (kStatePrimary != mState || mNodeId != inReq.mNodeId) {
@@ -2821,9 +2824,9 @@ private:
         }
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
-        theOp.mPimaryNodeId = inPrimaryId;
+        theOp.mPrimaryNodeId = inPrimaryId;
         mDoViewChangePtr = &theOp;
-        QueueVrRequest(theOp, theOp.mPimaryNodeId);
+        QueueVrRequest(theOp, theOp.mPrimaryNodeId);
     }
     void StartView()
     {
