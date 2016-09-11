@@ -327,8 +327,7 @@ public:
         MetaRequest*&       outReqPtr);
     int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters,
-        const string&     inLogDir);
+        const Properties& inParameters);
     void Commit(
         const MetaVrLogSeq& inLogSeq);
     int Start(
