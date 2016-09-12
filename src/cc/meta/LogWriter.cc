@@ -142,7 +142,15 @@ public:
           mTmpBuffer(),
           mLogFileNamePrefix("log"),
           mNotPrimaryErrorMsg(ErrorCodeToString(-ELOGFAILED)),
-          mLogWriteErrorMsg(ErrorCodeToString(-EVRNOTPRIMARY))
+          mLogWriteErrorMsg(ErrorCodeToString(-EVRNOTPRIMARY)),
+          mLogStartViewPrefix(
+            string(kLogWriteAheadPrefixPtr) +
+            kLogVrStatViewNamePtr +
+            kMetaIoPropertiesSeparator
+          ),
+          mLogAppendPrefixLen(strlen(kLogWriteAheadPrefixPtr)),
+          mLogStartViewPrefixPtr(mLogStartViewPrefix.data()),
+          mLogStartViewPrefixLen(mLogStartViewPrefix.size())
         { mLogName.reserve(1 << 10); }
     ~Impl()
         { Impl::Shutdown(); }
@@ -522,69 +530,73 @@ private:
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
 
-    NetManager*    mNetManagerPtr;
-    MetaDataStore* mMetaDataStorePtr;
-    Replay*        mReplayerPtr;
-    NetManager     mNetManager;
-    LogTransmitter mLogTransmitter;
-    MetaVrSM       mMetaVrSM;
-    int            mVrStatus;
-    volatile int&  mEnqueueVrStatus;
-    MetaVrLogSeq   mTransmitCommitted;
-    MetaVrLogSeq   mMaxDoneLogSeq;
-    Committed      mCommitted;
-    QCThread       mThread;
-    QCMutex        mMutex;
-    bool           mStopFlag;
-    bool           mOmitDefaultsFlag;
-    bool           mCommitUpdatedFlag;
-    bool           mSetReplayStateFlag;
-    int            mMaxBlockSize;
-    int            mPendingCount;
-    int            mExraPendingCount;
-    string         mLogDir;
-    Queue          mPendingQueue;
-    Queue          mInQueue;
-    Queue          mOutQueue;
-    Queue          mPendingAckQueue;
-    Queue          mReplayCommitQueue;
-    Committed      mPendingCommitted;
-    Committed      mInFlightCommitted;
-    MetaVrLogSeq   mPendingReplayLogSeq;
-    MetaVrLogSeq   mReplayLogSeq;
-    MetaVrLogSeq   mNextLogSeq;
-    seq_t          mNextBlockSeq;
-    MetaVrLogSeq   mLastLogSeq;
-    Checksum       mNextBlockChecksum;
-    int            mLogFd;
-    int            mError;
-    MdStream       mMdStream;
-    ReqOstream     mReqOstream;
-    time_t         mCurLogStartTime;
-    MetaVrLogSeq   mCurLogStartSeq;
-    seq_t          mLogNum;
-    string         mLogName;
-    time_t         mLogRotateInterval;
-    bool           mPanicOnIoErrorFlag;
-    bool           mSyncFlag;
-    bool           mWokenFlag;
-    string         mLastLogPath;
-    int64_t        mLogFilePos;
-    int64_t        mLogFilePrevPos;
-    int64_t        mLogFileMaxSize;
-    int64_t        mFailureSimulationInterval;
-    bool           mPrepareToForkFlag;
-    bool           mPrepareToForkDoneFlag;
-    time_t         mLastLogReceivedTime;
-    time_t         mVrLastLogReceivedTime;
-    NodeId         mVrNodeId;
-    QCCondVar      mPrepareToForkCond;
-    QCCondVar      mForkDoneCond;
-    PrngIsaac64    mRandom;
-    TmpBuffer      mTmpBuffer;
-    const string   mLogFileNamePrefix;
-    const string   mNotPrimaryErrorMsg;
-    const string   mLogWriteErrorMsg;
+    NetManager*       mNetManagerPtr;
+    MetaDataStore*    mMetaDataStorePtr;
+    Replay*           mReplayerPtr;
+    NetManager        mNetManager;
+    LogTransmitter    mLogTransmitter;
+    MetaVrSM          mMetaVrSM;
+    int               mVrStatus;
+    volatile int&     mEnqueueVrStatus;
+    MetaVrLogSeq      mTransmitCommitted;
+    MetaVrLogSeq      mMaxDoneLogSeq;
+    Committed         mCommitted;
+    QCThread          mThread;
+    QCMutex           mMutex;
+    bool              mStopFlag;
+    bool              mOmitDefaultsFlag;
+    bool              mCommitUpdatedFlag;
+    bool              mSetReplayStateFlag;
+    int               mMaxBlockSize;
+    int               mPendingCount;
+    int               mExraPendingCount;
+    string            mLogDir;
+    Queue             mPendingQueue;
+    Queue             mInQueue;
+    Queue             mOutQueue;
+    Queue             mPendingAckQueue;
+    Queue             mReplayCommitQueue;
+    Committed         mPendingCommitted;
+    Committed         mInFlightCommitted;
+    MetaVrLogSeq      mPendingReplayLogSeq;
+    MetaVrLogSeq      mReplayLogSeq;
+    MetaVrLogSeq      mNextLogSeq;
+    seq_t             mNextBlockSeq;
+    MetaVrLogSeq      mLastLogSeq;
+    Checksum          mNextBlockChecksum;
+    int               mLogFd;
+    int               mError;
+    MdStream          mMdStream;
+    ReqOstream        mReqOstream;
+    time_t            mCurLogStartTime;
+    MetaVrLogSeq      mCurLogStartSeq;
+    seq_t             mLogNum;
+    string            mLogName;
+    time_t            mLogRotateInterval;
+    bool              mPanicOnIoErrorFlag;
+    bool              mSyncFlag;
+    bool              mWokenFlag;
+    string            mLastLogPath;
+    int64_t           mLogFilePos;
+    int64_t           mLogFilePrevPos;
+    int64_t           mLogFileMaxSize;
+    int64_t           mFailureSimulationInterval;
+    bool              mPrepareToForkFlag;
+    bool              mPrepareToForkDoneFlag;
+    time_t            mLastLogReceivedTime;
+    time_t            mVrLastLogReceivedTime;
+    NodeId            mVrNodeId;
+    QCCondVar         mPrepareToForkCond;
+    QCCondVar         mForkDoneCond;
+    PrngIsaac64       mRandom;
+    TmpBuffer         mTmpBuffer;
+    const string      mLogFileNamePrefix;
+    const string      mNotPrimaryErrorMsg;
+    const string      mLogWriteErrorMsg;
+    const string      mLogStartViewPrefix;
+    const size_t      mLogAppendPrefixLen;
+    const char* const mLogStartViewPrefixPtr;
+    const size_t      mLogStartViewPrefixLen;
 
     void Release(
         Queue& inQueue)
@@ -982,6 +994,11 @@ private:
                 WriteBlock(*theCtlPtr);
                 theCtlPtr->primaryNodeId = mMetaVrSM.GetPrimaryNodeId();
                 theCtlPtr->lastLogSeq    = mLastLogSeq;
+                KFS_LOG_STREAM_DEBUG <<
+                    "last: "  << mLastLogSeq <<
+                    " done: " << reinterpret_cast<const void*>(theCtlPtr) <<
+                    " "       << theCtlPtr->Show() <<
+                KFS_LOG_EOM;
             }
             theCurPtr = theEndPtr;
         }
@@ -1159,6 +1176,8 @@ private:
                 break;
             case MetaLogWriterControl::kWriteBlock:
                 return true;
+            case MetaLogWriterControl::kSyncDone:
+                return false;
             case MetaLogWriterControl::kSetParameters:
                 SetParameters(
                     inRequest.paramsPrefix.c_str(),
@@ -1239,27 +1258,37 @@ private:
             return;
         }
         if (0 == mVrStatus) {
-            inRequest.statusMsg = "block write rejected: VR state is primary";
+            static const string kMsg(
+                "block write rejected: VR state is primary");
+            inRequest.statusMsg = kMsg;
             inRequest.status    = -EROFS;
             return;
         }
         if (inRequest.blockStartSeq != mLastLogSeq) {
+            inRequest.status = -EINVAL;
+            // Check if this is valid log start view op.
             int theLnLen = -1;
             if (inRequest.blockStartSeq < inRequest.blockEndSeq &&
                     mLastLogSeq < inRequest.blockStartSeq &&
                     2 == inRequest.blockLines.GetSize() &&
-                    3 < (theLnLen = inRequest.blockLines.Front()) &&
+                    (int)mLogStartViewPrefixLen <
+                        (theLnLen = inRequest.blockLines.Front()) &&
                     theLnLen < inRequest.blockData.BytesConsumable()) {
                 // Set size to 0 to avoid data copy, use resize instead of
                 // clear, as resize does not free the buffer, just sets the
                 // size to 0.
                 mTmpBuffer.Resize(0);
-                char* const  thePtr    = mTmpBuffer.Resize(theLnLen);
-                MetaRequest* theReqPtr = 0;
-                if (inRequest.blockData.CopyOut(thePtr, theLnLen) == theLnLen &&
-                        'a' == (thePtr[0] & 0xFF) && '/' == (thePtr[1] & 0xFF) &&
+                MetaRequest*      theReqPtr = 0;
+                int               theLen    = theLnLen;
+                const char* const thePtr    =
+                    inRequest.blockData.CopyOutOrGetBufPtr(
+                        mTmpBuffer.Resize(theLnLen), theLen);
+                if (theLen == theLnLen &&
+                        0 == memcmp(mLogStartViewPrefixPtr, thePtr,
+                            mLogStartViewPrefixLen) &&
                         (theReqPtr = MetaRequest::ReadReplay(
-                            thePtr + 2, theLnLen - 2)) &&
+                            thePtr + mLogAppendPrefixLen,
+                            theLnLen - mLogAppendPrefixLen)) &&
                         META_VR_LOG_START_VIEW == theReqPtr->op) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theReqPtr);
@@ -1267,22 +1296,20 @@ private:
                             theOp.mNewLogSeq != inRequest.blockEndSeq ||
                             mLastLogSeq < theOp.mCommittedSeq ||
                             theOp.mCommittedSeq < mInFlightCommitted.mSeq) {
-                        inRequest.status    = -EINVAL;
                         inRequest.statusMsg = "invalid log start view entry";
-                        theLnLen = -1;
+                    } else {
+                        inRequest.status = 0;
                     }
-                } else {
-                    theLnLen = -1;
                 }
                 MetaRequest::Release(theReqPtr);
             }
-            if (theLnLen <= 0) {
-                if (0 <= inRequest.status) {
-                    inRequest.status    = -EINVAL;
-                    inRequest.statusMsg = "invalid block start sequence";
+            if (0 != inRequest.status) {
+                if (inRequest.statusMsg.empty()) {
+                    static const string kMsg("invalid block start sequence");
+                    inRequest.statusMsg = kMsg;
                 }
                 return;
-             }
+            }
         }
         if (! IsLogStreamGood()) {
             inRequest.status    = -EIO;

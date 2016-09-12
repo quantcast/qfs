@@ -762,7 +762,10 @@ MakeIoMetaRequestHandler(
     return AddMetaRequestLog(sHandler, kShortNamesFlag);
 }
 
-typedef PropertiesTokenizerT<'=', ';'> MetaIoPropertiesTokenizer;
+typedef PropertiesTokenizerT<
+    kMetaIoPropertiesSeparator,
+    ';'
+> MetaIoPropertiesTokenizer;
 class IoDefinitionMethod
 {
 public:
@@ -869,7 +872,7 @@ MakeLogMetaRequestHandler(
     .MakeParser("HR",
         META_HIBERNATED_REMOVE,
         static_cast<const MetaHibernatedRemove*>(0))
-    .MakeParser("VRSV",
+    .MakeParser(kLogVrStatViewNamePtr,
         META_VR_LOG_START_VIEW,
         static_cast<const MetaVrLogStartView*>(0))
     ;
@@ -962,10 +965,14 @@ MetaRequest::ReadReplay(const char* buf, size_t len)
     return sMetaReplayIoHandler.Handle(buf, len);
 }
 
+MetaIoPropertiesTokenizer::Token const kLogWriteAheadPrefix(
+    kLogWriteAheadPrefixPtr);
+
 bool
 MetaRequest::WriteLog(ostream& os, bool omitDefaultsFlag) const
 {
-    StringInsertEscapeOStream theStream(os, "a/", 2);
+    StringInsertEscapeOStream theStream(os,
+        kLogWriteAheadPrefix.mPtr, kLogWriteAheadPrefix.mLen);
     ReqOstream& theReqOstream = theStream.GetOStream();
     if (! sMetaReplayIoHandler.Write(
             theStream,

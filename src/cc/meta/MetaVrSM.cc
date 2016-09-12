@@ -261,6 +261,7 @@ public:
           mReplyCount(0),
           mLogTransmittersSuspendedFlag(false),
           mLogStartViewPendingRecvFlag(false),
+          mCheckLogSyncStatusFlag(false),
           mMustSyncLogFlag(false),
           mSyncVrStateFileFlag(true),
           mPanicOnIoErrorFlag(true),
@@ -362,6 +363,7 @@ public:
             case META_VR_RECONFIGURATION:
                 return Handle(static_cast<MetaVrReconfiguration&>(inReq));
             case META_LOG_WRITER_CONTROL:
+                return Handle(static_cast<MetaLogWriterControl&>(inReq));
             case META_VR_LOG_START_VIEW:
                 return false;
             default:
@@ -588,28 +590,31 @@ public:
         outReqPtr = 0;
         mTimeNow  = inTimeNow;
         if (kStateLogSync == mState) {
-            bool      theProgressFlag = false;
-            const int theStatus       =
-                mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag);
-            if (theStatus < 0 || ! theProgressFlag) {
-                KFS_LOG_STREAM(theStatus < 0 ?
-                        MsgLogger::kLogLevelINFO :
-                        MsgLogger::kLogLevelERROR) <<
-                    "log fetch done:"
-                    " status: " << theStatus <<
-                    " end: "    << mLogFetchEndSeq <<
-                    " last: "   << mLastLogSeq <<
-                KFS_LOG_EOM;
-                if (mEpochSeq == mLastLogSeq.mEpochSeq &&
-                        mViewSeq <= mLastLogSeq.mViewSeq) {
-                    mViewSeq = mLastLogSeq.mViewSeq + 1;
-                }
-                mLogFetchEndSeq = MetaVrLogSeq();
-                if (mActiveFlag) {
-                    StartViewChange();
-                } else {
-                    SetState(kStateBackup);
-                    mPrimaryNodeId = -1;
+            if (mCheckLogSyncStatusFlag) {
+                mCheckLogSyncStatusFlag = false;
+                bool      theProgressFlag = false;
+                const int theStatus       =
+                    mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag);
+                if (theStatus < 0 || ! theProgressFlag) {
+                    KFS_LOG_STREAM(theStatus < 0 ?
+                            MsgLogger::kLogLevelINFO :
+                            MsgLogger::kLogLevelERROR) <<
+                        "log fetch done:"
+                        " status: " << theStatus <<
+                        " end: "    << mLogFetchEndSeq <<
+                        " last: "   << mLastLogSeq <<
+                    KFS_LOG_EOM;
+                    if (mEpochSeq == mLastLogSeq.mEpochSeq &&
+                            mViewSeq <= mLastLogSeq.mViewSeq) {
+                        mViewSeq = mLastLogSeq.mViewSeq + 1;
+                    }
+                    mLogFetchEndSeq = MetaVrLogSeq();
+                    if (mActiveFlag) {
+                        StartViewChange();
+                    } else {
+                        SetState(kStateBackup);
+                        mPrimaryNodeId = -1;
+                    }
                 }
             }
         } else if (kStateBackup == mState) {
@@ -1318,6 +1323,7 @@ private:
     int                          mReplyCount;
     bool                         mLogTransmittersSuspendedFlag;
     bool                         mLogStartViewPendingRecvFlag;
+    bool                         mCheckLogSyncStatusFlag;
     bool                         mMustSyncLogFlag;
     bool                         mSyncVrStateFileFlag;
     bool                         mPanicOnIoErrorFlag;
@@ -1595,7 +1601,7 @@ private:
                     KFS_LOG_STREAM_INFO <<
                         "scheduling log fetch:"
                         " state: "    << GetStateName(mState) <<
-                        " servers: "
+                        " servers:"
                         " total: "    << mSyncServers.size() <<
                         " first: "    << mSyncServers.front() <<
                         " ["          << mLastLogSeq <<
@@ -1605,12 +1611,12 @@ private:
                     KFS_LOG_EOM;
                     SetState(kStateLogSync);
                     mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
-                    const bool kAllowNonPrimaryFlag = true;
+                    const bool theAllowNonPrimaryFlag = ! mMustSyncLogFlag;
                     mMetaDataSyncPtr->ScheduleLogSync(
                         mSyncServers,
                         mLastLogSeq,
                         mStartViewChangeMaxLastLogSeq,
-                        kAllowNonPrimaryFlag
+                        theAllowNonPrimaryFlag
                     );
                 }
             }
@@ -1871,11 +1877,11 @@ private:
         } else if (inReq.status != -EBADCLUSTERKEY) {
             if (mLastLogSeq < inReq.mLastLogSeq) {
                 if (kStateLogSync != mState) {
-                    const bool kAllowNonPrimaryFlag = true;
+                    const bool theAllowNonPrimaryFlag = ! mMustSyncLogFlag;
                     ScheduleLogFetch(
                         inReq.mLastLogSeq,
                         GetDataStoreLocation(inReq),
-                        kAllowNonPrimaryFlag
+                        theAllowNonPrimaryFlag
                     );
                 }
             } else if (mCommittedSeq < inReq.mCommittedSeq &&
@@ -1968,6 +1974,9 @@ private:
                         inReq.statusMsg += GetStateName(mState);
                     }
                 } else {
+                    if (! mDoViewChangePtr) {
+                        WriteVrState(inReq.mNodeId);
+                    }
                     CancelViewChange();
                     SetState(kStateBackup);
                     // Mark as not valid until replay
@@ -2081,6 +2090,18 @@ private:
         if (0 == inReq.status) {
             mReconfigureReqPtr = &inReq;
         }
+    }
+    bool Handle(
+        MetaLogWriterControl& inReq)
+    {
+        if (MetaLogWriterControl::kSyncDone != inReq.type) {
+            return false;
+        }
+        if (kStateLogSync == mState) {
+            mCheckLogSyncStatusFlag = true;
+            Wakeup();
+        }
+        return true;
     }
     void AddNode(
         MetaVrReconfiguration& inReq)
@@ -2807,6 +2828,17 @@ private:
         KFS_LOG_EOM;
         QueueVrRequest(theOp, kBroadcast);
     }
+    void WriteVrState(
+        NodeId inPrimaryId)
+    {
+        if (0 != WriteVrStateSelf(inPrimaryId)) {
+            if (mPanicOnIoErrorFlag) {
+                panic("VR: write state IO error");
+            }
+        } else {
+            mMustSyncLogFlag = false;
+        }
+    }
     void StartDoViewChange(
         NodeId inPrimaryId)
     {
@@ -2819,9 +2851,7 @@ private:
             mViewChangeStartTime = TimeNow();
             SetState(kStateViewChange);
         }
-        if (0 != WriteVrState(inPrimaryId) && mPanicOnIoErrorFlag) {
-            panic("VR: do view change write state io error");
-        }
+        WriteVrState(inPrimaryId);
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
         theOp.mPrimaryNodeId = inPrimaryId;
@@ -2864,7 +2894,7 @@ private:
         AppendHexIntToString(inStr, inLogSeq.mLogSeq);
         return inStr;
     }
-    int WriteVrState(
+    int WriteVrStateSelf(
         NodeId inPrimaryId)
     {
         if (mVrStateFileName.empty()) {

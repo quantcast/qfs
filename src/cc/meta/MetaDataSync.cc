@@ -514,12 +514,7 @@ public:
         Reset();
         delete [] mReadOpsPtr;
         mReadOpsPtr = 0;
-        MetaRequest* thePtr;
-        while ((thePtr = mFreeWriteOpList.PopFront())) {
-            mFreeWriteOpCount--;
-            MetaRequest::Release(thePtr);
-        }
-        QCASSERT(0 == mFreeWriteOpCount);
+        FreeWriteOps();
     }
     virtual void OpDone(
         KfsOp*    inOpPtr,
@@ -584,9 +579,11 @@ public:
     {
         if (mReplayerPtr && 0 < SyncAddAndFetch(mSyncScheduledCount, 0)) {
             QCStMutexLocker theLocker(mMutex);
-            if (mServers != mPendingSyncServers || mLogSeq < mPendingSyncLogSeq ||
+            if (mPendingSyncLogSeq.IsValid() &&
+                    (! mLogSeq.IsValid() ||
                     0 != mStatus ||
-                    mAllowNotPrimaryFlag != mPendingAllowNotPrimaryFlag) {
+                    mAllowNotPrimaryFlag != mPendingAllowNotPrimaryFlag ||
+                    mServers != mPendingSyncServers)) {
                 mServers             = mPendingSyncServers;
                 mAllowNotPrimaryFlag = mPendingAllowNotPrimaryFlag;
                 mServerIdx = 0;
@@ -595,6 +592,13 @@ public:
                 const MetaVrLogSeq theLogSeq = mPendingSyncLogSeq;
                 theLocker.Unlock();
                 StartLogSync(theLogSeq, *mReplayerPtr, mAllowNotPrimaryFlag);
+            } else {
+                mSyncScheduledCount    = 0;
+                mCurDownloadGeneration = mDownloadGeneration;
+                theLocker.Unlock();
+                if (! mLogSeq.IsValid()) {
+                    DownloadDone(0);
+                }
             }
         }
         if (! mSleepingFlag) {
@@ -695,6 +699,15 @@ private:
     MetaMds           mMetaMds;
     char              mCommmitBuf[kMaxCommitLineLen];
 
+    void FreeWriteOps()
+    {
+        MetaRequest* thePtr;
+        while ((thePtr = mFreeWriteOpList.PopFront())) {
+            mFreeWriteOpCount--;
+            MetaRequest::Release(thePtr);
+        }
+        QCASSERT(0 == mFreeWriteOpCount);
+    }
     void ClearPendingList()
     {
         ReadOp* thePtr;
@@ -1177,7 +1190,7 @@ private:
         KFS_LOG_STREAM(0 == mStatus ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR)
-            "sync complte:"
+            "sync complete:"
             " status: "   << mStatus <<
             " seq: "      << mLogSeq <<
             " shutdown: " << mShutdownNetManagerFlag <<
@@ -1189,6 +1202,15 @@ private:
         if (mCurDownloadGeneration == mDownloadGeneration) {
             mDownloadStatus   = mStatus;
             mDownloadDoneFlag = true;
+        }
+        theLocker.Unlock();
+        if (mKfsNetClient.GetNetManager().IsRunning()) {
+            MetaLogWriterControl& theOp = GetLogWriteOp();
+            theOp.Reset(MetaLogWriterControl::kSyncDone);
+            FreeWriteOps();
+            submit_request(&theOp);
+        } else {
+            FreeWriteOps();
         }
     }
     void HandleReadError(

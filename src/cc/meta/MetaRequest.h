@@ -4088,7 +4088,8 @@ struct MetaLogWriterControl : public MetaRequest {
         kNewLog,
         kCheckpointNewLog,
         kSetParameters,
-        kWriteBlock
+        kWriteBlock,
+        kSyncDone
     };
     typedef StBufferT<int, 64> Lines;
 
@@ -4429,6 +4430,9 @@ struct MetaHibernatedRemove : public MetaRequest {
 
 const char* const kMetaClusterKeyParamNamePtr    = "metaServer.clusterKey";
 const char* const kMetaserverMetaMdsParamNamePtr = "metaServer.metaMds";
+const char* const kLogWriteAheadPrefixPtr        = "a/";
+const char* const kLogVrStatViewNamePtr          = "VRSV";
+const char        kMetaIoPropertiesSeparator     = '=';
 
 enum LogBlockAckFlags
 {
