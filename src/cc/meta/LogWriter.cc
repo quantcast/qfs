@@ -897,7 +897,6 @@ private:
                         break;
                     }
                     theCtlPtr = 0;
-                    theEndBlockSeq = mNextLogSeq.mLogSeq + mMaxBlockSize;
                     continue;
                 }
                 if (META_VR_LOG_START_VIEW == thePtr->op && theStream) {
@@ -1176,7 +1175,7 @@ private:
                 break;
             case MetaLogWriterControl::kWriteBlock:
                 return true;
-            case MetaLogWriterControl::kSyncDone:
+            case MetaLogWriterControl::kLogFetchDone:
                 return false;
             case MetaLogWriterControl::kSetParameters:
                 SetParameters(
@@ -1274,15 +1273,11 @@ private:
                     (int)mLogStartViewPrefixLen <
                         (theLnLen = inRequest.blockLines.Front()) &&
                     theLnLen < inRequest.blockData.BytesConsumable()) {
-                // Set size to 0 to avoid data copy, use resize instead of
-                // clear, as resize does not free the buffer, just sets the
-                // size to 0.
-                mTmpBuffer.Resize(0);
                 MetaRequest*      theReqPtr = 0;
                 int               theLen    = theLnLen;
                 const char* const thePtr    =
                     inRequest.blockData.CopyOutOrGetBufPtr(
-                        mTmpBuffer.Resize(theLnLen), theLen);
+                        mTmpBuffer.Reserve(theLnLen), theLen);
                 if (theLen == theLnLen &&
                         0 == memcmp(mLogStartViewPrefixPtr, thePtr,
                             mLogStartViewPrefixLen) &&
@@ -1561,9 +1556,9 @@ private:
         mOmitDefaultsFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("omitDefaults"),
             mOmitDefaultsFlag ? 1 : 0) != 0;
-        mMaxBlockSize = inParameters.getValue(
+        mMaxBlockSize = max(1, inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("maxBlockSize"),
-            mMaxBlockSize);
+            mMaxBlockSize));
         mLogDir = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("logDir"),
             mLogDir);

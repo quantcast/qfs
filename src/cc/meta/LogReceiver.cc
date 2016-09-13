@@ -30,6 +30,8 @@
 #include "MetaRequest.h"
 #include "MetaVrSM.h"
 #include "MetaVrOps.h"
+#include "LogWriter.h"
+#include "Replay.h"
 #include "util.h"
 
 #include "common/kfstypes.h"
@@ -92,19 +94,19 @@ public:
           mSubmittedWriteSeq(),
           mDeleteFlag(false),
           mAckBroadcastFlag(false),
+          mDispatchAckBroadcastFlag(false),
+          mWakerPtr(0),
           mParseBuffer(),
           mFileSystemId(-1),
           mId(-1),
-          mReplayerPtr(0),
-          mWriteOpFreeListPtr(0),
           mLastAckSentTime(0),
           mDispatchLastAckSentTime(0),
           mFilterLastAckTimeSentId(-1),
-          mDispatchFilterLastAckTimeSentId(-1),
           mPrimaryId(-1),
+          mInFlightWriteCount(0),
+          mWriteOpFreeList(),
           mPendingResponseQueue(),
           mResponseQueue(),
-          mCompletionQueue(),
           mPendingSubmitQueue()
     {
         List::Init(mConnectionsHeadPtr);
@@ -143,7 +145,7 @@ public:
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
-        if (! mReplayerPtr || mId < 0) {
+        if (! mWakerPtr || mId < 0) {
             mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
         }
         mAuthContext.SetParameters(
@@ -153,7 +155,7 @@ public:
     }
     int Start(
         NetManager&         inNetManager,
-        Replayer&           inReplayer,
+        Waker&              inWaker,
         const MetaVrLogSeq& inCommittedLogSeq,
         const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId)
@@ -204,13 +206,13 @@ public:
             return -ENOTCONN;
         }
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
-        mReplayerPtr             = &inReplayer;
         mLastLogSeq              = inLastLogSeq;
         mLastWriteSeq            = inLastLogSeq;
         mSubmittedWriteSeq       = inLastLogSeq;
         mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
         mDispatchLastAckSentTime = mLastAckSentTime;
         mFileSystemId            = inFileSystemId;
+        mWakerPtr                = &inWaker;
         return 0;
     }
     void Shutdown();
@@ -273,11 +275,8 @@ public:
         if (inEndSeq <= mSubmittedWriteSeq) {
             return 0;
         }
-        MetaRequest* thePtr = mWriteOpFreeListPtr;
-        if (thePtr) {
-            mWriteOpFreeListPtr = thePtr->next;
-            thePtr->next = 0;
-        } else {
+        MetaRequest* thePtr = mWriteOpFreeList.PopFront();
+        if (! thePtr) {
             thePtr = new MetaLogWriterControl(
                 MetaLogWriterControl::kWriteBlock);
         }
@@ -286,76 +285,32 @@ public:
     }
     bool Dispatch()
     {
-        Queue theCompletionQueue;
-        theCompletionQueue.PushBack(mCompletionQueue);
-        MetaRequest* thePtr              = theCompletionQueue.Front();
-        const bool   theAckBroadcastFlag = 0 != thePtr;
-        MetaVrLogSeq theNextSeq          = (thePtr && thePtr->status != 0) ?
-            static_cast<MetaLogWriterControl*>(thePtr)->blockStartSeq :
-            mLastWriteSeq;
-        bool         theRetFlag          = false;
-        while ((thePtr = theCompletionQueue.PopFront())) {
-            MetaLogWriterControl& theCur =
-                *static_cast<MetaLogWriterControl*>(thePtr);
-            KFS_LOG_STREAM_DEBUG <<
-                "complete: " << theCur.Show() <<
-            KFS_LOG_EOM;
-            const MetaVrLogSeq& theStart = theCur.status == 0 ?
-                mLastWriteSeq : theNextSeq;
-            if ((theCur.blockStartSeq != theCur.blockEndSeq ||
-                     ! theCur.blockLines.IsEmpty()) && (
-                    (theCur.blockStartSeq.mLogSeq != theStart.mLogSeq &&
-                    theCur.blockStartSeq.mEpochSeq == theStart.mEpochSeq &&
-                    theCur.blockStartSeq.mViewSeq  == theStart.mViewSeq) ||
-                    theCur.blockStartSeq < theStart ||
-                    theCur.blockEndSeq < theCur.blockStartSeq)) {
-                panic("log write completion: invalid block sequence");
-            }
-            theNextSeq = theCur.blockEndSeq;
-            mLastLogSeq = max(theCur.lastLogSeq, mLastLogSeq);
-            mPrimaryId  = theCur.primaryNodeId;
-            if (0 == theCur.status) {
-                if (theCur.lastLogSeq.IsValid()) {
-                    mLastWriteSeq = theCur.lastLogSeq;
-                }
-                if (mReplayerPtr) {
-                    theRetFlag = true;
-                    mReplayerPtr->Apply(theCur);
-                    continue;
-                }
-            } else if (mSubmittedWriteSeq <= theCur.blockEndSeq) {
-                // Reset to last log sequence, in case if write has failed.
-                mSubmittedWriteSeq = mLastLogSeq;
-            }
-            Release(theCur);
-        }
-        mLastWriteSeq = max(mLastWriteSeq, mLastLogSeq);
         Queue thePendingSubmitQueue;
         thePendingSubmitQueue.PushBack(mPendingSubmitQueue);
-        theRetFlag = theRetFlag || ! thePendingSubmitQueue.IsEmpty();
+        const bool   theRetFlag = ! thePendingSubmitQueue.IsEmpty();
+        MetaRequest* thePtr;
         while ((thePtr = thePendingSubmitQueue.PopFront())) {
             KFS_LOG_STREAM_DEBUG <<
                 "submit: " << thePtr->Show() <<
             KFS_LOG_EOM;
             submit_request(thePtr);
         }
-        if (theAckBroadcastFlag) {
-            mAckBroadcastFlag = mAckBroadcastFlag || theAckBroadcastFlag;
-        }
+        mAckBroadcastFlag = mAckBroadcastFlag || mDispatchAckBroadcastFlag;
+        mDispatchAckBroadcastFlag = false;
         mResponseQueue.PushBack(mPendingResponseQueue);
-        if (mDispatchLastAckSentTime != mLastAckSentTime && mReplayerPtr) {
+        if (mDispatchLastAckSentTime != mLastAckSentTime) {
             mDispatchLastAckSentTime = mLastAckSentTime;
-            mReplayerPtr->SetLastAckSentTime(mDispatchLastAckSentTime);
+            MetaRequest::GetLogWriter().SetLastLogReceivedTime(
+                mDispatchLastAckSentTime);
         }
-        mFilterLastAckTimeSentId = mDispatchFilterLastAckTimeSentId;
+        mFilterLastAckTimeSentId = replayer.getPrimaryNodeId();
         return theRetFlag;
     }
     void Release(
         MetaLogWriterControl& inOp)
     {
         inOp.Reset(MetaLogWriterControl::kWriteBlock);
-        inOp.next = mWriteOpFreeListPtr;
-        mWriteOpFreeListPtr = &inOp;
+        mWriteOpFreeList.PutFront(inOp);
     }
     int HandleEvent(
         int   inType,
@@ -366,12 +321,14 @@ public:
             return 0;
         }
         MetaRequest& theOp = *reinterpret_cast<MetaRequest*>(inDataPtr);
-        const bool theWakeupFlag = ! IsAwake();
-        if (META_LOG_WRITER_CONTROL == theOp.op) {
-            mCompletionQueue.PushBack(theOp);
-        } else {
-            mPendingResponseQueue.PushBack(theOp);
+        if (! mWakerPtr) {
+            MetaRequest::Release(&theOp);
+            return 0;
         }
+        mDispatchAckBroadcastFlag = mDispatchAckBroadcastFlag ||
+            META_LOG_WRITER_CONTROL == theOp.op;
+        const bool theWakeupFlag = ! IsAwake();
+        mPendingResponseQueue.PushBack(theOp);
         if (theWakeupFlag) {
             Wakeup();
         }
@@ -380,6 +337,7 @@ public:
     void SubmitLogWrite(
         MetaLogWriterControl& inOp)
     {
+        mInFlightWriteCount++;
         mSubmittedWriteSeq = inOp.blockEndSeq;
         inOp.clnt = this;
         Submit(inOp);
@@ -399,10 +357,8 @@ public:
     }
     void Wakeup()
     {
-        if (mReplayerPtr) {
-            mReplayerPtr->Wakeup();
-        } else {
-            Dispatch();
+        if (mWakerPtr) {
+            mWakerPtr->Wakeup();
         }
     }
     virtual void Timeout()
@@ -410,7 +366,25 @@ public:
         MetaRequest* theReqPtr;
         while ((theReqPtr = mResponseQueue.PopFront())) {
             if (this == theReqPtr->clnt || ! theReqPtr->clnt) {
-                MetaRequest::Release(theReqPtr);
+                if (META_LOG_WRITER_CONTROL == theReqPtr->op) {
+                    MetaLogWriterControl& theCur =
+                        *static_cast<MetaLogWriterControl*>(theReqPtr);
+                    mLastLogSeq = max(theCur.lastLogSeq, mLastLogSeq);
+                    mPrimaryId  = theCur.primaryNodeId;
+                    if (--mInFlightWriteCount <= 0) {
+                        if (mInFlightWriteCount < 0) {
+                            panic("log receiver:"
+                                " invalid in flight write op count");
+                        }
+                        mSubmittedWriteSeq = mLastLogSeq;
+                    } else {
+                        mSubmittedWriteSeq =
+                            max(mSubmittedWriteSeq, mLastLogSeq);
+                    }
+                    Release(theCur);
+                } else {
+                    MetaRequest::Release(theReqPtr);
+                }
             } else {
                 // Mark to let connection's handle event logic know that it
                 // should process it.
@@ -418,17 +392,13 @@ public:
                 theReqPtr->clnt->HandleEvent(EVENT_CMD_DONE, theReqPtr);
             }
         }
-        if (! mAckBroadcastFlag) {
-            return;
+        if (mAckBroadcastFlag) {
+            mAckBroadcastFlag = false;
+            BroadcastAck();
         }
-        mAckBroadcastFlag = false;
-        BroadcastAck();
     }
     void AckSent(
         Connection& inConnection);
-    void SetFilterLastAckTimeSentId(
-        NodeId inId)
-        { mDispatchFilterLastAckTimeSentId = inId; }
 private:
     typedef StBufferT<char, kMinParseBufferSize>                 ParseBuffer;
     typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
@@ -447,19 +417,19 @@ private:
     MetaVrLogSeq   mSubmittedWriteSeq;
     bool           mDeleteFlag;
     bool           mAckBroadcastFlag;
+    bool           mDispatchAckBroadcastFlag;
+    Waker*         mWakerPtr;
     ParseBuffer    mParseBuffer;
     int64_t        mFileSystemId;
     NodeId         mId;
-    Replayer*      mReplayerPtr;
-    MetaRequest*   mWriteOpFreeListPtr;
     time_t         mLastAckSentTime;
     time_t         mDispatchLastAckSentTime;
     NodeId         mFilterLastAckTimeSentId;
-    NodeId         mDispatchFilterLastAckTimeSentId;
     NodeId         mPrimaryId;
+    int            mInFlightWriteCount;
+    Queue          mWriteOpFreeList;
     Queue          mPendingResponseQueue;
     Queue          mResponseQueue;
-    Queue          mCompletionQueue;
     Queue          mPendingSubmitQueue;
     Connection*    mConnectionsHeadPtr[1];
 
@@ -478,16 +448,8 @@ private:
     {
         ClearQueue(mPendingResponseQueue);
         ClearQueue(mResponseQueue);
-        ClearQueue(mCompletionQueue);
         ClearQueue(mPendingSubmitQueue);
-        MetaRequest* thePtr = mWriteOpFreeListPtr;
-        mWriteOpFreeListPtr = 0;
-        while (thePtr) {
-            MetaRequest& theCur = *thePtr;
-            thePtr = theCur.next;
-            theCur.next = 0;
-            MetaRequest::Release(&theCur);
-        }
+        ClearQueue(mWriteOpFreeList);
     }
     static void ClearQueue(
         Queue& inQueue)
@@ -503,7 +465,6 @@ private:
     {
         return (
             ! mPendingSubmitQueue.IsEmpty() ||
-            ! mCompletionQueue.IsEmpty() ||
             ! mPendingResponseQueue.IsEmpty() ||
             mDispatchLastAckSentTime != mLastAckSentTime
         );
@@ -1376,6 +1337,8 @@ LogReceiver::Impl::Shutdown()
     }
     mAckBroadcastFlag = false;
     ClearQueues();
+    mInFlightWriteCount = 0;
+    mWakerPtr = 0;
 }
 
     void
@@ -1408,13 +1371,13 @@ LogReceiver::SetParameters(
 
     int
 LogReceiver::Start(
-    NetManager&            inNetManager,
-    LogReceiver::Replayer& inReplayer,
-    const MetaVrLogSeq&    inCommittedLogSeq,
-    const MetaVrLogSeq&    inLastLogSeq,
-    int64_t                inFileSystemId)
+    NetManager&         inNetManager,
+    LogReceiver::Waker& inWaker,
+    const MetaVrLogSeq& inCommittedLogSeq,
+    const MetaVrLogSeq& inLastLogSeq,
+    int64_t             inFileSystemId)
 {
-    return mImpl.Start(inNetManager, inReplayer,
+    return mImpl.Start(inNetManager, inWaker,
         inCommittedLogSeq, inLastLogSeq, inFileSystemId);
 }
 
@@ -1428,13 +1391,6 @@ LogReceiver::Shutdown()
 LogReceiver::Dispatch()
 {
     return mImpl.Dispatch();
-}
-
-    void
-LogReceiver::SetFilterLastAckTimeSentId(
-    vrNodeId_t inId)
-{
-    mImpl.SetFilterLastAckTimeSentId(inId);
 }
 
     int

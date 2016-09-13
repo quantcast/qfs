@@ -4089,7 +4089,7 @@ struct MetaLogWriterControl : public MetaRequest {
         kCheckpointNewLog,
         kSetParameters,
         kWriteBlock,
-        kSyncDone
+        kLogFetchDone
     };
     typedef StBufferT<int, 64> Lines;
 
@@ -4134,12 +4134,7 @@ struct MetaLogWriterControl : public MetaRequest {
           blockData()
         { replayBypassFlag = kCheckpointNewLog != type; }
     virtual bool start()  { return true; }
-    virtual void handle()
-    {
-        if (completion) {
-            completion->handle();
-        }
-    }
+    virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
         if (kWriteBlock == type) {
@@ -4156,13 +4151,16 @@ struct MetaLogWriterControl : public MetaRequest {
             os << "log-control: ";
             switch (type) {
                 case kNop:              os << "nop";            break;
-                case kNewLog:           os << "new log";        break;
-                case kCheckpointNewLog: os << "checkpoint";     break;
-                case kSetParameters:    os << "set parameters"; break;
+                case kNewLog:           os << "new-log";        break;
+                case kCheckpointNewLog: os << "cpt-new-log";    break;
+                case kSetParameters:    os << "set-parameters"; break;
+                case kLogFetchDone:     os << "log-fetch-done"; break;
                 default:                os << "invalid";        break;
             }
         }
-        os << " status: "  << status <<
+        os <<
+            " last-log: " << lastLogSeq <<
+            " status: "   << status <<
             (statusMsg.empty() ? "" : " ") << statusMsg;
         return os;
     }

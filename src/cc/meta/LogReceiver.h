@@ -45,24 +45,20 @@ struct MetaLogWriterControl;
 class LogReceiver
 {
 public:
-    class Replayer
+    class Waker
     {
     public:
-        virtual void Apply(
-            MetaLogWriterControl& inOp) = 0;
-        virtual void SetLastAckSentTime(
-            time_t inLastAckTime) = 0;
         virtual void Wakeup() = 0;
     protected:
-        Replayer()
+        Waker()
             {}
-        virtual ~Replayer()
+        virtual ~Waker()
             {}
-        Replayer(
-            const Replayer& /* inReplayer */)
+        Waker(
+            const Waker& /* inWaker */)
             {}
-        Replayer& operator=(
-            const Replayer& /* inReplayer */)
+        Waker& operator=(
+            const Waker& /* inWaker */)
             { return *this; }
     };
     LogReceiver();
@@ -73,13 +69,11 @@ public:
         const Properties& inParameters);
     int Start(
         NetManager&         inNetManager,
-        Replayer&           inReplayer,
+        Waker&              inWaker,
         const MetaVrLogSeq& inCommittedLogSeq,
         const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId);
     void Shutdown();
-    void SetFilterLastAckTimeSentId(
-        vrNodeId_t inId);
     static int ParseBlockLines(
         const IOBuffer&       inBuffer,
         int                   inLength,

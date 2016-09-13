@@ -28,8 +28,6 @@
 #ifndef KFS_META_DATA_SYNC_H
 #define KFS_META_DATA_SYNC_H
 
-#include "LogReceiver.h"
-
 #include "common/kfsdecls.h"
 
 #include <vector>
@@ -59,8 +57,7 @@ public:
         const char* inLogDirPtr);
     void Shutdown();
     void StartLogSync(
-        const MetaVrLogSeq&    inLogSeq,
-        LogReceiver::Replayer& inReplayer);
+        const MetaVrLogSeq& inLogSeq);
     void ScheduleLogSync(
         const Servers&      inServers,
         const MetaVrLogSeq& inLogStartSeq,

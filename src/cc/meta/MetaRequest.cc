@@ -6537,6 +6537,16 @@ MetaVrRequest::handle()
     }
 }
 
+/* virtual */ void
+MetaLogWriterControl::handle()
+{
+    if (completion) {
+        completion->handle();
+    } else if (kWriteBlock == type && 0 == status) {
+        replayer.handle(*this);
+    }
+}
+
 /* virtual */ bool
 MetaVrReconfiguration::start()
 {

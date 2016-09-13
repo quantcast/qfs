@@ -207,6 +207,7 @@ public:
           mCheckStartLogSeqFlag(false),
           mCheckLogSeqOnlyFlag(false),
           mReadPipelineFlag(false),
+          mLogSyncStartedFlag(false),
           mKeepLogSegmentsInterval(10),
           mNoLogSeqCount(0),
           mStatus(0),
@@ -215,7 +216,6 @@ public:
           mDownloadGeneration(0),
           mCurDownloadGeneration(0),
           mThread(),
-          mReplayerPtr(0),
           mClusterKey(),
           mMetaMds()
     {
@@ -304,7 +304,8 @@ public:
         }
         mClusterKey = inParameters.getValue(
             kMetaClusterKeyParamNamePtr, mClusterKey);
-        const Properties::String* const theServersPtr = mReplayerPtr ? 0 :
+        const Properties::String* const theServersPtr =
+            mLogSyncStartedFlag ? 0 :
             inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("servers"));
         bool theOkFlag = true;
@@ -438,16 +439,15 @@ public:
         return 0;
     }
     void StartLogSync(
-        const MetaVrLogSeq&    inLogSeq,
-        LogReceiver::Replayer& inReplayer,
-        bool                   inAllowNotPrimaryFlag)
+        const MetaVrLogSeq& inLogSeq,
+        bool                inAllowNotPrimaryFlag)
     {
         if (! mReadOpsPtr) {
             return;
         }
         StopKeepData();
         Reset();
-        mReplayerPtr         = &inReplayer;
+        mLogSyncStartedFlag  = true;
         mLogSeq              = inLogSeq;
         mWriteToFileFlag     = false;
         mStatus              = 0;
@@ -577,7 +577,8 @@ public:
     }
     virtual void Timeout()
     {
-        if (mReplayerPtr && 0 < SyncAddAndFetch(mSyncScheduledCount, 0)) {
+        if (mLogSyncStartedFlag &&
+                0 < SyncAddAndFetch(mSyncScheduledCount, 0)) {
             QCStMutexLocker theLocker(mMutex);
             if (mPendingSyncLogSeq.IsValid() &&
                     (! mLogSeq.IsValid() ||
@@ -591,7 +592,7 @@ public:
                 mCurDownloadGeneration = mDownloadGeneration;
                 const MetaVrLogSeq theLogSeq = mPendingSyncLogSeq;
                 theLocker.Unlock();
-                StartLogSync(theLogSeq, *mReplayerPtr, mAllowNotPrimaryFlag);
+                StartLogSync(theLogSeq, mAllowNotPrimaryFlag);
             } else {
                 mSyncScheduledCount    = 0;
                 mCurDownloadGeneration = mDownloadGeneration;
@@ -631,7 +632,6 @@ private:
         less<string>,
         StdFastAllocator<string>
     > MetaMds;
-    typedef LogReceiver::Replayer Replayer;
 
     NetManager&       mRuntimeNetManager;
     NetManager        mStartupNetManager;
@@ -686,6 +686,7 @@ private:
     bool              mCheckStartLogSeqFlag;
     bool              mCheckLogSeqOnlyFlag;
     bool              mReadPipelineFlag;
+    bool              mLogSyncStartedFlag;
     int               mKeepLogSegmentsInterval;
     int               mNoLogSeqCount;
     int               mStatus;
@@ -694,7 +695,6 @@ private:
     unsigned int      mDownloadGeneration;
     unsigned int      mCurDownloadGeneration;
     QCThread          mThread;
-    Replayer*         mReplayerPtr;
     string            mClusterKey;
     MetaMds           mMetaMds;
     char              mCommmitBuf[kMaxCommitLineLen];
@@ -1206,7 +1206,7 @@ private:
         theLocker.Unlock();
         if (mKfsNetClient.GetNetManager().IsRunning()) {
             MetaLogWriterControl& theOp = GetLogWriteOp();
-            theOp.Reset(MetaLogWriterControl::kSyncDone);
+            theOp.Reset(MetaLogWriterControl::kLogFetchDone);
             FreeWriteOps();
             submit_request(&theOp);
         } else {
@@ -1531,27 +1531,12 @@ private:
         mLogWritesInFlightCount--;
         MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
             inDataPtr);
-        const bool theErrorFlag = 0 != theOp.status &&
-            theOp.blockStartSeq == theOp.lastLogSeq;
-        KFS_LOG_STREAM(theErrorFlag ?
-                MsgLogger::kLogLevelERROR :
-                MsgLogger::kLogLevelDEBUG) <<
-            "log write:"
-            " status: "    << theOp.status <<
-            " "            << theOp.statusMsg <<
+        KFS_LOG_STREAM_DEBUG <<
+            "log fetch:"
             " log end: "   << theOp.lastLogSeq <<
             " in flight: " << mLogWritesInFlightCount <<
             " "            << theOp.Show() <<
         KFS_LOG_EOM;
-        if (0 == theOp.status &&
-                theOp.lastLogSeq == theOp.blockEndSeq &&
-                mReplayerPtr) {
-            mReplayerPtr->Apply(theOp);
-            return 0;
-        }
-        if (theErrorFlag) {
-            Reset();
-        }
         if (mReadOpsPtr) {
             theOp.Reset(MetaLogWriterControl::kWriteBlock);
             theOp.clnt = this;
@@ -1993,11 +1978,10 @@ MetaDataSync::Start(
 
     void
 MetaDataSync::StartLogSync(
-    const MetaVrLogSeq&    inLogSeq,
-    LogReceiver::Replayer& inReplayer)
+    const MetaVrLogSeq& inLogSeq)
 {
     const bool kAllowNotPrimaryFlag = false;
-    mImpl.StartLogSync(inLogSeq, inReplayer, kAllowNotPrimaryFlag);
+    mImpl.StartLogSync(inLogSeq, kAllowNotPrimaryFlag);
 }
 
     void

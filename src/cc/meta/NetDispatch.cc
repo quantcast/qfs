@@ -973,13 +973,13 @@ const char* const kLogReciverParamsPrefix = "metaServer.log.receiver.";
 class LogReceiverThread :
     private QCRunnable,
     private NetManager::Dispatcher,
-    private LogReceiver::Replayer
+    private LogReceiver::Waker
 {
 public:
     LogReceiverThread()
         : QCRunnable(),
           NetManager::Dispatcher(),
-          LogReceiver::Replayer(),
+          LogReceiver::Waker(),
           mParameters(),
           mNetManager(),
           mLogReceiver(),
@@ -987,9 +987,7 @@ public:
           mWakeupFlag(false),
           mStartedFlag(false),
           mParametersUpdatePendingFlag(false),
-          mPrimaryNodeId(-1),
-          mSignalCnt(0),
-          mBuffer()
+          mSignalCnt(0)
           {}
     ~LogReceiverThread()
         { LogReceiverThread::Shutdown(); }
@@ -1070,54 +1068,6 @@ public:
         SyncAddAndFetch(mSignalCnt, 1);
         mNetManager.Wakeup();
     }
-    virtual void Apply(
-        MetaLogWriterControl& inOp)
-    {
-        assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
-        if (0 != inOp.status) {
-            MetaRequest::Release(&inOp);
-            return;
-        }
-        KFS_LOG_STREAM_DEBUG <<
-            "replaying: " << inOp.Show() <<
-        KFS_LOG_EOM;
-        const int*       theLenPtr     = inOp.blockLines.GetPtr();
-        const int* const theLendEndPtr = theLenPtr + inOp.blockLines.GetSize();
-        while (theLenPtr < theLendEndPtr) {
-            int theLen = *theLenPtr++;
-            if (theLen <= 0) {
-                continue;
-            }
-            char* const       theBufPtr  = mBuffer.Reserve(theLen);
-            const char* const theLinePtr =
-                inOp.blockData.CopyOutOrGetBufPtr(theBufPtr, theLen);
-            const int theStatus = replayer.playLine(
-                theLinePtr,
-                theLen,
-                theLenPtr < theLendEndPtr ? seq_t(-1) : inOp.blockSeq
-            );
-            if (theStatus != 0) {
-                KFS_LOG_STREAM_FATAL <<
-                    "log block replay failure: " << inOp.Show() <<
-                    " commit: " << inOp.blockCommitted <<
-                    " status: " << theStatus <<
-                    " line: "   <<
-                        IOBuffer::DisplayData(inOp.blockData, theLen) <<
-                KFS_LOG_EOM;
-                panic("log block apply failure");
-            }
-            inOp.blockData.Consume(theLen);
-        }
-        MetaRequest::Release(&inOp);
-        const vrNodeId_t thePrimaryNodeId = replayer.getPrimaryNodeId();
-        if (thePrimaryNodeId != mPrimaryNodeId) {
-            mPrimaryNodeId = thePrimaryNodeId;
-            mLogReceiver.SetFilterLastAckTimeSentId(mPrimaryNodeId);
-        }
-    }
-    virtual void SetLastAckSentTime(
-        time_t inLastAckTime)
-        { MetaRequest::GetLogWriter().SetLastLogReceivedTime(inLastAckTime); }
     virtual void Wakeup()
     {
         mWakeupFlag = true;
@@ -1139,21 +1089,15 @@ public:
         // The main thread unconditionally schedules flush and the end of event
         // processing in MainThreadPrepareToFork::DispatchEnd()
     }
-    LogReceiver::Replayer& GetReplayer()
-        { return *this; }
 private:
-    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
-
-    Properties                mParameters;
-    NetManager                mNetManager;
-    LogReceiver               mLogReceiver;
-    QCThread                  mThread;
-    bool                      mWakeupFlag;
-    bool                      mStartedFlag;
-    bool                      mParametersUpdatePendingFlag;
-    vrNodeId_t                mPrimaryNodeId;
-    volatile int              mSignalCnt;
-    StBufferT<char, 10 << 10> mBuffer;
+    Properties   mParameters;
+    NetManager   mNetManager;
+    LogReceiver  mLogReceiver;
+    QCThread     mThread;
+    bool         mWakeupFlag;
+    bool         mStartedFlag;
+    bool         mParametersUpdatePendingFlag;
+    volatile int mSignalCnt;
 
     virtual void Run()
     {
@@ -1633,8 +1577,7 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity,
         }
     }
     metaDataSync.StartLogSync(
-        MetaRequest::GetLogWriter().GetCommittedLogSeq(),
-        mLogReceiverThread.GetReplayer()
+        MetaRequest::GetLogWriter().GetCommittedLogSeq()
     );
     return true;
 };

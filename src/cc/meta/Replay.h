@@ -29,6 +29,7 @@
 
 #include "common/kfstypes.h"
 #include "common/MdStream.h"
+#include "common/StBuffer.h"
 
 #include <string>
 #include <istream>
@@ -44,6 +45,7 @@ class DETokenizer;
 class DiskEntry;
 class MetaVrLogStartView;
 struct MetaRequest;
+struct MetaLogWriterControl;
 
 class Replay
 {
@@ -124,7 +126,8 @@ public:
         { return (enqueueFlag && enqueue(req)); }
     vrNodeId_t getPrimaryNodeId() const
         { return primaryNodeId; }
-
+    void handle(
+        MetaLogWriterControl& op);
     class BlockChecksum
     {
     public:
@@ -150,7 +153,8 @@ public:
     };
     static void AddRestotreEntries(DiskEntry& e);
 private:
-    typedef MdStreamT<BlockChecksum> MdStream;
+    typedef MdStreamT<BlockChecksum>  MdStream;
+    typedef StBufferT<char, 1>        Buffer;
 
     ifstream         file;   //!< the log file being replayed
     string           path;   //!< path name for log file
@@ -178,6 +182,7 @@ private:
     seq_t            maxLogNum;
     seq_t            logSeqStartNum;
     vrNodeId_t       primaryNodeId;
+    Buffer           buffer;
 
     friend class MetaServerGlobals;
     Replay();

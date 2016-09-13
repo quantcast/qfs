@@ -2788,4 +2788,46 @@ Replay::enqueue(MetaRequest& req)
     return state.enqueue(req);
 }
 
+void
+Replay::handle(MetaLogWriterControl& op)
+{
+    if (0 != op.status || MetaLogWriterControl::kWriteBlock != op.type) {
+        return;
+    }
+    KFS_LOG_STREAM_DEBUG <<
+        "replaying: " << op.Show() <<
+    KFS_LOG_EOM;
+    const int*       lenPtr     = op.blockLines.GetPtr();
+    const int* const lendEndPtr = lenPtr + op.blockLines.GetSize();
+    while (lenPtr < lendEndPtr) {
+        const int lineLen = *lenPtr++;
+        if (lineLen <= 0) {
+            continue;
+        }
+        int               len     = lineLen;
+        const char* const linePtr =
+            op.blockData.CopyOutOrGetBufPtr(buffer.Reserve(lineLen), len);
+        if (len != lineLen) {
+            panic("replay: invalid write op line length");
+        } else {
+            const int status = playLine(
+                linePtr,
+                len,
+                lenPtr < lendEndPtr ? seq_t(-1) : op.blockSeq
+            );
+            if (status != 0) {
+                KFS_LOG_STREAM_FATAL <<
+                    "log block replay failure:"
+                    " "         << op.Show() <<
+                    " commit: " << op.blockCommitted <<
+                    " status: " << status <<
+                    " line: "   << IOBuffer::DisplayData(op.blockData, len) <<
+                KFS_LOG_EOM;
+                panic("log block apply failure");
+            }
+        }
+        op.blockData.Consume(len);
+    }
+}
+
 } // namespace KFS

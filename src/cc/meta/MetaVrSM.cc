@@ -2003,7 +2003,7 @@ private:
             if (inReq.replayFlag) {
                 panic("VR: invalid reconfiguration request");
                 inReq.status    = -EFAULT;
-                inReq.statusMsg = "internal error";
+                inReq.statusMsg = "invalid reconfiguration request in replay";
                 return true;
             }
             if (MetaRequest::kLogIfOk != inReq.logAction &&
@@ -2094,14 +2094,12 @@ private:
     bool Handle(
         MetaLogWriterControl& inReq)
     {
-        if (MetaLogWriterControl::kSyncDone != inReq.type) {
-            return false;
-        }
-        if (kStateLogSync == mState) {
+        if (MetaLogWriterControl::kLogFetchDone != inReq.type &&
+                kStateLogSync == mState) {
             mCheckLogSyncStatusFlag = true;
             Wakeup();
         }
-        return true;
+        return false;
     }
     void AddNode(
         MetaVrReconfiguration& inReq)
