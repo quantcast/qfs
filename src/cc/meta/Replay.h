@@ -171,8 +171,8 @@ private:
     MetaVrLogSeq&    lastLogSeq;
     const seq_t&     lastBlockSeq;
     int64_t&         errChecksum;
-    int64_t          rollSeeds;
     const int&       lastCommittedStatus;
+    int64_t          rollSeeds;
     size_t           tmplogprefixlen;
     string           tmplogname;
     string           logdir;
