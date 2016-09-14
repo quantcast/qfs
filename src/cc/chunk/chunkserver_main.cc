@@ -41,12 +41,11 @@
 #include "kfsio/Globals.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/NetErrorSimulator.h"
+#include "kfsio/ProcessRestarter.h"
 
 #include "qcdio/QCUtils.h"
 
 #include <signal.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <unistd.h>
@@ -58,8 +57,6 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
-
-extern char **environ;
 
 namespace KFS {
 
@@ -75,201 +72,11 @@ using std::min;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
-// Restart the chunk chunk server process by issuing exec when / if requested.
-// Fork is more reliable, but might confuse existing scripts. Using debugger
-// with fork is a little bit more involved.
-// The intention here is to do graceful restart, this is not intended as an
-// external "nanny" / monitoring / watchdog.
-class Restarter
-{
-public:
-    Restarter()
-        : mCwd(0),
-          mArgs(0),
-          mEnv(0),
-          mMaxGracefulRestartSeconds(60 * 6),
-          mExitOnRestartFlag(false)
-        {}
-    ~Restarter()
-        { Cleanup(); }
-    bool Init(int argc, char **argv)
-    {
-        ::alarm(0);
-        if (::signal(SIGALRM, &Restarter::SigAlrmHandler) == SIG_ERR) {
-            QCUtils::FatalError("signal(SIGALRM)", errno);
-        }
-        Cleanup();
-        if (argc < 1 || ! argv) {
-            return false;
-        }
-        for (int len = PATH_MAX; len < PATH_MAX * 1000; len += PATH_MAX) {
-            mCwd = (char*)::malloc(len);
-            if (! mCwd || ::getcwd(mCwd, len)) {
-                break;
-            }
-            const int err = errno;
-            ::free(mCwd);
-            mCwd = 0;
-            if (err != ERANGE) {
-                break;
-            }
-        }
-        if (! mCwd) {
-            return false;
-        }
-        mArgs = new char*[argc + 1];
-        int i;
-        for (i = 0; i < argc; i++) {
-            if (! (mArgs[i] = ::strdup(argv[i]))) {
-                Cleanup();
-                return false;
-            }
-        }
-        mArgs[i] = 0;
-        char** ptr = environ;
-        for (i = 0; *ptr; i++, ptr++)
-            {}
-        mEnv = new char*[i + 1];
-        for (i = 0, ptr = environ; *ptr; ) {
-            if (! (mEnv[i++] = ::strdup(*ptr++))) {
-                Cleanup();
-                return false;
-            }
-        }
-        mEnv[i] = 0;
-        return true;
-    }
-    void SetParameters(const Properties& props, string prefix)
-    {
-        mMaxGracefulRestartSeconds = props.getValue(
-            prefix + "maxGracefulRestartSeconds",
-            mMaxGracefulRestartSeconds
-        );
-        mExitOnRestartFlag = props.getValue(
-            prefix + "exitOnRestartFlag",
-            mExitOnRestartFlag
-        );
-    }
-    string Restart()
-    {
-        if (! mCwd || ! mArgs || ! mEnv || ! mArgs[0] || ! mArgs[0][0]) {
-            return string("not initialized");
-        }
-        if (! mExitOnRestartFlag) {
-            struct stat res = {0};
-            if (::stat(mCwd, &res) != 0) {
-                return QCUtils::SysError(errno, mCwd);
-            }
-            if (! S_ISDIR(res.st_mode)) {
-                return (mCwd + string(": not a directory"));
-            }
-            string execpath(mArgs[0][0] == '/' ? mArgs[0] : mCwd);
-            if (mArgs[0][0] != '/') {
-                if (! execpath.empty() &&
-                        execpath.at(execpath.length() - 1) != '/') {
-                    execpath += "/";
-                }
-                execpath += mArgs[0];
-            }
-            if (::stat(execpath.c_str(), &res) != 0) {
-                return QCUtils::SysError(errno, execpath.c_str());
-            }
-            if (! S_ISREG(res.st_mode)) {
-                return (execpath + string(": not a file"));
-            }
-        }
-        if (::signal(SIGALRM, &Restarter::SigAlrmHandler) == SIG_ERR) {
-            QCUtils::FatalError("signal(SIGALRM)", errno);
-        }
-        if (mMaxGracefulRestartSeconds > 0) {
-            if (sInstance) {
-                return string("restart in progress");
-            }
-            sInstance = this;
-            if (::atexit(&Restarter::RestartSelf)) {
-                sInstance = 0;
-                return QCUtils::SysError(errno, "atexit");
-            }
-            ::alarm((unsigned int)mMaxGracefulRestartSeconds);
-            globalNetManager().Shutdown();
-        } else {
-            ::alarm((unsigned int)-mMaxGracefulRestartSeconds);
-            Exec();
-        }
-        return string();
-    }
-private:
-    char*  mCwd;
-    char** mArgs;
-    char** mEnv;
-    int    mMaxGracefulRestartSeconds;
-    bool   mExitOnRestartFlag;
-
-    static Restarter* sInstance;
-
-    static void FreeArgs(char** args)
-    {
-        if (! args) {
-            return;
-        }
-        char** ptr = args;
-        while (*ptr) {
-            ::free(*ptr++);
-        }
-        delete [] args;
-    }
-    void Cleanup()
-    {
-        free(mCwd);
-        mCwd = 0;
-        FreeArgs(mArgs);
-        mArgs = 0;
-        FreeArgs(mEnv);
-        mEnv = 0;
-    }
-    void Exec()
-    {
-        if (mExitOnRestartFlag) {
-            _exit(0);
-        }
-#ifdef KFS_OS_NAME_LINUX
-        ::clearenv();
-#else
-        environ = 0;
-#endif
-        if (mEnv) {
-            for (char** ptr = mEnv; *ptr; ptr++) {
-                if (::putenv(*ptr)) {
-                    QCUtils::FatalError("putenv", errno);
-                }
-            }
-        }
-        if (::chdir(mCwd) != 0) {
-            QCUtils::FatalError(mCwd, errno);
-        }
-        execvp(mArgs[0], mArgs);
-        QCUtils::FatalError(mArgs[0], errno);
-    }
-    static void RestartSelf()
-    {
-        if (! sInstance) {
-            ::abort();
-        }
-        sInstance->Exec();
-    }
-    static void SigAlrmHandler(int /* sig */)
-    {
-        if (write(2, "SIGALRM\n", 8) < 0) {
-            QCUtils::SetLastIgnoredError(errno);
-        }
-        ::abort();
-    }
-};
-Restarter* Restarter::sInstance = 0;
-static Restarter sRestarter;
+static ProcessRestarter sRestarter;
 
 string RestartChunkServer()
 {
+    globalNetManager().Shutdown();
     return sRestarter.Restart();
 }
 
@@ -413,7 +220,7 @@ ChunkServerMain::LoadParams(const char* fileName)
     MsgLogger::GetLogger()->SetUseNonBlockingIo(true);
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(mProp, "chunkServer.msgLogWriter.");
-    sRestarter.SetParameters(mProp, "chunkServer.");
+    sRestarter.SetParameters("chunkServer.", mProp);
 
     string displayProps(fileName);
     displayProps += ":\n";
