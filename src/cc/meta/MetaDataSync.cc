@@ -188,6 +188,7 @@ public:
           mNextReadPos(0),
           mFileSize(-1),
           mLogSeq(),
+          mLastSubmittedLogSeq(),
           mNextLogSegIdx(-1),
           mCheckpointFlag(false),
           mAllowNotPrimaryFlag(false),
@@ -449,6 +450,7 @@ public:
         Reset();
         mLogSyncStartedFlag  = true;
         mLogSeq              = inLogSeq;
+        mLastSubmittedLogSeq = inLogSeq;
         mWriteToFileFlag     = false;
         mStatus              = 0;
         mAllowNotPrimaryFlag = inAllowNotPrimaryFlag;
@@ -667,6 +669,7 @@ private:
     int64_t           mNextReadPos;
     int64_t           mFileSize;
     MetaVrLogSeq      mLogSeq;
+    MetaVrLogSeq      mLastSubmittedLogSeq;
     seq_t             mNextLogSegIdx;
     bool              mCheckpointFlag;
     bool              mAllowNotPrimaryFlag;
@@ -1190,7 +1193,7 @@ private:
         KFS_LOG_STREAM(0 == mStatus ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR)
-            "sync complete:"
+            "fetch complete:"
             " status: "   << mStatus <<
             " seq: "      << mLogSeq <<
             " shutdown: " << mShutdownNetManagerFlag <<
@@ -1260,14 +1263,6 @@ private:
                 Sleep(mKeepLogSegmentsInterval);
             }
         }
-    }
-    void HandleError(
-        MetaLogWriterControl& inOp)
-    {
-        inOp.status = -EINVAL;
-        mLogWritesInFlightCount++;
-        LogWriteDone(EVENT_CMD_DONE, &inOp);
-        HandleError();
     }
     void HandleError()
     {
@@ -1489,8 +1484,8 @@ private:
                 mBuffer.Consume(theLen - theCopyLen + 1);
             mCurBlockChecksum = mNextBlockChecksum;
             mLogWritesInFlightCount++;
-            if (theBlockSeqLen <= 0) {
-                LogWriteDone(EVENT_CMD_DONE, &theOp);
+            if (theBlockSeqLen <= 0 || theLogSeq < mLastSubmittedLogSeq) {
+                Release(theOp);
             } else {
                 submit_request(&theOp);
             }
@@ -1529,23 +1524,39 @@ private:
             return -1;
         }
         mLogWritesInFlightCount--;
-        MetaLogWriterControl& theOp = *reinterpret_cast<MetaLogWriterControl*>(
-            inDataPtr);
-        KFS_LOG_STREAM_DEBUG <<
+        MetaLogWriterControl& theOp =
+            *reinterpret_cast<MetaLogWriterControl*>(inDataPtr);
+        mLastSubmittedLogSeq = max(mLastSubmittedLogSeq, theOp.lastLogSeq);
+        const bool theErrorFlag = -EINVAL == theOp.status &&
+            theOp.blockStartSeq == theOp.lastLogSeq;
+        KFS_LOG_STREAM(theErrorFlag ?
+                MsgLogger::kLogLevelERROR :
+                MsgLogger::kLogLevelDEBUG) <<
             "log fetch:"
-            " log end: "   << theOp.lastLogSeq <<
+            " submitted: " << mLastSubmittedLogSeq <<
+            " last log: "  << theOp.lastLogSeq <<
             " in flight: " << mLogWritesInFlightCount <<
+            " "            << inDataPtr <<
             " "            << theOp.Show() <<
         KFS_LOG_EOM;
-        if (mReadOpsPtr) {
-            theOp.Reset(MetaLogWriterControl::kWriteBlock);
-            theOp.clnt = this;
-            mFreeWriteOpCount++;
-            mFreeWriteOpList.PutFront(theOp);
-        } else {
-            MetaRequest::Release(&theOp);
+        if (theErrorFlag && mReadOpsPtr) {
+            Reset();
         }
+        Release(theOp);
         return 0;
+    }
+    void Release(
+        MetaLogWriterControl& inOp)
+    {
+        if (mReadOpsPtr) {
+            inOp.Reset(MetaLogWriterControl::kWriteBlock);
+            inOp.clnt = this;
+            mFreeWriteOpCount++;
+            mFreeWriteOpList.PutFront(inOp);
+        } else {
+            MetaRequest::Release(&inOp);
+        }
+        return;
     }
     int PrepareToSync()
     {

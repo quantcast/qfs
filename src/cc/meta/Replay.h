@@ -169,10 +169,10 @@ private:
     MetaVrLogSeq&    committed;
     MetaVrLogSeq     lastLogStart;
     MetaVrLogSeq&    lastLogSeq;
-    seq_t&           lastBlockSeq;
+    const seq_t&     lastBlockSeq;
     int64_t&         errChecksum;
     int64_t          rollSeeds;
-    int              lastCommittedStatus;
+    const int&       lastCommittedStatus;
     size_t           tmplogprefixlen;
     string           tmplogname;
     string           logdir;

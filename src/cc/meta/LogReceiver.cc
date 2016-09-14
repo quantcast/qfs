@@ -1107,6 +1107,7 @@ private:
             return;
         }
         KFS_LOG_STREAM_ERROR << mPeerLocation <<
+            " id: "    << mImpl.GetId() <<
             " error: " << (inMsgPtr ? inMsgPtr : "")  <<
             " closing connection"
             " last block end: " << mBlockEndSeq <<

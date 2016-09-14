@@ -2188,7 +2188,7 @@ Replay::Replay()
       lastBlockSeq(replayTokenizer.GetState().mLastBlockSeq),
       errChecksum(replayTokenizer.GetState().mLogAheadErrChksum),
       rollSeeds(0),
-      lastCommittedStatus(0),
+      lastCommittedStatus(replayTokenizer.GetState().mLastCommittedStatus),
       tmplogprefixlen(0),
       tmplogname(),
       logdir(),
@@ -2808,7 +2808,10 @@ Replay::handle(MetaLogWriterControl& op)
         const char* const linePtr =
             op.blockData.CopyOutOrGetBufPtr(buffer.Reserve(lineLen), len);
         if (len != lineLen) {
-            panic("replay: invalid write op line length");
+            const char* const kErrMsg = "replay: invalid write op line length";
+            panic(kErrMsg);
+            op.status    = -EFAULT;
+            op.statusMsg = kErrMsg;
         } else {
             const int status = playLine(
                 linePtr,
@@ -2823,7 +2826,10 @@ Replay::handle(MetaLogWriterControl& op)
                     " status: " << status <<
                     " line: "   << IOBuffer::DisplayData(op.blockData, len) <<
                 KFS_LOG_EOM;
-                panic("log block apply failure");
+                const char* const kErrMsg = "log block apply failure";
+                panic(kErrMsg);
+                op.status    = -EFAULT;
+                op.statusMsg = kErrMsg;
             }
         }
         op.blockData.Consume(len);

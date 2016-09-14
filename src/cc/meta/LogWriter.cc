@@ -101,6 +101,7 @@ public:
           mReplayCommitQueue(),
           mPendingCommitted(),
           mInFlightCommitted(),
+          mLastWriteCommitted(),
           mPendingReplayLogSeq(),
           mReplayLogSeq(),
           mNextLogSeq(),
@@ -143,6 +144,10 @@ public:
           mLogFileNamePrefix("log"),
           mNotPrimaryErrorMsg(ErrorCodeToString(-ELOGFAILED)),
           mLogWriteErrorMsg(ErrorCodeToString(-EVRNOTPRIMARY)),
+          mInvalidBlockStartSegmentErrorMsg("invalid block start sequence"),
+          mInvalidHeartbeatSequenceErrorMsg("invalid heartbeat sequence"),
+          mPrimaryRejectedBlockWriteErrorMsg(
+            "block write rejected: VR state is primary"),
           mLogStartViewPrefix(
             string(kLogWriteAheadPrefixPtr) +
             kLogVrStatViewNamePtr +
@@ -200,6 +205,7 @@ public:
         mPendingReplayLogSeq  = mReplayLogSeq;
         mPendingCommitted     = mCommitted;
         mInFlightCommitted    = mPendingCommitted;
+        mLastWriteCommitted   = mInFlightCommitted;
         mMetaDataStorePtr     = &inMetaDataStore;
         if (mReplayerPtr->getAppendToLastLogFlag()) {
             const bool theLogAppendHexFlag =
@@ -452,11 +458,11 @@ public:
             mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mNetManagerPtr = 0;
         }
-        Release(mInQueue);
-        Release(mOutQueue);
-        Release(mPendingQueue);
-        Release(mPendingAckQueue);
-        Release(mReplayCommitQueue);
+        Cancel(mInQueue);
+        mPendingCount -= Cancel(mOutQueue);
+        mPendingCount -= Cancel(mPendingQueue);
+        mPendingCount -= Cancel(mPendingAckQueue);
+        mPendingCount -= Cancel(mReplayCommitQueue);
     }
     void PrepareToFork()
     {
@@ -558,6 +564,7 @@ private:
     Queue             mReplayCommitQueue;
     Committed         mPendingCommitted;
     Committed         mInFlightCommitted;
+    Committed         mLastWriteCommitted;
     MetaVrLogSeq      mPendingReplayLogSeq;
     MetaVrLogSeq      mReplayLogSeq;
     MetaVrLogSeq      mNextLogSeq;
@@ -593,21 +600,32 @@ private:
     const string      mLogFileNamePrefix;
     const string      mNotPrimaryErrorMsg;
     const string      mLogWriteErrorMsg;
+    const string      mInvalidBlockStartSegmentErrorMsg;
+    const string      mInvalidHeartbeatSequenceErrorMsg;
+    const string      mPrimaryRejectedBlockWriteErrorMsg;
     const string      mLogStartViewPrefix;
     const size_t      mLogAppendPrefixLen;
     const char* const mLogStartViewPrefixPtr;
     const size_t      mLogStartViewPrefixLen;
 
-    void Release(
+    int Cancel(
         Queue& inQueue)
     {
+        Queue theQueue;
+        theQueue.Swap(inQueue);
+        int          theCnt = 0;
         MetaRequest* thePtr;
-        while ((thePtr = inQueue.PopFront())) {
-            if (! thePtr->clnt) {
-                --mPendingCount;
+        while ((thePtr = theQueue.PopFront())) {
+            if (thePtr->clnt) {
+                thePtr->status    = -ECANCELED;
+                thePtr->statusMsg = "canceled due to shutdown";
+                submit_request(thePtr);
+            } else {
                 MetaRequest::Release(thePtr);
             }
+            theCnt++;
         }
+        return theCnt;
     }
     virtual void Timeout()
     {
@@ -1100,6 +1118,9 @@ private:
             KFS_LOG_EOM;
         }
         LogStreamFlush();
+        if (IsLogStreamGood()) {
+            mLastWriteCommitted = mInFlightCommitted;
+        }
         mMetaVrSM.LogBlockWriteDone(
             mNextLogSeq,
             inLogSeq,
@@ -1219,8 +1240,8 @@ private:
                 inRequest.status    = -EINVAL;
                 inRequest.statusMsg = "invalid non empty block / heartbeat";
             } else if (inRequest.blockStartSeq != mLastLogSeq) {
-                inRequest.status    = -EINVAL;
-                inRequest.statusMsg = "invalid heartbeat sequence";
+                inRequest.status    = -EROFS;
+                inRequest.statusMsg = mInvalidHeartbeatSequenceErrorMsg;
             } else {
                 // Valid heartbeat.
                 const int theVrStatus = mMetaVrSM.HandleLogBlock(
@@ -1257,16 +1278,15 @@ private:
             return;
         }
         if (0 == mVrStatus) {
-            static const string kMsg(
-                "block write rejected: VR state is primary");
-            inRequest.statusMsg = kMsg;
+            inRequest.statusMsg = mPrimaryRejectedBlockWriteErrorMsg;
             inRequest.status    = -EROFS;
             return;
         }
+        MetaVrLogSeq thePrevViewCommitted;
         if (inRequest.blockStartSeq != mLastLogSeq) {
-            inRequest.status = -EINVAL;
-            // Check if this is valid log start view op.
-            int theLnLen = -1;
+            inRequest.status = -EROFS;
+            // Check if this is valid vr log start view op.
+            int theLnLen;
             if (inRequest.blockStartSeq < inRequest.blockEndSeq &&
                     mLastLogSeq < inRequest.blockStartSeq &&
                     2 == inRequest.blockLines.GetSize() &&
@@ -1278,30 +1298,44 @@ private:
                 const char* const thePtr    =
                     inRequest.blockData.CopyOutOrGetBufPtr(
                         mTmpBuffer.Reserve(theLnLen), theLen);
-                if (theLen == theLnLen &&
-                        0 == memcmp(mLogStartViewPrefixPtr, thePtr,
-                            mLogStartViewPrefixLen) &&
-                        (theReqPtr = MetaRequest::ReadReplay(
+                if (theLen != theLnLen) {
+                    const char* const kMsgPtr =
+                        "write block: invalid line length";
+                    panic(kMsgPtr);
+                    inRequest.statusMsg = kMsgPtr;
+                    inRequest.status    = -EFAULT;
+                } else if (0 != memcmp(mLogStartViewPrefixPtr, thePtr,
+                            mLogStartViewPrefixLen)) {
+                    inRequest.status = -EROFS;
+                } else if ((theReqPtr = MetaRequest::ReadReplay(
                             thePtr + mLogAppendPrefixLen,
                             theLnLen - mLogAppendPrefixLen)) &&
                         META_VR_LOG_START_VIEW == theReqPtr->op) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theReqPtr);
                     if (! theOp.Validate() ||
-                            theOp.mNewLogSeq != inRequest.blockEndSeq ||
-                            mLastLogSeq < theOp.mCommittedSeq ||
-                            theOp.mCommittedSeq < mInFlightCommitted.mSeq) {
-                        inRequest.statusMsg = "invalid log start view entry";
+                            theOp.mNewLogSeq != inRequest.blockEndSeq) {
+                        inRequest.status = -EINVAL;
+                    } else if (mLastLogSeq < theOp.mCommittedSeq ||
+                            theOp.mCommittedSeq < mInFlightCommitted.mSeq ||
+                            theOp.mCommittedSeq < mLastWriteCommitted.mSeq) {
+                        inRequest.status = -EROFS;
                     } else {
+                        thePrevViewCommitted = theOp.mCommittedSeq;
                         inRequest.status = 0;
                     }
+                } else {
+                    inRequest.status = -EINVAL;
                 }
                 MetaRequest::Release(theReqPtr);
             }
             if (0 != inRequest.status) {
                 if (inRequest.statusMsg.empty()) {
-                    static const string kMsg("invalid block start sequence");
-                    inRequest.statusMsg = kMsg;
+                    if (-EINVAL == inRequest.status) {
+                        inRequest.statusMsg = "invalid log start view entry";
+                    } else {
+                        inRequest.statusMsg = mInvalidBlockStartSegmentErrorMsg;
+                    }
                 }
                 return;
             }
@@ -1352,7 +1386,7 @@ private:
         int          theBlockLen = -1;
         Committed    theBlockCommitted;
         if (thePtr + 2 < theEndPtr &&
-                (*thePtr & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
+                (thePtr[0] & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
             thePtr += 2;
             if (ParseField(thePtr, theEndPtr, theBlockCommitted.mSeq) &&
                     ParseField(thePtr, theEndPtr, theBlockCommitted.mFidSeed) &&
@@ -1365,7 +1399,10 @@ private:
                     theBlockCommitted.mSeq <= theLogSeq &&
                     theLogSeq == inRequest.blockEndSeq &&
                     inRequest.blockStartSeq.mLogSeq + theBlockLen ==
-                        inRequest.blockEndSeq.mLogSeq) {
+                        inRequest.blockEndSeq.mLogSeq &&
+                    (thePrevViewCommitted.IsValid() ?
+                        theBlockCommitted.mSeq <= thePrevViewCommitted :
+                        mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq)) {
                 inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
         }
@@ -1375,6 +1412,9 @@ private:
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "log write: invalid block format";
             return;
+        }
+        if (thePrevViewCommitted.IsValid()) {
+            theBlockCommitted.mSeq = thePrevViewCommitted;
         }
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             inRequest.blockStartSeq,
@@ -1420,10 +1460,11 @@ private:
             theStreamGoodFlag
         );
         if (theStreamGoodFlag) {
-            inRequest.blockSeq   = mNextBlockSeq;
-            mLastLogSeq          = inRequest.blockEndSeq;
-            mNextLogSeq          = mLastLogSeq;
-            inRequest.status     = 0;
+            inRequest.blockSeq  = mNextBlockSeq;
+            mLastLogSeq         = inRequest.blockEndSeq;
+            mNextLogSeq         = mLastLogSeq;
+            inRequest.status    = 0;
+            mLastWriteCommitted = theBlockCommitted;
         } else {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
