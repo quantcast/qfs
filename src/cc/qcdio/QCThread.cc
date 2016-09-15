@@ -36,6 +36,7 @@
 #ifdef QC_OS_NAME_LINUX
 #include <sys/types.h>
 #include <sys/syscall.h>
+#include <sys/prctl.h>
 #include <sched.h>
 #include <unistd.h>
 #endif
@@ -203,6 +204,11 @@ QCThread::RunnerSelf()
     if (theError) {
         FatalError("sched_setaffinity", theError);
     }
+#if defined(QC_OS_NAME_LINUX) && defined(PR_SET_NAME)
+    if (! mName.empty()) {
+        prctl(PR_SET_NAME, (unsigned long)mName.c_str(), 0, 0, 0);
+    }
+#endif
     mRunnablePtr->Run();
 }
     /* static */ void*
