@@ -49,6 +49,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/ProcessRestarter.h"
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCIoBufferPool.h"
@@ -154,12 +155,18 @@ public:
                 " " << SslFilter::GetErrorMsg(sslErr) << "\n";
             return 1;
         }
+        static MetaServer sServer;
+        const int status = sServer.mProcessRestarter.Init(argsc, argsv);
+        if (0 != status) {
+            cerr << "failed to initialize process restarter: " <<
+                " error: " << QCUtils::SysError(status) << "\n";
+            return 1;
+        }
         if (argc > 1) {
             MsgLogger::Init(argv[1]);
         } else {
             MsgLogger::Init(0);
         }
-        static MetaServer sServer;
 #ifdef KFS_OS_NAME_LINUX
         sServer.mMetaMd = ComputeMd("/proc/self/exe");
 #endif
@@ -179,6 +186,12 @@ public:
         MsgLogger::Stop();
         MdStream::Cleanup();
         return (okFlag ? 0 : 1);
+    }
+    static void Restart()
+    {
+        if (sInstance) {
+            sInstance->RestartSelf();
+        }
     }
     virtual void Timeout()
     {
@@ -236,7 +249,8 @@ private:
           mTimerRegisteredFlag(false),
           mCleanupDoneFlag(false),
           mMetaDataSync(globalNetManager()),
-          mMetaMd()
+          mMetaMd(),
+          mProcessRestarter(true /* inCloseFdsAtInitFlag */)
     {
         if (! sInstance) {
             sInstance = this;
@@ -369,40 +383,61 @@ private:
         is.close();
         return ret;
     }
+    void RestartSelf()
+    {
+        if (gNetDispatch.IsRunning()) {
+            // "Park" all threads
+            gNetDispatch.PrepareCurrentThreadToFork();
+            MetaRequest::GetLogWriter().PrepareToFork();
+            gLayoutManager.GetUserAndGroup().PrepareToFork();
+            AuditLog::PrepareToFork();
+        }
+        MsgLogger* const logger = MsgLogger::GetLogger();
+        if (logger) {
+            logger->PrepareToFork();
+        }
+        const string errMsg = mProcessRestarter.Restart();
+        if (logger) {
+            logger->ForkDone();
+        }
+        panic("restart failure: " + errMsg);
+        _exit(1);
+    }
     bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag);
 
     // This is to get settings from the core file.
-    string         mFileName;
-    Properties     mProperties;
-    Properties     mStartupProperties;
-    bool           mCheckpointFlag;
-    bool           mSetParametersFlag;
-    bool           mRestartChunkServersFlag;
-    int            mSetParametersCount;
+    string           mFileName;
+    Properties       mProperties;
+    Properties       mStartupProperties;
+    bool             mCheckpointFlag;
+    bool             mSetParametersFlag;
+    bool             mRestartChunkServersFlag;
+    int              mSetParametersCount;
     // Port at which KFS clients connect and send RPCs
-    ServerLocation mClientListenerLocation;
+    ServerLocation   mClientListenerLocation;
     // Port at which Chunk servers connect
-    ServerLocation mChunkServerListenerLocation;
-    bool           mClientListenerIpV6OnlyFlag;
-    bool           mChunkServerListenerIpV6OnlyFlag;
+    ServerLocation   mChunkServerListenerLocation;
+    bool             mClientListenerIpV6OnlyFlag;
+    bool             mChunkServerListenerIpV6OnlyFlag;
     // paths for logs and checkpoints
-    string         mLogDir;
-    string         mCPDir;
+    string           mLogDir;
+    string           mCPDir;
     // min # of chunk servers to exit recovery mode
-    uint32_t       mMinChunkservers;
-    int            mMaxChunkServers;
-    int            mMaxChunkServersSocketCount;
-    int16_t        mMinReplicasPerFile;
-    bool           mIsPathToFidCacheEnabled;
-    bool           mStartupAbortOnPanicFlag;
-    bool           mAbortOnPanicFlag;
-    int64_t        mMaxLockedMemorySize;
-    int            mMaxFdLimit;
-    bool           mLogWriterRunningFlag;
-    bool           mTimerRegisteredFlag;
-    bool           mCleanupDoneFlag;
-    MetaDataSync   mMetaDataSync;
-    string         mMetaMd;
+    uint32_t         mMinChunkservers;
+    int              mMaxChunkServers;
+    int              mMaxChunkServersSocketCount;
+    int16_t          mMinReplicasPerFile;
+    bool             mIsPathToFidCacheEnabled;
+    bool             mStartupAbortOnPanicFlag;
+    bool             mAbortOnPanicFlag;
+    int64_t          mMaxLockedMemorySize;
+    int              mMaxFdLimit;
+    bool             mLogWriterRunningFlag;
+    bool             mTimerRegisteredFlag;
+    bool             mCleanupDoneFlag;
+    MetaDataSync     mMetaDataSync;
+    string           mMetaMd;
+    ProcessRestarter mProcessRestarter;
 
     static MetaServer* sInstance;
 }* MetaServer::sInstance = 0;
@@ -410,6 +445,7 @@ private:
 void
 MetaServer::SetParameters(const Properties& props)
 {
+    mProcessRestarter.SetParameters("metaServer.", props);
     // min # of chunkservers that should connect to exit recovery mode
     mMinChunkservers = props.getValue(
         "metaServer.minChunkservers", mMinChunkservers);
@@ -872,6 +908,12 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         mCheckpointFlag = true; // schedule new style checkpoint write.
     }
     return true;
+}
+
+void
+MetaProcessRestart::handle()
+{
+    MetaServer::Restart();
 }
 
 }

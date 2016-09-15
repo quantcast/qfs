@@ -163,6 +163,7 @@ using std::less;
     f(CHUNK_OP_LOG_IN_FLIGHT) \
     f(HIBERNATED_PRUNE) \
     f(HIBERNATED_REMOVE) \
+    f(RESTART_PROCESS) \
     f(VR_HELLO) \
     f(VR_START_VIEW_CHANGE) \
     f(VR_DO_VIEW_CHANGE) \
@@ -4424,6 +4425,15 @@ struct MetaHibernatedRemove : public MetaRequest {
         .Def("S", &MetaHibernatedRemove::location)
         ;
     }
+};
+
+struct MetaProcessRestart : public MetaRequest {
+    MetaProcessRestart()
+        : MetaRequest(META_RESTART_PROCESS, kLogNever)
+        { replayBypassFlag = true; }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "restart-meta-server"); }
 };
 
 const char* const kMetaClusterKeyParamNamePtr    = "metaServer.clusterKey";
