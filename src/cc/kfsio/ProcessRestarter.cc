@@ -50,16 +50,24 @@ using std::string;
 class ProcessRestarter::Impl
 {
 public:
-    Impl()
+    Impl(
+        bool inCloseFdsAtInitFlag,
+        bool inSaveRestoreEnvFlag,
+        bool inExitOnRestartFlag,
+        bool inCloseFdsBeforeExecFlag,
+        int  inMaxGracefulRestartSeconds)
         : mCwd(0),
           mArgs(0),
           mEnv(0),
-          mMaxGracefulRestartSeconds(60 * 6),
-          mExitOnRestartFlag(false)
+          mMaxGracefulRestartSeconds(inMaxGracefulRestartSeconds),
+          mExitOnRestartFlag(inExitOnRestartFlag),
+          mCloseFdsAtInitFlag(inCloseFdsBeforeExecFlag),
+          mCloseFdsBeforeExecFlag(inCloseFdsBeforeExecFlag),
+          mSaveRestoreEnvFlag(inSaveRestoreEnvFlag)
         {}
     ~Impl()
         { Cleanup(); }
-    bool Init(
+    int Init(
         int    inArgCnt,
         char** inArgsPtr)
     {
@@ -69,44 +77,49 @@ public:
         }
         Cleanup();
         if (inArgCnt < 1 || ! inArgsPtr) {
-            return false;
+            return EINVAL;
         }
-        for (int len = PATH_MAX; len < PATH_MAX * 1000; len += PATH_MAX) {
-            mCwd = (char*)::malloc(len);
-            if (! mCwd || ::getcwd(mCwd, len)) {
+        int theErr = 0;
+        for (int theLen = 4 << 10; theLen < (128 << 10); theLen += theLen) {
+            mCwd = (char*)::malloc(theLen);
+            if (! mCwd || ::getcwd(mCwd, theLen)) {
                 break;
             }
-            const int err = errno;
+            theErr = errno;
             ::free(mCwd);
             mCwd = 0;
-            if (err != ERANGE) {
+            if (theErr != ERANGE) {
                 break;
             }
         }
         if (! mCwd) {
-            return false;
+            return (0 == theErr ? EINVAL : theErr);
         }
         mArgs = new char*[inArgCnt + 1];
         int i;
         for (i = 0; i < inArgCnt; i++) {
             if (! (mArgs[i] = ::strdup(inArgsPtr[i]))) {
+                theErr = errno;
                 Cleanup();
-                return false;
+                return (0 == theErr ? ENOMEM : theErr);
             }
         }
         mArgs[i] = 0;
-        char** ptr = environ;
-        for (i = 0; *ptr; i++, ptr++)
-            {}
-        mEnv = new char*[i + 1];
-        for (i = 0, ptr = environ; *ptr; ) {
-            if (! (mEnv[i++] = ::strdup(*ptr++))) {
-                Cleanup();
-                return false;
+        if (mSaveRestoreEnvFlag) {
+            char** thePtr = environ;
+            for (i = 0; *thePtr; i++, thePtr++)
+                {}
+            mEnv = new char*[i + 1];
+            for (i = 0, thePtr = environ; *thePtr; ) {
+                if (! (mEnv[i++] = ::strdup(*thePtr++))) {
+                    theErr = errno;
+                    Cleanup();
+                    return (0 == theErr ? ENOMEM : theErr);
+                }
             }
+            mEnv[i] = 0;
         }
-        mEnv[i] = 0;
-        return true;
+        return 0;
     }
     void SetParameters(
         const char*       inPrefixPtr,
@@ -118,10 +131,23 @@ public:
             theName.Truncate(theLen).Append("maxGracefulRestartSeconds"),
             mMaxGracefulRestartSeconds
         );
+        // Prior name for backward compatibility.
         mExitOnRestartFlag = inProps.getValue(
             theName.Truncate(theLen).Append("exitOnRestartFlag"),
-            mExitOnRestartFlag
-        );
+            mExitOnRestartFlag ? 1 : 0
+        ) != 0;
+        mExitOnRestartFlag = inProps.getValue(
+            theName.Truncate(theLen).Append("exitOnRestart"),
+            mExitOnRestartFlag ? 1 : 0
+        ) != 0;
+        mCloseFdsAtInitFlag = inProps.getValue(
+            theName.Truncate(theLen).Append("closeFdsAtInit"),
+            mCloseFdsAtInitFlag ? 1 : 0
+        ) != 0;
+        mCloseFdsBeforeExecFlag = inProps.getValue(
+            theName.Truncate(theLen).Append("closeFdsBeforeExec"),
+            mCloseFdsBeforeExecFlag ? 1 : 0
+        ) != 0;
     }
     string Restart()
     {
@@ -136,19 +162,19 @@ public:
             if (! S_ISDIR(theRes.st_mode)) {
                 return (mCwd + string(": not a directory"));
             }
-            string execpath(mArgs[0][0] == '/' ? mArgs[0] : mCwd);
+            string theExecpath(mArgs[0][0] == '/' ? mArgs[0] : mCwd);
             if (mArgs[0][0] != '/') {
-                if (! execpath.empty() &&
-                        execpath.at(execpath.length() - 1) != '/') {
-                    execpath += "/";
+                if (! theExecpath.empty() &&
+                        theExecpath.at(theExecpath.length() - 1) != '/') {
+                    theExecpath += "/";
                 }
-                execpath += mArgs[0];
+                theExecpath += mArgs[0];
             }
-            if (::stat(execpath.c_str(), &theRes) != 0) {
-                return QCUtils::SysError(errno, execpath.c_str());
+            if (::stat(theExecpath.c_str(), &theRes) != 0) {
+                return QCUtils::SysError(errno, theExecpath.c_str());
             }
             if (! S_ISREG(theRes.st_mode)) {
-                return (execpath + string(": not a file"));
+                return (theExecpath + string(": not a file"));
             }
         }
         if (::signal(SIGALRM, &Impl::SigAlrmHandler) == SIG_ERR) {
@@ -176,6 +202,9 @@ private:
     char** mEnv;
     int    mMaxGracefulRestartSeconds;
     bool   mExitOnRestartFlag;
+    bool   mCloseFdsAtInitFlag;
+    bool   mCloseFdsBeforeExecFlag;
+    bool   mSaveRestoreEnvFlag;
 
     static Impl* sInstancePtr;
 
@@ -205,12 +234,12 @@ private:
         if (mExitOnRestartFlag) {
             _exit(0);
         }
+        if (mEnv && mSaveRestoreEnvFlag) {
 #ifdef KFS_OS_NAME_LINUX
-        ::clearenv();
+            ::clearenv();
 #else
-        environ = 0;
+            environ = 0;
 #endif
-        if (mEnv) {
             for (char** thePtr = mEnv; *thePtr; thePtr++) {
                 if (::putenv(*thePtr)) {
                     QCUtils::FatalError("putenv", errno);
@@ -220,15 +249,8 @@ private:
         if (::chdir(mCwd) != 0) {
             QCUtils::FatalError(mCwd, errno);
         }
-        int theMaxFds = 16 << 10;
-        struct rlimit theLimt = { 0 };
-        if (0 == getrlimit(RLIMIT_NOFILE, &theLimt)) {
-            if (0 < theLimt.rlim_cur) {
-                theMaxFds = (int)theLimt.rlim_cur;
-            }
-        }
-        for (int i = 3; i < theMaxFds; i++) {
-            close(i);
+        if (mCloseFdsBeforeExecFlag) {
+            CloseFds();
         }
         execvp(mArgs[0], mArgs);
         QCUtils::FatalError(mArgs[0], errno);
@@ -248,11 +270,34 @@ private:
         }
         ::abort();
     }
+    static void CloseFds()
+    {
+        int theMaxFds = 16 << 10;
+        struct rlimit theLimt = { 0 };
+        if (0 == getrlimit(RLIMIT_NOFILE, &theLimt)) {
+            if (0 < theLimt.rlim_cur) {
+                theMaxFds = (int)theLimt.rlim_cur;
+            }
+        }
+        for (int i = 3; i < theMaxFds; i++) {
+            close(i);
+        }
+    }
 };
 ProcessRestarter::Impl* ProcessRestarter::Impl::sInstancePtr = 0;
 
-ProcessRestarter::ProcessRestarter()
-    : mImpl(*(new Impl()))
+ProcessRestarter::ProcessRestarter(
+        bool inCloseFdsAtInitFlag,
+        bool inSaveRestoreEnvFlag,
+        bool inExitOnRestartFlag,
+        bool inCloseFdsBeforeExecFlag,
+        int  inMaxGracefulRestartSeconds)
+    : mImpl(*(new Impl(
+            inCloseFdsAtInitFlag,
+            inSaveRestoreEnvFlag,
+            inExitOnRestartFlag,
+            inCloseFdsBeforeExecFlag,
+            inMaxGracefulRestartSeconds)))
 {}
 
 ProcessRestarter::~ProcessRestarter()
@@ -260,7 +305,7 @@ ProcessRestarter::~ProcessRestarter()
     delete &mImpl;
 }
 
-    bool
+    int
 ProcessRestarter::Init(
     int    inArgCnt,
     char** inArgsPtr)

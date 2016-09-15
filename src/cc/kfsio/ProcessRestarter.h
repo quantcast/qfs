@@ -36,9 +36,14 @@ class Properties;
 class ProcessRestarter
 {
 public:
-    ProcessRestarter();
+    ProcessRestarter(
+        bool inCloseFdsAtInitFlag        = false,
+        bool inSaveRestoreEnvFlag        = false,
+        bool inExitOnRestartFlag         = false,
+        bool inCloseFdsBeforeExecFlag    = false,
+        int  inMaxGracefulRestartSeconds = 60 * 6);
     ~ProcessRestarter();
-    bool Init(
+    int Init(
         int    inArgCnt,
         char** inArgsPtr);
     void SetParameters(
