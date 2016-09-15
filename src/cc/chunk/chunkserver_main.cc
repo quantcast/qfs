@@ -72,9 +72,10 @@ using std::min;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
-static ProcessRestarter sRestarter;
+static ProcessRestarter sRestarter(true /* inCloseFdsAtInitFlag */);
 
-string RestartChunkServer()
+string
+RestartChunkServer()
 {
     globalNetManager().Shutdown();
     return sRestarter.Restart();
@@ -357,7 +358,11 @@ ChunkServerMain::Run(int argc, char **argv)
         return 0;
     }
 
-    sRestarter.Init(argc, argv);
+    const int rstatus = sRestarter.Init(argc, argv);
+    if (0 != rstatus) {
+        cout << "restarter init: " << QCUtils::SysError(rstatus) << "\n";
+        return 1;
+    }
     MsgLogger::Init(argc > 2 ? argv[2] : 0);
     srand((int)microseconds());
     MdStream::Init();
