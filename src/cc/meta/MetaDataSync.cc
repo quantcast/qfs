@@ -56,6 +56,7 @@
 #include <vector>
 #include <string>
 #include <sstream>
+#include <fstream>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -65,9 +66,14 @@ namespace KFS
 {
 using std::max;
 using std::istringstream;
+using std::ofstream;
+using std::ifstream;
+using std::istream;
 
 using client::KfsNetClient;
 using client::KfsOp;
+
+const char* const kMetaDataSyncCommitPtr = "metadatasynccommit";
 
 class MetaDataSync::Impl :
     public KfsNetClient::OpOwner,
@@ -157,6 +163,7 @@ public:
             4 * 60,            // inIdleTimeoutSec
             RandomSeq()        // inInitialSeqNum
           ),
+          mFetchOnRestartFileName("metadatafetch"),
           mServers(),
           mPendingSyncServers(),
           mPendingSyncLogSeq(),
@@ -218,6 +225,8 @@ public:
           mCurDownloadGeneration(0),
           mThread(),
           mClusterKey(),
+          mSyncCommitName(),
+          mStrBuffer(),
           mMetaMds()
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
@@ -257,6 +266,9 @@ public:
             theName.Truncate(thePrefLen).Append("maxReadSize"),
             mReadOpsCount));
         }
+        mFetchOnRestartFileName = inParameters.getValue(
+            theName.Truncate(thePrefLen).Append("fetchOnRestartFileName"),
+            mFetchOnRestartFileName);
         mTmpSuffix = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("tmpSuffix"),
             mTmpSuffix);
@@ -371,6 +383,61 @@ public:
         }
         mCheckpointDir = inCheckpointDirPtr;
         mLogDir        = inLogDirPtr;
+        mSyncCommitName = mCheckpointDir;
+        if (mSyncCommitName.empty()) {
+            return -EINVAL;
+        }
+        if ('/' != *mSyncCommitName.rbegin()) {
+            mSyncCommitName += "/";
+        }
+        mSyncCommitName += kMetaDataSyncCommitPtr;
+        mCheckpointFileName.clear();
+        mLastLogFileName.clear();
+        ifstream theStream(mSyncCommitName.c_str());
+        if (theStream) {
+            int theStep = 0;
+            if (getline(theStream, mCheckpointFileName) &&
+                    ! mCheckpointFileName.empty() &&
+                    getline(theStream, mLastLogFileName) &&
+                    (theStep << theStream) &&
+                    0 <= theStep) {
+                theStream.close();
+                string theName = mCheckpointDir;
+                if ('/' != *theName.rbegin()) {
+                    theName += "/";
+                }
+                theName += mCheckpointFileName;
+                mCheckpointFileName = theName;
+                if (! mLastLogFileName.empty()) {
+                    theName = mLogDir;
+                    if ('/' != *theName.rbegin()) {
+                        theName += "/";
+                    }
+                    theName += mLastLogFileName;
+                    mLastLogFileName = theName;
+                }
+                theStream.close();
+                const int theRet = CommitSync(theStep);
+                if (0 != theRet) {
+                    return theRet;
+                }
+            } else {
+                mCheckpointFileName.clear();
+                mLastLogFileName.clear();
+                theStream.close();
+            }
+        } else {
+            const int theFd = open(mSyncCommitName.c_str(), O_RDONLY);
+            if (theFd < 0) {
+                const int theErr = errno;
+                if (ENOENT != theErr) {
+                    return (theErr < 0 ? theErr :
+                        (0 == theErr ? -EIO : -theErr));
+                }
+            } else {
+                close(theFd);
+            }
+        }
         bool          theEmptyFsFlag = false;
         int64_t const theFsId        = GetFsId(mFileSystemId, theEmptyFsFlag);
         if (theFsId < 0) {
@@ -391,6 +458,21 @@ public:
                 " actual: "   << theFsId <<
             KFS_LOG_EOM;
             return -EINVAL;
+        }
+        if (! mFetchOnRestartFileName.empty()) {
+            ifstream theStream(mFetchOnRestartFileName.c_str());
+            if (theStream) {
+                mServers.clear();
+                ServerLocation theLocation;
+                istream& theIs = theStream;
+                while (theIs >> theLocation) {
+                    if (theLocation.IsValid()) {
+                        mServers.push_back(theLocation);
+                    }
+                    theLocation = ServerLocation();
+                }
+                theStream.close();
+            }
         }
         if (mServers.empty()) {
             return 0;
@@ -638,6 +720,7 @@ private:
     NetManager&       mRuntimeNetManager;
     NetManager        mStartupNetManager;
     KfsNetClient      mKfsNetClient;
+    string            mFetchOnRestartFileName;
     Servers           mServers;
     Servers           mPendingSyncServers;
     MetaVrLogSeq      mPendingSyncLogSeq;
@@ -699,6 +782,8 @@ private:
     unsigned int      mCurDownloadGeneration;
     QCThread          mThread;
     string            mClusterKey;
+    string            mSyncCommitName;
+    string            mStrBuffer;
     MetaMds           mMetaMds;
     char              mCommmitBuf[kMaxCommitLineLen];
 
@@ -1594,33 +1679,145 @@ private:
         }
         return theRet;
     }
-    int CommitSync()
+    int GetErrno()
     {
-        if (mCheckpointFileName.empty()) {
+        int theRet = errno;
+        if (0 == theRet) {
+            theRet = EIO;
+        }
+        return theRet;
+    }
+    int WriteCommitState(
+        int inState)
+    {
+        if (mSyncCommitName.empty()) {
+            panic("meta data sync: invalid write commit state invocation");
+            return -EINVAL;
+        }
+        for (int thePass = 0; thePass < 2; thePass++) {
+            const string& theName = 0 == thePass ?
+                mCheckpointFileName : mLastLogFileName;
+            size_t thePos = theName.rfind('/');
+            if (string::npos == thePos) {
+                thePos = 0;
+            } else {
+                thePos++;
+            }
+            mStrBuffer.append(
+                theName.data() + thePos,  theName.size() - thePos);
+            mStrBuffer += '\n';
+        }
+        AppendDecIntToString(mStrBuffer, inState);
+        mStrBuffer += '\n';
+        const string theName = mSyncCommitName + mTmpSuffix;
+        const int    theFd   =
+            open(theName.c_str(), O_WRONLY, O_CREAT | O_TRUNC);
+        int         theRet   = 0;
+        if (theFd < 0) {
+            theRet = errno;
+        } else {
+            for (ssize_t thePos = 0; thePos < mStrBuffer.size(); ) {
+                const ssize_t theNWr = write(
+                    theFd, mStrBuffer.data() + thePos,
+                    mStrBuffer.size() - thePos
+                );
+                if (theNWr < 0) {
+                    theRet = GetErrno();
+                    break;
+                }
+                thePos += theNWr;
+            }
+            if (0 == theRet && fsync(theFd)) {
+                theRet = GetErrno();
+            }
+            if (close(theFd) && 0 == theRet) {
+                theRet = GetErrno();
+            }
+            if (0 == theRet &&
+                    rename(theName.c_str(), mSyncCommitName.c_str())) {
+                theRet = GetErrno();
+            }
+        }
+        if (theRet < 0) {
+            KFS_LOG_STREAM_ERROR <<
+                theName << ": " << QCUtils::SysError(theRet) <<
+            KFS_LOG_EOM;
+            unlink(theName.c_str());
+            theRet = theRet < 0 ? theRet : -theRet;
+        }
+        return theRet;
+    }
+    int CommitSync(
+        int inStep = -1)
+    {
+        if (mCheckpointFileName.empty() || mSyncCommitName.empty()) {
             panic("meta data sync: invalid commit sync invocation");
             return -EINVAL;
         }
+        int theRet   = 0;
+        int theState = inStep;
+        if (theState < 0) {
+            theState = 0;
+            if (0 != (theRet = WriteCommitState(theState))) {
+                return theRet;
+            }
+        }
         const bool kDeleteTmpFlag = false;
-        int        theRet;
-        if (0 != (theRet = DeleteTmp(mLogDir, kDeleteTmpFlag))) {
-            return theRet;
+        for (; ;) {
+            switch (theState) {
+                case 0:
+                    if (0 != (theRet = DeleteTmp(mLogDir, kDeleteTmpFlag))) {
+                        return theRet;
+                    }
+                    if (0 != (theRet = DeleteTmp(
+                            mCheckpointDir, kDeleteTmpFlag))) {
+                        return theRet;
+                    }
+                    break;
+                case 1:
+                    if (0 != (theRet = RenameTmp(mLogDir))) {
+                        return theRet;
+                    }
+                    if (0 != (theRet = RenameTmp(mCheckpointDir))) {
+                        return theRet;
+                    }
+                    break;
+                case 2:
+                    if (0 != (theRet = LinkLatest(mCheckpointFileName,
+                            MetaDataStore::GetCheckpointLatestFileNamePtr()))) {
+                        return theRet;
+                    }
+                    break;
+                case 3:
+                    if (0 != (theRet = mLastLogFileName.empty() ? 0 :
+                            LinkLatest(mLastLogFileName,
+                            MetaDataStore::GetLogSegmentLastFileNamePtr()))) {
+                        return theRet;
+                    }
+                    break;
+                default:
+                    KFS_LOG_STREAM_DEBUG <<
+                        mSyncCommitName <<
+                        ": invalid commit step: " << theState <<
+                    KFS_LOG_EOM;
+                    return -EINVAL;
+            }
+            theState++;
+            if (3 < theState) {
+                break;
+            }
+            if (0 != (theRet = WriteCommitState(theState))) {
+                return theRet;
+            }
         }
-        if (0 != (theRet = RenameTmp(mLogDir))) {
-            return theRet;
+        if (0 != unlink(mSyncCommitName.c_str())) {
+            theRet = GetErrno();
+            KFS_LOG_STREAM_ERROR <<
+                mSyncCommitName << ": " << QCUtils::SysError(theRet) <<
+            KFS_LOG_EOM;
+            theRet = theRet < 0 ? theRet : -theRet;
         }
-        if (0 != (theRet = DeleteTmp(mCheckpointDir, kDeleteTmpFlag))) {
-            return theRet;
-        }
-        if (0 != (theRet = RenameTmp(mCheckpointDir))) {
-            return theRet;
-        }
-        if (0 != (theRet = LinkLatest(mCheckpointFileName,
-                MetaDataStore::GetCheckpointLatestFileNamePtr()))) {
-            return theRet;
-        }
-        return (mLastLogFileName.empty() ? 0 :
-            LinkLatest(mLastLogFileName,
-            MetaDataStore::GetLogSegmentLastFileNamePtr()));
+        return theRet;
     }
     template<typename FuncT>
     int ListDirEntries(
@@ -1645,6 +1842,9 @@ private:
             if ('.' == theNamePtr[0] &&
                     (0 == theNamePtr[1] ||
                         ('.' == theNamePtr[1] && 0 == theNamePtr[2]))) {
+                continue;
+            }
+            if (0 == strcmp(kMetaDataSyncCommitPtr, theNamePtr)) {
                 continue;
             }
             const size_t theLen = strlen(theNamePtr);
