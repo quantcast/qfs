@@ -290,9 +290,9 @@ public:
         mMaxReadOpRetryCount = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxReadOpRetryCount"),
             mMaxReadOpRetryCount);
-        mKeepLogSegmentsInterval = inParameters.getValue(
+        mKeepLogSegmentsInterval = max(2, inParameters.getValue(
             theName.Truncate(thePrefLen).Append("keepLogSegmentsInterval"),
-            mKeepLogSegmentsInterval);
+            mKeepLogSegmentsInterval));
         mFileSystemId = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("fileSystemId"),
             mFileSystemId);
@@ -425,6 +425,16 @@ public:
                 mCheckpointFileName.clear();
                 mLastLogFileName.clear();
                 theStream.close();
+                KFS_LOG_STREAM_ERROR <<
+                    mSyncCommitName << ": invalid format" <<
+                KFS_LOG_EOM;
+                if (unlink(mSyncCommitName.c_str())) {
+                    const int theRet = GetErrno();
+                    KFS_LOG_STREAM_ERROR <<
+                        mSyncCommitName << ": " << QCUtils::SysError(theRet) <<
+                    KFS_LOG_EOM;
+                    return (theRet < 0 ? theRet : -theRet);
+                }
             }
         } else {
             const int theFd = open(mSyncCommitName.c_str(), O_RDONLY);
@@ -464,8 +474,7 @@ public:
             if (theStream) {
                 mServers.clear();
                 ServerLocation theLocation;
-                istream& theIs = theStream;
-                while (theIs >> theLocation) {
+                while ((theStream >> theLocation)) {
                     if (theLocation.IsValid()) {
                         mServers.push_back(theLocation);
                     }
@@ -515,6 +524,17 @@ public:
                 return theRet;
             }
             mLogSeq.mLogSeq = -mLogSeq.mLogSeq;
+        }
+        if (! mFetchOnRestartFileName.empty() &&
+                unlink(mFetchOnRestartFileName.c_str())) {
+            const int theRet = GetErrno();
+            if (ENOENT != theRet) {
+                KFS_LOG_STREAM_ERROR <<
+                    mFetchOnRestartFileName << ": " <<
+                        QCUtils::SysError(theRet) <<
+                KFS_LOG_EOM;
+                return theRet;
+            }
         }
         LogSeqCheckStart();
         int kStackSize = 64 << 10;
@@ -1342,8 +1362,43 @@ private:
         if (++mServerIdx < mServers.size()) {
             Sleep(0);
         } else {
-            if (mShutdownNetManagerFlag) {
-                mKfsNetClient.GetNetManager().Shutdown();
+            if ((int)(mServers.size() * 3) < mNoLogSeqCount) {
+                if (mShutdownNetManagerFlag) {
+                    mKfsNetClient.GetNetManager().Shutdown();
+                } else {
+                    if (! mFetchOnRestartFileName.empty() &&
+                            ! mServers.empty()) {
+                        ofstream theStream(mFetchOnRestartFileName.c_str(),
+                            ofstream::out | ofstream::trunc);
+                        if (theStream) {
+                            const char* theSepPtr = "";
+                            for (Servers::const_iterator
+                                    theIt = mServers.begin();
+                                    mServers.end() != theIt && theStream;
+                                    ++theIt) {
+                                theStream << theSepPtr << *theIt;
+                                theSepPtr = " ";
+                            }
+                            theStream << "\n";
+                            theStream.flush();
+                            theStream.close();
+                        }
+                        if (theStream) {
+                            KFS_LOG_STREAM_WARN <<
+                                "scheduling meta server restart"
+                                " to fetch checkpoint" <<
+                            KFS_LOG_EOM;
+                            submit_request(new MetaProcessRestart());
+                        } else {
+                            const int theRet = GetErrno();
+                            KFS_LOG_STREAM_ERROR <<
+                                mFetchOnRestartFileName << ": " <<
+                                    QCUtils::SysError(theRet) <<
+                            KFS_LOG_EOM;
+                        }
+                    }
+                    Sleep(mKeepLogSegmentsInterval);
+                }
             } else {
                 Sleep(mKeepLogSegmentsInterval);
             }
@@ -1716,16 +1771,15 @@ private:
         if (theFd < 0) {
             theRet = errno;
         } else {
-            for (ssize_t thePos = 0; thePos < mStrBuffer.size(); ) {
-                const ssize_t theNWr = write(
-                    theFd, mStrBuffer.data() + thePos,
-                    mStrBuffer.size() - thePos
-                );
+            const char*       thePtr    = mStrBuffer.data();
+            const char* const theEndPtr = thePtr += mStrBuffer.size();
+            while (thePtr < theEndPtr) {
+                const ssize_t theNWr = write(theFd, thePtr, theEndPtr - thePtr);
                 if (theNWr < 0) {
                     theRet = GetErrno();
                     break;
                 }
-                thePos += theNWr;
+                thePtr += theNWr;
             }
             if (0 == theRet && fsync(theFd)) {
                 theRet = GetErrno();
@@ -1742,7 +1796,12 @@ private:
             KFS_LOG_STREAM_ERROR <<
                 theName << ": " << QCUtils::SysError(theRet) <<
             KFS_LOG_EOM;
-            unlink(theName.c_str());
+            if (unlink(theName.c_str())) {
+                const int theErr = GetErrno();
+                KFS_LOG_STREAM_ERROR <<
+                    theName << ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+            }
             theRet = theRet < 0 ? theRet : -theRet;
         }
         return theRet;

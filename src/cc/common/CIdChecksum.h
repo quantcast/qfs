@@ -112,7 +112,11 @@ public:
     T& Display(
         T& inStream) const
     {
-        inStream << mHi << " " << mMi << " "  << mLo;
+        inStream << mHi;
+        inStream << " ";
+        inStream << mMi;
+        inStream << " ";
+        inStream << mLo;
         return inStream;
     }
     template<typename T>

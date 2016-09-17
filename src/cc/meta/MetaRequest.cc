@@ -6590,4 +6590,6 @@ MetaVrLogStartView::handle()
     replayer.handle(*this);
 }
 
+MetaProcessRestart::RestartPtr MetaProcessRestart::sRestartPtr = 0;
+
 } /* namespace KFS */

@@ -4428,12 +4428,23 @@ struct MetaHibernatedRemove : public MetaRequest {
 };
 
 struct MetaProcessRestart : public MetaRequest {
+    typedef void (*RestartPtr)(void);
+
     MetaProcessRestart()
         : MetaRequest(META_RESTART_PROCESS, kLogNever)
         { replayBypassFlag = true; }
-    virtual void handle();
+    virtual void handle()
+    {
+        if (sRestartPtr) {
+            (*sRestartPtr)();
+        }
+    }
     virtual ostream& ShowSelf(ostream& os) const
         { return (os << "restart-meta-server"); }
+    static void SetRestartPtr(RestartPtr restartPtr)
+        { sRestartPtr = restartPtr; }
+private:
+    static RestartPtr sRestartPtr;
 };
 
 const char* const kMetaClusterKeyParamNamePtr    = "metaServer.clusterKey";

@@ -96,7 +96,12 @@ public:
     OST& Display(
         OST& inStream) const
     {
-        return (inStream << mEpochSeq << " " << mViewSeq << " " << mLogSeq);
+        inStream << mEpochSeq;
+        inStream << " ";
+        inStream << mViewSeq;
+        inStream << " ";
+        inStream << mLogSeq;
+        return inStream;
     }
     template<typename T>
     bool Parse(

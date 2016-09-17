@@ -262,7 +262,7 @@ public:
         inReadOp.metaMd     = mMetaMd;
         QCStMutexLocker theLock(mMutex);
         if (! mWorkersPtr) {
-            inReadOp.status    = -ENOENT;
+            inReadOp.status    = -ECANCELED;
             inReadOp.statusMsg = "shutdown";
             return;
         }
@@ -322,8 +322,8 @@ public:
                 theIt++;
             }
             if (theIt == mLogSegments.end()) {
-                inReadOp.status    = -ENOENT;
-                inReadOp.statusMsg = "no such log sequence";
+                inReadOp.status    = -EINVAL;
+                inReadOp.statusMsg = "no such log sequence, non 0 position";
                 return;
             }
             theLogSegmentPtr = &(theIt->second);
@@ -348,8 +348,8 @@ public:
                 ++theIt;
             }
             if (theIt == mLogSegments.end()) {
-                inReadOp.status    = -EINVAL;
-                inReadOp.statusMsg = "no such log sequence";
+                inReadOp.status    = -ERANGE;
+                inReadOp.statusMsg = "log sequence is past the current log seq";
                 return;
             }
             LogSegments::const_iterator theNextIt = theIt;

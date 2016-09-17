@@ -89,7 +89,12 @@ struct ServerLocation
     string ToString() const;
     template<typename T>
     T& Display(T& os) const
-        { return (os << hostname << ' ' << port); }
+    {
+        os << hostname;
+        os << ' ';
+        os << port;
+        return os;
+    }
     bool FromString(const string& s, bool hexFormatFlag)
         { return FromString(s.data(), s.size(), hexFormatFlag); }
     bool FromString(const char* str, size_t len, bool hexFormatFlag)
@@ -110,7 +115,11 @@ operator<<(T& os, const ServerLocation& loc)
 template<typename T>
 inline static T&
 operator>>(T& is, ServerLocation& loc)
-    { return (is >> loc.hostname >> loc.port); }
+{
+    is >> loc.hostname;
+    is >> loc.port;
+    return is;
+}
 
 // I-node (file / directory) permissions.
 template<typename UserAndGroupsT>

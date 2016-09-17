@@ -258,6 +258,7 @@ private:
     }
     ~MetaServer()
     {
+        MetaProcessRestart::SetRestartPtr(0);
         MetaServer::Cleanup();
         if (this == sInstance) {
             sInstance = 0;
@@ -327,6 +328,7 @@ private:
         mLogDir = mStartupProperties.getValue("metaServer.logDir", mLogDir);
         mLogDir = mStartupProperties.getValue(kNewLogDirPropName, mLogDir);
         mStartupProperties.setValue(kNewLogDirPropName, mLogDir);
+        MetaProcessRestart::SetRestartPtr(&MetaServer::Restart);
         return Startup(mStartupProperties, createEmptyFsFlag);
     }
     bool Startup(const Properties& props, bool createEmptyFsFlag);
@@ -385,6 +387,9 @@ private:
     }
     void RestartSelf()
     {
+        KFS_LOG_STREAM_WARN <<
+            "attempting meta server process restart" <<
+        KFS_LOG_EOM;
         if (gNetDispatch.IsRunning()) {
             // "Park" all threads
             gNetDispatch.PrepareCurrentThreadToFork();
@@ -908,12 +913,6 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
         mCheckpointFlag = true; // schedule new style checkpoint write.
     }
     return true;
-}
-
-void
-MetaProcessRestart::handle()
-{
-    MetaServer::Restart();
 }
 
 }
