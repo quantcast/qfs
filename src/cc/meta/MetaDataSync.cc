@@ -57,6 +57,7 @@
 #include <string>
 #include <sstream>
 #include <fstream>
+#include <iomanip>
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -69,6 +70,7 @@ using std::istringstream;
 using std::ofstream;
 using std::ifstream;
 using std::istream;
+using std::skipws;
 
 using client::KfsNetClient;
 using client::KfsOp;
@@ -399,7 +401,8 @@ public:
             if (getline(theStream, mCheckpointFileName) &&
                     ! mCheckpointFileName.empty() &&
                     getline(theStream, mLastLogFileName) &&
-                    (theStep << theStream) &&
+                    (theStream >> skipws) &&
+                    (theStream >> theStep) &&
                     0 <= theStep) {
                 theStream.close();
                 string theName = mCheckpointDir;
@@ -416,7 +419,6 @@ public:
                     theName += mLastLogFileName;
                     mLastLogFileName = theName;
                 }
-                theStream.close();
                 const int theRet = CommitSync(theStep);
                 if (0 != theRet) {
                     return theRet;
@@ -468,6 +470,10 @@ public:
                 " actual: "   << theFsId <<
             KFS_LOG_EOM;
             return -EINVAL;
+        }
+        if (! theEmptyFsFlag) {
+            // Do not start fetch with config. if fs is not empty.
+            mServers.clear();
         }
         if (! mFetchOnRestartFileName.empty()) {
             ifstream theStream(mFetchOnRestartFileName.c_str());
@@ -716,7 +722,9 @@ public:
             if (mServerIdx < mServers.size() &&
                     mKfsNetClient.GetServerLocation() != mServers[mServerIdx]) {
                 if (mCheckpointFlag) {
-                    InitCheckpoint();
+                    if (GetCheckpoint() < 0) {
+                        panic("meta data sync: get checkpoint failure");
+                    }
                 } else {
                     LogFetchStart(mCheckLogSeqOnlyFlag);
                 }
@@ -1325,7 +1333,9 @@ private:
         ReadOp& inReadOp)
     {
         KFS_LOG_STREAM_ERROR <<
-            "status: " << inReadOp.statusMsg <<
+            "status: " << inReadOp.status <<
+            " "        << (inReadOp.statusMsg.empty() ?
+                ErrorCodeToString(inReadOp.status) : inReadOp.statusMsg) <<
             " try: "   << mRetryCount <<
             " op: "    << inReadOp.mRetryCount <<
             " pos:"
@@ -1344,14 +1354,16 @@ private:
                 return;
             }
         }
-        const int64_t thePos        = inReadOp.mPos;
-        const int     theRetryCount = inReadOp.mRetryCount;
-        inReadOp.Reset();
-        if (theRetryCount < mMaxReadOpRetryCount) {
-            inReadOp.mPos        = thePos;
-            inReadOp.mRetryCount = theRetryCount + 1;
-            if (StartRead(inReadOp)) {
-                return;
+        if (! mCheckpointFlag || 0 < inReadOp.mPos || 1 < mServers.size()) {
+            const int64_t thePos        = inReadOp.mPos;
+            const int     theRetryCount = inReadOp.mRetryCount;
+            inReadOp.Reset();
+            if (theRetryCount < mMaxReadOpRetryCount) {
+                inReadOp.mPos        = thePos;
+                inReadOp.mRetryCount = theRetryCount + 1;
+                if (StartRead(inReadOp)) {
+                    return;
+                }
             }
         }
         HandleError();
@@ -1749,6 +1761,7 @@ private:
             panic("meta data sync: invalid write commit state invocation");
             return -EINVAL;
         }
+        mStrBuffer.clear();
         for (int thePass = 0; thePass < 2; thePass++) {
             const string& theName = 0 == thePass ?
                 mCheckpointFileName : mLastLogFileName;
@@ -1765,14 +1778,14 @@ private:
         AppendDecIntToString(mStrBuffer, inState);
         mStrBuffer += '\n';
         const string theName = mSyncCommitName + mTmpSuffix;
+        int          theRet  = 0;
         const int    theFd   =
-            open(theName.c_str(), O_WRONLY, O_CREAT | O_TRUNC);
-        int         theRet   = 0;
+            open(theName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (theFd < 0) {
-            theRet = errno;
+            theRet = GetErrno();
         } else {
             const char*       thePtr    = mStrBuffer.data();
-            const char* const theEndPtr = thePtr += mStrBuffer.size();
+            const char* const theEndPtr = thePtr + mStrBuffer.size();
             while (thePtr < theEndPtr) {
                 const ssize_t theNWr = write(theFd, thePtr, theEndPtr - thePtr);
                 if (theNWr < 0) {
@@ -1792,7 +1805,7 @@ private:
                 theRet = GetErrno();
             }
         }
-        if (theRet < 0) {
+        if (0 != theRet) {
             KFS_LOG_STREAM_ERROR <<
                 theName << ": " << QCUtils::SysError(theRet) <<
             KFS_LOG_EOM;
