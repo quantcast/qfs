@@ -67,9 +67,7 @@ namespace KFS
 {
 using std::max;
 using std::istringstream;
-using std::ofstream;
 using std::ifstream;
-using std::istream;
 using std::skipws;
 
 using client::KfsNetClient;
@@ -238,6 +236,7 @@ public:
         mKfsNetClient.SetOpTimeoutSec(10);
         mKfsNetClient.SetTimeSecBetweenRetries(4);
         mKfsNetClient.SetFailAllOpsOnOpTimeoutFlag(true);
+        mStrBuffer.reserve(4 << 10);
     }
     virtual ~Impl()
     {
@@ -430,21 +429,23 @@ public:
                 KFS_LOG_STREAM_ERROR <<
                     mSyncCommitName << ": invalid format" <<
                 KFS_LOG_EOM;
-                if (unlink(mSyncCommitName.c_str())) {
-                    const int theRet = GetErrno();
+                if (0 != unlink(mSyncCommitName.c_str())) {
+                    const int theErr = GetErrno();
                     KFS_LOG_STREAM_ERROR <<
-                        mSyncCommitName << ": " << QCUtils::SysError(theRet) <<
+                        mSyncCommitName << ": " << QCUtils::SysError(theErr) <<
                     KFS_LOG_EOM;
-                    return (theRet < 0 ? theRet : -theRet);
+                    return (theErr < 0 ? theErr : -theErr);
                 }
             }
         } else {
             const int theFd = open(mSyncCommitName.c_str(), O_RDONLY);
             if (theFd < 0) {
-                const int theErr = errno;
+                const int theErr = GetErrno();
                 if (ENOENT != theErr) {
-                    return (theErr < 0 ? theErr :
-                        (0 == theErr ? -EIO : -theErr));
+                    KFS_LOG_STREAM_ERROR <<
+                        mSyncCommitName << ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                    return (theErr < 0 ? theErr : -theErr);
                 }
             } else {
                 close(theFd);
@@ -471,25 +472,38 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        if (! theEmptyFsFlag) {
-            // Do not start fetch with config. if fs is not empty.
-            mServers.clear();
-        }
+        // Do not start fetch with config. if fs is not empty.
+        bool theFetchFlag = theEmptyFsFlag;
         if (! mFetchOnRestartFileName.empty()) {
             ifstream theStream(mFetchOnRestartFileName.c_str());
             if (theStream) {
-                mServers.clear();
+                Servers theCfgServers;
+                theCfgServers.swap(mServers);
                 ServerLocation theLocation;
                 while ((theStream >> theLocation)) {
-                    if (theLocation.IsValid()) {
+                    if (theLocation.IsValid() &&
+                            mServers.end() != find(
+                                mServers.begin(), mServers.end(),
+                                theLocation)) {
                         mServers.push_back(theLocation);
                     }
                     theLocation = ServerLocation();
                 }
                 theStream.close();
+                for (Servers::const_iterator
+                        theIt = theCfgServers.begin();
+                        theCfgServers.end() != theIt;
+                        ++theIt) {
+                    if (mServers.end() != find(
+                            mServers.begin(), mServers.end(), *theIt)) {
+                        mServers.push_back(*theIt);
+                    }
+                }
+                theFetchFlag = ! mServers.empty();
             }
         }
-        if (mServers.empty()) {
+        if (! theFetchFlag) {
+            mServers.clear();
             return 0;
         }
         if (! theEmptyFsFlag) {
@@ -1368,6 +1382,23 @@ private:
         }
         HandleError();
     }
+    int ScheduleMetaDataFetchAfterRestart()
+    {
+        if (mFetchOnRestartFileName.empty() || mServers.empty()) {
+            return 0;
+        }
+        mStrBuffer.clear();
+        const char* theSepPtr = "";
+        for (Servers::const_iterator theIt = mServers.begin();
+                mServers.end() != theIt;
+                ++theIt) {
+            theIt->AppendToString(mStrBuffer);
+            mStrBuffer += theSepPtr;
+            theSepPtr = " ";
+        }
+        mStrBuffer += '\n';
+        return WriteToFile(mFetchOnRestartFileName, mStrBuffer);
+    }
     void ScheduleGetLogSeqNextServer()
     {
         Reset();
@@ -1378,37 +1409,7 @@ private:
                 if (mShutdownNetManagerFlag) {
                     mKfsNetClient.GetNetManager().Shutdown();
                 } else {
-                    if (! mFetchOnRestartFileName.empty() &&
-                            ! mServers.empty()) {
-                        ofstream theStream(mFetchOnRestartFileName.c_str(),
-                            ofstream::out | ofstream::trunc);
-                        if (theStream) {
-                            const char* theSepPtr = "";
-                            for (Servers::const_iterator
-                                    theIt = mServers.begin();
-                                    mServers.end() != theIt && theStream;
-                                    ++theIt) {
-                                theStream << theSepPtr << *theIt;
-                                theSepPtr = " ";
-                            }
-                            theStream << "\n";
-                            theStream.flush();
-                            theStream.close();
-                        }
-                        if (theStream) {
-                            KFS_LOG_STREAM_WARN <<
-                                "scheduling meta server restart"
-                                " to fetch checkpoint" <<
-                            KFS_LOG_EOM;
-                            submit_request(new MetaProcessRestart());
-                        } else {
-                            const int theRet = GetErrno();
-                            KFS_LOG_STREAM_ERROR <<
-                                mFetchOnRestartFileName << ": " <<
-                                    QCUtils::SysError(theRet) <<
-                            KFS_LOG_EOM;
-                        }
-                    }
+                    ScheduleMetaDataFetchAfterRestart();
                     Sleep(mKeepLogSegmentsInterval);
                 }
             } else {
@@ -1746,13 +1747,27 @@ private:
         }
         return theRet;
     }
-    int GetErrno()
+    static int GetErrno()
     {
         int theRet = errno;
         if (0 == theRet) {
             theRet = EIO;
         }
         return theRet;
+    }
+    static int Delete(
+        const string& inName)
+    {
+        if (0 == unlink(inName.c_str())) {
+            const int theErr = GetErrno();
+            if (ENOENT != theErr) {
+                KFS_LOG_STREAM_ERROR <<
+                    inName << ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                return theErr;
+            }
+        }
+        return 0;
     }
     int WriteCommitState(
         int inState)
@@ -1777,15 +1792,28 @@ private:
         }
         AppendDecIntToString(mStrBuffer, inState);
         mStrBuffer += '\n';
-        const string theName = mSyncCommitName + mTmpSuffix;
-        int          theRet  = 0;
-        const int    theFd   =
-            open(theName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
+        return WriteToFile(mSyncCommitName, mStrBuffer);
+    }
+    int WriteToFile(
+        const string& inName,
+        const string& inBuffer)
+    {
+        if (inName.empty()) {
+            panic("meta data sync: invalid empty file name");
+            return -EFAULT;
+        }
+        const string theName = inName + mTmpSuffix;
+        int theRet = Delete(theName);
+        if (0 != theRet) {
+            return theRet;
+        }
+        const int theFd = open(
+            theName.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (theFd < 0) {
             theRet = GetErrno();
         } else {
-            const char*       thePtr    = mStrBuffer.data();
-            const char* const theEndPtr = thePtr + mStrBuffer.size();
+            const char*       thePtr    = inBuffer.data();
+            const char* const theEndPtr = thePtr + inBuffer.size();
             while (thePtr < theEndPtr) {
                 const ssize_t theNWr = write(theFd, thePtr, theEndPtr - thePtr);
                 if (theNWr < 0) {
@@ -1800,8 +1828,8 @@ private:
             if (close(theFd) && 0 == theRet) {
                 theRet = GetErrno();
             }
-            if (0 == theRet &&
-                    rename(theName.c_str(), mSyncCommitName.c_str())) {
+            if (0 == theRet && ! mTmpSuffix.empty() &&
+                    0 != rename(theName.c_str(), inName.c_str())) {
                 theRet = GetErrno();
             }
         }
@@ -1809,12 +1837,7 @@ private:
             KFS_LOG_STREAM_ERROR <<
                 theName << ": " << QCUtils::SysError(theRet) <<
             KFS_LOG_EOM;
-            if (unlink(theName.c_str())) {
-                const int theErr = GetErrno();
-                KFS_LOG_STREAM_ERROR <<
-                    theName << ": " << QCUtils::SysError(theErr) <<
-                KFS_LOG_EOM;
-            }
+            Delete(theName);
             theRet = theRet < 0 ? theRet : -theRet;
         }
         return theRet;

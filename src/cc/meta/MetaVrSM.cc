@@ -772,13 +772,10 @@ public:
                 theRet = 0;
             } else if (! mVrStateFileName.empty()) {
                 if (unlink(mVrStateFileName.c_str())) {
-                    theRet = errno;
+                    theRet = GetErrno();
                     if (ENOENT == theRet) {
                         theRet = 0;
                     } else {
-                        if (0 == theRet) {
-                            theRet = EIO;
-                        }
                         KFS_LOG_STREAM_ERROR <<
                             mVrStateFileName << ": " <<
                             QCUtils::SysError(theRet) <<
@@ -2892,6 +2889,11 @@ private:
         AppendHexIntToString(inStr, inLogSeq.mLogSeq);
         return inStr;
     }
+    static int GetErrno()
+    {
+        const int theRet = errno;
+        return (0 == theRet ? EIO : theRet);
+    }
     int WriteVrStateSelf(
         NodeId inPrimaryId)
     {
@@ -2901,8 +2903,20 @@ private:
             KFS_LOG_EOM;
             return -EINVAL;
         }
+        int theError = 0;
+        if (0 != unlink(mVrStateTmpFileName.c_str())) {
+            theError = GetErrno();
+            if (ENOENT == theError) {
+                theError = 0;
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    mVrStateTmpFileName << ": " <<
+                        QCUtils::SysError(theError) <<
+                KFS_LOG_EOM;
+                return (theError < 0 ? theError : -theError);
+            }
+        }
         bool      theRenameErrorFlag = false;
-        int       theError = 0;
         const int theFd = open(mVrStateTmpFileName.c_str(),
             O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (theFd < 0) {
@@ -2940,17 +2954,24 @@ private:
                 panic("vr state exceeded max length");
                 return -EFAULT;
             }
+            const char*       thePtr    = mVrStateIoStr.data();
+            const char* const theEndPtr = thePtr + theSize;
+            while (thePtr < theEndPtr) {
+                const ssize_t theNWr = write(theFd, thePtr, theEndPtr - thePtr);
+                if (theNWr < 0) {
+                    theError = GetErrno();
+                    break;
+                }
+            }
             bool theCloseErrorFlag = false;
-            if (write(theFd, mVrStateIoStr.data(), theSize) !=
-                    (ssize_t)theSize ||
+            if (0 != theError ||
                     (mSyncVrStateFileFlag && 0 != fsync(theFd)) ||
                     (theCloseErrorFlag = 0 != close(theFd)) ||
                     (theRenameErrorFlag = 0 != rename(
                         mVrStateTmpFileName.c_str(),
                         mVrStateFileName.c_str()))) {
-                theError = errno;
                 if (0 == theError) {
-                    theError = EIO;
+                    theError = GetErrno();
                 }
                 if (! theRenameErrorFlag && ! theCloseErrorFlag) {
                     close(theFd);
@@ -2985,10 +3006,7 @@ private:
             const ssize_t theNRd = read(
                 theFd, mVrStateReadBuffer, sizeof(mVrStateReadBuffer));
             if (theNRd < 0) {
-                theRet = errno;
-                if (0 == theRet) {
-                    theRet = EIO;
-                }
+                theRet = GetErrno();
                 KFS_LOG_STREAM_ERROR <<
                     mVrStateFileName << ": " << QCUtils::SysError(theRet) <<
                 KFS_LOG_EOM;
@@ -3085,10 +3103,7 @@ private:
                 KFS_LOG_EOM;
             }
         } else {
-            theRet = errno;
-            if (0 == theRet) {
-                theRet = EIO;
-            }
+            theRet = GetErrno();
             if (ENOENT != theRet) {
                 KFS_LOG_STREAM_ERROR <<
                     mVrStateFileName << ": " << QCUtils::SysError(theRet) <<

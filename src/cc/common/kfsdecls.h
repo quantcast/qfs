@@ -86,7 +86,12 @@ struct ServerLocation
         // be a positive number
         return (! hostname.empty() && port > 0);
     }
-    string ToString() const;
+    string& AppendToString(string& str, bool hexFmtFlag = false) const;
+    string ToString(bool hexFmtFlag = false) const
+    {
+        string ret;
+        return AppendToString(ret, hexFmtFlag);
+    }
     template<typename T>
     T& Display(T& os) const
     {

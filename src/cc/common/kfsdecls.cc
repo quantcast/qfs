@@ -32,15 +32,18 @@
 namespace KFS
 {
 
-    string
-ServerLocation::ToString() const
+    string&
+ServerLocation::AppendToString(string& str, bool hexFmtFlag) const
 {
-    string ret;
-    ret.reserve(hostname.size() + 16);
-    ret.assign(hostname.data(), hostname.size());
-    ret.append(1, (char)' ');
-    AppendDecIntToString(ret, port);
-    return ret;
+    str.reserve(str.size() + hostname.size() + 16);
+    str.append(hostname.data(), hostname.size());
+    str.append(1, (char)' ');
+    if (hexFmtFlag) {
+        AppendHexIntToString(str, port);
+    } else {
+        AppendDecIntToString(str, port);
+    }
+    return str;
 }
 
     bool
