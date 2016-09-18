@@ -429,7 +429,11 @@ public:
                 submit_request(&op);
             }
         }
-        if (! runCommitQueue(committed, seed, status, errChecksum)) {
+        if (! runCommitQueue(
+                mLastCommitted,
+                fileID.getseed(),
+                mLastCommittedStatus,
+                mLogAheadErrChksum)) {
             panic("replay: set replay state run commit queue failure");
         }
     }
@@ -1553,9 +1557,10 @@ ReplayState::runCommitQueue(
         commit(f);
         if (logSeq == f.logSeq) {
             foundFlag = true;
-            if (f.status != status ||
+            if (mViewStart < logSeq &&
+                    (f.status != status ||
                     f.seed != seed ||
-                    f.errChecksum != errChecksum) {
+                    f.errChecksum != errChecksum)) {
                 for (CommitQueue::const_iterator cit = mCommitQueue.begin();
                         ; ++cit) {
                     KFS_LOG_STREAM_ERROR <<
@@ -1597,7 +1602,7 @@ ReplayState::runCommitQueue(
     }
     mCommitQueue.erase(mCommitQueue.begin(), it);
     // Commit sequence must always be at the log block end.
-    if (! foundFlag &&
+    if (! foundFlag && mViewStart < logSeq &&
             (fileID.getseed() != seed ||
             mLastCommittedStatus != status ||
             mLogAheadErrChksum != errChecksum)) {
@@ -2725,11 +2730,7 @@ Replay::handle(MetaVrLogStartView& op)
         // effectively cancel all pending ops past the commit of the previous
         // view, and the start of this view, if any, by assigning VR failure
         // status, and invalidating log sequence.
-        if (! state.runCommitQueue(
-                state.mViewStart,
-                fileID.getseed(),
-                op.status,
-                state.mLogAheadErrChksum) ||
+        if (! state.runCommitQueue(state.mViewStart, 0, 0, 0) ||
                 ! state.mCommitQueue.empty()) {
             panic("replay: invalid start view op run commit queue completion");
             return;

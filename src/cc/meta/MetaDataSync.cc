@@ -670,6 +670,7 @@ public:
             return;
         }
         KFS_LOG_STREAM_DEBUG <<
+            (inCanceledFlag ? "canceled " : "") <<
             "status: " << theOp.status <<
             " "        << theOp.statusMsg <<
             " pos: "   << theOp.mPos <<
@@ -1649,10 +1650,10 @@ private:
             theOp.blockLines.Back() -=
                 mBuffer.Consume(theLen - theCopyLen + 1);
             mCurBlockChecksum = mNextBlockChecksum;
-            mLogWritesInFlightCount++;
             if (theBlockSeqLen <= 0 || theLogSeq < mLastSubmittedLogSeq) {
                 Release(theOp);
             } else {
+                mLogWritesInFlightCount++;
                 submit_request(&theOp);
             }
         }
@@ -1705,10 +1706,10 @@ private:
             " "            << inDataPtr <<
             " "            << theOp.Show() <<
         KFS_LOG_EOM;
-        if (theErrorFlag && mReadOpsPtr) {
-            Reset();
-        }
         Release(theOp);
+        if (theErrorFlag && mReadOpsPtr) {
+            HandleError();
+        }
         return 0;
     }
     void Release(

@@ -1402,7 +1402,11 @@ private:
                         inRequest.blockEndSeq.mLogSeq &&
                     (thePrevViewCommitted.IsValid() ?
                         theBlockCommitted.mSeq <= thePrevViewCommitted :
-                        mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq)) {
+                        (mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq ||
+                            theBlockCommitted.mSeq.mEpochSeq <
+                                mLastWriteCommitted.mSeq.mEpochSeq ||
+                            theBlockCommitted.mSeq.mViewSeq <
+                                mLastWriteCommitted.mSeq.mViewSeq))) {
                 inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
         }
