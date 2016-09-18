@@ -39,6 +39,7 @@
 #include "common/MsgLogger.h"
 #include "common/SingleLinkedQueue.h"
 #include "common/IntToString.h"
+#include "common/RequestParser.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ClientAuthContext.h"
@@ -396,12 +397,20 @@ public:
         mLastLogFileName.clear();
         ifstream theStream(mSyncCommitName.c_str());
         if (theStream) {
-            int theStep = 0;
+            int      theStep  = 0;
+            uint32_t theCrc32 = 0;
+            mStrBuffer.clear();
             if (getline(theStream, mCheckpointFileName) &&
                     ! mCheckpointFileName.empty() &&
                     getline(theStream, mLastLogFileName) &&
+                    getline(theStream, mStrBuffer) &&
                     (theStream >> skipws) &&
-                    (theStream >> theStep) &&
+                    (theStream >> theCrc32) &&
+                    ComputeCommitStateChecksum(
+                        mCheckpointFileName,
+                        mLastLogFileName,
+                        mStrBuffer) == theCrc32 &&
+                    ParseDecInt(mStrBuffer, theStep) &&
                     0 <= theStep) {
                 theStream.close();
                 string theName = mCheckpointDir;
@@ -1769,6 +1778,24 @@ private:
         }
         return 0;
     }
+    template<typename T>
+    static bool ParseDecInt(
+        const string& inField,
+        T&            outVal)
+    {
+        const char* thePtr = inField.data();
+        return DecIntParser::Parse(thePtr, inField.size(), outVal);
+    }
+    static uint32_t ComputeCommitStateChecksum(
+        const string& inLine1,
+        const string& inLine2,
+        const string& inLine3)
+    {
+        return ComputeCrc32(inLine3.data(), inLine3.size(), ComputeCrc32(
+            inLine2.data(), inLine2.size(), ComputeCrc32(
+                inLine1.data(), inLine1.size(), 0
+        )));
+    }
     int WriteCommitState(
         int inState)
     {
@@ -1777,8 +1804,9 @@ private:
             return -EINVAL;
         }
         mStrBuffer.clear();
-        for (int thePass = 0; thePass < 2; thePass++) {
-            const string& theName = 0 == thePass ?
+        uint32_t theCrc32 = 0;
+        for (int theLine = 0; theLine < 2; theLine++) {
+            const string& theName = 0 == theLine ?
                 mCheckpointFileName : mLastLogFileName;
             size_t thePos = theName.rfind('/');
             if (string::npos == thePos) {
@@ -1786,11 +1814,18 @@ private:
             } else {
                 thePos++;
             }
-            mStrBuffer.append(
-                theName.data() + thePos,  theName.size() - thePos);
+            const char* const thePtr = theName.data() + thePos;
+            const size_t      theLen = theName.size() - thePos;
+            theCrc32 = ComputeCrc32(thePtr,  theLen, theCrc32);
+            mStrBuffer.append(thePtr, theLen);
             mStrBuffer += '\n';
         }
+        const size_t thePos = mStrBuffer.size();
         AppendDecIntToString(mStrBuffer, inState);
+        theCrc32 = ComputeCrc32(
+            mStrBuffer.data() + thePos, mStrBuffer.size() - thePos, theCrc32);
+        mStrBuffer += '\n';
+        AppendDecIntToString(mStrBuffer, theCrc32);
         mStrBuffer += '\n';
         return WriteToFile(mSyncCommitName, mStrBuffer);
     }
