@@ -2962,6 +2962,7 @@ private:
                     theError = GetErrno();
                     break;
                 }
+                thePtr += theNWr;
             }
             bool theCloseErrorFlag = false;
             if (0 != theError ||

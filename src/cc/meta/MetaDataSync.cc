@@ -1143,7 +1143,7 @@ private:
                     0666
                 );
                 if (mFd < 0) {
-                    const int theErr = errno;
+                    const int theErr = GetErrno();
                     KFS_LOG_STREAM_ERROR <<
                         "open failure: " << mFileName <<
                         ": " << QCUtils::SysError(theErr) <<
@@ -1283,7 +1283,7 @@ private:
             const int theFd = mFd;
             mFd = -1;
             if (close(theFd)) {
-                const int theErr = errno;
+                const int theErr = GetErrno();
                 KFS_LOG_STREAM_ERROR <<
                     mFileName << ": close failure:" <<
                     QCUtils::SysError(theErr) <<
@@ -1857,10 +1857,12 @@ private:
                 return theRet;
             }
         }
-        const bool kDeleteTmpFlag = false;
+        const bool kDeleteTmpFlag          = false;
+        const bool kRenameIgnoreNonTmpFlag = true;
         for (; ;) {
             switch (theState) {
                 case 0:
+                    // Remove all non temporary files..
                     if (0 != (theRet = DeleteTmp(mLogDir, kDeleteTmpFlag))) {
                         return theRet;
                     }
@@ -1870,10 +1872,13 @@ private:
                     }
                     break;
                 case 1:
-                    if (0 != (theRet = RenameTmp(mLogDir))) {
+                    // Rename temporary files into target files.
+                    if (0 != (theRet = RenameTmp(
+                            mLogDir, kRenameIgnoreNonTmpFlag))) {
                         return theRet;
                     }
-                    if (0 != (theRet = RenameTmp(mCheckpointDir))) {
+                    if (0 != (theRet = RenameTmp(
+                            mCheckpointDir, kRenameIgnoreNonTmpFlag))) {
                         return theRet;
                     }
                     break;
@@ -1882,11 +1887,17 @@ private:
                             MetaDataStore::GetCheckpointLatestFileNamePtr()))) {
                         return theRet;
                     }
-                    break;
-                case 3:
                     if (0 != (theRet = mLastLogFileName.empty() ? 0 :
                             LinkLatest(mLastLogFileName,
                             MetaDataStore::GetLogSegmentLastFileNamePtr()))) {
+                        return theRet;
+                    }
+                    // Cleanup temporary files, if any.
+                    if (0 != (theRet = DeleteTmp(mLogDir, ! kDeleteTmpFlag))) {
+                        return theRet;
+                    }
+                    if (0 != (theRet = DeleteTmp(
+                            mCheckpointDir, ! kDeleteTmpFlag))) {
                         return theRet;
                     }
                     break;
@@ -1898,7 +1909,7 @@ private:
                     return -EINVAL;
             }
             theState++;
-            if (3 < theState) {
+            if (2 < theState) {
                 break;
             }
             if (0 != (theRet = WriteCommitState(theState))) {
@@ -1921,7 +1932,7 @@ private:
     {
         DIR* const theDirPtr = opendir(inDirNamePtr);
         if (! theDirPtr) {
-            const int theErr = errno;
+            const int theErr = GetErrno();
             KFS_LOG_STREAM_ERROR <<
                 "opendir " << inDirNamePtr << ": " <<
                 QCUtils::SysError(theErr) <<
@@ -1991,8 +2002,10 @@ private:
     public:
         RenameTmpFunc(
             const string& inDirName,
-            size_t        inSuffixLen)
+            size_t        inSuffixLen,
+            bool          inIgnoreNonTmpFlag)
             : SetPathName(inDirName),
+              mIgnoreNonTmpFlag(inIgnoreNonTmpFlag),
               mSuffixLen(inSuffixLen),
               mDestName()
             {}
@@ -2001,6 +2014,9 @@ private:
             size_t      inLength,
             bool        inTmpSuffixFlag)
         {
+            if (! inTmpSuffixFlag && mIgnoreNonTmpFlag) {
+                return 0;
+            }
             SetName(inNamePtr, inLength);
             if (! inTmpSuffixFlag || inLength <= mSuffixLen) {
                 KFS_LOG_STREAM_ERROR <<
@@ -2010,23 +2026,24 @@ private:
             }
             mDestName.assign(mName.data(), mName.size() - mSuffixLen);
             if (rename(mName.c_str(), mDestName.c_str())) {
-                const int theErr = errno;
+                const int theErr = GetErrno();
                 KFS_LOG_STREAM_ERROR <<
                     "rename: " << mName <<
-                    " => "     << mDestName <<
+                    " to "     << mDestName <<
                     ": " << QCUtils::SysError(theErr) <<
                 KFS_LOG_EOM;
-                return (theErr < 0 ? theErr :
-                    theErr == 0 ? -EINVAL : -theErr);
+                return (theErr < 0 ? theErr : -theErr);
             }
             return 0;
         }
     private:
+        bool const   mIgnoreNonTmpFlag;
         size_t const mSuffixLen;
         string       mDestName;
     };
     int RenameTmp(
-        string& inDirName)
+        string& inDirName,
+        bool    inIgnoreNonTmpFlag)
     {
         if (inDirName.empty() || mTmpSuffix.empty()) {
             KFS_LOG_STREAM_ERROR <<
@@ -2036,7 +2053,8 @@ private:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        RenameTmpFunc theFunc(inDirName, mTmpSuffix.size());
+        RenameTmpFunc theFunc(inDirName, mTmpSuffix.size(),
+            inIgnoreNonTmpFlag);
         return ListDirEntries(inDirName.c_str(), theFunc);
     }
     class DeleteFunc : private SetPathName
@@ -2056,13 +2074,12 @@ private:
             if ((mDeleteTmpFlag ? inTmpSuffixFlag : ! inTmpSuffixFlag)) {
                 SetName(inNamePtr, inLength);
                 if (unlink(mName.c_str())) {
-                    const int theErr = errno;
+                    const int theErr = GetErrno();
                     KFS_LOG_STREAM_ERROR <<
                         "unlink: " << mName <<
                         ": " << QCUtils::SysError(theErr) <<
                     KFS_LOG_EOM;
-                    return (theErr < 0 ? theErr :
-                        theErr == 0 ? -EINVAL : -theErr);
+                    return (theErr < 0 ? theErr : -theErr);
                 }
             }
             return 0;
@@ -2180,7 +2197,7 @@ private:
         theFileName +=  MetaDataStore::GetCheckpointLatestFileNamePtr();
         const int theFd = open(theFileName.c_str(), O_RDONLY);
         if (theFd < 0) {
-            const int theErr = errno;
+            const int theErr = GetErrno();
             if (theErr != ENOENT || inFsId < 0) {
                 KFS_LOG_STREAM_ERROR <<
                     "open " << theFileName << ": " <<
@@ -2217,12 +2234,14 @@ private:
         ssize_t theNRd = read(theFd, theBuf.GetPtr(), theBuf.GetSize() - 1);
         int64_t theRet;
         if (theNRd < 0) {
-            const int theErr = errno;
+            theRet = GetErrno();
             KFS_LOG_STREAM_ERROR <<
                 "read " << theFileName << ": " <<
-                QCUtils::SysError(theErr) <<
+                QCUtils::SysError(theRet) <<
             KFS_LOG_EOM;
-            theRet = -theErr;
+            if (0 < theRet) {
+                theRet = -theRet;
+            }
         } else {
             theBuf.GetPtr()[theNRd] = 0;
             const char* thePtr = strstr(

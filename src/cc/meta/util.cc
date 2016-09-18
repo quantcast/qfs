@@ -23,6 +23,14 @@
  * permissions and limitations under the License.
  */
 
+#include "common/MsgLogger.h"
+#include "common/RequestParser.h"
+#include "common/IntToString.h"
+#include "common/time.h"
+
+#include "kfsio/CryptoKeys.h"
+#include "qcdio/QCUtils.h"
+
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -35,10 +43,6 @@
 #include <cstdlib>
 #include <cerrno>
 #include "util.h"
-#include "common/MsgLogger.h"
-#include "common/RequestParser.h"
-#include "common/IntToString.h"
-#include "qcdio/QCUtils.h"
 
 namespace KFS
 {
@@ -69,21 +73,42 @@ chunkStartOffset(chunkOff_t offset)
 int
 link_latest(const string& realname, const string& alias)
 {
-    int status = 0;
-    for (int64_t i = getpid() + time(0), e = i + 5; i < e; i++) {
-        const string tmp = realname + "." + toString(i) + ".tmp";
+    int64_t i = 0;
+    if (! CryptoKeys::PseudoRand(&i, sizeof(i))) {
+        i = microseconds() + getpid();
+    }
+    i >>= 1;
+    if (i < 0) {
+        i = -i;
+    }
+    int    status = 0;
+    string tmp;
+    tmp.reserve(realname.size() + 1 + 16 + 4);
+    tmp.assign(realname.data(), realname.size());
+    for (int64_t e = i + 5; i < e; i++) {
+        tmp += ' ';
+        AppendHexIntToString(tmp, i);
+        tmp += ".tmp";
         if (link(realname.c_str(), tmp.c_str())) {
-            status = -errno;
+            status = errno;
+            if (0 == status) {
+                status = EIO;
+            }
         } else {
             if (rename(tmp.c_str(), alias.c_str())) {
-                status = -errno;
+                status = errno;
+                if (0 == status) {
+                    status = EIO;
+                }
+                unlink(tmp.c_str());
             } else {
                 status = 0;
             }
             break;
         }
+        tmp.erase(realname.size());
     }
-    return status;
+    return (status < 0 ? status : -status);
 }
 
 /*!

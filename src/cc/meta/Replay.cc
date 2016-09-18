@@ -2683,9 +2683,6 @@ Replay::handle(MetaVrLogStartView& op)
     if (op.mHandledFlag) {
         return;
     }
-    ReplayState&               state = replayTokenizer.GetState();
-    ReplayState::EnterAndLeave enterAndLeave(state,
-        (op.replayFlag || enqueueFlag) ? 1 : 0);
     op.mHandledFlag = true;
     if (0 != op.status) {
         if (op.replayFlag) {
@@ -2696,6 +2693,9 @@ Replay::handle(MetaVrLogStartView& op)
         }
         return;
     }
+    ReplayState&               state = replayTokenizer.GetState();
+    ReplayState::EnterAndLeave enterAndLeave(state,
+        (op.replayFlag || enqueueFlag) ? 1 : 0);
     state.handleStartView(op);
     if (op.replayFlag) {
         if (0 == op.status) {
