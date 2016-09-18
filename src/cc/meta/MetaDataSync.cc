@@ -211,6 +211,7 @@ public:
           mWriteSyncFlag(true),
           mMinWriteSize(4 << 20),
           mMaxReadOpRetryCount(8),
+          mWakeupTime(0),
           mSleepingFlag(false),
           mShutdownNetManagerFlag(false),
           mCheckStartLogSeqFlag(false),
@@ -525,7 +526,7 @@ public:
             }
             mShutdownNetManagerFlag = true;
             LogSeqCheckStart();
-            mKfsNetClient.GetNetManager().MainLoop();
+            Run();
             mShutdownNetManagerFlag = false;
             if (0 != mStatus && mNoLogSeqCount <= 0) {
                 return mStatus;
@@ -543,7 +544,7 @@ public:
                 return theRet;
             }
             mShutdownNetManagerFlag = true;
-            mKfsNetClient.GetNetManager().MainLoop();
+            Run();
             mShutdownNetManagerFlag = false;
             if (0 != mStatus) {
                 return mStatus;
@@ -587,7 +588,7 @@ public:
         mAllowNotPrimaryFlag = inAllowNotPrimaryFlag;
         if (&mRuntimeNetManager != &mKfsNetClient.GetNetManager()) {
             mKfsNetClient.SetNetManager(mRuntimeNetManager);
-            mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
+            mRuntimeNetManager.RegisterTimeoutHandler(this);
         }
         if (mServers.empty()) {
             return;
@@ -642,7 +643,9 @@ public:
     void Shutdown()
     {
         StopKeepData();
-        mKfsNetClient.GetNetManager().UnRegisterTimeoutHandler(this);
+        if (&mRuntimeNetManager == &mKfsNetClient.GetNetManager()) {
+            mRuntimeNetManager.UnRegisterTimeoutHandler(this);
+        }
         mSleepingFlag = false;
         Reset();
         delete [] mReadOpsPtr;
@@ -735,7 +738,8 @@ public:
                 }
             }
         }
-        if (! mSleepingFlag) {
+        if (! mSleepingFlag ||
+                mKfsNetClient.GetNetManager().Now() < mWakeupTime) {
             return;
         }
         mSleepingFlag = false;
@@ -818,6 +822,7 @@ private:
     bool              mWriteSyncFlag;
     int               mMinWriteSize;
     int               mMaxReadOpRetryCount;
+    time_t            mWakeupTime;
     bool              mSleepingFlag;
     bool              mShutdownNetManagerFlag;
     bool              mCheckStartLogSeqFlag;
@@ -1472,9 +1477,7 @@ private:
             return;
         }
         mSleepingFlag = true;
-        const bool kResetTimerFlag = true;
-        SetTimeoutInterval(inTimeSec * 1000, kResetTimerFlag);
-        mKfsNetClient.GetNetManager().RegisterTimeoutHandler(this);
+        mWakeupTime   = mKfsNetClient.GetNetManager().Now() + inTimeSec;
     }
     void Reset()
     {
@@ -1486,8 +1489,9 @@ private:
         mKfsNetClient.Stop();
         QCRTASSERT(mPendingList.IsEmpty());
         mBuffer.Clear();
-        mPos         = 0;
-        mNextReadPos = 0;
+        mPos          = 0;
+        mNextReadPos  = 0;
+        mSleepingFlag = false;
     }
     class FieldParser
     {
