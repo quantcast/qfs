@@ -366,9 +366,16 @@ public:
                 return Handle(static_cast<MetaLogWriterControl&>(inReq));
             case META_VR_LOG_START_VIEW:
                 return false;
+            case META_READ_META_DATA:
+                if (kStatePrimary != mState && (kStateBackup == mState ||
+                        static_cast<const MetaReadMetaData&>(
+                            inReq).allowNotPrimaryFlag)) {
+                    return true;
+                }
+                break;
             default:
                 if (kStateBackup == mState) {
-                    inReq.status    = -EVRNOTPRIMARY;
+                    inReq.status    = -EVRBACKUP;
                     inReq.statusMsg = "not primary, state: ";
                     inReq.statusMsg += GetStateName(mState);
                     return true;
@@ -432,7 +439,8 @@ public:
         if (0 != mVrResponse.mStatus) {
             if (kStatePrimary == mVrResponse.mState ||
                     kStateBackup == mVrResponse.mState ||
-                    kStateViewChange == mVrResponse.mState) {
+                    (! mMustSyncLogFlag &&
+                        kStateViewChange == mVrResponse.mState)) {
                 if (mEpochSeq <= mVrResponse.mEpochSeq) {
                     if (mVrResponse.mCommittedSeq.IsValid() &&
                             mVrResponse.mLastLogSeq.IsValid() &&
@@ -1369,7 +1377,7 @@ private:
     {
         return ((! mActiveFlag && 0 < mQuorum) ? -EVRNOTPRIMARY :
             (kStatePrimary == mState ? 0 :
-            (kStateBackup == mState ? -EVRNOTPRIMARY : -ELOGFAILED)));
+            (kStateBackup == mState ? -EVRBACKUP : -ELOGFAILED)));
     }
     void SetState(
         State inState)
@@ -1872,9 +1880,9 @@ private:
             }
             SetReturnState(inReq);
         } else if (inReq.status != -EBADCLUSTERKEY) {
-            if (mLastLogSeq < inReq.mLastLogSeq) {
+            if (mLastLogSeq < inReq.mLastLogSeq && ! mMustSyncLogFlag) {
                 if (kStateLogSync != mState) {
-                    const bool theAllowNonPrimaryFlag = ! mMustSyncLogFlag;
+                    const bool theAllowNonPrimaryFlag = true;
                     ScheduleLogFetch(
                         inReq.mLastLogSeq,
                         GetDataStoreLocation(inReq),
@@ -1971,15 +1979,39 @@ private:
                         inReq.statusMsg += GetStateName(mState);
                     }
                 } else {
-                    if (! mDoViewChangePtr) {
-                        WriteVrState(inReq.mNodeId);
+                    const Config::Nodes& theNodes = mConfig.GetNodes();
+                    const Config::Nodes::const_iterator theOtherIt =
+                        theNodes.find(inReq.mNodeId);
+                    const Config::Nodes::const_iterator thisIt     =
+                        theNodes.find(inReq.mNodeId);
+                    if (theNodes.end() == theOtherIt ||
+                            theNodes.end() == thisIt) {
+                        panic("VR: validation failure");
+                        inReq.status    = -EFAULT;
+                        inReq.statusMsg = "validation failure";
+                    } else if (thisIt->second.GetPrimaryOrder() <
+                                theOtherIt->second.GetPrimaryOrder() ||
+                            (thisIt->second.GetPrimaryOrder() ==
+                                theOtherIt->second.GetPrimaryOrder() &&
+                                mNodeId < inReq.mNodeId)) {
+                        const char* const kMsgPtr =
+                            "start view from grepater primary order node";
+                        AdvanceView(kMsgPtr);
+                        inReq.status    = -EINVAL;
+                        inReq.statusMsg = kMsgPtr;
+                        inReq.statusMsg += " ignored, state: ";
+                        inReq.statusMsg += GetStateName(mState);
+                    } else {
+                        if (! mDoViewChangePtr) {
+                            WriteVrState(inReq.mNodeId);
+                        }
+                        CancelViewChange();
+                        SetState(kStateBackup);
+                        // Mark as not valid until replay
+                        mLogStartViewPendingRecvFlag = true;
+                        mPrimaryNodeId               = inReq.mNodeId;
+                        mLastReceivedTime            = TimeNow();
                     }
-                    CancelViewChange();
-                    SetState(kStateBackup);
-                    // Mark as not valid until replay
-                    mLogStartViewPendingRecvFlag = true;
-                    mPrimaryNodeId               = inReq.mNodeId;
-                    mLastReceivedTime            = TimeNow();
                 }
             }
             SetReturnState(inReq);

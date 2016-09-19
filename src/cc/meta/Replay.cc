@@ -1557,7 +1557,7 @@ ReplayState::runCommitQueue(
         commit(f);
         if (logSeq == f.logSeq) {
             foundFlag = true;
-            if (mViewStart < logSeq &&
+            if (mViewStart <= logSeq &&
                     (f.status != status ||
                     f.seed != seed ||
                     f.errChecksum != errChecksum)) {
@@ -1602,7 +1602,7 @@ ReplayState::runCommitQueue(
     }
     mCommitQueue.erase(mCommitQueue.begin(), it);
     // Commit sequence must always be at the log block end.
-    if (! foundFlag && mViewStart < logSeq &&
+    if (! foundFlag && mViewStart <= logSeq &&
             (fileID.getseed() != seed ||
             mLastCommittedStatus != status ||
             mLogAheadErrChksum != errChecksum)) {

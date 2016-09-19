@@ -6131,7 +6131,8 @@ MetaReadMetaData::handle()
         return;
     }
     if (status < 0) {
-        if (! allowNotPrimaryFlag || ! IsMetaLogWriteOrVrError(status)) {
+        if ((! allowNotPrimaryFlag && -EVRBACKUP != status) ||
+                ! IsMetaLogWriteOrVrError(status)) {
             return;
         }
         status = 0;

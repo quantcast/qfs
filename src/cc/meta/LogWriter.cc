@@ -144,6 +144,7 @@ public:
           mLogFileNamePrefix("log"),
           mNotPrimaryErrorMsg(ErrorCodeToString(-ELOGFAILED)),
           mLogWriteErrorMsg(ErrorCodeToString(-EVRNOTPRIMARY)),
+          mLogWriterVrBackupErrorMsg(ErrorCodeToString(-EVRBACKUP)),
           mInvalidBlockStartSegmentErrorMsg("invalid block start sequence"),
           mInvalidHeartbeatSequenceErrorMsg("invalid heartbeat sequence"),
           mPrimaryRejectedBlockWriteErrorMsg(
@@ -600,6 +601,7 @@ private:
     const string      mLogFileNamePrefix;
     const string      mNotPrimaryErrorMsg;
     const string      mLogWriteErrorMsg;
+    const string      mLogWriterVrBackupErrorMsg;
     const string      mInvalidBlockStartSegmentErrorMsg;
     const string      mInvalidHeartbeatSequenceErrorMsg;
     const string      mPrimaryRejectedBlockWriteErrorMsg;
@@ -996,8 +998,9 @@ private:
                         thePtr = thePtr->next) {
                     if (META_LOG_WRITER_CONTROL != thePtr->op &&
                             (META_READ_META_DATA != thePtr->op ||
-                                 ! static_cast<const MetaReadMetaData*>(
-                                    thePtr)->allowNotPrimaryFlag) &&
+                                 (! static_cast<const MetaReadMetaData*>(
+                                    thePtr)->allowNotPrimaryFlag &&
+                                        -EVRBACKUP != mVrStatus)) &&
                             (((MetaRequest::kLogIfOk == thePtr->logAction &&
                                 0 == thePtr->status) ||
                             MetaRequest::kLogAlways == thePtr->logAction) ||
@@ -1038,6 +1041,9 @@ private:
         if (-EVRNOTPRIMARY == mVrStatus) {
             inReq.status    = mVrStatus;
             inReq.statusMsg = mNotPrimaryErrorMsg;
+        } else if (-EVRBACKUP == mVrStatus) {
+            inReq.status    = mVrStatus;
+            inReq.statusMsg = mLogWriterVrBackupErrorMsg;
         } else {
             inReq.status    = -ELOGFAILED;
             inReq.statusMsg = mLogWriteErrorMsg;

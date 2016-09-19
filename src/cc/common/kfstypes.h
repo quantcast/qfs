@@ -124,9 +124,16 @@ const int ELOGFAILED = 1008;
 // Not VR primary node.
 const int EVRNOTPRIMARY = 1009;
 
+// Not VR primary node.
+const int EVRBACKUP = 1010;
+
 inline static bool IsMetaLogWriteOrVrError(int status)
 {
-    return (-ELOGFAILED == status || -EVRNOTPRIMARY == status);
+    return (
+        -ELOGFAILED == status ||
+        -EVRNOTPRIMARY == status ||
+        -EVRBACKUP == status
+    );
 }
 
 #define KFS_FOR_EACH_EC_METHOD(f) \
