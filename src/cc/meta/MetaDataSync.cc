@@ -354,6 +354,7 @@ public:
                     }
                 }
                 mServers.swap(theServers);
+                mServerIdx = 0;
             }
         }
         const bool               kVerifyFlag = true;

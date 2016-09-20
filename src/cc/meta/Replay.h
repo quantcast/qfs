@@ -99,6 +99,8 @@ public:
         { return lastLogStart; }
     MetaVrLogSeq getLastLogSeq() const
         { return lastLogSeq; }
+    MetaVrLogSeq getViewStartSeq() const
+        { return viewStartSeq; }
     seq_t getLastBlockSeq() const
         { return lastBlockSeq; }
     int playLine(const char* line, int len, seq_t blockSeq);
@@ -112,6 +114,7 @@ public:
     void handle(MetaVrLogStartView& op);
     void setReplayState(
         const MetaVrLogSeq& committed,
+        const MetaVrLogSeq& viewStartSeq,
         seq_t               seed,
         int64_t             status,
         int64_t             errChecksum,
@@ -169,6 +172,7 @@ private:
     MetaVrLogSeq&    committed;
     MetaVrLogSeq     lastLogStart;
     MetaVrLogSeq&    lastLogSeq;
+    MetaVrLogSeq&    viewStartSeq;
     const seq_t&     lastBlockSeq;
     int64_t&         errChecksum;
     const int&       lastCommittedStatus;

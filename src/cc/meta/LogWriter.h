@@ -85,7 +85,8 @@ public:
         int64_t             inErrChecksum,
         fid_t               inFidSeed,
         int                 inStatus,
-        const MetaVrLogSeq& inLastReplayLogSeq);
+        const MetaVrLogSeq& inLastReplayLogSeq,
+        const MetaVrLogSeq& inViewStartSeq);
     MetaVrLogSeq GetCommittedLogSeq() const;
     void ScheduleFlush();
     void PrepareToFork();

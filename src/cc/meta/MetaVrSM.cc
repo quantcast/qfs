@@ -246,6 +246,7 @@ public:
           mCommittedStatus(0),
           mLastLogSeq(),
           mLastCommitSeq(),
+          mPrimaryViewStartSeq(),
           mLastCommitTime(0),
           mTimeNow(),
           mLastProcessTime(mTimeNow),
@@ -576,10 +577,15 @@ public:
             mLastReceivedTime = inLastReceivedTime;
         }
         if (mCommittedSeq < inCommittedSeq) {
-            mCommittedSeq         = inCommittedSeq;
-            mCommittedErrChecksum = inErrChecksum;
-            mCommittedStatus      = inCommittedStatus;
-            mCommittedFidSeed     = inCommittedFidSeed;
+            if (kStatePrimary == mState &&
+                    inCommittedSeq <= mPrimaryViewStartSeq) {
+                panic("VR: invalid committed sequence");
+            } else {
+                mCommittedSeq         = inCommittedSeq;
+                mCommittedErrChecksum = inErrChecksum;
+                mCommittedStatus      = inCommittedStatus;
+                mCommittedFidSeed     = inCommittedFidSeed;
+            }
         }
         if (mLastLogSeq < inLastLogSeq) {
             mLastLogSeq = inLastLogSeq;
@@ -1313,6 +1319,7 @@ private:
     MetaVrLogSeq                 mLastLogSeq;
     MetaVrLogSeq                 mReplayLastLogSeq;
     MetaVrLogSeq                 mLastCommitSeq;
+    MetaVrLogSeq                 mPrimaryViewStartSeq;
     time_t                       mLastCommitTime;
     time_t                       mTimeNow;
     time_t                       mLastProcessTime;
@@ -1446,10 +1453,14 @@ private:
         mLastUpTime     = TimeNow();
         mLastCommitTime = mLastUpTime;
         MetaRequest::Release(mMetaVrLogStartViewPtr);
-        mMetaVrLogStartViewPtr = new MetaVrLogStartView();
-        mMetaVrLogStartViewPtr->mCommittedSeq = mLastLogSeq;
-        mMetaVrLogStartViewPtr->mNewLogSeq    =
+        mPrimaryViewStartSeq   =
             MetaVrLogSeq(mEpochSeq, mViewSeq, mLastLogSeq.mLogSeq + 1);
+        mMetaVrLogStartViewPtr = new MetaVrLogStartView();
+        mMetaVrLogStartViewPtr->mCommittedSeq =
+            (mLastLogSeq.mEpochSeq == mCommittedSeq.mEpochSeq &&
+            mLastLogSeq.mViewSeq == mCommittedSeq.mViewSeq) ?
+            mLastLogSeq : mCommittedSeq;
+        mMetaVrLogStartViewPtr->mNewLogSeq    = mPrimaryViewStartSeq;
         mMetaVrLogStartViewPtr->mNodeId       = mNodeId;
         mMetaVrLogStartViewPtr->mTime         = TimeNow();
         if (! mMetaVrLogStartViewPtr->Validate()) {
@@ -1879,16 +1890,15 @@ private:
                 }
             }
             SetReturnState(inReq);
-        } else if (inReq.status != -EBADCLUSTERKEY) {
+        } else if (inReq.status != -EBADCLUSTERKEY &&
+                kStateViewChange == mState && ! mDoViewChangePtr) {
             if (mLastLogSeq < inReq.mLastLogSeq && ! mMustSyncLogFlag) {
-                if (kStateLogSync != mState) {
-                    const bool theAllowNonPrimaryFlag = true;
-                    ScheduleLogFetch(
-                        inReq.mLastLogSeq,
-                        GetDataStoreLocation(inReq),
-                        theAllowNonPrimaryFlag
-                    );
-                }
+                const bool theAllowNonPrimaryFlag = true;
+                ScheduleLogFetch(
+                    inReq.mLastLogSeq,
+                    GetDataStoreLocation(inReq),
+                    theAllowNonPrimaryFlag
+                );
             } else if (mCommittedSeq < inReq.mCommittedSeq &&
                     inReq.mCommittedSeq <= mLastLogSeq &&
                     0 <= inReq.mCommittedFidSeed &&
@@ -3102,7 +3112,7 @@ private:
                         if (mStartedFlag &&
                                 (theFsId != mFileSystemId ||
                                 mLastLogSeq < theLastLogSeq ||
-                                mLastCommitSeq < theCommittedSeq ||
+                                mCommittedSeq < theCommittedSeq ||
                                 theEpochSeq < mEpochSeq ||
                                 theViewSeq < mViewSeq)) {
                             KFS_LOG_STREAM_ERROR <<

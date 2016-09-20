@@ -107,6 +107,7 @@ public:
           mNextLogSeq(),
           mNextBlockSeq(-1),
           mLastLogSeq(),
+          mViewStartSeq(),
           mNextBlockChecksum(kKfsNullChecksum),
           mLogFd(-1),
           mError(0),
@@ -208,6 +209,7 @@ public:
         mInFlightCommitted    = mPendingCommitted;
         mLastWriteCommitted   = mInFlightCommitted;
         mMetaDataStorePtr     = &inMetaDataStore;
+        mViewStartSeq         = mReplayerPtr->getViewStartSeq();
         if (mReplayerPtr->getAppendToLastLogFlag()) {
             const bool theLogAppendHexFlag =
                 16 == mReplayerPtr->getLastLogIntBase();
@@ -367,19 +369,28 @@ public:
         if (inRequest.suspended) {
             panic("request committed: invalid suspended state");
         }
+        if (META_VR_LOG_START_VIEW == inRequest.op) {
+            // Replayer must invoke SetCommitted() to update committed and
+            // view start.
+            MetaVrLogStartView& theReq =
+                static_cast<MetaVrLogStartView&>(inRequest);
+            if (theReq.mNewLogSeq != mViewStartSeq ||
+                    0 != theReq.status ||
+                    ! theReq.Validate() ||
+                    mCommitted.mFidSeed != inFidSeed) {
+                panic("request committed: invalid log start view sequence");
+                return;
+            }
+            return;
+        }
         if (mCommitted.mSeq.IsValid() && (inRequest.logseq <= mCommitted.mSeq ||
                 (inRequest.logseq.mEpochSeq == mCommitted.mSeq.mEpochSeq &&
                 inRequest.logseq.mViewSeq == mCommitted.mSeq.mViewSeq &&
-                inRequest.logseq.mLogSeq != mCommitted.mSeq.mLogSeq + 1))) {
-            // Check if this log start view, and if it is, then the committed
-            // status has already been updated.
-            if (META_VR_LOG_START_VIEW != inRequest.op ||
-                    0 != inRequest.status ||
-                    mCommitted.mSeq <= inRequest.logseq ||
-                    0 != mCommitted.mStatus ||
-                    mCommitted.mFidSeed != inFidSeed) {
-                panic("request committed: invalid out of order log sequence");
-            }
+                inRequest.logseq.mLogSeq != mCommitted.mSeq.mLogSeq + 1 &&
+                (inRequest.logseq.mEpochSeq == mViewStartSeq.mEpochSeq &&
+                inRequest.logseq.mViewSeq == mViewStartSeq.mViewSeq &&
+                inRequest.logseq.mLogSeq != mViewStartSeq.mLogSeq + 1)))) {
+            panic("request committed: invalid out of order log sequence");
             return;
         }
         const int theStatus = inRequest.status < 0 ?
@@ -418,13 +429,15 @@ public:
         int64_t             inErrChecksum,
         fid_t               inFidSeed,
         int                 inStatus,
-        const MetaVrLogSeq& inLastReplayLogSeq)
+        const MetaVrLogSeq& inLastReplayLogSeq,
+        const MetaVrLogSeq& inViewStartSeq)
     {
         mCommitted.mSeq       = inLogSeq;
         mCommitted.mErrChkSum = inErrChecksum;
         mCommitted.mFidSeed   = inFidSeed;
         mCommitted.mStatus    = inStatus;
         mReplayLogSeq         = inLastReplayLogSeq;
+        mViewStartSeq         = inViewStartSeq;
         mCommitUpdatedFlag    = true;
     }
     void ScheduleFlush()
@@ -571,6 +584,7 @@ private:
     MetaVrLogSeq      mNextLogSeq;
     seq_t             mNextBlockSeq;
     MetaVrLogSeq      mLastLogSeq;
+    MetaVrLogSeq      mViewStartSeq;
     Checksum          mNextBlockChecksum;
     int               mLogFd;
     int               mError;
@@ -681,6 +695,7 @@ private:
             }
             mReplayerPtr->setReplayState(
                 mCommitted.mSeq,
+                mViewStartSeq,
                 mCommitted.mFidSeed,
                 mCommitted.mStatus,
                 mCommitted.mErrChkSum,
@@ -1834,14 +1849,16 @@ LogWriter::SetCommitted(
     int64_t             inErrChecksum,
     fid_t               inFidSeed,
     int                 inStatus,
-    const MetaVrLogSeq& inLastReplayLogSeq)
+    const MetaVrLogSeq& inLastReplayLogSeq,
+    const MetaVrLogSeq& inViewStartSeq)
 {
     mImpl.SetCommitted(
         inLogSeq,
         inErrChecksum,
         inFidSeed,
         inStatus,
-        inLastReplayLogSeq
+        inLastReplayLogSeq,
+        inViewStartSeq
     );
 }
 
