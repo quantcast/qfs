@@ -50,6 +50,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdlib.h>
 
 #include <algorithm>
 #include <set>
@@ -210,6 +211,7 @@ public:
     };
     enum { kMinActiveCount = 3 };
     static const NodeId kBootstrapPrimaryNodeId = 0;
+    static const seq_t  kStartEpochViewSeq      = 1;
 
     Impl(
         LogTransmitter& inLogTransmitter,
@@ -263,7 +265,7 @@ public:
           mLogTransmittersSuspendedFlag(false),
           mLogStartViewPendingRecvFlag(false),
           mCheckLogSyncStatusFlag(false),
-          mMustSyncLogFlag(false),
+          mStaleVrStateFlag(false),
           mSyncVrStateFileFlag(true),
           mPanicOnIoErrorFlag(true),
           mPrimaryNodeId(-1),
@@ -341,11 +343,6 @@ public:
                 mLastCommitTime = TimeNow();
             }
             mLastLogSeq = inBlockEndSeq;
-        }
-        if (kStatePrimary == mState) {
-            // Update only if primary, backups are updated after queuing into
-            // replay, in Process().
-            mReplayLastLogSeq = mLastLogSeq;
         }
     }
     bool Handle(
@@ -440,7 +437,7 @@ public:
         if (0 != mVrResponse.mStatus) {
             if (kStatePrimary == mVrResponse.mState ||
                     kStateBackup == mVrResponse.mState ||
-                    (! mMustSyncLogFlag &&
+                    (! mStaleVrStateFlag &&
                         kStateViewChange == mVrResponse.mState)) {
                 if (mEpochSeq <= mVrResponse.mEpochSeq) {
                     if (mVrResponse.mCommittedSeq.IsValid() &&
@@ -559,7 +556,7 @@ public:
         int64_t             inErrChecksum,
         fid_t               inCommittedFidSeed,
         int                 inCommittedStatus,
-        const MetaVrLogSeq& inLastLogSeq,
+        const MetaVrLogSeq& inReplayLastLogSeq,
         int&                outVrStatus,
         MetaRequest*&       outReqPtr)
     {
@@ -587,11 +584,12 @@ public:
                 mCommittedFidSeed     = inCommittedFidSeed;
             }
         }
-        if (mLastLogSeq < inLastLogSeq) {
-            mLastLogSeq = inLastLogSeq;
+        const bool thePendingReplayFlag = mLastLogSeq != mReplayLastLogSeq;
+        if (mLastLogSeq < inReplayLastLogSeq) {
+            mLastLogSeq = inReplayLastLogSeq;
         }
-        if (mReplayLastLogSeq < inLastLogSeq) {
-            mReplayLastLogSeq = inLastLogSeq;
+        if (mReplayLastLogSeq < inReplayLastLogSeq) {
+            mReplayLastLogSeq = inReplayLastLogSeq;
             if (mLogStartViewPendingRecvFlag &&
                     kStateBackup == mState && mActiveFlag &&
                     0 < mActiveCount && 0 < mQuorum) {
@@ -665,7 +663,9 @@ public:
             }
         } else {
             if (mActiveFlag) {
-                if (TimeNow() != mLastProcessTime) {
+                if (TimeNow() != mLastProcessTime ||
+                        (thePendingReplayFlag &&
+                            mReplayLastLogSeq == mLastLogSeq)) {
                     StartDoViewChangeIfPossible();
                 }
             } else {
@@ -778,10 +778,10 @@ public:
         int theRet = ReadVrState(theNodeId);
         if (0 == theRet) {
             if (! CheckNodeId(theNodeId)) {
-                theRet = EINVAL;
+                theRet = -EINVAL;
             }
         } else {
-            mMustSyncLogFlag = 0 < mQuorum && mActiveFlag;
+            mStaleVrStateFlag = 0 < mQuorum && mActiveFlag;
             if (-ENOENT == theRet) {
                 theRet = 0;
             } else if (! mVrStateFileName.empty()) {
@@ -1336,7 +1336,7 @@ private:
     bool                         mLogTransmittersSuspendedFlag;
     bool                         mLogStartViewPendingRecvFlag;
     bool                         mCheckLogSyncStatusFlag;
-    bool                         mMustSyncLogFlag;
+    bool                         mStaleVrStateFlag;
     bool                         mSyncVrStateFileFlag;
     bool                         mPanicOnIoErrorFlag;
     NodeId                       mPrimaryNodeId;
@@ -1441,11 +1441,12 @@ private:
             "primary: "        << mNodeId <<
             " starting view: " << mEpochSeq <<
             " "                << mViewSeq <<
+            " committed: "     << mCommittedSeq <<
             " last log: "      << mLastLogSeq <<
         KFS_LOG_EOM;
         if (MetaVrLogSeq(mEpochSeq, mViewSeq, 0) <= mLastLogSeq ||
-                mLastLogSeq.mLogSeq < 0) {
-            panic("VR: invalid epoch, view, or last log sequence");
+                mLastLogSeq.mLogSeq < 0 || mLastLogSeq < mCommittedSeq) {
+            panic("VR: invalid epoch, view, last log. or committed sequence");
             return;
         }
         SetState(kStatePrimary);
@@ -1627,7 +1628,7 @@ private:
                     KFS_LOG_EOM;
                     SetState(kStateLogSync);
                     mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
-                    const bool theAllowNonPrimaryFlag = ! mMustSyncLogFlag;
+                    const bool theAllowNonPrimaryFlag = ! mStaleVrStateFlag;
                     mMetaDataSyncPtr->ScheduleLogSync(
                         mSyncServers,
                         mLastLogSeq,
@@ -1636,6 +1637,9 @@ private:
                     );
                 }
             }
+            return;
+        }
+        if (mReplayLastLogSeq != mLastLogSeq) {
             return;
         }
         const int theSz = (int)mStartViewChangeNodeIds.size();
@@ -1860,7 +1864,11 @@ private:
         Show(inReq, "+");
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq) {
-                if (kStateLogSync != mState &&
+                if (inReq.mStaleVrStateFlag && kStatePrimary != mState) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "not primary, state: ";
+                    inReq.statusMsg += GetStateName(mState);
+                } else if (kStateLogSync != mState &&
                         (kStateBackup != mState ||
                             mPrimaryNodeId < 0 ||
                             mLogStartViewPendingRecvFlag ||
@@ -1892,7 +1900,7 @@ private:
             SetReturnState(inReq);
         } else if (inReq.status != -EBADCLUSTERKEY &&
                 kStateViewChange == mState && ! mDoViewChangePtr) {
-            if (mLastLogSeq < inReq.mLastLogSeq && ! mMustSyncLogFlag) {
+            if (mLastLogSeq < inReq.mLastLogSeq && ! mStaleVrStateFlag) {
                 const bool theAllowNonPrimaryFlag = true;
                 ScheduleLogFetch(
                     inReq.mLastLogSeq,
@@ -1999,12 +2007,15 @@ private:
                         panic("VR: validation failure");
                         inReq.status    = -EFAULT;
                         inReq.statusMsg = "validation failure";
-                    } else if (thisIt->second.GetPrimaryOrder() <
+                    } else if (mReplayLastLogSeq != mLastLogSeq ||
+                            thisIt->second.GetPrimaryOrder() <
                                 theOtherIt->second.GetPrimaryOrder() ||
                             (thisIt->second.GetPrimaryOrder() ==
                                 theOtherIt->second.GetPrimaryOrder() &&
                                 mNodeId < inReq.mNodeId)) {
                         const char* const kMsgPtr =
+                            mReplayLastLogSeq != mLastLogSeq ?
+                            "start view while log replay is in progress" :
                             "start view from grepater primary order node";
                         AdvanceView(kMsgPtr);
                         inReq.status    = -EINVAL;
@@ -2614,7 +2625,7 @@ private:
             return;
         }
         mEpochSeq++;
-        mViewSeq = 1;
+        mViewSeq = kStartEpochViewSeq;
         const Config::Nodes&                theNodes = mConfig.GetNodes();
         Config::Nodes::const_iterator const theIt    = theNodes.find(mNodeId);
         if (kStateReconfiguration == mState) {
@@ -2623,11 +2634,17 @@ private:
             } else {
                 mActiveFlag =
                     0 != (Config::kFlagActive & theIt->second.GetFlags());
+                if (mActiveFlag && ! inReq.replayFlag) {
+                    WriteVrState(-1);
+                }
                 PrimaryReconfigurationStartViewChange();
             }
         } else {
             mActiveFlag = theNodes.end() != theIt &&
                 0 != (Config::kFlagActive & theIt->second.GetFlags());
+            if (mActiveFlag && ! inReq.replayFlag) {
+                WriteVrState(-1);
+            }
         }
     }
     void CommitSetParameters(
@@ -2649,7 +2666,7 @@ private:
                 return;
             }
             mEpochSeq++;
-            mViewSeq = 1;
+            mViewSeq = kStartEpochViewSeq;
             if (kStateReconfiguration == mState || kStateBackup == mState) {
                 mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
                 mConfig.SetBackupTimeout(mPendingBackupTimeout);
@@ -2659,6 +2676,9 @@ private:
                 }
                 mLogTransmitter.SetHeartbeatInterval(
                     mConfig.GetPrimaryTimeout());
+            }
+            if (mActiveFlag && ! inReq.replayFlag) {
+                WriteVrState(-1);
             }
             if (kStateReconfiguration == mState) {
                 PrimaryReconfigurationStartViewChange();
@@ -2858,6 +2878,7 @@ private:
         mNodeIdAndMDSLocations.clear();
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         Init(theOp);
+        theOp.mStaleVrStateFlag = mStaleVrStateFlag;
         mStartViewChangePtr = &theOp;
         const NodeId kBroadcast = -1;
         KFS_LOG_STREAM_INFO <<
@@ -2872,15 +2893,25 @@ private:
             if (mPanicOnIoErrorFlag) {
                 panic("VR: write state IO error");
             }
-        } else {
-            mMustSyncLogFlag = false;
+            if (! mVrStateFileName.empty() ||
+                    (0 != unlink(mVrStateFileName.c_str()) &&
+                    ENOENT != errno)) {
+                const int theErr = errno;
+                KFS_LOG_STREAM_FATAL <<
+                    mVrStateFileName << ": " << QCUtils::SysError(theErr) <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            }
         }
+        mStaleVrStateFlag = false;
     }
     void StartDoViewChange(
         NodeId inPrimaryId)
     {
-        if (! mActiveFlag || inPrimaryId < 0) {
-            panic("VR: do view change: node non active");
+        if (! mActiveFlag || inPrimaryId < 0 ||
+                mReplayLastLogSeq != mLastLogSeq) {
+            panic("VR: do view change: invalid invocation");
             return;
         }
         CancelViewChange();
@@ -3113,8 +3144,11 @@ private:
                                 (theFsId != mFileSystemId ||
                                 mLastLogSeq < theLastLogSeq ||
                                 mCommittedSeq < theCommittedSeq ||
-                                theEpochSeq < mEpochSeq ||
-                                theViewSeq < mViewSeq)) {
+                                (theEpochSeq != mEpochSeq &&
+                                    theEpochSeq + 1 != mEpochSeq &&
+                                    theViewSeq != kStartEpochViewSeq) ||
+                                (theViewSeq < mViewSeq &&
+                                    theEpochSeq == mEpochSeq))) {
                             KFS_LOG_STREAM_ERROR <<
                                 mVrStateFileName <<
                                 ": invalid / stale state:"
@@ -3134,6 +3168,9 @@ private:
                             KFS_LOG_EOM;
                             theRet = ENXIO;
                         } else {
+                            if (mEpochSeq == theEpochSeq) {
+                                mViewSeq = theViewSeq;
+                            }
                             outNodeId = theNodeId;
                         }
                     }
@@ -3265,13 +3302,13 @@ MetaVrSM::Process(
     int64_t             inErrChecksum,
     fid_t               inCommittedFidSeed,
     int                 inCommittedStatus,
-    const MetaVrLogSeq& inLastLogSeq,
+    const MetaVrLogSeq& inReplayLastLogSeq,
     int&                outVrStatus,
     MetaRequest*&       outReqPtr)
 {
     mImpl.Process(inTimeNow, inLastReceivedTime,
         inCommittedSeq, inErrChecksum, inCommittedFidSeed, inCommittedStatus,
-        inLastLogSeq, outVrStatus, outReqPtr
+        inReplayLastLogSeq, outVrStatus, outReqPtr
     );
 }
 

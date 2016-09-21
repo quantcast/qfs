@@ -322,7 +322,7 @@ public:
         int64_t             inErrChecksum,
         fid_t               inCommittedFidSeed,
         int                 inCommittedStatus,
-        const MetaVrLogSeq& inLastLogSeq,
+        const MetaVrLogSeq& inReplayLastLogSeq,
         int&                outVrStatus,
         MetaRequest*&       outReqPtr);
     int SetParameters(

@@ -354,13 +354,18 @@ public:
         }
         if (! op.Validate()) {
             op.status    = -EINVAL;
-            op.statusMsg = "invalid log start view log entry";
+            op.statusMsg = "invalid log start view op";
             return;
         }
-        if (op.mCommittedSeq < mLastCommittedSeq) {
+        CommitQueue::iterator it = mCommitQueue.begin();
+        while (mCommitQueue.end() != it && it->logSeq <= op.mCommittedSeq) {
+            commit(*it);
+            ++it;
+        }
+        mCommitQueue.erase(mCommitQueue.begin(), it);
+        if (op.mCommittedSeq != mLastCommittedSeq) {
             op.status    = -EINVAL;
-            op.statusMsg = "invalid log start view committed sequence"
-                " less than already committed";
+            op.statusMsg = "invalid committed sequence";
             return;
         }
         mViewStartSeq      = op.mNewLogSeq;
@@ -373,7 +378,7 @@ public:
                 mLastCommittedStatus,
                 mLogAheadErrChksum) || op.mCommittedSeq != mLastCommittedSeq) {
             op.status    = -EINVAL;
-            op.statusMsg = "log start view: invalid committed sequence";
+            op.statusMsg = "run commit queue failure";
             return;
         }
     }
@@ -1725,9 +1730,10 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
         return false;
     }
     if ((commitSeq < state.mLastCommittedSeq &&
-                state.mCheckpointCommitted != state.mLastCommittedSeq &&
-                state.mViewStartSeq <= commitSeq) ||
-            state.mLastLogAheadSeq < commitSeq) {
+                state.mCheckpointCommitted != state.mLastCommittedSeq) ||
+                state.mLastLogAheadSeq < commitSeq ||
+                (state.mViewStartSeq == commitSeq &&
+                    state.mViewStartSeq != MetaVrLogSeq(0, 0, 0))) {
         KFS_LOG_STREAM_ERROR <<
             "committed:"
             " expected range: [" << state.mLastCommittedSeq <<

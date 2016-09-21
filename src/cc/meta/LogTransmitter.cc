@@ -146,9 +146,6 @@ public:
         { mHeartbeatInterval = max(1, inInterval); }
     MetaVrLogSeq GetCommitted() const
         { return mCommitted; }
-    void SetCommitted(
-        const MetaVrLogSeq& inSeq)
-        { mCommitted = inSeq; }
     int GetMaxPending() const
         { return mMaxPending; }
     int GetCompactionInterval() const

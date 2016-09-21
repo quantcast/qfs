@@ -309,8 +309,11 @@ protected:
 class MetaVrStartViewChange : public MetaVrRequest
 {
 public:
+    bool mStaleVrStateFlag;
+
     MetaVrStartViewChange()
-        : MetaVrRequest(META_VR_START_VIEW_CHANGE, kLogIfOk)
+        : MetaVrRequest(META_VR_START_VIEW_CHANGE, kLogIfOk),
+          mStaleVrStateFlag(false)
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
@@ -321,6 +324,14 @@ public:
         NodeId                inNodeId,
         const ServerLocation& inPeer)
         { HandleReply(*this, inSeq, inProps, inNodeId, inPeer); }
+    template<typename T>
+    static T& ParserDef(
+        T& inParser)
+    {
+        return MetaVrRequest::ParserDef(inParser)
+        .Def("0VS", &MetaVrStartViewChange::mStaleVrStateFlag,  false)
+        ;
+    }
 protected:
     virtual ~MetaVrStartViewChange()
         {}
