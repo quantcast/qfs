@@ -198,7 +198,7 @@ public:
         }
         return true;
     }
-    bool IsCurOpLogSeqValid() const
+    bool isCurOpLogSeqValid() const
     {
         if (! mReplayer || ! mCurOp) {
             return true;
@@ -225,7 +225,7 @@ public:
             panic("invalid replay current op invocation");
             return;
         }
-        if (! IsCurOpLogSeqValid()) {
+        if (! isCurOpLogSeqValid()) {
             panic("invalid current op log sequence");
             return;
         }
@@ -376,7 +376,9 @@ public:
                 op.mCommittedSeq,
                 fileID.getseed(),
                 mLastCommittedStatus,
-                mLogAheadErrChksum) || op.mCommittedSeq != mLastCommittedSeq) {
+                mLogAheadErrChksum) ||
+                    op.mCommittedSeq != mLastCommittedSeq ||
+                    ! mCommitQueue.empty()) {
             op.status    = -EINVAL;
             op.statusMsg = "run commit queue failure";
             return;
@@ -440,7 +442,7 @@ public:
             panic("replay: invalid enqueue attempt");
             return false;
         }
-        if (mViewStartSeq <= mLastCommittedSeq && mCommitQueue.empty()) {
+        if (mCommitQueue.empty()) {
             return false;
         }
         return enqueueSelf(req);
@@ -456,7 +458,7 @@ public:
         }
         mCurOp = &req;
         MetaVrLogSeq const nextSeq = mCurOp->logseq;
-        if (nextSeq.IsValid() && ! IsCurOpLogSeqValid()) {
+        if (nextSeq.IsValid() && ! isCurOpLogSeqValid()) {
             panic("replay: invalid enqueue log sequence");
         }
         if (handle()) {
@@ -480,8 +482,7 @@ public:
     void update()
     {
         if (mUpdateLogWriterFlag) {
-            *mEnqueueFlagFlagPtr = ! mCommitQueue.empty() ||
-                mLastCommittedSeq < mViewStartSeq;
+            *mEnqueueFlagFlagPtr = ! mCommitQueue.empty();
             MetaRequest::GetLogWriter().SetCommitted(
                 mLastCommittedSeq,
                 mLogAheadErrChksum,
@@ -1653,7 +1654,7 @@ replay_log_ahead_entry(DETokenizer& c)
         KFS_LOG_EOM;
         return false;
     }
-    if (! state.IsCurOpLogSeqValid()) {
+    if (! state.isCurOpLogSeqValid()) {
         return false;
     }
     state.mCurOp->replayFlag = true;

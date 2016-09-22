@@ -68,6 +68,7 @@ public:
     fid_t          mCommittedFidSeed;
     int            mCommittedStatus;
     MetaVrLogSeq   mLastLogSeq;
+    bool           mEndOfLastClosedNonEmptyViewFlag;
     NodeId         mNodeId;
     int            mCurState;
     int64_t        mFileSystemId;
@@ -101,6 +102,7 @@ public:
           mCommittedFidSeed(-1),
           mCommittedStatus(0),
           mLastLogSeq(),
+          mEndOfLastClosedNonEmptyViewFlag(false),
           mNodeId(-1),
           mCurState(-1),
           mFileSystemId(-1),
@@ -270,6 +272,7 @@ protected:
             " view: "      << mViewSeq <<
             " committed: " << mCommittedSeq <<
             " last: "      << mLastLogSeq <<
+            " eonev: "     << mEndOfLastClosedNonEmptyViewFlag <<
             " node: "      << mNodeId <<
             " state: "     << MetaVrSM::GetStateName(mCurState) <<
             " fsid: "      << mFileSystemId <<
