@@ -962,7 +962,8 @@ private:
                         LogError(*thePtr);
                     }
                 }
-                if (theEndBlockSeq <= mLastLogSeq.mLogSeq || theStartViewFlag) {
+                if (theEndBlockSeq <= mLastLogSeq.mLogSeq || theStartViewFlag ||
+                        META_VR_RECONFIGURATION == thePtr->op) {
                     break;
                 }
                 if (mMdStream.GetBufferedStart() +

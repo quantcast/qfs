@@ -68,7 +68,7 @@ public:
     fid_t          mCommittedFidSeed;
     int            mCommittedStatus;
     MetaVrLogSeq   mLastLogSeq;
-    bool           mEndOfLastClosedNonEmptyViewFlag;
+    MetaVrLogSeq   mLastViewEndSeq;
     NodeId         mNodeId;
     int            mCurState;
     int64_t        mFileSystemId;
@@ -102,7 +102,7 @@ public:
           mCommittedFidSeed(-1),
           mCommittedStatus(0),
           mLastLogSeq(),
-          mEndOfLastClosedNonEmptyViewFlag(false),
+          mLastViewEndSeq(),
           mNodeId(-1),
           mCurState(-1),
           mFileSystemId(-1),
@@ -272,7 +272,7 @@ protected:
             " view: "      << mViewSeq <<
             " committed: " << mCommittedSeq <<
             " last: "      << mLastLogSeq <<
-            " eonev: "     << mEndOfLastClosedNonEmptyViewFlag <<
+            " lve: "       << mLastViewEndSeq <<
             " node: "      << mNodeId <<
             " state: "     << MetaVrSM::GetStateName(mCurState) <<
             " fsid: "      << mFileSystemId <<
@@ -312,11 +312,8 @@ protected:
 class MetaVrStartViewChange : public MetaVrRequest
 {
 public:
-    bool mStaleVrStateFlag;
-
     MetaVrStartViewChange()
-        : MetaVrRequest(META_VR_START_VIEW_CHANGE, kLogIfOk),
-          mStaleVrStateFlag(false)
+        : MetaVrRequest(META_VR_START_VIEW_CHANGE, kLogIfOk)
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
@@ -327,14 +324,6 @@ public:
         NodeId                inNodeId,
         const ServerLocation& inPeer)
         { HandleReply(*this, inSeq, inProps, inNodeId, inPeer); }
-    template<typename T>
-    static T& ParserDef(
-        T& inParser)
-    {
-        return MetaVrRequest::ParserDef(inParser)
-        .Def("0VS", &MetaVrStartViewChange::mStaleVrStateFlag,  false)
-        ;
-    }
 protected:
     virtual ~MetaVrStartViewChange()
         {}

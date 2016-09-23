@@ -1515,36 +1515,33 @@ ReplayState::runCommitQueue(
     int64_t             status,
     int64_t             errChecksum)
 {
-    if (logSeq < mCheckpointCommitted || logSeq <= mViewStartSeq) {
-        // Commit preseeds checkpoint.
-        if (mCommitQueue.empty() || logSeq < mCommitQueue.front().logSeq) {
-            return true;
-        }
-        KFS_LOG_STREAM_ERROR <<
-            "commit"
-            " sequence: "   << logSeq <<
-            " checkpoint: " << mCheckpointCommitted <<
-            " view start: " << mViewStartSeq <<
-            " non empty commit queue:"
-            " starts: "     << mCommitQueue.front().logSeq <<
-        KFS_LOG_EOM;
-        return false;
-    }
-    if (logSeq == mCheckpointCommitted) {
+    if (logSeq <= mCheckpointCommitted) {
         // Checkpoint has no inof about the last op status.
-        if (errChecksum == mCheckpointErrChksum && fileID.getseed() == seed) {
-            return true;
+        if ((logSeq == mCheckpointCommitted ?
+                (errChecksum == mCheckpointErrChksum &&
+                    fileID.getseed() == seed) :
+                (mCommitQueue.empty() ||
+                    logSeq < mCommitQueue.front().logSeq))) {
+            if (mViewStartSeq < logSeq) {
+                return true;
+            }
+        } else {
+            KFS_LOG_STREAM_ERROR <<
+                "commit"
+                " sequence: "       << logSeq <<
+                " checkpoint: "     << mCheckpointCommitted <<
+                " error checksum: " << errChecksum <<
+                " expected: "       << mCheckpointErrChksum <<
+                " seed: "           << seed <<
+                " expected: "       << fileID.getseed() <<
+                " view start: "     << mViewStartSeq <<
+                " queue:"
+                " size: "           << mCommitQueue.size() <<
+                " front: "          << (mCommitQueue.empty() ?
+                    MetaVrLogSeq() : mCommitQueue.front().logSeq) <<
+            KFS_LOG_EOM;
+            return false;
         }
-        KFS_LOG_STREAM_ERROR <<
-            "commit"
-            " sequence: "       << logSeq <<
-            " checkpoint: "     << mCheckpointCommitted <<
-            " error checksum: " << errChecksum <<
-            " expected: "       << mCheckpointErrChksum <<
-            " seed: "           << seed <<
-            " expected: "       << fileID.getseed() <<
-        KFS_LOG_EOM;
-        return false;
     }
     const MetaVrLogSeq    endSeq    = max(logSeq, mViewStartSeq);
     CommitQueue::iterator it        = mCommitQueue.begin();
@@ -2717,12 +2714,9 @@ Replay::handle(MetaVrLogStartView& op)
         }
     } else {
         if (0 != op.status || ! op.Validate() ||
-                state.mViewStartSeq != op.mNewLogSeq) {
+                state.mViewStartSeq != op.mNewLogSeq ||
+                ! state.mCommitQueue.empty()) {
             panic("replay: invalid start view op completion");
-            return;
-        }
-        if (! state.mCommitQueue.empty()) {
-            panic("replay: invalid start view op run commit queue completion");
             return;
         }
         state.mPendingStopServicingFlag = false;
