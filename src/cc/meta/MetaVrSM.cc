@@ -2011,9 +2011,13 @@ private:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "primary node id mismatch, state: ";
                 inReq.statusMsg += GetStateName(mState);
-            } else if (mLastLogSeq < inReq.mLastLogSeq) {
+            } else if (mLastLogSeq < inReq.mLastViewEndSeq) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "invalid last log sequence, state: ";
+                inReq.statusMsg = "invalid last view end sequence, state: ";
+                inReq.statusMsg += GetStateName(mState);
+            } else if (inReq.mLastViewEndSeq != mLastViewEndSeq) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "last view end mismatch, state: ";
                 inReq.statusMsg += GetStateName(mState);
             } else {
                 if (kStateViewChange == mState) {
