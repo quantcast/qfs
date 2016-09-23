@@ -1475,9 +1475,8 @@ private:
             MetaVrLogSeq(mEpochSeq, mViewSeq, kStartViewLogSeq);
         mMetaVrLogStartViewPtr = new MetaVrLogStartView();
         mMetaVrLogStartViewPtr->mCommittedSeq =
-            (mLastLogSeq.mEpochSeq == mCommittedSeq.mEpochSeq &&
-            mLastLogSeq.mViewSeq == mCommittedSeq.mViewSeq) ?
-            mLastLogSeq : mCommittedSeq;
+            IsSameView(mLastViewEndSeq, mCommittedSeq) ?
+            mLastViewEndSeq : mCommittedSeq;
         mMetaVrLogStartViewPtr->mNewLogSeq    = mPrimaryViewStartSeq;
         mMetaVrLogStartViewPtr->mNodeId       = mNodeId;
         mMetaVrLogStartViewPtr->mTime         = TimeNow();
@@ -2055,13 +2054,15 @@ private:
         Show(inReq, "+");
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq ||
+                    ! inReq.mLastViewEndSeq.IsValid() ||
+                    inReq.mLastViewEndSeq != mLastViewEndSeq ||
                     (kStateViewChange != mState &&
                         kStateStartViewPrimary != mState) ||
                     (mDoViewChangePtr &&
                         inReq.mNodeId != mDoViewChangePtr->mPrimaryNodeId) ||
                     (kStateStartViewPrimary == mState &&
                         mNodeId != inReq.mNodeId)) {
-                if (kStateBackup == mState) {
+                if (kStateBackup == mState && inReq.mLastViewEndSeq.IsValid()) {
                     mViewSeq = inReq.mViewSeq;
                     AdvanceView("backup start view");
                 }

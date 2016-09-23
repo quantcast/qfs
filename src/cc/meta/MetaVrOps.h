@@ -142,6 +142,7 @@ public:
         .Def("E",  &MetaVrRequest::mEpochSeq,              seq_t(-1))
         .Def("V",  &MetaVrRequest::mViewSeq,               seq_t(-1))
         .Def("C",  &MetaVrRequest::mCommittedSeq                    )
+        .Def("LV", &MetaVrRequest::mLastViewEndSeq                  )
         .Def("CE", &MetaVrRequest::mCommittedErrChecksum, int64_t(0))
         .Def("CF", &MetaVrRequest::mCommittedFidSeed,      seq_t(-1))
         .Def("CS", &MetaVrRequest::mCommittedStatus,               0)
