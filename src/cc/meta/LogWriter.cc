@@ -102,6 +102,7 @@ public:
           mPendingCommitted(),
           mInFlightCommitted(),
           mLastWriteCommitted(),
+          mReplayLastWriteCommitted(),
           mPendingReplayLogSeq(),
           mReplayLogSeq(),
           mNextLogSeq(),
@@ -203,13 +204,19 @@ public:
         mCommitted.mSeq       = mReplayerPtr->getCommitted();
         mCommitted.mFidSeed   = inFileId.getseed();
         mCommitted.mStatus    = mReplayerPtr->getLastCommittedStatus();
-        mReplayLogSeq         = mReplayerPtr->getLastLogSeq();
-        mPendingReplayLogSeq  = mReplayLogSeq;
-        mPendingCommitted     = mCommitted;
-        mInFlightCommitted    = mPendingCommitted;
-        mLastWriteCommitted   = mInFlightCommitted;
-        mMetaDataStorePtr     = &inMetaDataStore;
-        mViewStartSeq         = mReplayerPtr->getViewStartSeq();
+        mReplayerPtr->getLastLogBlockCommitted(
+            mLastWriteCommitted.mSeq,
+            mLastWriteCommitted.mFidSeed,
+            mLastWriteCommitted.mStatus,
+            mLastWriteCommitted.mErrChkSum
+        );
+        mReplayLastWriteCommitted = mLastWriteCommitted;
+        mReplayLogSeq             = mReplayerPtr->getLastLogSeq();
+        mPendingReplayLogSeq      = mReplayLogSeq;
+        mPendingCommitted         = mCommitted;
+        mInFlightCommitted        = mPendingCommitted;
+        mMetaDataStorePtr         = &inMetaDataStore;
+        mViewStartSeq             = mReplayerPtr->getViewStartSeq();
         if (mReplayerPtr->getAppendToLastLogFlag()) {
             const bool theLogAppendHexFlag =
                 16 == mReplayerPtr->getLastLogIntBase();
@@ -579,6 +586,7 @@ private:
     Committed         mPendingCommitted;
     Committed         mInFlightCommitted;
     Committed         mLastWriteCommitted;
+    Committed         mReplayLastWriteCommitted;
     MetaVrLogSeq      mPendingReplayLogSeq;
     MetaVrLogSeq      mReplayLogSeq;
     MetaVrLogSeq      mNextLogSeq;
@@ -663,6 +671,9 @@ private:
         mExraPendingCount = 0;
         const bool theWakeupFlag = theSetReplayStateFlag &&
             (mCommitUpdatedFlag || ! mInQueue.IsEmpty());
+        if (theSetReplayStateFlag) {
+            mReplayLastWriteCommitted = mLastWriteCommitted;
+        }
         theLock.Unlock();
         if (theWakeupFlag) {
             mNetManager.Wakeup();
@@ -699,7 +710,11 @@ private:
                 mCommitted.mFidSeed,
                 mCommitted.mStatus,
                 mCommitted.mErrChkSum,
-                theReplayCommitHeadPtr
+                theReplayCommitHeadPtr,
+                mReplayLastWriteCommitted.mSeq,
+                mReplayLastWriteCommitted.mFidSeed,
+                mReplayLastWriteCommitted.mStatus,
+                mReplayLastWriteCommitted.mErrChkSum
             );
         }
     }
@@ -1069,14 +1084,17 @@ private:
         const MetaVrLogSeq& inLogSeq,
         int                 inBlockLen = -1)
     {
+        const int theBlockLen = inBlockLen < 0 ?
+            (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) : inBlockLen;
+        if (theBlockLen <= 0) {
+            panic("invalid log block start sequence or length");
+        }
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             mNextLogSeq,
             inLogSeq,
             mInFlightCommitted.mSeq,
             mVrNodeId
         );
-        const int theBlockLen = inBlockLen < 0 ?
-            (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) : inBlockLen;
         ++mNextBlockSeq;
         KFS_LOG_STREAM_DEBUG <<
             "flush block: " << inLogSeq <<
@@ -1085,46 +1103,20 @@ private:
             " VR status: "  << theVrStatus <<
             " "             << ErrorCodeToString(theVrStatus) <<
         KFS_LOG_EOM;
-        mReqOstream << "c"
-            "/" << mInFlightCommitted.mSeq <<
-            "/" << mInFlightCommitted.mFidSeed <<
-            "/" << mInFlightCommitted.mErrChkSum <<
-            "/" << mInFlightCommitted.mStatus <<
-            "/" << inLogSeq <<
-            "/" << theBlockLen <<
-            "/"
-        ;
-        mReqOstream.flush();
-        const char*  theStartPtr      = mMdStream.GetBufferedStart();
-        const size_t theTxLen         =
-            mMdStream.GetBufferedEnd() - theStartPtr;
-        Checksum     theBlockChecksum = ComputeBlockChecksum(
-            0 < mNextBlockSeq ? mNextBlockChecksum : kKfsNullChecksum,
-            theStartPtr, theTxLen);
-        Checksum const theTxChecksum = theBlockChecksum;
-        mReqOstream <<
-            mNextBlockSeq <<
-            "/";
-        mReqOstream.flush();
-        theStartPtr = mMdStream.GetBufferedStart() + theTxLen;
-        theBlockChecksum = ComputeBlockChecksum(
-            theBlockChecksum,
-            theStartPtr,
-            mMdStream.GetBufferedEnd() - theStartPtr);
-        mReqOstream << theBlockChecksum << "\n";
-        mReqOstream.flush();
-        // Transmit all blocks, except first one, which has only block header.
-        if (0 < mNextBlockSeq && 0 == theVrStatus) {
-            theStartPtr = mMdStream.GetBufferedStart();
+        Checksum     theTxChecksum = 0;
+        const size_t theTxLen      = WriteBlockTrailer(
+            inLogSeq, mInFlightCommitted, theBlockLen, theTxChecksum);
+        if (0 == theVrStatus) {
+            const char* const thePtr = mMdStream.GetBufferedStart();
             int theStatus;
-            if (mMdStream.GetBufferedEnd() < theStartPtr + theTxLen) {
+            if (mMdStream.GetBufferedEnd() < thePtr + theTxLen) {
                 panic("invalid log write write buffer length");
                 theStatus = -EFAULT;
             } else {
                 theStatus = mLogTransmitter.TransmitBlock(
                     inLogSeq,
                     theBlockLen,
-                    theStartPtr,
+                    thePtr,
                     theTxLen,
                     theTxChecksum,
                     theTxLen
@@ -1149,6 +1141,42 @@ private:
             mInFlightCommitted.mSeq,
             IsLogStreamGood()
         );
+    }
+    size_t WriteBlockTrailer(
+        const MetaVrLogSeq& inLogSeq,
+        const Committed&    inCommitted,
+        int                 inBlockLen,
+        Checksum&           outTxChecksum)
+    {
+        mReqOstream << "c"
+            "/" << inCommitted.mSeq <<
+            "/" << inCommitted.mFidSeed <<
+            "/" << inCommitted.mErrChkSum <<
+            "/" << inCommitted.mStatus <<
+            "/" << inLogSeq <<
+            "/" << inBlockLen <<
+            "/"
+        ;
+        mReqOstream.flush();
+        const char*  theStartPtr      = mMdStream.GetBufferedStart();
+        const size_t theTxLen         =
+            mMdStream.GetBufferedEnd() - theStartPtr;
+        Checksum     theBlockChecksum = ComputeBlockChecksum(
+            0 < mNextBlockSeq ? mNextBlockChecksum : kKfsNullChecksum,
+            theStartPtr, theTxLen);
+        outTxChecksum = theBlockChecksum;
+        mReqOstream <<
+            mNextBlockSeq <<
+            "/";
+        mReqOstream.flush();
+        theStartPtr = mMdStream.GetBufferedStart() + theTxLen;
+        theBlockChecksum = ComputeBlockChecksum(
+            theBlockChecksum,
+            theStartPtr,
+            mMdStream.GetBufferedEnd() - theStartPtr);
+        mReqOstream << theBlockChecksum << "\n";
+        mReqOstream.flush();
+        return theTxLen;
     }
     void LogStreamFlush()
     {
@@ -1304,7 +1332,6 @@ private:
             inRequest.status    = -EROFS;
             return;
         }
-        MetaVrLogSeq thePrevViewCommitted;
         if (inRequest.blockStartSeq != mLastLogSeq) {
             inRequest.status = -EROFS;
             // Check if this is valid vr log start view op.
@@ -1339,11 +1366,15 @@ private:
                             theOp.mNewLogSeq != inRequest.blockEndSeq) {
                         inRequest.status = -EINVAL;
                     } else if (mLastLogSeq < theOp.mCommittedSeq ||
-                            theOp.mCommittedSeq < mInFlightCommitted.mSeq ||
-                            theOp.mCommittedSeq < mLastWriteCommitted.mSeq) {
+                            // Commit must be always in the last non empty view.
+                            theOp.mCommittedSeq.mEpochSeq !=
+                                mLastWriteCommitted.mSeq.mEpochSeq ||
+                             theOp.mCommittedSeq.mViewSeq !=
+                                mLastWriteCommitted.mSeq.mViewSeq ||
+                            theOp.mCommittedSeq.mLogSeq <
+                                mLastWriteCommitted.mSeq.mLogSeq) {
                         inRequest.status = -EROFS;
                     } else {
-                        thePrevViewCommitted = theOp.mCommittedSeq;
                         inRequest.status = 0;
                     }
                 } else {
@@ -1422,13 +1453,7 @@ private:
                     theLogSeq == inRequest.blockEndSeq &&
                     inRequest.blockStartSeq.mLogSeq + theBlockLen ==
                         inRequest.blockEndSeq.mLogSeq &&
-                    (thePrevViewCommitted.IsValid() ?
-                        theBlockCommitted.mSeq <= thePrevViewCommitted :
-                        (mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq ||
-                            theBlockCommitted.mSeq.mEpochSeq <
-                                mLastWriteCommitted.mSeq.mEpochSeq ||
-                            theBlockCommitted.mSeq.mViewSeq <
-                                mLastWriteCommitted.mSeq.mViewSeq))) {
+                    mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq) {
                 inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
         }
@@ -1438,9 +1463,6 @@ private:
             inRequest.status    = -EINVAL;
             inRequest.statusMsg = "log write: invalid block format";
             return;
-        }
-        if (thePrevViewCommitted.IsValid()) {
-            theBlockCommitted.mSeq = thePrevViewCommitted;
         }
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
             inRequest.blockStartSeq,
@@ -1557,7 +1579,7 @@ private:
         mCurLogStartTime = mNetManager.Now();
         mLogFilePos      = 0;
         mLogFilePrevPos  = 0;
-        mNextBlockSeq    = -1;
+        mNextBlockSeq    = 0;
         mError           = 0;
         SetLogName(inLogSeq);
         if ((mLogFd = open(
@@ -1576,7 +1598,9 @@ private:
             "time/" << DisplayIsoDateTime() << "\n"
         ;
         mMdStream.setf(ostream::hex, ostream::basefield);
-        FlushBlock(mLastLogSeq);
+        Checksum theTxChecksum = 0;
+        WriteBlockTrailer(mLastLogSeq, mLastWriteCommitted, 0, theTxChecksum);
+        LogStreamFlush();
         if (IsLogStreamGood()) {
             mNextLogSeq = mLastLogSeq;
             mMetaDataStorePtr->RegisterLogSegment(

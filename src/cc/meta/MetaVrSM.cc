@@ -270,6 +270,7 @@ public:
           mCheckLogSyncStatusFlag(false),
           mSyncVrStateFileFlag(true),
           mPanicOnIoErrorFlag(true),
+          mIgnoreInvalidVrStateFlag(false),
           mPrimaryNodeId(-1),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -319,6 +320,10 @@ public:
                 inBlockEndSeq == mReconfigureReqPtr->logseq) {
             return 0;
         }
+        if (IsSameView(inBlockEndSeq, mLastViewEndSeq) &&
+                inBlockStartSeq < inBlockEndSeq) {
+            return -EROFS;
+        }
         return mStatus;
     }
     void LogBlockWriteDone(
@@ -345,8 +350,10 @@ public:
         }
         if (kStatePrimary != mState && kStateBackup != mState &&
                 kStateLogSync != mState) {
-            if (inBlockStartSeq < inBlockEndSeq &&
-                    mLastLogSeq < inBlockEndSeq && mActiveFlag) {
+            if (mActiveFlag &&
+                    inBlockStartSeq < inBlockEndSeq &&
+                    mLastLogSeq < inBlockEndSeq &&
+                    ! IsSameView(mLastLogSeq, mLastViewEndSeq)) {
                 mLastLogSeq = inBlockEndSeq;
                 StartViewChange();
             }
@@ -452,18 +459,17 @@ public:
         if (0 != mVrResponse.mStatus) {
             if (kStatePrimary == mVrResponse.mState ||
                     kStateBackup == mVrResponse.mState ||
-                    (mLastViewEndSeq.IsValid() &&
+                    ((mIgnoreInvalidVrStateFlag || mLastViewEndSeq.IsValid()) &&
                         kStateViewChange == mVrResponse.mState)) {
                 if (mEpochSeq <= mVrResponse.mEpochSeq) {
                     if (mVrResponse.mCommittedSeq.IsValid() &&
                             mVrResponse.mLastLogSeq.IsValid() &&
                             mVrResponse.mCommittedSeq <=
                                 mVrResponse.mLastLogSeq) {
-                        mStartViewChangeMaxCommittedSeq =
-                            max(mStartViewChangeMaxCommittedSeq,
-                                mVrResponse.mCommittedSeq);
-                        mStartViewChangeMaxLastLogSeq =
-                            mVrResponse.mCommittedSeq;
+                        mStartViewChangeMaxCommittedSeq = max(
+                            mStartViewChangeMaxCommittedSeq,
+                            mVrResponse.mCommittedSeq
+                        );
                         if (mStartViewChangeMaxLastLogSeq <=
                                 mVrResponse.mLastLogSeq) {
                             if (mStartViewChangeMaxLastLogSeq <
@@ -590,7 +596,8 @@ public:
         }
         if (mCommittedSeq < inCommittedSeq) {
             if (kStatePrimary == mState &&
-                    inCommittedSeq <= mPrimaryViewStartSeq) {
+                    IsSameView(inCommittedSeq, mPrimaryViewStartSeq) &&
+                    inCommittedSeq.mLogSeq <= mPrimaryViewStartSeq.mLogSeq) {
                 panic("VR: invalid committed sequence");
             } else {
                 mCommittedSeq         = inCommittedSeq;
@@ -862,6 +869,9 @@ public:
         mSyncVrStateFileFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("syncVrStateFile"),
             mPanicOnIoErrorFlag ? 1 : 0) != 0;
+        mIgnoreInvalidVrStateFlag = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("ignoreInvalidVrState"),
+            mIgnoreInvalidVrStateFlag ? 1 : 0) != 0;
         const Properties::String* const theStrPtr = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("metaDataStoreLocation"));
         if (theStrPtr) {
@@ -1356,6 +1366,7 @@ private:
     bool                         mCheckLogSyncStatusFlag;
     bool                         mSyncVrStateFileFlag;
     bool                         mPanicOnIoErrorFlag;
+    bool                         mIgnoreInvalidVrStateFlag;
     NodeId                       mPrimaryNodeId;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -1597,14 +1608,6 @@ private:
         return (inLhs.mEpochSeq == inRhs.mEpochSeq &&
             inLhs.mViewSeq == inRhs.mViewSeq);
     }
-    bool IsEndOfLastClosedView(
-        const MetaVrLogSeq& inLogSeq)
-    {
-        return (
-            mLastLogSeq == mLastViewEndSeq &&
-            IsSameView(inLogSeq, mLastViewEndSeq)
-        );
-    }
     const MetaVrLogSeq& GetLastViewEndSeq() const
     {
         return (IsSameView(mLastViewEndSeq, mLastLogSeq) ?
@@ -1616,24 +1619,20 @@ private:
         return (IsSameView(inReq.mLastViewEndSeq, inReq.mLastLogSeq) ?
             inReq.mLastViewEndSeq : inReq.mLastLogSeq);
     }
-    static bool IsSameViewLess(
-        const MetaVrLogSeq& inLhs,
-        const MetaVrLogSeq& inRhs)
-        { return (IsSameView(inLhs, inRhs) && inLhs.mLogSeq < inRhs.mLogSeq); }
     bool IsValidViewEndSeq(
         const MetaVrRequest& inReq)
     {
         // The case where primary (or, in general, some subset of nodes less
-        // than quorum x) has failed to write log start view (1), and then a
+        // than quorum) has failed to write log start view (1), and then a
         // new quorum formed that does not include the primary (or the node
-        // subset) in (1)) with a node that has longer log for the prior / last
-        // view.
+        // subset) in (1) with a node that has longer log for the prior / last
+        // view that was effectively "closed / ended" by prior do view change.
         return (
             IsSameView(inReq.mLastLogSeq, mLastLogSeq) &&
             (inReq.mLastLogSeq.mLogSeq < mLastLogSeq.mLogSeq ?
-                (IsSameViewLess(inReq.mLastViewEndSeq, inReq.mLastLogSeq) &&
+                (IsSameView(inReq.mLastViewEndSeq, inReq.mLastLogSeq) &&
                 mCommittedSeq <= inReq.mLastViewEndSeq) :
-                (IsSameViewLess(mLastViewEndSeq, mLastLogSeq) &&
+                (IsSameView(mLastViewEndSeq, mLastLogSeq) &&
                 inReq.mCommittedSeq <= mLastViewEndSeq)
             )
         );
@@ -1657,7 +1656,7 @@ private:
             return;
         }
         if (mLastLogSeq < mStartViewChangeMaxLastLogSeq &&
-                ! IsEndOfLastClosedView(mStartViewChangeMaxLastLogSeq)) {
+                ! IsSameView(mLastViewEndSeq, mLastLogSeq)) {
             // Need to feetch log / checkpoint.
             if (mActiveFlag && mNodeIdAndMDSLocations.empty()) {
                 panic("VR: invalid empty committed node ids");
@@ -1702,7 +1701,7 @@ private:
                     SetState(kStateLogSync);
                     mLogFetchEndSeq = mStartViewChangeMaxLastLogSeq;
                     const bool theAllowNonPrimaryFlag =
-                        mLastViewEndSeq.IsValid();
+                        mIgnoreInvalidVrStateFlag || mLastViewEndSeq.IsValid();
                     mMetaDataSyncPtr->ScheduleLogSync(
                         mSyncServers,
                         mLastLogSeq,
@@ -1941,8 +1940,9 @@ private:
         Show(inReq, "+");
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq) {
-                if (! inReq.mLastViewEndSeq.IsValid() &&
-                        kStatePrimary != mState) {
+                if (kStatePrimary != mState &&
+                        ! mIgnoreInvalidVrStateFlag &&
+                        ! inReq.mLastViewEndSeq.IsValid()) {
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "not primary, state: ";
                     inReq.statusMsg += GetStateName(mState);
@@ -1980,7 +1980,8 @@ private:
             SetReturnState(inReq);
         } else if (inReq.status != -EBADCLUSTERKEY &&
                 kStateViewChange == mState && ! mDoViewChangePtr) {
-            if (mLastLogSeq < inReq.mLastLogSeq && mLastViewEndSeq.IsValid()) {
+            if (mLastLogSeq < inReq.mLastLogSeq &&
+                    (mIgnoreInvalidVrStateFlag || mLastViewEndSeq.IsValid())) {
                 const bool theAllowNonPrimaryFlag = true;
                 ScheduleLogFetch(
                     inReq.mLastLogSeq,
@@ -2032,7 +2033,7 @@ private:
                     } else if (! mDoViewChangePtr &&
                             mStartViewChangeNodeIds.insert(
                                 inReq.mNodeId).second) {
-                        // Threat as start view change, in the do view change
+                        // Treat as start view change, in the do view change
                         // has not been started yet.
                         UpdateDoViewChangeViewEndSeq(inReq);
                         StartDoViewChangeIfPossible();
@@ -2059,7 +2060,8 @@ private:
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq ||
                     ! inReq.mLastViewEndSeq.IsValid() ||
-                    inReq.mLastViewEndSeq != mLastViewEndSeq ||
+                    ! IsSameView(inReq.mLastViewEndSeq, mLastLogSeq) ||
+                    inReq.mLastViewEndSeq < mCommittedSeq ||
                     (kStateViewChange != mState &&
                         kStateStartViewPrimary != mState) ||
                     (mDoViewChangePtr &&
@@ -2113,8 +2115,7 @@ private:
                         if (! mDoViewChangePtr) {
                             WriteVrState(
                                 inReq.mNodeId,
-                                IsSameView(mLastLogSeq, inReq.mLastViewEndSeq) ?
-                                    inReq.mLastViewEndSeq : mLastLogSeq
+                                min(inReq.mLastViewEndSeq, GetLastViewEndSeq())
                             );
                         }
                         CancelViewChange();

@@ -116,9 +116,13 @@ public:
         const MetaVrLogSeq& committed,
         const MetaVrLogSeq& viewStartSeq,
         seq_t               seed,
-        int64_t             status,
+        int                 status,
         int64_t             errChecksum,
-        MetaRequest*        commitQueue);
+        MetaRequest*        commitQueue,
+        const MetaVrLogSeq& lastBlockCommitted,
+        fid_t               lastBlockSeed,
+        int                 lastBlockStatus,
+        int64_t             lastBlockErrChecksum);
     bool runCommitQueue(
         const MetaVrLogSeq& committed,
         seq_t               seed,
@@ -131,6 +135,11 @@ public:
         { return primaryNodeId; }
     void handle(
         MetaLogWriterControl& op);
+    void getLastLogBlockCommitted(
+        MetaVrLogSeq& outCommitted,
+        fid_t&        outSeed,
+        int&          outStatus,
+        int64_t&      outErrChecksum);
     class BlockChecksum
     {
     public:
