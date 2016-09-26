@@ -78,6 +78,8 @@ public:
     fid_t          mCommittedFidSeed;
     int            mCommittedStatus;
     MetaVrLogSeq   mLastLogSeq;
+    MetaVrLogSeq   mLastViewEndSeq;
+    MetaVrLogSeq   mLastNonEmptyViewEndSeq;
     int            mState;
     int64_t        mFileSystemId;
     StringBufT<64> mClusterKey;
@@ -94,6 +96,8 @@ public:
           mCommittedFidSeed(-1),
           mCommittedStatus(0),
           mLastLogSeq(),
+          mLastViewEndSeq(),
+          mLastNonEmptyViewEndSeq(),
           mState(-1),
           mFileSystemId(-1),
           mClusterKey(),
@@ -121,7 +125,10 @@ public:
             mCommittedFidSeed);
         Get(inProps, kMetaVrCommittedStatusFieldNamePtr,
             mCommittedStatus);
-        Get(inProps, kMetaVrLastLogSeqFieldNamePtr, mLastLogSeq);
+        Get(inProps, kMetaVrLastLogSeqFieldNamePtr,      mLastLogSeq);
+        Get(inProps, kMetaVrLastViewEndgSeqFieldNamePtr, mLastViewEndSeq);
+        Get(inProps, kMetaVrLastNEViewEndSeqFieldNamePtr,
+            mLastNonEmptyViewEndSeq);
         Get(inProps, kMetaVrFsIdFieldNamePtr,       mFileSystemId);
         Get(inProps, kMetaVrMDSLocationPortFieldNamePtr,
             mMetaDataStoreLocation.port);
@@ -146,12 +153,14 @@ public:
             " view: "   << mViewSeq <<
             " state: "  << MetaVrSM::GetStateName(mState) <<
             " log:"
+            " last: "   << mLastLogSeq <<
+            " view: "   << mLastViewEndSeq <<
+            " / "       << mLastNonEmptyViewEndSeq <<
             " committed:"
             " seq: "    << mCommittedSeq <<
             " ec: "     << mCommittedErrChecksum <<
             " fids: "   << mCommittedFidSeed <<
             " s: "      << mCommittedStatus <<
-            " last: "   << mLastLogSeq <<
             " fsid: "   << mFileSystemId <<
             " mds: "    << mMetaDataStoreLocation <<
             " ckey: "   << mClusterKey <<
@@ -211,8 +220,6 @@ public:
     };
     enum { kMinActiveCount = 3 };
     static const NodeId kBootstrapPrimaryNodeId = 0;
-    static const seq_t  kStartEpochViewSeq      = 1;
-    static const seq_t  kStartViewLogSeq        = 1;
 
     Impl(
         LogTransmitter& inLogTransmitter,
@@ -250,6 +257,7 @@ public:
           mLastLogSeq(),
           mLastCommitSeq(),
           mLastViewEndSeq(),
+          mLastNonEmptyViewEndSeq(),
           mPrimaryViewStartSeq(),
           mLastCommitTime(0),
           mTimeNow(),
@@ -271,6 +279,7 @@ public:
           mSyncVrStateFileFlag(true),
           mPanicOnIoErrorFlag(true),
           mIgnoreInvalidVrStateFlag(false),
+          mScheduleViewChangeFlag(false),
           mPrimaryNodeId(-1),
           mStartViewChangePtr(0),
           mDoViewChangePtr(0),
@@ -312,7 +321,14 @@ public:
         const NodeId thePrimaryId = GetPrimaryNodeId();
         if (0 <= thePrimaryId && inTransmitterId != thePrimaryId) {
             if (inBlockStartSeq < inBlockEndSeq) {
-                AdvanceView("received non heartbeat from a different primary");
+                KFS_LOG_STREAM_ERROR <<
+                    "received log block" <<
+                    " [" <<          inBlockStartSeq <<
+                    "," <<           inBlockEndSeq <<
+                    "] from a different"
+                    " primary: " <<  thePrimaryId <<
+                KFS_LOG_EOM;
+                ScheduleViewChange();
             }
             return -EROFS;
         }
@@ -320,7 +336,7 @@ public:
                 inBlockEndSeq == mReconfigureReqPtr->logseq) {
             return 0;
         }
-        if (IsSameView(inBlockEndSeq, mLastViewEndSeq) &&
+        if (inBlockEndSeq.IsSameView(mLastViewEndSeq) &&
                 inBlockStartSeq < inBlockEndSeq) {
             return -EROFS;
         }
@@ -353,9 +369,9 @@ public:
             if (mActiveFlag &&
                     inBlockStartSeq < inBlockEndSeq &&
                     mLastLogSeq < inBlockEndSeq &&
-                    ! IsSameView(mLastLogSeq, mLastViewEndSeq)) {
-                mLastLogSeq = inBlockEndSeq;
-                StartViewChange();
+                    ! mLastLogSeq.IsSameView(mLastViewEndSeq)) {
+                SetLastLogSeq(inBlockEndSeq);
+                ScheduleViewChange();
             }
             return;
         }
@@ -364,7 +380,7 @@ public:
                 // Reset timer,
                 mLastCommitTime = TimeNow();
             }
-            mLastLogSeq = inBlockEndSeq;
+            SetLastLogSeq(inBlockEndSeq);
         }
     }
     bool Handle(
@@ -491,6 +507,16 @@ public:
                 }
             }
             KFS_LOG_STREAM_ERROR <<
+                "start view change: " << mVrResponse.mStatusMsg <<
+                " status: "           << mVrResponse.mStatus <<
+                " node: "             << inNodeId <<
+                " / "                 << mNodeId <<
+                " view: "             << mVrResponse.mEpochSeq <<
+                " "                   << mVrResponse.mViewSeq <<
+                " / "                 << mEpochSeq <<
+                " "                   << mViewSeq <<
+            KFS_LOG_EOM;
+            KFS_LOG_STREAM_DEBUG <<
                 " seq: "            << inSeq <<
                 " node: "           << inNodeId <<
                 " epoch mismatch: " << mStartViewEpochMismatchCount <<
@@ -500,6 +526,7 @@ public:
                 " count: "          << mNodeIdAndMDSLocations.size() <<
                 " responses: "      << mRespondedIds.size() <<
                 " "                 << inReq.Show() <<
+                " response: "       << mVrResponse <<
             KFS_LOG_EOM;
         }
         StartDoViewChangeIfPossible();
@@ -548,6 +575,19 @@ public:
                     mVrResponse.mState ||
                 mVrResponse.mEpochSeq != mEpochSeq ||
                 mVrResponse.mLastLogSeq != mLastLogSeq) {
+            KFS_LOG_STREAM_ERROR <<
+                "start view: " <<
+                    (theOkFlag ?
+                        mVrResponse.mStatusMsg :
+                        "communication error") <<
+                " status: "    << mVrResponse.mStatus <<
+                " node: "      << inNodeId <<
+                " / "          << mNodeId <<
+                " view: "      << mVrResponse.mEpochSeq <<
+                " "            << mVrResponse.mViewSeq <<
+                " / "          << mEpochSeq <<
+                " "            << mViewSeq <<
+            KFS_LOG_EOM;
             return;
         }
         mRespondedIds.insert(inNodeId);
@@ -581,6 +621,7 @@ public:
         int&                outVrStatus,
         MetaRequest*&       outReqPtr)
     {
+        outReqPtr = 0;
         if (mPendingReconfigureReqPtr) {
             QCStMutexLocker theLocker(mMutex);
             MetaVrReconfiguration& theReq = *mPendingReconfigureReqPtr;
@@ -596,7 +637,7 @@ public:
         }
         if (mCommittedSeq < inCommittedSeq) {
             if (kStatePrimary == mState &&
-                    IsSameView(inCommittedSeq, mPrimaryViewStartSeq) &&
+                    inCommittedSeq.IsSameView(mPrimaryViewStartSeq) &&
                     inCommittedSeq.mLogSeq <= mPrimaryViewStartSeq.mLogSeq) {
                 panic("VR: invalid committed sequence");
             } else {
@@ -608,7 +649,7 @@ public:
         }
         const bool thePendingReplayFlag = mLastLogSeq != mReplayLastLogSeq;
         if (mLastLogSeq < inReplayLastLogSeq) {
-            mLastLogSeq = inReplayLastLogSeq;
+            SetLastLogSeq(inReplayLastLogSeq);
         }
         if (mReplayLastLogSeq < inReplayLastLogSeq) {
             mReplayLastLogSeq = inReplayLastLogSeq;
@@ -621,8 +662,17 @@ public:
                 mLogStartViewPendingRecvFlag = false;
             }
         }
-        outReqPtr = 0;
-        mTimeNow  = inTimeNow;
+        if ((mLastNonEmptyViewEndSeq != mLastLogSeq &&
+                mLastLogSeq.IsPastViewStart()) ||
+                mLastLogSeq < mCommittedSeq ||
+                ! mCommittedSeq.IsPastViewStart() ||
+                ! mLastNonEmptyViewEndSeq.IsPastViewStart() ||
+                (! mLastViewEndSeq.IsPastViewStart() &&
+                    mLastViewEndSeq.IsValid())) {
+            panic("VR: invalid log sequence or state");
+            return;
+        }
+        mTimeNow = inTimeNow;
         if (kStateLogSync == mState) {
             if (mCheckLogSyncStatusFlag) {
                 mCheckLogSyncStatusFlag = false;
@@ -630,7 +680,7 @@ public:
                 const int theStatus       =
                     mMetaDataSyncPtr->GetLogFetchStatus(theProgressFlag);
                 if (theStatus < 0 || ! theProgressFlag) {
-                    KFS_LOG_STREAM(theStatus < 0 ?
+                    KFS_LOG_STREAM(0 == theStatus ?
                             MsgLogger::kLogLevelINFO :
                             MsgLogger::kLogLevelERROR) <<
                         "log fetch done:"
@@ -651,6 +701,8 @@ public:
                     }
                 }
             }
+        } else if (mScheduleViewChangeFlag) {
+            StartViewChange();
         } else if (kStateBackup == mState) {
             if (mActiveFlag && mLastReceivedTime + mConfig.GetBackupTimeout() <
                     TimeNow()) {
@@ -765,15 +817,16 @@ public:
                 mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
         }
-        mLastCommitTime       = TimeNow();
-        mCommittedSeq         = inReplayer.getCommitted();
-        mLastCommitSeq        = mCommittedSeq;
-        mCommittedErrChecksum = inReplayer.getErrChksum();
-        mCommittedFidSeed     = inFileId.getseed();
-        mCommittedStatus      = inReplayer.getLastCommittedStatus();
-        mLastLogSeq           = inReplayer.getLastLogSeq();
-        mReplayLastLogSeq     = mLastLogSeq;
-        mFileSystemId         = inFileSystemId;
+        mLastCommitTime         = TimeNow();
+        mCommittedSeq           = inReplayer.getCommitted();
+        mLastCommitSeq          = mCommittedSeq;
+        mCommittedErrChecksum   = inReplayer.getErrChksum();
+        mCommittedFidSeed       = inFileId.getseed();
+        mCommittedStatus        = inReplayer.getLastCommittedStatus();
+        mLastNonEmptyViewEndSeq = inReplayer.getLastNonEmptyViewEndSeq();
+        SetLastLogSeq(inReplayer.getLastLogSeq());
+        mReplayLastLogSeq       = mLastLogSeq;
+        mFileSystemId           = inFileSystemId;
         if (mEpochSeq < mCommittedSeq.mEpochSeq) {
             mEpochSeq = mCommittedSeq.mEpochSeq;
             mViewSeq  = mCommittedSeq.mViewSeq;
@@ -804,7 +857,7 @@ public:
             }
         } else {
             mLastViewEndSeq = (0 < mQuorum && mActiveFlag) ?
-                MetaVrLogSeq() : mLastLogSeq;
+                MetaVrLogSeq() : mLastNonEmptyViewEndSeq;
             if (-ENOENT == theRet) {
                 theRet = 0;
             } else if (! mVrStateFileName.empty()) {
@@ -1346,6 +1399,7 @@ private:
     MetaVrLogSeq                 mReplayLastLogSeq;
     MetaVrLogSeq                 mLastCommitSeq;
     MetaVrLogSeq                 mLastViewEndSeq;
+    MetaVrLogSeq                 mLastNonEmptyViewEndSeq;
     MetaVrLogSeq                 mPrimaryViewStartSeq;
     time_t                       mLastCommitTime;
     time_t                       mTimeNow;
@@ -1367,6 +1421,7 @@ private:
     bool                         mSyncVrStateFileFlag;
     bool                         mPanicOnIoErrorFlag;
     bool                         mIgnoreInvalidVrStateFlag;
+    bool                         mScheduleViewChangeFlag;
     NodeId                       mPrimaryNodeId;
     MetaVrStartViewChange*       mStartViewChangePtr;
     MetaVrDoViewChange*          mDoViewChangePtr;
@@ -1390,6 +1445,24 @@ private:
     MetaVrResponse               mVrResponse;
     char                         mVrStateReadBuffer[kMaxVrStateSize];
 
+    void SetLastLogSeq(
+        const MetaVrLogSeq& inLogSeq)
+    {
+        mLastLogSeq = inLogSeq;
+        if (mLastLogSeq.IsPastViewStart()) {
+            mLastNonEmptyViewEndSeq = mLastLogSeq;
+        }
+    }
+    void ScheduleViewChange()
+    {
+        if (kStateLogSync == mState || ! mActiveFlag) {
+            return;
+        }
+        CancelViewChange();
+        SetState(kStateViewChange);
+        mScheduleViewChangeFlag = true;
+        Wakeup();
+    }
     bool CheckNodeId(
         NodeId inNodeId)
     {
@@ -1470,10 +1543,15 @@ private:
             " starting view: " << mEpochSeq <<
             " "                << mViewSeq <<
             " committed: "     << mCommittedSeq <<
+            " view end: "      << mLastViewEndSeq <<
             " last log: "      << mLastLogSeq <<
         KFS_LOG_EOM;
-        if (MetaVrLogSeq(mEpochSeq, mViewSeq, 0) <= mLastLogSeq ||
-                mLastLogSeq.mLogSeq < 0 || mLastLogSeq < mCommittedSeq) {
+        const MetaVrLogSeq theStartSeq(
+            mEpochSeq, mViewSeq, kMetaVrLogStartViewLogSeq);
+        if (theStartSeq <= mLastLogSeq ||
+                theStartSeq.IsSameView(mLastLogSeq) ||
+                mLastViewEndSeq < mCommittedSeq ||
+                ! mLastViewEndSeq.IsPastViewStart()) {
             panic("VR: invalid epoch, view, last log. or committed sequence");
             return;
         }
@@ -1482,12 +1560,9 @@ private:
         mLastUpTime     = TimeNow();
         mLastCommitTime = mLastUpTime;
         MetaRequest::Release(mMetaVrLogStartViewPtr);
-        mPrimaryViewStartSeq   =
-            MetaVrLogSeq(mEpochSeq, mViewSeq, kStartViewLogSeq);
+        mPrimaryViewStartSeq   = theStartSeq;
         mMetaVrLogStartViewPtr = new MetaVrLogStartView();
-        mMetaVrLogStartViewPtr->mCommittedSeq =
-            IsSameView(mLastViewEndSeq, mCommittedSeq) ?
-            mLastViewEndSeq : mCommittedSeq;
+        mMetaVrLogStartViewPtr->mCommittedSeq = mLastViewEndSeq;
         mMetaVrLogStartViewPtr->mNewLogSeq    = mPrimaryViewStartSeq;
         mMetaVrLogStartViewPtr->mNodeId       = mNodeId;
         mMetaVrLogStartViewPtr->mTime         = TimeNow();
@@ -1601,22 +1676,15 @@ private:
             StartViewChange();
         }
     }
-    static bool IsSameView(
-        const MetaVrLogSeq& inLhs,
-        const MetaVrLogSeq& inRhs)
-    {
-        return (inLhs.mEpochSeq == inRhs.mEpochSeq &&
-            inLhs.mViewSeq == inRhs.mViewSeq);
-    }
     const MetaVrLogSeq& GetLastViewEndSeq() const
     {
-        return (IsSameView(mLastViewEndSeq, mLastLogSeq) ?
-            mLastViewEndSeq : mLastLogSeq);
+        return (mLastViewEndSeq.IsSameView(mLastLogSeq) ?
+            mLastViewEndSeq : mLastNonEmptyViewEndSeq);
     }
     static const MetaVrLogSeq& GetReqLastViewEndSeq(
         const MetaVrRequest& inReq)
     {
-        return (IsSameView(inReq.mLastViewEndSeq, inReq.mLastLogSeq) ?
+        return (inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) ?
             inReq.mLastViewEndSeq : inReq.mLastLogSeq);
     }
     bool IsValidViewEndSeq(
@@ -1628,12 +1696,14 @@ private:
         // subset) in (1) with a node that has longer log for the prior / last
         // view that was effectively "closed / ended" by prior do view change.
         return (
-            IsSameView(inReq.mLastLogSeq, mLastLogSeq) &&
+            inReq.mLastLogSeq.IsSameView(mLastLogSeq) &&
             (inReq.mLastLogSeq.mLogSeq < mLastLogSeq.mLogSeq ?
-                (IsSameView(inReq.mLastViewEndSeq, inReq.mLastLogSeq) &&
-                mCommittedSeq <= inReq.mLastViewEndSeq) :
-                (IsSameView(mLastViewEndSeq, mLastLogSeq) &&
-                inReq.mCommittedSeq <= mLastViewEndSeq)
+                (inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) &&
+                mCommittedSeq <= inReq.mLastViewEndSeq &&
+                inReq.mLastViewEndSeq <= mLastLogSeq) :
+                (mLastViewEndSeq.IsSameView(mLastLogSeq) &&
+                inReq.mCommittedSeq <= mLastViewEndSeq &&
+                mLastViewEndSeq <= inReq.mLastLogSeq)
             )
         );
     }
@@ -1642,6 +1712,11 @@ private:
     {
         const MetaVrLogSeq& theReqViewEndSeq = GetReqLastViewEndSeq(inReq);
         if (theReqViewEndSeq < mDoViewChangeViewEndSeq) {
+            if (theReqViewEndSeq < mCommittedSeq ||
+                    ! theReqViewEndSeq.IsPastViewStart()) {
+                panic("VR: invalid do view chane view end sequence");
+                return;
+            }
             mDoViewChangeViewEndSeq = theReqViewEndSeq;
         }
     }
@@ -1656,7 +1731,7 @@ private:
             return;
         }
         if (mLastLogSeq < mStartViewChangeMaxLastLogSeq &&
-                ! IsSameView(mLastViewEndSeq, mLastLogSeq)) {
+                ! mLastViewEndSeq.IsSameView(mLastLogSeq)) {
             // Need to feetch log / checkpoint.
             if (mActiveFlag && mNodeIdAndMDSLocations.empty()) {
                 panic("VR: invalid empty committed node ids");
@@ -1754,18 +1829,20 @@ private:
     void SetReturnState(
         MetaVrRequest& inReq)
     {
-        inReq.mRetCurViewSeq            = mViewSeq;
-        inReq.mRetCurEpochSeq           = mEpochSeq;
-        inReq.mRetCurState              = mState;
-        inReq.mRetCommittedSeq          = mCommittedSeq;
-        inReq.mRetCommittedErrChecksum  = mCommittedErrChecksum;
-        inReq.mRetCommittedStatus       = mCommittedStatus;
-        inReq.mRetCommittedFidSeed      = mCommittedFidSeed;
-        inReq.mRetLastLogSeq            = mLastLogSeq;
-        inReq.mRetFileSystemId          = mFileSystemId;
-        inReq.mRetClusterKey            = mClusterKey;
-        inReq.mRetMetaMd                = mMetaMd;
-        inReq.mRetMetaDataStoreLocation = mMetaDataStoreLocation;
+        inReq.mRetCurViewSeq             = mViewSeq;
+        inReq.mRetCurEpochSeq            = mEpochSeq;
+        inReq.mRetCurState               = mState;
+        inReq.mRetCommittedSeq           = mCommittedSeq;
+        inReq.mRetCommittedErrChecksum   = mCommittedErrChecksum;
+        inReq.mRetCommittedStatus        = mCommittedStatus;
+        inReq.mRetCommittedFidSeed       = mCommittedFidSeed;
+        inReq.mRetLastLogSeq             = mLastLogSeq;
+        inReq.mRetFileSystemId           = mFileSystemId;
+        inReq.mRetClusterKey             = mClusterKey;
+        inReq.mRetMetaMd                 = mMetaMd;
+        inReq.mRetLastViewEndSeq         = mLastViewEndSeq;
+        inReq.mRetLastNonEmptyViewEndSeq = mLastNonEmptyViewEndSeq;
+        inReq.mRetMetaDataStoreLocation  = mMetaDataStoreLocation;
     }
     bool VerifyClusterKey(
         MetaVrRequest& inReq)
@@ -1798,6 +1875,10 @@ private:
                 inReq.mViewSeq <= inReq.mLastLogSeq.mViewSeq) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "invalid request: last log sequence";
+        } else if (inReq.mLastViewEndSeq.IsValid() &&
+                ! inReq.mLastViewEndSeq.IsPastViewStart()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "invalid request: last view end sequence";
         } else if (inReq.mLastLogSeq < inReq.mLastViewEndSeq) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "invalid request: last view end sequence";
@@ -1823,8 +1904,17 @@ private:
             inReq.status    = -EINVAL;
             inReq.statusMsg = "log sequence mismatch";
         } else {
-            inReq.status = 0;
-            return true;
+            const MetaVrLogSeq theViewEndSeq = GetReqLastViewEndSeq(inReq);
+            if (theViewEndSeq < mCommittedSeq) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "end less than committed";
+            } else if (mLastLogSeq < theViewEndSeq) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "end past last log";
+            } else {
+                inReq.status = 0;
+                return true;
+            }
         }
         SetReturnState(inReq);
         return false;
@@ -2060,8 +2150,11 @@ private:
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq ||
                     ! inReq.mLastViewEndSeq.IsValid() ||
-                    ! IsSameView(inReq.mLastViewEndSeq, mLastLogSeq) ||
+                    ! inReq.mLastViewEndSeq.IsSameView(
+                        mLastNonEmptyViewEndSeq) ||
                     inReq.mLastViewEndSeq < mCommittedSeq ||
+                    mLastLogSeq < inReq.mLastViewEndSeq ||
+                    inReq.mLastViewEndSeq < mLastViewEndSeq ||
                     (kStateViewChange != mState &&
                         kStateStartViewPrimary != mState) ||
                     (mDoViewChangePtr &&
@@ -2717,7 +2810,7 @@ private:
             return;
         }
         mEpochSeq++;
-        mViewSeq = kStartEpochViewSeq;
+        mViewSeq = kMetaVrLogStartEpochViewSeq;
         const Config::Nodes&                theNodes = mConfig.GetNodes();
         Config::Nodes::const_iterator const theIt    = theNodes.find(mNodeId);
         if (kStateReconfiguration == mState) {
@@ -2758,7 +2851,7 @@ private:
                 return;
             }
             mEpochSeq++;
-            mViewSeq = kStartEpochViewSeq;
+            mViewSeq = kMetaVrLogStartEpochViewSeq;
             if (kStateReconfiguration == mState || kStateBackup == mState) {
                 mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
                 mConfig.SetBackupTimeout(mPendingBackupTimeout);
@@ -2970,6 +3063,9 @@ private:
         mDoViewChangeNodeIds.clear();
         mNodeIdAndMDSLocations.clear();
         mDoViewChangeViewEndSeq = GetLastViewEndSeq();
+        if (mDoViewChangeViewEndSeq < mCommittedSeq) {
+            panic("VR: invalid do view change sequence");
+        }
         MetaVrStartViewChange& theOp = *(new MetaVrStartViewChange());
         Init(theOp);
         mStartViewChangePtr = &theOp;
@@ -2983,8 +3079,19 @@ private:
         NodeId              inPrimaryId,
         const MetaVrLogSeq& inViewEndSeq)
     {
+        KFS_LOG_STREAM_INFO <<
+            "write vr state:"
+            " epoch: "          << mEpochSeq <<
+            " view: "           << mViewSeq <<
+            " committed: "      << mCommittedSeq <<
+            " view end: "       << inViewEndSeq <<
+            " last log:"        << mLastLogSeq <<
+            " prior view end: " << mLastViewEndSeq <<
+        KFS_LOG_EOM;
         if (mLastLogSeq < inViewEndSeq ||
-                ! IsSameView(mLastLogSeq, inViewEndSeq)) {
+                (mLastLogSeq.IsPastViewStart() &&
+                    ! mLastLogSeq.IsSameView(inViewEndSeq)) ||
+                ! inViewEndSeq.IsPastViewStart()) {
             panic("VR: invalid view end sequence");
             mLastViewEndSeq = MetaVrLogSeq();
         }
@@ -3257,16 +3364,25 @@ private:
                             " exceeds"
                             " last log: " << theLastLogSeq <<
                         KFS_LOG_EOM;
+                    } else if (! theViewEndSeq.IsPastViewStart() ||
+                            theLastLogSeq < theViewEndSeq ||
+                            theViewEndSeq < theCommittedSeq) {
+                        theRet = EINVAL;
+                        KFS_LOG_STREAM_ERROR <<
+                            mVrStateFileName << ":"
+                            " invalid last view end:" << theViewEndSeq <<
+                            " committed: "            << theCommittedSeq <<
+                            " last log:"              << theLastLogSeq <<
+                        KFS_LOG_EOM;
                     } else if (! mStartedFlag) {
                         outNodeId = theNodeId;
                     } else if (theFsId != mFileSystemId ||
                                 mLastLogSeq < theLastLogSeq ||
-                                theLastLogSeq < theViewEndSeq ||
-                                mCommittedSeq < theCommittedSeq ||
-                                theViewEndSeq < theCommittedSeq ||
+                                mLastLogSeq < theViewEndSeq ||
                                 (theEpochSeq != mEpochSeq &&
                                     theEpochSeq + 1 != mEpochSeq &&
-                                    theViewSeq != kStartEpochViewSeq) ||
+                                    theViewSeq !=
+                                        kMetaVrLogStartEpochViewSeq) ||
                                 (theViewSeq < mViewSeq &&
                                     theEpochSeq == mEpochSeq)) {
                         KFS_LOG_STREAM_ERROR <<
@@ -3281,7 +3397,7 @@ private:
                             " commited: " << theCommittedSeq <<
                             " / "         << mCommittedSeq <<
                             " view end: " << theViewEndSeq <<
-                            " / "         << theViewEndSeq <<
+                            " / "         << mLastViewEndSeq <<
                             " epoch: "    << theEpochSeq <<
                             " / "         << mEpochSeq <<
                             " view: "     << theViewSeq <<

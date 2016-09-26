@@ -119,6 +119,7 @@ public:
           mBlockStartLogSeq(0, 0, 0),
           mLastBlockSeq(-1),
           mLastLogAheadSeq(0, 0, 0),
+          mLastNonEmptyViewEndSeq(0, 0, 0),
           mLogAheadErrChksum(0),
           mSubEntryCount(0),
           mLogSegmentTimeUsec(0),
@@ -166,6 +167,9 @@ public:
         }
         curOpDone();
         mLastLogAheadSeq.mLogSeq++;
+        if (mLastLogAheadSeq.IsPastViewStart()) {
+            mLastNonEmptyViewEndSeq = mLastLogAheadSeq;
+        }
         return true;
     }
     bool subEntry()
@@ -398,7 +402,8 @@ public:
         const MetaVrLogSeq& lastBlockCommitted,
         fid_t               lastBlockSeed,
         int                 lastBlockStatus,
-        int64_t             lastBlockErrChecksum)
+        int64_t             lastBlockErrChecksum,
+        const MetaVrLogSeq& lastNonEmptyViewEndSeq)
     {
         if (mCurOp || ! mReplayer || ! committed.IsValid() ||
                 (commitQueue && commitQueue->logseq.IsValid() &&
@@ -423,14 +428,15 @@ public:
         if (mViewStartSeq < viewStartSeq) {
             mViewStartSeq = viewStartSeq;
         }
-        mLastBlockCommittedSeq = lastBlockCommitted;
-        mLastBlockSeed         = lastBlockSeed;
-        mLastBlockStatus       = lastBlockStatus,
-        mLastBlockErrChecksum  = lastBlockErrChecksum;
-        mLastCommittedSeq      = committed;
-        mLastCommittedStatus   = status;
-        mLogAheadErrChksum     = errChecksum;
-        mSubEntryCount         = 0;
+        mLastBlockCommittedSeq  = lastBlockCommitted;
+        mLastBlockSeed          = lastBlockSeed;
+        mLastBlockStatus        = lastBlockStatus,
+        mLastBlockErrChecksum   = lastBlockErrChecksum;
+        mLastCommittedSeq       = committed;
+        mLastCommittedStatus    = status;
+        mLastNonEmptyViewEndSeq = lastNonEmptyViewEndSeq;
+        mLogAheadErrChksum      = errChecksum;
+        mSubEntryCount          = 0;
         MetaRequest* next = commitQueue;
         while (next) {
             MetaRequest& op = *next;
@@ -515,6 +521,7 @@ public:
     MetaVrLogSeq  mBlockStartLogSeq;
     seq_t         mLastBlockSeq;
     MetaVrLogSeq  mLastLogAheadSeq;
+    MetaVrLogSeq  mLastNonEmptyViewEndSeq;
     int64_t       mLogAheadErrChksum;
     int64_t       mSubEntryCount;
     int64_t       mLogSegmentTimeUsec;
@@ -2398,8 +2405,9 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     bool         lastEntryChecksumFlag = false;
     bool         completeSegmentFlag   = true;
     int          status                = 0;
-    state.mCheckpointErrChksum = errChecksum;
-    state.mBlockStartLogSeq    = checkpointCommitted;
+    state.mCheckpointErrChksum    = errChecksum;
+    state.mBlockStartLogSeq       = checkpointCommitted;
+    state.mLastNonEmptyViewEndSeq = checkpointCommitted;
     state.mUpdateLogWriterFlag = false; // Turn off updates in initial replay.
     for (seq_t i = number; ; i++) {
         if (! includeLastLogFlag && last < i) {
@@ -2760,7 +2768,8 @@ Replay::setReplayState(
     const MetaVrLogSeq& lastBlockCommitted,
     fid_t               lastBlockSeed,
     int                 lastBlockStatus,
-    int64_t             lastBlockErrChecksum)
+    int64_t             lastBlockErrChecksum,
+    const MetaVrLogSeq& lastNonEmptyViewEndSeq)
 {
     ReplayState&               state = replayTokenizer.GetState();
     ReplayState::EnterAndLeave enterAndLeave(state);
@@ -2780,7 +2789,8 @@ Replay::setReplayState(
         lastBlockCommitted,
         lastBlockSeed,
         lastBlockStatus,
-        lastBlockErrChecksum
+        lastBlockErrChecksum,
+        lastNonEmptyViewEndSeq
     );
 }
 
@@ -2873,6 +2883,13 @@ Replay::getLastLogBlockCommitted(
     outSeed        = state.mLastBlockSeed;
     outStatus      = state.mLastBlockStatus;
     outErrChecksum = state.mLastBlockErrChecksum;
+}
+
+MetaVrLogSeq
+Replay::getLastNonEmptyViewEndSeq() const
+{
+    const ReplayState& state = replayTokenizer.GetState();
+    return state.mLastNonEmptyViewEndSeq;
 }
 
 } // namespace KFS

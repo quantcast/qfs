@@ -122,7 +122,8 @@ public:
         const MetaVrLogSeq& lastBlockCommitted,
         fid_t               lastBlockSeed,
         int                 lastBlockStatus,
-        int64_t             lastBlockErrChecksum);
+        int64_t             lastBlockErrChecksum,
+        const MetaVrLogSeq& lastNonEmptyViewEndSeq);
     bool runCommitQueue(
         const MetaVrLogSeq& committed,
         seq_t               seed,
@@ -140,6 +141,7 @@ public:
         fid_t&        outSeed,
         int&          outStatus,
         int64_t&      outErrChecksum);
+    MetaVrLogSeq getLastNonEmptyViewEndSeq() const;
     class BlockChecksum
     {
     public:
@@ -159,6 +161,7 @@ public:
         ~Tokenizer();
         DETokenizer& Get() { return tokenizer; }
         State& GetState() { return state; }
+        const State& GetState() const { return state; }
     private:
         State&       state;
         DETokenizer& tokenizer;

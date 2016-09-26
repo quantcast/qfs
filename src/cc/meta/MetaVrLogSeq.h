@@ -32,6 +32,9 @@
 namespace KFS
 {
 
+static const seq_t kMetaVrLogStartEpochViewSeq = 1;
+static const seq_t kMetaVrLogStartViewLogSeq   = 1;
+
 class MetaVrLogSeq
 {
 public:
@@ -91,6 +94,21 @@ public:
         const MetaVrLogSeq& inRhs) const
     {
         return ! (*this == inRhs);
+    }
+    bool IsSameView(
+        const MetaVrLogSeq& inRhs) const
+    {
+        return (
+            mEpochSeq == inRhs.mEpochSeq &&
+            mViewSeq  == inRhs.mViewSeq
+        );
+    }
+    bool IsPastViewStart() const
+    {
+        return (
+            kMetaVrLogStartViewLogSeq < mLogSeq ||
+            0 == mEpochSeq
+        );
     }
     template<typename OST>
     OST& Display(

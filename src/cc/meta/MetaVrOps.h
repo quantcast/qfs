@@ -49,6 +49,8 @@ const char* const kMetaVrCommittedErrChecksumFieldNamePtr = "VCE";
 const char* const kMetaVrCommittedFidSeedFieldNamePtr     = "VCF";
 const char* const kMetaVrCommittedStatusFieldNamePtr      = "VCS";
 const char* const kMetaVrLastLogSeqFieldNamePtr           = "VL";
+const char* const kMetaVrLastViewEndgSeqFieldNamePtr      = "VVE";
+const char* const kMetaVrLastNEViewEndSeqFieldNamePtr     = "VLNV";
 const char* const kMetaVrStateFieldNamePtr                = "VS";
 const char* const kMetaVrFsIdFieldNamePtr                 = "VI";
 const char* const kMetaVrMDSLocationHostFieldNamePtr      = "VH";
@@ -84,6 +86,8 @@ public:
     fid_t          mRetCommittedFidSeed;
     int            mRetCommittedStatus;
     MetaVrLogSeq   mRetLastLogSeq;
+    MetaVrLogSeq   mRetLastViewEndSeq;
+    MetaVrLogSeq   mRetLastNonEmptyViewEndSeq;
     int            mRetCurState;
     int64_t        mRetFileSystemId;
     string         mRetClusterKey;
@@ -117,6 +121,8 @@ public:
           mRetCommittedFidSeed(-1),
           mRetCommittedStatus(0),
           mRetLastLogSeq(),
+          mRetLastViewEndSeq(),
+          mRetLastNonEmptyViewEndSeq(),
           mRetCurState(-1),
           mRetFileSystemId(-1),
           mRetClusterKey(),
@@ -213,6 +219,14 @@ public:
         if (mRetLastLogSeq.IsValid()) {
             inOs << kMetaVrLastLogSeqFieldNamePtr <<
                 ":" << mRetLastLogSeq << "\r\n";
+        }
+        if (mRetLastViewEndSeq.IsValid()) {
+            inOs << kMetaVrLastViewEndgSeqFieldNamePtr <<
+                ":" << mRetLastViewEndSeq << "\r\n";
+        }
+        if (mRetLastNonEmptyViewEndSeq.IsValid()) {
+            inOs << kMetaVrLastNEViewEndSeqFieldNamePtr <<
+                ":" << mRetLastNonEmptyViewEndSeq << "\r\n";
         }
         if (mRetLastLogSeq.IsValid()) {
             inOs << kMetaVrFsIdFieldNamePtr <<
@@ -510,7 +524,9 @@ public:
         return (
             0 <= mNodeId &&
             mCommittedSeq.IsValid() &&
+            mCommittedSeq.IsPastViewStart() &&
             mNewLogSeq.IsValid() &&
+            ! mNewLogSeq.IsPastViewStart() &&
             0 < mNewLogSeq.mLogSeq &&
             (mCommittedSeq.mEpochSeq < mNewLogSeq.mEpochSeq ||
                 mCommittedSeq.mViewSeq < mNewLogSeq.mViewSeq) &&

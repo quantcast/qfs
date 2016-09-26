@@ -106,6 +106,8 @@ public:
           mPendingReplayLogSeq(),
           mReplayLogSeq(),
           mNextLogSeq(),
+          mLastViewEndSeq(),
+          mLastNonEmptyViewEndSeq(),
           mNextBlockSeq(-1),
           mLastLogSeq(),
           mViewStartSeq(),
@@ -210,6 +212,10 @@ public:
             mLastWriteCommitted.mStatus,
             mLastWriteCommitted.mErrChkSum
         );
+        // Log start view's are all executed at this point -- set last view end
+        // to the last committed.
+        mLastViewEndSeq           = mCommitted.mSeq;
+        mLastNonEmptyViewEndSeq   = mReplayerPtr->getLastNonEmptyViewEndSeq();
         mReplayLastWriteCommitted = mLastWriteCommitted;
         mReplayLogSeq             = mReplayerPtr->getLastLogSeq();
         mPendingReplayLogSeq      = mReplayLogSeq;
@@ -217,6 +223,12 @@ public:
         mInFlightCommitted        = mPendingCommitted;
         mMetaDataStorePtr         = &inMetaDataStore;
         mViewStartSeq             = mReplayerPtr->getViewStartSeq();
+        if (! mCommitted.mSeq.IsPastViewStart() ||
+                ! mLastWriteCommitted.mSeq.IsPastViewStart() ||
+                ! mLastNonEmptyViewEndSeq.IsPastViewStart()) {
+            panic("log writer: invalid replay committed sequence");
+            return -EINVAL;
+        }
         if (mReplayerPtr->getAppendToLastLogFlag()) {
             const bool theLogAppendHexFlag =
                 16 == mReplayerPtr->getLastLogIntBase();
@@ -391,12 +403,10 @@ public:
             return;
         }
         if (mCommitted.mSeq.IsValid() && (inRequest.logseq <= mCommitted.mSeq ||
-                (inRequest.logseq.mEpochSeq == mCommitted.mSeq.mEpochSeq &&
-                inRequest.logseq.mViewSeq == mCommitted.mSeq.mViewSeq &&
-                inRequest.logseq.mLogSeq != mCommitted.mSeq.mLogSeq + 1 &&
-                (inRequest.logseq.mEpochSeq == mViewStartSeq.mEpochSeq &&
-                inRequest.logseq.mViewSeq == mViewStartSeq.mViewSeq &&
-                inRequest.logseq.mLogSeq != mViewStartSeq.mLogSeq + 1)))) {
+                (inRequest.logseq.IsSameView(mCommitted.mSeq) &&
+                    inRequest.logseq.mLogSeq != mCommitted.mSeq.mLogSeq + 1) ||
+                (inRequest.logseq.IsSameView(mViewStartSeq) &&
+                    inRequest.logseq.mLogSeq <= mViewStartSeq.mLogSeq))) {
             panic("request committed: invalid out of order log sequence");
             return;
         }
@@ -590,6 +600,8 @@ private:
     MetaVrLogSeq      mPendingReplayLogSeq;
     MetaVrLogSeq      mReplayLogSeq;
     MetaVrLogSeq      mNextLogSeq;
+    MetaVrLogSeq      mLastViewEndSeq;
+    MetaVrLogSeq      mLastNonEmptyViewEndSeq;
     seq_t             mNextBlockSeq;
     MetaVrLogSeq      mLastLogSeq;
     MetaVrLogSeq      mViewStartSeq;
@@ -714,7 +726,8 @@ private:
                 mReplayLastWriteCommitted.mSeq,
                 mReplayLastWriteCommitted.mFidSeed,
                 mReplayLastWriteCommitted.mStatus,
-                mReplayLastWriteCommitted.mErrChkSum
+                mReplayLastWriteCommitted.mErrChkSum,
+                mLastNonEmptyViewEndSeq
             );
         }
     }
@@ -993,6 +1006,7 @@ private:
                     IsLogStreamGood()) {
                 const int theBlkLen =
                     (int)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq);
+                const MetaVrLogSeq* theLastViewEndSeqPtr = 0;
                 if (theStartViewFlag) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theCurPtr);
@@ -1001,11 +1015,15 @@ private:
                         panic("log writer: invalid VR log start view");
                     }
                     mLastLogSeq = theOp.mNewLogSeq;
+                    theLastViewEndSeqPtr = &theOp.mCommittedSeq;
                     KFS_LOG_STREAM_DEBUG <<
                         "writing: " << theOp.Show() <<
                     KFS_LOG_EOM;
                 }
                 FlushBlock(mLastLogSeq, theBlkLen);
+                if (theLastViewEndSeqPtr && IsLogStreamGood()) {
+                    mLastViewEndSeq = *theLastViewEndSeqPtr;
+                }
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag)) {
@@ -1134,6 +1152,9 @@ private:
         LogStreamFlush();
         if (IsLogStreamGood()) {
             mLastWriteCommitted = mInFlightCommitted;
+            if (inLogSeq.IsPastViewStart()) {
+                mLastNonEmptyViewEndSeq = inLogSeq;
+            }
         }
         mMetaVrSM.LogBlockWriteDone(
             mNextLogSeq,
@@ -1367,15 +1388,22 @@ private:
                         inRequest.status = -EINVAL;
                     } else if (mLastLogSeq < theOp.mCommittedSeq ||
                             // Commit must be always in the last non empty view.
-                            theOp.mCommittedSeq.mEpochSeq !=
-                                mLastWriteCommitted.mSeq.mEpochSeq ||
-                             theOp.mCommittedSeq.mViewSeq !=
-                                mLastWriteCommitted.mSeq.mViewSeq ||
-                            theOp.mCommittedSeq.mLogSeq <
-                                mLastWriteCommitted.mSeq.mLogSeq) {
+                            ! theOp.mCommittedSeq.IsSameView(
+                                mLastNonEmptyViewEndSeq) ||
+                            mLastNonEmptyViewEndSeq.mLogSeq <
+                                theOp.mCommittedSeq.mLogSeq ||
+                            (theOp.mCommittedSeq.IsSameView(mLastViewEndSeq) &&
+                                theOp.mCommittedSeq.mLogSeq <
+                                    mLastViewEndSeq.mLogSeq)) {
                         inRequest.status = -EROFS;
+                    } else if (theOp.mCommittedSeq < mInFlightCommitted.mSeq ||
+                            theOp.mCommittedSeq < mLastWriteCommitted.mSeq) {
+                        inRequest.statusMsg =
+                            "invalid start view end is less than committed";
+                        inRequest.status    = -EINVAL;
                     } else {
                         inRequest.status = 0;
+                        mLastViewEndSeq  = theOp.mCommittedSeq;
                     }
                 } else {
                     inRequest.status = -EINVAL;
@@ -1513,6 +1541,9 @@ private:
             mNextLogSeq         = mLastLogSeq;
             inRequest.status    = 0;
             mLastWriteCommitted = theBlockCommitted;
+            if (mLastLogSeq.IsPastViewStart()) {
+                mLastNonEmptyViewEndSeq = mLastLogSeq;
+            }
         } else {
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
