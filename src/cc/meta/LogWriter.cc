@@ -1387,11 +1387,15 @@ private:
                             theOp.mNewLogSeq != inRequest.blockEndSeq) {
                         inRequest.status = -EINVAL;
                     } else if (mLastLogSeq < theOp.mCommittedSeq ||
-                            // Commit must be always in the last non empty view.
-                            ! theOp.mCommittedSeq.IsSameView(
+                            // Commit must be always in the last non empty view,
+                            // or in the previous view if no ops in this view
+                            // are committed.
+                            ((! theOp.mCommittedSeq.IsSameView(
                                 mLastNonEmptyViewEndSeq) ||
                             mLastNonEmptyViewEndSeq.mLogSeq <
-                                theOp.mCommittedSeq.mLogSeq ||
+                                theOp.mCommittedSeq.mLogSeq) &&
+                            theOp.mCommittedSeq != mLastViewEndSeq
+                            ) ||
                             (theOp.mCommittedSeq.IsSameView(mLastViewEndSeq) &&
                                 theOp.mCommittedSeq.mLogSeq <
                                     mLastViewEndSeq.mLogSeq)) {
