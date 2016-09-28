@@ -1124,6 +1124,8 @@ private:
         Checksum     theTxChecksum = 0;
         const size_t theTxLen      = WriteBlockTrailer(
             inLogSeq, mInFlightCommitted, theBlockLen, theTxChecksum);
+        // Here only transmit is conditional on possible VR status change in
+        // primary write path, as mVrStatus takes precedence.
         if (0 == theVrStatus) {
             const char* const thePtr = mMdStream.GetBufferedStart();
             int theStatus;
@@ -1160,6 +1162,7 @@ private:
             mNextLogSeq,
             inLogSeq,
             mInFlightCommitted.mSeq,
+            mLastViewEndSeq,
             IsLogStreamGood()
         );
     }
@@ -1331,6 +1334,7 @@ private:
                     inRequest.blockStartSeq,
                     inRequest.blockEndSeq,
                     mInFlightCommitted.mSeq,
+                    mLastViewEndSeq,
                     IsLogStreamGood()
                 );
             }
@@ -1537,6 +1541,7 @@ private:
             inRequest.blockStartSeq,
             inRequest.blockEndSeq,
             mInFlightCommitted.mSeq,
+            mLastViewEndSeq,
             theStreamGoodFlag
         );
         if (theStreamGoodFlag) {

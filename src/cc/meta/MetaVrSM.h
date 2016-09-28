@@ -283,6 +283,7 @@ public:
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
+        const MetaVrLogSeq& inLastViewEndSeq,
         bool                inWriteOkFlag);
     bool Handle(
         MetaRequest&        inReq,

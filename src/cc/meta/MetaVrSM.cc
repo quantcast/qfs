@@ -257,6 +257,7 @@ public:
           mLastLogSeq(),
           mLastCommitSeq(),
           mLastViewEndSeq(),
+          mLastLogStartViewViewEndSeq(),
           mLastNonEmptyViewEndSeq(),
           mPrimaryViewStartSeq(),
           mLastCommitTime(0),
@@ -346,11 +347,13 @@ public:
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
+        const MetaVrLogSeq& inLastViewEndSeq,
         bool                inWriteOkFlag)
     {
         if (inBlockEndSeq < inBlockStartSeq ||
                 inBlockStartSeq < inCommittedSeq ||
-                ! inCommittedSeq.IsValid()) {
+                ! inCommittedSeq.IsValid() ||
+                ! inLastViewEndSeq.IsPastViewStart()) {
             panic("VR: invalid log block commit sequence");
             return;
         }
@@ -360,6 +363,7 @@ public:
             }
             return;
         }
+        mLastLogStartViewViewEndSeq = inLastViewEndSeq;
         if (kStateReconfiguration == mState && mReconfigureReqPtr &&
                 inBlockEndSeq == mReconfigureReqPtr->logseq) {
             return;
@@ -838,6 +842,7 @@ public:
                 mViewSeq < mLastLogSeq.mViewSeq) {
             mViewSeq = mLastLogSeq.mViewSeq;
         }
+        mLastLogStartViewViewEndSeq = mCommittedSeq;
         if (! mMetaDataStoreLocation.IsValid()) {
             mMetaDataStoreLocation = inDataStoreLocation;
         }
@@ -857,7 +862,9 @@ public:
             }
         } else {
             mLastViewEndSeq = (0 < mQuorum && mActiveFlag) ?
-                MetaVrLogSeq() : mLastNonEmptyViewEndSeq;
+                MetaVrLogSeq() :
+                (mLastNonEmptyViewEndSeq.IsSameView(mLastLogSeq) ?
+                    mLastNonEmptyViewEndSeq : mLastLogStartViewViewEndSeq);
             if (-ENOENT == theRet) {
                 theRet = 0;
             } else if (! mVrStateFileName.empty()) {
@@ -1399,6 +1406,7 @@ private:
     MetaVrLogSeq                 mReplayLastLogSeq;
     MetaVrLogSeq                 mLastCommitSeq;
     MetaVrLogSeq                 mLastViewEndSeq;
+    MetaVrLogSeq                 mLastLogStartViewViewEndSeq;
     MetaVrLogSeq                 mLastNonEmptyViewEndSeq;
     MetaVrLogSeq                 mPrimaryViewStartSeq;
     time_t                       mLastCommitTime;
@@ -1678,40 +1686,27 @@ private:
     }
     const MetaVrLogSeq& GetLastViewEndSeq() const
     {
-        return (mLastViewEndSeq.IsSameView(mLastLogSeq) ?
-            mLastViewEndSeq : mLastNonEmptyViewEndSeq);
+        return (
+            mLastViewEndSeq.IsSameView(mLastLogSeq) ?
+            mLastViewEndSeq :
+            (mLastNonEmptyViewEndSeq.IsSameView(mLastLogSeq) ?
+                mLastNonEmptyViewEndSeq :
+                mLastLogStartViewViewEndSeq)
+        );
     }
     static const MetaVrLogSeq& GetReqLastViewEndSeq(
         const MetaVrRequest& inReq)
     {
-        return (inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) ?
+        return ((inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) ||
+             ! inReq.mLastLogSeq.IsPastViewStart()) ?
             inReq.mLastViewEndSeq : inReq.mLastLogSeq);
-    }
-    bool IsValidViewEndSeq(
-        const MetaVrRequest& inReq)
-    {
-        // The case where primary (or, in general, some subset of nodes less
-        // than quorum) has failed to write log start view (1), and then a
-        // new quorum formed that does not include the primary (or the node
-        // subset) in (1) with a node that has longer log for the prior / last
-        // view that was effectively "closed / ended" by prior do view change.
-        return (
-            inReq.mLastLogSeq.IsSameView(mLastLogSeq) &&
-            (inReq.mLastLogSeq.mLogSeq < mLastLogSeq.mLogSeq ?
-                (inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) &&
-                mCommittedSeq <= inReq.mLastViewEndSeq &&
-                inReq.mLastViewEndSeq <= mLastLogSeq) :
-                (mLastViewEndSeq.IsSameView(mLastLogSeq) &&
-                inReq.mCommittedSeq <= mLastViewEndSeq &&
-                mLastViewEndSeq <= inReq.mLastLogSeq)
-            )
-        );
     }
     void UpdateDoViewChangeViewEndSeq(
         const MetaVrRequest& inReq)
     {
         const MetaVrLogSeq& theReqViewEndSeq = GetReqLastViewEndSeq(inReq);
-        if (theReqViewEndSeq < mDoViewChangeViewEndSeq) {
+        if (theReqViewEndSeq < mDoViewChangeViewEndSeq &&
+                theReqViewEndSeq.IsValid()) {
             if (theReqViewEndSeq < mCommittedSeq ||
                     ! theReqViewEndSeq.IsPastViewStart()) {
                 panic("VR: invalid do view chane view end sequence");
@@ -1900,21 +1895,26 @@ private:
                         inReq.mLastLogSeq.mLogSeq +
                                 mConfig.GetChangeVewMaxLogDistance() <
                             mLastLogSeq.mLogSeq
-                    ))) && ! IsValidViewEndSeq(inReq)) {
+                )))) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "log sequence mismatch";
         } else {
             const MetaVrLogSeq theViewEndSeq = GetReqLastViewEndSeq(inReq);
-            if (theViewEndSeq < mCommittedSeq) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg = "end less than committed";
-            } else if (mLastLogSeq < theViewEndSeq) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg = "end past last log";
+            if (theViewEndSeq.IsValid()) {
+                if (theViewEndSeq < mCommittedSeq) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "end less than committed";
+                } else if (mLastLogSeq < theViewEndSeq) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "end past last log";
+                }
             } else {
-                inReq.status = 0;
-                return true;
+                if (mLastLogSeq != inReq.mLastLogSeq) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "ignored, no valid end view sequence";
+                }
             }
+            return (0 == inReq.status);
         }
         SetReturnState(inReq);
         return false;
@@ -2150,8 +2150,10 @@ private:
         if (VerifyViewChange(inReq)) {
             if (mViewSeq != inReq.mViewSeq ||
                     ! inReq.mLastViewEndSeq.IsValid() ||
-                    ! inReq.mLastViewEndSeq.IsSameView(
-                        mLastNonEmptyViewEndSeq) ||
+                    (! inReq.mLastViewEndSeq.IsSameView(
+                            mLastNonEmptyViewEndSeq) &&
+                        inReq.mLastViewEndSeq != mLastViewEndSeq
+                    ) ||
                     inReq.mLastViewEndSeq < mCommittedSeq ||
                     mLastLogSeq < inReq.mLastViewEndSeq ||
                     inReq.mLastViewEndSeq < mLastViewEndSeq ||
@@ -2206,10 +2208,7 @@ private:
                         inReq.statusMsg += GetStateName(mState);
                     } else {
                         if (! mDoViewChangePtr) {
-                            WriteVrState(
-                                inReq.mNodeId,
-                                min(inReq.mLastViewEndSeq, GetLastViewEndSeq())
-                            );
+                            WriteVrState( inReq.mNodeId, inReq.mLastViewEndSeq);
                         }
                         CancelViewChange();
                         SetState(kStateBackup);
@@ -3468,10 +3467,16 @@ MetaVrSM::LogBlockWriteDone(
     const MetaVrLogSeq& inBlockStartSeq,
     const MetaVrLogSeq& inBlockEndSeq,
     const MetaVrLogSeq& inCommittedSeq,
+    const MetaVrLogSeq& inLastViewEndSeq,
     bool                inWriteOkFlag)
 {
     mImpl.LogBlockWriteDone(
-        inBlockStartSeq, inBlockEndSeq, inCommittedSeq, inWriteOkFlag);
+        inBlockStartSeq,
+        inBlockEndSeq,
+        inCommittedSeq,
+        inLastViewEndSeq,
+        inWriteOkFlag
+    );
 }
 
     bool
