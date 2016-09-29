@@ -12,7 +12,7 @@
 #
 # Do not assume GNU Make. Keep this makefile as simple as possible.
 
-BUILD_TYPE ?= debug
+BUILD_TYPE ?= release
 CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo
 MAKE_OPTIONS ?=
 QFSTEST_OPTIONS ?=
