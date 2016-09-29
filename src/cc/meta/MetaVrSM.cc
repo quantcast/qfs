@@ -196,6 +196,8 @@ public:
         { outVal = inProps.getValue(inKeyPtr, outVal); }
 };
 
+MetaVrLogSeq const kInvalidVrLogSeq;
+
 template<typename T>
 inline static T& operator<<(
     T&                    inStream,
@@ -357,8 +359,9 @@ public:
             panic("VR: invalid log block commit sequence");
             return;
         }
-        if (! inWriteOkFlag && mActiveFlag) {
-            if (kStatePrimary == mState || kStateBackup == mState) {
+        if (! inWriteOkFlag) {
+            if (mActiveFlag &&
+                    (kStatePrimary == mState || kStateBackup == mState)) {
                 AdvanceView("log write failure");
             }
             return;
@@ -1697,9 +1700,12 @@ private:
     static const MetaVrLogSeq& GetReqLastViewEndSeq(
         const MetaVrRequest& inReq)
     {
-        return ((inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) ||
-             ! inReq.mLastLogSeq.IsPastViewStart()) ?
-            inReq.mLastViewEndSeq : inReq.mLastLogSeq);
+        return (
+            inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) ?
+            inReq.mLastViewEndSeq :
+            (inReq.mLastLogSeq.IsPastViewStart() ?
+                inReq.mLastLogSeq : kInvalidVrLogSeq)
+        );
     }
     void UpdateDoViewChangeViewEndSeq(
         const MetaVrRequest& inReq)
@@ -2318,6 +2324,9 @@ private:
             case MetaVrReconfiguration::kOpTypeSetParameters:
                 SetParameters(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeAddNodeListeners:
+                AddNodeListener(inReq);
+                break;
             default:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "invalid operation type";
@@ -2330,7 +2339,7 @@ private:
     bool Handle(
         MetaLogWriterControl& inReq)
     {
-        if (MetaLogWriterControl::kLogFetchDone != inReq.type &&
+        if (MetaLogWriterControl::kLogFetchDone == inReq.type &&
                 kStateLogSync == mState) {
             mCheckLogSyncStatusFlag = true;
             Wakeup();
@@ -2412,6 +2421,51 @@ private:
             inReq.statusMsg = "add node: listeners list parse failure";
             mPendingLocations.clear();
             return;
+        }
+    }
+    void AddNodeListener(
+        MetaVrReconfiguration& inReq)
+    {
+        if (inReq.mListSize <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node listeners: no listeners specified";
+            return;
+        }
+        const Config::Nodes&                theNodes = mConfig.GetNodes();
+        Config::Nodes::const_iterator const theIt    =
+            theNodes.find(inReq.mNodeId);
+        if (theIt == theNodes.end()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node listener: no such node";
+            return;
+        }
+        const Config::Locations& theLocations = theIt->second.GetLocations();
+        mPendingLocations.clear();
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        ServerLocation    theLocation;
+        while (thePtr < theEndPtr) {
+            if (! theLocation.ParseString(
+                    thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "add node: listener address parse error";
+                mPendingLocations.clear();
+                return;
+            }
+            // Duplicate listeners are allowed, in order to create parallel TCP
+            // connections / log transmit channels.
+            if (find(theLocations.begin(), theLocations.end(), theLocation) ==
+                    theLocations.end() && HasLocation(theLocation)) {
+                inReq.status = -EINVAL;
+                inReq.statusMsg = "add node listener: litener: ";
+                inReq.statusMsg += theLocation.ToString();
+                inReq.statusMsg += " already assigned to ";
+                AppendDecIntToString(
+                    inReq.statusMsg, FindNodeByLocation(theLocation));
+                mPendingLocations.clear();
+                return;
+            }
+            mPendingLocations.push_back(theLocation);
         }
     }
     void RemoveNodes(
@@ -2744,6 +2798,9 @@ private:
             case MetaVrReconfiguration::kOpTypeSetParameters:
                 CommitSetParameters(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeAddNodeListeners:
+                CommitAddNodeListeners(inReq);
+                break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
                 break;
@@ -2771,6 +2828,27 @@ private:
                 mPendingLocations.end() != theIt;
                 ++theIt) {
             AddLocation(*theIt);
+        }
+    }
+    void CommitAddNodeListeners(
+        const MetaVrReconfiguration& inReq)
+    {
+        if ((int)mPendingLocations.size() != inReq.mListSize) {
+            panic("VR: commit add node: invalid locations");
+            return;
+        }
+        Config::Nodes&                theNodes = mConfig.GetNodes();
+        Config::Nodes::iterator const theIt    = theNodes.find(inReq.mNodeId);
+        if (theIt == theNodes.end()) {
+            panic("VR: add node listener: no such node");
+            return;
+        }
+        Config::Node& theNode = theIt->second;
+        for (Locations::const_iterator theIt = mPendingLocations.begin();
+                mPendingLocations.end() != theIt;
+                ++theIt) {
+            AddLocation(*theIt);
+            theNode.AddLocation(*theIt);
         }
     }
     void CommitRemoveNodes(

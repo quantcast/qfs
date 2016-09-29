@@ -1003,13 +1003,13 @@ private:
                     break;
                 }
             }
+            const MetaVrLogSeq thePrevLastViewEndSeq = mLastViewEndSeq;
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
             if (mNextLogSeq < mLastLogSeq && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag) &&
                     IsLogStreamGood()) {
                 const int theBlkLen =
                     (int)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq);
-                const MetaVrLogSeq* theLastViewEndSeqPtr = 0;
                 if (theStartViewFlag) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theCurPtr);
@@ -1017,16 +1017,13 @@ private:
                             0 != theOp.status) {
                         panic("log writer: invalid VR log start view");
                     }
-                    mLastLogSeq = theOp.mNewLogSeq;
-                    theLastViewEndSeqPtr = &theOp.mCommittedSeq;
+                    mLastLogSeq     = theOp.mNewLogSeq;
+                    mLastViewEndSeq = theOp.mCommittedSeq;
                     KFS_LOG_STREAM_DEBUG <<
                         "writing: " << theOp.Show() <<
                     KFS_LOG_EOM;
                 }
                 FlushBlock(mLastLogSeq, theBlkLen);
-                if (theLastViewEndSeqPtr && IsLogStreamGood()) {
-                    mLastViewEndSeq = *theLastViewEndSeqPtr;
-                }
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
                     (theTransmitterUpFlag || theStartViewFlag)) {
@@ -1042,8 +1039,9 @@ private:
                     }
                 }
             } else {
-                mLastLogSeq = mNextLogSeq;
                 // Write failure.
+                mLastLogSeq     = mNextLogSeq;
+                mLastViewEndSeq = thePrevLastViewEndSeq;
                 MetaRequest* const theLastPtr = theVrPtr ? theVrPtr : theEndPtr;
                 for (thePtr = theCurPtr;
                         theLastPtr != thePtr;
@@ -1360,6 +1358,7 @@ private:
             inRequest.status    = -EROFS;
             return;
         }
+        const MetaVrLogSeq thePrevLastViewEndSeq = mLastViewEndSeq;
         if (inRequest.blockStartSeq != mLastLogSeq) {
             inRequest.status = -EROFS;
             // Check if this is valid vr log start view op.
@@ -1557,6 +1556,7 @@ private:
                 mLastNonEmptyViewEndSeq = mLastLogSeq;
             }
         } else {
+            mLastViewEndSeq = thePrevLastViewEndSeq;
             inRequest.status    = -EIO;
             inRequest.statusMsg = "log write error";
         }

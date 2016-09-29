@@ -405,13 +405,15 @@ class MetaVrReconfiguration : public MetaIdempotentRequest
 public:
     enum
     {
-        kOpTypeNone            = 0,
-        kOpTypeAddNode         = 1,
-        kOpTypeRemoveNodes     = 2,
-        kOpTypeActivateNodes   = 3,
-        kOpTypeInactivateNodes = 4,
-        kOpTypeSetPrimaryOrder = 5,
-        kOpTypeSetParameters   = 6,
+        kOpTypeNone                = 0,
+        kOpTypeAddNode             = 1,
+        kOpTypeRemoveNodes         = 2,
+        kOpTypeActivateNodes       = 3,
+        kOpTypeInactivateNodes     = 4,
+        kOpTypeSetPrimaryOrder     = 5,
+        kOpTypeSetParameters       = 6,
+        kOpTypeAddNodeListeners    = 7,
+        kOpTypeRemoveNodeListeners = 8,
         kOpTypesCount
     };
     typedef MetaVrSM::Config Config;

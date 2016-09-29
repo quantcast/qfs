@@ -141,6 +141,9 @@ public:
             }
             const Locations& GetLocations() const
                 { return mLocations; }
+            void AddLocation(
+                const ServerLocation& inLocation)
+                { mLocations.push_back(inLocation); }
             Flags GetFlags() const
                 { return mFlags; }
             void SetFlags(
