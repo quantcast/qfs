@@ -1914,7 +1914,9 @@ private:
                     inReq.statusMsg = "ignored, no valid end view sequence";
                 }
             }
-            return (0 == inReq.status);
+            if (0 == inReq.status) {
+                return true;
+            }
         }
         SetReturnState(inReq);
         return false;
