@@ -1539,10 +1539,6 @@ ReplayState::runCommitQueue(
     int64_t             errChecksum)
 {
     if (logSeq <= mCheckpointCommitted) {
-        if (MetaVrLogSeq(0, 0, 0) == logSeq && mViewStartSeq == logSeq &&
-                mCheckpointCommitted == logSeq) {
-            return true;
-        }
         // Checkpoint has no inof about the last op status.
         if ((logSeq == mCheckpointCommitted ?
                 (errChecksum == mCheckpointErrChksum &&

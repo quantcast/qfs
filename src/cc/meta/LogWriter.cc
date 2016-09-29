@@ -223,6 +223,9 @@ public:
         mInFlightCommitted        = mPendingCommitted;
         mMetaDataStorePtr         = &inMetaDataStore;
         mViewStartSeq             = mReplayerPtr->getViewStartSeq();
+        if (MetaVrLogSeq(0, 0, 0) == mReplayLogSeq) {
+            mLastWriteCommitted = mCommitted;
+        }
         if (! mCommitted.mSeq.IsPastViewStart() ||
                 ! mLastWriteCommitted.mSeq.IsPastViewStart() ||
                 ! mLastNonEmptyViewEndSeq.IsPastViewStart()) {

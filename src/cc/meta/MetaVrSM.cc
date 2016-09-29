@@ -861,7 +861,7 @@ public:
                 theRet = -EINVAL;
             }
         } else {
-            mLastViewEndSeq = (0 < mQuorum && mActiveFlag) ?
+            mLastViewEndSeq = ((0 < mQuorum && mActiveFlag) || mEpochSeq <= 0) ?
                 MetaVrLogSeq() :
                 (mLastNonEmptyViewEndSeq.IsSameView(mLastLogSeq) ?
                     mLastNonEmptyViewEndSeq : mLastLogStartViewViewEndSeq);
