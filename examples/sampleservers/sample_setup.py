@@ -279,8 +279,8 @@ def parse_command_line():
     parser.add_option('-u', '--auth', action='store_true',
         help="Configure QFS authentication.")
 
-    parser.add_option('-o', '--os', action='store_true',
-        help="Configure object store (S3) support.")
+    parser.add_option('-o', '--object-store', action='store_true',
+        help="Enable object store (S3) mode.")
 
     parser.add_option('-h', '--help', action='store_true',
         help="Print this help message and exit.")
@@ -416,7 +416,7 @@ def do_cleanup(config, doUninstall):
     else:
         print 'Stop servers - OK.'
 
-def setup_directories(config, authFlag):
+def setup_directories(config, authFlag, objectStoreOnlyModeFlag):
     if config.has_section('metaserver'):
         metaRunDir = config.get('metaserver', 'rundir')
         if metaRunDir:
@@ -428,16 +428,20 @@ def setup_directories(config, authFlag):
     for section in config.sections():
         if section.startswith('chunkserver'):
             chunkRunDir = config.get(section, 'rundir')
-            chunkDirs = config.get(section, 'chunkdirs')
-            chunkDirsList = chunkDirs.split(' ')  
+            # look for chunk directory fields, only if
+            # object store mode is off.
+            if not objectStoreOnlyModeFlag:
+                chunkDirs = config.get(section, 'chunkdirs')
+                chunkDirsList = chunkDirs.split(' ')
             if chunkRunDir:
                 mkdir_p(chunkRunDir);
                 mkdir_p(chunkRunDir + '/conf')
-                if len(chunkDirsList) > 0:
-                    for cd in chunkDirsList:
-                        mkdir_p(cd)
-                else:
-                    mkdir_p(chunkRunDir + '/chunkdir')
+                if not objectStoreOnlyModeFlag:
+                    if len(chunkDirsList) > 0:
+                        for cd in chunkDirsList:
+                            mkdir_p(cd)
+                    else:
+                        mkdir_p(chunkRunDir + '/chunkdir')
 
     if config.has_section('client'):
         clientDir = config.get('client', 'rundir')
@@ -467,7 +471,7 @@ def check_directories(config):
     print 'Check directories - OK.'
 
 
-def setup_config_files(config, authFlag, osFlag):
+def setup_config_files(config, authFlag, objectStoreOnlyModeFlag):
     if config.has_section('client'):
         clientDir = config.get('client', 'rundir')
     else:
@@ -510,7 +514,7 @@ def setup_config_files(config, authFlag, osFlag):
     metaserverClientPort = config.getint('metaserver', 'clientport')
     metaserverChunkPort = config.getint('metaserver', 'chunkport')
     clusterKey = config.get('metaserver', 'clusterkey')
-    if osFlag:
+    if objectStoreOnlyModeFlag:
         bucketName = config.get('metaserver', 'bucketName')
         accessKeyId = config.get('metaserver', 'accessKeyId')
         secretAccessKey = config.get('metaserver', 'secretAccessKey')
@@ -543,9 +547,11 @@ def setup_config_files(config, authFlag, osFlag):
         print >> metaFile, 'metaServer.CSAuthentication.X509.PKeyPemFile     = %s/meta.key' % certsDir
         print >> metaFile, 'metaServer.CSAuthentication.X509.CAFile          = %s/qfs_ca/cacert.pem' % certsDir
         print >> metaFile, 'metaServer.CSAuthentication.blackList            = none'
-    if osFlag:
+    if objectStoreOnlyModeFlag:
         print >> metaFile, '# S3 parameters'
         print >> metaFile, 'metaServer.objectStoreEnabled = 1'
+        print >> metaFile, 'metaServer.maxReplicasPerFile = 0'
+        print >> metaFile, 'metaServer.maxReplicasPerRSFile = 0'
         print >> metaFile, 'chunkServer.diskQueue.aws.bucketName = %s' % bucketName
         print >> metaFile, 'chunkServer.diskQueue.aws.accessKeyId = %s' % accessKeyId
         print >> metaFile, 'chunkServer.diskQueue.aws.secretAccessKey = %s' % secretAccessKey
@@ -555,7 +561,8 @@ def setup_config_files(config, authFlag, osFlag):
     for section in config.sections():
         if section.startswith('chunkserver'):
             chunkClientPort = config.getint(section, 'chunkport')
-            chunkDirs = config.get(section, 'chunkdirs')
+            if not objectStoreOnlyModeFlag:
+                chunkDirs = config.get(section, 'chunkdirs')
             chunkRunDir = config.get(section, 'rundir')
             if chunkRunDir:
                 if authFlag:
@@ -570,17 +577,19 @@ def setup_config_files(config, authFlag, osFlag):
                 print >> chunkFile, 'chunkServer.clientPort = %d' % chunkClientPort
                 print >> chunkFile, 'chunkServer.clusterKey = %s' % clusterKey
                 print >> chunkFile, 'chunkServer.rackId = 0'
-                print >> chunkFile, 'chunkServer.chunkDir = %s' % chunkDirs
+                if not objectStoreOnlyModeFlag:
+                    print >> chunkFile, 'chunkServer.chunkDir = %s' % chunkDirs
                 print >> chunkFile, 'chunkServer.msgLogWriter.logLevel = DEBUG'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
                 print >> chunkFile, 'chunkServer.pidFile = %s/chunkserver.pid' % chunkRunDir
-                print >> chunkFile, 'chunkServer.clientThreadCount = 3'
+                clientThreadCount = 0 if objectStoreOnlyModeFlag else 3
+                print >> chunkFile, 'chunkServer.clientThreadCount = %d' % clientThreadCount
                 if authFlag:
                     print >> chunkFile, 'chunkserver.meta.auth.X509.X509PemFile = %s/chunk%d.crt' % (certsDir, chunkClientPort)
                     print >> chunkFile, 'chunkserver.meta.auth.X509.PKeyPemFile = %s/chunk%d.key' % (certsDir, chunkClientPort)
                     print >> chunkFile, 'chunkserver.meta.auth.X509.CAFile      = %s/qfs_ca/cacert.pem' % certsDir
-                if osFlag:
+                if objectStoreOnlyModeFlag:
                     print >> chunkFile, '# S3 parameters'
                     print >> chunkFile, 'chunkServer.objectDir = s3://aws.'
                 chunkFile.close()
@@ -726,13 +735,15 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
 
 # Need to massage the ~ in the config file paths. Otherwise a directory
 # with name "~" would get created at $CWD.
-def parse_config(configFile):
+def parse_config(configFile, objectStoreOnlyModeFlag):
     config = ConfigParser.ConfigParser()
     config.read(configFile);
     for section in config.sections():
         dir = config.get(section, 'rundir')
         config.set(section, 'rundir', os.path.expanduser(dir))
-        if section.startswith('chunkserver'):
+        # attempt to edit chunkserver directory names
+        # only if object store mode is off, otherwise ignore.
+        if not objectStoreOnlyModeFlag and section.startswith('chunkserver'):
             dir = config.get(section, 'chunkdirs')
             dirstowrite = []
             dirs = dir.split(' ')
@@ -743,7 +754,7 @@ def parse_config(configFile):
 
 if __name__ == '__main__':
     opts = parse_command_line()
-    config = parse_config(opts.config_file)
+    config = parse_config(opts.config_file, opts.object_store)
 
     if opts.action in ('uninstall', 'stop'):
         do_cleanup(config, opts.action == 'uninstall')
@@ -752,8 +763,8 @@ if __name__ == '__main__':
     check_binaries(opts.release_dir, opts.source_dir, opts.auth)
     check_ports(config)
     if opts.action == 'install':
-        setup_directories(config, opts.auth)
-        setup_config_files(config, opts.auth, opts.os)
+        setup_directories(config, opts.auth, opts.object_store)
+        setup_config_files(config, opts.auth, opts.object_store)
         copy_files(config, opts.source_dir)
     elif opts.action == 'start':
         check_directories(config)
