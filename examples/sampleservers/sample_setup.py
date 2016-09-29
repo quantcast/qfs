@@ -571,8 +571,6 @@ def setup_config_files(config, authFlag, osFlag):
                 print >> chunkFile, 'chunkServer.clusterKey = %s' % clusterKey
                 print >> chunkFile, 'chunkServer.rackId = 0'
                 print >> chunkFile, 'chunkServer.chunkDir = %s' % chunkDirs
-                print >> chunkFile, 'chunkServer.diskIo.crashOnError = 1'
-                print >> chunkFile, 'chunkServer.abortOnChecksumMismatchFlag = 1'
                 print >> chunkFile, 'chunkServer.msgLogWriter.logLevel = DEBUG'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFileSize = 1e6'
                 print >> chunkFile, 'chunkServer.msgLogWriter.maxLogFiles = 2'
