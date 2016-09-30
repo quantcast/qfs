@@ -283,13 +283,13 @@ protected:
         ostream& inOs) const
     {
         return (inOs <<
+            " node: "      << mNodeId <<
+            " state: "     << MetaVrSM::GetStateName(mCurState) <<
             " epoch: "     << mEpochSeq <<
             " view: "      << mViewSeq <<
             " committed: " << mCommittedSeq <<
             " last: "      << mLastLogSeq <<
             " lve: "       << mLastViewEndSeq <<
-            " node: "      << mNodeId <<
-            " state: "     << MetaVrSM::GetStateName(mCurState) <<
             " fsid: "      << mFileSystemId <<
             " mds: "       << mMetaDataStoreHost <<
             " "            << mMetaDataStorePort <<

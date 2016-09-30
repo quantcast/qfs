@@ -37,6 +37,7 @@
 
 #include <vector>
 #include <map>
+#include <algorithm>
 #include <utility>
 #include <ostream>
 #include <string>
@@ -48,6 +49,7 @@ using std::map;
 using std::ostream;
 using std::pair;
 using std::less;
+using std::find;
 using std::make_pair;
 using std::string;
 
@@ -144,6 +146,17 @@ public:
             void AddLocation(
                 const ServerLocation& inLocation)
                 { mLocations.push_back(inLocation); }
+            bool RemoveLocation(
+                const ServerLocation& inLocation)
+            {
+                Locations::iterator const theIt = find(
+                    mLocations.begin(), mLocations.end(), inLocation);
+                if (mLocations.end() == theIt) {
+                    return false;
+                }
+                mLocations.erase(theIt);
+                return true;
+            }
             Flags GetFlags() const
                 { return mFlags; }
             void SetFlags(

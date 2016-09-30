@@ -679,6 +679,10 @@ public:
             panic("VR: invalid log sequence or state");
             return;
         }
+        if (mScheduleViewChangeFlag &&
+                (! mActiveFlag || kStateLogSync == mState)) {
+            mScheduleViewChangeFlag = false;
+        }
         mTimeNow = inTimeNow;
         if (kStateLogSync == mState) {
             if (mCheckLogSyncStatusFlag) {
@@ -695,9 +699,13 @@ public:
                         " end: "    << mLogFetchEndSeq <<
                         " last: "   << mLastLogSeq <<
                     KFS_LOG_EOM;
-                    if (mEpochSeq == mLastLogSeq.mEpochSeq &&
-                            mViewSeq <= mLastLogSeq.mViewSeq) {
-                        mViewSeq = mLastLogSeq.mViewSeq + 1;
+                    if (mEpochSeq != mCommittedSeq.mEpochSeq) {
+                        panic("VR: invalid committed epoch");
+                    }
+                    if (mEpochSeq == mLastLogSeq.mEpochSeq) {
+                        if (mViewSeq <= mLastLogSeq.mViewSeq) {
+                            mViewSeq = mLastLogSeq.mViewSeq + 1;
+                        }
                     }
                     mLogFetchEndSeq = MetaVrLogSeq();
                     if (mActiveFlag) {
@@ -709,6 +717,11 @@ public:
                 }
             }
         } else if (mScheduleViewChangeFlag) {
+            mScheduleViewChangeFlag = false;
+            if (mEpochSeq == mLastLogSeq.mEpochSeq &&
+                    mViewSeq <= mLastLogSeq.mViewSeq) {
+                mViewSeq = mLastLogSeq.mViewSeq + 1;
+            }
             StartViewChange();
         } else if (kStateBackup == mState) {
             if (mActiveFlag && mLastReceivedTime + mConfig.GetBackupTimeout() <
@@ -1357,6 +1370,54 @@ private:
         MetaRequest& mReq;
         size_t       mUpCount;
         size_t       mTotalUpCount;
+    private:
+        TxStatusCheck(
+            const TxStatusCheck& inCheck);
+        TxStatusCheck& operator=(
+            const TxStatusCheck& inCheck);
+    };
+
+    class TxStatusCheckNode : public LogTransmitter::StatusReporter
+    {
+    public:
+        TxStatusCheckNode(
+            NodeId                   inNodeId,
+            const Config::Locations& inLocations)
+            : LogTransmitter::StatusReporter(),
+              mNodeId(inNodeId),
+              mLocations(inLocations),
+              mUpCount(0)
+            {}
+        virtual ~TxStatusCheckNode()
+            {}
+        virtual bool Report(
+            const ServerLocation& inLocation,
+            NodeId                inId,
+            bool                  inActiveFlag,
+            NodeId                inActualId,
+            const MetaVrLogSeq&   inAck,
+            const MetaVrLogSeq&   inCommitted)
+        {
+            if (mNodeId == inId &&
+                    inId == inActualId &&
+                    inAck.IsValid() && inCommitted <= inAck &&
+                    find(mLocations.begin(), mLocations.end(), inLocation) ==
+                        mLocations.end()) {
+                mUpCount++;
+            }
+            return true;
+        }
+        size_t GetUpCount() const
+            { return mUpCount; }
+    private:
+        NodeId const             mNodeId;
+        const Config::Locations& mLocations;
+        size_t                   mUpCount;
+    private:
+        TxStatusCheckNode(
+            const TxStatusCheckNode& inCheck);
+        TxStatusCheckNode& operator=(
+            const TxStatusCheckNode& inCheck);
     };
 
     typedef set<
@@ -1872,8 +1933,9 @@ private:
         } else if (! IsActive(inReq.mNodeId)) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "request from inactive node";
-        } else if (inReq.mEpochSeq < inReq.mLastLogSeq.mEpochSeq ||
-                inReq.mViewSeq <= inReq.mLastLogSeq.mViewSeq) {
+        } else if (inReq.mEpochSeq != inReq.mCommittedSeq.mEpochSeq ||
+                (inReq.mEpochSeq == inReq.mLastLogSeq.mEpochSeq &&
+                inReq.mViewSeq <= inReq.mLastLogSeq.mViewSeq)) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "invalid request: last log sequence";
         } else if (inReq.mLastViewEndSeq.IsValid() &&
@@ -1886,7 +1948,7 @@ private:
         } else if (inReq.mLastLogSeq < mCommittedSeq &&
                 (kStatePrimary != mState && kStateBackup != mState)) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "invalid request: committed or last log sequence";
+            inReq.statusMsg = "last log less than current committed";
         } else if (mEpochSeq != inReq.mEpochSeq) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "epoch does not match";
@@ -1915,9 +1977,13 @@ private:
                     inReq.statusMsg = "end past last log";
                 }
             } else {
-                if (mLastLogSeq != inReq.mLastLogSeq) {
+                if (mLastLogSeq != inReq.mLastLogSeq &&
+                        (META_VR_START_VIEW != inReq.op ||
+                                mLastLogSeq.mEpochSeq != inReq.mEpochSeq ||
+                                mLastLogSeq.mViewSeq != inReq.mViewSeq)) {
                     inReq.status    = -EINVAL;
-                    inReq.statusMsg = "ignored, no valid end view sequence";
+                    inReq.statusMsg = "ignored, last log mismatch with"
+                        " no valid end view sequence";
                 }
             }
             if (0 == inReq.status) {
@@ -2071,7 +2137,7 @@ private:
                     }
                 } else {
                     inReq.status    = -EINVAL;
-                    inReq.statusMsg = "ignored state: ";
+                    inReq.statusMsg = "ignored, state: ";
                     inReq.statusMsg += GetStateName(mState);
                 }
             }
@@ -2212,7 +2278,7 @@ private:
                         AdvanceView(kMsgPtr);
                         inReq.status    = -EINVAL;
                         inReq.statusMsg = kMsgPtr;
-                        inReq.statusMsg += " ignored, state: ";
+                        inReq.statusMsg += ", ignored, state: ";
                         inReq.statusMsg += GetStateName(mState);
                     } else {
                         if (! mDoViewChangePtr) {
@@ -2325,7 +2391,10 @@ private:
                 SetParameters(inReq);
                 break;
             case MetaVrReconfiguration::kOpTypeAddNodeListeners:
-                AddNodeListener(inReq);
+                AddNodeListeners(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeRemoveNodeListeners:
+                RemoveNodeListeners(inReq);
                 break;
             default:
                 inReq.status    = -EINVAL;
@@ -2423,7 +2492,7 @@ private:
             return;
         }
     }
-    void AddNodeListener(
+    void AddNodeListeners(
         MetaVrReconfiguration& inReq)
     {
         if (inReq.mListSize <= 0) {
@@ -2436,7 +2505,7 @@ private:
             theNodes.find(inReq.mNodeId);
         if (theIt == theNodes.end()) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "add node listener: no such node";
+            inReq.statusMsg = "add node listeners: no such node";
             return;
         }
         const Config::Locations& theLocations = theIt->second.GetLocations();
@@ -2448,7 +2517,8 @@ private:
             if (! theLocation.ParseString(
                     thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "add node: listener address parse error";
+                inReq.statusMsg =
+                    "add node listeners: listener address parse error";
                 mPendingLocations.clear();
                 return;
             }
@@ -2457,7 +2527,7 @@ private:
             if (find(theLocations.begin(), theLocations.end(), theLocation) ==
                     theLocations.end() && HasLocation(theLocation)) {
                 inReq.status = -EINVAL;
-                inReq.statusMsg = "add node listener: litener: ";
+                inReq.statusMsg = "add node listeners: litener: ";
                 inReq.statusMsg += theLocation.ToString();
                 inReq.statusMsg += " already assigned to ";
                 AppendDecIntToString(
@@ -2466,6 +2536,79 @@ private:
                 return;
             }
             mPendingLocations.push_back(theLocation);
+        }
+        if ((int)mPendingLocations.size() != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node listeners:"
+                " listeners list parse failure";
+            mPendingLocations.clear();
+            return;
+        }
+    }
+    void RemoveNodeListeners(
+        MetaVrReconfiguration& inReq)
+    {
+        if (inReq.mListSize <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "remove node listeners: no listeners specified";
+            return;
+        }
+        const Config::Nodes&                theNodes = mConfig.GetNodes();
+        Config::Nodes::const_iterator const theIt    =
+            theNodes.find(inReq.mNodeId);
+        if (theIt == theNodes.end()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node listener: no such node";
+            return;
+        }
+        Config::Locations theLocations = theIt->second.GetLocations();
+        mPendingLocations.clear();
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        ServerLocation    theLocation;
+        while (thePtr < theEndPtr) {
+            if (! theLocation.ParseString(
+                    thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg =
+                    "remove node listeners: listener address parse error";
+                mPendingLocations.clear();
+                return;
+            }
+            Config::Locations::iterator const theIt =
+                find(theLocations.begin(), theLocations.end(), theLocation);
+            if (theIt == theLocations.end()) {
+                inReq.status = -EINVAL;
+                inReq.statusMsg = "remove node listeners: no such litener: ";
+                inReq.statusMsg += theLocation.ToString();
+                mPendingLocations.clear();
+                return;
+            }
+            theLocations.erase(theIt);
+            mPendingLocations.push_back(theLocation);
+        }
+        if ((int)mPendingLocations.size() != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "remove node listeners:"
+                " listeners list parse failure";
+            mPendingLocations.clear();
+            return;
+        }
+        if (theLocations.empty()) {
+            inReq.status = -EINVAL;
+            inReq.statusMsg = "remove node listeners:"
+                " removing all listeners is not supported";
+            mPendingLocations.clear();
+            return;
+        }
+        TxStatusCheckNode theCheck(inReq.mNodeId, theLocations);
+        mLogTransmitter.GetStatus(theCheck);
+        if (theCheck.GetUpCount() <= 0) {
+            inReq.status = -EINVAL;
+            inReq.statusMsg = "remove node listeners:"
+                " no up listeners left after removal";
+            mPendingLocations.clear();
+            return;
         }
     }
     void RemoveNodes(
@@ -2801,6 +2944,9 @@ private:
             case MetaVrReconfiguration::kOpTypeAddNodeListeners:
                 CommitAddNodeListeners(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeRemoveNodeListeners:
+                CommitRemoveNodeListeners(inReq);
+                break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
                 break;
@@ -2834,7 +2980,7 @@ private:
         const MetaVrReconfiguration& inReq)
     {
         if ((int)mPendingLocations.size() != inReq.mListSize) {
-            panic("VR: commit add node: invalid locations");
+            panic("VR: commit add node listeners: invalid locations");
             return;
         }
         Config::Nodes&                theNodes = mConfig.GetNodes();
@@ -2850,6 +2996,37 @@ private:
             AddLocation(*theIt);
             theNode.AddLocation(*theIt);
         }
+        CommitReconfiguration(inReq);
+    }
+    void CommitRemoveNodeListeners(
+        const MetaVrReconfiguration& inReq)
+    {
+        if ((int)mPendingLocations.size() != inReq.mListSize) {
+            panic("VR: commit remove node listeners: invalid locations");
+            return;
+        }
+        Config::Nodes&                theNodes = mConfig.GetNodes();
+        Config::Nodes::iterator const theIt    = theNodes.find(inReq.mNodeId);
+        if (theIt == theNodes.end()) {
+            panic("VR: add node listener: no such node");
+            return;
+        }
+        Config::Node& theNode = theIt->second;
+        for (Locations::const_iterator theIt = mPendingLocations.begin();
+                mPendingLocations.end() != theIt;
+                ++theIt) {
+            const ServerLocation& theLocation = *theIt;
+            theNode.RemoveLocation(theLocation);
+            const Config::Locations& theLocations = theNode.GetLocations();
+            if (find(theLocations.begin(), theLocations.end(), theLocation) ==
+                    theLocations.end()) {
+                if (! RemoveLocation(*theIt)) {
+                    panic("VR: commit remove listeners:"
+                        " invalid unique locations");
+                }
+            }
+        }
+        CommitReconfiguration(inReq);
     }
     void CommitRemoveNodes(
         const MetaVrReconfiguration& inReq)
@@ -3135,6 +3312,11 @@ private:
         if (mQuorum <= 0) {
             NullQuorumStartView();
             return;
+        }
+        if (mEpochSeq != mCommittedSeq.mEpochSeq ||
+                (mEpochSeq == mLastLogSeq.mEpochSeq &&
+                mViewSeq <= mLastLogSeq.mViewSeq)) {
+            panic("VR: start view change: invalid epoch or view");
         }
         SetState(kStateViewChange);
         mViewChangeStartTime = TimeNow();
