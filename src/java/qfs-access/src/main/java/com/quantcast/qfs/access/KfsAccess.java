@@ -232,9 +232,7 @@ final public class KfsAccess
         try {
             System.loadLibrary("qfs_access");
         } catch (UnsatisfiedLinkError e) {
-            e.printStackTrace();
-            System.err.println("Unable to load qfs_access native library");
-            System.exit(1);
+            throw new RuntimeException("Unable to load qfs_access native library", e);
         }
     }
 
