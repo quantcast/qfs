@@ -2544,6 +2544,10 @@ private:
             mPendingLocations.clear();
             return;
         }
+        if (0 == inReq.status && kStatePrimary == mState &&
+                0 != (theIt->second.GetFlags() & Config::kFlagActive)) {
+            SetState(kStateReconfiguration);
+        }
     }
     void RemoveNodeListeners(
         MetaVrReconfiguration& inReq)
@@ -2609,6 +2613,10 @@ private:
                 " no up listeners left after removal";
             mPendingLocations.clear();
             return;
+        }
+        if (0 == inReq.status && kStatePrimary == mState &&
+                0 != (theIt->second.GetFlags() & Config::kFlagActive)) {
+            SetState(kStateReconfiguration);
         }
     }
     void RemoveNodes(
@@ -2996,7 +3004,9 @@ private:
             AddLocation(*theIt);
             theNode.AddLocation(*theIt);
         }
-        CommitReconfiguration(inReq);
+        if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
+            CommitReconfiguration(inReq);
+        }
     }
     void CommitRemoveNodeListeners(
         const MetaVrReconfiguration& inReq)
@@ -3026,7 +3036,9 @@ private:
                 }
             }
         }
-        CommitReconfiguration(inReq);
+        if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
+            CommitReconfiguration(inReq);
+        }
     }
     void CommitRemoveNodes(
         const MetaVrReconfiguration& inReq)
@@ -3065,6 +3077,11 @@ private:
         if (0 != inReq.status) {
             return;
         }
+        if (mStartedFlag &&
+                ((kStateReconfiguration != mState && kStateBackup == mState) ||
+                inReq.logseq != mLastNonEmptyViewEndSeq)) {
+            panic("VR: commit reconfiguration: invalid sate");
+        }
         mEpochSeq++;
         mViewSeq = kMetaVrLogStartEpochViewSeq;
         const Config::Nodes&                theNodes = mConfig.GetNodes();
@@ -3076,7 +3093,7 @@ private:
                 mActiveFlag =
                     0 != (Config::kFlagActive & theIt->second.GetFlags());
                 if (mActiveFlag && ! inReq.replayFlag) {
-                    WriteVrState(-1, mLastViewEndSeq);
+                    WriteVrState(-1, mLastNonEmptyViewEndSeq);
                 }
                 PrimaryReconfigurationStartViewChange();
             }
@@ -3084,7 +3101,7 @@ private:
             mActiveFlag = theNodes.end() != theIt &&
                 0 != (Config::kFlagActive & theIt->second.GetFlags());
             if (mActiveFlag && ! inReq.replayFlag) {
-                WriteVrState(-1, mLastViewEndSeq);
+                WriteVrState(-1, mLastNonEmptyViewEndSeq);
             }
         }
     }
@@ -3095,35 +3112,41 @@ private:
                 mPendingPrimaryTimeout, mPendingBackupTimeout)) {
             panic("VR: invalid timeouts");
         }
-        if (0 == inReq.status) {
-            const Config::Nodes&                theNodes = mConfig.GetNodes();
-            Config::Nodes::const_iterator const theIt    =
-                theNodes.find(mNodeId);
-            if ((theNodes.end() != theIt &&
-                    0 != (Config::kFlagActive & theIt->second.GetFlags())) !=
-                    mActiveFlag) {
-                panic("VR: set timeouts completion:"
-                    " invalid node activity change");
-                return;
+        if (0 != inReq.status) {
+            return;
+        }
+        if (mStartedFlag &&
+                ((kStateReconfiguration != mState && kStateBackup == mState) ||
+                inReq.logseq != mLastNonEmptyViewEndSeq)) {
+            panic("VR: commit reconfiguration: invalid sate");
+        }
+        const Config::Nodes&                theNodes = mConfig.GetNodes();
+        Config::Nodes::const_iterator const theIt    =
+            theNodes.find(mNodeId);
+        if ((theNodes.end() != theIt &&
+                0 != (Config::kFlagActive & theIt->second.GetFlags())) !=
+                mActiveFlag) {
+            panic("VR: set timeouts completion:"
+                " invalid node activity change");
+            return;
+        }
+        mEpochSeq++;
+        mViewSeq = kMetaVrLogStartEpochViewSeq;
+        if (kStateReconfiguration == mState || kStateBackup == mState) {
+            mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
+            mConfig.SetBackupTimeout(mPendingBackupTimeout);
+            if (0 <= mPendingChangeVewMaxLogDistance) {
+                mConfig.SetChangeVewMaxLogDistance(
+                    mPendingChangeVewMaxLogDistance);
             }
-            mEpochSeq++;
-            mViewSeq = kMetaVrLogStartEpochViewSeq;
-            if (kStateReconfiguration == mState || kStateBackup == mState) {
-                mConfig.SetPrimaryTimeout(mPendingPrimaryTimeout);
-                mConfig.SetBackupTimeout(mPendingBackupTimeout);
-                if (0 <= mPendingChangeVewMaxLogDistance) {
-                    mConfig.SetChangeVewMaxLogDistance(
-                        mPendingChangeVewMaxLogDistance);
-                }
-                mLogTransmitter.SetHeartbeatInterval(
-                    mConfig.GetPrimaryTimeout());
-            }
-            if (mActiveFlag && ! inReq.replayFlag) {
-                WriteVrState(-1, mLastViewEndSeq);
-            }
-            if (kStateReconfiguration == mState) {
-                PrimaryReconfigurationStartViewChange();
-            }
+            mLogTransmitter.SetHeartbeatInterval(
+                mConfig.GetPrimaryTimeout());
+        }
+        if (mActiveFlag && ! inReq.replayFlag) {
+            WriteVrState(-1, mLastNonEmptyViewEndSeq);
+        }
+        if (kStateReconfiguration == mState) {
+            PrimaryReconfigurationStartViewChange();
         }
     }
     bool HasLocation(
@@ -3348,6 +3371,7 @@ private:
             " view end: "       << inViewEndSeq <<
             " last log:"        << mLastLogSeq <<
             " prior view end: " << mLastViewEndSeq <<
+            " lneve: "          << mLastNonEmptyViewEndSeq  <<
         KFS_LOG_EOM;
         if (mLastLogSeq < inViewEndSeq ||
                 (mLastLogSeq.IsPastViewStart() &&
