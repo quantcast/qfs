@@ -98,7 +98,7 @@ public:
     void GetStatus(
         StatusReporter& inReporter);
     void SetHeartbeatInterval(
-        int inInterval);
+        int inPrimaryTimeoutSec);
     void SetFileSystemId(
         int64_t inFsId);
     int GetChannelsCount() const;

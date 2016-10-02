@@ -142,8 +142,8 @@ public:
     int GetHeartbeatInterval() const
         { return mHeartbeatInterval; }
     void SetHeartbeatInterval(
-        int inInterval)
-        { mHeartbeatInterval = max(1, inInterval); }
+        int inPrimaryTimeoutSec)
+        { mHeartbeatInterval = max(1, inPrimaryTimeoutSec / 2); }
     MetaVrLogSeq GetCommitted() const
         { return mCommitted; }
     int GetMaxPending() const
@@ -1775,7 +1775,7 @@ LogTransmitter::Impl::Update(
     theTransmittersPtr[0] = mTransmittersPtr[0];
     mTransmittersPtr[0] = 0;
     int theTransmittersCount = 0;
-    SetHeartbeatInterval(theConfig.GetPrimaryTimeout() / 2);
+    SetHeartbeatInterval(theConfig.GetPrimaryTimeout());
     for (Config::Nodes::const_iterator theIt = theNodes.begin();
             theNodes.end() != theIt;
             ++theIt) {
@@ -1920,9 +1920,9 @@ LogTransmitter::GetStatus(
 
     void
 LogTransmitter::SetHeartbeatInterval(
-    int inInterval)
+    int inPrimaryTimeoutSec)
 {
-    mImpl.SetHeartbeatInterval(inInterval);
+    mImpl.SetHeartbeatInterval(inPrimaryTimeoutSec);
 }
 
     int
