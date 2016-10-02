@@ -638,11 +638,19 @@ public:
         if (mPendingReconfigureReqPtr) {
             QCStMutexLocker theLocker(mMutex);
             MetaVrReconfiguration& theReq = *mPendingReconfigureReqPtr;
+            if (kStatePrimary == mState && theReq.logseq.IsValid()) {
+                // Transition into backup state to handle reconfiguration
+                // replay or commit.
+                SetState(kStateBackup);
+            }
             StartReconfiguration(theReq);
             mReconfigureReqPtr = 0;
             Commit(theReq);
             mPendingReconfigureReqPtr = 0;
             mReconfigureCompletionCondVar.Notify();
+            if (kStateBackup == mState && mLastLogSeq <= inReplayLastLogSeq) {
+                ScheduleViewChange();
+            }
         }
         if ((kStatePrimary == mState || kStateBackup == mState) &&
                 mLastReceivedTime < inLastReceivedTime) {
@@ -2153,6 +2161,7 @@ private:
                 } else if (kStateLogSync != mState &&
                         (kStateBackup != mState ||
                             mPrimaryNodeId < 0 ||
+                            mPrimaryNodeId == inReq.mNodeId ||
                             mLogStartViewPendingRecvFlag ||
                             inReq.mNodeId == mPrimaryNodeId ||
                             mLastReceivedTime + mConfig.GetBackupTimeout() <
@@ -2183,7 +2192,8 @@ private:
             }
             SetReturnState(inReq);
         } else if (inReq.status != -EBADCLUSTERKEY &&
-                kStateViewChange == mState && ! mDoViewChangePtr) {
+                (kStateViewChange == mState || mEpochSeq < inReq.mEpochSeq) &&
+                ! mDoViewChangePtr) {
             if (mLastLogSeq < inReq.mLastLogSeq &&
                     (mIgnoreInvalidVrStateFlag || mLastViewEndSeq.IsValid())) {
                 const bool theAllowNonPrimaryFlag = true;
@@ -2197,6 +2207,7 @@ private:
                     0 <= inReq.mCommittedFidSeed &&
                     0 <= inReq.mCommittedStatus) {
                 inReq.SetScheduleCommit();
+                ScheduleViewChange();
             }
         }
         Show(inReq, "=");
