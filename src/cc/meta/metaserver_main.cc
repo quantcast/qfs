@@ -136,14 +136,27 @@ public:
             argc--;
         }
         bool createEmptyFsFlag = false;
-        if (argc >= 1 && strcmp(argv[0], "-c") == 0) {
-            argv++;
-            argc--;
-            createEmptyFsFlag = true;
+        bool resetVrConfigFlag = false;
+        if (argc >= 1) {
+            if (0 == strcmp(argv[0], "-c") ||
+                    0 == strcmp(argv[0], "-create-fs")) {
+                createEmptyFsFlag = true;
+            } else if (0 == strcmp(argv[0], "-clear-vr-config")) {
+                resetVrConfigFlag = true;
+            }
+            if (createEmptyFsFlag || resetVrConfigFlag) {
+                argv++;
+                argc--;
+            }
         }
         if (argc < 1) {
             cerr << "Usage: " << myname <<
-                " [-c] <properties file> [<msg log file>]\n";
+                " [-c|-create-fs|-reset-vr-config]"
+                " <properties file> [<msg log file>]\n"
+                " -c|-create-fs    -- create new empty file system, and exit\n"
+                " -clear-vr-config -- append an entry to the end of the"
+                    " transaction log to clear VR configuration, and exit\n"
+                "\n";
             return 0;
         }
         libkfsio::InitGlobals();
@@ -173,7 +186,8 @@ public:
         if (sServer.mMetaMd.empty()) {
             sServer.mMetaMd = ComputeMd(myname);
         }
-        const bool okFlag = sServer.Startup(argv[0], createEmptyFsFlag);
+        const bool okFlag = sServer.Startup(
+            argv[0], createEmptyFsFlag, resetVrConfigFlag);
         sServer.Cleanup();
         AuditLog::Stop();
         sslErr = SslFilter::Cleanup();
@@ -280,7 +294,8 @@ private:
         signal(SIGALRM, SIG_DFL);
         signal(SIGCHLD, SIG_DFL);
     }
-    bool Startup(const char* fileName, bool createEmptyFsFlag)
+    bool Startup(const char* fileName, bool createEmptyFsFlag,
+        bool resetVrConfigFlag)
     {
         if (! fileName) {
             return false;
@@ -329,9 +344,10 @@ private:
         mLogDir = mStartupProperties.getValue(kNewLogDirPropName, mLogDir);
         mStartupProperties.setValue(kNewLogDirPropName, mLogDir);
         MetaProcessRestart::SetRestartPtr(&MetaServer::Restart);
-        return Startup(mStartupProperties, createEmptyFsFlag);
+        return Startup(mStartupProperties, createEmptyFsFlag, resetVrConfigFlag);
     }
-    bool Startup(const Properties& props, bool createEmptyFsFlag);
+    bool Startup(const Properties& props, bool createEmptyFsFlag,
+        bool resetVrConfigFlag);
     void SetParameters(const Properties& props);
     static void Usr1Signal(int)
         { sInstance->mCheckpointFlag = true; }
@@ -408,7 +424,8 @@ private:
         panic("restart failure: " + errMsg);
         _exit(1);
     }
-    bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag);
+    bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag,
+        bool resetVrConfigFlag);
 
     // This is to get settings from the core file.
     string           mFileName;
@@ -507,7 +524,8 @@ MetaServer::SetParameters(const Properties& props)
 }
 
 bool
-MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
+MetaServer::Startup(const Properties& props,
+    bool createEmptyFsFlag, bool resetVrConfigFlag)
 {
     MsgLogger::GetLogger()->SetLogLevel(
         props.getValue("metaServer.loglevel",
@@ -661,9 +679,11 @@ MetaServer::Startup(const Properties& props, bool createEmptyFsFlag)
                 "creating empty file system" :
                 "starting metaserver") <<
             KFS_LOG_EOM;
-            if ((okFlag = Startup(createEmptyFsFlag,
-                    props.getValue("metaServer.createEmptyFs", 0) != 0))) {
-                if (! createEmptyFsFlag) {
+            if ((okFlag = Startup(
+                    createEmptyFsFlag,
+                    props.getValue("metaServer.createEmptyFs", 0) != 0,
+                    resetVrConfigFlag))) {
+                if (! createEmptyFsFlag && ! resetVrConfigFlag) {
                     KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
                     // The following only returns after receiving SIGQUIT.
                     okFlag = gNetDispatch.Start(mMetaDataSync);
@@ -713,7 +733,8 @@ CheckDirWritable(
 }
 
 bool
-MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
+MetaServer::Startup(bool createEmptyFsFlag,
+    bool createEmptyFsIfNoCpExistsFlag, bool resetVrConfigFlag)
 {
     if (! CheckDirWritable("log directory: ", mLogDir) ||
             ! CheckDirWritable("checkpoint directory: ", mCPDir)) {
@@ -867,6 +888,7 @@ MetaServer::Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag)
             metatree.GetFsId(),
             mClientListenerLocation,
             mMetaMd,
+            resetVrConfigFlag && ! writeCheckpointFlag,
             logFileName)) != 0) {
         KFS_LOG_STREAM_FATAL <<
             "transaction log writer initialization failure: " <<

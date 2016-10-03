@@ -176,6 +176,7 @@ public:
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
+        bool                  inVrResetOnlyFlag,
         string&               outCurLogFileName)
     {
         if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
@@ -306,6 +307,79 @@ public:
         mNetManagerPtr         = &inNetManager;
         mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
         mVrLastLogReceivedTime = mLastLogReceivedTime;
+        if (inVrResetOnlyFlag) {
+            if (mMetaVrSM.GetConfig().IsEmpty()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "VR is not configured, nothing to reset" <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+            // Write configuration reset followed by log start view.
+            MetaVrReconfiguration& theRcOp = *(new MetaVrReconfiguration());
+            theRcOp.mOpType = MetaVrReconfiguration::kOpTypeReset;
+            theRcOp.logseq = mLastLogSeq;
+            theRcOp.logseq.mLogSeq++;
+            MetaVrLogStartView& theSvOp = *(new MetaVrLogStartView());
+            theSvOp.logseq = theRcOp.logseq;
+            theSvOp.logseq.mLogSeq++;
+            theSvOp.mNodeId             = mVrNodeId < 0 ? NodeId(0) : mVrNodeId;
+            theSvOp.mTime               = mNetManager.Now(),
+            theSvOp.mCommittedSeq       = theRcOp.logseq;
+            theSvOp.mNewLogSeq          = MetaVrLogSeq(
+                theSvOp.mCommittedSeq.mEpochSeq + 1,
+                kMetaVrLogStartEpochViewSeq,
+                kMetaVrLogStartViewLogSeq
+            );
+            if (! theSvOp.Validate()) {
+                panic("log writer: invalid VR log start view op");
+                mError = -EFAULT;
+            }
+            theRcOp.next = &theSvOp;
+            ostream& theStream = mMdStream;
+            MetaRequest* thePtr = &theRcOp;
+            while (thePtr) {
+                MetaRequest& theOp = *thePtr;
+                thePtr = theOp.next;
+                theOp.next = 0;
+                if (IsLogStreamGood()) {
+                    if (! theOp.WriteLog(theStream, mOmitDefaultsFlag)) {
+                        panic("log writer: invalid request ");
+                        mError = -EFAULT;
+                    }
+                    if (IsLogStreamGood()) {
+                        const MetaVrLogSeq& theLogSeq = &theOp == &theSvOp ?
+                            theSvOp.mNewLogSeq : theOp.logseq;
+                        ++mNextBlockSeq;
+                        Checksum theTxChecksum = 0;
+                        WriteBlockTrailer(
+                            theLogSeq, mCommitted, 1, theTxChecksum);
+                        LogStreamFlush();
+                        if (IsLogStreamGood()) {
+                            mLastLogSeq = theLogSeq;
+                            mNextLogSeq = mLastLogSeq;
+                            if (mLastLogSeq.IsPastViewStart()) {
+                                mLastNonEmptyViewEndSeq = mLastLogSeq;
+                            }
+                        } else {
+                            --mNextBlockSeq;
+                        }
+                    }
+                }
+                MetaRequest::Release(&theOp);
+            }
+            if (! IsLogStreamGood()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "VR reset transaction log write has failed" <<
+                KFS_LOG_EOM;
+            }
+            Close();
+            if (0 == mError) {
+                KFS_LOG_STREAM_INFO <<
+                    "VR configuration reset transaction log write complete" <<
+                KFS_LOG_EOM;
+            }
+            return mError;
+        }
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -1158,6 +1232,8 @@ private:
             if (inLogSeq.IsPastViewStart()) {
                 mLastNonEmptyViewEndSeq = inLogSeq;
             }
+        } else {
+            --mNextBlockSeq;
         }
         mMetaVrSM.LogBlockWriteDone(
             mNextLogSeq,
@@ -1862,6 +1938,7 @@ LogWriter::Start(
     int64_t               inFileSystemId,
     const ServerLocation& inDataStoreLocation,
     const string&         inMetaMd,
+    bool                  inVrResetOnlyFlag,
     string&               outCurLogFileName)
 {
     return mImpl.Start(
@@ -1876,6 +1953,7 @@ LogWriter::Start(
         inFileSystemId,
         inDataStoreLocation,
         inMetaMd,
+        inVrResetOnlyFlag,
         outCurLogFileName
     );
 }

@@ -183,7 +183,8 @@ public:
             : mNodes(),
               mPrimaryTimeout(),
               mBackupTimeout(),
-              mChangeVewMaxLogDistance()
+              mChangeVewMaxLogDistance(),
+              mMaxListenersPerNode()
             { Config::Clear(); }
         template<typename ST>
         ST& Insert(
@@ -192,6 +193,15 @@ public:
             const char* inNodeDelimPtr = " ") const
         {
             inStream << mNodes.size();
+            inStream << inDelimPtr;
+            inStream << mPrimaryTimeout;
+            inStream << inDelimPtr;
+            inStream << mBackupTimeout;
+            inStream << inDelimPtr;
+            inStream << mChangeVewMaxLogDistance;
+            inStream << inDelimPtr;
+            inStream << mMaxListenersPerNode;
+            inStream << inDelimPtr;
             for (Nodes::const_iterator theIt = mNodes.begin();
                     mNodes.end() != theIt;
                     ++theIt) {
@@ -209,11 +219,25 @@ public:
                 return inStream;
             }
             int thePrimaryTimeout = -1;
-            if (! (inStream >> thePrimaryTimeout)) {
+            if (! (inStream >> thePrimaryTimeout) || thePrimaryTimeout <= 0) {
+                inStream.setstate(ST::failbit);
                 return inStream;
             }
             int theBackupTimeout = -1;
-            if (! (inStream >> theBackupTimeout)) {
+            if (! (inStream >> theBackupTimeout) || theBackupTimeout <= 0) {
+                inStream.setstate(ST::failbit);
+                return inStream;
+            }
+            seq_t theChangeVewMaxLogDistance = -1;
+            if (! (inStream >> theChangeVewMaxLogDistance) ||
+                    theChangeVewMaxLogDistance < 0) {
+                inStream.setstate(ST::failbit);
+                return inStream;
+            }
+            uint32_t theMaxListenersPerNode = 0;
+            if (! (inStream >> theMaxListenersPerNode) ||
+                    theMaxListenersPerNode <= 0) {
+                inStream.setstate(ST::failbit);
                 return inStream;
             }
             while (mNodes.size() < theSize) {
@@ -237,8 +261,10 @@ public:
                 mNodes.clear();
                 inStream.setstate(ST::failbit);
             } else if (inStream) {
-                mPrimaryTimeout = thePrimaryTimeout;
-                mBackupTimeout  = theBackupTimeout;
+                mPrimaryTimeout          = thePrimaryTimeout;
+                mBackupTimeout           = theBackupTimeout;
+                mChangeVewMaxLogDistance = theChangeVewMaxLogDistance;
+                mMaxListenersPerNode     = theMaxListenersPerNode;
             }
             return inStream;
         }
@@ -262,6 +288,7 @@ public:
             mPrimaryTimeout          = 4;
             mBackupTimeout           = 8;
             mChangeVewMaxLogDistance = 64 << 10;
+            mMaxListenersPerNode     = 16;
         }
         int GetPrimaryTimeout() const
             { return mPrimaryTimeout; }
@@ -278,11 +305,17 @@ public:
         void SetChangeVewMaxLogDistance(
             seq_t inDistance)
             { mChangeVewMaxLogDistance = inDistance; }
+        uint32_t GetMaxListenersPerNode() const
+            { return mMaxListenersPerNode; }
+        void SetMaxListenersPerNode(
+            uint32_t inMaxListenersPerNode)
+            { mMaxListenersPerNode = inMaxListenersPerNode; }
     private:
-        Nodes mNodes;
-        int   mPrimaryTimeout;
-        int   mBackupTimeout;
-        seq_t mChangeVewMaxLogDistance;
+        Nodes    mNodes;
+        int      mPrimaryTimeout;
+        int      mBackupTimeout;
+        seq_t    mChangeVewMaxLogDistance;
+        uint32_t mMaxListenersPerNode;
     };
 
     typedef Config::NodeId NodeId;

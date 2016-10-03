@@ -249,6 +249,7 @@ public:
           mActiveFlag(false),
           mPendingPrimaryTimeout(0),
           mPendingBackupTimeout(0),
+          mPendingMaxListenersPerNode(0),
           mPendingChangeVewMaxLogDistance(-1),
           mEpochSeq(0),
           mViewSeq(0),
@@ -908,13 +909,14 @@ public:
         }
         NodeId theNodeId = -1;
         mStartedFlag = true;
-        int theRet = ReadVrState(theNodeId);
+        int theRet = mConfig.IsEmpty() ? -EINVAL : ReadVrState(theNodeId);
         if (0 == theRet) {
             if (! CheckNodeId(theNodeId)) {
                 theRet = -EINVAL;
             }
         } else {
-            mLastViewEndSeq = ((0 < mQuorum && mActiveFlag) || mEpochSeq <= 0) ?
+            mLastViewEndSeq = ((0 < mQuorum && mActiveFlag) || mEpochSeq <= 0 ||
+                    mConfig.IsEmpty()) ?
                 MetaVrLogSeq() :
                 (mLastNonEmptyViewEndSeq.IsSameView(mLastLogSeq) ?
                     mLastNonEmptyViewEndSeq : mLastLogStartViewViewEndSeq);
@@ -1130,6 +1132,15 @@ public:
                 return false;
             }
             mViewSeq = theSeq;
+            uint32_t theMaxListenersPerNode = mConfig.GetMaxListenersPerNode();
+            if ((theStream >> theMaxListenersPerNode) &&
+                    theMaxListenersPerNode <= 0) {
+                mEpochSeq = 0;
+                mViewSeq  = 0;
+                mConfig.Clear();
+                return false;
+            }
+            mConfig.SetMaxListenersPerNode(theMaxListenersPerNode);
             mActiveCount = 0;
             const Config::Nodes& theNodes = mConfig.GetNodes();
             for (Config::Nodes::const_iterator theIt = theNodes.begin();
@@ -1195,6 +1206,7 @@ public:
                 " " << mConfig.GetChangeVewMaxLogDistance() <<
                 " " << mEpochSeq <<
                 " " << mViewSeq <<
+                " " << mConfig.GetMaxListenersPerNode() <<
             "\n";
         }
         return (inStream ? 0 : -EIO);
@@ -1500,6 +1512,7 @@ private:
     bool                         mActiveFlag;
     int                          mPendingPrimaryTimeout;
     int                          mPendingBackupTimeout;
+    uint32_t                     mPendingMaxListenersPerNode;
     seq_t                        mPendingChangeVewMaxLogDistance;
     seq_t                        mEpochSeq;
     seq_t                        mViewSeq;
@@ -1754,6 +1767,8 @@ private:
             " state: "    << GetStateName(mState) <<
             " DVC: "      <<
                 reinterpret_cast<const void*>(mDoViewChangePtr) <<
+            " view: "     << mEpochSeq <<
+            " "           << mViewSeq <<
             " replies: "  << mReplyCount <<
             " reponse: "  << mVrResponse <<
             " "           << inReq.Show() <<
@@ -2206,6 +2221,11 @@ private:
                     inReq.mCommittedSeq <= mLastLogSeq &&
                     0 <= inReq.mCommittedFidSeed &&
                     0 <= inReq.mCommittedStatus) {
+                KFS_LOG_STREAM_DEBUG <<
+                    "scheduling commit: " << mCommittedSeq <<
+                    " => "                <<  inReq.mCommittedSeq <<
+                    " last log: "         << mLastLogSeq <<
+                KFS_LOG_EOM;
                 inReq.SetScheduleCommit();
                 ScheduleViewChange();
             }
@@ -2403,7 +2423,8 @@ private:
         MetaVrReconfiguration& inReq)
     {
         if ((inReq.logseq.IsValid() ?
-                ! inReq.replayFlag : (kStatePrimary != mState))) {
+                ! inReq.replayFlag : (kStatePrimary != mState &&
+                    MetaVrReconfiguration::kOpTypeReset != inReq.mOpType))) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "reconfiguration is not possible, state: ";
             inReq.statusMsg += GetStateName(mState);
@@ -2448,6 +2469,9 @@ private:
             case MetaVrReconfiguration::kOpTypeRemoveNodeListeners:
                 RemoveNodeListeners(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeReset:
+                ResetConfig(inReq);
+                break;
             default:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "invalid operation type";
@@ -2473,6 +2497,11 @@ private:
         if (inReq.mListSize <= 0) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: no listeners specified";
+            return;
+        }
+        if (mConfig.GetMaxListenersPerNode() < inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: exceeded max listeners per node";
             return;
         }
         const Config::Nodes& theNodes = mConfig.GetNodes();
@@ -2561,6 +2590,13 @@ private:
             return;
         }
         const Config::Locations& theLocations = theIt->second.GetLocations();
+        if (mConfig.GetMaxListenersPerNode() <
+                theLocations.size() + inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node listeners:"
+                " exceeded maximum number of listeners per node";
+            return;
+        }
         mPendingLocations.clear();
         const char*       thePtr    = inReq.mListStr.GetPtr();
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
@@ -2856,14 +2892,21 @@ private:
     void SetParameters(
         MetaVrReconfiguration& inReq)
     {
-        if (3 != inReq.mListSize) {
+        if (4 != inReq.mListSize) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "set timeouts: invalid list size";
+            inReq.statusMsg =
+                "set parameters: invalid list size, expected:"
+                " primary_timeout"
+                " backup_timeout"
+                " start_view_change_max_log_distance"
+                " max_listeners_per_node"
+            ;
             return;
         }
         int               thePrimaryTimeout                 = -1;
         int               theBackupTimeout                  = -1;
         seq_t             thePendingChangeVewMaxLogDistance = -1;
+        uint32_t          theMaxListenersPerNode            = 0;
         const char*       thePtr    = inReq.mListStr.GetPtr();
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
         if (! inReq.ParseInt(thePtr, theEndPtr - thePtr, thePrimaryTimeout) ||
@@ -2872,17 +2915,43 @@ private:
                 ((0 <= thePrimaryTimeout || 0 <= theBackupTimeout) &&
                 ! ValidateTimeouts(theBackupTimeout, theBackupTimeout)) ||
                 ! inReq.ParseInt(thePtr, theEndPtr - thePtr,
-                    thePendingChangeVewMaxLogDistance)) {
+                    thePendingChangeVewMaxLogDistance) ||
+                ! inReq.ParseInt(thePtr, theEndPtr - thePtr,
+                    theMaxListenersPerNode)) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "set timeouts: timeout values; "
+            inReq.statusMsg = "set parameters: timeout values; "
                 "primary timeout must be greater than 0; backup "
                 "timeout must be at least 3 seconds greater than primary "
-                "timeout";
+                "timeout, max log distance must be an integer,"
+                " and max listeners must be ";
             return;
         }
         mPendingPrimaryTimeout          = thePrimaryTimeout;
         mPendingBackupTimeout           = theBackupTimeout;
         mPendingChangeVewMaxLogDistance = thePendingChangeVewMaxLogDistance;
+        mPendingMaxListenersPerNode     = theMaxListenersPerNode;
+    }
+    void ResetConfig(
+        MetaVrReconfiguration& inReq)
+    {
+        if (0 != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "reset VR configuration:"
+                " invalid non 0 list size";
+            return;
+        }
+        if (mStartedFlag || ! inReq.replayFlag) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "resetting VR configuration is not supported"
+                " at run time";
+            return;
+        }
+        if (mConfig.IsEmpty()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "resetting VR configuration:"
+                " the configuration is empty";
+            return;
+        }
     }
     template<typename T>
     void ApplyT(
@@ -3019,6 +3088,9 @@ private:
             case MetaVrReconfiguration::kOpTypeRemoveNodeListeners:
                 CommitRemoveNodeListeners(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeReset:
+                CommitResetConfig(inReq);
+                break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
                 break;
@@ -3104,6 +3176,21 @@ private:
             CommitReconfiguration(inReq);
         }
     }
+    void CommitResetConfig(
+        const MetaVrReconfiguration& inReq)
+    {
+        if (! inReq.replayFlag || mStartedFlag) {
+            panic("VR: invalid configuration reset commit");
+            return;
+        }
+        mConfig.Clear();
+        mAllUniqueLocations.clear();
+        mActiveCount = 0;
+        mQuorum      = 0;
+        mActiveFlag  = false;
+        mEpochSeq++;
+        mViewSeq = kMetaVrLogStartEpochViewSeq;
+    }
     void CommitRemoveNodes(
         const MetaVrReconfiguration& inReq)
     {
@@ -3175,6 +3262,9 @@ private:
         }
         if (0 <= mPendingChangeVewMaxLogDistance) {
             mConfig.SetChangeVewMaxLogDistance(mPendingChangeVewMaxLogDistance);
+        }
+        if (0 < mPendingMaxListenersPerNode) {
+            mConfig.SetMaxListenersPerNode(mPendingMaxListenersPerNode);
         }
     }
     bool HasLocation(

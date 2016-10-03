@@ -69,6 +69,7 @@ public:
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
+        bool                  inVrResetOnlyFlag,
         string&               outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);
