@@ -32,6 +32,8 @@
 #include "common/hsieh_hash.h"
 #include "common/kfsdecls.h"
 
+#include <errno.h>
+
 #include <ostream>
 #include <string>
 #include <cassert>
