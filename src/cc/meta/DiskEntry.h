@@ -29,9 +29,8 @@
 
 #include "kfstypes.h"
 
-#include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
+#include <assert.h>
 
 #include <vector>
 #include <iostream>

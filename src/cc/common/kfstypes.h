@@ -28,12 +28,8 @@
 #ifndef COMMON_KFSTYPES_H
 #define COMMON_KFSTYPES_H
 
-#include <stdlib.h>
 #include <stdint.h>
-
-#include <cerrno>
-#include <cstddef>
-#include <cassert>
+#include <stddef.h>
 
 namespace KFS {
 

@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <fstream>
 #include "libclient/KfsClient.h"
 

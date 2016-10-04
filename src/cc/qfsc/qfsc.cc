@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h> // Required for calls to Read
+#include <errno.h>
 
 using std::string;
 using std::vector;
