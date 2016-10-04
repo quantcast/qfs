@@ -26,6 +26,8 @@
 #include "kfsio/DelegationToken.h"
 #include "kfsio/Base64.h"
 
+#include <stdlib.h>
+
 #include <iostream>
 #include <sstream>
 
