@@ -35,6 +35,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 
 #include <iomanip>
 #include <boost/static_assert.hpp>
