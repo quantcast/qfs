@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <errno.h>
 
 using std::string;
 using std::vector;

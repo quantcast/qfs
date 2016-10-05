@@ -29,6 +29,8 @@
 #include "kfsshell.h"
 #include "libclient/KfsClient.h"
 
+#include <errno.h>
+
 #include <iostream>
 
 namespace KFS {

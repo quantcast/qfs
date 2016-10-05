@@ -2523,7 +2523,7 @@ private:
             inReq.statusMsg = "add node: no listeners specified";
             return;
         }
-        if (mConfig.GetMaxListenersPerNode() < inReq.mListSize) {
+        if (mConfig.GetMaxListenersPerNode() < (uint32_t)inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: exceeded max listeners per node";
             return;
