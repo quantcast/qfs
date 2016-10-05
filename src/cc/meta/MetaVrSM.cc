@@ -2546,7 +2546,9 @@ private:
                 if (mNodeId != inReq.mNodeId) {
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "add node: first node id to add must"
-                        " be equal to this node id; and must have"
+                        " be equal to ";
+                    AppendDecIntToString(inReq.statusMsg, mNodeId);
+                    inReq.statusMsg += "; and must have"
                         " smallest node id, or smallest primary order";
                     return;
                 }
@@ -2582,7 +2584,7 @@ private:
                 inReq.status = -EINVAL;
                 inReq.statusMsg = "add node: litener: ";
                 inReq.statusMsg += theLocation.ToString();
-                inReq.statusMsg += " already assigned to ";
+                inReq.statusMsg += " is already assigned to node ";
                 AppendDecIntToString(
                     inReq.statusMsg, FindNodeByLocation(theLocation));
                 mPendingLocations.clear();
@@ -2641,7 +2643,7 @@ private:
                 inReq.status = -EINVAL;
                 inReq.statusMsg = "add node listeners: litener: ";
                 inReq.statusMsg += theLocation.ToString();
-                inReq.statusMsg += " already assigned to ";
+                inReq.statusMsg += " is already assigned to node ";
                 AppendDecIntToString(
                     inReq.statusMsg, FindNodeByLocation(theLocation));
                 mPendingLocations.clear();
@@ -2655,10 +2657,6 @@ private:
                 " listeners list parse failure";
             mPendingLocations.clear();
             return;
-        }
-        if (0 == inReq.status && kStatePrimary == mState &&
-                0 != (theIt->second.GetFlags() & Config::kFlagActive)) {
-            SetState(kStateReconfiguration);
         }
     }
     void RemoveNodeListeners(
@@ -2677,10 +2675,10 @@ private:
             inReq.statusMsg = "add node listener: no such node";
             return;
         }
-        Config::Locations theLocations = theIt->second.GetLocations();
         mPendingLocations.clear();
-        const char*       thePtr    = inReq.mListStr.GetPtr();
-        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        Config::Locations theLocations = theIt->second.GetLocations();
+        const char*       thePtr       = inReq.mListStr.GetPtr();
+        const char* const theEndPtr    = thePtr + inReq.mListStr.GetSize();
         ServerLocation    theLocation;
         while (thePtr < theEndPtr) {
             if (! theLocation.ParseString(
@@ -2694,7 +2692,7 @@ private:
             Config::Locations::iterator const theIt =
                 find(theLocations.begin(), theLocations.end(), theLocation);
             if (theIt == theLocations.end()) {
-                inReq.status = -EINVAL;
+                inReq.status    = -EINVAL;
                 inReq.statusMsg = "remove node listeners: no such litener: ";
                 inReq.statusMsg += theLocation.ToString();
                 mPendingLocations.clear();
@@ -2703,7 +2701,7 @@ private:
             theLocations.erase(theIt);
             mPendingLocations.push_back(theLocation);
         }
-        if ((int)mPendingLocations.size() != inReq.mListSize) {
+        if (mPendingLocations.size() != (size_t)inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "remove node listeners:"
                 " listeners list parse failure";
@@ -2711,26 +2709,23 @@ private:
             return;
         }
         if (theLocations.empty()) {
-            inReq.status = -EINVAL;
+            inReq.status    = -EINVAL;
             inReq.statusMsg = "remove node listeners:"
                 " removing all listeners is not supported";
             mPendingLocations.clear();
             return;
         }
-        if (kStatePrimary == mState) {
-            TxStatusCheckNode theCheck(inReq.mNodeId, theLocations);
-            mLogTransmitter.GetStatus(theCheck);
-            if (theCheck.GetUpCount() <= 0) {
-                inReq.status = -EINVAL;
-                inReq.statusMsg = "remove node listeners:"
-                    " no up listeners left after removal";
-                mPendingLocations.clear();
-                return;
-            }
+        if (inReq.logseq.IsValid() || kStatePrimary != mState) {
+            return;
         }
-        if (0 == inReq.status && kStatePrimary == mState &&
-                0 != (theIt->second.GetFlags() & Config::kFlagActive)) {
-            SetState(kStateReconfiguration);
+        TxStatusCheckNode theCheck(inReq.mNodeId, theLocations);
+        mLogTransmitter.GetStatus(theCheck);
+        if (theCheck.GetUpCount() <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "remove node listeners:"
+                " no up channels left after removal";
+            mPendingLocations.clear();
+            return;
         }
     }
     void RemoveNodes(
@@ -2745,9 +2740,10 @@ private:
             return;
         }
         ApplyT(inReq, kActiveCheckNotActive, NopFunc());
-        if (! inReq.logseq.IsValid() &&
-                0 == inReq.status &&
-                mPendingChangesList.size() != mConfig.GetNodes().size() &&
+        if (0 != inReq.status || inReq.logseq.IsValid()) {
+            return;
+        }
+        if (mPendingChangesList.size() != mConfig.GetNodes().size() &&
                 mActiveCount <= 0 && mQuorum <= 0) {
             // Initial boot strap: do no allow to remove primary
             // in the case if all the nodes are inactive.
@@ -2783,47 +2779,53 @@ private:
             inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
             NopFunc()
         );
-        if (0 == inReq.status && kStatePrimary == mState) {
-            TxStatusCheck theCheck(mPendingChangesList, inReq);
-            mLogTransmitter.GetStatus(theCheck);
-            if (0 == inReq.status) {
-                if (theCheck.GetUpCount() != mPendingChangesList.size()) {
-                    if (theCheck.GetUpCount() < mPendingChangesList.size()) {
-                        for (ChangesList::const_iterator
-                                theIt = mPendingChangesList.begin();
-                                mPendingChangesList.end() != theIt;
-                                ++theIt) {
-                            if (theIt->second <= 0) {
-                                if (0 == inReq.status) {
-                                    inReq.status    = -EINVAL;
-                                    inReq.statusMsg =
-                                        "no communication with nodes:";
-                                }
-                                inReq.statusMsg += " ";
-                                AppendDecIntToString(
-                                    inReq.statusMsg, theIt->first);
-                            }
+        if (0 != inReq.status) {
+            return;
+        }
+        const int theActiveCount = inActivateFlag ?
+            mActiveCount + mPendingChangesList.size() :
+            mActiveCount - mPendingChangesList.size();
+        if (theActiveCount < kMinActiveCount) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "change active status: "
+                "configuration must have at least 3 active nodes";
+            return;
+        }
+        if (inReq.logseq.IsValid()) {
+            return;
+        }
+        TxStatusCheck theCheck(mPendingChangesList, inReq);
+        mLogTransmitter.GetStatus(theCheck);
+        if (0 != inReq.status) {
+            return;
+        }
+        if (theCheck.GetUpCount() != mPendingChangesList.size()) {
+            if (theCheck.GetUpCount() < mPendingChangesList.size()) {
+                for (ChangesList::const_iterator
+                        theIt = mPendingChangesList.begin();
+                        mPendingChangesList.end() != theIt;
+                        ++theIt) {
+                    if (theIt->second <= 0) {
+                        if (0 == inReq.status) {
+                            inReq.status    = -EINVAL;
+                            inReq.statusMsg = "change active status: "
+                                "no communication with nodes:";
                         }
-                    }
-                    if (0 == inReq.status) {
-                        panic("VR: invalid status check result");
-                        inReq.status    = -EINVAL;
-                        inReq.statusMsg = "internal error";
-                    }
-                } else {
-                    const int theActiveCount = inActivateFlag ?
-                        mActiveCount + mPendingChangesList.size() :
-                        mActiveCount - mPendingChangesList.size();
-                    if (theActiveCount < kMinActiveCount &&
-                            (0 != theActiveCount || inActivateFlag)) {
-                        inReq.status    = -EINVAL;
-                        inReq.statusMsg =
-                            "configuration must have at least 3 active nodes";
-                    } else {
-                        SetState(kStateReconfiguration);
+                        inReq.statusMsg += " ";
+                        AppendDecIntToString(
+                            inReq.statusMsg, theIt->first);
                     }
                 }
             }
+            if (0 == inReq.status) {
+                panic("VR: invalid status check result");
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "change active status: internal error";
+            }
+            return;
+        }
+        if (kStatePrimary == mState) {
+            SetState(kStateReconfiguration);
         }
     }
     void SetPrimaryOrder(
@@ -2831,7 +2833,7 @@ private:
     {
         if (inReq.mListSize <= 0) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "modify primary order: empty list";
+            inReq.statusMsg = "set primary order: empty order list";
             return;
         }
         const char*       thePtr    = inReq.mListStr.GetPtr();
@@ -2843,15 +2845,17 @@ private:
                     theNodeId < 0 ||
                     ! inReq.ParseInt(thePtr, theEndPtr - thePtr, theOrder)) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "invalid node id order pair";
+                inReq.statusMsg =
+                    "set primary order: invalid node id order pair";
                 mPendingChangesList.clear();
                 return;
             }
             mPendingChangesList.push_back(make_pair(theNodeId, theOrder));
         }
-        if (mPendingChangesList.empty()) {
+        if (mPendingChangesList.size() != (size_t)inReq.mListSize) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "no changes specified";
+            inReq.statusMsg = "set primary order: id list list size mismatch";
+            mPendingChangesList.clear();
             return;
         }
         sort(mPendingChangesList.begin(), mPendingChangesList.end());
@@ -2862,7 +2866,8 @@ private:
                 theIt = theNIt) {
             if (theIt->first == theNIt->first) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "duplicate node id";
+                inReq.statusMsg = "set primary order: duplicate node id ";
+                AppendDecIntToString(inReq.statusMsg, theNIt->first);
                 mPendingChangesList.clear();
                 return;
             }
@@ -2870,9 +2875,11 @@ private:
                 theMinIt = theIt;
             }
         }
-        if (! inReq.logseq.IsValid() &&
-                size_t(1) < mConfig.GetNodes().size() &&
-                mPendingChangesList.end() != theMinIt &&
+        const size_t theActiveCnt = ApplyT(inReq, kActiveCheckNone, NopFunc());
+        if (0 != inReq.status || inReq.logseq.IsValid()) {
+            return;
+        }
+        if (size_t(1) < mConfig.GetNodes().size() &&
                 mActiveCount <= 0 && mQuorum <= 0) {
             // Initial boot strap: do no allow to choose new primary by changing
             // the order.
@@ -2893,14 +2900,7 @@ private:
                 return;
             }
         }
-        if ((int)mPendingChangesList.size() != inReq.mListSize) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "id list list size mismatch";
-            mPendingChangesList.clear();
-            return;
-        }
-        ApplyT(inReq, kActiveCheckNone, NopFunc());
-        if (0 == inReq.status && kStatePrimary == mState) {
+        if (mActiveFlag && kStatePrimary == mState && 0 < theActiveCnt) {
             SetState(kStateReconfiguration);
         }
     }
@@ -2978,12 +2978,13 @@ private:
         }
     }
     template<typename T>
-    void ApplyT(
+    size_t ApplyT(
         int&        outStatus,
         string&     outErr,
         ActiveCheck inActiveCheck,
         const T&    inFunc)
     {
+        size_t theActiveCount = 0;
         Config::Nodes& theNodes = mConfig.GetNodes();
         for (ChangesList::const_iterator theIt = mPendingChangesList.begin();
                 mPendingChangesList.end() != theIt;
@@ -2994,42 +2995,48 @@ private:
                 outStatus = -EINVAL;
                 outErr    = "no such node: ";
                 AppendDecIntToString(outErr, theNodeId);
-                return;
+                return 0;
             }
-            Config::Node& theNode = theNodeIt->second;
+            Config::Node& theNode       = theNodeIt->second;
+            const bool    theActiveFlag =
+                (0 != (theNode.GetFlags() & Config::kFlagActive));
+            if (theActiveFlag) {
+                theActiveCount++;
+            }
             if (kActiveCheckNone != inActiveCheck &&
-                    (0 != (theNode.GetFlags() & Config::kFlagActive)) !=
-                    (kActiveCheckActive == inActiveCheck)) {
+                    theActiveFlag != (kActiveCheckActive == inActiveCheck)) {
                 outStatus = -EINVAL;
                 outErr    = kActiveCheckActive == inActiveCheck ?
                     "node not active: " : "node active: ";
                 AppendDecIntToString(outErr, theNodeId);
-                return;
+                return 0;
             }
             if (! inFunc(outStatus, outErr, *theIt, theNodes, theNode)) {
-                return;
+                return 0;
             }
         }
+        return theActiveCount;
     }
     template<typename RT, typename T>
-    void ApplyT(
+    size_t ApplyT(
         RT&         inReq,
         ActiveCheck inActiveCheck,
         const T&    inFunc)
     {
-        ApplyT(inReq.status, inReq.statusMsg, inActiveCheck, inFunc);
+        return ApplyT(inReq.status, inReq.statusMsg, inActiveCheck, inFunc);
     }
     template<typename T>
-    void ApplyT(
+    size_t ApplyT(
         ActiveCheck inActiveCheck,
         const T&    inFunc)
     {
-        int    status = 0;
-        string statusMsg;
-        ApplyT(status, statusMsg, inActiveCheck, inFunc);
+        string       statusMsg;
+        int          status = 0;
+        const size_t theCnt = ApplyT(status, statusMsg, inActiveCheck, inFunc);
         if (0 != status) {
             panic("VR: " + statusMsg);
         }
+        return theCnt;
     }
     bool ParseNodeIdList(
         MetaVrReconfiguration& inReq)
