@@ -914,6 +914,8 @@ private:
                 "set replay state pending"
                 " write queue empty: " << mInQueue.IsEmpty() <<
             KFS_LOG_EOM;
+            theLocker.Unlock();
+            mMetaVrSM.ProcessReplay(mNetManager.Now());
             return;
         }
         const bool theStopFlag = mStopFlag;

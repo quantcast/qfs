@@ -369,12 +369,8 @@ public:
             return;
         }
         mLastLogStartViewViewEndSeq = inLastViewEndSeq;
-        if (kStateReconfiguration == mState && mReconfigureReqPtr &&
-                inBlockEndSeq == mReconfigureReqPtr->logseq) {
-            return;
-        }
         if (kStatePrimary != mState && kStateBackup != mState &&
-                kStateLogSync != mState) {
+                kStateReconfiguration == mState && kStateLogSync != mState) {
             if (mActiveFlag &&
                     inBlockStartSeq < inBlockEndSeq &&
                     mLastLogSeq < inBlockEndSeq &&
@@ -625,6 +621,31 @@ public:
         }
         return -1;
     }
+    void ProcessReplay(
+        time_t inTimeNow)
+    {
+        mTimeNow = inTimeNow;
+        if (! mPendingReconfigureReqPtr) {
+            return;
+        }
+        QCStMutexLocker theLocker(mMutex);
+        MetaVrReconfiguration& theReq = *mPendingReconfigureReqPtr;
+        if (! theReq.logseq.IsValid()) {
+            panic("VR: invalid pending reconfiguration request");
+            return;
+        }
+        if (mActiveFlag &&
+                (kStateBackup == mState || kStatePrimary == mState)) {
+            ScheduleViewChange();
+            mLastUpTime     = TimeNow();
+            mLastCommitTime = mLastUpTime;
+        }
+        StartReconfiguration(theReq);
+        mReconfigureReqPtr = 0;
+        Commit(theReq);
+        mPendingReconfigureReqPtr = 0;
+        mReconfigureCompletionCondVar.Notify();
+    }
     void Process(
         time_t              inTimeNow,
         time_t              inLastReceivedTime,
@@ -636,24 +657,8 @@ public:
         int&                outVrStatus,
         MetaRequest*&       outReqPtr)
     {
+        ProcessReplay(inTimeNow);
         outReqPtr = 0;
-        if (mPendingReconfigureReqPtr) {
-            QCStMutexLocker theLocker(mMutex);
-            MetaVrReconfiguration& theReq = *mPendingReconfigureReqPtr;
-            if (kStatePrimary == mState && theReq.logseq.IsValid()) {
-                // Transition into backup state to handle reconfiguration
-                // replay or commit.
-                SetState(kStateBackup);
-            }
-            StartReconfiguration(theReq);
-            mReconfigureReqPtr = 0;
-            Commit(theReq);
-            mPendingReconfigureReqPtr = 0;
-            mReconfigureCompletionCondVar.Notify();
-            if (kStateBackup == mState && mLastLogSeq <= inReplayLastLogSeq) {
-                ScheduleViewChange();
-            }
-        }
         if ((kStatePrimary == mState || kStateBackup == mState) &&
                 mLastReceivedTime < inLastReceivedTime) {
             mLastReceivedTime = inLastReceivedTime;
@@ -699,7 +704,6 @@ public:
                 (! mActiveFlag || kStateLogSync == mState)) {
             mScheduleViewChangeFlag = false;
         }
-        mTimeNow = inTimeNow;
         if (kStateBackup == mState) {
             if (mActiveFlag && mLastReceivedTime + mConfig.GetBackupTimeout() <
                     TimeNow()) {
@@ -2395,7 +2399,32 @@ private:
             }
             return true;
         }
-        if (! inReq.logseq.IsValid()) {
+        if (inReq.logseq.IsValid()) {
+            if (mStartedFlag) {
+                QCStMutexLocker theLocker(mMutex);
+                if (mPendingReconfigureReqPtr) {
+                    // Invocations of MetaVrReconfiguration::handle()
+                    // (one that effectively ends up here) must be serialized.
+                    panic("VR: invalid pending reconfiguration in replay");
+                    inReq.status = -EFAULT;
+                } else {
+                    mReconfigureReqPtr = 0;
+                    mPendingReconfigureReqPtr = &inReq;
+                    Wakeup();
+                    while (&inReq == mPendingReconfigureReqPtr) {
+                        mReconfigureCompletionCondVar.Wait(mMutex);
+                    }
+                }
+            } else {
+                mReconfigureReqPtr = 0;
+                StartReconfiguration(inReq);
+                mReconfigureReqPtr = 0;
+                Commit(inReq);
+            }
+            // If request is not coming from replay, then prepare and commit are
+            // handled by the log writer, below in the else close and by
+            // Commit().
+        } else {
             if (inReq.replayFlag) {
                 panic("VR: invalid reconfiguration request");
                 inReq.status    = -EFAULT;
@@ -2407,30 +2436,6 @@ private:
                 return false;
             }
             StartReconfiguration(inReq);
-        } else {
-            if (inReq.replayFlag && 0 == inReq.status) {
-                if (mStartedFlag) {
-                    QCStMutexLocker theLocker(mMutex);
-                    if (mPendingReconfigureReqPtr) {
-                        panic("VR: invalid pending reconfiguration in replay");
-                        inReq.status = -EFAULT;
-                    } else {
-                        mReconfigureReqPtr = 0;
-                        mPendingReconfigureReqPtr = &inReq;
-                        Wakeup();
-                        while (&inReq == mPendingReconfigureReqPtr) {
-                            mReconfigureCompletionCondVar.Wait(mMutex);
-                        }
-                    }
-                } else {
-                    mReconfigureReqPtr = 0;
-                    StartReconfiguration(inReq);
-                    mReconfigureReqPtr = 0;
-                    Commit(inReq);
-                }
-            }
-            // If not replay, then prepare and commit are handled by the log
-            // writer.
         }
         return (0 != inReq.status);
     }
@@ -2438,8 +2443,8 @@ private:
         MetaVrReconfiguration& inReq)
     {
         if ((inReq.logseq.IsValid() ?
-                ! inReq.replayFlag : (kStatePrimary != mState &&
-                    MetaVrReconfiguration::kOpTypeReset != inReq.mOpType))) {
+                (! inReq.replayFlag && ! mStartedFlag) :
+                kStatePrimary != mState)) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "reconfiguration is not possible, state: ";
             inReq.statusMsg += GetStateName(mState);
@@ -2494,7 +2499,7 @@ private:
         }
         if (0 == inReq.status) {
             mReconfigureReqPtr = &inReq;
-            if (! inReq.replayFlag) {
+            if (! inReq.logseq.IsValid()) {
                 mLastUpTime     = TimeNow();
                 mLastCommitTime = mLastUpTime;
             }
@@ -3071,9 +3076,8 @@ private:
             return;
         }
         if (inReq.logseq < mLastNonEmptyViewEndSeq ||
-                (inReq.replayFlag != (kStatePrimary != mState &&
-                    kStateReconfiguration != mState))) {
-            panic("VR: commit reconfiguration: invalid sate, ");
+                (kStateReconfiguration == mState && inReq.replayFlag)) {
+            panic("VR: commit reconfiguration: invalid state");
             return;
         }
         if ((MetaVrReconfiguration::kOpTypeActivateNodes != inReq.status &&
@@ -3244,9 +3248,9 @@ private:
     void CommitReconfiguration(
         const MetaVrReconfiguration& inReq)
     {
-        if ((kStateReconfiguration == mState ?
+        if (kStateReconfiguration == mState &&
                 (inReq.logseq != mLastNonEmptyViewEndSeq ||
-                inReq.replayFlag) : ! inReq.replayFlag)) {
+                inReq.replayFlag)) {
             panic("VR: commit reconfiguration: invalid state");
             return;
         }
@@ -3972,6 +3976,13 @@ MetaVrSM::HandleReply(
     const ServerLocation& inPeer)
 {
     mImpl.HandleReply(inReq, inSeq, inProps, inNodeId, inPeer);
+}
+
+    void
+MetaVrSM::ProcessReplay(
+    time_t inTimeNow)
+{
+    mImpl.ProcessReplay(inTimeNow);
 }
 
     void

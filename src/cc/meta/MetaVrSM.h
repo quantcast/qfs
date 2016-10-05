@@ -375,6 +375,8 @@ public:
         const MetaVrLogSeq& inReplayLastLogSeq,
         int&                outVrStatus,
         MetaRequest*&       outReqPtr);
+    void ProcessReplay(
+        time_t inTimeNow);
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inParameters);
