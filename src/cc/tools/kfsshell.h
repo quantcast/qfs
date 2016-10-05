@@ -29,6 +29,8 @@
 #ifndef TOOLS_KFSSHELL_H
 #define TOOLS_KFSSHELL_H
 
+#include <errno.h>
+
 #include <string>
 #include <vector>
 

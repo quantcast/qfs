@@ -29,6 +29,8 @@
 #ifndef LIBKFSCLIENT_KFSCLIENT_H
 #define LIBKFSCLIENT_KFSCLIENT_H
 
+#include <stdlib.h>
+
 #include <string>
 #include <vector>
 
