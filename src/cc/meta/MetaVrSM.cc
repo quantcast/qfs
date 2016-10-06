@@ -370,7 +370,7 @@ public:
         }
         mLastLogStartViewViewEndSeq = inLastViewEndSeq;
         if (kStatePrimary != mState && kStateBackup != mState &&
-                kStateReconfiguration == mState && kStateLogSync != mState) {
+                kStateReconfiguration != mState && kStateLogSync != mState) {
             if (mActiveFlag &&
                     inBlockStartSeq < inBlockEndSeq &&
                     mLastLogSeq < inBlockEndSeq &&
@@ -1036,7 +1036,7 @@ public:
         // Commit sequence will be set by process, once re-configuration goes
         // through the replay.
         if (mReconfigureReqPtr && mReconfigureReqPtr->logseq <= inLogSeq) {
-            const MetaVrReconfiguration& theReq = *mReconfigureReqPtr;
+            MetaVrReconfiguration& theReq = *mReconfigureReqPtr;
             mReconfigureReqPtr = 0;
             Commit(theReq);
         }
@@ -1051,7 +1051,7 @@ public:
     int GetQuorum() const
         { return mQuorum; }
     bool IsPrimary() const
-        { return (kStatePrimary == mState); }
+        { return (kStatePrimary == mState || kStateReconfiguration == mState); }
     static const char* GetStateName(
         State inState)
     {
@@ -1257,6 +1257,11 @@ public:
         return -1;
     }
 private:
+    typedef set<
+        NodeId,
+        less<NodeId>,
+        StdFastAllocator<NodeId>
+    > NodeIdSet;
     typedef Config::Locations   Locations;
     typedef pair<NodeId, int>   ChangeEntry;
     typedef vector<ChangeEntry> ChangesList;
@@ -1354,11 +1359,14 @@ private:
     {
     public:
         TxStatusCheck(
+            bool         inActivateFlag,
             ChangesList& inList,
             MetaRequest& inReq)
             : LogTransmitter::StatusReporter(),
-              mList(inList),
+              mActivateFlag(inActivateFlag),
               mReq(inReq),
+              mList(inList),
+              mActiveUpSet(),
               mUpCount(0),
               mTotalUpCount(0)
             {}
@@ -1375,11 +1383,12 @@ private:
             if (0 != mReq.status) {
                 return false;
             }
+            size_t theCnt = 0;
             for (ChangesList::iterator theIt = mList.begin();
                     mList.end() != theIt;
                     ++theIt) {
                 if (inId == theIt->first) {
-                    if (inActiveFlag) {
+                    if (inActiveFlag != mActivateFlag) {
                         mReq.status    = -EINVAL;
                         mReq.statusMsg =
                             "invalid transmitter active status node: ";
@@ -1402,7 +1411,9 @@ private:
                         KFS_LOG_EOM;
                         return false;
                     }
-                    if (inAck.IsValid() && inCommitted <= inAck) {
+                    theCnt++;
+                    if (mActivateFlag &&
+                            inAck.IsValid() && inCommitted <= inAck) {
                         if (theIt->second <= 0) {
                             theIt->second = 1;
                             mUpCount++;
@@ -1413,6 +1424,14 @@ private:
                     }
                 }
             }
+            if (! mActivateFlag && theCnt <= 0 && inActiveFlag &&
+                    0 <= inActualId && inActualId == inId &&
+                    inAck.IsValid() && inCommitted <= inAck) {
+                if (mActiveUpSet.insert(inId).second) {
+                    mUpCount++;
+                }
+                mTotalUpCount++;
+            }
             return true;
         }
         size_t GetUpCount() const
@@ -1420,8 +1439,10 @@ private:
         size_t GetTotalUpCount() const
             { return mTotalUpCount; }
     private:
-        ChangesList& mList;
+        const bool   mActivateFlag;
         MetaRequest& mReq;
+        ChangesList& mList;
+        NodeIdSet    mActiveUpSet;
         size_t       mUpCount;
         size_t       mTotalUpCount;
     private:
@@ -1453,7 +1474,7 @@ private:
             const MetaVrLogSeq&   inCommitted)
         {
             if (mNodeId == inId &&
-                    inId == inActualId &&
+                    0 <= inActualId && inId == inActualId &&
                     inAck.IsValid() && inCommitted <= inAck) {
                 Locations::iterator const theIt = find(
                     mLocations.begin(), mLocations.end(), inLocation);
@@ -1479,11 +1500,6 @@ private:
     };
 
     typedef set<
-        NodeId,
-        less<NodeId>,
-        StdFastAllocator<NodeId>
-    > NodeIdSet;
-    typedef set<
         pair<NodeId, ServerLocation>,
         less<pair<NodeId, ServerLocation> >,
         StdFastAllocator<pair<NodeId, ServerLocation> >
@@ -1495,88 +1511,91 @@ private:
     > MetaMds;
     enum { kMaxVrStateSize = 512 };
 
-    LogTransmitter&              mLogTransmitter;
-    MetaDataSync*                mMetaDataSyncPtr;
-    NetManager*                  mNetManagerPtr;
-    MetaVrSM&                    mMetaVrSM;
-    int&                         mStatus;
-    int64_t                      mFileSystemId;
-    State                        mState;
-    NodeId                       mNodeId;
-    string                       mClusterKey;
-    string                       mMetaMd;
-    MetaMds                      mMetaMds;
-    const MetaVrReconfiguration* mReconfigureReqPtr;
-    Locations                    mPendingLocations;
-    ChangesList                  mPendingChangesList;
-    Config                       mConfig;
-    Locations                    mAllUniqueLocations;
-    int                          mActiveCount;
-    int                          mQuorum;
-    bool                         mStartedFlag;
-    bool                         mActiveFlag;
-    int                          mPendingPrimaryTimeout;
-    int                          mPendingBackupTimeout;
-    uint32_t                     mPendingMaxListenersPerNode;
-    seq_t                        mPendingChangeVewMaxLogDistance;
-    seq_t                        mEpochSeq;
-    seq_t                        mViewSeq;
-    MetaVrLogSeq                 mCommittedSeq;
-    int64_t                      mCommittedErrChecksum;
-    fid_t                        mCommittedFidSeed;
-    int                          mCommittedStatus;
-    MetaVrLogSeq                 mLastLogSeq;
-    MetaVrLogSeq                 mReplayLastLogSeq;
-    MetaVrLogSeq                 mLastCommitSeq;
-    MetaVrLogSeq                 mLastViewEndSeq;
-    MetaVrLogSeq                 mLastLogStartViewViewEndSeq;
-    MetaVrLogSeq                 mLastNonEmptyViewEndSeq;
-    MetaVrLogSeq                 mPrimaryViewStartSeq;
-    time_t                       mLastCommitTime;
-    time_t                       mTimeNow;
-    time_t                       mLastProcessTime;
-    time_t                       mLastReceivedTime;
-    time_t                       mLastStartViewTime;
-    time_t                       mLastUpTime;
-    time_t                       mViewChangeStartTime;
-    time_t                       mStateSetTime;
-    seq_t                        mStartViewChangeRecvViewSeq;
-    MetaVrLogSeq                 mStartViewChangeMaxLastLogSeq;
-    MetaVrLogSeq                 mStartViewChangeMaxCommittedSeq;
-    MetaVrLogSeq                 mDoViewChangeViewEndSeq;
-    int                          mChannelsCount;
-    int                          mStartViewEpochMismatchCount;
-    int                          mReplyCount;
-    bool                         mLogTransmittersSuspendedFlag;
-    bool                         mLogStartViewPendingRecvFlag;
-    bool                         mCheckLogSyncStatusFlag;
-    bool                         mSyncVrStateFileFlag;
-    bool                         mPanicOnIoErrorFlag;
-    bool                         mIgnoreInvalidVrStateFlag;
-    bool                         mScheduleViewChangeFlag;
-    NodeId                       mPrimaryNodeId;
-    MetaVrStartViewChange*       mStartViewChangePtr;
-    MetaVrDoViewChange*          mDoViewChangePtr;
-    MetaVrStartView*             mStartViewPtr;
-    MetaVrLogStartView*          mMetaVrLogStartViewPtr;
-    NodeIdSet                    mStartViewChangeNodeIds;
-    NodeIdSet                    mDoViewChangeNodeIds;
-    NodeIdSet                    mRespondedIds;
-    NodeIdAndMDSLocations        mNodeIdAndMDSLocations;
-    MetaVrLogSeq                 mLogFetchEndSeq;
-    ServerLocation               mMetaDataStoreLocation;
-    MetaDataSync::Servers        mSyncServers;
-    string                       mVrStateFileName;
-    string                       mVrStateTmpFileName;
-    string                       mVrStateIoStr;
-    string const                 mEmptyString;
-    BufferInputStream            mInputStream;
-    QCMutex                      mMutex;
-    QCCondVar                    mReconfigureCompletionCondVar;
-    MetaVrReconfiguration*       mPendingReconfigureReqPtr;
-    MetaVrResponse               mVrResponse;
-    char                         mVrStateReadBuffer[kMaxVrStateSize];
+    LogTransmitter&         mLogTransmitter;
+    MetaDataSync*           mMetaDataSyncPtr;
+    NetManager*             mNetManagerPtr;
+    MetaVrSM&               mMetaVrSM;
+    int&                    mStatus;
+    int64_t                 mFileSystemId;
+    State                   mState;
+    NodeId                  mNodeId;
+    string                  mClusterKey;
+    string                  mMetaMd;
+    MetaMds                 mMetaMds;
+     MetaVrReconfiguration* mReconfigureReqPtr;
+    Locations               mPendingLocations;
+    ChangesList             mPendingChangesList;
+    Config                  mConfig;
+    Locations               mAllUniqueLocations;
+    int                     mActiveCount;
+    int                     mQuorum;
+    bool                    mStartedFlag;
+    bool                    mActiveFlag;
+    int                     mPendingPrimaryTimeout;
+    int                     mPendingBackupTimeout;
+    uint32_t                mPendingMaxListenersPerNode;
+    seq_t                   mPendingChangeVewMaxLogDistance;
+    seq_t                   mEpochSeq;
+    seq_t                   mViewSeq;
+    MetaVrLogSeq            mCommittedSeq;
+    int64_t                 mCommittedErrChecksum;
+    fid_t                   mCommittedFidSeed;
+    int                     mCommittedStatus;
+    MetaVrLogSeq            mLastLogSeq;
+    MetaVrLogSeq            mReplayLastLogSeq;
+    MetaVrLogSeq            mLastCommitSeq;
+    MetaVrLogSeq            mLastViewEndSeq;
+    MetaVrLogSeq            mLastLogStartViewViewEndSeq;
+    MetaVrLogSeq            mLastNonEmptyViewEndSeq;
+    MetaVrLogSeq            mPrimaryViewStartSeq;
+    time_t                  mLastCommitTime;
+    time_t                  mTimeNow;
+    time_t                  mLastProcessTime;
+    time_t                  mLastReceivedTime;
+    time_t                  mLastStartViewTime;
+    time_t                  mLastUpTime;
+    time_t                  mViewChangeStartTime;
+    time_t                  mStateSetTime;
+    seq_t                   mStartViewChangeRecvViewSeq;
+    MetaVrLogSeq            mStartViewChangeMaxLastLogSeq;
+    MetaVrLogSeq            mStartViewChangeMaxCommittedSeq;
+    MetaVrLogSeq            mDoViewChangeViewEndSeq;
+    int                     mChannelsCount;
+    int                     mStartViewEpochMismatchCount;
+    int                     mReplyCount;
+    bool                    mLogTransmittersSuspendedFlag;
+    bool                    mLogStartViewPendingRecvFlag;
+    bool                    mCheckLogSyncStatusFlag;
+    bool                    mSyncVrStateFileFlag;
+    bool                    mPanicOnIoErrorFlag;
+    bool                    mIgnoreInvalidVrStateFlag;
+    bool                    mScheduleViewChangeFlag;
+    NodeId                  mPrimaryNodeId;
+    MetaVrStartViewChange*  mStartViewChangePtr;
+    MetaVrDoViewChange*     mDoViewChangePtr;
+    MetaVrStartView*        mStartViewPtr;
+    MetaVrLogStartView*     mMetaVrLogStartViewPtr;
+    NodeIdSet               mStartViewChangeNodeIds;
+    NodeIdSet               mDoViewChangeNodeIds;
+    NodeIdSet               mRespondedIds;
+    NodeIdAndMDSLocations   mNodeIdAndMDSLocations;
+    MetaVrLogSeq            mLogFetchEndSeq;
+    ServerLocation          mMetaDataStoreLocation;
+    MetaDataSync::Servers   mSyncServers;
+    string                  mVrStateFileName;
+    string                  mVrStateTmpFileName;
+    string                  mVrStateIoStr;
+    string const            mEmptyString;
+    BufferInputStream       mInputStream;
+    QCMutex                 mMutex;
+    QCCondVar               mReconfigureCompletionCondVar;
+    MetaVrReconfiguration*  mPendingReconfigureReqPtr;
+    MetaVrResponse          mVrResponse;
+    char                    mVrStateReadBuffer[kMaxVrStateSize];
 
+    static int CalcQuorum(
+        int inActiveCount)
+        { return (inActiveCount / 2 + 1); }
     void SetLastLogSeq(
         const MetaVrLogSeq& inLogSeq)
     {
@@ -2393,7 +2412,7 @@ private:
     bool Handle(
         MetaVrReconfiguration& inReq)
     {
-        if (0 != inReq.status) {
+        if (0 != inReq.status || inReq.mHandledFlag) {
             if (inReq.replayFlag) {
                 panic("VR: invalid reconfiguration request replay");
             }
@@ -2592,7 +2611,7 @@ private:
             }
             mPendingLocations.push_back(theLocation);
         }
-        if ((int)mPendingLocations.size() != inReq.mListSize) {
+        if (mPendingLocations.size() != (size_t)inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: listeners list parse failure";
             mPendingLocations.clear();
@@ -2771,6 +2790,14 @@ private:
             inReq.statusMsg = "change active status: empty node id list";
             return;
         }
+        if (0 < mQuorum && mQuorum <= inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg =
+                "change active status: activation list must be less than"
+                " present quorum of ";
+            AppendDecIntToString(inReq.statusMsg, inReq.status);
+            return;
+        }
         if (! ParseNodeIdList(inReq)) {
             return;
         }
@@ -2794,35 +2821,47 @@ private:
         if (inReq.logseq.IsValid()) {
             return;
         }
-        TxStatusCheck theCheck(mPendingChangesList, inReq);
+        TxStatusCheck theCheck(inActivateFlag, mPendingChangesList, inReq);
         mLogTransmitter.GetStatus(theCheck);
         if (0 != inReq.status) {
             return;
         }
-        if (theCheck.GetUpCount() != mPendingChangesList.size()) {
-            if (theCheck.GetUpCount() < mPendingChangesList.size()) {
-                for (ChangesList::const_iterator
-                        theIt = mPendingChangesList.begin();
-                        mPendingChangesList.end() != theIt;
-                        ++theIt) {
-                    if (theIt->second <= 0) {
-                        if (0 == inReq.status) {
-                            inReq.status    = -EINVAL;
-                            inReq.statusMsg = "change active status: "
-                                "no communication with nodes:";
+        if (inActivateFlag) {
+            if (theCheck.GetUpCount() != mPendingChangesList.size()) {
+                if (theCheck.GetUpCount() < mPendingChangesList.size()) {
+                    for (ChangesList::const_iterator
+                            theIt = mPendingChangesList.begin();
+                            mPendingChangesList.end() != theIt;
+                            ++theIt) {
+                        if (theIt->second <= 0) {
+                            if (0 == inReq.status) {
+                                inReq.status    = -EINVAL;
+                                inReq.statusMsg = "change active status: "
+                                    "no communication with nodes:";
+                            }
+                            inReq.statusMsg += " ";
+                            AppendDecIntToString(
+                                inReq.statusMsg, theIt->first);
                         }
-                        inReq.statusMsg += " ";
-                        AppendDecIntToString(
-                            inReq.statusMsg, theIt->first);
                     }
                 }
+                if (0 == inReq.status) {
+                    panic("VR: invalid status check result");
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "change active status: internal error";
+                }
+                return;
             }
-            if (0 == inReq.status) {
-                panic("VR: invalid status check result");
+        } else {
+            const int theNewQuorum = CalcQuorum(theActiveCount);
+            if (theCheck.GetUpCount() < theNewQuorum) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "change active status: internal error";
+                inReq.statusMsg = "change active status: emaning up nodes: ";
+                AppendDecIntToString(inReq.statusMsg, theCheck.GetUpCount());
+                inReq.statusMsg += " count is less than new quorum: ";
+                AppendDecIntToString(inReq.statusMsg, theNewQuorum);
+                return;
             }
-            return;
         }
         if (kStatePrimary == mState) {
             SetState(kStateReconfiguration);
@@ -2836,6 +2875,7 @@ private:
             inReq.statusMsg = "set primary order: empty order list";
             return;
         }
+        mPendingChangesList.clear();
         const char*       thePtr    = inReq.mListStr.GetPtr();
         const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
         while (thePtr < theEndPtr) {
@@ -2854,7 +2894,7 @@ private:
         }
         if (mPendingChangesList.size() != (size_t)inReq.mListSize) {
             inReq.status    = -EINVAL;
-            inReq.statusMsg = "set primary order: id list list size mismatch";
+            inReq.statusMsg = "set primary order: id list size mismatch";
             mPendingChangesList.clear();
             return;
         }
@@ -3073,17 +3113,18 @@ private:
         return true;
     }
     void Commit(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
-        if (0 != inReq.status) {
+        if (0 != inReq.status || inReq.mHandledFlag) {
             return;
         }
-        if (! inReq.logseq.IsValid()) {
+        inReq.mHandledFlag = true;
+        if (! inReq.logseq.IsValid() || inReq.logseq.mEpochSeq != mEpochSeq) {
             panic("VR: invalid commit reconfiguration log sequence");
             return;
         }
-        if (inReq.logseq < mLastNonEmptyViewEndSeq ||
-                (kStateReconfiguration == mState && inReq.replayFlag)) {
+        if (kStateReconfiguration == mState &&
+                (inReq.logseq != mLastNonEmptyViewEndSeq || inReq.replayFlag)) {
             panic("VR: commit reconfiguration: invalid state");
             return;
         }
@@ -3153,7 +3194,7 @@ private:
     void CommitAddNodeListeners(
         const MetaVrReconfiguration& inReq)
     {
-        if ((int)mPendingLocations.size() != inReq.mListSize) {
+        if (mPendingLocations.size() != (size_t)inReq.mListSize) {
             panic("VR: commit add node listeners: invalid locations");
             return;
         }
@@ -3170,14 +3211,11 @@ private:
             AddLocation(*theIt);
             theNode.AddLocation(*theIt);
         }
-        if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
-            CommitReconfiguration(inReq);
-        }
     }
     void CommitRemoveNodeListeners(
         const MetaVrReconfiguration& inReq)
     {
-        if ((int)mPendingLocations.size() != inReq.mListSize) {
+        if (mPendingLocations.size() != (size_t)inReq.mListSize) {
             panic("VR: commit remove node listeners: invalid locations");
             return;
         }
@@ -3202,14 +3240,13 @@ private:
                 }
             }
         }
-        if (0 != (Config::kFlagActive & theIt->second.GetFlags())) {
-            CommitReconfiguration(inReq);
-        }
     }
     void CommitResetConfig(
         const MetaVrReconfiguration& inReq)
     {
-        if (! inReq.replayFlag || mStartedFlag) {
+        if (! inReq.replayFlag || mStartedFlag ||
+                ! inReq.logseq.IsValid() ||
+                inReq.logseq.mEpochSeq != mEpochSeq) {
             panic("VR: invalid configuration reset commit");
             return;
         }
@@ -3242,29 +3279,31 @@ private:
                     (0 != mActiveCount || inActivateFlag)) {
                 panic("VR: invalid actvie node count");
             }
-            mQuorum = mActiveCount - (mActiveCount - 1) / 2;
+            mQuorum = CalcQuorum(mActiveCount);
         }
         CommitReconfiguration(inReq);
     }
     void CommitSetPrimaryOrder(
         const MetaVrReconfiguration& inReq)
     {
-        ApplyT(kActiveCheckNotActive, ChangePrimaryOrderFunc());
+        ApplyT(kActiveCheckNone, ChangePrimaryOrderFunc());
         CommitReconfiguration(inReq);
     }
     void CommitReconfiguration(
         const MetaVrReconfiguration& inReq)
     {
-        if (kStateReconfiguration == mState &&
+        if ((kStateReconfiguration == mState &&
                 (inReq.logseq != mLastNonEmptyViewEndSeq ||
-                inReq.replayFlag)) {
+                inReq.replayFlag)) ||
+                inReq.logseq.mEpochSeq != mEpochSeq) {
             panic("VR: commit reconfiguration: invalid state");
             return;
         }
         mActiveFlag = IsActive(mNodeId);
         mEpochSeq++;
         mViewSeq = kMetaVrLogStartEpochViewSeq;
-        if (mActiveFlag && (! inReq.replayFlag || kStateBackup == mState)) {
+        if (mActiveFlag && mStartedFlag &&
+                (! inReq.replayFlag || kStateBackup == mState)) {
             if (mCommittedSeq < inReq.logseq) {
                 mCommittedSeq = inReq.logseq;
             }
@@ -3524,6 +3563,7 @@ private:
     {
         KFS_LOG_STREAM_INFO <<
             "write vr state:"
+            " primary: "        << inPrimaryId <<
             " epoch: "          << mEpochSeq <<
             " view: "           << mViewSeq <<
             " committed: "      << mCommittedSeq <<

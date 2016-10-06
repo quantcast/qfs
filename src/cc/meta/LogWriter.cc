@@ -79,6 +79,7 @@ public:
           mNetManager(),
           mLogTransmitter(mNetManager, *this),
           mMetaVrSM(mLogTransmitter),
+          mPrimaryFlag(true),
           mVrStatus(0),
           mEnqueueVrStatus(inVrStatus),
           mTransmitCommitted(),
@@ -650,6 +651,7 @@ private:
     NetManager        mNetManager;
     LogTransmitter    mLogTransmitter;
     MetaVrSM          mMetaVrSM;
+    bool              mPrimaryFlag;
     int               mVrStatus;
     volatile int&     mEnqueueVrStatus;
     MetaVrLogSeq      mTransmitCommitted;
@@ -843,7 +845,8 @@ private:
         thePtr     = 0;
         thePrevPtr = 0;
         int theVrStatus = mVrStatus;
-        if (0 != mVrStatus && 0 == (theVrStatus = mMetaVrSM.GetStatus())) {
+        if (0 != mVrStatus && 0 == (theVrStatus = mMetaVrSM.GetStatus()) &&
+                ! mPrimaryFlag) {
             MetaRequest* thePrevLastPtr = 0;
             MetaRequest* theCurPtr      = mPendingAckQueue.Front();
             while (theCurPtr) {
@@ -866,7 +869,7 @@ private:
         }
         QCStMutexLocker theLocker(mMutex);
         mOutQueue.PushBack(inDoneQueue);
-        if (0 != mVrStatus) {
+        if (0 != mVrStatus && ! mPrimaryFlag) {
             mReplayCommitQueue.PushBack(mPendingAckQueue);
             if (! mSetReplayStateFlag) {
                 mSetReplayStateFlag =
@@ -883,6 +886,7 @@ private:
             if (! thePtr && 0 == theVrStatus) {
                 mVrStatus        = theVrStatus;
                 mEnqueueVrStatus = theVrStatus;
+                mPrimaryFlag     = true;
                 KFS_LOG_STREAM_DEBUG <<
                     "log start view:"
                     " comitted: "           << mTransmitCommitted <<
@@ -961,17 +965,20 @@ private:
             }
             theWriteQueue.PushBack(*theReqPtr);
         }
-        const bool theVrBecameNonPrimaryFlag =
-            0 != theVrStatus && 0 == mVrStatus;
-        if (theVrBecameNonPrimaryFlag) {
+        if (0 == mVrStatus && 0 != theVrStatus) {
             mVrStatus        = theVrStatus;
             mEnqueueVrStatus = theVrStatus;
             SyncAddAndFetch(mEnqueueVrStatus, 0);
+        } else if (0 != theVrStatus) {
+            // Update status if it is not primary.
+            mVrStatus = theVrStatus;
+        }
+        const bool theVrBecameNonPrimaryFlag =
+            mPrimaryFlag && 0 != mVrStatus && ! mMetaVrSM.IsPrimary();
+        if (theVrBecameNonPrimaryFlag) {
+            mPrimaryFlag = false;
             Queue theTmp;
             ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0);
-        } else if (0 != theVrStatus) {
-            // Update status if it's primary.
-            mVrStatus = theVrStatus;
         }
         if (! theWriteQueue.IsEmpty()) {
             Write(*theWriteQueue.Front());
@@ -981,15 +988,18 @@ private:
     }
     virtual void DispatchEnd()
     {
-        bool theVrBecameNonPrimaryFlag = 0 == mVrStatus;
-        if (theVrBecameNonPrimaryFlag) {
+        if (0 == mVrStatus) {
             const int theVrStatus = mMetaVrSM.GetStatus();
-            theVrBecameNonPrimaryFlag = 0 != theVrStatus;
-            if (theVrBecameNonPrimaryFlag) {
+            if (0 != theVrStatus) {
                 mVrStatus        = theVrStatus;
                 mEnqueueVrStatus = theVrStatus;
                 SyncAddAndFetch(mEnqueueVrStatus, 0);
             }
+        }
+        const bool theVrBecameNonPrimaryFlag =
+            mPrimaryFlag && 0 != mVrStatus && ! mMetaVrSM.IsPrimary();
+        if (theVrBecameNonPrimaryFlag) {
+            mPrimaryFlag = false;
         }
         if (mWokenFlag || theVrBecameNonPrimaryFlag) {
             Queue theTmp;
@@ -1016,8 +1026,9 @@ private:
                 NewLog(mNextLogSeq);
             }
         }
-        ostream&     theStream = mMdStream;
-        MetaRequest* theCurPtr = &inHead;
+        ostream&     theStream      = mMdStream;
+        MetaRequest* theCurPtr      = &inHead;
+        bool         theWriteOkFlag = 0 == mVrStatus;
         while (theCurPtr) {
             mLastLogSeq = mNextLogSeq;
             MetaRequest*          theVrPtr               = 0;
@@ -1025,7 +1036,6 @@ private:
             seq_t                 theEndBlockSeq         =
                 mNextLogSeq.mLogSeq + mMaxBlockSize;
             const bool            theSimulateFailureFlag = IsSimulateFailure();
-            const bool            theTransmitterUpFlag   = 0 == mVrStatus;
             bool                  theStartViewFlag       = false;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
@@ -1046,7 +1056,7 @@ private:
                         break;
                     }
                     theStartViewFlag = true;
-                } else if (! theStream || ! theTransmitterUpFlag) {
+                } else if (! theStream || ! theWriteOkFlag) {
                     continue;
                 }
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
@@ -1082,7 +1092,7 @@ private:
             const MetaVrLogSeq thePrevLastViewEndSeq = mLastViewEndSeq;
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
             if (mNextLogSeq < mLastLogSeq && ! theSimulateFailureFlag &&
-                    (theTransmitterUpFlag || theStartViewFlag) &&
+                    (theWriteOkFlag || theStartViewFlag) &&
                     IsLogStreamGood()) {
                 const int theBlkLen =
                     (int)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq);
@@ -1102,7 +1112,7 @@ private:
                 FlushBlock(mLastLogSeq, theBlkLen);
             }
             if (IsLogStreamGood() && ! theSimulateFailureFlag &&
-                    (theTransmitterUpFlag || theStartViewFlag)) {
+                    (theWriteOkFlag || theStartViewFlag)) {
                 mNextLogSeq = mLastLogSeq;
                 if (theStartViewFlag) {
                     // Set sequence to one to the left of the start of the view,
@@ -1113,6 +1123,22 @@ private:
                     if (! theCurPtr->logseq.IsValid()) {
                         panic("log writer: invalid VR log start view sequence");
                     }
+                } else if (thePtr &&
+                        META_VR_RECONFIGURATION == thePtr->op &&
+                        thePtr->logseq.IsValid() && 0 != mMetaVrSM.GetStatus()) {
+                    if (thePtr->logseq != mNextLogSeq) {
+                        panic("log writer: VR reconfiguration"
+                            " is not at the end of log block");
+                    }
+                    KFS_LOG_STREAM_INFO <<
+                        "last log: "   << mNextLogSeq <<
+                        " VR status: " << mMetaVrSM.GetStatus() <<
+                        " primary: "   << mMetaVrSM.IsPrimary() <<
+                        " / "          << mPrimaryFlag <<
+                        " "            << thePtr->Show() <<
+                    KFS_LOG_EOM;
+                    // Fail the remaining ops in the log block.
+                    theWriteOkFlag = false;
                 }
             } else {
                 // Write failure.
