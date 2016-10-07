@@ -965,12 +965,11 @@ private:
             }
             theWriteQueue.PushBack(*theReqPtr);
         }
-        if (0 == mVrStatus && 0 != theVrStatus) {
-            mVrStatus        = theVrStatus;
-            mEnqueueVrStatus = theVrStatus;
-            SyncAddAndFetch(mEnqueueVrStatus, 0);
-        } else if (0 != theVrStatus) {
-            // Update status if it is not primary.
+        if (0 != theVrStatus) {
+            if (0 == mVrStatus) {
+                mEnqueueVrStatus = theVrStatus;
+                SyncAddAndFetch(mEnqueueVrStatus, 0);
+            }
             mVrStatus = theVrStatus;
         }
         const bool theVrBecameNonPrimaryFlag =

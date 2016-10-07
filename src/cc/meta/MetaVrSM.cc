@@ -254,6 +254,7 @@ public:
           mEpochSeq(0),
           mViewSeq(0),
           mCommittedSeq(),
+          mPendingCommitSeq(),
           mCommittedErrChecksum(0),
           mCommittedFidSeed(0),
           mCommittedStatus(0),
@@ -634,8 +635,7 @@ public:
             panic("VR: invalid pending reconfiguration request");
             return;
         }
-        if (mActiveFlag &&
-                (kStateBackup == mState || kStatePrimary == mState)) {
+        if (mActiveFlag && kStatePrimary == mState) {
             ScheduleViewChange();
             mLastUpTime     = TimeNow();
             mLastCommitTime = mLastUpTime;
@@ -777,8 +777,18 @@ public:
                 }
             }
         } else if (mScheduleViewChangeFlag) {
-            mScheduleViewChangeFlag = false;
-            UpdateViewAndStartViewChange();
+            if (mPendingCommitSeq <= mCommittedSeq) {
+                mScheduleViewChangeFlag = false;
+                UpdateViewAndStartViewChange();
+            } else {
+                KFS_LOG_STREAM_DEBUG <<
+                    "commit pending:"
+                    " [" << mCommittedSeq <<
+                    ":"  << mPendingCommitSeq <<
+                    "]" <<
+                    " state: " << GetStateName(mState) <<
+                KFS_LOG_EOM;
+            }
         } else {
             if (mActiveFlag) {
                 if (TimeNow() != mLastProcessTime || thReplayWasPendingFlag) {
@@ -878,6 +888,7 @@ public:
         mLastCommitTime         = TimeNow();
         mCommittedSeq           = inReplayer.getCommitted();
         mLastCommitSeq          = mCommittedSeq;
+        mPendingCommitSeq       = mLastCommitSeq;
         mCommittedErrChecksum   = inReplayer.getErrChksum();
         mCommittedFidSeed       = inFileId.getseed();
         mCommittedStatus        = inReplayer.getLastCommittedStatus();
@@ -1511,87 +1522,88 @@ private:
     > MetaMds;
     enum { kMaxVrStateSize = 512 };
 
-    LogTransmitter&         mLogTransmitter;
-    MetaDataSync*           mMetaDataSyncPtr;
-    NetManager*             mNetManagerPtr;
-    MetaVrSM&               mMetaVrSM;
-    int&                    mStatus;
-    int64_t                 mFileSystemId;
-    State                   mState;
-    NodeId                  mNodeId;
-    string                  mClusterKey;
-    string                  mMetaMd;
-    MetaMds                 mMetaMds;
-     MetaVrReconfiguration* mReconfigureReqPtr;
-    Locations               mPendingLocations;
-    ChangesList             mPendingChangesList;
-    Config                  mConfig;
-    Locations               mAllUniqueLocations;
-    int                     mActiveCount;
-    int                     mQuorum;
-    bool                    mStartedFlag;
-    bool                    mActiveFlag;
-    int                     mPendingPrimaryTimeout;
-    int                     mPendingBackupTimeout;
-    uint32_t                mPendingMaxListenersPerNode;
-    seq_t                   mPendingChangeVewMaxLogDistance;
-    seq_t                   mEpochSeq;
-    seq_t                   mViewSeq;
-    MetaVrLogSeq            mCommittedSeq;
-    int64_t                 mCommittedErrChecksum;
-    fid_t                   mCommittedFidSeed;
-    int                     mCommittedStatus;
-    MetaVrLogSeq            mLastLogSeq;
-    MetaVrLogSeq            mReplayLastLogSeq;
-    MetaVrLogSeq            mLastCommitSeq;
-    MetaVrLogSeq            mLastViewEndSeq;
-    MetaVrLogSeq            mLastLogStartViewViewEndSeq;
-    MetaVrLogSeq            mLastNonEmptyViewEndSeq;
-    MetaVrLogSeq            mPrimaryViewStartSeq;
-    time_t                  mLastCommitTime;
-    time_t                  mTimeNow;
-    time_t                  mLastProcessTime;
-    time_t                  mLastReceivedTime;
-    time_t                  mLastStartViewTime;
-    time_t                  mLastUpTime;
-    time_t                  mViewChangeStartTime;
-    time_t                  mStateSetTime;
-    seq_t                   mStartViewChangeRecvViewSeq;
-    MetaVrLogSeq            mStartViewChangeMaxLastLogSeq;
-    MetaVrLogSeq            mStartViewChangeMaxCommittedSeq;
-    MetaVrLogSeq            mDoViewChangeViewEndSeq;
-    int                     mChannelsCount;
-    int                     mStartViewEpochMismatchCount;
-    int                     mReplyCount;
-    bool                    mLogTransmittersSuspendedFlag;
-    bool                    mLogStartViewPendingRecvFlag;
-    bool                    mCheckLogSyncStatusFlag;
-    bool                    mSyncVrStateFileFlag;
-    bool                    mPanicOnIoErrorFlag;
-    bool                    mIgnoreInvalidVrStateFlag;
-    bool                    mScheduleViewChangeFlag;
-    NodeId                  mPrimaryNodeId;
-    MetaVrStartViewChange*  mStartViewChangePtr;
-    MetaVrDoViewChange*     mDoViewChangePtr;
-    MetaVrStartView*        mStartViewPtr;
-    MetaVrLogStartView*     mMetaVrLogStartViewPtr;
-    NodeIdSet               mStartViewChangeNodeIds;
-    NodeIdSet               mDoViewChangeNodeIds;
-    NodeIdSet               mRespondedIds;
-    NodeIdAndMDSLocations   mNodeIdAndMDSLocations;
-    MetaVrLogSeq            mLogFetchEndSeq;
-    ServerLocation          mMetaDataStoreLocation;
-    MetaDataSync::Servers   mSyncServers;
-    string                  mVrStateFileName;
-    string                  mVrStateTmpFileName;
-    string                  mVrStateIoStr;
-    string const            mEmptyString;
-    BufferInputStream       mInputStream;
-    QCMutex                 mMutex;
-    QCCondVar               mReconfigureCompletionCondVar;
-    MetaVrReconfiguration*  mPendingReconfigureReqPtr;
-    MetaVrResponse          mVrResponse;
-    char                    mVrStateReadBuffer[kMaxVrStateSize];
+    LogTransmitter&        mLogTransmitter;
+    MetaDataSync*          mMetaDataSyncPtr;
+    NetManager*            mNetManagerPtr;
+    MetaVrSM&              mMetaVrSM;
+    int&                   mStatus;
+    int64_t                mFileSystemId;
+    State                  mState;
+    NodeId                 mNodeId;
+    string                 mClusterKey;
+    string                 mMetaMd;
+    MetaMds                mMetaMds;
+    MetaVrReconfiguration* mReconfigureReqPtr;
+    Locations              mPendingLocations;
+    ChangesList            mPendingChangesList;
+    Config                 mConfig;
+    Locations              mAllUniqueLocations;
+    int                    mActiveCount;
+    int                    mQuorum;
+    bool                   mStartedFlag;
+    bool                   mActiveFlag;
+    int                    mPendingPrimaryTimeout;
+    int                    mPendingBackupTimeout;
+    uint32_t               mPendingMaxListenersPerNode;
+    seq_t                  mPendingChangeVewMaxLogDistance;
+    seq_t                  mEpochSeq;
+    seq_t                  mViewSeq;
+    MetaVrLogSeq           mCommittedSeq;
+    MetaVrLogSeq           mPendingCommitSeq;
+    int64_t                mCommittedErrChecksum;
+    fid_t                  mCommittedFidSeed;
+    int                    mCommittedStatus;
+    MetaVrLogSeq           mLastLogSeq;
+    MetaVrLogSeq           mReplayLastLogSeq;
+    MetaVrLogSeq           mLastCommitSeq;
+    MetaVrLogSeq           mLastViewEndSeq;
+    MetaVrLogSeq           mLastLogStartViewViewEndSeq;
+    MetaVrLogSeq           mLastNonEmptyViewEndSeq;
+    MetaVrLogSeq           mPrimaryViewStartSeq;
+    time_t                 mLastCommitTime;
+    time_t                 mTimeNow;
+    time_t                 mLastProcessTime;
+    time_t                 mLastReceivedTime;
+    time_t                 mLastStartViewTime;
+    time_t                 mLastUpTime;
+    time_t                 mViewChangeStartTime;
+    time_t                 mStateSetTime;
+    seq_t                  mStartViewChangeRecvViewSeq;
+    MetaVrLogSeq           mStartViewChangeMaxLastLogSeq;
+    MetaVrLogSeq           mStartViewChangeMaxCommittedSeq;
+    MetaVrLogSeq           mDoViewChangeViewEndSeq;
+    int                    mChannelsCount;
+    int                    mStartViewEpochMismatchCount;
+    int                    mReplyCount;
+    bool                   mLogTransmittersSuspendedFlag;
+    bool                   mLogStartViewPendingRecvFlag;
+    bool                   mCheckLogSyncStatusFlag;
+    bool                   mSyncVrStateFileFlag;
+    bool                   mPanicOnIoErrorFlag;
+    bool                   mIgnoreInvalidVrStateFlag;
+    bool                   mScheduleViewChangeFlag;
+    NodeId                 mPrimaryNodeId;
+    MetaVrStartViewChange* mStartViewChangePtr;
+    MetaVrDoViewChange*    mDoViewChangePtr;
+    MetaVrStartView*       mStartViewPtr;
+    MetaVrLogStartView*    mMetaVrLogStartViewPtr;
+    NodeIdSet              mStartViewChangeNodeIds;
+    NodeIdSet              mDoViewChangeNodeIds;
+    NodeIdSet              mRespondedIds;
+    NodeIdAndMDSLocations  mNodeIdAndMDSLocations;
+    MetaVrLogSeq           mLogFetchEndSeq;
+    ServerLocation         mMetaDataStoreLocation;
+    MetaDataSync::Servers  mSyncServers;
+    string                 mVrStateFileName;
+    string                 mVrStateTmpFileName;
+    string                 mVrStateIoStr;
+    string const           mEmptyString;
+    BufferInputStream      mInputStream;
+    QCMutex                mMutex;
+    QCCondVar              mReconfigureCompletionCondVar;
+    MetaVrReconfiguration* mPendingReconfigureReqPtr;
+    MetaVrResponse         mVrResponse;
+    char                   mVrStateReadBuffer[kMaxVrStateSize];
 
     static int CalcQuorum(
         int inActiveCount)
@@ -2155,6 +2167,24 @@ private:
             AdvanceView("backup primary timed out");
         }
     }
+    void ScheduleCommitIfNeeded(
+        MetaVrRequest& inReq)
+    {
+        if (mCommittedSeq < inReq.mCommittedSeq &&
+                inReq.mCommittedSeq <= mLastLogSeq &&
+                0 <= inReq.mCommittedFidSeed &&
+                0 <= inReq.mCommittedStatus) {
+            KFS_LOG_STREAM_DEBUG <<
+                "scheduling commit: " << mCommittedSeq <<
+                " => "                << inReq.mCommittedSeq <<
+                " last log: "         << mLastLogSeq <<
+                " "                   << inReq.Show() <<
+            KFS_LOG_EOM;
+            inReq.SetScheduleCommit();
+            ScheduleViewChange();
+            mPendingCommitSeq = inReq.mCommittedSeq;
+        }
+    }
     bool Handle(
         MetaVrHello& inReq)
     {
@@ -2185,11 +2215,8 @@ private:
                     GetDataStoreLocation(inReq),
                     kAllowNonPrimaryFlag
                 );
-            } else if (mCommittedSeq < inReq.mCommittedSeq &&
-                    inReq.mCommittedSeq <= mLastLogSeq &&
-                    0 <= inReq.mCommittedFidSeed &&
-                    0 <= inReq.mCommittedStatus) {
-                inReq.SetScheduleCommit();
+            } else {
+                ScheduleCommitIfNeeded(inReq);
             }
         }
         CheckPrimaryState(inReq);
@@ -2251,17 +2278,8 @@ private:
                     GetDataStoreLocation(inReq),
                     theAllowNonPrimaryFlag
                 );
-            } else if (mCommittedSeq < inReq.mCommittedSeq &&
-                    inReq.mCommittedSeq <= mLastLogSeq &&
-                    0 <= inReq.mCommittedFidSeed &&
-                    0 <= inReq.mCommittedStatus) {
-                KFS_LOG_STREAM_DEBUG <<
-                    "scheduling commit: " << mCommittedSeq <<
-                    " => "                <<  inReq.mCommittedSeq <<
-                    " last log: "         << mLastLogSeq <<
-                KFS_LOG_EOM;
-                inReq.SetScheduleCommit();
-                ScheduleViewChange();
+            } else {
+                ScheduleCommitIfNeeded(inReq);
             }
         }
         Show(inReq, "=");
@@ -3309,8 +3327,23 @@ private:
             }
             WriteVrState(-1, inReq.logseq);
         }
-        if (kStateReconfiguration == mState) {
-            PrimaryReconfigurationStartViewChange();
+        KFS_LOG_STREAM_DEBUG <<
+            "done: "   << inReq.logseq <<
+            " epoch: " << mEpochSeq <<
+            " view: "  << mViewSeq <<
+            " state: " << GetStateName(mState) <<
+            " "        << inReq.Show() <<
+        KFS_LOG_EOM;
+        if (mStartedFlag) {
+            if (mActiveFlag) {
+                if (kStateReconfiguration == mState ||
+                        mLastLogSeq == inReq.logseq) {
+                    ScheduleViewChange();
+                }
+            } else {
+                SetState(kStateBackup);
+                mPrimaryNodeId = -1;
+            }
         }
     }
     void CommitSetParameters(
@@ -3393,7 +3426,7 @@ private:
             mPrimaryNodeId = -1;
             return;
         }
-        StartViewChange();
+        ScheduleViewChange();
     }
     NodeId GetPrimaryId()
     {

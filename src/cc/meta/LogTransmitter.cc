@@ -914,8 +914,9 @@ private:
         const bool   theOkFlag = mAuthenticateOpPtr->status == 0;
         KFS_LOG_STREAM(theOkFlag ?
                 MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
-            "finished: " << mAuthenticateOpPtr->Show() <<
-            " filter: "  <<
+            mServer << ":"
+            " finished: " << mAuthenticateOpPtr->Show() <<
+            " filter: "   <<
                 reinterpret_cast<const void*>(mConnectionPtr->GetFilter()) <<
         KFS_LOG_EOM;
         MetaRequest::Release(mAuthenticateOpPtr);
@@ -1108,7 +1109,7 @@ private:
                 mReceivedIdFlag = true;
                 if (! mActiveFlag && mId != theId) {
                     KFS_LOG_STREAM_NOTICE <<
-                        mServer << ": " << "inactive node ack id mismatch:" <<
+                        mServer << ": inactive node ack id mismatch:" <<
                         " expected: " << mId <<
                         " actual:: "  << theId <<
                     KFS_LOG_EOM;
@@ -1133,7 +1134,7 @@ private:
             return -1;
         }
         KFS_LOG_STREAM_DEBUG <<
-            mServer <<
+            mServer << ":"
             " log recv id: " << theId <<
             " / "            << mId <<
             " primary: "     << mPrimaryNodeId <<
@@ -1220,6 +1221,7 @@ private:
             HandleAuthResponse(inBuffer);
         } else if (theSeq == mMetaVrHello.opSeqno) {
             KFS_LOG_STREAM_DEBUG <<
+                mServer << ": "
                 "-seq: "    << theSeq <<
                 " status: " << mMetaVrHello.status <<
                 " "         << mMetaVrHello.statusMsg <<
@@ -1255,6 +1257,7 @@ private:
         MetaRequest& inReq)
     {
         KFS_LOG_STREAM_FATAL <<
+            mServer << ": "
             "unexpected invocation: " << inReq.Show() <<
         KFS_LOG_EOM;
         panic("LogTransmitter::Impl::Transmitter::HandleCmdDone "
@@ -1275,9 +1278,9 @@ private:
             return;
         }
         KFS_LOG_STREAM_DEBUG <<
-          mServer <<
-           " id: "   << mId <<
-           " +seq: " << inReq.opSeqno <<
+            mServer << ":"
+            " id: "   << mId <<
+            " +seq: " << inReq.opSeqno <<
             " "      << inReq.Show() <<
         KFS_LOG_EOM;
         IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
