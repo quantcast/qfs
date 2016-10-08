@@ -484,7 +484,17 @@ public:
             return;
         }
         const bool theNewFlag = mRespondedIds.insert(inNodeId).second;
-        if (0 != mVrResponse.mStatus) {
+        if (0 == mVrResponse.mStatus) {
+            if (inNodeId != mNodeId &&
+                    mVrResponse.mEpochSeq == mEpochSeq &&
+                    mVrResponse.mViewSeq == mViewSeq &&
+                    (kStateViewChange      == mVrResponse.mState ||
+                    kStateStartViewPrimary == mVrResponse.mState ||
+                    kStatePrimary          == mVrResponse.mState ||
+                    kStateBackup           == mVrResponse.mState)) {
+                mStartViewChangeNodeIds.insert(inNodeId);
+            }
+        } else {
             if (kStatePrimary == mVrResponse.mState ||
                     kStateBackup == mVrResponse.mState ||
                     ((mIgnoreInvalidVrStateFlag || mLastViewEndSeq.IsValid()) &&
