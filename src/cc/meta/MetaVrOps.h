@@ -421,7 +421,7 @@ public:
     typedef Config::NodeId   NodeId;
     typedef Config::Flags    Flags;
 
-    bool            mHandledFlag;
+    int             mHandledCount;
     int             mOpType;
     int             mListSize;
     int             mPrimaryOrder;
@@ -431,7 +431,7 @@ public:
 
     MetaVrReconfiguration()
         : MetaIdempotentRequest(META_VR_RECONFIGURATION, kLogIfOk),
-          mHandledFlag(false),
+          mHandledCount(0),
           mOpType(kOpTypeNone),
           mListSize(0),
           mPrimaryOrder(0),

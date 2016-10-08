@@ -221,6 +221,12 @@ public:
         kStatesCount
     };
     enum { kMinActiveCount = 3 };
+    enum
+    {
+        kVrReconfCountNotHandled      = 0,
+        kVrReconfCountCommitAdvance   = 1,
+        kVrReconfCountNoCommitAdvance = 2
+    };
     static const NodeId kBootstrapPrimaryNodeId = 0;
 
     Impl(
@@ -523,7 +529,7 @@ public:
                 " "                   << mViewSeq <<
             KFS_LOG_EOM;
             KFS_LOG_STREAM_DEBUG <<
-                " seq: "            << inSeq <<
+                "seq: "             << inSeq <<
                 " node: "           << inNodeId <<
                 " epoch mismatch: " << mStartViewEpochMismatchCount <<
                 " max:"
@@ -2430,7 +2436,8 @@ private:
     bool Handle(
         MetaVrReconfiguration& inReq)
     {
-        if (0 != inReq.status || inReq.mHandledFlag) {
+        if (0 != inReq.status ||
+                kVrReconfCountNoCommitAdvance <= inReq.mHandledCount) {
             if (inReq.replayFlag) {
                 panic("VR: invalid reconfiguration request replay");
             }
@@ -2438,6 +2445,14 @@ private:
         }
         if (inReq.logseq.IsValid()) {
             if (mStartedFlag) {
+                if (kVrReconfCountNotHandled < inReq.mHandledCount) {
+                    inReq.mHandledCount = kVrReconfCountNoCommitAdvance;
+                    if (! inReq.replayFlag && 0 == inReq.status) {
+                        // Submit request to flush log.
+                        submit_request(new MetaNoop());
+                    }
+                    return true;
+                }
                 QCStMutexLocker theLocker(mMutex);
                 if (mPendingReconfigureReqPtr) {
                     // Invocations of MetaVrReconfiguration::handle()
@@ -2462,10 +2477,11 @@ private:
             // handled by the log writer, below in the else close and by
             // Commit().
         } else {
-            if (inReq.replayFlag) {
+            if (inReq.replayFlag ||
+                    kVrReconfCountNotHandled < inReq.mHandledCount) {
                 panic("VR: invalid reconfiguration request");
                 inReq.status    = -EFAULT;
-                inReq.statusMsg = "invalid reconfiguration request in replay";
+                inReq.statusMsg = "invalid reconfiguration request";
                 return true;
             }
             if (MetaRequest::kLogIfOk != inReq.logAction &&
@@ -2482,7 +2498,8 @@ private:
         if ((inReq.logseq.IsValid() ?
                 (! inReq.replayFlag && ! mStartedFlag) :
                 kStatePrimary != mState)) {
-            inReq.status    = -EINVAL;
+            inReq.status    = inReq.logseq.IsValid() ?
+                -EINVAL : (0 == mStatus ? -EVRNOTPRIMARY : mStatus);
             inReq.statusMsg = "reconfiguration is not possible, state: ";
             inReq.statusMsg += GetStateName(mState);
             return;
@@ -3133,10 +3150,11 @@ private:
     void Commit(
         MetaVrReconfiguration& inReq)
     {
-        if (0 != inReq.status || inReq.mHandledFlag) {
+        if (0 != inReq.status ||
+                kVrReconfCountNotHandled < inReq.mHandledCount) {
             return;
         }
-        inReq.mHandledFlag = true;
+        inReq.mHandledCount = kVrReconfCountNoCommitAdvance;
         if (! inReq.logseq.IsValid() || inReq.logseq.mEpochSeq != mEpochSeq) {
             panic("VR: invalid commit reconfiguration log sequence");
             return;
@@ -3190,6 +3208,12 @@ private:
         mPendingChangesList.clear();
         mPendingLocations.clear();
         ConfigUpdate();
+        if (kStatePrimary == mState && ! inReq.replayFlag &&
+                0 == inReq.status && mStartedFlag && mActiveFlag) {
+            // Drop count to 1 to schedule to emit no-op to advance commit on
+            // backups.
+            inReq.mHandledCount = kVrReconfCountCommitAdvance;
+        }
     }
     void CommitAddNode(
         const MetaVrReconfiguration& inReq)
@@ -3282,8 +3306,8 @@ private:
         ApplyT(kActiveCheckNotActive, RmoveFunc(*this));
     }
     void CommitModifyActiveStatus(
-        const MetaVrReconfiguration& inReq,
-        bool                         inActivateFlag)
+        MetaVrReconfiguration& inReq,
+        bool                   inActivateFlag)
     {
         ApplyT(inActivateFlag ? kActiveCheckNotActive : kActiveCheckActive,
             ChangeActiveFunc(inActivateFlag));
@@ -3302,13 +3326,13 @@ private:
         CommitReconfiguration(inReq);
     }
     void CommitSetPrimaryOrder(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         ApplyT(kActiveCheckNone, ChangePrimaryOrderFunc());
         CommitReconfiguration(inReq);
     }
     void CommitReconfiguration(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         if ((kStateReconfiguration == mState &&
                 (inReq.logseq != mLastNonEmptyViewEndSeq ||
@@ -3335,6 +3359,8 @@ private:
             " "        << inReq.Show() <<
         KFS_LOG_EOM;
         if (mStartedFlag) {
+            // Do not write no-op to advance commit.
+            inReq.mHandledCount = 2;
             if (mActiveFlag) {
                 if (kStateReconfiguration == mState ||
                         mLastLogSeq == inReq.logseq) {

@@ -875,6 +875,9 @@ MakeLogMetaRequestHandler(
     .MakeParser(kLogVrStatViewNamePtr,
         META_VR_LOG_START_VIEW,
         static_cast<const MetaVrLogStartView*>(0))
+    .MakeParser("NOP",
+        META_NOOP,
+        static_cast<const MetaNoop*>(0))
     ;
 }
 

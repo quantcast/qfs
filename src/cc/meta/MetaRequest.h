@@ -164,6 +164,7 @@ using std::less;
     f(HIBERNATED_PRUNE) \
     f(HIBERNATED_REMOVE) \
     f(RESTART_PROCESS) \
+    f(NOOP) \
     f(VR_HELLO) \
     f(VR_START_VIEW_CHANGE) \
     f(VR_DO_VIEW_CHANGE) \
@@ -541,6 +542,21 @@ protected:
 private:
     volatile int           ref;
     MetaIdempotentRequest* req;
+};
+
+struct MetaNoop : public MetaRequest {
+    MetaNoop()
+        : MetaRequest(META_NOOP, kLogIfOk)
+        {}
+    bool Validate()       { return true; }
+    virtual bool start()  { return (0 == status); }
+    virtual void handle() {}
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "no-op-request logseq: " << logseq); }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser);
+    }
 };
 
 /*!
