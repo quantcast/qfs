@@ -427,6 +427,9 @@ public:
             memcmp(GetPtr(), inStr.data(), GetSize()) == 0
         );
     }
+    bool operator!=(
+        const string& inStr) const
+        { return ! (*this == inStr); }
     int Compare(
         const char* inStrPtr) const
         { return strcmp(GetPtr(), inStrPtr); }

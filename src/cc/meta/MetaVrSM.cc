@@ -480,7 +480,7 @@ public:
         const bool theOkFlag = mVrResponse.Set(inProps);
         Show(inReq, inSeq, inProps, inNodeId, inPeer);
         if (! theOkFlag || ! IsActive(inNodeId) ||
-                ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId)) {
+                ! ValidateClusterKeyAndMd(inReq, inSeq, inNodeId)) {
             return;
         }
         const bool theNewFlag = mRespondedIds.insert(inNodeId).second;
@@ -488,11 +488,29 @@ public:
             if (inNodeId != mNodeId &&
                     mVrResponse.mEpochSeq == mEpochSeq &&
                     mVrResponse.mViewSeq == mViewSeq &&
-                    (kStateViewChange      == mVrResponse.mState ||
-                    kStateStartViewPrimary == mVrResponse.mState ||
-                    kStatePrimary          == mVrResponse.mState ||
-                    kStateBackup           == mVrResponse.mState)) {
-                mStartViewChangeNodeIds.insert(inNodeId);
+                    kStateViewChange == mVrResponse.mState &&
+                    ! mDoViewChangePtr &&
+                    (mIgnoreInvalidVrStateFlag ||
+                        (mVrResponse.mLastViewEndSeq.IsValid() &&
+                        mLastViewEndSeq.IsValid()))) {
+                int    theStatus = 0;
+                string theStatusMsg;
+                if (VerifyViewChange(
+                        mVrResponse,
+                        inReq.op,
+                        inNodeId,
+                        theStatus,
+                        theStatusMsg)) {
+                    mStartViewChangeNodeIds.insert(inNodeId);
+                    StartDoViewChangeIfPossible(mVrResponse);
+                    return;
+                }
+                KFS_LOG_STREAM_DEBUG <<
+                    "start view change response verify:"
+                    " "         << theStatusMsg <<
+                    " status: " << theStatus <<
+                    " "         << mVrResponse <<
+                KFS_LOG_EOM;
             }
         } else {
             if (kStatePrimary == mVrResponse.mState ||
@@ -591,7 +609,7 @@ public:
         if (! theOkFlag ||
                 ! IsActive(inNodeId) ||
                 kStateStartViewPrimary != mState ||
-                ! ValidateClusterKeyAndMd(inReq, inSeq, inProps, inNodeId) ||
+                ! ValidateClusterKeyAndMd(inReq, inSeq, inNodeId) ||
                 0 != mVrResponse.mStatus ||
                 (inNodeId == mNodeId ? kStateStartViewPrimary : kStateBackup) !=
                     mVrResponse.mState ||
@@ -1693,7 +1711,6 @@ private:
     bool ValidateClusterKeyAndMd(
         MetaVrRequest&    inReq,
         seq_t             inSeq,
-        const Properties& inProps,
         NodeId            inNodeId) const
     {
         if (0 != mVrResponse.mClusterKey.Compare(mClusterKey)) {
@@ -1869,8 +1886,9 @@ private:
                 mLastLogStartViewViewEndSeq)
         );
     }
+    template<typename T>
     static const MetaVrLogSeq& GetReqLastViewEndSeq(
-        const MetaVrRequest& inReq)
+        const T& inReq)
     {
         return (
             inReq.mLastViewEndSeq.IsSameView(inReq.mLastLogSeq) ?
@@ -1879,8 +1897,9 @@ private:
                 inReq.mLastLogSeq : kInvalidVrLogSeq)
         );
     }
-    void UpdateDoViewChangeViewEndSeq(
-        const MetaVrRequest& inReq)
+    template<typename T>
+    void StartDoViewChangeIfPossible(
+        const T& inReq)
     {
         const MetaVrLogSeq& theReqViewEndSeq = GetReqLastViewEndSeq(inReq);
         if (theReqViewEndSeq < mDoViewChangeViewEndSeq &&
@@ -1892,6 +1911,7 @@ private:
             }
             mDoViewChangeViewEndSeq = theReqViewEndSeq;
         }
+        StartDoViewChangeIfPossible();
     }
     void StartDoViewChangeIfPossible()
     {
@@ -1981,6 +2001,12 @@ private:
             RetryStartViewChange("no start view change from self received");
             return;
         }
+        if (! mIgnoreInvalidVrStateFlag && ! mLastViewEndSeq.IsValid() &&
+                theSz - 1 < mQuorum) {
+            RetryStartViewChange("not sufficient number of noded responded,"
+                " excluding this node");
+            return;
+        }
         const NodeId thePrimaryId = GetPrimaryId();
         if (thePrimaryId < 0) {
             RetryStartViewChange("no primary available");
@@ -2000,7 +2026,7 @@ private:
                 0 != (Config::kFlagActive & theIt->second.GetFlags()));
     }
     void SetReturnState(
-        MetaVrRequest& inReq)
+        MetaVrRequest& inReq) const
     {
         inReq.mRetCurViewSeq             = mViewSeq;
         inReq.mRetCurEpochSeq            = mEpochSeq;
@@ -2017,55 +2043,61 @@ private:
         inReq.mRetLastNonEmptyViewEndSeq = mLastNonEmptyViewEndSeq;
         inReq.mRetMetaDataStoreLocation  = mMetaDataStoreLocation;
     }
+    template<typename T>
     bool VerifyClusterKey(
-        MetaVrRequest& inReq)
+        const T& inReq,
+        int&     outStatus,
+        string&  outStatusMsg) const
     {
-        if (mClusterKey != inReq.mClusterKey) {
-            inReq.statusMsg = "cluster key does not match";
+        if (inReq.mClusterKey != mClusterKey) {
+            outStatusMsg = "cluster key does not match";
         } else if (! mMetaMds.empty() &&
                 mMetaMds.find(inReq.mMetaMd) == mMetaMds.end()) {
-            inReq.statusMsg = "invalid meta server executable's MD";
+            outStatusMsg = "invalid meta server executable's MD";
         } else if (mFileSystemId != inReq.mFileSystemId) {
-            inReq.statusMsg = "file system ID does not match";
+            outStatusMsg = "file system ID does not match";
         } else {
             return true;
         }
-        inReq.status = -EBADCLUSTERKEY;
+        outStatus = -EBADCLUSTERKEY;
         return false;
     }
+    template<typename T>
     bool VerifyViewChange(
-        MetaVrRequest& inReq)
+        const T& inReq,
+        MetaOp   inOp,
+        NodeId   inNodeId,
+        int&     outStatus,
+        string&  outStatusMsg) const
     {
-        if (! VerifyClusterKey(inReq)) {
-            // Set return state and return false at the end.
-        } else if (! mActiveFlag) {
-            inReq.status    = -ENOENT;
-            inReq.statusMsg = "node inactive";
-        } else if (! IsActive(inReq.mNodeId)) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "request from inactive node";
+        if (! mActiveFlag) {
+            outStatus    = -ENOENT;
+            outStatusMsg = "node inactive";
+        } else if (! IsActive(inNodeId)) {
+            outStatus    = -EINVAL;
+            outStatusMsg = "request from inactive node";
         } else if (inReq.mEpochSeq < inReq.mLastLogSeq.mEpochSeq ||
                 (inReq.mEpochSeq == inReq.mLastLogSeq.mEpochSeq &&
                 inReq.mViewSeq <= inReq.mLastLogSeq.mViewSeq)) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "invalid request: last log sequence";
+            outStatus    = -EINVAL;
+            outStatusMsg = "invalid request: last log sequence";
         } else if (inReq.mLastViewEndSeq.IsValid() &&
                 ! inReq.mLastViewEndSeq.IsPastViewStart()) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "invalid request: last view end sequence";
+            outStatus    = -EINVAL;
+            outStatusMsg = "invalid request: last view end sequence";
         } else if (inReq.mLastLogSeq < inReq.mLastViewEndSeq) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "invalid request: last view end sequence";
+            outStatus    = -EINVAL;
+            outStatusMsg = "invalid request: last view end sequence";
         } else if (inReq.mLastLogSeq < mCommittedSeq &&
                 (kStatePrimary != mState && kStateBackup != mState)) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "last log less than current committed";
+            outStatus    = -EINVAL;
+            outStatusMsg = "last log less than current committed";
         } else if (mEpochSeq != inReq.mEpochSeq) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "epoch does not match";
+            outStatus    = -EINVAL;
+            outStatusMsg = "epoch does not match";
         } else if (inReq.mViewSeq < mViewSeq) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "lower view sequence";
+            outStatus    = -EINVAL;
+            outStatusMsg = "lower view sequence";
         } else if (mLastLogSeq != inReq.mLastLogSeq &&
                 (kStatePrimary != mState ||
                     (inReq.mLastLogSeq < mCommittedSeq &&
@@ -2075,32 +2107,51 @@ private:
                                 mConfig.GetChangeVewMaxLogDistance() <
                             mLastLogSeq.mLogSeq
                 )))) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "log sequence mismatch";
+            outStatus    = -EINVAL;
+            outStatusMsg = "log sequence mismatch";
         } else {
             const MetaVrLogSeq theViewEndSeq = GetReqLastViewEndSeq(inReq);
             if (theViewEndSeq.IsValid()) {
                 if (theViewEndSeq < mCommittedSeq) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "end less than committed";
+                    outStatus    = -EINVAL;
+                    outStatusMsg = "end less than committed";
                 } else if (mLastLogSeq < theViewEndSeq) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "end past last log";
+                    outStatus    = -EINVAL;
+                    outStatusMsg = "end past last log";
                 }
             } else {
                 if (mLastLogSeq != inReq.mLastLogSeq &&
                         kStatePrimary != mState &&
-                        (META_VR_START_VIEW != inReq.op ||
+                        (META_VR_START_VIEW != inOp ||
                                 mLastLogSeq.mEpochSeq != inReq.mEpochSeq ||
                                 mLastLogSeq.mViewSeq != inReq.mViewSeq)) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "ignored, last log mismatch with"
+                    outStatus    = -EINVAL;
+                    outStatusMsg = "ignored, last log mismatch with"
                         " no valid end view sequence";
                 }
             }
-            if (0 == inReq.status) {
+            if (0 == outStatus) {
                 return true;
             }
+        }
+        return false;
+    }
+    bool VerifyClusterKey(
+        MetaVrRequest& inReq) const
+    {
+        return VerifyClusterKey(inReq, inReq.status, inReq.statusMsg);
+    }
+    bool VerifyViewChange(
+        MetaVrRequest& inReq) const
+    {
+        if (VerifyClusterKey(inReq) &&
+                VerifyViewChange(
+                    inReq,
+                    inReq.op,
+                    inReq.mNodeId,
+                    inReq.status,
+                    inReq.statusMsg)) {
+            return true;
         }
         SetReturnState(inReq);
         return false;
@@ -2264,15 +2315,15 @@ private:
                             ! mDoViewChangePtr &&
                             mStartViewChangeNodeIds.insert(
                                 inReq.mNodeId).second) {
-                        UpdateDoViewChangeViewEndSeq(inReq);
-                        StartDoViewChangeIfPossible();
+                        StartDoViewChangeIfPossible(inReq);
                     }
                 }
             } else {
                 if (kStateViewChange == mState) {
                     if (! mIgnoreInvalidVrStateFlag &&
                             ! inReq.mLastViewEndSeq.IsValid() &&
-                            ! mLastViewEndSeq.IsValid()) {
+                            ! mLastViewEndSeq.IsValid() &&
+                            mNodeId != inReq.mNodeId) {
                         inReq.status    = -EINVAL;
                         inReq.statusMsg =
                             "not primary; no valid saved VR state; state: ";
@@ -2280,8 +2331,7 @@ private:
                     } else  if (! mDoViewChangePtr &&
                             mStartViewChangeNodeIds.insert(
                                 inReq.mNodeId).second) {
-                        UpdateDoViewChangeViewEndSeq(inReq);
-                        StartDoViewChangeIfPossible();
+                        StartDoViewChangeIfPossible(inReq);
                     }
                 } else {
                     inReq.status    = -EINVAL;
@@ -2346,8 +2396,7 @@ private:
                                 inReq.mNodeId).second) {
                         // Treat as start view change, in the case when do view
                         // change has not been started yet.
-                        UpdateDoViewChangeViewEndSeq(inReq);
-                        StartDoViewChangeIfPossible();
+                        StartDoViewChangeIfPossible(inReq);
                     }
                 } else if (kStateStartViewPrimary != mState &&
                         kStatePrimary != mState) {
