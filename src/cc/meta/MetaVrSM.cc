@@ -2260,7 +2260,14 @@ private:
                 }
             } else {
                 if (kStateViewChange == mState) {
-                    if (! mDoViewChangePtr &&
+                    if (! mIgnoreInvalidVrStateFlag &&
+                            ! inReq.mLastViewEndSeq.IsValid() &&
+                            ! mLastViewEndSeq.IsValid()) {
+                        inReq.status    = -EINVAL;
+                        inReq.statusMsg =
+                            "not primary; no valid saved VR state; state: ";
+                        inReq.statusMsg += GetStateName(mState);
+                    } else  if (! mDoViewChangePtr &&
                             mStartViewChangeNodeIds.insert(
                                 inReq.mNodeId).second) {
                         UpdateDoViewChangeViewEndSeq(inReq);

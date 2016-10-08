@@ -66,6 +66,7 @@ class MetaVrHello;
 class Replay;
 class UniqueID;
 
+const char* const kMetaVrParametersPrefixPtr    = "metaServer.Vr.";
 const char* const kMetaVrNodeIdParameterNamePtr = "metaServer.Vr.id";
 
 class MetaVrSM
