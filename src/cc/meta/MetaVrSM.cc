@@ -866,6 +866,13 @@ public:
             // Already started.
             return -EINVAL;
         }
+        if (! mMetaMds.empty() && mMetaMds.end() == mMetaMds.find(inMetaMd)) {
+            KFS_LOG_STREAM_ERROR <<
+                "meta server md5: " << inMetaMd <<
+                " is not int the allowed md5 list" <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
         if ((mConfig.IsEmpty() && mNodeId < 0) ||
                 (mActiveCount <= 0 && mQuorum <= 0 &&
                     ((mConfig.IsEmpty() && 0 == mNodeId) ||
@@ -2681,7 +2688,7 @@ private:
         }
         ostream& theStream = mWOStream.Set(inReq.mResponse);
         theStream <<
-            "node: "                 << mNodeId                   << "\n"
+            "id: "                   << mNodeId                   << "\n"
             "status: "               << mStatus                   << "\n"
             "active: "               << mActiveFlag               << "\n"
             "state: "                << GetStateName(mState)      << "\n"
@@ -2692,6 +2699,9 @@ private:
             "commit: "               << mCommittedSeq             << "\n"
             "lastViewEnd: "          << mLastViewEndSeq           << "\n"
             "ignoreInvalidVrState: " << mIgnoreInvalidVrStateFlag << "\n"
+            "fileSystemId: "         << mFileSystemId             << "\n"
+            "clusterKey: "           << mClusterKey               << "\n"
+            "metaMd5: "              << mMetaMd                   << "\n"
             "\n"
             "logTransmitter:\n"
         ;
@@ -2715,7 +2725,8 @@ private:
                 "flags: "    << theIt->second.GetFlags() << "\n"
                 "active: "   <<
                     (0 != (theIt->second.GetFlags() & Config::kFlagActive)) <<
-                "\n"
+                    "\n"
+                "primaryOrder: " << theIt->second.GetPrimaryOrder() << "\n"
             ;
             const Config::Locations& theLocations =
                 theIt->second.GetLocations();

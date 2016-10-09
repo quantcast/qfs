@@ -1591,6 +1591,7 @@ const int kClientDefaultNoAuthMetaOps[] = {
     META_GET_CHUNK_SERVER_DIRS_COUNTERS,
     META_GET_REQUEST_COUNTERS,
     META_DISCONNECT,
+    META_VR_GET_STATUS,
     META_NUM_OPS_COUNT // Sentinel
 };
 const char* const kClientDefaultNoAuthMetaOpsHosts[] = {
