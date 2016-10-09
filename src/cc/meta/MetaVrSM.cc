@@ -202,7 +202,7 @@ template<typename T>
 inline static T& operator<<(
     T&                    inStream,
     const MetaVrResponse& inResponse)
-{   return inResponse.Display(inStream); }
+{ return inResponse.Display(inStream); }
 
 class MetaVrSM::Impl
 {
@@ -308,6 +308,8 @@ public:
           mVrStateTmpFileName(mVrStateFileName + ".tmp"),
           mVrStateIoStr(),
           mEmptyString(),
+          mInactiveNodeStatusMsg("meta server node is inactive"),
+          mBackupNodeStatusMsg("meta server node is backup"),
           mInputStream(),
           mWOStream(),
           mMutex(),
@@ -398,7 +400,7 @@ public:
     }
     bool Handle(
         MetaRequest&        inReq,
-        const MetaVrLogSeq& inLastLogSeq)
+        const MetaVrLogSeq& /* inLastLogSeq */)
     {
         switch (inReq.op) {
             case META_VR_HELLO:
@@ -414,21 +416,16 @@ public:
             case META_VR_GET_STATUS:
                 return Handle(static_cast<MetaVrGetStatus&>(inReq));
             case META_LOG_WRITER_CONTROL:
-                return Handle(static_cast<MetaLogWriterControl&>(inReq));
+                return Handle(static_cast<const MetaLogWriterControl&>(inReq));
+            case META_READ_META_DATA:
+                return Handle(static_cast<const MetaReadMetaData&>(inReq));
             case META_VR_LOG_START_VIEW:
                 return false;
-            case META_READ_META_DATA:
-                if (kStatePrimary != mState && (kStateBackup == mState ||
-                        static_cast<const MetaReadMetaData&>(
-                            inReq).allowNotPrimaryFlag)) {
-                    return true;
-                }
-                break;
             default:
                 if (kStateBackup == mState) {
-                    inReq.status    = -EVRBACKUP;
-                    inReq.statusMsg = "not primary, state: ";
-                    inReq.statusMsg += GetStateName(mState);
+                    inReq.status    = mStatus;
+                    inReq.statusMsg = mActiveFlag ?
+                        mBackupNodeStatusMsg : mInactiveNodeStatusMsg;
                     return true;
                 }
                 break;
@@ -900,7 +897,7 @@ public:
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
-            mActiveFlag = IsActive(mNodeId);
+            mActiveFlag = IsActiveSelf(mNodeId);
             if (mActiveCount <= 0 && mQuorum <= 0 &&
                     ((mConfig.IsEmpty() &&
                         kBootstrapPrimaryNodeId == mNodeId) ||
@@ -1007,7 +1004,8 @@ public:
     }
     int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        const char*       inMetaMdPtr)
     {
         Properties::String theName(inPrefixPtr ? inPrefixPtr : "");
         const size_t       thePrefixLen = theName.length();
@@ -1069,6 +1067,20 @@ public:
                 mMetaMds.insert(MetaMds::value_type(theMd));
             }
             mInputStream.Reset();
+        }
+        if (inMetaMdPtr && *inMetaMdPtr && ! mStartedFlag) {
+            mMetaMd = inMetaMdPtr;
+        }
+        if (! mMetaMds.empty() && ! mMetaMd.empty() &&
+                mMetaMds.end() == mMetaMds.find(mMetaMd)) {
+            KFS_LOG_STREAM_ERROR <<
+                "meta server md5: " << mMetaMd <<
+                " is not int the allowed md5 list: " <<
+                kMetaserverMetaMdsParamNamePtr <<
+            KFS_LOG_EOM;
+            if (0 == theRet) {
+                theRet = -EINVAL;
+            }
         }
         return theRet;
     }
@@ -1574,12 +1586,12 @@ private:
         {
             mStream <<
                 "channel:\n"
-                "location: " << inLocation    << "\n"
-                "id: "       << inId          << "\n"
-                "actualId: " << inActualId    << "\n"
-                "active: "   << inActiveFlag  << "\n"
-                "ack: "      << inAck         << "\n"
-                "sent: "     << inCommitted   << "\n"
+                "location: "   << inLocation   << "\n"
+                "id: "         << inId         << "\n"
+                "receivedId: " << inActualId   << "\n"
+                "active: "     << inActiveFlag << "\n"
+                "ack: "        << inAck        << "\n"
+                "sent: "       << inCommitted  << "\n"
             ;
             return true;
         }
@@ -1680,6 +1692,8 @@ private:
     string                 mVrStateTmpFileName;
     string                 mVrStateIoStr;
     string const           mEmptyString;
+    string const           mInactiveNodeStatusMsg;
+    string const           mBackupNodeStatusMsg;
     BufferInputStream      mInputStream;
     IOBuffer::WOStream     mWOStream;
     QCMutex                mMutex;
@@ -2063,7 +2077,7 @@ private:
         }
         StartDoViewChange(thePrimaryId);
     }
-    bool IsActive(
+    bool IsActiveSelf(
         NodeId inNodeId) const
     {
         if (inNodeId < 0) {
@@ -2074,6 +2088,9 @@ private:
         return (theNodes.end() != theIt &&
                 0 != (Config::kFlagActive & theIt->second.GetFlags()));
     }
+    bool IsActive(
+        NodeId inNodeId) const
+        { return (mStartedFlag && IsActiveSelf(inNodeId)); }
     void SetReturnState(
         MetaVrRequest& inReq) const
     {
@@ -2507,7 +2524,7 @@ private:
                     const Config::Nodes::const_iterator theOtherIt =
                         theNodes.find(inReq.mNodeId);
                     const Config::Nodes::const_iterator thisIt     =
-                        theNodes.find(inReq.mNodeId);
+                        theNodes.find(mNodeId);
                     if (theNodes.end() == theOtherIt ||
                             theNodes.end() == thisIt) {
                         panic("VR: validation failure");
@@ -2741,7 +2758,7 @@ private:
         return true;
     }
     bool Handle(
-        MetaLogWriterControl& inReq)
+        const MetaLogWriterControl& inReq)
     {
         if (MetaLogWriterControl::kLogFetchDone == inReq.type &&
                 kStateLogSync == mState) {
@@ -2749,6 +2766,15 @@ private:
             Wakeup();
         }
         return false;
+    }
+    bool Handle(
+        const MetaReadMetaData& inReq)
+    {
+        // If primary, then use normal RPC handling path by returning false.
+        return (kStatePrimary != mState && (
+            inReq.allowNotPrimaryFlag ||
+            (mActiveFlag && kStateBackup == mState)
+        ));
     }
     void AddNode(
         MetaVrReconfiguration& inReq)
@@ -4322,9 +4348,10 @@ MetaVrSM::Commit(
     int
 MetaVrSM::SetParameters(
     const char*       inPrefixPtr,
-    const Properties& inParameters)
+    const Properties& inParameters,
+    const char*       inMetaMdPtr)
 {
-    return mImpl.SetParameters(inPrefixPtr, inParameters);
+    return mImpl.SetParameters(inPrefixPtr, inParameters, inMetaMdPtr);
 }
 
     const MetaVrSM::Config&

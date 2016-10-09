@@ -37,6 +37,7 @@
 #include "util.h"
 #include "MetaDataStore.h"
 #include "MetaDataSync.h"
+#include "MetaVrSM.h"
 
 #include "common/Properties.h"
 #include "common/MemLock.h"
@@ -628,10 +629,16 @@ MetaServer::Startup(const Properties& props,
         mStartupAbortOnPanicFlag ? 1 : 0) != 0;
     mAbortOnPanicFlag        = props.getValue("metaServer.abortOnPanicFlag",
         mAbortOnPanicFlag ? 1 : 0) != 0;
+    if (0 != MetaRequest::GetLogWriter().GetMetaVrSM().SetParameters(
+            kMetaVrParametersPrefixPtr, props, mMetaMd.c_str())) {
+        KFS_LOG_STREAM_FATAL <<
+            "failed to set VR parameters" <<
+        KFS_LOG_EOM;
+        return false;
+    }
 
     // Enable directory space update by default.
     metatree.setUpdatePathSpaceUsage(true);
-
     SetParameters(props);
 
     const int maxSocketFd = mMaxFdLimit - min(256, (mMaxFdLimit + 2) / 3);

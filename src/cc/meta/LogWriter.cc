@@ -1148,14 +1148,10 @@ private:
                         theLastPtr != thePtr;
                         thePtr = thePtr->next) {
                     if (META_LOG_WRITER_CONTROL != thePtr->op &&
-                            (META_READ_META_DATA != thePtr->op ||
-                                 (! static_cast<const MetaReadMetaData*>(
-                                    thePtr)->allowNotPrimaryFlag &&
-                                        -EVRBACKUP != mVrStatus)) &&
-                            (((MetaRequest::kLogIfOk == thePtr->logAction &&
+                            (0 != mVrStatus ||
+                            ((MetaRequest::kLogIfOk == thePtr->logAction &&
                                 0 == thePtr->status) ||
-                            MetaRequest::kLogAlways == thePtr->logAction) ||
-                                0 != mVrStatus)) {
+                            MetaRequest::kLogAlways == thePtr->logAction))) {
                         LogError(*thePtr);
                     }
                 }

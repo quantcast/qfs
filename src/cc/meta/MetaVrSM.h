@@ -381,7 +381,8 @@ public:
         time_t inTimeNow);
     int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        const char*       inMetaMdPtr = 0);
     void Commit(
         const MetaVrLogSeq& inLogSeq);
     int Start(
