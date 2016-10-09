@@ -6576,8 +6576,8 @@ MetaVrReconfiguration::handle()
     GetLogWriter().GetMetaVrSM().Handle(*this, MetaVrLogSeq());
 }
 
-void
-MetaVrReconfiguration::response(ReqOstream &os)
+/* virtual */ void
+MetaVrReconfiguration::response(ReqOstream& os)
 {
     if (! IdempotentAck(os)) {
         return;
@@ -6585,10 +6585,29 @@ MetaVrReconfiguration::response(ReqOstream &os)
     os << "\r\n";
 }
 
-void
+/* virtual */ void
 MetaVrLogStartView::handle()
 {
     replayer.handle(*this);
+}
+
+/* virtual */ bool
+MetaVrGetStatus::start()
+{
+    return HasMetaServerAdminAccess(*this);
+}
+
+/* virtual */ void
+MetaVrGetStatus::response(ReqOstream& os, IOBuffer& buf)
+{
+    if (! OkHeader(this, os)) {
+        return;
+    }
+    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            mResponse.BytesConsumable() << "\r\n"
+    "\r\n";
+    os.flush();
+    buf.Move(&mResponse);
 }
 
 MetaProcessRestart::RestartPtr MetaProcessRestart::sRestartPtr = 0;

@@ -309,6 +309,7 @@ public:
           mVrStateIoStr(),
           mEmptyString(),
           mInputStream(),
+          mWOStream(),
           mMutex(),
           mReconfigureCompletionCondVar(),
           mPendingReconfigureReqPtr(0),
@@ -410,6 +411,8 @@ public:
                 return Handle(static_cast<MetaVrStartView&>(inReq));
             case META_VR_RECONFIGURATION:
                 return Handle(static_cast<MetaVrReconfiguration&>(inReq));
+            case META_VR_GET_STATUS:
+                return Handle(static_cast<MetaVrGetStatus&>(inReq));
             case META_LOG_WRITER_CONTROL:
                 return Handle(static_cast<MetaLogWriterControl&>(inReq));
             case META_VR_LOG_START_VIEW:
@@ -1544,6 +1547,44 @@ private:
             const TxStatusCheckNode& inCheck);
     };
 
+    class TxStatusReporter : public LogTransmitter::StatusReporter
+    {
+    public:
+        TxStatusReporter(
+            ostream& inStream)
+            : LogTransmitter::StatusReporter(),
+              mStream(inStream)
+            {}
+        virtual ~TxStatusReporter()
+            {}
+        virtual bool Report(
+            const ServerLocation& inLocation,
+            NodeId                inId,
+            bool                  inActiveFlag,
+            NodeId                inActualId,
+            const MetaVrLogSeq&   inAck,
+            const MetaVrLogSeq&   inCommitted)
+        {
+            mStream <<
+                "channel:\n"
+                "location: " << inLocation    << "\n"
+                "id: "       << inId          << "\n"
+                "actualId: " << inActualId    << "\n"
+                "active: "   << inActiveFlag  << "\n"
+                "ack: "      << inAck         << "\n"
+                "sent: "     << inCommitted   << "\n"
+            ;
+            return true;
+        }
+    private:
+        ostream& mStream;
+    private:
+        TxStatusReporter(
+            const TxStatusReporter& inReporter);
+        TxStatusReporter& operator=(
+            const TxStatusReporter& inReporter);
+    };
+
     typedef set<
         pair<NodeId, ServerLocation>,
         less<pair<NodeId, ServerLocation> >,
@@ -1633,6 +1674,7 @@ private:
     string                 mVrStateIoStr;
     string const           mEmptyString;
     BufferInputStream      mInputStream;
+    IOBuffer::WOStream     mWOStream;
     QCMutex                mMutex;
     QCCondVar              mReconfigureCompletionCondVar;
     MetaVrReconfiguration* mPendingReconfigureReqPtr;
@@ -2624,6 +2666,68 @@ private:
                 mLastCommitTime = mLastUpTime;
             }
         }
+    }
+    bool Handle(
+        MetaVrGetStatus& inReq)
+    {
+        inReq.logAction = MetaRequest::kLogNever;
+        if (0 != inReq.status) {
+            return true;
+        }
+        if (mConfig.IsEmpty()) {
+            inReq.status    = -ENOENT;
+            inReq.statusMsg = "VR is not configured";
+            return true;
+        }
+        ostream& theStream = mWOStream.Set(inReq.mResponse);
+        theStream <<
+            "node: "                 << mNodeId                   << "\n"
+            "status: "               << mStatus                   << "\n"
+            "active: "               << mActiveFlag               << "\n"
+            "state: "                << GetStateName(mState)      << "\n"
+            "primary: "              << mPrimaryNodeId            << "\n"
+            "epoch: "                << mEpochSeq                 << "\n"
+            "view: "                 << mViewSeq                  << "\n"
+            "log: "                  << mLastLogSeq               << "\n"
+            "commit: "               << mCommittedSeq             << "\n"
+            "lastViewEnd: "          << mLastViewEndSeq           << "\n"
+            "ignoreInvalidVrState: " << mIgnoreInvalidVrStateFlag << "\n"
+            "\n"
+            "logTransmitter:\n"
+        ;
+        TxStatusReporter theReporter(theStream);
+        mLogTransmitter.GetStatus(theReporter);
+        theStream << "\nconfiguration:\n"
+            "primaryTimeout: "           << mConfig.GetPrimaryTimeout() << "\n"
+            "backupTimeout: "            << mConfig.GetBackupTimeout()  << "\n"
+            "changeViewMaxLogDistance: " <<
+                mConfig.GetChangeVewMaxLogDistance() << "\n"
+            "maxListenersPerNode: "      <<
+                mConfig.GetMaxListenersPerNode() << "\n"
+        ;
+        const Config::Nodes& theNodes = mConfig.GetNodes();
+        for (Config::Nodes::const_iterator theIt = theNodes.begin();
+                theNodes.end() != theIt;
+                ++theIt) {
+            theStream <<
+                "node:\n"
+                "id: "       << theIt->first            << "\n"
+                "flags: "    << theIt->second.GetFlags() << "\n"
+                "active: "   <<
+                    (0 != (theIt->second.GetFlags() & Config::kFlagActive)) <<
+                "\n"
+            ;
+            const Config::Locations& theLocations =
+                theIt->second.GetLocations();
+            for (Config::Locations::const_iterator theIt = theLocations.begin();
+                    theLocations.end() != theIt;
+                    ++theIt) {
+                theStream << "listener: " << *theIt << "\n";
+            }
+        }
+        theStream << "\n";
+        mWOStream.Reset();
+        return true;
     }
     bool Handle(
         MetaLogWriterControl& inReq)

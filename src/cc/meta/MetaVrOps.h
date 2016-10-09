@@ -31,6 +31,8 @@
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 
+#include "kfsio/IOBuffer.h"
+
 #include "MetaRequest.h"
 #include "LogWriter.h"
 #include "MetaVrSM.h"
@@ -477,10 +479,11 @@ public:
         ;
     }
     template<typename T>
-    static T& IoParserDef(T& parser)
+    static T& IoParserDef(
+        T& inParser)
     {
         // Keep everything except list for debugging.
-        return MetaIdempotentRequest::IoParserDef(parser)
+        return MetaIdempotentRequest::IoParserDef(inParser)
         .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
         .Def("S", &MetaVrReconfiguration::mListSize,                          0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
@@ -489,9 +492,10 @@ public:
         ;
     }
     template<typename T>
-    static T& LogIoDef(T& parser)
+    static T& LogIoDef(
+        T& inParser)
     {
-        return MetaIdempotentRequest::LogIoDef(parser)
+        return MetaIdempotentRequest::LogIoDef(inParser)
         .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
         .Def("S", &MetaVrReconfiguration::mListSize,                          0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
@@ -575,6 +579,38 @@ public:
     }
 protected:
     virtual ~MetaVrLogStartView()
+        {}
+};
+
+class MetaVrGetStatus : public MetaRequest
+{
+public:
+    IOBuffer mResponse;
+
+    MetaVrGetStatus()
+        : MetaRequest(META_VR_GET_STATUS, kLogIfOk),
+          mResponse()
+        { replayBypassFlag = true; }
+    bool Validate()
+        { return true; }
+    virtual bool start();
+    virtual void handle()
+        {}
+    virtual void response(
+        ReqOstream& inStream,
+        IOBuffer&   inBuffer);
+    virtual ostream& ShowSelf(
+        ostream& inOs) const
+        { return (inOs << "vr-get-status"); }
+    template<typename T>
+    static T& ParserDef(
+        T& inParser)
+    {
+        return MetaRequest::ParserDef(inParser)
+        ;
+    }
+protected:
+    virtual ~MetaVrGetStatus()
         {}
 };
 

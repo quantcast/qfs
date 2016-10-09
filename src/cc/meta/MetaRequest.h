@@ -170,7 +170,8 @@ using std::less;
     f(VR_DO_VIEW_CHANGE) \
     f(VR_START_VIEW) \
     f(VR_RECONFIGURATION) \
-    f(VR_LOG_START_VIEW)
+    f(VR_LOG_START_VIEW) \
+    f(VR_GET_STATUS)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -557,6 +558,8 @@ struct MetaNoop : public MetaRequest {
     {
         return MetaRequest::LogIoDef(parser);
     }
+protected:
+    virtual ~MetaNoop() {}
 };
 
 /*!

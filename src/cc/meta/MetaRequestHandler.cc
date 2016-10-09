@@ -239,6 +239,9 @@ MakeMetaRequestHandler(
     .MakeParser("READ_META_DATA",
         META_READ_META_DATA,
         static_cast<const MetaReadMetaData*>(0))
+    .MakeParser("VR_GET_STATUS",
+        META_VR_GET_STATUS,
+        static_cast<const MetaVrGetStatus*>(0))
     ;
 }
 

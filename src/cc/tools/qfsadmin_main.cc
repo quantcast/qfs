@@ -87,7 +87,9 @@ using std::istringstream;
     f(READ_META_DATA,                   "retrieve transaction log or" \
                                         " checkpoint block") \
     f(VR_RECONFIGURATION,               "viewstamped replication"\
-                                        " reconfiguration")
+                                        " reconfiguration") \
+    f(VR_GET_STATUS,                    "viewstamped replication"\
+                                        " get status")
 
     static string
 ToLower(

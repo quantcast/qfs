@@ -209,6 +209,7 @@ public:
                 inStream  << inNodeDelimPtr << theIt->first << inDelimPtr;
                 theIt->second.Insert(inStream, inDelimPtr);
             }
+            return inStream;
         }
         template<typename ST>
         ST& Extract(
