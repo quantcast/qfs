@@ -6542,8 +6542,13 @@ MetaVrRequest::handle()
 MetaLogWriterControl::handle()
 {
     if (completion) {
-        completion->handle();
-    } else if (kWriteBlock == type && 0 == status) {
+        if (! completion->suspended) {
+            panic("writer control: invalid completion");
+        }
+        submit_request(completion);
+        return;
+    }
+    if (kWriteBlock == type && 0 == status) {
         replayer.handle(*this);
     }
 }

@@ -1170,46 +1170,43 @@ public:
             size_t theCount = 0;
             if (! (theStream >> theCount) ||
                     theCount != mConfig.GetNodes().size()) {
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             int theTimeout = -1;
             if (! (theStream >> theTimeout) || theTimeout < 0) {
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             mConfig.SetPrimaryTimeout(theTimeout);
             theTimeout = -1;
             if (! (theStream >> theTimeout) || theTimeout < 0) {
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             mConfig.SetBackupTimeout(theTimeout);
             seq_t theSeq = -1;
             if (! (theStream >> theSeq) || theSeq < 0) {
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             mConfig.SetChangeVewMaxLogDistance(theSeq);
             theSeq = -1;
             if (! (theStream >> theSeq) || theSeq < 0) {
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             mEpochSeq = theSeq;
             theSeq = -1;
             if (! (theStream >> theSeq) || theSeq < 0) {
-                mEpochSeq = 0;
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             mViewSeq = theSeq;
-            uint32_t theMaxListenersPerNode = mConfig.GetMaxListenersPerNode();
-            if ((theStream >> theMaxListenersPerNode) &&
+            uint32_t theMaxListenersPerNode = 0;
+            if (! (theStream >> theMaxListenersPerNode) ||
                     theMaxListenersPerNode <= 0) {
-                mEpochSeq = 0;
-                mViewSeq  = 0;
-                mConfig.Clear();
+                ResetConfig();
                 return false;
             }
             mConfig.SetMaxListenersPerNode(theMaxListenersPerNode);
@@ -1256,7 +1253,7 @@ public:
                 ResetConfig();
                 return false;
             }
-            mQuorum = mActiveCount - (mActiveCount - 1) / 2;
+            mQuorum = CalcQuorum(mActiveCount);
         }
         return true;
     }
