@@ -252,6 +252,7 @@ public:
         Transmitter& inTransmitter);
     void Suspend(
         bool inFlag);
+    void ScheduleHelloTransmit();
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(seq_t) * 2 + 4 };
@@ -573,6 +574,15 @@ public:
         { mActiveFlag = inFlag; }
     NodeId GetPrimaryNodeId() const
         { return mPrimaryNodeId; }
+    void ScheduleHelloTransmit()
+    {
+        if (mSendHelloFlag || ! mConnectionPtr ||
+                ! CanSendHeartbeat()) {
+            return;
+        }
+        mSendHelloFlag = true;
+        StartSend();
+    }
 private:
     typedef ClientAuthContext::RequestCtx   RequestCtx;
     typedef deque<pair<MetaVrLogSeq, int> > BlocksQueue;
@@ -976,12 +986,19 @@ private:
         }
         return false;
     }
-    bool SendHeartbeat()
+    bool CanSendHeartbeat() const
     {
-        if ((mActiveFlag &&
+        return (! (mActiveFlag &&
                 mAckBlockSeq.IsValid() &&
                 mAckBlockSeq < mLastSentBlockSeq) ||
-                ! mBlocksQueue.empty() || mVrOpPtr) {
+                ! mBlocksQueue.empty() ||
+                mVrOpPtr ||
+                mAuthenticateOpPtr
+        );
+    }
+    bool SendHeartbeat()
+    {
+        if (! CanSendHeartbeat()) {
             return false;
         }
         if (! mLastSentBlockSeq.IsValid()) {
@@ -1543,8 +1560,10 @@ LogTransmitter::Impl::Acked(
             return;
         }
     }
-    const MetaVrLogSeq theAck = inTransmitter.GetAck();
-    if (mCommitted < theAck) {
+    const NodeId theCurPrimaryId =  mMetaVrSMPtr ?
+        mMetaVrSMPtr->GetPrimaryNodeId() : NodeId(-1);
+    const MetaVrLogSeq theAck    = inTransmitter.GetAck();
+    if (mCommitted < theAck && 0 <= theCurPrimaryId) {
         NodeId             thePrevId    = -1;
         int                theAckAdvCnt = 0;
         MetaVrLogSeq       theCommitted = theAck;
@@ -1560,6 +1579,10 @@ LogTransmitter::Impl::Acked(
                 continue;
             }
             const NodeId theId = thePtr->GetId();
+            if (theCurPrimaryId != thePtr->GetPrimaryNodeId() &&
+                    theCurPrimaryId != theId) {
+                continue;
+            }
             if (theId == thePrevId) {
                 theCurMax = max(theCurMax, theCurAck);
             } else {
@@ -1580,7 +1603,8 @@ LogTransmitter::Impl::Acked(
             mCommitObserver.Notify(mCommitted);
         }
     }
-    if (inPrevAck.IsValid() != theAck.IsValid()) {
+    if (inPrevAck.IsValid() != theAck.IsValid() || theCurPrimaryId < 0 ||
+            inPrimaryNodeId != thePrimaryId) {
         Update(inTransmitter);
     }
 }
@@ -1680,34 +1704,41 @@ LogTransmitter::Impl::Update()
     MetaVrLogSeq   theMaxAck;
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
-    while ((thePtr = theIt.Next())) {
-        const NodeId       theId  = thePtr->GetId();
-        const MetaVrLogSeq theAck = thePtr->GetAck();
-        if (0 <= theId && theId != thePrevAllId) {
-            theIdCnt++;
-            thePrevAllId = theId;
-        }
-        if (thePtr->IsActive() && theAck.IsValid()) {
-            theUpCnt++;
-            if (theId != thePrevId) {
-                theIdUpCnt++;
+    const NodeId   theCurPrimaryId =  mMetaVrSMPtr ?
+        mMetaVrSMPtr->GetPrimaryNodeId() : NodeId(-1);
+    if (0 <= theCurPrimaryId) {
+        while ((thePtr = theIt.Next())) {
+            const NodeId       theId  = thePtr->GetId();
+            const MetaVrLogSeq theAck = thePtr->GetAck();
+            if (0 <= theId && theId != thePrevAllId) {
+                theIdCnt++;
+                thePrevAllId = theId;
             }
-            if (theMinAck.IsValid()) {
-                theMinAck = min(theMinAck, theAck);
-                theMaxAck = max(theMaxAck, theAck);
-            } else {
-                theMinAck = theAck;
-                theMaxAck = theAck;
+            if (thePtr->IsActive() && theAck.IsValid() &&
+                    (theCurPrimaryId == theId ||
+                    theCurPrimaryId == thePtr->GetPrimaryNodeId())) {
+                theUpCnt++;
+                if (theId != thePrevId) {
+                    theIdUpCnt++;
+                }
+                if (theMinAck.IsValid()) {
+                    theMinAck = min(theMinAck, theAck);
+                    theMaxAck = max(theMaxAck, theAck);
+                } else {
+                    theMinAck = theAck;
+                    theMaxAck = theAck;
+                }
+                thePrevId = theId;
             }
-            thePrevId = theId;
+            theTotalCnt++;
         }
-        theTotalCnt++;
     }
     const bool theUpFlag     = mMinAckToCommit <= theIdUpCnt;
     const bool theNotifyFlag = theUpFlag != mUpFlag;
     KFS_LOG_STREAM(theNotifyFlag ?
             MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
         "update:"
+        " primary: "     << theCurPrimaryId <<
         " tranmitters: " << theTotalCnt <<
         " up: "          << theUpCnt <<
         " ids up: "      << theIdUpCnt <<
@@ -1739,6 +1770,7 @@ LogTransmitter::Impl::GetStatus(
                 thePtr->GetId(),
                 thePtr->IsActive(),
                 thePtr->GetReceivedId(),
+                thePtr->GetPrimaryNodeId(),
                 thePtr->GetAck(),
                 mCommitted)) {
             break;
@@ -1847,6 +1879,16 @@ LogTransmitter::Impl::Suspend(
     Update();
 }
 
+    void
+LogTransmitter::Impl::ScheduleHelloTransmit()
+{
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        thePtr->ScheduleHelloTransmit();
+    }
+}
+
 LogTransmitter::LogTransmitter(
     NetManager&                     inNetManager,
     LogTransmitter::CommitObserver& inCommitObserver)
@@ -1932,6 +1974,12 @@ LogTransmitter::SetHeartbeatInterval(
 LogTransmitter::GetChannelsCount() const
 {
     return mImpl.GetChannelsCount();
+}
+
+    void
+LogTransmitter::ScheduleHelloTransmit()
+{
+    mImpl.ScheduleHelloTransmit();
 }
 
 } // namespace KFS

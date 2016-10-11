@@ -66,6 +66,7 @@ public:
             NodeId                inId,
             bool                  inActiveFlag,
             NodeId                inActualId,
+            NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAck,
             const MetaVrLogSeq&   inCommitted) = 0;
     protected:
@@ -102,6 +103,7 @@ public:
     void SetFileSystemId(
         int64_t inFsId);
     int GetChannelsCount() const;
+    void ScheduleHelloTransmit();
     void Suspend(
         bool inFlag);
 private:

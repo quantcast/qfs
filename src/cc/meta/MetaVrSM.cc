@@ -270,6 +270,7 @@ public:
           mLastLogStartViewViewEndSeq(),
           mLastNonEmptyViewEndSeq(),
           mPrimaryViewStartSeq(),
+          mHelloCommitSeq(),
           mLastCommitTime(0),
           mTimeNow(),
           mLastProcessTime(mTimeNow),
@@ -646,7 +647,7 @@ public:
         { return mNodeId; }
     NodeId GetPrimaryNodeId() const
     {
-        if (mActiveFlag && 0 < mQuorum) {
+        if (mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0)) {
             if (kStatePrimary == mState) {
                 return mNodeId;
             }
@@ -766,6 +767,20 @@ public:
                         AdvanceView("primary commit timed out");
                     } else {
                         mLastUpTime = TimeNow();
+                        if (mCommittedSeq == mLastLogSeq &&
+                                mLastLogSeq.IsPastViewStart() &&
+                                mLastCommitTime + mConfig.GetBackupTimeout() <
+                                    TimeNow() &&
+                                mHelloCommitSeq < mLastLogSeq) {
+                            // Flush replay queue on backups by sending VR hello
+                            // after period of inactivity.
+                            KFS_LOG_STREAM_DEBUG <<
+                                "flush replay queue: " << mLastLogSeq <<
+                                " prior flush: "       << mHelloCommitSeq <<
+                            KFS_LOG_EOM;
+                            mHelloCommitSeq = mLastLogSeq;
+                            mLogTransmitter.ScheduleHelloTransmit();
+                        }
                     }
                 }
                 outReqPtr = mMetaVrLogStartViewPtr;
@@ -964,6 +979,7 @@ public:
             mReplyCount          = mChannelsCount;
             mViewChangeStartTime = mLastReceivedTime;
         }
+        mHelloCommitSeq  = mCommittedSeq;
         NodeId theNodeId = -1;
         mStartedFlag = true;
         int theRet = mConfig.IsEmpty() ? -EINVAL : ReadVrState(theNodeId);
@@ -1424,10 +1440,12 @@ private:
     public:
         TxStatusCheck(
             bool         inActivateFlag,
+            NodeId       inPrimaryNodeId,
             ChangesList& inList,
             MetaRequest& inReq)
             : LogTransmitter::StatusReporter(),
               mActivateFlag(inActivateFlag),
+              mPrimaryNodeId(inPrimaryNodeId),
               mReq(inReq),
               mList(inList),
               mActiveUpSet(),
@@ -1441,6 +1459,7 @@ private:
             NodeId                inId,
             bool                  inActiveFlag,
             NodeId                inActualId,
+            NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAck,
             const MetaVrLogSeq&   inCommitted)
         {
@@ -1477,7 +1496,8 @@ private:
                     }
                     theCnt++;
                     if (mActivateFlag &&
-                            inAck.IsValid() && inCommitted <= inAck) {
+                            inAck.IsValid() && inCommitted <= inAck &&
+                            mPrimaryNodeId == inPrimaryNodeId) {
                         if (theIt->second <= 0) {
                             theIt->second = 1;
                             mUpCount++;
@@ -1490,7 +1510,8 @@ private:
             }
             if (! mActivateFlag && theCnt <= 0 && inActiveFlag &&
                     0 <= inActualId && inActualId == inId &&
-                    inAck.IsValid() && inCommitted <= inAck) {
+                    inAck.IsValid() && inCommitted <= inAck &&
+                    mPrimaryNodeId == inPrimaryNodeId) {
                 if (mActiveUpSet.insert(inId).second) {
                     mUpCount++;
                 }
@@ -1504,6 +1525,7 @@ private:
             { return mTotalUpCount; }
     private:
         const bool   mActivateFlag;
+        const NodeId mPrimaryNodeId;
         MetaRequest& mReq;
         ChangesList& mList;
         NodeIdSet    mActiveUpSet;
@@ -1521,9 +1543,11 @@ private:
     public:
         TxStatusCheckNode(
             NodeId                   inNodeId,
-            const Config::Locations& inLocations)
+            const Config::Locations& inLocations,
+            NodeId                   inPrimaryNodeId)
             : LogTransmitter::StatusReporter(),
               mNodeId(inNodeId),
+              mPrimaryNodeId(inPrimaryNodeId),
               mLocations(inLocations),
               mUpCount(0)
             {}
@@ -1534,12 +1558,14 @@ private:
             NodeId                inId,
             bool                  inActiveFlag,
             NodeId                inActualId,
+            NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAck,
             const MetaVrLogSeq&   inCommitted)
         {
             if (mNodeId == inId &&
                     0 <= inActualId && inId == inActualId &&
-                    inAck.IsValid() && inCommitted <= inAck) {
+                    inAck.IsValid() && inCommitted <= inAck &&
+                    (mPrimaryNodeId < 0 || mPrimaryNodeId == inPrimaryNodeId)) {
                 Locations::iterator const theIt = find(
                     mLocations.begin(), mLocations.end(), inLocation);
                 if (theIt == mLocations.end()) {
@@ -1554,6 +1580,7 @@ private:
             { return mUpCount; }
     private:
         NodeId const      mNodeId;
+        NodeId const      mPrimaryNodeId;
         Config::Locations mLocations;
         size_t            mUpCount;
     private:
@@ -1578,17 +1605,19 @@ private:
             NodeId                inId,
             bool                  inActiveFlag,
             NodeId                inActualId,
+            NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAck,
             const MetaVrLogSeq&   inCommitted)
         {
             mStream <<
                 "channel:\n"
-                "location: "   << inLocation   << "\n"
-                "id: "         << inId         << "\n"
-                "receivedId: " << inActualId   << "\n"
-                "active: "     << inActiveFlag << "\n"
-                "ack: "        << inAck        << "\n"
-                "sent: "       << inCommitted  << "\n"
+                "location: "   << inLocation      << "\n"
+                "id: "         << inId            << "\n"
+                "receivedId: " << inActualId      << "\n"
+                "primaryId: "  << inPrimaryNodeId << "\n"
+                "active: "     << inActiveFlag    << "\n"
+                "ack: "        << inAck           << "\n"
+                "sent: "       << inCommitted     << "\n"
             ;
             return true;
         }
@@ -1651,6 +1680,7 @@ private:
     MetaVrLogSeq           mLastLogStartViewViewEndSeq;
     MetaVrLogSeq           mLastNonEmptyViewEndSeq;
     MetaVrLogSeq           mPrimaryViewStartSeq;
+    MetaVrLogSeq           mHelloCommitSeq;
     time_t                 mLastCommitTime;
     time_t                 mTimeNow;
     time_t                 mLastProcessTime;
@@ -1715,6 +1745,7 @@ private:
         if (kStateLogSync == mState || ! mActiveFlag) {
             return;
         }
+        mPrimaryNodeId = -1;
         CancelViewChange();
         SetState(kStateViewChange);
         mDoViewChangeViewEndSeq = GetLastViewEndSeq();
@@ -2321,7 +2352,7 @@ private:
         if (0 == inReq.status && VerifyClusterKey(inReq) &&
                 kStatePrimary == inReq.mCurState &&
                 0 < mQuorum && mActiveFlag) {
-            if (kStatePrimary == mState) {
+            if (kStatePrimary == mState && inReq.mNodeId != mNodeId) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "cuuent node state: ";
                 inReq.statusMsg += GetStateName(mState);
@@ -2336,9 +2367,9 @@ private:
         if (0 == inReq.status &&
                 mNodeId != inReq.mNodeId &&
                 kStatePrimary == inReq.mCurState &&
-                kStateLogSync != mState &&
-                (! mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0))) {
-            if (mLastLogSeq < inReq.mLastLogSeq) {
+                kStateLogSync != mState) {
+            if (mLastLogSeq < inReq.mLastLogSeq &&
+                    (! mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0))) {
                 const bool kAllowNonPrimaryFlag = false;
                 ScheduleLogFetch(
                     inReq.mLastLogSeq,
@@ -2976,7 +3007,8 @@ private:
         if (inReq.logseq.IsValid() || kStatePrimary != mState) {
             return;
         }
-        TxStatusCheckNode theCheck(inReq.mNodeId, theLocations);
+        TxStatusCheckNode theCheck(inReq.mNodeId, theLocations,
+            IsActive(inReq.mNodeId) ? mNodeId : NodeId(-1));
         mLogTransmitter.GetStatus(theCheck);
         if (theCheck.GetUpCount() <= 0) {
             inReq.status    = -EINVAL;
@@ -3060,7 +3092,8 @@ private:
         if (inReq.logseq.IsValid()) {
             return;
         }
-        TxStatusCheck theCheck(inActivateFlag, mPendingChangesList, inReq);
+        TxStatusCheck theCheck(
+            inActivateFlag, mNodeId, mPendingChangesList, inReq);
         mLogTransmitter.GetStatus(theCheck);
         if (0 != inReq.status) {
             return;
