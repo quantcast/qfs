@@ -813,7 +813,8 @@ private:
     void ProcessPendingAckQueue(
         Queue& inDoneQueue,
         bool   inSetReplayStateFlag,
-        int    inExtraReqCount)
+        int    inExtraReqCount,
+        bool   inHasReplayBypassFlag)
     {
         mPendingAckQueue.PushBack(inDoneQueue);
         MetaRequest* thePtr     = 0;
@@ -834,7 +835,26 @@ private:
                 thePtr     = thePtr->next;
             }
         }
-        if (! thePtr) {
+        if (thePtr) {
+            if (inHasReplayBypassFlag) {
+                // Move into  done queue entries that bypass replay.
+                thePrevPtr = thePtr;
+                thePtr     = thePtr->next;
+                while (thePtr) {
+                    MetaRequest* const theNextPtr = thePtr->next;
+                    if (thePtr->replayBypassFlag &&
+                            ! thePtr->logseq.IsValid()) {
+                        thePrevPtr->next = theNextPtr;
+                        thePtr->next = 0;
+                        inDoneQueue.PushBack(*thePtr);
+                    } else {
+                        thePrevPtr = thePtr;
+                    }
+                    thePtr = theNextPtr;
+                }
+                mPendingAckQueue.Set(mPendingAckQueue.Front(), thePrevPtr);
+            }
+        } else {
             inDoneQueue.PushBack(mPendingAckQueue);
         }
         if (inDoneQueue.IsEmpty() && 0 == inExtraReqCount &&
@@ -977,13 +997,13 @@ private:
         if (theVrBecameNonPrimaryFlag) {
             mPrimaryFlag = false;
             Queue theTmp;
-            ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0);
+            ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0, false);
         }
-        if (! theWriteQueue.IsEmpty()) {
-            Write(*theWriteQueue.Front());
-        }
+        const bool theHasReplayBypassFlag = ! theWriteQueue.IsEmpty() &&
+            Write(theWriteQueue);
         mWokenFlag = false;
-        ProcessPendingAckQueue(theWriteQueue, false, theReqPtr ? 1 : 0);
+        ProcessPendingAckQueue(theWriteQueue, false, theReqPtr ? 1 : 0,
+            theHasReplayBypassFlag);
     }
     virtual void DispatchEnd()
     {
@@ -1002,7 +1022,7 @@ private:
         }
         if (mWokenFlag || theVrBecameNonPrimaryFlag) {
             Queue theTmp;
-            ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0);
+            ProcessPendingAckQueue(theTmp, theVrBecameNonPrimaryFlag, 0, false);
         }
     }
     virtual void DispatchExit()
@@ -1015,8 +1035,8 @@ private:
         Sync();
         Close();
     }
-    void Write(
-        MetaRequest& inHead)
+    bool Write(
+        Queue& inQueue)
     {
         if (! IsLogStreamGood()) {
             if (mCurLogStartSeq < mNextLogSeq) {
@@ -1025,9 +1045,10 @@ private:
                 NewLog(mNextLogSeq);
             }
         }
-        ostream&     theStream      = mMdStream;
-        MetaRequest* theCurPtr      = &inHead;
-        bool         theWriteOkFlag = 0 == mVrStatus;
+        bool         theHasReplayBypassFlag = false;
+        ostream&     theStream              = mMdStream;
+        MetaRequest* theCurPtr              = inQueue.Front();
+        bool         theWriteOkFlag         = 0 == mVrStatus;
         while (theCurPtr) {
             mLastLogSeq = mNextLogSeq;
             MetaRequest*          theVrPtr               = 0;
@@ -1038,7 +1059,11 @@ private:
             bool                  theStartViewFlag       = false;
             MetaLogWriterControl* theCtlPtr              = 0;
             for ( ; thePtr; thePtr = thePtr->next) {
+                theHasReplayBypassFlag = theHasReplayBypassFlag ||
+                    thePtr->replayBypassFlag;
                 if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {
+                    theHasReplayBypassFlag = theHasReplayBypassFlag ||
+                        thePtr->replayBypassFlag;
                     theVrPtr = thePtr;
                     break;
                 }
@@ -1174,6 +1199,7 @@ private:
                 mCurLogStartTime + mLogRotateInterval < mNetManager.Now())) {
             StartNextLog();
         }
+        return theHasReplayBypassFlag;
     }
     void StartNextLog()
     {

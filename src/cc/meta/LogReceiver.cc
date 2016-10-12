@@ -272,7 +272,8 @@ public:
         const MetaVrLogSeq& inStartSeq,
         const MetaVrLogSeq& inEndSeq)
     {
-        if (inEndSeq <= mSubmittedWriteSeq) {
+        if (inEndSeq <= mSubmittedWriteSeq &&
+                (inEndSeq != mSubmittedWriteSeq || inStartSeq != inEndSeq)) {
             return 0;
         }
         MetaRequest* thePtr = mWriteOpFreeList.PopFront();
@@ -329,6 +330,12 @@ public:
             META_LOG_WRITER_CONTROL == theOp.op;
         const bool theWakeupFlag = ! IsAwake();
         mPendingResponseQueue.PushBack(theOp);
+        KFS_LOG_STREAM_DEBUG <<
+            reinterpret_cast<void*>(&theOp) <<
+            " "                << theOp.Show() <<
+            " wakeup: "        << theWakeupFlag <<
+            " ack broadcast: " << mDispatchAckBroadcastFlag <<
+        KFS_LOG_EOM;
         if (theWakeupFlag) {
             Wakeup();
         }
@@ -1166,6 +1173,11 @@ private:
         } else if (! mDownFlag) {
             mImpl.AckSent(*this);
         }
+        KFS_LOG_STREAM_DEBUG << mPeerLocation <<
+            " id: "      << mImpl.GetId() <<
+            " ack: "     << mImpl.GetLastLogSeq()  <<
+            " primary: " << mImpl.GetPrimaryId() <<
+        KFS_LOG_EOM;
         if (mRecursionCount <= 0) {
             mConnectionPtr->StartFlush();
         }

@@ -1791,7 +1791,7 @@ private:
     }
     bool HasPrimaryTimedOut() const
     {
-        return (mLastUpTime + (mConfig.GetPrimaryTimeout() + 1) / 2 <
+        return (mLastUpTime + mConfig.GetPrimaryTimeout() <
             TimeNow());
     }
     void ConfigUpdate()
@@ -1861,6 +1861,8 @@ private:
         if (! mMetaVrLogStartViewPtr->Validate()) {
             panic("VR: invalid log start op");
         }
+        // Force heartbeats now.
+        mLogTransmitter.SetHeartbeatInterval(mConfig.GetPrimaryTimeout());
         Wakeup();
     }
     void AdvanceView(

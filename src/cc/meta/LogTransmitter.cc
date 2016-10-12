@@ -70,6 +70,7 @@ class LogTransmitter::Impl
 {
 private:
     class Transmitter;
+    enum { kHeartbeatsPerTimeoutInterval = 2 };
 public:
     typedef MetaVrSM::Config      Config;
     typedef Config::NodeId        NodeId;
@@ -143,7 +144,10 @@ public:
         { return mHeartbeatInterval; }
     void SetHeartbeatInterval(
         int inPrimaryTimeoutSec)
-        { mHeartbeatInterval = max(1, inPrimaryTimeoutSec / 2); }
+    {
+        mHeartbeatInterval = max(1, inPrimaryTimeoutSec /
+            kHeartbeatsPerTimeoutInterval);
+    }
     MetaVrLogSeq GetCommitted() const
         { return mCommitted; }
     int GetMaxPending() const
@@ -253,6 +257,7 @@ public:
     void Suspend(
         bool inFlag);
     void ScheduleHelloTransmit();
+    void ScheduleHeartbeatTransmit();
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(seq_t) * 2 + 4 };
@@ -443,7 +448,8 @@ public:
                 if (SendHeartbeat()) {
                     break;
                 }
-                if (++mHeartbeatSendTimeoutCount < 2) {
+                if (++mHeartbeatSendTimeoutCount <
+                        Impl::kHeartbeatsPerTimeoutInterval) {
                     break;
                 }
                 Error("connection timed out");
@@ -576,12 +582,19 @@ public:
         { return mPrimaryNodeId; }
     void ScheduleHelloTransmit()
     {
-        if (mSendHelloFlag || ! mConnectionPtr ||
-                ! CanSendHeartbeat()) {
+        if (mSendHelloFlag || ! mConnectionPtr) {
             return;
         }
         mSendHelloFlag = true;
-        StartSend();
+        SendHeartbeat();
+    }
+    void ScheduleHeartbeatTransmit()
+    {
+        if (mConnectionPtr) {
+            SendHeartbeat();
+            return;
+        }
+        Connect();
     }
 private:
     typedef ClientAuthContext::RequestCtx   RequestCtx;
@@ -957,12 +970,7 @@ private:
         }
         mRecursionCount++;
         if (mSendHelloFlag) {
-            mSendHelloFlag = false;
-            mMetaVrHello.shortRpcFormatFlag = true;
-            if (mImpl.Init(mMetaVrHello, GetPeerLocation())) {
-                mMetaVrHello.opSeqno = GetNextSeq();
-                Request(mMetaVrHello);
-            }
+            SendHello();
         }
         if (mPendingSend.IsEmpty()) {
             SendHeartbeat();
@@ -986,20 +994,27 @@ private:
         }
         return false;
     }
-    bool CanSendHeartbeat() const
+    void SendHello()
     {
-        return (! (mActiveFlag &&
+        mSendHelloFlag = false;
+        mMetaVrHello.shortRpcFormatFlag = true;
+        if (mImpl.Init(mMetaVrHello, GetPeerLocation())) {
+            mMetaVrHello.opSeqno = GetNextSeq();
+            Request(mMetaVrHello);
+        }
+    }
+    bool SendHeartbeat()
+    {
+        if ((mActiveFlag &&
                 mAckBlockSeq.IsValid() &&
                 mAckBlockSeq < mLastSentBlockSeq) ||
                 ! mBlocksQueue.empty() ||
                 mVrOpPtr ||
-                mAuthenticateOpPtr
-        );
-    }
-    bool SendHeartbeat()
-    {
-        if (! CanSendHeartbeat()) {
+                mAuthenticateOpPtr) {
             return false;
+        }
+        if (mSendHelloFlag) {
+            SendHello();
         }
         if (! mLastSentBlockSeq.IsValid()) {
             mLastSentBlockSeq = mImpl.GetLastLogSeq();
@@ -1579,8 +1594,7 @@ LogTransmitter::Impl::Acked(
                 continue;
             }
             const NodeId theId = thePtr->GetId();
-            if (theCurPrimaryId != thePtr->GetPrimaryNodeId() &&
-                    theCurPrimaryId != theId) {
+            if (theCurPrimaryId != thePtr->GetPrimaryNodeId()) {
                 continue;
             }
             if (theId == thePrevId) {
@@ -1715,8 +1729,7 @@ LogTransmitter::Impl::Update()
                 thePrevAllId = theId;
             }
             if (thePtr->IsActive() && theAck.IsValid() &&
-                    (theCurPrimaryId == theId ||
-                    theCurPrimaryId == thePtr->GetPrimaryNodeId())) {
+                    theCurPrimaryId == thePtr->GetPrimaryNodeId()) {
                 theUpCnt++;
                 if (theId != thePrevId) {
                     theIdUpCnt++;
@@ -1889,6 +1902,16 @@ LogTransmitter::Impl::ScheduleHelloTransmit()
     }
 }
 
+    void
+LogTransmitter::Impl::ScheduleHeartbeatTransmit()
+{
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        thePtr->ScheduleHeartbeatTransmit();
+    }
+}
+
 LogTransmitter::LogTransmitter(
     NetManager&                     inNetManager,
     LogTransmitter::CommitObserver& inCommitObserver)
@@ -1968,6 +1991,7 @@ LogTransmitter::SetHeartbeatInterval(
     int inPrimaryTimeoutSec)
 {
     mImpl.SetHeartbeatInterval(inPrimaryTimeoutSec);
+    mImpl.ScheduleHeartbeatTransmit();
 }
 
     int
