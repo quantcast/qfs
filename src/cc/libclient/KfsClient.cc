@@ -349,6 +349,20 @@ KfsClient::EnumerateBlocks(
 }
 
 int
+KfsClient::GetChunks(int fd, chunkOff_t startOffset,
+        vector<kfsChunkId_t>& chunkIDs, vector<chunkOff_t>& chunkOffsets)
+{
+    return mImpl->GetChunks(fd, startOffset, chunkIDs, chunkOffsets);
+}
+
+int
+KfsClient::GetChunkInfo(int fd, const vector<kfsChunkId_t>& chunkIDs, bool flush,
+    vector<bool>& stable, vector<vector<ServerLocation> >& locations)
+{
+    return mImpl->GetChunkInfo(fd, chunkIDs, flush, stable, locations);
+}
+
+int
 KfsClient::GetReplication(const char* pathname,
     KfsFileAttr& attr, int& minChunkReplication, int& maxChunkReplication)
 {
@@ -728,6 +742,12 @@ int
 KfsClient::Truncate(int fd, chunkOff_t offset)
 {
     return mImpl->Truncate(fd, offset);
+}
+
+int
+KfsClient::DiscardChunks(int fd, chunkOff_t offset, int num_chunks)
+{
+    return mImpl->DiscardChunks(fd, offset, num_chunks);
 }
 
 int
@@ -4240,6 +4260,49 @@ KfsClientImpl::TruncateSelf(int fd, chunkOff_t offset)
 }
 
 int
+KfsClientImpl::DiscardChunks(int fd, chunkOff_t offset, int num_chunks)
+{
+    const int syncRes = Sync(fd);
+    if (syncRes < 0) {
+        return syncRes;
+    }
+    QCStMutexLocker l(mMutex);
+    return DiscardChunksSelf(fd, offset, num_chunks);
+}
+
+int
+KfsClientImpl::DiscardChunksSelf(int fd, chunkOff_t offset, int num_chunks)
+{
+    assert(mMutex.IsOwned());
+
+    if (! valid_fd(fd)) {
+        return -EBADF;
+    }
+    // for truncation, file should be opened for writing
+    if ((mFileTable[fd]->openMode & (O_RDWR | O_WRONLY | O_APPEND)) == 0) {
+        return -EINVAL;
+    }
+    FdInfo(fd)->buffer.Invalidate();
+
+    // round-down to the nearest chunk block start offset
+    offset = (offset / CHUNKSIZE) * CHUNKSIZE;
+
+    FileAttr *fa = FdAttr(fd);
+    TruncateOp op(0, "", fa->fileId, offset);
+    op.fileOffset        = offset;
+    op.endOffset         = op.fileOffset + num_chunks * (chunkOff_t)CHUNKSIZE;
+    op.pruneBlksFromHead = false;
+    op.setEofHintFlag    = false;
+    DoMetaOpWithRetry(&op);
+    int res = op.status;
+
+    if (res == 0) {
+        gettimeofday(&fa->mtime, 0);
+    }
+    return res;
+}
+
+int
 KfsClientImpl::PruneFromHead(int fd, chunkOff_t offset)
 {
     const int syncRes = Sync(fd);
@@ -6905,6 +6968,180 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
     }
     md5sum = mdsAll.GetMd();
     return ret;
+}
+
+int
+KfsClientImpl::GetChunks(int fd, chunkOff_t startOffset,
+    vector<kfsChunkId_t>& chunkIDs, vector<chunkOff_t>& chunkOffsets)
+{
+    QCStMutexLocker l(mMutex);
+
+    if (! valid_fd(fd)) {
+        return -EBADF;
+    }
+    FileTableEntry& entry = *(mFileTable[fd]);
+    const string& pathname = entry.pathname;
+
+    if (entry.fattr.isDirectory) {
+        KFS_LOG_STREAM_DEBUG << pathname << ": is a directory" << KFS_LOG_EOM;
+        return -EISDIR;
+    }
+
+    GetLayoutOp lop(0, entry.fattr.fileId);
+    lop.omitLocationsFlag = true;
+    lop.lastChunkOnlyFlag = false;
+    lop.startOffset       = startOffset;
+    GetLayout(lop, 0);
+    if (lop.status < 0) {
+        KFS_LOG_STREAM_ERROR << "get layout failed on path: " << pathname << " "
+             << ErrorCodeToStr(lop.status) <<
+        KFS_LOG_EOM;
+        return lop.status;
+    }
+
+    chunkIDs.clear();
+    chunkOffsets.clear();
+    for (vector<ChunkLayoutInfo>::const_iterator i = lop.chunks.begin();
+            i != lop.chunks.end();
+            ++i) {
+        chunkIDs.push_back(i->chunkId);
+        chunkOffsets.push_back(i->fileOffset);
+    }
+
+    return 0;
+}
+
+int
+KfsClientImpl::GetChunkInfo(int fd, const vector<kfsChunkId_t>& chunkIDs, bool flush,
+        vector<bool>& stable, vector<vector<ServerLocation> >& locations)
+{
+    QCStMutexLocker l(mMutex);
+
+    if (! valid_fd(fd)) {
+        return -EBADF;
+    }
+    FileTableEntry& entry = *(mFileTable[fd]);
+    const string& pathname = entry.pathname;
+
+    if (entry.fattr.isDirectory) {
+        KFS_LOG_STREAM_DEBUG << pathname << ": is a directory" << KFS_LOG_EOM;
+        return -EISDIR;
+    }
+
+    stable.resize(chunkIDs.size());
+    locations.resize(chunkIDs.size());
+
+    for (size_t idx=0; idx < chunkIDs.size();
+         idx += LeaseAcquireOp::kMaxChunkIds) {
+        size_t end = idx + LeaseAcquireOp::kMaxChunkIds;
+        if (end > chunkIDs.size()) {
+            end = chunkIDs.size();
+        }
+        int ret = GetChunkInfoSelf(pathname.c_str(), idx, end, chunkIDs, flush,
+                                   stable, locations);
+        if (ret) {
+            return ret;
+        }
+    }
+
+    return 0;
+}
+
+int
+KfsClientImpl::GetChunkInfoSelf(const char* pathname, int start, int end,
+        const vector<kfsChunkId_t>& chunkIDs, bool flush,
+        vector<bool>& stable, vector<vector<ServerLocation> >& locations)
+{
+    LeaseAcquireOp theLeaseOp(0, -1, pathname);
+    chunkId_t chunkIds[LeaseAcquireOp::kMaxChunkIds];
+    int64_t leaseIds[LeaseAcquireOp::kMaxChunkIds];
+
+    theLeaseOp.leaseTimeout = 0;
+    theLeaseOp.flushFlag = flush;
+    theLeaseOp.getChunkLocationsFlag = true;
+
+    theLeaseOp.chunkIds = chunkIds;
+    theLeaseOp.leaseIds = leaseIds;
+    theLeaseOp.chunkIds[0] = -1;
+    theLeaseOp.leaseIds[0] = -1;
+
+    int                      i  = 0;
+    for (i = 0; i < (end - start); i++) {
+        theLeaseOp.chunkIds[i] = chunkIDs[start + i];
+        theLeaseOp.leaseIds[i] = -1;
+    }
+
+    if (i < LeaseAcquireOp::kMaxChunkIds) {
+        theLeaseOp.chunkIds[i] = -1;
+    }
+
+    const int maxLeaseWaitTimeSec = max(LEASE_INTERVAL_SECS * 3 / 2,
+        (mMaxNumRetriesPerOp - 1) * (mRetryDelaySec + mDefaultOpTimeout));
+    const int leseRetryDelaySec    = min(3, max(1, mRetryDelaySec));
+    time_t    endTime              = maxLeaseWaitTimeSec;
+    for (int retryCnt = 0; ; retryCnt++) {
+        DoMetaOpWithRetry(&theLeaseOp);
+        if (theLeaseOp.status != -EBUSY && theLeaseOp.status != -EAGAIN) {
+            break;
+        }
+        const time_t now = time(0);
+        if (retryCnt == 0) {
+            endTime += now;
+        }
+        if (endTime < now) {
+            break;
+        }
+        KFS_LOG_STREAM((endTime - maxLeaseWaitTimeSec + 15 < now) ?
+                MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) <<
+            " lease: "       << theLeaseOp.statusMsg <<
+            " retrying in: " << leseRetryDelaySec << " sec." <<
+            " retry: "       << retryCnt <<
+        KFS_LOG_EOM;
+        Sleep(leseRetryDelaySec);
+        theLeaseOp.status = 0;
+        theLeaseOp.statusMsg.clear();
+    }
+
+    if (theLeaseOp.status != 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to acquire lease:"
+            " msg: "    << theLeaseOp.statusMsg <<
+            " status: " << ErrorCodeToStr(theLeaseOp.status) <<
+        KFS_LOG_EOM;
+        return theLeaseOp.status;
+    }
+
+    ChunkLeaseInfo chunkLeaseInfo;
+    BufferInputStream is;
+    is.Set(theLeaseOp.contentBuf, theLeaseOp.contentLength);
+    if (theLeaseOp.contentLength > 0) {
+        const char* err = 0;
+        int         i;
+        is >> std::hex;
+        for (i = start; i < end; i++) {
+            if (! (is >> chunkLeaseInfo)) {
+                err = "chunk lease response parse error";
+                break;
+            }
+            stable[i] = (chunkLeaseInfo.leaseId >= 0);
+            locations[i] = chunkLeaseInfo.chunkServers;
+        }
+        is.Reset();
+        if (err) {
+            KFS_LOG_STREAM_ERROR <<
+                err << ":"
+                " file: "    << pathname <<
+                " index: "   << i <<
+                " chunk: "   << chunkIDs[i] <<
+                " lease: "   << chunkLeaseInfo.leaseId <<
+                " servers: " << chunkLeaseInfo.chunkServers.size() <<
+                " length: "  << theLeaseOp.contentLength <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+    }
+
+    return 0;
 }
 
 int

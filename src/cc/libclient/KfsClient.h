@@ -233,6 +233,26 @@ public:
         bool getChunkSizesFlag = true);
 
     ///
+    /// Given a file in QFS, returns the informantion of chunks in the file.
+    /// @param[in] fd The file being queried.
+    /// @param[in] startOffset Only return chunks that are at or after this offset.
+    /// @param[out] chunkID The chunks that are in the given file and at or after startOffset
+    /// @param[out] chunkOffset The offests of the returned chunks in the given file.
+    int GetChunks(int fd, chunkOff_t startOffset,
+        vector<kfsChunkId_t>& chunkIDs, vector<chunkOff_t>& chunkOffsets);
+
+    ///
+    /// Retrieve chunk infomation, and optionally force stablize chunks.
+    /// @param[in] fd The file that those given chunks are belonged to.
+    /// @param[in] chunkIDs IDs of the chunks to be queried.
+    /// @param[in] flush If true, force stablizting these chunks.
+    /// @param[out] stable Whether the given chunks are stable.
+    /// @param[out] locations location[x] is the list of chunk servers that have the chunk
+    ///             specified by chunkIDs[x].
+    int GetChunkInfo(int fd, const vector<kfsChunkId_t>& chunkIDs, bool flush,
+        vector<bool>& stable, vector<vector<ServerLocation> >& locations);
+
+    ///
     /// Given a file in KFS, verify that all N copies of each chunk are
     /// identical.
     /// For files with replication 1, and for files with recovery and
@@ -521,6 +541,15 @@ public:
     /// @retval status code
     int Truncate(int fd, chunkOff_t offset);
     int Truncate(const char* pathname, chunkOff_t offset);
+
+     ///
+     /// Remove chunks inside a given file. This operation will make a hole in
+     /// the given file.
+     /// @param[in] fd A previously opened file.
+     /// @param[in] offset Remove chunks starting from this offset
+     ///            (must be aligned with chunk boundry) 
+     /// @param[in] num_chunks Specifies how many chunks will be removed.
+     int DiscardChunks(int fd, chunkOff_t offset, int num_chunks);
 
     ///
     /// Truncation, but going in the reverse direction: delete chunks

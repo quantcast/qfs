@@ -368,6 +368,12 @@ public:
     int EnumerateBlocks(const char* pathname, KfsClient::BlockInfos& res,
         bool getChunkSizesFlag);
 
+    int GetChunks(int fd, chunkOff_t startOffset,
+        vector<kfsChunkId_t>& chunkIDs, vector<chunkOff_t>& chunkOffsets);
+
+    int GetChunkInfo(int fd, const vector<kfsChunkId_t>& chunkIDs, bool flush,
+        vector<bool>& stable, vector<vector<ServerLocation> >& locations);
+
     int CompareChunkReplicas(const char *pathname, string &md5sum);
 
     /// API to verify that checksums on all replicas are the same.
@@ -509,6 +515,8 @@ public:
     /// @retval status code
     int Truncate(int fd, chunkOff_t offset);
     int Truncate(const char* pathname, chunkOff_t offset);
+
+    int DiscardChunks(int fd, chunkOff_t offset, int num_chunks);
 
     ///
     /// Truncation, but going in the reverse direction: delete chunks
@@ -865,6 +873,7 @@ private:
     int GetDataLocationSelf(int fd, chunkOff_t start, chunkOff_t len,
         vector<vector<string> >& locations, chunkOff_t* outBlkSize);
     int TruncateSelf(int fd, chunkOff_t offset);
+    int DiscardChunksSelf(int fd, chunkOff_t offset, int num_chunks);
     int CreateSelf(const char *pathname, int numReplicas, bool exclusive,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
         bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier);
@@ -968,6 +977,10 @@ private:
         uint32_t *checksums, bool readVerifyFlag = true);
 
     int VerifyDataChecksumsFid(const FileAttr& attr);
+
+    int GetChunkInfoSelf(const char* pathname, int start, int end,
+        const vector<kfsChunkId_t>& chunkIDs, bool flush,
+        vector<bool>& stable, vector<vector<ServerLocation> >& locations);
 
     int GetChunkFromReplica(
         const ChunkServerAccess& chunkServerAccess,
