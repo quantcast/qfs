@@ -1013,9 +1013,9 @@ private:
                 mAuthenticateOpPtr) {
             return false;
         }
-        if (mSendHelloFlag) {
-            SendHello();
-        }
+        // if (mSendHelloFlag) {
+        //    SendHello();
+        // }
         if (! mLastSentBlockSeq.IsValid()) {
             mLastSentBlockSeq = mImpl.GetLastLogSeq();
         }

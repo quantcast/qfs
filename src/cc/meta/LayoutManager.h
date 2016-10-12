@@ -1505,6 +1505,8 @@ public:
         { mReplaySetRackFlag = flag; }
     time_t TimeNow() const
         { return mNetManager.Now(); }
+    time_t GetServiceStartTime() const
+        { return mServiceStartTime; }
 protected:
     typedef vector<
         int,
@@ -2455,6 +2457,7 @@ protected:
     ChunkServerPtr           mRestoreChunkServerPtr;
     HibernatedChunkServerPtr mRestoreHibernatedCSPtr;
     size_t                   mReplayServerCount;
+    time_t                   mServiceStartTime;
 
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;

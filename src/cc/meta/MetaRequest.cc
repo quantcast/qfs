@@ -4045,10 +4045,24 @@ MetaCheckpoint::handle()
         return;
     }
     if (! finishLog) {
-        if (now < lastRun + intervalSec) {
+        const MetaVrLogSeq committed = GetLogWriter().GetCommittedLogSeq();
+        if (committed <= lastCheckpointId) {
             return;
         }
-        if (GetLogWriter().GetCommittedLogSeq() <= lastCheckpointId) {
+        MetaVrLogSeq last;
+        if (0 < flushNewViewDelaySec &&
+                0 == GetLogWriter().GetVrStatus() &&
+                committed < (last = replayer.getLastLogSeq()) &&
+                flushViewLogSeq < last &&
+                gLayoutManager.GetServiceStartTime() + 5 < now) {
+            KFS_LOG_STREAM_DEBUG <<
+                "flushing new view: "  << last <<
+                " priror view flush: " << flushViewLogSeq <<
+            KFS_LOG_EOM;
+            flushViewLogSeq = last;
+            submit_request(new MetaNoop());
+        }
+        if (now < lastRun + intervalSec) {
             return;
         }
         if (0 <= lockFd) {
@@ -4178,6 +4192,9 @@ MetaCheckpoint::SetParameters(const Properties& props)
     checkpointWriteBufferSize = props.getValue(
         "metaServer.checkpoint.writeBufferSize",
         checkpointWriteBufferSize);
+    flushNewViewDelaySec = props.getValue(
+        "metaServer.checkpoint.flushNewViewDelaySec",
+        flushNewViewDelaySec);
 }
 
 int*

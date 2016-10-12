@@ -3337,13 +3337,15 @@ struct MetaCheckpoint : public MetaRequest {
           failedCount(0),
           maxFailedCount(2),
           checkpointWriteTimeoutSec(60 * 60),
+          flushNewViewDelaySec(10),
           checkpointWriteSyncFlag(true),
           checkpointWriteBufferSize(16 << 20),
           lastCheckpointId(),
           runningCheckpointId(),
           runningCheckpointLogSegmentNum(-1),
           lastRun(0),
-          finishLog(0)
+          finishLog(0),
+          flushViewLogSeq()
         { clnt = c; }
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
@@ -3360,6 +3362,7 @@ private:
     int                   failedCount;
     int                   maxFailedCount;
     int                   checkpointWriteTimeoutSec;
+    int                   flushNewViewDelaySec;
     bool                  checkpointWriteSyncFlag;
     size_t                checkpointWriteBufferSize;
     MetaVrLogSeq          lastCheckpointId;
@@ -3367,6 +3370,7 @@ private:
     seq_t                 runningCheckpointLogSegmentNum;
     time_t                lastRun;
     MetaLogWriterControl* finishLog;
+    MetaVrLogSeq          flushViewLogSeq;
 };
 
 /*!

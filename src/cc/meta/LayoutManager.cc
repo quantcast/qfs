@@ -1814,6 +1814,7 @@ LayoutManager::LayoutManager()
       mRestoreChunkServerPtr(),
       mRestoreHibernatedCSPtr(),
       mReplayServerCount(0),
+      mServiceStartTime(0),
       mChunkInfosTmp(),
       mChunkInfos2Tmp(),
       mServersTmp(),
@@ -13038,6 +13039,7 @@ LayoutManager::StartServicing()
             max(2 * mServerDownReplicationDelay, mRecoveryIntervalSec));
         it->replayFlag   = false;
     }
+    mServiceStartTime = TimeNow();
 }
 
 void
