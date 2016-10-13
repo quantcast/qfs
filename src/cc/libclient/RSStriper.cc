@@ -2918,6 +2918,20 @@ private:
                     max(theRdSize, ioMaxRd), mStripeCount);
                 return false;
             }
+        } else if (0 == inIdx && theChunkSize <= 0) {
+            KFS_LOG_STREAM_INFO << mLogPrefix <<
+                "read recovery failure:"
+                " req: "         << inRequest.mPos       <<
+                ","              << inRequest.mSize      <<
+                " wrong chunk size:"
+                " stripe: "      << inIdx                <<
+                " chunk: "       << theBuf.mChunkId      <<
+                " version: "     << theBuf.mChunkVersion <<
+                " size: "        << theBuf.mChunkSize    <<
+                " eof: "         << mFileSize            <<
+            KFS_LOG_EOM;
+            InvalidChunkSize(inRequest, theBuf, theRdSize);
+            return false;
         } else if (ioMaxRd < theRdSize) {
             if (ioMaxRd >= 0) {
                 if (1 < inIdx && 0 <= ioEndPosHead &&
@@ -2982,7 +2996,9 @@ private:
                 ioMaxChunkSize = theChunkSize;
             }
         } else if (theRdSize + mStripeSize < ioMaxRd ||
-                theChunkSize + mStripeSize < ioMaxChunkSize) {
+                theChunkSize + mStripeSize < ioMaxChunkSize ||
+                (0 <= ioMaxChunkSize &&
+                    ioMaxChunkSize + mStripeSize < theChunkSize)) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "read recovery failure:"
                 " req: "        << inRequest.mPos        <<
