@@ -3129,7 +3129,7 @@ private:
             }
         } else {
             const int theNewQuorum = CalcQuorum(theActiveCount);
-            if (theCheck.GetUpCount() < theNewQuorum) {
+            if ((int)theCheck.GetUpCount() < theNewQuorum) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "change active status: emaning up nodes: ";
                 AppendDecIntToString(inReq.statusMsg, theCheck.GetUpCount());
