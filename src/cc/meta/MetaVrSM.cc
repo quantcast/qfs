@@ -2333,7 +2333,8 @@ private:
     void ScheduleCommitIfNeeded(
         MetaVrRequest& inReq)
     {
-        if (mCommittedSeq < inReq.mCommittedSeq &&
+        if (mNodeId != inReq.mNodeId &&
+                mCommittedSeq < inReq.mCommittedSeq &&
                 inReq.mCommittedSeq <= mLastLogSeq &&
                 0 <= inReq.mCommittedFidSeed &&
                 0 <= inReq.mCommittedStatus) {
@@ -2344,8 +2345,12 @@ private:
                 " "                   << inReq.Show() <<
             KFS_LOG_EOM;
             inReq.SetScheduleCommit();
-            ScheduleViewChange();
-            mPendingCommitSeq = inReq.mCommittedSeq;
+            if (kStateBackup != mState ||
+                    inReq.mCurState != kStatePrimary ||
+                    inReq.mNodeId != mPrimaryNodeId) {
+                ScheduleViewChange();
+                mPendingCommitSeq = inReq.mCommittedSeq;
+            }
         }
     }
     bool Handle(
@@ -2358,10 +2363,6 @@ private:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "cuuent node state: ";
                 inReq.statusMsg += GetStateName(mState);
-            } else if (inReq.mLastLogSeq < mCommittedSeq) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg =
-                    "last log sequence is less than committed";
             }
         }
         Show(inReq);

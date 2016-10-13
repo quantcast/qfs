@@ -494,6 +494,7 @@ public:
         mPeer.port = -1;
         mPeer.hostname.clear();
         mSendHelloFlag = true;
+        mMetaVrHello.opSeqno = -1;
         mVrOpSeq = -1;
         mReplyProps.clear();
         UpdateAck(thePrevAckSeq, thePrevPrimaryId);
@@ -586,7 +587,7 @@ public:
             return;
         }
         mSendHelloFlag = true;
-        SendHeartbeat();
+        SendHello();
     }
     void ScheduleHeartbeatTransmit()
     {
@@ -969,9 +970,7 @@ private:
             return;
         }
         mRecursionCount++;
-        if (mSendHelloFlag) {
-            SendHello();
-        }
+        SendHello();
         if (mPendingSend.IsEmpty()) {
             SendHeartbeat();
         } else {
@@ -996,6 +995,13 @@ private:
     }
     void SendHello()
     {
+        if (! mSendHelloFlag ||
+                0 <= mMetaVrHello.opSeqno ||
+                ! mBlocksQueue.empty() ||
+                mVrOpPtr ||
+                mAuthenticateOpPtr) {
+            return;
+        }
         mSendHelloFlag = false;
         mMetaVrHello.shortRpcFormatFlag = true;
         if (mImpl.Init(mMetaVrHello, GetPeerLocation())) {
@@ -1013,9 +1019,6 @@ private:
                 mAuthenticateOpPtr) {
             return false;
         }
-        // if (mSendHelloFlag) {
-        //    SendHello();
-        // }
         if (! mLastSentBlockSeq.IsValid()) {
             mLastSentBlockSeq = mImpl.GetLastLogSeq();
         }
@@ -1060,6 +1063,9 @@ private:
             if (0 < mCompactBlockCount) {
                 mCompactBlockCount--;
             }
+        }
+        if (mSendHelloFlag && mConnectionPtr && mBlocksQueue.empty()) {
+            SendHello();
         }
     }
     int HandleAck(
@@ -1259,9 +1265,9 @@ private:
                 " "         << mMetaVrHello.statusMsg <<
                 " "         << mMetaVrHello.Show() <<
             KFS_LOG_EOM;
+            mMetaVrHello.opSeqno = -1;
             mMetaVrHello.HandleResponse(theSeq, mReplyProps, mId,
                 GetPeerLocation());
-            mMetaVrHello.opSeqno = -1;
             if (0 != mMetaVrHello.status) {
                 Error(mMetaVrHello.statusMsg.empty() ?
                     "VR hello error" : mMetaVrHello.statusMsg.c_str());
@@ -1348,6 +1354,7 @@ private:
             " blocks: "       << mBlocksQueue.size() <<
             " bytes: "        << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
+        mMetaVrHello.opSeqno = -1;
         const NodeId thePrevPrimaryId = mPrimaryNodeId;
         mPrimaryNodeId = -1;
         mConnectionPtr->Close();

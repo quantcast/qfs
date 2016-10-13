@@ -4046,9 +4046,6 @@ MetaCheckpoint::handle()
     }
     if (! finishLog) {
         const MetaVrLogSeq committed = GetLogWriter().GetCommittedLogSeq();
-        if (committed <= lastCheckpointId) {
-            return;
-        }
         MetaVrLogSeq last;
         if (0 < flushNewViewDelaySec &&
                 0 == GetLogWriter().GetVrStatus() &&
@@ -4062,7 +4059,7 @@ MetaCheckpoint::handle()
             flushViewLogSeq = last;
             submit_request(new MetaNoop());
         }
-        if (now < lastRun + intervalSec) {
+        if (now < lastRun + intervalSec || committed <= lastCheckpointId) {
             return;
         }
         if (0 <= lockFd) {
