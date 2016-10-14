@@ -1112,6 +1112,9 @@ public:
             panic("VR: invalid commit sequence in reconfiguration");
             return;
         }
+        if (mQuorum <= 0 && mStartedFlag && mLastLogSeq < inLogSeq) {
+            SetLastLogSeq(inLogSeq);
+        }
         if (mLastCommitSeq < inLogSeq && inLogSeq <= mLastLogSeq) {
             mLastCommitSeq  = inLogSeq;
             mLastCommitTime = TimeNow();
@@ -1460,8 +1463,8 @@ private:
             bool                  inActiveFlag,
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
-            const MetaVrLogSeq&   inAck,
-            const MetaVrLogSeq&   inCommitted)
+            const MetaVrLogSeq&   inAckSeq,
+            const MetaVrLogSeq&   inLastSentSeq)
         {
             if (0 != mReq.status) {
                 return false;
@@ -1471,7 +1474,7 @@ private:
                     mList.end() != theIt;
                     ++theIt) {
                 if (inId == theIt->first) {
-                    if (inActiveFlag != mActivateFlag) {
+                    if (inActiveFlag == mActivateFlag) {
                         mReq.status    = -EINVAL;
                         mReq.statusMsg =
                             "invalid transmitter active status node: ";
@@ -1496,8 +1499,9 @@ private:
                     }
                     theCnt++;
                     if (mActivateFlag &&
-                            inAck.IsValid() && inCommitted <= inAck &&
-                            mPrimaryNodeId == inPrimaryNodeId) {
+                            inAckSeq.IsValid() && inLastSentSeq <= inAckSeq &&
+                            (inPrimaryNodeId < 0 ||
+                                mPrimaryNodeId == inPrimaryNodeId)) {
                         if (theIt->second <= 0) {
                             theIt->second = 1;
                             mUpCount++;
@@ -1510,7 +1514,7 @@ private:
             }
             if (! mActivateFlag && theCnt <= 0 && inActiveFlag &&
                     0 <= inActualId && inActualId == inId &&
-                    inAck.IsValid() && inCommitted <= inAck &&
+                    inAckSeq.IsValid() && inLastSentSeq <= inAckSeq &&
                     mPrimaryNodeId == inPrimaryNodeId) {
                 if (mActiveUpSet.insert(inId).second) {
                     mUpCount++;
@@ -1559,12 +1563,12 @@ private:
             bool                  inActiveFlag,
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
-            const MetaVrLogSeq&   inAck,
-            const MetaVrLogSeq&   inCommitted)
+            const MetaVrLogSeq&   inAckSeq,
+            const MetaVrLogSeq&   inLastSentSeq)
         {
             if (mNodeId == inId &&
                     0 <= inActualId && inId == inActualId &&
-                    inAck.IsValid() && inCommitted <= inAck &&
+                    inAckSeq.IsValid() && inLastSentSeq <= inAckSeq &&
                     (mPrimaryNodeId < 0 || mPrimaryNodeId == inPrimaryNodeId)) {
                 Locations::iterator const theIt = find(
                     mLocations.begin(), mLocations.end(), inLocation);
@@ -1606,8 +1610,8 @@ private:
             bool                  inActiveFlag,
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
-            const MetaVrLogSeq&   inAck,
-            const MetaVrLogSeq&   inCommitted)
+            const MetaVrLogSeq&   inAckSeq,
+            const MetaVrLogSeq&   inLastSentSeq)
         {
             mStream <<
                 "channel:\n"
@@ -1616,8 +1620,8 @@ private:
                 "receivedId: " << inActualId      << "\n"
                 "primaryId: "  << inPrimaryNodeId << "\n"
                 "active: "     << inActiveFlag    << "\n"
-                "ack: "        << inAck           << "\n"
-                "sent: "       << inCommitted     << "\n"
+                "ack: "        << inAckSeq        << "\n"
+                "sent: "       << inLastSentSeq   << "\n"
             ;
             return true;
         }
@@ -1731,7 +1735,9 @@ private:
 
     static int CalcQuorum(
         int inActiveCount)
-        { return (inActiveCount / 2 + 1); }
+    {
+        return (kMinActiveCount <= inActiveCount ? inActiveCount / 2 + 1 : 0);
+    }
     void SetLastLogSeq(
         const MetaVrLogSeq& inLogSeq)
     {

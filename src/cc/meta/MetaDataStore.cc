@@ -732,9 +732,11 @@ private:
         QCRTASSERT(0 <= inReadOp.readPos && 0 <= inReadOp.status);
         typename TableT::iterator theIt =
             inTable.find(inReadOp.startLogSeq);
-        while (theIt != mLogSegments.end() &&
-                theIt->second.mLogSeq == theIt->second.mLogEndSeq) {
-            ++theIt;
+        if (! inReadOp.checkpointFlag) {
+            while (theIt != inTable.end() &&
+                    theIt->second.mLogSeq == theIt->second.mLogEndSeq) {
+                ++theIt;
+            }
         }
         if (theIt == inTable.end()) {
             inReadOp.status    = -EFAULT;

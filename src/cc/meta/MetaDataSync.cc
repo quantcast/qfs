@@ -1256,8 +1256,10 @@ private:
                 if (theOpPtr->endLogSeq.IsValid()) {
                     mLogSeq = theOpPtr->endLogSeq;
                 } else {
+                    // Last unfinished log segment -- mark end of download by
+                    // making log sequence non valid.
                     mLogSeq = theOpPtr->startLogSeq;
-                    mLogSeq.mLogSeq = -mLogSeq.mLogSeq;
+                    mLogSeq.mLogSeq = -mLogSeq.mLogSeq - 1;
                 }
                 mNextLogSegIdx++;
             }

@@ -67,8 +67,8 @@ public:
             bool                  inActiveFlag,
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
-            const MetaVrLogSeq&   inAck,
-            const MetaVrLogSeq&   inCommitted) = 0;
+            const MetaVrLogSeq&   inAckSeq,
+            const MetaVrLogSeq&   inLastSentSeq) = 0;
     protected:
         StatusReporter()
             {}
