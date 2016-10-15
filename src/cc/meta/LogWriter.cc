@@ -1056,9 +1056,12 @@ private:
             seq_t                 theEndBlockSeq         =
                 mNextLogSeq.mLogSeq + mMaxBlockSize;
             const bool            theSimulateFailureFlag = IsSimulateFailure();
+            bool                  theFailureInjectedFlag = false;
             bool                  theStartViewFlag       = false;
             MetaLogWriterControl* theCtlPtr              = 0;
-            for ( ; thePtr; thePtr = thePtr->next) {
+            for (MetaRequest* thePrevPtr = 0;
+                    thePtr;
+                    thePrevPtr = thePtr, thePtr = thePtr->next) {
                 theHasReplayBypassFlag = theHasReplayBypassFlag ||
                     thePtr->replayBypassFlag;
                 if (mMetaVrSM.Handle(*thePtr, mLastLogSeq)) {
@@ -1075,12 +1078,18 @@ private:
                     theCtlPtr = 0;
                     continue;
                 }
-                if (META_VR_LOG_START_VIEW == thePtr->op && theStream) {
-                    if (thePtr != theCurPtr) {
+                if (! theStream) {
+                    continue;
+                }
+                if (META_VR_LOG_START_VIEW == thePtr->op) {
+                    // Ensure that VR log start view the only op in the log
+                    // block.
+                    if (thePrevPtr) {
+                        thePtr = thePrevPtr;
                         break;
                     }
                     theStartViewFlag = true;
-                } else if (! theStream || ! theWriteOkFlag) {
+                } else if (! theWriteOkFlag) {
                     continue;
                 }
                 if (((MetaRequest::kLogIfOk == thePtr->logAction &&
@@ -1091,6 +1100,7 @@ private:
                             "log writer: simulating write error:"
                             " " << thePtr->Show() <<
                         KFS_LOG_EOM;
+                        theFailureInjectedFlag = true;
                         break;
                     }
                     ++mLastLogSeq.mLogSeq;
@@ -1115,12 +1125,11 @@ private:
             }
             const MetaVrLogSeq thePrevLastViewEndSeq = mLastViewEndSeq;
             MetaRequest* const theEndPtr = thePtr ? thePtr->next : thePtr;
-            if (mNextLogSeq < mLastLogSeq && ! theSimulateFailureFlag &&
-                    (theWriteOkFlag || theStartViewFlag) &&
-                    IsLogStreamGood()) {
+            if ((mNextLogSeq < mLastLogSeq || theFailureInjectedFlag) &&
+                    (theWriteOkFlag || theStartViewFlag) && IsLogStreamGood()) {
                 const int theBlkLen =
                     (int)(mLastLogSeq.mLogSeq - mNextLogSeq.mLogSeq);
-                if (theStartViewFlag) {
+                if (theStartViewFlag && ! theFailureInjectedFlag) {
                     MetaVrLogStartView& theOp =
                         *static_cast<MetaVrLogStartView*>(theCurPtr);
                     if (theOp.logseq != mLastLogSeq || ! theOp.Validate() ||
@@ -1133,10 +1142,10 @@ private:
                         "writing: " << theOp.Show() <<
                     KFS_LOG_EOM;
                 }
-                FlushBlock(mLastLogSeq, theBlkLen);
+                FlushBlock(mLastLogSeq, theBlkLen, theFailureInjectedFlag);
             }
-            if (IsLogStreamGood() && ! theSimulateFailureFlag &&
-                    (theWriteOkFlag || theStartViewFlag)) {
+            if ((theWriteOkFlag || theStartViewFlag) && IsLogStreamGood() &&
+                    ! theFailureInjectedFlag) {
                 mNextLogSeq = mLastLogSeq;
                 if (theStartViewFlag) {
                     // Set sequence to one to the left of the start of the view,
@@ -1161,7 +1170,7 @@ private:
                         " / "          << mPrimaryFlag <<
                         " "            << thePtr->Show() <<
                     KFS_LOG_EOM;
-                    // Fail the remaining ops in the log block.
+                    // Fail the remaining ops, if any, in the log block.
                     theWriteOkFlag = false;
                 }
             } else {
@@ -1224,11 +1233,12 @@ private:
     }
     void FlushBlock(
         const MetaVrLogSeq& inLogSeq,
-        int                 inBlockLen = -1)
+        int                 inBlockLen            = -1,
+        bool                inSimulateFailureFlag = false)
     {
         const int theBlockLen = inBlockLen < 0 ?
             (int)(inLogSeq.mLogSeq - mNextLogSeq.mLogSeq) : inBlockLen;
-        if (theBlockLen <= 0) {
+        if (theBlockLen <= 0 && ! inSimulateFailureFlag) {
             panic("invalid log block start sequence or length");
         }
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
@@ -1246,11 +1256,12 @@ private:
             " "             << ErrorCodeToString(theVrStatus) <<
         KFS_LOG_EOM;
         Checksum     theTxChecksum = 0;
-        const size_t theTxLen      = WriteBlockTrailer(
-            inLogSeq, mInFlightCommitted, theBlockLen, theTxChecksum);
+        const size_t theTxLen      = theBlockLen <= 0 ? size_t(0) :
+            WriteBlockTrailer(
+                inLogSeq, mInFlightCommitted, theBlockLen, theTxChecksum);
         // Here only transmit is conditional on possible VR status change in
         // primary write path, as mVrStatus takes precedence.
-        if (0 == theVrStatus) {
+        if (0 == theVrStatus && 0 < theTxLen) {
             const char* const thePtr = mMdStream.GetBufferedStart();
             int theStatus;
             if (mMdStream.GetBufferedEnd() < thePtr + theTxLen) {
@@ -1289,7 +1300,7 @@ private:
                 inLogSeq,
                 mInFlightCommitted.mSeq,
                 mLastViewEndSeq,
-                IsLogStreamGood())) {
+                ! inSimulateFailureFlag && IsLogStreamGood())) {
             Notify(inLogSeq);
         }
     }

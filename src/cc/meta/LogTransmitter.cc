@@ -227,6 +227,8 @@ public:
     }
     bool IsUp() const
         { return mUpFlag; }
+    const bool& GetUpFlag() const
+        { return mUpFlag; }
     void Update(
         Transmitter& inTransmitter);
     int GetAuthType() const
@@ -1923,7 +1925,8 @@ LogTransmitter::Impl::ScheduleHeartbeatTransmit()
 LogTransmitter::LogTransmitter(
     NetManager&                     inNetManager,
     LogTransmitter::CommitObserver& inCommitObserver)
-    : mImpl(*(new Impl(*this, inNetManager, inCommitObserver)))
+    : mImpl(*(new Impl(*this, inNetManager, inCommitObserver))),
+      mUpFlag(mImpl.GetUpFlag())
     {}
 
 LogTransmitter::~LogTransmitter()
@@ -1957,12 +1960,6 @@ LogTransmitter::TransmitBlock(
 {
     return mImpl.TransmitBlock(inBlockSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
-}
-
-    bool
-LogTransmitter::IsUp()
-{
-    return mImpl.IsUp();
 }
 
     void

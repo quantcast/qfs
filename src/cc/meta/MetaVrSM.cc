@@ -353,7 +353,16 @@ public:
             return 0;
         }
         if (inBlockEndSeq.IsSameView(mLastViewEndSeq) &&
+                ! inBlockEndSeq.IsSameView(mLastLogSeq) &&
                 inBlockStartSeq < inBlockEndSeq) {
+            KFS_LOG_STREAM_DEBUG <<
+                "rejecting log block"
+                " ["          << inBlockStartSeq <<
+                ","           << inBlockEndSeq <<
+                "] past last closed "
+                " view end: " << mLastViewEndSeq <<
+                " last log: " << mLastLogSeq <<
+            KFS_LOG_EOM;
             return -EROFS;
         }
         return mStatus;
@@ -2161,7 +2170,7 @@ private:
         }
         const int theSz = (int)mStartViewChangeNodeIds.size();
         if (theSz < mQuorum) {
-            RetryStartViewChange("not sufficient number of noded responded");
+            RetryStartViewChange("not sufficient number of nodes responded");
             return;
         }
         if (theSz < mActiveCount &&

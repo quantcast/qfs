@@ -90,7 +90,8 @@ public:
         size_t              inBlockLen,
         uint32_t            inChecksum,
         size_t              inChecksumStartPos);
-    bool IsUp();
+    bool IsUp() const
+        { return mUpFlag; }
     void QueueVrRequest(
         MetaVrRequest& inVrReq,
         NodeId         inNodeId);
@@ -109,7 +110,8 @@ public:
 private:
     class Impl;
 
-    Impl& mImpl;
+    Impl&       mImpl;
+    const bool& mUpFlag;
 private:
     LogTransmitter(
         const LogTransmitter& inTransmitter);
