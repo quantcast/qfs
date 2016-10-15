@@ -330,7 +330,7 @@ public:
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
         MetaVrSM::NodeId    inTransmitterId);
-    void LogBlockWriteDone(
+    bool LogBlockWriteDone(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
@@ -397,6 +397,8 @@ public:
     const Config& GetConfig() const;
     int GetQuorum() const;
     bool IsPrimary() const;
+    NodeId GetPrimaryNodeId(
+        const MetaVrLogSeq& inSeq) const;
     NodeId GetPrimaryNodeId() const;
     bool Restore(
         bool        inHexFmtFlag,

@@ -358,7 +358,7 @@ public:
         }
         return mStatus;
     }
-    void LogBlockWriteDone(
+    bool LogBlockWriteDone(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
@@ -370,14 +370,14 @@ public:
                 ! inCommittedSeq.IsValid() ||
                 ! inLastViewEndSeq.IsPastViewStart()) {
             panic("VR: invalid log block commit sequence");
-            return;
+            return false;
         }
         if (! inWriteOkFlag) {
             if (mActiveFlag &&
                     (kStatePrimary == mState || kStateBackup == mState)) {
                 AdvanceView("log write failure");
             }
-            return;
+            return false;
         }
         mLastLogStartViewViewEndSeq = inLastViewEndSeq;
         if (kStatePrimary != mState && kStateBackup != mState &&
@@ -389,7 +389,7 @@ public:
                 SetLastLogSeq(inBlockEndSeq);
                 ScheduleViewChange();
             }
-            return;
+            return false;
         }
         if (mLastLogSeq < inBlockEndSeq) {
             if (mLastLogSeq <= mLastCommitSeq) {
@@ -398,6 +398,10 @@ public:
             }
             SetLastLogSeq(inBlockEndSeq);
         }
+        // Return true to commit write if in boot strap or single node state,
+        // otherwise the log transmitter is responsible for commit
+        // advancement.
+        return (mQuorum <= 0 && kStatePrimary == mState);
     }
     bool Handle(
         MetaRequest&        inReq,
@@ -645,9 +649,18 @@ public:
     }
     NodeId GetNodeId() const
         { return mNodeId; }
+    NodeId GetPrimaryNodeId(
+        const MetaVrLogSeq& inSeq) const
+    {
+        if (mActiveFlag && kStateReconfiguration == mState &&
+                mReconfigureReqPtr && inSeq <= mReconfigureReqPtr->logseq) {
+            return mNodeId;
+        }
+        return GetPrimaryNodeId();
+    }
     NodeId GetPrimaryNodeId() const
     {
-        if (mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0)) {
+        if (mActiveFlag || mQuorum <= 0) {
             if (kStatePrimary == mState) {
                 return mNodeId;
             }
@@ -851,12 +864,8 @@ public:
                 }
             } else {
                 CancelViewChange();
-                if (mQuorum <= 0 && mActiveCount < 0) {
-                    NullQuorumStartView();
-                } else {
-                    SetState(kStateBackup);
-                    mPrimaryNodeId = -1;
-                }
+                SetState(kStateBackup);
+                mPrimaryNodeId = -1;
             }
         }
         mLastProcessTime = TimeNow();
@@ -886,7 +895,7 @@ public:
             return -EINVAL;
         }
         if ((mConfig.IsEmpty() && mNodeId < 0) ||
-                (mActiveCount <= 0 && mQuorum <= 0 &&
+                (mQuorum <= 0 &&
                     ((mConfig.IsEmpty() && 0 == mNodeId) ||
                         AllInactiveFindPrimary() == mNodeId))) {
             inReplayer.commitAll();
@@ -913,7 +922,7 @@ public:
                 return -EINVAL;
             }
             mActiveFlag = IsActiveSelf(mNodeId);
-            if (mActiveCount <= 0 && mQuorum <= 0 &&
+            if (mQuorum <= 0 &&
                     ((mConfig.IsEmpty() &&
                         kBootstrapPrimaryNodeId == mNodeId) ||
                         AllInactiveFindPrimary() == mNodeId)) {
@@ -922,7 +931,7 @@ public:
                 mPrimaryNodeId       = mNodeId;
                 mPrimaryViewStartSeq = MetaVrLogSeq();
             } else {
-                if (mActiveCount <= 0 && mQuorum <= 0 && mConfig.IsEmpty()) {
+                if (mQuorum <= 0 && mConfig.IsEmpty()) {
                     KFS_LOG_STREAM_WARN <<
                         "transition into backup state with empty VR"
                         " configuration, and node id non 0"
@@ -1542,6 +1551,71 @@ private:
             const TxStatusCheck& inCheck);
     };
 
+    class TxStatusCheckSwap :public LogTransmitter::StatusReporter
+    {
+    public:
+        TxStatusCheckSwap(
+            NodeId             inPrimaryNodeId,
+            const ChangesList& inList,
+            MetaRequest&       inReq)
+            : mInactivateList(),
+              mActivateList(),
+              mCheckInactivate(
+                false, inPrimaryNodeId, mInactivateList, inReq),
+              mCheckActivate(
+                true, -1, mActivateList, inReq)
+        {
+            if (2 != inList.size()) {
+                inReq.status    = -EFAULT;
+                inReq.statusMsg = "internal error";
+                return;
+            }
+            mInactivateList.push_back(inList.front());
+            mActivateList.push_back(inList.back());
+        }
+        virtual ~TxStatusCheckSwap()
+            {}
+        virtual bool Report(
+            const ServerLocation& inLocation,
+            NodeId                inId,
+            bool                  inActiveFlag,
+            NodeId                inActualId,
+            NodeId                inPrimaryNodeId,
+            const MetaVrLogSeq&   inAckSeq,
+            const MetaVrLogSeq&   inLastSentSeq)
+        {
+            return (
+                mCheckInactivate.Report(
+                    inLocation,
+                    inId,
+                    inActiveFlag,
+                    inActualId,
+                    inPrimaryNodeId,
+                    inAckSeq,
+                    inLastSentSeq) ||
+                mCheckActivate.Report(
+                    inLocation,
+                    inId,
+                    inActiveFlag,
+                    inActualId,
+                    inPrimaryNodeId,
+                    inAckSeq,
+                    inLastSentSeq)
+            );
+        }
+    private:
+        ChangesList   mInactivateList;
+        ChangesList   mActivateList;
+    public:
+        TxStatusCheck mCheckInactivate;
+        TxStatusCheck mCheckActivate;
+    private:
+        TxStatusCheckSwap(
+            const TxStatusCheckSwap& inCheck);
+        TxStatusCheckSwap& operator=(
+            const TxStatusCheckSwap& inCheck);
+    };
+
     class TxStatusCheckNode : public LogTransmitter::StatusReporter
     {
     public:
@@ -1566,17 +1640,20 @@ private:
             const MetaVrLogSeq&   inAckSeq,
             const MetaVrLogSeq&   inLastSentSeq)
         {
-            if (mNodeId == inId &&
-                    0 <= inActualId && inId == inActualId &&
-                    inAckSeq.IsValid() && inLastSentSeq <= inAckSeq &&
-                    (mPrimaryNodeId < 0 || mPrimaryNodeId == inPrimaryNodeId)) {
-                Locations::iterator const theIt = find(
-                    mLocations.begin(), mLocations.end(), inLocation);
-                if (theIt == mLocations.end()) {
+            if (mNodeId != inId) {
+                return true;
+            }
+            Locations::iterator const theIt = find(
+                mLocations.begin(), mLocations.end(), inLocation);
+            if (theIt == mLocations.end()) {
+                if (0 <= inActualId && inId == inActualId &&
+                        inAckSeq.IsValid() && inLastSentSeq <= inAckSeq &&
+                        (mPrimaryNodeId < 0 ||
+                            mPrimaryNodeId == inPrimaryNodeId)) {
                     mUpCount++;
-                } else {
-                    mLocations.erase(theIt);
                 }
+            } else {
+                mLocations.erase(theIt);
             }
             return true;
         }
@@ -2378,7 +2455,7 @@ private:
                 kStatePrimary == inReq.mCurState &&
                 kStateLogSync != mState) {
             if (mLastLogSeq < inReq.mLastLogSeq &&
-                    (! mActiveFlag || (mQuorum <= 0 && mActiveCount <= 0))) {
+                    (! mActiveFlag || mQuorum <= 0)) {
                 const bool kAllowNonPrimaryFlag = false;
                 ScheduleLogFetch(
                     inReq.mLastLogSeq,
@@ -2715,6 +2792,9 @@ private:
             case MetaVrReconfiguration::kOpTypeReset:
                 ResetConfig(inReq);
                 break;
+            case MetaVrReconfiguration::kOpTypeSwapActiveNode:
+                SwapActiveNode(inReq);
+                break;
             default:
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "invalid operation type";
@@ -2851,8 +2931,7 @@ private:
                     return;
                 }
             } else {
-                if (mActiveCount <= 0 && mQuorum <= 0 &&
-                        inReq.mNodeId != mNodeId) {
+                if (mQuorum <= 0 && inReq.mNodeId != mNodeId) {
                     Config::Nodes::const_iterator const theIt =
                         mConfig.GetNodes().find(mNodeId);
                     if (inReq.mPrimaryOrder < theIt->second.GetPrimaryOrder() ||
@@ -2974,10 +3053,10 @@ private:
             return;
         }
         mPendingLocations.clear();
-        Config::Locations theLocations = theIt->second.GetLocations();
-        const char*       thePtr       = inReq.mListStr.GetPtr();
-        const char* const theEndPtr    = thePtr + inReq.mListStr.GetSize();
-        ServerLocation    theLocation;
+        const Config::Locations theLocs   = theIt->second.GetLocations();
+        const char*             thePtr    = inReq.mListStr.GetPtr();
+        const char* const       theEndPtr = thePtr + inReq.mListStr.GetSize();
+        ServerLocation          theLocation;
         while (thePtr < theEndPtr) {
             if (! theLocation.ParseString(
                     thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
@@ -2987,16 +3066,15 @@ private:
                 mPendingLocations.clear();
                 return;
             }
-            Config::Locations::iterator const theIt =
-                find(theLocations.begin(), theLocations.end(), theLocation);
-            if (theIt == theLocations.end()) {
+            Config::Locations::const_iterator const theIt =
+                find(theLocs.begin(), theLocs.end(), theLocation);
+            if (theIt == theLocs.end()) {
                 inReq.status    = -EINVAL;
                 inReq.statusMsg = "remove node listeners: no such litener: ";
                 inReq.statusMsg += theLocation.ToString();
                 mPendingLocations.clear();
                 return;
             }
-            theLocations.erase(theIt);
             mPendingLocations.push_back(theLocation);
         }
         if (mPendingLocations.size() != (size_t)inReq.mListSize) {
@@ -3006,7 +3084,7 @@ private:
             mPendingLocations.clear();
             return;
         }
-        if (theLocations.empty()) {
+        if (theLocs.size() <= mPendingLocations.size()) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "remove node listeners:"
                 " removing all listeners is not supported";
@@ -3016,7 +3094,7 @@ private:
         if (inReq.logseq.IsValid() || kStatePrimary != mState) {
             return;
         }
-        TxStatusCheckNode theCheck(inReq.mNodeId, theLocations,
+        TxStatusCheckNode theCheck(inReq.mNodeId, mPendingLocations,
             IsActive(inReq.mNodeId) ? mNodeId : NodeId(-1));
         mLogTransmitter.GetStatus(theCheck);
         if (theCheck.GetUpCount() <= 0) {
@@ -3043,7 +3121,7 @@ private:
             return;
         }
         if (mPendingChangesList.size() != mConfig.GetNodes().size() &&
-                mActiveCount <= 0 && mQuorum <= 0) {
+                mQuorum <= 0) {
             // Initial boot strap: do no allow to remove primary
             // in the case if all the nodes are inactive.
             for (ChangesList::const_iterator theIt =
@@ -3118,7 +3196,7 @@ private:
                             if (0 == inReq.status) {
                                 inReq.status    = -EINVAL;
                                 inReq.statusMsg = "change active status: "
-                                    "no communication with nodes:";
+                                    "channels down:";
                             }
                             inReq.statusMsg += " ";
                             AppendDecIntToString(
@@ -3137,7 +3215,7 @@ private:
             const int theNewQuorum = CalcQuorum(theActiveCount);
             if ((int)theCheck.GetUpCount() < theNewQuorum) {
                 inReq.status    = -EINVAL;
-                inReq.statusMsg = "change active status: emaning up nodes: ";
+                inReq.statusMsg = "change active status: remaining up nodes: ";
                 AppendDecIntToString(inReq.statusMsg, theCheck.GetUpCount());
                 inReq.statusMsg += " count is less than new quorum: ";
                 AppendDecIntToString(inReq.statusMsg, theNewQuorum);
@@ -3200,8 +3278,7 @@ private:
         if (0 != inReq.status || inReq.logseq.IsValid()) {
             return;
         }
-        if (size_t(1) < mConfig.GetNodes().size() &&
-                mActiveCount <= 0 && mQuorum <= 0) {
+        if (size_t(1) < mConfig.GetNodes().size() && mQuorum <= 0) {
             // Initial boot strap: do no allow to choose new primary by changing
             // the order.
             Config::Nodes::const_iterator const theIt =
@@ -3288,13 +3365,61 @@ private:
         if (mStartedFlag || ! inReq.replayFlag) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "resetting VR configuration is not supported"
-                " at run time";
+                " at run time. Meta server command line option"
+                " -clear-vr-config can be used to clear VR configuration";
             return;
         }
         if (mConfig.IsEmpty()) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "resetting VR configuration:"
                 " the configuration is empty";
+            return;
+        }
+    }
+    void SwapActiveNode(
+        MetaVrReconfiguration& inReq)
+    {
+        if (2 != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "swap active node:"
+                " list must have two node ids to swap";
+            return;
+        }
+        if (! ParseNodeIdList(inReq)) {
+            return;
+        }
+        if (1 != ApplyT(inReq, kActiveCheckNone, NopFunc()) ||
+                0 != inReq.status) {
+            if (0 == inReq.status) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = "swap active node:"
+                    " one node must be active while the other inactive";
+            }
+            return;
+        }
+        if (! IsActiveSelf(mPendingChangesList.front().first)) {
+            swap(mPendingChangesList.front(), mPendingChangesList.back());
+        }
+        if (inReq.logseq.IsValid()) {
+            return;
+        }
+        TxStatusCheckSwap theCheck(mNodeId, mPendingChangesList, inReq);
+        mLogTransmitter.GetStatus(theCheck);
+        if (0 != inReq.status) {
+            return;
+        }
+        const size_t theRemActiveCnt = theCheck.mCheckInactivate.GetUpCount();
+        if (theRemActiveCnt < (size_t)mQuorum) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "swap active node: remaining up nodes: ";
+            AppendDecIntToString(inReq.statusMsg, theRemActiveCnt);
+            inReq.statusMsg += " count is less than quorum: ";
+            AppendDecIntToString(inReq.statusMsg, mQuorum);
+            return;
+        }
+        if (theCheck.mCheckActivate.GetUpCount() < 1) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "swap active node: inactive node is down";
             return;
         }
     }
@@ -3410,9 +3535,9 @@ private:
             panic("VR: commit reconfiguration: invalid state");
             return;
         }
-        if ((MetaVrReconfiguration::kOpTypeActivateNodes != inReq.status &&
+        if ((MetaVrReconfiguration::kOpTypeActivateNodes != inReq.mOpType &&
                 MetaVrReconfiguration::kOpTypeInactivateNodes !=
-                    inReq.status) && IsActive(mNodeId) != mActiveFlag) {
+                    inReq.mOpType) && IsActive(mNodeId) != mActiveFlag) {
             panic("VR: commit reconfiguration: invalid node activity change");
             return;
         }
@@ -3443,6 +3568,9 @@ private:
                 break;
             case MetaVrReconfiguration::kOpTypeReset:
                 CommitResetConfig(inReq);
+                break;
+            case MetaVrReconfiguration::kOpTypeSwapActiveNode:
+                CommitSwapActiveNode(inReq);
                 break;
             default:
                 panic("VR: invalid reconfiguration commit attempt");
@@ -3545,6 +3673,20 @@ private:
         mActiveFlag  = false;
         mEpochSeq++;
         mViewSeq = kMetaVrLogStartEpochViewSeq;
+    }
+    void CommitSwapActiveNode(
+        MetaVrReconfiguration& inReq)
+    {
+        if (2 != mPendingChangesList.size()) {
+            panic("VR: swap active node invalid pending list size");
+            return;
+        }
+        const NodeId theInactiveId = mPendingChangesList.back().first;
+        mPendingChangesList.pop_back();
+        ApplyT(kActiveCheckActive, ChangeActiveFunc(false));
+        mPendingChangesList.front() = make_pair(theInactiveId, -1);
+        ApplyT(kActiveCheckNotActive, ChangeActiveFunc(true));
+        CommitReconfiguration(inReq);
     }
     void CommitRemoveNodes(
         const MetaVrReconfiguration& inReq)
@@ -3799,23 +3941,6 @@ private:
         inReq.mMetaMd               = mMetaMd;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
-    void NullQuorumStartView()
-    {
-        if (0 < mQuorum) {
-            panic("VR: null quorum start view invalid invocation");
-            return;
-        }
-        if ((mActiveCount <= 0 ?
-                (mConfig.IsEmpty() ?
-                    kBootstrapPrimaryNodeId :
-                    AllInactiveFindPrimary()) :
-                GetPrimaryId()) == mNodeId) {
-            PirmaryCommitStartView();
-        } else {
-            SetState(kStateBackup);
-            mPrimaryNodeId = -1;
-        }
-    }
     void UpdateViewAndStartViewChange()
     {
         if (mActiveFlag &&
@@ -3835,7 +3960,6 @@ private:
         mPrimaryNodeId               = -1;
         CancelViewChange();
         if (mQuorum <= 0) {
-            NullQuorumStartView();
             return;
         }
         if ((mEpochSeq != mLastLogSeq.mEpochSeq &&
@@ -4252,7 +4376,7 @@ MetaVrSM::HandleLogBlock(
         inBlockStartSeq, inBlockEndSeq, inCommittedSeq, inTransmitterId);
 }
 
-    void
+    bool
 MetaVrSM::LogBlockWriteDone(
     const MetaVrLogSeq& inBlockStartSeq,
     const MetaVrLogSeq& inBlockEndSeq,
@@ -4260,7 +4384,7 @@ MetaVrSM::LogBlockWriteDone(
     const MetaVrLogSeq& inLastViewEndSeq,
     bool                inWriteOkFlag)
 {
-    mImpl.LogBlockWriteDone(
+    return mImpl.LogBlockWriteDone(
         inBlockStartSeq,
         inBlockEndSeq,
         inCommittedSeq,
@@ -4444,6 +4568,13 @@ MetaVrSM::GetLastLogSeq() const
 MetaVrSM::GetMetaDataStoreLocation() const
 {
     return mImpl.GetMetaDataStoreLocation();
+}
+
+    MetaVrSM::NodeId
+MetaVrSM::GetPrimaryNodeId(
+    const MetaVrLogSeq& inSeq) const
+{
+    return mImpl.GetPrimaryNodeId(inSeq);
 }
 
     MetaVrSM::NodeId

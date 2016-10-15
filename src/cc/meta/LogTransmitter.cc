@@ -639,7 +639,8 @@ private:
         const MetaVrLogSeq& inPrevAck,
         NodeId              inPrevPrimaryNodeId)
     {
-        if (mActiveFlag && (inPrevAck != mAckBlockSeq ||
+        if (mActiveFlag && (! mImpl.IsUp() ||
+                inPrevAck != mAckBlockSeq ||
                 inPrevPrimaryNodeId != mPrimaryNodeId)) {
             mImpl.Acked(inPrevAck, inPrevPrimaryNodeId, *this);
         }
@@ -648,7 +649,7 @@ private:
         const MetaVrLogSeq& inBlockSeq,
         int                 inBlockSeqLen)
     {
-        if (inBlockSeqLen <= 0 || mImpl.GetNodeId() != mId || ! mActiveFlag) {
+        if (inBlockSeqLen <= 0 || mImpl.GetNodeId() != mId) {
             return false;
         }
         if (inBlockSeq <= mAckBlockSeq) {
@@ -1576,15 +1577,14 @@ LogTransmitter::Impl::Acked(
         return;
     }
     const NodeId thePrimaryId = inTransmitter.GetPrimaryNodeId();
-    if (inPrimaryNodeId != thePrimaryId && 0 < thePrimaryId && mMetaVrSMPtr) {
-        if (! mMetaVrSMPtr->ValidateAckPrimaryId(
+    if (inPrimaryNodeId != thePrimaryId && 0 < thePrimaryId && mMetaVrSMPtr &&
+            ! mMetaVrSMPtr->ValidateAckPrimaryId(
                 inTransmitter.GetId(), thePrimaryId)) {
-            return;
-        }
+        return;
     }
-    const NodeId theCurPrimaryId =  mMetaVrSMPtr ?
-        mMetaVrSMPtr->GetPrimaryNodeId() : NodeId(-1);
     const MetaVrLogSeq theAck    = inTransmitter.GetAck();
+    const NodeId theCurPrimaryId =  mMetaVrSMPtr ?
+        mMetaVrSMPtr->GetPrimaryNodeId(theAck) : NodeId(-1);
     if (mCommitted < theAck && 0 <= theCurPrimaryId) {
         NodeId             thePrevId    = -1;
         int                theAckAdvCnt = 0;
@@ -1624,8 +1624,10 @@ LogTransmitter::Impl::Acked(
             mCommitObserver.Notify(mCommitted);
         }
     }
-    if (inPrevAck.IsValid() != theAck.IsValid() || theCurPrimaryId < 0 ||
-            inPrimaryNodeId != thePrimaryId) {
+    if (inPrevAck.IsValid() != theAck.IsValid() ||
+            theCurPrimaryId < 0 ||
+            inPrimaryNodeId != thePrimaryId ||
+            (! IsUp() && 0 <= theCurPrimaryId)) {
         Update(inTransmitter);
     }
 }
@@ -1683,7 +1685,6 @@ LogTransmitter::Impl::TransmitBlock(
     EndOfTransmit();
     if (mMinAckToCommit <= 0 && mCommitted < inBlockSeq) {
         mCommitted = inBlockSeq;
-        mCommitObserver.Notify(mCommitted);
     }
     return (theCnt < mMinAckToCommit ? -EIO : 0);
 }
@@ -1725,7 +1726,7 @@ LogTransmitter::Impl::Update()
     MetaVrLogSeq   theMaxAck;
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
-    const NodeId   theCurPrimaryId =  mMetaVrSMPtr ?
+    const NodeId   theCurPrimaryId = mMetaVrSMPtr ?
         mMetaVrSMPtr->GetPrimaryNodeId() : NodeId(-1);
     if (0 <= theCurPrimaryId) {
         while ((thePtr = theIt.Next())) {

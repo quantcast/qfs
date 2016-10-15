@@ -1284,13 +1284,14 @@ private:
         } else {
             --mNextBlockSeq;
         }
-        mMetaVrSM.LogBlockWriteDone(
-            mNextLogSeq,
-            inLogSeq,
-            mInFlightCommitted.mSeq,
-            mLastViewEndSeq,
-            IsLogStreamGood()
-        );
+        if (mMetaVrSM.LogBlockWriteDone(
+                mNextLogSeq,
+                inLogSeq,
+                mInFlightCommitted.mSeq,
+                mLastViewEndSeq,
+                IsLogStreamGood())) {
+            Notify(inLogSeq);
+        }
     }
     size_t WriteBlockTrailer(
         const MetaVrLogSeq& inLogSeq,

@@ -417,6 +417,7 @@ public:
         kOpTypeAddNodeListeners    = 7,
         kOpTypeRemoveNodeListeners = 8,
         kOpTypeReset               = 9,
+        kOpTypeSwapActiveNode      = 10,
         kOpTypesCount
     };
     typedef MetaVrSM::Config Config;
