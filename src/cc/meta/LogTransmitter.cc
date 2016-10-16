@@ -1729,7 +1729,7 @@ LogTransmitter::Impl::Update()
     List::Iterator theIt(mTransmittersPtr);
     Transmitter*   thePtr;
     const NodeId   theCurPrimaryId = mMetaVrSMPtr ?
-        mMetaVrSMPtr->GetPrimaryNodeId() : NodeId(-1);
+        mMetaVrSMPtr->GetPrimaryNodeId(mCommitted) : NodeId(-1);
     if (0 <= theCurPrimaryId) {
         while ((thePtr = theIt.Next())) {
             const NodeId       theId  = thePtr->GetId();

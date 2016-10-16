@@ -290,6 +290,7 @@ for n in "$chunkbin" "$metabin" "$fsckbin" "$adminbin"; do
     fi
 done
 
+mkdir -p "$clitestdir" || exit
 if [ x"$auth" = x'yes' ]; then
     echo "Authentication on"
     "$mkcerts" "$certsdir" meta root "$clientuser" || exit
@@ -602,7 +603,7 @@ EOF
                     -F List="$vrlocation" \
                     vr_reconfiguration \
                 && break
-                [ $try -ge 5 ] || exit
+                [ $try -ge 5 ] && exit 1
                 sleep 5
                 try=`expr $try + 1`
             done
@@ -614,15 +615,27 @@ EOF
                 -f "$adminclientprop" \
                 -s "$metahost" \
                 -p "$metasrvport" \
-                -F Op-type=1 \
+                -F Op-type=3 \
                 -F List-size=3 \
                 -F List="0 1 2" \
                 vr_reconfiguration \
             && break
-            [ $try -ge 5 ] || exit
+            [ $try -ge 5 ] && exit 1
             sleep 5
             try=`expr $try + 1`
         done
+        # Add duplicate channel for node 1
+        vrlocation="$metahost `expr $metavrport + 1`"
+        ./"$qfsadminbin" \
+            -f "$adminclientprop" \
+            -s "$metahost" \
+            -p "$metasrvport" \
+            -F Op-type=7 \
+            -F List-size=1 \
+            -F Node-id=1 \
+            -F List="$vrlocation" \
+            vr_reconfiguration \
+        || exit
     fi
 else
     cat >> "$metasrvprop" << EOF

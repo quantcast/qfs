@@ -662,7 +662,7 @@ public:
         const MetaVrLogSeq& inSeq) const
     {
         if (mActiveFlag && kStateReconfiguration == mState &&
-                mReconfigureReqPtr && inSeq <= mReconfigureReqPtr->logseq) {
+                mReconfigureReqPtr && mReconfigureReqPtr->logseq <= inSeq) {
             return mNodeId;
         }
         return GetPrimaryNodeId();
@@ -843,7 +843,7 @@ public:
                             mViewSeq  = mLastLogSeq.mViewSeq;
                         }
                         SetState(kStateBackup);
-                        mPrimaryNodeId = -1;
+                        mPrimaryNodeId = AllInactiveFindPrimary();
                     }
                 }
             }
@@ -874,7 +874,7 @@ public:
             } else {
                 CancelViewChange();
                 SetState(kStateBackup);
-                mPrimaryNodeId = -1;
+                mPrimaryNodeId = AllInactiveFindPrimary();
             }
         }
         mLastProcessTime = TimeNow();
@@ -903,16 +903,14 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        if ((mConfig.IsEmpty() && mNodeId < 0) ||
-                (mQuorum <= 0 &&
-                    ((mConfig.IsEmpty() && 0 == mNodeId) ||
-                        AllInactiveFindPrimary() == mNodeId))) {
+        if ((mNodeId < 0 ?
+                mConfig.IsEmpty() :
+                AllInactiveFindPrimary() == mNodeId)) {
             inReplayer.commitAll();
         }
         mMetaDataSyncPtr = &inMetaDataSync;
         mNetManagerPtr   = &inNetManager;
         mMetaMd          = inMetaMd;
-        mPrimaryNodeId   = -1;
         mTimeNow         = mNetManagerPtr->Now();
         if (mConfig.IsEmpty() && mNodeId < 0) {
             mActiveCount = 0;
@@ -928,37 +926,35 @@ public:
                     "invalid or unspecified VR node id: " << mNodeId <<
                     " with non empty VR config" <<
                 KFS_LOG_EOM;
+                mPrimaryNodeId = -1;
                 return -EINVAL;
             }
-            mActiveFlag = IsActiveSelf(mNodeId);
-            if (mQuorum <= 0 &&
-                    ((mConfig.IsEmpty() &&
-                        kBootstrapPrimaryNodeId == mNodeId) ||
-                        AllInactiveFindPrimary() == mNodeId)) {
+            mActiveFlag    = IsActiveSelf(mNodeId);
+            mPrimaryNodeId = AllInactiveFindPrimary();
+            if (mPrimaryNodeId == mNodeId) {
                 SetState(kStatePrimary);
                 mLastUpTime          = TimeNow();
-                mPrimaryNodeId       = mNodeId;
                 mPrimaryViewStartSeq = MetaVrLogSeq();
             } else {
                 if (mQuorum <= 0 && mConfig.IsEmpty()) {
                     KFS_LOG_STREAM_WARN <<
                         "transition into backup state with empty VR"
                         " configuration, and node id non 0"
-                        " node id: " << mNodeId <<
+                        " node id: "  << mNodeId <<
+                        " primary: "  << mPrimaryNodeId <<
+                        " active: "   << mActiveFlag <<
                     KFS_LOG_EOM;
                     SetState(kStateBackup);
-                    mPrimaryNodeId = -1;
                 } else {
                     if (mActiveFlag) {
                         ScheduleViewChange();
                     } else {
                         SetState(kStateBackup);
-                        mPrimaryNodeId = -1;
                     }
                 }
-                mLastReceivedTime = TimeNow() - 2 * mConfig.GetBackupTimeout();
             }
         }
+        mLastReceivedTime       = TimeNow() - 2 * mConfig.GetBackupTimeout();
         mLastCommitTime         = TimeNow();
         mCommittedSeq           = inReplayer.getCommitted();
         mLastCommitSeq          = mCommittedSeq;
@@ -2926,33 +2922,15 @@ private:
             inReq.statusMsg = "add node: node active flag must not be set";
             return;
         }
-        if (! inReq.logseq.IsValid()) {
-            // Initial boot strap: do no allow other node to become primary
-            // in the case if all the nodes are inactive.
-            if (mConfig.IsEmpty()) {
-                if (mNodeId != inReq.mNodeId) {
-                    inReq.status    = -EINVAL;
-                    inReq.statusMsg = "add node: first node id to add must"
-                        " be equal to ";
-                    AppendDecIntToString(inReq.statusMsg, mNodeId);
-                    inReq.statusMsg += "; and must have"
-                        " smallest node id, or smallest primary order";
-                    return;
-                }
-            } else {
-                if (mQuorum <= 0 && inReq.mNodeId != mNodeId) {
-                    Config::Nodes::const_iterator const theIt =
-                        mConfig.GetNodes().find(mNodeId);
-                    if (inReq.mPrimaryOrder < theIt->second.GetPrimaryOrder() ||
-                            inReq.mNodeId < mNodeId) {
-                        inReq.status    = -EINVAL;
-                        inReq.statusMsg = "node order cannot be lower than this"
-                            " node order, or if order is equal, the node id"
-                            " cannot be smaller that this node id";
-                        return;
-                    }
-                }
-            }
+        // Initial boot strap: do no allow other node to become primary
+        // in the case if all the nodes are inactive.
+        if (! inReq.logseq.IsValid() && mConfig.IsEmpty() &&
+                mNodeId != inReq.mNodeId) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: first node id to add must"
+                " be equal to ";
+            AppendDecIntToString(inReq.statusMsg, mNodeId);
+            return;
         }
         mPendingLocations.clear();
         const char*       thePtr    = inReq.mListStr.GetPtr();
@@ -3139,9 +3117,9 @@ private:
                     ++theIt) {
                 if (theIt->first == mNodeId) {
                     inReq.status    = -EINVAL;
-                    inReq.statusMsg = "removing primary node is not supported"
-                        " all nodes are inactive,"
-                        " and configuration with more than one node";
+                    inReq.statusMsg =
+                        "removing boot strap primary node is not supported,"
+                        "unless all nodes removed";
                     mPendingChangesList.clear();
                     return;
                 }
@@ -3287,27 +3265,7 @@ private:
         if (0 != inReq.status || inReq.logseq.IsValid()) {
             return;
         }
-        if (size_t(1) < mConfig.GetNodes().size() && mQuorum <= 0) {
-            // Initial boot strap: do no allow to choose new primary by changing
-            // the order.
-            Config::Nodes::const_iterator const theIt =
-                mConfig.GetNodes().find(mNodeId);
-            if (theIt != mConfig.GetNodes().end() &&
-                    ((theMinIt->first == mNodeId &&
-                        theIt->second.GetPrimaryOrder() < theMinIt->second) ||
-                    theMinIt->second < theIt->second.GetPrimaryOrder() ||
-                    (theMinIt->second == theIt->second.GetPrimaryOrder() &&
-                        theMinIt->first < theIt->first))) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg = "changing node primary order is not supported"
-                    " when all nodes are inactive,"
-                    " and setting primary order makes primary a different node,"
-                    " or increases order of this / current primary node";
-                mPendingChangesList.clear();
-                return;
-            }
-        }
-        if (mActiveFlag && kStatePrimary == mState && 0 < theActiveCnt) {
+        if (kStatePrimary == mState && 0 < theActiveCnt) {
             SetState(kStateReconfiguration);
         }
     }
@@ -3725,8 +3683,9 @@ private:
     void CommitSetPrimaryOrder(
         MetaVrReconfiguration& inReq)
     {
-        ApplyT(kActiveCheckNone, ChangePrimaryOrderFunc());
-        CommitReconfiguration(inReq);
+        if (0 < ApplyT(kActiveCheckNone, ChangePrimaryOrderFunc())) {
+            CommitReconfiguration(inReq);
+        }
     }
     void CommitReconfiguration(
         MetaVrReconfiguration& inReq)
@@ -3886,22 +3845,7 @@ private:
         if (0 < mQuorum || 0 < mActiveCount) {
             return -1;
         }
-        NodeId theId       = -1;
-        int    theMinOrder = numeric_limits<int>::max();
-        const Config::Nodes& theNodes = mConfig.GetNodes();
-        for (Config::Nodes::const_iterator theIt = theNodes.begin();
-                theNodes.end() != theIt;
-                ++theIt) {
-            const NodeId        theNodeId = theIt->first;
-            const Config::Node& theNode   = theIt->second;
-            const int           theOrder  = theNode.GetPrimaryOrder();
-            if (theMinOrder <= theOrder && 0 <= theId) {
-                continue;
-            }
-            theMinOrder = theOrder;
-            theId       = theNodeId;
-        }
-        return theId;
+        return kBootstrapPrimaryNodeId;
     }
     template<typename T>
     static void Cancel(
