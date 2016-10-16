@@ -1287,7 +1287,7 @@ private:
             KFS_LOG_EOM;
         }
         LogStreamFlush();
-        if (IsLogStreamGood()) {
+        if (IsLogStreamGood() && 0 < theBlockLen) {
             mLastWriteCommitted = mInFlightCommitted;
             if (inLogSeq.IsPastViewStart()) {
                 mLastNonEmptyViewEndSeq = inLogSeq;
