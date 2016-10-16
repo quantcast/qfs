@@ -3245,7 +3245,6 @@ private:
             return;
         }
         sort(mPendingChangesList.begin(), mPendingChangesList.end());
-        ChangesList::const_iterator theMinIt = mPendingChangesList.begin();
         for (ChangesList::const_iterator
                 theIt = mPendingChangesList.begin(), theNIt = theIt;
                 mPendingChangesList.end() != ++theNIt;
@@ -3256,9 +3255,6 @@ private:
                 AppendDecIntToString(inReq.statusMsg, theNIt->first);
                 mPendingChangesList.clear();
                 return;
-            }
-            if (theIt->second < theMinIt->second) {
-                theMinIt = theIt;
             }
         }
         const size_t theActiveCnt = ApplyT(inReq, kActiveCheckNone, NopFunc());
