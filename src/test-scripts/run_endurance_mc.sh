@@ -43,6 +43,8 @@ fi
 srcdir="`dirname "$0"`"
 srcdir="`cd "$srcdir/../.." >/dev/null 2>&1 && pwd`"
 
+testdirsprefix='/mnt/data'
+
 chunksdir='./chunks'
 metasrvchunkport=20100
 chunksrvport=30000
@@ -53,9 +55,6 @@ chunksrvout='chunkserver.out'
 chunksrvpid='chunkserver.pid'
 chunksrvprop='ChunkServer.prp'
 
-clitestdir="/mnt/data3/$USER/test/cli"
-
-metasrvdir="/mnt/data3/$USER/test/meta"
 metasrvprop='MetaServer.prp'
 metasrvpid='metaserver.pid'
 metasrvlog='metaserver.log'
@@ -63,20 +62,12 @@ fscklog='fsck.log'
 fsckpid='fsck.pid'
 metasrvout='metaserver.out'
 metasrvport=20000
-wuiport=`expr $metasrvport + 50`
-metavrport=`expr $metasrvport + 500`
 
-chunkrundirs="/mnt/data[012]/$USER"
-chunkbin="$bdir/src/cc/chunk/chunkserver" 
-metabin="$bdir/src/cc/meta/metaserver"
-fsckbin="$bdir/src/cc/meta/qfsfsck"
-adminbin="$bdir/src/cc/tools/qfsadmin"
-webui="$srcdir/webui"
 wuiconf='webui.conf'
 wuilog='webui.log'
 wuipid='webui.pid'
 myhost='127.0.0.1'
-metahost=$myhost
+
 errsim='yes'
 derrsim='no'
 smtest='yes'
@@ -84,18 +75,17 @@ testonly='no'
 mconly='no'
 cponly='no'
 csvalgrind='no'
-clientuser=${clientuser-"`id -un`"}
-clientprop="$clitestdir/client.prp"
-clientproprs="${clientprop}.rs"
-certsdir=${certsdir-"`dirname "$clitestdir"`/certs"}
-mkcerts=`dirname "$0"`
-mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
+
 chunkdirerrsim=0
 chunkdirerrsimall=0
+
+mkcerts=`dirname "$0"`
+mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
+
+clientuser=${clientuser-"`id -un`"}
 chunkserverclithreads=${chunkserverclithreads-3}
 objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
-objectstoredir="/mnt/data3/$USER/test/object_store"
-cabundlefile="`dirname "$objectstoredir"`/ca-bundle.crt"
+
 cabundleurl='https://raw.githubusercontent.com/bagder/ca-bundle/master/ca-bundle.crt'
 cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 prevlogsdir='prev_logs'
@@ -107,13 +97,42 @@ else
     auth=${auth-no}
 fi
 
-unset QFS_CLIENT_CONFIG
-unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
+update_parameters()
+{
+    clitestdir="${testdirsprefix}3/$USER/test/cli"
+    metasrvdir="${testdirsprefix}3/$USER/test/meta"
+    wuiport=`expr $metasrvport + 50`
+    metavrport=`expr $metasrvport + 500`
+
+    chunkrundirs="${testdirsprefix}[012]/$USER"
+    chunkbin="$bdir/src/cc/chunk/chunkserver"
+    metabin="$bdir/src/cc/meta/metaserver"
+    fsckbin="$bdir/src/cc/meta/qfsfsck"
+    adminbin="$bdir/src/cc/tools/qfsadmin"
+    webui="$srcdir/webui"
+    metahost=$myhost
+    clientprop="$clitestdir/client.prp"
+    clientproprs="${clientprop}.rs"
+    certsdir="`dirname "$clitestdir"`/certs"
+    objectstoredir="${testdirsprefix}3/$USER/test/object_store"
+    cabundlefile="`dirname "$objectstoredir"`/ca-bundle.crt"
+}
 
 kill_all_proc()
 {
-    { find "$@" -type f | xargs fuser | xargs kill -9 ; } >/dev/null 2>&1
+    if [ x"`uname`" = x'Darwin' ]; then
+        { find "$@" -type f -print0 | xargs -0 lsof -nt -- | xargs kill -9 ; } \
+            >/dev/null 2>&1
+    else
+        { find "$@" -type f | xargs fuser | xargs kill -9 ; } >/dev/null 2>&1
+    fi
 }
+
+
+unset QFS_CLIENT_CONFIG
+unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
+
+update_parameters
 
 if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
     echo \
@@ -141,12 +160,16 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -valgrind-cs             -- run chunk servers under valgrind
  -auth                    -- turn authentication on or off
  -s3                      -- test with AWS S3
- -vr <num>                -- configure to test VR with <num> nodes'
+ -vr <num>                -- configure to test VR with <num> nodes
+ -test-dirs-prefix prefix -- set test directories prefix, default: /mnt/data
+ -clean-test-dirs         -- remove test directories
+ '
     exit 0
 fi
 
 s3test='no'
 excode=0
+removetestdirs=0
 while [ $# -gt 0 ]; do
     if [ x"$1" = x'-stop' ]; then
         echo "Shutdown all test processes"
@@ -243,6 +266,19 @@ while [ $# -gt 0 ]; do
         fi
         vrcount=$1
         shift
+    elif [ x"$1" = x'-test-dirs-prefix' ]; then
+        if [ $# -le 1 ]; then
+            echo "$1: missing argument"
+            excode=1
+            break
+        fi
+        shift
+        testdirsprefix=$1
+        update_parameters
+        shift
+    elif [ x"$1" = x'-clean-test-dirs' ]; then
+        removetestdirs=1
+        shift
     else
         echo "invalid option: $1"
         excode=1
@@ -252,6 +288,12 @@ done
 
 if [ $excode -ne 0 ]; then
     exit `expr $excode - 1`
+fi
+
+if [ $removetestdirs -ne 0 ]; then
+    echo 'Shutdown all test processes, and removing test directories'
+    kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
+    rm -rf "${testdirsprefix}"[0123]"/$USER/test"
 fi
 
 if [ x"$s3test" = x'yes' ]; then
@@ -264,6 +306,16 @@ if [ x"$s3test" = x'yes' ]; then
         exit 1
     fi
 fi
+
+tdir="`dirname "$testdirsprefix"`"
+mkdir -p "$tdir" || exit
+tdir="`cd "$tdir" > /dev/null && pwd`"
+[ x"$tdir" = x ] && exit 1
+testdirsprefix="$tdir/`basename "$testdirsprefix"`"
+for i in 0 1 2 3; do
+    mkdir -p "${testdirsprefix}$i/$USER/test"
+done
+update_parameters
 
 mkdir -p "$metasrvdir"
 cd "$metasrvdir" || exit
@@ -323,8 +375,15 @@ else
 fi
 
 ulimit -c unlimited || exit
-ulimit -n 65535 || exit
-ulimit -u `ulimit -Hu`
+if [ x"`ulimit -Hn`" = x'unlimited' ]; then
+    # Hack around mac os peculiarity.
+    ulimit -Hn 65535 2>/dev/null
+fi
+ulimit -n `ulimit -Hn` || exit
+if [ `ulimit -n` -le 1024 ]; then
+    echo "Insufficient open file descriptor limit: `ulimit -n`"
+    exit 1
+fi
 exec 0</dev/null
 
 if [ x"$testonly" != x'yes' ]; then
@@ -504,7 +563,7 @@ if [ $vrcount -gt 2 ]; then
     filesystemid=`awk '
         BEGIN{FS="/";}
         {
-            if ($1=="filesysteminfo") {
+            if ($1 == "filesysteminfo") {
                 print $3;
                 exit;
             }
