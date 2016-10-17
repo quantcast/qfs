@@ -45,7 +45,6 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/CryptoKeys.h"
-#include "kfsio/NetErrorSimulator.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -1020,12 +1019,6 @@ public:
             return err;
         }
         mStartedFlag = true;
-        string errSimParamName = kLogReciverParamsPrefix;
-        errSimParamName += "netErrorSimulator";
-        NetErrorSimulatorConfigure(
-            mutex ? mNetManager : globalNetManager(),
-            mParameters.getValue(errSimParamName.c_str(), "")
-        );
         if (mutex) {
             int kStackSize = 64 << 10;
             mThread.Start(this, kStackSize, "LogReceiver");

@@ -564,6 +564,7 @@ EOF
 fi
 
 if [ $vrcount -gt 2 ]; then
+    echo "Setting up VR with $vrcount nodes"
     filesystemid=`awk '
         BEGIN{FS="/";}
         {
@@ -584,9 +585,19 @@ if [ $vrcount -gt 2 ]; then
         serverlocs="$serverlocs $metahost $port"
         port=`expr $port + 1`
     done
+    if [ -f './vrstate' ]; then
+        cat >> "$metasrvprop" << EOF
+metaServer.metaDataSync.servers = $serverlocs
+EOF
+    else
+        # To minimize VR boot strap time use only the primary server initially
+        # to pull checkpoint and log, as the other nodes will be down.
+        cat >> "$metasrvprop" << EOF
+metaServer.metaDataSync.servers = $metahost $metasrvport
+EOF
+    fi
     cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.fileSystemId = $filesystemid
-metaServer.metaDataSync.servers      = $serverlocs
 
 metaServer.metaDataSync.auth.X509.X509PemFile = $certsdir/root.crt
 metaServer.metaDataSync.auth.X509.PKeyPemFile = $certsdir/root.key
@@ -619,11 +630,6 @@ metaServer.clientPort            = $cport
 metaServer.chunkServerPort       = $csport
 metaServer.log.receiver.listenOn = 0.0.0.0 $port
 EOF
-        if [ $i -gt 0 ]; then
-            cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.log.receiver.netErrorSimulator = a=rand+log,int=128,rsleep=30;
-EOF
-        fi
         i=`expr $i + 1`
         vrdir="vr$i"
     done
@@ -651,10 +657,12 @@ client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
         echo 'configuring VR'
+        sleep 2 # allow met servers start
+        nodeidlist=''
         i=0
         while [ $i -lt $vrcount ]; do
             vrlocation="$metahost `expr $metavrport + $i`"
-            try=5
+            trycnt=5
             while true; do
                 ./"$qfsadminbin" \
                     -f "$adminclientprop" \
@@ -666,30 +674,33 @@ EOF
                     -F List="$vrlocation" \
                     vr_reconfiguration \
                 && break
-                [ $try -lt 0 ] && break
+                [ $trycnt -lt 0 ] && break
                 sleep 5
-                try=`expr $try + 1`
+                trycnt=`expr $trycnt - 1`
             done
-            [ $try -lt 0 ] && break
+            [ $trycnt -lt 0 ] && break
+            nodeidlist="$nodeidlist $i"
             i=`expr $i + 1`
         done
-        [ $try -lt 0 ] && exit 1
-        try=6
+        [ $trycnt -lt 0 ] && exit 1
+        sleep 3 # allow primary to connect to backups.
+        # Active all nodes.
+        trycnt=6
         while true; do
             ./"$qfsadminbin" \
                 -f "$adminclientprop" \
                 -s "$metahost" \
                 -p "$metasrvport" \
-                -F Op-type=3 \
+                -F Op-type="$vrcount" \
                 -F List-size=3 \
-                -F List="0 1 2" \
+                -F List="$nodeidlist" \
                 vr_reconfiguration \
             && break
-            [ $try -lt 0 ] && break
+            [ $trycnt -lt 0 ] && break
             sleep 5
-            try=`expr $try + 1`
+            trycnt=`expr $trycnt - 1`
         done
-        [ $try -lt 0 ] && exit 1
+        [ $trycnt -lt 0 ] && exit 1
         # Add duplicate channel for node 1
         vrlocation="$metahost `expr $metavrport + 1`"
         ./"$qfsadminbin" \
@@ -702,6 +713,45 @@ EOF
             -F List="$vrlocation" \
             vr_reconfiguration \
         || exit
+        echo "VR status:"
+        ./"$qfsadminbin" \
+            -f "$adminclientprop" \
+            -s "$metahost" \
+            -p "$metasrvport" \
+            vr_get_status \
+        || exit
+        # Enable error simulation after VR is configured, as otherwise
+        # configuration might fail or take long time.
+        if [ x"$errsim" = x'yes' ]; then
+            i=1
+            while [ $i -lt $vrcount ]; do
+                vrdir="vr$i"
+                cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.log.receiver.netErrorSimulator = a=rand+log,int=128,rsleep=30;
+EOF
+                kill -HUP `cat "$vrdir/$metasrvpid"` || break
+                i=`expr $i + 1`
+            done
+            if [ $i -ne $vrcount ]; then
+                echo "failed to update configuration $vrdir/$metasrvprop"
+                exit 1
+            fi
+        fi
+        # Update meta data sync, addresses.
+        i=0
+        vrdir='.'
+        while [ $i -lt $vrcount ]; do
+            cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.metaDataSync.servers = $serverlocs
+EOF
+            kill -HUP `cat "$vrdir/$metasrvpid"` || break
+            i=`expr $i + 1`
+            vrdir="vr$i"
+        done
+        if [ $i -ne $vrcount ]; then
+            echo "failed to update configuration $vrdir/$metasrvprop"
+            exit 1
+        fi
     fi
 else
     cat >> "$metasrvprop" << EOF

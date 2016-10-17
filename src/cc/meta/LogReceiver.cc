@@ -46,6 +46,7 @@
 #include "kfsio/SslFilter.h"
 #include "kfsio/Acceptor.h"
 #include "kfsio/checksum.h"
+#include "kfsio/NetErrorSimulator.h"
 
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
@@ -107,7 +108,8 @@ public:
           mWriteOpFreeList(),
           mPendingResponseQueue(),
           mResponseQueue(),
-          mPendingSubmitQueue()
+          mPendingSubmitQueue(),
+          mErrorSimulatorConfig()
     {
         List::Init(mConnectionsHeadPtr);
         mParseBuffer.Resize(mParseBuffer.Capacity());
@@ -147,6 +149,20 @@ public:
             "timeout"), mTimeout);
         if (! mWakerPtr || mId < 0) {
             mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+        }
+        const string thePrevErrorSimulatorConfig = mErrorSimulatorConfig;
+        mErrorSimulatorConfig = inParameters.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "netErrorSimulator").c_str(), mErrorSimulatorConfig);
+        if (thePrevErrorSimulatorConfig != mErrorSimulatorConfig &&
+                mAcceptorPtr &&
+                NetErrorSimulatorConfigure(
+                    mAcceptorPtr->GetNetManager(),
+                    mErrorSimulatorConfig.c_str())) {
+            KFS_LOG_STREAM_INFO <<
+                "network error simulator configured: " <<
+                mErrorSimulatorConfig <<
+            KFS_LOG_EOM;
         }
         mAuthContext.SetParameters(
             theParamName.Truncate(thePrefixLen).Append("auth.").c_str(),
@@ -204,6 +220,15 @@ public:
                 "failed to start acceptor: " << mListenerAddress <<
             KFS_LOG_EOM;
             return -ENOTCONN;
+        }
+        if (! mErrorSimulatorConfig.empty() &&
+                NetErrorSimulatorConfigure(
+                    mAcceptorPtr->GetNetManager(),
+                    mErrorSimulatorConfig.c_str())) {
+            KFS_LOG_STREAM_INFO <<
+                "network error simulator configured: " <<
+                mErrorSimulatorConfig <<
+            KFS_LOG_EOM;
         }
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
         mLastLogSeq              = inLastLogSeq;
@@ -438,6 +463,7 @@ private:
     Queue          mPendingResponseQueue;
     Queue          mResponseQueue;
     Queue          mPendingSubmitQueue;
+    string         mErrorSimulatorConfig;
     Connection*    mConnectionsHeadPtr[1];
 
     ~Impl()
