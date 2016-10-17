@@ -2713,7 +2713,7 @@ DiskIo::RunCompletion()
             " " << reinterpret_cast<const void*>(this) <<
             theOpNamePtr <<
             " (" << mReadLength << " " << mIoBuffers.size() << ")"
-            " error: " << theNumRead <<
+            " status: " << theNumRead <<
             " " << theErrMsg <<
         KFS_LOG_EOM;
     }
