@@ -134,7 +134,8 @@ unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
 
 update_parameters
 
-if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
+show_help()
+{
     echo \
 "Usage: $0 {-stop|-get-logs|-status}"'
  -get-logs                -- get names of all log files
@@ -164,8 +165,7 @@ if [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
  -test-dirs-prefix prefix -- set test directories prefix, default: /mnt/data
  -clean-test-dirs         -- remove test directories
  '
-    exit 0
-fi
+}
 
 s3test='no'
 excode=0
@@ -276,6 +276,10 @@ while [ $# -gt 0 ]; do
         testdirsprefix=$1
         update_parameters
         shift
+    elif [ x"$1" = x'-h' -o x"$1" = x'-help' -o x"$1" = x'--help' ]; then
+        show_help
+        excode=1
+        break
     elif [ x"$1" = x'-clean-test-dirs' ]; then
         removetestdirs=1
         shift
@@ -650,7 +654,7 @@ EOF
         i=0
         while [ $i -lt $vrcount ]; do
             vrlocation="$metahost `expr $metavrport + $i`"
-            try=0
+            try=5
             while true; do
                 ./"$qfsadminbin" \
                     -f "$adminclientprop" \
@@ -662,13 +666,15 @@ EOF
                     -F List="$vrlocation" \
                     vr_reconfiguration \
                 && break
-                [ $try -ge 5 ] && exit 1
+                [ $try -lt 0 ] && break
                 sleep 5
                 try=`expr $try + 1`
             done
+            [ $try -lt 0 ] && break
             i=`expr $i + 1`
         done
-        try=0
+        [ $try -lt 0 ] && exit 1
+        try=6
         while true; do
             ./"$qfsadminbin" \
                 -f "$adminclientprop" \
@@ -679,10 +685,11 @@ EOF
                 -F List="0 1 2" \
                 vr_reconfiguration \
             && break
-            [ $try -ge 5 ] && exit 1
+            [ $try -lt 0 ] && break
             sleep 5
             try=`expr $try + 1`
         done
+        [ $try -lt 0 ] && exit 1
         # Add duplicate channel for node 1
         vrlocation="$metahost `expr $metavrport + 1`"
         ./"$qfsadminbin" \

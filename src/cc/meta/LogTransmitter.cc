@@ -1579,13 +1579,15 @@ LogTransmitter::Impl::Acked(
         return;
     }
     const NodeId thePrimaryId = inTransmitter.GetPrimaryNodeId();
-    if (inPrimaryNodeId != thePrimaryId && 0 < thePrimaryId && mMetaVrSMPtr &&
+    if (inPrimaryNodeId != thePrimaryId &&
+            0 <= thePrimaryId &&
+            mMetaVrSMPtr &&
             ! mMetaVrSMPtr->ValidateAckPrimaryId(
                 inTransmitter.GetId(), thePrimaryId)) {
         return;
     }
-    const MetaVrLogSeq theAck    = inTransmitter.GetAck();
-    const NodeId theCurPrimaryId =  mMetaVrSMPtr ?
+    const MetaVrLogSeq theAck          = inTransmitter.GetAck();
+    const NodeId       theCurPrimaryId = mMetaVrSMPtr ?
         mMetaVrSMPtr->GetPrimaryNodeId(theAck) : NodeId(-1);
     if (mCommitted < theAck && 0 <= theCurPrimaryId) {
         NodeId             thePrevId    = -1;

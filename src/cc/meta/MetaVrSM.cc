@@ -410,7 +410,11 @@ public:
         // Return true to commit write if in boot strap or single node state,
         // otherwise the log transmitter is responsible for commit
         // advancement.
-        return (mQuorum <= 0 && kStatePrimary == mState);
+        return (mQuorum <= 0 && (kStatePrimary == mState ||
+            (kStateReconfiguration == mState &&
+                mReconfigureReqPtr &&
+                mReconfigureReqPtr->logseq == inBlockEndSeq))
+        );
     }
     bool Handle(
         MetaRequest&        inReq,

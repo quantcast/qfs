@@ -1193,12 +1193,14 @@ private:
             if (theCtlPtr &&
                     MetaLogWriterControl::kWriteBlock == theCtlPtr->type) {
                 WriteBlock(*theCtlPtr);
-                theCtlPtr->primaryNodeId = mMetaVrSM.GetPrimaryNodeId();
+                theCtlPtr->primaryNodeId =
+                    mMetaVrSM.GetPrimaryNodeId(mLastLogSeq);
                 theCtlPtr->lastLogSeq    = mLastLogSeq;
                 KFS_LOG_STREAM_DEBUG <<
-                    "last: "  << mLastLogSeq <<
-                    " done: " << reinterpret_cast<const void*>(theCtlPtr) <<
-                    " "       << theCtlPtr->Show() <<
+                    "last: "     << mLastLogSeq <<
+                    " primary: " << theCtlPtr->primaryNodeId <<
+                    " done: "    << reinterpret_cast<const void*>(theCtlPtr) <<
+                    " "          << theCtlPtr->Show() <<
                 KFS_LOG_EOM;
             }
             theCurPtr = theEndPtr;
