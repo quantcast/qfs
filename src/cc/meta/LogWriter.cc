@@ -180,211 +180,25 @@ public:
         bool                  inVrResetOnlyFlag,
         string&               outCurLogFileName)
     {
-        if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
-                (mThread.IsStarted() || mNetManagerPtr) || inFileSystemId < 0) {
-            return -EINVAL;
-        }
-        mReplayerPtr = &inReplayer;
-        mLogTransmitter.SetFileSystemId(inFileSystemId);
-        mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
-        mLogNum = inLogNum;
-        const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
-        if (0 != theErr) {
-            return theErr;
-        }
-        if (0 != (mError = mMetaVrSM.Start(
-                inMetaDataSync,
-                mNetManager,
-                inFileId,
-                *mReplayerPtr,
-                inFileSystemId,
-                inDataStoreLocation,
-                inMetaMd))) {
-            return mError;
-        }
-        mMdStream.Reset(this);
-        mReplayerPtr = &inReplayer;
-        mCommitted.mErrChkSum = mReplayerPtr->getErrChksum();
-        mCommitted.mSeq       = mReplayerPtr->getCommitted();
-        mCommitted.mFidSeed   = inFileId.getseed();
-        mCommitted.mStatus    = mReplayerPtr->getLastCommittedStatus();
-        mReplayerPtr->getLastLogBlockCommitted(
-            mLastWriteCommitted.mSeq,
-            mLastWriteCommitted.mFidSeed,
-            mLastWriteCommitted.mStatus,
-            mLastWriteCommitted.mErrChkSum
+        const int theError = StartSelf(
+            inNetManager,
+            inMetaDataStore,
+            inMetaDataSync,
+            inFileId,
+            inReplayer,
+            inLogNum,
+            inParametersPrefixPtr,
+            inParameters,
+            inFileSystemId,
+            inDataStoreLocation,
+            inMetaMd,
+            inVrResetOnlyFlag,
+            outCurLogFileName
         );
-        // Log start view's are all executed at this point -- set last view end
-        // to the last committed.
-        mLastViewEndSeq           = mCommitted.mSeq;
-        mLastNonEmptyViewEndSeq   = mReplayerPtr->getLastNonEmptyViewEndSeq();
-        mReplayLastWriteCommitted = mLastWriteCommitted;
-        mReplayLogSeq             = mReplayerPtr->getLastLogSeq();
-        mPendingReplayLogSeq      = mReplayLogSeq;
-        mPendingCommitted         = mCommitted;
-        mInFlightCommitted        = mPendingCommitted;
-        mMetaDataStorePtr         = &inMetaDataStore;
-        mViewStartSeq             = mReplayerPtr->getViewStartSeq();
-        if (MetaVrLogSeq(0, 0, 0) == mReplayLogSeq) {
-            mLastWriteCommitted = mCommitted;
+        if (0 != theError) {
+            mMetaVrSM.Shutdown();
         }
-        if (! mCommitted.mSeq.IsPastViewStart() ||
-                ! mLastWriteCommitted.mSeq.IsPastViewStart() ||
-                ! mLastNonEmptyViewEndSeq.IsPastViewStart()) {
-            panic("log writer: invalid replay committed sequence");
-            return -EINVAL;
-        }
-        if (mReplayerPtr->getAppendToLastLogFlag()) {
-            const bool theLogAppendHexFlag =
-                16 == mReplayerPtr->getLastLogIntBase();
-            const bool theHasLogSeqFlag    =
-                mReplayerPtr->logSegmentHasLogSeq();
-            mCurLogStartSeq                = mReplayerPtr->getLastLogStart();
-            SetLogName(mReplayLogSeq,
-                theHasLogSeqFlag ? mCurLogStartSeq : MetaVrLogSeq());
-            mCurLogStartTime = mNetManager.Now();
-            mMdStream.SetMdState(mReplayerPtr->getMdState());
-            if (! mMdStream) {
-                KFS_LOG_STREAM_ERROR <<
-                    "log append:" <<
-                    " failed to set md context" <<
-                KFS_LOG_EOM;
-                return -EIO;
-            }
-            Close();
-            mError = 0;
-            if ((mLogFd = open(mLogName.c_str(), O_WRONLY, 0666)) < 0) {
-                IoError(errno);
-                return mError;
-            }
-            const off_t theSize = lseek(mLogFd, 0, SEEK_END);
-            if (theSize < 0) {
-                IoError(errno);
-                return mError;
-            }
-            if (theSize == 0) {
-                KFS_LOG_STREAM_ERROR <<
-                    "log append: invalid empty file"
-                    " file: " << mLogName <<
-                    " size: " << theSize <<
-                KFS_LOG_EOM;
-                return -EINVAL;
-            }
-            const seq_t theLogAppendLastBlockSeq =
-                mReplayerPtr->getLastBlockSeq();
-            KFS_LOG_STREAM_INFO <<
-                "log append:" <<
-                " idx: "      << mLogNum <<
-                " start: "    << mCurLogStartSeq <<
-                " cur: "      << mNextLogSeq <<
-                " block: "    << theLogAppendLastBlockSeq <<
-                " hex: "      << theLogAppendHexFlag <<
-                " file: "     << mLogName <<
-                " size: "     << theSize <<
-                " checksum: " << mMdStream.GetMd() <<
-            KFS_LOG_EOM;
-            mMdStream.setf(
-                theLogAppendHexFlag ? ostream::hex : ostream::dec,
-                ostream::basefield
-            );
-            mLogFilePos     = theSize;
-            mLogFilePrevPos = mLogFilePos;
-            mNextBlockSeq   = theLogAppendLastBlockSeq;
-            if (theLogAppendLastBlockSeq < 0 || ! theLogAppendHexFlag ||
-                    ! theHasLogSeqFlag) {
-                // Previous / "old" log format.
-                // Close the log segment even if it is empty and start new one.
-                StartNextLog();
-            }
-        } else {
-            NewLog(mReplayLogSeq);
-        }
-        if (! IsLogStreamGood()) {
-            return mError;
-        }
-        mVrNodeId              = mMetaVrSM.GetNodeId();
-        outCurLogFileName      = mLogName;
-        mStopFlag              = false;
-        mNetManagerPtr         = &inNetManager;
-        mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
-        mVrLastLogReceivedTime = mLastLogReceivedTime;
-        if (inVrResetOnlyFlag) {
-            if (mMetaVrSM.GetConfig().IsEmpty()) {
-                KFS_LOG_STREAM_ERROR <<
-                    "VR is not configured, nothing to reset" <<
-                KFS_LOG_EOM;
-                return -EINVAL;
-            }
-            // Write configuration reset followed by log start view.
-            MetaVrReconfiguration& theRcOp = *(new MetaVrReconfiguration());
-            theRcOp.mOpType = MetaVrReconfiguration::kOpTypeReset;
-            theRcOp.logseq = mLastLogSeq;
-            theRcOp.logseq.mLogSeq++;
-            MetaVrLogStartView& theSvOp = *(new MetaVrLogStartView());
-            theSvOp.logseq = theRcOp.logseq;
-            theSvOp.logseq.mLogSeq++;
-            theSvOp.mNodeId             = mVrNodeId < 0 ? NodeId(0) : mVrNodeId;
-            theSvOp.mTime               = mNetManager.Now(),
-            theSvOp.mCommittedSeq       = theRcOp.logseq;
-            theSvOp.mNewLogSeq          = MetaVrLogSeq(
-                theSvOp.mCommittedSeq.mEpochSeq + 1,
-                kMetaVrLogStartEpochViewSeq,
-                kMetaVrLogStartViewLogSeq
-            );
-            if (! theSvOp.Validate()) {
-                panic("log writer: invalid VR log start view op");
-                mError = -EFAULT;
-            }
-            theRcOp.next = &theSvOp;
-            ostream& theStream = mMdStream;
-            MetaRequest* thePtr = &theRcOp;
-            while (thePtr) {
-                MetaRequest& theOp = *thePtr;
-                thePtr = theOp.next;
-                theOp.next = 0;
-                if (IsLogStreamGood()) {
-                    if (! theOp.WriteLog(theStream, mOmitDefaultsFlag)) {
-                        panic("log writer: invalid request ");
-                        mError = -EFAULT;
-                    }
-                    if (IsLogStreamGood()) {
-                        const MetaVrLogSeq& theLogSeq = &theOp == &theSvOp ?
-                            theSvOp.mNewLogSeq : theOp.logseq;
-                        ++mNextBlockSeq;
-                        Checksum theTxChecksum = 0;
-                        WriteBlockTrailer(
-                            theLogSeq, mCommitted, 1, theTxChecksum);
-                        LogStreamFlush();
-                        if (IsLogStreamGood()) {
-                            mLastLogSeq = theLogSeq;
-                            mNextLogSeq = mLastLogSeq;
-                            if (mLastLogSeq.IsPastViewStart()) {
-                                mLastNonEmptyViewEndSeq = mLastLogSeq;
-                            }
-                        } else {
-                            --mNextBlockSeq;
-                        }
-                    }
-                }
-                MetaRequest::Release(&theOp);
-            }
-            if (! IsLogStreamGood()) {
-                KFS_LOG_STREAM_ERROR <<
-                    "VR reset transaction log write has failed" <<
-                KFS_LOG_EOM;
-            }
-            Close();
-            if (0 == mError) {
-                KFS_LOG_STREAM_INFO <<
-                    "VR configuration reset transaction log write complete" <<
-                KFS_LOG_EOM;
-            }
-            return mError;
-        }
-        const int kStackSize = 64 << 10;
-        mThread.Start(this, kStackSize, "LogWriter");
-        mNetManagerPtr->RegisterTimeoutHandler(this);
-        return 0;
+        return theError;
     }
     bool EnqueueStart(
         MetaRequest& inRequest)
@@ -567,6 +381,7 @@ public:
             mNetManagerPtr->UnRegisterTimeoutHandler(this);
             mNetManagerPtr = 0;
         }
+        mMetaVrSM.Shutdown();
         Cancel(mInQueue);
         mPendingCount -= Cancel(mOutQueue);
         mPendingCount -= Cancel(mPendingQueue);
@@ -723,6 +538,227 @@ private:
     const char* const mLogStartViewPrefixPtr;
     const size_t      mLogStartViewPrefixLen;
 
+    int StartSelf(
+        NetManager&           inNetManager,
+        MetaDataStore&        inMetaDataStore,
+        MetaDataSync&         inMetaDataSync,
+        const UniqueID&       inFileId,
+        Replay&               inReplayer,
+        seq_t                 inLogNum,
+        const char*           inParametersPrefixPtr,
+        const Properties&     inParameters,
+        int64_t               inFileSystemId,
+        const ServerLocation& inDataStoreLocation,
+        const string&         inMetaMd,
+        bool                  inVrResetOnlyFlag,
+        string&               outCurLogFileName)
+    {
+        if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
+                (mThread.IsStarted() || mNetManagerPtr) || inFileSystemId < 0) {
+            return -EINVAL;
+        }
+        mReplayerPtr = &inReplayer;
+        mLogTransmitter.SetFileSystemId(inFileSystemId);
+        mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
+        mLogNum = inLogNum;
+        const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
+        if (0 != theErr) {
+            return theErr;
+        }
+        if (0 != (mError = mMetaVrSM.Start(
+                inMetaDataSync,
+                mNetManager,
+                inFileId,
+                *mReplayerPtr,
+                inFileSystemId,
+                inDataStoreLocation,
+                inMetaMd))) {
+            return mError;
+        }
+        mMdStream.Reset(this);
+        mReplayerPtr = &inReplayer;
+        mCommitted.mErrChkSum = mReplayerPtr->getErrChksum();
+        mCommitted.mSeq       = mReplayerPtr->getCommitted();
+        mCommitted.mFidSeed   = inFileId.getseed();
+        mCommitted.mStatus    = mReplayerPtr->getLastCommittedStatus();
+        mReplayerPtr->getLastLogBlockCommitted(
+            mLastWriteCommitted.mSeq,
+            mLastWriteCommitted.mFidSeed,
+            mLastWriteCommitted.mStatus,
+            mLastWriteCommitted.mErrChkSum
+        );
+        // Log start view's are all executed at this point -- set last view end
+        // to the last committed.
+        mLastViewEndSeq           = mCommitted.mSeq;
+        mLastNonEmptyViewEndSeq   = mReplayerPtr->getLastNonEmptyViewEndSeq();
+        mReplayLastWriteCommitted = mLastWriteCommitted;
+        mReplayLogSeq             = mReplayerPtr->getLastLogSeq();
+        mPendingReplayLogSeq      = mReplayLogSeq;
+        mPendingCommitted         = mCommitted;
+        mInFlightCommitted        = mPendingCommitted;
+        mMetaDataStorePtr         = &inMetaDataStore;
+        mViewStartSeq             = mReplayerPtr->getViewStartSeq();
+        if (MetaVrLogSeq(0, 0, 0) == mReplayLogSeq) {
+            mLastWriteCommitted = mCommitted;
+        }
+        if (! mCommitted.mSeq.IsPastViewStart() ||
+                ! mLastWriteCommitted.mSeq.IsPastViewStart() ||
+                ! mLastNonEmptyViewEndSeq.IsPastViewStart()) {
+            panic("log writer: invalid replay committed sequence");
+            return -EINVAL;
+        }
+        if (mReplayerPtr->getAppendToLastLogFlag()) {
+            const bool theLogAppendHexFlag =
+                16 == mReplayerPtr->getLastLogIntBase();
+            const bool theHasLogSeqFlag    =
+                mReplayerPtr->logSegmentHasLogSeq();
+            mCurLogStartSeq                = mReplayerPtr->getLastLogStart();
+            SetLogName(mReplayLogSeq,
+                theHasLogSeqFlag ? mCurLogStartSeq : MetaVrLogSeq());
+            mCurLogStartTime = mNetManager.Now();
+            mMdStream.SetMdState(mReplayerPtr->getMdState());
+            if (! mMdStream) {
+                KFS_LOG_STREAM_ERROR <<
+                    "log append:" <<
+                    " failed to set md context" <<
+                KFS_LOG_EOM;
+                return -EIO;
+            }
+            Close();
+            mError = 0;
+            if ((mLogFd = open(mLogName.c_str(), O_WRONLY, 0666)) < 0) {
+                IoError(errno);
+                return mError;
+            }
+            const off_t theSize = lseek(mLogFd, 0, SEEK_END);
+            if (theSize < 0) {
+                IoError(errno);
+                return mError;
+            }
+            if (theSize == 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "log append: invalid empty file"
+                    " file: " << mLogName <<
+                    " size: " << theSize <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+            const seq_t theLogAppendLastBlockSeq =
+                mReplayerPtr->getLastBlockSeq();
+            KFS_LOG_STREAM_INFO <<
+                "log append:" <<
+                " idx: "      << mLogNum <<
+                " start: "    << mCurLogStartSeq <<
+                " cur: "      << mNextLogSeq <<
+                " block: "    << theLogAppendLastBlockSeq <<
+                " hex: "      << theLogAppendHexFlag <<
+                " file: "     << mLogName <<
+                " size: "     << theSize <<
+                " checksum: " << mMdStream.GetMd() <<
+            KFS_LOG_EOM;
+            mMdStream.setf(
+                theLogAppendHexFlag ? ostream::hex : ostream::dec,
+                ostream::basefield
+            );
+            mLogFilePos     = theSize;
+            mLogFilePrevPos = mLogFilePos;
+            mNextBlockSeq   = theLogAppendLastBlockSeq;
+            if (theLogAppendLastBlockSeq < 0 || ! theLogAppendHexFlag ||
+                    ! theHasLogSeqFlag) {
+                // Previous / "old" log format.
+                // Close the log segment even if it is empty and start new one.
+                StartNextLog();
+            }
+        } else {
+            NewLog(mReplayLogSeq);
+        }
+        if (! IsLogStreamGood()) {
+            return mError;
+        }
+        mVrNodeId              = mMetaVrSM.GetNodeId();
+        outCurLogFileName      = mLogName;
+        mStopFlag              = false;
+        mNetManagerPtr         = &inNetManager;
+        mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
+        mVrLastLogReceivedTime = mLastLogReceivedTime;
+        if (inVrResetOnlyFlag) {
+            if (mMetaVrSM.GetConfig().IsEmpty()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "VR is not configured, nothing to reset" <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+            // Write configuration reset followed by log start view.
+            MetaVrReconfiguration& theRcOp = *(new MetaVrReconfiguration());
+            theRcOp.mOpType = MetaVrReconfiguration::GetResetOpName();
+            theRcOp.logseq = mLastLogSeq;
+            theRcOp.logseq.mLogSeq++;
+            MetaVrLogStartView& theSvOp = *(new MetaVrLogStartView());
+            theSvOp.logseq = theRcOp.logseq;
+            theSvOp.logseq.mLogSeq++;
+            theSvOp.mNodeId             = mVrNodeId < 0 ? NodeId(0) : mVrNodeId;
+            theSvOp.mTime               = mNetManager.Now(),
+            theSvOp.mCommittedSeq       = theRcOp.logseq;
+            theSvOp.mNewLogSeq          = MetaVrLogSeq(
+                theSvOp.mCommittedSeq.mEpochSeq + 1,
+                kMetaVrLogStartEpochViewSeq,
+                kMetaVrLogStartViewLogSeq
+            );
+            if (! theSvOp.Validate()) {
+                panic("log writer: invalid VR log start view op");
+                mError = -EFAULT;
+            }
+            theRcOp.next = &theSvOp;
+            ostream& theStream = mMdStream;
+            MetaRequest* thePtr = &theRcOp;
+            while (thePtr) {
+                MetaRequest& theOp = *thePtr;
+                thePtr = theOp.next;
+                theOp.next = 0;
+                if (IsLogStreamGood()) {
+                    if (! theOp.WriteLog(theStream, mOmitDefaultsFlag)) {
+                        panic("log writer: invalid request ");
+                        mError = -EFAULT;
+                    }
+                    if (IsLogStreamGood()) {
+                        const MetaVrLogSeq& theLogSeq = &theOp == &theSvOp ?
+                            theSvOp.mNewLogSeq : theOp.logseq;
+                        ++mNextBlockSeq;
+                        Checksum theTxChecksum = 0;
+                        WriteBlockTrailer(
+                            theLogSeq, mCommitted, 1, theTxChecksum);
+                        LogStreamFlush();
+                        if (IsLogStreamGood()) {
+                            mLastLogSeq = theLogSeq;
+                            mNextLogSeq = mLastLogSeq;
+                            if (mLastLogSeq.IsPastViewStart()) {
+                                mLastNonEmptyViewEndSeq = mLastLogSeq;
+                            }
+                        } else {
+                            --mNextBlockSeq;
+                        }
+                    }
+                }
+                MetaRequest::Release(&theOp);
+            }
+            if (! IsLogStreamGood()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "VR reset transaction log write has failed" <<
+                KFS_LOG_EOM;
+            }
+            Close();
+            if (0 == mError) {
+                KFS_LOG_STREAM_INFO <<
+                    "VR configuration reset transaction log write complete" <<
+                KFS_LOG_EOM;
+            }
+            return mError;
+        }
+        const int kStackSize = 64 << 10;
+        mThread.Start(this, kStackSize, "LogWriter");
+        mNetManagerPtr->RegisterTimeoutHandler(this);
+        return 0;
+    }
     int Cancel(
         Queue& inQueue)
     {
@@ -858,7 +894,7 @@ private:
             inDoneQueue.PushBack(mPendingAckQueue);
         }
         if (inDoneQueue.IsEmpty() && 0 == inExtraReqCount &&
-                (0 == mVrStatus ||
+                (0 == mVrStatus || mPrimaryFlag ||
                 (! inSetReplayStateFlag && mPendingAckQueue.IsEmpty()))) {
             return;
         }
@@ -1113,8 +1149,10 @@ private:
                         LogError(*thePtr);
                     }
                 }
-                if (theEndBlockSeq <= mLastLogSeq.mLogSeq || theStartViewFlag ||
-                        META_VR_RECONFIGURATION == thePtr->op) {
+                if (theEndBlockSeq <= mLastLogSeq.mLogSeq ||
+                        theStartViewFlag ||
+                        (META_VR_RECONFIGURATION == thePtr->op &&
+                            thePtr->logseq.IsValid())) {
                     break;
                 }
                 if (mMdStream.GetBufferedStart() +

@@ -121,18 +121,12 @@ update_parameters()
 kill_all_proc()
 {
     if [ x"`uname`" = x'Darwin' ]; then
-        { find "$@" -type f -print0 | xargs -0 lsof -nt -- | xargs kill -9 ; } \
+        { find "$@" -type f -print0 | xargs -0 lsof -nt -- | xargs kill -KILL ; } \
             >/dev/null 2>&1
     else
-        { find "$@" -type f | xargs fuser | xargs kill -9 ; } >/dev/null 2>&1
+        { find "$@" -type f | xargs fuser | xargs kill -KILL ; } >/dev/null 2>&1
     fi
 }
-
-
-unset QFS_CLIENT_CONFIG
-unset QFS_CLIENT_CONFIG_127_0_0_1_${metasrvport}
-
-update_parameters
 
 show_help()
 {
@@ -166,6 +160,8 @@ show_help()
  -clean-test-dirs         -- remove test directories
  '
 }
+
+update_parameters
 
 s3test='no'
 excode=0
@@ -319,6 +315,14 @@ testdirsprefix="$tdir/`basename "$testdirsprefix"`"
 for i in 0 1 2 3; do
     mkdir -p "${testdirsprefix}$i/$USER/test"
 done
+
+eval `env | awk '
+    BEGIN { FS="="; }
+    /QFS_CLIENT_CONFIG/ {
+        print "unexport " $1;
+        print "unset " $1;
+    }'`
+
 update_parameters
 
 mkdir -p "$metasrvdir"
@@ -412,6 +416,7 @@ fi
 echo "Starting meta server $metahost:$metasrvport"
 
 (
+trap '' EXIT
 
 mkdir -p "$metasrvdir"
 cd "$metasrvdir" || exit
@@ -668,17 +673,16 @@ EOF
                     -f "$adminclientprop" \
                     -s "$metahost" \
                     -p "$metasrvport" \
-                    -F Op-type=1 \
-                    -F List-size=1 \
-                    -F Node-id="$i" \
-                    -F List="$vrlocation" \
+                    -F op-type=add-node \
+                    -F arg-count=1 \
+                    -F node-id="$i" \
+                    -F args="$vrlocation" \
                     vr_reconfiguration \
                 && break
-                [ $trycnt -lt 0 ] && break
+                [ $trycnt -le 0 ] && exit 1
                 sleep 5
                 trycnt=`expr $trycnt - 1`
             done
-            [ $trycnt -lt 0 ] && break
             nodeidlist="$nodeidlist $i"
             i=`expr $i + 1`
         done
@@ -691,26 +695,25 @@ EOF
                 -f "$adminclientprop" \
                 -s "$metahost" \
                 -p "$metasrvport" \
-                -F Op-type="$vrcount" \
-                -F List-size=3 \
-                -F List="$nodeidlist" \
+                -F op-type=activate-nodes \
+                -F arg-count="$vrcount" \
+                -F args="$nodeidlist" \
                 vr_reconfiguration \
             && break
-            [ $trycnt -lt 0 ] && break
+            [ $trycnt -le 0 ] && exit 1
             sleep 5
             trycnt=`expr $trycnt - 1`
         done
-        [ $trycnt -lt 0 ] && exit 1
         # Add duplicate channel for node 1
         vrlocation="$metahost `expr $metavrport + 1`"
         ./"$qfsadminbin" \
             -f "$adminclientprop" \
             -s "$metahost" \
             -p "$metasrvport" \
-            -F Op-type=7 \
-            -F List-size=1 \
-            -F Node-id=1 \
-            -F List="$vrlocation" \
+            -F op-type=add-node-listeners \
+            -F arg-count=1 \
+            -F node-id=1 \
+            -F args="$vrlocation" \
             vr_reconfiguration \
         || exit
         echo "VR status:"
@@ -729,13 +732,9 @@ EOF
                 cat >> "$vrdir/$metasrvprop" << EOF
 metaServer.log.receiver.netErrorSimulator = a=rand+log,int=128,rsleep=30;
 EOF
-                kill -HUP `cat "$vrdir/$metasrvpid"` || break
+                kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
                 i=`expr $i + 1`
             done
-            if [ $i -ne $vrcount ]; then
-                echo "failed to update configuration $vrdir/$metasrvprop"
-                exit 1
-            fi
         fi
         # Update meta data sync, addresses.
         i=0
@@ -744,14 +743,10 @@ EOF
             cat >> "$vrdir/$metasrvprop" << EOF
 metaServer.metaDataSync.servers = $serverlocs
 EOF
-            kill -HUP `cat "$vrdir/$metasrvpid"` || break
+            kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
             i=`expr $i + 1`
             vrdir="vr$i"
         done
-        if [ $i -ne $vrcount ]; then
-            echo "failed to update configuration $vrdir/$metasrvprop"
-            exit 1
-        fi
     fi
 else
     cat >> "$metasrvprop" << EOF
@@ -806,15 +801,25 @@ EOF
     trap '' HUP INT
     ./qfsstatus.py "$wuiconf" > "$wuilog" 2>&1 &
     echo $! > "$wuipid"
+    kill -0 `cat "$wuipid"` || {
+        echo "Failed to start meta server web UI"
+        exit 1
+    }
 fi
-
-)
+exit 0
+) || {
+    kill_all_proc "$metasrvdir"
+    echo "Failed to start meta server"
+    exit 1
+}
 
 if [ x"$csvalgrind" = x'yes' ]; then
     cscmdline='valgrind -v --log-file=valgrind.log'
 else
     cscmdline=''
 fi
+
+trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
 
 i=$chunksrvport
 rack=1
@@ -909,6 +914,7 @@ chunkServer.objectDir                         = $objectstoredir
 EOF
 fi
         (
+        trap '' EXIT
         cd "$dir" || exit
         echo "Starting chunk server $i"
         trap '' HUP INT
@@ -925,10 +931,14 @@ fi
 # -test-only
 
 if [ x"$mconly" = x'yes' ]; then
+    trap '' EXIT
     exit 0
 fi
 
+trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
+
 (
+    trap '' EXIT
     mydir="$clitestdir/cp"
     kill_all_proc "$mydir"
     rm -rf "$mydir"
@@ -977,13 +987,16 @@ fi
         done > "cptest-$suf.log" 2>&1 &
         echo $! > "cptest-$suf.pid"
     done
-)
+    exit 0
+) || exit 1
 
 if [ x"$cponly" = x'yes' ]; then
+    trap '' EXIT
     exit 0
 fi
 
 (
+    trap '' EXIT
     mydir="$clitestdir/fanout"
     kill_all_proc "$mydir"
     rm -rf "$mydir"
@@ -1022,13 +1035,20 @@ fi
         -cpfromkfs-extra-opts "-R $csretry" \
         > kfanout_test.log 2>&1 &
         echo $! > kfanout_test.pid
-)
+    exit 0
+) || exit
 
 if [ x"$smtest" = x'no' ]; then
+    trap '' EXIT
     exit 0
 fi
 
-[ -e "$bdir/src/cc/sortmaster/ksortmaster" ] || exit
+if [ -e "$bdir/src/cc/sortmaster/ksortmaster" ]; then
+    true
+else
+    trap '' EXIT
+    exit 0
+fi
 
 if [ x"$auth" = x'yes' ]; then
         smauthconf="$clitestdir/sortmasterauth.prp"
@@ -1041,6 +1061,7 @@ EOF
 fi
 
 (
+    trap '' EXIT
     mydir="$clitestdir/sortmaster"
     kill_all_proc "$mydir"
     rm -rf "$mydir"
@@ -1080,5 +1101,9 @@ fi
     echo "Starting sortmaster_test.sh"
     trap '' HUP INT
     ./endurance_test.sh > sortmaster_endurance_test.log 2>&1 &
-    echo $! > endurance_test.pid
-)
+    echo $! > endurance_test.pid || exit
+    exit 0
+) || exit 1
+
+trap '' EXIT
+exit 0

@@ -402,45 +402,36 @@ protected:
         {}
 };
 
+const char* const kMetaVrReconfigurationResetOpNamePtr = "reset";
+
 class MetaVrReconfiguration : public MetaIdempotentRequest
 {
 public:
-    enum
-    {
-        kOpTypeNone                = 0,
-        kOpTypeAddNode             = 1,
-        kOpTypeRemoveNodes         = 2,
-        kOpTypeActivateNodes       = 3,
-        kOpTypeInactivateNodes     = 4,
-        kOpTypeSetPrimaryOrder     = 5,
-        kOpTypeSetParameters       = 6,
-        kOpTypeAddNodeListeners    = 7,
-        kOpTypeRemoveNodeListeners = 8,
-        kOpTypeReset               = 9,
-        kOpTypeSwapActiveNode      = 10,
-        kOpTypesCount
-    };
     typedef MetaVrSM::Config Config;
     typedef Config::NodeId   NodeId;
     typedef Config::Flags    Flags;
 
     int             mHandledCount;
-    int             mOpType;
     int             mListSize;
     int             mPrimaryOrder;
     Flags           mNodeFlags;
     NodeId          mNodeId;
+    StringBufT<32>  mOpType;
     StringBufT<256> mListStr;
+    IOBuffer        mResponse;
 
+    static const char* GetResetOpName()
+        { return "reset"; }
     MetaVrReconfiguration()
         : MetaIdempotentRequest(META_VR_RECONFIGURATION, kLogIfOk),
           mHandledCount(0),
-          mOpType(kOpTypeNone),
           mListSize(0),
           mPrimaryOrder(0),
           mNodeFlags(Config::kFlagsNone),
           mNodeId(-1),
-          mListStr()
+          mOpType(),
+          mListStr(),
+          mResponse()
         {}
     virtual ostream& ShowSelf(
         ostream& inOs) const
@@ -457,35 +448,37 @@ public:
     }
     virtual bool start();
     bool Validate()
-    {
-        return ((kOpTypeAddNode == mOpType ? 0 <= mNodeId : 0 < mListSize) &&
-            kOpTypeNone < mOpType && mOpType < kOpTypesCount);
-    }
+        { return true; }
     virtual void handle();
     virtual void response(
-        ReqOstream& inStream);
+        ReqOstream& inStream,
+        IOBuffer&   inBuffer);
     template<typename T>
-    static T& ParserDef(T& parser)
+    static T& ParserDefSelf(
+        T& inParser)
     {
-        return MetaIdempotentRequest::ParserDef(parser)
-        .Def2("Op-type",   "T", &MetaVrReconfiguration::mOpType,
-                int(kOpTypeNone))
-        .Def2("List-size", "S", &MetaVrReconfiguration::mListSize, 0)
-        .Def2("Flags",     "F", &MetaVrReconfiguration::mNodeFlags,
-                Flags(Config::kFlagsNone))
-        .Def2("Prim-ord",  "O", &MetaVrReconfiguration::mPrimaryOrder, 0)
-        .Def2("Node-id",   "N", &MetaVrReconfiguration::mNodeId,
+        return inParser
+        .Def2("op-type",       "T", &MetaVrReconfiguration::mOpType)
+        .Def2("arg-count",     "S", &MetaVrReconfiguration::mListSize, 0)
+        .Def2("args",          "L", &MetaVrReconfiguration::mListStr)
+        .Def2("node-id",       "N", &MetaVrReconfiguration::mNodeId,
                 NodeId(-1))
-        .Def2("List",      "L", &MetaVrReconfiguration::mListStr)
+        .Def2("node-flags"    ,"F", &MetaVrReconfiguration::mNodeFlags,
+                Flags(Config::kFlagsNone))
+        .Def2("primary-order", "O", &MetaVrReconfiguration::mPrimaryOrder, 0)
         ;
     }
+    template<typename T>
+    static T& ParserDef(
+        T& inParser)
+        { return ParserDefSelf(MetaIdempotentRequest::ParserDef(inParser)); }
     template<typename T>
     static T& IoParserDef(
         T& inParser)
     {
         // Keep everything except list for debugging.
         return MetaIdempotentRequest::IoParserDef(inParser)
-        .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
+        .Def("T", &MetaVrReconfiguration::mOpType                              )
         .Def("S", &MetaVrReconfiguration::mListSize,                          0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
         .Def("O", &MetaVrReconfiguration::mPrimaryOrder,                      0)
@@ -497,7 +490,7 @@ public:
         T& inParser)
     {
         return MetaIdempotentRequest::LogIoDef(inParser)
-        .Def("T", &MetaVrReconfiguration::mOpType,             int(kOpTypeNone))
+        .Def("T", &MetaVrReconfiguration::mOpType)
         .Def("S", &MetaVrReconfiguration::mListSize,                          0)
         .Def("F", &MetaVrReconfiguration::mNodeFlags, Flags(Config::kFlagsNone))
         .Def("O", &MetaVrReconfiguration::mPrimaryOrder,                      0)

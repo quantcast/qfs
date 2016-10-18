@@ -689,7 +689,8 @@ public:
     ObjectParser& Def(
         const char* inNamePtr,
         T OT::*     inFieldPtr,
-        T           inDefault = T())
+        const T&    inDefault = T(),
+        const char* inInfoPtr = 0)
     {
         if (! mDefDoneFlag && ! mFields.insert(make_pair(
                     Key(inNamePtr), new Field<T,OT>(inFieldPtr, inDefault)
@@ -704,7 +705,8 @@ public:
         const char* inLongNamePtr,
         const char* inShortNamePtr,
         T OT::*     inFieldPtr,
-        T           inDefault = T())
+        const T&    inDefault = T(),
+        const char* inInfoPtr = 0)
     {
         return Def(SHORT_NAMES_FLAG ? inShortNamePtr : inLongNamePtr,
             inFieldPtr, inDefault);
@@ -952,9 +954,10 @@ public:
     RequestParser& Def(
         const char* inNamePtr,
         T OT::*     inFieldPtr,
-        T           inDefault = T())
+        const T&    inDefault = T(),
+        const char* inInfoPtr = 0)
     {
-        ObjParser::Def(inNamePtr, inFieldPtr, inDefault);
+        ObjParser::Def(inNamePtr, inFieldPtr, inDefault, inInfoPtr);
         return *this;
     }
     template<typename T, typename OT>
@@ -962,9 +965,11 @@ public:
         const char* inLongNamePtr,
         const char* inShortNamePtr,
         T OT::*     inFieldPtr,
-        T           inDefault = T())
+        const T&    inDefault = T(),
+        const char* inInfoPtr = 0)
     {
-        ObjParser::Def2(inLongNamePtr, inShortNamePtr, inFieldPtr, inDefault);
+        ObjParser::Def2(
+            inLongNamePtr, inShortNamePtr, inFieldPtr, inDefault, inInfoPtr);
         return *this;
     }
     RequestParser& DefDone()

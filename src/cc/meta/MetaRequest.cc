@@ -6596,12 +6596,20 @@ MetaVrReconfiguration::handle()
 }
 
 /* virtual */ void
-MetaVrReconfiguration::response(ReqOstream& os)
+MetaVrReconfiguration::response(ReqOstream& os, IOBuffer& buf)
 {
     if (! IdempotentAck(os)) {
         return;
     }
-    os << "\r\n";
+    const int len = mResponse.BytesConsumable();
+    if (0 < len) {
+        os << (shortRpcFormatFlag ? "l:" : "Content-length: ") << len << "\r\n"
+        "\r\n";
+        os.flush();
+        buf.Copy(&mResponse, len);
+    } else {
+        os << "\r\n";
+    }
 }
 
 /* virtual */ void

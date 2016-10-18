@@ -334,7 +334,7 @@ public:
             panic("VR: invalid log block commit sequence");
             return -EINVAL;
         }
-        const NodeId thePrimaryId = GetPrimaryNodeId();
+        const NodeId thePrimaryId = GetPrimaryNodeId(inBlockEndSeq);
         if (0 <= thePrimaryId && inTransmitterId != thePrimaryId) {
             if (inBlockStartSeq < inBlockEndSeq) {
                 KFS_LOG_STREAM_ERROR <<
@@ -349,8 +349,14 @@ public:
             return -EROFS;
         }
         if (kStateReconfiguration == mState && mReconfigureReqPtr &&
-                inBlockEndSeq == mReconfigureReqPtr->logseq) {
+                inBlockEndSeq <= mReconfigureReqPtr->logseq) {
             return 0;
+        }
+        if (mActiveFlag &&
+                kStateBackup == mState &&
+                inTransmitterId == thePrimaryId &&
+                mLastLogSeq <= inBlockEndSeq) {
+            mLastReceivedTime = TimeNow();
         }
         if (inBlockEndSeq.IsSameView(mLastViewEndSeq) &&
                 ! inBlockEndSeq.IsSameView(mLastLogSeq) &&
@@ -666,7 +672,7 @@ public:
         const MetaVrLogSeq& inSeq) const
     {
         if (mActiveFlag && kStateReconfiguration == mState &&
-                mReconfigureReqPtr && mReconfigureReqPtr->logseq <= inSeq) {
+                mReconfigureReqPtr && inSeq <= mReconfigureReqPtr->logseq) {
             return mNodeId;
         }
         return GetPrimaryNodeId();
@@ -1033,7 +1039,14 @@ public:
     }
     void Shutdown()
     {
+        if (! mStartedFlag) {
+            return;
+        }
         CancelViewChange();
+        if (! mLogTransmittersSuspendedFlag) {
+            mLogTransmittersSuspendedFlag = true;
+            mLogTransmitter.Suspend(mLogTransmittersSuspendedFlag);
+        }
         mStartedFlag = false;
     }
     int SetParameters(
@@ -1371,6 +1384,117 @@ private:
         kActiveCheckNone      = 0,
         kActiveCheckActive    = 1,
         kActiveCheckNotActive = 2
+    };
+
+    class NameToken
+    {
+    public:
+        NameToken(
+            const char* inNamePtr)
+            : mNamePtr(inNamePtr ? inNamePtr : "")
+            {}
+        bool operator<(
+            const NameToken& inRhs) const
+            { return (strcmp(mNamePtr, inRhs.mNamePtr) < 0); }
+        bool operator>(
+            const NameToken& inRhs) const
+            { return (strcmp(mNamePtr, inRhs.mNamePtr) > 0); }
+        bool operator==(
+            const NameToken& inRhs) const
+            { return (strcmp(mNamePtr, inRhs.mNamePtr) == 0); }
+    private:
+        const char* const mNamePtr;
+    };
+
+    typedef void (Impl::*VrReconfigurationMethodPtr)(MetaVrReconfiguration&);
+
+    typedef map<
+        NameToken,
+        pair<VrReconfigurationMethodPtr, VrReconfigurationMethodPtr>,
+        less<NameToken>,
+        StdFastAllocator<
+            pair<
+                const NameToken,
+                pair<VrReconfigurationMethodPtr, VrReconfigurationMethodPtr>
+            >
+        >
+    > VrReconfigurationTable;
+
+    class AddVrMethodFunc
+    {
+    public:
+        AddVrMethodFunc(
+            VrReconfigurationTable& inTable)
+            : mTable(inTable)
+            {}
+        AddVrMethodFunc& Def(
+            const char*                inNamePtr,
+            const char*                /* inHelpStrPtr */,
+            VrReconfigurationMethodPtr inMethodPtr,
+            VrReconfigurationMethodPtr inCommitMethodPtr)
+        {
+            if (! mTable.insert(make_pair(
+                    NameToken(inNamePtr),
+                    make_pair(inMethodPtr, inCommitMethodPtr))).second) {
+                // Method name collision..
+                abort();
+            }
+            return *this;
+        }
+    private:
+        VrReconfigurationTable& mTable;
+    private:
+        AddVrMethodFunc(
+            const AddVrMethodFunc& inFunc);
+        AddVrMethodFunc& operator=(
+            const AddVrMethodFunc& inFunc);
+    };
+
+    class HelpFunc
+    {
+    public:
+        HelpFunc(
+            ostream& inStream)
+            : mStream(inStream)
+            {}
+        HelpFunc& Def(
+            const char*                inNamePtr,
+            const char*                inHelpStrPtr,
+            VrReconfigurationMethodPtr /* inMethodPtr */,
+            VrReconfigurationMethodPtr /* inCommitMethodPtr */)
+        {
+            if (inNamePtr && *inNamePtr) {
+                mStream <<
+                    inNamePtr <<
+                    ((inHelpStrPtr && *inHelpStrPtr) ? "\n" : "") <<
+                    (inHelpStrPtr ? inHelpStrPtr : "") <<
+                "\n";
+            }
+            return *this;
+        }
+        template<typename T, typename OT>
+        HelpFunc& Def2(
+            const char* inNamePtr,
+            const char* /* inShortNamePtr */,
+            T OT::*     /* inMethodPtr */,
+            const T&    inDefault    = T(),
+            const char* inHelpStrPtr = 0)
+        {
+            if (inNamePtr && *inNamePtr) {
+                mStream <<
+                    inNamePtr <<
+                    (inHelpStrPtr ? inHelpStrPtr : "") <<
+                "\n";
+            }
+            return *this;
+        }
+    private:
+        ostream& mStream;
+    private:
+        HelpFunc(
+            const HelpFunc& inFunc);
+        HelpFunc& operator=(
+            const HelpFunc& inFunc);
     };
 
     class NopFunc
@@ -1819,10 +1943,113 @@ private:
     MetaVrResponse         mVrResponse;
     char                   mVrStateReadBuffer[kMaxVrStateSize];
 
+    static const VrReconfigurationTable& sVrReconfigurationTable;
+
+    template<typename T>
+    static T& DefVrReconfiguration(
+        T& inArg)
+    {
+        return inArg
+        .Def("add-node",
+            " -- add inactive node with the specified log listeners in args"
+            " list: ip port ip1 port1 ..., node ID, and, optionally,"
+            " primary order",
+            &Impl::AddNode,          &Impl::CommitAddNode)
+        .Def("remove-nodes",
+            " -- remove inactive nodes with the specified IDs",
+            &Impl::RemoveNodes,      &Impl::CommitRemoveNodes)
+        .Def("activate-nodes",
+            " -- activate inactive nodes with the specified IDs",
+            &Impl::ActivateNodes,    &Impl::CommitActivateNodes)
+        .Def("inactivate-nodes",
+            " -- inactivate active nodes with the specified IDs",
+            & Impl::InactivateNodes, &Impl::CommitInactivateNodes)
+        .Def("set-primary-order",
+            " -- set / change active or inactive node primary order",
+            &Impl::SetPrimaryOrder,  &Impl::CommitSetPrimaryOrder)
+        .Def("set-parameters",
+            " -- set parameters:\n"
+            " primary timeout,\n"
+            " backup timeout\n"
+            " maximum view change log distance\n"
+            " maximum number of log listeners per node" ,
+            &Impl::SetParameters,    &Impl::CommitSetParameters)
+        .Def("add-node-listeners",
+            " -- add specified listener for a given node ID",
+            &Impl::AddNodeListeners, &Impl::CommitAddNodeListeners)
+        .Def("remove-node-listeners",
+            " -- remove specified listener for a given node ID",
+            &Impl::RemoveNodeListeners, &Impl::CommitRemoveNodeListeners)
+        .Def(MetaVrReconfiguration::GetResetOpName(),
+            " -- clear VR configuration; cannot be performed at run time",
+            &Impl::ResetConfig,      &Impl::CommitResetConfig)
+        .Def("swap-nodes",
+            " -- swap specified inactive and active nodes, by"
+            " making inactive node active, and active node inactive",
+            &Impl::SwapActiveNode,  &Impl::CommitSwapActiveNode)
+        .Def("help",
+            " -- display help message",
+            &Impl::Help,            &Impl::CommitHelp)
+        .Def("",
+            "",
+            &Impl::Help,            &Impl::CommitHelp)
+        ;
+    }
+    static const VrReconfigurationTable& MakVrReconfigurationTable()
+    {
+        static VrReconfigurationTable sTable;
+        if (sTable.empty()) {
+            AddVrMethodFunc theFunc(sTable);
+            DefVrReconfiguration(theFunc);
+        }
+        return sTable;
+    }
     static int CalcQuorum(
         int inActiveCount)
     {
         return (kMinActiveCount <= inActiveCount ? inActiveCount / 2 + 1 : 0);
+    }
+    void ActivateNodes(
+        MetaVrReconfiguration& inReq)
+        { ModifyActiveStatus(inReq, true); }
+    void InactivateNodes(
+        MetaVrReconfiguration& inReq)
+        { ModifyActiveStatus(inReq, false); }
+    void CommitActivateNodes(
+        MetaVrReconfiguration& inReq)
+        { CommitModifyActiveStatus(inReq, true); }
+    void CommitInactivateNodes(
+        MetaVrReconfiguration& inReq)
+        { CommitModifyActiveStatus(inReq, false); }
+    void Help(
+        MetaVrReconfiguration& inReq)
+    {
+        if (inReq.replayFlag) {
+            panic("VR: invalid reconfiguration in replay");
+            inReq.status    = -EFAULT;
+            inReq.statusMsg = "invalid reconfiguration type";
+            return;
+        }
+        if (0 != inReq.status || inReq.mResponse.BytesConsumable()) {
+            return;
+        }
+        inReq.logAction = MetaRequest::kLogNever;
+        ostream& theStream = mWOStream.Set(inReq.mResponse);
+        theStream << "VR reconfiguration arguments:\n";
+        HelpFunc theFunc(theStream);
+        MetaVrReconfiguration::ParserDefSelf(theFunc);
+        theStream << "supported operation"
+            " (i.e. possible values of op-type argument):\n";
+        DefVrReconfiguration(theFunc);
+        theStream << "\n";
+        mWOStream.Reset();
+    }
+    void CommitHelp(
+        MetaVrReconfiguration& inReq)
+    {
+        panic("VR: invalid reconfiguration type commit");
+        inReq.status    = -EFAULT;
+        inReq.statusMsg = "invalid reconfiguration type";
     }
     void SetLastLogSeq(
         const MetaVrLogSeq& inLogSeq)
@@ -2744,12 +2971,18 @@ private:
                 return false;
             }
             StartReconfiguration(inReq);
+            if (0 != inReq.status) {
+                inReq.logAction = MetaRequest::kLogNever;
+            }
         }
         return (0 != inReq.status);
     }
     void StartReconfiguration(
         MetaVrReconfiguration& inReq)
     {
+        if (0 != inReq.status) {
+            return;
+        }
         if ((inReq.logseq.IsValid() ?
                 (! inReq.replayFlag && ! mStartedFlag) :
                 kStatePrimary != mState)) {
@@ -2772,44 +3005,16 @@ private:
             inReq.statusMsg += kMetaVrNodeIdParameterNamePtr;
             return;
         }
-        switch (inReq.mOpType)
-        {
-            case MetaVrReconfiguration::kOpTypeAddNode:
-                AddNode(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeRemoveNodes:
-                RemoveNodes(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeActivateNodes:
-                ModifyActiveStatus(inReq, true);
-                break;
-            case MetaVrReconfiguration::kOpTypeInactivateNodes:
-                ModifyActiveStatus(inReq, false);
-                break;
-            case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
-                SetPrimaryOrder(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeSetParameters:
-                SetParameters(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeAddNodeListeners:
-                AddNodeListeners(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeRemoveNodeListeners:
-                RemoveNodeListeners(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeReset:
-                ResetConfig(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeSwapActiveNode:
-                SwapActiveNode(inReq);
-                break;
-            default:
-                inReq.status    = -EINVAL;
-                inReq.statusMsg = "invalid operation type";
-                break;
+        VrReconfigurationTable::const_iterator const theIt =
+            sVrReconfigurationTable.find(NameToken(inReq.mOpType.c_str()));
+        if (sVrReconfigurationTable.end() == theIt) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "invalid operation type: ";
+            inReq.statusMsg.append(inReq.mOpType.data(), inReq.mOpType.size());
+            return;
         }
-        if (0 == inReq.status) {
+        (this->*(theIt->second.first))(inReq);
+        if (0 == inReq.status && MetaRequest::kLogNever != inReq.logAction) {
             mReconfigureReqPtr = &inReq;
             if (! inReq.logseq.IsValid()) {
                 mLastUpTime     = TimeNow();
@@ -3284,7 +3489,7 @@ private:
         if (4 != inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg =
-                "set parameters: invalid list size, expected:"
+                "set parameters: incorrect number of arguments, expected:"
                 " primary_timeout"
                 " backup_timeout"
                 " start_view_change_max_log_distance"
@@ -3326,7 +3531,7 @@ private:
         if (0 != inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "reset VR configuration:"
-                " invalid non 0 list size";
+                " non 0 number of arguments";
             return;
         }
         if (mStartedFlag || ! inReq.replayFlag) {
@@ -3349,7 +3554,7 @@ private:
         if (2 != inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "swap active node:"
-                " list must have two node ids to swap";
+                " arguments must have two node ids to swap";
             return;
         }
         if (! ParseNodeIdList(inReq)) {
@@ -3502,62 +3707,35 @@ private:
             panic("VR: commit reconfiguration: invalid state");
             return;
         }
-        if ((MetaVrReconfiguration::kOpTypeActivateNodes != inReq.mOpType &&
-                MetaVrReconfiguration::kOpTypeInactivateNodes !=
-                    inReq.mOpType) && IsActive(mNodeId) != mActiveFlag) {
+        if (IsActive(mNodeId) != mActiveFlag) {
             panic("VR: commit reconfiguration: invalid node activity change");
             return;
         }
-        switch (inReq.mOpType) {
-            case MetaVrReconfiguration::kOpTypeAddNode:
-                CommitAddNode(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeRemoveNodes:
-                CommitRemoveNodes(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeActivateNodes:
-                CommitModifyActiveStatus(inReq, true);
-                break;
-            case MetaVrReconfiguration::kOpTypeInactivateNodes:
-                CommitModifyActiveStatus(inReq, false);
-                break;
-            case MetaVrReconfiguration::kOpTypeSetPrimaryOrder:
-                CommitSetPrimaryOrder(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeSetParameters:
-                CommitSetParameters(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeAddNodeListeners:
-                CommitAddNodeListeners(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeRemoveNodeListeners:
-                CommitRemoveNodeListeners(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeReset:
-                CommitResetConfig(inReq);
-                break;
-            case MetaVrReconfiguration::kOpTypeSwapActiveNode:
-                CommitSwapActiveNode(inReq);
-                break;
-            default:
-                panic("VR: invalid reconfiguration commit attempt");
-                break;
+        VrReconfigurationTable::const_iterator const theIt =
+            sVrReconfigurationTable.find(NameToken(inReq.mOpType.c_str()));
+        if (sVrReconfigurationTable.end() == theIt) {
+            panic("VR: invalid reconfiguration commit attempt");
+            inReq.status    = -EFAULT;
+            inReq.statusMsg = "internal error";
+            return;
         }
+        (this->*(theIt->second.second))(inReq);
         if (0 != inReq.status) {
             panic("VR: reconfiguration commit failure");
+            return;
         }
         mPendingChangesList.clear();
         mPendingLocations.clear();
         ConfigUpdate();
         if (kStatePrimary == mState && ! inReq.replayFlag &&
-                0 == inReq.status && mStartedFlag && mActiveFlag) {
+                mStartedFlag && mActiveFlag) {
             // Drop count to 1 to schedule to emit no-op to advance commit on
             // backups.
             inReq.mHandledCount = kVrReconfCountCommitAdvance;
         }
     }
     void CommitAddNode(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         if ((int)mPendingLocations.size() != inReq.mListSize) {
             panic("VR: commit add node: invalid locations");
@@ -3575,7 +3753,7 @@ private:
         }
     }
     void CommitAddNodeListeners(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         if (mPendingLocations.size() != (size_t)inReq.mListSize) {
             panic("VR: commit add node listeners: invalid locations");
@@ -3596,7 +3774,7 @@ private:
         }
     }
     void CommitRemoveNodeListeners(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         if (mPendingLocations.size() != (size_t)inReq.mListSize) {
             panic("VR: commit remove node listeners: invalid locations");
@@ -3625,7 +3803,7 @@ private:
         }
     }
     void CommitResetConfig(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         if (! inReq.replayFlag || mStartedFlag ||
                 ! inReq.logseq.IsValid() ||
@@ -3656,7 +3834,7 @@ private:
         CommitReconfiguration(inReq);
     }
     void CommitRemoveNodes(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         ApplyT(kActiveCheckNotActive, RmoveFunc(*this));
     }
@@ -3729,7 +3907,7 @@ private:
         }
     }
     void CommitSetParameters(
-        const MetaVrReconfiguration& inReq)
+        MetaVrReconfiguration& inReq)
     {
         if (0 != inReq.status) {
             return;
@@ -4305,6 +4483,9 @@ private:
     Impl& operator=(
         const Impl& inImpl);
 };
+const MetaVrSM::Impl::VrReconfigurationTable&
+    MetaVrSM::Impl::sVrReconfigurationTable =
+    MetaVrSM::Impl::MakVrReconfigurationTable();
 
 MetaVrSM::MetaVrSM(
     LogTransmitter& inLogTransmitter)

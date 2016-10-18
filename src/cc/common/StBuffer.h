@@ -287,6 +287,9 @@ public:
         const StringBufT<CAPACITY>& inBuf)
         { return Copy(inBuf); }
     StringBufT& operator=(
+        const char* inStrPtr)
+        { return Copy(inStrPtr, inStrPtr ? strlen(inStrPtr) : 0); }
+    StringBufT& operator=(
         const string& inStr)
         { return Copy(inStr); }
     const char* GetPtr() const
