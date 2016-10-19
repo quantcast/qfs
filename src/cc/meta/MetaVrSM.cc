@@ -305,9 +305,11 @@ public:
           mLogFetchEndSeq(),
           mMetaDataStoreLocation(),
           mSyncServers(),
+          mViewChangeInitiationTime(mTimeNow),
           mVrStateFileName("vrstate"),
           mVrStateTmpFileName(mVrStateFileName + ".tmp"),
           mVrStateIoStr(),
+          mViewChangeReason("restart"),
           mEmptyString(),
           mInactiveNodeStatusMsg("meta server node is inactive"),
           mBackupNodeStatusMsg("meta server node is backup"),
@@ -344,7 +346,7 @@ public:
                     "] from a different"
                     " primary: " <<  thePrimaryId <<
                 KFS_LOG_EOM;
-                ScheduleViewChange();
+                ScheduleViewChange("received block from different primary");
             }
             return -EROFS;
         }
@@ -703,7 +705,7 @@ public:
             return;
         }
         if (mActiveFlag && kStatePrimary == mState) {
-            ScheduleViewChange();
+            ScheduleViewChange("VR reconfiguration replay");
             mLastUpTime     = TimeNow();
             mLastCommitTime = mLastUpTime;
         }
@@ -952,7 +954,7 @@ public:
                     SetState(kStateBackup);
                 } else {
                     if (mActiveFlag) {
-                        ScheduleViewChange();
+                        ScheduleViewChange("restart");
                     } else {
                         SetState(kStateBackup);
                     }
@@ -1924,9 +1926,11 @@ private:
     MetaVrLogSeq           mLogFetchEndSeq;
     ServerLocation         mMetaDataStoreLocation;
     MetaDataSync::Servers  mSyncServers;
+    time_t                 mViewChangeInitiationTime;
     string                 mVrStateFileName;
     string                 mVrStateTmpFileName;
     string                 mVrStateIoStr;
+    string                 mViewChangeReason;
     string const           mEmptyString;
     string const           mInactiveNodeStatusMsg;
     string const           mBackupNodeStatusMsg;
@@ -2054,10 +2058,17 @@ private:
             mLastNonEmptyViewEndSeq = mLastLogSeq;
         }
     }
-    void ScheduleViewChange()
+    void ScheduleViewChange(
+        const char* inMsgPtr = 0)
     {
         if (kStateLogSync == mState || ! mActiveFlag) {
             return;
+        }
+        if (inMsgPtr && *inMsgPtr &&
+                (kStatePrimary == mState || kStateBackup == mState ||
+                    kStateReconfiguration == mState)) {
+            mViewChangeReason         = inMsgPtr;
+            mViewChangeInitiationTime = TimeNow();
         }
         mPrimaryNodeId = -1;
         CancelViewChange();
@@ -2110,8 +2121,10 @@ private:
     }
     void ConfigUpdate()
     {
-        mChannelsCount = mLogTransmitter.Update(mMetaVrSM);
-        mStatus        = GetStatus();
+        if (mStartedFlag) {
+            mChannelsCount = mLogTransmitter.Update(mMetaVrSM);
+            mStatus        = GetStatus();
+        }
     }
     bool ValidateClusterKeyAndMd(
         MetaVrRequest&    inReq,
@@ -2196,7 +2209,7 @@ private:
             " committed: "   << mCommittedSeq <<
         KFS_LOG_EOM;
         mViewSeq++;
-        UpdateViewAndStartViewChange();
+        UpdateViewAndStartViewChange(inMsgPtr);
     }
     void ResetConfig()
     {
@@ -2662,7 +2675,7 @@ private:
             if (kStateBackup != mState ||
                     inReq.mCurState != kStatePrimary ||
                     inReq.mNodeId != mPrimaryNodeId) {
-                ScheduleViewChange();
+                ScheduleViewChange("primary mismatch");
                 mPendingCommitSeq = inReq.mCommittedSeq;
             }
         }
@@ -2721,7 +2734,7 @@ private:
                             mLastReceivedTime + mConfig.GetBackupTimeout() <
                                 TimeNow())) {
                     mViewSeq = inReq.mViewSeq;
-                    StartViewChange();
+                    StartViewChange(inReq);
                     if (kStateViewChange == mState &&
                             ! mDoViewChangePtr &&
                             mStartViewChangeNodeIds.insert(
@@ -2778,7 +2791,7 @@ private:
             if (mViewSeq != inReq.mViewSeq) {
                 if (kStateLogSync != mState) {
                     mViewSeq = inReq.mViewSeq;
-                    StartViewChange();
+                    StartViewChange(inReq);
                 }
             } else if (mNodeId != inReq.mPrimaryNodeId) {
                 inReq.status    = -EINVAL;
@@ -3045,6 +3058,9 @@ private:
             "fileSystemId: "         << mFileSystemId             << "\n"
             "clusterKey: "           << mClusterKey               << "\n"
             "metaMd5: "              << mMetaMd                   << "\n"
+            "viewChangeReason: "     << mViewChangeReason         << "\n"
+            "viewChangeStartTime: "  << mViewChangeInitiationTime << "\n"
+            "currentTime: "          << mTimeNow                  << "\n"
             "\n"
             "logTransmitter:\n"
         ;
@@ -3893,7 +3909,7 @@ private:
             if (mActiveFlag) {
                 if (kStateReconfiguration == mState ||
                         mLastLogSeq == inReq.logseq) {
-                    ScheduleViewChange();
+                    ScheduleViewChange("VR reconfiguration");
                 }
             } else {
                 SetState(kStateBackup);
@@ -3981,7 +3997,7 @@ private:
             mPrimaryNodeId = -1;
             return;
         }
-        ScheduleViewChange();
+        ScheduleViewChange("VR reconfiguration");
     }
     NodeId GetPrimaryId()
     {
@@ -4065,22 +4081,62 @@ private:
         inReq.mMetaDataStorePort    = mMetaDataStoreLocation.port;
         inReq.mClusterKey           = mClusterKey;
         inReq.mMetaMd               = mMetaMd;
+        inReq.mReason               = mViewChangeReason;
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
-    void UpdateViewAndStartViewChange()
+    void UpdateViewAndStartViewChange(
+        const char* inReasonPtr = 0)
     {
         if (mActiveFlag &&
                 mEpochSeq == mLastLogSeq.mEpochSeq &&
                 mViewSeq <= mLastLogSeq.mViewSeq) {
             mViewSeq = mLastLogSeq.mViewSeq + 1;
         }
+        StartViewChange(inReasonPtr);
+    }
+    void StartViewChange(
+        const MetaVrRequest& inReq)
+    {
+        if (kStatePrimary == mState || kStateBackup == mState ||
+                kStateReconfiguration == mState) {
+            if (inReq.mReason.empty()) {
+                const char* theNamePtr = "";
+                switch (inReq.op) {
+                    case META_VR_START_VIEW_CHANGE:
+                        theNamePtr = "start view change";
+                        break;
+                    case META_VR_DO_VIEW_CHANGE:
+                        theNamePtr = "do view change";
+                        break;
+                    case META_VR_START_VIEW:
+                        theNamePtr = "start view";
+                        break;
+                    default:
+                        theNamePtr = "request";
+                        break;
+                }
+                mViewChangeReason = theNamePtr;
+            } else {
+                mViewChangeReason = inReq.mReason;
+            }
+            mViewChangeReason += " node: ";
+            AppendDecIntToString(mViewChangeReason, inReq.mNodeId);
+            mViewChangeInitiationTime = TimeNow();
+        }
         StartViewChange();
     }
-    void StartViewChange()
+    void StartViewChange(
+        const char* inReasonPtr = 0)
     {
         if (! mActiveFlag) {
             panic("VR: start view change: node non active");
             return;
+        }
+        if (inReasonPtr && *inReasonPtr &&
+                (kStatePrimary == mState || kStateBackup == mState ||
+                    kStateReconfiguration == mState)) {
+            mViewChangeReason = inReasonPtr;
+            mViewChangeInitiationTime = TimeNow();
         }
         mLogStartViewPendingRecvFlag = false;
         mPrimaryNodeId               = -1;

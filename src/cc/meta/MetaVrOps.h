@@ -80,6 +80,7 @@ public:
     int            mMetaDataStorePort;
     string         mClusterKey;
     string         mMetaMd;
+    string         mReason;
 
     seq_t          mRetCurEpochSeq;
     seq_t          mRetCurViewSeq;
@@ -116,6 +117,7 @@ public:
           mMetaDataStorePort(-1),
           mClusterKey(),
           mMetaMd(),
+          mReason(),
           mRetCurEpochSeq(-1),
           mRetCurViewSeq(-1),
           mRetCommittedSeq(),
@@ -162,6 +164,7 @@ public:
         .Def("MH", &MetaVrRequest::mMetaDataStoreHost               )
         .Def("CK", &MetaVrRequest::mClusterKey                      )
         .Def("MD", &MetaVrRequest::mMetaMd                          )
+        .Def("CR", &MetaVrRequest::mReason                          )
         ;
     }
     void Request(
@@ -296,7 +299,8 @@ protected:
             " mds: "       << mMetaDataStoreHost <<
             " "            << mMetaDataStorePort <<
             " ckey: "      << mClusterKey <<
-            " md: "        << mMetaMd
+            " md: "        << mMetaMd <<
+            " "            << mReason
         );
     }
 private:
