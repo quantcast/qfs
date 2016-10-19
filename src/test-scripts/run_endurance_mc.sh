@@ -128,6 +128,21 @@ kill_all_proc()
     fi
 }
 
+retry_cmd()
+{
+    local trycnt=$1
+    shift
+    local interval=$1
+    shift
+    while true; do
+        "$@" && break
+        [ $trycnt -le 0 ] && return 1
+        sleep $interval
+        trycnt=`expr $trycnt - 1`
+    done
+    return 0
+}
+
 show_help()
 {
     echo \
@@ -583,7 +598,7 @@ if [ $vrcount -gt 2 ]; then
         }
     ' kfscp/latest`
     if [ x"$filesystemid" = x ]; then
-        echo "failed to determine files system id in kfscp/latest"
+        echo "Failed to determine files system id in kfscp/latest"
         exit 1
     fi
     serverlocs=''
@@ -664,61 +679,51 @@ client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-        echo 'configuring VR'
         sleep 2 # allow met servers start
         nodeidlist=''
         i=0
         while [ $i -lt $vrcount ]; do
             vrlocation="$metahost `expr $metavrport + $i`"
-            trycnt=5
-            while true; do
-                ./"$qfsadminbin" \
-                    -f "$adminclientprop" \
-                    -s "$metahost" \
-                    -p "$metasrvport" \
-                    -F op-type=add-node \
-                    -F arg-count=1 \
-                    -F node-id="$i" \
-                    -F args="$vrlocation" \
-                    vr_reconfiguration \
-                && break
-                [ $trycnt -le 0 ] && exit 1
-                sleep 5
-                trycnt=`expr $trycnt - 1`
-            done
-            nodeidlist="$nodeidlist $i"
-            i=`expr $i + 1`
-        done
-        [ $trycnt -lt 0 ] && exit 1
-        sleep 3 # allow primary to connect to backups.
-        # Active all nodes.
-        trycnt=6
-        while true; do
-            ./"$qfsadminbin" \
+            echo "Adding node $i $vrlocation"
+            retry_cmd 5 5 ./"$qfsadminbin" \
                 -f "$adminclientprop" \
                 -s "$metahost" \
                 -p "$metasrvport" \
-                -F op-type=activate-nodes \
-                -F arg-count="$vrcount" \
-                -F args="$nodeidlist" \
+                -F op-type=add-node \
+                -F arg-count=1 \
+                -F node-id="$i" \
+                -F args="$vrlocation" \
                 vr_reconfiguration \
-            && break
-            [ $trycnt -le 0 ] && exit 1
-            sleep 5
-            trycnt=`expr $trycnt - 1`
+                || exit
+            nodeidlist="$nodeidlist $i"
+            i=`expr $i + 1`
         done
-        # Add duplicate channel for node 1
-        vrlocation="$metahost `expr $metavrport + 1`"
-        ./"$qfsadminbin" \
+        sleep 3 # allow primary to connect to backups.
+        # Active all nodes.
+        echo "Activating nodes $nodeidlist"
+        retry_cmd 5 5 ./"$qfsadminbin" \
             -f "$adminclientprop" \
             -s "$metahost" \
             -p "$metasrvport" \
-            -F op-type=add-node-listeners \
-            -F arg-count=1 \
-            -F node-id=1 \
-            -F args="$vrlocation" \
+            -F op-type=activate-nodes \
+            -F arg-count="$vrcount" \
+            -F args="$nodeidlist" \
             vr_reconfiguration \
-        || exit
+            || exit
+        # Add duplicate channel for node 1
+        sleep 1
+        vrlocation="$metahost `expr $metavrport + 1`"
+        echo "Adding node  1 listener $vrlocation"
+        retry_cmd 5 5 ./"$qfsadminbin" \
+                -f "$adminclientprop" \
+                -s "$metahost" \
+                -p "$metasrvport" \
+                -F op-type=add-node-listeners \
+                -F arg-count=1 \
+                -F node-id=1 \
+                -F args="$vrlocation" \
+                vr_reconfiguration \
+            || exit
         echo "VR status:"
         ./"$qfsadminbin" \
             -f "$adminclientprop" \
