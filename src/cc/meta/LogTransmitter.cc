@@ -146,7 +146,7 @@ public:
         int inPrimaryTimeoutSec)
     {
         mHeartbeatInterval = max(1, inPrimaryTimeoutSec /
-            kHeartbeatsPerTimeoutInterval);
+            kHeartbeatsPerTimeoutInterval - 1);
     }
     MetaVrLogSeq GetCommitted() const
         { return mCommitted; }
@@ -336,7 +336,7 @@ public:
           mHeartbeatSendTimeoutCount(0),
           mAuthContext(),
           mAuthRequestCtx(),
-          mLastSentBlockSeq(inLastLogSeq),
+          mLastSentBlockEndSeq(inLastLogSeq),
           mAckBlockSeq(),
           mAckBlockFlags(0),
           mReplyProps(),
@@ -520,15 +520,15 @@ public:
         Connect();
     }
     bool SendBlock(
-        const MetaVrLogSeq& inBlockSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
         int                 inBlockSeqLen,
         IOBuffer&           inBuffer,
         int                 inLen)
     {
-        if (inBlockSeq <= mAckBlockSeq ||
+        if (inBlockEndSeq <= mAckBlockSeq ||
                 inLen <= 0 ||
-                inBlockSeq <= mLastSentBlockSeq ||
-                CanBypassSend(inBlockSeq, inBlockSeqLen)) {
+                inBlockEndSeq <= mLastSentBlockEndSeq ||
+                CanBypassSend(inBlockEndSeq, inBlockSeqLen)) {
             return true;
         }
         if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
@@ -541,23 +541,23 @@ public:
         }
         CompactIfNeeded();
         const bool kHeartbeatFlag = false;
-        return FlushBlock(inBlockSeq, inBlockSeqLen, inLen, kHeartbeatFlag);
+        return FlushBlock(inBlockEndSeq, inBlockSeqLen, inLen, kHeartbeatFlag);
     }
     bool SendBlock(
-        const MetaVrLogSeq& inBlockSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
         int                 inBlockSeqLen,
         const char*         inBlockPtr,
         size_t              inBlockLen,
         Checksum            inChecksum,
         size_t              inChecksumStartPos)
     {
-        if (inBlockSeq <= mAckBlockSeq || inBlockLen <= 0 ||
-                CanBypassSend(inBlockSeq, inBlockSeqLen)) {
+        if (inBlockEndSeq <= mAckBlockSeq || inBlockLen <= 0 ||
+                CanBypassSend(inBlockEndSeq, inBlockSeqLen)) {
             return true;
         }
         const bool kHeartbeatFlag = false;
         return SendBlockSelf(
-            inBlockSeq,
+            inBlockEndSeq,
             inBlockSeqLen,
             inBlockPtr,
             inBlockLen,
@@ -617,7 +617,7 @@ private:
     int                mHeartbeatSendTimeoutCount;
     ClientAuthContext  mAuthContext;
     RequestCtx         mAuthRequestCtx;
-    MetaVrLogSeq       mLastSentBlockSeq;
+    MetaVrLogSeq       mLastSentBlockEndSeq;
     MetaVrLogSeq       mAckBlockSeq;
     uint64_t           mAckBlockFlags;
     Properties         mReplyProps;
@@ -648,26 +648,23 @@ private:
         }
     }
     bool CanBypassSend(
-        const MetaVrLogSeq& inBlockSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
         int                 inBlockSeqLen)
     {
         if (inBlockSeqLen <= 0 || mImpl.GetNodeId() != mId) {
             return false;
         }
-        if (inBlockSeq <= mAckBlockSeq) {
+        if (inBlockEndSeq <= mAckBlockSeq) {
             return true;
         }
-        mLastSentBlockSeq = inBlockSeq;
+        mLastSentBlockEndSeq = inBlockEndSeq;
         const MetaVrLogSeq thePrevAckSeq = mAckBlockSeq;
-        mAckBlockSeq = inBlockSeq;
-        if (1 < inBlockSeqLen) {
-            mAckBlockSeq.mLogSeq += inBlockSeqLen - 1;
-        }
+        mAckBlockSeq = inBlockEndSeq;
         UpdateAck(thePrevAckSeq, mPrimaryNodeId);
         return true;
     }
     bool SendBlockSelf(
-        const MetaVrLogSeq& inBlockSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
         int                 inBlockSeqLen,
         const char*         inBlockPtr,
         size_t              inBlockLen,
@@ -688,31 +685,31 @@ private:
             return false;
         }
         if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
-            WriteBlock(mPendingSend, inBlockSeq,
+            WriteBlock(mPendingSend, inBlockEndSeq,
                 inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
                 inChecksumStartPos);
         } else {
             IOBuffer theBuffer;
-            WriteBlock(theBuffer, inBlockSeq,
+            WriteBlock(theBuffer, inBlockEndSeq,
                 inBlockSeqLen, inBlockPtr, inBlockLen, inChecksum,
                 inChecksumStartPos);
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
         }
         return FlushBlock(
-            inBlockSeq,
+            inBlockEndSeq,
             inBlockSeqLen,
             mPendingSend.BytesConsumable() - thePos,
             inHeartbeatFlag
         );
     }
     bool FlushBlock(
-        const MetaVrLogSeq& inBlockSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
         int                 inBlockSeqLen,
         int                 inLen,
         bool                inHeartbeatFlag)
     {
-        if (inBlockSeq < mLastSentBlockSeq || inLen <= 0) {
+        if (inBlockEndSeq < mLastSentBlockEndSeq || inLen <= 0) {
             panic(
                 "log transmitter: "
                 "block sequence is invalid: less than last sent, "
@@ -720,16 +717,10 @@ private:
             );
             return false;
         }
-        mLastSentBlockSeq = inBlockSeq;
+        mLastSentBlockEndSeq = inBlockEndSeq;
         // Allow to cleanup heartbeats by assigning negative / invalid sequence.
-        MetaVrLogSeq theEndSeq;
-        if (! inHeartbeatFlag) {
-            theEndSeq = inBlockSeq;
-            if (0 < inBlockSeqLen) {
-                theEndSeq.mLogSeq += inBlockSeqLen - 1;
-            }
-        }
-        mBlocksQueue.push_back(make_pair(theEndSeq, inLen));
+        mBlocksQueue.push_back(make_pair(
+            inHeartbeatFlag ? MetaVrLogSeq() : mLastSentBlockEndSeq, inLen));
         if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
             if (mConnectionPtr->GetOutBuffer().IsEmpty()) {
                 StartSend();
@@ -746,7 +737,7 @@ private:
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
-        mLastSentBlockSeq  = mImpl.GetLastLogSeq();
+        mLastSentBlockEndSeq = mImpl.GetLastLogSeq();
         Error(inErrMsgPtr, inLogLevel);
     }
     void ExceededMaxPending()
@@ -756,9 +747,6 @@ private:
         mCompactBlockCount++;
         if (mImpl.GetCompactionInterval() < mCompactBlockCount) {
             mPendingSend.MakeBuffersFull();
-            if (mConnectionPtr && ! mAuthenticateOpPtr) {
-                mConnectionPtr->GetOutBuffer().MakeBuffersFull();
-            }
             mCompactBlockCount = 0;
         }
     }
@@ -1016,19 +1004,19 @@ private:
     {
         if ((mActiveFlag &&
                 mAckBlockSeq.IsValid() &&
-                mAckBlockSeq < mLastSentBlockSeq) ||
+                mAckBlockSeq < mLastSentBlockEndSeq) ||
                 ! mBlocksQueue.empty() ||
                 mVrOpPtr ||
                 mAuthenticateOpPtr) {
             return false;
         }
-        if (! mLastSentBlockSeq.IsValid()) {
-            mLastSentBlockSeq = mImpl.GetLastLogSeq();
+        if (! mLastSentBlockEndSeq.IsValid()) {
+            mLastSentBlockEndSeq = mImpl.GetLastLogSeq();
         }
         const bool kHeartbeatFlag = true;
         SendBlockSelf(
-            mLastSentBlockSeq.IsValid() ?
-                mLastSentBlockSeq : MetaVrLogSeq(0, 0, 0),
+            mLastSentBlockEndSeq.IsValid() ?
+                mLastSentBlockEndSeq : MetaVrLogSeq(0, 0, 0),
             0, "", 0, kKfsNullChecksum, 0, kHeartbeatFlag);
         return true;
     }
@@ -1053,6 +1041,19 @@ private:
     }
     void AdvancePendingQueue()
     {
+        if (mLastSentBlockEndSeq <= mAckBlockSeq) {
+            if (! mBlocksQueue.empty()) {
+                const BlocksQueue::value_type& theBack = mBlocksQueue.back();
+                if (theBack.first.IsValid() &&
+                        theBack.first != mLastSentBlockEndSeq) {
+                    panic("log transmitter: invalid pending send queue");
+                }
+                mBlocksQueue.clear();
+                mPendingSend.Clear();
+                mCompactBlockCount = 0;
+            }
+            return;
+        }
         while (! mBlocksQueue.empty()) {
             const BlocksQueue::value_type& theFront = mBlocksQueue.front();
             if (mAckBlockSeq < theFront.first) {
@@ -1067,8 +1068,8 @@ private:
                 mCompactBlockCount--;
             }
         }
-        if (mSendHelloFlag && mConnectionPtr && mBlocksQueue.empty()) {
-            SendHello();
+        if (mBlocksQueue.empty() != mPendingSend.IsEmpty()) {
+            panic("log transmitter: invalid pending send queue");
         }
     }
     int HandleAck(
@@ -1095,7 +1096,7 @@ private:
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "invalid ack block sequence: " << mAckBlockSeq <<
-                " last sent: "                 << mLastSentBlockSeq <<
+                " last sent: "                 << mLastSentBlockEndSeq <<
                 " pending: "                   <<
                     mPendingSend.BytesConsumable() <<
                 " / "                          << mBlocksQueue.size() <<
@@ -1112,7 +1113,7 @@ private:
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "missing or invalid server id: " << theId <<
-                " last sent: "                   << mLastSentBlockSeq <<
+                " last sent: "                   << mLastSentBlockEndSeq <<
             KFS_LOG_EOM;
             Error("missing or invalid server id");
             return -1;
@@ -1127,7 +1128,7 @@ private:
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "invalid ack checksum: " << theChecksum <<
-                " last sent: "           << mLastSentBlockSeq <<
+                " last sent: "           << mLastSentBlockEndSeq <<
             KFS_LOG_EOM;
             Error("missing or invalid server id");
             return -1;
@@ -1181,7 +1182,7 @@ private:
             " primary: "     << mPrimaryNodeId <<
             " ack: "         << thePrevAckSeq <<
             " => "           << mAckBlockSeq <<
-            " sent: "        << mLastSentBlockSeq <<
+            " sent: "        << mLastSentBlockEndSeq <<
             " pending:"
             " blocks: "      << mBlocksQueue.size() <<
             " bytes: "       << mPendingSend.BytesConsumable() <<
@@ -1189,14 +1190,18 @@ private:
         AdvancePendingQueue();
         inBuffer.Consume(inHeaderLen);
         UpdateAck(thePrevAckSeq, thePrevPrimaryId);
-        if (mConnectionPtr && ! mAuthenticateOpPtr &&
-                (mAckBlockFlags &
-                    (uint64_t(1) << kLogBlockAckReAuthFlagBit)) != 0) {
-            KFS_LOG_STREAM_DEBUG <<
-                mServer << ": "
-                "re-authentication requested" <<
-            KFS_LOG_EOM;
-            Authenticate();
+        if (mConnectionPtr) {
+            if (! mAuthenticateOpPtr &&
+                    (mAckBlockFlags &
+                        (uint64_t(1) << kLogBlockAckReAuthFlagBit)) != 0) {
+                KFS_LOG_STREAM_DEBUG <<
+                    mServer << ": "
+                    "re-authentication requested" <<
+                KFS_LOG_EOM;
+                Authenticate();
+            } else if (mSendHelloFlag && mBlocksQueue.empty()) {
+                SendHello();
+            }
         }
         return (mConnectionPtr ? 0 : -1);
     }
@@ -1953,14 +1958,14 @@ LogTransmitter::SetParameters(
 
     int
 LogTransmitter::TransmitBlock(
-    const MetaVrLogSeq& inBlockSeq,
+    const MetaVrLogSeq& inBlockEndSeq,
     int                 inBlockSeqLen,
     const char*         inBlockPtr,
     size_t              inBlockLen,
     uint32_t            inChecksum,
     size_t              inChecksumStartPos)
 {
-    return mImpl.TransmitBlock(inBlockSeq, inBlockSeqLen,
+    return mImpl.TransmitBlock(inBlockEndSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
 }
 

@@ -369,7 +369,6 @@ public:
         const ServerLocation& inPeer);
     void Process(
         time_t              inTimeNow,
-        time_t              inLastReceivedTime,
         const MetaVrLogSeq& inCommittedSeq,
         int64_t             inErrChecksum,
         fid_t               inCommittedFidSeed,

@@ -96,8 +96,6 @@ public:
     void Shutdown();
     seq_t GetNextSeq()
         { return ++mNextSeq; }
-    void SetLastLogReceivedTime(
-        time_t inTime);
     MetaVrSM& GetMetaVrSM();
     int GetVrStatus() const
         { return mVrStatus; }

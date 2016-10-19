@@ -38,6 +38,7 @@
 #include "MetaDataStore.h"
 #include "MetaDataSync.h"
 #include "MetaVrSM.h"
+#include "ChildProcessTracker.h"
 
 #include "common/Properties.h"
 #include "common/MemLock.h"
@@ -265,7 +266,12 @@ private:
           mCleanupDoneFlag(false),
           mMetaDataSync(globalNetManager()),
           mMetaMd(),
-          mProcessRestarter(true /* inCloseFdsAtInitFlag */)
+          mProcessRestarter(
+                false, // inCloseFdsAtInitFlag
+                false, // inSaveRestoreEnvFlag
+                false, // inExitOnRestartFlag
+                true   // inCloseFdsBeforeExecFlag,
+          )
     {
         if (! sInstance) {
             sInstance = this;
@@ -418,6 +424,7 @@ private:
         if (logger) {
             logger->PrepareToFork();
         }
+        gChildProcessTracker.KillAll(SIGKILL);
         const string errMsg = mProcessRestarter.Restart();
         if (logger) {
             logger->ForkDone();

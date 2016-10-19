@@ -308,6 +308,9 @@ if [ x"$s3test" = x'yes' ]; then
 fi
 
 tdir="`dirname "$testdirsprefix"`"
+if [ x"$tdir" = x'.' -a x"`basename "$testdirsprefix"`" = x'.' ]; then
+    testdirsprefix="$testdirsprefix/data"
+fi
 mkdir -p "$tdir" || exit
 tdir="`cd "$tdir" > /dev/null && pwd`"
 [ x"$tdir" = x ] && exit 1

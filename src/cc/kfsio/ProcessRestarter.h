@@ -50,6 +50,8 @@ public:
         const char*       inPrefixPtr,
         const Properties& inProps);
     string Restart();
+    static void CloseFds(
+        int inFrstFd);
 private:
     class Impl;
     Impl& mImpl;

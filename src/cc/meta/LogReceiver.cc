@@ -30,8 +30,6 @@
 #include "MetaRequest.h"
 #include "MetaVrSM.h"
 #include "MetaVrOps.h"
-#include "LogWriter.h"
-#include "Replay.h"
 #include "util.h"
 
 #include "common/kfstypes.h"
@@ -100,9 +98,6 @@ public:
           mParseBuffer(),
           mFileSystemId(-1),
           mId(-1),
-          mLastAckSentTime(0),
-          mDispatchLastAckSentTime(0),
-          mFilterLastAckTimeSentId(-1),
           mPrimaryId(-1),
           mInFlightWriteCount(0),
           mWriteOpFreeList(),
@@ -231,13 +226,11 @@ public:
             KFS_LOG_EOM;
         }
         mAcceptorPtr->GetNetManager().RegisterTimeoutHandler(this);
-        mLastLogSeq              = inLastLogSeq;
-        mLastWriteSeq            = inLastLogSeq;
-        mSubmittedWriteSeq       = inLastLogSeq;
-        mLastAckSentTime         = inNetManager.Now() - 365 * 24 * 60 * 60;
-        mDispatchLastAckSentTime = mLastAckSentTime;
-        mFileSystemId            = inFileSystemId;
-        mWakerPtr                = &inWaker;
+        mLastLogSeq        = inLastLogSeq;
+        mLastWriteSeq      = inLastLogSeq;
+        mSubmittedWriteSeq = inLastLogSeq;
+        mFileSystemId      = inFileSystemId;
+        mWakerPtr          = &inWaker;
         return 0;
     }
     void Shutdown();
@@ -324,12 +317,6 @@ public:
         mAckBroadcastFlag = mAckBroadcastFlag || mDispatchAckBroadcastFlag;
         mDispatchAckBroadcastFlag = false;
         mResponseQueue.PushBack(mPendingResponseQueue);
-        if (mDispatchLastAckSentTime != mLastAckSentTime) {
-            mDispatchLastAckSentTime = mLastAckSentTime;
-            MetaRequest::GetLogWriter().SetLastLogReceivedTime(
-                mDispatchLastAckSentTime);
-        }
-        mFilterLastAckTimeSentId = replayer.getPrimaryNodeId();
         return theRetFlag;
     }
     void Release(
@@ -429,8 +416,6 @@ public:
             BroadcastAck();
         }
     }
-    void AckSent(
-        Connection& inConnection);
 private:
     typedef StBufferT<char, kMinParseBufferSize>                 ParseBuffer;
     typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> Queue;
@@ -454,9 +439,6 @@ private:
     ParseBuffer    mParseBuffer;
     int64_t        mFileSystemId;
     NodeId         mId;
-    time_t         mLastAckSentTime;
-    time_t         mDispatchLastAckSentTime;
-    NodeId         mFilterLastAckTimeSentId;
     NodeId         mPrimaryId;
     int            mInFlightWriteCount;
     Queue          mWriteOpFreeList;
@@ -498,8 +480,7 @@ private:
     {
         return (
             ! mPendingSubmitQueue.IsEmpty() ||
-            ! mPendingResponseQueue.IsEmpty() ||
-            mDispatchLastAckSentTime != mLastAckSentTime
+            ! mPendingResponseQueue.IsEmpty()
         );
     }
     void BroadcastAck();
@@ -1196,8 +1177,6 @@ private:
         theStream.flush();
         if (mFirstAckFlag) {
             mFirstAckFlag = false;
-        } else if (! mDownFlag) {
-            mImpl.AckSent(*this);
         }
         KFS_LOG_STREAM_DEBUG << mPeerLocation <<
             " id: "      << mImpl.GetId() <<
@@ -1342,22 +1321,6 @@ LogReceiver::Impl::Done(
     mConnectionCount--;
     if (mDeleteFlag && mConnectionCount <= 0) {
         delete this;
-    }
-}
-
-    void
-LogReceiver::Impl::AckSent(
-    LogReceiver::Impl::Connection& inConnection)
-{
-    if (mFilterLastAckTimeSentId < 0) {
-        return;
-    }
-    const bool theWakeupFlag = ! IsAwake();
-    if (inConnection.GetTransmitterId() == mFilterLastAckTimeSentId) {
-        mLastAckSentTime = inConnection.TimeNow();
-    }
-    if (theWakeupFlag && mLastAckSentTime != mDispatchLastAckSentTime) {
-        Wakeup();
     }
 }
 

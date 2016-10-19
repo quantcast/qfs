@@ -61,7 +61,7 @@ public:
           mEnv(0),
           mMaxGracefulRestartSeconds(inMaxGracefulRestartSeconds),
           mExitOnRestartFlag(inExitOnRestartFlag),
-          mCloseFdsAtInitFlag(inCloseFdsBeforeExecFlag),
+          mCloseFdsAtInitFlag(inCloseFdsAtInitFlag),
           mCloseFdsBeforeExecFlag(inCloseFdsBeforeExecFlag),
           mSaveRestoreEnvFlag(inSaveRestoreEnvFlag)
         {}
@@ -118,6 +118,9 @@ public:
                 }
             }
             mEnv[i] = 0;
+        }
+        if (mCloseFdsAtInitFlag) {
+            CloseFds();
         }
         return 0;
     }
@@ -196,6 +199,20 @@ public:
         }
         return string();
     }
+    static void CloseFds(
+        int inFrstFd = 3)
+    {
+        int theMaxFds = 16 << 10;
+        struct rlimit theLimt = { 0 };
+        if (0 == getrlimit(RLIMIT_NOFILE, &theLimt)) {
+            if (0 < theLimt.rlim_cur) {
+                theMaxFds = (int)theLimt.rlim_cur;
+            }
+        }
+        for (int i = inFrstFd; i < theMaxFds; i++) {
+            close(i);
+        }
+    }
 private:
     char*  mCwd;
     char** mArgs;
@@ -270,19 +287,6 @@ private:
         }
         ::abort();
     }
-    static void CloseFds()
-    {
-        int theMaxFds = 16 << 10;
-        struct rlimit theLimt = { 0 };
-        if (0 == getrlimit(RLIMIT_NOFILE, &theLimt)) {
-            if (0 < theLimt.rlim_cur) {
-                theMaxFds = (int)theLimt.rlim_cur;
-            }
-        }
-        for (int i = 3; i < theMaxFds; i++) {
-            close(i);
-        }
-    }
 };
 ProcessRestarter::Impl* ProcessRestarter::Impl::sInstancePtr = 0;
 
@@ -325,6 +329,13 @@ ProcessRestarter::SetParameters(
 ProcessRestarter::Restart()
 {
     return mImpl.Restart();
+}
+
+    /* static */ void
+ProcessRestarter::CloseFds(
+    int inFrstFd)
+{
+    Impl::CloseFds(inFrstFd);
 }
 
 } // namespace KFS

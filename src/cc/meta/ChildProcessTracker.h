@@ -52,6 +52,7 @@ public:
     size_t GetProcessCount() const
         { return mPending.size(); }
     void CancelAll();
+    void KillAll(int signal);
 private:
     typedef multimap<pid_t, MetaRequest*>      Pending;
     typedef vector<pair<pid_t, MetaRequest*> > Requests;

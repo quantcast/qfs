@@ -715,7 +715,6 @@ public:
     }
     void Process(
         time_t              inTimeNow,
-        time_t              inLastReceivedTime,
         const MetaVrLogSeq& inCommittedSeq,
         int64_t             inErrChecksum,
         fid_t               inCommittedFidSeed,
@@ -726,10 +725,6 @@ public:
     {
         ProcessReplay(inTimeNow);
         outReqPtr = 0;
-        if ((kStatePrimary == mState || kStateBackup == mState) &&
-                mLastReceivedTime < inLastReceivedTime) {
-            mLastReceivedTime = inLastReceivedTime;
-        }
         if (mCommittedSeq < inCommittedSeq) {
             if (kStatePrimary == mState &&
                     inCommittedSeq.IsSameView(mPrimaryViewStartSeq) &&
@@ -4598,7 +4593,6 @@ MetaVrSM::ProcessReplay(
     void
 MetaVrSM::Process(
     time_t              inTimeNow,
-    time_t              inLastReceivedTime,
     const MetaVrLogSeq& inCommittedSeq,
     int64_t             inErrChecksum,
     fid_t               inCommittedFidSeed,
@@ -4607,7 +4601,7 @@ MetaVrSM::Process(
     int&                outVrStatus,
     MetaRequest*&       outReqPtr)
 {
-    mImpl.Process(inTimeNow, inLastReceivedTime,
+    mImpl.Process(inTimeNow,
         inCommittedSeq, inErrChecksum, inCommittedFidSeed, inCommittedStatus,
         inReplayLastLogSeq, outVrStatus, outReqPtr
     );

@@ -72,13 +72,18 @@ using std::min;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
-static ProcessRestarter sRestarter(true /* inCloseFdsAtInitFlag */);
+static ProcessRestarter&
+GetRestarter()
+{
+    static ProcessRestarter sRestarter;
+    return sRestarter;
+}
 
 string
 RestartChunkServer()
 {
     globalNetManager().Shutdown();
-    return sRestarter.Restart();
+    return GetRestarter().Restart();
 }
 
 class StdErrAndOutRedirector
@@ -221,7 +226,7 @@ ChunkServerMain::LoadParams(const char* fileName)
     MsgLogger::GetLogger()->SetUseNonBlockingIo(true);
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(mProp, "chunkServer.msgLogWriter.");
-    sRestarter.SetParameters("chunkServer.", mProp);
+    GetRestarter().SetParameters("chunkServer.", mProp);
 
     string displayProps(fileName);
     displayProps += ":\n";
@@ -358,7 +363,7 @@ ChunkServerMain::Run(int argc, char **argv)
         return 0;
     }
 
-    const int rstatus = sRestarter.Init(argc, argv);
+    const int rstatus = GetRestarter().Init(argc, argv);
     if (0 != rstatus) {
         cout << "restarter init: " << QCUtils::SysError(rstatus) << "\n";
         return 1;
@@ -459,6 +464,7 @@ public:
 static ChunkServerGlobals&
 InitChunkServerGlobals()
 {
+    GetRestarter();
     InitGlobals();
     globalNetManager();
     KfsOp::Init();

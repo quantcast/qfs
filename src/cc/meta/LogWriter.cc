@@ -139,8 +139,6 @@ public:
           mFailureSimulationInterval(0),
           mPrepareToForkFlag(false),
           mPrepareToForkDoneFlag(false),
-          mLastLogReceivedTime(-1),
-          mVrLastLogReceivedTime(-1),
           mVrNodeId(-1),
           mPrepareToForkCond(),
           mForkDoneCond(),
@@ -356,9 +354,8 @@ public:
         }
         QCStMutexLocker theLock(mMutex);
         const bool theSetReplayStateFlag = mSetReplayStateFlag;
-        mPendingCommitted      = mCommitted;
-        mPendingReplayLogSeq   = mReplayLogSeq;
-        mVrLastLogReceivedTime = mLastLogReceivedTime;
+        mPendingCommitted    = mCommitted;
+        mPendingReplayLogSeq = mReplayLogSeq;
         mInQueue.PushBack(mPendingQueue);
         theLock.Unlock();
         mNetManager.Wakeup();
@@ -425,12 +422,6 @@ public:
         if (mTransmitCommitted < inSeq) {
             mTransmitCommitted = inSeq;
         }
-    }
-    void SetLastLogReceivedTime(
-        time_t inTime)
-    {
-        mLastLogReceivedTime = inTime;
-        mCommitUpdatedFlag   = true;
     }
     MetaVrSM& GetMetaVrSM()
         { return mMetaVrSM; }
@@ -519,8 +510,6 @@ private:
     int64_t           mFailureSimulationInterval;
     bool              mPrepareToForkFlag;
     bool              mPrepareToForkDoneFlag;
-    time_t            mLastLogReceivedTime;
-    time_t            mVrLastLogReceivedTime;
     NodeId            mVrNodeId;
     QCCondVar         mPrepareToForkCond;
     QCCondVar         mForkDoneCond;
@@ -675,12 +664,10 @@ private:
         if (! IsLogStreamGood()) {
             return mError;
         }
-        mVrNodeId              = mMetaVrSM.GetNodeId();
-        outCurLogFileName      = mLogName;
-        mStopFlag              = false;
-        mNetManagerPtr         = &inNetManager;
-        mLastLogReceivedTime   = mNetManagerPtr->Now() - 365 * 24 * 60 * 60;
-        mVrLastLogReceivedTime = mLastLogReceivedTime;
+        mVrNodeId         = mMetaVrSM.GetNodeId();
+        outCurLogFileName = mLogName;
+        mStopFlag         = false;
+        mNetManagerPtr    = &inNetManager;
         if (inVrResetOnlyFlag) {
             if (mMetaVrSM.GetConfig().IsEmpty()) {
                 KFS_LOG_STREAM_ERROR <<
@@ -983,8 +970,7 @@ private:
             mNetManager.Shutdown();
         }
         mInFlightCommitted = mPendingCommitted;
-        const time_t       theVrLastLogReceivedTime = mVrLastLogReceivedTime;
-        const MetaVrLogSeq theReplayLogSeq          = mPendingReplayLogSeq;
+        const MetaVrLogSeq theReplayLogSeq = mPendingReplayLogSeq;
         Queue              theWriteQueue;
         mInQueue.Swap(theWriteQueue);
         theLocker.Unlock();
@@ -996,7 +982,6 @@ private:
         MetaRequest* theReqPtr = 0;
         mMetaVrSM.Process(
             mNetManager.Now(),
-            theVrLastLogReceivedTime,
             mInFlightCommitted.mSeq,
             mInFlightCommitted.mErrChkSum,
             mInFlightCommitted.mFidSeed,
@@ -2142,13 +2127,6 @@ LogWriter::ChildAtFork()
 LogWriter::Shutdown()
 {
    mImpl.Shutdown();
-}
-
-    void
-LogWriter::SetLastLogReceivedTime(
-    time_t inTime)
-{
-    mImpl.SetLastLogReceivedTime(inTime);
 }
 
     MetaVrSM&

@@ -37,6 +37,7 @@
 
 #include <sys/wait.h>
 #include <errno.h>
+#include <signal.h>
 
 namespace KFS
 {
@@ -108,6 +109,16 @@ ChildProcessTrackingTimer::Timeout()
         if (lastReqFlag) {
             return;
         }
+    }
+}
+
+void
+ChildProcessTrackingTimer::KillAll(int signal)
+{
+    for (Pending::const_iterator it = mPending.begin();
+            it != mPending.end();
+            ++it) {
+        kill(it->first, signal);
     }
 }
 

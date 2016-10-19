@@ -84,7 +84,7 @@ public:
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
     int TransmitBlock(
-        const MetaVrLogSeq& inBlockSeq,
+        const MetaVrLogSeq& inBlockEndSeq,
         int                 inBlockSeqLen,
         const char*         inBlockPtr,
         size_t              inBlockLen,
