@@ -90,6 +90,10 @@ public:
         size_t              inBlockLen,
         uint32_t            inChecksum,
         size_t              inChecksumStartPos);
+    void NotifyAck(
+        LogTransmitter::NodeId inNodeId,
+        const MetaVrLogSeq&    inAckSeq,
+        NodeId                 inPromaryNodeId);
     bool IsUp() const
         { return mUpFlag; }
     void QueueVrRequest(

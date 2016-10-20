@@ -1312,7 +1312,8 @@ private:
             KFS_LOG_EOM;
         }
         LogStreamFlush();
-        if (IsLogStreamGood() && 0 < theBlockLen) {
+        const bool theUpdateFlag = IsLogStreamGood() && 0 < theBlockLen;
+        if (theUpdateFlag) {
             mLastWriteCommitted = mInFlightCommitted;
             if (inLogSeq.IsPastViewStart()) {
                 mLastNonEmptyViewEndSeq = inLogSeq;
@@ -1320,13 +1321,15 @@ private:
         } else {
             --mNextBlockSeq;
         }
-        if (mMetaVrSM.LogBlockWriteDone(
-                mNextLogSeq,
-                inLogSeq,
-                mInFlightCommitted.mSeq,
-                mLastViewEndSeq,
-                ! inSimulateFailureFlag && IsLogStreamGood())) {
-            Notify(inLogSeq);
+        const NodeId thePrimaryNodeId = mMetaVrSM.LogBlockWriteDone(
+            mNextLogSeq,
+            inLogSeq,
+            mInFlightCommitted.mSeq,
+            mLastViewEndSeq,
+            ! inSimulateFailureFlag && IsLogStreamGood()
+        );
+        if (theUpdateFlag) {
+            mLogTransmitter.NotifyAck(mVrNodeId, inLogSeq, thePrimaryNodeId);
         }
     }
     size_t WriteBlockTrailer(

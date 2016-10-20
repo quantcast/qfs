@@ -380,7 +380,7 @@ public:
         }
         return mStatus;
     }
-    bool LogBlockWriteDone(
+    NodeId LogBlockWriteDone(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
@@ -392,14 +392,14 @@ public:
                 ! inCommittedSeq.IsValid() ||
                 ! inLastViewEndSeq.IsPastViewStart()) {
             panic("VR: invalid log block commit sequence");
-            return false;
+            return -1;
         }
         if (! inWriteOkFlag) {
             if (mActiveFlag &&
                     (kStatePrimary == mState || kStateBackup == mState)) {
                 AdvanceView("log write failure");
             }
-            return false;
+            return -1;
         }
         mLastLogStartViewViewEndSeq = inLastViewEndSeq;
         if (kStatePrimary != mState && kStateBackup != mState &&
@@ -411,7 +411,7 @@ public:
                 SetLastLogSeq(inBlockEndSeq);
                 ScheduleViewChange();
             }
-            return false;
+            return -1;
         }
         if (mLastLogSeq < inBlockEndSeq) {
             if (mLastLogSeq <= mLastCommitSeq) {
@@ -420,14 +420,7 @@ public:
             }
             SetLastLogSeq(inBlockEndSeq);
         }
-        // Return true to commit write if in boot strap or single node state,
-        // otherwise the log transmitter is responsible for commit
-        // advancement.
-        return (mQuorum <= 0 && (kStatePrimary == mState ||
-            (kStateReconfiguration == mState &&
-                mReconfigureReqPtr &&
-                mReconfigureReqPtr->logseq == inBlockEndSeq))
-        );
+        return GetPrimaryNodeId(inBlockEndSeq);
     }
     bool Handle(
         MetaRequest&        inReq,
@@ -678,7 +671,8 @@ public:
     NodeId GetPrimaryNodeId(
         const MetaVrLogSeq& inSeq) const
     {
-        if (mActiveFlag && kStateReconfiguration == mState &&
+        if (kStateReconfiguration == mState &&
+                (mActiveFlag || mQuorum <= 0) &&
                 mReconfigureReqPtr && inSeq <= mReconfigureReqPtr->logseq) {
             return mNodeId;
         }
@@ -917,7 +911,7 @@ public:
         }
         if ((mNodeId < 0 ?
                 mConfig.IsEmpty() :
-                AllInactiveFindPrimary() == mNodeId)) {
+                (0 <= mNodeId && AllInactiveFindPrimary() == mNodeId))) {
             inReplayer.commitAll();
         }
         mMetaDataSyncPtr = &inMetaDataSync;
@@ -998,7 +992,6 @@ public:
         if (! mMetaDataStoreLocation.IsValid()) {
             mMetaDataStoreLocation = inDataStoreLocation;
         }
-        ConfigUpdate();
         if (kStateViewChange == mState) {
             // Start view has not been queued, pretend that all nodes have
             // failed to respond in order to start new start view change round.
@@ -1007,7 +1000,6 @@ public:
         }
         mHelloCommitSeq  = mCommittedSeq;
         NodeId theNodeId = -1;
-        mStartedFlag = true;
         int theRet = mConfig.IsEmpty() ? -EINVAL : ReadVrState(theNodeId);
         if (0 == theRet) {
             if (! CheckNodeId(theNodeId)) {
@@ -1037,6 +1029,8 @@ public:
                 }
             }
         }
+        mStartedFlag = 0 == theRet;
+        ConfigUpdate();
         return (0 < theRet ? -theRet : theRet);
     }
     void Shutdown()
@@ -1810,13 +1804,17 @@ private:
     {
     public:
         TxStatusReporter(
-            string&  inPrefixBuf,
-            ostream& inStream)
+            string&     inPrefixBuf,
+            ostream&    inStream,
+            const char* inSepPtr,
+            const char* inDelimPtr)
             : LogTransmitter::StatusReporter(),
               mPrefixBuf(inPrefixBuf),
               mStream(inStream),
               mPrefixLen(),
-              mChanCnt(0)
+              mChanCnt(0),
+              mSepPtr(inSepPtr),
+              mDelimPtr(inDelimPtr)
         {
             mPrefixBuf += "channel.";
             mPrefixLen = mPrefixBuf.size();
@@ -1836,21 +1834,30 @@ private:
             AppendDecIntToString(mPrefixBuf, mChanCnt++);
             mPrefixBuf += ".";
             mStream <<
-                mPrefixBuf << "location: "   << inLocation      << "\n" <<
-                mPrefixBuf << "id: "         << inId            << "\n" <<
-                mPrefixBuf << "receivedId: " << inActualId      << "\n" <<
-                mPrefixBuf << "primaryId: "  << inPrimaryNodeId << "\n" <<
-                mPrefixBuf << "active: "     << inActiveFlag    << "\n" <<
-                mPrefixBuf << "ack: "        << inAckSeq        << "\n" <<
-                mPrefixBuf << "sent: "       << inLastSentSeq   << "\n"
+                mPrefixBuf << "location"   << mSepPtr << inLocation      <<
+                     mDelimPtr <<
+                mPrefixBuf << "id"         << mSepPtr << inId            <<
+                    mDelimPtr <<
+                mPrefixBuf << "receivedId" << mSepPtr << inActualId      <<
+                    mDelimPtr <<
+                mPrefixBuf << "primaryId"  << mSepPtr << inPrimaryNodeId <<
+                    mDelimPtr <<
+                mPrefixBuf << "active"     << mSepPtr << inActiveFlag    <<
+                    mDelimPtr <<
+                mPrefixBuf << "ack"        << mSepPtr << inAckSeq        <<
+                    mDelimPtr <<
+                mPrefixBuf << "sent"       << mSepPtr << inLastSentSeq   <<
+                    mDelimPtr
             ;
             return true;
         }
     private:
-        string&  mPrefixBuf;
-        ostream& mStream;
-        size_t   mPrefixLen;
-        size_t   mChanCnt;
+        string&           mPrefixBuf;
+        ostream&          mStream;
+        size_t            mPrefixLen;
+        size_t            mChanCnt;
+        const char* const mSepPtr;
+        const char* const mDelimPtr;
     private:
         TxStatusReporter(
             const TxStatusReporter& inReporter);
@@ -3070,39 +3077,67 @@ private:
             return true;
         }
         ostream& theStream = mWOStream.Set(inReq.mResponse);
-        theStream <<
-            "nodeId: "               << mNodeId                   << "\n"
-            "status: "               << mStatus                   << "\n"
-            "active: "               << mActiveFlag               << "\n"
-            "state: "                << GetStateName(mState)      << "\n"
-            "primaryId: "            << mPrimaryNodeId            << "\n"
-            "epoch: "                << mEpochSeq                 << "\n"
-            "view: "                 << mViewSeq                  << "\n"
-            "log: "                  << mLastLogSeq               << "\n"
-            "commit: "               << mCommittedSeq             << "\n"
-            "lastViewEnd: "          << mLastViewEndSeq           << "\n"
-            "ignoreInvalidVrState: " << mIgnoreInvalidVrStateFlag << "\n"
-            "fileSystemId: "         << mFileSystemId             << "\n"
-            "clusterKey: "           << mClusterKey               << "\n"
-            "metaMd5: "              << mMetaMd                   << "\n"
-            "viewChangeReason: "     << mViewChangeReason         << "\n"
-            "viewChangeStartTime: "  << mViewChangeInitiationTime << "\n"
-            "currentTime: "          << mTimeNow                  << "\n"
-            "\n"
+        WriteStatus(theStream, ": ", "\n");
+        theStream << "\n";
+        mWOStream.Reset();
+        return true;
+    }
+    void WriteStatus(
+        ostream&    inStream,
+        const char* inSepPtr,
+        const char* inDelimPtr)
+    {
+        inStream <<
+            "nodeId"               << inSepPtr << mNodeId                   <<
+                inDelimPtr <<
+            "status"               << inSepPtr << mStatus                   <<
+                inDelimPtr <<
+            "active"               << inSepPtr << mActiveFlag               <<
+                inDelimPtr <<
+            "state"                << inSepPtr << GetStateName(mState)      <<
+                inDelimPtr <<
+            "primaryId"            << inSepPtr << mPrimaryNodeId            <<
+                inDelimPtr <<
+            "epoch"                << inSepPtr << mEpochSeq                 <<
+                inDelimPtr <<
+            "view"                 << inSepPtr << mViewSeq                  <<
+                inDelimPtr <<
+            "log"                  << inSepPtr << mLastLogSeq               <<
+                inDelimPtr <<
+            "commit"               << inSepPtr << mCommittedSeq             <<
+                inDelimPtr <<
+            "lastViewEnd"          << inSepPtr << mLastViewEndSeq           <<
+                inDelimPtr <<
+            "ignoreInvalidVrState" << inSepPtr << mIgnoreInvalidVrStateFlag <<
+                inDelimPtr <<
+            "fileSystemId"         << inSepPtr << mFileSystemId             <<
+                inDelimPtr <<
+            "clusterKey"           << inSepPtr << mClusterKey               <<
+                inDelimPtr <<
+            "metaMd5"              << inSepPtr << mMetaMd                   <<
+                inDelimPtr <<
+            "viewChangeReason"     << inSepPtr << mViewChangeReason         <<
+                inDelimPtr <<
+            "viewChangeStartTime"  << inSepPtr << mViewChangeInitiationTime <<
+                inDelimPtr <<
+            "currentTime"          << inSepPtr << mTimeNow                  <<
+                inDelimPtr <<
+            inDelimPtr
         ;
         mTmpBuffer = "logTransmitter.";
-        TxStatusReporter theReporter(mTmpBuffer, theStream);
+        TxStatusReporter theReporter(
+            mTmpBuffer, inStream, inSepPtr, inDelimPtr);
         mLogTransmitter.GetStatus(theReporter);
         mTmpBuffer = "configuration.";
-        theStream << "\n" <<
+        inStream << "\n" <<
             mTmpBuffer << "primaryTimeout: "           <<
-                mConfig.GetPrimaryTimeout() << "\n" <<
+                mConfig.GetPrimaryTimeout() << inDelimPtr <<
             mTmpBuffer << "backupTimeout: "            <<
-                mConfig.GetBackupTimeout()  << "\n" <<
+                mConfig.GetBackupTimeout()  << inDelimPtr <<
             mTmpBuffer << "changeViewMaxLogDistance: " <<
-                mConfig.GetChangeVewMaxLogDistance() << "\n" <<
+                mConfig.GetChangeVewMaxLogDistance() << inDelimPtr <<
             mTmpBuffer << "maxListenersPerNode: "      <<
-                mConfig.GetMaxListenersPerNode() << "\n"
+                mConfig.GetMaxListenersPerNode() << inDelimPtr
         ;
         mTmpBuffer += "node.";
         const size_t theLen = mTmpBuffer.size();
@@ -3114,28 +3149,25 @@ private:
             mTmpBuffer.resize(theLen);
             AppendDecIntToString(mTmpBuffer, theCnt++);
             mTmpBuffer += ".";
-            theStream <<
-                mTmpBuffer << "id: "       << theIt->first             <<
+            inStream <<
+                mTmpBuffer << "id"       << inSepPtr << theIt->first <<
                     "\n" <<
-                mTmpBuffer << "flags: "    << theIt->second.GetFlags() <<
-                    "\n" <<
-                mTmpBuffer << "active: "   <<
+                mTmpBuffer << "flags"    << inSepPtr <<
+                    theIt->second.GetFlags() << inDelimPtr <<
+                mTmpBuffer << "active"   << inSepPtr <<
                     (0 != (theIt->second.GetFlags() & Config::kFlagActive)) <<
-                    "\n" <<
-                mTmpBuffer << "primaryOrder: " <<
-                    theIt->second.GetPrimaryOrder() << "\n"
+                    inDelimPtr <<
+                mTmpBuffer << "primaryOrder" << inSepPtr <<
+                    theIt->second.GetPrimaryOrder() << inDelimPtr
             ;
             const Config::Locations& theLocations =
                 theIt->second.GetLocations();
             for (Config::Locations::const_iterator theIt = theLocations.begin();
                     theLocations.end() != theIt;
                     ++theIt) {
-                theStream << mTmpBuffer << "listener: " << *theIt << "\n";
+                inStream << mTmpBuffer << "listener" << *theIt << inDelimPtr;
             }
         }
-        theStream << "\n";
-        mWOStream.Reset();
-        return true;
     }
     bool Handle(
         const MetaLogWriterControl& inReq)
@@ -4584,7 +4616,7 @@ MetaVrSM::HandleLogBlock(
         inBlockStartSeq, inBlockEndSeq, inCommittedSeq, inTransmitterId);
 }
 
-    bool
+    MetaVrSM::NodeId
 MetaVrSM::LogBlockWriteDone(
     const MetaVrLogSeq& inBlockStartSeq,
     const MetaVrLogSeq& inBlockEndSeq,

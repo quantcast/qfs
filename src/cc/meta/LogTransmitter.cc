@@ -123,6 +123,10 @@ public:
         size_t              inBlockLen,
         Checksum            inChecksum,
         size_t              inChecksumStartPos);
+    void NotifyAck(
+        LogTransmitter::NodeId inNodeId,
+        const MetaVrLogSeq&    inAckSeq,
+        NodeId                 inPrimaryNodeId);
     static seq_t RandomSeq()
     {
         seq_t theReq = 0;
@@ -566,6 +570,16 @@ public:
             kHeartbeatFlag
         );
     }
+    void NotifyAck(
+        const MetaVrLogSeq& inAckSeq,
+        NodeId              inPrimaryNodeId)
+    {
+        const MetaVrLogSeq thePrevAckSeq        = mAckBlockSeq;
+        const NodeId       thePrevPrimaryNodeId = mPrimaryNodeId;
+        mAckBlockSeq   = inAckSeq;
+        mPrimaryNodeId = inPrimaryNodeId;
+        UpdateAck(thePrevAckSeq, thePrevPrimaryNodeId);
+    }
     ClientAuthContext& GetAuthCtx()
         { return mAuthContext; }
     NodeId GetId() const
@@ -658,9 +672,6 @@ private:
             return true;
         }
         mLastSentBlockEndSeq = inBlockEndSeq;
-        const MetaVrLogSeq thePrevAckSeq = mAckBlockSeq;
-        mAckBlockSeq = inBlockEndSeq;
-        UpdateAck(thePrevAckSeq, mPrimaryNodeId);
         return true;
     }
     bool SendBlockSelf(
@@ -1643,22 +1654,17 @@ LogTransmitter::Impl::Acked(
 
     int
 LogTransmitter::Impl::TransmitBlock(
-    const MetaVrLogSeq&            inBlockSeq,
+    const MetaVrLogSeq&            inBlockEndSeq,
     int                            inBlockSeqLen,
     const char*                    inBlockPtr,
     size_t                         inBlockLen,
     LogTransmitter::Impl::Checksum inChecksum,
     size_t                         inChecksumStartPos)
 {
-    if (inBlockSeqLen < 0) {
+    if (inBlockSeqLen < 0 || (inBlockLen <= 0 && 0 < inBlockSeqLen)) {
         return -EINVAL;
     }
-    if (List::IsEmpty(mTransmittersPtr)) {
-        mCommitted = inBlockSeq;
-        mCommitObserver.Notify(mCommitted);
-        return 0;
-    }
-    if (inBlockLen <= 0) {
+    if (inBlockLen <= 0 || List::IsEmpty(mTransmittersPtr)) {
         return 0;
     }
     mSendingFlag = true;
@@ -1668,21 +1674,21 @@ LogTransmitter::Impl::TransmitBlock(
         thePtr = List::Front(mTransmittersPtr);
         const NodeId theId = thePtr->GetId();
         if (thePtr->SendBlock(
-                    inBlockSeq, inBlockSeqLen,
+                    inBlockEndSeq, inBlockSeqLen,
                     inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos) &&
                 0 <= theId && thePtr->IsActive()) {
             theCnt++;
         }
     } else {
         IOBuffer theBuffer;
-        WriteBlock(theBuffer, inBlockSeq, inBlockSeqLen,
+        WriteBlock(theBuffer, inBlockEndSeq, inBlockSeqLen,
             inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
         NodeId         thePrevId = -1;
         List::Iterator theIt(mTransmittersPtr);
         while ((thePtr = theIt.Next())) {
             const NodeId theId = thePtr->GetId();
             if (thePtr->SendBlock(
-                        inBlockSeq, inBlockSeqLen,
+                        inBlockEndSeq, inBlockSeqLen,
                         theBuffer, theBuffer.BytesConsumable())) {
                 if (0 <= theId && theId != thePrevId && thePtr->IsActive()) {
                     theCnt++;
@@ -1692,10 +1698,27 @@ LogTransmitter::Impl::TransmitBlock(
         }
     }
     EndOfTransmit();
-    if (mMinAckToCommit <= 0 && mCommitted < inBlockSeq) {
-        mCommitted = inBlockSeq;
-    }
     return (theCnt < mMinAckToCommit ? -EIO : 0);
+}
+
+    void
+LogTransmitter::Impl::NotifyAck(
+    LogTransmitter::NodeId inNodeId,
+    const MetaVrLogSeq&    inAckSeq,
+    NodeId                 inPrimaryNodeId)
+{
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        if (thePtr->GetId() == inNodeId) {
+            thePtr->NotifyAck(inAckSeq, inPrimaryNodeId);
+        }
+    }
+    if (mMinAckToCommit <= 0 && (inNodeId < 0 ||
+            inNodeId == inPrimaryNodeId) && mCommitted < inAckSeq) {
+        mCommitted = inAckSeq;
+        mCommitObserver.Notify(mCommitted);
+    }
 }
 
     void
@@ -1967,6 +1990,15 @@ LogTransmitter::TransmitBlock(
 {
     return mImpl.TransmitBlock(inBlockEndSeq, inBlockSeqLen,
         inBlockPtr, inBlockLen, inChecksum, inChecksumStartPos);
+}
+
+    void
+LogTransmitter::NotifyAck(
+    LogTransmitter::NodeId inNodeId,
+    const MetaVrLogSeq&    inAckSeq,
+    NodeId                 inPrimaryNodeId)
+{
+    mImpl.NotifyAck(inNodeId, inAckSeq, inPrimaryNodeId);
 }
 
     void

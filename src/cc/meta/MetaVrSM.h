@@ -330,7 +330,7 @@ public:
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
         MetaVrSM::NodeId    inTransmitterId);
-    bool LogBlockWriteDone(
+    NodeId LogBlockWriteDone(
         const MetaVrLogSeq& inBlockStartSeq,
         const MetaVrLogSeq& inBlockEndSeq,
         const MetaVrLogSeq& inCommittedSeq,
