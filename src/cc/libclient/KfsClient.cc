@@ -5127,7 +5127,8 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
     time_t startTime = 0;
     for (int retry = 0; ;retry++) {
         ExecuteMeta(*op);
-        if (-ELOGFAILED != op->status || mMaxNumRetriesPerOp < retry) {
+        if (! IsMetaLogWriteOrVrError(op->status) ||
+                mMaxNumRetriesPerOp < retry) {
             break;
         }
         KFS_LOG_STREAM_ERROR <<

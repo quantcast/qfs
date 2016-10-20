@@ -1598,7 +1598,7 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
     mCorruptChunkOp.notifyChunkManagerFlag = false;
     bool upFlag = gMetaServerSM.IsUp();
     if (upFlag) {
-        if (-ELOGFAILED == op.status) {
+        if (IsMetaLogWriteOrVrError(op.status)) {
             // Handle transaction log write error by retrying.
             ScheduleNotifyLostChunk();
             return;
@@ -6311,7 +6311,7 @@ ChunkManager::HelloNotifyDone(int code, void* data)
     }
     if (0 != op.status) {
         if (gMetaServerSM.IsUp()) {
-            if (-ELOGFAILED == op.status) {
+            if (IsMetaLogWriteOrVrError(op.status)) {
                 // Handle transaction log write error by retrying.
                 mHelloNotifyInFlightCount += op.numChunks;
                 op.status = 0;
@@ -7682,7 +7682,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
     }
     availableChunksOpInFlightFlag = false;
     if (0 != availableChunksOp.status &&
-            -ELOGFAILED != availableChunksOp.status &&
+            ! IsMetaLogWriteOrVrError(availableChunksOp.status) &&
             gMetaServerSM.IsUp()) {
         ForceMetaServerDown(availableChunksOp);
     }
@@ -7693,7 +7693,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
     const bool requeueFlag  = ! metaDownFlag &&
         ! notifyAvailableChunksStartFlag &&
         0 <= availableSpace &&
-        -ELOGFAILED == availableChunksOp.status;
+        IsMetaLogWriteOrVrError(availableChunksOp.status);
     const bool kIgnorePendingAvailableFlag = true;
     for (int i = 0; i < availableChunksOp.numChunks; i++) {
         const kfsChunkId_t chunkId = availableChunksOp.chunks[i].first;
