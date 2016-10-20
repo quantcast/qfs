@@ -309,6 +309,7 @@ public:
           mVrStateFileName("vrstate"),
           mVrStateTmpFileName(mVrStateFileName + ".tmp"),
           mVrStateIoStr(),
+          mTmpBuffer(),
           mViewChangeReason("restart"),
           mEmptyString(),
           mInactiveNodeStatusMsg("meta server node is inactive"),
@@ -319,7 +320,11 @@ public:
           mReconfigureCompletionCondVar(),
           mPendingReconfigureReqPtr(0),
           mVrResponse()
-        { mStatus = GetStatus(); }
+    {
+        mStatus = GetStatus();
+        mTmpBuffer.reserve(256);
+        mVrStateIoStr.reserve(1024);
+    }
     ~Impl()
     {
         Impl::CancelViewChange();
@@ -705,7 +710,7 @@ public:
             return;
         }
         if (mActiveFlag && kStatePrimary == mState) {
-            ScheduleViewChange("VR reconfiguration replay");
+            ScheduleViewChange("reconfiguration replay ", theReq.mOpType);
             mLastUpTime     = TimeNow();
             mLastCommitTime = mLastUpTime;
         }
@@ -787,7 +792,7 @@ public:
                 kStateReconfiguration == mState) {
             if (mActiveFlag) {
                 if (HasPrimaryTimedOut()) {
-                    AdvanceView("primary timed out");
+                    AdvanceView("primary lease timed out");
                 } else if (mLogTransmitter.IsUp()) {
                     if (0 < mQuorum &&
                             mLastCommitSeq < mLastLogSeq &&
@@ -1805,10 +1810,17 @@ private:
     {
     public:
         TxStatusReporter(
+            string&  inPrefixBuf,
             ostream& inStream)
             : LogTransmitter::StatusReporter(),
-              mStream(inStream)
-            {}
+              mPrefixBuf(inPrefixBuf),
+              mStream(inStream),
+              mPrefixLen(),
+              mChanCnt(0)
+        {
+            mPrefixBuf += "channel.";
+            mPrefixLen = mPrefixBuf.size();
+        }
         virtual ~TxStatusReporter()
             {}
         virtual bool Report(
@@ -1820,20 +1832,25 @@ private:
             const MetaVrLogSeq&   inAckSeq,
             const MetaVrLogSeq&   inLastSentSeq)
         {
+            mPrefixBuf.resize(mPrefixLen);
+            AppendDecIntToString(mPrefixBuf, mChanCnt++);
+            mPrefixBuf += ".";
             mStream <<
-                "channel:\n"
-                "location: "   << inLocation      << "\n"
-                "id: "         << inId            << "\n"
-                "receivedId: " << inActualId      << "\n"
-                "primaryId: "  << inPrimaryNodeId << "\n"
-                "active: "     << inActiveFlag    << "\n"
-                "ack: "        << inAckSeq        << "\n"
-                "sent: "       << inLastSentSeq   << "\n"
+                mPrefixBuf << "location: "   << inLocation      << "\n" <<
+                mPrefixBuf << "id: "         << inId            << "\n" <<
+                mPrefixBuf << "receivedId: " << inActualId      << "\n" <<
+                mPrefixBuf << "primaryId: "  << inPrimaryNodeId << "\n" <<
+                mPrefixBuf << "active: "     << inActiveFlag    << "\n" <<
+                mPrefixBuf << "ack: "        << inAckSeq        << "\n" <<
+                mPrefixBuf << "sent: "       << inLastSentSeq   << "\n"
             ;
             return true;
         }
     private:
+        string&  mPrefixBuf;
         ostream& mStream;
+        size_t   mPrefixLen;
+        size_t   mChanCnt;
     private:
         TxStatusReporter(
             const TxStatusReporter& inReporter);
@@ -1930,6 +1947,7 @@ private:
     string                 mVrStateFileName;
     string                 mVrStateTmpFileName;
     string                 mVrStateIoStr;
+    string                 mTmpBuffer;
     string                 mViewChangeReason;
     string const           mEmptyString;
     string const           mInactiveNodeStatusMsg;
@@ -2059,7 +2077,8 @@ private:
         }
     }
     void ScheduleViewChange(
-        const char* inMsgPtr = 0)
+        const char* inMsgPtr   = 0,
+        const char* inMsgExPtr = 0)
     {
         if (kStateLogSync == mState || ! mActiveFlag) {
             return;
@@ -2067,7 +2086,10 @@ private:
         if (inMsgPtr && *inMsgPtr &&
                 (kStatePrimary == mState || kStateBackup == mState ||
                     kStateReconfiguration == mState)) {
-            mViewChangeReason         = inMsgPtr;
+            mViewChangeReason = inMsgPtr;
+            if (inMsgExPtr) {
+                mViewChangeReason += inMsgExPtr;
+            }
             mViewChangeInitiationTime = TimeNow();
         }
         mPrimaryNodeId = -1;
@@ -2077,6 +2099,11 @@ private:
         mScheduleViewChangeFlag = true;
         Wakeup();
     }
+    template<typename T>
+    void ScheduleViewChange(
+        const char* inMsgPtr,
+        const T&    inMsgEx)
+        { ScheduleViewChange(inMsgPtr, inMsgEx.c_str()); }
     bool CheckNodeId(
         NodeId inNodeId)
     {
@@ -3044,11 +3071,11 @@ private:
         }
         ostream& theStream = mWOStream.Set(inReq.mResponse);
         theStream <<
-            "id: "                   << mNodeId                   << "\n"
+            "nodeId: "               << mNodeId                   << "\n"
             "status: "               << mStatus                   << "\n"
             "active: "               << mActiveFlag               << "\n"
             "state: "                << GetStateName(mState)      << "\n"
-            "primary: "              << mPrimaryNodeId            << "\n"
+            "primaryId: "            << mPrimaryNodeId            << "\n"
             "epoch: "                << mEpochSeq                 << "\n"
             "view: "                 << mViewSeq                  << "\n"
             "log: "                  << mLastLogSeq               << "\n"
@@ -3062,37 +3089,48 @@ private:
             "viewChangeStartTime: "  << mViewChangeInitiationTime << "\n"
             "currentTime: "          << mTimeNow                  << "\n"
             "\n"
-            "logTransmitter:\n"
         ;
-        TxStatusReporter theReporter(theStream);
+        mTmpBuffer = "logTransmitter.";
+        TxStatusReporter theReporter(mTmpBuffer, theStream);
         mLogTransmitter.GetStatus(theReporter);
-        theStream << "\nconfiguration:\n"
-            "primaryTimeout: "           << mConfig.GetPrimaryTimeout() << "\n"
-            "backupTimeout: "            << mConfig.GetBackupTimeout()  << "\n"
-            "changeViewMaxLogDistance: " <<
-                mConfig.GetChangeVewMaxLogDistance() << "\n"
-            "maxListenersPerNode: "      <<
+        mTmpBuffer = "configuration.";
+        theStream << "\n" <<
+            mTmpBuffer << "primaryTimeout: "           <<
+                mConfig.GetPrimaryTimeout() << "\n" <<
+            mTmpBuffer << "backupTimeout: "            <<
+                mConfig.GetBackupTimeout()  << "\n" <<
+            mTmpBuffer << "changeViewMaxLogDistance: " <<
+                mConfig.GetChangeVewMaxLogDistance() << "\n" <<
+            mTmpBuffer << "maxListenersPerNode: "      <<
                 mConfig.GetMaxListenersPerNode() << "\n"
         ;
+        mTmpBuffer += "node.";
+        const size_t theLen = mTmpBuffer.size();
+        size_t       theCnt = 0;
         const Config::Nodes& theNodes = mConfig.GetNodes();
         for (Config::Nodes::const_iterator theIt = theNodes.begin();
                 theNodes.end() != theIt;
                 ++theIt) {
+            mTmpBuffer.resize(theLen);
+            AppendDecIntToString(mTmpBuffer, theCnt++);
+            mTmpBuffer += ".";
             theStream <<
-                "node:\n"
-                "id: "       << theIt->first            << "\n"
-                "flags: "    << theIt->second.GetFlags() << "\n"
-                "active: "   <<
+                mTmpBuffer << "id: "       << theIt->first             <<
+                    "\n" <<
+                mTmpBuffer << "flags: "    << theIt->second.GetFlags() <<
+                    "\n" <<
+                mTmpBuffer << "active: "   <<
                     (0 != (theIt->second.GetFlags() & Config::kFlagActive)) <<
-                    "\n"
-                "primaryOrder: " << theIt->second.GetPrimaryOrder() << "\n"
+                    "\n" <<
+                mTmpBuffer << "primaryOrder: " <<
+                    theIt->second.GetPrimaryOrder() << "\n"
             ;
             const Config::Locations& theLocations =
                 theIt->second.GetLocations();
             for (Config::Locations::const_iterator theIt = theLocations.begin();
                     theLocations.end() != theIt;
                     ++theIt) {
-                theStream << "listener: " << *theIt << "\n";
+                theStream << mTmpBuffer << "listener: " << *theIt << "\n";
             }
         }
         theStream << "\n";
@@ -3909,7 +3947,7 @@ private:
             if (mActiveFlag) {
                 if (kStateReconfiguration == mState ||
                         mLastLogSeq == inReq.logseq) {
-                    ScheduleViewChange("VR reconfiguration");
+                    ScheduleViewChange("reconfiguration ", inReq.mOpType);
                 }
             } else {
                 SetState(kStateBackup);
@@ -3984,20 +4022,6 @@ private:
             }
         }
         return -1;
-    }
-    void PrimaryReconfigurationStartViewChange()
-    {
-        if (kStateReconfiguration != mState) {
-            panic("VR: invalid end reconfiguration primary state");
-            return;
-        }
-        if (! mActiveFlag) {
-            // Primary starts view change.
-            SetState(kStateBackup);
-            mPrimaryNodeId = -1;
-            return;
-        }
-        ScheduleViewChange("VR reconfiguration");
     }
     NodeId GetPrimaryId()
     {
@@ -4304,7 +4328,6 @@ private:
                 theError = EIO;
             }
         } else {
-            mVrStateIoStr.reserve(1024);
             mVrStateIoStr.clear();
             AppendHexIntToString(mVrStateIoStr, mFileSystemId);
             mVrStateIoStr += " ";
