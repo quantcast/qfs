@@ -801,6 +801,21 @@ restore_viewstamped_config(DETokenizer& c)
         16 == c.getIntBase(), type, tok.ptr, tok.len);
 }
 
+static bool
+restore_worm_mode(DETokenizer& c)
+{
+    if (c.size() < 2) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t n = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    setWORMMode(0 != n);
+    return true;
+}
+
 static const DiskEntry&
 get_entry_map()
 {
@@ -843,6 +858,7 @@ get_entry_map()
     e.add_parser("hcse",                    &restore_hibernated_cs);
     e.add_parser("vrcn",                    &restore_viewstamped_config);
     e.add_parser("vrce",                    &restore_viewstamped_config);
+    e.add_parser("worm",                    &restore_worm_mode);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;

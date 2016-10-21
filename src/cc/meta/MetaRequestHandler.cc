@@ -115,6 +115,10 @@ AddMetaRequestLog(
         inShortNamesFlag ? "VRRC" : "VR_RECONFIGURATION",
         META_VR_RECONFIGURATION,
         static_cast<const MetaVrReconfiguration*>(0))
+    .MakeParser(
+        inShortNamesFlag ? "TWRM" : "TOGGLE_WORM",
+        META_TOGGLE_WORM,
+        static_cast<const MetaToggleWORM*>(0))
     ;
 }
 
@@ -188,9 +192,6 @@ MakeMetaRequestHandler(
     .MakeParser("UPSERVERS",
         META_UPSERVERS,
         static_cast<const MetaUpServers*>(0))
-    .MakeParser("TOGGLE_WORM",
-        META_TOGGLE_WORM,
-        static_cast<const MetaToggleWORM*>(0))
     .MakeParser("STATS",
         META_STATS,
         static_cast<const MetaStats*>(0))

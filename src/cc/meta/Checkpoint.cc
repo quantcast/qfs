@@ -166,6 +166,7 @@ Checkpoint::write(
             status = MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
         }
         if (status == 0) {
+            os << "worm/" << (getWORMMode() ? 1 : 0) << '\n';
             os << "time/" << DisplayIsoDateTime() << '\n';
             const string md = os.GetMd();
             os << "checksum/" << md << '\n';

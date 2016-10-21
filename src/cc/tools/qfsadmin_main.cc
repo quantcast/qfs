@@ -89,7 +89,9 @@ using std::istringstream;
     f(VR_RECONFIGURATION,               "viewstamped replication"\
                                         " reconfiguration") \
     f(VR_GET_STATUS,                    "viewstamped replication"\
-                                        " get status")
+                                        " get status") \
+    f(TOGGLE_WORM,                      "enable (1) or disable (0) WORM mode"\
+                                        " -F Toggle-WORM=1")
 
     static string
 ToLower(

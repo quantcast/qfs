@@ -2965,9 +2965,10 @@ struct MetaUpServers: public MetaRequest {
 struct MetaToggleWORM: public MetaRequest {
     bool value; // !< Enable/disable WORM
     MetaToggleWORM()
-        : MetaRequest(META_TOGGLE_WORM, kLogNever),
+        : MetaRequest(META_TOGGLE_WORM, kLogIfOk),
           value(false)
         {}
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
@@ -2983,6 +2984,12 @@ struct MetaToggleWORM: public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Toggle-WORM", "T", &MetaToggleWORM::value, false)
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("T", &MetaToggleWORM::value, false)
         ;
     }
 };
@@ -4494,6 +4501,7 @@ int ParseLogRecvCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     char* threadParseBuffer);
 
 void setWORMMode(bool value);
+bool getWORMMode();
 void setChunkmapDumpDir(string dir);
 void CheckIfIoBuffersAvailable();
 void CancelRequestsWaitingForBuffers();

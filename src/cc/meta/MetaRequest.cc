@@ -186,6 +186,12 @@ setWORMMode(bool value)
     gWormMode = value;
 }
 
+bool
+getWORMMode()
+{
+    return gWormMode;
+}
+
 void
 setChunkmapDumpDir(string d)
 {
@@ -2986,13 +2992,16 @@ MetaRetireChunkserver::handle()
     gLayoutManager.RetireServer(*this);
 }
 
+/* virtual */ bool
+MetaToggleWORM::start()
+{
+    return HasMetaServerAdminAccess(*this);
+}
+
 /* virtual */ void
 MetaToggleWORM::handle()
 {
     if (status < 0) {
-        return;
-    }
-    if (! HasMetaServerAdminAccess(*this)) {
         return;
     }
     KFS_LOG_STREAM_INFO << "Toggle WORM: " << value << KFS_LOG_EOM;
