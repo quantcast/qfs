@@ -175,7 +175,7 @@ public:
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
-        bool                  inVrResetOnlyFlag,
+        const char*           inVrResetTypeStrPtr,
         string&               outCurLogFileName)
     {
         const int theError = StartSelf(
@@ -190,7 +190,7 @@ public:
             inFileSystemId,
             inDataStoreLocation,
             inMetaMd,
-            inVrResetOnlyFlag,
+            inVrResetTypeStrPtr,
             outCurLogFileName
         );
         if (0 != theError) {
@@ -539,7 +539,7 @@ private:
         int64_t               inFileSystemId,
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
-        bool                  inVrResetOnlyFlag,
+        const char*           inVrResetTypeStrPtr,
         string&               outCurLogFileName)
     {
         if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
@@ -668,16 +668,32 @@ private:
         outCurLogFileName = mLogName;
         mStopFlag         = false;
         mNetManagerPtr    = &inNetManager;
-        if (inVrResetOnlyFlag) {
+        if (inVrResetTypeStrPtr) {
             if (mMetaVrSM.GetConfig().IsEmpty()) {
                 KFS_LOG_STREAM_ERROR <<
-                    "VR is not configured, nothing to reset" <<
+                    "VR configuration is empty" <<
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
             // Write configuration reset followed by log start view.
             MetaVrReconfiguration& theRcOp = *(new MetaVrReconfiguration());
-            theRcOp.mOpType = MetaVrReconfiguration::GetResetOpName();
+            theRcOp.mOpType = inVrResetTypeStrPtr;
+            if (theRcOp.mOpType ==
+                    MetaVrReconfiguration::GetInactivateAllNodesName()) {
+                if (mMetaVrSM.GetQuorum() <= 0) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "VR no active nodes, quorum: " << mMetaVrSM.GetQuorum() <<
+                    KFS_LOG_EOM;
+                    MetaRequest::Release(&theRcOp);
+                    return -EINVAL;
+                }
+            } else if (theRcOp.mOpType != MetaVrReconfiguration::GetResetOpName()) {
+                KFS_LOG_STREAM_ERROR <<
+                    "VR invalid reset op type: " << theRcOp.mOpType <<
+                KFS_LOG_EOM;
+                MetaRequest::Release(&theRcOp);
+                return -EINVAL;
+            }
             theRcOp.logseq = mLastLogSeq;
             theRcOp.logseq.mLogSeq++;
             MetaVrLogStartView& theSvOp = *(new MetaVrLogStartView());
@@ -736,7 +752,8 @@ private:
             Close();
             if (0 == mError) {
                 KFS_LOG_STREAM_INFO <<
-                    "VR configuration reset transaction log write complete" <<
+                    "VR configuration: " << inVrResetTypeStrPtr <<
+                    " transaction log write complete" <<
                 KFS_LOG_EOM;
             }
             return mError;
@@ -2027,7 +2044,7 @@ LogWriter::Start(
     int64_t               inFileSystemId,
     const ServerLocation& inDataStoreLocation,
     const string&         inMetaMd,
-    bool                  inVrResetOnlyFlag,
+    const char*           inVrResetTypeStrPtr,
     string&               outCurLogFileName)
 {
     return mImpl.Start(
@@ -2042,7 +2059,7 @@ LogWriter::Start(
         inFileSystemId,
         inDataStoreLocation,
         inMetaMd,
-        inVrResetOnlyFlag,
+        inVrResetTypeStrPtr,
         outCurLogFileName
     );
 }

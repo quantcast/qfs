@@ -2014,6 +2014,9 @@ private:
         .Def(MetaVrReconfiguration::GetResetOpName(),
             " -- clear VR configuration; cannot be performed at run time",
             &Impl::ResetConfig,      &Impl::CommitResetConfig)
+        .Def(MetaVrReconfiguration::GetInactivateAllNodesName(),
+            " -- inactivate all nodes; cannot be performed at run time",
+            &Impl::InactivateAllNodes,      &Impl::CommitInactivateAllNodes)
         .Def("swap-nodes",
             " -- swap specified inactive and active nodes, by"
             " making inactive node active, and active node inactive",
@@ -3648,6 +3651,35 @@ private:
             return;
         }
     }
+    void InactivateAllNodes(
+        MetaVrReconfiguration& inReq)
+    {
+        if (0 != inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "inactivate all:nodes:"
+                " non 0 number of arguments";
+            return;
+        }
+        if (mStartedFlag || ! inReq.replayFlag) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "inactivation of all nodes is not supported"
+                " at run time. Meta server command line option"
+                " -vr-inactivate-all-nodes can be used to inactivate all nodes";
+            return;
+        }
+        if (mConfig.IsEmpty()) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "inactivate all:nodes:"
+                " the configuration is empty";
+            return;
+        }
+        if (mActiveCount <= 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "inactivate all:nodes:"
+                " no active nodes";
+            return;
+        }
+    }
     void SwapActiveNode(
         MetaVrReconfiguration& inReq)
     {
@@ -3913,6 +3945,28 @@ private:
         }
         mConfig.Clear();
         mAllUniqueLocations.clear();
+        mActiveCount = 0;
+        mQuorum      = 0;
+        mActiveFlag  = false;
+        mEpochSeq++;
+        mViewSeq = kMetaVrLogStartEpochViewSeq;
+    }
+    void CommitInactivateAllNodes(
+        MetaVrReconfiguration& inReq)
+    {
+        if (! inReq.replayFlag || mStartedFlag ||
+                ! inReq.logseq.IsValid() ||
+                inReq.logseq.mEpochSeq != mEpochSeq) {
+            panic("VR: invalid inactivate all nodes");
+            return;
+        }
+        Config::Nodes& theNodes = mConfig.GetNodes();
+        for (Config::Nodes::iterator theIt = theNodes.begin();
+                theNodes.end() != theIt;
+                ++theIt) {
+            theIt->second.SetFlags(theIt->second.GetFlags() &
+                    ~Config::Flags(Config::kFlagActive));
+        }
         mActiveCount = 0;
         mQuorum      = 0;
         mActiveFlag  = false;

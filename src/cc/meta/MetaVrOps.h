@@ -426,6 +426,8 @@ public:
 
     static const char* GetResetOpName()
         { return "reset"; }
+    static const char* GetInactivateAllNodesName()
+        { return "inactivate_all_nodes"; }
     MetaVrReconfiguration()
         : MetaIdempotentRequest(META_VR_RECONFIGURATION, kLogIfOk),
           mHandledCount(0),
