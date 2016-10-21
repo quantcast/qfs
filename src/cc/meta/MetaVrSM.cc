@@ -4287,10 +4287,8 @@ private:
             return;
         }
         CancelViewChange();
-        if (mState != kStateViewChange) {
-            mViewChangeStartTime = TimeNow();
-            SetState(kStateViewChange);
-        }
+        mViewChangeStartTime = TimeNow();
+        SetState(kStateViewChange);
         WriteVrState(inPrimaryId, mDoViewChangeViewEndSeq);
         MetaVrDoViewChange& theOp = *(new MetaVrDoViewChange());
         Init(theOp);
