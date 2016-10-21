@@ -1507,6 +1507,11 @@ public:
         { return mNetManager.Now(); }
     time_t GetServiceStartTime() const
         { return mServiceStartTime; }
+    bool IsPingResponseUpToDate() const
+    {
+        return (! mPingResponse.IsEmpty() &&
+            TimeNow() < mPingUpdateTime + mPingUpdateInterval);
+    }
 protected:
     typedef vector<
         int,

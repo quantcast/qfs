@@ -2901,15 +2901,19 @@ struct MetaChunkServerRestart : public MetaChunkRequest {
  * about each of those servers.
  */
 struct MetaPing : public MetaRequest {
+    // Run through the log writer to get VR status.
     IOBuffer resp;
+    bool     updateFlag;
     MetaPing()
-        : MetaRequest(META_PING, kLogNever),
-          resp()
+        : MetaRequest(META_PING, kLogIfOk),
+          resp(),
+          updateFlag(false)
     {
         // Suppress warning with requests with no version filed.
         clientProtoVers  = KFS_CLIENT_PROTO_VERS;
         replayBypassFlag = true;
     }
+    virtual bool start();
     virtual void handle();
     virtual void response(ReqOstream &os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const

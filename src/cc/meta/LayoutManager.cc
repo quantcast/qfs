@@ -8178,8 +8178,8 @@ ShowTiersInfo(
 void
 LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
 {
-    if (! mPingResponse.IsEmpty() &&
-            TimeNow() < mPingUpdateTime + mPingUpdateInterval) {
+    if (IsPingResponseUpToDate()) {
+        buf.Clear();
         buf.Copy(&mPingResponse, mPingResponse.BytesConsumable());
         return;
     }
@@ -8215,6 +8215,11 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
     mWOstream <<
         "\r\n"
         "Config: " << mConfig;
+    mWOstream <<
+        "\r\n"
+        "VR Status: ";
+    mWOstream.flush();
+    tmpbuf.Move(&buf);
     const bool kRusageSelfFlag = true;
     mWOstream <<
         "\r\n"

@@ -3492,15 +3492,26 @@ MetaChunkReplicate::ShowSelf(ostream& os) const
     ;
 }
 
+/* virtual */ bool
+MetaPing::start()
+{
+    if (! HasMetaServerStatsAccess(*this)) {
+        return false;
+    }
+    updateFlag = ! gLayoutManager.IsPingResponseUpToDate();
+    if (! updateFlag) {
+        logAction = kLogNever;
+        gLayoutManager.Ping(resp, gWormMode);
+    }
+    return updateFlag;
+}
+
 /* virtual */ void
 MetaPing::handle()
 {
-    if (! HasMetaServerStatsAccess(*this)) {
-        return;
+    if (0 == status && updateFlag) {
+        gLayoutManager.Ping(resp, gWormMode);
     }
-    status = 0;
-    gLayoutManager.Ping(resp, gWormMode);
-
 }
 
 /* virtual */ void

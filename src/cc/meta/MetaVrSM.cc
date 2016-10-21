@@ -439,6 +439,8 @@ public:
                 return Handle(static_cast<MetaVrReconfiguration&>(inReq));
             case META_VR_GET_STATUS:
                 return Handle(static_cast<MetaVrGetStatus&>(inReq));
+            case META_PING:
+                return Handle(static_cast<MetaPing&>(inReq));
             case META_LOG_WRITER_CONTROL:
                 return Handle(static_cast<const MetaLogWriterControl&>(inReq));
             case META_READ_META_DATA:
@@ -3082,15 +3084,27 @@ private:
             return true;
         }
         ostream& theStream = mWOStream.Set(inReq.mResponse);
-        WriteStatus(theStream, ": ", "\n");
+        WriteStatus(theStream, ": ", "\n", "\n");
         theStream << "\n";
         mWOStream.Reset();
+        return true;
+    }
+    bool Handle(
+        MetaPing& inReq)
+    {
+        inReq.logAction = MetaRequest::kLogNever;
+        if (0 == inReq.status && ! mConfig.IsEmpty() && inReq.resp.IsEmpty()) {
+            ostream& theStream = mWOStream.Set(inReq.resp);
+            WriteStatus(theStream, "=", ";", "");
+            mWOStream.Reset();
+        }
         return true;
     }
     void WriteStatus(
         ostream&    inStream,
         const char* inSepPtr,
-        const char* inDelimPtr)
+        const char* inDelimPtr,
+        const char* inSectionsDelimPtr)
     {
         inStream <<
             "nodeId"               << inSepPtr << mNodeId                   <<
@@ -3127,14 +3141,14 @@ private:
                 inDelimPtr <<
             "currentTime"          << inSepPtr << mTimeNow                  <<
                 inDelimPtr <<
-            inDelimPtr
+            inSectionsDelimPtr
         ;
         mTmpBuffer = "logTransmitter.";
         TxStatusReporter theReporter(
             mTmpBuffer, inStream, inSepPtr, inDelimPtr);
         mLogTransmitter.GetStatus(theReporter);
         mTmpBuffer = "configuration.";
-        inStream << "\n" <<
+        inStream << inSectionsDelimPtr <<
             mTmpBuffer << "primaryTimeout: "           <<
                 mConfig.GetPrimaryTimeout() << inDelimPtr <<
             mTmpBuffer << "backupTimeout: "            <<
