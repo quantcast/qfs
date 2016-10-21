@@ -339,6 +339,49 @@ static char* test_qfs_get_data_locations() {
   return 0;
 }
 
+// Append to a file by Writing, closing, seeking, and then writing again. This
+// emulates a typical unix O_APPEND operation without using the flag.
+//
+// Using O_APPEND itself does not produce the same result.  Opening a file with
+// O_APPEND and writing to it will create hole of the appropriate size to make
+// the previous chunk reach the chunksize.
+static char* test_qfs_append() {
+  check_qfs_call(qfs_write(qfs, fd, testdata, strlen(testdata)));
+  check_qfs_call(qfs_sync(qfs, fd));
+
+  check_qfs_call(qfs_close(qfs, fd));
+
+  // Now write the same data again to the end of the file by seeking
+  check_qfs_call(fd = qfs_open_file(qfs, "/unit-test/file", O_WRONLY, 0, ""));
+  check_qfs_call(qfs_seek(qfs, fd, 0, SEEK_END));
+  check_qfs_call(qfs_write(qfs, fd, testdata, strlen(testdata)));
+  check_qfs_call(qfs_sync(qfs, fd));
+
+  // Check that the file has the correct size
+  // Reopen the file to enable stat to work
+  check_qfs_call(qfs_close(qfs, fd));
+  check_qfs_call(fd = qfs_open_file(qfs, "/unit-test/file", O_RDWR, 0, ""));
+
+  struct qfs_attr attr;
+  check_qfs_call(qfs_stat(qfs, "/unit-test/file", &attr));
+
+  int expected_len = strlen(testdata) * 2;
+  check(attr.size == expected_len,
+	"file size should be correct: %li != %d",
+	(long)attr.size, expected_len);
+
+  // Generate the string consisting of the testdata twice
+  char expected_str[expected_len];
+  memcpy(expected_str, testdata, strlen(testdata));
+  memcpy(expected_str + strlen(testdata), testdata, strlen(testdata));
+
+  char buf[4096];
+  check_qfs_call(qfs_read(qfs, fd, buf, expected_len));
+  check(strncmp(expected_str, buf, expected_len) == 0, "The contents of the file are not correct:\n\tExpected: %s\n\tActual: %s", expected_str, buf);
+
+  return 0;
+}
+
 static char * all_tests() {
   run(test_qfs_connect);
   run(test_get_metaserver_location);
@@ -367,6 +410,9 @@ static char * all_tests() {
   run(test_qfs_open);
   run(test_qfs_pread);
   run(test_qfs_get_data_locations);
+  run(test_qfs_close);
+  run(test_qfs_open_file);
+  run(test_qfs_append);
   run(test_qfs_cleanup);
   run(test_qfs_release);
   return 0;
