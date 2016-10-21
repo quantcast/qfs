@@ -738,7 +738,7 @@ public:
                 mCommittedFidSeed     = inCommittedFidSeed;
             }
         }
-        const bool thReplayWasPendingFlag = mLastLogSeq != mReplayLastLogSeq;
+        const bool theReplayWasPendingFlag = mLastLogSeq != mReplayLastLogSeq;
         if (mLastLogSeq < inReplayLastLogSeq) {
             SetLastLogSeq(inReplayLastLogSeq);
         }
@@ -868,11 +868,15 @@ public:
             }
         } else {
             if (mActiveFlag) {
-                if (TimeNow() != mLastProcessTime || thReplayWasPendingFlag) {
-                    if (kStateViewChange != mState ||
-                            thReplayWasPendingFlag ||
+                if (TimeNow() != mLastProcessTime || theReplayWasPendingFlag) {
+                    if (theReplayWasPendingFlag ||
                             ! mDoViewChangeViewEndSeq.IsValid()) {
                         UpdateViewAndStartViewChange();
+                    } else if ((kStateViewChange != mState &&
+                            mViewChangeStartTime + mConfig.GetPrimaryTimeout() <
+                                TimeNow())) {
+                        UpdateViewAndStartViewChange(
+                            GetStateName(mState), " timed out");
                     } else {
                         StartDoViewChangeIfPossible();
                     }
@@ -1000,6 +1004,7 @@ public:
         }
         mHelloCommitSeq  = mCommittedSeq;
         NodeId theNodeId = -1;
+        mStartedFlag     = true;
         int theRet = mConfig.IsEmpty() ? -EINVAL : ReadVrState(theNodeId);
         if (0 == theRet) {
             if (! CheckNodeId(theNodeId)) {
@@ -4141,14 +4146,15 @@ private:
         inReq.SetVrSMPtr(&mMetaVrSM);
     }
     void UpdateViewAndStartViewChange(
-        const char* inReasonPtr = 0)
+        const char* inReasonPtr   = 0,
+        const char* inExReasonPtr = 0)
     {
         if (mActiveFlag &&
                 mEpochSeq == mLastLogSeq.mEpochSeq &&
                 mViewSeq <= mLastLogSeq.mViewSeq) {
             mViewSeq = mLastLogSeq.mViewSeq + 1;
         }
-        StartViewChange(inReasonPtr);
+        StartViewChange(inReasonPtr, inExReasonPtr);
     }
     void StartViewChange(
         const MetaVrRequest& inReq)
@@ -4182,7 +4188,8 @@ private:
         StartViewChange();
     }
     void StartViewChange(
-        const char* inReasonPtr = 0)
+        const char* inReasonPtr   = 0,
+        const char* inExReasonPtr = 0)
     {
         if (! mActiveFlag) {
             panic("VR: start view change: node non active");
@@ -4192,6 +4199,9 @@ private:
                 (kStatePrimary == mState || kStateBackup == mState ||
                     kStateReconfiguration == mState)) {
             mViewChangeReason = inReasonPtr;
+            if (inExReasonPtr) {
+                mViewChangeReason += inExReasonPtr;
+            }
             mViewChangeInitiationTime = TimeNow();
         }
         mLogStartViewPendingRecvFlag = false;
@@ -4206,6 +4216,7 @@ private:
                 mViewSeq <= mLastLogSeq.mViewSeq)) {
             panic("VR: start view change: invalid epoch or view");
         }
+        const State thePrevState = mState;
         SetState(kStateViewChange);
         mViewChangeStartTime = TimeNow();
         mStartViewChangeNodeIds.clear();
@@ -4220,7 +4231,11 @@ private:
         mStartViewChangePtr = &theOp;
         const NodeId kBroadcast = -1;
         KFS_LOG_STREAM_INFO <<
-            "start view change: " << theOp.Show() <<
+            "start view change: " << mViewChangeReason <<
+            " prior state: "      << GetStateName(thePrevState) <<
+            " initiated: "        <<
+                (TimeNow() - mViewChangeInitiationTime) << " sec. ago"
+            " "                   << theOp.Show() <<
         KFS_LOG_EOM;
         QueueVrRequest(theOp, kBroadcast);
     }
