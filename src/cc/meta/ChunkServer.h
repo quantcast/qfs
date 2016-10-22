@@ -1253,6 +1253,7 @@ protected:
     uint64_t           mHibernatedGeneration;
     int                mPendingOpsCount;
     bool               mPendingHelloNotifyFlag;
+    bool               mPendingByeFlag;
     bool const         mReplayFlag;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];

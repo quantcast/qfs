@@ -609,6 +609,7 @@ ChunkServer::ChunkServer(
       mHibernatedGeneration(0),
       mPendingOpsCount(0),
       mPendingHelloNotifyFlag(false),
+      mPendingByeFlag(false),
       mReplayFlag(replayFlag),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
@@ -865,7 +866,7 @@ ChunkServer::HandleRequest(int code, void *data)
         assert(data &&
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO ||
                 (META_BYE == op->op && 0 == mPendingOpsCount &&
-                ! mNetConnection)));
+                    mPendingByeFlag)));
         if (META_HELLO == op->op) {
             if (! mHelloDone && 0 != op->status &&
                     -EAGAIN != op->status && mDisconnectReason.empty()) {
@@ -884,6 +885,13 @@ ChunkServer::HandleRequest(int code, void *data)
             if (0 == op->status && ! mNetConnection) {
                 SubmitMetaBye();
             }
+        } else if (META_BYE == op->op) {
+            if (! mPendingByeFlag) {
+                panic("chunk server:  invalid bye completion");
+            }
+            mPendingByeFlag = false;
+            // Layout manager forces down chunk server on successful bye
+            // completion, otherwise new primary will re-schedule bye.
         }
         const bool deleteOpFlag = op != mAuthenticateOp;
         if (SendResponse(op) && deleteOpFlag) {
@@ -1128,6 +1136,10 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 void
 ChunkServer::SubmitMetaBye()
 {
+    if (mPendingByeFlag) {
+        return;
+    }
+    mPendingByeFlag = true;
     MetaBye& mb = *(new MetaBye(mSelfPtr));
     mb.chunkCount             = GetChunkCount();
     mb.cIdChecksum            = GetChecksum();
@@ -1142,7 +1154,8 @@ ChunkServer::SubmitMetaBye()
 void
 ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
 {
-    if (mDown || ! mNetConnection || (mReplayFlag && ! ignoreReplayFlag)) {
+    if (mDown || ! mNetConnection || (mReplayFlag && ! ignoreReplayFlag) ||
+            mPendingByeFlag) {
         return;
     }
     if (! mSelfPtr) {
@@ -1159,7 +1172,6 @@ ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
     KFS_LOG_EOM;
     mNetConnection->Close();
     mNetConnection->GetInBuffer().Clear();
-    mNetConnection.reset();
     if (mDownReason.empty() && mRestartQueuedFlag) {
         mDownReason = "restart";
     }
@@ -1172,7 +1184,8 @@ ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
         // event is executed after all RPCs in logger queue.
         SubmitMetaBye();
         return;
-    } else if (0 < mPendingOpsCount) {
+    }
+    if (0 < mPendingOpsCount) {
         // If hello is already in flight, i.e. not done, and being logged.
         // In this case bye must be issued to ensure replay correctness.
         HelloInFlight::const_iterator const it = sHelloInFlight.find(
