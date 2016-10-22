@@ -5362,7 +5362,7 @@ LayoutManager::Handle(MetaBye& req)
             return;
         }
         if (IsMetaLogWriteOrVrError(req.status)) {
-            // ScheduleResubmitOrCancel(req);
+            ScheduleResubmitOrCancel(req);
             return;
         }
         if (0 != req.status) {

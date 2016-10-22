@@ -866,7 +866,7 @@ ChunkServer::HandleRequest(int code, void *data)
         assert(data &&
             (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO ||
                 (META_BYE == op->op && 0 == mPendingOpsCount &&
-                    mPendingByeFlag)));
+                ! mNetConnection)));
         if (META_HELLO == op->op) {
             if (! mHelloDone && 0 != op->status &&
                     -EAGAIN != op->status && mDisconnectReason.empty()) {
@@ -879,7 +879,7 @@ ChunkServer::HandleRequest(int code, void *data)
             MetaHello& helloOp = *static_cast<MetaHello*>(op);
             if (mDown || helloOp.replayFlag || this != &*helloOp.server ||
                     1 != sHelloInFlight.erase(helloOp.location)) {
-                panic("chunk server:  invalid hello completion");
+                panic("chunk server: invalid hello completion");
             }
             PutHelloBytes(&helloOp);
             if (0 == op->status && ! mNetConnection) {
@@ -887,7 +887,7 @@ ChunkServer::HandleRequest(int code, void *data)
             }
         } else if (META_BYE == op->op) {
             if (! mPendingByeFlag) {
-                panic("chunk server:  invalid bye completion");
+                panic("chunk server: invalid bye completion");
             }
             mPendingByeFlag = false;
             // Layout manager forces down chunk server on successful bye
@@ -1154,31 +1154,33 @@ ChunkServer::SubmitMetaBye()
 void
 ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
 {
-    if (mDown || ! mNetConnection || (mReplayFlag && ! ignoreReplayFlag) ||
-            mPendingByeFlag) {
+    if (mDown || (mReplayFlag && ! ignoreReplayFlag)) {
         return;
     }
     if (! mSelfPtr) {
         panic("ChunkServer::Error: invalid null self reference");
         return;
     }
-    KFS_LOG_STREAM_ERROR << GetServerLocation() <<
-        " / "             <<
-            (mNetConnection ? GetPeerName().c_str() : "not connected") <<
-        " chunk server down"
-        " reason: "       << (errorMsg ? errorMsg : "unspecified") <<
-        " socket error: " << (mNetConnection ?
-            mNetConnection->GetErrorMsg().c_str() : "none") <<
-    KFS_LOG_EOM;
-    mNetConnection->Close();
-    mNetConnection->GetInBuffer().Clear();
-    if (mDownReason.empty() && mRestartQueuedFlag) {
-        mDownReason = "restart";
+    if (mNetConnection) {
+        KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+            " / "             <<
+                (mNetConnection ? GetPeerName().c_str() : "not connected") <<
+            " chunk server down"
+            " reason: "       << (errorMsg ? errorMsg : "unspecified") <<
+            " socket error: " << (mNetConnection ?
+                mNetConnection->GetErrorMsg().c_str() : "none") <<
+        KFS_LOG_EOM;
+        mNetConnection->Close();
+        mNetConnection->GetInBuffer().Clear();
+        mNetConnection.reset();
+        if (mDownReason.empty() && mRestartQueuedFlag) {
+            mDownReason = "restart";
+        }
+        RemoveFromPendingHelloList();
+        RemoveFromWriteAllocation();
+        MetaRequest::Release(mAuthenticateOp);
+        mAuthenticateOp = 0;
     }
-    RemoveFromPendingHelloList();
-    RemoveFromWriteAllocation();
-    MetaRequest::Release(mAuthenticateOp);
-    mAuthenticateOp = 0;
     if (mHelloDone) {
         // Ensure proper event ordering in the logger queue, such that down
         // event is executed after all RPCs in logger queue.
