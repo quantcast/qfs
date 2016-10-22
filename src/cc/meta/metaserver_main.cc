@@ -189,14 +189,8 @@ public:
         } else {
             MsgLogger::Init(0);
         }
-#ifdef KFS_OS_NAME_LINUX
-        sServer.mMetaMd = ComputeMd("/proc/self/exe");
-#endif
-        if (sServer.mMetaMd.empty()) {
-            sServer.mMetaMd = ComputeMd(myname);
-        }
         const bool okFlag = sServer.Startup(
-            argv[0], createEmptyFsFlag, resetVrConfigTypePtr);
+            myname, argv[0], createEmptyFsFlag, resetVrConfigTypePtr);
         sServer.Cleanup();
         AuditLog::Stop();
         sslErr = SslFilter::Cleanup();
@@ -308,7 +302,8 @@ private:
         signal(SIGALRM, SIG_DFL);
         signal(SIGCHLD, SIG_DFL);
     }
-    bool Startup(const char* fileName, bool createEmptyFsFlag,
+    bool Startup(
+        const char* myname, const char* fileName, bool createEmptyFsFlag,
         const char* resetVrConfigTypePtr)
     {
         if (! fileName) {
@@ -353,6 +348,12 @@ private:
                     mFileName.c_str(), '=', &cerr)) {
             cerr << "invalid properties file: " << mFileName <<  "\n";
             return false;
+        }
+#ifdef KFS_OS_NAME_LINUX
+        mMetaMd = ComputeMd("/proc/self/exe");
+#endif
+        if (mMetaMd.empty()) {
+            mMetaMd = ComputeMd(myname);
         }
         mLogDir = mStartupProperties.getValue("metaServer.logDir", mLogDir);
         mLogDir = mStartupProperties.getValue(kNewLogDirPropName, mLogDir);

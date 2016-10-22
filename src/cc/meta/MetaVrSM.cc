@@ -3109,39 +3109,40 @@ private:
         const char* inDelimPtr,
         const char* inSectionsDelimPtr)
     {
-        inStream <<
+        mTmpBuffer = "vr.";
+        inStream << mTmpBuffer <<
             "nodeId"               << inSepPtr << mNodeId                   <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "status"               << inSepPtr << mStatus                   <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "active"               << inSepPtr << mActiveFlag               <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "state"                << inSepPtr << GetStateName(mState)      <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "primaryId"            << inSepPtr << mPrimaryNodeId            <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "epoch"                << inSepPtr << mEpochSeq                 <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "view"                 << inSepPtr << mViewSeq                  <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "log"                  << inSepPtr << mLastLogSeq               <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "commit"               << inSepPtr << mCommittedSeq             <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "lastViewEnd"          << inSepPtr << mLastViewEndSeq           <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "ignoreInvalidVrState" << inSepPtr << mIgnoreInvalidVrStateFlag <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "fileSystemId"         << inSepPtr << mFileSystemId             <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "clusterKey"           << inSepPtr << mClusterKey               <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "metaMd5"              << inSepPtr << mMetaMd                   <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "viewChangeReason"     << inSepPtr << mViewChangeReason         <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "viewChangeStartTime"  << inSepPtr << mViewChangeInitiationTime <<
-                inDelimPtr <<
+                inDelimPtr << mTmpBuffer <<
             "currentTime"          << inSepPtr << mTimeNow                  <<
                 inDelimPtr <<
             inSectionsDelimPtr
@@ -3152,14 +3153,14 @@ private:
         mLogTransmitter.GetStatus(theReporter);
         mTmpBuffer = "configuration.";
         inStream << inSectionsDelimPtr <<
-            mTmpBuffer << "primaryTimeout: "           <<
-                mConfig.GetPrimaryTimeout() << inDelimPtr <<
-            mTmpBuffer << "backupTimeout: "            <<
-                mConfig.GetBackupTimeout()  << inDelimPtr <<
-            mTmpBuffer << "changeViewMaxLogDistance: " <<
+            mTmpBuffer << "primaryTimeout"           << inSepPtr   <<
+                mConfig.GetPrimaryTimeout()          << inDelimPtr <<
+            mTmpBuffer << "backupTimeout"            << inSepPtr   <<
+                mConfig.GetBackupTimeout()           << inDelimPtr <<
+            mTmpBuffer << "changeViewMaxLogDistance" << inSepPtr   <<
                 mConfig.GetChangeVewMaxLogDistance() << inDelimPtr <<
-            mTmpBuffer << "maxListenersPerNode: "      <<
-                mConfig.GetMaxListenersPerNode() << inDelimPtr
+            mTmpBuffer << "maxListenersPerNode"      << inSepPtr   <<
+                mConfig.GetMaxListenersPerNode()     << inDelimPtr
         ;
         mTmpBuffer += "node.";
         const size_t theLen = mTmpBuffer.size();

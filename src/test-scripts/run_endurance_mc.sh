@@ -663,23 +663,26 @@ EOF
     while [ $i -lt $vrcount ]; do
         (
             cd "$vrdir" || exit
+            rm -rf "$metasrvlog"
             "$bdir/$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
-            echo $! > "$metasrvpid"
-        )
+            mpid=$!
+            echo $mpid > "$metasrvpid"
+            kill -0 $mpid || exit
+        ) || exit
         i=`expr $i + 1`
         vrdir="vr$i"
         bdir='..'
     done
-    if [ -f './vrstate' ]; then
-        true
-    else
-        adminclientprop=qfsadmin.prp
-        cat >> "$adminclientprop" << EOF
+    adminclientprop=qfsadmin.prp
+    cat >> "$adminclientprop" << EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-        sleep 2 # allow met servers start
+    sleep 2 # allow met servers start
+    if [ -f './vrstate' ]; then
+        true
+    else
         nodeidlist=''
         i=0
         while [ $i -lt $vrcount ]; do
