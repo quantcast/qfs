@@ -731,31 +731,31 @@ EOF
             -p "$metasrvport" \
             vr_get_status \
         || exit
-        # Enable error simulation after VR is configured, as otherwise
-        # configuration might fail or take long time.
-        if [ x"$errsim" = x'yes' ]; then
-            i=1
-            while [ $i -lt $vrcount ]; do
-                vrdir="vr$i"
-                cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.log.receiver.netErrorSimulator = a=rand+log,int=128,rsleep=30;
-EOF
-                kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
-                i=`expr $i + 1`
-            done
-        fi
-        # Update meta data sync, addresses.
-        i=0
-        vrdir='.'
+    fi
+    # Enable error simulation after VR is configured, as otherwise
+    # configuration might fail or take long time.
+    if [ x"$errsim" = x'yes' ]; then
+        i=1
         while [ $i -lt $vrcount ]; do
+            vrdir="vr$i"
             cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.metaDataSync.servers = $serverlocs
+metaServer.log.receiver.netErrorSimulator = a=rand+log,int=128,rsleep=30;
 EOF
             kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
             i=`expr $i + 1`
-            vrdir="vr$i"
         done
     fi
+    # Update meta data sync, addresses.
+    i=0
+    vrdir='.'
+    while [ $i -lt $vrcount ]; do
+        cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.metaDataSync.servers = $serverlocs
+EOF
+        kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
+        i=`expr $i + 1`
+        vrdir="vr$i"
+    done
 else
     cat >> "$metasrvprop" << EOF
 metaServer.log.failureSimulationInterval = 100
