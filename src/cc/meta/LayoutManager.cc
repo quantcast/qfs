@@ -2597,6 +2597,11 @@ LayoutManager::Validate(MetaHello& r)
         r.retireFlag = mRetireOnCSRestartFlag;
         return false;
     }
+    if (mDisableTimerFlag) {
+        r.statusMsg  = "meta server node is not primary";
+        r.status     = -ELOGFAILED;
+        return false;
+    }
     if (0 <= mDebugPanicOnHelloResumeFailureCount &&
             mDebugPanicOnHelloResumeFailureCount < r.helloResumeFailedCount) {
         const HibernatedChunkServer* const cs = FindHibernatingCS(r.location);
@@ -2652,23 +2657,12 @@ LayoutManager::Validate(MetaHello& r)
             }
         } else {
             Servers::const_iterator const it = FindServer(r.location);
-            if (it != mChunkServers.end()) {
-                if (r.replayFlag || mDisableTimerFlag) {
-                    if ((*it)->IsDown()) {
-                        r.statusMsg = "down server exists";
-                    } else {
-                        r.statusMsg = "up server exists";
-                    }
-                    r.statusMsg += mDisableTimerFlag ?
-                        ", retry resume later" : ", not primary";
-                    r.status = mDisableTimerFlag ? -EEXIST : -ELOGFAILED;
-                }
-                // Otherwise hello start will schedule server down,
-                // see Start(MetaHello&) below.
-            } else {
+            if (it == mChunkServers.end()) {
                 r.statusMsg = "resume not possible, no hibernated info exists";
                 r.status    = -EAGAIN;
             }
+            // Otherwise hello start will schedule server down,
+            // see Start(MetaHello&) below.
         }
     }
     return true;
