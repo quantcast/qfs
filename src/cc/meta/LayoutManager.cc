@@ -2653,13 +2653,18 @@ LayoutManager::Validate(MetaHello& r)
         } else {
             Servers::const_iterator const it = FindServer(r.location);
             if (it != mChunkServers.end()) {
-                if ((*it)->IsDown()) {
-                    r.statusMsg = "down server exists";
-                } else {
-                    r.statusMsg = "up server exists";
+                if (r.replayFlag || mDisableTimerFlag) {
+                    if ((*it)->IsDown()) {
+                        r.statusMsg = "down server exists";
+                    } else {
+                        r.statusMsg = "up server exists";
+                    }
+                    r.statusMsg += mDisableTimerFlag ?
+                        ", retry resume later" : ", not primary";
+                    r.status = mDisableTimerFlag ? -EEXIST : -ELOGFAILED;
                 }
-                r.statusMsg += ", retry resume later";
-                r.status    = -EEXIST;
+                // Otherwise hello start will schedule server down,
+                // see Start(MetaHello&) below.
             } else {
                 r.statusMsg = "resume not possible, no hibernated info exists";
                 r.status    = -EAGAIN;
@@ -2688,11 +2693,11 @@ LayoutManager::Start(MetaHello& r)
         r.status = -EFAULT;
         return;
     }
-    Servers::const_iterator const i = FindServer(r.location);
-    if (mChunkServers.end() == i) {
+    Servers::const_iterator const it = FindServer(r.location);
+    if (mChunkServers.end() == it) {
         return;
     }
-    if (*i == r.server) {
+    if (*it == r.server) {
         panic("invalid duplicate chunk server hello");
         r.status = -EFAULT;
         return;
@@ -2703,7 +2708,7 @@ LayoutManager::Start(MetaHello& r)
             r.rackId = rackId;
         }
     }
-    (*i)->ScheduleDown("chunk server re-connect");
+    (*it)->ScheduleDown("chunk server re-connect");
 }
 
 bool
@@ -3763,8 +3768,7 @@ LayoutManager::AddNewServer(MetaHello& req)
         }
         req.statusMsg += ", retry resume later";
         req.status = -EEXIST;
-        if (! req.replayFlag && (*existing)->IsReplay() &&
-                ! mDisableTimerFlag) {
+        if (! req.replayFlag && ! mDisableTimerFlag) {
             (*existing)->ScheduleDown("reconnect");
         }
         return;
