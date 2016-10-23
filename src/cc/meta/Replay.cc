@@ -494,7 +494,7 @@ public:
         if (mPendingStopServicingFlag && mReplayer) {
             mPendingStopServicingFlag = false;
             gLayoutManager.StopServicing();
-            gLayoutManager.SetDisableTimerFlag(true);
+            gLayoutManager.SetPrimary(false);
         }
     }
     void update()
@@ -2751,7 +2751,7 @@ Replay::handle(MetaVrLogStartView& op)
             return;
         }
         state.mPendingStopServicingFlag = false;
-        gLayoutManager.SetDisableTimerFlag(false);
+        gLayoutManager.SetPrimary(true);
         gLayoutManager.StartServicing();
         primaryNodeId = -1;
     }
@@ -2778,7 +2778,7 @@ Replay::setReplayState(
     // Log start view recursion counter now must be 1 when entering
     // handle(MetaVrLogStartView&)
     enqueueFlag = true;
-    gLayoutManager.SetDisableTimerFlag(true);
+    gLayoutManager.SetPrimary(false);
     state.setReplayState(
         committed,
         viewStartSeq,

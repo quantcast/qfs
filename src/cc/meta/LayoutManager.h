@@ -1449,9 +1449,9 @@ public:
     void ScheduleDumpsterCleanup(fid_t fid, const string& name);
     void DumpsterCleanupDone(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
-    void SetDisableTimerFlag(bool flag);
-    bool IsTimerDisabled() const
-        { return mDisableTimerFlag; }
+    void SetPrimary(bool flag);
+    bool IsPrimary() const
+        { return mPrimaryFlag; }
     void ChangeChunkVersion(chunkId_t chunkId, seq_t version,
         MetaAllocate* req);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
@@ -2284,7 +2284,7 @@ protected:
     RebalanceCtrs mRebalanceCtrs;
     ifstream      mRebalancePlan;
     bool          mCleanupScheduledFlag;
-    bool          mDisableTimerFlag;
+    bool          mPrimaryFlag;
 
     int                mCSCountersUpdateInterval;
     time_t             mCSCountersUpdateTime;

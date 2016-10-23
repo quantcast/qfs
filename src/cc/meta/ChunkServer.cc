@@ -4023,7 +4023,7 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
 void
 HibernatedChunkServer::Prune()
 {
-    if (mListsSize <= 0 || gLayoutManager.IsTimerDisabled()) {
+    if (mListsSize <= 0 || ! gLayoutManager.IsPrimary()) {
         return;
     }
     const size_t size = sMaxChunkListsSize + sPruneInFlightCount;

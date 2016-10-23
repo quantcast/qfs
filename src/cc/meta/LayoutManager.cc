@@ -1682,7 +1682,7 @@ LayoutManager::LayoutManager()
       mRebalanceCtrs(),
       mRebalancePlan(),
       mCleanupScheduledFlag(false),
-      mDisableTimerFlag(false),
+      mPrimaryFlag(true),
       mCSCountersUpdateInterval(2),
       mCSCountersUpdateTime(0),
       mCSCountersResponse(),
@@ -2597,7 +2597,7 @@ LayoutManager::Validate(MetaHello& r)
         r.retireFlag = mRetireOnCSRestartFlag;
         return false;
     }
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         r.statusMsg  = "meta server node is not primary";
         r.status     = -ELOGFAILED;
         return false;
@@ -2696,7 +2696,7 @@ LayoutManager::Start(MetaHello& r)
         r.status = -EFAULT;
         return;
     }
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         r.statusMsg  = "meta server node is not primary";
         r.status     = -ELOGFAILED;
         return;
@@ -3767,7 +3767,7 @@ LayoutManager::AddNewServer(MetaHello& req)
         }
         req.statusMsg += ", retry resume later";
         req.status = -EEXIST;
-        if (! req.replayFlag && ! mDisableTimerFlag) {
+        if (! req.replayFlag && mPrimaryFlag) {
             (*existing)->ScheduleDown("reconnect");
         }
         return;
@@ -5557,14 +5557,15 @@ LayoutManager::FindHibernatingCSInfo(const ServerLocation& loc,
 }
 
 void
-LayoutManager::SetDisableTimerFlag(bool flag)
+LayoutManager::SetPrimary(bool flag)
 {
-    if (mDisableTimerFlag == flag) {
+    if (mPrimaryFlag == flag) {
         return;
     }
-    mDisableTimerFlag = flag;
-    mIdempotentRequestTracker.SetDisableTimerFlag(mDisableTimerFlag);
-    if (! mDisableTimerFlag) {
+    mPrimaryFlag = flag;
+    mIdempotentRequestTracker.SetDisableTimerFlag(! mPrimaryFlag);
+    if (mPrimaryFlag) {
+        mLeaseCleanerOtherNextRunTime = TimeNow();
         return;
     }
     RequestQueue queue;
@@ -8346,7 +8347,8 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
             (mObjStoreFilesDeleteQueue.IsEmpty() ? time_t(0) :
                 TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime) << "\t"
         "File count= " << GetNumFiles() << "\t"
-        "Dir count= "  << GetNumDirs()
+        "Dir count= "  << GetNumDirs() << "\t"
+        "Primary= " << mPrimaryFlag
     ;
     mWOstream.flush();
     mWOstream.Reset();
@@ -8395,7 +8397,7 @@ void
 LayoutManager::LeaseCleanup(
     int64_t startTime)
 {
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         return;
     }
     const time_t now = (time_t)startTime;
@@ -8866,7 +8868,7 @@ LayoutManager::Handle(MetaLeaseRelinquish& req)
 void
 LayoutManager::CheckAllLeases()
 {
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         return;
     }
     mChunkLeases.Timer(TimeNow(), mLeaseOwnerDownExpireDelay,
@@ -9204,7 +9206,7 @@ LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
             req.submitCount <= 0) {
         panic("invalid resubmit request attempt");
     }
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         return;
     }
     req.next      = 0;
@@ -10928,7 +10930,7 @@ struct EvacuateChunkChecker
 void
 LayoutManager::ChunkReplicationChecker()
 {
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         ScheduleCleanup(mMaxServerCleanupScan);
         return;
     }
@@ -13027,7 +13029,7 @@ LayoutManager::WriteChunkServers(ostream& os) const
 void
 LayoutManager::StartServicing()
 {
-    if (mDisableTimerFlag) {
+    if (! mPrimaryFlag) {
         return;
     }
     for (Servers::const_iterator it = mChunkServers.begin();
