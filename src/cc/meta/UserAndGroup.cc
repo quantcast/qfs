@@ -88,12 +88,13 @@ public:
           mUpdateCount(0),
           mCurUpdateCount(0),
           mThread(),
-          mForkMutex(),
           mMutex(),
           mCond(),
           mUpdateAppliedCond(),
+          mForkDoneCond(),
           mStopFlag(false),
           mUpdateFlag(false),
+          mWaitForkDoneFlag(false),
           mDisabledFlag(false),
           mOverflowFlag(false),
           mUpdatePeriodNanoSec(QCMutex::Time(10) * 365 * 24 * 60 * 60 *
@@ -149,19 +150,25 @@ public:
           mParameters(),
           mSetDefaultsFlag(inUseDefaultsFlag),
           mWaitingUpdateCompletionhFlag(false),
+          mWaitingForkDoneFlag(false),
           mMetaLogGroupUsersInFlightFlag(false),
           mNextUpdateRetryTime(globalNetManager().Now() - 24 * 60 * 60),
           mMetaLogGroupUsers(*this, mPendingGroupUsersMap)
         {}
     ~Impl()
         { Impl::Shutdown(); }
-    int Start()
+    int Start(
+        bool inUpdateNowFlag)
     {
         QCStMutexLocker theLock(mMutex);
         const int theRet = StartSelf();
         if (theRet == 0 && mMetaLogGroupUsersInFlightFlag) {
             theLock.Unlock();
-            submit_request(&mMetaLogGroupUsers);
+            if (inUpdateNowFlag) {
+                mMetaLogGroupUsers.handle();
+            } else {
+                submit_request(&mMetaLogGroupUsers);
+            }
         }
         return theRet;
     }
@@ -174,6 +181,9 @@ public:
         mStopFlag = true;
         if (mWaitingUpdateCompletionhFlag) {
             mUpdateAppliedCond.Notify();
+        }
+        if (mWaitingForkDoneFlag) {
+            mForkDoneCond.Notify();
         }
         mCond.Notify();
         theLock.Unlock();
@@ -358,11 +368,16 @@ public:
     }
     void PrepareToFork()
     {
-        mForkMutex.Lock();
+        QCStMutexLocker theLock(mMutex);
+        mWaitForkDoneFlag = true;
     }
     void ForkDone()
     {
-        mForkMutex.Unlock();
+        QCStMutexLocker theLock(mMutex);
+        mWaitForkDoneFlag = false;
+        if (mWaitingForkDoneFlag) {
+            mForkDoneCond.Notify();
+        }
     }
 private:
     int StartSelf()
@@ -390,15 +405,19 @@ private:
                 break;
             }
             mWaitingUpdateCompletionhFlag = true;
-            while (! mStopFlag && mUpdateCount != mCurUpdateCount &&
-                mUpdateAppliedCond.Wait(mMutex))
-                {}
+            while (! mStopFlag && mUpdateCount != mCurUpdateCount) {
+                mUpdateAppliedCond.Wait(mMutex);
+            }
             mWaitingUpdateCompletionhFlag = false;
+            mWaitingForkDoneFlag = true;
+            while (! mStopFlag && mWaitForkDoneFlag) {
+                mForkDoneCond.Wait(mMutex);
+            }
+            mWaitingForkDoneFlag = false;
             if (mStopFlag) {
                 break;
             }
             mUpdateFlag = false;
-            QCStMutexLocker theForkLocker(mForkMutex);
             Update();
         }
     }
@@ -1029,12 +1048,13 @@ private:
     volatile uint64_t                mUpdateCount;
     volatile uint64_t                mCurUpdateCount;
     QCThread                         mThread;
-    QCMutex                          mForkMutex;
     QCMutex                          mMutex;
     QCCondVar                        mCond;
     QCCondVar                        mUpdateAppliedCond;
+    QCCondVar                        mForkDoneCond;
     bool                             mStopFlag;
     bool                             mUpdateFlag;
+    bool                             mWaitForkDoneFlag;
     bool                             mDisabledFlag;
     bool                             mOverflowFlag;
     QCMutex::Time                    mUpdatePeriodNanoSec;
@@ -1090,6 +1110,7 @@ private:
     Properties                       mParameters;
     bool                             mSetDefaultsFlag;
     bool                             mWaitingUpdateCompletionhFlag;
+    bool                             mWaitingForkDoneFlag;
     bool                             mMetaLogGroupUsersInFlightFlag;
     time_t                           mNextUpdateRetryTime;
     MetaLogGroupUsers                mMetaLogGroupUsers;
@@ -1267,9 +1288,10 @@ UserAndGroup::~UserAndGroup()
 }
 
     int
-UserAndGroup::Start()
+UserAndGroup::Start(
+    bool inUpdateNowFlag)
 {
-    return mImpl.Start();
+    return mImpl.Start(inUpdateNowFlag);
 }
 
     void

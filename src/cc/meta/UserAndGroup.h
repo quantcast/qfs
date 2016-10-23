@@ -159,7 +159,8 @@ public:
     int SetParameters(
         const char*       inPrefixPtr,
         const Properties& inProperties);
-    int Start();
+    int Start(
+        bool inUpdateNowFlag);
     void Shutdown();
     void ScheduleUpdate();
     const volatile uint64_t& GetUpdateCount() const

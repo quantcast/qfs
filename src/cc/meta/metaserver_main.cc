@@ -710,6 +710,7 @@ MetaServer::Startup(const Properties& props,
                     KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
                     // The following only returns after receiving SIGQUIT.
                     okFlag = gNetDispatch.Start(mMetaDataSync);
+                    gChildProcessTracker.KillAll(SIGKILL);
                 }
             } else {
                 mMetaDataSync.Shutdown();
@@ -920,6 +921,14 @@ MetaServer::Startup(bool createEmptyFsFlag,
         return false;
     }
     mLogWriterRunningFlag = true;
+    const int err = gLayoutManager.GetUserAndGroup().Start(writeCheckpointFlag);
+    if (err != 0) {
+        KFS_LOG_STREAM_ERROR <<
+            "failed to load user and grop info: " <<
+                QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+        return false;
+    }
     if (writeCheckpointFlag) {
         if ((status = cp.write(logFileName,
                 replayer.getCommitted(), replayer.getErrChksum())) != 0) {
@@ -937,14 +946,6 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 mMetaMd.c_str())) {
             return false;
         }
-    }
-    const int err = gLayoutManager.GetUserAndGroup().Start();
-    if (err != 0) {
-        KFS_LOG_STREAM_ERROR <<
-            "failed to load user and grop info: " <<
-                QCUtils::SysError(err) <<
-        KFS_LOG_EOM;
-        return false;
     }
     if (metatree.GetFsId() <= 0) {
         submit_request(new MetaSetFsInfo(fsid, 0));
