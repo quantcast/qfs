@@ -2696,6 +2696,11 @@ LayoutManager::Start(MetaHello& r)
         r.status = -EFAULT;
         return;
     }
+    if (mDisableTimerFlag) {
+        r.statusMsg  = "meta server node is not primary";
+        r.status     = -ELOGFAILED;
+        return;
+    }
     if (! mUseCSRackAssignmentFlag || r.rackId < 0) {
         RackId const rackId = GetRackId(r.location);
         if (0 <= rackId) {
