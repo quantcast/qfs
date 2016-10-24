@@ -3641,7 +3641,7 @@ private:
                 " non 0 number of arguments";
             return;
         }
-        if (mStartedFlag || ! inReq.replayFlag) {
+        if (! inReq.replayFlag) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "resetting VR configuration is not supported"
                 " at run time. Meta server command line option"
@@ -3664,7 +3664,7 @@ private:
                 " non 0 number of arguments";
             return;
         }
-        if (mStartedFlag || ! inReq.replayFlag) {
+        if (! inReq.replayFlag) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "inactivation of all nodes is not supported"
                 " at run time. Meta server command line option"
@@ -3952,8 +3952,7 @@ private:
         mActiveCount = 0;
         mQuorum      = 0;
         mActiveFlag  = false;
-        mEpochSeq++;
-        mViewSeq = kMetaVrLogStartEpochViewSeq;
+        CommitReconfiguration(inReq);
     }
     void CommitInactivateAllNodes(
         MetaVrReconfiguration& inReq)
@@ -3974,8 +3973,7 @@ private:
         mActiveCount = 0;
         mQuorum      = 0;
         mActiveFlag  = false;
-        mEpochSeq++;
-        mViewSeq = kMetaVrLogStartEpochViewSeq;
+        CommitReconfiguration(inReq);
     }
     void CommitSwapActiveNode(
         MetaVrReconfiguration& inReq)
@@ -4051,16 +4049,23 @@ private:
             " "        << inReq.Show() <<
         KFS_LOG_EOM;
         if (mStartedFlag) {
-            // Do not write no-op to advance commit.
-            inReq.mHandledCount = 2;
             if (mActiveFlag) {
                 if (kStateReconfiguration == mState ||
                         mLastLogSeq == inReq.logseq) {
                     ScheduleViewChange("reconfiguration ", inReq.mOpType);
                 }
             } else {
-                SetState(kStateBackup);
-                mPrimaryNodeId = -1;
+                if (mActiveCount <= 0) {
+                    mPrimaryNodeId = AllInactiveFindPrimary();
+                    if (0 <= mNodeId && mPrimaryNodeId == mNodeId) {
+                        SetState(kStatePrimary);
+                    } else {
+                        SetState(kStateBackup);
+                    }
+                } else {
+                    SetState(kStateBackup);
+                    mPrimaryNodeId = -1;
+                }
             }
         }
     }
@@ -4132,8 +4137,11 @@ private:
         }
         return -1;
     }
-    NodeId GetPrimaryId()
+    NodeId GetPrimaryId() const
     {
+        if (mQuorum <= 0) {
+            return -1;
+        }
         NodeId               theId       = -1;
         int                  theMinOrder = numeric_limits<int>::max();
         const Config::Nodes& theNodes    = mConfig.GetNodes();
@@ -4148,7 +4156,7 @@ private:
                     0 != (Config::kFlagWitness & theFlags)) {
                 continue;
             }
-            if (mStartViewChangeNodeIds.find(theNodeId) ==
+            if (0 <= mQuorum && mStartViewChangeNodeIds.find(theNodeId) ==
                     mStartViewChangeNodeIds.end()) {
                 continue;
             }
@@ -4162,12 +4170,15 @@ private:
         }
         return (theCnt < mQuorum ? -1 : theId);
     }
-    NodeId AllInactiveFindPrimary()
+    NodeId AllInactiveFindPrimary() const
     {
         if (0 < mQuorum || 0 < mActiveCount) {
             return -1;
         }
-        return kBootstrapPrimaryNodeId;
+        return (mConfig.IsEmpty() ?
+            kBootstrapPrimaryNodeId :
+            mConfig.GetNodes().begin()->first
+        );
     }
     template<typename T>
     static void Cancel(
