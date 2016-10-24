@@ -3624,7 +3624,7 @@ private:
                 "primary timeout must be greater than 0; backup "
                 "timeout must be at least 3 seconds greater than primary "
                 "timeout, max log distance must be an integer,"
-                " and max listeners must be ";
+                " max listeners must be an integer";
             return;
         }
         mPendingPrimaryTimeout          = thePrimaryTimeout;
