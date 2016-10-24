@@ -3641,7 +3641,7 @@ private:
                 " non 0 number of arguments";
             return;
         }
-        if (! inReq.replayFlag) {
+        if (! inReq.logseq.IsValid()) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "resetting VR configuration is not supported"
                 " at run time. Meta server command line option"
@@ -3664,7 +3664,7 @@ private:
                 " non 0 number of arguments";
             return;
         }
-        if (! inReq.replayFlag) {
+        if (! inReq.logseq.IsValid()) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "inactivation of all nodes is not supported"
                 " at run time. Meta server command line option"
