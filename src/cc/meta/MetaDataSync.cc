@@ -184,7 +184,7 @@ public:
           mPendingList(),
           mFileSystemId(-1),
           mReadOpsCount(16),
-          mMaxLogBlockSize(64 << 10),
+          mMaxLogBlockSize((sizeof(void*) < 8 ? 8 : 64) << 20),
           mMaxReadSize(64 << 10),
           mMaxRetryCount(10),
           mRetryCount(0),
@@ -1431,7 +1431,19 @@ private:
                     Sleep(mKeepLogSegmentsInterval);
                 }
             } else {
-                Sleep(mKeepLogSegmentsInterval);
+                if (0 == ScheduleMetaDataFetchAfterRestart()) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "no log segment available: " << mLogSeq <<
+                        " try count: "               << mNoLogSeqCount <<
+                        " servers count: "           << mServers.size() <<
+                        " scheduling meta server restart to fetch latest"
+                        " checkpoint" <<
+                    KFS_LOG_EOM;
+                    submit_request(new MetaProcessRestart());
+                    Sleep(max(60, 5 * mKeepLogSegmentsInterval));
+                } else {
+                    Sleep(mKeepLogSegmentsInterval);
+                }
             }
         }
     }

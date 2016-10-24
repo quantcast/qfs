@@ -1162,7 +1162,7 @@ public:
 
     /// For monitoring purposes, dump out state of all the
     /// connected chunk servers.
-    void Ping(IOBuffer& buf, bool wormModeFlag);
+    void Handle(MetaPing& inReq, bool wormModeFlag);
 
     /// Return a list of alive chunk servers
     void UpServers(ostream &os);

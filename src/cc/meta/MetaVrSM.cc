@@ -3101,6 +3101,9 @@ private:
             WriteStatus(theStream, "=", ";", "");
             mWOStream.Reset();
         }
+        inReq.vrNodeId        = mNodeId;
+        inReq.vrPrimaryNodeId = mPrimaryNodeId;
+        inReq.vrActiveFlag    = mActiveFlag;
         return true;
     }
     void WriteStatus(

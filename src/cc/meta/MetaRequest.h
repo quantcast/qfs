@@ -2902,12 +2902,18 @@ struct MetaChunkServerRestart : public MetaChunkRequest {
  */
 struct MetaPing : public MetaRequest {
     // Run through the log writer to get VR status.
-    IOBuffer resp;
-    bool     updateFlag;
+    IOBuffer   resp;
+    bool       updateFlag;
+    vrNodeId_t vrNodeId;
+    vrNodeId_t vrPrimaryNodeId;
+    bool       vrActiveFlag;
     MetaPing()
         : MetaRequest(META_PING, kLogIfOk),
           resp(),
-          updateFlag(false)
+          updateFlag(false),
+          vrNodeId(-1),
+          vrPrimaryNodeId(-1),
+          vrActiveFlag(false)
     {
         // Suppress warning with requests with no version filed.
         clientProtoVers  = KFS_CLIENT_PROTO_VERS;

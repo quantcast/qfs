@@ -8180,11 +8180,11 @@ ShowTiersInfo(
 }
 
 void
-LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
+LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
 {
     if (IsPingResponseUpToDate()) {
-        buf.Clear();
-        buf.Copy(&mPingResponse, mPingResponse.BytesConsumable());
+        inReq.resp.Clear();
+        inReq.resp.Copy(&mPingResponse, mPingResponse.BytesConsumable());
         return;
     }
     UpdateGoodCandidateLoadAvg();
@@ -8223,7 +8223,7 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
         "\r\n"
         "VR Status: ";
     mWOstream.flush();
-    tmpbuf.Move(&buf);
+    tmpbuf.Move(&inReq.resp);
     const bool kRusageSelfFlag = true;
     mWOstream <<
         "\r\n"
@@ -8348,12 +8348,15 @@ LayoutManager::Ping(IOBuffer& buf, bool wormModeFlag)
                 TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime) << "\t"
         "File count= " << GetNumFiles() << "\t"
         "Dir count= "  << GetNumDirs() << "\t"
-        "Primary= " << mPrimaryFlag
+        "Primary= "    << mPrimaryFlag << "\t"
+        "VR Node= "    << inReq.vrNodeId << "\t"
+        "VR Primary= " << inReq.vrPrimaryNodeId << "\t"
+        "VR Active= "  << inReq.vrActiveFlag
     ;
     mWOstream.flush();
     mWOstream.Reset();
     mPingResponse.Move(&tmpbuf);
-    buf.Copy(&mPingResponse, mPingResponse.BytesConsumable());
+    inReq.resp.Copy(&mPingResponse, mPingResponse.BytesConsumable());
 }
 
 class UpServersList

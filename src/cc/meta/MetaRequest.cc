@@ -3510,7 +3510,7 @@ MetaPing::start()
     updateFlag = ! gLayoutManager.IsPingResponseUpToDate();
     if (! updateFlag) {
         logAction = kLogNever;
-        gLayoutManager.Ping(resp, gWormMode);
+        gLayoutManager.Handle(*this, gWormMode);
     }
     return updateFlag;
 }
@@ -3519,7 +3519,7 @@ MetaPing::start()
 MetaPing::handle()
 {
     if (0 == status && updateFlag) {
-        gLayoutManager.Ping(resp, gWormMode);
+        gLayoutManager.Handle(*this, gWormMode);
     }
 }
 

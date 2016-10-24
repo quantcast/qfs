@@ -635,26 +635,27 @@ metaServer.log.receiver.auth.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.log.receiver.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.log.receiver.auth.whiteList        = root
 
-# metaServer.Vr.ignoreInvalidVrState = 1
+# metaServer.vr.ignoreInvalidVrState = 1
 EOF
-    i=0
-    vrdir='.'
-    while [ $i -lt $vrcount ]; do
+    i=$vrcount
+    while [ $i -gt 0 ]; do
+        i=`expr $i - 1`
         if [ $i -gt 0 ]; then
+            vrdir="vr$i"
             mkdir -p "$vrdir/kfscp" "$vrdir/kfslog" || exit
             cp "$metasrvprop" "$vrdir/" || exit
+        else
+            vrdir='.'
         fi
         port=`expr $metavrport + $i`
         cport=`expr $metasrvport + $i`
         csport=`expr $metasrvchunkport + $i`
         cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.Vr.id = $i
+metaServer.vr.id = $i
 metaServer.clientPort            = $cport
 metaServer.chunkServerPort       = $csport
 metaServer.log.receiver.listenOn = 0.0.0.0 $port
 EOF
-        i=`expr $i + 1`
-        vrdir="vr$i"
     done
 
     i=0
@@ -738,11 +739,11 @@ EOF
     # Enable error simulation after VR is configured, as otherwise
     # configuration might fail or take long time.
     if [ x"$errsim" = x'yes' ]; then
-        i=1
+        i=2
         while [ $i -lt $vrcount ]; do
             vrdir="vr$i"
             cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.log.receiver.netErrorSimulator = a=rand+log,int=128,rsleep=30;
+metaServer.log.receiver.netErrorSimulator = a=rand+log,int=2048,rsleep=30;
 EOF
             kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
             i=`expr $i + 1`
