@@ -4250,11 +4250,11 @@ private:
                         break;
                 }
                 mViewChangeReason = theNamePtr;
+                mViewChangeReason += ", node: ";
+                AppendDecIntToString(mViewChangeReason, inReq.mNodeId);
             } else {
                 mViewChangeReason = inReq.mReason;
             }
-            mViewChangeReason += " node: ";
-            AppendDecIntToString(mViewChangeReason, inReq.mNodeId);
             mViewChangeInitiationTime = TimeNow();
         }
         StartViewChange();
@@ -4274,6 +4274,8 @@ private:
             if (inExReasonPtr) {
                 mViewChangeReason += inExReasonPtr;
             }
+            mViewChangeReason += ", node: ";
+            AppendDecIntToString(mViewChangeReason, mNodeId);
             mViewChangeInitiationTime = TimeNow();
         }
         mLogStartViewPendingRecvFlag = false;

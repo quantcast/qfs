@@ -1567,6 +1567,8 @@ private:
                 kMaxOneOutstandingOpFlag,
                 authFlag ? new ClientAuthContext() : 0
             );
+            ret[i].mMeta->SetMaxMetaLogWriteRetryCount(
+                ret[i].mMeta->GetMaxRetryCount() * 16);
             if (! authFlag) {
                 ret[i].mMeta->SetCommonRpcHeaders(
                     commonRcpHdrs, commonShortRpcHdrs);

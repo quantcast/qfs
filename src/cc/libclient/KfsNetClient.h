@@ -267,6 +267,9 @@ public:
         const string& inCommonShortHeaders);
     void SetNetManager(
         NetManager& inNetManager);
+    int GetMaxMetaLogWriteRetryCount() const;
+    void SetMaxMetaLogWriteRetryCount(
+        int inCount);
     // Debug
     void SetThread(
         const QCThread* inThreadPtr);

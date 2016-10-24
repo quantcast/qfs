@@ -5124,35 +5124,7 @@ KfsClientImpl::DoMetaOpWithRetry(KfsOp* op)
         return;
     }
     InitUserAndGroupMode();
-    time_t startTime = 0;
-    for (int retry = 0; ;retry++) {
-        ExecuteMeta(*op);
-        if (! IsMetaLogWriteOrVrError(op->status) ||
-                mMaxNumRetriesPerOp < retry) {
-            break;
-        }
-        KFS_LOG_STREAM_ERROR <<
-            "retry: "   << retry <<
-            " seq: "    << op->seq <<
-            " status: " << op->status <<
-            " msg: "    << op->statusMsg <<
-            " "         << op->Show() <<
-        KFS_LOG_EOM;
-        op->status = 0;
-        op->statusMsg.clear();
-        // Idempotent request id can be reused as protocol state machine
-        // should have already sent ack with this id.
-        time_t const curTime = time(0);
-        if (retry <= 0) {
-            startTime = curTime;
-        }
-        startTime += mRetryDelaySec;
-        if (curTime < startTime) {
-            Sleep((int)(startTime - curTime));
-        } else {
-            startTime = curTime;
-        }
-    }
+    ExecuteMeta(*op);
 }
 
 void

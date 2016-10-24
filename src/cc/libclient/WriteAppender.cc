@@ -1784,8 +1784,7 @@ private:
         // Declare fatal error in the case of meta op failure.
         if ((&mLookupOp == mCurOpPtr || &mCreateOp == mCurOpPtr ||
                 &mMkdirOp == mCurOpPtr || &mLookupPathOp == mCurOpPtr ||
-                &mLeaseAcquireOp == mCurOpPtr) &&
-                ! IsMetaLogWriteOrVrError(mCurOpPtr->status)) {
+                &mLeaseAcquireOp == mCurOpPtr)) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "meta operation failed, giving up" <<
             KFS_LOG_EOM;

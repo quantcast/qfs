@@ -73,6 +73,8 @@ using std::map;
 using std::less;
 using KFS::libkfsio::globals;
 
+static const int kMetaLogRetryMult = 16;
+
 // KFS client side protocol worker thread implementation.
 class KfsProtocolWorker::Impl :
     public QCRunnable,
@@ -165,6 +167,8 @@ public:
         WorkQueue::Init(mWorkQueue);
         FreeSyncRequests::Init(mFreeSyncRequests);
         CleanupList::Init(mCleanupList);
+        mMetaServer.SetMaxMetaLogWriteRetryCount(
+            mMetaMaxRetryCount * kMetaLogRetryMult);
     }
     virtual ~Impl()
         { Impl::Stop(); }
@@ -216,6 +220,8 @@ public:
                 mMetaServer.SetOpTimeoutSec(mMetaOpTimeout);
                 mMetaServer.SetTimeSecBetweenRetries(mMetaTimeBetweenRetries);
                 mMetaServer.SetMaxRetryCount(mMetaMaxRetryCount);
+                mMetaServer.SetMaxMetaLogWriteRetryCount(
+                    mMetaMaxRetryCount * kMetaLogRetryMult);
                 mMetaServer.SetCommonRpcHeaders(
                     mCommonHeaders, mCommonShortHeaders);
                 mMetaParamsUpdateFlag = false;

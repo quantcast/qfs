@@ -195,6 +195,8 @@ public:
           mAuthFailureCount(0),
           mMaxRpcHeaderLength(MAX_RPC_HEADER_LEN),
           mPendingBytesSend(0),
+          mMetaLogWriteRetryCount(0),
+          mMaxMetaLogWriteRetryCount(0),
           mRpcFormat(kRpcFormatUndef),
           mInFlightOpPtr(0),
           mOutstandingOpPtr(0),
@@ -903,6 +905,11 @@ public:
         Stop();
         mNetManagerPtr = &inNetManager;
     }
+    int GetMaxMetaLogWriteRetryCount() const
+        { return mMaxMetaLogWriteRetryCount; }
+    void SetMaxMetaLogWriteRetryCount(
+        int inCount)
+        { mMaxMetaLogWriteRetryCount = inCount; }
 private:
     class DoNotDeallocate
     {
@@ -995,6 +1002,8 @@ private:
     int                mAuthFailureCount;
     int                mMaxRpcHeaderLength;
     int                mPendingBytesSend;
+    int                mMetaLogWriteRetryCount;
+    int                mMaxMetaLogWriteRetryCount;
     RpcFormat          mRpcFormat;
     OpQueueEntry*      mInFlightOpPtr;
     OpQueueEntry*      mOutstandingOpPtr;
@@ -1577,6 +1586,28 @@ private:
         if (theScheduleNextOpFlag) {
             mOutstandingOpPtr = 0;
         }
+        if (! inCanceledFlag) {
+            if (IsMetaLogWriteOrVrError(inIt->second.mOpPtr->status)) {
+                if (++mMetaLogWriteRetryCount < mMaxMetaLogWriteRetryCount) {
+                    KFS_LOG_STREAM_INFO << mLogPrefix <<
+                        "status: "  << inIt->second.mOpPtr->status <<
+                        " "         << inIt->second.mOpPtr->statusMsg <<
+                        " retry: "  << mMetaLogWriteRetryCount <<
+                        " of "      << mMaxMetaLogWriteRetryCount <<
+                    KFS_LOG_EOM;
+                    const int theStatus = inIt->second.mOpPtr->status;
+                    inIt->second.mOpPtr->status = 0;
+                    inIt->second.mOpPtr->statusMsg.clear();
+                    const int kRetryIncrement = 0;
+                    RetryConnect(mOutstandingOpPtr, theStatus, kRetryIncrement);
+                    return;
+                }
+            } else if (0 < mMetaLogWriteRetryCount &&
+                    &mLookupOp != inIt->second.mOpPtr &&
+                    &mAuthOp != inIt->second.mOpPtr) {
+                mMetaLogWriteRetryCount = 0;
+            }
+        }
         if (&inIt->second == mInFlightOpPtr) {
             CancelInFlightOp();
         }
@@ -1609,7 +1640,8 @@ private:
     }
     void RetryConnect(
         OpQueueEntry* inOutstandingOpPtr,
-        int           inError)
+        int           inError,
+        int           inRetryIncrement = 1)
     {
         if (mSleepingFlag) {
             return;
@@ -1621,7 +1653,7 @@ private:
                 (! mRetryConnectOnlyFlag ||
                 (! mDataSentFlag && ! mDataReceivedFlag) ||
                 IsAuthInFlight())) {
-            mRetryCount++;
+            mRetryCount += inRetryIncrement;
             if (! IsAuthInFlight()) {
                 mNonAuthRetryCount = mRetryCount;
             }
@@ -2259,6 +2291,20 @@ KfsNetClient::SetNetManager(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetNetManager(inNetManager);
+}
+
+    int
+KfsNetClient::GetMaxMetaLogWriteRetryCount() const
+{
+    return mImpl.GetMaxMetaLogWriteRetryCount();
+}
+
+    void
+KfsNetClient::SetMaxMetaLogWriteRetryCount(
+    int inCount)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetMaxMetaLogWriteRetryCount(inCount);
 }
 
     void
