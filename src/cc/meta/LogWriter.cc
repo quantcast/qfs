@@ -272,7 +272,7 @@ public:
             }
         }
         inRequest.commitPendingFlag = false;
-        if (! inRequest.logseq.IsValid()) {
+        if (! inRequest.logseq.IsValid() || mStopFlag) {
             return;
         }
         if (inRequest.suspended) {
