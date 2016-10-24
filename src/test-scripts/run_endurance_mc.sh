@@ -787,6 +787,56 @@ echo $! > "$fsckpid"
 
 if [ -d "$wdir" ]; then
     cd "$wdir" || exit
+    unset headerscs
+    for h in \
+            D-Timer-overrun-count \
+            D-Timer-overrun-sec \
+            XMeta-server-location \
+            Client-active \
+            Buffer-usec-wait-avg \
+            D-CPU-sys \
+            D-CPU-user \
+            D-Disk-read-bytes \
+            D-Disk-read-count \
+            D-Disk-write-bytes \
+            D-Disk-write-count \
+            Write-appenders \
+            D-Disk-read-errors \
+            D-Disk-write-errors \
+            Num-wr-drives \
+            Num-writable-chunks \
+            ; do
+        headerscs="${headerscs-}${headerscs+&}${h}"
+    done
+    unset headerscsdirs
+    for h in \
+            Chunks \
+            Dev-id \
+            Read-bytes \
+            D-Read-bytes \
+            Read-err \
+            D-Read-err \
+            Read-io \
+            D-Read-io \
+            D-Read-time-microsec \
+            Read-timeout \
+            Space-avail \
+            Space-util-pct \
+            Started-ago \
+            Stopped-ago \
+            Write-bytes \
+            D-Write-bytes \
+            Write-err \
+            D-Write-err \
+            Write-io \
+            D-Write-io \
+            D-Write-time-microsec \
+            Write-timeout \
+            Chunk-server \
+            Chunk-dir \
+            ; do
+        headerscsdirs="${headerscsdirs-}${headerscsdirs+&}${h}"
+    done
 cat > "$wuiconf" << EOF
 [webserver]
 webServer.metaserverPort = $metasrvport
@@ -806,8 +856,8 @@ daylySpan = 3600
 monthlySize = 30
 monthlySpan = 86400
 displayPorts = True
-predefinedHeaders = D-Timer-overrun-count&D-Timer-overrun-sec&XMeta-server-location&Client-active&Buffer-usec-wait-avg&D-CPU-sys&D-CPU-user&D-Disk-read-bytes&D-Disk-read-count&D-Disk-write-bytes&D-Disk-write-count&Write-appenders&D-Disk-read-errors&D-Disk-write-errors&Num-wr-drives&Num-writable-chunks
-predefinedChunkDirHeaders = Chunks&Dev-id&Read-bytes&D-Read-bytes&Read-err&D-Read-err&Read-io&D-Read-io&D-Read-time-microsec&Read-timeout&Space-avail&Space-util-pct&Started-ago&Stopped-ago&Write-bytes&D-Write-bytes&Write-err&D-Write-err&Write-io&D-Write-io&D-Write-time-microsec&Write-timeout&Chunk-server&Chunk-dir
+predefinedHeaders = $headerscs
+predefinedChunkDirHeaders = $headerscsdirs
 EOF
     rm -f *.log*
     trap '' HUP INT
