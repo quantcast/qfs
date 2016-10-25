@@ -204,6 +204,8 @@ inline static T& operator<<(
     const MetaVrResponse& inResponse)
 { return inResponse.Display(inStream); }
 
+static const MetaVrSM::Config::NodeId kBootstrapPrimaryNodeId = 0;
+
 class MetaVrSM::Impl
 {
 public:
@@ -227,7 +229,6 @@ public:
         kVrReconfCountCommitAdvance   = 1,
         kVrReconfCountNoCommitAdvance = 2
     };
-    static const NodeId kBootstrapPrimaryNodeId = 0;
 
     Impl(
         LogTransmitter& inLogTransmitter,
