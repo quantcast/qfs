@@ -92,6 +92,7 @@ public:
           mCond(),
           mUpdateAppliedCond(),
           mForkDoneCond(),
+          mPrepareToForkCond(),
           mStopFlag(false),
           mUpdateFlag(false),
           mWaitForkDoneFlag(false),
@@ -149,8 +150,11 @@ public:
           mDelegationGroupNames(),
           mParameters(),
           mSetDefaultsFlag(inUseDefaultsFlag),
+          mUpdateWaitFlag(false),
           mWaitingUpdateCompletionhFlag(false),
           mWaitingForkDoneFlag(false),
+          mWaitingPrepareToForkFlag(false),
+          mUpdateInProgressFlag(false),
           mMetaLogGroupUsersInFlightFlag(false),
           mNextUpdateRetryTime(globalNetManager().Now() - 24 * 60 * 60),
           mMetaLogGroupUsers(*this, mPendingGroupUsersMap)
@@ -182,10 +186,9 @@ public:
         if (mWaitingUpdateCompletionhFlag) {
             mUpdateAppliedCond.Notify();
         }
-        if (mWaitingForkDoneFlag) {
-            mForkDoneCond.Notify();
+        if (mUpdateWaitFlag) {
+            mCond.Notify();
         }
-        mCond.Notify();
         theLock.Unlock();
         mThread.Join();
         globalNetManager().UnRegisterTimeoutHandler(this);
@@ -370,6 +373,20 @@ public:
     {
         QCStMutexLocker theLock(mMutex);
         mWaitForkDoneFlag = true;
+        if (mUpdateWaitFlag) {
+            mCond.Notify();
+        }
+        if (mWaitingUpdateCompletionhFlag) {
+            mUpdateAppliedCond.Notify();
+        }
+        // Treat update the same way as parked thread, to avoid waiting for
+        // update completion in prepare to fork, by allowing prepare to fork
+        // to proceed as soon as the mutex is released.
+        while (! mWaitingForkDoneFlag && ! mUpdateInProgressFlag) {
+            mWaitingPrepareToForkFlag = true;
+            mPrepareToForkCond.Wait(mMutex);
+            mWaitingPrepareToForkFlag = false;
+        }
     }
     void ForkDone()
     {
@@ -386,39 +403,63 @@ private:
             return -EINVAL;
         }
         const int theError = Update();
+        QCStMutexLocker theLock(mMutex);
         StartPendingUpdate();
         mStopFlag   = false;
         mUpdateFlag = false;
+        theLock.Unlock();
         const int kStackSize = 32 << 10;
         mThread.Start(this, kStackSize, "UpdateUserAndGroup");
         globalNetManager().RegisterTimeoutHandler(this);
         return (theError == 0 ? (mOverflowFlag ? -EOVERFLOW : 0) : theError);
     }
+    void WaitForForkDone()
+    {
+        if (! mWaitForkDoneFlag) {
+            return;
+        }
+        mWaitingForkDoneFlag = true;
+        if (mWaitingPrepareToForkFlag) {
+            mPrepareToForkCond.Notify();
+        }
+        while (mWaitForkDoneFlag) {
+            mWaitingForkDoneFlag = true;
+            mForkDoneCond.Wait(mMutex);
+            mWaitingForkDoneFlag = false;
+        }
+    }
     virtual void Run()
     {
         QCStMutexLocker theLock(mMutex);
         for (; ;) {
-            while (! mStopFlag && ! mUpdateFlag &&
-                mCond.Wait(mMutex, mUpdatePeriodNanoSec))
-                {}
+            while (! mStopFlag && ! mUpdateFlag) {
+                mUpdateWaitFlag = true;
+                const bool theTimedOutFlag =
+                    mCond.Wait(mMutex, mUpdatePeriodNanoSec);
+                mUpdateWaitFlag = false;
+                WaitForForkDone();
+                if (! theTimedOutFlag) {
+                    break;
+                }
+            }
             if (mStopFlag) {
                 break;
             }
-            mWaitingUpdateCompletionhFlag = true;
             while (! mStopFlag && mUpdateCount != mCurUpdateCount) {
+                mWaitingUpdateCompletionhFlag = true;
                 mUpdateAppliedCond.Wait(mMutex);
+                mWaitingUpdateCompletionhFlag = false;
+                WaitForForkDone();
             }
-            mWaitingUpdateCompletionhFlag = false;
-            mWaitingForkDoneFlag = true;
-            while (! mStopFlag && mWaitForkDoneFlag) {
-                mForkDoneCond.Wait(mMutex);
-            }
-            mWaitingForkDoneFlag = false;
+            WaitForForkDone();
             if (mStopFlag) {
                 break;
             }
             mUpdateFlag = false;
+            mUpdateInProgressFlag = true;
             Update();
+            mUpdateInProgressFlag = false;
+            WaitForForkDone();
         }
     }
     int Update()
@@ -1052,6 +1093,7 @@ private:
     QCCondVar                        mCond;
     QCCondVar                        mUpdateAppliedCond;
     QCCondVar                        mForkDoneCond;
+    QCCondVar                        mPrepareToForkCond;
     bool                             mStopFlag;
     bool                             mUpdateFlag;
     bool                             mWaitForkDoneFlag;
@@ -1109,8 +1151,11 @@ private:
     DelegationGroupNames             mDelegationGroupNames;
     Properties                       mParameters;
     bool                             mSetDefaultsFlag;
+    bool                             mUpdateWaitFlag;
     bool                             mWaitingUpdateCompletionhFlag;
     bool                             mWaitingForkDoneFlag;
+    bool                             mWaitingPrepareToForkFlag;
+    bool                             mUpdateInProgressFlag;
     bool                             mMetaLogGroupUsersInFlightFlag;
     time_t                           mNextUpdateRetryTime;
     MetaLogGroupUsers                mMetaLogGroupUsers;

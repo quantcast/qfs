@@ -1590,10 +1590,12 @@ private:
             if (IsMetaLogWriteOrVrError(inIt->second.mOpPtr->status)) {
                 if (++mMetaLogWriteRetryCount < mMaxMetaLogWriteRetryCount) {
                     KFS_LOG_STREAM_INFO << mLogPrefix <<
-                        "status: "  << inIt->second.mOpPtr->status <<
+                        "seq: "     << inIt->second.mOpPtr->seq <<
+                        " status: " << inIt->second.mOpPtr->status <<
                         " "         << inIt->second.mOpPtr->statusMsg <<
                         " retry: "  << mMetaLogWriteRetryCount <<
                         " of "      << mMaxMetaLogWriteRetryCount <<
+                        " "         << inIt->second.mOpPtr->Show() <<
                     KFS_LOG_EOM;
                     const int theStatus = inIt->second.mOpPtr->status;
                     inIt->second.mOpPtr->status = 0;

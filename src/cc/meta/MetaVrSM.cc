@@ -2387,8 +2387,7 @@ private:
             RetryStartViewChange("do view change timed out");
             return;
         }
-        if (mLastLogSeq < mStartViewChangeMaxLastLogSeq &&
-                ! mLastViewEndSeq.IsSameView(mLastLogSeq)) {
+        if (mLastLogSeq < mStartViewChangeMaxLastLogSeq) {
             // Need to feetch log / checkpoint.
             if (mActiveFlag && mNodeIdAndMDSLocations.empty()) {
                 panic("VR: invalid empty committed node ids");

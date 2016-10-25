@@ -2692,15 +2692,17 @@ ostream&
 MetaAllocate::ShowSelf(ostream& os) const
 {
     os << "allocate:"
-        " seq: "       << opSeqno      <<
-        " path: "      << pathname     <<
-        " fid: "       << fid          <<
-        " chunkId: "   << chunkId      <<
-        " offset: "    << offset       <<
-        " client: "    << clientHost   <<
-        " / "          << clientIp     <<
-        " replicas: "  << numReplicas  <<
-        " append: "    << appendChunk  <<
+        " seq: "       << opSeqno             <<
+        " path: "      << pathname            <<
+        " fid: "       << fid                 <<
+        " chunkId: "   << chunkId             <<
+        " offset: "    << offset              <<
+        " client: "    << clientHost          <<
+        " / "          << clientIp            <<
+        " replicas: "  << numReplicas         <<
+        " append: "    << appendChunk         <<
+        " version: "   << chunkVersion        <<
+        " / "          << initialChunkVersion <<
         " valid for: " << validForTime
     ;
     for (Servers::const_iterator i = servers.begin();
@@ -5427,7 +5429,12 @@ MetaChunkAllocate::request(ReqOstream& os)
         if (req->clientCSAllowClearTextFlag) {
             os << (shortRpcFormatFlag ? "CT:1\r\n" : "CS-clear-text: 1\r\n");
         }
-        if (0 == req->numReplicas && 0 < req->initialChunkVersion) {
+        // Update lease / "re-allocate" object store block only in the case when
+        // client indicates access proxy (chunk server), otherwise create a new
+        // object store block. This is needed to handle the case where an empty
+        // block is created by the reply never reaches the client.
+        if (0 == req->numReplicas && 0 < req->initialChunkVersion &&
+                ! req->chunkServerName.empty()) {
             os << (shortRpcFormatFlag ? "E:1\r\n" : "Exists: 1\r\n");
         }
     }

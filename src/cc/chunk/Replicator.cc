@@ -1568,7 +1568,7 @@ private:
                 authFlag ? new ClientAuthContext() : 0
             );
             ret[i].mMeta->SetMaxMetaLogWriteRetryCount(
-                ret[i].mMeta->GetMaxRetryCount() * 16);
+                ret[i].mMeta->GetMaxRetryCount());
             if (! authFlag) {
                 ret[i].mMeta->SetCommonRpcHeaders(
                     commonRcpHdrs, commonShortRpcHdrs);

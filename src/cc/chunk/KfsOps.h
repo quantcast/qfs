@@ -543,13 +543,14 @@ struct AllocChunkOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "alloc-chunk:"
-            " seq: "       << seq <<
-            " file: "      << fileId <<
-            " chunk: "     << chunkId <<
-            " version: "   << chunkVersion <<
-            " leaseid: "   << leaseId <<
-            " append: "    << (appendFlag ? 1 : 0) <<
-            " cleartext: " << (allowCSClearTextFlag ? 1 : 0)
+            " seq: "        << seq <<
+            " file: "       << fileId <<
+            " chunk: "      << chunkId <<
+            " version: "    << chunkVersion <<
+            " leaseid: "    << leaseId <<
+            " append: "     << appendFlag <<
+            " cleartext: "  << allowCSClearTextFlag <<
+            " mustExists: " << mustExistFlag
         ;
     }
     template<typename T> static T& ParserDef(T& parser)
