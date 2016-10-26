@@ -988,10 +988,10 @@ QCFdPoll::Wakeup()
     int
 QCFdPoll::Close()
 {
+    const int theRet = mImpl.Close();
     Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
-    if (theWakerPtr && 0 <= theWakerPtr->GetFd()) {
-        Remove(theWakerPtr->GetFd()),
+    if (theWakerPtr) {
         theWakerPtr->Close();
     }
-    return mImpl.Close();
+    return theRet;
 }
