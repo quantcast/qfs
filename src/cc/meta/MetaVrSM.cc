@@ -2108,6 +2108,8 @@ private:
             if (inMsgExPtr) {
                 mViewChangeReason += inMsgExPtr;
             }
+            mViewChangeReason += ", node: ";
+            AppendDecIntToString(mViewChangeReason, mNodeId);
             mViewChangeInitiationTime = TimeNow();
         }
         mPrimaryNodeId = -1;
@@ -2325,7 +2327,7 @@ private:
                 " sec. ago"
             " responded: "      << mRespondedIds.size() <<
             " replies: "        << mReplyCount <<
-            " do view change: " <<
+            " DVC: "            <<
                 reinterpret_cast<const void*>(mDoViewChangePtr) <<
             " error: "          << inMsgPtr <<
         KFS_LOG_EOM;

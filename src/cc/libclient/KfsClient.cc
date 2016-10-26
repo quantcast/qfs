@@ -1392,6 +1392,13 @@ KfsClientImpl::ClientsList::Instance()
 KfsClientImpl::ClientsList* KfsClientImpl::ClientsList::sInstance =
     &KfsClientImpl::ClientsList::Instance();
 
+inline static int
+GetOpTimeout(int nsecs)
+{
+    const int kMaxTimeout = numeric_limits<int>::max() / 1000;
+    return (nsecs >= 0 ? min(kMaxTimeout, nsecs) : kMaxTimeout);
+}
+
 inline void
 KfsClientImpl::Validate(
     const KfsClientImpl::FAttr* fa) const
@@ -1634,6 +1641,14 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
         } else if ((int)CHECKSUM_BLOCKSIZE <= defaultIoBufferSize) {
             mDefaultReadAheadSize = mDefaultIoBufferSize;
         }
+        mMaxNumRetriesPerOp = properties->getValue(
+            "client.maxNumRetriesPerOp", mMaxNumRetriesPerOp);
+        mRetryDelaySec = max(1, properties->getValue(
+            "client.retryDelaySec", mRetryDelaySec));
+        mDefaultOpTimeout = GetOpTimeout(properties->getValue(
+            "client.defaultOpTimeout", mDefaultOpTimeout));
+        mDefaultMetaOpTimeout = GetOpTimeout(properties->getValue(
+            "client.defaultMetaOpTimeout", mDefaultMetaOpTimeout));
         mConfig.clear();
         properties->copyWithPrefix("client.", mConfig);
     }
@@ -4359,8 +4374,7 @@ void
 KfsClientImpl::SetDefaultIOTimeout(int nsecs)
 {
     QCStMutexLocker l(mMutex);
-    const int kMaxTimeout = numeric_limits<int>::max() / 1000;
-    const int timeout = nsecs >= 0 ? min(kMaxTimeout, nsecs) : kMaxTimeout;
+    const int timeout = GetOpTimeout(nsecs);
     if (timeout == mDefaultOpTimeout) {
         return;
     }
@@ -4890,7 +4904,7 @@ KfsClientImpl::GetLayout(GetLayoutOp& inOp, const FileAttr* inAttrPtr)
 chunkOff_t
 KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
 {
-    GetLayoutOp lop(0, kfsfid);
+    GetLayoutOp  lop(0, kfsfid);
     time_t       startTime = time(0);
     time_t const endTime   = startTime + mRetryDelaySec * mMaxNumRetriesPerOp;
     for (int retry = 0; ; retry++) {
