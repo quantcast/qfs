@@ -13035,6 +13035,9 @@ LayoutManager::StartServicing()
     if (! mPrimaryFlag) {
         return;
     }
+    mNonStableChunks.Clear();
+    mChunkLeases.ClearReadLeases();
+    mChunkLeases.ClearWriteLeases();
     for (Servers::const_iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
             ++it) {
@@ -13066,6 +13069,8 @@ LayoutManager::StopServicing()
             srv->ScheduleDown("stop servicing");
         }
     }
+    mChunkLeases.ClearReadLeases();
+    mChunkLeases.ClearWriteLeases();
 }
 
 ostream&
