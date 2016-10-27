@@ -841,7 +841,7 @@ ChunkServer::HandleRequest(int code, void *data)
                         (mAuthenticateOp->statusMsg.empty() ?
                             "invalid authenticate message" :
                             mAuthenticateOp->statusMsg.c_str()) :
-                        "failed to parse hello message"));
+                        "hello failure"));
                 break;
             }
             if (0 < retval || mAuthenticateOp || ! mNetConnection) {

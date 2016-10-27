@@ -5563,6 +5563,9 @@ LayoutManager::SetPrimary(bool flag)
         return;
     }
     mPrimaryFlag = flag;
+    KFS_LOG_STREAM_DEBUG <<
+        "set primary: " << mPrimaryFlag <<
+    KFS_LOG_EOM;
     mIdempotentRequestTracker.SetDisableTimerFlag(! mPrimaryFlag);
     if (mPrimaryFlag) {
         mLeaseCleanerOtherNextRunTime = TimeNow();
@@ -13032,19 +13035,19 @@ LayoutManager::WriteChunkServers(ostream& os) const
 void
 LayoutManager::StartServicing()
 {
+    KFS_LOG_STREAM_INFO <<
+        "start servicing, primary: " << mPrimaryFlag <<
+    KFS_LOG_EOM;
+    mNonStableChunks.Clear();
     if (! mPrimaryFlag) {
+        mChunkLeases.ClearReadLeases();
         return;
     }
-    mNonStableChunks.Clear();
-    mChunkLeases.ClearReadLeases();
-    mChunkLeases.ClearWriteLeases();
     for (Servers::const_iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
             ++it) {
         const ChunkServerPtr& srv = *it;
-        if (srv->IsReplay()) {
-            srv->ScheduleDown("start servicing");
-        }
+        srv->ScheduleDown("start servicing");
     }
     for (HibernatedServerInfos::iterator it = mHibernatingServers.begin();
             mHibernatingServers.end() != it;
@@ -13061,6 +13064,9 @@ LayoutManager::StartServicing()
 void
 LayoutManager::StopServicing()
 {
+    KFS_LOG_STREAM_INFO <<
+        "stop servicing, primary: " << mPrimaryFlag <<
+    KFS_LOG_EOM;
     for (Servers::const_iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
             ++it) {
@@ -13069,8 +13075,6 @@ LayoutManager::StopServicing()
             srv->ScheduleDown("stop servicing");
         }
     }
-    mChunkLeases.ClearReadLeases();
-    mChunkLeases.ClearWriteLeases();
 }
 
 ostream&
