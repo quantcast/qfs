@@ -385,7 +385,7 @@ fi
 if [ x"$errsim" = x'yes' ]; then
     cstimeout=20
     csretry=200 # make wait longer than chunk replication timeout / 5 sec
-    if [ $vrcount -gt 2 ]; then
+    if [ $vrcount -gt 2 -o -d "$metasrvdir/vr1" ]; then
         cat >> "$clientprop" << EOF
 client.maxNumRetriesPerOp = 200
 EOF
@@ -404,7 +404,6 @@ cat >> "$clientproprs" << EOF
 client.connectionPool = 1
 EOF
 
-
 ulimit -c unlimited || exit
 if [ x"`ulimit -Hn`" = x'unlimited' ]; then
     # Hack around mac os peculiarity.
@@ -417,56 +416,57 @@ if [ `ulimit -n` -le 1024 ]; then
 fi
 exec 0</dev/null
 
-if [ x"$testonly" != x'yes' ]; then
-
-kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
-
-if [ x"$s3test" = x'yes' ]; then
-    if [ -f "$cabundlefileos" ]; then
-        echo "Using $cabundlefileos"
-        cabundlefile=$cabundlefileos
-    else
-        if [ -x "`which curl 2>/dev/null`" ]; then
-            curl "$cabundleurl" > "$cabundlefile" || exit
-        else
-            wget "$cabundleurl" -O "$cabundlefile" || exit
-        fi
-    fi
+if [ x"$testonly" = x'yes' ]; then
+    kill_all_proc "$clitestdir"
 else
-    mkdir -p "$objectstoredir" || exit
-fi
+    kill_all_proc "$metasrvdir" $chunkrundirs "$clitestdir"
 
-echo "Starting meta server $metahost:$metasrvport"
+    if [ x"$s3test" = x'yes' ]; then
+        if [ -f "$cabundlefileos" ]; then
+            echo "Using $cabundlefileos"
+            cabundlefile=$cabundlefileos
+        else
+            if [ -x "`which curl 2>/dev/null`" ]; then
+                curl "$cabundleurl" > "$cabundlefile" || exit
+            else
+                wget "$cabundleurl" -O "$cabundlefile" || exit
+            fi
+        fi
+    else
+        mkdir -p "$objectstoredir" || exit
+    fi
 
-(
-trap '' EXIT
+    echo "Starting meta server $metahost:$metasrvport"
 
-mkdir -p "$metasrvdir"
-cd "$metasrvdir" || exit
+    (
+    trap '' EXIT
 
-kill_all_proc "$metasrvdir"
-mkdir -p kfscp || exit
-mkdir -p kfslog || exit
+    mkdir -p "$metasrvdir"
+    cd "$metasrvdir" || exit
 
-metaserverbin="`basename "$metabin"`"
-rm -f "$metaserverbin"
-cp "$metabin" . || exit
+    kill_all_proc "$metasrvdir"
+    mkdir -p kfscp || exit
+    mkdir -p kfslog || exit
 
-qfsfsckbin="`basename "$fsckbin"`"
-rm -f "$qfsfsckbin"
-cp "$fsckbin" . || exit
+    metaserverbin="`basename "$metabin"`"
+    rm -f "$metaserverbin"
+    cp "$metabin" . || exit
 
-qfsadminbin="`basename "$adminbin"`"
-rm -f "$qfsadminbin"
-cp "$adminbin" . || exit
+    qfsfsckbin="`basename "$fsckbin"`"
+    rm -f "$qfsfsckbin"
+    cp "$fsckbin" . || exit
 
-if [ -d "$webui" ]; then
-    wdir=`basename "$webui"`
-    rm -rf "$wdir"
-    cp -a "$webui" . || exit
-fi
+    qfsadminbin="`basename "$adminbin"`"
+    rm -f "$qfsadminbin"
+    cp "$adminbin" . || exit
 
-cat > "$metasrvprop" << EOF
+    if [ -d "$webui" ]; then
+        wdir=`basename "$webui"`
+        rm -rf "$wdir"
+        cp -a "$webui" . || exit
+    fi
+
+    cat > "$metasrvprop" << EOF
 metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
@@ -540,8 +540,8 @@ metaServer.objectStorePlacementTest = 1
 chunkServer.objBlockDiscardMinMetaUptime = 8
 EOF
 
-if [ x"$auth" = x'yes' ]; then
-    cat >> "$metasrvprop" << EOF
+    if [ x"$auth" = x'yes' ]; then
+        cat >> "$metasrvprop" << EOF
 metaServer.clientAuthentication.X509.X509PemFile = $certsdir/meta.crt
 metaServer.clientAuthentication.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
@@ -553,78 +553,79 @@ metaServer.cryptoKeys.keysFileName               = keys.txt
 metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 20
 metaServer.CSAuthentication.maxAuthenticationValidTimeSec     = 20
 EOF
-fi
+    fi
 
-if [ $chunkdirerrsimall -gt 0 ]; then
-    cat >> "$metasrvprop" << EOF
+    if [ $chunkdirerrsimall -gt 0 ]; then
+        cat >> "$metasrvprop" << EOF
 chunkServer.chunkDirsCheckIntervalSecs       = 15
 chunkServer.dirCheckFailureSimulatorInterval = 10
 metaServer.chunkServer.replicationTimeout    = 8
 EOF
-fi
-
-mkdir -p "$prevlogsdir" || exit
-rm -f "$prevlogsdir"/* 2>/dev/null
-mv *.log* "$prevlogsdir"/ 2>/dev/null
-rm -f core* 2>/dev/null
-
-if [ -f "kfscp/latest" ]; then
-    i=1
-    while [ -d "vr$i" ]; do
-        i=`expr $i + 1`
-    done
-    if [ $i -ge 3 ]; then
-        vrcount=$i
     fi
-else
-    cp "$metasrvprop" "$metasrvprop.tmp"
-    cat >> "$metasrvprop.tmp" << EOF
+
+    mkdir -p "$prevlogsdir" || exit
+    rm -f "$prevlogsdir"/* 2>/dev/null
+    mv *.log* "$prevlogsdir"/ 2>/dev/null
+    rm -f core* 2>/dev/null
+
+    if [ -f "kfscp/latest" ]; then
+        i=1
+        while [ -d "vr$i" ]; do
+            i=`expr $i + 1`
+        done
+        if [ $i -ge 3 ]; then
+            vrcount=$i
+        fi
+    else
+        cp "$metasrvprop" "$metasrvprop.tmp"
+        cat >> "$metasrvprop.tmp" << EOF
 metaServer.clientPort      = $metasrvport
 metaServer.chunkServerPort = $metasrvchunkport
 EOF
-    if ./"$metaserverbin" -c "$metasrvprop.tmp" > "${metasrvout}" 2>&1; then
-        rm "$metasrvprop.tmp"
-    else
-        status=$?
-        cat "${metasrvout}"
-        exit $status
+        if ./"$metaserverbin" -c "$metasrvprop.tmp" > "${metasrvout}" 2>&1; then
+            rm "$metasrvprop.tmp"
+        else
+            status=$?
+            cat "${metasrvout}"
+            exit $status
+        fi
     fi
-fi
 
-if [ $vrcount -gt 2 ]; then
-    echo "Setting up VR with $vrcount nodes"
-    filesystemid=`awk '
-        BEGIN{FS="/";}
-        {
-            if ($1 == "filesysteminfo") {
-                print $3;
-                exit;
+    if [ $vrcount -gt 2 ]; then
+        echo "Setting up VR with $vrcount nodes"
+        filesystemid=`awk '
+            BEGIN{FS="/";}
+            {
+                if ($1 == "filesysteminfo") {
+                    print $3;
+                    exit;
+                }
             }
-        }
-    ' kfscp/latest`
-    if [ x"$filesystemid" = x ]; then
-        echo "Failed to determine files system id in kfscp/latest"
-        exit 1
-    fi
-    serverlocs=''
-    port=$metasrvport
-    endport=`expr $metasrvport + $vrcount`
-    while [ $port -lt $endport ]; do
-        serverlocs="$serverlocs $metahost $port"
-        port=`expr $port + 1`
-    done
-    if [ -f './vrstate' ]; then
-        cat >> "$metasrvprop" << EOF
+        ' kfscp/latest`
+        if [ x"$filesystemid" = x ]; then
+            echo "Failed to determine files system id in kfscp/latest"
+            exit 1
+        fi
+        serverlocs=''
+        port=$metasrvport
+        endport=`expr $metasrvport + $vrcount`
+        while [ $port -lt $endport ]; do
+            serverlocs="$serverlocs $metahost $port"
+            port=`expr $port + 1`
+        done
+        if [ -f './vrstate' ]; then
+            cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.servers = $serverlocs
 EOF
-    else
-        # To minimize VR boot strap time use only the primary server initially
-        # to pull checkpoint and log, as the other nodes will be down.
-        cat >> "$metasrvprop" << EOF
+        else
+            # To minimize VR boot strap time use only the primary server
+            # initially to pull checkpoint and log, as the other nodes will be
+            # down.
+            cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.servers = $metahost $metasrvport
 EOF
-    fi
-    cat >> "$metasrvprop" << EOF
+        fi
+        cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.fileSystemId = $filesystemid
 
 metaServer.metaDataSync.auth.X509.X509PemFile = $certsdir/root.crt
@@ -642,207 +643,208 @@ metaServer.log.receiver.auth.whiteList        = root
 
 # metaServer.vr.ignoreInvalidVrState = 1
 EOF
-    i=$vrcount
-    while [ $i -gt 0 ]; do
-        i=`expr $i - 1`
-        if [ $i -gt 0 ]; then
-            vrdir="vr$i"
-            mkdir -p "$vrdir/kfscp" "$vrdir/kfslog" || exit
-            cp "$metasrvprop" "$vrdir/" || exit
-        else
-            vrdir='.'
-        fi
-        port=`expr $metavrport + $i`
-        cport=`expr $metasrvport + $i`
-        csport=`expr $metasrvchunkport + $i`
-        cat >> "$vrdir/$metasrvprop" << EOF
+        i=$vrcount
+        while [ $i -gt 0 ]; do
+            i=`expr $i - 1`
+            if [ $i -gt 0 ]; then
+                vrdir="vr$i"
+                mkdir -p "$vrdir/kfscp" "$vrdir/kfslog" || exit
+                cp "$metasrvprop" "$vrdir/" || exit
+            else
+                vrdir='.'
+            fi
+            port=`expr $metavrport + $i`
+            cport=`expr $metasrvport + $i`
+            csport=`expr $metasrvchunkport + $i`
+            cat >> "$vrdir/$metasrvprop" << EOF
 metaServer.vr.id = $i
 metaServer.clientPort            = $cport
 metaServer.chunkServerPort       = $csport
 metaServer.log.receiver.listenOn = 0.0.0.0 $port
 EOF
-    done
+        done
 
-    i=0
-    vrdir='.'
-    bdir='.'
-    while [ $i -lt $vrcount ]; do
-        (
-            cd "$vrdir" || exit
-            rm -rf "$metasrvlog"
-            "$bdir/$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
-            mpid=$!
-            echo $mpid > "$metasrvpid"
-            kill -0 $mpid || exit
-        ) || exit
-        i=`expr $i + 1`
-        vrdir="vr$i"
-        bdir='..'
-    done
-    adminclientprop=qfsadmin.prp
-    cat >> "$adminclientprop" << EOF
+        i=0
+        vrdir='.'
+        bdir='.'
+        while [ $i -lt $vrcount ]; do
+            (
+                cd "$vrdir" || exit
+                rm -rf "$metasrvlog"
+                "$bdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
+                    > "${metasrvout}" 2>&1 &
+                mpid=$!
+                echo $mpid > "$metasrvpid"
+                kill -0 $mpid || exit
+            ) || exit
+            i=`expr $i + 1`
+            vrdir="vr$i"
+            bdir='..'
+        done
+        adminclientprop=qfsadmin.prp
+        cat >> "$adminclientprop" << EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-    sleep 2 # allow met servers start
-    if [ -f './vrstate' ]; then
-        true
-    else
-        nodeidlist=''
-        i=0
-        while [ $i -lt $vrcount ]; do
-            vrlocation="$metahost `expr $metavrport + $i`"
-            echo "Adding node $i $vrlocation"
+        sleep 2 # allow met servers start
+        if [ -f './vrstate' ]; then
+            true
+        else
+            nodeidlist=''
+            i=0
+            while [ $i -lt $vrcount ]; do
+                vrlocation="$metahost `expr $metavrport + $i`"
+                echo "Adding node $i $vrlocation"
+                retry_cmd 5 5 ./"$qfsadminbin" \
+                    -f "$adminclientprop" \
+                    -s "$metahost" \
+                    -p "$metasrvport" \
+                    -F op-type=add-node \
+                    -F arg-count=1 \
+                    -F node-id="$i" \
+                    -F args="$vrlocation" \
+                    vr_reconfiguration \
+                    || exit
+                nodeidlist="$nodeidlist $i"
+                i=`expr $i + 1`
+            done
+            sleep 3 # allow primary to connect to backups.
+            # Active all nodes.
+            echo "Activating nodes $nodeidlist"
             retry_cmd 5 5 ./"$qfsadminbin" \
                 -f "$adminclientprop" \
                 -s "$metahost" \
                 -p "$metasrvport" \
-                -F op-type=add-node \
-                -F arg-count=1 \
-                -F node-id="$i" \
-                -F args="$vrlocation" \
+                -F op-type=activate-nodes \
+                -F arg-count="$vrcount" \
+                -F args="$nodeidlist" \
                 vr_reconfiguration \
                 || exit
-            nodeidlist="$nodeidlist $i"
-            i=`expr $i + 1`
-        done
-        sleep 3 # allow primary to connect to backups.
-        # Active all nodes.
-        echo "Activating nodes $nodeidlist"
-        retry_cmd 5 5 ./"$qfsadminbin" \
-            -f "$adminclientprop" \
-            -s "$metahost" \
-            -p "$metasrvport" \
-            -F op-type=activate-nodes \
-            -F arg-count="$vrcount" \
-            -F args="$nodeidlist" \
-            vr_reconfiguration \
-            || exit
-        # Add duplicate channel for node 1
-        sleep 1
-        vrlocation="$metahost `expr $metavrport + 1`"
-        echo "Adding node  1 listener $vrlocation"
-        retry_cmd 5 5 ./"$qfsadminbin" \
+            # Add duplicate channel for node 1
+            sleep 1
+            vrlocation="$metahost `expr $metavrport + 1`"
+            echo "Adding node  1 listener $vrlocation"
+            retry_cmd 5 5 ./"$qfsadminbin" \
+                    -f "$adminclientprop" \
+                    -s "$metahost" \
+                    -p "$metasrvport" \
+                    -F op-type=add-node-listeners \
+                    -F arg-count=1 \
+                    -F node-id=1 \
+                    -F args="$vrlocation" \
+                    vr_reconfiguration \
+                || exit
+            echo "VR status:"
+            ./"$qfsadminbin" \
                 -f "$adminclientprop" \
                 -s "$metahost" \
                 -p "$metasrvport" \
-                -F op-type=add-node-listeners \
-                -F arg-count=1 \
-                -F node-id=1 \
-                -F args="$vrlocation" \
-                vr_reconfiguration \
+                vr_get_status \
             || exit
-        echo "VR status:"
-        ./"$qfsadminbin" \
-            -f "$adminclientprop" \
-            -s "$metahost" \
-            -p "$metasrvport" \
-            vr_get_status \
-        || exit
-    fi
-    # Enable error simulation after VR is configured, as otherwise
-    # configuration might fail or take long time.
-    if [ x"$errsim" = x'yes' ]; then
-        i=2
-        while [ $i -lt $vrcount ]; do
-            vrdir="vr$i"
-            cat >> "$vrdir/$metasrvprop" << EOF
+        fi
+        # Enable error simulation after VR is configured, as otherwise
+        # configuration might fail or take long time.
+        if [ x"$errsim" = x'yes' ]; then
+            i=2
+            while [ $i -lt $vrcount ]; do
+                vrdir="vr$i"
+                cat >> "$vrdir/$metasrvprop" << EOF
 metaServer.log.receiver.netErrorSimulator = a=rand+log,int=2048,rsleep=30;
+EOF
+                kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
+                i=`expr $i + 1`
+            done
+        fi
+        # Update meta data sync, addresses.
+        i=0
+        vrdir='.'
+        while [ $i -lt $vrcount ]; do
+            cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.metaDataSync.servers = $serverlocs
 EOF
             kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
             i=`expr $i + 1`
+            vrdir="vr$i"
         done
-    fi
-    # Update meta data sync, addresses.
-    i=0
-    vrdir='.'
-    while [ $i -lt $vrcount ]; do
-        cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.metaDataSync.servers = $serverlocs
-EOF
-        kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
-        i=`expr $i + 1`
-        vrdir="vr$i"
-    done
-else
-    cat >> "$metasrvprop" << EOF
+    else
+        cat >> "$metasrvprop" << EOF
 metaServer.log.failureSimulationInterval = 100
 metaServer.clientPort      = $metasrvport
 metaServer.chunkServerPort = $metasrvchunkport
 EOF
-    ./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
-    echo $! > "$metasrvpid"
-fi
-
-fsckfailures=0
-fsckruns=0
-while true; do
-    sleep `awk 'BEGIN{printf("%.0f\n", rand() * 100); exit;}'`
-    if ./"$qfsfsckbin" -A 1 -c kfscp; then
-        fsckstatus="OK"
-    else
-        fsckstatus="FAILED"
-        fsckfailures=`expr $fsckfailures + 1`
+        ./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+        echo $! > "$metasrvpid"
     fi
-    fsckruns=`expr $fsckruns + 1`
-    echo "==== RUN: $fsckruns FAILURES: $fsckfailures STATUS: $fsckstatus ==="
-done > "$fscklog" 2>&1 &
-echo $! > "$fsckpid"
 
-if [ -d "$wdir" ]; then
-    cd "$wdir" || exit
-    unset headerscs
-    for h in \
-            D-Timer-overrun-count \
-            D-Timer-overrun-sec \
-            XMeta-server-location \
-            Client-active \
-            Buffer-usec-wait-avg \
-            D-CPU-sys \
-            D-CPU-user \
-            D-Disk-read-bytes \
-            D-Disk-read-count \
-            D-Disk-write-bytes \
-            D-Disk-write-count \
-            Write-appenders \
-            D-Disk-read-errors \
-            D-Disk-write-errors \
-            Num-wr-drives \
-            Num-writable-chunks \
-            ; do
-        headerscs="${headerscs-}${headerscs+&}${h}"
-    done
-    unset headerscsdirs
-    for h in \
-            Chunks \
-            Dev-id \
-            Read-bytes \
-            D-Read-bytes \
-            Read-err \
-            D-Read-err \
-            Read-io \
-            D-Read-io \
-            D-Read-time-microsec \
-            Read-timeout \
-            Space-avail \
-            Space-util-pct \
-            Started-ago \
-            Stopped-ago \
-            Write-bytes \
-            D-Write-bytes \
-            Write-err \
-            D-Write-err \
-            Write-io \
-            D-Write-io \
-            D-Write-time-microsec \
-            Write-timeout \
-            Chunk-server \
-            Chunk-dir \
-            ; do
-        headerscsdirs="${headerscsdirs-}${headerscsdirs+&}${h}"
-    done
-cat > "$wuiconf" << EOF
+    fsckfailures=0
+    fsckruns=0
+    while true; do
+        sleep `awk 'BEGIN{printf("%.0f\n", rand() * 100); exit;}'`
+        if ./"$qfsfsckbin" -A 1 -c kfscp; then
+            fsckstatus="OK"
+        else
+            fsckstatus="FAILED"
+            fsckfailures=`expr $fsckfailures + 1`
+        fi
+        fsckruns=`expr $fsckruns + 1`
+        echo "==== RUN: $fsckruns FAILURES: $fsckfailures STATUS: $fsckstatus ==="
+    done > "$fscklog" 2>&1 &
+    echo $! > "$fsckpid"
+
+    if [ -d "$wdir" ]; then
+        cd "$wdir" || exit
+        unset headerscs
+        for h in \
+                D-Timer-overrun-count \
+                D-Timer-overrun-sec \
+                XMeta-server-location \
+                Client-active \
+                Buffer-usec-wait-avg \
+                D-CPU-sys \
+                D-CPU-user \
+                D-Disk-read-bytes \
+                D-Disk-read-count \
+                D-Disk-write-bytes \
+                D-Disk-write-count \
+                Write-appenders \
+                D-Disk-read-errors \
+                D-Disk-write-errors \
+                Num-wr-drives \
+                Num-writable-chunks \
+                ; do
+            headerscs="${headerscs-}${headerscs+&}${h}"
+        done
+        unset headerscsdirs
+        for h in \
+                Chunks \
+                Dev-id \
+                Read-bytes \
+                D-Read-bytes \
+                Read-err \
+                D-Read-err \
+                Read-io \
+                D-Read-io \
+                D-Read-time-microsec \
+                Read-timeout \
+                Space-avail \
+                Space-util-pct \
+                Started-ago \
+                Stopped-ago \
+                Write-bytes \
+                D-Write-bytes \
+                Write-err \
+                D-Write-err \
+                Write-io \
+                D-Write-io \
+                D-Write-time-microsec \
+                Write-timeout \
+                Chunk-server \
+                Chunk-dir \
+                ; do
+            headerscsdirs="${headerscsdirs-}${headerscsdirs+&}${h}"
+        done
+        cat > "$wuiconf" << EOF
 [webserver]
 webServer.metaserverPort = $metasrvport
 webServer.mestaserverHost = $metahost
@@ -864,48 +866,48 @@ displayPorts = True
 predefinedHeaders = $headerscs
 predefinedChunkDirHeaders = $headerscsdirs
 EOF
-    rm -f *.log*
-    trap '' HUP INT
-    ./qfsstatus.py "$wuiconf" > "$wuilog" 2>&1 &
-    echo $! > "$wuipid"
-    kill -0 `cat "$wuipid"` || {
-        echo "Failed to start meta server web UI"
+        rm -f *.log*
+        trap '' HUP INT
+        ./qfsstatus.py "$wuiconf" > "$wuilog" 2>&1 &
+        echo $! > "$wuipid"
+        kill -0 `cat "$wuipid"` || {
+            echo "Failed to start meta server web UI"
+            exit 1
+        }
+    fi
+    exit 0
+    ) || {
+        kill_all_proc "$metasrvdir"
+        echo "Failed to start meta server"
         exit 1
     }
-fi
-exit 0
-) || {
-    kill_all_proc "$metasrvdir"
-    echo "Failed to start meta server"
-    exit 1
-}
 
-if [ x"$csvalgrind" = x'yes' ]; then
-    cscmdline='valgrind -v --log-file=valgrind.log'
-else
-    cscmdline=''
-fi
+    if [ x"$csvalgrind" = x'yes' ]; then
+        cscmdline='valgrind -v --log-file=valgrind.log'
+    else
+        cscmdline=''
+    fi
 
-trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
+    trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
 
-i=$chunksrvport
-rack=1
-for n in $chunkrundirs; do
-    chunksrvdir="$n/test/chunk"
-    mkdir -p "$chunksrvdir"
-    kill_all_proc "$chunksrvdir"
-    rm -f "$chunksrvdir/`basename "$chunkbin"`"
-    cp "$chunkbin" "$chunksrvdir" || exit
-    e=`expr $i + $numchunksrv`
-    while [ $i -lt $e ]; do
-        dir="$chunksrvdir/$i"
-        mkdir -p "$dir" || exit
-        mkdir -p "$dir/kfschunk" || exit
-        mkdir -p "$dir/$prevlogsdir" || exit
-        rm -f "$dir"/core* 2>/dev/null
-        rm -f "$dir/$prevlogsdir"/* 2>/dev/null
-        mv    "$dir"/*.log* "$dir/$prevlogsdir"/ 2>/dev/null
-        cat > "$dir/$chunksrvprop" << EOF
+    i=$chunksrvport
+    rack=1
+    for n in $chunkrundirs; do
+        chunksrvdir="$n/test/chunk"
+        mkdir -p "$chunksrvdir"
+        kill_all_proc "$chunksrvdir"
+        rm -f "$chunksrvdir/`basename "$chunkbin"`"
+        cp "$chunkbin" "$chunksrvdir" || exit
+        e=`expr $i + $numchunksrv`
+        while [ $i -lt $e ]; do
+            dir="$chunksrvdir/$i"
+            mkdir -p "$dir" || exit
+            mkdir -p "$dir/kfschunk" || exit
+            mkdir -p "$dir/$prevlogsdir" || exit
+            rm -f "$dir"/core* 2>/dev/null
+            rm -f "$dir/$prevlogsdir"/* 2>/dev/null
+            mv    "$dir"/*.log* "$dir/$prevlogsdir"/ 2>/dev/null
+            cat > "$dir/$chunksrvprop" << EOF
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
 chunkServer.clientPort = $i
@@ -923,41 +925,40 @@ chunkServer.clientThreadCount = $chunkserverclithreads
 chunkServer.minChunkCountForHelloResume = 0
 chunkServer.helloResumeFailureTraceFileName = helloresumefail.log
 EOF
-
-        if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+            if [ `expr $i - $chunksrvport` -lt $chunkdirerrsim ]; then
+            cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.chunkDirsCheckIntervalSecs       = 15
 chunkServer.dirCheckFailureSimulatorInterval = 10
 EOF
-        fi
-        if [ x"$errsim" = x'yes' ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+            fi
+            if [ x"$errsim" = x'yes' ]; then
+            cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log,int=128,rsleep=30;
 EOF
-        elif [ x"$derrsim" = x'yes' ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+            elif [ x"$derrsim" = x'yes' ]; then
+            cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log+err,int=128;
 EOF
-        fi
+            fi
 
-        if [ x"$derrsim" = x'yes' ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+            if [ x"$derrsim" = x'yes' ]; then
+            cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.diskErrorSimulator.minPeriod = 3000
 chunkServer.diskErrorSimulator.maxPeriod = 4000
 chunkServer.diskErrorSimulator.minTimeMicroSec = 28000000
 chunkServer.diskErrorSimulator.maxTimeMicroSec = 50000000
 EOF
-        fi
-        if [ x"$auth" = x'yes' ]; then
-            "$mkcerts" "$certsdir" chunk$i || exit
-            cat >> "$dir/$chunksrvprop" << EOF
+            fi
+            if [ x"$auth" = x'yes' ]; then
+                "$mkcerts" "$certsdir" chunk$i || exit
+                cat >> "$dir/$chunksrvprop" << EOF
 chunkserver.meta.auth.X509.X509PemFile = $certsdir/chunk$i.crt
 chunkserver.meta.auth.X509.PKeyPemFile = $certsdir/chunk$i.key
 chunkserver.meta.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-        fi
-    if [ x"$s3test" = x'yes' ]; then
-        cat >> "$dir/$chunksrvprop" << EOF
+            fi
+        if [ x"$s3test" = x'yes' ]; then
+            cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.objectDir                               = s3://aws.
 chunkServer.diskQueue.aws.bucketName                = $QFS_S3_BUCKET_NAME
 chunkServer.diskQueue.aws.accessKeyId               = $QFS_S3_ACCESS_KEY_ID
@@ -979,20 +980,20 @@ chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
 chunkServer.objectDir                         = $objectstoredir
 EOF
-fi
-        (
-        trap '' EXIT
-        cd "$dir" || exit
-        echo "Starting chunk server $i"
-        trap '' HUP INT
-        eval $cscmdline \
-            ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
-        echo $! > "$chunksrvpid"
-        )
-        i=`expr $i + 1`
+    fi
+            (
+            trap '' EXIT
+            cd "$dir" || exit
+            echo "Starting chunk server $i"
+            trap '' HUP INT
+            eval $cscmdline \
+                ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
+            echo $! > "$chunksrvpid"
+            )
+            i=`expr $i + 1`
+        done
+        rack=`expr $rack + 1`
     done
-    rack=`expr $rack + 1`
-done
 
 fi
 # -test-only
