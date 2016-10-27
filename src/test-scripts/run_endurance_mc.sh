@@ -369,6 +369,7 @@ for n in "$chunkbin" "$metabin" "$fsckbin" "$adminbin"; do
 done
 
 mkdir -p "$clitestdir" || exit
+cp /dev/null "$clientprop" || exit
 if [ x"$auth" = x'yes' ]; then
     echo "Authentication on"
     "$mkcerts" "$certsdir" meta root "$clientuser" || exit
@@ -377,33 +378,18 @@ client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-else
-    if [ -f "$clientprop" ]; then
-        rm -f "$clientprop"
-    fi
-fi
-
-if [ x"$errsim" = x'yes' -a $vrcount -gt 2 ]; then
-cat >> "$clientprop" << EOF
-client.maxNumRetriesPerOp = 200
-EOF
-fi
-
-if [ -f "$clientprop" ]; then
     QFS_CLIENT_CONFIG="FILE:${clientprop}"
     export QFS_CLIENT_CONFIG
 fi
 
-if [ -f "$clientprop" ]; then
-    cp "$clientprop" "$clientproprs" || exit
-else
-    cp /dev/null "$clientproprs" || exit
-fi
-echo 'client.connectionPool=1' >> "$clientproprs" || exit
-
 if [ x"$errsim" = x'yes' ]; then
     cstimeout=20
     csretry=200 # make wait longer than chunk replication timeout / 5 sec
+    if [ $vrcount -gt 2 ]; then
+        cat >> "$clientprop" << EOF
+client.maxNumRetriesPerOp = 200
+EOF
+    fi
 else
     csretry=-1 # default
     if [ x"$derrsim" = x'yes' ]; then
@@ -412,6 +398,12 @@ else
         cstimeout=8
     fi
 fi
+
+cp "$clientprop" "$clientproprs" || exit
+cat >> "$clientproprs" << EOF
+client.connectionPool = 1
+EOF
+
 
 ulimit -c unlimited || exit
 if [ x"`ulimit -Hn`" = x'unlimited' ]; then
