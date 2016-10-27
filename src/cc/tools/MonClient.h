@@ -56,8 +56,11 @@ public:
         IOBuffer* inBufferPtr);
     bool IsAuthEnabled() const
         { return mAuthContext.IsEnabled(); }
+    kfsSeq_t GetNextIdempotentId()
+        { return mNextIdempotentId++; }
 private:
     ClientAuthContext mAuthContext;
+    kfsSeq_t          mNextIdempotentId;
 private:
     MonClient(
         const MonClient& inClient);

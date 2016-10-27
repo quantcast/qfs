@@ -251,7 +251,10 @@ Main(
         } else {
             MetaMonOp theOp(
                 theIt->second.second.first,
-                theIt->second.first
+                theIt->second.first,
+                0,
+                CMD_META_VR_RECONFIGURATION == theIt->second.second.first ?
+                    theClient.GetNextIdempotentId() : kfsSeq_t(-1)
             );
             if (! theReqProps.empty()) {
                 theOp.requestProps = theReqProps;

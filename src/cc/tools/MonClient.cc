@@ -103,7 +103,8 @@ MonClient::MonClient()
         InitialSeq()  // inInitialSeqNum,
       ), 
       KfsNetClient::OpOwner(),
-      mAuthContext()
+      mAuthContext(),
+      mNextIdempotentId(InitialSeq())
 {
     KfsNetClient::SetAuthContext(&mAuthContext);
 }

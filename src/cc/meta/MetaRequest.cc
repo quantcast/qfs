@@ -821,7 +821,7 @@ MetaIdempotentRequest::IsHandled()
             }
             return true;
         }
-        if (IsMetaLogWriteOrVrError(status)) {
+        if (! logseq.IsValid() || IsMetaLogWriteOrVrError(status)) {
             // Remove RPC from the tracker, as otherwise ACK reply will
             // fail in replay due to missing log record, but succeeds at
             // run time (now).
@@ -6604,12 +6604,15 @@ MetaVrReconfiguration::start()
     if (! HasMetaServerAdminAccess(*this)) {
         return false;
     }
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
+        return true;
+    }
     if (! GetLogWriter().GetMetaVrSM().HasValidNodeId()) {
         status    = -ENOENT;
         statusMsg = "no valid VR node id assigned by configuration";
         return false;
     }
-    StIdempotentRequestHandler handler(*this);
     return true;
 }
 
