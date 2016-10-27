@@ -999,7 +999,7 @@ private:
     {
         if (! mSendHelloFlag ||
                 0 <= mMetaVrHello.opSeqno ||
-                ! mBlocksQueue.empty() ||
+                // ! mBlocksQueue.empty() ||
                 mVrOpPtr ||
                 mAuthenticateOpPtr) {
             return;
