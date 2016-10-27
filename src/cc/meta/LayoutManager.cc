@@ -13035,7 +13035,9 @@ LayoutManager::WriteChunkServers(ostream& os) const
 void
 LayoutManager::StartServicing()
 {
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM(gNetDispatch.IsRunning() ?
+            MsgLogger::kLogLevelINFO :
+            MsgLogger::kLogLevelDEBUG) <<
         "start servicing, primary: " << mPrimaryFlag <<
     KFS_LOG_EOM;
     mNonStableChunks.Clear();
@@ -13064,7 +13066,9 @@ LayoutManager::StartServicing()
 void
 LayoutManager::StopServicing()
 {
-    KFS_LOG_STREAM_INFO <<
+    KFS_LOG_STREAM(gNetDispatch.IsRunning() ?
+            MsgLogger::kLogLevelINFO :
+            MsgLogger::kLogLevelDEBUG) <<
         "stop servicing, primary: " << mPrimaryFlag <<
     KFS_LOG_EOM;
     for (Servers::const_iterator it = mChunkServers.begin();

@@ -1162,7 +1162,11 @@ ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
         return;
     }
     if (mNetConnection) {
-        KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+        KFS_LOG_STREAM(mReplayFlag ?
+                MsgLogger::kLogLevelDEBUG :
+                (ignoreReplayFlag ?
+                    MsgLogger::kLogLevelINFO :
+                    MsgLogger::kLogLevelERROR)) << GetServerLocation() <<
             " / "             <<
                 (mNetConnection ? GetPeerName().c_str() : "not connected") <<
             " chunk server down"
