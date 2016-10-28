@@ -332,6 +332,13 @@ if [ x"$s3test" = x'yes' ]; then
     fi
 fi
 
+for n in "$chunkbin" "$metabin" "$fsckbin" "$adminbin"; do
+    if [ ! -x "$n" ]; then
+        echo "$n: does not exist or not executable"
+        exit 1
+    fi
+done
+
 tdir="`dirname "$testdirsprefix"`"
 if [ x"$tdir" = x'.' -a x"`basename "$testdirsprefix"`" = x'.' ]; then
     testdirsprefix="$testdirsprefix/data"
@@ -370,13 +377,6 @@ EOF
         exit 1
     fi
 fi
-
-for n in "$chunkbin" "$metabin" "$fsckbin" "$adminbin"; do
-    if [ ! -x "$n" ]; then
-        echo "$n: does not exist or not executable"
-        exit 1
-    fi
-done
 
 mkdir -p "$clitestdir" || exit
 cp /dev/null "$clientprop" || exit
@@ -673,7 +673,7 @@ EOF
 
         i=0
         vrdir='.'
-        bdir='.'
+        mbdir='.'
         while [ $i -lt $vrcount ]; do
             (
                 cd "$vrdir" || exit
@@ -681,7 +681,7 @@ EOF
                     pre_run_cleanup "$prevlogsdir" || exit
                 fi
                 rm -rf "$metasrvlog"
-                "$bdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
+                "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
                     > "${metasrvout}" 2>&1 &
                 mpid=$!
                 echo $mpid > "$metasrvpid"
@@ -689,7 +689,7 @@ EOF
             ) || exit
             i=`expr $i + 1`
             vrdir="vr$i"
-            bdir='..'
+            mbdir='..'
         done
         adminclientprop=qfsadmin.prp
         cat >> "$adminclientprop" << EOF
