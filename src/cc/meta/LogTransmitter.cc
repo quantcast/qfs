@@ -389,8 +389,11 @@ public:
     void QueueVrRequest(
         MetaVrRequest& inReq)
     {
-        if (! mPendingSend.IsEmpty() || mVrOpPtr ||
-                0 <= mMetaVrHello.opSeqno) {
+        if (! mVrOpPtr && ! mPendingSend.IsEmpty() &&
+                mConnectionPtr && ! mConnectionPtr->IsWriteReady()) {
+            ResetPending();
+        }
+        if (! mPendingSend.IsEmpty() || mVrOpPtr) {
             KFS_LOG_STREAM_DEBUG <<
                 mServer <<
                 " queue VR request:"
@@ -535,9 +538,8 @@ public:
                 CanBypassSend(inBlockEndSeq, inBlockSeqLen)) {
             return true;
         }
-        if (mImpl.GetMaxPending() < mPendingSend.BytesConsumable()) {
-            ExceededMaxPending();
-            return false;
+        if (mImpl.GetMaxPending() < inLen + mPendingSend.BytesConsumable()) {
+            ResetPending();
         }
         mPendingSend.Copy(&inBuffer, inLen);
         if (mConnectionPtr && ! mAuthenticateOpPtr) {
@@ -690,10 +692,10 @@ private:
         if (mVrOpPtr) {
             return false;
         }
-        const int thePos = mPendingSend.BytesConsumable();
+        int thePos = mPendingSend.BytesConsumable();
         if (mImpl.GetMaxPending() < thePos) {
-            ExceededMaxPending();
-            return false;
+            ResetPending();
+            thePos = 0;
         }
         if (mPendingSend.IsEmpty() || ! mConnectionPtr || mAuthenticateOpPtr) {
             WriteBlock(mPendingSend, inBlockEndSeq,
@@ -741,18 +743,20 @@ private:
         }
         return (!! mConnectionPtr);
     }
-    void Reset(
-        const char*         inErrMsgPtr,
-        MsgLogger::LogLevel inLogLevel = MsgLogger::kLogLevelERROR)
+    void ResetPending()
     {
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
+    }
+    void Reset(
+        const char*         inErrMsgPtr,
+        MsgLogger::LogLevel inLogLevel = MsgLogger::kLogLevelERROR)
+    {
+        ResetPending();
         mLastSentBlockEndSeq = mImpl.GetLastLogSeq();
         Error(inErrMsgPtr, inLogLevel);
     }
-    void ExceededMaxPending()
-        { Reset("exceeded max pending send"); }
     void CompactIfNeeded()
     {
         mCompactBlockCount++;
@@ -999,7 +1003,6 @@ private:
     {
         if (! mSendHelloFlag ||
                 0 <= mMetaVrHello.opSeqno ||
-                // ! mBlocksQueue.empty() ||
                 mVrOpPtr ||
                 mAuthenticateOpPtr) {
             return;
@@ -1016,10 +1019,16 @@ private:
         if ((mActiveFlag &&
                 mAckBlockSeq.IsValid() &&
                 mAckBlockSeq < mLastSentBlockEndSeq) ||
-                ! mBlocksQueue.empty() ||
                 mVrOpPtr ||
                 mAuthenticateOpPtr) {
             return false;
+        }
+        if (! mBlocksQueue.empty()) {
+            if (mHeartbeatSendTimeoutCount + 1 <
+                    Impl::kHeartbeatsPerTimeoutInterval) {
+                return false;
+            }
+            ResetPending();
         }
         if (! mLastSentBlockEndSeq.IsValid()) {
             mLastSentBlockEndSeq = mImpl.GetLastLogSeq();
