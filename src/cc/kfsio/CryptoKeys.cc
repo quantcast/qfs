@@ -151,13 +151,15 @@ public:
 
     Impl(
         NetManager& inNetManager,
-        QCMutex*    inMutexPtr)
+        QCMutex*    inMutexPtr,
+        KeyStore*   inKeyStorePtr)
         : ITimeout(),
           QCRunnable(),
           mNetManager(inNetManager),
           mMutexPtr(inMutexPtr ? inMutexPtr : new QCMutex()),
           mForkMutex(),
           mOwnsMutexFlag(! inMutexPtr),
+          mKeyStorePtr(inKeyStorePtr),
           mKeys(),
           mKeysExpirationQueue(),
           mCurrentKeyId(),
@@ -265,7 +267,7 @@ public:
             theParamName.Truncate(thePrefLen).Append(
             "keysFileName"), mFileName);
         int theStatus = 0;
-        if (! mRunFlag) {
+        if (! mRunFlag && ! mKeyStorePtr) {
             if (! mFileName.empty()) {
                 mFStream.close();
                 mFStream.clear();
@@ -483,6 +485,20 @@ public:
         const char* inDelimPtr,
         const char* inKeysDelimPtr) const
     {
+        if (mKeyStorePtr) {
+            for (KeysExpirationQueue::const_iterator theIt =
+                        mKeysExpirationQueue.begin();
+                    theIt != mKeysExpirationQueue.end();
+                    ++theIt) {
+                mKeyStorePtr->WriteKey(
+                    inStreamPtr,
+                    theIt->second->first,
+                    theIt->second->second,
+                    theIt->first
+                );
+            }
+            return 0;
+        }
         OutKeysTmp theKeys;
         int64_t    theFirstKeyTime;
         int        theKeysTimeInterval;
@@ -568,8 +584,44 @@ public:
         unlink(theTmpFileName.c_str());
         return (0 < theRet ? -theRet : (theRet == 0 ? -EFAULT : theRet));
     }
+    bool Add(
+        KeyId      inKeyId,
+        const Key& inKey,
+        time_t     inKeyTime)
+    {
+        if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
+            mPendingCurrentKeyFlag = false;
+            mWritingFlag           = false;
+        }
+        return PutKey(
+            mKeys,
+            mKeysExpirationQueue,
+            inKeyId,
+            inKeyTime,
+            inKey
+        );
+    }
+    bool Remove(
+        KeyId inKeyId)
+    {
+        if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
+            mPendingCurrentKeyFlag = false;
+            mWritingFlag           = false;
+            return true;
+        }
+        if (mKeysExpirationQueue.empty() ||
+                inKeyId != mKeysExpirationQueue.front().second->first) {
+            return false;
+        }
+        mKeys.erase(mKeysExpirationQueue.front().second);
+        mKeysExpirationQueue.pop_front();
+        return true;
+    }
     virtual void Timeout()
     {
+        if (mKeyStorePtr && ! mKeyStorePtr->IsActive()) {
+            return;
+        }
         const time_t theTimeNow = mNetManager.Now();
         if (theTimeNow < mNextTimerRunTime && ! mPendingCurrentKeyFlag) {
             return;
@@ -612,14 +664,21 @@ public:
             mPendingCurrentKeyId   = theKeyId;
             mPendingCurrentKey     = theKey;
             mPendingCurrentKeyFlag = true;
-            if (! mFileName.empty() && mRunFlag) {
+            if (mKeyStorePtr) {
+                mWriteFlag = false;
+                if ((mWritingFlag = mKeyStorePtr->NewKey(
+                        mPendingCurrentKeyId,
+                        mPendingCurrentKey,
+                        theTimeNow))) {
+                    return;
+                }
+            } else if (! mFileName.empty() && mRunFlag) {
                 mWriteFlag   = true;
                 mWritingFlag = true;
                 mCond.Notify();
                 return;
             }
-            mWritingFlag = false;
-            mWriteFlag   = false;
+            mWriteFlag = false;
         }
         if (mWritingFlag) {
             return; // Wait until the keys are updated / written.
@@ -698,11 +757,12 @@ private:
     QCMutex* const      mMutexPtr;
     QCMutex             mForkMutex;
     bool const          mOwnsMutexFlag;
+    KeyStore* const     mKeyStorePtr;
     Keys                mKeys;
     KeysExpirationQueue mKeysExpirationQueue;
-    kfsKeyId_t          mCurrentKeyId;
+    KeyId               mCurrentKeyId;
     Key                 mCurrentKey;
-    kfsKeyId_t          mPendingCurrentKeyId;
+    KeyId               mPendingCurrentKeyId;
     Key                 mPendingCurrentKey;
     time_t              mCurrentKeyTime;
     bool                mCurrentKeyValidFlag;
@@ -734,7 +794,7 @@ private:
         return theRet;
     }
     bool GenKeyId(
-        kfsKeyId_t& outKeyId)
+        KeyId& outKeyId)
     {
         const bool theRet = RAND_pseudo_bytes(
             reinterpret_cast<unsigned char*>(&outKeyId),
@@ -755,6 +815,9 @@ private:
             const KeysExpirationQueue::value_type& theCur =
                 mKeysExpirationQueue.front();
             if (inExpirationTime < theCur.first) {
+                break;
+            }
+            if (mKeyStorePtr && mKeyStorePtr->Expired(theCur.first)) {
                 break;
             }
             mKeys.erase(theCur.second);
@@ -797,9 +860,10 @@ private:
 };
 
 CryptoKeys::CryptoKeys(
-    NetManager& inNetManager,
-    QCMutex*    inMutexPtr)
-    : mImpl(*(new Impl(inNetManager, inMutexPtr)))
+    NetManager&           inNetManager,
+    QCMutex*              inMutexPtr,
+    CryptoKeys::KeyStore* inKeyStorePtr)
+    : mImpl(*(new Impl(inNetManager, inMutexPtr, inKeyStorePtr)))
 {}
 
 CryptoKeys::~CryptoKeys()
@@ -837,6 +901,22 @@ CryptoKeys::Write(
     const char* inDelimPtr) const
 {
     return mImpl.Write(&inStream, inDelimPtr, 0);
+}
+
+    bool
+CryptoKeys::Add(
+    CryptoKeys::KeyId      inKeyId,
+    const CryptoKeys::Key& inKey,
+    int64_t                inKeyTime)
+{
+    return mImpl.Add(inKeyId, inKey, inKeyTime);
+}
+
+    bool
+CryptoKeys::Remove(
+    CryptoKeys::KeyId inKeyId)
+{
+    return mImpl.Remove(inKeyId);
 }
 
     bool

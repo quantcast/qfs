@@ -96,9 +96,38 @@ public:
         friend class Impl;
     };
 
+    class KeyStore
+    {
+    public:
+        KeyStore()
+            : mActiveFlag(false)
+            {}
+        bool IsActive() const
+            { return mActiveFlag; }
+        virtual bool NewKey(
+            KeyId      inKeyId,
+            const Key& inKey,
+            int64_t    inKeyTime) = 0;
+        virtual bool Expired(
+            KeyId inKeyId) = 0;
+        virtual void WriteKey(
+            ostream*   inStreamPtr,
+            KeyId      inKeyId,
+            const Key& inKey,
+            int64_t    inKeyTime) = 0;
+    protected:
+        bool mActiveFlag;
+
+        virtual ~KeyStore();
+        KeyStore(
+            const KeyStore& inStore)
+            {}
+    };
+
     CryptoKeys(
         NetManager& inNetManager,
-        QCMutex*    inMutexPtr);
+        QCMutex*    inMutexPtr,
+        KeyStore*   inKeyStorePtr = 0);
     ~CryptoKeys();
     int SetParameters(
         const char*       inPrefixNamePtr,
@@ -114,6 +143,12 @@ public:
         const char* inDelimPtr = 0) const;
     bool GetCurrentKeyId(
         KeyId& outKeyId) const;
+    bool Add(
+        KeyId      inKeyId,
+        const Key& inKey,
+        int64_t    inKeyTime);
+    bool Remove(
+        KeyId inKeyId);
     bool GetCurrentKey(
         KeyId& outKeyId,
         Key&   outKey) const;
