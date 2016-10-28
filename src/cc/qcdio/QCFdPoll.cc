@@ -91,6 +91,7 @@ public:
     }
     ~Impl()
     {
+        Impl::Close();
     }
     int Close()
     {
@@ -911,9 +912,6 @@ QCFdPoll::QCFdPoll(
 QCFdPoll::~QCFdPoll()
 {
     Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
-    if (theWakerPtr && 0 <= theWakerPtr->GetFd()) {
-        Remove(theWakerPtr->GetFd());
-    }
     mImpl.~Impl();
     if (theWakerPtr) {
         theWakerPtr->~Waker();
@@ -988,6 +986,10 @@ QCFdPoll::Wakeup()
     int
 QCFdPoll::Close()
 {
+    // Do not remove waker's pipe fds from poll set.
+    // Close poll set first, then close pipe fds, in order to allow to close
+    // poll set from child process without affecting parent with linux epoll
+    // implementation.
     const int theRet = mImpl.Close();
     Impl::Waker* const theWakerPtr = mImpl.GetWakerPtr();
     if (theWakerPtr) {
