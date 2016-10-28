@@ -176,6 +176,16 @@ show_help()
  '
 }
 
+pre_run_cleanup()
+{
+    [ $# -ne 1 ] && return 1
+    mkdir -p "$1" || return 1
+    rm -f "$1"/* 2>/dev/null
+    mv *.log* "$1"/ 2>/dev/null
+    rm -f core* 2>/dev/null
+    return 0
+}
+
 update_parameters
 
 s3test='no'
@@ -563,10 +573,7 @@ metaServer.chunkServer.replicationTimeout    = 8
 EOF
     fi
 
-    mkdir -p "$prevlogsdir" || exit
-    rm -f "$prevlogsdir"/* 2>/dev/null
-    mv *.log* "$prevlogsdir"/ 2>/dev/null
-    rm -f core* 2>/dev/null
+    pre_run_cleanup "$prevlogsdir" || exit
 
     if [ -f "kfscp/latest" ]; then
         i=1
@@ -670,6 +677,9 @@ EOF
         while [ $i -lt $vrcount ]; do
             (
                 cd "$vrdir" || exit
+                if [ $i -gt 0 ]; then
+                    pre_run_cleanup "$prevlogsdir" || exit
+                fi
                 rm -rf "$metasrvlog"
                 "$bdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
                     > "${metasrvout}" 2>&1 &
@@ -902,11 +912,11 @@ EOF
         while [ $i -lt $e ]; do
             dir="$chunksrvdir/$i"
             mkdir -p "$dir" || exit
-            mkdir -p "$dir/kfschunk" || exit
-            mkdir -p "$dir/$prevlogsdir" || exit
-            rm -f "$dir"/core* 2>/dev/null
-            rm -f "$dir/$prevlogsdir"/* 2>/dev/null
-            mv    "$dir"/*.log* "$dir/$prevlogsdir"/ 2>/dev/null
+            (
+                cd "$dir" || exit
+                mkdir -p "kfschunk" || exit
+                pre_run_cleanup "$prevlogsdir" || exit
+            ) || exit
             cat > "$dir/$chunksrvprop" << EOF
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
@@ -989,7 +999,7 @@ EOF
             eval $cscmdline \
                 ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
             echo $! > "$chunksrvpid"
-            )
+            ) || exit
             i=`expr $i + 1`
         done
         rack=`expr $rack + 1`
