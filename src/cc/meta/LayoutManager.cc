@@ -3724,9 +3724,6 @@ LayoutManager::AddNewServer(MetaHello& req)
 {
     if (req.replayFlag) {
         Replay(req);
-        if (0 != req.status) {
-            return;
-        }
     }
     if (0 != req.status) {
         return;
@@ -13038,11 +13035,17 @@ LayoutManager::StartServicing()
     KFS_LOG_STREAM(gNetDispatch.IsRunning() ?
             MsgLogger::kLogLevelINFO :
             MsgLogger::kLogLevelDEBUG) <<
-        "start servicing, primary: " << mPrimaryFlag <<
+        "start servicing,"
+        " primary: " << mPrimaryFlag <<
+        " servers: " << mChunkServers.size() <<
+        " replay: "  << mReplayServerCount <<
     KFS_LOG_EOM;
     mNonStableChunks.Clear();
     if (! mPrimaryFlag) {
         mChunkLeases.ClearReadLeases();
+        return;
+    }
+    if (! gNetDispatch.IsRunning()) {
         return;
     }
     for (Servers::const_iterator it = mChunkServers.begin();
@@ -13069,14 +13072,19 @@ LayoutManager::StopServicing()
     KFS_LOG_STREAM(gNetDispatch.IsRunning() ?
             MsgLogger::kLogLevelINFO :
             MsgLogger::kLogLevelDEBUG) <<
-        "stop servicing, primary: " << mPrimaryFlag <<
+        "stop servicing,"
+        " primary: " << mPrimaryFlag <<
+        " servers: " << mChunkServers.size() <<
+        " replay: "  << mReplayServerCount <<
     KFS_LOG_EOM;
-    for (Servers::const_iterator it = mChunkServers.begin();
-            mChunkServers.end() != it;
-            ++it) {
-        const ChunkServerPtr& srv = *it;
-        if (! srv->IsReplay()) {
-            srv->ScheduleDown("stop servicing");
+    if (mReplayServerCount < mChunkServers.size()) {
+        for (Servers::const_iterator it = mChunkServers.begin();
+                mChunkServers.end() != it;
+                ++it) {
+            const ChunkServerPtr& srv = *it;
+            if (! srv->IsReplay()) {
+                srv->ScheduleDown("stop servicing");
+            }
         }
     }
 }
