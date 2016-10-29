@@ -1056,8 +1056,13 @@ ChunkLeases::StopServicing(
             WEntry& we = *const_cast<WEntry*>(wep);
             const WriteLease& wl = we;
             if (wl.allocInFlight) {
-                const_cast<MetaAllocate*>(
-                    wl.allocInFlight)->stoppedServicingFlag = true;
+                MetaAllocate& alloc =
+                    *const_cast<MetaAllocate*>(wl.allocInFlight);
+                alloc.stoppedServicingFlag = true;
+                if (0 == alloc.status) {
+                    alloc.status    = -EVRNOTPRIMARY;
+                    alloc.statusMsg = "no longer primary node";
+                }
             }
             const EntryKey      key = we.GetKey();
             CSMap::Entry* const ci  = key.IsChunkEntry() ?
