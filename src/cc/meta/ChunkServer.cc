@@ -610,6 +610,7 @@ ChunkServer::ChunkServer(
       mPendingOpsCount(0),
       mPendingHelloNotifyFlag(false),
       mPendingByeFlag(false),
+      mStoppedServicingFlag(false),
       mReplayFlag(replayFlag),
       mStorageTiersInfo(),
       mStorageTiersInfoDelta()
@@ -2666,8 +2667,8 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
                 return -EFAULT;
             }
         } else {
-            const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
-            if (! keys || ! keys->GetCurrentKey(
+            const CryptoKeys& keys = gNetDispatch.GetCryptoKeys();
+            if (! keys.GetCurrentKey(
                     req.keyId, req.key, req.validForTime)) {
                 req.status    = -EFAULT;
                 req.statusMsg = "has no current valid crypto key";

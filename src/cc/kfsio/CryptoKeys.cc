@@ -145,20 +145,35 @@ class CryptoKeys::Impl :
     public ITimeout,
     public QCRunnable
 {
+private:
+    class MutexLocker : public QCStMutexLocker
+    {
+    public:
+        MutexLocker(
+            const QCMutex& inMutex)
+            : QCStMutexLocker(const_cast<QCMutex&>(inMutex))
+            {}
+        MutexLocker(
+            QCMutex& inMutex)
+            : QCStMutexLocker(inMutex)
+            {}
+    private:
+        MutexLocker(
+            const MutexLocker& inLocker);
+        MutexLocker& operator=(
+            const MutexLocker& inLocker);
+    };
 public:
     typedef CryptoKeys::Key   Key;
     typedef CryptoKeys::KeyId KeyId;
 
     Impl(
         NetManager& inNetManager,
-        QCMutex*    inMutexPtr,
         KeyStore*   inKeyStorePtr)
         : ITimeout(),
           QCRunnable(),
           mNetManager(inNetManager),
-          mMutexPtr(inMutexPtr ? inMutexPtr : new QCMutex()),
-          mForkMutex(),
-          mOwnsMutexFlag(! inMutexPtr),
+          mMutex(),
           mKeyStorePtr(inKeyStorePtr),
           mKeys(),
           mKeysExpirationQueue(),
@@ -179,29 +194,56 @@ public:
           mRunFlag(false),
           mWriteFlag(false),
           mWritingFlag(false),
+          mStartedFlag(false),
           mFileName(),
           mFStream()
+        {}
+    int Start()
     {
+        MutexLocker theLocker(mMutex);
+        if (mStartedFlag) {
+            return -EINVAL;
+        }
+        int theStatus = 0;
+        if (! mRunFlag && ! mKeyStorePtr && ! mFileName.empty()) {
+            theStatus = Write(0, 0, "\n");
+            if (0 < theStatus) {
+                theStatus = 0;
+            } else if (theStatus < 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "failed to write keys " << mFileName <<
+                     ": "                   << QCUtils::SysError(-theStatus) <<
+                KFS_LOG_EOM;
+            }
+            // Start thread unconditionally, to handle the case when the
+            // caller chooses to ignore the initial parameter load error.
+            mRunFlag = true;
+            const int kStackSize = 64 << 10;
+            mThread.Start(this, kStackSize, "KeysWriteThread");
+        }
+        mStartedFlag = true;
         mNetManager.RegisterTimeoutHandler(this);
         mCurrentKeyValidFlag = GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId);
         if (! mCurrentKeyValidFlag) {
             mCurrentKeyTime -=  2 * mKeyChangePeriod;
         }
+        return theStatus;
     }
     virtual ~Impl()
+        { Impl::Stop(); }
+    void Stop()
     {
-        {
-            QCStMutexLocker theLocker(mMutexPtr);
-            if (mRunFlag) {
-                mRunFlag = false;
-                mCond.Notify();
-                theLocker.Unlock();
-                mThread.Join();
-            }
+        MutexLocker theLocker(mMutex);
+        if (mRunFlag) {
+            mRunFlag = false;
+            mCond.Notify();
+            theLocker.Unlock();
+            mThread.Join();
+        } else {
+            theLocker.Unlock();
         }
-        mNetManager.UnRegisterTimeoutHandler(this);
-        if (mOwnsMutexFlag) {
-            delete mMutexPtr;
+        if (mStartedFlag) {
+            mNetManager.UnRegisterTimeoutHandler(this);
         }
     }
     int SetParameters(
@@ -209,7 +251,7 @@ public:
         const Properties& inParameters,
         string&           outErrMsg)
     {
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         if (mError) {
             mError = 0;
             if (GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId)) {
@@ -315,30 +357,13 @@ public:
                         QCUtils::SysError(-theStatus);
                 }
             }
-            if (! mFileName.empty()) {
-                if (theStatus == 0) {
-                    theStatus = Write(0, 0, "\n");
-                    if (0 < theStatus) {
-                        theStatus = 0;
-                    } else {
-                        outErrMsg = "failed to write keys " +
-                            mFileName + ": " +
-                            QCUtils::SysError(-theStatus);
-                    }
-                }
-                // Start thread unconditionally, to handle the case when the
-                // caller chooses to ignore the initial parameter load error.
-                mRunFlag = true;
-                const int kStackSize = 64 << 10;
-                mThread.Start(this, kStackSize, "KeysWriteThread");
-            }
         }
         return theStatus;
     }
     bool GetCurrentKeyId(
         KeyId& outKeyId) const
     {
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         if (mCurrentKeyValidFlag) {
             outKeyId = mCurrentKeyId;
         }
@@ -348,7 +373,7 @@ public:
          KeyId& outKeyId,
          Key&   outKey) const
     {
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         if (mCurrentKeyValidFlag) {
             outKeyId = mCurrentKeyId;
             outKey   = mCurrentKey;
@@ -360,7 +385,7 @@ public:
          Key&      outKey,
          uint32_t& outKevValidForSec) const
     {
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         if (mCurrentKeyValidFlag) {
             outKeyId          = mCurrentKeyId;
             outKey            = mCurrentKey;
@@ -372,7 +397,7 @@ public:
         KeyId inKeyId,
         Key&  outKey) const
     {
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         if (mCurrentKeyValidFlag && inKeyId == mCurrentKeyId) {
             outKey = mCurrentKey;
             return true;
@@ -451,7 +476,7 @@ public:
                 return -EINVAL;
             }
         }
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         mKeys.swap(theKeys);
         mKeysExpirationQueue.swap(theExpQueue);
         ExpireKeys(theExpirationTime);
@@ -486,6 +511,7 @@ public:
         const char* inKeysDelimPtr) const
     {
         if (mKeyStorePtr) {
+            MutexLocker theLocker(mMutex);
             for (KeysExpirationQueue::const_iterator theIt =
                         mKeysExpirationQueue.begin();
                     theIt != mKeysExpirationQueue.end();
@@ -504,7 +530,7 @@ public:
         int        theKeysTimeInterval;
         string     theFileName;
         {
-            QCStMutexLocker theLocker(inStreamPtr ? mMutexPtr : 0);
+            MutexLocker theLocker(mMutex);
             theKeysTimeInterval = mKeyChangePeriod;
             theKeys.reserve(mKeysExpirationQueue.size() + 1);
             KeysExpirationQueue::const_iterator theIt =
@@ -530,9 +556,8 @@ public:
                 theFileName = mFileName;
             }
         }
-        QCStMutexUnlocker theUnlocker(inStreamPtr ? 0 : mMutexPtr);
-        string            theTmpFileName;
-        fstream&          theFStream(const_cast<fstream&>(mFStream)); //mutable.
+        string   theTmpFileName;
+        fstream& theFStream(const_cast<fstream&>(mFStream)); //mutable.
         if (! inStreamPtr) {
             if (theFileName.empty()) {
                 return -EINVAL;
@@ -589,6 +614,7 @@ public:
         const Key& inKey,
         time_t     inKeyTime)
     {
+        MutexLocker theLocker(mMutex);
         if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
             mPendingCurrentKeyFlag = false;
             mWritingFlag           = false;
@@ -604,6 +630,7 @@ public:
     bool Remove(
         KeyId inKeyId)
     {
+        MutexLocker theLocker(mMutex);
         if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
             mPendingCurrentKeyFlag = false;
             mWritingFlag           = false;
@@ -617,6 +644,13 @@ public:
         mKeysExpirationQueue.pop_front();
         return true;
     }
+    void Clear()
+    {
+        MutexLocker theLocker(mMutex);
+        mKeys.clear();
+        mKeysExpirationQueue.clear();
+        mCurrentKeyValidFlag = false;
+    }
     virtual void Timeout()
     {
         if (mKeyStorePtr && ! mKeyStorePtr->IsActive()) {
@@ -626,7 +660,7 @@ public:
         if (theTimeNow < mNextTimerRunTime && ! mPendingCurrentKeyFlag) {
             return;
         }
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         if (! mPendingCurrentKeyFlag) {
             if (theTimeNow < mNextKeyGenTime) {
                 ExpireKeys(theTimeNow - mKeyValidTime);
@@ -706,15 +740,14 @@ public:
     }
     virtual void Run()
     {
-        QCStMutexLocker theLocker(mMutexPtr);
+        MutexLocker theLocker(mMutex);
         for (; ;) {
             while (mRunFlag && ! mWriteFlag) {
-                mCond.Wait(*mMutexPtr);
+                mCond.Wait(mMutex);
             }
             if (! mRunFlag) {
                 break;
             }
-            QCStMutexLocker theForkLock(mForkMutex);
             mWritingFlag = true;
             mWriteFlag   = false;
             if (! mFileName.empty()) {
@@ -733,14 +766,6 @@ public:
             }
         }
     }
-    void PrepareToFork()
-    {
-        mForkMutex.Lock();
-    }
-    void ForkDone()
-    {
-        mForkMutex.Unlock();
-    }
 private:
     typedef map<
         KeyId,
@@ -754,9 +779,7 @@ private:
         pair<time_t, Keys::iterator>
     > KeysExpirationQueue;
     NetManager&         mNetManager;
-    QCMutex* const      mMutexPtr;
-    QCMutex             mForkMutex;
-    bool const          mOwnsMutexFlag;
+    QCMutex             mMutex;
     KeyStore* const     mKeyStorePtr;
     Keys                mKeys;
     KeysExpirationQueue mKeysExpirationQueue;
@@ -777,6 +800,7 @@ private:
     bool                mRunFlag;
     bool                mWriteFlag;
     bool                mWritingFlag;
+    bool                mStartedFlag;
     string              mFileName;
     fstream             mFStream;
 
@@ -810,7 +834,7 @@ private:
     void ExpireKeys(
         time_t inExpirationTime)
     {
-        QCASSERT(! mMutexPtr || mMutexPtr->IsOwned());
+        QCASSERT(mMutex.IsOwned());
         while (! mKeysExpirationQueue.empty()) {
             const KeysExpirationQueue::value_type& theCur =
                 mKeysExpirationQueue.front();
@@ -861,14 +885,25 @@ private:
 
 CryptoKeys::CryptoKeys(
     NetManager&           inNetManager,
-    QCMutex*              inMutexPtr,
     CryptoKeys::KeyStore* inKeyStorePtr)
-    : mImpl(*(new Impl(inNetManager, inMutexPtr, inKeyStorePtr)))
+    : mImpl(*(new Impl(inNetManager, inKeyStorePtr)))
 {}
 
 CryptoKeys::~CryptoKeys()
 {
     delete &mImpl;
+}
+
+    int
+CryptoKeys::Start()
+{
+    return mImpl.Start();
+}
+
+    void
+CryptoKeys::Stop()
+{
+    mImpl.Stop();
 }
 
     int
@@ -912,6 +947,12 @@ CryptoKeys::Add(
     return mImpl.Add(inKeyId, inKey, inKeyTime);
 }
 
+    void
+CryptoKeys::Clear()
+{
+    mImpl.Clear();
+}
+
     bool
 CryptoKeys::Remove(
     CryptoKeys::KeyId inKeyId)
@@ -941,18 +982,6 @@ CryptoKeys::GetCurrentKey(
     uint32_t&          outKeyValidForSec) const
 {
     return mImpl.GetCurrentKey(outKeyId, outKey, outKeyValidForSec);
-}
-
-    void
-CryptoKeys::PrepareToFork()
-{
-    mImpl.PrepareToFork();
-}
-
-    void
-CryptoKeys::ForkDone()
-{
-    mImpl.ForkDone();
 }
 
     /* static */ bool

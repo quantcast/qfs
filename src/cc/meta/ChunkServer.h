@@ -906,6 +906,13 @@ public:
         const bool kIgnoreReplayFlag = true;
         Error(message, kIgnoreReplayFlag);
     }
+    void StopServicing()
+    {
+        mStoppedServicingFlag = ! mReplayFlag;
+        ScheduleDown("stop servicing");
+    }
+    bool IsStoppedServicing() const
+        { return mStoppedServicingFlag; }
     void Handle(MetaChunkLogCompletion& req);
     void Replay(MetaChunkLogInFlight& req);
     void Enqueue(MetaChunkLogInFlight& req);
@@ -1254,6 +1261,7 @@ protected:
     int                mPendingOpsCount;
     bool               mPendingHelloNotifyFlag;
     bool               mPendingByeFlag;
+    bool               mStoppedServicingFlag;
     bool const         mReplayFlag;
     bool               mCanBeCandidateServerFlags[kKfsSTierCount];
     StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];

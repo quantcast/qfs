@@ -790,13 +790,8 @@ ClientSM::HandleDelegation(MetaDelegate& op)
         return;
     }
     if (renewReqFlag) {
-        const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
-        if (! keys) {
-            op.status    = -EINVAL;
-            op.statusMsg = "no crypto keys";
-            return;
-        }
-        CryptoKeys::Key key;
+        const CryptoKeys& keys = gNetDispatch.GetCryptoKeys();
+        CryptoKeys::Key   key;
         if (! key.Parse(op.renewKeyStr.GetPtr(), op.renewKeyStr.GetSize())) {
             op.status    = -EINVAL;
             op.statusMsg = "invalid renew key format";
@@ -807,7 +802,7 @@ ClientSM::HandleDelegation(MetaDelegate& op)
             op.renewTokenStr.GetPtr(),
             op.renewTokenStr.GetSize(),
             now,
-            *keys,
+            keys,
             keyBuf,
             CryptoKeys::Key::kLength,
             &op.statusMsg
@@ -959,22 +954,19 @@ ClientSM::GetPsk(
     outAuthName.clear();
     string theErrMsg;
     DelegationToken theDelegationToken;
-    const CryptoKeys* const theKeysPtr = gNetDispatch.GetCryptoKeys();
-    if (! theKeysPtr) {
-        theErrMsg = "no crypto keys";
-    }
-    const time_t now      =
+    const CryptoKeys& theKeys   = gNetDispatch.GetCryptoKeys();
+    const time_t      now       =
         mNetConnection ? mNetConnection->TimeNow() : time(0);
-    const int   theIdLen  = (int)strlen(inIdentityPtr);
-    const int   theKeyLen = theKeysPtr ? theDelegationToken.Process(
+    const int         theIdLen  = (int)strlen(inIdentityPtr);
+    const int         theKeyLen = theDelegationToken.Process(
         inIdentityPtr,
         theIdLen,
         (int64_t)now,
-        *theKeysPtr,
+        theKeys,
         reinterpret_cast<char*>(inPskBufferPtr),
         (int)min(inPskBufferLen, 0x7FFFFu),
         &theErrMsg
-    ) : 0;
+    );
     const char* theNamePtr = "";
     if (0 < theKeyLen) {
         mAuthUid = theDelegationToken.GetUid();

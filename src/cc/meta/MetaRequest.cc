@@ -5348,16 +5348,11 @@ MetaDelegate::response(ReqOstream& os)
         status    = -EPERM;
         statusMsg = "not authenticated";
     }
-    const CryptoKeys* const keys =
-        status == 0 ? gNetDispatch.GetCryptoKeys() : 0;
-    if (status == 0 && ! keys) {
-        status    = -EFAULT;
-        statusMsg = "no crypto keys";
-    }
+    const CryptoKeys& keys  = gNetDispatch.GetCryptoKeys();
     CryptoKeys::KeyId keyId = 0;
     CryptoKeys::Key   key;
     uint32_t          keyValidForSec = 0;
-    if (status == 0 && ! keys->GetCurrentKey(keyId, key, keyValidForSec)) {
+    if (status == 0 && ! keys.GetCurrentKey(keyId, key, keyValidForSec)) {
         status    = -EAGAIN;
         statusMsg = "no valid key exists";
     }
@@ -6000,13 +5995,8 @@ MetaDelegateCancel::handle()
 bool
 MetaDelegateCancel::Validate()
 {
-    const CryptoKeys* const keys = gNetDispatch.GetCryptoKeys();
-    if (! keys) {
-        status    = -EINVAL;
-        statusMsg = "no crypto keys";
-        return true;
-    }
-    CryptoKeys::Key key;
+    const CryptoKeys& keys = gNetDispatch.GetCryptoKeys();
+    CryptoKeys::Key   key;
     if (! key.Parse(tokenKeyStr.GetPtr(), tokenKeyStr.GetSize())) {
         status    = -EINVAL;
         statusMsg = "invalid key format";
@@ -6017,7 +6007,7 @@ MetaDelegateCancel::Validate()
         tokenStr.GetPtr(),
         (int)tokenStr.GetSize(),
         time(0),
-        *keys,
+        keys,
         keyBuf,
         CryptoKeys::Key::kLength,
         &statusMsg

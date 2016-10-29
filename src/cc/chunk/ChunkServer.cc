@@ -143,11 +143,10 @@ ChunkServer::MainLoop(
         gClientManager.Shutdown();
         return false;
     }
-    if (gChunkManager.Restart() != 0) {
+    if (gChunkManager.Restart() != 0 || ! gChunkManager.Start()) {
         gClientManager.Shutdown();
         return false;
     }
-    gChunkManager.Start();
     if (! gClientManager.StartListening()) {
         KFS_LOG_STREAM_FATAL <<
             "failed to start acceptor on port: " << gClientManager.GetPort() <<

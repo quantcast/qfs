@@ -332,10 +332,9 @@ public:
         { return mDumpsterCleanupDelaySec; }
     bool IsEmpty() const
         { return (mReadLeases.IsEmpty() && mWriteLeases.IsEmpty()); }
-    void ClearReadLeases()
-        { mReadLeases.Clear(); }
-    void ClearWriteLeases()
-        { mWriteLeases.Clear(); }
+    inline void StopServicing(
+        ARAChunkCache& arac,
+        CSMap&         csmap);
 private:
     class EntryKeyHash
     {

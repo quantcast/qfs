@@ -258,7 +258,7 @@ public:
 
     /// Register a timeout handler with the net manager for taking
     /// checkpoints.  Also, get the logger going
-    void Start();
+    bool Start();
 
     /// Read the chunk table from disk following a restart.  See
     /// comments in the method for issues relating to validation (such

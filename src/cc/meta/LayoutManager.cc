@@ -675,6 +675,9 @@ ChunkLeases::ServerDown(
     ARAChunkCache&        arac,
     CSMap&                csmap)
 {
+    if (chunkServer->IsStoppedServicing() || chunkServer->IsReplay()) {
+        return;
+    }
     mWriteLeases.First();
     const WEntry* entry;
     while ((entry = mWriteLeases.Next())) {
@@ -1029,6 +1032,48 @@ ChunkLeases::Timer(
     mWriteLeaseTimer.Run(now, cleanup);
     mDumpsterCleanupTimer.Run(now, cleanup);
     mTimerRunningFlag = false;
+}
+
+inline void
+ChunkLeases::StopServicing(
+    ARAChunkCache& arac,
+    CSMap&         csmap)
+{
+    if (mTimerRunningFlag) {
+        panic("invalid lease stop servicing invocation");
+    }
+    while (! mReadLeases.IsEmpty()) {
+        mReadLeases.First();
+        const REntry* re;
+        while ((re = mReadLeases.Next())) {
+            Erase(*const_cast<REntry*>(re), csmap);
+        }
+    }
+    while (! mWriteLeases.IsEmpty()) {
+        mWriteLeases.First();
+        const WEntry* wep;
+        while ((wep = mWriteLeases.Next())) {
+            WEntry& we = *const_cast<WEntry*>(wep);
+            const WriteLease& wl = we;
+            if (wl.allocInFlight) {
+                const_cast<MetaAllocate*>(
+                    wl.allocInFlight)->stoppedServicingFlag = true;
+            }
+            const EntryKey      key = we.GetKey();
+            CSMap::Entry* const ci  = key.IsChunkEntry() ?
+                csmap.Find(key.first) : 0;
+            if (! ci && key.IsChunkEntry()) {
+                panic("invalid stale write lease");
+                Erase(we, -1);
+                continue;
+            }
+            const fid_t fid = ci ? ci->GetFileId() : key.first;
+            if (wl.appendFlag) {
+                arac.Invalidate(fid, key.first);
+            }
+            Erase(we, fid);
+        }
+    }
 }
 
 inline bool
@@ -5413,10 +5458,8 @@ LayoutManager::Handle(MetaBye& req)
         KFS_LOG_EOM;
         mRacks.erase(rackIter);
     }
-    if (! server->IsReplay()) {
-        // Schedule to expire write leases, and invalidate record append cache.
-        mChunkLeases.ServerDown(server, mARAChunkCache, mChunkToServerMap);
-    }
+    // Schedule to expire write leases, and invalidate record append cache.
+    mChunkLeases.ServerDown(server, mARAChunkCache, mChunkToServerMap);
     const bool           canBeMaster = server->CanBeChunkMaster();
     const ServerLocation loc         = server->GetServerLocation();
     const size_t         blockCount  = server->GetChunkCount();
@@ -8735,6 +8778,9 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate& req)
             mChunkVersionRollBack.Erase(req.chunkId);
             for_each(req.servers.begin(), req.servers.end(),
                 bind(&ChunkServer::DeleteChunk, _1, req.chunkId));
+            return;
+        }
+        if (req.stoppedServicingFlag) {
             return;
         }
         panic("chunk version roll back failed to delete write lease");
@@ -13040,9 +13086,7 @@ LayoutManager::StartServicing()
         " servers: " << mChunkServers.size() <<
         " replay: "  << mReplayServerCount <<
     KFS_LOG_EOM;
-    mNonStableChunks.Clear();
     if (! mPrimaryFlag) {
-        mChunkLeases.ClearReadLeases();
         return;
     }
     if (! gNetDispatch.IsRunning()) {
@@ -13083,10 +13127,12 @@ LayoutManager::StopServicing()
                 ++it) {
             const ChunkServerPtr& srv = *it;
             if (! srv->IsReplay()) {
-                srv->ScheduleDown("stop servicing");
+                srv->StopServicing();
             }
         }
     }
+    mChunkLeases.StopServicing(mARAChunkCache, mChunkToServerMap);
+    mNonStableChunks.Clear();
 }
 
 ostream&

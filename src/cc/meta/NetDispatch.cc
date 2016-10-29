@@ -44,7 +44,6 @@
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
-#include "kfsio/CryptoKeys.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -327,7 +326,7 @@ NetDispatch::NetDispatch()
       mChunkServerFactory(),
       mMutex(0),
       mClientManagerMutex(0),
-      mCryptoKeys(0),
+      mCryptoKeys(globalNetManager(), 0),
       mCanceledTokens(*(new CanceledTokens())),
       mRunningFlag(false),
       mClientThreadCount(0),
@@ -389,21 +388,19 @@ private:
 bool
 NetDispatch::Start(MetaDataSync& metaDataSync)
 {
-    assert(! mMutex && ! mCryptoKeys);
+    assert(! mMutex);
     QCMutex dispatchMutex;
     mMutex = 0 < mClientThreadCount ? &dispatchMutex : 0;
-    CryptoKeys cryptoKeys(globalNetManager(), GetMutex());
-    mCryptoKeys = &cryptoKeys;
+    mCryptoKeys.Start();
     string errMsg;
     int    err;
-    if ((err = mCryptoKeys->SetParameters(kCryptoKeysParamsPrefix,
+    if ((err = mCryptoKeys.SetParameters(kCryptoKeysParamsPrefix,
             gLayoutManager.GetConfigParameters(), errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to set main crypto keys parameters: " <<
                 " status: " << err << " " << errMsg <<
         KFS_LOG_EOM;
-        mCryptoKeys = 0;
-        mMutex      = 0;
+        mMutex = 0;
         return false;
     }
     mClientManagerMutex = GetMutex() ? &mClientManager.GetMutex() : 0;
@@ -456,8 +453,8 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
     mClientManager.Shutdown();
     metaDataSync.Shutdown();
     mCanceledTokens.Set(0, 0);
+    mCryptoKeys.Stop();
     mRunningFlag = false;
-    mCryptoKeys = 0;
     mClientManagerMutex = 0;
     mMutex = 0;
     return (err == 0);
@@ -475,17 +472,11 @@ NetDispatch::PrepareCurrentThreadToFork()
 {
     mClientManager.PrepareCurrentThreadToFork();
     mMetaDataStore.PrepareToFork();
-    if (mCryptoKeys) {
-        mCryptoKeys->PrepareToFork();
-    }
 }
 
 void
 NetDispatch::CurrentThreadForkDone()
 {
-    if (mCryptoKeys) {
-        mCryptoKeys->ForkDone();
-    }
     mMetaDataStore.ForkDone();
 }
 
@@ -877,7 +868,7 @@ void NetDispatch::SetParameters(const Properties& props)
 
     string errMsg;
     int    err;
-    if (mCryptoKeys && (err = mCryptoKeys->SetParameters(
+    if ((err = mCryptoKeys.SetParameters(
             kCryptoKeysParamsPrefix, props, errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "crypto keys set parameters failure: "

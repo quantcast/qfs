@@ -126,13 +126,14 @@ public:
 
     CryptoKeys(
         NetManager& inNetManager,
-        QCMutex*    inMutexPtr,
         KeyStore*   inKeyStorePtr = 0);
     ~CryptoKeys();
     int SetParameters(
         const char*       inPrefixNamePtr,
         const Properties& inParameters,
         string&           outErrMsg);
+    int Start();
+    void Stop();
     bool Find(
         KeyId inKeyId,
         Key&  outKey) const;
@@ -149,6 +150,7 @@ public:
         int64_t    inKeyTime);
     bool Remove(
         KeyId inKeyId);
+    void Clear();
     bool GetCurrentKey(
         KeyId& outKeyId,
         Key&   outKey) const;
@@ -161,8 +163,6 @@ public:
         KeyId theId;
         return GetCurrentKeyId(theId);
     }
-    void PrepareToFork();
-    void ForkDone();
     static bool PseudoRand(
         void*  inPtr,
         size_t inLen);

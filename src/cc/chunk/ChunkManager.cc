@@ -2245,7 +2245,7 @@ ChunkManager::ChunkManager()
       mDiskBufferManagerEnabledFlag(true),
       mForceVerifyDiskReadChecksumFlag(false),
       mWritePrepareReplyFlag(true),
-      mCryptoKeys(globalNetManager(), 0 /* inMutexPtr */),
+      mCryptoKeys(globalNetManager(), 0),
       mFileSystemId(-1),
       mFileSystemIdSuffix(),
       mFsIdFileNamePrefix("0-fsid-"),
@@ -2403,6 +2403,7 @@ ChunkManager::Shutdown()
         }
     }
     globalNetManager().UnRegisterTimeoutHandler(this);
+    mCryptoKeys.Stop();
     string errMsg;
     if (! DiskIo::Shutdown(&errMsg)) {
         KFS_LOG_STREAM_INFO <<
@@ -2698,14 +2699,7 @@ ChunkManager::SetParameters(const Properties& prop)
             " " << errMsg <<
         KFS_LOG_EOM;
     }
-    if (! mCryptoKeys.IsCurrentKeyValid()) {
-        KFS_LOG_STREAM_ERROR <<
-            "no valid current crypto key" <<
-        KFS_LOG_EOM;
-        ret = false;
-    } else {
-        ret = ret && err == 0;
-    }
+    ret = ret && err == 0;
     mResumeHelloMaxPendingStaleCount = prop.getValue(
         "chunkServer.resumeHelloMaxPendingStaleCount",
         mResumeHelloMaxPendingStaleCount);
@@ -4040,10 +4034,22 @@ ChunkManager::ReplicationDone(kfsChunkId_t chunkId, int status,
     }
 }
 
-void
+bool
 ChunkManager::Start()
 {
     globalNetManager().RegisterTimeoutHandler(this);
+    if (0 != mCryptoKeys.Start()) {
+        gChunkManager.Shutdown();
+        return false;
+    }
+    if (! mCryptoKeys.IsCurrentKeyValid()) {
+        KFS_LOG_STREAM_ERROR <<
+            "no valid current crypto key" <<
+        KFS_LOG_EOM;
+        gChunkManager.Shutdown();
+        return false;
+    }
+    return true;
 }
 
 void
