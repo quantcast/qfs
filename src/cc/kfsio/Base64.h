@@ -44,11 +44,13 @@ public:
     static int Encode(
         const char* inBufPtr,
         int         inBufLength,
-        char*       inEncodedBufPtr);
+        char*       inEncodedBufPtr,
+        bool        inUrlSafeFmtFlag = false);
     static int Decode(
         const char* inBufPtr,
         int         inBufLength,
-        char*       inDecodedBufPtr);
+        char*       inDecodedBufPtr,
+        bool        inUrlSafeFmtFlag = false);
 };
 
 } // namespace KFS

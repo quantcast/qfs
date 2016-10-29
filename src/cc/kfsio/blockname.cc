@@ -61,17 +61,12 @@ UrlSafeBase64Encode(
     size_t      inSize,
     char*       inBufPtr)
 {
-    int theLen = Base64::Encode(inDataPtr, (int)inSize, inBufPtr);
-    // Convert to url safe encoding with no padding.
+    const bool kUrlSafeFmtFlag = true;
+    int theLen = Base64::Encode(
+        inDataPtr, (int)inSize, inBufPtr, kUrlSafeFmtFlag);
+    // Remove padding.
     while (0 < theLen && (inBufPtr[theLen - 1] & 0xFF) == '=') {
         theLen--;
-    }
-    for (int i = 0; i < theLen; i++) {
-        switch (inBufPtr[i] & 0xFF) {
-            case '/': inBufPtr[i] = '_'; break;
-            case '+': inBufPtr[i] = '-'; break;
-            default:                break;
-        }
     }
     return (theLen < 0 ? 0 : theLen);
 }

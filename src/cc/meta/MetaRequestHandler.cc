@@ -469,6 +469,17 @@ public:
         }
     }
     static void SetValue(
+        const char*            inPtr,
+        size_t                 inLen,
+        const CryptoKeys::Key& inDefaultValue,
+        CryptoKeys::Key&       outValue)
+    {
+        const bool kUrlSafeFmtFlag = true;
+        if (! outValue.Parse(inPtr, inLen, kUrlSafeFmtFlag)) {
+            outValue = inDefaultValue;
+        }
+    }
+    static void SetValue(
         const char*   inPtr,
         size_t        inLen,
         const string& inDefaultValue,
@@ -629,7 +640,7 @@ public:
         char        inDelimiter)
     {
         if (mPrefixPtr) {
-            // Write transaction log prefix.
+            // Write [transaction log] prefix.
             mOStream.write(mPrefixPtr, mPrefixLen);
             mPrefixPtr = 0;
         }
@@ -640,6 +651,11 @@ public:
     ReqOstream& GetOStream()
         { return mOStream; }
 private:
+    ReqOstream              mOStream;
+    const char*             mPrefixPtr;
+    size_t                  mPrefixLen;
+    ostream::fmtflags const mFlags;
+
     template<typename T>
     void WriteVal(
         const T& inVal)
@@ -696,11 +712,9 @@ private:
         mOStream.write("p", 1);
         WriteVal(inVal.port);
     }
-    ReqOstream              mOStream;
-    const char*             mPrefixPtr;
-    size_t                  mPrefixLen;
-    ostream::fmtflags const mFlags;
-
+    void WriteVal(
+        const CryptoKeys::Key& inKey)
+        { mOStream << CryptoKeys::Key::UrlSafeFmt(inKey); }
     void Escape(int inSym)
     {
         const char* const kHexChars = "0123456789ABCDEF";
@@ -882,6 +896,12 @@ MakeLogMetaRequestHandler(
     .MakeParser("NOP",
         META_NOOP,
         static_cast<const MetaNoop*>(0))
+    .MakeParser("CKN",
+        META_CRYPTO_KEY_NEW,
+        static_cast<const MetaCryptoKeyNew*>(0))
+    .MakeParser("CKE",
+        META_CRYPTO_KEY_EXPIRED,
+        static_cast<const MetaCryptoKeyExpired*>(0))
     ;
 }
 

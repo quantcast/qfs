@@ -165,6 +165,9 @@ Checkpoint::write(
         if (status == 0 && os) {
             status = MetaRequest::GetLogWriter().GetMetaVrSM().Checkpoint(os);
         }
+        if (status == 0 && os) {
+            status = gNetDispatch.CheckpointCryptoKeys(os);
+        }
         if (status == 0) {
             os << "worm/" << (getWORMMode() ? 1 : 0) << '\n';
             os << "time/" << DisplayIsoDateTime() << '\n';

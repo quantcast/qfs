@@ -109,34 +109,37 @@ static string GetErrorMsg(
     bool
 CryptoKeys::Key::Parse(
     const char* inStrPtr,
-    int         inStrLen)
+    int         inStrLen,
+    bool        inUrlSafeFmtFlag)
 {
     if (! inStrPtr || inStrLen <= 0) {
         return false;
     }
     const int theLen = Base64::GetMaxDecodedLength(inStrLen);
     return (0 < theLen && theLen <= kLength &&
-        Base64::Decode(inStrPtr, inStrLen, mKey) == kLength);
+        Base64::Decode(inStrPtr, inStrLen, mKey, inUrlSafeFmtFlag) == kLength);
 }
 
     int
 CryptoKeys::Key::ToString(
     char* inStrPtr,
-    int   inMaxStrLen) const
+    int   inMaxStrLen,
+    bool  inUrlSafeFmtFlag) const
 {
     if (inMaxStrLen < Base64::GetEncodedMaxBufSize(kLength)) {
         return -EINVAL;
     }
-    return Base64::Encode(mKey, kLength, inStrPtr);
+    return Base64::Encode(mKey, kLength, inStrPtr, inUrlSafeFmtFlag);
 }
 
     ostream&
 CryptoKeys::Key::Display(
-    ostream& inStream) const
+    ostream& inStream,
+    bool     inUrlSafeFmtFlag) const
 {
     const int theBufLen = Base64::GetEncodedMaxBufSize(kLength);
     char      theBuf[theBufLen];
-    const int theLen = Base64::Encode(mKey, kLength, theBuf);
+    const int theLen = Base64::Encode(mKey, kLength, theBuf, inUrlSafeFmtFlag);
     QCRTASSERT(0 < theLen && theLen <= theBufLen);
     return inStream.write(theBuf, theLen);
 }
@@ -223,9 +226,10 @@ public:
         }
         mStartedFlag = true;
         mNetManager.RegisterTimeoutHandler(this);
-        mCurrentKeyValidFlag = GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId);
-        if (! mCurrentKeyValidFlag) {
-            mCurrentKeyTime -=  2 * mKeyChangePeriod;
+        if (! mCurrentKeyValidFlag && ! mKeyStorePtr) {
+            if (! GenKey() && 0 == theStatus) {
+                theStatus = -ENXIO;
+            }
         }
         return theStatus;
     }
@@ -255,7 +259,7 @@ public:
         if (mError) {
             mError = 0;
             if (GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId)) {
-                mCurrentKeyTime = time(0);
+                mCurrentKeyTime = mNetManager.Now();
             }
         }
         if (mError) {
@@ -299,57 +303,58 @@ public:
         mKeyValidTime = theKeyValidTime;
         if (mKeyChangePeriod != theKeyChangePeriod) {
             mKeyChangePeriod = theKeyChangePeriod;
-            mNextKeyGenTime  = min(mNextKeyGenTime, time(0) + mKeyChangePeriod);
+            mNextKeyGenTime  = min(mNextKeyGenTime,
+                mNetManager.Now() + mKeyChangePeriod);
         }
-        if (theExpireKeysFlag) {
-            ExpireKeys(time(0) - mKeyValidTime);
+        if (theExpireKeysFlag && ! mKeyStorePtr) {
+            ExpireKeys(mNetManager.Now() - mKeyValidTime);
         }
         UpdateNextTimerRunTime();
         mFileName = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "keysFileName"), mFileName);
+        if (mRunFlag || mStartedFlag) {
+            return 0;
+        }
         int theStatus = 0;
-        if (! mRunFlag && ! mKeyStorePtr) {
-            if (! mFileName.empty()) {
-                mFStream.close();
-                mFStream.clear();
-                mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
-                if (mFStream) {
-                    const bool kRemoveIfCurrentKeyFlag = false;
-                    if (0 < (theStatus = Read(
-                            mFStream, kRemoveIfCurrentKeyFlag))) {
-                        theStatus = 0;
-                        if (! mKeysExpirationQueue.empty()) {
-                            const KeysExpirationQueue::value_type& theLast =
-                                mKeysExpirationQueue.back();
-                            mCurrentKeyTime      = theLast.first;
-                            mCurrentKeyId        = theLast.second->first;
-                            mCurrentKey          = theLast.second->second;
-                            mCurrentKeyValidFlag = true;
-                            mNextKeyGenTime      =
-                                mCurrentKeyTime + mKeyChangePeriod;
-                            mKeys.erase(theLast.second);
-                            mKeysExpirationQueue.pop_back();
-                            UpdateNextTimerRunTime();
-                        }
-                    }
-                    mFStream.close();
-                } else {
-                    theStatus = errno;
-                    if (theStatus == ENOENT) {
-                        theStatus = 0;
-                    } else {
-                        if (0 < theStatus) {
-                            theStatus = -theStatus;
-                        } else if (theStatus == 0) {
-                            theStatus = -EFAULT;
-                        }
-                        outErrMsg = mFileName + ": " +
-                            QCUtils::SysError(-theStatus);
+        if (! mFileName.empty()) {
+            mFStream.close();
+            mFStream.clear();
+            mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
+            if (mFStream) {
+                const bool kRemoveIfCurrentKeyFlag = false;
+                if (0 < (theStatus = Read(
+                        mFStream, kRemoveIfCurrentKeyFlag))) {
+                    theStatus = 0;
+                    if (! mKeysExpirationQueue.empty()) {
+                        const KeysExpirationQueue::value_type& theLast =
+                            mKeysExpirationQueue.back();
+                        mCurrentKeyTime      = theLast.first;
+                        mCurrentKeyId        = theLast.second->first;
+                        mCurrentKey          = theLast.second->second;
+                        mCurrentKeyValidFlag = true;
+                        mNextKeyGenTime      =
+                            mCurrentKeyTime + mKeyChangePeriod;
+                        mKeys.erase(theLast.second);
+                        mKeysExpirationQueue.pop_back();
+                        UpdateNextTimerRunTime();
                     }
                 }
+                mFStream.close();
+            } else {
+                theStatus = errno;
+                if (theStatus == ENOENT) {
+                    theStatus = 0;
+                } else {
+                    if (0 < theStatus) {
+                        theStatus = -theStatus;
+                    } else if (theStatus == 0) {
+                        theStatus = -EFAULT;
+                    }
+                    outErrMsg = mFileName + ": " +
+                        QCUtils::SysError(-theStatus);
+                }
             }
-            Timeout();
             if (theStatus == 0) {
                 theStatus = mError;
                 if (theStatus != 0) {
@@ -357,6 +362,9 @@ public:
                         QCUtils::SysError(-theStatus);
                 }
             }
+        }
+        if (0 == theStatus && ! mCurrentKeyValidFlag) {
+            GenKey();
         }
         return theStatus;
     }
@@ -523,6 +531,14 @@ public:
                     theIt->first
                 );
             }
+            if (mCurrentKeyValidFlag) {
+                mKeyStorePtr->WriteKey(
+                    inStreamPtr,
+                    mCurrentKeyId,
+                    mCurrentKey,
+                    mCurrentKeyTime
+                );
+            }
             return 0;
         }
         OutKeysTmp theKeys;
@@ -619,30 +635,58 @@ public:
             mPendingCurrentKeyFlag = false;
             mWritingFlag           = false;
         }
-        return PutKey(
-            mKeys,
-            mKeysExpirationQueue,
-            inKeyId,
-            inKeyTime,
-            inKey
-        );
+        if (mCurrentKeyValidFlag && ! PutKey(
+                mKeys,
+                mKeysExpirationQueue,
+                mCurrentKeyId,
+                mCurrentKeyTime,
+                mCurrentKey)) {
+            KFS_LOG_STREAM_FATAL <<
+                "duplicate current key id: " << mPendingCurrentKeyId <<
+            KFS_LOG_EOM;
+            MsgLogger::Stop();
+            abort();
+        }
+        mCurrentKeyValidFlag = true;
+        mCurrentKeyId        = inKeyId;
+        mCurrentKey          = inKey;
+        mCurrentKeyTime      = inKeyTime;
+        mNextKeyGenTime      = inKeyTime + mKeyChangePeriod;
+        UpdateNextTimerRunTime();
+        return true;
     }
     bool Remove(
-        KeyId inKeyId)
+        KeyId inKeyId,
+        bool  inPendingFlag)
     {
         MutexLocker theLocker(mMutex);
-        if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
-            mPendingCurrentKeyFlag = false;
-            mWritingFlag           = false;
-            return true;
-        }
-        if (mKeysExpirationQueue.empty() ||
-                inKeyId != mKeysExpirationQueue.front().second->first) {
+        if (inPendingFlag) {
+            if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
+                mPendingCurrentKeyFlag = false;
+                mWritingFlag           = false;
+                return true;
+            }
             return false;
         }
-        mKeys.erase(mKeysExpirationQueue.front().second);
-        mKeysExpirationQueue.pop_front();
-        return true;
+        if (mCurrentKeyId == inKeyId) {
+            mCurrentKeyValidFlag = false;
+            return true;
+        }
+        for (KeysExpirationQueue::iterator
+                theIt = mKeysExpirationQueue.begin();
+                mKeysExpirationQueue.end() != theIt;
+                ++theIt) {
+            if (inKeyId == theIt->second->first) {
+                mKeys.erase(theIt->second);
+                if (theIt == mKeysExpirationQueue.begin()) {
+                    mKeysExpirationQueue.pop_front();
+                } else {
+                    mKeysExpirationQueue.erase(theIt);
+                }
+                return true;
+            }
+        }
+        return false;
     }
     void Clear()
     {
@@ -714,7 +758,7 @@ public:
             }
             mWriteFlag = false;
         }
-        if (mWritingFlag) {
+        if (mWritingFlag || mKeyStorePtr) {
             return; // Wait until the keys are updated / written.
         }
         mPendingCurrentKeyFlag = false;
@@ -876,6 +920,16 @@ private:
             );
         }
     }
+    bool GenKey()
+    {
+        mCurrentKeyValidFlag = GenKey(mCurrentKey) && GenKeyId(mCurrentKeyId);
+        if (mCurrentKeyValidFlag) {
+            mCurrentKeyTime = mNetManager.Now();
+            mNextKeyGenTime = mCurrentKeyTime + mKeyChangePeriod;
+            UpdateNextTimerRunTime();
+        }
+        return mCurrentKeyValidFlag;
+    }
 private:
     Impl(
         const Impl& inImpl);
@@ -955,9 +1009,10 @@ CryptoKeys::Clear()
 
     bool
 CryptoKeys::Remove(
-    CryptoKeys::KeyId inKeyId)
+    CryptoKeys::KeyId inKeyId,
+    bool              inPendingFlag)
 {
-    return mImpl.Remove(inKeyId);
+    return mImpl.Remove(inKeyId, inPendingFlag);
 }
 
     bool

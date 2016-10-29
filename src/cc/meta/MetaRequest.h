@@ -43,6 +43,8 @@
 #include "kfsio/NetConnection.h"
 #include "kfsio/CryptoKeys.h"
 #include "kfsio/DelegationToken.h"
+#include "kfsio/CryptoKeys.h"
+
 #include "common/Properties.h"
 #include "common/StBuffer.h"
 #include "common/StdAllocator.h"
@@ -51,6 +53,7 @@
 #include "common/RequestParser.h"
 #include "common/kfsatomic.h"
 #include "common/CIdChecksum.h"
+
 #include "qcdio/QCDLList.h"
 
 #include <string.h>
@@ -164,6 +167,8 @@ using std::less;
     f(HIBERNATED_PRUNE) \
     f(HIBERNATED_REMOVE) \
     f(RESTART_PROCESS) \
+    f(CRYPTO_KEY_NEW) \
+    f(CRYPTO_KEY_EXPIRED) \
     f(NOOP) \
     f(VR_HELLO) \
     f(VR_START_VIEW_CHANGE) \
@@ -4488,6 +4493,60 @@ struct MetaProcessRestart : public MetaRequest {
 private:
     static RestartPtr sRestartPtr;
 };
+
+struct MetaCryptoKeyNew : public MetaRequest {
+    CryptoKeys::KeyId keyId;
+    CryptoKeys::Key   key;
+    int64_t           time;
+    MetaCryptoKeyNew(
+        CryptoKeys::KeyId      id = CryptoKeys::KeyId(),
+        const CryptoKeys::Key& k  = CryptoKeys::Key(),
+        int64_t                t  = int64_t())
+        : MetaRequest(META_CRYPTO_KEY_NEW, kLogIfOk),
+          keyId(id),
+          key(k),
+          time(t)
+        {}
+    bool Validate()      { return true; }
+    virtual bool start() { return (0 == status); }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return (os <<
+            "crypto-key-new: " << keyId <<
+            " time: "          << time
+        );
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("I", &MetaCryptoKeyNew::keyId)
+        .Def("K", &MetaCryptoKeyNew::key)
+        .Def("T", &MetaCryptoKeyNew::time)
+        ;
+    }
+};
+
+struct MetaCryptoKeyExpired : public MetaRequest {
+    CryptoKeys::KeyId keyId;
+    MetaCryptoKeyExpired(
+        CryptoKeys::KeyId id = CryptoKeys::KeyId())
+        : MetaRequest(META_CRYPTO_KEY_EXPIRED, kLogIfOk),
+          keyId(id)
+        {}
+    bool Validate()      { return true; }
+    virtual bool start() { return (0 == status); }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+        { return (os << "crypto-key-expired: " << keyId); }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("I", &MetaCryptoKeyExpired::keyId)
+        ;
+    }
+};
+
 
 const char* const kMetaClusterKeyParamNamePtr    = "metaServer.clusterKey";
 const char* const kMetaserverMetaMdsParamNamePtr = "metaServer.metaMds";

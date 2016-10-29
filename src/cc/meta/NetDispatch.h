@@ -33,8 +33,8 @@
 #include "ChunkServerFactory.h"
 #include "MetaDataStore.h"
 
-#include "kfsio/CryptoKeys.h"
 #include "kfsio/DelegationToken.h"
+#include "kfsio/CryptoKeys.h"
 
 #include <ostream>
 
@@ -49,6 +49,8 @@ class MetaDataSync;
 
 class NetDispatch
 {
+private:
+    class KeyStore;
 public:
     void SetMaxClientSockets(int count);
     int GetMaxClientCount() const;
@@ -99,6 +101,13 @@ public:
     uint64_t GetCanceledTokensUpdateCount() const;
     MetaDataStore& GetMetaDataStore()
         { return mMetaDataStore; }
+    KeyStore& GetKeyStore()
+        { return mKeyStore; }
+    int CheckpointCryptoKeys(ostream& os);
+    bool Restore(
+        CryptoKeys::KeyId      inKeyId,
+        const CryptoKeys::Key& inKey,
+        int64_t                inKeyTime);
 private:
     NetDispatch();
     ~NetDispatch();
@@ -111,7 +120,8 @@ private:
     ChunkServerFactory mChunkServerFactory; //!< creates chunk servers when they connect
     QCMutex*           mMutex;
     QCMutex*           mClientManagerMutex;
-    CryptoKeys         mCryptoKeys;
+    KeyStore&          mKeyStore;
+    const CryptoKeys&  mCryptoKeys;
     CanceledTokens&    mCanceledTokens;
     bool               mRunningFlag;
     int                mClientThreadCount;

@@ -816,6 +816,31 @@ restore_worm_mode(DETokenizer& c)
     return true;
 }
 
+static bool
+restore_crypto_key(DETokenizer& c)
+{
+    if (c.size() < 4) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t time = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t id = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    c.pop_front();
+    CryptoKeys::Key key;
+    const bool kUrlSafeFmtFlag = true;
+    if (! key.Parse(c.front().ptr, c.front().len, kUrlSafeFmtFlag)) {
+        return false;
+    }
+    return gNetDispatch.Restore(id, key, time);
+}
+
 static const DiskEntry&
 get_entry_map()
 {
@@ -859,6 +884,7 @@ get_entry_map()
     e.add_parser("vrcn",                    &restore_viewstamped_config);
     e.add_parser("vrce",                    &restore_viewstamped_config);
     e.add_parser("worm",                    &restore_worm_mode);
+    e.add_parser("ckey",                    &restore_crypto_key);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;

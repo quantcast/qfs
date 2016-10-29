@@ -1455,6 +1455,8 @@ public:
     void SetPrimary(bool flag);
     bool IsPrimary() const
         { return mPrimaryFlag; }
+    const bool& GetPrimaryFlag() const
+        { return mPrimaryFlag; }
     void ChangeChunkVersion(chunkId_t chunkId, seq_t version,
         MetaAllocate* req);
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);

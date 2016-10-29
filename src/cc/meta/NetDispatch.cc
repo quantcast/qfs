@@ -44,6 +44,7 @@
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
+#include "kfsio/CryptoKeys.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -257,6 +258,163 @@ private:
     uint64_t    mUpdateCount;
 };
 
+const char* const kCryptoKeysParamsPrefix = "metaServer.cryptoKeys.";
+
+class NetDispatch::KeyStore : public CryptoKeys::KeyStore
+{
+public:
+    typedef CryptoKeys::KeyId KeyId;
+    typedef CryptoKeys::Key   Key;
+
+    KeyStore(
+        NetManager& inNetManager)
+        : CryptoKeys::KeyStore(),
+          mCryptoKeys(inNetManager, this),
+          mRestoreCount(0)
+        {}
+    virtual ~KeyStore()
+        {}
+    virtual bool NewKey(
+        KeyId      inKeyId,
+        const Key& inKey,
+        int64_t    inKeyTime)
+    {
+        if (! IsActive()) {
+            panic("invalid crypto keys new key invocation");
+            return true;
+        }
+        submit_request(new MetaCryptoKeyNew(inKeyId, inKey, inKeyTime));
+        return true;
+    }
+    virtual bool Expired(
+        KeyId inKeyId)
+    {
+        if (! IsActive()) {
+            panic("invalid crypto keys expired invocation");
+            return true;
+        }
+        submit_request(new MetaCryptoKeyExpired(inKeyId));
+        return true;
+    }
+    virtual void WriteKey(
+        ostream*   inStreamPtr,
+        KeyId      inKeyId,
+        const Key& inKey,
+        int64_t    inKeyTime)
+    {
+        if (! inStreamPtr) {
+            return;
+        }
+        ostream& theStream = *inStreamPtr;
+        theStream <<
+            "ckey"
+            "/" << inKeyTime <<
+            "/" << inKeyId <<
+            "/" << CryptoKeys::Key::UrlSafeFmt(inKey) <<
+        "\n";
+    }
+    bool Restore(
+        KeyId      inKeyId,
+        const Key& inKey,
+        int64_t    inKeyTime)
+    {
+        if (mRestoreCount <= 0) {
+            mCryptoKeys.Clear();
+        }
+        mRestoreCount++;
+        return mCryptoKeys.Add(inKeyId, inKey, inKeyTime);
+    }
+    void Handle(
+        MetaCryptoKeyNew& inReq)
+    {
+        if (0 != inReq.status) {
+            if (inReq.replayFlag) {
+                panic("invalid new crypto key op status in replay");
+                return;
+            }
+            const bool kPendingKeyFlag = true;
+            mCryptoKeys.Remove(inReq.keyId, kPendingKeyFlag);
+            return;
+        }
+        if (! mCryptoKeys.Add(inReq.keyId, inReq.key, inReq.time)) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add failed";
+        }
+    }
+    void Handle(
+        MetaCryptoKeyExpired& inReq)
+    {
+        if (0 != inReq.status) {
+            return;
+        }
+        const bool kPendingKeyFlag = false;
+        if (! mCryptoKeys.Remove(inReq.keyId, kPendingKeyFlag)) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "remove failed";
+        }
+    }
+    int Write(
+        ostream& inStream)
+    {
+        mCryptoKeys.Write(inStream, 0);
+        return (inStream ? 0 : -EIO);
+    }
+    int Start()
+    {
+        mActiveFlagPtr = &gLayoutManager.GetPrimaryFlag();
+        return mCryptoKeys.Start();
+    }
+    void Stop()
+    {
+        mActiveFlagPtr = 0;
+    }
+    int SetParameters(
+        const Properties& inProperties,
+        string&           outErrMsg)
+    {
+        return mCryptoKeys.SetParameters(
+            kCryptoKeysParamsPrefix, inProperties, outErrMsg);
+    }
+    const CryptoKeys& GetCryptoKeys() const
+        { return mCryptoKeys; }
+private:
+    CryptoKeys mCryptoKeys;
+    int        mRestoreCount;
+private:
+    KeyStore(
+        const KeyStore& inStore);
+    KeyStore& operator=(
+        const KeyStore& inStore);
+};
+
+void
+MetaCryptoKeyNew::handle()
+{
+    gNetDispatch.GetKeyStore().Handle(*this);
+}
+
+
+void
+MetaCryptoKeyExpired::handle()
+{
+    gNetDispatch.GetKeyStore().Handle(*this);
+}
+
+int
+NetDispatch::CheckpointCryptoKeys(ostream& os)
+{
+    return gNetDispatch.GetKeyStore().Write(os);
+}
+
+bool
+NetDispatch::Restore(
+    CryptoKeys::KeyId      inKeyId,
+    const CryptoKeys::Key& inKey,
+    int64_t                inKeyTime)
+{
+    return gNetDispatch.GetKeyStore().Restore(inKeyId, inKey, inKeyTime);
+}
+
 bool
 NetDispatch::CancelToken(
     const DelegationToken& token)
@@ -326,7 +484,8 @@ NetDispatch::NetDispatch()
       mChunkServerFactory(),
       mMutex(0),
       mClientManagerMutex(0),
-      mCryptoKeys(globalNetManager(), 0),
+      mKeyStore(*(new KeyStore(globalNetManager()))),
+      mCryptoKeys(mKeyStore.GetCryptoKeys()),
       mCanceledTokens(*(new CanceledTokens())),
       mRunningFlag(false),
       mClientThreadCount(0),
@@ -337,6 +496,7 @@ NetDispatch::NetDispatch()
 NetDispatch::~NetDispatch()
 {
     delete &mCanceledTokens;
+    delete &mKeyStore;
 }
 
 bool
@@ -358,8 +518,6 @@ NetDispatch::GetMaxClientCount() const
 {
     return mClientManager.GetMaxClientCount();
 }
-
-const char* const kCryptoKeysParamsPrefix = "metaServer.cryptoKeys.";
 
 class MainThreadPrepareToFork : public NetManager::Dispatcher
 {
@@ -391,10 +549,10 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
     assert(! mMutex);
     QCMutex dispatchMutex;
     mMutex = 0 < mClientThreadCount ? &dispatchMutex : 0;
-    mCryptoKeys.Start();
+    mKeyStore.Start();
     string errMsg;
     int    err;
-    if ((err = mCryptoKeys.SetParameters(kCryptoKeysParamsPrefix,
+    if ((err = mKeyStore.SetParameters(
             gLayoutManager.GetConfigParameters(), errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "failed to set main crypto keys parameters: " <<
@@ -453,7 +611,7 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
     mClientManager.Shutdown();
     metaDataSync.Shutdown();
     mCanceledTokens.Set(0, 0);
-    mCryptoKeys.Stop();
+    mKeyStore.Stop();
     mRunningFlag = false;
     mClientManagerMutex = 0;
     mMutex = 0;
@@ -868,8 +1026,7 @@ void NetDispatch::SetParameters(const Properties& props)
 
     string errMsg;
     int    err;
-    if ((err = mCryptoKeys.SetParameters(
-            kCryptoKeysParamsPrefix, props, errMsg)) != 0) {
+    if ((err = mKeyStore.SetParameters(props, errMsg)) != 0) {
         KFS_LOG_STREAM_ERROR <<
             "crypto keys set parameters failure: "
             " status: " << err << " " << errMsg <<

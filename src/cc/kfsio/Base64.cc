@@ -24,6 +24,7 @@
 //----------------------------------------------------------------------------
 
 #include "Base64.h"
+#include "common/StBuffer.h"
 #include <openssl/evp.h>
 
 namespace KFS
@@ -33,20 +34,32 @@ namespace KFS
 Base64::Encode(
     const char* inBufPtr,
     int         inBufLength,
-    char*       inEncodedBufPtr)
+    char*       inEncodedBufPtr,
+    bool        inUrlSafeFmtFlag)
 {
-    return EVP_EncodeBlock(
+    const int theLen = EVP_EncodeBlock(
         reinterpret_cast<unsigned char*>(inEncodedBufPtr),
         reinterpret_cast<const unsigned char*>(inBufPtr),
         inBufLength
     );
+    if (inUrlSafeFmtFlag) {
+        for (int i = 0; i < theLen; i++) {
+            switch (inEncodedBufPtr[i] & 0xFF) {
+                case '/': inEncodedBufPtr[i] = '_'; break;
+                case '+': inEncodedBufPtr[i] = '-'; break;
+                default:                            break;
+            }
+        }
+    }
+    return theLen;
 }
 
     int 
 Base64::Decode(
     const char* inBufPtr,
     int         inBufLength,
-    char*       inDecodedBufPtr)
+    char*       inDecodedBufPtr,
+    bool        inUrlSafeFmtFlag)
 {
     int thePadding = 0;
     if (3 < inBufLength) {
@@ -57,11 +70,33 @@ Base64::Decode(
             thePadding++;
         }
     }
-    const int theLen = EVP_DecodeBlock(
-        reinterpret_cast<unsigned char*>(inDecodedBufPtr),
-        reinterpret_cast<const unsigned char*>(inBufPtr),
-        inBufLength
-    );
+    int theLen;
+    if (inUrlSafeFmtFlag) {
+        if (inBufLength <= 0) {
+            return 0;
+        }
+        StBufferT<unsigned char, 128> theBuf;
+        unsigned char* const theBufPtr = theBuf.Resize(inBufLength);
+        unsigned char*       thePtr    = theBufPtr;
+        for (int i = 0; i < inBufLength; i++, thePtr++) {
+            switch (inBufPtr[i] & 0xFF) {
+                case '_': *thePtr = '/';         break;
+                case '-': *thePtr = '+';         break;
+                default:  *thePtr = inBufPtr[i]; break;
+            }
+        }
+        theLen = EVP_DecodeBlock(
+            reinterpret_cast<unsigned char*>(inDecodedBufPtr),
+            theBufPtr,
+            inBufLength
+        );
+    } else  {
+        theLen = EVP_DecodeBlock(
+            reinterpret_cast<unsigned char*>(inDecodedBufPtr),
+            reinterpret_cast<const unsigned char*>(inBufPtr),
+            inBufLength
+        );
+    }
     return (2 < theLen ? theLen - thePadding : theLen);
 }
 

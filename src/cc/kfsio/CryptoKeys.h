@@ -56,6 +56,24 @@ public:
     class Key
     {
     public:
+        class UrlSafeFmt
+        {
+        public:
+            UrlSafeFmt(
+                const Key& inKey)
+                : mKey(inKey)
+                {}
+            ostream& Display(
+                ostream& inStream) const
+                { return mKey.Display(inStream, true); }
+        private:
+            const Key& mKey;
+        private:
+            UrlSafeFmt(
+                const UrlSafeFmt& inFormat);
+            UrlSafeFmt& operator=(
+                const UrlSafeFmt& inFormat);
+        };
         Key()
             { memset(mKey, 0, sizeof(mKey)); }
         Key(
@@ -76,14 +94,20 @@ public:
             memcpy(mKey, inKey.mKey, sizeof(mKey));
             return *this;
         }
+        bool operator==(
+            const Key& inRhs) const
+            { return (memcmp(mKey, inRhs.mKey, sizeof(mKey)) == 0); }
         bool Parse(
             const char* inStrPtr,
-            int         inStrLen);
+            int         inStrLen,
+            bool        inUrlSafeFmtFlag = false);
         int ToString(
             char* inStrPtr,
-            int   inMaxStrLen) const;
+            int   inMaxStrLen,
+            bool  inUrlSafeFmtFlag = false) const;
         ostream& Display(
-            ostream& inStream) const;
+            ostream& inStream,
+            bool     inUrlSafeFmtFlag = false) const;
         static int GetSize()
             { return kLength; }
         const char* GetPtr() const
@@ -100,10 +124,10 @@ public:
     {
     public:
         KeyStore()
-            : mActiveFlag(false)
+            : mActiveFlagPtr(0)
             {}
         bool IsActive() const
-            { return mActiveFlag; }
+            { return (mActiveFlagPtr && *mActiveFlagPtr); }
         virtual bool NewKey(
             KeyId      inKeyId,
             const Key& inKey,
@@ -116,12 +140,16 @@ public:
             const Key& inKey,
             int64_t    inKeyTime) = 0;
     protected:
-        bool mActiveFlag;
+        const bool* mActiveFlagPtr;
 
-        virtual ~KeyStore();
-        KeyStore(
-            const KeyStore& inStore)
+        virtual ~KeyStore()
             {}
+        KeyStore(
+            const KeyStore& /* inStore */)
+            {}
+        KeyStore& operator=(
+            const KeyStore& /* inStore */)
+            { return *this; }
     };
 
     CryptoKeys(
@@ -149,7 +177,8 @@ public:
         const Key& inKey,
         int64_t    inKeyTime);
     bool Remove(
-        KeyId inKeyId);
+        KeyId inKeyId,
+        bool  inPendingFlag);
     void Clear();
     bool GetCurrentKey(
         KeyId& outKeyId,
@@ -182,6 +211,11 @@ inline static ostream& operator<<(
     ostream&                inStream,
     const CryptoKeys::Key&  inKey)
 { return inKey.Display(inStream); }
+
+inline static ostream& operator<<(
+    ostream&                           inStream,
+    const CryptoKeys::Key::UrlSafeFmt& inKeyFormat)
+{ return inKeyFormat.Display(inStream); }
 
 } // namespace KFS
 
