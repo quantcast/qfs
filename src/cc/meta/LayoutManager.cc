@@ -1055,6 +1055,8 @@ ChunkLeases::StopServicing(
         while ((wep = mWriteLeases.Next())) {
             WEntry& we = *const_cast<WEntry*>(wep);
             const WriteLease& wl = we;
+            fid_t             fid;
+            const EntryKey    key = we.GetKey();
             if (wl.allocInFlight) {
                 MetaAllocate& alloc =
                     *const_cast<MetaAllocate*>(wl.allocInFlight);
@@ -1063,16 +1065,17 @@ ChunkLeases::StopServicing(
                     alloc.status    = -EVRNOTPRIMARY;
                     alloc.statusMsg = "no longer primary node";
                 }
+                fid = alloc.fid;
+            } else {
+                CSMap::Entry* const ci  = key.IsChunkEntry() ?
+                    csmap.Find(key.first) : 0;
+                if (! ci && key.IsChunkEntry()) {
+                    panic("invalid stale write lease");
+                    Erase(we, -1);
+                    continue;
+                }
+                fid = ci ? ci->GetFileId() : key.first;
             }
-            const EntryKey      key = we.GetKey();
-            CSMap::Entry* const ci  = key.IsChunkEntry() ?
-                csmap.Find(key.first) : 0;
-            if (! ci && key.IsChunkEntry()) {
-                panic("invalid stale write lease");
-                Erase(we, -1);
-                continue;
-            }
-            const fid_t fid = ci ? ci->GetFileId() : key.first;
             if (wl.appendFlag) {
                 arac.Invalidate(fid, key.first);
             }
