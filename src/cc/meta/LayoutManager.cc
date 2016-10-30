@@ -1061,10 +1061,6 @@ ChunkLeases::StopServicing(
                 MetaAllocate& alloc =
                     *const_cast<MetaAllocate*>(wl.allocInFlight);
                 alloc.stoppedServicingFlag = true;
-                if (0 == alloc.status) {
-                    alloc.status    = -EVRNOTPRIMARY;
-                    alloc.statusMsg = "no longer primary node";
-                }
                 fid = alloc.fid;
             } else {
                 CSMap::Entry* const ci  = key.IsChunkEntry() ?
@@ -8662,7 +8658,11 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate& req)
         }
     }
     const int status = req.status;
-    if (mClientCSAuthRequiredFlag && 0 <= status) {
+    if (req.stoppedServicingFlag && 0 == req.status) {
+        req.status    = -EVRNOTPRIMARY;
+        req.statusMsg = "no longer primary node";
+    }
+    if (mClientCSAuthRequiredFlag && 0 <= req.status) {
         req.clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
         if ((req.writeMasterKeyValidFlag = ! req.servers.empty() &&
                 req.servers.front()->GetCryptoKey(
@@ -8684,7 +8684,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate& req)
         const bool kAllocDoneFlag = true;
         const int  ret            = mChunkLeases.Renew(
             req.fid, leaseKey, req.leaseId, kAllocDoneFlag);
-        if (ret < 0) {
+        if (ret < 0 && ! req.stoppedServicingFlag) {
             panic("failed to renew allocation write lease");
             req.status = ret;
             return;
@@ -8742,7 +8742,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate& req)
                 insertedFlag
             );
         }
-        if (mClientCSAuthRequiredFlag) {
+        if (mClientCSAuthRequiredFlag && 0 <= req.status) {
             req.clientCSAllowClearTextFlag = mClientCSAllowClearTextFlag;
             if ((req.writeMasterKeyValidFlag = req.servers.front()->GetCryptoKey(
                     req.writeMasterKeyId, req.writeMasterKey))) {
