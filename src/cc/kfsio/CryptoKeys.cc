@@ -694,6 +694,8 @@ public:
         mKeys.clear();
         mKeysExpirationQueue.clear();
         mCurrentKeyValidFlag = false;
+        mNextKeyGenTime = mNetManager.Now();
+        UpdateNextTimerRunTime();
     }
     virtual void Timeout()
     {
