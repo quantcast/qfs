@@ -183,12 +183,6 @@ public:
         const ServerLocation& inPeer) = 0;
     void Ref()
         { mRefCount++; }
-    void Unref()
-    {
-        if (--mRefCount <= 0) {
-            delete this;
-        }
-    }
     virtual void handle();
     MetaVrSM* GetVrSMPtr() const
         { return mVrSMPtr; }
@@ -262,6 +256,12 @@ protected:
     int       mRefCount;
     bool      mScheduleCommitFlag;
 
+    void Unref()
+    {
+        if (--mRefCount <= 0) {
+            delete this;
+        }
+    }
     virtual ~MetaVrRequest()
     {
         if (0 != mRefCount) {

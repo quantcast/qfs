@@ -3325,7 +3325,12 @@ MetaChunkCorrupt::start()
 {
     if (server) {
         location = server->GetServerLocation();
-        if (! location.IsValid()) {
+        if (location.IsValid()) {
+            if (chunkId < 0 && chunkCount <= 0) {
+                // Do not log chunk directories updates.
+                logAction = kLogQueue;
+            }
+        } else {
             panic("chunk corrupt: invalid server location");
             status = -EFAULT;
         }
@@ -3344,7 +3349,7 @@ MetaChunkCorrupt::handle()
     if (! chunkDir.empty() && 0 == status) {
         server->SetChunkDirStatus(chunkDir, dirOkFlag);
     }
-    if (0 < chunkId || 0 < chunkCount || 0 != status) {
+    if (0 <= chunkId || 0 < chunkCount || 0 != status) {
         gLayoutManager.Handle(*this);
     }
 }
