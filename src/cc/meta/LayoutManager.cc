@@ -5614,17 +5614,6 @@ LayoutManager::SetPrimary(bool flag)
     mIdempotentRequestTracker.SetDisableTimerFlag(! mPrimaryFlag);
     if (mPrimaryFlag) {
         mLeaseCleanerOtherNextRunTime = TimeNow();
-        return;
-    }
-    RequestQueue queue;
-    queue.PushBack(mResubmitQueue);
-    MetaRequest* req;
-    while ((req = queue.PopFront())) {
-        KFS_LOG_STREAM_DEBUG <<
-            "canceling: " << req->Show() <<
-        KFS_LOG_EOM;
-        req->suspended = false;
-        submit_request(req);
     }
 }
 
@@ -9261,6 +9250,9 @@ LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
         panic("invalid resubmit request attempt");
     }
     if (! mPrimaryFlag) {
+        KFS_LOG_STREAM_DEBUG <<
+            "not primary, ignoring resubmit: " << req.Show() <<
+        KFS_LOG_EOM;
         return;
     }
     req.next      = 0;
@@ -9463,7 +9455,12 @@ LayoutManager::LogMakeChunkStableDone(MetaLogMakeChunkStable& req)
         // Possible log failures of make stable done, should be resolved by
         // full chunk replication check, that should be initiated by the primary
         // once logger starts working again.
-        ScheduleResubmitOrCancel(req);
+        if (mPrimaryFlag) {
+            ScheduleResubmitOrCancel(req);
+        } else {
+            DeleteNonStableEntry(
+                req.chunkId, it, req.status, req.statusMsg.c_str());
+        }
         return;
     }
     const bool     serverWasAddedFlag = info.serverAddedFlag;
@@ -9835,10 +9832,10 @@ LayoutManager::ReplayPendingMakeStable(
 
 void
 LayoutManager::DeleteNonStableEntry(
-    chunkId_t                           chunkId,
-    LayoutManager::MakeChunkStableInfo* it,
-    int                                 status    /* = 0 */,
-    const char*                         statusMsg /* = 0 */)
+    chunkId_t                                 chunkId,
+    const LayoutManager::MakeChunkStableInfo* it,
+    int                                       status    /* = 0 */,
+    const char*                               statusMsg /* = 0 */)
 {
     MetaRequest* next = it->pendingReqHead;
     mNonStableChunks.Erase(chunkId);
@@ -13137,7 +13134,31 @@ LayoutManager::StopServicing()
         }
     }
     mChunkLeases.StopServicing(mARAChunkCache, mChunkToServerMap);
-    mNonStableChunks.Clear();
+    while (! mNonStableChunks.IsEmpty()) {
+        mNonStableChunks.First();
+        const NonStableChunkKVEntry* entry;
+        while ((entry = mNonStableChunks.Next())) {
+            DeleteNonStableEntry(
+                entry->GetKey(),
+                &(entry->GetVal()),
+                -EVRNOTPRIMARY,
+                "no longer primary node"
+            );
+        }
+    }
+    if (mPrimaryFlag) {
+        return;
+    }
+    RequestQueue queue;
+    queue.PushBack(mResubmitQueue);
+    MetaRequest* req;
+    while ((req = queue.PopFront())) {
+        KFS_LOG_STREAM_DEBUG <<
+            "canceling: " << req->Show() <<
+        KFS_LOG_EOM;
+        req->suspended = false;
+        submit_request(req);
+    }
 }
 
 ostream&

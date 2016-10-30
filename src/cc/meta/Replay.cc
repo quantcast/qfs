@@ -128,7 +128,6 @@ public:
           mLastBlockErrChecksum(0),
           mLastCommittedStatus(0),
           mRestoreTimeCount(0),
-          mPendingStopServicingFlag(false),
           mUpdateLogWriterFlag(false),
           mReplayer(replay),
           mEnqueueFlagFlagPtr(enqueueFlagPtr),
@@ -291,7 +290,6 @@ public:
     {
         if (op.replayFlag) {
             op.seqno = MetaRequest::GetLogWriter().GetNextSeq();
-            stopServicing();
             op.handle();
         } else {
             if (! op.SubmitBegin()) {
@@ -489,14 +487,6 @@ public:
         }
         return true;
     }
-    void stopServicing()
-    {
-        if (mPendingStopServicingFlag && mReplayer) {
-            mPendingStopServicingFlag = false;
-            gLayoutManager.StopServicing();
-            gLayoutManager.SetPrimary(false);
-        }
-    }
     void update()
     {
         if (mUpdateLogWriterFlag) {
@@ -530,7 +520,6 @@ public:
     int64_t       mLastBlockErrChecksum;
     int           mLastCommittedStatus;
     int           mRestoreTimeCount;
-    bool          mPendingStopServicingFlag;
     bool          mUpdateLogWriterFlag;
     Replay* const mReplayer;
     bool* const   mEnqueueFlagFlagPtr;
@@ -2734,8 +2723,8 @@ Replay::handle(MetaVrLogStartView& op)
     state.handleStartView(op);
     if (op.replayFlag) {
         if (0 == op.status) {
-            state.mPendingStopServicingFlag = true;
-            state.stopServicing();
+            gLayoutManager.SetPrimary(false);
+            gLayoutManager.StopServicing();
             primaryNodeId = op.mNodeId;
             if (state.mLastLogAheadSeq == op.mNewLogSeq) {
                 // Decrement to account incSeq() at the end of state handle
@@ -2750,7 +2739,6 @@ Replay::handle(MetaVrLogStartView& op)
             panic("replay: invalid start view op completion");
             return;
         }
-        state.mPendingStopServicingFlag = false;
         gLayoutManager.SetPrimary(true);
         gLayoutManager.StartServicing();
         primaryNodeId = -1;
@@ -2773,12 +2761,12 @@ Replay::setReplayState(
 {
     ReplayState&               state = replayTokenizer.GetState();
     ReplayState::EnterAndLeave enterAndLeave(state);
-    state.mPendingStopServicingFlag = true;
     // Enqeue all new ops into replay.
     // Log start view recursion counter now must be 1 when entering
     // handle(MetaVrLogStartView&)
     enqueueFlag = true;
     gLayoutManager.SetPrimary(false);
+    gLayoutManager.StopServicing();
     state.setReplayState(
         committed,
         viewStartSeq,

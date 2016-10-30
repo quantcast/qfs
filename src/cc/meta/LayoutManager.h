@@ -2507,10 +2507,10 @@ protected:
     }
 
     void DeleteNonStableEntry(
-        chunkId_t            chunkId,
-        MakeChunkStableInfo* it,
-        int                  status    = 0,
-        const char*          statusMsg = 0);
+        chunkId_t                  chunkId,
+        const MakeChunkStableInfo* it,
+        int                        status    = 0,
+        const char*                statusMsg = 0);
     /// Check the # of copies for the chunk and return true if the
     /// # of copies is less than targeted amount.  We also don't replicate a chunk
     /// if it is currently being written to (i.e., if a write lease
