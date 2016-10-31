@@ -108,6 +108,7 @@ public:
         CryptoKeys::KeyId      inKeyId,
         const CryptoKeys::Key& inKey,
         int64_t                inKeyTime);
+    bool EnsureHasValidCryptoKey();
 private:
     NetDispatch();
     ~NetDispatch();

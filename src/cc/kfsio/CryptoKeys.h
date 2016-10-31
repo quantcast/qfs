@@ -192,6 +192,9 @@ public:
         KeyId theId;
         return GetCurrentKeyId(theId);
     }
+    int LoadKeysFile(
+        string& outErrMsg);
+    bool EnsureHasCurrentKey();
     static bool PseudoRand(
         void*  inPtr,
         size_t inLen);

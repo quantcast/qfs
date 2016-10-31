@@ -321,12 +321,12 @@ public:
         mFileName = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "keysFileName"), mFileName);
-        if (mRunFlag || mStartedFlag) {
+        if (mRunFlag || mStartedFlag || mKeyStorePtr) {
             return theStatus;
         }
         string theErrMsg;
-        const int theErr = LoadFile(theErrMsg);
-        if (0 != theErr) {
+        const int theErr = LoadKeysFile(theErrMsg);
+        if (0 != theErr && -ENOENT != theErr) {
             if (0 == theStatus) {
                 theStatus = theErr;
             }
@@ -337,6 +337,58 @@ public:
         }
         if (0 == theStatus && ! mCurrentKeyValidFlag) {
             GenKey();
+        }
+        return theStatus;
+    }
+    int LoadKeysFile(
+        string& outErrMsg)
+    {
+        if (mRunFlag || mStartedFlag) {
+            outErrMsg = "file load is not supported after start";
+            return -EINVAL;
+        }
+        int theStatus = 0;
+        if (mFileName.empty()) {
+            return theStatus;
+        }
+        mFStream.close();
+        mFStream.clear();
+        mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
+        if (mFStream) {
+            const bool kRemoveIfCurrentKeyFlag = false;
+            if (0 < (theStatus = Read(
+                    mFStream, kRemoveIfCurrentKeyFlag))) {
+                theStatus = 0;
+                if (! mKeysExpirationQueue.empty()) {
+                    const KeysExpirationQueue::value_type& theLast =
+                        mKeysExpirationQueue.back();
+                    mCurrentKeyTime      = theLast.first;
+                    mCurrentKeyId        = theLast.second->first;
+                    mCurrentKey          = theLast.second->second;
+                    mCurrentKeyValidFlag = true;
+                    mNextKeyGenTime      =
+                        mCurrentKeyTime + mKeyChangePeriod;
+                    mKeys.erase(theLast.second);
+                    mKeysExpirationQueue.pop_back();
+                    UpdateNextTimerRunTime();
+                }
+            }
+            mFStream.close();
+        } else {
+            theStatus = errno;
+            if (0 < theStatus) {
+                theStatus = -theStatus;
+            } else if (theStatus == 0) {
+                theStatus = -EFAULT;
+            }
+            outErrMsg = mFileName + ": " + QCUtils::SysError(-theStatus);
+        }
+        if (theStatus == 0) {
+            theStatus = mError;
+            if (theStatus != 0) {
+                outErrMsg = "failed to create key: " +
+                    QCUtils::SysError(-theStatus);
+            }
         }
         return theStatus;
     }
@@ -758,6 +810,11 @@ public:
         mNextKeyGenTime      = theTimeNow + mKeyChangePeriod;
         UpdateNextTimerRunTime();
     }
+    bool EnsureHasCurrentKey()
+    {
+        MutexLocker theLocker(mMutex);
+        return (mCurrentKeyValidFlag || GenKey());
+    }
     virtual void Run()
     {
         MutexLocker theLocker(mMutex);
@@ -911,59 +968,6 @@ private:
         }
         return mCurrentKeyValidFlag;
     }
-    int LoadFile(
-        string& outErrMsg)
-    {
-        int theStatus = 0;
-        if (mFileName.empty()) {
-            return theStatus;
-        }
-        mFStream.close();
-        mFStream.clear();
-        mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
-        if (mFStream) {
-            const bool kRemoveIfCurrentKeyFlag = false;
-            if (0 < (theStatus = Read(
-                    mFStream, kRemoveIfCurrentKeyFlag))) {
-                theStatus = 0;
-                if (! mKeysExpirationQueue.empty()) {
-                    const KeysExpirationQueue::value_type& theLast =
-                        mKeysExpirationQueue.back();
-                    mCurrentKeyTime      = theLast.first;
-                    mCurrentKeyId        = theLast.second->first;
-                    mCurrentKey          = theLast.second->second;
-                    mCurrentKeyValidFlag = true;
-                    mNextKeyGenTime      =
-                        mCurrentKeyTime + mKeyChangePeriod;
-                    mKeys.erase(theLast.second);
-                    mKeysExpirationQueue.pop_back();
-                    UpdateNextTimerRunTime();
-                }
-            }
-            mFStream.close();
-        } else {
-            theStatus = errno;
-            if (theStatus == ENOENT) {
-                theStatus = 0;
-            } else {
-                if (0 < theStatus) {
-                    theStatus = -theStatus;
-                } else if (theStatus == 0) {
-                    theStatus = -EFAULT;
-                }
-                outErrMsg = mFileName + ": " +
-                    QCUtils::SysError(-theStatus);
-            }
-        }
-        if (theStatus == 0) {
-            theStatus = mError;
-            if (theStatus != 0) {
-                outErrMsg = "failed to create key: " +
-                    QCUtils::SysError(-theStatus);
-            }
-        }
-        return theStatus;
-    }
 private:
     Impl(
         const Impl& inImpl);
@@ -1071,6 +1075,19 @@ CryptoKeys::GetCurrentKey(
     uint32_t&          outKeyValidForSec) const
 {
     return mImpl.GetCurrentKey(outKeyId, outKey, outKeyValidForSec);
+}
+
+    int
+CryptoKeys::LoadKeysFile(
+    string& outErrMsg)
+{
+    return mImpl.LoadKeysFile(outErrMsg);
+}
+
+    bool
+CryptoKeys::EnsureHasCurrentKey()
+{
+    return mImpl.EnsureHasCurrentKey();
 }
 
     /* static */ bool

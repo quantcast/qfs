@@ -368,11 +368,24 @@ public:
     int Start()
     {
         mActiveFlagPtr = &gLayoutManager.GetPrimaryFlag();
+        if (mRestoreCount <= 0 && IsActive() &&
+                ! MetaRequest::GetLogWriter().GetMetaVrSM().HasValidNodeId()) {
+            string theErrMsg;
+            const int theErr = mCryptoKeys.LoadKeysFile(theErrMsg);
+            if (theErr < 0 && -ENOENT != theErr) {
+                KFS_LOG_STREAM_ERROR <<
+                    "load crypto keys error: " << theErrMsg <<
+                KFS_LOG_EOM;
+                mActiveFlagPtr = 0;
+                return theErr;
+            }
+        }
         return mCryptoKeys.Start();
     }
     void Stop()
     {
         mActiveFlagPtr = 0;
+        mCryptoKeys.Stop();
     }
     int SetParameters(
         const Properties& inProperties,
@@ -381,6 +394,8 @@ public:
         return mCryptoKeys.SetParameters(
              "metaServer.cryptoKeys.", inProperties, outErrMsg);
     }
+    bool EnsureHasValidCryptoKey()
+        { return mCryptoKeys.EnsureHasCurrentKey(); }
     const CryptoKeys& GetCryptoKeys() const
         { return mCryptoKeys; }
 private:
@@ -410,7 +425,13 @@ MetaCryptoKeyExpired::handle()
 int
 NetDispatch::CheckpointCryptoKeys(ostream& os)
 {
-    return gNetDispatch.GetKeyStore().Write(os);
+    return GetKeyStore().Write(os);
+}
+
+bool
+NetDispatch::EnsureHasValidCryptoKey()
+{
+    return GetKeyStore().EnsureHasValidCryptoKey();
 }
 
 bool

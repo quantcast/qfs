@@ -848,6 +848,12 @@ MetaServer::Startup(bool createEmptyFsFlag,
         KFS_LOG_STREAM_INFO <<
             "creating new empty file system" <<
         KFS_LOG_EOM;
+        if (! gNetDispatch.EnsureHasValidCryptoKey()) {
+            KFS_LOG_STREAM_ERROR <<
+                "crypto key generation has failed" <<
+            KFS_LOG_EOM;
+            return false;
+        }
         metatree.SetFsInfo(fsid, microseconds());
         status = metatree.new_tree(
             mStartupProperties.getValue(
