@@ -13,7 +13,7 @@ MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
 MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
 
 if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
-    make gtest tarball
+    CMAKE_OPTIONS="-D OPENSSL_ROOT_DIR=/usr/local/Cellar/openssl/$(ls -1 /usr/local/Cellar/openssl/ | tail -n 1) -D CMAKE_BUILD_TYPE=RelWithDebInfo" make gtest tarball
 fi
 
 if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
