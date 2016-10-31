@@ -529,6 +529,7 @@ MetaServer::SetParameters(const Properties& props)
             MetaLogWriterControl::kSetParameters);
         op->paramsPrefix = kLogWriterParamsPrefix;
         props.copyWithPrefix(op->paramsPrefix, op->params);
+        props.copyWithPrefix(kMetaVrParametersPrefixPtr, op->params);
         submit_request(op);
     }
     const int status = mMetaDataSync.SetParameters(
