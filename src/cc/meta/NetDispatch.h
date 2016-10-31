@@ -62,7 +62,7 @@ public:
     bool Start(MetaDataSync& metaDataSync);
     //!< Dispatch completed request.
     void Dispatch(MetaRequest* r);
-    void SetParameters(const Properties& props);
+    int SetParameters(const Properties& props);
     void GetStatsCsv(ostream& os);
     void GetStatsCsv(IOBuffer& buf);
     int64_t GetUserCpuMicroSec() const;

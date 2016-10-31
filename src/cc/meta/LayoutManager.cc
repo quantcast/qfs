@@ -2315,7 +2315,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.readDirLimit", mReadDirLimit);
 
     ClientSM::SetParameters(props);
-    gNetDispatch.SetParameters(props);
+    const int netDispatchErr = gNetDispatch.SetParameters(props);
     if (mDownServers.size() > mMaxDownServersHistorySize) {
         mDownServers.erase(mDownServers.begin(), mDownServers.begin() +
             mDownServers.size() - mMaxDownServersHistorySize);
@@ -2456,7 +2456,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.userAndGroup.", props);
 
     mConfigParameters = props;
-    const bool csOk = mCSAuthContext.SetParameters(
+    const bool csOkFlag = mCSAuthContext.SetParameters(
         "metaServer.CSAuthentication.", mConfigParameters);
     const bool curCSAuthUseUserAndGroupFlag = mCSAuthContext.HasUserAndGroup();
     const bool newCSAuthUseUserAndGroupFlag = props.getValue(
@@ -2469,7 +2469,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             mCSAuthContext.DontUseUserAndGroup();
         }
     }
-    const int cliOk = UpdateClientAuth(mClientAuthContext);
+    const bool cliOkFlag = UpdateClientAuth(mClientAuthContext);
     mAuthCtxUpdateCount++;
 
     mClientCSAuthRequiredFlag = props.getValue(
@@ -2585,7 +2585,8 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
     SetChunkServersProperties(props);
-    return (csOk && cliOk && userAndGroupErr == 0);
+    return (csOkFlag && cliOkFlag &&
+        0 == userAndGroupErr && 0 == netDispatchErr);
 }
 
 bool

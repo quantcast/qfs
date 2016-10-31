@@ -279,89 +279,61 @@ public:
                 theParamName.Truncate(thePrefLen).Append(
                 "minKeyValidTimeSec"), -1)
         );
-        const int k10Min = 60 * 10;
+        int       theKeyChangePeriod = mKeyChangePeriod;
+        int       theStatus          = 0;
+        const int k10Min             = 600;
         if (theKeyValidTime < k10Min) {
             outErrMsg = theParamName.GetPtr();
-            outErrMsg += ": invalid: less or equal 10 minutes";
-            return -EINVAL;
+            outErrMsg += ": invalid: less than 600 seconds";
+            theStatus = -EINVAL;
+        } else {
+            theKeyChangePeriod = inParameters.getValue(
+                theParamName.Truncate(thePrefLen).Append(
+                "keyChangePeriodSec"), mKeyChangePeriod);
+            if (theKeyValidTime < 3 * theKeyChangePeriod / 2) {
+                outErrMsg = theParamName.GetPtr();
+                outErrMsg += ": invalid: greater 2/3 of keyValidTimeSec";
+                theStatus = -EINVAL;
+            } else {
+                if (theKeyChangePeriod < k10Min / 2 ||
+                        (int64_t(10) << 10) * theKeyChangePeriod <
+                            theKeyValidTime) {
+                    outErrMsg = theParamName.GetPtr();
+                    outErrMsg += ": invalid: less than 300 sec"
+                        " or will require storing more than 10240 keys";
+                    theStatus = -EINVAL;
+                }
+            }
         }
-        const int theKeyChangePeriod = inParameters.getValue(
-            theParamName.Truncate(thePrefLen).Append(
-            "keyChangePeriodSec"), mKeyChangePeriod);
-        if (theKeyValidTime < 3 * theKeyChangePeriod / 2) {
-            outErrMsg = theParamName.GetPtr();
-            outErrMsg += ": invalid: greater 2/3 of keyValidTimeSec";
-            return -EINVAL;
+        if (0 == theStatus) {
+            const bool theExpireKeysFlag = theKeyValidTime < mKeyValidTime;
+            mKeyValidTime = theKeyValidTime;
+            if (mKeyChangePeriod != theKeyChangePeriod) {
+                mKeyChangePeriod = theKeyChangePeriod;
+                mNextKeyGenTime  = min(mNextKeyGenTime,
+                    mNetManager.Now() + mKeyChangePeriod);
+            }
+            if (theExpireKeysFlag && ! mKeyStorePtr) {
+                ExpireKeys(mNetManager.Now() - mKeyValidTime);
+            }
+            UpdateNextTimerRunTime();
         }
-        if (theKeyChangePeriod < k10Min / 2 ||
-                theKeyValidTime * (int64_t(10) << 10) < theKeyChangePeriod) {
-            outErrMsg = theParamName.GetPtr();
-            outErrMsg += ": invalid: greater than keyValidTimeSec * 10240";
-            return -EINVAL;
-        }
-        const bool theExpireKeysFlag = theKeyValidTime < mKeyValidTime;
-        mKeyValidTime = theKeyValidTime;
-        if (mKeyChangePeriod != theKeyChangePeriod) {
-            mKeyChangePeriod = theKeyChangePeriod;
-            mNextKeyGenTime  = min(mNextKeyGenTime,
-                mNetManager.Now() + mKeyChangePeriod);
-        }
-        if (theExpireKeysFlag && ! mKeyStorePtr) {
-            ExpireKeys(mNetManager.Now() - mKeyValidTime);
-        }
-        UpdateNextTimerRunTime();
         mFileName = inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append(
             "keysFileName"), mFileName);
         if (mRunFlag || mStartedFlag) {
-            return 0;
+            return theStatus;
         }
-        int theStatus = 0;
-        if (! mFileName.empty()) {
-            mFStream.close();
-            mFStream.clear();
-            mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
-            if (mFStream) {
-                const bool kRemoveIfCurrentKeyFlag = false;
-                if (0 < (theStatus = Read(
-                        mFStream, kRemoveIfCurrentKeyFlag))) {
-                    theStatus = 0;
-                    if (! mKeysExpirationQueue.empty()) {
-                        const KeysExpirationQueue::value_type& theLast =
-                            mKeysExpirationQueue.back();
-                        mCurrentKeyTime      = theLast.first;
-                        mCurrentKeyId        = theLast.second->first;
-                        mCurrentKey          = theLast.second->second;
-                        mCurrentKeyValidFlag = true;
-                        mNextKeyGenTime      =
-                            mCurrentKeyTime + mKeyChangePeriod;
-                        mKeys.erase(theLast.second);
-                        mKeysExpirationQueue.pop_back();
-                        UpdateNextTimerRunTime();
-                    }
-                }
-                mFStream.close();
-            } else {
-                theStatus = errno;
-                if (theStatus == ENOENT) {
-                    theStatus = 0;
-                } else {
-                    if (0 < theStatus) {
-                        theStatus = -theStatus;
-                    } else if (theStatus == 0) {
-                        theStatus = -EFAULT;
-                    }
-                    outErrMsg = mFileName + ": " +
-                        QCUtils::SysError(-theStatus);
-                }
+        string theErrMsg;
+        const int theErr = LoadFile(theErrMsg);
+        if (0 != theErr) {
+            if (0 == theStatus) {
+                theStatus = theErr;
             }
-            if (theStatus == 0) {
-                theStatus = mError;
-                if (theStatus != 0) {
-                    outErrMsg = "failed to create key: " +
-                        QCUtils::SysError(-theStatus);
-                }
+            if (! outErrMsg.empty()) {
+                outErrMsg += " ";
             }
+            outErrMsg += theErrMsg;
         }
         if (0 == theStatus && ! mCurrentKeyValidFlag) {
             GenKey();
@@ -664,12 +636,14 @@ public:
             if (mPendingCurrentKeyFlag && inKeyId == mPendingCurrentKeyId) {
                 mPendingCurrentKeyFlag = false;
                 mWritingFlag           = false;
+                UpdateNextTimerRunTime();
                 return true;
             }
             return false;
         }
         if (mCurrentKeyId == inKeyId) {
             mCurrentKeyValidFlag = false;
+            UpdateNextTimerRunTime();
             return true;
         }
         for (KeysExpirationQueue::iterator
@@ -683,6 +657,7 @@ public:
                 } else {
                     mKeysExpirationQueue.erase(theIt);
                 }
+                UpdateNextTimerRunTime();
                 return true;
             }
         }
@@ -708,9 +683,8 @@ public:
         }
         MutexLocker theLocker(mMutex);
         if (! mPendingCurrentKeyFlag) {
+            ExpireKeys(theTimeNow - mKeyValidTime);
             if (theTimeNow < mNextKeyGenTime) {
-                ExpireKeys(theTimeNow - mKeyValidTime);
-                UpdateNextTimerRunTime();
                 return;
             }
             mError = 0;
@@ -881,17 +855,22 @@ private:
         time_t inExpirationTime)
     {
         QCASSERT(mMutex.IsOwned());
+        int theCnt = 0;
         while (! mKeysExpirationQueue.empty()) {
             const KeysExpirationQueue::value_type& theCur =
                 mKeysExpirationQueue.front();
             if (inExpirationTime < theCur.first) {
                 break;
             }
-            if (mKeyStorePtr && mKeyStorePtr->Expired(theCur.first)) {
+            if (mKeyStorePtr && mKeyStorePtr->Expired(theCur.second->first)) {
                 break;
             }
+            theCnt++;
             mKeys.erase(theCur.second);
             mKeysExpirationQueue.pop_front();
+        }
+        if (0 < theCnt) {
+            UpdateNextTimerRunTime();
         }
     }
     static bool PutKey(
@@ -931,6 +910,59 @@ private:
             UpdateNextTimerRunTime();
         }
         return mCurrentKeyValidFlag;
+    }
+    int LoadFile(
+        string& outErrMsg)
+    {
+        int theStatus = 0;
+        if (mFileName.empty()) {
+            return theStatus;
+        }
+        mFStream.close();
+        mFStream.clear();
+        mFStream.open(mFileName.c_str(), fstream::in | fstream::binary);
+        if (mFStream) {
+            const bool kRemoveIfCurrentKeyFlag = false;
+            if (0 < (theStatus = Read(
+                    mFStream, kRemoveIfCurrentKeyFlag))) {
+                theStatus = 0;
+                if (! mKeysExpirationQueue.empty()) {
+                    const KeysExpirationQueue::value_type& theLast =
+                        mKeysExpirationQueue.back();
+                    mCurrentKeyTime      = theLast.first;
+                    mCurrentKeyId        = theLast.second->first;
+                    mCurrentKey          = theLast.second->second;
+                    mCurrentKeyValidFlag = true;
+                    mNextKeyGenTime      =
+                        mCurrentKeyTime + mKeyChangePeriod;
+                    mKeys.erase(theLast.second);
+                    mKeysExpirationQueue.pop_back();
+                    UpdateNextTimerRunTime();
+                }
+            }
+            mFStream.close();
+        } else {
+            theStatus = errno;
+            if (theStatus == ENOENT) {
+                theStatus = 0;
+            } else {
+                if (0 < theStatus) {
+                    theStatus = -theStatus;
+                } else if (theStatus == 0) {
+                    theStatus = -EFAULT;
+                }
+                outErrMsg = mFileName + ": " +
+                    QCUtils::SysError(-theStatus);
+            }
+        }
+        if (theStatus == 0) {
+            theStatus = mError;
+            if (theStatus != 0) {
+                outErrMsg = "failed to create key: " +
+                    QCUtils::SysError(-theStatus);
+            }
+        }
+        return theStatus;
     }
 private:
     Impl(

@@ -258,8 +258,6 @@ private:
     uint64_t    mUpdateCount;
 };
 
-const char* const kCryptoKeysParamsPrefix = "metaServer.cryptoKeys.";
-
 class NetDispatch::KeyStore : public CryptoKeys::KeyStore
 {
 public:
@@ -270,7 +268,8 @@ public:
         NetManager& inNetManager)
         : CryptoKeys::KeyStore(),
           mCryptoKeys(inNetManager, this),
-          mRestoreCount(0)
+          mRestoreCount(0),
+          mInFlightExpiredPtr(0)
         {}
     virtual ~KeyStore()
         {}
@@ -293,7 +292,11 @@ public:
             panic("invalid crypto keys expired invocation");
             return true;
         }
-        submit_request(new MetaCryptoKeyExpired(inKeyId));
+        if (mInFlightExpiredPtr) {
+            return true;
+        }
+        mInFlightExpiredPtr = new MetaCryptoKeyExpired(inKeyId);
+        submit_request(mInFlightExpiredPtr);
         return true;
     }
     virtual void WriteKey(
@@ -344,6 +347,9 @@ public:
     void Handle(
         MetaCryptoKeyExpired& inReq)
     {
+        if (&inReq == mInFlightExpiredPtr) {
+            mInFlightExpiredPtr = 0;
+        }
         if (0 != inReq.status) {
             return;
         }
@@ -373,13 +379,14 @@ public:
         string&           outErrMsg)
     {
         return mCryptoKeys.SetParameters(
-            kCryptoKeysParamsPrefix, inProperties, outErrMsg);
+             "metaServer.cryptoKeys.", inProperties, outErrMsg);
     }
     const CryptoKeys& GetCryptoKeys() const
         { return mCryptoKeys; }
 private:
-    CryptoKeys mCryptoKeys;
-    int        mRestoreCount;
+    CryptoKeys            mCryptoKeys;
+    int                   mRestoreCount;
+    MetaCryptoKeyExpired* mInFlightExpiredPtr;
 private:
     KeyStore(
         const KeyStore& inStore);
@@ -546,17 +553,21 @@ private:
 bool
 NetDispatch::Start(MetaDataSync& metaDataSync)
 {
-    assert(! mMutex);
+    if (mMutex || mRunningFlag) {
+        KFS_LOG_STREAM_ERROR <<
+            "already running:" << mRunningFlag <<
+            " mutex: "         << reinterpret_cast<const void*>(mMutex) <<
+        KFS_LOG_EOM;
+        return false;
+    }
     QCMutex dispatchMutex;
     mMutex = 0 < mClientThreadCount ? &dispatchMutex : 0;
-    mKeyStore.Start();
-    string errMsg;
-    int    err;
-    if ((err = mKeyStore.SetParameters(
-            gLayoutManager.GetConfigParameters(), errMsg)) != 0) {
+    int err;
+    if ((err = mKeyStore.Start()) != 0) {
         KFS_LOG_STREAM_ERROR <<
-            "failed to set main crypto keys parameters: " <<
-                " status: " << err << " " << errMsg <<
+            "invalid crypto keys parameters:" <<
+            " status: " << err <<
+            " "         << QCUtils::SysError(err < 0 ? -err : err) <<
         KFS_LOG_EOM;
         mMutex = 0;
         return false;
@@ -998,7 +1009,7 @@ private:
 static RequestStatsGatherer& sReqStatsGatherer =
     RequestStatsGatherer::Instance();
 
-void NetDispatch::SetParameters(const Properties& props)
+int NetDispatch::SetParameters(const Properties& props)
 {
     if (! mRunningFlag) {
         mClientThreadCount = props.getValue(
@@ -1024,14 +1035,15 @@ void NetDispatch::SetParameters(const Properties& props)
     mClientManager.SetParameters(props);
     mMetaDataStore.SetParameters("metaServer.dataStore.", props);
 
-    string errMsg;
-    int    err;
-    if ((err = mKeyStore.SetParameters(props, errMsg)) != 0) {
+    string    errMsg;
+    const int err = mKeyStore.SetParameters(props, errMsg);
+    if (0 != err) {
         KFS_LOG_STREAM_ERROR <<
-            "crypto keys set parameters failure: "
+            "crypto keys set parameters:"
             " status: " << err << " " << errMsg <<
         KFS_LOG_EOM;
     }
+    return err;
 }
 
 void NetDispatch::GetStatsCsv(ostream& os)

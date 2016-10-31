@@ -112,6 +112,7 @@ public:
         bool*   enqueueFlagPtr)
         : mCommitQueue(),
           mCheckpointCommitted(0, 0, 0),
+          mLastNonLogCommit(),
           mCheckpointErrChksum(0),
           mLastCommittedSeq(0, 0, 0),
           mLastBlockCommittedSeq(0, 0, 0),
@@ -504,6 +505,7 @@ public:
 
     CommitQueue   mCommitQueue;
     MetaVrLogSeq  mCheckpointCommitted;
+    MetaVrLogSeq  mLastNonLogCommit;
     seq_t         mCheckpointErrChksum;
     MetaVrLogSeq  mLastCommittedSeq;
     MetaVrLogSeq  mLastBlockCommittedSeq;
@@ -1555,6 +1557,9 @@ ReplayState::runCommitQueue(
             return false;
         }
     }
+    if (logSeq < mLastNonLogCommit) {
+        return true;
+    }
     const MetaVrLogSeq    endSeq    = max(logSeq, mViewStartSeq);
     CommitQueue::iterator it        = mCommitQueue.begin();
     bool                  foundFlag = false;
@@ -1742,6 +1747,7 @@ replay_log_commit_entry(DETokenizer& c, Replay::BlockChecksum& blockChecksum)
     if (commitSeq < state.mLastBlockCommittedSeq ||
             (commitSeq < state.mLastCommittedSeq &&
                 state.mCheckpointCommitted <= commitSeq &&
+                state.mLastNonLogCommit <= commitSeq &&
                 state.mViewStartSeq < commitSeq) ||
             state.mLastLogAheadSeq < commitSeq ||
                 (state.mViewStartSeq == commitSeq &&
@@ -2791,8 +2797,12 @@ Replay::runCommitQueue(
 {
     ReplayState&               state = replayTokenizer.GetState();
     ReplayState::EnterAndLeave enterAndLeave(state);
-    return state.runCommitQueue(
+    const bool okFlag = state.runCommitQueue(
         committed, seed, status, errChecksum);
+    if (okFlag) {
+        state.mLastNonLogCommit = state.mLastCommittedSeq;
+    }
+    return okFlag;
 }
 
 bool
