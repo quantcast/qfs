@@ -2836,13 +2836,28 @@ Replay::handle(MetaLogWriterControl& op)
     const int*       lenPtr     = op.blockLines.GetPtr();
     const int* const lendEndPtr = lenPtr + op.blockLines.GetSize();
     while (lenPtr < lendEndPtr) {
-        const int lineLen = *lenPtr++;
+        int lineLen = *lenPtr++;
         if (lineLen <= 0) {
             continue;
         }
-        int               len     = lineLen;
-        const char* const linePtr =
-            op.blockData.CopyOutOrGetBufPtr(buffer.Reserve(lineLen), len);
+        int         len = lineLen;
+        const char* linePtr;
+        int         tlen;
+        if (lendEndPtr == lenPtr && 0 < (tlen = op.blockTrailer[0])) {
+            if (sizeof(op.blockTrailer) < tlen + 1) {
+                panic("replay: invalid write op trailer length");
+            }
+            lineLen += tlen;
+            char* const ptr = buffer.Reserve(lineLen);
+            len = op.blockData.CopyOut(ptr, len);
+            memcpy(ptr + len, op.blockTrailer + 1, tlen);
+            len += tlen;
+            linePtr = ptr;
+        } else {
+            tlen = 0;
+            linePtr =
+                op.blockData.CopyOutOrGetBufPtr(buffer.Reserve(lineLen), len);
+        }
         if (len != lineLen) {
             const char* const kErrMsg = "replay: invalid write op line length";
             panic(kErrMsg);
@@ -2855,12 +2870,18 @@ Replay::handle(MetaLogWriterControl& op)
                 lenPtr < lendEndPtr ? seq_t(-1) : op.blockSeq
             );
             if (status != 0) {
+                tlen = max(0, tlen);
+                char* const trailerPtr = buffer.Reserve(tlen + 1);
+                memcpy(trailerPtr, op.blockTrailer + 1, tlen);
+                trailerPtr[tlen] = 0;
                 KFS_LOG_STREAM_FATAL <<
                     "log block replay failure:"
                     " "         << op.Show() <<
                     " commit: " << op.blockCommitted <<
                     " status: " << status <<
-                    " line: "   << IOBuffer::DisplayData(op.blockData, len) <<
+                    " line: "   <<
+                        IOBuffer::DisplayData(op.blockData, len - tlen) <<
+                        trailerPtr <<
                 KFS_LOG_EOM;
                 const char* const kErrMsg = "log block apply failure";
                 panic(kErrMsg);

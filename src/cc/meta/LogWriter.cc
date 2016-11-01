@@ -452,15 +452,6 @@ private:
     };
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
-    class DoNotDeallocate
-    {
-    public:
-        DoNotDeallocate()
-            {}
-        void operator()(
-            char* /* inBufferPtr */)
-            {}
-    };
 
     NetManager*       mNetManagerPtr;
     MetaDataStore*    mMetaDataStorePtr;
@@ -1663,26 +1654,24 @@ private:
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         BOOST_STATIC_ASSERT(
             2 * sizeof(mNextBlockSeq)    + 1 +
-            2 * sizeof(theBlockChecksum) + 1 <= sizeof(inRequest.blockTrailer)
+            2 * sizeof(theBlockChecksum) + 1 + 1 <=
+                sizeof(inRequest.blockTrailer)
+            &&
+            2 * sizeof(mNextBlockSeq)    + 1 +
+            2 * sizeof(theBlockChecksum) + 1 <= 127
         );
-        if (sizeof(inRequest.blockTrailer) < theTrailerLen) {
+        if (sizeof(inRequest.blockTrailer) + 1 < theTrailerLen) {
             panic("log writer: block trailer exceeds buffer space");
             inRequest.blockData.CopyIn(thePtr, theTrailerLen);
+            inRequest.blockTrailer[0] = 0;
+            inRequest.blockLines.Back() += theTrailerLen;
         } else {
-            memcpy(inRequest.blockTrailer, thePtr, theTrailerLen);
-            inRequest.blockData.Append(IOBufferData(
-                IOBufferData::IOBufferBlockPtr(
-                    inRequest.blockTrailer,
-                    DoNotDeallocate()
-                ),
-                theTrailerLen,
-                0,
-                theTrailerLen
-            ));
+            inRequest.blockTrailer[0] = (char)theTrailerLen;
+            memcpy(inRequest.blockTrailer + 1, thePtr, theTrailerLen);
+            theTrailerLen = 0;
         }
         const char* const theEndPtr = thePtr;
-        thePtr = theEndPtr - inRequest.blockLines.Back();
-        inRequest.blockLines.Back() += theTrailerLen;
+        thePtr = theEndPtr - inRequest.blockLines.Back() - theTrailerLen;
         inRequest.blockCommitted = MetaVrLogSeq();
         MetaVrLogSeq theLogSeq;
         int          theBlockLen = -1;
