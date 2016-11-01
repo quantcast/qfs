@@ -1660,7 +1660,7 @@ private:
             2 * sizeof(mNextBlockSeq)    + 1 +
             2 * sizeof(theBlockChecksum) + 1 <= 127
         );
-        if (sizeof(inRequest.blockTrailer) + 1 < theTrailerLen) {
+        if (sizeof(inRequest.blockTrailer) <= theTrailerLen) {
             panic("log writer: block trailer exceeds buffer space");
             inRequest.blockData.CopyIn(thePtr, theTrailerLen);
             inRequest.blockTrailer[0] = 0;
