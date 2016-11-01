@@ -4158,6 +4158,7 @@ struct MetaLogWriterControl : public MetaRequest {
     MetaVrLogSeq       blockCommitted;
     Lines              blockLines;
     IOBuffer           blockData;
+    char               blockTrailer[32]; // hex block sequence, and checksum.
 
     MetaLogWriterControl(
         Type         t = kNop,

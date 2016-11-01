@@ -1240,7 +1240,6 @@ private:
                             HandleError();
                             return;
                         }
-                        mBuffer.Consume(theNWr);
                     }
                 }
             } else {

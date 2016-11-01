@@ -3800,7 +3800,7 @@ MetaFsck::handle()
     names.reserve(cnt);
     fd.reserve(cnt);
     for (int i = 0; i < cnt; i++) {
-        char* const ptr = buf.Resize(sTmpName.length() + suffixLen + 1);
+        char* const ptr = buf.Reserve(sTmpName.length() + suffixLen + 1);
         memcpy(ptr, sTmpName.data(), sTmpName.size());
         strcpy(ptr + sTmpName.size(), suffix);
         const int tfd = mkstemp(ptr);

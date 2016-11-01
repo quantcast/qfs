@@ -56,6 +56,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <boost/static_assert.hpp>
+
 namespace KFS
 {
 using std::ofstream;
@@ -450,6 +452,15 @@ private:
     };
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
+    class DoNotDeallocate
+    {
+    public:
+        DoNotDeallocate()
+            {}
+        void operator()(
+            char* /* inBufferPtr */)
+            {}
+    };
 
     NetManager*       mNetManagerPtr;
     MetaDataStore*    mMetaDataStorePtr;
@@ -1650,7 +1661,25 @@ private:
         // Append trailer to make block replay work, and parse committed.
         thePtr        = mMdStream.GetBufferedStart() + thePos + theLen;
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
-        inRequest.blockData.CopyIn(thePtr, theTrailerLen);
+        BOOST_STATIC_ASSERT(
+            2 * sizeof(mNextBlockSeq)    + 1 +
+            2 * sizeof(theBlockChecksum) + 1 <= sizeof(inRequest.blockTrailer)
+        );
+        if (sizeof(inRequest.blockTrailer) < theTrailerLen) {
+            panic("log writer: block trailer exceeds buffer space");
+            inRequest.blockData.CopyIn(thePtr, theTrailerLen);
+        } else {
+            memcpy(inRequest.blockTrailer, thePtr, theTrailerLen);
+            inRequest.blockData.Append(IOBufferData(
+                IOBufferData::IOBufferBlockPtr(
+                    inRequest.blockTrailer,
+                    DoNotDeallocate()
+                ),
+                theTrailerLen,
+                0,
+                theTrailerLen
+            ));
+        }
         const char* const theEndPtr = thePtr;
         thePtr = theEndPtr - inRequest.blockLines.Back();
         inRequest.blockLines.Back() += theTrailerLen;

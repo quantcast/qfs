@@ -2226,8 +2226,11 @@ Replay::Replay()
       blockChecksum(),
       maxLogNum(-1),
       logSeqStartNum(-1),
-      primaryNodeId(-1)
-    {}
+      primaryNodeId(-1),
+      buffer()
+{
+    buffer.Reserve(16 << 10);
+}
 
 Replay::~Replay()
 {}
