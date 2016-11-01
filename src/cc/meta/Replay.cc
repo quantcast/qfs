@@ -2842,52 +2842,56 @@ Replay::handle(MetaLogWriterControl& op)
         }
         int         len = lineLen;
         const char* linePtr;
-        int         tlen;
-        if (lendEndPtr == lenPtr && 0 < (tlen = op.blockTrailer[0])) {
-            if (sizeof(op.blockTrailer) < tlen + 1) {
-                panic("replay: invalid write op trailer length");
+        int         trLen;
+        if (lendEndPtr == lenPtr && 0 < (trLen = op.blockTrailer[0] & 0xFF)) {
+            if (sizeof(op.blockTrailer) <= (size_t)trLen) {
+                const char* const kErrMsg =
+                    "replay: invalid write op trailer length";
+                panic(kErrMsg);
+                op.status    = -EFAULT;
+                op.statusMsg = kErrMsg;
+                break;
             }
-            lineLen += tlen;
+            lineLen += trLen;
             char* const ptr = buffer.Reserve(lineLen);
             len = op.blockData.CopyOut(ptr, len);
-            memcpy(ptr + len, op.blockTrailer + 1, tlen);
-            len += tlen;
+            memcpy(ptr + len, op.blockTrailer + 1, trLen);
+            len += trLen;
             linePtr = ptr;
         } else {
-            tlen = 0;
-            linePtr =
-                op.blockData.CopyOutOrGetBufPtr(buffer.Reserve(lineLen), len);
+            trLen = 0;
+            linePtr = op.blockData.CopyOutOrGetBufPtr(
+                buffer.Reserve(lineLen), len);
         }
         if (len != lineLen) {
             const char* const kErrMsg = "replay: invalid write op line length";
             panic(kErrMsg);
             op.status    = -EFAULT;
             op.statusMsg = kErrMsg;
-        } else {
-            const int status = playLine(
-                linePtr,
-                len,
-                lenPtr < lendEndPtr ? seq_t(-1) : op.blockSeq
-            );
-            if (status != 0) {
-                tlen = max(0, tlen);
-                char* const trailerPtr = buffer.Reserve(tlen + 1);
-                memcpy(trailerPtr, op.blockTrailer + 1, tlen);
-                trailerPtr[tlen] = 0;
-                KFS_LOG_STREAM_FATAL <<
-                    "log block replay failure:"
-                    " "         << op.Show() <<
-                    " commit: " << op.blockCommitted <<
-                    " status: " << status <<
-                    " line: "   <<
-                        IOBuffer::DisplayData(op.blockData, len - tlen) <<
-                        trailerPtr <<
-                KFS_LOG_EOM;
-                const char* const kErrMsg = "log block apply failure";
-                panic(kErrMsg);
-                op.status    = -EFAULT;
-                op.statusMsg = kErrMsg;
-            }
+            break;
+        }
+        const int status = playLine(
+            linePtr,
+            len,
+            lenPtr < lendEndPtr ? seq_t(-1) : op.blockSeq
+        );
+        if (status != 0) {
+            char* const trailerPtr = buffer.Reserve(trLen + 1);
+            memcpy(trailerPtr, op.blockTrailer + 1, trLen);
+            trailerPtr[trLen] = 0;
+            const char* const kErrMsg = "replay: log block apply failure";
+            KFS_LOG_STREAM_FATAL <<
+                kErrMsg << ":"
+                " "         << op.Show() <<
+                " commit: " << op.blockCommitted <<
+                " status: " << status <<
+                " line: "   <<
+                    IOBuffer::DisplayData(op.blockData, len - trLen) <<
+                    trailerPtr <<
+            KFS_LOG_EOM;
+            panic(kErrMsg);
+            op.status    = -EFAULT;
+            op.statusMsg = kErrMsg;
         }
         op.blockData.Consume(len);
     }
