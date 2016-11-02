@@ -137,7 +137,6 @@ private:
     Properties     mProp;
     vector<string> mChunkDirs;
     string         mMD5Sum;
-    ServerLocation mMetaServerLoc;
     ServerLocation mClientListener;
     bool           mClientListenerIpV6OnlyFlag;
     int            mClientThreadCount;
@@ -151,7 +150,6 @@ private:
         : mProp(),
           mChunkDirs(),
           mMD5Sum(),
-          mMetaServerLoc(),
           mClientListener(),
           mClientListenerIpV6OnlyFlag(false),
           mClientThreadCount(0),
@@ -232,15 +230,6 @@ ChunkServerMain::LoadParams(const char* fileName)
     displayProps += ":\n";
     mProp.getList(displayProps, string());
     KFS_LOG_STREAM_INFO << displayProps << KFS_LOG_EOM;
-
-    mMetaServerLoc.hostname = mProp.getValue("chunkServer.metaServer.hostname", "");
-    mMetaServerLoc.port = mProp.getValue("chunkServer.metaServer.port", -1);
-    if (! mMetaServerLoc.IsValid()) {
-        KFS_LOG_STREAM_FATAL << "invalid meta-server host or port: " <<
-            mMetaServerLoc.hostname << ':' << mMetaServerLoc.port <<
-        KFS_LOG_EOM;
-        return false;
-    }
 
     mClientListener.port = mProp.getValue(
         "chunkServer.clientPort", mClientListener.port);
@@ -413,7 +402,6 @@ ChunkServerMain::Run(int argc, char **argv)
     signal(SIGHUP,  &SigHupHandler);
     int ret = 1;
     if (gMetaServerSM.SetMetaInfo(
-                mMetaServerLoc,
                 mClusterKey,
                 mChunkServerRackId,
                 mMD5Sum,

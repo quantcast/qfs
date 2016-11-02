@@ -7669,7 +7669,7 @@ ChunkManager::ChunkDirInfo::NotifyAvailableChunks(bool timeoutFlag /* false */)
     }
     if ((availableChunksOp.numChunks <= 0 && ! availableChunksOp.noReply) ||
             ! globalNetManager().IsRunning() ||
-            ! gMetaServerSM.GetLocation().IsValid()) {
+            ! gMetaServerSM.IsRunning()) {
         return;
     }
     availableChunksOpInFlightFlag = true;

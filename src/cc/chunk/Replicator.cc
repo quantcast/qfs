@@ -931,7 +931,10 @@ private:
             GetSeqNum()
           ),
           mReadTail(),
-          mLocation(gMetaServerSM.GetLocation().hostname, op->location.port),
+          mLocation(
+            gMetaServerSM.CetPrimaryLocation().hostname,
+            op->location.port
+          ),
           mReadSize(GetReadSize(*op)),
           mReadInFlightFlag(false),
           mPendingCloseFlag(false),

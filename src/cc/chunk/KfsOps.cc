@@ -1390,7 +1390,7 @@ AllocChunkOp::HandleChunkMetaReadDone(int code, void* data)
         Submit();
         return 0;
     }
-    if (generation != gMetaServerSM.GetGenerationCount()) {
+    if (! gMetaServerSM.IsInProgress(*this)) {
         status = -EAGAIN;
         Submit();
         return 0;
@@ -1546,7 +1546,7 @@ int
 MakeChunkStableOp::HandleChunkMetaReadDone(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (0 <= status && generation != gMetaServerSM.GetGenerationCount()) {
+    if (0 <= status && ! gMetaServerSM.IsInProgress(*this)) {
         status = -EAGAIN;
     }
     if (status < 0) {
@@ -1628,7 +1628,7 @@ int
 ChangeChunkVersOp::HandleChunkMetaReadDone(int code, void* data)
 {
     UpdateStatus(code, data);
-    if (0 <= status && generation != gMetaServerSM.GetGenerationCount()) {
+    if (0 <= status && ! gMetaServerSM.IsInProgress(*this)) {
         status = -EAGAIN;
     }
     if (status < 0) {
@@ -3680,7 +3680,7 @@ ReplicateChunkOp::Response(ReqOstream& os)
 void
 PingOp::Response(ReqOstream& os)
 {
-    ServerLocation loc = gMetaServerSM.GetLocation();
+    ServerLocation loc = gMetaServerSM.CetPrimaryLocation();
 
     PutHeader(this, os);
     os <<
