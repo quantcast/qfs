@@ -592,7 +592,7 @@ MetaServerSM::Impl::SendHello()
     }
     if (gChunkServer.CanUpdateServerIp() &&
             (! mPrimary || this == mPrimary) &&
-            (mLocations.size() <= 1 || // Do not location
+            (mLocations.size() <= 1 || // Do not change location.
             ! gChunkServer.GetLocation().IsValid())) {
         // Advertise the same ip address to the clients, as used
         // for the meta connection.
