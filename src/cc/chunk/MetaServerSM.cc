@@ -72,7 +72,8 @@ public:
     Impl(
         Counters& inCounters,
         OpsQueue& inPendingOps,
-        Impl*&    inPrimary);
+        Impl*&    inPrimary,
+        bool      inUpdateServerIpFlag);
     ~Impl();
 
     /// In each hello to the metaserver, we send an MD5 sum of the
@@ -212,6 +213,7 @@ private:
     KfsOp*                        mOp;
     bool                          mRequestFlag;
     bool                          mTraceRequestResponseFlag;
+    bool const                    mUpdateServerIpFlag;
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
     uint64_t                      mGenerationCount;
@@ -279,7 +281,8 @@ MetaServerSM::Impl::DetachAndDeleteOp(T*& op)
 MetaServerSM::Impl::Impl(
     MetaServerSM::Counters& inCounters,
     MetaServerSM::OpsQueue& inPendingOps,
-    MetaServerSM::Impl*&    inPrimary)
+    MetaServerSM::Impl*&    inPrimary,
+    bool                    inUpdateServerIpFlag)
     : KfsCallbackObj(),
       ITimeout(),
       mCmdSeq(GetRandomSeq()),
@@ -315,6 +318,7 @@ MetaServerSM::Impl::Impl(
       mOp(0),
       mRequestFlag(false),
       mTraceRequestResponseFlag(false),
+      mUpdateServerIpFlag(inUpdateServerIpFlag),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
       mGenerationCount(1),
@@ -592,7 +596,7 @@ MetaServerSM::Impl::SendHello()
     }
     if (gChunkServer.CanUpdateServerIp() &&
             (! mPrimary || this == mPrimary) &&
-            (mLocations.size() <= 1 || // Do not change location.
+            (mUpdateServerIpFlag ||
             ! gChunkServer.GetLocation().IsValid())) {
         // Advertise the same ip address to the clients, as used
         // for the meta connection.
@@ -1700,7 +1704,8 @@ MetaServerSM::SetMetaInfo(
     mImplCount = (int)mLocations.size();
     mImpls = reinterpret_cast<Impl*>(new char[sizeof(Impl) * mImplCount]);
     for (int i = 0; i < mImplCount; i++) {
-        new (mImpls + i) Impl(mCounters, mPendingOps, mPrimary);
+        new (mImpls + i) Impl(
+            mCounters, mPendingOps, mPrimary, mImplCount <= 1);
     }
     int res;
     for (int i = 0; i < mImplCount; i++) {
