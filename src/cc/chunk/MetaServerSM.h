@@ -42,6 +42,7 @@
 namespace KFS
 {
 using std::string;
+using std::vector;
 
 class Properties;
 
@@ -120,6 +121,8 @@ private:
     ~MetaServerSM();
     void Cleanup();
     friend class ChunkServerGlobals;
+public:
+    inline void SetPrimary(Impl& primary);
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);

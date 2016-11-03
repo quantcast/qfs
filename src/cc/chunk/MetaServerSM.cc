@@ -131,7 +131,7 @@ public:
 
     void Shutdown();
 
-    void ForceDown();
+    void ForceDown(const char* msg = 0);
 
     uint64_t GetGenerationCount() const {
         return mGenerationCount;
@@ -267,6 +267,28 @@ private:
     Impl& operator=(const Impl&);
 };
 
+inline void
+MetaServerSM::SetPrimary(
+    MetaServerSM::Impl& primary)
+{
+    if (&primary == mPrimary) {
+        return;
+    }
+    Impl* const prevPrimary = mPrimary;
+    if (mPrimary) {
+        mPrimary->ForceDown("no longer primary");
+        if (mPrimary) {
+            die("set meta server primary failure");
+        }
+    }
+    mPrimary = &primary;
+    for (int i = 0; i < mImplCount; i++) {
+        if (mPrimary != mImpls + i && prevPrimary != mImpls + i) {
+            mImpls[i].ForceDown("not primary");
+        }
+    }
+}
+
 template<typename T> inline void
 MetaServerSM::Impl::DetachAndDeleteOp(T*& op)
 {
@@ -397,10 +419,11 @@ MetaServerSM::Impl::Shutdown()
 }
 
 void
-MetaServerSM::Impl::ForceDown()
+MetaServerSM::Impl::ForceDown(
+    const char* msg)
 {
     if (mNetConnection) {
-        Error("protocol error");
+        Error(msg ? msg : "protocol error");
     }
 }
 
@@ -847,7 +870,7 @@ MetaServerSM::Impl::Error(const char* msg)
     DetachAndDeleteOp(mAuthOp);
     DiscardPendingResponses();
     if (mNetConnection) {
-        KFS_LOG_STREAM(gMetaServerSM.IsRunning() ?
+        KFS_LOG_STREAM((gMetaServerSM.IsRunning() && wasPrimaryFlag) ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) <<
             mLocation <<
@@ -1088,11 +1111,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 lostDirs.swap(mHelloOp->lostChunkDirs);
                 DetachAndDeleteOp(mHelloOp);
                 if (IsUp()) {
-                    if (mPrimary && this != mPrimary) {
-                        mPrimary->Error("no longer primary");
-                        assert(0 == mPrimary);
-                    }
-                    mPrimary = this;
+                    gMetaServerSM.SetPrimary(*this);
                     mCounters.mHelloDoneCount++;
                     for (HelloMetaOp::LostChunkDirs::const_iterator
                             it = lostDirs.begin();
