@@ -73,7 +73,8 @@ public:
         Counters& inCounters,
         OpsQueue& inPendingOps,
         Impl*&    inPrimary,
-        bool      inUpdateServerIpFlag);
+        bool      inUpdateServerIpFlag,
+        int64_t   inChannelId);
     ~Impl();
 
     /// In each hello to the metaserver, we send an MD5 sum of the
@@ -82,10 +83,8 @@ public:
     /// simple mechanism to identify nodes that didn't receive a
     /// binary update or are running versions that the metaserver
     /// doesn't know about and shouldn't be inlcuded in the system.
-    int SetMetaInfo(const ServerLocation &metaLoc, const string &clusterKey,
+    int SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKey,
         int rackId, const string& md5sum, const Properties& prop);
-
-    void Init();
 
     void EnqueueOp(KfsOp* op);
 
@@ -216,6 +215,7 @@ private:
     bool const                    mUpdateServerIpFlag;
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
+    int64_t const                 mChannelId;
     uint64_t                      mGenerationCount;
     size_t                        mMaxPendingOpsCount;
     PendingResponses              mPendingResponses;
@@ -253,7 +253,7 @@ private:
     void DispatchOps();
 
     void Error(const char* msg);
-    void FailOps(bool shutdownFlag, bool wasPrimaryFlag);
+    void FailOps(bool wasPrimaryFlag);
     void HandleAuthResponse(IOBuffer& ioBuf);
     void CleanupOpInFlight();
     bool Authenticate();
@@ -282,7 +282,8 @@ MetaServerSM::Impl::Impl(
     MetaServerSM::Counters& inCounters,
     MetaServerSM::OpsQueue& inPendingOps,
     MetaServerSM::Impl*&    inPrimary,
-    bool                    inUpdateServerIpFlag)
+    bool                    inUpdateServerIpFlag,
+    int64_t                 inChannelId)
     : KfsCallbackObj(),
       ITimeout(),
       mCmdSeq(GetRandomSeq()),
@@ -321,6 +322,7 @@ MetaServerSM::Impl::Impl(
       mUpdateServerIpFlag(inUpdateServerIpFlag),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
+      mChannelId(inChannelId),
       mGenerationCount(1),
       mMaxPendingOpsCount(96),
       mCounters(inCounters),
@@ -353,6 +355,12 @@ MetaServerSM::Impl::SetMetaInfo(
     const string&         md5sum,
     const Properties&     prop)
 {
+    if (! metaLoc.IsValid()) {
+        die("meta server location is not valid");
+    }
+    if (! mLocation.IsValid()) {
+        globalNetManager().RegisterTimeoutHandler(this);
+    }
     mLocation   = metaLoc;
     mClusterKey = clusterKey;
     mRackId     = rackId;
@@ -381,7 +389,7 @@ MetaServerSM::Impl::Shutdown()
     }
     CleanupOpInFlight();
     DiscardPendingResponses();
-    FailOps(true, wasPrimaryFlag);
+    FailOps(wasPrimaryFlag);
     mSentHello = false;
     DetachAndDeleteOp(mHelloOp);
     DetachAndDeleteOp(mAuthOp);
@@ -444,12 +452,6 @@ MetaServerSM::Impl::SetParameters(const Properties& prop)
         }
     }
     return ret;
-}
-
-void
-MetaServerSM::Impl::Init()
-{
-    globalNetManager().RegisterTimeoutHandler(this);
 }
 
 void
@@ -845,7 +847,7 @@ MetaServerSM::Impl::Error(const char* msg)
     DetachAndDeleteOp(mAuthOp);
     DiscardPendingResponses();
     if (mNetConnection) {
-        KFS_LOG_STREAM(globalNetManager().IsRunning() ?
+        KFS_LOG_STREAM(gMetaServerSM.IsRunning() ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) <<
             mLocation <<
@@ -863,13 +865,13 @@ MetaServerSM::Impl::Error(const char* msg)
             gChunkManager.MetaServerConnectionLost();
         }
     }
-    FailOps(! globalNetManager().IsRunning(), wasPrimaryFlag);
+    FailOps(wasPrimaryFlag);
     mSentHello = false;
     DetachAndDeleteOp(mHelloOp);
 }
 
 void
-MetaServerSM::Impl::FailOps(bool shutdownFlag, bool wasPrimaryFlag)
+MetaServerSM::Impl::FailOps(bool wasPrimaryFlag)
 {
     // Fail all no retry ops, if any, or all ops on shutdown.
     OpsQueue doneOps;
@@ -879,7 +881,7 @@ MetaServerSM::Impl::FailOps(bool shutdownFlag, bool wasPrimaryFlag)
         doneOps.PushBack(*(it->second));
     }
     mDispatchedOps.clear();
-    if (wasPrimaryFlag || shutdownFlag) {
+    if (wasPrimaryFlag) {
         doneOps.PushBack(mPendingOps);
     }
     for (; ;) {
@@ -888,7 +890,7 @@ MetaServerSM::Impl::FailOps(bool shutdownFlag, bool wasPrimaryFlag)
             op->status = -EHOSTUNREACH;
             SubmitOpResponse(op);
         }
-        if (! shutdownFlag || mPendingOps.IsEmpty()) {
+        if (mPendingOps.IsEmpty()) {
             break;
         }
         doneOps.PushBack(mPendingOps);
@@ -921,7 +923,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
             IOBuffer::IStream is(iobuf, msgLen);
             string            line;
             while (getline(is, line)) {
-                KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+                KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
                     " " << mLocation << " meta response: " << line <<
                 KFS_LOG_EOM;
             }
@@ -1218,7 +1220,7 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
             IOBuffer::IStream is(iobuf, cmdLen);
             string            line;
             while (getline(is, line)) {
-                KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+                KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
                     " " << mLocation << " meta request: " << line <<
                 KFS_LOG_EOM;
             }
@@ -1321,7 +1323,7 @@ MetaServerSM::Impl::EnqueueOp(KfsOp* op)
             SubmitOpResponse(op);
         }
     } else {
-        if (globalNetManager().IsRunning() && mLocation.IsValid()) {
+        if (gMetaServerSM.IsRunning() && mLocation.IsValid()) {
             mPendingOps.PushBack(*op);
         } else {
             op->status = -EHOSTUNREACH;
@@ -1383,7 +1385,7 @@ MetaServerSM::Impl::SendResponse(KfsOp* op)
         is.ignore(reqPos);
         string line;
         while (getline(is, line)) {
-            KFS_LOG_STREAM_DEBUG << reinterpret_cast<void*>(this) <<
+            KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
                 " " << mLocation << " cs response: " << line <<
             KFS_LOG_EOM;
         }
@@ -1517,7 +1519,7 @@ MetaServerSM::Impl::SubmitHello()
         return;
     }
     mHelloOp = new HelloMetaOp(
-        gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId);
+        gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId, mChannelId);
     mHelloOp->seq                = nextSeq();
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
@@ -1544,6 +1546,7 @@ MetaServerSM::MetaServerSM()
     : mCounters(),
       mRunningFlag(false),
       mAuthEnabledFlag(false),
+      mAllowDuplicateLocationsFlag(false),
       mImplCount(0),
       mPendingOps(),
       mImpls(0),
@@ -1554,11 +1557,19 @@ MetaServerSM::MetaServerSM()
 
 MetaServerSM::~MetaServerSM()
 {
-    mPrimary = 0;
+    MetaServerSM::Cleanup();
+}
+
+void
+MetaServerSM::Cleanup()
+{
     for (int i = 0; i < mImplCount; i++) {
         mImpls[i].~Impl();
     }
-    delete reinterpret_cast<char*>(mImpls);
+    mPrimary   = 0;
+    mImplCount = 0;
+    delete [] reinterpret_cast<char*>(mImpls);
+    mImpls = 0;
 }
 
 bool
@@ -1598,7 +1609,7 @@ MetaServerSM::EnqueueOp(KfsOp* op)
     if (mPrimary) {
         mPrimary->EnqueueOp(op);
     } else {
-        if (globalNetManager().IsRunning() && mRunningFlag) {
+        if (mRunningFlag) {
             mPendingOps.PushBack(*op);
             globalNetManager().Wakeup();
         } else {
@@ -1618,18 +1629,14 @@ MetaServerSM::SetParameters(const Properties& prop)
             res = ret;
         }
     }
+    mAllowDuplicateLocationsFlag = prop.getValue(
+        "chunkServer.metaServer.allowDuplicateLocations",
+        mAllowDuplicateLocationsFlag ? 1 : 0
+    ) != 0;
     if (0 < mImplCount) {
         mAuthEnabledFlag = mImpls[0].IsAuthEnabled();
     }
     return res;
-}
-
-void
-MetaServerSM::Init()
-{
-    for (int i = 0; i < mImplCount; i++) {
-        mImpls[i].Init();
-    }
 }
 
 void
@@ -1647,6 +1654,16 @@ MetaServerSM::Shutdown()
     for (int i = 0; i < mImplCount; i++) {
         mImpls[i].Shutdown();
     }
+    OpsQueue doneOps;
+    while (! mPendingOps.IsEmpty()) {
+        doneOps.PushBack(mPendingOps);
+        KfsOp* op;
+        while ((op = doneOps.PopFront())) {
+            op->status = -EHOSTUNREACH;
+            SubmitOpResponse(op);
+        }
+    }
+    Cleanup();
 }
 
 void
@@ -1665,11 +1682,15 @@ MetaServerSM::SetMetaInfo(
     const Properties& prop)
 {
     if (0 < mImplCount || mRunningFlag) {
+        KFS_LOG_STREAM_ERROR <<
+            "meta server info already set" <<
+        KFS_LOG_EOM;
         return -EINVAL;
     }
+    SetParameters(prop);
     mLocations.clear();
     const char* const         kParamName = "chunkServer.metaServer.locations";
-    const Properties::String* locs      = prop.getValue(kParamName);
+    const Properties::String* locs       = prop.getValue(kParamName);
     ServerLocation            loc;
     if (locs) {
         const char*       ptr = locs->data();
@@ -1685,7 +1706,18 @@ MetaServerSM::SetMetaInfo(
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
-            mLocations.push_back(loc);
+            if (mAllowDuplicateLocationsFlag ||
+                    find(mLocations.begin(), mLocations.end(), loc) ==
+                    mLocations.end()) {
+                mLocations.push_back(loc);
+            } else {
+                mLocations.clear();
+                KFS_LOG_STREAM_FATAL <<
+                    "invalid parameter: "   << kParamName <<
+                    " duplicate location: " << loc <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
         }
     } else {
         loc.hostname = prop.getValue(
@@ -1705,11 +1737,12 @@ MetaServerSM::SetMetaInfo(
     mImpls = reinterpret_cast<Impl*>(new char[sizeof(Impl) * mImplCount]);
     for (int i = 0; i < mImplCount; i++) {
         new (mImpls + i) Impl(
-            mCounters, mPendingOps, mPrimary, mImplCount <= 1);
+            mCounters, mPendingOps, mPrimary, mImplCount <= 1, i);
     }
     int res;
     for (int i = 0; i < mImplCount; i++) {
-        res = mImpls[i].SetMetaInfo(mLocations[i], clusterKey, rackId, md5sum, prop);
+        res = mImpls[i].SetMetaInfo(
+            mLocations[i], clusterKey, rackId, md5sum, prop);
         if (0 != res) {
             break;
         }
@@ -1718,12 +1751,7 @@ MetaServerSM::SetMetaInfo(
         mRunningFlag     = true;
         mAuthEnabledFlag = mImpls[0].IsAuthEnabled();
     } else {
-        for (int i = 0; i < mImplCount; i++) {
-            mImpls[i].~Impl();
-        }
-        mImplCount = 0;
-        delete reinterpret_cast<char*>(mImpls);
-        mImpls = 0;
+        Cleanup();
     }
     return res;
 }

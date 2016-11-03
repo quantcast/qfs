@@ -2242,10 +2242,11 @@ struct HelloMetaOp : public KfsOp {
     int64_t                  helloResumeCount;
     int64_t                  helloResumeFailedCount;
     int64_t                  totalChunks;
+    int64_t                  channelId;
     PendingNotifyLostChunks* pendingNotifyLostChunks;
 
     HelloMetaOp(const ServerLocation& l,
-            const string& k, const string& m, int r)
+            const string& k, const string& m, int r, int64_t chanId)
         : KfsOp(CMD_META_HELLO),
           myLocation(l),
           clusterKey(k),
@@ -2277,6 +2278,7 @@ struct HelloMetaOp : public KfsOp {
           helloResumeCount(0),
           helloResumeFailedCount(0),
           totalChunks(0),
+          channelId(chanId),
           pendingNotifyLostChunks(0)
         {}
     virtual ~HelloMetaOp();
@@ -2302,7 +2304,8 @@ struct HelloMetaOp : public KfsOp {
             " metafsid: "     << metaFileSystemId <<
             " delete flag: "  << deleteAllChunksFlag <<
             " total chunks: " << totalChunks <<
-            " resume: "       << resumeStep
+            " resume: "       << resumeStep <<
+            " channel: "      << channelId
         ;
     }
     virtual bool ParseResponseContent(istream& is, int len);

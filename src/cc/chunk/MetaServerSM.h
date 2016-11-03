@@ -93,7 +93,6 @@ public:
     ServerLocation CetPrimaryLocation() const;
     void EnqueueOp(KfsOp* op);
     int SetParameters(const Properties& prop);
-    void Init();
     void Reconnect();
     void Shutdown();
     void ForceDown();
@@ -110,6 +109,7 @@ private:
     Counters  mCounters;
     bool      mRunningFlag;
     bool      mAuthEnabledFlag;
+    bool      mAllowDuplicateLocationsFlag;
     int       mImplCount;
     OpsQueue  mPendingOps;
     Impl*     mImpls;
@@ -118,6 +118,7 @@ private:
 
     MetaServerSM();
     ~MetaServerSM();
+    void Cleanup();
     friend class ChunkServerGlobals;
 private:
     // No copy.

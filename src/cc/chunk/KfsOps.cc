@@ -4123,6 +4123,10 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         (shortRpcFormatFlag ? "K:" : "Checksum: ") << checksum      << "\r\n"
         ;
     }
+    if (0 <= channelId) {
+        os << (shortRpcFormatFlag ? "CID:" : "ChannelId: ") <<
+            channelId << "\r\n";
+    }
     os << (shortRpcFormatFlag ? "TC:" : "Total-chunks: ") <<
         totalChunks << "\r\n";
     int64_t contentLength = 1;

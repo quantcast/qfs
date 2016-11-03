@@ -154,7 +154,6 @@ ChunkServer::MainLoop(
         gClientManager.Shutdown();
         return false;
     }
-    gMetaServerSM.Init();
     {
         ClientThreadVerifier verifier(mMutex);
         QCStMutexUnlocker    unlocker(mMutex);
