@@ -929,6 +929,18 @@ public:
         { mHelloProcessFlag = false; }
     bool IsHelloNotifyPending() const
         { return mPendingHelloNotifyFlag; }
+    bool IsDuplicateChannel(int64_t channelId) const
+    {
+        return (
+            0 <= channelId &&
+            ! mReplayFlag &&
+            ! mDown &&
+            mChannelId != channelId &&
+            0 <= mChannelId &&
+            mNetConnection &&
+            mNetConnection->IsGood()
+        );
+    }
     void SetPendingHelloNotify(bool flag)
         { mPendingHelloNotifyFlag = flag; }
     static void SetMaxChunkServerCount(int count)
@@ -1258,6 +1270,7 @@ protected:
     int64_t            mHelloResumeFailedCount;
     bool               mShortRpcFormatFlag;
     uint64_t           mHibernatedGeneration;
+    int64_t            mChannelId;
     int                mPendingOpsCount;
     bool               mPendingHelloNotifyFlag;
     bool               mPendingByeFlag;

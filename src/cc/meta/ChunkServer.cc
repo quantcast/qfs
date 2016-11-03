@@ -440,6 +440,12 @@ ChunkServer::Create(const NetConnectionPtr& conn)
     if (! conn || ! conn->IsGood()) {
         return 0;
     }
+    if (! gLayoutManager.IsPrimary()) {
+        KFS_LOG_STREAM_DEBUG << conn->GetPeerName() <<
+            " meta server node is not primary, closing connection" <<
+        KFS_LOG_EOM;
+        return 0;
+    }
     if (sMaxChunkServerCount <= sChunkServerCount) {
         KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
             " chunk servers: "            << sChunkServerCount <<
@@ -607,6 +613,7 @@ ChunkServer::ChunkServer(
       mHelloResumeFailedCount(0),
       mShortRpcFormatFlag(false),
       mHibernatedGeneration(0),
+      mChannelId(-1),
       mPendingOpsCount(0),
       mPendingHelloNotifyFlag(false),
       mPendingByeFlag(false),
@@ -1860,6 +1867,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     mHelloResumeCount       = mHelloOp->helloResumeCount;
     mHelloResumeFailedCount = mHelloOp->helloResumeFailedCount;
     mShortRpcFormatFlag     = mHelloOp->shortRpcFormatFlag;
+    mChannelId              = mHelloOp->channelId;
     MetaHello& op = *mHelloOp;
     mHelloOp = 0;
     Submit(op);

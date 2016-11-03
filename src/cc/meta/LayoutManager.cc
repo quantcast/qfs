@@ -2751,6 +2751,11 @@ LayoutManager::Start(MetaHello& r)
         r.status     = -ELOGFAILED;
         return;
     }
+    if ((*it)->IsDuplicateChannel(r.channelId)) {
+        r.statusMsg  = "ignoring duplicate channel";
+        r.status     = -EEXIST;
+        return;
+    }
     if (! mUseCSRackAssignmentFlag || r.rackId < 0) {
         RackId const rackId = GetRackId(r.location);
         if (0 <= rackId) {
@@ -3814,7 +3819,8 @@ LayoutManager::AddNewServer(MetaHello& req)
         }
         req.statusMsg += ", retry resume later";
         req.status = -EEXIST;
-        if (! req.replayFlag && mPrimaryFlag) {
+        if (! req.replayFlag && mPrimaryFlag &&
+                ! (*existing)->IsDuplicateChannel(req.channelId)) {
             (*existing)->ScheduleDown("reconnect");
         }
         return;
