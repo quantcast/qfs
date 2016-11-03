@@ -629,7 +629,7 @@ public:
           mCounters(),
           mDiskErrorSimulatorConfig(inConfig),
           mCpuAffinity(inConfig.getValue(
-            "chunkServer.diskQueue.cpuAffinity", 0)),
+            "chunkServer.diskQueue.cpuAffinity", -1)),
           mDiskQueueTraceFlag(inConfig.getValue(
             "chunkServer.diskQueue.trace", 0) != 0),
           mParameters(inConfig)
