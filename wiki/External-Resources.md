@@ -3,3 +3,4 @@ We believe that these links can be useful to everybody who want to get on-hands 
 We thank the contributors of this list. Please create a pull request if you'd like to see a link to your work as well.
 
 * [QFS on the ODROID XU4 Cluster](http://diybigdata.net/2016/07/quantcast-file-system-and-spark-on-odroid-cluster/)
+* [Notes on QFS design in Chinese](http://blog.csdn.net/lpstudy/article/details/51457250)
