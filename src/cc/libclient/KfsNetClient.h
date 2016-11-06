@@ -45,7 +45,6 @@ namespace client
 {
 struct KfsOp;
 
-using std::ostream;
 using std::string;
 
 // Generic KFS request / response protocol state machine.

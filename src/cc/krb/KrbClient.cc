@@ -58,6 +58,7 @@ public:
           mCachePtr(0),
           mInitedFlag(false),
           mUseKeyTabFlag(false),
+          mForceCacheInitFlag(false),
           mLastCredEndTime(-1),
           mServiceName(),
           mErrorMsg()
@@ -76,14 +77,15 @@ public:
         bool        inForceCacheInitFlag)
     {
         CleanupSelf();
-        mServiceHost    = inServiceHostNamePtr ? inServiceHostNamePtr : "";
-        mServiceName    = inServeiceNamePtr    ? inServeiceNamePtr    : "";
-        mKeyTabFileName = inKeyTabNamePtr ? inKeyTabNamePtr : "";
-        mClientName     = inClientNamePtr ? inClientNamePtr : "";
-        mUseKeyTabFlag  = inKeyTabNamePtr != 0;
-        mErrCode     = 0;
+        mServiceHost        = inServiceHostNamePtr ? inServiceHostNamePtr : "";
+        mServiceName        = inServeiceNamePtr    ? inServeiceNamePtr    : "";
+        mKeyTabFileName     = inKeyTabNamePtr ? inKeyTabNamePtr : "";
+        mClientName         = inClientNamePtr ? inClientNamePtr : "";
+        mUseKeyTabFlag      = inKeyTabNamePtr != 0;
+        mForceCacheInitFlag = inForceCacheInitFlag;
+        mErrCode            = 0;
         mErrorMsg.clear();
-        InitSelf(inForceCacheInitFlag);
+        InitSelf(mForceCacheInitFlag);
         if (mErrCode) {
             return ErrStr();
         }
@@ -200,6 +202,23 @@ public:
         { return (int)mErrCode; }
     time_t GetLastCredEndTime() const
         { return mLastCredEndTime; }
+    Impl* Clone(
+        const char*& outErrMsgPtr) const
+    {
+        Impl& theRet = *(new Impl());
+        if (mInitedFlag) {
+            outErrMsgPtr = theRet.Init(
+                mServiceHost.c_str(),
+                mServiceName.c_str(),
+                mKeyTabFileName.c_str(),
+                mClientName.c_str(),
+                mForceCacheInitFlag
+            );
+        } else {
+            outErrMsgPtr = 0;
+        }
+        return &theRet;
+    }
 private:
     string            mServiceHost;
     string            mKeyTabFileName;
@@ -214,6 +233,7 @@ private:
     krb5_ccache       mCachePtr;
     bool              mInitedFlag;
     bool              mUseKeyTabFlag;
+    bool              mForceCacheInitFlag;
     time_t            mLastCredEndTime;
     string            mServiceName;
     string            mErrorMsg;
@@ -427,6 +447,12 @@ KrbClient::KrbClient()
 {
 }
 
+KrbClient::KrbClient(
+    KrbClient::Impl& inImpl)
+    : mImpl(inImpl)
+{
+}
+
 KrbClient::~KrbClient()
 {
     delete &mImpl;
@@ -485,6 +511,13 @@ KrbClient::GetErrorCode() const
 KrbClient::GetLastCredEndTime() const
 {
     return mImpl.GetLastCredEndTime();
+}
+
+    KrbClient*
+KrbClient::Clone(
+    const char*& outErrMsgPtr) const
+{
+    return new KrbClient(*mImpl.Clone(outErrMsgPtr));
 }
 
 }

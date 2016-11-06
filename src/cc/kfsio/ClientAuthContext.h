@@ -107,10 +107,15 @@ public:
     bool GetX509EndTime(
         int64_t& outEndTime) const;
     void Clear();
+    ClientAuthContext* Clone(
+        const char*& outErrMsgPtr);
 private:
     Impl& mImpl;
     static void Dispose(
         RequestCtxImpl& inRequestCtxImpl);
+
+    ClientAuthContext(
+        Impl& inImpl);
 private:
     ClientAuthContext(
         const ClientAuthContext& inContext);

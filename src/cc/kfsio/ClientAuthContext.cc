@@ -591,6 +591,27 @@ public:
         mAllowCSClearTextFlag  = true;
         mMaxAuthRetryCount     = 3;
     }
+    Impl* Clone(
+        const char*& outErrMsgPtr) const
+    {
+        Impl& theRet = *(new Impl());
+        if (mKrbClientPtr) {
+            theRet.mKrbClientPtr.reset(mKrbClientPtr->Clone(outErrMsgPtr));
+        }
+        theRet.mEnabledFlag           = mEnabledFlag;
+        theRet.mAuthNoneEnabledFlag   = mAuthNoneEnabledFlag;
+        theRet.mKrbAuthRequireSslFlag = mKrbAuthRequireSslFlag;
+        theRet.mAuthRequiredFlag      = mKrbAuthRequireSslFlag;
+        theRet.mAllowCSClearTextFlag  = mAllowCSClearTextFlag;
+        theRet.mMaxAuthRetryCount     = mMaxAuthRetryCount;
+        theRet.mParams                = mParams;
+        theRet.mSslCtxPtr             = mSslCtxPtr;
+        theRet.mX509SslCtxPtr         = mX509SslCtxPtr;
+        theRet.mPskKeyId              = mPskKeyId;
+        theRet.mPskKey                = mPskKey;
+        theRet.mX509ExpectedName      = mX509ExpectedName;
+        return &theRet;
+    }
 private:
     typedef RequestCtxImpl::KrbClientPtr KrbClientPtr;
     typedef SslFilter::CtxPtr            SslCtxPtr;
@@ -759,6 +780,11 @@ ClientAuthContext::ClientAuthContext()
     : mImpl(*(new Impl()))
     {}
 
+ClientAuthContext::ClientAuthContext(
+    Impl& inImpl)
+    : mImpl(inImpl)
+    {}
+
 ClientAuthContext::~ClientAuthContext()
 {
     delete &mImpl;
@@ -868,6 +894,17 @@ ClientAuthContext::GetX509EndTime(
 ClientAuthContext::Clear()
 {
     mImpl.Clear();
+}
+
+    ClientAuthContext*
+ClientAuthContext::Clone(
+    const char*& outErrMsgPtr)
+{
+    Impl* const theImplPtr = mImpl.Clone(outErrMsgPtr);
+    if (theImplPtr) {
+        return new ClientAuthContext(*theImplPtr);
+    }
+    return 0;
 }
 
 } // namespace KFS

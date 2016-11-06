@@ -54,10 +54,14 @@ public:
         int          inReplyLen);
     int GetErrorCode() const;
     time_t GetLastCredEndTime() const;
+    KrbClient* Clone(
+        const char*& outErrMsgPtr) const;
 private:
     class Impl;
     Impl& mImpl;
 
+    KrbClient(
+        Impl& inImpl);
 private:
     KrbClient(
         const KrbClient& inClient);
