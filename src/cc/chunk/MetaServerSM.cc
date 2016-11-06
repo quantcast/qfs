@@ -219,6 +219,7 @@ private:
     uint64_t                      mGenerationCount;
     size_t                        mMaxPendingOpsCount;
     PendingResponses              mPendingResponses;
+    int                           mReconnectRetryInterval;
     Counters&                     mCounters;
     MetaServerSM::Impl*&          mPrimary;
     IOBuffer::IStream             mIStream;
@@ -323,8 +324,8 @@ MetaServerSM::Impl::Impl(
       mNetConnection(),
       mInactivityTimeout(65),
       mMaxReadAhead(4 << 10),
-      mLastRecvCmdTime(0),
-      mLastConnectTime(0),
+      mLastRecvCmdTime(globalNetManager().Now() - 24 * 60 * 60),
+      mLastConnectTime(mLastRecvCmdTime),
       mConnectedTime(0),
       mReconnectFlag(false),
       mAuthContext(),
@@ -347,6 +348,8 @@ MetaServerSM::Impl::Impl(
       mChannelId(inChannelId),
       mGenerationCount(1),
       mMaxPendingOpsCount(96),
+      mPendingResponses(),
+      mReconnectRetryInterval(1),
       mCounters(inCounters),
       mPrimary(inPrimary),
       mIStream(),
@@ -430,6 +433,8 @@ MetaServerSM::Impl::ForceDown(
 int
 MetaServerSM::Impl::SetParameters(const Properties& prop)
 {
+    mReconnectRetryInterval   = prop.getValue(
+        "chunkServer.meta.reconnectRetryInterval", mReconnectRetryInterval);
     mInactivityTimeout        = prop.getValue(
         "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
     mMaxReadAhead      = prop.getValue(
@@ -510,7 +515,7 @@ MetaServerSM::Impl::Timeout()
             mSentHello = false;
             DetachAndDeleteOp(mHelloOp);
         }
-        if (mLastConnectTime + 1 < now) {
+        if (mLastConnectTime + mReconnectRetryInterval < now) {
             mLastConnectTime = now;
             Connect();
         }
