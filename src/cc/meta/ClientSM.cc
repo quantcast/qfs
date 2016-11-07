@@ -676,9 +676,9 @@ ClientSM::Handle(MetaLookup& op)
     if (! op.authInfoOnlyFlag) {
         if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {
             return false;
-        } else {
-            op.authType = mAuthContext.GetAuthTypes();
         }
+        op.authType    = mAuthContext.GetAuthTypes();
+        op.primaryFlag = ClientManager::IsPrimary(mClientThread);
     }
     CmdDone(op);
     return true;

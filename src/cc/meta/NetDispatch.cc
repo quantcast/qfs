@@ -1563,6 +1563,7 @@ public:
         }
         MetaRequest::GetLogWriter().ScheduleFlush();
         gNetDispatch.ForkDone();
+        mPrimaryFlag = gLayoutManager.IsPrimary();
         dispatchLocker.Unlock();
 
         CliQueue cliQueue;
@@ -1675,6 +1676,8 @@ public:
         { mNetManager.Wakeup(); }
     AuthContext& GetAuthContext()
         { return mAuthContext; }
+    bool IsPrimary() const
+        { return mPrimaryFlag; }
 private:
     class CliAccessor
     {
@@ -1696,6 +1699,7 @@ private:
     FlushQueue         mFlushQueue;
     AuthContext        mAuthContext;
     uint64_t           mAuthCtxUpdateCount;
+    bool               mPrimaryFlag;
     char               mParseBuffer[MAX_RPC_HEADER_LEN];
 
     const NetConnectionPtr& GetConnection(MetaRequest& op)
@@ -1919,6 +1923,12 @@ ClientManager::GetAuthContext(ClientThread* inThread)
 {
     return (inThread ? inThread->GetAuthContext() :
         gLayoutManager.GetClientAuthContext());
+}
+
+/* static */ bool
+ClientManager::IsPrimary(ClientThread* thread)
+{
+    return (thread ? thread->IsPrimary() : gLayoutManager.IsPrimary());
 }
 
 } // namespace KFS

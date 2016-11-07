@@ -575,6 +575,7 @@ struct MetaLookup: public MetaRequest {
     string name;     //!< name to look up
     int    authType; //!< io auth type
     bool   authInfoOnlyFlag;
+    bool   primaryFlag;
     MFattr fattr;
     MetaLookup()
         : MetaRequest(META_LOOKUP, kLogNever),
@@ -582,6 +583,7 @@ struct MetaLookup: public MetaRequest {
           name(),
           authType(kAuthenticationTypeUndef),
           authInfoOnlyFlag(false),
+          primaryFlag(false),
           fattr()
         {}
     virtual void handle();

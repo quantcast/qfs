@@ -83,6 +83,7 @@ public:
     {
         return (thread != 0); // Thread invokes flush.
     }
+    static bool IsPrimary(ClientThread* thread);
     void PrepareCurrentThreadToFork();
     inline void PrepareToFork();
     inline void ForkDone();

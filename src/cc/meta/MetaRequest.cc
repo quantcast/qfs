@@ -4382,7 +4382,10 @@ MetaLookup::response(ReqOstream& os)
         return;
     }
     if (authType != kAuthenticationTypeUndef) {
-        os << (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
+        os <<
+        (shortRpcFormatFlag ? "VRP:" : "Vr-primary:") <<
+            (primaryFlag ? 1 : 0) << "\r\n"  <<
+        (shortRpcFormatFlag ? "A:" : "Auth-type: ") <<
             authType << "\r\n\r\n";
         return;
     }
