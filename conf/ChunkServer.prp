@@ -327,7 +327,7 @@ chunkServer.msgLogWriter.logLevel = INFO
 # opened for write. This assumes the default 5MB minimum S3 part of multipart
 # upload size. Two 5MB buffers plus one 64KB checksum block must be kept in
 # memory for each writable object store blocks.
-# 786432*4096*(1-0.08334)*0.96/(2^20*10+16*2^10) => 269
+# 786432*4096*(1-0.08334)*0.96/(2^20*10+64*2^10) => 269
 # Leaving the remaining 112MB "slack" for request handling etc.
 # 786432*4096*(1-0.08334)*(1-0.96-0.00001)/2^20 => 112
 # chunkServer.objStoreBufferDataRatio           = 0.96
