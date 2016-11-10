@@ -108,7 +108,7 @@ clientuser=${clientuser-"`id -un`"}
 numchunksrv=${numchunksrv-3}
 metasrvport=${metasrvport-20200}
 testdir=${testdir-`pwd`/`basename "$0" .sh`}
-objectstorebuffersize=${objectstorebuffersize-`expr 512 \* 1024`}
+objectstorebuffersize=${objectstorebuffersize-`expr 500 \* 1024`}
 
 export metahost
 export metasrvport
@@ -501,6 +501,7 @@ chunkServer.meta.traceRequestResponseFlag   = $csrpctrace
 chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
+# chunkServer.diskQueue.trace = 1
 EOF
     if [ x"$auth" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit
