@@ -184,6 +184,9 @@ public:
         bool                  inCancelPendingOpsFlag = true,
         string*               inErrMsgPtr            = 0,
         bool                  inForceConnectFlag     = true);
+    bool AddMetaServerLocation(
+        const ServerLocation& inLocation);
+    void ClearMetaServerLocations();
     void SetRpcFormat(
         RpcFormat inRpcFormat);
     RpcFormat GetRpcFormat() const;

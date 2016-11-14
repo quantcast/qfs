@@ -219,9 +219,12 @@ public:
           mSessionKeyId(),
           mSessionKeyData(),
           mLookupOp(-1, ROOTFID, "/"),
-          mAuthOp(-1, kAuthenticationTypeUndef)
+          mAuthOp(-1, kAuthenticationTypeUndef),
+          mMetaVrNodesCount(0),
+          mMetaVrNodesActiveCount(0)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
+        MetaVrList::Init(mMetaVrListPtr);
     }
     bool IsConnected() const
         { return (mConnPtr && mConnPtr->IsGood()); }
@@ -910,6 +913,27 @@ public:
     void SetMaxMetaLogWriteRetryCount(
         int inCount)
         { mMaxMetaLogWriteRetryCount = inCount; }
+    bool AddMetaServerLocation(
+        const ServerLocation& inLocation,
+        bool                  inAllowDuplicatesFlag)
+    {
+        if (! inLocation.IsValid()) {
+            return false;
+        }
+        if (! inAllowDuplicatesFlag) {
+            MetaVrList::Iterator             theIt(mMetaVrListPtr);
+            const MetaCheckVrPrimaryChecker* thePtr;
+            while ((thePtr = theIt.Next())) {
+                if (thePtr->GetLocation() == inLocation) {
+                    return false;
+                }
+            }
+        }
+        MetaVrList::PushBack(mMetaVrListPtr,
+            *(new MetaCheckVrPrimaryChecker(inLocation, *this)));
+        mMetaVrNodesCount++;
+        return true;
+    }
 private:
     class DoNotDeallocate
     {
@@ -930,7 +954,8 @@ private:
               mOwnerPtr(inOwnerPtr),
               mBufferPtr(inBufferPtr),
               mTime(0),
-              mRetryCount(0)
+              mRetryCount(0),
+              mVrConnectPendingFlag(false)
             {}
         void Cancel()
             { OpDone(true); }
@@ -963,6 +988,7 @@ private:
         IOBuffer* mBufferPtr;
         time_t    mTime;
         int       mRetryCount;
+        bool      mVrConnectPendingFlag;
     };
     typedef map<kfsSeq_t, OpQueueEntry, less<kfsSeq_t>,
         StdFastAllocator<pair<const kfsSeq_t, OpQueueEntry> >
@@ -973,62 +999,303 @@ private:
     enum { kMaxReadAhead = 4 << 10 };
     typedef ClientAuthContext::RequestCtx AuthRequestCtx;
 
-    ServerLocation     mServerLocation;
-    OpQueue            mPendingOpQueue;
-    QueueStack         mQueueStack;
-    NetConnectionPtr   mConnPtr;
-    kfsSeq_t           mNextSeqNum;
-    bool               mReadHeaderDoneFlag;
-    bool               mSleepingFlag;
-    bool               mDataReceivedFlag;
-    bool               mDataSentFlag;
-    bool               mAllDataSentFlag;
-    bool               mRetryConnectOnlyFlag;
-    bool               mIdleTimeoutFlag;
-    bool               mPrevAuthFailureFlag;
-    bool               mResetConnectionOnOpTimeoutFlag;
-    bool               mFailAllOpsOnOpTimeoutFlag;
-    bool               mMaxOneOutstandingOpFlag;
-    bool               mShutdownSslFlag;
-    bool               mSslShutdownInProgressFlag;
-    int                mTimeSecBetweenRetries;
-    int                mOpTimeoutSec;
-    int                mIdleTimeoutSec;
-    int                mRetryCount;
-    int                mNonAuthRetryCount;
-    int                mContentLength;
-    int                mMaxRetryCount;
-    int                mMaxContentLength;
-    int                mAuthFailureCount;
-    int                mMaxRpcHeaderLength;
-    int                mPendingBytesSend;
-    int                mMetaLogWriteRetryCount;
-    int                mMaxMetaLogWriteRetryCount;
-    RpcFormat          mRpcFormat;
-    OpQueueEntry*      mInFlightOpPtr;
-    OpQueueEntry*      mOutstandingOpPtr;
-    char*              mInFlightRecvBufPtr;
-    OpQueue::iterator  mCurOpIt;
-    IOBuffer::IStream  mIstream;
-    IOBuffer::WOStream mOstream;
-    Properties         mProperties;
-    Stats              mStats;
-    int64_t            mDisconnectCount;
-    EventObserver*     mEventObserverPtr;
-    const string       mLogPrefix;
-    NetManager*        mNetManagerPtr;
-    ClientAuthContext* mAuthContextPtr;
-    int64_t            mSessionExpirationTime;
-    int64_t            mKeyExpirationTime;
-    string             mKeyId;
-    string             mKeyData;
-    string             mSessionKeyId;
-    string             mSessionKeyData;
-    string             mCommonHeaders;
-    string             mCommonShortHeaders;
-    AuthRequestCtx     mAuthRequestCtx;
-    LookupOp           mLookupOp;
-    AuthenticateOp     mAuthOp;
+    class MetaCheckVrPrimaryChecker : public KfsCallbackObj, public ITimeout
+    {
+    public:
+        typedef QCDLList<MetaCheckVrPrimaryChecker> List;
+
+        MetaCheckVrPrimaryChecker(
+            const ServerLocation& inLocation,
+            Impl&                 inOuter)
+            : KfsCallbackObj(),
+              ITimeout(),
+              mOuter(inOuter),
+              mLocation(inLocation),
+              mConnPtr(),
+              mSeq(-1),
+              mPendingBytesSend(0),
+              mRetryCount(0),
+              mSleepingFlag(false)
+        {
+            SET_HANDLER(this, &MetaCheckVrPrimaryChecker::EventHandler);
+            List::Init(*this);
+        }
+        virtual ~MetaCheckVrPrimaryChecker()
+            { MetaCheckVrPrimaryChecker::Reset(); }
+        void Connect()
+        {
+            mOuter.mLookupOp.status = mOuter.Connect(
+                mLocation, mConnPtr, &mOuter.mLookupOp.statusMsg);
+            if (0 == mOuter.mLookupOp.status) {
+                Request();
+            } else {
+                Retry();
+            }
+        }
+        int EventHandler(
+            int   inCode,
+            void* inDataPtr)
+        {
+            if (mOuter.mEventObserverPtr &&
+                    mOuter.mEventObserverPtr->Event(inCode, inDataPtr)) {
+                return 0;
+            }
+            const char* theReasonPtr = "network error";
+            switch (inCode) {
+                case EVENT_NET_READ: {
+                        assert(inDataPtr && mConnPtr &&
+                            &mConnPtr->GetInBuffer() == inDataPtr);
+                        HandleResponse(mConnPtr->GetInBuffer());
+                    }
+                    break;
+
+                case EVENT_NET_WROTE:
+                    if (mConnPtr) {
+                        const int theRem =
+                            mConnPtr->GetOutBuffer().BytesConsumable();
+                        if (theRem < mPendingBytesSend) {
+                            mOuter.mStats.mBytesSentCount +=
+                                mPendingBytesSend - theRem;
+                        }
+                        mPendingBytesSend = theRem;
+                    }
+                    break;
+
+                case EVENT_INACTIVITY_TIMEOUT:
+                    theReasonPtr = "request timed out";
+                    mOuter.mStats.mResponseTimeoutCount++;
+                    // Fall through.
+                case EVENT_NET_ERROR:
+                    mOuter.mStats.mNetErrorCount++;
+                    KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                        "closing VR checker"
+                        " connection: " << mConnPtr->GetSockName() <<
+                        " to: "         << mLocation <<
+                        " due to "      << theReasonPtr <<
+                        " error: "      << mConnPtr->GetErrorMsg() <<
+                        " pending:"
+                        " read: "       << mConnPtr->GetNumBytesToRead() <<
+                        " write: "      << mConnPtr->GetNumBytesToWrite() <<
+                    KFS_LOG_EOM;
+                    if (EVENT_INACTIVITY_TIMEOUT == inCode) {
+                        mOuter.mLookupOp.status = -ETIMEDOUT;
+                    } else {
+                        mOuter.mLookupOp.status = mConnPtr->GetErrorCode();
+                        if (0 <= mOuter.mLookupOp.status) {
+                            mOuter.mLookupOp.status = -EIO;
+                        }
+                    }
+                    mOuter.mLookupOp.statusMsg = theReasonPtr;
+                    mOuter.mLookupOp.statusMsg += " ";
+                    mOuter.mLookupOp.statusMsg += mConnPtr->GetErrorMsg();
+                    Retry();
+                    break;
+
+                default:
+                    assert(!"unexpected event");
+                    break;
+            }
+            return 0;
+        }
+        void Reset()
+        {
+            if (mSleepingFlag) {
+                mOuter.mNetManagerPtr->UnRegisterTimeoutHandler(this);
+                mSleepingFlag = false;
+            }
+            if (mConnPtr) {
+                mConnPtr->Close();
+                mConnPtr.reset();
+            }
+            mPendingBytesSend = 0;
+        }
+        bool IsActive()
+            { return (0 != mConnPtr || mSleepingFlag); }
+        const ServerLocation& GetLocation() const
+            { return mLocation; }
+        virtual void Timeout()
+        {
+            if (mSleepingFlag) {
+                mOuter.mNetManagerPtr->UnRegisterTimeoutHandler(this);
+                mSleepingFlag = false;
+            }
+            Connect();
+        }
+    private:
+        Impl&                      mOuter;
+        ServerLocation             mLocation;
+        NetConnectionPtr           mConnPtr;
+        kfsSeq_t                   mSeq;
+        int                        mPendingBytesSend;
+        int                        mRetryCount;
+        bool                       mSleepingFlag;
+        MetaCheckVrPrimaryChecker* mPrevPtr[1];
+        MetaCheckVrPrimaryChecker* mNextPtr[1];
+
+        friend class QCDLListOp<MetaCheckVrPrimaryChecker>;
+
+        void Request()
+        {
+            mOuter.mLookupOp.DeallocContentBuf();
+            mOuter.mLookupOp.contentLength         = 0;
+            mOuter.mLookupOp.status                = 0;
+            mOuter.mLookupOp.statusMsg.clear();
+            mOuter.mLookupOp.reqShortRpcFormatFlag = true;
+            mOuter.mLookupOp.authType              = kAuthenticationTypeNone;
+            mOuter.mLookupOp.seq                   = mOuter.mNextSeqNum++;
+            mOuter.mLookupOp.vrPrimaryFlag         = false;
+            ReqOstream theStream(mOuter.mOstream.Set(mConnPtr->GetOutBuffer()));
+            mOuter.mLookupOp.Request(theStream);
+            mOuter.mOstream.Reset();
+            mSeq = mOuter.mLookupOp.seq;
+            mPendingBytesSend = mConnPtr->GetOutBuffer().BytesConsumable();
+            mConnPtr->StartFlush();
+        }
+        void HandleResponse(
+            IOBuffer& inBuffer)
+        {
+            kfsSeq_t  theOpSeq         = -1;
+            bool      theErrorFlag     = false;
+            int       theContentLength = -1;
+            RpcFormat theRpcFormat     = kRpcFormatUndef;
+            if (mOuter.ReadHeaderSelf(
+                        inBuffer,
+                        mOuter.mProperties,
+                        theOpSeq,
+                        theRpcFormat,
+                        theContentLength,
+                        theErrorFlag)) {
+                if (0 < theContentLength) {
+                    mOuter.mLookupOp.status    = -EINVAL;
+                    mOuter.mLookupOp.statusMsg =
+                        "invalid non zero content length filed";
+                } else if (mSeq != theOpSeq) {
+                    mOuter.mLookupOp.status    = -EINVAL;
+                    mOuter.mLookupOp.statusMsg = "op sequence mismatch";
+                } else {
+                    mOuter.mLookupOp.status = 0;
+                    mOuter.mLookupOp.statusMsg.clear();
+                    mOuter.mLookupOp.ParseResponseHeader(mOuter.mProperties);
+                }
+            } else {
+                if (! theErrorFlag) {
+                    return;
+                }
+                mOuter.mLookupOp.status    = -EINVAL;
+                mOuter.mLookupOp.statusMsg = "response parse error";
+            }
+            mOuter.mProperties.clear();
+            if (0 == mOuter.mLookupOp.status &&
+                    mOuter.mLookupOp.vrPrimaryFlag) {
+                NetConnectionPtr theConnPtr;
+                theConnPtr.swap(mConnPtr);
+                Reset();
+                mOuter.SetVrPrimary(theConnPtr, mLocation, theRpcFormat);
+                return;
+            }
+            Reset();
+            Retry(0 == mOuter.mLookupOp.status);
+        }
+        void Retry(
+            bool inNotPrimaryFlag = false)
+        {
+            Reset();
+            const int theMaxRetryCnt = inNotPrimaryFlag ?
+                mOuter.mMaxRetryCount : mOuter.mMaxMetaLogWriteRetryCount;
+            if (theMaxRetryCnt < ++mRetryCount) {
+                if (0 <= mOuter.mLookupOp.status) {
+                    mOuter.mLookupOp.status    = -EIO;
+                    mOuter.mLookupOp.statusMsg = "retry limit reached";
+                }
+                mOuter.SetVrPrimary(mConnPtr, mLocation, kRpcFormatUndef);
+                return;
+            }
+            if (0 < mOuter.mTimeSecBetweenRetries ) {
+                KFS_LOG_STREAM_INFO << mOuter.mLogPrefix <<
+                    "retry attempt " << mRetryCount <<
+                    " of " << mOuter.mMaxRetryCount <<
+                    ", will retry " << mOuter.mPendingOpQueue.size() <<
+                    " pending operation(s) in " <<
+                        mOuter.mTimeSecBetweenRetries <<
+                    " seconds" <<
+                KFS_LOG_EOM;
+                mOuter.mStats.mSleepTimeSec += mOuter.mTimeSecBetweenRetries;
+                SetTimeoutInterval(
+                    mOuter.mTimeSecBetweenRetries * 1000, true);
+                mSleepingFlag = true;
+                mOuter.mNetManagerPtr->RegisterTimeoutHandler(this);
+            } else {
+                Timeout();
+            }
+        }
+    private:
+        MetaCheckVrPrimaryChecker(
+            const MetaCheckVrPrimaryChecker& inChecker);
+        MetaCheckVrPrimaryChecker& operator=(
+            const MetaCheckVrPrimaryChecker& inChecker);
+    };
+    friend class MetaCheckVrPrimaryChecker;
+    typedef MetaCheckVrPrimaryChecker::List MetaVrList;
+
+    ServerLocation             mServerLocation;
+    OpQueue                    mPendingOpQueue;
+    QueueStack                 mQueueStack;
+    NetConnectionPtr           mConnPtr;
+    kfsSeq_t                   mNextSeqNum;
+    bool                       mReadHeaderDoneFlag;
+    bool                       mSleepingFlag;
+    bool                       mDataReceivedFlag;
+    bool                       mDataSentFlag;
+    bool                       mAllDataSentFlag;
+    bool                       mRetryConnectOnlyFlag;
+    bool                       mIdleTimeoutFlag;
+    bool                       mPrevAuthFailureFlag;
+    bool                       mResetConnectionOnOpTimeoutFlag;
+    bool                       mFailAllOpsOnOpTimeoutFlag;
+    bool                       mMaxOneOutstandingOpFlag;
+    bool                       mShutdownSslFlag;
+    bool                       mSslShutdownInProgressFlag;
+    int                        mTimeSecBetweenRetries;
+    int                        mOpTimeoutSec;
+    int                        mIdleTimeoutSec;
+    int                        mRetryCount;
+    int                        mNonAuthRetryCount;
+    int                        mContentLength;
+    int                        mMaxRetryCount;
+    int                        mMaxContentLength;
+    int                        mAuthFailureCount;
+    int                        mMaxRpcHeaderLength;
+    int                        mPendingBytesSend;
+    int                        mMetaLogWriteRetryCount;
+    int                        mMaxMetaLogWriteRetryCount;
+    RpcFormat                  mRpcFormat;
+    OpQueueEntry*              mInFlightOpPtr;
+    OpQueueEntry*              mOutstandingOpPtr;
+    char*                      mInFlightRecvBufPtr;
+    OpQueue::iterator          mCurOpIt;
+    IOBuffer::IStream          mIstream;
+    IOBuffer::WOStream         mOstream;
+    Properties                 mProperties;
+    Stats                      mStats;
+    int64_t                    mDisconnectCount;
+    EventObserver*             mEventObserverPtr;
+    const string               mLogPrefix;
+    NetManager*                mNetManagerPtr;
+    ClientAuthContext*         mAuthContextPtr;
+    int64_t                    mSessionExpirationTime;
+    int64_t                    mKeyExpirationTime;
+    string                     mKeyId;
+    string                     mKeyData;
+    string                     mSessionKeyId;
+    string                     mSessionKeyData;
+    string                     mCommonHeaders;
+    string                     mCommonShortHeaders;
+    AuthRequestCtx             mAuthRequestCtx;
+    LookupOp                   mLookupOp;
+    AuthenticateOp             mAuthOp;
+    int                        mMetaVrNodesCount;
+    int                        mMetaVrNodesActiveCount;
+    MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
 
     virtual ~Impl()
         { Impl::Reset(); }
@@ -1039,6 +1306,88 @@ private:
     {
         inOp.maxWaitMillisec = mOpTimeoutSec > 0 ?
             int64_t(mOpTimeoutSec) * 1000 : int64_t(-1);
+    }
+    void SetVrPrimary(
+        NetConnectionPtr&     inConnPtr,
+        const ServerLocation& inLocation,
+        RpcFormat             inRpcFormat)
+    {
+        if (inConnPtr) {
+            mServerLocation = inLocation;
+            mRpcFormat      = inRpcFormat;
+            CancelVrPrimaryCheck();
+            ResetConnection();
+            mConnPtr = inConnPtr;
+            mConnPtr->SetOwningKfsCallbackObj(this);
+            if (! IsAuthEnabled()) {
+                mLookupOp.seq = -1;
+            }
+            EnsureConnectedSelf(0, 0);
+            return;
+        }
+        assert(0 <= mMetaVrNodesActiveCount);
+        mMetaVrNodesActiveCount--;
+        if (mMetaVrNodesActiveCount <= 0) {
+            Fail(
+                mLookupOp.status < 0 ? mLookupOp.status : -EIO,
+                mLookupOp.statusMsg
+            );
+        }
+    }
+    bool ConnectToVrPrimary(
+        const KfsOp* inLastOpPtr)
+    {
+        if (MetaVrList::IsEmpty(mMetaVrListPtr)) {
+            return false;
+        }
+        if (inLastOpPtr) {
+            if (mPendingOpQueue.empty()) {
+                assert(! "vr connect: invalid op -- queue is empty");
+            } else {
+                OpQueueEntry& theEntry = mPendingOpQueue.rbegin()->second;
+                if (theEntry.mOpPtr == inLastOpPtr) {
+                    if (0 < theEntry.mRetryCount) {
+                        theEntry.mVrConnectPendingFlag = true;
+                    }
+                } else {
+                    const OpQueue::iterator theIt =
+                        mPendingOpQueue.find(inLastOpPtr->seq);
+                    if (theIt != mPendingOpQueue.end() &&
+                            theIt->second.mOpPtr == inLastOpPtr) {
+                        if (0 < theIt->second.mRetryCount) {
+                            theIt->second.mVrConnectPendingFlag = true;
+                        }
+                    } else {
+                        assert(! "vr connect: op is not in the pending queue");
+                    }
+                }
+            }
+        }
+        if (0 < mMetaVrNodesActiveCount) {
+            return true;
+        }
+        // Ref self to ensure that "this" is still around after the end of the
+        // of the loop to ensure that iterator has valid list head pointer.    {
+
+        StRef theRef(*this);
+        // Unwind recursion by setting active count to the total node count
+        // prior to launching requests.
+        mMetaVrNodesActiveCount = mMetaVrNodesCount;
+        MetaVrList::Iterator       theIt(mMetaVrListPtr);
+        MetaCheckVrPrimaryChecker* thePtr;
+        while ((thePtr = theIt.Next())) {
+            thePtr->Connect();
+        }
+        return true;
+    }
+    void CancelVrPrimaryCheck()
+    {
+        MetaVrList::Iterator       theIt(mMetaVrListPtr);
+        MetaCheckVrPrimaryChecker* thePtr;
+        while ((thePtr = theIt.Next())) {
+            thePtr->Reset();
+        }
+        mMetaVrNodesActiveCount = 0;
     }
     bool EnqueueSelf(
         KfsOp*    inOpPtr,
@@ -1229,9 +1578,15 @@ private:
             HandleOp(mCurOpIt);
         }
     }
-    bool ReadHeader(
-        IOBuffer& inBuffer)
+    bool ReadHeaderSelf(
+        IOBuffer&   inBuffer,
+        Properties& inProperties,
+        kfsSeq_t&   outOpSeq,
+        RpcFormat&  ioRpcFormat,
+        int&        outContentLength,
+        bool&       outErrorFlag)
     {
+        outErrorFlag = false;
         const int theIdx = inBuffer.IndexOf(0, "\r\n\r\n");
         if (theIdx < 0) {
             if (mMaxRpcHeaderLength < inBuffer.BytesConsumable()) {
@@ -1241,34 +1596,53 @@ private:
                     mMaxRpcHeaderLength << "; got " <<
                     inBuffer.BytesConsumable() << " resetting connection" <<
                 KFS_LOG_EOM;
-                Reset();
-                EnsureConnected();
+                outErrorFlag = true;
             }
             return false;
         }
         const int  theHdrLen    = theIdx + 4;
         const char theSeparator = ':';
-        mProperties.clear();
+        inProperties.clear();
         IOBuffer::iterator const theIt = inBuffer.begin();
         if (theIt != inBuffer.end() && theHdrLen <= theIt->BytesConsumable()) {
-            mProperties.loadProperties(
+            inProperties.loadProperties(
                 theIt->Consumer(), (size_t)theHdrLen, theSeparator);
         } else {
-            mProperties.loadProperties(
+            inProperties.loadProperties(
                 mIstream.Set(inBuffer, theHdrLen), theSeparator);
             mIstream.Reset();
         }
         mStats.mBytesReceivedCount += inBuffer.Consume(theHdrLen);
-        mReadHeaderDoneFlag = true;
-        if (kRpcFormatUndef == mRpcFormat) {
-            mRpcFormat = mProperties.getValue("c") ?
+        if (kRpcFormatUndef == ioRpcFormat) {
+            ioRpcFormat = inProperties.getValue("c") ?
                 kRpcFormatShort : kRpcFormatLong;
         }
-        mProperties.setIntBase(kRpcFormatShort == mRpcFormat ? 16 : 10);
-        const kfsSeq_t theOpSeq = mProperties.getValue(
-            kRpcFormatShort == mRpcFormat ? "c" : "Cseq", kfsSeq_t(-1));
-        mContentLength = mProperties.getValue(
-            kRpcFormatShort == mRpcFormat ? "l" : "Content-length", 0);
+        inProperties.setIntBase(kRpcFormatShort == ioRpcFormat ? 16 : 10);
+        outOpSeq = inProperties.getValue(
+            kRpcFormatShort == ioRpcFormat ? "c" : "Cseq", kfsSeq_t(-1));
+        outContentLength = inProperties.getValue(
+            kRpcFormatShort == ioRpcFormat ? "l" : "Content-length", 0);
+        return true;
+    }
+    bool ReadHeader(
+        IOBuffer& inBuffer)
+    {
+        kfsSeq_t theOpSeq     = -1;
+        bool     theErrorFlag = false;
+        if (! ReadHeaderSelf(
+                    inBuffer,
+                    mProperties,
+                    theOpSeq,
+                    mRpcFormat,
+                    mContentLength,
+                    theErrorFlag)) {
+            if (theErrorFlag) {
+                Reset();
+                EnsureConnected();
+            }
+            return false;
+        }
+        mReadHeaderDoneFlag = true;
         if (mContentLength > mMaxContentLength) {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
                 "error: " << mServerLocation <<
@@ -1397,6 +1771,39 @@ private:
         { return (mAuthContextPtr && mAuthContextPtr->IsEnabled()); }
     bool IsPskAuth() const
         { return (IsAuthEnabled() && ! mKeyData.empty()); }
+    int Connect(
+        const ServerLocation& inServerLocation,
+        NetConnectionPtr&     inConnPtr,
+        string*               inErrMsgPtr = 0)
+    {
+        mStats.mConnectCount++;
+        const bool theNonBlockingFlag = true;
+        TcpSocket& theSocket          = *(new TcpSocket());
+        const int theErr              = theSocket.Connect(
+            inServerLocation, theNonBlockingFlag);
+        if (theErr && theErr != -EINPROGRESS) {
+            if (inErrMsgPtr) {
+                *inErrMsgPtr = QCUtils::SysError(-theErr);
+            }
+            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                "failed to connect to server " << inServerLocation <<
+                " : " << QCUtils::SysError(-theErr) <<
+            KFS_LOG_EOM;
+            delete &theSocket;
+            mStats.mConnectFailureCount++;
+            return theErr;
+        }
+        inConnPtr.reset(new NetConnection(&theSocket, this));
+        inConnPtr->EnableReadIfOverloaded();
+        if (theErr) {
+            inConnPtr->SetDoingNonblockingConnect();
+        }
+        inConnPtr->SetMaxReadAhead(kMaxReadAhead);
+        inConnPtr->SetInactivityTimeout(mOpTimeoutSec);
+        // Add connection to the poll vector
+        mNetManagerPtr->AddConnection(inConnPtr);
+        return 0;
+    }
     void EnsureConnected(
         string*      inErrMsgPtr = 0,
         const KfsOp* inLastOpPtr = 0)
@@ -1410,38 +1817,25 @@ private:
         mAllDataSentFlag  = true;
         mIdleTimeoutFlag  = false;
         ResetConnection();
-        mStats.mConnectCount++;
-        const bool theNonBlockingFlag = true;
-        TcpSocket& theSocket          = *(new TcpSocket());
-        const int theErr              = theSocket.Connect(
-            mServerLocation, theNonBlockingFlag);
-        if (theErr && theErr != -EINPROGRESS) {
-            if (inErrMsgPtr) {
-                *inErrMsgPtr = QCUtils::SysError(-theErr);
-            }
-            KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "failed to connect to server " << mServerLocation <<
-                " : " << QCUtils::SysError(-theErr) <<
-            KFS_LOG_EOM;
-            delete &theSocket;
-            mStats.mConnectFailureCount++;
-            RetryConnect(0, theErr);
+        if (ConnectToVrPrimary(inLastOpPtr)) {
             return;
         }
+        const int theError = Connect(mServerLocation, mConnPtr, inErrMsgPtr);
+        if (0 != theError) {
+            RetryConnect(0, theError);
+            return;
+        }
+        EnsureConnectedSelf(inErrMsgPtr, inLastOpPtr);
+    }
+    void EnsureConnectedSelf(
+        string*      inErrMsgPtr,
+        const KfsOp* inLastOpPtr)
+    {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "connecting to server: " << mServerLocation <<
             " auth: " << (IsAuthEnabled() ?
                 (IsPskAuth() ? "psk" : "on") : "off") <<
         KFS_LOG_EOM;
-        mConnPtr.reset(new NetConnection(&theSocket, this));
-        mConnPtr->EnableReadIfOverloaded();
-        if (theErr) {
-            mConnPtr->SetDoingNonblockingConnect();
-        }
-        mConnPtr->SetMaxReadAhead(kMaxReadAhead);
-        mConnPtr->SetInactivityTimeout(mOpTimeoutSec);
-        // Add connection to the poll vector
-        mNetManagerPtr->AddConnection(mConnPtr);
         mSslShutdownInProgressFlag = false;
         if (IsPskAuth()) {
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
@@ -1476,7 +1870,7 @@ private:
                     mSslShutdownInProgressFlag = false;
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "ssl shutdown failure: " <<
-                            theErr <<
+                            theStatus <<
                     KFS_LOG_EOM;
                     // Assume communication failure.
                     mStats.mConnectFailureCount++;
@@ -1493,14 +1887,17 @@ private:
             mSessionKeyData        = mSessionKeyId;
             mSessionExpirationTime = Now() + kMaxSessionTimeout;
             if (IsAuthEnabled()) {
-                assert(! IsAuthInFlight());
-                mLookupOp.DeallocContentBuf();
-                mLookupOp.contentLength         = 0;
-                mLookupOp.status                = 0;
-                mLookupOp.statusMsg.clear();
-                mLookupOp.reqShortRpcFormatFlag = mRpcFormat == kRpcFormatUndef;
-                mLookupOp.authType              = kAuthenticationTypeNone;
-                mLookupOp.seq                   = mNextSeqNum++;
+                if (mMetaVrNodesCount <= 0) {
+                    assert(! IsAuthInFlight());
+                    mLookupOp.DeallocContentBuf();
+                    mLookupOp.contentLength         = 0;
+                    mLookupOp.status                = 0;
+                    mLookupOp.statusMsg.clear();
+                    mLookupOp.reqShortRpcFormatFlag =
+                        mRpcFormat == kRpcFormatUndef;
+                    mLookupOp.authType              = kAuthenticationTypeNone;
+                    mLookupOp.seq                   = mNextSeqNum++;
+                }
                 mNextSeqNum++; // Leave one slot for mAuthOp
             } else {
                 mNonAuthRetryCount = 0;
@@ -1511,7 +1908,11 @@ private:
         if (! mConnPtr) {
             ResetConnection();
         } else if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
-            EnqueueAuth(mLookupOp);
+            if (0 < mMetaVrNodesCount) {
+                OpDone(&mLookupOp, false, 0);
+            } else {
+                EnqueueAuth(mLookupOp);
+            }
         }
     }
     void RetryAll(
@@ -1542,8 +1943,12 @@ private:
                 theEntry.Done();
             } else {
                 if (inLastOpPtr != theEntry.mOpPtr &&
-                        theEntry.mRetryCount > 0) {
-                    mStats.mOpsRetriedCount++;
+                        0 < theEntry.mRetryCount) {
+                    if (theEntry.mVrConnectPendingFlag) {
+                        theEntry.mVrConnectPendingFlag = false;
+                    } else {
+                        mStats.mOpsRetriedCount++;
+                    }
                 }
                 EnqueueSelf(theEntry.mOpPtr, theEntry.mOwnerPtr,
                     theEntry.mBufferPtr, theEntry.mRetryCount);

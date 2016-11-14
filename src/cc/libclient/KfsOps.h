@@ -563,6 +563,7 @@ struct LookupOp : public KfsOp {
     int         authType;  // in / out auth type.
     bool        getAuthInfoOnlyFlag; // if set retrieve authentication info only
     bool        reqShortRpcFormatFlag;
+    bool        vrPrimaryFlag;
     string      userName;
     string      groupName;
     string      euserName;
@@ -577,6 +578,7 @@ struct LookupOp : public KfsOp {
           authType(kAuthenticationTypeUndef),
           getAuthInfoOnlyFlag(false),
           reqShortRpcFormatFlag(false),
+          vrPrimaryFlag(false),
           userName(),
           groupName(),
           euserName(),

@@ -1183,16 +1183,18 @@ ParseFileAttribute(bool shortRpcFormatFlag, const Properties& prop,
 void
 LookupOp::ParseResponseHeaderSelf(const Properties& prop)
 {
-    euser      = prop.getValue(
+    euser         = prop.getValue(
         shortRpcFormatFlag ? "EU"  : "EUserId",   euser);
-    egroup     = prop.getValue(
+    egroup        = prop.getValue(
         shortRpcFormatFlag ? "EG"  : "EGroupId",  kKfsGroupNone);
-    authType   = prop.getValue(
+    authType      = prop.getValue(
         shortRpcFormatFlag ? "A"   : "Auth-type", int(kAuthenticationTypeUndef));
-    euserName  = prop.getValue(
+    euserName     = prop.getValue(
         shortRpcFormatFlag ? "EUN" : "EUName", string());
-    egroupName = prop.getValue(
+    egroupName    = prop.getValue(
         shortRpcFormatFlag ? "EGN" : "EGName", string());
+    vrPrimaryFlag = prop.getValue(
+        shortRpcFormatFlag ? "VRP" : "Vr-primary", 0) != 0;
     ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
 }
 
