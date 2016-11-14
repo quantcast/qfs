@@ -272,6 +272,9 @@ public:
     int GetMaxMetaLogWriteRetryCount() const;
     void SetMaxMetaLogWriteRetryCount(
         int inCount);
+    bool AddMetaServerLocation(
+        const ServerLocation& inLocation,
+        bool                  inAllowDuplicatesFlag = false);
     // Debug
     void SetThread(
         const QCThread* inThreadPtr);

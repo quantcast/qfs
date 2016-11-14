@@ -583,7 +583,7 @@ public:
         int   inCode,
         void* inDataPtr)
     {
-        const int thePrefRefCount = GetRefCount();
+        const int thePrevRefCount = GetRefCount();
         StRef theRef(*this);
 
         if (mEventObserverPtr && mEventObserverPtr->Event(inCode, inDataPtr)) {
@@ -696,7 +696,7 @@ public:
                 assert(!"Unknown event");
                 break;
         }
-        if (thePrefRefCount <= GetRefCount()) {
+        if (thePrevRefCount <= GetRefCount()) {
             OpsTimeout();
         }
         return 0;
@@ -1024,6 +1024,7 @@ private:
             { MetaCheckVrPrimaryChecker::Reset(); }
         void Connect()
         {
+            Reset();
             mOuter.mLookupOp.status = mOuter.Connect(
                 mLocation, mConnPtr, &mOuter.mLookupOp.statusMsg);
             if (0 == mOuter.mLookupOp.status) {
@@ -1086,7 +1087,7 @@ private:
                         }
                     }
                     mOuter.mLookupOp.statusMsg = theReasonPtr;
-                    mOuter.mLookupOp.statusMsg += " ";
+                    mOuter.mLookupOp.statusMsg += ", ";
                     mOuter.mLookupOp.statusMsg += mConnPtr->GetErrorMsg();
                     Retry();
                     break;
@@ -1109,7 +1110,7 @@ private:
             }
             mPendingBytesSend = 0;
         }
-        bool IsActive()
+        bool IsActive() const
             { return (0 != mConnPtr || mSleepingFlag); }
         const ServerLocation& GetLocation() const
             { return mLocation; }
@@ -1123,7 +1124,7 @@ private:
         }
     private:
         Impl&                      mOuter;
-        ServerLocation             mLocation;
+        ServerLocation const       mLocation;
         NetConnectionPtr           mConnPtr;
         kfsSeq_t                   mSeq;
         int                        mPendingBytesSend;
@@ -1313,12 +1314,12 @@ private:
         RpcFormat             inRpcFormat)
     {
         if (inConnPtr) {
+            ResetConnection();
             mServerLocation = inLocation;
             mRpcFormat      = inRpcFormat;
-            CancelVrPrimaryCheck();
-            ResetConnection();
-            mConnPtr = inConnPtr;
+            mConnPtr.swap(inConnPtr);
             mConnPtr->SetOwningKfsCallbackObj(this);
+            CancelVrPrimaryCheck();
             if (! IsAuthEnabled()) {
                 mLookupOp.seq = -1;
             }
@@ -1367,8 +1368,7 @@ private:
             return true;
         }
         // Ref self to ensure that "this" is still around after the end of the
-        // of the loop to ensure that iterator has valid list head pointer.    {
-
+        // of the loop to ensure that iterator has valid list head pointer.
         StRef theRef(*this);
         // Unwind recursion by setting active count to the total node count
         // prior to launching requests.
@@ -2020,10 +2020,10 @@ private:
         }
         OpQueueEntry theOpEntry = inIt->second;
         mPendingOpQueue.erase(inIt);
-        const int thePrefRefCount = GetRefCount();
+        const int thePrevRefCount = GetRefCount();
         theOpEntry.OpDone(inCanceledFlag);
         if (! mOutstandingOpPtr &&
-                theScheduleNextOpFlag && thePrefRefCount <= GetRefCount() &&
+                theScheduleNextOpFlag && thePrevRefCount <= GetRefCount() &&
                 ! mPendingOpQueue.empty() && IsConnected()) {
             mOutstandingOpPtr = &(mPendingOpQueue.begin()->second);
             const bool kResetTimerFlag = true;
@@ -2130,9 +2130,9 @@ private:
         } else {
             theEntry.mOpPtr->status    = inStatus;
             theEntry.mOpPtr->lastError = inError;
-            const int thePrefRefCount = GetRefCount();
+            const int thePrevRefCount  = GetRefCount();
             HandleOp(inIt);
-            if (thePrefRefCount > GetRefCount()) {
+            if (thePrevRefCount > GetRefCount()) {
                 return;
             }
         }
@@ -2712,6 +2712,15 @@ KfsNetClient::SetMaxMetaLogWriteRetryCount(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetMaxMetaLogWriteRetryCount(inCount);
+}
+
+    bool
+KfsNetClient::AddMetaServerLocation(
+    const ServerLocation& inLocation,
+    bool                  inAllowDuplicatesFlag)
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.AddMetaServerLocation(inLocation, inAllowDuplicatesFlag);
 }
 
     void
