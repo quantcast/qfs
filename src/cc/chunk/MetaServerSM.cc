@@ -1763,7 +1763,7 @@ MetaServerSM::SetMetaInfo(
         new (mImpls + i) Impl(
             mCounters, mPendingOps, mPrimary, mImplCount <= 1, i);
     }
-    int res;
+    int res = 0;
     for (int i = 0; i < mImplCount; i++) {
         res = mImpls[i].SetMetaInfo(
             mLocations[i], clusterKey, rackId, md5sum, prop);
