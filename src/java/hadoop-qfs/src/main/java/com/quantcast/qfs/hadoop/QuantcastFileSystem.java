@@ -83,6 +83,7 @@ public class QuantcastFileSystem extends FileSystem {
           (uri.getAuthority() == null ? "/" : uri.getAuthority()));
       this.workingDir = new Path("/user", System.getProperty("user.name")
                                 ).makeQualified(uri, null);
+      this.qfsImpl.setUMask(FsPermission.getUMask(conf).toShort());
     } catch (Exception e) {
       throw new IOException("Unable to initialize QFS using uri " + uri);
     }

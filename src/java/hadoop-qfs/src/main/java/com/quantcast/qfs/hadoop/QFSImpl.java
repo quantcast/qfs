@@ -282,6 +282,16 @@ class QFSImpl implements IFSImpl {
       path, username, groupname), path);
   }
 
+  public int getUMask()
+    throws IOException {
+    return kfsAccess.kfs_getUMask();
+  }
+
+  public void setUMask(int mask)
+    throws IOException {
+    kfsAccess.kfs_setUMask(mask);
+  }
+
   public void retToIoException(int ret)
     throws IOException {
     kfsAccess.kfs_retToIOException(ret);

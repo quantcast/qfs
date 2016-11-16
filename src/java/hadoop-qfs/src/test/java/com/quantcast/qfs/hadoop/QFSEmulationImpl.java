@@ -35,9 +35,11 @@ import com.quantcast.qfs.access.KfsFileAttr;
 
 public class QFSEmulationImpl implements IFSImpl {
   FileSystem localFS;
+  int umask;
 
   public QFSEmulationImpl(Configuration conf) throws IOException {
     localFS = FileSystem.getLocal(conf);
+    umask = FsPermission.getUMask(conf).toShort();
   }
 
   public boolean exists(String path) throws IOException {
@@ -232,6 +234,16 @@ public class QFSEmulationImpl implements IFSImpl {
   public void setOwner(String path, String username, String groupname)
     throws IOException {
     localFS.setOwner(new Path(path), username, groupname);
+  }
+
+  public void setUMask(int mask)
+    throws IOException {
+    umask = mask;
+  }
+
+  public int getUMask()
+    throws IOException {
+    return umask;
   }
 
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
