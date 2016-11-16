@@ -30,7 +30,6 @@
 #include "common/MsgLogger.h"
 #include "common/IntToString.h"
 #include "qcdio/QCUtils.h"
-#include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
 
 #include "Globals.h"
@@ -115,7 +114,7 @@ struct TcpSocket::Address
         char ipname[(INET_ADDRSTRLEN < INET6_ADDRSTRLEN ?
             INET6_ADDRSTRLEN : INET_ADDRSTRLEN) + 1];
         const socklen_t size = mProto == AF_INET ?
-            INET6_ADDRSTRLEN : INET6_ADDRSTRLEN;
+            INET_ADDRSTRLEN : INET6_ADDRSTRLEN;
         if (! inet_ntop(mProto, GetAddr(), ipname, size)) {
             return (errno < 0 ? errno : (errno == 0 ? -EINVAL : -errno));
         }
@@ -148,26 +147,31 @@ struct TcpSocket::Address
         ret.append(portBuf.GetPtr());
         return ret;
     }
-    static bool IsValidConnectToAddress(const ServerLocation& location)
+    static bool IsValidConnectToIpAddress(const char* ipAddrStrPtr,
+        bool hostNameOkFlag = false)
     {
-        if (location.port <= 0) {
-            return 0;
-        }
-        if (location.hostname.find(':') != string::npos) {
+        if (strchr(ipAddrStrPtr, ':')) {
             struct sockaddr_in6 addr = {0};
-            if (inet_pton(AF_INET6, location.hostname.c_str(),
+            if (inet_pton(AF_INET6, ipAddrStrPtr,
                     &addr.sin6_addr)) {
                 return (0 == memcmp(
                     &addr.sin6_addr, &in6addr_any, sizeof(in6addr_any)));
             }
         } else {
             struct sockaddr_in addr = {0};
-            if (inet_aton(location.hostname.c_str(), &addr.sin_addr)) {
+            if (inet_aton(ipAddrStrPtr, &addr.sin_addr)) {
                 return (addr.sin_addr.s_addr != htonl(INADDR_ANY) &&
                     addr.sin_addr.s_addr != htonl(INADDR_NONE));
             }
         }
-        return true;
+        return hostNameOkFlag;
+    }
+    static bool IsValidConnectToIpAddressOrHostName(const char* hostNameOrIpPtr)
+        { return IsValidConnectToIpAddress(hostNameOrIpPtr, true); }
+    static bool IsValidConnectToAddress(const ServerLocation& location)
+    {
+        return (0 < location.port && location.port < (1 << 16) &&
+            IsValidConnectToIpAddressOrHostName(location.hostname.c_str()));
     }
     int Set(const ServerLocation& location)
     {
@@ -190,41 +194,58 @@ struct TcpSocket::Address
         }
         if (useResolverFlag) {
             memset(&mIp, 0, sizeof(mIp));
-            QCStMutexLocker lock(sLookupMutex);
-            // do the conversion if we weren't handed an IP address
-            struct hostent* const hostInfo = gethostbyname(
-                location.hostname.c_str());
-            KFS_LOG_STREAM_DEBUG <<
-                "connect: "  << location <<
-                " hostent: " << (const void*)hostInfo <<
-                " type: "    << (hostInfo ? hostInfo->h_addrtype : -1) <<
-                " size: "    << (hostInfo ? hostInfo->h_length   : -1) <<
-                " "  << h_errno <<
-            KFS_LOG_EOM;
-            if (! hostInfo || (
-                        hostInfo->h_addrtype != AF_INET &&
-                        hostInfo->h_addrtype != AF_INET6) ||
-                    GetAddSize(hostInfo->h_addrtype) < hostInfo->h_length) {
-                const char* const err = hstrerror(h_errno);
+            struct addrinfo hints;
+            memset(&hints, 0, sizeof(hints));
+            hints.ai_family   = AF_UNSPEC;   // Allow IPv4 or IPv6
+            hints.ai_socktype = SOCK_STREAM; // Datagram socket
+            hints.ai_flags    = 0;
+            hints.ai_protocol = 0;           // Any protocol
+            struct addrinfo* res = 0;
+            const int status = getaddrinfo(
+                location.hostname.c_str(), 0, &hints, &res);
+            if (0 != status) {
+                const char* err = gai_strerror(status);
                 KFS_LOG_STREAM_ERROR <<
                     location.hostname <<
                     ": " << ((err && *err) ? err : "unspecified error") <<
                 KFS_LOG_EOM;
+                if (res) {
+                    freeaddrinfo(res);
+                }
                 return -EHOSTUNREACH;
             }
-            mProto = hostInfo->h_addrtype;
-            if (AF_INET == mProto) {
-                mIp.v4.sin_family  = mProto;
-            } else {
-                mIp.v6.sin6_family = mProto;
+            struct addrinfo const* ptr;
+            for (ptr = res; ptr; ptr = ptr->ai_next) {
+                if (AF_INET != ptr->ai_family && AF_INET6 != ptr->ai_family) {
+                    continue;
+                }
+                mProto = ptr->ai_family;
+                if (AF_INET == mProto) {
+                    mIp.v4.sin_family  = mProto;
+                } else {
+                    mIp.v6.sin6_family = mProto;
+                }
+                memcpy(Ptr(), ptr->ai_addr, ptr->ai_addrlen);
+                break;
             }
-            memcpy(GetAddr(), hostInfo->h_addr, hostInfo->h_length);
+            freeaddrinfo(res);
+            if (! ptr) {
+                KFS_LOG_STREAM_ERROR <<
+                    location.hostname <<
+                    ": " << "host name resolution failure" <<
+                KFS_LOG_EOM;
+                return -EHOSTUNREACH;
+            }
         }
         if (AF_INET == mProto) {
             mIp.v4.sin_port  = htons(location.port);
         } else {
             mIp.v6.sin6_port = htons(location.port);
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "connect: " << location   <<
+            " => "      << ToString() <<
+        KFS_LOG_EOM;
         return 0;
     }
     TcpSocket::Type GetType() const
@@ -241,8 +262,6 @@ private:
         struct sockaddr_in  v4;
         struct sockaddr_in6 v6;
     } mIp;
-
-    static QCMutex sLookupMutex;
 
     void* GetAddr()
     {
@@ -266,7 +285,11 @@ TcpSocket::IsValidConnectToAddress(const ServerLocation& location)
     return Address::IsValidConnectToAddress(location);
 }
 
-QCMutex TcpSocket::Address::sLookupMutex;
+bool
+TcpSocket::IsValidConnectToIpAddress(const char* ipAddrPtr)
+{
+    return (ipAddrPtr && Address::IsValidConnectToIpAddress(ipAddrPtr));
+}
 
 TcpSocket::~TcpSocket()
 {

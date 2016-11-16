@@ -117,6 +117,7 @@ public:
     Type GetType() const { return mType; }
     static int Validate(const string& address);
     static bool IsValidConnectToAddress(const ServerLocation& location);
+    static bool IsValidConnectToIpAddress(const char* ipAddrPtr);
     static int GetDefaultRecvBufSize() { return sRecvBufSize; }
     static int GetDefaultSendBufSize() { return sSendBufSize; }
     static void SetDefaultRecvBufSize(int size) { sRecvBufSize = size; }

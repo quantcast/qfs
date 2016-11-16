@@ -48,6 +48,7 @@ set (sources
     HttpChunkedDecoder.cc
     blockname.cc
     ProcessRestarter.cc
+    Resolver.cc
 )
 
 add_library (kfsIO STATIC ${sources})
