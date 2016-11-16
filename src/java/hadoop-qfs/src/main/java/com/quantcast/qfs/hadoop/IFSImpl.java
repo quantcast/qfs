@@ -77,6 +77,8 @@ interface IFSImpl {
            throws IOException;
   public void retToIoException(int ret)
            throws IOException;
+  public int getUMask() throws IOException;
+  public void setUMask(int mask) throws IOException;
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
            throws IOException;
 };
