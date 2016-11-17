@@ -133,7 +133,6 @@ ChunkAccessToken::Process(
 {
     if (! Process(
             inChunkId,
-            inUid,
             inBufPtr,
             inBufLen,
             inTimeNowSec,
