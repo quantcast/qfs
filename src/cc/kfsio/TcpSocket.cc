@@ -197,7 +197,7 @@ struct TcpSocket::Address
             struct addrinfo hints;
             memset(&hints, 0, sizeof(hints));
             hints.ai_family   = AF_UNSPEC;   // Allow IPv4 or IPv6
-            hints.ai_socktype = SOCK_STREAM; // Datagram socket
+            hints.ai_socktype = SOCK_STREAM;
             hints.ai_flags    = 0;
             hints.ai_protocol = 0;           // Any protocol
             struct addrinfo* res = 0;
@@ -207,7 +207,8 @@ struct TcpSocket::Address
                 const char* err = gai_strerror(status);
                 KFS_LOG_STREAM_ERROR <<
                     location.hostname <<
-                    ": " << ((err && *err) ? err : "unspecified error") <<
+                    ": " << ((err && *err) ? err :
+                        "unspecified host name resolution error") <<
                 KFS_LOG_EOM;
                 if (res) {
                     freeaddrinfo(res);

@@ -683,6 +683,7 @@ if [ x"$accessdir" != x ]; then
     fi
     QFS_CLIENT_CONFIG="$javatestclicfg" \
     java \
+        -Xms8006M \
         -Djava.library.path="$accessdir" \
         -classpath "$kfsjar" \
         -Dkfs.euid="`id -u`" \

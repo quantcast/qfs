@@ -31,6 +31,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/ClientAuthContext.h"
 #include "kfsio/DelegationToken.h"
+#include "kfsio/Resolver.h"
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
@@ -221,10 +222,14 @@ public:
           mLookupOp(-1, ROOTFID, "/"),
           mAuthOp(-1, kAuthenticationTypeUndef),
           mMetaVrNodesCount(0),
-          mMetaVrNodesActiveCount(0)
+          mMetaVrNodesActiveCount(0),
+          mMetaLocations(),
+          mMetaHostNames(),
+          mResolverPtr(0)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
         MetaVrList::Init(mMetaVrListPtr);
+        ResolverList::Init(mResolverReqsPtr);
     }
     bool IsConnected() const
         { return (mConnPtr && mConnPtr->IsGood()); }
@@ -363,6 +368,7 @@ public:
             mSleepingFlag = false;
         }
         ResetConnection();
+        CancelVrPrimaryCheck();
     }
     void CancelAllWithOwner(
         OpOwner* inOwnerPtr)
@@ -907,6 +913,11 @@ public:
         }
         Stop();
         mNetManagerPtr = &inNetManager;
+        if (mResolverPtr) {
+            mResolverPtr->Shutdown();
+            delete mResolverPtr;
+            mResolverPtr = 0;
+        }
     }
     int GetMaxMetaLogWriteRetryCount() const
         { return mMaxMetaLogWriteRetryCount; }
@@ -920,19 +931,43 @@ public:
         if (! inLocation.IsValid()) {
             return false;
         }
-        if (! inAllowDuplicatesFlag) {
-            MetaVrList::Iterator             theIt(mMetaVrListPtr);
-            const MetaCheckVrPrimaryChecker* thePtr;
-            while ((thePtr = theIt.Next())) {
-                if (thePtr->GetLocation() == inLocation) {
-                    return false;
+        if (TcpSocket::IsValidConnectToIpAddress(inLocation.hostname.c_str())) {
+            if (! inAllowDuplicatesFlag) {
+                MetaVrList::Iterator             theIt(mMetaVrListPtr);
+                const MetaCheckVrPrimaryChecker* thePtr;
+                while ((thePtr = theIt.Next())) {
+                    if (thePtr->GetLocation() == inLocation) {
+                        return false;
+                    }
                 }
             }
+            const bool kLocationResolvedFlag = false;
+            MetaVrList::PushBack(mMetaVrListPtr,
+                *(new MetaCheckVrPrimaryChecker(
+                    inLocation, *this, kLocationResolvedFlag)));
+            mMetaVrNodesCount++;
+            return true;
         }
-        MetaVrList::PushBack(mMetaVrListPtr,
-            *(new MetaCheckVrPrimaryChecker(inLocation, *this)));
-        mMetaVrNodesCount++;
+        if (! inAllowDuplicatesFlag &&
+                find(mMetaLocations.begin(), mMetaLocations.end(), inLocation) !=
+                    mMetaLocations.end()) {
+            return false;
+        }
+        mMetaLocations.push_back(inLocation);
+        if (find(mMetaHostNames.begin(), mMetaHostNames.end(),
+                inLocation.hostname) == mMetaHostNames.end()) {
+            mMetaHostNames.push_back(inLocation.hostname);
+        }
         return true;
+    }
+    void ClearMetaServerLocations()
+    {
+        CancelVrPrimaryCheck();
+        MetaCheckVrPrimaryChecker* thePtr;
+        while ((thePtr = MetaVrList::PopFront(mMetaVrListPtr))) {
+            delete thePtr;
+        }
+        mMetaLocations.clear();
     }
 private:
     class DoNotDeallocate
@@ -1006,7 +1041,8 @@ private:
 
         MetaCheckVrPrimaryChecker(
             const ServerLocation& inLocation,
-            Impl&                 inOuter)
+            Impl&                 inOuter,
+            bool                  inResolvedFlag)
             : KfsCallbackObj(),
               ITimeout(),
               mOuter(inOuter),
@@ -1015,7 +1051,8 @@ private:
               mSeq(-1),
               mPendingBytesSend(0),
               mRetryCount(0),
-              mSleepingFlag(false)
+              mSleepingFlag(false),
+              mResolvedFlag(inResolvedFlag)
         {
             SET_HANDLER(this, &MetaCheckVrPrimaryChecker::EventHandler);
             List::Init(*this);
@@ -1114,6 +1151,8 @@ private:
             { return (0 != mConnPtr || mSleepingFlag); }
         const ServerLocation& GetLocation() const
             { return mLocation; }
+        bool IsLocationResolved() const
+            { return mResolvedFlag; }
         virtual void Timeout()
         {
             if (mSleepingFlag) {
@@ -1130,6 +1169,7 @@ private:
         int                        mPendingBytesSend;
         int                        mRetryCount;
         bool                       mSleepingFlag;
+        bool const                 mResolvedFlag;
         MetaCheckVrPrimaryChecker* mPrevPtr[1];
         MetaCheckVrPrimaryChecker* mNextPtr[1];
 
@@ -1238,6 +1278,66 @@ private:
     friend class MetaCheckVrPrimaryChecker;
     typedef MetaCheckVrPrimaryChecker::List MetaVrList;
 
+    class ResolverReq : public Resolver::Request
+    {
+    public:
+        typedef QCDLList<ResolverReq>          List;
+        typedef Resolver::Request::IpAddresses IpAddresses;
+
+        ResolverReq(
+            const string& inHostName,
+            Impl&         inImpl)
+            : Resolver::Request(inHostName),
+              mImplPtr(&inImpl),
+              mInflightFlag(false)
+            { List::Init(*this); }
+        const string& GetHostName() const
+            { return mHostName; }
+        virtual void Done()
+        {
+            if (! mImplPtr) {
+                delete this;
+                return;
+            }
+            mImplPtr->Resolved(*this);
+        }
+        const IpAddresses& GetIps() const
+            { return mIpAddresses; }
+        int GetStatus() const
+            { return mStatus; }
+        const string& GetStatusMsg() const
+            { return mStatusMsg; }
+        void Delete(
+            ResolverReq** inListPtr)
+        {
+            List::Remove(inListPtr, *this);
+            if (mInflightFlag) {
+                mImplPtr = 0;
+                return;
+            }
+            delete this;
+        }
+    private:
+        Impl*        mImplPtr;
+        bool         mInflightFlag;
+        ResolverReq* mPrevPtr[1];
+        ResolverReq* mNextPtr[1];
+
+        friend class QCDLListOp<ResolverReq>;
+
+        virtual ~ResolverReq()
+            {}
+    private:
+        ResolverReq(
+            const ResolverReq& inReq);
+        ResolverReq& operator=(
+            const ResolverReq& inReq);
+    };
+    friend class ResolverReq;
+    typedef ResolverReq::List ResolverList;
+    typedef vector<string> MetaHostNames;
+    typedef vector<ServerLocation> MetaLocations;
+
     ServerLocation             mServerLocation;
     OpQueue                    mPendingOpQueue;
     QueueStack                 mQueueStack;
@@ -1296,10 +1396,17 @@ private:
     AuthenticateOp             mAuthOp;
     int                        mMetaVrNodesCount;
     int                        mMetaVrNodesActiveCount;
+    MetaLocations              mMetaLocations;
+    MetaHostNames              mMetaHostNames;
+    Resolver*                  mResolverPtr;
+    ResolverReq*               mResolverReqsPtr[1];
     MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
 
     virtual ~Impl()
-        { Impl::Reset(); }
+    {
+        Impl::Reset();
+        ClearMetaServerLocations();
+    }
     bool IsAuthInFlight()
         { return (0 <= mLookupOp.seq || 0 <= mAuthOp.seq); }
     void SetMaxWaitTime(
@@ -1323,22 +1430,103 @@ private:
             if (! IsAuthEnabled()) {
                 mLookupOp.seq = -1;
             }
-            EnsureConnectedSelf(0, 0);
+            const bool kVrPrimaryFlag = true;
+            EnsureConnectedSelf(0, 0, kVrPrimaryFlag);
             return;
         }
         assert(0 <= mMetaVrNodesActiveCount);
         mMetaVrNodesActiveCount--;
-        if (mMetaVrNodesActiveCount <= 0) {
+        if (mMetaVrNodesActiveCount <= 0 &&
+                MetaVrList::IsEmpty(mMetaVrListPtr)) {
             Fail(
                 mLookupOp.status < 0 ? mLookupOp.status : -EIO,
                 mLookupOp.statusMsg
             );
         }
     }
+    void Resolve(
+        const string& inHostName)
+    {
+        if (! mResolverPtr) {
+            mResolverPtr = new Resolver(*mNetManagerPtr);
+            const int theStatus = mResolverPtr->Start();
+            if (0 != theStatus) {
+                KFS_LOG_STREAM_FATAL << "failed to start resolver:" <<
+                    " status: " << theStatus <<
+                    " "         << QCUtils::SysError(-theStatus) <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                abort();
+            }
+        }
+        ResolverReq& theReq = *(new ResolverReq(inHostName, *this));
+        ResolverList::PushBack(mResolverReqsPtr, theReq);
+        mResolverPtr->Enqueue(theReq);
+    }
+    void Resolved(
+        ResolverReq& inReq)
+    {
+        MetaCheckVrPrimaryChecker* theListPtr[1];
+        MetaVrList::Init(theListPtr);
+        if (0 == inReq.GetStatus()) {
+            const string&                   theHost = inReq.GetHostName();
+            const ResolverReq::IpAddresses& theIps  = inReq.GetIps();
+            if (! theIps.empty()) {
+                for (MetaLocations::const_iterator
+                        theIt = mMetaLocations.begin();
+                        mMetaLocations.end() != theIt;
+                        ++theIt) {
+                    if (theIt->hostname != theHost) {
+                        continue;
+                    }
+                    for (ResolverReq::IpAddresses::const_iterator
+                            theIpIt = theIps.begin();
+                            theIps.end() != theIpIt;
+                            ++theIpIt) {
+                        ServerLocation const theLocation(*theIpIt, theIt->port);
+                        MetaVrList::Iterator             theIt(mMetaVrListPtr);
+                        const MetaCheckVrPrimaryChecker* thePtr;
+                        while ((thePtr = theIt.Next())) {
+                            if (thePtr->GetLocation() == theLocation) {
+                                break;
+                            }
+                        }
+                        if (! thePtr) {
+                            const bool kLocationResolvedFlag = true;
+                            MetaVrList::PushBack(theListPtr,
+                                *(new MetaCheckVrPrimaryChecker(
+                                    theLocation, *this, kLocationResolvedFlag)));
+                        }
+                    }
+                }
+            }
+        }
+        inReq.Delete(mResolverReqsPtr);
+        if (mMetaVrNodesActiveCount <= 0 && MetaVrList::IsEmpty(theListPtr)) {
+            assert(! mConnPtr);
+            if (0 <= mLookupOp.status) {
+                mLookupOp.status    = inReq.GetStatus();
+                mLookupOp.statusMsg = inReq.GetStatusMsg();
+                if (0 <= mLookupOp.status) {
+                    mLookupOp.lastError = -mLookupOp.status;
+                    mLookupOp.status    = -ENETUNREACH;
+                }
+            }
+            SetVrPrimary(mConnPtr, ServerLocation(), kRpcFormatUndef);
+            return;
+        }
+        MetaCheckVrPrimaryChecker* thePtr;
+        while ((thePtr = MetaVrList::PopFront(theListPtr))) {
+            MetaVrList::PushBack(mMetaVrListPtr, *thePtr);
+            mMetaVrNodesCount++;
+            mMetaVrNodesActiveCount++;
+            thePtr->Connect();
+        }
+    }
     bool ConnectToVrPrimary(
         const KfsOp* inLastOpPtr)
     {
-        if (MetaVrList::IsEmpty(mMetaVrListPtr)) {
+        if (MetaVrList::IsEmpty(mMetaVrListPtr) && mMetaLocations.empty()) {
             return false;
         }
         if (inLastOpPtr) {
@@ -1364,12 +1552,18 @@ private:
                 }
             }
         }
-        if (0 < mMetaVrNodesActiveCount) {
+        if (0 < mMetaVrNodesActiveCount ||
+                ! ResolverList::IsEmpty(mResolverReqsPtr)) {
             return true;
         }
         // Ref self to ensure that "this" is still around after the end of the
         // of the loop to ensure that iterator has valid list head pointer.
         StRef theRef(*this);
+        for (MetaHostNames::const_iterator theIt = mMetaHostNames.begin();
+                mMetaHostNames.end() != theIt;
+                ++theIt) {
+            Resolve(*theIt);
+        }
         // Unwind recursion by setting active count to the total node count
         // prior to launching requests.
         mMetaVrNodesActiveCount = mMetaVrNodesCount;
@@ -1386,8 +1580,17 @@ private:
         MetaCheckVrPrimaryChecker* thePtr;
         while ((thePtr = theIt.Next())) {
             thePtr->Reset();
+            if (thePtr->IsLocationResolved()) {
+                MetaVrList::Remove(mMetaVrListPtr, *thePtr);
+                delete thePtr;
+                mMetaVrNodesCount--;
+            }
         }
         mMetaVrNodesActiveCount = 0;
+        ResolverReq* theReqPtr;
+        while ((theReqPtr = ResolverList::Front(mResolverReqsPtr))) {
+            theReqPtr->Delete(mResolverReqsPtr);
+        }
     }
     bool EnqueueSelf(
         KfsOp*    inOpPtr,
@@ -1825,11 +2028,13 @@ private:
             RetryConnect(0, theError);
             return;
         }
-        EnsureConnectedSelf(inErrMsgPtr, inLastOpPtr);
+        const bool kVrPrimaryFlag = false;
+        EnsureConnectedSelf(inErrMsgPtr, inLastOpPtr, kVrPrimaryFlag);
     }
     void EnsureConnectedSelf(
         string*      inErrMsgPtr,
-        const KfsOp* inLastOpPtr)
+        const KfsOp* inLastOpPtr,
+        bool         inVrPrimaryFlag)
     {
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
             "connecting to server: " << mServerLocation <<
@@ -1887,7 +2092,7 @@ private:
             mSessionKeyData        = mSessionKeyId;
             mSessionExpirationTime = Now() + kMaxSessionTimeout;
             if (IsAuthEnabled()) {
-                if (mMetaVrNodesCount <= 0) {
+                if (! inVrPrimaryFlag) {
                     assert(! IsAuthInFlight());
                     mLookupOp.DeallocContentBuf();
                     mLookupOp.contentLength         = 0;
@@ -1908,7 +2113,7 @@ private:
         if (! mConnPtr) {
             ResetConnection();
         } else if (0 <= theLookupSeq && theLookupSeq == mLookupOp.seq) {
-            if (0 < mMetaVrNodesCount) {
+            if (inVrPrimaryFlag) {
                 OpDone(&mLookupOp, false, 0);
             } else {
                 EnqueueAuth(mLookupOp);
