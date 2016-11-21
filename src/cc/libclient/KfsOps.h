@@ -564,6 +564,7 @@ struct LookupOp : public KfsOp {
     bool        getAuthInfoOnlyFlag; // if set retrieve authentication info only
     bool        reqShortRpcFormatFlag;
     bool        vrPrimaryFlag;
+    bool        responseHasVrPrimaryKeyFlag;
     string      userName;
     string      groupName;
     string      euserName;
@@ -579,6 +580,7 @@ struct LookupOp : public KfsOp {
           getAuthInfoOnlyFlag(false),
           reqShortRpcFormatFlag(false),
           vrPrimaryFlag(false),
+          responseHasVrPrimaryKeyFlag(false),
           userName(),
           groupName(),
           euserName(),

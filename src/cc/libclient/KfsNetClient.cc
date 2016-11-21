@@ -1063,7 +1063,7 @@ private:
         {
             Reset();
             mOuter.mLookupOp.status = mOuter.Connect(
-                mLocation, mConnPtr, &mOuter.mLookupOp.statusMsg);
+                mLocation, mConnPtr, *this, &mOuter.mLookupOp.statusMsg);
             if (0 == mOuter.mLookupOp.status) {
                 Request();
             } else {
@@ -1106,9 +1106,9 @@ private:
                 case EVENT_NET_ERROR:
                     mOuter.mStats.mNetErrorCount++;
                     KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                        "closing VR checker"
+                        "VR checker: "  << mLocation <<
+                        " closing"
                         " connection: " << mConnPtr->GetSockName() <<
-                        " to: "         << mLocation <<
                         " due to "      << theReasonPtr <<
                         " error: "      << mConnPtr->GetErrorMsg() <<
                         " pending:"
@@ -1178,13 +1178,15 @@ private:
         void Request()
         {
             mOuter.mLookupOp.DeallocContentBuf();
-            mOuter.mLookupOp.contentLength         = 0;
-            mOuter.mLookupOp.status                = 0;
+            mOuter.mLookupOp.contentLength               = 0;
+            mOuter.mLookupOp.status                      = 0;
             mOuter.mLookupOp.statusMsg.clear();
-            mOuter.mLookupOp.reqShortRpcFormatFlag = true;
-            mOuter.mLookupOp.authType              = kAuthenticationTypeNone;
-            mOuter.mLookupOp.seq                   = mOuter.mNextSeqNum++;
-            mOuter.mLookupOp.vrPrimaryFlag         = false;
+            mOuter.mLookupOp.reqShortRpcFormatFlag       = true;
+            mOuter.mLookupOp.authType                    =
+                kAuthenticationTypeNone;
+            mOuter.mLookupOp.seq                         = mOuter.mNextSeqNum++;
+            mOuter.mLookupOp.vrPrimaryFlag               = false;
+            mOuter.mLookupOp.responseHasVrPrimaryKeyFlag = false;
             ReqOstream theStream(mOuter.mOstream.Set(mConnPtr->GetOutBuffer()));
             mOuter.mLookupOp.Request(theStream);
             mOuter.mOstream.Reset();
@@ -1214,6 +1216,8 @@ private:
                     mOuter.mLookupOp.status    = -EINVAL;
                     mOuter.mLookupOp.statusMsg = "op sequence mismatch";
                 } else {
+                    mOuter.mLookupOp.shortRpcFormatFlag =
+                        kRpcFormatShort == theRpcFormat;
                     mOuter.mLookupOp.status = 0;
                     mOuter.mLookupOp.statusMsg.clear();
                     mOuter.mLookupOp.ParseResponseHeader(mOuter.mProperties);
@@ -1227,7 +1231,9 @@ private:
             }
             mOuter.mProperties.clear();
             if (0 == mOuter.mLookupOp.status &&
-                    mOuter.mLookupOp.vrPrimaryFlag) {
+                    (mOuter.mLookupOp.vrPrimaryFlag ||
+                        (1 == mOuter.mMetaVrNodesCount &&
+                        ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag))) {
                 NetConnectionPtr theConnPtr;
                 theConnPtr.swap(mConnPtr);
                 Reset();
@@ -1252,12 +1258,13 @@ private:
                 return;
             }
             if (0 < mOuter.mTimeSecBetweenRetries ) {
-                KFS_LOG_STREAM_INFO << mOuter.mLogPrefix <<
-                    "retry attempt " << mRetryCount <<
-                    " of " << mOuter.mMaxRetryCount <<
-                    ", will retry " << mOuter.mPendingOpQueue.size() <<
-                    " pending operation(s) in " <<
-                        mOuter.mTimeSecBetweenRetries <<
+                KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                    "VR checker: "        << mLocation <<
+                    " retry attempt "     << mRetryCount <<
+                    " of "                << mOuter.mMaxRetryCount <<
+                    ", scheduling retry " << mOuter.mPendingOpQueue.size() <<
+                    " pending operation(s)"
+                    " in "                << mOuter.mTimeSecBetweenRetries <<
                     " seconds" <<
                 KFS_LOG_EOM;
                 mOuter.mStats.mSleepTimeSec += mOuter.mTimeSecBetweenRetries;
@@ -1406,6 +1413,10 @@ private:
     {
         Impl::Reset();
         ClearMetaServerLocations();
+        if (mResolverPtr) {
+            mResolverPtr->Shutdown();
+            delete mResolverPtr;
+        }
     }
     bool IsAuthInFlight()
         { return (0 <= mLookupOp.seq || 0 <= mAuthOp.seq); }
@@ -1421,15 +1432,16 @@ private:
         RpcFormat             inRpcFormat)
     {
         if (inConnPtr) {
+            const kfsSeq_t theSeq = IsAuthEnabled() ?
+                mLookupOp.seq : kfsSeq_t(-1);
+            mLookupOp.seq = -1; // Mark as not in flight for reset connection.
             ResetConnection();
+            mLookupOp.seq = theSeq;
             mServerLocation = inLocation;
             mRpcFormat      = inRpcFormat;
             mConnPtr.swap(inConnPtr);
             mConnPtr->SetOwningKfsCallbackObj(this);
             CancelVrPrimaryCheck();
-            if (! IsAuthEnabled()) {
-                mLookupOp.seq = -1;
-            }
             const bool kVrPrimaryFlag = true;
             EnsureConnectedSelf(0, 0, kVrPrimaryFlag);
             return;
@@ -1437,7 +1449,8 @@ private:
         assert(0 <= mMetaVrNodesActiveCount);
         mMetaVrNodesActiveCount--;
         if (mMetaVrNodesActiveCount <= 0 &&
-                MetaVrList::IsEmpty(mMetaVrListPtr)) {
+                ResolverList::IsEmpty(mResolverReqsPtr)) {
+            CancelVrPrimaryCheck();
             Fail(
                 mLookupOp.status < 0 ? mLookupOp.status : -EIO,
                 mLookupOp.statusMsg
@@ -1977,6 +1990,7 @@ private:
     int Connect(
         const ServerLocation& inServerLocation,
         NetConnectionPtr&     inConnPtr,
+        KfsCallbackObj&       inCallbackObj,
         string*               inErrMsgPtr = 0)
     {
         mStats.mConnectCount++;
@@ -1996,7 +2010,7 @@ private:
             mStats.mConnectFailureCount++;
             return theErr;
         }
-        inConnPtr.reset(new NetConnection(&theSocket, this));
+        inConnPtr.reset(new NetConnection(&theSocket, &inCallbackObj));
         inConnPtr->EnableReadIfOverloaded();
         if (theErr) {
             inConnPtr->SetDoingNonblockingConnect();
@@ -2023,7 +2037,8 @@ private:
         if (ConnectToVrPrimary(inLastOpPtr)) {
             return;
         }
-        const int theError = Connect(mServerLocation, mConnPtr, inErrMsgPtr);
+        const int theError = Connect(
+            mServerLocation, mConnPtr, *this, inErrMsgPtr);
         if (0 != theError) {
             RetryConnect(0, theError);
             return;
@@ -2095,13 +2110,16 @@ private:
                 if (! inVrPrimaryFlag) {
                     assert(! IsAuthInFlight());
                     mLookupOp.DeallocContentBuf();
-                    mLookupOp.contentLength         = 0;
-                    mLookupOp.status                = 0;
+                    mLookupOp.contentLength               = 0;
+                    mLookupOp.status                      = 0;
                     mLookupOp.statusMsg.clear();
-                    mLookupOp.reqShortRpcFormatFlag =
+                    mLookupOp.reqShortRpcFormatFlag       =
                         mRpcFormat == kRpcFormatUndef;
-                    mLookupOp.authType              = kAuthenticationTypeNone;
-                    mLookupOp.seq                   = mNextSeqNum++;
+                    mLookupOp.authType                    =
+                        kAuthenticationTypeNone;
+                    mLookupOp.vrPrimaryFlag               = false;
+                    mLookupOp.responseHasVrPrimaryKeyFlag = false;
+                    mLookupOp.seq                         = mNextSeqNum++;
                 }
                 mNextSeqNum++; // Leave one slot for mAuthOp
             } else {
@@ -2270,7 +2288,7 @@ private:
                 mNonAuthRetryCount = mRetryCount;
             }
             ResetConnection();
-            if (mTimeSecBetweenRetries > 0) {
+            if (0 < mTimeSecBetweenRetries) {
                 KFS_LOG_STREAM_INFO << mLogPrefix <<
                     "retry attempt " << mRetryCount <<
                     " of " << mMaxRetryCount <<

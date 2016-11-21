@@ -42,6 +42,7 @@ public:
         }
         mRunFlag = true;
         const int kStackSize = 64 << 10;
+        mNetManager.RegisterTimeoutHandler(this);
         mThread.Start(this, kStackSize, "Resolver");
         return 0;
     }
@@ -55,6 +56,7 @@ public:
         mCondVar.Notify();
         theLock.Unlock();
         mThread.Join();
+        mNetManager.UnRegisterTimeoutHandler(this);
     }
     int Enqueue(
         Request& inRequest)
@@ -63,7 +65,11 @@ public:
         if (! mRunFlag) {
             return -EINVAL;
         }
+        const bool theWakeFlag = mQueue.IsEmpty();
         mQueue.PushBack(inRequest);
+        if (theWakeFlag) {
+            mCondVar.Notify();
+        }
         return 0;
     }
     virtual void Timeout()
@@ -92,8 +98,9 @@ public:
             theQueue.PushBack(mQueue);
             QCStMutexUnlocker theUnlocker(mMutex);
             Request* thePtr = theQueue.Front();
-            while ((thePtr = Queue::GetNext(*thePtr))) {
+            while (thePtr) {
                 Process(*thePtr);
+                thePtr = Queue::GetNext(*thePtr);
             }
             theUnlocker.Lock();
             const bool theWakeupFlag =
@@ -155,14 +162,12 @@ private:
             }
             const socklen_t theSize = thePtr->ai_family == AF_INET ?
                 INET6_ADDRSTRLEN : INET6_ADDRSTRLEN;
-            if (! inet_ntop(
-                    thePtr->ai_family,
-                    thePtr->ai_addr,
-                    mNameBuf,
-                    theSize)) {
-                if (0 == theErr) {
-                    theErr = errno;
-                }
+            const int theStatus = getnameinfo(
+                thePtr->ai_addr, thePtr->ai_addrlen, mNameBuf, theSize,
+                0, 0, NI_NUMERICHOST | NI_NUMERICSERV
+            );
+            if (0 != theStatus) {
+                theErr = theStatus;
                 continue;
             }
             mNameBuf[theSize] = 0;
@@ -171,7 +176,7 @@ private:
         freeaddrinfo(theResPtr);
         if (inReq.mIpAddresses.empty() && 0 != theErr) {
             inReq.mStatus    = theErr;
-            inReq.mStatusMsg = QCUtils::SysError(theErr);
+            inReq.mStatusMsg = gai_strerror(theErr);
         }
     }
 private:

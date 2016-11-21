@@ -208,7 +208,8 @@ public:
             int                inLeaseWaitTimeout            = 900,
             int                inMaxMetaServerContentLength  = 1 << 20,
             ClientAuthContext* inAuthContextPtr              = 0,
-            bool               inUseClientPoolFlag           = false)
+            bool               inUseClientPoolFlag           = false,
+            const string&      inMetaServerNodes             = string())
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -232,7 +233,8 @@ public:
               mLeaseWaitTimeout(inLeaseWaitTimeout),
               mMaxMetaServerContentLength(inMaxMetaServerContentLength),
               mAuthContextPtr(inAuthContextPtr),
-              mUseClientPoolFlag(inUseClientPoolFlag)
+              mUseClientPoolFlag(inUseClientPoolFlag),
+              mMetaServerNodes(inMetaServerNodes)
             {}
             int                 mMetaMaxRetryCount;
             int                 mMetaTimeSecBetweenRetries;
@@ -258,6 +260,7 @@ public:
             int                 mMaxMetaServerContentLength;
             ClientAuthContext*  mAuthContextPtr;
             bool                mUseClientPoolFlag;
+            string              mMetaServerNodes;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,

@@ -1193,8 +1193,10 @@ LookupOp::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ? "EUN" : "EUName", string());
     egroupName    = prop.getValue(
         shortRpcFormatFlag ? "EGN" : "EGName", string());
-    vrPrimaryFlag = prop.getValue(
-        shortRpcFormatFlag ? "VRP" : "Vr-primary", 0) != 0;
+    const char* vrPrimaryKey = shortRpcFormatFlag ? "VRP" : "Vr-primary";
+    vrPrimaryFlag = prop.getValue(vrPrimaryKey, 0) != 0;
+    responseHasVrPrimaryKeyFlag = vrPrimaryFlag ||
+        0 != prop.getValue(vrPrimaryKey);
     ParseFileAttribute(shortRpcFormatFlag, prop, fattr, userName, groupName);
 }
 
