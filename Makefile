@@ -44,7 +44,8 @@ hadoop-jars: build java
 		./src/java/javabuild.sh 0.23.11 && \
 		./src/java/javabuild.sh 1.0.4   && \
 		./src/java/javabuild.sh 1.1.2   && \
-		./src/java/javabuild.sh 2.5.1      \
+		./src/java/javabuild.sh 2.5.1   && \
+		./src/java/javabuild.sh 2.7.2      \
 	; fi
 
 .PHONY: tarball
