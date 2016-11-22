@@ -4,7 +4,7 @@
  * Created 2010/07/24
  * Author: Dan Adkins
  *
- * Copyright 2010-2011 Quantcast Corp.
+ * Copyright 2010-2011,2016 Quantcast Corporation. All rights reserved.
  *
  * This file is part of Kosmos File System (KFS).
  *

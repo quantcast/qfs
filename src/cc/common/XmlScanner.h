@@ -4,7 +4,7 @@
 // Created 2015/10/24
 // Author: Mike Ovsainnikov
 //
-// Copyright 2015 Quantcast Corp.
+// Copyright 2015,2016 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //

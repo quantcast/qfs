@@ -6,7 +6,7 @@ eval 'exec perl -wS $0 ${1+"$@"}'
 # Created 2010
 # Author: Mike Ovsiannikov
 #
-# Copyright 2010 Quantcast Corp.
+# Copyright 2010,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Kosmos File System (KFS).
 #

@@ -3,7 +3,7 @@
  *
  * Created 2007/08/25
  *
- * Copyright 2008-2012 Quantcast Corp.
+ * Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
  * Copyright 2007 Kosmix Corp.
  *
  * This file is part of Kosmos File System (KFS).

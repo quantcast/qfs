@@ -2,7 +2,7 @@
 
 # Author: Thilee Subramaniam
 #
-# Copyright 2012 Quantcast Corp.
+# Copyright 2012,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Quantcast File System (QFS).
 #

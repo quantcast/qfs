@@ -4,7 +4,7 @@
 // Created 2006/03/28
 // Author: Sriram Rao, Mike Ovsiannikov -- implement PSK authentication.
 //
-// Copyright 2008-2013 Quantcast Corp.
+// Copyright 2008-2013,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
