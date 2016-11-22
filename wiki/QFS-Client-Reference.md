@@ -309,13 +309,17 @@ For example, using default settings, the sequence
     client->RecordAppend(fd, &data[2], 1);
     client->Close(fd);
 
-will result in a file with 2 chunks, each replicated 3 times, and with an size of
+will likely result in a file with 2 chunks, each replicated 3 times, and with a size of
 134217728 bytes.
 
-An attempt to open this file for read will stall until all of the chunks are considered
-stable.
+When a file that was opened for append is closed, it may take a while for all the chunks to
+be considered stable. If the file is reopened for append before all the chunks are stable,
+new data may be appended to an existing unstable chunk instead of starting a new chunk.
 
-Reading this file will results in a short read error unless sparse file support is
+When a file that was opened for append is closed then reopened for read, the read will stall
+until all of the chunks are stable.
+
+Reading the above file will result in a short read error unless sparse file support is
 enabled. This can be accomplished by calling `KfsClient::SetDefaultFullSparseFileSupport(bool flag)`
 to enable it for all files or by calling `KfsClient::SetFullSparseFileSupport(int fd, bool flag)`
 for an open file before doing any reads.
@@ -351,6 +355,7 @@ SetFullParseFileSupport in the above code would output
 ### Writes with O_APPEND
 If a file is opened with O_APPEND, then a Write behaves the same as a RecordAppend.
 
+### Emulating a traditional append
 To do a traditional append to end of file with a single writer, open the file for write then
 seek to the end of file before writing.
 
