@@ -26,6 +26,7 @@ pages is available on the right sidebar.
 - [[Performance Comparison to HDFS]]
 - [[QFS Client Reference]]
 - [[External Resources]]
+- [[QFS on S3]]
 
 Updating the QFS Wiki
 ---------------------
