@@ -267,7 +267,7 @@ until the write gets completed. Completion handling is done by invoking
 `KfsClient::WriteAsyncCompletionHandler(int fd)`. This function will wait 
 until all of the non-blocking write requests on that file complete.
 
-### `KfsClient::Write(int fd, const char\* buf, size_t numBytes)`
+### `KfsClient::Write(int fd, const char* buf, size_t numBytes)`
 Used for blocking writes. However, how QFS client actually performs the
 write depends on 1) the number of bytes that we want to write with the
 current call (denoted as&nbsp;_numBytes_ below), 2) the number of pending
@@ -283,3 +283,92 @@ _write-behind threshold_ by subsequent write calls or until user calls
 * _numBytes + pending >= write-behind threshold_: QFS client makes
 a copy of the source buffer only if _write-behind threshold_ is greater than
 zero. Write is performed in a blocking fashion.
+
+## Append Operations
+
+### RecordAppend
+
+RecordAppend can be used by a single writer to append to a replicated file. There is
+limited support for append to RS files.
+
+The file should be opened using the mode O_APPEND or O_WRONLY | O_APPEND.
+When RecordAppend is used to write a record, the entire record is guaranteed to be
+written to the same chunk. If the record will not fit in the current chunk, a new chunk
+is started. Note that this will generally create a sparse file since the new chunk will
+start at the next chunk boundary location.
+
+For example, using default settings, the sequence
+
+    char data[] = { '1', '2', '3' };
+    int fd = client->Open(filename, O_CREAT | O_EXCL);
+    client->Write(fd, &data[0], 1);
+    client->Close(fd);
+    
+    fd = client->Open(filename, O_WRONLY | O_APPEND);
+    client->RecordAppend(fd, &data[1], 1);
+    client->RecordAppend(fd, &data[2], 1);
+    client->Close(fd);
+
+will result in a file with 2 chunks, each replicated 3 times, and with an size of
+134217728 bytes.
+
+An attempt to open this file for read will stall until all of the chunks are considered
+stable.
+
+Reading this file will results in a short read error unless sparse file support is
+enabled. This can be accomplished by calling `KfsClient::SetDefaultFullSparseFileSupport(bool flag)`
+to enable it for all files or by calling `KfsClient::SetFullSparseFileSupport(int fd, bool flag)`
+for an open file before doing any reads.
+
+Using
+
+    char buffer[134217728];
+    int fd = client->Open(filename, O_RDONLY);
+    client->SetFullSparseFileSupport(fd, true);
+    int bytes = client->Read(fd, buffer, sizeof(buffer));
+    for(int i=0; i<bytes; i++) {
+      if (buffer[i] != 0) printf("Byte at offset %d is %02X\n", i, buffer[i]);
+    }
+    printf("Read %d bytes\n", bytes);
+    client->Close(fd);
+
+would output
+
+    Byte at offset 0 is 31
+    Byte at offset 67108864 is 32
+    Byte at offset 67108865 is 33
+    Read 134217728 bytes
+
+`KfsClient::SkipHolesInFile(int fd)` can be used to both indicate spare files support and to
+request that the holes in the files be skipped. Calling SkipHolesInFile instead of
+SetFullParseFileSupport in the above code would output
+
+    Byte at offset 0 is 31
+    Byte at offset 1 is 32
+    Byte at offset 2 is 33
+    Read 3 bytes
+
+### Writes with O_APPEND
+If a file is opened with O_APPEND, then a Write behaves the same as a RecordAppend.
+
+To do a traditional append to end of file with a single writer, open the file for write then
+seek to the end of file before writing.
+
+    char data[] = { '1', '2', '3' };
+    int fd = client->Open(filename, O_CREAT | O_EXCL);
+    client->Write(fd, &data[0], 1);
+    client->Close(fd);
+    
+    fd = client->Open(filename, O_WRONLY);
+    client->Seek(fd, 0, SEEK_END);
+    client->Write(fd, &data[1], 1);
+    client->Write(fd, &data[2], 1);
+    client->Close(fd);
+
+will result in a file with a single chunk replicated 3 times and a size of 3 bytes.
+
+### AtomicRecordAppend
+AtomicRecordAppend can be used by multiple writers to append to a file.
+
+Please see the comments on src/cc/chunk/AtomicRecordAppender.cc and src/cc/meta/LayoutManager.cc
+for more information.
