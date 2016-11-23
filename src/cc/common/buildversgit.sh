@@ -12,6 +12,9 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 
+# default version to use if git is not available
+qfs_no_git_version="1.2.0"
+
 usage() {
     echo "
 usage: $0 <options>
@@ -58,7 +61,7 @@ get_head() {
 get_release() {
     check_if_have_git
     if [ $? -eq 0 ]; then
-        echo "unknown"
+        echo "$qfs_no_git_version"
         return 0
     fi
 
