@@ -1,5 +1,9 @@
 # Changes
 
+## November 23, 2016
+
+* Add build for Hadoop 2.7.2. See [#201](https://github.com/quantcast/qfs/pull/201)
+
 * [QFS-332](https://quantcast.atlassian.net/browse/QFS-332) make QuantcastFileSystem honor
 umask setting from jobconf for better Hadoop/Hive compatibility. See [#196](https://github.com/quantcast/qfs/pull/196)
 
