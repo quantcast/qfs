@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2008 Quantcast Corp.
+# Copyright 2008,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Kosmos File System (KFS).
 #

@@ -4,7 +4,7 @@
 // Created 2008/06/20
 // Author: Sriram Rao
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //

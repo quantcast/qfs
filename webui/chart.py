@@ -1,7 +1,7 @@
 #
 # $Id$
 #
-# Copyright 2011 Quantcast Corp.
+# Copyright 2011,2016 Quantcast Corporation. All rights reserved.
 #
 # Author: Kate Labeeva
 #

@@ -2,7 +2,7 @@
 #
 # $Id$
 #
-# Copyright 2008-2012 Quantcast Corp.
+# Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 #
 # Author: Sriram Rao (Quantcast Corp.)
 #

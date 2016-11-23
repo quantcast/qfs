@@ -4,7 +4,7 @@
 # Created 2013/06/17
 # Author: Stephen J Day
 #
-# Copyright 2013-2014 Quantcast Corp.
+# Copyright 2013-2014,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Kosmos File System (KFS).
 #

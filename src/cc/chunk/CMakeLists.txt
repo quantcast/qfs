@@ -4,7 +4,7 @@
 # Created 2006
 # Author: Sriram Rao (Kosmix Corp)
 #
-# Copyright 2009-2012 Quantcast Corp.
+# Copyright 2009-2012,2016 Quantcast Corporation. All rights reserved.
 # Copyright 2006 Kosmix Corp.
 #
 # This file is part of Kosmos File System (KFS).
