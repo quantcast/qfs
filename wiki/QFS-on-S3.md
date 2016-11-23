@@ -54,14 +54,13 @@ The changes for each is presented below.
 instead of pointing to an existing directory in chunkserver, it points to an hypothetical
 directory in which chunkservers can place S3 files. For example, the corresponding line
 for this parameter can read:
-``` 
-chunkServer.objectDir = s3://myfirstbucket.
-```
-In example, the part after "s3://" in the specified object directory, i.e. "myfirstbucket."
+   ``` 
+   chunkServer.objectDir = s3://myfirstbucket.
+   ```
+   In the example, the part after "s3://" in the specified object directory, i.e. "myfirstbucket."
 (including the . sign at the end), is treated as the configuration suffix. Metaserver
 associates the configuration suffix with an S3 bucket name and AWS credentials to access
 the given bucket. Corresponding metaserver configuration changes are described in the next section.
-
    This is the only required parameter that needs to be set up in chunkserver configuration file for S3 support. For the optional S3 parameters in chunkserver configuration file, please visit [here](https://github.com/quantcast/qfs/blob/master/conf/ChunkServer.prp#L290).
 
    \* **One can specify multiple object directories with chunkServer.objectDir parameter.
@@ -71,9 +70,9 @@ Please refer to [Specifying Multiple Object Store Directories](#MultipleObjectSt
 1. *Add and set [metaServer.objectStoreEnabled](https://github.com/quantcast/qfs/blob/master/conf/MetaServer.prp#L1200) parameter.*
 
    This parameter enables object store in metaserver. For example:
-```
-metaServer.objectStoreEnabled = 1
-```
+   ```
+   metaServer.objectStoreEnabled = 1
+   ```
 2. *For each configuration suffix specified in the chunkserver configuration file, specify
 the [chunkServer.diskQueue.&lt;object-store-directory-prefix&gt;bucketName](https://github.com/quantcast/qfs/blob/master/conf/MetaServer.prp#L1245),
 [chunkServer.diskQueue.&lt;object-store-directory-prefix&gt;accessKeyId](https://github.com/quantcast/qfs/blob/master/conf/MetaServer.prp#L1248),
@@ -81,11 +80,11 @@ and [chunkServer.diskQueue.&lt;object-store-directory-prefix&gt;secretAccessKey]
 parameters.*
 
    For example, using the same object directory specified in chunkserver configuration example, one can have:
-```
-metaServer.diskQueue.myfirstbucket.bucketName = <my-first-bucket-name> 
-metaServer.diskQueue.myfirstbucket.accessKeyId = <access-key-ID> 
-metaServer.diskQueue.myfirstbucket.secretAccessKey  = <secret-access-key> 
-```
+   ```
+   metaServer.diskQueue.myfirstbucket.bucketName = <my-first-bucket-name> 
+   metaServer.diskQueue.myfirstbucket.accessKeyId = <access-key-ID> 
+   metaServer.diskQueue.myfirstbucket.secretAccessKey  = <secret-access-key> 
+   ```
 
    The actual values for &lt;my-first-bucket-name&gt;, &lt;access-key-ID&gt; and
 &lt;secret-access-key&gt; depend on the existing S3 bucket and the IAM
@@ -96,10 +95,10 @@ and [metaServer.maxReplicasPerRSFile](https://github.com/quantcast/qfs/blob/mast
 
    These two parameters tell metaserver to store all files in S3 object store,
 regardless of the file create parameters sent by QFS clients. For example:
-```
-metaServer.maxReplicasPerFile = 0
-metaServer.maxReplicasPerRSFile = 0
-```
+   ```
+   metaServer.maxReplicasPerFile = 0
+   metaServer.maxReplicasPerRSFile = 0
+   ```
 
    These parameters are optional, and typically used in the case where
 QFS instance is configured with S3 storage only (in mixed mode, where
@@ -108,9 +107,9 @@ In their absence, QFS clients need to specifically indicate each time
 that a file is to be stored in S3 object store. For instance, to copy
 a file in S3 object store, one would need to append “-r 0” argument to
 cptoqfs call:
-```
-$QFS_BUILD_DIR/bin/tools/cptoqfs -s 127.0.0.1 -p 20000 -d TestFile.txt -k /TestFile.txt -r 0
-```
+   ```
+   $QFS_BUILD_DIR/bin/tools/cptoqfs -s 127.0.0.1 -p 20000 -d TestFile.txt -k /TestFile.txt -r 0
+   ```
 
    “-r 0” tells the metaserver to use 0 replicas for TestFile.txt and that
 internally is mapped to S3 object store by the metaserver. If “-r 0” were omitted,
@@ -123,9 +122,9 @@ may not succeed depending on chunkserver configurations.
 web UI reveals all metaserver configuration parameters including AWS credentials
 used to access the specified bucket. One can prevent this by setting
 this parameter like the following:
-```
-metaServer.pingDoNotShow = chunkServer.diskQueue.myfirstbucket.accessKeyId chunkServer.diskQueue.myfirstbucket.secretAccessKey
-```
+   ```
+   metaServer.pingDoNotShow = chunkServer.diskQueue.myfirstbucket.accessKeyId chunkServer.diskQueue.myfirstbucket.secretAccessKey
+   ```
 
    For the other optional S3 parameters in the metaserver configuration file, please visit [here](https://github.com/quantcast/qfs/blob/master/conf/MetaServer.prp#L1196).
 
