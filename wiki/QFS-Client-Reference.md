@@ -289,7 +289,7 @@ zero. Write is performed in a blocking fashion.
 ### RecordAppend
 
 RecordAppend can be used by a single writer to append to a replicated file. There is
-limited support for append to RS files.
+no support for append to RS files or object store files.
 
 The file should be opened using the mode O_APPEND or O_WRONLY | O_APPEND.
 When RecordAppend is used to write a record, the entire record is guaranteed to be
@@ -298,26 +298,25 @@ is started. Note that this will generally create a sparse file since the new chu
 start at the next chunk boundary location.
 
 For example, using default settings, the sequence
+```cpp
+char data[] = { '1', '2', '3' };
+int fd = client->Open(filename, O_CREAT | O_EXCL);
+client->Write(fd, &data[0], 1);
+client->Close(fd);
 
-    char data[] = { '1', '2', '3' };
-    int fd = client->Open(filename, O_CREAT | O_EXCL);
-    client->Write(fd, &data[0], 1);
-    client->Close(fd);
-    
-    fd = client->Open(filename, O_WRONLY | O_APPEND);
-    client->RecordAppend(fd, &data[1], 1);
-    client->RecordAppend(fd, &data[2], 1);
-    client->Close(fd);
-
+fd = client->Open(filename, O_WRONLY | O_APPEND);
+client->RecordAppend(fd, &data[1], 1);
+client->RecordAppend(fd, &data[2], 1);
+client->Close(fd);
+```
 will likely result in a file with 2 chunks, each replicated 3 times, and with a size of
 134217728 bytes.
 
-When a file that was opened for append is closed, it may take a while for all the chunks to
-be considered stable. If the file is reopened for append before all the chunks are stable,
-new data may be appended to an existing unstable chunk instead of starting a new chunk.
+When a file is opened for append, any chunk that is written to may take a while to become
+stable, even if the file is closed. If the file is reopened for append, then new data may
+be appended to an existing unstable chunk rather than creating a new chunk.
 
-When a file that was opened for append is closed then reopened for read, the read will stall
-until all of the chunks are stable.
+An attempt to read a chunk that is not stable will stall the read until the chunk is stable.
 
 Reading the above file will result in a short read error unless sparse file support is
 enabled. This can be accomplished by calling `KfsClient::SetDefaultFullSparseFileSupport(bool flag)`
@@ -326,16 +325,17 @@ for an open file before doing any reads.
 
 Using
 
-    char buffer[134217728];
-    int fd = client->Open(filename, O_RDONLY);
-    client->SetFullSparseFileSupport(fd, true);
-    int bytes = client->Read(fd, buffer, sizeof(buffer));
-    for(int i=0; i<bytes; i++) {
-      if (buffer[i] != 0) printf("Byte at offset %d is %02X\n", i, buffer[i]);
-    }
-    printf("Read %d bytes\n", bytes);
-    client->Close(fd);
-
+```cpp
+char buffer[134217728];
+int fd = client->Open(filename, O_RDONLY);
+client->SetFullSparseFileSupport(fd, true);
+int bytes = client->Read(fd, buffer, sizeof(buffer));
+for(int i=0; i<bytes; i++) {
+  if (buffer[i] != 0) printf("Byte at offset %d is %02X\n", i, buffer[i]);
+}
+printf("Read %d bytes\n", bytes);
+client->Close(fd);
+```
 would output
 
     Byte at offset 0 is 31
@@ -358,18 +358,18 @@ If a file is opened with O_APPEND, then a Write behaves the same as a RecordAppe
 ### Emulating a traditional append
 To do a traditional append to end of file with a single writer, open the file for write then
 seek to the end of file before writing.
+```cpp
+char data[] = { '1', '2', '3' };
+int fd = client->Open(filename, O_CREAT | O_EXCL);
+client->Write(fd, &data[0], 1);
+client->Close(fd);
 
-    char data[] = { '1', '2', '3' };
-    int fd = client->Open(filename, O_CREAT | O_EXCL);
-    client->Write(fd, &data[0], 1);
-    client->Close(fd);
-    
-    fd = client->Open(filename, O_WRONLY);
-    client->Seek(fd, 0, SEEK_END);
-    client->Write(fd, &data[1], 1);
-    client->Write(fd, &data[2], 1);
-    client->Close(fd);
-
+fd = client->Open(filename, O_WRONLY);
+client->Seek(fd, 0, SEEK_END);
+client->Write(fd, &data[1], 1);
+client->Write(fd, &data[2], 1);
+client->Close(fd);
+```
 will result in a file with a single chunk replicated 3 times and a size of 3 bytes.
 
 ### AtomicRecordAppend
