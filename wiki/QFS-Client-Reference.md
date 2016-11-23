@@ -312,9 +312,14 @@ client->Close(fd);
 will likely result in a file with 2 chunks, each replicated 3 times, and with a size of
 134217728 bytes.
 
-When a file is opened for append, any chunk that is written to may take a while to become
-stable, even if the file is closed. If the file is reopened for append, then new data may
-be appended to an existing unstable chunk rather than creating a new chunk.
+A chunk can be in two states - "unstable" (dirty/nonreadable), and "stable" (read only).
+The metaserver handles the transition of a chunk from unstable to stable and this process
+may take some time.
+For more information, see src/cc/chunk/AtomicRecordAppender.cc
+
+When a file is opened for append, any chunk that is written will be unstable for a while even
+if the file is closed. If the file is reopened for append, then new data may be appended to
+an existing unstable chunk rather than creating a new chunk.
 
 An attempt to read a chunk that is not stable will stall the read until the chunk is stable.
 
