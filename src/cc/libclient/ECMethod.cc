@@ -42,9 +42,17 @@ GetMutex()
     return sMutex;
 }
 
-// Force construction prior entering main().
-static const QCMutex* const sMutexPtr = &GetMutex();
-static ECMethod*            sECMethods[KFS_STRIPED_FILE_TYPE_COUNT] = {0};
+namespace
+{
+class ForceMutexConstructionPriorEnteringMain
+{
+public:
+    ForceMutexConstructionPriorEnteringMain()
+        { GetMutex(); }
+} sForceMutexConstructionPriorEnteringMain;
+}
+
+static ECMethod* sECMethods[KFS_STRIPED_FILE_TYPE_COUNT] = {0};
 
     /* static */ ECMethod*
 ECMethod::Find(
