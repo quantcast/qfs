@@ -24,7 +24,7 @@ Started|Home]] for how to use them.
 [1.1.0]: https://github.com/quantcast/qfs/tree/1.1.0
 [1.0.1]: https://github.com/quantcast/qfs/tree/1.0.1
 
-[master,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-master-x86_64.tgz
+[master,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.5-master-x86_64.tgz
 [1.2.0,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.5-1.2.0-x86_64.tgz
 [1.1.4,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.1.4-x86_64.tgz
 [1.1.3,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.1.3-x86_64.tgz
@@ -33,7 +33,7 @@ Started|Home]] for how to use them.
 [1.1.0,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.1.0-x86_64.tgz
 [1.0.1,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.0.1-x86_64.tgz
 
-[master,centos]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-master-x86_64.tgz
+[master,centos]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.8-master-x86_64.tgz
 [1.2.0,centos]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.8-1.2.0-x86_64.tgz
 [1.1.4,centos]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.1.4-x86_64.tgz
 [1.1.3,centos]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.1.3-x86_64.tgz
