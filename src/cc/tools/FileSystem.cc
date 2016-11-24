@@ -1421,8 +1421,15 @@ GetFsMutex()
     return sMutex;
 }
 
-// Force initialization before entering main.
-static QCMutex& sMutex = GetFsMutex();
+namespace
+{
+class ForceMutexConstructionPriorEnteringMain
+{
+public:
+    ForceMutexConstructionPriorEnteringMain()
+        { GetFsMutex(); }
+} sForceMutexConstructionPriorEnteringMain;
+}
 
     static KfsClient&
 GetKfsClient(
