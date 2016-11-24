@@ -68,7 +68,7 @@ get_release() {
     # if the hash doesn't match any known ref, just report the hash itself
     HEAD=$(get_head)
     REF=$(git show-ref --tags --dereference | grep $HEAD)
-    if [ -z $REF ]; then
+    if [ -z "$REF" ]; then
         # special case: master
         MASTER=$(git show-ref refs/heads/master | awk '{print $1}')
         if [ "$HEAD" = "$MASTER" ]; then
