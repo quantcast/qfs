@@ -119,9 +119,9 @@ main(int argc, char **argv)
         }
     }
 
-    help = help || (!meta && !chunk);
+    help = help || (! meta && ! chunk);
 
-    if (help || (server == NULL) || (port < 0)) {
+    if (help || ! server || port < 0) {
         cout << "Usage: " << argv[0] <<
              " [-m|-c] -s <server name> -p <port> [-n <secs>] [-t] [-v]"
              " [-f <config file>] [-N]\n"

@@ -84,12 +84,12 @@ using std::istringstream;
                                         " [Port=<chunk server port>]" \
     ) \
     f(UPSERVERS,                        "debug: show connected chunk servers") \
-    f(READ_META_DATA,                   "retrieve transaction log or" \
+    f(READ_META_DATA,                   "debug: retrieve transaction log or" \
                                         " checkpoint block") \
     f(VR_RECONFIGURATION,               "viewstamped replication"\
                                         " reconfiguration") \
     f(VR_GET_STATUS,                    "viewstamped replication"\
-                                        " get status") \
+                                        " status") \
     f(TOGGLE_WORM,                      "enable (1) or disable (0) WORM mode"\
                                         " -F Toggle-WORM=1")
 
