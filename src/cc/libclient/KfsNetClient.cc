@@ -1355,7 +1355,7 @@ private:
                 return;
             }
             if (0 != mStatus && ++mRetryCount <= mImplPtr->mMaxRetryCount) {
-                KFS_LOG_STREAM_DEBUG << mImplPtr->mLogPrefix <<
+                KFS_LOG_STREAM_ERROR << mImplPtr->mLogPrefix <<
                     "resolver: "          << mHostName <<
                     " status: "           << mStatus <<
                     " "                   << mStatusMsg <<
@@ -1608,8 +1608,8 @@ private:
                 mLookupOp.statusMsg = inReq.GetStatusMsg();
                 if (0 <= mLookupOp.status) {
                     mLookupOp.lastError = -mLookupOp.status;
-                    mLookupOp.status    = -ENETUNREACH;
                 }
+                mLookupOp.status = -ENETUNREACH;
             }
             SetVrPrimary(mConnPtr, ServerLocation(), kRpcFormatUndef);
             return;
