@@ -1294,7 +1294,8 @@ private:
         {
             Reset();
             const int theMaxRetryCnt = inNotPrimaryFlag ?
-                mOuter.mMaxRetryCount : mOuter.mMaxMetaLogWriteRetryCount;
+                max(mOuter.mMaxMetaLogWriteRetryCount, mOuter.mMaxRetryCount) :
+                mOuter.mMaxRetryCount;
             if (theMaxRetryCnt < ++mRetryCount) {
                 if (0 <= mOuter.mLookupOp.status) {
                     mOuter.mLookupOp.status    = -EIO;
@@ -1303,16 +1304,16 @@ private:
                 mOuter.SetVrPrimary(mConnPtr, mLocation, kRpcFormatUndef);
                 return;
             }
+            KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                "VR checker: "        << mLocation <<
+                " retry attempt "     << mRetryCount <<
+                " of "                << mOuter.mMaxRetryCount <<
+                ", scheduling retry " << mOuter.mPendingOpQueue.size() <<
+                " pending operation(s)"
+                " in "                << mOuter.mTimeSecBetweenRetries <<
+                " seconds" <<
+            KFS_LOG_EOM;
             if (0 < mOuter.mTimeSecBetweenRetries ) {
-                KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
-                    "VR checker: "        << mLocation <<
-                    " retry attempt "     << mRetryCount <<
-                    " of "                << mOuter.mMaxRetryCount <<
-                    ", scheduling retry " << mOuter.mPendingOpQueue.size() <<
-                    " pending operation(s)"
-                    " in "                << mOuter.mTimeSecBetweenRetries <<
-                    " seconds" <<
-                KFS_LOG_EOM;
                 mOuter.mStats.mSleepTimeSec += mOuter.mTimeSecBetweenRetries;
                 SetTimeoutInterval(
                     mOuter.mTimeSecBetweenRetries * 1000, true);
@@ -1331,7 +1332,7 @@ private:
     friend class MetaCheckVrPrimaryChecker;
     typedef MetaCheckVrPrimaryChecker::List MetaVrList;
 
-    class ResolverReq : public Resolver::Request
+    class ResolverReq : public Resolver::Request, public ITimeout
     {
     public:
         typedef QCDLList<ResolverReq>          List;
@@ -1341,8 +1342,9 @@ private:
             const string& inHostName,
             Impl&         inImpl)
             : Resolver::Request(inHostName),
+              ITimeout(),
               mImplPtr(&inImpl),
-              mInflightFlag(false)
+              mRetryCount(0)
             { List::Init(*this); }
         const string& GetHostName() const
             { return mHostName; }
@@ -1352,7 +1354,39 @@ private:
                 delete this;
                 return;
             }
+            if (0 != mStatus && ++mRetryCount <= mImplPtr->mMaxRetryCount) {
+                KFS_LOG_STREAM_DEBUG << mImplPtr->mLogPrefix <<
+                    "resolver: "          << mHostName <<
+                    " status: "           << mStatus <<
+                    " "                   << mStatusMsg <<
+                    " retry attempt "     << mRetryCount <<
+                    " of "                << mImplPtr->mMaxRetryCount <<
+                    ", scheduling retry " << mImplPtr->mPendingOpQueue.size() <<
+                    " pending operation(s)"
+                    " in "                << mImplPtr->mTimeSecBetweenRetries <<
+                    " seconds" <<
+                KFS_LOG_EOM;
+                if (0 < mImplPtr->mTimeSecBetweenRetries) {
+                    SetTimeoutInterval(
+                        mImplPtr->mTimeSecBetweenRetries * 1000, true);
+                    mSleepingFlag = true;
+                    mImplPtr->mNetManagerPtr->RegisterTimeoutHandler(this);
+                    return;
+                }
+                Timeout();
+                return;
+            }
             mImplPtr->Resolved(*this);
+        }
+        virtual void Timeout()
+        {
+            if (mSleepingFlag) {
+                mImplPtr->mNetManagerPtr->UnRegisterTimeoutHandler(this);
+                mSleepingFlag = false;
+            }
+            if (mImplPtr) {
+                mImplPtr->mResolverPtr->Enqueue(*this);
+            }
         }
         const IpAddresses& GetIps() const
             { return mIpAddresses; }
@@ -1363,8 +1397,13 @@ private:
         void Delete(
             ResolverReq** inListPtr)
         {
+            if (mSleepingFlag) {
+                mImplPtr->mNetManagerPtr->UnRegisterTimeoutHandler(this);
+                mSleepingFlag = false;
+            }
+            const bool theInFlightFlag = List::IsInList(inListPtr, *this);
             List::Remove(inListPtr, *this);
-            if (mInflightFlag) {
+            if (theInFlightFlag) {
                 mImplPtr = 0;
                 return;
             }
@@ -1372,7 +1411,8 @@ private:
         }
     private:
         Impl*        mImplPtr;
-        bool         mInflightFlag;
+        int          mRetryCount;
+        bool         mSleepingFlag;
         ResolverReq* mPrevPtr[1];
         ResolverReq* mNextPtr[1];
 

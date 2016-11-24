@@ -107,6 +107,8 @@ MonClient::MonClient()
       mNextIdempotentId(InitialSeq())
 {
     KfsNetClient::SetAuthContext(&mAuthContext);
+    KfsNetClient::SetMaxMetaLogWriteRetryCount(
+        2 * KfsNetClient::GetMaxRetryCount());
 }
 
 MonClient::~MonClient()
