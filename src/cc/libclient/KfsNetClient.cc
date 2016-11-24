@@ -960,6 +960,52 @@ public:
         }
         return true;
     }
+    int SetMetaServerLocations(
+        const ServerLocation& inLocation,
+        const char*           inLocationsStrPtr,
+        size_t                inLocationsStrLen,
+        bool                  inAllowDuplicatesFlag,
+        bool                  inHexFormatFlag)
+    {
+        ClearMetaServerLocations();
+        const char*       thePtr    = inLocationsStrPtr;
+        const char* const theEndPtr = thePtr + inLocationsStrLen;
+        int               theCount  = 0;
+        ServerLocation    theLocation;
+        while (thePtr < theEndPtr) {
+            theLocation.Reset(0, -1);
+            if (! theLocation.ParseString(
+                    thePtr, theEndPtr - thePtr, inHexFormatFlag)) {
+                KFS_LOG_STREAM_ERROR <<
+                    "meta server node address parse failure: " << thePtr <<
+                KFS_LOG_EOM;
+                break;
+            }
+            if (AddMetaServerLocation(
+                    theLocation, inAllowDuplicatesFlag)) {
+                theCount++;
+            } else {
+                KFS_LOG_STREAM_ERROR <<
+                    "ignoring invalid meta server node address: " <<
+                        theLocation <<
+                KFS_LOG_EOM;
+            }
+            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
+                thePtr++;
+            }
+        }
+        if (! inLocation.hostname.empty() && 0 < inLocation.port &&
+                (0 < theCount ||
+                ! TcpSocket::IsValidConnectToIpAddress(
+                    inLocation.hostname.c_str()))) {
+            const bool kAllowDuplicatesFlag = false;
+            if (AddMetaServerLocation(
+                    inLocation, kAllowDuplicatesFlag)) {
+                theCount++;
+            }
+        }
+        return theCount;
+    }
     void ClearMetaServerLocations()
     {
         CancelVrPrimaryCheck();
@@ -2944,6 +2990,20 @@ KfsNetClient::AddMetaServerLocation(
 {
     Impl::StRef theRef(mImpl);
     return mImpl.AddMetaServerLocation(inLocation, inAllowDuplicatesFlag);
+}
+
+    int
+KfsNetClient::SetMetaServerLocations(
+    const ServerLocation& inLocation,
+    const char*           inLocationsStrPtr,
+    size_t                inLocationsStrLen,
+    bool                  inAllowDuplicatesFlag,
+    bool                  inHexFormatFlag)
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.SetMetaServerLocations(inLocation,
+        inLocationsStrPtr, inLocationsStrLen,
+        inAllowDuplicatesFlag, inAllowDuplicatesFlag);
 }
 
     void

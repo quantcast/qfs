@@ -114,10 +114,12 @@ main(
     const ServerLocation metaLoc (metaserver,  metaport);
     const ServerLocation chunkLoc(chunkserver, chunkport);
     RetireChunkserverOp  op(0, chunkLoc, sleepTime);
+    const bool           kSetMetaLocationsFlag = true;
     MonClient            client;
-    int                  status = client.SetParameters(metaLoc, configFileName);
+    int                  status = client.SetParameters(
+        metaLoc, configFileName, kSetMetaLocationsFlag);
     if (status == 0) {
-        status = client.Execute(metaLoc, op);
+        status = client.Execute(op);
     }
     if (status < 0) {
         KFS_LOG_STREAM_ERROR <<

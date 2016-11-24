@@ -275,6 +275,12 @@ public:
     bool AddMetaServerLocation(
         const ServerLocation& inLocation,
         bool                  inAllowDuplicatesFlag = false);
+    int SetMetaServerLocations(
+        const ServerLocation& inLocation,
+        const char*           inLocationsStrPtr,
+        size_t                inLocationsStrLen,
+        bool                  inAllowDuplicatesFlag,
+        bool                  inHexFormatFlag);
     // Debug
     void SetThread(
         const QCThread* inThreadPtr);

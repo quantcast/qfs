@@ -38,7 +38,7 @@ static int
 ToggleWORM(MonClient& client, const ServerLocation& server, int toggle)
 {
     MetaToggleWORMOp op(1, toggle);
-    const int ret = client.Execute(server, op);
+    const int ret = client.Execute(op);
     if (ret != 0) {
         KFS_LOG_STREAM_ERROR << op.statusMsg <<
             " error: " << ErrorCodeToStr(ret) <<
@@ -103,7 +103,8 @@ int main(int argc, char **argv)
     }
     MonClient client;
     const ServerLocation loc(server, port);
-    if (client.SetParameters(loc, configFileName) < 0) {
+    const bool           kSetMetaLocationsFlag = true;
+    if (client.SetParameters(loc, configFileName, kSetMetaLocationsFlag) < 0) {
         return 1;
     }
     return ToggleWORM(client, loc, toggle);

@@ -164,18 +164,19 @@ Main(
     int    inArgCount,
     char** inArgsPtr)
 {
-    bool        theHelpFlag           = false;
-    const char* theServerPtr          = 0;
-    const char* theConfigFileNamePtr  = 0;
-    int         thePort               = -1;
-    bool        theVerboseLoggingFlag = false;
-    bool        theShowHeadersFlag    = false;
-    bool        theShortRpcFmtFlag    = false;
-    int         theRetCode            = 0;
+    bool        theHelpFlag             = false;
+    const char* theServerPtr            = 0;
+    const char* theConfigFileNamePtr    = 0;
+    int         thePort                 = -1;
+    bool        theVerboseLoggingFlag   = false;
+    bool        theShowHeadersFlag      = false;
+    bool        theShortRpcFmtFlag      = false;
+    bool        theSetMetaLocationsFlag = true;
+    int         theRetCode              = 0;
     string      thePropsStr;
 
     int theOptChar;
-    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:aF:S")) != -1) {
+    while ((theOptChar = getopt(inArgCount, inArgsPtr, "hm:s:p:vf:aF:Sn")) != -1) {
         switch (theOptChar) {
             case 'm':
             case 's':
@@ -203,6 +204,9 @@ Main(
             case 'a':
                 theShowHeadersFlag = true;
                 break;
+            case 'n':
+                theSetMetaLocationsFlag = false;
+                break;
             default:
                 theRetCode = 1;
                 break;
@@ -219,6 +223,7 @@ Main(
             " [-v -- verbose]\n"
             " [-F <request field name>=<request field value>]\n"
             " [-S -- use short rpc format]\n"
+            " [-n -- connect to the specified meta server node]\n"
             " --  <cmd> <cmd> ...\n"
             "Where cmd is one of the following:\n"
         ;
@@ -231,7 +236,11 @@ Main(
 
     const ServerLocation theLocation(theServerPtr, thePort);
     MonClient            theClient;
-    if (theClient.SetParameters(theLocation, theConfigFileNamePtr) < 0) {
+    if (theClient.SetParameters(theLocation, theConfigFileNamePtr,
+            theSetMetaLocationsFlag) < 0) {
+        return 1;
+    }
+    if (! theSetMetaLocationsFlag && ! theClient.SetServer(theLocation)) {
         return 1;
     }
     theClient.SetMaxContentLength(512 << 20);
@@ -263,7 +272,7 @@ Main(
             }
             theClient.SetMaxRpcHeaderLength(
                 theOp.op == CMD_META_PING ? 512 << 20 : MAX_RPC_HEADER_LEN);
-            const int theRet = theClient.Execute(theLocation, theOp);
+            const int theRet = theClient.Execute(theOp);
             if (theRet < 0) {
                 KFS_LOG_STREAM_ERROR << theOp.statusMsg <<
                     " error: " << ErrorCodeToStr(theRet) <<

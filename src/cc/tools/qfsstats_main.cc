@@ -42,28 +42,22 @@ using std::string;
 using std::cout;
 
 static int
-StatsMetaServer(MonClient& client, const ServerLocation &location,
-    bool rpcStats, int numSecs);
+StatsMetaServer(MonClient& client, bool rpcStats, int numSecs);
 
 static int
-BasicStatsMetaServer(MonClient& client, const ServerLocation &location,
-    int numSecs);
+BasicStatsMetaServer(MonClient& client, int numSecs);
 
 static int
-RpcStatsMetaServer(MonClient& client, const ServerLocation &location,
-    int numSecs);
+RpcStatsMetaServer(MonClient& client, int numSecs);
 
 static int
-StatsChunkServer(MonClient& client, const ServerLocation &location,
-    bool rpcStats, int numSecs);
+StatsChunkServer(MonClient& client, bool rpcStats, int numSecs);
 
 static int
-BasicStatsChunkServer(MonClient& client, const ServerLocation &location,
-    int numSecs);
+BasicStatsChunkServer(MonClient& client, int numSecs);
 
 static int
-RpcStatsChunkServer(MonClient& client, const ServerLocation &location,
-    int numSecs);
+RpcStatsChunkServer(MonClient& client, int numSecs);
 
 static void
 PrintChunkBasicStatsHeader();
@@ -76,17 +70,18 @@ int
 main(int argc, char **argv)
 {
     int         optchar;
-    bool        help           = false;
-    bool        meta           = false;
-    bool        chunk          = false;
-    bool        rpcStats       = false;
-    bool        verboseLogging = false;
-    const char* server         = 0;
-    const char* configFileName = 0;
-    int         port           = -1;
-    int         numSecs        = 10;
+    bool        help                 = false;
+    bool        meta                 = false;
+    bool        chunk                = false;
+    bool        rpcStats             = false;
+    bool        verboseLogging       = false;
+    bool        setMetaLocationsFlag = true;
+    const char* server               = 0;
+    const char* configFileName       = 0;
+    int         port                 = -1;
+    int         numSecs              = 10;
 
-    while ((optchar = getopt(argc, argv, "hcmn:p:s:tvf:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hcmn:p:s:tvf:N")) != -1) {
         switch (optchar) {
             case 'm':
                 meta = true;
@@ -115,6 +110,9 @@ main(int argc, char **argv)
             case 'f':
                 configFileName = optarg;
                 break;
+            case 'N':
+                setMetaLocationsFlag = false;
+                break;
             default:
                 help = true;
                 break;
@@ -126,7 +124,7 @@ main(int argc, char **argv)
     if (help || (server == NULL) || (port < 0)) {
         cout << "Usage: " << argv[0] <<
              " [-m|-c] -s <server name> -p <port> [-n <secs>] [-t] [-v]"
-             " [-f <config file>]\n"
+             " [-f <config file>] [-N]\n"
              "Deprecated. Please use qfsadmin instead.\n"
              "Gets the stats from meta/chunk servers at given intervals.\n"
              "        Use -m for metaserver, -c for chunk server.\n"
@@ -141,15 +139,21 @@ main(int argc, char **argv)
 
     const ServerLocation location(server, port);
     MonClient            client;
-    if (client.SetParameters(location, configFileName) < 0) {
+    if (client.SetParameters(location, configFileName,
+            meta && setMetaLocationsFlag) < 0) {
         return 1;
     }
     client.SetMaxContentLength(128 << 20);
+    if (! setMetaLocationsFlag || ! meta) {
+        if (! client.SetServer(location)) {
+            return 1;
+        }
+    }
     if (meta) {
-        return StatsMetaServer(client, location, rpcStats, numSecs);
+        return StatsMetaServer(client, rpcStats, numSecs);
     }
     if (chunk) {
-        return StatsChunkServer(client, location, rpcStats, numSecs);
+        return StatsChunkServer(client, rpcStats, numSecs);
     }
     return 0;
 }
@@ -164,21 +168,21 @@ PrintRpcStat(const string &statName, Properties &prop)
 
 
 int
-StatsMetaServer(MonClient& client, const ServerLocation& loc, bool rpcStats, int numSecs)
+StatsMetaServer(MonClient& client, bool rpcStats, int numSecs)
 {
     if (rpcStats) {
-        return RpcStatsMetaServer(client, loc, numSecs);
+        return RpcStatsMetaServer(client, numSecs);
     } else {
-        return BasicStatsMetaServer(client, loc, numSecs);
+        return BasicStatsMetaServer(client, numSecs);
     }
 }
 
 int
-RpcStatsMetaServer(MonClient& client, const ServerLocation& loc, int numSecs)
+RpcStatsMetaServer(MonClient& client, int numSecs)
 {
     for (; ;) {
         MetaStatsOp op(0);
-        const int ret = client.Execute(loc, op);
+        const int ret = client.Execute(op);
         if (ret < 0) {
             KFS_LOG_STREAM_ERROR << op.statusMsg <<
                 " " << ErrorCodeToStr(ret) <<
@@ -224,12 +228,12 @@ RpcStatsMetaServer(MonClient& client, const ServerLocation& loc, int numSecs)
 }
 
 int
-BasicStatsMetaServer(MonClient& client, const ServerLocation& loc, int numSecs)
+BasicStatsMetaServer(MonClient& client, int numSecs)
 {
     PrintMetaBasicStatsHeader();
     for (int i = 1; ; i++) {
         MetaStatsOp op(0);
-        const int ret = client.Execute(loc, op);
+        const int ret = client.Execute(op);
         if (ret < 0) {
             KFS_LOG_STREAM_ERROR << op.statusMsg <<
                 " " << ErrorCodeToStr(ret) <<
@@ -260,7 +264,7 @@ PrintMetaBasicStatsHeader()
 }
 
 int
-StatsChunkServer(MonClient& client, const ServerLocation& loc, bool rpcStats, int numSecs)
+StatsChunkServer(MonClient& client, bool rpcStats, int numSecs)
 {
     if (client.GetAuthContext() && client.GetAuthContext()->IsEnabled()) {
         KFS_LOG_STREAM_WARN <<
@@ -269,18 +273,18 @@ StatsChunkServer(MonClient& client, const ServerLocation& loc, bool rpcStats, in
         KFS_LOG_EOM;
     }
     if (rpcStats) {
-        return RpcStatsChunkServer(client, loc, numSecs);
+        return RpcStatsChunkServer(client, numSecs);
     } else {
-        return BasicStatsChunkServer(client, loc, numSecs);
+        return BasicStatsChunkServer(client, numSecs);
     }
 }
 
 int
-RpcStatsChunkServer(MonClient& client, const ServerLocation& loc, int numSecs)
+RpcStatsChunkServer(MonClient& client, int numSecs)
 {
     for (; ;) {
         ChunkStatsOp op(0);
-        const int ret = client.Execute(loc, op);
+        const int ret = client.Execute(op);
         if (ret < 0) {
             KFS_LOG_STREAM_ERROR << op.statusMsg <<
                 " " << ErrorCodeToStr(ret) <<
@@ -312,12 +316,12 @@ RpcStatsChunkServer(MonClient& client, const ServerLocation& loc, int numSecs)
 }
 
 int
-BasicStatsChunkServer(MonClient& client, const ServerLocation& loc, int numSecs)
+BasicStatsChunkServer(MonClient& client, int numSecs)
 {
     PrintChunkBasicStatsHeader();
     for (int i = 0; ; i++) {
         ChunkStatsOp op(0);
-        const int ret = client.Execute(loc, op);
+        const int ret = client.Execute(op);
         if (ret < 0) {
             KFS_LOG_STREAM_ERROR << op.statusMsg <<
                 " error: " << ErrorCodeToStr(ret) <<

@@ -46,10 +46,10 @@ public:
     virtual ~MonClient();
     int SetParameters(
         const ServerLocation& inMetaLocation,
-        const char*           inConfigFileNamePtr);
+        const char*           inConfigFileNamePtr,
+        bool                  inSetMetaLocationsFlag);
     int Execute(
-        const ServerLocation& inLocation,
-        KfsOp&                inOp);
+        KfsOp& inOp);
     virtual void OpDone(
         KfsOp*    inOpPtr,
         bool      inCanceledFlag,

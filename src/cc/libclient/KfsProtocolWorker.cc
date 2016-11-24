@@ -167,39 +167,15 @@ public:
         FreeSyncRequests::Init(mFreeSyncRequests);
         CleanupList::Init(mCleanupList);
         mMetaServer.SetMaxMetaLogWriteRetryCount(mMetaMaxRetryCount);
-        const char*       thePtr         = inParameters.mMetaServerNodes.data();
-        const char* const theEndPtr      =
-            thePtr + inParameters.mMetaServerNodes.size();
-        const bool        kHexFormatFlag = false;
-        int               theCount       = 0;
-        ServerLocation    theLocation;
-        while (thePtr < theEndPtr) {
-            theLocation.Reset(0, -1);
-            if (! theLocation.ParseString(
-                    thePtr, theEndPtr - thePtr, kHexFormatFlag)) {
-                KFS_LOG_STREAM_ERROR <<
-                    "meta server node address parse failure: " << thePtr <<
-                KFS_LOG_EOM;
-                break;
-            }
-            const bool kAllowDuplicatesFlag = true;
-            if (! mMetaServer.AddMetaServerLocation(
-                    theLocation, kAllowDuplicatesFlag)) {
-                KFS_LOG_STREAM_ERROR <<
-                    "ignoring invalid meta server node address: " <<
-                        theLocation <<
-                KFS_LOG_EOM;
-            }
-            while (thePtr < theEndPtr && (*thePtr & 0xFF) <= ' ') {
-                thePtr++;
-            }
-        }
-        if (! inMetaHost.empty() && 0 < inMetaPort && (0 < theCount ||
-                ! TcpSocket::IsValidConnectToIpAddress(inMetaHost.c_str()))) {
-            const bool kAllowDuplicatesFlag = false;
-            mMetaServer.AddMetaServerLocation(
-                ServerLocation(inMetaHost, inMetaPort), kAllowDuplicatesFlag);
-        }
+        const bool kHexFormatFlag       = false;
+        const bool kAllowDuplicatesFlag = true;
+        mMetaServer.SetMetaServerLocations(
+            ServerLocation(inMetaHost, inMetaPort),
+            inParameters.mMetaServerNodes.data(),
+            inParameters.mMetaServerNodes.size(),
+            kAllowDuplicatesFlag,
+            kHexFormatFlag
+        );
     }
     virtual ~Impl()
         { Impl::Stop(); }

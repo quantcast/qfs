@@ -47,13 +47,13 @@ convertToMB(long bytes)
 }
 
 static int
-PingMetaServer(MonClient& client, const ServerLocation& location)
+PingMetaServer(MonClient& client)
 {
     // PING response is all in the "header".
     // Set the limit to a reasonably large value.
     client.SetMaxRpcHeaderLength(32 << 20);
     MetaPingOp op(1);
-    const int ret = client.Execute(location, op);
+    const int ret = client.Execute(op);
     if (ret < 0) {
         KFS_LOG_STREAM_ERROR << op.statusMsg <<
             " error: " << ErrorCodeToStr(ret) <<
@@ -81,7 +81,7 @@ static int
 PingChunkServer(MonClient& client, const ServerLocation& location)
 {
     ChunkPingOp op(1);
-    if (client.Execute(location, op) < 0) {
+    if (! client.SetServer(location) || client.Execute(op) < 0) {
         return 1;
     }
     cout << "Chunk-server: " << op.location.ToString().c_str() << "\n";
@@ -93,13 +93,14 @@ PingChunkServer(MonClient& client, const ServerLocation& location)
 int main(int argc, char** argv)
 {
     int         optchar;
-    bool        help           = false;
-    bool        meta           = false;
-    bool        chunk          = false;
-    const char* server         = 0;
-    const char* configFileName = 0;
-    int         port           = -1;
-    bool        verboseLogging = false;
+    bool        help                 = false;
+    bool        meta                 = false;
+    bool        chunk                = false;
+    const char* server               = 0;
+    const char* configFileName       = 0;
+    int         port                 = -1;
+    bool        verboseLogging       = false;
+    bool        setMetaLocationsFlag = true;
 
     while ((optchar = getopt(argc, argv, "hmcs:p:vf:")) != -1) {
         switch (optchar) {
@@ -123,6 +124,9 @@ int main(int argc, char** argv)
                 break;
             case 'f':
                 configFileName = optarg;
+                break;
+            case 'n':
+                setMetaLocationsFlag = false;
                 break;
             default:
                 help = true;
@@ -149,11 +153,15 @@ int main(int argc, char** argv)
 
     const ServerLocation loc(server, port);
     MonClient client;
-    if (client.SetParameters(loc, configFileName) < 0) {
+    if (client.SetParameters(loc, configFileName,
+            meta && setMetaLocationsFlag) < 0) {
         return 1;
     }
     if (meta) {
-        return PingMetaServer(client, loc);
+        if (! setMetaLocationsFlag && ! client.SetServer(loc)) {
+            return 1;
+        }
+        return PingMetaServer(client);
     } else if (chunk) {
         if (client.IsAuthEnabled()) {
             KFS_LOG_STREAM_ERROR <<

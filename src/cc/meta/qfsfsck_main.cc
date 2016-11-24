@@ -56,14 +56,13 @@ using std::cerr;
 using std::fstream;
 
 static bool
-GetFsckInfo(MonClient& client, const ServerLocation& loc,
-    bool reportAbandonedFilesFlag, int timeoutSec)
+GetFsckInfo(MonClient& client, bool reportAbandonedFilesFlag, int timeoutSec)
 {
     client.SetMaxContentLength(512 << 20);
     client.SetOpTimeoutSec(timeoutSec);
 
     FsckOp op(0, reportAbandonedFilesFlag);
-    const int ret = client.Execute(loc, op);
+    const int ret = client.Execute(op);
     if (ret != 0) {
         KFS_LOG_STREAM_ERROR << op.statusMsg <<
             " error: " << ErrorCodeToStr(ret) <<
@@ -204,6 +203,7 @@ FsckMain(int argc, char** argv)
     MsgLogger::LogLevel logLevel                 = MsgLogger::kLogLevelINFO;
     string              tmpNamePrefix            = "tmp";
     bool                runFsckFlag              = false;
+    bool                setMetaLocationsFlag     = true;
 
     while ((optchar = getopt(argc, argv,
             "hl:c:m:p:L:a:t:s:e:f:A:vT:Fn")) != -1) {
@@ -251,6 +251,9 @@ FsckMain(int argc, char** argv)
             case 'F':
                 runFsckFlag = true;
                 break;
+            case 'n':
+                setMetaLocationsFlag = false;
+                break;
             default:
                 ok = false;
                 break;
@@ -273,6 +276,7 @@ FsckMain(int argc, char** argv)
             "[-v verbose tracing]\n"
             "[-T temporary name prefix to produce fsck report]\n"
             "[-F emit fsck report after restore and replay]\n"
+            "[-n connect to the specified meta server node]\n"
         ;
         return (ok ? 0 : 1);
     }
@@ -285,8 +289,12 @@ FsckMain(int argc, char** argv)
         MonClient            client;
         const ServerLocation loc(metahost, metaport);
         ok =
-            client.SetParameters(loc, configFileName) >= 0 &&
-            GetFsckInfo(client, loc, reportAbandonedFilesFlag, timeoutSec);
+            client.SetParameters(loc, configFileName,
+                setMetaLocationsFlag) >= 0 &&
+            GetFsckInfo(client, reportAbandonedFilesFlag, timeoutSec);
+        if (ok && ! setMetaLocationsFlag) {
+            ok = client.SetServer(loc);
+        }
     }
     if (ok && (! logdir.empty() || ! cpdir.empty())) {
         metatree.disableFidToPathname();

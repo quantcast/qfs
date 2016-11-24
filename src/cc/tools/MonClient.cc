@@ -117,7 +117,8 @@ MonClient::~MonClient()
     int
 MonClient::SetParameters(
     const ServerLocation& inMetaLocation,
-    const char*           inConfigFileNamePtr)
+    const char*           inConfigFileNamePtr,
+    bool                  inSetMetaLocationsFlag)
 {
     int theStatus = MonInit();
     if (theStatus != 0) {
@@ -150,6 +151,20 @@ MonClient::SetParameters(
             kVerifyFlag
         );
     }
+    if (0 == theStatus && inSetMetaLocationsFlag) {
+        const string theMetaNodes         =
+            theProperties.getValue("client.metaServerNodes", string());
+        const bool   kAllowDuplicatesFlag = true;
+        const bool   kHexFormatFlag       = false;
+        if (SetMetaServerLocations(
+                inMetaLocation,
+                theMetaNodes.data(),
+                theMetaNodes.size(),
+                kAllowDuplicatesFlag,
+                kHexFormatFlag) <= 0) {
+            theStatus = -EINVAL;
+        }
+    }
     return theStatus;
 }
 
@@ -176,18 +191,13 @@ MonClient::OpDone(
 
     int
 MonClient::Execute(
-    const ServerLocation& inLocation,
-    KfsOp&                inOp)
+    KfsOp& inOp)
 {
     int theStatus = MonInit();
     if (theStatus != 0) {
         return theStatus;
     }
     KfsNetClient::GetNetManager().UpdateTimeNow();
-    if (! KfsNetClient::SetServer(inLocation)) {
-        inOp.status = -EHOSTUNREACH;
-        return inOp.status;
-    }
     if (! KfsNetClient::Enqueue(&inOp, this)) {
         KFS_LOG_STREAM_FATAL << "failed to enqueue op: " <<
             inOp.Show() <<
