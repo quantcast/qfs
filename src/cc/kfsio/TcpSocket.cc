@@ -193,6 +193,7 @@ struct TcpSocket::Address
             }
         }
         if (useResolverFlag) {
+            const int proto = mProto;
             memset(&mIp, 0, sizeof(mIp));
             struct addrinfo hints;
             memset(&hints, 0, sizeof(hints));
@@ -215,9 +216,13 @@ struct TcpSocket::Address
                 }
                 return -EHOSTUNREACH;
             }
+            int                    cnt = 0;
             struct addrinfo const* ptr;
             for (ptr = res; ptr; ptr = ptr->ai_next) {
                 if (AF_INET != ptr->ai_family && AF_INET6 != ptr->ai_family) {
+                    continue;
+                }
+                if (0 < cnt && proto != ptr->ai_family) {
                     continue;
                 }
                 mProto = ptr->ai_family;
@@ -227,7 +232,10 @@ struct TcpSocket::Address
                     mIp.v6.sin6_family = mProto;
                 }
                 memcpy(Ptr(), ptr->ai_addr, ptr->ai_addrlen);
-                break;
+                cnt++;
+                if (proto == mProto) {
+                    break;
+                }
             }
             freeaddrinfo(res);
             if (! ptr) {
@@ -312,7 +320,8 @@ TcpSocket::StartListening(bool nonBlockingAccept, int maxQueue)
 }
 
 int
-TcpSocket::Bind(const ServerLocation& location, Type type, bool ipV6OnlyFlag)
+TcpSocket::Bind(
+    const ServerLocation& location, TcpSocket::Type type, bool ipV6OnlyFlag)
 {
     Close();
     if (sMaxOpenSockets <= globals().ctrOpenNetFds.GetValue()) {
