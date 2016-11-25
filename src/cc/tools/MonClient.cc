@@ -146,7 +146,7 @@ MonClient::SetParameters(
         ClientAuthContext* kOtherCtxPtr = 0;
         string*            kErrMsgPtr   = 0;
         theStatus = mAuthContext.SetParameters(
-            "client.auth.",
+            KfsClient::GetClientAuthParamsPrefix(),
             theProperties,
             kOtherCtxPtr,
             kErrMsgPtr,
@@ -154,8 +154,8 @@ MonClient::SetParameters(
         );
     }
     if (0 == theStatus && inSetMetaLocationsFlag) {
-        const string theMetaNodes         =
-            theProperties.getValue("client.metaServerNodes", string());
+        const string theMetaNodes         = theProperties.getValue(
+            KfsClient::GetMetaServerNodesParamName(), string());
         const bool   kAllowDuplicatesFlag = true;
         const bool   kHexFormatFlag       = false;
         if (SetMetaServerLocations(

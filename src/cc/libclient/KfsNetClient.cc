@@ -261,29 +261,33 @@ public:
         string*               inErrMsgPtr,
         bool                  inForceConnectFlag)
     {
-        if (inLocation == mServerLocation) {
+        if (inLocation == mServerLocation ||
+                ! MetaVrList::IsEmpty(mMetaVrListPtr) ||
+                ! mMetaLocations.empty()) {
             if (! inForceConnectFlag && mPendingOpQueue.empty()) {
                 return inLocation.IsValid();
             }
-            EnsureConnected(inErrMsgPtr);
-            return (mSleepingFlag || IsConnected());
-        }
-        if (inCancelPendingOpsFlag) {
-            Cancel();
-        }
-        if (mSleepingFlag || IsConnected()) {
-            Reset();
-        }
-        mServerLocation    = inLocation;
-        mAuthFailureCount  = 0;
-        mRetryCount        = 0;
-        mNonAuthRetryCount = 0;
-        mNextSeqNum += 100;
-        if (! inForceConnectFlag && mPendingOpQueue.empty()) {
-            return inLocation.IsValid();
+        } else {
+            if (inCancelPendingOpsFlag) {
+                Cancel();
+            }
+            if (mSleepingFlag || IsConnected()) {
+                Reset();
+            }
+            mServerLocation    = inLocation;
+            mAuthFailureCount  = 0;
+            mRetryCount        = 0;
+            mNonAuthRetryCount = 0;
+            mNextSeqNum += 100;
+            if (! inForceConnectFlag && mPendingOpQueue.empty()) {
+                return inLocation.IsValid();
+            }
         }
         EnsureConnected(inErrMsgPtr);
-        return (mSleepingFlag || IsConnected());
+        return (mSleepingFlag || IsConnected() ||
+            0 < mMetaVrNodesActiveCount ||
+            ! ResolverList::IsEmpty(mResolverReqsPtr)
+        );
     }
     void SetRpcFormat(
         RpcFormat inRpcFormat)
@@ -981,8 +985,7 @@ public:
                 KFS_LOG_EOM;
                 break;
             }
-            if (AddMetaServerLocation(
-                    theLocation, inAllowDuplicatesFlag)) {
+            if (AddMetaServerLocation(theLocation, inAllowDuplicatesFlag)) {
                 theCount++;
             } else {
                 KFS_LOG_STREAM_ERROR <<
@@ -994,13 +997,9 @@ public:
                 thePtr++;
             }
         }
-        if (! inLocation.hostname.empty() && 0 < inLocation.port &&
-                (0 < theCount ||
-                ! TcpSocket::IsValidConnectToIpAddress(
-                    inLocation.hostname.c_str()))) {
+        if (! inLocation.hostname.empty() && 0 < inLocation.port) {
             const bool kAllowDuplicatesFlag = false;
-            if (AddMetaServerLocation(
-                    inLocation, kAllowDuplicatesFlag)) {
+            if (AddMetaServerLocation(inLocation, kAllowDuplicatesFlag)) {
                 theCount++;
             }
         }
@@ -1237,6 +1236,7 @@ private:
             mOuter.mLookupOp.Request(theStream);
             mOuter.mOstream.Reset();
             mSeq = mOuter.mLookupOp.seq;
+            mOuter.mLookupOp.seq = -1;
             mPendingBytesSend = mConnPtr->GetOutBuffer().BytesConsumable();
             mConnPtr->StartFlush();
         }
@@ -1282,6 +1282,7 @@ private:
                         ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag))) {
                 NetConnectionPtr theConnPtr;
                 theConnPtr.swap(mConnPtr);
+                mOuter.mLookupOp.seq = mSeq;
                 Reset();
                 mOuter.SetVrPrimary(theConnPtr, mLocation, theRpcFormat);
                 return;
@@ -1301,6 +1302,7 @@ private:
                     mOuter.mLookupOp.status    = -EIO;
                     mOuter.mLookupOp.statusMsg = "retry limit reached";
                 }
+                mOuter.mLookupOp.seq = -1;
                 mOuter.SetVrPrimary(mConnPtr, mLocation, kRpcFormatUndef);
                 return;
             }
@@ -1655,6 +1657,7 @@ private:
                 ! ResolverList::IsEmpty(mResolverReqsPtr)) {
             return true;
         }
+        InitConnect();
         // Ref self to ensure that "this" is still around after the end of the
         // of the loop to ensure that iterator has valid list head pointer.
         StRef theRef(*this);
@@ -2107,22 +2110,23 @@ private:
         mNetManagerPtr->AddConnection(inConnPtr);
         return 0;
     }
-    void EnsureConnected(
-        string*      inErrMsgPtr = 0,
-        const KfsOp* inLastOpPtr = 0)
+    void InitConnect()
     {
-        if (mSleepingFlag || IsConnected()) {
-            return;
-        }
-        assert(mLookupOp.seq < 0 && mAuthOp.seq < 0);
         mDataReceivedFlag = false;
         mDataSentFlag     = false;
         mAllDataSentFlag  = true;
         mIdleTimeoutFlag  = false;
         ResetConnection();
-        if (ConnectToVrPrimary(inLastOpPtr)) {
+    }
+    void EnsureConnected(
+        string*      inErrMsgPtr = 0,
+        const KfsOp* inLastOpPtr = 0)
+    {
+        if (mSleepingFlag || IsConnected() || ConnectToVrPrimary(inLastOpPtr)) {
             return;
         }
+        assert(mLookupOp.seq < 0 && mAuthOp.seq < 0);
+        InitConnect();
         const int theError = Connect(
             mServerLocation, mConnPtr, *this, inErrMsgPtr);
         if (0 != theError) {

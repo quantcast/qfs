@@ -744,7 +744,10 @@ public:
         const char*& configStr);
     static KfsClient* Connect(const string& metaServerHost,
         int metaServerPort, const char* configFileName);
-
+    static const char* GetMetaServerNodesParamName()
+        { return "client.metaServerNodes"; }
+    static const char* GetClientAuthParamsPrefix()
+        { return "client.auth."; }
 private:
     typedef client::KfsClientImpl KfsClientImpl;
 

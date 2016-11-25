@@ -1594,7 +1594,7 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             properties = &envProps;
         }
     }
-    const char* const kAuthParamPrefix = "client.auth.";
+    const char* const kAuthParamPrefix = KfsClient::GetClientAuthParamsPrefix();
     if (properties) {
         string errMsg;
         int    err;
@@ -4490,7 +4490,7 @@ KfsClientImpl::StartProtocolWorker()
     params.mUseClientPoolFlag = mConfig.getValue(
         "client.connectionPool", params.mUseClientPoolFlag ? 1 : 0) != 0;
     params.mMetaServerNodes = mConfig.getValue(
-        "client.metaServerNodes", params.mMetaServerNodes);
+        KfsClient::GetMetaServerNodesParamName(), params.mMetaServerNodes);
     mProtocolWorker = new KfsProtocolWorker(
         mMetaServerLoc.hostname,
         mMetaServerLoc.port,
