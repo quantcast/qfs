@@ -45,8 +45,10 @@
 #include "kfsio/NetConnection.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/ClientAuthContext.h"
+#include "kfsio/Resolver.h"
 
 #include "qcdio/QCUtils.h"
+#include "qcdio/QCDLList.h"
 
 #include <map>
 #include <algorithm>
@@ -66,15 +68,20 @@ using std::string;
 using std::max;
 using KFS::libkfsio::globalNetManager;
 
+const char* const kChunkServerAuthParamsPrefix = "chunkserver.meta.auth.";
+
 class MetaServerSM::Impl : public KfsCallbackObj, private ITimeout
 {
 public:
+    typedef QCDLList<Impl> List;
+
     Impl(
-        Counters& inCounters,
-        OpsQueue& inPendingOps,
-        Impl*&    inPrimary,
-        bool      inUpdateServerIpFlag,
-        int64_t   inChannelId);
+        Counters&     inCounters,
+        OpsQueue&     inPendingOps,
+        Impl*&        inPrimary,
+        bool&         inUpdateServerIpFlag,
+        int64_t       inChannelId,
+        MetaServerSM* inOuter);
     ~Impl();
 
     /// In each hello to the metaserver, we send an MD5 sum of the
@@ -140,6 +147,10 @@ public:
     const KfsOp* FindInFlightOp(seq_t seq) const {
         DispatchedOps::const_iterator const it = mDispatchedOps.find(seq);
         return (mDispatchedOps.end() == it ? 0 : it->second);
+    }
+
+    const ServerLocation& GetMyLocation() const {
+        return mMyLocation;
     }
 private:
     typedef MetaServerSM::OpsQueue OpsQueue;
@@ -212,7 +223,8 @@ private:
     KfsOp*                        mOp;
     bool                          mRequestFlag;
     bool                          mTraceRequestResponseFlag;
-    bool const                    mUpdateServerIpFlag;
+    bool                          mPendingDeleteFlag;
+    const bool&                   mUpdateServerIpFlag;
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
     int64_t const                 mChannelId;
@@ -220,10 +232,14 @@ private:
     size_t                        mMaxPendingOpsCount;
     PendingResponses              mPendingResponses;
     int                           mReconnectRetryInterval;
+    ServerLocation                mMyLocation;
     Counters&                     mCounters;
     MetaServerSM::Impl*&          mPrimary;
     IOBuffer::IStream             mIStream;
     IOBuffer::WOStream            mWOStream;
+    MetaServerSM*                 mOuter;
+    Impl*                         mPrevPtr[1];
+    Impl*                         mNextPtr[1];
 
     /// Generic event handler to handle RPC requests sent by the meta server.
     int HandleRequest(int code, void* data);
@@ -262,6 +278,8 @@ private:
     void SubmitHello();
     void Request(KfsOp& op);
     template<typename T> inline void DetachAndDeleteOp(T*& op);
+
+    friend class QCDLListOp<Impl>;
 private:
     // No copy.
     Impl(const Impl&);
@@ -270,7 +288,8 @@ private:
 
 inline void
 MetaServerSM::SetPrimary(
-    MetaServerSM::Impl& primary)
+    MetaServerSM::Impl&   primary,
+    const ServerLocation& loc)
 {
     if (&primary == mPrimary) {
         return;
@@ -283,10 +302,26 @@ MetaServerSM::SetPrimary(
         }
     }
     mPrimary = &primary;
-    for (int i = 0; i < mImplCount; i++) {
-        if (mPrimary != mImpls + i && prevPrimary != mImpls + i) {
-            mImpls[i].ForceDown("not primary");
+    Impl::List::Iterator it(mImpls);
+    Impl* ptr;
+    while ((ptr = it.Next())) {
+        if (mPrimary != ptr && prevPrimary != ptr) {
+            if (mUpdateServerIpFlag) {
+                const ServerLocation& myLoc = ptr->GetMyLocation();
+                if (myLoc.IsValid() && loc != myLoc && ptr->IsConnected()) {
+                    KFS_LOG_STREAM_INFO <<
+                        "turning off chunk server ip update"
+                        ": "  << myLoc <<
+                        " / " << loc <<
+                    KFS_LOG_EOM;
+                    mUpdateServerIpFlag = false;
+                }
+            }
+            ptr->ForceDown("not primary");
         }
+    }
+    if (loc != gChunkServer.GetLocation()) {
+        gChunkServer.SetLocation(loc);
     }
 }
 
@@ -305,8 +340,9 @@ MetaServerSM::Impl::Impl(
     MetaServerSM::Counters& inCounters,
     MetaServerSM::OpsQueue& inPendingOps,
     MetaServerSM::Impl*&    inPrimary,
-    bool                    inUpdateServerIpFlag,
-    int64_t                 inChannelId)
+    bool&                   inUpdateServerIpFlag,
+    int64_t                 inChannelId,
+    MetaServerSM*           inOuter)
     : KfsCallbackObj(),
       ITimeout(),
       mCmdSeq(GetRandomSeq()),
@@ -342,6 +378,7 @@ MetaServerSM::Impl::Impl(
       mOp(0),
       mRequestFlag(false),
       mTraceRequestResponseFlag(false),
+      mPendingDeleteFlag(false),
       mUpdateServerIpFlag(inUpdateServerIpFlag),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
@@ -350,12 +387,15 @@ MetaServerSM::Impl::Impl(
       mMaxPendingOpsCount(96),
       mPendingResponses(),
       mReconnectRetryInterval(1),
+      mMyLocation(),
       mCounters(inCounters),
       mPrimary(inPrimary),
       mIStream(),
-      mWOStream()
+      mWOStream(),
+      mOuter(inOuter)
 {
     SetHandler(this, &MetaServerSM::Impl::HandleRequest);
+    List::Init(*this);
 }
 
 MetaServerSM::Impl::~Impl()
@@ -399,6 +439,9 @@ MetaServerSM::Impl::Shutdown()
     if (! mLocation.IsValid() && ! mNetConnection) {
         return;
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "shutdown: " << mLocation <<
+    KFS_LOG_EOM;
     const bool wasPrimaryFlag = this == mPrimary;
     if (wasPrimaryFlag) {
         mPrimary = 0;
@@ -448,7 +491,7 @@ MetaServerSM::Impl::SetParameters(const Properties& prop)
         mTraceRequestResponseFlag ? 1 : 0) != 0;
     const bool kVerifyFlag = true;
     int ret = mAuthContext.SetParameters(
-        "chunkserver.meta.auth.", prop, 0, 0, kVerifyFlag);
+        kChunkServerAuthParamsPrefix, prop, 0, 0, kVerifyFlag);
     const char* const kAuthTypeParamName = "chunkserver.meta.auth.authType";
     mAuthTypeStr = prop.getValue(kAuthTypeParamName, mAuthTypeStr);
     istringstream is(mAuthTypeStr);
@@ -489,9 +532,7 @@ MetaServerSM::Impl::Timeout()
         if (IsConnected()) {
             Error("no longer primary");
         }
-        return;
-    }
-    if (mReconnectFlag) {
+    } else if (mReconnectFlag && ! mPendingDeleteFlag) {
         mReconnectFlag = false;
         const char* const msg = "meta server reconnect requested";
         KFS_LOG_STREAM_WARN << msg << KFS_LOG_EOM;
@@ -514,6 +555,13 @@ MetaServerSM::Impl::Timeout()
             }
             mSentHello = false;
             DetachAndDeleteOp(mHelloOp);
+        }
+        if (mPendingDeleteFlag) {
+            if (mOuter) {
+                mOuter->Error(*this);
+            }
+            delete this;
+            return;
         }
         if (mLastConnectTime + mReconnectRetryInterval < now) {
             mLastConnectTime = now;
@@ -662,7 +710,7 @@ MetaServerSM::Impl::SendHello()
                 KFS_LOG_STREAM_INFO <<
                     "setting chunk server ip to: " << loc.hostname <<
                 KFS_LOG_EOM;
-                gChunkServer.SetLocation(loc);
+                mMyLocation = loc;
             } else {
                 const int err = IsIpHostedAndNotLoopBack(prevIp.c_str());
                 KFS_LOG_STREAM_WARN <<
@@ -672,10 +720,16 @@ MetaServerSM::Impl::SendHello()
                         " is no longer valid: " + QCUtils::SysError(-err)) <<
                 KFS_LOG_EOM;
                 if (err) {
-                    gChunkServer.SetLocation(loc);
+                    mMyLocation = loc;
                 }
             }
         }
+    } else {
+        mMyLocation = gChunkServer.GetLocation();
+    }
+    if (! mMyLocation.IsValid()) {
+        Error("chunk server location is not valid");
+        return;
     }
     if (! Authenticate()) {
         SubmitHello();
@@ -896,6 +950,13 @@ MetaServerSM::Impl::Error(const char* msg)
     FailOps(wasPrimaryFlag);
     mSentHello = false;
     DetachAndDeleteOp(mHelloOp);
+    mMyLocation.Reset(0, -1);
+    if (mOuter) {
+        mPendingDeleteFlag = true;
+        MetaServerSM& outer = *mOuter;
+        mOuter = 0;
+        outer.Error(*this);
+    }
 }
 
 void
@@ -1116,7 +1177,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 lostDirs.swap(mHelloOp->lostChunkDirs);
                 DetachAndDeleteOp(mHelloOp);
                 if (IsUp()) {
-                    gMetaServerSM.SetPrimary(*this);
+                    gMetaServerSM.SetPrimary(*this, mMyLocation);
                     mCounters.mHelloDoneCount++;
                     for (HelloMetaOp::LostChunkDirs::const_iterator
                             it = lostDirs.begin();
@@ -1543,7 +1604,7 @@ MetaServerSM::Impl::SubmitHello()
         return;
     }
     mHelloOp = new HelloMetaOp(
-        gChunkServer.GetLocation(), mClusterKey, mMD5Sum, mRackId, mChannelId);
+        mMyLocation, mClusterKey, mMD5Sum, mRackId, mChannelId);
     mHelloOp->seq                = nextSeq();
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
@@ -1566,34 +1627,166 @@ MetaServerSM::Impl::DiscardPendingResponses()
     }
 }
 
+class MetaServerSM::ResolverReq : public Resolver::Request
+{
+public:
+    typedef QCDLList<ResolverReq>          List;
+    typedef Resolver::Request::IpAddresses IpAddresses;
+
+    ResolverReq(
+        const string& inHostName,
+        MetaServerSM& inOuter)
+        : Resolver::Request(inHostName),
+          mOuterPtr(&inOuter),
+          mInFlightFlag(false)
+        { List::Init(*this); }
+    const string& GetHostName() const
+        { return mHostName; }
+    virtual void Done()
+    {
+        if (! mInFlightFlag) {
+            die("resolver completion: request is not in flight");
+            return;
+        }
+        if (! mOuterPtr) {
+            delete this;
+            return;
+        }
+        mInFlightFlag = false;
+        mOuterPtr->Resolved(*this);
+    }
+    const IpAddresses& GetIps() const
+        { return mIpAddresses; }
+    int GetStatus() const
+        { return mStatus; }
+    const string& GetStatusMsg() const
+        { return mStatusMsg; }
+    void Delete(
+        ResolverReq** inListPtr)
+    {
+        if (! mOuterPtr) {
+            die("resolver request deleted");
+            return;
+        }
+        List::Remove(inListPtr, *this);
+        if (mInFlightFlag) {
+            mOuterPtr = 0;
+            return;
+        }
+        delete this;
+    }
+    bool IsInFlight() const
+        { return mInFlightFlag; }
+    void Enqueue(
+        Resolver*& ioResolverPtr)
+    {
+        if (mInFlightFlag) {
+            die("resolver request is already in flight");
+            return;
+        }
+        mInFlightFlag = true;
+        if (! ioResolverPtr) {
+            ioResolverPtr = new Resolver(globalNetManager());
+            const int theStatus = ioResolverPtr->Start();
+            if (0 != theStatus) {
+                const char* const theMsgPtr = "failed to start resolver";
+                KFS_LOG_STREAM_FATAL << theMsgPtr <<
+                    " status: " << theStatus <<
+                    " "         << QCUtils::SysError(-theStatus) <<
+                KFS_LOG_EOM;
+                die(theMsgPtr);
+                delete ioResolverPtr;
+                ioResolverPtr = 0;
+                mStatusMsg = theMsgPtr;
+                mStatus    = theStatus;
+                Done();
+                return;
+            }
+        }
+        const int theStatus = ioResolverPtr->Enqueue(*this);
+        if (0 != theStatus) {
+            const char* const theMsgPtr = "failed to queue resolver request";
+            KFS_LOG_STREAM_FATAL << theMsgPtr <<
+                " status: " << theStatus <<
+                " "         << QCUtils::SysError(-theStatus) <<
+            KFS_LOG_EOM;
+            die(theMsgPtr);
+            mStatusMsg = theMsgPtr;
+            mStatus    = theStatus;
+            Done();
+        }
+    }
+private:
+    MetaServerSM* mOuterPtr;
+    bool          mInFlightFlag;
+    ResolverReq*  mPrevPtr[1];
+    ResolverReq*  mNextPtr[1];
+
+    friend class QCDLListOp<ResolverReq>;
+
+    virtual ~ResolverReq()
+        {}
+private:
+    ResolverReq(
+        const ResolverReq& inReq);
+    ResolverReq& operator=(
+        const ResolverReq& inReq);
+};
+
 MetaServerSM::MetaServerSM()
-    : mCounters(),
+    : ITimeout(),
+      mCounters(),
       mRunningFlag(false),
       mAuthEnabledFlag(false),
       mAllowDuplicateLocationsFlag(false),
-      mImplCount(0),
+      mUpdateServerIpFlag(true),
+      mResolverStartTime(0),
+      mResolverInFlightCount(0),
+      mResolvedInFlightCount(0),
       mPendingOps(),
-      mImpls(0),
       mPrimary(0),
-      mLocations()
+      mLocations(),
+      mChanId(1),
+      mResolver(0),
+      mParameters(),
+      mClusterKey(),
+      mMd5sum(),
+      mRackId(-1)
 {
+    Impl::List::Init(mImpls);
+    ResolverReq::List::Init(mResolverReqs);
 }
 
 MetaServerSM::~MetaServerSM()
 {
-    MetaServerSM::Cleanup();
+    MetaServerSM::Shutdown();
 }
 
 void
 MetaServerSM::Cleanup()
 {
-    for (int i = 0; i < mImplCount; i++) {
-        mImpls[i].~Impl();
+    Impl* ptr;
+    while ((ptr = Impl::List::PopFront(mImpls))) {
+        delete ptr;
     }
-    mPrimary   = 0;
-    mImplCount = 0;
-    delete [] reinterpret_cast<char*>(mImpls);
-    mImpls = 0;
+    mResolvedInFlightCount = 0;
+    mPrimary = 0;
+    ResolverReq* req;
+    while ((req = ResolverReq::List::Front(mResolverReqs))) {
+        if (req->IsInFlight() && 0 <= mResolverInFlightCount) {
+            --mResolverInFlightCount;
+        }
+        req->Delete(mResolverReqs);
+    }
+    if (0 != mResolverInFlightCount) {
+        die("cleanup: invalid resolver in flight count");
+        mResolverInFlightCount = 0;
+    }
+    if (mResolver) {
+        mResolver->Shutdown();
+        delete mResolver;
+        mResolver = 0;
+    }
 }
 
 bool
@@ -1646,19 +1839,33 @@ MetaServerSM::EnqueueOp(KfsOp* op)
 int
 MetaServerSM::SetParameters(const Properties& prop)
 {
+    mParameters = prop;
     int res = 0;
-    for (int i = 0; i < mImplCount; i++) {
-        const int ret = mImpls[i].SetParameters(prop);
+    Impl::List::Iterator it(mImpls);
+    Impl* ptr;
+    while ((ptr = it.Next())) {
+        const int ret = ptr->SetParameters(mParameters);
         if (0 == res) {
             res = ret;
         }
     }
-    mAllowDuplicateLocationsFlag = prop.getValue(
+    mAllowDuplicateLocationsFlag = mParameters.getValue(
         "chunkServer.metaServer.allowDuplicateLocations",
         mAllowDuplicateLocationsFlag ? 1 : 0
     ) != 0;
-    if (0 < mImplCount) {
-        mAuthEnabledFlag = mImpls[0].IsAuthEnabled();
+    if (Impl::List::IsEmpty(mImpls)) {
+        ClientAuthContext ctx;
+        const bool kVerifyFlag = true;
+        int ret;
+        if ((ret = ctx.SetParameters(kChunkServerAuthParamsPrefix,
+                mParameters, 0, 0, kVerifyFlag)) == 0) {
+            mAuthEnabledFlag = ctx.IsEnabled();
+        } else if (0 == res) {
+            res = ret;
+        }
+        ctx.Clear();
+    } else {
+        mAuthEnabledFlag = Impl::List::Front(mImpls)->IsAuthEnabled();
     }
     return res;
 }
@@ -1666,17 +1873,24 @@ MetaServerSM::SetParameters(const Properties& prop)
 void
 MetaServerSM::Reconnect()
 {
-    for (int i = 0; i < mImplCount; i++) {
-        mImpls[i].Reconnect();
+    Impl::List::Iterator it(mImpls);
+    Impl* ptr;
+    while ((ptr = it.Next())) {
+        ptr->Reconnect();
     }
 }
 
 void
 MetaServerSM::Shutdown()
 {
+    if (mRunningFlag) {
+        globalNetManager().UnRegisterTimeoutHandler(this);
+    }
     mRunningFlag = false;
-    for (int i = 0; i < mImplCount; i++) {
-        mImpls[i].Shutdown();
+    Impl::List::Iterator it(mImpls);
+    Impl* ptr;
+    while ((ptr = it.Next())) {
+        ptr->Shutdown();
     }
     OpsQueue doneOps;
     while (! mPendingOps.IsEmpty()) {
@@ -1693,9 +1907,101 @@ MetaServerSM::Shutdown()
 void
 MetaServerSM::ForceDown()
 {
-    for (int i = 0; i < mImplCount; i++) {
-        mImpls[i].ForceDown();
+    Impl::List::Iterator it(mImpls);
+    Impl* ptr;
+    while ((ptr = it.Next())) {
+        ptr->ForceDown();
     }
+}
+
+void
+MetaServerSM::Timeout()
+{
+    if (mPrimary || mLocations.empty() || ! mRunningFlag ||
+            0 < mResolverInFlightCount ||
+            0 < mResolvedInFlightCount ||
+            globalNetManager().Now() <= mResolverStartTime) {
+        return;
+    }
+    mResolverStartTime = globalNetManager().Now();
+    ResolverReq::List::Iterator it(mResolverReqs);
+    ResolverReq* ptr;
+    while ((ptr = it.Next())) {
+        if (! ptr->IsInFlight()) {
+            mResolverInFlightCount++;
+            ptr->Enqueue(mResolver);
+        }
+    }
+}
+
+void
+MetaServerSM::Resolved(MetaServerSM::ResolverReq& req)
+{
+    if (mResolverInFlightCount <= 0) {
+        die("invalid resolver in flight count");
+    } else {
+        --mResolverInFlightCount;
+    }
+    if (mPrimary) {
+        return;
+    }
+    if (0 != req.GetStatus()) {
+        KFS_LOG_STREAM_ERROR <<
+            "resolver: " << req.GetHostName() <<
+            " status: "  << req.GetStatus() <<
+            " "          << req.GetStatusMsg() <<
+        KFS_LOG_EOM;
+        return;
+    }
+    const string&                  host = req.GetHostName();
+    const ResolverReq::IpAddresses ips  = req.GetIps();
+    for (ResolverReq::IpAddresses::const_iterator ipit = ips.begin();
+            ips.end() != ipit;
+            ++ipit) {
+        for (Locations::const_iterator it = mLocations.begin();
+                mLocations.end() != it;
+                ++it) {
+            if (it->hostname != host) {
+                continue;
+            }
+            Impl::List::Iterator iit(mImpls);
+            Impl* ptr;
+            while ((ptr = iit.Next())) {
+                if (ptr->GetLocation() == *it) {
+                    break;
+                }
+            }
+            if (ptr) {
+                continue;
+            }
+            Impl& impl = *(new Impl(mCounters, mPendingOps,
+                mPrimary, mUpdateServerIpFlag, mChanId++, this));
+            const int res = impl.SetMetaInfo(ServerLocation(*ipit, it->port),
+                    mClusterKey, mRackId, mMd5sum, mParameters);
+            if (0 != res) {
+                KFS_LOG_STREAM_ERROR <<
+                    *it << ": " << QCUtils::SysError(-res) <<
+                KFS_LOG_EOM;
+                delete &impl;
+                continue;
+            }
+            mResolvedInFlightCount++;
+            Impl::List::PushBack(mImpls, impl);
+        }
+    }
+}
+
+void
+MetaServerSM::Error(MetaServerSM::Impl& impl)
+{
+    if (! Impl::List::IsInList(mImpls, impl)) {
+        return;
+    }
+    if (mResolvedInFlightCount <= 0) {
+        die("invalid resolved in flight count");
+    }
+    mResolvedInFlightCount--;
+    Impl::List::Remove(mImpls, impl);
 }
 
 int
@@ -1705,17 +2011,35 @@ MetaServerSM::SetMetaInfo(
     const string&     md5sum,
     const Properties& prop)
 {
-    if (0 < mImplCount || mRunningFlag) {
+    if (! Impl::List::IsEmpty(mImpls) || ! mLocations.empty() || mRunningFlag) {
         KFS_LOG_STREAM_ERROR <<
             "meta server info already set" <<
         KFS_LOG_EOM;
         return -EINVAL;
     }
-    SetParameters(prop);
+    mClusterKey = clusterKey;
+    mRackId     = rackId;
+    mMd5sum     = md5sum;
+    int res = SetParameters(prop);
+    if (0 != res) {
+        return res;
+    }
     mLocations.clear();
-    const char* const         kParamName = "chunkServer.metaServer.locations";
-    const Properties::String* locs       = prop.getValue(kParamName);
-    ServerLocation            loc;
+    Locations      ips;
+    ServerLocation loc;
+    loc.hostname = mParameters.getValue(
+        "chunkServer.metaServer.hostname", loc.hostname);
+    loc.port     = mParameters.getValue(
+        "chunkServer.metaServer.port",     loc.port);
+    if (loc.IsValid()) {
+        if (TcpSocket::IsValidConnectToIpAddress(loc.hostname.c_str())) {
+            ips.push_back(loc);
+        } else {
+            mLocations.push_back(loc);
+        }
+    }
+    const char* const         kParamName = "chunkServer.metaServer.nodes";
+    const Properties::String* locs       = mParameters.getValue(kParamName);
     if (locs) {
         const char*       ptr = locs->data();
         const char* const end = ptr + locs->size();
@@ -1730,10 +2054,12 @@ MetaServerSM::SetMetaInfo(
                 KFS_LOG_EOM;
                 return -EINVAL;
             }
+            Locations& locs =
+                TcpSocket::IsValidConnectToIpAddress(loc.hostname.c_str()) ?
+                ips : mLocations;
             if (mAllowDuplicateLocationsFlag ||
-                    find(mLocations.begin(), mLocations.end(), loc) ==
-                    mLocations.end()) {
-                mLocations.push_back(loc);
+                    find(locs.begin(), locs.end(), loc) == locs.end()) {
+                locs.push_back(loc);
             } else {
                 mLocations.clear();
                 KFS_LOG_STREAM_FATAL <<
@@ -1743,37 +2069,43 @@ MetaServerSM::SetMetaInfo(
                 return -EINVAL;
             }
         }
-    } else {
-        loc.hostname = prop.getValue(
-            "chunkServer.metaServer.hostname", loc.hostname);
-        loc.port     = prop.getValue(
-            "chunkServer.metaServer.port",     loc.port);
-        if (! loc.IsValid()) {
-            KFS_LOG_STREAM_FATAL << "invalid meta server host or port: " <<
-                loc.hostname << ':' << loc.port <<
-            KFS_LOG_EOM;
-            return -EINVAL;
-        }
-        mLocations.push_back(loc);
     }
-    mPrimary   = 0;
-    mImplCount = (int)mLocations.size();
-    mImpls = reinterpret_cast<Impl*>(new char[sizeof(Impl) * mImplCount]);
-    for (int i = 0; i < mImplCount; i++) {
-        new (mImpls + i) Impl(
-            mCounters, mPendingOps, mPrimary, mImplCount <= 1, i);
+    if (mLocations.empty() && ips.empty()) {
+        KFS_LOG_STREAM_FATAL <<
+            "no valid meta server address specified" <<
+        KFS_LOG_EOM;
+        return -EINVAL;
     }
-    int res = 0;
-    for (int i = 0; i < mImplCount; i++) {
-        res = mImpls[i].SetMetaInfo(
-            mLocations[i], clusterKey, rackId, md5sum, prop);
-        if (0 != res) {
+    mPrimary = 0;
+    for (Locations::const_iterator it = ips.begin(); ips.end() != it; ++it) {
+        Impl& impl = *(new Impl(mCounters, mPendingOps, mPrimary,
+            mUpdateServerIpFlag, mChanId++, 0));
+        Impl::List::PushBack(mImpls, impl);
+        if ((res = impl.SetMetaInfo(
+                *it, mClusterKey, mRackId, mMd5sum, mParameters)) != 0) {
             break;
         }
     }
     if (0 == res) {
-        mRunningFlag     = true;
-        mAuthEnabledFlag = mImpls[0].IsAuthEnabled();
+        for (Locations::const_iterator it = mLocations.begin();
+                mLocations.end() != it;
+                ++it) {
+            Locations::const_iterator cit;
+            for (cit = mLocations.begin();
+                    cit != it && cit->hostname != it->hostname;
+                    ++cit)
+                {}
+            if (cit == it) {
+                ResolverReq::List::PushBack(
+                    mResolverReqs, *(new ResolverReq(it->hostname, *this)));
+            }
+        }
+        mResolverStartTime = globalNetManager().Now() - 1;
+        mRunningFlag = true;
+        if (! Impl::List::IsEmpty(mImpls)) {
+            mAuthEnabledFlag = Impl::List::Front(mImpls)->IsAuthEnabled();
+        }
+        globalNetManager().RegisterTimeoutHandler(this);
     } else {
         Cleanup();
     }

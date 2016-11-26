@@ -252,8 +252,8 @@ struct TcpSocket::Address
             mIp.v6.sin6_port = htons(location.port);
         }
         KFS_LOG_STREAM_DEBUG <<
-            "connect: " << location   <<
-            " => "      << ToString() <<
+            "set: " << location   <<
+            " => "  << ToString() <<
         KFS_LOG_EOM;
         return 0;
     }

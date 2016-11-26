@@ -2212,7 +2212,7 @@ struct HelloMetaOp : public KfsOp {
         kChunkListCount           = 5
     };
 
-    ServerLocation           myLocation;
+    ServerLocation const     myLocation;
     string                   clusterKey;
     string                   md5sum;
     int                      rackId;

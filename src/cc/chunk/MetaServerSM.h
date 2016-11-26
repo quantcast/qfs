@@ -33,6 +33,8 @@
 #include "common/kfstypes.h"
 #include "common/kfsdecls.h"
 #include "common/SingleLinkedQueue.h"
+#include "common/Properties.h"
+#include "kfsio/ITimeout.h"
 
 #include "KfsOps.h"
 
@@ -44,9 +46,9 @@ namespace KFS
 using std::string;
 using std::vector;
 
-class Properties;
+class Resolver;
 
-class MetaServerSM
+class MetaServerSM : public ITimeout
 {
 public:
     typedef vector<ServerLocation> Locations;
@@ -103,26 +105,40 @@ public:
         const string&     md5sum,
         const Properties& prop
     );
+    virtual void Timeout();
 private:
     typedef SingleLinkedQueue<KfsOp, KfsOp::GetNext> OpsQueue;
     class Impl;
+    class ResolverReq;
 
-    Counters  mCounters;
-    bool      mRunningFlag;
-    bool      mAuthEnabledFlag;
-    bool      mAllowDuplicateLocationsFlag;
-    int       mImplCount;
-    OpsQueue  mPendingOps;
-    Impl*     mImpls;
-    Impl*     mPrimary;
-    Locations mLocations;
+    Counters     mCounters;
+    bool         mRunningFlag;
+    bool         mAuthEnabledFlag;
+    bool         mAllowDuplicateLocationsFlag;
+    bool         mUpdateServerIpFlag;
+    time_t       mResolverStartTime;
+    int          mResolverInFlightCount;
+    int          mResolvedInFlightCount;
+    OpsQueue     mPendingOps;
+    Impl*        mPrimary;
+    Locations    mLocations;
+    int64_t      mChanId;
+    Resolver*    mResolver;
+    Properties   mParameters;
+    string       mClusterKey;
+    string       mMd5sum;
+    int          mRackId;
+    Impl*        mImpls[1];
+    ResolverReq* mResolverReqs[1];
 
     MetaServerSM();
     ~MetaServerSM();
     void Cleanup();
     friend class ChunkServerGlobals;
 public:
-    inline void SetPrimary(Impl& primary);
+    inline void SetPrimary(Impl& primary, const ServerLocation& loc);
+    void Resolved(ResolverReq& req);
+    void Error(Impl& impl);
 private:
     // No copy.
     MetaServerSM(const MetaServerSM&);
