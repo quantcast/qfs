@@ -755,8 +755,8 @@ public:
     {
         assert(! inBufferPtr && ! mOutstandingOpPtr &&
             (inOpPtr == &mLookupOp || inOpPtr == &mAuthOp));
-        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            (inCanceledFlag ? "op canceled: " : "op done: ") <<
+        KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+            (inCanceledFlag ? " op canceled: " : " op done: ") <<
             inOpPtr->Show() <<
             " now: "    << Now() <<
             " status: " << inOpPtr->status <<
@@ -1222,16 +1222,7 @@ private:
 
         void Request()
         {
-            mOuter.mLookupOp.DeallocContentBuf();
-            mOuter.mLookupOp.contentLength               = 0;
-            mOuter.mLookupOp.status                      = 0;
-            mOuter.mLookupOp.statusMsg.clear();
-            mOuter.mLookupOp.reqShortRpcFormatFlag       = true;
-            mOuter.mLookupOp.authType                    =
-                kAuthenticationTypeNone;
-            mOuter.mLookupOp.seq                         = mOuter.mNextSeqNum++;
-            mOuter.mLookupOp.vrPrimaryFlag               = false;
-            mOuter.mLookupOp.responseHasVrPrimaryKeyFlag = false;
+            mOuter.InitHelloLookupOp();
             ReqOstream theStream(mOuter.mOstream.Set(mConnPtr->GetOutBuffer()));
             mOuter.mLookupOp.Request(theStream);
             mOuter.mOstream.Reset();
@@ -1276,10 +1267,11 @@ private:
                 mOuter.mLookupOp.statusMsg = "response parse error";
             }
             mOuter.mProperties.clear();
-            if (0 == mOuter.mLookupOp.status &&
+            if ((0 == mOuter.mLookupOp.status ||
+                    (-EACCES == mOuter.mLookupOp.status &&
+                        ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag)) &&
                     (mOuter.mLookupOp.vrPrimaryFlag ||
-                        (1 == mOuter.mMetaVrNodesCount &&
-                        ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag))) {
+                        ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag)) {
                 NetConnectionPtr theConnPtr;
                 theConnPtr.swap(mConnPtr);
                 mOuter.mLookupOp.seq = mSeq;
@@ -1513,6 +1505,18 @@ private:
     {
         inOp.maxWaitMillisec = mOpTimeoutSec > 0 ?
             int64_t(mOpTimeoutSec) * 1000 : int64_t(-1);
+    }
+    void InitHelloLookupOp()
+    {
+        mLookupOp.DeallocContentBuf();
+        mLookupOp.contentLength               = 0;
+        mLookupOp.status                      = 0;
+        mLookupOp.statusMsg.clear();
+        mLookupOp.reqShortRpcFormatFlag       = mRpcFormat == kRpcFormatUndef;
+        mLookupOp.authType                    = kAuthenticationTypeNone;
+        mLookupOp.vrPrimaryFlag               = false;
+        mLookupOp.responseHasVrPrimaryKeyFlag = false;
+        mLookupOp.seq                         = mNextSeqNum++;
     }
     void SetVrPrimary(
         NetConnectionPtr&     inConnPtr,
@@ -2199,17 +2203,7 @@ private:
             if (IsAuthEnabled()) {
                 if (! inVrPrimaryFlag) {
                     assert(! IsAuthInFlight());
-                    mLookupOp.DeallocContentBuf();
-                    mLookupOp.contentLength               = 0;
-                    mLookupOp.status                      = 0;
-                    mLookupOp.statusMsg.clear();
-                    mLookupOp.reqShortRpcFormatFlag       =
-                        mRpcFormat == kRpcFormatUndef;
-                    mLookupOp.authType                    =
-                        kAuthenticationTypeNone;
-                    mLookupOp.vrPrimaryFlag               = false;
-                    mLookupOp.responseHasVrPrimaryKeyFlag = false;
-                    mLookupOp.seq                         = mNextSeqNum++;
+                    InitHelloLookupOp();
                 }
                 mNextSeqNum++; // Leave one slot for mAuthOp
             } else {
@@ -3047,7 +3041,7 @@ KfsNetClient::SetMetaServerLocations(
     Impl::StRef theRef(mImpl);
     return mImpl.SetMetaServerLocations(inLocation,
         inLocationsStrPtr, inLocationsStrLen,
-        inAllowDuplicatesFlag, inAllowDuplicatesFlag);
+        inAllowDuplicatesFlag, inHexFormatFlag);
 }
 
     void

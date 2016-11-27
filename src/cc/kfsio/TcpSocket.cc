@@ -251,10 +251,12 @@ struct TcpSocket::Address
         } else {
             mIp.v6.sin6_port = htons(location.port);
         }
-        KFS_LOG_STREAM_DEBUG <<
-            "set: " << location   <<
-            " => "  << ToString() <<
-        KFS_LOG_EOM;
+        if (useResolverFlag) {
+            KFS_LOG_STREAM_DEBUG <<
+                "set: " << location   <<
+                " => "  << ToString() <<
+            KFS_LOG_EOM;
+        }
         return 0;
     }
     TcpSocket::Type GetType() const

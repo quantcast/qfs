@@ -620,6 +620,9 @@ EOF
             serverlocs="$serverlocs $metahost $port"
             port=`expr $port + 1`
         done
+        cat >> "$clientprop" << EOF
+client.metaServerNodes = $serverlocs
+EOF
         if [ -f './vrstate' ]; then
             cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.servers = $serverlocs
@@ -989,6 +992,11 @@ EOF
 chunkServer.ioBufferPool.partitionBufferCount = 131072
 chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
 chunkServer.objectDir                         = $objectstoredir
+EOF
+    fi
+    if [ $vrcount -gt 2 ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.metaServer.nodes = $serverlocs
 EOF
     fi
             (
