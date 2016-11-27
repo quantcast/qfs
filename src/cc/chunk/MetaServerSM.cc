@@ -515,8 +515,8 @@ MetaServerSM::Impl::SetParameters(const Properties& prop)
             if (ret == 0) {
                 ret = err;
             }
-            KFS_LOG_STREAM_ERROR <<
-                "invalid " << kAuthTypeParamName <<
+            KFS_LOG_STREAM_ERROR << mLocation <<
+                " invalid " << kAuthTypeParamName <<
                 " " << mAuthType <<
                 " " << errMsg <<
             KFS_LOG_EOM;
@@ -535,15 +535,15 @@ MetaServerSM::Impl::Timeout()
     } else if (mReconnectFlag && ! mPendingDeleteFlag) {
         mReconnectFlag = false;
         const char* const msg = "meta server reconnect requested";
-        KFS_LOG_STREAM_WARN << msg << KFS_LOG_EOM;
+        KFS_LOG_STREAM_WARN << mLocation << " " << msg << KFS_LOG_EOM;
         Error(msg);
     }
     const time_t now = globalNetManager().Now();
     if (IsConnected() &&
             IsHandshakeDone() &&
             mLastRecvCmdTime + mInactivityTimeout < now) {
-        KFS_LOG_STREAM_ERROR <<
-            "meta server inactivity timeout, last request received: " <<
+        KFS_LOG_STREAM_ERROR << mLocation <<
+            " meta server inactivity timeout, last request received: " <<
             (now - mLastRecvCmdTime) << " secs ago" <<
         KFS_LOG_EOM;
         Error("heartbeat request timeout");
@@ -603,7 +603,7 @@ MetaServerSM::Impl::Connect()
     const int  ret         = sock->Connect(mLocation, nonBlocking);
     if (ret < 0 && ret != -EINPROGRESS) {
         KFS_LOG_STREAM_ERROR <<
-            "connection to meter server failed:"
+            "connect to meter server " << mLocation <<
             " error: " << QCUtils::SysError(-ret) <<
         KFS_LOG_EOM;
         delete sock;
@@ -669,7 +669,7 @@ MetaServerSM::Impl::SendHello()
     }
     if (! IsConnected()) {
         KFS_LOG_STREAM_DEBUG <<
-            "unable to connect to meta server" <<
+            "unable to connect to meta server " << mLocation <<
         KFS_LOG_EOM;
         if (mNetConnection) {
             Error("network error");
@@ -685,8 +685,8 @@ MetaServerSM::Impl::SendHello()
         ServerLocation loc;
         const int res = mNetConnection->GetSockLocation(loc);
         if (res < 0) {
-            KFS_LOG_STREAM_ERROR <<
-                "getsockname: " << QCUtils::SysError(-res) <<
+            KFS_LOG_STREAM_ERROR << mLocation <<
+                " getsockname: " << QCUtils::SysError(-res) <<
             KFS_LOG_EOM;
             Error("get socket name error");
             return;
@@ -706,8 +706,8 @@ MetaServerSM::Impl::SendHello()
             }
         }
         if (! loc.IsValid() || ! validConnectToIpFlag) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid chunk server location: " << loc <<
+            KFS_LOG_STREAM_ERROR << mLocation <<
+                " invalid chunk server location: " << loc <<
                 " resetting meta server connection" <<
             KFS_LOG_EOM;
             Error("invalid socket address");
@@ -717,14 +717,14 @@ MetaServerSM::Impl::SendHello()
         if (loc.hostname != prevIp) {
             loc.port = mMyLocation.port;
             if (prevIp.empty()) {
-                KFS_LOG_STREAM_INFO <<
-                    "setting chunk server ip to: " << loc.hostname <<
+                KFS_LOG_STREAM_INFO << mLocation <<
+                    " setting chunk server ip to: " << loc.hostname <<
                 KFS_LOG_EOM;
                 mMyLocation = loc;
             } else {
                 const int err = IsIpHostedAndNotLoopBack(prevIp.c_str());
-                KFS_LOG_STREAM_WARN <<
-                    "meta server connection local address: " << loc.hostname <<
+                KFS_LOG_STREAM_WARN << mLocation <<
+                    " meta server connection local address: " << loc.hostname <<
                     " current chunk server ip: " << prevIp <<
                     (err == 0 ? string() :
                         " is no longer valid: " + QCUtils::SysError(-err)) <<
@@ -768,8 +768,8 @@ MetaServerSM::Impl::Authenticate()
         &errMsg
     );
     if (err) {
-        KFS_LOG_STREAM_ERROR <<
-            "authentication request failure: " <<
+        KFS_LOG_STREAM_ERROR << mLocation <<
+            " authentication request failure: " <<
             errMsg <<
         KFS_LOG_EOM;
         DetachAndDeleteOp(mAuthOp);
@@ -777,7 +777,9 @@ MetaServerSM::Impl::Authenticate()
         return true;
     }
     Request(*mAuthOp);
-    KFS_LOG_STREAM_INFO << "started: " << mAuthOp->Show() << KFS_LOG_EOM;
+    KFS_LOG_STREAM_INFO << mLocation <<
+        " started: " << mAuthOp->Show() <<
+    KFS_LOG_EOM;
     return true;
 }
 
@@ -799,8 +801,8 @@ MetaServerSM::Impl::DispatchHello()
     }
     mSentHello = true;
     Request(*mHelloOp);
-    KFS_LOG_STREAM_INFO <<
-        "sending hello to meta server: " << mHelloOp->Show() <<
+    KFS_LOG_STREAM_INFO << mLocation <<
+        " sending hello to meta server: " << mHelloOp->Show() <<
     KFS_LOG_EOM;
     mNetConnection->StartFlush();
 }
@@ -850,8 +852,8 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
             int hdrsz;
             if (! hasMsg &&
                     (hdrsz = iobuf.BytesConsumable()) > MAX_RPC_HEADER_LEN) {
-                KFS_LOG_STREAM_ERROR <<
-                    "exceeded max request header size: " << hdrsz <<
+                KFS_LOG_STREAM_ERROR << mLocation <<
+                    " exceeded max request header size: " << hdrsz <<
                     ">" << MAX_RPC_HEADER_LEN <<
                     " closing connection: " << (IsConnected() ?
                         mNetConnection->GetPeerName() :
@@ -1058,8 +1060,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
             kRpcFormatShort == mRpcFormat ? "l" : "Content-length",  -1);
         if (mAuthOp && (! IsHandshakeDone() || seq == mAuthOp->seq)) {
             if (seq != mAuthOp->seq) {
-                KFS_LOG_STREAM_ERROR <<
-                    "authentication response seq number mismatch: " <<
+                KFS_LOG_STREAM_ERROR << mLocation <<
+                    " authentication response seq number mismatch: " <<
                     seq << "/" << mAuthOp->seq <<
                     " " << mAuthOp->Show() <<
                 KFS_LOG_EOM;
@@ -1072,8 +1074,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 mAuthOp->statusMsg = statusMsg;
             }
             if (! mAuthOp->ParseResponse(prop, iobuf) && 0 <= status) {
-                KFS_LOG_STREAM_ERROR <<
-                    "invalid meta reply response:"
+                KFS_LOG_STREAM_ERROR << mLocation <<
+                    " invalid meta reply response:"
                     " seq: "         << op->seq <<
                     " "              << op->Show() <<
                 KFS_LOG_EOM;
@@ -1085,7 +1087,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         }
         if (mHelloOp) {
             if (status == -EBADCLUSTERKEY) {
-                KFS_LOG_STREAM_FATAL <<
+                KFS_LOG_STREAM_FATAL << mLocation << " " <<
                     (statusMsg.empty() ?
                         ErrorCodeToString(status) : statusMsg) <<
                     " cluster key: " << mClusterKey <<
@@ -1108,8 +1110,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 (0 <= mHelloOp->resumeStep && status == 0 &&
                     resumeStep != mHelloOp->resumeStep);
             if (errorFlag) {
-                KFS_LOG_STREAM_ERROR <<
-                    "hello response error:"
+                KFS_LOG_STREAM_ERROR << mLocation <<
+                    " hello response error:"
                     " seq: "         << seq << " => " << mHelloOp->seq <<
                     " status: "      << status <<
                     " msg: "         << statusMsg <<
@@ -1204,8 +1206,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
             if (iter == mDispatchedOps.end()) {
                 string reply;
                 prop.getList(reply, string(), string(" "));
-                KFS_LOG_STREAM_ERROR << "meta reply:"
-                    " no op found for: " << reply <<
+                KFS_LOG_STREAM_ERROR << mLocation <<
+                    " meta reply no op found for: " << reply <<
                 KFS_LOG_EOM;
                 Error("protocol invalid sequence");
                 return false;
@@ -1216,8 +1218,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 op->statusMsg.swap(statusMsg);
             }
             if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
-                KFS_LOG_STREAM_ERROR <<
-                    "invalid meta reply response:"
+                KFS_LOG_STREAM_ERROR << mLocation <<
+                    " invalid meta reply response:"
                     " seq: "         << op->seq <<
                     " "              << op->Show() <<
                 KFS_LOG_EOM;
@@ -1244,8 +1246,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         const int len = mContentLength;
         mContentLength = 0;
         if (! ok) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid meta reply response content:"
+            KFS_LOG_STREAM_ERROR << mLocation <<
+                " invalid meta reply response content:"
                 " seq: "         << op->seq <<
                 " msg: "         << op->statusMsg <<
                 " "              << op->Show() <<
@@ -1269,8 +1271,8 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
     } else {
         mDispatchedOps.erase(op->seq);
     }
-    KFS_LOG_STREAM_DEBUG <<
-        "recv meta reply:"
+    KFS_LOG_STREAM_DEBUG << mLocation <<
+        " recv meta reply:"
         " seq: "    << op->seq <<
         " status: " << op->status <<
         " "         << op->Show() <<
@@ -1352,8 +1354,8 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
     }
     mLastRecvCmdTime = globalNetManager().Now();
     op->clnt = this;
-    KFS_LOG_STREAM_DEBUG <<
-        "recv meta cmd:"
+    KFS_LOG_STREAM_DEBUG << mLocation <<
+        " recv meta cmd:"
         " seq: " << op->seq <<
         " "      << op->Show() <<
     KFS_LOG_EOM;
@@ -1375,8 +1377,8 @@ MetaServerSM::Impl::Request(KfsOp& op)
     op.shortRpcFormatFlag        = kRpcFormatShort == mRpcFormat;
     op.initialShortRpcFormatFlag = op.shortRpcFormatFlag;
     op.status                    = 0;
-    KFS_LOG_STREAM_DEBUG <<
-        "cs request:"
+    KFS_LOG_STREAM_DEBUG << mLocation <<
+        " cs request:"
         " seq: " << op.seq <<
         " "      << op.Show() <<
     KFS_LOG_EOM;
@@ -1390,11 +1392,11 @@ MetaServerSM::Impl::Request(KfsOp& op)
         is.ignore(reqStart);
         const void* const self = this;
         string            line;
-        KFS_LOG_STREAM_DEBUG << self <<
+        KFS_LOG_STREAM_DEBUG << mLocation << " " << self <<
             " cs request: " << mLocation <<
         KFS_LOG_EOM;
         while (getline(is, line)) {
-            KFS_LOG_STREAM_DEBUG << self <<
+            KFS_LOG_STREAM_DEBUG << mLocation << " " << self <<
                 " request: " << line <<
             KFS_LOG_EOM;
         }
@@ -1438,8 +1440,8 @@ MetaServerSM::Impl::SendResponse(KfsOp* op)
 {
     const bool discardFlag = ! mSentHello ||
         op->generation != mGenerationCount || ! IsConnected();
-    KFS_LOG_STREAM_DEBUG <<
-        (discardFlag ? "discard" : "send") <<
+    KFS_LOG_STREAM_DEBUG << mLocation <<
+        (discardFlag ? " discard" : " send") <<
         " meta reply:"
         " seq: "     << op->seq <<
         (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
@@ -1527,8 +1529,8 @@ MetaServerSM::Impl::HandleAuthResponse(IOBuffer& ioBuf)
         return;
     }
     if (! ioBuf.IsEmpty()) {
-        KFS_LOG_STREAM_ERROR <<
-            "authentication protocol failure:" <<
+        KFS_LOG_STREAM_ERROR << mLocation <<
+            " authentication protocol failure:" <<
             " " << ioBuf.BytesConsumable() <<
             " bytes past authentication response" <<
             " filter: " <<
@@ -1568,7 +1570,8 @@ MetaServerSM::Impl::HandleAuthResponse(IOBuffer& ioBuf)
     const bool okFlag = mAuthOp->status == 0;
     KFS_LOG_STREAM(okFlag ?
             MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
-        "finished: " << mAuthOp->Show() <<
+        mLocation <<
+        " finished: " << mAuthOp->Show() <<
         " filter: "  <<
             reinterpret_cast<const void*>(mNetConnection->GetFilter()) <<
     KFS_LOG_EOM;
@@ -1623,6 +1626,9 @@ MetaServerSM::Impl::SubmitHello()
     mHelloOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
     mHelloOp->reqShortRpcFmtFlag = kRpcFormatShort != mRpcFormat;
     // Send the op and wait for the reply.
+    KFS_LOG_STREAM_DEBUG <<
+        mLocation << ": submit hello" <<
+    KFS_LOG_EOM;
     SubmitOp(mHelloOp);
 }
 
