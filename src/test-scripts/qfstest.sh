@@ -524,7 +524,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 46460
 EOF
     else
         cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.ioBufferPool.partitionBufferCount = 8192
+chunkServer.ioBufferPool.partitionBufferCount = 8320
 chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
 chunkServer.objectDir                         = $objectstoredir
 EOF
