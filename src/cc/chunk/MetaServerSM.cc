@@ -651,10 +651,13 @@ IsIpHostedAndNotLoopBack(const char* ip)
         return ret;
     }
     const string& name = loc.hostname;
-    if (socket.GetType() == TcpSocket::kTypeIpV4) {
-        return ((name == "127.0.0.1" || name == "0.0.0.0") ? -EACCES : 0);
+    if (! TcpSocket::IsValidConnectToIpAddress(name.c_str())) {
+        return -EINVAL;
     }
-    return ((name == "::1" || name == "::") ?  -EACCES : 0);
+    return (
+        (socket.GetType() == TcpSocket::kTypeIpV4 ? "127.0.0.1" : "::1") == name
+         ?  -EINVAL : 0
+    );
 }
 
 void
@@ -672,10 +675,11 @@ MetaServerSM::Impl::SendHello()
         }
         return;
     }
+    mMyLocation = gChunkServer.GetLocation();
     if (gChunkServer.CanUpdateServerIp() &&
             (! mPrimary || this == mPrimary) &&
             (mUpdateServerIpFlag ||
-            ! gChunkServer.GetLocation().IsValid())) {
+            ! mMyLocation.IsValid())) {
         // Advertise the same ip address to the clients, as used
         // for the meta connection.
         ServerLocation loc;
@@ -687,15 +691,21 @@ MetaServerSM::Impl::SendHello()
             Error("get socket name error");
             return;
         }
-        // Paper over for cygwin / win 7 with no nics configured:
-        // check if getsockname returns INADDR_ANY, and retry if it does.
-        // Moving this logic into TcpSocket isn't appropriate: INADDR_ANY is
-        // valid for unconnected socket bound to INADDR_ANY.
-        const char* const kAddrAny = "0.0.0.0";
-        if (loc.hostname == kAddrAny && mLocation.hostname == "127.0.0.1") {
-            loc.hostname = mLocation.hostname;
+        bool validConnectToIpFlag =
+            TcpSocket::IsValidConnectToIpAddress(loc.hostname.c_str());
+        if (! validConnectToIpFlag) {
+            // Paper over for cygwin / win 7 with no NICs configured:
+            // when etsockname returns INADDR_ANY, set ip to loopback address.
+            if (mLocation.hostname == "127.0.0.1" ||
+                        mLocation.hostname == "localhost" ||
+                        mLocation.hostname == "::1") {
+                loc.hostname = mLocation.hostname == "localhost" ?
+                    string(loc.hostname.find(':') != string::npos ?
+                        "::1" : "127.0.0.1") : mLocation.hostname;
+                validConnectToIpFlag = true;
+            }
         }
-        if (! loc.IsValid() || loc.hostname == kAddrAny) {
+        if (! loc.IsValid() || ! validConnectToIpFlag) {
             KFS_LOG_STREAM_ERROR <<
                 "invalid chunk server location: " << loc <<
                 " resetting meta server connection" <<
@@ -703,9 +713,9 @@ MetaServerSM::Impl::SendHello()
             Error("invalid socket address");
             return;
         }
-        const string prevIp = gChunkServer.GetLocation().hostname;
+        const string prevIp = mMyLocation.hostname;
         if (loc.hostname != prevIp) {
-            loc.port = gChunkServer.GetLocation().port;
+            loc.port = mMyLocation.port;
             if (prevIp.empty()) {
                 KFS_LOG_STREAM_INFO <<
                     "setting chunk server ip to: " << loc.hostname <<
@@ -724,8 +734,6 @@ MetaServerSM::Impl::SendHello()
                 }
             }
         }
-    } else {
-        mMyLocation = gChunkServer.GetLocation();
     }
     if (! mMyLocation.IsValid()) {
         Error("chunk server location is not valid");
