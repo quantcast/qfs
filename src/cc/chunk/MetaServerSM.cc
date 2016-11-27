@@ -594,6 +594,7 @@ MetaServerSM::Impl::Connect()
     mContentLength = 0;
     mCounters.mConnectCount++;
     mGenerationCount++;
+    mMyLocation.Reset(0, -1);
     mRpcFormat            = kRpcFormatUndef;
     mSentHello            = false;
     mUpdateCurrentKeyFlag = false;
@@ -678,8 +679,7 @@ MetaServerSM::Impl::SendHello()
     mMyLocation = gChunkServer.GetLocation();
     if (gChunkServer.CanUpdateServerIp() &&
             (! mPrimary || this == mPrimary) &&
-            (mUpdateServerIpFlag ||
-            ! mMyLocation.IsValid())) {
+            (mUpdateServerIpFlag || ! mMyLocation.IsValid())) {
         // Advertise the same ip address to the clients, as used
         // for the meta connection.
         ServerLocation loc;
