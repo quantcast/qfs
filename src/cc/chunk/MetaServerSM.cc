@@ -1755,6 +1755,7 @@ MetaServerSM::MetaServerSM()
       mAllowDuplicateLocationsFlag(false),
       mUpdateServerIpFlag(true),
       mResolverStartTime(0),
+      mResolverRetryInterval(5),
       mResolverInFlightCount(0),
       mResolvedInFlightCount(0),
       mPendingOps(),
@@ -1863,6 +1864,9 @@ MetaServerSM::SetParameters(const Properties& prop)
             res = ret;
         }
     }
+    mResolverRetryInterval = max(1, mParameters.getValue(
+        "chunkServer.metaServer.resolverRetryInterval",
+        mResolverRetryInterval));
     mAllowDuplicateLocationsFlag = mParameters.getValue(
         "chunkServer.metaServer.allowDuplicateLocations",
         mAllowDuplicateLocationsFlag ? 1 : 0
@@ -1934,7 +1938,8 @@ MetaServerSM::Timeout()
     if (mPrimary || mLocations.empty() || ! mRunningFlag ||
             0 < mResolverInFlightCount ||
             0 < mResolvedInFlightCount ||
-            globalNetManager().Now() <= mResolverStartTime) {
+            globalNetManager().Now() <=
+                mResolverStartTime + mResolverRetryInterval) {
         return;
     }
     mResolverStartTime = globalNetManager().Now();
@@ -2114,7 +2119,8 @@ MetaServerSM::SetMetaInfo(
                     mResolverReqs, *(new ResolverReq(it->hostname, *this)));
             }
         }
-        mResolverStartTime = globalNetManager().Now() - 1;
+        mResolverStartTime = globalNetManager().Now() -
+            1 - mResolverRetryInterval;
         mRunningFlag = true;
         if (! Impl::List::IsEmpty(mImpls)) {
             mAuthEnabledFlag = Impl::List::Front(mImpls)->IsAuthEnabled();

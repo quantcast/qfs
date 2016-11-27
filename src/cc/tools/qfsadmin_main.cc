@@ -236,6 +236,9 @@ Main(
 
     const ServerLocation theLocation(theServerPtr, thePort);
     MonClient            theClient;
+    theClient.SetMaxContentLength(512 << 20);
+    theClient.SetRpcFormat(theShortRpcFmtFlag ?
+        MonClient::kRpcFormatShort : MonClient::kRpcFormatLong);
     if (theClient.SetParameters(theLocation, theConfigFileNamePtr,
             theSetMetaLocationsFlag) < 0) {
         return 1;
@@ -243,9 +246,6 @@ Main(
     if (! theSetMetaLocationsFlag && ! theClient.SetServer(theLocation)) {
         return 1;
     }
-    theClient.SetMaxContentLength(512 << 20);
-    theClient.SetRpcFormat(theShortRpcFmtFlag ?
-        MonClient::kRpcFormatShort : MonClient::kRpcFormatLong);
     Properties theReqProps;
     theReqProps.loadProperties(
         thePropsStr.data(), thePropsStr.size(), (char)'=');

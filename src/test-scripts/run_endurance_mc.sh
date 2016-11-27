@@ -699,6 +699,7 @@ EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+client.metaServerNodes       = $serverlocs
 EOF
         sleep 2 # allow met servers start
         if [ -f './vrstate' ]; then

@@ -223,8 +223,8 @@ public:
           mAuthOp(-1, kAuthenticationTypeUndef),
           mMetaVrNodesCount(0),
           mMetaVrNodesActiveCount(0),
+          mResolverInFlightCount(0),
           mMetaLocations(),
-          mMetaHostNames(),
           mResolverPtr(0)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
@@ -286,12 +286,24 @@ public:
         EnsureConnected(inErrMsgPtr);
         return (mSleepingFlag || IsConnected() ||
             0 < mMetaVrNodesActiveCount ||
-            ! ResolverList::IsEmpty(mResolverReqsPtr)
+            0 < mResolverInFlightCount
         );
     }
     void SetRpcFormat(
         RpcFormat inRpcFormat)
-        {  mRpcFormat = inRpcFormat; }
+    {
+        if (inRpcFormat == mRpcFormat) {
+            return;
+        }
+        const bool theConnectedFlag = IsConnected();
+        if (theConnectedFlag) {
+            Reset();
+        }
+        mRpcFormat = inRpcFormat;
+        if (theConnectedFlag && ! mPendingOpQueue.empty()) {
+            EnsureConnected();
+        }
+    }
     RpcFormat GetRpcFormat() const
         { return mRpcFormat; }
     void SetAuthContext(
@@ -958,9 +970,16 @@ public:
             return false;
         }
         mMetaLocations.push_back(inLocation);
-        if (find(mMetaHostNames.begin(), mMetaHostNames.end(),
-                inLocation.hostname) == mMetaHostNames.end()) {
-            mMetaHostNames.push_back(inLocation.hostname);
+        ResolverList::Iterator theIt(mResolverReqsPtr);
+        const ResolverReq* thePtr;
+        while ((thePtr = theIt.Next())) {
+            if (thePtr->GetHostName() == inLocation.hostname) {
+                break;
+            }
+        }
+        if (! thePtr) {
+            ResolverList::PushBack(mResolverReqsPtr,
+                *(new ResolverReq(inLocation.hostname, *this)));
         }
         return true;
     }
@@ -1338,14 +1357,20 @@ private:
             : Resolver::Request(inHostName),
               ITimeout(),
               mImplPtr(&inImpl),
-              mRetryCount(0)
+              mRetryCount(0),
+              mCanceledFlag(false),
+              mInFlightFlag(false)
             { List::Init(*this); }
         const string& GetHostName() const
             { return mHostName; }
         virtual void Done()
         {
+            mInFlightFlag = false;
             if (! mImplPtr) {
                 delete this;
+                return;
+            }
+            if (mCanceledFlag) {
                 return;
             }
             if (0 != mStatus && ++mRetryCount <= mImplPtr->mMaxRetryCount) {
@@ -1388,16 +1413,45 @@ private:
             { return mStatus; }
         const string& GetStatusMsg() const
             { return mStatusMsg; }
-        void Delete(
-            ResolverReq** inListPtr)
+        void Cancel()
         {
             if (mSleepingFlag) {
                 mImplPtr->mNetManagerPtr->UnRegisterTimeoutHandler(this);
                 mSleepingFlag = false;
             }
-            const bool theInFlightFlag = List::IsInList(inListPtr, *this);
+            mCanceledFlag = true;
+        }
+        void Enqueue()
+        {
+            mRetryCount = 0;
+            Cancel();
+            mCanceledFlag = false;
+            if (mInFlightFlag) {
+                return;
+            }
+            mInFlightFlag = true;
+            if (! mImplPtr->mResolverPtr) {
+                mImplPtr->mResolverPtr = new Resolver(*(mImplPtr->mNetManagerPtr));
+                mStatus = mImplPtr->mResolverPtr->Start();
+                if (0 != mStatus) {
+                    mStatusMsg = QCUtils::SysError(-mStatus) ;
+                    KFS_LOG_STREAM_FATAL << "failed to start resolver:" <<
+                        " status: " << mStatus <<
+                        " "         << mStatusMsg <<
+                    KFS_LOG_EOM;
+                    MsgLogger::Stop();
+                    abort();
+                    Done();
+                }
+            }
+            mImplPtr->mResolverPtr->Enqueue(*this);
+        }
+        void Delete(
+            ResolverReq** inListPtr)
+        {
+            Cancel();
             List::Remove(inListPtr, *this);
-            if (theInFlightFlag) {
+            if (mInFlightFlag) {
                 mImplPtr = 0;
                 return;
             }
@@ -1407,6 +1461,8 @@ private:
         Impl*        mImplPtr;
         int          mRetryCount;
         bool         mSleepingFlag;
+        bool         mCanceledFlag;
+        bool         mInFlightFlag;
         ResolverReq* mPrevPtr[1];
         ResolverReq* mNextPtr[1];
 
@@ -1422,7 +1478,6 @@ private:
     };
     friend class ResolverReq;
     typedef ResolverReq::List ResolverList;
-    typedef vector<string> MetaHostNames;
     typedef vector<ServerLocation> MetaLocations;
 
     ServerLocation             mServerLocation;
@@ -1483,8 +1538,8 @@ private:
     AuthenticateOp             mAuthOp;
     int                        mMetaVrNodesCount;
     int                        mMetaVrNodesActiveCount;
+    int                        mResolverInFlightCount;
     MetaLocations              mMetaLocations;
-    MetaHostNames              mMetaHostNames;
     Resolver*                  mResolverPtr;
     ResolverReq*               mResolverReqsPtr[1];
     MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
@@ -1540,8 +1595,7 @@ private:
         }
         assert(0 <= mMetaVrNodesActiveCount);
         mMetaVrNodesActiveCount--;
-        if (mMetaVrNodesActiveCount <= 0 &&
-                ResolverList::IsEmpty(mResolverReqsPtr)) {
+        if (mMetaVrNodesActiveCount <= 0 && mResolverInFlightCount <= 0) {
             CancelVrPrimaryCheck();
             Fail(
                 mLookupOp.status < 0 ? mLookupOp.status : -EIO,
@@ -1549,28 +1603,11 @@ private:
             );
         }
     }
-    void Resolve(
-        const string& inHostName)
-    {
-        if (! mResolverPtr) {
-            mResolverPtr = new Resolver(*mNetManagerPtr);
-            const int theStatus = mResolverPtr->Start();
-            if (0 != theStatus) {
-                KFS_LOG_STREAM_FATAL << "failed to start resolver:" <<
-                    " status: " << theStatus <<
-                    " "         << QCUtils::SysError(-theStatus) <<
-                KFS_LOG_EOM;
-                MsgLogger::Stop();
-                abort();
-            }
-        }
-        ResolverReq& theReq = *(new ResolverReq(inHostName, *this));
-        ResolverList::PushBack(mResolverReqsPtr, theReq);
-        mResolverPtr->Enqueue(theReq);
-    }
     void Resolved(
         ResolverReq& inReq)
     {
+        assert(0 < mResolverInFlightCount);
+        mResolverInFlightCount--;
         MetaCheckVrPrimaryChecker* theListPtr[1];
         MetaVrList::Init(theListPtr);
         if (0 == inReq.GetStatus()) {
@@ -1589,14 +1626,18 @@ private:
                             theIps.end() != theIpIt;
                             ++theIpIt) {
                         ServerLocation const theLocation(*theIpIt, theIt->port);
-                        MetaVrList::Iterator             theIt(mMetaVrListPtr);
+                        MetaVrList::Iterator             theVrIt(mMetaVrListPtr);
                         const MetaCheckVrPrimaryChecker* thePtr;
-                        while ((thePtr = theIt.Next())) {
+                        while ((thePtr = theVrIt.Next())) {
                             if (thePtr->GetLocation() == theLocation) {
                                 break;
                             }
                         }
                         if (! thePtr) {
+                            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                                "add resolved: " << *theIt <<
+                                " => "           << theLocation <<
+                            KFS_LOG_EOM;
                             const bool kLocationResolvedFlag = true;
                             MetaVrList::PushBack(theListPtr,
                                 *(new MetaCheckVrPrimaryChecker(
@@ -1606,7 +1647,6 @@ private:
                 }
             }
         }
-        inReq.Delete(mResolverReqsPtr);
         if (mMetaVrNodesActiveCount <= 0 && MetaVrList::IsEmpty(theListPtr)) {
             assert(! mConnPtr);
             if (0 <= mLookupOp.status) {
@@ -1657,26 +1697,26 @@ private:
                 }
             }
         }
-        if (0 < mMetaVrNodesActiveCount ||
-                ! ResolverList::IsEmpty(mResolverReqsPtr)) {
+        if (0 < mMetaVrNodesActiveCount || 0 < mResolverInFlightCount) {
             return true;
         }
         InitConnect();
         // Ref self to ensure that "this" is still around after the end of the
         // of the loop to ensure that iterator has valid list head pointer.
         StRef theRef(*this);
-        for (MetaHostNames::const_iterator theIt = mMetaHostNames.begin();
-                mMetaHostNames.end() != theIt;
-                ++theIt) {
-            Resolve(*theIt);
+        ResolverList::Iterator theIt(mResolverReqsPtr);
+        ResolverReq*           thePtr;
+        while ((thePtr = theIt.Next())) {
+            mResolverInFlightCount++;
+            thePtr->Enqueue();
         }
         // Unwind recursion by setting active count to the total node count
         // prior to launching requests.
         mMetaVrNodesActiveCount = mMetaVrNodesCount;
-        MetaVrList::Iterator       theIt(mMetaVrListPtr);
-        MetaCheckVrPrimaryChecker* thePtr;
-        while ((thePtr = theIt.Next())) {
-            thePtr->Connect();
+        MetaVrList::Iterator       theVrIt(mMetaVrListPtr);
+        MetaCheckVrPrimaryChecker* theVrPtr;
+        while ((theVrPtr = theVrIt.Next())) {
+            theVrPtr->Connect();
         }
         return true;
     }
@@ -1697,6 +1737,7 @@ private:
         while ((theReqPtr = ResolverList::Front(mResolverReqsPtr))) {
             theReqPtr->Delete(mResolverReqsPtr);
         }
+        mResolverInFlightCount = 0;
     }
     bool EnqueueSelf(
         KfsOp*    inOpPtr,

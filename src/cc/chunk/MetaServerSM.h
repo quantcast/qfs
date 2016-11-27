@@ -117,6 +117,7 @@ private:
     bool         mAllowDuplicateLocationsFlag;
     bool         mUpdateServerIpFlag;
     time_t       mResolverStartTime;
+    int          mResolverRetryInterval;
     int          mResolverInFlightCount;
     int          mResolvedInFlightCount;
     OpsQueue     mPendingOps;
