@@ -437,6 +437,7 @@ public:
     {
         Reset();
         mAuthFailureCount = 0;
+        mMetaLogWriteRetryCount = 0;
         Cancel();
     }
     int GetMaxRetryCount() const
@@ -2339,7 +2340,7 @@ private:
         if (theScheduleNextOpFlag) {
             mOutstandingOpPtr = 0;
         }
-        if (! inCanceledFlag) {
+        if (! inCanceledFlag && 0 < mMaxMetaLogWriteRetryCount) {
             if (IsMetaLogWriteOrVrError(inIt->second.mOpPtr->status)) {
                 if (++mMetaLogWriteRetryCount < mMaxMetaLogWriteRetryCount) {
                     KFS_LOG_STREAM_INFO << mLogPrefix <<
