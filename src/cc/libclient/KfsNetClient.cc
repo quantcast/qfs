@@ -3072,6 +3072,13 @@ KfsNetClient::AddMetaServerLocation(
     return mImpl.AddMetaServerLocation(inLocation, inAllowDuplicatesFlag);
 }
 
+    void
+KfsNetClient::ClearMetaServerLocations()
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.ClearMetaServerLocations();
+}
+
     int
 KfsNetClient::SetMetaServerLocations(
     const ServerLocation& inLocation,

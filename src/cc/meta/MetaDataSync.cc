@@ -534,6 +534,14 @@ public:
             }
         }
         if (! mLogSeq.IsValid()) {
+            mKfsNetClient.ClearMetaServerLocations();
+            for (Servers::const_iterator theIt = mServers.begin();
+                    mServers.end() != theIt;
+                    ++theIt) {
+                const bool kAllowDuplicatesFlag = false;
+                mKfsNetClient.AddMetaServerLocation(
+                    *theIt, kAllowDuplicatesFlag);
+            }
             const size_t theCnt = mServers.size();
             if (1 < theCnt) {
                 // Randomly choose server to download from.
@@ -547,6 +555,7 @@ public:
             mShutdownNetManagerFlag = true;
             Run();
             mShutdownNetManagerFlag = false;
+            mKfsNetClient.ClearMetaServerLocations();
             if (0 != mStatus) {
                 return mStatus;
             }
@@ -931,6 +940,7 @@ private:
             mServerIdx = 0;
         }
         StopAndClearPending();
+        mAllowNotPrimaryFlag = false;
         mKfsNetClient.SetServer(mServers[mServerIdx]);
         mStatus               = 0;
         mLogSeq               = MetaVrLogSeq();
@@ -1171,6 +1181,24 @@ private:
                 }
             }
             mReadPipelineFlag = mFileSize < 0;
+            if (mCheckpointFlag) {
+                // Allow to transition into backup after the initial read.
+                // Turn off switch over to new primary, in order to get
+                // consistent checkpoint and transaction logs.
+                ServerLocation const theCurLoc =
+                    mKfsNetClient.GetServerLocation();
+                Servers::const_iterator const theIt = find(
+                    mServers.begin(), mServers.end(), theCurLoc);
+                mKfsNetClient.ClearMetaServerLocations();
+                if (theIt == mServers.end()) {
+                    inOp.status    = -EINVAL;
+                    inOp.statusMsg = "such such server";
+                    HandleReadError(inOp);
+                    return;
+                }
+                mServerIdx = theIt - mServers.begin();
+                mAllowNotPrimaryFlag = true;
+            }
         } else if (0 < mFileSize) {
             if (inOp.fileSize != mFileSize) {
                 KFS_LOG_STREAM_ERROR <<
@@ -1448,6 +1476,7 @@ private:
     }
     void HandleError()
     {
+        mKfsNetClient.ClearMetaServerLocations();
         Reset();
         mRetryCount++;
         int theRetryTimeout = mRetryTimeout;
