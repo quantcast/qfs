@@ -140,6 +140,19 @@ const S3StrToken kS3StrGetUploadsResultUploadKey(
 const S3StrToken kS3StrGetUploadsResultUploadUploadId(
     "/ListMultipartUploadsResult/Upload/UploadId");
 
+const char* const kS3AmzSecurityTokenNamePtr        = "x-amz-security-token";
+const char* const kS3AmzServerSideEncryptionNamePtr =
+    "x-amz-server-side-encryption";
+const char* const kS3AmzStorageClassNamePtr         = "x-amz-storage-class";
+const char* const kS3EncryptionTypePtr              = "aws:kms";
+const char* const kS3ValidStorageClasses[]          = {
+    "", // empty string -- no storage class header sent
+    "STANDARD",
+    "STANDARD_IA",
+    "REDUCED_REDUNDANCY",
+    0   // Sentinel
+};
+
 class S3ION : public IOMethod
 {
 public:
@@ -1241,17 +1254,22 @@ private:
             theSignBuf += '\n';
             theSignBuf += theDatePtr;
             theSignBuf += '\n';
-            const char* const kSecurityTokenHdrPtr = "x-amz-security-token:";
             if (! mOuter.mSecurityToken.empty()) {
-                theSignBuf += kSecurityTokenHdrPtr;
+                theSignBuf += kS3AmzSecurityTokenNamePtr;
+                theSignBuf += ':';
                 theSignBuf += mOuter.mSecurityToken;
                 theSignBuf += '\n';
             }
-            const char* const kEcryptHdrPtr  = "x-amz-server-side-encryption:";
-            const char* const kEncrptTypePtr = "aws:kms";
             if (inServerSideEncryptionFlag) {
-                theSignBuf += kEcryptHdrPtr;
-                theSignBuf += kEncrptTypePtr;
+                theSignBuf += kS3AmzServerSideEncryptionNamePtr;
+                theSignBuf += ':';
+                theSignBuf += kS3EncryptionTypePtr;
+                theSignBuf += '\n';
+            }
+            if (! mOuter.mStorageClass.empty()) {
+                theSignBuf += kS3AmzStorageClassNamePtr;
+                theSignBuf += ':';
+                theSignBuf += mOuter.mStorageClass;
                 theSignBuf += '\n';
             }
             theSignBuf += '/';
@@ -1307,11 +1325,16 @@ private:
                     inRangeStart << "-" << inRangeEnd << "\r\n";
             }
             if (! mOuter.mSecurityToken.empty()) {
-                theStream << kSecurityTokenHdrPtr << " " <<
-                    mOuter.mSecurityToken << "\r\n";
+                theStream << kS3AmzSecurityTokenNamePtr <<
+                    ": " << mOuter.mSecurityToken << "\r\n";
             }
             if (inServerSideEncryptionFlag) {
-                theStream << kEcryptHdrPtr << " " << kEncrptTypePtr << "\r\n";
+                theStream << kS3AmzServerSideEncryptionNamePtr <<
+                    ": " << kS3EncryptionTypePtr << "\r\n";
+            }
+            if (! mOuter.mStorageClass.empty()) {
+                theStream << kS3AmzStorageClassNamePtr <<
+                    ": " << mOuter.mStorageClass << "\r\n";
             }
             if (! mOuter.mCacheControl.empty()) {
                 theStream << "Cache-Control: " <<
@@ -1344,9 +1367,6 @@ private:
             const char* const kHostHRBytesPtr = ":bytes=";
             const char* const kAmzShaNamePtr  = "x-amz-content-sha256";
             const char* const kAmzDateNamePtr = "x-amz-date";
-            const char* const kAmzSTNamePtr   = "x-amz-security-token";
-            const char* const kAmzSSENamePtr  = "x-amz-server-side-encryption";
-            const char* const kEncrptTypePtr  = "aws:kms";
             const char* const theTimePtr      = mOuter.ISOTimeNow();
             const char* const theContShaPtr   =
                 (inMdPtr && *inMdPtr) ? inMdPtr : kEmptyShaPtr;
@@ -1392,15 +1412,21 @@ private:
             theSignBuf += theTimePtr;
             theSignBuf += '\n';
             if (! mOuter.mSecurityToken.empty()) {
-                theSignBuf += kAmzSTNamePtr;
+                theSignBuf += kS3AmzSecurityTokenNamePtr;
                 theSignBuf += ':';
                 theSignBuf += mOuter.mSecurityToken;
                 theSignBuf += '\n';
             }
             if (inServerSideEncryptionFlag) {
-                theSignBuf += kAmzSSENamePtr;
+                theSignBuf += kS3AmzServerSideEncryptionNamePtr;
                 theSignBuf += ':';
-                theSignBuf += kEncrptTypePtr;
+                theSignBuf += kS3EncryptionTypePtr;
+                theSignBuf += '\n';
+            }
+            if (! mOuter.mStorageClass.empty()) {
+                theSignBuf += kS3AmzStorageClassNamePtr;
+                theSignBuf += ':';
+                theSignBuf += mOuter.mStorageClass;
                 theSignBuf += '\n';
             }
             theSignBuf += '\n';
@@ -1417,11 +1443,15 @@ private:
             theSignBuf += kAmzDateNamePtr;
             if (! mOuter.mSecurityToken.empty()) {
                 theSignBuf += ';';
-                theSignBuf += kAmzSTNamePtr;
+                theSignBuf += kS3AmzSecurityTokenNamePtr;
             }
             if (inServerSideEncryptionFlag) {
                 theSignBuf += ';';
-                theSignBuf += kAmzSSENamePtr;
+                theSignBuf += kS3AmzServerSideEncryptionNamePtr;
+            }
+            if (! mOuter.mStorageClass.empty()) {
+                theSignBuf += ';';
+                theSignBuf += kS3AmzStorageClassNamePtr;
             }
             size_t const theSHLen = theSignBuf.size() - theSHPos;
             theSignBuf += '\n';
@@ -1490,11 +1520,16 @@ private:
                 kAmzShaNamePtr  << ": " << theContShaPtr << "\r\n" <<
                 kAmzDateNamePtr << ": " << theTimePtr    << "\r\n";
             if (! mOuter.mSecurityToken.empty()) {
-                theStream << kAmzSTNamePtr << ": " <<
+                theStream << kS3AmzSecurityTokenNamePtr << ": " <<
                     mOuter.mSecurityToken << "\r\n";
             }
             if (inServerSideEncryptionFlag) {
-                theStream << kAmzSSENamePtr << ": " << kEncrptTypePtr << "\r\n";
+                theStream << kS3AmzServerSideEncryptionNamePtr <<
+                    ": " << kS3EncryptionTypePtr << "\r\n";
+            }
+            if (! mOuter.mStorageClass.empty()) {
+                theStream << kS3AmzStorageClassNamePtr <<
+                    ": " << mOuter.mStorageClass << "\r\n";
             }
             theStream <<
                 "Authorization: AWS4-HMAC-SHA256 Credential=" <<
@@ -2661,6 +2696,7 @@ private:
     string              mContentType;
     string              mCacheControl;
     string              mContentEncoding;
+    string              mStorageClass;
     string              mUserAgent;
     bool                mUseServerSideEncryptionFlag;
     bool                mDebugTraceRequestHeadersFlag;
@@ -2762,6 +2798,7 @@ private:
           mContentType(),
           mCacheControl(),
           mContentEncoding(),
+          mStorageClass(),
           mUserAgent("QFS"),
           mUseServerSideEncryptionFlag(false),
           mDebugTraceRequestHeadersFlag(false),
@@ -2865,6 +2902,24 @@ private:
             theName.Truncate(thePrefixSize).Append("useServerSideEncryption"),
             mUseServerSideEncryptionFlag ? 1 : 0
         ) != 0;
+        string const theStorageClass = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("storageClass"),
+            mStorageClass
+        );
+        const char* const* thePtr;
+        for (thePtr = kS3ValidStorageClasses;
+                *thePtr && theStorageClass != *thePtr;
+                ++thePtr)
+            {}
+        if (thePtr) {
+            mStorageClass = theStorageClass;
+        } else {
+            KFS_LOG_STREAM_ERROR << mLogPrefix <<
+                "ignoring invalid parameter:"
+                " "        << theName         <<
+                " value: " << theStorageClass <<
+            KFS_LOG_EOM;
+        }
         mMaxRetryCount = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("maxRetryCount"),
             mMaxRetryCount
