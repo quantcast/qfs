@@ -1580,6 +1580,9 @@ private:
         RpcFormat             inRpcFormat)
     {
         if (inConnPtr) {
+            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+                "VR primary: " << inLocation <<
+            KFS_LOG_EOM;
             const kfsSeq_t theSeq = IsAuthEnabled() ?
                 mLookupOp.seq : kfsSeq_t(-1);
             mLookupOp.seq = -1; // Mark as not in flight for reset connection.

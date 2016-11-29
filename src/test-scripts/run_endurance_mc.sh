@@ -623,17 +623,12 @@ EOF
         cat >> "$clientprop" << EOF
 client.metaServerNodes = $serverlocs
 EOF
-        if [ -f './vrstate' ]; then
-            cat >> "$metasrvprop" << EOF
-metaServer.metaDataSync.servers = $serverlocs
-EOF
-        else
-            # To minimize VR boot strap time use only the primary server
-            # initially to pull checkpoint and log, as the other nodes will be
-            # down.
-            cat >> "$metasrvprop" << EOF
-metaServer.metaDataSync.servers = $metahost $metasrvport
-EOF
+        serverextralocs=''
+        if [ x"$metahost" = x'127.0.0.1' ]; then
+            # Add host name to test resolver.
+            serverextralocs="localhost $metasrvport"
+            port=`expr $metasrvport + 1`
+            serverextralocs="$serverextralocs localhost $port"
         fi
         cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.fileSystemId = $filesystemid
@@ -650,6 +645,8 @@ metaServer.log.receiver.auth.X509.X509PemFile = $certsdir/meta.crt
 metaServer.log.receiver.auth.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.log.receiver.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.log.receiver.auth.whiteList        = root
+
+metaServer.metaDataSync.servers = $serverlocs $serverextralocs
 
 # metaServer.vr.ignoreInvalidVrState = 1
 EOF
@@ -770,17 +767,6 @@ EOF
                 i=`expr $i + 1`
             done
         fi
-        # Update meta data sync, addresses.
-        i=0
-        vrdir='.'
-        while [ $i -lt $vrcount ]; do
-            cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.metaDataSync.servers = $serverlocs
-EOF
-            kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
-            i=`expr $i + 1`
-            vrdir="vr$i"
-        done
     else
         cat >> "$metasrvprop" << EOF
 metaServer.log.failureSimulationInterval = 100
