@@ -2911,7 +2911,7 @@ private:
                 *thePtr && theStorageClass != *thePtr;
                 ++thePtr)
             {}
-        if (thePtr) {
+        if (*thePtr) {
             mStorageClass = theStorageClass;
         } else {
             KFS_LOG_STREAM_ERROR << mLogPrefix <<
