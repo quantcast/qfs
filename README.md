@@ -1,3 +1,5 @@
+<img src="wiki/images/Misc/new_logo.png" alt="New announcement"/>QFS version [1.2.0](https://github.com/quantcast/qfs/tree/1.2.0) with Amazon S3 support is out. Check out the blog post [here](https://www.quantcast.com/blog/quantcast-file-system-on-amazon-s3/) for details.
+
 Quantcast File System
 ================================================================================
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
