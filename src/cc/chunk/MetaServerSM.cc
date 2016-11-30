@@ -563,7 +563,8 @@ MetaServerSM::Impl::Timeout()
             delete this;
             return;
         }
-        if (mLastConnectTime + mReconnectRetryInterval < now) {
+        if ((! mPrimary || this == mPrimary) &&
+                mLastConnectTime + mReconnectRetryInterval < now) {
             mLastConnectTime = now;
             Connect();
         }
@@ -1854,7 +1855,8 @@ MetaServerSM::EnqueueOp(KfsOp* op)
 int
 MetaServerSM::SetParameters(const Properties& prop)
 {
-    mParameters = prop;
+    prop.copyWithPrefix("chunkServer.meta", mParameters);
+    prop.copyWithPrefix(kChunkServerAuthParamsPrefix, mParameters);
     int res = 0;
     Impl::List::Iterator it(mImpls);
     Impl* ptr;
@@ -1865,10 +1867,10 @@ MetaServerSM::SetParameters(const Properties& prop)
         }
     }
     mResolverRetryInterval = max(1, mParameters.getValue(
-        "chunkServer.metaServer.resolverRetryInterval",
+        "chunkServer.meta.resolverRetryInterval",
         mResolverRetryInterval));
     mAllowDuplicateLocationsFlag = mParameters.getValue(
-        "chunkServer.metaServer.allowDuplicateLocations",
+        "chunkServer.meta.allowDuplicateLocations",
         mAllowDuplicateLocationsFlag ? 1 : 0
     ) != 0;
     if (Impl::List::IsEmpty(mImpls)) {
@@ -2057,7 +2059,7 @@ MetaServerSM::SetMetaInfo(
             mLocations.push_back(loc);
         }
     }
-    const char* const         kParamName = "chunkServer.metaServer.nodes";
+    const char* const         kParamName = "chunkServer.meta.nodes";
     const Properties::String* locs       = mParameters.getValue(kParamName);
     if (locs) {
         const char*       ptr = locs->data();

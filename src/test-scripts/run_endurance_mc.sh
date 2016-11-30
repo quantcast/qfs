@@ -426,6 +426,28 @@ if [ `ulimit -n` -le 1024 ]; then
 fi
 exec 0</dev/null
 
+metaserverlocs=''
+metaserverextralocs=''
+metachunkserverlocs=''
+if [ $vrcount -gt 2 ]; then
+    csport=$metasrvchunkport
+    port=$metasrvport
+    endport=`expr $metasrvport + $vrcount`
+    while [ $port -lt $endport ]; do
+        metaserverlocs="$metaserverlocs $metahost $port"
+        if [ $csport -gt $metasrvchunkport ]; then
+            metachunkserverlocs="$metachunkserverlocs $metahost $csport"
+        fi
+        if [ x"$metahost" = x'127.0.0.1' ]; then
+            # Add host name to test resolver.
+            metaserverextralocs="$metaserverextralocs localhost $port"
+            metachunkserverlocs="$metachunkserverlocs localhost $csport"
+        fi
+        port=`expr $port + 1`
+        csport=`expr $csport + 1`
+    done
+fi
+
 if [ x"$testonly" = x'yes' ]; then
     kill_all_proc "$clitestdir"
 else
@@ -613,23 +635,9 @@ EOF
             echo "Failed to determine files system id in kfscp/latest"
             exit 1
         fi
-        serverlocs=''
-        port=$metasrvport
-        endport=`expr $metasrvport + $vrcount`
-        while [ $port -lt $endport ]; do
-            serverlocs="$serverlocs $metahost $port"
-            port=`expr $port + 1`
-        done
         cat >> "$clientprop" << EOF
-client.metaServerNodes = $serverlocs
+client.metaServerNodes = $metaserverlocs $metaserverextralocs
 EOF
-        serverextralocs=''
-        if [ x"$metahost" = x'127.0.0.1' ]; then
-            # Add host name to test resolver.
-            serverextralocs="localhost $metasrvport"
-            port=`expr $metasrvport + 1`
-            serverextralocs="$serverextralocs localhost $port"
-        fi
         cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.fileSystemId = $filesystemid
 
@@ -646,7 +654,7 @@ metaServer.log.receiver.auth.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.log.receiver.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.log.receiver.auth.whiteList        = root
 
-metaServer.metaDataSync.servers = $serverlocs $serverextralocs
+metaServer.metaDataSync.servers = $metaserverlocs $metaserverextralocs
 
 # metaServer.vr.ignoreInvalidVrState = 1
 EOF
@@ -673,30 +681,28 @@ EOF
 
         i=0
         vrdir='.'
-        mbdir='.'
+        mbdir="`pwd`"
         while [ $i -lt $vrcount ]; do
-            (
-                cd "$vrdir" || exit
-                if [ $i -gt 0 ]; then
-                    pre_run_cleanup "$prevlogsdir" || exit
-                fi
-                rm -rf "$metasrvlog"
-                "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
-                    > "${metasrvout}" 2>&1 &
-                mpid=$!
-                echo $mpid > "$metasrvpid"
-                kill -0 $mpid || exit
-            ) || exit
+            cd "$vrdir" || exit
+            if [ $i -gt 0 ]; then
+                pre_run_cleanup "$prevlogsdir" || exit
+            fi
+            rm -rf "$metasrvlog"
+            "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
+                > "${metasrvout}" 2>&1 &
+            mpid=$!
+            echo $mpid > "$metasrvpid"
+            kill -0 $mpid || exit
             i=`expr $i + 1`
             vrdir="vr$i"
-            mbdir='..'
+            cd "$mbdir" || exit
         done
         adminclientprop=qfsadmin.prp
         cat >> "$adminclientprop" << EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-client.metaServerNodes       = $serverlocs
+client.metaServerNodes       = $metaserverlocs $metaserverextralocs
 EOF
         sleep 2 # allow met servers start
         if [ -f './vrstate' ]; then
@@ -983,7 +989,7 @@ EOF
     fi
     if [ $vrcount -gt 2 ]; then
         cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.metaServer.nodes = $serverlocs
+chunkServer.meta.nodes = $metachunkserverlocs
 EOF
     fi
             (
@@ -991,7 +997,7 @@ EOF
             cd "$dir" || exit
             echo "Starting chunk server $i"
             trap '' HUP INT
-            eval $cscmdline \
+            $cscmdline \
                 ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
             echo $! > "$chunksrvpid"
             ) || exit

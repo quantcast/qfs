@@ -70,6 +70,7 @@ using std::max;
 using std::istringstream;
 using std::ifstream;
 using std::skipws;
+using std::find;
 
 using client::KfsNetClient;
 using client::KfsOp;
@@ -385,7 +386,6 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        mSetServerFlag = true;
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mReadOpsPtr = new ReadOp[mReadOpsCount];
         for (size_t i = 0; i < mReadOpsCount; i++) {
@@ -541,11 +541,7 @@ public:
         }
         if (! mLogSeq.IsValid()) {
             mKfsNetClient.ClearMetaServerLocations();
-            const size_t theCnt = mServers.size();
-            if (1 < theCnt) {
-                // Randomly choose server to download from.
-                mServerIdx = (size_t)RandomSeq() % theCnt;
-            }
+            mServerIdx = 0;
             int theRet;
             if (0 != (theRet = PrepareToSync()) ||
                     0 != (theRet = GetCheckpoint())) {
@@ -554,8 +550,11 @@ public:
             mShutdownNetManagerFlag = true;
             Run();
             mShutdownNetManagerFlag = false;
-            mAllowNotPrimaryFlag    = false;
-            mSetServerFlag          = true;
+            const Servers::const_iterator theIt = find(mServers.begin(),
+                mServers.end(), mKfsNetClient.GetServerLocation());
+            if (mServers.end() != theIt) {
+                mServerIdx = theIt - mServers.begin();
+            }
             mKfsNetClient.ClearMetaServerLocations();
             if (0 != mStatus) {
                 return mStatus;
@@ -584,7 +583,8 @@ public:
     }
     void StartLogSync(
         const MetaVrLogSeq& inLogSeq,
-        bool                inAllowNotPrimaryFlag)
+        bool                inAllowNotPrimaryFlag,
+        bool                inUseVrPrimarySelectorFlag)
     {
         if (! mReadOpsPtr) {
             return;
@@ -603,6 +603,11 @@ public:
         }
         if (mServers.empty()) {
             return;
+        }
+        if (mAllowNotPrimaryFlag || ! inUseVrPrimarySelectorFlag ||
+                ! InitMetaVrPrimarySelector()) {
+            mKfsNetClient.ClearMetaServerLocations();
+            mSetServerFlag = true;
         }
         LogFetchStart();
     }
@@ -740,7 +745,10 @@ public:
                 mCurDownloadGeneration = mDownloadGeneration;
                 const MetaVrLogSeq theLogSeq = mPendingSyncLogSeq;
                 theLocker.Unlock();
-                StartLogSync(theLogSeq, mAllowNotPrimaryFlag);
+                mKfsNetClient.ClearMetaServerLocations();
+                const bool kUseVrPrimarySelectorFlag = false;
+                StartLogSync(theLogSeq, mAllowNotPrimaryFlag,
+                    kUseVrPrimarySelectorFlag);
             } else {
                 mSyncScheduledCount    = 0;
                 mCurDownloadGeneration = mDownloadGeneration;
@@ -893,7 +901,6 @@ private:
     }
     void LogSeqCheckStart()
     {
-        mSetServerFlag = true;
         LogFetchStart(true);
     }
     void LogFetchStart(
@@ -911,10 +918,14 @@ private:
         StopAndClearPending();
         if (mSetServerFlag) {
             KFS_LOG_STREAM_DEBUG <<
-                "using server: " << mServers[mServerIdx] <<
-                " index: "       << mServerIdx <<
+                "log fetch node: " << mServers[mServerIdx] <<
+                " index: "         << mServerIdx <<
             KFS_LOG_EOM;
-            mKfsNetClient.SetServer(mServers[mServerIdx]);
+            const bool    kCancelPendingOpsFlag = true;
+            string* const kOutErrMsgPtr         = 0;
+            const bool    kForceConnectFlag     = false;
+            mKfsNetClient.SetServer(mServers[mServerIdx],
+                kCancelPendingOpsFlag, kOutErrMsgPtr, kForceConnectFlag);
         }
         mCheckStartLogSeqFlag = false;
         mCheckLogSeqOnlyFlag  = inCheckLogSeqOnlyFlag;
@@ -950,10 +961,6 @@ private:
         if (! InitMetaVrPrimarySelector()) {
             return -EINVAL;
         }
-        KFS_LOG_STREAM_DEBUG <<
-            "attempting to fetch checkpoint:"
-            " servers: " << mServers.size() <<
-        KFS_LOG_EOM;
         mAllowNotPrimaryFlag  = false;
         mStatus               = 0;
         mLogSeq               = MetaVrLogSeq();
@@ -979,6 +986,9 @@ private:
             if (mKfsNetClient.AddMetaServerLocation(
                     *theIt, kAllowDuplicatesFlag)) {
                 theCount++;
+                KFS_LOG_STREAM_DEBUG <<
+                    "added VR meta node location:" << *theIt <<
+                KFS_LOG_EOM;
             }
         }
         return (0 < theCount);
@@ -1385,9 +1395,10 @@ private:
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR)
             "fetch complete:"
-            " status: "   << mStatus <<
-            " seq: "      << mLogSeq <<
-            " shutdown: " << mShutdownNetManagerFlag <<
+            " status: "     << mStatus <<
+            " seq: "        << mLogSeq <<
+            " checkpoint: " << mCheckpointFlag <<
+            " shutdown: "   << mShutdownNetManagerFlag <<
         KFS_LOG_EOM;
         if (mShutdownNetManagerFlag) {
             mKfsNetClient.GetNetManager().Shutdown();
@@ -2407,8 +2418,10 @@ MetaDataSync::Start(
 MetaDataSync::StartLogSync(
     const MetaVrLogSeq& inLogSeq)
 {
-    const bool kAllowNotPrimaryFlag = false;
-    mImpl.StartLogSync(inLogSeq, kAllowNotPrimaryFlag);
+    const bool kAllowNotPrimaryFlag      = false;
+    const bool kUseVrPrimarySelectorFlag = true;
+    mImpl.StartLogSync(
+        inLogSeq, kAllowNotPrimaryFlag, kUseVrPrimarySelectorFlag);
 }
 
     void
