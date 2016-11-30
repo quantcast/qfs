@@ -1169,16 +1169,17 @@ private:
             const char*           inVerbPtr,
             IOBuffer&             inBuffer,
             const ServerLocation& inServer,
-            const char*           inMdPtr                    = 0,
-            const char*           inContentTypePtr           = 0,
-            const char*           inContentEncodingPtr       = 0,
-            bool                  inServerSideEncryptionFlag = false,
-            int64_t               inContentLength            = -1,
-            int64_t               inRangeStart               = -1,
-            int64_t               inRangeEnd                 = -1,
-            const char*           inQueryStringPtr           = 0,
-            const char*           inUriPtr                   = 0,
-            const char*           inV2QueryToSignPtr         = 0)
+            const char*           inMdPtr                      = 0,
+            const char*           inContentTypePtr             = 0,
+            const char*           inContentEncodingPtr         = 0,
+            bool                  inServerSideEncryptionFlag   = false,
+            int64_t               inContentLength              = -1,
+            int64_t               inRangeStart                 = -1,
+            int64_t               inRangeEnd                   = -1,
+            const char*           inQueryStringPtr             = 0,
+            const char*           inUriPtr                     = 0,
+            const char*           inV2QueryToSignPtr           = 0,
+            bool                  inEmitStorageClassHeaderFlag = false)
         {
             if (mSentFlag) {
                 return 0;
@@ -1198,7 +1199,8 @@ private:
                     inRangeEnd,
                     inQueryStringPtr,
                     inUriPtr,
-                    inV2QueryToSignPtr
+                    inV2QueryToSignPtr,
+                    inEmitStorageClassHeaderFlag
                 );
             } else {
                 SendRequestAuthV4(
@@ -1213,7 +1215,8 @@ private:
                     inRangeStart,
                     inRangeEnd,
                     inQueryStringPtr,
-                    inUriPtr
+                    inUriPtr,
+                    inEmitStorageClassHeaderFlag
                 );
             }
             mOuter.mWOStream.Reset();
@@ -1238,7 +1241,8 @@ private:
             int64_t               inRangeEnd,
             const char*           inQueryStringPtr,
             const char*           inUriPtr,
-            const char*           inV2QueryToSignPtr)
+            const char*           inV2QueryToSignPtr,
+            bool                  inEmitStorageClassHeaderFlag)
         {
             const char* const theDatePtr = mOuter.DateNow();
             string& theSignBuf = mOuter.mTmpSignBuffer;
@@ -1266,7 +1270,8 @@ private:
                 theSignBuf += kS3EncryptionTypePtr;
                 theSignBuf += '\n';
             }
-            if (! mOuter.mStorageClass.empty()) {
+            if (inEmitStorageClassHeaderFlag &&
+                    ! mOuter.mStorageClass.empty()) {
                 theSignBuf += kS3AmzStorageClassNamePtr;
                 theSignBuf += ':';
                 theSignBuf += mOuter.mStorageClass;
@@ -1332,7 +1337,8 @@ private:
                 theStream << kS3AmzServerSideEncryptionNamePtr <<
                     ": " << kS3EncryptionTypePtr << "\r\n";
             }
-            if (! mOuter.mStorageClass.empty()) {
+            if (inEmitStorageClassHeaderFlag &&
+                    ! mOuter.mStorageClass.empty()) {
                 theStream << kS3AmzStorageClassNamePtr <<
                     ": " << mOuter.mStorageClass << "\r\n";
             }
@@ -1358,7 +1364,8 @@ private:
             int64_t               inRangeStart,
             int64_t               inRangeEnd,
             const char*           inQueryStringPtr,
-            const char*           inUriPtr)
+            const char*           inUriPtr,
+            bool                  inEmitStorageClassHeaderFlag)
         {
             const char* const kEmptyShaPtr    =
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -1423,7 +1430,8 @@ private:
                 theSignBuf += kS3EncryptionTypePtr;
                 theSignBuf += '\n';
             }
-            if (! mOuter.mStorageClass.empty()) {
+            if (inEmitStorageClassHeaderFlag &&
+                    ! mOuter.mStorageClass.empty()) {
                 theSignBuf += kS3AmzStorageClassNamePtr;
                 theSignBuf += ':';
                 theSignBuf += mOuter.mStorageClass;
@@ -1449,7 +1457,8 @@ private:
                 theSignBuf += ';';
                 theSignBuf += kS3AmzServerSideEncryptionNamePtr;
             }
-            if (! mOuter.mStorageClass.empty()) {
+            if (inEmitStorageClassHeaderFlag &&
+                    ! mOuter.mStorageClass.empty()) {
                 theSignBuf += ';';
                 theSignBuf += kS3AmzStorageClassNamePtr;
             }
@@ -1527,7 +1536,8 @@ private:
                 theStream << kS3AmzServerSideEncryptionNamePtr <<
                     ": " << kS3EncryptionTypePtr << "\r\n";
             }
-            if (! mOuter.mStorageClass.empty()) {
+            if (inEmitStorageClassHeaderFlag &&
+                    ! mOuter.mStorageClass.empty()) {
                 theStream << kS3AmzStorageClassNamePtr <<
                     ": " << mOuter.mStorageClass << "\r\n";
             }
@@ -2026,12 +2036,27 @@ private:
             if (mSentFlag) {
                 return 0;
             }
-            const int theRet = SendRequest("PUT", inBuffer, inServer,
+            int64_t     const kRangeStart                 = -1;
+            int64_t     const kRangeEnd                   = -1;
+            const char* const kQueryStringPtr             = 0;
+            const char* const kUriPtr                     = 0;
+            const char* const kV2QueryToSignPtr           = 0;
+            bool        const kEmitStorageClassHeaderFlag = true;
+            const int theRet = SendRequest(
+                "PUT",
+                inBuffer,
+                inServer,
                 mOuter.mRegion.empty() ? GetMd5Sum() : GetSha256(),
                 mOuter.mContentType.c_str(),
                 mOuter.mContentEncoding.c_str(),
                 mOuter.mUseServerSideEncryptionFlag,
-                mDataBuf.BytesConsumable()
+                mDataBuf.BytesConsumable(),
+                kRangeStart,
+                kRangeEnd,
+                kQueryStringPtr,
+                kUriPtr,
+                kV2QueryToSignPtr,
+                kEmitStorageClassHeaderFlag
             );
             inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
             return theRet;
@@ -2320,7 +2345,7 @@ private:
             const int64_t     kRangeStart = -1;
             const int64_t     kRangeEnd   = -1;
             const char* const kUriPtr     = 0;
-            const int     theRet      = SendRequest(
+            const int theRet = SendRequest(
                 (mCommitFlag || theGetIdFlag) ? "POST" : "PUT",
                 inBuffer,
                 inServer,
@@ -2336,7 +2361,8 @@ private:
                     (mOuter.mRegion.empty() ? "uploads" : "uploads=") :
                     theQueryStr.c_str(),
                 kUriPtr,
-                theGetIdFlag ? "uploads"  : theQueryStr.c_str()
+                theGetIdFlag ? "uploads"  : theQueryStr.c_str(),
+                theGetIdFlag
             );
             if (! theGetIdFlag) {
                 inBuffer.Copy(&mDataBuf, mDataBuf.BytesConsumable());
