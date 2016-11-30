@@ -622,6 +622,7 @@ if [ x"`uname`" = x'SunOS' ]; then
     qfstoolpid=
 else
     qfstoolpidf="qfstooltest${pidsuf}"
+    qfstoolopts='-v' \
     qfstoolmeta="$metahosturl:$metasrvport" \
     qfstooltrace=on \
     qfstoolrootauthcfg=$qfstoolrootauthcfg \
