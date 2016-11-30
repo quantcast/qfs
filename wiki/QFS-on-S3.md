@@ -2,7 +2,8 @@
 Starting with version 1.2.0, QFS provides the ability to create a filesystem
 instance that is backed by Amazon S3. This guide documents the instructions for
 how to enable Amazon S3 support on QFS. For a general discussion of existing
-features, design and a performance comparison with EMRFS, we encourage you to read the release announcement.
+features, design and a performance comparison with EMRFS, we encourage you to read
+[the blog post](https://www.quantcast.com/blog/quantcast-file-system-on-amazon-s3/).
 
 ## For the Impatient!
 [sample_setup.py](https://github.com/quantcast/qfs/blob/master/examples/sampleservers/sample_setup.py) has been updated, so that you can quickly spin up a local
