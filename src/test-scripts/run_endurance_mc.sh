@@ -388,9 +388,11 @@ client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-    QFS_CLIENT_CONFIG="FILE:${clientprop}"
-    export QFS_CLIENT_CONFIG
+else
+    echo "Authentication off"
 fi
+QFS_CLIENT_CONFIG="FILE:${clientprop}"
+export QFS_CLIENT_CONFIG
 
 if [ x"$errsim" = x'yes' ]; then
     cstimeout=20
@@ -429,7 +431,7 @@ exec 0</dev/null
 metaserverlocs=''
 metaserverextralocs=''
 metachunkserverlocs=''
-if [ $vrcount -gt 2 ]; then
+if [ $vrcount -gt 2 -o -d "$metasrvdir/vr1" ]; then
     csport=$metasrvchunkport
     port=$metasrvport
     endport=`expr $metasrvport + $vrcount`
@@ -640,7 +642,11 @@ client.metaServerNodes = $metaserverlocs $metaserverextralocs
 EOF
         cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.fileSystemId = $filesystemid
-
+metaServer.metaDataSync.servers      = $metaserverlocs $metaserverextralocs
+# metaServer.vr.ignoreInvalidVrState = 1
+EOF
+        if [ x"$auth" = x'yes' ]; then
+            cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.auth.X509.X509PemFile = $certsdir/root.crt
 metaServer.metaDataSync.auth.X509.PKeyPemFile = $certsdir/root.key
 metaServer.metaDataSync.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
@@ -653,11 +659,8 @@ metaServer.log.receiver.auth.X509.X509PemFile = $certsdir/meta.crt
 metaServer.log.receiver.auth.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.log.receiver.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.log.receiver.auth.whiteList        = root
-
-metaServer.metaDataSync.servers = $metaserverlocs $metaserverextralocs
-
-# metaServer.vr.ignoreInvalidVrState = 1
 EOF
+        fi
         i=$vrcount
         while [ $i -gt 0 ]; do
             i=`expr $i - 1`
@@ -698,12 +701,16 @@ EOF
             cd "$mbdir" || exit
         done
         adminclientprop=qfsadmin.prp
-        cat >> "$adminclientprop" << EOF
+        cat > "$adminclientprop" << EOF
+client.metaServerNodes       = $metaserverlocs $metaserverextralocs
+EOF
+        if [ x"$auth" = x'yes' ]; then
+            cat >> "$adminclientprop" << EOF
 client.auth.X509.X509PemFile = $certsdir/root.crt
 client.auth.X509.PKeyPemFile = $certsdir/root.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-client.metaServerNodes       = $metaserverlocs $metaserverextralocs
 EOF
+        fi
         sleep 2 # allow met servers start
         if [ -f './vrstate' ]; then
             true

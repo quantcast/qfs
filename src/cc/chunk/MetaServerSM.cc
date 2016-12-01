@@ -232,6 +232,9 @@ private:
     size_t                        mMaxPendingOpsCount;
     PendingResponses              mPendingResponses;
     int                           mReconnectRetryInterval;
+    int                           mHelloDelay;
+    bool                          mPendingHelloFlag;
+    time_t                        mHelloSendTime;
     ServerLocation                mMyLocation;
     Counters&                     mCounters;
     MetaServerSM::Impl*&          mPrimary;
@@ -278,6 +281,18 @@ private:
     void SubmitHello();
     void Request(KfsOp& op);
     template<typename T> inline void DetachAndDeleteOp(T*& op);
+    void ScheduleSendHello()
+    {
+        if (mPendingHelloFlag) {
+            return;
+        }
+        if (mAuthContext.IsEnabled() || mHelloDelay <= 0) {
+            SendHello();
+            return;
+        }
+        mPendingHelloFlag = true;
+        mHelloSendTime    = globalNetManager().Now() + mHelloDelay;
+    }
 
     friend class QCDLListOp<Impl>;
 private:
@@ -387,6 +402,9 @@ MetaServerSM::Impl::Impl(
       mMaxPendingOpsCount(96),
       mPendingResponses(),
       mReconnectRetryInterval(1),
+      mHelloDelay(1),
+      mPendingHelloFlag(false),
+      mHelloSendTime(0),
       mMyLocation(),
       mCounters(inCounters),
       mPrimary(inPrimary),
@@ -489,6 +507,8 @@ MetaServerSM::Impl::SetParameters(const Properties& prop)
     mTraceRequestResponseFlag = prop.getValue(
         "chunkServer.meta.traceRequestResponseFlag",
         mTraceRequestResponseFlag ? 1 : 0) != 0;
+    mHelloDelay               = prop.getValue(
+        "chunkServer.meta.helloDelay",        mHelloDelay);
     const bool kVerifyFlag = true;
     int ret = mAuthContext.SetParameters(
         kChunkServerAuthParamsPrefix, prop, 0, 0, kVerifyFlag);
@@ -570,7 +590,15 @@ MetaServerSM::Impl::Timeout()
         }
         return;
     }
-    if (mAuthOp || ! IsHandshakeDone()) {
+    if (mAuthOp) {
+        return;
+    }
+    if (! IsHandshakeDone()) {
+        if (mPendingHelloFlag && mHelloSendTime <= now &&
+                ! mSentHello && ! mHelloOp) {
+            mPendingHelloFlag = false;
+            SendHello();
+        }
         return;
     }
     DispatchOps();
@@ -589,6 +617,10 @@ MetaServerSM::Impl::Connect()
     if (mHelloOp) {
         return 0;
     }
+    if (mNetConnection) {
+        mNetConnection->Close();
+        mNetConnection.reset();
+    }
     CleanupOpInFlight();
     DetachAndDeleteOp(mAuthOp);
     DiscardPendingResponses();
@@ -596,9 +628,10 @@ MetaServerSM::Impl::Connect()
     mCounters.mConnectCount++;
     mGenerationCount++;
     mMyLocation.Reset(0, -1);
-    mRpcFormat            = kRpcFormatUndef;
-    mSentHello            = false;
-    mUpdateCurrentKeyFlag = false;
+    mRpcFormat             = kRpcFormatUndef;
+    mSentHello             = false;
+    mUpdateCurrentKeyFlag  = false;
+    mPendingHelloFlag      = false;
     TcpSocket * const sock = new TcpSocket();
     const bool nonBlocking = true;
     const int  ret         = sock->Connect(mLocation, nonBlocking);
@@ -627,7 +660,7 @@ MetaServerSM::Impl::Connect()
     // Add this to the poll vector
     globalNetManager().AddConnection(mNetConnection);
     if (ret == 0) {
-        SendHello();
+        ScheduleSendHello();
     }
     return 0;
 }
@@ -872,7 +905,7 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
 
     case EVENT_NET_WROTE:
         if (! mAuthOp && ! mSentHello && ! mHelloOp) {
-            SendHello();
+            ScheduleSendHello();
         }
         // Something went out on the network.  For now, we don't
         // track it. Later, we may use it for tracking throttling
@@ -940,15 +973,18 @@ MetaServerSM::Impl::Error(const char* msg)
     DetachAndDeleteOp(mAuthOp);
     DiscardPendingResponses();
     if (mNetConnection) {
+        const string conErrMsg = mNetConnection->GetErrorMsg();
         KFS_LOG_STREAM((gMetaServerSM.IsRunning() && wasPrimaryFlag) ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) <<
             mLocation <<
             " closing meta server connection due to " <<
-            (msg ? msg : "error") <<
+            (msg ? msg : (conErrMsg.empty() ? "error" : "")) <<
+            (conErrMsg.empty() ? "" : "; ") << conErrMsg <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         mNetConnection->GetInBuffer().Clear();
+        mNetConnection.reset();
         if (wasPrimaryFlag) {
             // Drop all leases.
             gLeaseClerk.UnregisterAllLeases();
@@ -1360,7 +1396,7 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
         " seq: " << op->seq <<
         " "      << op->Show() <<
     KFS_LOG_EOM;
-    if (! mAuthOp && CMD_HEARTBEAT == op->op) {
+    if (! mAuthOp && CMD_HEARTBEAT == op->op && mNetConnection) {
         const HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
         if (hb.authenticateFlag && Authenticate() && ! IsUp()) {
             delete op;
@@ -1547,7 +1583,10 @@ MetaServerSM::Impl::HandleAuthResponse(IOBuffer& ioBuf)
         if (mNetConnection->GetFilter()) {
             if (IsHandshakeDone()) {
                 // Shutdown the current filter.
-                mNetConnection->Shutdown();
+                const int res = mNetConnection->Shutdown();
+                if (0 != res && -EAGAIN != res) {
+                    Error("ssl shutdown error");
+                }
                 return;
             }
             if (! mAuthOp->statusMsg.empty()) {
@@ -1985,10 +2024,11 @@ MetaServerSM::Resolved(MetaServerSM::ResolverReq& req)
             if (it->hostname != host) {
                 continue;
             }
+            ServerLocation const loc(*ipit, it->port);
             Impl::List::Iterator iit(mImpls);
             Impl* ptr;
             while ((ptr = iit.Next())) {
-                if (ptr->GetLocation() == *it) {
+                if (ptr->GetLocation() == loc) {
                     break;
                 }
             }
@@ -1997,8 +2037,8 @@ MetaServerSM::Resolved(MetaServerSM::ResolverReq& req)
             }
             Impl& impl = *(new Impl(mCounters, mPendingOps,
                 mPrimary, mUpdateServerIpFlag, mChanId++, this));
-            const int res = impl.SetMetaInfo(ServerLocation(*ipit, it->port),
-                    mClusterKey, mRackId, mMd5sum, mParameters);
+            const int res = impl.SetMetaInfo(
+                loc, mClusterKey, mRackId, mMd5sum, mParameters);
             if (0 != res) {
                 KFS_LOG_STREAM_ERROR <<
                     *it << ": " << QCUtils::SysError(-res) <<

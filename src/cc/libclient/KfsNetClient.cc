@@ -359,10 +359,11 @@ public:
             if (IsConnected() && mConnPtr->GetFilter()) {
                 mSslShutdownInProgressFlag = true;
                 const int theErr = mConnPtr->Shutdown();
-                if (theErr != 0) {
+                if (0 != theErr && -EAGAIN == theErr) {
                     KFS_LOG_STREAM_ERROR << mLogPrefix <<
                         "ssl shutdown failure: " <<
-                            theErr <<
+                        mConnPtr->GetErrorMsg() <<
+                        " " << theErr <<
                     KFS_LOG_EOM;
                     Reset();
                     if (! mPendingOpQueue.empty()) {
