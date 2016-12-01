@@ -1906,7 +1906,13 @@ replay_cs_hello(DETokenizer& c)
             return false;
         }
         op->pendingNotifyFlag = 0 != n;
-        if (1 != c.front().len || 'z' != c.front().ptr[0]) {
+        n = 0;
+        if (c.empty() || 1 != c.front().len ||
+                ('R' == c.front().ptr[0] && ! pop_num(n, "P", c, true))) {
+            return false;
+        }
+        op->supportsResumeFlag = 0 != n;
+        if (c.empty() || 1 != c.front().len || 'z' != c.front().ptr[0]) {
             return false;
         }
         c.pop_front();

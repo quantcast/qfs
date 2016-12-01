@@ -4127,6 +4127,9 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
         os << (shortRpcFormatFlag ? "CID:" : "ChannelId: ") <<
             channelId << "\r\n";
     }
+    if (supportsResumeFlag) {
+        os << (shortRpcFormatFlag ?  "SR:1" : "SupportsResume: 1") << "\r\n";
+    }
     os << (shortRpcFormatFlag ? "TC:" : "Total-chunks: ") <<
         totalChunks << "\r\n";
     int64_t contentLength = 1;

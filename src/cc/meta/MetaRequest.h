@@ -1915,6 +1915,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     CIdChecksum        checksum;
     int64_t            timeUsec;
     int64_t            channelId;
+    bool               supportsResumeFlag;
     bool               retireFlag;
     int                maxPendingOpsCount;
     IOBuffer           responseBuf;
@@ -1969,6 +1970,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           checksum(),
           timeUsec(-1),
           channelId(-1),
+          supportsResumeFlag(false),
           retireFlag(false),
           maxPendingOpsCount(128),
           responseBuf()
@@ -2035,6 +2037,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def2("Pending-notify",               "PN", &MetaHello::pendingNotifyFlag,         false)
         .Def2("Total-chunks",                 "TC", &MetaHello::totalChunks,          int64_t(0))
         .Def2("ChannelId",                   "CID", &MetaHello::channelId,           int64_t(-1))
+        .Def2("SupportsResume",               "SR", &MetaHello::supportsResumeFlag,        false)
         ;
     }
 };

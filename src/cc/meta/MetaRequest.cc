@@ -3040,9 +3040,11 @@ MetaHello::log(ostream& os) const
 {
     const size_t kEntrySizeLog2 = 6;
     const size_t kMask          = (size_t(1) << kEntrySizeLog2) - 1;
+    const size_t stableCount    =
+        supportsResumeFlag ? chunks.size() : size_t(0);
     size_t       subEntryCnt    =
         1 +
-        ((chunks.size() +
+        ((stableCount +
         notStableChunks.size() +
         notStableAppendChunks.size() + kMask) >> kEntrySizeLog2) +
         ((missingChunks.size() + kMask) >> kEntrySizeLog2) +
@@ -3052,7 +3054,7 @@ MetaHello::log(ostream& os) const
         "csh"
         "/e/" << subEntryCnt <<
         "/l/" << location <<
-        "/s/" << chunks.size() <<
+        "/s/" << stableCount <<
         "/n/" << notStableChunks.size() <<
         "/a/" << notStableAppendChunks.size() <<
         "/m/" << missingChunks.size() <<
@@ -3062,12 +3064,16 @@ MetaHello::log(ostream& os) const
         "/t/" << timeUsec <<
         "/r/" << rackId <<
         "/P/" << (pendingNotifyFlag ? 1 : 0) <<
+        "/R/" << (supportsResumeFlag ? 1 : 0) <<
         "/z/" << logseq
     ;
     const ChunkInfos* const infos[] =
         { &chunks, &notStableChunks, &notStableAppendChunks, 0 };
     size_t cnt = 0;
     for (const ChunkInfos*const* info = infos; *info; ++info) {
+        if (*info == &chunks && stableCount <= 0) {
+            continue;
+        }
         for (ChunkInfos::const_iterator it = (*info)->begin();
                 (*info)->end() != it;
                 ++it) {

@@ -1665,6 +1665,7 @@ MetaServerSM::Impl::SubmitHello()
     mHelloOp->clnt               = this;
     mHelloOp->shortRpcFormatFlag = kRpcFormatShort == mRpcFormat;
     mHelloOp->reqShortRpcFmtFlag = kRpcFormatShort != mRpcFormat;
+    mHelloOp->supportsResumeFlag = true;
     // Send the op and wait for the reply.
     KFS_LOG_STREAM_DEBUG <<
         mLocation << ": submit hello" <<

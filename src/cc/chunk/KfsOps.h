@@ -2243,6 +2243,7 @@ struct HelloMetaOp : public KfsOp {
     int64_t                  helloResumeFailedCount;
     int64_t                  totalChunks;
     int64_t                  channelId;
+    bool                     supportsResumeFlag;
     PendingNotifyLostChunks* pendingNotifyLostChunks;
 
     HelloMetaOp(const ServerLocation& l,
@@ -2279,6 +2280,7 @@ struct HelloMetaOp : public KfsOp {
           helloResumeFailedCount(0),
           totalChunks(0),
           channelId(chanId),
+          supportsResumeFlag(false),
           pendingNotifyLostChunks(0)
         {}
     virtual ~HelloMetaOp();
