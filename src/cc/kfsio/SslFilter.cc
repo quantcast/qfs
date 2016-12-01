@@ -494,8 +494,12 @@ public:
         }
         if (inMaxRead == 0) {
             // Don't want to read, just complete handshake.
-            theRet = mSslEofFlag ? 0 :
-                SSL_peek(mSslPtr, &theByte, sizeof(theByte));
+            if (mSslEofFlag) {
+                theRet = 0;
+            } else {
+                ERR_clear_error();
+                theRet = SSL_peek(mSslPtr, &theByte, sizeof(theByte));
+            }
             mReadPendingFlag = 0 < theRet;
             if (theRet < 0) {
                 theRet = SslRetToErr(theRet);
@@ -532,6 +536,7 @@ public:
         if (inIoBuffer.IsEmpty()) {
             return 0;
         }
+        ERR_clear_error();
         int theWrCnt = 0;
         for (IOBuffer::iterator theIt = inIoBuffer.begin();
                 theIt != inIoBuffer.end();
@@ -560,8 +565,14 @@ public:
         SslFilter&     inOuter)
     {
         if (mSslPtr && inSocketPtr &&
-                SSL_get_fd(mSslPtr) == inSocketPtr->GetFd()) {
-            SSL_shutdown(mSslPtr);
+                SSL_get_fd(mSslPtr) == inSocketPtr->GetFd() &&
+                SSL_is_init_finished(mSslPtr)) {
+            ERR_clear_error();
+            const int theRet = SSL_shutdown(mSslPtr);
+            if (theRet <= 0) {
+                // Drain error queue.
+                SslRetToErr(theRet);
+            }
         }
         inConnection.SetFilter(0, 0);
         if (mDeleteOnCloseFlag) {
@@ -606,6 +617,7 @@ public:
             mPeerPskId.clear();
             mServerFlag = ! SSL_in_connect_init(mSslPtr);
             SetStoredClientSession();
+            ERR_clear_error();
             const int theSslRet = mServerFlag ?
                 SSL_accept(mSslPtr) : SSL_connect(mSslPtr);
             if (theSslRet <= 0) {
@@ -655,6 +667,7 @@ public:
         if (! inBufPtr || ! mSslPtr) {
             return -EINVAL;
         }
+        ERR_clear_error();
         char*       thePtr      = reinterpret_cast<char*>(inBufPtr);
         char* const theStartPtr = thePtr;
         char* const theEndPtr   = thePtr + inNumRead;
@@ -1042,6 +1055,7 @@ private:
             mVerifyOrGetPskInvokedFlag = false;
         }
         mRenegotiationPendingFlag = false;
+        ERR_clear_error();
         const int theRet = SSL_do_handshake(mSslPtr);
         if (0 < theRet) {
             if (! VerifyPeerIfNeeded()) {
@@ -1197,6 +1211,7 @@ private:
             // Wait for handshake to complete, then issue shutdown.
             return 0;
         }
+        ERR_clear_error();
         int theRet = SSL_shutdown(mSslPtr);
         if (theRet == 0) {
             // Call shutdown again to initiate read state, if the shutdown call
