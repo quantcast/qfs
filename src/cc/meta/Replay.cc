@@ -1597,17 +1597,17 @@ ReplayState::runCommitQueue(
                     " sequence: " << logSeq <<
                     " x "         << hex << logSeq << dec <<
                     " status mismatch"
-                    " expected: " << status <<
+                    " log: "      << status <<
                     " [" << ErrorCodeToString(-KfsToSysErrno(status)) << "]"
                     " actual: "   << f.status <<
                     " [" << ErrorCodeToString(-KfsToSysErrno(f.status)) <<
                         "]" <<
                     " seed:"
-                    " expected: " << f.seed <<
-                    " actual: "   << seed <<
+                    " log: "      << seed <<
+                    " actual: "   << f.seed <<
                     " error checksum:"
-                    " expected: " << f.errChecksum <<
-                    " actual: "   << errChecksum <<
+                    " log: "      << errChecksum <<
+                    " actual: "   << f.errChecksum <<
                 KFS_LOG_EOM;
                 return false;
             }
@@ -1631,10 +1631,12 @@ ReplayState::runCommitQueue(
             " expected: "       << mLastCommittedStatus <<
             " [" << ErrorCodeToString(
                     -KfsToSysErrno(mLastCommittedStatus)) << "]" <<
-            " seed: "           << seed <<
-            " expected: "       << fileID.getseed() <<
-            " error checksum: " << errChecksum <<
-            " expected: "       << mLogAheadErrChksum <<
+            " seed:"
+            " log: "            << seed <<
+            " actual: "         << fileID.getseed() <<
+            " error checksum:"
+            " log: "            << errChecksum <<
+            " actual: "         << mLogAheadErrChksum <<
             " commit queue: "   << mCommitQueue.size() <<
         KFS_LOG_EOM;
         return false;

@@ -4220,6 +4220,7 @@ LayoutManager::AddNewServer(MetaHello& req)
         msg <<
         " chunk server: "       << srv.GetServerLocation() <<
         " / "                   << req.peerName <<
+        " "                     << reinterpret_cast<const void*>(&srv) <<
         (srv.CanBeChunkMaster() ? " master" : " slave") <<
         " logseq: "             << req.logseq <<
         " resume: "             << req.resumeStep <<
@@ -5400,6 +5401,22 @@ LayoutManager::Start(MetaBye& req)
     if (0 != req.status) {
         return;
     }
+    if (req.location != req.server->GetServerLocation()) {
+        panic("start bye: invalid server location");
+        req.status = -EFAULT;
+        return;
+    }
+    if (! mChunkToServerMap.Validate(req.server)) {
+        panic("start bye: no such server");
+        req.status = -EFAULT;
+        return;
+    }
+    Servers::const_iterator const it = FindServer(req.location);
+    if (it == mChunkServers.end() || *it != req.server) {
+        panic("start bye: invalid stale server entry");
+        req.status = -EFAULT;
+        return;
+    }
     const bool simulateResumeDenyFlag =
         0 < mDebugSimulateDenyHelloResumeInterval &&
         0 == Rand(mDebugSimulateDenyHelloResumeInterval);
@@ -5427,23 +5444,30 @@ LayoutManager::Handle(MetaBye& req)
     } else {
         const ChunkServerPtr* const cs = ReplayFindServer(req.location, req);
         if (! cs) {
-            req.status = -ENOENT;
+            panic("replay bye: no such server");
+            req.status = -EFAULT;
             return;
         }
         req.server = *cs;
     }
     const ChunkServerPtr& server = req.server;
+    if (req.location != server->GetServerLocation()) {
+        panic("handle bye: invalid server location");
+        req.status = -EFAULT;
+        return;
+    }
+    if (! mChunkToServerMap.Validate(server)) {
+        panic("handle bye: no such server");
+        req.status = -EFAULT;
+        return;
+    }
+    Servers::const_iterator const sit = FindServer(req.location);
+    if (sit == mChunkServers.end() || *sit != server) {
+        panic("handle bye: invalid stale server entry");
+        req.status = -EFAULT;
+        return;
+    }
     server->ForceDown();
-    const bool validFlag = mChunkToServerMap.Validate(server);
-    Servers::const_iterator const i = FindServer(server->GetServerLocation());
-    if (validFlag != (i != mChunkServers.end() && *i == server)) {
-        panic("bye: stale server");
-        return;
-    }
-    if (! validFlag) {
-        req.status = -ENOENT;
-        return;
-    }
     if (! (server->GetChunkCount() == req.chunkCount &&
             server->GetChecksum() == req.cIdChecksum)) {
         // In flight "log in flight", or "log completion" at the time when bye
@@ -5576,7 +5600,7 @@ LayoutManager::Handle(MetaBye& req)
         mReplayServerCount--;
     }
     // Convert const_iterator to iterator below to make erase() compile.
-    mChunkServers.erase(mChunkServers.begin() + (i - mChunkServers.begin()));
+    mChunkServers.erase(mChunkServers.begin() + (sit - mChunkServers.begin()));
     if (! server->IsReplay() && ! mAssignMasterByIpFlag &&
             mMastersCount == 0 && ! mChunkServers.empty()) {
         assert(mSlavesCount > 0 &&

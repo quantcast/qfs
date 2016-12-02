@@ -638,7 +638,7 @@ ChunkServer::ChunkServer(
     KFS_LOG_STREAM(mReplayFlag ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO)<<
-        "new ChunkServer " << (const void*)this <<
+        "new ChunkServer " << reinterpret_cast<const void*>(this) <<
         " "         << GetPeerName() <<
         " replay: " << mReplayFlag <<
         " total: "  << sChunkServerCount <<
@@ -653,10 +653,10 @@ ChunkServer::~ChunkServer()
         panic("chunk server: invalid destructor invocation");
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
-        " ~ChunkServer " << (const void*)this <<
+        " ~ChunkServer " << reinterpret_cast<const void*>(this) <<
         " "              << GetPeerName() <<
         " / "            << GetServerLocation() <<
-        " total: " << sChunkServerCount <<
+        " total: "       << sChunkServerCount <<
     KFS_LOG_EOM;
     if (mNetConnection) {
         mNetConnection->Close();
@@ -890,11 +890,15 @@ ChunkServer::HandleRequest(int code, void *data)
                 panic("chunk server: invalid hello completion");
             }
             PutHelloBytes(&helloOp);
-            if (0 == op->status && ! mNetConnection) {
-                SubmitMetaBye();
+            if (! mNetConnection) {
+                if (mHelloDone) {
+                    SubmitMetaBye();
+                } else {
+                    ForceDown();
+                }
             }
         } else if (META_BYE == op->op) {
-            if (! mPendingByeFlag) {
+            if (! mPendingByeFlag || ! mHelloDone) {
                 panic("chunk server: invalid bye completion");
             }
             mPendingByeFlag = false;
@@ -1099,7 +1103,7 @@ ChunkServer::ForceDown()
     KFS_LOG_STREAM((mNetConnection && ! mReplayFlag) ?
             MsgLogger::kLogLevelWARN : MsgLogger::kLogLevelDEBUG) <<
         GetServerLocation() <<
-        " / " << (mNetConnection ? GetPeerName() : string("not connected")) <<
+        " / " << GetPeerName() <<
         " forcing down chunk server" <<
     KFS_LOG_EOM;
     if (mNetConnection) {
@@ -1144,6 +1148,18 @@ ChunkServer::SetCanBeChunkMaster(bool flag)
 void
 ChunkServer::SubmitMetaBye()
 {
+    if (! mHelloDone) {
+        panic("chunk server: submit bye while hello in flight");
+        return;
+    }
+    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+        " / "        << GetPeerName() <<
+        " "          << reinterpret_cast<const void*>(this) <<
+        " bye:"
+        " pending: " << mPendingByeFlag <<
+        " chunks: "  << GetChunkCount() <<
+        " index: "   << GetIndex() <<
+    KFS_LOG_EOM;
     if (mPendingByeFlag) {
         return;
     }
@@ -1175,12 +1191,13 @@ ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
                 (ignoreReplayFlag ?
                     MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelERROR)) << GetServerLocation() <<
-            " / "             <<
-                (mNetConnection ? GetPeerName().c_str() : "not connected") <<
+            " / " << GetPeerName() <<
             " chunk server down"
-            " reason: "       << (errorMsg ? errorMsg : "unspecified") <<
-            " socket error: " << (mNetConnection ?
-                mNetConnection->GetErrorMsg().c_str() : "none") <<
+            " reason: " << (errorMsg ? errorMsg : "unspecified") <<
+            " socket:"
+            " good: "   << mNetConnection->IsGood() <<
+            " status: " << mNetConnection->GetErrorMsg() <<
+            " "         << mNetConnection->GetErrorCode() <<
         KFS_LOG_EOM;
         mNetConnection->Close();
         mNetConnection->GetInBuffer().Clear();
