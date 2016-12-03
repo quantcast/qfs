@@ -335,6 +335,7 @@ public:
     inline void StopServicing(
         ARAChunkCache& arac,
         CSMap&         csmap);
+    inline void SetTimerNextRunTime();
 private:
     class EntryKeyHash
     {

@@ -1080,6 +1080,19 @@ ChunkLeases::StopServicing(
     }
 }
 
+inline void
+ChunkLeases::SetTimerNextRunTime()
+{
+    if (mTimerRunningFlag) {
+        panic("invalid lease set next run time invocation");
+        return;
+    }
+    const time_t nextTime = TimeNow() + kLeaseTimerResolutionSec;
+    mReadLeaseTimer.SetNextRunTime(nextTime);
+    mWriteLeaseTimer.SetNextRunTime(nextTime);
+    mDumpsterCleanupTimer.SetNextRunTime(nextTime);
+}
+
 inline bool
 ChunkLeases::NewReadLease(
     fid_t                        fid,
@@ -1863,7 +1876,7 @@ LayoutManager::LayoutManager()
       mRestoreChunkServerPtr(),
       mRestoreHibernatedCSPtr(),
       mReplayServerCount(0),
-      mServiceStartTime(0),
+      mServiceStartTime(TimeNow() - 10 * 24 * 60 * 60),
       mChunkInfosTmp(),
       mChunkInfos2Tmp(),
       mServersTmp(),
@@ -5643,7 +5656,26 @@ LayoutManager::SetPrimary(bool flag)
     KFS_LOG_EOM;
     mIdempotentRequestTracker.SetDisableTimerFlag(! mPrimaryFlag);
     if (mPrimaryFlag) {
-        mLeaseCleanerOtherNextRunTime = TimeNow();
+        mChunkLeases.SetTimerNextRunTime();
+        const time_t now = TimeNow();
+        mLeaseCleanerOtherNextRunTime = now;
+        if (gNetDispatch.IsRunning()) {
+            mLeaseCleaner.ScheduleNext();
+            const int delay       = mChunkLeases.GetDumpsterCleanupDelaySec();
+            const int kDelayRatio = 3;
+            if (kDelayRatio < delay &&
+                    mServiceStartTime + delay - delay / kDelayRatio < now) {
+                const int rescheduleDelay =
+                    (delay + kDelayRatio - 1) / kDelayRatio;
+                KFS_LOG_STREAM_DEBUG <<
+                    "rescheduling dumpster cleanup to: +" <<
+                        rescheduleDelay << " sec." <<
+                KFS_LOG_EOM;
+                mChunkLeases.SetDumpsterCleanupDelaySec(rescheduleDelay);
+                metatree.cleanupDumpster();
+                mChunkLeases.SetDumpsterCleanupDelaySec(delay);
+            }
+        }
     }
 }
 
