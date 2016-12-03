@@ -1909,8 +1909,7 @@ replay_cs_hello(DETokenizer& c)
         }
         op->pendingNotifyFlag = 0 != n;
         n = 0;
-        if (c.empty() || 1 != c.front().len ||
-                ('R' == c.front().ptr[0] && ! pop_num(n, "P", c, true))) {
+        if (! pop_num(n, "R", c, true)) {
             return false;
         }
         op->supportsResumeFlag = 0 != n;
