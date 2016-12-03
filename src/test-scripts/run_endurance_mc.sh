@@ -771,13 +771,14 @@ EOF
         # configuration might fail or take long time.
         if [ x"$errsim" = x'yes' ]; then
             i=0
+            vrdir='.'
             while [ $i -lt $vrcount ]; do
-                vrdir="vr$i"
                 cat >> "$vrdir/$metasrvprop" << EOF
 metaServer.log.receiver.netErrorSimulator = a=rand+log,int=8192,rsleep=30;
 EOF
                 kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
                 i=`expr $i + 1`
+                vrdir="vr$i"
             done
         fi
     else
