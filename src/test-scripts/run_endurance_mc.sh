@@ -770,11 +770,11 @@ EOF
         # Enable error simulation after VR is configured, as otherwise
         # configuration might fail or take long time.
         if [ x"$errsim" = x'yes' ]; then
-            i=2
+            i=0
             while [ $i -lt $vrcount ]; do
                 vrdir="vr$i"
                 cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.log.receiver.netErrorSimulator = a=rand+log,int=2048,rsleep=30;
+metaServer.log.receiver.netErrorSimulator = a=rand+log,int=8192,rsleep=30;
 EOF
                 kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
                 i=`expr $i + 1`
@@ -1180,6 +1180,8 @@ fi
     export quantsort
     webuidir="${cdirp}/webui"
     export webuidir
+    metaservernodes=$metaserverlocs
+    export metaservernodes
     if [ x"$csretry" != x -a $csretry -gt 0 ]; then
         chunksrvretry="$csretry"
         export chunksrvretry
