@@ -167,6 +167,7 @@ ResubmitRequest(MetaRequest& req)
     req.statusMsg.clear();
     req.submitCount  = 0;
     req.seqno        = -1;
+    req.logAction    = MetaRequest::kLogIfOk;
     req.logseq       = MetaVrLogSeq();
     req.suspended    = false;
     submit_request(&req);
@@ -5419,14 +5420,23 @@ LayoutManager::Start(MetaBye& req)
         req.status = -EFAULT;
         return;
     }
-    if (! mChunkToServerMap.Validate(req.server)) {
+    if (! mChunkToServerMap.Validate(req.server) && ! req.server->IsDown()) {
         panic("start bye: no such server");
         req.status = -EFAULT;
         return;
     }
     Servers::const_iterator const it = FindServer(req.location);
     if (it == mChunkServers.end() || *it != req.server) {
-        panic("start bye: invalid stale server entry");
+        if (req.server->IsDown()) {
+            req.status = -EINVAL;
+        } else {
+            panic("start bye: invalid stale server entry");
+            req.status = -EFAULT;
+        }
+        return;
+    }
+    if (req.server->IsDown()) {
+        panic("start bye: server is already down");
         req.status = -EFAULT;
         return;
     }
@@ -5469,14 +5479,23 @@ LayoutManager::Handle(MetaBye& req)
         req.status = -EFAULT;
         return;
     }
-    if (! mChunkToServerMap.Validate(server)) {
+    if (! mChunkToServerMap.Validate(server) && ! req.server->IsDown()) {
         panic("handle bye: no such server");
         req.status = -EFAULT;
         return;
     }
     Servers::const_iterator const sit = FindServer(req.location);
     if (sit == mChunkServers.end() || *sit != server) {
-        panic("handle bye: invalid stale server entry");
+        if (req.server->IsDown()) {
+            req.status = -EINVAL;
+        } else {
+            panic("handle bye: invalid stale server entry");
+            req.status = -EFAULT;
+        }
+        return;
+    }
+    if (req.server->IsDown()) {
+        panic("handle bye: server is already down");
         req.status = -EFAULT;
         return;
     }
@@ -9322,7 +9341,6 @@ LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
         return;
     }
     req.next      = 0;
-    req.logAction = MetaRequest::kLogIfOk;
     req.suspended = true;
     mResubmitQueue.PushBack(req);
 }

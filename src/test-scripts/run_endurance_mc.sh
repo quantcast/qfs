@@ -411,23 +411,6 @@ else
     fi
 fi
 
-cp "$clientprop" "$clientproprs" || exit
-cat >> "$clientproprs" << EOF
-client.connectionPool = 1
-EOF
-
-ulimit -c unlimited || exit
-if [ x"`ulimit -Hn`" = x'unlimited' ]; then
-    # Hack around mac os peculiarity.
-    ulimit -Hn 65535 2>/dev/null
-fi
-ulimit -n `ulimit -Hn` || exit
-if [ `ulimit -n` -le 1024 ]; then
-    echo "Insufficient open file descriptor limit: `ulimit -n`"
-    exit 1
-fi
-exec 0</dev/null
-
 metaserverlocs=''
 metaserverextralocs=''
 metachunkserverlocs=''
@@ -449,6 +432,27 @@ if [ $vrcount -gt 2 -o -d "$metasrvdir/vr1" ]; then
         csport=`expr $csport + 1`
     done
 fi
+
+cat >> "$clientprop" << EOF
+client.metaServerNodes = $metaserverlocs $metaserverextralocs
+EOF
+
+cp "$clientprop" "$clientproprs" || exit
+cat >> "$clientproprs" << EOF
+client.connectionPool = 1
+EOF
+
+ulimit -c unlimited || exit
+if [ x"`ulimit -Hn`" = x'unlimited' ]; then
+    # Hack around mac os peculiarity.
+    ulimit -Hn 65535 2>/dev/null
+fi
+ulimit -n `ulimit -Hn` || exit
+if [ `ulimit -n` -le 1024 ]; then
+    echo "Insufficient open file descriptor limit: `ulimit -n`"
+    exit 1
+fi
+exec 0</dev/null
 
 if [ x"$testonly" = x'yes' ]; then
     kill_all_proc "$clitestdir"
@@ -637,9 +641,6 @@ EOF
             echo "Failed to determine files system id in kfscp/latest"
             exit 1
         fi
-        cat >> "$clientprop" << EOF
-client.metaServerNodes = $metaserverlocs $metaserverextralocs
-EOF
         cat >> "$metasrvprop" << EOF
 metaServer.metaDataSync.fileSystemId = $filesystemid
 metaServer.metaDataSync.servers      = $metaserverlocs $metaserverextralocs
