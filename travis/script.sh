@@ -7,7 +7,7 @@
 set -ex
 
 DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev xfslibs-dev libssl-dev python-dev libfuse-dev default-jdk wget unzip maven sudo"
-DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel wget unzip sudo"
+DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel xfsprogs-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel wget unzip sudo which"
 
 MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
 MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
@@ -37,6 +37,11 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CMD="$CMD && export M2_HOME=/usr/local/maven"
         CMD="$CMD && export PATH=\${M2_HOME}/bin:\${PATH}"
         CMD="$CMD && popd"
+
+	if [[ "$VER" == "7" ]]; then
+	    # CentOS7 has the distro information in /etc/redhat-release
+	    CMD="$CMD && cut /etc/redhat-release -d' ' --fields=1,3,4 > /etc/issue"
+	fi
 
         # now the actual command
         CMD="$CMD && make gtest tarball"
