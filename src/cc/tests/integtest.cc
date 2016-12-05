@@ -43,7 +43,7 @@ QFSTestEnvironment::SetUp()
 {
     char* buildType = getenv("BUILD_TYPE");
     if (buildType == NULL) {
-        mBuildType = kBuildTypeDebug;
+        mBuildType = kBuildTypeRelease;
     }
     else {
         mBuildType = buildType;
