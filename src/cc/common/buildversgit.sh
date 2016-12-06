@@ -59,6 +59,10 @@ get_head() {
 }
 
 get_release() {
+    # override
+    echo "$qfs_no_git_version"
+    return 0
+
     check_if_have_git
     if [ $? -eq 0 ]; then
         echo "$qfs_no_git_version"

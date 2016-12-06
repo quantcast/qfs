@@ -49,6 +49,8 @@ deploy:
     skip_cleanup: true
     region: us-east-1
     local_dir: artifacts
+    on:
+        all_branches: true
     access_key_id:
         - secure: IvmQ1sHBE+/USw+/adukFk1Wxq9Pn49PTvlbbRoI1D3W+ILc7u7+rFuNwQqAexXfBP71oMEE8YDR4U9dcoD4NinMd02lciFzrbtzErQ2Re2fU6k3I2OiyJ8ApAalKLxNmFC8jPTPufFT8gfCfOjoSDIpEffA75EzJVmDdDOspvw=
     secret_access_key:
