@@ -2187,8 +2187,6 @@ struct LeaseRelinquishOp : public KfsOp {
     }
 };
 
-class PendingNotifyLostChunks;
-
 // This is just a helper op for building a hello request to the metaserver.
 struct HelloMetaOp : public KfsOp {
     typedef vector<string>       LostChunkDirs;
@@ -2244,7 +2242,6 @@ struct HelloMetaOp : public KfsOp {
     int64_t                  totalChunks;
     int64_t                  channelId;
     bool                     supportsResumeFlag;
-    PendingNotifyLostChunks* pendingNotifyLostChunks;
 
     HelloMetaOp(const ServerLocation& l,
             const string& k, const string& m, int r, int64_t chanId)
@@ -2280,10 +2277,8 @@ struct HelloMetaOp : public KfsOp {
           helloResumeFailedCount(0),
           totalChunks(0),
           channelId(chanId),
-          supportsResumeFlag(false),
-          pendingNotifyLostChunks(0)
+          supportsResumeFlag(false)
         {}
-    virtual ~HelloMetaOp();
     void Execute();
     void Request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const

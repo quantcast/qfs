@@ -2188,6 +2188,7 @@ ReadOp::Execute()
             " chunk: "   << chunkId <<
             " version: " << chunkVersion <<
             " status: "  << res <<
+            " "          << statusMsg <<
         KFS_LOG_EOM;
         if (0 <= status) {
             status = res;
@@ -4328,12 +4329,6 @@ HelloMetaOp::Execute()
     fileSystemId = gChunkManager.GetFileSystemId();
     totalChunks  = gChunkManager.GetNumChunks();
     Submit();
-}
-
-HelloMetaOp::~HelloMetaOp()
-{
-    gChunkManager.HelloDone(*this);
-    assert(! pendingNotifyLostChunks);
 }
 
 void

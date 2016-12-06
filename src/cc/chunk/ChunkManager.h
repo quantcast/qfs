@@ -451,7 +451,7 @@ public:
     int GetDirCheckFailureSimulatorInterval() const
         { return mDirCheckFailureSimulatorInterval; }
     void NotifyStaleChunkDone(CorruptChunkOp& op);
-    void HelloDone(HelloMetaOp& hello);
+    void HelloDone();
     inline bool InsertLastInFlight(kfsChunkId_t chunkId);
     int GetObjectStoreStatus(string* msg = 0) const
     {
@@ -779,7 +779,6 @@ private:
         PendingWrites(const PendingWrites&);
         PendingWrites& operator=(const PendingWrites&);
     };
-
     class ChunkDirs
     {
     public:
@@ -806,7 +805,6 @@ private:
         ChunkDirs(const ChunkDirs&);
         ChunkDirs& operator=(const ChunkDirs&);
     };
-
     typedef map<
         kfsSTier_t,
         vector<ChunkDirs::iterator, StdAllocator<ChunkDirs::iterator> >,
@@ -815,6 +813,15 @@ private:
             pair<const kfsSTier_t, vector<ChunkDirs::iterator> >
         >
     > StorageTiers;
+    typedef LinearHash<
+        KVPair<kfsChunkId_t, kfsSeq_t>,
+        KeyCompare<kfsChunkId_t>,
+        DynamicArray<
+            SingleLinkedList<KVPair<kfsChunkId_t, kfsSeq_t> >*,
+            10
+        >,
+        StdFastAllocator<KVPair<kfsChunkId_t, kfsSeq_t> >
+    > PendingNotifyLostChunks;
 
     bool StartDiskIo();
 
@@ -961,8 +968,8 @@ private:
     int64_t    mMinChunkCountForHelloResume;
     string     mHelloResumeFailureTraceFileName;
 
-    PendingNotifyLostChunks* mPendingNotifyLostChunks;
-    CorruptChunkOp           mCorruptChunkOp;
+    PendingNotifyLostChunks mPendingNotifyLostChunks;
+    CorruptChunkOp          mCorruptChunkOp;
 
     typedef KeyOnly<kfsChunkId_t> LastPendingInFlightEntry;
     typedef LinearHash<

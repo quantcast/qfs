@@ -1225,6 +1225,14 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 DetachAndDeleteOp(mHelloOp);
                 if (IsUp()) {
                     gMetaServerSM.SetPrimary(*this, mMyLocation);
+                    if (! IsUp() || ! gMetaServerSM.IsUp()) {
+                        const char* const msg = "meta server connection down"
+                            " after set primary invocation";
+                        die(msg);
+                        Error(msg);
+                        return false;
+                    }
+                    gChunkManager.HelloDone();
                     mCounters.mHelloDoneCount++;
                     for (HelloMetaOp::LostChunkDirs::const_iterator
                             it = lostDirs.begin();

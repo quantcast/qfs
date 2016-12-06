@@ -1345,67 +1345,6 @@ private:
     ChunkInfoHandle& operator=(const  ChunkInfoHandle&);
 };
 
-class PendingNotifyLostChunks : public LinearHash<
-    KVPair<kfsChunkId_t, kfsSeq_t>,
-    KeyCompare<kfsChunkId_t>,
-    DynamicArray<
-        SingleLinkedList<KVPair<kfsChunkId_t, kfsSeq_t> >*,
-        10
-    >,
-    StdFastAllocator<KVPair<kfsChunkId_t, kfsSeq_t> >
-> {
-public:
-    typedef KVPair Entry;
-
-    static void Move(
-        PendingNotifyLostChunks*& src,
-        PendingNotifyLostChunks*& dst)
-    {
-        if (! src) {
-            return;
-        }
-        if (dst) {
-            PendingNotifyLostChunks* small;
-            PendingNotifyLostChunks* large;
-            if (src->GetSize() < dst->GetSize()) {
-                small = src;
-                large = dst;
-            } else {
-                small = dst;
-                large = src;
-            }
-            small->First();
-            const Entry* p;
-            while ((p = small->Next())) {
-                bool insertedFlag = 0;
-                large->Insert(p->GetKey(), p->GetVal(), insertedFlag);
-            }
-            if (large == src) {
-                delete dst;
-                dst = src;
-            } else {
-                delete src;
-            }
-        } else {
-            dst = src;
-        }
-        src = 0;
-    }
-    static bool Remove(
-        PendingNotifyLostChunks*& list,
-        kfsChunkId_t              chunkId)
-    {
-        if (list && 0 < list->Erase(chunkId)) {
-            if (list->IsEmpty()) {
-                delete list;
-                list = 0;
-            }
-            return true;
-        }
-        return false;
-    }
-};
-
 class ChunkManager::StaleChunkDeleteCompletion : public KfsCallbackObj
 {
 public:
@@ -1545,10 +1484,7 @@ ChunkManager::NotifyLostChunk(kfsChunkId_t chunkId, kfsSeq_t vers)
         return false;
     }
     bool insertedFlag = false;
-    if (! mPendingNotifyLostChunks) {
-        mPendingNotifyLostChunks = new PendingNotifyLostChunks();
-    }
-    if (! mPendingNotifyLostChunks->Insert(chunkId, vers, insertedFlag)) {
+    if (! mPendingNotifyLostChunks.Insert(chunkId, vers, insertedFlag)) {
         die("failed to insert chunk entry in pending notify list");
     }
     return insertedFlag;
@@ -1557,21 +1493,17 @@ ChunkManager::NotifyLostChunk(kfsChunkId_t chunkId, kfsSeq_t vers)
 inline bool
 ChunkManager::ScheduleNotifyLostChunk()
 {
-    if (! mPendingNotifyLostChunks ||
+    if (mPendingNotifyLostChunks.IsEmpty() ||
             mCorruptChunkOp.notifyChunkManagerFlag || // In flight.
             ! gMetaServerSM.IsUp()) {
         return false;
     }
-    if (mPendingNotifyLostChunks->IsEmpty()) {
-        die("invalid empty pending stale notify chunk list");
-        return false;
-    }
     mCorruptChunkOp.isChunkLost = true;
-    mPendingNotifyLostChunks->First();
-    const PendingNotifyLostChunks::Entry* p;
+    mPendingNotifyLostChunks.First();
+    const PendingNotifyLostChunks::KVPair* p;
     for (mCorruptChunkOp.chunkCount = 0;
             mCorruptChunkOp.chunkCount < CorruptChunkOp::kMaxChunkIds &&
-                ((p = mPendingNotifyLostChunks->Next()));
+                ((p = mPendingNotifyLostChunks.Next()));
             mCorruptChunkOp.chunkCount++) {
         const kfsChunkId_t chunkId = p->GetKey();
         if (mChunkTable.Find(chunkId)) {
@@ -1615,27 +1547,22 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
         }
         return;
     }
-    if (! mPendingNotifyLostChunks) {
+    if (mPendingNotifyLostChunks.IsEmpty()) {
         return;
     }
     while (0 < mCorruptChunkOp.chunkCount) {
-        mPendingNotifyLostChunks->Erase(
+        mPendingNotifyLostChunks.Erase(
             mCorruptChunkOp.chunkIds[--mCorruptChunkOp.chunkCount]);
     }
-    if (mPendingNotifyLostChunks->IsEmpty()) {
-        delete mPendingNotifyLostChunks;
-        mPendingNotifyLostChunks = 0;
-    } else {
+    if (! mPendingNotifyLostChunks.IsEmpty()) {
         ScheduleNotifyLostChunk();
     }
 }
 
 void
-ChunkManager::HelloDone(HelloMetaOp& hello)
+ChunkManager::HelloDone()
 {
-    PendingNotifyLostChunks::Move(
-        hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
-    if (! gMetaServerSM.IsUp() || 0 == hello.resumeStep) {
+    if (! gMetaServerSM.IsUp()) {
         return;
     }
     mLastPendingInFlight.Clear();
@@ -1677,8 +1604,7 @@ ChunkManager::AddMapping(ChunkInfoHandle* cih)
         return 0; // Eliminate lint warning.
     }
     if (0 <= cih->chunkInfo.chunkVersion &&
-            PendingNotifyLostChunks::Remove(
-                mPendingNotifyLostChunks, cih->chunkInfo.chunkId) &&
+            0 < mPendingNotifyLostChunks.Erase(cih->chunkInfo.chunkId) &&
             ! newEntryFlag) {
         die("chunk entry was in pending lost notify chunks");
     }
@@ -2255,7 +2181,7 @@ ChunkManager::ChunkManager()
       mVersionChangePermitWritesInFlightFlag(true),
       mMinChunkCountForHelloResume(1 << 10),
       mHelloResumeFailureTraceFileName(),
-      mPendingNotifyLostChunks(0),
+      mPendingNotifyLostChunks(),
       mCorruptChunkOp(-1),
       mLastPendingInFlight(),
       mCleanupStaleChunksFlag(true),
@@ -2296,7 +2222,6 @@ ChunkManager::~ChunkManager()
     assert(mChunkTable.IsEmpty());
     assert(mObjTable.IsEmpty());
     globalNetManager().UnRegisterTimeoutHandler(this);
-    delete mPendingNotifyLostChunks;
     StaleChunkDeleteCompletion::Cleanup(mStaleChunkDeleteCompletionLists);
 }
 
@@ -3144,8 +3069,7 @@ ChunkManager::AllocChunk(
     }
     if (0 < chunkVersion &&
             mCorruptChunkOp.notifyChunkManagerFlag &&
-            mPendingNotifyLostChunks &&
-            mPendingNotifyLostChunks->Find(chunkId)) {
+            mPendingNotifyLostChunks.Find(chunkId)) {
         for (int i = 0; i < mCorruptChunkOp.chunkCount; i++) {
             if (chunkId == mCorruptChunkOp.chunkIds[i]) {
                 const char* const msg =
@@ -3470,6 +3394,9 @@ ChunkManager::ReadChunkMetadata(
     ChunkInfoHandle* const cih = GetChunkInfoHandle(chunkId, chunkVersion,
         addObjectBlockMappingFlag);
     if (! cih) {
+        if (0 <= cb->status) {
+            cb->statusMsg = "no such chunk";
+        }
         return -EBADF;
     }
     if (cih->IsBeingReplicated()) {
@@ -3477,9 +3404,11 @@ ChunkManager::ReadChunkMetadata(
             "denied meta data read for chunk: " << chunkId <<
             " replication is in flight" <<
         KFS_LOG_EOM;
+        if (0 <= cb->status) {
+            cb->statusMsg = "chunk replication in progress";
+        }
         return -EBADF;
     }
-
     LruUpdate(*cih);
     if (cih->chunkInfo.AreChecksumsLoaded()) {
         cb->HandleEvent(EVENT_CMD_DONE, cb);
@@ -3493,6 +3422,9 @@ ChunkManager::ReadChunkMetadata(
             " version: " << chunkVersion <<
             " non stable with no checksums loaded" <<
         KFS_LOG_EOM;
+        if (0 <= cb->status) {
+            cb->statusMsg = "chunk replication in progress";
+        }
         return -EBADF;
     }
     if (cih->readChunkMetaOp) {
@@ -3508,6 +3440,9 @@ ChunkManager::ReadChunkMetadata(
     DiskIo*          const d   = SetupDiskIo(cih, rcm);
     if (! d) {
         delete rcm;
+        if (0 <= cb->status) {
+            cb->statusMsg = "out of requests";
+        }
         return -ESERVERBUSY;
     }
     rcm->diskIo.reset(d);
@@ -3519,6 +3454,9 @@ ChunkManager::ReadChunkMetadata(
         cih->ReadStats(res, (int64_t)headerSize, 0);
         ReportIOFailure(cih, res);
         delete rcm;
+        if (0 <= cb->status) {
+            cb->statusMsg = "read queue error";
+        }
         return res;
     }
     return 0;
@@ -5886,8 +5824,6 @@ ChunkManager::GetHostedChunksResume(
         return;
     }
     mCounters.mHelloResumeCount++;
-    PendingNotifyLostChunks::Move(
-        mPendingNotifyLostChunks, hello.pendingNotifyLostChunks);
     CIdChecksum checksum;
     uint64_t    count = 0;
     for (mChunkTable.First(); ;) {
@@ -5916,24 +5852,20 @@ ChunkManager::GetHostedChunksResume(
         checksum.Add(p->GetKey(), vers);
         count++;
     }
-    PendingNotifyLostChunks* const pendingNotifyLostChunks =
-        hello.pendingNotifyLostChunks;
-    if (pendingNotifyLostChunks) {
-        // Add all pending notify lost chunks. The chunks should not be
-        // in the chunk table: AddMapping() deletes pending lost notify entries.
-        for (pendingNotifyLostChunks->First(); ;) {
-            const PendingNotifyLostChunks::Entry* const p =
-                pendingNotifyLostChunks->Next();
-            if (! p) {
-                break;
-            }
-            const kfsChunkId_t chunkId = p->GetKey();
-            if (! mLastPendingInFlight.Find(chunkId) &&
-                    ! mChunkTable.Find(chunkId) &&
-                    0 < p->GetVal()) {
-                checksum.Add(chunkId, p->GetVal());
-                count++;
-            }
+    // Add all pending notify lost chunks. The chunks should not be
+    // in the chunk table: AddMapping() deletes pending lost notify entries.
+    for (mPendingNotifyLostChunks.First(); ;) {
+        const PendingNotifyLostChunks::KVPair* const p =
+            mPendingNotifyLostChunks.Next();
+        if (! p) {
+            break;
+        }
+        const kfsChunkId_t chunkId = p->GetKey();
+        if (! mLastPendingInFlight.Find(chunkId) &&
+                ! mChunkTable.Find(chunkId) &&
+                0 < p->GetVal()) {
+            checksum.Add(chunkId, p->GetVal());
+            count++;
         }
     }
     // Do not delete chunks just yet, exclude those from checksum, and
@@ -5976,8 +5908,8 @@ ChunkManager::GetHostedChunksResume(
                     (*missing.second) << ' ' << chunkId;
                 }
                 const kfsSeq_t* vers;
-                if (! cih && ! inFlightFlag && pendingNotifyLostChunks &&
-                        (vers = pendingNotifyLostChunks->Find(chunkId)) &&
+                if (! cih && ! inFlightFlag &&
+                        (vers = mPendingNotifyLostChunks.Find(chunkId)) &&
                         0 < *vers) {
                     if (count <= 0) {
                         die("invalid CS chunk inventory count");
@@ -6165,20 +6097,16 @@ ChunkManager::GetHostedChunksResume(
             }
             os << "\n";
         }
-        if (pendingNotifyLostChunks) {
-            os << "\npending lost[" <<
-                pendingNotifyLostChunks->GetSize() <<
-            "]:";
-            for (pendingNotifyLostChunks->First(); os; ) {
-                const PendingNotifyLostChunks::Entry* const p =
-                    pendingNotifyLostChunks->Next();
-                if (! p) {
-                    break;
-                }
-                os << ' ' << p->GetKey() << '.' <<  p->GetVal();
+        os << "\npending lost[" << mPendingNotifyLostChunks.GetSize() << "]:";
+        for (mPendingNotifyLostChunks.First(); os; ) {
+            const PendingNotifyLostChunks::KVPair* const p =
+                mPendingNotifyLostChunks.Next();
+            if (! p) {
+                break;
             }
-            os << "\n";
+            os << ' ' << p->GetKey() << '.' <<  p->GetVal();
         }
+        os << "\n";
         os << "hello mod[" << hello.resumeModified.size() << "]:";
         for (HelloMetaOp::ChunkIds::const_iterator
                 it = hello.resumeModified.begin();
@@ -6250,8 +6178,6 @@ ChunkManager::GetHostedChunks(
         AppendToHostedList(
             *cih, stable, notStableAppend, notStable, noFidsFlag);
     }
-    PendingNotifyLostChunks::Move(
-        hello.pendingNotifyLostChunks, mPendingNotifyLostChunks);
     hello.pendingNotifyFlag =
         ! ChunkHelloNotifyList::IsEmpty(mChunkInfoHelloNotifyList);
 }

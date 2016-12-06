@@ -958,13 +958,15 @@ ChunkServer::HandleRequest(int code, void *data)
             MetaRequest::Release(mAuthenticateOp);
             mAuthenticateOp  = 0;
             KFS_LOG_STREAM_INFO << GetServerLocation() <<
+                " / " << GetPeerName() <<
                 (mHelloDone ? " re-" : " ") <<
                 "authentication complete:"
                 " session expires in: " <<
                     (mSessionExpirationTime - TimeNow()) << " sec." <<
                 " pending seq:"
                 " requests: "  << mAuthPendingSeq <<
-                    " +" << (mSeqNo - mAuthPendingSeq) <<
+                    " +" << (0 <= mAuthPendingSeq ?
+                        mSeqNo - mAuthPendingSeq : seq_t(-1)) <<
                 " responses: " << (mPendingResponseOps.IsEmpty() ? seq_t(-1) :
                     mPendingResponseOps.Front()->opSeqno) <<
                 " "            << (mPendingResponseOps.IsEmpty() ? seq_t(-1) :
