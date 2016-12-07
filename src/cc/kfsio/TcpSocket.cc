@@ -154,7 +154,7 @@ struct TcpSocket::Address
             struct sockaddr_in6 addr = {0};
             if (inet_pton(AF_INET6, ipAddrStrPtr,
                     &addr.sin6_addr)) {
-                return (0 == memcmp(
+                return (0 != memcmp(
                     &addr.sin6_addr, &in6addr_any, sizeof(in6addr_any)));
             }
         } else {

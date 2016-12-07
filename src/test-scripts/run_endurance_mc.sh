@@ -411,10 +411,19 @@ else
     fi
 fi
 
+if [ -f "$metasrvdir/kfscp/latest" ]; then
+    i=1
+    while [ -d "$metasrvdir/vr$i" ]; do
+        i=`expr $i + 1`
+    done
+    if [ $i -ge 3 ]; then
+        vrcount=$i
+    fi
+fi
 metaserverlocs=''
 metaserverextralocs=''
 metachunkserverlocs=''
-if [ $vrcount -gt 2 -o -d "$metasrvdir/vr1" ]; then
+if [ $vrcount -gt 2 ]; then
     csport=$metasrvchunkport
     port=$metasrvport
     endport=`expr $metasrvport + $vrcount`
@@ -604,13 +613,7 @@ EOF
     pre_run_cleanup "$prevlogsdir" || exit
 
     if [ -f "kfscp/latest" ]; then
-        i=1
-        while [ -d "vr$i" ]; do
-            i=`expr $i + 1`
-        done
-        if [ $i -ge 3 ]; then
-            vrcount=$i
-        fi
+        true
     else
         cp "$metasrvprop" "$metasrvprop.tmp"
         cat >> "$metasrvprop.tmp" << EOF

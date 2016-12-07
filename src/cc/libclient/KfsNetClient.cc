@@ -1127,14 +1127,8 @@ private:
             { MetaCheckVrPrimaryChecker::Reset(); }
         void Connect()
         {
-            Reset();
-            mOuter.mLookupOp.status = mOuter.Connect(
-                mLocation, mConnPtr, *this, &mOuter.mLookupOp.statusMsg);
-            if (0 == mOuter.mLookupOp.status) {
-                Request();
-            } else {
-                Retry();
-            }
+            mRetryCount = 0;
+            ConnectSelf();
         }
         int EventHandler(
             int   inCode,
@@ -1225,7 +1219,7 @@ private:
                 mOuter.mNetManagerPtr->UnRegisterTimeoutHandler(this);
                 mSleepingFlag = false;
             }
-            Connect();
+            ConnectSelf();
         }
     private:
         Impl&                      mOuter;
@@ -1241,6 +1235,17 @@ private:
 
         friend class QCDLListOp<MetaCheckVrPrimaryChecker>;
 
+        void ConnectSelf()
+        {
+            Reset();
+            mOuter.mLookupOp.status = mOuter.Connect(
+                mLocation, mConnPtr, *this, &mOuter.mLookupOp.statusMsg);
+            if (0 == mOuter.mLookupOp.status) {
+                Request();
+            } else {
+                Retry();
+            }
+        }
         void Request()
         {
             mOuter.InitHelloLookupOp();

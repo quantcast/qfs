@@ -2059,4 +2059,10 @@ LogTransmitter::ScheduleHelloTransmit()
     mImpl.ScheduleHelloTransmit();
 }
 
+    void
+LogTransmitter::Shutdown()
+{
+    mImpl.Shutdown();
+}
+
 } // namespace KFS

@@ -381,6 +381,7 @@ public:
             mNetManagerPtr = 0;
         }
         mMetaVrSM.Shutdown();
+        mLogTransmitter.Shutdown();
         Cancel(mInQueue);
         mPendingCount -= Cancel(mOutQueue);
         mPendingCount -= Cancel(mPendingQueue);

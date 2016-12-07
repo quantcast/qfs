@@ -111,6 +111,7 @@ public:
     void ScheduleHelloTransmit();
     void Suspend(
         bool inFlag);
+    void Shutdown();
 private:
     class Impl;
 
