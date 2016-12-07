@@ -778,7 +778,7 @@ EOF
             vrdir='.'
             while [ $i -lt $vrcount ]; do
                 cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.log.receiver.netErrorSimulator = a=rand+log,int=8192,rsleep=30;
+metaServer.log.receiver.netErrorSimulator = a=rand+log,int=8192,rsleep=60;
 EOF
                 kill -HUP `cat "$vrdir/$metasrvpid"` || exit 1
                 i=`expr $i + 1`
