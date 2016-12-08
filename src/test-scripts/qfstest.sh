@@ -99,6 +99,7 @@ if [ x"$testipv6" = x'yes' ]; then
     iptobind='::'
 else
     metahost='127.0.0.1'
+    # metahost='localhost'
     metahosturl=$metahost
     iptobind='0.0.0.0'
 fi
@@ -524,7 +525,7 @@ chunkServer.ioBufferPool.partitionBufferCount = 46460
 EOF
     else
         cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.ioBufferPool.partitionBufferCount = 8320
+chunkServer.ioBufferPool.partitionBufferCount = 8192
 chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
 chunkServer.objectDir                         = $objectstoredir
 EOF

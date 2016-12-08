@@ -285,6 +285,7 @@ public:
                 delete theIt++->second;
             }
             QCASSERT(mWorkers.empty());
+            mMetaServer.Shutdown();
             mNetManager.Shutdown();
         }
     }

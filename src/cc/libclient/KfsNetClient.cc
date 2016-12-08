@@ -263,7 +263,7 @@ public:
     {
         if (inLocation == mServerLocation ||
                 ! MetaVrList::IsEmpty(mMetaVrListPtr) ||
-                ! mMetaLocations.empty()) {
+                ! ResolverList::IsEmpty(mResolverReqsPtr)) {
             if (! inForceConnectFlag && mPendingOpQueue.empty()) {
                 return inLocation.IsValid();
             }
@@ -1033,7 +1033,21 @@ public:
         while ((thePtr = MetaVrList::PopFront(mMetaVrListPtr))) {
             delete thePtr;
         }
+        ResolverReq* theReqPtr;
+        while ((theReqPtr = ResolverList::Front(mResolverReqsPtr))) {
+            theReqPtr->Delete(mResolverReqsPtr);
+        }
         mMetaLocations.clear();
+    }
+    void Shutdown()
+    {
+        Reset();
+        ClearMetaServerLocations();
+        if (mResolverPtr) {
+            mResolverPtr->Shutdown();
+            delete mResolverPtr;
+            mResolverPtr = 0;
+        }
     }
 private:
     class DoNotDeallocate
@@ -1552,14 +1566,7 @@ private:
     MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
 
     virtual ~Impl()
-    {
-        Impl::Reset();
-        ClearMetaServerLocations();
-        if (mResolverPtr) {
-            mResolverPtr->Shutdown();
-            delete mResolverPtr;
-        }
-    }
+        { Impl::Shutdown(); }
     bool IsAuthInFlight()
         { return (0 <= mLookupOp.seq || 0 <= mAuthOp.seq); }
     void SetMaxWaitTime(
@@ -1681,7 +1688,8 @@ private:
     bool ConnectToVrPrimary(
         const KfsOp* inLastOpPtr)
     {
-        if (MetaVrList::IsEmpty(mMetaVrListPtr) && mMetaLocations.empty()) {
+        if (MetaVrList::IsEmpty(mMetaVrListPtr) &&
+                ResolverList::IsEmpty(mResolverReqsPtr)) {
             return false;
         }
         if (inLastOpPtr) {
@@ -1743,9 +1751,10 @@ private:
             }
         }
         mMetaVrNodesActiveCount = 0;
-        ResolverReq* theReqPtr;
-        while ((theReqPtr = ResolverList::Front(mResolverReqsPtr))) {
-            theReqPtr->Delete(mResolverReqsPtr);
+        ResolverList::Iterator theRIt(mResolverReqsPtr);
+        ResolverReq*           theRPtr;
+        while ((theRPtr = theRIt.Next())) {
+            theRPtr->Cancel();
         }
         mResolverInFlightCount = 0;
     }
@@ -3109,6 +3118,13 @@ KfsNetClient::SetThread(
     // Do not change ref count, in order to allow to set different thread than
     // the current.
     mImpl.SetThread(inThreadPtr);
+}
+
+    void
+KfsNetClient::Shutdown()
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.Shutdown();
 }
 
 }} /* namespace cient KFS */
