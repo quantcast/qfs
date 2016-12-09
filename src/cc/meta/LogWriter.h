@@ -99,6 +99,10 @@ public:
     MetaVrSM& GetMetaVrSM();
     int GetVrStatus() const
         { return mVrStatus; }
+    int WriteNewLogSegment(
+        const char*   inLogDirPtr,
+        const Replay& inReplayer,
+        string&       outLogSegmentFileName);
 private:
     class Impl;
     seq_t        mNextSeq;

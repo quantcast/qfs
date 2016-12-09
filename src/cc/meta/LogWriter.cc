@@ -428,6 +428,34 @@ public:
     }
     MetaVrSM& GetMetaVrSM()
         { return mMetaVrSM; }
+    int WriteNewLogSegment(
+        const char*   inLogDirPtr,
+        const Replay& inReplayer,
+        string&       outLogSegmentFileName)
+    {
+        if (inReplayer.getLogNum() < 0 ||
+                ! inReplayer.getLastLogSeq().IsValid() ||
+                ! inLogDirPtr || 0 == *inLogDirPtr ||
+                mThread.IsStarted() || mNetManagerPtr) {
+            return -EINVAL;
+        }
+        mLogNum     = inReplayer.getLogNum() + 1;
+        mLastLogSeq = inReplayer.getLastLogSeq();
+        inReplayer.getLastLogBlockCommitted(
+            mLastWriteCommitted.mSeq,
+            mLastWriteCommitted.mFidSeed,
+            mLastWriteCommitted.mStatus,
+            mLastWriteCommitted.mErrChkSum
+        );
+        const string thePrevLogDir = mLogDir;
+        mLogDir = inLogDirPtr;
+        NewLog(mLastLogSeq);
+        if (Close() && 0 == mError) {
+            outLogSegmentFileName = mLogName;
+        }
+        mLogDir = thePrevLogDir;
+        return mError;
+    }
 private:
     typedef uint32_t Checksum;
     class Committed
@@ -880,7 +908,7 @@ private:
         }
         if (thePtr) {
             if (inHasReplayBypassFlag) {
-                // Move into  done queue entries that bypass replay.
+                // Move into done queue entries that bypass replay.
                 thePrevPtr = thePtr;
                 thePtr     = thePtr->next;
                 while (thePtr) {
@@ -1847,8 +1875,10 @@ private:
         LogStreamFlush();
         if (IsLogStreamGood()) {
             mNextLogSeq = mLastLogSeq;
-            mMetaDataStorePtr->RegisterLogSegment(
-                mLogName.c_str(), mCurLogStartSeq, mLogNum);
+            if (mMetaDataStorePtr) {
+                mMetaDataStorePtr->RegisterLogSegment(
+                    mLogName.c_str(), mCurLogStartSeq, mLogNum);
+            }
         } else {
             mLastLogSeq = mNextLogSeq;
         }
@@ -2172,6 +2202,16 @@ LogWriter::Shutdown()
 LogWriter::GetMetaVrSM()
 {
     return mImpl.GetMetaVrSM();
+}
+
+    int
+LogWriter::WriteNewLogSegment(
+    const char*   inLogDirPtr,
+    const Replay& inReplayer,
+    string&       outLogSegmentFileName)
+{
+    return mImpl.WriteNewLogSegment(
+        inLogDirPtr, inReplayer, outLogSegmentFileName);
 }
 
 }

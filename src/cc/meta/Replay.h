@@ -140,7 +140,7 @@ public:
         MetaVrLogSeq& outCommitted,
         fid_t&        outSeed,
         int&          outStatus,
-        int64_t&      outErrChecksum);
+        int64_t&      outErrChecksum) const;
     MetaVrLogSeq getLastNonEmptyViewEndSeq() const;
     class BlockChecksum
     {

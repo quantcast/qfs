@@ -315,7 +315,7 @@ public:
             return false;
         }
         if (mCommitQueue.empty()) {
-            return true;;
+            return true;
         }
         for (CommitQueue::iterator it = mCommitQueue.begin();
                 mCommitQueue.end() != it;
@@ -2909,9 +2909,9 @@ Replay::getLastLogBlockCommitted(
     MetaVrLogSeq& outCommitted,
     fid_t&        outSeed,
     int&          outStatus,
-    int64_t&      outErrChecksum)
+    int64_t&      outErrChecksum) const
 {
-    ReplayState& state = replayTokenizer.GetState();
+    const ReplayState& state = replayTokenizer.GetState();
     outCommitted   = state.mLastBlockCommittedSeq;
     outSeed        = state.mLastBlockSeed;
     outStatus      = state.mLastBlockStatus;
