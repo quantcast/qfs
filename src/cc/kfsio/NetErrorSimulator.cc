@@ -466,6 +466,10 @@ private:
         if (inSec <= 0) {
             return;
         }
+        KFS_LOG_STREAM_INFO <<
+            "net manager: " << reinterpret_cast<const void*>(&mNetManager) <<
+            " sleeping: "   << inSec << " seconds" <<
+        KFS_LOG_EOM;
         struct timespec theTs;
         theTs.tv_sec  = time_t(inSec);
         long kMaxNsec = 999999999;
