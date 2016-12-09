@@ -830,13 +830,21 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 mCPDir.c_str(), mLogDir.c_str()))) {
             return false;
         }
-        if (gNetDispatch.GetMetaDataStore().Load(
+        if (0 != (status = gNetDispatch.GetMetaDataStore().Load(
                 mCPDir.c_str(),
                 mLogDir.c_str(),
                 mStartupProperties.getValue(
                     "metaServer.cleanupTempFiles", 1) != 0,
                 ! veifyAllLogSegmentsPresentFlag,
-                mMetaMd.c_str())) {
+                mMetaMd.c_str()))) {
+            if (-ENXIO == status) {
+                KFS_LOG_STREAM_FATAL <<
+                    "Possible incompatible transaction log and / or checkpoint"
+                    " format. Log compactor can be used to convert prior"
+                    " versions checkpoint and log format"
+                    " logcompactor -T new-log-dir -C new-checkpoint-dir" <<
+                KFS_LOG_EOM;
+            }
             return false;
         }
         // Init fs id if needed, leave create time 0, restorer will set these

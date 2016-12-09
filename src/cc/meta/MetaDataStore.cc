@@ -1002,7 +1002,7 @@ private:
                 KFS_LOG_STREAM_ERROR <<
                     "malformed file name: " << theNamePtr <<
                 KFS_LOG_EOM;
-                theRet = -EINVAL;
+                theRet = -ENXIO;
                 break;
             }
             if (0 != (theRet = inFunctor(theLogSeq, theSegNum, theNamePtr,
