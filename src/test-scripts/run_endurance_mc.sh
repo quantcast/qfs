@@ -776,6 +776,9 @@ EOF
         if [ x"$errsim" = x'yes' ]; then
             i=0
             vrdir='.'
+            cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.log.netErrorSimulator = a=rand+log,int=16384,rsleep=60;
+EOF
             while [ $i -lt $vrcount ]; do
                 cat >> "$vrdir/$metasrvprop" << EOF
 metaServer.log.receiver.netErrorSimulator = a=rand+log,int=8192,rsleep=60;

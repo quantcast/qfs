@@ -46,6 +46,7 @@
 #include "kfsio/ITimeout.h"
 #include "kfsio/checksum.h"
 #include "kfsio/PrngIsaac64.h"
+#include "kfsio/NetErrorSimulator.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -145,6 +146,7 @@ public:
           mPrepareToForkCond(),
           mForkDoneCond(),
           mRandom(),
+          mErrorSimulatorConfig(),
           mTmpBuffer(),
           mLogFileNamePrefix("log"),
           mNotPrimaryErrorMsg(ErrorCodeToString(-ELOGFAILED)),
@@ -545,6 +547,7 @@ private:
     QCCondVar         mPrepareToForkCond;
     QCCondVar         mForkDoneCond;
     PrngIsaac64       mRandom;
+    string            mErrorSimulatorConfig;
     TmpBuffer         mTmpBuffer;
     const string      mLogFileNamePrefix;
     const string      mNotPrimaryErrorMsg;
@@ -1951,6 +1954,19 @@ private:
             theName.Truncate(thePrefixLen).Append("transmitter.").c_str(),
             inParameters
         );
+        const string thePrevErrorSimulatorConfig = mErrorSimulatorConfig;
+        mErrorSimulatorConfig = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append(
+            "netErrorSimulator").c_str(), mErrorSimulatorConfig);
+        if (thePrevErrorSimulatorConfig != mErrorSimulatorConfig &&
+                NetErrorSimulatorConfigure(
+                    mNetManager,
+                    mErrorSimulatorConfig.c_str())) {
+            KFS_LOG_STREAM_INFO <<
+                "network error simulator configured: " <<
+                mErrorSimulatorConfig <<
+            KFS_LOG_EOM;
+        }
         return (0 == theStatus ? theVrStatus : theStatus);
     }
     bool IsLogStreamGood()
