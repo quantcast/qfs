@@ -44,6 +44,7 @@
 #include "common/MsgLogger.h"
 #include "common/MdStream.h"
 #include "qcdio/QCUtils.h"
+#include "kfsio/CryptoKeys.h"
 
 #include <sys/stat.h>
 #include <errno.h>
@@ -195,14 +196,36 @@ LogCompactorMain(int argc, char** argv)
                     cplognum != replayer.getLogNum()) {
                 string logFileName;
                 if (convertFlag) {
-                    checkpointer_setup_paths(newCpDir);
-                    status = MetaRequest::GetLogWriter().WriteNewLogSegment(
-                        newLogDir.c_str(), replayer, logFileName);
-                    if (0 != status) {
-                        KFS_LOG_STREAM_FATAL <<
-                            "transaction log write failure: " <<
-                            QCUtils::SysError(-status) <<
-                        KFS_LOG_EOM;
+                    if (metatree.GetFsId() <= 0) {
+                        seq_t fsid = 0;
+                        if (! CryptoKeys::PseudoRand(&fsid, sizeof(fsid))) {
+                            KFS_LOG_STREAM_FATAL <<
+                                "failed to initialize pseudo random number"
+                                " generator" <<
+                            KFS_LOG_EOM;
+                            status = -EFAULT;
+                        } else {
+                            if (fsid == 0) {
+                                fsid = 1;
+                            } else if (fsid < 0) {
+                                fsid = -fsid;
+                            }
+                            metatree.SetFsInfo(fsid, metatree.GetCreateTime());
+                            KFS_LOG_STREAM_INFO <<
+                                "assigned file system id: " << fsid <<
+                            KFS_LOG_EOM;
+                        }
+                    }
+                    if (0 == status) {
+                        checkpointer_setup_paths(newCpDir);
+                        status = MetaRequest::GetLogWriter().WriteNewLogSegment(
+                            newLogDir.c_str(), replayer, logFileName);
+                        if (0 != status) {
+                            KFS_LOG_STREAM_FATAL <<
+                                "transaction log write failure: " <<
+                                QCUtils::SysError(-status) <<
+                            KFS_LOG_EOM;
+                        }
                     }
                 } else {
                     logFileName = replayer.getLastLogName();
