@@ -195,20 +195,13 @@ LogCompactorMain(int argc, char** argv)
                     cplognum != replayer.getLogNum()) {
                 string logFileName;
                 if (convertFlag) {
-                    if (replayer.commitAll()) {
-                        checkpointer_setup_paths(newCpDir);
-                        status = MetaRequest::GetLogWriter().WriteNewLogSegment(
-                            newLogDir.c_str(), replayer, logFileName);
-                        if (0 != status) {
-                            KFS_LOG_STREAM_FATAL <<
-                                "transaction log write failure: " <<
-                                QCUtils::SysError(-status) <<
-                            KFS_LOG_EOM;
-                        }
-                    } else {
-                        status = -EINVAL;
+                    checkpointer_setup_paths(newCpDir);
+                    status = MetaRequest::GetLogWriter().WriteNewLogSegment(
+                        newLogDir.c_str(), replayer, logFileName);
+                    if (0 != status) {
                         KFS_LOG_STREAM_FATAL <<
-                            "replay commit all failure" <<
+                            "transaction log write failure: " <<
+                            QCUtils::SysError(-status) <<
                         KFS_LOG_EOM;
                     }
                 } else {

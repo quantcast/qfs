@@ -32,6 +32,7 @@
 #include "common/StBuffer.h"
 
 #include <string>
+#include <vector>
 #include <istream>
 #include <fstream>
 
@@ -40,6 +41,7 @@ namespace KFS
 using std::string;
 using std::ifstream;
 using std::istream;
+using std::vector;
 
 class DETokenizer;
 class DiskEntry;
@@ -142,6 +144,8 @@ public:
         int&          outStatus,
         int64_t&      outErrChecksum) const;
     MetaVrLogSeq getLastNonEmptyViewEndSeq() const;
+    typedef vector<const MetaRequest*> CommitQueue;
+    void getReplayCommitQueue(CommitQueue& queue) const;
     class BlockChecksum
     {
     public:

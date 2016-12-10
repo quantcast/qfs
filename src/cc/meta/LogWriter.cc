@@ -441,21 +441,72 @@ public:
                 mThread.IsStarted() || mNetManagerPtr) {
             return -EINVAL;
         }
-        mLogNum     = inReplayer.getLogNum() + 1;
-        mLastLogSeq = inReplayer.getLastLogSeq();
+        mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         inReplayer.getLastLogBlockCommitted(
             mLastWriteCommitted.mSeq,
             mLastWriteCommitted.mFidSeed,
             mLastWriteCommitted.mStatus,
             mLastWriteCommitted.mErrChkSum
         );
-        const string thePrevLogDir = mLogDir;
-        mLogDir = inLogDirPtr;
+        mLogNum     = inReplayer.getLogNum() + 1;
+        mLastLogSeq = mLastWriteCommitted.mSeq;
+        if (mLastLogSeq.IsPastViewStart()) {
+            mLastNonEmptyViewEndSeq = mLastLogSeq;
+        }
+        QCStValueChanger<string> theChanger(mLogDir, inLogDirPtr);
         NewLog(mLastLogSeq);
-        if (Close() && 0 == mError) {
+        if (! IsLogStreamGood()) {
+            Close();
+            return mError;
+        }
+        Replay::CommitQueue theQueue;
+        inReplayer.getReplayCommitQueue(theQueue);
+        for (Replay::CommitQueue::const_iterator theIt = theQueue.begin();
+                theQueue.end() != theIt;
+                ++theIt) {
+            // Write each entry in a separate log block, to avoid possible
+            // problems with block boundaries due to view change and such.
+            if (! *theIt) {
+                continue;
+            }
+            const MetaRequest& theOp = **theIt;
+            if (! theOp.logseq.IsValid()) {
+                continue;
+            }
+            if (! theOp.WriteLog(mMdStream, mOmitDefaultsFlag)) {
+                panic("log writer: invalid request");
+                Close();
+                mError = -EFAULT;
+                break;
+            }
+            if (! IsLogStreamGood()) {
+                break;
+            }
+            const MetaVrLogSeq& theLogSeq = META_VR_LOG_START_VIEW == theOp.op ?
+                static_cast<const MetaVrLogStartView&>(theOp).mNewLogSeq :
+                theOp.logseq;
+            Checksum theTxChecksum = 0;
+            ++mNextBlockSeq;
+            WriteBlockTrailer(theLogSeq, mLastWriteCommitted, 1, theTxChecksum);
+            LogStreamFlush();
+            if (! IsLogStreamGood()) {
+                --mNextBlockSeq;
+                break;
+            }
+            mLastLogSeq = theLogSeq;
+            mNextLogSeq = mLastLogSeq;
+            if (mLastLogSeq.IsPastViewStart()) {
+                mLastNonEmptyViewEndSeq = mLastLogSeq;
+            }
+        }
+        const bool theOkFlag = Close() && 0 == mError;
+        if (theOkFlag) {
+            if (mLastLogSeq < inReplayer.getLastLogSeq()) {
+                panic("invalid replay queue or last log sequence");
+                return -EFAULT;
+            }
             outLogSegmentFileName = mLogName;
         }
-        mLogDir = thePrevLogDir;
         return mError;
     }
 private:
@@ -754,7 +805,7 @@ private:
                 theOp.next = 0;
                 if (IsLogStreamGood()) {
                     if (! theOp.WriteLog(theStream, mOmitDefaultsFlag)) {
-                        panic("log writer: invalid request ");
+                        panic("log writer: invalid request");
                         mError = -EFAULT;
                     }
                     if (IsLogStreamGood()) {
@@ -1178,7 +1229,7 @@ private:
                     ++mLastLogSeq.mLogSeq;
                     thePtr->logseq = mLastLogSeq;
                     if (! thePtr->WriteLog(theStream, mOmitDefaultsFlag)) {
-                        panic("log writer: invalid request ");
+                        panic("log writer: invalid request");
                     }
                     if (! theStream) {
                         --mLastLogSeq.mLogSeq;

@@ -326,6 +326,21 @@ public:
         mBlockStartLogSeq = mLastCommittedSeq;
         return true;
     }
+    void getReplayCommitQueue(
+       Replay::CommitQueue& queue) const
+    {
+        queue.clear();
+        queue.reserve(mCommitQueue.size());
+        for (CommitQueue::const_iterator it = mCommitQueue.begin();
+                mCommitQueue.end() != it;
+                ++it) {
+            if (! it->op || ! it->op->logseq.IsValid() || ! it->op->replayFlag ||
+                    0 != it->op->status) {
+                continue;
+            }
+            queue.push_back(it->op);
+        }
+    }
     void curOpDone()
     {
         if (! mCurOp) {
@@ -2923,6 +2938,13 @@ Replay::getLastNonEmptyViewEndSeq() const
 {
     const ReplayState& state = replayTokenizer.GetState();
     return state.mLastNonEmptyViewEndSeq;
+}
+
+void
+Replay::getReplayCommitQueue(Replay::CommitQueue& queue) const
+{
+    const ReplayState& state = replayTokenizer.GetState();
+    return state.getReplayCommitQueue(queue);
 }
 
 } // namespace KFS

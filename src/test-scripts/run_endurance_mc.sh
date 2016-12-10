@@ -777,7 +777,7 @@ EOF
             i=0
             vrdir='.'
             cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.log.netErrorSimulator = a=rand+log,int=16384,rsleep=60;
+metaServer.log.netErrorSimulator = a=rand+log,int=4096,rsleep=60;
 EOF
             while [ $i -lt $vrcount ]; do
                 cat >> "$vrdir/$metasrvprop" << EOF

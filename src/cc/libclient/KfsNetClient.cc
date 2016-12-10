@@ -360,8 +360,8 @@ public:
                 mSslShutdownInProgressFlag = true;
                 const int theErr = mConnPtr->Shutdown();
                 if (0 != theErr && -EAGAIN == theErr) {
-                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "ssl shutdown failure: " <<
+                    KFS_LOG_STREAM_ERROR << mLogPrefix << mServerLocation <<
+                        " ssl shutdown failure: " <<
                         mConnPtr->GetErrorMsg() <<
                         " " << theErr <<
                     KFS_LOG_EOM;
@@ -504,8 +504,8 @@ public:
                         mKeyExpirationTime) ||
                     mSessionExpirationTime < theNow) &&
                 ! mKeyId.empty() && theNow < mKeyExpirationTime))) {
-            KFS_LOG_STREAM_INFO << mLogPrefix <<
-                "updating session by initiating re-connect" <<
+            KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                " updating session by initiating re-connect" <<
                 " expires: +" << (mSessionExpirationTime - theNow) <<
             KFS_LOG_EOM;
             ResetConnection();
@@ -655,8 +655,10 @@ public:
                     if (mSslShutdownInProgressFlag && mConnPtr->IsGood()) {
                         KFS_LOG_STREAM(mConnPtr->GetFilter() ?
                                 MsgLogger::kLogLevelERROR :
-                                MsgLogger::kLogLevelDEBUG) << mLogPrefix <<
-                            "ssl shutdown completion:"
+                                MsgLogger::kLogLevelDEBUG
+                                ) << mLogPrefix << mServerLocation <<
+                            " ssl shutdown completion: " <<
+                                mConnPtr->GetErrorMsg() <<
                             " filter: " << reinterpret_cast<const void*>(
                                 mConnPtr->GetFilter()) <<
                         KFS_LOG_EOM;
@@ -804,16 +806,16 @@ public:
                             mLookupOp.authType,
                             theDoAuthFlag,
                             &mLookupOp.statusMsg)) != 0)) {
-                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "authentication negotiation failure: " <<
+                KFS_LOG_STREAM_ERROR << mLogPrefix << mServerLocation <<
+                    " authentication negotiation failure: " <<
                         mLookupOp.statusMsg <<
                 KFS_LOG_EOM;
                 Fail(mLookupOp.status, mLookupOp.statusMsg);
                 return;
             }
             if (! theDoAuthFlag) {
-                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                    "no auth. supported and/or required"
+                KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                    " no auth. supported and/or required"
                     " auth. type: " << showbase << hex << mLookupOp.authType <<
                 KFS_LOG_EOM;
                 SubmitPending();
@@ -831,8 +833,8 @@ public:
                         theBufLen,
                         mAuthRequestCtx,
                         &mAuthOp.statusMsg)) != 0) {
-                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "authentication request failure: " <<
+                    KFS_LOG_STREAM_ERROR << mLogPrefix << mServerLocation <<
+                        " authentication request failure: " <<
                             mAuthOp.status <<
                         " " << mAuthOp.statusMsg <<
                     KFS_LOG_EOM;
@@ -849,8 +851,8 @@ public:
             }
         }
         if (inOpPtr != &mAuthOp) {
-            KFS_LOG_STREAM_FATAL << "invalid op completion: " <<
-                inOpPtr->Show() <<
+            KFS_LOG_STREAM_FATAL << mLogPrefix << mServerLocation <<
+                " invalid op completion: " << inOpPtr->Show() <<
             KFS_LOG_EOM;
             MsgLogger::Stop();
             abort();
@@ -907,8 +909,8 @@ public:
                 return;
             }
         }
-        KFS_LOG_STREAM_ERROR << mLogPrefix <<
-            "authentication response failure:"
+        KFS_LOG_STREAM_ERROR << mLogPrefix << mServerLocation <<
+            " authentication response failure:"
             " seq: " << theSeq <<
             " "      << mAuthOp.status <<
             " "      << mAuthOp.statusMsg <<
@@ -1279,6 +1281,7 @@ private:
             int       theContentLength = -1;
             RpcFormat theRpcFormat     = kRpcFormatUndef;
             if (mOuter.ReadHeaderSelf(
+                        mLocation,
                         inBuffer,
                         mOuter.mProperties,
                         theOpSeq,
@@ -1456,13 +1459,15 @@ private:
                 mStatus = mImplPtr->mResolverPtr->Start();
                 if (0 != mStatus) {
                     mStatusMsg = QCUtils::SysError(-mStatus) ;
-                    KFS_LOG_STREAM_FATAL << "failed to start resolver:" <<
+                    KFS_LOG_STREAM_FATAL << mImplPtr->mLogPrefix <<
+                        "failed to start resolver:" <<
                         " status: " << mStatus <<
                         " "         << mStatusMsg <<
                     KFS_LOG_EOM;
                     MsgLogger::Stop();
                     abort();
                     Done();
+                    return;
                 }
             }
             mImplPtr->mResolverPtr->Enqueue(*this);
@@ -1798,7 +1803,8 @@ private:
                 inOp.seq, OpQueueEntry(&inOp, this, 0)
             ));
         if (! theRes.second || theRes.first != mPendingOpQueue.begin()) {
-            KFS_LOG_STREAM_FATAL << "invalid auth. enqueue attempt:" <<
+            KFS_LOG_STREAM_FATAL << mLogPrefix <<
+                "invalid auth. enqueue attempt:" <<
                 " duplicate seq. number: " << theRes.second <<
             KFS_LOG_EOM;
             MsgLogger::Stop();
@@ -1948,19 +1954,20 @@ private:
         }
     }
     bool ReadHeaderSelf(
-        IOBuffer&   inBuffer,
-        Properties& inProperties,
-        kfsSeq_t&   outOpSeq,
-        RpcFormat&  ioRpcFormat,
-        int&        outContentLength,
-        bool&       outErrorFlag)
+        const ServerLocation& inLocation,
+        IOBuffer&             inBuffer,
+        Properties&           inProperties,
+        kfsSeq_t&             outOpSeq,
+        RpcFormat&            ioRpcFormat,
+        int&                  outContentLength,
+        bool&                 outErrorFlag)
     {
         outErrorFlag = false;
         const int theIdx = inBuffer.IndexOf(0, "\r\n\r\n");
         if (theIdx < 0) {
             if (mMaxRpcHeaderLength < inBuffer.BytesConsumable()) {
                KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    "error: " << mServerLocation <<
+                    "error: " << inLocation <<
                     ": exceeded max. response header size: " <<
                     mMaxRpcHeaderLength << "; got " <<
                     inBuffer.BytesConsumable() << " resetting connection" <<
@@ -1999,6 +2006,7 @@ private:
         kfsSeq_t theOpSeq     = -1;
         bool     theErrorFlag = false;
         if (! ReadHeaderSelf(
+                    mServerLocation,
                     inBuffer,
                     mProperties,
                     theOpSeq,
@@ -2029,8 +2037,8 @@ private:
             mCurOpIt != mPendingOpQueue.end() ? &mCurOpIt->second : 0;
         if (! mInFlightOpPtr) {
             // Discard canceled op reply.
-            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                "no operation found with seq: " << theOpSeq <<
+            KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                " no operation found with seq: " << theOpSeq <<
                 ", discarding response " <<
                 " content length: " << mContentLength <<
             KFS_LOG_EOM;
@@ -2212,8 +2220,8 @@ private:
         KFS_LOG_EOM;
         mSslShutdownInProgressFlag = false;
         if (IsPskAuth()) {
-            KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                "psk key:"
+            KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                " psk key:"
                 " size: " << mKeyData.size() <<
                 " id: "   << mKeyId <<
             KFS_LOG_EOM;
@@ -2226,8 +2234,8 @@ private:
                 &theErrMsg
             );
             if (theStatus != 0) {
-                KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                    "failed to start ssl:"
+                KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                    " failed to start ssl:"
                     " error: " << theStatus <<
                     " "        << theErrMsg <<
                 KFS_LOG_EOM;
@@ -2242,8 +2250,8 @@ private:
                 const int theStatus = mConnPtr->Shutdown();
                 if (theStatus != 0) {
                     mSslShutdownInProgressFlag = false;
-                    KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                        "ssl shutdown failure: " <<
+                    KFS_LOG_STREAM_ERROR << mLogPrefix << mServerLocation <<
+                        " ssl shutdown failure: " <<
                             theStatus <<
                     KFS_LOG_EOM;
                     // Assume communication failure.
@@ -2361,8 +2369,8 @@ private:
         if (! inCanceledFlag && 0 < mMaxMetaLogWriteRetryCount) {
             if (IsMetaLogWriteOrVrError(inIt->second.mOpPtr->status)) {
                 if (++mMetaLogWriteRetryCount < mMaxMetaLogWriteRetryCount) {
-                    KFS_LOG_STREAM_INFO << mLogPrefix <<
-                        "seq: "     << inIt->second.mOpPtr->seq <<
+                    KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                        " seq: "    << inIt->second.mOpPtr->seq <<
                         " status: " << inIt->second.mOpPtr->status <<
                         " "         << inIt->second.mOpPtr->statusMsg <<
                         " retry: "  << mMetaLogWriteRetryCount <<
@@ -2433,10 +2441,10 @@ private:
             }
             ResetConnection();
             if (0 < mTimeSecBetweenRetries) {
-                KFS_LOG_STREAM_INFO << mLogPrefix <<
-                    "retry attempt " << mRetryCount <<
-                    " of " << mMaxRetryCount <<
-                    ", will retry " << mPendingOpQueue.size() <<
+                KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                    " retry attempt "           << mRetryCount <<
+                    " of "                      << mMaxRetryCount <<
+                    ", will retry "             << mPendingOpQueue.size() <<
                     " pending operation(s) in " << mTimeSecBetweenRetries <<
                     " seconds" <<
                 KFS_LOG_EOM;
@@ -2524,8 +2532,8 @@ private:
             );
             if (theIt->second.mTime + mOpTimeoutSec < theNow) {
                 const OpQueueEntry& theEntry = theIt->second;
-                KFS_LOG_STREAM_INFO << mLogPrefix <<
-                    "auth. op timed out:"
+                KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                    " auth. op timed out:"
                     " seq: "               << theEntry.mOpPtr->seq <<
                     " "                    << theEntry.mOpPtr->Show() <<
                     " wait time: "         << (theNow - theEntry.mTime) <<
@@ -2557,8 +2565,8 @@ private:
                 CancelInFlightOp();
             }
             if (mResetConnectionOnOpTimeoutFlag) {
-                KFS_LOG_STREAM_INFO << mLogPrefix <<
-                    "op timed out: seq: "  << theEntry.mOpPtr->seq <<
+                KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                    " op timed out: seq: " << theEntry.mOpPtr->seq <<
                     " "                    << theEntry.mOpPtr->Show() <<
                     " retry count: "       << theEntry.mRetryCount <<
                     " wait time: "         << (theNow - theEntry.mTime) <<
@@ -2607,8 +2615,8 @@ private:
             if (! theEntry.mOpPtr) {
                 continue;
             }
-            KFS_LOG_STREAM_INFO << mLogPrefix <<
-                "op " << (theStatus == kErrorRequeueRequired ?
+            KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                " op "                << (theStatus == kErrorRequeueRequired ?
                     "re-queue" : "timed out") <<
                 " seq: "              << theEntry.mOpPtr->seq <<
                 " "                   << theEntry.mOpPtr->Show() <<
@@ -2642,8 +2650,8 @@ private:
         int64_t theRet = 0;
         if (! ParseTokenExpirationTime(inKeyId, theRet)) {
             const int64_t kDefaultSessionExpirationTimeSec = 10 * 24 * 60 * 60;
-            KFS_LOG_STREAM_INFO << mLogPrefix <<
-                "failed to parse delegation token,"
+            KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                " failed to parse delegation token,"
                 " setting expriation time to " <<
                     kDefaultSessionExpirationTimeSec << " sec." <<
             KFS_LOG_EOM;
