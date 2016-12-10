@@ -448,6 +448,10 @@ public:
             mLastWriteCommitted.mStatus,
             mLastWriteCommitted.mErrChkSum
         );
+        if (inReplayer.getCommitted() != mLastWriteCommitted.mSeq) {
+            panic("log writer: replay committed sequence mismatch");
+            return -EFAULT;
+        }
         mLogNum     = inReplayer.getLogNum() + 1;
         mLastLogSeq = mLastWriteCommitted.mSeq;
         if (mLastLogSeq.IsPastViewStart()) {
