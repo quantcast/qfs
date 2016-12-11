@@ -1145,7 +1145,7 @@ public:
             mPanicOnIoErrorFlag ? 1 : 0) != 0;
         mSyncVrStateFileFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("syncVrStateFile"),
-            mPanicOnIoErrorFlag ? 1 : 0) != 0;
+            mSyncVrStateFileFlag ? 1 : 0) != 0;
         mIgnoreInvalidVrStateFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("ignoreInvalidVrState"),
             mIgnoreInvalidVrStateFlag ? 1 : 0) != 0;
@@ -1179,7 +1179,7 @@ public:
                 mMetaMds.end() == mMetaMds.find(mMetaMd)) {
             KFS_LOG_STREAM_ERROR <<
                 "meta server md5: " << mMetaMd <<
-                " is not int the allowed md5 list: " <<
+                " is not in the allowed md5 list: " <<
                 kMetaserverMetaMdsParamNamePtr <<
             KFS_LOG_EOM;
             if (0 == theRet) {
