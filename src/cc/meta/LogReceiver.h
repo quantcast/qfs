@@ -40,6 +40,7 @@ class Properties;
 class NetManager;
 class IOBuffer;
 class MetaVrLogSeq;
+struct ServerLocation;
 struct MetaLogWriterControl;
 
 class LogReceiver
@@ -72,8 +73,10 @@ public:
         Waker&              inWaker,
         const MetaVrLogSeq& inCommittedLogSeq,
         const MetaVrLogSeq& inLastLogSeq,
-        int64_t             inFileSystemId);
+        int64_t             inFileSystemId,
+        vrNodeId_t          inNodeId);
     void Shutdown();
+    ServerLocation GetListenerAddress() const;
     static int ParseBlockLines(
         const IOBuffer&       inBuffer,
         int                   inLength,

@@ -142,9 +142,6 @@ public:
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
-        if (! mWakerPtr || mId < 0) {
-            mId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
-        }
         const string thePrevErrorSimulatorConfig = mErrorSimulatorConfig;
         mErrorSimulatorConfig = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
@@ -159,17 +156,21 @@ public:
                 mErrorSimulatorConfig <<
             KFS_LOG_EOM;
         }
-        mAuthContext.SetParameters(
+        return mAuthContext.SetParameters(
             theParamName.Truncate(thePrefixLen).Append("auth.").c_str(),
             inParameters);
-        return (mListenerAddress.IsValid() && 0 <= mId);
+    }
+    ServerLocation GetListenerAddress() const
+    {
+        return (mAcceptorPtr ? mAcceptorPtr->GetLocation() : mListenerAddress);
     }
     int Start(
         NetManager&         inNetManager,
         Waker&              inWaker,
         const MetaVrLogSeq& inCommittedLogSeq,
         const MetaVrLogSeq& inLastLogSeq,
-        int64_t             inFileSystemId)
+        int64_t             inFileSystemId,
+        NodeId              inNodeId)
     {
         if (mDeleteFlag) {
             panic("LogReceiver::Impl::Start delete pending");
@@ -188,9 +189,9 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
-        if (mId < 0) {
+        if (inNodeId < 0) {
             KFS_LOG_STREAM_ERROR <<
-                "server node id is not set: " << mId <<
+                "server node id is not set: " << inNodeId <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
@@ -230,6 +231,7 @@ public:
         mLastWriteSeq      = inLastLogSeq;
         mSubmittedWriteSeq = inLastLogSeq;
         mFileSystemId      = inFileSystemId;
+        mId                = inNodeId;
         mWakerPtr          = &inWaker;
         return 0;
     }
@@ -1377,10 +1379,11 @@ LogReceiver::Start(
     LogReceiver::Waker& inWaker,
     const MetaVrLogSeq& inCommittedLogSeq,
     const MetaVrLogSeq& inLastLogSeq,
-    int64_t             inFileSystemId)
+    int64_t             inFileSystemId,
+    vrNodeId_t          inNodeId)
 {
     return mImpl.Start(inNetManager, inWaker,
-        inCommittedLogSeq, inLastLogSeq, inFileSystemId);
+        inCommittedLogSeq, inLastLogSeq, inFileSystemId, inNodeId);
 }
 
     void
@@ -1393,6 +1396,12 @@ LogReceiver::Shutdown()
 LogReceiver::Dispatch()
 {
     return mImpl.Dispatch();
+}
+
+    ServerLocation
+LogReceiver::GetListenerAddress() const
+{
+    return mImpl.GetListenerAddress();
 }
 
     int

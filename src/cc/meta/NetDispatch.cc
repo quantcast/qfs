@@ -1187,14 +1187,20 @@ public:
         mParametersUpdatePendingFlag = false;
         if (! mLogReceiver.SetParameters(
                 kLogReciverParamsPrefix, mParameters)) {
-            // No listener address, do not start receiver.
+            return -EINVAL;
+        }
+        const vrNodeId_t vrId =
+            MetaRequest::GetLogWriter().GetMetaVrSM().GetNodeId();
+        if (vrId < 0 || ! mLogReceiver.GetListenerAddress().IsValid()) {
+            // No listener address, or valid node id -- do not start receiver.
             return 0;
         }
         const int err = mLogReceiver.Start(
             mutex ? mNetManager : globalNetManager(), *this,
             replayer.getCommitted(),
             replayer.getLastLogSeq(),
-            metatree.GetFsId()
+            metatree.GetFsId(),
+            vrId
         );
         if (err) {
             return err;
@@ -1211,7 +1217,6 @@ public:
     {
         assert(! gNetDispatch.GetMutex() || gNetDispatch.GetMutex()->IsOwned());
         inParameters.copyWithPrefix(kLogReciverParamsPrefix, mParameters);
-        inParameters.copyWithPrefix(kMetaVrNodeIdParameterNamePtr, mParameters);
         if (! mStartedFlag) {
             return;
         }

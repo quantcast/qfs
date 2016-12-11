@@ -666,6 +666,7 @@ metaServer.log.receiver.auth.whiteList        = root
 EOF
         fi
         i=$vrcount
+        myhostname='' # `hostname`
         while [ $i -gt 0 ]; do
             i=`expr $i - 1`
             if [ $i -gt 0 ]; then
@@ -679,11 +680,19 @@ EOF
             cport=`expr $metasrvport + $i`
             csport=`expr $metasrvchunkport + $i`
             cat >> "$vrdir/$metasrvprop" << EOF
-metaServer.vr.id = $i
 metaServer.clientPort            = $cport
 metaServer.chunkServerPort       = $csport
 metaServer.log.receiver.listenOn = 0.0.0.0 $port
 EOF
+            if [ x = x"$myhostname" ]; then
+                cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.vr.id = $i
+EOF
+            else
+                cat >> "$vrdir/$metasrvprop" << EOF
+metaServer.vr.hostnameToId = t.$myhostname 999 $myhostname $i t1.$myhostname 998
+EOF
+            fi
         done
 
         i=0

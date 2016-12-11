@@ -1079,11 +1079,61 @@ public:
             mVrStateTmpFileName += ".tmp";
         }
         if (! mStartedFlag || mNodeId < 0) {
-            mNodeId = inParameters.getValue(kMetaVrNodeIdParameterNamePtr, -1);
+            mNodeId = inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append("id"), NodeId(-1));
+            if (mNodeId < 0) {
+                const Properties::String* theStrPtr = inParameters.getValue(
+                    theName.Truncate(thePrefixLen).Append("hostnameToId"));
+                if (theStrPtr) {
+                    char         theHostName[256+1];
+                    const size_t theMaxLen =
+                        sizeof(theHostName) / sizeof(theHostName[0]) - 1;
+                    if (gethostname(theHostName, theMaxLen)) {
+                        theRet = -errno;
+                        KFS_LOG_STREAM_ERROR <<
+                            "gethostname failure: " <<
+                            QCUtils::SysError(-theRet) <<
+                        KFS_LOG_EOM;
+                    } else {
+                        theHostName[theMaxLen] = 0;
+                        const size_t      theLen    = strlen(theHostName);
+                        const char*       thePtr    = theStrPtr->data();
+                        const char* const theEndPtr =
+                            thePtr + theStrPtr->size();
+                        int               theCnt    = 0;
+                        const int         kSpace    = ' ';
+                        while (thePtr < theEndPtr) {
+                            while (thePtr < theEndPtr &&
+                                    (*thePtr & 0xFF) <= kSpace) {
+                                ++thePtr;
+                            }
+                            const char* const theStartPtr = thePtr;
+                            while (thePtr < theEndPtr &&
+                                    kSpace < (*thePtr & 0xFF)) {
+                                ++thePtr;
+                            }
+                            ++theCnt;
+                            NodeId theNodeId = -1;
+                            if (theCnt % 2 != 0 &&
+                                    theStartPtr + theLen == thePtr &&
+                                    0 == memcmp(
+                                        theStartPtr, theHostName, theLen) &&
+                                    DecIntParser::Parse(thePtr,
+                                        theEndPtr - thePtr, theNodeId) &&
+                                    0 <= theNodeId) {
+                                mNodeId = theNodeId;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
             if (0 <= mNodeId && ! theVrStateFileName.empty()) {
                 NodeId theNodeId = -1;
                 if (0 == ReadVrState(theNodeId) && ! CheckNodeId(theNodeId)) {
-                    theRet = -EINVAL;
+                    if (0 == theRet) {
+                        theRet = -EINVAL;
+                    }
                 }
             }
         }
@@ -3056,7 +3106,8 @@ private:
             inReq.statusMsg = "reconfiguration: node id is not configured or"
                 " valid; node id can be configured by setting the following"
                 " configuration file parameter: ";
-            inReq.statusMsg += kMetaVrNodeIdParameterNamePtr;
+            inReq.statusMsg += kMetaVrParametersPrefixPtr;
+            inReq.statusMsg += "id";
             return;
         }
         VrReconfigurationTable::const_iterator const theIt =
