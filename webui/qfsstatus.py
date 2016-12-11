@@ -36,7 +36,6 @@ from chunks import ChunkThread, ChunkDataManager, HtmlPrintData, HtmlPrintMetaDa
 from chart import ChartData, ChartServerData, ChartHTML
 from browse import QFSBrowser
 import threading
-from get_config import get_config
 
 gJsonSupported = True
 try:
@@ -58,6 +57,7 @@ displayName = ''
 autoRefresh = 60
 displayPorts = False
 displayChunkServerStorageTiers = True
+myWebserverPort=20001
 
 kServerName="XMeta-server-location" #todo - put it to config file
 kChunkDirName="Chunk-server-dir"
@@ -68,6 +68,7 @@ kBrowse=4
 kChunkDirs=5
 cMeta=6
 kConfig=7
+kVrStatus=8
 
 kHtmlEscapeTable = {
     "&": "&amp;",
@@ -139,6 +140,17 @@ class SystemInfo:
         self.maxClients = -1
         self.maxChunkServers = -1
         self.totalBuffers = -1
+        self.objStoreEnabled = -1
+        self.objStoreDeletes = -1
+        self.objStoreDeletesInFlight = -1
+        self.objStoreDeletesRetry = -1
+        self.objStoreDeletesStartedAgo = -1
+        self.fileCount = -1
+        self.dirCount = -1
+        self.vrPrimaryFlag = 0
+        self.vrNodeId = -1
+        self.vrPrimaryNodeId = -1
+        self.vrActiveFlag = 0
 
 class Status:
     def __init__(self):
@@ -153,6 +165,8 @@ class Status:
         self.goodNoRackAssignedCount = 0
         self.tiersColumnNames = {}
         self.tiersInfo = {}
+        self.config = {}
+        self.vrStatus = {}
         self.systemInfo = SystemInfo()
 
     def systemStatus(self, buffer):
@@ -169,7 +183,9 @@ class Status:
             self.goodNoRackAssignedCount,
             self.systemInfo,
             self.tiersColumnNames,
-            self.tiersInfo
+            self.tiersInfo,
+            self.config,
+            self.vrStatus
         )
 
     def display(
@@ -186,7 +202,9 @@ class Status:
             goodNoRackAssignedCount,
             systemInfo,
             tiersColumnNames,
-            tiersInfo
+            tiersInfo,
+            config,
+            vrStatus
         ) :
         global gQfsBrowser
         rows = ''
@@ -203,14 +221,18 @@ class Status:
             <A href="/chunk-it">Chunk Servers Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             <A href="/meta-it">Meta Server Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
             <A href="/chunkdir-it">Chunk Directories Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            <A href="/meta-conf-html">Meta Server Configuration</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <A href="/meta-conf-html">Meta Server Configuration</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'''
+        if 0 <= systemInfo.vrNodeId:
+            print >> buffer, '''
+            <A href="/meta-vr-status-html">Meta Server Viewstamped Replication Status</A>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;'''
+        print >> buffer, '''
             %s
         </P>
         <div class="info-table">
         <table cellspacing="0" cellpadding="0.1em">
         <tbody>''' % browseLink
 
-        if self.systemInfo.isInRecovery:
+        if self.systemInfo.isInRecovery and 0 != self.systemInfo.vrPrimaryFlag:
             print >> buffer, '''<tr><td>Recovery status: </td><td>:</td><td>IN RECOVERY</td></tr>'''
         fsFree = systemInfo.freeFsSpace
         if fsFree < 0:
@@ -227,6 +249,30 @@ class Status:
         <tr> <td> Used space </td><td>:</td><td> ''', bytesToReadable(systemInfo.usedSpace), '''</td></tr>
         <tr> <td> Free space </td><td>:</td><td> ''', bytesToReadable(fsFree), '%.2f%%' % freePct, '''</td></tr>
         <tr> <td> WORM mode </td><td>:</td><td> ''', systemInfo.wormMode, '''</td></tr>
+        <tr> <td> Meta Server Viewstamped Replication (VR) </td><td>:</td><td> '''
+        if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
+            print >> buffer, '''not&nbsp;configured'''
+        else:
+            try:
+                print >> buffer, '''node&nbsp;id:&nbsp;''' + vrStatus['vr.nodeId'] + \
+                    '''&nbsp;state:&nbsp;''' + htmlEscape(vrStatus['vr.state']) + '''&nbsp;'''
+                if '0' == vrStatus['vr.active']:
+                    print >> buffer, '''&nbsp;inactive&nbsp;'''
+                else:
+                    if '0' != vrStatus['vr.status']:
+                        primaryId = vrStatus['vr.primaryId']
+                        print >> buffer, '''primary&nbsp;node&nbsp;id:&nbsp;''' + primaryId
+                        for k in vrStatus:
+                            if k.startswith('logTransmitter.channel.') and k.endswith('.id') and vrStatus[k] == primaryId:
+                                try:
+                                    host = vrStatus[k.replace('.id', '.location')].split()[0]
+                                    print >> buffer, '''&nbsp;host:&nbsp;<A href="http://''' + host + \
+                                        ':' + str(myWebserverPort) + '''/">''' + host + '''</A>'''
+                                except:
+                                    pass
+            except:
+                print >> buffer, '''VR&nbsp;status&nbsp;parse&nbsp;errror'''
+        print >> buffer, '''</td></tr>
         <tr> <td> Nodes</td><td>:</td><td> alive:&nbsp;''' + splitThousands(serverCount) + \
                 '''&nbsp;dead:&nbsp;''' + splitThousands(numReallyDownServers) + \
                 '''&nbsp;retiring:&nbsp;''' + splitThousands(len(retiringServers))
@@ -1087,6 +1133,39 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 52:
         return
     systemInfo.totalBuffers = long(info[51].split('=')[1])
+    if len(info) < 53:
+        return
+    systemInfo.objStoreEnabled = long(info[52].split('=')[1])
+    if len(info) < 54:
+        return
+    systemInfo.objStoreDeletes = long(info[53].split('=')[1])
+    if len(info) < 55:
+        return
+    systemInfo.objStoreDeletesInFlight = long(info[54].split('=')[1])
+    if len(info) < 56:
+        return
+    systemInfo.objStoreDeletesRetry = long(info[55].split('=')[1])
+    if len(info) < 57:
+        return
+    systemInfo.objStoreDeletesStartedAgo = long(info[56].split('=')[1])
+    if len(info) < 58:
+        return
+    systemInfo.fileCount = long(info[57].split('=')[1])
+    if len(info) < 59:
+        return
+    systemInfo.dirCount = long(info[58].split('=')[1])
+    if len(info) < 60:
+        return
+    systemInfo.vrPrimaryFlag = long(info[59].split('=')[1])
+    if len(info) < 61:
+        return
+    systemInfo.vrNodeId = long(info[60].split('=')[1])
+    if len(info) < 62:
+        return
+    systemInfo.vrPrimaryNodeId = long(info[61].split('=')[1])
+    if len(info) < 63:
+        return
+    systemInfo.vrActiveFlag = long(info[62].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
@@ -1169,6 +1248,21 @@ def ping(status, metaserver):
 
         if line.startswith('Storage tiers info:'):
             status.tiersInfo = line[line.find(':') + 1:].strip().split('\t')
+            continue
+
+        config = line.startswith('Config:')
+        if config or line.startswith('VR Status:'):
+            res = {}
+            for keyval in line[line.find(':') + 1:].strip().split(';'):
+                try:
+                    [ key, value ] = keyval.split('=')
+                    res[key] = value
+                except ValueError:
+                    continue
+            if config:
+                status.config = res
+            else:
+                status.vrStatus = res;
             continue
 
     mergeDownUpNodes(status)
@@ -1735,9 +1829,20 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
 
             status  = None
             reqType = None
-            if self.path.startswith('/meta-conf-html') :
-                config = get_config(metaserverHost, metaserverPort)
-                title='Meta server configuration'
+            getVrStatusHtml = self.path.startswith('/meta-vr-status-html')
+            if getVrStatusHtml or self.path.startswith('/meta-conf-html') :
+                status = Status()
+                ping(status, metaserver)
+                if getVrStatusHtml:
+                    title         = 'Meta Server Viewstamped Replication Status'
+                    keyColumnName = 'Name'
+                    keyvals       = status.vrStatus
+                    reqType       = kVrStatus
+                else:
+                    title         = 'Meta Server Configuration'
+                    keyColumnName = 'Parameter Name'
+                    keyvals       = status.config
+                    reqType       = kConfig
                 printStyle(txtStream, title)
                 print >> txtStream, '''
                     <body class="oneColLiqCtr">
@@ -1748,18 +1853,18 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                         </P>
                         <div class="floatleft">
                         <table class="sortable network-status-table" id="configtable">
-                        <caption> Meta server configuration </caption>
+                        <caption> ''', title, ''' </caption>
                         <thead>
                         <tr>
-                        <th>Parameter Name</th>
+                        <th>''', keyColumnName, '''</th>
                         <th>Value</th>
                         </tr>
                         </thead>
                         <tbody>
                         '''
-                for k in config:
+                for k in keyvals:
                     print >> txtStream, '<tr><td>', htmlEscape(k), '</td><td>',\
-                        htmlEscape(config[k]), '</td></tr>'
+                        htmlEscape(keyvals[k]), '</td></tr>'
                 print >> txtStream, '''
                         </tbody>
                         </table>
@@ -1770,16 +1875,26 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                     </html>
                 '''
                 self.path = '/'
-                reqType = kConfig
             elif self.path.startswith('/meta-conf') :
+                status = Status()
+                ping(status, metaserver)
                 if gJsonSupported:
                     print >> txtStream, json.dumps(
-                        get_config(metaserverHost, metaserverPort), sort_keys=True, indent=0
-                    )
+                        status.config, sort_keys=True, indent=0)
                 else:
-                    print >> txtStream, get_config(metaserverHost, metaserverPort)
+                    print >> txtStream, status.config
                 self.path = '/'
                 reqType = cMeta
+            elif self.path.startswith('/meta-vr-status') :
+                status = Status()
+                ping(status, metaserver)
+                if gJsonSupported:
+                    print >> txtStream, json.dumps(
+                        status.vrStatus, sort_keys=True, indent=0)
+                else:
+                    print >> txtStream, status.vrStatus
+                self.path = '/'
+                reqType = kVrStatus
             elif self.path.startswith('/chunk-it') :
                 self.path = '/'
                 reqType = kChunks
@@ -1814,7 +1929,7 @@ class Pinger(SimpleHTTPServer.SimpleHTTPRequestHandler):
                                            txtStream) == 0:
                     self.send_error(404, 'Not found')
                     return
-            elif reqType != cMeta and reqType != kConfig:
+            elif reqType != cMeta and reqType != kConfig and reqType != kVrStatus:
                 status = Status()
                 ping(status, metaserver)
                 printStyle(txtStream, 'QFS Status')
@@ -1923,7 +2038,6 @@ class ThreadedTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 if __name__ == '__main__':
     global gChunkHandler
     global gQfsBrowser
-    PORT=20001
     allMachinesFile = ""
     if len(sys.argv) != 2:
         print "Usage : ./qfsstatus.py <server.conf>"
@@ -1967,7 +2081,7 @@ if __name__ == '__main__':
     except:
         HOST = "0.0.0.0"
         pass
-    PORT = config.getint('webserver', 'webServer.port')
+    myWebserverPort = config.getint('webserver', 'webServer.port')
     allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
     if metaserverHost != '127.0.0.1' and metaserverHost != 'localhost':
         displayName = metaserverHost
@@ -1992,7 +2106,7 @@ if __name__ == '__main__':
 
     socket.setdefaulttimeout(socketTimeout)
     SocketServer.TCPServer.allow_reuse_address = True
-    httpd = ThreadedTCPServer((HOST, PORT), Pinger)
+    httpd = ThreadedTCPServer((HOST, myWebserverPort), Pinger)
     pidf = ''
     try:
         pidf = config.get('webserver', 'webServer.pidFile')
