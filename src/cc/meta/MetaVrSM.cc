@@ -2054,7 +2054,7 @@ private:
             &Impl::SetPrimaryOrder,  &Impl::CommitSetPrimaryOrder)
         .Def("set-parameters",
             " -- set parameters:\n"
-            " primary timeout,\n"
+            " primary timeout\n"
             " backup timeout\n"
             " maximum view change log distance\n"
             " maximum number of log listeners per node" ,
