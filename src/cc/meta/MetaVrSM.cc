@@ -1085,7 +1085,7 @@ public:
                 const Properties::String* theStrPtr = inParameters.getValue(
                     theName.Truncate(thePrefixLen).Append("hostnameToId"));
                 if (theStrPtr) {
-                    char         theHostName[256+1];
+                    char         theHostName[256 + 1];
                     const size_t theMaxLen =
                         sizeof(theHostName) / sizeof(theHostName[0]) - 1;
                     if (gethostname(theHostName, theMaxLen)) {
@@ -1117,12 +1117,15 @@ public:
                             if (theCnt % 2 != 0 &&
                                     theStartPtr + theLen == thePtr &&
                                     0 == memcmp(
-                                        theStartPtr, theHostName, theLen) &&
-                                    DecIntParser::Parse(thePtr,
+                                        theStartPtr, theHostName, theLen)) {
+                                const char* const theIdPtr = thePtr;
+                                if (DecIntParser::Parse(thePtr,
                                         theEndPtr - thePtr, theNodeId) &&
-                                    0 <= theNodeId) {
-                                mNodeId = theNodeId;
-                                break;
+                                        0 <= theNodeId) {
+                                    mNodeId = theNodeId;
+                                    break;
+                                }
+                                thePtr = theIdPtr;
                             }
                         }
                     }
