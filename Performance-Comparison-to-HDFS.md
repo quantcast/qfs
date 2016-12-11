@@ -1,4 +1,4 @@
-First off, QFS gives you 50% space reduction over 3-way replication in QFS,
+First off, QFS gives you 50% space reduction over 3-way replication in HDFS,
 through erasure coding. At the same time it increases the number of
 simultaneous failures tolerated from 2 to 3. Moreover, it's significantly
 faster at scale, for the workload we tested on.
