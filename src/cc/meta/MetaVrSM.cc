@@ -3245,7 +3245,7 @@ private:
             mTmpBuffer += ".";
             inStream <<
                 mTmpBuffer << "id"       << inSepPtr << theIt->first <<
-                    "\n" <<
+                    inDelimPtr <<
                 mTmpBuffer << "flags"    << inSepPtr <<
                     theIt->second.GetFlags() << inDelimPtr <<
                 mTmpBuffer << "active"   << inSepPtr <<
@@ -3259,7 +3259,8 @@ private:
             for (Config::Locations::const_iterator theIt = theLocations.begin();
                     theLocations.end() != theIt;
                     ++theIt) {
-                inStream << mTmpBuffer << "listener" << *theIt << inDelimPtr;
+                inStream << mTmpBuffer << "listener" << inSepPtr <<
+                    *theIt << inDelimPtr;
             }
         }
     }

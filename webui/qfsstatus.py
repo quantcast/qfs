@@ -37,6 +37,13 @@ from chart import ChartData, ChartServerData, ChartHTML
 from browse import QFSBrowser
 import threading
 
+gHasCollections = True
+try:
+    import collections
+except ImportError:
+    sys.stderr.write("Warning: '%s'.Proceeding without collections.\n" % str(sys.exc_info()[1]))
+    gHasCollections = False
+
 gJsonSupported = True
 try:
     import json
@@ -264,9 +271,9 @@ class Status:
                         primaryId = vrStatus['vr.primaryId']
                         textBuf = textBuf + '&nbsp;primary&nbsp;node&nbsp;id:&nbsp;' + primaryId
                         for k in vrStatus:
-                            if k.startswith('logTransmitter.channel.') and k.endswith('.id') and vrStatus[k] == primaryId:
+                            if k.startswith('configuration.node.') and k.endswith('.id') and vrStatus[k] == primaryId:
                                 try:
-                                    host = vrStatus[k.replace('.id', '.location')].split()[0]
+                                    host = vrStatus[k.replace('.id', '.listener')].split()[0]
                                     textBuf = textBuf + '&nbsp;host:&nbsp;<A href="http://' + host + \
                                         ':' + str(myWebserverPort) + '/">' + host + '</A>'
                                 except:
@@ -1268,7 +1275,10 @@ def ping(status, metaserver):
 
         config = line.startswith('Config:')
         if config or line.startswith('VR Status:'):
-            res = {}
+            if gHasCollections:
+                res = collections.OrderedDict()
+            else:
+                res = {}
             for keyval in line[line.find(':') + 1:].strip().split(';'):
                 try:
                     [ key, value ] = keyval.split('=')
