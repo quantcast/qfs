@@ -293,4 +293,42 @@ resetOStream(ostream& os)
     return os;
 }
 
+string
+escapeString(const char* buf, size_t len,
+    char escapePrefix, const char* escapeList)
+{
+    const char* const kHexChars = "0123456789ABCDEF";
+    string            ret;
+    const char*       p = buf;
+    const char* const e = p + len;
+    ret.reserve(len);
+    while (p < e) {
+        const int c = *p++ & 0xFF;
+        // For now do not escape '/' to make file names more readable.
+        if (c < ' ' || c >= 0xFF || strchr(escapeList, c)) {
+            ret.push_back(escapePrefix);
+            ret.push_back(kHexChars[(c >> 4) & 0xF]);
+            ret.push_back(kHexChars[c & 0xF]);
+        } else {
+            ret.push_back(c);
+        }
+    }
+    return ret;
+}
+
+bool
+isValidClusterKey(const char* key)
+{
+    if (! key) {
+        return false;
+    }
+    for (const char* ptr = key; *ptr; ++ptr) {
+        const int sym = *ptr & 0xFF;
+        if (sym <= ' ' || strchr("=;,", sym)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace KFS

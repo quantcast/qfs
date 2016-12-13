@@ -41,16 +41,19 @@ namespace KFS
 using std::string;
 using std::ostream;
 
-extern chunkOff_t chunkStartOffset(chunkOff_t offset);
-extern int link_latest(const string& real, const string& alias);
-extern string toString(int64_t n);
-extern int64_t toNumber(const char* str);
-static inline int64_t toNumber(const string& s) { return toNumber(s.c_str()); }
-extern string makename(const string& dir, const string& prefix, int64_t number);
-extern bool file_exists(const string& s);
-extern void warn(const string& s, bool use_perror = false);
-extern void panic(const string& s, bool use_perror = false);
-extern const unsigned char* char2HexTable();
+chunkOff_t chunkStartOffset(chunkOff_t offset);
+int link_latest(const string& real, const string& alias);
+string toString(int64_t n);
+int64_t toNumber(const char* str);
+inline int64_t toNumber(const string& s) { return toNumber(s.c_str()); }
+string makename(const string& dir, const string& prefix, int64_t number);
+bool file_exists(const string& s);
+void warn(const string& s, bool use_perror = false);
+void panic(const string& s, bool use_perror = false);
+const unsigned char* char2HexTable();
+bool isValidClusterKey(const char* key);
+string escapeString(
+    const char* buf, size_t len, char escapePrefix, const char* escapeList);
 
 template<typename T>
 static inline T&
@@ -60,7 +63,7 @@ sendtime(T& os, const string& prefix, int64_t t, const string& suffix)
     return (os << prefix << (t / kMicroseconds) <<
         " " <<  (t % kMicroseconds) << suffix);
 }
-extern ostream& resetOStream(ostream& os);
+ostream& resetOStream(ostream& os);
 
 class DisplayDateTime
 {
@@ -138,9 +141,8 @@ private:
 /// available, length (in bytes) of the message.
 /// @retval true if a message is available; false otherwise
 ///
-extern bool IsMsgAvail(IOBuffer *iobuf, int *msgLen);
-extern void setAbortOnPanic(bool flag);
-
+bool IsMsgAvail(IOBuffer *iobuf, int *msgLen);
+void setAbortOnPanic(bool flag);
 
 }
 #endif // !defined(KFS_UTIL_H)

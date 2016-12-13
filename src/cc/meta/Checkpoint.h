@@ -96,7 +96,7 @@ private:
 extern const string& LASTCP;       //!< most recent CP file (link)
 
 extern Checkpoint& cp;
-extern void checkpointer_setup_paths(const string &cpdir);
+void checkpointer_setup_paths(const string &cpdir);
 
 }
 

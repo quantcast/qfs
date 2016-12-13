@@ -300,19 +300,15 @@ public:
  * of components.  The item will be preceded by an identifying keyword,
  * which is passed in as "tag".
  */
-extern bool pop_name(
-    string &name, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_path(
-    string &path, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_fid(fid_t &fid, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_size(size_t &sz, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_offset(chunkOff_t &o, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_short(int16_t &n, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_type(
-    FileType &t, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_time(
-    int64_t &tv, const char* tag, DETokenizer &c, bool ok);
-extern bool pop_num(int64_t &n, const char* tag, DETokenizer& c, bool ok);
+bool pop_name(string& name, const char* tag, DETokenizer &c, bool ok);
+bool pop_path(string& path, const char* tag, DETokenizer &c, bool ok);
+bool pop_fid(fid_t &fid, const char* tag, DETokenizer &c, bool ok);
+bool pop_size(size_t &sz, const char* tag, DETokenizer &c, bool ok);
+bool pop_offset(chunkOff_t &o, const char* tag, DETokenizer &c, bool ok);
+bool pop_short(int16_t &n, const char* tag, DETokenizer &c, bool ok);
+bool pop_type(FileType& t, const char* tag, DETokenizer &c, bool ok);
+bool pop_time(int64_t& tv, const char* tag, DETokenizer &c, bool ok);
+bool pop_num(int64_t &n, const char* tag, DETokenizer& c, bool ok);
 
 }
 #endif // !defined(KFS_ENTRY_H)

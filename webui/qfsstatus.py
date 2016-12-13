@@ -253,27 +253,43 @@ class Status:
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
             print >> buffer, '''not&nbsp;configured'''
         else:
+            textBuf = ''
             try:
-                print >> buffer, '''node&nbsp;id:&nbsp;''' + vrStatus['vr.nodeId'] + \
-                    '''&nbsp;state:&nbsp;''' + htmlEscape(vrStatus['vr.state']) + '''&nbsp;'''
+                textBuf = 'node&nbsp;id:&nbsp;' + vrStatus['vr.nodeId'] + \
+                   '&nbsp;state:&nbsp;' + htmlEscape(vrStatus['vr.state'])
                 if '0' == vrStatus['vr.active']:
-                    print >> buffer, '''&nbsp;inactive&nbsp;'''
+                   textBuf = textBuf + '&nbsp;inactive'
                 else:
-                    if '0' != vrStatus['vr.status']:
+                    if 0 != long(vrStatus['vr.status']):
                         primaryId = vrStatus['vr.primaryId']
-                        print >> buffer, '''primary&nbsp;node&nbsp;id:&nbsp;''' + primaryId
+                        textBuf = textBuf + '&nbsp;primary&nbsp;node&nbsp;id:&nbsp;' + primaryId
                         for k in vrStatus:
                             if k.startswith('logTransmitter.channel.') and k.endswith('.id') and vrStatus[k] == primaryId:
                                 try:
                                     host = vrStatus[k.replace('.id', '.location')].split()[0]
-                                    print >> buffer, '''&nbsp;host:&nbsp;<A href="http://''' + host + \
-                                        ':' + str(myWebserverPort) + '''/">''' + host + '''</A>'''
+                                    textBuf = textBuf + '&nbsp;host:&nbsp;<A href="http://' + host + \
+                                        ':' + str(myWebserverPort) + '/">' + host + '</A>'
                                 except:
                                     pass
+                    try:
+                        viewTime = long(vrStatus['vr.currentTime']) - long(vrStatus['vr.viewChangeStartTime'])
+                        viewSeconds = viewTime % 60
+                        trem        = viewTime / 60
+                        viewMinutes = trem % 60
+                        trem        = trem / 60
+                        viewHours   = trem % 24
+                        viewDays    = trem / 24
+                        textBuf = textBuf + '&nbsp;view started:&nbsp;' + \
+                            str(viewDays) + '&nbsp;days,&nbsp;%02d' % viewHours + \
+                            ':%02d' % viewMinutes + ':%02d' % viewSeconds + \
+                            '&nbsp;ago&nbsp;reason:&nbsp;' + htmlEscape(vrStatus['vr.viewChangeReason'])
+                    except:
+                        pass
+                print >> buffer, textBuf
             except:
                 print >> buffer, '''VR&nbsp;status&nbsp;parse&nbsp;errror'''
         print >> buffer, '''</td></tr>
-        <tr> <td> Nodes</td><td>:</td><td> alive:&nbsp;''' + splitThousands(serverCount) + \
+        <tr> <td> Chunk Servers</td><td>:</td><td> alive:&nbsp;''' + splitThousands(serverCount) + \
                 '''&nbsp;dead:&nbsp;''' + splitThousands(numReallyDownServers) + \
                 '''&nbsp;retiring:&nbsp;''' + splitThousands(len(retiringServers))
         if systemInfo.hibernatedServerCount >= 0:
@@ -373,7 +389,7 @@ class Status:
             else:
                 mult = 0.
             print >> buffer, \
-                '''<tr> <td>Disks&nbsp;</td><td>:</td><td>''' + \
+                '''<tr> <td>Storage Devices&nbsp;</td><td>:</td><td>''' + \
                'total:&nbsp;' + splitThousands(systemInfo.totalDrives) + \
                 '&nbsp;writable:&nbsp;' + splitThousands(systemInfo.writableDrives) + \
                     '&nbsp;%.2f%%' % (float(systemInfo.writableDrives) * mult) + \

@@ -3212,23 +3212,8 @@ ChunkServer::ScheduleRestart(
 /* static */ string
 ChunkServer::Escape(const char* buf, size_t len)
 {
-    const char* const kHexChars = "0123456789ABCDEF";
-    string            ret;
-    const char*       p = buf;
-    const char* const e = p + len;
-    ret.reserve(len);
-    while (p < e) {
-        const int c = *p++ & 0xFF;
-        // For now do not escape '/' to make file names more readable.
-        if (c <= ' ' || c >= 0xFF || strchr("!*'();:@&=+$,?#[]", c)) {
-            ret.push_back('%');
-            ret.push_back(kHexChars[(c >> 4) & 0xF]);
-            ret.push_back(kHexChars[c & 0xF]);
-        } else {
-            ret.push_back(c);
-        }
-    }
-    return ret;
+    // For now do not escape '/' to make file names more readable.
+    return escapeString(buf, len, '%', " !*'();:@&=+$,?#[]");
 }
 
 void

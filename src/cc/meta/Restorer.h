@@ -60,8 +60,8 @@ private:
 };
 
 class DETokenizer;
-extern bool restore_chunkVersionInc(DETokenizer& c);
-extern bool restore_setintbase(DETokenizer& c);
+bool restore_chunkVersionInc(DETokenizer& c);
+bool restore_setintbase(DETokenizer& c);
 
 /*
  * Whenever a checkpoint file is loaded in, it takes up a ton of memory.
@@ -69,15 +69,15 @@ extern bool restore_setintbase(DETokenizer& c);
  * vice-versa, all of these tools acquire a lock file before loading the
  * checkpoint.
  */
-extern int try_to_acquire_lockfile(const string &lockfn);
-extern int acquire_lockfile(const string &lockfn, int ntries);
+int try_to_acquire_lockfile(const string &lockfn);
+int acquire_lockfile(const string &lockfn, int ntries);
 
 extern string restoreChecksum;
 extern bool   lastLineChecksumFlag;
-extern bool   restore_checksum(DETokenizer& c);
-extern bool   restore_delegate_cancel(DETokenizer& c);
-extern bool   restore_filesystem_info(DETokenizer& c);
-extern bool   restore_idempotent_request(DETokenizer& c);
+bool restore_checksum(DETokenizer& c);
+bool restore_delegate_cancel(DETokenizer& c);
+bool restore_filesystem_info(DETokenizer& c);
+bool restore_idempotent_request(DETokenizer& c);
 
 }
 #endif // !defined(KFS_RESTORE_H)

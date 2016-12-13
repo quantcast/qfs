@@ -1158,8 +1158,19 @@ public:
                 mMetaDataStoreLocation = theLocation;
             }
         }
-        mClusterKey = inParameters.getValue(
+        const string theClusterKey = inParameters.getValue(
             kMetaClusterKeyParamNamePtr, mClusterKey);
+        if (isValidClusterKey(theClusterKey.c_str())) {
+            mClusterKey = theClusterKey;
+        } else {
+            if (0 == theRet) {
+                theRet = -EINVAL;
+            }
+            KFS_LOG_STREAM_ERROR <<
+                "parameter: "            << kMetaClusterKeyParamNamePtr <<
+                " invalid cluster key: " << theClusterKey <<
+            KFS_LOG_EOM;
+        }
         const Properties::String* const theMdStrPtr =
             inParameters.getValue(kMetaserverMetaMdsParamNamePtr);
         if (theMdStrPtr) {
@@ -3198,7 +3209,8 @@ private:
                 inDelimPtr << mTmpBuffer <<
             "metaMd5"              << inSepPtr << mMetaMd                   <<
                 inDelimPtr << mTmpBuffer <<
-            "viewChangeReason"     << inSepPtr << mViewChangeReason         <<
+            "viewChangeReason"     << inSepPtr << escapeString(
+                mViewChangeReason.data(), mViewChangeReason.size(), '%', "=;") <<
                 inDelimPtr << mTmpBuffer <<
             "viewChangeStartTime"  << inSepPtr << mViewChangeInitiationTime <<
                 inDelimPtr << mTmpBuffer <<

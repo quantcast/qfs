@@ -2281,8 +2281,12 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
             md5sum.clear();
         }
     }
-    mClusterKey = props.getValue(kMetaClusterKeyParamNamePtr, mClusterKey);
-
+    const string clusterKey =
+        props.getValue(kMetaClusterKeyParamNamePtr, mClusterKey);
+    const bool validClusterKeyFlag = isValidClusterKey(clusterKey.c_str());
+    if (validClusterKeyFlag) {
+        mClusterKey = clusterKey;
+    }
     mMaxResponseSize = props.getValue(
         "metaServer.maxResponseSize",
         mMaxResponseSize);
@@ -2582,12 +2586,16 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
                 }
             }
         }
-        mConfig.append(it->first.data(), it->first.size());
+        const char  kEscapePrefix = '%';
+        const char* kEscapeList   = "=;";
+        mConfig.append(escapeString(it->first.data(), it->first.size(),
+            kEscapePrefix, kEscapeList));
         mConfig += '=';
         if (pref < pend) {
             mConfig += 'x';
         } else {
-            mConfig.append(it->second.data(), it->second.size());
+            mConfig.append(escapeString(it->second.data(), it->second.size(),
+                kEscapePrefix, kEscapeList));
         }
         mConfig += ';';
     }
@@ -2599,7 +2607,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         mVerifyAllOpsPermissionsParamFlag ||
         mClientAuthContext.IsAuthRequired();
     SetChunkServersProperties(props);
-    return (csOkFlag && cliOkFlag &&
+    return (csOkFlag && cliOkFlag && validClusterKeyFlag &&
         0 == userAndGroupErr && 0 == netDispatchErr);
 }
 
