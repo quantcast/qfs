@@ -5611,7 +5611,7 @@ LayoutManager::Handle(MetaBye& req)
             req.replayFlag, idx));
         isHibernating = true;
     }
-    if (! server->IsReplay()) {
+    if (! server->IsReplay() && ! server->IsStoppedServicing()) {
         if (canBeMaster) {
             if (mMastersCount > 0) {
                 mMastersCount--;
@@ -5641,13 +5641,20 @@ LayoutManager::Handle(MetaBye& req)
     }
     // Convert const_iterator to iterator below to make erase() compile.
     mChunkServers.erase(mChunkServers.begin() + (sit - mChunkServers.begin()));
-    if (! server->IsReplay() && ! mAssignMasterByIpFlag &&
-            mMastersCount == 0 && ! mChunkServers.empty()) {
-        assert(mSlavesCount > 0 &&
-            ! mChunkServers.front()->CanBeChunkMaster());
-        mSlavesCount--;
-        mMastersCount++;
-        mChunkServers.front()->SetCanBeChunkMaster(true);
+    if (mPrimaryFlag && ! mAssignMasterByIpFlag &&
+            0 < mSlavesCount && mMastersCount == 0 &&
+            ! server->IsReplay() && ! server->IsStoppedServicing() &&
+            mReplayServerCount < mChunkServers.size()) {
+        for (Servers::const_iterator it = mChunkServers.begin();
+                mChunkServers.end() != it;
+                ++it) {
+            ChunkServer& srv = **it;
+            if (! srv.IsReplay() && ! srv.IsStoppedServicing()) {
+                mSlavesCount--;
+                mMastersCount++;
+                srv.SetCanBeChunkMaster(true);
+            }
+        }
     }
     UpdateReplicationsThreshold();
     ScheduleCleanup();
@@ -8378,6 +8385,7 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
     // Initial headers.
     mWOstream.Set(mPingResponse);
     mPingUpdateTime = TimeNow();
+    const MetaFattr* const fa = metatree.getFattr(ROOTFID);
     mWOstream <<
         "Build-version: "       << KFS_BUILD_VERSION_STRING << "\r\n"
         "Source-version: "      << KFS_SOURCE_REVISION_STRING << "\r\n"
@@ -8472,12 +8480,13 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Object store first delete time= " <<
             (mObjStoreFilesDeleteQueue.IsEmpty() ? time_t(0) :
                 TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime) << "\t"
-        "File count= " << GetNumFiles() << "\t"
-        "Dir count= "  << GetNumDirs() << "\t"
-        "Primary= "    << mPrimaryFlag << "\t"
-        "VR Node= "    << inReq.vrNodeId << "\t"
-        "VR Primary= " << inReq.vrPrimaryNodeId << "\t"
-        "VR Active= "  << inReq.vrActiveFlag
+        "File count= "   << GetNumFiles() << "\t"
+        "Dir count= "    << GetNumDirs() << "\t"
+        "Logical Size= " << (fa ? fa->filesize : chunkOff_t(-1)) << "\t"
+        "Primary= "      << mPrimaryFlag << "\t"
+        "VR Node= "      << inReq.vrNodeId << "\t"
+        "VR Primary= "   << inReq.vrPrimaryNodeId << "\t"
+        "VR Active= "    << inReq.vrActiveFlag
     ;
     mWOstream.flush();
     mWOstream.Reset();
@@ -8600,7 +8609,15 @@ LayoutManager::ScheduleChunkServersRestart()
     if (mMaxCSRestarting <= 0 || ! IsChunkServerRestartAllowed()) {
         return;
     }
-    Servers servers(mChunkServers);
+    Servers servers;
+    servers.reserve(mChunkServers.size());
+    for (Servers::const_iterator it = mChunkServers.begin();
+            mChunkServers.end() != it;
+            ++it) {
+        if (! (*it)->IsReplay() || ! (*it)->IsStoppedServicing()) {
+            servers.push_back(*it);
+        }
+    }
     make_heap(servers.begin(), servers.end(),
         bind(&ChunkServer::Uptime, _1) <
         bind(&ChunkServer::Uptime, _2));
@@ -13189,8 +13206,8 @@ LayoutManager::StartServicing()
     for (Servers::const_iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
             ++it) {
-        const ChunkServerPtr& srv = *it;
-        srv->ScheduleDown("start servicing");
+        ChunkServer& srv = **it;
+        srv.ScheduleDown("start servicing");
     }
     for (HibernatedServerInfos::iterator it = mHibernatingServers.begin();
             mHibernatingServers.end() != it;
@@ -13219,12 +13236,14 @@ LayoutManager::StopServicing()
         for (Servers::const_iterator it = mChunkServers.begin();
                 mChunkServers.end() != it;
                 ++it) {
-            const ChunkServerPtr& srv = *it;
-            if (! srv->IsReplay()) {
-                srv->StopServicing();
+            ChunkServer& srv = **it;
+            if (! srv.IsReplay()) {
+                srv.StopServicing();
             }
         }
     }
+    mSlavesCount  = 0;
+    mMastersCount = 0;
     mChunkLeases.StopServicing(mARAChunkCache, mChunkToServerMap);
     while (! mNonStableChunks.IsEmpty()) {
         mNonStableChunks.First();

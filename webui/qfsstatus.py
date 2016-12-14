@@ -154,6 +154,7 @@ class SystemInfo:
         self.objStoreDeletesStartedAgo = -1
         self.fileCount = -1
         self.dirCount = -1
+        self.sumOfLogicalFileSizes = -1
         self.vrPrimaryFlag = 0
         self.vrNodeId = -1
         self.vrPrimaryNodeId = -1
@@ -255,8 +256,22 @@ class Status:
         <tr> <td> Total space </td><td>:</td><td> ''', bytesToReadable(systemInfo.totalSpace), ''' </td></tr>
         <tr> <td> Used space </td><td>:</td><td> ''', bytesToReadable(systemInfo.usedSpace), '''</td></tr>
         <tr> <td> Free space </td><td>:</td><td> ''', bytesToReadable(fsFree), '%.2f%%' % freePct, '''</td></tr>
-        <tr> <td> WORM mode </td><td>:</td><td> ''', systemInfo.wormMode, '''</td></tr>
-        <tr> <td> Meta Server Viewstamped Replication (VR) </td><td>:</td><td> '''
+        <tr> <td> WORM mode </td><td>:</td><td> ''', systemInfo.wormMode, '''</td></tr>'''
+        if 0 <= systemInfo.sumOfLogicalFileSizes:
+            print >> buffer, '<tr> <td> File system </td><td>:</td><td>directories:&nbsp;' + \
+                splitThousands(systemInfo.dirCount) + \
+                '&nbsp;files:&nbsp;' + splitThousands(systemInfo.fileCount) + \
+                '&nbsp;sum&nbsp;of&nbsp;logical&nbsp;file&nbsp;sizes:&nbsp;' + \
+                     bytesToReadable(systemInfo.sumOfLogicalFileSizes) + \
+                '</td></tr>'
+        if 0 < systemInfo.objStoreEnabled:
+            print >> buffer, '<tr> <td> Object store delete queue</td><td>:</td><td>size:&nbsp;' + \
+                splitThousands(systemInfo.objStoreDeletes) + \
+                '&nbsp;in&nbsp;flight:&nbsp;' + splitThousands(systemInfo.objStoreDeletesInFlight) + \
+                '&nbsp;re-queue:&nbsp;' + splitThousands(systemInfo.objStoreDeletesRetry) + \
+                '&nbsp;frst&nbsp;queued:&nbsp;' + str(systemInfo.objStoreDeletesStartedAgo) + \
+                '&nbsp;seconds&nbsp;ago</td></tr>'
+        print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
             print >> buffer, '''not&nbsp;configured'''
         else:
@@ -296,7 +311,7 @@ class Status:
             except:
                 print >> buffer, '''VR&nbsp;status&nbsp;parse&nbsp;errror'''
         print >> buffer, '''</td></tr>
-        <tr> <td> Chunk Servers</td><td>:</td><td> alive:&nbsp;''' + splitThousands(serverCount) + \
+        <tr> <td> Chunk servers</td><td>:</td><td> alive:&nbsp;''' + splitThousands(serverCount) + \
                 '''&nbsp;dead:&nbsp;''' + splitThousands(numReallyDownServers) + \
                 '''&nbsp;retiring:&nbsp;''' + splitThousands(len(retiringServers))
         if systemInfo.hibernatedServerCount >= 0:
@@ -1179,16 +1194,19 @@ def processSystemInfo(systemInfo, sysInfo):
     systemInfo.dirCount = long(info[58].split('=')[1])
     if len(info) < 60:
         return
-    systemInfo.vrPrimaryFlag = long(info[59].split('=')[1])
+    systemInfo.sumOfLogicalFileSizes = long(info[59].split('=')[1])
     if len(info) < 61:
         return
-    systemInfo.vrNodeId = long(info[60].split('=')[1])
+    systemInfo.vrPrimaryFlag = long(info[60].split('=')[1])
     if len(info) < 62:
         return
-    systemInfo.vrPrimaryNodeId = long(info[61].split('=')[1])
+    systemInfo.vrNodeId = long(info[61].split('=')[1])
     if len(info) < 63:
         return
-    systemInfo.vrActiveFlag = long(info[62].split('=')[1])
+    systemInfo.vrPrimaryNodeId = long(info[62].split('=')[1])
+    if len(info) < 64:
+        return
+    systemInfo.vrActiveFlag = long(info[63].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:

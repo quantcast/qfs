@@ -582,7 +582,8 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
         return false;
     }
     QCMutex dispatchMutex;
-    mMutex = 0 < mClientThreadCount ? &dispatchMutex : 0;
+    QCStValueChanger<QCMutex*> setDispatchMutex(
+        mMutex, 0 < mClientThreadCount ? &dispatchMutex : 0);
     int err;
     if ((err = mKeyStore.Start()) != 0) {
         KFS_LOG_STREAM_ERROR <<
@@ -590,10 +591,10 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
             " status: " << err <<
             " "         << QCUtils::SysError(err < 0 ? -err : err) <<
         KFS_LOG_EOM;
-        mMutex = 0;
         return false;
     }
-    mClientManagerMutex = GetMutex() ? &mClientManager.GetMutex() : 0;
+    QCStValueChanger<QCMutex*> setClientManagerMutex(
+        mClientManagerMutex, GetMutex() ? &mClientManager.GetMutex() : 0);
     mRunningFlag        = true;
     // Start the acceptors so that it sets up a connection with the net
     // manager for listening.
@@ -645,8 +646,6 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
     mCanceledTokens.Set(0, 0);
     mKeyStore.Stop();
     mRunningFlag = false;
-    mClientManagerMutex = 0;
-    mMutex = 0;
     return (err == 0);
 }
 

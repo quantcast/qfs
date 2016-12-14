@@ -31,17 +31,21 @@
 #include "NetDispatch.h"
 #include "kfstree.h"
 #include "util.h"
-#include "kfsio/Globals.h"
-#include "kfsio/DelegationToken.h"
-#include "kfsio/ChunkAccessToken.h"
-#include "kfsio/CryptoKeys.h"
-#include "common/MdStream.h"
+
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcdebug.h"
+#include "qcdio/qcstutils.h"
+
+#include "common/MdStream.h"
 #include "common/MsgLogger.h"
 #include "common/kfserrno.h"
 #include "common/RequestParser.h"
 #include "common/IntToString.h"
+
+#include "kfsio/Globals.h"
+#include "kfsio/DelegationToken.h"
+#include "kfsio/ChunkAccessToken.h"
+#include "kfsio/CryptoKeys.h"
 
 #include <boost/static_assert.hpp>
 
@@ -627,14 +631,15 @@ ChunkServer::ChunkServer(
     PendingHelloList::Init(*this);
     LogInFlightReqs::Init(mLogCompletionInFlightReqs);
     DoneTimedoutList::Init(mDoneTimedoutList);
-    ChunkServersList::PushBack(sChunkServersPtr, *this);
     SET_HANDLER(this, &ChunkServer::HandleRequest);
     mNetConnection->SetInactivityTimeout(sHeartbeatInterval);
     mNetConnection->SetMaxReadAhead(sMaxReadAhead);
-    sChunkServerCount++;
     for (size_t i = 0; i < kKfsSTierCount; i++) {
         mCanBeCandidateServerFlags[i] = false;
     }
+    QCStMutexLocker locker(gNetDispatch.GetClientManagerMutex());
+    ChunkServersList::PushBack(sChunkServersPtr, *this);
+    sChunkServerCount++;
     KFS_LOG_STREAM(mReplayFlag ?
             MsgLogger::kLogLevelDEBUG :
             MsgLogger::kLogLevelINFO)<<
@@ -648,8 +653,7 @@ ChunkServer::ChunkServer(
 ChunkServer::~ChunkServer()
 {
     if (0 != mRecursionCount || mSelfPtr || 0 != mPendingOpsCount ||
-            ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs) ||
-            ! ChunkServersList::IsInList(sChunkServersPtr, *this)) {
+            ! LogInFlightReqs::IsEmpty(mLogCompletionInFlightReqs)) {
         panic("chunk server: invalid destructor invocation");
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
@@ -665,9 +669,16 @@ ChunkServer::~ChunkServer()
     MetaRequest::Release(mHelloOp);
     MetaRequest::Release(mAuthenticateOp);
     ReleasePendingResponses();
-    mRecursionCount--; // To catch double delete.
-    ChunkServersList::Remove(sChunkServersPtr, *this);
-    sChunkServerCount--;
+    mRecursionCount = 0xF000DEAD; // To catch double delete.
+    QCStMutexLocker locker(gNetDispatch.GetClientManagerMutex());
+    if (sChunkServerCount <= 0 ||
+            ! ChunkServersList::IsInList(sChunkServersPtr, *this)) {
+        panic("chunk server:"
+            " invalid chunk server list or destructor invocation");
+    } else {
+        ChunkServersList::Remove(sChunkServersPtr, *this);
+        sChunkServerCount--;
+    }
 }
 
 void
