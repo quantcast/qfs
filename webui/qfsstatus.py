@@ -155,6 +155,7 @@ class SystemInfo:
         self.fileCount = -1
         self.dirCount = -1
         self.sumOfLogicalFileSizes = -1
+        self.fileSystemId = -1
         self.vrPrimaryFlag = 0
         self.vrNodeId = -1
         self.vrPrimaryNodeId = -1
@@ -257,12 +258,13 @@ class Status:
         <tr> <td> Used space </td><td>:</td><td> ''', bytesToReadable(systemInfo.usedSpace), '''</td></tr>
         <tr> <td> Free space </td><td>:</td><td> ''', bytesToReadable(fsFree), '%.2f%%' % freePct, '''</td></tr>
         <tr> <td> WORM mode </td><td>:</td><td> ''', systemInfo.wormMode, '''</td></tr>'''
-        if 0 <= systemInfo.sumOfLogicalFileSizes:
+        if 0 < systemInfo.fileSystemId:
             print >> buffer, '<tr> <td> File system </td><td>:</td><td>directories:&nbsp;' + \
                 splitThousands(systemInfo.dirCount) + \
                 '&nbsp;files:&nbsp;' + splitThousands(systemInfo.fileCount) + \
                 '&nbsp;sum&nbsp;of&nbsp;logical&nbsp;file&nbsp;sizes:&nbsp;' + \
                      bytesToReadable(systemInfo.sumOfLogicalFileSizes) + \
+                '&nbsp;ID:&nbsp;' + str(systemInfo.fileSystemId) + \
                 '</td></tr>'
         if 0 < systemInfo.objStoreEnabled:
             print >> buffer, '<tr> <td> Object store delete queue</td><td>:</td><td>size:&nbsp;' + \
@@ -1197,16 +1199,19 @@ def processSystemInfo(systemInfo, sysInfo):
     systemInfo.sumOfLogicalFileSizes = long(info[59].split('=')[1])
     if len(info) < 61:
         return
-    systemInfo.vrPrimaryFlag = long(info[60].split('=')[1])
+    systemInfo.fileSystemId = long(info[60].split('=')[1])
     if len(info) < 62:
         return
-    systemInfo.vrNodeId = long(info[61].split('=')[1])
+    systemInfo.vrPrimaryFlag = long(info[61].split('=')[1])
     if len(info) < 63:
         return
-    systemInfo.vrPrimaryNodeId = long(info[62].split('=')[1])
+    systemInfo.vrNodeId = long(info[62].split('=')[1])
     if len(info) < 64:
         return
-    systemInfo.vrActiveFlag = long(info[63].split('=')[1])
+    systemInfo.vrPrimaryNodeId = long(info[63].split('=')[1])
+    if len(info) < 65:
+        return
+    systemInfo.vrActiveFlag = long(info[64].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:

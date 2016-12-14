@@ -8483,6 +8483,7 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "File count= "   << GetNumFiles() << "\t"
         "Dir count= "    << GetNumDirs() << "\t"
         "Logical Size= " << (fa ? fa->filesize : chunkOff_t(-1)) << "\t"
+        "FS ID= "        << metatree.GetFsId() << "\t"
         "Primary= "      << mPrimaryFlag << "\t"
         "VR Node= "      << inReq.vrNodeId << "\t"
         "VR Primary= "   << inReq.vrPrimaryNodeId << "\t"
