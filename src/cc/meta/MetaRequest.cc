@@ -4034,7 +4034,7 @@ MetaCheckpoint::handle()
         KFS_LOG_STREAM(status == 0 ?
                 MsgLogger::kLogLevelINFO :
                 MsgLogger::kLogLevelERROR) <<
-            "checkpoint: "    << lastCheckpointId <<
+            "checkpoint: "    << runningCheckpointId <<
             " pid: "          << pid <<
             " done; status: " << status <<
             " failures: "     << failedCount <<
@@ -4185,13 +4185,14 @@ MetaCheckpoint::handle()
     if (pid < 0) {
         status = (int)pid;
         KFS_LOG_STREAM_ERROR <<
-            "checkpoint: " << lastCheckpointId <<
+            "checkpoint: " << runningCheckpointId <<
             " fork failure: " << QCUtils::SysError(-status) <<
         KFS_LOG_EOM;
         return;
     }
     KFS_LOG_STREAM_INFO <<
         "checkpoint: " << lastCheckpointId <<
+        " => "         << runningCheckpointId <<
         " pid: "       << pid <<
     KFS_LOG_EOM;
     suspended = true;

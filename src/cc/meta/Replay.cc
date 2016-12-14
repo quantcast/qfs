@@ -113,6 +113,7 @@ public:
         : mCommitQueue(),
           mCheckpointCommitted(0, 0, 0),
           mLastNonLogCommit(),
+          mCheckpointFileIdSeed(0),
           mCheckpointErrChksum(0),
           mLastCommittedSeq(0, 0, 0),
           mLastBlockCommittedSeq(0, 0, 0),
@@ -521,7 +522,8 @@ public:
     CommitQueue   mCommitQueue;
     MetaVrLogSeq  mCheckpointCommitted;
     MetaVrLogSeq  mLastNonLogCommit;
-    seq_t         mCheckpointErrChksum;
+    fid_t         mCheckpointFileIdSeed;
+    int64_t       mCheckpointErrChksum;
     MetaVrLogSeq  mLastCommittedSeq;
     MetaVrLogSeq  mLastBlockCommittedSeq;
     MetaVrLogSeq  mViewStartSeq;
@@ -1545,10 +1547,10 @@ ReplayState::runCommitQueue(
     int64_t             errChecksum)
 {
     if (logSeq <= mCheckpointCommitted) {
-        // Checkpoint has no inof about the last op status.
+        // Checkpoint has no info about the last op status.
         if ((logSeq == mCheckpointCommitted ?
                 (errChecksum == mCheckpointErrChksum &&
-                    fileID.getseed() == seed) :
+                    mCheckpointFileIdSeed == seed) :
                 (mCommitQueue.empty() ||
                     logSeq < mCommitQueue.front().logSeq))) {
             if (mViewStartSeq < logSeq) {
@@ -1559,10 +1561,12 @@ ReplayState::runCommitQueue(
                 "commit"
                 " sequence: "       << logSeq <<
                 " checkpoint: "     << mCheckpointCommitted <<
-                " error checksum: " << errChecksum <<
-                " expected: "       << mCheckpointErrChksum <<
-                " seed: "           << seed <<
-                " expected: "       << fileID.getseed() <<
+                " error checksum:"
+                " log: "            << errChecksum <<
+                " actual: "         << mCheckpointErrChksum <<
+                " seed:"
+                " log: "            << seed <<
+                " actual: "         << mCheckpointFileIdSeed <<
                 " view start: "     << mViewStartSeq <<
                 " queue:"
                 " size: "           << mCommitQueue.size() <<
@@ -2425,6 +2429,7 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     bool         lastEntryChecksumFlag = false;
     bool         completeSegmentFlag   = true;
     int          status                = 0;
+    state.mCheckpointFileIdSeed   = fileID.getseed();
     state.mCheckpointErrChksum    = errChecksum;
     state.mBlockStartLogSeq       = checkpointCommitted;
     state.mLastNonEmptyViewEndSeq = checkpointCommitted;
