@@ -40,6 +40,7 @@ import threading
 gHasCollections = True
 try:
     import collections
+    collections.OrderedDict()
 except ImportError:
     sys.stderr.write("Warning: '%s'.Proceeding without collections.\n" % str(sys.exc_info()[1]))
     gHasCollections = False
