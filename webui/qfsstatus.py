@@ -41,8 +41,8 @@ gHasCollections = True
 try:
     import collections
     collections.OrderedDict()
-except ImportError:
-    sys.stderr.write("Warning: '%s'.Proceeding without collections.\n" % str(sys.exc_info()[1]))
+except:
+    sys.stderr.write("Warning: '%s'. Proceeding without collections.\n" % str(sys.exc_info()[1]))
     gHasCollections = False
 
 gJsonSupported = True
@@ -54,7 +54,7 @@ try:
                 return list(obj)
             return json.JSONEncoder.default(self, obj)
 except ImportError:
-    sys.stderr.write("Warning: '%s'.Proceeding without query support.\n" % str(sys.exc_info()[1]))
+    sys.stderr.write("Warning: '%s'. Proceeding without query support.\n" % str(sys.exc_info()[1]))
     gJsonSupported = False
 
 metaserverPort = 20000
