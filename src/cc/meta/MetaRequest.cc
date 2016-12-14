@@ -6433,9 +6433,10 @@ MetaChunkLogInFlight::handle()
 bool
 MetaChunkLogInFlight::log(ostream& os) const
 {
-    const ChunkIdQueue* ids = 0;
-    if (! request ||
-            (request->chunkId < 0 && ! (ids = request->GetChunkIds()))) {
+    const ChunkIdQueue*           ids = 0;
+    const MetaChunkRequest* const req =
+        request ? request : (replayFlag ? this : 0);
+    if (! req || (req->chunkId < 0 && ! (ids = req->GetChunkIds()))) {
         panic("invalid MetaChunkLogInFlight log attempt");
         return false;
     }
@@ -6475,7 +6476,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/e/" << subEntryCnt <<
             "/l/" << location <<
             "/s/" << size_t(0) <<
-            "/c/" << (ids ? ids->Front() : request->chunkId) <<
+            "/c/" << (ids ? ids->Front() : req->chunkId) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
             "/z/" << logseq
