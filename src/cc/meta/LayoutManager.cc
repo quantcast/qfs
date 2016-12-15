@@ -3612,6 +3612,7 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
         } else if (! IsMetaLogWriteOrVrError(req.status)) {
             panic("invalid meta hibernate remove status");
         }
+        return;
     }
     HibernatedServerInfos::iterator it;
     if (! FindHibernatingCSInfo(req.location, &it)) {
