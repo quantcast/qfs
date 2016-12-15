@@ -2250,6 +2250,10 @@ void
 MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
 {
     suspended = false;
+    if (0 == status) {
+        // Check if all servers are still up, and didn't go down
+        CheckAllServersUp();
+    }
     KFS_LOG_STREAM_DEBUG <<
         "layout is done for"
         " req: "     << opSeqno   <<
@@ -2257,26 +2261,7 @@ MetaAllocate::LayoutDone(int64_t chunkAllocProcessTime)
         " "          << statusMsg <<
         " servers: " << InsertServers(servers) <<
     KFS_LOG_EOM;
-    if (status == 0) {
-        // Check if all servers are still up, and didn't go down
-        // and reconnected back.
-        // In the case of reconnect smart pointers should be different:
-        // the the previous server incarnation always taken down on
-        // reconnect.
-        // Since the chunk is "dangling" up until this point, then in
-        // the case of reconnect the chunk becomes "stale", and chunk
-        // server is instructed to delete its replica of this new chunk.
-        for (Servers::const_iterator i = servers.begin();
-                i != servers.end(); ++i) {
-            if ((*i)->IsDown()) {
-                KFS_LOG_STREAM_DEBUG << (*i)->GetServerLocation() <<
-                    " went down during allocation, alloc failed" <<
-                KFS_LOG_EOM;
-                status = -EIO;
-                break;
-            }
-        }
-    } else if (-ENOENT == status) {
+    if (-ENOENT == status) {
         // Change status to generic failure, to distingush from no such file.
         status = -EALLOCFAILED;
     }
@@ -2619,12 +2604,17 @@ MetaAllocate::PendingLeaseRelinquish(int code, void* data)
 bool
 MetaAllocate::CheckAllServersUp()
 {
-    const size_t sz = servers.size();
-    for (size_t i = 0; i < sz; i++) {
-        if (servers[i]->IsDown()) {
-            status    = -EALLOCFAILED;
-            statusMsg = "server " +
-                servers[i]->GetServerLocation().ToString() + " went down";
+    for (Servers::const_iterator it = servers.begin();
+            servers.end() != it;
+            ++it) {
+        const ChunkServer& srv = **it;
+        if (! srv.IsConnected()) {
+            if (0 <= status) {
+                status    = -EALLOCFAILED;
+                statusMsg += "server ";
+                statusMsg += srv.GetServerLocation().ToString();
+                statusMsg += " went down";
+            }
             return false;
         }
     }
@@ -2635,32 +2625,38 @@ bool
 MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
 {
     // if there is a non-zero status, don't throw it away
-    if (chunkAlloc.status != 0 && status == 0 && firstFailedServerIdx < 0) {
-        status    = chunkAlloc.status;
-        statusMsg = chunkAlloc.statusMsg;
-        // In the case of version change failure take the first failed
-        // server out, otherwise allocation might never succeed.
-        if (initialChunkVersion >= 0 && servers.size() > 1) {
-            const ChunkServer* const cs = chunkAlloc.server.get();
-            for (size_t i = 0; i < servers.size(); i++) {
-                if (servers[i].get() == cs && ! servers[i]->IsDown()) {
-                    firstFailedServerIdx = (int)i;
-                    break;
+    if (0 != chunkAlloc.status) {
+        if (0 == status && firstFailedServerIdx < 0) {
+            status = chunkAlloc.status;
+            // In the case of version change failure take the first failed
+            // server out, otherwise allocation might never succeed.
+            if (0 <= initialChunkVersion && 1 < servers.size()) {
+                const ChunkServer* const cs = chunkAlloc.server.get();
+                for (Servers::const_iterator it = servers.begin();
+                        servers.end() != it;
+                        ++it) {
+                    if (it->get() == cs && (**it).IsConnected()) {
+                        firstFailedServerIdx = (int)(servers.begin() - it);
+                        break;
+                    }
                 }
             }
         }
-    }
-    // Collect and pass back to the client chunk server allocation failure
-    // messages.
-    if (chunkAlloc.status != 0  && statusMsg.length() < 384 &&
-            chunkAlloc.server) {
-        if (! statusMsg.empty()) {
-            statusMsg += " ";
-        }
-        statusMsg += chunkAlloc.server->GetServerLocation().ToString();
-        if (! chunkAlloc.statusMsg.empty()) {
-            statusMsg += " ";
-            statusMsg += chunkAlloc.statusMsg;
+        // Collect and pass back to the client chunk server allocation failure
+        // messages.
+        if (chunkAlloc.server) {
+            if (statusMsg.length() < 384) {
+                if (! statusMsg.empty()) {
+                    statusMsg += " ";
+                }
+                statusMsg += chunkAlloc.server->GetServerLocation().ToString();
+                if (! chunkAlloc.statusMsg.empty()) {
+                    statusMsg += " ";
+                    statusMsg += chunkAlloc.statusMsg;
+                }
+            }
+        } else if (statusMsg.empty()) {
+            statusMsg = chunkAlloc.statusMsg;
         }
     }
     numServerReplies++;
@@ -2670,9 +2666,8 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
     }
     // The op is no longer suspended.
     const bool discardFlag = 0 <= firstFailedServerIdx && 0 != status;
-    if (CheckAllServersUp() && discardFlag) {
-        gLayoutManager.ChunkCorrupt(
-            chunkId, servers[firstFailedServerIdx]);
+    if (discardFlag && CheckAllServersUp()) {
+        gLayoutManager.ChunkCorrupt(chunkId, servers[firstFailedServerIdx]);
     }
     LayoutDone(chunkAlloc.processTime);
     return true;

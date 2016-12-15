@@ -8096,7 +8096,16 @@ LayoutManager::DeleteChunk(MetaAllocate& req)
         return;
     }
     if (mChunkToServerMap.Find(req.chunkId)) {
-        panic("allocation attempts to delete existing chunk mapping");
+        if (mPrimaryFlag) {
+            for (Servers::const_iterator it = req.servers.begin();
+                    req.servers.end() != it;
+                    ++it) {
+                if (! (*it)->IsStoppedServicing()) {
+                    panic("chunk allocation"
+                        " attempts to delete existing chunk mapping");
+                }
+            }
+        }
         return;
     }
     DeleteChunk(req.fid, req.chunkId, req.servers);
@@ -8689,13 +8698,15 @@ LayoutManager::Validate(MetaAllocate& req)
         return true;
     }
     KFS_LOG_STREAM_DEBUG <<
-        "stale allocation: " << (const void*)&req <<
+        "stale allocation: " << reinterpret_cast<const void*>(&req) <<
+        " seq: "      << req.opSeqno <<
         " status: "   << req.status <<
+        " msg: "      << req.statusMsg <<
         " chunk: "    << req.chunkId <<
         " version:"
         " initial: "  << req.initialChunkVersion <<
         " current: "  << req.chunkVersion <<
-        " lease: "
+        " lease:"
         " id: "       << (lease ? lease->leaseId : ChunkLeases::LeaseId(-1)) <<
         " inflight: " << (lease ?
             (const void*)lease->allocInFlight : (const void*)0) <<
@@ -13258,6 +13269,7 @@ LayoutManager::StopServicing()
             );
         }
     }
+    mStripedFilesAllocationsInFlight.clear();
     if (mPrimaryFlag) {
         return;
     }

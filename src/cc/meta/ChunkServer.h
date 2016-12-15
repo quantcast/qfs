@@ -531,12 +531,15 @@ public:
             mNumChunkReadReplications = 0;
     }
 
+    bool IsConnected() const {
+        return (! mDown && mNetConnection && ! mReplayFlag);
+    }
+
     /// If a chunkserver isn't responding, don't send any
     /// write load towards it.  We detect loaded servers to be
     /// those that don't respond to heartbeat messages.
     bool IsResponsiveServer() const {
-        return (! mDown && ! mHeartbeatSkipped &&
-            mNetConnection && ! mReplayFlag);
+        return (! mHeartbeatSkipped && IsConnected());
     }
 
     /// To support scheduled down-time and allow maintenance to be
