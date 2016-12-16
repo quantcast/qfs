@@ -400,8 +400,8 @@ public:
                 break;
             }
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                " end chunk block: " << mOffset <<
-                " rem: "             << inBuffer.BytesConsumable() <<
+                "end chunk block: " << mOffset <<
+                " rem: "            << inBuffer.BytesConsumable() <<
             KFS_LOG_EOM;
             // Flush at the end of chunk block.
             QCRTASSERT(
@@ -434,7 +434,7 @@ public:
         const int theRecoveryPadd =
             GetStripeIdx() > 0 ? 0 : GetStripeRemaining();
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            " pos: "      << mOffset <<
+            "pos: "       << mOffset <<
             " padd: "     << thePaddSize <<
             " rec padd: " << theRecoveryPadd <<
         KFS_LOG_EOM;
@@ -674,7 +674,7 @@ private:
         do {
             Buffer& theBuffer = mBuffersPtr[GetStripeIdx()];
             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                " pos: "    << GetPos() <<
+                "pos: "     << GetPos() <<
                 " stripe: " << GetStripeIdx() << " " << GetStripePos() <<
                 " off: "    << GetFilePos() <<
                 " in: "     << inBuffer.BytesConsumable() <<
@@ -767,7 +767,7 @@ private:
             theCurThreshold /= (mStripeCount + mRecoveryStripeCount);
         }
         KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-            " flush: thresh:"
+            "flush: thresh:"
             " min: "     << (mOffset - mRecoveryEndPos) <<
             " in: "      << inWriteThreshold <<
             " pending: " << mPendingCount <<
@@ -880,7 +880,7 @@ private:
             QCASSERT(theLen > 0 && theLen % kAlign == 0);
             if (thePos == 0 || thePos + theLen == theSize) {
                 KFS_LOG_STREAM_DEBUG << mLogPrefix <<
-                    " recovery:"
+                    "recovery:"
                     " off: " << mRecoveryEndPos <<
                     " pos: " << thePos <<
                     " len: " << theLen <<
@@ -890,7 +890,7 @@ private:
                 mStripeCount, mRecoveryStripeCount, theLen, mBufPtr);
             if (theStatus != 0) {
                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                    " recovery:"
+                    "recovery:"
                     " encode error: " << theStatus <<
                     " off: "          << mRecoveryEndPos <<
                     " pos: "          << thePos <<
