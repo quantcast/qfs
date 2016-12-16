@@ -106,6 +106,11 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
     if (! buf) {
         return -EINVAL;
     }
+    if (! entry.usedProtocolWorkerFlag &&
+            0 == entry.fattr.numReplicas && 0 != entry.fattr.fileSize) {
+        // Overwrite and append are not supported with object store files.
+        return -ESPIPE;
+    }
 
     chunkOff_t&   filePos    = pos ? *pos : entry.currPos.fileOffset;
     const int64_t offset     = filePos;

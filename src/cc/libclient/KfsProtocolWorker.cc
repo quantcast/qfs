@@ -1723,6 +1723,8 @@ private:
         Workers::iterator& inWorkersIt)
     {
         if (! inRequest.mParamsPtr) {
+            mWorkers.erase(inWorkersIt);
+            Done(inRequest, kErrParameters);
             return false;
         }
         string theName = inRequest.mParamsPtr->mPathName;
