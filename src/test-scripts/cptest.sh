@@ -72,7 +72,13 @@ fi
 
 cd "$log" || exit
 
-$kfsshell rm "$dir" > /dev/null 2>&1
+# Ensure that the test directory is empty creating it and them removing,
+# and then creating again.
+$kfsshell mkdir "$dir" || exit
+$kfsshell rm    "$dir" || exit
+$kfsshell mkdir "$dir" || exit
+# Directory must be empty.
+$kfsshell rmdir "$dir" || exit
 $kfsshell mkdir "$dir" || exit
 # sleep 3
 

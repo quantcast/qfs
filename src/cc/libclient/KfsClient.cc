@@ -5097,19 +5097,19 @@ KfsClientImpl::InitUserAndGroupMode()
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
         mMetaServerLoc.hostname << ":" << mMetaServerLoc.port <<
         " auth info"
-        " "         << lrop.Show() <<
-        " status: " << lrop.status <<
-        " "         << lrop.statusMsg <<
-        " error: "  << lrop.lastError <<
-        "  "        << ErrorCodeToStr(lrop.lastError) <<
-        " user: "   << lrop.fattr.user <<
-        " "         << lrop.userName <<
-        " group: "  << lrop.fattr.group <<
-        " "         << lrop.groupName <<
-        " euser: "  << lrop.euser <<
-        " "         << lrop.euserName <<
-        " egroup: " << lrop.egroup <<
-        " "         << lrop.egroupName <<
+        " "              << lrop.Show() <<
+        " status: "      << lrop.status <<
+        " "              << lrop.statusMsg <<
+        " last status: " << lrop.lastError <<
+        "  "             << ErrorCodeToStr(lrop.lastError) <<
+        " user: "        << lrop.fattr.user <<
+        " "              << lrop.userName <<
+        " group: "       << lrop.fattr.group <<
+        " "              << lrop.groupName <<
+        " euser: "       << lrop.euser <<
+        " "              << lrop.euserName <<
+        " egroup: "      << lrop.egroup <<
+        " "              << lrop.egroupName <<
         " use host user and group db: " << mUseOsUserAndGroupFlag <<
     KFS_LOG_EOM;
     if (0 <= lrop.status &&
@@ -5168,11 +5168,11 @@ KfsClientImpl::ExecuteMeta(KfsOp& op)
     }
     KFS_LOG_STREAM_DEBUG <<
         "meta op done:" <<
-        " seq: "    << op.seq <<
-        " status: " << op.status <<
-        " msg: "    << op.statusMsg <<
-        " error: "  << op.lastError <<
-        " "         << op.Show() <<
+        " seq: "          << op.seq <<
+        " status: "       << op.status <<
+        " msg: "          << op.statusMsg <<
+        " last status: "  << op.lastError <<
+        " "               << op.Show() <<
     KFS_LOG_EOM;
 }
 
@@ -5988,7 +5988,7 @@ KfsClientImpl::VerifyDataChecksumsFid(const FileAttr& attr)
     lop.continueIfNoReplicasFlag = true;
     GetLayout(lop, &attr);
     if (lop.status < 0) {
-        KFS_LOG_STREAM_ERROR << "Get layout failed with error: "
+        KFS_LOG_STREAM_ERROR << "get layout error: "
              << ErrorCodeToStr(lop.status) <<
         KFS_LOG_EOM;
         return GetOpStatus(lop);

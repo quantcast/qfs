@@ -8773,7 +8773,7 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate& req)
             0 != req.numReplicas) {
         if (mStripedFilesAllocationsInFlight.erase(make_pair(make_pair(
                 req.fid, req.chunkBlockStart), req.chunkId)) != 1 &&
-                0 == req.status) {
+                0 == req.status && mPrimaryFlag) {
             panic("no striped file allocation entry");
         }
     }

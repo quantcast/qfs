@@ -1553,6 +1553,12 @@ private:
                     return;
                     */
                 }
+                if (KfsNetClient::kErrorMaxRetryReached == theStatus &&
+                        mRetryCount < mOuter.mMaxRetryCount) {
+                    // Meta server state machine all connection attempts have
+                    // failed.
+                    mRetryCount = mOuter.mMaxRetryCount;
+                }
             }
             if (mOuter.mStriperPtr && ! mAllocOp.invalidateAllFlag &&
                     mAllocOp.fileOffset >= 0 &&

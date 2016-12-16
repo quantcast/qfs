@@ -554,19 +554,18 @@ public:
         return true;
     }
     bool Cancel()
-        { return CancelOrFailAll(0, string()); }
+        { return CancelOrFailAll(0, 0, string()); }
     bool Fail(
         int           inStatus,
         const string& inStatusMsg,
-        bool          inDisconnectFlag = true)
+        int           inLastError = 0)
     {
-        if (inDisconnectFlag) {
-            Reset();
-        }
-        return CancelOrFailAll(inStatus, inStatusMsg);
+        Reset();
+        return CancelOrFailAll(inStatus, inLastError, inStatusMsg);
     }
     bool CancelOrFailAll(
         int           inStatus,
+        int           inLastError,
         const string& inStatusMsg)
     {
         CancelInFlightOp();
@@ -594,6 +593,9 @@ public:
                 } else {
                     theIt->second.mOpPtr->status    = inStatus;
                     theIt->second.mOpPtr->statusMsg = inStatusMsg;
+                    if (0 != inLastError) {
+                        theIt->second.mOpPtr->lastError = inLastError;
+                    }
                     theIt->second.Done();
                 }
             }
@@ -1620,8 +1622,9 @@ private:
         if (mMetaVrNodesActiveCount <= 0 && mResolverInFlightCount <= 0) {
             CancelVrPrimaryCheck();
             Fail(
-                mLookupOp.status < 0 ? mLookupOp.status : -EIO,
-                mLookupOp.statusMsg
+                kErrorMaxRetryReached,
+                mLookupOp.statusMsg,
+                mLookupOp.status < 0 ? mLookupOp.status : -EIO
             );
         }
     }
