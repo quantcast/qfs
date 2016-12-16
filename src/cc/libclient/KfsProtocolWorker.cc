@@ -55,7 +55,6 @@
 #include <algorithm>
 #include <map>
 #include <string>
-#include <sstream>
 #include <cerrno>
 #include <limits>
 
@@ -68,7 +67,6 @@ using std::string;
 using std::max;
 using std::min;
 using std::make_pair;
-using std::ostringstream;
 using std::pair;
 using std::map;
 using std::less;
@@ -114,6 +112,7 @@ public:
           mMetaParamsUpdateFlag(false),
           mCommonHeaders(),
           mCommonShortHeaders(),
+          mTmpBuf(),
           mWorkers(),
           mMaxRetryCount(inParameters.mMaxRetryCount),
           mTimeSecBetweenRetries(inParameters.mTimeSecBetweenRetries),
@@ -1145,7 +1144,8 @@ private:
                 inLogPrefixPtr,
                 inOwner.mChunkServerInitialSeqNum
               ),
-              mCurRequestPtr(0)
+              mCurRequestPtr(0),
+              mAsyncStatus(0)
             { WorkQueue::Init(mWorkQueue); }
         virtual ~FileWriter()
         {
@@ -1197,6 +1197,7 @@ private:
                         Impl::Done(inRequest, 0);
                         return;
                     }
+                case kRequestTypeWriteAsyncNoCopy:
                 case kRequestTypeWriteThrottle:
                     if (inRequest.mSize <= 0 &&
                             (inRequest.mMaxPendingOrEndPos < 0 ||
@@ -1267,6 +1268,9 @@ private:
             if (IsDeleteScheduled()) {
                 return;
             }
+            if (inStatusCode < 0 && 0 == mAsyncStatus) {
+                mAsyncStatus = inStatusCode;
+            }
             Request* theWorkQueue[1];
             theWorkQueue[0] = mWorkQueue[0];
             WorkQueue::Init(mWorkQueue);
@@ -1284,7 +1288,10 @@ private:
             if (! mWriter.IsOpen() && ! mWriter.IsActive()) {
                 ScheduleDelete();
                 while ((theReqPtr = WorkQueue::PopFront(theWorkQueue))) {
-                    const int theStatus = mWriter.GetErrorCode();
+                    int theStatus = mWriter.GetErrorCode();
+                    if (0 == theStatus && mAsyncStatus < 0) {
+                        theStatus = mAsyncStatus;
+                    }
                     Impl::Done(
                         *theReqPtr,
                         theReqPtr->mRequestType == kRequestTypeWriteClose ?
@@ -1321,6 +1328,7 @@ private:
     private:
         Writer         mWriter;
         const Request* mCurRequestPtr;
+        int            mAsyncStatus;
         Request*       mWorkQueue[1];
 
         void Write(
@@ -1366,9 +1374,14 @@ private:
                     (int)inRequest.mMaxPendingOrEndPos
                 );
                 QCASSERT(theRet < 0 || theRet == theSize);
+                if (theRet < 0 && 0 == mAsyncStatus) {
+                    mAsyncStatus = theRet;
+                }
                 if (theThrottleFlag) {
-                    Impl::Done(inRequest, theRet >= 0 ?
-                        mWriter.GetPendingSize() : int64_t(theRet));
+                    Impl::Done(inRequest, (0 <= theRet && 0 <= mAsyncStatus) ?
+                        mWriter.GetPendingSize() :
+                        int64_t(theRet < 0 ? theRet : mAsyncStatus)
+                    );
                 }
                 return;
             }
@@ -1397,6 +1410,9 @@ private:
             );
             QCASSERT(theRet < 0 || theRet == inRequest.mSize);
             if (theRet < 0) {
+                if (0 == mAsyncStatus) {
+                    mAsyncStatus = theRet;
+                }
                 if (mCurRequestPtr == &inRequest) {
                     mCurRequestPtr = 0;
                     WorkQueue::Remove(mWorkQueue, inRequest);
@@ -1672,6 +1688,7 @@ private:
     bool                 mMetaParamsUpdateFlag;
     string               mCommonHeaders;
     string               mCommonShortHeaders;
+    string               mTmpBuf;
     Workers              mWorkers;
     int                  mMaxRetryCount;
     int                  mTimeSecBetweenRetries;
@@ -1732,15 +1749,16 @@ private:
         if (thePos != string::npos && ++thePos < theName.length()) {
             theName = theName.substr(thePos);
         }
-        ostringstream theStream;
-        theStream <<
-            mLogPrefixPtr <<
-            " " << inRequest.mParamsPtr->mMsgLogId <<
-            "," << inRequest.mFileId <<
-            "," << inRequest.mFileInstance <<
-            "," << theName
-        ;
-        const string  theLogPrefix = theStream.str();
+        string& theLogPrefix = mTmpBuf;
+        theLogPrefix = mLogPrefixPtr;
+        theLogPrefix += " ";
+        AppendDecIntToString(theLogPrefix, inRequest.mParamsPtr->mMsgLogId);
+        theLogPrefix += "," ;
+        AppendDecIntToString(theLogPrefix, inRequest.mFileId);
+        theLogPrefix += ",";
+        AppendDecIntToString(theLogPrefix, inRequest.mFileInstance);
+        theLogPrefix += ",";
+        theLogPrefix += theName;
         Worker* const theRetPtr    = IsAppend(inRequest) ?
             static_cast<Worker*>(new Appender(
                 *this, inWorkersIt, theLogPrefix.c_str())) :
@@ -1757,6 +1775,11 @@ private:
         const int theStatus = theRetPtr->Open(
             inRequest.mFileId, *inRequest.mParamsPtr);
         if (theStatus != kErrNone) {
+            KFS_LOG_STREAM_ERROR <<
+                theLogPrefix << " open: "
+                " status: " << theStatus <<
+                " "         << ErrorCodeToString(theStatus) <<
+            KFS_LOG_EOM;
             mWorkers.erase(inWorkersIt);
             delete theRetPtr;
             Done(inRequest, theStatus);
