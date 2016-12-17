@@ -788,11 +788,12 @@ public:
         } else if (kStatePrimary == mState ||
                 kStateReconfiguration == mState) {
             if (mActiveFlag) {
-                if (HasPrimaryTimedOut()) {
+                if (mQuorum <= 0) {
+                    mLastUpTime = TimeNow();
+                } else if (HasPrimaryTimedOut()) {
                     AdvanceView("primary lease timed out");
                 } else if (mLogTransmitter.IsUp()) {
-                    if (0 < mQuorum &&
-                            mLastCommitSeq < mLastLogSeq &&
+                    if (mLastCommitSeq < mLastLogSeq &&
                             mLastCommitTime + mConfig.GetPrimaryTimeout() <
                                 TimeNow()) {
                         AdvanceView("primary commit timed out");
