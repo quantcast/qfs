@@ -25,11 +25,10 @@ addons:
             - git
             - cmake
             - libboost-regex-dev
-            - xfslibs-dev
             - libssl-dev
             - default-jdk
             - python-dev
-            - fuse-dev
+            - libfuse-dev
 
 notifications:
     email:
