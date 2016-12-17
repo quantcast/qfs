@@ -99,15 +99,24 @@ public:
     MetaVrSM& GetMetaVrSM();
     int GetVrStatus() const
         { return mVrStatus; }
+    int64_t GetPrimaryLeaseEndTimeUsec() const
+        { return mPrimaryLeaseEndTimeUsec; }
+    bool IsPrimary(
+        time_t inTimeNow) const
+    {
+        return (0 == mVrStatus &&
+            inTimeNow * int64_t(1000) * 1000 < mPrimaryLeaseEndTimeUsec);
+    }
     int WriteNewLogSegment(
         const char*   inLogDirPtr,
         const Replay& inReplayer,
         string&       outLogSegmentFileName);
 private:
     class Impl;
-    seq_t        mNextSeq;
-    volatile int mVrStatus;
-    Impl&        mImpl;
+    seq_t            mNextSeq;
+    volatile int     mVrStatus;
+    volatile int64_t mPrimaryLeaseEndTimeUsec;
+    Impl&            mImpl;
 };
 
 } // namespace KFS

@@ -366,7 +366,7 @@ public:
         const Properties&     inProps,
         NodeId                inNodeId,
         const ServerLocation& inPeer);
-    void Process(
+    time_t Process(
         time_t              inTimeNow,
         const MetaVrLogSeq& inCommittedSeq,
         int64_t             inErrChecksum,

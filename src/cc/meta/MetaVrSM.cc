@@ -717,7 +717,7 @@ public:
         mPendingReconfigureReqPtr = 0;
         mReconfigureCompletionCondVar.Notify();
     }
-    void Process(
+    time_t Process(
         time_t              inTimeNow,
         const MetaVrLogSeq& inCommittedSeq,
         int64_t             inErrChecksum,
@@ -764,7 +764,7 @@ public:
                 (! mLastViewEndSeq.IsPastViewStart() &&
                     mLastViewEndSeq.IsValid())) {
             panic("VR: invalid log sequence or state");
-            return;
+            return (inTimeNow - 3600);
         }
         if (mScheduleViewChangeFlag &&
                 (! mActiveFlag || kStateLogSync == mState)) {
@@ -895,6 +895,8 @@ public:
         if (kStatePrimary != mState && (mMetaVrLogStartViewPtr || outReqPtr)) {
             panic("VR: invalid outstanding log start view");
         }
+        return (kStatePrimary == mState ?
+            GetPrimaryLeaseEndTime() : inTimeNow - 3600);
     }
     int Start(
         MetaDataSync&         inMetaDataSync,
@@ -2225,10 +2227,11 @@ private:
         }
         mStateSetTime = TimeNow();
     }
+    time_t GetPrimaryLeaseEndTime() const
+        {   return (mLastUpTime + mConfig.GetPrimaryTimeout()); }
     bool HasPrimaryTimedOut() const
     {
-        return (mLastUpTime + mConfig.GetPrimaryTimeout() <
-            TimeNow());
+        return (GetPrimaryLeaseEndTime() < TimeNow());
     }
     void ConfigUpdate()
     {
@@ -4868,7 +4871,7 @@ MetaVrSM::ProcessReplay(
     mImpl.ProcessReplay(inTimeNow);
 }
 
-    void
+    time_t
 MetaVrSM::Process(
     time_t              inTimeNow,
     const MetaVrLogSeq& inCommittedSeq,
@@ -4879,7 +4882,7 @@ MetaVrSM::Process(
     int&                outVrStatus,
     MetaRequest*&       outReqPtr)
 {
-    mImpl.Process(inTimeNow,
+    return mImpl.Process(inTimeNow,
         inCommittedSeq, inErrChecksum, inCommittedFidSeed, inCommittedStatus,
         inReplayLastLogSeq, outVrStatus, outReqPtr
     );

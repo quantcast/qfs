@@ -71,7 +71,8 @@ class LogWriter::Impl :
 {
 public:
     Impl(
-        volatile int& inVrStatus)
+        volatile int&     inVrStatus,
+        volatile int64_t& inPrimaryLeaseEndTimeUsec)
         : ITimeout(),
           QCRunnable(),
           LogTransmitter::CommitObserver(),
@@ -85,6 +86,7 @@ public:
           mPrimaryFlag(true),
           mVrStatus(0),
           mEnqueueVrStatus(inVrStatus),
+          mPrimaryLeaseEndTimeUsec(inPrimaryLeaseEndTimeUsec),
           mTransmitCommitted(),
           mMaxDoneLogSeq(),
           mCommitted(),
@@ -247,7 +249,8 @@ public:
                     ! theCounterPtr || *theCounterPtr <= 0) &&
                 (MetaRequest::kLogNever == inRequest.logAction ||
                 (MetaRequest::kLogIfOk == inRequest.logAction &&
-                    0 != inRequest.status))) && mEnqueueVrStatus == 0) {
+                    0 != inRequest.status))) && mEnqueueVrStatus == 0 &&
+                    inRequest.submitTime < mPrimaryLeaseEndTimeUsec) {
             return false;
         }
         if (theCounterPtr) {
@@ -539,82 +542,83 @@ private:
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
 
-    NetManager*       mNetManagerPtr;
-    MetaDataStore*    mMetaDataStorePtr;
-    Replay*           mReplayerPtr;
-    NetManager        mNetManager;
-    LogTransmitter    mLogTransmitter;
-    MetaVrSM          mMetaVrSM;
-    bool              mPrimaryFlag;
-    int               mVrStatus;
-    volatile int&     mEnqueueVrStatus;
-    MetaVrLogSeq      mTransmitCommitted;
-    MetaVrLogSeq      mMaxDoneLogSeq;
-    Committed         mCommitted;
-    QCThread          mThread;
-    QCMutex           mMutex;
-    bool              mStopFlag;
-    bool              mOmitDefaultsFlag;
-    bool              mCommitUpdatedFlag;
-    bool              mSetReplayStateFlag;
-    int               mMaxBlockSize;
-    int               mPendingCount;
-    int               mExraPendingCount;
-    string            mLogDir;
-    Queue             mPendingQueue;
-    Queue             mInQueue;
-    Queue             mOutQueue;
-    Queue             mPendingAckQueue;
-    Queue             mReplayCommitQueue;
-    Committed         mPendingCommitted;
-    Committed         mInFlightCommitted;
-    Committed         mLastWriteCommitted;
-    Committed         mReplayLastWriteCommitted;
-    MetaVrLogSeq      mPendingReplayLogSeq;
-    MetaVrLogSeq      mReplayLogSeq;
-    MetaVrLogSeq      mNextLogSeq;
-    MetaVrLogSeq      mLastViewEndSeq;
-    MetaVrLogSeq      mLastNonEmptyViewEndSeq;
-    seq_t             mNextBlockSeq;
-    MetaVrLogSeq      mLastLogSeq;
-    MetaVrLogSeq      mViewStartSeq;
-    Checksum          mNextBlockChecksum;
-    int               mLogFd;
-    int               mError;
-    MdStream          mMdStream;
-    ReqOstream        mReqOstream;
-    time_t            mCurLogStartTime;
-    MetaVrLogSeq      mCurLogStartSeq;
-    seq_t             mLogNum;
-    string            mLogName;
-    time_t            mLogRotateInterval;
-    bool              mPanicOnIoErrorFlag;
-    bool              mSyncFlag;
-    bool              mWokenFlag;
-    string            mLastLogPath;
-    int64_t           mLogFilePos;
-    int64_t           mLogFilePrevPos;
-    int64_t           mLogFileMaxSize;
-    int64_t           mFailureSimulationInterval;
-    bool              mPrepareToForkFlag;
-    bool              mPrepareToForkDoneFlag;
-    NodeId            mVrNodeId;
-    QCCondVar         mPrepareToForkCond;
-    QCCondVar         mForkDoneCond;
-    PrngIsaac64       mRandom;
-    string            mErrorSimulatorConfig;
-    TmpBuffer         mTmpBuffer;
-    const string      mLogFileNamePrefix;
-    const string      mNotPrimaryErrorMsg;
-    const string      mLogWriteErrorMsg;
-    const string      mLogWriterVrBackupErrorMsg;
-    const string      mInvalidBlockStartSegmentErrorMsg;
-    const string      mInvalidHeartbeatSequenceErrorMsg;
-    const string      mPrimaryRejectedBlockWriteErrorMsg;
-    const string      mLogStartViewPrefix;
-    const size_t      mLogAppendPrefixLen;
-    const char* const mLogStartViewPrefixPtr;
-    const size_t      mLogStartViewPrefixLen;
+    NetManager*        mNetManagerPtr;
+    MetaDataStore*     mMetaDataStorePtr;
+    Replay*            mReplayerPtr;
+    NetManager         mNetManager;
+    LogTransmitter     mLogTransmitter;
+    MetaVrSM           mMetaVrSM;
+    bool               mPrimaryFlag;
+    int                mVrStatus;
+    volatile int&      mEnqueueVrStatus;
+    volatile int64_t&  mPrimaryLeaseEndTimeUsec;
+    MetaVrLogSeq       mTransmitCommitted;
+    MetaVrLogSeq       mMaxDoneLogSeq;
+    Committed          mCommitted;
+    QCThread           mThread;
+    QCMutex            mMutex;
+    bool               mStopFlag;
+    bool               mOmitDefaultsFlag;
+    bool               mCommitUpdatedFlag;
+    bool               mSetReplayStateFlag;
+    int                mMaxBlockSize;
+    int                mPendingCount;
+    int                mExraPendingCount;
+    string             mLogDir;
+    Queue              mPendingQueue;
+    Queue              mInQueue;
+    Queue              mOutQueue;
+    Queue              mPendingAckQueue;
+    Queue              mReplayCommitQueue;
+    Committed          mPendingCommitted;
+    Committed          mInFlightCommitted;
+    Committed          mLastWriteCommitted;
+    Committed          mReplayLastWriteCommitted;
+    MetaVrLogSeq       mPendingReplayLogSeq;
+    MetaVrLogSeq       mReplayLogSeq;
+    MetaVrLogSeq       mNextLogSeq;
+    MetaVrLogSeq       mLastViewEndSeq;
+    MetaVrLogSeq       mLastNonEmptyViewEndSeq;
+    seq_t              mNextBlockSeq;
+    MetaVrLogSeq       mLastLogSeq;
+    MetaVrLogSeq       mViewStartSeq;
+    Checksum           mNextBlockChecksum;
+    int                mLogFd;
+    int                mError;
+    MdStream           mMdStream;
+    ReqOstream         mReqOstream;
+    time_t             mCurLogStartTime;
+    MetaVrLogSeq       mCurLogStartSeq;
+    seq_t              mLogNum;
+    string             mLogName;
+    time_t             mLogRotateInterval;
+    bool               mPanicOnIoErrorFlag;
+    bool               mSyncFlag;
+    bool               mWokenFlag;
+    string             mLastLogPath;
+    int64_t            mLogFilePos;
+    int64_t            mLogFilePrevPos;
+    int64_t            mLogFileMaxSize;
+    int64_t            mFailureSimulationInterval;
+    bool               mPrepareToForkFlag;
+    bool               mPrepareToForkDoneFlag;
+    NodeId             mVrNodeId;
+    QCCondVar          mPrepareToForkCond;
+    QCCondVar          mForkDoneCond;
+    PrngIsaac64        mRandom;
+    string             mErrorSimulatorConfig;
+    TmpBuffer          mTmpBuffer;
+    const string       mLogFileNamePrefix;
+    const string       mNotPrimaryErrorMsg;
+    const string       mLogWriteErrorMsg;
+    const string       mLogWriterVrBackupErrorMsg;
+    const string       mInvalidBlockStartSegmentErrorMsg;
+    const string       mInvalidHeartbeatSequenceErrorMsg;
+    const string       mPrimaryRejectedBlockWriteErrorMsg;
+    const string       mLogStartViewPrefix;
+    const size_t       mLogAppendPrefixLen;
+    const char* const  mLogStartViewPrefixPtr;
+    const size_t       mLogStartViewPrefixLen;
 
     int StartSelf(
         NetManager&           inNetManager,
@@ -847,6 +851,9 @@ private:
             }
             return mError;
         }
+        mEnqueueVrStatus = mMetaVrSM.GetStatus();
+        mPrimaryLeaseEndTimeUsec = int64_t(1000) * 1000 * (mNetManager.Now() +
+            (0 == mEnqueueVrStatus ? 2 : -(24 * 60 * 60)));
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "LogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -1086,7 +1093,7 @@ private:
         }
         int theVrStatus = mVrStatus;
         MetaRequest* theReqPtr = 0;
-        mMetaVrSM.Process(
+        const time_t thePrimaryLeaseEndTime = mMetaVrSM.Process(
             mNetManager.Now(),
             mInFlightCommitted.mSeq,
             mInFlightCommitted.mErrChkSum,
@@ -1118,6 +1125,10 @@ private:
                 SyncAddAndFetch(mEnqueueVrStatus, 0);
             }
             mVrStatus = theVrStatus;
+        } else {
+            SyncAddAndFetch(mPrimaryLeaseEndTimeUsec,
+                int64_t(thePrimaryLeaseEndTime) * 1000 * 1000 -
+                mPrimaryLeaseEndTimeUsec);
         }
         const bool theVrBecameNonPrimaryFlag =
             mPrimaryFlag && 0 != mVrStatus && ! mMetaVrSM.IsPrimary();
@@ -2143,7 +2154,8 @@ private:
 LogWriter::LogWriter()
     : mNextSeq(0),
       mVrStatus(0),
-      mImpl(*(new Impl(mVrStatus)))
+      mPrimaryLeaseEndTimeUsec(0),
+      mImpl(*(new Impl(mVrStatus, mPrimaryLeaseEndTimeUsec)))
 {}
 
 LogWriter::~LogWriter()
