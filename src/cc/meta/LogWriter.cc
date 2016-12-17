@@ -905,6 +905,7 @@ private:
         if (theWakeupFlag) {
             mNetManager.Wakeup();
         }
+        Queue theReplayQueue;
         MetaRequest* thePtr;
         while ((thePtr = theDoneQueue.PopFront())) {
             MetaRequest& theReq = *thePtr;
@@ -917,14 +918,22 @@ private:
             if (--mPendingCount < 0) {
                 panic("log writer: request completion invalid pending count");
             }
-            if (IsMetaLogWriteOrVrError(thePtr->status) ||
+            if (theSetReplayStateFlag &&
+                    META_LOG_WRITER_CONTROL == thePtr->op &&
+                    thePtr->replayBypassFlag &&
+                    0 == thePtr->status &&
+                    MetaLogWriterControl::kWriteBlock ==
+                        static_cast<MetaLogWriterControl*>(thePtr)->type) {
+                // Run after setting replay state.
+                theReplayQueue.PushBack(*thePtr);
+            } else if (IsMetaLogWriteOrVrError(thePtr->status) ||
                     thePtr->replayBypassFlag ||
                     ! mReplayerPtr->submit(*thePtr)) {
                 submit_request(&theReq);
             }
         }
         if (theSetReplayStateFlag) {
-            const MetaRequest* thePtr = theReplayCommitHeadPtr;
+            thePtr = theReplayCommitHeadPtr;
             while (thePtr) {
                 if (--mPendingCount < 0) {
                     panic("log writer: set replay state invalid pending count");
@@ -944,6 +953,9 @@ private:
                 mReplayLastWriteCommitted.mErrChkSum,
                 mLastNonEmptyViewEndSeq
             );
+            while ((thePtr = theReplayQueue.PopFront())) {
+                submit_request(thePtr);
+            }
         }
     }
     void ProcessPendingAckQueue(
