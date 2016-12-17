@@ -1020,15 +1020,15 @@ LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
     char              delim = (char)'=';
     if (strncmp(cfg, pref, len) == 0) {
         if (props.loadProperties(cfg + len, delim) != 0) {
-            KFS_LOG_STREAM_INFO <<
+            KFS_LOG_STREAM_ERROR <<
                 "failed to load configuration from file: " << cfg <<
-                " set by environment varialbe:" << configEnvName <<
+                " set by environment varialbe: " << configEnvName <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
         KFS_LOG_STREAM_INFO <<
             "using configuration: " << cfg <<
-            " set by environment varialbe:" << configEnvName <<
+            " set by environment varialbe: " << configEnvName <<
         KFS_LOG_EOM;
     } else {
         const char* const pref = "DELIM:";
