@@ -227,7 +227,8 @@ class ChunkServer :
     public KfsCallbackObj,
     public CSMapServerInfo,
     private SslFilterVerifyPeer,
-    public boost::enable_shared_from_this<ChunkServer> {
+    public boost::enable_shared_from_this<ChunkServer>
+{
 public:
     typedef int RackId;
     class ChunkIdSet
