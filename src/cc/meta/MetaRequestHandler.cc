@@ -1079,13 +1079,6 @@ ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
         return -1;
     }
-    // Copy if request header spans two or more buffers.
-    // Requests on average are over a magnitude shorter than single
-    // io buffer (4K page), thus the copy should be infrequent, and
-    // small enough. With modern cpu the copy should be take less
-    // cpu cycles than buffer boundary handling logic (or one symbol
-    // per call processing), besides the requests header are small
-    // enough to fit into cpu cache.
     int               reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
         threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
