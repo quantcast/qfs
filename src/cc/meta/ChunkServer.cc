@@ -3137,6 +3137,8 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", nwrites=" << mNumChunkWrites
         << ", load=" << mLoadAvg
         << ", md5sum=" << mMd5Sum
+        << ", replay=" << (mReplayFlag ? 1 : 0)
+        << ", connected=" << (IsConnected() ? 1 : 0)
         << ", tiers="
     ;
     const char* delim = "";

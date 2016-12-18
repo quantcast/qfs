@@ -8511,7 +8511,9 @@ class UpServersList
 public:
     UpServersList(ostream& s) : os(s) {}
     void operator () (const ChunkServerPtr& c) {
-        os << c->GetServerLocation() << "\n";
+        if (c->IsConnected()) {
+            os << c->GetServerLocation() << "\n";
+        }
     }
 };
 
