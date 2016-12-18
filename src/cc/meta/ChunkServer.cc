@@ -3108,11 +3108,11 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
 {
     // for nodes taken out of write allocation, send the info back; this allows
     // the UI to color these nodes differently
-    const double   utilisation  = GetSpaceUtilization(useTotalFsSpaceFlag);
-    const bool     isOverloaded = utilisation >
+    const double  utilisation  = GetSpaceUtilization(useTotalFsSpaceFlag);
+    const bool    isOverloaded = utilisation >
         gLayoutManager.GetMaxSpaceUtilizationThreshold();
-    const time_t  now           = TimeNow();
-    const int64_t freeSpace     = max(int64_t(0), mTotalSpace - mUsedSpace);
+    const time_t  now          = TimeNow();
+    const int64_t freeSpace    = max(int64_t(0), mTotalSpace - mUsedSpace);
     os << "s=" << mLocation.hostname << ", p=" << mLocation.port
         << ", rack=" << mRackId
         << ", used=" << mUsedSpace
@@ -3139,6 +3139,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", md5sum=" << mMd5Sum
         << ", replay=" << (mReplayFlag ? 1 : 0)
         << ", connected=" << (IsConnected() ? 1 : 0)
+        << ", stopped=" << (IsStoppedServicing() ? 1 : 0)
         << ", tiers="
     ;
     const char* delim = "";

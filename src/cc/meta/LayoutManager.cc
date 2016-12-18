@@ -3032,7 +3032,10 @@ const Properties::String kCSExtraHeaders[] = {
     "XMeta-rack",
     "XMeta-rack-placement-weight",
     "XMeta-load-avg",
-    "XMeta-to-evacuate-cnt"
+    "XMeta-to-evacuate-cnt",
+    "XMeta-replay",
+    "XMeta-connected",
+    "XMeta-stopped"
 };
 
 struct CSWriteExtra : public CtrWriteExtra
@@ -3088,6 +3091,12 @@ struct CSWriteExtra : public CtrWriteExtra
         Write(writer, srv.GetLoadAvg());
         writer.Write(columnDelim);
         Write(writer, srv.GetChunksToEvacuateCount());
+        writer.Write(columnDelim);
+        Write(writer, srv.IsReplay());
+        writer.Write(columnDelim);
+        Write(writer, srv.IsConnected());
+        writer.Write(columnDelim);
+        Write(writer, srv.IsStoppedServicing());
     }
 private:
     const RackInfos& mRacks;
