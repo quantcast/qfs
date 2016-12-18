@@ -212,7 +212,7 @@ while [ $# -gt 0 ]; do
                 ; do
                 [ -f "$n" ] || continue
                 echo "============== `basename "$n"` ================="
-                tail -n 5 "$n"
+                tail -n 7 "$n"
             done
             [ x"$2" = x ] && break
             [ $2 -le 0  ] && break
