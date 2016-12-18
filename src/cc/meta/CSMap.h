@@ -870,23 +870,40 @@ public:
         return servers;
     }
     size_t GetServers(const Entry& entry, Servers& servers) const {
-        size_t hibernatedCount = 0;
+        size_t hibernatedCount    = 0;
         return GetServers(entry, servers, hibernatedCount);
+    }
+    size_t GetConnectedServers(const Entry& entry, Servers& servers) const {
+        size_t hibernatedCount = 0;
+        return GetConnectedServers(entry, servers, hibernatedCount);
     }
     size_t GetServers(const Entry& entry, Servers& servers,
             size_t& hibernatedCount) const {
+        const bool kConnectedOnlyFlag = false;
+        return GetServers(entry, servers, hibernatedCount, kConnectedOnlyFlag);
+    }
+    size_t GetConnectedServers(const Entry& entry, Servers& servers,
+            size_t& hibernatedCount) const {
+        const bool kConnectedOnlyFlag = true;
+        return GetServers(entry, servers, hibernatedCount, kConnectedOnlyFlag);
+    }
+    size_t GetServers(const Entry& entry, Servers& servers,
+            size_t& hibernatedCount, bool connectedOnlyFlag) const {
         hibernatedCount = 0;
         if (mRemoveServerScanPtr) {
-            return CleanupStaleServers(entry, &servers,
-                hibernatedCount);
+            return CleanupStaleServers(entry, &servers, hibernatedCount);
         }
         ValidateHosted(entry);
         size_t count = 0;
         for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
             const ChunkServerPtr& srv = mServers[entry.IndexAt(i)];
             if (srv) {
-                servers.push_back(srv);
-                count++;
+                if (connectedOnlyFlag && ! srv->IsConnected()) {
+                    hibernatedCount++;
+                } else {
+                    servers.push_back(srv);
+                    count++;
+                }
             } else {
                 if (mHibernatedCount <= 0) {
                     InternalError("invalid server index");

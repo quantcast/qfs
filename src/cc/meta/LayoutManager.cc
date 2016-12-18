@@ -10351,7 +10351,7 @@ LayoutManager::ReplicateChunk(
                 find(servers.begin(), servers.end(), c) != servers.end()) {
             panic("invalid replication candidate");
         }
-        if (cs.IsDown()) {
+        if (cs.IsDown() || ! cs.IsConnected()) {
             continue;
         }
         const char*    reason = "none";
@@ -10524,7 +10524,12 @@ LayoutManager::CanReplicateChunkNow(
     if (recoveryInfo) {
         recoveryInfo->Clear();
     }
-
+    if (! mPrimaryFlag) {
+        if (recoveryInfo) {
+            SetReplicationState(c, CSMap::Entry::kStatePendingReplication);
+        }
+        return false;
+    }
     const MetaFattr* const fa      = c.GetFattr();
     const chunkId_t        chunkId = c.GetChunkId();
     // Don't replicate chunks for which a write lease has been
@@ -10540,8 +10545,7 @@ LayoutManager::CanReplicateChunkNow(
             " write lease exists" <<
         KFS_LOG_EOM;
         if (recoveryInfo) {
-            SetReplicationState(c,
-                CSMap::Entry::kStatePendingReplication);
+            SetReplicationState(c, CSMap::Entry::kStatePendingReplication);
         }
         return false;
     }
@@ -10552,8 +10556,7 @@ LayoutManager::CanReplicateChunkNow(
             " is not stable yet" <<
         KFS_LOG_EOM;
         if (recoveryInfo) {
-            SetReplicationState(c,
-                CSMap::Entry::kStatePendingReplication);
+            SetReplicationState(c, CSMap::Entry::kStatePendingReplication);
         }
         return false;
     }
@@ -10561,7 +10564,7 @@ LayoutManager::CanReplicateChunkNow(
     size_t                     hibernatedCount = 0;
     StTmp<Servers>             serversTmp(mServers3Tmp);
     Servers&                   servers = serversTmp.Get();
-    mChunkToServerMap.GetServers(c, servers, hibernatedCount);
+    mChunkToServerMap.GetConnectedServers(c, servers, hibernatedCount);
     if (hibernatedReplicaCount) {
         *hibernatedReplicaCount = (int)hibernatedCount;
     }
@@ -10584,8 +10587,7 @@ LayoutManager::CanReplicateChunkNow(
                     " no copies left,"
                     " canceling re-replication" <<
                 KFS_LOG_EOM;
-                SetReplicationState(c,
-                    CSMap::Entry::kStatePendingReplication);
+                SetReplicationState(c, CSMap::Entry::kStatePendingReplication);
             }
             return false;
         }
@@ -10642,7 +10644,7 @@ LayoutManager::CanReplicateChunkNow(
             }
             Servers&            srvs = serversTmp.Get();
             const CSMap::Entry& ce   = GetCsEntry(**it);
-            if (mChunkToServerMap.GetServers(ce, srvs) > 0) {
+            if (mChunkToServerMap.GetConnectedServers(ce, srvs) > 0) {
                 good++;
             }
             if (chunkId != curChunkId) {
@@ -10657,8 +10659,7 @@ LayoutManager::CanReplicateChunkNow(
                 (notStable == 0 && good < (int)fa->numStripes)) {
             if (! servers.empty()) {
                 // Can not use recovery instead of replication.
-                SetReplicationState(c,
-                    CSMap::Entry::kStateNoDestination);
+                SetReplicationState(c, CSMap::Entry::kStateNoDestination);
                 return false;
             }
             // Ensure that all pending recovery chunks in this block
@@ -10723,8 +10724,7 @@ LayoutManager::CanReplicateChunkNow(
                     mPastEofRecoveryDelay)) {
             if (! servers.empty()) {
                 // Cannot use recovery instead of replication.
-                SetReplicationState(c,
-                    CSMap::Entry::kStateNoDestination);
+                SetReplicationState(c, CSMap::Entry::kStateNoDestination);
                 return false;
             }
             KFS_LOG_STREAM_INFO <<
@@ -10746,8 +10746,7 @@ LayoutManager::CanReplicateChunkNow(
                         timeMicrosec) * 1e-6) <<
                     " sec." <<
             KFS_LOG_EOM;
-            SetReplicationState(c,
-                CSMap::Entry::kStateDelayedRecovery);
+            SetReplicationState(c, CSMap::Entry::kStateDelayedRecovery);
             return false;
         }
         recoveryInfo->offset             = chunk->offset;
@@ -10930,7 +10929,7 @@ LayoutManager::HandoutChunkReplicationWork()
     StTmp<ChunkPlacement> placementTmp(mChunkPlacementTmp);
     bool nextRunLowPriorityFlag = false;
     mChunkToServerMap.First(CSMap::Entry::kStateCheckReplication);
-    for (; ; loopCount++) {
+    for (; mPrimaryFlag; loopCount++) {
         if (--pass <= 0) {
             now  = microseconds();
             pass = kCheckTime;
