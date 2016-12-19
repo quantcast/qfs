@@ -98,20 +98,6 @@ GetFsckInfo(MonClient& client, bool reportAbandonedFilesFlag, int timeoutSec)
 }
 
 static int
-RestoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
-{
-    if (! lockfn.empty()) {
-        acquire_lockfile(lockfn, 10);
-    }
-    if (! allowEmptyCheckpointFlag || file_exists(LASTCP)) {
-        Restorer r;
-        return (r.rebuild(LASTCP) ? 0 : -EIO);
-    } else {
-        return metatree.new_tree();
-    }
-}
-
-static int
 RunFsck(const string& tmpName, bool reportAbandonedFilesFlag)
 {
     const int cnt = gLayoutManager.FsckStreamCount(reportAbandonedFilesFlag);
@@ -300,8 +286,7 @@ FsckMain(int argc, char** argv)
         metatree.disableFidToPathname();
         checkpointer_setup_paths(cpdir);
         replayer.setLogDir(logdir.c_str());
-        ok =
-            RestoreCheckpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
+        ok = restore_checkpoint(lockFn, allowEmptyCheckpointFlag) == 0 &&
             replayer.playLogs(includeLastLogFlag) == 0
         ;
         if (ok && runFsckFlag) {

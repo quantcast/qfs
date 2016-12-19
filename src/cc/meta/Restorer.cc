@@ -1020,9 +1020,16 @@ try_to_acquire_lockfile(const string& lockfn)
     if (fd < 0) {
         return (errno > 0 ? -errno : -1);
     }
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC)) {
+        const int err = errno;
+        KFS_LOG_STREAM_ERROR <<
+            "lock file: " << lockfn << " set close on exec failure: " <<
+            QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+    }
     struct flock fl;
     memset(&fl, 0, sizeof(fl));
-    fl.l_type = F_WRLCK;
+    fl.l_type   = F_WRLCK;
     fl.l_whence = SEEK_SET;
     if (fcntl(fd, F_SETLK, &fl)) {
         const int err = errno;
@@ -1035,22 +1042,45 @@ try_to_acquire_lockfile(const string& lockfn)
 int
 acquire_lockfile(const string& lockfn, int ntries)
 {
+    int ret = -EINVAL;
     for (int i = 0; i < ntries; i++) {
-        const int ret = try_to_acquire_lockfile(lockfn);
-        if (ret >= 0) {
+        if (0 <= (ret = try_to_acquire_lockfile(lockfn))) {
             return ret;
         }
-        if (ret != -EACCES && ret != -EAGAIN) {
-            cerr << "failed to open lock file: " << lockfn <<
-                ": " << strerror(-ret) << " exiting.\n";
-            exit(-1);
+        if (-EACCES != ret && -EAGAIN != ret) {
+            KFS_LOG_STREAM_ERROR <<
+                "failed to open lock file: " << lockfn <<
+                ": " << strerror(-ret) <<
+            KFS_LOG_EOM;
+            break;
         }
-        cerr << "lock file: " << lockfn << " is busy; waiting...\n";
+        KFS_LOG_STREAM_INFO <<
+            "lock file: " << lockfn << " is busy; will retry in 60 seconds" <<
+        KFS_LOG_EOM;
         sleep(60);
     }
-    cerr << "failed to open lock file: " << lockfn << " after "
-        << ntries << " exiting.\n";
-    exit(-1);
+    KFS_LOG_STREAM_ERROR <<
+        "failed to acquire lock file: " << lockfn <<
+        " after " << ntries << " attempts" <<
+    KFS_LOG_EOM;
+    return ret;
+}
+
+int
+restore_checkpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
+{
+    if (! lockfn.empty()) {
+        const int ret = acquire_lockfile(lockfn, 10);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+    if (! allowEmptyCheckpointFlag || file_exists(LASTCP)) {
+        Restorer r;
+        return (r.rebuild(LASTCP) ? 0 : -EIO);
+    } else {
+        return metatree.new_tree();
+    }
 }
 
 }

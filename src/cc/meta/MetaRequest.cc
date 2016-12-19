@@ -4097,7 +4097,7 @@ MetaCheckpoint::handle()
                 (lockFd = try_to_acquire_lockfile(lockFileName)) < 0) {
             KFS_LOG_STREAM_INFO << "checkpoint: " <<
                 " failed to acquire lock: " << lockFileName <<
-                " " << QCUtils::SysError(lockFd) <<
+                " " << QCUtils::SysError(-lockFd) <<
             KFS_LOG_EOM;
             return; // Retry later.
         }

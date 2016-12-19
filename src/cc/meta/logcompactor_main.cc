@@ -59,20 +59,6 @@ using std::cout;
 using std::cerr;
 
 static int
-RestoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
-{
-    if (! lockfn.empty()) {
-        acquire_lockfile(lockfn, 10);
-    }
-    if (! allowEmptyCheckpointFlag || file_exists(LASTCP)) {
-        Restorer r;
-        return (r.rebuild(LASTCP) ? 0 : -EIO);
-    } else {
-        return metatree.new_tree();
-    }
-}
-
-static int
 LogCompactorMain(int argc, char** argv)
 {
     // use options: -l for logdir -c for checkpoint dir
@@ -183,7 +169,7 @@ LogCompactorMain(int argc, char** argv)
         }
     }
     checkpointer_setup_paths(cpdir);
-    if (0 == status && (status = RestoreCheckpoint(
+    if (0 == status && (status = restore_checkpoint(
             lockFn, ! convertFlag && allowEmptyCheckpointFlag)) == 0) {
         const seq_t cplognum = replayer.getLogNum();
         if ((status = replayer.playLogs(convertFlag)) == 0) {

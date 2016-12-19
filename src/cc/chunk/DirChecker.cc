@@ -1149,7 +1149,8 @@ private:
         }
 #ifndef LOCK_EX
 	struct flock theLock = {0};
-	theLock.l_type = F_WRLCK;
+	theLock.l_type   = F_WRLCK;
+        theLock.l_whence = SEEK_SET;
 	if (fcntl(theFd, F_SETLK, &theLock))
 #else
         if (flock(theFd, LOCK_EX | LOCK_NB))

@@ -78,6 +78,7 @@ bool restore_checksum(DETokenizer& c);
 bool restore_delegate_cancel(DETokenizer& c);
 bool restore_filesystem_info(DETokenizer& c);
 bool restore_idempotent_request(DETokenizer& c);
+int  restore_checkpoint(const string& lockfn, bool allowEmptyCheckpointFlag);
 
 }
 #endif // !defined(KFS_RESTORE_H)

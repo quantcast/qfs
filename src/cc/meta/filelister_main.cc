@@ -48,20 +48,6 @@ using std::istringstream;
 using std::ofstream;
 
 static int
-RestoreCheckpoint(const string& lockfn, bool allowEmptyCheckpointFlag)
-{
-    if (! lockfn.empty()) {
-        acquire_lockfile(lockfn, 10);
-    }
-    if (! allowEmptyCheckpointFlag || file_exists(LASTCP)) {
-        Restorer r;
-        return (r.rebuild(LASTCP) ? 0 : -EIO);
-    } else {
-        return metatree.new_tree();
-    }
-}
-
-static int
 FileListerMain(int argc, char **argv)
 {
     // use options: -l for logdir -c for checkpoint dir
@@ -124,7 +110,7 @@ FileListerMain(int argc, char **argv)
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    if ((status = RestoreCheckpoint(lockfn, allowEmptyCheckpointFlag)) == 0 &&
+    if ((status = restore_checkpoint(lockfn, allowEmptyCheckpointFlag)) == 0 &&
             (status = replayer.playLogs()) == 0) {
         if (pathFn == "-") {
             metatree.listPaths(cout, ids);
