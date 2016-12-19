@@ -1085,7 +1085,7 @@ trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
         fi
         start=$SECONDS
         while ./cptest.sh "$suf"; do
-            echo "$suf test passed. `expr $SECONDS - $start` sec, `date`"
+            echo "$suf test passed. $(($SECONDS - $start)) sec, `date`"
             start=$SECONDS
         done > "cptest-$suf.log" 2>&1 &
         echo $! > "cptest-$suf.pid"
