@@ -818,14 +818,26 @@ public:
         return entry.ServerCount();
     }
     size_t ServerCount(const Entry& entry) const {
+        const bool kConnectedOnlyFlag = false;
+        return ServerCount(entry, kConnectedOnlyFlag);
+    }
+    size_t ConnectedServerCount(const Entry& entry) const {
+        const bool kConnectedOnlyFlag = true;
+        return ServerCount(entry, kConnectedOnlyFlag);
+    }
+    size_t ServerCount(const Entry& entry, bool connectedOnlyFlag) const {
         if (mRemoveServerScanPtr) {
             return CleanupStaleServers(entry);
         }
         ValidateHosted(entry);
-        if (mHibernatedCount > 0) {
+        if (0 < mHibernatedCount || connectedOnlyFlag) {
             size_t ret = 0;
             for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
-                if (IsHibernated(entry.IndexAt(i))) {
+                const size_t idx = entry.IndexAt(i);
+                if (IsHibernated(idx)) {
+                    continue;
+                }
+                if (connectedOnlyFlag && ! mServers[idx]->IsConnected()) {
                     continue;
                 }
                 ret++;

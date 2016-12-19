@@ -3300,7 +3300,8 @@ LayoutManager::HasWriteAppendLease(chunkId_t chunkId) const
 }
 
 bool
-LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
+LayoutManager::AddServerWithStableReplica(
+    CSMap::Entry& c, const ChunkServerPtr& server)
 {
     size_t     srvCount = 0;
     const bool res      = AddHosted(c, server, &srvCount);
@@ -3310,7 +3311,7 @@ LayoutManager::AddServer(CSMap::Entry& c, const ChunkServerPtr& server)
     const MetaFattr&     fa = *(c.GetFattr());
     const MetaChunkInfo& ci = *(c.GetChunkInfo());
     if (fa.filesize < 0 && ! fa.IsStriped() &&
-            ! server->IsDown() && ! server->IsReplay() &&
+            server->IsConnected() && ! server->IsReplay() &&
             ci.offset + (chunkOff_t)CHUNKSIZE >= fa.nextChunkOffset()) {
         KFS_LOG_STREAM_DEBUG << server->GetServerLocation() <<
             " chunk size: <" << fa.id() << "," << ci.chunkId << ">" <<
@@ -4059,7 +4060,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                     // This chunk is non-stale. Check replication,
                     // and update file size if this is the last
                     // chunk and update required.
-                    AddServer(c, req.server);
+                    AddServerWithStableReplica(c, req.server);
                 }
             }
         } else {
@@ -4331,7 +4332,8 @@ LayoutManager::AddNotStableChunk(
     // AddServerToMakeStable() invoked already.
     // Delete the replica if sufficient number of replicas already exists.
     const MetaFattr * const fa = pinfo.GetFattr();
-    if (fa && fa->numReplicas <= mChunkToServerMap.ServerCount(pinfo)) {
+    if (fa &&
+            fa->numReplicas <= mChunkToServerMap.ConnectedServerCount(pinfo)) {
         CancelPendingMakeStable(fileId, chunkId);
         return "sufficient number of replicas exists";
     }
@@ -4557,7 +4559,7 @@ LayoutManager::Done(MetaChunkVersChange& req)
         return;
     }
     // Cancel pending make stable not counting hibernated servers.
-    const size_t srvCount = mChunkToServerMap.ServerCount(*cmi);
+    const size_t srvCount = mChunkToServerMap.ConnectedServerCount(*cmi);
     if (fa->numReplicas <= srvCount) {
         CancelPendingMakeStable(fileId, req.chunkId);
     }
@@ -7990,7 +7992,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
             );
             continue;
         }
-        const bool addedFlag = AddServer(*cmi, req.server);
+        const bool addedFlag = AddServerWithStableReplica(*cmi, req.server);
         KFS_LOG_STREAM_DEBUG <<
             loc <<
             " available chunk: " << chunkId <<
@@ -9798,13 +9800,13 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
     for (Servers::const_iterator csi = servers.begin();
             csi != servers.end();
             ++csi) {
-        if ((*csi)->IsDown()) {
-            numDownServers++;
-        } else {
+        if ((*csi)->IsConnected()) {
             numServers++;
             if (! goodServer) {
                 goodServer = *csi;
             }
+        } else {
+            numDownServers++;
         }
     }
     MetaFattr* const fa     = pinfo->GetFattr();
@@ -9947,6 +9949,7 @@ LayoutManager::ReplayPendingMakeStable(
                     int64_t(chunkChecksum) : int64_t(-1)) <<
             KFS_LOG_EOM;
             mPendingMakeStable.Erase(chunkId);
+            mPendingBeginMakeStable.Erase(chunkId);
         }
     }
     KFS_LOG_STREAM(logLevel) <<
@@ -10018,6 +10021,9 @@ LayoutManager::WritePendingMakeStable(ostream& os)
 void
 LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
 {
+    if (! mPrimaryFlag) {
+        return;
+    }
     PendingMakeStableEntry* const it = mPendingMakeStable.Find(chunkId);
     if (! it) {
         return;
@@ -10037,24 +10043,18 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
     // Emit done log record -- this "cancels" "mkstable" log record.
     // Do not write if begin make stable wasn't started before the
     // chunk got deleted.
-    MetaLogMakeChunkStableDone* const op =
-        (it->mSize < 0 || it->mChunkVersion < 0) ? 0 :
-        new MetaLogMakeChunkStableDone(
-            fid, chunkId, it->mChunkVersion,
-            it->mSize, it->mHasChecksum,
-            it->mChecksum, chunkId
-        );
-    mPendingMakeStable.Erase(chunkId);
-    mPendingBeginMakeStable.Erase(chunkId);
+    MetaLogMakeChunkStableDone* const op = new MetaLogMakeChunkStableDone(
+        fid, chunkId, it->mChunkVersion,
+        it->mSize, it->mHasChecksum,
+        it->mChecksum, chunkId
+    );
     KFS_LOG_STREAM_DEBUG <<
         "delete pending MCS:"
         " <" << fid << "," << chunkId << ">" <<
         " total: " << mPendingMakeStable.GetSize() <<
         " " << MetaRequest::ShowReq(op) <<
     KFS_LOG_EOM;
-    if (op) {
-        submit_request(op);
-    }
+    submit_request(op);
 }
 
 bool
@@ -13281,6 +13281,7 @@ LayoutManager::StopServicing()
         }
     }
     mStripedFilesAllocationsInFlight.clear();
+    mPendingBeginMakeStable.Clear();
     if (mPrimaryFlag) {
         return;
     }

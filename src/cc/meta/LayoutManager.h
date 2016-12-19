@@ -2678,7 +2678,8 @@ protected:
         size_t* srvCount = 0);
     inline bool AddHosted(chunkId_t chunkId, CSMap::Entry& entry,
         const ChunkServerPtr& c);
-    bool AddServer(CSMap::Entry& c, const ChunkServerPtr& server);
+    bool AddServerWithStableReplica(
+        CSMap::Entry& c, const ChunkServerPtr& server);
     bool RunObjectBlockDeleteQueue();
     chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
         int& remScanCnt);
