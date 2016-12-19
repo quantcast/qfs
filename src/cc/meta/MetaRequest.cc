@@ -3436,12 +3436,13 @@ MetaLogMakeChunkStable::handle()
 void
 MetaLogMakeChunkStableDone::handle()
 {
-    if (replayFlag) {
-        const bool kAddFlag = false;
-        gLayoutManager.ReplayPendingMakeStable(
-            chunkId, chunkVersion, chunkSize, hasChunkChecksum, chunkChecksum,
-            kAddFlag);
+    if (0 != status) {
+        return;
     }
+    const bool kAddFlag = false;
+    gLayoutManager.ReplayPendingMakeStable(
+        chunkId, chunkVersion, chunkSize, hasChunkChecksum, chunkChecksum,
+        kAddFlag);
 }
 
 /* virtual */ void
