@@ -65,14 +65,15 @@ static int
 kfsshell_main(int argc, char **argv)
 {
     string              serverHost;
-    int                 port      = -1;
-    bool                help      = false;
-    bool                quietMode = false;
-    MsgLogger::LogLevel logLevel  = MsgLogger::kLogLevelINFO;
-    const char*         config    = 0;
+    int                 port        = 20000;
+    bool                help        = false;
+    bool                quietMode   = false;
+    MsgLogger::LogLevel logLevel    = MsgLogger::kLogLevelINFO;
+    const char*         logLevelStr = 0;
+    const char*         config      = 0;
 
     int optchar;
-    while ((optchar = getopt(argc, argv, "hqs:p:vf:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hqs:p:vf:l:")) != -1) {
         switch (optchar) {
             case 's':
                 serverHost = optarg;
@@ -84,13 +85,17 @@ kfsshell_main(int argc, char **argv)
                 help = true;
                 break;
             case 'v':
-                logLevel = MsgLogger::kLogLevelDEBUG;
+                logLevel    = MsgLogger::kLogLevelDEBUG;
+                logLevelStr = 0;
                 break;
             case 'q':
                 quietMode = true;
                 break;
             case 'f':
                 config = optarg;
+                break;
+            case 'l':
+                logLevelStr = optarg;
                 break;
             default:
                 cout << "Unrecognized flag : " << char(optchar);
@@ -101,15 +106,18 @@ kfsshell_main(int argc, char **argv)
 
     if (help || serverHost.empty() || port <= 0) {
         cout << "Usage: " << argv[0] <<
-            " -s <meta server name> -p <port> [-q [cmd]]"
+            " -s <meta server name>\n"
+            " [-p <port> (default 20000)]\n"
+            " [-q [cmd]]\n"
             " [-f <config file name>]\n"
+            " [-l <log level> (DEBUG|INFO|NOTICE|WARN|ERROR|FATAL)]\n"
             "Starts an interactive client shell to QFS.\n"
             "  -q: switches to execution in quiet mode.\n"
             " cmd: command to execute, only in quiet mode.\n";
         return 1;
     }
 
-    MsgLogger::Init(0, logLevel);
+    MsgLogger::Init(0, logLevel, 0, 0, logLevelStr);
     KfsClient* const kfsClient = KfsClient::Connect(serverHost, port, config);
     if (! kfsClient) {
         cout << "qfs client failed to initialize\n";

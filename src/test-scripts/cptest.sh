@@ -31,7 +31,7 @@ kfstools=${kfstools-'src/cc/tools'}
 cptokfs="cptoqfs $meta $cptokfsopts"
 cpfromkfsopts=${cpfromkfsopts-}
 cpfromkfs="cpfromqfs $meta $cpfromkfsopts"
-kfsshell="qfsshell $meta -q --"
+qfsshellloglevel=${qfsshellloglevel-'NOTICE'}
 rand='rand-sfmt'
 randseed=1234
 sizes=${sizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 67108864 67108865 100e6 250e6'}
@@ -60,6 +60,11 @@ mytime()
     fi
 }
 
+myqfsshell()
+{
+    qfsshell $meta -l $qfsshellloglevel -q -- ${1+"$@"}
+}
+
 if [ -x /usr/bin/time ] && /usr/bin/time -v true >/dev/null 2>&1; then
     xtime='/usr/bin/time -v'
 fi
@@ -74,13 +79,13 @@ cd "$log" || exit
 
 # Ensure that the test directory is empty creating it and them removing,
 # and then creating again.
-$kfsshell mkdir "$dir" || exit
-$kfsshell rm    "$dir" || exit
-$kfsshell mkdir "$dir" || exit
+echo "Starting test: $cptokfs; directory: $dir"
+myqfsshell mkdir "$dir" || exit
+myqfsshell rm    "$dir" || exit
+myqfsshell mkdir "$dir" || exit
 # Directory must be empty.
-$kfsshell rmdir "$dir" || exit
-$kfsshell mkdir "$dir" || exit
-# sleep 3
+myqfsshell rmdir "$dir" || exit
+myqfsshell mkdir "$dir" || exit
 
 rseed=$randseed
 for s in $sizes; do
@@ -121,7 +126,7 @@ for s in $sizes; do
 done
 if [ $status -eq 0 ]; then
     if [ x"$removetestdir" = x'yes' ]; then
-        $kfsshell rm "$dir" > /dev/null 2>&1
+        myqfsshell rm "$dir"
     fi
     echo "Passed all tests."
 fi

@@ -97,6 +97,21 @@ else
     auth=${auth-no}
 fi
 
+if [ x"$SECONDS" = x ]; then
+    mystartseconds=`date -u '+%s'`
+else
+    mystartseconds=''
+fi
+
+now_seconds()
+{
+    if [ x"$mystartseconds" = x ]; then
+        echo $SECONDS
+    else
+        echo $((`date -u '+%s'` - $mystartseconds))
+    fi
+}
+
 update_parameters()
 {
     clitestdir="${testdirsprefix}3/$USER/test/cli"
@@ -1083,10 +1098,10 @@ trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
             QFS_CLIENT_CONFIG="FILE:${clientproprs}"
             export QFS_CLIENT_CONFIG
         fi
-        start=$SECONDS
+        start=`now_seconds`
         while ./cptest.sh "$suf"; do
-            echo "$suf test passed. $(($SECONDS - $start)) sec, `date`"
-            start=$SECONDS
+            echo "$suf test passed. $((`now_seconds` - $start)) sec, `date`"
+            start=`now_seconds`
         done > "cptest-$suf.log" 2>&1 &
         echo $! > "cptest-$suf.pid"
     done
