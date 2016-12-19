@@ -37,8 +37,11 @@
 
 #include "kfsio/Globals.h"
 
+#include <new>
+
 namespace KFS
 {
+using std::set_new_handler;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
@@ -72,9 +75,17 @@ private:
     MetaServerGlobals& operator=(const MetaServerGlobals&);
 };
 
+static void
+NewHandler()
+{
+    const bool kReportSysErrorFlag = true;
+    panic("memory allocation failed", kReportSysErrorFlag);
+}
+
 static MetaServerGlobals&
 InitializeMetaServerGlobals()
 {
+    set_new_handler(&NewHandler);
     InitGlobals();
     globalNetManager();
     static MetaServerGlobals sMetaServerGlobals;

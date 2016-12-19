@@ -57,6 +57,7 @@
 #include <vector>
 #include <fstream>
 #include <sstream>
+#include <new>
 
 namespace KFS {
 
@@ -69,6 +70,7 @@ using std::ofstream;
 using std::ostream;
 using std::istringstream;
 using std::min;
+using std::set_new_handler;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
 
@@ -449,9 +451,17 @@ public:
     ChunkServerMain           mChunkServerMain;
 };
 
+static void
+NewHandler()
+{
+    const int err = errno;
+    die(QCUtils::SysError(err, "memory allocation failed"));
+}
+
 static ChunkServerGlobals&
 InitChunkServerGlobals()
 {
+    set_new_handler(&NewHandler);
     GetRestarter();
     InitGlobals();
     globalNetManager();
