@@ -242,7 +242,7 @@ class Status:
         <table cellspacing="0" cellpadding="0.1em">
         <tbody>''' % browseLink
 
-        if self.systemInfo.isInRecovery and 0 != self.systemInfo.vrPrimaryFlag:
+        if systemInfo.isInRecovery and 0 != systemInfo.vrPrimaryFlag:
             print >> buffer, '''<tr><td>Recovery status: </td><td>:</td><td>IN RECOVERY</td></tr>'''
         fsFree = systemInfo.freeFsSpace
         if fsFree < 0:
@@ -253,11 +253,14 @@ class Status:
             freePct = 0.
         serverCount = len(upServers)
         print >> buffer, '''
-        <tr> <td> Updated </td><td>:<numWritableDrives/td><td> ''', time.strftime("%a %b %d %H:%M:%S %Y"), ''' </td></tr>
-        <tr> <td> Started at </td><td>:</td><td> ''', systemInfo.startedAt, ''' </td></tr>
-        <tr> <td> Total space </td><td>:</td><td> ''', bytesToReadable(systemInfo.totalSpace), ''' </td></tr>
-        <tr> <td> Used space </td><td>:</td><td> ''', bytesToReadable(systemInfo.usedSpace), '''</td></tr>
-        <tr> <td> Free space </td><td>:</td><td> ''', bytesToReadable(fsFree), '%.2f%%' % freePct, '''</td></tr>
+        <tr> <td> Updated </td><td>:</td><td> ''', time.strftime("%a %b %d %H:%M:%S %Y"), ''' </td></tr>
+        <tr> <td> Started at </td><td>:</td><td> ''', systemInfo.startedAt, ''' </td></tr>'''
+        if 0 != systemInfo.vrPrimaryFlag:
+            print >> buffer, '''
+            <tr> <td> Total space </td><td>:</td><td> ''', bytesToReadable(systemInfo.totalSpace), ''' </td></tr>
+            <tr> <td> Used space </td><td>:</td><td> ''', bytesToReadable(systemInfo.usedSpace), '''</td></tr>
+            <tr> <td> Free space </td><td>:</td><td> ''', bytesToReadable(fsFree), '%.2f%%' % freePct, '''</td></tr>'''
+        print >> buffer, '''
         <tr> <td> WORM mode </td><td>:</td><td> ''', systemInfo.wormMode, '''</td></tr>'''
         if 0 < systemInfo.fileSystemId:
             print >> buffer, '<tr> <td> File system </td><td>:</td><td>directories:&nbsp;' + \
@@ -377,49 +380,51 @@ class Status:
                 '''&nbsp;srv&nbsp;list:&nbsp;''' + splitThousands(systemInfo.csmapEntryAllocs) + \
                 '''&nbsp;''' + bytesToReadable(systemInfo.csmapEntryBytes) + \
                 '''</td></tr>'''
-        if systemInfo.csMaxGoodCandidateLoadAvg >= 0:
-            print >> buffer, '''<tr> <td>Chunk&nbsp;placement&nbsp;load&nbsp;threshold</td><td>:</td><td>''' + \
-                'avg:&nbsp;%5.2e' % systemInfo.csMaxGoodCandidateLoadAvg + '&nbsp;' + \
-                '&nbsp;master:&nbsp;%5.2e' % systemInfo.csMaxGoodMasterLoadAvg + \
-                '&nbsp;slave:&nbsp;%5.2e' % systemInfo.csMaxGoodSlaveLoadAvg + \
-                '''</td></tr>'''
-        if serverCount <= 0:
-            mult = 0
-        else:
-            mult = 100. / float(serverCount)
-        print >> buffer, '''<tr> <td>Chunk&nbsp;placement&nbsp;candidates</td><td>:</td><td>'''
-        if systemInfo.goodMasters >= 0 and systemInfo.goodSlaves >= 0:
-            allGood = systemInfo.goodMasters + systemInfo.goodSlaves
-            print >> buffer, \
-                'all:&nbsp;' + splitThousands(allGood) + \
-                    '&nbsp;%.2f%%' % (float(allGood) * mult) + \
-                '&nbsp;masters:&nbsp;' + splitThousands(systemInfo.goodMasters) + \
-                    '&nbsp;%.2f%%' % (float(systemInfo.goodMasters) * mult) + \
-                '&nbsp;slaves:&nbsp' + splitThousands(systemInfo.goodSlaves) + \
-                    '&nbsp;%.2f%%' % (float(systemInfo.goodSlaves) * mult)
-        else:
-            allGood = serverCount - canNotBeUsedForPlacment
-            print >> buffer, \
-                'all:&nbsp;' + splitThousands(allGood) + \
-                    '&nbsp;%.2f%%' % (float(allGood) * mult)
-        if goodNoRackAssignedCount < allGood:
-            all = allGood - goodNoRackAssignedCount
-            print >> buffer, \
-                '&nbsp;in&nbsp;racks:&nbsp;' + splitThousands(all) + \
-                    '&nbsp;%.2f%%' % (float(all) * mult)
-        print >> buffer, '''</td></tr>'''
-        if systemInfo.totalDrives >= 0 and systemInfo.writableDrives >= 0:
-            if systemInfo.totalDrives > 0:
-                mult = 100. / systemInfo.totalDrives
+        allGood = 0
+        if 0 != systemInfo.vrPrimaryFlag:
+            if systemInfo.csMaxGoodCandidateLoadAvg >= 0:
+                print >> buffer, '''<tr> <td>Chunk&nbsp;placement&nbsp;load&nbsp;threshold</td><td>:</td><td>''' + \
+                    'avg:&nbsp;%5.2e' % systemInfo.csMaxGoodCandidateLoadAvg + '&nbsp;' + \
+                    '&nbsp;master:&nbsp;%5.2e' % systemInfo.csMaxGoodMasterLoadAvg + \
+                    '&nbsp;slave:&nbsp;%5.2e' % systemInfo.csMaxGoodSlaveLoadAvg + \
+                    '''</td></tr>'''
+            if serverCount <= 0:
+                mult = 0
             else:
-                mult = 0.
-            print >> buffer, \
-                '''<tr> <td>Storage Devices&nbsp;</td><td>:</td><td>''' + \
-               'total:&nbsp;' + splitThousands(systemInfo.totalDrives) + \
-                '&nbsp;writable:&nbsp;' + splitThousands(systemInfo.writableDrives) + \
-                    '&nbsp;%.2f%%' % (float(systemInfo.writableDrives) * mult) + \
-                '&nbsp;avg&nbsp;capacity:&nbsp;' + \
-                    bytesToReadable(systemInfo.totalSpace * mult / 100.)
+                mult = 100. / float(serverCount)
+            print >> buffer, '''<tr> <td>Chunk&nbsp;placement&nbsp;candidates</td><td>:</td><td>'''
+            if systemInfo.goodMasters >= 0 and systemInfo.goodSlaves >= 0:
+                allGood = systemInfo.goodMasters + systemInfo.goodSlaves
+                print >> buffer, \
+                    'all:&nbsp;' + splitThousands(allGood) + \
+                        '&nbsp;%.2f%%' % (float(allGood) * mult) + \
+                    '&nbsp;masters:&nbsp;' + splitThousands(systemInfo.goodMasters) + \
+                        '&nbsp;%.2f%%' % (float(systemInfo.goodMasters) * mult) + \
+                    '&nbsp;slaves:&nbsp' + splitThousands(systemInfo.goodSlaves) + \
+                        '&nbsp;%.2f%%' % (float(systemInfo.goodSlaves) * mult)
+            else:
+                allGood = serverCount - canNotBeUsedForPlacment
+                print >> buffer, \
+                    'all:&nbsp;' + splitThousands(allGood) + \
+                        '&nbsp;%.2f%%' % (float(allGood) * mult)
+            if goodNoRackAssignedCount < allGood:
+                all = allGood - goodNoRackAssignedCount
+                print >> buffer, \
+                    '&nbsp;in&nbsp;racks:&nbsp;' + splitThousands(all) + \
+                        '&nbsp;%.2f%%' % (float(all) * mult)
+            print >> buffer, '''</td></tr>'''
+            if systemInfo.totalDrives >= 0 and systemInfo.writableDrives >= 0:
+                if systemInfo.totalDrives > 0:
+                    mult = 100. / systemInfo.totalDrives
+                else:
+                    mult = 0.
+                print >> buffer, \
+                    '''<tr> <td>Storage devices&nbsp;</td><td>:</td><td>''' + \
+                   'total:&nbsp;' + splitThousands(systemInfo.totalDrives) + \
+                    '&nbsp;writable:&nbsp;' + splitThousands(systemInfo.writableDrives) + \
+                        '&nbsp;%.2f%%' % (float(systemInfo.writableDrives) * mult) + \
+                    '&nbsp;avg&nbsp;capacity:&nbsp;' + \
+                        bytesToReadable(systemInfo.totalSpace * mult / 100.), '''</td></tr>'''
 
         print >> buffer, '''
         <tr><td>Version </td><td>:</td><td> ''', systemInfo.buildVersion, '''</td></tr>
@@ -843,6 +848,21 @@ class UpServer:
             else:
                 setattr(self, 'tiers', '')
 
+            try:
+                self.connected = int(self.connected)
+            except:
+                self.connected = 1
+
+            try:
+                self.replay = int(self.replay)
+            except:
+                self.replay = 0
+
+            try:
+                self.stopped = int(self.stopped)
+            except:
+                self.stopped = 0
+
             self.tiersCount = self.tiers.count(';') + 1
             if self.tiersCount <= 1 and self.tiers.find(':') < 0:
                 self.tiersCount = 0
@@ -892,7 +912,14 @@ class UpServer:
                 status.goodNoRackAssignedCount -= 1
 
     def printStatusHTML(self, buffer, count, showNoRack):
-        if self.retiring:
+        if 0 == self.connected:
+            if self.stopped:
+                trclass = 'class="stopped"'
+            elif self.replay:
+                trclass = 'class="replay"'
+            else:
+                trclass = 'class="disconnected"'
+        elif self.retiring:
             trclass = 'class="retiring"'
         elif self.nevacuate > 0:
             trclass = 'class="evacuating"'

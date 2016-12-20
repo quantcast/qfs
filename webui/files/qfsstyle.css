@@ -132,6 +132,18 @@ background-color:#FF6699;
 background-color:#FFFF66;
 }
 
+.status-table tbody tr.stopped td, .network-status-table tbody tr.stopped td {
+background-color:#1ac6ff;
+}
+
+.status-table tbody tr.replay td, .network-status-table tbody tr.replay td {
+background-color:#1a8cff;
+}
+
+.status-table tbody tr.disconnected td, .network-status-table tbody tr.disconnected td {
+background-color:#8c1aff;
+}
+
 .status-table tbody tr.norack td, .network-status-table tbody tr.norack td {
 background-color:#FF9933;
 }
