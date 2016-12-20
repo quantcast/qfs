@@ -3424,6 +3424,10 @@ void
 MetaLogMakeChunkStable::handle()
 {
     if (replayFlag) {
+        if (0 != status) {
+            panic("invalid log make chunk stable");
+            return;
+        }
         const bool kAddFlag = true;
         gLayoutManager.ReplayPendingMakeStable(
             chunkId, chunkVersion, chunkSize, hasChunkChecksum, chunkChecksum,
@@ -3436,13 +3440,7 @@ MetaLogMakeChunkStable::handle()
 void
 MetaLogMakeChunkStableDone::handle()
 {
-    if (0 != status) {
-        return;
-    }
-    const bool kAddFlag = false;
-    gLayoutManager.ReplayPendingMakeStable(
-        chunkId, chunkVersion, chunkSize, hasChunkChecksum, chunkChecksum,
-        kAddFlag);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ void

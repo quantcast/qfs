@@ -3565,6 +3565,19 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
             }
         }
     }
+    if (req.replayFlag && 0 <= req.chunkId && req.doneOp &&
+            META_CHUNK_OP_LOG_IN_FLIGHT == req.doneOp->op) {
+        const MetaChunkLogInFlight& op =
+            *static_cast<const MetaChunkLogInFlight*>(req.doneOp);
+        if (META_CHUNK_MAKE_STABLE == op.reqType &&
+                mPendingMakeStable.Find(req.chunkId)) {
+            // Schedule replication check when this node becomes primary, in
+            // order to cleanup pending make stable entry, in the case when
+            // pending make stable done RPC was lost due to log write error, and
+            // / or VR primary transition.
+            ChangeChunkReplication(req.chunkId);
+        }
+    }
     KFS_LOG_STREAM_DEBUG <<
         "CLC done:"
         " status: "  << req.status <<
@@ -9515,7 +9528,7 @@ LayoutManager::BeginMakeChunkStableDone(const MetaBeginMakeChunkStable& req)
             KFS_LOG_EOM;
         }
         // Try again later.
-        DeleteNonStableEntry(req.chunkId, it, -EAGAIN, "no servers");
+        DeleteNonStableEntry(req.chunkId, it, -EAGAIN, "no replicas available");
         UpdateReplicationState(*ci);
         return;
     }
@@ -9868,6 +9881,25 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
 }
 
 void
+LayoutManager::Handle(MetaLogMakeChunkStableDone& req)
+{
+    if (0 != req.status) {
+        if (req.replayFlag) {
+            panic("invalid log make chunk stable done");
+        } else if (IsMetaLogWriteOrVrError(req.status)) {
+            ScheduleResubmitOrCancel(req);
+        }
+        // Schedule replication check to remove pending make chunk stable entry
+        // if needed.
+        ChangeChunkReplication(req.chunkId);
+        return;
+    }
+    const bool kAddFlag = false;
+    ReplayPendingMakeStable(req.chunkId, req.chunkVersion, req.chunkSize,
+        req.hasChunkChecksum, req.chunkChecksum, kAddFlag);
+}
+
+void
 LayoutManager::ReplayPendingMakeStable(
     chunkId_t  chunkId,
     seq_t      chunkVersion,
@@ -9886,9 +9918,6 @@ LayoutManager::ReplayPendingMakeStable(
             chunkVersion) {
         res      = "chunk version mismatch";
         logLevel = MsgLogger::kLogLevelERROR;
-    }
-    if (res) {
-        // Failure.
     } else if (addFlag) {
         const PendingMakeStableEntry entry(
             chunkSize,
@@ -9897,28 +9926,28 @@ LayoutManager::ReplayPendingMakeStable(
             chunkVersion
         );
         bool insertedFlag = false;
-        PendingMakeStableEntry* const res =
+        PendingMakeStableEntry* const cur =
             mPendingMakeStable.Insert(chunkId, entry, insertedFlag);
         if (! insertedFlag) {
-            KFS_LOG_STREAM(((res->mHasChecksum || res->mSize >= 0) &&
-                        *res != entry) ?
+            KFS_LOG_STREAM(((cur->mHasChecksum || cur->mSize >= 0) &&
+                        *cur != entry) ?
                     MsgLogger::kLogLevelWARN :
                     MsgLogger::kLogLevelDEBUG) <<
                 "replay MCS add:" <<
                 " update:"
                 " chunkId: "  << chunkId <<
-                " version: "  << res->mChunkVersion <<
+                " version: "  << cur->mChunkVersion <<
                 "=>"          << entry.mChunkVersion <<
-                " size: "     << res->mSize <<
+                " size: "     << cur->mSize <<
                 "=>"          << entry.mSize <<
-                " checksum: " << (res->mHasChecksum ?
-                    int64_t(res->mChecksum) :
+                " checksum: " << (cur->mHasChecksum ?
+                    int64_t(cur->mChecksum) :
                     int64_t(-1)) <<
                 "=>"          << (entry.mHasChecksum ?
                     int64_t(entry.mChecksum) :
                     int64_t(-1)) <<
             KFS_LOG_EOM;
-            *res = entry;
+            *cur = entry;
         }
     } else {
         PendingMakeStableEntry* const it = mPendingMakeStable.Find(chunkId);

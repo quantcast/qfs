@@ -1082,6 +1082,7 @@ public:
     void BeginMakeChunkStableDone(const MetaBeginMakeChunkStable& req);
     void LogMakeChunkStableDone(MetaLogMakeChunkStable& req);
     void MakeChunkStableDone(const MetaChunkMakeStable& req);
+    void Handle(MetaLogMakeChunkStableDone& req);
     void ReplayPendingMakeStable(
         chunkId_t  chunkId,
         seq_t      chunkVersion,
