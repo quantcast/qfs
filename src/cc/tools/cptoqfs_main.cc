@@ -423,7 +423,8 @@ CpToKfs::BackupDir(string dirname, string kfsdirname)
             kfssubdir = kfsdirname + "/" + fileInfo->d_name;
             BackupDir(subdir, kfssubdir);
         } else if (S_ISREG(buf.st_mode)) {
-            ret = BackupFile2(dirname + "/" + fileInfo->d_name, kfsdirname + "/" + fileInfo->d_name);
+            ret = BackupFile2(dirname + "/" + fileInfo->d_name,
+                kfsdirname + "/" + fileInfo->d_name);
             if (ret) {
                 break;
             }
