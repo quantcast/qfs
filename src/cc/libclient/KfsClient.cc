@@ -4027,6 +4027,13 @@ KfsClientImpl::Sync(int fd)
             mProtocolWorker && entry.usedProtocolWorkerFlag) {
         const KfsProtocolWorker::FileId       fileId       = entry.fattr.fileId;
         const KfsProtocolWorker::FileInstance fileInstance = entry.instance;
+        KFS_LOG_STREAM_DEBUG <<
+            fd << "," << fileId << "," << fileInstance <<
+                "," << entry.pathname <<
+            " sync:"
+            " pending: " << entry.pending <<
+            " bufsz: "   << entry.ioBufferSize <<
+        KFS_LOG_EOM;
         entry.pending = 0;
         l.Unlock();
         return (int)mProtocolWorker->Execute(

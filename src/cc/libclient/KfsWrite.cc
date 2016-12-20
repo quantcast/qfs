@@ -171,7 +171,8 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
 
     KFS_LOG_STREAM_DEBUG <<
         fd << "," << fileId << "," << fileInstance << "," << pathName <<
-        (appendFlag ?  " append ->" : " write ->") <<
+        (asyncFlag  ? " async" : "") <<
+        (appendFlag ? " append ->" : " write ->") <<
         " offset: "   << offset <<
         " size: "     << numBytes <<
         " throttle: " << throttle <<
