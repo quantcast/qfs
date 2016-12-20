@@ -50,11 +50,12 @@ class MetaServerGlobals
 public:
     MetaServerGlobals()
         : mCPDIR("./kfscp"),           //!< directory for CP files
-          mLASTCP(mCPDIR + "/latest"), //!< most recent CP file (link)
+          mLASTCP(mCPDIR + "/" +       //!< most recent CP file (link)
+            MetaDataStore::GetCheckpointLatestFileNamePtr()),
           mFileID(0, ROOTFID),
           mChunkID(1, ROOTFID),
           mMetatree(),
-          mCheckpoint(mLASTCP),
+          mCheckpoint(mCPDIR),
           mReplayer(),
           mChildProcessTracker(),
           mNetDispatch(),
