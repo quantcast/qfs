@@ -746,10 +746,6 @@ else
 fi
 
 status=0
-cd "$metasrvdir" || exit
-echo "Running meta server log compactor"
-logcompactor
-status=$?
 
 cd "$testdir" || exit
 
@@ -789,8 +785,18 @@ done
 
 if [ $status -eq 0 ]; then
     cd "$metasrvdir" || exit
+    echo "Running meta server log compactor"
+    logcompactor -T newlog -C newcp
+    status=$?
+fi
+if [ $status -eq 0 ]; then
+    cd "$metasrvdir" || exit
     echo "Running meta server fsck"
     qfsfsck -A 1 -c kfscp
+    status=$?
+fi
+if [ $status -eq 0 ]; then
+    qfsfsck -A 1 -c newcp
     status=$?
 fi
 

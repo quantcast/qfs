@@ -84,13 +84,6 @@ public:
     }
     const string& getCurLog() const
         { return path; }
-    string getLastLogName() const
-    {
-        if (0 <= lastLogNum) {
-            return const_cast<Replay*>(this)->logfile(lastLogNum);
-        }
-        return string();
-    }
     int getLastCommittedStatus() const
         { return lastCommittedStatus; }
     MdStateCtx getMdState() const
