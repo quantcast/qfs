@@ -3035,7 +3035,8 @@ const Properties::String kCSExtraHeaders[] = {
     "XMeta-to-evacuate-cnt",
     "XMeta-replay",
     "XMeta-connected",
-    "XMeta-stopped"
+    "XMeta-stopped",
+    "XMeta-chunks"
 };
 
 struct CSWriteExtra : public CtrWriteExtra
@@ -3097,6 +3098,8 @@ struct CSWriteExtra : public CtrWriteExtra
         Write(writer, srv.IsConnected());
         writer.Write(columnDelim);
         Write(writer, srv.IsStoppedServicing());
+        writer.Write(columnDelim);
+        Write(writer, srv.GetChunkCount());
     }
 private:
     const RackInfos& mRacks;

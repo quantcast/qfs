@@ -547,6 +547,7 @@ class Status:
          <th>Total</th>
          <th>Used%</th>
          <th>Blocks</th>
+         <th>Chunks</th>
          <th>Last heard</th>
          <th>Repl. in</th>
          <th>Repl. out</th>
@@ -863,6 +864,11 @@ class UpServer:
             except:
                 self.stopped = 0
 
+            try:
+                self.chunks = long(self.chunks)
+            except:
+                self.chunks = -1
+
             self.tiersCount = self.tiers.count(';') + 1
             if self.tiersCount <= 1 and self.tiers.find(':') < 0:
                 self.tiersCount = 0
@@ -970,6 +976,7 @@ class UpServer:
         print >> buffer, '''<td>''', '%.2e' % self.total, '''</td>'''
         print >> buffer, '''<td align="right">''', '%.2f' % self.util, '''</td>'''
         print >> buffer, '''<td align="right">''', self.nblocks, '''</td>'''
+        print >> buffer, '''<td align="right">''', self.chunks, '''</td>'''
         print >> buffer, '''<td align="right">''', self.lastheard, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numReplications, '''</td>'''
         print >> buffer, '''<td align="right">''', self.numReadReplications, '''</td>'''

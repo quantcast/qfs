@@ -3140,6 +3140,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", replay=" << (mReplayFlag ? 1 : 0)
         << ", connected=" << (IsConnected() ? 1 : 0)
         << ", stopped=" << (IsStoppedServicing() ? 1 : 0)
+        << ", chunks=" << GetChunkCount()
         << ", tiers="
     ;
     const char* delim = "";
