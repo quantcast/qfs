@@ -27,6 +27,7 @@ dir:
 
 .PHONY: build
 build: dir
+	which cmake
 	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
 
