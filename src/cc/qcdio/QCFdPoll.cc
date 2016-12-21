@@ -460,29 +460,12 @@ private:
         }
         return (errno ? errno : EFAULT);
     }
-    static void PrepareToFork()
-        { sForkedFlag = true; }
-    static bool InitAtFork()
-    {
-        sForkedFlag = false;
-        if (pthread_atfork(&PrepareToFork, 0, 0)) {
-            abort();
-            return sForkedFlag;
-        }
-        return sForkedFlag;
-    }
-
 private:
     Impl(
         const Impl& inImpl);
     Impl operator=(
         const Impl& inImpl);
 };
-
-bool QCFdPoll::Impl::sForkedFlag(QCFdPoll::Impl::InitAtFork());
-int  QCFdPoll::Impl::sCtlErrors(0);
-int  QCFdPoll::Impl::sLastCtlOp(0);
-int  QCFdPoll::Impl::sLastCtlError(0);
 
 #else /* QC_OS_NAME_LINUX */
 /* #ifndef QC_OS_NAME_LINUX */
