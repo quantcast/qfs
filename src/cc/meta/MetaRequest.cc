@@ -3353,8 +3353,9 @@ MetaCheckpoint::handle()
             failedCount = 0;
             lastCheckpointId = runningCheckpointId;
         }
-        if (lockFd >= 0) {
+        if (0 <= lockFd) {
             close(lockFd);
+            lockFd = -1;
         }
         if (failedCount > maxFailedCount) {
             panic("checkpoint failures", false);
@@ -3383,6 +3384,7 @@ MetaCheckpoint::handle()
     }
     if (lockFd >= 0) {
         close(lockFd);
+        lockFd = -1;
     }
     if (! lockFileName.empty() &&
             (lockFd = try_to_acquire_lockfile(lockFileName)) < 0) {
@@ -3399,6 +3401,7 @@ MetaCheckpoint::handle()
         KFS_LOG_EOM;
         if (lockFd >= 0) {
             close(lockFd);
+            lockFd = -1;
         }
         return;
     }
@@ -3408,6 +3411,7 @@ MetaCheckpoint::handle()
     if (cp.isCPNeeded()) {
         if (lockFd >= 0) {
             close(lockFd);
+            lockFd = -1;
         }
         if (lastCheckpointId != oplog.checkpointed()) {
             panic("finish log failure");
