@@ -13,7 +13,7 @@
 # Do not assume GNU Make. Keep this makefile as simple as possible.
 
 BUILD_TYPE ?= release
-CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo
+CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo VERBOSE=1
 MAKE_OPTIONS ?=
 QFSTEST_OPTIONS ?=
 
