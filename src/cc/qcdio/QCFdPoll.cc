@@ -303,7 +303,6 @@ private:
 #elif defined (QC_OS_NAME_LINUX)
 
 #include <stdlib.h>
-#include <pthread.h>
 #include <sys/epoll.h>
 
 class QCFdPoll::Impl : public QCFdPollImplBase
@@ -403,10 +402,6 @@ private:
     int                 mMaxEventCount;
     int                 mNextEventIdx;
     struct epoll_event* mEventsPtr;
-    static bool         sForkedFlag;
-    static int          sCtlErrors;
-    static int          sLastCtlOp;
-    static int          sLastCtlError;
 
     int EPollEventMask(
         int inOpType)
@@ -463,19 +458,7 @@ private:
         if (! epoll_ctl(mEpollFd, inEpollOp, inFd, &theEpollEvent)) {
             return 0;
         }
-        // Looks like fork() randomly screws kernell epoll vector.
-        // epoll_ctl() starts returning various errors.
-        // For now assume that the fd is removed from epoll vector.
-        if (! sForkedFlag) {
-            return ((errno ? errno : EFAULT) & ~kEpollFailureAfterFork);
-        }
-        sCtlErrors++;
-        sLastCtlError = errno;
-        sLastCtlOp    = inEpollOp;
-        if (inEpollOp != EPOLL_CTL_DEL) {
-            return ((errno ? errno : EFAULT) | kEpollFailureAfterFork);
-        }
-        return 0;
+        return (errno ? errno : EFAULT);
     }
     static void PrepareToFork()
         { sForkedFlag = true; }
@@ -897,8 +880,7 @@ QCFdPoll::Create(
             theImpl.GetWakerPtr()
         );
         if (theErr) {
-            QCUtils::FatalError("poll add waker fd",
-                theErr & ~QCFdPoll::kEpollFailureAfterFork);
+            QCUtils::FatalError("poll add waker fd", theErr);
         }
     }
     return theImpl;

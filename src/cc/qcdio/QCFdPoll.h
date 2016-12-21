@@ -43,10 +43,6 @@ public:
         kOpTypeError = 0x08,
         kOpTypeHup   = 0x10
     };
-    enum
-    {
-        kEpollFailureAfterFork = 1 << 30
-    };
     typedef int Fd;
     QCFdPoll(
         bool inWakeableFlag);

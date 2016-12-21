@@ -194,16 +194,10 @@ CheckFatalPollSysError(int err, const char* msg)
     if (! err) {
         return err;
     }
-    if ((err & QCFdPoll::kEpollFailureAfterFork) == 0) {
-        KFS_LOG_STREAM_FATAL << QCUtils::SysError(err, msg) << KFS_LOG_EOM;
-        MsgLogger::Stop();
-        abort();
-        return err;
-    }
-    const int ret = err & ~QCFdPoll::kEpollFailureAfterFork;
-    KFS_LOG_STREAM_ERROR << "epoll error: " << QCUtils::SysError(ret, msg) <<
-    KFS_LOG_EOM;
-    return ret;
+    KFS_LOG_STREAM_FATAL << QCUtils::SysError(err, msg) << KFS_LOG_EOM;
+    MsgLogger::Stop();
+    abort();
+    return err;
 }
 
 void
