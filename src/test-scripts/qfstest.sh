@@ -397,6 +397,7 @@ metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStorePlacementTest = 1
 metaServer.replicationCheckInterval = 0.5
+metaServer.checkpoint.lockFileName = ckpt.lock
 EOF
 
 if [ x"$auth" = x'yes' ]; then
