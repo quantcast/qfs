@@ -4045,8 +4045,9 @@ MetaCheckpoint::handle()
                 runningCheckpointLogSegmentNum
             );
         }
-        if (lockFd >= 0) {
+        if (0 <= lockFd) {
             close(lockFd);
+            lockFd = -1;
         }
         if (failedCount > maxFailedCount) {
             panic("checkpoint failures", false);
@@ -4091,6 +4092,7 @@ MetaCheckpoint::handle()
         }
         if (0 <= lockFd) {
             close(lockFd);
+            lockFd = -1;
         }
         if (! lockFileName.empty() &&
                 (lockFd = try_to_acquire_lockfile(lockFileName)) < 0) {
@@ -4115,6 +4117,7 @@ MetaCheckpoint::handle()
         KFS_LOG_EOM;
         if (0 <= lockFd) {
             close(lockFd);
+            lockFd = -1;
         }
         finishLog = 0;
         return;
@@ -4133,6 +4136,7 @@ MetaCheckpoint::handle()
         KFS_LOG_EOM;
         if (0 <= lockFd) {
             close(lockFd);
+            lockFd = -1;
         }
         finishLog = 0;
         return;
