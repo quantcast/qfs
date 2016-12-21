@@ -532,6 +532,7 @@ else
 metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
+metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.recoveryInterval = 1
 metaServer.msgLogWriter.logLevel = DEBUG
 metaServer.msgLogWriter.maxLogFileSize = 1e9
