@@ -13,7 +13,7 @@
 # Do not assume GNU Make. Keep this makefile as simple as possible.
 
 BUILD_TYPE ?= release
-CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo VERBOSE=1
+CMAKE_OPTIONS ?= -D CMAKE_BUILD_TYPE=RelWithDebInfo
 MAKE_OPTIONS ?=
 QFSTEST_OPTIONS ?=
 
@@ -27,7 +27,6 @@ dir:
 
 .PHONY: build
 build: dir
-	which cmake
 	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
 
