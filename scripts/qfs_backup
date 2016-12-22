@@ -19,13 +19,19 @@
 # permissions and limitations under the License.
 #
 # This tool can be used to generate a tar archive stream of the latest
-# checkpoint and associated transaction logs to standard output.  It also can
-# be used to prune filesystem checkpoint files and their associated
-# transaction logs.
+# checkpoint and associated transaction logs to standard output.
 
 import os, posix, subprocess, pprint, re, sys
 
 from optparse import OptionParser, OptionGroup, IndentedHelpFormatter
+
+PRUNE_MSG="""
+The log, and checkpoint pruning related options are for backward compatibility
+only. These options have no effect, as pruning no longer performed by this
+script. The meta server maintains log and checkpoint directories, and performs
+checkpoint, and log pruning. The number of checkpoints and log segments to keep
+and related parameters are specified by the meta server configuration.
+"""
 
 def check_directory(e, name, dir):
     if os.path.exists(dir):
@@ -56,11 +62,12 @@ checkpoint and associated transacton logs to standard output."""
     parser.add_option('-o', '--count', default=4, metavar='INT',
         help="Number of checkpoints to archive.")
     parser.add_option('-n', '--number', default=8, metavar='INT',
-        help="Number of checkpoints to keep, overrides -p.")
+        help="""Number of checkpoints to keep, overrides -p
+-- Deprecated for the same reason as -p""")
     parser.add_option('-a', '--tar', default='/bin/tar', metavar='BINARY',
         help="Path to tar binary.")
     parser.add_option('-p', '--prune', action='store_true',
-        help="Prune checkpoints and associated transaction logs.")
+        help="Prune checkpoints -- Deprecated." + PRUNE_MSG)
     parser.add_option('-d', '--dry-run', action='store_true',
         help="Run in dry run mode.")
     parser.add_option('-h', '--help', action='store_true',
@@ -109,7 +116,7 @@ checkpoint and associated transacton logs to standard output."""
     return options
 
 def cmp_files(a, b):
-    """ Compare files by numeric component."""
+    """ Compare files by VR log sequence number component."""
 
     a_number = find_transaction_number(a)
     if not a_number: a_number = find_checkpoint_number(a)
@@ -154,12 +161,45 @@ def check_transaction_sequences(transactions):
     last_log = None
     last_seq = None
     for log_file in transactions:
-        seq = find_transaction_number(log_file)
+        seq = find_transaction_log_segment_number(log_file)
         if last_seq and seq and last_seq - seq > 1:
             log("WARNING missing transaction log between %s and %s" % (
                 last_log_file, log_file))
         last_log_file = log_file
         last_seq = seq
+
+def find_transaction_log_segment_number(transaction):
+    """ Extract transaction log segment number from the file name."""
+
+    this_number = None
+    match = re.match("^.*?log\.\d+\.\d+\.\d+\.(\d+)$", transaction)
+    if match:
+        this_number = long(match.group(1))
+
+    return this_number
+
+def get_log_sequence(re_prefix, re_suffix, name):
+    """ Extract log sequence number from name, and convert it into
+string that can sorted in lexicographic order"""
+
+    this_number = None
+    match = re.match(re_prefix + "\.(\d+)\.(\d+)\.(\d+)" + re_suffix, name)
+    if match:
+        this_number=''
+        for i in range(1,4):
+            this_number += "%016x" % long(match.group(i))
+
+    return this_number
+
+def find_checkpoint_number(checkpoint):
+    """ Extract checkpoint log sequence number from the file name."""
+
+    return get_log_sequence("^.*?chkpt", "$", checkpoint)
+
+def find_transaction_number(transaction):
+    """ Extract transaction log sequence number from the file name."""
+
+    return get_log_sequence("^.*?log", "\.\d+$", transaction)
 
 def find_checkpoint_log_number(checkpoint):
     """Pull the transaction log sequence number referenced by a checkpoint
@@ -169,40 +209,21 @@ def find_checkpoint_log_number(checkpoint):
     file = open(checkpoint, 'r')
     for line in file:
         if not line.startswith('log/'): continue
-        log_number = int(os.path.splitext(line[4:])[1][1:])
+        log_name   = line[4:]
+        log_number = find_transaction_number(log_name)
         break
     file.close()
 
-    return log_number
-
-def find_transaction_number(transaction):
-    """ Extract transaction log sequence number from the file name."""
-
-    this_number = None
-    match = re.match("^.*?log\.(\d+).*$", transaction)
-    if match:
-        this_number = int(match.group(1))
-
-    return this_number
-
-def find_checkpoint_number(checkpoint):
-    """ Extract checkpoint sequence number from the file name."""
-
-    this_number = None
-    match = re.match("^.*?chkpt\.(\d+)$", checkpoint)
-    if match:
-        this_number = int(match.group(1))
-
-    return this_number
+    return [log_name, log_number]
 
 def find_checkpoint_transactions(checkpoint, transactions):
     """ Find the list of transaction logs needed by the specified
         checkpoint."""
 
     checkpoint_transactions = []
-    log_number = find_checkpoint_log_number(checkpoint)
+    [log_name, log_number] = find_checkpoint_log_number(checkpoint)
 
-    log("Oldest log to archive: log.%s" % log_number)
+    log("Oldest log to archive: %s" % log_name)
 
     for logfile in transactions:
         this_number = find_transaction_number(logfile)
@@ -219,23 +240,6 @@ def get_latest_checkpoint(checkpoint_dir):
 def get_last_transaction_log(transaction_dir):
     return os.path.join(transaction_dir, 'last')
 
-def find_prune_files(number, checkpoints, transactions):
-    """ Prune old checkpoints and transaction logs."""
-
-    prune_files = []
-    start_checkpoint = checkpoints[number]
-    log_number = find_checkpoint_log_number(start_checkpoint)
-    for logfile in transactions:
-        this_number = find_transaction_number(logfile)
-        if this_number:
-            if this_number < log_number:
-                prune_files.append(logfile)
-
-    for checkpoint in checkpoints[number:]:
-        prune_files.append(checkpoint)
-
-    return prune_files
-
 def log(msg):
     print >> sys.stderr, msg
 
@@ -245,7 +249,7 @@ if __name__ == '__main__':
     log("Scanning: %s and %s" % (o.checkpoint, o.transactions))
     log("Archiving %s checkpoints at most." % o.count)
     if o.prune:
-        log("Will keep %s checkpoints." % o.number)
+        log(PRUNE_MSG)
 
     checkpoints = get_checkpoints(o.checkpoint)
 
@@ -284,25 +288,9 @@ if __name__ == '__main__':
     for file in filelist:
         log("   %s" % file)
 
-    prune_files = []
-    if len(checkpoints) > int(o.number):
-        if o.prune:
-            prune_files = find_prune_files(int(o.number), checkpoints,
-                transactions)
-            log("Files to prune:")
-            for file in prune_files:
-                log("   %s" % file)
-    else:
-        log("Skipping pruning, there are too few checkpoint files.")
-
     code = 0
     if not o.dry_run:
         log("Archiving ...")
         code = subprocess.call(tar_cmd)
-
-        if o.prune:
-            log("Pruning ...")
-            for file in prune_files:
-                os.remove(file)
 
     posix._exit(code)
