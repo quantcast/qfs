@@ -21,15 +21,8 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// \brief The metaserver writes out operational log records to a log
-// file.  Every N minutes, the log file is rolled over (and a new one
-// is used to write out data).  For fast recovery, it'd be desirable
-// to compact the log files and produce a checkpoint file.  This tool
-// provides such a capability: it takes a checkpoint file, applies the
-// set of operations as defined in a sequence of one or more log files
-// and produces a new checkpoint file.  When the metaserver rolls over the log
-// files, it creates a symlink to point the "LAST" closed log file; when log
-// compaction is done, we only compact upto the last closed log file.
+// \brief Convert prior versions of checkpoints and log by loading checkpoint,
+// replaying all log segments, then writing new checkpoint and log segment.
 //
 //----------------------------------------------------------------------------
 
@@ -114,22 +107,22 @@ LogCompactorMain(int argc, char** argv)
     if (help || 0 != status) {
         (status ? cerr : cout) << "Usage: " << argv[0] <<
             "[-L <lockfile>]\n"
-            "[-l <log directory>]\n"
-            "[-c <checkpoint directory>]\n"
-            "[-r <# of replicas> set replication to this value for all files]\n"
+            "[-l <log directory> (default kfslog)]\n"
+            "[-c <checkpoint directory> (default kfscp)]\n"
+            "[-r <# of replicas> -- recursively change replication]\n"
             "-T <new log directroy> -- requires -C\n"
             "-C <new checkpoint directroy> -- requires -T\n"
             "-T and -C are intended for log and checkpoint conversion from prior"
             " versions. With these options log compactor reads all log segments,"
-            " including the last partial segment, then writes checkpoint and"
-            " an empty log segment. Both new log and checkpoint directories must"
-            " be empty.\n"
-            "The prior log compactor mode where it produced checkpoint by"
+            " including the last partial segment, then writes checkpoint, and"
+            " initial log segment. Both new log and checkpoint directories must"
+            " not exist or must be empty.\n"
+            "The log compactor mode where it produced checkpoint by"
             " replaying all log segments except last partial segment is"
             " no longer supported, with new log ahead format. This mode is no"
             " longer required as meta server now writes checkpoints.\n"
         ;
-        return status;
+        return (0 == status ? 0 : 1);
     }
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
@@ -221,6 +214,7 @@ LogCompactorMain(int argc, char** argv)
             }
         }
     }
+    MsgLogger::Stop();
     MdStream::Cleanup();
     return (status == 0 ? 0 : 1);
 }
