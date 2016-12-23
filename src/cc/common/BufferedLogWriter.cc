@@ -99,11 +99,12 @@ public:
         int         inMaxLogsFiles,
         int64_t     inMaxLogWaitTimeMicroSec,
         const char* inTimeStampFormatPtr,
-        bool        inUseGMTFlag)
+        bool        inUseGMTFlag,
+        const char* inThreadNamePtr)
         : mMutex(),
           mWriteCond(),
           mWriteDoneCond(),
-          mThread(0, "LogWriter"),
+          mThread(0, inThreadNamePtr ? inThreadNamePtr : "TraceLogWriter"),
           mLogFileNamePrefixes(),
           mFileName(inFileNamePtr ? inFileNamePtr : ""),
           mTruncatedSuffix(inTrucatedSuffixPtr ? inTrucatedSuffixPtr : "..."),
@@ -1331,7 +1332,8 @@ BufferedLogWriter::BufferedLogWriter(
     BufferedLogWriter::LogLevel inLogLevel                  /* = DEBUG */,
     int64_t                     inMaxLogWaitTimeMicroSec    /* = -1 */,
     const char*                 inTimeStampFormatPtr        /* = 0 */,
-    bool                        inUseGMTFlag                /* = false */)
+    bool                        inUseGMTFlag                /* = false */,
+    const char*                 inThreadNamePtr             /* = 0 */)
     : mLogLevel(inLogLevel),
       mImpl(*(new Impl(
         inFd,
@@ -1344,7 +1346,8 @@ BufferedLogWriter::BufferedLogWriter(
         inMaxLogsFiles,
         inMaxLogWaitTimeMicroSec,
         inTimeStampFormatPtr,
-        inUseGMTFlag)
+        inUseGMTFlag,
+        inThreadNamePtr)
       ))
 {
     mImpl.Start();

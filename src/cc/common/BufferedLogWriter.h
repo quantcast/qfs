@@ -81,8 +81,9 @@ public:
         int         inMaxLogsFiles              = -1,
         LogLevel    inLogLevel                  = kLogLevelDEBUG,
         int64_t     inMaxLogWaitTimeMicroSec    = -1,
-        const char* inTimeStampFormatPtr        = 0,      // see strftime
-        bool        inUseGMTFlag                = false); // GMT vs local
+        const char* inTimeStampFormatPtr        = 0,     // see strftime
+        bool        inUseGMTFlag                = false, // GMT vs local
+        const char* inThreadNamePtr             = 0);
     ~BufferedLogWriter();
     void SetParameters(
         const Properties& inProps,

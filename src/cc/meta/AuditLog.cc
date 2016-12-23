@@ -41,7 +41,8 @@ class AuditLogWriter : public BufferedLogWriter::Writer
 public:
     AuditLogWriter(
         const MetaRequest& inOp)
-        : mOp(inOp)
+        : BufferedLogWriter::Writer(),
+          mOp(inOp)
         {}
     virtual ~AuditLogWriter()
         {}
@@ -114,7 +115,21 @@ static const BufferedLogWriter* sBufferedLogWriterForGdbToFindPtr = 0;
 static BufferedLogWriter&
 GetAuditMsgWriter()
 {
-    static BufferedLogWriter sAuditMsgWriter;
+    static BufferedLogWriter sAuditMsgWriter(
+        -1,                                // inFd
+        0,                                 // inFileNamePtr
+        1 << 20,                           // inBufSize
+        0,                                 // inTrucatedSuffixPtr
+        5000000,                           // inOpenRetryIntervalMicroSec
+        1000000,                           // inFlushIntervalMicroSec
+        -1,                                // inMaxLogFileSize
+        -1,                                // inMaxLogsFiles
+        BufferedLogWriter::kLogLevelDEBUG, // inLogLevel
+        -1,                                // inMaxLogWaitTimeMicroSec
+        0,                                 // inTimeStampFormatPtr
+        false,                             // inUseGMTFlag
+        "MeetaAuditLogWriter"              // inThreadNamePtr
+    );
     if (! sBufferedLogWriterForGdbToFindPtr) {
         sBufferedLogWriterForGdbToFindPtr = &sAuditMsgWriter;
     }

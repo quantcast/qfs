@@ -189,6 +189,7 @@ public:
         } else {
             MsgLogger::Init(0);
         }
+        AuditLog::Init();
         const bool okFlag = sServer.Startup(
             myname, argv[0], createEmptyFsFlag, resetVrConfigTypePtr);
         sServer.Cleanup();

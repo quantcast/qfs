@@ -294,6 +294,11 @@ set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
 string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
 add_definitions (-D${KFS_OS_NAME})
 
+IF (ENABLE_IO_BUFFER_DEBUG)
+    add_definitions(-DDEBUG_IOBuffer)
+    message(STATUS "Enabled IO buffer debug")
+ENDIF (ENABLE_IO_BUFFER_DEBUG)
+
 IF (CYGWIN)
     # For now only for cygwin to get strptime, and gnu specific glob flags.
     add_definitions(-D_GNU_SOURCE)

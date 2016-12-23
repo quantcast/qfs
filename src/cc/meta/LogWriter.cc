@@ -855,7 +855,7 @@ private:
         mPrimaryLeaseEndTimeUsec = int64_t(1000) * 1000 * (mNetManager.Now() +
             (0 == mEnqueueVrStatus ? 2 : -(24 * 60 * 60)));
         const int kStackSize = 64 << 10;
-        mThread.Start(this, kStackSize, "LogWriter");
+        mThread.Start(this, kStackSize, "MetaLogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
         return 0;
     }

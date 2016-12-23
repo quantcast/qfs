@@ -1767,8 +1767,9 @@ private:
         MetaLogWriterControl& theOp =
             *reinterpret_cast<MetaLogWriterControl*>(inDataPtr);
         mLastSubmittedLogSeq = max(mLastSubmittedLogSeq, theOp.lastLogSeq);
-        const bool theErrorFlag = -EINVAL == theOp.status &&
-            theOp.blockStartSeq == theOp.lastLogSeq;
+        const bool theErrorFlag = (-EINVAL == theOp.status &&
+            theOp.blockStartSeq == theOp.lastLogSeq) ||
+            (0 != theOp.status && theOp.lastLogSeq < theOp.blockStartSeq);
         KFS_LOG_STREAM(theErrorFlag ?
                 MsgLogger::kLogLevelERROR :
                 MsgLogger::kLogLevelDEBUG) <<

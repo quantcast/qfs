@@ -1359,16 +1359,14 @@ public:
     typedef ListHead                             Lists[kListCount];
 
     static StaleChunkDeleteCompletion& Create(
-        kfsChunkId_t    chunkId,
         KfsCallbackObj* cb,
         Lists           lists)
     {
         StaleChunkDeleteCompletion* ret = List::PopFront(lists[kFreeList]);
         if (ret) {
-            ret->mChunkId = chunkId;
-            ret->mCbPtr   = cb;
+            ret->mCbPtr = cb;
         } else {
-            ret = new StaleChunkDeleteCompletion(chunkId, cb);
+            ret = new StaleChunkDeleteCompletion(cb);
         }
         List::PushBack(lists[kInFlightList], *ret);
         return *ret;
@@ -1405,25 +1403,10 @@ public:
             List::Init(lists[i]);
         }
         for (int i = 0; i < freeListSize; i++) {
-            Release(Create(-1, 0, lists), lists);
-        }
-    }
-    template<typename T>
-    static void GetInFlight(
-        Lists lists,
-        T&    dst)
-    {
-        List::Iterator                    it(lists[kInFlightList]);
-        const StaleChunkDeleteCompletion* cb;
-        while ((cb = it.Next())) {
-            if (0 <= cb->mChunkId) {
-                bool insertedFlag = false;
-                dst.Insert(cb->mChunkId, cb->mChunkId, insertedFlag);
-            }
+            Release(Create(0, lists), lists);
         }
     }
 private:
-    kfsChunkId_t                mChunkId;
     KfsCallbackObj*             mCbPtr;
     StaleChunkDeleteCompletion* mPrevPtr[1];
     StaleChunkDeleteCompletion* mNextPtr[1];
@@ -1431,10 +1414,8 @@ private:
     friend class QCDLListOp<StaleChunkDeleteCompletion, 0>;
 
     StaleChunkDeleteCompletion(
-        kfsChunkId_t    chunkId,
         KfsCallbackObj* cb)
         : KfsCallbackObj(),
-          mChunkId(chunkId),
           mCbPtr(cb)
     {
         List::Init(*this);
@@ -6453,8 +6434,6 @@ ChunkManager::RunStaleChunksQueue(
                         cih->chunkInfo, cih->IsStable())) {
                 StaleChunkDeleteCompletion& cb =
                     StaleChunkDeleteCompletion::Create(
-                        0 <= cih->chunkInfo.chunkVersion ?
-                            cih->chunkInfo.chunkId : kfsChunkId_t(-1),
                         cih->DetachStaleDeleteCompletionOp(),
                         mStaleChunkDeleteCompletionLists
                     );
