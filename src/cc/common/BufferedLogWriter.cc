@@ -313,7 +313,7 @@ public:
         }
         mRunFlag = true;
         const int kStackSize = 32 << 10;
-        mThread.Start(this, kStackSize, "LogWriter");
+        mThread.Start(this, kStackSize);
     }
     bool Reopen()
     {

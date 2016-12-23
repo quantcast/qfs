@@ -4160,6 +4160,7 @@ struct MetaLogWriterControl : public MetaRequest {
     string             logName;
     MetaRequest* const completion;
     vrNodeId_t         transmitterId;
+    uint64_t           generation;
     uint32_t           blockChecksum;
     seq_t              blockSeq;
     MetaVrLogSeq       blockStartSeq;
@@ -4183,6 +4184,7 @@ struct MetaLogWriterControl : public MetaRequest {
           logName(),
           completion(c),
           transmitterId(-1),
+          generation(0),
           blockChecksum(0),
           blockSeq(-1),
           blockStartSeq(),
@@ -4236,6 +4238,7 @@ struct MetaLogWriterControl : public MetaRequest {
         paramsPrefix     = string();
         logName          = string();
         transmitterId    = -1;
+        generation       = 0;
         blockChecksum    = 0;
         blockSeq         = -1;
         blockStartSeq    = MetaVrLogSeq();

@@ -227,6 +227,7 @@ public:
           mDownloadDoneFlag(true),
           mDownloadGeneration(0),
           mCurDownloadGeneration(0),
+          mWriteOpGeneration(0),
           mThread(),
           mClusterKey(),
           mSyncCommitName(),
@@ -858,6 +859,7 @@ private:
     bool              mDownloadDoneFlag;
     unsigned int      mDownloadGeneration;
     unsigned int      mCurDownloadGeneration;
+    uint64_t          mWriteOpGeneration;
     QCThread          mThread;
     string            mClusterKey;
     string            mSyncCommitName;
@@ -1559,6 +1561,7 @@ private:
             close(mFd);
             mFd = -1;
         }
+        mWriteOpGeneration++;
         ClearPendingList();
         mKfsNetClient.Stop();
         QCRTASSERT(mPendingList.IsEmpty());
@@ -1752,6 +1755,7 @@ private:
                 MetaLogWriterControl::kWriteBlock);
             thePtr->clnt = this;
         }
+        thePtr->generation = mWriteOpGeneration;
         return *thePtr;
     }
     int LogWriteDone(
@@ -1766,6 +1770,10 @@ private:
         mLogWritesInFlightCount--;
         MetaLogWriterControl& theOp =
             *reinterpret_cast<MetaLogWriterControl*>(inDataPtr);
+        if (theOp.generation != mWriteOpGeneration) {
+            MetaRequest::Release(&theOp);
+            return 0;
+        }
         mLastSubmittedLogSeq = max(mLastSubmittedLogSeq, theOp.lastLogSeq);
         const bool theErrorFlag = (-EINVAL == theOp.status &&
             theOp.blockStartSeq == theOp.lastLogSeq) ||
