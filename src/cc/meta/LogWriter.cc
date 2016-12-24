@@ -1581,6 +1581,16 @@ private:
         inRequest.logSegmentNum = mLogNum;
         return (theRetFlag && IsLogStreamGood());
     }
+    void ClearBufferAndSetError(
+        MetaLogWriterControl& inRequest,
+        int                   inStatus,
+        const char*           inMsgPtr)
+    {
+        mMdStream.ClearBuffer();
+        --mNextBlockSeq;
+        inRequest.status    = inStatus;
+        inRequest.statusMsg = inMsgPtr;
+    }
     void WriteBlock(
         MetaLogWriterControl& inRequest)
     {
@@ -1687,6 +1697,7 @@ private:
                             theOp.mNewLogSeq != inRequest.blockEndSeq) {
                         inRequest.status = -EINVAL;
                     } else if (mLastLogSeq < theOp.mCommittedSeq ||
+                                theOp.mNewLogSeq < mLastLogSeq ||
                             // Commit must be always in the last non empty view,
                             // or in the previous view if no ops in this view
                             // are committed.
@@ -1763,53 +1774,96 @@ private:
         thePtr        = mMdStream.GetBufferedStart() + thePos + theLen;
         theTrailerLen = mMdStream.GetBufferedEnd() - thePtr;
         BOOST_STATIC_ASSERT(
-            2 * sizeof(mNextBlockSeq)    + 1 +
-            2 * sizeof(theBlockChecksum) + 1 + 1 <=
-                sizeof(inRequest.blockTrailer)
-            &&
-            2 * sizeof(mNextBlockSeq)    + 1 +
-            2 * sizeof(theBlockChecksum) + 1 <= 127
+            2 // c/
+            + 2 + 2 * sizeof(mInFlightCommitted.mSeq.mEpochSeq)
+            + 2 + 2 * sizeof(mInFlightCommitted.mSeq.mViewSeq)
+            + 2 + 2 * sizeof(mInFlightCommitted.mSeq.mLogSeq)
+            + 2 + 2 * sizeof(mInFlightCommitted.mFidSeed)
+            + 2 + 2 * sizeof(mInFlightCommitted.mErrChkSum)
+            + 2 + 2 * sizeof(mInFlightCommitted.mStatus)
+            + 2 + 2 * sizeof(inRequest.blockEndSeq.mEpochSeq)
+            + 2 + 2 * sizeof(inRequest.blockEndSeq.mViewSeq)
+            + 2 + 2 * sizeof(inRequest.blockEndSeq.mLogSeq)
+            + 2 + 2 * sizeof(mNextBlockSeq)
+            + 2 + 2 * sizeof(theBlockChecksum) <=
+                (sizeof(inRequest.blockTrailer) < 0xFF ?
+                    sizeof(inRequest.blockTrailer) : 0xFF)
         );
         if (sizeof(inRequest.blockTrailer) <= theTrailerLen) {
-            panic("log writer: block trailer exceeds buffer space");
-            inRequest.blockData.CopyIn(thePtr, theTrailerLen);
-            inRequest.blockTrailer[0] = 0;
-            inRequest.blockLines.Back() += theTrailerLen;
-        } else {
-            inRequest.blockTrailer[0] = (char)theTrailerLen;
-            memcpy(inRequest.blockTrailer + 1, thePtr, theTrailerLen);
-            theTrailerLen = 0;
+            const char* const theMsgPtr =
+                "log writer: block trailer exceeds buffer space";
+            panic(theMsgPtr);
+            ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
+            return;
         }
-        const char* const theEndPtr = thePtr;
-        thePtr = theEndPtr - inRequest.blockLines.Back() - theTrailerLen;
+        const char* const theEndPtr             = thePtr;
+        const char* const theCommitLineStartPtr =
+            theEndPtr - inRequest.blockLines.Back() - theTrailerLen;
         inRequest.blockCommitted = MetaVrLogSeq();
         MetaVrLogSeq theLogSeq;
-        int          theBlockLen = -1;
+        size_t       theTxLen      = theLen;
+        Checksum     theTxChecksum = inRequest.blockChecksum;
+        int          theBlockLen   = -1;
         Committed    theBlockCommitted;
-        if (thePtr + 2 < theEndPtr &&
-                (thePtr[0] & 0xFF) == 'c' && (thePtr[1] & 0xFF) == '/') {
-            thePtr += 2;
-            if (ParseField(thePtr, theEndPtr, theBlockCommitted.mSeq) &&
-                    ParseField(thePtr, theEndPtr, theBlockCommitted.mFidSeed) &&
-                    ParseField(thePtr, theEndPtr, theBlockCommitted.mErrChkSum) &&
-                    ParseField(thePtr, theEndPtr, theBlockCommitted.mStatus) &&
-                    ParseField(thePtr, theEndPtr, theLogSeq) &&
-                    ParseField(thePtr, theEndPtr, theBlockLen) &&
-                    theBlockCommitted.mSeq.IsValid() &&
-                    0 <= theBlockCommitted.mStatus &&
-                    theBlockCommitted.mSeq <= theLogSeq &&
-                    theLogSeq == inRequest.blockEndSeq &&
-                    inRequest.blockStartSeq.mLogSeq + theBlockLen ==
-                        inRequest.blockEndSeq.mLogSeq &&
-                    mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq) {
+        thePtr = theCommitLineStartPtr + 2;
+        if (thePtr < theEndPtr &&
+                (thePtr[-2] & 0xFF) == 'c' && (thePtr[-1] & 0xFF) == '/' &&
+                ParseField(thePtr, theEndPtr, theBlockCommitted.mSeq) &&
+                ParseField(thePtr, theEndPtr, theBlockCommitted.mFidSeed) &&
+                ParseField(thePtr, theEndPtr, theBlockCommitted.mErrChkSum) &&
+                ParseField(thePtr, theEndPtr, theBlockCommitted.mStatus) &&
+                ParseField(thePtr, theEndPtr, theLogSeq) &&
+                ParseField(thePtr, theEndPtr, theBlockLen) &&
+                theBlockCommitted.mSeq.IsValid() &&
+                0 <= theBlockCommitted.mStatus &&
+                theBlockCommitted.mSeq <= theLogSeq &&
+                theLogSeq == inRequest.blockEndSeq &&
+                inRequest.blockStartSeq.mLogSeq + theBlockLen ==
+                    inRequest.blockEndSeq.mLogSeq &&
+                (mLastWriteCommitted.mSeq <= theBlockCommitted.mSeq ||
+                    (! theLogSeq.IsSameView(theBlockCommitted.mSeq) &&
+                    theBlockCommitted.mSeq.IsSameView(mLastViewEndSeq)))) {
+            if (theBlockCommitted.mSeq < mLastWriteCommitted.mSeq) {
+                // Replace block trailer, due to greater flight commit. Commit
+                // might be greater in the case if primary has failed to start
+                // view immediately after successfully writing start view
+                // record, and then backup had written another start view record
+                // with lesser commit sequence. The block trailer's commit
+                // sequence isn't relevant in such case, as the actual commit /
+                // view end is in start view record.
+                const size_t theBodyLen =
+                    theCommitLineStartPtr - mMdStream.GetBufferedStart();
+                if (mMdStream.TruncateBuffer(theBodyLen) != theBodyLen) {
+                    const char* const theMsgPtr =
+                        "log write: block trailer rewrite internal error";
+                    panic(theMsgPtr);
+                    ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
+                    return;
+                }
+                theTxLen = WriteBlockTrailer(
+                    theLogSeq, mInFlightCommitted, theBlockLen, theTxChecksum);
+                const size_t theCommitLineLen = mMdStream.GetBufferedEnd() -
+                    mMdStream.GetBufferedStart() - theBodyLen;
+                inRequest.blockCommitted = mInFlightCommitted.mSeq;
+                if (sizeof(inRequest.blockTrailer) < theCommitLineLen + 1 ||
+                        0xFF < theCommitLineLen) {
+                    const char* const theMsgPtr =
+                        "log writer: replacement trailer invalid length";
+                    panic(theMsgPtr);
+                    ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
+                    return;
+                }
+                inRequest.blockLines.Back() = 0;
+                inRequest.blockTrailer[0] = (char)theCommitLineLen;
+                memcpy(inRequest.blockTrailer + 1,
+                    mMdStream.GetBufferedEnd() - theCommitLineLen,
+                    theCommitLineLen);
+            } else {
                 inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
-        }
-        if (! inRequest.blockCommitted.IsValid()) {
-            mMdStream.ClearBuffer();
-            --mNextBlockSeq;
-            inRequest.status    = -EINVAL;
-            inRequest.statusMsg = "log write: invalid block format";
+        } else {
+            ClearBufferAndSetError(inRequest,
+                -EINVAL, "log write: invalid block format");
             return;
         }
         const int theVrStatus = mMetaVrSM.HandleLogBlock(
@@ -1820,10 +1874,7 @@ private:
         );
         if (0 != theVrStatus &&
                 ! IsMetaLogWriteOrVrError(theVrStatus)) {
-            mMdStream.ClearBuffer();
-            --mNextBlockSeq;
-            inRequest.status    = theVrStatus;
-            inRequest.statusMsg = "VR error";
+            ClearBufferAndSetError(inRequest, theVrStatus, "VR error");
             return;
         }
         if (0 == theVrStatus) {
@@ -1832,9 +1883,9 @@ private:
                 (int)(inRequest.blockEndSeq.mLogSeq -
                     inRequest.blockStartSeq.mLogSeq),
                 mMdStream.GetBufferedStart() + thePos,
-                theLen,
-                inRequest.blockChecksum,
-                theLen
+                theTxLen,
+                theTxChecksum,
+                theTxLen
             );
             KFS_LOG_STREAM_DEBUG <<
                 "write block: block transmit " <<

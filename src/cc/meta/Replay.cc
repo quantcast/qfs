@@ -2863,11 +2863,8 @@ Replay::handle(MetaLogWriterControl& op)
     const int*       lenPtr     = op.blockLines.GetPtr();
     const int* const lendEndPtr = lenPtr + op.blockLines.GetSize();
     while (lenPtr < lendEndPtr) {
-        int lineLen = *lenPtr++;
-        if (lineLen <= 0) {
-            continue;
-        }
-        int         len = lineLen;
+        int         lineLen = *lenPtr++;
+        int         len     = lineLen;
         const char* linePtr;
         int         trLen;
         if (lendEndPtr == lenPtr && 0 < (trLen = op.blockTrailer[0] & 0xFF)) {
@@ -2879,13 +2876,22 @@ Replay::handle(MetaLogWriterControl& op)
                 op.statusMsg = kErrMsg;
                 break;
             }
-            lineLen += trLen;
-            char* const ptr = buffer.Reserve(lineLen);
-            len = op.blockData.CopyOut(ptr, len);
-            memcpy(ptr + len, op.blockTrailer + 1, trLen);
-            len += trLen;
-            linePtr = ptr;
+            if (lineLen <= 0) {
+                linePtr = op.blockTrailer + 1;
+                len     = trLen;
+                lineLen = trLen;
+            } else {
+                lineLen += trLen;
+                char* const ptr = buffer.Reserve(lineLen);
+                len = op.blockData.CopyOut(ptr, len);
+                memcpy(ptr + len, op.blockTrailer + 1, trLen);
+                len += trLen;
+                linePtr = ptr;
+            }
         } else {
+            if (len <= 0) {
+                continue;
+            }
             trLen = 0;
             linePtr = op.blockData.CopyOutOrGetBufPtr(
                 buffer.Reserve(lineLen), len);

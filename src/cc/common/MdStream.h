@@ -192,6 +192,15 @@ public:
         mCurPtr = mBufferPtr;
         mMdPtr  = mCurPtr;
     }
+    size_t TruncateBuffer(
+        size_t inLen)
+    {
+        if (mBufferPtr + inLen < mCurPtr &&
+                mMdPtr <= mBufferPtr + inLen) {
+            mCurPtr = mBufferPtr + inLen;
+        }
+        return (mCurPtr - mBufferPtr);
+    }
 protected:
     bool EnsureCapacity(
         size_t inSize)

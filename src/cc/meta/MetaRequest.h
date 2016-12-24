@@ -4139,6 +4139,7 @@ struct MetaRemoveFromDumpster : public MetaRequest {
 };
 
 struct MetaLogWriterControl : public MetaRequest {
+    enum { kMaxBlockTrailerLen = 255 };
     enum Type
     {
         kNop,
@@ -4168,7 +4169,7 @@ struct MetaLogWriterControl : public MetaRequest {
     MetaVrLogSeq       blockCommitted;
     Lines              blockLines;
     IOBuffer           blockData;
-    char               blockTrailer[32]; // hex block sequence, and checksum.
+    char               blockTrailer[1 + kMaxBlockTrailerLen]; // block trailer
 
     MetaLogWriterControl(
         Type         t = kNop,
