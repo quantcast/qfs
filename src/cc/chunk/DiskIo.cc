@@ -2350,16 +2350,15 @@ DiskIo::Write(
                 mIoBuffers.clear();
                 return -theErr;
             }
-            const bool theSyncFlag = theFBufIt == theLastIt && inSyncFlag;
-            if (theFBufIt == theLastIt) {
+            const bool theSyncFlag = theFBufIt == theLastIt;
+            if (theSyncFlag) {
                 mRequestId = 300000; // > 0 != QCDiskQueue::kRequestIdNone
-                mWriteSyncFlag       = inSyncFlag;
+                mWriteSyncFlag       = theSyncFlag;
                 mCompletionRequestId = mRequestId;
                 mCompletionCode      = QCDiskQueue::kErrorNone;
                 theIoPtr->mChainedPtr = this;
                 mChainedPtr = theIoPtr;
                 mBlockIdx   = theBlkIdx;
-                theIoBuffers.clear();
             }
             const ssize_t theStatus = theIoPtr->SubmitWrite(
                 theSyncFlag,
@@ -2369,9 +2368,18 @@ DiskIo::Write(
                 inEofHint
             );
             if (theStatus < 0) {
-                theIoBuffers.clear();
-                DiskQueue::SetError(*mFilePtr, (int)theStatus);
+                while (theIoPtr->mIoBuffers.empty()) {
+                    --theFBufIt;
+                    *theFBufIt = theIoPtr->mIoBuffers.back();
+                    theIoPtr->mIoBuffers.pop_back();
+                }
+                delete theIoPtr;
+                mIoBuffers.clear();
                 return theStatus;
+            }
+            if (theSyncFlag) {
+                theIoBuffers.clear();
+                break;
             }
         }
         return (inNumBytes - theNWr);
@@ -2439,14 +2447,24 @@ DiskIo::Write(
                 inEofHint
             );
             if (theStatus < 0) {
-                DiskQueue::SetError(*mFilePtr, (int)theStatus);
+                while (theIo.mIoBuffers.empty()) {
+                    --theFBufIt;
+                    *theFBufIt = theIo.mIoBuffers.back();
+                    theIo.mIoBuffers.pop_back();
+                }
+                delete &theIo;
+                mIoBuffers.clear();
                 return theStatus;
             }
         }
     }
     if (! mIoBuffers.empty() && ! theBufferFlag) {
-        return SubmitWrite(
+        const int theStatus = SubmitWrite(
             inSyncFlag, theBlkIdx, inNumBytes - theNWr, theQueuePtr, inEofHint);
+        if (theStatus < 0) {
+            mIoBuffers.clear();
+        }
+        return theStatus;
     }
     if (! theBufferFlag || inNumBytes <= theNWr) {
         return 0;
