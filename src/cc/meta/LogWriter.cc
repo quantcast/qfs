@@ -1271,7 +1271,10 @@ private:
                 }
                 if (mMdStream.GetBufferedStart() +
                             mMdStream.GetBufferSize() / 4 * 3 <
-                        mMdStream.GetBufferedEnd()) {
+                        mMdStream.GetBufferedEnd() ||
+                        mLogFileMaxSize <= mLogFilePos +
+                            (mMdStream.GetBufferedEnd() -
+                                mMdStream.GetBufferedStart())) {
                     break;
                 }
             }
@@ -1356,6 +1359,10 @@ private:
                 KFS_LOG_EOM;
             }
             theCurPtr = theEndPtr;
+            if (theCurPtr && mLogFileMaxSize <= mLogFilePos &&
+                    mCurLogStartSeq < mNextLogSeq && IsLogStreamGood()) {
+                StartNextLog();
+            }
         }
         if (mCurLogStartSeq < mNextLogSeq && IsLogStreamGood() &&
                 (mLogFileMaxSize <= mLogFilePos ||
