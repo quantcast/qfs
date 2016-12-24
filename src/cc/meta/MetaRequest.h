@@ -3896,13 +3896,17 @@ struct MetaLeaseAcquire: public MetaRequest {
     virtual void response(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os <<
-            " lease-acquire:"
+        os <<
+            "lease-acquire:"
             " chunkId: " << chunkId <<
             " flush: "   << flushFlag <<
             " caccess: " << chunkAccess.GetSize() <<
             " "          << pathname
         ;
+        if (appendRecoveryFlag) {
+            os << " append-locs: " << appendRecoveryLocations;
+        }
+        return os;
     }
     bool Validate()
     {

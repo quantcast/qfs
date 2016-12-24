@@ -504,6 +504,7 @@ chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 # chunkServer.diskQueue.trace = 1
+# chunkServer.diskQueue.maxDepth = 8
 EOF
     if [ x"$auth" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit

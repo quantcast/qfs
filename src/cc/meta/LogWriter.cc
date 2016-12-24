@@ -1796,9 +1796,11 @@ private:
             ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
             return;
         }
+        inRequest.blockTrailer[0] = (char)theTrailerLen;
+        memcpy(inRequest.blockTrailer + 1, thePtr, theTrailerLen);
         const char* const theEndPtr             = thePtr;
         const char* const theCommitLineStartPtr =
-            theEndPtr - inRequest.blockLines.Back() - theTrailerLen;
+            theEndPtr - inRequest.blockLines.Back();
         inRequest.blockCommitted = MetaVrLogSeq();
         MetaVrLogSeq theLogSeq;
         size_t       theTxLen      = theLen;
@@ -1841,10 +1843,9 @@ private:
                     return;
                 }
                 theTxLen = WriteBlockTrailer(
-                    theLogSeq, mInFlightCommitted, theBlockLen, theTxChecksum);
+                    theLogSeq, mLastWriteCommitted, theBlockLen, theTxChecksum);
                 const size_t theCommitLineLen = mMdStream.GetBufferedEnd() -
                     mMdStream.GetBufferedStart() - theBodyLen;
-                inRequest.blockCommitted = mInFlightCommitted.mSeq;
                 if (sizeof(inRequest.blockTrailer) < theCommitLineLen + 1 ||
                         0xFF < theCommitLineLen) {
                     const char* const theMsgPtr =
@@ -1853,14 +1854,14 @@ private:
                     ClearBufferAndSetError(inRequest, -EFAULT, theMsgPtr);
                     return;
                 }
+                theBlockCommitted = mLastWriteCommitted;
                 inRequest.blockLines.Back() = 0;
                 inRequest.blockTrailer[0] = (char)theCommitLineLen;
                 memcpy(inRequest.blockTrailer + 1,
                     mMdStream.GetBufferedEnd() - theCommitLineLen,
                     theCommitLineLen);
-            } else {
-                inRequest.blockCommitted = theBlockCommitted.mSeq;
             }
+            inRequest.blockCommitted = theBlockCommitted.mSeq;
         } else {
             ClearBufferAndSetError(inRequest,
                 -EINVAL, "log write: invalid block format");
