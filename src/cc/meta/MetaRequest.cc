@@ -6293,8 +6293,11 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
         " timedout: " << doneTimedOutFlag
     ;
     if (doneOp) {
-        os << " seq: " << doneOp->opSeqno;
-        if (! doneOp->statusMsg.empty()) {
+        os <<
+            " seq: "    << doneOp->opSeqno <<
+            " status: " << doneOp->status
+        ;
+        if (0 != doneOp->status && ! doneOp->statusMsg.empty()) {
             os << " msg: " << doneOp->statusMsg;
         }
         os << " " << doneOp->Show();
