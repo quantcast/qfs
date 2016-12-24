@@ -1369,6 +1369,7 @@ AllocChunkOp::Execute()
     }
     if (! mustExistFlag && -EBADF == res) {
         // Allocate new chunk.
+        statusMsg.clear();
         HandleChunkAllocDone(EVENT_CMD_DONE, this);
         return;
     }
