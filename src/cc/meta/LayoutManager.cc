@@ -5581,9 +5581,8 @@ LayoutManager::Handle(MetaBye& req)
 
     // check if this server was sent to hibernation
     HibernatedServerInfos::iterator it;
-    HibernatingServerInfo* const hs = FindHibernatingCSInfo(loc, &it);
-    bool isHibernating = hs != 0;
-    if (isHibernating) {
+    HibernatingServerInfo* const     hs = FindHibernatingCSInfo(loc, &it);
+    if (hs) {
         HibernatingServerInfo& hsi               = *hs;
         const bool             wasHibernatedFlag = hsi.IsHibernated();
         const size_t           prevIdx           = hsi.csmapIdx;
@@ -5609,7 +5608,7 @@ LayoutManager::Handle(MetaBye& req)
         }
     }
 
-    if (! isHibernating && server->IsRetiring()) {
+    if (! hs && server->IsRetiring()) {
         reason = "Retired";
     } else if (reason.empty()) {
         reason = "Unreachable";
@@ -5627,9 +5626,15 @@ LayoutManager::Handle(MetaBye& req)
         mDownServers.erase(mDownServers.begin(), mDownServers.begin() +
             mDownServers.size() - mMaxDownServersHistorySize);
     }
-    if (! isHibernating && 0 < server->GetChunkCount()) {
-        // Delay replication by marking server as hibernated,
-        // to allow the server to reconnect back.
+    if (! hs) {
+        // Delay replication by marking server as hibernated, to allow the
+        // server to reconnect back. Save chunk chunk server inventory,
+        // including in flight chunk ids. Always transition into hibernated
+        // state, in order to make replay consistent, even if in flight and
+        // chunk count diverge between primary and backups due to differences in
+        // handling of non stable chunks on primary and backups. The primary
+        // must explicitly issue remove hibernated chunk server RPC, and the RPC
+        // must be successfully logged.
         size_t idx = ~size_t(0);
         if (! mChunkToServerMap.SetHibernated(server, idx)) {
             panic("failed to initiate hibernation");
@@ -5637,7 +5642,6 @@ LayoutManager::Handle(MetaBye& req)
         mHibernatingServers.insert(it, HibernatingServerInfo(
             loc, (time_t)(req.timeUsec / 1000000), req.replicationDelay,
             req.replayFlag, idx));
-        isHibernating = true;
     }
     if (! server->IsReplay() && ! server->IsStoppedServicing()) {
         if (canBeMaster) {
@@ -5654,11 +5658,6 @@ LayoutManager::Handle(MetaBye& req)
             if (mMastersToRestartCount > 0 && server->CanBeChunkMaster()) {
                 mMastersToRestartCount--;
             }
-        }
-    }
-    if (! isHibernating) {
-        if (! mChunkToServerMap.RemoveServer(server)) {
-            panic("remove server failure");
         }
     }
     if (server->IsReplay()) {
