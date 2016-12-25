@@ -6376,9 +6376,8 @@ MetaChunkLogInFlight::Log(MetaChunkRequest& req, int timeout,
 /* static */ bool
 MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
 {
-    if ((META_CHUNK_OP_LOG_IN_FLIGHT != req.op &&
-            ! req.logCompletionSeq.IsValid()) ||
-            (req.chunkId < 0 && ! req.GetChunkIds())) {
+    if (META_CHUNK_OP_LOG_IN_FLIGHT != req.op &&
+            ! req.logCompletionSeq.IsValid()) {
         return false;
     }
     const bool kRemoveFlag = false; // Removal is already done at this point.
