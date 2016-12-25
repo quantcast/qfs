@@ -310,6 +310,9 @@ public:
             } else {
                 --(*val);
             }
+            if (0 < mCur.GetVal() && chunkId == mCur.GetKey()) {
+                --(mCur.GetVal());
+            }
             --mSize;
             return true;
         }
@@ -340,6 +343,7 @@ public:
         void Clear() {
             mSet.Clear();
             mSize = 0;
+            mCur  = Entry(-1, 0);
         }
         size_t Size() const {
             return mSize;
