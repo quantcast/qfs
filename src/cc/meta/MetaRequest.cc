@@ -2687,18 +2687,21 @@ ostream&
 MetaAllocate::ShowSelf(ostream& os) const
 {
     os << "allocate:"
-        " seq: "       << opSeqno             <<
-        " path: "      << pathname            <<
-        " fid: "       << fid                 <<
-        " chunkId: "   << chunkId             <<
-        " offset: "    << offset              <<
-        " client: "    << clientHost          <<
-        " / "          << clientIp            <<
-        " replicas: "  << numReplicas         <<
-        " append: "    << appendChunk         <<
-        " version: "   << chunkVersion        <<
-        " / "          << initialChunkVersion <<
-        " valid for: " << validForTime
+        " seq: "        << opSeqno             <<
+        " status: "     << status              <<
+        " "             << statusMsg           <<
+        " path: "       << pathname            <<
+        " fid: "        << fid                 <<
+        " chunkId: "    << chunkId             <<
+        " offset: "     << offset              <<
+        " client: "     << clientHost          <<
+        " / "           << clientIp            <<
+        " replicas: "   << numReplicas         <<
+        " append: "     << appendChunk         <<
+        " version: "    << chunkVersion        <<
+        " / "           << initialChunkVersion <<
+        " invalidate: " << invalidateAllFlag   <<
+        " valid for: "  << validForTime
     ;
     for (Servers::const_iterator i = servers.begin();
             i != servers.end();
@@ -3493,7 +3496,7 @@ MetaChunkReplicate::handle()
 MetaChunkReplicate::ShowSelf(ostream& os) const
 {
     return os <<
-        (numRecoveryStripes > 0 ? "recover" : "replicate:") <<
+        (numRecoveryStripes > 0 ? "recover" : "replicate") <<
         " chunk: "        << chunkId <<
         " version: "      << chunkVersion <<
         " file: "         << fid <<

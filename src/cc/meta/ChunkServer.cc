@@ -2294,7 +2294,7 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
     }
     if (req.staleChunkIdFlag) {
         if (req.chunkId < 0 || (req.doneOp && req.doneOp->chunkVersion < 0) ||
-                1 != mStaleChunkIdsInFlight.Erase(req.chunkId)) {
+                ! mStaleChunkIdsInFlight.Erase(req.chunkId)) {
             if (mReplayFlag) {
                 req.status = -EFAULT;
             } else {
@@ -3926,7 +3926,7 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
         if (! csMap.HasHibernatedServer(idx, chunkId)) {
             continue;
         }
-        const bool modFlag = mModifiedChunks.Find(chunkId) != 0;
+        const bool modFlag = mModifiedChunks.Find(chunkId);
         os << chunkId << " " << p->GetChunkInfo()->chunkVersion <<
             (modFlag ? " M" : " S") <<
         "\n";

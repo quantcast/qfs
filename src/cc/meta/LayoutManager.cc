@@ -8162,8 +8162,11 @@ LayoutManager::InvalidateAllChunkReplicas(
     mPendingMakeStable.Erase(chunkId);
     mChunkLeases.Delete(fid, ChunkLeases::EntryKey(chunkId));
     mChunkVersionRollBack.Erase(chunkId);
+    // Add chunks to the list of stale chunk ids in flight, to handle the case
+    // of log chunk in flight log failure.
+    const bool kStaleChunkIdFlag = true;
     for_each(c.begin(), c.end(),
-        bind(&ChunkServer::ForceDeleteChunk, _1, chunkId));
+        bind(&ChunkServer::DeleteChunk, _1, chunkId, kStaleChunkIdFlag));
     return true;
 }
 
@@ -8969,7 +8972,6 @@ LayoutManager::CommitOrRollBackChunkVersion(MetaAllocate& req)
         return;
     }
     // Roll back to the initial chunk version, and make chunk stable.
-    // mChunkToServerMap.NotifyHibernated(*ci);
     StTmp<Servers> serversTmp(mServers3Tmp);
     Servers&       srvs = serversTmp.Get();
     mChunkToServerMap.GetServers(*ci, srvs);
@@ -12241,7 +12243,8 @@ LayoutManager::ExecuteRebalancePlan(
         c->ClearChunksToMove();
         return 0;
     }
-    ChunkIdSet& chunksToMove = const_cast<ChunkIdSet&>(c->GetChunksToMove());
+    ChunkServer::ChunkIdSet& chunksToMove =
+        const_cast<ChunkServer::ChunkIdSet&>(c->GetChunksToMove());
     if (c->GetSpaceUtilization(mUseFsTotalSpaceFlag) >
             mMaxSpaceUtilizationThreshold) {
         KFS_LOG_STREAM_INFO <<

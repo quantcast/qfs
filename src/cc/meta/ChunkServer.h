@@ -239,8 +239,8 @@ public:
             {}
         ~ChunkIdSet()
             {}
-        const chunkId_t* Find(chunkId_t chunkId) const {
-            return mSet.Find(chunkId);
+        bool Find(chunkId_t chunkId) const {
+            return (0 != mSet.Find(chunkId));
         }
         bool Erase(chunkId_t chunkId) {
             return (mSet.Erase(chunkId) != 0);
@@ -285,6 +285,95 @@ public:
     private:
         ChunkIdSet(const ChunkIdSet&);
         ChunkIdSet& operator=(const ChunkIdSet&);
+    };
+
+    class ChunkIdMultiSet
+    {
+    public:
+        ChunkIdMultiSet()
+            : mSet(),
+              mSize(0),
+              mCur(-1, 0)
+            {}
+        ~ChunkIdMultiSet()
+            {}
+        bool Find(chunkId_t chunkId) const {
+            return (0 != mSet.Find(chunkId));
+        }
+        bool Erase(chunkId_t chunkId) {
+            size_t* const val = mSet.Find(chunkId);
+            if (! val) {
+                return false;
+            }
+            if (*val <= 1) {
+                mSet.Erase(chunkId);
+            } else {
+                --(*val);
+            }
+            --mSize;
+            return true;
+        }
+        void First() {
+            mCur = Entry(-1, 0);
+            mSet.First();
+        }
+        const chunkId_t* Next() {
+            if (mCur.GetVal() <= 0) {
+                const Entry* const ret = mSet.Next();
+                if (! ret) {
+                    return 0;
+                }
+                if (ret->GetVal() <= 1) {
+                    return &ret->GetKey();
+                }
+                mCur = *ret;
+            }
+            --(mCur.GetVal());
+            return &mCur.GetKey();
+        }
+        bool Insert(chunkId_t chunkId) {
+            bool inserted = false;
+            ++(*(mSet.Insert(chunkId, size_t(0), inserted)));
+            mSize++;
+            return true;
+        }
+        void Clear() {
+            mSet.Clear();
+            mSize = 0;
+        }
+        size_t Size() const {
+            return mSize;
+        }
+        bool IsEmpty() const {
+            return (mSize <= 0);
+        }
+        void Swap(ChunkIdMultiSet& other) {
+            mSet.Swap(other.mSet);
+            const size_t size = mSize;
+            mSize = other.mSize;
+            other.mSize = size;
+            const Entry cur = mCur;
+            mCur = other.mCur;
+            other.mCur = cur;
+        }
+    private:
+        typedef KVPair<chunkId_t, size_t> Entry;
+        typedef LinearHash<
+            Entry,
+            KeyCompare<chunkId_t>,
+            DynamicArray<
+                SingleLinkedList<Entry>*,
+                5 // 2^5 * sizeof(void*) => 256
+            >,
+            StdFastAllocator<Entry>
+        > Set;
+
+        Set    mSet;
+        size_t mSize;
+        Entry  mCur;
+    private:
+        ChunkIdMultiSet(const ChunkIdMultiSet&);
+        ChunkIdMultiSet& operator=(const ChunkIdMultiSet&);
     };
 
     class StorageTierInfo
@@ -1211,80 +1300,81 @@ protected:
         MetaRequest::GetNext
     > PendingResponseOps;
     typedef MetaHello::ChunkIdList ChunkIdList;
+    typedef ChunkIdMultiSet StaleChunkIdsInFlight;
 
     enum { kChunkSrvListsCount = 2 };
     /// RPCs that we have sent to this chunk server.
-    DispatchedReqs     mDispatchedReqs;
-    MetaChunkRequest*  mLogCompletionInFlightReqs[1];
-    ReqsTimeoutQueue   mReqsTimeoutQueue;
-    DoneTimedoutChunks mDoneTimedoutChunks;
-    TimeoutEntry       mDoneTimedoutList;
-    TmpReqQueue        mTmpReqQueue;
-    int                mLogInFlightCount;
-    int64_t            mLostChunks;
-    int64_t            mUptime;
-    Properties         mHeartbeatProperties;
-    bool               mRestartScheduledFlag;
-    bool               mRestartQueuedFlag;
-    time_t             mRestartScheduledTime;
-    time_t             mLastHeartBeatLoggedTime;
-    string             mDownReason;
-    IOBuffer::WOStream mOstream;
-    int                mRecursionCount;
-    kfsUid_t           mAuthUid;
-    string             mAuthName;
-    MetaAuthenticate*  mAuthenticateOp;
-    uint64_t           mAuthCtxUpdateCount;
-    time_t             mSessionExpirationTime;
-    bool               mReAuthSentFlag;
-    MetaHello*         mHelloOp;
-    ChunkServerPtr     mSelfPtr;
-    ValueSampler       mSrvLoadSampler;
-    int64_t            mLoadAvg;
-    bool               mCanBeCandidateServerFlag;
-    bool               mStaleChunksHexFormatFlag;
-    IOBuffer::IStream  mIStream;
-    int64_t            mEvacuateCnt;
-    int64_t            mEvacuateBytes;
-    int64_t            mEvacuateDoneCnt;
-    int64_t            mEvacuateDoneBytes;
-    int64_t            mEvacuateInFlight;
-    int64_t            mPrevEvacuateDoneCnt;
-    int64_t            mPrevEvacuateDoneBytes;
-    time_t             mEvacuateLastRateUpdateTime;
-    double             mEvacuateCntRate;
-    double             mEvacuateByteRate;
-    LostChunkDirs      mLostChunkDirs;
-    ChunkDirInfos      mChunkDirInfos;
-    string             mMd5Sum;
-    const string       mPeerName;
-    bool               mCryptoKeyValidFlag;
-    CryptoKeys::KeyId  mCryptoKeyId;
-    CryptoKeys::Key    mCryptoKey;
-    string             mRecoveryMetaAccess;
-    time_t             mRecoveryMetaAccessEndTime;
-    PendingResponseOps mPendingResponseOps;
-    InFlightChunks     mLastChunksInFlight;
-    InFlightChunks     mStaleChunkIdsInFlight;
-    InFlightChunks     mHelloChunkIds;
-    ChunkIdList        mHelloPendingStaleChunks;
-    bool               mHelloProcessFlag;
-    int64_t            mHelloDoneCount;
-    int64_t            mHelloResumeCount;
-    int64_t            mHelloResumeFailedCount;
-    bool               mShortRpcFormatFlag;
-    uint64_t           mHibernatedGeneration;
-    int64_t            mChannelId;
-    int                mPendingOpsCount;
-    bool               mPendingHelloNotifyFlag;
-    bool               mPendingByeFlag;
-    bool               mStoppedServicingFlag;
-    bool const         mReplayFlag;
-    bool               mCanBeCandidateServerFlags[kKfsSTierCount];
-    StorageTierInfo    mStorageTiersInfo[kKfsSTierCount];
-    StorageTierInfo    mStorageTiersInfoDelta[kKfsSTierCount];
-    ChunkServer*       mPrevPtr[kChunkSrvListsCount];
-    ChunkServer*       mNextPtr[kChunkSrvListsCount];
+    DispatchedReqs        mDispatchedReqs;
+    MetaChunkRequest*     mLogCompletionInFlightReqs[1];
+    ReqsTimeoutQueue      mReqsTimeoutQueue;
+    DoneTimedoutChunks    mDoneTimedoutChunks;
+    TimeoutEntry          mDoneTimedoutList;
+    TmpReqQueue           mTmpReqQueue;
+    int                   mLogInFlightCount;
+    int64_t               mLostChunks;
+    int64_t               mUptime;
+    Properties            mHeartbeatProperties;
+    bool                  mRestartScheduledFlag;
+    bool                  mRestartQueuedFlag;
+    time_t                mRestartScheduledTime;
+    time_t                mLastHeartBeatLoggedTime;
+    string                mDownReason;
+    IOBuffer::WOStream    mOstream;
+    int                   mRecursionCount;
+    kfsUid_t              mAuthUid;
+    string                mAuthName;
+    MetaAuthenticate*     mAuthenticateOp;
+    uint64_t              mAuthCtxUpdateCount;
+    time_t                mSessionExpirationTime;
+    bool                  mReAuthSentFlag;
+    MetaHello*            mHelloOp;
+    ChunkServerPtr        mSelfPtr;
+    ValueSampler          mSrvLoadSampler;
+    int64_t               mLoadAvg;
+    bool                  mCanBeCandidateServerFlag;
+    bool                  mStaleChunksHexFormatFlag;
+    IOBuffer::IStream     mIStream;
+    int64_t               mEvacuateCnt;
+    int64_t               mEvacuateBytes;
+    int64_t               mEvacuateDoneCnt;
+    int64_t               mEvacuateDoneBytes;
+    int64_t               mEvacuateInFlight;
+    int64_t               mPrevEvacuateDoneCnt;
+    int64_t               mPrevEvacuateDoneBytes;
+    time_t                mEvacuateLastRateUpdateTime;
+    double                mEvacuateCntRate;
+    double                mEvacuateByteRate;
+    LostChunkDirs         mLostChunkDirs;
+    ChunkDirInfos         mChunkDirInfos;
+    string                mMd5Sum;
+    const string          mPeerName;
+    bool                  mCryptoKeyValidFlag;
+    CryptoKeys::KeyId     mCryptoKeyId;
+    CryptoKeys::Key       mCryptoKey;
+    string                mRecoveryMetaAccess;
+    time_t                mRecoveryMetaAccessEndTime;
+    PendingResponseOps    mPendingResponseOps;
+    InFlightChunks        mLastChunksInFlight;
+    StaleChunkIdsInFlight mStaleChunkIdsInFlight;
+    InFlightChunks        mHelloChunkIds;
+    ChunkIdList           mHelloPendingStaleChunks;
+    bool                  mHelloProcessFlag;
+    int64_t               mHelloDoneCount;
+    int64_t               mHelloResumeCount;
+    int64_t               mHelloResumeFailedCount;
+    bool                  mShortRpcFormatFlag;
+    uint64_t              mHibernatedGeneration;
+    int64_t               mChannelId;
+    int                   mPendingOpsCount;
+    bool                  mPendingHelloNotifyFlag;
+    bool                  mPendingByeFlag;
+    bool                  mStoppedServicingFlag;
+    bool const            mReplayFlag;
+    bool                  mCanBeCandidateServerFlags[kKfsSTierCount];
+    StorageTierInfo       mStorageTiersInfo[kKfsSTierCount];
+    StorageTierInfo       mStorageTiersInfoDelta[kKfsSTierCount];
+    ChunkServer*          mPrevPtr[kChunkSrvListsCount];
+    ChunkServer*          mNextPtr[kChunkSrvListsCount];
 
     static ChunkOpsInFlight sChunkOpsInFlight;
     static ChunkServer*     sChunkServersPtr[kChunkSrvListsCount];
@@ -1525,7 +1615,7 @@ friend class CSMap;
 };
 typedef boost::shared_ptr<HibernatedChunkServer> HibernatedChunkServerPtr;
 
-inline static ostream& 
+inline static ostream&
 operator<<(ostream& os, const HibernatedChunkServer::Display& disp)
 { return disp.Show(os); }
 

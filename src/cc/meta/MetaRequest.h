@@ -2409,7 +2409,7 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta->chunk allocate: " << ShowReq(req);
+        return os << "meta-chunk-allocate: " << ShowReq(req);
     }
 };
 
@@ -2431,7 +2431,7 @@ struct MetaChunkDelete: public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return (os << "meta->chunk delete:"
+        return (os << "meta-chunk-delete:"
             " chunkId: " << chunkId <<
             " version: " << chunkVersion <<
             " staleId: " << deleteStaleChunkIdFlag);
@@ -2562,7 +2562,7 @@ struct MetaChunkVersChange: public MetaChunkRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "meta->chunk vers change:"
+            "meta-chunk-vers-change:"
             " fid: "        << fid <<
             " chunkId: "        << chunkId <<
             " version: from: "  << fromVersion <<
@@ -2657,7 +2657,7 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta->chunk heartbeat";
+        return os << "meta-chunk-heartbeat";
     }
 };
 

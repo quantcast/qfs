@@ -971,7 +971,6 @@ protected:
 
 public:
     typedef CSMap::Servers               Servers;
-    typedef ChunkServer::ChunkIdSet      ChunkIdSet;
     typedef RackInfo::RackId             RackId;
     typedef ChunkServer::StorageTierInfo StorageTierInfo;
     typedef DelegationToken::TokenSeq    TokenSeq;
