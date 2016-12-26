@@ -1545,8 +1545,7 @@ private:
         mHibernatedCount--;
         return true;
     }
-    bool RestoreSlot(size_t idx)
-    {
+    bool RestoreSlot(size_t idx) {
         if (Entry::kMaxServers <= idx) {
             return false;
         }

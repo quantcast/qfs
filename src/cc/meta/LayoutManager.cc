@@ -6888,6 +6888,7 @@ LayoutManager::IsAllocationAllowed(MetaAllocate& req)
     }
     return true;
 }
+
 /*
  * \brief During atomic record appends, a client tries to allocate a block.
  * Since the client doesn't know the file size, the client notifies the
