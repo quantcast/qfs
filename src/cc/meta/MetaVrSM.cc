@@ -3019,7 +3019,7 @@ private:
                         inReq.statusMsg += GetStateName(mState);
                     } else {
                         if (! mDoViewChangePtr) {
-                            WriteVrState( inReq.mNodeId, inReq.mLastViewEndSeq);
+                            WriteVrState(inReq.mNodeId, inReq.mLastViewEndSeq);
                         }
                         CancelViewChange();
                         SetState(kStateBackup);
