@@ -1518,6 +1518,7 @@ public:
         return (! mPingResponse.IsEmpty() &&
             TimeNow() < mPingUpdateTime + mPingUpdateInterval);
     }
+    void Disconnected(const ChunkServer& srv);
 protected:
     typedef vector<
         int,
@@ -2468,6 +2469,7 @@ protected:
     ChunkServerPtr           mRestoreChunkServerPtr;
     HibernatedChunkServerPtr mRestoreHibernatedCSPtr;
     size_t                   mReplayServerCount;
+    size_t                   mDisconnectedCount;
     time_t                   mServiceStartTime;
 
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
@@ -2695,7 +2697,11 @@ protected:
     template<typename T> const ChunkServerPtr* ReplayFindServer(
         const ServerLocation& loc, T& req);
     template<typename T> bool HandleReplay(T& req);
-private:
+    size_t GetConnectedServerCount() const
+    {
+        return (mChunkServers.size() - mReplayServerCount -
+            mDisconnectedCount);
+    }
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);
 };

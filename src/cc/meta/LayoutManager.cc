@@ -193,7 +193,7 @@ inline bool
 LayoutManager::InRecovery() const
 {
     return (
-        mChunkServers.size() < mReplayServerCount +
+        mChunkServers.size() < mReplayServerCount + mDisconnectedCount +
             mMinChunkserversToExitRecovery ||
         InRecoveryPeriod()
     );
@@ -1877,6 +1877,7 @@ LayoutManager::LayoutManager()
       mRestoreChunkServerPtr(),
       mRestoreHibernatedCSPtr(),
       mReplayServerCount(0),
+      mDisconnectedCount(0),
       mServiceStartTime(TimeNow() - 10 * 24 * 60 * 60),
       mChunkInfosTmp(),
       mChunkInfos2Tmp(),
@@ -2625,8 +2626,7 @@ LayoutManager::UpdateClientAuth(AuthContext& ctx)
 void
 LayoutManager::UpdateReplicationsThreshold()
 {
-    const int64_t srvCnt = (int64_t)mChunkServers.size() -
-        (int64_t)mReplayServerCount;
+    const int64_t srvCnt = (int64_t)GetConnectedServerCount();
     mRebalanceReplicationsThresholdCount = max(min(srvCnt, int64_t(1)),
     (int64_t)(
         mRebalanceReplicationsThreshold *
@@ -5665,18 +5665,23 @@ LayoutManager::Handle(MetaBye& req)
             panic("invalid replay server count");
         }
         mReplayServerCount--;
+    } else {
+        if (mDisconnectedCount <= 0) {
+            panic("invalid disconnected server count");
+        }
+        mDisconnectedCount--;
     }
     // Convert const_iterator to iterator below to make erase() compile.
     mChunkServers.erase(mChunkServers.begin() + (sit - mChunkServers.begin()));
     if (mPrimaryFlag && ! mAssignMasterByIpFlag &&
             0 < mSlavesCount && mMastersCount == 0 &&
             ! server->IsReplay() && ! server->IsStoppedServicing() &&
-            mReplayServerCount < mChunkServers.size()) {
+            0 < GetConnectedServerCount()) {
         for (Servers::const_iterator it = mChunkServers.begin();
                 mChunkServers.end() != it;
                 ++it) {
             ChunkServer& srv = **it;
-            if (! srv.IsReplay() && ! srv.IsStoppedServicing()) {
+            if (srv.IsConnected()) {
                 mSlavesCount--;
                 mMastersCount++;
                 srv.SetCanBeChunkMaster(true);
@@ -6057,6 +6062,15 @@ LayoutManager::UpdateChunkWritesPerDrive(
                     mTiersTotalWritableDrivesMult[i])));
         }
     }
+}
+
+void
+LayoutManager::Disconnected(const ChunkServer& srv)
+{
+    if (srv.IsReplay()) {
+        return;
+    }
+    mDisconnectedCount++;
 }
 
 bool
@@ -10907,13 +10921,13 @@ LayoutManager::CheckHibernatingServersStatus()
 int
 LayoutManager::CountServersAvailForReReplication() const
 {
-    if (mChunkServers.size() <= mReplayServerCount) {
+    if (GetConnectedServerCount() <= 0) {
         return 0;
     }
     int anyAvail = 0;
     for (uint32_t i = 0; i < mChunkServers.size(); i++) {
         const ChunkServer& cs = *mChunkServers[i];
-        if (cs.IsReplay()) {
+        if (! cs.IsConnected()) {
             continue;
         }
         if (cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) >
@@ -12982,7 +12996,7 @@ LayoutManager::GetAccessProxyForHost(
 bool
 LayoutManager::RunObjectBlockDeleteQueue()
 {
-    if (mChunkServers.size() <= mReplayServerCount) {
+    if (GetConnectedServerCount() <= 0) {
         return false;
     }
     int          rem         = mObjStoreDeleteMaxSchedulePerRun;
@@ -13250,9 +13264,10 @@ LayoutManager::StartServicing()
             MsgLogger::kLogLevelINFO :
             MsgLogger::kLogLevelDEBUG) <<
         "start servicing,"
-        " primary: " << mPrimaryFlag <<
-        " servers: " << mChunkServers.size() <<
-        " replay: "  << mReplayServerCount <<
+        " primary: "      << mPrimaryFlag <<
+        " servers: "      << mChunkServers.size() <<
+        " replay: "       << mReplayServerCount <<
+        " disconnected: " << mDisconnectedCount <<
     KFS_LOG_EOM;
     if (! mPrimaryFlag) {
         return;
@@ -13285,9 +13300,10 @@ LayoutManager::StopServicing()
             MsgLogger::kLogLevelINFO :
             MsgLogger::kLogLevelDEBUG) <<
         "stop servicing,"
-        " primary: " << mPrimaryFlag <<
-        " servers: " << mChunkServers.size() <<
-        " replay: "  << mReplayServerCount <<
+        " primary: "      << mPrimaryFlag <<
+        " servers: "      << mChunkServers.size() <<
+        " replay: "       << mReplayServerCount <<
+        " disconnected: " << mDisconnectedCount <<
     KFS_LOG_EOM;
     if (mReplayServerCount < mChunkServers.size()) {
         for (Servers::const_iterator it = mChunkServers.begin();

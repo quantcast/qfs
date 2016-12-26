@@ -1105,6 +1105,7 @@ ChunkServer::RemoveFromWriteAllocation()
     gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
     gLayoutManager.UpdateObjectsCount(*this, objDelta, wrObjDelta);
     UpdateChunkWritesPerDrive(0, 0);
+    gLayoutManager.Disconnected(*this);
 }
 
 void
