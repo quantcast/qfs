@@ -3121,7 +3121,7 @@ ChunkServer::Ping(ostream& os, bool useTotalFsSpaceFlag) const
         << ", total=" << mTotalFsSpace
         << ", util=" << setprecision(2) << fixed << utilisation * 1e2
         << ", nblocks=" << mNumChunks
-        << ", lastheard=" << (now - mLastHeard)
+        << ", lastheard=" << (mReplayFlag ? time_t(-1) : now - mLastHeard)
         << ", ncorrupt=" << mNumCorruptChunks
         << ", nchunksToMove=" << mChunksToMove.Size()
         << ", numDrives=" << mNumDrives
