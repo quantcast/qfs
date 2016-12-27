@@ -2907,7 +2907,9 @@ WriteCounters(
 {
     static const Properties::String kColumnDelim(",");
     static const Properties::String kRowDelim("\n");
-    static const Properties::String kCseq("Cseq");
+    static const Properties::String kRemove[] = {
+        "Cseq", "status", "s", "c", "m",
+        "" /* sentinel */ };
 
     if (first == last) {
         return;
@@ -2927,7 +2929,9 @@ WriteCounters(
             if (firstFlag && ctrFirst != ctrLast) {
                 firstFlag = false;
                 columns = getCounters(ctrFirst);
-                columns.remove(kCseq);
+                for (const Properties::String* p = kRemove; ! p->empty(); ++p) {
+                    columns.remove(*p);
+                }
                 writeHeader(writer, columns, kColumnDelim);
                 writer.Write(kRowDelim);
             }
@@ -2937,7 +2941,10 @@ WriteCounters(
                 for (Properties::iterator pi = props.begin();
                         pi != props.end();
                         ++pi) {
-                    if (pi->first == kCseq) {
+                    const Properties::String* rp = kRemove;
+                    for (; ! rp->empty() && pi->first != *rp; ++rp)
+                        {}
+                    if (! rp->empty()) {
                         continue;
                     }
                     while (ci != columns.end() && ci->first < pi->first) {
