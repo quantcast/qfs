@@ -193,8 +193,7 @@ inline bool
 LayoutManager::InRecovery() const
 {
     return (
-        mChunkServers.size() < mReplayServerCount + mDisconnectedCount +
-            mMinChunkserversToExitRecovery ||
+        GetConnectedServerCount() < mMinChunkserversToExitRecovery ||
         InRecoveryPeriod()
     );
 }
@@ -203,9 +202,8 @@ inline bool
 LayoutManager::IsChunkServerRestartAllowed() const
 {
     return (
-        ! InRecovery() &&
-        mChunkServers.size() > mMinChunkserversToExitRecovery &&
-        mHibernatingServers.empty()
+        mHibernatingServers.empty() &&
+        ! InRecovery()
     );
 }
 
@@ -10927,9 +10925,12 @@ LayoutManager::CheckHibernatingServersStatus()
 }
 
 int
-LayoutManager::CountServersAvailForReReplication() const
+LayoutManager::CountServersAvailForReReplication(
+    size_t& pendingHelloCnt, size_t& connectedCnt) const
 {
-    if (GetConnectedServerCount() <= 0) {
+    pendingHelloCnt = 0;
+    connectedCnt = GetConnectedServerCount();
+    if (connectedCnt <= 0) {
         return 0;
     }
     int anyAvail = 0;
@@ -10937,6 +10938,9 @@ LayoutManager::CountServersAvailForReReplication() const
         const ChunkServer& cs = *mChunkServers[i];
         if (! cs.IsConnected()) {
             continue;
+        }
+        if (cs.IsHelloNotifyPending()) {
+            pendingHelloCnt++;
         }
         if (cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) >
                 mMaxSpaceUtilizationThreshold) {
@@ -11028,8 +11032,12 @@ LayoutManager::HandoutChunkReplicationWork()
                 break;
             }
         }
-        if (avail <= 0 && (avail =
-                CountServersAvailForReReplication()) <= 0) {
+        size_t pendingHelloCnt = 0;
+        size_t connectedCnt      = 0;
+        if ((avail <= 0 && (avail =CountServersAvailForReReplication(
+                    pendingHelloCnt, connectedCnt)) <= 0) ||
+                connectedCnt <
+                        mMinChunkserversToExitRecovery + pendingHelloCnt) {
             if (count <= 0) {
                 mNoServersAvailableForReplicationCount++;
                 KFS_LOG_STREAM_INFO <<
@@ -11037,6 +11045,14 @@ LayoutManager::HandoutChunkReplicationWork()
                     " no servers available for"
                     " replication: " <<
                     mNoServersAvailableForReplicationCount <<
+                KFS_LOG_EOM;
+            } else {
+                KFS_LOG_STREAM_INFO <<
+                    "exiting replication check:"
+                    " serveer with pending hello: " << pendingHelloCnt <<
+                    " min to exit recovery: "       <<
+                        mMinChunkserversToExitRecovery <<
+                    " connected: "                  << connectedCnt <<
                 KFS_LOG_EOM;
             }
             break;
@@ -11867,9 +11883,7 @@ MoveChunkBlockBack(
 void
 LayoutManager::RebalanceServers()
 {
-    if (InRecovery() ||
-            mChunkServers.empty() ||
-            mChunkToServerMap.Size() <= 0) {
+    if (InRecovery() || mChunkToServerMap.Size() <= 0) {
         return;
     }
     if (mRebalanceReplicationsThresholdCount <= mNumOngoingReplications) {

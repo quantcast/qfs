@@ -1999,7 +1999,7 @@ protected:
     PeriodicOp<MetaChunkReplicationCheck> mChunkReplicator;
     PeriodicOp<MetaCheckpoint> mCheckpoint;
 
-    uint32_t mMinChunkserversToExitRecovery;
+    size_t mMinChunkserversToExitRecovery;
 
     /// List of connected chunk servers.
     Servers mChunkServers;
@@ -2581,7 +2581,8 @@ protected:
 
     /// Does any server have space/write-b/w available for
     /// re-replication
-    int CountServersAvailForReReplication() const;
+    int CountServersAvailForReReplication(
+        size_t& pendingHelloCnt, size_t& connectedCnt) const;
 
     /// Periodically, rebalance servers by moving chunks around from
     /// "over utilized" servers to "under utilized" servers.
