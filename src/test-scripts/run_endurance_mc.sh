@@ -47,6 +47,7 @@ testdirsprefix='/mnt/data'
 
 chunksdir='./chunks'
 metasrvchunkport=20100
+metasrvchunkporre="`expr $metasrvchunkport / 10`[0-9]"
 chunksrvport=30000
 clustername='endurance-test'
 numchunksrv=3
@@ -414,7 +415,7 @@ if [ x"$errsim" = x'yes' ]; then
     csretry=200 # make wait longer than chunk replication timeout / 5 sec
     if [ $vrcount -gt 2 -o -d "$metasrvdir/vr1" ]; then
         cat >> "$clientprop" << EOF
-client.maxNumRetriesPerOp = 200
+client.maxNumRetriesPerOp = 400
 EOF
     fi
 else
@@ -980,11 +981,15 @@ EOF
             fi
             if [ x"$errsim" = x'yes' ]; then
             cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log,int=128,rsleep=30;
+chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkporre\$,a=rand+log,int=128,rsleep=30;
+chunkServer.recAppender.cleanupSec            = 1800
+chunkServer.recAppender.closeEmptyWidStateSec = 1200
 EOF
             elif [ x"$derrsim" = x'yes' ]; then
             cat >> "$dir/$chunksrvprop" << EOF
-chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkport\$,a=rand+log+err,int=128;
+chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkporre\$,a=rand+log+err,int=128;
+chunkServer.recAppender.cleanupSec            = 1800
+chunkServer.recAppender.closeEmptyWidStateSec = 1200
 EOF
             fi
 
