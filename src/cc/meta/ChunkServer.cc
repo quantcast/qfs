@@ -426,7 +426,10 @@ ChunkServer::HelloDone(const MetaHello* r)
     if (r) {
         mPendingHelloNotifyFlag = r->pendingNotifyFlag;
     }
-    if (mDown || mReplayFlag) {
+    if (! mNetConnection) {
+        gLayoutManager.Disconnected(*this);
+    }
+    if (mDown || mReplayFlag || ! mNetConnection) {
         return;
     }
     mLastHeartbeatSent = TimeNow();
