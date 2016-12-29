@@ -6439,7 +6439,8 @@ MetaChunkLogInFlight::log(ostream& os) const
     const ChunkIdQueue*           ids = 0;
     const MetaChunkRequest* const req =
         request ? request : (replayFlag ? this : 0);
-    if (! req || (req->chunkId < 0 && ! (ids = req->GetChunkIds()))) {
+    if (! req || (req->chunkId < 0 && ! (ids = req->GetChunkIds()) &&
+            ! req->logCompletionSeq.IsValid())) {
         panic("invalid MetaChunkLogInFlight log attempt");
         return false;
     }

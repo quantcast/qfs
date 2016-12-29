@@ -2777,6 +2777,13 @@ ChunkServer::NotifyStaleChunks(
     }
     if (hello) {
         req.flushStaleQueueFlag = true;
+        if (req.staleChunkIds.IsEmpty()) {
+            // Force to create chunk log in flight by setting chunk id to 0.
+            // 0 chunk id isn't used, but considered valid for the purpose of
+            // logging, and the stale notify requests builder does not output
+            // chunk id filed, only stale chunk ids list.
+            req.chunkId = 0;
+        }
         mHelloPendingStaleChunks.swap(hello->pendingStaleChunks);
     }
     Enqueue(req);
