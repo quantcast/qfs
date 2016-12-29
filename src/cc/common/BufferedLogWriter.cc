@@ -801,8 +801,11 @@ public:
         bool     inDiscardFlag,
         ostream* inTeeStreamPtr)
     {
+        if (! mRunFlag) {
+            return *(new MsgStream(
+                inLogLevel, inDiscardFlag, inTeeStreamPtr));
+        }
         QCStMutexLocker theLocker(mMutex);
-
         MsgStream* theRetPtr = mMsgStreamHeadPtr;
         if (theRetPtr) {
             QCASSERT(mMsgStreamCount > 0);
@@ -819,9 +822,12 @@ public:
     void PutStream(
         ostream& inStream)
     {
-        QCStMutexLocker theLocker(mMutex);
-
         MsgStream& theStream = static_cast<MsgStream&>(inStream);
+        if (! mRunFlag) {
+            delete &theStream;
+            return;
+        }
+        QCStMutexLocker theLocker(mMutex);
         if (! theStream.IsDiscard()) {
             AppendSelf(theStream.GetLogLevel(),
                 theStream.GetMsgPtr(), theStream.GetMsgLength());
