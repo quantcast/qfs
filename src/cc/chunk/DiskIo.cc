@@ -128,6 +128,9 @@ public:
               mMaxTimeMicroSec(inConfig.getValue(
                 "chunkServer.diskErrorSimulator.maxTimeMicroSec", int64_t(0)
               )),
+              mEnqueueFailInterval(inConfig.getValue(
+                "chunkServer.diskErrorSimulator.enqueueFailInterval", int64_t(0)
+              )),
               mPrefixes()
         {
             if (! IsEnabled(string())) {
@@ -164,16 +167,23 @@ public:
         bool IsEnabled(
             string inPrefix) const
         {
-            return (
-                mMinTimeMicroSec <= mMaxTimeMicroSec && mMaxTimeMicroSec > 0 &&
+            return ((IsNotifyEnabled() || IsEnqueueEnabled()) &&
                 (mPrefixes.empty() ||
-                mPrefixes.find(inPrefix) != mPrefixes.end())
-            );
+                mPrefixes.find(inPrefix) != mPrefixes.end()));
+        }
+        bool IsNotifyEnabled() const
+        {
+            return (mMinTimeMicroSec <= mMaxTimeMicroSec && 0 < mMaxTimeMicroSec);
+        }
+        bool IsEnqueueEnabled() const
+        {
+            return (0 < mEnqueueFailInterval);
         }
         const int64_t mMinPeriodReq;
         const int64_t mMaxPeriodReq;
         const int64_t mMinTimeMicroSec;
         const int64_t mMaxTimeMicroSec;
+        const int64_t mEnqueueFailInterval;
         set<string>   mPrefixes;
     };
 
@@ -187,9 +197,16 @@ public:
           mMaxPeriodReq(inConfig.mMaxPeriodReq),
           mMinTimeMicroSec(inConfig.mMinTimeMicroSec),
           mMaxTimeMicroSec(inConfig.mMaxTimeMicroSec),
+          mEnqueueFailInterval(inConfig.mEnqueueFailInterval),
           mSleepingFlag(false),
-          mReqCount(0)
-        {}
+          mReqCount(0),
+          mEnqueueReqCount(),
+          mRand()
+    {
+        if (0 < mEnqueueFailInterval) {
+            mEnqueueReqCount = Rand(0, mEnqueueFailInterval);
+        }
+    }
     virtual ~DiskErrorSimulator()
         { DiskErrorSimulator::Shutdown(); }
     void Shutdown()
@@ -198,6 +215,18 @@ public:
         mReqCount     = numeric_limits<int>::max();
         mSleepingFlag = false;
         mSleepCond.NotifyAll();
+    }
+    bool Enqueue()
+    {
+        if (mEnqueueFailInterval <= 0 || 0 < --mEnqueueReqCount) {
+            return true;
+        }
+        mEnqueueReqCount = Rand(0, mEnqueueFailInterval);
+        return false;
+    }
+    bool IsNotifyEnabled() const
+    {
+        return (mMinTimeMicroSec <= mMaxTimeMicroSec && 0 < mMaxTimeMicroSec);
     }
     virtual void Notify(
         QCDiskQueue::ReqType   inReqType,
@@ -242,8 +271,10 @@ private:
     const int64_t mMaxPeriodReq;
     const int64_t mMinTimeMicroSec;
     const int64_t mMaxTimeMicroSec;
+    const int64_t mEnqueueFailInterval;
     bool          mSleepingFlag;
     int64_t       mReqCount;
+    int64_t       mEnqueueReqCount;
     PrngIsaac64   mRand;
 
     int64_t Rand(
@@ -373,7 +404,8 @@ public:
             inFileCount,
             inFileNamesPtr,
             inBufferPool,
-            mSimulatorPtr,
+            (mSimulatorPtr && mSimulatorPtr->IsNotifyEnabled()) ?
+                mSimulatorPtr : 0,
             inCpuAffinity,
             inTraceFlag ? this : 0,
             kBufferedIoFlag,
@@ -423,6 +455,49 @@ public:
     {
         mFileNamePrefixes.append(inFileNamePtr ? inFileNamePtr : "");
         mFileNamePrefixes.append(1, (char)0);
+    }
+    EnqueueStatus Read(
+        FileIdx        inFileIdx,
+        BlockIdx       inStartBlockIdx,
+        InputIterator* inBufferIteratorPtr,
+        int            inBufferCount,
+        IoCompletion*  inIoCompletionPtr,
+        Time           inTimeWaitNanoSec)
+    {
+        if (! mSimulatorPtr || mSimulatorPtr->Enqueue()) {
+            return QCDiskQueue::Read(
+                inFileIdx,
+                inStartBlockIdx,
+                inBufferIteratorPtr,
+                inBufferCount,
+                inIoCompletionPtr,
+                inTimeWaitNanoSec);
+        }
+        return EnqueueStatus(kRequestIdNone, kErrorOutOfRequests);
+    }
+    EnqueueStatus Write(
+        FileIdx        inFileIdx,
+        BlockIdx       inStartBlockIdx,
+        InputIterator* inBufferIteratorPtr,
+        int            inBufferCount,
+        IoCompletion*  inIoCompletionPtr,
+        Time           inTimeWaitNanoSec,
+        bool           inSyncFlag,
+        int64_t        inEofHint)
+    {
+        if (! mSimulatorPtr || mSimulatorPtr->Enqueue()) {
+            return QCDiskQueue::Write(
+                inFileIdx,
+                inStartBlockIdx,
+                inBufferIteratorPtr,
+                inBufferCount,
+                inIoCompletionPtr,
+                inTimeWaitNanoSec,
+                inSyncFlag,
+                inEofHint
+            );
+        }
+        return EnqueueStatus(kRequestIdNone, kErrorOutOfRequests);
     }
     bool RemoveFileNamePrefix(
         const char* inPrefixPtr)
@@ -2374,6 +2449,13 @@ DiskIo::Write(
                     theIoPtr->mIoBuffers.pop_back();
                 }
                 delete theIoPtr;
+                if (theSyncFlag) {
+                    QCASSERT(! mChainedPtr);
+                    mBlockIdx            = -1;
+                    mWriteSyncFlag       = false;
+                    mRequestId           = QCDiskQueue::kRequestIdNone;
+                    mCompletionRequestId = mRequestId;
+                }
                 mIoBuffers.clear();
                 return theStatus;
             }
