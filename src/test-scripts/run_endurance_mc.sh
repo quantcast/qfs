@@ -415,7 +415,7 @@ if [ x"$errsim" = x'yes' ]; then
     csretry=200 # make wait longer than chunk replication timeout / 5 sec
     if [ $vrcount -gt 2 -o -d "$metasrvdir/vr1" ]; then
         cat >> "$clientprop" << EOF
-client.maxNumRetriesPerOp = 400
+client.maxNumRetriesPerOp = 200
 EOF
     fi
 else
@@ -982,14 +982,14 @@ EOF
             if [ x"$errsim" = x'yes' ]; then
             cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkporre\$,a=rand+log,int=128,rsleep=30;
-chunkServer.recAppender.cleanupSec            = 1800
-chunkServer.recAppender.closeEmptyWidStateSec = 1200
+chunkServer.recAppender.cleanupSec            = 900
+chunkServer.recAppender.closeEmptyWidStateSec = 300
 EOF
             elif [ x"$derrsim" = x'yes' ]; then
             cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkporre\$,a=rand+log+err,int=128;
-chunkServer.recAppender.cleanupSec            = 1800
-chunkServer.recAppender.closeEmptyWidStateSec = 1200
+chunkServer.recAppender.cleanupSec            = 900
+chunkServer.recAppender.closeEmptyWidStateSec = 300
 EOF
             fi
 
