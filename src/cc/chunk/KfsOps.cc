@@ -4170,14 +4170,14 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     if (chunkCount < modifiedCount) {
         statusMsg = "parse response:"
             " invalid chunk count less than modified count";
-        statusMsg = -EINVAL;
+        status    = -EINVAL;
         return false;
     }
-    const uint64_t kMinEntrySize = 2 ;
+    const uint64_t kMinEntrySize = 2;
     if ((uint64_t)len / kMinEntrySize + (1 << 10) <
             deletedCount + modifiedCount) {
         statusMsg = "parse response: invalid chunk counts";
-        statusMsg = -EINVAL;
+        status    = -EINVAL;
         return false;
     }
     kfsChunkId_t chunkId = -1;
@@ -4189,7 +4189,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     }
     if (i < deletedCount) {
         statusMsg = "parse response: invalid deleted count";
-        statusMsg = -EINVAL;
+        status    = -EINVAL;
         resumeDeleted.clear();
         return false;
     }
@@ -4199,7 +4199,7 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     }
     if (i < modifiedCount) {
         statusMsg = "parse response: invalid modified count";
-        statusMsg = -EINVAL;
+        status    = -EINVAL;
         resumeDeleted.clear();
         resumeModified.clear();
         return false;
