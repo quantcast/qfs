@@ -149,7 +149,7 @@ metaServer.recoveryInterval = 30
 # Ignore master/slave chunk server assignment for write append.
 # Master/slave assignment can help with append replication 2, so avoid
 # theoretically possible IO buffers resource deadlock when chunk server A is a
-# in one "AB" synchronous append replication chain, and chunk server B is a 
+# in one "AB" synchronous append replication chain, and chunk server B is a
 # master in another chunk "BA" synchronous replication.
 # In practice such deadlocks should be rare enough to matter, and, if occur,
 # are resolve with replication timeout mechanism.
@@ -1289,4 +1289,99 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 # chunkServer.diskQueue.<object-store-directory-prefix>ssl.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 
+# ==================== Meta Server Viewstamped Replication =====================
 
+# Meta server meta data initial fetch / synchronization.
+
+# File system ID, required for initial meta data fetch to work.
+# Default is empty.
+# metaServer.metaDataSync.fileSystemId =
+
+# List of meta server nodes IPs and / or host names, or meta server DNS name
+# which resolves to the list of the meta server nodes.
+# metaServer.metaDataSync.servers =
+
+# Meta server transaction log receiver listener configuration.
+# For example to configure ipv4 listener on all hosted IP addresses, and port
+# 1234:
+# metaServer.log.receiver.listenOn = 0.0.0.0 1234
+# By default transaction log listener is disabled.
+# metaServer.log.receiver.listenOn =
+
+# Meta server VR (viewstamped replication) node ID.
+# The node IDs must be unique, and should never be reused.
+# Valid node ID must be equal or greater than 0.
+# metaServer.vr.id = -1
+
+# Pairs of host name and VR node id. This parameter can be used to set node id
+# from host name.
+# metaServer.vr.hostnameToId =
+
+# The meta server acts as QFS client when fetches data from other meta server
+# node, and when it transmits transaction log. For parameters description please
+# see the parameters descriptions with client.auth. prefix in QfsClient.prp file
+# in X509, and Kerberos authentication sections.
+
+# Meta data fetch authentication.
+# By default authentication is not used.
+#
+# metaServer.metaDataSync.auth.X509.X509PemFile =
+# metaServer.metaDataSync.auth.X509.X509Password =
+# metaServer.metaDataSync.auth.X509.PKeyPemFile =
+# metaServer.metaDataSync.auth.X509.PKeyPassword =
+# metaServer.metaDataSync.auth.X509.CAFile =
+# metaServer.metaDataSync.auth.X509.CADir =
+# metaServer.metaDataSync.auth.X509.verifyPeer = 1
+# metaServer.metaDataSync.auth.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+# metaServer.metaDataSync.auth.X509.options =
+#
+# metaServer.metaDataSync.auth.krb5.service =
+# metaServer.metaDataSync.auth.krb5.host =
+# metaServer.metaDataSync.auth.krb5.keytab =
+# metaServer.metaDataSync.auth.krb5.clientName =
+# metaServer.metaDataSync.auth.krb5.initClientCache = 0
+
+# Meta server transaction log transmitter (used for viewstamped replication)
+# authentication.
+# By default log transmitter authentication is off.
+#
+# metaServer.log.transmitter.auth.X509.X509PemFile =
+# metaServer.log.transmitter.auth.X509.X509Password =
+# metaServer.log.transmitter.auth.X509.PKeyPemFile =
+# metaServer.log.transmitter.auth.X509.PKeyPassword =
+# metaServer.log.transmitter.auth.X509.CAFile =
+# metaServer.log.transmitter.auth.X509.CADir =
+# metaServer.log.transmitter.auth.X509.verifyPeer = 1
+# metaServer.log.transmitter.auth.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+# metaServer.log.transmitter.auth.X509.options =
+#
+# metaServer.log.transmitter.auth.krb5.service =
+# metaServer.log.transmitter.auth.krb5.host =
+# metaServer.log.transmitter.auth.krb5.keytab =
+# metaServer.log.transmitter.auth.krb5.clientName =
+# metaServer.log.transmitter.auth.krb5.initClientCache = 0
+
+# Meta server log receiver authentication.
+# By default log receiver authentication is off.
+# Meta server transaction log receiver authentication.
+# For parameters description please see chunk server authentication section in
+# this file.
+#
+# metaServer.log.receiver.auth.X509.X509PemFile =
+# metaServer.log.receiver.auth.X509.X509Password =
+# metaServer.log.receiver.auth.X509.PKeyPemFile =
+# metaServer.log.receiver.auth.X509.PKeyPassword =
+# metaServer.log.receiver.auth.X509.CAFile =
+# metaServer.log.receiver.auth.X509.CADir =
+# metaServer.log.receiver.auth.X509.verifyPeer = 1
+# metaServer.log.receiver.auth.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+# metaServer.log.receiver.auth.X509.session.timeout = 14400
+#
+# metaServer.log.receiver.auth.krb5.service =
+# metaServer.log.receiver.auth.krb5.host =
+# metaServer.log.receiver.auth.krb5.keytab =
+# metaServer.log.receiver.auth.krb5.copyToMemKeytab = 1
+# metaServer.log.receiver.auth.krb5.princUnparseMode =
+#
+# metaServer.log.receiver.auth.blackList =
+# metaServer.log.receiver.auth.whiteList =
