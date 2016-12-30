@@ -210,6 +210,10 @@ LogCompactorMain(int argc, char** argv)
                         "checkpoint write failure: " <<
                         QCUtils::SysError(-status) <<
                     KFS_LOG_EOM;
+                } else {
+                    KFS_LOG_STREAM_INFO <<
+                        "file system id: " << metatree.GetFsId() <<
+                    KFS_LOG_EOM;
                 }
             }
         }

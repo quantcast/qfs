@@ -707,7 +707,11 @@ MetaServer::Startup(const Properties& props,
                     createEmptyFsFlag,
                     props.getValue("metaServer.createEmptyFs", 0) != 0,
                     resetVrConfigTypePtr))) {
-                if (! createEmptyFsFlag && ! resetVrConfigTypePtr) {
+                if (createEmptyFsFlag) {
+                    KFS_LOG_STREAM_INFO <<
+                        "created new file system, id: " << metatree.GetFsId() <<
+                    KFS_LOG_EOM;
+                } else if (! resetVrConfigTypePtr) {
                     KFS_LOG_STREAM_INFO << "start servicing" << KFS_LOG_EOM;
                     // The following only returns after receiving SIGQUIT.
                     okFlag = gNetDispatch.Start(mMetaDataSync);
