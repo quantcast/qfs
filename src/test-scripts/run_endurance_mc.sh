@@ -602,6 +602,7 @@ metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStorePlacementTest = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
+metaServer.userAndGroup.updatePeriodSec = 30
 chunkServer.objBlockDiscardMinMetaUptime = 8
 EOF
 
