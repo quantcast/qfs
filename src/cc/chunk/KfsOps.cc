@@ -4167,12 +4167,6 @@ HelloMetaOp::ParseResponseContent(istream& is, int len)
     if (len <= 0) {
         return (deletedCount <= 0 && modifiedCount <= 0);
     }
-    if (chunkCount < modifiedCount) {
-        statusMsg = "parse response:"
-            " invalid chunk count less than modified count";
-        status    = -EINVAL;
-        return false;
-    }
     const uint64_t kMinEntrySize = 2;
     if ((uint64_t)len / kMinEntrySize + (1 << 10) <
             deletedCount + modifiedCount) {
