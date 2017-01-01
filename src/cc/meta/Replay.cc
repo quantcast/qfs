@@ -1822,6 +1822,11 @@ replay_group_users_reset(DETokenizer& c)
     state.mCurOp->logseq = state.mLastLogAheadSeq;
     state.mCurOp->logseq.mLogSeq++;
     state.mCurOp->replayFlag = true;
+    if (state.mSubEntryCount <= 0) {
+        state.mSubEntryCount = 1;
+        state.replayCurOp();
+        return replay_sub_entry(c);
+    }
     return true;
 }
 
@@ -1867,7 +1872,7 @@ replay_cs_hello(DETokenizer& c)
         }
         c.pop_front();
         int64_t n;
-        if (! pop_num(n, "e", c, true) || n < 0) {
+        if (! pop_num(n, "e", c, true) || n <= 0) {
             return false;
         }
         if ("l" != c.front()) {
@@ -2062,7 +2067,7 @@ replay_cs_inflight(DETokenizer& c)
         }
         c.pop_front();
         int64_t n;
-        if (! pop_num(n, "e", c, true) || n < 0) {
+        if (! pop_num(n, "e", c, true) || n <= 0) {
             return false;
         }
         if ("l" != c.front()) {

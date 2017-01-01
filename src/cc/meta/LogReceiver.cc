@@ -84,6 +84,7 @@ public:
           mTimeout(60),
           mConnectionCount(0),
           mMaxConnectionCount(8 << 10),
+          mMaxPendingOpsCount(1 << 10),
           mIpV6OnlyFlag(false),
           mListenerAddress(),
           mAcceptorPtr(0),
@@ -136,9 +137,12 @@ public:
         mMaxReadAhead = max(512, min(64 << 20, inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "maxReadAhead"), mMaxReadAhead)));
-        mMaxConnectionCount = inParameters.getValue(
+        mMaxConnectionCount = max(16, inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
-            "maxConnectionCount"), mMaxConnectionCount);
+            "maxConnectionCount"), mMaxConnectionCount));
+        mMaxPendingOpsCount = inParameters.getValue(
+            theParamName.Truncate(thePrefixLen).Append(
+            "maxPendingOpsCount"), mMaxPendingOpsCount);
         mTimeout = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "timeout"), mTimeout);
@@ -258,6 +262,8 @@ public:
         { return mFileSystemId; }
     NodeId GetPrimaryId() const
         { return mPrimaryId; }
+    int GetMaxPendingOpsCount() const
+        { return mMaxPendingOpsCount; }
     void Delete()
     {
         Shutdown();
@@ -427,6 +433,7 @@ private:
     int            mTimeout;
     int            mConnectionCount;
     int            mMaxConnectionCount;
+    int            mMaxPendingOpsCount;
     bool           mIpV6OnlyFlag;
     ServerLocation mListenerAddress;
     Acceptor*      mAcceptorPtr;
@@ -674,7 +681,7 @@ public:
         }
         SendAckSelf();
     }
-    time_t TimeNow()
+    time_t TimeNow() const
         { return mConnectionPtr->TimeNow(); }
     NodeId GetTransmitterId() const
         { return mTransmitterId; }
@@ -951,6 +958,16 @@ private:
             mConnectionPtr->StartFlush();
         }
     }
+    bool ValidateSession()
+    {
+        if (GetAuthContext().IsAuthRequired() &&
+                mSessionExpirationTime + mImpl.GetReAuthTimeout() * 3 / 2 <
+                    TimeNow() ) {
+            Error("authenticated session has expired");
+            return false;
+        }
+        return true;
+    }
     int HandleMsg(
         IOBuffer& inBuffer,
         int       inMsgLen)
@@ -970,10 +987,6 @@ private:
                     HexIntParser::Parse(
                         thePtr, theEndPtr - thePtr, mBlockChecksum)) {
                 if (IsAuthError()) {
-                    return -1;
-                }
-                if (mBlockLength < 0) {
-                    Error("invalid negative block lenght");
                     return -1;
                 }
                 inBuffer.Consume(inMsgLen);
@@ -1010,10 +1023,11 @@ private:
             MetaRequest::Release(theReqPtr);
             return -1;
         }
-        if (GetAuthContext().IsAuthRequired() &&
-                mSessionExpirationTime +
-                    mImpl.GetReAuthTimeout() * 3 / 2 < TimeNow()) {
-            Error("authenticated session has expired");
+        if (! ValidateSession()) {
+            return -1;
+        }
+        if (mImpl.GetMaxPendingOpsCount() < mPendingOpsCount) {
+            Error("exceeded max pending RPC limit");
             return -1;
         }
         mPendingOpsCount++;
@@ -1028,6 +1042,10 @@ private:
         IOBuffer& inBuffer)
     {
         if (mBlockLength < 0) {
+            Error("invalid negative block lenght");
+            return -1;
+        }
+        if (! ValidateSession()) {
             return -1;
         }
         const int theRem = mBlockLength - inBuffer.BytesConsumable();
