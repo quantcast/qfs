@@ -682,6 +682,8 @@ metaServer.log.receiver.auth.X509.X509PemFile = $certsdir/meta.crt
 metaServer.log.receiver.auth.X509.PKeyPemFile = $certsdir/meta.key
 metaServer.log.receiver.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.log.receiver.auth.whiteList        = root
+metaServer.log.receiver.auth.maxAuthenticationValidTimeSec = 30
+metaServer.log.receiver.auth.reAuthTimeout                 = 10
 EOF
         fi
         i=$vrcount

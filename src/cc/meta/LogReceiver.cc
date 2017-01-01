@@ -566,7 +566,7 @@ public:
         bool          inEndTimeValidFlag)
     {
         KFS_LOG_STREAM_DEBUG << mPeerLocation <<
-            " log auth. verify:" <<
+            " log receiver auth. verify:"
             " name: "           << inPeerName <<
             " prev: "           << ioFilterAuthName <<
             " preverify: "      << inPreverifyOkFlag <<
@@ -689,7 +689,7 @@ private:
     NetConnectionPtr const mConnectionPtr;
     ServerLocation   const mPeerLocation;
     MetaAuthenticate*      mAuthenticateOpPtr;
-    int64_t                mAuthCount;
+    uint64_t               mAuthCount;
     uint64_t               mAuthCtxUpdateCount;
     int                    mRecursionCount;
     int                    mBlockLength;
@@ -929,7 +929,8 @@ private:
             panic("invalid request next field");
         }
         mPendingOpsCount--;
-        if (mAuthenticateOpPtr && ! mDownFlag) {
+        SendAReAuthenticationAckIfNeeded();
+        if ((mReAuthPendingFlag || mAuthenticateOpPtr) && ! mDownFlag) {
             mAuthPendingResponsesQueue.PushBack(inReq);
             return;
         }
@@ -1007,6 +1008,12 @@ private:
         }
         if (IsAuthError()) {
             MetaRequest::Release(theReqPtr);
+            return -1;
+        }
+        if (GetAuthContext().IsAuthRequired() &&
+                mSessionExpirationTime +
+                    mImpl.GetReAuthTimeout() * 3 / 2 < TimeNow()) {
+            Error("authenticated session has expired");
             return -1;
         }
         mPendingOpsCount++;
@@ -1135,6 +1142,17 @@ private:
     }
     void SendAckSelf()
     {
+        const bool kSendOnlyIfReAuthenticationNeededFlag = false;
+        SendAckIf(kSendOnlyIfReAuthenticationNeededFlag);
+    }
+    void SendAReAuthenticationAckIfNeeded()
+    {
+        const bool kSendOnlyIfReAuthenticationNeededFlag = true;
+        SendAckIf(kSendOnlyIfReAuthenticationNeededFlag);
+    }
+    void SendAckIf(
+        bool inSendOnlyIfReAuthenticationNeededFlag)
+    {
         if (mAuthenticateOpPtr || mReAuthPendingFlag) {
             return;
         }
@@ -1150,7 +1168,12 @@ private:
                     " expires in: "   << (mSessionExpirationTime - TimeNow()) <<
                     " timeout: "      << mImpl.GetReAuthTimeout() <<
                 KFS_LOG_EOM;
+                mSessionExpirationTime = min(
+                    mSessionExpirationTime, (int64_t)TimeNow());
             }
+        }
+        if (inSendOnlyIfReAuthenticationNeededFlag && ! mReAuthPendingFlag) {
+            return;
         }
         uint64_t theAckFlags = 0;
         if (mReAuthPendingFlag) {

@@ -1248,23 +1248,9 @@ private:
             Error("malformed reply");
             return -1;
         }
-        // For now only handle authentication response.
         seq_t const theSeq = mReplyProps.getValue("c", seq_t(-1));
-        if ((mVrOpPtr && 0 <= mVrOpSeq && theSeq != mVrOpSeq) ||
-                (0 <= mMetaVrHello.opSeqno && theSeq != mMetaVrHello.opSeqno) ||
-                (mAuthenticateOpPtr && theSeq != mAuthenticateOpPtr->opSeqno)) {
-            KFS_LOG_STREAM_ERROR <<
-                mServer << ": "
-                "unexpected reply, authentication: " <<
-                MetaRequest::ShowReq(mAuthenticateOpPtr) <<
-            KFS_LOG_EOM;
-            MsgLogLines(MsgLogger::kLogLevelERROR,
-                "unexpected reply: ", inBuffer, inHeaderLen);
-            Error("unexpected reply");
-            return -1;
-        }
-        inBuffer.Consume(inHeaderLen);
-        if (mAuthenticateOpPtr) {
+        if (mAuthenticateOpPtr && theSeq == mAuthenticateOpPtr->opSeqno) {
+            inBuffer.Consume(inHeaderLen);
             mAuthenticateOpPtr->contentLength         =
                 mReplyProps.getValue("l", 0);
             mAuthenticateOpPtr->authType              =
@@ -1285,7 +1271,9 @@ private:
                         theCurrentTime) <<
             KFS_LOG_EOM;
             HandleAuthResponse(inBuffer);
-        } else if (theSeq == mMetaVrHello.opSeqno) {
+        } else if (0 <= mMetaVrHello.opSeqno &&
+                theSeq == mMetaVrHello.opSeqno) {
+            inBuffer.Consume(inHeaderLen);
             KFS_LOG_STREAM_DEBUG <<
                 mServer << ": "
                 "-seq: "    << theSeq <<
@@ -1302,8 +1290,24 @@ private:
                 mReplyProps.clear();
                 return -1;
             }
-        } else {
+        } else if (mVrOpPtr && 0 <= mVrOpSeq && theSeq == mVrOpSeq) {
+            inBuffer.Consume(inHeaderLen);
             VrUpdate(theSeq);
+        } else {
+            KFS_LOG_STREAM_ERROR <<
+                mServer << ": "
+                "unexpected reply" <<
+                "auth: "  << MetaRequest::ShowReq(mAuthenticateOpPtr) <<
+                "vr:"
+                " seq: "  << mVrOpSeq <<
+                " "       << MetaRequest::ShowReq(mVrOpPtr) <<
+                "hello: " << MetaRequest::ShowReq(
+                    mMetaVrHello.opSeqno < 0 ? 0 : &mMetaVrHello) <<
+            KFS_LOG_EOM;
+            MsgLogLines(MsgLogger::kLogLevelERROR,
+                "unexpected reply: ", inBuffer, inHeaderLen);
+            Error("unexpected reply");
+            return -1;
         }
         mReplyProps.clear();
         return (mConnectionPtr ? 0 : -1);
@@ -1347,7 +1351,7 @@ private:
             mServer << ":"
             " id: "   << mId <<
             " +seq: " << inReq.opSeqno <<
-            " "      << inReq.Show() <<
+            " "       << inReq.Show() <<
         KFS_LOG_EOM;
         IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
         ReqOstream theStream(mOstream.Set(theBuf));
