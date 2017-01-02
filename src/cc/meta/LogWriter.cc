@@ -109,6 +109,7 @@ public:
           mInFlightCommitted(),
           mLastWriteCommitted(),
           mReplayLastWriteCommitted(),
+          mSetReplayLastWriteCommitted(),
           mPendingReplayLogSeq(),
           mReplayLogSeq(),
           mNextLogSeq(),
@@ -574,6 +575,7 @@ private:
     Committed          mInFlightCommitted;
     Committed          mLastWriteCommitted;
     Committed          mReplayLastWriteCommitted;
+    Committed          mSetReplayLastWriteCommitted;
     MetaVrLogSeq       mPendingReplayLogSeq;
     MetaVrLogSeq       mReplayLogSeq;
     MetaVrLogSeq       mNextLogSeq;
@@ -671,15 +673,17 @@ private:
         );
         // Log start view's are all executed at this point -- set last view end
         // to the last committed.
-        mLastViewEndSeq           = mCommitted.mSeq;
-        mLastNonEmptyViewEndSeq   = mReplayerPtr->getLastNonEmptyViewEndSeq();
-        mReplayLastWriteCommitted = mLastWriteCommitted;
-        mReplayLogSeq             = mReplayerPtr->getLastLogSeq();
-        mPendingReplayLogSeq      = mReplayLogSeq;
-        mPendingCommitted         = mCommitted;
-        mInFlightCommitted        = mPendingCommitted;
-        mMetaDataStorePtr         = &inMetaDataStore;
-        mViewStartSeq             = mReplayerPtr->getViewStartSeq();
+        mLastViewEndSeq              = mCommitted.mSeq;
+        mLastNonEmptyViewEndSeq      =
+            mReplayerPtr->getLastNonEmptyViewEndSeq();
+        mReplayLastWriteCommitted    = mLastWriteCommitted;
+        mSetReplayLastWriteCommitted = mReplayLastWriteCommitted;
+        mReplayLogSeq                = mReplayerPtr->getLastLogSeq();
+        mPendingReplayLogSeq         = mReplayLogSeq;
+        mPendingCommitted            = mCommitted;
+        mInFlightCommitted           = mPendingCommitted;
+        mMetaDataStorePtr            = &inMetaDataStore;
+        mViewStartSeq                = mReplayerPtr->getViewStartSeq();
         if (MetaVrLogSeq(0, 0, 0) == mReplayLogSeq) {
             mLastWriteCommitted = mCommitted;
         }
@@ -899,7 +903,7 @@ private:
         const bool theWakeupFlag = theSetReplayStateFlag &&
             (mCommitUpdatedFlag || ! mInQueue.IsEmpty());
         if (theSetReplayStateFlag) {
-            mReplayLastWriteCommitted = mLastWriteCommitted;
+            mSetReplayLastWriteCommitted = mReplayLastWriteCommitted;
         }
         theLock.Unlock();
         if (theWakeupFlag) {
@@ -947,10 +951,10 @@ private:
                 mCommitted.mStatus,
                 mCommitted.mErrChkSum,
                 theReplayCommitHeadPtr,
-                mReplayLastWriteCommitted.mSeq,
-                mReplayLastWriteCommitted.mFidSeed,
-                mReplayLastWriteCommitted.mStatus,
-                mReplayLastWriteCommitted.mErrChkSum,
+                mSetReplayLastWriteCommitted.mSeq,
+                mSetReplayLastWriteCommitted.mFidSeed,
+                mSetReplayLastWriteCommitted.mStatus,
+                mSetReplayLastWriteCommitted.mErrChkSum,
                 mLastNonEmptyViewEndSeq
             );
             while ((thePtr = theReplayQueue.PopFront())) {
@@ -1043,11 +1047,13 @@ private:
                 mSetReplayStateFlag =
                     inSetReplayStateFlag || ! mReplayCommitQueue.IsEmpty();
                 if (mSetReplayStateFlag) {
+                    mReplayLastWriteCommitted = mLastWriteCommitted;
                     KFS_LOG_STREAM_DEBUG <<
                         "scheduling set replay state:"
                         " replay queue empty: " <<
                             mReplayCommitQueue.IsEmpty() <<
-                        " set replay state flag: " << inSetReplayStateFlag <<
+                        " set replay state: " << inSetReplayStateFlag <<
+                        " log committed: "    << mReplayLastWriteCommitted.mSeq <<
                     KFS_LOG_EOM;
                 }
             }
