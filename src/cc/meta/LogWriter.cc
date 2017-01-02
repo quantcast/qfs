@@ -1053,7 +1053,8 @@ private:
                         " replay queue empty: " <<
                             mReplayCommitQueue.IsEmpty() <<
                         " set replay state: " << inSetReplayStateFlag <<
-                        " log committed: "    << mReplayLastWriteCommitted.mSeq <<
+                        " log committed: "    <<
+                            mReplayLastWriteCommitted.mSeq <<
                     KFS_LOG_EOM;
                 }
             }
