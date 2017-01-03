@@ -291,11 +291,11 @@ class Status:
             print >> buffer, '<tr> <td> Transaction log </td><td>:</td><td>' + \
                 'queue&nbsp;depth:&nbsp;' + splitThousands(systemInfo.logPendingOpsCount) + \
                 '&nbsp;request&nbsp;log&nbsp;time&nbsp;microseconds&nbsp;average' +\
-                '&nbsp;[total;&nbsp;5&nbsp;sec;&nbsp;10&nbsp;sec;&nbsp;15&nbsp;sec]:' + \
-                '&nbsp;'   + splitThousands(avg) + \
-                ';&nbsp;'  + splitThousands(systemInfo.log5SecAvgUsec) + \
-                ';&nbsp;' + splitThousands(systemInfo.log10SecAvgUsec) + \
-                ';&nbsp;' + splitThousands(systemInfo.log15SecAvgUsec) + \
+                '&nbsp;[5&nbsp;sec;&nbsp;10&nbsp;sec;&nbsp;15&nbsp;sec;&nbsp;total]:' + \
+                '&nbsp;'    + splitThousands(systemInfo.log5SecAvgUsec) + \
+                ';&nbsp;'   + splitThousands(systemInfo.log10SecAvgUsec) + \
+                ';&nbsp;'   + splitThousands(systemInfo.log15SecAvgUsec) + \
+                ';&nbsp;'   + splitThousands(avg) + \
                 '</td></tr>'
         print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
