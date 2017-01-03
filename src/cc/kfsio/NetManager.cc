@@ -66,6 +66,7 @@ NetManager::NetManager(int timeoutMs)
       mStartTime(time(0)),
       mNow(mStartTime),
       mLastTimerTime(mNow - 1),
+      mNowUsec(microseconds()),
       mMaxOutgoingBacklog(0),
       mNumBytesToSend(0),
       mTimerOverrunCount(0),
@@ -352,6 +353,29 @@ NetManager::Wakeup()
     mPoll.Wakeup();
 }
 
+inline void
+GetCurrentTime(int64_t& sec, int64_t& usec)
+{
+    if (! getcurrenttime(&sec, &usec)) {
+        const int err = errno;
+        KFS_LOG_STREAM_FATAL <<
+            QCUtils::SysError(err, "getcurrenttime") <<
+        KFS_LOG_EOM;
+        MsgLogger::Stop();
+        abort();
+    }
+}
+
+inline void
+UpdateGetCurrentTime(time_t& sec, int64_t& usec)
+{
+    int64_t s;
+    int64_t us;
+    GetCurrentTime(s, us);
+    sec  = time_t(s);
+    usec = s * 1000 * 1000 + us;
+}
+
 void
 NetManager::MainLoop(
     QCMutex*                mutex                /* = 0 */,
@@ -362,7 +386,7 @@ NetManager::MainLoop(
     QCStMutexLocker locker(mutex);
 
     if (! runOnceFlag || mLastTimerTime != mNow) {
-        mNow           = time(0);
+        UpdateGetCurrentTime(mNow, mNowUsec);
         mLastTimerTime = mNow;
     }
     if (! wakeupAndCleanupFlag && ! runOnceFlag) {
@@ -412,8 +436,13 @@ NetManager::MainLoop(
         }
         unlocker.Lock();
         mPollFlag = false;
-        const int64_t nowMs = ITimeout::NowMs();
-        mNow = time_t(nowMs / 1000);
+        int64_t sec;
+        int64_t usec;
+        GetCurrentTime(sec, usec);
+        mNow = time_t(sec);
+        sec *= 1000;
+        const int64_t nowMs = sec + usec / 1000;
+        mNowUsec = sec * 1000 + usec;
         for (PendingUpdate::const_iterator it = mPendingUpdate.begin();
                 it != mPendingUpdate.end();
                 ++it) {
@@ -491,7 +520,7 @@ NetManager::MainLoop(
             conn.HandleErrorEvent();
         }
         mRemove.clear();
-        mNow = time(0);
+        UpdateGetCurrentTime(mNow, mNowUsec);
         int slotCnt = min(int(kTimerWheelSize), int(mNow - mLastTimerTime));
         if (mLastTimerTime + timerOverrunWarningTime < mNow) {
             KFS_LOG_STREAM_INFO <<

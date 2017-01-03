@@ -111,6 +111,8 @@ public:
         { return mStartTime; }
     time_t Now() const
         { return mNow; }
+    int64_t NowUsec() const
+        { return mNowUsec; }
     time_t UpTime() const
         { return (mNow - mStartTime); }
     bool IsRunning() const
@@ -233,6 +235,7 @@ private:
     const time_t    mStartTime;
     time_t          mNow;
     time_t          mLastTimerTime;
+    int64_t         mNowUsec;
     int64_t         mMaxOutgoingBacklog;
     int64_t         mNumBytesToSend;
     int64_t         mTimerOverrunCount;
