@@ -31,25 +31,42 @@
 
 namespace KFS {
 
+bool
+getcurrenttime(int64_t* sec, int64_t* usec)
+{
+    struct timeval tv;
+ 
+    if (gettimeofday(&tv, 0) < 0) {
+        return false;
+    }
+    if (sec) {
+        *sec = tv.tv_sec;
+    }
+    if (usec) {
+        *usec = tv.tv_usec;
+    }
+    return true;
+}
+
 int64_t
-microseconds(void)
+microseconds()
 {
     struct timeval tv;
 
-    if (gettimeofday(&tv, 0) < 0)
+    if (gettimeofday(&tv, 0) < 0) {
         return -1;
-
+    }
     return (int64_t)tv.tv_sec*1000*1000 + tv.tv_usec;
 }
 
 int64_t
-cputime(int64_t *user, int64_t *sys)
+cputime(int64_t* user, int64_t* sys)
 {
     struct rusage ru;
 
-    if (getrusage(RUSAGE_SELF, &ru) < 0)
+    if (getrusage(RUSAGE_SELF, &ru) < 0) {
         return -1;
-
+    }
     *user = (int64_t)ru.ru_utime.tv_sec*1000*1000 + ru.ru_utime.tv_usec;
     *sys  = (int64_t)ru.ru_stime.tv_sec*1000*1000 + ru.ru_stime.tv_usec;
 

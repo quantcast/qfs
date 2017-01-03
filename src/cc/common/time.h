@@ -32,8 +32,9 @@
 
 namespace KFS {
 
-extern int64_t microseconds(void);
-extern int64_t cputime(int64_t *user, int64_t *sys);
+bool getcurrenttime(int64_t* sec, int64_t* usec);
+int64_t microseconds();
+int64_t cputime(int64_t *user, int64_t *sys);
 
 } // namespace KFS
 
