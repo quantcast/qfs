@@ -787,10 +787,10 @@ public:
             }
         } else if (kStatePrimary == mState ||
                 kStateReconfiguration == mState) {
-            if (mActiveFlag) {
-                if (mQuorum <= 0) {
-                    mLastUpTime = TimeNow();
-                } else if (HasPrimaryTimedOut()) {
+            if (mQuorum <= 0) {
+                mLastUpTime = TimeNow();
+            } else if (mActiveFlag) {
+                if (HasPrimaryTimedOut()) {
                     AdvanceView("primary lease timed out");
                 } else if (mLogTransmitter.IsUp()) {
                     if (mLastCommitSeq < mLastLogSeq &&
