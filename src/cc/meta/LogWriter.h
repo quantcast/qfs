@@ -43,7 +43,6 @@ struct MetaRequest;
 class UniqueID;
 class Properties;
 class NetManager;
-class MdStateCtx;
 class MetaDataStore;
 class MetaVrSM;
 class MetaDataSync;
@@ -54,6 +53,26 @@ class LogWriter
 {
 public:
     enum { VERSION = 1 };
+    class Counters
+    {
+    public:
+        typedef int64_t Counter;
+
+        Counters()
+            : mLogTimeUsec(0),
+              mLogTimeOpsCount(0),
+              mPendingOpsCount(0),
+              mLog5SecAvgUsec(0),
+              mLog10SecAvgUsec(0),
+              mLog15SecAvgUsec(0)
+        {}
+        Counter mLogTimeUsec;
+        Counter mLogTimeOpsCount;
+        Counter mPendingOpsCount;
+        Counter mLog5SecAvgUsec;
+        Counter mLog10SecAvgUsec;
+        Counter mLog15SecAvgUsec;
+    };
 
     LogWriter();
     ~LogWriter();
@@ -111,6 +130,8 @@ public:
         const char*   inLogDirPtr,
         const Replay& inReplayer,
         string&       outLogSegmentFileName);
+    void GetCounters(
+        Counters& outCounters);
 private:
     class Impl;
     seq_t            mNextSeq;

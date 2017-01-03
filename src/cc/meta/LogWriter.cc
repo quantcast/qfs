@@ -41,6 +41,7 @@
 #include "common/RequestParser.h"
 #include "common/SingleLinkedQueue.h"
 #include "common/IntToString.h"
+#include "common/time.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/ITimeout.h"
@@ -115,9 +116,9 @@ public:
           mNextLogSeq(),
           mLastViewEndSeq(),
           mLastNonEmptyViewEndSeq(),
-          mNextBlockSeq(-1),
           mLastLogSeq(),
           mViewStartSeq(),
+          mNextBlockSeq(-1),
           mNextBlockChecksum(kKfsNullChecksum),
           mLogFd(-1),
           mError(0),
@@ -143,6 +144,14 @@ public:
           mLogFilePrevPos(0),
           mLogFileMaxSize(8 << 20),
           mFailureSimulationInterval(0),
+          mLogTimeUsec(0),
+          mLogTimeOpsCount(0),
+          mPrevLogTimeOpsCount(0),
+          mPrevLogTimeUsec(0),
+          mLogAvgUsecsNextTimeUsec(0),
+          mLog5SecAvgUsec(0),
+          mLog10SecAvgUsec(0),
+          mLog15SecAvgUsec(0),
           mPrepareToForkFlag(false),
           mPrepareToForkDoneFlag(false),
           mVrNodeId(-1),
@@ -517,6 +526,16 @@ public:
         }
         return mError;
     }
+    void GetCounters(
+        Counters& outCounters)
+    {
+        outCounters.mPendingOpsCount = mPendingCount;
+        outCounters.mLogTimeUsec     = mLogTimeUsec;
+        outCounters.mLogTimeOpsCount = mLogTimeOpsCount;
+        outCounters.mLog5SecAvgUsec  = mLog5SecAvgUsec  >> kLogAvgFracBits;
+        outCounters.mLog10SecAvgUsec = mLog10SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mLog15SecAvgUsec = mLog15SecAvgUsec >> kLogAvgFracBits;
+    }
 private:
     typedef uint32_t Checksum;
     class Committed
@@ -540,87 +559,101 @@ private:
         kWriteStateNone,
         kUpdateBlockChecksum
     };
+    enum { kLogAvgFracBits               = 12 };
+    // DecayExponent = (1 << kLogAvgFracBits) / exp(1. / LogAvgIntervalSec)
+    enum { kLogAvg5SecondsDecayExponent  = 3353 };
+    enum { kLogAvg10SecondsDecayExponent = 3706 };
+    enum { kLogAvg15SecondsDecayExponent = 3832 };
+    enum { kLogAvgIntervalUsec           = 1000 * 1000 };
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
 
-    NetManager*        mNetManagerPtr;
-    MetaDataStore*     mMetaDataStorePtr;
-    Replay*            mReplayerPtr;
-    NetManager         mNetManager;
-    LogTransmitter     mLogTransmitter;
-    MetaVrSM           mMetaVrSM;
-    bool               mPrimaryFlag;
-    int                mVrStatus;
-    volatile int&      mEnqueueVrStatus;
-    volatile int64_t&  mPrimaryLeaseEndTimeUsec;
-    MetaVrLogSeq       mTransmitCommitted;
-    MetaVrLogSeq       mMaxDoneLogSeq;
-    Committed          mCommitted;
-    QCThread           mThread;
-    QCMutex            mMutex;
-    bool               mStopFlag;
-    bool               mOmitDefaultsFlag;
-    bool               mCommitUpdatedFlag;
-    bool               mSetReplayStateFlag;
-    int                mMaxBlockSize;
-    int                mPendingCount;
-    int                mExraPendingCount;
-    string             mLogDir;
-    Queue              mPendingQueue;
-    Queue              mInQueue;
-    Queue              mOutQueue;
-    Queue              mPendingAckQueue;
-    Queue              mReplayCommitQueue;
-    Committed          mPendingCommitted;
-    Committed          mInFlightCommitted;
-    Committed          mLastWriteCommitted;
-    Committed          mReplayLastWriteCommitted;
-    Committed          mSetReplayLastWriteCommitted;
-    MetaVrLogSeq       mPendingReplayLogSeq;
-    MetaVrLogSeq       mReplayLogSeq;
-    MetaVrLogSeq       mNextLogSeq;
-    MetaVrLogSeq       mLastViewEndSeq;
-    MetaVrLogSeq       mLastNonEmptyViewEndSeq;
-    seq_t              mNextBlockSeq;
-    MetaVrLogSeq       mLastLogSeq;
-    MetaVrLogSeq       mViewStartSeq;
-    Checksum           mNextBlockChecksum;
-    int                mLogFd;
-    int                mError;
-    MdStream           mMdStream;
-    ReqOstream         mReqOstream;
-    time_t             mCurLogStartTime;
-    MetaVrLogSeq       mCurLogStartSeq;
-    seq_t              mLogNum;
-    string             mLogName;
-    time_t             mLogRotateInterval;
-    bool               mPanicOnIoErrorFlag;
-    bool               mSyncFlag;
-    bool               mWokenFlag;
-    string             mLastLogPath;
-    int64_t            mLogFilePos;
-    int64_t            mLogFilePrevPos;
-    int64_t            mLogFileMaxSize;
-    int64_t            mFailureSimulationInterval;
-    bool               mPrepareToForkFlag;
-    bool               mPrepareToForkDoneFlag;
-    NodeId             mVrNodeId;
-    QCCondVar          mPrepareToForkCond;
-    QCCondVar          mForkDoneCond;
-    PrngIsaac64        mRandom;
-    string             mErrorSimulatorConfig;
-    TmpBuffer          mTmpBuffer;
-    const string       mLogFileNamePrefix;
-    const string       mNotPrimaryErrorMsg;
-    const string       mLogWriteErrorMsg;
-    const string       mLogWriterVrBackupErrorMsg;
-    const string       mInvalidBlockStartSegmentErrorMsg;
-    const string       mInvalidHeartbeatSequenceErrorMsg;
-    const string       mPrimaryRejectedBlockWriteErrorMsg;
-    const string       mLogStartViewPrefix;
-    const size_t       mLogAppendPrefixLen;
-    const char* const  mLogStartViewPrefixPtr;
-    const size_t       mLogStartViewPrefixLen;
+    NetManager*       mNetManagerPtr;
+    MetaDataStore*    mMetaDataStorePtr;
+    Replay*           mReplayerPtr;
+    NetManager        mNetManager;
+    LogTransmitter    mLogTransmitter;
+    MetaVrSM          mMetaVrSM;
+    bool              mPrimaryFlag;
+    int               mVrStatus;
+    volatile int&     mEnqueueVrStatus;
+    volatile int64_t& mPrimaryLeaseEndTimeUsec;
+    MetaVrLogSeq      mTransmitCommitted;
+    MetaVrLogSeq      mMaxDoneLogSeq;
+    Committed         mCommitted;
+    QCThread          mThread;
+    QCMutex           mMutex;
+    bool              mStopFlag;
+    bool              mOmitDefaultsFlag;
+    bool              mCommitUpdatedFlag;
+    bool              mSetReplayStateFlag;
+    int               mMaxBlockSize;
+    int               mPendingCount;
+    int               mExraPendingCount;
+    string            mLogDir;
+    Queue             mPendingQueue;
+    Queue             mInQueue;
+    Queue             mOutQueue;
+    Queue             mPendingAckQueue;
+    Queue             mReplayCommitQueue;
+    Committed         mPendingCommitted;
+    Committed         mInFlightCommitted;
+    Committed         mLastWriteCommitted;
+    Committed         mReplayLastWriteCommitted;
+    Committed         mSetReplayLastWriteCommitted;
+    MetaVrLogSeq      mPendingReplayLogSeq;
+    MetaVrLogSeq      mReplayLogSeq;
+    MetaVrLogSeq      mNextLogSeq;
+    MetaVrLogSeq      mLastViewEndSeq;
+    MetaVrLogSeq      mLastNonEmptyViewEndSeq;
+    MetaVrLogSeq      mLastLogSeq;
+    MetaVrLogSeq      mViewStartSeq;
+    seq_t             mNextBlockSeq;
+    Checksum          mNextBlockChecksum;
+    int               mLogFd;
+    int               mError;
+    MdStream          mMdStream;
+    ReqOstream        mReqOstream;
+    time_t            mCurLogStartTime;
+    MetaVrLogSeq      mCurLogStartSeq;
+    seq_t             mLogNum;
+    string            mLogName;
+    time_t            mLogRotateInterval;
+    bool              mPanicOnIoErrorFlag;
+    bool              mSyncFlag;
+    bool              mWokenFlag;
+    string            mLastLogPath;
+    int64_t           mLogFilePos;
+    int64_t           mLogFilePrevPos;
+    int64_t           mLogFileMaxSize;
+    int64_t           mFailureSimulationInterval;
+    int64_t           mLogTimeUsec;
+    int64_t           mLogTimeOpsCount;
+    int64_t           mPrevLogTimeOpsCount;
+    int64_t           mPrevLogTimeUsec;
+    int64_t           mLogAvgUsecsNextTimeUsec;
+    int64_t           mLog5SecAvgUsec;
+    int64_t           mLog10SecAvgUsec;
+    int64_t           mLog15SecAvgUsec;
+    bool              mPrepareToForkFlag;
+    bool              mPrepareToForkDoneFlag;
+    NodeId            mVrNodeId;
+    QCCondVar         mPrepareToForkCond;
+    QCCondVar         mForkDoneCond;
+    PrngIsaac64       mRandom;
+    string            mErrorSimulatorConfig;
+    TmpBuffer         mTmpBuffer;
+    const string      mLogFileNamePrefix;
+    const string      mNotPrimaryErrorMsg;
+    const string      mLogWriteErrorMsg;
+    const string      mLogWriterVrBackupErrorMsg;
+    const string      mInvalidBlockStartSegmentErrorMsg;
+    const string      mInvalidHeartbeatSequenceErrorMsg;
+    const string      mPrimaryRejectedBlockWriteErrorMsg;
+    const string      mLogStartViewPrefix;
+    const size_t      mLogAppendPrefixLen;
+    const char* const mLogStartViewPrefixPtr;
+    const size_t      mLogStartViewPrefixLen;
 
     int StartSelf(
         NetManager&           inNetManager,
@@ -858,6 +891,7 @@ private:
         mEnqueueVrStatus = mMetaVrSM.GetStatus();
         mPrimaryLeaseEndTimeUsec = int64_t(1000) * 1000 * (mNetManager.Now() +
             (0 == mEnqueueVrStatus ? 2 : -(24 * 60 * 60)));
+        mLogAvgUsecsNextTimeUsec = microseconds() + kLogAvgIntervalUsec;
         const int kStackSize = 64 << 10;
         mThread.Start(this, kStackSize, "MetaLogWriter");
         mNetManagerPtr->RegisterTimeoutHandler(this);
@@ -882,9 +916,44 @@ private:
         }
         return theCnt;
     }
+    static int64_t CalcLogAvg(
+        int64_t inAvg,
+        int64_t inSample,
+        int64_t inExponent)
+    {
+        // IIR filter
+        const int64_t kLogAvgFixed_1 = int64_t(1) << kLogAvgFracBits;
+        return ((
+            inAvg * inExponent +
+            (inSample << kLogAvgFracBits) * (kLogAvgFixed_1 - inExponent)
+        ) >> kLogAvgFracBits);
+    }
+    void UpdateLogAvg(
+        int64_t inTimeNowUsec)
+    {
+        if (inTimeNowUsec < mLogAvgUsecsNextTimeUsec) {
+            return;
+        }
+        const int64_t theOpsCount = mLogTimeOpsCount - mPrevLogTimeOpsCount;
+        const int64_t theLogUsecs = mLogTimeUsec     - mPrevLogTimeUsec;
+        mPrevLogTimeOpsCount = mLogTimeOpsCount;
+        mPrevLogTimeUsec     = mLogTimeUsec;
+        const int64_t theOpLogUsecs = 0 < theOpsCount ?
+            theLogUsecs / theOpsCount : int64_t(0);
+        while (mLogAvgUsecsNextTimeUsec <= inTimeNowUsec) {
+            mLog5SecAvgUsec  = CalcLogAvg(mLog5SecAvgUsec, theOpLogUsecs,
+                kLogAvg5SecondsDecayExponent);
+            mLog10SecAvgUsec = CalcLogAvg(mLog10SecAvgUsec, theOpLogUsecs,
+                kLogAvg10SecondsDecayExponent);
+            mLog15SecAvgUsec = CalcLogAvg(mLog15SecAvgUsec, theOpLogUsecs,
+                kLogAvg15SecondsDecayExponent);
+            mLogAvgUsecsNextTimeUsec += kLogAvgIntervalUsec;
+        }
+    }
     virtual void Timeout()
     {
         if (mPendingCount <= 0 && ! mSetReplayStateFlag) {
+            UpdateLogAvg(mNetManagerPtr->NowUsec());
             return;
         }
         Queue theDoneQueue;
@@ -910,7 +979,9 @@ private:
             mNetManager.Wakeup();
         }
         Queue theReplayQueue;
-        MetaRequest* thePtr;
+        MetaRequest*  thePtr;
+        int64_t const theStartTime     = microseconds();
+        bool          theFirstItemFlag = true;
         while ((thePtr = theDoneQueue.PopFront())) {
             MetaRequest& theReq = *thePtr;
             if (theReq.logseq.IsValid()) {
@@ -933,9 +1004,18 @@ private:
             } else if (IsMetaLogWriteOrVrError(thePtr->status) ||
                     thePtr->replayBypassFlag ||
                     ! mReplayerPtr->submit(*thePtr)) {
-                submit_request(&theReq);
+                const int64_t theUsecsNow = theFirstItemFlag ?
+                    theStartTime : microseconds();
+                theFirstItemFlag = false;
+                if (0 == thePtr->status &&
+                        META_LOG_WRITER_CONTROL != thePtr->op) {
+                    mLogTimeUsec += theStartTime - theReq.submitTime;
+                    mLogTimeOpsCount++;
+                }
+                theReq.Submit(theUsecsNow);
             }
         }
+        UpdateLogAvg(theStartTime);
         if (theSetReplayStateFlag) {
             thePtr = theReplayCommitHeadPtr;
             while (thePtr) {
@@ -2373,6 +2453,13 @@ LogWriter::WriteNewLogSegment(
 {
     return mImpl.WriteNewLogSegment(
         inLogDirPtr, inReplayer, outLogSegmentFileName);
+}
+
+    void
+LogWriter::GetCounters(
+    Counters& outCounters)
+{
+    mImpl.GetCounters(outCounters);
 }
 
 }

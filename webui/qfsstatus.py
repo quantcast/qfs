@@ -161,6 +161,12 @@ class SystemInfo:
         self.vrNodeId = -1
         self.vrPrimaryNodeId = -1
         self.vrActiveFlag = 0
+        self.logTimeUsec = -1
+        self.logTimeOpsCount = -1
+        self.logPendingOpsCount = -1
+        self.log5SecAvgUsec = -1
+        self.log10SecAvgUsec = -1
+        self.log15SecAvgUsec = -1
 
 class Status:
     def __init__(self):
@@ -277,6 +283,20 @@ class Status:
                 '&nbsp;re-queue:&nbsp;' + splitThousands(systemInfo.objStoreDeletesRetry) + \
                 '&nbsp;frst&nbsp;queued:&nbsp;' + str(systemInfo.objStoreDeletesStartedAgo) + \
                 '&nbsp;seconds&nbsp;ago</td></tr>'
+        if 0 <= systemInfo.logPendingOpsCount:
+            if systemInfo.logTimeOpsCount:
+                avg = systemInfo.logTimeUsec / systemInfo.logTimeOpsCount
+            else:
+                avg = 0
+            print >> buffer, '<tr> <td> Transaction log </td><td>:</td><td>' + \
+                'queue&nbsp;depth:&nbsp;' + splitThousands(systemInfo.logPendingOpsCount) + \
+                '&nbsp;request&nbsp;log&nbsp;time&nbsp;microseconds&nbsp;average' +\
+                '&nbsp;[total;&nbsp;5&nbsp;sec;&nbsp;10&nbsp;sec;&nbsp;15&nbsp;sec]:' + \
+                '&nbsp;'   + splitThousands(avg) + \
+                ';&nbsp;'  + splitThousands(systemInfo.log5SecAvgUsec) + \
+                ';&nbsp;' + splitThousands(systemInfo.log10SecAvgUsec) + \
+                ';&nbsp;' + splitThousands(systemInfo.log15SecAvgUsec) + \
+                '</td></tr>'
         print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
             print >> buffer, '''not&nbsp;configured'''
@@ -1247,6 +1267,24 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 65:
         return
     systemInfo.vrActiveFlag = long(info[64].split('=')[1])
+    if len(info) < 66:
+        return
+    systemInfo.logTimeUsec = long(info[65].split('=')[1])
+    if len(info) < 67:
+        return
+    systemInfo.logTimeOpsCount = long(info[66].split('=')[1])
+    if len(info) < 68:
+        return
+    systemInfo.logPendingOpsCount = long(info[67].split('=')[1])
+    if len(info) < 69:
+        return
+    systemInfo.log5SecAvgUsec = long(info[68].split('=')[1])
+    if len(info) < 70:
+        return
+    systemInfo.log10SecAvgUsec = long(info[69].split('=')[1])
+    if len(info) < 71:
+        return
+    systemInfo.log15SecAvgUsec = long(info[70].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
@@ -1405,25 +1443,25 @@ def rackView(buffer, status):
 <body class="oneColLiqCtr">
 <div id="container">
   <div id="mainContent">
-	  <table width=100%>
-		  <tr>
-			  <td>
-         <p> Number of nodes: ''', numNodes, ''' </p>
-				</td>
-				<td align="right">
-					<table class="network-status-table" font-size=14>
-					<tbody>
-					  <tr class=notstarted><td></td><td>Not Started</td></tr>
-						<tr class=dead><td></td><td>Dead Node</td></tr>
-						<tr class=retiring><td></td><td>Retiring Node</td></tr>
-						<tr class=><td ></td><td>Healthy</td></tr>
-                                                <tr class=overloaded><td></td><td>Healthy, but not enough space for writes</td></tr>
-					</tbody>
-				  </table>
-			  </td>
-		  </tr>
-	  </table>
-		<hr>'''
+    <table width=100%>
+      <tr>
+      <td>
+      <p> Number of nodes: ''', numNodes, ''' </p>
+      </td>
+      <td align="right">
+      <table class="network-status-table" font-size=14>
+      <tbody>
+        <tr class=notstarted><td></td><td>Not Started</td></tr>
+        <tr class=dead><td></td><td>Dead Node</td></tr>
+        <tr class=retiring><td></td><td>Retiring Node</td></tr>
+        <tr class=><td ></td><td>Healthy</td></tr>
+        <tr class=overloaded><td></td><td>Healthy, but not enough space for writes</td></tr>
+      </tbody>
+      </table>
+      </td>
+      </tr>
+    </table>
+    <hr>'''
     for rack, servers in status.serversByRack.iteritems():
         printRackViewHTML(rack, servers, buffer)
 

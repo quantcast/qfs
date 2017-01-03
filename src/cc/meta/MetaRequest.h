@@ -53,6 +53,7 @@
 #include "common/RequestParser.h"
 #include "common/kfsatomic.h"
 #include "common/CIdChecksum.h"
+#include "common/time.h"
 
 #include "qcdio/QCDLList.h"
 
@@ -419,8 +420,12 @@ struct MetaRequest {
         { return recursionCount; }
     bool Write(ostream& os, bool omitDefaultsFlag = false) const;
     bool WriteLog(ostream& os, bool omitDefaultsFlag) const;
-    void Submit();
-    bool SubmitBegin();
+    void Submit(int64_t nowUsec);
+    void Submit()
+        { return Submit(microseconds()); }
+    bool SubmitBegin(int64_t nowUsec);
+    bool SubmitBegin()
+        { return SubmitBegin(microseconds()); }
     void SubmitEnd();
     static MetaRequest* ReadReplay(const char* buf, size_t len);
     static MetaRequest* Read(const char* buf, size_t len);

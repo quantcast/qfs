@@ -4238,17 +4238,17 @@ MetaRequest::GetLogQueueCounter() const
 }
 
 void
-MetaRequest::Submit()
+MetaRequest::Submit(int64_t nowUsec)
 {
-    if (SubmitBegin()) {
+    if (SubmitBegin(nowUsec)) {
         SubmitEnd();
     }
 }
 
 bool
-MetaRequest::SubmitBegin()
+MetaRequest::SubmitBegin(int64_t nowUsec)
 {
-    const int64_t tstart = microseconds();
+    const int64_t tstart = nowUsec;
     if (++recursionCount <= 0) {
         panic("submit: invalid request recursion count");
     }

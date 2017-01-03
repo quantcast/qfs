@@ -31,18 +31,21 @@
 #include "kfstree.h"
 #include "ClientSM.h"
 #include "NetDispatch.h"
+#include "LogWriter.h"
 
-#include "kfsio/Globals.h"
-#include "kfsio/IOBuffer.h"
-#include "kfsio/IOBufferWriter.h"
 #include "qcdio/QCIoBufferPool.h"
 #include "qcdio/QCUtils.h"
+
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/time.h"
 #include "common/Version.h"
 #include "common/StdAllocator.h"
 #include "common/rusage.h"
+
+#include "kfsio/Globals.h"
+#include "kfsio/IOBuffer.h"
+#include "kfsio/IOBufferWriter.h"
 
 #include <algorithm>
 #include <functional>
@@ -8444,6 +8447,8 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
     // Initial headers.
     mWOstream.Set(mPingResponse);
     mPingUpdateTime = TimeNow();
+    LogWriter::Counters logCtrs;
+    MetaRequest::GetLogWriter().GetCounters(logCtrs);
     const MetaFattr* const fa = metatree.getFattr(ROOTFID);
     mWOstream <<
         "Build-version: "       << KFS_BUILD_VERSION_STRING << "\r\n"
@@ -8539,14 +8544,20 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Object store first delete time= " <<
             (mObjStoreFilesDeleteQueue.IsEmpty() ? time_t(0) :
                 TimeNow() - mObjStoreFilesDeleteQueue.Front()->mTime) << "\t"
-        "File count= "   << GetNumFiles() << "\t"
-        "Dir count= "    << GetNumDirs() << "\t"
-        "Logical Size= " << (fa ? fa->filesize : chunkOff_t(-1)) << "\t"
-        "FS ID= "        << metatree.GetFsId() << "\t"
-        "Primary= "      << mPrimaryFlag << "\t"
-        "VR Node= "      << inReq.vrNodeId << "\t"
-        "VR Primary= "   << inReq.vrPrimaryNodeId << "\t"
-        "VR Active= "    << inReq.vrActiveFlag
+        "File count= "            << GetNumFiles() << "\t"
+        "Dir count= "             << GetNumDirs() << "\t"
+        "Logical Size= "          << (fa ? fa->filesize : chunkOff_t(-1)) << "\t"
+        "FS ID= "                 << metatree.GetFsId() << "\t"
+        "Primary= "               << mPrimaryFlag << "\t"
+        "VR Node= "               << inReq.vrNodeId << "\t"
+        "VR Primary= "            << inReq.vrPrimaryNodeId << "\t"
+        "VR Active= "             << inReq.vrActiveFlag << "\t"
+        "Log Time Usec= "         << logCtrs.mLogTimeUsec << "\t"
+        "Log Time Ops Count= "    << logCtrs.mLogTimeOpsCount << "\t"
+        "Log Pending Ops Count= " << logCtrs.mPendingOpsCount << "\t"
+        "Log 5 Sec Avg Usec= "    << logCtrs.mLog5SecAvgUsec << "\t"
+        "Log 10 Sec Avg Usec= "   << logCtrs.mLog10SecAvgUsec << "\t"
+        "Log 15 Sec Avg Usec= "   << logCtrs.mLog15SecAvgUsec
     ;
     mWOstream.flush();
     mWOstream.Reset();
