@@ -40,9 +40,10 @@ inline ostream&
 MetaDentry::showSelf(ostream& os) const
 {
     return (os <<
-    "dentry/name/" << name <<
-    "/id/"         << id() <<
-    "/parent/"     << dir
+    "d"
+    "/n/" << name <<
+    "/i/" << id() <<
+    "/p/" << dir
     );
 }
 
@@ -61,32 +62,32 @@ MetaFattr::showSelf(ostream& os) const
     static const char* const fname[] = { "empty", "file", "dir" };
 
     os <<
-    "fattr/"         << fname[type] <<
-    "/id/"           << id() <<
-    "/chunkcount/"   << (type == KFS_DIR ? 0 : chunkcount()) <<
-    "/numReplicas/"  << numReplicas <<
-    "/mtime/"        << ShowTime(mtime) <<
-    "/ctime/"        << ShowTime(ctime) <<
-    "/crtime/"       << ShowTime(crtime) <<
-    "/filesize/"     << filesize;
+    "a/"  << fname[type] <<
+    "/i/" << id() <<
+    "/c/" << (type == KFS_DIR ? 0 : chunkcount()) <<
+    "/r/" << numReplicas <<
+    "/m/" << ShowTime(mtime) <<
+    "/c/" << ShowTime(ctime) <<
+    "/C/" << ShowTime(crtime) <<
+    "/e/" << filesize;
     if (IsStriped()) {
         os <<
-            "/striperType/"        << striperType <<
-            "/numStripes/"         << numStripes <<
-            "/numRecoveryStripes/" << numRecoveryStripes <<
-            "/stripeSize/"         << stripeSize;
+            "/s/" << striperType <<
+            "/N/" << numStripes <<
+            "/R/" << numRecoveryStripes <<
+            "/S/" << stripeSize;
     }
     os <<
-        "/user/"  << user <<
-        "/group/" << group <<
-        "/mode/"  << mode;
+        "/u/" << user <<
+        "/g/" << group <<
+        "/M/" << mode;
     if (minSTier < kKfsSTierMax) {
         os <<
-            "/minTier/" << (int)minSTier <<
-            "/maxTier/" << (int)maxSTier;
+            "/t/" << (int)minSTier <<
+            "/T/" << (int)maxSTier;
     }
     if (KFS_FILE == type && 0 == numReplicas) {
-        os << "/nextChunkOffset/" << nextChunkOffset();
+        os << "/o/" << nextChunkOffset();
     }
     return os;
 }
@@ -106,11 +107,12 @@ inline ostream&
 MetaChunkInfo::showSelf(ostream& os) const
 {
     os <<
-    "chunkinfo/fid/" << id() <<
-    "/chunkid/"      << chunkId <<
-    "/offset/"       << offset <<
-    "/chunkVersion/" << chunkVersion <<
-    "/si/";
+    "c"
+    "/i/" << id() <<
+    "/c/" << chunkId <<
+    "/o/" << offset <<
+    "/v/" << chunkVersion <<
+    "/s/";
     return gLayoutManager.Checkpoint(os, *this);
 }
 

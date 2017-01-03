@@ -136,6 +136,7 @@ Checkpoint::write(
         os << "fid/" << fileID.getseed() << '\n';
         os << "chunkId/" << chunkID.getseed() << '\n';
         os << "time/" << DisplayIsoDateTime() << '\n';
+        os << "shortnames/1\n";
         if (kHexIntFormatFlag) {
             os << "setintbase/16\n" << hex;
         }

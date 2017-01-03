@@ -53,7 +53,7 @@ using std::cerr;
 using std::string;
 using std::ofstream;
 
-static int16_t   minReplicasPerFile = 0;
+static int16_t minReplicasPerFile = 0;
 
 static bool
 checkpoint_seq(DETokenizer& c)
@@ -159,15 +159,32 @@ restore_chunkVersionInc(DETokenizer& c)
     return (! c.empty() && c.toNumber() >= 1);
 }
 
+static bool sShortNamesFlag = false;
+
+static bool
+restore_short_names(DETokenizer& c)
+{
+    if (2 != c.size()) {
+        return false;
+    }
+    c.pop_front();
+    const int64_t n = c.toNumber();
+    if (! c.isLastOk()) {
+        return false;
+    }
+    sShortNamesFlag = 0 != n;
+    return true;
+}
+
 static bool
 restore_dentry(DETokenizer& c)
 {
     string name;
     fid_t id, parent;
     c.pop_front();
-    bool ok = pop_name(name, "name", c, true);
-    ok = pop_fid(id, "id", c, ok);
-    ok = pop_fid(parent, "parent", c, ok);
+    bool ok = pop_name(name, sShortNamesFlag ? "n" : "name",   c, true);
+    ok = pop_fid(id,         sShortNamesFlag ? "i" : "id",     c, ok);
+    ok = pop_fid(parent,     sShortNamesFlag ? "p" : "parent", c, ok);
     if (!ok)
         return false;
 
@@ -179,7 +196,7 @@ static bool
 restore_striped_file_params(DETokenizer& c, MetaFattr& f)
 {
     chunkOff_t t = 0, n = 0, nr = 0, ss = 0;
-    if (! pop_offset(t, "striperType", c, true)) {
+    if (! pop_offset(t, sShortNamesFlag ? "s" : "striperType", c, true)) {
         f.striperType        = KFS_STRIPED_FILE_TYPE_NONE;
         f.numStripes         = 0;
         f.numRecoveryStripes = 0;
@@ -187,9 +204,9 @@ restore_striped_file_params(DETokenizer& c, MetaFattr& f)
         return true;
     }
     return (
-        pop_offset(n,  "numStripes",         c, true) &&
-        pop_offset(nr, "numRecoveryStripes", c, true) &&
-        pop_offset(ss, "stripeSize",         c, true) &&
+        pop_offset(n,  sShortNamesFlag ? "N" : "numStripes",         c, true) &&
+        pop_offset(nr, sShortNamesFlag ? "R" : "numRecoveryStripes", c, true) &&
+        pop_offset(ss, sShortNamesFlag ? "S" : "stripeSize",         c, true) &&
         f.SetStriped((int32_t)t, n, nr, ss) &&
         f.filesize >= 0
     );
@@ -205,19 +222,20 @@ restore_fattr(DETokenizer& c)
     int64_t mtime, ctime, crtime;
     int16_t numReplicas;
 
-    bool ok = pop_type(type, "fattr", c, true);
-    ok = pop_fid(fid, "id", c, ok);
-    ok = pop_fid(chunkcount, "chunkcount", c, ok);
-    ok = pop_short(numReplicas, "numReplicas", c, ok);
-    ok = pop_time(mtime, "mtime", c, ok);
-    ok = pop_time(ctime, "ctime", c, ok);
-    ok = pop_time(crtime, "crtime", c, ok);
+    bool ok = pop_type(type,    sShortNamesFlag ? "a" : "fattr",       c, true);
+    ok = pop_fid(fid,           sShortNamesFlag ? "i" : "id",          c, ok);
+    ok = pop_fid(chunkcount,    sShortNamesFlag ? "c" : "chunkcount",  c, ok);
+    ok = pop_short(numReplicas, sShortNamesFlag ? "r" : "numReplicas", c, ok);
+    ok = pop_time(mtime,        sShortNamesFlag ? "m" : "mtime",       c, ok);
+    ok = pop_time(ctime,        sShortNamesFlag ? "c" : "ctime",       c, ok);
+    ok = pop_time(crtime,       sShortNamesFlag ? "C" : "crtime",      c, ok);
     if (!ok) {
         return false;
     }
     // filesize is optional; if it isn't there, we can re-compute
     // by asking the chunkservers
-    const bool gotfilesize = pop_offset(filesize, "filesize", c, true) &&
+    const bool gotfilesize = pop_offset(
+        filesize, sShortNamesFlag ? "e" : "filesize", c, true) &&
         (filesize >= 0 || 0 == numReplicas);
     if (0 != numReplicas && numReplicas < minReplicasPerFile) {
         numReplicas = minReplicasPerFile;
@@ -238,27 +256,27 @@ restore_fattr(DETokenizer& c)
     int64_t n = f->user;
     const bool gotperms = ! c.empty();
     if (gotperms) {
-        if (! pop_num(n, "user", c, true)) {
+        if (! pop_num(n, sShortNamesFlag ? "u" : "user", c, true)) {
             f->destroy();
             return false;
         }
         f->user = (kfsUid_t)n;
         n = f->group;
-        if (! pop_num(n, "group", c, true)) {
+        if (! pop_num(n, sShortNamesFlag ? "g" : "group", c, true)) {
             f->destroy();
             return false;
         }
         f->group = (kfsGid_t)n;
         n = f->mode;
-        if (! pop_num(n, "mode", c, true)) {
+        if (! pop_num(n, sShortNamesFlag ? "M" : "mode", c, true)) {
             f->destroy();
             return false;
         }
         f->mode = (kfsMode_t)n;
         if ((type == KFS_FILE || type == KFS_DIR) && ! c.empty() &&
-                pop_num(n, "minTier", c, ok)) {
+                pop_num(n, sShortNamesFlag ? "t" : "minTier", c, ok)) {
             f->minSTier = (kfsSTier_t)n;
-            if (! pop_num(n, "maxTier", c, ok)) {
+            if (! pop_num(n, sShortNamesFlag ? "T" : "maxTier", c, ok)) {
                 f->destroy();
                 return false;
             }
@@ -271,7 +289,8 @@ restore_fattr(DETokenizer& c)
             }
         }
         if (! c.empty()) {
-            if (! pop_num(n, "nextChunkOffset", c, ok) ||
+            if (! pop_num(
+                    n, sShortNamesFlag ? "o" : "nextChunkOffset", c, ok) ||
                     n < 0 || n % CHUNKSIZE != 0) {
                 f->destroy();
                 return false;
@@ -312,10 +331,10 @@ restore_chunkinfo(DETokenizer& c)
     seq_t chunkVersion;
 
     c.pop_front();
-    bool ok = pop_fid(fid, "fid", c, true);
-    ok = pop_fid(cid, "chunkid", c, ok);
-    ok = pop_offset(offset, "offset", c, ok);
-    ok = pop_fid(chunkVersion, "chunkVersion", c, ok);
+    bool ok = pop_fid(fid,     sShortNamesFlag ? "i" : "fid",          c, true);
+    ok = pop_fid(cid,          sShortNamesFlag ? "c" : "chunkid",      c, ok);
+    ok = pop_offset(offset,    sShortNamesFlag ? "o" : "offset",       c, ok);
+    ok = pop_fid(chunkVersion, sShortNamesFlag ? "v" : "chunkVersion", c, ok);
     if (!ok) {
         return false;
     }
@@ -335,7 +354,7 @@ restore_chunkinfo(DETokenizer& c)
     }
     const char* idxs;
     size_t      idxsLen;
-    if (! c.empty() && "si" == c.front()) {
+    if (! c.empty() && (sShortNamesFlag ? "s" : "si") == c.front()) {
         c.pop_front();
         if (c.empty()) {
             return false;
@@ -858,8 +877,11 @@ get_entry_map()
     e.add_parser("log",                     &checkpoint_log);
     e.add_parser("chunkVersionInc",         &restore_chunkVersionInc);
     e.add_parser("dentry",                  &restore_dentry);
+    e.add_parser("d",                       &restore_dentry);
     e.add_parser("fattr",                   &restore_fattr);
+    e.add_parser("a",                       &restore_fattr);
     e.add_parser("chunkinfo",               &restore_chunkinfo);
+    e.add_parser("c",                       &restore_chunkinfo);
     e.add_parser("mkstable",                &restore_makestable);
     e.add_parser("beginchunkversionchange", &restore_beginchunkversionchange);
     e.add_parser("checksum",                &restore_checksum);
@@ -885,6 +907,7 @@ get_entry_map()
     e.add_parser("vrce",                    &restore_viewstamped_config);
     e.add_parser("worm",                    &restore_worm_mode);
     e.add_parser("ckey",                    &restore_crypto_key);
+    e.add_parser("shortnames",              &restore_short_names);
     Replay::AddRestotreEntries(e);
     initied = true;
     return e;
