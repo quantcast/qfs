@@ -90,6 +90,20 @@ def htmlEscape(text):
     """Produce entities within text."""
     return "".join(kHtmlEscapeTable.get(c,c) for c in text)
 
+def showRate(rate, div):
+    if rate < 100 * div:
+        return '%.2f' % (rate / float(div))
+    return splitThousands(rate / div)
+
+def showUptime(uptime):
+    seconds = uptime % 60
+    rem     = uptime / 60
+    minutes = rem % 60
+    rem     = rem / 60
+    hours   = rem % 24
+    days    = rem / 24
+    return '%d&nbsp;days,&nbsp;%02d:%02d:%02d' % (days, hours, minutes, seconds)
+
 class ServerLocation:
     def __init__(self, **kwds):
         self.__dict__.update(kwds)
@@ -105,6 +119,7 @@ class SystemInfo:
         self.sourceVersion = ''
         self.replications = -1;
         self.pendingRecovery = -1
+        self.uptime = -1
         self.replicationsCheck = -1
         self.pendingReplication = -1
         self.usedBuffers = -1
@@ -167,6 +182,10 @@ class SystemInfo:
         self.log5SecAvgUsec = -1
         self.log10SecAvgUsec = -1
         self.log15SecAvgUsec = -1
+        self.log5SecAvgReqRate = -1
+        self.log10SecAvgReqRate = -1
+        self.log15SecAvgReqRate = -1
+        self.logAvgReqRateDiv = 1
 
 class Status:
     def __init__(self):
@@ -260,12 +279,13 @@ class Status:
         serverCount = len(upServers)
         print >> buffer, '''
         <tr> <td> Updated </td><td>:</td><td> ''', time.strftime("%a %b %d %H:%M:%S %Y"), ''' </td></tr>
-        <tr> <td> Started at </td><td>:</td><td> ''', systemInfo.startedAt, ''' </td></tr>'''
+        <tr> <td> Started at </td><td>:</td><td> ''', systemInfo.startedAt + \
+                '&nbsp;uptime:&nbsp;' + showUptime(systemInfo.uptime), ''' </td></tr>'''
         if 0 != systemInfo.vrPrimaryFlag:
             print >> buffer, '''
-            <tr> <td> Total space </td><td>:</td><td> ''', bytesToReadable(systemInfo.totalSpace), ''' </td></tr>
-            <tr> <td> Used space </td><td>:</td><td> ''', bytesToReadable(systemInfo.usedSpace), '''</td></tr>
-            <tr> <td> Free space </td><td>:</td><td> ''', bytesToReadable(fsFree), '%.2f%%' % freePct, '''</td></tr>'''
+            <tr> <td> Space </td><td>:</td><td> total:&nbsp;''' + bytesToReadable(systemInfo.totalSpace) + \
+                '&nbsp;used:&nbsp;' + bytesToReadable(systemInfo.usedSpace) + \
+                '&nbsp;free:&nbsp;' + bytesToReadable(fsFree) + ('&nbsp;%.2f%%' % freePct) + ' </td></tr>'
         print >> buffer, '''
         <tr> <td> WORM mode </td><td>:</td><td> ''', systemInfo.wormMode, '''</td></tr>'''
         if 0 < systemInfo.fileSystemId:
@@ -288,14 +308,22 @@ class Status:
                 avg = systemInfo.logTimeUsec / systemInfo.logTimeOpsCount
             else:
                 avg = 0
+            if 0 < systemInfo.uptime:
+                rate = systemInfo.logTimeOpsCount * systemInfo.logAvgReqRateDiv / systemInfo.uptime
+            else:
+                rate = 0
             print >> buffer, '<tr> <td> Transaction log </td><td>:</td><td>' + \
                 'queue&nbsp;depth:&nbsp;' + splitThousands(systemInfo.logPendingOpsCount) + \
-                '&nbsp;request&nbsp;log&nbsp;time&nbsp;microseconds&nbsp;average' +\
+                '&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.&nbsp;average' +\
                 '&nbsp;[5&nbsp;sec;&nbsp;10&nbsp;sec;&nbsp;15&nbsp;sec;&nbsp;total]:' + \
+                '&nbsp;'    + showRate(systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log5SecAvgUsec) + \
-                ';&nbsp;'   + splitThousands(systemInfo.log10SecAvgUsec) + \
-                ';&nbsp;'   + splitThousands(systemInfo.log15SecAvgUsec) + \
-                ';&nbsp;'   + splitThousands(avg) + \
+                ';&nbsp;'   + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
+                '&nbsp;'    + splitThousands(systemInfo.log10SecAvgUsec) + \
+                ';&nbsp;'   + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
+                '&nbsp;'    + splitThousands(systemInfo.log15SecAvgUsec) + \
+                ';&nbsp;'   + showRate(rate, systemInfo.logAvgReqRateDiv) + \
+                '&nbsp;'    + splitThousands(avg) + \
                 '</td></tr>'
         print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
@@ -308,31 +336,39 @@ class Status:
                 if '0' == vrStatus['vr.active']:
                    textBuf = textBuf + '&nbsp;inactive'
                 else:
-                    if 0 != long(vrStatus['vr.status']):
+                    status = long(vrStatus['vr.status'])
+                    if 0 != status:
                         primaryId = vrStatus['vr.primaryId']
                         textBuf = textBuf + '&nbsp;primary&nbsp;node&nbsp;id:&nbsp;' + primaryId
                         for k in vrStatus:
                             if k.startswith('configuration.node.') and k.endswith('.id') and vrStatus[k] == primaryId:
                                 try:
                                     host = vrStatus[k.replace('.id', '.listener')].split()[0]
-                                    textBuf = textBuf + '&nbsp;host:&nbsp;<A href="http://' + host + \
-                                        ':' + str(myWebserverPort) + '/">' + host + '</A>'
+                                    textBuf += '&nbsp;host:&nbsp;<A href="http://'
+                                    textBuf += host
+                                    textBuf += ':'
+                                    textBuf += str(myWebserverPort)
+                                    textBuf += '/">'
+                                    textBuf +=  host
+                                    textBuf += '</A>'
                                 except:
                                     pass
                     try:
                         viewTime = long(vrStatus['vr.currentTime']) - long(vrStatus['vr.viewChangeStartTime'])
-                        viewSeconds = viewTime % 60
-                        trem        = viewTime / 60
-                        viewMinutes = trem % 60
-                        trem        = trem / 60
-                        viewHours   = trem % 24
-                        viewDays    = trem / 24
-                        textBuf = textBuf + '&nbsp;view started:&nbsp;' + \
-                            str(viewDays) + '&nbsp;days,&nbsp;%02d' % viewHours + \
-                            ':%02d' % viewMinutes + ':%02d' % viewSeconds + \
-                            '&nbsp;ago&nbsp;reason:&nbsp;' + htmlEscape(vrStatus['vr.viewChangeReason'])
+                        textBuf += '&nbsp;view started:&nbsp;'
+                        textBuf += showUptime(viewTime)
+                        textBuf += '&nbsp;ago&nbsp;reason:&nbsp;'
+                        textBuf += htmlEscape(vrStatus['vr.viewChangeReason'])
                     except:
                         pass
+                    if 0 == status:
+                        try:
+                            textBuf += '&nbsp;up&nbsp;nodees:&nbsp;'
+                            textBuf += vrStatus['logTransmitter.activeUpNodesCount']
+                            textBuf += '&nbsp;channels:&nbsp;'
+                            textBuf += vrStatus['logTransmitter.activeUpChannelsCount']
+                        except:
+                            pass
                 print >> buffer, textBuf
             except:
                 print >> buffer, '''VR&nbsp;status&nbsp;parse&nbsp;errror'''
@@ -1102,6 +1138,9 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 6:
         return
     systemInfo.pendingRecovery = long(info[5].split('=')[1])
+    if len(info) < 10:
+        return
+    systemInfo.uptime = long(info[9].split('=')[1])
     if len(info) < 11:
         return
     systemInfo.usedBuffers = long(info[10].split('=')[1])
@@ -1285,6 +1324,20 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 71:
         return
     systemInfo.log15SecAvgUsec = long(info[70].split('=')[1])
+    if len(info) < 72:
+        return
+    systemInfo.log5SecAvgReqRate = long(info[71].split('=')[1])
+    if len(info) < 73:
+        return
+    systemInfo.log10SecAvgReqRate = long(info[72].split('=')[1])
+    if len(info) < 74:
+        return
+    systemInfo.log15SecAvgReqRate = long(info[73].split('=')[1])
+    if len(info) < 75:
+        return
+    systemInfo.logAvgReqRateDiv = long(info[74].split('=')[1])
+    if 0 == systemInfo.logAvgReqRateDiv:
+        systemInfo.logAvgReqRateDiv = 1
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
