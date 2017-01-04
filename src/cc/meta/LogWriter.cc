@@ -152,6 +152,9 @@ public:
           mLog5SecAvgUsec(0),
           mLog10SecAvgUsec(0),
           mLog15SecAvgUsec(0),
+          mLog5SecAvgReqRate(0),
+          mLog10SecAvgReqRate(0),
+          mLog15SecAvgReqRate(0),
           mPrepareToForkFlag(false),
           mPrepareToForkDoneFlag(false),
           mVrNodeId(-1),
@@ -529,12 +532,18 @@ public:
     void GetCounters(
         Counters& outCounters)
     {
-        outCounters.mPendingOpsCount = mPendingCount;
-        outCounters.mLogTimeUsec     = mLogTimeUsec;
-        outCounters.mLogTimeOpsCount = mLogTimeOpsCount;
-        outCounters.mLog5SecAvgUsec  = mLog5SecAvgUsec  >> kLogAvgFracBits;
-        outCounters.mLog10SecAvgUsec = mLog10SecAvgUsec >> kLogAvgFracBits;
-        outCounters.mLog15SecAvgUsec = mLog15SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mPendingOpsCount    = mPendingCount;
+        outCounters.mLogTimeUsec        = mLogTimeUsec;
+        outCounters.mLogTimeOpsCount    = mLogTimeOpsCount;
+        outCounters.mLog5SecAvgUsec     = mLog5SecAvgUsec  >> kLogAvgFracBits;
+        outCounters.mLog10SecAvgUsec    = mLog10SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mLog15SecAvgUsec    = mLog15SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mLog5SecAvgReqRate  =
+            mLog5SecAvgReqRate >> kLogAvgFracBits;
+        outCounters.mLog10SecAvgReqRate =
+            mLog10SecAvgReqRate >> kLogAvgFracBits;
+        outCounters.mLog15SecAvgReqRate =
+            mLog15SecAvgReqRate >> kLogAvgFracBits;
     }
 private:
     typedef uint32_t Checksum;
@@ -635,6 +644,9 @@ private:
     int64_t           mLog5SecAvgUsec;
     int64_t           mLog10SecAvgUsec;
     int64_t           mLog15SecAvgUsec;
+    int64_t           mLog5SecAvgReqRate;
+    int64_t           mLog10SecAvgReqRate;
+    int64_t           mLog15SecAvgReqRate;
     bool              mPrepareToForkFlag;
     bool              mPrepareToForkDoneFlag;
     NodeId            mVrNodeId;
@@ -934,8 +946,11 @@ private:
         if (inTimeNowUsec < mLogAvgUsecsNextTimeUsec) {
             return;
         }
-        const int64_t theOpsCount = mLogTimeOpsCount - mPrevLogTimeOpsCount;
-        const int64_t theLogUsecs = mLogTimeUsec     - mPrevLogTimeUsec;
+        const int64_t theOpsCount  = mLogTimeOpsCount - mPrevLogTimeOpsCount;
+        const int64_t theLogUsecs  = mLogTimeUsec     - mPrevLogTimeUsec;
+        const int64_t theOpLogRate = (theOpsCount << Counters::kRateFracBits) *
+            1000 * 1000 / (kLogAvgIntervalUsec +
+                inTimeNowUsec - mLogAvgUsecsNextTimeUsec);
         mPrevLogTimeOpsCount = mLogTimeOpsCount;
         mPrevLogTimeUsec     = mLogTimeUsec;
         const int64_t theOpLogUsecs = 0 < theOpsCount ?
@@ -946,6 +961,12 @@ private:
             mLog10SecAvgUsec = CalcLogAvg(mLog10SecAvgUsec, theOpLogUsecs,
                 kLogAvg10SecondsDecayExponent);
             mLog15SecAvgUsec = CalcLogAvg(mLog15SecAvgUsec, theOpLogUsecs,
+                kLogAvg15SecondsDecayExponent);
+            mLog5SecAvgReqRate  = CalcLogAvg(mLog5SecAvgReqRate, theOpLogRate,
+                kLogAvg5SecondsDecayExponent);
+            mLog10SecAvgReqRate = CalcLogAvg(mLog10SecAvgReqRate, theOpLogRate,
+                kLogAvg10SecondsDecayExponent);
+            mLog15SecAvgReqRate = CalcLogAvg(mLog15SecAvgReqRate, theOpLogRate,
                 kLogAvg15SecondsDecayExponent);
             mLogAvgUsecsNextTimeUsec += kLogAvgIntervalUsec;
         }

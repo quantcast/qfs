@@ -8557,7 +8557,12 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Log Pending Ops Count= " << logCtrs.mPendingOpsCount << "\t"
         "Log 5 Sec Avg Usec= "    << logCtrs.mLog5SecAvgUsec << "\t"
         "Log 10 Sec Avg Usec= "   << logCtrs.mLog10SecAvgUsec << "\t"
-        "Log 15 Sec Avg Usec= "   << logCtrs.mLog15SecAvgUsec
+        "Log 15 Sec Avg Usec= "   << logCtrs.mLog15SecAvgUsec << "\t"
+        "Log 5 Sec Avg Rate= "    << logCtrs.mLog5SecAvgReqRate << "\t"
+        "Log 10 Sec Avg Rate= "   << logCtrs.mLog10SecAvgReqRate << "\t"
+        "Log 15 Sec Avg Rate= "   << logCtrs.mLog15SecAvgReqRate << "\t"
+        "Log Avg Rage Div="       <<
+            (int64_t(1) << LogWriter::Counters::kRateFracBits)
     ;
     mWOstream.flush();
     mWOstream.Reset();

@@ -1879,17 +1879,22 @@ private:
     {
     public:
         TxStatusReporter(
+            NodeId      inPrimaryNodeId,
             string&     inPrefixBuf,
             ostream&    inStream,
             const char* inSepPtr,
             const char* inDelimPtr)
             : LogTransmitter::StatusReporter(),
+              mPrimaryNodeId(inPrimaryNodeId),
               mPrefixBuf(inPrefixBuf),
               mStream(inStream),
               mPrefixLen(),
               mChanCnt(0),
               mSepPtr(inSepPtr),
-              mDelimPtr(inDelimPtr)
+              mDelimPtr(inDelimPtr),
+              mPrevId(-1),
+              mActiveUpChannelsCount(0),
+              mActiveUpNodesCount(0)
         {
             mPrefixBuf += "channel.";
             mPrefixLen = mPrefixBuf.size();
@@ -1924,15 +1929,33 @@ private:
                 mPrefixBuf << "sent"       << mSepPtr << inLastSentSeq   <<
                     mDelimPtr
             ;
+            if (inActiveFlag && 0 <= inActualId && inId == inActualId &&
+                    inAckSeq.IsValid() && (inLastSentSeq <= inAckSeq ||
+                        inLastSentSeq.IsSameView(inAckSeq)) &&
+                    (mPrimaryNodeId < 0 || mPrimaryNodeId == inPrimaryNodeId)) {
+                mActiveUpChannelsCount++;
+                if (mPrevId != inId) {
+                    mActiveUpNodesCount++;
+                }
+            }
+            mPrevId = inId;
             return true;
         }
+        size_t GetActiveUpNodesCount() const
+            { return mActiveUpNodesCount; }
+        size_t GetActiveUpChannelsCount() const
+            { return mActiveUpChannelsCount; }
     private:
+        NodeId const      mPrimaryNodeId;
         string&           mPrefixBuf;
         ostream&          mStream;
         size_t            mPrefixLen;
         size_t            mChanCnt;
         const char* const mSepPtr;
         const char* const mDelimPtr;
+        NodeId            mPrevId;
+        size_t            mActiveUpChannelsCount;
+        size_t            mActiveUpNodesCount;
     private:
         TxStatusReporter(
             const TxStatusReporter& inReporter);
@@ -3205,6 +3228,8 @@ private:
                 inDelimPtr << mTmpBuffer <<
             "lastViewEnd"          << inSepPtr << mLastViewEndSeq           <<
                 inDelimPtr << mTmpBuffer <<
+            "quorum"               << inSepPtr << mQuorum                   <<
+                inDelimPtr << mTmpBuffer <<
             "ignoreInvalidVrState" << inSepPtr << mIgnoreInvalidVrStateFlag <<
                 inDelimPtr << mTmpBuffer <<
             "fileSystemId"         << inSepPtr << mFileSystemId             <<
@@ -3223,9 +3248,17 @@ private:
             inSectionsDelimPtr
         ;
         mTmpBuffer = "logTransmitter.";
+        const size_t theSize = mTmpBuffer.size();
         TxStatusReporter theReporter(
-            mTmpBuffer, inStream, inSepPtr, inDelimPtr);
+            mPrimaryNodeId, mTmpBuffer, inStream, inSepPtr, inDelimPtr);
         mLogTransmitter.GetStatus(theReporter);
+        mTmpBuffer.resize(theSize);
+        inStream << inSectionsDelimPtr <<
+            mTmpBuffer << "activeUpNodesCount"         << inSepPtr   <<
+                theReporter.GetActiveUpNodesCount()    << inDelimPtr <<
+            mTmpBuffer << "activeUpChannelsCount"      << inSepPtr   <<
+                theReporter.GetActiveUpChannelsCount() << inDelimPtr
+        ;
         mTmpBuffer = "configuration.";
         inStream << inSectionsDelimPtr <<
             mTmpBuffer << "primaryTimeout"           << inSepPtr   <<

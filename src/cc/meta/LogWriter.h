@@ -57,6 +57,7 @@ public:
     {
     public:
         typedef int64_t Counter;
+        enum { kRateFracBits = 8 };
 
         Counters()
             : mLogTimeUsec(0),
@@ -64,7 +65,10 @@ public:
               mPendingOpsCount(0),
               mLog5SecAvgUsec(0),
               mLog10SecAvgUsec(0),
-              mLog15SecAvgUsec(0)
+              mLog15SecAvgUsec(0),
+              mLog5SecAvgReqRate(0),
+              mLog10SecAvgReqRate(0),
+              mLog15SecAvgReqRate(0)
         {}
         Counter mLogTimeUsec;
         Counter mLogTimeOpsCount;
@@ -72,6 +76,9 @@ public:
         Counter mLog5SecAvgUsec;
         Counter mLog10SecAvgUsec;
         Counter mLog15SecAvgUsec;
+        Counter mLog5SecAvgReqRate;
+        Counter mLog10SecAvgReqRate;
+        Counter mLog15SecAvgReqRate;
     };
 
     LogWriter();
