@@ -338,7 +338,16 @@ public:
           mIoMethodsPtr(inIoMethodsPtr),
           mRequestProcessorsPtr(
             inIoMethodsPtr ? new RequestProcessor*[inThreadCount]: 0),
-          mCanEnforceIoTimeoutFlag(false)
+          mCanEnforceIoTimeoutFlag(false),
+          mMaxReadRequests(0),
+          mMaxRequests(0),
+          mMaxPengingReadBytes(0),
+          mMaxPendingBytes(0),
+          mReadReqCount(0),
+          mWriteReqCount(0),
+          mReadBytesCount(0),
+          mWriteBytesCount(0),
+          mOverloadedFlag(false)
     {
         mFileNamePrefixes.append(1, (char)0);
         DiskQueueList::Init(*this);
@@ -397,6 +406,18 @@ public:
             }
         }
         const bool kBufferedIoFlag = false;
+        // Reserve 1/8 for "internal" / chunk header IOs.
+        mMaxRequests     = (int)(int64_t(inMaxQueueDepth) * 7 / 8);
+        mMaxPendingBytes = int64_t(mMaxRequests) *
+            inMaxBuffersPerRequestCount * inBufferPool.GetBufferSize();
+        // Do not allow reads to completely overtake writes.
+        if (mRequestProcessorsPtr) {
+            mMaxReadRequests     = mMaxRequests     * 4 / 5;
+            mMaxPengingReadBytes = mMaxPendingBytes * 4 / 5;
+        } else {
+            mMaxReadRequests     = mMaxRequests     * 6 / 7;
+            mMaxPengingReadBytes = mMaxPendingBytes * 6 / 7;
+        }
         return QCDiskQueue::Start(
             mThreadCount,
             inMaxQueueDepth,
@@ -573,6 +594,14 @@ public:
         DiskIo::File& inFile,
         int           inError)
         { inFile.mError = inError; }
+    inline void ReadPending(
+        int64_t inReqBytes,
+        ssize_t inRetCode,
+        bool    inDontUpdateTotalsFlag);
+    inline void WritePending(
+        int64_t inReqBytes,
+        int64_t inRetCode,
+        bool    inDontUpdateTotalsFlag);
 private:
     string                    mFileNamePrefixes;
     DeviceId                  mDeviceId;
@@ -591,6 +620,15 @@ private:
     IOMethod**          const mIoMethodsPtr;
     RequestProcessor**  const mRequestProcessorsPtr;
     bool                      mCanEnforceIoTimeoutFlag;
+    int                       mMaxReadRequests;
+    int                       mMaxRequests;
+    int64_t                   mMaxPengingReadBytes;
+    int64_t                   mMaxPendingBytes;
+    int                       mReadReqCount;
+    int                       mWriteReqCount;
+    int64_t                   mReadBytesCount;
+    int64_t                   mWriteBytesCount;
+    bool                      mOverloadedFlag;
     DiskQueue*                mPrevPtr[1];
     DiskQueue*                mNextPtr[1];
 
@@ -610,6 +648,39 @@ private:
         }
         delete [] mIoMethodsPtr;
         delete [] mRequestProcessorsPtr;
+    }
+    void UpdateOverloaded()
+    {
+        const bool theOverloadedFlag =
+            mMaxReadRequests     <= mReadReqCount ||
+            mMaxPengingReadBytes <= mReadBytesCount ||
+            mMaxRequests         <= mReadReqCount + mWriteReqCount ||
+            mMaxPendingBytes     <= mReadBytesCount + mWriteBytesCount;
+        if (theOverloadedFlag == mOverloadedFlag) {
+            return;
+        }
+        KFS_LOG_STREAM_DEBUG <<
+            mFileNamePrefixes.c_str() <<
+            " dev: " << mDeviceId <<
+            (mOverloadedFlag ? " clear" : " set") <<
+            " overloaded"
+            " pending:"
+            " reads: "  << mReadReqCount <<
+            " bytes: "  << mReadReqCount <<
+            " writes: " << mWriteReqCount <<
+            " bytes: "  << mWriteBytesCount <<
+            " max:"
+            " reads: "  << mMaxReadRequests <<
+            " bytes: "  << mMaxPengingReadBytes <<
+            " total: "  << mMaxRequests <<
+            " bytes: "  << mMaxPendingBytes <<
+        KFS_LOG_EOM;
+        mOverloadedFlag = theOverloadedFlag;
+        mBufferManager.SetDiskOverloaded(mOverloadedFlag);
+        if (! mOverloadedFlag) {
+            // Schedule to run buffer manager's wait queue.
+            globalNetManager().Wakeup();
+        }
     }
     friend class QCDLListOp<DiskQueue, 0>;
 private:
@@ -637,8 +708,6 @@ public:
         : ITimeout(),
           mDiskQueueThreadCount(inConfig.getValue(
             "chunkServer.diskQueue.threadCount", 2)),
-          mDiskQueueMaxQueueDepth(inConfig.getValue(
-            "chunkServer.diskQueue.maxDepth", 4 << 10)),
           mDiskQueueMaxBuffersPerRequest(inConfig.getValue(
             "chunkServer.diskQueue.maxBuffersPerRequest", 1 << 8)),
           mDiskQueueMaxEnqueueWaitNanoSec(inConfig.getValue(
@@ -652,6 +721,11 @@ public:
             "chunkServer.ioBufferPool.bufferSize", 4 << 10)),
           mBufferPoolLockMemoryFlag(inConfig.getValue(
             "chunkServer.ioBufferPool.lockMemory", false)),
+          mDiskQueueMaxQueueDepth(max(8, inConfig.getValue(
+            "chunkServer.diskQueue.maxDepth",
+                max(4 << 10, (int)(int64_t(mBufferPoolPartitionCount) *
+                mBufferPoolPartitionBufferCount) /
+                    max(1, mDiskQueueMaxBuffersPerRequest))))),
           mDiskOverloadedPendingRequestCount(inConfig.getValue(
             "chunkServer.diskIo.overloadedPendingRequestCount",
                 mDiskQueueMaxQueueDepth * 3 / 4)),
@@ -857,8 +931,8 @@ public:
             // Hold on to the write buffers, while waiting for write to
             // complete.
             if (! inExpireFlag) {
-                WritePending(-int64_t(inIo.mIoBuffers.size() *
-                    GetBufferAllocator().GetBufferSize()));
+                theQueuePtr->WritePending(-int64_t(inIo.mIoBuffers.size() *
+                    GetBufferAllocator().GetBufferSize()), 0, inIo.mCachedFlag);
             }
             if (! mWriteCancelWaiterPtr) {
                 mWriteCancelWaiterPtr = new WriteCancelWaiter();
@@ -874,7 +948,8 @@ public:
             }
         } else {
             if (inIo.mReadLength > 0 && ! inExpireFlag) {
-                ReadPending(-int64_t(inIo.mReadLength));
+                theQueuePtr->ReadPending(
+                    -int64_t(inIo.mReadLength), 0, inIo.mCachedFlag);
             }
             // When read completes it can just discard buffers.
             // Sync doesn't have any buffers attached.
@@ -1075,8 +1150,8 @@ public:
         { return mMaxRequestSize; }
     void ReadPending(
         int64_t inReqBytes,
-        ssize_t inRetCode              = 0,
-        bool    inDontUpdateTotalsFlag = false)
+        ssize_t inRetCode,
+        bool    inDontUpdateTotalsFlag)
     {
         if (inReqBytes == 0) {
             return;
@@ -1096,8 +1171,8 @@ public:
     }
     void WritePending(
         int64_t inReqBytes,
-        int64_t inRetCode              = 0,
-        bool    inDontUpdateTotalsFlag = false)
+        int64_t inRetCode,
+        bool    inDontUpdateTotalsFlag)
     {
         if (inReqBytes == 0) {
             return;
@@ -1313,13 +1388,13 @@ private:
     };
 
     const int                      mDiskQueueThreadCount;
-    const int                      mDiskQueueMaxQueueDepth;
     const int                      mDiskQueueMaxBuffersPerRequest;
     const DiskQueue::Time          mDiskQueueMaxEnqueueWaitNanoSec;
     const int                      mBufferPoolPartitionCount;
     const int                      mBufferPoolPartitionBufferCount;
     const int                      mBufferPoolBufferSize;
     const int                      mBufferPoolLockMemoryFlag;
+    const int                      mDiskQueueMaxQueueDepth;
     const int                      mDiskOverloadedPendingRequestCount;
     const int                      mDiskClearOverloadedPendingRequestCount;
     const int                      mDiskOverloadedMinFreeBufferCount;
@@ -1442,7 +1517,7 @@ private:
         }
         mOverloadedFlag = inFlag;
         KFS_LOG_STREAM_INFO <<
-            (mOverloadedFlag ? "Setting" : "Clearing") <<
+            (mOverloadedFlag ? "setting" : "clearing") <<
             " disk overloaded state: pending"
             " read: "  << mReadReqCount <<
             " bytes: " << mReadPendingBytes <<
@@ -1450,10 +1525,44 @@ private:
             " bytes: " << mWritePendingBytes <<
         KFS_LOG_EOM;
         mBufferManager.SetDiskOverloaded(inFlag);
+        if (! inFlag) {
+            // Schedule to run buffer manager's wait queue.
+            globalNetManager().Wakeup();
+        }
     }
 };
 
 static DiskIoQueues* sDiskIoQueuesPtr;
+
+    inline void
+DiskQueue::ReadPending(
+    int64_t inReqBytes,
+    ssize_t inRetCode,
+    bool    inDontUpdateTotalsFlag)
+{
+    if (0 != inReqBytes && ! inDontUpdateTotalsFlag) {
+        mReadReqCount   += 0 < inReqBytes ? 1 : -1;
+        mReadBytesCount += inReqBytes;
+        UpdateOverloaded();
+    }
+    sDiskIoQueuesPtr->ReadPending(
+        inReqBytes, inRetCode, inDontUpdateTotalsFlag);
+}
+
+    inline void
+DiskQueue::WritePending(
+    int64_t inReqBytes,
+    int64_t inRetCode,
+    bool    inDontUpdateTotalsFlag)
+{
+    if (0 != inReqBytes && ! inDontUpdateTotalsFlag) {
+        mWriteReqCount   += 0 < inReqBytes ? 1 : -1;
+        mWriteBytesCount += inReqBytes;
+        UpdateOverloaded();
+    }
+    sDiskIoQueuesPtr->WritePending(
+        inReqBytes, inRetCode, inDontUpdateTotalsFlag);
+}
 
     /* static */ bool
 DiskIo::Init(
@@ -2199,7 +2308,6 @@ DiskIo::Read(
                     theErr);
                 return -theErr;
             }
-            sDiskIoQueuesPtr->ReadPending(inNumBytes);
             // Report completion of cached request.
             mRequestId = 200000; // > 0 != QCDiskQueue::kRequestIdNone
             BufIterator theBufItr(mIoBuffers);
@@ -2208,6 +2316,7 @@ DiskIo::Read(
             mCompletionRequestId = mRequestId;
             mCompletionCode      = QCDiskQueue::kErrorNone;
             mCachedFlag          = true;
+            theQueuePtr->ReadPending(inNumBytes, 0, mCachedFlag);
             sDiskIoQueuesPtr->SetInFlight(this);
             Done(
                 mRequestId,
@@ -2231,7 +2340,7 @@ DiskIo::Read(
         sDiskIoQueuesPtr->GetMaxEnqueueWaitTimeNanoSec()
     );
     if (theStatus.IsGood()) {
-        sDiskIoQueuesPtr->ReadPending(inNumBytes);
+        theQueuePtr->ReadPending(inNumBytes, 0, mCachedFlag);
         mRequestId = theStatus.GetRequestId();
         QCRTASSERT(mRequestId != QCDiskQueue::kRequestIdNone);
         return inNumBytes;
@@ -2556,11 +2665,11 @@ DiskIo::Write(
     BufIterator theBufItr(mIoBuffers);
     const int theBufferCount = (int)mIoBuffers.size();
     const int kSysErrorCode  = 0;
-    sDiskIoQueuesPtr->WritePending(inNumBytes - theNWr);
     mWriteSyncFlag       = inSyncFlag;
     mCompletionRequestId = mRequestId;
     mCompletionCode      = QCDiskQueue::kErrorNone;
     mCachedFlag          = true;
+    theQueuePtr->WritePending(inNumBytes - theNWr, 0, mCachedFlag);
     sDiskIoQueuesPtr->SetInFlight(this);
     Done(
         mRequestId,
@@ -2622,7 +2731,7 @@ DiskIo::SubmitWrite(
         inEofHint
     );
     if (theStatus.IsGood()) {
-        sDiskIoQueuesPtr->WritePending(inNumBytes);
+        inQueuePtr->WritePending(inNumBytes, 0, mCachedFlag);
         mRequestId = theStatus.GetRequestId();
         QCRTASSERT(mRequestId != QCDiskQueue::kRequestIdNone);
         return inNumBytes;
@@ -2784,11 +2893,11 @@ DiskIo::RunCompletion()
         theCode = EVENT_DISK_CHECK_DIR_WRITABLE_DONE;
         sDiskIoQueuesPtr->CheckDirWritableDone(mIoRetCode);
     } else if (mReadLength > 0) {
-        sDiskIoQueuesPtr->ReadPending(
+        theQueuePtr->ReadPending(
             -int64_t(mReadLength), mIoRetCode, mCachedFlag);
         theOpNamePtr = "read";
     } else if (! mIoBuffers.empty()) {
-        sDiskIoQueuesPtr->WritePending(
+        theQueuePtr->WritePending(
             -int64_t(mIoBuffers.size() *
                 sDiskIoQueuesPtr->GetBufferAllocator().GetBufferSize()),
             mIoRetCode,
@@ -2857,7 +2966,8 @@ DiskIo::RunCompletion()
             theChainedPtr->mBlockIdx = 0;
             BufIterator   theBufItr(theChainedPtr->mIoBuffers);
             theChainedPtr->mCompletionRequestId = theChainedPtr->mRequestId;
-            sDiskIoQueuesPtr->WritePending(theBufferCount * theBufferSize);
+            theQueuePtr->WritePending(theBufferCount * theBufferSize, 0,
+                theChainedPtr->mCachedFlag);
             theChainedPtr->mCachedFlag = true;
             sDiskIoQueuesPtr->SetInFlight(theChainedPtr);
             theChainedPtr->Done(
