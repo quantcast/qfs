@@ -30,7 +30,9 @@
 #include <iostream>
 #include <fstream>
 #include <cstdlib>
+
 #include <string.h>
+#include <errno.h>
 
 namespace KFS
 {
@@ -38,9 +40,6 @@ namespace KFS
 using std::string;
 using std::istream;
 using std::ifstream;
-using std::cerr;
-using std::cout;
-using std::endl;
 using std::pair;
 
 inline static int
@@ -140,15 +139,14 @@ int
 Properties::loadProperties(
     const char* fileName,
     char        delimiter,
-    ostream*    verbose   /* = 0 */,
-    bool        multiline /* = false */,
+    ostream*    verbose          /* = 0 */,
+    bool        multiline        /* = false */,
     bool        keysAsciiToLower /* = false */)
 {
     ifstream input(fileName);
     if(! input.is_open()) {
-        cerr <<  "Properties::loadProperties() failed to open the file:" <<
-            fileName << endl;
-        return(-1);
+        const int err = errno;
+        return (err < 0 ? err : (0 == err ? -EIO : -err));
     }
     loadProperties(input, delimiter, verbose, multiline, keysAsciiToLower);
     input.close();
@@ -188,8 +186,8 @@ Properties::loadProperties(
             propmap[key] = val;
         }
         if (verbose) {
-            (*verbose) << "Loading key " << key  <<
-                " with value " << propmap[key] << endl;
+            (*verbose) << "loading key " << key  <<
+                " with value " << propmap[key] << "\n";
         }
     }
     return 0;
@@ -220,11 +218,11 @@ Properties::loadProperties(
                 propmap[lkey].Copy(val.mPtr, val.mLen);
             }
             if (verbose) {
-                (*verbose) << "Loading key ";
+                (*verbose) << "loading key ";
                 verbose->write(key.mPtr, key.mLen);
                 (*verbose) << " with value ";
                 verbose->write(val.mPtr, val.mLen);
-                (*verbose) << endl;
+                (*verbose) << "\n";
             }
         }
     } else {
@@ -237,11 +235,11 @@ Properties::loadProperties(
                 propmap[String(key.mPtr, key.mLen)].Copy(val.mPtr, val.mLen);
             }
             if (verbose) {
-                (*verbose) << "Loading key ";
+                (*verbose) << "loading key ";
                 verbose->write(key.mPtr, key.mLen);
                 (*verbose) << " with value ";
                 verbose->write(val.mPtr, val.mLen);
-                (*verbose) << endl;
+                (*verbose) << "\n";
             }
         }
     }

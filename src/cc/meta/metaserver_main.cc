@@ -307,48 +307,70 @@ private:
         const char* myname, const char* fileName, bool createEmptyFsFlag,
         const char* resetVrConfigTypePtr)
     {
-        if (! fileName) {
+        if (! fileName || ! *fileName) {
+            KFS_LOG_STREAM_FATAL <<
+                "no configuration file name" <<
+            KFS_LOG_EOM;
             return false;
         }
         if (signal(SIGUSR1, &MetaServer::Usr1Signal) == SIG_ERR) {
-            cerr << QCUtils::SysError(
-                errno, "signal(SIGUSR1):") << "\n";
+            KFS_LOG_STREAM_FATAL <<
+                QCUtils::SysError(errno, "signal(SIGUSR1):") <<
+            KFS_LOG_EOM;
             return false;
         }
         if (signal(SIGHUP, &MetaServer::HupSignal) == SIG_ERR) {
-            cerr << QCUtils::SysError(
-                errno, "signal(SIGHUP):") << "\n";
+            KFS_LOG_STREAM_FATAL <<
+                QCUtils::SysError(errno, "signal(SIGHUP):") <<
+            KFS_LOG_EOM;
             return false;
         }
         if (signal(SIGQUIT, &MetaServer::QuitSignal) == SIG_ERR) {
-            cerr << QCUtils::SysError(
-                errno, "signal(SIGQUIT):") << "\n";
+            KFS_LOG_STREAM_FATAL <<
+                QCUtils::SysError(errno, "signal(SIGQUIT):") <<
+            KFS_LOG_EOM;
             return false;
         }
         if (signal(SIGCHLD, &MetaServer::ChildSignal) == SIG_ERR) {
-            cerr << QCUtils::SysError(
-                errno, "signal(SIGCHLD):") << "\n";
+            KFS_LOG_STREAM_FATAL <<
+                QCUtils::SysError(errno, "signal(SIGCHLD):") <<
+            KFS_LOG_EOM;
             return false;
         }
         if (signal(SIGALRM, &MetaServer::AlarmSignal) == SIG_ERR) {
-            cerr << QCUtils::SysError(
-                errno, "signal(SIGALRM):") << "\n";
+            KFS_LOG_STREAM_FATAL <<
+                QCUtils::SysError(errno, "signal(SIGALRM):") <<
+            KFS_LOG_EOM;
             return false;
         }
         // Ignore SIGPIPE's that generated when clients break TCP
         // connection.
-        //
         if (signal(SIGPIPE, SIG_IGN)  == SIG_ERR) {
-            cerr << QCUtils::SysError(
-                errno, "signal(SIGPIPE):") << "\n";
+            KFS_LOG_STREAM_FATAL <<
+                QCUtils::SysError(errno, "signal(SIGPIPE):") <<
+            KFS_LOG_EOM;
             return false;
         }
         mFileName = GetFullPath(fileName);
-        if (mFileName.empty() ||
-                mStartupProperties.loadProperties(
-                    mFileName.c_str(), '=', &cerr)) {
-            cerr << "invalid properties file: " << mFileName <<  "\n";
+        if (mFileName.empty()) {
             return false;
+        }
+        int err;
+        {
+            MsgLogger::StStream log(
+                *MsgLogger::GetLogger(), MsgLogger::kLogLevelINFO, 0);
+            err = mStartupProperties.loadProperties(mFileName.c_str(), '=',
+                MsgLogger::GetLogger()->IsLogLevelEnabled(
+                    MsgLogger::kLogLevelINFO) ?
+                        &(log.GetStream() << mFileName << "\n") : 0
+            );
+        }
+        if (0 != err) {
+            KFS_LOG_STREAM_FATAL <<
+                "failed to read configuration file: " << mFileName <<
+                " " << QCUtils::SysError(err, 0) <<
+            KFS_LOG_EOM;
+                return false;
         }
 #ifdef KFS_OS_NAME_LINUX
         mMetaMd = ComputeMd("/proc/self/exe");
@@ -376,7 +398,7 @@ private:
         { /* nothing, process tracker does waitpd */ }
     static void AlarmSignal(int)
         { sInstance->mRestartChunkServersFlag = true; }
-    static string GetFullPath(string fileName)
+    static string GetFullPath(const string& fileName)
     {
         if (! fileName.empty() && fileName[0] == '/') {
             return fileName;
@@ -385,7 +407,9 @@ private:
         const char* const cwd = getcwd(buf, sizeof(buf));
         if (! cwd) {
             const int err = errno;
-            cerr << "getcwd: " << strerror(err) << "\n";
+            KFS_LOG_STREAM_ERROR <<
+                "getcwd: " << QCUtils::SysError(err, 0) <<
+            KFS_LOG_EOM;
             return string();
         }
         string ret = cwd;
