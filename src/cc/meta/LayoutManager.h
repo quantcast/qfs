@@ -2703,6 +2703,8 @@ protected:
         return (mChunkServers.size() - mReplayServerCount -
             mDisconnectedCount);
     }
+    inline bool RemoveServer(
+        const MetaChunkLogInFlight& req, chunkId_t chunkId);
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);
 };

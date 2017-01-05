@@ -965,10 +965,10 @@ public:
         if (! entry.AddIndex(server->GetIndex())) {
             return false;
         }
+        AddHosted(server, entry);
         if (srvCount) {
             *srvCount = entry.ServerCount();
         }
-        AddHosted(server, entry);
         ValidateServers(entry);
         return true;
     }

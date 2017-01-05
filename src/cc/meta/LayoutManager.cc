@@ -3356,6 +3356,20 @@ LayoutManager::ReplayFindServer(const ServerLocation& loc, T& req)
     return &*it;
 }
 
+inline bool
+LayoutManager::RemoveServer(const MetaChunkLogInFlight& req, chunkId_t chunkId)
+{
+    CSMap::Entry* const entry = mChunkToServerMap.Find(chunkId);
+    if (! entry || ! mChunkToServerMap.RemoveServer(req.server, *entry)) {
+        return false;
+    }
+    if (req.replayFlag && mChunkToServerMap.ServerCount(*entry) !=
+            entry->GetFattr()->numReplicas) {
+        CheckReplication(*entry);
+    }
+    return true;
+}
+
 void
 LayoutManager::Handle(MetaChunkLogInFlight& req)
 {
@@ -3399,22 +3413,15 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
     if (req.server && ! req.server->IsDown()) {
         if (mChunkToServerMap.Validate(req.server)) {
             if (req.removeServerFlag) {
-                if (0 <= req.chunkId) {
-                    CSMap::Entry* const entry =
-                        mChunkToServerMap.Find(req.chunkId);
-                    if (entry && mChunkToServerMap.RemoveServer(
-                            req.server, *entry)) {
-                        count++;
-                    }
+                if (0 <= req.chunkId && RemoveServer(req, req.chunkId)) {
+                    count++;
                 }
                 const ChunkIdQueue* const ids = req.GetChunkIds();
                 if (ids) {
                     ChunkIdQueue::ConstIterator it(*ids);
                     const chunkId_t*            id;
                     while ((id = it.Next())) {
-                        CSMap::Entry* const entry = mChunkToServerMap.Find(*id);
-                        if (entry && mChunkToServerMap.RemoveServer(
-                                req.server, *entry)) {
+                        if (RemoveServer(req, *id)) {
                             count++;
                         }
                     }
@@ -3530,7 +3537,12 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                         mChunkToServerMap.Find(req.chunkId);
                     if (entry && entry->GetChunkInfo()->chunkVersion ==
                             req.chunkVersion) {
-                        updatedFlag = AddHosted(*entry, server);
+                        size_t srvCount = 0;
+                        updatedFlag = AddHosted(*entry, server, &srvCount);
+                        if (req.replayFlag && updatedFlag &&
+                                srvCount != entry->GetFattr()->numReplicas) {
+                            CheckReplication(*entry);
+                        }
                     } else {
                         // Treat chunk as chunk with stale id even in the case
                         // version mismatch in order to handle possible

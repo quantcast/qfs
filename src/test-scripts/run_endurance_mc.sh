@@ -991,8 +991,8 @@ EOF
             elif [ x"$derrsim" = x'yes' ]; then
             cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.netErrorSimulator = pn=^[^:]*:$metasrvchunkporre\$,a=rand+log+err,int=128;
-chunkServer.recAppender.cleanupSec            = 900
-chunkServer.recAppender.closeEmptyWidStateSec = 300
+chunkServer.recAppender.cleanupSec            = 1800
+chunkServer.recAppender.closeEmptyWidStateSec = 1200
 EOF
             fi
 
