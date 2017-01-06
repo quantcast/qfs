@@ -897,7 +897,9 @@ public:
             panic("VR: invalid outstanding log start view");
         }
         return (kStatePrimary == mState ?
-            GetPrimaryLeaseEndTime() : inTimeNow - 3600);
+            (mNodeId < 0 ? inTimeNow + 3600 : GetPrimaryLeaseEndTime()) :
+            inTimeNow - 3600
+        );
     }
     int Start(
         MetaDataSync&         inMetaDataSync,

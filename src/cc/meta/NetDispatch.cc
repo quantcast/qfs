@@ -1568,7 +1568,7 @@ public:
         MetaRequest::GetLogWriter().ScheduleFlush();
         gNetDispatch.ForkDone();
         mPrimaryFlag = gLayoutManager.IsPrimary() &&
-            MetaRequest::GetLogWriter().IsPrimary(mNetManager.Now());
+            MetaRequest::GetLogWriter().IsPrimary(mNetManager.NowUsec());
         dispatchLocker.Unlock();
 
         CliQueue cliQueue;
@@ -1934,7 +1934,7 @@ ClientManager::GetAuthContext(ClientThread* inThread)
 ClientManager::IsPrimary(ClientThread* thread)
 {
     return (thread ? thread->IsPrimary() : gLayoutManager.IsPrimary() &&
-        MetaRequest::GetLogWriter().IsPrimary(globalNetManager().Now()));
+        MetaRequest::GetLogWriter().IsPrimary(globalNetManager().NowUsec()));
 }
 
 } // namespace KFS

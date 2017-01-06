@@ -10962,20 +10962,22 @@ LayoutManager::CountServersAvailForReReplication(
         return 0;
     }
     int anyAvail = 0;
-    for (uint32_t i = 0; i < mChunkServers.size(); i++) {
-        const ChunkServer& cs = *mChunkServers[i];
+    for (Servers::const_iterator it = mChunkServers.begin();
+            mChunkServers.end() != it;
+            ++it) {
+        const ChunkServer& cs = **it;
         if (! cs.IsConnected()) {
             continue;
         }
         if (cs.IsHelloNotifyPending()) {
             pendingHelloCnt++;
         }
-        if (cs.GetSpaceUtilization(mUseFsTotalSpaceFlag) >
-                mMaxSpaceUtilizationThreshold) {
+        if (mMaxSpaceUtilizationThreshold <
+                cs.GetSpaceUtilization(mUseFsTotalSpaceFlag)) {
             continue;
         }
-        if (cs.GetNumChunkReplications() >=
-                mMaxConcurrentWriteReplicationsPerNode) {
+        if (mMaxConcurrentWriteReplicationsPerNode <=
+                cs.GetNumChunkReplications()) {
             continue;
         }
         anyAvail++;
@@ -11061,28 +11063,30 @@ LayoutManager::HandoutChunkReplicationWork()
             }
         }
         size_t pendingHelloCnt = 0;
-        size_t connectedCnt      = 0;
-        if ((avail <= 0 && (avail =CountServersAvailForReReplication(
-                    pendingHelloCnt, connectedCnt)) <= 0) ||
+        size_t connectedCnt    = 0;
+        if (avail <= 0 && ((avail = CountServersAvailForReReplication(
+                    pendingHelloCnt, connectedCnt)) <= 0 ||
                 connectedCnt <
-                        mMinChunkserversToExitRecovery + pendingHelloCnt) {
+                        mMinChunkserversToExitRecovery + pendingHelloCnt)) {
             if (count <= 0) {
                 mNoServersAvailableForReplicationCount++;
-                KFS_LOG_STREAM_INFO <<
-                    "exiting replication check:"
-                    " no servers available for"
-                    " replication: " <<
-                    mNoServersAvailableForReplicationCount <<
-                KFS_LOG_EOM;
-            } else {
-                KFS_LOG_STREAM_INFO <<
-                    "exiting replication check:"
-                    " serveer with pending hello: " << pendingHelloCnt <<
-                    " min to exit recovery: "       <<
-                        mMinChunkserversToExitRecovery <<
-                    " connected: "                  << connectedCnt <<
-                KFS_LOG_EOM;
             }
+            KFS_LOG_STREAM(count <= 0 ?
+                    MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+                "exiting replication check:"
+                " no servers available for replication:"
+                " "                << mNoServersAvailableForReplicationCount <<
+                " replications"
+                " started: "       << count <<
+                " servers:"
+                " total: "         << mChunkServers.size() <<
+                " available: "     << avail <<
+                " pending hello: " << pendingHelloCnt <<
+                " connected: "     << connectedCnt <<
+                " replay: "        << mReplayServerCount <<
+                " disconnected: "  << mDisconnectedCount <<
+                " min servers: "   << mMinChunkserversToExitRecovery <<
+            KFS_LOG_EOM;
             break;
         }
         CSMap::Entry* cur = mChunkToServerMap.Next(

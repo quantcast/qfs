@@ -128,10 +128,9 @@ public:
     int64_t GetPrimaryLeaseEndTimeUsec() const
         { return mPrimaryLeaseEndTimeUsec; }
     bool IsPrimary(
-        time_t inTimeNow) const
+        int64_t inTimeNowUsec) const
     {
-        return (0 == mVrStatus &&
-            inTimeNow * int64_t(1000) * 1000 < mPrimaryLeaseEndTimeUsec);
+        return (0 == mVrStatus && inTimeNowUsec < mPrimaryLeaseEndTimeUsec);
     }
     int WriteNewLogSegment(
         const char*   inLogDirPtr,
