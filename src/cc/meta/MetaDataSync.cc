@@ -491,7 +491,8 @@ public:
             return -EINVAL;
         }
         // Do not start fetch with config. if fs is not empty.
-        bool theFetchFlag = theEmptyFsFlag;
+        bool theFetchFlag             = theEmptyFsFlag;
+        bool theFetchAfterRestartFlag = false;
         if (! mFetchOnRestartFileName.empty()) {
             ifstream theStream(mFetchOnRestartFileName.c_str());
             if (theStream) {
@@ -500,7 +501,7 @@ public:
                 ServerLocation theLocation;
                 while ((theStream >> theLocation)) {
                     if (theLocation.IsValid() &&
-                            mServers.end() != find(
+                            mServers.end() == find(
                                 mServers.begin(), mServers.end(),
                                 theLocation)) {
                         mServers.push_back(theLocation);
@@ -512,19 +513,22 @@ public:
                         theIt = theCfgServers.begin();
                         theCfgServers.end() != theIt;
                         ++theIt) {
-                    if (mServers.end() != find(
+                    if (mServers.end() == find(
                             mServers.begin(), mServers.end(), *theIt)) {
                         mServers.push_back(*theIt);
                     }
                 }
-                theFetchFlag = ! mServers.empty();
+                theFetchFlag             = ! mServers.empty();
+                theFetchAfterRestartFlag = theFetchFlag;
             }
         }
         if (! theFetchFlag) {
             mServers.clear();
             return 0;
         }
-        if (! theEmptyFsFlag) {
+        if (theEmptyFsFlag || theFetchAfterRestartFlag) {
+            mLogSeq = MetaVrLogSeq();
+        } else {
             mLogSeq = GetLastLogSeq();
             if (! mLogSeq.IsValid()) {
                 KFS_LOG_STREAM_ERROR <<
@@ -541,6 +545,9 @@ public:
             }
         }
         if (! mLogSeq.IsValid()) {
+            KFS_LOG_STREAM_INFO <<
+                "attempting to fetch checkpoint and logs from other node(s)" <<
+            KFS_LOG_EOM;
             mKfsNetClient.ClearMetaServerLocations();
             mServerIdx = 0;
             int theRet;
@@ -551,8 +558,9 @@ public:
             mShutdownNetManagerFlag = true;
             Run();
             mShutdownNetManagerFlag = false;
-            const Servers::const_iterator theIt = find(mServers.begin(),
-                mServers.end(), mKfsNetClient.GetServerLocation());
+            const ServerLocation theServer = mKfsNetClient.GetServerLocation();
+            const Servers::const_iterator theIt =
+                find(mServers.begin(), mServers.end(), theServer);
             if (mServers.end() != theIt) {
                 mServerIdx = theIt - mServers.begin();
             }
@@ -565,6 +573,9 @@ public:
                 return theRet;
             }
             mLogSeq.mLogSeq = -mLogSeq.mLogSeq;
+            KFS_LOG_STREAM_INFO <<
+                "done fetching checkpoint and logs from: " << theServer <<
+            KFS_LOG_EOM;
         }
         if (! mFetchOnRestartFileName.empty() &&
                 unlink(mFetchOnRestartFileName.c_str())) {
@@ -1435,15 +1446,13 @@ private:
             " "        << inReadOp.Show() <<
         KFS_LOG_EOM;
         mStatus = inReadOp.status;
-        if (mCheckLogSeqOnlyFlag) {
-            if (-ENOENT == mStatus ||
-                    KfsNetClient::kErrorMaxRetryReached == mStatus) {
-                if (-ENOENT == mStatus) {
-                    mNoLogSeqCount++;
-                }
-                ScheduleGetLogSeqNextServer();
-                return;
+        if (-ENOENT == mStatus ||
+                KfsNetClient::kErrorMaxRetryReached == mStatus) {
+            if (-ENOENT == mStatus) {
+                mNoLogSeqCount++;
             }
+            ScheduleGetLogSeqNextServer();
+            return;
         }
         if (! mCheckpointFlag || 0 < inReadOp.mPos || 1 < mServers.size()) {
             const int64_t thePos        = inReadOp.mPos;
@@ -1482,7 +1491,8 @@ private:
         if (++mServerIdx < mServers.size()) {
             Sleep(0);
         } else {
-            if ((int)(mServers.size() * 3) < mNoLogSeqCount) {
+            const size_t theCnt = mServers.size();
+            if (theCnt <= 0 || (int)(theCnt * 3) < mNoLogSeqCount) {
                 if (mShutdownNetManagerFlag) {
                     mKfsNetClient.GetNetManager().Shutdown();
                 } else {
@@ -1494,7 +1504,7 @@ private:
                     KFS_LOG_STREAM_ERROR <<
                         "no log segment available: " << mLogSeq <<
                         " try count: "               << mNoLogSeqCount <<
-                        " servers count: "           << mServers.size() <<
+                        " servers count: "           << theCnt <<
                         " scheduling meta server restart to fetch latest"
                         " checkpoint" <<
                     KFS_LOG_EOM;

@@ -77,7 +77,13 @@ using KFS::libkfsio::InitGlobals;
 static ProcessRestarter&
 GetRestarter()
 {
-    static ProcessRestarter sRestarter;
+    static ProcessRestarter sRestarter(
+        false, // inCloseFdsAtInitFlag
+        false, // inSaveRestoreEnvFlag
+        false, // inExitOnRestartFlag
+        true   // inCloseFdsBeforeExecFlag,
+        -30    // inMaxGracefulRestartSeconds
+    );
     return sRestarter;
 }
 

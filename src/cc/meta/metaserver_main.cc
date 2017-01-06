@@ -272,7 +272,8 @@ private:
                 false, // inCloseFdsAtInitFlag
                 false, // inSaveRestoreEnvFlag
                 false, // inExitOnRestartFlag
-                true   // inCloseFdsBeforeExecFlag,
+                true,  // inCloseFdsBeforeExecFlag
+                -30    // inMaxGracefulRestartSeconds
           )
     {
         if (! sInstance) {
@@ -447,6 +448,10 @@ private:
         KFS_LOG_STREAM_WARN <<
             "attempting meta server process restart" <<
         KFS_LOG_EOM;
+        MsgLogger* const logger = MsgLogger::GetLogger();
+        if (logger) {
+            logger->Flush();
+        }
         if (gNetDispatch.IsRunning()) {
             // "Park" all threads
             gNetDispatch.PrepareCurrentThreadToFork();
@@ -454,8 +459,8 @@ private:
             gLayoutManager.GetUserAndGroup().PrepareToFork();
             AuditLog::PrepareToFork();
         }
-        MsgLogger* const logger = MsgLogger::GetLogger();
         if (logger) {
+            logger->Flush();
             logger->PrepareToFork();
         }
         gChildProcessTracker.KillAll(SIGKILL);
@@ -463,8 +468,16 @@ private:
         if (logger) {
             logger->ForkDone();
         }
-        panic("restart failure: " + errMsg);
-        _exit(1);
+        if (! errMsg.empty()) {
+            panic("restart failure: " + errMsg);
+            _exit(1);
+        }
+        // Attempt graceful exit.
+        globalNetManager().Shutdown();
+        AuditLog::ForkDone();
+        gLayoutManager.GetUserAndGroup().ForkDone();
+        MetaRequest::GetLogWriter().ForkDone();
+        gNetDispatch.CurrentThreadForkDone();
     }
     bool Startup(bool createEmptyFsFlag, bool createEmptyFsIfNoCpExistsFlag,
         const char* resetVrConfigTypePtr);

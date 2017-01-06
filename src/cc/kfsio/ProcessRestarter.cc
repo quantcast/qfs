@@ -106,16 +106,21 @@ public:
         }
         mArgs[i] = 0;
         if (mSaveRestoreEnvFlag) {
-            char** thePtr = environ;
-            for (i = 0; *thePtr; i++, thePtr++)
-                {}
-            mEnv = new char*[i + 1];
-            for (i = 0, thePtr = environ; *thePtr; ) {
-                if (! (mEnv[i++] = ::strdup(*thePtr++))) {
-                    theErr = errno;
-                    Cleanup();
-                    return (0 == theErr ? ENOMEM : theErr);
+            if (environ) {
+                char** thePtr = environ;
+                for (i = 0; *thePtr; i++, thePtr++)
+                    {}
+                mEnv = new char*[i + 1];
+                for (i = 0, thePtr = environ; *thePtr; ) {
+                    if (! (mEnv[i++] = ::strdup(*thePtr++))) {
+                        theErr = errno;
+                        Cleanup();
+                        return (0 == theErr ? ENOMEM : theErr);
+                    }
                 }
+            } else {
+                i = 0;
+                mEnv = new char*[i + 1];
             }
             mEnv[i] = 0;
         }
@@ -154,7 +159,8 @@ public:
     }
     string Restart()
     {
-        if (! mCwd || ! mArgs || ! mEnv || ! mArgs[0] || ! mArgs[0][0]) {
+        if (! mCwd || ! mArgs || ! mArgs[0] || ! mArgs[0][0] ||
+                (! mEnv && mSaveRestoreEnvFlag)) {
             return string("not initialized");
         }
         if (! mExitOnRestartFlag) {
@@ -183,7 +189,7 @@ public:
         if (::signal(SIGALRM, &Impl::SigAlrmHandler) == SIG_ERR) {
             QCUtils::FatalError("signal(SIGALRM)", errno);
         }
-        if (mMaxGracefulRestartSeconds > 0) {
+        if (0 < mMaxGracefulRestartSeconds) {
             if (sInstancePtr) {
                 return string("restart in progress");
             }
@@ -291,11 +297,11 @@ private:
 ProcessRestarter::Impl* ProcessRestarter::Impl::sInstancePtr = 0;
 
 ProcessRestarter::ProcessRestarter(
-        bool inCloseFdsAtInitFlag,
-        bool inSaveRestoreEnvFlag,
-        bool inExitOnRestartFlag,
-        bool inCloseFdsBeforeExecFlag,
-        int  inMaxGracefulRestartSeconds)
+    bool inCloseFdsAtInitFlag,
+    bool inSaveRestoreEnvFlag,
+    bool inExitOnRestartFlag,
+    bool inCloseFdsBeforeExecFlag,
+    int  inMaxGracefulRestartSeconds)
     : mImpl(*(new Impl(
             inCloseFdsAtInitFlag,
             inSaveRestoreEnvFlag,
