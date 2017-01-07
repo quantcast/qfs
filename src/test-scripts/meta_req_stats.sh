@@ -53,10 +53,16 @@ if [ $# -gt 0 -a -d "$1" -a -f "$1"/current ]; then
     exit $?
 fi
 
+# The following can be used to update RPC table:
+# awk '/^[ ]+f\([^)]+\)/ { \
+#    print "    names[i++] = \"" tolower(substr($1,3,length($1)-3)) "\";"; \
+# }' ../cc/meta/MetaRequest.h
+
 grep -h -F  ' ===request=counters: ' ${1+"$@"} | awk '
 BEGIN {
     i=0
     names[i++] = "total";
+
     names[i++] = "lookup";
     names[i++] = "lookup_path";
     names[i++] = "create";
@@ -73,7 +79,6 @@ BEGIN {
     names[i++] = "setmtime";
     names[i++] = "change_file_replication";
     names[i++] = "coalesce_blocks";
-
     names[i++] = "retire_chunkserver";
     names[i++] = "toggle_worm";
     names[i++] = "hello";
@@ -84,7 +89,6 @@ BEGIN {
     names[i++] = "chunk_stalenotify";
     names[i++] = "begin_make_chunk_stable";
     names[i++] = "chunk_make_stable";
-    names[i++] = "chunk_coalesce_block";
     names[i++] = "chunk_verschange";
     names[i++] = "chunk_replicate";
     names[i++] = "chunk_size";
@@ -115,18 +119,40 @@ BEGIN {
     names[i++] = "checkpoint";
     names[i++] = "disconnect";
     names[i++] = "getpathname";
-    names[i++] = "evacuate_chunk";
+    names[i++] = "chunk_evacuate";
     names[i++] = "chmod";
     names[i++] = "chown";
-    names[i++] = "available_chunk";
-    names[i++] = "chunk_dir_info";
+    names[i++] = "chunk_available";
+    names[i++] = "chunkdir_info";
     names[i++] = "get_chunk_server_dirs_counters";
     names[i++] = "authenticate";
     names[i++] = "delegate";
     names[i++] = "delegate_cancel";
-    names[i++] = "set_file_system_info";
     names[i++] = "force_chunk_replication";
-    names[i++] = "clear_obj_store_delete";
+    names[i++] = "log_group_users";
+    names[i++] = "set_group_users";
+    names[i++] = "ack";
+    names[i++] = "remove_from_dumpster";
+    names[i++] = "log_chunk_allocate";
+    names[i++] = "log_writer_control";
+    names[i++] = "log_clear_obj_store_delete";
+    names[i++] = "read_meta_data";
+    names[i++] = "chunk_op_log_completion";
+    names[i++] = "chunk_op_log_in_flight";
+    names[i++] = "hibernated_prune";
+    names[i++] = "hibernated_remove";
+    names[i++] = "restart_process";
+    names[i++] = "crypto_key_new";
+    names[i++] = "crypto_key_expired";
+    names[i++] = "noop";
+    names[i++] = "vr_hello";
+    names[i++] = "vr_start_view_change";
+    names[i++] = "vr_do_view_change";
+    names[i++] = "vr_start_view";
+    names[i++] = "vr_reconfiguration";
+    names[i++] = "vr_log_start_view";
+    names[i++] = "vr_get_status";
+
     names[i++] = "other";
     names[i++] = "alloc_reuse";
     ncnt = i;
