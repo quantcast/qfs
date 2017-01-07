@@ -270,15 +270,12 @@ public:
             mMaxLogBlockSize));
         if (! mReadOpsPtr) {
             mReadOpsCount = max(size_t(1), inParameters.getValue(
-            theName.Truncate(thePrefLen).Append("maxReadSize"),
+            theName.Truncate(thePrefLen).Append("maxReadOpsCount"),
             mReadOpsCount));
         }
         mFetchOnRestartFileName = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("fetchOnRestartFileName"),
             mFetchOnRestartFileName);
-        mTmpSuffix = inParameters.getValue(
-            theName.Truncate(thePrefLen).Append("tmpSuffix"),
-            mTmpSuffix);
         mTmpSuffix = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("tmpSuffix"),
             mTmpSuffix);
