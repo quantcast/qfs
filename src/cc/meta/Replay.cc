@@ -2134,7 +2134,7 @@ restore_chunk_server_end(DETokenizer& c)
     return replay_inc_seq(c);
 }
 
-static DiskEntry&
+static const DiskEntry&
 get_entry_map()
 {
     static bool initied = false;

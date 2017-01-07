@@ -153,7 +153,6 @@ using std::less;
     f(AUTHENTICATE) \
     f(DELEGATE) \
     f(DELEGATE_CANCEL) \
-    f(SET_FILE_SYSTEM_INFO) \
     f(FORCE_CHUNK_REPLICATION) \
     f(LOG_GROUP_USERS) \
     f(SET_GROUP_USERS) \
@@ -4257,37 +4256,6 @@ struct MetaLogWriterControl : public MetaRequest {
         blockLines.Clear();
         blockData.Clear();
     }
-};
-
-struct MetaSetFsInfo : public MetaRequest {
-    MetaSetFsInfo(
-        int64_t fsid   = -1,
-        int64_t crTime = -1)
-        : MetaRequest(META_SET_FILE_SYSTEM_INFO, kLogIfOk),
-          fileSystemId(fsid),
-          createTime(crTime)
-        {}
-    virtual bool start();
-    virtual void handle();
-    bool Validate()
-        { return (0 <= fileSystemId); }
-    virtual ostream& ShowSelf(ostream& os) const
-    {
-        return (os << "setfsinfo "
-            "fsid: "  << fileSystemId <<
-            " time: " << createTime
-        );
-    }
-    template<typename T> static T& LogIoDef(T& parser)
-    {
-        return MetaRequest::LogIoDef(parser)
-        .Def("I", &MetaSetFsInfo::fileSystemId, int64_t(-1))
-        .Def("C", &MetaSetFsInfo::createTime,   int64_t(-1))
-        ;
-    }
-private:
-    int64_t fileSystemId;
-    int64_t createTime;
 };
 
 struct MetaSetGroupUsers : public MetaRequest {

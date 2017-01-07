@@ -798,6 +798,12 @@ CheckDirWritable(
     return true;
 }
 
+const char* const kCovertLogCpMsgPtr =
+    "Possible incompatible transaction log and / or checkpoint format."
+    " Log compactor can be used to convert prior"
+    " versions checkpoint and log format"
+    " logcompactor -T new-log-dir -C new-checkpoint-dir";
+
 bool
 MetaServer::Startup(bool createEmptyFsFlag,
     bool createEmptyFsIfNoCpExistsFlag, const char* resetVrConfigTypePtr)
@@ -880,10 +886,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 mMetaMd.c_str()))) {
             if (-ENXIO == status) {
                 KFS_LOG_STREAM_FATAL <<
-                    "Possible incompatible transaction log and / or checkpoint"
-                    " format. Log compactor can be used to convert prior"
-                    " versions checkpoint and log format"
-                    " logcompactor -T new-log-dir -C new-checkpoint-dir" <<
+                    kCovertLogCpMsgPtr <<
                 KFS_LOG_EOM;
             }
             return false;
@@ -925,12 +928,18 @@ MetaServer::Startup(bool createEmptyFsFlag,
         KFS_LOG_EOM;
         return false;
     }
+    if (! writeCheckpointFlag && ! replayer.logSegmentHasLogSeq()) {
+        KFS_LOG_STREAM_FATAL <<
+            "invalid log segment name: " << replayer.getCurLog() <<
+            " " << kCovertLogCpMsgPtr <<
+        KFS_LOG_EOM;
+        return false;
+    }
     // get the sizes of all dirs up-to-date
     KFS_LOG_STREAM_INFO << "updating space utilization" << KFS_LOG_EOM;
     metatree.setUpdatePathSpaceUsage(true);
     metatree.enableFidToPathname();
     // Check whether the log segment pointed by checkpoint has sequence number.
-    const bool logSegmentHasLogSeqFlag = replayer.logSegmentHasLogSeq();
     KFS_LOG_STREAM_INFO << "replaying logs" << KFS_LOG_EOM;
     status = replayer.playAllLogs();
     if (status != 0) {
@@ -939,8 +948,22 @@ MetaServer::Startup(bool createEmptyFsFlag,
         KFS_LOG_EOM;
         return false;
     }
+    if (metatree.GetFsId() <= 0) {
+        KFS_LOG_STREAM_FATAL <<
+            "invalid file system id: " << metatree.GetFsId() <<
+            " " << kCovertLogCpMsgPtr <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (! writeCheckpointFlag && ! replayer.logSegmentHasLogSeq()) {
+        KFS_LOG_STREAM_FATAL <<
+            "invalid log segment name: " << replayer.getCurLog() <<
+            " " << kCovertLogCpMsgPtr <<
+        KFS_LOG_EOM;
+        return false;
+    }
     metatree.cleanupDumpster();
-    if (rollChunkIdSeedFlag && ! replayer.logSegmentHasLogSeq()) {
+    if (rollChunkIdSeedFlag && replayer.getLastLogSeq().mEpochSeq <= 0) {
         // Roll seeds only with prior log format with no chunk server inventory.
         const int64_t minRollChunkIdSeed = mStartupProperties.getValue(
             "metaServer.rollChunkIdSeed", int64_t(64) << 10);
@@ -1003,17 +1026,8 @@ MetaServer::Startup(bool createEmptyFsFlag,
             return false;
         }
     }
-    if (metatree.GetFsId() <= 0) {
-        submit_request(new MetaSetFsInfo(fsid, 0));
-    }
     setAbortOnPanic(mAbortOnPanicFlag);
     gLayoutManager.InitRecoveryStartTime();
-    if (! writeCheckpointFlag && ! logSegmentHasLogSeqFlag) {
-        KFS_LOG_STREAM_DEBUG <<
-            "scheduling checkpoint" <<
-        KFS_LOG_EOM;
-        mCheckpointFlag = true; // schedule new style checkpoint write.
-    }
     return true;
 }
 

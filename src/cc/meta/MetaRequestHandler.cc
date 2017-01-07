@@ -845,9 +845,6 @@ MakeLogMetaRequestHandler(
     const bool kShortNamesFlag = true;
     static T sHandler;
     return AddMetaRequestLog(sHandler, kShortNamesFlag)
-    .MakeParser("SFI",
-        META_SET_FILE_SYSTEM_INFO,
-        static_cast<const MetaSetFsInfo*>(0))
     .MakeParser("CS",
         META_CHUNK_SIZE,
         static_cast<const MetaChunkSize*>(0))

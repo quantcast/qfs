@@ -1057,7 +1057,7 @@ try_to_acquire_lockfile(const string& lockfn)
     if (fcntl(fd, F_SETLK, &fl)) {
         const int err = errno;
         close(fd);
-        return (err > 0 ? -err : -1);
+        return (0 < err ? -err : (err < 0 ? err : -EIO));
     }
     return fd;
 }

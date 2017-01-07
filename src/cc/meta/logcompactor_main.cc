@@ -167,7 +167,14 @@ LogCompactorMain(int argc, char** argv)
                 metatree.changePathReplication(ROOTFID, numReplicasPerFile,
                     kKfsSTierUndef, kKfsSTierUndef);
             }
-            string logFileName;
+            if (! replayer.logSegmentHasLogSeq() &&
+                    replayer.getLastLogSeq().mEpochSeq <= 0) {
+                // Roll seeds only with prior log format that has no chunk
+                // servers inventory.
+                const int64_t kMinRollChunkIdSeed = int64_t(256) << 10;
+                chunkID.setseed(chunkID.getseed() +
+                        max(kMinRollChunkIdSeed, replayer.getRollSeeds()));
+            }
             if (metatree.GetFsId() <= 0) {
                 seq_t fsid = 0;
                 if (! CryptoKeys::PseudoRand(&fsid, sizeof(fsid))) {
@@ -188,6 +195,7 @@ LogCompactorMain(int argc, char** argv)
                     KFS_LOG_EOM;
                 }
             }
+            string logFileName;
             if (0 == status) {
                 checkpointer_setup_paths(newCpDir);
                 status = MetaRequest::GetLogWriter().WriteNewLogSegment(
