@@ -3728,7 +3728,11 @@ LayoutManager::RestoreChunkServer(
     } else {
         server->SetRack(rackId);
     }
+    // Chunk server in checkpoint can only appear as a result of hello
+    // processing -- set chunk server state machine state to the end of hello
+    // chunk inventory processing.
     server->HelloDone(0);
+    server->HelloEnd();
     server->SetPendingHelloNotify(pendingHelloNotifyFlag);
     if (retiringFlag || 0 <= retDown) {
         server->SetRetiring(retStart, retDown);
@@ -3926,6 +3930,7 @@ LayoutManager::AddNewServer(MetaHello& req)
             panic(msg);
             req.statusMsg = msg;
             req.status    = -EFAULT;
+            mHibernatingServers.erase(it);
             return;
         }
         mHibernatingServers.erase(it);
@@ -4205,9 +4210,7 @@ LayoutManager::AddNewServer(MetaHello& req)
             const chunkId_t chunkId = *id;
             modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
-            if (! cmi || ! (req.replayFlag ?
-                    cmi->HasServer(mChunkToServerMap, req.server) :
-                    cmi->Remove(mChunkToServerMap, req.server))) {
+            if (! cmi || ! cmi->Remove(mChunkToServerMap, req.server)) {
                 panic("invalid modified chunk list");
                 continue;
             }
@@ -4254,7 +4257,7 @@ LayoutManager::AddNewServer(MetaHello& req)
         panic("add new server: invalid state transition to down");
         return;
     }
-    // Hello processing done.
+    // End of hello chunk inventory processing.
     srv.HelloEnd();
     // Update the list since a new server appeared.
     CheckHibernatingServersStatus();
