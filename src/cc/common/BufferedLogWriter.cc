@@ -1467,8 +1467,27 @@ bool
 BufferedLogWriter::SetLogLevel(
     const char* inLogLevelNamePtr)
 {
-    if (! inLogLevelNamePtr || ! *inLogLevelNamePtr) {
+    const LogLevel theLogLevel = GetLogLevelId(inLogLevelNamePtr);
+    if (kLogLevelUndef == theLogLevel) {
         return false;
+    }
+    mLogLevel = theLogLevel;
+    return true;
+}
+
+/* static */ const char*
+BufferedLogWriter::GetLogLevelNamePtr(
+    BufferedLogWriter::LogLevel inLogLevel)
+{
+    return Impl::GetLogLevelNamePtr(inLogLevel);
+}
+
+/* static */ BufferedLogWriter::LogLevel
+BufferedLogWriter::GetLogLevelId(
+    const char* inLogLevelNamePtr)
+{
+    if (! inLogLevelNamePtr || ! *inLogLevelNamePtr) {
+        return kLogLevelUndef;
     }
     struct { const char* mNamePtr; LogLevel mLevel; } const kLogLevels[] = {
         { "EMERG",  kLogLevelEMERG  },
@@ -1485,18 +1504,10 @@ BufferedLogWriter::SetLogLevel(
     const size_t kNumLogLevels = sizeof(kLogLevels) / sizeof(kLogLevels[0]);
     for (size_t i = 0; i < kNumLogLevels; i++) {
         if (::strcmp(kLogLevels[i].mNamePtr, inLogLevelNamePtr) == 0) {
-            mLogLevel = kLogLevels[i].mLevel;
-            return true;
+            return kLogLevels[i].mLevel;
         }
     }
-    return false;
-}
-
-/* static */ const char*
-BufferedLogWriter::GetLogLevelNamePtr(
-    BufferedLogWriter::LogLevel inLogLevel)
-{
-    return Impl::GetLogLevelNamePtr(inLogLevel);
+    return kLogLevelUndef;
 }
 
 void

@@ -101,8 +101,8 @@ using std::less;
     f(RETIRE_CHUNKSERVER) \
     f(TOGGLE_WORM) /* Toggle metaserver's WORM mode */ \
     /* Metadata server <-> Chunk server ops */ \
-    f(HELLO) /* Hello RPC sent by chunkserver on startup */ \
-    f(BYE)  /* Internally generated op whenever a chunkserver goes down */ \
+    f(CHUNK_SERVER_HELLO) /* Hello RPC sent by chunkserver on startup */ \
+    f(CHUNK_SERVER_BYE)  /* Internally generated op whenever a chunkserver goes down */ \
     f(CHUNK_HEARTBEAT) /* Periodic heartbeat from meta->chunk */ \
     f(CHUNK_ALLOCATE) /* Allocate chunk RPC from meta->chunk */ \
     f(CHUNK_DELETE)  /* Delete chunk RPC from meta->chunk */ \
@@ -1925,7 +1925,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     IOBuffer           responseBuf;
 
     MetaHello()
-        : MetaRequest(META_HELLO, kLogQueue),
+        : MetaRequest(META_CHUNK_SERVER_HELLO, kLogQueue),
           ServerLocation(),
           server(),
           location(*this),
@@ -2062,7 +2062,7 @@ struct MetaBye: public MetaRequest {
     enum { kDefaultReplicationDelay = 60 };
 
     MetaBye(const ChunkServerPtr& c = ChunkServerPtr())
-        : MetaRequest(META_BYE, kLogIfOk, 0),
+        : MetaRequest(META_CHUNK_SERVER_BYE, kLogIfOk, 0),
           server(c),
           location(),
           chunkCount(0),

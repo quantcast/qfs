@@ -60,7 +60,8 @@ public:
         kLogLevelNOTICE = 500,
         kLogLevelINFO   = 600,
         kLogLevelDEBUG  = 700,
-        kLogLevelNOTSET = 800
+        kLogLevelNOTSET = 800,
+        kLogLevelUndef  = -1
     };
     struct Counters
     {
@@ -116,6 +117,8 @@ public:
         { return mLogLevel; }
     static const char* GetLogLevelNamePtr(
         LogLevel inLogLevel);
+    static LogLevel GetLogLevelId(
+        const char* inLogLevelNamePtr);
     bool IsLogLevelEnabled(
         LogLevel inLogLevel) const
         { return (mLogLevel >= inLogLevel); }

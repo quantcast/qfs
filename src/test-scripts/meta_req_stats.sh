@@ -81,8 +81,8 @@ BEGIN {
     names[i++] = "coalesce_blocks";
     names[i++] = "retire_chunkserver";
     names[i++] = "toggle_worm";
-    names[i++] = "hello";
-    names[i++] = "bye";
+    names[i++] = "chunk_server_hello";
+    names[i++] = "chunk_server_bye";
     names[i++] = "chunk_heartbeat";
     names[i++] = "chunk_allocate";
     names[i++] = "chunk_delete";

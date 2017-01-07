@@ -531,7 +531,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     }
     if (op->clientProtoVers < mClientProtoVers && op->op != META_ACK) {
         mClientProtoVers = op->clientProtoVers;
-        KFS_LOG_STREAM_NOTICE << mClientLocation <<
+        KFS_LOG_STREAM_INFO << mClientLocation <<
             " command with old protocol version: " <<
             op->clientProtoVers << ' ' << op->Show() <<
         KFS_LOG_EOM;

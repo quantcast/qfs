@@ -157,7 +157,7 @@ MakeMetaRequestHandler(
 
     // Meta server <-> Chunk server ops
     .MakeParser("HELLO",
-        META_HELLO,
+        META_CHUNK_SERVER_HELLO,
         static_cast<const MetaHello*>(0))
     .MakeParser("CORRUPT_CHUNK",
         META_CHUNK_CORRUPT,
@@ -876,7 +876,7 @@ MakeLogMetaRequestHandler(
         META_CHUNK_CORRUPT,
         static_cast<const MetaChunkCorrupt*>(0))
     .MakeParser("MB",
-        META_BYE,
+        META_CHUNK_SERVER_BYE,
         static_cast<const MetaBye*>(0))
     .MakeParser("SR",
         META_RETIRE_CHUNKSERVER,

@@ -12933,7 +12933,7 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
         op.statusMsg = "cannot be started at the moment";
         return;
     }
-    KFS_LOG_STREAM_NOTICE <<
+    KFS_LOG_STREAM_INFO <<
         "starting: "
         " seq: " << op.opSeqno <<
         " "      << op.Show() <<

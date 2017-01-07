@@ -886,10 +886,11 @@ ChunkServer::HandleRequest(int code, void *data)
         mPendingOpsCount--;
         MetaRequest* const op = reinterpret_cast<MetaRequest*>(data);
         assert(data &&
-            (mHelloDone || op == mAuthenticateOp || op->op == META_HELLO ||
-                (META_BYE == op->op && 0 == mPendingOpsCount &&
+            (mHelloDone || op == mAuthenticateOp ||
+                op->op == META_CHUNK_SERVER_HELLO ||
+                (META_CHUNK_SERVER_BYE == op->op && 0 == mPendingOpsCount &&
                 ! mNetConnection)));
-        if (META_HELLO == op->op) {
+        if (META_CHUNK_SERVER_HELLO == op->op) {
             if (! mHelloDone && 0 != op->status &&
                     -EAGAIN != op->status && mDisconnectReason.empty()) {
                 if (op->statusMsg.empty()) {
@@ -911,7 +912,7 @@ ChunkServer::HandleRequest(int code, void *data)
                     ForceDown();
                 }
             }
-        } else if (META_BYE == op->op) {
+        } else if (META_CHUNK_SERVER_BYE == op->op) {
             if (! mPendingByeFlag || ! mHelloDone) {
                 panic("chunk server: invalid bye completion");
             }
@@ -1473,7 +1474,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             iobuf->Consume(msgLen);
             return Authenticate(*iobuf);
         }
-        if (op->op != META_HELLO) {
+        if (op->op != META_CHUNK_SERVER_HELLO) {
             ShowLines(MsgLogger::kLogLevelERROR,
                 GetPeerName() + " ",
                 *iobuf, msgLen);
@@ -1485,7 +1486,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         iobuf->Consume(msgLen);
         // We should only get a HELLO message here; anything else is
         // invalid.
-        if (op->op != META_HELLO) {
+        if (op->op != META_CHUNK_SERVER_HELLO) {
             KFS_LOG_STREAM_ERROR << GetPeerName() <<
                 " unexpected request, expected hello" <<
             KFS_LOG_EOM;
@@ -1940,7 +1941,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
     if (! op) {
         return -1;
     }
-    if (op->op == META_HELLO) {
+    if (op->op == META_CHUNK_SERVER_HELLO) {
         KFS_LOG_STREAM_ERROR << GetServerLocation() <<
             " unexpected hello op: " << op->Show() <<
         KFS_LOG_EOM;

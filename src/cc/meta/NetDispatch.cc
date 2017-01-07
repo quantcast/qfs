@@ -755,9 +755,26 @@ private:
             sInstance = 0;
         }
     }
-    void AddCounter(const char *name, MetaOp opName)
+    void AddCounter(const char* name, MetaOp opName)
     {
-        Counter* const c = new Counter(name);
+        if (! name || ! *name) {
+            return;
+        }
+        string nm;
+        nm.reserve(strlen(name));
+        for (const char* p = name; *p != 0; ++p) {
+            if (name == p) {
+                nm += *p;
+            } else {
+                const int s = *p & 0xFF;
+                if ('_' == s) {
+                    nm += ' ';
+                } else  if ('A' <= s && s <= 'Z') {
+                    nm += (char)(s - 'A' + 'a');
+                }
+            }
+        }
+        Counter* const c = new Counter(nm.c_str());
         if (! insert(make_pair(opName, c)).second) {
             delete c;
             return;
@@ -793,28 +810,9 @@ private:
     }
     void Init()
     {
-        AddCounter("Get alloc", META_GETALLOC);
-        AddCounter("Get layout", META_GETLAYOUT);
-        AddCounter("Lookup", META_LOOKUP);
-        AddCounter("Lookup Path", META_LOOKUP_PATH);
-        AddCounter("Allocate", META_ALLOCATE);
-        AddCounter("Truncate", META_TRUNCATE);
-        AddCounter("Create", META_CREATE);
-        AddCounter("Remove", META_REMOVE);
-        AddCounter("Rename", META_RENAME);
-        AddCounter("Set Mtime", META_SETMTIME);
-        AddCounter("Mkdir", META_MKDIR);
-        AddCounter("Rmdir", META_RMDIR);
-        AddCounter("Change File Replication", META_CHANGE_FILE_REPLICATION);
-        AddCounter("Lease Acquire", META_LEASE_ACQUIRE);
-        AddCounter("Lease Renew", META_LEASE_RENEW);
-        AddCounter("Lease Cleanup", META_LEASE_CLEANUP);
-        AddCounter("Corrupt Chunk ", META_CHUNK_CORRUPT);
-        AddCounter("Chunkserver Hello ", META_HELLO);
-        AddCounter("Chunkserver Bye ", META_BYE);
-        AddCounter("Chunkserver Retire Start", META_RETIRE_CHUNKSERVER);
-        AddCounter("Replication Checker ", META_CHUNK_REPLICATION_CHECK);
-        AddCounter("Replication Done ", META_CHUNK_REPLICATE);
+#       define KfsAddMetaRpcCounter(name) AddCounter(#name, META_##name);
+            KfsForEachMetaOpId(KfsAddMetaRpcCounter)
+#       undef KfsAddMetaRpcCounter
 
         globals().counterManager.AddCounter(&mNumFiles);
         globals().counterManager.AddCounter(&mNumDirs);
@@ -882,7 +880,7 @@ public:
         }
         mNextTime = timeNowUsec + mStatsIntervalMicroSec;
         const char* kDelim = " ";
-        KFS_LOG_STREAM_START(MsgLogger::kLogLevelINFO, logStream);
+        KFS_LOG_STREAM_START(mLogLevel, logStream);
             ostream& os = logStream.GetStream();
             os << "===request=counters:" <<
                 kDelim << timeNowUsec <<
@@ -899,12 +897,12 @@ public:
             }
         KFS_LOG_STREAM_END;
         const bool kRusageSelfFlag = true;
-        KFS_LOG_STREAM_START(MsgLogger::kLogLevelINFO, logStream);
+        KFS_LOG_STREAM_START(mLogLevel, logStream);
             ostream& os = logStream.GetStream();
             os << "===rusage=self: ";
             showrusage(os, ": ", kDelim, kRusageSelfFlag);
         KFS_LOG_STREAM_END;
-        KFS_LOG_STREAM_START(MsgLogger::kLogLevelINFO, logStream);
+        KFS_LOG_STREAM_START(mLogLevel, logStream);
             ostream& os = logStream.GetStream();
             os << "===rusage=chidren: ";
             showrusage(os, ": ", kDelim, ! kRusageSelfFlag);
@@ -922,6 +920,14 @@ public:
             "metaServer.statsGatherer.opTimeWarningThresholdMicroSec",
             mOpTimeWarningThresholdMicroSec
         );
+        MsgLogger::LogLevel const logLevel = MsgLogger::GetLogLevelId(
+        props.getValue(
+            "metaServer.statsGatherer.countersLogLevel",
+            MsgLogger::GetLogLevelNamePtr(mLogLevel)
+        ));
+        if (MsgLogger::kLogLevelUndef != logLevel) {
+            mLogLevel = logLevel;
+        }
         mNextTime += mStatsIntervalMicroSec;
     }
     void GetStatsCsv(
@@ -989,13 +995,14 @@ private:
         int64_t mTime;
         int64_t mProcTime;
     };
-    int64_t            mNextTime;
-    int64_t            mStatsIntervalMicroSec;
-    int64_t            mOpTimeWarningThresholdMicroSec;
-    int64_t            mUserCpuMicroSec;
-    int64_t            mSystemCpuMicroSec;
-    Counter            mRequest[kReqTypesCnt];
-    IOBuffer::WOStream mWOStream;
+    int64_t             mNextTime;
+    int64_t             mStatsIntervalMicroSec;
+    int64_t             mOpTimeWarningThresholdMicroSec;
+    int64_t             mUserCpuMicroSec;
+    int64_t             mSystemCpuMicroSec;
+    MsgLogger::LogLevel mLogLevel;
+    Counter             mRequest[kReqTypesCnt];
+    IOBuffer::WOStream  mWOStream;
 
     RequestStatsGatherer()
         : mNextTime(0),
@@ -1003,6 +1010,7 @@ private:
           mOpTimeWarningThresholdMicroSec(200000),
           mUserCpuMicroSec(0),
           mSystemCpuMicroSec(0),
+          mLogLevel(MsgLogger::kLogLevelNOTICE),
           mWOStream()
         {}
 
