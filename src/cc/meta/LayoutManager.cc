@@ -1554,7 +1554,14 @@ LayoutManager::AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c,
     if (c->IsEvacuationScheduled(entry.GetChunkId())) {
         CheckReplication(entry);
     }
-    return mChunkToServerMap.AddServer(c, entry, srvCount);
+    const bool retFlag = mChunkToServerMap.AddServer(c, entry, srvCount);
+    KFS_LOG_STREAM_DEBUG <<
+        "+srv: "     << c->GetServerLocation() <<
+        " chunkId: " << entry.GetChunkId() <<
+        (c->IsReplay() ? " replay" : "") <<
+        " added: "   << retFlag <<
+    KFS_LOG_EOM;
+    return retFlag;
 }
 
 inline bool
@@ -3360,14 +3367,20 @@ inline bool
 LayoutManager::RemoveServer(const MetaChunkLogInFlight& req, chunkId_t chunkId)
 {
     CSMap::Entry* const entry = mChunkToServerMap.Find(chunkId);
-    if (! entry || ! mChunkToServerMap.RemoveServer(req.server, *entry)) {
-        return false;
-    }
-    if (req.replayFlag && mChunkToServerMap.ServerCount(*entry) !=
+    const bool retFlag = entry &&
+        mChunkToServerMap.RemoveServer(req.server, *entry);
+    if (retFlag && req.replayFlag && mChunkToServerMap.ServerCount(*entry) !=
             entry->GetFattr()->numReplicas) {
         CheckReplication(*entry);
     }
-    return true;
+    KFS_LOG_STREAM_DEBUG <<
+        "-srv: "     << req.server->GetServerLocation() <<
+        " chunkId: " << chunkId <<
+        (req.server->IsReplay() ? " replay" : "") <<
+        " removed: " << retFlag <<
+        (entry ? "" : " no such chunk") <<
+    KFS_LOG_EOM;
+    return retFlag;
 }
 
 void
@@ -11519,8 +11532,18 @@ LayoutManager::RemoveRetiring(
         } else {
             if (deleteRetiringFlag) {
                 server->DeleteChunk(chunkId);
-            } else if (! mChunkToServerMap.RemoveServer(server, ci)) {
-                panic("failed to remove server");
+            } else {
+                const bool retFlag = mChunkToServerMap.RemoveServer(server, ci);
+                if (! retFlag) {
+                    panic("failed to remove server");
+                }
+                KFS_LOG_STREAM_DEBUG <<
+                    "-srv: "      << server->GetServerLocation() <<
+                    " chunkId: "  << ci.GetChunkId() <<
+                    (server->IsReplay() ? " replay" : "") <<
+                    " removed: "  << retFlag <<
+                    " retiring: " << server->IsRetiring() <<
+                KFS_LOG_EOM;
             }
             if (server->GetChunkCount() <= 0) {
                 server->Retire();
