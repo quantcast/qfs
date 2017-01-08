@@ -3570,7 +3570,15 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                         0 <= req.chunkId && 0 <= req.chunkVersion)) {
                     const bool kStaleChunkIdFlag = true;
                     server->DeleteChunk(req.chunkId, kStaleChunkIdFlag);
-                    if (! req.replayFlag && req.doneOp) {
+                    if (req.replayFlag) {
+                        if (0 != req.doneStatus) {
+                            CSMap::Entry* const entry =
+                                mChunkToServerMap.Find(req.chunkId);
+                            if (entry) {
+                                entry->Remove(mChunkToServerMap, server);
+                            }
+                        }
+                    } else if (req.doneOp) {
                         // Mark it for completion as already deleted.
                         if (0 == req.doneOp->status) {
                             req.doneOp->status = -EINVAL;
@@ -4210,7 +4218,9 @@ LayoutManager::AddNewServer(MetaHello& req)
             const chunkId_t chunkId = *id;
             modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
-            if (! cmi || ! cmi->Remove(mChunkToServerMap, req.server)) {
+            if (! cmi || ! (req.replayFlag ?
+                    cmi->HasServer(mChunkToServerMap, req.server) :
+                    cmi->Remove(mChunkToServerMap, req.server))) {
                 panic("invalid modified chunk list");
                 continue;
             }
