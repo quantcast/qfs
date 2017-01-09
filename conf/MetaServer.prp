@@ -1317,10 +1317,27 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # from host name.
 # metaServer.vr.hostnameToId =
 
-# The meta server acts as QFS client when fetches data from other meta server
-# node, and when it transmits transaction log. For parameters description please
-# see the parameters descriptions with client.auth. prefix in QfsClient.prp file
-# in X509, and Kerberos authentication sections.
+# metaServer.metaDataSync.fileSystemId =
+# metaServer.metaDataSync.maxReadSize = 65536
+# metaServer.metaDataSync.maxReadOpsCount = 16
+# metaServer.metaDataSync.maxLogBlockSize = 67108864
+# metaServer.metaDataSync.fetchOnRestartFileName = metadatafetch
+# metaServer.metaDataSync.tmpSuffix = .tmp
+# metaServer.metaDataSync.maxRetryCount = 10
+# metaServer.metaDataSync.retryTimeout = 3
+# metaServer.metaDataSync.writeSync = 1
+# metaServer.metaDataSync.minWriteSize = 4194304
+# metaServer.metaDataSync.maxReadOpRetryCount = 8
+# metaServer.metaDataSync.keepLogSegmentsInterval = 10
+# metaServer.metaDataSync.readOpTimeoutSec = 10
+# metaServer.metaDataSync.maxOpRetryCount = 10
+# metaServer.metaDataSync.maxOpLogWriteRetryCount = 0
+# metaServer.metaDataSync.timeBetweenRetries = 4
+
+# Meta server node acts as QFS client when fetches data from other meta
+# server node, and when it transmits transaction log. For parameters description
+# please see the parameters descriptions with client.auth. prefix in
+# QfsClient.prp file in X509, Kerberos, and PSK authentication sections.
 
 # Meta data fetch authentication.
 # By default authentication is not used.
@@ -1340,6 +1357,10 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.metaDataSync.auth.krb5.keytab =
 # metaServer.metaDataSync.auth.krb5.clientName =
 # metaServer.metaDataSync.auth.krb5.initClientCache = 0
+#
+# metaServer.metaDataSync.auth.psk.options =
+# metaServer.metaDataSync.auth.psk.keyId =
+# metaServer.metaDataSync.auth.psk.key =
 
 # Meta server transaction log transmitter (used for viewstamped replication)
 # authentication.
@@ -1360,6 +1381,10 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.log.transmitter.auth.krb5.keytab =
 # metaServer.log.transmitter.auth.krb5.clientName =
 # metaServer.log.transmitter.auth.krb5.initClientCache = 0
+#
+# metaServer.log.transmitter.auth.psk.options =
+# metaServer.log.transmitter.auth.psk.keyId =
+# metaServer.log.transmitter.auth.psk.key =
 
 # Meta server log receiver authentication.
 # By default log receiver authentication is off.
@@ -1376,12 +1401,17 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.log.receiver.auth.X509.verifyPeer = 1
 # metaServer.log.receiver.auth.X509.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 # metaServer.log.receiver.auth.X509.session.timeout = 14400
+# metaServer.log.receiver.auth.X509.options =
 #
 # metaServer.log.receiver.auth.krb5.service =
 # metaServer.log.receiver.auth.krb5.host =
 # metaServer.log.receiver.auth.krb5.keytab =
 # metaServer.log.receiver.auth.krb5.copyToMemKeytab = 1
 # metaServer.log.receiver.auth.krb5.princUnparseMode =
+#
+# metaServer.log.receiver.auth.psk.options =
+# metaServer.log.receiver.auth.psk.keyId =
+# metaServer.log.receiver.auth.psk.key =
 #
 # metaServer.log.receiver.auth.blackList =
 # metaServer.log.receiver.auth.whiteList =
