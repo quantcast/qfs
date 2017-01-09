@@ -5948,6 +5948,11 @@ ChunkManager::GetHostedChunksResume(
                 (*missing.second) << ' ' << chunkId;
                 continue;
             }
+            kfsSeq_t vers = -1;
+            if (! IsTargetChunkVersionStable(**cih, vers) || vers <= 0) {
+                // Already reported.
+                continue;
+            }
             AppendToHostedList(
                 **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
