@@ -3364,19 +3364,20 @@ LayoutManager::ReplayFindServer(const ServerLocation& loc, T& req)
 }
 
 inline bool
-LayoutManager::RemoveServer(const MetaChunkLogInFlight& req, chunkId_t chunkId)
+LayoutManager::RemoveServer(
+    const ChunkServerPtr& server, bool replayFlag, chunkId_t chunkId)
 {
     CSMap::Entry* const entry = mChunkToServerMap.Find(chunkId);
     const bool retFlag = entry &&
-        mChunkToServerMap.RemoveServer(req.server, *entry);
-    if (retFlag && req.replayFlag && mChunkToServerMap.ServerCount(*entry) !=
+        mChunkToServerMap.RemoveServer(server, *entry);
+    if (retFlag && replayFlag && mChunkToServerMap.ServerCount(*entry) !=
             entry->GetFattr()->numReplicas) {
         CheckReplication(*entry);
     }
     KFS_LOG_STREAM_DEBUG <<
-        "-srv: "     << req.server->GetServerLocation() <<
-        " chunkId: " << chunkId <<
-        (req.server->IsReplay() ? " replay" : "") <<
+        "-srv: "     << server->GetServerLocation() <<
+        " chunk: "   << chunkId <<
+        (server->IsReplay() ? " replay" : "") <<
         " removed: " << retFlag <<
         (entry ? "" : " no such chunk") <<
     KFS_LOG_EOM;
@@ -3426,7 +3427,8 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
     if (req.server && ! req.server->IsDown()) {
         if (mChunkToServerMap.Validate(req.server)) {
             if (req.removeServerFlag) {
-                if (0 <= req.chunkId && RemoveServer(req, req.chunkId)) {
+                if (0 <= req.chunkId && RemoveServer(
+                        req.server, req.replayFlag, req.chunkId)) {
                     count++;
                 }
                 const ChunkIdQueue* const ids = req.GetChunkIds();
@@ -3434,7 +3436,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                     ChunkIdQueue::ConstIterator it(*ids);
                     const chunkId_t*            id;
                     while ((id = it.Next())) {
-                        if (RemoveServer(req, *id)) {
+                        if (RemoveServer(req.server, req.replayFlag, *id)) {
                             count++;
                         }
                     }
@@ -3500,6 +3502,7 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
         "CLIF done:"
         " status: "  << req.status <<
         " "          << req.statusMsg <<
+        " server: "  << reinterpret_cast<const void*>(req.server.get()) <<
         " down: "    << (req.server && req.server->IsDown()) <<
         " updated: " << count <<
         " "          << req.Show() <<
@@ -3536,8 +3539,8 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
     if (server) {
         server->Handle(req);
     }
-    bool updatedFlag = false;
-    bool staleFlag   = false;
+    const char* updatedMsg = "not updated";
+    bool        staleFlag  = false;
     if (0 <= req.chunkId && 0 == req.status) {
         if (MetaChunkLogCompletion::kChunkOpTypeAdd == req.chunkOpType) {
             if (server && ! server->IsDown()) {
@@ -3551,8 +3554,10 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     if (entry && entry->GetChunkInfo()->chunkVersion ==
                             req.chunkVersion) {
                         size_t srvCount = 0;
-                        updatedFlag = AddHosted(*entry, server, &srvCount);
-                        if (req.replayFlag && updatedFlag &&
+                        const bool addedFlag =
+                            AddHosted(*entry, server, &srvCount);
+                        updatedMsg = addedFlag ? "added" : "not added";
+                        if (req.replayFlag && addedFlag &&
                                 srvCount != entry->GetFattr()->numReplicas) {
                             CheckReplication(*entry);
                         }
@@ -3585,11 +3590,9 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     server->DeleteChunk(req.chunkId, kStaleChunkIdFlag);
                     if (req.replayFlag) {
                         if (0 != req.doneStatus) {
-                            CSMap::Entry* const entry =
-                                mChunkToServerMap.Find(req.chunkId);
-                            if (entry) {
-                                entry->Remove(mChunkToServerMap, server);
-                            }
+                            updatedMsg = RemoveServer(
+                                server, req.replayFlag, req.chunkId) ?
+                                "removed" : "not removed";
                         }
                     } else if (req.doneOp) {
                         // Mark it for completion as already deleted.
@@ -3604,7 +3607,7 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
                     FindHibernatingCS(req.doneLocation);
                 if (hs) {
                     hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
-                    updatedFlag = true;
+                    updatedMsg = "hibernated updated";
                 }
             }
         }
@@ -3626,8 +3629,9 @@ LayoutManager::Handle(MetaChunkLogCompletion& req)
         "CLC done:"
         " status: "  << req.status <<
         " "          << req.statusMsg <<
+        " server: "  << reinterpret_cast<const void*>(server.get()) <<
         " down: "    << (server && server->IsDown()) <<
-        " updated: " << updatedFlag <<
+        " mapping: " << updatedMsg <<
         " stale: "   << staleFlag <<
         " "          << req.Show() <<
     KFS_LOG_EOM;
@@ -4217,6 +4221,11 @@ LayoutManager::AddNewServer(MetaHello& req)
                 }
                 continue;
             }
+            KFS_LOG_STREAM_DEBUG <<
+                "-srv: "   << srvId <<
+                " chunk: " << chunkId <<
+                " missing" <<
+            KFS_LOG_EOM;
             const MetaFattr& fa = *(cmi->GetFattr());
             if (fa.numReplicas != mChunkToServerMap.AllServerCount(*cmi)) {
                 CheckReplication(*cmi);
@@ -4238,9 +4247,11 @@ LayoutManager::AddNewServer(MetaHello& req)
                 continue;
             }
             seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
-            KFS_LOG_STREAM_DEBUG << srvId <<
-                " change stable modified"
+            KFS_LOG_STREAM_DEBUG <<
+                (req.replayFlag ? "?" : "-") <<
+                "srv: "      << srvId <<
                 " chunk: "   << chunkId <<
+                " change stable modified"
                 " version: " << chunkVersion + GetChunkVersionRollBack(chunkId) <<
                 " -> "       << chunkVersion <<
             KFS_LOG_EOM;
@@ -7784,6 +7795,7 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
         " down: "        << server->IsDown() <<
         " replication: " << fa->numReplicas <<
         " recovery: "    << fa->numRecoveryStripes <<
+        " down: "        << server->IsDown() <<
     KFS_LOG_EOM;
     if (! notifyStale || server->IsDown()) {
         return;
@@ -11539,7 +11551,7 @@ LayoutManager::RemoveRetiring(
                 }
                 KFS_LOG_STREAM_DEBUG <<
                     "-srv: "      << server->GetServerLocation() <<
-                    " chunkId: "  << ci.GetChunkId() <<
+                    " chunk: "    << ci.GetChunkId() <<
                     (server->IsReplay() ? " replay" : "") <<
                     " removed: "  << retFlag <<
                     " retiring: " << server->IsRetiring() <<

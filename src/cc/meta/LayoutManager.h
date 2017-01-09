@@ -2704,7 +2704,7 @@ protected:
             mDisconnectedCount);
     }
     inline bool RemoveServer(
-        const MetaChunkLogInFlight& req, chunkId_t chunkId);
+        const ChunkServerPtr& server, bool replayFlag, chunkId_t chunkId);
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);
 };
