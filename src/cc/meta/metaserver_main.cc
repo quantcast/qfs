@@ -962,6 +962,12 @@ MetaServer::Startup(bool createEmptyFsFlag,
         KFS_LOG_EOM;
         return false;
     }
+    if (0 != checkDumpsterExists()) {
+        KFS_LOG_STREAM_FATAL <<
+            "invalid file system structure: no dumpster directory" <<
+        KFS_LOG_EOM;
+        return false;
+    }
     metatree.cleanupDumpster();
     if (rollChunkIdSeedFlag && replayer.getLastLogSeq().mEpochSeq <= 0) {
         // Roll seeds only with prior log format with no chunk server inventory.

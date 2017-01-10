@@ -2052,13 +2052,13 @@ replay_cs_inflight(DETokenizer& c)
                 return false;
             }
             c.pop_front();
-            if ((size_t)op->idCount <= op->chunkIds.GetSize()) {
+            if ((size_t)op->idCount <= op->chunkIds.Size()) {
                 return false;
             }
-            op->chunkIds.PushBack(n);
+            op->chunkIds.Insert(n);
         }
         if (1 == state.mSubEntryCount &&
-                (size_t)op->idCount != op->chunkIds.GetSize()) {
+                (size_t)op->idCount != op->chunkIds.Size()) {
             return false;
         }
     } else {

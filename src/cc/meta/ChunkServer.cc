@@ -197,9 +197,9 @@ ProcessInFlightChunks(T& dest, const MetaChunkRequest& op, bool insertFlag)
     if (op.chunkVersion < 0) {
         return;
     }
-    const ChunkIdQueue* const ids = op.GetChunkIds();
+    const MetaChunkRequest::ChunkIdSet* const ids = op.GetChunkIds();
     if (ids) {
-        ChunkIdQueue::ConstIterator it(*ids);
+        MetaChunkRequest::ChunkIdSet::ConstIterator it(*ids);
         const chunkId_t*            id;
         while ((id = it.Next())) {
             if (insertFlag) {
@@ -2751,11 +2751,11 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 
 void
 ChunkServer::NotifyStaleChunks(
-    ChunkIdQueue&       staleChunkIds,
-    bool                evacuatedFlag,
-    bool                clearStaleChunksFlag,
-    MetaChunkAvailable* ca,
-    MetaHello*          hello)
+    ChunkServer::InFlightChunks& staleChunkIds,
+    bool                         evacuatedFlag,
+    bool                         clearStaleChunksFlag,
+    MetaChunkAvailable*          ca,
+    MetaHello*                   hello)
 {
     MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
         NextSeq(),
@@ -2770,8 +2770,8 @@ ChunkServer::NotifyStaleChunks(
         req.staleChunkIds = staleChunkIds;
     }
     if (! mChunksToEvacuate.IsEmpty()) {
-        ChunkIdQueue::ConstIterator it(req.staleChunkIds);
-        const chunkId_t*            id;
+        InFlightChunks::ConstIterator it(req.staleChunkIds);
+        const chunkId_t*              id;
         while ((id = it.Next())) {
             mChunksToEvacuate.Erase(*id);
         }
@@ -2796,7 +2796,7 @@ ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
     MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
         NextSeq(), GetSelfPtr(), evacuatedFlag,
         mStaleChunksHexFormatFlag, 0));
-    req.staleChunkIds.PushBack(staleChunkId);
+    req.staleChunkIds.Insert(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
     Enqueue(req);
 }
@@ -3507,8 +3507,8 @@ ChunkServer::Checkpoint(ostream& ost)
         CpInsertChunkId(os, "\ncss/", cnt, *id);
     }
     cnt = 0;
-    mHelloChunkIds.First();
-    while ((id = mHelloChunkIds.Next())) {
+    ChunkIdSet::ConstIterator it(mHelloChunkIds);
+    while ((id = it.Next())) {
         CpInsertChunkId(os, "\ncsr/", cnt, *id);
     }
     cnt = 0;
@@ -3533,9 +3533,9 @@ ChunkServer::Checkpoint(ostream& ost)
             return false;
         }
     }
-    LogInFlightReqs::Iterator it(mLogCompletionInFlightReqs);
+    LogInFlightReqs::Iterator itc(mLogCompletionInFlightReqs);
     const MetaChunkRequest*   op;
-    while ((op = it.Next())) {
+    while ((op = itc.Next())) {
         if (! op->logCompletionSeq.IsValid() || op->replayFlag) {
             panic("chunk server: "
                 "invalid log in flight op sequence or replay flag");
@@ -3600,7 +3600,7 @@ ChunkServer::Restore(int type, size_t idx, int64_t n)
 inline void
 ChunkServer::GetInFlightChunks(const CSMap& csMap,
     ChunkServer::InFlightChunks& chunks, CIdChecksum& chunksChecksum,
-    ChunkIdQueue& chunksDelete, uint64_t generation)
+    ChunkServer::InFlightChunks& chunksDelete, uint64_t generation)
 {
     KFS_LOG_STREAM_DEBUG <<
         " server: "        << GetServerLocation() <<
@@ -3622,8 +3622,8 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
         InFlightChunks& cur = i == 0 ?
             mLastChunksInFlight : mHelloChunkIds;
         const chunkId_t* id;
-        cur.First();
-        while ((id = cur.Next())) {
+        ChunkIdSet::ConstIterator it(cur);
+        while ((id = it.Next())) {
             if (0 == i) {
                 mHelloChunkIds.Erase(*id);
             }
@@ -3633,7 +3633,7 @@ ChunkServer::GetInFlightChunks(const CSMap& csMap,
                 chunks.Insert(chunkId);
                 chunksChecksum.Add(chunkId, entry->GetChunkVersion());
             } else {
-                chunksDelete.PushBack(chunkId);
+                chunksDelete.Insert(chunkId);
             }
             ChunkIdList::iterator const it = lower_bound(
                 mHelloPendingStaleChunks.begin(),
@@ -3654,7 +3654,6 @@ HibernatedChunkServer::HibernatedChunkServer(
       mLocation(server.GetServerLocation()),
       mDeletedChunks(),
       mModifiedChunks(),
-      mDeletedReportCount(0),
       mListsSize(0),
       mGeneration(++sGeneration),
       mModifiedChecksum(),
@@ -3663,8 +3662,7 @@ HibernatedChunkServer::HibernatedChunkServer(
 {
     server.GetInFlightChunks(csMap, mModifiedChunks, mModifiedChecksum,
         mDeletedChunks, mGeneration);
-    mDeletedReportCount = mDeletedChunks.GetSize();
-    const size_t size = mModifiedChunks.Size() + mDeletedReportCount;
+    const size_t size = mModifiedChunks.Size() + mDeletedChunks.Size();
     mListsSize = 1 + size;
     sValidCount++;
     sChunkListsSize += size;
@@ -3675,7 +3673,7 @@ HibernatedChunkServer::HibernatedChunkServer(
         " index: "      << server.GetIndex() <<
         " chunks: "     << server.GetChunkCount() <<
         " modified: "   << mModifiedChunks.Size() <<
-        " delete: "     << mDeletedChunks.GetSize() <<
+        " delete: "     << mDeletedChunks.Size() <<
         " hibernated total:"
         " valid: "      << sValidCount <<
         " chunks: "     << sChunkListsSize <<
@@ -3685,13 +3683,11 @@ HibernatedChunkServer::HibernatedChunkServer(
 HibernatedChunkServer::HibernatedChunkServer(
     const ServerLocation& loc,
     const CIdChecksum&    modChksum,
-    size_t                delReport,
     bool                  pendingHelloNotifyFlag)
     : CSMapServerInfo(),
       mLocation(loc),
       mDeletedChunks(),
       mModifiedChunks(),
-      mDeletedReportCount(delReport),
       mListsSize(0),
       mGeneration(++sGeneration),
       mModifiedChecksum(modChksum),
@@ -3711,7 +3707,7 @@ HibernatedChunkServer::RemoveHosted(chunkId_t chunkId, seq_t vers, int index)
             Prune();
         }
         if (0 < mListsSize) {
-            mDeletedChunks.PushBack(chunkId);
+            mDeletedChunks.Insert(chunkId);
         }
     }
     CSMapServerInfo::RemoveHosted(chunkId, vers, index);
@@ -3778,120 +3774,113 @@ HibernatedChunkServer::UpdateLastInFlight(const CSMap& csMap, chunkId_t chunkId)
     sChunkListsSize++;
     Prune();
     if (0 < mListsSize) {
-        mDeletedChunks.PushBack(chunkId);
-        mDeletedReportCount = mDeletedChunks.GetSize();
+        mDeletedChunks.Insert(chunkId);
     }
 }
 
 bool
 HibernatedChunkServer::HelloResumeReply(
-    MetaHello&                             r,
+    MetaHello&                             req,
     const CSMap&                           csMap,
-    ChunkIdQueue&                          staleChunkIds,
+    HibernatedChunkServer::DeletedChunks&  staleChunkIds,
     HibernatedChunkServer::ModifiedChunks& modifiedChunks)
 {
-    if (! r.server) {
+    if (! modifiedChunks.IsEmpty() || ! staleChunkIds.IsEmpty()) {
+        panic("hibernated server: resume reply:"
+            "invalid invocation: non empty chunks list");
+        modifiedChunks.Clear();
+        staleChunkIds.Clear();
+    }
+    if (! req.server) {
         panic("hibernated server: invalid hello, null server");
+        req.status = -EFAULT;
         return false;
     }
-    if (r.status != 0 || r.resumeStep < 0) {
+    if (req.status != 0 || req.resumeStep < 0) {
         return false;
     }
     if (! CanBeResumed()) {
-        r.statusMsg = "no valid hibernated server resume state exists";
-        r.status    = -EAGAIN;
+        req.statusMsg = "no valid hibernated server resume state exists";
+        req.status    = -EAGAIN;
         return true;
     }
-    if (0 < r.resumeStep) {
+    if (0 < req.resumeStep) {
         // Ensure that next step has correct counts. The counts should
         // correspond to the counts sent on the previous step.
-        const size_t deletedCount = mDeletedChunks.GetSize();
-        if (! r.replayFlag && deletedCount < r.deletedCount) {
-            r.statusMsg = "invalid resume response";
-            r.status    = -EINVAL;
+        if (! req.replayFlag && mDeletedChunks.Size() < req.deletedCount) {
+            req.statusMsg = "invalid resume response";
+            req.status    = -EINVAL;
         } else {
-            r.statusMsg.clear();
+            req.statusMsg.clear();
         }
-        KFS_LOG_STREAM(r.replayFlag ? MsgLogger::kLogLevelDEBUG :
-                r.status == 0 ? MsgLogger::kLogLevelINFO :
+        KFS_LOG_STREAM(req.replayFlag ? MsgLogger::kLogLevelDEBUG :
+                req.status == 0 ? MsgLogger::kLogLevelINFO :
                     MsgLogger::kLogLevelERROR) <<
             "hibernated: "  << mLocation <<
             " index: "      << GetIndex() <<
-            " server: "     << r.server->GetServerLocation() <<
-            " status: "     << r.status <<
-            " msg: "        << r.statusMsg <<
-            " resume: "     << r.resumeStep <<
-            " chunks: "     << r.chunkCount <<
+            " server: "     << req.server->GetServerLocation() <<
+            " status: "     << req.status <<
+            " msg: "        << req.statusMsg <<
+            " resume: "     << req.resumeStep <<
+            " chunks: "     << req.chunkCount <<
             " => "          << GetChunkCount() <<
-            " deleted: "    << r.deletedCount <<
-            " => "          << mDeletedChunks.GetSize() <<
-            " modified: "   << r.modifiedCount <<
+            " deleted: "    << req.deletedCount <<
+            " => "          << mDeletedChunks.Size() <<
+            " modified: "   << req.modifiedCount <<
             " => "          << mModifiedChunks.Size() <<
         KFS_LOG_EOM;
-        if (r.status != 0) {
+        if (req.status != 0) {
             return true;
         }
-        if (r.deletedCount <= 0 && staleChunkIds.IsEmpty()) {
-            staleChunkIds.Swap(mDeletedChunks);
-        } else {
-            // Copy chunks deleted since hello resume was started.
-            for (size_t i = r.deletedCount; i < deletedCount; i++) {
-                staleChunkIds.PushBack(mDeletedChunks[i]);
-            }
-            mDeletedChunks.Clear();
-        }
-        if (! modifiedChunks.IsEmpty()) {
-            panic("hibernated server: "
-                "resume reply: invalid non empty modified chunks list");
-            modifiedChunks.Clear();
-        }
+        staleChunkIds.Swap(mDeletedChunks);
         modifiedChunks.Swap(mModifiedChunks);
         return false;
     }
     if (GetChunkCount() < mModifiedChunks.Size()) {
         panic("hibernated server: "
             "resume reply: invalid modified chunks list size");
-        r.statusMsg = "cannot be resumed due to internal error";
-        r.status    = -EAGAIN;
+        req.statusMsg = "cannot be resumed due to internal error";
+        req.status    = -EAGAIN;
         return false;
     }
-    r.pendingNotifyFlag  = mPendingHelloNotifyFlag;
-    r.deletedCount       = 0;
-    r.modifiedCount      = 0;
-    r.chunkCount         = GetChunkCount() - mModifiedChunks.Size();
-    r.checksum           = GetChecksum();
-    r.deletedReportCount = (int64_t)mDeletedReportCount;
-    r.checksum.Remove(mModifiedChecksum);
+    req.pendingNotifyFlag  = mPendingHelloNotifyFlag;
+    req.deletedCount       = 0;
+    req.modifiedCount      = 0;
+    req.chunkCount         = GetChunkCount() - mModifiedChunks.Size();
+    req.checksum           = GetChecksum();
+    req.checksum.Remove(mModifiedChecksum);
     // Chunk server assumes responsibility for ensuring that list has no
     // duplicate entries.
     for (MetaHello::ChunkIdList::const_iterator
-            it = r.missingChunks.begin(); it != r.missingChunks.end(); ++it) {
+            it = req.missingChunks.begin();
+            it != req.missingChunks.end();
+            ++it) {
         const chunkId_t     chunkId = *it;
         const CSMap::Entry* ce;
         if (mModifiedChunks.Find(chunkId) ||
                 ! (ce = csMap.HasHibernatedServer(GetIndex(), chunkId))) {
             continue;
         }
-        if (r.chunkCount <= 0) {
-            r.statusMsg = "invalid missing chunk list:"
+        if (req.chunkCount <= 0) {
+            req.statusMsg = "invalid missing chunk list:"
                 " possible duplicate entries";
-            r.status    = -EINVAL;
+            req.status    = -EINVAL;
             return false;
         }
-        r.chunkCount--;
-        r.checksum.Remove(chunkId, ce->GetChunkVersion());
+        req.chunkCount--;
+        req.checksum.Remove(chunkId, ce->GetChunkVersion());
     }
     KFS_LOG_STREAM_INFO <<
         "hibernated: " << mLocation <<
         " index: "     << GetIndex() <<
-        " server: "    << r.server->GetServerLocation() <<
-        " resume: "    << r.resumeStep <<
+        " server: "    << req.server->GetServerLocation() <<
+        " resume: "    << req.resumeStep <<
         " chunks: "    << GetChunkCount() <<
-        " => "         << r.chunkCount <<
+        " => "         << req.chunkCount <<
         " checksum: "  << GetChecksum() <<
         " mod: "       << mModifiedChecksum <<
-        " => "         << r.checksum <<
-        " deleted: "   << mDeletedChunks.GetSize() <<
+        " => "         << req.checksum <<
+        " deleted: "   << mDeletedChunks.Size() <<
         " modified: "  << mModifiedChunks.Size() <<
     KFS_LOG_EOM;
     if (mListsSize <= 1) {
@@ -3900,24 +3889,24 @@ HibernatedChunkServer::HelloResumeReply(
         }
         return true;
     }
-    r.responseBuf.Clear();
-    IOBufferWriter writer(r.responseBuf);
+    req.responseBuf.Clear();
+    IOBufferWriter writer(req.responseBuf);
     const chunkId_t* id;
     char tbuf[sizeof(*id) * 8 / 4 + sizeof(char) * 4];
     char* const bend = tbuf + sizeof(tbuf) / sizeof(tbuf[0]) - 1;
     *bend = ' ';
-    ChunkIdQueue::ConstIterator it(mDeletedChunks);
-    while ((id = it.Next())) {
+    DeletedChunks::ConstIterator itd(mDeletedChunks);
+    while ((id = itd.Next())) {
         const char* const ptr = IntToHexString(*id, bend);
         writer.Write(ptr, bend - ptr + 1);
-        r.deletedCount++;
+        req.deletedCount++;
     }
     writer.Write("\n", 1);
-    mModifiedChunks.First();
-    while ((id = mModifiedChunks.Next())) {
+    ModifiedChunks::ConstIterator itm(mModifiedChunks);
+    while ((id = itm.Next())) {
         const char* const ptr = IntToHexString(*id, bend);
         writer.Write(ptr, bend - ptr + 1);
-        r.modifiedCount++;
+        req.modifiedCount++;
     }
     writer.Close();
     return true;
@@ -3939,8 +3928,12 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
             continue;
         }
         const bool modFlag = mModifiedChunks.Find(chunkId);
+        const bool delFlag = mDeletedChunks.Find(chunkId);
+        if (modFlag && delFlag) {
+            os << "INVALID modified or deleted list entry: " << chunkId << "\n";
+        }
         os << chunkId << " " << p->GetChunkInfo()->chunkVersion <<
-            (modFlag ? " M" : " S") <<
+            (modFlag ? " M" : (delFlag ? " D" : " S")) <<
         "\n";
         count++;
         if (modFlag) {
@@ -3953,31 +3946,22 @@ HibernatedChunkServer::DisplaySelf(ostream& os, CSMap& csMap) const
             "["    << mModifiedChunks.Size() <<
             " != " << modCount <<
             "]:";
-        HibernatedChunkServer& self =
-            *const_cast<HibernatedChunkServer*>(this);
-        for (self.mModifiedChunks.First(); os;) {
-            const chunkId_t* const id = self.mModifiedChunks.Next();
-            if (! id) {
-                break;
-            }
+        ModifiedChunks::ConstIterator it(mModifiedChunks);
+        const chunkId_t* id;
+        while (os && (id = it.Next())) {
             os << ' ' << *id;
         }
         os << "\n";
     }
     if (! mDeletedChunks.IsEmpty()) {
-        os << "delted[" << mDeletedChunks.GetSize() << "]:";
-        for (ChunkIdQueue::ConstIterator it(mDeletedChunks); os;) {
-            const chunkId_t* const id = it.Next();
-            if (! id) {
-                break;
+        os << "delted[" << mDeletedChunks.Size() << "]:\n";
+        DeletedChunks::ConstIterator it(mDeletedChunks);
+        const chunkId_t* id;
+        while (os && (id = it.Next())) {
+            if (! csMap.HasHibernatedServer(idx, *id)) {
+                os << *id << "\n";
             }
-            os << "\n";
-            if (csMap.HasHibernatedServer(idx, *id)) {
-                os << " invalid:";
-            }
-            os << *id;
         }
-        os << "\n";
     }
     os <<
         "count: "     << GetChunkCount() <<
@@ -4002,24 +3986,23 @@ HibernatedChunkServer::Checkpoint(ostream& ost, const ServerLocation& loc,
         "/end/"       << endTime <<
         "/retired/"   << retiredFlag <<
         "/replay/"    << (mReplayFlag ? 1 : 0)  <<
-        "/dreport/"   << mDeletedReportCount <<
         "/modchksum/" << mModifiedChecksum <<
         "/pnotify/"   << (mPendingHelloNotifyFlag ? 1 : 0)
     ;
     const char*      pref = "\nhcsd/";
     unsigned int     cnt = 0;
     const chunkId_t* id;
-    for (ChunkIdQueue::ConstIterator it(mDeletedChunks); (id = it.Next()); ) {
+    for (DeletedChunks::ConstIterator it(mDeletedChunks); (id = it.Next()); ) {
         CpInsertChunkId(os, pref, cnt, *id);
     }
     cnt  = 0;
     pref = "\nhcsm/";
-    for (mModifiedChunks.First(); (id = mModifiedChunks.Next()); ) {
+    for (ModifiedChunks::ConstIterator it(mModifiedChunks); (id = it.Next());) {
         CpInsertChunkId(os, pref, cnt, *id);
     }
     os <<
         "\n"
-        "hcse/" << mDeletedChunks.GetSize() <<
+        "hcse/" << mDeletedChunks.Size() <<
         "/"     << mModifiedChunks.Size() <<
         "\n";
     return ost;
@@ -4032,7 +4015,7 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
         if (n < 0) {
             return false;
         }
-        mDeletedChunks.PushBack(n);
+        mDeletedChunks.Insert(n);
         return true;
     }
     if ('m' == type) {
@@ -4045,8 +4028,7 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
         return false;
     }
     if (0 == idx) {
-        return (mDeletedChunks.GetSize() == (size_t)n &&
-            mDeletedReportCount <= (size_t)n);
+        return (mDeletedChunks.Size() == (size_t)n);
     }
     if (1 == idx) {
         if (mModifiedChunks.Size() != (size_t)n) {
@@ -4055,7 +4037,7 @@ HibernatedChunkServer::Restore(int type, size_t idx, int64_t n)
         if (0 != mListsSize) {
             panic("hibernated server: restore: invalid lists size");
         }
-        const size_t size = mModifiedChunks.Size() + mDeletedChunks.GetSize();
+        const size_t size = mModifiedChunks.Size() + mDeletedChunks.Size();
         mListsSize = 1 + size;
         sValidCount++;
         sChunkListsSize += size;

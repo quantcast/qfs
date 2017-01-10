@@ -169,13 +169,20 @@ LogCompactorMain(int argc, char** argv)
             }
             if (! replayer.logSegmentHasLogSeq() &&
                     replayer.getLastLogSeq().mEpochSeq <= 0) {
+                makeDumpsterDir();
                 // Roll seeds only with prior log format that has no chunk
                 // servers inventory.
                 const int64_t kMinRollChunkIdSeed = int64_t(256) << 10;
                 chunkID.setseed(chunkID.getseed() +
                         max(kMinRollChunkIdSeed, replayer.getRollSeeds()));
             }
-            if (metatree.GetFsId() <= 0) {
+            if (0 != (status = checkDumpsterExists())) {
+                KFS_LOG_STREAM_FATAL <<
+                    "no dumpster direcotry: " <<
+                        QCUtils::SysError(-status) <<
+                KFS_LOG_EOM;
+            }
+            if (0 == status && metatree.GetFsId() <= 0) {
                 seq_t fsid = 0;
                 if (! CryptoKeys::PseudoRand(&fsid, sizeof(fsid))) {
                     KFS_LOG_STREAM_FATAL <<

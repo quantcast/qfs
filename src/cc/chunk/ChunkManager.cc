@@ -5864,8 +5864,7 @@ ChunkManager::GetHostedChunksResume(
         const HelloMetaOp::ChunkIds&                ids       =
             pass == 0 ? hello.resumeDeleted : hello.resumeModified;
         HelloMetaOp::ChunkIds::const_iterator const reportEnd =
-            (pass == 0 && hello.deletedReport < ids.size()) ?
-                ids.begin() + hello.deletedReport : ids.end();
+            ids.end();
         for (HelloMetaOp::ChunkIds::const_iterator
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId    = *it;
@@ -6033,7 +6032,6 @@ ChunkManager::GetHostedChunksResume(
         " checksum: "       << checksum <<
         " meta: "           << hello.checksum <<
         " deleted: "        << hello.resumeDeleted.size() <<
-        " report: "         << hello.deletedReport <<
         " modified: "       << hello.resumeModified.size() <<
         " lastInflt: "      << mLastPendingInFlight.GetSize() <<
         " / "               << mCorruptChunkOp.chunkCount <<

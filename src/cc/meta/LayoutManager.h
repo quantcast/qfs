@@ -1495,7 +1495,7 @@ public:
     bool RestoreHibernatedCS(
         const ServerLocation& loc, size_t idx,
         size_t chunks, const CIdChecksum& chksum,
-        const CIdChecksum& modChksum, size_t delReport,
+        const CIdChecksum& modChksum,
         int64_t startTime, int64_t endTime, bool retiredFlag,
         bool pendingHelloNotifyFlag);
     const HibernatedChunkServerPtr& RestoreGetHibernatedCS() const

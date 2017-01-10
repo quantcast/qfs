@@ -230,63 +230,8 @@ class ChunkServer :
     public boost::enable_shared_from_this<ChunkServer>
 {
 public:
-    typedef int RackId;
-    class ChunkIdSet
-    {
-    public:
-        ChunkIdSet()
-            : mSet()
-            {}
-        ~ChunkIdSet()
-            {}
-        bool Find(chunkId_t chunkId) const {
-            return (0 != mSet.Find(chunkId));
-        }
-        bool Erase(chunkId_t chunkId) {
-            return (mSet.Erase(chunkId) != 0);
-        }
-        void First() {
-            mSet.First();
-        }
-        const chunkId_t* Next() {
-            const KeyVal* const ret = mSet.Next();
-            return (ret ? &ret->GetKey() : 0);
-        }
-        bool Insert(chunkId_t chunkId) {
-            bool inserted = false;
-            mSet.Insert(chunkId, chunkId, inserted);
-            return inserted;
-        }
-        void Clear() {
-            mSet.Clear();
-        }
-        size_t Size() const {
-            return mSet.GetSize();
-        }
-        bool IsEmpty() const {
-            return mSet.IsEmpty();
-        }
-        void Swap(ChunkIdSet& other) {
-            mSet.Swap(other.mSet);
-        }
-    private:
-        typedef KeyOnly<chunkId_t> KeyVal;
-        typedef LinearHash<
-            KeyVal,
-            KeyCompare<chunkId_t>,
-            DynamicArray<
-                SingleLinkedList<KeyVal>*,
-                5 // 2^5 * sizeof(void*) => 256
-            >,
-            StdFastAllocator<KeyVal>
-        > Set;
-
-        Set mSet;
-    private:
-        ChunkIdSet(const ChunkIdSet&);
-        ChunkIdSet& operator=(const ChunkIdSet&);
-    };
-
+    typedef int                          RackId;
+    typedef MetaChunkRequest::ChunkIdSet ChunkIdSet;
     class ChunkIdMultiSet
     {
     public:
@@ -506,7 +451,8 @@ public:
         }
     };
 
-    typedef  MetaChunkRequest::ChunkOpsInFlight ChunkOpsInFlight;
+    typedef MetaChunkRequest::ChunkOpsInFlight ChunkOpsInFlight;
+    typedef ChunkIdSet                         InFlightChunks;
 
     ///
     /// Sequence:
@@ -688,12 +634,12 @@ public:
     /// Whenever the layout manager determines that this
     /// server has stale chunks, it queues an RPC to
     /// notify the chunk server of the stale data.
-    void NotifyStaleChunks(ChunkIdQueue& staleChunks,
+    void NotifyStaleChunks(InFlightChunks& staleChunks,
         bool evacuatedFlag = false, bool clearStaleChunksFlag = true,
         MetaChunkAvailable* ca = 0, MetaHello* hello = 0);
-    void NotifyStaleChunks(ChunkIdQueue& staleChunks, MetaChunkAvailable& ca)
+    void NotifyStaleChunks(InFlightChunks& staleChunks, MetaChunkAvailable& ca)
         { NotifyStaleChunks(staleChunks, false, true, &ca); }
-    void NotifyStaleChunks(ChunkIdQueue& staleChunks, MetaHello& hello)
+    void NotifyStaleChunks(InFlightChunks& staleChunks, MetaHello& hello)
         { NotifyStaleChunks(staleChunks, false, true, 0, &hello); }
     void NotifyStaleChunk(chunkId_t staleChunk, bool evacuatedFlag = false);
 
@@ -987,10 +933,9 @@ public:
     bool IsShortRpcFormat() const
         { return mShortRpcFormatFlag; }
 
-    typedef ChunkIdSet InFlightChunks;
     inline void GetInFlightChunks(const CSMap& caMap,
         InFlightChunks& chunks, CIdChecksum& chunksChecksum,
-        ChunkIdQueue& chunksDelete, uint64_t generation);
+        InFlightChunks& chunksDelete, uint64_t generation);
     void HelloDone(const MetaHello* r);
     uint64_t GetHibernatedGeneration() const
         { return mHibernatedGeneration; }
@@ -1526,7 +1471,7 @@ class CSMap;
 class HibernatedChunkServer : public CSMapServerInfo
 {
 public:
-    typedef ChunkIdQueue                DeletedChunks;
+    typedef ChunkServer::InFlightChunks DeletedChunks;
     typedef ChunkServer::InFlightChunks ModifiedChunks;
 
     HibernatedChunkServer(
@@ -1535,7 +1480,6 @@ public:
     HibernatedChunkServer(
         const ServerLocation& loc,
         const CIdChecksum&    modChksum,
-        size_t                delReport,
         bool                  pendingHelloNotifyFlag);
     ~HibernatedChunkServer()
         { HibernatedChunkServer::Clear(); }
@@ -1548,7 +1492,7 @@ public:
     size_t GetChunkListsSize() const
         { return (mListsSize <= 0 ? 0 : mListsSize - 1); }
     bool HelloResumeReply(MetaHello& r, const CSMap& csMap,
-        ChunkIdQueue& staleChunkIds, ModifiedChunks& modifiedChunks);
+        DeletedChunks& staleChunkIds, ModifiedChunks& modifiedChunks);
     uint64_t GetGeneration() const
         { return mGeneration; }
     bool IsReplay() const
@@ -1600,7 +1544,6 @@ private:
     ServerLocation const mLocation;
     DeletedChunks        mDeletedChunks;
     ModifiedChunks       mModifiedChunks;
-    size_t               mDeletedReportCount;
     size_t               mListsSize;
     uint64_t             mGeneration;
     CIdChecksum          mModifiedChecksum;

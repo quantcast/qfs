@@ -1557,7 +1557,7 @@ LayoutManager::AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c,
     const bool retFlag = mChunkToServerMap.AddServer(c, entry, srvCount);
     KFS_LOG_STREAM_DEBUG <<
         "+srv: "     << c->GetServerLocation() <<
-        " chunkId: " << entry.GetChunkId() <<
+        " chunk: "   << entry.GetChunkId() <<
         (c->IsReplay() ? " replay" : "") <<
         " added: "   << retFlag <<
     KFS_LOG_EOM;
@@ -3431,10 +3431,11 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                         req.server, req.replayFlag, req.chunkId)) {
                     count++;
                 }
-                const ChunkIdQueue* const ids = req.GetChunkIds();
+                const MetaChunkRequest::ChunkIdSet* const ids =
+                    req.GetChunkIds();
                 if (ids) {
-                    ChunkIdQueue::ConstIterator it(*ids);
-                    const chunkId_t*            id;
+                    MetaChunkRequest::ChunkIdSet::ConstIterator it(*ids);
+                    const chunkId_t*                            id;
                     while ((id = it.Next())) {
                         if (RemoveServer(req.server, req.replayFlag, *id)) {
                             count++;
@@ -3479,10 +3480,11 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
                         hs->UpdateLastInFlight(mChunkToServerMap, req.chunkId);
                         count++;
                     }
-                    const ChunkIdQueue* const ids = req.GetChunkIds();
+                    const MetaChunkRequest::ChunkIdSet* const ids =
+                        req.GetChunkIds();
                     if (ids) {
-                        ChunkIdQueue::ConstIterator it(*ids);
-                        const chunkId_t*            id;
+                        MetaChunkRequest::ChunkIdSet::ConstIterator it(*ids);
+                        const chunkId_t*                            id;
                         while ((id = it.Next())) {
                             hs->UpdateLastInFlight(mChunkToServerMap, *id);
                             count++;
@@ -3789,7 +3791,6 @@ LayoutManager::RestoreHibernatedCS(
     size_t                chunks,
     const CIdChecksum&    chksum,
     const CIdChecksum&    modChksum,
-    size_t                delReport,
     int64_t               startTime,
     int64_t               endTime,
     bool                  retiredFlag,
@@ -3806,7 +3807,7 @@ LayoutManager::RestoreHibernatedCS(
         return false;
     }
     HibernatedChunkServerPtr const server(new HibernatedChunkServer(
-        loc, modChksum, delReport, pendingHelloNotifyFlag));
+        loc, modChksum, pendingHelloNotifyFlag));
     if (! mChunkToServerMap.RestoreHibernatedServer(
             server, idx, chunks, chksum)) {
         return false;
@@ -3924,7 +3925,7 @@ LayoutManager::AddNewServer(MetaHello& req)
         return;
     }
 
-    ChunkIdQueue                          staleChunkIds;
+    HibernatedChunkServer::DeletedChunks  staleChunkIds;
     HibernatedChunkServer::ModifiedChunks modififedChunks;
     if (0 <= req.resumeStep) {
         HibernatedServerInfos::iterator it;
@@ -4069,10 +4070,11 @@ LayoutManager::AddNewServer(MetaHello& req)
         if (cmi) {
             CSMap::Entry& c = *cmi;
             if (0 < req.resumeStep) {
+                staleChunkIds.Erase(it->chunkId);
                 const bool removedFlag =
                     c.Remove(mChunkToServerMap, req.server);
                 if (modififedChunks.Erase(it->chunkId)) {
-                    if (! removedFlag) {
+                    if (! removedFlag ) {
                         panic("stable: invalid modified chunk list");
                     }
                 }
@@ -4147,7 +4149,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                 " "               << staleReason <<
                 " => stale" <<
             KFS_LOG_EOM;
-            staleChunkIds.PushBack(it->chunkId);
+            staleChunkIds.Insert(it->chunkId);
         }
     }
     for (int i = 0; i < 2; i++) {
@@ -4171,6 +4173,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                             );
                         }
                     }
+                    staleChunkIds.Erase(it->chunkId);
                 } else {
                     if (modififedChunks.Find(it->chunkId)) {
                         panic(string("not stable") +
@@ -4202,7 +4205,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                 (staleReason ? " => stale" : "added back") <<
             KFS_LOG_EOM;
             if (staleReason) {
-                staleChunkIds.PushBack(it->chunkId);
+                staleChunkIds.Insert(it->chunkId);
             }
             // MakeChunkStableDone will process pending recovery.
         }
@@ -4213,6 +4216,7 @@ LayoutManager::AddNewServer(MetaHello& req)
                 it != req.missingChunks.end();
                 ++it) {
             const chunkId_t chunkId = *it;
+            staleChunkIds.Erase(chunkId);
             const bool      modFlag = modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
             if (! cmi || ! cmi->Remove(mChunkToServerMap, req.server)) {
@@ -4232,27 +4236,27 @@ LayoutManager::AddNewServer(MetaHello& req)
             }
         }
         for (; ;) {
-            modififedChunks.First();
-            const chunkId_t* id = modififedChunks.Next();
+            HibernatedChunkServer::ModifiedChunks::ConstIterator
+                it(modififedChunks);
+            const chunkId_t* id = it.Next();
             if (! id) {
                 break;
             }
             const chunkId_t chunkId = *id;
+            staleChunkIds.Erase(chunkId);
             modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
-            if (! cmi || ! (req.replayFlag ?
-                    cmi->HasServer(mChunkToServerMap, req.server) :
-                    cmi->Remove(mChunkToServerMap, req.server))) {
+            if (! cmi || ! cmi->Remove(mChunkToServerMap, req.server)) {
                 panic("invalid modified chunk list");
                 continue;
             }
             seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
             KFS_LOG_STREAM_DEBUG <<
-                (req.replayFlag ? "?" : "-") <<
-                "srv: "      << srvId <<
+                "-srv: "     << srvId <<
                 " chunk: "   << chunkId <<
                 " change stable modified"
-                " version: " << chunkVersion + GetChunkVersionRollBack(chunkId) <<
+                " version: " <<
+                    chunkVersion + GetChunkVersionRollBack(chunkId) <<
                 " -> "       << chunkVersion <<
             KFS_LOG_EOM;
             bool                kMakeStableFlag   = false;
@@ -4271,7 +4275,7 @@ LayoutManager::AddNewServer(MetaHello& req)
             );
         }
     }
-    const size_t staleCnt = staleChunkIds.GetSize();
+    const size_t staleCnt = staleChunkIds.Size();
     if (0 < staleCnt || ! req.pendingStaleChunks.empty()) {
         // Even with no stale chunks, if hello has pending stale chunks wait
         // for chunk server's stale queue to advance past the point of where it
@@ -4340,7 +4344,6 @@ LayoutManager::AddNewServer(MetaHello& req)
         " writes: "             << srv.GetNumChunkWrites() <<
         " +wid: "               << srv.GetNumAppendsWithWid() <<
         " stale: "              << staleCnt <<
-        " - "                   << req.deletedReportCount <<
         " masters: "            << mMastersCount <<
         " slaves: "             << mSlavesCount <<
         " total: "              << mChunkServers.size() <<
@@ -6456,7 +6459,7 @@ LayoutManager::AllocateChunk(
                 "allocate: "          << req.statusMsg <<
                 " fid: "              << req.fid <<
                 " offset: "           << req.offset <<
-                " chunkId: "          << req.chunkId <<
+                " chunk: "            << req.chunkId <<
                 " append: "           << req.appendChunk <<
                 " server: "           << cs.GetHostPortStr() <<
                 " master: "           << cs.CanBeChunkMaster() <<
@@ -6482,7 +6485,7 @@ LayoutManager::AllocateChunk(
             req.statusMsg <<
             " fid: "        << req.fid <<
             " offset: "     << req.offset <<
-            " chunkId: "    << req.chunkId <<
+            " chunk: "      << req.chunkId <<
             " append: "     << req.appendChunk <<
             " repl: "       << req.numReplicas <<
             "/"             << replicaCnt <<
@@ -6594,7 +6597,7 @@ LayoutManager::ProcessBeginChangeChunkVersion(
         MsgLogger::kLogLevelDEBUG) <<
         "begin chunk version change:"
         " fid: "     << fid <<
-        " chunkId: " << chunkId <<
+        " chunk: "   << chunkId <<
         " version: " << vers <<
         " => "       << chunkVersion <<
         " "          << msg <<
@@ -7810,11 +7813,11 @@ LayoutManager::Handle(MetaChunkEvacuate& req)
         return;
     }
     req.server->UpdateSpace(req);
-    ChunkIdQueue        deletedChunks;
-    ChunkIdQueue        evacuatedChunks;
-    const MetaAllocate* alloc = 0;
-    const char*         p     = req.chunkIds.GetPtr();
-    const char*         e     = p + req.chunkIds.GetSize();
+    MetaChunkRequest::ChunkIdSet deletedChunks;
+    MetaChunkRequest::ChunkIdSet evacuatedChunks;
+    const MetaAllocate*          alloc = 0;
+    const char*                  p     = req.chunkIds.GetPtr();
+    const char*                  e     = p + req.chunkIds.GetSize();
     while (p < e) {
         chunkId_t chunkId = -1;
         if (! req.ParseInt(p, e - p, chunkId)) {
@@ -7839,12 +7842,12 @@ LayoutManager::Handle(MetaChunkEvacuate& req)
                         alloc->servers.end(),
                         req.server) ==
                         alloc->servers.end()) {
-                deletedChunks.PushBack(chunkId);
+                deletedChunks.Insert(chunkId);
                 alloc = 0;
                 continue;
             }
         } else if (! ci->HasServer(mChunkToServerMap, req.server)) {
-            evacuatedChunks.PushBack(chunkId);
+            evacuatedChunks.Insert(chunkId);
             continue;
         }
         const int status = req.server->Evacuate(chunkId);
@@ -7903,11 +7906,11 @@ LayoutManager::Handle(MetaChunkAvailable& req)
         return;
     }
     vector<MetaChunkInfo*> cblk;
-    ChunkIdQueue           staleChunks;
-    const ServerLocation&  loc = req.server->GetServerLocation();
-    const char*            p   = req.chunkIdAndVers.GetPtr();
-    const char*            e   = p + req.chunkIdAndVers.GetSize();
-    int                    cnt = 0;
+    MetaChunkRequest::ChunkIdSet staleChunks;
+    const ServerLocation&        loc = req.server->GetServerLocation();
+    const char*                  p   = req.chunkIdAndVers.GetPtr();
+    const char*                  e   = p + req.chunkIdAndVers.GetSize();
+    int                          cnt = 0;
     while (p < e) {
         chunkId_t chunkId        = -1;
         seq_t     chunkVersion   = -1;
@@ -7938,7 +7941,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                 " hello: "           << req.helloFlag <<
                 " does not exist" <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            staleChunks.Insert(chunkId);
             continue;
         }
         const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
@@ -7967,7 +7970,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                 " mismatch, expected: " << ci.chunkVersion <<
                 " hello: "              << req.helloFlag <<
             KFS_LOG_EOM;
-            staleChunks.PushBack(chunkId);
+            staleChunks.Insert(chunkId);
             continue;
         }
         // Add chunk replicas in replay, as leases don't exist in replay, and
@@ -7992,7 +7995,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                     " hello: "            << req.helloFlag <<
                     " write lease exists" <<
                 KFS_LOG_EOM;
-                staleChunks.PushBack(chunkId);
+                staleChunks.Insert(chunkId);
                 continue;
             }
             if (! IsChunkStable(chunkId)) {
@@ -8021,7 +8024,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                     " sufficient replicas: " << srvCnt <<
                     " replay: "              << req.replayFlag <<
                 KFS_LOG_EOM;
-                staleChunks.PushBack(chunkId);
+                staleChunks.Insert(chunkId);
                 continue;
             }
             bool incompleteChunkBlockFlag              = false;
@@ -8045,7 +8048,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                     " good: "             << goodCnt <<
                     " data stripes: "     << fa.numStripes <<
                 KFS_LOG_EOM;
-                staleChunks.PushBack(chunkId);
+                staleChunks.Insert(chunkId);
                 continue;
             }
             if (incompleteChunkBlockWriteHasLeaseFlag) {
@@ -8056,7 +8059,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
                     " hello: "            << req.helloFlag <<
                     " partial chunk block has write lease" <<
                 KFS_LOG_EOM;
-                staleChunks.PushBack(chunkId);
+                staleChunks.Insert(chunkId);
                 continue;
             }
         }
@@ -9386,7 +9389,7 @@ LayoutManager::MakeChunkStableInit(
                 logPrefix <<
                 " <" << fid << "," << chunkId << ">"
                 " updating existing pending MCS: " <<
-                " chunkId: "  << chunkId <<
+                " chunk: "    << chunkId <<
                 " version: "  << entry->mChunkVersion <<
                 "=>"          << pmse.mChunkVersion <<
                 " size: "     << entry->mSize <<
@@ -10025,7 +10028,7 @@ LayoutManager::ReplayPendingMakeStable(
                     MsgLogger::kLogLevelDEBUG) <<
                 "replay MCS add:" <<
                 " update:"
-                " chunkId: "  << chunkId <<
+                " chunk: "    << chunkId <<
                 " version: "  << cur->mChunkVersion <<
                 "=>"          << entry.mChunkVersion <<
                 " size: "     << cur->mSize <<
@@ -10056,7 +10059,7 @@ LayoutManager::ReplayPendingMakeStable(
                     MsgLogger::kLogLevelWARN :
                     MsgLogger::kLogLevelDEBUG) <<
                 "replay MCS remove:"
-                " chunkId: "  << chunkId <<
+                " chunk: "    << chunkId <<
                 " version: "  << it->mChunkVersion <<
                 "=>"          << chunkVersion <<
                 " size: "     << it->mSize <<
@@ -10076,7 +10079,7 @@ LayoutManager::ReplayPendingMakeStable(
         (addFlag ? "add" : "remove") <<
         " "           << (res ? res : "ok") <<
         " total: "    << mPendingMakeStable.GetSize() <<
-        " chunkId: "  << chunkId <<
+        " chunk: "    << chunkId <<
         " version: "  << chunkVersion <<
         " cur vers: " << curChunkVersion <<
         " size: "     << chunkSize <<

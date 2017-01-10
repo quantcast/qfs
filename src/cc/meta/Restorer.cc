@@ -747,7 +747,8 @@ restore_hibernated_cs_start(DETokenizer& c)
         return false;
     }
     int64_t delReport = 0;
-    if (! pop_num(n, "dreport", c, true) || delReport < 0) {
+    if (c.front() == "dreport" &&
+            (! pop_num(delReport, "dreport", c, true) || delReport < 0)) {
         return false;
     }
     if (c.empty() || c.front() != "modchksum") {
@@ -769,7 +770,7 @@ restore_hibernated_cs_start(DETokenizer& c)
     const bool pendingHelloNotifyFlag =
         pop_num(n, "pnotify", c, true) && 0 != n;
     return gLayoutManager.RestoreHibernatedCS(
-        loc, (size_t)idx, (size_t)chunks, chksum, modChksum, (size_t)delReport,
+        loc, (size_t)idx, (size_t)chunks, chksum, modChksum,
         start, end, retiredFlag, pendingHelloNotifyFlag);
 }
 

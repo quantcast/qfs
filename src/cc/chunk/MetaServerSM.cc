@@ -1193,9 +1193,6 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                             csp, cs->GetSize()))) {
                     mHelloOp->checksum.Clear();
                 }
-                mHelloOp->deletedReport = prop.getValue(
-                    kRpcFormatShort == mRpcFormat ? "DR": "Deleted-report",
-                        mHelloOp->deletedCount);
                 mHelloOp->pendingNotifyFlag = prop.getValue(
                     kRpcFormatShort == mRpcFormat ? "PN" : "Pending-notify",
                     0) != 0;

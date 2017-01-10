@@ -53,6 +53,7 @@
 #include "common/RequestParser.h"
 #include "common/kfsatomic.h"
 #include "common/CIdChecksum.h"
+#include "common/LinearHash.h"
 #include "common/time.h"
 
 #include "qcdio/QCDLList.h"
@@ -1906,7 +1907,6 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     int64_t            helloDoneCount;
     int64_t            helloResumeCount;
     int64_t            helloResumeFailedCount;
-    int64_t            deletedReportCount;
     bool               noFidsFlag;
     bool               pendingNotifyFlag;
     int                resumeStep;
@@ -1961,7 +1961,6 @@ struct MetaHello : public MetaRequest, public ServerLocation {
           helloDoneCount(0),
           helloResumeCount(0),
           helloResumeFailedCount(0),
-          deletedReportCount(0),
           noFidsFlag(false),
           pendingNotifyFlag(false),
           resumeStep(-1),
@@ -1985,7 +1984,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "chunk server hello: " << location <<
+            "chunk-server-hello: " << location <<
             " logseq: "    << logseq <<
             " resume: "    << resumeStep <<
             " chunks: "
@@ -2077,7 +2076,7 @@ struct MetaBye: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os <<
-            "chunk server bye: " << location <<
+            "chunk-server-bye: " << location <<
             " logseq: "          << logseq <<
             " chunks: "          << chunkCount <<
             " checksum: "        << cIdChecksum <<
@@ -2122,9 +2121,9 @@ struct MetaGetPathName: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "get pathname:"
+            "get-pathname:"
             " fid: "     << fid <<
-            " chunkId: " << chunkId <<
+            " chunk: "   << chunkId <<
             " status: "  << status
         ;
     }
@@ -2283,6 +2282,67 @@ struct MetaChunkLogCompletion : public MetaRequest {
  * request.
  */
 struct MetaChunkRequest : public MetaRequest {
+    class ChunkIdSet
+    {
+    public:
+        ChunkIdSet()
+            : mSet()
+            {}
+        ~ChunkIdSet()
+            {}
+        bool Find(chunkId_t chunkId) const
+            { return (0 != mSet.Find(chunkId)); }
+        bool Erase(chunkId_t chunkId)
+            { return (0 < mSet.Erase(chunkId)); }
+        void First()
+            { mSet.First(); }
+        const chunkId_t* Next()
+            { return mSet.Next(); }
+        bool Insert(chunkId_t chunkId)
+        {
+            bool insertedFlag = false;
+            mSet.Insert(chunkId, insertedFlag);
+            return insertedFlag;
+        }
+        void Clear()
+            { mSet.Clear(); }
+        size_t Size() const
+            { return mSet.GetSize(); }
+        bool IsEmpty() const
+            { return mSet.IsEmpty(); }
+        void Swap(ChunkIdSet& other)
+            { mSet.Swap(other.mSet); }
+    private:
+        typedef KeyOnly<chunkId_t> KeyVal;
+        typedef LinearHashSet<
+            chunkId_t,
+            KeyCompare<chunkId_t>,
+            DynamicArray<
+                SingleLinkedList<KeyVal>*,
+                5 // 2^5 * sizeof(void*) => 256
+            >,
+            StdFastAllocator<KeyVal>
+        > Set;
+        Set mSet;
+    public:
+        template<typename SetT>
+        class IteratorT
+        {
+        public:
+            IteratorT(SetT& set)
+                : mIterator(set.mSet)
+                {}
+            const chunkId_t* Next()
+                { return mIterator.Next(); }
+        private:
+            Set::ConstIterator mIterator;
+        };
+        friend class IteratorT<ChunkIdSet>;
+        friend class IteratorT<const ChunkIdSet>;
+        typedef IteratorT<ChunkIdSet>       Iterator;
+        typedef IteratorT<const ChunkIdSet> ConstIterator;
+    };
+
     chunkId_t            chunkId;
     const ChunkServerPtr server; // The "owner".
     seq_t                chunkVersion;
@@ -2339,14 +2399,14 @@ public:
             submit_request(this);
         }
     }
-    virtual const ChunkIdQueue* GetChunkIds() const { return 0; }
+    virtual const ChunkIdSet* GetChunkIds() const { return 0; }
 protected:
     virtual void request(ReqOstream& /* os */) {}
 };
 
 struct MetaChunkLogInFlight : public MetaChunkRequest {
     ServerLocation    location;
-    ChunkIdQueue      chunkIds;
+    ChunkIdSet        chunkIds;
     int64_t           idCount;
     bool              removeServerFlag;
     MetaChunkRequest* request;
@@ -2372,7 +2432,7 @@ struct MetaChunkLogInFlight : public MetaChunkRequest {
     virtual void handle();
     virtual bool log(ostream& os) const;
     virtual ostream& ShowSelf(ostream& os) const;
-    virtual const ChunkIdQueue* GetChunkIds() const
+    virtual const ChunkIdSet* GetChunkIds() const
     {
         return (request ? request->GetChunkIds() :
             (chunkIds.IsEmpty() ? 0 : &chunkIds));
@@ -2436,7 +2496,7 @@ struct MetaChunkDelete: public MetaChunkRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return (os << "meta-chunk-delete:"
-            " chunkId: " << chunkId <<
+            " chunk: "   << chunkId <<
             " version: " << chunkVersion <<
             " staleId: " << deleteStaleChunkIdFlag);
     }
@@ -2567,12 +2627,12 @@ struct MetaChunkVersChange: public MetaChunkRequest {
     {
         return os <<
             "meta-chunk-vers-change:"
-            " fid: "        << fid <<
-            " chunkId: "        << chunkId <<
-            " version: from: "  << fromVersion <<
-            " => to: "          << chunkVersion <<
-            " make stable: "    << makeStableFlag <<
-            " verify stable: "  << verifyStableFlag
+            " fid: "           << fid <<
+            " chunk: "         << chunkId <<
+            " version: from: " << fromVersion <<
+            " => to: "         << chunkVersion <<
+            " make stable: "   << makeStableFlag <<
+            " verify stable: " << verifyStableFlag
         ;
     }
 };
@@ -2620,9 +2680,9 @@ struct MetaChunkSize: public MetaChunkRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            " get size:"
+            "get-size:"
             " fid: "           << fid <<
-            " chunkId: "       << chunkId <<
+            " chunk: "         << chunkId <<
             " chunkVersion: "  << chunkVersion <<
             " size: "          << chunkSize <<
             " retry: "         << retryFlag <<
@@ -2672,7 +2732,7 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
  */
 struct MetaChunkAvailable;
 struct MetaChunkStaleNotify: public MetaChunkRequest {
-    ChunkIdQueue staleChunkIds; //!< chunk ids that are stale
+    ChunkIdSet   staleChunkIds; //!< chunk ids that are stale
     bool         evacuatedFlag;
     bool         hexFormatFlag;
     bool         flushStaleQueueFlag;
@@ -2680,7 +2740,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
             bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req);
     virtual void request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const;
-    virtual const ChunkIdQueue* GetChunkIds() const { return &staleChunkIds; }
+    virtual const ChunkIdSet* GetChunkIds() const { return &staleChunkIds; }
 protected:
     virtual void ReleaseSelf();
     MetaChunkAvailable* chunkAvailableReq;
@@ -2716,7 +2776,7 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
             " status: "        << status <<
             (statusMsg.empty() ? "" : " ") << statusMsg <<
             " fileid: "        << fid <<
-            " chunkid: "       << chunkId <<
+            " chunk: "         << chunkId <<
             " chunkvers: "     << chunkVersion <<
             " chunkSize: "     << chunkSize <<
             " chunkChecksum: " << chunkChecksum
@@ -2763,7 +2823,7 @@ struct MetaLogMakeChunkStable : public MetaRequest {
                 "log-make-chunk-stable:" :
                 "log-make-chunk-stable-done:") <<
             " fleid: "         << fid <<
-            " chunkid: "       << chunkId <<
+            " chunk: "         << chunkId <<
             " chunkvers: "     << chunkVersion <<
             " chunkSize: "     << chunkSize <<
             " chunkChecksum: " << (hasChunkChecksum ?
@@ -3902,7 +3962,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     {
         os <<
             "lease-acquire:"
-            " chunkId: " << chunkId <<
+            " chunk: "   << chunkId <<
             " flush: "   << flushFlag <<
             " caccess: " << chunkAccess.GetSize() <<
             " "          << pathname
@@ -3982,7 +4042,7 @@ struct MetaLeaseRenew: public MetaRequest {
         return os <<
             "lease-renew: "
             " type: "    << (leaseType == READ_LEASE ? "read" : "write") <<
-            " chunkId: " << chunkId <<
+            " chunk: "   << chunkId <<
             " "          << pathname
         ;
     }

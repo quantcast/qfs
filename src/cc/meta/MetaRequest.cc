@@ -2382,7 +2382,7 @@ MetaLogChunkAllocate::handle()
                 statusMsg = "no such chunk";
                 KFS_LOG_STREAM_INFO <<
                     "allocate: " << statusMsg <<
-                    " chunkId: " << chunkId <<
+                    " chunk: "   << chunkId <<
                     " fid: "     << fid <<
                     " version: " << chunkVersion <<
                     " initial: " << initialChunkVersion <<
@@ -2393,7 +2393,7 @@ MetaLogChunkAllocate::handle()
                 statusMsg = "file id has changed";
                 KFS_LOG_STREAM_INFO <<
                     "allocate:"
-                    " chunkId: "    << chunkId <<
+                    " chunk: "      << chunkId <<
                     " fid: "        << fid <<
                     " changed to: " << curFid <<
                     " version: "    << chunkVersion <<
@@ -2436,11 +2436,11 @@ MetaLogChunkAllocate::handle()
                         MsgLogger::kLogLevelFATAL :
                         MsgLogger::kLogLevelDEBUG) <<
                     "chunk assignment failed for:"
-                    " chunkId: "    << chunkId <<
-                    " fid: "        << fid <<
-                    " pos: "        << offset <<
-                    " status: "     << status <<
-                    " curChunkId: " << curChunkId <<
+                    " chunk: "    << chunkId <<
+                    " fid: "      << fid <<
+                    " pos: "      << offset <<
+                    " status: "   << status <<
+                    " curchunk: " << curChunkId <<
                 KFS_LOG_EOM;
                 if (appendChunk && status == -EEXIST) {
                     panic("append chunk allocation internal error");
@@ -2692,7 +2692,7 @@ MetaAllocate::ShowSelf(ostream& os) const
         " "             << statusMsg           <<
         " path: "       << pathname            <<
         " fid: "        << fid                 <<
-        " chunkId: "    << chunkId             <<
+        " chunk: "      << chunkId             <<
         " offset: "     << offset              <<
         " client: "     << clientHost          <<
         " / "           << clientIp            <<
@@ -3463,7 +3463,7 @@ MetaChunkMakeStable::ShowSelf(ostream& os) const
         " status: "        << status <<
             (statusMsg.empty() ? "" : " ") << statusMsg <<
         " fileid: "        << fid <<
-        " chunkid: "       << chunkId <<
+        " chunk: "         << chunkId <<
         " chunkvers: "     << chunkVersion <<
         " chunkSize: "     << chunkSize <<
         " chunkChecksum: " << chunkChecksum
@@ -5034,8 +5034,6 @@ MetaHello::response(ReqOstream& os, IOBuffer& buf)
         os <<
             (shortRpcFormatFlag ? "D:" : "Deleted: ") <<
                 deletedCount << "\r\n" <<
-            (shortRpcFormatFlag ? "DR:" : "Deleted-report: ") <<
-                deletedReportCount << "\r\n" <<
             (shortRpcFormatFlag ? "M:" : "Modified: ") <<
                 modifiedCount << "\r\n" <<
             (shortRpcFormatFlag ? "C:" : "Chunks: ") <<
@@ -5556,11 +5554,11 @@ MetaChunkStaleNotify::ShowSelf(ostream& os) const
 {
     os << "chunk-stale-notify:"
         " sseq: " << (chunkAvailableReq ? chunkAvailableReq->opSeqno : -1) <<
-        " size: " << staleChunkIds.GetSize() <<
+        " size: " << staleChunkIds.Size() <<
         " ids:"
     ;
-    ChunkIdQueue::ConstIterator it(staleChunkIds);
-    const chunkId_t*            id;
+    ChunkIdSet::ConstIterator it(staleChunkIds);
+    const chunkId_t*          id;
     while (os && (id = it.Next())) {
         os << " " << *id;
     }
@@ -5570,7 +5568,7 @@ MetaChunkStaleNotify::ShowSelf(ostream& os) const
 /* virtual */ void
 MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
 {
-    size_t const count = staleChunkIds.GetSize();
+    size_t const count = staleChunkIds.Size();
     if (shortRpcFormatFlag) {
         os << hex;
     }
@@ -5594,23 +5592,22 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
     if (flushStaleQueueFlag) {
         os << (shortRpcFormatFlag ? "FQ:1" : "Flush-queue: 1") << "\r\n";
     }
-    const int   kBufEnd = 30;
-    char        tmpBuf[kBufEnd + 1];
-    char* const end = tmpBuf + kBufEnd;
+    const int                 kBufEnd = 30;
+    char                      tmpBuf[kBufEnd + 1];
+    char* const               end = tmpBuf + kBufEnd;
+    ChunkIdSet::ConstIterator it(staleChunkIds);
     if (count <= 1) {
         char* const p   = count < 1 ? end :
-            ChunkIdToString(staleChunkIds.Front(), hexFormatFlag, end);
+            ChunkIdToString(*it.Next(), hexFormatFlag, end);
         size_t      len = end - p;
         os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
             len << "\r\n\r\n";
         os.write(p, len);
         return;
     }
-
-    ChunkIdQueue::ConstIterator it(staleChunkIds);
-    const chunkId_t*            id;
-    IOBuffer                    ioBuf;
-    IOBufferWriter              writer(ioBuf);
+    const chunkId_t*      id;
+    IOBuffer              ioBuf;
+    IOBufferWriter        writer(ioBuf);
     tmpBuf[kBufEnd] = (char)' ';
     while ((id = it.Next())) {
         char* const p = ChunkIdToString(*id, hexFormatFlag, end);
@@ -6292,7 +6289,7 @@ MetaChunkLogCompletion::ShowSelf(ostream& os) const
         " doneseq: "  << doneLogSeq <<
         " status: "   << doneStatus <<
         " map op: "   << chunkOpType <<
-        " chunkId: "  << chunkId <<
+        " chunk: "    << chunkId <<
         " version: "  << chunkVersion <<
         " timedout: " << doneTimedOutFlag
     ;
@@ -6406,14 +6403,14 @@ MetaChunkLogInFlight::ShowSelf(ostream& os) const
         " "          << location <<
         " logseq: "  << logseq <<
         " type: "    << GetReqName(reqType) <<
-        " chunkId: " << chunkId <<
+        " chunk: "   << chunkId <<
         " version: " << chunkVersion <<
         " remove: "  << removeServerFlag
     ;
     if (! chunkIds.IsEmpty()) {
-        os << " chunks: size: " << chunkIds.GetSize() << " ids:";
-        ChunkIdQueue::ConstIterator it(chunkIds);
-        const chunkId_t*            id;
+        os << " chunks: size: " << chunkIds.Size() << " ids:";
+        ChunkIdSet::ConstIterator it(chunkIds);
+        const chunkId_t*          id;
         while (os && (id = it.Next())) {
             os << " " << *id;
         }
@@ -6434,10 +6431,18 @@ MetaChunkLogInFlight::handle()
     gLayoutManager.Handle(*this);
 }
 
+inline static chunkId_t
+GetFirtChunkId(const MetaChunkRequest::ChunkIdSet& ids, chunkId_t chunkId)
+{
+    MetaChunkRequest::ChunkIdSet::ConstIterator it(ids);
+    const chunkId_t* const id = it.Next();
+    return (id ? *id : chunkId);
+}
+
 bool
 MetaChunkLogInFlight::log(ostream& os) const
 {
-    const ChunkIdQueue*           ids = 0;
+    const ChunkIdSet*             ids = 0;
     const MetaChunkRequest* const req =
         request ? request : (replayFlag ? this : 0);
     if (! req || (req->chunkId < 0 && ! (ids = req->GetChunkIds()) &&
@@ -6448,23 +6453,23 @@ MetaChunkLogInFlight::log(ostream& os) const
     ReqOstream ros(os);
     size_t subEntryCnt = 1;
     const char* const name = GetReqName(reqType);
-    if (ids && 1 != ids->GetSize()) {
+    if (ids && 1 != ids->Size()) {
         const size_t kEntrySizeLog2 = 6;
         const size_t kMask          = (size_t(1) << kEntrySizeLog2) - 1;
-        subEntryCnt += (ids->GetSize() + kMask) >> kEntrySizeLog2;
+        subEntryCnt += (ids->Size() + kMask) >> kEntrySizeLog2;
         ros <<
             "cif"
             "/e/" << subEntryCnt <<
             "/l/" << location <<
-            "/s/" << ids->GetSize() <<
+            "/s/" << ids->Size() <<
             "/c/" << chunkId_t(-1) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
             "/z/" << logseq
         ;
-        size_t                      cnt = 0;
-        ChunkIdQueue::ConstIterator it(*ids);
-        const chunkId_t*            id;
+        size_t                    cnt = 0;
+        ChunkIdSet::ConstIterator it(*ids);
+        const chunkId_t*          id;
         while ((id = it.Next())) {
             if ((cnt++ & kMask) == 0) {
                 ros << "\ncis";
@@ -6481,7 +6486,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/e/" << subEntryCnt <<
             "/l/" << location <<
             "/s/" << size_t(0) <<
-            "/c/" << (ids ? ids->Front() : req->chunkId) <<
+            "/c/" << (ids ? GetFirtChunkId(*ids, req->chunkId) : req->chunkId) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
             "/z/" << logseq

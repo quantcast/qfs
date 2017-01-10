@@ -350,21 +350,8 @@ public:
     }
     const KVPair* Next()
     {
-        if (! mNextEntryPtr) {
-            const size_t theSize = GetSize();
-            while (mNextBucketIdx < theSize &&
-                    ! (mNextEntryPtr = mBuckets[mNextBucketIdx])) {
-                mNextBucketIdx++;
-            }
-            if (! mNextEntryPtr) {
-                return 0;
-            }
-        }
-        KVPair& theRet = mNextEntryPtr->GetData();
-        if (! (mNextEntryPtr = mNextEntryPtr->GetNextPtr())) {
-            mNextBucketIdx++;
-        }
-        return &theRet;
+        return NextEntryT(mNextBucketIdx, mNextEntryPtr,
+            static_cast<const KVPair*>(0));
     }
     void Swap(LinearHash& inHash)
     {
@@ -380,6 +367,30 @@ public:
         std::swap(mAlloc,          inHash.mAlloc);
         std::swap(mDelObserverPtr, inHash.mDelObserverPtr);
     }
+    template <typename LHashT, typename EntryT, typename KeyValT>
+    class IteratorT
+    {
+    public:
+        IteratorT(
+                LHashT& inHashTable)
+            : mNextBucketIdx(0),
+              mNextEntryPtr(0),
+              mHashTable(inHashTable)
+            {}
+        KeyValT* Next()
+        {
+            return mHashTable.template NextEntryT(
+                mNextBucketIdx, mNextEntryPtr, static_cast<KeyValT*>(0));
+        }
+    private:
+        size_t  mNextBucketIdx;
+        EntryT* mNextEntryPtr;
+        LHashT& mHashTable;
+    };
+    friend class IteratorT<LinearHash, Entry, const KVPair>;
+    friend class IteratorT<const LinearHash, const Entry, const KVPair>;
+    typedef IteratorT<LinearHash, Entry, const KVPair>             Iterator;
+    typedef IteratorT<const LinearHash, const Entry, const KVPair> ConstIterator;
 
 private:
     size_t           mSplitIdx;
@@ -515,6 +526,135 @@ private:
             thePtr           = theNextPtr;
         }
     }
+    template<typename ET, typename RT>
+    RT* NextEntryT(
+        size_t& ioNextBucketIdx,
+        ET&     ioNextEntryPtr,
+        RT*     outRetTypePtr = 0) const
+    {
+        if (! ioNextEntryPtr) {
+            const size_t theSize = GetSize();
+            while (ioNextBucketIdx < theSize &&
+                    ! (ioNextEntryPtr = mBuckets[ioNextBucketIdx])) {
+                ioNextBucketIdx++;
+            }
+            if (! ioNextEntryPtr) {
+                return 0;
+            }
+        }
+        RT& theRet = ioNextEntryPtr->GetData();
+        if (! (ioNextEntryPtr = ioNextEntryPtr->GetNextPtr())) {
+            ioNextBucketIdx++;
+        }
+        return &theRet;
+    }
+};
+
+template<
+  typename KeyT,
+  typename KeyIdT          = KeyCompare<KeyT>,
+  typename DArrayT         = DynamicArray<SingleLinkedList<KeyOnly<KeyT> >*>,
+  typename AllocT          = std::allocator<KeyOnly<KeyT> >,
+  typename DeleteObserverT = DeleteObserver<KeyOnly<KeyT> >
+>
+class LinearHashSet
+{
+public:
+    typedef KeyT Key;
+private:
+    typedef KeyOnly<Key> KeyVal;
+    template<typename FT>
+    class FuncT
+    {
+    public:
+        FuncT(
+            FT& inFunc)
+            : mFunc(inFunc)
+            {}
+        bool Traverse(
+            const KeyVal& inKeyVal)
+            { return mFunc.Traverse(inKeyVal.GetKey()); }
+    private:
+        FT& mFunc;
+    };
+    typedef LinearHash<
+        KeyVal,
+        KeyIdT,
+        DArrayT,
+        AllocT,
+        DeleteObserverT
+    > HashSet;
+    HashSet mSet;
+public:
+    typedef typename HashSet::Allocator Allocator;
+    LinearHashSet()
+        : mSet()
+        {}
+    ~LinearHashSet()
+        {}
+    const Key* Find(
+        const Key& inKey) const
+        { return mSet.Find(inKey); }
+    size_t Erase(
+        const Key& inKey)
+        { return mSet.Erase(inKey); }
+    void First()
+        {  mSet.First(); }
+    const Key* Next()
+    {
+        const KeyVal* const thePtr = mSet.Next();
+        return (thePtr ? &thePtr->GetKey() : 0);
+    }
+    const Key* Insert(
+        const Key& inKey,
+        bool&      outInsertedFlag)
+        { return mSet.Insert(inKey, inKey, outInsertedFlag); }
+    bool Equals(
+        const LinearHashSet& inSet) const
+    {
+        KeyIdT theCmp;
+        return mSet.Equals(inSet, theCmp);
+    }
+    template<typename FT>
+    void Traverse(
+        FT& inFunc) const
+    {
+        FuncT<FT> theFunc(inFunc);
+        mSet.Traverse(theFunc);
+    }
+    void SetDeleteObserver(
+        DeleteObserverT* inObserverPtr)
+        { mSet.SetDeleteObserver(inObserverPtr); }
+    const Allocator& GetAllocator() const
+        { return mSet.GetAllocator(); }
+    void Clear()
+        { mSet.Clear(); }
+    size_t GetSize() const
+        { return mSet.GetSize(); }
+    bool IsEmpty() const 
+        { return mSet.IsEmpty(); }
+    void Swap(
+        LinearHashSet& inOther)
+        { mSet.Swap(inOther.mSet); }
+    template<typename SetT>
+    class IteratorT
+    {
+    public:
+        IteratorT(SetT& inSet)
+            : mIterator(inSet.mSet)
+            {}
+        const Key* Next()
+        {
+            const KeyVal* const thePtr = mIterator.Next();
+            return (thePtr ? &thePtr->GetKey() : 0);
+        }
+    private:
+        typename HashSet::ConstIterator mIterator;
+    };
+    friend class IteratorT<LinearHashSet>;
+    friend class IteratorT<const LinearHashSet>;
+    typedef IteratorT<LinearHashSet>       Iterator;
+    typedef IteratorT<const LinearHashSet> ConstIterator;
 };
 
 }

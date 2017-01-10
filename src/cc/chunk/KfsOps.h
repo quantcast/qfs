@@ -2231,7 +2231,6 @@ struct HelloMetaOp : public KfsOp {
     int                      resumeStep;
     uint64_t                 deletedCount;
     uint64_t                 modifiedCount;
-    uint64_t                 deletedReport;
     uint64_t                 chunkCount;
     CIdChecksum              checksum;
     ChunkIds                 resumeModified;
@@ -2267,7 +2266,6 @@ struct HelloMetaOp : public KfsOp {
           resumeStep(-1),
           deletedCount(0),
           modifiedCount(0),
-          deletedReport(0),
           chunkCount(0),
           checksum(),
           resumeModified(),
