@@ -1454,7 +1454,7 @@ inline bool
 ChunkManager::InsertLastInFlight(kfsChunkId_t chunkId)
 {
     bool insertedFlag = false;
-    mLastPendingInFlight.Insert(chunkId, chunkId, insertedFlag);
+    mLastPendingInFlight.Insert(chunkId, insertedFlag);
     return insertedFlag;
 }
 
@@ -5777,13 +5777,12 @@ ChunkManager::GetHostedChunksResume(
         // Tell meta server to exclude last in flight and all non stable chunks
         // from checksum.
         for (mLastPendingInFlight.First(); ;) {
-            const LastPendingInFlightEntry* const p =
-                mLastPendingInFlight.Next();
+            const kfsChunkId_t* const p = mLastPendingInFlight.Next();
             if (! p) {
                 break;
             }
             (*missing.first)++;
-            (*missing.second) << ' ' << p->GetKey();
+            (*missing.second) << ' ' << *p;
         }
         for (mChunkTable.First(); ;) {
             const CMapEntry* const p = mChunkTable.Next();
@@ -5859,7 +5858,6 @@ ChunkManager::GetHostedChunksResume(
     // Pending in flight will be re-submitted again after hello completion,
     // in flight chunks have already been removed from inventory count and
     // checksum.
-    LastPendingInFlight lastPendingNotReported;
     LastPendingInFlight alreadyHandled;
     for (int pass = 0; pass < 2; pass++) {
         const HelloMetaOp::ChunkIds&                ids       =
@@ -5868,18 +5866,11 @@ ChunkManager::GetHostedChunksResume(
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId    = *it;
             bool               uniqueFlag = false;
-            alreadyHandled.Insert(chunkId, chunkId, uniqueFlag);
-            // Meta server excludes pending in flight.
-            const bool inFlightFlag = mLastPendingInFlight.Find(chunkId) != 0;
-            if (inFlightFlag) {
-                if (lastPendingNotReported.IsEmpty()) {
-                    lastPendingNotReported = mLastPendingInFlight;
-                }
-                lastPendingNotReported.Erase(chunkId);
-            }
+            alreadyHandled.Insert(chunkId, uniqueFlag);
             if (! uniqueFlag) {
                 continue; // already handled.
             }
+            const bool inFlightFlag = mLastPendingInFlight.Find(chunkId) != 0;
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
                 if (0 < pass) {
@@ -5919,18 +5910,19 @@ ChunkManager::GetHostedChunksResume(
                 **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
-    if (0 <= hello.resumeStep && ! mLastPendingInFlight.IsEmpty()) {
+    if (0 <= hello.resumeStep) {
         // Report last pending in flight here in order to insure that
         // meta server has no stale entries, in the cases where available
         // chunks become un-available again.
-        LastPendingInFlight& pending = lastPendingNotReported.IsEmpty() ?
-            mLastPendingInFlight : lastPendingNotReported;
-        for (pending.First(); ;) {
-            const LastPendingInFlightEntry* const p = pending.Next();
+        for (mLastPendingInFlight.First(); ;) {
+            const kfsChunkId_t* const p = mLastPendingInFlight.Next();
             if (! p) {
                 break;
             }
-            const kfsChunkId_t chunkId = p->GetKey();
+            const kfsChunkId_t chunkId = *p;
+            if (alreadyHandled.Find(chunkId)) {
+                continue;
+            }
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
                 (*missing.first)++;
@@ -6038,12 +6030,11 @@ ChunkManager::GetHostedChunksResume(
             mLastPendingInFlight.GetSize() <<
         "]:";
         for (mLastPendingInFlight.First(); os;) {
-            const LastPendingInFlightEntry* const p =
-                mLastPendingInFlight.Next();
+            const kfsChunkId_t* const p = mLastPendingInFlight.Next();
             if (! p) {
                 break;
             }
-            os << ' ' << p->GetKey();
+            os << ' ' << *p;
         }
         os << "\nchunks[" << mChunkTable.GetSize() << "]:\n";
         size_t helloNotifyCnt = 0;

@@ -971,15 +971,14 @@ private:
     PendingNotifyLostChunks mPendingNotifyLostChunks;
     CorruptChunkOp          mCorruptChunkOp;
 
-    typedef KeyOnly<kfsChunkId_t> LastPendingInFlightEntry;
-    typedef LinearHash<
-        LastPendingInFlightEntry,
+    typedef LinearHashSet<
+        kfsChunkId_t,
         KeyCompare<kfsChunkId_t>,
         DynamicArray<
-            SingleLinkedList<LastPendingInFlightEntry>*,
+            SingleLinkedList<KeyOnly<kfsChunkId_t> >*,
             9
         >,
-        StdFastAllocator<LastPendingInFlightEntry>
+        StdFastAllocator<KeyOnly<kfsChunkId_t> >
     > LastPendingInFlight;
     LastPendingInFlight mLastPendingInFlight;
     bool                mCleanupStaleChunksFlag;
