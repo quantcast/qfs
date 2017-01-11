@@ -656,11 +656,11 @@ struct MakeChunkStableOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def2("File-handle",    "P",  &MakeChunkStableOp::fileId,        kfsFileId_t(-1))
-        .Def2("Chunk-handle",   "H",  &MakeChunkStableOp::chunkId,       kfsChunkId_t(-1))
-        .Def2("Chunk-version",  "V",  &MakeChunkStableOp::chunkVersion,  int64_t(-1))
-        .Def2("Chunk-size",     "S",  &MakeChunkStableOp::chunkSize,     int64_t(-1))
-        .Def2("Chunk-checksum", "CS", &MakeChunkStableOp::checksumVal)
+        .Def2("File-handle",    "P", &MakeChunkStableOp::fileId,       kfsFileId_t(-1))
+        .Def2("Chunk-handle",   "H", &MakeChunkStableOp::chunkId,      kfsChunkId_t(-1))
+        .Def2("Chunk-version",  "V", &MakeChunkStableOp::chunkVersion, int64_t(-1))
+        .Def2("Chunk-size",     "S", &MakeChunkStableOp::chunkSize,    int64_t(-1))
+        .Def2("Chunk-checksum", "K", &MakeChunkStableOp::checksumVal)
         ;
     }
 private:
@@ -951,7 +951,7 @@ struct StaleChunksOp : public KfsOp {
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
-            "stale chunks:"
+            "stale-chunks:"
             " seq: "       << seq <<
             " count: "     << numStaleChunks <<
             " evacuated: " << evacuatedFlag <<
@@ -1870,7 +1870,7 @@ struct ChunkSpaceReserveOp : public KfsClientChunkOp {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "space reserve:"
+            "space-reserve:"
             " seq: "     << seq <<
             " chunk: "   << chunkId <<
             " version: " << chunkVersion <<
@@ -1905,7 +1905,7 @@ struct ChunkSpaceReleaseOp : public KfsClientChunkOp {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "space release:"
+            "space-release:"
             " seq: "     << seq <<
             " chunk: "   << chunkId <<
             " version: " << chunkVersion <<
@@ -2013,7 +2013,7 @@ struct PingOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "monitoring ping:"
+            "monitoring-ping:"
             " seq: " << seq
         ;
     }
@@ -2042,7 +2042,7 @@ struct DumpChunkMapOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "dump chunk map:"
+            "dump-chunk-map:"
             "seq: " << seq
         ;
     }
@@ -2066,7 +2066,7 @@ struct StatsOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "monitoring stats:"
+            "monitoring-stats:"
             " seq: " << seq
         ;
     }
@@ -2336,12 +2336,14 @@ struct CorruptChunkOp : public KfsOp {
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os <<
-            "corrupt chunk:"
+        os <<
+            "corrupt-chunk:"
             " seq: "   << seq <<
-            " count: " << chunkCount <<
-            " chunk: " << chunkIds[0]
-        ;
+            " chunks[" << chunkCount << "]:";
+        for (int i = 0; i < chunkCount; i++) {
+            os << " " << chunkIds[i];
+        }
+        return os;
     }
 };
 
@@ -2409,7 +2411,7 @@ struct EvacuateChunksOp : public KfsOp {
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "evacuate chunks: seq: " << seq;
+        os << "evacuate-chunks: seq: " << seq;
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunkIds[i];
         }
@@ -2446,7 +2448,7 @@ struct AvailableChunksOp : public KfsOp {
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "available chunks:"
+        os << "available-chunks:"
             " seq: "   << seq <<
             " end: "   << endOfNotifyFlag <<
             " count: " << numChunks

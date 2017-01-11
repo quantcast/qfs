@@ -1024,6 +1024,9 @@ MetaServerSM::Impl::FailOps(bool wasPrimaryFlag)
         KfsOp* op;
         while ((op = doneOps.PopFront())) {
             op->status = -EHOSTUNREACH;
+            KFS_LOG_STREAM_DEBUG <<
+                "failing cs request: " << op->Show() <<
+            KFS_LOG_EOM;
             SubmitOpResponse(op);
         }
         if (mPendingOps.IsEmpty()) {
@@ -1251,7 +1254,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 KFS_LOG_STREAM_ERROR << mLocation <<
                     " meta reply no op found for: " << reply <<
                 KFS_LOG_EOM;
-                Error("protocol invalid sequence");
+                Error("no op with such sequence");
                 return false;
             }
             op = iter->second;

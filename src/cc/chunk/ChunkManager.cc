@@ -1510,16 +1510,17 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
     }
     mCorruptChunkOp.notifyChunkManagerFlag = false;
     bool upFlag = gMetaServerSM.IsUp();
-    if (upFlag) {
-        if (IsMetaLogWriteOrVrError(op.status)) {
-            // Handle transaction log write error by retrying.
-            ScheduleNotifyLostChunk();
-            return;
-        }
-        if (0 != op.status) {
-            ForceMetaServerDown(op);
-            upFlag = false;
-        }
+    KFS_LOG_STREAM_DEBUG <<
+        "done:"
+        " seq: "     << mCorruptChunkOp.seq <<
+        " status: "  << mCorruptChunkOp.status <<
+        " "          << mCorruptChunkOp.statusMsg <<
+        " meta up: " << upFlag <<
+        " "          << mCorruptChunkOp.Show() <<
+    KFS_LOG_EOM;
+    if (upFlag && 0 != op.status) {
+        ForceMetaServerDown(op);
+        upFlag = false;
     }
     if (! upFlag) {
         while (0 < mCorruptChunkOp.chunkCount) {
@@ -5863,8 +5864,6 @@ ChunkManager::GetHostedChunksResume(
     for (int pass = 0; pass < 2; pass++) {
         const HelloMetaOp::ChunkIds&                ids       =
             pass == 0 ? hello.resumeDeleted : hello.resumeModified;
-        HelloMetaOp::ChunkIds::const_iterator const reportEnd =
-            ids.end();
         for (HelloMetaOp::ChunkIds::const_iterator
                 it = ids.begin(); it != ids.end(); ++it) {
             const kfsChunkId_t chunkId    = *it;
@@ -5916,17 +5915,8 @@ ChunkManager::GetHostedChunksResume(
                 checksum.Remove(chunkId, vers);
                 count--;
             }
-            if (it < reportEnd) {
-                AppendToHostedList(
-                    **cih, stable, notStableAppend, notStable, noFidsFlag);
-            } else {
-                const bool forceDeleteFlag = true;
-                StaleChunk(*cih, forceDeleteFlag);
-                if(inFlightFlag) {
-                    mLastPendingInFlight.Erase(chunkId);
-                    lastPendingNotReported.Erase(chunkId);
-                }
-            }
+            AppendToHostedList(
+                **cih, stable, notStableAppend, notStable, noFidsFlag);
         }
     }
     if (0 <= hello.resumeStep && ! mLastPendingInFlight.IsEmpty()) {
@@ -6227,14 +6217,6 @@ ChunkManager::HelloNotifyDone(int code, void* data)
     }
     if (0 != op.status) {
         if (gMetaServerSM.IsUp()) {
-            if (IsMetaLogWriteOrVrError(op.status)) {
-                // Handle transaction log write error by retrying.
-                mHelloNotifyInFlightCount += op.numChunks;
-                op.status = 0;
-                op.statusMsg.clear();
-                gMetaServerSM.EnqueueOp(&op);
-                return 0;
-            }
             ForceMetaServerDown(op);
         }
         for (int i = 0; i < op.numChunks; i++) {
@@ -7595,19 +7577,13 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
         return -EINVAL;
     }
     availableChunksOpInFlightFlag = false;
-    if (0 != availableChunksOp.status &&
-            ! IsMetaLogWriteOrVrError(availableChunksOp.status) &&
-            gMetaServerSM.IsUp()) {
+    if (0 != availableChunksOp.status && gMetaServerSM.IsUp()) {
         ForceMetaServerDown(availableChunksOp);
     }
     // Re-queue to handle meta server transaction log failure.
     // If meta server connection went down then add chunks to last in flight
     // chunks regardless of the status in order for hello resume to succeed.
     const bool metaDownFlag = ! gMetaServerSM.IsUp();
-    const bool requeueFlag  = ! metaDownFlag &&
-        ! notifyAvailableChunksStartFlag &&
-        0 <= availableSpace &&
-        IsMetaLogWriteOrVrError(availableChunksOp.status);
     const bool kIgnorePendingAvailableFlag = true;
     for (int i = 0; i < availableChunksOp.numChunks; i++) {
         const kfsChunkId_t chunkId = availableChunksOp.chunks[i].first;
@@ -7638,18 +7614,7 @@ ChunkManager::ChunkDirInfo::AvailableChunksDone(int code, void* data)
             }
             continue;
         }
-        if (requeueFlag) {
-            DirChecker::ChunkInfo ci;
-            ci.mFileId       = cih->chunkInfo.fileId;
-            ci.mChunkId      = cih->chunkInfo.chunkId;
-            ci.mChunkVersion = cih->chunkInfo.chunkVersion;
-            ci.mChunkSize    = cih->chunkInfo.chunkSize;
-            if (gChunkManager.Remove(*cih)) {
-                availableChunks.PushBack(ci);
-            }
-        } else {
-            cih->SetPendingAvailable(false); // Completion.
-        }
+        cih->SetPendingAvailable(false); // Completion.
     }
     availableChunksOp.numChunks = 0;
     NotifyAvailableChunks();
