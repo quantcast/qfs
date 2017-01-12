@@ -1289,50 +1289,140 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 # chunkServer.diskQueue.<object-store-directory-prefix>ssl.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 
+# ================= Trasaction log writer. ====================================
+
+# Start new transaction log segment every 600 (default) seconds.
+# Default is 600 sec..
+# metaServer.log.rotateIntervalSec = 600
+
+# Log segment size limit.
+# Default 8MB.
+# metaServer.log.logFileMaxSize = 8388608
+
+# Issue fsync() after every log block write.
+# Default is off, to minimize log / RPC latency.
+# metaServer.log.sync = 0
+
+# ================= Meta data (checkpoint and trasaction log) store. ==========
+
+# Number of past checkpoints, and the corresponding transaction log segments to
+# keep.
+# Meta server deletes prior checkpoints and log segments, every time when new
+# checkpoint successfully.created.
+# The default is 16.
+# metaServer.dataStore.maxCheckpointsToKeepCount = 16
+
+# Do not cleanoup, older checkpoint and log files, unless these have not been
+# accessed in the last 60 (default) seconds.
+# metaServer.dataStore.maxInactiveTime = 60
+
+# Data store disk IO thread count -- number of threads to fetch data from disk
+# when serving other nodes meta data read requests.
+# Default is 1.
+# metaServer.dataStore.threadCount = 1
+
+# Read RPC request size limit.
+# metaServer.dataStore.maxReadSize = 2097152
+
 # ==================== Meta Server Viewstamped Replication =====================
 
-# Meta server meta data initial fetch / synchronization.
+# Meta server VR (viewstamped replication) node ID.
+# The node IDs must be unique, and should never be reused, in order to ensure
+# all VR node IDs are unique. Duplicate node IDs might result in loss of the
+# file system.
+# Valid node ID must be equal or greater than 0.
+# Default is -1, no valid node ID assigned.
+# metaServer.vr.id = -1
 
-# File system ID, required for initial meta data fetch to work.
+# Host name to VR node ID map.
+# Use only if host names guaranteed to be unique.
+# The list must be space separated pairs. For example:
+# host_name_1 0 host_name_2 1 host_name_3 2
+# Default is none.
+# metaServer.vr.hostnameToId =
+
+# List of valid meta server executable md5
+# If the list is empty, meta executable md5 must be included in this list in
+# order to be able to communicate with other VR nodes..
+# Default is empty list.
+# metaServer.metaMds =
+
+# Sync (fsync) VR state file to disk (persistent store).
+# Default is on.
+# metaServer.vr.syncVrStateFile = 1
+
+# Node must have valid VR state file in order to be able to form VR quorum.
+# The state include node ID, and reflects node's replicated transaction log
+# state.
+# The only case where this might need to be changed is in the case of attempting
+# to recover from the meta data loss, where VR state files were lost on more
+# than quorum nodes.
+# Default is off.
+# metaServer.vr.ignoreInvalidVrState = 0
+
+# This node client listener, if it differs different than the IP returned by
+# getpeername() on the other VR nodes, and/or metaServer.clientIp
+# The port should be the same as this node metaServer.clientPort.
+# In other words, this is IP ad port that other VR nodes must use to connect to
+# this node client listener. 
 # Default is empty.
+# metaServer.vr.metaDataStoreLocation =
+
+# ------------ Meta meta data initial fetch / synchronization. -----------------
+
+# File system ID, required for initial (when no checkpoint exists) meta
+# data fetch to work.
+# Default is no valid file system id.
 # metaServer.metaDataSync.fileSystemId =
 
 # List of meta server nodes IPs and / or host names, or meta server DNS name
 # which resolves to the list of the meta server nodes.
 # metaServer.metaDataSync.servers =
 
-# Meta server transaction log receiver listener configuration.
-# For example to configure ipv4 listener on all hosted IP addresses, and port
-# 1234:
-# metaServer.log.receiver.listenOn = 0.0.0.0 1234
-# By default transaction log listener is disabled.
-# metaServer.log.receiver.listenOn =
-
-# Meta server VR (viewstamped replication) node ID.
-# The node IDs must be unique, and should never be reused.
-# Valid node ID must be equal or greater than 0.
-# metaServer.vr.id = -1
-
-# Pairs of host name and VR node id. This parameter can be used to set node id
-# from host name.
-# metaServer.vr.hostnameToId =
-
-# metaServer.metaDataSync.fileSystemId =
+# Meta data read parameters. Read size multiplied by read ops count define
+# amount of data in flight. The default is 1MB which would normally be greater
+# than bandwidth delay product, including spinning media (disk) latency in a
+# cluster environment.
 # metaServer.metaDataSync.maxReadSize = 65536
 # metaServer.metaDataSync.maxReadOpsCount = 16
+
+# Maximum transaction log block size.
+# The intention is to avoid possible out of buffers due to bogus / corrupted
+# data.
+# Default is 64MB
 # metaServer.metaDataSync.maxLogBlockSize = 67108864
+
+# File name where fetch state is stored in case if meta server process restart
+# is required due to need to fetch checkpoint.
 # metaServer.metaDataSync.fetchOnRestartFileName = metadatafetch
+
+# Temporary files suffix.
+# Default .tmp
 # metaServer.metaDataSync.tmpSuffix = .tmp
+
+# Max data fetch retry attempts, and timeout, and other retry parameters.
 # metaServer.metaDataSync.maxRetryCount = 10
 # metaServer.metaDataSync.retryTimeout = 3
-# metaServer.metaDataSync.writeSync = 1
-# metaServer.metaDataSync.minWriteSize = 4194304
 # metaServer.metaDataSync.maxReadOpRetryCount = 8
-# metaServer.metaDataSync.keepLogSegmentsInterval = 10
 # metaServer.metaDataSync.readOpTimeoutSec = 10
 # metaServer.metaDataSync.maxOpRetryCount = 10
 # metaServer.metaDataSync.maxOpLogWriteRetryCount = 0
 # metaServer.metaDataSync.timeBetweenRetries = 4
+
+# Meta data write disk sync. With sufficiently large requests, sync mode helps to
+# reduce host OS memory contention by minimizing write behind, and number of VM
+# dirty pages.
+# Default is on.
+# metaServer.metaDataSync.writeSync = 1
+
+# Ssize of amount of data to buffer before issing disk write request.
+# Default is 4MB
+# metaServer.metaDataSync.minWriteSize = 4194304
+
+# Issue reads, while loading checkpoint, and replaying logs, in order to
+# ensure that subsequent log segments are not going to be deleted / reclaimed by
+# by the node that the data is fetched from.
+# metaServer.metaDataSync.keepLogSegmentsInterval = 10
 
 # Meta server node acts as QFS client when fetches data from other meta
 # server node, and when it transmits transaction log. For parameters description
@@ -1362,9 +1452,18 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.metaDataSync.auth.psk.keyId =
 # metaServer.metaDataSync.auth.psk.key =
 
-# Meta server transaction log transmitter (used for viewstamped replication)
-# authentication.
+# --------- Transaction log transmitter (synchronous replication). -------------
+
+# Time between connect attempts.
+# Default 2 sec.
+# metaServer.log.transmitter.retryInterval = 2
+
+# Authentication.
 # By default log transmitter authentication is off.
+
+# Autentication types to use
+# Default any available, if configured.
+# metaServer.log.transmitter.authType = Krb5 X509 PSK
 #
 # metaServer.log.transmitter.auth.X509.X509PemFile =
 # metaServer.log.transmitter.auth.X509.X509Password =
@@ -1386,9 +1485,24 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.log.transmitter.auth.psk.keyId =
 # metaServer.log.transmitter.auth.psk.key =
 
+# ---------- Transaction log receiver listener configuration. ------------------
+
+# For example to configure ipv4 listener on all hosted IP addresses, and port
+# 1234:
+# metaServer.log.receiver.listenOn = 0.0.0.0 1234
+# By default transaction log listener is disabled.
+# metaServer.log.receiver.listenOn =
+
+# Listen only on IPv6 address, if IPv6 listen on address is used.
+# Default is off.
+# metaServer.log.receiver.ipV6Only = 0
+
+# Connections limit from log transmitters.
+# Default is 8192.
+# metaServer.log.maxConnectionCount = 8192
+
 # Meta server log receiver authentication.
 # By default log receiver authentication is off.
-# Meta server transaction log receiver authentication.
 # For parameters description please see chunk server authentication section in
 # this file.
 #
