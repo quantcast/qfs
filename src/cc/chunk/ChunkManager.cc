@@ -1512,7 +1512,6 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
     bool upFlag = gMetaServerSM.IsUp();
     KFS_LOG_STREAM_DEBUG <<
         "done:"
-        " seq: "     << mCorruptChunkOp.seq <<
         " status: "  << mCorruptChunkOp.status <<
         " "          << mCorruptChunkOp.statusMsg <<
         " meta up: " << upFlag <<
@@ -5203,9 +5202,11 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
         " corrupted: " << mCounters.mCorruptedChunksCount <<
     KFS_LOG_EOM;
     if (0 <= cih->chunkInfo.chunkVersion) {
-        bool stableFlag = false;
-        NotifyLostChunk(
-            cih->chunkInfo.chunkId, cih->GetTargetStateAndVersion(stableFlag));
+        if (! cih->IsBeingReplicated()) {
+            bool stableFlag = false;
+            NotifyLostChunk(cih->chunkInfo.chunkId,
+                cih->GetTargetStateAndVersion(stableFlag));
+        }
         // Meta server automatically cleans up leases for corrupted chunks.
         gLeaseClerk.UnRegisterLease(cih->chunkInfo.chunkId,
             cih->chunkInfo.chunkVersion);
@@ -5870,7 +5871,6 @@ ChunkManager::GetHostedChunksResume(
             if (! uniqueFlag) {
                 continue; // already handled.
             }
-            const bool inFlightFlag = mLastPendingInFlight.Find(chunkId) != 0;
             ChunkInfoHandle** const cih = mChunkTable.Find(chunkId);
             if (! cih || (*cih)->IsBeingReplicated()) {
                 if (0 < pass) {
@@ -5878,7 +5878,7 @@ ChunkManager::GetHostedChunksResume(
                     (*missing.second) << ' ' << chunkId;
                 }
                 const kfsSeq_t* vers;
-                if (! cih && ! inFlightFlag &&
+                if (! mLastPendingInFlight.Find(chunkId) &&
                         (vers = mPendingNotifyLostChunks.Find(chunkId)) &&
                         0 < *vers) {
                     if (count <= 0) {
@@ -5897,7 +5897,8 @@ ChunkManager::GetHostedChunksResume(
                 // reported already the above.
                 continue;
             }
-            if (! inFlightFlag && ! IsPendingHelloNotify(**cih)) {
+            if (! mLastPendingInFlight.Find(chunkId) &&
+                    ! IsPendingHelloNotify(**cih)) {
                 if (count <= 0) {
                     die("invalid CS chunk inventory count");
                     hello.resumeStep = -1;

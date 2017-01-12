@@ -616,7 +616,10 @@ RemoteSyncSM::HandleEvent(int code, void *data)
     case EVENT_INACTIVITY_TIMEOUT:
         // If there is an error or there is no activity on the socket
         // for N mins, we close the connection.
-        SYNC_SM_LOG_STREAM_INFO << "closing connection due to " << reason <<
+        SYNC_SM_LOG_STREAM_INFO <<
+            "closing connection due to " << reason <<
+            " " << ((mNetConnection && EVENT_INACTIVITY_TIMEOUT != code) ?
+                mNetConnection->GetErrorMsg() : string()) <<
         KFS_LOG_EOM;
         if (mNetConnection) {
             mNetConnection->Close();
@@ -715,9 +718,7 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
             op->shortRpcFormatFlag = prevShortRpcFormatFlag;
             if (! okFlag && 0 <= status) {
                 SYNC_SM_LOG_STREAM_ERROR <<
-                    "invalid response:"
-                    " seq: " << op->seq <<
-                    " "      << op->Show() <<
+                    "invalid response: " << op->Show() <<
                 KFS_LOG_EOM;
                 ResetConnection();
                 return false;

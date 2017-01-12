@@ -200,7 +200,7 @@ public:
         NetManager& inNetManager)
         : ITimeout(),
           mWorkersPtr(0),
-          mWorkersCount(0),
+          mWorkersCount(1),
           mDoneCount(0),
           mMutex(),
           mStopFlag(false),

@@ -907,10 +907,11 @@ struct HeartbeatOp : public KfsOp {
     void Execute();
     void Response(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
-        if (cmdShow.empty()) {
-            return os << "heartbeat";
-        }
-        return os << cmdShow;
+        return os <<
+            "heartbeat:"
+            " seq: " << seq <<
+            (cmdShow.empty() ? "" : " ") << cmdShow
+        ;
     }
     virtual void ResponseContent(IOBuffer*& buf, int& size) {
         buf  = status >= 0 ? &response : 0;
@@ -987,7 +988,10 @@ struct RetireOp : public KfsOp {
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta-server is telling us to retire";
+        return os <<
+            "retire: "
+            "seq: " << seq
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -1669,6 +1673,7 @@ struct ReadChunkMetaOp : public KfsOp {
     {
         return os <<
             "read-chunk-meta:"
+            " seq: "     << seq <<
             " chunk: "   << chunkId <<
             " version: " << chunkVersion
         ;
@@ -1768,6 +1773,7 @@ struct ReadOp : public KfsClientChunkOp {
     {
         return os <<
             "read:"
+            " seq: "      << seq <<
             " chunk: "    << chunkId <<
             " version: "  << chunkVersion <<
             " offset: "   << offset <<
@@ -2043,7 +2049,7 @@ struct DumpChunkMapOp : public KfsOp {
     {
         return os <<
             "dump-chunk-map:"
-            "seq: " << seq
+            " seq: " << seq
         ;
     }
     template<typename T> static T& ParserDef(T& parser)
@@ -2411,7 +2417,11 @@ struct EvacuateChunksOp : public KfsOp {
     void Execute() {}
     virtual ostream& ShowSelf(ostream& os) const
     {
-        os << "evacuate-chunks: seq: " << seq;
+        os <<
+            "evacuate-chunks:"
+            " seq: "   << seq <<
+            " chunks[" << numChunks << "]:"
+        ;
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunkIds[i];
         }
@@ -2451,7 +2461,7 @@ struct AvailableChunksOp : public KfsOp {
         os << "available-chunks:"
             " seq: "   << seq <<
             " end: "   << endOfNotifyFlag <<
-            " count: " << numChunks
+            " chunks[" << numChunks << "]:"
         ;
         for (int i = 0; i < numChunks; i++) {
             os << " " << chunks[i].first << "." << chunks[i].second;
@@ -2499,7 +2509,10 @@ struct RestartChunkServerOp : public KfsOp {
     virtual void Execute();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "restart";
+        return os <<
+            "restart: "
+            " seq: " << seq
+        ;
     }
     template<typename T> static T& ParserDef(T& parser)
     {
@@ -2546,7 +2559,9 @@ struct AuthenticateOp : public KfsOp {
     }
     virtual void Request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const {
-        return os << "authenticate:"
+        return os <<
+            "authenticate:"
+            " seq: "       << seq <<
             " requested: " << requestedAuthType <<
             " chosen: "    << chosenAuthType <<
             " ssl: "       << (useSslFlag ? 1 : 0) <<

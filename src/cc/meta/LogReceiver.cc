@@ -133,7 +133,7 @@ public:
             "reAuthTimeout"), mReAuthTimeout);
         mIpV6OnlyFlag = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
-            "ipV6OnlyFlag"), mIpV6OnlyFlag ? 1 : 0) != 0;
+            "ipV6Only"), mIpV6OnlyFlag ? 1 : 0) != 0;
         mMaxReadAhead = max(512, min(64 << 20, inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
             "maxReadAhead"), mMaxReadAhead)));

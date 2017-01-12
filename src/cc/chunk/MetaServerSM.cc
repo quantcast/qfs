@@ -1115,9 +1115,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             if (! mAuthOp->ParseResponse(prop, iobuf) && 0 <= status) {
                 KFS_LOG_STREAM_ERROR << mLocation <<
-                    " invalid meta reply response:"
-                    " seq: "         << op->seq <<
-                    " "              << op->Show() <<
+                    " invalid meta reply response: " << op->Show() <<
                 KFS_LOG_EOM;
                 Error("invalid meta server response");
                 return false;
@@ -1264,9 +1262,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             if (! op->ParseResponse(prop, iobuf) && 0 <= status) {
                 KFS_LOG_STREAM_ERROR << mLocation <<
-                    " invalid meta reply response:"
-                    " seq: "         << op->seq <<
-                    " "              << op->Show() <<
+                    " invalid meta reply response: " << op->Show() <<
                 KFS_LOG_EOM;
                 Error("meta response parse error");
                 return false;
@@ -1293,10 +1289,10 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         if (! ok) {
             KFS_LOG_STREAM_ERROR << mLocation <<
                 " invalid meta reply response content:"
-                " seq: "         << op->seq <<
-                " msg: "         << op->statusMsg <<
-                " "              << op->Show() <<
-                " content len: " << len <<
+                " len: "    << len <<
+                " status: " << op->status <<
+                " "         << op->statusMsg <<
+                " "         << op->Show() <<
             KFS_LOG_EOM;
             Error("response body parse error");
             return false;
@@ -1317,9 +1313,9 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         mDispatchedOps.erase(op->seq);
     }
     KFS_LOG_STREAM_DEBUG << mLocation <<
-        " recv meta reply:"
-        " seq: "    << op->seq <<
+        " cs reply:"
         " status: " << op->status <<
+        " "         << op->statusMsg <<
         " "         << op->Show() <<
     KFS_LOG_EOM;
     // The op will be gotten rid of by this call.
@@ -1400,9 +1396,7 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
     mLastRecvCmdTime = globalNetManager().Now();
     op->clnt = this;
     KFS_LOG_STREAM_DEBUG << mLocation <<
-        " recv meta cmd:"
-        " seq: " << op->seq <<
-        " "      << op->Show() <<
+        " meta request: " << op->Show() <<
     KFS_LOG_EOM;
     if (! mAuthOp && CMD_HEARTBEAT == op->op && mNetConnection) {
         const HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
@@ -1423,9 +1417,7 @@ MetaServerSM::Impl::Request(KfsOp& op)
     op.initialShortRpcFormatFlag = op.shortRpcFormatFlag;
     op.status                    = 0;
     KFS_LOG_STREAM_DEBUG << mLocation <<
-        " cs request:"
-        " seq: " << op.seq <<
-        " "      << op.Show() <<
+        " cs request: " << op.Show() <<
     KFS_LOG_EOM;
     IOBuffer&  ioBuf = mNetConnection->GetOutBuffer();
     ReqOstream ros(mWOStream.Set(ioBuf));
@@ -1442,7 +1434,7 @@ MetaServerSM::Impl::Request(KfsOp& op)
         KFS_LOG_EOM;
         while (getline(is, line)) {
             KFS_LOG_STREAM_DEBUG << mLocation << " " << self <<
-                " request: " << line <<
+                " cs request: " << line <<
             KFS_LOG_EOM;
         }
     }
@@ -1486,11 +1478,10 @@ MetaServerSM::Impl::SendResponse(KfsOp* op)
     const bool discardFlag = ! mSentHello ||
         op->generation != mGenerationCount || ! IsConnected();
     KFS_LOG_STREAM_DEBUG << mLocation <<
-        (discardFlag ? " discard" : " send") <<
+        (discardFlag ? " discard" : "") <<
         " meta reply:"
-        " seq: "     << op->seq <<
-        (op->statusMsg.empty() ? "" : " msg: ") << op->statusMsg <<
         " status: "  << op->status <<
+        " "          << op->statusMsg <<
         " "          << op->Show() <<
     KFS_LOG_EOM;
     if (discardFlag) {

@@ -276,13 +276,12 @@ ClientSM::SendResponseSelf(KfsOp& op)
                 (op.op == CMD_SPC_RESERVE && op.status == -ENOSPC)) ?
             (tooLong ? MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelDEBUG) :
             MsgLogger::kLogLevelERROR) <<
-        "-seq: "       << op.seq <<
+        "-req:"
         " status: "    << op.status <<
+        " "            << op.statusMsg <<
         " buffers: "   << GetByteCount() <<
-        " " << op.Show() <<
-        (op.statusMsg.empty() ? "" : " msg: ") << op.statusMsg <<
-        (tooLong ? " RPC too long " : " took: ") <<
-            timespent << " usec." <<
+        " "            << op.Show() <<
+        (tooLong ? " RPC too long " : " took: ") << timespent << " usec." <<
     KFS_LOG_EOM;
     IOBuffer& buf    = mNetConnection->GetOutBuffer();
     const int reqPos = buf.BytesConsumable();
@@ -841,7 +840,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
             return false;
         }
         CLIENT_SM_LOG_STREAM_DEBUG <<
-            "+seq: " << op->seq << " " << op->Show() <<
+            "+req: " << op->Show() <<
         KFS_LOG_EOM;
         if (IsAccessEnforced() &&
                 mDelegationToken.GetIssuedTime() +

@@ -648,6 +648,7 @@ ChunkServer::ChunkServer(
             MsgLogger::kLogLevelINFO)<<
         "new ChunkServer " << reinterpret_cast<const void*>(this) <<
         " "         << GetPeerName() <<
+        " seq: "    << mSeqNo <<
         " replay: " << mReplayFlag <<
         " total: "  << sChunkServerCount <<
     KFS_LOG_EOM;
@@ -663,6 +664,7 @@ ChunkServer::~ChunkServer()
         " ~ChunkServer " << reinterpret_cast<const void*>(this) <<
         " "              << GetPeerName() <<
         " / "            << GetServerLocation() <<
+        " seq: "         << mSeqNo <<
         " total: "       << sChunkServerCount <<
     KFS_LOG_EOM;
     if (mNetConnection) {
@@ -1972,6 +1974,10 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
         op->status = -ESERVERBUSY;
         HandleRequest(EVENT_CMD_DONE, op);
     } else {
+        KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+            " +seq: " << op->opSeqno <<
+            " "       << op->Show() <<
+        KFS_LOG_EOM;
         Submit(*op);
     }
     return 0;
@@ -3200,6 +3206,12 @@ ChunkServer::SendResponse(MetaRequest* op)
     if (! mNetConnection || ! mNetConnection->IsGood()) {
         return true;
     }
+    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+        "-seq: "    << op->opSeqno <<
+        " status: " << op->status <<
+        " "         << op->statusMsg <<
+        " "         << op->Show() <<
+    KFS_LOG_EOM;
     IOBuffer& buf = mNetConnection->GetOutBuffer();
     ChunkServerResponse(*op, mOstream.Set(buf), buf);
     mOstream.Reset();
