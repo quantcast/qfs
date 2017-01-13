@@ -3,7 +3,7 @@
  *
  * Author: Thilee Subramaniam
  *
- * Copyright 2012 Quantcast Corp.
+ * Copyright 2012,2016 Quantcast Corporation. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy
@@ -31,6 +31,7 @@
 #include <sys/time.h>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <queue>

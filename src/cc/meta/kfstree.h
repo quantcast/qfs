@@ -8,7 +8,7 @@
  * The tree is a B+ tree with leaves representing the structure
  * of the file system, e.g., directory entries, file attributes, etc.
  *
- * Copyright 2008-2012 Quantcast Corp.
+ * Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
  * Copyright 2006-2008 Kosmix Corp.
  *
  * This file is part of Kosmos File System (KFS).

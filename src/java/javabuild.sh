@@ -2,7 +2,7 @@
 
 # Author: Thilee Subramaniam
 #
-# Copyright 2012 Quantcast Corp.
+# Copyright 2012,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Quantcast File System (QFS).
 #
@@ -62,8 +62,8 @@ if [ $# -eq 1 ]; then
     fi
 fi
 
-qfs_release_version=`sh ../cc/common/buildversgit.sh -v | head -1`
-qfs_source_revision=`sh ../cc/common/buildversgit.sh -v | tail -1`
+qfs_release_version=`sh ../cc/common/buildversgit.sh --release`
+qfs_source_revision=`sh ../cc/common/buildversgit.sh --head`
 if [ x"$qfs_source_revision" = x ]; then
     qfs_source_revision="00000000"
 fi

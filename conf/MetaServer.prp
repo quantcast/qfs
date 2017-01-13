@@ -1,7 +1,7 @@
 #
 # $Id#
 #
-# Copyright 2008-2014 Quantcast Corp.
+# Copyright 2008-2014,2016 Quantcast Corporation. All rights reserved.
 #
 # Author: Mike Ovsiannikov
 #
@@ -18,13 +18,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
+#
+# The metaserver configuration.
+# Additional information can be found in
+# https://github.com/quantcast/qfs/wiki/Configuration-Reference.
 
 # Client listener port.
 metaServer.clientPort = 20000
 
 # Client connection listener ip address to bind to.
 # Use :: to bind to ipv6 address any.
-# Default is empty, treaated as 0.0.0.0 ipv4 address any, unless the following
+# Default is empty, treated as 0.0.0.0 ipv4 address any, unless the following
 # parameter metaServer.clientIpV6Only set to 1
 # metaServer.clientIp =
 
@@ -35,14 +39,14 @@ metaServer.clientPort = 20000
 
 # Chunk server connection listener ip address to bind to.
 # Use :: to bind to ipv6 address any.
-# Default is empty, treaated as 0.0.0.0 ipv4 address any, unless the following
-# parameter metaServer.clientIpV6Only set to 1
-# metaServer.clientIp =
+# Default is empty, treated as 0.0.0.0 ipv4 address any, unless the following
+# parameter metaServer.chunkServerIpV6Only set to 1
+# metaServer.chunkServerIp =
 
 # Accept ipv4 chunk servers connections.
 # Default is 0, enable acception ipv4 connection. Only has effect if
-# metaServer.clientIp left empty, or set to ::
-# metaServer.clientIpV6Only = 0
+# metaServer.chunkServerIp left empty, or set to ::
+# metaServer.chunkServerIpV6Only = 0
 
 # Chunk server listener port.
 metaServer.chunkServerPort = 30000
@@ -60,7 +64,7 @@ metaServer.cpDir = meta/checkpoint
 # automatically creating an empty fs will have the same effect as conventional
 # "mkfs". All chunks (blocks) will get deleted, and restoring the checkpoint
 # and logs later won't be sufficient to recover the data.
-# Use "-c" command line option to create new empty file system. For exampe:
+# Use "-c" command line option to create new empty file system. For example:
 # metaserver -c MetaServer.prp
 # metaServer.createEmptyFs = 0
 
@@ -529,7 +533,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # ---------------------------------- Message log. ------------------------------
 
 # Message log level FATAL, ALERT, CRIT, ERROR, WARN, NOTICE, INFO, DEBUG
-# Defaul is DEBUG, except for non debug builds with NDEBUG defined INFO is
+# Default is DEBUG, except for non debug builds with NDEBUG defined INFO is
 # default.
 metaServer.msgLogWriter.logLevel = INFO
 
@@ -1225,7 +1229,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Note that changing tier assignment for object store directories that already
 # exist and not empty is not supported, as the object store block names include
 # storage tier id. The syntax is the same as for chunkServer.storageTierPrefixes
-# parameter the above.
+# parameter.
 # For example assign s3://aws14. to tier 14, and the other directory, if any,
 # to tier 15
 # chunkServer.objecStorageTierPrefixes = s3://aws14. 14

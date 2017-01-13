@@ -7,7 +7,7 @@
 //         scatter / gather io with readv and writev, make IOBuffer generic scatter
 //         gather list with *SpaceAvailable* methods.
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).

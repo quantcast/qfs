@@ -4,7 +4,7 @@
 // Created 2009/01/17
 // Author: Mike Ovsiannikov
 //
-// Copyright 2009-2012 Quantcast Corp.
+// Copyright 2009-2012,2016 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //
@@ -778,7 +778,7 @@ public:
           mCounters(),
           mDiskErrorSimulatorConfig(inConfig),
           mCpuAffinity(inConfig.getValue(
-            "chunkServer.diskQueue.cpuAffinity", 0)),
+            "chunkServer.diskQueue.cpuAffinity", -1)),
           mDiskQueueTraceFlag(inConfig.getValue(
             "chunkServer.diskQueue.trace", 0) != 0),
           mParameters(inConfig)

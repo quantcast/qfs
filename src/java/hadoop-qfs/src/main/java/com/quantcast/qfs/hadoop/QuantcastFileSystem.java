@@ -83,6 +83,7 @@ public class QuantcastFileSystem extends FileSystem {
           (uri.getAuthority() == null ? "/" : uri.getAuthority()));
       this.workingDir = new Path("/user", System.getProperty("user.name")
                                 ).makeQualified(uri, null);
+      this.qfsImpl.setUMask(FsPermission.getUMask(conf).toShort());
     } catch (Exception e) {
       throw new IOException("Unable to initialize QFS using uri " + uri);
     }
@@ -175,6 +176,16 @@ public class QuantcastFileSystem extends FileSystem {
     }
     return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
       replication, bufferSize, overwrite, permission.toShort());
+  }
+
+  public FSDataOutputStream create(Path file, boolean overwrite,
+          String createParams) throws IOException {
+    Path parent = file.getParent();
+    if (parent != null && !mkdirs(parent)) {
+        throw new IOException("Mkdirs failed to create " + parent);
+    }
+    return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
+            overwrite, createParams);
   }
 
   public FSDataOutputStream createNonRecursive(Path file,

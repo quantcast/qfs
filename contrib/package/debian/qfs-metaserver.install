@@ -1,9 +1,0 @@
-usr/bin/metaserver
-usr/bin/filelister
-usr/bin/qfsfsck
-usr/bin/logcompactor
-#conf/MetaServer.prp /etc/qfs/
-
-#scripts/qfs_backup               /usr/share/qfs/
-scripts/qfs_checkpoint_prune.py  /usr/share/qfs/
-scripts/qfs_log_prune.py         /usr/share/qfs/

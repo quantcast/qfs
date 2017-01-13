@@ -4,7 +4,7 @@
 # Created 2006/10/20
 # Author: Sriram Rao (Kosmix Corp)
 #
-# Copyright 2008-2012 Quantcast Corp.
+# Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 # Copyright 2006 Kosmix Corp.
 #
 # This file is part of Kosmos File System (KFS).
@@ -35,6 +35,7 @@ set (exe_files
     dtokentest
     httpstest
     xmlscannertest
+    net_forwarder_test
 )
 
 #

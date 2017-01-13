@@ -1,3 +1,24 @@
+#
+# $Id$
+#
+# Created 2016/03/31
+#
+# Copyright 2016-2017 Quantcast Corporation. All rights reserved.
+#
+# This file is part of Quantcast File System.
+#
+# Licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+
 # This module can find FUSE Library
 #
 # Requirements:
@@ -169,3 +190,42 @@ fusedebug("FUSE_LIBRARIES")
 fusedebug("FUSE_MAJOR_VERSION")
 fusedebug("FUSE_MINOR_VERSION")
 fusedebug("FUSE_VERSION")
+
+if(NOT FUSE_FOUND)
+    if(${CMAKE_MAJOR_VERSION} EQUAL 2 AND ${CMAKE_MINOR_VERSION} LESS 6)
+        INCLUDE(UsePkgConfig)
+        PKGCONFIG("fuse"
+            FUSE_INCLUDE_DIRS FUSE_LIBRARY_DIRS FUSE_LIBRARIES FUSE_DEFINITIONS)
+        if(DEFINED FUSE_LIBRARIES)
+            set(FUSE_FOUND TRUE)
+            STRING(REGEX REPLACE "-pthread" ""
+                FUSE_LIBRARIES "${FUSE_LIBRARIES}")
+            STRING(REGEX REPLACE " +-l" ";"
+                FUSE_LIBRARIES "${FUSE_LIBRARIES}")
+        endif()
+    else()
+        INCLUDE(FindPkgConfig)
+        pkg_search_module(FUSE "fuse")
+        set(FUSE_DEFINITIONS ${FUSE_CFLAGS} CACHE STRING INTERNAL FORCE)
+    endif()
+    if(FUSE_FOUND)
+        set(FUSE_LIBS_LIST "")
+        foreach(name ${FUSE_LIBRARIES})
+            # Look for this library.
+            find_library(FUSE_${name}_LIBRARY
+                NAMES ${name}
+                PATHS ${FUSE_LIBRARY_DIRS}
+            )
+            # If any library is not found then the whole package is not found.
+            IF(NOT FUSE_${name}_LIBRARY)
+                set(FUSE_FOUND FALSE CACHE BOOL INTERNAL FORCE)
+            endif()
+            list(APPEND FUSE_LIBS_LIST "${FUSE_${name}_LIBRARY}")
+        ENDFOREACH(name)
+        if(FUSE_FOUND)
+            set(FUSE_LIBRARIES ${FUSE_LIBS_LIST} CACHE LIST INTERNAL FORCE)
+        else()
+            set(FUSE_LIBRARIES "")
+        endif()
+    endif()
+endif()

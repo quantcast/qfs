@@ -4,7 +4,7 @@
 # Created 2006
 # Author: Sriram Rao (Kosmix Corp)
 #
-# Copyright 2008-2012 Quantcast Corp.
+# Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 # Copyright 2006 Kosmix Corp.
 #
 # This file is part of Kosmos File System (KFS).
@@ -42,6 +42,7 @@ set (sources
     ECMethod.cc
     QCECMethod.cc
     ECMethodJerasure.cc
+    Monitor.cc
 )
 
 #
@@ -82,11 +83,13 @@ endif (NOT QFS_OMIT_JERASURE)
 target_link_libraries (kfsClient
     kfsIO
     kfsrs
+    ${CMAKE_DL_LIBS}
     ${JERASURE_STATIC_LIBRARIES}
 )
 target_link_libraries (kfsClient-shared
     kfsIO-shared
     kfsrs-shared
+    ${CMAKE_DL_LIBS}
     ${JERASURE_SHARED_LIBRARIES}
 )
 

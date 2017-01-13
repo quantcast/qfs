@@ -3,7 +3,7 @@
  *
  * Created 2007/08/25
  *
- * Copyright 2008-2012 Quantcast Corp.
+ * Copyright 2008-2017 Quantcast Corporation. All rights reserved.
  * Copyright 2007 Kosmix Corp.
  *
  * This file is part of Kosmos File System (KFS).
@@ -123,29 +123,20 @@ public class KfsTest
                     dtoken = null;
                 }
                 if (dtoken != null) {
-                    System.out.println("Token renew after cancellation succeeded");
-                    System.exit(1);
+                    throw new IOException("Token renew after cancellation succeeded");
                 }
             }
 
             if (! kfsAccess.kfs_exists(basedir)) {
-                if (kfsAccess.kfs_mkdirs(basedir) != 0) {
-                    System.out.println("Unable to mkdir");
-                    System.exit(1);
-                }
+                kfsAccess.kfs_retToIOException(kfsAccess.kfs_mkdirs(basedir));
             }
 
-            if (!kfsAccess.kfs_isDirectory(basedir)) {
-                System.out.println("KFS doesn't think " + basedir + " is a dir!");
-                System.exit(1);
+            if (! kfsAccess.kfs_isDirectory(basedir)) {
+                throw new IOException("QFS doesn't think " + basedir + " is a dir!");
 
             }
             String path = new String(basedir + "/foo.1");
-            KfsOutputChannel outputChannel;
-            if ((outputChannel = kfsAccess.kfs_create(path)) == null) {
-                System.out.println("Unable to call create");
-                System.exit(1);
-            }
+            final KfsOutputChannel outputChannel = kfsAccess.kfs_create(path);
 
             long mTime = kfsAccess.kfs_getModificationTime(path);
             Date d = new Date(mTime);
@@ -154,8 +145,7 @@ public class KfsTest
             // test readdir and readdirplus
             String [] entries;
             if ((entries = kfsAccess.kfs_readdir(basedir)) == null) {
-                System.out.println("Readdir failed");
-                System.exit(1);
+                throw new IOException(basedir + ": readdir failed");
             }
 
             System.out.println("Readdir returned: ");
@@ -165,9 +155,8 @@ public class KfsTest
 
             final String absent = basedir + "/must not exist";
             if ((entries = kfsAccess.kfs_readdir(absent)) != null) {
-                System.out.println("kfs_readdir: " + absent +
+                throw new IOException(absent + ": kfs_readdir: " + absent +
                     " non null, size: " + entries.length);
-                System.exit(1);
             }
 
             // write something
@@ -182,37 +171,32 @@ public class KfsTest
             ByteBuffer b = ByteBuffer.wrap(buf, 0, buf.length);
             int res = outputChannel.write(b);
             if (res != buf.length) {
-                System.out.println("Was able to write only: " + res);
+                throw new IOException(
+                    path + ": was able to write only: " + res);
             }
-
             // flush out the changes
             outputChannel.sync();
-
             outputChannel.close();
 
             KfsFileAttr[] fattr;
             if ((fattr = kfsAccess.kfs_readdirplus(basedir)) == null) {
-                System.out.println("kfs_readdirplus failed");
-                System.exit(1);
+                throw new IOException(basedir + ": kfs_readdirplus failed");
             }
-
             System.out.println("kfs_readdirplus returned: ");
             for (int i = 0; i < fattr.length; i++) {
                 System.out.println(attrToString(fattr[i], "\n"));
             }
 
             if ((fattr = kfsAccess.kfs_readdirplus(absent)) != null) {
-                System.out.println("kfs_readdirplus: " + fattr +
+                throw new IOException("kfs_readdirplus: " + fattr +
                     ": non null, size: " + fattr.length);
-                System.exit(1);
             }
 
             System.out.println("Trying to lookup blocks for file: " + path);
 
             String [][] locs;
             if ((locs = kfsAccess.kfs_getDataLocation(path, 10, 512)) == null) {
-                System.out.println("kfs_getDataLocation failed");
-                System.exit(1);
+                throw new IOException(path + ": kfs_getDataLocation failed");
             }
 
             System.out.println("Block Locations:");
@@ -225,12 +209,11 @@ public class KfsTest
             }
 
             if ((locs = kfsAccess.kfs_getBlocksLocation(path, 10, 512)) == null) {
-                System.out.println("kfs_getBlocksLocation failed");
-                System.exit(1);
+                throw new IOException(path + ": kfs_getBlocksLocation failed");
             }
             if (locs.length < 1 || locs[0].length != 1) {
-                System.out.println("kfs_getBlocksLocation invalid first slot length");
-                System.exit(1);
+                throw new IOException(
+                    path + ": kfs_getBlocksLocation invalid first slot length");
             }
             final long blockSize = Long.parseLong(locs[0][0], 16);
             if (blockSize < 0) {
@@ -254,8 +237,7 @@ public class KfsTest
             KfsFileAttr attr = new KfsFileAttr();
             final int ret = kfsAccess.kfs_stat(path, attr);
             if (ret != 0) {
-                System.out.println(path + ": stat failed: " + ret);
-                System.exit(1);
+                throw new IOException(path + ": stat failed: " + ret);
             }
             System.out.println("stat: \n" + attrToString(attr, "\n"));
 
@@ -264,8 +246,7 @@ public class KfsTest
             kfsAccess.kfs_rename(path, npath);
 
             if (kfsAccess.kfs_exists(path)) {
-                System.out.println(path + " still exists after rename!");
-                System.exit(1);
+                throw new IOException(path + " still exists after rename!");
             }
 
             KfsOutputChannel outputChannel1 = kfsAccess.kfs_create(path);
@@ -275,27 +256,24 @@ public class KfsTest
             }
 
             if (!kfsAccess.kfs_exists(path)) {
-                System.out.println(path + " doesn't exist");
-                System.exit(1);
+                throw new IOException(path + " doesn't exist");
             }
 
             // try to rename and don't allow overwrite
             if (kfsAccess.kfs_rename(npath, path, false) == 0) {
-                System.out.println("Rename with overwrite disabled succeeded!");
-                System.exit(1);
+                throw new IOException(
+                    "rename with overwrite disabled succeeded!");
             }
 
             kfsAccess.kfs_remove(path);
 
             if (!kfsAccess.kfs_isFile(npath)) {
-                System.out.println(npath + " is not a normal file!");
-                System.exit(1);
+                throw new IOException(npath + " is not a normal file!");
             }
 
             KfsInputChannel inputChannel = kfsAccess.kfs_open(npath);
             if (inputChannel == null) {
-                System.out.println("open on " + npath + "failed!");
-                System.exit(1);
+                throw new IOException("open on " + npath + "failed!");
             }
 
             // read some bytes
@@ -329,21 +307,19 @@ public class KfsTest
             final String testPath = rtest + "/a/b/../../c/../d";
             kfsAccess.kfs_retToIOException(kfsAccess.kfs_mkdirs(testPath));
             if (! kfsAccess.kfs_exists(testPath)) {
-                System.out.println(testPath + " doesn't exist");
-                System.exit(1);
+                throw new IOException(testPath + " doesn't exist");
             }
             kfsAccess.kfs_create(testPath + "/test_file").close();
             kfsAccess.kfs_retToIOException(kfsAccess.kfs_rmdirs(rtest));
             if (kfsAccess.kfs_exists(rtest)) {
-                System.out.println(rtest + " exist");
-                System.exit(1);
+                throw new IOException(rtest + " exist");
             }
 
-            // remove the dir
-            if (kfsAccess.kfs_rmdir(basedir) < 0) {
-                System.out.println("unable to remove: " + basedir);
-                System.exit(1);
-            }
+            // test new create methods
+            testCreateAPI(kfsAccess, basedir);
+
+            // test read when read-ahead is disabled
+            testDisableReadAhead(kfsAccess, basedir);
 
             final Iterator<Map.Entry<String, String> > it =
                 kfsAccess.kfs_getStats().entrySet().iterator();
@@ -353,11 +329,13 @@ public class KfsTest
                 System.out.println(entry.getKey() + ": " + entry.getValue());
             }
 
+            // remove the dir
+            kfsAccess.kfs_retToIOException(kfsAccess.kfs_rmdir(basedir));
             System.out.println("All done...Test passed!");
-
         } catch (Exception e) {
             e.printStackTrace();
-            System.out.println("Unable to setup KfsAccess");
+            System.out.println(e.getMessage());
+            System.out.println("Test failed");
             System.exit(1);
         }
     }
@@ -404,21 +382,14 @@ public class KfsTest
             System.out.println("Pass " + i + ": " +
                 oldDir + " exists " + fs.kfs_exists(oldDir));
             if (fs.kfs_exists(newDir)) {
-                final int ret = delete(fs, newDir);
-                System.out.println("Pass " + i +
-                    ": delete of " + newDir + " " + ret);
-                fs.kfs_retToIOException(ret);
+                delete(fs, newDir);
             }
-            final int ret = rename(fs, oldDir, newDir);
-            System.out.println("Pass " + i +
-                ": rename to " + newDir + " "  + ret);
-            fs.kfs_retToIOException(ret);
+            rename(fs, oldDir, newDir);
         }
-        final int ret = delete(fs, newDir);
-        fs.kfs_retToIOException(ret);
+        delete(fs, newDir);
     }
 
-    private static int rename(KfsAccess kfsAccess, String source, String dest)
+    private static void rename(KfsAccess kfsAccess, String source, String dest)
             throws IOException
     {
 	// KFS rename does not have mv semantics.
@@ -434,15 +405,120 @@ public class KfsTest
 	} else {
 	    renameTarget = dest;
 	}
-	return kfsAccess.kfs_rename(source, renameTarget);
+	kfsAccess.kfs_retToIOException(
+            kfsAccess.kfs_rename(source, renameTarget));
     }
 
     // recursively delete the directory and its contents
-    private static int delete(KfsAccess kfsAccess, String path)
+    private static void delete(KfsAccess kfsAccess, String path)
             throws IOException {
-        if (kfsAccess.kfs_isFile(path)) {
-            return kfsAccess.kfs_remove(path);
+        kfsAccess.kfs_retToIOException(kfsAccess.kfs_isFile(path) ?
+            kfsAccess.kfs_remove(path) : kfsAccess.kfs_rmdirs(path)
+        );
+    }
+
+    private static void testCreateAPI(KfsAccess kfsAccess, String baseDir)
+            throws IOException {
+        final String filePath1 = baseDir + "/sample_file.1";
+        final String createParams = "1,6,3,1048576,2,15,15";
+        KfsOutputChannel outputChannel = kfsAccess.kfs_create_ex(filePath1,
+                true, createParams);
+        verifyFileAttr(kfsAccess, outputChannel, filePath1);
+
+        String filePath2 = baseDir + "/sample_file.2";
+        outputChannel = kfsAccess.kfs_create_ex(filePath2, 1, true, -1, -1,
+                6, 3, 1048576, 2, false, 0666, 15, 15);
+        verifyFileAttr(kfsAccess, outputChannel, filePath2);
+        delete(kfsAccess, filePath1);
+        delete(kfsAccess, filePath2);
+    }
+
+    private static void verifyFileAttr(KfsAccess kfsAccess,
+            KfsOutputChannel outputChannel, String filePath)
+            throws IOException {
+        final int numBytes = 1048576;
+        final char[] dataBuf = new char[numBytes];
+        generateData(dataBuf, numBytes);
+        final String s = new String(dataBuf);
+        final byte[] buf = s.getBytes();
+        final ByteBuffer b = ByteBuffer.wrap(buf, 0, buf.length);
+        final int res = outputChannel.write(b);
+        if (res != buf.length) {
+            throw new IOException(
+                filePath + ": was able to write only: " + res);
         }
-        return kfsAccess.kfs_rmdirs(path);
+        outputChannel.sync();
+        outputChannel.close();
+        KfsFileAttr attr = new KfsFileAttr();
+        kfsAccess.kfs_retToIOException(kfsAccess.kfs_stat(filePath, attr));
+        if (numBytes != attr.filesize || attr.replication != 1 ||
+                attr.striperType != 2 || attr.numStripes != 6 ||
+                attr.numRecoveryStripes != 3 || attr.stripeSize != 1048576) {
+            throw new IOException(filePath + ": file attributes mismatch");
+        }
+    }
+
+    private static void testDisableReadAhead(KfsAccess kfsAccess, String baseDir)
+            throws IOException {
+        final String filePath = baseDir + "/sample_file.1";
+        final String createParams = "S";
+        final KfsOutputChannel outputChannel = kfsAccess.kfs_create_ex(filePath,
+                true, createParams);
+        final int numBytes = 1048576;
+        final char[] dataBuf = new char[numBytes];
+        generateData(dataBuf, numBytes);
+        String s = new String(dataBuf);
+        final byte[] buf = s.getBytes();
+        final ByteBuffer b = ByteBuffer.wrap(buf, 0, buf.length);
+        int res = outputChannel.write(b);
+        if (res != buf.length) {
+            throw new IOException(filePath + ": was able to write only: " + res);
+        }
+        outputChannel.sync();
+        outputChannel.close();
+
+        final KfsInputChannel inputChannel = kfsAccess.kfs_open(filePath);
+        inputChannel.setReadAheadSize(0);
+        final byte[] dstBuf = new byte[128];
+        res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        s = new String(dstBuf);
+        for (int i = 0; i < 128; i++) {
+            if (dataBuf[i] != s.charAt(i)) {
+                throw new IOException(
+                    filePath + ": data mismatch at char: " + i);
+            }
+        }
+        inputChannel.seek(512);
+        long pos = inputChannel.tell();
+        if (pos != 512) {
+            throw new IOException(
+                filePath + "failed to seek to byte 512. Pos: " + pos);
+        }
+        res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        s = new String(dstBuf);
+        for (int i = 0; i < 128; i++) {
+            if (dataBuf[512+i] != s.charAt(i)) {
+                throw new IOException(filePath + ": data mismatch at char " + i +
+                                   " after seeking to byte 512");
+            }
+        }
+        // seek to the beginning, enable read-ahead and make a small read
+        inputChannel.seek(0);
+        pos = inputChannel.tell();
+        if (pos != 0) {
+            throw new IOException(
+                filePath + ": failed to seek to the beginning. pos: " + pos);
+        }
+        inputChannel.setReadAheadSize(1048576);
+        res = inputChannel.read(ByteBuffer.wrap(dstBuf, 0, 128));
+        s = new String(dstBuf);
+        for (int i = 0; i < 128; i++) {
+            if (dataBuf[i] != s.charAt(i)) {
+                throw new IOException(filePath + ": data mismatch at char " +
+                                   i + " after seeking to the beginning");
+            }
+        }
+        inputChannel.close();
+        delete(kfsAccess, filePath);
     }
 }

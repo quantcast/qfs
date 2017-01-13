@@ -5,7 +5,7 @@
 // Author: Sriram Rao
 //         Mike Ovsiannikov
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -45,7 +45,6 @@
 namespace KFS
 {
 using std::cout;
-using std::endl;
 using std::string;
 using std::max;
 
@@ -130,8 +129,7 @@ private:
         cout <<
             (what ? what : "") <<
             " " << fname <<
-            " " << ErrorCodeToStr(err) <<
-        endl;
+            " " << ErrorCodeToStr(err) << "\n";
     }
 };
 
@@ -291,10 +289,19 @@ CpToKfs::Run(int argc, char **argv)
         mStriperType = KFS_STRIPED_FILE_TYPE_RS;
     }
 
+    string valErrorMsg;
+    int valErrCode = KfsClient::ValidateCreateParams(
+        mNumReplicas, mNumStripes, mNumRecoveryStripes, mStripeSize, mStriperType,
+        mMinSTier, mMaxSTier, &valErrorMsg);
+    if (valErrCode) {
+        cout << valErrorMsg << "\n";
+        return(-1);
+    }
+
     MsgLogger::Init(0, logLevel);
     mKfsClient = KfsClient::Connect(serverHost, port, config);
     if (!mKfsClient) {
-        cout << "qfs client failed to initialize" << endl;
+        cout << "qfs client failed to initialize\n";
         return(-1);
     }
     if (maxRetry > 0) {

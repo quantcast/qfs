@@ -3,9 +3,9 @@
 # Created 2012/07/27
 # Author: Mike Ovsiannikov
 #
-# Copyright 2012 Quantcast Corp.
+# Copyright 2012-2016 Quantcast All rights reserved.
 #
-# This file is part of Kosmos File System (KFS).
+# This file is part of Quantcast File System.
 #
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
@@ -19,34 +19,32 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# Do not assume gnumake -- keep it as simple as possible
+# Do not assume GNU Make. Keep this makefile as simple as possible.
 
-all: release
+BUILD_TYPE=release
+CMAKE_OPTIONS=-D CMAKE_BUILD_TYPE=RelWithDebInfo
+MAKE_OPTIONS=
+QFSTEST_OPTIONS=
 
-prep:
-	test -d build || mkdir build
+.PHONY: all
+all: build
 
-release: prep
-	cd build && \
-	{ test -d release || mkdir release; } && \
-	cd release && \
-	cmake -D CMAKE_BUILD_TYPE=RelWithDebInfo ../.. && \
-	$(MAKE) --no-print-directory install
+.PHONY: dir
+dir:
+	mkdir -p build/${BUILD_TYPE}
+
+.PHONY: build
+build: dir
+	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
+
+.PHONY: java
+java: build
 	./src/java/javabuild.sh clean
-	if test -x "`which mvn 2>/dev/null`"; then \
-		./src/java/javabuild.sh ; fi
+	./src/java/javabuild.sh
 
-debug: prep
-	cd build && \
-	{ test -d debug || mkdir debug; } && \
-	cd debug && \
-	cmake ../.. && \
-	$(MAKE) --no-print-directory install
-	./src/java/javabuild.sh clean
-	if test -x "`which mvn 2>/dev/null`"; then \
-		./src/java/javabuild.sh ; fi
-
-hadoop-jars: release
+.PHONY: hadoop-jars
+hadoop-jars: build java
 	./src/java/javabuild.sh clean
 	if test -x "`which mvn 2>/dev/null`"; then \
 		./src/java/javabuild.sh clean   && \
@@ -54,9 +52,11 @@ hadoop-jars: release
 		./src/java/javabuild.sh 0.23.11 && \
 		./src/java/javabuild.sh 1.0.4   && \
 		./src/java/javabuild.sh 1.1.2   && \
-		./src/java/javabuild.sh 2.5.1      \
+		./src/java/javabuild.sh 2.5.1   && \
+		./src/java/javabuild.sh 2.7.2      \
 	; fi
 
+.PHONY: tarball
 tarball: hadoop-jars
 	cd build && \
 	myuname=`uname -s`; \
@@ -76,13 +76,13 @@ tarball: hadoop-jars
 		myflavor=$$myuname ; \
 	    fi ; \
 	fi ; \
-	qfsversion=`../src/cc/common/buildversgit.sh -v 2> /dev/null | head -1` ; \
+	qfsversion=`../src/cc/common/buildversgit.sh --release` ; \
 	tarname="qfs-$$myflavor-$$qfsversion-`uname -m`" ;\
 	tarname=`echo "$$tarname" | tr A-Z a-z` ; \
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
 	rm -rf "tmpreldir/$$tarname" && \
 	mkdir "tmpreldir/$$tarname" && \
-	cp -r release/bin release/lib release/include ../scripts ../webui \
+	cp -r ${BUILD_TYPE}/bin ${BUILD_TYPE}/lib ${BUILD_TYPE}/include ../scripts ../webui \
 	     ../examples ../benchmarks "tmpreldir/$$tarname/" && \
 	if ls -1 ./java/qfs-access/qfs-access-*.jar > /dev/null 2>&1; then \
 	    cp ./java/qfs-access/qfs-access*.jar "tmpreldir/$$tarname/lib/"; fi && \
@@ -91,17 +91,19 @@ tarball: hadoop-jars
 	tar cvfz "$$tarname".tgz -C ./tmpreldir "$$tarname" && \
 	rm -rf tmpreldir
 
-python-release: release
-	cd build/release && python ../../src/cc/access/kfs_setup.py build
+.PHONY: python
+python: build
+	cd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
 
-python-debug: debug
-	cd build/debug && python ../../src/cc/access/kfs_setup.py build
+.PHONY: test
+test: build
+	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS}
 
-test-debug: debug
-	cd build/debug && ../../src/test-scripts/qfstest.sh
+.PHONY: rat
+rat: dir
+	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} rat
 
-test-release: release
-	cd build/release && ../../src/test-scripts/qfstest.sh
-
+.PHONY: clean
 clean:
-	rm -rf build/release build/debug build/qfs-*.tgz build/java
+	rm -rf build

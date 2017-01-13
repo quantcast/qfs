@@ -4,7 +4,7 @@
 // Created 2006/04/18
 // Author: Sriram Rao
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -297,6 +297,22 @@ public:
         return ParseCreateParams(params, numReplicas, numStripes,
             numRecoveryStripes, stripeSize, stripedType, minSTier, maxSTier);
     }
+    /// Given a set of configuration parameters for a new file,
+    /// return a code describing if the parameters are valid.
+    /// @param[in] numReplicas the desired degree of replication for
+    /// the file.
+    /// @param[in] numStripes
+    /// @param[in] numRecoveryStripes
+    /// @param[in] stripeSize
+    /// @param[in] stripedType
+    /// @param[in] minSTier
+    /// @param[in] maxSTier
+    /// @param[out] outErrMsgPtr pointer to string that describes what the error is.
+    /// @retval 0 on success; -errno on failure
+    static int ValidateCreateParams(
+        int numReplicas, int numStripes, int numRecoveryStripes,
+        int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier,
+        string* outErrMsgPtr = 0);
 
     ///
     /// Create a file which is specified by a complete path.

@@ -4,7 +4,7 @@
 // Created 2010/07/13
 // Author: Mike Ovsiannikov
 //
-// Copyright 2010-2012 Quantcast Corp.
+// Copyright 2010-2012,2016 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //
@@ -44,6 +44,7 @@
 #include "KfsClient.h"
 #include "RSStriper.h"
 #include "ClientPool.h"
+#include "Monitor.h"
 
 #include <sstream>
 #include <algorithm>
@@ -1323,6 +1324,11 @@ private:
                 if (inCanceledFlag) {
                     return;
                 }
+                Monitor::ReportError(
+                        Monitor::kReadOpError,
+                        mOuter.mMetaServer.GetServerLocation(),
+                        mChunkServer.GetServerLocation(),
+                        inOp.status);
                 mOpStartTime = inOp.mOpStartTime;
                 if (! inOp.mRetryIfFailsFlag && inOp.status != kErrorChecksum &&
                         mChunkServerIdx + 1 >=

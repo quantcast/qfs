@@ -15,4 +15,13 @@
 *.class
 *.jar
 
+build
+
+# Mac OS X
 .DS_Store
+
+# CMake files
+CMakeFiles
+CMakeCache.txt
+Makefile
+*.cmake

@@ -8,7 +8,7 @@
 // Mike Ovsiannikov
 // Fault tolerant write append protocol
 //
-// Copyright 2009-2012 Quantcast Corporation.  All rights reserved.
+// Copyright 2009-2012,2016 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //

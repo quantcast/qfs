@@ -4,7 +4,7 @@
 // Created 2007/09/05
 // Author: Sriram Rao (Kosmix Corp.)
 //
-// Copyright 2012 Quantcast Corp.
+// Copyright 2012,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2007 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -68,16 +68,20 @@ main(int argc, char **argv)
 {
     string serverHost = "";
     int port = -1;
+    bool osFlag = false;
     bool help = false;
     char optchar;
 
-    while ((optchar = getopt(argc, argv, "hp:s:")) != -1) {
+    while ((optchar = getopt(argc, argv, "ohp:s:")) != -1) {
         switch (optchar) {
             case 'p':
                 port = atoi(optarg);
                 break;
             case 's':
                 serverHost = optarg;
+                break;
+            case 'o':
+                osFlag = true;
                 break;
             case 'h':
                 help = true;
@@ -90,8 +94,8 @@ main(int argc, char **argv)
     }
 
     if (help || (serverHost == "") || (port < 0)) {
-        cout << "Usage: " << argv[0] << " -s <meta server name> -p <port> "
-             << endl;
+        cout << "Usage: " << argv[0] << " -s <meta server name> -p <port> [-o]\n";
+        cout << " [-o]: write files to object store (S3)\n";
         exit(0);
     }
 
@@ -121,13 +125,15 @@ main(int argc, char **argv)
     }
 
     // Create a simple file with default replication (at most 3)
+    // or with replication 0 so that it's written to S3
+    int numReplicas = ( osFlag ? 0 : 3);
     string tempFilename = baseDir + "/foo.1";
     int fd;
 
     // fd is our file-handle to the file we are creating; this
     // file handle should be used in subsequent I/O calls on
     // the file.
-    if ((fd = gKfsClient->Create(tempFilename.c_str())) < 0) {
+    if ((fd = gKfsClient->Create(tempFilename.c_str(), numReplicas)) < 0) {
         cout << "Create failed: " << KFS::ErrorCodeToStr(fd) << endl;
         exit(-1);
     }
@@ -186,7 +192,7 @@ main(int argc, char **argv)
     }
 
     // Re-create the file and try a rename that should fail...
-    int fd1 = gKfsClient->Create(tempFilename.c_str());
+    int fd1 = gKfsClient->Create(tempFilename.c_str(), numReplicas);
 
     if (!gKfsClient->Exists(tempFilename.c_str())) {
         cout << " After rec-create..., " << tempFilename << " doesn't exist!" << endl;

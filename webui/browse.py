@@ -1,7 +1,7 @@
 #
 # $Id$
 #
-# Copyright 2012 Quantcast Corp.
+# Copyright 2012,2016 Quantcast Corporation. All rights reserved.
 #
 # Author: Thilee Subramaniam (Quantcast Corp.)
 #

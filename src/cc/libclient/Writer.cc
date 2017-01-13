@@ -4,7 +4,7 @@
 // Created 2010/06/11
 // Author: Mike Ovsiannikov
 //
-// Copyright 2010-2012 Quantcast Corp.
+// Copyright 2010-2012,2016 Quantcast Corporation. All rights reserved.
 //
 // This file is part of Kosmos File System (KFS).
 //
@@ -47,6 +47,7 @@
 #include "KfsOps.h"
 #include "utils.h"
 #include "KfsClient.h"
+#include "Monitor.h"
 
 namespace KFS
 {
@@ -1263,6 +1264,11 @@ private:
                 Queue::Remove(mInFlightQueue, inOp);
                 Queue::PushBack(mPendingQueue, inOp);
                 if (! inCanceledFlag) {
+                    Monitor::ReportError(
+                            Monitor::kWriteOpError,
+                            mOuter.mMetaServer.GetServerLocation(),
+                            mChunkServer.GetServerLocation(),
+                            inOp.status);
                     mOpStartTime = inOp.mOpStartTime;
                     HandleError(inOp);
                 }

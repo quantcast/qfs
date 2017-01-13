@@ -5,7 +5,7 @@
 # Created 2010/07/16
 # Author: Mike Ovsiannikov
 #
-# Copyright 2010-2012 Quantcast Corp.
+# Copyright 2010-2012,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Kosmos File System (KFS).
 #
@@ -246,7 +246,7 @@ fi
 accessdir='src/cc/access'
 if [ -e "$accessdir/libqfs_access."* -a -x "`which java 2>/dev/null`" ]; then
     kfsjar="`dirname "$0"`"
-    kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh -v | head -1`
+    kfsjarvers=`$kfsjar/../cc/common/buildversgit.sh --release`
     kfsjar="`cd "$kfsjar/../../build/java/qfs-access" >/dev/null 2>&1 && pwd`"
     kfsjar="${kfsjar}/qfs-access-${kfsjarvers}.jar"
     if [ -e "$kfsjar" ]; then

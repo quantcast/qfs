@@ -5,7 +5,7 @@
 # Created 2014/09/16
 # Author: Mike Ovsiannikov
 #
-# Copyright 2014 Quantcast Corp.
+# Copyright 2014,2016 Quantcast Corporation. All rights reserved.
 #
 # This file is part of Kosmos File System (KFS).
 #
@@ -129,7 +129,7 @@ myjbuildprefix="$mybuildprefix/java"
 mycbuildprefix="$mybuildprefix/release"
 mylibbuildprefix="$mycbuildprefix/lib"
 
-myqfsversion="`sh "$qfssrcprefix/src/cc/common/buildversgit.sh" -v | head -1`"
+myqfsversion="`sh "$qfssrcprefix/src/cc/common/buildversgit.sh" --release`"
 
 myhadoop=$hadoopbin
 if [ -f "$myhadoop" ]; then

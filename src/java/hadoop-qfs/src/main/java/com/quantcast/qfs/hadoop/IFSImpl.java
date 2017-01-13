@@ -66,6 +66,8 @@ interface IFSImpl {
   public FSDataOutputStream create(String path, short replication,
             int bufferSize, boolean overwrite, int mode,
             boolean append) throws IOException;
+  public FSDataOutputStream create(String path, boolean overwrite,
+          String createParams) throws IOException;
   public FSDataOutputStream append(String path, short replication,
            int bufferSize) throws IOException;
   public FSDataInputStream open(String path, int bufferSize)
@@ -75,6 +77,8 @@ interface IFSImpl {
            throws IOException;
   public void retToIoException(int ret)
            throws IOException;
+  public int getUMask() throws IOException;
+  public void setUMask(int mask) throws IOException;
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
            throws IOException;
 };

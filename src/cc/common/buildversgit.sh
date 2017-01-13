@@ -2,12 +2,9 @@
 #
 # $Id$
 #
-# Created 2011/05/04
-# Author: Mike Ovsiannikov
+# Copyright 2010-2016 Quantcast Corporation. All rights reserved.
 #
-# Copyright 2011-2012 Quantcast Corp.
-#
-# This file is part of Kosmos File System (KFS).
+# This file is part of Quantcast File System.
 #
 # Licensed under the Apache License, Version 2.0
 # (the "License"); you may not use this file except in compliance with
@@ -20,67 +17,180 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
-#
-# Create Version.cc file with the relevant source / build information.
-#
-#
 
-if [ x"$1" = x'-g' -o  x"$1" = x'-get' ]; then
-    while [ $# -gt 1 ]; do
-        shift
-        strings -a "$1" | awk '/KFS_BUILD_INFO_START/,/KFS_BUILD_INFO_END/'
-    done
+# default version to use if git is not available
+qfs_no_git_version="1.2.0"
+
+usage() {
+    echo "
+usage: $0 <options>
+
+    Options:
+        --info | -i BINARY          get build information from the binary
+        --head                      print the head hash of qfs
+        --release                   print the release version or hash of qfs
+        --remote                    print the remote we are tracking
+        --branch                    print the branch we are on
+
+        --generate                  generate build info -- if this option is
+                                    specified, then --build-type, --source-dir,
+                                    and --outfile are all required
+        --build-type BUILD_TYPE     the build type we built with
+        --source-dir SOURCE_DIR     the directory where qfs source lives
+        --outfile OUTFILE           the file to write generate c++ code
+        --extra EXTRA               extra information to include in the output
+                                    this parameter can be used multiple times
+
+        --help                      show this help
+    "
+    exit 1
+}
+
+git_not_available() {
+    if ! git="$(command -v git)" || [ x"$git" = x ]; then
+        return 0
+    fi
+    return 1
+}
+
+get_head() {
+    if git_not_available; then
+        echo "unknown"
+        return 0
+    fi
+
+    echo $(git rev-parse HEAD)
+}
+
+get_release() {
+    if git_not_available; then
+        echo "$qfs_no_git_version"
+        return 0
+    fi
+
+    # if the hash doesn't match any known ref, just report the hash itself
+    HEAD=$(get_head)
+    REF=$(git show-ref --tags --dereference | grep $HEAD)
+    if [ x"$REF" = x ]; then
+        # special case: master
+        MASTER=$(git show-ref refs/heads/master | awk '{print $1}')
+        if [ "$HEAD" = "$MASTER" ]; then
+            RELEASE="master"
+        else
+            RELEASE=$(git rev-parse --short $HEAD)
+        fi
+    else
+        REF=$(echo $REF | sed -e 's,refs/tags/,,g')
+        REF=$(echo $REF | sed -e 's,\^{},,g')
+        REF=$(echo $REF | awk '{print $2}')
+        RELEASE=$REF
+    fi
+
+    echo $RELEASE
+}
+
+get_remote() {
+    if git_not_available; then
+        echo "unknown"
+        return 0
+    fi
+
+    echo $(git remote -v show | grep origin | grep '(fetch)' | awk '{print $2}')
+}
+
+get_branch() {
+    if git_not_available; then
+        echo "unknown"
+        return 0
+    fi
+
+    echo $(git rev-parse --abbrev-ref HEAD | sed -e 's/HEAD/unknown/g')
+}
+
+MYACTION=
+while true ; do
+    case "$1" in
+        --info|-i)
+            INFO=true
+            BINARY_PATH=$2 ; shift 2
+            ;;
+        --head)
+            MYACTION=get_head
+            break
+            ;;
+        --release)
+            MYACTION=get_release
+            break
+            ;;
+        --remote)
+            MYACTION=get_remote
+            break
+            ;;
+        --branch)
+            MYACTION=get_branch
+            break
+            ;;
+        --generate)
+            GENERATE=true ; shift 1
+            ;;
+        --build-type)
+            BUILD_TYPE=$2 ; shift 2
+            ;;
+        --source-dir)
+            SOURCE_DIR=$2 ; shift 2
+            ;;
+        --outfile)
+            OUTFILE=$2 ; shift 2
+            ;;
+        --extra)
+            EXTRA="$EXTRA\n$2" ; shift 2
+            ;;
+        --help)
+            usage
+            ;;
+        --|'')
+            break
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+# query build information from the binary
+if [ "$INFO" = "true" -a x"$MYACTION" = x ]; then
+    strings -a "$BINARY_PATH" | awk '/KFS_BUILD_INFO_START/,/KFS_BUILD_INFO_END/'
     exit
 fi
 
-# Set official release version here.
-qfs_release_version="1.1.0"
-qfs_source_revision=""
+# Change into qfs source directory, in order to handle the invocations from
+# arbitrary directory.
+MYDIR=$(dirname "$0")
+cd "$MYDIR/../../.." || exit
 
-# If git is present override the release version with git tag.
-if which git > /dev/null 2>&1; then
-    script_dir=`dirname "$0"`
-    qfs_release_version=`cd "$script_dir" >/dev/null 2>&1 && git describe --abbrev=0 --tags 2>/dev/null`
-    qfs_source_revision=`cd "$script_dir" >/dev/null 2>&1 && git log -n 1 --pretty=format:%H 2>/dev/null`
+[ x"$MYACTION" = x ] || {
+    $MYACTION
+    exit
+}
+
+# if we are generating, some required parameters must be present
+if [ "$GENERATE" = "true" ]; then
+    for var in BUILD_TYPE SOURCE_DIR OUTFILE ; do
+        if [ x"$(eval "echo \$$var")" = x ]; then
+            echo "--generate specified, but missing required param: $var"
+            usage
+        fi
+    done
 fi
 
-if [ $# -eq 1 -a x"$1" = x'-v' ]; then
-    echo "$qfs_release_version"
-    echo "$qfs_source_revision"
-    exit 0
-fi
+# generate build information for the binary to compile into itself
+HEAD=$(get_head)
+RELEASE=$(get_release)
+REMOTE=$(get_remote)
+BRANCH=$(get_branch)
 
-if [ $# -lt 3 ]; then
-    echo "Usage:"
-    echo "$0 <build type> <source base dir> <dest file> OR"
-    echo "$0 -g <qfs executable> to get the version info of executable."
-    exit 1
-fi
-
-
-buildtype=$1
-shift
-sourcedir=$1
-shift
-outfile=$1
-shift
-
-if [ x"$qfs_release_version" != x ]; then
-    kfs_version_prefix="${qfs_release_version}-"
-else
-    kfs_version_prefix=''
-fi
-
-lastchangeid=`git log -n 1 --pretty=format:%H -- "$sourcedir" 2>/dev/null`
-if [ x"$lastchangeid" = x ]; then
-    remote='unspecified'
-    branch='unspecified'
-else
-    remote=`git remote -v show | awk '{if($NF=="(fetch)") { printf("%s", $2); exit; }}'`
-    branch=`git branch --no-color | awk '{if($1=="*") { if ($3 != "branch)") printf("%s", $2); exit; }}'`
-fi
-
-tmpfile="$outfile.$$.tmp";
+tmpfile=$(mktemp tmp.XXXXXXXXXX)
 
 {
 echo '
@@ -98,29 +208,24 @@ echo KFS_BUILD_INFO_START
 echo "host: `hostname`"
 echo "user: $USER"
 echo "date: `date`" 
-echo "build type: $buildtype"
-while [ $# -gt 0 ]; do
-    echo "$1"
-    shift
-done
-if [ x"$qfs_release_version" != x ]; then
-    echo "release: $qfs_release_version"
+echo "build type: $BUILD_TYPE"
+echo "release: $RELEASE"
+echo "source dir: $SOURCE_DIR"
+echo "qfs source dir: $(pwd)"
+echo "$EXTRA"
+if [ x"$HEAD" = x'unknown' ]; then
+    echo 'git source build version not available'
 else
-    echo "release: none"
-fi
-if [  x"$lastchangeid" != x ]; then
     echo "git config:"
     git config -l
     echo "git status:"
-    git status --porcelain -- "$sourcedir"
+    git status --porcelain
     echo "git branch:"
     git branch -v --no-abbrev --no-color
     echo "git remote:"
     git remote -v
     echo "version:"
-    echo "${remote}/${branch}@$lastchangeid"
-else
-    echo 'git source build version not available'
+    echo "${REMOTE}/${BRANCH}@$HEAD"
 fi
 echo KFS_BUILD_INFO_END
 } | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/^/"/' -e 's/$/\\n"/'
@@ -140,16 +245,17 @@ static std::string MakeVersionHash()
 }
 
 const std::string KFS_BUILD_VERSION_STRING(
-    std::string("'"${qfs_release_version}-${lastchangeid}-${buildtype}"'-") +
+    std::string("'"${RELEASE}-${HEAD}-${BUILD_TYPE}"'-") +
     MakeVersionHash()
 );
 
 const std::string KFS_SOURCE_REVISION_STRING(
-    "'"${qfs_release_version}-${remote}/${branch}@$lastchangeid"'"
+    "'"${RELEASE}-${REMOTE}/${BRANCH}@$HEAD"'"
 );
 
 }
 '
 
 } > "$tmpfile"
-mv "$tmpfile" $outfile
+
+mv "$tmpfile" $OUTFILE

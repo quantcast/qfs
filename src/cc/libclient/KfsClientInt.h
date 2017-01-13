@@ -4,7 +4,7 @@
 // Created 2006/04/18
 // Author: Sriram Rao
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -261,6 +261,8 @@ public:
     }
 
     bool IsInitialized() { return mIsInitialized; };
+
+    unsigned int GetClientId() { return mClientId; };
 
     ///
     /// Provide a "cwd" like facility for KFS.
@@ -815,6 +817,8 @@ private:
     KfsNetClient* const            mMetaServer;
     string                         mCommonRpcHdrs;
     string                         mShortCommonRpcHdrs;
+    bool                           mIsMonitored;
+    unsigned int                   mClientId;
     KfsClientImpl*                 mPrevPtr[1];
     KfsClientImpl*                 mNextPtr[1];
 

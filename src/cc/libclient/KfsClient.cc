@@ -5,7 +5,7 @@
 // Author: Sriram Rao
 //         Mike Ovsiannikov
 //
-// Copyright 2008-2012 Quantcast Corp.
+// Copyright 2008-2012,2016 Quantcast Corporation. All rights reserved.
 // Copyright 2006-2008 Kosmix Corp.
 //
 // This file is part of Kosmos File System (KFS).
@@ -33,6 +33,7 @@
 #include "utils.h"
 #include "KfsProtocolWorker.h"
 #include "RSStriper.h"
+#include "Monitor.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -186,23 +187,6 @@ RandomSeqNo()
         FatalError();
     }
     return ((ret < 0 ? -ret : ret) >> 1);
-}
-
-static int
-ValidateCreateParams(
-    int numReplicas, int numStripes, int numRecoveryStripes,
-    int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier)
-{
-    return (
-        (numReplicas < 0 ||
-        (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
-            ! RSStriperValidate(
-                stripedType, numStripes, numRecoveryStripes, stripeSize, 0)) ||
-        (maxSTier < minSTier ||
-            ! IsValidSTier(minSTier) ||
-            ! IsValidSTier(maxSTier))
-        ) ? -EINVAL : 0
-    );
 }
 
 KfsClient::KfsClient(KfsNetClient* metaServer)
@@ -452,6 +436,37 @@ int
 KfsClient::VerifyDataChecksums(int fd)
 {
     return mImpl->VerifyDataChecksums(fd);
+}
+
+/* static */ int
+KfsClient::ValidateCreateParams(
+    int numReplicas, int numStripes, int numRecoveryStripes,
+    int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier,
+    string* outErrMsgPtr)
+{
+    if (numReplicas < 0) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr =
+                "invalid parameters: number of replicas can't be less than 0";
+        }
+        return -EINVAL;
+    }
+    if (stripedType != KFS_STRIPED_FILE_TYPE_NONE &&
+            ! RSStriperValidate(stripedType, numStripes, numRecoveryStripes,
+                stripeSize, outErrMsgPtr)) {
+        return -EINVAL;
+    }
+    if (minSTier > maxSTier ||
+            maxSTier > kKfsSTierMax ||
+            minSTier > kKfsSTierMax ||
+            maxSTier < kKfsSTierMin ||
+            minSTier < kKfsSTierMin) {
+        if (outErrMsgPtr) {
+            *outErrMsgPtr = "invalid parameters: invalid tier configuration";
+        }
+        return -EINVAL;
+    }
+    return 0;
 }
 
 /* static */ int
@@ -1247,6 +1262,7 @@ private:
     typedef QCDLList<KfsClientImpl, 0> List;
     QCMutex        mMutex;
     KfsClientImpl* mList[1];
+    unsigned int   mNextClientId;
 
     static ClientsList* sInstance;
 
@@ -1328,8 +1344,19 @@ private:
     friend class Globals;
 
     ClientsList()
-        : mMutex()
-        { List::Init(mList); }
+        : mMutex(),
+          mNextClientId(0)
+    {
+        List::Init(mList);
+        // In cases where users forget to cleanup KfsClient instances,
+        // static Monitor instance relies on static ClientsList instance
+        // to invoke Monitor::RemoveClient for clients that are still alive
+        // at program termination. To make this work, we need to ensure
+        // static Monitor instance is not destroyed before static ClienstList
+        // instance. Constructing static Monitor instance before static
+        // ClientsList instance is how we achieve this.
+        Monitor::Instance();
+    }
     ~ClientsList()
         { assert(! "unexpected invocation"); }
     void InsertSelf(KfsClientImpl& client)
@@ -1345,6 +1372,7 @@ private:
             globals.mDefaultFileAttributeRevalidateTime;
         client.mFileAttributeRevalidateScan =
             globals.mDefaultFileAttributeRevalidateScan;
+        client.mClientId = mNextClientId++;
     }
     void RemoveSelf(KfsClientImpl& client)
     {
@@ -1493,7 +1521,9 @@ KfsClientImpl::KfsClientImpl(
       mConfig(),
       mMetaServer(metaServer),
       mCommonRpcHdrs(),
-      mShortCommonRpcHdrs()
+      mShortCommonRpcHdrs(),
+      mIsMonitored(false),
+      mClientId(0)
 {
     if (mMetaServer) {
         mMetaServerLoc = mMetaServer->GetServerLocation();
@@ -1514,6 +1544,13 @@ KfsClientImpl::KfsClientImpl(
 KfsClientImpl::~KfsClientImpl()
 {
     if (! mMetaServer) {
+        if (mIsMonitored) {
+            Monitor::RemoveClient(this);
+            KFS_LOG_STREAM_INFO <<
+                "client with id " << mClientId <<
+                " is removed from monitoring." <<
+            KFS_LOG_EOM;
+        }
         ClientsList::Remove(*this);
     }
     QCStMutexLocker l(mMutex);
@@ -1534,6 +1571,12 @@ KfsClientImpl::~KfsClientImpl()
 void
 KfsClientImpl::Shutdown()
 {
+    if (mIsMonitored) {
+        Monitor::RemoveClient(this);
+        KFS_LOG_STREAM_INFO <<
+            "client with id " << mClientId << " is removed from monitoring." <<
+        KFS_LOG_EOM;
+    }
     QCStMutexLocker l(mMutex);
     ShutdownSelf();
 }
@@ -1669,6 +1712,47 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
     if (! mIsInitialized) {
         mInitLookupRootFlag = true;
         ShutdownSelf();
+    }
+    // setup the client monitor specific parameters
+    const char* monitorPluginPath      = 0;
+    int         monitorReportInterval  = -1;
+    int         monitorMaxErrorRecords = -1;
+    bool        isMonitorEnabled       = false;
+    if (properties) {
+        // try configuration file/QFS_CLIENT_CONFIG first
+        monitorPluginPath = properties->getValue(
+                "client.monitorPluginPath", monitorPluginPath);
+        if (monitorPluginPath && *monitorPluginPath) {
+            isMonitorEnabled = true;
+            monitorReportInterval = properties->getValue(
+                    "client.monitorReportInterval", 15);
+            monitorMaxErrorRecords = properties->getValue(
+                    "client.monitorMaxErrorRecords", -1);
+        }
+    } else {
+        // next, try monitor specific environment variables
+        monitorPluginPath = getenv("QFS_CLIENT_MONITOR_PLUGIN_PATH");
+        if (monitorPluginPath && strlen(monitorPluginPath)) {
+            isMonitorEnabled = true;
+            const char* p = getenv("QFS_CLIENT_MONITOR_REPORT_INTERVAL");
+            if (! p || ! DecIntParser::Parse(
+                    p, strlen(p), monitorReportInterval)) {
+                monitorReportInterval = 15;
+            }
+            p = getenv("QFS_CLIENT_MONITOR_MAX_ERROR_RECORDS");
+            if (! p || ! DecIntParser::Parse(
+                    p, strlen(p), monitorMaxErrorRecords)) {
+                monitorMaxErrorRecords = -1;
+            }
+        }
+    }
+    if (isMonitorEnabled &&
+            Monitor::AddClient(this, monitorPluginPath,
+                monitorReportInterval, monitorMaxErrorRecords)) {
+        mIsMonitored = true;
+        KFS_LOG_STREAM_INFO <<
+            "client with id " << mClientId << " is being monitored!" <<
+        KFS_LOG_EOM;
     }
     return ret;
 }
@@ -3185,7 +3269,8 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     }
 
     assert(mMutex.IsOwned());
-    int res = ValidateCreateParams(numReplicas, numStripes, numRecoveryStripes,
+    int res = KfsClient::ValidateCreateParams(
+        numReplicas, numStripes, numRecoveryStripes,
         stripeSize, stripedType, minSTier, maxSTier);
     if (res < 0) {
         return res;
