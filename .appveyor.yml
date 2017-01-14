@@ -20,6 +20,7 @@
 version: '1.2.0-{build}'
 clone_depth: 1
 test: off
+build: off
 environment:
     global:
         CYG_ROOT: C:\cygwin
@@ -35,9 +36,9 @@ init:
     - git config --global core.autocrlf input
 
 install:
-    - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
-    - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES% > NUL 2>&1'
-    - '%CYG_BASH% -lc "cygcheck -dc cygwin"'
+    - ps: 'Start-FileDownload "http://cygwin.com/setup-x86_64.exe" -FileName "setup-x86_64.exe"'
+    - 'setup-x86_64.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
+    - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake -version"'
 
 build_script:
     - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'
