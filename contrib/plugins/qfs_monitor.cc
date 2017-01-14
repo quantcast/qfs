@@ -36,6 +36,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 using KFS::AppendDecIntToString;
 using KFS::ChunkServerErrorMap;
