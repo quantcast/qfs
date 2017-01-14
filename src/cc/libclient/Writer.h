@@ -80,6 +80,7 @@ public:
               mSleepTimeSec(0),
               mChunkAllocCount(0),
               mOpsWriteCount(0),
+              mOpsWriteByteCount(0),
               mAllocRetriesCount(0),
               mRetriesCount(0),
               mWriteCount(0),
@@ -97,6 +98,7 @@ public:
             mSleepTimeSec          += inStats.mSleepTimeSec;
             mChunkAllocCount       += inStats.mChunkAllocCount;
             mOpsWriteCount         += inStats.mOpsWriteCount;
+            mOpsWriteByteCount     += inStats.mOpsWriteByteCount;
             mAllocRetriesCount     += inStats.mAllocRetriesCount;
             mRetriesCount          += inStats.mRetriesCount;
             mWriteCount            += inStats.mWriteCount;
@@ -108,17 +110,18 @@ public:
         void Enumerate(
             T& inFunctor) const
         {
-            inFunctor("MetaOpsQueued",    mMetaOpsQueuedCount);
-            inFunctor("MetaOpsCancelled", mMetaOpsCancelledCount);
-            inFunctor("ChunkOpsQueued",   mChunkOpsQueuedCount);
-            inFunctor("SleepTimeSec",     mSleepTimeSec);
-            inFunctor("ChunkAlloc",       mChunkAllocCount);
-            inFunctor("OpsWrite",         mOpsWriteCount);
-            inFunctor("AllocRetries",     mAllocRetriesCount);
-            inFunctor("BufferCompaction", mBufferCompactionCount);
-            inFunctor("Retries",          mRetriesCount);
-            inFunctor("Writes" ,          mWriteCount);
-            inFunctor("WriteBytes",       mWriteByteCount);
+            inFunctor("MetaOpsQueued",     mMetaOpsQueuedCount);
+            inFunctor("MetaOpsCancelled",  mMetaOpsCancelledCount);
+            inFunctor("ChunkOpsQueued",    mChunkOpsQueuedCount);
+            inFunctor("SleepTimeSec",      mSleepTimeSec);
+            inFunctor("ChunkAlloc",        mChunkAllocCount);
+            inFunctor("OpsWrite",          mOpsWriteCount);
+            inFunctor("OpsWriteByteCount", mOpsWriteByteCount);
+            inFunctor("AllocRetries",      mAllocRetriesCount);
+            inFunctor("BufferCompaction",  mBufferCompactionCount);
+            inFunctor("Retries",           mRetriesCount);
+            inFunctor("Writes" ,           mWriteCount);
+            inFunctor("WriteBytes",        mWriteByteCount);
         }
         Counter mMetaOpsQueuedCount;
         Counter mMetaOpsCancelledCount;
@@ -126,6 +129,7 @@ public:
         Counter mSleepTimeSec;
         Counter mChunkAllocCount;
         Counter mOpsWriteCount;
+        Counter mOpsWriteByteCount;
         Counter mAllocRetriesCount;
         Counter mRetriesCount;
         Counter mWriteCount;

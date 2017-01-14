@@ -1245,6 +1245,7 @@ private:
             Queue::Remove(mPendingQueue, inWriteOp);
             Queue::PushBack(mInFlightQueue, inWriteOp);
             mOuter.mStats.mOpsWriteCount++;
+            mOuter.mStats.mOpsWriteByteCount += inWriteOp.contentLength;
             Enqueue(inWriteOp, &inWriteOp.mBuffer);
         }
         void Done(
