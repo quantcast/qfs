@@ -99,9 +99,8 @@ main(int argc, char** argv)
             "[-n <network definition file name> (default " <<
                 networkFn << ")]\n"
             "[-b <chunkmap file> (default " << chunkmapFn << ")]\n"
-            "[-r <re-balance plan file>] (default" << rebalancePlanFn << ")\n"
-                " 0 - use default / configured re-balance thresholds]\n"
-            "[-p <[meta server] configuration file> (default none)]\n"
+            "[-r <re-balance plan file> (default" << rebalancePlanFn << ")]\n"
+            "[-p <configuration file> (default none)]\n"
             "[-o <new chunk map output directory> (default none)]\n"
             "[-d debug -- print chunk into stdout layout before and after]\n"
         ;
