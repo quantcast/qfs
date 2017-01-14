@@ -20,14 +20,13 @@
 version: '1.2.0-{build}'
 clone_depth: 1
 test: off
-build: off
 environment:
     global:
-        CYG_ROOT: C:\cygwin64
+        CYG_ROOT: C:\cygwin
         CYG_MIRROR: http://cygwin.mirror.constant.com
-        CYG_CACHE: C:\cygwin64\var\cache\setup
-        CYG_BASH: C:\cygwin64\bin\bash
-        DEPENDENCIES: gcc-g++,autoconf,automake,make,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,xz,bzip2,libarchive13
+        CYG_CACHE: C:\cygwin\var\cache\setup
+        CYG_BASH: C:\cygwin\bin\bash
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
 
 cache:
     - '%CYG_CACHE%'
@@ -36,10 +35,9 @@ init:
     - git config --global core.autocrlf input
 
 install:
-    - ps: 'Start-FileDownload "http://cygwin.com/setup-x86_64.exe" -FileName "setup-x86_64.exe"'
-    - ps: 'Start-FileDownload "http://cygwin.mirror.constant.com/x86_64/release/cmake/cmake-2.8.11.2-1.tar.bz2" -FileName "cmake-2.8.11.2-1.tar.bz2"'
-    - 'setup-x86_64.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
-    - 'C:\cygwin64\bin\bash -lc "uname -a && cygcheck -dc cygwin && pwd && cd $APPVEYOR_BUILD_FOLDER && pwd && df -h && ls -l && bzcat < cmake-2.8.11.2-1.tar.bz2 | tar -xf - -C / && which cmake && env ;  set -x ; cmake --version ; export LC_ALL=C ; export LANG=C ; cmake --version ; env -i /usr/bin/cmake --version"'
+    - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
+    - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
+    - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version"'
 
 build_script:
-    - 'C:\cygwin64\bin\bash -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'
+    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'

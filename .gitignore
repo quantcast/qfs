@@ -1,27 +1,5 @@
-# Compiled Object files
-*.slo
-*.lo
-*.o
-
-# Compiled Dynamic libraries
-*.so
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-
-# Byte-compiled Java
-*.class
-*.jar
-
 build
 
 # Mac OS X
 .DS_Store
 
-# CMake files
-CMakeFiles
-CMakeCache.txt
-Makefile
-*.cmake
