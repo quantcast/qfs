@@ -33,9 +33,12 @@ all: build
 dir:
 	mkdir -p build/${BUILD_TYPE}
 
-.PHONY: build
-build: dir
+.PHONY: run-cmake
+run-cmake: dir
 	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+
+.PHONY: build
+build: run-cmake
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} install
 
 .PHONY: java
@@ -96,12 +99,11 @@ python: build
 	cd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
 
 .PHONY: test
-test: build
+test: hadoop-jars
 	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS}
 
 .PHONY: rat
-rat: dir
-	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+rat: run-cmake
 	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} rat
 
 .PHONY: clean

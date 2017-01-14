@@ -199,7 +199,7 @@ if(FUSE_FOUND)
 endif()
 
 add_custom_target (
-    rat ../../scripts/rat.sh ../..
+    rat ${KFS_DIR_PREFIX}/scripts/rat.sh ${KFS_DIR_PREFIX}
     COMMENT "Running license release audit tool (rat)"
     VERBATIM
 )
