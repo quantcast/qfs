@@ -1459,14 +1459,15 @@ LayoutManager::GetAccessProxy(T& req, LayoutManager::Servers& servers)
 {
     ServerLocation loc;
     if (! loc.FromString(
-            req.chunkServerName.data(), req.chunkServerName.size())) {
+            req.chunkServerName.data(), req.chunkServerName.size(),
+            req.shortRpcFormatFlag)) {
         req.statusMsg = "invalid chunk server name";
         req.status    = -EINVAL;
         return false;
     }
     Servers::const_iterator const it = FindServer(loc);
     if (it == mChunkServers.end()) {
-        req.statusMsg = "no proxy on host: " + req.chunkServerName.GetStr();
+        req.statusMsg = "no proxy on host: " + loc.ToString();
         return false;
     }
     servers.push_back(*it);
