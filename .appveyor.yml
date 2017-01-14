@@ -27,7 +27,7 @@ environment:
         CYG_MIRROR: http://cygwin.mirror.constant.com
         CYG_CACHE: C:\cygwin64\var\cache\setup
         CYG_BASH: C:\cygwin64\bin\bash
-        DEPENDENCIES: gcc-g++,autoconf,automake,make,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,xz
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,xz,libarchive13
 
 cache:
     - '%CYG_CACHE%'
