@@ -1,11 +1,12 @@
 # Individual files
 .*.cmake
 .gitignore
-.appveyor.yml
 .ratignore
-.travis.yml
 README.md
+CHANGELOG.md
 tags
+Version.cc
+sorttable.js
 
 # Directories
 ext
