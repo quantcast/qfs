@@ -27,7 +27,7 @@ environment:
         CYG_MIRROR: http://cygwin.mirror.constant.com
         CYG_CACHE: C:\cygwin64\var\cache\setup
         CYG_BASH: C:\cygwin64\bin\bash
-        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake-3.3.2-1,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
 
 cache:
     - '%CYG_CACHE%'
@@ -38,7 +38,7 @@ init:
 install:
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86_64.exe" -FileName "setup-x86_64.exe"'
     - 'setup-x86_64.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
-    - 'C:\cygwin64\bin\bash -lc "df -h && env && which cmake && find /usr -name cmake\* -print && which cygcheck && uname -a && cygcheck -dc cygwin && cmake --version"'
+    - 'C:\cygwin64\bin\bash -lc "df -h && env && which cmake && ls -l /usr/share/cmake*/Mod* ; which cygcheck && uname -a && cygcheck -dc cygwin && cmake --version"'
 
 build_script:
     - 'C:\cygwin64\bin\bash -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'
