@@ -38,7 +38,7 @@ init:
 install:
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86_64.exe" -FileName "setup-x86_64.exe"'
     - 'setup-x86_64.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
-    - 'C:\cygwin64\bin\bash -lc "cygcheck -dc cygwin && cmake -version"'
+    - 'C:\cygwin64\bin\bash -lc "df && which cmake && cygcheck -dc cygwin && cmake -version"'
 
 build_script:
     - 'C:\cygwin64\bin\bash -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'
