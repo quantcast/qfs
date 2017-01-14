@@ -307,6 +307,7 @@ public:
           mMetaDataStoreLocation(),
           mSyncServers(),
           mViewChangeInitiationTime(mTimeNow),
+          mConfigAlowHostNamesFlag(false),
           mVrStateFileName("vrstate"),
           mVrStateTmpFileName(mVrStateFileName + ".tmp"),
           mVrStateIoStr(),
@@ -1083,6 +1084,10 @@ public:
                 mVrStateFileName.data(), mVrStateFileName.size());
             mVrStateTmpFileName += ".tmp";
         }
+        mConfigAlowHostNamesFlag = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("configAlowHostNames"),
+            mConfigAlowHostNamesFlag ? 1 : 0
+        ) != 0;
         if (! mStartedFlag || mNodeId < 0) {
             mNodeId = inParameters.getValue(
                 theName.Truncate(thePrefixLen).Append("id"), NodeId(-1));
@@ -2051,6 +2056,7 @@ private:
     ServerLocation         mMetaDataStoreLocation;
     MetaDataSync::Servers  mSyncServers;
     time_t                 mViewChangeInitiationTime;
+    bool                   mConfigAlowHostNamesFlag;
     string                 mVrStateFileName;
     string                 mVrStateTmpFileName;
     string                 mVrStateIoStr;
@@ -3322,17 +3328,71 @@ private:
             (mActiveFlag && kStateBackup == mState)
         ));
     }
+    void ParseLocations(
+        MetaVrReconfiguration&   inReq,
+        const char*              inErrMsgPrefixPtr,
+        const Config::Locations& inLocations)
+    {
+        mPendingLocations.clear();
+        if (mConfig.GetMaxListenersPerNode() <
+                inLocations.size() + inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = inErrMsgPrefixPtr;
+            inReq.statusMsg += " exceeded maximum number of listeners per node";
+            return;
+        }
+        const char*       thePtr    = inReq.mListStr.GetPtr();
+        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
+        ServerLocation    theLocation;
+        while (thePtr < theEndPtr) {
+            if (! theLocation.ParseString(
+                        thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag) ||
+                    theLocation.port <= 0) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = inErrMsgPrefixPtr;
+                inReq.statusMsg += " listener address parse error";
+                mPendingLocations.clear();
+                return;
+            }
+            if (! mConfigAlowHostNamesFlag && ! inReq.logseq.IsValid() &&
+                    ! TcpSocket::IsValidConnectToAddress(theLocation)) {
+                inReq.status    = -EINVAL;
+                inReq.statusMsg = inErrMsgPrefixPtr;
+                inReq.statusMsg += " is not valid IP address: ";
+                inReq.statusMsg += theLocation.ToString();
+                mPendingLocations.clear();
+                return;
+            }
+            // Duplicate listeners are allowed, in order to create parallel TCP
+            // connections / log transmit channels.
+            if (find(inLocations.begin(), inLocations.end(), theLocation) ==
+                    inLocations.end() && HasLocation(theLocation)) {
+                inReq.status = -EINVAL;
+                inReq.statusMsg = inErrMsgPrefixPtr;
+                inReq.statusMsg += " listener: ";
+                inReq.statusMsg += theLocation.ToString();
+                inReq.statusMsg += " is already assigned to node ";
+                AppendDecIntToString(
+                    inReq.statusMsg, FindNodeByLocation(theLocation));
+                mPendingLocations.clear();
+                return;
+            }
+            mPendingLocations.push_back(theLocation);
+        }
+        if (mPendingLocations.size() != (size_t)inReq.mListSize) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = inErrMsgPrefixPtr;
+            inReq.statusMsg += " listeners list parse failure";
+            mPendingLocations.clear();
+            return;
+        }
+    }
     void AddNode(
         MetaVrReconfiguration& inReq)
     {
         if (inReq.mListSize <= 0) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: no listeners specified";
-            return;
-        }
-        if (mConfig.GetMaxListenersPerNode() < (uint32_t)inReq.mListSize) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "add node: exceeded max listeners per node";
             return;
         }
         const Config::Nodes& theNodes = mConfig.GetNodes();
@@ -3348,44 +3408,15 @@ private:
         }
         // Initial boot strap: do no allow other node to become primary
         // in the case if all the nodes are inactive.
-        if (! inReq.logseq.IsValid() && mConfig.IsEmpty() &&
-                mNodeId != inReq.mNodeId) {
+        if (! inReq.logseq.IsValid() &&
+                mConfig.IsEmpty() && mNodeId != inReq.mNodeId) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: first node id to add must"
                 " be equal to ";
             AppendDecIntToString(inReq.statusMsg, mNodeId);
             return;
         }
-        mPendingLocations.clear();
-        const char*       thePtr    = inReq.mListStr.GetPtr();
-        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
-        ServerLocation    theLocation;
-        while (thePtr < theEndPtr) {
-            if (! theLocation.ParseString(
-                    thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg = "add node: listener address parse error";
-                mPendingLocations.clear();
-                return;
-            }
-            if (HasLocation(theLocation)) {
-                inReq.status = -EINVAL;
-                inReq.statusMsg = "add node: litener: ";
-                inReq.statusMsg += theLocation.ToString();
-                inReq.statusMsg += " is already assigned to node ";
-                AppendDecIntToString(
-                    inReq.statusMsg, FindNodeByLocation(theLocation));
-                mPendingLocations.clear();
-                return;
-            }
-            mPendingLocations.push_back(theLocation);
-        }
-        if (mPendingLocations.size() != (size_t)inReq.mListSize) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "add node: listeners list parse failure";
-            mPendingLocations.clear();
-            return;
-        }
+        ParseLocations(inReq, "add node:", Config::Locations());
     }
     void AddNodeListeners(
         MetaVrReconfiguration& inReq)
@@ -3403,49 +3434,8 @@ private:
             inReq.statusMsg = "add node listeners: no such node";
             return;
         }
-        const Config::Locations& theLocations = theIt->second.GetLocations();
-        if (mConfig.GetMaxListenersPerNode() <
-                theLocations.size() + inReq.mListSize) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "add node listeners:"
-                " exceeded maximum number of listeners per node";
-            return;
-        }
-        mPendingLocations.clear();
-        const char*       thePtr    = inReq.mListStr.GetPtr();
-        const char* const theEndPtr = thePtr + inReq.mListStr.GetSize();
-        ServerLocation    theLocation;
-        while (thePtr < theEndPtr) {
-            if (! theLocation.ParseString(
-                    thePtr, theEndPtr - thePtr, inReq.shortRpcFormatFlag)) {
-                inReq.status    = -EINVAL;
-                inReq.statusMsg =
-                    "add node listeners: listener address parse error";
-                mPendingLocations.clear();
-                return;
-            }
-            // Duplicate listeners are allowed, in order to create parallel TCP
-            // connections / log transmit channels.
-            if (find(theLocations.begin(), theLocations.end(), theLocation) ==
-                    theLocations.end() && HasLocation(theLocation)) {
-                inReq.status = -EINVAL;
-                inReq.statusMsg = "add node listeners: litener: ";
-                inReq.statusMsg += theLocation.ToString();
-                inReq.statusMsg += " is already assigned to node ";
-                AppendDecIntToString(
-                    inReq.statusMsg, FindNodeByLocation(theLocation));
-                mPendingLocations.clear();
-                return;
-            }
-            mPendingLocations.push_back(theLocation);
-        }
-        if ((int)mPendingLocations.size() != inReq.mListSize) {
-            inReq.status    = -EINVAL;
-            inReq.statusMsg = "add node listeners:"
-                " listeners list parse failure";
-            mPendingLocations.clear();
-            return;
-        }
+        ParseLocations(inReq, "add node listeners:",
+            theIt->second.GetLocations());
     }
     void RemoveNodeListeners(
         MetaVrReconfiguration& inReq)
