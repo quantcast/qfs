@@ -27,7 +27,7 @@ environment:
         CYG_MIRROR: http://cygwin.mirror.constant.com
         CYG_CACHE: C:\cygwin64\var\cache\setup
         CYG_BASH: C:\cygwin64\bin\bash
-        DEPENDENCIES: gcc-g++,autoconf,automake,make,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,curl,xz
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,xz
 
 cache:
     - '%CYG_CACHE%'
@@ -37,8 +37,9 @@ init:
 
 install:
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86_64.exe" -FileName "setup-x86_64.exe"'
+    - ps: 'Start-FileDownload "http://cygwin.mirror.constant.com/x86_64/release/cmake/cmake-3.3.2-1.tar.xz" -FileName "cmake-3.3.2-1.tar.xz"'
     - 'setup-x86_64.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
-    - 'C:\cygwin64\bin\bash -lc "uname -a && cygcheck -dc cygwin && pwd && df -h && cd / && curl http://cygwin.mirror.constant.com/x86_64/release/cmake/cmake-3.3.2-1.tar.xz | xzcat | tar xvf - && which cmake && which cygcheck && cmake --version"'
+    - 'C:\cygwin64\bin\bash -lc "uname -a && cygcheck -dc cygwin && pwd && df -h && ls -l && xzcat < cmake-3.3.2-1.tar.xz | tar -xvf - -C / && which cmake && which cygcheck && cmake --version"'
 
 build_script:
     - 'C:\cygwin64\bin\bash -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'
