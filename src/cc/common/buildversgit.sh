@@ -187,8 +187,10 @@ if [ x"$QFS_SRC_DIR" = x ]; then
 fi
 
 [ x"$MYACTION" = x ] || {
-    cd "$QFS_SRC_DIR" || exit
-    $MYACTION
+    (
+        cd "$QFS_SRC_DIR" || exit
+        $MYACTION
+    )
     exit
 }
 
@@ -204,7 +206,11 @@ for var in BUILD_TYPE SOURCE_DIR OUTFILE ; do
     fi
 done
 
-ABS_SRC_DIR=$(cd "$OURCE_DIR" > /dev/null && pwd)
+# generate build information for the binary to compile into itself
+tmpfile=$(mktemp tmp.XXXXXXXXXX)
+
+(
+ABS_SRC_DIR=$(cd "$SOURCE_DIR" > /dev/null && pwd)
 if cd $SOURCE_DIR 2>/dev/null; then
     HEAD=$(get_head)
     RELEASE=$(get_release)
@@ -215,11 +221,6 @@ if cd $SOURCE_DIR 2>/dev/null; then
 else
     SRC_DIR_GIT_VERSION=
 fi
-
-# generate build information for the binary to compile into itself
-tmpfile=$(mktemp tmp.XXXXXXXXXX)
-
-(
 cd "$QFS_SRC_DIR" > /dev/null || exit 1
 HEAD=$(get_head)
 RELEASE=$(get_release)
