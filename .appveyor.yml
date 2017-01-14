@@ -23,10 +23,10 @@ test: off
 build: off
 environment:
     global:
-        CYG_ROOT: C:\cygwin
+        CYG_ROOT: C:\cygwin64
         CYG_MIRROR: http://cygwin.mirror.constant.com
-        CYG_CACHE: C:\cygwin\var\cache\setup
-        CYG_BASH: C:\cygwin\bin\bash
+        CYG_CACHE: C:\cygwin64\var\cache\setup
+        CYG_BASH: C:\cygwin64\bin\bash
         DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
 
 cache:
