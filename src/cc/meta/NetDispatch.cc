@@ -1410,7 +1410,7 @@ public:
         mMaxLogRecvSocketsCount = max(min(64, count / 3), count / 16);
         mMaxClientSocketCount   = count - mMaxLogRecvSocketsCount;
         mMaxLogRecvSocketsCount /= 2; // Reserve half for log transmitter.
-        KFS_LOG_STREAM_DEBUG <<
+        KFS_LOG_STREAM_INFO <<
             "socket limits:"
             " clients: "     << mMaxClientSocketCount <<
             " log:"
@@ -1420,7 +1420,7 @@ public:
         KFS_LOG_EOM;
     }
     int GetMaxClientCount() const
-        { return mMaxClientCount; }
+        { return min(mMaxClientSocketCount, mMaxClientCount); }
 private:
     class ClientThread;
     // The socket object which is setup to accept connections.
@@ -1802,7 +1802,7 @@ ClientManager::Impl::CreateKfsCallbackObj(NetConnectionPtr& conn)
         return 0;
     }
     const int connCount = ClientSM::GetClientCount();
-    if (min(mMaxClientSocketCount, mMaxClientCount) <= connCount) {
+    if (GetMaxClientCount() <= connCount) {
         // The value doesn't reflect the active connection count, but rather
         // number of existing client state machines. This should be OK here, as
         // with no state machines "leak" it wouldn't make much difference.
