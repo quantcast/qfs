@@ -84,6 +84,7 @@ public:
           mTimeout(60),
           mConnectionCount(0),
           mMaxConnectionCount(8 << 10),
+          mMaxSocketsCount(mMaxConnectionCount),
           mMaxPendingOpsCount(1 << 10),
           mIpV6OnlyFlag(false),
           mListenerAddress(),
@@ -174,7 +175,8 @@ public:
         const MetaVrLogSeq& inCommittedLogSeq,
         const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId,
-        NodeId              inNodeId)
+        NodeId              inNodeId,
+        int                 inMaxSocketsCount)
     {
         if (mDeleteFlag) {
             panic("LogReceiver::Impl::Start delete pending");
@@ -202,6 +204,12 @@ public:
         if (inFileSystemId < 0) {
             KFS_LOG_STREAM_ERROR <<
                 "file sytem id is not set: " << inFileSystemId <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (inMaxSocketsCount <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid max sockets limit: " << inMaxSocketsCount <<
             KFS_LOG_EOM;
             return -EINVAL;
         }
@@ -236,6 +244,7 @@ public:
         mSubmittedWriteSeq = inLastLogSeq;
         mFileSystemId      = inFileSystemId;
         mId                = inNodeId;
+        mMaxSocketsCount   = inMaxSocketsCount;
         mWakerPtr          = &inWaker;
         return 0;
     }
@@ -433,6 +442,7 @@ private:
     int            mTimeout;
     int            mConnectionCount;
     int            mMaxConnectionCount;
+    int            mMaxSocketsCount;
     int            mMaxPendingOpsCount;
     bool           mIpV6OnlyFlag;
     ServerLocation mListenerAddress;
@@ -1330,10 +1340,11 @@ LogReceiver::Impl::CreateKfsCallbackObj(
     if (! inConnectionPtr || ! inConnectionPtr->IsGood()) {
         return 0;
     }
-    if (mMaxConnectionCount <= mConnectionCount) {
+    if (min(mMaxSocketsCount, mMaxConnectionCount) <= mConnectionCount) {
         KFS_LOG_STREAM_ERROR <<
             "log receiver: reached connections limit"
             " of: "                 << mMaxConnectionCount <<
+            " and sockets: "        << mMaxSocketsCount <<
             " connections: "        << mConnectionCount <<
             " closing connection: " << inConnectionPtr->GetPeerName() <<
         KFS_LOG_EOM;
@@ -1421,10 +1432,12 @@ LogReceiver::Start(
     const MetaVrLogSeq& inCommittedLogSeq,
     const MetaVrLogSeq& inLastLogSeq,
     int64_t             inFileSystemId,
-    vrNodeId_t          inNodeId)
+    vrNodeId_t          inNodeId,
+    int                 inMaxSocketsCount)
 {
     return mImpl.Start(inNetManager, inWaker,
-        inCommittedLogSeq, inLastLogSeq, inFileSystemId, inNodeId);
+        inCommittedLogSeq, inLastLogSeq, inFileSystemId, inNodeId,
+        inMaxSocketsCount);
 }
 
     void

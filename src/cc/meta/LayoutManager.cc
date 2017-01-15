@@ -3683,14 +3683,18 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
     if (0 != req.status) {
         if (req.replayFlag) {
             panic("invalid meta hibernate remove");
-        } else if (! IsMetaLogWriteOrVrError(req.status)) {
-            panic("invalid meta hibernate remove status");
+            return;
         }
-        return;
+        if (! IsMetaLogWriteOrVrError(req.status)) {
+            panic("invalid meta hibernate remove status");
+            return;
+        }
     }
     HibernatedServerInfos::iterator it;
     if (! FindHibernatingCSInfo(req.location, &it)) {
-        req.status = -ENOENT;
+        if (0 == req.status) {
+            req.status = -ENOENT;
+        }
         return;
     }
     if (! req.replayFlag && it->removeOp != &req) {
@@ -10949,33 +10953,41 @@ LayoutManager::CanReplicateChunkNow(
 void
 LayoutManager::CheckHibernatingServersStatus()
 {
+    if (! mPrimaryFlag) {
+        return;
+    }
     const time_t now = TimeNow();
     RequestQueue queue;
     for (HibernatedServerInfos::iterator iter = mHibernatingServers.begin();
             iter != mHibernatingServers.end();
             ++iter) {
-        if (iter->removeOp || iter->replayFlag) {
+        if (iter->removeOp) {
             continue;
         }
-        Servers::const_iterator const i = FindServer(iter->location);
-        if (i == mChunkServers.end() && now < iter->sleepEndTime) {
+        Servers::const_iterator const it = FindServer(iter->location);
+        if (it == mChunkServers.end() && now < iter->sleepEndTime) {
             // Within the time window.
             continue;
         }
-        if (i != mChunkServers.end()) {
+        if (it != mChunkServers.end()) {
             if (iter->IsHibernated()) {
                 // Must be removed by hello processing in AddNewServer().
                 panic("invalid stale hibernated server info");
-            } else {
+            } else if ((*it)->IsConnected()) {
                 if (now < iter->sleepEndTime + 5 * 60) {
                     continue;
                 }
                 KFS_LOG_STREAM_INFO <<
-                    "hibernated server: " <<
-                        iter->location  <<
-                    " still connected, canceling"
-                    " hibernation" <<
+                    "hibernated server: " << iter->location  <<
+                    " still connected, canceling hibernation" <<
                 KFS_LOG_EOM;
+            } else {
+                KFS_LOG_STREAM_DEBUG <<
+                    "hibernated server: " << iter->location  <<
+                    " is not connected, skipping" <<
+                KFS_LOG_EOM;
+                // Wait for bye to go trough the log.
+                continue;
             }
         } else {
             // Server hasn't come back as promised, initiate

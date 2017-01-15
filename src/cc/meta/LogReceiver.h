@@ -74,7 +74,8 @@ public:
         const MetaVrLogSeq& inCommittedLogSeq,
         const MetaVrLogSeq& inLastLogSeq,
         int64_t             inFileSystemId,
-        vrNodeId_t          inNodeId);
+        vrNodeId_t          inNodeId,
+        int                 inMaxSocketsCount);
     void Shutdown();
     ServerLocation GetListenerAddress() const;
     static int ParseBlockLines(

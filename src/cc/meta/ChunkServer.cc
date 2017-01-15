@@ -4096,8 +4096,9 @@ HibernatedChunkServer::SetParameters(const Properties& props)
 
 size_t   HibernatedChunkServer::sValidCount(0);
 size_t   HibernatedChunkServer::sChunkListsSize(0);
-size_t   HibernatedChunkServer::sMaxChunkListsSize(size_t(16) << 20);
-size_t   HibernatedChunkServer::sPruneInFlightCount = 0;
-uint64_t HibernatedChunkServer::sGeneration = 0;
+size_t   HibernatedChunkServer::sPruneInFlightCount(0);
+uint64_t HibernatedChunkServer::sGeneration(0);
+size_t   HibernatedChunkServer::sMaxChunkListsSize(
+    size_t(sizeof(void*) < 8 ? 8 : 48) << 20);
 
 } // namespace KFS

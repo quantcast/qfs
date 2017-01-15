@@ -1183,7 +1183,8 @@ public:
         { mNetManager.ChildAtFork(); }
     bool IsThreadStarted() const
         { return mThread.IsStarted(); }
-    int Start()
+    int Start(
+        int inMaxSocketsCount)
     {
         if (mStartedFlag || mThread.IsStarted()) {
             return -EINVAL;
@@ -1207,7 +1208,8 @@ public:
             replayer.getCommitted(),
             replayer.getLastLogSeq(),
             metatree.GetFsId(),
-            vrId
+            vrId,
+            inMaxSocketsCount
         );
         if (err) {
             return err;
@@ -1399,12 +1401,24 @@ public:
     }
     void SetParameters(const Properties& params)
     {
-        mMaxClientCount = min(mMaxClientSocketCount, params.getValue(
-            "metaServer.maxClientCount", mMaxClientCount));
+        mMaxClientCount = params.getValue(
+            "metaServer.maxClientCount", mMaxClientCount);
         mLogReceiverThread.SetParameters(params);
     }
     void SetMaxClientSockets(int count)
-        { mMaxClientSocketCount = count; }
+    {
+        mMaxLogRecvSocketsCount = max(min(64, count / 3), count / 16);
+        mMaxClientSocketCount   = count - mMaxLogRecvSocketsCount;
+        mMaxLogRecvSocketsCount /= 2; // Reserve half for log transmitter.
+        KFS_LOG_STREAM_DEBUG <<
+            "socket limits:"
+            " clients: "     << mMaxClientSocketCount <<
+            " log:"
+            " receiver: "    << mMaxLogRecvSocketsCount <<
+            " transmitter: " <<
+                (count - mMaxClientSocketCount - mMaxLogRecvSocketsCount) <<
+        KFS_LOG_EOM;
+    }
     int GetMaxClientCount() const
         { return mMaxClientCount; }
 private:
@@ -1416,6 +1430,7 @@ private:
     int                          mNextThreadIdx;
     int                          mMaxClientCount;
     int                          mMaxClientSocketCount;
+    int                          mMaxLogRecvSocketsCount;
     QCMutex                      mMutex;
     QCCondVar                    mPrepareToForkDoneCond;
     QCCondVar                    mForkDoneCond;
@@ -1751,7 +1766,7 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity,
     if (! mAcceptor->IsAcceptorStarted()) {
         return false;
     }
-    if (mLogReceiverThread.Start() != 0) {
+    if (mLogReceiverThread.Start(mMaxLogRecvSocketsCount) != 0) {
         return false;
     }
     if (0 <= mClientThreadCount || mClientThreads) {
@@ -1787,13 +1802,14 @@ ClientManager::Impl::CreateKfsCallbackObj(NetConnectionPtr& conn)
         return 0;
     }
     const int connCount = ClientSM::GetClientCount();
-    if (mMaxClientCount <= connCount) {
+    if (min(mMaxClientSocketCount, mMaxClientCount) <= connCount) {
         // The value doesn't reflect the active connection count, but rather
         // number of existing client state machines. This should be OK here, as
         // with no state machines "leak" it wouldn't make much difference.
         // The leak, if exists, must be fixed, of course.
         KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
             " over connection limit: " << mMaxClientCount <<
+            " max sockets: "           << mMaxClientSocketCount <<
             " connection count: "      << connCount <<
             " closing connection" <<
         KFS_LOG_EOM;
