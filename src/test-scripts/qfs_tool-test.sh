@@ -60,6 +60,14 @@ fi
 if [ -d "${kfsdevtools}" ]; then
     kfsdevtools=`cd "${kfsdevtools}" && pwd`
 fi
+if [ x"`id -u`" = x'0' ]; then
+    echo 'Warning: not performing chmod a+X, ug-r, and chown -R 0:0 tests' \
+        ' due to user id 0.' \
+        'Please consider running this test under non root account.'
+    qfscuruserroot=1
+else
+    qfscuruserroot=0
+fi
 PATH="`pwd`:${PATH}"
 [ -d "${kfstools}" ] && PATH="${kfstools}:${PATH}"
 [ -d "${kfsdevtools}" ] && PATH="${kfsdevtools}:${PATH}"
@@ -199,7 +207,7 @@ END {
         exit(1)
     }
 }
-' "$tmpout" 
+' "$tmpout"
 
 $qfstool -duh "$dir/$dstbn" > "$tmpout"
 awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts '
@@ -230,7 +238,7 @@ BEGIN {
         }
     }
 }
-' "$tmpout" 
+' "$tmpout"
 
 $qfstool -dus "$dir/$dstbn" > "$tmpout"
 awk -v p="$dir/$dstbn" -v s="$qfstoolsizes" -v ts=$ts '
@@ -248,7 +256,7 @@ BEGIN {
         exit(1)
     }
 }
-' "$tmpout" 
+' "$tmpout"
 
 $qfstool -dush "$dir/$dstbn" > "$tmpout"
 awk -v p="$dir/$dstbn" -v s="$qfstoolsizes" -v ts=$ts '
@@ -272,7 +280,7 @@ BEGIN {
         exit(1)
     }
 }
-' "$tmpout" 
+' "$tmpout"
 
 $qfstool -lsr "$dir/$dstbn" > "$tmpout"
 awk -v p="$dir/$dstbn/" \
@@ -304,23 +312,25 @@ END {
         exit(1)
     }
 }
-' "$tmpout" 
+' "$tmpout"
 
 tdir="$dir/$dstbn/1"
 tfile="$tdir/1.txt"
 $qfstool -setrep -R -w 2 "$tdir"
-$qfstool -chmod -R a-x "$tdir"
-$qfstool -lsr "$tfile" && exit 1
-$qfstool -chmod -R a+X "$tdir"
-$qfstool -lsr "$tfile" > "$tmpout"
-awk -v p="$tfile" '
-{
-    if ($1 != "-rw-r--r--" || $2 != 2 || $NF != p) {
-        print "$0"
-        exit(1)
+if [ $qfscuruserroot -eq 0 ]; then
+    $qfstool -chmod -R a-x "$tdir"
+    $qfstool -lsr "$tfile" && exit 1
+    $qfstool -chmod -R a+X "$tdir"
+    $qfstool -lsr "$tfile" > "$tmpout"
+    awk -v p="$tfile" '
+    {
+        if ($1 != "-rw-r--r--" || $2 != 2 || $NF != p) {
+            print "$0"
+            exit(1)
+        }
     }
-}
-' "$tmpout" 
+    ' "$tmpout"
+fi
 $qfstool -setrep 1 "$tfile"
 $qfstool -setrep -R 1 "$tdir"
 $qfstool -mv "$tdir" "$tfile" && exit 1
@@ -328,7 +338,9 @@ $qfstool -mv "$tdir" "$tfile" && exit 1
 $qfstool -chmod o-r "$tfile"
 $qfstool -tail "$tfile" > /dev/null
 $qfstool -chmod ug-r "$tfile"
-$qfstool -tail "$tfile" > /dev/null && exit 1
+if [ $qfscuruserroot -eq 0 ]; then
+    $qfstool -tail "$tfile" > /dev/null && exit 1
+fi
 $qfstool -chmod a+r "$tfile"
 $qfstool -tail "$tfile" > /dev/null
 $qfstool -setModTime "$tfile" 3600000
@@ -341,7 +353,9 @@ awk '
     }
 }
 ' "$tmpout"
-$qfstool -chown -R 0:0 "$tdir" && exit 1
+if [ $qfscuruserroot -eq 0 ]; then
+    $qfstool -chown -R 0:0 "$tdir" && exit 1
+fi
 $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown -R 0:0 "$tdir"
 $qfstool -astat "$tdir" > "$tmpout"
 $qfstool -astat "$tdir/*.*" >> "$tmpout"
@@ -368,7 +382,9 @@ END {
     }
 }
 ' "$tmpout"
-$qfstool -chown -R "${qfstooluser}:${qfstoolgroup}" "$tdir" && exit 1
+if [ $qfscuruserroot -eq 0 ]; then
+    $qfstool -chown -R "${qfstooluser}:${qfstoolgroup}" "$tdir" && exit 1
+fi
 $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown -R "${qfstooluser}" "$tdir"
 $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chgrp -R "${qfstoolgroup}" "$tdir"
 $qfstool -ls "$tdir/*" > "$tmpout"
