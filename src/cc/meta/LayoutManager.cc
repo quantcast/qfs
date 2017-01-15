@@ -10956,7 +10956,8 @@ LayoutManager::CheckHibernatingServersStatus()
     if (! mPrimaryFlag) {
         return;
     }
-    const time_t now = TimeNow();
+    const int    recoveryFlag = InRecovery();
+    const time_t now          = TimeNow();
     RequestQueue queue;
     for (HibernatedServerInfos::iterator iter = mHibernatingServers.begin();
             iter != mHibernatingServers.end();
@@ -10992,10 +10993,14 @@ LayoutManager::CheckHibernatingServersStatus()
         } else {
             // Server hasn't come back as promised, initiate
             // re-replication check for the blocks that were on that node.
-            KFS_LOG_STREAM_INFO <<
+            KFS_LOG_STREAM(recoveryFlag ?
+                    MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
                 "hibernated server: " << iter->location <<
                 " is NOT back as promised" <<
             KFS_LOG_EOM;
+            if (recoveryFlag) {
+                continue;
+            }
         }
         iter->removeOp = new MetaHibernatedRemove(iter->location);
         queue.PushBack(*iter->removeOp);
