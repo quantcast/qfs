@@ -44,7 +44,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CMD="$CMD && sudo apt-get install -y $DEPS_UBUNTU"
 
         # coverage enabled only generated on ubuntu
-        CMD="$CMD && make CMAKE_OPTIONS='-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo' test tarball"
+        CMD="$CMD && make CMAKE_OPTIONS='-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo' tarball"
     elif [[ "$DISTRO" == "centos" ]]; then
         CMD="yum install -y $DEPS_CENTOS"
 
