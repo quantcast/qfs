@@ -1075,13 +1075,11 @@ trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
 
     rm -rf 'tools'
     cp -a "$bdir/src/cc/tools" . || exit
-    rm -rf 'tests'
-    cp -a "$bdir/src/cc/tests" . || exit
     rm -rf 'devtools'
     cp -a "$bdir/src/cc/devtools" . || exit
     cp "$srcdir/src/test-scripts/cptest.sh" . || exit
     cdirp=`pwd`
-    PATH="${cdirp}/tests:${cdirp}/devtools:${PATH}"
+    PATH="${cdirp}/devtools:${PATH}"
     export PATH
 
     meta="-s $metahost -p $metasrvport"
@@ -1135,8 +1133,6 @@ fi
     cp -a "$bdir/src/cc/tools" . || exit
     rm -rf 'fanout'
     cp -a "$bdir/src/cc/fanout" . || exit
-    rm -rf 'tests'
-    cp -a "$bdir/src/cc/tests" . || exit
     rm -rf 'devtools'
     cp -a "$bdir/src/cc/devtools" . || exit
     cp  "$ssrcdir/src/cc/fanout/kfanout_test.sh" . || exit
@@ -1146,7 +1142,7 @@ fi
         foretry=''
     fi
     cdirp=`pwd`
-    PATH="${cdirp}/fanout:${cdirp}/tools:${cdirp}/devtools:${cdirp}/tests:${PATH}"
+    PATH="${cdirp}/fanout:${cdirp}/tools:${cdirp}/devtools:${PATH}"
     export PATH
 
     echo "Starting kfanout_test.sh"
@@ -1198,8 +1194,6 @@ fi
 
     rm -rf 'tools'
     cp -a "$bdir/src/cc/tools" . || exit
-    rm -rf 'tests'
-    cp -a "$bdir/src/cc/tests" . || exit
     rm -rf 'devtools'
     cp -a "$bdir/src/cc/devtools" . || exit
     rm -rf 'fanout'
@@ -1214,7 +1208,7 @@ fi
     cp -a "$ssrcdir/glue" . || exit
     cp  "$bdir/quantsort/quantsort" . || exit
     cdirp=`pwd`
-    PATH="${cdirp}/sortmaster:${cdirp}/fanout:${cdirp}/tools:${cdirp}/devtools:${cdirp}/tests:${PATH}"
+    PATH="${cdirp}/sortmaster:${cdirp}/fanout:${cdirp}/tools:${cdirp}/devtools:${PATH}"
     export PATH
     ksortcontroller="${cdirp}/glue/ksortcontroller"
     export ksortcontroller
