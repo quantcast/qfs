@@ -44,7 +44,9 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CMD="$CMD && sudo apt-get install -y $DEPS_UBUNTU"
 
         # coverage enabled only generated on ubuntu
-        CMD="$CMD && make CMAKE_OPTIONS='-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo' tarball"
+        CMD="$CMD && { cat /proc/cpuinfo ; df -h ; true ; }"
+        CMD="$CMD && make CMAKE_OPTIONS='-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo' test tarball"
+        CMD="$CMD || { find build/release/qfstest -type f -name \*.log -print0 | xargs -0  tail -n 500 ; exit 1; }"
     elif [[ "$DISTRO" == "centos" ]]; then
         CMD="yum install -y $DEPS_CENTOS"
 
