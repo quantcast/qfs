@@ -34,5 +34,14 @@ fi
 
 tar -xf $TAR
 java -jar $DIR/$DIR.jar --dir "$SRC" -E "$SRC/.ratignore" \
-    | egrep '^==[^=]' \
-    | sed -e 's,==../../,,g'
+| awk '
+    BEGIN { ret = 1; }
+    /Unknown Licenses/ {
+        if (0 == $1) {
+            ret = 0
+        }
+        print;
+    }
+    /^==/{ print; }
+    END { exit ret; }
+'
