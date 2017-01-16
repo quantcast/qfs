@@ -1328,7 +1328,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Read RPC request size limit.
 # metaServer.dataStore.maxReadSize = 2097152
 
-# ==================== Meta Server Viewstamped Replication =====================
+# ==================== Meta Server Viewstamped Replication (VR) ================
 
 # Meta server VR (viewstamped replication) node ID.
 # The node IDs must be unique, and should never be reused, in order to ensure
@@ -1351,6 +1351,12 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is empty list.
 # metaServer.metaMds =
 
+# Meta server VR node state file.
+# The file contains node specific state. A valid file is required to form VR
+# quorum, i.e. meta server nodes group serving client requests, and maintaining
+# (re-replicating or recovering lost) chunks.
+# metaServer.vr.stateFileName = vrstate
+
 # Sync (fsync) VR state file to disk (persistent store).
 # Default is on.
 # metaServer.vr.syncVrStateFile = 1
@@ -1368,7 +1374,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # getpeername() on the other VR nodes, and/or metaServer.clientIp
 # The port should be the same as this node metaServer.clientPort.
 # In other words, this is IP ad port that other VR nodes must use to connect to
-# this node client listener. 
+# this node client listener.
 # Default is empty.
 # metaServer.vr.metaDataStoreLocation =
 
