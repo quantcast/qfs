@@ -138,11 +138,11 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D NDEBUG -g3")
 endif()
 
 set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
-string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
+    string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
 add_definitions (-D${KFS_OS_NAME})
 
 IF (ENABLE_IO_BUFFER_DEBUG)
@@ -154,6 +154,11 @@ IF (CYGWIN)
     # For now only for cygwin to get strptime, and gnu specific glob flags.
     add_definitions(-D_GNU_SOURCE)
 ENDIF (CYGWIN)
+
+if(DEFINED QFS_EXTRA_CXX_OPTIONS)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${QFS_EXTRA_CXX_OPTIONS}")
+    message(STATUS "Extra CXX options: ${QFS_EXTRA_CXX_OPTIONS}")
+endif()
 
 # include dirs
 include_directories(
