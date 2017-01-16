@@ -71,7 +71,8 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
 	fi
     fi
     CMD="$CMD && { cat /proc/cpuinfo ; df -h ; true ; }"
-    CMD="$CMD && make -j 2 CMAKE_OPTIONS='$MYCMAKE_OPTIONS' rat test tarball"
+    CMD="$CMD && make rat clean"
+    CMD="$CMD && make -j 2 CMAKE_OPTIONS='$MYCMAKE_OPTIONS' test tarball"
     CMD="$CMD || $TAIL_TEST_LOGS"
 
     docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER /bin/bash -c "$CMD"
