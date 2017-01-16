@@ -103,8 +103,8 @@ test: hadoop-jars
 	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS}
 
 .PHONY: rat
-rat: run-cmake
-	cd build/${BUILD_TYPE} && $(MAKE) ${MAKE_OPTIONS} rat
+rat: dir
+	cd build/${BUILD_TYPE} && ../../scripts/rat.sh ../..
 
 .PHONY: clean
 clean:
