@@ -23,7 +23,7 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
-SRC=$1
+SRC=`cd "$1" > /dev/null && pwd`
 DIR=apache-rat-0.11
 TAR=$DIR-bin.tar.gz
 URL=http://mirror.cogentco.com/pub/apache/creadur/$DIR/$TAR
