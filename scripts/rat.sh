@@ -29,7 +29,7 @@ TAR=$DIR-bin.tar.gz
 URL=http://mirror.cogentco.com/pub/apache/creadur/$DIR/$TAR
 
 if [ ! -e $TAR ]; then
-    curl --silent $URL > $TAR
+    wget --quiet $URL -O $TAR
 fi
 
 tar -xf $TAR
