@@ -51,10 +51,29 @@ PATH="`pwd`:${PATH}"
 [ -d "${kfstools}" ] && PATH="${kfstools}:${PATH}"
 export PATH
 
+xdatesec='date -u +%s'
+
+datetimesec()
+{
+    if [ x"$xdatesec" = x ]; then
+        echo 0
+    else
+        $xdatesec
+    fi
+}
+
 mytime()
 {
     if [ x"$xtime" = x ]; then
-        time ${1+"$@"}
+        mystart=`datetimesec`
+        ${1+"$@"}
+        ret=$?
+        mytime=`datetimesec`
+        mytime=`expr $mytime - $mystart`
+        echo "Command: ${1+"$@"}"
+        echo "Elapsed time: $mytime"
+        echo "Exit status: $ret"
+        return $ret
     else
         $xtime ${1+"$@"}
     fi
@@ -65,8 +84,16 @@ myqfsshell()
     qfsshell $meta -l $qfsshellloglevel -q -- ${1+"$@"}
 }
 
-if [ -x /usr/bin/time ] && /usr/bin/time -v true >/dev/null 2>&1; then
-    xtime='/usr/bin/time -v'
+if time -v true >/dev/null 2>&1; then
+    xtime='time -v'
+elif time true >/dev/null 2>&1; then
+    xtime='time'
+fi
+
+if expr `$xdatesec 2>&1` - 0 > /dev/null 2>&1; then
+    true
+else
+    xdatesec=''
 fi
 
 ulimit -c unlimited
