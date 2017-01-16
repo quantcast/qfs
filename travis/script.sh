@@ -29,13 +29,16 @@ DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel openssl-devel python-
 
 MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
 MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
+TAIL_TEST_LOGS='{ find build/release/qfstest -type f -name \*.log -print0 | xargs -0  tail -n 500 ; exit 1; }'
 
 if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
     MYOPENSSL_DIR='/usr/local/Cellar/openssl/'
     MYOPENSSL_R_DIR=$(ls -1 "$MYOPENSSL_DIR" | tail -n 1)
     MYCMAKE_OPTIONS="-D OPENSSL_ROOT_DIR=${MYOPENSSL_DIR}${MYOPENSSL_R_DIR}"
     MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D CMAKE_BUILD_TYPE=RelWithDebInfo"
-    make CMAKE_OPTIONS="$MYCMAKE_OPTIONS" tarball
+    sysctl machdep.cpu
+    df -h
+    make -j 2 CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball || $TAIL_TEST_LOGS
 fi
 
 if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
@@ -45,8 +48,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
 
         # coverage enabled only generated on ubuntu
         CMD="$CMD && { cat /proc/cpuinfo ; df -h ; true ; }"
-        CMD="$CMD && make CMAKE_OPTIONS='-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo' test tarball"
-        CMD="$CMD || { find build/release/qfstest -type f -name \*.log -print0 | xargs -0  tail -n 500 ; exit 1; }"
+        CMD="$CMD && make -j 2 CMAKE_OPTIONS='-D ENABLE_COVERAGE=yes -D CMAKE_BUILD_TYPE=RelWithDebInfo' test tarball"
     elif [[ "$DISTRO" == "centos" ]]; then
         CMD="yum install -y $DEPS_CENTOS"
 
@@ -67,8 +69,10 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
 	fi
 
         # now the actual command
-        CMD="$CMD && make tarball"
+        CMD="$CMD && { cat /proc/cpuinfo ; df -h ; true ; }"
+        CMD="$CMD && make -j 2 test tarball"
     fi
+    CMD="$CMD || $TAIL_TEST_LOGS"
 
     docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER /bin/bash -c "$CMD"
 fi
