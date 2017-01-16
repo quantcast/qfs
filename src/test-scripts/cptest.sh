@@ -68,11 +68,13 @@ mytime()
         mystart=`datetimesec`
         ${1+"$@"}
         ret=$?
-        mytime=`datetimesec`
-        mytime=`expr $mytime - $mystart`
-        echo "Command: ${1+"$@"}"
-        echo "Elapsed time: $mytime"
-        echo "Exit status: $ret"
+        {
+            mytime=`datetimesec`
+            mytime=`expr $mytime - $mystart`
+            echo "Command: ${1+"$@"}"
+            echo "Elapsed time: $mytime"
+            echo "Exit status: $ret"
+        } 1>&2
         return $ret
     else
         $xtime ${1+"$@"}
