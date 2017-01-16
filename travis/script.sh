@@ -24,7 +24,7 @@
 
 set -ex
 
-DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev libfuse-dev default-jdk wget unzip maven curl sudo"
+DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev libfuse-dev default-jdk wget unzip maven sudo"
 DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel wget unzip sudo which"
 
 MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
