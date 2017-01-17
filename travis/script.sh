@@ -90,6 +90,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
             echo 'curl -s https://codecov.io/bash | /bin/bash'
             echo 'exit 0'
         } > "$CODECOV"
+        cat "$CODECOV"
         CODECOV=" && \$MYSU /bin/bash $CODECOV"
     elif [[ "$DISTRO" == "centos" ]]; then
         setsusudo
