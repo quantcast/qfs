@@ -79,7 +79,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
             echo 'wget --quiet https://codecov.io/bash -O - | /bin/bash'
             echo 'exit 0'
         } > "$CODECOV"
-        CODECOV="$MYSU /bin/bash $CODECOV"
+        CODECOV=" && \$MYSU /bin/bash $CODECOV"
     elif [[ "$DISTRO" == "centos" ]]; then
         setsusudo
         CMD="$CMD \$MYSUDO yum install -y $DEPS_CENTOS"
