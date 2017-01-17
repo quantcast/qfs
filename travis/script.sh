@@ -24,12 +24,13 @@
 
 set -ex
 
-DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev libfuse-dev default-jdk wget unzip maven sudo"
+DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev libfuse-dev default-jdk wget unzip maven sudo passwd"
 DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel wget unzip sudo which"
 
 MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
 MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
-TAIL_TEST_LOGS='{ find build/release/qfstest -type f -name \*.log -print0 | xargs -0  tail -n 500 ; exit 1; }'
+QFS_TEST_DIR='build/release/qfstest'
+TAIL_TEST_LOGS="{ [ -d $QFS_TEST_DIR ] && find $QFS_TEST_DIR -type f -name \*.log -print0 | xargs -0  tail -n 500 ; exit 1; }"
 
 MYCMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo'
 
@@ -40,27 +41,51 @@ if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
     sysctl machdep.cpu
     df -h
     make -j 2 CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball || $TAIL_TEST_LOGS
+    exit 0
 fi
+
+setsusudo()
+{
+    CMD='if [ x"$(id -u)" = x0 ];'
+    CMD="$CMD then MYSUDO=; MYSU=$MYSU; MYUSER=$MYUSER;"
+    CMD="$CMD else MYSUDO=sudo; MYSU=; MYUSER=; fi;"
+}
 
 if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
     MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D QFS_EXTRA_CXX_OPTIONS=-Werror"
-    CMD='if [ x"$(id -u)" = x0 ]; then MYSUDO=; else MYSUDO=sudo; fi; '
+    MYUSER=
+    MYSU=
+    CODECOV=
+    DOCKEREXTRAARGS=
     if [[ "$DISTRO" == "ubuntu" ]]; then
-        CMD="$CMD $MYSUDO apt-get update"
-        CMD="$CMD && $MYSUDO apt-get install -y $DEPS_UBUNTU"
-
+        # build and test under qfsbuild user.
+        MYUSER='qfsbuild'
+        MYSU="sudo -u $MYUSER"
+        setsusudo
+        CMD="$CMD \$MYSUDO apt-get update"
+        CMD="$CMD && \$MYSUDO apt-get install -y $DEPS_UBUNTU"
+        CMD=$CMD' && { [ x"$MYUSER" = x ] || {'
+        CMD=$CMD' { id -u $MYUSER 2>/dev/null || useradd $MYUSER; }'
+        CMD=$CMD' && chown -R $MYUSER .; } }'
         # coverage enabled only generated on ubuntu
         MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
+        # run code coverage but don't fail build if it fails
+        CODECOV=' && { $MYSU wget https://codecov.io/bash -O - | bash; true; }'
+        # pass travis env vars to code coverage
+        DOCKERENVFILE='.docker-env.list'
+        env | grep -E '^(TRAVIS|CI)' > $DOCKERENVFILE
+        DOCKEREXTRAARGS="--env-file $DOCKERENVFILE"
     elif [[ "$DISTRO" == "centos" ]]; then
-        CMD="yum install -y $DEPS_CENTOS"
+        setsusudo
+        CMD="$CMD \$MYSUDO yum install -y $DEPS_CENTOS"
 
         # CentOS doesn't package maven directly so we have to install it manually
         CMD="$CMD && wget $MVN_URL"
-        CMD="$CMD && $MYSUDO tar -xf $MVN_TAR -C /usr/local"
+        CMD="$CMD && \$MYSUDO tar -xf $MVN_TAR -C /usr/local"
 
         # Set up PATH and links
         CMD="$CMD && pushd /usr/local"
-        CMD="$CMD && $MYSUDO ln -s ${MVN_TAR%-bin.tar.gz} maven"
+        CMD="$CMD && \$MYSUDO ln -s ${MVN_TAR%-bin.tar.gz} maven"
         CMD="$CMD && export M2_HOME=/usr/local/maven"
         CMD="$CMD && export PATH=\${M2_HOME}/bin:\${PATH}"
         CMD="$CMD && popd"
@@ -71,11 +96,12 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
 	fi
     fi
     CMD="$CMD && { cat /proc/cpuinfo ; df -h ; true ; }"
-    CMD="$CMD && make rat clean"
-    CMD="$CMD && make -j 2 CMAKE_OPTIONS='$MYCMAKE_OPTIONS' test tarball"
-    CMD="$CMD || $TAIL_TEST_LOGS"
+    CMD="$CMD && \$MYSU make rat clean"
+    CMD="$CMD && \$MYSU make -j 2 CMAKE_OPTIONS='$MYCMAKE_OPTIONS' test tarball"
+    CMD="$CMD $CODECOV || $TAIL_TEST_LOGS"
 
-    docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER /bin/bash -c "$CMD"
+    docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER $DOCKEREXTRAARGS \
+        /bin/bash -c "$CMD"
 fi
 
 # vim: set tw=0:
