@@ -24,13 +24,21 @@
 
 set -ex
 
-DEPS_UBUNTU="g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev libfuse-dev default-jdk wget unzip maven sudo passwd"
-DEPS_CENTOS="gcc-c++ make cmake git boost-devel krb5-devel openssl-devel python-devel fuse-devel java-openjdk java-devel libuuid-devel wget unzip sudo which"
+DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev'
+DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk wget unzip maven sudo passwd'
+DEPS_UBUNTU=$DEPS_UBUNTU' curl'
+
+DEPS_CENTOS='gcc-c++ make cmake git boost-devel krb5-devel openssl-devel'
+DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
+DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel wget unzip sudo which'
 
 MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
 MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
+
 QFS_TEST_DIR='build/release/qfstest'
-TAIL_TEST_LOGS="{ [ -d $QFS_TEST_DIR ] && find $QFS_TEST_DIR -type f -name \*.log -print0 | xargs -0  tail -n 500 ; exit 1; }"
+TAIL_TEST_LOGS="{ [ -d $QFS_TEST_DIR ] && find $QFS_TEST_DIR"
+TAIL_TEST_LOGS=$TAIL_TEST_LOGS' -type f -name \*.log -print0'
+TAIL_TEST_LOGS=$TAIL_TEST_LOGS'| xargs -0  tail -n 500 ; exit 1; }'
 
 MYCMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo'
 
@@ -74,9 +82,12 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         mkdir -p  "$MYTMP"
         CODECOV="$MYTMP/codecov.sh"
         {
-            env | grep -E '^(TRAVIS|CI)' \
-                | sed -e "s/\'/'\\\''/g"  -e "s/=/=\'/" -e 's/$/'"'/"
-            echo 'wget --quiet https://codecov.io/bash -O - | /bin/bash'
+            env | grep -E '^(TRAVIS|CI)' | sed \
+                -e "s/\'/'\\\''/g"  \
+                -e "s/=/=\'/" \
+                -e 's/$/'"'/" \
+                -e 's/^/export /' 
+            echo 'curl -s https://codecov.io/bash | /bin/bash'
             echo 'exit 0'
         } > "$CODECOV"
         CODECOV=" && \$MYSU /bin/bash $CODECOV"
