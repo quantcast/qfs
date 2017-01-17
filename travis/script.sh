@@ -64,7 +64,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CMD="$CMD \$MYSUDO apt-get update"
         CMD="$CMD && \$MYSUDO apt-get install -y $DEPS_UBUNTU"
         CMD=$CMD' && { [ x"$MYUSER" = x ] || {'
-        CMD=$CMD' { id -u $MYUSER 2>/dev/null || useradd $MYUSER; }'
+        CMD=$CMD' { id -u $MYUSER 2>/dev/null || useradd -m $MYUSER; }'
         CMD=$CMD' && chown -R $MYUSER .; } }'
         # coverage enabled only generated on ubuntu
         MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
