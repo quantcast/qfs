@@ -47,7 +47,7 @@ fi
 setsusudo()
 {
     CMD='if [ x"$(id -u)" = x0 ];'
-    CMD="$CMD then MYSUDO=; MYSU=$MYSU; MYUSER=$MYUSER;"
+    CMD="$CMD then MYSUDO=; MYSU='$MYSU'; MYUSER='$MYUSER';"
     CMD="$CMD else MYSUDO=sudo; MYSU=; MYUSER=; fi;"
 }
 
