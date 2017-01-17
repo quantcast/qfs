@@ -56,7 +56,6 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
     MYUSER=
     MYSU=
     CODECOV=
-    DOCKEREXTRAARGS=
     if [[ "$DISTRO" == "ubuntu" ]]; then
         # build and test under qfsbuild user.
         MYUSER='qfsbuild'
@@ -69,12 +68,16 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CMD=$CMD' && chown -R $MYUSER .; } }'
         # coverage enabled only generated on ubuntu
         MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
-        # run code coverage but don't fail build if it fails
-        CODECOV=' && { $MYSU wget https://codecov.io/bash -O - | bash; true; }'
+        # run code coverage in docker, don't fail build if it fails
         # pass travis env vars to code coverage
-        DOCKERENVFILE='.docker-env.list'
-        env | grep -E '^(TRAVIS|CI)' > $DOCKERENVFILE
-        DOCKEREXTRAARGS="--env-file $DOCKERENVFILE"
+        CODECOV='./codecov.sh'
+        {
+            env | grep -E '^(TRAVIS|CI)' \
+                | sed -e "s/\'/'\\\''/g"  -e "s/=/=\'/" -e 's/$/'"'/"
+            echo 'wget --quiet https://codecov.io/bash -O - | /bin/bash'
+            echo 'exit 0'
+        } > "$CODECOV"
+        CODECOV="$MYSU /bin/bash $CODECOV"
     elif [[ "$DISTRO" == "centos" ]]; then
         setsusudo
         CMD="$CMD \$MYSUDO yum install -y $DEPS_CENTOS"
@@ -100,8 +103,7 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
     CMD="$CMD && \$MYSU make -j 2 CMAKE_OPTIONS='$MYCMAKE_OPTIONS' test tarball"
     CMD="$CMD $CODECOV || $TAIL_TEST_LOGS"
 
-    docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER $DOCKEREXTRAARGS \
-        /bin/bash -c "$CMD"
+    docker run --rm -t -v $PWD:$PWD -w $PWD $DISTRO:$VER /bin/bash -c "$CMD"
 fi
 
 # vim: set tw=0:
