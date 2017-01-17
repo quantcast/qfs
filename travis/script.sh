@@ -38,7 +38,7 @@ MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/b
 QFS_TEST_DIR='build/release/qfstest'
 TAIL_TEST_LOGS="{ [ -d $QFS_TEST_DIR ] && find $QFS_TEST_DIR"
 TAIL_TEST_LOGS=$TAIL_TEST_LOGS' -type f -name \*.log -print0'
-TAIL_TEST_LOGS=$TAIL_TEST_LOGS'| xargs -0  tail -n 500 ; exit 1; }'
+TAIL_TEST_LOGS=$TAIL_TEST_LOGS' | xargs -0  tail -n 500 ; exit 1; }'
 
 MYCMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo'
 
@@ -48,7 +48,8 @@ if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
     MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D OPENSSL_ROOT_DIR=${MYOPENSSL_DIR}${MYOPENSSL_R_DIR}"
     sysctl machdep.cpu
     df -h
-    make -j 2 CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball || $TAIL_TEST_LOGS
+    make -j 2 CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball \
+        || eval $TAIL_TEST_LOGS
     exit 0
 fi
 
