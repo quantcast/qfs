@@ -1,5 +1,4 @@
 # Individual files
-.*.cmake
 .gitignore
 .ratignore
 README.md
@@ -11,5 +10,4 @@ sorttable.js
 # Directories
 ext
 wiki
-travis
 build

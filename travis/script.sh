@@ -70,7 +70,9 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
         # run code coverage in docker, don't fail build if it fails
         # pass travis env vars to code coverage
-        CODECOV='./codecov.sh'
+        MYTMP=.tmp
+        mkdir -p  "$MYTMP"
+        CODECOV="$MYTMP/codecov.sh"
         {
             env | grep -E '^(TRAVIS|CI)' \
                 | sed -e "s/\'/'\\\''/g"  -e "s/=/=\'/" -e 's/$/'"'/"
