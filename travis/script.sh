@@ -83,14 +83,13 @@ if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then
         CODECOV="$MYTMP/codecov.sh"
         {
             env | grep -E '^(TRAVIS|CI)' | sed \
-                -e "s/\'/'\\\''/g"  \
+                -e "s/'/'\\\''/g"  \
                 -e "s/=/=\'/" \
                 -e 's/$/'"'/" \
                 -e 's/^/export /' 
             echo 'curl -s https://codecov.io/bash | /bin/bash'
             echo 'exit 0'
         } > "$CODECOV"
-        cat "$CODECOV"
         CODECOV=" && \$MYSU /bin/bash $CODECOV"
     elif [[ "$DISTRO" == "centos" ]]; then
         setsusudo
