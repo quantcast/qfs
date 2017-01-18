@@ -39,6 +39,7 @@ MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
 
 MYCMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo'
+MYQFSTEST_DIR='build/release/qfstest'
 
 set_sudo()
 {
@@ -61,8 +62,8 @@ set_sudo()
 
 tail_logs_and_exit()
 {
-    if [ -d "$QFS_TEST_DIR" ]; then
-        find "$QFS_TEST_DIR" -type f -name '*.log' -print0 \
+    if [ -d "$MYQFSTEST_DIR" ]; then
+        find "$MYQFSTEST_DIR" -type f -name '*.log' -print0 \
             | xargs -0  tail -n 500
     fi
     exit 1
