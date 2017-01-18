@@ -315,8 +315,9 @@ for testblocksize in $testblocksizes ; do
     mkdir "$tmpchunk" || exit
 
     k=0
+    createparams="`echo "$filecreateparams" | cut -d = -f 2`"
     while read stripes; do
-        echo "============== $testblocksize = $k == $stripes =================="
+        echo "======= $testblocksize = $k == $stripes === $createparams ======="
         eval `awk '
             BEGIN{ i=0; }
             /^position: /{
