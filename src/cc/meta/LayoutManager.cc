@@ -2610,7 +2610,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         mConfig += ';';
     }
     mChunkLeases.SetDumpsterCleanupDelaySec(props.getValue(
-        "metaServer.DumpsterCleanupDelaySec",
+        "metaServer.dumpsterCleanupDelaySec",
         mChunkLeases.GetDumpsterCleanupDelaySec())
     );
     mVerifyAllOpsPermissionsFlag =
