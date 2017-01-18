@@ -112,7 +112,7 @@ build_ubuntu()
         if id -u "$MYUSER" 2>/dev/null; then
             useradd -m "$MYUSER"
         fi
-        chown -R "$MYUSER"
+        chown -R "$MYUSER" .
     fi
     # coverage enabled only generated on ubuntu
     MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
