@@ -109,9 +109,7 @@ build_ubuntu()
         true
     else
         # create regular user to run the build and test under it
-        if id -u "$MYUSER" 2>/dev/null; then
-            useradd -m "$MYUSER"
-        fi
+        id -u "$MYUSER" 2>/dev/null || useradd -m "$MYUSER"
         chown -R "$MYUSER" .
     fi
     # coverage enabled only generated on ubuntu
