@@ -142,7 +142,7 @@ build_centos()
 }
 
 if [ $# -eq 3 -a x"$1" = x'build' ]; then
-    $1_$2 "$3"
+    "$1_$2" "$3"
     exit
 fi
 
