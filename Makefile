@@ -100,7 +100,13 @@ python: build
 
 .PHONY: test
 test: hadoop-jars
-	cd build/${BUILD_TYPE} && ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS}
+	cd build/${BUILD_TYPE} && \
+	    ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS} && \
+            echo '--------- QC RS recovery test ---------' && \
+	    ../../src/test-scripts/recoverytest.sh && \
+            echo '--------- Jerasure recovery test ------' && \
+	    filecreateparams='fs.createParams=1,6,3,1048576,3,15,15' \
+	    ../../src/test-scripts/recoverytest.sh
 
 .PHONY: rat
 rat: dir

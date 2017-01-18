@@ -350,6 +350,11 @@ EOF
 fi
 
 ulimit -c unlimited
+echo "Running RS unit test with 6 data stripes"
+mytimecmd='time'
+$mytimecmd true > /dev/null 2>&1 || mytimecmd=
+$mytimecmd rstest 6 65536 2>&1 || exit
+
 # Cleanup handler
 if [ x"$dontusefuser" = x'yes' ]; then
     trap 'sleep 1; kill -KILL 0' TERM
