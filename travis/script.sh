@@ -73,17 +73,23 @@ tail_logs_and_exit()
 
 do_build()
 {
-    $MYSU make -j ${1-2} CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball \
+    $MYSU make ${1+"$@"} CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball \
     || tail_logs_and_exit
 }
 
 do_build_linux()
 {
+    MYMAKEOPT='-j 2'
     if [ -r /proc/cpuinfo ]; then
         cat /proc/cpuinfo
+        MYCCNT=`grep -c -w processor /proc/cpuinfo`
+        if [ $MYCCNT -gt 2 ]; then
+            MYMAKEOPT="-j $MYCCNT"
+        fi
     fi
+    MYMAKEOPT="$MYMAKEOPT --no-print-directory"
     df -h || true
-    $MYSU make rat clean && do_build
+    $MYSU make rat clean && do_build $MYMAKEOPT
 }
 
 init_codecov()
@@ -165,7 +171,7 @@ elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     fi
     sysctl machdep.cpu || true
     df -h || true
-    do_build
+    do_build -j 2
 else
     echo "OS: $TRAVIS_OS_NAME not yet supported"
     exit 1
