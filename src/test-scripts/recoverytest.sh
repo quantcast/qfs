@@ -135,6 +135,17 @@ shutdown()
     return $sstatus
 }
 
+if openssl md5 /dev/null >/dev/null 2>&1; then
+    mychksumcmd="eval openssl md5 | awk '{print \$NF}'"
+else
+    mychksumcmd="eval sha1sum | awk '{print \$1}'"
+fi
+
+if [ x"`$mychksumcmd < /dev/null`" = x ]; then
+    echo "No working sha1sum or openssl available."
+    exit 1
+fi
+
 usr=`id -un`
 [ -f "$clicfg"     ] || clicfg=/dev/null
 [ -f "$clirootcfg" ] || clirootcfg=/dev/null
@@ -242,7 +253,7 @@ verify_file()
         -D fs.readFullSparseFileSupport=1 \
         -cfg "$clicfg" \
         -cat "qfs://$metahost:$metaport/user/$usr/testrep.dat" \
-        | openssl md5 | awk '{print $NF}'`
+        | $mychksumcmd`
 
     if [ x"$testmd5" = x"$filemd5" ]; then
         return 0
@@ -298,7 +309,7 @@ for testblocksize in $testblocksizes ; do
         [ $ddbc  -gt 0 ] && dd bs=$ddbs  count=$ddbc if=/dev/zero 2>/dev/null ;
         [ $ddrem -gt 0 ] && dd bs=$ddrem count=1     if=/dev/zero 2>/dev/null ;
         "$devtoolsdir"/rand-sfmt -g $testtailblocksize 1234 ;
-    } | openssl md5 | awk '{print $NF}'`
+    } | $mychksumcmd`
 
     verify_file || {
         status=1
