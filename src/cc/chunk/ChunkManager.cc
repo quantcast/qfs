@@ -1524,7 +1524,7 @@ ChunkManager::NotifyStaleChunkDone(CorruptChunkOp& op)
     if (! upFlag) {
         while (0 < mCorruptChunkOp.chunkCount) {
             InsertLastInFlight(
-                mCorruptChunkOp.chunkIds[mCorruptChunkOp.chunkCount--]);
+                mCorruptChunkOp.chunkIds[--mCorruptChunkOp.chunkCount]);
         }
         return;
     }
