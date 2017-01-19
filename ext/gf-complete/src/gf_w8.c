@@ -203,7 +203,7 @@ uint32_t gf_w8_matrix (gf_t *gf, uint32_t b)
   return gf_bitmatrix_inverse(b, 8, ((gf_internal_t *) (gf->scratch))->prim_poly);
 }
 
-
+#if defined(INTEL_SSE4_PCLMUL)
 static
 inline
 gf_val_32_t
@@ -211,7 +211,6 @@ gf_w8_clm_multiply_2 (gf_t *gf, gf_val_32_t a8, gf_val_32_t b8)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -246,7 +245,6 @@ gf_w8_clm_multiply_2 (gf_t *gf, gf_val_32_t a8, gf_val_32_t b8)
   
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
 
-#endif
   return rv;
 }
 
@@ -257,7 +255,6 @@ gf_w8_clm_multiply_3 (gf_t *gf, gf_val_32_t a8, gf_val_32_t b8)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -285,7 +282,6 @@ gf_w8_clm_multiply_3 (gf_t *gf, gf_val_32_t a8, gf_val_32_t b8)
   
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
 
-#endif
   return rv;
 }
 
@@ -296,7 +292,6 @@ gf_w8_clm_multiply_4 (gf_t *gf, gf_val_32_t a8, gf_val_32_t b8)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -325,9 +320,9 @@ gf_w8_clm_multiply_4 (gf_t *gf, gf_val_32_t a8, gf_val_32_t b8)
   /* Extracts 32 bit value from result. */
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
 
-#endif
   return rv;
 }
+#endif
 
 
 static

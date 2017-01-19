@@ -438,6 +438,7 @@ gf_val_32_t gf_w16_matrix (gf_t *gf, gf_val_32_t b)
    extra memory.  
  */
 
+#if defined(INTEL_SSE4_PCLMUL)
 static
 inline
 gf_val_32_t
@@ -445,7 +446,6 @@ gf_w16_clm_multiply_2 (gf_t *gf, gf_val_32_t a16, gf_val_32_t b16)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -481,7 +481,6 @@ gf_w16_clm_multiply_2 (gf_t *gf, gf_val_32_t a16, gf_val_32_t b16)
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
 
 
-#endif
   return rv;
 }
 
@@ -492,7 +491,6 @@ gf_w16_clm_multiply_3 (gf_t *gf, gf_val_32_t a16, gf_val_32_t b16)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -521,7 +519,6 @@ gf_w16_clm_multiply_3 (gf_t *gf, gf_val_32_t a16, gf_val_32_t b16)
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
 
 
-#endif
   return rv;
 }
 
@@ -532,7 +529,6 @@ gf_w16_clm_multiply_4 (gf_t *gf, gf_val_32_t a16, gf_val_32_t b16)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -563,9 +559,9 @@ gf_w16_clm_multiply_4 (gf_t *gf, gf_val_32_t a16, gf_val_32_t b16)
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
 
 
-#endif
   return rv;
 }
+#endif
 
 
 static
