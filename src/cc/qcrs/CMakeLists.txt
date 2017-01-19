@@ -44,7 +44,7 @@ set_target_properties (kfsrs-shared PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 
 # If vector mode is not defined, attempt to detect it
 if (NOT DEFINED vectormode AND
-        (CMAKE_COMPILER_IS_GNUCC OR "${CMAKE_C_COMPILER_ID}" MATCHES "Clang$"))
+        (CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang$"))
     message(STATUS "System name: ${CMAKE_SYSTEM_NAME}")
     message(STATUS "System processor: ${CMAKE_SYSTEM_PROCESSOR}")
     # OS X uses sysctl instead of /proc/cpuinfo
