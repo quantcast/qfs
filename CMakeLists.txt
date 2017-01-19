@@ -160,6 +160,11 @@ if(DEFINED QFS_EXTRA_CXX_OPTIONS)
     message(STATUS "Extra CXX options: ${QFS_EXTRA_CXX_OPTIONS}")
 endif()
 
+if(DEFINED QFS_EXTRA_C_OPTIONS)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${QFS_EXTRA_C_OPTIONS}")
+    message(STATUS "Extra C options: ${QFS_EXTRA_C_OPTIONS}")
+endif()
+
 # include dirs
 include_directories(
     ${Boost_INCLUDE_DIRS}
