@@ -3409,10 +3409,8 @@ LayoutManager::Handle(MetaChunkLogInFlight& req)
             }
         } else {
             // Schedule down, as re-trying might re-order ops.
-            // At the time of writing the intention is to handle log write
-            // failure simulation. Doing so would possibly have no or negligible
-            // effect when primary election is implemented, by forcing chunk
-            // server to re-connect.
+            // Doing so have no effect on primary switch over, as chunk server
+            // has to re-connect to the new primary once the primary is elected.
             req.server->ScheduleDown(req.statusMsg.c_str());
             req.server->Enqueue(req);
         }
