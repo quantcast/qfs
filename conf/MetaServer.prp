@@ -1636,3 +1636,12 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #
 # metaServer.log.receiver.auth.blackList =
 # metaServer.log.receiver.auth.whiteList =
+
+# Meta server VR node process restart might be required in order to load a new
+# checkpoint when transaction log on all other available nodes have "rolled
+# over", and have no transactions that immediately follow the last transaction of
+# this node. By default meta server "re-executes" itself when restart is
+# required. In the case when the meta server process is automatically restarted
+# by another process the following parameter can be set to 1 to exit the make
+# meta server process instead of re-executing itself.
+# metaServer.exitOnRestart = 0
