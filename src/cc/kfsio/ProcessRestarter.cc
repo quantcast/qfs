@@ -141,7 +141,7 @@ public:
         );
         // Prior name for backward compatibility.
         mExitOnRestartFlag = inProps.getValue(
-            theName.Truncate(theLen).Append("exitOnRestartFlag"),
+            theName.Truncate(theLen).Append("exitOnRestart"),
             mExitOnRestartFlag ? 1 : 0
         ) != 0;
         mExitOnRestartFlag = inProps.getValue(
