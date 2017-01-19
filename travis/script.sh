@@ -39,6 +39,8 @@ MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
 
 MYCMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo'
+MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D QFS_EXTRA_CXX_OPTIONS=-Werror'
+MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D QFS_EXTRA_C_OPTIONS=-Werror'
 MYQFSTEST_DIR='build/release/qfstest'
 
 set_sudo()
@@ -81,7 +83,6 @@ do_build_linux()
         cat /proc/cpuinfo
     fi
     df -h || true
-    MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D QFS_EXTRA_CXX_OPTIONS=-Werror"
     $MYSU make rat clean && do_build
 }
 
