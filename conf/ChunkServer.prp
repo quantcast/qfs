@@ -331,3 +331,9 @@ chunkServer.msgLogWriter.logLevel = INFO
 # Leaving the remaining 112MB "slack" for request handling etc.
 # 786432*4096*(1-0.08334)*(1-0.96-0.00001)/2^20 => 112
 # chunkServer.objStoreBufferDataRatio           = 0.96
+
+# List of replicated meta server chunk server listeners network locations.
+# Each location is a pair of IP address and port.
+# The parameter is intended to be used in cases where DNS record with the list
+# of meta server nodes IP addresses cannot be created.
+# chunkServer.meta.nodes =

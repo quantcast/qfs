@@ -139,3 +139,13 @@ metaServer.port = 20000
 # client.auth.psk.key =
 
 #-------------------------------------------------------------------------------
+
+# Space separated list of replicated meta server nodes locations.
+# Each location consists of IP address (or host name) and port number.
+# For example:
+# client.metaServerNodes = 127.0.0.1 20000 127.0.0.1 20001 127.0.0.1 20002
+# This parameter is intended to be used if DNS record with list of meta server
+# nodes IP addresses cannot be created, or used with test environments where
+# replicated meta server nods are running on the same host.
+# Default is empty.
+# client.metaServerNodes =

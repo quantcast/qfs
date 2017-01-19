@@ -130,6 +130,11 @@ metaServer.cpDir = meta/checkpoint
 # out the parameter will not have any effect until restart.
 
 # WORM mode.
+# *****************************************************************************
+# * This parameter is deprecated, and has no effect, please use qfsadmin or
+# * qfstoggleworm to set WORM mode.
+# * WORM mode is now stored in checkpoint and transaction logs.
+# *****************************************************************************
 # Write once, read many mode.
 # In this mode only modification of files ".tmp" (without quotes) suffix is
 # allowed.
@@ -1329,6 +1334,98 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.dataStore.maxReadSize = 2097152
 
 # ==================== Meta Server Viewstamped Replication (VR) ================
+
+# Configuring replicated meta server group / cluster consists of the following
+# steps.
+#
+# 0. Decide on the number of meta server nodes N. The minimum N is 3. The
+# maximum number of tolerated nodes failures is N/2 - 1. QFS clients and chunk
+# servers automatically re-connect to newly elected primary node in the case
+# when prior primary node becomes unavailable due to node or network
+# connectivity failure.
+#
+# 1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
+# node group must have node with ID 0. The node with lowest ID is
+# elected as a primary primary, the remaining active nodes are assigned backup
+# status. Node's "primary order" (32 bit signed integer) can be set to change
+# primary election, the node with the smallest primary order becomes primary.
+# Node's primary order takes precedence over node ID, node ID breaks tie in case
+# when primary orders are equal. In initial configuration all nodes primary
+# order must be set to 0.
+# ******************************************************************************
+# * Node IDs must be unique, and should never be re-used. Non unique IDs withing
+# * the same meta server group / file system can result in loss of file system.
+# ******************************************************************************
+#
+# 2. Configure meta data sync, and log receiver listeners, please see the
+# following section for parameters description below.
+#
+# 3. Copy or create new file system checkpoint and transaction log segments
+# on/to the node with ID 0, and ensure that other nodes have empty checkpoint
+# and transaction log directories. Specify file system ID in the meta server
+# configuration file -- see metaServer.metaDataSync.fileSystemId parameter
+# below. File system ID can be obtained from the beginning of the checkpoint
+# file: the first number on the line with the "filesysteminfo/fsid/" prefix.
+#
+# 4. Create DNS record with the list of meta server nodes IP addresses, or add
+# meta server nodes IP addresses to the client configuration file by using
+# client.metaServerNodes parameter.
+# Chunk servers, similarly to QFS client, need to be configured with the meta
+# server DNS name, or list of meta server nodes network locations. Please see
+# chunkServer.meta.nodes parameter description in chunk server configuration
+# file.
+#
+# 5. Start meta server on all nodes. The nodes with non 0 IDs should fetch
+# checkpoint and transaction log from node with ID 0.
+#
+# 6. Use qfsadmin vr_reconfiguration command to configure replication. VR
+# configuration stored in the checkpoint and transaction log, and replicated
+# onto all meta server nodes.
+# The first step is to add all nodes with their respective transaction log
+# listeners network addresses [locations], the second is activate nodes. Meta
+# server should respond to vr_reconfiguration without arguments with the
+# command description. QFS admin configuration file has the same format and
+# parameters as QFS client configuration file. If nodes has more than one
+# network connection / IP addresses, multiple redundant network connections can
+# be configured to increase connectivity reliability by specifying list of log
+# listeners' network locations (IP address and port).
+# For example:
+#
+## Add node 0 to VR configuration:
+# qfsadmin -f qfsadmin.cfg
+#    -s <meta server host or ip> \
+#    -p <meta server port> \
+#    -F op-type=add-node \
+#    -F arg-count=1 \
+#    -F node-id=0 \
+#    -F args='node0-ip-address node0-log-listener-port-number' \
+#    vr_reconfiguration
+## Add node 1 to VR configuration:
+# qfsadmin -f qfsadmin.cfg
+#    -s <meta server host or ip> \
+#    -p <meta server port> \
+#    -F op-type=add-node \
+#    -F arg-count=1 \
+#    -F node-id=1 \
+#    -F args='node1-ip-address node1-log-listener-port-number' \
+#    vr_reconfiguration
+## Add node 2 to VR configuration:
+# qfsadmin -f qfsadmin.cfg
+#    -s <meta server host or ip> \
+#    -p <meta server port> \
+#    -F op-type=add-node \
+#    -F arg-count=1 \
+#    -F node-id=2 \
+#    -F args='node1-ip-address node2-log-listener-port-number' \
+#    vr_reconfiguration
+## Activate nodes:
+# qfsadmin -f qfsadmin.cfg
+#    -s <meta server host or ip> \
+#    -p <meta server port> \
+#    -F op-type=activate-nodes \
+#    -F arg-count=3 \
+#    -F args='0 1 2' \
+#    vr_reconfiguration
 
 # Meta server VR (viewstamped replication) node ID.
 # The node IDs must be unique, and should never be reused, in order to ensure
