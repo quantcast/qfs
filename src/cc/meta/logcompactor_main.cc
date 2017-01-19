@@ -62,9 +62,11 @@ LogCompactorMain(int argc, char** argv)
     string  lockFn;
     string  newLogDir;
     string  newCpDir;
-    int     status = 0;
+    bool    wormModeFlag    = false;
+    bool    setWormModeFlag = false;
+    int     status          = 0;
 
-    while ((optchar = getopt(argc, argv, "hpl:c:r:L:T:C:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hpl:c:r:L:T:C:W:")) != -1) {
         switch (optchar) {
             case 'L':
                 lockFn = optarg;
@@ -90,6 +92,10 @@ LogCompactorMain(int argc, char** argv)
                     status = 1;
                 }
                 break;
+            case 'W':
+                wormModeFlag    = 0 != atoi(optarg);
+                setWormModeFlag = true;
+                break;
             case 'T':
                 newLogDir = optarg;
                 if (newLogDir.empty()) {
@@ -110,6 +116,8 @@ LogCompactorMain(int argc, char** argv)
             "[-l <log directory> (default kfslog)]\n"
             "[-c <checkpoint directory> (default kfscp)]\n"
             "[-r <# of replicas> -- recursively change replication]\n"
+            "[-W {0|1} -- set WORM mode, only supported when"
+                " converting from prior format]\n"
             "-T <new log directroy> -- requires -C\n"
             "-C <new checkpoint directroy> -- requires -T\n"
             "-T and -C are intended for log and checkpoint conversion from prior"
@@ -175,6 +183,17 @@ LogCompactorMain(int argc, char** argv)
                 const int64_t kMinRollChunkIdSeed = int64_t(256) << 10;
                 chunkID.setseed(chunkID.getseed() +
                         max(kMinRollChunkIdSeed, replayer.getRollSeeds()));
+                if (setWormModeFlag) {
+                    setWORMMode(wormModeFlag);
+                }
+            } else {
+                if (setWormModeFlag) {
+                    KFS_LOG_STREAM_FATAL <<
+                        "setting WORM mode is not supported with new checkpoint"
+                        " and transaction log format" <<
+                    KFS_LOG_EOM;
+                    status = -EINVAL;
+                }
             }
             if (0 != (status = checkDumpsterExists())) {
                 KFS_LOG_STREAM_FATAL <<

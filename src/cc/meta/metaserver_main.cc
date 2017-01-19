@@ -550,12 +550,6 @@ MetaServer::SetParameters(const Properties& props)
     KFS_LOG_STREAM_INFO << "min. # of replicas per file: " <<
         mMinReplicasPerFile <<
     KFS_LOG_EOM;
-
-    const bool wormMode = props.getValue("metaServer.wormMode", 0) != 0;
-    if (wormMode) {
-        KFS_LOG_STREAM_INFO << "enabling WORM mode" << KFS_LOG_EOM;
-        setWORMMode(wormMode);
-    }
     string chunkmapDumpDir = props.getValue("metaServer.chunkmapDumpDir", ".");
     setChunkmapDumpDir(chunkmapDumpDir);
     metatree.setUpdatePathSpaceUsage(props.getValue(
@@ -590,6 +584,15 @@ MetaServer::Startup(const Properties& props,
     MsgLogger::GetLogger()->SetMaxLogWaitTime(0);
     MsgLogger::GetLogger()->SetParameters(props, "metaServer.msgLogWriter.");
 
+    if (props.getValue("metaServer.wormMode")) {
+        KFS_LOG_STREAM_FATAL <<
+            "parameter metaServer.wormMode deprecated and is no longer"
+            " supported."
+            " Please use qfsadmin or qfstoggleworm to set WORM mode."
+            " WORM mode can also be changed with logcomactor" <<
+        KFS_LOG_EOM;
+        return false;
+    }
     // bump up the # of open fds to as much as possible
     mMaxFdLimit = SetMaxNoFileLimit();
     if (mMaxFdLimit < 32) {
