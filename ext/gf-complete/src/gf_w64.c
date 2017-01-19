@@ -373,6 +373,7 @@ gf_w64_shift_multiply (gf_t *gf, gf_val_64_t a64, gf_val_64_t b64)
 /*
  * ELM: Use the Intel carryless multiply instruction to do very fast 64x64 multiply.
  */
+#if defined(INTEL_SSE4_PCLMUL)
 
 static
 inline
@@ -381,7 +382,6 @@ gf_w64_clm_multiply_2 (gf_t *gf, gf_val_64_t a64, gf_val_64_t b64)
 {
        gf_val_64_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL) 
 
         __m128i         a, b;
         __m128i         result;
@@ -412,7 +412,6 @@ gf_w64_clm_multiply_2 (gf_t *gf, gf_val_64_t a64, gf_val_64_t b64)
         result = _mm_xor_si128 (result, w);
 
         rv = ((gf_val_64_t)_mm_extract_epi64(result, 0));
-#endif
         return rv;
 }
  
@@ -423,7 +422,6 @@ gf_w64_clm_multiply_4 (gf_t *gf, gf_val_64_t a64, gf_val_64_t b64)
 {
   gf_val_64_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL) 
 
   __m128i         a, b;
   __m128i         result;
@@ -454,9 +452,9 @@ gf_w64_clm_multiply_4 (gf_t *gf, gf_val_64_t a64, gf_val_64_t b64)
   result = _mm_xor_si128 (result, w);
 
   rv = ((gf_val_64_t)_mm_extract_epi64(result, 0));
-#endif
   return rv;
 }
+#endif
 
 
   void

@@ -399,6 +399,8 @@ uint32_t gf_w32_matrix (gf_t *gf, uint32_t b)
    extra memory.  
 */
 
+#if defined(INTEL_SSE4_PCLMUL)
+
 //ADAM
 static
 inline
@@ -407,7 +409,6 @@ gf_w32_cfmgk_multiply (gf_t *gf, gf_val_32_t a32, gf_val_32_t b32)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -431,12 +432,10 @@ gf_w32_cfmgk_multiply (gf_t *gf, gf_val_32_t a32, gf_val_32_t b32)
 
   /* Extracts 32 bit value from result. */
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
-#endif
   return rv;
 }
 
 //ADAM
-#if defined(INTEL_SSE4_PCLMUL)
 
 static 
 void
