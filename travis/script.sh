@@ -26,7 +26,7 @@ set -ex
 
 DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev'
 DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk wget unzip maven sudo passwd'
-DEPS_UBUNTU=$DEPS_UBUNTU' curl'
+DEPS_UBUNTU=$DEPS_UBUNTU' curl openssl'
 
 DEPS_CENTOS='gcc-c++ make cmake git boost-devel krb5-devel openssl-devel'
 DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
