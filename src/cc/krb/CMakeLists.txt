@@ -27,6 +27,15 @@ KrbService.cc
 KrbClient.cc
 )
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND
+        CMAKE_C_COMPILER_ID MATCHES "Clang$" AND
+        (NOT KRB5_INCLUDE_DIRS OR
+            KRB5_INCLUDE_DIRS STREQUAL "" OR
+            KRB5_INCLUDE_DIRS STREQUAL "/usr/include"))
+    message(STATUS "krb5: suppressing deprecated warnings")
+    add_definitions(-DKFS_KRB_IGNORE_DEPRECATED)
+endif()
+
 #
 # Build a static and a dynamically linked libraries.  Both libraries
 # should have the same root name, but installed in different places

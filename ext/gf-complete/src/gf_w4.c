@@ -175,7 +175,7 @@ gf_w4_shift_multiply (gf_t *gf, gf_val_32_t a, gf_val_32_t b)
 }
 
 /* Ben: This function works, but it is 33% slower than the normal shift mult */
-
+#if defined(INTEL_SSE4_PCLMUL)
 static
 inline
 gf_val_32_t
@@ -183,7 +183,6 @@ gf_w4_clm_multiply (gf_t *gf, gf_val_32_t a4, gf_val_32_t b4)
 {
   gf_val_32_t rv = 0;
 
-#if defined(INTEL_SSE4_PCLMUL)
 
   __m128i         a, b;
   __m128i         result;
@@ -215,9 +214,9 @@ gf_w4_clm_multiply (gf_t *gf, gf_val_32_t a4, gf_val_32_t b4)
   /* Extracts 32 bit value from result. */
 
   rv = ((gf_val_32_t)_mm_extract_epi32(result, 0));
-#endif
   return rv;
 }
+#endif
 
 static
 void

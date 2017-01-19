@@ -26,6 +26,11 @@
 
 #include "KrbClient.h"
 
+#ifdef KFS_KRB_IGNORE_DEPRECATED
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif /* KFS_KRB_IGNORE_DEPRECATED */
+
 #include "KfsKrb5.h"
 
 #include <string.h>
@@ -441,6 +446,10 @@ private:
     Impl& operator=(
         const Impl& inImpl);
 };
+
+#ifdef KFS_KRB_IGNORE_DEPRECATED
+#pragma clang diagnostic push
+#endif /* KFS_KRB_IGNORE_DEPRECATED */
 
 KrbClient::KrbClient()
     : mImpl(*(new Impl()))
