@@ -64,7 +64,7 @@ tail_logs_and_exit()
 {
     if [ -d "$MYQFSTEST_DIR" ]; then
         find "$MYQFSTEST_DIR" -type f -name '*.log' -print0 \
-            | xargs -0  tail -n 500
+        | xargs -0  tail -n 500
     fi
     exit 1
 }
@@ -87,8 +87,8 @@ do_build_linux()
 
 init_codecov()
 {
-    # run code coverage in docker
-    # pass travis env vars to code coverage
+    # Run code coverage in docker
+    # Pass travis env vars to code coverage.
     mkdir -p  "$MYTMPDIR"
     {
         env | grep -E '^(TRAVIS|CI)' | sed \
@@ -102,14 +102,14 @@ init_codecov()
 
 build_ubuntu()
 {
-    # build and test under qfsbuild user.
+    # Build and test under qfsbuild user.
     set_sudo 'qfsbuild'
     $MYSUDO apt-get update
     $MYSUDO apt-get install -y $DEPS_UBUNTU
     if [ x"$MYUSER" = x ]; then
         true
     else
-        # create regular user to run the build and test under it
+        # Create regular user to run the build and test under it.
         id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
         chown -R "$MYUSER" .
     fi
@@ -121,17 +121,20 @@ build_ubuntu()
 
 build_centos()
 {
+    # Build and test under root, if running as root, to make sure that root
+    # build succeeds.
     set_sudo ''
     $MYSUDO yum install -y $DEPS_CENTOS
     # CentOS doesn't package maven directly so we have to install it manually
     wget "$MVN_URL"
-    $MYSUDO tar -xf "$MVN_TAR" -C /usr/local
+    $MYSUDO tar -xf "$MVN_TAR" -C '/usr/local'
     # Set up PATH and links
-    pushd /usr/local
-    $MYSUDO ln -s ${MVN_TAR%-bin.tar.gz} maven
-    export M2_HOME=/usr/local/maven
+    (
+        cd '/usr/local'
+        $MYSUDO ln -snf ${MVN_TAR%-bin.tar.gz} maven
+    )
+    export M2_HOME='/usr/local/maven'
     export PATH=${M2_HOME}/bin:${PATH}
-    popd
     rm "$MVN_TAR"
     if [ x"$1" == x'7' ]; then
         # CentOS7 has the distro information in /etc/redhat-release
@@ -146,16 +149,19 @@ if [ $# -eq 3 -a x"$1" = x'build' ]; then
     exit
 fi
 
-if [ x"$TRAVIS_OS_NAME" = x"linux" ]; then
-    if [ x"$DISTRO" == x"ubuntu" ]; then
+if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
+    if [ x"$DISTRO" == x'ubuntu' ]; then
         init_codecov
     fi
-    docker run --rm -t -v "$PWD:$PWD" -w "$PWD" "$DISTRO:$VER" \
+    MYSRCD="$(pwd)"
+    docker run --rm -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
         /bin/bash ./travis/script.sh build "$DISTRO" "$VER"
-elif [ x"$TRAVIS_OS_NAME" = x"osx" ]; then
-    MYSSLDIR='/usr/local/Cellar/openssl/'
-    MYRELDIR=$(ls -1 "$MYSSLDIR" | tail -n 1)
-    MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D OPENSSL_ROOT_DIR=${MYSSLDIR}${MYRELDIR}"
+elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
+    MYSSLD='/usr/local/Cellar/openssl/'
+    if [ -d "$MYSSLD" ]; then
+        MYSSLD="${MYSSLD}$(ls -1 "$MYSSLD" | tail -n 1)"
+        MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D OPENSSL_ROOT_DIR=${MYSSLD}"
+    fi
     sysctl machdep.cpu || true
     df -h || true
     do_build
