@@ -30,7 +30,7 @@ DEPS_UBUNTU=$DEPS_UBUNTU' curl'
 
 DEPS_CENTOS='gcc-c++ make cmake git boost-devel krb5-devel openssl-devel'
 DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
-DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel wget unzip sudo which'
+DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel wget unzip sudo which openssl'
 
 MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
 MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
