@@ -87,9 +87,16 @@ do_build_linux()
             MYMAKEOPT="-j $MYCCNT"
         fi
     fi
+    if [ -r "$MYCODECOV" ]; then
+        MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
+    fi
     MYMAKEOPT="$MYMAKEOPT --no-print-directory"
     df -h || true
-    $MYSU make rat clean && do_build $MYMAKEOPT
+    $MYSU make rat clean
+    do_build $MYMAKEOPT
+    if [ -r "$MYCODECOV" ]; then
+        /bin/bash "$MYCODECOV"
+    fi
 }
 
 init_codecov()
@@ -120,10 +127,12 @@ build_ubuntu()
         id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
         chown -R "$MYUSER" .
     fi
-    # coverage enabled only generated on ubuntu
-    MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D ENABLE_COVERAGE=ON"
     do_build_linux
-    /bin/bash "$MYCODECOV" || true
+}
+
+build_ubuntu32()
+{
+    build_ubuntu
 }
 
 build_centos()
@@ -152,12 +161,13 @@ build_centos()
 }
 
 if [ $# -eq 3 -a x"$1" = x'build' ]; then
-    "$1_$2" "$3"
+    "$1_$(basename "$2")" "$3"
     exit
 fi
 
 if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
-    if [ x"$DISTRO" == x'ubuntu' ]; then
+    rm -rf "$MYTMPDIR"
+    if [ x"$CODECOV" == x'yes' ]; then
         init_codecov
     fi
     MYSRCD="$(pwd)"

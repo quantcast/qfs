@@ -63,6 +63,8 @@ hadoop-jars: build java
 tarball: hadoop-jars
 	cd build && \
 	myuname=`uname -s`; \
+	myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
+	[ x"$$myarch" = x ] && myarch=`uname -m` ; \
 	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
 	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 	    if [ x"$$myflavor" = x'Ubuntu' ]; then \

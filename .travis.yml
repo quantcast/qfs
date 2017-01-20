@@ -35,24 +35,30 @@ os:
 
 env:
     matrix:
-        - DISTRO=none # need a row in the build matrix for osx
-        - DISTRO=ubuntu VER=16.04
-        - DISTRO=ubuntu VER=14.04
-        - DISTRO=centos VER=6
-        - DISTRO=centos VER=7
+        - DISTRO=osx           VER=none  CODECOV=no
+        - DISTRO=ubuntu        VER=16.04 CODECOV=yes
+        - DISTRO=ubuntu        VER=16.04 CODECOV=no
+        - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no
+        - DISTRO=ubuntu        VER=14.04 CODECOV=no
+        - DISTRO=centos        VER=6     CODECOV=no
+        - DISTRO=centos        VER=7     CODECOV=no
 
 matrix:
     exclude:
         - os: osx
-          env: DISTRO=ubuntu VER=16.04
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=yes
         - os: osx
-          env: DISTRO=ubuntu VER=14.04
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=no
         - os: osx
-          env: DISTRO=centos VER=6
+          env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no
         - os: osx
-          env: DISTRO=centos VER=7
+          env: DISTRO=ubuntu        VER=14.04 CODECOV=no
+        - os: osx
+          env: DISTRO=centos        VER=6     CODECOV=no
+        - os: osx
+          env: DISTRO=centos        VER=7     CODECOV=no
         - os: linux
-          env: DISTRO=none
+          env: DISTRO=osx           VER=none  CODECOV=no
 
 services:
     - docker
@@ -71,3 +77,5 @@ deploy:
         - secure: IvmQ1sHBE+/USw+/adukFk1Wxq9Pn49PTvlbbRoI1D3W+ILc7u7+rFuNwQqAexXfBP71oMEE8YDR4U9dcoD4NinMd02lciFzrbtzErQ2Re2fU6k3I2OiyJ8ApAalKLxNmFC8jPTPufFT8gfCfOjoSDIpEffA75EzJVmDdDOspvw=
     secret_access_key:
         - secure: HkCLJKSX7jUPzsbZeiK3pSwECP79q6ypRnzudsTlRzmbW/eKloJHLwPEZycAakH9S24cqgjKTvv1O8XZ8sTGx0lhonRRBOXeYN9tVKrwL7CIbDHy4fOJkVQYG321EmKr3UIL9rAYZyR01WC1hEJ6pPJK7xgcFTDhZ0e47wegUlI=
+    on:
+        condition: "$CODECOV != yes"
