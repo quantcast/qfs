@@ -63,7 +63,9 @@ hadoop-jars: build java
 tarball: hadoop-jars
 	cd build && \
 	myuname=`uname -s`; \
-	myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
+	myarch=`cc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
+	[ x"$$myarch" = x ] && \
+	    myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && myarch=`uname -m` ; \
 	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
 	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
@@ -82,7 +84,7 @@ tarball: hadoop-jars
 	    fi ; \
 	fi ; \
 	qfsversion=`../src/cc/common/buildversgit.sh --release` ; \
-	tarname="qfs-$$myflavor-$$qfsversion-`uname -m`" ;\
+	tarname="qfs-$$myflavor-$$qfsversion-$$myarch" ;\
 	tarname=`echo "$$tarname" | tr A-Z a-z` ; \
 	{ test -d tmpreldir || mkdir tmpreldir; } && \
 	rm -rf "tmpreldir/$$tarname" && \
