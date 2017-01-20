@@ -102,8 +102,9 @@ LeaseClerk::RegisterLease(const AllocChunkOp& op)
     }
     KFS_LOG_STREAM_DEBUG <<
         "registered lease:"
-        " chunk: " << op.chunkId <<
-        " lease: " << lease.leaseId <<
+        " chunk: "   << op.chunkId <<
+        " version: " << op.chunkVersion <<
+        " lease: "   << lease.leaseId <<
     KFS_LOG_EOM;
 }
 
@@ -114,7 +115,9 @@ LeaseClerk::UnRegisterLease(kfsChunkId_t chunkId, int64_t chunkVerison)
         return;
     }
     KFS_LOG_STREAM_DEBUG <<
-        "Lease for chunk: " << chunkId << " unregistered" <<
+        "unregistered lease"
+        " chunk: "   << chunkId <<
+        " version: " << chunkVerison <<
     KFS_LOG_EOM;
 }
 

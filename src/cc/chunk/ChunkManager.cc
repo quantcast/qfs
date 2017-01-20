@@ -3291,7 +3291,7 @@ ChunkManager::MakeChunkStable(kfsChunkId_t chunkId, kfsSeq_t chunkVersion,
     stableFlag = true;
     const bool renameFlag = true;
     const int  res        = cih->WriteChunkMetadata(
-        cb, renameFlag, stableFlag, cih->chunkInfo.chunkVersion);
+        cb, renameFlag, stableFlag, chunkVersion);
     if (res < 0) {
         statusMsg = "failed to start chunk meta data write";
         const DiskIo::File* const kNullFile = 0;
