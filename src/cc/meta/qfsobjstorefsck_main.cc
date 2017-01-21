@@ -31,11 +31,14 @@
 #include "Replay.h"
 #include "MetaRequest.h"
 #include "util.h"
+#include "LayoutManager.h"
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
 #include "common/RequestParser.h"
 #include "common/Properties.h"
+#include "common/LinearHash.h"
+#include "common/StdAllocator.h"
 
 #include "kfsio/blockname.h"
 #include "kfsio/ClientAuthContext.h"
@@ -62,6 +65,8 @@ using std::cin;
 using std::cerr;
 using std::string;
 using std::vector;
+using std::pair;
+using std::make_pair;
 using boost::dynamic_bitset;
 
 using namespace client;
@@ -382,6 +387,80 @@ private:
         const ObjStoreFsck& inFsck);
 };
 
+class ObjStoreDeleteQueueLookup
+{
+public:
+    ObjStoreDeleteQueueLookup()
+        : mFilesTable(),
+          mBlocksTable()
+        {}
+    template<typename IDT, typename PT>
+    void operator()(
+        IDT  inId,
+        PT   inPos,
+        bool inBlockFlag)
+    {
+        bool theInsertedFlag = false;
+        if (inBlockFlag) {
+            mBlocksTable.Insert(make_pair(inId, inPos), theInsertedFlag);
+        } else {
+            mFilesTable.Insert(inId, inPos, theInsertedFlag);
+        }
+    }
+    bool Find(
+        fid_t inFid,
+        seq_t inVersion)
+    {
+        const chunkOff_t thePos = -inVersion - 1;
+        if (mBlocksTable.Find(make_pair(inFid, thePos))) {
+            return true;
+        }
+        const chunkOff_t* const theLastPtr = mFilesTable.Find(inFid);
+        return (theLastPtr && thePos <= *theLastPtr);
+    }
+private:
+    typedef LinearHash<
+        KVPair<fid_t, chunkOff_t>,
+        KeyCompare<fid_t>,
+        DynamicArray<SingleLinkedList<KVPair<fid_t, chunkOff_t> >*, 17>,
+        PoolAllocatorAdapter<
+            KVPair<fid_t, chunkOff_t>,
+            size_t(1) << 20, // size_t TMinStorageAlloc,
+            size_t(8) << 20, // size_t TMaxStorageAlloc,
+            true             // bool   TForceCleanupFlag
+       >
+    > FilesTable;
+    class SetHash
+    {
+    public:
+        static size_t Hash(
+            const pair<fid_t, chunkOff_t>& inKey)
+            { return size_t(inKey.first ^ inKey.second); }
+    };
+    typedef LinearHashSet<
+        pair<fid_t, chunkOff_t>,
+        KeyCompare<
+            pair<fid_t, chunkOff_t>,
+            SetHash
+        >,
+        DynamicArray<
+            SingleLinkedList<
+                KeyOnly<
+                    pair<fid_t, chunkOff_t>
+                >
+            >*
+        >,
+        StdFastAllocator<KeyOnly<pair<fid_t, chunkOff_t> > >
+    > BlocksTable;
+
+    FilesTable  mFilesTable;
+    BlocksTable mBlocksTable;
+private:
+    ObjStoreDeleteQueueLookup(
+        const ObjStoreDeleteQueueLookup& inLookup);
+    ObjStoreDeleteQueueLookup& operator=(
+        const ObjStoreDeleteQueueLookup& inLookup);
+};
 
     int
 ObjStoreFsck::RunSelf(
@@ -395,13 +474,12 @@ ObjStoreFsck::RunSelf(
     const char*         theLogDirPtr         = 0;
     const char*         theConfigFileNamePtr = 0;
     MsgLogger::LogLevel theLogLevel          = MsgLogger::kLogLevelINFO;
-    MsgLogger::LogLevel theLogLevelNoFile    = MsgLogger::kLogLevelDEBUG;
     int                 theStatus            = 0;
     bool                theHelpFlag          = false;
     bool                theReplayLastLogFlag = false;
     const char*         thePtr;
 
-    while ((theOpt = getopt(inArgCnt, inArgaPtr, "vhail:c:L:s:p:f:x:")) != -1) {
+    while ((theOpt = getopt(inArgCnt, inArgaPtr, "vhal:c:L:s:p:f:x:")) != -1) {
         switch (theOpt) {
             case 'a':
                 theReplayLastLogFlag = true;
@@ -417,9 +495,6 @@ ObjStoreFsck::RunSelf(
                 break;
             case 's':
                 theMetaServer.hostname = optarg;
-                break;
-            case 'i':
-                theLogLevelNoFile = MsgLogger::kLogLevelINFO;
                 break;
             case 'p':
                 thePtr = optarg;
@@ -503,13 +578,16 @@ ObjStoreFsck::RunSelf(
             metatree.setUpdatePathSpaceUsage(true);
             metatree.enableFidToPathname();
         }
+        ObjStoreDeleteQueueLookup theObjStoreDeleteLookup;
+        gLayoutManager.GetPendingObjStoreDelete(theObjStoreDeleteLookup);
         const int64_t theFileSystemId = metatree.GetFsId();
         string        theExpectedKey;
         string        theBlockKey;
         string        theFsIdSuffix;
         theExpectedKey.reserve(256);
         theBlockKey.reserve(256);
-        int64_t theKeysCount = 0;
+        int64_t theKeysCount      = 0;
+        int64_t theNoFileKeyCount = 0;
         while (getline(cin, theBlockKey)) {
             KFS_LOG_STREAM_DEBUG <<
                 "key: " << theBlockKey <<
@@ -562,10 +640,14 @@ ObjStoreFsck::RunSelf(
             }
             MetaFattr* const theFattrPtr = metatree.getFattr(theFid);
             if (! theFattrPtr) {
-                KFS_LOG_STREAM(fileID.getseed() < theFid ?
-                        MsgLogger::kLogLevelDEBUG : theLogLevelNoFile) <<
-                    theBlockKey << ": invalid key: no such file" <<
+                if (fileID.getseed() < theFid ||
+                        theObjStoreDeleteLookup.Find(theFid, theVersion)) {
+                    continue;
+                }
+                KFS_LOG_STREAM_ERROR <<
+                    theBlockKey << ": invalid key: no such file or block" <<
                 KFS_LOG_EOM;
+                theNoFileKeyCount++;
                 continue;
             }
             if (KFS_FILE != theFattrPtr->type) {
@@ -640,11 +722,12 @@ ObjStoreFsck::RunSelf(
             }
         }
         KFS_LOG_STREAM_INFO
-            "read keys: "    << theKeysCount <<
+            "read keys: "     << theKeysCount <<
+            " no file keys: " << theNoFileKeyCount <<
             " total:"
-            " files: "       << GetNumFiles() << 
-            " directories: " << GetNumDirs() <<
-            " max fid: "     << fileID.getseed() <<
+            " files: "        << GetNumFiles() <<
+            " directories: "  << GetNumDirs() <<
+            " max fid: "      << fileID.getseed() <<
         KFS_LOG_EOM;
         // Traverse leaf nodes and query the the status for files with missing
         // blocks.

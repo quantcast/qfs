@@ -1519,6 +1519,28 @@ public:
             TimeNow() < mPingUpdateTime + mPingUpdateInterval);
     }
     void Disconnected(const ChunkServer& srv);
+    template<typename T>
+    void GetPendingObjStoreDelete(T& func) const
+    {
+        const ObjStoreFilesDeleteQueue::Entry* fde =
+            mObjStoreFilesDeleteQueue.Front();
+        bool blockFlag = false;
+        while (fde) {
+            func(fde->mFid, fde->mLast, blockFlag);
+            fde = fde->GetNext();
+        }
+        blockFlag = true;
+        const ObjBlockDeleteQueueEntry* dre;
+        ObjBlocksDeleteRequeue::ConstIterator rit(mObjBlocksDeleteRequeue);
+        while ((dre = rit.Next())) {
+            func(dre->first, dre->second, blockFlag);
+        }
+        const ObjBlocksDeleteInFlightEntry* dfe;
+        ObjBlocksDeleteInFlight::ConstIterator fit(mObjBlocksDeleteInFlight);
+        while ((dfe = fit.Next())) {
+            func(dfe->GetVal().first, (-dfe->GetVal().second - 1), blockFlag);
+        }
+    }
 protected:
     typedef vector<
         int,
@@ -1560,6 +1582,8 @@ protected:
         ~ObjStoreFilesDeleteQueue()
             { ObjStoreFilesDeleteQueue::Clear(); }
         Entry* Front()
+            { return mQueue.Front(); }
+        const Entry* Front() const
             { return mQueue.Front(); }
         bool IsEmpty() const
             { return mQueue.IsEmpty(); }

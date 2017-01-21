@@ -13301,36 +13301,30 @@ LayoutManager::AddPendingObjStoreDelete(
     return true;
 }
 
+class ObjStoreDeleteWriter
+{
+public:
+    ObjStoreDeleteWriter(
+        ostream& os)
+        : mOs(os)
+        {}
+    template<typename IDT, typename PT>
+    void operator()(IDT id, PT pos, bool blockFlag)
+    {
+        mOs << (blockFlag ? "osd/" : "osx/") << id << "/" << pos << "\n";
+    }
+    void Flush()
+        { mOs.flush(); }
+private:
+    ReqOstream mOs;
+};
+
 int
 LayoutManager::WritePendingObjStoreDelete(ostream& os)
 {
-    ReqOstream ros(os);
-    const ObjStoreFilesDeleteQueue::Entry* fde =
-        mObjStoreFilesDeleteQueue.Front();
-    while (fde) {
-        ros <<
-            "osx/" << fde->mFid <<
-            "/"    << fde->mLast <<
-        "\n";
-        fde = fde->GetNext();
-    }
-    const ObjBlockDeleteQueueEntry* dre;
-    ObjBlocksDeleteRequeue::ConstIterator rit(mObjBlocksDeleteRequeue);
-    while ((dre = rit.Next())) {
-        ros <<
-            "osd/" << dre->first <<
-            "/"    << dre->second <<
-        "\n";
-    }
-    const ObjBlocksDeleteInFlightEntry* dfe;
-    mObjBlocksDeleteInFlight.First();
-    while ((dfe = mObjBlocksDeleteInFlight.Next())) {
-        ros <<
-            "osd/" << dfe->GetVal().first <<
-            "/"    << (-dfe->GetVal().second - 1) <<
-        "\n";
-    }
-    ros.flush();
+    ObjStoreDeleteWriter writer(os);
+    GetPendingObjStoreDelete(writer);
+    writer.Flush();
     return (os ? 0 : -EIO);
 }
 
