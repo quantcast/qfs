@@ -2966,9 +2966,9 @@ DiskIo::RunCompletion()
             theChainedPtr->mBlockIdx = 0;
             BufIterator   theBufItr(theChainedPtr->mIoBuffers);
             theChainedPtr->mCompletionRequestId = theChainedPtr->mRequestId;
+            theChainedPtr->mCachedFlag = true;
             theQueuePtr->WritePending(theBufferCount * theBufferSize, 0,
                 theChainedPtr->mCachedFlag);
-            theChainedPtr->mCachedFlag = true;
             sDiskIoQueuesPtr->SetInFlight(theChainedPtr);
             theChainedPtr->Done(
                 theChainedPtr->mRequestId,
