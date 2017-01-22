@@ -44,18 +44,19 @@ using namespace KFS;
 int
 main(int argc, char** argv)
 {
-    string logdir("kfslog");
-    string cpdir("kfscp");
-    string networkFn("network.def");
-    string chunkmapFn("chunkmap.txt");
-    string fsckFn("-");
-    string propsFn;
-    int    optchar;
-    bool   helpFlag      = false;
-    bool   reportAllFlag = false;
-    bool   verboseFlag   = false;
+    string  logdir("kfslog");
+    string  cpdir("kfscp");
+    string  networkFn;
+    string  chunkmapFn("chunkmap.txt");
+    string  fsckFn("-");
+    string  propsFn;
+    int64_t chunkServerTotalSpace = -1;
+    int     optchar;
+    bool    helpFlag      = false;
+    bool    reportAllFlag = false;
+    bool    verboseFlag   = false;
 
-    while ((optchar = getopt(argc, argv, "avc:l:n:b:r:hf:p:")) != -1) {
+    while ((optchar = getopt(argc, argv, "avc:l:n:b:r:hf:p:S:")) != -1) {
         switch (optchar) {
             case 'l':
                 logdir = optarg;
@@ -84,6 +85,9 @@ main(int argc, char** argv)
             case 'p':
                 propsFn = optarg;
                 break;
+            case 'S':
+                chunkServerTotalSpace = (int64_t)atof(optarg);
+                break;
             default:
                 cerr << "Unrecognized flag " << (char)optchar << "\n";
                 helpFlag = true;
@@ -95,14 +99,20 @@ main(int argc, char** argv)
         cout << "Usage: " << argv[0] << "\n"
             "[-l <log directory> (default " << logdir << ")]\n"
             "[-c <checkpoint directory> (default " << cpdir << ")]\n"
-            "[-n <network definition file name> (default " <<
-                networkFn << ")]\n"
+            "[-n <network definition file name> (default none, i.e. empty)"
+                " without definition file chunk servers and chunk map from"
+                " checkpoint transaction log replay are used]\n"
             "[-b <chunkmap file> (default " << chunkmapFn << ")]\n"
             "[-p <[meta server] configuration file> (default none)]\n"
             "[-f <fsck output file name> (- stdout) (default " <<
                 fsckFn << ")]\n"
             "[-v verbose replica check output]\n"
             "[-a report all placement problems]\n"
+            "[-S <num> -- chunk server total space (default is -1)"
+                " this value has effect without network definition file"
+                " if set to negative value, then number of chunks multiplied"
+                " by max. chunk size (64M) divided by the number of chunk servers"
+                " plus 20% is used]\n"
         ;
         return 1;
     }
@@ -118,7 +128,8 @@ main(int argc, char** argv)
             == 0) {
         emulator.SetParameters(props);
         if ((status = EmulatorSetup(
-                emulator, logdir, cpdir, networkFn, chunkmapFn)) == 0) {
+                emulator, logdir, cpdir, networkFn, chunkmapFn,
+                -1, false, chunkServerTotalSpace)) == 0) {
             if (! fsckFn.empty()) {
                 fsckStatus = emulator.RunFsck(fsckFn);
             }

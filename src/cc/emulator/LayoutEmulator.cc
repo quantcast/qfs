@@ -287,15 +287,11 @@ LayoutEmulator::AddServer(
     uint64_t              totalSpace,
     uint64_t              usedSpace)
 {
-    ostringstream os;
-    os << loc.hostname << ":" << loc.port;
-    const string peerName = os.str();
     ChunkServerPtr c;
     ChunkServerEmulator& srv =
-        *(new ChunkServerEmulator(loc, rack, peerName, *this));
+        *(new ChunkServerEmulator(loc, rack, *this));
     c.reset(&srv);
-
-    srv.InitSpace(totalSpace, usedSpace, mUseFsTotalSpaceFlag);
+    srv.Init(totalSpace, usedSpace, mUseFsTotalSpaceFlag);
 
     mChunkToServerMap.AddServer(c);
     mLoc2Server.insert(make_pair(loc, c));
@@ -322,7 +318,7 @@ LayoutEmulator::AddServer(
 }
 
 int
-LayoutEmulator::SetRebalancePlanOutFile(const string &rebalancePlanFn)
+LayoutEmulator::SetRebalancePlanOutFile(const string& rebalancePlanFn)
 {
     mPlanFile.close();
     mPlanFile.open(rebalancePlanFn.c_str(), ofstream::out);
@@ -345,12 +341,12 @@ size_t
 LayoutEmulator::RunChunkserverOps()
 {
     size_t opsCount = 0;
-    for (size_t i = 0; i < mChunkServers.size(); i++) {
+    const size_t size = mChunkServers.size();
+    for (size_t i = 0; i < size; i++) {
         ChunkServer& srv = *mChunkServers[i];
         opsCount += GetCSEmulator(srv).Dispatch();
-        // Handle the case where the chunk server might go away as result of
-        // executing op.
-        if (mChunkServers.size() <= i) {
+        if (mChunkServers.size() != size) {
+            panic("chunk servers vector size change detected");
             break;
         }
         if (&*mChunkServers[i] == &srv) {
@@ -512,7 +508,7 @@ public:
     {
         ChunkServer& cse = *c;
         mOs << cse.GetServerLocation() <<
-            ' ' << cse.GetNumChunks() <<
+            ' ' << cse.GetChunkCount() <<
             ' ' << cse.GetUsedSpace() <<
             ' ' << cse.GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
         '\n';
@@ -527,6 +523,89 @@ LayoutEmulator::PrintChunkserverBlockCount(ostream& os) const
 }
 
 int
+LayoutEmulator::InitUseCurrentState(
+    int64_t chunkServerTotalSpace)
+{
+    int64_t csTotalSpace = chunkServerTotalSpace;
+    if (chunkServerTotalSpace < 0) {
+        csTotalSpace = 0;
+        for (Servers::const_iterator it = mChunkServers.begin();
+                it != mChunkServers.end();
+                ++it) {
+            const ChunkServer& srv = **it;
+            csTotalSpace += srv.GetChunkCount() * (int64_t)CHUNKSIZE;
+        }
+        csTotalSpace += csTotalSpace * 20 / 100;
+        const size_t size = mChunkServers.size();
+        if (0 < size) {
+            csTotalSpace /= size;
+        }
+        KFS_LOG_STREAM_INFO <<
+            "chunk server space: " << csTotalSpace << " x " << size <<
+        KFS_LOG_EOM;
+    }
+    for (Servers::iterator it = mChunkServers.begin();
+            it != mChunkServers.end();
+            ++it) {
+        ChunkServerPtr& srv = *it;
+        ChunkServerEmulator& cse = *(new ChunkServerEmulator(
+            srv->GetServerLocation(), srv->GetRack(), *this));
+        ChunkServerPtr ep;
+        ep.reset(&cse);
+        cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
+        if (! mChunkToServerMap.ReplaceServerWith(srv, ep)) {
+            panic("failed to replace server");
+            return -EFAULT;
+        }
+        if (srv->IsReplay()) {
+            if (mReplayServerCount <= 0) {
+                panic("invalid replay server count");
+            }
+            mReplayServerCount--;
+        } else if (! srv->IsConnected()) {
+            if (mDisconnectedCount <= 0) {
+                panic("invalid disconnected server count");
+            }
+            mDisconnectedCount--;
+        }
+        if (srv->IsHelloNotifyPending()) {
+            KFS_LOG_STREAM_INFO <<
+                srv->GetServerLocation() << " pending hello in progress" <<
+            KFS_LOG_EOM;
+        }
+        srv.swap(ep);
+        mLoc2Server.insert(make_pair(srv->GetServerLocation(), srv));
+        UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
+        UpdateReplicationsThreshold();
+        // Update chunk count, changes after replace, update space.
+        cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
+        KFS_LOG_STREAM_INFO <<
+            "added:"
+            " server: "      << srv->GetServerLocation() <<
+            " rack: "        << srv->GetRack() <<
+            " space:"
+            " total: "       << srv->GetTotalSpace(mUseFsTotalSpaceFlag) <<
+            " used: "        << srv->GetUsedSpace() <<
+            " utilization: " <<
+                srv->GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
+        KFS_LOG_EOM;
+    }
+    for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
+            mHibernatingServers.end() != it;
+            ++it) {
+        if (it->IsHibernated()) {
+            if (! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
+                panic("failed to remove hibernated server");
+                return -EFAULT;
+            }
+        }
+    }
+    mHibernatingServers.clear();
+    mChunkToServerMap.RemoveServerCleanup(0);
+    return 0;
+}
+
+int
 LayoutEmulator::ReadNetworkDefn(const string& networkFn)
 {
     // Clear checkpoint / replay chunk server and chunk map.
@@ -534,16 +613,14 @@ LayoutEmulator::ReadNetworkDefn(const string& networkFn)
             it != mChunkServers.end();
             ++it) {
         const ChunkServerPtr& srv = *it;
-        if (srv->GetIndex() < 0) {
-            srv->ForceDown();
-            continue;
-        }
         if (! mChunkToServerMap.RemoveServer(srv)) {
             panic("failed to remove server");
             return -EFAULT;
         }
         srv->ForceDown();
     }
+    mReplayServerCount = 0;
+    mDisconnectedCount = 0;
     mChunkServers.clear();
     for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
             mHibernatingServers.end() != it;
@@ -557,6 +634,7 @@ LayoutEmulator::ReadNetworkDefn(const string& networkFn)
     }
     mHibernatingServers.clear();
     mChunkToServerMap.RemoveServerCleanup(0);
+    mRacks.clear();
 
     ifstream file(networkFn.c_str());
     if (! file) {

@@ -44,8 +44,9 @@ int EmulatorSetup(
     string&         cpdir,
     string&         networkFn,
     string&         chunkmapFn,
-    int16_t         minReplicasPerFile = 1,
-    bool            addChunksToReplicationChecker = false);
+    int16_t         minReplicasPerFile,
+    bool            addChunksToReplicationChecker,
+    int64_t         chunkServerTotalSpace);
 }
 
 #endif // EMULATOR_EMULATORSETUP_H

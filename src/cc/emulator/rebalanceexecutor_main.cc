@@ -37,6 +37,7 @@
 #include "meta/AuditLog.h"
 
 #include <unistd.h>
+#include <stdlib.h>
 
 using std::string;
 using std::cout;
@@ -46,18 +47,19 @@ using namespace KFS;
 int
 main(int argc, char** argv)
 {
-    string rebalancePlanFn("rebalanceplan.txt");
-    string logdir("kfslog");
-    string cpdir("kfscp");
-    string networkFn("network.def");
-    string chunkmapFn("chunkmap.txt");
-    string propsFn;
-    string chunkMapDir;
-    int    optchar;
-    bool   helpFlag  = false;
-    bool   debugFlag = false;
+    string  rebalancePlanFn("rebalanceplan.txt");
+    string  logdir("kfslog");
+    string  cpdir("kfscp");
+    string  networkFn;
+    string  chunkmapFn("chunkmap.txt");
+    string  propsFn;
+    string  chunkMapDir;
+    int64_t chunkServerTotalSpace = -1;
+    int     optchar;
+    bool    helpFlag  = false;
+    bool    debugFlag = false;
 
-    while ((optchar = getopt(argc, argv, "c:l:n:b:r:hdp:o:")) != -1) {
+    while ((optchar = getopt(argc, argv, "c:l:n:b:r:hdp:o:S:")) != -1) {
         switch (optchar) {
             case 'l':
                 logdir = optarg;
@@ -86,6 +88,9 @@ main(int argc, char** argv)
             case 'o':
                 chunkMapDir = optarg;
                 break;
+            case 'S':
+                chunkServerTotalSpace = (int64_t)atof(optarg);
+                break;
             default:
                 helpFlag = true;
                 break;
@@ -96,13 +101,19 @@ main(int argc, char** argv)
         cout << "Usage: " << argv[0] << "\n"
             "[-l <log directory> (default " << logdir << ")]\n"
             "[-c <checkpoint directory> (default " << cpdir << ")]\n"
-            "[-n <network definition file name> (default " <<
-                networkFn << ")]\n"
+            "[-n <network definition file name> (default none, i.e. empty)"
+                " without definition file chunk servers and chunk map from"
+                " checkpoint transaction log replay are used]\n"
             "[-b <chunkmap file> (default " << chunkmapFn << ")]\n"
             "[-r <re-balance plan file> (default" << rebalancePlanFn << ")]\n"
             "[-p <configuration file> (default none)]\n"
             "[-o <new chunk map output directory> (default none)]\n"
             "[-d debug -- print chunk into stdout layout before and after]\n"
+            "[-S <num> -- chunk server total space (default is -1)"
+                " this value has effect without network definition file"
+                " if set to negative value, then number of chunks multiplied"
+                " by max. chunk size (64M) divided by the number of chunk servers"
+                " plus 20% is used]\n"
         ;
         return 1;
     }
@@ -118,7 +129,8 @@ main(int argc, char** argv)
                 == 0)) {
         emulator.SetParameters(props);
         if ((status = EmulatorSetup(
-                emulator, logdir, cpdir, networkFn, chunkmapFn)) == 0 &&
+                emulator, logdir, cpdir, networkFn, chunkmapFn,
+                -1, false, chunkServerTotalSpace)) == 0 &&
                 (status = emulator.LoadRebalancePlan(rebalancePlanFn))
                 == 0) {
             if (debugFlag) {

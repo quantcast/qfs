@@ -52,7 +52,8 @@ EmulatorSetup(
     string&         networkFn,
     string&         chunkmapFn,
     int16_t         minReplicasPerFile,
-    bool            addChunksToReplicationChecker)
+    bool            addChunksToReplicationChecker,
+    int64_t         chunkServerTotalSpace)
 {
     checkpointer_setup_paths(cpdir);
 
@@ -81,15 +82,23 @@ EmulatorSetup(
     metatree.enableFidToPathname();
     KFS_LOG_STREAM_INFO << "reading network defn: " << networkFn <<
     KFS_LOG_EOM;
-    status = emulator.ReadNetworkDefn(networkFn);
-    if (status != 0) {
-        return status;
+    if (! networkFn.empty()) {
+        status = emulator.ReadNetworkDefn(networkFn);
+        if (status != 0) {
+            return status;
+        }
+        KFS_LOG_STREAM_INFO << "loading chunkmap: " << chunkmapFn <<
+        KFS_LOG_EOM;
+        status = emulator.LoadChunkmap(
+            chunkmapFn, addChunksToReplicationChecker);
+    } else {
+        status = emulator.InitUseCurrentState(chunkServerTotalSpace);
     }
-    KFS_LOG_STREAM_INFO << "loading chunkmap: " << chunkmapFn <<
-    KFS_LOG_EOM;
-    status = emulator.LoadChunkmap(
-        chunkmapFn, addChunksToReplicationChecker);
-    KFS_LOG_STREAM_INFO << "fs layout emulator setup complete." << KFS_LOG_EOM;
+    if (0 == status) {
+        KFS_LOG_STREAM_INFO <<
+            "fs layout emulator setup complete." <<
+        KFS_LOG_EOM;
+    }
     return status;
 }
 

@@ -25,12 +25,13 @@
 //
 //----------------------------------------------------------------------------
 
-#include "common/MsgLogger.h"
-#include "common/kfsdecls.h"
-#include "meta/MetaRequest.h"
-#include "meta/util.h"
 #include "ChunkServerEmulator.h"
 #include "LayoutEmulator.h"
+
+#include "common/MsgLogger.h"
+
+#include "meta/MetaRequest.h"
+#include "meta/util.h"
 
 namespace KFS
 {
@@ -39,14 +40,14 @@ using std::numeric_limits;
 ChunkServerEmulator::ChunkServerEmulator(
     const ServerLocation& loc,
     int                   rack,
-    const string&         peerName,
     LayoutEmulator&       emulator)
     : TcpSocket(numeric_limits<int>::max()), // Fake fd, for IsGood()
       ChunkServer(NetConnectionPtr(
-        new NetConnection(this, this, false, false)), peerName),
+        new NetConnection(this, this, false, false)), "emulator"),
       mPendingReqs(),
       mOut(0),
-      mLayoutEmulator(emulator)
+      mLayoutEmulator(emulator),
+      mDispatchRecursionCount(0)
 {
     SetServerLocation(loc);
     SetRack(rack);
@@ -54,83 +55,104 @@ ChunkServerEmulator::ChunkServerEmulator(
 
 ChunkServerEmulator::~ChunkServerEmulator()
 {
+    if (0 != mDispatchRecursionCount) {
+        panic("invalid recursion count");
+    }
     if (mNetConnection) {
         mNetConnection->Close();
     }
     TcpSocket& sock = *this;
     sock = TcpSocket(); // Reset socket's fake fd.
-    ChunkServerEmulator::FailPendingOps();
+    for (PendingReqs::const_iterator it = mPendingReqs.begin();
+            mPendingReqs.end() != it;
+            ++it) {
+        MetaRequest::Release(*it);
+    }
+    mDispatchRecursionCount--; // To catch double delete.
 }
 
 void
-ChunkServerEmulator::EnqueueSelf(MetaChunkRequest& r)
+ChunkServerEmulator::Init(int64_t totalSpace, int64_t usedSpace,
+    bool useFsTotalSpaceFlag)
 {
-    mPendingReqs.push_back(&r);
+    if (useFsTotalSpaceFlag) {
+        mTotalFsSpace = totalSpace;
+        if (totalSpace > usedSpace) {
+            mTotalSpace = totalSpace - usedSpace;
+        } else {
+            mTotalSpace = 0;
+        }
+    } else {
+        mTotalFsSpace = totalSpace;
+        mTotalSpace   = totalSpace;
+    }
+    mNumChunks  = GetChunkCount();
+    mUsedSpace  = mNumChunks * (int64_t)CHUNKSIZE;
+    mAllocSpace = mUsedSpace;
+    if (! mSelfPtr) {
+        mSelfPtr = shared_from_this();
+    }
+}
+
+void
+ChunkServerEmulator::Enqueue(MetaChunkRequest& req,
+    int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag)
+{
+    if (0 != mDispatchRecursionCount) {
+        panic("dispatch recursion");
+    }
+    KFS_LOG_STREAM_DEBUG <<
+        "enqueue:"
+        " timeout: "    << timeout <<
+        " staleChunk: " << staleChunkIdFlag <<
+        " logged: "     << loggedFlag <<
+        " remove: "     << removeReplicaFlag <<
+        " "             << req.Show() <<
+    KFS_LOG_EOM;
+    mPendingReqs.push_back(&req);
 }
 
 size_t
 ChunkServerEmulator::Dispatch()
 {
-    // Use index instead of iterator in order handle correctly Enqueue()
-    // while iterating though the queue (though this isn't needed at the
-    // time of writing).
-    size_t i;
-    for (i = 0; i < mPendingReqs.size(); i++) {
-        MetaRequest*      const r  = mPendingReqs[i];
-        MetaChunkRequest* const op = FindMatchingRequest(r->opSeqno);
-        if (op != r) {
-            panic("invalid request: not in the queue");
-        }
-        if (r->op == META_CHUNK_REPLICATE) {
-            MetaChunkReplicate* const mcr = static_cast<MetaChunkReplicate*>(r);
-            if (mLayoutEmulator.ChunkReplicationDone(*mcr)) {
+    mDispatchRecursionCount++;
+    for (PendingReqs::const_iterator it = mPendingReqs.begin();
+            mPendingReqs.end() != it;
+            ++it) {
+        MetaRequest& req = **it;
+        if (req.op == META_CHUNK_REPLICATE) {
+            MetaChunkReplicate& mcr = static_cast<MetaChunkReplicate&>(req);
+            if (mLayoutEmulator.ChunkReplicationDone(mcr)) {
                 KFS_LOG_STREAM_DEBUG <<
-                    "moved chunk: " << mcr->chunkId <<
-                    " to " << mcr->server->GetServerLocation() <<
+                    "moved chunk: " << mcr.chunkId <<
+                    " to " << mcr.server->GetServerLocation() <<
                 KFS_LOG_EOM;
                 if (mOut) {
                     (*mOut) <<
-                        mcr->chunkId << " " << mcr->server->GetServerLocation() <<
+                        mcr.chunkId << " " << mcr.server->GetServerLocation() <<
                     "\n";
                 }
             }
-        } else if (r->op == META_CHUNK_DELETE) {
-            MetaChunkDelete* const mcd = static_cast<MetaChunkDelete*>(r);
+        } else if (req.op == META_CHUNK_DELETE) {
+            MetaChunkDelete& mcd = static_cast<MetaChunkDelete&>(req);
             if (mNumChunks > 0) {
                 mNumChunks--;
-                mUsedSpace -= mLayoutEmulator.GetChunkSize(mcd->chunkId);
+                mUsedSpace -= mLayoutEmulator.GetChunkSize(mcd.chunkId);
                 if (mUsedSpace < 0 || mNumChunks <= 0) {
                     mUsedSpace = 0;
                 }
                 mAllocSpace = mUsedSpace;
             }
         } else {
-            KFS_LOG_STREAM_ERROR << "unexpected op: " << r->Show() <<
+            KFS_LOG_STREAM_ERROR << "unexpected op: " << req.Show() <<
             KFS_LOG_EOM;
         }
-        MetaRequest::Release(r);
+        MetaRequest::Release(&req);
     }
+    const size_t cnt = mPendingReqs.size();
     mPendingReqs.clear();
-    return i;
-}
-
-void
-ChunkServerEmulator::FailPendingOps()
-{
-    for (size_t i = 0; i < mPendingReqs.size(); i++) {
-        MetaRequest*      const r  = mPendingReqs[i];
-        MetaChunkRequest* const op = FindMatchingRequest(r->opSeqno);
-        if (op != r) {
-            panic("invalid request: not in the queue");
-        }
-        if (r->op == META_CHUNK_REPLICATE) {
-            MetaChunkReplicate* const mcr = static_cast<MetaChunkReplicate*>(r);
-            mcr->status = -EIO;
-            mLayoutEmulator.ChunkReplicationDone(*mcr);
-        }
-        MetaRequest::Release(r);
-    }
-    mPendingReqs.clear();
+    mDispatchRecursionCount--;
+    return cnt;
 }
 
 } // namespace KFS

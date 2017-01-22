@@ -29,11 +29,11 @@
 #ifndef EMULATOR_CHUNKSERVEREMULATOR_H
 #define EMULATOR_CHUNKSERVEREMULATOR_H
 
-#include <string>
-#include <vector>
-
 #include "meta/ChunkServer.h"
 #include "kfsio/TcpSocket.h"
+
+#include <string>
+#include <vector>
 
 namespace KFS
 {
@@ -48,14 +48,10 @@ public:
     ChunkServerEmulator(
         const ServerLocation& loc,
         int                   rack,
-        const string&         peerName,
         LayoutEmulator&       emulator);
     virtual ~ChunkServerEmulator();
 
     size_t Dispatch();
-    // when this emulated server goes down, fail the pending ops
-    // that were destined to this node
-    void FailPendingOps();
     void HostingChunk(kfsChunkId_t /* chunkId */, size_t chunksize)
     {
         mNumChunks++;
@@ -63,35 +59,19 @@ public:
         mAllocSpace = mUsedSpace;
     }
     void SetRebalancePlanOutFd(ostream* os)
-    {
-        mOut = os;
-    }
-    void InitSpace(int64_t totalSpace, int64_t usedSpace,
-            bool useFsTotalSpaceFlag)
-    {
-        if (useFsTotalSpaceFlag) {
-            mTotalFsSpace = totalSpace;
-            if (totalSpace > usedSpace) {
-                mTotalSpace = totalSpace - usedSpace;
-            } else {
-                mTotalSpace = 0;
-            }
-        } else {
-            mTotalFsSpace = totalSpace;
-            mTotalSpace   = totalSpace;
-        }
-        mAllocSpace = 0;
-        mUsedSpace  = 0;
-    }
+        { mOut = os; }
+    void Init(int64_t totalSpace, int64_t usedSpace, bool useFsTotalSpaceFlag);
 
 protected:
-    virtual void EnqueueSelf(MetaChunkRequest& r);
+    virtual void Enqueue(MetaChunkRequest& req, int timeout,
+        bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
 
 private:
     typedef vector<MetaChunkRequest*> PendingReqs;
     PendingReqs     mPendingReqs;
     ostream*        mOut;
     LayoutEmulator& mLayoutEmulator;
+    int             mDispatchRecursionCount;
 private:
     ChunkServerEmulator(const ChunkServerEmulator&);
     ChunkServerEmulator& operator=(const ChunkServerEmulator&);

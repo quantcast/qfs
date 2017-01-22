@@ -47,6 +47,8 @@ class LayoutEmulator : public LayoutManager
 {
 public:
     static LayoutEmulator& Instance();
+    int InitUseCurrentState(
+        int64_t chunkServerTotalSpace);
     // Given a chunk->location data in a file, rebuild the chunk->location map.
     //
     int LoadChunkmap(const string& chunkLocationFn,
@@ -88,6 +90,7 @@ protected:
     {
         SetMinChunkserversToExitRecovery(0);
         ToggleRebalancing(true);
+        mReplaySetRackFlag = true;
     }
     ~LayoutEmulator()
     {

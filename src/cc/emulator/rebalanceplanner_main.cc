@@ -54,17 +54,18 @@ main(int argc, char** argv)
     string  rebalancePlanFn("rebalanceplan.txt");
     string  logdir("kfslog");
     string  cpdir("kfscp");
-    string  networkFn("network.def");
+    string  networkFn;
     string  chunkmapFn("chunkmap.txt");
     string  propsFn;
     string  chunkMapDir;
     int     optchar;
-    int16_t minReplication   = -1;
-    double  variationFromAvg = 0;
-    bool    helpFlag         = false;
-    bool    debugFlag        = false;
+    int64_t chunkServerTotalSpace = -1;
+    int16_t minReplication        = -1;
+    double  variationFromAvg      = 0;
+    bool    helpFlag              = false;
+    bool    debugFlag             = false;
 
-    while ((optchar = getopt(argc, argv, "c:l:n:b:r:hp:o:dm:t:")) != -1) {
+    while ((optchar = getopt(argc, argv, "c:l:n:b:r:hp:o:dm:t:S:")) != -1) {
         switch (optchar) {
             case 'l':
                 logdir = optarg;
@@ -99,6 +100,9 @@ main(int argc, char** argv)
             case 'm':
                 minReplication = atoi(optarg);
                 break;
+            case 'S':
+                chunkServerTotalSpace = (int64_t)atof(optarg);
+                break;
             default:
                 cerr << "Unrecognized flag: " << (char)optchar << "\n";
                 helpFlag = true;
@@ -110,17 +114,23 @@ main(int argc, char** argv)
         "Usage: " << argv[0] << "\n"
             "[-l <log directory> (default " << logdir << ")]\n"
             "[-c <checkpoint directory> (default " << cpdir << ")]\n"
-            "[-n <network definition file name> (default " <<
-                networkFn << ")]\n"
+            "[-n <network definition file name> (default none, i.e. empty)"
+                " without definition file chunk servers and chunk map from"
+                " checkpoint transaction log replay are used]\n"
             "[-b <chunkmap file> (default " << chunkmapFn << ")]\n"
             "[-r <re-balance plan file>] (default" << rebalancePlanFn << ")\n"
             "[-t <% variation from average utilization> (default " <<
                 variationFromAvg << "%)"
                 " 0 - use default / configured re-balance thresholds]\n"
-            "[-p <[meta server] configuration file> (default none)]\n"
+            "[-p <[meta server configuration file> (default none)]\n"
             "[-o <new chunk map output directory> (default none)]\n"
             "[-d debug -- print chunk layout before and after]\n"
             "[-m <min replicas per file> (default -1 -- no change)]\n"
+            "[-S <num> -- chunk server total space (default is -1)"
+                " this value has effect without network definition file"
+                " if set to negative value, then number of chunks multiplied"
+                " by max. chunk size (64M) divided by the number of chunk servers"
+                " plus 20% is used]\n"
             "To create network defininiton file and chunk map files:\n"
             "use qfsadmin to issue dump_chunktoservermap\n"
             "Copy produced chunkmap.txt and network.def files as well as,\n"
@@ -156,7 +166,7 @@ main(int argc, char** argv)
         emulator.SetParameters(props);
         emulator.SetupForRebalancePlanning(variationFromAvg);
         status = EmulatorSetup(emulator, logdir, cpdir, networkFn, chunkmapFn,
-            minReplication, minReplication > 1);
+            minReplication, minReplication > 1, chunkServerTotalSpace);
         if (status == 0 &&
                 (status = emulator.SetRebalancePlanOutFile(
                     rebalancePlanFn)) == 0) {
