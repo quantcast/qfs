@@ -795,11 +795,10 @@ public:
     }
     bool ReplaceServerWith(const ChunkServerPtr& server,
             const ChunkServerPtr& replacement) {
-        if (Validate(server) || ! replacement || Validate(replacement)) {
+        if (! Validate(server) || ! replacement || Validate(replacement)) {
             return false;
         }
         replacement->SetIndex(*server, mDebugValidateFlag);
-        assert(replacement->GetIndex() == server->GetIndex());
         mServers[replacement->GetIndex()] = replacement;
         return true;
     }

@@ -719,10 +719,6 @@ public:
         return mUsedSpace;
     }
 
-    int GetNumChunks() const {
-        return mNumChunks;
-    }
-
     int64_t GetFreeFsSpace() const {
         return GetAvailSpace();
     }
@@ -995,11 +991,8 @@ protected:
         bool replayFlag = false);
     static ChunkServer* CreateSelf(
         const NetConnectionPtr& conn, const ServerLocation& loc);
-    /// Enqueue a request to be dispatched to this server
-    /// @param[in] r  the request to be enqueued.
-    /// allow override in layout emulator.
-    virtual void EnqueueSelf(MetaChunkRequest& req);
-    void Enqueue(MetaChunkRequest& req, int timeout,
+    /// Chunk server emulator overrides this.
+    virtual void Enqueue(MetaChunkRequest& req, int timeout,
         bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
     void Enqueue(MetaChunkRequest& req, int timeout,
             bool staleChunkIdFlag, bool loggedFlag) {
@@ -1014,6 +1007,7 @@ protected:
     void Enqueue(MetaChunkRequest& req) {
         Enqueue(req, -1);
     }
+    void EnqueueSelf(MetaChunkRequest& req);
     void SetServerLocation(const ServerLocation& loc);
 
     /// A sequence # associated with each RPC we send to
@@ -1105,8 +1099,7 @@ protected:
     /// but that space hasn't been fully used up.
     int64_t mAllocSpace;
 
-    /// # of chunks hosted on this server; useful for
-    /// reporting purposes
+    /// # of chunks reported this server; useful for reporting purposes
     long mNumChunks;
 
     /// An estimate of the CPU load average as reported by the
