@@ -31,13 +31,16 @@
 #include "Restorer.h"
 #include "Replay.h"
 #include "util.h"
+
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
 
-#include <iostream>
+#include "qcdio/QCUtils.h"
+
 #include <sstream>
+#include <iostream>
 #include <fstream>
-#include <cassert>
+#include <errno.h>
 
 namespace KFS
 {
@@ -51,17 +54,17 @@ static int
 FileListerMain(int argc, char **argv)
 {
     // use options: -l for logdir -c for checkpoint dir
-    int        optchar;
-    bool       help = false;
-    string     logdir, cpdir, pathFn;
-    // the name of the lock file that is used to synchronize between
-    // the various tools that load the checkpoint file.
-    string     lockfn;
-    bool       allowEmptyCheckpointFlag = false;
-    int        status = 0;
-    set<fid_t> ids;
+    int         optchar;
+    bool        help   = false;
+    const char* logdir = 0;
+    string      cpdir;
+    string      pathFn;
+    string      lockfn;
+    bool        includeLastLogFlag = false;
+    int         status = 0;
+    set<fid_t>  ids;
 
-    while ((optchar = getopt(argc, argv, "hl:c:f:L:i:e:")) != -1) {
+    while ((optchar = getopt(argc, argv, "hl:c:f:L:i:a:")) != -1) {
         switch (optchar) {
             case 'L':
                 lockfn = optarg;
@@ -78,8 +81,8 @@ FileListerMain(int argc, char **argv)
             case 'h':
                 help = true;
                 break;
-            case 'e':
-                allowEmptyCheckpointFlag = atoi(optarg) != 0;
+            case 'a':
+                includeLastLogFlag = atoi(optarg) != 0;
                 break;
             case 'i': {
                     istringstream is(optarg);
@@ -102,7 +105,7 @@ FileListerMain(int argc, char **argv)
             "[-c <cpdir>]\n"
             "[-f <output fn>]\n"
             "[-i fid]\n"
-            "[-e {0|1} allow empty checkpoint]\n"
+            "[-a {0|1} replay all log segments]\n"
         ;
         return status;
     }
@@ -110,20 +113,34 @@ FileListerMain(int argc, char **argv)
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    if ((status = restore_checkpoint(lockfn, allowEmptyCheckpointFlag)) == 0 &&
-            (status = replayer.playLogs()) == 0) {
-        if (pathFn == "-") {
+    if (! cpdir.empty()) {
+        checkpointer_setup_paths(cpdir);
+    }
+    if (logdir && *logdir) {
+        replayer.setLogDir(logdir);
+    }
+    const bool kAllowEmptyCheckpointFlag = false;
+    if ((status = restore_checkpoint(lockfn, kAllowEmptyCheckpointFlag)) == 0 &&
+            (status = replayer.playLogs(includeLastLogFlag)) == 0) {
+        if (pathFn.empty() || pathFn == "-") {
             metatree.listPaths(cout, ids);
-            return 0;
+        } else {
+            ofstream ofs(pathFn.c_str());
+            if (ofs) {
+                metatree.listPaths(ofs, ids);
+                ofs.close();
+            }
+            if (! ofs) {
+                status = errno;
+                KFS_LOG_STREAM_ERROR <<
+                    QCUtils::SysError(status, pathFn.c_str()) <<
+                KFS_LOG_EOM;
+            }
         }
-        ofstream ofs(pathFn.c_str());
-        if (! ofs) {
-            return 1;
-        }
-        metatree.listPaths(ofs, ids);
     }
 
     MdStream::Cleanup();
+    MsgLogger::Stop();
     return (status == 0 ? 0 : 1);
 }
 
