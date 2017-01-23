@@ -111,6 +111,7 @@ private:
     int               mError;
     int               mInFlightCnt;
     int               mMaxInFlightCnt;
+    Properties        mProperties;
 
     ObjStoreFsck()
     : OpOwner(),
@@ -131,7 +132,8 @@ private:
       mLostCount(0),
       mError(0),
       mInFlightCnt(0),
-      mMaxInFlightCnt(1 << 10)
+      mMaxInFlightCnt(1 << 10),
+      mProperties()
         { mKfsNetClient.SetAuthContext(&mAuthContext); }
     virtual ~ObjStoreFsck()
     {
@@ -238,18 +240,18 @@ private:
         const ServerLocation& inMetaLocation,
         const char*           inConfigFileNamePtr)
     {
-        Properties  theProperties;
+        mProperties.clear();
         int         theStatus    = 0;
         const char* theConfigPtr = inConfigFileNamePtr;
         if (inConfigFileNamePtr) {
             const char kDelimeter = '=';
-            theStatus = theProperties.loadProperties(theConfigPtr, kDelimeter);
+            theStatus = mProperties.loadProperties(theConfigPtr, kDelimeter);
         } else {
             theStatus = KfsClient::LoadProperties(
                 inMetaLocation.hostname.c_str(),
                 inMetaLocation.port,
                 0,
-                theProperties,
+                mProperties,
                 theConfigPtr
             );
         }
@@ -259,7 +261,7 @@ private:
             string*            kErrMsgPtr   = 0;
             theStatus = mAuthContext.SetParameters(
                 "client.auth.",
-                theProperties,
+                mProperties,
                 kOtherCtxPtr,
                 kErrMsgPtr,
                 kVerifyFlag
@@ -282,6 +284,18 @@ private:
         }
         mNetManager.UpdateTimeNow();
         if (! mKfsNetClient.SetServer(inLocation)) {
+            return -EHOSTUNREACH;
+        }
+        const Properties::String* const theMetaNodesPtr      =
+            mProperties.getValue(KfsClient::GetMetaServerNodesParamName());
+        const bool                      kHexFormatFlag       = false;
+        const bool                      kAllowDuplicatesFlag = true;
+        if (mKfsNetClient.SetMetaServerLocations(
+                inLocation,
+                theMetaNodesPtr ? theMetaNodesPtr->data() : 0,
+                theMetaNodesPtr ? theMetaNodesPtr->size() : size_t(0),
+                kAllowDuplicatesFlag,
+                kHexFormatFlag) <= 0) {
             return -EHOSTUNREACH;
         }
         GetPathNameOp theOp(0, ROOTFID, -1);
