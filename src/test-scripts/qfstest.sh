@@ -800,11 +800,15 @@ fi
 if [ $status -eq 0 ]; then
     cd "$metasrvdir" || exit
     echo "Running meta server fsck"
-    qfsfsck -A 1 -c kfscp
+    qfsfsck -A 1 -c kfscp -F
     status=$?
 fi
 if [ $status -eq 0 ]; then
-    qfsfsck -A 1 -c newcp
+    qfsfsck -A 1 -c newcp -F
+    status=$?
+fi
+if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
+    ls -1 "$objectstoredir" | qfsobjstorefsck -a
     status=$?
 fi
 

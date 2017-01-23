@@ -110,7 +110,11 @@ test: hadoop-jars
 	    ../../src/test-scripts/recoverytest.sh && \
             echo '--------- Jerasure recovery test ------' && \
 	    filecreateparams='fs.createParams=1,6,3,1048576,3,15,15' \
-	    ../../src/test-scripts/recoverytest.sh
+	    ../../src/test-scripts/recoverytest.sh && \
+	    if [ -d qfstest/certs ]; then \
+                echo '--------- Test without authentication --------' && \
+	        ../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
+            fi
 
 .PHONY: rat
 rat: dir
