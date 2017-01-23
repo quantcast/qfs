@@ -274,8 +274,7 @@ FsckMain(int argc, char** argv)
     if (! ok) {
         MonClient            client;
         const ServerLocation loc(metahost, metaport);
-        ok =
-            client.SetParameters(loc, configFileName,
+        ok = client.SetParameters(loc, configFileName,
                 setMetaLocationsFlag) >= 0 &&
             GetFsckInfo(client, reportAbandonedFilesFlag, timeoutSec);
         if (ok && ! setMetaLocationsFlag) {
