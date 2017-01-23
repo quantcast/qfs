@@ -176,8 +176,15 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     MYSSLD='/usr/local/Cellar/openssl/'
     if [ -d "$MYSSLD" ]; then
-        MYSSLD="${MYSSLD}$(ls -1 "$MYSSLD" | tail -n 1)"
+        MYSSLD="${MYSSLD}$(LANG=C ls -1 "$MYSSLD" | tail -n 1)"
         MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D OPENSSL_ROOT_DIR=${MYSSLD}"
+        MYSSLBIND="$MYSSLD/bin"
+        if [ -f "$MYSSLBIND/openssl" ] && \
+                PATH="$MYSSLBIND:$PATH" \
+                openssl version > /dev/null 2>&1; then
+            PATH="$MYSSLBIND:$PATH"
+            export PATH
+        fi
     fi
     sysctl machdep.cpu || true
     df -h || true
