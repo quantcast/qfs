@@ -2715,9 +2715,9 @@ LayoutManager::Validate(MetaHello& r)
     }
     const HibernatingServerInfo* const hsi = FindHibernatingCSInfo(r.location);
     if (hsi && hsi->retiredFlag && TimeNow() < hsi->startTime + r.uptime) {
-        // Chunk server must restart when it gets retire request.
-        // Uptime is used to detect if retire is lost due to communication error,
-        // and hibernation can be achieved by re-issuing retire.
+        // Chunk server must restart when it gets retire request. Uptime is used
+        // to detect if retire is lost due to communication error, and
+        // hibernation can be achieved by re-issuing retire.
         r.statusMsg  = "retire retry";
         r.status     = -EINVAL;
         r.retireFlag = true;
@@ -3695,14 +3695,16 @@ LayoutManager::Handle(MetaHibernatedRemove& req)
         }
         return;
     }
+    if (0 != req.status) {
+        if (&req == it->removeOp) {
+            // Handle transaction log write failure, by resetting pointer, and
+            // relying on the timer cleanup to re-issue remove again.
+            it->removeOp = 0;
+        }
+        return;
+    }
     if (! req.replayFlag && it->removeOp != &req) {
         panic("invalid hibernated server remove completion");
-    }
-    if (0 != req.status) {
-        // Handle transaction log write failure, by resetting pointer, and
-        // relying on the timer cleanup to re-issue remove again.
-        it->removeOp = 0;
-        return;
     }
     if (it->IsHibernated()) {
         if (mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
