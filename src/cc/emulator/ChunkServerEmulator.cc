@@ -91,6 +91,12 @@ ChunkServerEmulator::Init(int64_t totalSpace, int64_t usedSpace,
     mAllocSpace = mUsedSpace;
     if (! mSelfPtr) {
         mSelfPtr = shared_from_this();
+        MetaChunkEvacuate& op = *(new MetaChunkEvacuate());
+        op.numWritableDrives   = 1;
+        op.numDrives           = 1;
+        op.numEvacuateInFlight = 0;
+        UpdateSpace(op);
+        MetaRequest::Release(&op);
     }
 }
 

@@ -160,9 +160,12 @@ main(int argc, char** argv)
     LayoutEmulator& emulator = LayoutEmulator::Instance();
     Properties props;
     int status = 0;
-    if (propsFn.empty() ||
-            (status = props.loadProperties(propsFn.c_str(), char('=')))
-            == 0) {
+    if (! propsFn.empty() &&
+            0 != (status = props.loadProperties(propsFn.c_str(), char('=')))) {
+        KFS_LOG_STREAM_FATAL <<
+            propsFn << ": " << QCUtils::SysError(-status) <<
+        KFS_LOG_EOM;
+    } else {
         emulator.SetParameters(props);
         emulator.SetupForRebalancePlanning(variationFromAvg);
         status = EmulatorSetup(emulator, logdir, cpdir, networkFn, chunkmapFn,

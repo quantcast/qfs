@@ -122,6 +122,7 @@ private:
         bool                          reportAllFlag,
         PlacementVerifier&            verifier);
     size_t GetChunkSize(const CSMap::Entry& ci) const;
+    void ScheduleReplication();
 
     // for the purposes of rebalancing, we compute the cluster
     // wide average space utilization; then we take into the

@@ -56,16 +56,12 @@ EmulatorSetup(
     int64_t         chunkServerTotalSpace)
 {
     checkpointer_setup_paths(cpdir);
-
-    KFS_LOG_STREAM_INFO << "restoring from checkpoint: " << LASTCP <<
+    replayer.setLogDir(logdir.c_str());
+    KFS_LOG_STREAM_INFO <<
+        "restoring from checkpoint: " << LASTCP <<
     KFS_LOG_EOM;
-    int status;
-    if (file_exists(LASTCP)) {
-        Restorer r;
-        status = r.rebuild(LASTCP, minReplicasPerFile) ? 0 : -EIO;
-    } else {
-        status = metatree.new_tree();
-    }
+    Restorer r;
+    int status = r.rebuild(LASTCP, minReplicasPerFile) ? 0 : -EIO;
     if (status != 0) {
         return status;
     }

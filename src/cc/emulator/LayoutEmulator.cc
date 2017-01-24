@@ -390,8 +390,9 @@ LayoutEmulator::CalculateRebalaceThresholds()
 void
 LayoutEmulator::PrepareRebalance(bool enableRebalanceFlag)
 {
-    mPrimaryFlag       = true;
-    mRecoveryStartTime = time(0) - 2 * mRecoveryIntervalSec;
+    mPrimaryFlag                   = true;
+    mRecoveryStartTime             = TimeNow() - 10 * mRecoveryIntervalSec;
+    mMinChunkserversToExitRecovery = 0;
 
     ToggleRebalancing(enableRebalanceFlag);
 
@@ -416,6 +417,17 @@ LayoutEmulator::PrepareRebalance(bool enableRebalanceFlag)
 }
 
 void
+LayoutEmulator::ScheduleReplication()
+{
+    if (mCleanupScheduledFlag) {
+        ScheduleCleanup();
+    }
+    if (HandoutChunkReplicationWork()) {
+        return;
+    }
+    RebalanceServers();
+}
+void
 LayoutEmulator::BuildRebalancePlan()
 {
     PrepareRebalance(true);
@@ -425,10 +437,7 @@ LayoutEmulator::BuildRebalancePlan()
     const size_t kThreshUpdateInterval = 4 << 10;
     size_t       updateThreshOpsCnt    = kThreshUpdateInterval;
     for (int prev = mNumBlksRebalanced; ;) {
-        if (mCleanupScheduledFlag) {
-            ScheduleCleanup();
-        }
-        ChunkReplicationChecker();
+        ScheduleReplication();
         const size_t opsCount = RunChunkserverOps();
         if (prev != mNumBlksRebalanced) {
             prev  = mNumBlksRebalanced;
@@ -437,6 +446,7 @@ LayoutEmulator::BuildRebalancePlan()
         const bool doneFlag =
             mStopFlag ||
             mChunkServers.empty() ||
+            mCSTotalPossibleCandidateCount <= 0 ||
             (opsCount <= 0 &&
             ! mCleanupScheduledFlag &&
             mRebalanceCtrs.GetRoundCount() > round &&
@@ -472,13 +482,11 @@ LayoutEmulator::ExecuteRebalancePlan()
 
     RebalanceCtrs::Counter nextScanned = 0;
     for (; ;) {
-        if (mCleanupScheduledFlag) {
-            ScheduleCleanup();
-        }
-        ChunkReplicationChecker();
+        ScheduleReplication();
         const bool doneFlag =
             mStopFlag ||
             mChunkServers.empty() ||
+            mCSTotalPossibleCandidateCount <= 0 ||
             (RunChunkserverOps() <= 0 &&
             ! mChunkToServerMap.Front(CSMap::Entry::kStateCheckReplication) &&
             ! mIsExecutingRebalancePlan &&
@@ -637,7 +645,7 @@ LayoutEmulator::InitUseCurrentState(
                 panic("failed to replace hibernated server");
                 return -EFAULT;
             }
-            Servers::const_iterator const its = lower_bound(
+            Servers::iterator const its = lower_bound(
                 mChunkServers.begin(), mChunkServers.end(), it->location,
                 bind(&ChunkServer::GetServerLocation, _1) < it->location
             );

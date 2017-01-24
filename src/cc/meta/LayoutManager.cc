@@ -11235,6 +11235,7 @@ void LayoutManager::ScheduleCleanup(size_t maxScanCount /* = 1 */)
     if (! gNetDispatch.IsRunning()) {
         // Perform full cleanup in replay.
         mChunkToServerMap.RemoveServerCleanup(0);
+        mCleanupScheduledFlag = false;
         return;
     }
     if (mChunkToServerMap.RemoveServerCleanup(maxScanCount)) {
