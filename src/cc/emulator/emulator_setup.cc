@@ -63,7 +63,6 @@ EmulatorSetup(
     if (file_exists(LASTCP)) {
         Restorer r;
         status = r.rebuild(LASTCP, minReplicasPerFile) ? 0 : -EIO;
-        // emulator.InitRecoveryStartTime();
     } else {
         status = metatree.new_tree();
     }
@@ -80,9 +79,10 @@ EmulatorSetup(
     KFS_LOG_EOM;
     metatree.setUpdatePathSpaceUsage(true);
     metatree.enableFidToPathname();
-    KFS_LOG_STREAM_INFO << "reading network defn: " << networkFn <<
-    KFS_LOG_EOM;
     if (! networkFn.empty()) {
+        KFS_LOG_STREAM_INFO <<
+            "reading network defn: " << networkFn <<
+        KFS_LOG_EOM;
         status = emulator.ReadNetworkDefn(networkFn);
         if (status != 0) {
             return status;

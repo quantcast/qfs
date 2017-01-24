@@ -390,6 +390,9 @@ LayoutEmulator::CalculateRebalaceThresholds()
 void
 LayoutEmulator::PrepareRebalance(bool enableRebalanceFlag)
 {
+    mPrimaryFlag       = true;
+    mRecoveryStartTime = time(0) - 2 * mRecoveryIntervalSec;
+
     ToggleRebalancing(enableRebalanceFlag);
 
     if (enableRebalanceFlag) {
