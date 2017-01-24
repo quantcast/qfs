@@ -1527,7 +1527,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is on.
 # metaServer.metaDataSync.writeSync = 1
 
-# Ssize of amount of data to buffer before issing disk write request.
+# Amount of data to buffer before issuing disk write request.
 # Default is 4MB
 # metaServer.metaDataSync.minWriteSize = 4194304
 
