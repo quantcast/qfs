@@ -270,6 +270,7 @@ for dir in  \
         'src/cc/qcrs' \
         'src/cc/qfsc' \
         'src/cc/krb' \
+        'src/cc/emulator' \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
@@ -800,15 +801,21 @@ fi
 if [ $status -eq 0 ]; then
     cd "$metasrvdir" || exit
     echo "Running meta server fsck"
-    qfsfsck -A 1 -c kfscp -F
+    qfsfsck -c kfscp -F
     status=$?
 fi
 if [ $status -eq 0 ]; then
-    qfsfsck -A 1 -c newcp -F
+    qfsfsck -c newcp -F
     status=$?
 fi
 if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
-    ls -1 "$objectstoredir" | qfsobjstorefsck -a
+    echo "Running meta server object store fsck"
+    ls -1 "$objectstoredir" | qfsobjstorefsck
+    status=$?
+fi
+if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
+    echo "Running re-balance planner"
+    rebalanceplanner -c "$metasrvprop"
     status=$?
 fi
 
