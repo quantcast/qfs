@@ -1345,7 +1345,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # connectivity failure.
 #
 # 1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
-# node group must have node with ID 0. The node with lowest ID is
+# set of nodes must have node with ID 0. The node with lowest ID is
 # elected as a primary primary, the remaining active nodes are assigned backup
 # status. Node's "primary order" (32 bit signed integer) can be set to change
 # primary election, the node with the smallest primary order becomes primary.
@@ -1382,11 +1382,11 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # configuration stored in the checkpoint and transaction log, and replicated
 # onto all meta server nodes.
 # The first step is to add all nodes with their respective transaction log
-# listeners network addresses [locations], the second is activate nodes. Meta
+# listeners network addresses [locations], the second is to activate nodes. Meta
 # server should respond to vr_reconfiguration without arguments with the
 # command description. QFS admin configuration file has the same format and
 # parameters as QFS client configuration file. If nodes has more than one
-# network connection / IP addresses, multiple redundant network connections can
+# network links / IP addresses, multiple redundant network connections can
 # be configured to increase connectivity reliability by specifying list of log
 # listeners' network locations (IP address and port).
 # For example:
@@ -1436,15 +1436,16 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # metaServer.vr.id = -1
 
 # Host name to VR node ID map.
-# Use only if host names guaranteed to be unique.
+# Use only if host names returned by getnostname() system call are guaranteed
+# to be unique.
 # The list must be space separated pairs. For example:
 # host_name_1 0 host_name_2 1 host_name_3 2
 # Default is none.
 # metaServer.vr.hostnameToId =
 
 # List of valid meta server executable md5
-# If the list is empty, meta executable md5 must be included in this list in
-# order to be able to communicate with other VR nodes..
+# If the list is not empty, meta executable md5 must be included in this list in
+# order to be able to communicate with other VR nodes.
 # Default is empty list.
 # metaServer.metaMds =
 
@@ -1458,9 +1459,13 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is on.
 # metaServer.vr.syncVrStateFile = 1
 
-# Node must have valid VR state file in order to be able to form VR quorum.
-# The state include node ID, and reflects node's replicated transaction log
-# state.
+# An active meta server node must have valid VR state file in order to be able
+# to form VR quorum. The state includes node ID, and reflects node's replicated
+# state. Valid state must match the state of the transaction log. THe state file
+# is used on meta server startup. Meta server validates that the node ID and
+# transaction log state corresponds to the values in VR state file on startup.
+# In case of mismatch the file is deleted. The meta server writes the VR state
+# file during its operations. The file is small, typically cople hundred bytes.
 # The only case where this might need to be changed is in the case of attempting
 # to recover from the meta data loss, where VR state files were lost on more
 # than quorum nodes.
@@ -1642,6 +1647,6 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # over", and have no transactions that immediately follow the last transaction of
 # this node. By default meta server "re-executes" itself when restart is
 # required. In the case when the meta server process is automatically restarted
-# by another process the following parameter can be set to 1 to exit the make
+# by another process the following parameter can be set to 1 to exit to make
 # meta server process instead of re-executing itself.
 # metaServer.exitOnRestart = 0
