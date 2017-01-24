@@ -344,7 +344,7 @@ public:
             if (! mRunFlag) {
                 mRunFlag = true;
                 const int kStackSize = 32 << 10;
-                mThread.Start(this, kStackSize);
+                mThread.Start(this, kStackSize, "ChunkDirsCheck");
             }
         }
         GetNewlyAvailable(outDirs, true);
