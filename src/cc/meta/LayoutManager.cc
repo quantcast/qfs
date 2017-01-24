@@ -4303,8 +4303,9 @@ LayoutManager::AddNewServer(MetaHello& req)
     // End of hello chunk inventory processing.
     srv.HelloEnd();
     // Update the list since a new server appeared.
-    CheckHibernatingServersStatus();
-
+    if (! req.replayFlag) {
+        CheckHibernatingServersStatus();
+    }
     const char* msg = "added";
     if (! req.replayFlag &&
             IsChunkServerRestartAllowed() &&
@@ -5621,8 +5622,11 @@ LayoutManager::Handle(MetaBye& req)
             rackIter->removeServer(server) &&
             rackIter->getServers().empty()) {
         // The entire rack of servers is gone take the rack out.
-        KFS_LOG_STREAM_INFO << "all servers in rack " <<
-            server->GetRack() << " are down; taking out the rack" <<
+        KFS_LOG_STREAM(req.replayFlag ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelINFO) <<
+            "all servers in rack " << server->GetRack() <<
+            " are down; taking out the rack" <<
         KFS_LOG_EOM;
         mRacks.erase(rackIter);
     }
