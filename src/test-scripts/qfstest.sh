@@ -815,7 +815,7 @@ if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
 fi
 if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
     echo "Running re-balance planner"
-    rebalanceplanner -c "$metasrvprop"
+    rebalanceplanner
     status=$?
 fi
 
