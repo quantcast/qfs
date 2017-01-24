@@ -96,7 +96,21 @@ KfsToSysErrno(
         case kKFS_EINPROGRESS:      return EINPROGRESS;
         case kKFS_EDQUOT:           return EDQUOT;
         case kKFS_ECANCELED:        return ECANCELED;
-        default: break;
+        case kKFS_SUCCESS:
+        case EBADVERS:
+        case ELEASEEXPIRED:
+        case EBADCKSUM:
+        case EDATAUNAVAIL:
+        case ESERVERBUSY:
+        case EALLOCFAILED:
+        case EBADCLUSTERKEY:
+        case EINVALCHUNKSIZE:
+        case ELOGFAILED:
+        case EVRNOTPRIMARY:
+        case EVRBACKUP:
+        case EKFSYSSERROR:
+            break;
+        default:                    return EKFSYSSERROR;
     }
     return inErrno;
 }
@@ -177,8 +191,12 @@ SysToKfsErrno(
         case EINVALCHUNKSIZE:
         case ELOGFAILED:
         case EVRNOTPRIMARY:
-        default:
+        case EVRBACKUP:
+        case EKFSYSSERROR:
+        case kKFS_SUCCESS: // No error.
             break;
+        // Fold any other status code into "catch all" error.
+        default:               return EKFSYSSERROR;
     }
     return inErrno;
 }

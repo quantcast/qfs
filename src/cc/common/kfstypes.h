@@ -123,6 +123,11 @@ const int EVRNOTPRIMARY = 1009;
 // Not VR primary node.
 const int EVRBACKUP = 1010;
 
+// Catch all, error, only intended for system codes that no corresponding
+// kKFS_* equivalent in kfserrno.cc Should not be returned by KFS code, except
+// SysToKfsErrno() and KfsToSysErrno()
+const int EKFSYSSERROR = 2000;
+
 inline static bool IsMetaLogWriteOrVrError(int status)
 {
     return (

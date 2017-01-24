@@ -89,6 +89,7 @@ ErrorCodeToString(int status)
             return "meta server transaction log write failure";
         case EVRNOTPRIMARY:   return "meta server node is not primary";
         case EVRBACKUP:       return "meta server node is backup";
+        case EKFSYSSERROR:    return "system error";
         case 0:               return "";
         default:              break;
     }

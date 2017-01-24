@@ -29,7 +29,7 @@
 
 namespace KFS
 {
-
+const int kKFS_SUCCESS         = 0;
 const int kKFS_EPERM           = 1;
 const int kKFS_ENOENT          = 2;
 const int kKFS_ESRCH           = 3;
