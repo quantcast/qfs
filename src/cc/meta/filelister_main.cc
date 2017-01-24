@@ -60,7 +60,7 @@ FileListerMain(int argc, char **argv)
     string      cpdir;
     string      pathFn;
     string      lockfn;
-    bool        includeLastLogFlag = false;
+    bool        includeLastLogFlag = true;
     int         status = 0;
     set<fid_t>  ids;
 
@@ -105,7 +105,7 @@ FileListerMain(int argc, char **argv)
             "[-c <cpdir>]\n"
             "[-f <output fn>]\n"
             "[-i fid]\n"
-            "[-a {0|1} replay all log segments]\n"
+            "[-a {0|1} replay all log segments (default 1)]\n"
         ;
         return status;
     }

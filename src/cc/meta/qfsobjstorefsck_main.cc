@@ -49,6 +49,8 @@
 #include "libclient/KfsNetClient.h"
 #include "libclient/KfsOps.h"
 
+#include <stdlib.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -490,13 +492,16 @@ ObjStoreFsck::RunSelf(
     MsgLogger::LogLevel theLogLevel          = MsgLogger::kLogLevelINFO;
     int                 theStatus            = 0;
     bool                theHelpFlag          = false;
-    bool                theReplayLastLogFlag = false;
+    bool                theReplayLastLogFlag = true;
     const char*         thePtr;
 
-    while ((theOpt = getopt(inArgCnt, inArgaPtr, "vhal:c:L:s:p:f:x:")) != -1) {
+    while ((theOpt = getopt(inArgCnt, inArgaPtr, "vhal:c:L:s:p:f:x:A:")) != -1) {
         switch (theOpt) {
-            case 'a':
+            case 'a': // Deprecated, keep for backward compatibility
                 theReplayLastLogFlag = true;
+                break;
+            case 'A':
+                theReplayLastLogFlag = 0 != atoi(optarg);
                 break;
             case 'L':
                 theLockFile = optarg;
@@ -550,7 +555,7 @@ ObjStoreFsck::RunSelf(
             "[-l <transaction log directory>] default: kfslog\n"
             "[-c <checkpoint directory>] default: kfscp\n"
             "[-f <client configuration file>] default: none\n"
-            "[-a replay last log segment] default: don't replay last segment\n"
+            "[-A {0|1} include last log segment (default 1)]\n"
             "[-x <max pipelined get info meta ops>] default: 1024\n"
             "[-s <meta server host>]\n"
             "[-p <meta server port>]\n"
