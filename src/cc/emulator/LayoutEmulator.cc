@@ -538,6 +538,20 @@ LayoutEmulator::InitUseCurrentState(
             const ChunkServer& srv = **it;
             csTotalSpace += srv.GetChunkCount() * (int64_t)CHUNKSIZE;
         }
+        for (HibernatedServerInfos::const_iterator
+                it = mHibernatingServers.begin();
+                mHibernatingServers.end() != it;
+                ++it) {
+            if (it->IsHibernated() && 0 <= GetRackId(it->location)) {
+                HibernatedChunkServer* const hsrv =
+                    mChunkToServerMap.GetHiberantedServer(it->csmapIdx);
+                if (! hsrv) {
+                    panic("invalid hibernated server index");
+                    return -EFAULT;
+                }
+                csTotalSpace += hsrv->GetChunkCount() * (int64_t)CHUNKSIZE;
+            }
+        }
         csTotalSpace += csTotalSpace * 20 / 100;
         const size_t size = mChunkServers.size();
         if (0 < size) {
@@ -577,11 +591,11 @@ LayoutEmulator::InitUseCurrentState(
             KFS_LOG_EOM;
         }
         srv.swap(ep);
+        // Update chunk count, changes after replace, update space.
+        cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
         mLoc2Server.insert(make_pair(srv->GetServerLocation(), srv));
         UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
         UpdateReplicationsThreshold();
-        // Update chunk count, changes after replace, update space.
-        cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
         KFS_LOG_STREAM_INFO <<
             "added:"
             " server: "      << srv->GetServerLocation() <<
@@ -594,13 +608,66 @@ LayoutEmulator::InitUseCurrentState(
         KFS_LOG_EOM;
     }
     for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
-            mHibernatingServers.end() != it;
-            ++it) {
+            mHibernatingServers.end() != it; ) {
         if (it->IsHibernated()) {
-            if (! mChunkToServerMap.RemoveHibernatedServer(it->csmapIdx)) {
-                panic("failed to remove hibernated server");
+            HibernatedChunkServer* const hsrv =
+                mChunkToServerMap.GetHiberantedServer(it->csmapIdx);
+            if (! hsrv) {
+                panic("invalid hibernated server index");
                 return -EFAULT;
             }
+            const RackId rackId = GetRackId(it->location);
+            KFS_LOG_STREAM_INFO <<
+                "hibernated server: " << it->location <<
+                " rack: "             << rackId <<
+                " chunks: "           << hsrv->GetChunkCount() <<
+                (0 <= rackId ? " replacing with up server emulator" : "") <<
+            KFS_LOG_EOM;
+            if (rackId < 0) {
+                ++it;
+                continue;
+            }
+            ChunkServerEmulator& cse = *(new ChunkServerEmulator(
+                it->location, rackId, *this));
+            ChunkServerPtr srv;
+            srv.reset(&cse);
+            cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
+            if (! mChunkToServerMap.ReplaceHibernatedServer(
+                    srv, it->csmapIdx)) {
+                panic("failed to replace hibernated server");
+                return -EFAULT;
+            }
+            Servers::const_iterator const its = lower_bound(
+                mChunkServers.begin(), mChunkServers.end(), it->location,
+                bind(&ChunkServer::GetServerLocation, _1) < it->location
+            );
+            if (mChunkServers.end() != its &&
+                    (*its)->GetServerLocation() == it->location) {
+                panic("invalid duplicate hibernated server location");
+                return -EFAULT;
+            }
+            mChunkServers.insert(its, srv);
+            // Convert to non const iterator for pre c++11.
+            it = mHibernatingServers.erase(mHibernatingServers.begin() +
+                (it - mHibernatingServers.begin()));
+            // Update chunk count, changes after replace, update space.
+            cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
+            mLoc2Server.insert(make_pair(srv->GetServerLocation(), srv));
+            if (0 <= rackId) {
+                RackInfos::iterator const itr = find_if(
+                    mRacks.begin(), mRacks.end(),
+                    bind(&RackInfo::id, _1) == rackId
+                );
+                if (itr != mRacks.end()) {
+                    itr->addServer(srv);
+                } else {
+                    mRacks.push_back(RackInfo(rackId, 1.0, srv));
+                }
+            }
+            UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
+            UpdateReplicationsThreshold();
+        } else {
+            ++it;
         }
     }
     mHibernatingServers.clear();
