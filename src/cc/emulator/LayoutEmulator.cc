@@ -150,15 +150,18 @@ LayoutEmulator::Parse(
         while (p < end && (*p & 0xFF) > ' ') {
             p++;
         }
-        Loc2Server::const_iterator const it = mLoc2Server.find(loc);
-        if (it == mLoc2Server.end()) {
+        Servers::const_iterator const it = lower_bound(
+            mChunkServers.begin(), mChunkServers.end(),
+            loc, bind(&ChunkServer::GetServerLocation, _1) < loc
+        );
+        if (it == mChunkServers.end() || (*it)->GetServerLocation() != loc) {
             KFS_LOG_STREAM_ERROR <<
                 "chunk: " << cid <<
                 " no such server: "  << loc <<
             KFS_LOG_EOM;
             continue;
         }
-        if (! AddReplica(*ci, it->second)) {
+        if (! AddReplica(*ci, *it)) {
             KFS_LOG_STREAM_ERROR <<
                 "chunk: "        << cid <<
                 " add server: "  << loc <<
@@ -166,7 +169,7 @@ LayoutEmulator::Parse(
             KFS_LOG_EOM;
             continue;
         }
-        GetCSEmulator(*(it->second)).HostingChunk(cid, GetChunkSize(*ci));
+        GetCSEmulator(**it).HostingChunk(cid, GetChunkSize(*ci));
     }
     if (addChunksToReplicationChecker) {
         CheckChunkReplication(*ci);
@@ -294,8 +297,11 @@ LayoutEmulator::AddServer(
     srv.Init(totalSpace, usedSpace, mUseFsTotalSpaceFlag);
 
     mChunkToServerMap.AddServer(c);
-    mLoc2Server.insert(make_pair(loc, c));
-    mChunkServers.push_back(c);
+    Servers::iterator const its = lower_bound(
+        mChunkServers.begin(), mChunkServers.end(), loc,
+        bind(&ChunkServer::GetServerLocation, _1) < loc
+    );
+    mChunkServers.insert(its, c);
     RackInfos::iterator const it = find_if(
         mRacks.begin(), mRacks.end(),
         bind(&RackInfo::id, _1) == rack);
@@ -599,9 +605,6 @@ LayoutEmulator::InitUseCurrentState(
             KFS_LOG_EOM;
         }
         srv.swap(ep);
-        // Update chunk count, changes after replace, update space.
-        cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
-        mLoc2Server.insert(make_pair(srv->GetServerLocation(), srv));
         UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
         UpdateReplicationsThreshold();
         KFS_LOG_STREAM_INFO <<
@@ -658,9 +661,6 @@ LayoutEmulator::InitUseCurrentState(
             // Convert to non const iterator for pre c++11.
             it = mHibernatingServers.erase(mHibernatingServers.begin() +
                 (it - mHibernatingServers.begin()));
-            // Update chunk count, changes after replace, update space.
-            cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
-            mLoc2Server.insert(make_pair(srv->GetServerLocation(), srv));
             if (0 <= rackId) {
                 RackInfos::iterator const itr = find_if(
                     mRacks.begin(), mRacks.end(),
@@ -678,8 +678,18 @@ LayoutEmulator::InitUseCurrentState(
             ++it;
         }
     }
-    mHibernatingServers.clear();
     mChunkToServerMap.RemoveServerCleanup(0);
+    mChunkToServerMap.First();
+    Servers srvs;
+    for (const CSMap::Entry* ci; (ci = mChunkToServerMap.Next()); ) {
+        srvs.clear();
+        mChunkToServerMap.GetServers(*ci, srvs);
+        for (Servers::const_iterator
+                it = srvs.begin(); it != srvs.end(); ++it) {
+            GetCSEmulator(**it).HostingChunk(
+                ci->GetChunkId(), GetChunkSize(*ci));
+        }
+    }
     return 0;
 }
 

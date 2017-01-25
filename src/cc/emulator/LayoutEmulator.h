@@ -85,8 +85,7 @@ protected:
         : mVariationFromMean(0),
           mNumBlksRebalanced(0),
           mStopFlag(false),
-          mPlanFile(),
-          mLoc2Server()
+          mPlanFile()
     {
         SetMinChunkserversToExitRecovery(0);
         ToggleRebalancing(true);
@@ -132,7 +131,6 @@ private:
     int        mNumBlksRebalanced;
     bool       mStopFlag;
     ofstream   mPlanFile;
-    Loc2Server mLoc2Server;
 private:
     // No copy.
     LayoutEmulator(const LayoutEmulator&);
