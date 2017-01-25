@@ -9502,7 +9502,10 @@ LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
     }
     if (! mPrimaryFlag) {
         KFS_LOG_STREAM_DEBUG <<
-            "not primary, ignoring resubmit: " << req.Show() <<
+            "not primary, ignoring resubmit: " <<
+            " status: " << req.status <<
+            " "         << req.statusMsg <<
+            " "         << req.Show() <<
         KFS_LOG_EOM;
         return;
     }
@@ -11135,7 +11138,7 @@ LayoutManager::HandoutChunkReplicationWork()
                 mNoServersAvailableForReplicationCount++;
             }
             KFS_LOG_STREAM(count <= 0 ?
-                    MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
+                    MsgLogger::kLogLevelERROR : MsgLogger::kLogLevelINFO) <<
                 "exiting replication check:"
                 " no servers available for replication:"
                 " "                << mNoServersAvailableForReplicationCount <<
@@ -12449,7 +12452,7 @@ LayoutManager::ExecuteRebalancePlan(
         const MetaFattr* const fa = ci->GetFattr();
         kfsSTier_t i;
         for (i = fa->minSTier;
-                i <= fa->maxSTier && IsCandidateServer(*c, i);
+                i <= fa->maxSTier && ! IsCandidateServer(*c, i);
                 i++)
             {}
         if (fa->maxSTier < i) {
@@ -12457,7 +12460,8 @@ LayoutManager::ExecuteRebalancePlan(
                 "cannot move"
                 " chunk: "    << cid <<
                 " to: "       << c->GetServerLocation() <<
-                " tiers: ["   << fa->minSTier << "," << fa->maxSTier << "]"
+                " tiers: ["   << (int)fa->minSTier <<
+                ","           << (int)fa->maxSTier << "]"
                 " no storage tiers available" <<
             KFS_LOG_EOM;
             continue;
