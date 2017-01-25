@@ -1984,7 +1984,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
 }
 
 void
-ChunkServer::UpdateSpace(MetaChunkEvacuate& op)
+ChunkServer::UpdateSpace(const MetaChunkEvacuate& op)
 {
     if (! mNetConnection) {
         return;

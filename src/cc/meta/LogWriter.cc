@@ -93,7 +93,7 @@ public:
           mCommitted(),
           mThread(),
           mMutex(),
-          mStopFlag(false),
+          mStopFlag(true),
           mOmitDefaultsFlag(true),
           mCommitUpdatedFlag(false),
           mSetReplayStateFlag(false),
@@ -171,6 +171,7 @@ public:
           mInvalidHeartbeatSequenceErrorMsg("invalid heartbeat sequence"),
           mPrimaryRejectedBlockWriteErrorMsg(
             "block write rejected: VR state is primary"),
+          mLogWriterIsNotRunningErrorMsg("log writer is not running"),
           mLogStartViewPrefix(
             string(kLogWriteAheadPrefixPtr) +
             kLogVrStatViewNamePtr +
@@ -254,7 +255,7 @@ public:
         inRequest.next = 0;
         if (mStopFlag) {
             inRequest.status    = -ELOGFAILED;
-            inRequest.statusMsg = "log writer is not running";
+            inRequest.statusMsg = mLogWriterIsNotRunningErrorMsg;
             return false;
         }
         int* const theCounterPtr = inRequest.GetLogQueueCounter();
@@ -662,6 +663,7 @@ private:
     const string      mInvalidBlockStartSegmentErrorMsg;
     const string      mInvalidHeartbeatSequenceErrorMsg;
     const string      mPrimaryRejectedBlockWriteErrorMsg;
+    const string      mLogWriterIsNotRunningErrorMsg;
     const string      mLogStartViewPrefix;
     const size_t      mLogAppendPrefixLen;
     const char* const mLogStartViewPrefixPtr;

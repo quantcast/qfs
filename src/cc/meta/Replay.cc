@@ -2417,6 +2417,8 @@ Replay::playLogs(bool includeLastLogFlag)
         appendToLastLogFlag = false;
         return 0;
     }
+    gLayoutManager.SetPrimary(false);
+    gLayoutManager.StopServicing();
     const int status = getLastLogNum();
     return (0 == status ?
         playLogs(lastLogNum, includeLastLogFlag) : status);
@@ -2845,6 +2847,7 @@ Replay::commitAll()
 {
     ReplayState&               state = replayTokenizer.GetState();
     ReplayState::EnterAndLeave enterAndLeave(state);
+    gLayoutManager.SetPrimary(true);
     return replayTokenizer.GetState().commitAll();
 }
 

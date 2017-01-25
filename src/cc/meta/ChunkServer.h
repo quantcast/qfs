@@ -821,7 +821,7 @@ public:
     static int GetChunkServerCount() {
         return sChunkServerCount;
     }
-    void UpdateSpace(MetaChunkEvacuate& op);
+    void UpdateSpace(const MetaChunkEvacuate& op);
     size_t GetChunksToEvacuateCount() const {
         return mChunksToEvacuate.Size();
     }
