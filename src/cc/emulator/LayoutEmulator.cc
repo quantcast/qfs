@@ -390,9 +390,9 @@ LayoutEmulator::CalculateRebalaceThresholds()
 void
 LayoutEmulator::PrepareRebalance(bool enableRebalanceFlag)
 {
-    mPrimaryFlag                   = true;
     mRecoveryStartTime             = TimeNow() - 10 * mRecoveryIntervalSec;
     mMinChunkserversToExitRecovery = 0;
+    SetPrimary(true);
 
     ToggleRebalancing(enableRebalanceFlag);
 
@@ -489,7 +489,7 @@ LayoutEmulator::ExecuteRebalancePlan()
             mCSTotalPossibleCandidateCount <= 0 ||
             (RunChunkserverOps() <= 0 &&
             ! mChunkToServerMap.Front(CSMap::Entry::kStateCheckReplication) &&
-            ! mIsExecutingRebalancePlan &&
+            // ! mIsExecutingRebalancePlan &&
             ! mCleanupScheduledFlag);
         RebalanceCtrs::Counter const scanned = mRebalanceCtrs.GetTotalScanned();
         if (doneFlag || nextScanned < scanned) {
@@ -979,8 +979,8 @@ int
 LayoutEmulator::RunFsck(
     const string& fileName)
 {
-    const string kStdout("-");
-    const int    outfd = fileName == kStdout ?
+    const bool   stdoutFlag = fileName.empty() || fileName == "-";
+    const int    outfd      = stdoutFlag ?
         fileno(stdout) :
         open(fileName.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0644);
     if (outfd < 0) {
@@ -1079,7 +1079,7 @@ LayoutEmulator::RunFsck(
     for ( ; i < cnt; i++) {
         close(fd[i]);
     }
-    if (fileName != kStdout && close(outfd)) {
+    if (! stdoutFlag && close(outfd)) {
         err = errno;
         KFS_LOG_STREAM_ERROR << fileName << ": " <<
             strerror(err) <<

@@ -37,6 +37,23 @@ namespace KFS
 {
 using std::numeric_limits;
 
+class MetaChunkEvacuateOp : public MetaChunkEvacuate
+{
+public:
+    MetaChunkEvacuateOp()
+    {
+        numWritableDrives   = 1;
+        numDrives           = 1;
+        numEvacuateInFlight = 0;
+    }
+};
+
+static const MetaChunkEvacuate& GetMetaChunkEvacuate()
+{
+    static const MetaChunkEvacuateOp sOp;
+    return sOp;
+}
+
 ChunkServerEmulator::ChunkServerEmulator(
     const ServerLocation& loc,
     int                   rack,
@@ -89,14 +106,9 @@ ChunkServerEmulator::Init(int64_t totalSpace, int64_t usedSpace,
     mNumChunks  = GetChunkCount();
     mUsedSpace  = mNumChunks * (int64_t)CHUNKSIZE;
     mAllocSpace = mUsedSpace;
+    UpdateSpace(GetMetaChunkEvacuate());
     if (! mSelfPtr) {
         mSelfPtr = shared_from_this();
-        MetaChunkEvacuate& op = *(new MetaChunkEvacuate());
-        op.numWritableDrives   = 1;
-        op.numDrives           = 1;
-        op.numEvacuateInFlight = 0;
-        UpdateSpace(op);
-        MetaRequest::Release(&op);
     }
 }
 

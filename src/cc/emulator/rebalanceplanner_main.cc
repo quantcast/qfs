@@ -51,21 +51,22 @@ static void HandleStop(int) { LayoutEmulator::Instance().Stop(); }
 int
 main(int argc, char** argv)
 {
-    string  rebalancePlanFn("rebalanceplan.txt");
-    string  logdir("kfslog");
-    string  cpdir("kfscp");
-    string  networkFn;
-    string  chunkmapFn("chunkmap.txt");
-    string  propsFn;
-    string  chunkMapDir;
-    int     optchar;
-    int64_t chunkServerTotalSpace = -1;
-    int16_t minReplication        = -1;
-    double  variationFromAvg      = 0;
-    bool    helpFlag              = false;
-    bool    debugFlag             = false;
+    string              rebalancePlanFn("rebalanceplan.txt");
+    string              logdir("kfslog");
+    string              cpdir("kfscp");
+    string              networkFn;
+    string              chunkmapFn("chunkmap.txt");
+    string              propsFn;
+    string              chunkMapDir;
+    int                 optchar;
+    int64_t             chunkServerTotalSpace = -1;
+    int16_t             minReplication        = -1;
+    double              variationFromAvg      = 0;
+    bool                helpFlag              = false;
+    bool                debugFlag             = false;
+    MsgLogger::LogLevel logLevel              = MsgLogger::kLogLevelINFO;
 
-    while ((optchar = getopt(argc, argv, "c:l:n:b:r:hp:o:dm:t:S:")) != -1) {
+    while ((optchar = getopt(argc, argv, "c:l:n:b:r:hp:o:dm:t:S:L:")) != -1) {
         switch (optchar) {
             case 'l':
                 logdir = optarg;
@@ -103,6 +104,9 @@ main(int argc, char** argv)
             case 'S':
                 chunkServerTotalSpace = (int64_t)atof(optarg);
                 break;
+            case 'L':
+                logLevel = MsgLogger::GetLogLevelId(optarg);
+                break;
             default:
                 cerr << "Unrecognized flag: " << (char)optchar << "\n";
                 helpFlag = true;
@@ -126,6 +130,7 @@ main(int argc, char** argv)
             "[-o <new chunk map output directory> (default none)]\n"
             "[-d debug -- print chunk layout before and after]\n"
             "[-m <min replicas per file> (default -1 -- no change)]\n"
+            "[-L DEBUG}INFO|NOTICE|ERROR|FATAL -- set log level]\n"
             "[-S <num> -- chunk server total space (default is -1)"
                 " this value has effect without network definition file"
                 " if set to negative value, then number of chunks multiplied"
@@ -142,7 +147,7 @@ main(int argc, char** argv)
     }
 
     MdStream::Init();
-    MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
+    MsgLogger::Init(0, logLevel);
 
     if (signal(SIGINT, &HandleStop) == SIG_ERR) {
         KFS_LOG_STREAM_ERROR <<
@@ -174,7 +179,11 @@ main(int argc, char** argv)
                 (status = emulator.SetRebalancePlanOutFile(
                     rebalancePlanFn)) == 0) {
             if (debugFlag) {
+                cout.flush();
+                emulator.RunFsck(string());
+                cout << "==================================================\n";
                 emulator.PrintChunkserverBlockCount(cout);
+                cout << "==================================================\n";
             }
             KFS_LOG_STREAM_NOTICE << "creating re-balance plan: " <<
                 rebalancePlanFn <<
@@ -185,6 +194,9 @@ main(int argc, char** argv)
             }
             if (debugFlag) {
                 emulator.PrintChunkserverBlockCount(cout);
+                cout << "==================================================\n";
+                cout.flush();
+                emulator.RunFsck(string());
             }
             KFS_LOG_STREAM_NOTICE << "replicated chunks: " <<
                 emulator.GetNumBlksRebalanced() <<
