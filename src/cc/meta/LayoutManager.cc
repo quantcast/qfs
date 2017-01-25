@@ -83,6 +83,7 @@ using std::fixed;
 using std::lower_bound;
 using std::swap;
 using std::ofstream;
+using std::fstream;
 using boost::bind;
 using boost::ref;
 
@@ -13489,6 +13490,103 @@ LayoutManager::Restore(MetaChunkInfo& info,
         mChunkToServerMap.Restore<DecIntParser>(CSMap::Entry::GetCsEntry(info),
             restoreIdxs, restoreIdxsLen)
     );
+}
+
+int
+LayoutManager::RunFsck(
+    const string& tmpPrefix, bool reportAbandonedFilesFlag, ostream& os)
+{
+    const int cnt = FsckStreamCount(reportAbandonedFilesFlag);
+    if (cnt <= 0) {
+        KFS_LOG_STREAM_ERROR << "internal error" << KFS_LOG_EOM;
+        return -EINVAL;
+    }
+    const char* const    suffix    = ".XXXXXX";
+    const size_t         suffixLen = strlen(suffix);
+    StBufferT<char, 128> buf;
+    fstream*  const      streams   = new fstream[cnt];
+    ostream** const      ostreams  = new ostream*[cnt + 1];
+    int                  status    = 0;
+    ostreams[cnt] = 0;
+    for (int i = 0; i < cnt; i++) {
+        char* const ptr = buf.Resize(tmpPrefix.length() + suffixLen + 1);
+        memcpy(ptr, tmpPrefix.data(), tmpPrefix.size());
+        strcpy(ptr + tmpPrefix.size(), suffix);
+        const int tfd = mkstemp(ptr);
+        if (tfd < 0) {
+            status = errno > 0 ? -errno : -EINVAL;
+            KFS_LOG_STREAM_ERROR <<
+                "failed to create temporary file: " << ptr <<
+                QCUtils::SysError(-status) <<
+            KFS_LOG_EOM;
+            close(tfd);
+            break;
+        }
+        streams[i].open(ptr, fstream::in | fstream::out);
+        close(tfd);
+        unlink(ptr);
+        if (! streams[i]) {
+            status = errno > 0 ? -errno : -EINVAL;
+            KFS_LOG_STREAM_ERROR <<
+                "failed to open temporary file: " << ptr <<
+                QCUtils::SysError(-status) <<
+            KFS_LOG_EOM;
+            break;
+        }
+        ostreams[i] = streams + i;
+    }
+    if (0 == status) {
+        status = Fsck(ostreams, reportAbandonedFilesFlag) ? 0 : -EINVAL;
+        char* const  ptr = buf.Resize(128 << 10);
+        const size_t len = buf.GetSize();
+        for (int i = 0; i < cnt; i++) {
+            streams[i].flush();
+            streams[i].seekp(0);
+            while (os && streams[i]) {
+                streams[i].read(ptr, len);
+                os.write(ptr, streams[i].gcount());
+            }
+            if (! streams[i].eof()) {
+                status = errno > 0 ? -errno : -EINVAL;
+                KFS_LOG_STREAM_ERROR <<
+                    "io error: " << QCUtils::SysError(-status) <<
+                KFS_LOG_EOM;
+                while (i < cnt) {
+                    streams[i].close();
+                }
+                break;
+            }
+            streams[i].close();
+        }
+    }
+    delete [] streams;
+    delete [] ostreams;
+    return status;
+}
+
+int
+LayoutManager::RunFsck(const string& fileName, bool reportAbandonedFilesFlag)
+{
+    ofstream os(fileName.c_str(), ofstream::out | ofstream::trunc);
+    if (! os) {
+        const int err = errno;
+        KFS_LOG_STREAM_ERROR << fileName << ": " <<
+            QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+        return (0 < err ? -err : (0 == err ? -EIO : err));
+    }
+    int ret = RunFsck(fileName, reportAbandonedFilesFlag, os);
+    os.close();
+    if (! os) {
+        const int err = errno;
+        KFS_LOG_STREAM_ERROR << fileName << ": " <<
+            QCUtils::SysError(err) <<
+        KFS_LOG_EOM;
+        if (0 == ret) {
+            ret = 0 < err ? -err : (0 == err ? -EIO : err);
+        }
+    }
+    return ret;
 }
 
 } // namespace KFS

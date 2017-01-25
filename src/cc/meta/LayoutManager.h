@@ -1541,6 +1541,9 @@ public:
             func(dfe->GetVal().first, (-dfe->GetVal().second - 1), blockFlag);
         }
     }
+    int RunFsck(
+        const string& tmpPrefix, bool reportAbandonedFilesFlag, ostream& os);
+    int RunFsck(const string& fileName, bool reportAbandonedFilesFlag);
 protected:
     typedef vector<
         int,

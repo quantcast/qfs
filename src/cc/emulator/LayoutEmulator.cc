@@ -42,6 +42,8 @@
 #include <algorithm>
 #include <cerrno>
 #include <fstream>
+#include <iostream>
+
 #include <boost/bind.hpp>
 
 namespace KFS
@@ -51,6 +53,7 @@ using std::string;
 using std::ifstream;
 using std::for_each;
 using std::ofstream;
+using std::cout;
 using boost::bind;
 
 static inline ChunkServerEmulator&
@@ -986,118 +989,13 @@ LayoutEmulator::VerifyRackAwareReplication(
 }
 
 int
-LayoutEmulator::RunFsck(
-    const string& fileName)
+LayoutEmulator::RunFsck(const string& fileName)
 {
-    const bool   stdoutFlag = fileName.empty() || fileName == "-";
-    const int    outfd      = stdoutFlag ?
-        fileno(stdout) :
-        open(fileName.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0644);
-    if (outfd < 0) {
-        const int err = errno;
-        KFS_LOG_STREAM_ERROR << "failed to create temporary file: " <<
-            fileName << ": " << strerror(err) <<
-        KFS_LOG_EOM;
-        return (err > 0 ? -err : -1);
-    }
     const bool kReportAbandonedFilesFlag = true;
-    const int              cnt       = FsckStreamCount(
-        kReportAbandonedFilesFlag);
-    const char* const      suffix    = ".XXXXXX";
-    const size_t           suffixLen = strlen(suffix);
-    ofstream* const        streams   = new ofstream[cnt];
-    StBufferT<char, 128>   buf;
-    StBufferT<ostream*, 8> osbuf;
-    ostream** const        osptr     = osbuf.Resize(cnt + 1);
-    vector<int>            fd;
-    fd.reserve(cnt);
-    for (int i = 0; i < cnt; i++) {
-        char* const ptr = buf.Resize(fileName.length() + suffixLen + 1);
-        memcpy(ptr, fileName.data(), fileName.size());
-        strcpy(ptr + fileName.size(), suffix);
-        int tfd = mkstemp(ptr);
-        int err = errno;
-        if (tfd > 0) {
-            streams[i].open(ptr);
-            err = errno;
-            unlink(ptr);
-            if (! streams[i]) {
-                close(tfd);
-                tfd = -1;
-            }
-        }
-        if (tfd < 0) {
-            KFS_LOG_STREAM_ERROR << "failed to create temporary file: " <<
-                ptr << ": " << strerror(err) <<
-            KFS_LOG_EOM;
-            while (--i >= 0) {
-                streams[i].close();
-                close(fd[i]);
-            }
-            delete [] streams;
-            close(outfd);
-            return (err > 0 ? -err : -1);
-        }
-        fd.push_back(tfd);
-        osptr[i] = streams + i;
+    if (fileName.empty() || fileName == "-") {
+        return LayoutManager::RunFsck("tmp.", kReportAbandonedFilesFlag, cout);
     }
-    osptr[cnt] = 0;
-    Fsck(osptr, kReportAbandonedFilesFlag);
-    int err = 0;
-    for (int i = 0; i < cnt; i++) {
-        streams[i].close();
-        if (! streams[i]) {
-            err = errno;
-            KFS_LOG_STREAM_ERROR << "failed to close temporary file: " <<
-                strerror(err) <<
-            KFS_LOG_EOM;
-            err = err > 0 ? -err : -1;
-        }
-    }
-    int i = 0;
-    if (err == 0) {
-        const size_t sz  = 1 << 20;
-        char* const  ptr = buf.Resize(sz);
-        for (i = 0; err == 0 && i < cnt; i++) {
-            ssize_t nrd = 0;
-            while (err == 0 && (nrd = read(fd[i], ptr, sz)) > 0) {
-                const char*       p = ptr;
-                const char* const e = p + nrd;
-                ssize_t           nwr;
-                while (p < e && (nwr = write(outfd, p, e - p)) > 0) {
-                    p += nwr;
-                }
-                if (p < e) {
-                    err = errno;
-                    KFS_LOG_STREAM_ERROR << fileName << ": " <<
-                        strerror(err) <<
-                    KFS_LOG_EOM;
-                    err = err > 0 ? -err : -1;
-                    break;
-                }
-            }
-            if (nrd < 0) {
-                err = errno;
-                KFS_LOG_STREAM_ERROR << "read failure: " <<
-                    strerror(err) <<
-                KFS_LOG_EOM;
-                err = err > 0 ? -err : -1;
-            }
-            close(fd[i]);
-        }
-    }
-    for ( ; i < cnt; i++) {
-        close(fd[i]);
-    }
-    if (! stdoutFlag && close(outfd)) {
-        err = errno;
-        KFS_LOG_STREAM_ERROR << fileName << ": " <<
-            strerror(err) <<
-        KFS_LOG_EOM;
-        err = err > 0 ? -err : -1;
-    }
-    delete [] streams;
-    return err;
+    return LayoutManager::RunFsck(fileName, kReportAbandonedFilesFlag);
 }
 
 /* static */ LayoutEmulator&

@@ -98,78 +98,6 @@ GetFsckInfo(MonClient& client, bool reportAbandonedFilesFlag, int timeoutSec)
 }
 
 static int
-RunFsck(const string& tmpName, bool reportAbandonedFilesFlag)
-{
-    const int cnt = gLayoutManager.FsckStreamCount(reportAbandonedFilesFlag);
-    if (cnt <= 0) {
-        KFS_LOG_STREAM_ERROR << "internal error" << KFS_LOG_EOM;
-        return -EINVAL;
-    }
-    const char* const    suffix    = ".XXXXXX";
-    const size_t         suffixLen = strlen(suffix);
-    StBufferT<char, 128> buf;
-    fstream*  const      streams   = new fstream[cnt];
-    ostream** const      ostreams  = new ostream*[cnt + 1];
-    int                  status    = 0;
-    ostreams[cnt] = 0;
-    for (int i = 0; i < cnt; i++) {
-        char* const ptr = buf.Resize(tmpName.length() + suffixLen + 1);
-        memcpy(ptr, tmpName.data(), tmpName.size());
-        strcpy(ptr + tmpName.size(), suffix);
-        const int tfd = mkstemp(ptr);
-        if (tfd < 0) {
-            status = errno > 0 ? -errno : -EINVAL;
-            KFS_LOG_STREAM_ERROR <<
-                "failed to create temporary file: " << ptr <<
-                QCUtils::SysError(-status) <<
-            KFS_LOG_EOM;
-            close(tfd);
-            break;
-        }
-        streams[i].open(ptr, fstream::in | fstream::out);
-        close(tfd);
-        unlink(ptr);
-        if (! streams[i]) {
-            status = errno > 0 ? -errno : -EINVAL;
-            KFS_LOG_STREAM_ERROR <<
-                "failed to open temporary file: " << ptr <<
-                QCUtils::SysError(-status) <<
-            KFS_LOG_EOM;
-            break;
-        }
-        ostreams[i] = streams + i;
-    }
-    if (0 == status) {
-        status = gLayoutManager.Fsck(
-            ostreams, reportAbandonedFilesFlag) ? 0 : -EINVAL;
-        char* const  ptr = buf.Resize(128 << 10);
-        const size_t len = buf.GetSize();
-        for (int i = 0; i < cnt; i++) {
-            streams[i].flush();
-            streams[i].seekp(0);
-            while (cout && streams[i]) {
-                streams[i].read(ptr, len);
-                cout.write(ptr, streams[i].gcount());
-            }
-            if (! streams[i].eof()) {
-                status = errno > 0 ? -errno : -EINVAL;
-                KFS_LOG_STREAM_ERROR <<
-                    "io error: " << QCUtils::SysError(-status) <<
-                KFS_LOG_EOM;
-                while (i < cnt) {
-                    streams[i].close();
-                }
-                break;
-            }
-            streams[i].close();
-        }
-    }
-    delete [] streams;
-    delete [] ostreams;
-    return status;
-}
-
-static int
 FsckMain(int argc, char** argv)
 {
     // use options: -l for logdir -c for checkpoint dir
@@ -282,7 +210,8 @@ FsckMain(int argc, char** argv)
             replayer.playLogs(includeLastLogFlag) == 0
         ;
         if (ok && runFsckFlag) {
-            ok = 0 == RunFsck(tmpNamePrefix, reportAbandonedFilesFlag);
+            ok = 0 == gLayoutManager.RunFsck(
+                tmpNamePrefix, reportAbandonedFilesFlag, cout);
         }
     }
     MdStream::Cleanup();
