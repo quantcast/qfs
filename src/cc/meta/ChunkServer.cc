@@ -2622,7 +2622,7 @@ ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
         mChunksToEvacuate.Erase(chunkId);
     }
     Enqueue(*(new MetaChunkDelete(
-        NextSeq(), shared_from_this(), chunkId, chunkVersion,
+        NextSeq(), GetSelfPtr(), chunkId, chunkVersion,
                 staleChunkIdFlag || forceDeleteFlag)),
         -1, staleChunkIdFlag);
     return 0;
@@ -2667,6 +2667,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     MetaChunkReplicate::FileRecoveryInFlightCount::iterator it,
     bool removeReplicaFlag)
 {
+    mNumChunkWriteReplications++;
     MetaChunkReplicate& req = *(new MetaChunkReplicate(
         NextSeq(), GetSelfPtr(), fid, chunkId,
         dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it));
@@ -2746,7 +2747,6 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
     } else {
         req.validForTime = 0;
     }
-    mNumChunkWriteReplications++;
     NewChunkInTier(minSTier);
     const bool kStaleChunkIdFlag = false;
     const bool kLoggedFlag       = false;

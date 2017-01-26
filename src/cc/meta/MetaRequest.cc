@@ -2367,7 +2367,7 @@ MetaLogChunkAllocate::handle()
             // example).
             // Allocate the chunk to trigger the recovery later.
             status = metatree.assignChunkId(
-                fid, offset, chunkId, chunkVersion);
+                fid, offset, chunkId, chunkVersion, mtime);
             if (0 == status) {
                 // Add the chunk to the recovery queue.
                 gLayoutManager.ChangeChunkReplication(chunkId);
@@ -2420,6 +2420,7 @@ MetaLogChunkAllocate::handle()
             const bool       kAppendReplayFlag = false;
             const MetaFattr* fa                = 0;
             status = metatree.assignChunkId(fid, offset, chunkId, chunkVersion,
+                mtime,
                 appendChunk ? &appendOffset : 0, &curChunkId,
                 kAppendReplayFlag, &fa);
             if (status == 0) {

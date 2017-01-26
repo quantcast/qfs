@@ -10862,8 +10862,7 @@ LayoutManager::CanReplicateChunkNow(
         // Obviously this has no effect with re-write, when chunk block
         // position is less than logical EOF, but re-write isn't fully
         // supported with striped files.
-        const int64_t timeMicrosec =
-            (int64_t)TimeNow() * kSecs2MicroSecs;
+        const int64_t timeMicrosec = (int64_t)TimeNow() * kSecs2MicroSecs;
         if (notStable != 0 || (fa->filesize <=
                 fa->ChunkPosToChunkBlkFileStartPos(start) &&
                 timeMicrosec < fa->mtime +
@@ -11370,7 +11369,7 @@ LayoutManager::Handle(MetaChunkReplicate& req)
 
     if (! versChangeDoneFlag) {
         mOngoingReplicationStats->Update(-1);
-        assert(mNumOngoingReplications > 0);
+        assert(0 < mNumOngoingReplications);
         mNumOngoingReplications--;
         req.server->ReplicateChunkDone(req.chunkId);
         if (replicationFlag && req.dataServer) {
@@ -12384,7 +12383,8 @@ LayoutManager::ExecuteRebalancePlan(
 {
     serverDownFlag = false;
     if (! mIsExecutingRebalancePlan || c->IsHibernatingOrRetiring() ||
-            c->IsDown()) {
+           ! c->IsConnected() ||
+            c->GetAvailSpace() < mChunkAllocMinAvailSpace) {
         c->ClearChunksToMove();
         return 0;
     }

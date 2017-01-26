@@ -1084,7 +1084,7 @@ replay_allocate(DETokenizer& c)
         if (0 == status) {
             assert(cid == logChunkId);
             status = metatree.assignChunkId(fid, offset,
-                            cid, logChunkVersion, 0, 0, append);
+                cid, logChunkVersion, fa->mtime, 0, 0, append);
             if (0 == status) {
                 fid_t cfid = 0;
                 if (chunkExists &&

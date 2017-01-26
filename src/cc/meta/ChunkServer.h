@@ -544,9 +544,10 @@ public:
     /// Replication of a chunk finished.  Update statistics
     void ReplicateChunkDone(chunkId_t chunkId) {
         mNumChunkWriteReplications--;
-        assert(mNumChunkWriteReplications >= 0);
-        if (mNumChunkWriteReplications < 0)
+        assert(0 <= mNumChunkWriteReplications);
+        if (mNumChunkWriteReplications < 0) {
             mNumChunkWriteReplications = 0;
+        }
         MovingChunkDone(chunkId);
     }
 

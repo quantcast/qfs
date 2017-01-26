@@ -602,7 +602,7 @@ public:
      * \retval 0 on success; -errno on failure
      */
     int assignChunkId(fid_t file, chunkOff_t offset,
-        chunkId_t chunkId, seq_t version,
+        chunkId_t chunkId, seq_t version, int64_t mtime,
         chunkOff_t *appendOffset = 0, chunkId_t  *curChunkId = 0,
         bool appendReplayFlag = false, const MetaFattr** outFa = 0);
 

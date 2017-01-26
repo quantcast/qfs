@@ -1548,7 +1548,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
  */
 int
 Tree::assignChunkId(fid_t file, chunkOff_t offset,
-    chunkId_t chunkId, seq_t chunkVersion,
+    chunkId_t chunkId, seq_t chunkVersion, int64_t mtime,
     chunkOff_t* appendOffset, chunkId_t* curChunkId, bool appendReplayFlag,
     const MetaFattr** outFa)
 {
@@ -1589,7 +1589,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
                         fa->filesize >= 0) {
                     invalidateFileSize(fa);
                 }
-                fa->mtime = microseconds();
+                fa->mtime = mtime;
                 return 0;
             }
             boundary      = fa->nextChunkOffset();
@@ -1632,7 +1632,7 @@ Tree::assignChunkId(fid_t file, chunkOff_t offset,
     if (0 != fa->numReplicas) {
         UpdateNumChunks(1);
     }
-    fa->mtime = microseconds();
+    fa->mtime = mtime;
     if (curChunkId) {
         *curChunkId = chunkId;
     }
