@@ -187,13 +187,14 @@ myrunprog()
     fi
 }
 
+mytailpids=''
+
 mytailwait()
 {
     tail -1000f "$2" &
-    mytailpid=$!
+    mytailpids="$mytailpids $!"
     wait $1
     myret=$?
-    kill -TERM $mytailpid 2>/dev/null
     return $myret
 }
 
@@ -799,6 +800,10 @@ while true; do
         break
     fi
 done
+
+if [ x"$mytailpids" != x ]; then
+    { sleep 2 ; kill -TERM $mytailpids ; } &
+fi
 
 if [ $status -eq 0 ]; then
     cd "$metasrvdir" || exit
