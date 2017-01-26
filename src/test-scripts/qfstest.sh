@@ -802,7 +802,9 @@ while true; do
 done
 
 if [ x"$mytailpids" != x ]; then
-    { sleep 2 ; kill -TERM $mytailpids ; } &
+    # Let tail -f poll complete, then shut them down.
+    sleep 1
+    kill -TERM $mytailpids
 fi
 
 if [ $status -eq 0 ]; then
