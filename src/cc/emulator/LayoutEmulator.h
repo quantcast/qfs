@@ -63,7 +63,8 @@ public:
     }
     int SetRebalancePlanOutFile(const string& rebalancePlanFn);
     void BuildRebalancePlan();
-    bool ChunkReplicationDone(MetaChunkReplicate& req);
+    bool Handle(MetaChunkReplicate& req);
+    bool Handle(MetaChunkDelete& req);
     void ExecuteRebalancePlan();
     void PrintChunkserverBlockCount(ostream& os) const;
     int ReadNetworkDefn(const string& networkFn);

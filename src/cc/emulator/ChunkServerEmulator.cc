@@ -140,7 +140,7 @@ ChunkServerEmulator::Dispatch()
         MetaRequest& req = **it;
         if (req.op == META_CHUNK_REPLICATE) {
             MetaChunkReplicate& mcr = static_cast<MetaChunkReplicate&>(req);
-            if (mLayoutEmulator.ChunkReplicationDone(mcr)) {
+            if (mLayoutEmulator.Handle(mcr)) {
                 KFS_LOG_STREAM_DEBUG <<
                     "moved chunk: " << mcr.chunkId <<
                     " to " << mcr.server->GetServerLocation() <<
@@ -153,7 +153,7 @@ ChunkServerEmulator::Dispatch()
             }
         } else if (req.op == META_CHUNK_DELETE) {
             MetaChunkDelete& mcd = static_cast<MetaChunkDelete&>(req);
-            if (mNumChunks > 0) {
+            if (mLayoutEmulator.Handle(mcd) && 0 < mNumChunks) {
                 mNumChunks--;
                 mUsedSpace -= mLayoutEmulator.GetChunkSize(mcd.chunkId);
                 if (mUsedSpace < 0 || mNumChunks <= 0) {
@@ -162,8 +162,10 @@ ChunkServerEmulator::Dispatch()
                 mAllocSpace = mUsedSpace;
             }
         } else {
-            KFS_LOG_STREAM_ERROR << "unexpected op: " << req.Show() <<
+            KFS_LOG_STREAM_FATAL <<
+                "unexpected op: " << req.Show() <<
             KFS_LOG_EOM;
+            panic("unexpected op");
         }
         MetaRequest::Release(&req);
     }

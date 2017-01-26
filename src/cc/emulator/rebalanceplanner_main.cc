@@ -34,7 +34,11 @@
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
 #include "common/MdStream.h"
+
+#include "kfsio/SslFilter.h"
+
 #include "qcdio/QCUtils.h"
+
 #include "meta/AuditLog.h"
 
 #include <unistd.h>
@@ -147,6 +151,13 @@ main(int argc, char** argv)
     }
 
     MdStream::Init();
+    SslFilter::Error sslErr = SslFilter::Initialize();
+    if (sslErr) {
+        cerr << "failed to initialize ssl: " <<
+            " error: " << sslErr <<
+            " " << SslFilter::GetErrorMsg(sslErr) << "\n";
+        return 1;
+    }
     MsgLogger::Init(0, logLevel);
 
     if (signal(SIGINT, &HandleStop) == SIG_ERR) {
@@ -204,6 +215,14 @@ main(int argc, char** argv)
         }
     }
     AuditLog::Stop();
+    sslErr = SslFilter::Cleanup();
+    if (sslErr) {
+        KFS_LOG_STREAM_ERROR << "failed to cleanup ssl: " <<
+            " error: " << sslErr <<
+            " " << SslFilter::GetErrorMsg(sslErr) <<
+        KFS_LOG_EOM;
+    }
+    MsgLogger::Stop();
     MdStream::Cleanup();
     return (status == 0 ? 0 : 1);
 }

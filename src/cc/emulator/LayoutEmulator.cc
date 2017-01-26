@@ -182,7 +182,7 @@ LayoutEmulator::Parse(
 
 // override what is in the layout manager (only for the emulator code)
 bool
-LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate& req)
+LayoutEmulator::Handle(MetaChunkReplicate& req)
 {
     mOngoingReplicationStats->Update(-1);
     // Book-keeping....
@@ -194,13 +194,15 @@ LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate& req)
         req.dataServer->UpdateReplicationReadLoad(-1);
     }
     req.dataServer.reset();
-    if (req.status != 0) {
+    if (0 != req.status) {
         // Replication failed...we will try again later
         KFS_LOG_STREAM_ERROR <<
             "replication failed"
             " chunk: "  << req.chunkId <<
             " status: " << req.status <<
+            " "         << req.statusMsg <<
             " server: " << req.server->GetServerLocation() <<
+            " "         << req.Show() <<
         KFS_LOG_EOM;
         mFailedReplicationStats->Update(1);
         return false;
@@ -210,7 +212,9 @@ LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate& req)
     CSMap::Entry* const ci = mChunkToServerMap.Find(req.chunkId);
     if (! ci) {
         KFS_LOG_STREAM_ERROR <<
-            "replication completion: no such chunk: " << req.chunkId <<
+            "replication completion: no such"
+            " chunk: " << req.chunkId <<
+            " "        << req.Show() <<
         KFS_LOG_EOM;
         return false;
     }
@@ -219,14 +223,51 @@ LayoutEmulator::ChunkReplicationDone(MetaChunkReplicate& req)
         GetCSEmulator(*(req.server)).HostingChunk(
             req.chunkId, GetChunkSize(*ci));
     } else {
-            KFS_LOG_STREAM_ERROR <<
-                "chunk: "        << req.chunkId <<
-                " add server: "  << req.server->GetServerLocation() <<
-                " failed" <<
-            KFS_LOG_EOM;
+        KFS_LOG_STREAM_ERROR <<
+            "chunk: "        << req.chunkId <<
+            " add server: "  << req.server->GetServerLocation() <<
+            " failed" <<
+        KFS_LOG_EOM;
     }
     CheckChunkReplication(*ci);
     return addedFlag;
+}
+
+// override what is in the layout manager (only for the emulator code)
+bool
+LayoutEmulator::Handle(MetaChunkDelete& req)
+{
+    if (0 != req.status) {
+        // Replication failed...we will try again later
+        KFS_LOG_STREAM_ERROR <<
+            "delete failed"
+            " chunk: "  << req.chunkId <<
+            " status: " << req.status <<
+            " "         << req.statusMsg <<
+            " server: " << req.server->GetServerLocation() <<
+            " "         << req.Show() <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    CSMap::Entry* const ci = mChunkToServerMap.Find(req.chunkId);
+    if (! ci) {
+        KFS_LOG_STREAM_ERROR <<
+            "delete completion: no such"
+            " chunk: " << req.chunkId <<
+            " "        << req.Show() <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    const bool removedFlag = mChunkToServerMap.RemoveServer(req.server, *ci);
+    if (! removedFlag) {
+        KFS_LOG_STREAM_ERROR <<
+            "chunk: "        << req.chunkId <<
+            " remove server: "  << req.server->GetServerLocation() <<
+            " failed" <<
+        KFS_LOG_EOM;
+    }
+    CheckChunkReplication(*ci);
+    return removedFlag;
 }
 
 seq_t
@@ -401,6 +442,7 @@ LayoutEmulator::PrepareRebalance(bool enableRebalanceFlag)
 {
     mRecoveryStartTime             = TimeNow() - 10 * mRecoveryIntervalSec;
     mMinChunkserversToExitRecovery = 0;
+    mClientCSAuthRequiredFlag      = false;
     SetPrimary(true);
 
     ToggleRebalancing(enableRebalanceFlag);

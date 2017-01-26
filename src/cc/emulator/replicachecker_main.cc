@@ -118,6 +118,13 @@ main(int argc, char** argv)
     }
 
     MdStream::Init();
+    SslFilter::Error sslErr = SslFilter::Initialize();
+    if (sslErr) {
+        cerr << "failed to initialize ssl: " <<
+            " error: " << sslErr <<
+            " " << SslFilter::GetErrorMsg(sslErr) << "\n";
+        return 1;
+    }
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
     LayoutEmulator& emulator   = LayoutEmulator::Instance();
     int             fsckStatus = 0;
@@ -138,6 +145,14 @@ main(int argc, char** argv)
         }
     }
     AuditLog::Stop();
+    sslErr = SslFilter::Cleanup();
+    if (sslErr) {
+        KFS_LOG_STREAM_ERROR << "failed to cleanup ssl: " <<
+            " error: " << sslErr <<
+            " " << SslFilter::GetErrorMsg(sslErr) <<
+        KFS_LOG_EOM;
+    }
+    MsgLogger::Stop();
     MdStream::Cleanup();
     return (status ? 1 : (fsckStatus == 0 ? 0 : 1));
 }
