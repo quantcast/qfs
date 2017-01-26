@@ -86,13 +86,13 @@ myqfsshell()
     qfsshell $meta -l $qfsshellloglevel -q -- ${1+"$@"}
 }
 
-if time -v true >/dev/null 2>&1; then
+if { time -v true ; } >/dev/null 2>&1; then
     xtime='time -v'
-elif time true >/dev/null 2>&1; then
+elif { time true ; } >/dev/null 2>&1; then
     xtime='time'
 fi
 
-if expr `$xdatesec 2>&1` - 0 > /dev/null 2>&1; then
+if expr `$xdatesec 2>/dev/null` - 0 > /dev/null 2>&1; then
     true
 else
     xdatesec=''

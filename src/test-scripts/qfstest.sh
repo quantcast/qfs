@@ -364,7 +364,7 @@ fi
 ulimit -c unlimited
 echo "Running RS unit test with 6 data stripes"
 mytimecmd='time'
-$mytimecmd true > /dev/null 2>&1 || mytimecmd=
+{ $mytimecmd true ; } > /dev/null 2>&1 || mytimecmd=
 $mytimecmd rstest 6 65536 2>&1 || exit
 
 # Cleanup handler
@@ -638,6 +638,7 @@ client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
     qfstoolrootauthcfg=$clientrootprop
 else
+    cp /dev/null "$clientrootprop"
     qfstoolrootauthcfg=
 fi
 
@@ -763,6 +764,11 @@ else
     rm "$smpidf"
 fi
 
+cd "$metasrvdir" || exit
+echo "Running online fsck"
+qfsfsck -s "$metahost" -p "$metaport" -f "$clientrootprop"
+fsckstatus=$?
+
 status=0
 
 cd "$testdir" || exit
@@ -818,9 +824,21 @@ if [ $status -eq 0 ]; then
     echo "Running meta server fsck"
     qfsfsck -c kfscp -F
     status=$?
+    # Status 1 might be returned in the case if chunk so servers disconnects
+    # were commited, do run whout the last log segment, the disconnects
+    # should be in the last one.
+    if [ $status -eq 1 ]; then
+        newcpfsckopt=''
+    else
+        newcpfsckopt='-F'
+    fi
+    if [ $status -le 1 ]; then
+        qfsfsck -c kfscp -A 0 -F
+        status=$?
+    fi
 fi
 if [ $status -eq 0 ]; then
-    qfsfsck -c newcp -F
+    qfsfsck -c newcp $newcpfsckopt
     status=$?
 fi
 if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
@@ -836,9 +854,15 @@ fi
 
 find "$testdir" -name core\* || status=1
 
-if [ $status -eq 0 -a $cpstatus -eq 0 -a $qfstoolstatus -eq 0 \
-        -a $fostatus -eq 0 -a $smstatus -eq 0 \
-        -a $kfsaccessstatus -eq 0 -a $qfscstatus -eq 0 ]; then
+if [ $status -eq 0 \
+        -a $cpstatus -eq 0 \
+        -a $qfstoolstatus -eq 0 \
+        -a $fostatus -eq 0 \
+        -a $smstatus -eq 0 \
+        -a $kfsaccessstatus -eq 0 \
+        -a $qfscstatus -eq 0 \
+        -a $fsckstatus -eq 0 \
+        ]; then
     echo "Passed all tests"
 else
     echo "Test failure"
