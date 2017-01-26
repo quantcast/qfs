@@ -479,7 +479,7 @@ if [ x"$metastartwait" = x'yes' ]; then
     remretry=20
     echo "Waiting for the meta server to start, the startup unit tests to finish."
     echo "With valgrind meta server unit tests might take serveral minutes."
-    until qfsshell -s "$metahost" -p "$metaport" -q -- stat / 1>/dev/null; do
+    until qfsshell -s "$metahost" -p "$metasrvport" -q -- stat / 1>/dev/null; do
         kill -0 "$metapid" || exit
         remretry=`expr $remretry - 1`
         [ $remretry -le 0 ] && break
@@ -766,7 +766,7 @@ fi
 
 cd "$metasrvdir" || exit
 echo "Running online fsck"
-qfsfsck -s "$metahost" -p "$metaport" -f "$clientrootprop"
+qfsfsck -s "$metahost" -p "$metasrvport" -f "$clientrootprop"
 fsckstatus=$?
 
 status=0

@@ -104,11 +104,10 @@ FsckMain(int argc, char** argv)
     int                 optchar;
     string              logdir;
     string              cpdir;
-    string              metahost;
+    ServerLocation      metaLoc;
     string              lockFn;
     bool                ok                       = true;
     const char*         configFileName           = 0;
-    int                 metaport                 = -1;
     bool                help                     = false;
     bool                reportAbandonedFilesFlag = true;
     bool                allowEmptyCheckpointFlag = false;
@@ -132,10 +131,10 @@ FsckMain(int argc, char** argv)
                 break;
             case 's':
             case 'm':
-                metahost = optarg;
+                metaLoc.hostname = optarg;
                 break;
             case 'p':
-                metaport = atoi(optarg);
+                metaLoc.port = atoi(optarg);
                 break;
             case 'a':
                 reportAbandonedFilesFlag = atoi(optarg) != 0;
@@ -170,6 +169,7 @@ FsckMain(int argc, char** argv)
         }
     }
 
+    ok = metaLoc.IsValid() || ! logdir.empty() || ! cpdir.empty();
     if (help || ! ok) {
         (ok ? cout : cerr) <<
             "Usage: " << argv[0] << "\n"
@@ -191,14 +191,12 @@ FsckMain(int argc, char** argv)
     }
 
     MdStream::Init();
-    KFS::MsgLogger::Init(0, logLevel);
+    MsgLogger::Init(0, logLevel);
+    MonClient client; // This initializes SSL filter.
 
-    ok = metahost.empty() || metaport < 0;
-    if (! ok) {
-        MonClient            client;
-        const ServerLocation loc(metahost, metaport);
-        const bool           kSetMetaLocationsFlag = true;
-        ok = client.SetParameters(loc, configFileName,
+    if (metaLoc.IsValid()) {
+        const bool kSetMetaLocationsFlag = true;
+        ok = client.SetParameters(metaLoc, configFileName,
                 kSetMetaLocationsFlag) >= 0 &&
             GetFsckInfo(client, reportAbandonedFilesFlag, timeoutSec);
     }
@@ -214,6 +212,7 @@ FsckMain(int argc, char** argv)
                 tmpNamePrefix, reportAbandonedFilesFlag, cout);
         }
     }
+    MsgLogger::Stop();
     MdStream::Cleanup();
 
     return (ok ? 0 : 1);
