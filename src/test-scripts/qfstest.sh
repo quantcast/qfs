@@ -152,6 +152,9 @@ if [ x"$myvalgrind" != x ]; then
     metastartwait='yes' # wait for unit test to finish
 fi
 [ x"`uname`" = x'Darwin' ] && dontusefuser=yes
+if [ x"$dontusefuser" != x'yes' ]; then
+    fuser "$0" >/dev/null 1>&2 || dontusefuser=yes
+fi
 export myvalgrind
 
 # cptest.sh parameters
@@ -182,6 +185,16 @@ myrunprog()
     else
         eval exec "$myvalgrind" '"$p" ${1+"$@"}'
     fi
+}
+
+mytailwait()
+{
+    tail -1000f "$2" &
+    mytailpid=$!
+    wait $1
+    myret=$?
+    kill -TERM $mytailpid 2>/dev/null
+    return $myret
 }
 
 fodir='src/cc/fanout'
@@ -292,9 +305,6 @@ done
 PATH="${PATH}:/sbin:/usr/sbin"
 export PATH
 export LD_LIBRARY_PATH
-if [ x"$dontusefuser" != x'yes' ]; then
-    [ -x "`which fuser 2>/dev/null`" ] || dontusefuser=yes
-fi
 
 rm -rf "$testdir"
 mkdir "$testdir" || exit
@@ -587,6 +597,7 @@ if uname | grep CYGWIN > /dev/null; then
 else
     cptestendsleeptime=0
 fi
+cp /dev/null cptest.out
 cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
@@ -614,7 +625,7 @@ cppidf="cptest${pidsuf}"
             cptest.sh ; \
         } \
     }
-} > cptest.out 2>&1 &
+} >> cptest.out 2>&1 &
 cppid=$!
 echo "$cppid" > "$cppidf"
 
@@ -632,19 +643,21 @@ fi
 if [ x"`uname`" = x'SunOS' ]; then
     qfstoolpid=
 else
+    cp /dev/null qfs_tool-test.out
     qfstoolpidf="qfstooltest${pidsuf}"
     qfstoolopts='-v' \
     qfstoolmeta="$metahosturl:$metasrvport" \
     qfstooltrace=on \
     qfstoolrootauthcfg=$qfstoolrootauthcfg \
     qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
-        1>qfs_tool-test.out 2>qfs_tool-test.log &
+        1>>qfs_tool-test.out 2>qfs_tool-test.log &
     qfstoolpid=$!
     echo "$qfstoolpid" > "$qfstoolpidf"
 fi
 
 qfscpidf="qfsctest${pidsuf}"
-test-qfsc "$metahost:$metasrvport" 1>test-qfsc.out 2>test-qfsc.log &
+cp /dev/null test-qfsc.out
+test-qfsc "$metahost:$metasrvport" 1>>test-qfsc.out 2>test-qfsc.log &
 qfscpid=$!
 echo "$qfscpid" > "$qfscpidf"
 
@@ -653,6 +666,7 @@ if [ $fotest -ne 0 ]; then
     echo "Starting fanout test. Fanout test data size: $fanouttestsize"
     fopidf="kfanout_test${pidsuf}"
     # Do two runs one with connection pool off and on.
+    cp /dev/null kfanout_test.out
     for p in 0 1; do
         kfanout_test.sh \
             -coalesce 1 \
@@ -663,7 +677,7 @@ if [ $fotest -ne 0 ]; then
             -read-retries 1 \
             -kfanout-extra-opts "-U $p -P 3" \
         || exit
-    done > kfanout_test.out 2>&1 &
+    done >> kfanout_test.out 2>&1 &
     fopid=$!
     echo "$fopid" > "$fopidf"
 fi
@@ -678,7 +692,8 @@ EOF
     fi
     smpidf="sortmaster_test${pidsuf}"
     echo "Starting sort master test"
-    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" > sortmaster_test.out 2>&1 &
+    cp /dev/null sortmaster_test.out
+    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" >> sortmaster_test.out 2>&1 &
     smpid=$!
     echo "$smpid" > "$smpidf"
 fi
@@ -693,6 +708,7 @@ if [ x"$accessdir" != x ]; then
     else
         javatestclicfg="client.connectionPool=1"
     fi
+    cp /dev/null kfsaccess_test.out
     QFS_CLIENT_CONFIG="$javatestclicfg" \
     java \
         -Xms800M \
@@ -701,57 +717,49 @@ if [ x"$accessdir" != x ]; then
         -Dkfs.euid="`id -u`" \
         -Dkfs.egid="`id -g`" \
         com.quantcast.qfs.access.KfsTest "$metahost" "$metasrvport" \
-        > kfsaccess_test.out 2>&1 &
+        >> kfsaccess_test.out 2>&1 &
     kfsaccesspid=$!
     echo "$kfsaccesspid" > "$kfsaccesspidf"
 fi
 
-wait $cppid
-cpstatus=$?
-rm "$cppidf"
-
-cat cptest.out
-
-if [ x"$qfstoolpid" = x ]; then
-    qfstoolstatus=0
-else
-    wait $qfstoolpid
-    qfstoolstatus=$?
-    rm "$qfstoolpidf"
-    cat qfs_tool-test.out
-fi
-
-wait $qfscpid
+mytailwait $qfscpid test-qfsc.out
 qfscstatus=$?
 rm "$qfscpidf"
-
-cat test-qfsc.out
-
-if [ $fotest -ne 0 ]; then
-    wait $fopid
-    fostatus=$?
-    rm "$fopidf"
-    cat kfanout_test.out
-else
-    fostatus=0
-fi
-
-if [ x"$smtest" != x ]; then
-    wait $smpid
-    smstatus=$?
-    rm "$smpidf"
-    cat sortmaster_test.out
-else
-    smstatus=0
-fi
 
 if [ x"$accessdir" = x ]; then
     kfsaccessstatus=0
 else
-    wait $kfsaccesspid
+    mytailwait $kfsaccesspid kfsaccess_test.out
     kfsaccessstatus=$?
     rm "$kfsaccesspidf"
-    cat kfsaccess_test.out
+fi
+
+mytailwait $cppid cptest.out
+cpstatus=$?
+rm "$cppidf"
+
+if [ x"$qfstoolpid" = x ]; then
+    qfstoolstatus=0
+else
+    mytailwait $qfstoolpid qfs_tool-test.out
+    qfstoolstatus=$?
+    rm "$qfstoolpidf"
+fi
+
+if [ $fotest -ne 0 ]; then
+    mytailwait $fopid kfanout_test.out
+    fostatus=$?
+    rm "$fopidf"
+else
+    fostatus=0
+fi
+
+if [ x"$smtest" = x ]; then
+    smstatus=0
+else
+    mytailwait $smpid sortmaster_test.out
+    smstatus=$?
+    rm "$smpidf"
 fi
 
 status=0
