@@ -191,7 +191,7 @@ mytailpids=''
 
 mytailwait()
 {
-    tail -1000f "$2" &
+    exec tail -1000f "$2" 2>/dev/null &
     mytailpids="$mytailpids $!"
     wait $1
     myret=$?
@@ -388,7 +388,7 @@ metaServer.chunkServerPort = $metasrvchunkport
 metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
-metaServer.chunkServer.heartbeatTimeout  = 20
+metaServer.chunkServer.heartbeatTimeout  = 60
 metaServer.chunkServer.heartbeatInterval = 50
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
