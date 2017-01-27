@@ -107,7 +107,7 @@ void reed_sol_galois_w08_region_multby_2(char *region, int nbytes)
     if (!gf_init_hard(&GF08, 8, GF_MULT_BYTWO_b, GF_REGION_DEFAULT, GF_DIVIDE_DEFAULT,
                       prim08, 0, 0, NULL, NULL)) {
       fprintf(stderr, "Error: Can't initialize the GF for reed_sol_galois_w08_region_multby_2\n");
-      exit(1);
+      abort();
     }
   }
   GF08.multiply_region.w32(&GF08, region, region, 2, nbytes, 0);
@@ -123,7 +123,7 @@ void reed_sol_galois_w16_region_multby_2(char *region, int nbytes)
     if (!gf_init_hard(&GF16, 16, GF_MULT_BYTWO_b, GF_REGION_DEFAULT, GF_DIVIDE_DEFAULT,
                       prim16, 0, 0, NULL, NULL)) {
       fprintf(stderr, "Error: Can't initialize the GF for reed_sol_galois_w16_region_multby_2\n");
-      exit(1);
+      abort();
     }
   }
   GF16.multiply_region.w32(&GF16, region, region, 2, nbytes, 0);
@@ -139,7 +139,7 @@ void reed_sol_galois_w32_region_multby_2(char *region, int nbytes)
     if (!gf_init_hard(&GF32, 32, GF_MULT_BYTWO_b, GF_REGION_DEFAULT, GF_DIVIDE_DEFAULT,
                       prim32, 0, 0, NULL, NULL)) {
       fprintf(stderr, "Error: Can't initialize the GF for reed_sol_galois_w32_region_multby_2\n");
-      exit(1);
+      abort();
     }
   }
   GF32.multiply_region.w32(&GF32, region, region, 2, nbytes, 0);
@@ -223,7 +223,7 @@ int *reed_sol_big_vandermonde_distribution_matrix(int rows, int cols, int w)
     if (j >= rows) {   /* This should never happen if rows/w are correct */
       fprintf(stderr, "reed_sol_big_vandermonde_distribution_matrix(%d,%d,%d) - couldn't make matrix\n", 
              rows, cols, w);
-      exit(1);
+      abort();
     }
  
     /* If necessary, swap rows */

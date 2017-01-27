@@ -78,25 +78,25 @@ gf_t* galois_init_field(int w,
 
   if (w <= 0 || w > 32) {
     fprintf(stderr, "ERROR -- cannot init default Galois field for w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   gfp = (gf_t *) malloc(sizeof(gf_t));
   if (!gfp) {
     fprintf(stderr, "ERROR -- cannot allocate memory for Galois field w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   scratch_size = gf_scratch_size(w, mult_type, region_type, divide_type, arg1, arg2);
   if (!scratch_size) {
     fprintf(stderr, "ERROR -- cannot get scratch size for base field w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   scratch_memory = malloc(scratch_size);
   if (!scratch_memory) {
     fprintf(stderr, "ERROR -- cannot get scratch memory for base field w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   if(!gf_init_hard(gfp,
@@ -111,7 +111,7 @@ gf_t* galois_init_field(int w,
                    scratch_memory))
   {
     fprintf(stderr, "ERROR -- cannot init default Galois field for w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   gfp_is_composite[w] = 0;
@@ -130,25 +130,25 @@ gf_t* galois_init_composite_field(int w,
   
   if (w <= 0 || w > 32) {
     fprintf(stderr, "ERROR -- cannot init composite field for w=%d\n", w);
-    exit(1);
+    abort();
   }
   
   gfp = (gf_t *) malloc(sizeof(gf_t));
   if (!gfp) {
     fprintf(stderr, "ERROR -- cannot allocate memory for Galois field w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   scratch_size = gf_scratch_size(w, GF_MULT_COMPOSITE, region_type, divide_type, degree, 0);
   if (!scratch_size) {
     fprintf(stderr, "ERROR -- cannot get scratch size for composite field w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   scratch_memory = malloc(scratch_size);
   if (!scratch_memory) {
     fprintf(stderr, "ERROR -- cannot get scratch memory for composite field w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   if(!gf_init_hard(gfp,
@@ -163,7 +163,7 @@ gf_t* galois_init_composite_field(int w,
                    scratch_memory))
   {
     fprintf(stderr, "ERROR -- cannot init default composite field for w=%d\n", w);
-    exit(1);
+    abort();
   }
   gfp_is_composite[w] = 1;
   return gfp;
@@ -185,17 +185,17 @@ static void galois_init(int w)
 {
   if (w <= 0 || w > 32) {
     fprintf(stderr, "ERROR -- cannot init default Galois field for w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   switch (galois_init_default_field(w)) {
   case ENOMEM:
     fprintf(stderr, "ERROR -- cannot allocate memory for Galois field w=%d\n", w);
-    exit(1);
+    abort();
     break;
   case EINVAL:
     fprintf(stderr, "ERROR -- cannot init default Galois field for w=%d\n", w);
-    exit(1);
+    abort();
     break;
   }
 }
@@ -234,12 +234,12 @@ void galois_change_technique(gf_t *gf, int w)
 {
   if (w <= 0 || w > 32) {
     fprintf(stderr, "ERROR -- cannot support Galois field for w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   if (!is_valid_gf(gf, w)) {
     fprintf(stderr, "ERROR -- overriding with invalid Galois field for w=%d\n", w);
-    exit(1);
+    abort();
   }
 
   if (gfp_array[w] != NULL) {

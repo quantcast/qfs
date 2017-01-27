@@ -312,7 +312,7 @@ void jerasure_matrix_encode(int k, int m, int w, int *matrix,
   
   if (w != 8 && w != 16 && w != 32) {
     fprintf(stderr, "ERROR: jerasure_matrix_encode() and w is not 8, 16 or 32\n");
-    exit(1);
+    abort();
   }
 
   for (i = 0; i < m; i++) {
@@ -329,7 +329,7 @@ void jerasure_bitmatrix_dotprod(int k, int w, int *bitmatrix_row,
 
   if (size%(w*packetsize) != 0) {
     fprintf(stderr, "jerasure_bitmatrix_dotprod - size%c(w*packetsize)) must = 0\n", '%');
-    exit(1);
+    abort();
   }
 
   bpptr = (dest_id < k) ? data_ptrs[dest_id] : coding_ptrs[dest_id-k];
@@ -568,7 +568,7 @@ void jerasure_free_schedule_cache(int k, int m, int ***cache)
 
   if (m != 2) {
     fprintf(stderr, "jerasure_free_schedule_cache(): m must equal 2\n");
-    exit(1);
+    abort();
   }
 
   for (e1 = 0; e1 < k+m; e1++) {
@@ -590,7 +590,7 @@ void jerasure_matrix_dotprod(int k, int w, int *matrix_row,
 
   if (w != 1 && w != 8 && w != 16 && w != 32) {
     fprintf(stderr, "ERROR: jerasure_matrix_dotprod() called and w is not 1, 8, 16 or 32\n");
-    exit(1);
+    abort();
   }
 
   init = 0;
@@ -1457,12 +1457,12 @@ void jerasure_bitmatrix_encode(int k, int m, int w, int *bitmatrix,
 
   if (packetsize%sizeof(long) != 0) {
     fprintf(stderr, "jerasure_bitmatrix_encode - packetsize(%d) %c sizeof(long) != 0\n", packetsize, '%');
-    exit(1);
+    abort();
   }
   if (size%(packetsize*w) != 0) {
     fprintf(stderr, "jerasure_bitmatrix_encode - size(%d) %c (packetsize(%d)*w(%d))) != 0\n", 
          size, '%', packetsize, w);
-    exit(1);
+    abort();
   }
 
   for (i = 0; i < m; i++) {
