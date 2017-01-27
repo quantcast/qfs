@@ -64,21 +64,25 @@ datetimesec()
 
 mytime()
 {
-    if [ x"$xtime" = x ]; then
+    if [ x"$myxtime" = x ]; then
         mystart=`datetimesec`
         ${1+"$@"}
         ret=$?
         {
-            mytime=`datetimesec`
-            mytime=`expr $mytime - $mystart`
+            myelapsed=`datetimesec`
+            myelapsed=`expr $myelapsed - $mystart`
             echo "Command: ${1+"$@"}"
-            echo "Elapsed time: $mytime"
+            echo "Elapsed time: $myelapsed sec."
             echo "Exit status: $ret"
         } 1>&2
-        return $ret
     else
-        $xtime ${1+"$@"}
+        $myxtime ${1+"$@"}
+        ret=$?
+        if [ x"$myxtime" = x'time' ]; then
+            echo "Exit status: $ret" 1>&2
+        fi
     fi
+    return $ret
 }
 
 myqfsshell()
@@ -86,17 +90,19 @@ myqfsshell()
     qfsshell $meta -l $qfsshellloglevel -q -- ${1+"$@"}
 }
 
-if { time -v true ; } >/dev/null 2>&1; then
-    xtime='time -v'
-elif { time true ; } >/dev/null 2>&1; then
-    xtime='time'
-fi
-
 if expr `$xdatesec 2>/dev/null` - 0 > /dev/null 2>&1; then
     true
 else
     xdatesec=''
 fi
+
+for myxtime in \
+        'time -v' \
+        'time' \
+        '' \
+        ; do
+    mytime true && break
+done >/dev/null 2>&1
 
 ulimit -c unlimited
 

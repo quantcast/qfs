@@ -66,7 +66,7 @@ tail_logs_and_exit()
 {
     if [ -d "$MYQFSTEST_DIR" ]; then
         find "$MYQFSTEST_DIR" -type f -name '*.log' -print0 \
-        | xargs -0  tail -n 500
+        | xargs -0  tail -n 100
     fi
     exit 1
 }
