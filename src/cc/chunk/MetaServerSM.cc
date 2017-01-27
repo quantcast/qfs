@@ -82,7 +82,14 @@ public:
         bool&         inUpdateServerIpFlag,
         int64_t       inChannelId,
         MetaServerSM* inOuter);
-    ~Impl();
+
+    void Delete() {
+        if (mInFlightRequestCount <= 0) {
+            delete this;
+            return;
+        }
+        mDeleteFlag = true;
+    }
 
     /// In each hello to the metaserver, we send an MD5 sum of the
     /// binaries.  This should be "acceptable" to the metaserver and
@@ -224,6 +231,7 @@ private:
     bool                          mRequestFlag;
     bool                          mTraceRequestResponseFlag;
     bool                          mPendingDeleteFlag;
+    bool                          mDeleteFlag;
     const bool&                   mUpdateServerIpFlag;
     RpcFormat                     mRpcFormat;
     int                           mContentLength;
@@ -231,6 +239,8 @@ private:
     uint64_t                      mGenerationCount;
     size_t                        mMaxPendingOpsCount;
     PendingResponses              mPendingResponses;
+    int                           mInFlightRequestCount;
+    int                           mRecursionCount;
     int                           mReconnectRetryInterval;
     int                           mHelloDelay;
     bool                          mPendingHelloFlag;
@@ -244,6 +254,7 @@ private:
     Impl*                         mPrevPtr[1];
     Impl*                         mNextPtr[1];
 
+    ~Impl();
     /// Generic event handler to handle RPC requests sent by the meta server.
     int HandleRequest(int code, void* data);
 
@@ -394,6 +405,7 @@ MetaServerSM::Impl::Impl(
       mRequestFlag(false),
       mTraceRequestResponseFlag(false),
       mPendingDeleteFlag(false),
+      mDeleteFlag(false),
       mUpdateServerIpFlag(inUpdateServerIpFlag),
       mRpcFormat(kRpcFormatUndef),
       mContentLength(0),
@@ -401,6 +413,8 @@ MetaServerSM::Impl::Impl(
       mGenerationCount(1),
       mMaxPendingOpsCount(96),
       mPendingResponses(),
+      mInFlightRequestCount(0),
+      mRecursionCount(0),
       mReconnectRetryInterval(1),
       mHelloDelay(1),
       mPendingHelloFlag(false),
@@ -419,6 +433,10 @@ MetaServerSM::Impl::Impl(
 MetaServerSM::Impl::~Impl()
 {
     MetaServerSM::Impl::Shutdown();
+    if (0 != mRecursionCount || 0 != mInFlightRequestCount) {
+        die("meta server state machine: invalid destructor invocation");
+    }
+    mRecursionCount = -1; // To catch double delete.
 }
 
 void
@@ -580,7 +598,7 @@ MetaServerSM::Impl::Timeout()
             if (mOuter) {
                 mOuter->Error(*this);
             }
-            delete this;
+            Delete();
             return;
         }
         if ((! mPrimary || this == mPrimary) &&
@@ -852,6 +870,7 @@ MetaServerSM::Impl::DispatchHello()
 int
 MetaServerSM::Impl::HandleRequest(int code, void* data)
 {
+    mRecursionCount++;
     switch (code) {
     case EVENT_NET_READ: {
             // We read something from the network.  Run the RPC that
@@ -927,6 +946,11 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
                 DispatchHello();
                 break;
             }
+            if (mInFlightRequestCount <= 0) {
+                die("invalid meta in flight request count");
+            } else {
+                mInFlightRequestCount--;
+            }
             if (mUpdateCurrentKeyFlag && op->op == CMD_HEARTBEAT) {
                 assert(! mOp);
                 HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
@@ -957,6 +981,13 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
     default:
         die("meta server state machine: unknown event");
         break;
+    }
+    if (mRecursionCount <= 0) {
+        die("meta server state machine: invalid  recursion count");
+    }
+    --mRecursionCount;
+    if (mRecursionCount <= 0 && mDeleteFlag && mInFlightRequestCount <= 0) {
+        delete this;
     }
     return 0;
 }
@@ -1406,6 +1437,7 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
         }
         mMaxPendingOpsCount = (size_t)max(1, hb.maxPendingOps);
     }
+    mInFlightRequestCount++;
     SubmitOp(op);
     return true;
 }
@@ -1822,7 +1854,7 @@ MetaServerSM::Cleanup()
 {
     Impl* ptr;
     while ((ptr = Impl::List::PopFront(mImpls))) {
-        delete ptr;
+        ptr->Delete();
     }
     mResolvedInFlightCount = 0;
     mPrimary = 0;
@@ -2043,7 +2075,7 @@ MetaServerSM::Resolved(MetaServerSM::ResolverReq& req)
                 KFS_LOG_STREAM_ERROR <<
                     *it << ": " << QCUtils::SysError(-res) <<
                 KFS_LOG_EOM;
-                delete &impl;
+                impl.Delete();
                 continue;
             }
             mResolvedInFlightCount++;
