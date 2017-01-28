@@ -1,0 +1,404 @@
+
+body {
+margin:147px 104px 147px 173px;
+
+
+font-size:20px;
+text-align:justify;
+
+
+
+}
+
+#index_number{
+
+float:right;
+
+}
+
+a {
+
+text-decoration:none;
+font-size:19px;
+color:#19191F;
+letter-spacing:1.5px;
+
+font-family: 'Roboto Condensed', sans-serif;
+
+
+
+
+
+}
+/*This is page1 css */
+
+#box {
+
+text-align:center;
+font-size:19px;
+margin-top:166px;
+
+
+}
+
+#body_text{
+
+font-family: 'Roboto Condensed', sans-serif;
+font-size:18px;
+
+}
+
+h1{
+font-weight:inherit;
+
+}
+
+h4{
+font-size:22px;
+
+font-weight:inherit;
+
+}
+
+#footer{
+
+margin:1px 0px 1px 0px;
+font-size:18px;
+text-align:justify;
+padding-bottom:104px;
+
+
+
+}
+
+p {
+margin:0;
+text-indent: 50px;
+font-size:19px;
+text-align:justify;
+
+
+}
+
+
+#footer_bar {
+border-top:solid;
+
+border-top-width:thin;
+
+}
+
+#pages_paragraphs {
+margin:1px 115px 1px 57px;
+
+
+
+}
+
+#pages_paragraphs_2{
+margin:1px 0px 1px 0px;
+font-size:20px;
+text-align:justify;
+}
+
+.code{
+font-size:22px;
+
+}
+
+
+
+
+/* This is page3 css */
+
+.index{
+font-weight:bold;
+text-align:justify;
+
+}
+
+.sub_indices {
+
+padding-left:52px;
+text-align:justify;
+}
+
+
+
+.aligning_numbers{
+
+padding-left:27px;
+
+
+}
+
+.aligning_page_number{
+
+
+float:right;
+
+
+}
+
+/* This page 6 css  */
+.box {
+
+height:223px;
+}
+
+
+
+.image-cell_1 {
+  background: url(image1.png) no-repeat; 
+  width:716px;
+  height:300px;
+
+   float:left;
+   margin-left:180px;
+   margin-right:134px;
+   margin-bottom:1px;
+   margin-bottom:31px;
+   
+}
+
+
+/* This page 9 and 10 css */
+
+
+
+#number_spacing{
+
+letter-spacing:1px;
+font-size:17px;
+
+
+}
+
+
+#number_spacing_1{
+
+letter-spacing:1px;
+font-size:19px;
+margin-left:10px;
+
+
+}
+
+/* this page 13 css */
+
+
+.image-cell_2 {
+  background: url(image2.png) no-repeat; 
+  width:939px;
+  height:419px;
+
+   float:left;
+   margin-left:68px;
+   margin-right:134px;
+   margin-bottom:1px;
+   margin-bottom:31px;
+   
+}
+
+/* This is page 14 */
+#data1 table{
+border-top-style:solid;
+border-left-style:solid;
+
+border-bottom-style:solid;
+font-family: 'Roboto Condensed', sans-serif;
+
+}
+
+#data1 th{
+border-bottom-style:solid;
+border-right-style:solid;
+border-right-style:thin;
+font-family: 'Roboto Condensed', sans-serif;
+
+
+}
+
+#data1 td {
+border-right-style:solid;
+
+font-family: 'Roboto Condensed', sans-serif;
+
+}
+
+
+/* This is page 28 */
+#table_page28 table{
+border-top-style:solid;
+border-left-style:solid;
+
+border-bottom-style:solid;
+border-top-width:thin;
+border-left-width:thin;
+border-bottom-width:thin;
+font-family: 'Roboto Condensed', sans-serif;
+
+}
+
+#table_page28 th{
+border-bottom-style:solid;
+border-right-style:solid;
+border-right-width:thin;
+border-bottom-width:thin;
+font-family: 'Roboto Condensed', sans-serif;
+
+
+}
+
+#table_page28 td {
+border-right-style:solid;
+border-bottom-style:solid;
+border-bottom-width:thin;
+border-right-width:thin;
+font-family: 'Roboto Condensed', sans-serif;
+
+}
+
+
+/* This is page 30 */
+#table_page30 table{
+border-top-style:solid;
+border-left-style:solid;
+
+border-bottom-style:solid;
+
+}
+
+#table_page30 th{
+border-bottom-style:solid;
+border-right-style:solid;
+
+
+}
+
+#table_page30 td {
+border-right-style:solid;
+border-bottom-style:solid;
+
+
+}
+#box_1 {
+
+height:485px;
+margin-top:44px;
+margin-bottom:-61px;
+
+}
+.image-cell_3 {
+  background: url(image3.png) no-repeat; 
+  width:583px;
+  height:393px;
+
+   float:left;
+   
+}
+
+.image-cell_4 {
+  background: url(image4.png) no-repeat; 
+  width:487px;
+  height:390px;
+
+   float:right;
+   
+
+   
+}
+
+/* This is page 42 Css */
+
+
+.image-cell_5 {
+  background: url(image5.png) no-repeat; 
+  width:907px;
+  height:592px;
+
+   float:left;
+   margin-right:134px;
+   margin-bottom:1px;
+   margin-bottom:31px;
+   
+}
+
+
+/* This is page 43 Css */
+
+
+.image-cell_6 {
+  background: url(image6.png) no-repeat; 
+  width:851px;
+  height:532px;
+
+   margin-right:134px;
+   margin-bottom:1px;
+   margin-bottom:31px;
+   
+}
+
+/* This is page 44 Css */
+
+
+.image-cell_7{
+  background: url(image7.png) no-repeat; 
+  width:945px;
+  height:321px;
+
+   margin-right:134px;
+   margin-bottom:1px;
+   margin-bottom:31px;
+   
+}
+
+/* This is page 45 */
+#data2 table{
+border-top-style:solid;
+border-left-style:solid;
+
+border-bottom-style:solid;
+border-top-width:2px;
+border-left-width:2px;
+border-bottom-width:2px;
+border-color:black;
+font-family: 'Roboto Condensed', sans-serif;
+
+}
+
+#data2 th{
+border-bottom-style:solid;
+border-right-style:solid;
+border-bottom-width:2px;
+border-right-width:2px;
+font-family: 'Roboto Condensed', sans-serif;
+
+
+}
+ #data2 td {
+border-right-style:solid;
+border-right-width:2px;
+font-family: 'Roboto Condensed', sans-serif;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

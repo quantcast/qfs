@@ -20,7 +20,6 @@
 #define BNMULTS (8)
 static char *BMULTS[BNMULTS] = { "CARRY_FREE", "GROUP48", 
                                "TABLE", "LOG", "SPLIT4", "SPLIT8", "SPLIT88", "COMPOSITE" };
-//ADAM
 #define NMULTS (17)
 static char *MULTS[NMULTS] = { "SHIFT", "CARRY_FREE", "CARRY_FREE_GK", "GROUP44", "GROUP48", "BYTWO_p", "BYTWO_b",
                                "TABLE", "LOG", "LOG_ZERO", "LOG_ZERO_EXT", "SPLIT2",
@@ -29,7 +28,7 @@ static char *MULTS[NMULTS] = { "SHIFT", "CARRY_FREE", "CARRY_FREE_GK", "GROUP44"
 /* Make sure CAUCHY is last */
 
 #define NREGIONS (7) 
-static char *REGIONS[NREGIONS] = { "DOUBLE", "QUAD", "LAZY", "SSE", "NOSSE", 
+static char *REGIONS[NREGIONS] = { "DOUBLE", "QUAD", "LAZY", "SIMD", "NOSIMD",
                                    "ALTMAP", "CAUCHY" };
 
 #define BNREGIONS (4) 
@@ -40,7 +39,7 @@ static char *divides[NDIVS] = { "MATRIX", "EUCLID" };
 
 void usage(char *s)
 {
-   fprintf(stderr, "usage: gf_methods w -BADC -LUMDRB\n");
+   fprintf(stderr, "usage: gf_methods w -BADC -LXUMDRB\n");
    fprintf(stderr, "\n");
    fprintf(stderr, "       w can be 1-32, 64, 128\n");
    fprintf(stderr, "\n");
@@ -51,6 +50,7 @@ void usage(char *s)
    fprintf(stderr, "       Combinations are fine.\n");
    fprintf(stderr, "\n");
    fprintf(stderr, "       -L Simply lists methods\n");
+   fprintf(stderr, "       -X List methods and functions selected (compile with DEBUG_FUNCTIONS)\n");
    fprintf(stderr, "       -U Produces calls to gf_unit\n");
    fprintf(stderr, "       -M Produces calls to time_tool.sh for single multiplications\n");
    fprintf(stderr, "       -D Produces calls to time_tool.sh for single divisions\n");
@@ -62,6 +62,19 @@ void usage(char *s)
      fprintf(stderr, "%s\n", s);
    }
    exit(1);
+}
+
+void print_methods(gf_t *gf)
+{
+#ifdef DEBUG_FUNCTIONS
+    gf_internal_t *h = (gf_internal_t*) gf->scratch;
+
+    printf("multiply = %s\n", h->multiply);
+    printf("divide = %s\n", h->divide);
+    printf("inverse = %s\n", h->inverse);
+    printf("multiply_region = %s\n", h->multiply_region);
+    printf("extract_word = %s\n", h->extract_word);
+#endif
 }
 
 int main(int argc, char *argv[])
@@ -100,12 +113,12 @@ int main(int argc, char *argv[])
     }
   }
 
-  if (strchr("LUMDRB", argv[3][1]) == NULL) { usage("Bad -LUMDRB"); }
+  if (strchr("LXUMDRB", argv[3][1]) == NULL) { usage("Bad -LXUMDRB"); }
   listing = argv[3][1];
 
   if (listing == 'U') {
     w_str = "../test/gf_unit %d A -1";
-  } else if (listing == 'L') {
+  } else if (listing == 'L' || listing == 'X') {
     w_str = "w=%d:";
   } else {
     w_str = strdup("sh time_tool.sh X %d");
@@ -193,6 +206,8 @@ int main(int argc, char *argv[])
         printf(w_str, w);
         for (j = 0; j < sa; j++) printf(" %s", gf_argv[j]);
         printf("\n");
+        if (listing == 'X')
+          print_methods(&gf);
         gf_free(&gf, 1);
       } else if (_gf_errno == GF_E_DEFAULT) {
         fprintf(stderr, "Unlabeled failed method: w=%d:", w);
@@ -213,6 +228,8 @@ int main(int argc, char *argv[])
             printf(w_str, w);
             for (j = 0; j < sa; j++) printf(" %s", gf_argv[j]);
             printf("\n");
+            if (listing == 'X')
+              print_methods(&gf);
             gf_free(&gf, 1);
           } else if (_gf_errno == GF_E_DEFAULT) {
             fprintf(stderr, "Unlabeled failed method: w=%d:", w);

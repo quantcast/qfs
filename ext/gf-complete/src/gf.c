@@ -11,6 +11,7 @@
 #include "gf_int.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "gf_cpu.h"
 
 int _gf_errno = GF_E_DEFAULT;
 
@@ -41,7 +42,7 @@ void gf_error()
     case GF_E_MDEFARG: s = "If multiplication method == default, can't use arg1/arg2."; break;
     case GF_E_DIVCOMP: s = "Cannot change the division technique with -m COMPOSITE."; break;
     case GF_E_DOUQUAD: s = "Cannot specify -r DOUBLE and -r QUAD."; break;
-    case GF_E_SSE__NO: s = "Cannot specify -r SSE and -r NOSSE."; break;
+    case GF_E_SIMD_NO: s = "Cannot specify -r SIMD and -r NOSIMD."; break;
     case GF_E_CAUCHYB: s = "Cannot specify -r CAUCHY and any other -r."; break;
     case GF_E_CAUCOMP: s = "Cannot specify -m COMPOSITE and -r CAUCHY."; break;
     case GF_E_CAUGT32: s = "Cannot specify -r CAUCHY with w > 32."; break;
@@ -51,23 +52,23 @@ void gf_error()
     case GF_E_BAD___W: s = "W must be 1-32, 64 or 128."; break;
     case GF_E_DOUBLET: s = "Can only specify -r DOUBLE with -m TABLE."; break;
     case GF_E_DOUBLEW: s = "Can only specify -r DOUBLE w = 4 or w = 8."; break;
-    case GF_E_DOUBLEJ: s = "Cannot specify -r DOUBLE with -r ALTMAP|SSE|NOSSE."; break;
+    case GF_E_DOUBLEJ: s = "Cannot specify -r DOUBLE with -r ALTMAP|SIMD|NOSIMD."; break;
     case GF_E_DOUBLEL: s = "Can only specify -r DOUBLE -r LAZY with w = 8"; break;
     case GF_E_QUAD__T: s = "Can only specify -r QUAD with -m TABLE."; break;
     case GF_E_QUAD__W: s = "Can only specify -r QUAD w = 4."; break;
-    case GF_E_QUAD__J: s = "Cannot specify -r QUAD with -r ALTMAP|SSE|NOSSE."; break;
+    case GF_E_QUAD__J: s = "Cannot specify -r QUAD with -r ALTMAP|SIMD|NOSIMD."; break;
     case GF_E_BADPOLY: s = "Bad primitive polynomial (high bits set)."; break;
     case GF_E_COMP_PP: s = "Bad primitive polynomial -- bigger than sub-field."; break;
     case GF_E_LAZY__X: s = "If -r LAZY, then -r must be DOUBLE or QUAD."; break;
     case GF_E_ALTSHIF: s = "Cannot specify -m SHIFT and -r ALTMAP."; break;
-    case GF_E_SSESHIF: s = "Cannot specify -m SHIFT and -r SSE|NOSSE."; break;
+    case GF_E_SSESHIF: s = "Cannot specify -m SHIFT and -r SIMD|NOSIMD."; break;
     case GF_E_ALT_CFM: s = "Cannot specify -m CARRY_FREE and -r ALTMAP."; break;
-    case GF_E_SSE_CFM: s = "Cannot specify -m CARRY_FREE and -r SSE|NOSSE."; break;
+    case GF_E_SSE_CFM: s = "Cannot specify -m CARRY_FREE and -r SIMD|NOSIMD."; break;
     case GF_E_PCLMULX: s = "Specified -m CARRY_FREE, but PCLMUL is not supported."; break;
     case GF_E_ALT_BY2: s = "Cannot specify -m BYTWO_x and -r ALTMAP."; break;
-    case GF_E_BY2_SSE: s = "Specified -m BYTWO_x -r SSE, but SSE2 is not supported."; break;
+    case GF_E_BY2_SSE: s = "Specified -m BYTWO_x -r SIMD, but SSE2 is not supported."; break;
     case GF_E_LOGBADW: s = "With Log Tables, w must be <= 27."; break;
-    case GF_E_LOG___J: s = "Cannot use Log tables with -r ALTMAP|SSE|NOSSE."; break;
+    case GF_E_LOG___J: s = "Cannot use Log tables with -r ALTMAP|SIMD|NOSIMD."; break;
     case GF_E_LOGPOLY: s = "Cannot use Log tables because the polynomial is not primitive."; break;
     case GF_E_ZERBADW: s = "With -m LOG_ZERO, w must be 8 or 16."; break;
     case GF_E_ZEXBADW: s = "With -m LOG_ZERO_EXT, w must be 8."; break;
@@ -77,33 +78,33 @@ void gf_error()
     case GF_E_GR_128A: s = "With -m GROUP, w == 128, arg1 must be 4, and arg2 in { 4,8,16 }."; break;
     case GF_E_GR_A_27: s = "With -m GROUP, arg1 and arg2 must be <= 27."; break;
     case GF_E_GR_AR_W: s = "With -m GROUP, arg1 and arg2 must be <= w."; break;
-    case GF_E_GR____J: s = "Cannot use GROUP with -r ALTMAP|SSE|NOSSE."; break;
+    case GF_E_GR____J: s = "Cannot use GROUP with -r ALTMAP|SIMD|NOSIMD."; break;
     case GF_E_TABLE_W: s = "With -m TABLE, w must be < 15, or == 16."; break;
-    case GF_E_TAB_SSE: s = "With -m TABLE, SSE|NOSSE only applies to w=4."; break;
-    case GF_E_TABSSE3: s = "With -m TABLE, -r SSE, you need SSSE3 supported."; break;
+    case GF_E_TAB_SSE: s = "With -m TABLE, SIMD|NOSIMD only applies to w=4."; break;
+    case GF_E_TABSSE3: s = "With -m TABLE, -r SIMD, you need SSSE3 supported."; break;
     case GF_E_TAB_ALT: s = "With -m TABLE, you cannot use ALTMAP."; break;
     case GF_E_SP128AR: s = "With -m SPLIT, w=128, bad arg1/arg2."; break;
-    case GF_E_SP128AL: s = "With -m SPLIT, w=128, -r SSE requires -r ALTMAP."; break;
+    case GF_E_SP128AL: s = "With -m SPLIT, w=128, -r SIMD requires -r ALTMAP."; break;
     case GF_E_SP128AS: s = "With -m SPLIT, w=128, ALTMAP needs SSSE3 supported."; break;
     case GF_E_SP128_A: s = "With -m SPLIT, w=128, -r ALTMAP only with arg1/arg2 = 4/128."; break;
-    case GF_E_SP128_S: s = "With -m SPLIT, w=128, -r SSE|NOSSE only with arg1/arg2 = 4/128."; break;
+    case GF_E_SP128_S: s = "With -m SPLIT, w=128, -r SIMD|NOSIMD only with arg1/arg2 = 4/128."; break;
     case GF_E_SPLIT_W: s = "With -m SPLIT, w must be in {8, 16, 32, 64, 128}."; break;
     case GF_E_SP_16AR: s = "With -m SPLIT, w=16, Bad arg1/arg2."; break;
     case GF_E_SP_16_A: s = "With -m SPLIT, w=16, -r ALTMAP only with arg1/arg2 = 4/16."; break;
-    case GF_E_SP_16_S: s = "With -m SPLIT, w=16, -r SSE|NOSSE only with arg1/arg2 = 4/16."; break;
+    case GF_E_SP_16_S: s = "With -m SPLIT, w=16, -r SIMD|NOSIMD only with arg1/arg2 = 4/16."; break;
     case GF_E_SP_32AR: s = "With -m SPLIT, w=32, Bad arg1/arg2."; break;
     case GF_E_SP_32AS: s = "With -m SPLIT, w=32, -r ALTMAP needs SSSE3 supported."; break;
     case GF_E_SP_32_A: s = "With -m SPLIT, w=32, -r ALTMAP only with arg1/arg2 = 4/32."; break;
-    case GF_E_SP_32_S: s = "With -m SPLIT, w=32, -r SSE|NOSSE only with arg1/arg2 = 4/32."; break;
+    case GF_E_SP_32_S: s = "With -m SPLIT, w=32, -r SIMD|NOSIMD only with arg1/arg2 = 4/32."; break;
     case GF_E_SP_64AR: s = "With -m SPLIT, w=64, Bad arg1/arg2."; break;
     case GF_E_SP_64AS: s = "With -m SPLIT, w=64, -r ALTMAP needs SSSE3 supported."; break;
     case GF_E_SP_64_A: s = "With -m SPLIT, w=64, -r ALTMAP only with arg1/arg2 = 4/64."; break;
-    case GF_E_SP_64_S: s = "With -m SPLIT, w=64, -r SSE|NOSSE only with arg1/arg2 = 4/64."; break;
+    case GF_E_SP_64_S: s = "With -m SPLIT, w=64, -r SIMD|NOSIMD only with arg1/arg2 = 4/64."; break;
     case GF_E_SP_8_AR: s = "With -m SPLIT, w=8, Bad arg1/arg2."; break;
     case GF_E_SP_8__A: s = "With -m SPLIT, w=8, Can't have -r ALTMAP."; break;
-    case GF_E_SP_SSE3: s = "With -m SPLIT, Need SSSE3 support for SSE."; break;
+    case GF_E_SP_SSE3: s = "With -m SPLIT, Need SSSE3 support for SIMD."; break;
     case GF_E_COMP_A2: s = "With -m COMPOSITE, arg1 must equal 2."; break;
-    case GF_E_COMP_SS: s = "With -m COMPOSITE, -r SSE and -r NOSSE do not apply."; break;
+    case GF_E_COMP_SS: s = "With -m COMPOSITE, -r SIMD and -r NOSIMD do not apply."; break;
     case GF_E_COMP__W: s = "With -m COMPOSITE, w must be 8, 16, 32, 64 or 128."; break;
     case GF_E_UNKFLAG: s = "Unknown method flag - should be -m, -d, -r or -p."; break;
     case GF_E_UNKNOWN: s = "Unknown multiplication type."; break;
@@ -118,7 +119,7 @@ void gf_error()
 uint64_t gf_composite_get_default_poly(gf_t *base) 
 {
   gf_internal_t *h;
-  int rv;
+  uint64_t rv;
 
   h = (gf_internal_t *) base->scratch;
   if (h->w == 4) {
@@ -182,14 +183,14 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
   int sse3 = 0;
   int sse2 = 0;
   int pclmul = 0;
-  int rdouble, rquad, rlazy, rsse, rnosse, raltmap, rcauchy, tmp;
+  int rdouble, rquad, rlazy, rsimd, rnosimd, raltmap, rcauchy, tmp;
   gf_internal_t *sub;
 
   rdouble = (region_type & GF_REGION_DOUBLE_TABLE);
   rquad   = (region_type & GF_REGION_QUAD_TABLE);
   rlazy   = (region_type & GF_REGION_LAZY);
-  rsse    = (region_type & GF_REGION_SSE);
-  rnosse  = (region_type & GF_REGION_NOSSE);
+  rsimd   = (region_type & GF_REGION_SIMD);
+  rnosimd = (region_type & GF_REGION_NOSIMD);
   raltmap = (region_type & GF_REGION_ALTMAP);
   rcauchy = (region_type & GF_REGION_CAUCHY);
 
@@ -201,19 +202,33 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
   }
 
   tmp = ( GF_REGION_DOUBLE_TABLE | GF_REGION_QUAD_TABLE | GF_REGION_LAZY |
-          GF_REGION_SSE | GF_REGION_NOSSE | GF_REGION_ALTMAP | GF_REGION_CAUCHY );
+          GF_REGION_SIMD | GF_REGION_NOSIMD | GF_REGION_ALTMAP |
+          GF_REGION_CAUCHY );
   if (region_type & (~tmp)) { _gf_errno = GF_E_UNK_REG; return 0; }
 
 #ifdef INTEL_SSE2
-  sse2 = 1;
+  if (gf_cpu_supports_intel_sse2) {
+    sse2 = 1;
+  }
 #endif
 
 #ifdef INTEL_SSSE3
-  sse3 = 1;
+  if (gf_cpu_supports_intel_ssse3) {
+    sse3 = 1;
+  }
 #endif
 
 #ifdef INTEL_SSE4_PCLMUL
-  pclmul = 1;
+  if (gf_cpu_supports_intel_pclmul) {
+    pclmul = 1;
+  }
+#endif
+
+#ifdef ARM_NEON
+  if (gf_cpu_supports_arm_neon) {
+    pclmul = (w == 4 || w == 8);
+    sse3 = 1;
+  }
 #endif
 
 
@@ -230,7 +245,7 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
     return 1;
   }
   
-  if (rsse && rnosse)                                { _gf_errno = GF_E_SSE__NO; return 0; }
+  if (rsimd && rnosimd)                              { _gf_errno = GF_E_SIMD_NO; return 0; }
   if (rcauchy && w > 32)                             { _gf_errno = GF_E_CAUGT32; return 0; }
   if (rcauchy && region_type != GF_REGION_CAUCHY)    { _gf_errno = GF_E_CAUCHYB; return 0; }
   if (rcauchy && mult_type == GF_MULT_COMPOSITE)     { _gf_errno = GF_E_CAUCOMP; return 0; }
@@ -252,7 +267,7 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
     if (rquad)                      { _gf_errno = GF_E_DOUQUAD; return 0; }
     if (mult_type != GF_MULT_TABLE) { _gf_errno = GF_E_DOUBLET; return 0; }
     if (w != 4 && w != 8)           { _gf_errno = GF_E_DOUBLEW; return 0; }
-    if (rsse || rnosse || raltmap)  { _gf_errno = GF_E_DOUBLEJ; return 0; }
+    if (rsimd || rnosimd || raltmap) { _gf_errno = GF_E_DOUBLEJ; return 0; }
     if (rlazy && w == 4)            { _gf_errno = GF_E_DOUBLEL; return 0; }
     return 1;
   }
@@ -260,7 +275,7 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
   if (rquad) {
     if (mult_type != GF_MULT_TABLE) { _gf_errno = GF_E_QUAD__T; return 0; }
     if (w != 4)                     { _gf_errno = GF_E_QUAD__W; return 0; }
-    if (rsse || rnosse || raltmap)  { _gf_errno = GF_E_QUAD__J; return 0; }
+    if (rsimd || rnosimd || raltmap) { _gf_errno = GF_E_QUAD__J; return 0; }
     return 1;
   }
 
@@ -268,7 +283,7 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
 
   if (mult_type == GF_MULT_SHIFT) {
     if (raltmap)                    { _gf_errno = GF_E_ALTSHIF; return 0; }
-    if (rsse || rnosse)             { _gf_errno = GF_E_SSESHIF; return 0; }
+    if (rsimd || rnosimd)           { _gf_errno = GF_E_SSESHIF; return 0; }
     return 1;
   }
 
@@ -281,31 +296,30 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
     if (w == 32 && (poly & 0xfe000000))            { _gf_errno = GF_E_CF32POL; return 0; }
     if (w == 64 && (poly & 0xfffe000000000000ULL)) { _gf_errno = GF_E_CF64POL; return 0; }
     if (raltmap)                                   { _gf_errno = GF_E_ALT_CFM; return 0; }
-    if (rsse || rnosse)                            { _gf_errno = GF_E_SSE_CFM; return 0; }
+    if (rsimd || rnosimd)                          { _gf_errno = GF_E_SSE_CFM; return 0; }
     if (!pclmul)                                   { _gf_errno = GF_E_PCLMULX; return 0; }
     return 1;
   }
 
-  //ADAM
   if (mult_type == GF_MULT_CARRY_FREE_GK) {
     if (w != 4 && w != 8 && w != 16 &&
         w != 32 && w != 64 && w != 128)            { _gf_errno = GF_E_CFM___W; return 0; }
     if (raltmap)                                   { _gf_errno = GF_E_ALT_CFM; return 0; }
-    if (rsse || rnosse)                            { _gf_errno = GF_E_SSE_CFM; return 0; }
+    if (rsimd || rnosimd)                          { _gf_errno = GF_E_SSE_CFM; return 0; }
     if (!pclmul)                                   { _gf_errno = GF_E_PCLMULX; return 0; }
     return 1;
   }
 
   if (mult_type == GF_MULT_BYTWO_p || mult_type == GF_MULT_BYTWO_b) {
     if (raltmap)                    { _gf_errno = GF_E_ALT_BY2; return 0; }
-    if (rsse && !sse2)              { _gf_errno = GF_E_BY2_SSE; return 0; }
+    if (rsimd && !sse2)              { _gf_errno = GF_E_BY2_SSE; return 0; }
     return 1;
   }
 
   if (mult_type == GF_MULT_LOG_TABLE || mult_type == GF_MULT_LOG_ZERO
                                      || mult_type == GF_MULT_LOG_ZERO_EXT ) {
     if (w > 27)                     { _gf_errno = GF_E_LOGBADW; return 0; }
-    if (raltmap || rsse || rnosse)  { _gf_errno = GF_E_LOG___J; return 0; }
+    if (raltmap || rsimd || rnosimd) { _gf_errno = GF_E_LOG___J; return 0; }
 
     if (mult_type == GF_MULT_LOG_TABLE) return 1;
 
@@ -325,14 +339,14 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
        (arg2 != 4 && arg2 != 8 && arg2 != 16))) { _gf_errno = GF_E_GR_128A; return 0; }
     if (arg1 > 27 || arg2 > 27)                 { _gf_errno = GF_E_GR_A_27; return 0; }
     if (arg1 > w || arg2 > w)                   { _gf_errno = GF_E_GR_AR_W; return 0; }
-    if (raltmap || rsse || rnosse)              { _gf_errno = GF_E_GR____J; return 0; }
+    if (raltmap || rsimd || rnosimd)            { _gf_errno = GF_E_GR____J; return 0; }
     return 1;
   }
   
   if (mult_type == GF_MULT_TABLE) {
     if (w != 16 && w >= 15)                     { _gf_errno = GF_E_TABLE_W; return 0; }
-    if (w != 4 && (rsse || rnosse))             { _gf_errno = GF_E_TAB_SSE; return 0; }
-    if (rsse && !sse3)                          { _gf_errno = GF_E_TABSSE3; return 0; }
+    if (w != 4 && (rsimd || rnosimd))           { _gf_errno = GF_E_TAB_SSE; return 0; }
+    if (rsimd && !sse3)                         { _gf_errno = GF_E_TABSSE3; return 0; }
     if (raltmap)                                { _gf_errno = GF_E_TAB_ALT; return 0; }
     return 1;
   }
@@ -345,46 +359,46 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
     }
     if (w == 8) {
       if (arg1 != 4 || arg2 != 8)               { _gf_errno = GF_E_SP_8_AR; return 0; }
-      if (rsse && !sse3)                        { _gf_errno = GF_E_SP_SSE3; return 0; }
+      if (rsimd && !sse3)                       { _gf_errno = GF_E_SP_SSE3; return 0; }
       if (raltmap)                              { _gf_errno = GF_E_SP_8__A; return 0; }
     } else if (w == 16) {
       if ((arg1 == 8 && arg2 == 8) ||
           (arg1 == 8 && arg2 == 16)) {
-        if (rsse || rnosse)                     { _gf_errno = GF_E_SP_16_S; return 0; }
+        if (rsimd || rnosimd)                   { _gf_errno = GF_E_SP_16_S; return 0; }
         if (raltmap)                            { _gf_errno = GF_E_SP_16_A; return 0; }
       } else if (arg1 == 4 && arg2 == 16) {
-        if (rsse && !sse3)                      { _gf_errno = GF_E_SP_SSE3; return 0; }
+        if (rsimd && !sse3)                     { _gf_errno = GF_E_SP_SSE3; return 0; }
       } else                                    { _gf_errno = GF_E_SP_16AR; return 0; }
     } else if (w == 32) {
       if ((arg1 == 8 && arg2 == 8) ||
           (arg1 == 8 && arg2 == 32) ||
           (arg1 == 16 && arg2 == 32)) {
-        if (rsse || rnosse)                     { _gf_errno = GF_E_SP_32_S; return 0; }
+        if (rsimd || rnosimd)                   { _gf_errno = GF_E_SP_32_S; return 0; }
         if (raltmap)                            { _gf_errno = GF_E_SP_32_A; return 0; }
       } else if (arg1 == 4 && arg2 == 32) {
-        if (rsse && !sse3)                      { _gf_errno = GF_E_SP_SSE3; return 0; }
+        if (rsimd && !sse3)                     { _gf_errno = GF_E_SP_SSE3; return 0; }
         if (raltmap && !sse3)                   { _gf_errno = GF_E_SP_32AS; return 0; }
-        if (raltmap && rnosse)                  { _gf_errno = GF_E_SP_32AS; return 0; }
+        if (raltmap && rnosimd)                 { _gf_errno = GF_E_SP_32AS; return 0; }
       } else                                    { _gf_errno = GF_E_SP_32AR; return 0; }
     } else if (w == 64) {
       if ((arg1 == 8 && arg2 == 8) ||
           (arg1 == 8 && arg2 == 64) ||
           (arg1 == 16 && arg2 == 64)) {
-        if (rsse || rnosse)                     { _gf_errno = GF_E_SP_64_S; return 0; }
+        if (rsimd || rnosimd)                   { _gf_errno = GF_E_SP_64_S; return 0; }
         if (raltmap)                            { _gf_errno = GF_E_SP_64_A; return 0; }
       } else if (arg1 == 4 && arg2 == 64) {
-        if (rsse && !sse3)                      { _gf_errno = GF_E_SP_SSE3; return 0; }
+        if (rsimd && !sse3)                     { _gf_errno = GF_E_SP_SSE3; return 0; }
         if (raltmap && !sse3)                   { _gf_errno = GF_E_SP_64AS; return 0; }
-        if (raltmap && rnosse)                  { _gf_errno = GF_E_SP_64AS; return 0; }
+        if (raltmap && rnosimd)                 { _gf_errno = GF_E_SP_64AS; return 0; }
       } else                                    { _gf_errno = GF_E_SP_64AR; return 0; }
     } else if (w == 128) {
       if (arg1 == 8 && arg2 == 128) {
-        if (rsse || rnosse)                     { _gf_errno = GF_E_SP128_S; return 0; }
+        if (rsimd || rnosimd)                   { _gf_errno = GF_E_SP128_S; return 0; }
         if (raltmap)                            { _gf_errno = GF_E_SP128_A; return 0; }
       } else if (arg1 == 4 && arg2 == 128) {
-        if (rsse && !sse3)                      { _gf_errno = GF_E_SP_SSE3; return 0; }
+        if (rsimd && !sse3)                     { _gf_errno = GF_E_SP_SSE3; return 0; }
         if (raltmap && !sse3)                   { _gf_errno = GF_E_SP128AS; return 0; }
-        if (raltmap && rnosse)                  { _gf_errno = GF_E_SP128AS; return 0; }
+        if (raltmap && rnosimd)                 { _gf_errno = GF_E_SP128AS; return 0; }
       } else                                    { _gf_errno = GF_E_SP128AR; return 0; }
     } else                                      { _gf_errno = GF_E_SPLIT_W; return 0; }
     return 1;
@@ -393,10 +407,10 @@ int gf_error_check(int w, int mult_type, int region_type, int divide_type,
   if (mult_type == GF_MULT_COMPOSITE) {
     if (w != 8 && w != 16 && w != 32 
                && w != 64 && w != 128)          { _gf_errno = GF_E_COMP__W; return 0; }
-    if ((poly >> (w/2)) != 0)                   { _gf_errno = GF_E_COMP_PP; return 0; }
+    if (w < 128 && (poly >> (w/2)) != 0)                   { _gf_errno = GF_E_COMP_PP; return 0; }
     if (divide_type != GF_DIVIDE_DEFAULT)       { _gf_errno = GF_E_DIVCOMP; return 0; }
     if (arg1 != 2)                              { _gf_errno = GF_E_COMP_A2; return 0; }
-    if (rsse || rnosse)                         { _gf_errno = GF_E_COMP_SS; return 0; }
+    if (rsimd || rnosimd)                       { _gf_errno = GF_E_COMP_SS; return 0; }
     if (base != NULL) {
       sub = (gf_internal_t *) base->scratch;
       if (sub->w != w/2)                      { _gf_errno = GF_E_BASE__W; return 0; }
@@ -467,6 +481,8 @@ int gf_init_hard(gf_t *gf, int w, int mult_type,
   int sz;
   gf_internal_t *h;
  
+  gf_cpu_identify();
+
   if (gf_error_check(w, mult_type, region_type, divide_type, 
                      arg1, arg2, prim_poly, base_gf) == 0) return 0;
 
@@ -523,7 +539,7 @@ void gf_alignment_error(char *s, int a)
   fprintf(stderr, "Alignment error in %s:\n", s);
   fprintf(stderr, "   The source and destination buffers must be aligned to each other,\n");
   fprintf(stderr, "   and they must be aligned to a %d-byte address.\n", a);
-  exit(1);
+  abort();
 }
 
 static 
@@ -546,7 +562,7 @@ void gf_invert_binary_matrix(uint32_t *mat, uint32_t *inv, int rows) {
       for (j = i+1; j < rows && (mat[j] & (1 << i)) == 0; j++) ;
       if (j == rows) {
         fprintf(stderr, "galois_invert_matrix: Matrix not invertible!!\n");
-        exit(1);
+        abort();
       }
       tmp = mat[i]; mat[i] = mat[j]; mat[j] = tmp;
       tmp = inv[i]; inv[i] = inv[j]; inv[j] = tmp;
@@ -578,7 +594,7 @@ uint32_t gf_bitmatrix_inverse(uint32_t y, int w, uint32_t pp)
   uint32_t mat[32], inv[32], mask;
   int i;
 
-  mask = (w == 32) ? 0xffffffff : (1 << w) - 1;
+  mask = (w == 32) ? 0xffffffff : ((uint32_t)1 << w) - 1;
   for (i = 0; i < w; i++) {
     mat[i] = y;
 
@@ -694,7 +710,7 @@ static void gf_slow_multiply_region(gf_region_data *rd, void *src, void *dest, v
       break;
     default:
       fprintf(stderr, "Error: gf_slow_multiply_region: w=%d not implemented.\n", h->w);
-      exit(1);
+      abort();
     }
     src = (uint8_t *)src + wb;
     dest = (uint8_t *)dest + wb;
@@ -807,7 +823,7 @@ void gf_set_region_data(gf_region_data *rd,
     if (h != NULL && bytes % h->w != 0) {
       fprintf(stderr, "Error in region multiply operation.\n");
       fprintf(stderr, "The size must be a multiple of %d bytes.\n", h->w);
-      exit(1);
+      abort();
     }
   
     rd->s_start = src;
@@ -823,7 +839,7 @@ void gf_set_region_data(gf_region_data *rd,
     fprintf(stderr, "to each other along a %d byte boundary.\n", a);
     fprintf(stderr, "Src = 0x%lx.  Dest = 0x%lx\n", (unsigned long) src,
             (unsigned long) dest);
-    exit(1);
+    abort();
   }
 
   if (uls % wb != 0) {
@@ -831,13 +847,13 @@ void gf_set_region_data(gf_region_data *rd,
     fprintf(stderr, "The pointers must be aligned along a %d byte boundary.\n", wb);
     fprintf(stderr, "Src = 0x%lx.  Dest = 0x%lx\n", (unsigned long) src,
             (unsigned long) dest);
-    exit(1);
+    abort();
   }
 
   if (bytes % wb != 0) {
     fprintf(stderr, "Error in region multiply operation.\n");
     fprintf(stderr, "The size must be a multiple of %d bytes.\n", wb);
-    exit(1);
+    abort();
   }
 
   uls %= a;
@@ -895,66 +911,104 @@ static void gf_unaligned_xor(void *src, void *dest, int bytes);
 
 void gf_multby_one(void *src, void *dest, int bytes, int xor) 
 {
-#ifdef   INTEL_SSE2
-  __m128i ms, md;
-#endif
   unsigned long uls, uld;
   uint8_t *s8, *d8;
   uint64_t *s64, *d64, *dtop64;
   gf_region_data rd;
 
   if (!xor) {
-    memcpy(dest, src, bytes);
+    if (dest != src)
+      memcpy(dest, src, bytes);
     return;
   }
   uls = (unsigned long) src;
   uld = (unsigned long) dest;
 
 #ifdef   INTEL_SSE2
-  int abytes;
-  s8 = (uint8_t *) src;
-  d8 = (uint8_t *) dest;
-  if (uls % 16 == uld % 16) {
-    gf_set_region_data(&rd, NULL, src, dest, bytes, 1, xor, 16);
-    while (s8 != rd.s_start) {
-      *d8 ^= *s8;
-      d8++;
-      s8++;
+  if (gf_cpu_supports_intel_sse2) {
+    __m128i ms, md;
+    int abytes;
+    s8 = (uint8_t *) src;
+    d8 = (uint8_t *) dest;
+    if (uls % 16 == uld % 16) {
+      gf_set_region_data(&rd, NULL, src, dest, bytes, 1, xor, 16);
+      while (s8 != rd.s_start) {
+        *d8 ^= *s8;
+        d8++;
+        s8++;
+      }
+      while (s8 < (uint8_t *) rd.s_top) {
+        ms = _mm_load_si128 ((__m128i *)(s8));
+        md = _mm_load_si128 ((__m128i *)(d8));
+        md = _mm_xor_si128(md, ms);
+        _mm_store_si128((__m128i *)(d8), md);
+        s8 += 16;
+        d8 += 16;
+      }
+      while (s8 != (uint8_t *) src + bytes) {
+        *d8 ^= *s8;
+        d8++;
+        s8++;
+      }
+      return;
     }
-    while (s8 < (uint8_t *) rd.s_top) {
-      ms = _mm_load_si128 ((__m128i *)(s8));
-      md = _mm_load_si128 ((__m128i *)(d8));
+
+    abytes = (bytes & 0xfffffff0);
+
+    while (d8 < (uint8_t *) dest + abytes) {
+      ms = _mm_loadu_si128 ((__m128i *)(s8));
+      md = _mm_loadu_si128 ((__m128i *)(d8));
       md = _mm_xor_si128(md, ms);
-      _mm_store_si128((__m128i *)(d8), md);
+      _mm_storeu_si128((__m128i *)(d8), md);
       s8 += 16;
       d8 += 16;
     }
-    while (s8 != (uint8_t *) src + bytes) {
+    while (d8 != (uint8_t *) dest+bytes) {
       *d8 ^= *s8;
       d8++;
       s8++;
     }
     return;
   }
-
-  abytes = (bytes & 0xfffffff0);
-
-  while (d8 < (uint8_t *) dest + abytes) {
-    ms = _mm_loadu_si128 ((__m128i *)(s8));
-    md = _mm_loadu_si128 ((__m128i *)(d8));
-    md = _mm_xor_si128(md, ms);
-    _mm_storeu_si128((__m128i *)(d8), md);
-    s8 += 16;
-    d8 += 16;
-  }
-  while (d8 != (uint8_t *) dest+bytes) {
-    *d8 ^= *s8;
-    d8++;
-    s8++;
-  }
-  return;
 #endif
+#if defined(ARM_NEON)
+  if (gf_cpu_supports_arm_neon) {
+    s8 = (uint8_t *) src;
+    d8 = (uint8_t *) dest;
 
+    if (uls % 16 == uld % 16) {
+      gf_set_region_data(&rd, NULL, src, dest, bytes, 1, xor, 16);
+      while (s8 != rd.s_start) {
+        *d8 ^= *s8;
+        s8++;
+        d8++;
+      }
+      while (s8 < (uint8_t *) rd.s_top) {
+        uint8x16_t vs = vld1q_u8 (s8);
+        uint8x16_t vd = vld1q_u8 (d8);
+        uint8x16_t vr = veorq_u8 (vs, vd);
+        vst1q_u8 (d8, vr);
+        s8 += 16;
+        d8 += 16;
+      }
+    } else {
+      while (s8 + 15 < (uint8_t *) src + bytes) {
+        uint8x16_t vs = vld1q_u8 (s8);
+        uint8x16_t vd = vld1q_u8 (d8);
+        uint8x16_t vr = veorq_u8 (vs, vd);
+        vst1q_u8 (d8, vr);
+        s8 += 16;
+        d8 += 16;
+      }
+    }
+    while (s8 < (uint8_t *) src + bytes) {
+      *d8 ^= *s8;
+      s8++;
+      d8++;
+    }
+    return;
+  }
+#endif
   if (uls % 8 != uld % 8) {
     gf_unaligned_xor(src, dest, bytes);
     return;

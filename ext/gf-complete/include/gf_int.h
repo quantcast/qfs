@@ -31,7 +31,23 @@ typedef struct {
   int arg2;
   gf_t *base_gf;
   void *private;
+#ifdef DEBUG_FUNCTIONS
+  const char *multiply;
+  const char *divide;
+  const char *inverse;
+  const char *multiply_region;
+  const char *extract_word;
+#endif
 } gf_internal_t;
+
+#ifdef DEBUG_FUNCTIONS
+#define SET_FUNCTION(gf,method,size,func) \
+  { (gf)->method.size = (func); \
+  ((gf_internal_t*)(gf)->scratch)->method = #func; }
+#else
+#define SET_FUNCTION(gf,method,size,func) \
+  (gf)->method.size = (func);
+#endif
 
 extern int gf_w4_init (gf_t *gf);
 extern int gf_w4_scratch_size(int mult_type, int region_type, int divide_type, int arg1, int arg2);
@@ -114,7 +130,7 @@ typedef enum {GF_E_MDEFDIV, /* Dev != Default && Mult == Default */
               GF_E_DIVCOMP, /* Mult == Composite && Div != Default */
               GF_E_CAUCOMP, /* Mult == Composite && Reg == CAUCHY */
               GF_E_DOUQUAD, /* Reg == DOUBLE && Reg == QUAD */
-              GF_E_SSE__NO, /* Reg == SSE && Reg == NOSSE */
+              GF_E_SIMD_NO, /* Reg == SIMD && Reg == NOSIMD */
               GF_E_CAUCHYB, /* Reg == CAUCHY && Other Reg */
               GF_E_CAUGT32, /* Reg == CAUCHY && w > 32*/
               GF_E_ARG1SET, /* Arg1 != 0 && Mult \notin COMPOSITE/SPLIT/GROUP */
@@ -130,9 +146,9 @@ typedef enum {GF_E_MDEFDIV, /* Dev != Default && Mult == Default */
               GF_E_QUAD__J, /* Reg == QUAD && other Reg */
               GF_E_LAZY__X, /* Reg == LAZY && not DOUBLE or QUAD*/
               GF_E_ALTSHIF, /* Mult == Shift && Reg == ALTMAP */
-              GF_E_SSESHIF, /* Mult == Shift && Reg == SSE|NOSSE */
+              GF_E_SSESHIF, /* Mult == Shift && Reg == SIMD|NOSIMD */
               GF_E_ALT_CFM, /* Mult == CARRY_FREE && Reg == ALTMAP */
-              GF_E_SSE_CFM, /* Mult == CARRY_FREE && Reg == SSE|NOSSE */
+              GF_E_SSE_CFM, /* Mult == CARRY_FREE && Reg == SIMD|NOSIMD */
               GF_E_PCLMULX, /* Mult == Carry_Free && No PCLMUL */
               GF_E_ALT_BY2, /* Mult == Bytwo_x && Reg == ALTMAP */
               GF_E_BY2_SSE, /* Mult == Bytwo_x && Reg == SSE && No SSE2 */
@@ -149,7 +165,7 @@ typedef enum {GF_E_MDEFDIV, /* Dev != Default && Mult == Default */
               GF_E_GR_AR_W, /* Mult == GROUP, either arg > w  */
               GF_E_GR____J, /* Mult == GROUP, Reg == SSE|ALTMAP|NOSSE */
               GF_E_TABLE_W, /* Mult == TABLE, w too big */
-              GF_E_TAB_SSE, /* Mult == TABLE, SSE|NOSSE only apply to w == 4 */
+              GF_E_TAB_SSE, /* Mult == TABLE, SIMD|NOSIMD only apply to w == 4 */
               GF_E_TABSSE3, /* Mult == TABLE, Need SSSE3 for SSE */
               GF_E_TAB_ALT, /* Mult == TABLE, Reg == ALTMAP */
               GF_E_SP128AR, /* Mult == SPLIT, w=128, Bad arg1/arg2 */
@@ -173,7 +189,7 @@ typedef enum {GF_E_MDEFDIV, /* Dev != Default && Mult == Default */
               GF_E_SP_8__A, /* Mult == SPLIT, w=8, no ALTMAP */
               GF_E_SP_SSE3, /* Mult == SPLIT, Need SSSE3 for SSE */
               GF_E_COMP_A2, /* Mult == COMP, arg1 must be = 2 */
-              GF_E_COMP_SS, /* Mult == COMP, SSE|NOSSE */
+              GF_E_COMP_SS, /* Mult == COMP, SIMD|NOSIMD */
               GF_E_COMP__W, /* Mult == COMP, Bad w. */
               GF_E_UNKFLAG, /* Unknown flag in create_from.... */
               GF_E_UNKNOWN, /* Unknown mult_type. */

@@ -1,0 +1,3484 @@
+<html>
+
+<head>
+
+<link rel="stylesheet" type="text/css" href="style.css">
+
+</head>
+
+<body>
+
+<div id="box">
+
+<h1>
+GF-Complete: A Comprehensive Open Source Library for Galois </br>
+Field Arithmetic
+</h1>
+
+<h1> Version 1.02  </h1>
+
+<h4>James S. Plank* &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp Ethan L. Miller 
+Kevin M. Greenan &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp Benjamin A. Arnold<br>
+John A. Burnum &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp Adam W. Disney  &nbsp&nbsp&nbsp&nbsp&nbsp&nbsp
+Allen C. McBride
+
+</h4> <br>
+
+
+
+<a href="">
+
+https://bitbucket.org/jimplank/gf-complete
+
+ </a><br><br>
+<a href=""> 
+http://web.eecs.utk.edu/~plank/plank/papers/GF-Complete-Manual-1.02.pdf
+
+
+ </a> <br> <br> 
+
+
+
+
+
+
+
+</div>
+
+
+<div id="pages_paragraphs_2">
+
+This is a user's manual for GF-Complete, version 1.02. This release supersedes version 0.1 and represents the first
+major release of GF-Complete. To our knowledge, this library implements every Galois Field multiplication technique
+applicable to erasure coding for storage, which is why we named it GF-Complete. The primary goal of this library is
+to allow storage system researchers and implementors to utilize very fast Galois Field arithmetic for Reed-Solomon
+coding and the like in their storage installations. The secondary goal is to allow those who want to explore different
+ways to perform Galois Field arithmetic to be able to do so effectively.
+
+
+<p>
+If you wish to cite GF-Complete, please cite technical report UT-CS-13-716: [PMG<sup>+</sup>13].
+
+</p>
+
+
+<h2>If You Use This Library or Document </h2>
+
+
+
+Please send me an email to let me know how it goes. Or send me an email just to let me know you are using the
+library. One of the ways in which we are evaluated both internally and externally is by the impact of our work, and if
+you have found this library and/or this document useful, we would like to be able to document it. Please send mail to
+<em>plank@cs.utk.edu.</em> Please send bug reports to that address as well.
+
+
+
+<p>
+The library itself is protected by the New BSD License. It is free to use and modify within the bounds of this
+license. To the authors' knowledge, none of the techniques implemented in this library have been patented, and the
+authors are not pursing patents. </p> <br>
+
+ </div>
+<div id="footer"> 
+ 
+<span id="footer_bar">&nbsp&nbsp&nbsp&nbsp.*plank@cs.utk.edu (University of Tennessee), el  </span> <em>m@cs.ucsc.edu </em>(UC Santa Cruz), <em>kmgreen2@gmail.com </em> (Box). This material
+is based upon work supported by the National Science Foundation under grants CNS-0917396, IIP-0934401 and CSR-1016636, plus REU supplements
+CNS-1034216, CSR-1128847 and CSR-1246277. Thanks to Jens Gregor for helping us wade through compilation issues, and for Will
+Houston for his initial work on this library.
+
+</div>
+
+<b>Finding the Code </b>
+<br><br>
+This code is actively maintained on bitbucket:<a href=""> https://bitbucket.org/jimplank/gf-complete. </a> There are
+previous versions on my UTK site as a technical report; however, that it too hard to maintain, so the main version is
+on bitbucket.<br><br>
+
+
+<b>Two Related Papers </b> <br><br>
+
+This software acccompanies a large paper that describes these implementation techniques in detail [PGM13a]. We
+will refer to this as <em> "The Paper." </em> You do not have to read The Paper to use the software. However, if you want to
+start exploring the various implementations, then The Paper is where you'll want to go to learn about the techniques
+in detail.
+
+
+
+<p>This library implements the techniques described in the paper "Screaming Fast Galois Field Arithmetic Using Intel
+SIMD Instructions," [PGM13b]. The Paper describes all of those techniques as well.
+</p><br><br>
+
+<b>If You Would Like HelpWith the Software </b><br><br>
+
+Please contact the first author of this manual.<br><br>
+
+<b>Changes from Revision 1.01</b>
+<br><br>
+The major change is that we are using autoconf to aid with compilation, thus obviating the need for the old <b>flag_tester</b>
+code. Additionally, we have added a quick timing tool, and we have modified <b>gf_methods</b> so that it may be used to
+run the timing tool and the unit tester.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>
+CONTENT  <span class="aligning_page_number"> 3 </span> 
+<h2>Contents </h2>
+<div class="index">
+1 <span class="aligning_numbers">Introduction </span> <span class="aligning_page_number"> 5 </span>
+  <br><br> 
+2 <span class="aligning_numbers">Files in the Library </span>	<span class="aligning_page_number"> 6  </span>  <br> </div>
+
+<div class="sub_indices">
+2.1 Header files in the directory <b>"include"</b>  . .. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . <span class="aligning_page_number"> 6 </span>  <br>
+2.2 Source files in the <b>"src"</b> directory . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . .<span class="aligning_page_number">   7  </span> <br>
+2.3 Library tools files in the <b>"tools"</b> directory  . . . . . . . . . . ..  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . .   <span class="aligning_page_number"> 7   </span> <br>
+2.4 The unit tester in the <b>"test"</b> directory. . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . <span class="aligning_page_number">  8  </span>  <br>
+2.5 Example programs in the <b>"examples"</b> directory . . . .  . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . .<span class="aligning_page_number"> 8  </span> 
+
+</div>
+<br>
+<div class="index">
+
+3 <span class="aligning_numbers">Compilation </span><span class="aligning_page_number">  8 </span>  <br> <br>
+4 <span class="aligning_numbers">Some Tools and Examples to Get You Started </span><span class="aligning_page_number">  8 </span> <br><br>  </div> 
+
+
+
+<div class="sub_indices">
+4.1 Three Simple Command Line Tools: gf_mult, gf_div and gf_add . . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . <span class="aligning_page_number"> 8</span>  <br>
+4.2 Quick Starting Example #1: Simple multiplication and division . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . <span class="aligning_page_number">   9  </span> <br>
+4.3 Quick Starting Example #2: Multiplying a region by a constant    . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . .  <span class="aligning_page_number"> 10   </span> <br>
+4.4 Quick Starting Example #3: Using w = 64 . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . <span class="aligning_page_number">  11  </span>  <br>
+4.5 Quick Starting Example #4: Using w = 128. . . .  . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . <span class="aligning_page_number"> 11  </span> 
+</div>
+<br>
+
+
+<div class="index">
+5 <span class="aligning_numbers"> Important Information on Alignment when Multiplying Regions </span><span class="aligning_page_number"> 12</span> <br><br>
+
+6 <span class="aligning_numbers"> The Defaults</span><span class="aligning_page_number"> 13 </span> <br>
+
+</div>
+
+<div class="sub_indices">
+6.1 Changing the Defaults . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . .<span class="aligning_page_number">   14  </span> <br>
+
+
+<ul style="list-style-type:none;">
+<li>6.1.1 Changing the Components of a Galois Field with <b> create_gf_from_argv() </b>   . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . .  <span class="aligning_page_number"> 15   </span> <br>
+</li>
+<li>
+6.1.2 Changing the Polynomial. . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . <span class="aligning_page_number">  16  </span>  <br>
+</li>
+<li>
+6.1.3 Changing the Multiplication Technique. . . .  . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . .<span class="aligning_page_number"> 17  </span> 
+</li>
+
+
+<li>
+6.1.4 Changing the Division Technique . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  <span class="aligning_page_number"> 19  </span> 
+</li>
+
+
+<li>
+6.1.5 Changing the Region Technique. . . .  . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . .  . . . ..<span class="aligning_page_number"> 19  </span> 
+</li>
+</ul>
+6.2 Determining Supported Techniques with <b>gf_methods</b> . . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . <span class="aligning_page_number"> 20</span>  <br>
+
+6.3 Testing with <b>gf_unit, gf_time,</b> and <b>time_tool.sh </b>. . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . .  . . <span class="aligning_page_number"> 21</span>
+
+<ul style="list-style-type:none;">
+<li>
+6.3.1 <b>time_tool.sh</b> . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .. . . . . . . .  <span class="aligning_page_number"> 22 </span> 
+</li>
+
+<li>
+6.3.2 An example of <b>gf_methods</b> and <b>time_tool.sh</b> . . . . . .  . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . .. . . . . . . .  . .. .  .<span class="aligning_page_number"> 23  </span> 
+</li>
+
+</ul>
+
+6.4 Calling <b>gf_init_hard()</b> . . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . .. . . . . . . . .. . . . . . . . .. . . . . . . .  .. . . . . . . .  . . .  <span class="aligning_page_number"> 24</span>  <br>
+
+6.5 <b>gf_size()</b> . . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . .. . . . . . . .  .. . . . . . . . .. . . . . . . .  .. . . . . . . . .. . . . . . . . . . ..  .  <span class="aligning_page_number"> 26</span>  <br><br>
+</div>
+
+
+<div class="index">
+8 <span class="aligning_numbers">  Further Information on Options and Algorithms </span><span class="aligning_page_number">   26 </span> </div> <br><br> </div>
+<div class="sub_indices">
+7.1 Inlining Single Multiplication and Division for Speed   . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . <span class="aligning_page_number"> 26 </span> <br>
+7.2 Using different techniques for single and region multiplication . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  .  <span class="aligning_page_number"> 27 </span> <br>
+7.3 General <em>w</em> . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . .  . <span class="aligning_page_number"> 28  </span><br>
+
+7.4 Arguments to <b>"SPLIT"</b> . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . <span class="aligning_page_number"> 28</span>  <br>
+7.5 Arguments to <b>"GROUP"</b> . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  <span class="aligning_page_number">29 </span> <br>
+7.6 Considerations with <b>"COMPOSITE"</b> . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . .  .  <span class="aligning_page_number">30 </span> <br>
+7.7 <b>"CARRY_FREE"</b> and the Primitive Polynomial  . . . . . . . . . . . . . . .  . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . .   <span class="aligning_page_number">31 </span> <br>
+7.8 More on Primitive Polynomials . .  . . . . . . . . . . . . . . . . . . .  . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . ..   . . . . . . . . .  <span class="aligning_page_number">31 </span> <br>
+
+
+<ul style="list-style-type:none;">
+<li>
+7.8.1 Primitive Polynomials that are not Primitive . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . .  . . .  <span class="aligning_page_number"> 31</span>  <br>
+
+</li>
+<li>7.8.2 Default Polynomials for Composite Fields . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . .  <span class="aligning_page_number"> 32</span>  <br>
+
+</li>
+</ul>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+<br/>
+CONTENT  <span class="aligning_page_number"> 4 </span> 
+
+<div class="sub_indices">
+<ul style="list-style-type:none">
+<li> 7.8.3 The Program <b>gf_poly</b> for Verifying Irreducibility of Polynomials </span><span class="aligning_page_number">  33 </span> 
+</li>
+</ul>
+
+
+7.9<span class="aligning_numbers"><b>"ALTMAP"</b> considerations and <b>extract_word()</b> </span><span class="aligning_page_number">  34 </span>  
+<ul style="list-style-type:none">
+<li>
+
+7.9.1 Alternate mappings with <b>"SPLIT"</b> . . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .<span class="aligning_page_number"> 34</span>  <br>
+</li>
+<li>
+7.9.2 Alternate mappings with <b>"COMPOSITE"</b> . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . . . . . . . . <span class="aligning_page_number">   36  </span> <br>
+</li>
+<li>
+7.9.3 The mapping of <b>"CAUCHY"</b>    . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . . . . .. . . . . .. . . . . . . . . .  . ..  <span class="aligning_page_number"> 37   </span> <br>
+</li>
+</ul>
+</div>
+
+
+8 <span class="aligning_numbers"><b>Thread Safety </b></span><span class="aligning_page_number">  37 </span> <br><br>  </div> 
+
+9 <span class="aligning_numbers"><b>Listing of Procedures</b> </span><span class="aligning_page_number">  37 </span> <br><br>  </div> 
+
+10 <span class="aligning_numbers"><b>Troubleshooting</b> </span><span class="aligning_page_number">  38 </span> <br><br>  </div> 
+11 <span class="aligning_numbers"><b>Timings</b> </span><span class="aligning_page_number">  41 </span> <br><br>  </div> 
+
+<div class="sub_indices">
+11.1 Multiply() . . . . . . . . . .  . . . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . .. . . . . . . . .. . . . . . . . .. . . . . . . . .. . . . . . . . . . . . .  . . . .. . . . <span class="aligning_page_number"> 42</span>  <br>
+11.2 Divide() . .  . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . .. . . . . . . . .. . . . . . . . .. . . . . . . . .. . . . . . . . . . . .. . . . . <span class="aligning_page_number">   42  </span> <br>
+11.3 Multiply Region()    . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .  . . . . . . . . . . . . . . .. . . . . . . . .. . . . . . . . .. . . . . . . . . . . . .  . . . . .  <span class="aligning_page_number"> 43   </span> <br>
+</div>
+
+
+
+
+
+
+<br/>
+INTRODUCTION  <span class="aligning_page_number"> 5 </span> 
+
+
+<h3>1 Introduction </h3>
+
+Galois Field arithmetic forms the backbone of erasure-coded storage systems, most famously the Reed-Solomon
+erasure code. A Galois Field is defined over w-bit words and is termed <em>GF(2<sup>w</sup>).</em> As such, the elements of a Galois
+Field are the integers 0, 1, . . ., 2<sup>w</sup> - 1. Galois Field arithmetic defines addition and multiplication over these closed
+sets of integers in such a way that they work as you would hope they would work. Specifically, every number has a
+unique multiplicative inverse. Moreover, there is a value, typically the value 2, which has the property that you can
+enumerate all of the non-zero elements of the field by taking that value to successively higher powers.
+
+
+<p>Addition in a Galois Field is equal to the bitwise exclusive-or operation. That's nice and convenient. Multiplication
+is a little more complex, and there are many, many ways to implement it. The Paper describes them all, and the
+following references providemore supporting material: [Anv09, GMS08, LHy08, LD00, LBOX12, Pla97]. The intent
+of this library is to implement all of the techniques. That way, their performancemay be compared, and their tradeoffs
+may be analyzed. <p>
+
+
+
+
+<ol>
+
+When used for erasure codes, there are typically five important operations:<br>
+<li> <b>Adding two numbers in </b> GF(2<sup>w</sup>). That's bitwise exclusive-or. </li>
+<li> <b>Multiplying two numbers in</b> GF(2<sup>w</sup>). Erasure codes are usually based on matrices in GF(2<sup>w</sup>), and constructing
+these matrices requires both addition and multiplication.</li>
+<li> <b>Dividing two numbers in </b>GF(2<sup>w</sup>). Sometimes you need to divide to construct matrices (for example, Cauchy
+Reed-Solomon codes [BKK<sup>+</sup>95, Rab89]). More often, though, you use division to invert matrices for decoding.
+Sometimes it is easier to find a number's inverse than it is to divide. In that case, you can divide by multiplying
+by an inverse. </li>
+
+<li><b>adding two regions of numbers in</b> GF(2<sup>w</sup>), which will be explained along with... </li>
+<li> <b>Mutiplying a region of numbers in </b>GF(2<sup>w</sup>) by a constant in GF(2<sup>w</sup>). Erasure coding typically boils down
+to performing dot products in GF(2<sup>w</sup>). For example, you may define a coding disk using the equation: </li><br>
+
+
+
+
+<center>c<em><sub>0</sub></em>= d<em><sub>0</sub></em> + 2d<em><sub>1</sub></em> + 4d<em><sub>2</sub></em> + 8d<em><sub>3</sub></em>.</sup> </center><br>
+
+That looks like three multiplications and three additions However, the way ' implemented in a disk system
+looks as in Figure 1. Large regions of disks are partitioned into w-bit words in GF(2<sup>w</sup>). In the example, let us
+suppose that <em>w</em> = 8, and therefore that words are bytes. Then the regions pictured are 1 KB from each disk.
+The bytes on disk Di are labeled d<sub>i,0,</sub> d<sub>i,1, . . . ,</sub> d<sub>i,1023,</sub> and the equation above is replicated 1024 times. For
+0 &#8804 j < 1024:
+<br><br>
+<center>c<em><sub>0,j</sub></em> = d<em><sub>0,j</sub></em> + 2d<em><sub>1,j</sub></em> + 4d<em><sub>2,j</sub></em> + 8d<em><sub>3,j</sub></em> . </center>
+<br>
+
+
+While it's possible to implement each of these 1024 equations independently, using the single multiplication
+and addition operations above, it is often much more efficient to aggregate. For example, most computer architectures
+support bitwise exclusive-or of 64 and 128 bit words. Thus, it makes much more sense to add regions
+of numbers in 64 or 128 bit chunks rather than as words in GF(2<sup>w</sup>). Multiplying a region by a constant can
+leverage similar optimizations. </ol>
+
+
+<p>GF-Complete supports multiplication and division of single values for all values of <em>w</em> &#8804 32, plus <em>w</em> = 64 and <em>w</em> =
+128. It also supports adding two regions of memory (for any value of <em>w</em>, since addition equals XOR), and multiplying
+a region by a constant in <em>GF(2<sup>4</sup>), GF(2<sup>8</sup>), GF(2<sup>16</sup>), GF(2<sup>32</sup>), GF(2<sup>64</sup>) and GF(2<sup>128</sup>).</em> These values are chosen
+because words in GF(2<sup>w</sup>) fit into machine words with these values of <em>w.</em> Other values of w don't lend themselves
+to efficient multiplication of regions by constants (although see the <b>"CAUCHY"</b> option in section 6.1.5 for a way to
+multiply regions for other values of <em>w</em>).</p>
+
+
+
+
+
+
+<br/>
+
+2 &nbsp &nbsp  <em>  FILES IN THE LIBRARY     </em>   <span id="index_number">6  </span> <br><br><br>
+
+
+
+<div class="image-cell_1"> </div>  <br><br><br>
+
+Figure 1: An example of adding two regions of numbers, and multiplying a region of numbers by a constant
+in <em>GF(2<sup>w</sup>) </em>. In this example, <em>w</em> = 8, and each disk is holding a 1KB region. The same coding equation -
+c<sub>0,j</sub></b> = d<sub>0,j</sub> + ad<sub>1,j</sub> + a<sup>2</sup>d<sub>2,j</sub> + a<sup>3</sup>d<sub>3,j</sub> is applied 1024 times. However, rather than executing this equation 1024
+times, it is more efficient to implement this with three region-constant multiplications and three region-region additions.
+
+<h3>2 &nbsp&nbsp&nbsp Files in the Library </h3>
+This section provides an overview of the files that compose GF-Complete. They are partitioned among multiple
+directories.
+
+<h4> <b>2.1 &nbsp&nbsp&nbsp Header files in the directory  "include"</b> </h4>
+
+The following header files are part of GF-Complete.
+<ul>
+<li><b>gf_complete.h:</b> This is the header file that applications should include. It defines the gf_t type, which holds
+all of the data that you need to perform the various operations in GF(2<sup>w</sup>). It also defines all of the arithmetic
+operations. For an application to use this library, you should include gf_complete.h and then compile with the
+library src/libgf_complete.la. </li><br>
+
+<li><b>gf_method.h:</b> If you are wanting to modify the implementation techniques from the defaults, this file provides
+a "helper" function so that you can do it from the Unix command line.
+</li><br>
+
+<li><b>gf_general.h:</b> This file has helper routines for doing basic Galois Field operations with any legal value of <em>w.</em>
+The problem is that <em>w </em> &#8804 32, <em>w </em> = 64 and <em> w </em> = 128 all have different data types, which is a pain. The procedures
+in this file try to alleviate that pain. They are used in <b>gf_mult, gf_unit</b> and <b>gf_time.</b> I'm guessing that most
+applications won't use them, as most applications use <em>w</em> &#8804 32. </li><br>
+
+<li><b>gf_rand.h:</b> I've learned that <b>srand48()</b> and its kin are not supported in all C installations. Therefore, this file
+defines some randomnumber generators to help test the programs. The randomnumber generator is the "Mother
+</li>
+
+</ul>
+
+
+
+
+
+
+
+<br/>
+
+2 &nbsp &nbsp  <em>  FILES IN THE LIBRARY     </em>   <span id="index_number">7  </span> <br><br><br>
+<ul>
+
+of All" random number generator [Mar94] which we've selected because it has no patent issues. <b>gf_unit</b> and
+<b>gf_time</b> use these random number generators.<br><br>
+<li><b>gf_int.h:</b> This is an internal header file that the various source files use. This is <em>not</em> intended for applications to
+include.</li><br>
+<li><b>config.xx</b> and <b>stamp-h1</b> are created by autoconf, and should be ignored by applications. </li>
+</ul>
+
+<h3>2.2 &nbsp &nbsp <b> Source files in the "src" directory" </b> </h3>
+<ul>
+The following C files compose <b>gf_complete.a,</b> and they are in the direcoty src. You shouldn't have to mess with these
+files, but we include them in case you have to:<br><br>
+<li><b> gf_.c:</b> This implements all of the procedures in both <b>gf_complete.h</b> and <b>gf_int.h.</b> </li><br>
+<li><b> gf_w4.c:</b> Procedures specific to <em>w </em> = 4. </li><br>
+<li> <b>gf_w8.c:</b> Procedures specific to <em>w </em> = 8</li><br>
+<li> <b>gf_w16.c:</b> Procedures specific to <em>w </em> = 16</li><br>
+<li> <b>gf_w32.c:</b> Procedures specific to <em>w </em> = 32</li><br>
+<li><b>gf_w64.c:</b> Procedures specific to <em>w </em> = 64</li><br>
+<li> <b>gf_w128.c:</b> Procedures specific to <em>w </em> = 128</li><br>
+<li> <b>gf_wgen.c:</b> Procedures specific to other values of <em>w </em> between 1 and 31</li><br>
+<li> <b>gf_general.c:</b> Procedures that let you manipulate general values, regardless of whether <em>w </em> &#8804 32, <em>w </em> = 64
+or <em>w </em> = 128. (I.e. the procedures defined in <b>gf_ general.h</b>)</li><br>
+<li> <b>gf_method.c:</b> Procedures to help you switch between the various implementation techniques. (I.e. the procedures
+defined in <b>gf_method.h</b>)</li><br>
+<li> <b>gf_ rand.c:</b>"The Mother of all" random number generator. (I.e. the procedures defined in <b>gf_rand.h</b>)</li><br> </ul>
+
+<h3>2.3 &nbsp &nbsp Library tools files in the "tools" directory </h3>
+
+<ul>
+The following are tools to help you with Galois Field arithmetic, and with the library. They are explained in greater
+detail elsewhere in this manual.<br><br>
+<li> <b>gf_mult.c, gf_ div.c</b> and <b>gf_ add:</b> Command line tools to do multiplication, division and addition by single numbers</li><br>
+<li> <b>gf_time.c:</b> A program that times the procedures for given values of <em>w </em> and implementation options</li><br>
+<li> <b>time_tool.sh:</b> A shell script that helps perform rough timings of the various multiplication, division and region
+operations in GF-Complete</li><br>
+<li> <b>gf_methods.c:</b> A program that enumerates most of the implementation methods supported by GF-Complete</li><br>
+<li> <b> gf_poly.c:</b> A program to identify irreducible polynomials in regular and composite Galois Fields</li><br>
+
+</ul>
+
+
+
+
+
+
+
+
+<br/>
+
+3 &nbsp &nbsp  <em>  COMPILATION     </em>   <span id="index_number">8  </span> <br><br><br>
+
+
+<h3>2.4 &nbsp &nbsp The unit tester in the "test" directory </h3>
+
+The test directory contains the proram <b>gf_unit.c,</b> which performs a battery of unit tests on GF-Complete. This is
+explained in more detail in section 6.3.
+
+
+<h3>2.5&nbsp &nbsp Example programs in the "examples" directory </h3>
+
+There are seven example programs to help you understand various facets of GF-Complete. They are in the files
+<b>gf_example x.c </b> in the <b>examples</b> directory. They are explained in sections 4.2 through 4.5, and section 7.9.<br><br>
+
+<h2>3 &nbsp &nbsp Compilation </h2>
+
+<em>From revision 1.02 forward, we are using autoconf. The old "flag tester" directory is now gone, as it is no longer in
+use. </em><br><br>
+To compile and install, you should do the standard operations that you do with most open source Unix code:<br><br>
+
+UNIX> ./configure <br>
+... <br>
+UNIX> make <br>
+... <br>
+UNIX> sudo make install <br><br>
+
+
+<p>If you perform the <b>install,</b> then the header, source, tool, and library files will be moved to system locations. In
+particular, you may then compile the library by linking with the flag <b>-lgf_complete,</b> and you may use the tools from a
+global executable directory (like <b>/usr/local/bin</b>). </p>
+
+<p>
+If you don't perform the install, then the header and tool files will be in their respective directories, and the library
+will be in <b>src/libgf_complete.la.</b> </p>
+<p>
+If your system supports the various Intel SIMD instructions, the compiler will find them, and GF-Complete will
+use them by default. </p>
+
+
+
+<h2>4 &nbsp &nbsp Some Tools and Examples to Get You Started </h2> 
+<h3>4.1 Three Simple Command Line Tools: gf_mult, gf_div and gf_add </h3>
+
+
+Before delving into the library, it may be helpful to explore Galois Field arithmetic with the command line tools:
+<b>gf_mult, gf_div </b> and <b>gf_add.</b> These perform multiplication, division and addition on elements in <em>GF(2<sup>w</sup>).</em> If these are
+not installed on your system, then you may find them in the tools directory. Their syntax is:
+<ul>
+<li><b>gf_mult a b</b> <em>w </em> - Multiplies a and b in <em> GF(2<sup>w</sup>)</em>. </li><br>
+<li> <b>gf_div a b </b><em>w </em> - Divides a by b in GF(2<em><sup>w </sup></em>). </li><br>
+<li><b>gf_add a b </b> <em>w </em> - Adds a and b in GF(2<em><sup>w </sup> </em>). </li><br>
+
+You may use any value of <em>w </em> from 1 to 32, plus 64 and 128. By default, the values are read and printed in decimal;
+however, if you append an 'h' to <em>w </em>, then <em>a, b </em> and the result will be printed in hexadecimal. For <em>w </em> = 128, the 'h' is
+mandatory, and all values will be printed in hexadecimal.
+
+
+
+
+
+
+
+<br/>
+
+4 &nbsp &nbsp  <em>   SOME TOOLS AND EXAMPLES TO GET YOU STARTED 9     </em>   <span id="index_number">9  </span> <br><br><br>
+
+
+<p>Try them out on some examples like the ones below. You of course don't need to know that, for example, 5 * 4 = 7
+in <em>GF(2<sup>4 </sup>) </em>; however, once you know that, you know that 7/
+5 = 4 and 7/4 = 5. You should be able to verify the <b>gf_add</b>
+statements below in your head. As for the other <b>gf_mult's</b>, you can simply verify that division and multiplication work
+with each other as you hope they would. </p>
+<br><br>
+<div id="number_spacing">
+
+UNIX> gf_mult 5 4 4  <br>
+7 <br>
+UNIX> gf_div 7 5 4 <br>
+4 <br>
+UNIX> gf_div 7 4 4 <br>
+5   <br>
+UNIX> gf_mult 8000 2 16h <br>
+100b  <br>
+UNIX> gf_add f0f0f0f0f0f0f0f0 1313131313131313 64h <br>
+e3e3e3e3e3e3e3e3 <br>
+UNIX> gf_mult f0f0f0f0f0f0f0f0 1313131313131313 64h <br>
+8da08da08da08da0 <br>
+UNIX> gf_div 8da08da08da08da0 1313131313131313 64h <br>
+f0f0f0f0f0f0f0f0  <br>
+UNIX> gf_add f0f0f0f0f0f0f0f01313131313131313 1313131313131313f0f0f0f0f0f0f0f0 128h <br>
+e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3 <br>
+UNIX> gf_mult f0f0f0f0f0f0f0f01313131313131313 1313131313131313f0f0f0f0f0f0f0f0 128h <br>
+786278627862784982d782d782d7816e <br>
+UNIX> gf_div 786278627862784982d782d782d7816e f0f0f0f0f0f0f0f01313131313131313 128h <br>
+1313131313131313f0f0f0f0f0f0f0f0 <br>
+UNIX> <br><br>
+
+</div>
+
+
+Don't bother trying to read the source code of these programs yet. Start with some simpler examples  like the ones
+below. <br><br>
+
+<h3>4.2 Quick Starting Example #1: Simple multiplication and division </h3>
+
+The source files for these examples are in the examples directory.
+<p>These two examples are intended for those who just want to use the library without getting too complex. The
+first example is <b>gf_example 1,</b> and it takes one command line argument - w, which must be between 1 and 32. It
+generates two random non-zero numbers in <em>GF(2<sup>w </sup>) </em> and multiplies them. After doing that, it divides the product by
+each number. </p>
+<p>
+To perform multiplication and division in <em>GF(2<sup>w </sup>) </em>, you must declare an instance of the gf_t type, and then initialize
+it for <em>GF(2<sup>w </sup>) </em> by calling <b>gf_init_easy().</b> This is done in <b>gf_example 1.c</b> with the following lines: </p><br><br>
+
+gf_t gf; <br><br>r
+... <br><br>
+if (!gf_init_easy(&gf, w)) { <br>
+fprintf(stderr, "Couldn't initialize GF structure.\n"); <br>
+exit(0); <br>
+}  <br>
+
+
+
+
+
+
+<br/>
+
+4 &nbsp &nbsp  <em>   SOME TOOLS AND EXAMPLES TO GET YOU STARTED      </em>   <span id="index_number">10  </span> <br><br><br>
+
+<p>Once <b>gf</b> is initialized, you may use it for multiplication and division with the function pointers <b>multiply.w32</b> and
+<b>divide.w32.</b> These work for any element of <em>GF(2<sup>w</sup>)</em> so long as w &#8804 32. </p> <br><br>
+
+<div id="number_spacing">
+<div style="padding-left:54px">
+c = gf.multiply.w32(&gf, a, b);<br>
+printf("%u * %u = %u\n", a, b, c);<br><br>
+printf("%u / %u = %u\n", c, a, gf.divide.w32(&gf, c, a));<br>
+printf("%u / %u = %u\n", c, b, gf.divide.w32(&gf, c, b));<br>
+
+
+</div> </div>
+<br><br>
+Go ahead and test this program out. You can use <b>gf_mult</b> and <b>gf_div</b> to verify the results:<br><br>
+
+<div id="number_spacing">
+UNIX> gf_example_1 4 <br>
+12 * 4 = 5  <br>
+5 / 12 = 4  <br>
+5 / 4 = 12  <br>
+UNIX> gf_mult 12 4 4 <br>
+5  <br>
+UNIX> gf_example_1 16 <br>
+14411 * 60911 = 44568 <br>
+44568 / 14411 = 60911 <br>
+44568 / 60911 = 14411  <br>
+UNIX> gf_mult 14411 60911 16 <br>
+44568 <br>
+UNIX>  <br><br>
+</div>
+
+<b>gf_init_easy()</b> (and <b>later_gf_init_hard()</b>) do call <b>malloc()</b> to implement internal structures. To release memory, call
+<b>gf_free().</b> Please see section 6.4 to see how to call <b>gf_init_hard()</b> in such a way that it doesn't call <b>malloc().</b> <br><br>
+
+
+
+<h3>4.3 &nbsp &nbsp &nbspQuick Starting Example #2: Multiplying a region by a constant </h3>
+
+
+The program <b>gf_example</b> 2 expands on <b>gf_example</b> 1. If <em>w</em> is equal to 4, 8, 16 or 32, it performs a region multiply
+operation. It allocates two sixteen byte regions, <b>r1</b> and <b>r2,</b> and then multiples <b>r1</b> by a and puts the result in <b>r2</b> using
+the <b>multiply_region.w32</b> function pointer: <br><br>
+
+<div style="padding-left:52px">
+gf.multiply_region.w32 (&gf, r1, r2, a, 16, 0); <br><br>
+</div>
+
+That last argument specifies whether to simply place the product into r2 or to XOR it with the contents that are already
+in r2. Zero means to place the product there. When we run it, it prints the results of the <b>multiply_region.w32</b> in
+hexadecimal. Again, you can verify it using <b>gf_mult</b>:<br><br>
+<div id="number_spacing">
+UNIX> gf_example_2 4 <br>
+12 * 2 = 11 <br>
+11 / 12 = 2 <br>
+11 / 2 = 12 <br><br>
+multiply_region by 0xc (12) <br><br>
+R1 (the source): 0 2 d 9 d 6 8 a 8 d b 3 5 c 1 8 8 e b 0 6 1 5 a 2 c 4 b 3 9 3 6 <br>
+R2 (the product): 0 b 3 6 3 e a 1 a 3 d 7 9 f c a a 4 d 0 e c 9 1 b f 5 d 7 6 7 e <br>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+<br/>
+
+4 &nbsp &nbsp  <em>   SOME TOOLS AND EXAMPLES TO GET YOU STARTED      </em>   <span id="index_number">11  </span> <br><br><br>
+
+<div id="number_spacing">
+<table cellpadding="6">
+<tr><td>UNIX></td> <td colspan="4"> gf_example_2 16 </td> </tr>
+
+<tr>
+
+<td>49598</td> <td> * </td> <td> 35999</td> <td> = </td> <td>19867 </td> </tr>
+
+<tr><td>19867 </td><td>/ </td> <td> 49598 </td> <td> =  </td> <td>35999 </td> </tr>
+<tr><td>19867</td><td> /</td> <td> 35999 </td> <td> = </td> <td> 49598 </td> </tr>  </table><br>
+
+
+&nbsp multiply_region by 0xc1be (49598) <br><br>
+
+
+<table cellpadding="6" >
+<tr>
+<td>R1 (the source):</td> <td> 8c9f </td> <td> b30e </td> <td> 5bf3 </td> <td> 7cbb </td> <td>16a9 </td> <td> 105d </td> <td> 9368 </td> <td> 4bbe </td> </tr>
+<td>R2 (the product):</td> <td> 4d9b</td> <td> 992d </td> <td> 02f2 </td> <td> c95c </td> <td> 228e </td> <td> ec82 </td> <td> 324e </td> <td> 35e4 </td></tr>
+</table>
+</div>
+<div id="number_spacing">
+<div style="padding-left:9px">
+UNIX> gf_mult c1be 8c9f 16h<br>
+4d9b <br>
+UNIX> gf_mult c1be b30e 16h <br>
+992d <br>
+UNIX> <br><br>
+</div>
+</div>
+
+<h3>4.4 &nbsp &nbsp &nbsp Quick Starting Example #3: Using <em>w </em>= 64 </h3>
+The program in <b>gf_example 3.c </b> is identical to the previous program, except it uses <em> GF(2<sup>64 </sup>). </em> Now <em>a, b</em> and <em> c </em> are
+<b>uint64 t'</b>s, and you have to use the function pointers that have <b>w64</b> extensions so that the larger types may be employed.
+<br><br>
+<div id="number_spacing">
+
+UNIX> gf_example_31 
+<table cellpadding="6">
+<tr>
+
+<td>a9af3adef0d23242 </td> <td> * </td> <td> 61fd8433b25fe7cd</td> <td> = </td> <td>bf5acdde4c41ee0c </td> </tr>
+
+<td>bf5acdde4c41ee0c </td> <td> / </td> <td> a9af3adef0d23242 </td> <td> = </td> <td>61fd8433b25fe7cd </td> </tr>
+<td>bf5acdde4c41ee0c </td> <td> / </td> <td> 61fd8433b25fe7cd  </td> <td>= </td> <td>a9af3adef0d23242 </td> </tr>
+</table><br><br>
+
+&nbsp multiply_region by a9af3adef0d23242<br><br>
+<table cellpadding="6" >
+<tr>
+<td>R1 (the source): </td> <td> 61fd8433b25fe7cd </td> <td>272d5d4b19ca44b7 </td> <td> 3870bf7e63c3451a </td> <td> 08992149b3e2f8b7 </td> </tr>
+<tr><td>R2 (the product): </td> <td> bf5acdde4c41ee0c </td> <td> ad2d786c6e4d66b7 </td> <td> 43a7d857503fd261 </td> <td> d3d29c7be46b1f7c </td> </tr>
+</table>
+
+<div style="padding-left:9px">
+
+UNIX> gf_mult a9af3adef0d23242 61fd8433b25fe7cd 64h <br>
+bf5acdde4c41ee0c<br>
+UNIX><br><br>
+</div>
+</div>
+<h3>4.5 &nbsp &nbsp &nbsp Quick Starting Example #4: Using <em>w </em>= 128 </h3>
+Finally, the program in <b>gf_example_4.c</b> uses  <em>GF(2<sup>128</sup>).</em> Since there is not universal support for uint128 t, the library
+represents 128-bit numbers as arrays of two uint64 t's. The function pointers for multiplication, division and region
+multiplication now accept the return values as arguments:<br><br>
+
+gf.multiply.w128(&gf, a, b, c); <br><br>
+
+Again, we can use <b>gf_mult </b> and <b>gf_div </b>to verify the results:<br><br>
+<div id="number_spacing">
+<div style="padding-left:9px">
+UNIX> gf_example_4 </div>
+<table cellpadding="6" >
+<tr>
+
+<td>e252d9c145c0bf29b85b21a1ae2921fa </td> <td> * </td> <td> b23044e7f45daf4d70695fb7bf249432 </td> <td> = </td> </tr>
+<tr><td>7883669ef3001d7fabf83784d52eb414 </td> </tr>
+
+</table>
+
+</div>
+
+
+
+
+
+
+
+
+<br/>
+
+4 &nbsp &nbsp  <em>   IMPORTANT INFORMATION ON ALIGNMENT WHEN MULTIPLYING REGIONS      </em>   <span id="index_number">12  </span> <br><br><br>
+
+<div id="number_spacing">
+multiply_region by e252d9c145c0bf29b85b21a1ae2921fa <br>
+R1 (the source): f4f56f08fa92494c5faa57ddcd874149 b4c06a61adbbec2f4b0ffc68e43008cb <br>
+R2 (the product): b1e34d34b031660676965b868b892043 382f12719ffe3978385f5d97540a13a1 <br>
+UNIX> gf_mult e252d9c145c0bf29b85b21a1ae2921fa f4f56f08fa92494c5faa57ddcd874149 128h <br>
+b1e34d34b031660676965b868b892043 <br>
+UNIX> gf_div 382f12719ffe3978385f5d97540a13a1 b4c06a61adbbec2f4b0ffc68e43008cb 128h<br>
+e252d9c145c0bf29b85b21a1ae2921fa<br>
+UNIX><br><br>
+
+</div>
+
+
+<h2>5 &nbsp &nbsp &nbspImportant Information on Alignment when Multiplying Regions </h2>
+
+
+
+In order to make multiplication of regions fast, we often employ 64 and 128 bit instructions. This has ramifications
+for pointer alignment, because we want to avoid bus errors, and because on many machines, loading and manipulating
+aligned quantities is much faster than unalinged quantities.<br><br>
+
+
+When you perform multiply_region.wxx(<em>gf, source, dest, value, size, add </em>), there are three requirements:
+<ol>
+<li>
+ The pointers <em>source</em> and <em>dest </em> must be aligned for <em>w</em>-bit words. For <em>w </em> = 4 and <em>w </em> = 8, there is no restriction;
+however for <em>w </em> = 16, the pointers must be multiples of 2, for <em>w </em> = 32, they must be multiples of 4, and for
+<em>w </em> &#1013; {64, 128}, they must be multiples of 8. </li><br>
+
+<li> The <em>size</em> must be a multiple of &#91; <em>w /
+</em> 
+8 .&#93;
+ With <em>w </em> = 4 and <em>w </em> = 8, <em>w/ </em>
+8  = 1 and there is no restriction. The other
+sizes must be multiples of <em>w </em>/
+8  because you have to be multiplying whole elements of <em> GF(2<sup>w </sup>) </em>. </li><br>
+
+<li> The <b>source</b> and <b>dest</b> pointers must be aligned identically with respect to each other for the implementation
+chosen. This is subtle, and we explain it in detail in the next few paragraphs. However, if you'd rather not figure
+it out, the following recommendation will <em>always </em> work in GF-Complete: </li>
+
+</ol>
+
+
+
+<div style="padding-left:100px">
+<b>If you want to be safe, make sure that source and dest are both multiples of 16. That is not a
+strict requirement, but it will always work! </b> <br><br>
+</div>
+
+
+If you want to relax the above recommendation, please read further.
+<p>When performing <b>multiply_region.wxx() </b>, the implementation is typically optimized for a region of bytes whose
+size must be a multiple of a variable <em>s </em> ,, and which must be aligned to a multiple of another variable <em>t </em>. For example,
+when doing <b>multiply_region.w32() </b> in <em> GF(2<sup>16 </sup>) </em> with SSE enabled, the implementation is optimized for regions of
+32 bytes, which must be aligned on a 16-byte quantity. Thus, <em>s </em> = 32 and <em>t</em> = 16. However, we don't want <b>multiply_
+region.w32() </b> to be too restrictive, so instead of requiring <em>source</em> and <em> dest </em> to be aligned to 16-byte regions, we
+require that (<em>source </em> mod 16) equal (<em>dest</em> mod 16). Or, in general, that (<em>source</em> mod t) equal (<em>dest</em> mod <em>t</em>). </p>
+
+
+<p>
+Then, <b>multiply_region.wxx()</b> proceeds in three phases. In the first phase,<b> multiply.wxx()</b> is called on successive
+words until (<em>source</em> mod <em>t</em>) equals zero. The second phase then performs the optimized region multiplication on
+chunks of <em> s  </em>bytes, until the remaining part of the region is less than s bytes. At that point, the third phase calls
+<em>multiply.wxx() </em> on the last part of the region. </p>
+
+A detailed example helps to illustrate. Suppose we make the following call in <em>GF(2<sup>16</sup>) </em> with SSE enabled:<br><br>
+<center><b>multiply region.w32(gf, 0x10006, 0x20006, a, 274, 0)</b> </center>
+
+
+
+
+
+
+
+<br/>
+
+2 &nbsp &nbsp  <em>  FILES IN THE LIBRARY     </em>   <span id="index_number">13  </span> <br><br><br>
+
+
+
+<div class="image-cell_2"> </div>  <br><br><br>
+
+Figure 2: Example of multiplying a region of 274 bytes in GF(216) when (source mod 16) = (dest mod 16) = 6. The
+alignment parameters are s = 32 and t = 16. The multiplication is in three phases, which correspond to the initial
+unaligned region (10 bytes), the aligned region of s-byte chunks (256 bytes), and the final leftover region (8 bytes).
+
+
+<p>First, note that <em>source</em> and <em>dest</em> are aligned on two-byte quantities, which they must be in <em>GF(2<sup>16</sup>).</em> Second, note
+that size is a multiple of &#91; 16/
+8 &#93 = 2. And last, note that (<em>source</em> mod 16) equals (<em>dest</em> mod 16). We illustrate the three
+phases of region multiplication in Figure 2. Because (<em>source</em> mod 16) = 6, there are 10 bytes of unaligned words that
+are multiplied with five calls to <b>multiply.w32()</b> in the first phase. The second phase multiplies 256 bytes (eight chunks
+of <em>s</em> = 32 bytes) using the SSE instructions. That leaves 8 bytes remaining for the third phase.
+</p>
+
+<p>
+When we describe the defaults and the various implementation options, we specify s and t as "alignment parameters."
+</p>
+<p>
+One of the advanced region options is using an alternate mapping of words to memory ("ALTMAP"). These interact
+in a more subtle manner with alignment. Please see Section 7.9 for details.
+</p>
+
+<h3> 6 &nbsp &nbspThe Defaults </h3>
+
+
+GF-Complete implements a wide variety of techniques for multiplication, division and region multiplication. We have
+set the defaults with three considerations in mind:
+<ol>
+<li>
+<b>Speed:</b> Obviously, we want the implementations to be fast. Therefore, we choose the fastest implementations
+that don’t violate the other considerations. The compilation environment is considered. For example, if SSE is
+enabled, region multiplication in <em> GF(2<sup>4 </sup>) </em> employs a single multiplication table. If SSE is not enabled, then a
+"double" table is employed that performs table lookup two bytes at a time. </li><br>
+<li>
+<b>Memory Consumption:</b> We try to keep the memory footprint of GF-Complete low. For example, the fastest
+way to perform <b>multiply.w32()</b> in <em>GF(2<sup>32</sup>) </em> is to employ 1.75 MB of multiplication tables (see Section 7.4
+below). We do not include this as a default, however, because we want to keep the default memory consumption
+of GF-Complete low.
+</li>
+
+</ul>
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">14  </span> <br><br><br>
+
+<ul>
+
+3. &nbsp <b>Compatibility with "standard" implementations:</b> While there is no <em>de facto</em> standard of Galois Field arithmetic,
+most libraries implement the same fields. For that reason, we have not selected composite fields, alternate
+polynomials or memory layouts for the defaults, even though these would be faster. Again, see section 7.7 for
+more information.
+
+</ul>
+
+<p>Table 1 shows the default methods used for each power-of-two word size, their alignment parameters <em>s</em> and <em> t,</em> their
+memory consumption and their rough performance. The performance tests are on an Intel Core i7-3770 running at
+3.40 GHz, and are included solely to give a flavor of performance on a standard microprocessor. Some processors
+will be faster with some techniques and others will be slower, so we only put numbers in so that you can ballpark it.
+For other values of <em>w</em> between 1 and 31, we use table lookup when w &#8804 8, discrete logarithms when w &#8804 16 and
+"Bytwo<sub>p</sub>" for w &#8804 32. </p>
+<br><br>
+<center> With SSE 
+<div id="data1">
+<table cellpadding="6" cellspacing="0">
+<tr>
+<th>w </th><th class="double_border" >Memory <br> Usage </br> </th><th>multiply() <br> Implementation</th><th>Performance <br>(Mega Ops / s) </th><th>multiply region() <br> Implementation </th>
+<th>s </th> <th>t </th> <th> Performance <br>(MB/s)</th>
+</tr>
+<tr>
+<td>4 </td><td class="double_border"><1K </td><td>Table</td><td>501</td><td>Table</td>
+<td>16 </td><td>16 </td> <td>11,659</td> </tr>
+
+<tr>
+<td>8 </td><td class="double_border">136K </td><td>Table</td><td>501</td><td>Split Table (8,4)</td>
+<td>16 </td><td>16 </td> <td>11,824</td> </tr>
+
+<tr>
+<td>16 </td><td class="double_border">896K </td><td>Log</td><td>260</td><td>Split Table (16,4)</td>
+<td>32 </td><td>16 </td> <td>7,749</td> </tr>
+
+<tr>
+<td>32 </td><td class="double_border"><1K </td><td>Carry-Free</td><td>48</td><td>Split Table (32,4)</td>
+<td>64 </td><td>16 </td> <td>5,011</td> </tr>
+
+<tr>
+<td>64 </td><td class="double_border">2K </td><td>Carry-Free</td><td>84</td><td>Split Table (64,4)</td>
+<td>128 </td><td>16 </td> <td>2,402</td> </tr>
+
+<tr>
+<td>128 </td><td class="double_border">64K </td><td>Carry-Free</td><td>48</td><td>Split Table (128,4)</td>
+<td>16 </td><td>16 </td> <td>833</td> </tr>
+</table></div>
+
+
+<div id="data1">
+<center>Without SE </center>
+<table cellpadding="6" cellspacing="0">
+<tr>
+<th>w </th><th>Memory <br> Usage </br> </th><th>multiply() <br> Implementation</th><th>Performance <br>(Mega Ops / s) </th><th>multiply region() <br> Implementation </th>
+<th>s </th> <th>t </th> <th> Performance <br>(MB/s)</th>
+</tr>
+<tr>
+<td>4 </td><td>4K </td><td>Table</td><td>501</td><td>Double Table</td>
+<td>16 </td><td>16 </td> <td>11,659</td> </tr>
+
+<tr>
+<td>8 </td><td>128K </td><td>Table</td><td>501</td><td>Table</td>
+<td>1 </td><td>1 </td> <td>1,397</td> </tr>
+
+<tr>
+<td>16 </td><td>896K </td><td>Log</td><td>266</td><td>Split Table (16,8)</td>
+<td>32 </td><td>16 </td> <td>2,135</td> </tr>
+
+<tr>
+<td>32 </td><td>4K </td><td>Bytwo<sub>p</sub></td><td>19</td><td>Split Table (32,4)</td>
+<td>4 </td><td>4 </td> <td>1,149</td> </tr>
+
+<tr>
+<td>64 </td><td>16K </td><td>Bytwo<sub>p</sub></td><td>9</td><td>Split Table (64,4)</td>
+<td>8 </td><td>8 </td> <td>987</td> </tr>
+
+<tr>
+<td>128 </td><td>64K </td><td>Bytwo<sub>p</sub></td><td>1.4</td><td>Split Table (128,4)</td>
+<td>16 </td><td>8 </td> <td>833</td> </tr>
+</table>
+</div>
+</center>
+<br><br>
+Table 1: The default implementations, memory consumption and rough performance when w is a power of two. The
+variables s and t are alignment variables described in Section 5.
+<p>
+A few comments on Table 1 are in order. First, with SSE, the performance of <b>multiply()</b> is faster when <em> w </em> = 64
+than when<em> w </em> = 32. That is because the primitive polynomial for <em> w  </em>= 32, that has historically been used in Galois
+Field implementations, is sub-ideal for using carry-free multiplication (PCLMUL). You can change this polynomial
+(see section 7.7) so that the performance matches <em>w </em> = 64. </p>
+<p>
+The region operations for <em> w  </em>= 4 and <em>w </em>= 8 without SSE have been selected to have a low memory footprint. There
+are better options that consume more memory, or that only work on large memory regions (see section 6.1.5).
+</p>
+
+There are times that you may want to stray from the defaults. For example:
+<ul>
+<li>
+You may want better performance.
+</li>
+
+</ul>
+
+
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">15  </span> <br><br><br>
+
+<ul>
+<li>You may want a lower memory footprint.</li>
+<li>You may want to use a different Galois Field or even a ring.</li>
+<li>You only care about multiplying a region by the value two.</li>
+
+</ul>
+
+
+<p>
+Our command line tools allow you to deviate from the defaults, and we have two C functions <b>-gf_init_hard()</b>
+and <b>create_gf_from_argv()</b> that can be called from application code to override the default methods. There are six
+command-line tools that can be used to explore the many techniques implemented in GF-Complete: </p>
+
+<ul><br>
+
+<li> <b>gf_methods</b> is a tool that enumerates most of the possible command-line arguments that can be sent to the other
+tools</li><br>
+<li> <b>gf_mult</b> and <b>gf_div</b> are explained above. You may change the multiplication and division technique in these
+tools if you desire</li><br>
+<li> <b>gf_unit</b> performs unit tests on a set of techniques to verify correctness</li><br>
+<li> <b> gf_time measures </b> the performance of a particular set of techniques</li><br>
+<li> <b>time_tool.sh </b> makes some quick calls to <b>gf_time</b> so that you may gauge rough performance.</li><br>
+<li> <b>gf_poly</b> tests the irreducibility of polynomials in a Galois Field</li><br>
+</ul>
+
+
+<p>To change the default behavior in application code, you need to call <b>gf_init_hard()</b> rather than <b>gf_init_easy().</b>
+Alternatively, you can use <b>create_g_from_argv(),</b> included from <b>gf_method.h,</b> which uses an <b>argv</b>-style array of
+strings to specify the options that you want. The procedure in <b>gf_method.c</b> parses the array and makes the proper
+<b>gf_init_hard()</b> procedure call. This is the technique used to parse the command line in <b> gf_mult, gf_div, gf_unit </b><em>et al.</em> </p>
+
+
+<h2>6.1.1 Changing the Components of a Galois Field with create <b>gf_from_argv()</b> </h2>
+There are five main components to every Galois Field instance:
+<ul>
+<li> <em>w </em> </li>
+<li> Multiplication technique </li>
+<li> Division technique  </li>
+<li> Region technique(s) </li>
+<li> Polynomial </li>
+</ul>
+
+<p>The procedures <b>gf_init_hard()</b> and <b> create_gf_from_argv()</b> allow you to specify these parameters when you create
+your Galois Field instance. We focus first on <b>create_gf_from_argv(),</b> because that is how the tools allow you to specify
+the components. The prototype of <b>create_gf_from_argv()</b> is as follows: </p><br>
+
+<div id="number_spacing">
+int create_gf_from_argv(gf_t *gf, int w, int argc, char **argv, int starting);<br><br> </div>
+
+You pass it a pointer to a gf_t, which it will initialize. You specify the word size with the parameter <em><b>w,</b></em> and then you
+pass it an <b>argc/argv</b> pair as in any C or C++ program. You also specify a <b>starting</b> argument, which is where in <b>argv</b>
+the specifications begin. If it successfully parses <b>argc</b> and <b>argv,</b> then it creates the <b>gf_t</b> using <b>gf_init_hard()</b> (described
+below in section 6.4). It returns one past the last index of <b>argv</b> that it considered when creating the <b>gf_t.</b> If it fails, then
+it returns zero, and the <b>gf_t</b> is unmodified.
+
+
+
+<p>For example, <b>gf_mult.c</b> calls create gf_from_argv() by simply passing <b>argc</b> and <b>argv</b> from its <b>main()</b> declaration,
+and setting starting to 4.</p>
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">16  </span> <br><br><br>
+
+<p>
+To choose defaults, <b>argv[starting]</b> should equal "-". Otherwise, you specify the component that you are changing
+with "-m" for multiplication technique, "-d" for division technique, "-r" for region technique, and "-p" for the
+polynomial. You may change multiple components. You end your specification with a single dash. For example, the
+following call multiplies 6 and 5 in <em>GF(2<sup>4</sup>)</em> with polynomial 0x19 using the "SHIFT" technique for multiplication
+(we'll explain these parameters later):
+</p><br><br>
+
+<div id="number_spacing">
+UNIX> ./gf_mult 6 5 4 -p 0x19 -m SHIFT -<br>
+7 <br>
+UNIX> <br><br>
+</div>
+
+<p>If <b>create_gf_from_argv()</b> fails, then you can call the procedure <b>gf_error(),</b> which prints out the reason why <b>create_
+gf_from_argv()</b> failed. </p>
+
+
+<h2>6.1.2 Changing the Polynomial </h2>
+
+Galois Fields are typically implemented by representing numbers as polynomials with binary coefficients, and then
+using the properties of polynomials to define addition and multiplication. You do not need to understand any of that to
+use this library. However, if you want to learn more about polynomial representations and how they construct fields,
+please refer to The Paper.
+
+<p>Multiplication is based on a special polynomial that we will refer to here as the "defining polynomial." This
+polynomial has binary coefficients and is of degree <em> w.</em> You may change the polynomial with "-p" and then a number
+in hexadecimal (the leading "0x" is optional). It is assumed that the <em>w</em>-th bit of the polynomial is set - you may include
+it or omit it. For example, if you wish to set the polynomial for GF(2<sup>16</sup>) to x<sup>16</sup> + x<sup>5</sup> + x<sup>3</sup> + x<sup>2</sup> + 1, rather than its
+default of x<sup>16</sup> + x<sup>12</sup> + x<sup>3</sup> + x + 1, you may say "-p 0x1002d," "-p 1002d," "-p 0x2d" or "-p 2d."
+We discuss changing the polynomial for three reasons in other sections: </p>
+<ul>
+<li>Leveraging carry-free multiplication (section 7.7). </li>
+<li>Defining composite fields (section 7.6). </li>
+<li>Implementing rings (section 7.8.1). </li>
+
+</ul>
+
+<p>
+Some words about nomenclature with respect to the polynomial. A Galois Field requires the polynomial to be
+<em>irreducible </em>.. That means that it cannot be factored. For example, when the coefficients are binary, the polynomial x<sup>5</sup>+
+x<sup>4</sup>+x+1 may be factored as (x<sup>4</sup>+1)(x+1). Therefore it is not irreducible and cannot be used to define a Galois Field.
+It may, however, be used to define a ring. Please see section 7.8.1 for a discussion of ring support in GF-Complete. </p>
+<p>
+There is a subset of irreducible polynomials called primitive. These have an important property that one may enumerate
+all of the elements of the field by raising 2 to successive posers. All of the default polynomials in GF-Complete 
+are primitive. However, so long as a polynomial is irreducible, it defines a Galois Field. Please see section 7.7 for a
+further discussion of the polynomial. </p>
+
+<p>
+One thing that we want to stress here is that changing the polynomial changes the field, so fields with different
+polynomialsmay not be used interchangeably. So long as the polynomial is irreducible, it generates a Galois Field that
+is isomorphic to all other Galois Fields; however the multiplication and division of elements will differ. For example,
+the polynomials 0x13 (the default) and 0x19 in <em>GF(2<sup>4</sup>) </em> are both irreducible, so both generate valid Galois Fields.
+However, their multiplication differs: </p><br>
+
+<div id="number_spacing">
+UNIX> gf_mult 8 2 4 -p 0x13 - <br>
+3 <br>
+UNIX> gf_mult 8 2 4 -p 0x19 - <br>
+9 <br>
+</div>
+
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">17  </span> <br><br><br>
+
+<div id="number_spacing">
+UNIX> gf_div 3 8 4 -p 0x13 -<br>
+2 <br>
+UNIX> gf_div 9 8 4 -p 0x19 - <br>
+2 <br>
+UNIX> <br>
+
+</div>
+
+
+<h3>6.1.3 &nbsp &nbsp Changing the Multiplication Technique </h3>
+The following list describes the multiplication techinques that may be changed with "-m". We keep the description
+here brief. Please refer to The Paper for detailed descriptions of these techniques.<br><br>
+
+
+<li><b> "TABLE:" </b> Multiplication and division are implemented with tables. The tables consume quite a bit of memory
+(2<sup>w</sup> &#215 2 <sup>w</sup> &#215  <sup>w</sup>/
+8  bytes), so they are most useful when <em>w</em> is small. Please see <b>"SSE," "LAZY," "DOUBLE"</b> and
+
+<b>"QUAD"</b> under region techniques below for further modifications to <b>"TABLE"</b> to perform <b>multiply_region()</b></li><br>
+
+
+<li> <b>"LOG:"</b> This employs discrete (or "Zeph") logarithm <b>tables</b> to implement multiplication and division. The
+memory usage is roughly (3 &#215 2<sup>w</sup> &#215 w /
+8  bytes), so they are most useful when w is small, but they tolerate
+larger <em>w</em> than <b>"TABLE."</b> If the polynomial is not primitive (see section 6.1.2), then you cannot use <b>"LOG"</b> as
+an implementation. In that case,<b> gf_init_hard()</b> or <b>create_gf_from_argv()</b> will fail</li><br>
+
+
+<li><b> "LOG_ZERO:"</b> Discrete logarithm tables which include extra room for zero entries. This more than doubles
+the memory consumption to remove an <b>if</b> statement (please see [GMS08] or The Paper for more description). It
+doesn’t really make a huge deal of difference in performance</li><br>
+
+<li> <b>"LOG_ZERO_EXT:"</b> This expends even more memory to remove another <b>if</b> statement. Again, please see The
+Paper for an explanation. As with <b>"LOG_ZERO,"</b> the performance difference is negligible</li><br>
+
+<li> <b>"SHIFT:"</b> Implementation straight from the definition of Galois Field multiplication, by shifting and XOR-ing,
+then reducing the product using the polynomial. This is <em>slooooooooow,</em> so we don’t recommend you use it</li><br>
+
+
+<li> <b>"CARRY_FREE:"</b> This is identical to <b>"SHIFT,"</b> however it leverages the SSE instruction PCLMUL to perform
+carry-freemultiplications in single instructions. As such, it is the fastest way to perform multiplication for large
+values of <em>w</em> when that instruction is available. Its performance depends on the polynomial used. See The Paper
+for details, and see section 7.7 below for the speedups available when <em>w </em>= 16 and <em>w</em> = 32 if you use a different
+polynomial than the default one</li><br>
+
+
+<li> <b>"BYTWO_p:"</b> This implements multiplication by successively multiplying the product by two and selectively
+XOR-ing the multiplicand. See The Paper for more detail. It can leverage Anvin’s optimization that multiplies
+64 and 128 bits of numbers in <em>GF(2<sup>w</sup>) </em> by two with just a few instructions. The SSE version requires SSE2</li><br>
+
+
+<li> <b>"BYTWO_b:"</b> This implements multiplication by successively multiplying the multiplicand by two and selectively
+XOR-ing it into the product. It can also leverage Anvin's optimization, and it has the feature that when
+you're multiplying a region by a very small constant (like 2), it can terminate the multiplication early. As such,
+if you are multiplying regions of bytes by two (as in the Linux RAID-6 Reed-Solomon code [Anv09]), this is
+the fastest of the techniques, regardless of the value of <em>w.</em> The SSE version requires SSE2</li><br>
+
+
+<li> <b>"SPLIT:"</b> Split multiplication tables (like the LR tables in [GMS08], or the SIMD tables for w &#8804 8 in [LHy08,
+Anv09, PGM13b]). This argument must be followed by two more arguments, w<sub>a</sub> and w<sub>b</sub>, which are the index
+sizes of the sub-tables. This implementation reduces the size of the table from <b>"TABLE,"</b> but requires multiple
+</li><br>
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">18 </span> <br><br><br>
+<ul>
+table lookups. For example, the following multiplies 100 and 200 in <em>GF(2<sup>8</sup>) </em> using two 4K tables, as opposed 
+to one 64K table when you use <b>"TABLE:"</b><br><br>
+<div id="number_spacing">
+UNIX> ./gf_mult 100 200 8 -m SPLIT 8 4 - <br>
+79<br>
+UNIX><br><br>
+</div>
+
+See section 7.4 for additional information on the arguments to <b>"SPLIT."</b> The SSE version typically requires
+SSSE3.<br><br>
+
+
+<li> <b>"GROUP:"</b> This implements the "left-to-right comb" technique [LBOX12]. I'm afraid we don't like that name,
+so we call it <b>"GROUP,"</b> because it performs table lookup on groups of bits for shifting (left) and reducing (right).
+It takes two additional arguments - g<sub>s,</sub> which is the number of bits you use while shifting (left) and g<sub>r</sub>, which
+is the number of bits you use while reducing (right). Increasing these arguments can you higher computational
+speed, but requires more memory. SSE version exists only for <em> w </em> = 128 and it requires SSE4. For more
+description on the arguments g<sub>s</sub> and g<sub>r</sub>, see section 7.5. For a full description of <b>"GROUP"</b> algorithm, please
+see The Paper.
+</li><br>
+
+<li> <b>"COMPOSITE:"</b> This allows you to perform operations on a composite Galois Field, <em> GF((2<sup>l</sup>)<sup>k</sup>)</em> as described
+in [GMS08], [LBOX12] and The Paper. The field size <em>w </em> is equal to <em>lk.</em> It takes one argument, which is <em>k,</em> and
+then a specification of the base field. Currently, the only value of <em>k</em> that is supported is two. However, that may
+change in a future revision of the library. </li><br>
+
+
+In order to specify the base field, put appropriate flags after specifying <em>k.</em> The single dash ends the base field,
+and after that, you may continue making specifications for the composite field. This process can be continued
+for multiple layers of <b>"COMPOSITE."</b> As an example, the following multiplies 1000000 and 2000000
+in <em>GF((2<sup>16</sup>)<sup>2</sup>),</em> where the base field uses <b>BYTWO_p</b> for multiplication: <br><br>
+<center>./gf_mult 1000000 2000000 32 -m COMPOSITE 2 <span style="color:red">-m BYTWO_p - -</span> </center><br>
+
+In the above example, the red text applies to the base field, and the black text applies to the composite field.
+Composite fields have two defining polynomials - one for the composite field, and one for the base field. Thus, if
+you want to change polynomials, you should change both. The polynomial for the composite field must be of the
+form x<sup>2</sup>+sx+1, where s is an element of <em>GF(2<sup>k</sup>).</em> To change it, you specify s (in hexadecimal)with "-p." In the
+example below, we multiply 20000 and 30000 in <em>GF((2<sup>8</sup>)<sup>2</sup>) </em>, setting s to three, and using x<sup>8</sup>+x<sup>4</sup>+x<sup>3</sup>+x<sup>2</sup>+1
+as the polynomial for the base field: <br><br>
+
+<center>./gf_mult 20000 30000 16 -m COMPOSITE 2 <span style="color:red">-p 0x11d </span> - -p 0x3 - </center> <br><br>
+
+If you use composite fields, you should consider using <b>"ALTMAP"</b> as well. The reason is that the region
+operations will go much faster. Please see section 7.6.<br><br>
+As with changing the polynomial, when you use a composite field, <em> GF((2<sup>l</sup>)<sup>k</sup>)</em>, you are using a different field
+than the "standard" field for <em> GF((2<sup>l</sup>)<sup>k</sup>)</em>. All Galois Fields are isomorphic to each other, so they all have the
+desired properties; however, the fields themselves change when you use composite fields.<br><br>
+</ul>
+<p>
+With the exception of <b>"COMPOSITE"</b>, only one multiplication technique can be provided for a given Galois
+Field instance. Composite fields may use composite fields as their base fields, in which case the specification will be
+recursive. </p>
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">19 </span> <br><br><br>
+
+<h3>6.1.4 &nbsp &nbsp &nbsp Changing the Division Technique </h3>
+
+There are two techniques for division that may be set with "-d". If "-d" is not specified, then appropriate defaults
+are employed. For example, when the multiplication technique is <b>"TABLE,"</b> a table is created for division as well as
+multiplication. When <b>"LOG"</b> is specified, the logarithm tables are used for division. With <b>"COMPOSITE,"</b> a special
+variant of Euclid's algorithm is employed that performs division using multiplication and division in the base field.
+Otherwise, Euclid's algorithm is used. Please see The Paper for a description of Euclid's algorithm applied to Galois
+Fields.
+
+<p>If you use "-d", you must also specify the multiplication technique with "-m." </p>
+<p>To force Euclid's algorithm instead of the defaults, you may specify it with "-d EUCLID." If instead, you would
+rather convert elements of a Galois Field to a binary matrix and find an element's inverse by inverting the matrix,
+then specify "-d MATRIX." In all of our tests, <b>"MATRIX"</b> is slower than <b>"EUCLID." "MATRIX" </b> is also not defined
+for <em>w </em> > 32.
+</p>
+
+
+<h3>6.1.5  &nbsp&nbsp&nbsp Changing the Region Technique </h3>
+The following are the region multiplication options ("-r"):
+<ul>
+<li>
+<b>"SSE:"</b> Use SSE instructions. Initialization will fail if the instructions aren't supported. Table 2 details the
+multiplication techniques which can leverage SSE instructions and which versions of SSE are required. </li><br>
+
+<center>
+<div id="data1">
+<table cellpadding="6" cellspacing="0" style="text-align:center;font-size:19px">
+<tr>
+<th>Multiplication <br> Technique</th><th>multiply() </th><th>multiply_region() </th><th>SSE Version </th><th>Comments</th>
+
+</tr>
+<tr>
+<td><b>"TABLE"</b></td><td >- </td><td>Yes</td><td>SSSE3</td><td>Only for <em>GF(2<sup>4</sup>). </em></td>
+
+<tr>
+<td><b>"SPLIT"</b></td><td>-</td><td>Yes</td><td>SSSE3</td><td>Only when the second argument equals 4.</td>
+
+<tr>
+<td><b>"SPLIT"</b></td><td>- </td><td>Yes</td><td>SSE4</td><td>When <em>w </em> = 64 and not using <b>"ALTMAP".</b></td>
+
+<tr>
+<td><b>"BYTWO_p"</b></td><td>- </td><td>Yes</td><td>SSE2</td><td></td>
+
+<tr>
+<td><b>"BYTWO_p"</b></td><td>- </td><td>Yes</td><td>SSE2</td><td></td>
+
+</table></div> <br><br>
+Table 2: Multiplication techniques which can leverage SSE instructions when they are available.
+</center> <br><br>
+
+
+
+
+
+
+
+
+
+
+
+
+<li> <b>"NOSSE:"</b> Force non-SSE version </li><br>
+
+<li> <b> "DOUBLE:"</b> Use a table that is indexed on two words rather than one. This applies only to <em>w  </em> = 4, where
+the table is indexed on bytes rather than 4-bit quantities, and to <em>w </em> = 8, where the table is indexed on shorts
+rather than bytes. In each case, the table lookup performs two multiplications at a time, which makes region
+multiplication faster. It doubles the size of the lookup table. </li><br>
+
+<li> <b>"QUAD:"</b> Use a table that is indexed on four words rather than two or one. This only applies to <em>w </em> = 4, where
+the table is indexed on shorts. The "Quad" table may be lazily created or created ahead of time (the default). If
+the latter, then it consumes 2<sup>4</sup> &#215 2<sup>16</sup> &#215 2 = 2 MB of memory. </li><br>
+
+<li> <b> "LAZY:"</b> Typically it's clear whether tables are constructed upon initialization or lazily when a region operation
+is performed. There are two times where it is ambiguous: <b>"QUAD"</b> when <em>w </em> = 4 and <b>"DOUBLE"</b> when <em>w </em> = 8.
+If you don't specify anything, these tables are created upon initialization, consuming a lot of memory. If you
+specify <b>"LAZY,"</b> then the necessary row of the table is created lazily when you call <b>"multiply_region().</b>
+</li>
+
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">20 </span> <br><br><br>
+<ul>
+
+<li> <b>"ALTMAP:"</b> Use an alternate mapping, where words are split across different subregions of memory. There
+are two places where this matters. The first is when implementing "<b>SPLIT</b> <em>w </em> 4" using SSE when <em>w </em> > 8. In
+these cases, each byte of the word is stored in a different 128-bit vector, which allows the implementation to
+better leverage 16-byte table lookups. See section 7.4 for examples, and The Paper or [PGM13b] for detailed
+explanations.<br><br> </li>
+
+The second place where it matters is when using <b>"COMPOSITE."</b> In this case, it is advantageous to split each
+memory region into two chunks, and to store half of each word in a different chunk. This allows us to call
+<b>region_multiply() </b> recursively on the base field, which is <em>much </em> faster than the alternative. See Section 7.6 for
+examples, and The Paper for an explanation.<br><br>
+
+It is important to note that with <b>"ALTMAP,"</b> the words are not "converted" from a standard mapping to an
+alternate mapping and back again. They are assumed to always be in the alternate mapping. This typically
+doesn't matter, so long as you always use the same <b>"ALTMAP"</b> calls. Please see section 7.9 for further details
+on <b>"ALTMAP,"</b> especially with respect to alignment.<br><br>
+
+<li> <b>"CAUCHY:"</b> Break memory into <em>w </em> subregions and perform only XOR's as in Cauchy Reed-Solomon coding
+[BKK<sup>+</sup>95] (also described in The Paper). This works for <em>any</em> value of <em>w </em> &#8804 32, even those that are not
+powers of two. If SSE2 is available, then XOR's work 128 bits at a time. For <b>"CAUCHY"</b> to work correctly,
+<em>size</em> must be a multiple of <em>w </em>.</li> </ul>
+
+
+
+<p>It is possible to combine region multiplication options. This is fully supported as long as <b>gf_methods</b> has the combination
+listed. If multiple region options are required, they should be specified independently (as flags for <b>gf_init_hard()</b>
+and independent options for command-line tools and <b>create_gf_from_argv()).</b> </p>
+
+
+<h3>6.2  &nbsp&nbsp&nbspDetermining Supported Techniques with gf_methods </h3>
+
+
+The program <b>gf_methods</b> prints a list of supported methods on standard output. It is called as follows:<br><br>
+<div id="number_spacing">
+<center>./gf_methods <em>w </em> -BADC -LUMDRB <br><br> </center> </div>
+
+The first argument is <em>w </em>, which may be any legal value of <em>w </em>. The second argument has the following flags: <br><br>
+<ul>
+
+<li> <b>"B:"</b> This only prints out "basic" methods that are useful for the given value of <em>w </em>. It omits <b>"SHIFT"</b> and other
+methods that are never really going to be useful.</li><br>
+
+<li> <b> "A:"</b> In constrast, this specifies to print "all" methods. </li><br>
+
+<li> <b>"D:"</b> This includes the <b>"EUCLID"</b> and <b>"MATRIX"</b> methods for division. By default, they are not included. </li><br>
+
+<li> <b>"C:"</b> This includes the <b>"CAUCHY"</b> methods for region multiplication. By default, it is not included.</li> <br>
+</ul>
+<p>
+You may specify multiple of these as the second argument. If you include both <b>"B"</b> and <b>"A,"</b> then it uses the last
+one specified. </p>
+<p>
+The last argument determines the output format of <b>gf_methods.</b> If it is <b>"L,"</b> then it simply lists methods. If it
+is <b>"U,"</b> then the output contains <b>gf_unit</b> commands for each of the methods. For the others, the output contains
+<b>gf_time_tool.sh</b> commands for <b>M </b>ultiplication,<b>D</b>ivision,<b>R</b>egion multiplications with multiple buffer sizes, and the
+<b>B</b>est region multiplication. </p>
+<p>
+<b>gf_methods</b> enumerates combinations of flags, and calls <b>create_gf_from_argv()</b> to see if the combinations are
+supported. Although it enumerates a large number of combinations, it doesn't enumerate all possible parameters for
+<b>"SPLIT," "GROUP"</b> or <b>"COMPOSITE."</b> </p>
+
+<p>Some examples of calling <b>gf_methods</b> are shown below in section 6.3.2. </p>
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">21 </span> <br><br><br>
+
+
+<h3>6.3 Testing with <b>gf_unit </b>, <b>gf_time </b>, and time_tool.sh </h3>
+
+
+
+<b>gf_unit </b> and <b>gf_time </b> may be used to verify that a combination of arguments works correctly and efficiently on your
+platform. If you plan to stray from the defaults, it is probably best to run both tools to ensure there are no issues with
+your environment. <b>gf_unit </b> will run a set of unit tests based on the arguments provided to the tool, and <b>gf_time </b> will
+time Galois Field methods based on the provided arguments.<br>
+The usage of gf_ unit is:<br><br>
+<div id="number_spacing">
+<b>gf_unit </b> w tests seed method<br><br> </div>
+The usage of gf_ time is:<br><br>
+<div id="number_spacing">
+<b>gf_time </b> w tests seed buffer-size iterations method<br><br>
+</div>
+
+
+
+The seed is an integer- negative one uses the current time. The tests are specified by a listing of characters. The
+following tests are supported (All are supported by <b>gf_time.</b> Only ', 'S' and 'R' are supported by <b>gf_unit</b>):<br><br>
+
+<ul>
+<li> <b>'M':</b> Single multiplications</li><br>
+<li> <b> 'D':</b> Single divisions</li><br>
+<li> <b> 'I':</b> Single inverses</li><br>
+<li> <b>'G': </b> Region multiplication of a buffer by a random constant</li><br>
+<li> <b>'0': </b> Region multiplication of a buffer by zero (does nothing and<b>bzero()</b>)</li><br>
+<li> <b>'1': </b> Region multiplication of a buffer by one (does <b>memcpy()</b> and <b>XOR</b>)</li><br>
+<li> <b>'2': </b> Region multiplication of a buffer by two – sometimes this is faster than general multiplication</li><br>
+<li> <b>'S':</b> All three single tests</li><br>
+<li> <b>'R':</b> All four region tests</li><br>
+<li> <b>'A':</b> All seven tests</li><br>
+</ul>
+
+
+
+
+
+<p>Here are some examples of calling <b>gf_unit</b> and <b>gf_time</b> to verify that <b>"-m SPLIT 32 4 -r ALTMAP -"</b> works
+in <em>GF(2<sup>32</sup>),</em> and to get a feel for its performance. First, we go to the test directory and call <b>gf_unit:</b> </p><br><br>
+
+
+<div id="number_spacing">
+UNIX> cd test <br>
+UNIX> ./gf_unit 32 A -1 -m SPLIT 32 4 -r ALTMAP - <br>
+Args: 32 A -1 -m SPLIT 32 4 -r ALTMAP - / size (bytes): 684 <br>
+UNIX> <br><br>
+</div>
+
+<b>gf_unit</b> reports on the arguments and how may bytes the <b>gf_t</b> consumes. If it discovers any problems or inconsistencies
+with multiplication, division or region multiplication, it will report them. Here, there are no problems.
+Next, we move to the <b>tools</b> directory and run performance tests on a 10K buffer, with 10,000 iterations of each test:<br><br>
+
+
+UNIX> cd ../tools <br>
+UNIX> ./gf_time 32 A -1 10240 10000 -m SPLIT 32 4 -r ALTMAP -<br>
+Seed: 1388435794 <br>
+<div id="number_spacing">
+<table cellpadding="0" cellspacing="25" style="font-size:19px,font-family: 'Roboto Condensed', sans-serif;
+">
+
+<tr>
+
+<td>Multiply:</td> <td>4.090548 s</td> <td> Mops: </td> <td> 24.414 </td> <td>5.968 Mega-ops/s </td> </tr>
+<tr><td>Divide:</td> <td> 37.794962 s </td> <td>Mops: </td> <td> 24.414 </td> <td>0.646 Mega-ops/s </td> </tr>
+<tr><td>Inverse:</td> <td> 33.709875 s </td> <td> Mops: </td> <td> 24.414 </td> <td> 0.724 Mega-ops/s </td> </tr>
+<tr><td>Region-Random: XOR: 0 </td> <td> 0.035210 s </td> <td> MB:</td> <td> 97.656 </td> <td> 2773.527 MB/s </td></tr>
+<tr><td>Region-Random: XOR: 1 </td> <td> 0.036081 s</td> <td> MB:</td> <td> 97.656 </td> <td>2706.578 MB/s </td></tr>
+<tr><td>Region-By-Zero:XOR: 0 </td> <td> 0.003199 s </tD> <td> MB: </td> <td>97.656 </td> <td> 30523.884 MB/s </td> </tr>
+<tr><td>Region-By-Zero: XOR: 1 </td> <td> 0.000626 s  </td> <td>MB: </td> <td> 97.656 </td> <td> 156038.095 MB/s </td></tr>
+
+</table>
+</div>
+
+
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">22 </span> <br><br><br>
+
+<div id="number_spacing">
+<table cellpadding="0" cellspacing="10" style="font-family: 'Roboto Condensed', sans-serif;
+">
+
+<tr>
+<td>Region-By-One: XOR: 0</td> <td> 0.003810 s</td> <td> MB:</td> <td> 97.656 </td> <td> 25628.832 MB/s </td>
+<tr><td>Region-By-One: XOR: 1 </td> <td> 0.008363 s </td> <td> MB:</td> <td> 97.656 </tD> <td>11677.500 MB/s </td></tr>
+
+<tr><td>Region-By-Two: XOR: 0 </td> <td>0.032942 s  </td> <td>MB: </td> <td> 97.656 </td> <td> 2964.486 MB/s </td> </tr>
+<tr><td>Region-By-Two: XOR: 1 </td> <td> 0.033488 s </td> <td> MB: </td> <td> 97.656 </td> <td> 2916.153 MB/s </td> </tr> </table>
+</div>
+UNIX><br><br>
+
+<p>The first column of output displays the name of the test performed. Region tests will test with and without the XOR
+flag being set (see Section 4.3 for an example). The second column displays the total time the test took to complete
+measured in seconds (s). The third column displays the size of the test measured in millions of operations (Mops) for
+single tests and in Megabytes (MB) for the region tests. The final column displays the speed of the tests calculated
+from the second and third columns, and is where you should look to get an idea of a method's performance.</p>
+<p>
+If the output of <b>gf_unit</b> and <b>gf_time</b> are to your satisfaction, you can incorporate the method into application code
+using create <b>gf_from_argv()</b> or <b>gf_init hard().</b></p>
+<p>
+The performance of "Region-By-Zero" and "Region-By-One" will not change from test to test, as all methods make
+the same calls for these. "Region-By-Zero" with "XOR: 1" does nothing except set up the tests. Therefore, you may
+use it as a control.</p>
+
+<h3>6.3.1 &nbsp &nbsp &nbsp time_tool.sh </h3> 
+
+Finally, the shell script <b>time_tool.sh</b> makes a bunch of calls to <b>gf_time</b> to give a rough estimate of performance. It is
+called as follows:<br><br>
+usage sh time_tool.sh M|D|R|B w method<br><br>
+
+
+<p>The values for the first argument are <b>MDRB,</b> for <b>M</b>ultiplication, <b>D</b>ivision,<b>R</b>egion multiplications with multiple
+buffer sizes, and the <b>B</b>est region multiplication. For the example above, let's call <b>time_tool.sh</b> to get a rough idea of
+performance: </p><br><br>
+
+<div id="number_spacing">
+UNIX> sh time_tool.sh M 32 -m SPLIT 32 4 -r ALTMAP - <br>
+M speed (MB/s): 6.03 W-Method: 32 -m SPLIT 32 4 -r ALTMAP - <br>
+UNIX> sh time_tool.sh D 32 -m SPLIT 32 4 -r ALTMAP - <br>
+D speed (MB/s): 0.65 W-Method: 32 -m SPLIT 32 4 -r ALTMAP - <br>
+UNIX> sh time_tool.sh R 32 -m SPLIT 32 4 -r ALTMAP - <br>
+
+<table cellpadding="0" cellspacing="10" style="font-family: 'Roboto Condensed', sans-serif;
+">
+
+<tr>
+<td>Region Buffer-Size:</td> <td> 16K (MB/s):</td> <td>3082.91</td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Buffer-Size:</td> <td>32K (MB/s): </td> <td>3529.07 </td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Buffer-Size:</td> <td>64K (MB/s): </td> <td> 3749.94</td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Buffer-Size:</td> <td>128K (MB/s):</td> <td>3861.27 </td> <td>W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Buffer-Size:</td> <td>512K (MB/s):</td> <td>3820.82 </td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Buffer-Size:</td> <td>1M (MB/s):</td> <td>3737.41 </td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td>  </tr>
+<tr><td>Region Buffer-Size:</td> <td>2M (MB/s):</td> <td>3002.90 </td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Buffer-Size:</td> <td>4M (MB/s): </td><td>2760.77</td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+<tr><td>Region Best (MB/s):</td><td> 3861.27</td><td> W-Method: 32 </td> <td>-m SPLIT 32 4 </td> <td>-r ALTMAP -</td> </tr>
+</table>
+
+UNIX> sh time_tool.sh B 32 -m SPLIT 32 4 -r ALTMAP - <br>
+Region Best (MB/s): 3929.09  W-Method: 32  -m SPLIT 32 4 -r ALTMAP -</br>
+UNIX><br><br>
+</div>
+<p>
+We say that <b>time_tool.sh </b>is "rough" because it tries to limit each test to 5 ms or less. Thus, the time granularity
+is fine, which means that the numbers may not be as precise as they could be were the time granularity to be course.
+When in doubt, you should make your own calls to <b>gf_time</b> with a lot of iterations, so that startup costs and roundoff
+error may be minimized. </p>
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">23 </span> <br><br><br>
+
+<h3>6.3.2 &nbsp &nbsp &nbsp An example of gf_methods and time_tool.sh </h3><br><br>
+Let's give an example of how some of these components fit together. Suppose we want to explore the basic techniques
+in <em>GF(2<sup>32</sup>).</em> First, let's take a look at what <b>gf_methods</b> suggests as "basic" methods: <br><br>
+<div id="number_spacing">
+UNIX> gf_methods 32 -B -L <br>
+w=32: - <br>
+w=32: -m GROUP 4 8 - <br>
+w=32: -m SPLIT 32 4 - <br>
+w=32: -m SPLIT 32 4 -r ALTMAP - <br>
+w=32: -m SPLIT 32 8 - <br>
+w=32: -m SPLIT 8 8 - <br>
+w=32: -m COMPOSITE 2 - - <br>
+w=32: -m COMPOSITE 2 - -r ALTMAP - <br>
+UNIX> <br><br>
+</div>
+
+
+<p>
+
+You'll note, this is on my old Macbook Pro, which doesn't support (PCLMUL), so <b>"CARRY_FREE"</b> is not included
+as an option. Now, let's run the unit tester on these to make sure they work, and to see their memory consumption: </p><br><br>
+
+<div id="number_spacing">
+UNIX> gf_methods 32 -B -U <br>
+../test/gf_unit 32 A -1 - <br>
+../test/gf_unit 32 A -1 -m GROUP 4 8 - <br>
+../test/gf_unit 32 A -1 -m SPLIT 32 4 - <br>
+../test/gf_unit 32 A -1 -m SPLIT 32 4 -r ALTMAP - <br>
+../test/gf_unit 32 A -1 -m SPLIT 32 8 - <br>
+../test/gf_unit 32 A -1 -m SPLIT 8 8 - <br>
+../test/gf_unit 32 A -1 -m COMPOSITE 2 - - <br>
+../test/gf_unit 32 A -1 -m COMPOSITE 2 - -r ALTMAP - <br>
+UNIX> gf_methods 32 -B -U | sh <br>
+Args: 32 A -1 - / size (bytes): 684 <br>
+Args: 32 A -1 -m GROUP 4 8 - / size (bytes): 1296 <br>
+Args: 32 A -1 -m SPLIT 32 4 - / size (bytes): 684 <br>
+Args: 32 A -1 -m SPLIT 32 4 -r ALTMAP - / size (bytes): 684 <br>
+Args: 32 A -1 -m SPLIT 32 8 - / size (bytes): 4268 <br>
+Args: 32 A -1 -m SPLIT 8 8 - / size (bytes): 1839276 <br>
+Args: 32 A -1 -m COMPOSITE 2 - - / size (bytes): 524648 <br>
+Args: 32 A -1 -m COMPOSITE 2 - -r ALTMAP - / size (bytes): 524648 <br>
+UNIX> <br> <br>
+</div>
+<p>
+As anticipated, <b>"SPLIT 8 8"</b> consumes quite a bit of memory! Now, let's see how well they perform with both
+single multiplications and region multiplications: </p> <br><br>
+<div id="number_spacing">
+UNIX> gf_methods 32 -B -M <br>
+sh time_tool.sh M 32 - <br>
+sh time_tool.sh M 32 -m GROUP 4 8  - <br>
+sh time_tool.sh M 32 -m SPLIT 32 4 - <br>
+sh time_tool.sh M 32 -m SPLIT 32 4 -r ALTMAP -<br>
+sh time_tool.sh M 32 -m SPLIT 32 8 - <br>
+sh time_tool.sh M 32 -m SPLIT 8 8 - <br>
+
+</div>
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">24 </span> <br><br><br>
+
+<div id="number_spacing">
+sh time_tool.sh M 32 -m COMPOSITE 2 - <br>
+sh time_tool.sh M 32 -m COMPOSITE 2 - -r ALTMAP <br>
+UNIX> gf_methods 32 -B -M | sh
+M speed (MB/s): 5.90 W-Method: 32 <br>
+M speed (MB/s): 14.09 W-Method: 32 -m GROUP 4 8 <br>
+M speed (MB/s): 5.60 W-Method: 32 -m SPLIT 32 4 <br>
+M speed (MB/s): 5.19 W-Method: 32 -m SPLIT 32 4 -r ALTMAP <br>
+M speed (MB/s): 5.98 W-Method: 32 -m SPLIT 32 8 <br>
+M speed (MB/s): 22.10 W-Method: 32 -m SPLIT 8 8 <br>
+M speed (MB/s): 34.98 W-Method: 32 -m COMPOSITE 2 - <br>
+M speed (MB/s): 34.16 W-Method: 32 -m COMPOSITE 2 - -r ALTMAP <br>
+UNIX> gf_methods 32 -B -B | sh
+Region Best (MB/s): 2746.76 W-Method: 32 <br>
+Region Best (MB/s): 177.06 W-Method: 32 -m GROUP 4 8 <br>
+Region Best (MB/s): 2818.75 W-Method: 32 -m SPLIT 32 4 <br>
+Region Best (MB/s): 3818.21 W-Method: 32 -m SPLIT 32 4 -r ALTMAP <br>
+Region Best (MB/s): 728.68 W-Method: 32 -m SPLIT 32 8 <br>
+Region Best (MB/s): 730.97 W-Method: 32 -m SPLIT 8 8 <br>
+Region Best (MB/s): 190.20 W-Method: 32 -m COMPOSITE 2 - <br>
+Region Best (MB/s): 1837.99 W-Method: 32 -m COMPOSITE 2 - -r ALTMAP <br>
+UNIX>
+</div>
+<p>
+The default is quite a bit slower than the best performing methods for both single and region multiplication. So
+why are the defaults the way that they are? As detailed at the beginning of this chapter, we strive for lower memory
+consumption, so we don't use <b>"SPLIT 8 8,"</b> which consumes 1.75MB.We don't implement alternate fields by default,
+which is why we don't use <b>"COMPOSITE."</b> Finally, we don't implement alternate mappings of memory by default,
+which is why we don't use "<b>-m SPLIT 32 4 -r ALTMAP -.</b>"</p>
+
+<p>Of course, you may change these defaults if you please.</p>
+<p>
+<b>Test question:</b> Given the numbers above, it would appear that <b>"COMPOSITE"</b> yields the fastest performance of
+single multiplication, while "SPLIT 32 4" yields the fastest performance of region multiplication. Should I use two
+gf_t's in my application – one for single multiplication that uses <b>"COMPOSITE,"</b> and one for region multiplication
+that uses <b>"SPLIT 32 4?"</b></p>
+<p>
+The answer to this is "no." Why? Because composite fields are different from the "standard" fields, and if you mix
+these two <b>gf_t</b>'s, then you are using different fields for single multiplication and region multiplication. Please read
+section 7.2 for a little more information on this.</p>
+
+<h3>6.4 &nbsp &nbsp &nbspCalling gf_init_hard()</h3>
+
+We recommend that you use <b>create_gf_from_argv()</b> instead of <b>gf_init_hard().</b> However, there are extra things that
+you can do with <b>gf_init_hard().</b> Here's the prototype:<br><br>
+<div id="number_spacing">
+int gf_init_hard(gf_t *gf<br>
+<div style="padding-left:100px">
+int w<br>
+int mult_type<br>
+int region_type<br>
+int divide_type<br>
+uint64_t prim_poly<br>
+int arg1<br>
+int arg2<br>
+</div>
+</div>
+
+
+
+
+
+
+
+
+<br/>
+
+6 &nbsp &nbsp  <em>  THE DEFAULTS     </em>   <span id="index_number">25 </span> <br><br><br>
+<div id="number_spacing">
+<div style="padding-left:100px">
+GFP base_gf, <br>
+void *scratch_memory); </div><br><br>
+
+
+The arguments mult type, region type and divide type allow for the same specifications as above, except the
+types are integer constants defined in gf_complete.h: <br><br>
+typedef enum {GF_MULT_DEFAULT,<br>
+<div style="padding-left:124px">
+GF_MULT_SHIFT<br>
+GF_MULT_CARRY_FREE<br>
+GF_MULT_GROUP<br>
+GF_MULT_BYTWO_p<br>
+GF_MULT_BYTWO_b<br>
+GF_MULT_TABLE<br>
+GF_MULT_LOG_TABLE<br>
+GF_MULT_LOG_ZERO<br>
+GF_MULT_LOG_ZERO_EXT<br>
+GF_MULT_SPLIT_TABLE<br>
+GF_MULT_COMPOSITE } gf_mult_type_t;<br><br>
+
+</div>
+
+#define GF_REGION_DEFAULT (0x0)<br>
+#define GF_REGION_DOUBLE_TABLE (0x1) <br>
+#define GF_REGION_QUAD_TABLE (0x2) <br>
+#define GF_REGION_LAZY (0x4) <br>
+#define GF_REGION_SSE (0x8) <br>
+#define GF_REGION_NOSSE (0x10) <br>
+#define GF_REGION_ALTMAP (0x20) <br>
+#define GF_REGION_CAUCHY (0x40) <br><br>
+typedef enum { GF_DIVIDE_DEFAULT<br>
+<div style="padding-left:130px">GF_DIVIDE_MATRIX<br>
+GF_DIVIDE_EUCLID } gf_division_type_t;<br><br>
+</div>
+</div>
+<p>
+You can mix the region types with bitwise or. The arguments to <b>GF_MULT_GROUP,GF_MULT_SPLIT_TABLE</b>
+and <b>GF_MULT_COMPOSITE</b> are specified in arg1 and arg2. <b>GF_MULT_COMPOSITE</b> also takes a base field
+in <b>base_gf.</b> The base field is itself a <b>gf_t,</b> which should have been created previously with <b>create_gf_fro_argv(),</b>
+<b>gf_init_easy()</b> or <b>gf_init_hard().</b> Note that this <b>base_gf</b> has its own <b>base_gf</b> member and can be a composite field
+itself.</p>
+<p>
+You can specify an alternate polynomial in <b>prim_poly.</b> For <em>w </em>&#8804 32, the leftmost one (the one in bit position <em>w</em>) is
+optional. If you omit it, it will be added for you. For <em>w </em> = 64, there's no room for that one, so you have to leave it off.
+For <em>w </em>= 128, your polynomial can only use the bottom-most 64 bits. Fortunately, the standard polynomial only uses
+those bits. If you set <b>prim_poly</b> to zero, the library selects the "standard" polynomial.
+</p>
+<p>
+Finally, <b>scratch_memory</b> is there in case you don't want <b>gf_init_hard()</b> to call <b>malloc()</b>. Youmay call <b>gf_scratch_size()</b>
+to find out how much extra memory each technique uses, and then you may pass it a pointer for it to use in <b>scratc_memory.</b>
+If you set scratch memory to NULL, then the extra memory is allocated for you with <b>malloc().</b> If you use <b>gf_init_easy()</b>
+or <b>create_gf_from_argv(),</b> or you use <b>gf_init_hard()</b> and set <b>scratch_memory</b> to <b>NULL,</b> then you should call <b>gf_free()</b>
+to free memory. If you use <b>gf_init_hard()</b> and use your own <b>scratch_memory</b> you can still call <b>gf_free(),</b> and it will
+not do anything.</p>
+<p>
+Both <b>gf_init_hard()</b> and <b>gf_scratch_size()</b> return zero if the arguments don't specify a valid <b>gf_t.</b> When that happens,
+you can call <b>gf_error()</b> to print why the call failed.</p>
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">26  </span> <br><br><br>
+
+
+<p>We'll give you one example of calling <b>gf_ init_hard().</b> Suppose you want to make a <b>gf_ init_hard()</b> call to be
+equivalent to "-m SPLIT 16 4 -r SSE -r ALTMAP -" and you want to allocate the scratch space yourself. Then you'd
+do the following:</p><br><br>
+
+<div id="number_spacing">
+gf_t gf; <br>
+void *scratch; <br>
+int size; <br>
+size = gf_scratch_size(16, GF_MULT_SPLIT_TABLE,<br>
+GF_REGION_SSE | GF_REGION_ALTMAP,<br>
+GF_DIVIDE_DEFAULT,<br>
+16, 4); <br>
+if (size == 0) { gf_error(); exit(1); } /* It failed. That shouldn’t happen */<br>
+scratch = (void *) malloc(size); <br>
+if (scratch == NULL) { perror("malloc"); exit(1); } <br>
+if (!gf_init_hard(&gf, 16, GF_MULT_SPLIT_TABLE, <br>
+GF_REGION_SSE | GF_REGION_ALTMAP, <br>
+GF_DIVIDE_DEFAULT,<br>
+0, 16, 4, NULL, scratch)) { <br>
+gf_error(); <br>
+exit(1); <br>
+} <br>
+
+</div>
+
+
+<h3>6.5 &nbsp   &nbsp   gf_size() </h3>
+
+You can call <b>gf_size(gf_t *gf)</b> to learn the memory consumption of the <b>gf_t.</b> It returns all memory consumed by the
+<b>gf_t,</b> including the <b>gf_t</b> itself, any scratch memory required by the gf_ t, and the memory consumed by the sub-field
+if the field is <b>"COMPOSITE."</b> If you provided your own memory to <b>gf_init_hard(),</b> it does not report the size of
+this memory, but what the size should be, as determined by <b>gf_scratch size(). gf_ unit() </b> prints out the return value of
+<b>gf_size()</b> on the given field.
+
+
+<h2>7 &nbsp Further Information on Options and Algorithms </h2>
+<h3>
+7.1 &nbsp Inlining Single Multiplication and Division for Speed </h3>
+
+Obviously, procedure calls are more expensive than single instructions, and the mechanics of multiplication in <b>"TABLE"</b>
+and <b>"LOG"</b> are pretty simple. For that reason, we support inlining for <b>"TABLE"</b> when <em>w </em> = 4 and <em>w </em> = 8, and
+for <b>"LOG"</b> when <em>w </em> = 16. We elaborate below.
+<p>
+When <em>w </em> = 4, you may inline multiplication and division as follows. The following procedures return pointers to
+the multiplication and division tables respectively: </p> <br><br>
+
+<div id="number_spacing">
+uint8_t *gf_w4_get_mult_table(gf_t * gf);<br>
+uint8_t *gf_w4_get_div_table(gf_t * gf);<br><br>
+</div>
+<p>The macro <b>Gf_W4_INLINE_MULTDIV </b>(<em>table, a, b</em>) then multiplies or divides <em>a </em> by <em>b</em> using the given table. This
+of course only works if the multiplication technique is <b>"TABLE,"</b> which is the default for <em>w </em> = 4. If the multiplication
+technique is not <b>"TABLE,"</b> then <b>gf_w4_get_mult_table()</b> will return <b>NULL.</b></p>
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">27  </span> <br><br><br>
+
+
+
+
+<p>When <em>w </em> = 8, the procedures <b>gf_w8_et_mult_table()</b> and <b>gf_ w8_get_div_table(),</b> and the macro </p>
+
+<b>GF_W8_INLINE_MULTDIV </b>(<em>table, a, b</em>) work identically to the <em>w </em> = 4 case.
+
+<p>When <em>w </em> = 16, the following procedures return pointers to the logarithm table, and the two inverse logarithm tables
+respectively: </p><br>
+
+<div id="number_spacing">
+uint16_t *gf_w16_get_log_table(gf_t * gf); <br>
+uint16_t *gf_w16_get_mult_alog_table(gf_t * gf);<br>
+uint16_t *gf_w16_get_div_alog_table(gf_t * gf);<br>
+
+</div>
+<br>
+<p>
+The first inverse logarithm table works for multiplication, and the second works for division. They actually point
+to the same table, but to different places in the table. You may then use the macro <b>GF_W16_INLINE_MULT</b>(<em>log,
+alog, a, b </em>) to multiply <em>a</em> and <em>b</em>, and the macro <b>GF_W16_INLINE_DIV </b>(<em>log, alog, a, b </em>) to divide a and b. Make
+sure you use the <em>alog</em> table returned by <b>gf_w16_get_mult_alog_table()</b> for multiplication and the one returned by
+<b>gf_w16_get_div_alog_table()</b> for division. Here are some timings: </p> <br><br>
+
+
+UNIX> gf_time 4 M 0 10240 10240 - <br>
+Seed: 0 <br>
+Multiply: 0.228860 s Mops: 100.000 436.949 Mega-ops/s <br>
+UNIX> gf_inline_time 4 0 10240 10240 <br>
+Seed: 0 <br>
+Inline mult: 0.096859 s Mops: 100.000 1032.424 Mega-ops/s <br>
+UNIX> gf_time 8 M 0 10240 10240 - <br>
+Seed: 0 <br>
+Multiply: 0.228931 s Mops: 100.000 436.812 Mega-ops/s <br>
+UNIX> gf_inline_time 8 0 10240 10240 <br>
+Seed: 0 <br>
+Inline mult: 0.114300 s Mops: 100.000 874.889 Mega-ops/s <br>
+UNIX> gf_time 16 M 0 10240 10240 - <br>
+Seed: 0 <br>
+Multiply: 0.193626 s Mops: 50.000 258.229 Mega-ops/s <br>
+UNIX> gf_inline_time 16 0 10240 10240 <br>
+Seed: 0 <br>
+Inline mult: 0.310229 s Mops: 100.000 322.342 Mega-ops/s <br>
+UNIX> <br> <br>
+
+<h3>
+7.2 &nbsp &nbsp Using different techniques for single and region multiplication </h3>
+
+
+You may want to "mix and match" the techniques. For example, suppose you'd like to use "-m SPLIT 8 8" for
+<b>multiply()</b> in <em>GF(2<sup>32</sup>),</em> because it's fast, and you don't mind consuming all of that space for tables. However, for
+<b>multiply_region(),</b> you'd like to use "-m SPLIT 32 4 -r ALTMAP," because that's the fastest way to implement
+<b>multiply_region().</b> Unfortunately, There is no way to create a <b>gf_t</b> that does this combination. In this case, you should
+simply create two <b>gf_t's,</b> and use one for <b>multiply()</b> and the other for <b>multiply_region().</b> All of the implementations
+may be used interchangably with the following exceptions:
+
+<ul>
+<li>
+<b>"COMPOSITE"</b> implements a different Galois Field. </li><br>
+
+<li>If you change a field's polynomial, then the resulting Galois Field will be different. </li>
+
+</ul>
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">28  </span> <br><br><br>
+
+<ul>
+<li>
+
+If you are using <b>"ALTMAP"</b> to multiply regions, then the contents of the resulting regions of memory will
+depend on the multiplication technique, the size of the region and its alignment. Please see section 7.9 for a
+detailed explanation of this. </li>
+
+<li>If you are using <b>"CAUCHY"</b> to multiply regions, then like <b>"ALTMAP,"</b> the contents of the result regions of
+memory the multiplication technique and the size of the region. You don't have to worry about alignment. </li>
+
+<h3>7.3 &nbsp &nbsp General <em>w </em>  </h3>
+The library supports Galois Field arithmetic with 2 < <em>w </em> &#8804 32. Values of <em>w </em> which are not whole number powers of
+2 are handled by the functions in <b>gf_wgen.c</b> . For these values of <em>w </em>, the available multiplication types are <b>"SHIFT,"
+"BYT<em>w </em>O p," "BYT<em>w </em>O b," "GROUP," "TABLE"</b> and <b>"LOG." "LOG" </b> is only valid for <em>w </em> < 28 and <b>"TABLE"</b>
+
+is only valid for <em>w </em> < 15. The defaults for these values of <em>w </em> are <b>"TABLE"</b> for <em>w </em> < 8, <b>"LOG"</b> for <em>w </em> < 16, and
+<b>"BYT<em>w </em>O p"</b> for <em>w </em> < 32.<br><br>
+
+<h3>7.4 Arguments to "SPLIT" </h3>
+
+The "SPLIT" technique is based on the distributive property of multiplication and addition: <br><br>
+<center>
+a * (b + c) = (a * b) + (a * c). </center>
+<br>
+This property allo<em>w </em>s us to, for example, split an eight bit <em>w </em>ord into t<em>w </em>o four-bit components and calculate the product
+by performing t<em>w </em>o table lookups in 16-element tables on each of the compoents, and adding the result. There is much
+more information on <b>"SPLIT"</b> in The Paper. Here <em>w </em>e describe the version of <b>"SPLIT"</b> implemented in GF-Complete.
+
+<p>
+<b>"SPLIT"</b> takes t<em>w </em>o arguments, <em>w </em>hich are the number of bits in each component of a, <em>w </em>hich <em>w </em>e call <em>w </em><sub>a</sub>, and the
+number of bits in each component of b, <em>w </em>hich <em>w </em>e call <em>w </em><sub>b.</sub> If the t<em>w </em>o differ, it does not matter <em>w </em>hich is bigger - the
+library recognizes this and performs the correct implementation. The legal values of <em>w </em><sub>a</sub> and <em>w </em><sub>b</sub> fall into five categories:
+</p><br>
+
+
+<ol>
+<li>
+ <em>w </em><sub>a</sub> is equal to <em>w </em> and <em>w </em><sub>b</sub> is equal to four. In this case, b is broken up into <em>w </em>/4
+four-bit <em>w </em>ords <em>w </em>hich are used
+in 16-element lookup tables. The tables are created on demand in <b>multiply_region()</b> and the SSSE3 instruction
+
+<b>mm_shuffle_epi8()</b> is leveraged to perform 16 lookups in parallel. Thus, these are very fast implementations.
+<em>w </em>hen <em>w </em> &#8805 16, you should combine this <em>w </em>ith <b>"ALTMAP"</b> to get the best performance (see The Paper
+or [PGM13b] for explanation). If you do this please see section 7.9 for information about <b>"ALTMAP"</b> and
+alignment.<br><br>
+
+
+If you don't use <b>"ALTMAP,"</b> the implementations for <em>w </em> &#8712 {16, 32, 64} convert the standard representation into
+<b>"ALTMAP,"</b> perform the multiplication <em>w </em>ith <b>"ALTMAP"</b> and then convert back to the standard representation.
+The performance difference using <b>"ALTMAP"</b> can be significant: <br><br><br>
+
+<div id="number_spacing">
+<center>
+<div id="table_page28">
+<table cellpadding="6" cellspacing="0" style="text-align:center;font-size:19px">
+<tr>
+<td> gf_time 16 G 0 1048576 100 -m SPLIT 16 4 -</td> <td>Speed = 8,389 MB/s </td> 
+</tr>
+<tr>
+<td>gf_time 16 G 0 1048576 100 -m SPLIT 16 4 -r ALTMAP - </td> <td>Speed = 8,389 MB/s </td> 
+</tr>
+
+<tr>
+<td>gf_time 32 G 0 1048576 100 -m SPLIT 32 4 -</td> <td> Speed = 5,304 MB/s</td> 
+</tr>
+<tr>
+<td>gf_time 32 G 0 1048576 100 -m SPLIT 32 4 -r ALTMAP -</td> <td> Speed = 7,146 MB/s</td> 
+</tr>
+
+
+<tr>
+<td>gf_time 64 G 0 1048576 100 -m SPLIT 64 4 - </td> <td>Speed = 2,595 MB/s </td> 
+</tr>
+
+<tr>
+<td>gf_time 64 G 0 1048576 100 -m SPLIT 64 4 -r ALTMAP - </td> <td>Speed = 3,436 MB/s </td> 
+</tr>
+</div>
+
+
+
+</table>
+</div>
+
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">29  </span> <br><br><br>
+
+<ol style="list-style-type:none">
+
+
+<li>2. &nbsp w<sub>a</sub> is equal to <em>w </em> and w<sub>b</sub> is equal to eight. Now, b is broken into bytes, each of these is used in its own 256-element
+lookup table. This is typically the best w<sub>a</sub>y to perform <b>multiply_region()</b> without SSE.</li> 
+Because this is a region optimization, when you specify these options, you get a default <b>multiply()</b>  see
+Table 1 for a listing of the defaults. See section 7.2 for using a different <b>multiply()</b> than the defaults.<br><br>
+
+
+<li>
+3. &nbsp w<sub>a</sub> is equal to <em>w </em> and <em>w </em><sub>b</sub> is equal to 16. This is only valid for <em>w </em> = 32 and <em>w </em> = 64. No<em>w </em>, b is broken into shorts,
+each of these is used in its own 64K-element lookup table. This is typically slower than when <em>w </em><sub>b</suB> equals 8, and
+requires more amortization (larger buffer sizes) to be effective. </li><br>
+
+
+<li>4. &nbsp <em>w </em><sub>a</sub> and <em>w </em><sub>b</sub> are both equal to eight. Now  both <em>a</em> and <em>b</em> are broken into bytes, 
+and the products of the various bytes
+are looked up in multiple 256 &#215 256 tables. In <em>GF(2<sup>16</sup>),</em> there are three of these tables. In <em>GF(232),</em> there are
+seven, and in <em>GF(2<sup>64</sup>)</em> there are fifteen. Thus, this implementation can be a space hog. How ever, for <em>w </em> = 32,
+this is the fastest way to perform <b>multiply()</b> on some machines.
+when this option is employed, <b>multiply_region()</b> is implemented in an identical fashion to when <em>w </em><sub>a</sub> = <em>w </em>
+and <em>w </em><sub>b</sub> = 8. </li><br>
+
+<li>5.&nbsp w<sub>a</sub> = 32 and w<sub>b</sub> = 2. (<em>w</em> = 32 only). I was playing with a different way to use <b>mm_shuffle_epi8().</b> It works,
+but it's slower than when w<sub>b</sub> = 4.
+</li>
+
+</ul>
+
+
+
+<h2>7.5 &nbsp&nbsp Arguments to "GROUP" </h3>
+
+The <b>"GROUP"</b> multiplication option takes t<em>w </em>o arguments, g<sub>s</sub> and g<sub>r</sub>. It implements multiplication in the same manner
+as <b>"SHIFT,"</b> except it uses a table of size 2<sup>gs</sup> to perform g<sup>s</sup> shifts at a time, and a table of size 2<sup>gr</sup> to perform g<sup>r</sup>
+reductions at at time. The program <b>gf_methods</b> only prints the options 4 4 and 4 8 as arguments for <b>"GROUP."</b>
+However, other values of g<sub>s</sub> and g<sub>r</sub> are legal and sometimes desirable: <br><br>
+
+<ol>
+<li>
+ For <em>w </em> &#8804 32 and <em>w </em> = 64, any values of g<sub>s</sub> and g<sub>r</sub> may be used, so long as they are less than or equal to <em>w </em> and so
+long as the tables fit into memory. There are four exceptions to this, listed belo<em>w </em>. </li><br>
+<li> For <em>w </em> = 4, <b>"GROUP"</b> is not supported. </li><br>
+<li> For <em>w </em> = 8, <b>"GROUP"</b> is not supported. </li><br>
+<li> For <em>w </em> = 16, <b>"GROUP"</b> is only supported for gs = gr = 4. </li><br>
+<li> For <em>w </em> = 128 <b>"GROUP"</b> only supports <em>g<sub>s</sub></em> = 4 and <em> g<sub>r</b> </em> &#8712 {4, 8, 16}.</li><br>
+</ol>
+<p>
+The way that gs and gr impact performance is as follows. The <b>"SHIFT"</b> implementation works by performing a
+carry-free multiplication in <em>w </em> steps, and then performing reduction in <em>w </em> steps. In "GROUP," the carry-free multiplication
+is reduced to  <em>w /</em>g<sub>s</sub>steps, and the reduction is reduced to <em>w /</em>g<sub>r</sub>
+
+. Both require tables. The table for the carry-free
+multiplication must be created at the beginning of each <b>multiply()</b> or <b>multiply_region(),</b> while the table for reduction
+is created when the <b>gf_t</b> is initialized. For that reason, it makes sense for g<sub>r</sub> to be bigger than g<sub>s.</sub></p>
+
+<p>
+To give a flavor for the impact of these arguments, Figure 3 show </em>s the performance of varying g<sub>s</sub> and g<sub>r</sub> for
+single multiplication and region multiplication respectively, in <em> GF(2<sup>32</sup>)</em> and <em>GF(2<sup>64</sup>).</em> As the graphs demonstrate,
+<b>multiply()</b> performs better <em>w </em>ith smaller values of gs, <em>w </em>hile multiply region() amortizes the creation of the shifting
+table, and can tolerate larger values of g<sub>s.</sub> <em>w </em>hen g<sub>s</sub> equals g<sub>r,</sub> there are some optimizations that we hand-encode.
+These can be seen clearly in the <b>multiply_region()</b> graphs.
+</p>
+
+
+
+
+
+
+
+
+<br/>
+7 &nbsp &nbsp  <em>   FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">30 </span> 
+
+
+<div id="box_1"> 
+ 
+<div class="image-cell_3"> </div>
+
+<div class="image-cell_4"> </div>
+</div>
+Figure 3: The performance of <b>multiply()</b> and <b>multiply_region()</b> using <b>"GROUP,"</b> and varying the arguments <br> g<sub>s</sub>
+and g<sub>r.</sub> All graphs are heat maps with black equaling zero. The region size is 100KB.
+
+<h3>7.6 &nbspConsiderations with "COMPOSITE" </h3>
+
+
+As mentioned above, using <b>"ALTMAP"</b> with <b>"COMPOSITE"</b> allows <b>multiply_region()</b> to recursively call <b>multiply_
+region(),</b> rather than simply calling <b>multiply()</b> on every word in the region. The difference can be pronounced:<br><br>
+
+<div id="table_page28"><center>
+
+<table cellpadding="6" cellspacing="0" style="text-align:center;font-size:19px"><tr>
+<td>
+gf_time 32 G 0 10240 10240 -m COMPOSITE 2 - -
+Speed = 322 MB/s </td> </tr>
+<tr>
+<td>gf_time 32 G 0 10240 10240 -m COMPOSITE 2 - -r ALTMAP -
+Speed = 3,368 MB/s </td> </tr>
+
+<tr>
+<td>
+gf_time 32 G 0 10240 10240 -m COMPOSITE 2 -m SPLIT 16 4 -r ALTMAP - -r ALTMAP -
+Speed = 3,925 MB/s </td> </tr>
+</center>
+</table>
+</div>
+
+
+<br><br>
+<p>
+There is support for performing <b>multiply()</b> inline for the <b>"TABLE"</b> implementations for w &#8712 {4, 8} and for the
+"LOG" implementation for <em>w</em> = 16 (see section 7.1). These are leveraged by <b>multiply()</b> in <b>"COMPOSITE,"</b> and
+by <b>multiply_region()</b> if you are not using <b>"ALTMAP."</b> To demonstrate this, in the table below, you can see that the
+performance of <b>multiply()</b> with <b>"SPLIT 8 4"</b> is 88 percent as fast than the default in <em>w</em> = 8 (which is <b>"TABLE"</b>).
+When you use each as a base field for <b>"COMPOSITE"</b> with <em>w</em> = 16, the one with <b>"SPLIT 8 4"</b> is now just 37 percent
+as fast. The difference is the inlining of multiplication in the base field when <b>"TABLE"</b> is employed:</p><br><br>
+
+<div id="table_page28" border="0"><center>
+
+    <table cellpadding="6" cellspacing="0" style="text-align:center;font-size:19px">
+
+      <tr><td>gf_time 8 M 0 1048576 100 - Speed = 501 Mega-ops/s</td> </tr>
+      <tr><td>gf_time 8 M 0 1048576 100 -m SPLIT 8 4 - Speed = 439 Mega-ops/s </td> </tr>
+      <tr><td>gf_time 8 M 0 1048576 100 -m COMPOSITE 2 - - Speed = 207 Mega-ops/s </td> </tr>
+      <tr><td>gf_time 8 M 0 1048576 100 -m COMPOSITE 2 -m SPLIT 8 4 - - Speed = 77 Mega-ops/s </td> </tr>
+
+    </table> 
+    </center>
+<br><br>
+</div>
+
+You can keep making recursive definitions of composites field if you want. For example, this one's not too slow for
+region operations (641 MB/s):
+
+
+
+
+
+
+
+
+<br/>
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">31  </span> <br><br><br>
+
+<div id="number_spacing">
+<center>
+gf_time 128 G 0 1048576 100 -m COMPOSITE 2 <span style="color:red">-m COMPOSITE 2 </span> <span style="color:blue">-m COMPOSITE 2 </span> <br>
+<span style="color:rgb(250, 149, 167)">-m SPLIT 16 4 -r ALTMAP -</span> <span style="color:blue">-r ALTMAP -</span> <span style="color:red"> -r ALTMAP -</span> -r ALTMAP -
+</center>
+</div><br>
+
+<p>Please see section 7.8.1 for a discussion of polynomials in composite fields.</p>
+
+<h2>7.7 &nbsp &nbsp &nbsp "CARRY_FREE" and the Primitive Polynomial </h2>
+
+
+If your machine supports the PCLMUL instruction, then we leverage that in <b>"CARRY_FREE."</b> This implementation
+first performs a carry free multiplication of two <em>w</em>-bit numbers, which yields a 2<em>w</em>-bit number. It does this with
+one PCLMUL instruction. To reduce the 2<em>w</em>-bit number back to a <em>w</em>-bit number requires some manipulation of the
+polynomial. As it turns out, if the polynomial has a lot of contiguous zeroes following its leftmost one, the number of
+reduction steps may be minimized. For example, with <em>w </em> = 32, we employ the polynomial 0x100400007, because that
+is what other libraries employ. This only has 9 contiguous zeros following the one, which means that the reduction
+takes four steps. If we instead use 0x1000000c5, which has 24 contiguous zeros, the reduction takes just two steps.
+You can see the difference in performance:
+<br><br>
+<center>
+<div id="table_page28">
+
+<table cellpadding="6" cellspacing="0" style="text-align:center;font-size:19px">
+<tr>
+
+<td>gf_time 32 M 0 1048576 100 -m CARRY_FREE - </td> <td> Speed = 48 Mega-ops/s</td> </tr>
+
+<tr><td>gf_time 32 M 0 1048576 100 -m CARRY_FREE -p 0xc5 -</td> <td> Speed = 81 Mega-ops/s </td> </tr>
+
+</table></center>
+</div>
+<br><br>
+
+<p>
+This is relevant for <em>w </em> = 16 and <em>w </em> = 32, where the "standard" polynomials are sub-optimal with respect to
+<b>"CARRY_FREE."</b> For <em>w </em> = 16, the polynomial 0x1002d has the desired property. It’s less important, of course,
+with <em>w </em> = 16, because <b>"LOG"</b> is so much faster than <b>CARRY_FREE.</b> </p>
+
+<h2>7.8 &nbsp  More on Primitive Polynomials </h3>
+
+<h3>7.8.1 &nbsp Primitive Polynomials that are not Primitive </h4>
+
+The library is willing to work with most polynomials, even if they are not primitive or irreducible. For example, the
+polynomial x<sup>4</sup> + x<sup>3</sup> +x<sup>2</sup> +x+1 is irreducible, and therefore generates a valid Galois Field for <em>GF(2<sup>4</sup>).</em> However, it
+is not primitive, because 2<sup>5</sup> = 1. For that reason, if you use this polynomial, you cannot use the <b>"LOG"</b> method. The
+other methods will work fine: <br><br>
+
+<div id="number_spacing">
+
+UNIX> gf_mult 2 2 4 -p 0xf -  <br>
+4 <br>
+UNIX> gf_mult 4 2 4 -p 0xf - <br>
+8 <br>
+UNIX> gf_mult 8 2 4 -p 0xf - <br>
+15 <br>
+UNIX> gf_mult 15  2 4 -p 0xf - <br>
+1 <br>
+UNIX> gf_div 1 15 4 -p 0xf - <br>
+2 <br>
+UNIX> gf_div 1 15 4 -p 0xf -m LOG - <br>
+usage: gf_div a b w [method] - does division of a and b in GF(2&#710;w) <br>
+Bad Method Specification: Cannot use Log tables because the polynomial is not primitive. <br>
+UNIX>  <br>
+</div>
+<p>
+If a polynomial is reducible, then it does not define a Galois Field, but instead a ring. GF-Complete attempts to
+work here where it can; however certain parts of the library will not work:
+</p>
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">32  </span> <br><br><br>
+<ol>
+<li>
+Division is a best effort service. The problemis that often quotients are not unique. If <b>divide()</b> returns a non-zero
+number, then that number will be a valid quotient, but it may be one of many. If the multiplication technique is
+<b>"TABLE,"</b> then if a quotient exists, one is returned. Otherwise, zero is returned. Here are some examples - the
+polynomial x<sup>4</sup> + 1 is reducible, and therefore produces a ring. Below, we see that with this polynomal, 1*6 = 6
+and 14*6 = 6. Therefore, 6/6 has two valid quotients: 1 and 14. GF-Complete returns 14 as the quotient:</li><br>
+
+<div id="number_spacing">
+UNIX> gf_mult 1 6 4 -p 0x1 -<br>
+6 <br>
+UNIX> gf_mult 14 6 4 -p 0x1 - <br>
+6 <br>
+UNIX> gf_div 6 6 4 -p 0x1 - <br>
+14 <br>
+UNIX> <br><br>
+</div>
+
+
+<li>When <b>"EUCLID"</b> is employed for division, it uses the extended Euclidean algorithm for GCD to find a number's
+inverse, and then it multiplies by the inverse. The problem is that not all numbers in a ring have inverses. For
+example, in the above ring, there is no number <em>a</em> such that 6a = 1. Thus, 6 has no inverse. This means that even
+though 6/6 has quotients in this ring, <b>"EUCLID"</b> will fail on it because it is unable to find the inverse of 6. It will
+return 0:
+</li><br>
+<div id="number_spacing">
+UNIX> gf_div 6 6 4 -p 0x1 -m TABLE -d EUCLID -<br>
+0<br>
+UNIX><br>
+</div><br>
+
+<li> Inverses only work if a number has an inverse. Inverses may not be unique. </li><br>
+
+<li> <b>"LOG"</b> will not work. In cases where the default would be <b>"LOG,"</b> <b>"SHIFT"</b> is used instead. </li>
+</ol>
+
+<p>
+Due to problems with division, <b>gf_unit</b> may fail on a reducible polynomial. If you are determined to use such a
+polynomial, don't let this error discourage you.
+</p>
+
+<h3>7.8.2 Default Polynomials for Composite Fields </h3>
+
+GF-Complete will successfully select a default polynomial in the following composite fields:
+<ul>
+<li> <em>w </em> = 8 and the default polynomial (0x13) is employed for <em>GF(2<sup>4</sup>)</em></li><br>
+<li> w = 16 and the default polynomial (0x11d) is employed for <em>GF(2<sup>8</sup>)</em></li><br>
+<li> <em>w </em> = 32 and the default polynomial (0x1100b) is employed for <em>GF(2<sup>16</sup>) </em></li><br>
+<li> <em>w </em> = 32 and 0x1002d is employed for <em>GF(2<sup>16</sup>) </em></li><br>
+<li> <em>w </em> = 32 and the base field for <em>GF(w<em>16</em>) </em> is a composite field that uses a default polynomial</li><br>
+<li> <em>w </em> = 64 and the default polynomial (0x100400007) is employed for <em>GF(2<sup>32</sup>)</em></li><br>
+<li> <em>w </em> = 64 and 0x1000000c5 is employed for <em>GF(2<sup>32</sup>) </em></li><br>
+<li> <em>w </em> = 64 and the base field for <em>GF(w<sup>32</sup>) </em> is a composite field that uses a default polynomial</li><br>
+<li> <em>w </em> = 128 and the default polynomial (0x1b) is employed for <em>GF(2<sup>64</sup>) </em></li><br>
+<li> <em>w </em> = 128 and the base field for <em> GF(w<sup>64 </sup>) </em> is a composite field that uses a default polynomial</li><br>
+</ul>
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">33  </span> <br><br><br>
+
+
+<h3>7.8.3 The Program gf_poly for Verifying Irreducibility of Polynomials </h3>
+
+The program <b>gf_poly</b> uses the Ben-Or algorithm[GP97] to determine whether a polynomial with coefficients in <em> GF(2<sup>w </sup>) </em>
+is reducible. Its syntax is:<br><br>
+<div id="number_spacing">
+gf_poly w method power:coef power:coef ... 
+</div>
+
+<br>
+<p>You can use it to test for irreducible polynomials with binary coefficients by specifying w = 1. For example, from
+the discussion above, we know that x<sup>4</sup> +x+1 and x<sup>4</sup> +x<sup>3</sup> +x<sup>2</sup> +x+1 are both irreducible, but x<sup>4</sup> +1 is reducible.
+<b>gf_poly</b> confirms:<p><br>
+
+<div id="number_spacing">
+UNIX> gf_poly 1 - 4:1 1:1 0:1 <br>
+Poly: x&#710;4 + x + 1 <br>
+Irreducible. <br>
+UNIX> gf_poly 1 - 4:1 3:1 2:1 1:1 0:1 <rb>
+Poly: x&#710;4 + x&#710;3 + x&#710;2 + x + 1 <br>
+Irreducible. <br>
+UNIX> gf_poly 1 - 4:1 0:1 r<br>
+Poly: x&#710;4 + 1 <br>
+Reducible. <br>
+UNIX> <br>
+
+</div>
+
+
+<p>
+For composite fields <em>GF((2<sup>l</sup>)<sup>2</sup>),</em> we are looking for a value s such that x<sup>2</sup> + sx + 1 is irreducible. That value
+depends on the base field. For example, for the default field <em>GF(2<sup>32</sup>),</em> a value of <em>s</em> = 2 makes the polynomial
+irreducible. However, if the polynomial 0xc5 is used (so that PCLMUL is fast - see section 7.7), then <em>s</em> = 2 yields a
+reducible polynomial, but <em>s</em> = 3 yields an irreducible one. You can use <b>gf_poly</b> to help verify these things, and to help
+define s if you need to stray from the defaults:</p> <br>
+
+<div id="number_spacing">
+UNIX> gf_poly 32 - 2:1 1:2 0:1<br>
+Poly: x&#710;2 + (0x2)x + 1 <br>
+Irreducible. <br>
+UNIX> gf_poly 32 -p 0xc5 - 2:1 1:2 0:1 <br>
+Poly: x&#710;2 + (0x2)x + 1 <br>
+Reducible. <br>
+UNIX> gf_poly 32 -p 0xc5 - 2:1 1:3 0:1 <br>
+Poly: x&#710;2 + (0x3)x + 1 <br>
+Irreducible. <br>
+UNIX> <br>
+</div>
+
+<p>
+<b>gf_unit</b> does random sampling to test for problems. In particular, it chooses a random a and a random b, multiplies
+them, and then tests the result by dividing it by a and b. When w is large, this sampling does not come close to
+providing complete coverage to check for problems. In particular, if the polynomial is reducible, there is a good
+chance that <b>gf_unit</b> won't discover any problems. For example, the following <b>gf_unit</b> call does not flag any problems,
+even though the polynomial is reducible.</p>
+<br>
+<div id="number_spacing">
+UNIX> gf_unit 64 A 0 -m COMPOSITE 2 -p 0xc5 - -p 2 -<br>
+UNIX>
+</div>
+
+<p>
+How can we demonstrate that this particular field has a problem? Well, when the polynomial is 0xc5, we can factor
+x<sup>2</sup> + 2x + 1 as (x + 0x7f6f95f9)(x + 0x7f6f95fb). Thus, in the composite field, when we multiply 0x17f6f95f9 by
+0x17f6f95fb, we get zero. That's the problem:
+</p>
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">34  </span> <br><br><br>
+
+<div id="number_spacing">
+
+UNIX> gf_mult 7f6f95f9 7f6f95fb 32h -p 0xc5 - <br>
+1 <br>
+UNIX> gf_mult 17f6f95f9 17f6f95fb 64h -m COMPOSITE 2 -p 0xc5 - -p 2 - <br>
+0 <br>
+UNIX> <br>
+
+</div>
+
+<h2>7.9 "ALTMAP" considerations and extract_word() </h2>
+
+There are two times when you may employ alternate memory mappings:
+<ol>
+<li> When using <b>"SPLIT"</b> and w<sub>b</sub> = 4. </li>
+<li> When using <b>"COMPOSITE."</b> </li>
+</ol>
+
+Additionally, by default, the <b>"CAUCHY"</b> region option also employs an alternate memory mapping.
+
+<p>When you use alternate memory mappings, the exact mapping of words in <em> GF(2<sup>w </sup>) </em> to memory depends on the
+situation, the size of the region, and the alignment of the pointers. To help you figure things out, we have included the
+procedures <b>extract_word.wxx()</b> as part of the <b>gf_t</b> struct. This procedure takes four parameters: </p>
+<ul>
+<li>A pointer to the <b>gf_t.</b> </li>
+<li> The beginning of the memory region. </li>
+<li>The number of bytes in the memory region. </li>
+<li>The desired word number: <em>n.</em> </li>
+</ul>
+
+<p>
+It then returns the <em>n</em>-th word in memory. When the standard mapping is employed, this simply returns the <em>n</em>-
+th contiguous word in memory. With alternate mappings, each word may be split over several memory regions, so
+<b>extract_word()</b> grabs the relevant parts of each memory region to extract the word. Below, we go over each of the
+above situations in detail. Please refer to Figure 2 in Section 5 for reference. </p>
+
+
+<h3>7.9.1 Alternate mappings with "SPLIT" </h3>
+
+The alternate mapping with <b>"SPLIT"</b> is employed so that we can best leverage <b>mm_shuffle_epi8().</b> Please read [PGM13b]
+for details as to why. Consider an example when <em>w</em> = 16. In the main region of memory (the middle region in Figure
+2), multiplication proceeds in units of 32 bytes, which are each broken into two 16-byte regions. The first region
+holds the high bytes of each word in <em>GF(2<sup>16</sup>),</em> and the second region holds the low bytes.
+Let's look at a very detailed example, from <b>gf_example_5.c.</b> This program makes the following call, where <b>gf</b> has
+
+been initialized for <em>w</em> = 16, using <b>"SPLIT"</b> and <b>"ALTMAP:"</b><br><br>
+<div id="number_spacing">
+gf.multiply_region.w32(&gf, a, b, 0x1234, 30*2, 0);
+</div><br>
+
+
+<p>In other words, it is multiplying a region a of 60 bytes (30 words) by the constant 0x1234 in <em> GF(2<sup>16</sup>),</em> and placing
+the result into <em>b.</em> The pointers <em>a</em> and <em>b</em> have been set up so that they are not multiples of 16. The first line of output
+prints <em>a</em> and <em>b:</em></p><br>
+
+a: 0x10010008c b: 0x10010015c <br><br>
+
+As described in Section 5, the regions of memory are split into three parts:
+
+
+
+
+
+
+
+
+<br/>
+
+
+6 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">35  </span> <br><br><br>
+
+
+<ol>
+<li> 4 bytes starting at 0x1001008c / 0x10010015c. </li>
+<li> 32 bytes starting at 0x10010090 / 0x100100160. </li>
+<li> 24 bytes starting at 0x100100b0 / 0x100100180. </li>
+
+</ol>
+
+
+<p>In the first and third parts, the bytes are laid out according to the standard mapping. However, the second part is
+split into two 16-byte regions- one that holds the high bytes of each word and one that holds the low bytes. To help
+illustrate, the remainder of the output prints the 30 words of <em>a</em> and <em>b</em> as they appear in memory, and then the 30 return
+values of <b>extract_word.w32():</b> </p><br>
+
+<div id="number_spacing">
+<table cellspacing="6" style="text-align:right">
+
+<tr>
+<td></td> <td> 1</td> <td> 2 </td> <td> 3 </td> <td> 4</td> <td> 5 </td> <td> 6 </td> <td> 7</td> <td> 8 </td> <td> 9</td> </tr>
+<tr>
+<td>a:</td><td> 640b</td> <td> 07e5</td> <td> 2fba </td> <td> ce5d </td> <td> f1f9</td> <td> 3ab8</td> <td> c518 </td> <td> 1d97</td> <td> 45a7</td>
+ <td> 0160</td> </tr>
+ 
+<tr><td>b:</td> <td>1ba3</td><td> 644e</td> <td> 84f8</td> <td> be3c</td> <td> 4318</td> <td> 4905</td> <td> b2fb </td> <td> 46eb </td> <td> ef01 </td>
+ <td>a503</td> 
+</tr>
+</table> 
+ <br><br>
+<table cellspacing="6" style="text-align:right">
+
+<tr>
+<td> 10</td> <td> 11 </td> <td> 12</td> <td> 13</td> <td> 14 </td> <td> 15 </td> <td> 16</td> <td> 17</td> <td>18</td> <td> 19 </td></tr>
+<tr>
+<td>a:</td><td> 3759</td> <td> b107</td> <td> 9660 </td> <td> 3fde </td> <td> b3ea</td> <td> 8a53</td> <td> 75ff </td> <td> 46dc</td> <td> c504</td>
+ <td> 72c2</td> </tr>
+ 
+<tr><td>b:</td> <td>da27</td><td> e166</td> <td> a0d2</td> <td> b3a2</td> <td> 1699</td> <td> 3a3e</td> <td> 47fb </td> <td> 39af </td> <td> 1314 </td>
+ <td>8e76</td> 
+</tr>
+</table> 
+
+<table cellspacing="6" style="text-align:right">
+<br><br>
+<tr>
+<td> 20</td> <td> 21 </td> <td> 22</td> <td> 23</td> <td> 24 </td> <td> 25 </td> <td> 26</td> <td> 27</td> <td>28</td> <td> 29 </td></tr>
+<tr>
+<td>a:</td><td> b469</td> <td> 1b97</td> <td> e91d </td> <td> 1dbc </td> <td> 131e</td> <td> 47e0</td> <td> c11a </td> <td> 7f07</td> <td> 76e0</td>
+ <td> fe86</td> </tr>
+ 
+<tr><td>b:</td> <td>937c</td><td> a5db</td> <td> 01b7</td> <td> 7f5f</td> <td> 8974</td> <td> 05e1</td> <td> cff3 </td> <td> a09c </td> <td> de3c </td>
+ <td>4ac0</td> 
+</tr>
+</table> 
+<br><br>
+<table cellspacing="6">
+
+
+<tr><td>Word</td><td> 0:</td> <td>0x640b </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x1ba3 Word 15:</td> <td>0x4575 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xef47</td></tr>     
+<tr><td>Word</td> <td> 1:</td> <td>0x07e5 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x644e Word 16:</td> <td>0x60dc </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x03af</td></tr>
+<tr><td>Word</td> <td> 2:</td> <td>0xba59 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xf827 Word 17:</td> <td>0x0146 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xa539 </td> </tr>
+<tr><td>Word</td> <td>3:</td> <td>0x2f37 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x84da Word 18:</td> <td>0xc504 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x1314 </td> </tr>
+<tr><td>Word</td> <td>4:</td> <td>0x5d07 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x3c66 Word 19:</td> <td>0x72c2 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x8e76 </td> </tr>
+<tr><td>Word</td> <td>5:</td> <td>0xceb1 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xbee1 Word 20:</td> <td>0xb469 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x937c </td> </tr>
+<tr><td>Word</td> <td>6:</td> <td>0xf960 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x18d2 Word 21:</td> <td>0x1b97 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xa5db </td> </tr>
+<tr><td>Word</td> <td>7:</td> <td>0xf196 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x43a0 Word 22:</td> <td>0xe91d </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x01b7 </td> </tr>
+<tr><td>Word</td> <td>8:</td> <td>0xb8de </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x05a2 Word 23:</td> <td>0x1dbc </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x7f5f </td> </tr>
+<tr><td>Word</td> <td>9:</td> <td>0x3a3f </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x49b3 Word 24:</td> <td>0x131e </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x8974 </td> </tr>
+<tr><td>Word</td> <td>10:</td> <td>0x18ea </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xfb99 Word 25:</td> <td>0x47e0 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x05e1 </td> </tr>
+<tr><td>Word</td> <td>11:</td> <td>0xc5b3 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xb216 Word 26:</td> <td>0xc11a </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xcff3  </td> </tr>
+<tr><td>Word</td> <td>12:</td> <td>0x9753 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xeb3e Word 27:</td> <td>0x7f07 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xa09c  </td> </tr>
+<tr><td>Word</td> <td>13:</td> <td>0x1d8a </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x463a Word 28:</td> <td>0x76e0 </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0xde3c  </td> </tr>
+<tr><td>Word</td> <td>14:</td> <td>0xa7ff </td><td>*</td> <td>0x1234</td> <td>=</td> <td>0x01fb Word 29:</td> <td>0xfe86 <td>*</td> <td>0x1234</td> <td>=</td> <td>0x4ac0 </td> </tr>
+
+</table>
+</div>
+<br>
+In the first region are words 0 and 1, which are identical to how they appear in memory: 0x640b and 0x07e5. In
+the second region are words 2 through 17. These words are split among the two sixteen-byte regions. For example,
+word 2, which <b>extract_word()</b> reports is 0xba59, is constructed from the low byte in word 2 (0xba) and the low byte
+in word 10 (0x59). Since 0xba59 * 0x1234 = 0xf827, we see that the low byte in word 2 of <em> b </em> is 0xf8, and the low byte
+in word 10 is 0x27.
+<p>When we reach word 22, we are in the third region of memory, and words are once again identical to how they
+appear in memory.</p>
+
+<p>While this is confusing, we stress that that so long as you call <b>multiply_region()</b> with pointers of the same alignment
+and regions of the same size, your results with <b>ALTMAP</b> will be consistent. If you call it with pointers of </p>
+
+
+
+
+
+
+<br/>
+
+
+7 &nbsp &nbsp  <em>  FURTHER INFORMATION ON OPTIONS AND ALGORITHMS     </em>   <span id="index_number">36  </span> <br><br><br>
+
+different alignments, or with different region sizes, then the results will not be consistent. To reiterate, if you don't use
+<b>ALTMAP,</b> you don't have to worry about any of this - words will always be laid out contiguously in memory.
+<p>
+When <em>w</em> = 32, the middle region is a multiple of 64, and each word in the middle region is broken into bytes, each
+of which is in a different 16-byte region. When <em>w</em> = 64, the middle region is a multiple of 128, and each word is
+stored in eight 16-byte regions. And finally, when<em>w</em> = 128, the middle region is a multiple of 128, and each word is
+stored in 16 16-byte regions.</p><br>
+
+<h3>7.9.2 &nbsp Alternate mappings with "COMPOSITE" </h3>
+
+With <b>"COMPOSITE,"</b> the alternate mapping divides the middle region in half. The lower half of each word is stored
+in the first half of the middle region, and the higher half is stored in the second half. To illustrate, gf_example_6
+performs the same example as gf_example_5, except it is using <b>"COMPOSITE"</b> in GF((2<sup>16</sup>)<sup>2</sup>), and it is multiplying
+a region of 120 bytes rather than 60. As before, the pointers are not aligned on 16-bit quantities, so the region is broken
+into three regions of 4 bytes, 96 bytes, and 20 bytes. In the first and third region, each consecutive four byte word is a
+word in <em>GF(2<sup>32</sup>).</em> For example, word 0 is 0x562c640b, and word 25 is 0x46bc47e0. In the middle region, the low two
+bytes of each word come from the first half, and the high two bytes come from the second half. For example, word 1
+as reported by <b>extract_word()</b> is composed of the lower two bytes of word 1 of memory (0x07e5), and the lower two
+bytes of word 13 (0x3fde). The product of 0x3fde07e5 and 0x12345678 is 0x211c880d, which is stored in the lower
+two bytes of words 1 and 13 of <em>b.</em><br><br>
+
+a: 0x10010011c b: 0x1001001ec
+
+<br><br>
+
+<div id="number_spacing">
+<table cellspacing="6" style="text-align:right">
+
+<tr>
+<td></td> <td> 1</td> <td> 2 </td> <td> 3 </td> <td> 4</td> <td> 5 </td> <td> 6 </td> <td> 7</td> <td> 8 </td> <td> 9</td> </tr>
+<tr>
+<td>a:</td><td> 562c640b</td> <td> 959407e5</td> <td> 56592fba </td> <td> cbadce5d </td> <td> 1d1cf1f9</td> <td> 35d73ab8</td> <td> 6493c518 </td> <td> b37c1d97</td> 
+<td> 8e4545a7</td>
+ <td> c0d80160</td> </tr>
+ 
+<tr><td>b:</td> <td>f589f36c</td><td> f146880d</td> <td> 74f7b349</td> <td> 7ea7c5c6</td> <td> 34827c1a</td> <td> 93cc3746</td> <td> bfd9288b </td>
+ <td> 763941d1 </td> 
+<td> bcd33a5d </td>
+ <td>da695e64</td> 
+</tr>
+</table> 
+
+
+<br><br>
+<table cellspacing="6" style="text-align:right">
+
+<tr>
+<td> 10</td> <td> 11 </td> <td> 12</td> <td> 13</td> <td> 14 </td> <td> 15 </td> <td> 16</td> <td> 17</td> <td>18</td> <td> 19 </td></tr>
+<tr>
+<td>a:</td><td> 965b3759</td> <td> cb3eb107</td> <td> 1b129660 </td> <td> 95a33fde </td> <td> 95a7b3ea</td> <td> d16c8a53</td> <td> 153375ff </td> 
+<td> f74646dc</td> <td> 35aac504</td>
+ <td> 98f972c2</td> </tr>
+ 
+<tr><td>b:</td> <td>fd70f125</td><td> 3274fa8f</td> <td> d9dd34ee</td> <td> c01a211c</td> <td> d4402403</td> <td> 8b55c08b</td> <td> da45f0ad </td> 
+<td> 90992e18 </td> <td> b65e0902 </td>
+ <td>d91069b5</td> 
+</tr>
+</table> 
+
+
+<table cellspacing="6" style="text-align:right">
+<br><br>
+<tr>
+<td> 20</td> <td> 21 </td> <td> 22</td> <td> 23</td> <td> 24 </td> <td> 25 </td> <td> 26</td> <td> 27</td> <td>28</td> <td> 29 </td></tr>
+<tr>
+<td>a:</td><td> 5509b469</td> <td> 7f8a1b97</td> <td> 3472e91d </td> <td> 9ee71dbc </td> <td> de4e131e</td> <td> 46bc47e0</td> <td> 5bc9c11a </td>
+ <td> 931d7f07</td> <td> c85cfe86</td>
+ <td> fe86</td> </tr>
+ 
+<tr><td>b:</td> <td>fc92b8f5</td><td> edd59668</td> <td> b4bc0d90</td> <td> a679e4ce</td> <td> 1a98f7d0</td> <td> 6038765f</td> <td> b2ff333f </td> <td> e7937e49 </td> 
+<td> fa5a5867 </td>
+ <td>79c00ea2</td> 
+</tr>
+</table> 
+<br><br>
+
+
+<table cellspacing="6" style="text-align:right">
+
+
+<tr><td>Word</td><td> 0:</td> <td>0x562c640b </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xf589f36c Word 15:</td> <td>0xb46945a7 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xb8f53a5d</td></tr>     
+<tr><td>Word</td> <td> 1:</td> <td>0x3fde07e5 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x211c880d Word 16:</td> <td>0x55098e45 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xfc92bcd3</td></tr>
+<tr><td>Word</td> <td> 2:</td> <td>0x95a39594 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xc01af146 Word 17:</td> <td>0x1b970160 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x96685e64 </td> </tr>
+<tr><td>Word</td> <td>3:</td> <td>0xb3ea2fba </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x2403b349 Word 18:</td> <td>0x7f8ac0d8 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xedd5da69 </td> </tr>
+<tr><td>Word</td> <td>4:</td> <td>0x95a75659 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xd44074f7 Word 19:</td> <td>0xe91d3759 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x0d90f125 </td> </tr>
+<tr><td>Word</td> <td>5:</td> <td>0x8a53ce5d </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xc08bc5c6 Word 20:</td> <td>0x3472965b </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xb4bcfd70 </td> </tr>
+<tr><td>Word</td> <td>6:</td> <td>0xd16ccbad </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x8b557ea7 Word 21:</td> <td>0x1dbcb107 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xe4cefa8f </td> </tr>
+<tr><td>Word</td> <td>7:</td> <td>0x75fff1f9 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xf0ad7c1a Word 22:</td> <td>0x9ee7cb3e </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xa6793274 </td> </tr>
+<tr><td>Word</td> <td>8:</td> <td>0x15331d1c </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xda453482 Word 23:</td> <td>0x131e9660 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xf7d034ee </td> </tr>
+<tr><td>Word</td> <td>9:</td> <td>0x46dc3ab8 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x2e183746 Word 24:</td> <td>0xde4e1b12 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x1a98d9dd </td> </tr>
+<tr><td>Word</td> <td>10:</td> <td>0xf74635d7 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x909993cc Word 25:</td> <td>0x46bc47e0 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x6038765f </td> </tr>
+<tr><td>Word</td> <td>11:</td> <td>0xc504c518 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0x0902288b Word 26:</td> <td>0x5bc9c11a </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xb2ff333f  </td> </tr>
+<tr><td>Word</td> <td>12:</td> <td>0x35aa6493 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xb65ebfd9 Word 27:</td> <td>0x931d7f07 </td><td>*</td> <td>0x12345678</td> <td>=</td> <td>0xe7937e49  </td> </tr>
+
+</table>
+</div>
+
+
+
+
+
+
+
+
+<br/>
+
+
+8 &nbsp &nbsp  <em>  THREAD SAFETY     </em>   <span id="index_number">37  </span> <br><br><br>
+<div id="number_spacing">
+<table cellpadding="6" cellspacing="0">
+<tr>
+<td>Word 13:</td> <td> 0x72c21d97</td> <td> *</td> <td> 0x12345678</td> <td> =</td> <td> 0x69b541d1</td> <td> Word 28:</tD>
+
+<td> 0xd40676e0 </td> <td> * </td> <td> 0x12345678 </td> <td> = </td> <td> 0xfa5a5867 </td> </tr>
+
+<tr><td>Word 14:</td> <td> 0x98f9b37c</td> <td> * </td> <td> 0x12345678 </td> <td> = </td> <td> 0xd9107639</td> <td> Word 29:</td>
+<td> 0xc85cfe86</td> <td>*</td> <td> 0x12345678</td> <td> =</td> <td> 0x79c00ea2</td></tr>
+
+</table>
+</div><br>
+
+
+<p>
+As with <b>"SPLIT,"</b> using <b>multiply_region()</b> with <b>"COMPOSITE"</b> and <b>"ALTMAP"</b> will be consistent only if the
+alignment of pointers and region sizes are identical. </p>
+
+
+<h3>7.9.3 The mapping of "CAUCHY" </h3>
+
+With <b>"CAUCHY,"</b> the region is partitioned into <em>w</em> subregions, and each word in the region is broken into <em>w</em> bits,
+each of which is stored in a different subregion. To illustrate, <b>gf_example_7</b> multiplies a region of three bytes by 5
+in <em>GF(2<sup>3</sup>)</em> using <b>"CAUCHY:"</b><br><br>
+
+<div id="number_spacing">
+
+UNIX> gf_example_7 <br>
+a: 0x100100190 b: 0x1001001a0 <br><br>
+a: 0x0b 0xe5 0xba <br>
+b: 0xee 0xba 0x0b <br><br>
+a bits: 00001011 11100101 10111010 <br>
+b bits: 11101110 10111010 00001011<br><br>
+Word 0: 3 * 5 = 4 <br>
+Word 1: 5 * 5 = 7 <br>
+Word 2: 2 * 5 = 1 <br>
+Word 3: 5 * 5 = 7 <br>  
+Word 4: 4 * 5 = 2 <br>
+Word 5: 6 * 5 = 3 <br>
+Word 6: 2 * 5 = 1 <br>
+Word 7: 6 * 5 = 3 <br>
+UNIX><br><br> </div>
+<p>
+
+The program prints the three bytes of a and b in hexadecimal and in binary. To see how words are broken up,
+consider word 0, which is the lowest bit of each of the three bytes of a (and b). These are the bits 1, 1 and 0 in a, and
+0, 0, and 1 in b. Accordingly, the word is 3 in a, and 3*5 = 4 in b. Similarly, word 7 is the high bit in each byte: 0, 1, 1
+(6) in a, and 1, 1, 0 (3) in b.</p>
+<p>With <b>"CAUCHY," multiply_region()</b>may be implemented exclusively with XOR operations. Please see [BKK<sup>+</sup>95]
+for more information on the motivation behind <b>"CAUCHY."</b> </p>
+
+<h2>8 &nbsp Thread Safety </h2>
+
+Once you initialize a <b>gf_t,</b> you may use it wontonly in multiple threads for all operations except for the ones below.
+With the implementations listed below, the scratch space in the <b>gf_t</b> is used for temporary tables, and therefore you
+cannot call <b>region_multiply,</b> and in some cases <b>multiply</b> from multiple threads because they will overwrite each
+others' tables. In these cases, if you want to call the procedures from multiple threads, you should allocate a separate
+gf_t for each thread:
+<ul>
+<li>
+ All "GROUP" implementations are not thread safe for either <b>region_multiply()</b> or <b> multiply().</b> Other than
+<b>"GROUP," multiply() </b> is always thread-safe.
+
+</li>
+</ul>
+
+
+
+
+
+
+
+
+
+<br/>
+
+
+9 &nbsp &nbsp  <em>  LISTING OF PROCEDURES     </em>   <span id="index_number">38  </span> <br><br><br>
+<ul>
+<li>
+
+For <em>w </em> = 4, <b>region_multiply.w32()</b> is unsafe in in "-m TABLE -r QUAD -r LAZY." </li><br>
+<li> For <em>w </em> = 8, <b> region_multiply.w32()</b> is unsafe in in "-m TABLE -r DOUBLE -r LAZY."</li><br>
+<li> For <em>w </em> = 16, <b>region_multiply.w32() </b> is unsafe in in "-m TABLE."</li><br>
+<li> For <em>w </em> &#8712 {32, 64, 128}, all <b>"SPLIT"</b> implementations are unsafe for <b>region_multiply().</b> This means that if the
+default uses <b>"SPLIT"</b> (see Table 1 for when that occurs), then <b>region_multiply()</b> is not thread safe.</li><br>
+<li> The <b>"COMPOSITE"</b> operations are only safe if the implementations of the underlying fields are safe.</li>
+</ul>
+
+<h2>9 &nbspListing of Procedures </h2>
+
+The following is an alphabetical listing of the procedures, data types and global variables for users to employ in
+GF-complete.<br>
+
+<ul>
+<li> <b>GF_W16_INLINE_DIV()</b> in <b>gf_complete.h:</b> This is a macro for inline division when <em>w </em> = 16. See section 7.1.</li><br>
+<li> <b>GF_W16_INLINE_MULT()</b> in <b>gf_complete.h:</b> This is a macro for inline multiplication when <em>w </em> = 16. See
+section 7.1.</li><br>
+<li> <b>GF_W4_INLINE_MULTDIV()</b> in <b>gf_complete.h:</b> This is a macro for inline multiplication/division when <em>w </em> =
+4. See section 7.1.</li><br>
+
+<li> <b>GF_W8_INLINE_MULTDIV()</b> in <b>gf_complete.h:</b> This is a macro for inline multiplication/division when <em>w </em> =
+8. See section 7.1.</li><br>
+<li> <b>MOA_Fill_Random_Region()</b> in <b>gf_rand.h:</b> Fills a region with random numbers.</li><br>
+<li> <b>MOA_Random_128()</b> in <b>gf_rand.h:</b> Creates a random 128-bit number.</li><br>
+<li> <b>MOA_Random_32()</b> in <b>gf_rand.h:</b> Creates a random 32-bit number. </li><br>
+<li> <b>MOA_Random_64()</b> in <b>gf_rand.h:</b> Creates a random 64-bit number. </li><br>
+<li> <b>MOA_Random_W()</b> in <b>gf_rand.h:</b> Creates a random w-bit number, where <em>w </em> &#8804 32. </li><br>
+<li> <b>MOA_Seed()</b> in <b>gf_rand.h:</b> Sets the seed for the random number generator. </li><br>
+<li> <b>gf_errno</b> in <b>gf_complete.h:</b> This is to help figure out why an initialization call failed. See section 6.1.</li><br>
+<li> <b>gf_create_gf_from_argv()</b> in <b>gf_method.h:</b> Creates a gf_t using C style argc/argv. See section 6.1.1. </li><br>
+<li> <b>gf_division_type_t</b> in <b>gf_complete.h:</b> the different ways to specify division when using <b>gf_init_hard().</b> See 
+section 6.4. </li><br>
+<li> <b>gf_error()</b> in <b>gf_complete.h:</b> This prints out why an initialization call failed. See section 6.1. </li><br>
+
+<li> <b>gf_extract</b> in <b>gf_complete.h:</b> This is the data type of <b>extract_word()</b> in a gf_t. See section 7.9 for an example
+of how to use extract word().</li>
+</ul>
+
+
+
+
+
+<br/>
+
+
+9 &nbsp &nbsp  <em>  LISTING OF PROCEDURES     </em>   <span id="index_number">39  </span> <br><br><br>
+<ul>
+<li>
+<b>gf_free()</b> in <b>gf_complete.h:</b> If <b>gf_init easy(), gf_init hard()</b> or <b>create_gf_from_argv()</b> allocated memory, this
+frees it. See section 6.4. </li>
+
+<li> <b>gf_func_a_b</b> in <b>gf_complete.h:</b> This is the data type of <b>multiply()</b> and <b>divide()</b> in a gf_t. See section 4.2 for
+examples of how to use <b>multiply()</b> and <b>divide()</b></li><br>
+
+<li> <b>gf_func_a_b</b> in <b>gf_complete.h:</b> This is the data type of <b>multiply()</b> and <b>divide()</b> in a <b>gf_t.</b> See section 4.2 for
+examples of how to use <b>multiply()</b> and <b>divide()</b></li><br>
+
+<li> <b>gf_func_a</b> in <b>gf_complete.h:</b> This is the data type of <b>inverse()</b> in a <b>gf_t</b></li><br>
+
+<li> <b>gf_general_add()</b> in <b>gf_general.h:</b> This adds two <b>gf_general_t's </b></li><br>
+
+<li> <b>gf_general_divide()</b> in <b>gf_general.h:</b> This divides two <b>gf_general t's </b></li><br>
+
+<li> <b>gf_general_do_region_check() </b> in <b>gf_general.h:</b> This checks a region multiply of <b>gf_general_t's </b></li><br>
+
+<li> <b>gf_general_do_region_multiply() </b> in <b>gf_general.h:</b> This does a region multiply of <b>gf_general_t's </b></li><br>
+
+<li> <b>gf_general_do_single_timing_test()</b> in <b>gf_general.h:</b> Used in <b>gf_time.c </b></li><br>
+
+<li> <b>gf_general_inverse() </b> in <b>gf_general.h:</b> This takes the inverse of a <b>gf_general_t </b></li><br>
+
+<li> <b>gf_general_is_one() </b> in <b>gf_general.h:</b> This tests whether a <b>gf_general_t </b> is one</li><br>
+
+<li> <b>gf_general_is_two() </b> in <b>gf_general.h:</b> This tests whether a <b>gf_general_t  </b>is two</li><br>
+
+<li> <b>gf_general_is_zero() </b> in <b>gf_general.h:</b> This tests whether a <b>gf_general_t </b> is zero</li><br>
+
+<li> <b>gf_general_multiply() </b> in <b>gf_general.h:</b> This multiplies two <b>gf_general_t's.</b> See the implementation of gf_mult.c
+
+for an example</li><br>
+<li> <b>gf_general_s_to_val() </b> in <b>gf_general.h:</b> This converts a string to a <b>gf_general t.</b> See the implementation of
+gf_mult.c for an example</li><br>
+<li> <b>gf_general_set_one() </b> in <b>gf_general.h:</b> This sets a <b>gf_general_t</b> to one</li><br>
+<li> <b>gf_general_set_random()</b> in <b>gf_general.h:</b> This sets a <b>gf_general_t </b> to a random number</li><br>
+<li> <b>gf_general_set_two() in </b><b>gf_general.h:</b> This sets a <b>gf_general_t </b> to two</li><br>
+<li> <b>gf_general_set_up_single_timing_test() </b> in <b>gf_general.h:</b> Used in <b>gf_time.c</b></li><br>
+<li> <b>gf_general_set_zero() in </b><b>gf_general.h:</b> This sets a <b>gf_general_t_to_zero</b></li><br>
+<li> <b>gf_general_t_in .</b><b>gf_general.h:</b> This is a general data type for all values of w. See the implementation of gf_mult.c
+for examples of using these</li><br>
+<li> <b>gf_general_val_to_s()</b> in<b>gf_general.h:</b> This converts a <b>gf_general_t </b> to a string. See the implementation of
+<b>gf_mult.c</b> for an example</li><br>
+
+<li> <b>gf_init_easy()</b> in <b>gf_complete.h:</b> This is how you initialize a default <b>gf_t.</b> See 4.2 through 4.5 for examples of
+calling <b>gf_init_easy()</b></li><br>
+</ul>
+
+
+
+
+
+
+
+<br/>
+
+
+9 &nbsp &nbsp  <em>  LISTING OF PROCEDURES     </em>   <span id="index_number">40  </span> <br><br><br>
+
+<ul>
+
+<li><b>gf_init hard()</b> in <b>gf_complete.h: </b> This allows you to initialize a <b>gf_t</b> without using the defaults. See 6.4. We
+recommend calling create <b>gf_from argv()</b> when you can, instead of <b>gf_ init_hard()</b></li><br>
+
+<li> <b>gf_ mult_type_t </b> in <b>gf_complete.h: </b> the different ways to specify multiplication when using <b>gf_init hard()</b>. See
+section 6.4</li><br>
+
+<li> <b>gf_region_type_t</b> in <b>gf_complete.h: </b> the different ways to specify region multiplication when using <b>gf_init_hard()</b>.
+See section 6.4</li><br>
+
+<li> <b>gf_region_in</b> <b>gf_complete.h: </b> This is the data type of <b>multiply_region()</b> in a <b>gf_t.</b> See section 4.3 for an example
+of how to use <b>multiply_region()</b></li><br>
+
+<li> <b>gf_scratch_size()</b> in <b>gf_complete.h: </b> This is how you calculate how much memory a <b>gf_t</b> needs. See section 6.4.</li><br>
+
+<li> <b>gf_size()</b> in <b>gf_complete.h: </b> Returns the memory consumption of a <b>gf_t.</b> See section 6.5.</li><br>
+
+<li> <b>gf_ val_128_t</b> in <b>gf_complete.h: </b> This is how you store a value where <em>w </em> &#8804 128. It is a pointer to two 64-bit
+unsigned integers. See section 4.4</li><br>
+
+
+<li> <b>gf_val_32_t</b> in <b>gf_ complete.h: </b> This is how you store a value where <em>w </em> &#8804 32. It is equivalent to a 32-bit unsigned
+integer. See section 4.2</li><br>
+
+<li> <b>gf_ val_64_t</b> in <b>gf_complete.h: </b> This is how you store a value where <em>w </em> &#8804 64. It is equivalent to a 64-bit unsigned
+integer. See section 4.5</li><br>
+
+<li> <b>gf_w16_get_div_alog_table()</b> in <b>gf_ complete.h: </b> This returns a pointer to an inverse logarithm table that can be
+used for inlining division when <em>w </em> = 16. See section 7.1</li><br>
+
+
+<li> <b>gf_w16_get_log_table()</b> in <b>gf_complete.h: </b> This returns a pointer to a logarithm table that can be used for inlining
+when <em>w </em> = 16. See section 7.1</li><br>
+
+
+<li> <b>gf_w16_get_mult_alog_table()</b> in <b>gf_complete.h: </b> This returns a pointer to an inverse logarithm table that can be
+used for inlining multiplication when <em>w </em> = 16. See section 7.1</li><br>
+
+
+<li> <b>gf_ w4 get div table()</b> in <b>gf_complete.h: </b> This returns a pointer to a division table that can be used for inlining
+when <em>w </em> = 4. See section 7.1</li><br>
+
+
+<li> <b>gf_w4_get_mult_table()</b> in <b>gf_complete.h: </b> This returns a pointer to a multiplication table that can be used for
+inlining when <em>w </em> = 4. See section 7.1</li><br>
+
+<li> <b>gf_w8_get_div_table()</b> in <b>gf_complete.h: </b> This returns a pointer to a division table that can be used for inlining
+when <em>w </em> = 8. See section 7.1</li><br>
+
+<li> <b>gf_w8_get_mult_table()</b> in <b>gf_complete.h: </b> This returns a pointer to a multiplication table that can be used for
+inlining when <em>w </em> = 8. See section 7.1</li><br>
+
+</ul>
+
+
+
+
+
+
+
+
+
+<br/>
+10 &nbsp &nbsp  <em>TROUBLESHOOTING </em>   <span id="index_number">41  </span> <br><br><br>
+
+<ul>
+<li><b> SSE support.</b> Leveraging SSE instructions requires processor support as well as compiler support. For example,
+the Mac OS 10.8.4 (and possibly earlier versions) default compile environment fails to properly compile
+PCLMUL instructions. This issue can be fixed by installing an alternative compiler; see Section 3 for details</li><br>
+
+<li> <b>Initialization segfaults.</b> You have to already have allocated your <b>gf_t</b> before you pass a pointer to it in
+<b>bgf_init_easy()</b>, <b>create_gf_ from_argv()</b>, or <b>bgf_ini_hard()</b></li><br>
+
+
+<li> <b>GF-Complete is slower than it should be.</b> Perhaps your machine has SSE, but you haven't specified the SSE
+compilation flags. See section 3 for how to compile using the proper flags</li><br>
+
+
+<li> <b>Bad alignment.</b> If you get alignment errors, see Section 5</li><br>
+
+<li> <b>Mutually exclusive region types.</b> Some combinations of region types are invalid. All valid and implemented
+combinations are printed by <b>bgf_methods.c </b></li><br>
+
+<li><b>Incompatible division types.</b> Some choices of multiplication type constrain choice of divide type. For example,
+<b>"COMPOSITE"</b> methods only allow the default division type, which divides by finding inverses (i.e.,
+neither <b>"EUCLID"</b> nor <b>"MATRIX"</b> are allowed). For each multiplication method printed by <b>gf_methods.c,</b> the
+corresponding valid division types are also printed</li><br>
+
+
+<li><b> Arbitrary "GROUP" arguments.</b> The legal arguments to <b>"GROUP"</b> are specified in section 7.5</li><br>
+
+<li> <b> Arbitrary "SPLIt" arguments.</b> The legal arguments to <b>"SPLIt"</b> are specified in section 7.4</li><br>
+
+<li> <b>Threading problems.</b> For threading questions, see Section 8</li><br>
+
+<li> <b>No default polynomial.</b> If you change the polynomial in a base field using <b>"COMPOSITE,"</b> then unless it is
+a special case for which GF-Complete finds a default polynomial, you'll need to specify the polynomial of the
+composite field too. See 7.8.2 for the fields where GF-Complete will support default polynomials</li><br>
+<li> Encoding/decoding with different fields. Certain fields are not compatible. Please see section 7.2 for an
+explanation</li><br>
+
+
+<li> <b>"ALTMAP" is confusing.</b> We agree. Please see section 7.9 for more explanation.</li><br>
+
+<li> <b>I used "ALTMAP" and it doesn't appear to be functioning correctly.</b> With 7.9, the size of the region and
+its alignment both matter in terms of how <b>"ALTMAP"</b> performs <b>multiply_region()</b>. Please see section 7.9 for
+detailed explanation</li><br>
+
+<li><b>Where are the erasure codes?.</b> This library only implements Galois Field arithmetic, which is an underlying
+component for erasure coding. Jerasure will eventually be ported to this library, so that you can have fast erasure
+coding</li><br>
+</ul>
+<h2>11 &nbsp &nbsp Timings </h2>
+
+We don't want to get too detailed with timing, because it is quite machine specific. However, here are the timings on
+an Intel Core i7-3770 CPU running at 3.40 GHz, with 4 &#215 256 KB L2 caches and an 8MB L3 cache. All timings are
+obtained with <b>gf_time</b> or <b>gf_inline_time,</b> in user mode with the machine dedicated solely to running these jobs.
+
+
+
+
+
+
+
+
+
+<br/>
+10 &nbsp &nbsp  <em>TROUBLESHOOTING </em>   <span id="index_number">41  </span> <br><br><br>
+
+<div class="image-cell_5"> </div>
+<center>Figure 4: Speed of doing single multiplications for w &#8712 {4, 8, 16}. </center>
+<h2>11.1 &nbsp Multiply() </h2>
+
+The performance of <b>multiply()</b> is displayed in Figures 4 for w &#8712 {4, 8, 16} and 5 for w &#8712 {32, 64, 128}. These
+numbers were obtained by calling <b>gf_time</b> with the size and iterations both set to 10240. We plot the speed in megaops
+per second.
+
+<p>As would be anticipated, the inlined operations (see section 7.1) outperform the others. Additionally, in all
+cases with the exception of <em>w</em> = 32, the defaults are the fastest performing implementations. With w = 32,
+"CARRY_FREE" is the fastest with an alternate polynomial (see section 7.7). Because we require the defaults to
+use a "standard" polynomial, we cannot use this implementation as the default. </p>
+
+<h2>11.2 &nbsp Divide() </h2>
+
+For the  <b>"TABLE"</b> and <b>"LOG"</b> implementations, the performance of division is the same as multiplication. This means
+that for w &#8712 {4, 8, 16}, it is very fast indeed. For the other implementations, division is implemented with Euclid's
+method, and is several factors slower than multiplication.
+In Figure 6, we plot the speed of a few implementations of the larger word sizes. Compared to the <b>"TABLE"</b> and
+<b>"LOG"</b> implemenations for the smaller word sizes, where the speeds are in the hundreds of mega-ops per second,
+these are very slow. Of note is the <b>"COMPOSITE"</b> implementation for <em>w</em> = 32, which is much faster than the others
+
+
+
+
+
+
+
+
+<br/>
+10 &nbsp &nbsp  <em>TROUBLESHOOTING </em>   <span id="index_number">43  </span> <br><br><br>
+
+<div class="image-cell_6"> </div>
+
+<center>Figure 5: Speed of doing single multiplications for w &#8712 {32, 64, 128}. </center><br>
+
+because it uses a special application of Euclid's method, which relies on division in <em>GF(2<sup>16</sup>),</em> which is very fast.<br><br>
+
+<h3>11.3 &nbsp Multiply_Region() </h2>
+
+Tables 3 through 8 show the performance of the various region operations. It should be noted that for <em>GF(2<sup>16 </sup>) </em>
+through <em>GF(2<sup>128</sup>),</em> the default is not the fastest implementation of <b>multiply_region().</b> The reasons for this are outlined
+in section 6
+<p>
+For these tables, we performed 1GB worth of <b>multiply_region()</b> calls for all regions of size 2i bytes for 10 &#8804 i &#8804
+30. In the table, we plot the fastest speed obtained.</p>
+<p>We note that the performance of <b>"CAUCHY"</b> can be improved with techniques from [LSXP13] and [PSR12].</p>
+
+
+
+
+
+
+
+
+
+<br/>
+<em>REFERENCES </em>   <span id="index_number">44  </span> <br><br><br>
+
+<div class="image-cell_7"> </div>
+
+<center>Figure 6: Speed of doing single divisions for w &#8712 {32, 64, 128}. </center><br>
+
+<center>
+<div id="data2">
+<table cellpadding="2" cellspacing="0" style="text-align:center;font-size:19px">
+
+<tr><th>Method</td> <th>Speed (MB/s)</td> </tr>
+
+<tr><td>-m TABLE (Default) -</td> <td>11879.909</td> </tr>
+<tr><td>-m TABLE -r CAUCHY -</td> <td>9079.712</td> </tr>
+<tr><td>-m BYTWO_b -</td> <td>5242.400</td> </tr>
+<tr><td>-m BYTWO_p -</td> <td>4078.431</td> </tr>
+<tr><td>-m BYTWO_b -r NOSSE -</td> <td>3799.699</td> </tr>
+<tr><td>-m TABLE -r QUAD -</td> <td>3014.315</td> </tr>
+
+<tr><td>-m TABLE -r DOUBLE -</td> <td>2253.627</td> </tr>
+<tr><td>-m TABLE -r NOSSE -</td> <td>2021.237</td> </tr>
+<tr><td>-m TABLE -r NOSSE -</td> <td>1061.497</td> </tr>
+<tr><td>-m LOG -</td> <td>503.310</td> </tr>
+
+
+<tr><td>m SHIFT -</td> <td>157.749</td> </tr>
+<tr><td>-m CARRY_FREE -</td> <td>86.202</td> </tr>
+</div>
+</table> <br><br>
+</div> </center>
+<center>Table 3: Speed of various calls to <b>multiply_region()</b> for <em>w</em> = 4. </center>
+
+<h3>References </h3>
+
+[Anv09] H. P. Anvin. The mathematics of RAID-6.<a href=""> http://kernel.org/pub/linux/kernel/people/hpa/
+raid6.pdf,</a> 2009.<br><br>
+
+[BKK<sup>+</sup>95] J. Blomer, M. Kalfane, M. Karpinski, R. Karp, M. Luby, and D. Zuckerman. An XOR-based erasureresilient
+coding scheme. Technical Report TR-95-048, International Computer Science Institute, August
+1995. <br><br>
+
+[GMS08] K. Greenan, E. Miller, and T. J. Schwartz. Optimizing Galois Field arithmetic for diverse processor
+architectures and applications. In MASCOTS 2008: <em>16th IEEE Symposium on Modeling, Analysis and
+Simulation of Computer and Telecommunication Systems,</em> Baltimore, MD, September 2008.<br><br>
+
+
+[GP97] S. Gao and D. Panario. Tests and constructions of irreducible polynomials over finite fields. In <em> Foundations
+of Computational Mathematics,</em> pages 346–361. Springer Verlag, 1997.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>
+<em>REFERENCES </em>   <span id="index_number">45  </span> <br><br><br>
+
+
+<center>
+<div id="data2">
+<table cellpadding="2" cellspacing="0" style="text-align:center;font-size:19px">
+
+<tr><th>Method</td> <th>Speed (MB/s)</td> </tr>
+<tr><td>-m SPLIT 8 4 (Default)</td> <td>13279.146</td> </tr>
+<tr><td>-m COMPOSITE 2 - -r ALTMAP -</td> <td>5516.588</td> </tr>
+<tr><td>-m TABLE -r CAUCHY -</td> <td>4968.721</td> </tr>
+<tr><td>-m BYTWO_b -</td> <td>2656.463</td> </tr>
+<tr><td>-m TABLE -r DOUBLE -</td> <td>2561.225</td> </tr>
+<tr><td>-m TABLE -</td> <td>1408.577</td> </tr>
+
+<tr><td>-m BYTWO_b -r NOSSE -</td> <td>1382.409</td> </tr>
+<tr><td>-m BYTWO_p -</td> <td>1376.661</td> </tr>
+<tr><td>-m LOG_ZERO_EXT -</td> <td>1175.739</td> </tr>
+<tr><td>-m LOG_ZERO -</td> <td>1174.694</td> </tr>
+
+
+<tr><td>-m LOG -</td> <td>997.838</td> </tr>
+<tr><td>-m SPLIT 8 4 -r NOSSE -</td> <td>885.897</td> </tr>
+
+
+<tr><td>-m BYTWO_p -r NOSSE -</td> <td>589.520</td> </tr>
+<tr><td>-m COMPOSITE 2 - -</td> <td>327.039</td> </tr>
+
+
+<tr><td>-m SHIFT -</td> <td>106.115</td> </tr>
+
+<tr><td>-m CARRY_FREE -</td> <td>104.299</td> </tr>
+
+
+</div>
+</table> <br><br>
+</div> </center>
+<center>Table 4: Speed of various calls to multiply region() for <em>w</em> = 4. </center><br><br>
+
+[LBOX12] J. Luo, K. D. Bowers, A. Oprea, and L. Xu. Efficient software implementations of large finite fields
+<em>GF(2<sup>n</sup>) </em> for secure storage applications.<em> ACM Transactions on Storage, 8(2),</em> February 2012.<br><br>
+
+[LD00] J. Lopez and R. Dahab. High-speed software multiplication in f<sub>2<sup>m</sup></sub>. In <em>Annual International Conference
+on Cryptology in India,</em> 2000.<br><br>
+
+[LHy08] H. Li and Q. Huan-yan. Parallelized network coding with SIMD instruction sets. In <em>International Symposium
+on Computer Science and Computational Technology,</em> pages 364-369. IEEE, December 2008.<br><br>
+
+[LSXP13] J. Luo, M. Shrestha, L. Xu, and J. S. Plank. Efficient encoding schedules for XOR-based erasure codes.
+<em>IEEE Transactions on Computing,</em>May 2013.<br><br>
+
+[Mar94] G. Marsaglia. The mother of all random generators.<a href=""> ftp://ftp.taygeta.com/pub/c/mother.
+c,</a> October 1994.<br>
+
+[PGM13a] J. S. Plank, K. M. Greenan, and E. L. Miller. A complete treatment of software implementations of
+finite field arithmetic for erasure coding applications. Technical Report UT-CS-13-717, University of
+Tennessee, September 2013.<br><br>
+
+[PGM13b] J. S. Plank, K. M. Greenan, and E. L. Miller. Screaming fast Galois Field arithmetic using Intel SIMD
+instructions. In FAST-2013: <em>11th Usenix Conference on File and Storage Technologies,</em> San Jose, February
+2013.<br><br>
+
+[Pla97] J. S. Plank. A tutorial on Reed-Solomon coding for fault-tolerance in RAID-like systems.<em> Software -
+Practice & Experience,</em> 27(9):995-1012, September 1997.
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>
+<em>REFERENCES </em>   <span id="index_number">46  </span> <br><br><br>
+
+
+<center>
+<div id="data2">
+<table cellpadding="2" cellspacing="0" style="text-align:center;font-size:19px">
+
+<tr><th>Method</td> <th>Speed (MB/s)</td> </tr>
+<tr><td>-m SPLIT 16 4 -r ALTMAP -</td> <td>10460.834</td> </tr>
+<tr><td>-m SPLIT 16 4 -r SSE (Default) - </td> <td>8473.793</td> </tr>
+<tr><td>-m COMPOSITE 2 - -r ALTMAP -</td> <td>5215.073</td> </tr>
+<tr><td>-m LOG -r CAUCHY -</td> <td>2428.824</td> </tr>
+<tr><td>-m TABLE -</td> <td>2319.129</td> </tr>
+<tr><td>-m SPLIT 16 8 -</td> <td>2164.111</td> </tr>
+
+<tr><td>-m SPLIT 8 8 -</td> <td>2163.993</td> </tr>
+<tr><td>-m SPLIT 16 4 -r NOSSE -</td> <td>1148.810</td> </tr>
+<tr><td>-m LOG -</td> <td>1019.896</td> </tr>
+<tr><td>-m LOG_ZERO -</td> <td>1016.814</td> </tr>
+<tr><td>-m BYTWO_b -</td> <td>738.879</td> </tr>
+<tr><td>-m COMPOSITE 2 - -</td> <td>596.819</td> </tr>
+<tr><td>-m BYTWO_p -</td> <td>560.972</td> </tr>
+<tr><td>-m GROUP 4 4 -</td> <td>450.815</td> </tr>
+<tr><td>-m BYTWO_b -r NOSSE -</td> <td>332.967</td> </tr>
+<tr><td>-m BYTWO_p -r NOSSE -</td> <td>249.849</td> </tr>
+<tr><td>-m CARRY_FREE -</td> <td>111.582</td> </tr>
+<tr><td>-m SHIFT -</td> <td>95.813</td> </tr>
+
+
+</div>
+</table> <br><br>
+</div> </center>
+<center>Table 5: Speed of various calls to multiply region()  for <em>w</em> = 4. </center><br><br>
+
+[PMG<sup>+</sup>13] J. S. Plank, E. L. Miller, K. M. Greenan, B. A. Arnold, J. A. Burnum, A. W. Disney, and A. C. McBride.
+GF-Complete: A comprehensive open source library for Galois Field arithmetic. version 1.0. Technical
+Report UT-CS-13-716, University of Tennessee, September 2013.<br><br>
+
+[PSR12] J. S. Plank, C. D. Schuman, and B. D. Robison. Heuristics for optimizing matrix-based erasure codes for
+fault-tolerant storage systems. In DSN-2012:<em> The International Conference on Dependable Systems and
+Networks,</em> Boston, MA, June 2012. IEEE.<br><br>
+
+[Rab89] M. O. Rabin. Efficient dispersal of information for security, load balancing, and fault tolerance. <em>Journal
+of the Association for Computing Machinery,</em> 36(2):335-348, April 1989.
+
+
+
+
+
+
+
+
+
+<br/>
+<em>REFERENCES </em>   <span id="index_number">47  </span> <br><br><br>
+<center>
+<div id="data2">
+<table cellpadding="2" cellspacing="0" style="text-align:center;font-size:19px">
+<tr><th>Method</td> <th>Speed (MB/s)</td> </tr>
+<tr>
+ 
+<td>
+
+-m SPLIT 32 4 -r SSE -r ALTMAP - <br>
+-m SPLIT 32 4 (Default)  <br>
+-m COMPOSITE 2 -m SPLIT 16 4 -r ALTMAP - -r ALTMAP - <br>
+-m COMPOSITE 2 - -r ALTMAP -  <br>
+-m SPLIT 8 8 - <br> 
+-m SPLIT 32 8 - <br> 
+-m SPLIT 32 16 - <br> 
+-m SPLIT 8 8 -r CAUCHY <br> 
+-m SPLIT 32 4 -r NOSSE <br> 
+-m CARRY_FREE -p 0xc5 <br> 
+-m COMPOSITE 2 - <br> 
+-m BYTWO_b - <br> 
+-m BYTWO_p - <br> 
+-m GROUP 4 8 - <br> 
+-m GROUP 4 4 - <br> 
+-m CARRY_FREE - <br> 
+-m BYTWO_b -r NOSSE - <br> 
+-m BYTWO_p -r NOSSE - <br>
+-m SHIFT - <br> 
+
+</td>
+
+<td>
+7185.440 <br>
+5063.966 <br>
+ 4176.440 <br>
+3360.860 <br>
+1345.678 <br>
+1340.656 <br>
+1262.676 <br>
+1143.263  <br>
+ 480.859 <br>
+393.185 <br>
+332.964 <br>
+309.971 <br>
+258.623 <br>
+242.076 <br>
+227.399 <br>
+226.785 <br>
+143.403 <br>
+111.956 <br>
+52.295 <br>
+</td>
+
+
+</tr>
+
+</div>
+</table> <br><br>
+</div> </center>
+<center>Table 6: Speed of various calls to multiply region() <em>w</em> = 4. </center><br><br>
+
+<center>
+<div id="data2">
+<table cellpadding="2" cellspacing="0" style="text-align:center;font-size:19px">
+<tr><th>Method</td> <th>Speed (MB/s)</td> </tr>
+<tr>
+ 
+<td>
+-m SPLIT 64 4 -r ALTMAP - <br>
+-m SPLIT 64 4 -r SSE (Default) - <br>
+-m COMPOSITE 2 -m SPLIT 32 4 -r ALTMAP - -r ALTMAP - <br>
+-m COMPOSITE 2 - -r ALTMAP -  <br>
+-m SPLIT 64 16 - <br>
+-m SPLIT 64 8 -  <br>
+-m CARRY_FREE -  <br>
+-m SPLIT 64 4 -r NOSSE - <br>
+-m GROUP 4 4 -  <br>
+-m GROUP 4 8 -  <br>
+-m BYTWO_b -  <br>
+-m BYTWO_p -  <br>
+-m SPLIT 8 8 - <br>
+-m BYTWO_p -r NOSSE - <br>
+-m COMPOSITE 2 - - <br>
+-m BYTWO_b -r NOSSE - <br>
+-m SHIFT - <br>
+
+</td>
+
+<td>3522.798 <br>
+ 2647.862 <br>
+2461.572 <br>
+1860.921 <br>
+1066.490 <br>
+998.461 <br>
+975.290 <br>
+545.479 <br>
+230.137 <br>
+153.947 <br>
+144.052 <br>
+124.538 <br>
+98.892 <br>
+77.912 <br>
+77.522 <br>
+36.391 <br>
+25.282 <br>
+</td>
+
+
+</tr>
+
+</div>
+</table> <br><br>
+</div> </center>
+<center>Table 7: Speed of various calls to multiply region() for  <em>w</em> = 4. </center><br><br>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>
+<em>REFERENCES </em>   <span id="index_number">48  </span> <br><br><br>
+
+<center>
+<div id="data2">
+<table cellpadding="2" cellspacing="0" style="text-align:center;font-size:19px">
+<tr><th>Method</td> <th>Speed (MB/s)</td> </tr>
+<tr>
+ 
+<td>
+
+-m SPLIT 128 4 -r ALTMAP - <br>
+-m COMPOSITE 2 -m SPLIT 64 4 -r ALTMAP - -r ALTMAP - <br> 
+-m COMPOSITE 2 - -r ALTMAP - <br> 
+-m SPLIT 128 8 (Default) - <br>
+-m CARRY_FREE -<br> 
+-m SPLIT 128 4 -<br> 
+-m COMPOSITE 2 - <br>
+-m GROUP 4 8 -<br> 
+-m GROUP 4 4 -<br> 
+-m BYTWO_p -<br> 
+-m BYTWO_b -<br> 
+-m SHIFT -<br> 
+</td>
+
+<td>
+1727.683 <br>
+1385.693 <br>
+1041.456 <br>
+872.619 <br>
+814.030 <br>
+500.133  <br>
+289.207 <br>
+133.583 <br>
+116.187 <br>
+25.162 <br>
+25.157 <br>
+14.183 <br>
+</td>
+
+
+</tr>
+
+</div>
+</table> <br><br>
+</div> </center>
+<center>Table 8: Speed of various calls to multiply region() for <em>w</em> = 4. </center><br><br>

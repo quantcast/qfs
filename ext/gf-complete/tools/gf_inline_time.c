@@ -116,8 +116,7 @@ int main(int argc, char **argv)
     printf("Inline mult:   %10.6lf s   Mops: %10.3lf    %10.3lf Mega-ops/s\n",
            elapsed, dnum/1024.0/1024.0, dnum/1024.0/1024.0/elapsed);
 
-  }
-  if (w == 8) {
+  } else if (w == 8) {
     mult8 = gf_w8_get_mult_table(&gf);
     if (mult8 == NULL) {
       printf("Couldn't get inline multiplication table.\n");
@@ -139,8 +138,7 @@ int main(int argc, char **argv)
     }
     printf("Inline mult:   %10.6lf s   Mops: %10.3lf    %10.3lf Mega-ops/s\n",
            elapsed, dnum/1024.0/1024.0, dnum/1024.0/1024.0/elapsed);
-  }
-  if (w == 16) {
+  } else if (w == 16) {
     log16 = gf_w16_get_log_table(&gf);
     alog16 = gf_w16_get_mult_alog_table(&gf);
     if (log16 == NULL) {
@@ -164,5 +162,9 @@ int main(int argc, char **argv)
     printf("Inline mult:   %10.6lf s   Mops: %10.3lf    %10.3lf Mega-ops/s\n",
            elapsed, dnum/1024.0/1024.0, dnum/1024.0/1024.0/elapsed);
   }
+  free (ra);
+  free (rb);
+  free (ra16);
+  free (rb16);
   return 0;
 }

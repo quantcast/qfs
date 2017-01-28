@@ -11,6 +11,7 @@
 #include "gf_int.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include "gf_cpu.h"
 
 #define GF_FIELD_WIDTH (128)
 
@@ -49,7 +50,7 @@ void
 gf_w128_multiply_region_from_single(gf_t *gf, void *src, void *dest, gf_val_128_t val, int bytes,
 int xor)
 {
-    int i;
+    uint32_t i;
     gf_val_128_t s128;
     gf_val_128_t d128;
     uint64_t c128[2];
@@ -87,7 +88,7 @@ void
 gf_w128_clm_multiply_region_from_single(gf_t *gf, void *src, void *dest, gf_val_128_t val, int bytes,
 int xor)
 {
-    int i;
+    uint32_t i;
     gf_val_128_t s128;
     gf_val_128_t d128;
     gf_region_data rd;
@@ -290,11 +291,11 @@ gf_w128_shift_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_12
   return;
 }
 
+#if defined(INTEL_SSE4_PCLMUL)
+
 void
 gf_w128_clm_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_t c128)
 {
-#if defined(INTEL_SSE4_PCLMUL)
-
     __m128i     a,b;
     __m128i     result0,result1;
     __m128i     prim_poly;
@@ -338,9 +339,8 @@ gf_w128_clm_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_
 
     c128[0] = (uint64_t)_mm_extract_epi64(result1,1);
     c128[1] = (uint64_t)_mm_extract_epi64(result1,0);
-#endif
-return;
 }
+#endif
 
 void
 gf_w128_bytwo_p_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_t c128)
@@ -376,10 +376,10 @@ gf_w128_bytwo_p_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_
   return;
 }
 
+#if defined(INTEL_SSE4)
 void
 gf_w128_sse_bytwo_p_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_t c128)
 {
-#if defined(INTEL_SSE4)
   int i;
   __m128i a, b, pp, prod, amask, u_middle_one; 
   /*John: pmask is always the highest bit set, and the rest zeros. amask changes, it's a countdown.*/
@@ -427,16 +427,16 @@ gf_w128_sse_bytwo_p_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_
   }
   c128[0] = (uint64_t)_mm_extract_epi64(prod, 1);
   c128[1] = (uint64_t)_mm_extract_epi64(prod, 0);
-#endif
   return;
 }
+#endif
 
 
 /* Ben: This slow function implements sse instrutions for bytwo_b because why not */
+#if defined(INTEL_SSE4)
 void
 gf_w128_sse_bytwo_b_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_t c128)
 {
-#if defined(INTEL_SSE4)
   __m128i a, b, lmask, hmask, pp, c, middle_one;
   gf_internal_t *h;
   uint64_t topbit, middlebit;
@@ -471,8 +471,8 @@ gf_w128_sse_bytwo_b_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_
     if (middlebit) b = _mm_xor_si128(b, middle_one);
     if (topbit) b = _mm_xor_si128(b, pp);
   }
-#endif
 }
+#endif
 
 void
 gf_w128_bytwo_b_multiply(gf_t *gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_t c128)
@@ -568,7 +568,6 @@ gf_w128_split_4_128_multiply_region(gf_t *gf, void *src, void *dest, gf_val_128_
     printf("\n");
   }
  */
-  i = 0;
   while (d64 < top) {
     v[0] = (xor) ? d64[0] : 0;
     v[1] = (xor) ? d64[1] : 0;
@@ -613,7 +612,6 @@ gf_w128_split_4_128_sse_multiply_region(gf_t *gf, void *src, void *dest, gf_val_
   }
 
   h = (gf_internal_t *) gf->scratch;
-  pp = h->prim_poly;
   
   /* We only do this to check on alignment. */
   gf_set_region_data(&rd, gf, src, dest, bytes, 0, xor, 16);
@@ -713,7 +711,6 @@ gf_w128_split_4_128_sse_altmap_multiply_region(gf_t *gf, void *src, void *dest, 
   }
 
   h = (gf_internal_t *) gf->scratch;
-  pp = h->prim_poly;
   
   /* We only do this to check on alignment. */
   gf_set_region_data(&rd, gf, src, dest, bytes, 0, xor, 256);
@@ -1149,7 +1146,7 @@ gf_w128_group_multiply_region(gf_t *gf, void *src, void *dest, gf_val_128_t val,
 }
 
 /* a^-1 -> b */
-  void
+void
 gf_w128_euclid(GFP gf, gf_val_128_t a128, gf_val_128_t b128)
 {
   uint64_t e_i[2], e_im1[2], e_ip1[2];
@@ -1242,7 +1239,7 @@ gf_w128_euclid(GFP gf, gf_val_128_t a128, gf_val_128_t b128)
   return;
 }
 
-  void
+void
 gf_w128_divide_from_inverse(GFP gf, gf_val_128_t a128, gf_val_128_t b128, gf_val_128_t c128)
 {
   uint64_t d[2];
@@ -1251,7 +1248,7 @@ gf_w128_divide_from_inverse(GFP gf, gf_val_128_t a128, gf_val_128_t b128, gf_val
   return;
 }
 
-  void
+void
 gf_w128_inverse_from_divide(GFP gf, gf_val_128_t a128, gf_val_128_t b128)
 {
   uint64_t one128[2];
@@ -1263,7 +1260,7 @@ gf_w128_inverse_from_divide(GFP gf, gf_val_128_t a128, gf_val_128_t b128)
 
 
 static
-  void
+void
 gf_w128_composite_inverse(gf_t *gf, gf_val_128_t a, gf_val_128_t inv)
 {
   gf_internal_t *h = (gf_internal_t *) gf->scratch;
@@ -1408,14 +1405,14 @@ int gf_w128_composite_init(gf_t *gf)
   gf_internal_t *h = (gf_internal_t *) gf->scratch;
 
   if (h->region_type & GF_REGION_ALTMAP) {
-    gf->multiply_region.w128 = gf_w128_composite_multiply_region_alt;   
+    SET_FUNCTION(gf,multiply_region,w128,gf_w128_composite_multiply_region_alt)   
   } else {
-    gf->multiply_region.w128 = gf_w128_composite_multiply_region;
+    SET_FUNCTION(gf,multiply_region,w128,gf_w128_composite_multiply_region)
   }
 
-  gf->multiply.w128 = gf_w128_composite_multiply;
-  gf->divide.w128 = gf_w128_divide_from_inverse;
-  gf->inverse.w128 = gf_w128_composite_inverse;
+  SET_FUNCTION(gf,multiply,w128,gf_w128_composite_multiply)
+  SET_FUNCTION(gf,divide,w128,gf_w128_divide_from_inverse)
+  SET_FUNCTION(gf,inverse,w128,gf_w128_composite_inverse)
 
   return 1;
 }
@@ -1424,10 +1421,12 @@ static
 int gf_w128_cfm_init(gf_t *gf)
 {
 #if defined(INTEL_SSE4_PCLMUL)
-  gf->inverse.w128 = gf_w128_euclid;
-  gf->multiply.w128 = gf_w128_clm_multiply;
-  gf->multiply_region.w128 = gf_w128_clm_multiply_region_from_single;
-  return 1;
+  if (gf_cpu_supports_intel_pclmul) {
+    SET_FUNCTION(gf,inverse,w128,gf_w128_euclid)
+    SET_FUNCTION(gf,multiply,w128,gf_w128_clm_multiply)
+    SET_FUNCTION(gf,multiply_region,w128,gf_w128_clm_multiply_region_from_single)
+    return 1;
+  }
 #endif
 
   return 0;
@@ -1436,9 +1435,9 @@ int gf_w128_cfm_init(gf_t *gf)
 static
 int gf_w128_shift_init(gf_t *gf)
 {
-  gf->multiply.w128 = gf_w128_shift_multiply;
-  gf->inverse.w128 = gf_w128_euclid;
-  gf->multiply_region.w128 = gf_w128_multiply_region_from_single;
+  SET_FUNCTION(gf,multiply,w128,gf_w128_shift_multiply)
+  SET_FUNCTION(gf,inverse,w128,gf_w128_euclid)
+  SET_FUNCTION(gf,multiply_region,w128,gf_w128_multiply_region_from_single)
   return 1;
 }
 
@@ -1449,16 +1448,16 @@ int gf_w128_bytwo_init(gf_t *gf)
   h = (gf_internal_t *) gf->scratch;
 
   if (h->mult_type == GF_MULT_BYTWO_p) {
-    gf->multiply.w128 = gf_w128_bytwo_p_multiply;
-    /*gf->multiply.w128 = gf_w128_sse_bytwo_p_multiply;*/
+    SET_FUNCTION(gf,multiply,w128,gf_w128_bytwo_p_multiply)
+    /*SET_FUNCTION(gf,multiply,w128,gf_w128_sse_bytwo_p_multiply)*/
     /* John: the sse function is slower.*/
   } else {
-    gf->multiply.w128 = gf_w128_bytwo_b_multiply;
-    /*gf->multiply.w128 = gf_w128_sse_bytwo_b_multiply;
+    SET_FUNCTION(gf,multiply,w128,gf_w128_bytwo_b_multiply)
+    /*SET_FUNCTION(gf,multiply,w128,gf_w128_sse_bytwo_b_multiply)
 Ben: This sse function is also slower. */
   }
-  gf->inverse.w128 = gf_w128_euclid;
-  gf->multiply_region.w128 = gf_w128_bytwo_b_multiply_region;
+  SET_FUNCTION(gf,inverse,w128,gf_w128_euclid)
+  SET_FUNCTION(gf,multiply_region,w128,gf_w128_bytwo_b_multiply_region)
   return 1;
 }
 
@@ -1528,20 +1527,20 @@ int gf_w128_split_init(gf_t *gf)
 
   h = (gf_internal_t *) gf->scratch;
 
-  gf->multiply.w128 = gf_w128_bytwo_p_multiply;
+  SET_FUNCTION(gf,multiply,w128,gf_w128_bytwo_p_multiply)
 #if defined(INTEL_SSE4_PCLMUL)
-  if (!(h->region_type & GF_REGION_NOSSE)){
-    gf->multiply.w128 = gf_w128_clm_multiply;
+  if (gf_cpu_supports_intel_pclmul && !(h->region_type & GF_REGION_NOSIMD)){
+    SET_FUNCTION(gf,multiply,w128,gf_w128_clm_multiply)
   }
 #endif
 
-  gf->inverse.w128 = gf_w128_euclid;
+  SET_FUNCTION(gf,inverse,w128,gf_w128_euclid)
 
   if ((h->arg1 != 4 && h->arg2 != 4) || h->mult_type == GF_MULT_DEFAULT) {
     sd8 = (struct gf_w128_split_8_128_data *) h->private;
     sd8->last_value[0] = 0;
     sd8->last_value[1] = 0;
-    gf->multiply_region.w128 = gf_w128_split_8_128_multiply_region;
+    SET_FUNCTION(gf,multiply_region,w128,gf_w128_split_8_128_multiply_region)
   } else {
     sd4 = (struct gf_w128_split_4_128_data *) h->private;
     sd4->last_value[0] = 0;
@@ -1549,23 +1548,19 @@ int gf_w128_split_init(gf_t *gf)
     if((h->region_type & GF_REGION_ALTMAP))
     {
       #ifdef INTEL_SSE4
-        if(!(h->region_type & GF_REGION_NOSSE))
-          gf->multiply_region.w128 = gf_w128_split_4_128_sse_altmap_multiply_region;
+        if(gf_cpu_supports_intel_sse4 && !(h->region_type & GF_REGION_NOSIMD))
+          SET_FUNCTION(gf,multiply_region,w128,gf_w128_split_4_128_sse_altmap_multiply_region)
         else
-          return 0;
-      #else
-        return 0;
       #endif
+          return 0;
     }
     else {
       #ifdef INTEL_SSE4
-        if(!(h->region_type & GF_REGION_NOSSE))
-          gf->multiply_region.w128 = gf_w128_split_4_128_sse_multiply_region;
+        if(gf_cpu_supports_intel_sse4 && !(h->region_type & GF_REGION_NOSIMD))
+          SET_FUNCTION(gf,multiply_region,w128,gf_w128_split_4_128_sse_multiply_region)
         else
-          gf->multiply_region.w128 = gf_w128_split_4_128_multiply_region;
-      #else
-      gf->multiply_region.w128 = gf_w128_split_4_128_multiply_region;
       #endif
+        SET_FUNCTION(gf,multiply_region,w128,gf_w128_split_4_128_multiply_region)
     }
   }
   return 1;
@@ -1589,9 +1584,9 @@ int gf_w128_group_init(gf_t *gf)
   gt->m_table[2] = 0;
   gt->m_table[3] = 0;
 
-  gf->multiply.w128 = gf_w128_group_multiply;
-  gf->inverse.w128 = gf_w128_euclid;
-  gf->multiply_region.w128 = gf_w128_group_multiply_region;
+  SET_FUNCTION(gf,multiply,w128,gf_w128_group_multiply)
+  SET_FUNCTION(gf,inverse,w128,gf_w128_euclid)
+  SET_FUNCTION(gf,multiply_region,w128,gf_w128_group_multiply_region)
 
   gf_w128_group_r_init(gf);
 
@@ -1727,7 +1722,6 @@ int gf_w128_scratch_size(int mult_type, int region_type, int divide_type, int ar
 int gf_w128_init(gf_t *gf)
 {
   gf_internal_t *h;
-  int no_default_flag = 0;
 
   h = (gf_internal_t *) gf->scratch;
   
@@ -1740,16 +1734,12 @@ int gf_w128_init(gf_t *gf)
     } else {
       h->prim_poly = 0x87; /* Omitting the leftmost 1 as in w=32 */
     }
-    if (no_default_flag == 1) {
-      fprintf(stderr,"Code contains no default irreducible polynomial for given base field\n");
-      return 0;
-    }
   }
 
-  gf->multiply.w128 = NULL;
-  gf->divide.w128 = NULL;
-  gf->inverse.w128 = NULL;
-  gf->multiply_region.w128 = NULL;
+  SET_FUNCTION(gf,multiply,w128,NULL)
+  SET_FUNCTION(gf,divide,w128,NULL)
+  SET_FUNCTION(gf,inverse,w128,NULL)
+  SET_FUNCTION(gf,multiply_region,w128,NULL)
   switch(h->mult_type) {
     case GF_MULT_BYTWO_p:
     case GF_MULT_BYTWO_b:      if (gf_w128_bytwo_init(gf) == 0) return 0; break;
@@ -1765,22 +1755,22 @@ int gf_w128_init(gf_t *gf)
   /* Ben: Used to be h->region_type == GF_REGION_ALTMAP, but failed since there
      are multiple flags in h->region_type */
   if (h->mult_type == GF_MULT_SPLIT_TABLE && (h->region_type & GF_REGION_ALTMAP)) {
-    gf->extract_word.w128 = gf_w128_split_extract_word;
+    SET_FUNCTION(gf,extract_word,w128,gf_w128_split_extract_word)
   } else if (h->mult_type == GF_MULT_COMPOSITE && h->region_type == GF_REGION_ALTMAP) {
-    gf->extract_word.w128 = gf_w128_composite_extract_word;
+    SET_FUNCTION(gf,extract_word,w128,gf_w128_composite_extract_word)
   } else {
-    gf->extract_word.w128 = gf_w128_extract_word;
+    SET_FUNCTION(gf,extract_word,w128,gf_w128_extract_word)
   }
 
   if (h->divide_type == GF_DIVIDE_EUCLID) {
-    gf->divide.w128 = gf_w128_divide_from_inverse;
+    SET_FUNCTION(gf,divide,w128,gf_w128_divide_from_inverse)
   } 
 
   if (gf->inverse.w128 != NULL && gf->divide.w128 == NULL) {
-    gf->divide.w128 = gf_w128_divide_from_inverse;
+    SET_FUNCTION(gf,divide,w128,gf_w128_divide_from_inverse)
   }
   if (gf->inverse.w128 == NULL && gf->divide.w128 != NULL) {
-    gf->inverse.w128 = gf_w128_inverse_from_divide;
+    SET_FUNCTION(gf,inverse,w128,gf_w128_inverse_from_divide)
   }
   return 1;
 }

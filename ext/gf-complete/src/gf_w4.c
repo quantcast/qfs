@@ -11,49 +11,8 @@
 #include "gf_int.h"
 #include <stdio.h>
 #include <stdlib.h>
-
-#define GF_FIELD_WIDTH      4
-#define GF_DOUBLE_WIDTH     (GF_FIELD_WIDTH*2)
-#define GF_FIELD_SIZE       (1 << GF_FIELD_WIDTH)
-#define GF_MULT_GROUP_SIZE       (GF_FIELD_SIZE-1)
-
-/* ------------------------------------------------------------
-   JSP: Each implementation has its own data, which is allocated
-   at one time as part of the handle. For that reason, it 
-   shouldn't be hierarchical -- i.e. one should be able to 
-   allocate it with one call to malloc. */
-
-struct gf_logtable_data {
-    uint8_t      log_tbl[GF_FIELD_SIZE];
-    uint8_t      antilog_tbl[GF_FIELD_SIZE * 2];
-    uint8_t      *antilog_tbl_div;
-};
-
-struct gf_single_table_data {
-    uint8_t      mult[GF_FIELD_SIZE][GF_FIELD_SIZE];
-    uint8_t      div[GF_FIELD_SIZE][GF_FIELD_SIZE];
-};
-
-struct gf_double_table_data {
-    uint8_t      div[GF_FIELD_SIZE][GF_FIELD_SIZE];
-    uint8_t      mult[GF_FIELD_SIZE][GF_FIELD_SIZE*GF_FIELD_SIZE];
-};
-struct gf_quad_table_data {
-    uint8_t      div[GF_FIELD_SIZE][GF_FIELD_SIZE];
-    uint16_t     mult[GF_FIELD_SIZE][(1<<16)];
-};
-
-struct gf_quad_table_lazy_data {
-    uint8_t      div[GF_FIELD_SIZE][GF_FIELD_SIZE];
-    uint8_t      smult[GF_FIELD_SIZE][GF_FIELD_SIZE];
-    uint16_t     mult[(1 << 16)];
-};
-
-struct gf_bytwo_data {
-    uint64_t prim_poly;
-    uint64_t mask1;
-    uint64_t mask2;
-};
+#include "gf_w4.h"
+#include "gf_cpu.h"
 
 #define AB2(ip, am1 ,am2, b, t1, t2) {\
   t1 = (b << 1) & am1;\
@@ -175,6 +134,7 @@ gf_w4_shift_multiply (gf_t *gf, gf_val_32_t a, gf_val_32_t b)
 }
 
 /* Ben: This function works, but it is 33% slower than the normal shift mult */
+
 #if defined(INTEL_SSE4_PCLMUL)
 static
 inline
@@ -182,7 +142,6 @@ gf_val_32_t
 gf_w4_clm_multiply (gf_t *gf, gf_val_32_t a4, gf_val_32_t b4)
 {
   gf_val_32_t rv = 0;
-
 
   __m128i         a, b;
   __m128i         result;
@@ -352,10 +311,10 @@ int gf_w4_log_init(gf_t *gf)
     return 0;
   }
     
-  gf->inverse.w32 = gf_w4_inverse_from_divide;
-  gf->divide.w32 = gf_w4_log_divide;
-  gf->multiply.w32 = gf_w4_log_multiply;
-  gf->multiply_region.w32 = gf_w4_log_multiply_region;
+  SET_FUNCTION(gf,inverse,w32,gf_w4_inverse_from_divide)
+  SET_FUNCTION(gf,divide,w32,gf_w4_log_divide)
+  SET_FUNCTION(gf,multiply,w32,gf_w4_log_multiply)
+  SET_FUNCTION(gf,multiply_region,w32,gf_w4_log_multiply_region)
   return 1;
 }
 
@@ -485,18 +444,23 @@ int gf_w4_single_table_init(gf_t *gf)
     }
   }
 
-  gf->inverse.w32 = NULL;
-  gf->divide.w32 = gf_w4_single_table_divide;
-  gf->multiply.w32 = gf_w4_single_table_multiply;
-  #ifdef INTEL_SSSE3
-    if(h->region_type & (GF_REGION_NOSSE | GF_REGION_CAUCHY))
-      gf->multiply_region.w32 = gf_w4_single_table_multiply_region;
-    else
-      gf->multiply_region.w32 = gf_w4_single_table_sse_multiply_region;
-  #else
-    gf->multiply_region.w32 = gf_w4_single_table_multiply_region;
-    if (h->region_type & GF_REGION_SSE) return 0;
-  #endif
+  SET_FUNCTION(gf,inverse,w32,NULL)
+  SET_FUNCTION(gf,divide,w32,gf_w4_single_table_divide)
+  SET_FUNCTION(gf,multiply,w32,gf_w4_single_table_multiply)
+#if defined(INTEL_SSSE3)
+    if (gf_cpu_supports_intel_ssse3 && !(h->region_type & (GF_REGION_NOSIMD | GF_REGION_CAUCHY))) {
+      SET_FUNCTION(gf,multiply_region,w32,gf_w4_single_table_sse_multiply_region)
+    } else {
+#elif defined(ARM_NEON)
+    if (gf_cpu_supports_arm_neon && !(h->region_type & (GF_REGION_NOSIMD | GF_REGION_CAUCHY))) {
+      gf_w4_neon_single_table_init(gf);
+    } else {
+#endif
+      SET_FUNCTION(gf,multiply_region,w32,gf_w4_single_table_multiply_region)
+      if (h->region_type & GF_REGION_SIMD) return 0;
+#if defined(INTEL_SSSE3) || defined(ARM_NEON)
+    }
+#endif
 
   return 1;
 }
@@ -585,10 +549,10 @@ int gf_w4_double_table_init(gf_t *gf)
     }
   }
 
-  gf->inverse.w32 = NULL;
-  gf->divide.w32 = gf_w4_double_table_divide;
-  gf->multiply.w32 = gf_w4_double_table_multiply;
-  gf->multiply_region.w32 = gf_w4_double_table_multiply_region;
+  SET_FUNCTION(gf,inverse,w32,NULL)
+  SET_FUNCTION(gf,divide,w32,gf_w4_double_table_divide)
+  SET_FUNCTION(gf,multiply,w32,gf_w4_double_table_multiply)
+  SET_FUNCTION(gf,multiply_region,w32,gf_w4_double_table_multiply_region)
   return 1;
 }
 
@@ -719,10 +683,10 @@ int gf_w4_quad_table_init(gf_t *gf)
     }
   }
 
-  gf->inverse.w32 = NULL;
-  gf->divide.w32 = gf_w4_quad_table_divide;
-  gf->multiply.w32 = gf_w4_quad_table_multiply;
-  gf->multiply_region.w32 = gf_w4_quad_table_multiply_region;
+  SET_FUNCTION(gf,inverse,w32,NULL)
+  SET_FUNCTION(gf,divide,w32,gf_w4_quad_table_divide)
+  SET_FUNCTION(gf,multiply,w32,gf_w4_quad_table_multiply)
+  SET_FUNCTION(gf,multiply_region,w32,gf_w4_quad_table_multiply_region)
   return 1;
 }
 static 
@@ -761,10 +725,10 @@ int gf_w4_quad_table_lazy_init(gf_t *gf)
     }
   }
 
-  gf->inverse.w32 = NULL;
-  gf->divide.w32 = gf_w4_quad_table_lazy_divide;
-  gf->multiply.w32 = gf_w4_quad_table_lazy_multiply;
-  gf->multiply_region.w32 = gf_w4_quad_table_multiply_region;
+  SET_FUNCTION(gf,inverse,w32,NULL)
+  SET_FUNCTION(gf,divide,w32,gf_w4_quad_table_lazy_divide)
+  SET_FUNCTION(gf,multiply,w32,gf_w4_quad_table_lazy_multiply)
+  SET_FUNCTION(gf,multiply_region,w32,gf_w4_quad_table_multiply_region)
   return 1;
 }
 
@@ -773,16 +737,13 @@ int gf_w4_table_init(gf_t *gf)
 {
   int rt;
   gf_internal_t *h;
-  int issse3 = 0;
-
-#ifdef INTEL_SSSE3
-  issse3 = 1;
-#endif
 
   h = (gf_internal_t *) gf->scratch;
   rt = (h->region_type);
 
-  if (h->mult_type == GF_MULT_DEFAULT && !issse3) rt |= GF_REGION_DOUBLE_TABLE;
+  if (h->mult_type == GF_MULT_DEFAULT && 
+    !(gf_cpu_supports_intel_ssse3 || gf_cpu_supports_arm_neon)) 
+      rt |= GF_REGION_DOUBLE_TABLE;
 
   if (rt & GF_REGION_DOUBLE_TABLE) {
     return gf_w4_double_table_init(gf);
@@ -966,11 +927,11 @@ gf_w4_bytwo_p_sse_multiply_region(gf_t *gf, void *src, void *dest, gf_val_32_t v
 #endif
 
 /*
+#ifdef INTEL_SSE2
 static
 void 
 gf_w4_bytwo_b_sse_multiply_region(gf_t *gf, void *src, void *dest, gf_val_32_t val, int bytes, int xor)
 {
-#ifdef INTEL_SSE2
   uint8_t *d8, *s8, tb;
   __m128i pp, m1, m2, t1, t2, va, vb;
   struct gf_bytwo_data *btd;
@@ -1027,8 +988,8 @@ gf_w4_bytwo_b_sse_multiply_region(gf_t *gf, void *src, void *dest, gf_val_32_t v
     }
   }
   gf_do_final_region_alignment(&rd);
-#endif
 }
+#endif
 */
 
 #ifdef INTEL_SSE2
@@ -1902,29 +1863,31 @@ int gf_w4_bytwo_init(gf_t *gf)
   }
 
   if (h->mult_type == GF_MULT_BYTWO_p) {
-    gf->multiply.w32 = gf_w4_bytwo_p_multiply;
-    #ifdef INTEL_SSE2
-      if (h->region_type & GF_REGION_NOSSE)
-        gf->multiply_region.w32 = gf_w4_bytwo_p_nosse_multiply_region;
-      else
-        gf->multiply_region.w32 = gf_w4_bytwo_p_sse_multiply_region;
-    #else
-      gf->multiply_region.w32 = gf_w4_bytwo_p_nosse_multiply_region;
-      if (h->region_type & GF_REGION_SSE)
-        return 0;
-    #endif
+    SET_FUNCTION(gf,multiply,w32,gf_w4_bytwo_p_multiply)
+#ifdef INTEL_SSE2
+      if (gf_cpu_supports_intel_sse2 && !(h->region_type & GF_REGION_NOSIMD)) {
+        SET_FUNCTION(gf,multiply_region,w32,gf_w4_bytwo_p_sse_multiply_region)
+      } else {
+#endif
+        SET_FUNCTION(gf,multiply_region,w32,gf_w4_bytwo_p_nosse_multiply_region)
+        if (h->region_type & GF_REGION_SIMD)
+          return 0;
+#ifdef INTEL_SSE2
+      }
+#endif
   } else {
-    gf->multiply.w32 = gf_w4_bytwo_b_multiply;
-    #ifdef INTEL_SSE2
-      if (h->region_type & GF_REGION_NOSSE)
-        gf->multiply_region.w32 = gf_w4_bytwo_b_nosse_multiply_region;
-      else
-        gf->multiply_region.w32 = gf_w4_bytwo_b_sse_multiply_region;
-    #else
-      gf->multiply_region.w32 = gf_w4_bytwo_b_nosse_multiply_region;
-      if (h->region_type & GF_REGION_SSE)
-        return 0;
-    #endif
+    SET_FUNCTION(gf,multiply,w32,gf_w4_bytwo_b_multiply)
+#ifdef INTEL_SSE2
+      if (gf_cpu_supports_intel_sse2 && !(h->region_type & GF_REGION_NOSIMD)) {
+        SET_FUNCTION(gf,multiply_region,w32,gf_w4_bytwo_b_sse_multiply_region)
+      } else {
+#endif
+        SET_FUNCTION(gf,multiply_region,w32,gf_w4_bytwo_b_nosse_multiply_region)
+        if (h->region_type & GF_REGION_SIMD)
+          return 0;
+#ifdef INTEL_SSE2
+      }
+#endif
   }
   return 1;
 }
@@ -1934,8 +1897,14 @@ static
 int gf_w4_cfm_init(gf_t *gf)
 {
 #if defined(INTEL_SSE4_PCLMUL)
-  gf->multiply.w32 = gf_w4_clm_multiply;
-  return 1;
+  if (gf_cpu_supports_intel_pclmul) {
+    SET_FUNCTION(gf,multiply,w32,gf_w4_clm_multiply)
+    return 1;
+  }
+#elif defined(ARM_NEON)
+  if (gf_cpu_supports_arm_neon) {
+    return gf_w4_neon_cfm_init(gf);
+  }
 #endif
   return 0;
 }
@@ -1943,7 +1912,7 @@ int gf_w4_cfm_init(gf_t *gf)
 static 
 int gf_w4_shift_init(gf_t *gf)
 {
-  gf->multiply.w32 = gf_w4_shift_multiply;
+  SET_FUNCTION(gf,multiply,w32,gf_w4_shift_multiply)
   return 1;
 }
 
@@ -1952,12 +1921,6 @@ int gf_w4_shift_init(gf_t *gf)
 
 int gf_w4_scratch_size(int mult_type, int region_type, int divide_type, int arg1, int arg2)
 {
-  int issse3 = 0;
-
-#ifdef INTEL_SSSE3
-  issse3 = 1;
-#endif
-
   switch(mult_type)
   {
     case GF_MULT_BYTWO_p:
@@ -1970,7 +1933,9 @@ int gf_w4_scratch_size(int mult_type, int region_type, int divide_type, int arg1
         return sizeof(gf_internal_t) + sizeof(struct gf_single_table_data) + 64;
       }
 
-      if (mult_type == GF_MULT_DEFAULT && !issse3) region_type = GF_REGION_DOUBLE_TABLE;
+      if (mult_type == GF_MULT_DEFAULT && 
+          !(gf_cpu_supports_arm_neon || gf_cpu_supports_intel_ssse3))
+          region_type = GF_REGION_DOUBLE_TABLE;
 
       if (region_type & GF_REGION_DOUBLE_TABLE) {
         return sizeof(gf_internal_t) + sizeof(struct gf_double_table_data) + 64;
@@ -2008,11 +1973,11 @@ gf_w4_init (gf_t *gf)
   h = (gf_internal_t *) gf->scratch;
   if (h->prim_poly == 0) h->prim_poly = 0x13;
   h->prim_poly |= 0x10;
-  gf->multiply.w32 = NULL;
-  gf->divide.w32 = NULL;
-  gf->inverse.w32 = NULL;
-  gf->multiply_region.w32 = NULL;
-  gf->extract_word.w32 = gf_w4_extract_word;
+  SET_FUNCTION(gf,multiply,w32,NULL)
+  SET_FUNCTION(gf,divide,w32,NULL)
+  SET_FUNCTION(gf,inverse,w32,NULL)
+  SET_FUNCTION(gf,multiply_region,w32,NULL)
+  SET_FUNCTION(gf,extract_word,w32,gf_w4_extract_word)
 
   switch(h->mult_type) {
     case GF_MULT_CARRY_FREE: if (gf_w4_cfm_init(gf) == 0) return 0; break;
@@ -2026,27 +1991,27 @@ gf_w4_init (gf_t *gf)
   }
 
   if (h->divide_type == GF_DIVIDE_EUCLID) {
-    gf->divide.w32 = gf_w4_divide_from_inverse;
-    gf->inverse.w32 = gf_w4_euclid;
+    SET_FUNCTION(gf,divide,w32,gf_w4_divide_from_inverse)
+    SET_FUNCTION(gf,inverse,w32,gf_w4_euclid)
   } else if (h->divide_type == GF_DIVIDE_MATRIX) {
-    gf->divide.w32 = gf_w4_divide_from_inverse;
-    gf->inverse.w32 = gf_w4_matrix;
+    SET_FUNCTION(gf,divide,w32,gf_w4_divide_from_inverse)
+    SET_FUNCTION(gf,inverse,w32,gf_w4_matrix)
   }
 
   if (gf->divide.w32 == NULL) {
-    gf->divide.w32 = gf_w4_divide_from_inverse;
-    if (gf->inverse.w32 == NULL) gf->inverse.w32 = gf_w4_euclid;
+    SET_FUNCTION(gf,divide,w32,gf_w4_divide_from_inverse)
+    if (gf->inverse.w32 == NULL) SET_FUNCTION(gf,inverse,w32,gf_w4_euclid)
   }
 
-  if (gf->inverse.w32 == NULL)  gf->inverse.w32 = gf_w4_inverse_from_divide;
+  if (gf->inverse.w32 == NULL)  SET_FUNCTION(gf,inverse,w32,gf_w4_inverse_from_divide)
 
   if (h->region_type == GF_REGION_CAUCHY) {
-    gf->multiply_region.w32 = gf_wgen_cauchy_region;
-    gf->extract_word.w32 = gf_wgen_extract_word;
+    SET_FUNCTION(gf,multiply_region,w32,gf_wgen_cauchy_region)
+    SET_FUNCTION(gf,extract_word,w32,gf_wgen_extract_word)
   }
 
   if (gf->multiply_region.w32 == NULL) {
-    gf->multiply_region.w32 = gf_w4_multiply_region_from_single;
+    SET_FUNCTION(gf,multiply_region,w32,gf_w4_multiply_region_from_single)
   }
 
   return 1;

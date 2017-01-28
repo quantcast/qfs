@@ -47,7 +47,6 @@ int create_gf_from_argv(gf_t *gf, int w, int argc, char **argv, int starting)
         } else if (strcmp(argv[starting], "CARRY_FREE") == 0) {
           mult_type = GF_MULT_CARRY_FREE;
           starting++;
-        //ADAM
         } else if (strcmp(argv[starting], "CARRY_FREE_GK") == 0) {
           mult_type = GF_MULT_CARRY_FREE_GK;
           starting++;
@@ -108,7 +107,6 @@ int create_gf_from_argv(gf_t *gf, int w, int argc, char **argv, int starting)
             return 0;
           }
         } else {
-          if (base != NULL) gf_free(base, 1);
           _gf_errno = GF_E_UNKNOWN;
           return 0;
         }
@@ -123,11 +121,17 @@ int create_gf_from_argv(gf_t *gf, int w, int argc, char **argv, int starting)
         } else if (strcmp(argv[starting], "LAZY") == 0) {
           region_type |= GF_REGION_LAZY;
           starting++;
+        } else if (strcmp(argv[starting], "SIMD") == 0) {
+          region_type |= GF_REGION_SIMD;
+          starting++;
+        } else if (strcmp(argv[starting], "NOSIMD") == 0) {
+          region_type |= GF_REGION_NOSIMD;
+          starting++;
         } else if (strcmp(argv[starting], "SSE") == 0) {
-          region_type |= GF_REGION_SSE;
+          region_type |= GF_REGION_SIMD;
           starting++;
         } else if (strcmp(argv[starting], "NOSSE") == 0) {
-          region_type |= GF_REGION_NOSSE;
+          region_type |= GF_REGION_NOSIMD;
           starting++;
         } else if (strcmp(argv[starting], "CAUCHY") == 0) {
           region_type |= GF_REGION_CAUCHY;

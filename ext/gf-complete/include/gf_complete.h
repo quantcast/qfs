@@ -13,40 +13,28 @@
 #include <stdint.h>
 
 #ifdef INTEL_SSE4
-#  ifdef __SSE4_2__
-#    include <nmmintrin.h>
-#  endif
-#  ifdef __SSE4_1__
-#    include <smmintrin.h>
-#  endif
+  #ifdef __SSE4_2__
+    #include <nmmintrin.h>
+  #endif
+  #ifdef __SSE4_1__
+    #include <smmintrin.h>
+  #endif
 #endif
 
 #ifdef INTEL_SSSE3
-# include <tmmintrin.h>
+  #include <tmmintrin.h>
 #endif
 
 #ifdef INTEL_SSE2
-#  include <emmintrin.h>
+  #include <emmintrin.h>
 #endif
 
 #ifdef INTEL_SSE4_PCLMUL
-#  include <wmmintrin.h>
+  #include <wmmintrin.h>
+#endif
 
-#  if ! defined(__x86_64__)
-#    if ! defined(_mm_insert_epi64)
-static __inline __m128i _mm_insert_epi64(__m128i a, long long b, int c) {
-  c <<= 1;
-  a = _mm_insert_epi32(a, (unsigned int)b, c);
-  return _mm_insert_epi32(a, (unsigned int)(b >> 32), c + 1);
-}
-#    endif
-#    if ! defined(_mm_extract_epi64)
-static __inline long long  _mm_extract_epi64 (__m128i __X, const int __N)
-{
-  return __builtin_ia32_vec_ext_v2di ((__v2di)__X, __N);
-}
-#    endif
-#  endif
+#if defined(ARM_NEON)
+  #include <arm_neon.h>
 #endif
 
 
@@ -57,7 +45,7 @@ static __inline long long  _mm_extract_epi64 (__m128i __X, const int __N)
 typedef enum {GF_MULT_DEFAULT,
               GF_MULT_SHIFT,
               GF_MULT_CARRY_FREE,
-              GF_MULT_CARRY_FREE_GK, //ADAM
+              GF_MULT_CARRY_FREE_GK,
               GF_MULT_GROUP,
               GF_MULT_BYTWO_p,
               GF_MULT_BYTWO_b,
@@ -77,7 +65,9 @@ typedef enum {GF_MULT_DEFAULT,
 #define GF_REGION_DOUBLE_TABLE (0x1)
 #define GF_REGION_QUAD_TABLE   (0x2)
 #define GF_REGION_LAZY         (0x4)
+#define GF_REGION_SIMD         (0x8)
 #define GF_REGION_SSE          (0x8)
+#define GF_REGION_NOSIMD       (0x10)
 #define GF_REGION_NOSSE        (0x10)
 #define GF_REGION_ALTMAP       (0x20)
 #define GF_REGION_CAUCHY       (0x40)

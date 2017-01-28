@@ -311,7 +311,7 @@ void gf_general_do_region_check(gf_t *gf, gf_general_t *a, void *orig_a, void *o
       if (xor) fprintf(stderr,"   XOR with target word: %s\n", sot);
       fprintf(stderr,"   Product word: %s\n", sft);
       fprintf(stderr,"   It should be: %s\n", ssb);
-      exit(0);
+      abort();
     }
   }
 }

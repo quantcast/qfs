@@ -8,6 +8,14 @@
  * Performs timing for gf arithmetic
  */
 
+#include "config.h"
+
+#ifdef HAVE_POSIX_MEMALIGN
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 600
+#endif
+#endif
+
 #include <stdio.h>
 #include <getopt.h>
 #include <stdint.h>
@@ -95,6 +103,9 @@ int main(int argc, char **argv)
   time_t t0;
   uint8_t *ra, *rb;
   gf_general_t a;
+#ifndef HAVE_POSIX_MEMALIGN
+  uint8_t *malloc_ra, *malloc_rb;
+#endif
 
   
   if (argc < 6) usage(NULL);
@@ -155,8 +166,17 @@ int main(int argc, char **argv)
 
   printf("Seed: %ld\n", t0);
 
-  ra = (uint8_t *) malloc(size);
-  rb = (uint8_t *) malloc(size);
+#ifdef HAVE_POSIX_MEMALIGN
+  if (posix_memalign((void **) &ra, 16, size))
+    ra = NULL;
+  if (posix_memalign((void **) &rb, 16, size))
+    rb = NULL;
+#else
+  malloc_ra = (uint8_t *) malloc(size + 15);
+  malloc_rb = (uint8_t *) malloc(size + 15);
+  ra = (uint8_t *) (((uintptr_t) malloc_ra + 15) & ~((uintptr_t) 0xf));
+  rb = (uint8_t *) (((uintptr_t) malloc_rb + 15) & ~((uintptr_t) 0xf));
+#endif
 
   if (ra == NULL || rb == NULL) { perror("malloc"); exit(1); }
 
@@ -188,8 +208,6 @@ int main(int argc, char **argv)
       if (tmethods[(int)test] == NULL) {
         printf("No %s method.\n", tstrings[(int)test]);
       } else {
-        elapsed = 0;
-
         if (test == '0') gf_general_set_zero(&a, w);
         if (test == '1') gf_general_set_one(&a, w);
         if (test == '2') gf_general_set_two(&a, w);

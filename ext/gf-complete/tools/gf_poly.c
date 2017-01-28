@@ -52,6 +52,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 char *BM = "Bad Method: ";
 
@@ -203,9 +204,14 @@ int main(int argc, char **argv)
       sprintf(string, "Argument '%s' not in proper format of power:coefficient\n", argv[i]);
       usage(string);
     }
-    if (power < 0) usage("Can't have negative powers\n");
-    if (power > n) n = power;
+    if (power < 0) {
+      usage("Can't have negative powers\n");
+    } else {
+      n = power;
+    }
   }
+  // in case the for-loop header fails
+  assert (n >= 0);
 
   poly = (gf_general_t *) malloc(sizeof(gf_general_t)*(n+1));
   for (i = 0; i <= n; i++) gf_general_set_zero(poly+i, w);

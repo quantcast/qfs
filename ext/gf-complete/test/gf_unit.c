@@ -8,6 +8,14 @@
  * Performs unit testing for gf arithmetic
  */
 
+#include "config.h"
+
+#ifdef HAVE_POSIX_MEMALIGN
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 600
+#endif
+#endif
+
 #include <stdio.h>
 #include <getopt.h>
 #include <stdint.h>
@@ -81,8 +89,10 @@ int main(int argc, char **argv)
   char as[50], bs[50], cs[50], ds[50];
   uint32_t mask = 0;
   char *ra, *rb, *rc, *rd, *target;
-  const char* const np = 0;
   int align;
+#ifndef HAVE_POSIX_MEMALIGN
+  char *malloc_ra, *malloc_rb, *malloc_rc, *malloc_rd;
+#endif
 
 
   if (argc < 4) usage(NULL);
@@ -117,18 +127,26 @@ int main(int argc, char **argv)
   c = (gf_general_t *) malloc(sizeof(gf_general_t));
   d = (gf_general_t *) malloc(sizeof(gf_general_t));
 
+#if HAVE_POSIX_MEMALIGN
+  if (posix_memalign((void **) &ra, 16, sizeof(char)*REGION_SIZE))
+    ra = NULL;
+  if (posix_memalign((void **) &rb, 16, sizeof(char)*REGION_SIZE))
+    rb = NULL;
+  if (posix_memalign((void **) &rc, 16, sizeof(char)*REGION_SIZE))
+    rc = NULL;
+  if (posix_memalign((void **) &rd, 16, sizeof(char)*REGION_SIZE))
+    rd = NULL;
+#else
   //15 bytes extra to make sure it's 16byte aligned
-  ra = (char *) malloc(sizeof(char)*REGION_SIZE+15);
-  rb = (char *) malloc(sizeof(char)*REGION_SIZE+15);
-  rc = (char *) malloc(sizeof(char)*REGION_SIZE+15);
-  rd = (char *) malloc(sizeof(char)*REGION_SIZE+15);
-
-  //this still assumes 8 byte aligned pointer from malloc
-  //(which is usual on 32-bit machines)
-  ra += (uint64_t)(ra - np) & 0xf;
-  rb += (uint64_t)(rb - np) & 0xf;
-  rc += (uint64_t)(rc - np) & 0xf;
-  rd += (uint64_t)(rd - np) & 0xf;
+  malloc_ra = (char *) malloc(sizeof(char)*REGION_SIZE+15);
+  malloc_rb = (char *) malloc(sizeof(char)*REGION_SIZE+15);
+  malloc_rc = (char *) malloc(sizeof(char)*REGION_SIZE+15);
+  malloc_rd = (char *) malloc(sizeof(char)*REGION_SIZE+15);
+  ra = (uint8_t *) (((uintptr_t) malloc_ra + 15) & ~((uintptr_t) 0xf));
+  rb = (uint8_t *) (((uintptr_t) malloc_rb + 15) & ~((uintptr_t) 0xf));
+  rc = (uint8_t *) (((uintptr_t) malloc_rc + 15) & ~((uintptr_t) 0xf));
+  rd = (uint8_t *) (((uintptr_t) malloc_rd + 15) & ~((uintptr_t) 0xf));
+#endif
 
   if (w <= 32) {
     mask = 0;
@@ -142,15 +160,12 @@ int main(int argc, char **argv)
   if (!gf_init_hard(&gf_def, w, GF_MULT_DEFAULT, GF_REGION_DEFAULT, GF_DIVIDE_DEFAULT,
       (h->mult_type != GF_MULT_COMPOSITE) ? h->prim_poly : 0, 0, 0, NULL, NULL))
     problem("No default for this value of w");
+
   if (w == 4) {
     mult4 = gf_w4_get_mult_table(&gf);
-  }
-
-  if (w == 8) {
+  } else if (w == 8) {
     mult8 = gf_w8_get_mult_table(&gf);
-  }
-
-  if (w == 16) {
+  } else if (w == 16) {
     log16 = gf_w16_get_log_table(&gf);
     alog16 = gf_w16_get_mult_alog_table(&gf);
   }
@@ -309,7 +324,6 @@ int main(int argc, char **argv)
           gf_general_val_to_s(c, w, cs, 1);
           printf("Error in single multiplication (all numbers in hex):\n\n");
           printf("  gf.multiply(gf, %s, %s) = %s, which is clearly wrong.\n", as, bs, cs);
-;
           exit(1);
         }
       }
@@ -423,5 +437,22 @@ int main(int argc, char **argv)
       gf_general_do_region_check(&gf, a, rc+s_start, rd+d_start, target+d_start, bytes, xor);
     }
   }
+
+  free(a);
+  free(b);
+  free(c);
+  free(d);
+#ifdef HAVE_POSIX_MEMALIGN
+  free(ra);
+  free(rb);
+  free(rc);
+  free(rd);
+#else
+  free(malloc_ra);
+  free(malloc_rb);
+  free(malloc_rc);
+  free(malloc_rd);
+#endif
+  
   return 0;
 }
