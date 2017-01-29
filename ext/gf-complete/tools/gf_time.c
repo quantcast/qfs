@@ -10,12 +10,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_POSIX_MEMALIGN
-#ifndef _XOPEN_SOURCE
-#define _XOPEN_SOURCE 600
-#endif
-#endif
-
 #include <stdio.h>
 #include <getopt.h>
 #include <stdint.h>
