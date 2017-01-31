@@ -393,7 +393,7 @@ ClientSM::HandleRequest(int code, void* data)
 
     case EVENT_CMD_DONE: {
         if (! data || mInFlightOpCount <= 0) {
-            die("invalid null op completion");
+            die("ClientSM: invalid null op completion");
             return -1;
         }
         KfsOp* op = reinterpret_cast<KfsOp*>(data);
@@ -499,7 +499,7 @@ ClientSM::HandleRequest(int code, void* data)
         break;
 
     default:
-        die("unexpected event");
+        die("ClientSM: unexpected event");
         break;
     }
 
@@ -596,7 +596,7 @@ ClientSM::HandleTerminate(int code, void* data)
     }
 
     default:
-        die("unexpected event");
+        die("ClientSM terminate unexpected event");
         break;
     }
 
@@ -804,6 +804,10 @@ ClientSM::FailIfExceedsWait(
 bool
 ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
 {
+    if (IsWaiting() || (mDevBufMgr && (! mCurOp ||
+            GetDevBufMgrClient(mDevBufMgr)->IsWaiting()))) {
+        die("ClientSM: invalid command handler invocation");
+    }
     KfsOp* op     = mCurOp;
     int    cmdLen = inCmdLen;
     assert(op ? cmdLen == 0 : (cmdLen > 0 || GetReceivedOp()));
