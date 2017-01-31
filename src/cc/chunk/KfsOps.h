@@ -366,7 +366,7 @@ struct KfsOp : public KfsCallbackObj
         .Def2("Max-wait-ms","w", &KfsOp::maxWaitMillisec, int64_t(-1))
         ;
     }
-    static inline BufferManager* GetDeviceBufferMangerSelf(
+    static inline BufferManager* GetDeviceBufferManagerSelf(
         bool            findFlag,
         bool            resetFlag,
         kfsChunkId_t    chunkId,
@@ -1141,7 +1141,7 @@ struct RecordAppendOp : public ChunkAccessRequestOp {
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
     {
-        return GetDeviceBufferMangerSelf(
+        return GetDeviceBufferManagerSelf(
             findFlag, resetFlag, chunkId, chunkVersion, devBufMgr);
     }
     template<typename T> static T& ParserDef(T& parser)
@@ -1408,7 +1408,7 @@ struct WritePrepareOp : public ChunkAccessRequestOp {
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
     {
-        return GetDeviceBufferMangerSelf(
+        return GetDeviceBufferManagerSelf(
             findFlag, resetFlag, chunkId, chunkVersion, devBufMgr);
     }
     virtual ostream& ShowSelf(ostream& os) const
@@ -1785,7 +1785,7 @@ struct ReadOp : public KfsClientChunkOp {
     virtual BufferManager* GetDeviceBufferManager(
         bool findFlag, bool resetFlag)
     {
-        return GetDeviceBufferMangerSelf(
+        return GetDeviceBufferManagerSelf(
             findFlag, resetFlag, chunkId, chunkVersion, devBufMgr);
     }
     virtual bool ParseResponse(const Properties& props, IOBuffer& iobuf);
