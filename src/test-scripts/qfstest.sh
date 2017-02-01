@@ -272,6 +272,8 @@ else
     accessdir=''
 fi
 
+monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
+
 for dir in  \
         'src/cc/devtools' \
         'src/cc/chunk' \
@@ -702,15 +704,23 @@ fi
 
 if [ x"$accessdir" != x ]; then
     kfsaccesspidf="kfsaccess_test${pidsuf}"
+    clientproppool="$clientprop.pool.prp"
     if [ -f "$clientprop" ]; then
-        clientproppool="$clientprop.pool.prp"
         cp "$clientprop" "$clientproppool" || exit
-        echo 'client.connectionPool=1' >> "$clientproppool" || exit
-        javatestclicfg="FILE:${clientproppool}"
     else
-        javatestclicfg="client.connectionPool=1"
+        cp /dev/null "$clientproppool" || exit
     fi
+    cat >> "$clientproppool" << EOF
+client.connectionPool=1
+EOF
+    if [ -f "$monitorpluginlib" ]; then
+        cat >> "$clientproppool" << EOF
+client.monitorPluginPath=$monitorpluginlib
+EOF
+    fi
+    javatestclicfg="FILE:${clientproppool}"
     cp /dev/null kfsaccess_test.out
+    QFS_CLIENT_MONITOR_LOG_DIR="$testdir/monitor_plugin" \
     QFS_CLIENT_CONFIG="$javatestclicfg" \
     java \
         -Xms800M \

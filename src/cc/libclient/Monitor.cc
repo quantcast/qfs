@@ -433,7 +433,7 @@ private:
         mPluginHandle = 0;
         mPluginInitFuncHandle = 0;
         mPluginReportFuncHandle = 0;
-        KFS_LOG_STREAM_INFO << "Monitor: Monitor plugin closed!" << KFS_LOG_EOM;
+        KFS_LOG_STREAM_INFO << "Monitor: Monitor plugin closed" << KFS_LOG_EOM;
      }
     void Start()
     {
@@ -443,7 +443,7 @@ private:
         const int kStackSize = 64 << 10;
         mRunFlag = true;
         mThread.Start(this, kStackSize, "MonitorThread");
-        KFS_LOG_STREAM_INFO << "Monitor: worker thread started!" << KFS_LOG_EOM;
+        KFS_LOG_STREAM_INFO << "Monitor: worker thread started" << KFS_LOG_EOM;
     }
     virtual void Run()
     {
@@ -478,7 +478,7 @@ private:
         theLock.Unlock();
         mThread.Join();
         KFS_LOG_STREAM_INFO <<
-                "Monitor: worker thread stopped!" << KFS_LOG_EOM;
+                "Monitor: worker thread stopped" << KFS_LOG_EOM;
     }
     void IncrementCounter(ErrorCounters& errCounters, int errCode) {
         switch(errCode) {

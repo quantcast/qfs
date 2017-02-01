@@ -1277,7 +1277,15 @@ private:
         unsigned int     mDefaultFileAttributeRevalidateScan;
 
         static const Globals& Get()
-            { return GetInstance(); }
+        {
+            // Force monitor instance construction prior to globals, in order to
+            // ensure reverse destructors invocation order, such that all clients
+            // are removed from the monitor by client list shutdown method prior
+            // to its destructor invocation.
+            Monitor::Instance();
+            static Globals globals;
+            return globals;
+        }
     private:
         Globals()
             : mUMask(0),
@@ -1335,28 +1343,13 @@ private:
         }
         ~Globals()
             { Instance().Shutdown(); }
-        static Globals& GetInstance()
-        {
-            static Globals globals;
-            return globals;
-        }
     };
     friend class Globals;
 
     ClientsList()
         : mMutex(),
           mNextClientId(0)
-    {
-        List::Init(mList);
-        // In cases where users forget to cleanup KfsClient instances,
-        // static Monitor instance relies on static ClientsList instance
-        // to invoke Monitor::RemoveClient for clients that are still alive
-        // at program termination. To make this work, we need to ensure
-        // static Monitor instance is not destroyed before static ClienstList
-        // instance. Constructing static Monitor instance before static
-        // ClientsList instance is how we achieve this.
-        Monitor::Instance();
-    }
+        { List::Init(mList); }
     ~ClientsList()
         { assert(! "unexpected invocation"); }
     void InsertSelf(KfsClientImpl& client)
@@ -1544,13 +1537,6 @@ KfsClientImpl::KfsClientImpl(
 KfsClientImpl::~KfsClientImpl()
 {
     if (! mMetaServer) {
-        if (mIsMonitored) {
-            Monitor::RemoveClient(this);
-            KFS_LOG_STREAM_INFO <<
-                "client with id " << mClientId <<
-                " is removed from monitoring." <<
-            KFS_LOG_EOM;
-        }
         ClientsList::Remove(*this);
     }
     QCStMutexLocker l(mMutex);
@@ -1571,12 +1557,6 @@ KfsClientImpl::~KfsClientImpl()
 void
 KfsClientImpl::Shutdown()
 {
-    if (mIsMonitored) {
-        Monitor::RemoveClient(this);
-        KFS_LOG_STREAM_INFO <<
-            "client with id " << mClientId << " is removed from monitoring." <<
-        KFS_LOG_EOM;
-    }
     QCStMutexLocker l(mMutex);
     ShutdownSelf();
 }
@@ -1585,6 +1565,14 @@ void
 KfsClientImpl::ShutdownSelf()
 {
     assert(mMutex.IsOwned());
+    if (mIsMonitored) {
+        mIsMonitored = false;
+        QCStMutexUnlocker unlock(mMutex);
+        Monitor::RemoveClient(this);
+        KFS_LOG_STREAM_INFO <<
+            "client with id " << mClientId << " is removed from monitoring." <<
+        KFS_LOG_EOM;
+    }
     if (mProtocolWorker) {
         QCStMutexUnlocker unlock(mMutex);
         mProtocolWorker->Stop();
@@ -1751,7 +1739,7 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
                 monitorReportInterval, monitorMaxErrorRecords)) {
         mIsMonitored = true;
         KFS_LOG_STREAM_INFO <<
-            "client with id " << mClientId << " is being monitored!" <<
+            "client with id " << mClientId << " is being monitored" <<
         KFS_LOG_EOM;
     }
     return ret;
