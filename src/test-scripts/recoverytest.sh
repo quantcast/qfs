@@ -226,7 +226,7 @@ if [ $start -ne 0 ]; then
     t=0
     until "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
                 -f "$clirootcfg" upservers 2>/dev/null \
-            | awk 'BEGIN{n=0;}{n++;}END{exit(n<2?1:0);}'; do
+            | awk 'BEGIN{n=0;}{n++;}END{if(n<2) exit(1); else exit(0);}'; do
         t=`expr $t = 1`
         if [ $t -gt 60 ]; then
             echo "wait for chunk servers to connect timed out"
@@ -247,12 +247,16 @@ if [ $runtest -eq 0 ]; then
     exit 0
 fi
 
+dsttestdir="/user/$usr/recoverytest"
+dsttestdirurl="qfs://$metahost:$metaport$dsttestdir"
+
 verify_file()
 {
     filemd5=`"$toolsdir"/qfs \
+        -D fs.glob=0 \
         -D fs.readFullSparseFileSupport=1 \
         -cfg "$clicfg" \
-        -cat "qfs://$metahost:$metaport/user/$usr/testrep.dat" \
+        -cat "$dsttestdirurl/testrep.dat" \
         | $mychksumcmd`
 
     if [ x"$testmd5" = x"$filemd5" ]; then
@@ -264,38 +268,52 @@ verify_file()
 
 status=0
 "$toolsdir"/qfs \
+    -D fs.glob=0 \
     -cfg "$clicfg" \
-    -mkdir "qfs://$metahost:$metaport/user/$usr" || status=1
+    -mkdir "$dsttestdirurl" || status=1
 
 for testblocksize in $testblocksizes ; do
     [ $status -eq 0 ] || break
 
     "$toolsdir"/qfs \
+        -D fs.glob=0 \
         -cfg "$clicfg" \
-        -rm -skipTrash "qfs://$metahost:$metaport/user/$usr/testrep*.dat" \
-            2>/dev/null
+        -rmr -skipTrash "$dsttestdirurl" || {
+        status=1
+        break;
+    }
+
+    "$toolsdir"/qfs \
+        -D fs.glob=0 \
+        -cfg "$clicfg" \
+        -mkdir "$dsttestdirurl" || {
+        status=1
+        break;
+    }
 
     "$devtoolsdir"/rand-sfmt -g $testtailblocksize 1234 \
         | "$toolsdir"/qfs \
+            -D fs.glob=0 \
             -cfg "$clicfg" \
             -D "$filecreateparams" \
-            -put - "qfs://$metahost:$metaport/user/$usr/testrep1.dat" || {
+            -put - "$dsttestdirurl/testrep1.dat" || {
         status=1
         break;
     }
 
     "$devtoolsdir"/rand-sfmt -g $testblocksize 1234 \
         | "$toolsdir"/qfs \
+            -D fs.glob=0 \
             -cfg "$clicfg" \
             -D "$filecreateparams" \
-            -put - "qfs://$metahost:$metaport/user/$usr/testrep.dat" || {
+            -put - "$dsttestdirurl/testrep.dat" || {
         status=1
         break;
     }
 
     "$toolsdir"/qfsshell \
             -f "$clicfg" -s $metahost -p $metaport -q -- \
-            append "/user/$usr/testrep1.dat" "/user/$usr/testrep.dat" || {
+            append "$dsttestdir/testrep1.dat" "$dsttestdir/testrep.dat" || {
         status=1
         break;
     }
@@ -317,7 +335,7 @@ for testblocksize in $testblocksizes ; do
     }
     fenumout="$qfstestdir/fenum.txt"
     "$toolsdir"/qfsfileenum -s $metahost -p $metaport -c "$clicfg" \
-            -f "/user/$usr/testrep.dat" > "$fenumout"
+            -f "$dsttestdir/testrep.dat" > "$fenumout"
     cat "$fenumout"
 
     tmpchunk="$qfstestdir/tmpchunk"
@@ -347,7 +365,7 @@ for testblocksize in $testblocksizes ; do
         # files, as fileenum chunk size read can leave the chunk files open.
         "$toolsdir"/qfsdataverify \
             -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
-            "/user/$usr/testrep.dat" >/dev/null 2>/dev/null
+            "$dsttestdir/testrep.dat" >/dev/null 2>/dev/null
         for i in $stripes; do
             if [ $m -lt 0 -a $s -eq 0 ]; then
                 m=$i
@@ -413,7 +431,7 @@ for testblocksize in $testblocksizes ; do
         while sleep 1; do
             "$toolsdir"/qfsdataverify \
                 -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
-                    "/user/$usr/testrep.dat" 1>/dev/null 2>/dev/null && break
+                    "$dsttestdir/testrep.dat" 1>/dev/null 2>/dev/null && break
             t=`expr $t + 1`
             if [ $t -gt $maxrecovwait ]; then
                 echo "wait for recovery to finish timed out" 1>&2
@@ -424,11 +442,11 @@ for testblocksize in $testblocksizes ; do
         [ $status -eq 0 ] || break;
         mv "$fenumout" "$fenumout.prev"
         "$toolsdir"/qfsfileenum -s "$metahost" -p "$metaport" -c "$clicfg" \
-            -f "/user/$usr/testrep.dat" > "$fenumout"
+            -f "$dsttestdir/testrep.dat" > "$fenumout"
         cat "$fenumout"
         sed -e 's/ [0-9]*$//' "$fenumout"      > "$fenumout.np"
         sed -e 's/ [0-9]*$//' "$fenumout.prev" > "$fenumout.prev.np"
-        diff -du  "$fenumout.prev.np" "$fenumout.np"
+        diff -u  "$fenumout.prev.np" "$fenumout.np"
         verify_file || {
             status=1
             break

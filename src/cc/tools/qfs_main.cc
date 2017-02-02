@@ -98,6 +98,7 @@ public:
           mIoBufferPtr(new char[mIoBufferSize]),
           mDefaultCreateParams("S"), // RS 6+3 64K stripe
           mDelimeter(' '),
+          mGlobFlag(true),
           mConfig()
         {}
     ~KfsTool()
@@ -216,6 +217,8 @@ public:
         }
         mDefaultCreateParams = mConfig.getValue(
             "fs.createParams", mDefaultCreateParams);
+        mGlobFlag = mConfig.getValue(
+            "fs.glob", mGlobFlag ? 1 : 0) != 0;
         const char* const theCmdPtr  = inArgsPtr[theArgIndex++] + 1;
         if (theCmdPtr[-1] != '-') {
             ShortHelp(cerr);
@@ -974,8 +977,9 @@ private:
         bool         inNormalizePathFlag = true)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
-        int  theRet = 0;
-        Path theFsPath;
+        int   theRet = 0;
+        Path  theFsPath;
+        char* theGlobList[1];
         outMoreThanOneFsFlag = false;
         for (int i = 0; i < inArgCount; i++) {
             const string theArg   = inArgsPtr[i];
@@ -992,12 +996,12 @@ private:
                 (! outResult.empty() && *theFsPtr != *(outResult.back().first));
             glob_t    theGlobRes = {0};
             const int kGlobFlags = GLOB_NOSORT | GLOB_NOCHECK;
-            theErr = theFsPtr->Glob(
+            theErr = mGlobFlag ? theFsPtr->Glob(
                 thePath,
                 kGlobFlags,
                 0, // the err func.
                 &theGlobRes
-            );
+            ) : 0;
             if (theErr == 0) {
                 string thePrefix;
                 if (thePath.empty() || thePath[0] != '/') {
@@ -1005,7 +1009,9 @@ private:
                     if ((theErr = theFsPtr->GetCwd(theCwd))) {
                         inErrorStream << theArg <<
                             ": " << theFsPtr->StrError(theErr) << "\n";
-                        globfree(&theGlobRes);
+                        if (mGlobFlag) {
+                            globfree(&theGlobRes);
+                        }
                         theRet = theErr;
                         continue;
                     }
@@ -1016,6 +1022,11 @@ private:
                             theGlobRes.gl_pathv[0][0] != 0))) {
                         thePrefix += "/";
                     }
+                }
+                if (! mGlobFlag) {
+                    theGlobRes.gl_pathc = 1;
+                    theGlobRes.gl_pathv = theGlobList;
+                    theGlobList[0] = (char*)thePath.c_str();
                 }
                 if (theGlobRes.gl_pathc <= 0) {
                     continue;
@@ -1038,7 +1049,9 @@ private:
                 inErrorStream << inArgsPtr[i] << ": " << GlobError(theErr) <<
                     " " << theErr << "\n";
             }
-            globfree(&theGlobRes);
+            if (mGlobFlag) {
+                globfree(&theGlobRes);
+            }
             if (theErr != 0) {
                 theRet = theErr;
             }
@@ -4526,6 +4539,7 @@ private:
     char* const  mIoBufferPtr;
     string       mDefaultCreateParams;
     char         mDelimeter;
+    bool         mGlobFlag;
     Properties   mConfig;
 private:
     KfsTool(const KfsTool& inTool);
