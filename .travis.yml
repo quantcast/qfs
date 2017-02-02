@@ -35,30 +35,33 @@ os:
 
 env:
     matrix:
-        - DISTRO=osx           VER=none  CODECOV=no
-        - DISTRO=ubuntu        VER=16.04 CODECOV=yes
-        - DISTRO=ubuntu        VER=16.04 CODECOV=no
-        - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no
-        - DISTRO=ubuntu        VER=14.04 CODECOV=no
-        - DISTRO=centos        VER=6     CODECOV=no
-        - DISTRO=centos        VER=7     CODECOV=no
+        - DISTRO=osx           VER=none  CODECOV=no  BTYPE=release
+        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=debug
+        - DISTRO=ubuntu        VER=16.04 CODECOV=yes BTYPE=release
+        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release
+        - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release
+        - DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release
+        - DISTRO=centos        VER=6     CODECOV=no  BTYPE=release
+        - DISTRO=centos        VER=7     CODECOV=no  BTYPE=release
 
 matrix:
     exclude:
         - os: osx
-          env: DISTRO=ubuntu        VER=16.04 CODECOV=yes
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=yes BTYPE=release
         - os: osx
-          env: DISTRO=ubuntu        VER=16.04 CODECOV=no
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=debug
         - os: osx
-          env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release
         - os: osx
-          env: DISTRO=ubuntu        VER=14.04 CODECOV=no
+          env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release
         - os: osx
-          env: DISTRO=centos        VER=6     CODECOV=no
+          env: DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release
         - os: osx
-          env: DISTRO=centos        VER=7     CODECOV=no
+          env: DISTRO=centos        VER=6     CODECOV=no  BTYPE=release
+        - os: osx
+          env: DISTRO=centos        VER=7     CODECOV=no  BTYPE=release
         - os: linux
-          env: DISTRO=osx           VER=none  CODECOV=no
+          env: DISTRO=osx           VER=none  CODECOV=no  BTYPE=release
 
 services:
     - docker
