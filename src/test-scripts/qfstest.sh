@@ -191,7 +191,7 @@ mytailpids=''
 
 mytailwait()
 {
-    exec tail -1000f "$2" 2>/dev/null &
+    exec tail -1000f "$2" &
     mytailpids="$mytailpids $!"
     wait $1
     myret=$?
@@ -821,6 +821,7 @@ if [ x"$mytailpids" != x ]; then
     # Let tail -f poll complete, then shut them down.
     sleep 1
     kill -TERM $mytailpids
+    wait 2>/dev/null
 fi
 
 if [ $status -eq 0 ]; then
