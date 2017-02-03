@@ -579,12 +579,8 @@ ObjStoreFsck::RunSelf(
         return 1;
     }
     MsgLogger::SetLevel(theLogLevel);
-    if (! theCpDir.empty()) {
-        checkpointer_setup_paths(theCpDir);
-    }
-    if (theLogDirPtr && theLogDirPtr[0]) {
-        replayer.setLogDir(theLogDirPtr);
-    }
+    checkpointer_setup_paths(theCpDir);
+    replayer.setLogDir(theLogDirPtr);
     if (0 == (theStatus = SetParameters(
                 theMetaServer, theConfigFileNamePtr))) {
         theStatus = Start(theMetaServer);

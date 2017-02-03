@@ -2494,7 +2494,19 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     // Enable updates, and reset primary node id at the end of replay.
     state.mUpdateLogWriterFlag = true;
     primaryNodeId = -1;
-    if (0 != status) {
+    if (0 == status) {
+        if (state.mCommitQueue.empty() &&
+                state.mLastBlockCommittedSeq == MetaVrLogSeq(0, 0, 0) &&
+                state.mLastCommittedSeq == state.mBlockStartLogSeq &&
+                state.mLastBlockCommittedSeq < state.mBlockStartLogSeq &&
+                state.mLastBlockCommittedSeq.IsSameView(
+                    state.mLastCommittedSeq)) {
+            // Set commit state, when converting from prior log version.
+            state.mLastBlockCommittedSeq = state.mLastCommittedSeq;
+            state.mLastBlockSeed         = fileID.getseed();
+            appendToLastLogFlag          = false;
+        }
+    } else {
         appendToLastLogFlag = false;
     }
     return status;

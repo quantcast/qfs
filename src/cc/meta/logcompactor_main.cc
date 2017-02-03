@@ -165,6 +165,7 @@ LogCompactorMain(int argc, char** argv)
         status = -EINVAL;
     }
     checkpointer_setup_paths(cpdir);
+    replayer.setLogDir(logdir.c_str());
     const bool kAllowEmptyCheckpointFlag = false;
     if (0 == status && (status = restore_checkpoint(
             lockFn, kAllowEmptyCheckpointFlag)) == 0) {

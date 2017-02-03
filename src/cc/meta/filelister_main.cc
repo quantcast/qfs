@@ -113,12 +113,8 @@ FileListerMain(int argc, char **argv)
     MdStream::Init();
     MsgLogger::Init(0, MsgLogger::kLogLevelINFO);
 
-    if (! cpdir.empty()) {
-        checkpointer_setup_paths(cpdir);
-    }
-    if (logdir && *logdir) {
-        replayer.setLogDir(logdir);
-    }
+    checkpointer_setup_paths(cpdir);
+    replayer.setLogDir(logdir);
     const bool kAllowEmptyCheckpointFlag = false;
     if ((status = restore_checkpoint(lockfn, kAllowEmptyCheckpointFlag)) == 0 &&
             (status = replayer.playLogs(includeLastLogFlag)) == 0) {
