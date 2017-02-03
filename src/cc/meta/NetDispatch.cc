@@ -1116,7 +1116,7 @@ public:
             return true;
         }
         mMutex = mutex;
-        const int kStackSize = 256 << 10;
+        const int kStackSize = 384 << 10;
         const int err = mThread.TryToStart(
             this, kStackSize, "ClientThread",
             cpuIndex >= 0 ?

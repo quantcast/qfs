@@ -1192,7 +1192,7 @@ QCDiskQueue::Queue::Start(
     }
     mThreadsPtr = new IoThread[inThreadCount];
     mRunFlag    = true;
-    const int         kStackSize = (inRequestProcessorsPtr ? 512 : 32) << 10;
+    const int         kStackSize = (inRequestProcessorsPtr ? 512 : 64) << 10;
     const char* const kNamePtr   = "IO";
     for (mThreadCount = 0; mThreadCount < inThreadCount; mThreadCount++) {
         const int theRet = mThreadsPtr[mThreadCount].Start(
