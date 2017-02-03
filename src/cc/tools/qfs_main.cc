@@ -98,7 +98,13 @@ public:
           mIoBufferPtr(new char[mIoBufferSize]),
           mDefaultCreateParams("S"), // RS 6+3 64K stripe
           mDelimeter(' '),
-          mGlobFlag(true),
+          mGlobFlag(
+#ifdef GLOB_ALTDIRFUNC
+          true
+#else
+          false
+#endif
+          ),
           mConfig()
         {}
     ~KfsTool()
@@ -996,12 +1002,19 @@ private:
                 (! outResult.empty() && *theFsPtr != *(outResult.back().first));
             glob_t    theGlobRes = {0};
             const int kGlobFlags = GLOB_NOSORT | GLOB_NOCHECK;
-            theErr = mGlobFlag ? theFsPtr->Glob(
-                thePath,
-                kGlobFlags,
-                0, // the err func.
-                &theGlobRes
-            ) : 0;
+            if (mGlobFlag) {
+                theErr = theFsPtr->Glob(
+                    thePath,
+                    kGlobFlags,
+                    0, // the err func.
+                    &theGlobRes
+                );
+            } else {
+                theErr = 0;
+                theGlobRes.gl_pathc = 1;
+                theGlobRes.gl_pathv = theGlobList;
+                theGlobList[0] = (char*)thePath.c_str();
+            }
             if (theErr == 0) {
                 string thePrefix;
                 if (thePath.empty() || thePath[0] != '/') {
@@ -1022,11 +1035,6 @@ private:
                             theGlobRes.gl_pathv[0][0] != 0))) {
                         thePrefix += "/";
                     }
-                }
-                if (! mGlobFlag) {
-                    theGlobRes.gl_pathc = 1;
-                    theGlobRes.gl_pathv = theGlobList;
-                    theGlobList[0] = (char*)thePath.c_str();
                 }
                 if (theGlobRes.gl_pathc <= 0) {
                     continue;
@@ -4597,7 +4605,7 @@ const char* const KfsTool::sHelpStrings[] =
     "fs.readSkipHoles         = 0\n\t\t\t"
         "skip holes in sparse files. Only has effect with QFS.\n\t\t"
             "Note that the QFS files system does not maintain exact\n\t\t"
-            "hole boundaries maintained with RS files. The holes\n\t\t"
+            "hole boundaries with RS files. The holes\n\t\t"
             "boundaries can be \"rounded\" to stripe size by zero\n\t\t"
             "filling the \"tail\" of the stripe.\n\t\t"
     "fs.readFullSparseFileSupport = 0\n\t\t\t"
@@ -4606,6 +4614,14 @@ const char* const KfsTool::sHelpStrings[] =
     "fs.columnSeparator\n\t\t\t"
         "set -ls[rst]* and -count column delimiter (single character).\n\t\t\t"
         "C escape sequences can be used to specify character code.\n\t\t"
+    "fs.glob = "
+#ifdef GLOB_ALTDIRFUNC
+        "1"
+#else
+        "0 (QFS glob is not yet implemented on this platform)"
+#endif
+        "\n\t\t\t"
+        "if not 0, then performs filename expansion.\n\t\t"
     "client.* QFS client parameters.\n\t\t\t"
         "Client parameter's decription, including client's\n\t\t\t"
         "authentication parameters [client.auth.] description\n\t\t\t"

@@ -457,7 +457,7 @@ KfsGlob(
     glob_t*     inResultPtr)
 {
 #ifndef GLOB_ALTDIRFUNC
-    return -ENXIO;
+    return ENXIO;
 #else
     return client::KfsOpenDir::Glob::Expand(
         inClient, inGlobPtr, inGlobFlags, inErrorHandlerPtr, inResultPtr);
