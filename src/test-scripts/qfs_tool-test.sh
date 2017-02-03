@@ -54,6 +54,13 @@ if [ x"`{ cat /dev/null | $qfstoolchksum ; } 2>/dev/null`" = x ]; then
     [ x"`{ cat /dev/null | $qfstoolchksum ; }`" = x ] && exit 1
 fi
 
+myawk='/usr/xpg4/bin/awk'
+if [ -f "$myawk" ]; then
+    true
+else
+    myawk=awk
+fi
+
 if [ -d "${kfstools}" ]; then
     kfstools=`cd "${kfstools}" && pwd`
 fi
@@ -68,6 +75,14 @@ if [ x"`id -u`" = x'0' ]; then
 else
     qfscuruserroot=0
 fi
+if qfs -help | awk '/fs.glob/{ if (0 == $3) exit(0); else exit(1); }' ; then
+    echo 'QFS glob is not supported on this platform,' \
+        ' not performing glob related qfs tool tests.'
+    qfsglobtests=0
+else
+    qfsglobtests=1
+fi
+
 PATH="`pwd`:${PATH}"
 [ -d "${kfstools}" ] && PATH="${kfstools}:${PATH}"
 [ -d "${kfsdevtools}" ] && PATH="${kfsdevtools}:${PATH}"
@@ -171,7 +186,7 @@ done
 tmpout="$testdir/tmp.out"
 
 $qfstool -du "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts '
+$myawk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts '
 BEGIN {
     ic = split(s, v)
     t = 0
@@ -210,7 +225,7 @@ END {
 ' "$tmpout"
 
 $qfstool -duh "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts '
+$myawk -v p="$dir/$dstbn/" -v s="$qfstoolsizes" -v ts=$ts '
 BEGIN {
     ic = split(s, v)
     m["KB"] = 1024
@@ -241,7 +256,7 @@ BEGIN {
 ' "$tmpout"
 
 $qfstool -dus "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn" -v s="$qfstoolsizes" -v ts=$ts '
+$myawk -v p="$dir/$dstbn" -v s="$qfstoolsizes" -v ts=$ts '
 BEGIN {
     sz = split(s, v)
     t = 0
@@ -259,7 +274,7 @@ BEGIN {
 ' "$tmpout"
 
 $qfstool -dush "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn" -v s="$qfstoolsizes" -v ts=$ts '
+$myawk -v p="$dir/$dstbn" -v s="$qfstoolsizes" -v ts=$ts '
 BEGIN {
     sz = split(s, v)
     t = 0
@@ -283,7 +298,7 @@ BEGIN {
 ' "$tmpout"
 
 $qfstool -lsr "$dir/$dstbn" > "$tmpout"
-awk -v p="$dir/$dstbn/" \
+$myawk -v p="$dir/$dstbn/" \
     -v s="$qfstoolsizes" -v ts=$ts \
     -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" '
 BEGIN {
@@ -322,7 +337,7 @@ if [ $qfscuruserroot -eq 0 ]; then
     $qfstool -lsr "$tfile" && exit 1
     $qfstool -chmod -R a+X "$tdir"
     $qfstool -lsr "$tfile" > "$tmpout"
-    awk -v p="$tfile" '
+    $myawk -v p="$tfile" '
     {
         if ($1 != "-rw-r--r--" || $2 != 2 || $NF != p) {
             print "$0"
@@ -345,7 +360,7 @@ $qfstool -chmod a+r "$tfile"
 $qfstool -tail "$tfile" > /dev/null
 $qfstool -setModTime "$tfile" 3600000
 $qfstool -astat "$tfile" > "$tmpout"
-awk '
+$myawk '
 {
     if ($1 == "Modified:" && $2 != 3600) {
         print $0
@@ -358,8 +373,13 @@ if [ $qfscuruserroot -eq 0 ]; then
 fi
 $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown -R 0:0 "$tdir"
 $qfstool -astat "$tdir" > "$tmpout"
-$qfstool -astat "$tdir/*.*" >> "$tmpout"
-awk '
+if [ $qfsglobtests -ne 0 ]; then
+    $qfstool -astat "$tdir/*.*" >> "$tmpout"
+    myentrycnt=3
+else
+    myentrycnt=1
+fi
+$myawk -v entrycnt=$myentrycnt '
 BEGIN {
     t = 0
     d = 0
@@ -377,7 +397,7 @@ BEGIN {
     }
 }
 END {
-    if (t != 3 && d != 1) {
+    if (t != entrycnt && d != 1) {
         exit(1)
     }
 }
@@ -387,8 +407,12 @@ if [ $qfscuruserroot -eq 0 ]; then
 fi
 $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown -R "${qfstooluser}" "$tdir"
 $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chgrp -R "${qfstoolgroup}" "$tdir"
-$qfstool -ls "$tdir/*" > "$tmpout"
-awk -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
+if [ $qfsglobtests -ne 0 ]; then
+    $qfstool -ls "$tdir/*" > "$tmpout"
+else
+    $qfstool -ls "$tdir" > "$tmpout"
+fi
+$myawk -v usr="`echo "${qfstooluser}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
     -v grp="`echo "${qfstoolgroup}" | sed -e 's/\\\\/\\\\\\\\/g'`" \
     -v p="`echo "${tdir}" | sed -e 's/\\\\/\\\\\\\\/g'`/" '
 {

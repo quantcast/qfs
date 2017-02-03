@@ -153,7 +153,7 @@ if [ x"$myvalgrind" != x ]; then
 fi
 [ x"`uname`" = x'Darwin' ] && dontusefuser=yes
 if [ x"$dontusefuser" != x'yes' ]; then
-    fuser "$0" >/dev/null 1>&2 || dontusefuser=yes
+    fuser "$0" >/dev/null 2>&1 || dontusefuser=yes
 fi
 export myvalgrind
 
@@ -644,20 +644,16 @@ else
     qfstoolrootauthcfg=
 fi
 
-if [ x"`uname`" = x'SunOS' ]; then
-    qfstoolpid=
-else
-    cp /dev/null qfs_tool-test.out
-    qfstoolpidf="qfstooltest${pidsuf}"
-    qfstoolopts='-v' \
-    qfstoolmeta="$metahosturl:$metasrvport" \
-    qfstooltrace=on \
-    qfstoolrootauthcfg=$qfstoolrootauthcfg \
-    qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
-        1>>qfs_tool-test.out 2>qfs_tool-test.log &
-    qfstoolpid=$!
-    echo "$qfstoolpid" > "$qfstoolpidf"
-fi
+cp /dev/null qfs_tool-test.out
+qfstoolpidf="qfstooltest${pidsuf}"
+qfstoolopts='-v' \
+qfstoolmeta="$metahosturl:$metasrvport" \
+qfstooltrace=on \
+qfstoolrootauthcfg=$qfstoolrootauthcfg \
+qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
+    1>>qfs_tool-test.out 2>qfs_tool-test.log &
+qfstoolpid=$!
+echo "$qfstoolpid" > "$qfstoolpidf"
 
 qfscpidf="qfsctest${pidsuf}"
 cp /dev/null test-qfsc.out
