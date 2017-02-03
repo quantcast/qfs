@@ -815,8 +815,7 @@ done
 
 if [ x"$mytailpids" != x ]; then
     # Let tail -f poll complete, then shut them down.
-    sleep 1
-    kill -TERM $mytailpids
+    { sleep 1 ; kill -TERM $mytailpids ; } &
     wait 2>/dev/null
 fi
 

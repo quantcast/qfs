@@ -38,10 +38,10 @@ MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/b
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
 
-MYCMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo'
+MYCMAKE_OPTIONS=''
 MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D QFS_EXTRA_CXX_OPTIONS=-Werror'
 MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D QFS_EXTRA_C_OPTIONS=-Werror'
-MYQFSTEST_DIR='build/release/qfstest'
+MYBUILD_TYPE='release'
 
 set_sudo()
 {
@@ -64,6 +64,7 @@ set_sudo()
 
 tail_logs_and_exit()
 {
+    MYQFSTEST_DIR="build/$MYBUILD_TYPE/qfstest"
     if [ -d "$MYQFSTEST_DIR" ]; then
         find "$MYQFSTEST_DIR" -type f -name '*.log' -print0 \
         | xargs -0  tail -n 100
@@ -73,7 +74,15 @@ tail_logs_and_exit()
 
 do_build()
 {
-    $MYSU make ${1+"$@"} CMAKE_OPTIONS="$MYCMAKE_OPTIONS" test tarball \
+    if [ x"$MYBUILD_TYPE" = x'debug' ]; then
+        MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D CMAKE_BUILD_TYPE=Debug'
+    else
+        MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D CMAKE_BUILD_TYPE=RelWithDebInfo'
+    fi
+    $MYSU make ${1+"$@"} \
+        BUILD_TYPE="$MYBUILD_TYPE" \
+        CMAKE_OPTIONS="$MYCMAKE_OPTIONS" \
+        test tarball \
     || tail_logs_and_exit
 }
 
@@ -160,7 +169,17 @@ build_centos()
     do_build_linux
 }
 
-if [ $# -eq 3 -a x"$1" = x'build' ]; then
+set_build_type()
+{
+    if [ x"$1" = x ]; then
+        true
+    else
+        MYBUILD_TYPE=$1
+    fi
+}
+
+if [ $# -eq 4 -a x"$1" = x'build' ]; then
+    set_build_type "$4"
     "$1_$(basename "$2")" "$3"
     exit
 fi
@@ -172,8 +191,9 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     fi
     MYSRCD="$(pwd)"
     docker run --rm -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
-        /bin/bash ./travis/script.sh build "$DISTRO" "$VER"
+        /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE"
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
+    set_build_type "$BTYPE"
     MYSSLD='/usr/local/Cellar/openssl/'
     if [ -d "$MYSSLD" ]; then
         MYSSLD="${MYSSLD}$(LANG=C ls -1 "$MYSSLD" | tail -n 1)"
