@@ -225,6 +225,18 @@ if [ $start -ne 0 ]; then
     sleep 1
     t=0
     until "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
+                -f "$clirootcfg" ping 2>/dev/null \
+            | grep 'System Info:' \
+            | tr '\t' '\n' \
+            | grep 'In recovery= 0' > /dev/null; do
+        t=`expr $t = 1`
+        if [ $t -gt 60 ]; then
+            echo "wait for chunk servers to connect timed out"
+            exit 1
+        fi
+        sleep 1
+    done
+    until "$toolsdir"/qfsadmin -s "$metahost" -p "$metaport" \
                 -f "$clirootcfg" upservers 2>/dev/null \
             | awk 'BEGIN{n=0;}{n++;}END{if(n<2) exit(1); else exit(0);}'; do
         t=`expr $t = 1`
@@ -462,7 +474,7 @@ for testblocksize in $testblocksizes ; do
     -1 10 11
     -1 10 11 12
     -1 -3 -5
-    -1 0 1 5
+    -1 0 -1 5
 EOF
     [ $status -eq 0 ] || break;
 done

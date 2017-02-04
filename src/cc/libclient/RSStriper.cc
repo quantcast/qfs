@@ -61,6 +61,13 @@ class RSStriper
 public:
     typedef int64_t Offset;
 
+    static size_t PtrFront(
+        const char* inPtr,
+        size_t      inAlign)
+    {
+        const char* const kNullPtr = 0;
+        return ((unsigned long)(inPtr - kNullPtr) % inAlign);
+    }
     enum
     {
         kErrorNone              = 0,
@@ -243,13 +250,11 @@ public:
     static IOBufferData NewDataBuffer(
         int inSize)
     {
-        const unsigned int kPtrAlign   = kAlign;
-        const char* const  kNullPtr    = 0;
-        char* const        thePtr      = new char [inSize + kPtrAlign];
-        const unsigned int thePtrAlign =
-            (unsigned int)(thePtr - kNullPtr) % kPtrAlign;
-        const int          theOffset   = 0 < thePtrAlign ?
-            (int)(kPtrAlign - thePtrAlign) : 0;
+        const size_t kPtrAlign   = kAlign;
+        char* const  thePtr      = new char [inSize + kPtrAlign];
+        const size_t thePtrAlign = PtrFront(thePtr, kPtrAlign);
+        const size_t theOffset   = 0 < thePtrAlign ?
+            kPtrAlign - thePtrAlign : size_t(0);
         return IOBufferData(thePtr, inSize + theOffset, theOffset, 0);
     }
     static void InternalError(
@@ -301,19 +306,17 @@ protected:
         int inBufsCount)
     {
         if (! mTempBufAllocPtr) {
-            const size_t       theSize   = kTempBufSize * inBufsCount;
-            const unsigned int kPtrAlign = kAlign;
+            const size_t theSize   = kTempBufSize * inBufsCount;
+            const size_t kPtrAlign = kAlign;
             mTempBufAllocPtr = new char [theSize + kPtrAlign];
-            const char* const kNullPtr = 0;
             mTempBufPtr      = mTempBufAllocPtr + (kPtrAlign -
-                (unsigned int)(mTempBufAllocPtr - kNullPtr) % kPtrAlign);
+                PtrFront(mTempBufAllocPtr, kPtrAlign));
             memset(mTempBufPtr, 0, theSize);
         }
         QCASSERT(0 <= inIndex && inIndex < inBufsCount);
         return (mTempBufPtr + inIndex * kTempBufSize);
     }
 };
-const char* const kNullCharPtr = 0;
 
 // Striped files with and without Reed-Solomon recovery writer implementation.
 class RSWriteStriper : public Writer::Striper, private RSStriper
@@ -869,7 +872,7 @@ private:
                 } else {
                     theBufSize -= theBufSize % kAlign;
                     theLen = min(theLen, theBufSize);
-                    if ((thePtr - kNullCharPtr) % kAlign != 0) {
+                    if (PtrFront(thePtr, kAlign) != 0) {
                         theLen = min((int)kTempBufSize, theLen);
                         mBufPtr[i] = memcpy(GetTempBufPtr(i), thePtr, theLen);
                     } else {
@@ -2747,14 +2750,25 @@ private:
             ioMaxLength -= ioMaxLength % kAlign;
         }
     }
-    int GetNextStipeReadSize(
+    static int GetNextStipeReadSize(
         Request& inRequest,
         Offset   inEndChunkSize,
-        int      inEndPosHead) const
+        int      inEndPosHead)
     {
         return max(0, (int)(inEndChunkSize - inEndPosHead -
             GetChunkPos(inRequest.mRecoveryPos))
         );
+    }
+    static int GetNextStripeZeroTail(
+        Request& inRequest,
+        Offset   inEndChunkSize,
+        int      inEndPosHead,
+        int      inRdSize)
+    {
+        return min(inRdSize, max(0, (int)(
+            GetChunkPos(inRequest.mRecoveryPos) + inRdSize -
+            (inEndChunkSize - inEndPosHead)
+        )));
     }
     bool SetBufIterator(
         Request& inRequest,
@@ -2933,14 +2947,16 @@ private:
             InvalidChunkSize(inRequest, theBuf, theRdSize);
             return false;
         } else if (ioMaxRd < theRdSize) {
-            if (ioMaxRd >= 0) {
+            if (0 <= ioMaxRd) {
+                bool theZeroTailFlag = true;
                 if (1 < inIdx && 0 <= ioEndPosHead &&
                         theChunkSize <= ioMaxChunkSize +
                             mStripeSize - ioEndPosHead &&
                         theRdSize <= ioMaxRd + mStripeSize - ioEndPosHead &&
                         theChunkSize % mStripeSize == 0 &&
-                        IsTailAllZeros(
-                            theIt.GetBuffer(), theRdSize - ioMaxRd)) {
+                        (theZeroTailFlag = IsTailAllZeros(
+                            theIt.GetBuffer(), GetNextStripeZeroTail(inRequest,
+                                ioMaxChunkSize, ioEndPosHead, theRdSize)))) {
                     // NOTE 1.
                     // Stripe 1 cannot ever be larger than stripe 0. If the
                     // start position of the hole is in stripe 0, then its
@@ -2987,6 +3003,8 @@ private:
                         " version: "    << theBuf.mChunkVersion  <<
                         " size: "       << theBuf.mChunkSize     <<
                         " eof: "        << mFileSize             <<
+                        (theZeroTailFlag ? "" :
+                            " tail is not all 0s")               <<
                     KFS_LOG_EOM;
                     InvalidChunkSize(inRequest, theBuf, theRdSize);
                     return false;
@@ -3026,11 +3044,12 @@ private:
             // to the left from the beginning of the read buffer.
             const int theFrontSize = min(ioEndPos, GetNextStipeReadSize(
                 inRequest, ioEndChunkSize, ioEndPosHead));
+            bool theZeroTailFlag = true;
             if (1 < inIdx &&
                     theRdSize <= ioEndPos - ioEndPosHead + mStripeSize &&
                     theChunkSize % mStripeSize == 0 &&
-                    IsTailAllZeros(
-                        theIt.GetBuffer(), theRdSize - theFrontSize)) {
+                    (theZeroTailFlag = IsTailAllZeros(
+                        theIt.GetBuffer(), theRdSize - theFrontSize))) {
                 // See NOTE 1. the above, the asme applies here.
                 KFS_LOG_STREAM_INFO << mLogPrefix <<
                     "read recovery possible zero padded larger stripe:"
@@ -3067,6 +3086,8 @@ private:
                     " version: "     << theBuf.mChunkVersion  <<
                     " size: "        << theBuf.mChunkSize     <<
                     " eof: "         << mFileSize             <<
+                    (theZeroTailFlag ? "" :
+                        " tail is not all 0s")                <<
                 KFS_LOG_EOM;
                 InvalidChunkSize(inRequest, inRequest.GetBuffer(ioEndPosIdx));
                 return false;
@@ -3090,7 +3111,8 @@ private:
                 if (ioMaxChunkSize < theChunkSize) {
                     ioMaxChunkSize = theChunkSize;
                 }
-            } else if (ioEndPosHead == 0 && theChunkSize != ioEndChunkSize) {
+            } else if (ioEndPosHead == 0 && theChunkSize != ioEndChunkSize &&
+                    (0 < ioMaxRd || 0 < theRdSize)) {
                 ioEndPosHead = mStripeSize - (ioEndChunkSize - theChunkSize);
                 if (ioEndPosHead < 0 || mStripeSize <= ioEndPosHead) {
                     InternalError("undetected previous short read");
@@ -3307,7 +3329,7 @@ private:
                     mBufPtr[i] = 0;
                     continue;
                 }
-                if (theRem < kAlign || (thePtr - kNullCharPtr) % kAlign != 0) {
+                if (theRem < kAlign || PtrFront(thePtr, kAlign) != 0) {
                     thePtr = GetTempBufPtr(i);
                     if (theLen > kTempBufSize) {
                         theLen = kTempBufSize;
@@ -3590,18 +3612,20 @@ private:
                 thePtr = theEndPtr - theRem;
             }
             theRem -= (int)(theEndPtr - thePtr);
-            const char*const  kNullPtr       = 0;
-            const size_t      kAlign         = 2 * sizeof(uint64_t);
-            const char* const theFrontEndPtr =
-                min(theEndPtr, thePtr + (thePtr - kNullPtr) % kAlign);
-            while (thePtr < theFrontEndPtr && *thePtr == 0) {
-                ++thePtr;
-            }
-            if (thePtr < theFrontEndPtr) {
-                return false;
+            const size_t kAlign   = 2 * sizeof(uint64_t);
+            const size_t theFront = PtrFront(thePtr, kAlign);
+            if (0 < theFront) {
+                const char* const theFrontEndPtr =
+                    min(theEndPtr, thePtr + kAlign - theFront);
+                while (thePtr < theFrontEndPtr && *thePtr == 0) {
+                    ++thePtr;
+                }
+                if (thePtr < theFrontEndPtr) {
+                    return false;
+                }
             }
             const char* const theTailStartPtr =
-                theEndPtr - (theEndPtr - kNullPtr) % kAlign;
+                theEndPtr - PtrFront(theEndPtr, kAlign);
             while (thePtr < theTailStartPtr &&
                     (reinterpret_cast<const uint64_t*>(thePtr)[0] |
                      reinterpret_cast<const uint64_t*>(thePtr)[1]) == 0) {
@@ -3761,7 +3785,7 @@ private:
             if (mUseDefaultBufferAllocatorFlag) {
                 mZeroBufferPtr = new IOBufferData();
                 QCASSERT(
-                    (mZeroBufferPtr->Producer() - kNullCharPtr) % kAlign == 0 &&
+                    PtrFront(mZeroBufferPtr->Producer(), kAlign) == 0 &&
                     mZeroBufferPtr->SpaceAvailable() > 0 &&
                     mZeroBufferPtr->SpaceAvailable() % kAlign == 0
                 );
