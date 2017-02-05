@@ -2850,10 +2850,12 @@ private:
                 inRequest.mRecoveryPos % mStripeSize          <<
             " size: "                      << theRdSize       <<
             " recovery size: "             << ioRecoverySize  <<
+            " max:  "                      << ioMaxRd         <<
             " end:"
             " stripe: "                    << ioEndPosIdx     <<
-            " pos: "                       << ioEndPos        <<
+            " rd-pos: "                    << ioEndPos        <<
             " head: "                      << ioEndPosHead    <<
+            " size: "                      << ioEndChunkSize  <<
         KFS_LOG_EOM;
         if (inIdx >= mStripeCount) {
             if (ioFirstGoodRecoveryStripeIdx < 0) {
@@ -3067,8 +3069,10 @@ private:
                     " version: "     << theBuf.mChunkVersion  <<
                     " size: "        << theBuf.mChunkSize     <<
                     " eof: "         << mFileSize             <<
+                    " front: "       << theFrontSize          <<
                 KFS_LOG_EOM;
                 theRdSize = theFrontSize;
+                theChunkSize -= mStripeSize;
             } else {
                 KFS_LOG_STREAM_ERROR << mLogPrefix <<
                     "read recovery failure:"
@@ -3111,11 +3115,12 @@ private:
                 if (ioMaxChunkSize < theChunkSize) {
                     ioMaxChunkSize = theChunkSize;
                 }
-            } else if (ioEndPosHead == 0 && theChunkSize != ioEndChunkSize &&
-                    (0 < ioMaxRd || 0 < theRdSize)) {
+            } else if (0 < theRdSize &&
+                    ioEndPosHead == 0 && theChunkSize != ioEndChunkSize) {
                 ioEndPosHead = mStripeSize - (ioEndChunkSize - theChunkSize);
                 if (ioEndPosHead < 0 || mStripeSize <= ioEndPosHead) {
-                    InternalError("undetected previous short read");
+                    InternalError(
+                        "undetected previous short read, data stripe");
                     inRequest.mStatus = kErrorIO;
                     return false;
                 }
