@@ -26,7 +26,7 @@ environment:
         CYG_MIRROR: http://cygwin.mirror.constant.com
         CYG_CACHE: C:\cygwin\var\cache\setup
         CYG_BASH: C:\cygwin\bin\bash
-        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
 
 cache:
     - '%CYG_CACHE%'
@@ -35,10 +35,19 @@ init:
     - git config --global core.autocrlf input
 
 install:
-    - ps: 'choco uninstall cmake'
+    - ps: |
+        $cmakeUninstallPath = "${env:ProgramFiles(x86)}\CMake\Uninstall.exe"
+        if([IO.File]::Exists($cmakeUninstallPath)) {
+            Write-Host "Uninstalling previous CMake ..." -ForegroundColor Cyan
+            # uninstall existent
+            "`"$cmakeUninstallPath`" /S" | out-file ".\uninstall-cmake.cmd" -Encoding ASCII
+            & .\uninstall-cmake.cmd
+            del .\uninstall-cmake.cmd
+            Start-Sleep -s 10
+        }
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
     - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
     - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version"'
 
 build_script:
-    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && make tarball"'
+    - '%CYG_BASH% -lc "which cmake ; cd $APPVEYOR_BUILD_FOLDER && make tarball"'
