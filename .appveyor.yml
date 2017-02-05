@@ -36,7 +36,7 @@ init:
 
 install:
     - ps: |
-        $cmakeUninstallPath = "${env:ProgramFiles(x86)}\CMake\Uninstall.exe"
+        $cmakeUninstallPath = "${Env:ProgramFiles(x86)}\CMake\Uninstall.exe"
         if([IO.File]::Exists($cmakeUninstallPath)) {
             Write-Host "Uninstalling previous CMake ..." -ForegroundColor Cyan
             # uninstall existent
@@ -50,4 +50,4 @@ install:
     - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version"'
 
 build_script:
-    - '%CYG_BASH% -lc "which cmake ; cd $APPVEYOR_BUILD_FOLDER && make tarball"'
+    - '%CYG_BASH% -lc "ls -l /cygdrive/c/Program*/CMake ; which cmake ; cd $APPVEYOR_BUILD_FOLDER && make tarball"'
