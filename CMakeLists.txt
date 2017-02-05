@@ -59,9 +59,11 @@ else()
     find_package(Boost COMPONENTS regex REQUIRED)
 endif()
 
-set(CMAKE_FIND_LIBRARY_PREFIXES ${CMAKE_FIND_LIBRARY_PREFIXES} "")
-set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} ".dll.a" ".lib")
-add_definitions(-D__int64=int64_t)
+if (CYGWIN)
+    set(CMAKE_FIND_LIBRARY_PREFIXES ${CMAKE_FIND_LIBRARY_PREFIXES} "")
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} ".dll.a" ".lib")
+    # add_definitions(-D__int64=int64_t)
+endif()
 
 if (QFS_OMIT_JNI)
     message (STATUS "Not building QFS JNI")
@@ -142,7 +144,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -Wall -DBOOST_SP_USE_QUICK_ALLOCATOR")
-    string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
+string(TOUPPER KFS_OS_NAME_${CMAKE_SYSTEM_NAME} KFS_OS_NAME)
 add_definitions (-D${KFS_OS_NAME})
 
 IF (ENABLE_IO_BUFFER_DEBUG)
