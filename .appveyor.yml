@@ -35,7 +35,7 @@ init:
     - git config --global core.autocrlf input
 
 install:
-    - ps: >-
+    - ps: |
         $cmakeUninstallPath = "${env:ProgramFiles(x86)}\CMake\Uninstall.exe"
         if([IO.File]::Exists($cmakeUninstallPath)) {
             Write-Host "Uninstalling previous CMake ..." -ForegroundColor Cyan
