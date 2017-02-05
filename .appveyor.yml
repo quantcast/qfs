@@ -35,16 +35,7 @@ init:
     - git config --global core.autocrlf input
 
 install:
-    - ps: |
-        $cmakeUninstallPath = "${env:ProgramFiles(x86)}\CMake\Uninstall.exe"
-        if([IO.File]::Exists($cmakeUninstallPath)) {
-            Write-Host "Uninstalling previous CMake ..." -ForegroundColor Cyan
-            # uninstall existent
-            "`"$cmakeUninstallPath`" /S" | out-file ".\uninstall-cmake.cmd" -Encoding ASCII
-            & .\uninstall-cmake.cmd
-            del .\uninstall-cmake.cmd
-            Start-Sleep -s 10
-        }
+    - ps: 'choco uninstall cmake'
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
     - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
     - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version"'
