@@ -23,7 +23,7 @@
 
 if [ $# -eq 1 -a x"$1" = x'-h' ]; then
     echo "Usage:"
-    echo "basename $0 [<hadoop-version> | clean]"
+    echo "basename $0 [-r <retry count>] [<hadoop-version> | clean]"
     echo "Script to build QFA Java access library and optionally the Apache Hadoop QFS plugin."
     echo "Supported hadoop versions: 1.0.*, 1.1.*, 0.23.*, 2.*.*"
     exit 0
@@ -34,11 +34,18 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-if which mvn > /dev/null 2>&1; then
+if mvn --version > /dev/null 2>&1; then
     echo "Using Apache Maven to build QFS jars.."
 else
     echo "Skipping Java build of QFS. Please install Apache Maven and try again."
     exit 0
+fi
+
+mymaxtry=1
+if [ x"$1" = x'-r' ]; then
+    shift
+    mymaxtry=${1-1}
+    shift
 fi
 
 hadoop_qfs_profile="none"
@@ -75,17 +82,26 @@ echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
 echo "test_build_data     = $test_build_data"
 
-if [ x"$hadoop_qfs_profile" = x'none' ]; then
-    set -x
-    exec mvn -Dqfs.release.version="$qfs_release_version" \
-        -Dqfs.source.revision="$qfs_source_revision" \
-        -Dtest.build.data="$test_build_data" \
-        --projects qfs-access package
-else
-    set -x
-    exec mvn -P "$hadoop_qfs_profile" \
-        -Dqfs.release.version="$qfs_release_version" \
-        -Dqfs.source.revision="$qfs_source_revision" \
-        -Dtest.build.data="$test_build_data" \
-        -Dhadoop.release.version="$1" package
-fi
+mytry=0
+while true; do
+    if [ x"$hadoop_qfs_profile" = x'none' ]; then
+        set -x
+        mvn -Dqfs.release.version="$qfs_release_version" \
+            -Dqfs.source.revision="$qfs_source_revision" \
+            -Dtest.build.data="$test_build_data" \
+            --projects qfs-access package && exit
+    else
+        set -x
+        mvn -P "$hadoop_qfs_profile" \
+            -Dqfs.release.version="$qfs_release_version" \
+            -Dqfs.source.revision="$qfs_source_revision" \
+            -Dtest.build.data="$test_build_data" \
+            -Dhadoop.release.version="$1" package && exit
+    fi
+    set +x
+    mytry=`expr $mytry + 1`
+    [ $mytry -lt $mymaxtry ] || break
+    echo "Retry: $mytry"
+done
+
+exit 1

@@ -82,6 +82,7 @@ do_build()
     $MYSU make ${1+"$@"} \
         BUILD_TYPE="$MYBUILD_TYPE" \
         CMAKE_OPTIONS="$MYCMAKE_OPTIONS" \
+        JAVA_BUILD_OPTIONS='-r 2' \
         test tarball \
     || tail_logs_and_exit
 }

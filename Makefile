@@ -25,6 +25,7 @@ BUILD_TYPE=release
 CMAKE_OPTIONS=-D CMAKE_BUILD_TYPE=RelWithDebInfo
 MAKE_OPTIONS=
 QFSTEST_OPTIONS=
+JAVA_BUILD_OPTIONS=
 
 .PHONY: all
 all: build
@@ -48,15 +49,14 @@ java: build
 
 .PHONY: hadoop-jars
 hadoop-jars: build java
-	./src/java/javabuild.sh clean
-	if test -x "`which mvn 2>/dev/null`"; then \
-		./src/java/javabuild.sh clean   && \
-		./src/java/javabuild.sh 0.23.4  && \
-		./src/java/javabuild.sh 0.23.11 && \
-		./src/java/javabuild.sh 1.0.4   && \
-		./src/java/javabuild.sh 1.1.2   && \
-		./src/java/javabuild.sh 2.5.1   && \
-		./src/java/javabuild.sh 2.7.2      \
+	if mvn --version >/dev/null 2>&1 ; then \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean   && \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 0.23.4  && \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 0.23.11 && \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 1.0.4   && \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 1.1.2   && \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 2.5.1   && \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 2.7.2      \
 	; fi
 
 .PHONY: tarball
