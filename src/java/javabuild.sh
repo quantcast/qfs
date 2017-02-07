@@ -101,7 +101,8 @@ while true; do
     set +x
     mytry=`expr $mytry + 1`
     [ $mytry -lt $mymaxtry ] || break
-    echo "Retry: $mytry"
+    echo "Retry: $mytry in 20 * $mytry seconds"
+    sleep `expr 20 \* $mytry`
 done
 
 exit 1
