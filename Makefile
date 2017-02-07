@@ -44,8 +44,8 @@ build: run-cmake
 
 .PHONY: java
 java: build
-	./src/java/javabuild.sh clean
-	./src/java/javabuild.sh
+	./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean
+	./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS}
 
 .PHONY: hadoop-jars
 hadoop-jars: build java
