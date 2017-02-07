@@ -2769,24 +2769,24 @@ LayoutManager::Start(MetaHello& r)
         r.status = -EFAULT;
         return;
     }
-    Servers::const_iterator const it = FindServer(r.location);
-    if (mChunkServers.end() == it) {
-        return;
-    }
-    if (*it == r.server) {
-        panic("invalid duplicate chunk server hello");
-        r.status = -EFAULT;
-        return;
-    }
     if (! mPrimaryFlag) {
         r.statusMsg  = "meta server node is not primary";
         r.status     = -ELOGFAILED;
         return;
     }
-    if ((*it)->IsDuplicateChannel(r.channelId)) {
-        r.statusMsg  = "ignoring duplicate channel";
-        r.status     = -EEXIST;
-        return;
+    Servers::const_iterator const it = FindServer(r.location);
+    if (mChunkServers.end() != it) {
+        if (*it == r.server) {
+            panic("invalid duplicate chunk server hello");
+            r.status = -EFAULT;
+            return;
+        }
+        if ((*it)->IsDuplicateChannel(r.channelId)) {
+            r.statusMsg  = "ignoring duplicate channel";
+            r.status     = -EEXIST;
+            return;
+        }
+        (*it)->ScheduleDown("chunk server re-connect");
     }
     if (! mUseCSRackAssignmentFlag || r.rackId < 0) {
         RackId const rackId = GetRackId(r.location);
@@ -2794,7 +2794,6 @@ LayoutManager::Start(MetaHello& r)
             r.rackId = rackId;
         }
     }
-    (*it)->ScheduleDown("chunk server re-connect");
 }
 
 bool

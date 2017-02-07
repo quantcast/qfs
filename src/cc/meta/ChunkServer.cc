@@ -3278,18 +3278,19 @@ ChunkServer::UpdateStorageTiersSelf(
         const char*       p = buf;
         const char* const e = p + len;
         while (p < e && (hexFormatFlag ? (
-                DecIntParser::Parse(p, e - p, tier) &&
-                DecIntParser::Parse(p, e - p, deviceCount) &&
-                DecIntParser::Parse(p, e - p, notStableOpenCount) &&
-                DecIntParser::Parse(p, e - p, chunkCount) &&
-                DecIntParser::Parse(p, e - p, spaceAvailable) &&
-                DecIntParser::Parse(p, e - p, totalSpace)) : (
                 HexIntParser::Parse(p, e - p, tier) &&
                 HexIntParser::Parse(p, e - p, deviceCount) &&
                 HexIntParser::Parse(p, e - p, notStableOpenCount) &&
                 HexIntParser::Parse(p, e - p, chunkCount) &&
                 HexIntParser::Parse(p, e - p, spaceAvailable) &&
-                HexIntParser::Parse(p, e - p, totalSpace)))) {
+                HexIntParser::Parse(p, e - p, totalSpace)
+                ) : (
+                DecIntParser::Parse(p, e - p, tier) &&
+                DecIntParser::Parse(p, e - p, deviceCount) &&
+                DecIntParser::Parse(p, e - p, notStableOpenCount) &&
+                DecIntParser::Parse(p, e - p, chunkCount) &&
+                DecIntParser::Parse(p, e - p, spaceAvailable) &&
+                DecIntParser::Parse(p, e - p, totalSpace)))) {
             if (tier == kKfsSTierUndef) {
                 continue;
             }
