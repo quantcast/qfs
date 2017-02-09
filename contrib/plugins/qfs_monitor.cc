@@ -28,7 +28,6 @@
 #include "libclient/MonitorCommon.h"
 #include "qcdio/QCUtils.h"
 
-#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -46,16 +45,14 @@ using KFS::ErrorCounters;
 using KFS::ServerLocation;
 
 using std::cout;
+using std::cerr;
 using std::endl;
 using std::ofstream;
-using std::perror;
-using std::remove;
-using std::rename;
 using std::string;
 
-#define DEFAULT_MONITOR_LOG_DIRECTORY "/tmp/qfs-monitor/logs"
+const char* const DEFAULT_MONITOR_LOG_DIRECTORY = "/tmp/qfs-monitor/logs";
 
-string getLogPath()
+static string getLogPath()
 {
     string monitorLogDir;
     char* monitorLogDirEnv = getenv("QFS_CLIENT_MONITOR_LOG_DIR");
@@ -68,42 +65,54 @@ string getLogPath()
     return monitorLogDir;
 }
 
-int prepareLogPath(string monitorLogDir)
+static int prepareLogPath(const string& monitorLogDir)
 {
-    char* cstr = strdup(monitorLogDir.c_str());
-    char* ptr = strtok(cstr, "/");
+    const size_t sz = monitorLogDir.size();
+    if (sz <= 0) {
+        return 0;
+    }
     string path;
-    while(ptr != 0) {
-        path += "/";
-        path += ptr;
-        int ret = mkdir(path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
-        if (ret == -1 && errno != EEXIST) {
-            delete[] cstr;
-            perror("Monitor plugin can't create the log directory");
+    path.reserve(sz);
+    int mode =
+        S_IRUSR | S_IWUSR | S_IXUSR |
+        S_IRGRP           | S_IXGRP |
+        S_IROTH           | S_IXOTH;
+    for (size_t pos = 0; pos < sz; ) {
+        const size_t ppos = pos;
+        while (++pos < sz && '/' == monitorLogDir[pos])
+            {}
+        if (pos < sz && string::npos != (pos = monitorLogDir.find('/', pos))) {
+            path.append(monitorLogDir, ppos, pos - ppos);
+        } else {
+            mode |= S_IWGRP | S_IWOTH;
+            pos  = sz;
+            path = monitorLogDir;
+        }
+        if (mkdir(path.c_str(), mode) && EEXIST != errno) {
+            const int err = errno;
+            cerr << "Monitor plugin can't create the log directory: " <<
+                path << ": " << QCUtils::SysError(err) << endl;
             return -1;
         }
-        chmod(path.c_str(), S_IRWXU | S_IRWXG | S_IRWXO);
-        ptr = strtok(0, "/");
+        chmod(path.c_str(), mode);
     }
-    delete[] cstr;
     return 0;
 }
 
 extern "C" int init()
 {
-    string monitorLogDir = getLogPath();
-    int ret = access(monitorLogDir.c_str(), F_OK | W_OK);
-    if (ret != -1) {
+    const string monitorLogDir = getLogPath();
+    if (0 == access(monitorLogDir.c_str(), F_OK | W_OK)) {
         return 0;
     }
-
     // try to create the log path, if access failed because
     // a parent directory does not exist.
     if(errno == ENOENT) {
         return prepareLogPath(monitorLogDir);
     }
-
-    perror("Monitor plugin can't access the log directory");
+    const int err = errno;
+    cerr << "Monitor plugin can't access the log directory: " <<
+        monitorLogDir << ": " << QCUtils::SysError(err) << endl;
     return -1;
 }
 
@@ -170,9 +179,10 @@ extern "C" void reportStatus(
 
     ofstream fileStream(tmpLogFilePath.c_str(), std::ios::out);
     if (!fileStream) {
-        string errMsg = "Monitor plugin can't open the log file " +
-                tmpLogFilePath + " for writing: ";
-        perror(errMsg.c_str());
+        const int err = errno;
+        cerr << "Monitor plugin can't open the log file " +
+                tmpLogFilePath + " for writing: " <<
+                QCUtils::SysError(err) << endl;
         return;
     }
 
