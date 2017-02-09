@@ -452,7 +452,7 @@ private:
     ~AtomicRecordAppender();
     static inline time_t Now()
         { return libkfsio::globalNetManager().Now(); }
-    void SetState(State state, bool notifyIfLostFlag = true);
+    void SetState(State state, bool notifyIfLostFlag = true, int status = 0);
     const char* GetStateAsStr() const
         { return GetStateAsStr(mState); }
     const char* GetStateAsStr(
@@ -828,7 +828,8 @@ AtomicRecordAppender::~AtomicRecordAppender()
 }
 
 void
-AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
+AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */,
+    int status /* = 0 */)
 {
     if (state == mState || mState == kStatePendingDelete) {
         return;
@@ -884,7 +885,7 @@ AtomicRecordAppender::SetState(State state, bool notifyIfLostFlag /* = true */)
             assert(nowStableFlag);
             mChunkFileHandle.reset();
             gChunkManager.ChunkIOFailed(
-                mChunkId, mChunkVersion, 0, chunkFileHandle.get());
+                mChunkId, mChunkVersion, status, chunkFileHandle.get());
         }
         Cntrs().mLostChunkCount++;
     } else if (mState == kStateReplicationFailed) {
@@ -2556,7 +2557,7 @@ AtomicRecordAppender::OpDone(ReadOp* op)
         }
     } else {
         Cntrs().mReadErrorCount++;
-        SetState(kStateChunkLost);
+        SetState(kStateChunkLost, true, op->status);
     }
     WAPPEND_LOG_STREAM(mState != kStateChunkLost ?
             MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
@@ -2953,7 +2954,7 @@ AtomicRecordAppender::OpDone(WriteOp* op)
     }
     if (failedFlag) {
         Cntrs().mWriteErrorCount++;
-        SetState(kStateChunkLost);
+        SetState(kStateChunkLost, true, op->status);
     }
     // There could be more that one write in flight, but only one stagger.
     // The stagger end, by definition, is not on checksum block boundary, but
@@ -2994,7 +2995,7 @@ AtomicRecordAppender::MetaWriteDone(int status)
     }
     if (status < 0) {
         Cntrs().mWriteErrorCount++;
-        SetState(kStateChunkLost);
+        SetState(kStateChunkLost, true, status);
     }
     if (mState == kStateClosed) {
         SetState(kStateStable);

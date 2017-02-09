@@ -112,6 +112,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
           pendingReadBytes(0),
           pendingWriteBytes(0),
           corruptedChunksCount(0),
+          lostChunksCount(0),
           evacuateCheckIoErrorsCount(0),
           evacuateStartByteCount(0),
           evacuateStartChunkCount(-1),
@@ -555,6 +556,8 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
             "Chunks-writable: "    << mChunkDir.notStableOpenCount     << "\r\n"
             "Chunks-available: "   << mChunkDir.availableChunks.GetSize() <<
                 "\r\n"
+            "Chunks-corrupt: "     << mChunkDir.corruptedChunksCount   << "\r\n"
+            "Chunks-lost: "        << mChunkDir.lostChunksCount        << "\r\n"
             "Space-avail: "        << mChunkDir.availableSpace         << "\r\n"
             "Space-total: "        << mChunkDir.totalSpace             << "\r\n"
             "Space-util-pct: "     <<
@@ -664,6 +667,7 @@ struct ChunkManager::ChunkDirInfo : public ITimeout
     int64_t                pendingReadBytes;
     int64_t                pendingWriteBytes;
     int64_t                corruptedChunksCount;
+    int64_t                lostChunksCount;
     int64_t                evacuateCheckIoErrorsCount;
     int64_t                evacuateStartByteCount;
     int32_t                evacuateStartChunkCount;
@@ -5185,9 +5189,10 @@ ChunkManager::NotifyMetaCorruptedChunk(ChunkInfoHandle* cih, int err)
     assert(cih);
     if (err == 0) {
         mCounters.mLostChunksCount++;
-        cih->GetDirInfo().corruptedChunksCount++;
+        cih->GetDirInfo().lostChunksCount++;
     } else {
         mCounters.mCorruptedChunksCount++;
+        cih->GetDirInfo().corruptedChunksCount++;
     }
     KFS_LOG_STREAM_ERROR <<
         (err == 0 ? "lost" : "corrupted") <<
@@ -7909,6 +7914,7 @@ ChunkManager::CheckChunkDirs()
                 it->supportsSpaceReservatonFlag =
                     dit->second.mSupportsSpaceReservatonFlag;
                 it->corruptedChunksCount        = 0;
+                it->lostChunksCount             = 0;
                 it->evacuateCheckIoErrorsCount  = 0;
                 it->availableChunks.Clear();
                 it->availableChunks.Swap(dit->second.mChunkInfos);

@@ -1059,17 +1059,17 @@ ReadOp::HandleReplicatorDone(int code, void* data)
 int
 WriteOp::HandleRecordAppendDone(int code, void* data)
 {
+    UpdateStatus(code, data);
     gChunkManager.WriteDone(this);
-    if (code == EVENT_DISK_ERROR) {
+    if (EVENT_DISK_ERROR == code) {
         // eat up everything that was sent
         dataBuf.Consume(numBytes);
-        UpdateStatus(code, data);
         KFS_LOG_STREAM_ERROR <<
             "disk error:"
             " status: "   << status <<
             " chunk: "    << chunkId <<
         KFS_LOG_EOM;
-    } else if (code == EVENT_DISK_WROTE && data) {
+    } else if (EVENT_DISK_WROTE == code && data) {
         status = *reinterpret_cast<const int*>(data);
         numBytesIO = status;
         dataBuf.Consume(numBytesIO);
@@ -1102,6 +1102,7 @@ ReadOp::IsChunkReadOp(int64_t& outNumBytes, kfsChunkId_t& outChunkId)
 int
 WriteOp::HandleWriteDone(int code, void* data)
 {
+    UpdateStatus(code, data);
     gChunkManager.WriteDone(this);
     if (isFromReReplication) {
         if (code == EVENT_DISK_WROTE) {
@@ -1113,20 +1114,17 @@ WriteOp::HandleWriteDone(int code, void* data)
                 die("write: invalid write event data");
                 status = -EFAULT;
             }
-        } else {
-            UpdateStatus(code, data);
-            if (0 < status) {
-                status = -EIO;
-            }
         }
         return clnt->HandleEvent(code, this);
     }
-    assert(wpop);
-
-    if (code == EVENT_DISK_ERROR) {
+    if (! wpop) {
+        die("write: invaid null write prepare op");
+        status = -EFAULT;
+        return 0;
+    }
+    if (EVENT_DISK_ERROR == code) {
         // eat up everything that was sent
         dataBuf.Consume(max(int(numBytesIO), int(numBytes)));
-        UpdateStatus(code, data);
         KFS_LOG_STREAM_ERROR <<
             "disk error:"
             " status: "  << status <<
@@ -1140,7 +1138,8 @@ WriteOp::HandleWriteDone(int code, void* data)
         }
         wpop->HandleEvent(EVENT_CMD_DONE, this);
         return 0;
-    } else if (code == EVENT_DISK_WROTE) {
+    }
+    if (EVENT_DISK_WROTE == code) {
         if (data) {
             status = *reinterpret_cast<const int*>(data);
         } else {
@@ -1150,7 +1149,8 @@ WriteOp::HandleWriteDone(int code, void* data)
         if (numBytesIO != status || status < (int)numBytes) {
             // write didn't do everything that was asked; we need to retry
             KFS_LOG_STREAM_INFO <<
-                "Write on chunk did less: asked: " << numBytes << "/" << numBytesIO <<
+                "write on chunk did less: asked: " <<
+                numBytes << "/" << numBytesIO <<
                 " did: " << status << "; asking clnt to retry" <<
             KFS_LOG_EOM;
             status = -EAGAIN;
