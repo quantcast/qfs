@@ -28,11 +28,6 @@
 //
 //----------------------------------------------------------------------------
 
-#include <cerrno>
-#include <limits>
-#include <unistd.h>
-#include <fcntl.h>
-
 #include "NetManager.h"
 #include "TcpSocket.h"
 #include "ITimeout.h"
@@ -42,6 +37,11 @@
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
+
+#include <cerrno>
+#include <limits>
+#include <unistd.h>
+#include <fcntl.h>
 
 namespace KFS
 {
@@ -234,6 +234,9 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
                 KFS_LOG_EOM;
                 MsgLogger::Stop();
                 abort();
+            }
+            if (mPendingUpdate.empty()) {
+                mPoll.Wakeup();
             }
             mPendingUpdate.push_back(&conn);
             entry.mPendingUpdateFlag = true;
