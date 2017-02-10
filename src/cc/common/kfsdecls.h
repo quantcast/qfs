@@ -30,8 +30,6 @@
 
 #include "kfstypes.h"
 
-#include "qcdio/QCUtils.h"
-
 #include <string>
 
 namespace KFS

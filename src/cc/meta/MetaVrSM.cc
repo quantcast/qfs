@@ -36,6 +36,7 @@
 
 #include "qcdio/QCMutex.h"
 #include "qcdio/qcstutils.h"
+#include "qcdio/QCUtils.h"
 
 #include "common/IntToString.h"
 #include "common/RequestParser.h"

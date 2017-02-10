@@ -29,6 +29,8 @@
 #include "IntToString.h"
 #include "RequestParser.h"
 
+#include "qcdio/QCUtils.h"
+
 namespace KFS
 {
 
