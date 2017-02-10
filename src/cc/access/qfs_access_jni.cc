@@ -109,6 +109,9 @@ extern "C" {
     jshort Java_com_quantcast_qfs_access_KfsAccess_setReplication(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jint jnumReplicas);
 
+    jlong Java_com_quantcast_qfs_access_KfsAccess_getCreationTime(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
+
     jlong Java_com_quantcast_qfs_access_KfsAccess_getModificationTime(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
@@ -884,6 +887,25 @@ jlong Java_com_quantcast_qfs_access_KfsAccess_filesize(
     return attr.fileSize;
 }
 
+jlong Java_com_quantcast_qfs_access_KfsAccess_getCreationTime(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
+{
+    if (! jptr) {
+        return -EFAULT;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    KfsFileAttr attr;
+    string path;
+    setStr(path, jenv, jpath);
+
+    if (clnt->Stat(path.c_str(), attr) != 0)
+        return -1;
+
+    // The expected return value is in ms
+    return ((jlong) attr.ctime.tv_sec) * 1000 + (jlong) (attr.ctime.tv_usec / 1000);
+}
+
 jlong Java_com_quantcast_qfs_access_KfsAccess_getModificationTime(
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath)
 {
@@ -924,6 +946,8 @@ jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
 
     return 0;
 }
+
+
 
 static jobjectArray CreateLocations(
     JNIEnv *jenv, vector< vector<string> > entries, const char* blockSize)
