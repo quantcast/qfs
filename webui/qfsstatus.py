@@ -68,7 +68,7 @@ displayChunkServerStorageTiers = True
 myWebserverPort=20001
 objectStoreMode = False
 
-kServerName="XMeta-server-location" #todo - put it to config file
+kServerName="XMeta-location" #todo - put it to config file
 kChunkDirName="Chunk-server-dir"
 kChunks=1
 kMeta=2
