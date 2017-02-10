@@ -849,7 +849,7 @@ EOF
         for h in \
                 D-Timer-overrun-count \
                 D-Timer-overrun-sec \
-                XMeta-server-location \
+                XMeta-location \
                 Client-active \
                 Buffer-usec-wait-avg \
                 D-CPU-sys \
