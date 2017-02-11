@@ -20,7 +20,7 @@ int gf_cpu_supports_intel_sse3 = 0;
 int gf_cpu_supports_intel_sse2 = 0;
 int gf_cpu_supports_arm_neon = 0;
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(INTEL_SSE)
 
 /* CPUID Feature Bits */
 
@@ -40,7 +40,35 @@ int gf_cpu_supports_arm_neon = 0;
 
 #elif defined(__GNUC__)
 
+#ifdef HAVE_CPUID_H
 #include <cpuid.h>
+#else
+#if defined(__i386__) && defined(__PIC__)
+/* %ebx may be the PIC register.  */
+#if __GNUC__ >= 3
+#define __cpuid(level, a, b, c, d)			\
+  __asm__ ("xchg{l}\t{%%}ebx, %1\n\t"			\
+	   "cpuid\n\t"					\
+	   "xchg{l}\t{%%}ebx, %1\n\t"			\
+	   : "=a" (a), "=r" (b), "=c" (c), "=d" (d)	\
+	   : "0" (level))
+#else
+/* Host GCCs older than 3.0 weren't supporting Intel asm syntax
+   nor alternatives in i386 code.  */
+#define __cpuid(level, a, b, c, d)			\
+  __asm__ ("xchgl\t%%ebx, %1\n\t"			\
+	   "cpuid\n\t"					\
+	   "xchgl\t%%ebx, %1\n\t"			\
+	   : "=a" (a), "=r" (b), "=c" (c), "=d" (d)	\
+	   : "0" (level))
+#endif
+#else
+#define __cpuid(level, a, b, c, d)			\
+  __asm__ ("cpuid\n\t"					\
+	   : "=a" (a), "=b" (b), "=c" (c), "=d" (d)	\
+	   : "0" (level))
+#endif
+#endif /* HAVE_CPUID_H */
 
 void cpuid(int info[4], int InfoType){
     __cpuid(InfoType, info[0], info[1], info[2], info[3]);

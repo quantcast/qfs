@@ -56,6 +56,7 @@ AS_IF([test "x$enable_neon" != "xno"],
       ])
 
 AS_IF([test "x$have_neon" = "xno"],
+      [AC_CHECK_HEADERS([cpuid.h])],
       [AS_IF([test "x$enable_neon" = "xyes"],
              [AC_MSG_ERROR([neon requested but arm_neon.h not found])])
       ])
