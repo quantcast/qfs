@@ -160,8 +160,7 @@ public:
         return mMyLocation;
     }
 private:
-    typedef MetaServerSM::OpsQueue OpsQueue;
-    typedef OpsQueue               PendingResponses;
+    typedef OpsQueue PendingResponses;
     typedef map<
         kfsSeq_t,
         KfsOp*,
