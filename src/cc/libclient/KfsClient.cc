@@ -189,6 +189,11 @@ RandomSeqNo()
     return ((ret < 0 ? -ret : ret) >> 1);
 }
 
+KfsClient::KfsClient()
+    : mImpl(new KfsClientImpl(0))
+{
+}
+
 KfsClient::KfsClient(KfsNetClient* metaServer)
     : mImpl(new KfsClientImpl(metaServer))
 {
@@ -280,8 +285,12 @@ KfsClient::Readdir(const char *pathname, vector<string> &result)
 }
 
 int
-KfsClient::ReaddirPlus(const char *pathname, vector<KfsFileAttr> &result,
-    bool computeFilesize, bool updateClientCache, bool fileIdAndTypeOnly)
+KfsClient::ReaddirPlusSelf(
+    const char*          pathname,
+    vector<KfsFileAttr>& result,
+    bool                 computeFilesize,
+    bool                 updateClientCache,
+    bool                 fileIdAndTypeOnly)
 {
     return mImpl->ReaddirPlus(pathname, result,
         computeFilesize, updateClientCache, fileIdAndTypeOnly);
@@ -528,9 +537,18 @@ KfsClient::ParseCreateParams(const char* params,
 }
 
 int
-KfsClient::Create(const char *pathname, int numReplicas, bool exclusive,
-    int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    bool forceTypeFlag, kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
+KfsClient::CreateSelf(
+    const char* pathname,
+    int         numReplicas,
+    bool        exclusive,
+    int         numStripes,
+    int         numRecoveryStripes,
+    int         stripeSize,
+    int         stripedType,
+    bool        forceTypeFlag,
+    kfsMode_t   mode,
+    kfsSTier_t  minSTier,
+    kfsSTier_t  maxSTier)
 {
     return mImpl->Create(pathname, numReplicas, exclusive,
         numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
@@ -584,9 +602,17 @@ KfsClient::SetMtime(const char *pathname, const struct timeval &mtime)
 }
 
 int
-KfsClient::Open(const char *pathname, int openFlags, int numReplicas,
-    int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
-    kfsMode_t mode, kfsSTier_t minSTier, kfsSTier_t maxSTier)
+KfsClient::OpenSelf(
+    const char* pathname,
+    int         openFlags,
+    int         numReplicas,
+    int         numStripes,
+    int         numRecoveryStripes,
+    int         stripeSize,
+    int         stripedType,
+    kfsMode_t   mode,
+    kfsSTier_t  minSTier,
+    kfsSTier_t  maxSTier)
 {
     return mImpl->Open(pathname, openFlags, numReplicas,
         numStripes, numRecoveryStripes, stripeSize, stripedType, mode,

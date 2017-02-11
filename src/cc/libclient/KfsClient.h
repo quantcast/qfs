@@ -76,7 +76,8 @@ public:
         ErrorHandler& operator=(const ErrorHandler&) { return *this; }
     };
 
-    KfsClient(client::KfsNetClient* metaServer = 0);
+    KfsClient();
+    KfsClient(client::KfsNetClient* metaServer);
     ~KfsClient();
 
     ///
@@ -84,11 +85,13 @@ public:
     /// @param[in] metaServerPort  Port at which we should connect to
     /// @retval 0 on success; -1 on failure
     ///
-    int Init(const string &metaServerHost, int metaServerPort,
-        const Properties* props = 0);
+    int Init(const string& metaServerHost, int metaServerPort,
+        const Properties* props);
+    inline int Init(const string& metaServerHost, int metaServerPort)
+        { return Init(metaServerHost, metaServerPort, 0); }
 
     /// Set the logging level to control message verbosity
-    void SetLogLevel(const string &level);
+    void SetLogLevel(const string& level);
 
     bool IsInitialized();
 
@@ -97,7 +100,7 @@ public:
     /// @param[in] pathname  The pathname to change the "cwd" to
     /// @retval 0 on sucess; -errno otherwise
     ///
-    int Cd(const char *pathname);
+    int Cd(const char* pathname);
 
     /// Get cwd
     /// @retval a string that describes the current working dir.
@@ -111,27 +114,35 @@ public:
     /// present, they are also made.
     /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if mkdir is successful; -errno otherwise
-    int Mkdirs(const char *pathname, kfsMode_t mode = 0777);
+    int Mkdirs(const char* pathname, kfsMode_t mode);
+    inline int Mkdirs(const char* pathname)
+        { return Mkdirs(pathname, 0777); }
 
     ///
     /// Make a directory in KFS.
     /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if mkdir is successful; -errno otherwise
-    int Mkdir(const char *pathname, kfsMode_t mode = 0777);
+    int Mkdir(const char* pathname, kfsMode_t mode);
+    inline int Mkdir(const char* pathname)
+        { return Mkdir(pathname, 0777); }
 
     ///
     /// Remove a directory in KFS.
     /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise
-    int Rmdir(const char *pathname);
+    int Rmdir(const char* pathname);
 
     ///
     /// Remove a directory hierarchy in KFS.
     /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise
-    int Rmdirs(const char *pathname, ErrorHandler* errHandler = 0);
+    int Rmdirs(const char* pathname, ErrorHandler* errHandler);
+    inline int Rmdirs(const char* pathname)
+        { return Rmdirs(pathname, 0); }
 
-    int RmdirsFast(const char *pathname, ErrorHandler* errHandler = 0);
+    int RmdirsFast(const char* pathname, ErrorHandler* errHandler);
+    inline int RmdirsFast(const char* pathname)
+        { return RmdirsFast(pathname, 0); }
 
     ///
     /// Read a directory's contents
@@ -146,9 +157,21 @@ public:
     /// @param[out] result  The files in the directory and their attributes.
     /// @retval 0 if readdirplus is successful; -errno otherwise
     ///
-    int ReaddirPlus(const char *pathname, vector<KfsFileAttr> &result,
-        bool computeFilesize = true, bool updateClientCache = true,
-        bool fileIdAndTypeOnly = false);
+    inline int ReaddirPlus(
+        const char*          pathname,
+        vector<KfsFileAttr>& result,
+        bool                 computeFilesize   = true,
+        bool                 updateClientCache = true,
+        bool                 fileIdAndTypeOnly = false)
+    {
+        return ReaddirPlusSelf(
+            pathname,
+            result,
+            computeFilesize,
+            updateClientCache,
+            fileIdAndTypeOnly
+        );
+    }
 
     ///
     /// Read a directory's contents and retrieve the attributes
@@ -161,7 +184,7 @@ public:
     /// 8  bit directory flag
     /// file name: 8 bit times file name length
     ///
-    int OpenDirectory(const char *pathname);
+    int OpenDirectory(const char* pathname);
 
     ///
     /// Stat a file and get its attributes.
@@ -171,7 +194,9 @@ public:
     /// file is computed and the value is returned in result.st_size
     /// @retval 0 if stat was successful; -errno otherwise
     ///
-    int Stat(const char* pathname, KfsFileAttr& result, bool computeFilesize = true);
+    int Stat(const char* pathname, KfsFileAttr& result, bool computeFilesize);
+    inline int Stat(const char* pathname, KfsFileAttr& result)
+        { return Stat(pathname, result, true); }
     int Stat(int fd, KfsFileAttr& result);
 
     ///
@@ -179,11 +204,10 @@ public:
     /// @param[in] pathname The full pathname such as /.../foo
     /// @retval    On success, # of chunks in the file; otherwise -1
     ///
-    int GetNumChunks(const char *pathname);
+    int GetNumChunks(const char* pathname);
 
-    int GetChunkSize(const char *pathname) {
-        return KFS::CHUNKSIZE;
-    }
+    int GetChunkSize(const char* pathname)
+        { return KFS::CHUNKSIZE; }
 
     /// Update the size of a file that has been opened.  It is likely
     /// that the file is shared between two clients, one or more
@@ -199,9 +223,9 @@ public:
     /// @param[in] pathname The full pathname such as /.../foo
     /// @retval status: True if it exists; false otherwise
     ///
-    bool Exists(const char *pathname);
-    bool IsFile(const char *pathname);
-    bool IsDirectory(const char *pathname);
+    bool Exists(const char* pathname);
+    bool IsFile(const char* pathname);
+    bool IsDirectory(const char* pathname);
 
     struct BlockInfo
     {
@@ -232,7 +256,9 @@ public:
     /// @retval status code
     ///
     int EnumerateBlocks(const char* pathname, BlockInfos& res,
-        bool getChunkSizesFlag = true);
+        bool getChunkSizesFlag);
+    inline int EnumerateBlocks(const char* pathname, BlockInfos& res)
+        { return EnumerateBlocks(pathname, res, true); }
 
     ///
     /// Given a file in KFS, verify that all N copies of each chunk are
@@ -250,7 +276,7 @@ public:
     /// match md5sum of the file content.
     /// @retval status code -- 0 OK, 1 mismatch < 0 -- error
     ///
-    int CompareChunkReplicas(const char *pathname, string &md5sum);
+    int CompareChunkReplicas(const char* pathname, string& md5sum);
 
     ///
     /// Verify that the checksums on replicas is identical.
@@ -284,13 +310,23 @@ public:
     /// @param[out] minSTier
     /// @param[out] maxSTier
     /// @retval 0 on success; -errno on failure.
-    static int ParseCreateParams(const char* params, int& numReplicas,
-        int& numStripes, int& numRecoveryStripes, int& stripeSize,
-        int& stripedType, kfsSTier_t& minSTier, kfsSTier_t& maxSTier);
+    static int ParseCreateParams(
+        const char* params,
+        int&        numReplicas,
+        int&        numStripes,
+        int&        numRecoveryStripes,
+        int&        stripeSize,
+        int&        stripedType,
+        kfsSTier_t& minSTier,
+        kfsSTier_t& maxSTier);
     /// Backward compatibility version.
-    static int ParseCreateParams(const char* params, int& numReplicas,
-        int& numStripes, int& numRecoveryStripes, int& stripeSize,
-        int& stripedType)
+    inline static int ParseCreateParams(
+        const char* params,
+        int&        numReplicas,
+        int&        numStripes,
+        int&        numRecoveryStripes,
+        int&        stripeSize,
+        int&        stripedType)
     {
         kfsSTier_t minSTier = kKfsSTierMax;
         kfsSTier_t maxSTier = kKfsSTierMax;
@@ -310,9 +346,34 @@ public:
     /// @param[out] outErrMsgPtr pointer to string that describes what the error is.
     /// @retval 0 on success; -errno on failure
     static int ValidateCreateParams(
-        int numReplicas, int numStripes, int numRecoveryStripes,
-        int stripeSize, int stripedType, kfsSTier_t minSTier, kfsSTier_t maxSTier,
-        string* outErrMsgPtr = 0);
+        int        numReplicas,
+        int        numStripes,
+        int        numRecoveryStripes,
+        int        stripeSize,
+        int        stripedType,
+        kfsSTier_t minSTier,
+        kfsSTier_t maxSTier,
+        string*    outErrMsgPtr);
+    inline static int ValidateCreateParams(
+        int        numReplicas,
+        int        numStripes,
+        int        numRecoveryStripes,
+        int        stripeSize,
+        int        stripedType,
+        kfsSTier_t minSTier,
+        kfsSTier_t maxSTier)
+    {
+        return ValidateCreateParams(
+            numReplicas,
+            numStripes,
+            numRecoveryStripes,
+            stripeSize,
+            stripedType,
+            minSTier,
+            maxSTier,
+            0
+        );
+    }
 
     ///
     /// Create a file which is specified by a complete path.
@@ -323,11 +384,33 @@ public:
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
-    int Create(const char *pathname, int numReplicas = 3, bool exclusive = false,
-        int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
-        int stripedType = KFS_STRIPED_FILE_TYPE_NONE, bool forceTypeFlag = true,
-        kfsMode_t mode = 0666,
-        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
+    inline int Create(
+        const char* pathname,
+        int         numReplicas        = 3,
+        bool        exclusive          = false,
+        int         numStripes         = 0,
+        int         numRecoveryStripes = 0,
+        int         stripeSize         = 0,
+        int         stripedType        = KFS_STRIPED_FILE_TYPE_NONE,
+        bool        forceTypeFlag      = true,
+        kfsMode_t   mode               = 0666,
+        kfsSTier_t  minSTier           = kKfsSTierMax,
+        kfsSTier_t  maxSTier           = kKfsSTierMax)
+    {
+        return CreateSelf(
+            pathname,
+            numReplicas,
+            exclusive,
+            numStripes,
+            numRecoveryStripes,
+            stripeSize,
+            stripedType,
+            forceTypeFlag,
+            mode,
+            minSTier,
+            maxSTier
+        );
+    }
 
     ///
     /// Create a file which is specified by a complete path.
@@ -337,14 +420,14 @@ public:
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
-    int Create(const char *pathname, bool exclusive, const char* params);
+    int Create(const char* pathname, bool exclusive, const char* params);
 
     ///
     /// Remove a file which is specified by a complete path.
     /// @param[in] pathname that has to be removed
     /// @retval status code
     ///
-    int Remove(const char *pathname);
+    int Remove(const char* pathname);
 
     ///
     /// Rename file/dir corresponding to oldpath to newpath
@@ -354,16 +437,21 @@ public:
     /// exists; otherwise, the rename will fail if newpath exists
     /// @retval 0 on success; -1 on failure
     ///
-    int Rename(const char *oldpath, const char *newpath, bool overwrite = true);
+    int Rename(const char* oldpath, const char* newpath, bool overwrite);
+    inline int Rename(const char* oldpath, const char* newpath)
+        { return Rename(oldpath, newpath, true); }
 
-    int CoalesceBlocks(const char *srcPath, const char *dstPath, chunkOff_t *dstStartOffset);
+    int CoalesceBlocks(
+        const char* srcPath,
+        const char* dstPath,
+        chunkOff_t* dstStartOffset);
     ///
     /// Set the mtime for a path
     /// @param[in] pathname  for which mtime has to be set
     /// @param[in] mtime     the desired mtime
     /// @retval status code
     ///
-    int SetMtime(const char *pathname, const struct timeval &mtime);
+    int SetMtime(const char* pathname, const struct timeval& mtime);
 
     ///
     /// Open a file
@@ -375,11 +463,31 @@ public:
     /// desired degree of replication for the file
     /// @retval fd corresponding to the opened file; -errno on failure
     ///
-    int Open(const char *pathname, int openFlags, int numReplicas = 3,
-        int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
-        int stripedType = KFS_STRIPED_FILE_TYPE_NONE,
-        kfsMode_t mode = 0666,
-        kfsSTier_t minSTier = kKfsSTierMax, kfsSTier_t maxSTier = kKfsSTierMax);
+    inline int Open(
+        const char* pathname,
+        int         openFlags,
+        int         numReplicas        = 3,
+        int         numStripes         = 0,
+        int         numRecoveryStripes = 0,
+        int         stripeSize         = 0,
+        int         stripedType        = KFS_STRIPED_FILE_TYPE_NONE,
+        kfsMode_t   mode               = 0666,
+        kfsSTier_t  minSTier           = kKfsSTierMax,
+        kfsSTier_t  maxSTier           = kKfsSTierMax)
+    {
+        return OpenSelf(
+            pathname,
+            openFlags,
+            numReplicas,
+            numStripes,
+            numRecoveryStripes,
+            stripeSize,
+            stripedType,
+            mode,
+            minSTier,
+            maxSTier
+        );
+    }
 
     ///
     /// Create a file which is specified by a complete path.
@@ -388,8 +496,10 @@ public:
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
-    int Open(const char *pathname, int openFlags, const char* params,
-        kfsMode_t mode = 0666);
+    int Open(const char* pathname, int openFlags, const char* params,
+        kfsMode_t mode);
+    inline int Open(const char* pathname, int openFlags, const char* params)
+        { return Open(pathname, openFlags, params, 0666); }
 
     ///
     /// Close a file
@@ -405,13 +515,13 @@ public:
     /// chunk to hold the record, then this record will be written to
     /// a newly allocated chunk.
     ///
-    int RecordAppend(int fd, const char *buf, int reclen);
+    int RecordAppend(int fd, const char* buf, int reclen);
 
     ///
     /// With atomic record appends, if multiple clients are writing to
     /// the same file, the writes are serialized by the chunk master.
     ///
-    int AtomicRecordAppend(int fd, const char *buf, int reclen);
+    int AtomicRecordAppend(int fd, const char* buf, int reclen);
 
     void EnableAsyncRW();
     void DisableAsyncRW();
@@ -437,7 +547,7 @@ public:
     /// @param[in] numBytes   The # of bytes of I/O to be done.
     /// @retval status code
     ///
-    int ReadPrefetch(int fd, char *buf, size_t numBytes);
+    int ReadPrefetch(int fd, char* buf, size_t numBytes);
 
     ///
     /// Similar to read prefetch, queue a write to a chunk.  In
@@ -456,7 +566,7 @@ public:
     /// @param[in] numBytes   The # of bytes of I/O to be done.
     /// @retval status code
     ///
-    int WriteAsync(int fd, const char *buf, size_t numBytes);
+    int WriteAsync(int fd, const char* buf, size_t numBytes);
 
     ///
     /// A set of async writes were issued to a file.  Call this method
@@ -481,11 +591,11 @@ public:
     /// @retval On success, return of bytes of I/O done (>= 0);
     /// on failure, return status code (< 0).
     ///
-    ssize_t Read(int fd, char *buf, size_t numBytes);
-    ssize_t Write(int fd, const char *buf, size_t numBytes);
+    ssize_t Read(int fd, char* buf, size_t numBytes);
+    ssize_t Write(int fd, const char* buf, size_t numBytes);
 
-    ssize_t PRead(int fd, chunkOff_t pos, char *buf, size_t numBytes);
-    ssize_t PWrite(int fd, chunkOff_t pos, const char *buf, size_t numBytes);
+    ssize_t PRead(int fd, chunkOff_t pos, char* buf, size_t numBytes);
+    ssize_t PWrite(int fd, chunkOff_t pos, const char* buf, size_t numBytes);
 
     /// If there are any holes in a file, such as those at the end of
     /// a chunk, skip over them.
@@ -545,13 +655,13 @@ public:
     /// @param[out] locations The location(s) of various chunks
     /// @retval status: 0 on success; -errno otherwise
     ///
-    int GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
+    int GetDataLocation(const char* pathname, chunkOff_t start, chunkOff_t len,
         vector< vector <string> >& locations);
 
     int GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
         vector< vector <string> >& locations);
 
-    int GetDataLocation(const char *pathname, chunkOff_t start, chunkOff_t len,
+    int GetDataLocation(const char* pathname, chunkOff_t start, chunkOff_t len,
         vector< vector <string> >& locations, chunkOff_t* outBlkSize);
 
     int GetDataLocation(int fd, chunkOff_t start, chunkOff_t len,
@@ -570,16 +680,18 @@ public:
     /// @param[in] numReplicas  The desired degree of replication.
     /// @retval -1 on failure; on success, the # of replicas that will be made.
     ///
-    int SetReplicationFactor(const char *pathname, int16_t numReplicas);
+    int SetReplicationFactor(const char* pathname, int16_t numReplicas);
     // Recursive version.
-    int SetReplicationFactorR(const char *pathname, int16_t numReplicas,
-        ErrorHandler* errHandler = 0);
+    int SetReplicationFactorR(const char* pathname, int16_t numReplicas,
+        ErrorHandler* errHandler);
+    inline int SetReplicationFactorR(const char* pathname, int16_t numReplicas)
+        { return SetReplicationFactorR(pathname, numReplicas, 0); }
 
     ///
     /// Set file or directory storage tier range.
     ///
     int SetStorageTierRange(
-        const char *pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier);
+        const char* pathname, kfsSTier_t minSTier, kfsSTier_t maxSTier);
 
     ServerLocation GetMetaserverLocation() const;
 
@@ -674,11 +786,17 @@ public:
     int Chown(const char* pathname, const char* user, const char* group);
     int Chown(int fd, const char* user, const char* group);
     int ChmodR(const char* pathname, kfsMode_t mode,
-            ErrorHandler* errHandler = 0);
+            ErrorHandler* errHandler);
+    inline int ChmodR(const char* pathname, kfsMode_t mode)
+        { return ChmodR(pathname, mode, 0); }
     int ChownR(const char* pathname, kfsUid_t user, kfsGid_t group,
-            ErrorHandler* errHandler = 0);
+            ErrorHandler* errHandler);
+    inline int ChownR(const char* pathname, kfsUid_t user, kfsGid_t group)
+        { return ChownR(pathname, user, group, 0); }
     int ChownR(const char* pathname, const char* user, const char* group,
-            ErrorHandler* errHandler = 0);
+            ErrorHandler* errHandler);
+    inline int ChownR(const char* pathname, const char* user, const char* group)
+        { return ChownR(pathname, user, group, 0); }
     void SetUMask(kfsMode_t mask);
     kfsMode_t GetUMask() const;
     // Must be invoked before invoking any other method.
@@ -766,15 +884,44 @@ public:
         { return "client.auth."; }
 private:
     typedef client::KfsClientImpl KfsClientImpl;
-
     KfsClientImpl* const mImpl;
+
+    int CreateSelf(
+        const char* pathname,
+        int         numReplicas,
+        bool        exclusive,
+        int         numStripes,
+        int         numRecoveryStripes,
+        int         stripeSize,
+        int         stripedType,
+        bool        forceTypeFlag,
+        kfsMode_t   mode,
+        kfsSTier_t  minSTier,
+        kfsSTier_t  maxSTier);
+    int OpenSelf(
+        const char* pathname,
+        int         openFlags,
+        int         numReplicas,
+        int         numStripes,
+        int         numRecoveryStripes,
+        int         stripeSize,
+        int         stripedType,
+        kfsMode_t   mode,
+        kfsSTier_t  minSTier,
+        kfsSTier_t  maxSTier);
+    int ReaddirPlusSelf(
+        const char*          pathname,
+        vector<KfsFileAttr>& result,
+        bool                 computeFilesize,
+        bool                 updateClientCache,
+        bool                 fileIdAndTypeOnly);
 };
 
 ///
 /// @param[in] propFile that describes where the server is and
 /// other client configuration info.
 ///
-KfsClient *Connect(const char *propFile);
+KfsClient* Connect(const char* propFile);
 
 ///
 /// Get the client object corresponding to the specified
@@ -784,13 +931,16 @@ KfsClient *Connect(const char *propFile);
 /// @retval if connection to metaserver succeeds, a client object
 /// that is "ready" for use; NULL if there was an error
 ///
-KfsClient *Connect(const string &metaServerHost, int metaServerPort,
-    const Properties* props = 0);
+KfsClient* Connect(const string& metaServerHost, int metaServerPort,
+    const Properties* props);
+inline KfsClient* Connect(const string& metaServerHost, int metaServerPort)
+    { return Connect(metaServerHost, metaServerPort, 0); }
+
 
 /// Given a error status code, return a string describing the error.
 /// @param[in] status  The status code for an error.
 /// @retval String that describes what the error is.
-extern string ErrorCodeToStr(int status);
+string ErrorCodeToStr(int status);
 }
 
 #endif // LIBKFSCLIENT_KFSCLIENT_H
