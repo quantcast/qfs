@@ -42,13 +42,8 @@ int gf_cpu_supports_arm_neon = 0;
 
 #include <cpuid.h>
 
-#ifndef __cpuid_count
-#define __cpuid_count(level, count, a, b, c, d) \
-    __cpuid(level, a, b, c, d)
-#endif
-
 void cpuid(int info[4], int InfoType){
-    __cpuid_count(InfoType, 0, info[0], info[1], info[2], info[3]);
+    __cpuid(InfoType, info[0], info[1], info[2], info[3]);
 }
 
 #else
