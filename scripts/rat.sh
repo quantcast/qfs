@@ -37,10 +37,12 @@ else
     rm -f "$MYTAR"
     if curl --retry 3 -Ss -o "$MYTAR" "$MYURL"; then
         MYTARSHA1="`curl --retry 3 -Ss "$MYSHA1URL" | awk '{print $1}'`"
-        if [ x"`openssl sha1 < "$MYTAR"`" = x"(stdin)= $MYTARSHA1" ]; then
+        MYACTSHA1="`openssl sha1 < "$MYTAR" | awk '{print $2}'`"
+        if [ x"$MYACTSHA1" = x"$MYTARSHA1" ]; then
             true
         else
-            echo "$MYTAR: sha1 mismatch"
+            echo "$MYTAR: sha1 mismatch:" \
+                "downloaded: $MYACTSHA1, expected: $MYTARSHA1"
             rm "$MYTAR"
             exit 1
         fi
@@ -48,7 +50,12 @@ else
         rm -f "$MYTAR"
         exit 1
     fi
-    tar -xf "$MYTAR" || exit
+    tar -xf "$MYTAR"
+    status=$?
+    rm "$MYTAR"
+    if [ $status -ne 0 ]; then
+        exit
+    fi
 fi
 
 java -jar "$MYJAR" --dir "$SRC" -E "$SRC/.ratignore" \
