@@ -25,22 +25,33 @@
 set -ex
 
 DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev'
-DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk wget unzip maven sudo passwd'
+DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk unzip maven sudo passwd'
 DEPS_UBUNTU=$DEPS_UBUNTU' curl openssl'
 
-DEPS_CENTOS='gcc-c++ make cmake git boost-devel krb5-devel openssl-devel'
+DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
 DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
-DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel wget unzip sudo which openssl'
+DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl'
 
-MVN_TAR="apache-maven-3.0.5-bin.tar.gz"
-MVN_URL="http://mirror.cc.columbia.edu/pub/software/apache/maven/maven-3/3.0.5/binaries/$MVN_TAR"
+DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
+DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
+
+MYMVN_URL='https://www.apache.org/dist/maven/binaries/apache-maven-3.0.5-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
+MYCENTOSEPEL_RPM="$MYTMPDIR/epel-release-latest.rpm"
+MYMVNTAR="$MYTMPDIR/$(basename "$MYMVN_URL")"
+
+MYCMAKE='cmake'
 
 MYCMAKE_OPTIONS=''
 MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D QFS_EXTRA_CXX_OPTIONS=-Werror'
 MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D QFS_EXTRA_C_OPTIONS=-Werror'
+
+MYCMAKE_CENTOS5='cmake28'
+MYCMAKE_OPTIONS_CENTOS5=$MYCMAKE_OPTIONS' -D _OPENSSL_INCLUDEDIR=/usr/include/openssl101e'
+MYCMAKE_OPTIONS_CENTOS5=$MYCMAKE_OPTIONS_CENTOS5' -D _OPENSSL_LIBDIR=/usr/lib64/openssl101e'
+
 MYBUILD_TYPE='release'
 
 set_sudo()
@@ -81,6 +92,7 @@ do_build()
     fi
     $MYSU make ${1+"$@"} \
         BUILD_TYPE="$MYBUILD_TYPE" \
+        CMAKE="$MYCMAKE" \
         CMAKE_OPTIONS="$MYCMAKE_OPTIONS" \
         JAVA_BUILD_OPTIONS='-r 2' \
         test tarball \
@@ -102,8 +114,7 @@ do_build_linux()
     fi
     MYMAKEOPT="$MYMAKEOPT --no-print-directory"
     df -h || true
-    $MYSU make rat clean
-    do_build $MYMAKEOPT
+    do_build ${1+"$@"} $MYMAKEOPT
     if [ -r "$MYCODECOV" ]; then
         /bin/bash "$MYCODECOV"
     fi
@@ -149,20 +160,37 @@ build_centos()
 {
     # Build and test under root, if running as root, to make sure that root
     # build succeeds.
+    if [ -f "$MYCENTOSEPEL_RPM" ]; then
+        rpm -Uvh "$MYCENTOSEPEL_RPM"
+    fi
     set_sudo ''
-    $MYSUDO yum install -y $DEPS_CENTOS
+    eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
+    $MYSUDO yum install -y $MYDEPS
     # CentOS doesn't package maven directly so we have to install it manually
-    wget "$MVN_URL"
-    $MYSUDO tar -xf "$MVN_TAR" -C '/usr/local'
-    # Set up PATH and links
-    (
-        cd '/usr/local'
-        $MYSUDO ln -snf ${MVN_TAR%-bin.tar.gz} maven
-    )
-    export M2_HOME='/usr/local/maven'
-    export PATH=${M2_HOME}/bin:${PATH}
-    rm "$MVN_TAR"
-    if [ x"$1" == x'7' ]; then
+    if [ -f "$MYMVNTAR" ]; then
+        $MYSUDO tar -xf "$MYMVNTAR" -C '/usr/local'
+        # Set up PATH and links
+        (
+            cd '/usr/local'
+            $MYSUDO ln -snf "$(basename "$MYMVNTAR" '-bin.tar.gz')" maven
+        )
+        M2_HOME='/usr/local/maven'
+        export M2_HOME
+        PATH="${M2_HOME}/bin:${PATH}"
+        export PATH
+    fi
+    if [ x"$1" = x'5' ]; then
+        # Force build and test to use openssl101e.
+        # Add Kerberos binaries dir to path to make krb5-config available.
+        MYBINDIR="$HOME/bin"
+        mkdir -p "$MYBINDIR"
+        ln -snf "`which openssl101e`" "$MYBINDIR/openssl"
+        PATH="$MYBINDIR:$PATH:/usr/kerberos/bin"
+        export PATH
+        MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS_CENTOS5
+        MYCMAKE=$MYCMAKE_CENTOS5
+    fi
+    if [ x"$1" = x'7' ]; then
         # CentOS7 has the distro information in /etc/redhat-release
         $MYSUDO /bin/bash -c \
             "cut /etc/redhat-release -d' ' --fields=1,3,4 > /etc/issue"
@@ -185,10 +213,24 @@ if [ $# -eq 4 -a x"$1" = x'build' ]; then
     exit
 fi
 
+make rat clean
+
 if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
-    rm -rf "$MYTMPDIR"
-    if [ x"$CODECOV" == x'yes' ]; then
+    if [ -e "$MYTMPDIR" ]; then
+        rm -r "$MYTMPDIR"
+    fi
+    if [ x"$CODECOV" = x'yes' ]; then
         init_codecov
+    fi
+    if [ x"$DISTRO" = x'centos' ]; then
+        if [ x"$VER" = x'5' ]; then
+            # Download here as curl/openssl and root certs are dated on centos5,
+            # and https downloads don't work.
+            mkdir -p  "$MYTMPDIR"
+            curl -S -o "$MYCENTOSEPEL_RPM" \
+                'https://dl.fedoraproject.org/pub/epel/epel-release-latest-5.noarch.rpm'
+        fi
+        curl -S -o "$MYMVNTAR" "$MYMVN_URL"
     fi
     MYSRCD="$(pwd)"
     docker run --rm -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \

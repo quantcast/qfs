@@ -41,6 +41,7 @@ env:
         - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release
         - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release
         - DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release
+        - DISTRO=centos        VER=5     CODECOV=no  BTYPE=release
         - DISTRO=centos        VER=6     CODECOV=no  BTYPE=release
         - DISTRO=centos        VER=7     CODECOV=no  BTYPE=release
 
@@ -56,6 +57,8 @@ matrix:
           env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release
         - os: osx
           env: DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release
+        - os: osx
+          env: DISTRO=centos        VER=5     CODECOV=no  BTYPE=release
         - os: osx
           env: DISTRO=centos        VER=6     CODECOV=no  BTYPE=release
         - os: osx
