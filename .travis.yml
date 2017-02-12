@@ -35,36 +35,39 @@ os:
 
 env:
     matrix:
-        - DISTRO=osx           VER=none  CODECOV=no  BTYPE=release
-        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=debug
-        - DISTRO=ubuntu        VER=16.04 CODECOV=yes BTYPE=release
-        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release
-        - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release
-        - DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release
-        - DISTRO=centos        VER=5     CODECOV=no  BTYPE=release
-        - DISTRO=centos        VER=6     CODECOV=no  BTYPE=release
-        - DISTRO=centos        VER=7     CODECOV=no  BTYPE=release
+        - DISTRO=osx           VER=none  CODECOV=no  BTYPE=release BUSER=''
+        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=debug   BUSER=qfsbuild
+        - DISTRO=ubuntu        VER=16.04 CODECOV=yes BTYPE=release BUSER=qfsbuild
+        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release BUSER=root
+        - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=centos        VER=5     CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=centos        VER=6     CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=centos        VER=7     CODECOV=no  BTYPE=release BUSER=qfsbuild
 
 matrix:
     exclude:
         - os: osx
-          env: DISTRO=ubuntu        VER=16.04 CODECOV=yes BTYPE=release
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=yes BTYPE=release BUSER=qfsbuild
         - os: osx
-          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=debug
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=debug   BUSER=qfsbuild
         - os: osx
-          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release BUSER=root
         - os: osx
-          env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release
+          env: DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
-          env: DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release
+          env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
-          env: DISTRO=centos        VER=5     CODECOV=no  BTYPE=release
+          env: DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
-          env: DISTRO=centos        VER=6     CODECOV=no  BTYPE=release
+          env: DISTRO=centos        VER=5     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
-          env: DISTRO=centos        VER=7     CODECOV=no  BTYPE=release
+          env: DISTRO=centos        VER=6     CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - os: osx
+          env: DISTRO=centos        VER=7     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: linux
-          env: DISTRO=osx           VER=none  CODECOV=no  BTYPE=release
+          env: DISTRO=osx           VER=none  CODECOV=no  BTYPE=release BUSER=qfsbuild
 
 services:
     - docker

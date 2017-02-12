@@ -56,10 +56,15 @@ MYBUILD_TYPE='release'
 
 set_sudo()
 {
-    if [ x"$(id -u)" = x0 ]; then
+    if [ x"$(id -u)" = x'0' ]; then
         MYSUDO=
+        MYUSER=
         if [ $# -gt 0 ]; then
-            MYUSER=$1
+            if [ x"$1" = x'root' ]; then
+                true
+            else
+                MYUSER=$1
+            fi
         fi
         if [ x"$MYUSER" = x ]; then
             MYSU=
@@ -137,17 +142,8 @@ init_codecov()
 
 build_ubuntu()
 {
-    # Build and test under qfsbuild user.
-    set_sudo 'qfsbuild'
     $MYSUDO apt-get update
     $MYSUDO apt-get install -y $DEPS_UBUNTU
-    if [ x"$MYUSER" = x ]; then
-        true
-    else
-        # Create regular user to run the build and test under it.
-        id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
-        chown -R "$MYUSER" .
-    fi
     do_build_linux
 }
 
@@ -158,14 +154,12 @@ build_ubuntu32()
 
 build_centos()
 {
-    # Build and test under root, if running as root, to make sure that root
-    # build succeeds.
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
-        rpm -Uvh "$MYCENTOSEPEL_RPM"
+        $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
     fi
-    set_sudo ''
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $MYDEPS
+    MYPATH=$PATH
     # CentOS doesn't package maven directly so we have to install it manually
     if [ -f "$MYMVNTAR" ]; then
         $MYSUDO tar -xf "$MYMVNTAR" -C '/usr/local'
@@ -175,18 +169,19 @@ build_centos()
             $MYSUDO ln -snf "$(basename "$MYMVNTAR" '-bin.tar.gz')" maven
         )
         M2_HOME='/usr/local/maven'
-        export M2_HOME
-        PATH="${M2_HOME}/bin:${PATH}"
-        export PATH
+        MYPATH="${M2_HOME}/bin:${MYPATH}"
     fi
     if [ x"$1" = x'5' ]; then
         # Force build and test to use openssl101e.
         # Add Kerberos binaries dir to path to make krb5-config available.
-        MYBINDIR="$HOME/bin"
+        if [ x"$MYUSER" = x ]; then
+            MYBINDIR="$HOME/local/openssl101e/bin"
+        else
+            MYBINDIR='/usr/local/openssl101e/bin'
+        fi
         mkdir -p "$MYBINDIR"
         ln -snf "`which openssl101e`" "$MYBINDIR/openssl"
-        PATH="$MYBINDIR:$PATH:/usr/kerberos/bin"
-        export PATH
+        MYPATH="$MYBINDIR:$MYPATH:/usr/kerberos/bin"
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS_CENTOS5
         MYCMAKE=$MYCMAKE_CENTOS5
     fi
@@ -195,7 +190,7 @@ build_centos()
         $MYSUDO /bin/bash -c \
             "cut /etc/redhat-release -d' ' --fields=1,3,4 > /etc/issue"
     fi
-    do_build_linux
+    do_build_linux PATH="$MYPATH" ${M2_HOME+M2_HOME="$M2_HOME"}
 }
 
 set_build_type()
@@ -207,8 +202,16 @@ set_build_type()
     fi
 }
 
-if [ $# -eq 4 -a x"$1" = x'build' ]; then
+if [ $# -eq 5 -a x"$1" = x'build' ]; then
     set_build_type "$4"
+    set_sudo "$5"
+    if [ x"$MYUSER" = x ]; then
+        true
+    else
+        # Create regular user to run the build and test under it.
+        id -u "$MYUSER" >/dev/null 2>&1 || useradd -m "$MYUSER"
+        chown -R "$MYUSER" .
+    fi
     "$1_$(basename "$2")" "$3"
     exit
 fi
@@ -232,8 +235,8 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
         fi
     fi
     MYSRCD="$(pwd)"
-    docker run --rm -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
-        /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE"
+    docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
+        /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
     MYSSLD='/usr/local/Cellar/openssl/'
