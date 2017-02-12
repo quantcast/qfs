@@ -222,14 +222,14 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
         init_codecov
     fi
     if [ x"$DISTRO" = x'centos' ]; then
+        mkdir -p  "$MYTMPDIR"
+        curl --retry 3 -S -o "$MYMVNTAR" "$MYMVN_URL"
         if [ x"$VER" = x'5' ]; then
             # Download here as curl/openssl and root certs are dated on centos5,
             # and https downloads don't work.
-            mkdir -p  "$MYTMPDIR"
-            curl -S -o "$MYCENTOSEPEL_RPM" \
+            curl --retry 3 -S -o "$MYCENTOSEPEL_RPM" \
                 'https://dl.fedoraproject.org/pub/epel/epel-release-latest-5.noarch.rpm'
         fi
-        curl -S -o "$MYMVNTAR" "$MYMVN_URL"
     fi
     MYSRCD="$(pwd)"
     docker run --rm -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
