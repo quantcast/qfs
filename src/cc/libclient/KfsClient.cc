@@ -465,11 +465,8 @@ KfsClient::ValidateCreateParams(
                 stripeSize, outErrMsgPtr)) {
         return -EINVAL;
     }
-    if (minSTier > maxSTier ||
-            maxSTier > kKfsSTierMax ||
-            minSTier > kKfsSTierMax ||
-            maxSTier < kKfsSTierMin ||
-            minSTier < kKfsSTierMin) {
+    if (maxSTier < minSTier ||
+            ! IsValidSTier(minSTier) || ! IsValidSTier(maxSTier)) {
         if (outErrMsgPtr) {
             *outErrMsgPtr = "invalid parameters: invalid tier configuration";
         }

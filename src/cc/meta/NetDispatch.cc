@@ -308,12 +308,13 @@ public:
         if (! inStreamPtr) {
             return;
         }
-        ostream& theStream = *inStreamPtr;
+        ostream&                          theStream = *inStreamPtr;
+        CryptoKeys::Key::UrlSafeFmt const theKeyFmt(inKey);
         theStream <<
             "ckey"
             "/" << inKeyTime <<
             "/" << inKeyId <<
-            "/" << CryptoKeys::Key::UrlSafeFmt(inKey) <<
+            "/" << theKeyFmt <<
         "\n";
     }
     bool Restore(

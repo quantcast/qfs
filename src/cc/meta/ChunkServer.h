@@ -1169,11 +1169,8 @@ protected:
             >
         >
     > DispatchedReqs;
-    static inline ChunkServer::DispatchedReqs::iterator&
-    GetDispatchedReqsIterator(ChunkServer::DispatchedReqsIterator& it)
-    {
-        return *reinterpret_cast<DispatchedReqs::iterator*>(&it.mStorage);
-    }
+    static inline DispatchedReqs::iterator&
+        GetDispatchedReqsIterator(DispatchedReqsIterator& it);
     typedef MetaChunkRequest::List LogInFlightReqs;
     typedef set<
         string,

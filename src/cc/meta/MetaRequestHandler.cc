@@ -714,7 +714,10 @@ private:
     }
     void WriteVal(
         const CryptoKeys::Key& inKey)
-        { mOStream << CryptoKeys::Key::UrlSafeFmt(inKey); }
+    {
+        CryptoKeys::Key::UrlSafeFmt const theKeyFmt(inKey);
+        mOStream << theKeyFmt;
+    }
     void Escape(int inSym)
     {
         const char* const kHexChars = "0123456789ABCDEF";

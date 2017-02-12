@@ -280,6 +280,13 @@ size_t ChunkServer::sChunkDirsCount = 0;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
 const int kMaxRequestResponseHeader = 64 << 10;
 
+inline ChunkServer::DispatchedReqs::iterator&
+ChunkServer::GetDispatchedReqsIterator(ChunkServer::DispatchedReqsIterator& it)
+{
+    void* const storage = &it.mStorage; // Convert to void to eliminate warning.
+    return *reinterpret_cast<DispatchedReqs::iterator*>(storage);
+}
+
 inline
 ChunkServer::DispatchedReqsIterator::DispatchedReqsIterator()
 {
