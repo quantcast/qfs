@@ -67,7 +67,7 @@ matrix:
         - os: osx
           env: DISTRO=centos        VER=7     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: linux
-          env: DISTRO=osx           VER=none  CODECOV=no  BTYPE=release BUSER=qfsbuild
+          env: DISTRO=osx           VER=none  CODECOV=no  BTYPE=release BUSER=''
 
 services:
     - docker
