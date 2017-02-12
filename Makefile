@@ -23,6 +23,7 @@
 
 BUILD_TYPE=release
 CMAKE_OPTIONS=-D CMAKE_BUILD_TYPE=RelWithDebInfo
+CMAKE=cmake
 MAKE_OPTIONS=
 QFSTEST_OPTIONS=
 JAVA_BUILD_OPTIONS=
@@ -36,7 +37,7 @@ dir:
 
 .PHONY: run-cmake
 run-cmake: dir
-	cd build/${BUILD_TYPE} && cmake ${CMAKE_OPTIONS} ../..
+	cd build/${BUILD_TYPE} && ${CMAKE} ${CMAKE_OPTIONS} ../..
 
 .PHONY: build
 build: run-cmake

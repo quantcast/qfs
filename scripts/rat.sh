@@ -23,17 +23,35 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
-SRC=`cd "$1" > /dev/null && pwd`
-DIR=apache-rat-0.11
-TAR=$DIR-bin.tar.gz
-URL=http://mirror.cogentco.com/pub/apache/creadur/$DIR/$TAR
+SRC="`cd "$1" > /dev/null && pwd`"
 
-if [ ! -e $TAR ]; then
-    wget --quiet $URL -O $TAR
+MYURL='http://apache.mirrors.pair.com//creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz'
+MYSHA1URL='https://www.apache.org/dist/creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz.sha1'
+MYTAR="`basename "$MYURL"`"
+MYNAME="`basename "$MYTAR" -bin.tar.gz`"
+MYJAR="$MYNAME/$MYNAME.jar"
+
+if [ -f "$MYJAR" ]; then
+    true
+else
+    rm -f "$MYTAR"
+    if curl --retry 3 -Ss -o "$MYTAR" "$MYURL"; then
+        MYTARSHA1="`curl --retry 3 -Ss "$MYSHA1URL" | awk '{print $1}'`"
+        if [ x"`openssl sha1 < "$MYTAR"`" = x"(stdin)= $MYTARSHA1" ]; then
+            true
+        else
+            echo "$MYTAR: sha1 mismatch"
+            rm "$MYTAR"
+            exit 1
+        fi
+    else
+        rm -f "$MYTAR"
+        exit 1
+    fi
+    tar -xf "$MYTAR" || exit
 fi
 
-tar -xf $TAR
-java -jar $DIR/$DIR.jar --dir "$SRC" -E "$SRC/.ratignore" \
+java -jar "$MYJAR" --dir "$SRC" -E "$SRC/.ratignore" \
 | awk '
     BEGIN { ret = 1; }
     /Unknown Licenses/ {
