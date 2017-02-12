@@ -8,6 +8,12 @@
  * Identifies whether the CPU supports SIMD instructions at runtime.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include "gf_cpu.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 

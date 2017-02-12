@@ -50,7 +50,7 @@ static __inline long long  _mm_extract_epi64 (__m128i __X, const int __N)
 #endif
 
 #if defined(ARM_NEON)
-  #include <arm_neon.h>
+#  include <arm_neon.h>
 #endif
 
 
