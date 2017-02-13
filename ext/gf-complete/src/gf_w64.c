@@ -993,7 +993,7 @@ int gf_w64_group_init(gf_t *gf)
   g_r = h->arg2;
 
   gd = (struct gf_w64_group_data *) h->private;
-  gd->shift = (uint64_t *) (&(gd->memory));
+  gd->shift = (uint64_t *) ((char *)&(gd->memory));
   gd->reduce = gd->shift + (1 << g_s);
 
   gd->reduce[0] = 0;

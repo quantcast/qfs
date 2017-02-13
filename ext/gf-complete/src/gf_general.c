@@ -142,8 +142,8 @@ int gf_general_s_to_val(gf_general_t *v, int w, char *s, int hex)
     if (v->w32 & ~((1 << w)-1)) return 0;
     return 1;
   } else if (w <= 64) {
-    if (hex) return (sscanf(s, "%llx", (long long unsigned int *) (&(v->w64))) == 1);
-    return (sscanf(s, "%lld", (long long int *) (&(v->w64))) == 1);
+    if (hex) return (sscanf(s, "%llx", (long long unsigned int *) ((char *)&(v->w64))) == 1);
+    return (sscanf(s, "%lld", (long long int *) ((char *)&(v->w64))) == 1);
   } else {
     if (!hex) return 0;
     l = strlen(s);

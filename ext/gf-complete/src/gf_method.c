@@ -146,7 +146,7 @@ int create_gf_from_argv(gf_t *gf, int w, int argc, char **argv, int starting)
         }
       } else if (strcmp(argv[starting], "-p") == 0) {
         starting++;
-        if (sscanf(argv[starting], "%llx", (long long unsigned int *)(&prim_poly)) == 0) {
+        if (sscanf(argv[starting], "%llx", (long long unsigned int *)((char *)&prim_poly)) == 0) {
           if (base != NULL) gf_free(base, 1);
           _gf_errno = GF_E_POLYSPC;
           return 0;

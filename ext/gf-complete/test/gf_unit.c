@@ -122,13 +122,13 @@ int main(int argc, char **argv)
   d = (gf_general_t *) malloc(sizeof(gf_general_t));
 
 #if HAVE_POSIX_MEMALIGN
-  if (posix_memalign((void **) &ra, 16, sizeof(char)*REGION_SIZE))
+  if (posix_memalign((void **)((char *) &ra), 16, sizeof(char)*REGION_SIZE))
     ra = NULL;
-  if (posix_memalign((void **) &rb, 16, sizeof(char)*REGION_SIZE))
+  if (posix_memalign((void **)((char *) &rb), 16, sizeof(char)*REGION_SIZE))
     rb = NULL;
-  if (posix_memalign((void **) &rc, 16, sizeof(char)*REGION_SIZE))
+  if (posix_memalign((void **)((char *) &rc), 16, sizeof(char)*REGION_SIZE))
     rc = NULL;
-  if (posix_memalign((void **) &rd, 16, sizeof(char)*REGION_SIZE))
+  if (posix_memalign((void **)((char *) &rd), 16, sizeof(char)*REGION_SIZE))
     rd = NULL;
 #else
   //15 bytes extra to make sure it's 16byte aligned

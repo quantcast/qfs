@@ -161,9 +161,9 @@ int main(int argc, char **argv)
   printf("Seed: %ld\n", t0);
 
 #ifdef HAVE_POSIX_MEMALIGN
-  if (posix_memalign((void **) &ra, 16, size))
+  if (posix_memalign((void **)((char *) &ra), 16, size))
     ra = NULL;
-  if (posix_memalign((void **) &rb, 16, size))
+  if (posix_memalign((void **)((char *) &rb), 16, size))
     rb = NULL;
 #else
   malloc_ra = (uint8_t *) malloc(size + 15);
