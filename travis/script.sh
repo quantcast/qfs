@@ -69,7 +69,7 @@ set_sudo()
         if [ x"$MYUSER" = x ]; then
             MYSU=
         else
-            MYSU="sudo -u $MYUSER"
+            MYSU="sudo -H -u $MYUSER"
         fi
     else
         MYSUDO='sudo'
