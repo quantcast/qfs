@@ -2082,21 +2082,22 @@ private:
     {
         return inArg
         .Def("add-node",
-            " -- add inactive node with the specified log listeners in args"
-            " list: ip port ip1 port1 ..., node ID, and, optionally,"
+            " -- add inactive node with the specified log listeners in"
+            " args: ip port ip1 port1 ..., node ID, and, optionally,"
             " primary order",
             &Impl::AddNode,          &Impl::CommitAddNode)
         .Def("remove-nodes",
             " -- remove inactive nodes with the specified IDs",
             &Impl::RemoveNodes,      &Impl::CommitRemoveNodes)
         .Def("activate-nodes",
-            " -- activate inactive nodes with the specified IDs",
+            " -- activate inactive nodes with the specified IDs in args",
             &Impl::ActivateNodes,    &Impl::CommitActivateNodes)
         .Def("inactivate-nodes",
             " -- inactivate active nodes with the specified IDs",
             & Impl::InactivateNodes, &Impl::CommitInactivateNodes)
         .Def("set-primary-order",
-            " -- set / change active or inactive node primary order",
+            " -- set / change active or inactive node primary order"
+            " args: space separated pairs of <node id> <node order>",
             &Impl::SetPrimaryOrder,  &Impl::CommitSetPrimaryOrder)
         .Def("set-parameters",
             " -- set parameters:\n"
@@ -2109,7 +2110,8 @@ private:
             " -- add specified listener for a given node ID",
             &Impl::AddNodeListeners, &Impl::CommitAddNodeListeners)
         .Def("remove-node-listeners",
-            " -- remove specified listener for a given node ID",
+            " -- remove specified listeners for a given node ID"
+            " args: ip port ip1 port1 ...",
             &Impl::RemoveNodeListeners, &Impl::CommitRemoveNodeListeners)
         .Def(MetaVrReconfiguration::GetResetOpName(),
             " -- clear VR configuration; cannot be performed at run time",
@@ -2119,7 +2121,8 @@ private:
             &Impl::InactivateAllNodes,      &Impl::CommitInactivateAllNodes)
         .Def("swap-nodes",
             " -- swap specified inactive and active nodes, by"
-            " making inactive node active, and active node inactive",
+            " making inactive node active, and active node inactive"
+            " args: <node ID> <node ID>",
             &Impl::SwapActiveNode,  &Impl::CommitSwapActiveNode)
         .Def("help",
             " -- display help message",
@@ -3391,6 +3394,11 @@ private:
     void AddNode(
         MetaVrReconfiguration& inReq)
     {
+        if (inReq.mNodeId < 0) {
+            inReq.status    = -EINVAL;
+            inReq.statusMsg = "add node: invalid node id";
+            return;
+        }
         if (inReq.mListSize <= 0) {
             inReq.status    = -EINVAL;
             inReq.statusMsg = "add node: no listeners specified";
@@ -3553,9 +3561,9 @@ private:
         if (0 < mQuorum && mQuorum <= inReq.mListSize) {
             inReq.status    = -EINVAL;
             inReq.statusMsg =
-                "change active status: activation list must be less than"
-                " present quorum of ";
-            AppendDecIntToString(inReq.statusMsg, inReq.status);
+                "change active status: activity change list"
+                " size must be less than present quorum: ";
+            AppendDecIntToString(inReq.statusMsg, mQuorum);
             return;
         }
         if (! ParseNodeIdList(inReq)) {
