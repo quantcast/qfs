@@ -92,9 +92,6 @@ final public class KfsAccess
     short setReplication(long ptr, String path, int numReplicas);
 
     private final static native
-    long getCreationTime(long ptr, String path);
-
-    private final static native
     long getModificationTime(long ptr, String path);
 
     private final static native
@@ -306,6 +303,8 @@ final public class KfsAccess
     final public class DirectoryIterator
     {
         public long    modificationTime;
+        public long    attrChangeTime;
+        public long    creationTime;
         public long    filesize;
         public int     replication;
         public boolean isDirectory;
@@ -313,6 +312,8 @@ final public class KfsAccess
         public int     numRecoveryStripes;
         public int     striperType;
         public int     stripeSize;
+        public byte    minSTier;
+        public byte    maxSTier;
         public String  filename;
         public long    owner;
         public long    group;
@@ -321,6 +322,7 @@ final public class KfsAccess
         public String  groupName;
         public long    dirCount;
         public long    fileCount;
+        public long    chunkCount;
         public long    fileId;
 
         private KfsInputChannel      input;
@@ -381,6 +383,8 @@ final public class KfsAccess
                     }
                 }
                 modificationTime   = buf.getLong();
+                attrChangeTime     = buf.getLong();
+                creationTime       = buf.getLong();
                 filesize           = buf.getLong();
                 replication        = buf.getInt();
                 final int nameLen  = buf.getInt();
@@ -395,6 +399,9 @@ final public class KfsAccess
                 fileId             = buf.getLong();
                 fileCount          = isDirectory ? buf.getLong() : 0;
                 dirCount           = isDirectory ? buf.getLong() : 0;
+                chunkCount         = isDirectory ? 0 : buf.getLong();
+                minSTier           = buf.get();
+                maxSTier           = buf.get();
                 final int onameLen = buf.getInt();
                 final int gnameLen = buf.getInt();
                 owner &= 0xFFFFFFFFL;
@@ -443,6 +450,8 @@ final public class KfsAccess
             while (itr.next()) {
                 KfsFileAttr entry = new KfsFileAttr();
                 entry.modificationTime   = itr.modificationTime;
+                entry.attrChangeTime     = itr.attrChangeTime;
+                entry.creationTime       = itr.creationTime;
                 entry.filesize           = itr.filesize;
                 entry.replication        = itr.replication;
                 entry.isDirectory        = itr.isDirectory;
@@ -459,6 +468,9 @@ final public class KfsAccess
                 entry.fileId             = itr.fileId;
                 entry.dirCount           = itr.dirCount;
                 entry.fileCount          = itr.fileCount;
+                entry.chunkCount         = itr.chunkCount;
+                entry.minSTier           = itr.minSTier;
+                entry.maxSTier           = itr.maxSTier;
                 ret.add(entry);
             }
             return ret.toArray(new KfsFileAttr[0]);
@@ -732,11 +744,6 @@ final public class KfsAccess
     public short kfs_setReplication(String path, int numReplicas)
     {
         return setReplication(cPtr, path, numReplicas);
-    }
-
-    public long kfs_getCreationTime(String path)
-    {
-        return getCreationTime(cPtr, path);
     }
 
     public long kfs_getModificationTime(String path)
