@@ -1804,7 +1804,7 @@ private:
                     inActualId,
                     inPrimaryNodeId,
                     inAckSeq,
-                    inLastSentSeq) ||
+                    inLastSentSeq) &&
                 mCheckActivate.Report(
                     inLocation,
                     inId,
@@ -2175,7 +2175,7 @@ private:
         theStream << "VR reconfiguration arguments:\n";
         HelpFunc theFunc(theStream);
         MetaVrReconfiguration::ParserDefSelf(theFunc);
-        theStream << "supported operation"
+        theStream << "supported operations"
             " (i.e. possible values of op-type argument):\n";
         DefVrReconfiguration(theFunc);
         theStream << "\n";
