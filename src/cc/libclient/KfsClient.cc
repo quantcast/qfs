@@ -3827,9 +3827,9 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
         }
         const int32_t nameLen   = (int32_t)attr.filename.length();
         const size_t  entrySize =
-            (64 + 64 + 32 + 32 + 8 + 32 * 6 + 16 + 32 * 2 + 64) / 8 +
+            (64 * 4 + 32 * 2 + 8 + 32 * 6 + 16 + 64 + 8 * 2 + 32 * 2) / 8 +
             nameLen + unameLen + gnameLen +
-            (attr.isDirectory ? 2 * 64/8 : 0);
+            (attr.isDirectory ? 2 * 64/8 : 64/8);
         if (nameLen <= 0) {
             continue;
         }
@@ -3838,6 +3838,10 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
         }
         ptr += WriteInt64(ptr, (int64_t)attr.mtime.tv_sec * 1000 +
             attr.mtime.tv_usec / 1000);
+        ptr += WriteInt64(ptr, (int64_t)attr.ctime.tv_sec * 1000 +
+            attr.ctime.tv_usec / 1000);
+        ptr += WriteInt64(ptr, (int64_t)attr.crtime.tv_sec * 1000 +
+            attr.crtime.tv_usec / 1000);
         ptr += WriteInt64(ptr, attr.fileSize);
         ptr += WriteInt32(ptr, attr.numReplicas);
         ptr += WriteInt32(ptr, nameLen);
@@ -3853,7 +3857,11 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
         if (attr.isDirectory) {
             ptr += WriteInt64(ptr, attr.fileCount());
             ptr += WriteInt64(ptr, attr.dirCount());
+        } else {
+            ptr += WriteInt64(ptr, attr.chunkCount());
         }
+        *ptr++ = attr.minSTier;
+        *ptr++ = attr.maxSTier;
         ptr += WriteInt32(ptr, unameLen);
         ptr += WriteInt32(ptr, gnameLen);
         memcpy(ptr, attr.filename.data(), nameLen);

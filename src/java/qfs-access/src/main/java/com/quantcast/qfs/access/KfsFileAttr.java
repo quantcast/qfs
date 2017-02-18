@@ -42,11 +42,15 @@ public class KfsFileAttr
     public boolean isDirectory;
     public long    filesize;
     public long    modificationTime;
+    public long    attrChangeTime;
+    public long    creationTime;
     public int     replication;
     public int     striperType;
     public int     numStripes;
     public int     numRecoveryStripes;
     public int     stripeSize;
+    public byte    minSTier;
+    public byte    maxSTier;
     public long    owner;
     public long    group;
     public int     mode;
@@ -54,5 +58,6 @@ public class KfsFileAttr
     public String  groupName;
     public long    dirCount;
     public long    fileCount;
+    public long    chunkCount;
     public long    fileId;
 }
