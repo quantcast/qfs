@@ -909,7 +909,8 @@ MetaServer::Startup(bool createEmptyFsFlag,
             KFS_LOG_EOM;
             return false;
         }
-        metatree.SetFsInfo(fsid, microseconds());
+        const int64_t now = microseconds();
+        metatree.SetFsInfo(fsid, now);
         status = metatree.new_tree(
             mStartupProperties.getValue(
                 "metaServer.rootDirUser",
@@ -919,7 +920,8 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 kKfsGroupRoot),
             mStartupProperties.getValue(
                 "metaServer.rootDirMode",
-                0755)
+                0755),
+            now
         );
         makeDumpsterDir();
         rollChunkIdSeedFlag = false;

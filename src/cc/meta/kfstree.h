@@ -442,11 +442,12 @@ public:
         { return mCrTime; }
     //!< create a directory namespace
     int new_tree(kfsUid_t user = kKfsUserRoot,
-            kfsGid_t group = kKfsGroupRoot, kfsMode_t mode = 0755)
+            kfsGid_t group = kKfsGroupRoot, kfsMode_t mode = 0755,
+            int64_t mtime = 0)
     {
         fid_t dummy = 0;
         return mkdir(ROOTFID, "/", user, group, mode,
-            kKfsUserRoot, kKfsGroupRoot, &dummy, 0, 0);
+            kKfsUserRoot, kKfsGroupRoot, &dummy, 0, mtime);
     }
     void enablePathToFidCache()
     {
