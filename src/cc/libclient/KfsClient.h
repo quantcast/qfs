@@ -175,14 +175,8 @@ public:
 
     ///
     /// Read a directory's contents and retrieve the attributes
-    /// @retval 0 if readdirplus is successful; -errno otherwise
-    /// read() will retrieve directory entries in the form:
-    /// 64 bit mod time
-    /// 64 bit file size
-    /// 32 bit file replication
-    /// 32 bit file name length
-    /// 8  bit directory flag
-    /// file name: 8 bit times file name length
+    /// Note: Intended for internal use only, format of returned data
+    /// may change. Please use ReaddirPlus.
     ///
     int OpenDirectory(const char* pathname);
 

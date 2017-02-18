@@ -925,6 +925,8 @@ jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
     return 0;
 }
 
+
+
 static jobjectArray CreateLocations(
     JNIEnv *jenv, vector< vector<string> > entries, const char* blockSize)
 {
@@ -1109,6 +1111,24 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
         (jlong)kfsAttr.mtime.tv_usec / 1000
     );
 
+    fid = jenv->GetFieldID(acls, "attrChangeTime", "J");
+    if (! fid) {
+        return -EFAULT;
+    }
+    jenv->SetLongField(attr, fid,
+        (jlong)kfsAttr.ctime.tv_sec * 1000 +
+        (jlong)kfsAttr.ctime.tv_usec / 1000
+    );
+
+    fid = jenv->GetFieldID(acls, "creationTime", "J");
+    if (! fid) {
+        return -EFAULT;
+    }
+    jenv->SetLongField(attr, fid,
+        (jlong)kfsAttr.crtime.tv_sec * 1000 +
+        (jlong)kfsAttr.crtime.tv_usec / 1000
+    );
+
     fid = jenv->GetFieldID(acls, "replication", "I");
     if (! fid) {
         return -EFAULT;
@@ -1174,6 +1194,24 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
         return -EFAULT;
     }
     jenv->SetLongField(attr, fid, (jlong)kfsAttr.fileCount());
+
+    fid = jenv->GetFieldID(acls, "chunkCount", "J");
+    if (! fid) {
+        return -EFAULT;
+    }
+    jenv->SetLongField(attr, fid, (jlong)kfsAttr.chunkCount());
+
+    fid = jenv->GetFieldID(acls, "minSTier", "B");
+    if (! fid) {
+        return -EFAULT;
+    }
+    jenv->SetLongField(attr, fid, (jbyte)kfsAttr.minSTier);
+
+    fid = jenv->GetFieldID(acls, "maxSTier", "B");
+    if (! fid) {
+        return -EFAULT;
+    }
+    jenv->SetLongField(attr, fid, (jbyte)kfsAttr.maxSTier);
 
     const char* const fieldNames[] = {"filename", "ownerName", "groupName"};
     for (int i = 0; i < 3; i++) {
