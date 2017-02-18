@@ -27,6 +27,7 @@
 
 #include "IdempotentRequestTracker.h"
 #include "MetaRequest.h"
+#include "LogWriter.h"
 
 #include "common/Properties.h"
 #include "common/RequestParser.h"
@@ -34,6 +35,7 @@
 #include "common/LinearHash.h"
 #include "common/time.h"
 #include "common/SingleLinkedQueue.h"
+#include "common/MsgLogger.h"
 
 #include "kfsio/CryptoKeys.h"
 #include "kfsio/ITimeout.h"
@@ -180,6 +182,13 @@ public:
     void Handle(
         MetaAck& inAck)
     {
+        KFS_LOG_STREAM_DEBUG <<
+            " status: "      << inAck.status <<
+            " "              << inAck.statusMsg <<
+            " "              << inAck.Show() <<
+            " expired : "    << (&mNullCallback == inAck.clnt ? 1 : 0) <<
+            " expirations: " << mOutstandingExpireAckCount <<
+        KFS_LOG_EOM;
         if (&mNullCallback == inAck.clnt) {
             QCRTASSERT(0 < mOutstandingExpireAckCount);
             mOutstandingExpireAckCount--;
@@ -226,10 +235,12 @@ public:
     }
     virtual void Timeout()
     {
-        if (mSize <= 0 || 0 < mOutstandingExpireAckCount) {
+        if (mSize <= 0 || 0 < mOutstandingExpireAckCount || mDisableTimerFlag ||
+                ! MetaRequest::GetLogWriter().IsPrimary(
+                    globalNetManager().NowUsec())) {
             return;
         }
-        Expire(GetLastCallTimeMs() * 1000);
+        Expire(globalNetManager().NowUsec());
     }
     int Write(
         ostream& inStream) const
