@@ -360,15 +360,22 @@ public class KfsTest
         "isDirectory: "        + attr.isDirectory + delim +
         "filesize: "           + attr.filesize + delim +
         "modificationTime: "   + attr.modificationTime + delim +
+        "attrChangeTime: "     + attr.attrChangeTime + delim +
+        "creationTime: "       + attr.creationTime + delim +
         "replication: "        + attr.replication + delim +
         "striperType: "        + attr.striperType + delim +
         "numStripes: "         + attr.numStripes + delim +
         "numRecoveryStripes: " + attr.numRecoveryStripes + delim +
         "stripeSize: "         + attr.stripeSize + delim +
+        "minSTier: "           + attr.minSTier + delim +
+        "maxSTier: "           + attr.maxSTier + delim +
         "owner: "              + attr.owner + delim +
         "group: "              + attr.group + delim +
         "mode: "               + attr.mode + delim +
         "fileId: "             + attr.fileId + delim +
+        "dirCount: "           + attr.dirCount + delim +
+        "fileCount: "          + attr.fileCount + delim +
+        "chunkCount: "         + attr.chunkCount + delim +
         "ownerName: "          + attr.ownerName + delim +
         "groupName: "          + attr.groupName;
     }
