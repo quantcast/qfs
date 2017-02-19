@@ -62,7 +62,8 @@ endif()
 if (CYGWIN)
     set(CMAKE_FIND_LIBRARY_PREFIXES ${CMAKE_FIND_LIBRARY_PREFIXES} "")
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES} ".dll.a" ".lib")
-    # add_definitions(-D__int64=int64_t)
+    # For now only for cygwin to get strptime, and gnu specific glob flags.
+    add_definitions(-D_GNU_SOURCE)
 endif()
 
 if (QFS_OMIT_JNI)
@@ -151,11 +152,6 @@ IF (ENABLE_IO_BUFFER_DEBUG)
     add_definitions(-DDEBUG_IOBuffer)
     message(STATUS "Enabled IO buffer debug")
 ENDIF (ENABLE_IO_BUFFER_DEBUG)
-
-IF (CYGWIN)
-    # For now only for cygwin to get strptime, and gnu specific glob flags.
-    add_definitions(-D_GNU_SOURCE)
-ENDIF (CYGWIN)
 
 if(DEFINED QFS_EXTRA_CXX_OPTIONS)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${QFS_EXTRA_CXX_OPTIONS}")
