@@ -146,6 +146,7 @@ public:
           mFailureSimulationInterval(0),
           mLogTimeUsec(0),
           mLogTimeOpsCount(0),
+          mLogErrorOpsCount(0),
           mPrevLogTimeOpsCount(0),
           mPrevLogTimeUsec(0),
           mLogAvgUsecsNextTimeUsec(0),
@@ -536,6 +537,7 @@ public:
         outCounters.mPendingOpsCount    = mPendingCount;
         outCounters.mLogTimeUsec        = mLogTimeUsec;
         outCounters.mLogTimeOpsCount    = mLogTimeOpsCount;
+        outCounters.mLogErrorOpsCount   = mLogErrorOpsCount;
         outCounters.mLog5SecAvgUsec     = mLog5SecAvgUsec  >> kLogAvgFracBits;
         outCounters.mLog10SecAvgUsec    = mLog10SecAvgUsec >> kLogAvgFracBits;
         outCounters.mLog15SecAvgUsec    = mLog15SecAvgUsec >> kLogAvgFracBits;
@@ -639,6 +641,7 @@ private:
     int64_t           mFailureSimulationInterval;
     int64_t           mLogTimeUsec;
     int64_t           mLogTimeOpsCount;
+    int64_t           mLogErrorOpsCount;
     int64_t           mPrevLogTimeOpsCount;
     int64_t           mPrevLogTimeUsec;
     int64_t           mLogAvgUsecsNextTimeUsec;
@@ -1030,10 +1033,13 @@ private:
                 const int64_t theUsecsNow = theFirstItemFlag ?
                     theStartTime : microseconds();
                 theFirstItemFlag = false;
-                if (0 == thePtr->status &&
-                        META_LOG_WRITER_CONTROL != thePtr->op) {
-                    mLogTimeUsec += theStartTime - theReq.submitTime;
-                    mLogTimeOpsCount++;
+                if (META_LOG_WRITER_CONTROL != thePtr->op) {
+                    if (0 == thePtr->status) {
+                        mLogTimeUsec += theStartTime - theReq.submitTime;
+                        mLogTimeOpsCount++;
+                    } else {
+                        mLogErrorOpsCount++;
+                    }
                 }
                 theReq.Submit(theUsecsNow);
             }

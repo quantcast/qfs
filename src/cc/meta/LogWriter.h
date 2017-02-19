@@ -62,6 +62,7 @@ public:
         Counters()
             : mLogTimeUsec(0),
               mLogTimeOpsCount(0),
+              mLogErrorOpsCount(0),
               mPendingOpsCount(0),
               mLog5SecAvgUsec(0),
               mLog10SecAvgUsec(0),
@@ -72,6 +73,7 @@ public:
         {}
         Counter mLogTimeUsec;
         Counter mLogTimeOpsCount;
+        Counter mLogErrorOpsCount;
         Counter mPendingOpsCount;
         Counter mLog5SecAvgUsec;
         Counter mLog10SecAvgUsec;

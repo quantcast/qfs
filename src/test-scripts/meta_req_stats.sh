@@ -155,6 +155,7 @@ BEGIN {
 
     names[i++] = "other";
     names[i++] = "alloc_reuse";
+    names[i++] = "log_writer";
     ncnt = i;
     shv[0] = -1;
     badlines = 0;

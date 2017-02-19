@@ -879,6 +879,8 @@ public:
             mUserCpuMicroSec   = -1;
             mSystemCpuMicroSec = -1;
         }
+        LogWriter::Counters logCtrs;
+        MetaRequest::GetLogWriter().GetCounters(logCtrs);
         mNextTime = timeNowUsec + mStatsIntervalMicroSec;
         const char* kDelim = " ";
         KFS_LOG_STREAM_START(mLogLevel, logStream);
@@ -896,6 +898,12 @@ public:
                     kDelim << mRequest[i].mProcTime
                 ;
             }
+            os <<
+                kDelim << logCtrs.mLogTimeOpsCount <<
+                kDelim << logCtrs.mLogErrorOpsCount <<
+                kDelim << logCtrs.mLogTimeUsec <<
+                kDelim << logCtrs.mLogTimeUsec
+            ;
         KFS_LOG_STREAM_END;
         const bool kRusageSelfFlag = true;
         KFS_LOG_STREAM_START(mLogLevel, logStream);
@@ -963,6 +971,18 @@ public:
                 "\n"
             ;
         }
+        LogWriter::Counters logCtrs;
+        MetaRequest::GetLogWriter().GetCounters(logCtrs);
+        os <<
+            "LOG_WRITER" <<
+            kDelim << logCtrs.mLogTimeOpsCount <<
+            kDelim << (logCtrs.mLogTimeOpsCount * ptotal)  <<
+            kDelim << logCtrs.mLogErrorOpsCount <<
+            kDelim << (logCtrs.mLogErrorOpsCount * perrors) <<
+            kDelim << logCtrs.mLogTimeUsec <<
+            kDelim << logCtrs.mLogTimeUsec <<
+            "\n"
+        ;
     }
     void GetStatsCsv(
         IOBuffer& buf)
