@@ -187,6 +187,28 @@ LogCompactorMain(int argc, char** argv)
                 if (setWormModeFlag) {
                     setWORMMode(wormModeFlag);
                 }
+                MetaFattr* const fa = metatree.getFattr(ROOTFID);
+                if (fa) {
+                    // Set root directory create, modification and change times
+                    // if these weren't set.
+                    const int64_t crtime = metatree.GetCreateTime();
+                    if (0 != crtime) {
+                        if (0 == fa->crtime) {
+                            fa->crtime = crtime;
+                        }
+                        if (0 == fa->ctime) {
+                            fa->ctime = fa->crtime;
+                        }
+                         if (0 == fa->mtime) {
+                            fa->ctime = fa->crtime;
+                        }
+                   }
+                } else {
+                    KFS_LOG_STREAM_FATAL <<
+                        "invalid checkpoint: no root node exists" <<
+                    KFS_LOG_EOM;
+                    status = -EINVAL;
+                }
             } else {
                 if (setWormModeFlag) {
                     KFS_LOG_STREAM_FATAL <<
@@ -196,7 +218,7 @@ LogCompactorMain(int argc, char** argv)
                     status = -EINVAL;
                 }
             }
-            if (0 != (status = checkDumpsterExists())) {
+            if (0 == status && 0 != (status = checkDumpsterExists())) {
                 KFS_LOG_STREAM_FATAL <<
                     "no dumpster direcotry: " <<
                         QCUtils::SysError(-status) <<
