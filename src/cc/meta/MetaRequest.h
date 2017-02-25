@@ -1779,28 +1779,35 @@ struct MetaCoalesceBlocks: public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "coalesce blocks:"
-            " src: "  << srcPath <<
-            " dst = " << dstPath
+            "coalesce-blocks:"
+            " src: "    << srcPath <<
+            " dst: "    << dstPath <<
+            " src id: " << srcFid <<
+            " dst id: " << dstFid
         ;
     }
     bool Validate()
     {
-        return (! srcPath.empty() && ! dstPath.empty());
+        return ((! srcPath.empty() && ! dstPath.empty()) ||
+            (0 <= srcFid && 0 <= dstFid));
     }
     template<typename T> static T& ParserDef(T& parser)
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Src-path",  "S", &MetaCoalesceBlocks::srcPath)
         .Def2("Dest-path", "D", &MetaCoalesceBlocks::dstPath)
+        .Def2("Src-fid",  "SI", &MetaCoalesceBlocks::srcFid)
+        .Def2("Dest-fid", "DI", &MetaCoalesceBlocks::dstFid)
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("S", &MetaCoalesceBlocks::srcPath)
-        .Def("D", &MetaCoalesceBlocks::dstPath)
-        .Def("M", &MetaCoalesceBlocks::mtime)
+        .Def("S",  &MetaCoalesceBlocks::srcPath)
+        .Def("D",  &MetaCoalesceBlocks::dstPath)
+        .Def("SI", &MetaCoalesceBlocks::srcFid, fid_t(-1))
+        .Def("DI", &MetaCoalesceBlocks::dstFid, fid_t(-1))
+        .Def("M",  &MetaCoalesceBlocks::mtime)
         ;
     }
 };

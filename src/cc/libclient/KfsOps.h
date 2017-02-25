@@ -626,17 +626,26 @@ struct LookupPathOp : public KfsOp {
 /// Coalesce blocks from src->dst by appending the blocks of src to
 /// dst.  If the op is successful, src will end up with 0 blocks.
 struct CoalesceBlocksOp: public KfsOp {
-    string     srcPath; // input
-    string     dstPath; // input
-    chunkOff_t dstStartOffset; // output
-    CoalesceBlocksOp(kfsSeq_t s, const string& o, const string& n) :
-        KfsOp(CMD_COALESCE_BLOCKS, s), srcPath(o), dstPath(n)
+    string      srcPath; // input
+    string      dstPath; // input
+    kfsFileId_t srcFid;  // input
+    kfsFileId_t dstFid;  // input
+    chunkOff_t  dstStartOffset; // output
+    CoalesceBlocksOp(kfsSeq_t s, const string& o, const string& n)
+        : KfsOp(CMD_COALESCE_BLOCKS, s),
+          srcPath(o),
+          dstPath(n),
+          srcFid(-1),
+          dstFid(-1)
         {}
     void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "coalesce blocks: " << srcPath << "<-" << dstPath;
-        return os;
+        return os <<
+            "coalesce-blocks:"
+            " " << srcPath << "<-" << dstPath <<
+            " " << srcFid  << "<-" << dstFid
+        ;
     }
 };
 

@@ -1646,19 +1646,31 @@ Tree::coalesceBlocks(const string& srcPath, const string& dstPath,
     kfsUid_t euser, kfsGid_t egroup)
 {
     MetaFattr* src = 0;
-    int status = lookupPath(ROOTFID, srcPath, euser, egroup, src);
-    if (status != 0) {
-        return status;
+    int status = 0;
+    if (srcPath.empty()) {
+        if (! (src = getFattr(srcFid))) {
+            return -ENOENT;
+        }
+    } else {
+        if ((status = lookupPath(ROOTFID, srcPath, euser, egroup, src)) != 0) {
+            return status;
+        }
     }
     MetaFattr* dst = 0;
-    if ((status = lookupPath(ROOTFID, dstPath, euser, egroup, dst)) != 0) {
-        return status;
+    if (dstPath.empty()) {
+        if (! (dst = getFattr(dstFid))) {
+            return -ENOENT;
+        }
+    } else {
+        if ((status = lookupPath(ROOTFID, dstPath, euser, egroup, dst)) != 0) {
+            return status;
+        }
     }
-    return (srcPath == dstPath ? -EINVAL : coalesceBlocks(
+    return coalesceBlocks(
         src, dst,
         srcFid, dstFid, dstStartOffset, mtime, numChunksMoved,
         euser, egroup
-    ));
+    );
 }
 
 int

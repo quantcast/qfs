@@ -474,11 +474,20 @@ GetLayoutOp::Request(ReqOstream& os)
 void
 CoalesceBlocksOp::Request(ReqOstream& os)
 {
-    os <<
-        "COALESCE_BLOCKS\r\n" << ReqHeaders(*this) <<
-        (shortRpcFormatFlag ? "S:" : "Src-path: ") << srcPath << "\r\n" <<
-        (shortRpcFormatFlag ? "D:" : "Dest-path: ") << dstPath << "\r\n"
-    "\r\n";
+    os << "COALESCE_BLOCKS\r\n" << ReqHeaders(*this);
+    if (! srcPath.empty()) {
+        os << (shortRpcFormatFlag ? "S:" : "Src-path: ") << srcPath << "\r\n";
+    }
+    if (! dstPath.empty()) {
+        os << (shortRpcFormatFlag ? "D:" : "Dest-path: ") << dstPath << "\r\n";
+    }
+    if (0 <= srcFid) {
+        os << (shortRpcFormatFlag ? "SI:" : "Src-fid: ") << srcFid << "\r\n";
+    }
+    if (0 <= dstFid) {
+        os << (shortRpcFormatFlag ? "DI:" : "Dst-fid: ") << dstFid << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void

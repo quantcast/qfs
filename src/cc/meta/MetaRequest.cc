@@ -2952,6 +2952,12 @@ MetaCoalesceBlocks::start()
     if (0 == status) {
         mtime = microseconds();
     }
+    if (0 <= srcFid) {
+        srcPath.clear();
+    }
+    if (0 <= dstFid) {
+        dstPath.clear();
+    }
     return (0 == status);
 }
 
