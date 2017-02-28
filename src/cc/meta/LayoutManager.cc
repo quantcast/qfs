@@ -6031,7 +6031,8 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
                 " restart: "    << srv.IsRestartScheduled() <<
                 " retiring: "   << srv.IsHibernatingOrRetiring() <<
             KFS_LOG_EOM;
-            if (mPanicOnRemoveFromPlacementFlag && srv.IsConnected()) {
+            if (mPanicOnRemoveFromPlacementFlag && canBeCandidateFlag &&
+                    srv.IsConnected()) {
                 panic("connected removed from placement");
             }
         }
