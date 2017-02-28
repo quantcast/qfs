@@ -1822,6 +1822,7 @@ LayoutManager::LayoutManager()
       mReadDirLimit(8 << 10),
       mAllowChunkServerRetireFlag(false),
       mPanicOnInvalidChunkFlag(false),
+      mPanicOnRemoveFromPlacementFlag(false),
       mAppendCacheCleanupInterval(-1),
       mTotalChunkWrites(0),
       mTotalWritableDrives(0),
@@ -2360,6 +2361,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mPanicOnInvalidChunkFlag = props.getValue(
         "metaServer.panicOnInvalidChunk",
         mPanicOnInvalidChunkFlag ? 1 : 0) != 0;
+    mPanicOnRemoveFromPlacementFlag = props.getValue(
+        "metaServer.panicOnRemoveFromPlacement",
+        mPanicOnRemoveFromPlacementFlag ? 1 : 0) != 0;
     mAppendCacheCleanupInterval = (int)props.getValue(
         "metaServer.appendCacheCleanupInterval",
         double(mAppendCacheCleanupInterval));
@@ -6027,6 +6031,9 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
                 " restart: "    << srv.IsRestartScheduled() <<
                 " retiring: "   << srv.IsHibernatingOrRetiring() <<
             KFS_LOG_EOM;
+            if (mPanicOnRemoveFromPlacementFlag && srv.IsConnected()) {
+                panic("connected removed from placement");
+            }
         }
         racksCandidatesDelta[i] = flag ? 1 : -1;
     }

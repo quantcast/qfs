@@ -2393,6 +2393,7 @@ protected:
     int     mReadDirLimit;
     bool    mAllowChunkServerRetireFlag;
     bool    mPanicOnInvalidChunkFlag;
+    bool    mPanicOnRemoveFromPlacementFlag;
     int     mAppendCacheCleanupInterval;
     int     mTotalChunkWrites;
     int     mTotalWritableDrives;
