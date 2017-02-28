@@ -392,7 +392,15 @@ for testblocksize in $testblocksizes ; do
             fi
             eval srvport='$srvport'$i
             eval chunksuf='$chunkid'$i'.$chunkvers'$i
-            chunkf=`echo "$qfstestdir/chunk/$srvport/"*/*".$chunksuf"`
+            # Wait for chunk file to appear in stable chunks directories, as
+            # chunk server can declare the chunk stable with re-name in flight.
+            t=0
+            while [ $t -le 20 ]; do
+                chunkf=`echo "$qfstestdir/chunk/$srvport/"*/*".$chunksuf"`
+                [ -f "$chunkf" ] && break
+                t=`expr $t + 1`
+                sleep 1
+            done
             if [ $b -eq 0 ]; then
                 ls -l "$chunkf"
                 mv "$chunkf" "$tmpchunk/$k" || exit

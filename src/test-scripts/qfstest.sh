@@ -397,6 +397,7 @@ metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
 metaServer.allocateDebugVerify = 1
 metaServer.panicOnInvalidChunk = 1
+metaServer.panicOnRemoveFromPlacement = 1
 metaServer.clientSM.auditLogging = 1
 metaServer.auditLogWriter.logFilePrefixes = audit.log
 metaServer.auditLogWriter.maxLogFileSize = 1e9
