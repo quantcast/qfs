@@ -446,8 +446,8 @@ metaServer.chunkServerPort = $metasrvchunkport
 metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
-metaServer.chunkServer.heartbeatTimeout  = 60
-metaServer.chunkServer.heartbeatInterval = 50
+metaServer.chunkServer.heartbeatTimeout  = 30
+metaServer.chunkServer.heartbeatInterval = 5
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
@@ -912,7 +912,7 @@ if [ $status -eq 0 ]; then
     echo "Running meta server fsck"
     qfsfsck -c kfscp -F
     status=$?
-    # Status 1 might be returned in the case if chunk so servers disconnects
+    # Status 1 might be returned in the case if chunk servers disconnects
     # were commited, do run whout the last log segment, the disconnects
     # should be in the last one.
     if [ $status -eq 1 ]; then
