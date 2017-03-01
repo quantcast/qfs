@@ -391,7 +391,7 @@ df -P -k "$testdir" | awk '
         printf(\
             "Insufficient host file system available space:" \
             " %5.2e, at least %5.2e required for the test.\n", \
-            asp., msp)
+            asp, msp)
         exit 1
     }
     if (asp < scp) {
@@ -399,7 +399,7 @@ df -P -k "$testdir" | awk '
         printf(\
             "Running tests sequentially due to low disk space:" \
             " %5.2e, at least %5.2e required to run tests concurrently.\n", \
-            asp., scp)
+            asp, scp)
         exit 2
     }
     }'
