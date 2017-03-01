@@ -147,6 +147,7 @@ minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-11e9}
 lowrequreddiskspace=${lowrequreddiskspace-20e9}
 lowrequreddiskspacefanoutsort=${lowrequreddiskspacefanoutsort-30e9}
 chunkserverclithreads=${chunkserverclithreads-3}
+csheartbeatinterval=${csheartbeatinterval-15}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
@@ -434,6 +435,7 @@ else
 fi
 
 echo "Starting meta server $metahosturl:$metasrvport"
+cssessionmaxtime=`expr $csheartbeatinterval + 3`
 
 cd "$metasrvdir" || exit
 mkdir kfscp || exit
@@ -447,7 +449,7 @@ metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
 metaServer.chunkServer.heartbeatTimeout  = 30
-metaServer.chunkServer.heartbeatInterval = 5
+metaServer.chunkServer.heartbeatInterval = $csheartbeatinterval
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
@@ -496,7 +498,7 @@ metaServer.CSAuthentication.X509.CAFile          = $certsdir/qfs_ca/cacert.pem
 metaServer.CSAuthentication.blackList            = none
 
 # Set short valid time to test chunk server re-authentication.
-metaServer.CSAuthentication.maxAuthenticationValidTimeSec = 5
+metaServer.CSAuthentication.maxAuthenticationValidTimeSec = $cssessionmaxtime
 
 metaServer.cryptoKeys.keysFileName               = keys.txt
 EOF
@@ -734,7 +736,9 @@ fi
 
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
-    sleep 8
+    echo "Pausing for one chunk server chunk server heartbeat interval:"\
+        "$csheartbeatinterval sec. to give a chance for space update to occur."
+    sleep $csheartbeatinterval
     n=0
     until df -P -k "$testdir" | awk '
     BEGIN {
