@@ -385,20 +385,21 @@ df -P -k "$testdir" | awk '
         lns = lns $0 "\n"
     }
     /^\// {
-    if ($4 * 1024 < msp) {
+    asp = $4 * 1024
+    if (asp < msp) {
         print lns
         printf(\
             "Insufficient host file system available space:" \
             " %5.2e, at least %5.2e required for the test.\n", \
-            $4 * 1024., msp)
+            asp., msp)
         exit 1
     }
-    if ($4 * 1024 < scp) {
+    if (asp < scp) {
         print lns
         printf(\
-            "running tests sequentially due to low disk space:" \
+            "Running tests sequentially due to low disk space:" \
             " %5.2e, at least %5.2e required to run tests concurrently.\n", \
-            $4 * 1024., scp)
+            asp., scp)
         exit 2
     }
     }'
@@ -733,6 +734,29 @@ fi
 
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
+    sleep 8
+    n=0
+    until df -P -k "$testdir" | awk '
+    BEGIN {
+        msp='"${mindiskspace}"' * .8
+        n='"$n"'
+    }
+    /^\// {
+        asp = $4 * 1024
+        if (asp < msp) {
+            if (0 < n) {
+                printf("Wating for chunk files cleanup to occur.\n")
+                printf("Disk space: %5.2e is less thatn %5.2e\n", asp, msp)
+            }
+            exit 1
+        } else {
+            exit 0
+        }
+    }'; do
+        sleep 1
+        n=`expr $n + 1`
+        [ $n -le 30 ] || break
+    done
 fi
 
 if [ x"$auth" = x'yes' ]; then
