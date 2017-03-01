@@ -376,8 +376,11 @@ for testblocksize in $testblocksizes ; do
         # Invoke verify here, in order to make chunk server to close the chunk
         # files, as fileenum chunk size read can leave the chunk files open.
         "$toolsdir"/qfsdataverify \
-            -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
-            "$dsttestdir/testrep.dat" >/dev/null 2>/dev/null
+                -s "$metahost" -p "$metaport" -f "$clicfg" -c -d -k \
+                "$dsttestdir/testrep.dat" >"$qfstestdir/verify.log" 2>&1 || {
+            cat "$qfstestdir/verify.log"
+            exit 1
+        }
         for i in $stripes; do
             if [ $m -lt 0 -a $s -eq 0 ]; then
                 m=$i

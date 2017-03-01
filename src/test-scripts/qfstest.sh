@@ -144,15 +144,21 @@ clientrootprop="$testdir/clientroot.prp"
 certsdir=${certsdir-"$testdir/certs"}
 minrequreddiskspace=${minrequreddiskspace-6.5e9}
 minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-11e9}
+lowrequreddiskspace=${lowrequreddiskspace-20e9}
+lowrequreddiskspacefanoutsort=${lowrequreddiskspacefanoutsort-30e9}
 chunkserverclithreads=${chunkserverclithreads-3}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
-if [ x"$myvalgrind" != x ]; then
+if [ x"$myvalgrind" = x ]; then
+    true
+else
     metastartwait='yes' # wait for unit test to finish
 fi
 [ x"`uname`" = x'Darwin' ] && dontusefuser=yes
-if [ x"$dontusefuser" != x'yes' ]; then
+if [ x"$dontusefuser" = x'yes' ]; then
+    true
+else
     fuser "$0" >/dev/null 2>&1 || dontusefuser=yes
 fi
 export myvalgrind
@@ -198,6 +204,25 @@ mytailwait()
     return $myret
 }
 
+waitqfscandcptests()
+{
+    mytailwait $qfscpid test-qfsc.out
+    qfscstatus=$?
+    rm "$qfscpidf"
+
+    if [ x"$accessdir" = x ]; then
+        kfsaccessstatus=0
+    else
+        mytailwait $kfsaccesspid kfsaccess_test.out
+        kfsaccessstatus=$?
+        rm "$kfsaccesspidf"
+    fi
+
+    mytailwait $cppid cptest.out
+    cpstatus=$?
+    rm "$cppidf"
+}
+
 fodir='src/cc/fanout'
 smsdir='src/cc/sortmaster'
 if [ x"$sortdir" = x -a \( -d "$smsdir" -o -d "$fodir" \) ]; then
@@ -239,7 +264,9 @@ else
             "quantsort/quantsort" \
             "$smdir/../../../glue/ksortcontroller" \
             ; do
-        if [ ! -x "$name" ]; then
+        if [ -x "$name" ]; then
+            true
+        else
             echo "$name doesn't exist or not executable, skipping sort master test"
             smtest=''
             break
@@ -296,8 +323,16 @@ for dir in  \
     fi
     if [ -d "${dir}" ]; then
         dir=`cd "${dir}" >/dev/null 2>&1 && pwd`
+        dname=`basename "$dir"`
+        if [ x"$dname" = x'meta' ]; then
+            metabindir=$dir
+        elif  [ x"$dname" = x'chunk' ]; then
+            chunkbindir=$dir
+        fi
     fi
-    if [ ! -d "${dir}" ]; then
+    if [ -d "${dir}" ]; then
+        true
+    else
         echo "missing directory: ${dir}"
         exit 1
     fi
@@ -335,13 +370,20 @@ fi
 
 if [ $fotest -ne 0 ]; then
     mindiskspace=$minrequreddiskspacefanoutsort
+    lowdiskspace=$lowrequreddiskspacefanoutsort
 else
     mindiskspace=$minrequreddiskspace
+    lowdiskspace=$lowrequreddiskspace
 fi
 
 df -P -k "$testdir" | awk '
-    BEGIN { msp='"${mindiskspace}"'; }
-    { lns = lns $0 "\n" }
+    BEGIN {
+        msp='"${mindiskspace}"'
+        scp='"${lowdiskspace}"'
+    }
+    {
+        lns = lns $0 "\n"
+    }
     /^\// {
     if ($4 * 1024 < msp) {
         print lns
@@ -350,7 +392,20 @@ df -P -k "$testdir" | awk '
             " %5.2e, at least %5.2e required for the test.\n", \
             $4 * 1024., msp)
         exit 1
-    }}' || exit
+    }
+    if ($4 * 1024 < scp) {
+        print lns
+        printf(\
+            "running tests sequentially due to low disk space:" \
+            " %5.2e, at least %5.2e required to run tests concurrently.\n", \
+            $4 * 1024., scp)
+        exit 2
+    }
+    }'
+spacecheck=$?
+if [ $spacecheck -eq 1 ]; then
+    exit 1
+fi
 
 if [ x"$auth" = x'yes' ]; then
     "$mkcerts" "$certsdir" meta root "$clientuser" || exit
@@ -461,7 +516,8 @@ chunkServer.diskQueue.aws.debugTrace.requestProgress = $s3debug
 EOF
 fi
 
-metaserver -c "$metasrvprop" > "${metaservercreatefsout}" 2>&1 || {
+"$metabindir"/metaserver \
+        -c "$metasrvprop" > "${metaservercreatefsout}" 2>&1 || {
     status=$?
     cat "${metaservercreatefsout}"
     exit $status
@@ -471,7 +527,8 @@ cat >> "$metasrvprop" << EOF
 metaServer.csmap.unittest = 1
 EOF
 
-myrunprog metaserver "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+myrunprog "$metabindir"/metaserver \
+    "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 metapid=$!
 echo "$metapid" > "$metasrvpid"
 
@@ -556,7 +613,8 @@ EOF
     fi
     cd "$dir" || exit
     echo "Starting chunk server $i"
-    myrunprog chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
+    myrunprog "$chunkbindir"/chunkserver \
+        "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
     echo $! > "$chunksrvpid"
     i=`expr $i + 1`
 done
@@ -633,73 +691,15 @@ cppidf="cptest${pidsuf}"
 cppid=$!
 echo "$cppid" > "$cppidf"
 
-if [ x"$auth" = x'yes' ]; then
-    cat > "$clientrootprop" << EOF
-client.auth.X509.X509PemFile = $certsdir/root.crt
-client.auth.X509.PKeyPemFile = $certsdir/root.key
-client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-EOF
-    qfstoolrootauthcfg=$clientrootprop
-else
-    cp /dev/null "$clientrootprop"
-    qfstoolrootauthcfg=
-fi
-
-cp /dev/null qfs_tool-test.out
-qfstoolpidf="qfstooltest${pidsuf}"
-qfstoolopts='-v' \
-qfstoolmeta="$metahosturl:$metasrvport" \
-qfstooltrace=on \
-qfstoolrootauthcfg=$qfstoolrootauthcfg \
-qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
-    1>>qfs_tool-test.out 2>qfs_tool-test.log &
-qfstoolpid=$!
-echo "$qfstoolpid" > "$qfstoolpidf"
-
 qfscpidf="qfsctest${pidsuf}"
 cp /dev/null test-qfsc.out
 test-qfsc "$metahost:$metasrvport" 1>>test-qfsc.out 2>test-qfsc.log &
 qfscpid=$!
 echo "$qfscpid" > "$qfscpidf"
 
-
-if [ $fotest -ne 0 ]; then
-    echo "Starting fanout test. Fanout test data size: $fanouttestsize"
-    fopidf="kfanout_test${pidsuf}"
-    # Do two runs one with connection pool off and on.
-    cp /dev/null kfanout_test.out
-    for p in 0 1; do
-        kfanout_test.sh \
-            -coalesce 1 \
-            -host "$metahost" \
-            -port "$metasrvport" \
-            -size "$fanouttestsize" \
-            -partitions "$fanoutpartitions" \
-            -read-retries 1 \
-            -kfanout-extra-opts "-U $p -P 3" \
-        || exit
-    done >> kfanout_test.out 2>&1 &
-    fopid=$!
-    echo "$fopid" > "$fopidf"
-fi
-
-if [ x"$smtest" != x ]; then
-   if [ x"$smauthconf" != x ]; then
-       cat > "$smauthconf" << EOF
-sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
-sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
-sortmaster.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-EOF
-    fi
-    smpidf="sortmaster_test${pidsuf}"
-    echo "Starting sort master test"
-    cp /dev/null sortmaster_test.out
-    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" >> sortmaster_test.out 2>&1 &
-    smpid=$!
-    echo "$smpid" > "$smpidf"
-fi
-
-if [ x"$accessdir" != x ]; then
+if [ x"$accessdir" = x ]; then
+    true
+else
     kfsaccesspidf="kfsaccess_test${pidsuf}"
     clientproppool="$clientprop.pool.prp"
     if [ -f "$clientprop" ]; then
@@ -731,21 +731,76 @@ EOF
     echo "$kfsaccesspid" > "$kfsaccesspidf"
 fi
 
-mytailwait $qfscpid test-qfsc.out
-qfscstatus=$?
-rm "$qfscpidf"
-
-if [ x"$accessdir" = x ]; then
-    kfsaccessstatus=0
-else
-    mytailwait $kfsaccesspid kfsaccess_test.out
-    kfsaccessstatus=$?
-    rm "$kfsaccesspidf"
+if [ $spacecheck -ne 0 ]; then
+    waitqfscandcptests
 fi
 
-mytailwait $cppid cptest.out
-cpstatus=$?
-rm "$cppidf"
+if [ x"$auth" = x'yes' ]; then
+    cat > "$clientrootprop" << EOF
+client.auth.X509.X509PemFile = $certsdir/root.crt
+client.auth.X509.PKeyPemFile = $certsdir/root.key
+client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    qfstoolrootauthcfg=$clientrootprop
+else
+    cp /dev/null "$clientrootprop"
+    qfstoolrootauthcfg=
+fi
+
+cp /dev/null qfs_tool-test.out
+qfstoolpidf="qfstooltest${pidsuf}"
+qfstoolopts='-v' \
+qfstoolmeta="$metahosturl:$metasrvport" \
+qfstooltrace=on \
+qfstoolrootauthcfg=$qfstoolrootauthcfg \
+qfs_tool-test.sh '##??##::??**??~@!#$%^&()=<>`|||' \
+    1>>qfs_tool-test.out 2>qfs_tool-test.log &
+qfstoolpid=$!
+echo "$qfstoolpid" > "$qfstoolpidf"
+
+if [ $fotest -ne 0 ]; then
+    echo "Starting fanout test. Fanout test data size: $fanouttestsize"
+    fopidf="kfanout_test${pidsuf}"
+    # Do two runs one with connection pool off and on.
+    cp /dev/null kfanout_test.out
+    for p in 0 1; do
+        kfanout_test.sh \
+            -coalesce 1 \
+            -host "$metahost" \
+            -port "$metasrvport" \
+            -size "$fanouttestsize" \
+            -partitions "$fanoutpartitions" \
+            -read-retries 1 \
+            -kfanout-extra-opts "-U $p -P 3" \
+        || exit
+    done >> kfanout_test.out 2>&1 &
+    fopid=$!
+    echo "$fopid" > "$fopidf"
+fi
+
+if [ x"$smtest" = x ]; then
+    true
+else
+    if [ x"$smauthconf" = x ]; then
+        true
+    else
+       cat > "$smauthconf" << EOF
+sortmaster.auth.X509.X509PemFile = $certsdir/$clientuser.crt
+sortmaster.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
+sortmaster.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
+    fi
+    smpidf="sortmaster_test${pidsuf}"
+    echo "Starting sort master test"
+    cp /dev/null sortmaster_test.out
+    QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" >> sortmaster_test.out 2>&1 &
+    smpid=$!
+    echo "$smpid" > "$smpidf"
+fi
+
+if [ $spacecheck -eq 0 ]; then
+    waitqfscandcptests
+fi
 
 if [ x"$qfstoolpid" = x ]; then
     qfstoolstatus=0
@@ -814,7 +869,9 @@ while true; do
     fi
 done
 
-if [ x"$mytailpids" != x ]; then
+if [ x"$mytailpids" = x ]; then
+    true
+else
     # Let tail -f poll complete, then shut them down.
     { sleep 1 ; kill -TERM $mytailpids ; } &
     wait 2>/dev/null
