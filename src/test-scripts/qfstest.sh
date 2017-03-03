@@ -178,9 +178,19 @@ else
     xargsnull=''
 fi
 
+findpids()
+{
+    find . -name \*"${pidsuf}" $findprint | xargs $xargsnull ${1+"$@"}
+}
+
 getpids()
 {
-    find . -name \*"${pidsuf}" $findprint | xargs $xargsnull cat
+   findpids cat
+}
+
+showpids()
+{
+    findpids grep -v x /dev/null
 }
 
 myrunprog()
@@ -876,11 +886,12 @@ while true; do
     rpids=
     for pid in $pids; do
         if kill -O "$pid" 2>/dev/null; then
-            rpids="$pids $pid"
+            rpids="$rpids $pid"
         elif [ x"$kfstestnoshutdownwait" = x ]; then
             wait "$pid"
             estatus=$?
             if [ $estatus -ne 0 ]; then
+                echo "Exit status: $estatus pid: $pid"
                 status=$estatus;
             fi
         fi
@@ -891,11 +902,16 @@ while true; do
     if [ $i -le $nsecwait ]; then
         sleep 1
     else
+        echo "Wait timed out, sending abort singnal to: $rpids"
         kill -ABRT $rpids
         status=1
         break
     fi
 done
+
+if [ $status -ne 0 ]; then
+    showpids
+fi
 
 if [ x"$mytailpids" = x ]; then
     true
