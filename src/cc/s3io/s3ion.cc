@@ -1826,6 +1826,7 @@ private:
             int         const kContentLength      = -1;
             int64_t     const kRangeStart         = -1;
             int64_t     const kRangeEnd           = -1;
+            bool              theGetUploadsFlag   = false;
             const char*       theV2QueryToSignPtr;
             // Maintain AWS authorization v4 "canonical" form of the query.
             if (! mUploadId.empty()) {
@@ -1840,12 +1841,13 @@ private:
                     mOuter.mTmpBuffer += '=';
                 }
                 theV2QueryToSignPtr = "uploads";
+                theGetUploadsFlag = true;
             } else {
                 mOuter.mTmpBuffer.clear();
                 theV2QueryToSignPtr = 0;
             }
             return SendRequest(
-                mGetUploadsFlag ? "GET" : "DELETE",
+                theGetUploadsFlag ? "GET" : "DELETE",
                 inBuffer,
                 inServer,
                 kContentMdPtr,
@@ -1856,7 +1858,7 @@ private:
                 kRangeStart,
                 kRangeEnd,
                 mOuter.mTmpBuffer.c_str(),
-                mGetUploadsFlag ? "/" : 0,
+                theGetUploadsFlag ? "/" : 0,
                 theV2QueryToSignPtr
             );
         }
