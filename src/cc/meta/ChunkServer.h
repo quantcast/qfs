@@ -1036,6 +1036,7 @@ protected:
 
     static int    sHeartbeatTimeout;
     static int    sHeartbeatInterval;
+    static int    sHeartbeatSkippedInterval;
     static int    sHeartbeatLogInterval;
     static int    sChunkAllocTimeout;
     static int    sChunkReallocTimeout;

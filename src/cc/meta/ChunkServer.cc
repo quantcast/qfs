@@ -246,16 +246,17 @@ MarkSubmitted(MetaRequest& req)
 
 const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
 
-int ChunkServer::sHeartbeatTimeout     = 60;
-int ChunkServer::sHeartbeatInterval    = 20;
-int ChunkServer::sHeartbeatLogInterval = 1000;
-int ChunkServer::sChunkAllocTimeout    = 40;
-int ChunkServer::sChunkReallocTimeout  = 75;
-int ChunkServer::sMakeStableTimeout    = 330;
-int ChunkServer::sReplicationTimeout   = 510;
-int ChunkServer::sRequestTimeout       = 600;
-int ChunkServer::sMetaClientPort       = 0;
-int ChunkServer::sTimedoutExpireTime   = 10;
+int ChunkServer::sHeartbeatTimeout         = 60;
+int ChunkServer::sHeartbeatInterval        = 20;
+int ChunkServer::sHeartbeatSkippedInterval = -1;
+int ChunkServer::sHeartbeatLogInterval     = 1000;
+int ChunkServer::sChunkAllocTimeout        = 40;
+int ChunkServer::sChunkReallocTimeout      = 75;
+int ChunkServer::sMakeStableTimeout        = 330;
+int ChunkServer::sReplicationTimeout       = 510;
+int ChunkServer::sRequestTimeout           = 600;
+int ChunkServer::sMetaClientPort           = 0;
+int ChunkServer::sTimedoutExpireTime       = 10;
 size_t ChunkServer::sMaxChunksToEvacuate  = 2 << 10; // Max queue size
 // sHeartbeatInterval * sSrvLoadSamplerSampleCount -- boxcar FIR filter
 // if sSrvLoadSamplerSampleCount > 0
@@ -315,6 +316,9 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sHeartbeatInterval = max(3, prop.getValue(
         "metaServer.chunkServer.heartbeatInterval",
         sHeartbeatInterval));
+    sHeartbeatSkippedInterval = max(3, prop.getValue(
+        "metaServer.chunkServer.heartbeatSkippedInterval",
+        sHeartbeatSkippedInterval));
     sHeartbeatLogInterval = prop.getValue(
         "metaServer.chunkServer.heartbeatLogInterval",
         sHeartbeatLogInterval);
@@ -2179,7 +2183,8 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
                     (int64_t)CHUNKSIZE;
         }
         mHeartbeatSent    = false;
-        mHeartbeatSkipped = mLastHeartbeatSent + sHeartbeatInterval < now;
+        mHeartbeatSkipped = mLastHeartbeatSent +
+            max(sHeartbeatInterval, sHeartbeatSkippedInterval) < now;
         mHeartbeatProperties.swap(prop);
         if (mTotalFsSpace < mTotalSpace) {
             mTotalFsSpace = mTotalSpace;
@@ -2891,7 +2896,8 @@ ChunkServer::Heartbeat()
         }
         // If a request is outstanding, don't send one more
         if (! mHeartbeatSkipped &&
-                mLastHeartbeatSent + sHeartbeatInterval < now) {
+                mLastHeartbeatSent +
+                    max(sHeartbeatInterval, sHeartbeatSkippedInterval) < now) {
             mHeartbeatSkipped = true;
             KFS_LOG_STREAM_INFO << GetServerLocation() <<
                 " skipping heartbeat send,"

@@ -147,7 +147,7 @@ minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-11e9}
 lowrequreddiskspace=${lowrequreddiskspace-20e9}
 lowrequreddiskspacefanoutsort=${lowrequreddiskspacefanoutsort-30e9}
 chunkserverclithreads=${chunkserverclithreads-3}
-csheartbeatinterval=${csheartbeatinterval-15}
+csheartbeatinterval=${csheartbeatinterval-5}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
@@ -458,8 +458,9 @@ metaServer.chunkServerPort = $metasrvchunkport
 metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
-metaServer.chunkServer.heartbeatTimeout  = 30
+metaServer.chunkServer.heartbeatTimeout  = 60
 metaServer.chunkServer.heartbeatInterval = $csheartbeatinterval
+metaServer.chunkServer.heartbeatSkippedInterval = 50
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
@@ -747,9 +748,10 @@ fi
 
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
-    echo "Pausing for one chunk server chunk server heartbeat interval:"\
-        "$csheartbeatinterval sec. to give a chance for space update to occur."
-    sleep $csheartbeatinterval
+    pausesec=`expr $csheartbeatinterval \* 2`
+    echo "Pausing for tow chunk server chunk server heartbeat intervals:"\
+        "$cpausesec sec. to give a chance for space update to occur."
+    sleep $cpausesec
     n=0
     until df -P -k "$testdir" | awk '
     BEGIN {
