@@ -214,12 +214,20 @@ public:
         }
 #if ! defined(KRB5_HAS_krb5_unparse_name_flags_ext)
 
+#if defined(KRB5_HAS_krb5_unparse_name_ext)
         krb5_error_code theRet = krb5_unparse_name_ext(
             inCtx,
             inPrin,
             inStrPtr,
             inAllocLen
         );
+#else
+        krb5_error_code theRet = krb5_unparse_name(
+            inCtx,
+            inPrin,
+            inStrPtr
+        );
+#endif
         if (theRet) {
             return theRet;
         }
@@ -227,6 +235,9 @@ public:
         char*             thePtr      = *inStrPtr + strlen(theBPtr);
         char*             theEPtr     = thePtr;
         char*             theRealmPtr = 0;
+#if ! defined(KRB5_HAS_krb5_unparse_name_ext)
+        *inAllocLen = thePtr - theBPtr + 1;
+#endif
         while (theBPtr < thePtr) {
             if ((*thePtr & 0xFF) == '@' && theBPtr <= thePtr - 1  &&
                    (thePtr[-1] & 0xFF) != '\\') {
@@ -315,7 +326,13 @@ public:
     inline static krb5_error_code free_keytab_entry_contents(
         CT inCtx,
         ET inEntry)
-        { return krb5_free_keytab_entry_contents(inCtx, inEntry); }
+    {
+#if defined(KRB5_HAS_krb5_free_keytab_entry_contents)
+        return krb5_free_keytab_entry_contents(inCtx, inEntry);
+#else
+        return krb5_kt_free_entry(inCtx, inEntry);
+#endif
+    }
     template<typename CT, typename ACT, typename AT>
     inline static krb5_error_code getauthenticator_if_needed(
             CT   inCtx,
