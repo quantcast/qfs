@@ -897,12 +897,12 @@ private:
     bool GenKeyId(
         KeyId& outKeyId)
     {
-        const bool theRet = RAND_pseudo_bytes(
+        const bool theRet = RAND_bytes(
             reinterpret_cast<unsigned char*>(&outKeyId),
             (int)sizeof(outKeyId)) > 0;
         if (! theRet) {
             mError = ERR_get_error();
-            KFS_LOG_STREAM_ERROR << "RAND_pseudo_bytes failure: " <<
+            KFS_LOG_STREAM_ERROR << "RAND_bytes failure: " <<
                 OpenSslError(mError) <<
             KFS_LOG_EOM;
         }
@@ -1095,7 +1095,7 @@ CryptoKeys::PseudoRand(
     void*  inPtr,
     size_t inLen)
 {
-    const bool theRet = RAND_pseudo_bytes(
+    const bool theRet = RAND_bytes(
         reinterpret_cast<unsigned char*>(inPtr), (int)inLen) > 0;
     if (! theRet) {
         KFS_LOG_STREAM_ERROR << "RAND_bytes failure: " <<

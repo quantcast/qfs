@@ -144,8 +144,12 @@ public:
         const char* theSubjectPtr = 0;
         const int   theSubjectLen = inSubjectPtr ?
             inSubjectPtr->Get(inToken, theSubjectPtr) : 0;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX theCtx;
         HMAC_CTX_init(&theCtx);
+#else
+        HMAC_CTX& theCtx = *HMAC_CTX_new();
+#endif
         unsigned int theLen = 0;
 #if OPENSSL_VERSION_NUMBER < 0x1000000fL
         const bool theRetFlag = true;
@@ -197,7 +201,11 @@ public:
             }
         }
         QCRTASSERT(! theRetFlag || theLen == kSignatureLength);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX_cleanup(&theCtx);
+#else
+        HMAC_CTX_free(&theCtx);
+#endif
         return theRetFlag;
     }
     void Serialize(
@@ -328,6 +336,24 @@ public:
             theWriterPtr
         );
     }
+    static void EVP_MD_CTX_Free(
+        EVP_MD_CTX* inCtxPtr)
+    {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+        EVP_MD_CTX_cleanup(inCtxPtr);
+#else
+        EVP_MD_CTX_free(inCtxPtr);
+#endif
+    }
+    static void EVP_CIPHER_CTX_Free(
+        EVP_CIPHER_CTX* inCtxPtr)
+    {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+        EVP_CIPHER_CTX_cleanup(inCtxPtr);
+#else
+        EVP_CIPHER_CTX_free(inCtxPtr);
+#endif
+    }
     template<typename T>
     int MakeSessionKey(
         const DelegationToken& inToken,
@@ -349,8 +375,12 @@ public:
             KFS_LOG_EOM;
             return -EINVAL;
         }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX theCtx;
         EVP_MD_CTX_init(&theCtx);
+#else
+        EVP_MD_CTX& theCtx = *EVP_MD_CTX_new();
+#endif
         if (! EVP_DigestInit_ex(&theCtx, EVP_sha384(), 0)) {
             if (outErrMsgPtr) {
                 EvpErrorStr("EVP_DigestInit_ex failure: ", outErrMsgPtr);
@@ -375,7 +405,7 @@ public:
                     "EVP_DigestUpdate failure: " << EvpError() <<
                 KFS_LOG_EOM;
             }
-            EVP_MD_CTX_cleanup(&theCtx);
+            EVP_MD_CTX_Free(&theCtx);
             return -EFAULT;
         }
         char          theBuf[kEncryptedKeyLen];
@@ -389,11 +419,11 @@ public:
                     "EVP_DigestFinal_ex failure: " << EvpError() <<
                 KFS_LOG_EOM;
             }
-            EVP_MD_CTX_cleanup(&theCtx);
+            EVP_MD_CTX_Free(&theCtx);
             return -EFAULT;
         }
         QCRTASSERT(theLen <= EVP_MAX_MD_SIZE);
-        EVP_MD_CTX_cleanup(&theCtx);
+        EVP_MD_CTX_Free(&theCtx);
         if (theLen <= 0) {
             return theLen;
         }
@@ -550,8 +580,12 @@ public:
         const unsigned char* theKeyPtr;
         unsigned char        theMd[EVP_MAX_MD_SIZE];
         if (inKeyLen < kCryptKeyLen) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
             EVP_MD_CTX theCtx;
             EVP_MD_CTX_init(&theCtx);
+#else
+            EVP_MD_CTX& theCtx = *EVP_MD_CTX_new();
+#endif
             if (! EVP_DigestInit_ex(&theCtx, EVP_sha256(), 0)) {
                 if (outErrMsgPtr) {
                     EvpErrorStr("EVP_DigestInit_ex failure: ", outErrMsgPtr);
@@ -570,7 +604,7 @@ public:
                         "EVP_DigestUpdate failure: " << EvpError() <<
                     KFS_LOG_EOM;
                 }
-                EVP_MD_CTX_cleanup(&theCtx);
+                EVP_MD_CTX_Free(&theCtx);
                 return -EFAULT;
             }
             unsigned int theLen = 0;
@@ -582,17 +616,21 @@ public:
                         "EVP_DigestFinal_ex failure: " << EvpError() <<
                     KFS_LOG_EOM;
                 }
-                EVP_MD_CTX_cleanup(&theCtx);
+                EVP_MD_CTX_Free(&theCtx);
                 return -EFAULT;
             }
             QCRTASSERT(theLen <= EVP_MAX_MD_SIZE && kCryptKeyLen <= theLen);
-            EVP_MD_CTX_cleanup(&theCtx);
+            EVP_MD_CTX_Free(&theCtx);
             theKeyPtr = theMd;
         } else {
             theKeyPtr = reinterpret_cast<const unsigned char*>(inKeyPtr);
         }
-        EVP_CIPHER_CTX theCtx;
-        EVP_CIPHER_CTX_init(&theCtx);
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+            EVP_CIPHER_CTX theCtx;
+            EVP_CIPHER_CTX_init(&theCtx);
+#else
+            EVP_CIPHER_CTX& theCtx = *EVP_CIPHER_CTX_new();
+#endif
         if (! EVP_CipherInit_ex(&theCtx, EVP_aes_256_cbc(), 0,
                 theKeyPtr,
                 reinterpret_cast<const unsigned char*>(inIvPtr),
@@ -604,6 +642,7 @@ public:
                     "EVP_CipherInit_ex failure: " << EvpError() <<
                 KFS_LOG_EOM;
             }
+            EVP_CIPHER_CTX_Free(&theCtx);
             return -EFAULT;
         }
         // Ensure correctness of the cipher's parameters, and set padding mode.
@@ -619,6 +658,7 @@ public:
             KFS_LOG_EOM;
             MsgLogger::Stop();
             abort();
+            EVP_CIPHER_CTX_Free(&theCtx);
             return -EFAULT;
         }
         int theLen = 0;
@@ -632,7 +672,7 @@ public:
                     "EVP_CipherUpdate failure: " << EvpError() <<
                 KFS_LOG_EOM;
             }
-            EVP_CIPHER_CTX_cleanup(&theCtx);
+            EVP_CIPHER_CTX_Free(&theCtx);
             return -EFAULT;
         }
         int theRemLen = 0;
@@ -646,11 +686,11 @@ public:
                     "EVP_CipherFinal_ex failure: " << EvpError() <<
                 KFS_LOG_EOM;
             }
-            EVP_CIPHER_CTX_cleanup(&theCtx);
+            EVP_CIPHER_CTX_Free(&theCtx);
             return -EINVAL; // Possible invalid key.
         }
         theLen += theRemLen;
-        EVP_CIPHER_CTX_cleanup(&theCtx);
+        EVP_CIPHER_CTX_Free(&theCtx);
         QCASSERT(theLen <= ((inEncryptFlag && inPaddingFlag) ?
             (inLen + kCryptBlockLen) / kCryptBlockLen * kCryptBlockLen :
             inLen));

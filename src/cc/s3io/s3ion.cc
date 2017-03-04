@@ -194,8 +194,13 @@ public:
         KFS_LOG_STREAM_DEBUG << mLogPrefix << "~S3ION" << KFS_LOG_EOM;
         S3ION::Stop();
         delete [] mHdrBufferPtr;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX_cleanup(&mHmacCtx);
         EVP_MD_CTX_cleanup(&mMdCtx);
+#else
+        HMAC_CTX_free(&mHmacCtx);
+        EVP_MD_CTX_free(&mMdCtx);
+#endif
     }
     virtual bool Init(
         QCDiskQueue& inDiskQueue,
@@ -2748,8 +2753,13 @@ private:
     time_t              mTmLastDateTime;
     QCMutex             mMutex;
     struct tm           mTmBuf;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     HMAC_CTX            mHmacCtx;
     EVP_MD_CTX          mMdCtx;
+#else
+    HMAC_CTX&           mHmacCtx;
+    EVP_MD_CTX&         mMdCtx;
+#endif
     char                mDateBuf[kMaxDateTimeLen];
     char                mISOTime[kMaxDateTimeLen];
     Sha256Buf           mV4SignKey;
@@ -2849,6 +2859,11 @@ private:
           mLastDateZTime(0),
           mTmLastDateTime(0),
           mMutex()
+#if 0x10100000L <= OPENSSL_VERSION_NUMBER
+          ,
+          mHmacCtx(*HMAC_CTX_new()),
+          mMdCtx(*EVP_MD_CTX_new())
+#endif
     {
         if (! inLogPrefixPtr) {
             mLogPrefix += "S3ION ";
@@ -2871,8 +2886,10 @@ private:
         mDateBuf[0] = 0;
         mSignBuf[0] = 0;
         memset(mV4SignDate, 0, sizeof(mV4SignDate));
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         HMAC_CTX_init(&mHmacCtx);
         EVP_MD_CTX_init(&mMdCtx);
+#endif
     }
     void SetParameters()
     {

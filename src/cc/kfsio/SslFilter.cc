@@ -41,6 +41,7 @@
 #include <openssl/bio.h>
 #include <openssl/pem.h>
 #include <openssl/engine.h>
+#include <openssl/asn1.h>
 
 #include <errno.h>
 #include <stdlib.h>
@@ -82,7 +83,11 @@ private:
             X509_free(reinterpret_cast<X509*>(inCertPtr));
         }
     }
-
+#if OPENSSL_VERSION_NUMBER <= 0x10000000L
+    inline static void X509* SSL_SESSION_get0_peer(
+        SSL_SESSION* inSessionPtr)
+        { return inSessionPtr->peer; }
+#endif
 public:
     typedef SslFilter::Ctx       Ctx;
     typedef SslFilter::Error     Error;
@@ -134,7 +139,13 @@ public:
         }
         // Create ssl cts to ensure that all ssl libs static / globals are
         // properly initialized, to help to avoid any possible races.
-        SSL_CTX* const theCtxPtr = SSL_CTX_new(TLSv1_method());
+        SSL_CTX* const theCtxPtr = SSL_CTX_new(
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+            TLSv1_method()
+#else
+            TLS_method()
+#endif
+        );
         if (theCtxPtr) {
             SSL_free(SSL_new(theCtxPtr));
             SSL_CTX_free(theCtxPtr);
@@ -149,7 +160,9 @@ public:
         ENGINE_cleanup();
         EVP_cleanup();
         CRYPTO_cleanup_all_ex_data();
+#if OPENSSL_VERSION_NUMBER < 0x10000000L
         ERR_remove_state(0);
+#endif
         ERR_free_strings();
         CRYPTO_set_locking_callback(0);
         sOpenSslInitPtr = 0;
@@ -181,7 +194,13 @@ public:
         string*           inErrMsgPtr)
     {
         SSL_CTX* const theRetPtr = SSL_CTX_new(
-            inServerFlag ? TLSv1_server_method() : TLSv1_client_method());
+            inServerFlag ?
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+                TLSv1_server_method() : TLSv1_client_method()
+#else
+                TLS_server_method() : TLS_client_method()
+#endif
+            );
         if (! theRetPtr) {
             return 0;
         }
@@ -1006,12 +1025,16 @@ private:
             )
         );
         int theLen;
-        if (! theStrPtr || (theLen = M_ASN1_STRING_length(theStrPtr)) <= 0) {
+        if (! theStrPtr || (theLen = ASN1_STRING_length(theStrPtr)) <= 0) {
             return string();
         }
-        return string(
-            reinterpret_cast<const char*>(M_ASN1_STRING_data(theStrPtr)),
-            theLen
+        return string(reinterpret_cast<const char*>(
+#if OPENSSL_VERSION_NUMBER < 0x1010000fL
+            ASN1_STRING_data(theStrPtr)
+#else
+            ASN1_STRING_get0_data(theStrPtr)
+#endif
+            ), theLen
         );
     }
     bool VerifyPeerIfNeeded()
@@ -1122,7 +1145,7 @@ private:
             return;
         }
         SSL_SESSION* const theCurSessionPtr = SSL_get_session(mSslPtr);
-        if (! theCurSessionPtr || ! theCurSessionPtr->peer) {
+        if (! theCurSessionPtr || ! SSL_SESSION_get0_peer(theCurSessionPtr)) {
             // Do not store session with no peer certificate, i.e. PSK sessions.
             return;
         }

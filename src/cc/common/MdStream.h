@@ -88,21 +88,34 @@ public:
           mSyncFlag(inSyncFlag),
           mWriteTroughFlag(inBufSize <= 0),
           mStreamPtr(inStreamPtr),
+#if 0x10100000L <= OPENSSL_VERSION_NUMBER
+          mCtx(*EVP_MD_CTX_new()),
+#endif
           mNextSize(inResizeFlag ? (8 << 10) : 0)
     {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX_init(&mCtx);
+#endif
         MdStreamT::InitMd();
     }
     virtual ~MdStreamT()
     {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX_cleanup(&mCtx);
+#else
+        EVP_MD_CTX_free(&mCtx);
+#endif
         delete [] mBufferPtr;
     }
     void SetMdState(
         MdStateCtx inState)
     {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX_cleanup(&mCtx);
         EVP_MD_CTX_init(&mCtx);
+#else
+        EVP_MD_CTX_reset(&mCtx);
+#endif
         if (! EVP_MD_CTX_copy_ex(&mCtx, &(inState.mCtx))) {
             setstate(failbit);
         }
@@ -117,19 +130,27 @@ public:
         if (fail()) {
             return 0;
         }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX theCtx;
         EVP_MD_CTX_init(&theCtx);
-        if (! EVP_MD_CTX_copy_ex(&theCtx, &mCtx)) {
-            setstate(failbit);
-            return 0;
-        }
+#else
+        EVP_MD_CTX& theCtx = *EVP_MD_CTX_new();
+#endif
         unsigned int theLen = 0;
-        if ((mMdPtr < mCurPtr &&
-                ! EVP_DigestUpdate(&theCtx, mMdPtr, mCurPtr - mMdPtr)) ||
-                ! EVP_DigestFinal_ex(&theCtx, inMd, &theLen)) {
+        if (EVP_MD_CTX_copy_ex(&theCtx, &mCtx)) {
+            if ((mMdPtr < mCurPtr &&
+                    ! EVP_DigestUpdate(&theCtx, mMdPtr, mCurPtr - mMdPtr)) ||
+                    ! EVP_DigestFinal_ex(&theCtx, inMd, &theLen)) {
+                setstate(failbit);
+            }
+        } else {
             setstate(failbit);
         }
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
         EVP_MD_CTX_cleanup(&theCtx);
+#else
+        EVP_MD_CTX_free(&theCtx);
+#endif
         return (fail() ? 0 : theLen);
     }
     string GetMd()
@@ -298,7 +319,11 @@ private:
     bool         mSyncFlag;
     bool         mWriteTroughFlag;
     OStreamT*    mStreamPtr;
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
     EVP_MD_CTX   mCtx;
+#else
+    EVP_MD_CTX&  mCtx;
+#endif
     size_t       mNextSize;
 
     bool UpdateMd()
