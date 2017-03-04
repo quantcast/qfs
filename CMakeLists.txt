@@ -53,7 +53,9 @@ endif()
 set(Boost_USE_MULTITHREADED ON)
 
 # Require the packages we need to build
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR CYGWIN)
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" OR
+        CYGWIN OR
+        CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
     find_package(Boost COMPONENTS regex system REQUIRED)
 else()
     find_package(Boost COMPONENTS regex REQUIRED)
@@ -88,6 +90,12 @@ if("${KRB5_FLAVOR}" STREQUAL "HEIMDAL" OR KRB5_HAS_krb5_get_init_creds_opt_set_o
 endif()
 if(KRB5_HAS_krb5_unparse_name_flags_ext)
     add_definitions(-DKRB5_HAS_krb5_unparse_name_flags_ext)
+endif()
+if(KRB5_HAS_krb5_unparse_name_ext)
+    add_definitions(-DKRB5_HAS_krb5_unparse_name_ext)
+endif()
+if(KRB5_HAS_krb5_free_keytab_entry_contents)
+    add_definitions(-DKRB5_HAS_krb5_free_keytab_entry_contents)
 endif()
 
 # Warn about old versions
