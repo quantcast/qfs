@@ -34,7 +34,8 @@
 
 #if ! defined(__GNUC__) || (__GNUC__ < 3 || \
         (__GNUC__ == 3 && __GNUC_MINOR__ < 4)) || \
-        (defined(__clang_major__) && 5 <= __clang_major__)
+        (defined(__clang_major__) && 5 <= __clang_major__) || \
+        defined(KFS_OS_NAME_FREEBSD)
 #   include "boost/pool/pool_alloc.hpp"
 #   define KFS_STD_POOL_ALLOCATOR_T      boost::pool_allocator
 #   define KFS_STD_FAST_POOL_ALLOCATOR_T boost::fast_pool_allocator
