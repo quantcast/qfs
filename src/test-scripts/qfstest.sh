@@ -445,7 +445,16 @@ else
 fi
 
 echo "Starting meta server $metahosturl:$metasrvport"
-cssessionmaxtime=`expr $csheartbeatinterval + 3`
+
+if [ x"$myvalgrind" = x ]; then
+    csheartbeattimeout=60
+    csheartbeatskippedInterval=50
+    cssessionmaxtime=`expr $csheartbeatinterval + 10`
+else
+    csheartbeattimeout=600
+    csheartbeatskippedInterval=500
+    cssessionmaxtime=`expr $csheartbeatinterval + 50`
+fi
 
 cd "$metasrvdir" || exit
 mkdir kfscp || exit
@@ -458,9 +467,9 @@ metaServer.chunkServerPort = $metasrvchunkport
 metaServer.clusterKey = $clustername
 metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
-metaServer.chunkServer.heartbeatTimeout  = 60
+metaServer.chunkServer.heartbeatTimeout  = $csheartbeattimeout
 metaServer.chunkServer.heartbeatInterval = $csheartbeatinterval
-metaServer.chunkServer.heartbeatSkippedInterval = 50
+metaServer.chunkServer.heartbeatSkippedInterval = $csheartbeatskippedInterval
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
@@ -489,6 +498,15 @@ metaServer.replicationCheckInterval = 0.5
 metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.dumpsterCleanupDelaySec = 2
 EOF
+
+if [ x"$myvalgrind" = x ]; then
+    true
+else
+    cat >> "$metasrvprop" << EOF
+metaServer.chunkServer.chunkAllocTimeout   = 300
+metaServer.chunkServer.chunkReallocTimeout = 300
+EOF
+fi
 
 if [ x"$auth" = x'yes' ]; then
     cat >> "$metasrvprop" << EOF
