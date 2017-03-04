@@ -327,7 +327,8 @@ public:
         CT inCtx,
         ET inEntry)
     {
-#if defined(KRB5_HAS_krb5_free_keytab_entry_contents)
+#if defined(KRB5_HAS_krb5_free_keytab_entry_contents) || \
+    ! defined(KRB5_HAS_krb5_kt_free_entry)
         return krb5_free_keytab_entry_contents(inCtx, inEntry);
 #else
         return krb5_kt_free_entry(inCtx, inEntry);
