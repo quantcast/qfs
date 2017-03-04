@@ -810,7 +810,10 @@ private:
         vector<ChunkDirs::iterator, StdAllocator<ChunkDirs::iterator> >,
         less<kfsSTier_t>,
         StdFastAllocator<
-            pair<const kfsSTier_t, vector<ChunkDirs::iterator> >
+            pair<const kfsSTier_t, vector<
+                ChunkDirs::iterator,
+                StdAllocator<ChunkDirs::iterator>
+            > >
         >
     > StorageTiers;
     typedef LinearHash<
