@@ -1978,7 +1978,7 @@ protected:
     typedef set<
         pair<pair<fid_t, chunkOff_t>, chunkId_t>,
         less<pair<pair<fid_t, chunkOff_t>, chunkId_t> >,
-        StdFastAllocator<pair<const pair<fid_t, chunkOff_t>, chunkId_t> >
+        StdFastAllocator<pair<pair<fid_t, chunkOff_t>, chunkId_t> >
     > StripedFilesAllocationsInFlight;
 
     class FilesChecker;
