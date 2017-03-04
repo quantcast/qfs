@@ -132,11 +132,11 @@ metasrvlog='metaserver.log'
 pidsuf='.pid'
 metasrvpid="metaserver${pidsuf}"
 metaservercreatefsout='metaservercreatefs.out'
-metasrvout='metaserver.out'
+metasrvout='metaserver.out.log'
 chunksrvprop='ChunkServer.prp'
 chunksrvlog='chunkserver.log'
 chunksrvpid="chunkserver${pidsuf}"
-chunksrvout='chunkserver.out'
+chunksrvout='chunkserver.out.log'
 csallowcleartext=${csallowcleartext-1}
 clustername='qfs-test-cluster'
 clientprop="$testdir/client.prp"
@@ -876,6 +876,8 @@ status=0
 
 cd "$testdir" || exit
 
+# For now pause to let chunk server IOs complete
+sleep 5
 echo "Shutting down"
 pids=`getpids`
 for pid in $pids; do
@@ -957,7 +959,7 @@ if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
     ls -1 "$objectstoredir" | qfsobjstorefsck
     status=$?
 fi
-if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
+if [ $status -eq 0 ]; then
     echo "Running re-balance planner"
     rebalanceplanner -d -L ERROR
     status=$?
