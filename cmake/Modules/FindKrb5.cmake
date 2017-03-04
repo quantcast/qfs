@@ -192,6 +192,8 @@ ELSE(NOT KRB5_FOUND)
       KRB5_HAS_krb5_data_alloc)
     CHECK_FUNCTION_EXISTS(krb5_free_keytab_entry_contents
       KRB5_HAS_krb5_free_keytab_entry_contents)
+    CHECK_FUNCTION_EXISTS(krb5_kt_free_entry
+      KRB5_HAS_krb5_kt_free_entry)
     IF(KRB5_HAS_krb5_free_keytab_entry_contents OR NOT krb5_data_alloc)
       SET(KRB5_FLAVOR "MIT")
       CHECK_FUNCTION_EXISTS(krb5_unparse_name_ext

@@ -97,6 +97,9 @@ endif()
 if(KRB5_HAS_krb5_free_keytab_entry_contents)
     add_definitions(-DKRB5_HAS_krb5_free_keytab_entry_contents)
 endif()
+if(KRB5_HAS_krb5_kt_free_entry)
+    add_definitions(-DKRB5_HAS_krb5_kt_free_entry)
+endif()
 
 # Warn about old versions
 if(NOT OPENSSL_VERSION OR OPENSSL_VERSION MATCHES "^0[.]")
