@@ -654,20 +654,17 @@ void
 NetDispatch::ChildAtFork()
 {
     mClientManager.ChildAtFork();
-    mMetaDataStore.ChildAtFork();
 }
 
 void
 NetDispatch::PrepareCurrentThreadToFork()
 {
     mClientManager.PrepareCurrentThreadToFork();
-    mMetaDataStore.PrepareToFork();
 }
 
 void
 NetDispatch::CurrentThreadForkDone()
 {
-    mMetaDataStore.ForkDone();
 }
 
 // Counters for the various ops

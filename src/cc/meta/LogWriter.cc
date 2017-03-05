@@ -420,9 +420,16 @@ public:
         while (! mPrepareToForkDoneFlag) {
             mPrepareToForkCond.Wait(mMutex);
         }
+        theLocker.Unlock();
+        if (mMetaDataStorePtr) {
+            mMetaDataStorePtr->PrepareToFork();
+        }
     }
     void ForkDone()
     {
+        if (mMetaDataStorePtr) {
+            mMetaDataStorePtr->ForkDone();
+        }
         QCStMutexLocker theLocker(mMutex);
         if (! mPrepareToForkDoneFlag || ! mPrepareToForkFlag) {
             panic("log writer: invalid fork done invocation");
@@ -434,6 +441,9 @@ public:
     }
     void ChildAtFork()
     {
+        if (mMetaDataStorePtr) {
+            mMetaDataStorePtr->ChildAtFork();
+        }
         mNetManager.ChildAtFork();
         Close();
     }
