@@ -1050,19 +1050,13 @@ MetaServerSM::Impl::FailOps(bool wasPrimaryFlag)
     if (wasPrimaryFlag) {
         doneOps.PushBack(mPendingOps);
     }
-    for (; ;) {
-        KfsOp* op;
-        while ((op = doneOps.PopFront())) {
-            op->status = -EHOSTUNREACH;
-            KFS_LOG_STREAM_DEBUG <<
-                "failing cs request: " << op->Show() <<
-            KFS_LOG_EOM;
-            SubmitOpResponse(op);
-        }
-        if (mPendingOps.IsEmpty()) {
-            break;
-        }
-        doneOps.PushBack(mPendingOps);
+    KfsOp* op;
+    while ((op = doneOps.PopFront())) {
+        op->status = -EHOSTUNREACH;
+        KFS_LOG_STREAM_DEBUG <<
+            "failing cs request: " << op->Show() <<
+        KFS_LOG_EOM;
+        SubmitOpResponse(op);
     }
 }
 

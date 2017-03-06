@@ -369,9 +369,9 @@ private:
         if (0 != err) {
             KFS_LOG_STREAM_FATAL <<
                 "failed to read configuration file: " << mFileName <<
-                " " << QCUtils::SysError(err, 0) <<
+                " " << QCUtils::SysError(-err, 0) <<
             KFS_LOG_EOM;
-                return false;
+            return false;
         }
 #ifdef KFS_OS_NAME_LINUX
         mMetaMd = ComputeMd("/proc/self/exe");
