@@ -829,7 +829,12 @@ MetaServerSM::Impl::Authenticate()
     }
     Request(*mAuthOp);
     KFS_LOG_STREAM_INFO << mLocation <<
-        " started: " << mAuthOp->Show() <<
+        " started: "   << mAuthOp->Show() <<
+        " connected: " << IsConnected() <<
+        " read: "
+        " pending: "   <<
+            (mNetConnection ? mNetConnection->GetNumBytesToRead() : -1) <<
+        " ready: "     << (mNetConnection && mNetConnection->IsReadReady()) <<
     KFS_LOG_EOM;
     return true;
 }
@@ -855,7 +860,9 @@ MetaServerSM::Impl::DispatchHello()
     KFS_LOG_STREAM_INFO << mLocation <<
         " sending hello to meta server: " << mHelloOp->Show() <<
     KFS_LOG_EOM;
-    mNetConnection->StartFlush();
+    if (mRecursionCount <= 0) {
+        mNetConnection->StartFlush();
+    }
 }
 
 ///
@@ -983,6 +990,9 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
     }
     if (mRecursionCount <= 0) {
         die("meta server state machine: invalid  recursion count");
+    }
+    if (mRecursionCount <= 1 && mNetConnection) {
+        mNetConnection->StartFlush();
     }
     --mRecursionCount;
     if (mRecursionCount <= 0 && mDeleteFlag && mInFlightRequestCount <= 0) {
@@ -1503,7 +1513,7 @@ MetaServerSM::Impl::SendResponse(KfsOp* op)
     const bool discardFlag = ! mSentHello ||
         op->generation != mGenerationCount || ! IsConnected();
     KFS_LOG_STREAM_DEBUG << mLocation <<
-        (discardFlag ? " discard" : "") <<
+        (discardFlag ? " discard" : (mAuthOp ? " pending" : "")) <<
         " meta reply:"
         " status: "  << op->status <<
         " "          << op->statusMsg <<
@@ -1545,6 +1555,9 @@ MetaServerSM::Impl::SendResponse(KfsOp* op)
                 " " << mLocation << " cs response: " << line <<
             KFS_LOG_EOM;
         }
+    }
+    if (mRecursionCount <= 0) {
+        mNetConnection->StartFlush();
     }
     return true;
 }
@@ -1608,8 +1621,15 @@ MetaServerSM::Impl::HandleAuthResponse(IOBuffer& ioBuf)
             if (IsHandshakeDone()) {
                 // Shutdown the current filter.
                 const int res = mNetConnection->Shutdown();
+                KFS_LOG_STREAM_DEBUG << mLocation <<
+                    " re-authentication ssl filter shutdown:" <<
+                    " status: " << res <<
+                    " filter: " << (const void*)mNetConnection->GetFilter() <<
+                KFS_LOG_EOM;
                 if (0 != res && -EAGAIN != res) {
                     Error("ssl shutdown error");
+                } else if (0 == res && ! mNetConnection->GetFilter()) {
+                    HandleAuthResponse(ioBuf); // Tail recursion.
                 }
                 return;
             }
