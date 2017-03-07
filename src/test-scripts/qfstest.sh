@@ -148,6 +148,7 @@ lowrequreddiskspace=${lowrequreddiskspace-20e9}
 lowrequreddiskspacefanoutsort=${lowrequreddiskspacefanoutsort-30e9}
 chunkserverclithreads=${chunkserverclithreads-3}
 csheartbeatinterval=${csheartbeatinterval-5}
+cptestextraopts=${cptestextraopts-}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
@@ -202,6 +203,17 @@ myrunprog()
     else
         eval exec "$myvalgrind" '"$p" ${1+"$@"}'
     fi
+}
+
+ensurerunning()
+{
+    rem=${2-10}
+    until kill -0 "$1"; do
+        rem=`expr $rem - 1`
+        [ $rem -le 0 ] && return 1
+        sleep 1
+    done
+    return 0
 }
 
 mytailpids=''
@@ -426,9 +438,12 @@ client.auth.X509.X509PemFile = $certsdir/$clientuser.crt
 client.auth.X509.PKeyPemFile = $certsdir/$clientuser.key
 client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
-    QFS_CLIENT_CONFIG="FILE:${clientprop}"
-    export QFS_CLIENT_CONFIG
+else
+    cp /dev/null  "$clientprop"
 fi
+
+QFS_CLIENT_CONFIG="FILE:${clientprop}"
+export QFS_CLIENT_CONFIG
 
 ulimit -c unlimited
 echo "Running RS unit test with 6 data stripes"
@@ -448,12 +463,22 @@ echo "Starting meta server $metahosturl:$metasrvport"
 
 if [ x"$myvalgrind" = x ]; then
     csheartbeattimeout=60
-    csheartbeatskippedInterval=50
+    csheartbeatskippedinterval=50
     cssessionmaxtime=`expr $csheartbeatinterval + 10`
+    clisessionmaxtime=5
 else
-    csheartbeattimeout=600
-    csheartbeatskippedInterval=500
+    # Run test sequentially with valgrind
+    if [ $spacecheck -ne 2 ]; then
+        spacecheck=3
+    fi
+    csheartbeattimeout=900
+    csheartbeatskippedinterval=800
     cssessionmaxtime=`expr $csheartbeatinterval + 50`
+    clisessionmaxtime=25
+    cat >> "$clientprop" << EOF
+client.defaultOpTimeout=600
+client.defaultMetaOpTimeout=600
+EOF
 fi
 
 cd "$metasrvdir" || exit
@@ -469,7 +494,7 @@ metaServer.cpDir = kfscp
 metaServer.logDir = kfslog
 metaServer.chunkServer.heartbeatTimeout  = $csheartbeattimeout
 metaServer.chunkServer.heartbeatInterval = $csheartbeatinterval
-metaServer.chunkServer.heartbeatSkippedInterval = $csheartbeatskippedInterval
+metaServer.chunkServer.heartbeatSkippedInterval = $csheartbeatskippedinterval
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
@@ -503,8 +528,8 @@ if [ x"$myvalgrind" = x ]; then
     true
 else
     cat >> "$metasrvprop" << EOF
-metaServer.chunkServer.chunkAllocTimeout   = 300
-metaServer.chunkServer.chunkReallocTimeout = 300
+metaServer.chunkServer.chunkAllocTimeout   = 500
+metaServer.chunkServer.chunkReallocTimeout = 500
 EOF
 fi
 
@@ -516,7 +541,7 @@ metaServer.clientAuthentication.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 metaServer.clientAuthentication.whiteList        = $clientuser root
 
 # Set short valid time to test session time enforcement.
-metaServer.clientAuthentication.maxAuthenticationValidTimeSec = 5
+metaServer.clientAuthentication.maxAuthenticationValidTimeSec = $clisessionmaxtime
 # Insure that the write lease is valid for at least 10 min to avoid spurious
 # write retries with 5 seconds authentication timeous.
 metaServer.minWriteLeaseTimeSec = 600
@@ -565,18 +590,25 @@ metapid=$!
 echo "$metapid" > "$metasrvpid"
 
 cd "$testdir" || exit
-sleep 3
-kill -0 "$metapid" || exit
-if [ x"$metastartwait" = x'yes' ]; then
-    remretry=20
-    echo "Waiting for the meta server to start, the startup unit tests to finish."
+ensurerunning "$metapid" || exit
+echo "Waiting for the meta server startup unit tests to complete."
+if [ x"$myvalgrind" = x ]; then
+    true
+else
     echo "With valgrind meta server unit tests might take serveral minutes."
-    until qfsshell -s "$metahost" -p "$metasrvport" -q -- stat / 1>/dev/null; do
-        kill -0 "$metapid" || exit
-        remretry=`expr $remretry - 1`
-        [ $remretry -le 0 ] && break
-        sleep 3
-    done
+fi
+remretry=20
+until qfsshell -s "$metahost" -p "$metasrvport" -q -- stat / 1>/dev/null; do
+    kill -0 "$metapid" || exit
+    remretry=`expr $remretry - 1`
+    [ $remretry -le 0 ] && break
+    sleep 3
+done
+
+if [ x"$myvalgrind" = x ]; then
+    csmetainactivitytimeout=180
+else
+    csmetainactivitytimeout=300
 fi
 
 i=$chunksrvport
@@ -612,12 +644,20 @@ chunkServer.remoteSync.traceRequestResponse = $csrpctrace
 chunkServer.meta.traceRequestResponseFlag   = $csrpctrace
 chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 chunkServer.maxSpaceUtilizationThreshold = 0.00001
+chunkServer.meta.inactivityTimeout = $csmetainactivitytimeout
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 # chunkServer.diskQueue.trace = 1
 # chunkServer.diskQueue.maxDepth = 8
 # chunkServer.diskErrorSimulator.enqueueFailInterval = 5
 EOF
+    if [ x"$myvalgrind" = x ]; then
+        true
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.diskIo.maxIoTimeSec = 580
+EOF
+    fi
     if [ x"$auth" = x'yes' ]; then
         "$mkcerts" "$certsdir" chunk$i || exit
         cat >> "$dir/$chunksrvprop" << EOF
@@ -652,13 +692,11 @@ EOF
     i=`expr $i + 1`
 done
 
-sleep 3
-
 cd "$testdir" || exit
 
 # Ensure that chunk and meta servers are running.
 for pid in `getpids`; do
-    kill -0 "$pid" || exit
+    ensurerunning "$pid" || exit
 done
 
 if [ x"$auth" = x'yes' ]; then
@@ -668,9 +706,37 @@ if [ x"$auth" = x'yes' ]; then
     { if ($1 == "Token:") t=$2; else if ($1 == "Key:") k=$2; }
     END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }'`
     clientenvcfg="${clientdelegation} client.auth.allowChunkServerClearText=0"
+
+    cat > "$clientrootprop" << EOF
+client.auth.X509.X509PemFile = $certsdir/root.crt
+client.auth.X509.PKeyPemFile = $certsdir/root.key
+client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
+EOF
 else
     clientenvcfg=
+    cp /dev/null "$clientrootprop"
 fi
+qfstoolrootauthcfg=$clientrootprop
+
+if [ x"$myvalgrind" = x ]; then
+    true
+else
+    cat >> "$clientrootprop" << EOF
+client.defaultOpTimeout=600
+client.defaultMetaOpTimeout=600
+EOF
+fi
+
+echo "Waiting for chunk servers to connect to meta server."
+remretry=20
+until [ `qfsadmin \
+            -s "$metahost" -p "$metasrvport" -f "$clientrootprop" upservers \
+        | wc -l` -eq $numchunksrv ]; do
+    kill -0 "$metapid" || exit
+    remretry=`expr $remretry - 1`
+    [ $remretry -le 0 ] && break
+    sleep 1
+done
 
 if [ x"$jerasuretest" = 'x' ]; then
     if qfs -ecinfo | grep -w jerasure > /dev/null; then
@@ -685,38 +751,50 @@ echo "Starting copy test. Test file sizes: $sizes"
 # Enable read ahead and set buffer size to an odd value.
 # For RS disable read ahead and set odd buffer size.
 # Schedule meta server checkpoint after the first two tests.
-if uname | grep CYGWIN > /dev/null; then
-    # Sleep on cygwin before renaming test directories to ensure that all files
-    # are closed / flushed by cygwin / os
-    cptestendsleeptime=3
+
+if [ x"$myvalgrind" = x ]; then
+    if [ x"$cptestextraopts" = x ]; then
+        true
+    else
+        $cptestextraopts=" $cptestextraopts"
+    fi
+    if [ $spacecheck -ne 0 ] || uname | grep CYGWIN > /dev/null; then
+        # Sleep before renaming test directories to ensure that all files
+        # are closed / flushed by QFS / os
+        cptestendsleeptime=3
+    else
+        cptestendsleeptime=0
+    fi
 else
-    cptestendsleeptime=0
+    cptestextraopts=" -T 240 $cptestextraopts"
+    cptestendsleeptime=5
 fi
+
 cp /dev/null cptest.out
 cppidf="cptest${pidsuf}"
 {
 #    cptokfsopts='-W 2 -b 32767 -w 32767' && \
     QFS_CLIENT_CONFIG=$clientenvcfg \
-    cptokfsopts='-r 0 -m 15 -l 15 -R 20 -w -1' \
-    cpfromkfsopts='-r 0 -w 65537' \
-    cptest.sh &&\
-    sleep $cptestendsleeptime &&\
+    cptokfsopts='-r 0 -m 15 -l 15 -R 20 -w -1'"$cptestextraopts" \
+    cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
+    cptest.sh && \
+    sleep $cptestendsleeptime && \
     mv cptest.log cptest-os.log && \
-    cptokfsopts='-r 3 -m 1 -l 15 -w -1' \
-    cpfromkfsopts='-r 1e6 -w 65537' \
+    cptokfsopts='-r 3 -m 1 -l 15 -w -1'"$cptestextraopts" \
+    cpfromkfsopts='-r 1e6 -w 65537'"$cptestextraopts" \
     cptest.sh && \
     sleep $cptestendsleeptime && \
     mv cptest.log cptest-0.log && \
     kill -USR1 $metapid && \
-    cptokfsopts='-S -m 2 -l 2 -w -1' \
-    cpfromkfsopts='-r 0 -w 65537' \
+    cptokfsopts='-S -m 2 -l 2 -w -1'"$cptestextraopts" \
+    cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
     cptest.sh && \
     { \
         [ x"$jerasuretest" = x'no' ] || { \
             sleep $cptestendsleeptime && \
             mv cptest.log cptest-rs.log && \
-            cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1' \
-            cpfromkfsopts='-r 0 -w 65537' \
+            cptokfsopts='-u 65536 -y 10 -z 4 -r 1 -F 3 -m 2 -l 2 -w -1'"$cptestextraopts" \
+            cpfromkfsopts='-r 0 -w 65537'"$cptestextraopts" \
             cptest.sh ; \
         } \
     }
@@ -794,18 +872,6 @@ if [ $spacecheck -ne 0 ]; then
     done
 fi
 
-if [ x"$auth" = x'yes' ]; then
-    cat > "$clientrootprop" << EOF
-client.auth.X509.X509PemFile = $certsdir/root.crt
-client.auth.X509.PKeyPemFile = $certsdir/root.key
-client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
-EOF
-    qfstoolrootauthcfg=$clientrootprop
-else
-    cp /dev/null "$clientrootprop"
-    qfstoolrootauthcfg=
-fi
-
 cp /dev/null qfs_tool-test.out
 qfstoolpidf="qfstooltest${pidsuf}"
 qfstoolopts='-v' \
@@ -818,6 +884,11 @@ qfstoolpid=$!
 echo "$qfstoolpid" > "$qfstoolpidf"
 
 if [ $fotest -ne 0 ]; then
+    if [ x"$myvalgrind" = x ]; then
+        foextraopts=''
+    else
+        foextraopts=' -c 240'
+    fi
     echo "Starting fanout test. Fanout test data size: $fanouttestsize"
     fopidf="kfanout_test${pidsuf}"
     # Do two runs one with connection pool off and on.
@@ -830,7 +901,8 @@ if [ $fotest -ne 0 ]; then
             -size "$fanouttestsize" \
             -partitions "$fanoutpartitions" \
             -read-retries 1 \
-            -kfanout-extra-opts "-U $p -P 3" \
+            -kfanout-extra-opts "-U $p -P 3""$foextraopts" \
+            -cpfromkfs-extra-opts "$cptestextraopts" \
         || exit
     done >> kfanout_test.out 2>&1 &
     fopid=$!
