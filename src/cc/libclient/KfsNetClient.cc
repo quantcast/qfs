@@ -776,9 +776,10 @@ public:
         KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
             (inCanceledFlag ? " op canceled: " : " op done: ") <<
             inOpPtr->Show() <<
-            " now: "    << Now() <<
+            " seq: "    << inOpPtr->seq <<
             " status: " << inOpPtr->status <<
             " msg: "    << inOpPtr->statusMsg <<
+            " now: "    << Now() <<
         KFS_LOG_EOM;
         const kfsSeq_t theSeq = inOpPtr->seq;
         inOpPtr->seq = -1;
@@ -903,11 +904,27 @@ public:
                 );
                 mRetryCount = mNonAuthRetryCount;
                 mNonAuthRetryCount = 0;
+                KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                    " authenticated,"
+                    " ops pending: " << mPendingOpQueue.size() <<
+                    " seq: "         <<
+                        (mPendingOpQueue.empty() ?
+                            seq_t(-1) : mPendingOpQueue.begin()->first) <<
+                KFS_LOG_EOM;
                 SubmitPending();
                 return;
             }
             if (mAuthOp.status == -EAGAIN) {
-                EnsureConnected(); // Retry authentication.
+                KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                    "retrying authentication by resetting connection"
+                    " status: " << mAuthOp.status <<
+                    " "         << mAuthOp.statusMsg <<
+                    " "         << mAuthOp.Show() <<
+                KFS_LOG_EOM;
+                ResetConnection();
+                if (! mPendingOpQueue.empty()) {
+                    EnsureConnected(); // Retry authentication.
+                }
                 return;
             }
         }
