@@ -1045,7 +1045,7 @@ ChunkServer::HandleRequest(int code, void *data)
                     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
                         " / " << GetPeerName() <<
                         " shutdown filter: " <<
-                            (void*)mNetConnection->GetFilter() <<
+                            (const void*)mNetConnection->GetFilter() <<
                     KFS_LOG_EOM;
                     if (! mNetConnection->GetFilter()) {
                         HandleRequest(
@@ -3220,7 +3220,7 @@ ChunkServer::SendResponse(MetaRequest* op)
         return true;
     }
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
-        "-seq: "    << op->opSeqno <<
+        " -seq: "   << op->opSeqno <<
         " status: " << op->status <<
         " "         << op->statusMsg <<
         " "         << op->Show() <<
