@@ -436,7 +436,7 @@ ClientSM::HandleRequest(int code, void* data)
     }
 
     case EVENT_NET_ERROR: {
-        NetConnection::Filter* filter;
+        const NetConnection::Filter* filter;
         if (mNetConnection->IsGood() &&
                 (filter = mNetConnection->GetFilter()) &&
                 filter->IsShutdownReceived()) {
@@ -451,7 +451,8 @@ ClientSM::HandleRequest(int code, void* data)
                     CLIENT_SM_LOG_STREAM_INFO <<
                         "filter shutdown"
                         " delegation: " << mDelegationToken.Show() <<
-                        " filter: "     << (void*)mNetConnection->GetFilter() <<
+                        " filter: "     <<
+                            (const void*)mNetConnection->GetFilter() <<
                     KFS_LOG_EOM;
                     break;
                 }

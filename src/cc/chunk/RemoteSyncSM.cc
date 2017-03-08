@@ -392,7 +392,8 @@ RemoteSyncSM::Connect()
         bool noFilterFlag = false;
         if (! sAuthPtr->Setup(*mNetConnection, mSessionId, mSessionKey) ||
                 (noFilterFlag = ! mNetConnection->GetFilter()) ||
-                (mShutdownSslFlag && (err = mNetConnection->Shutdown()) != 0)) {
+                ((mSslShutdownInProgressFlag = mShutdownSslFlag) &&
+                    (err = mNetConnection->Shutdown()) != 0)) {
             if (err) {
                 SYNC_SM_LOG_STREAM_ERROR <<
                     "ssl shutdown failed status: " << err <<
@@ -402,10 +403,13 @@ RemoteSyncSM::Connect()
                     "auth context configuration error" <<
                 KFS_LOG_EOM;
             }
+            mSslShutdownInProgressFlag = false;
             mNetConnection.reset();
             return false;
         }
-        mSslShutdownInProgressFlag = mShutdownSslFlag;
+        if (mSslShutdownInProgressFlag && ! mNetConnection->GetFilter()) {
+            mSslShutdownInProgressFlag = false;
+        }
     }
     mLastRecvTime = GetNetManager().Now();
 
