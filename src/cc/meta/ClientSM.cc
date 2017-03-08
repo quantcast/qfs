@@ -372,8 +372,14 @@ ClientSM::HandleRequestSelf(int code, void *data)
                         " ssl: "  << (filter ? 1 : 0) <<
                         " name: " << authName <<
                         " uid: "  << mAuthUid <<
+                        " in: "   <<
+                            mNetConnection->GetNetManagerEntry()->IsIn() <<
+                        " out: "  <<
+                            mNetConnection->GetNetManagerEntry()->IsOut() <<
+                        " rdp: "  << mNetConnection->IsReadPending() <<
                     KFS_LOG_EOM;
                 }
+                break;
             }
         }
         if (! IsOverPendingOpsLimit() &&
@@ -383,7 +389,8 @@ ClientSM::HandleRequestSelf(int code, void *data)
                 mNetConnection->GetNumBytesToWrite() < sMaxWriteBehind) {
             if (mNetConnection->GetNumBytesToRead() > mLastReadLeft ||
                     mDisconnectFlag) {
-                HandleRequest(EVENT_NET_READ, &mNetConnection->GetInBuffer());
+                HandleRequestSelf(
+                    EVENT_NET_READ, &mNetConnection->GetInBuffer());
             } else if (! mNetConnection->IsReadReady()) {
                 mNetConnection->SetMaxReadAhead(sMaxReadAhead);
             }
