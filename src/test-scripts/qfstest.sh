@@ -845,9 +845,9 @@ fi
 if [ $spacecheck -ne 0 ]; then
     waitqfscandcptests
     pausesec=`expr $csheartbeatinterval \* 2`
-    echo "Pausing for tow chunk server chunk server heartbeat intervals:"\
-        "$cpausesec sec. to give a chance for space update to occur."
-    sleep $cpausesec
+    echo "Pausing for two chunk server chunk server heartbeat intervals:"\
+        "$pausesec sec. to give a chance for space update to occur."
+    sleep $pausesec
     n=0
     until df -P -k "$testdir" | awk '
     BEGIN {
