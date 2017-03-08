@@ -96,6 +96,8 @@ public:
     static Error Cleanup();
     static string GetErrorMsg(
         Error inError);
+    static void SetDebugTrace(
+        bool inFlag);
 
     static Ctx* CreateCtx(
         const bool        inServerFlag,

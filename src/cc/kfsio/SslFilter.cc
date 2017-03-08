@@ -660,6 +660,13 @@ public:
             *outErrMsgPtr = QCUtils::SysError(theRet < 0 ? -theRet : theRet);
         }
         if (theRet == 0) {
+            // For now always schedule read in accept state to paper
+            // over possible stale state in ssl handshake / read
+            // state machine.
+            char theByte;
+            mReadPendingFlag = mReadPendingFlag || mServerFlag ||
+                (IsHandshakeDone() &&
+                    0 < SSL_peek(mSslPtr, &theByte, sizeof(theByte)));
             inConnection.Update();
         } else if (mError == 0) {
             mError = 1;
@@ -779,6 +786,11 @@ public:
     }
     string GetPeerId() const
         { return (mSslPtr ? mPeerPskId : string()); }
+    static void SetDebugTrace(
+        bool inFlag)
+        { sDebugTraceFlag = inFlag; }
+    static bool IsDebugTrace()
+        { return sDebugTraceFlag; }
 private:
     SSL*              mSslPtr;
     unsigned long     mError;
@@ -832,6 +844,7 @@ private:
 
     };
     static OpenSslInit* volatile sOpenSslInitPtr;
+    static bool                  sDebugTraceFlag;
 
     static Error GetAndClearErr()
     {
@@ -1387,7 +1400,13 @@ private:
     }
 };
 SslFilter::Impl::OpenSslInit* volatile SslFilter::Impl::sOpenSslInitPtr = 0;
-
+bool SslFilter::Impl::sDebugTraceFlag =
+#ifdef QFS_SSL_FILTER_DEBUG_TRACE
+    true
+#else
+    false
+#endif
+;
     /* static */ SslFilter::Error
 SslFilter::Initialize()
 {
@@ -1404,6 +1423,13 @@ SslFilter::GetErrorMsg(
     SslFilter::Error inError)
 {
     return Impl::GetErrorMsg(inError);
+}
+
+    /* static */ void
+SslFilter::SetDebugTrace(
+    bool inFlag)
+{
+    Impl::SetDebugTrace(inFlag);
 }
 
     /* static */ SslFilter::Ctx*
@@ -1496,7 +1522,36 @@ SslFilter::Read(
     IOBuffer&      inIoBuffer,
     int            inMaxRead)
 {
-    return mImpl.Read(inConnection, inSocket, inIoBuffer, inMaxRead, *this);
+    const bool             theTraceFlag = Impl::IsDebugTrace();
+    const SslFilter* const thePtr       = this;
+    const int              theFd        = inSocket.GetFd();
+    const int              theRet       =
+        mImpl.Read(inConnection, inSocket, inIoBuffer, inMaxRead, *this);
+    if (theTraceFlag) {
+        if (inConnection.GetFilter() != thePtr) {
+            KFS_LOG_STREAM_DEBUG <<
+                "netconn: " << theFd <<
+                " read:"
+                " ret: "    << theRet <<
+                " done"     <<
+            KFS_LOG_EOM;
+        } else {
+            KFS_LOG_STREAM_DEBUG <<
+                "netconn: " << theFd <<
+                " read:"
+                " max: "    << inMaxRead <<
+                " bytes: "  << inIoBuffer.BytesConsumable() <<
+                " ret: "    << theRet <<
+                (mImpl.WantRead(inConnection)  ? " R" : " r") <<
+                (mImpl.WantWrite(inConnection) ?  "W" :  "w") <<
+                (mImpl.IsHandshakeDone()       ?  "h" :  "H") <<
+                (mImpl.IsShutdownReceived()    ?  "S" :  "s") <<
+                (mReadPendingFlag              ?  "P" :  "p") <<
+                " " << mImpl.GetErrorMsg() <<
+            KFS_LOG_EOM;
+        }
+    }
+    return theRet;
 }
 
     /* virtual */ int
@@ -1506,8 +1561,38 @@ SslFilter::Write(
     IOBuffer&      inIoBuffer,
     bool&          outForceInvokeErrHandlerFlag)
 {
-    return mImpl.Write(inConnection, inSocket, inIoBuffer,
-        outForceInvokeErrHandlerFlag, *this);
+    const bool             theTraceFlag = Impl::IsDebugTrace();
+    const SslFilter* const thePtr       = this;
+    const int              theFd        = inSocket.GetFd();
+    const int              theNWr       = inIoBuffer.BytesConsumable();
+    const int              theRet       = mImpl.Write(inConnection, inSocket,
+        inIoBuffer, outForceInvokeErrHandlerFlag, *this);
+    if (theTraceFlag) {
+        if (inConnection.GetFilter() != thePtr) {
+            KFS_LOG_STREAM_DEBUG <<
+                "netconn: " << theFd <<
+                " write:"
+                " ret: "    << theRet <<
+                " done"     <<
+            KFS_LOG_EOM;
+        } else {
+            KFS_LOG_STREAM_DEBUG <<
+                "netconn: " << theFd <<
+                " write:"
+                " out: "    << theNWr <<
+                " bytes: "  << inIoBuffer.BytesConsumable() <<
+                " ret: "    << theRet <<
+                (mImpl.WantRead(inConnection)  ? " R" : " r") <<
+                (mImpl.WantWrite(inConnection) ?  "W" :  "w") <<
+                (mImpl.IsHandshakeDone()       ?  "h" :  "H") <<
+                (mImpl.IsShutdownReceived()    ?  "S" :  "s") <<
+                (mReadPendingFlag              ?  "P" :  "p") <<
+                (outForceInvokeErrHandlerFlag  ?  "E" :  "e") <<
+                " " << mImpl.GetErrorMsg() <<
+            KFS_LOG_EOM;
+        }
+    }
+    return theRet;
 }
 
     /* virtual */ void
@@ -1515,7 +1600,15 @@ SslFilter::Close(
     NetConnection& inConnection,
     TcpSocket*     inSocketPtr)
 {
+    const bool theTraceFlag = Impl::IsDebugTrace();
+    const int  theFd        = inSocketPtr ? inSocketPtr->GetFd() : -1;
     mImpl.Close(inConnection, inSocketPtr, *this);
+    if (theTraceFlag) {
+        KFS_LOG_STREAM_DEBUG <<
+            "close:"
+            " netconn: " << theFd <<
+        KFS_LOG_EOM;
+    }
 }
 
     /* virtual */ int
@@ -1523,7 +1616,29 @@ SslFilter::Shutdown(
     NetConnection& inConnection,
     TcpSocket&     inSocket)
 {
-    return mImpl.Shutdown(inConnection, inSocket, *this);
+    const bool             theTraceFlag = Impl::IsDebugTrace();
+    const int              theFd        = inSocket.GetFd();
+    const SslFilter* const thePtr       = this;
+    const int              theRet       =
+        mImpl.Shutdown(inConnection, inSocket, *this);
+    if (theTraceFlag) {
+        const bool theDoneFlag = inConnection.GetFilter() != thePtr;
+        KFS_LOG_STREAM_DEBUG <<
+            "netconn: "  << theFd <<
+            " shutdown:"
+            " ret: "     << theRet <<
+            " done: "    << theDoneFlag <<
+            (theDoneFlag ? "" :
+                (mImpl.WantRead(inConnection)  ? " R" : " r")) <<
+            (theDoneFlag ? "" :
+                (mImpl.WantWrite(inConnection) ?  "W" :  "w")) <<
+            (theDoneFlag ? "" :
+                (mImpl.IsHandshakeDone()       ?  "h" :  "H")) <<
+            (theDoneFlag ? "" : " ") <<
+            (theDoneFlag ? "" : mImpl.GetErrorMsg()) <<
+        KFS_LOG_EOM;
+    }
+    return theRet;
 }
 
     /* virtual */ int
@@ -1532,7 +1647,37 @@ SslFilter::Attach(
     TcpSocket*     inSocketPtr,
     string*        outErrMsgPtr)
 {
-    return mImpl.Attach(inConnection, inSocketPtr, outErrMsgPtr);
+    const bool             theTraceFlag = Impl::IsDebugTrace();
+    const SslFilter* const thePtr       = this;
+    const int              theFd        =
+        inSocketPtr ? inSocketPtr->GetFd() : -1;
+    const int              theRet       =
+        mImpl.Attach(inConnection, inSocketPtr, outErrMsgPtr);
+    if (theTraceFlag) {
+        if (inConnection.GetFilter() != thePtr) {
+            KFS_LOG_STREAM_DEBUG <<
+                "netconn: " << theFd <<
+                " attach:"
+                " ret: "    << theRet <<
+                " done"     <<
+            KFS_LOG_EOM;
+        } else {
+            KFS_LOG_STREAM_DEBUG <<
+                "netconn: "  << theFd <<
+                " attach:"
+                " ret: "     << theRet <<
+                (mImpl.WantRead(inConnection)  ? " R" : " r") <<
+                (mImpl.WantWrite(inConnection) ?  "W" :  "w") <<
+                (mImpl.IsHandshakeDone()       ?  "h" :  "H") <<
+                (mImpl.IsShutdownReceived()    ?  "S" :  "s") <<
+                (mReadPendingFlag              ?  "P" :  "p") <<
+                (inConnection.GetNetManagerEntry()->IsIn() ?  "I" : "i") <<
+                (inConnection.GetNetManagerEntry()->IsOut() ? "O" : "o") <<
+                " " << mImpl.GetErrorMsg() <<
+            KFS_LOG_EOM;
+        }
+    }
+    return theRet;
 }
 
     /* virtual */ void
