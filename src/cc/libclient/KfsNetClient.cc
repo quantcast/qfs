@@ -2279,6 +2279,10 @@ private:
                     RetryConnect(0, theStatus < 0 ? theStatus : -EIO);
                     return;
                 }
+                if (! mConnPtr->GetFilter() && mSslShutdownInProgressFlag) {
+                    mSslShutdownInProgressFlag = false;
+                    mConnPtr->StartFlush();
+                }
             }
             mSessionExpirationTime = mKeyExpirationTime;
             mSessionKeyId          = mKeyId;
