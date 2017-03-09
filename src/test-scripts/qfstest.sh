@@ -522,6 +522,7 @@ metaServer.objectStorePlacementTest = 1
 metaServer.replicationCheckInterval = 0.5
 metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.dumpsterCleanupDelaySec = 2
+metaServer.maxDumpsterDeletePerRun = 2
 EOF
 
 if [ x"$myvalgrind" = x ]; then

@@ -6154,7 +6154,8 @@ MetaRemoveFromDumpster::handle()
         gLayoutManager.DumpsterCleanupDone(fid, name);
     } else {
         // Log failure -- reschedule.
-        gLayoutManager.ScheduleDumpsterCleanup(fid, name);
+        const int kDelay = 0;
+        gLayoutManager.ScheduleDumpsterCleanup(fid, name, kDelay);
     }
 }
 

@@ -351,6 +351,7 @@ ChunkLeases::ChunkLeases(
       mReadLeaseTimer(now),
       mWriteLeaseTimer(now),
       mDumpsterCleanupTimer(now),
+      mPendingDeleteList(),
       mWAllocationInFlightList(),
       mDumpsterCleanupDelaySec(LEASE_INTERVAL_SECS)
 {}
@@ -363,11 +364,11 @@ ChunkLeases::DecrementFileLease(
         return;
     }
     FEntry* const entry = mFileLeases.Find(fid);
-    if (! entry || entry->Get().mCount <= 0) {
+    if (! entry || entry->Get().mCount <= 1) {
         panic("internal error: invalid decrement file lease count");
         return;
     }
-    if (--(entry->Get().mCount) <= 0) {
+    if (--(entry->Get().mCount) <= 1) {
         if (entry->Get().mName.empty()) {
             mFileLeases.Erase(fid);
         } else {
@@ -377,20 +378,28 @@ ChunkLeases::DecrementFileLease(
     }
 }
 
-inline void
+inline bool
 ChunkLeases::IncrementFileLease(
     fid_t fid)
 {
     if (fid < 0) {
-        return;
+        return false;
     }
     bool insertedFlag = false;
     FEntry* const entry = mFileLeases.Insert(fid, FEntry(), insertedFlag);
-    if (! entry || ++(entry->Get().mCount) <= 0) {
+    if (! insertedFlag && entry->Get().mCount <= 0) {
+        KFS_LOG_STREAM_DEBUG <<
+            "delete pending: fid: " << fid <<
+            " name: "               << entry->Get().mName <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (++(entry->Get().mCount) <= 1) {
         panic("internal error: invalid increment file lease count");
-        return;
+        return false;
     }
     FEntry::List::Remove(*entry);
+    return true;
 }
 
 inline void
@@ -974,12 +983,14 @@ public:
         int            ownerDownExpireDelay,
         ARAChunkCache& arac,
         CSMap&         csmap,
-        ChunkLeases&   leases)
+        ChunkLeases&   leases,
+        int            delRem)
         : mNow(now),
           mOwnerDownExpireDelay(ownerDownExpireDelay),
           mArac(arac),
           mCsmap(csmap),
-          mLeases(leases)
+          mLeases(leases),
+          mDeleteRem(delRem)
         {}
     void operator()(
         REntry& inEntry)
@@ -998,15 +1009,22 @@ public:
     void operator()(
         FEntry& inEntry)
     {
-        FileEntry theEntry = inEntry.Get();
-        if (theEntry.mName.empty() || 0 != theEntry.mCount) {
+        FileEntry& theEntry = inEntry.Get();
+        if (theEntry.mName.empty() || 1 != theEntry.mCount) {
             panic("invalid file leases entry");
         }
         // The entry must be removed from the timer list.
         // Log write completion will re-schedule if needed
+        theEntry.mCount = 0;
         FEntry::List::Remove(inEntry);
-        submit_request(new MetaRemoveFromDumpster(
-            theEntry.mName, inEntry.GetKey()));
+        if (mDeleteRem <= 0) {
+            FEntry::List::Insert(inEntry,
+                FEntry::List::GetPrev((mLeases.mPendingDeleteList)));
+        } else {
+            mDeleteRem--;
+            submit_request(new MetaRemoveFromDumpster(
+                theEntry.mName, inEntry.GetKey()));
+        }
     }
 private:
     time_t const   mNow;
@@ -1014,27 +1032,50 @@ private:
     ARAChunkCache& mArac;
     CSMap&         mCsmap;
     ChunkLeases&   mLeases;
+    int            mDeleteRem;
 private:
     LeaseCleanup(const LeaseCleanup&);
     LeaseCleanup& operator=(const LeaseCleanup&);
 };
 
-inline void
+inline bool
 ChunkLeases::Timer(
     time_t         now,
     int            ownerDownExpireDelay,
     ARAChunkCache& arac,
-    CSMap&         csmap)
+    CSMap&         csmap,
+    int            maxDelete)
 {
     if (mTimerRunningFlag) {
-        return; // Do not allow recursion.
+        return false; // Do not allow recursion.
     }
+    const int remDel = maxDelete - ProcessPendingDelete(maxDelete);
     mTimerRunningFlag = true;
-    LeaseCleanup cleanup(now, ownerDownExpireDelay, arac, csmap, *this);
+    LeaseCleanup cleanup(now, ownerDownExpireDelay, arac, csmap, *this,
+        remDel);
     mReadLeaseTimer.Run(now, cleanup);
     mWriteLeaseTimer.Run(now, cleanup);
     mDumpsterCleanupTimer.Run(now, cleanup);
     mTimerRunningFlag = false;
+    return FEntry::List::IsInList(mPendingDeleteList);
+}
+
+inline int
+ChunkLeases::ProcessPendingDelete(
+    int maxDelete)
+{
+    int cnt = 0;
+    while (cnt < maxDelete) {
+        FEntry& entry = FEntry::List::GetNext(mPendingDeleteList);
+        if (&mPendingDeleteList == &entry) {
+            break;
+        }
+        FEntry::List::Remove(entry);
+        submit_request(
+            new MetaRemoveFromDumpster(entry.Get().mName, entry.GetKey()));
+        cnt++;
+    }
+    return cnt;
 }
 
 inline void
@@ -1081,6 +1122,16 @@ ChunkLeases::StopServicing(
             Erase(we, fid);
         }
     }
+    const time_t now = TimeNow();
+    for (; ;) {
+        FEntry& entry = FEntry::List::GetNext(mPendingDeleteList);
+        if (&mPendingDeleteList == &entry) {
+            break;
+        }
+        FEntry::List::Remove(entry);
+        entry.Get().mCount = 1;
+        mDumpsterCleanupTimer.Schedule(entry, now);
+    }
 }
 
 inline void
@@ -1116,7 +1167,11 @@ ChunkLeases::NewReadLease(
     const time_t         exp    =
         insertedFlag ? expires + 1 : h.GetExpiration();
     if (insertedFlag) {
-        IncrementFileLease(fid);
+        if (! IncrementFileLease(fid)) {
+            // Already in pending delete queue.
+            mReadLeases.Erase(key);
+            return false;
+        }
     }
     leaseId = NewReadLeaseId();
     insertedFlag = false;
@@ -1402,7 +1457,8 @@ ChunkLeases::GetOpenFiles(
 inline void
 ChunkLeases::ScheduleDumpsterCleanup(
     fid_t         inFid,
-    const string& inName)
+    const string& inName,
+    int           inDelaySec)
 {
     bool          insertedFlag = false;
     FEntry* const entry        = mFileLeases.Insert(
@@ -1411,9 +1467,12 @@ ChunkLeases::ScheduleDumpsterCleanup(
         panic("invalid file lease entry");
     }
     entry->Get().mName = inName;
-    if (entry->Get().mCount <= 0) {
+    size_t& count = entry->Get().mCount;
+    if (count <= 1) {
+        count = 1;
         mDumpsterCleanupTimer.Schedule(
-            *entry, TimeNow() + mDumpsterCleanupDelaySec);
+            *entry, TimeNow() +
+            (inDelaySec < 0 ? mDumpsterCleanupDelaySec : inDelaySec));
     }
 }
 
@@ -1423,7 +1482,7 @@ ChunkLeases::DumpsterCleanupDone(
     const string& inName)
 {
     FEntry* const entry = mFileLeases.Find(inFid);
-    if (! entry || entry->Get().mCount != 0 || inName != entry->Get().mName) {
+    if (! entry || 1 < entry->Get().mCount || inName != entry->Get().mName) {
         panic("internal error: invalid dumpster delete completion");
     }
     mFileLeases.Erase(inFid);
@@ -1701,6 +1760,7 @@ LayoutManager::LayoutManager()
       mSlavesCount(0),
       mAssignMasterByIpFlag(false),
       mLeaseOwnerDownExpireDelay(30),
+      mMaxDumpsterDeletePerRun(256),
       mMaxReservationSize(4 << 20),
       mReservationDecayStep(4), // decrease by factor of 2 every 4 sec
       mChunkReservationThreshold(CHUNKSIZE),
@@ -2090,6 +2150,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mLeaseOwnerDownExpireDelay = max(0, props.getValue(
         "metaServer.leaseOwnerDownExpireDelay",
         mLeaseOwnerDownExpireDelay));
+    mMaxDumpsterDeletePerRun = max(2, props.getValue(
+        "metaServer.maxDumpsterDeletePerRun",
+        mMaxDumpsterDeletePerRun));
     mMaxReservationSize = max(0, props.getValue(
         "metaServer.wappend.maxReservationSize",
         mMaxReservationSize));
@@ -7622,9 +7685,10 @@ LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
 void
 LayoutManager::ScheduleDumpsterCleanup(
     fid_t         fid,
-    const string& name)
+    const string& name,
+    int           delay)
 {
-    mChunkLeases.ScheduleDumpsterCleanup(fid, name);
+    mChunkLeases.ScheduleDumpsterCleanup(fid, name, delay);
 }
 
 void
@@ -8687,8 +8751,10 @@ LayoutManager::LeaseCleanup(
         return;
     }
     const time_t now = (time_t)startTime;
-    mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
-        mARAChunkCache, mChunkToServerMap);
+    if (mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
+            mARAChunkCache, mChunkToServerMap, mMaxDumpsterDeletePerRun)) {
+        mLeaseCleaner.ScheduleNext();
+    };
     if (now < mLeaseCleanerOtherNextRunTime) {
         return;
     }
@@ -9165,16 +9231,16 @@ LayoutManager::Handle(MetaLeaseRelinquish& req)
         req, mARAChunkCache, mChunkToServerMap);
 }
 
-// Periodically, check the status of all the leases
-// This is an expensive call...use sparingly....
 void
 LayoutManager::CheckAllLeases()
 {
     if (! mPrimaryFlag) {
         return;
     }
-    mChunkLeases.Timer(TimeNow(), mLeaseOwnerDownExpireDelay,
-        mARAChunkCache, mChunkToServerMap);
+    if (mChunkLeases.Timer(TimeNow(), mLeaseOwnerDownExpireDelay,
+            mARAChunkCache, mChunkToServerMap, mMaxDumpsterDeletePerRun)) {
+        mLeaseCleaner.ScheduleNext();
+    }
 }
 
 /*

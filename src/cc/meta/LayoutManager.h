@@ -285,11 +285,12 @@ public:
         const EntryKey& key,
         ARAChunkCache&  arac,
         CSMap&          csmap);
-    inline void Timer(
+    inline bool Timer(
         time_t         now,
         int            ownerDownExpireDelay,
         ARAChunkCache& arac,
-        CSMap&         csmap);
+        CSMap&         csmap,
+        int            maxDelete);
     inline int LeaseRelinquish(
         const MetaLeaseRelinquish& req,
         ARAChunkCache&             arac,
@@ -319,7 +320,8 @@ public:
     }
     inline void ScheduleDumpsterCleanup(
         fid_t         inFid,
-        const string& inName);
+        const string& inName,
+        int           inDelaySec);
     inline void DumpsterCleanupDone(
         fid_t         inFid,
         const string& inName);
@@ -336,6 +338,8 @@ public:
         ARAChunkCache& arac,
         CSMap&         csmap);
     inline void SetTimerNextRunTime();
+    inline int ProcessPendingDelete(
+        int maxDelete);
 private:
     class EntryKeyHash
     {
@@ -527,7 +531,7 @@ private:
     public:
         FileEntry(
             const string& inName  = string(),
-            size_t        inCount = 0)
+            size_t        inCount = 1)
             : mCount(inCount),
               mName(inName)
             {}
@@ -562,6 +566,7 @@ private:
     ReadLeaseTimer       mReadLeaseTimer;
     WriteLeaseTimer      mWriteLeaseTimer;
     DumpsterCleanupTimer mDumpsterCleanupTimer;
+    FEntry               mPendingDeleteList;
     WEntry               mWAllocationInFlightList;
     int                  mDumpsterCleanupDelaySec;
 
@@ -608,7 +613,7 @@ private:
     inline LeaseId NewWriteLeaseId();
     inline void DecrementFileLease(
         fid_t fid);
-    inline void IncrementFileLease(
+    inline bool IncrementFileLease(
         fid_t fid);
 private:
     ChunkLeases(
@@ -1450,7 +1455,12 @@ public:
         { return mIdempotentRequestTracker; }
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
-    void ScheduleDumpsterCleanup(fid_t fid, const string& name);
+    void ScheduleDumpsterCleanup(fid_t fid, const string& name, int delay);
+    void ScheduleDumpsterCleanup(fid_t fid, const string& name)
+    {
+        const int kDefaultDelay = -1;
+        ScheduleDumpsterCleanup(fid, name, kDefaultDelay);
+    }
     void DumpsterCleanupDone(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void SetPrimary(bool flag);
@@ -2243,6 +2253,7 @@ protected:
     size_t mSlavesCount;
     bool   mAssignMasterByIpFlag;
     int    mLeaseOwnerDownExpireDelay;
+    int    mMaxDumpsterDeletePerRun;
     // Write append space reservation accounting.
     int    mMaxReservationSize;
     int    mReservationDecayStep;
