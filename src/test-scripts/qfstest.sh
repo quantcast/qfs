@@ -729,13 +729,29 @@ EOF
 fi
 
 echo "Waiting for chunk servers to connect to meta server."
-remretry=20
-until [ `qfsadmin \
-            -s "$metahost" -p "$metasrvport" -f "$clientrootprop" upservers \
-        | wc -l` -eq $numchunksrv ]; do
+remretry=30
+until [ `qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
+            upservers 2>/dev/null | wc -l` -eq $numchunksrv ]; do
     kill -0 "$metapid" || exit
     remretry=`expr $remretry - 1`
-    [ $remretry -le 0 ] && break
+    if [ $remretry -le 0 ]; then
+        echo "Wait for chunk servers to connect timed out" 1>&2
+        exit 1
+    fi
+    sleep 1
+done
+remretry=30
+until qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
+            ping 2>/dev/null \
+        | grep 'System Info:' \
+        | tr '\t' '\n' \
+        | grep 'In recovery= 0' > /dev/null; do
+    kill -0 "$metapid" || exit
+    remretry=`expr $remretry - 1`
+    if [ $remretry -le 0 ]; then
+        echo "Wait for QFS startup timed out" 1>&2
+        exit 1
+    fi
     sleep 1
 done
 
