@@ -405,7 +405,7 @@ Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
     if (0 < fa->chunkcount()) {
         StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
         vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
-        if (0 < entriesCount && fa->chunkcount() < entriesCount) {
+        if (0 < entriesCount && entriesCount < fa->chunkcount()) {
             MetaFattr* ffa = 0;
             const int  status = getalloc(fid, ffa, chunkInfo, entriesCount);
             if (0 != status) {

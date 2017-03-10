@@ -4216,7 +4216,7 @@ struct MetaRemoveFromDumpster : public MetaRequest {
         .Def("N", &MetaRemoveFromDumpster::name)
         .Def("P", &MetaRemoveFromDumpster::fid, fid_t(-1))
         .Def("T", &MetaRemoveFromDumpster::mtime)
-        .Def("E", &MetaRemoveFromDumpster::entriesCount, -1)
+        .Def("C", &MetaRemoveFromDumpster::entriesCount, -1)
         ;
     }
 };
