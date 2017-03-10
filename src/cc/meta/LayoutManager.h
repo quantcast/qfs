@@ -325,6 +325,9 @@ public:
     inline void DumpsterCleanupDone(
         fid_t         inFid,
         const string& inName);
+    inline bool MoveFromDumpster(
+        fid_t         inFid,
+        const string& inName);
     void SetDumpsterCleanupDelaySec(
         int inDelay)
     {
@@ -1462,6 +1465,7 @@ public:
         ScheduleDumpsterCleanup(fid, name, kDefaultDelay);
     }
     void DumpsterCleanupDone(fid_t fid, const string& name);
+    bool MoveFromDumpster(fid_t fid, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void SetPrimary(bool flag);
     bool IsPrimary() const

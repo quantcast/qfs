@@ -407,12 +407,7 @@ ChunkLeases::Erase(
     ChunkLeases::WEntry& wl,
     fid_t                fid)
 {
-    if (0 <= fid) {
-        const MetaAllocate* const alloc = wl.Get().allocInFlight;
-        if (! alloc || 0 <= alloc->initialChunkVersion) {
-            DecrementFileLease(fid);
-        }
-    }
+    DecrementFileLease(fid);
     if (mWriteLeases.Erase(wl.GetKey()) != 1) {
         panic("internal error: write lease delete failure");
     }
@@ -1211,8 +1206,9 @@ ChunkLeases::NewWriteLease(
     req.leaseDuration = req.authUid != kKfsUserNone ?
         l->Get().endTime - TimeNow() : int64_t(-1);
     if (insertedFlag) {
-        if (0 <= req.initialChunkVersion) {
-            IncrementFileLease(req.fid);
+        if (! IncrementFileLease(req.fid)) {
+            mWriteLeases.Erase(key);
+            return false;
         }
         PutInExpirationList(*l);
     }
@@ -1273,10 +1269,6 @@ ChunkLeases::Renew(
         return -ELEASEEXPIRED;
     }
     if (allocDoneFlag) {
-        if (wl.allocInFlight &&
-                wl.allocInFlight->initialChunkVersion < 0) {
-            IncrementFileLease(fid);
-        }
         wl.allocInFlight = 0;
         wl.expires       = now - 1; // Force move into expiration list.
     }
@@ -1486,6 +1478,25 @@ ChunkLeases::DumpsterCleanupDone(
         panic("internal error: invalid dumpster delete completion");
     }
     mFileLeases.Erase(inFid);
+}
+
+inline bool
+ChunkLeases::MoveFromDumpster(
+    fid_t         inFid,
+    const string& inName)
+{
+    FEntry* const entry = mFileLeases.Find(inFid);
+    if (! entry || inName != entry->Get().mName) {
+        panic("internal error: invalid move from dumpster invocation");
+    }
+    if (entry->Get().mCount <= 0) {
+        // Delete already in progress.
+        return false;
+    }
+    // Remove from the timer wheel.
+    entry->Get().mName.clear();
+    FEntry::List::Remove(*entry);
+    return true;
 }
 
 inline LayoutManager::Servers::const_iterator
@@ -7697,6 +7708,14 @@ LayoutManager::DumpsterCleanupDone(
     const string& name)
 {
     mChunkLeases.DumpsterCleanupDone(fid, name);
+}
+
+bool
+LayoutManager::MoveFromDumpster(
+    fid_t         fid,
+    const string& name)
+{
+    return mChunkLeases.MoveFromDumpster(fid, name);
 }
 
 bool

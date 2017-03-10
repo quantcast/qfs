@@ -2047,15 +2047,17 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             return status;
         }
     }
+    if (getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
+            ! gLayoutManager.MoveFromDumpster(srcfid, src->getName())) {
+        KFS_LOG_STREAM_ERROR <<
+            newname << ": attempt to move from dumpster denied" <<
+        KFS_LOG_EOM;
+        return -EPERM;
+    }
 
     // invalidate the path->fid cache mappings
     const bool kRemoveDirPrefixFlag = true;
     invalidatePathCache(oldpath, oldname, sfattr, kRemoveDirPrefixFlag);
-    const string movedFromDumpsterName(
-        (t == KFS_FILE && getDumpsterDirId() == src->getDir()) ?
-        src->getName() : string()
-    );
-
     sdfattr->mtime = mtime;
     if (t == KFS_DIR && ddfattr) {
         // get rid of the linkage of the "old" ..
@@ -2095,13 +2097,6 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
             kKfsUserNone, kKfsGroupNone, 0, ddfattr, 0, mtime);
         assert(status == 0);
-    }
-    if (! movedFromDumpsterName.empty()) {
-        KFS_LOG_STREAM_INFO <<
-            "moved out of dumpster: " << movedFromDumpsterName <<
-            " to: "                   << newname <<
-        KFS_LOG_EOM;
-        gLayoutManager.DumpsterCleanupDone(srcfid, movedFromDumpsterName);
     }
     return 0;
 }
