@@ -6141,22 +6141,13 @@ void
 MetaRemoveFromDumpster::handle()
 {
     if (status == 0) {
-        const fid_t ddir = metatree.getDumpsterDirId();
-        if (ddir < 0) {
-            panic("no dumpster");
-        }
-        fid_t todumpster = -1;
-        status = metatree.remove(ddir, name, string(), todumpster,
-            kKfsUserRoot, kKfsGroupRoot, mtime);
-        if (status < 0) {
+        status = metatree.removeFromDumpster(
+            fid, name, mtime, entriesCount, cleanupDoneFlag);
+        if (0 != status) {
             panic("dumpster entry delete failure");
         }
-        gLayoutManager.DumpsterCleanupDone(fid, name);
-    } else {
-        // Log failure -- reschedule.
-        const int kDelay = 0;
-        gLayoutManager.ScheduleDumpsterCleanup(fid, name, kDelay);
     }
+    gLayoutManager.Handle(*this);
 }
 
 bool

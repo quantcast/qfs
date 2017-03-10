@@ -673,6 +673,8 @@ public:
     ChunkIterator getAlloc(fid_t fid, MetaFattr*& fa) const;
     DentryIterator readDir(fid_t dir) const;
     fid_t getDumpsterDirId();
+    int removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
+        int entriesCount, bool& outCleanupDoneFlag);
 private:
     Tree(const Tree&);
     Tree& operator=(const Tree&);

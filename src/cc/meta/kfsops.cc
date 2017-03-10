@@ -219,7 +219,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
             numReplicas << ") for " << fname << KFS_LOG_EOM;
         return -EINVAL;
     }
-    MetaFattr* const parent = metatree.getFattr(dir);
+    MetaFattr* const parent = getFattr(dir);
     if (! parent) {
         return -ENOENT;
     }
@@ -386,6 +386,62 @@ Tree::setFileSize(MetaFattr* fa, chunkOff_t size, int64_t nfiles, int64_t ndirs)
     fa->filesize = size;
 }
 
+int
+Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
+    int entriesCount, bool& outCleanupDoneFlag)
+{
+    outCleanupDoneFlag = false;
+    const fid_t dir    = getDumpsterDirId();
+    MetaFattr*  fa     = 0;
+    MetaFattr*  parent = 0;
+    const int   status = lookup(
+        dir, name, kKfsUserRoot, kKfsGroupRoot, fa, &parent);
+    if (0 != status) {
+        return status;
+    }
+    if (KFS_FILE != fa->type || fa->id() != fid) {
+        return -EINVAL;
+    }
+    if (0 < fa->chunkcount()) {
+        StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+        vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+        if (0 < entriesCount && fa->chunkcount() < entriesCount) {
+            MetaFattr* ffa = 0;
+            const int  status = getalloc(fid, ffa, chunkInfo, entriesCount);
+            if (0 != status) {
+                return status;
+            }
+            if (ffa != fa) {
+                panic("remove from dumpster get alloc failure");
+                return -EFAULT;
+            }
+        } else {
+            getalloc(fid, chunkInfo);
+            assert(fa->chunkcount() == (int64_t)chunkInfo.size());
+        }
+        const int64_t cnt = (int64_t)chunkInfo.size();
+        fa->chunkcount() -= cnt;
+        UpdateNumChunks(-cnt);
+        // fire-away...
+        for_each(chunkInfo.begin(), chunkInfo.end(),
+             mem_fun(&MetaChunkInfo::DeleteChunk));
+        if (fa->chunkcount()) {
+            if (0 < fa->filesize) {
+                setFileSize(fa, 0);
+            }
+            return 0;
+        }
+    } else if (0 == fa->numReplicas) {
+        gLayoutManager.DeleteFile(*fa);
+    }
+    UpdateNumFiles(-1);
+    parent->mtime = mtime;
+    setFileSize(fa, 0, -1, 0);
+    unlink(dir, name, fa, false);
+    outCleanupDoneFlag = true;
+    return 0;
+}
+
 /*!
  * \brief remove a file
  * \param[in] dir   file id of the parent directory
@@ -471,7 +527,7 @@ Tree::mkdir(fid_t dir, const string& dname,
         KFS_LOG_EOM;
         return -EPERM;
     }
-    MetaFattr* const parent = metatree.getFattr(dir);
+    MetaFattr* const parent = getFattr(dir);
     if ((! parent || parent->type != KFS_DIR) &&
             (dir != ROOTFID && dname != "/")) {
         return -ENOTDIR;

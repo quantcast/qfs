@@ -4184,14 +4184,19 @@ struct MetaRemoveFromDumpster : public MetaRequest {
     string  name;
     fid_t   fid;
     int64_t mtime;
+    bool    cleanupDoneFlag;
+    int     entriesCount;
 
     MetaRemoveFromDumpster(
-        const string& nm = string(),
-        fid_t         id = -1)
+        const string& nm    = string(),
+        fid_t         id    = -1,
+        int           count = -1)
         : MetaRequest(META_REMOVE_FROM_DUMPSTER, kLogIfOk),
           name(nm),
           fid(id),
-          mtime()
+          mtime(),
+          cleanupDoneFlag(false),
+          entriesCount(count)
         {}
     bool Validate()
         { return (0 <= fid && ! name.empty()); }
@@ -4201,7 +4206,9 @@ struct MetaRemoveFromDumpster : public MetaRequest {
     {
         return os <<
             "remove-from-dumpster: " << name <<
-            " fid: "                 << fid;
+            " fid: "                 << fid <<
+            " entries: "             << entriesCount <<
+            " done: "                << cleanupDoneFlag;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
@@ -4209,6 +4216,7 @@ struct MetaRemoveFromDumpster : public MetaRequest {
         .Def("N", &MetaRemoveFromDumpster::name)
         .Def("P", &MetaRemoveFromDumpster::fid, fid_t(-1))
         .Def("T", &MetaRemoveFromDumpster::mtime)
+        .Def("E", &MetaRemoveFromDumpster::entriesCount, -1)
         ;
     }
 };
