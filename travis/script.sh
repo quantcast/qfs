@@ -95,6 +95,7 @@ do_build()
     else
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS' -D CMAKE_BUILD_TYPE=RelWithDebInfo'
     fi
+    sync || true
     $MYSU make ${1+"$@"} \
         BUILD_TYPE="$MYBUILD_TYPE" \
         CMAKE="$MYCMAKE" \

@@ -585,6 +585,9 @@ cat >> "$metasrvprop" << EOF
 metaServer.csmap.unittest = 1
 EOF
 
+echo "Sync before to starting tests."
+sync
+
 myrunprog "$metabindir"/metaserver \
     "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 metapid=$!
