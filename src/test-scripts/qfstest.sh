@@ -521,7 +521,6 @@ metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStorePlacementTest = 1
 metaServer.replicationCheckInterval = 0.5
 metaServer.checkpoint.lockFileName = ckpt.lock
-metaServer.dumpsterCleanupDelaySec = 2
 metaServer.maxDumpsterCleanupInFlight = 2
 EOF
 
@@ -605,7 +604,10 @@ remretry=20
 until qfsshell -s "$metahost" -p "$metasrvport" -q -- stat / 1>/dev/null; do
     kill -0 "$metapid" || exit
     remretry=`expr $remretry - 1`
-    [ $remretry -le 0 ] && break
+    if [ $remretry -le 0 ]; then
+        echo "Wait for meta server startup timed out."
+        exit 1
+    fi
     sleep 3
 done
 
@@ -757,6 +759,36 @@ until qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
     fi
     sleep 1
 done
+
+echo "Testing dumpster"
+myfsurl="qfs://${metahost}:${metasrvport}/"
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -touchz /dumpstertest || exit
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -rm -skipTrash /dumpstertest || exit
+dumpstertest="`QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -mv "$dumpstertest" '/dumpster/test' && exit
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -mv "$dumpstertest" /dumpstertest || exit
+# QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+#    -rm -skipTrash /dumpstertest || exit
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -mkdir  /dumpster/test && exit
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -touchz  /dumpster/test && exit
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -rm -skipTrash  /dumpster && exit
+
+# Shorten dumpster cleanup interval to reclaim space faster.
+(
+    cd "$metasrvdir" || exit
+    cat >> "$metasrvprop" << EOF
+metaServer.dumpsterCleanupDelaySec = 2
+EOF
+) || exit
+kill -HUP $metapid
 
 if [ x"$jerasuretest" = 'x' ]; then
     if qfs -ecinfo | grep -w jerasure > /dev/null; then
