@@ -151,7 +151,7 @@ usr=`id -un`
 [ -f "$clirootcfg" ] || clirootcfg=/dev/null
 
 if [ $stop -ne 0 ]; then
-    trap shutdown EXIT
+    trap shutdown EXIT INT HUP
 fi
 
 datastripes=`echo "$filecreateparams" | cut -d , -f 2`
