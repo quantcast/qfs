@@ -762,23 +762,23 @@ done
 
 echo "Testing dumpster"
 myfsurl="qfs://${metahost}:${metasrvport}/"
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -touchz /dumpstertest || exit
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -rm -skipTrash /dumpstertest || exit
 dumpstertest="`QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
-    -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+    -D fs.euser=0 -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -mv "$dumpstertest" '/dumpster/test' && exit
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -mv "$dumpstertest" /dumpstertest || exit
-# QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+# QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
 #    -rm -skipTrash /dumpstertest || exit
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -mkdir  /dumpster/test && exit
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -touchz  /dumpster/test && exit
-QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" \
+QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
     -rm -skipTrash  /dumpster && exit
 
 # Shorten dumpster cleanup interval to reclaim space faster.
