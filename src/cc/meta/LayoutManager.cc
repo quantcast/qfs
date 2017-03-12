@@ -1856,7 +1856,7 @@ LayoutManager::LayoutManager()
       mSlavesCount(0),
       mAssignMasterByIpFlag(false),
       mLeaseOwnerDownExpireDelay(30),
-      mMaxDumpsterCleanupInFlight(2 << 10),
+      mMaxDumpsterCleanupInFlight(256),
       mMaxReservationSize(4 << 20),
       mReservationDecayStep(4), // decrease by factor of 2 every 4 sec
       mChunkReservationThreshold(CHUNKSIZE),
