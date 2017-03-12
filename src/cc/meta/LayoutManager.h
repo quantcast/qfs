@@ -319,12 +319,11 @@ public:
         return (entry ? entry->Get().mCount : size_t(0));
     }
     inline void ScheduleDumpsterCleanup(
-        fid_t         inFid,
-        const string& inName,
-        int           inDelaySec);
+        const MetaFattr& inFa,
+        const string&    inName);
     inline bool MoveFromDumpster(
-        fid_t         inFid,
-        const string& inName);
+        const MetaFattr& inFa,
+        const string&    inName);
     void SetDumpsterCleanupDelaySec(
         int inDelay)
     {
@@ -340,11 +339,17 @@ public:
     inline void SetTimerNextRunTime();
     inline void ProcessPendingDelete(
         int maxDelete);
+    inline bool IsDeleteScheduled(
+        fid_t fid) const;
     inline bool IsDeletePending(
         fid_t fid) const;
     inline int Handle(
         MetaRemoveFromDumpster& op,
         int                     maxInFlightEntriesCount);
+    inline void RescheduleDumpsterCleanup(
+        time_t nextRunTime)
+        { mDumpsterCleanupTimer.SetNextRunTime(nextRunTime); }
+
 private:
     class EntryKeyHash
     {
@@ -535,13 +540,14 @@ private:
     {
     public:
         FileEntry(
-            const string& inName  = string(),
-            size_t        inCount = 1)
-            : mCount(inCount),
+            const string& inName = string())
+            : mCount(1),
+              mFa(0),
               mName(inName)
             {}
-        size_t mCount;
-        string mName;
+        size_t           mCount;
+        const MetaFattr* mFa;
+        string           mName;
     };
     typedef EntryT<fid_t, FileEntry> FEntry;
     typedef LinearHash<
@@ -1026,7 +1032,7 @@ public:
     /// @retval 0 on success; -1 on failure
     int AllocateChunkForAppend(MetaAllocate& r);
 
-    void ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
+    int ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
         MetaChunkInfo* chunk);
 
     /// A chunkid has been previously allocated.  The caller
@@ -1464,9 +1470,9 @@ public:
         { return mIdempotentRequestTracker; }
     size_t GetFileChunksWithLeasesCount(fid_t fid) const
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
-    void ScheduleDumpsterCleanup(fid_t fid, const string& name);
+    void ScheduleDumpsterCleanup(const MetaFattr& fa, const string& name);
     void Handle(MetaRemoveFromDumpster& op);
-    bool MoveFromDumpster(fid_t fid, const string& name);
+    bool MoveFromDumpster(const MetaFattr& fa, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void SetPrimary(bool flag);
     bool IsPrimary() const

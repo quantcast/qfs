@@ -406,7 +406,6 @@ private:
         ChunkIterator& cit, MetaChunkInfo*& ci) const;
     void setFileSize(MetaFattr* fa, chunkOff_t size,
         int64_t nfiles, int64_t ndirs);
-    int moveToDumpster(fid_t dir, const string& fname, fid_t fid);
     Tree()
         : root(0),
           first(0),
@@ -553,7 +552,7 @@ public:
         kfsSTier_t minSTier, kfsSTier_t maxSTier);
     int changePathReplication(fid_t file, int16_t numReplicas,
         kfsSTier_t minSTier, kfsSTier_t maxSTier);
-    int moveToDumpster(fid_t dir, const string& fname, fid_t todumpster,
+    int moveToDumpster(fid_t dir, const string& fname, MetaFattr& fa,
         int64_t mtime);
     void cleanupDumpster();
 

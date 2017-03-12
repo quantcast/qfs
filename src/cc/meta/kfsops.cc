@@ -425,7 +425,7 @@ Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),
              mem_fun(&MetaChunkInfo::DeleteChunk));
-        if (fa->chunkcount()) {
+        if (0 < fa->chunkcount()) {
             if (0 < fa->filesize) {
                 setFileSize(fa, 0);
             }
@@ -475,7 +475,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
     if (0 < todumpster) {
         // put the file into dumpster
         todumpster = fa->id();
-        int status = moveToDumpster(dir, fname, todumpster, mtime);
+        int status = moveToDumpster(dir, fname, *fa, mtime);
         KFS_LOG_STREAM(status == 0 ?
                 MsgLogger::kLogLevelDEBUG :
                 MsgLogger::kLogLevelERROR) <<
@@ -1778,7 +1778,10 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
     const chunkOff_t dstStartPos = dstFa->nextChunkOffset();
     if (! chunkInfo.empty()) {
         // Flush the fid cache.
-        gLayoutManager.ChangeChunkFid(srcFa, dstFa, 0);
+        const int status = gLayoutManager.ChangeChunkFid(srcFa, dstFa, 0);
+        if (0 != status) {
+            return status;
+        }
     }
     for (vector<MetaChunkInfo*>::const_iterator it = chunkInfo.begin();
             it !=  chunkInfo.end();
@@ -2104,7 +2107,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         }
     }
     if (getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
-            ! gLayoutManager.MoveFromDumpster(srcfid, src->getName())) {
+            ! gLayoutManager.MoveFromDumpster(*sfattr, src->getName())) {
         KFS_LOG_STREAM_ERROR <<
             newname << ": attempt to move from dumpster denied" <<
         KFS_LOG_EOM;
@@ -2237,9 +2240,9 @@ Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
  * \return      status code (zero on success)
  */
 int
-Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid, int64_t mtime)
+Tree::moveToDumpster(fid_t dir, const string& fname, MetaFattr& fa,
+    int64_t mtime)
 {
-    assert(0 <= fid);
     string tempname = "/" + DUMPSTERDIR + "/";
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
@@ -2256,6 +2259,7 @@ Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid, int64_t mtime)
     // Note that changing the name generation here results in breaking
     // transaction log replay backward compatibility as remove from dumpster
     // op stores this name in the transaction log.
+    const fid_t  fid           = fa.id();
     const size_t plen          = tempname.size();
     const size_t kMaxSuffixLen = 2 * (sizeof(fid) * 2 + 1);
     if (kMaxSuffixLen <= MAX_FILE_NAME_LENGTH) {
@@ -2275,7 +2279,7 @@ Tree::moveToDumpster(fid_t dir, const string& fname, fid_t fid, int64_t mtime)
         kOverwriteFlag, nodumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
     if (ret == 0) {
         tempname.erase(0, plen);
-        gLayoutManager.ScheduleDumpsterCleanup(fid, tempname);
+        gLayoutManager.ScheduleDumpsterCleanup(fa, tempname);
     }
     return ret;
 }
@@ -2324,7 +2328,7 @@ Tree::cleanupDumpster()
         if (KFS_FILE != fa->type) {
             continue;
         }
-        gLayoutManager.ScheduleDumpsterCleanup(e->id(), name);
+        gLayoutManager.ScheduleDumpsterCleanup(*fa, name);
     }
 }
 

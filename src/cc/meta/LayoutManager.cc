@@ -411,6 +411,14 @@ ChunkLeases::IsDeletePending(
     return (entry && entry->Get().mCount <= 0);
 }
 
+inline bool
+ChunkLeases::IsDeleteScheduled(
+    fid_t fid) const
+{
+    const FEntry* const entry = mFileLeases.Find(fid);
+    return (entry && ! entry->Get().mName.empty());
+}
+
 inline void
 ChunkLeases::Erase(
     ChunkLeases::WEntry& wl,
@@ -1013,15 +1021,11 @@ public:
     void operator()(
         FEntry& inEntry)
     {
-        FileEntry& entry = inEntry.Get();
-        if (entry.mName.empty() || 1 != entry.mCount) {
-            panic("invalid file leases entry");
-        }
         // The entry must be removed from the timer list.
         // Log write completion will re-schedule if needed
         if (! mLeases.ScheduleRemoveFromDumpster(
                 inEntry, mMaxInFlightEntriesCount)) {
-            entry.mCount = 0;
+            inEntry.Get().mCount = 0;
             FEntry::List::Insert(inEntry,
                 FEntry::List::GetPrev((mLeases.mPendingDeleteList)));
         }
@@ -1043,22 +1047,26 @@ ChunkLeases::ScheduleRemoveFromDumpster(
     FEntry& entry,
     int     maxInFlightEntriesCount)
 {
+    FileEntry& fentry = entry.Get();
+    if (fentry.mName.empty() || 1 < fentry.mCount || ! fentry.mFa) {
+        panic("invalid file lease entry");
+        return false;
+    }
     if (maxInFlightEntriesCount <= mRemoveFromDumpsterInFlightCount) {
         return false;
     }
-    const MetaFattr* const fa = metatree.getFattr(entry.GetKey());
-    if (! fa || KFS_FILE != fa->type) {
-        panic("invalid delete from dumpster entry");
+    if (! fentry.mFa || KFS_FILE != fentry.mFa->type) {
+        panic("invalid file lease entry: invalid file attribute");
         return false;
     }
-    const int cnt = (int)min(fa->chunkcount() + 1,
+    const int cnt = (int)min(fentry.mFa->chunkcount() + 1,
         (int64_t)maxInFlightEntriesCount -
             mRemoveFromDumpsterInFlightCount);
     mRemoveFromDumpsterInFlightCount += cnt;
-    entry.Get().mCount = 0;
+    fentry.mCount = 0;
     FEntry::List::Remove(entry);
-    submit_request(new MetaRemoveFromDumpster(
-        entry.Get().mName, entry.GetKey(), cnt));
+    submit_request(
+        new MetaRemoveFromDumpster(fentry.mName, entry.GetKey(), cnt));
     return true;
 }
 
@@ -1471,23 +1479,35 @@ ChunkLeases::GetOpenFiles(
 
 inline void
 ChunkLeases::ScheduleDumpsterCleanup(
-    fid_t         inFid,
-    const string& inName,
-    int           inDelaySec)
+    const MetaFattr& inFa,
+    const string&    inName)
 {
     bool          insertedFlag = false;
     FEntry* const entry        = mFileLeases.Insert(
-        inFid, FEntry(inFid, FileEntry(inName)), insertedFlag);
-    if (! entry->Get().mName.empty() && inName != entry->Get().mName) {
-        panic("invalid file lease entry");
+        inFa.id(), FEntry(inFa.id(), FileEntry(inName)), insertedFlag);
+    if (! insertedFlag) {
+        if (entry->Get().mName.empty()) {
+            entry->Get().mName = inName;
+        } else if (inName != entry->Get().mName) {
+            panic("invalid file lease entry");
+        }
+        if (entry->Get().mFa && &inFa != entry->Get().mFa) {
+            panic("invalid file lease entry attribute");
+        }
+        if (entry->Get().mCount <= 1) {
+            panic("invalid file lease entry count");
+        }
     }
-    entry->Get().mName = inName;
-    size_t& count = entry->Get().mCount;
-    if (count <= 1) {
-        count = 1;
+    KFS_LOG_STREAM_DEBUG <<
+        "scheduled dumpster cleanup:"
+        " fid: "   << inFa.id() <<
+        " name: "  << inName <<
+        " count: " << entry->Get().mCount <<
+    KFS_LOG_EOM;
+    entry->Get().mFa = &inFa;
+    if (entry->Get().mCount <= 1) {
         mDumpsterCleanupTimer.Schedule(
-            *entry, TimeNow() +
-            (inDelaySec < 0 ? mDumpsterCleanupDelaySec : inDelaySec));
+            *entry, TimeNow() + mDumpsterCleanupDelaySec);
     }
 }
 
@@ -1508,24 +1528,28 @@ ChunkLeases::Handle(
         }
         mRemoveFromDumpsterInFlightCount -= op.entriesCount;
     }
-    if (0 == op.status) {
-        FEntry* const entry = mFileLeases.Find(op.fid);
-        if (! entry || 1 < entry->Get().mCount ||
-                entry->Get().mName != op.name) {
-            panic("invalid remove from dumpster completion");
-            return -1;
-        }
+    FEntry* const entry = mFileLeases.Find(op.fid);
+    if (! entry || 1 < entry->Get().mCount ||
+            entry->Get().mName != op.name) {
+        panic("invalid remove from dumpster completion");
+        return -1;
+    }
+    KFS_LOG_STREAM_DEBUG <<
+        "status: " << op.status <<
+        " "        << op.Show() <<
+    KFS_LOG_EOM;
+    if (0 != op.status) {
+        entry->Get().mCount = 1;
+        mDumpsterCleanupTimer.Schedule(*entry, TimeNow());
+    } else {
         if (op.cleanupDoneFlag) {
             mFileLeases.Erase(op.fid);
         } else if (! op.replayFlag &&
-                ! ScheduleRemoveFromDumpster(
-                    *entry, maxInFlightEntriesCount)) {
-            const int kDelaySec = 0;
-            ScheduleDumpsterCleanup(op.fid, op.name, kDelaySec);
+                ! ScheduleRemoveFromDumpster(*entry, maxInFlightEntriesCount)) {
+            entry->Get().mCount = 0;
+            FEntry::List::Insert(*entry,
+                FEntry::List::GetPrev((mPendingDeleteList)));
         }
-    } else {
-        const int kDelaySec = 0;
-        ScheduleDumpsterCleanup(op.fid, op.name, kDelaySec);
     }
     return ((! op.replayFlag && FEntry::List::IsInList(mPendingDeleteList)) ?
         mRemoveFromDumpsterInFlightCount : -1);
@@ -1533,20 +1557,30 @@ ChunkLeases::Handle(
 
 inline bool
 ChunkLeases::MoveFromDumpster(
-    fid_t         inFid,
-    const string& inName)
+    const MetaFattr& inFa,
+    const string&    inName)
 {
-    FEntry* const entry = mFileLeases.Find(inFid);
-    if (! entry || inName != entry->Get().mName) {
+    FEntry* const entry = mFileLeases.Find(inFa.id());
+    if (! entry || inName != entry->Get().mName || entry->Get().mFa != &inFa) {
         panic("internal error: invalid move from dumpster invocation");
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "move from dumpster: " << inFa.id() <<
+        " name: "              << inName <<
+        " count: "             << entry->Get().mCount <<
+    KFS_LOG_EOM;
     if (entry->Get().mCount <= 0) {
         // Delete already in progress.
         return false;
     }
-    // Remove from the timer wheel.
-    entry->Get().mName.clear();
-    FEntry::List::Remove(*entry);
+    if (entry->Get().mCount <= 1) {
+        mFileLeases.Erase(inFa.id());
+    } else {
+        // Remove from the timer wheel.
+        entry->Get().mFa = 0;
+        entry->Get().mName.clear();
+        FEntry::List::Remove(*entry);
+    }
     return true;
 }
 
@@ -5935,9 +5969,8 @@ LayoutManager::SetPrimary(bool flag)
                     "rescheduling dumpster cleanup to: +" <<
                         rescheduleDelay << " sec." <<
                 KFS_LOG_EOM;
-                mChunkLeases.SetDumpsterCleanupDelaySec(rescheduleDelay);
-                metatree.cleanupDumpster();
-                mChunkLeases.SetDumpsterCleanupDelaySec(delay);
+                mChunkLeases.RescheduleDumpsterCleanup(
+                    TimeNow() + rescheduleDelay);
             }
         }
     }
@@ -7282,31 +7315,40 @@ LayoutManager::AllocateChunkForAppend(MetaAllocate& req)
  * The chunk files are named <fid, chunkid, version>. The fid is now ignored by
  * the meta server.
 */
-void
+int
 LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
     MetaChunkInfo* chunk)
 {
     if (mChunkEntryToChange || mFattrToChangeTo) {
         panic("coalesce blocks:  invalid invocation:"
             " previous change pending");
-        return;
+        return -EFAULT;
     }
     if (! chunk) {
         if (! srcFattr) {
             if (dstFattr) {
                 panic("coalesce blocks: invalid invocation:"
                     " src fattr is not null");
+                return -EFAULT;
             }
-            return;
+            return 0;
+        }
+        if (! dstFattr) {
+            panic("coalesce blocks: invalid invocation: dst fattr is null");
+            return -EFAULT;
+        }
+        if (mChunkLeases.IsDeleteScheduled(srcFattr->id()) ||
+                mChunkLeases.IsDeleteScheduled(dstFattr->id())) {
+            return -EPERM;
         }
         // Invalidate fid cache.
         mARAChunkCache.Invalidate(srcFattr->id());
-        return;
+        return 0;
     }
     if (! dstFattr) {
         panic("coalesce blocks:  invalid invocation:"
             " null destination fattr");
-        return;
+        return -EFAULT;
     }
 
     CSMap::Entry& entry = GetCsEntry(*chunk);
@@ -7321,10 +7363,11 @@ LayoutManager::ChangeChunkFid(MetaFattr* srcFattr, MetaFattr* dstFattr,
         ;
         const string msg = os.str();
         panic(msg.c_str());
-        return;
+        return -EFAULT;
     }
     mChunkEntryToChange = &entry;
     mFattrToChangeTo    = dstFattr;
+    return 0;
 }
 
 void
@@ -7688,7 +7731,7 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
             ! mChunkLeases.HasWriteLease(ChunkLeases::EntryKey(req.chunkId)) :
             mChunkLeases.NewReadLease(
                 cs->GetFileId(),
-                 ChunkLeases::EntryKey(req.chunkId),
+                ChunkLeases::EntryKey(req.chunkId),
                 TimeNow() + req.leaseTimeout,
                 req.leaseId))) {
         if (mClientCSAuthRequiredFlag && req.authUid != kKfsUserNone) {
@@ -7746,10 +7789,10 @@ LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
 
 void
 LayoutManager::ScheduleDumpsterCleanup(
-    fid_t         fid,
-    const string& name)
+    const MetaFattr& fa,
+    const string&    name)
 {
-    mChunkLeases.ScheduleDumpsterCleanup(fid, name, -1);
+    mChunkLeases.ScheduleDumpsterCleanup(fa, name);
 }
 
 void
@@ -7764,10 +7807,10 @@ LayoutManager::Handle(MetaRemoveFromDumpster& op)
 
 bool
 LayoutManager::MoveFromDumpster(
-    fid_t         fid,
-    const string& name)
+    const MetaFattr& fa,
+    const string&    name)
 {
-    return mChunkLeases.MoveFromDumpster(fid, name);
+    return mChunkLeases.MoveFromDumpster(fa, name);
 }
 
 bool
