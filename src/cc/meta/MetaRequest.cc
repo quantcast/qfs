@@ -356,6 +356,34 @@ SetUserAndGroup(T& req)
     return true;
 }
 
+inline bool
+IsAccessOk(const MetaFattr& fa, MetaRequest& req)
+{
+    if (ROOTFID == fa.id()) {
+        return true;
+    }
+    if (! fa.parent) {
+        panic("invalid null parent file attribute");
+        req.status = -EFAULT;
+        return false;
+    }
+    if (! fa.parent->CanSearch(req.euser, req.egroup)) {
+        req.status = -EPERM;
+        return false;
+    }
+    if (KFS_FILE == fa.type &&
+            0 < fa.numReplicas &&
+            0 == fa.filesize &&
+            0 == (fa.mode & MetaFattr::kFileModeMask) &&
+            fa.parent->id() == metatree.getDumpsterDirId()) {
+        req.status    = -EPERM;
+        req.statusMsg = "file is being deleted,"
+            " access modification is not permitted";
+        return false;
+    }
+    return true;
+}
+
 inline static void
 FattrReply(const MetaFattr* fa, MFattr& ofa)
 {
@@ -2883,7 +2911,9 @@ MetaSetMtime::handle()
         status = -EACCES;
         return;
     }
-    fa->mtime = mtime;
+    if (IsAccessOk(*fa, *this)) {
+        fa->mtime = mtime;
+    }
 }
 
 /* virtual */ bool
@@ -3283,28 +3313,10 @@ MetaChmod::handle()
         status = -EACCES;
         return;
     }
-    if (ROOTFID != fa->id()) {
-        if (fa->parent) {
-            if (! fa->parent->CanSearch(euser, egroup)) {
-                status = -EPERM;
-                return;
-            }
-            if (KFS_FILE == fa->type &&
-                    0 < fa->numReplicas &&
-                    0 == fa->filesize &&
-                    0 == (fa->mode & MetaFattr::kFileModeMask) &&
-                    fa->parent->id() == metatree.getDumpsterDirId()) {
-                status    = -EPERM;
-                statusMsg = "file is being deleted,"
-                    " access modification is not permitted";
-                return;
-            }
-        } else {
-            panic("invalid null parent file attribute");
-        }
+    if (IsAccessOk(*fa, *this)) {
+        status = 0;
+        fa->mode = mode;
     }
-    status = 0;
-    fa->mode = mode;
 }
 
 /* virtual */ bool
