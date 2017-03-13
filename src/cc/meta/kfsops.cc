@@ -426,7 +426,13 @@ Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
         for_each(chunkInfo.begin(), chunkInfo.end(),
              mem_fun(&MetaChunkInfo::DeleteChunk));
         if (0 < fa->chunkcount()) {
-            if (0 < fa->filesize) {
+            // Update modification time and set file size to 0 in order
+            // to signal not to start recovery, not report file as abandoned,
+            // prevent size update attempts. Clear permissions in order to turn
+            // off non root access, and mark file as being deleted.
+            fa->mtime = mtime;
+            fa->mode &= ~kfsMode_t(MetaFattr::kFileModeMask);
+            if (0 < getFileSize(fa)) {
                 setFileSize(fa, 0);
             }
             return 0;
@@ -1899,6 +1905,13 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     }
     if (fa->filesize == offset) {
         return 0;
+    }
+    if (0 < fa->numReplicas &&
+            0 == fa->filesize &&
+            0 == (fa->mode & MetaFattr::kFileModeMask) &&
+            fa->parent &&
+            fa->parent->id() == metatree.getDumpsterDirId()) {
+        return -EPERM;
     }
     if (0 == fa->numReplicas) {
         if (! setEofHintFlag || 0 <= endOffset ||

@@ -53,7 +53,8 @@ using std::cerr;
 using std::string;
 using std::ofstream;
 
-static int16_t minReplicasPerFile = 0;
+static int16_t sMinReplicasPerFile = 0;
+static bool    sHasVrSequenceFlag  = false;
 
 static bool
 checkpoint_seq(DETokenizer& c)
@@ -90,6 +91,7 @@ checkpoint_seq(DETokenizer& c)
         if (! c.isLastOk() || view < 0 ) {
             return false;
         }
+        sHasVrSequenceFlag = true;
     }
     replayer.setCommitted(MetaVrLogSeq(epoch, view, highest));
     return true;
@@ -237,8 +239,8 @@ restore_fattr(DETokenizer& c)
     const bool gotfilesize = pop_offset(
         filesize, sShortNamesFlag ? "e" : "filesize", c, true) &&
         (filesize >= 0 || 0 == numReplicas);
-    if (0 != numReplicas && numReplicas < minReplicasPerFile) {
-        numReplicas = minReplicasPerFile;
+    if (0 != numReplicas && numReplicas < sMinReplicasPerFile) {
+        numReplicas = sMinReplicasPerFile;
     }
     // chunkcount is an estimate; recompute it as we add chunks to the file.
     // reason for it being estimate: if a CP is in progress while the
@@ -944,7 +946,7 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
     if (! gLayoutManager.RestoreStart()) {
         return false;
     }
-    minReplicasPerFile = minReplicas;
+    sMinReplicasPerFile = minReplicas;
     file.open(cpname.c_str(), ofstream::binary | ofstream::in);
     if (file.fail()) {
         const int err = errno;
@@ -1022,16 +1024,24 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
         is_ok = false;
     }
     if (is_ok) {
-        const int err = checkDumpsterExists();
+        int err = checkDumpsterExists();
         if (err) {
-            KFS_LOG_STREAM_FATAL <<
-                cpname << ": invalid or missing dumpster directory: " <<
-                QCUtils::SysError(-err) <<
-            KFS_LOG_EOM;
-            is_ok = false;
+            if (! sHasVrSequenceFlag) {
+                makeDumpsterDir();
+                err = checkDumpsterExists();
+            }
+            if (err) {
+                KFS_LOG_STREAM_FATAL <<
+                    cpname << ": invalid or missing dumpster directory: " <<
+                    QCUtils::SysError(-err) <<
+                KFS_LOG_EOM;
+                is_ok = false;
+            }
         }
     }
     if (is_ok) {
+        // Set up back pointers, required for replay.
+        metatree.setUpdatePathSpaceUsage(true);
         metatree.cleanupDumpster();
     }
     return is_ok;

@@ -3283,6 +3283,26 @@ MetaChmod::handle()
         status = -EACCES;
         return;
     }
+    if (ROOTFID != fa->id()) {
+        if (fa->parent) {
+            if (! fa->parent->CanSearch(euser, egroup)) {
+                status = -EPERM;
+                return;
+            }
+            if (KFS_FILE == fa->type &&
+                    0 < fa->numReplicas &&
+                    0 == fa->filesize &&
+                    0 == (fa->mode & MetaFattr::kFileModeMask) &&
+                    fa->parent->id() == metatree.getDumpsterDirId()) {
+                status    = -EPERM;
+                statusMsg = "file is being deleted,"
+                    " access modification is not permitted";
+                return;
+            }
+        } else {
+            panic("invalid null parent file attribute");
+        }
+    }
     status = 0;
     fa->mode = mode;
 }

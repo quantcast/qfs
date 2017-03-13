@@ -1877,7 +1877,7 @@ LayoutManager::LayoutManager()
       mCSGracefulRestartAppendWithWidTimeout(40 * 60),
       mLastReplicationCheckTime(numeric_limits<int64_t>::min()), // check all
       mLastRecomputeDirsizeTime(TimeNow()),
-      mRecomputeDirSizesIntervalSec(60 * 60 * 24 * 3650),
+      mRecomputeDirSizesIntervalSec(0),
       mMaxConcurrentWriteReplicationsPerNode(5),
       mMaxConcurrentReadReplicationsPerNode(10),
       mUseEvacuationRecoveryFlag(true),
@@ -8880,6 +8880,7 @@ LayoutManager::LeaseCleanup(
         mARAChunkCache.Timeout(now - mAppendCacheCleanupInterval);
     }
     if (metatree.getUpdatePathSpaceUsageFlag() &&
+            0 < mRecomputeDirSizesIntervalSec &&
             mLastRecomputeDirsizeTime + mRecomputeDirSizesIntervalSec < now) {
         KFS_LOG_STREAM_INFO << "Doing a recompute dir size..." <<
         KFS_LOG_EOM;
