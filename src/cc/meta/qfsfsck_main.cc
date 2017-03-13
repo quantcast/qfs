@@ -169,7 +169,7 @@ FsckMain(int argc, char** argv)
         }
     }
 
-    ok = metaLoc.IsValid() || ! logdir.empty() || ! cpdir.empty();
+    ok = ok && (metaLoc.IsValid() || ! logdir.empty() || ! cpdir.empty());
     if (help || ! ok) {
         (ok ? cout : cerr) <<
             "Usage: " << argv[0] << "\n"

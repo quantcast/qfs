@@ -99,7 +99,7 @@ static char* test_get_metaserver_location() {
 }
 
 static char* test_qfs_user_functions() {
-  uint32_t uid = qfs_getuid(qfs);
+  qfs_getuid(qfs);
 
   // check(uid >= 0, "uid should be no less that 0"); // or something.
 
