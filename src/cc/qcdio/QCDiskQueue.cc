@@ -2508,8 +2508,13 @@ QCDiskQueue::Start(
     void
 QCDiskQueue::Stop()
 {
-    delete mQueuePtr;
+    if (! mQueuePtr) {
+        return;
+    }
+    Queue* const theQueuePtr = mQueuePtr;
     mQueuePtr = 0;
+    theQueuePtr->Stop();
+    delete theQueuePtr;
 }
 
     QCDiskQueue::EnqueueStatus

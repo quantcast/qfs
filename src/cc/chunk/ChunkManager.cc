@@ -2237,17 +2237,38 @@ ChunkManager::RunIoCompletion(T& table)
     typename T::Entry::value_type const* p;
     for (int i = 0; ;) {
         table.First();
+        kfsChunkId_t chunkId      = -1;
+        int64_t      version      = -1;
+        int          requestCount = -1;
         while ((p = table.Next())) {
             ChunkInfoHandle* const cih = p->GetVal();
             if (! cih) {
                 table.Erase(p->GetKey());
                 continue;
             }
-            if (cih->IsFileInUse()) {
-                break;
+            const bool fileInUseFlag = cih->IsFileInUse();
+            if (fileInUseFlag) {
+                int     freeRequestCount;
+                int64_t readBlockCount;
+                int64_t writeBlockCount;
+                int     blockSize;
+                cih->dataFH->GetDiskQueuePendingCount(
+                    freeRequestCount,
+                    requestCount,
+                    readBlockCount,
+                    writeBlockCount,
+                    blockSize
+                );
+                if (0 < requestCount) {
+                    chunkId = cih->chunkInfo.chunkId;
+                    version = cih->chunkInfo.chunkVersion;
+                    break;
+                }
             }
             table.Erase(p->GetKey());
-            Release(*cih);
+            if (! fileInUseFlag) {
+                Release(*cih);
+            }
             Delete(*cih);
         }
         const bool completionFlag = DiskIo::RunIoCompletion();
@@ -2257,9 +2278,14 @@ ChunkManager::RunIoCompletion(T& table)
         if (completionFlag) {
             continue;
         }
-        if (++i > 1000) {
+        if (++i > 6000) {
             KFS_LOG_STREAM_ERROR <<
-                "ChunkManager::Shutdown timeout exceeded" <<
+                "ChunkManager::Shutdown"
+                " attempts: "   << i <<
+                " table size: " << table.GetSize() <<
+                " requests: "   << requestCount <<
+                " chunk: "      << chunkId <<
+                " version: "    << version <<
             KFS_LOG_EOM;
             break;
         }
@@ -2284,9 +2310,9 @@ ChunkManager::Shutdown()
         if (completionFlag) {
             continue;
         }
-        if (++i > 1000) {
+        if (++i > 6000) {
             KFS_LOG_STREAM_ERROR <<
-                "ChunkManager::Shutdown pending delete timeout exceeded" <<
+                "ChunkManager::Shutdown pending delete timeout" <<
             KFS_LOG_EOM;
             ChunkList::Iterator it(mChunkInfoLists[kChunkStaleList]);
             ChunkInfoHandle* cih;

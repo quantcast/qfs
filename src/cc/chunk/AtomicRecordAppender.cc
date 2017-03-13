@@ -923,6 +923,7 @@ AtomicRecordAppender::DeleteSelf()
     if (mIoOpsInFlight > 0 || mReplicationsInFlight > 0) {
         return false; // wait for in flight ops to finish
     }
+    MakeChunkStableDone();
     delete this;
     return true;
 }
