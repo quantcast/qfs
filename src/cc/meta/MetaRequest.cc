@@ -4168,9 +4168,7 @@ MetaCheckpoint::handle()
         panic("invalid empty next log segment name");
     }
     const MetaVrLogSeq committedSeq = GetLogWriter().GetCommittedLogSeq();
-    if (committedSeq != finishLog->lastLogSeq &&
-            (finishLog->lastLogSeq.mEpochSeq != committedSeq.mEpochSeq ||
-            finishLog->lastLogSeq.mViewSeq != committedSeq.mViewSeq)) {
+    if (committedSeq != finishLog->lastLogSeq) {
         KFS_LOG_STREAM_INFO <<
             "re-scheduling checkpoint due to pending view change:"
             " finish log: " << finishLog->lastLogSeq <<
@@ -4183,12 +4181,11 @@ MetaCheckpoint::handle()
         finishLog = 0;
         return;
     }
-    runningCheckpointId = committedSeq;
-    if (runningCheckpointId != finishLog->lastLogSeq ||
-            runningCheckpointId < finishLog->committed) {
-        panic("invalid finish log completion: log sequence mismatch");
+    if (committedSeq < finishLog->committed) {
+        panic("invalid finish log committed sequence");
     }
-    lastRun = now;
+    runningCheckpointId            = committedSeq;
+    lastRun                        = now;
     runningCheckpointLogSegmentNum = finishLog->logSegmentNum;
     // DoFork() / PrepareCurrentThreadToFork() releases and re-acquires the
     // global mutex by waiting on condition with this mutex, but must ensure
