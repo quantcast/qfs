@@ -84,7 +84,7 @@ private:
         }
     }
 #if OPENSSL_VERSION_NUMBER <= 0x10000000L
-    inline static void X509* SSL_SESSION_get0_peer(
+    inline static X509* SSL_SESSION_get0_peer(
         SSL_SESSION* inSessionPtr)
         { return inSessionPtr->peer; }
 #endif
