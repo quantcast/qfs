@@ -1182,7 +1182,7 @@ replay_truncate(DETokenizer& c)
         const bool kSetEofHintFlag = true;
         status = metatree.truncate(fid, offset,
             gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec,
-            kKfsUserRoot, kKfsGroupRoot, endOffset, kSetEofHintFlag);
+            kKfsUserRoot, kKfsGroupRoot, endOffset, kSetEofHintFlag, -1);
     }
     return (ok && 0 == status);
 }
@@ -1206,7 +1206,8 @@ replay_pruneFromHead(DETokenizer& c)
     bool gottime = pop_time(mtime, "mtime", c, ok);
     if (ok) {
         status = metatree.pruneFromHead(fid, offset,
-            gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec);
+            gottime ? mtime : ReplayState::get(c).mLogSegmentTimeUsec,
+            kKfsUserRoot, kKfsGroupRoot, -1);
     }
     return (ok && 0 == status);
 }

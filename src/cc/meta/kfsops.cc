@@ -47,6 +47,7 @@ const string kParentDir("..");
 const string kThisDir(".");
 
 const string DUMPSTERDIR("dumpster");
+const string CHUNKDELQUEUE("deletequeue");
 
 inline void
 Tree::FindChunk(int64_t chunkCount, fid_t fid, chunkOff_t pos,
@@ -91,6 +92,7 @@ makeDumpsterDir()
         kKfsUserRoot, kKfsGroupRoot,
         &dummy, 0, microseconds()
     );
+    metatree.ensureChunkDeleteQueueExists();
 }
 
 int
@@ -399,7 +401,8 @@ Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
     if (0 != status) {
         return status;
     }
-    if (KFS_FILE != fa->type || fa->id() != fid) {
+    if (KFS_FILE != fa->type || fa->id() != fid ||
+            mChunksDeleteQueueFattr == fa) {
         return -EINVAL;
     }
     if (0 < fa->chunkcount()) {
@@ -1853,19 +1856,20 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
  */
 int
 Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t mtime,
-    kfsUid_t euser /* = kKfsUserRoot */, kfsGid_t egroup /* = kKfsGroupRoot */)
+    kfsUid_t euser, kfsGid_t egroup, int maxDeleteCount)
 {
     if (offset < 0) {
         return -EINVAL;
     }
     const bool kSetEofHintFlag = false;
     return truncate(file, 0, mtime, euser, egroup,
-        chunkStartOffset(offset), kSetEofHintFlag);
+        chunkStartOffset(offset), kSetEofHintFlag, maxDeleteCount);
 }
 
 int
 Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
-    kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag)
+    kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag,
+    int maxChunkDelete)
 {
     if (endOffset >= 0 &&
             (endOffset < offset || endOffset % CHUNKSIZE != 0)) {
@@ -1896,6 +1900,9 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     }
     if (fa->type != KFS_FILE) {
         return -EISDIR;
+    }
+    if (fa == mChunksDeleteQueueFattr) {
+        return -EPERM;
     }
     if (offset < 0) {
         return -EINVAL;
@@ -1969,11 +1976,44 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
         ci = cit.next();
     }
     // Delete chunks.
+    int cnt = maxChunkDelete;
     while (! chunkInfo.empty()) {
+        if (0 <= cnt && --cnt <= 0) {
+            break;
+        }
         chunkInfo.back()->DeleteChunk();
         chunkInfo.pop_back();
         fa->chunkcount()--;
         UpdateNumChunks(-1);
+    }
+    if (! chunkInfo.empty()) {
+        ensureChunkDeleteQueueExists();
+        const int status = gLayoutManager.ChangeChunkFid(
+            fa, mChunksDeleteQueueFattr, 0);
+        if (0 != status) {
+            panic("change chunk fid failure");
+            return status;
+        }
+        for (vector<MetaChunkInfo*>::const_iterator it = chunkInfo.begin();
+                it !=  chunkInfo.end();
+                ++it) {
+            gLayoutManager.ChangeChunkFid(fa, mChunksDeleteQueueFattr, *it);
+            // ChangeChunkFid() ensures that *it remains valid after the
+            // following del
+            if (del(*it)) {
+                panic("truncate failed to delete chunk");
+            }
+            (*it)->offset = mChunksDeleteQueueFattr->nextChunkOffset();
+            if (insert(*it)) {
+                (*it)->destroy();
+                panic("truncate failed to insert chunk");
+            }
+            mChunksDeleteQueueFattr->nextChunkOffset() += CHUNKSIZE;
+            fa->chunkcount()--;
+            mChunksDeleteQueueFattr->chunkcount()++;
+        }
+        gLayoutManager.ChangeChunkFid(0, 0, 0);
+        mChunksDeleteQueueFattr->mtime = mtime;
     }
     if (endOffset < 0) {
         if (lco < offset) {
@@ -1990,6 +2030,43 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
         }
     }
     fa->mtime = mtime;
+    return 0;
+}
+
+int
+Tree::cleanupChunks(int maxChunkDelete, int64_t mtime)
+{
+    if (! getChunkDeleteQueue() || maxChunkDelete <= 0) {
+        return 0;
+    }
+    StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+    vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+    MetaFattr*                     ffa       = 0;
+    const int status = getalloc(
+        mChunksDeleteQueueFattr->id(), ffa, chunkInfo, maxChunkDelete);
+    if (0 != status) {
+        panic("cleanup chunks get alloc failure");
+        return status;
+    }
+    if (ffa != mChunksDeleteQueueFattr) {
+        panic("cleanup chunks get alloc file attribute mismatch");
+        return -EFAULT;
+    }
+    // Delete chunks.
+    while (! chunkInfo.empty()) {
+        chunkInfo.back()->DeleteChunk();
+        chunkInfo.pop_back();
+        mChunksDeleteQueueFattr->chunkcount()--;
+        UpdateNumChunks(-1);
+    }
+    mChunksDeleteQueueFattr->mtime = mtime;
+    if (mChunksDeleteQueueFattr->chunkcount() <= 0) {
+        mChunksDeleteQueueFattr->nextChunkOffset() = 0;
+        if (mChunksDeleteQueueFattr->chunkcount() < 0) {
+            panic("cleanup chunks file attribute invalid chunk count");
+            return -EFAULT;
+        }
+    }
     return 0;
 }
 
@@ -2120,7 +2197,8 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         }
     }
     if (getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
-            ! gLayoutManager.MoveFromDumpster(*sfattr, src->getName())) {
+            (mChunksDeleteQueueFattr == sfattr ||
+            ! gLayoutManager.MoveFromDumpster(*sfattr, src->getName()))) {
         KFS_LOG_STREAM_ERROR <<
             newname << ": attempt to move from dumpster denied" <<
         KFS_LOG_EOM;
@@ -2312,6 +2390,59 @@ Tree::getDumpsterDirId()
     return mDumpsterDirId;
 }
 
+const MetaFattr*
+Tree::getChunkDeleteQueueSelf()
+{
+    if (mChunksDeleteQueueFattr) {
+        return mChunksDeleteQueueFattr;
+    }
+    const fid_t ddir = getDumpsterDirId();
+    if (ddir < 0) {
+        panic("no dumpster");
+        return mChunksDeleteQueueFattr;
+    }
+    int status = lookup(ddir, CHUNKDELQUEUE,
+        kKfsUserRoot, kKfsGroupRoot, mChunksDeleteQueueFattr);
+    if (0 == status && KFS_FILE == mChunksDeleteQueueFattr->type) {
+        return mChunksDeleteQueueFattr;
+    }
+    if (-ENOENT != status) {
+        panic("invalid chunk delete queue lookup status");
+    }
+    return mChunksDeleteQueueFattr;
+}
+
+void
+Tree::ensureChunkDeleteQueueExists()
+{
+    if (getChunkDeleteQueue()) {
+        return;
+    }
+    const fid_t     ddir               = getDumpsterDirId();
+    const int16_t   numReplicas        = 1;
+    const int32_t   numStripes         = 0;
+    const int32_t   numRecoveryStripes = 0;
+    const int32_t   stripeSize         = 0;
+    const kfsMode_t mode               = 0;
+    const int status = link(
+        getDumpsterDirId(), CHUNKDELQUEUE, KFS_FILE, fileID.genid(),
+        numReplicas,
+        KFS_STRIPED_FILE_TYPE_NONE, numStripes, numRecoveryStripes, stripeSize,
+        kKfsUserRoot, kKfsGroupRoot, mode,
+        getFattr(ddir),
+        &mChunksDeleteQueueFattr,
+        microseconds()
+    );
+    if (0 != status) {
+        panic("invalid chunk delete queue link status");
+        return;
+    }
+    UpdateNumFiles(1);
+    updateCounts(mChunksDeleteQueueFattr, 0, 1, 0);
+    mChunksDeleteQueueFattr->minSTier = kKfsSTierMax;
+    mChunksDeleteQueueFattr->maxSTier = kKfsSTierMax;
+}
+
 /*!
  * \brief Periodically, cleanup the dumpster and reclaim space.  If
  * the lease issued on a file has expired, then the file can be nuked.
@@ -2324,6 +2455,7 @@ Tree::cleanupDumpster()
         panic("no dumpster");
         return;
     }
+    getChunkDeleteQueue();
     DentryIterator it = readDir(ddir);
     const MetaDentry* e;
     while ((e = it.next())) {
@@ -2338,7 +2470,9 @@ Tree::cleanupDumpster()
                 continue;
             }
         }
-        if (KFS_FILE != fa->type) {
+        if (KFS_FILE != fa->type ||
+                mChunksDeleteQueueFattr == fa ||
+                CHUNKDELQUEUE == name) {
             continue;
         }
         gLayoutManager.ScheduleDumpsterCleanup(*fa, name);

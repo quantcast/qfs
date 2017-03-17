@@ -2806,39 +2806,49 @@ MetaChunkVersChange::handle()
 /* virtual */ bool
 MetaTruncate::start()
 {
-    if (gWormMode && ! IsWormMutationAllowed(pathname.GetStr())) {
-        statusMsg = "worm mode";
-        status    = -EPERM;
-        return false;
-    }
-    if (checkPermsFlag || gLayoutManager.VerifyAllOpsPermissions()) {
-        SetEUserAndEGroup(*this);
+    if (chunksCleanupFlag) {
+        if (pruneBlksFromHead || ! pathname.empty() || maxDeleteCount < 0) {
+            status = -EINVAL;
+        }
     } else {
-        euser = kKfsUserRoot;
-    }
-    if (! pruneBlksFromHead && (endOffset >= 0 && endOffset < offset)) {
-        status    = -EINVAL;
-        statusMsg = "end offset less than offset";
-        return false;
+        if (gWormMode && ! IsWormMutationAllowed(pathname.GetStr())) {
+            statusMsg = "worm mode";
+            status    = -EPERM;
+            return false;
+        }
+        if (checkPermsFlag || gLayoutManager.VerifyAllOpsPermissions()) {
+            SetEUserAndEGroup(*this);
+        } else {
+            euser = kKfsUserRoot;
+        }
+        if (! pruneBlksFromHead && (endOffset >= 0 && endOffset < offset)) {
+            status    = -EINVAL;
+            statusMsg = "end offset less than offset";
+            return false;
+        }
     }
     if (0 == status) {
         mtime = microseconds();
     }
+    gLayoutManager.Start(*this);
     return (0 == status);
 }
 
 /* virtual */ void
 MetaTruncate::handle()
 {
-    if (0 != status) {
-        return;
+    if (0 == status) {
+        if (chunksCleanupFlag) {
+            status = metatree.cleanupChunks(maxDeleteCount, mtime);
+        } else if (pruneBlksFromHead) {
+            status = metatree.pruneFromHead(
+                fid, offset, mtime, euser, egroup, maxDeleteCount);
+        } else {
+            status = metatree.truncate(fid, offset, mtime, euser, egroup,
+                endOffset, setEofHintFlag, maxDeleteCount);
+        }
     }
-    if (pruneBlksFromHead) {
-        status = metatree.pruneFromHead(fid, offset, mtime, euser, egroup);
-        return;
-    }
-    status = metatree.truncate(fid, offset, mtime, euser, egroup,
-        endOffset, setEofHintFlag);
+    gLayoutManager.Handle(*this);
 }
 
 /* virtual */ bool

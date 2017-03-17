@@ -605,6 +605,8 @@ metaServer.maxSpaceUtilizationThreshold = 0.995
 metaServer.userAndGroup.updatePeriodSec = 30
 metaServer.maxDumpsterCleanupInFlight = 8
 chunkServer.objBlockDiscardMinMetaUptime = 8
+metaServer.maxTruncateChunksDeleteCount = 8
+metaServer.maxTruncatedChunkDeletesInFlight = 18
 EOF
 
     if [ x"$auth" = x'yes' ]; then

@@ -1508,8 +1508,10 @@ struct MetaTruncate: public MetaRequest {
     //!< to be deleted.
     bool            pruneBlksFromHead;
     bool            checkPermsFlag;
+    bool            chunksCleanupFlag;
     StringBufT<256> pathname; //!< full pathname for file being truncated
     int64_t         mtime;
+    int             maxDeleteCount;
     MetaTruncate()
         : MetaRequest(META_TRUNCATE, kLogIfOk),
           fid(-1),
@@ -1518,8 +1520,10 @@ struct MetaTruncate: public MetaRequest {
           setEofHintFlag(true),
           pruneBlksFromHead(false),
           checkPermsFlag(false),
+          chunksCleanupFlag(false),
           pathname(),
-          mtime()
+          mtime(),
+          maxDeleteCount(-1)
         {}
     virtual bool start();
     virtual void handle();
@@ -1528,10 +1532,13 @@ struct MetaTruncate: public MetaRequest {
     {
         return os <<
             (pruneBlksFromHead ?
-                "prune from head:" : "truncate:") <<
-            " path: "   << pathname <<
-            " fid: "    << fid <<
-            " offset: " << offset
+                "prune-from-head:" : "truncate:") <<
+            " path: "    << pathname <<
+            " fid: "     << fid <<
+            " offset: "  << offset <<
+            " seteof: "  << setEofHintFlag <<
+            " max: "     << maxDeleteCount <<
+            " cleanup: " << chunksCleanupFlag
         ;
     }
     bool Validate()
@@ -1560,6 +1567,8 @@ struct MetaTruncate: public MetaRequest {
         .Def("O", &MetaTruncate::setEofHintFlag,            true)
         .Def("M", &MetaTruncate::checkPermsFlag,           false)
         .Def("T", &MetaTruncate::mtime)
+        .Def("C", &MetaTruncate::maxDeleteCount,              -1)
+        .Def("X", &MetaTruncate::chunksCleanupFlag,        false)
         ;
     }
 };

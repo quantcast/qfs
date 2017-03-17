@@ -1857,6 +1857,10 @@ LayoutManager::LayoutManager()
       mAssignMasterByIpFlag(false),
       mLeaseOwnerDownExpireDelay(30),
       mMaxDumpsterCleanupInFlight(256),
+      mMaxTruncateChunksDeleteCount(36),
+      mMaxTruncatedChunkDeletesInFlight(256),
+      mTruncatedChunkDeletesInFlight(0),
+      mWasServicingFlag(false),
       mMaxReservationSize(4 << 20),
       mReservationDecayStep(4), // decrease by factor of 2 every 4 sec
       mChunkReservationThreshold(CHUNKSIZE),
@@ -2249,6 +2253,12 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mMaxDumpsterCleanupInFlight = max(2, props.getValue(
         "metaServer.maxDumpsterCleanupInFlight",
         mMaxDumpsterCleanupInFlight));
+    mMaxTruncateChunksDeleteCount = max(2, props.getValue(
+        "metaServer.maxTruncateChunksDeleteCount",
+        mMaxTruncateChunksDeleteCount));
+    mMaxTruncatedChunkDeletesInFlight = max(2, props.getValue(
+        "metaServer.maxTruncatedChunkDeletesInFlight",
+        mMaxTruncatedChunkDeletesInFlight));
     mMaxReservationSize = max(0, props.getValue(
         "metaServer.wappend.maxReservationSize",
         mMaxReservationSize));
@@ -8867,6 +8877,10 @@ LayoutManager::LeaseCleanup(
     const time_t now = (time_t)startTime;
     mChunkLeases.Timer(now, mLeaseOwnerDownExpireDelay,
         mARAChunkCache, mChunkToServerMap, mMaxDumpsterCleanupInFlight);
+    if (! mWasServicingFlag) {
+        mWasServicingFlag = true;
+        ScheduleTruncatedChunksDelete();
+    }
     if (now < mLeaseCleanerOtherNextRunTime) {
         return;
     }
@@ -10408,7 +10422,8 @@ LayoutManager::Start(MetaChunkSize& req)
     if (req.chunkVersion == chunk->chunkVersion &&
             ! fa->IsStriped() && fa->filesize < 0 && fa->type == KFS_FILE &&
             fa->nextChunkOffset() <= chunk->offset + (chunkOff_t)CHUNKSIZE &&
-            0 != fa->numReplicas) {
+            0 != fa->numReplicas &&
+            metatree.getChunkDeleteQueue() != fa) {
         return true;
     }
     req.status = -EINVAL;
@@ -10478,6 +10493,7 @@ LayoutManager::Handle(MetaChunkSize& req)
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
     if (fa->IsStriped() || 0 <= fa->filesize || fa->type != KFS_FILE ||
+            metatree.getChunkDeleteQueue() == fa ||
             chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
             0 == fa->numReplicas) {
         KFS_LOG_STREAM_DEBUG <<
@@ -13610,6 +13626,7 @@ LayoutManager::StartServicing()
         it->replayFlag   = false;
     }
     mServiceStartTime = TimeNow();
+    mWasServicingFlag = false;
 }
 
 void
@@ -13779,6 +13796,66 @@ LayoutManager::RunFsck(const string& fileName, bool reportAbandonedFilesFlag)
         }
     }
     return ret;
+}
+
+void
+LayoutManager::Start(MetaTruncate& req)
+{
+    if (req.chunksCleanupFlag || req.replayFlag || 0 != req.status) {
+        return;
+    }
+    req.maxDeleteCount = mMaxTruncateChunksDeleteCount;
+}
+
+void
+LayoutManager::ScheduleTruncatedChunksDelete()
+{
+    if (! mPrimaryFlag) {
+        return;
+    }
+    if (mMaxTruncatedChunkDeletesInFlight <= mTruncatedChunkDeletesInFlight) {
+        return;
+    }
+    const MetaFattr* const fa = metatree.getChunkDeleteQueue();
+    if (! fa || fa->chunkcount() <= 0) {
+        return;
+    }
+    MetaTruncate& req = *(new MetaTruncate());
+    req.chunksCleanupFlag = true;
+    req.setEofHintFlag    = false;
+    req.maxDeleteCount    = (int)min(
+        (int64_t)mMaxTruncatedChunkDeletesInFlight -
+            mTruncatedChunkDeletesInFlight,
+        fa->chunkcount()
+    );
+    KFS_LOG_STREAM_DEBUG <<
+        "scheduling truncated chunks cleanup:"
+        " remaining: " << fa->chunkcount() <<
+        " to delete: " << req.maxDeleteCount <<
+        " in flight: " << mTruncatedChunkDeletesInFlight <<
+        " max: "       << mMaxTruncatedChunkDeletesInFlight <<
+        " "            << req.Show() <<
+    KFS_LOG_EOM;
+    mTruncatedChunkDeletesInFlight += req.maxDeleteCount;
+    submit_request(&req);
+    return;
+}
+
+void
+LayoutManager::Handle(MetaTruncate& req)
+{
+    if (req.replayFlag) {
+        return;
+    }
+    if (req.chunksCleanupFlag) {
+        if (mTruncatedChunkDeletesInFlight < req.maxDeleteCount) {
+            panic("invalid truncated chunks delete in flight count");
+            mTruncatedChunkDeletesInFlight = 0;
+        } else {
+            mTruncatedChunkDeletesInFlight -= req.maxDeleteCount;
+        }
+    }
+    ScheduleTruncatedChunksDelete();
 }
 
 } // namespace KFS

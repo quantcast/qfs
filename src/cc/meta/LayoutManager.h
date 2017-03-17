@@ -1565,6 +1565,8 @@ public:
     int RunFsck(
         const string& tmpPrefix, bool reportAbandonedFilesFlag, ostream& os);
     int RunFsck(const string& fileName, bool reportAbandonedFilesFlag);
+    void Start(MetaTruncate& req);
+    void Handle(MetaTruncate& req);
 protected:
     typedef vector<
         int,
@@ -2265,6 +2267,10 @@ protected:
     bool   mAssignMasterByIpFlag;
     int    mLeaseOwnerDownExpireDelay;
     int    mMaxDumpsterCleanupInFlight;
+    int    mMaxTruncateChunksDeleteCount;
+    int    mMaxTruncatedChunkDeletesInFlight;
+    int    mTruncatedChunkDeletesInFlight;
+    bool   mWasServicingFlag;
     // Write append space reservation accounting.
     int    mMaxReservationSize;
     int    mReservationDecayStep;
@@ -2755,6 +2761,7 @@ protected:
     }
     inline bool RemoveServer(
         const ChunkServerPtr& server, bool replayFlag, chunkId_t chunkId);
+    void ScheduleTruncatedChunksDelete();
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);
 };

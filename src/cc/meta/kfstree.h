@@ -311,10 +311,10 @@ const int FID_CACHE_CLEANUP_INTERVAL = 600;
 class Tree
 {
 private:
-    Node *root;         //!< root node
-    Node *first;            //!< leftmost level-1 node
+    Node* root;         //!< root node
+    Node* first;        //!< leftmost level-1 node
     int hgt;            //!< height of tree
-    struct pathlink {       //!< for recording descent path
+    struct pathlink {   //!< for recording descent path
         Node *n;        //!< parent node
         int pos;        //!< index of child
         pathlink(Node *nn, int p): n(nn), pos(p) {}
@@ -327,18 +327,17 @@ private:
         StdAllocator<std::pair<const string, PathToFidCacheEntry> >
     > PathToFidCacheMap;
 
-    bool allowFidToPathConversion;  //!< fid->path translation is enabled?
-    bool mIsPathToFidCacheEnabled; //!< should we enable path->fid cache?
-    bool mUpdatePathSpaceUsage;
-    //!< optimize for lookupPath by caching fid's of recently looked up
-    //entries.
-    PathToFidCacheMap mPathToFidCache;
-    time_t mLastPathToFidCacheCleanupTime;
+    bool                                allowFidToPathConversion;
+    bool                                mIsPathToFidCacheEnabled;
+    bool                                mUpdatePathSpaceUsage;
+    PathToFidCacheMap                   mPathToFidCache;
+    time_t                              mLastPathToFidCacheCleanupTime;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaDentry*> >::Tmp    mDentriesTmp;
-    int64_t mFileSystemId;
-    int64_t mCrTime;
-    fid_t   mDumpsterDirId;
+    int64_t                             mFileSystemId;
+    int64_t                             mCrTime;
+    fid_t                               mDumpsterDirId;
+    MetaFattr*                          mChunksDeleteQueueFattr;
 
 
     template<typename MATCH>
@@ -406,6 +405,7 @@ private:
         ChunkIterator& cit, MetaChunkInfo*& ci) const;
     void setFileSize(MetaFattr* fa, chunkOff_t size,
         int64_t nfiles, int64_t ndirs);
+    const MetaFattr* getChunkDeleteQueueSelf();
     Tree()
         : root(0),
           first(0),
@@ -419,7 +419,8 @@ private:
           mDentriesTmp(),
           mFileSystemId(-1),
           mCrTime(),
-          mDumpsterDirId(-1)
+          mDumpsterDirId(-1),
+          mChunksDeleteQueueFattr(0)
     {
         root = Node::create(META_ROOT|META_LEVEL1);
         root->insertData(new Key(KFS_SENTINEL, 0), 0, 0);
@@ -643,7 +644,8 @@ public:
      * is needed
      */
     int truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
-        kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag);
+        kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset,
+        bool setEofHintFlag, int maxDeleteCount);
 
     /*
      * \brief Is like truncate, but in the opposite direction: delete blks
@@ -655,7 +657,7 @@ public:
      * \retval 0 on success; -errno on failure
      */
     int pruneFromHead(fid_t file, chunkOff_t offset, const int64_t mtime,
-        kfsUid_t euser = kKfsUserRoot, kfsGid_t egroup = kKfsGroupRoot);
+        kfsUid_t euser, kfsGid_t egroup, int maxDeleteCount);
     void invalidatePathCache(const string& pathname, const string& name,
         const MetaFattr* fa, bool removeDirPrefixFlag = false);
     // PathListerT can be used as argument to build path.
@@ -674,6 +676,13 @@ public:
     fid_t getDumpsterDirId();
     int removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
         int entriesCount, bool& outCleanupDoneFlag);
+    const MetaFattr* getChunkDeleteQueue()
+    {
+        return (mChunksDeleteQueueFattr ?
+            mChunksDeleteQueueFattr : getChunkDeleteQueueSelf());
+    }
+    int cleanupChunks(int maxChunkDelete, int64_t mtime);
+    void ensureChunkDeleteQueueExists();
 private:
     Tree(const Tree&);
     Tree& operator=(const Tree&);
