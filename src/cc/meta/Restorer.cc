@@ -51,10 +51,11 @@ namespace KFS
 {
 using std::cerr;
 using std::string;
-using std::ofstream;
+using std::ifstream;
 
-static int16_t sMinReplicasPerFile = 0;
-static bool    sHasVrSequenceFlag  = false;
+static int16_t sMinReplicasPerFile     = 0;
+static bool    sHasVrSequenceFlag      = false;
+static bool    sVrSequenceRequiredFlag = false;
 
 static bool
 checkpoint_seq(DETokenizer& c)
@@ -92,6 +93,11 @@ checkpoint_seq(DETokenizer& c)
             return false;
         }
         sHasVrSequenceFlag = true;
+    } else if (sVrSequenceRequiredFlag) {
+        KFS_LOG_STREAM_ERROR <<
+            "checkpoint has no VR sequence" <<
+        KFS_LOG_EOM;
+        return false;
     }
     replayer.setCommitted(MetaVrLogSeq(epoch, view, highest));
     return true;
@@ -946,8 +952,10 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
     if (! gLayoutManager.RestoreStart()) {
         return false;
     }
-    sMinReplicasPerFile = minReplicas;
-    file.open(cpname.c_str(), ofstream::binary | ofstream::in);
+    sMinReplicasPerFile     = minReplicas;
+    sVrSequenceRequiredFlag = mVrSequenceRequiredFlag;
+    ifstream file;
+    file.open(cpname.c_str(), ifstream::binary | ifstream::in);
     if (file.fail()) {
         const int err = errno;
         KFS_LOG_STREAM_FATAL <<
@@ -1024,12 +1032,8 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
         is_ok = false;
     }
     if (is_ok) {
-        int err = checkDumpsterExists();
-        if (err) {
-            if (! sHasVrSequenceFlag) {
-                makeDumpsterDir();
-                err = checkDumpsterExists();
-            }
+        if (sHasVrSequenceFlag) {
+            const int err = checkDumpsterExists();
             if (err) {
                 KFS_LOG_STREAM_FATAL <<
                     cpname << ": invalid or missing dumpster directory: " <<
@@ -1037,6 +1041,9 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
                 KFS_LOG_EOM;
                 is_ok = false;
             }
+        }
+        if (is_ok) {
+            metatree.setEnforceDumpsterRules(sHasVrSequenceFlag);
         }
     }
     if (is_ok) {

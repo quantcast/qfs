@@ -25,13 +25,11 @@
 #if !defined(KFS_RESTORE_H)
 #define KFS_RESTORE_H
 
-#include <fstream>
 #include <string>
 #include "util.h"
 
 namespace KFS
 {
-using std::ifstream;
 using std::string;
 
 /*!
@@ -41,10 +39,12 @@ class Restorer
 {
 public:
     Restorer()
-        : file()
+        : mVrSequenceRequiredFlag(false)
         {}
     ~Restorer()
         {}
+    void setVrSequenceRequired(bool flag)
+        { mVrSequenceRequiredFlag = true; }
     /*
      * process the CP file.  also, if the # of replicas of a file is below
      * the specified value, bump up replication.  this allows us to change
@@ -52,7 +52,7 @@ public:
      */
     bool rebuild(const string& cpname, int16_t minNumReplicasPerFile = 1);
 private:
-    ifstream file;          //!< the CP file
+    bool mVrSequenceRequiredFlag;
 private:
     // No copy.
     Restorer(const Restorer&);

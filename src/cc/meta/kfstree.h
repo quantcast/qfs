@@ -313,7 +313,7 @@ class Tree
 private:
     Node* root;         //!< root node
     Node* first;        //!< leftmost level-1 node
-    int hgt;            //!< height of tree
+    int   hgt;          //!< height of tree
     struct pathlink {   //!< for recording descent path
         Node *n;        //!< parent node
         int pos;        //!< index of child
@@ -330,6 +330,7 @@ private:
     bool                                allowFidToPathConversion;
     bool                                mIsPathToFidCacheEnabled;
     bool                                mUpdatePathSpaceUsage;
+    bool                                mEnforceDumpsterRulesFlag;
     PathToFidCacheMap                   mPathToFidCache;
     time_t                              mLastPathToFidCacheCleanupTime;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
@@ -338,7 +339,7 @@ private:
     int64_t                             mCrTime;
     fid_t                               mDumpsterDirId;
     MetaFattr*                          mChunksDeleteQueueFattr;
-
+    Key                                 mRootKey;
 
     template<typename MATCH>
     Node* lowerBound(const MATCH &k, int& kp) const
@@ -405,7 +406,11 @@ private:
         ChunkIterator& cit, MetaChunkInfo*& ci) const;
     void setFileSize(MetaFattr* fa, chunkOff_t size,
         int64_t nfiles, int64_t ndirs);
+    fid_t getDumpsterDirIdSelf();
     const MetaFattr* getChunkDeleteQueueSelf();
+    void removeSubTree(fid_t dir, vector<MetaDentry*>& entries,
+        MetaFattr** dfa);
+    void removeFiles(fid_t dir, vector<MetaDentry*>& entries);
     Tree()
         : root(0),
           first(0),
@@ -413,6 +418,7 @@ private:
           allowFidToPathConversion(false),
           mIsPathToFidCacheEnabled(false),
           mUpdatePathSpaceUsage(false),
+          mEnforceDumpsterRulesFlag(true),
           mPathToFidCache(),
           mLastPathToFidCacheCleanupTime(0),
           mChunkInfosTmp(),
@@ -420,15 +426,15 @@ private:
           mFileSystemId(-1),
           mCrTime(),
           mDumpsterDirId(-1),
-          mChunksDeleteQueueFattr(0)
+          mChunksDeleteQueueFattr(0),
+          mRootKey(KFS_SENTINEL, 0)
     {
         root = Node::create(META_ROOT|META_LEVEL1);
-        root->insertData(new Key(KFS_SENTINEL, 0), 0, 0);
+        root->insertData(&mRootKey, 0, 0);
         first = root;
         hgt = 1;
     }
-    ~Tree()
-        {}
+    ~Tree();
     friend class MetaServerGlobals;
 public:
     void SetFsInfo(int64_t id, int64_t crtime)
@@ -463,14 +469,14 @@ public:
     }
     bool getUpdatePathSpaceUsageFlag() const
         { return mUpdatePathSpaceUsage; }
-    int insert(Meta *m);            //!< add data item
-    int del(Meta *m);           //!< remove data item
+    int insert(Meta *m);                //!< add data item
+    int del(Meta *m);                   //!< remove data item
     Node *getroot() { return root; }    //!< return root node
     Node *firstLeaf() { return first; } //!< leftmost leaf
     void pushroot(Node *rootbro);       //!< insert new root
-    void poproot();             //!< discard current root
-    int height() { return hgt; }        //!< return tree height
-    void printleaves();         //!< print debugging info
+    void poproot();                     //!< discard current root
+    int height() const { return hgt; }  //!< return tree height
+    void printleaves();                 //!< print debugging info
     MetaFattr* getFattr(fid_t fid);     //!< return attributes
     MetaFattr* getFattr(const MetaDentry* dentry)
     {
@@ -673,7 +679,10 @@ public:
     ChunkIterator getAlloc(fid_t fid) const;
     ChunkIterator getAlloc(fid_t fid, MetaFattr*& fa) const;
     DentryIterator readDir(fid_t dir) const;
-    fid_t getDumpsterDirId();
+    fid_t getDumpsterDirId()
+    {
+        return (mDumpsterDirId < 0 ? getDumpsterDirIdSelf() : mDumpsterDirId);
+    }
     int removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
         int entriesCount, bool& outCleanupDoneFlag);
     const MetaFattr* getChunkDeleteQueue()
@@ -683,6 +692,9 @@ public:
     }
     int cleanupChunks(int maxChunkDelete, int64_t mtime);
     void ensureChunkDeleteQueueExists();
+    void removeSubTree(fid_t dir, int64_t mtime);
+    void setEnforceDumpsterRules(bool flag)
+        { mEnforceDumpsterRulesFlag = flag; }
 private:
     Tree(const Tree&);
     Tree& operator=(const Tree&);

@@ -30,7 +30,15 @@ jerasuretest=''
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
-        myvalgrind='valgrind -v --log-file=valgrind.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes'
+        myvalgrind='valgrind'
+        myvalgrind="$myvalgrind="' -v'
+        myvalgrind="$myvalgrind="' --log-file=valgrind.log'
+        myvalgrind="$myvalgrind="' --leak-check=full'
+        myvalgrind="$myvalgrind="' --leak-resolution=high'
+        myvalgrind="$myvalgrind="' --show-reachable=yes'
+        myvalgrind="$myvalgrind="' --track-origins=yes'
+        myvalgrind="$myvalgrind="' --child-silent-after-fork=yes'
+        myvalgrind="$myvalgrind="' --track-fds=yes'
         GLIBCPP_FORCE_NEW=1
         export GLIBCPP_FORCE_NEW
         GLIBCXX_FORCE_NEW=1
@@ -152,18 +160,12 @@ cptestextraopts=${cptestextraopts-}
 mkcerts=`dirname "$0"`
 mkcerts="`cd "$mkcerts" && pwd`/qfsmkcerts.sh"
 
-if [ x"$myvalgrind" = x ]; then
-    true
-else
-    metastartwait='yes' # wait for unit test to finish
-fi
 [ x"`uname`" = x'Darwin' ] && dontusefuser=yes
 if [ x"$dontusefuser" = x'yes' ]; then
     true
 else
     fuser "$0" >/dev/null 2>&1 || dontusefuser=yes
 fi
-export myvalgrind
 
 # cptest.sh parameters
 sizes=${sizes-'0 1 2 3 127 511 1024 65535 65536 65537 70300 1e5 10e6 100e6 250e6'}
@@ -524,6 +526,7 @@ metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.maxDumpsterCleanupInFlight = 2
 metaServer.maxTruncateChunksDeleteCount = 2
 metaServer.maxTruncatedChunkDeletesInFlight = 3
+metaServer.metaTreeCleanupOnExit = 1
 EOF
 
 if [ x"$myvalgrind" = x ]; then
@@ -769,16 +772,29 @@ runqfsroot()
     QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
         ${1+"$@"}
 }
-runqfsroot -touchz /dumpstertest || exit
+runqfsroot -touchz '/dumpstertest' || exit
 runqfsroot -rm -skipTrash /dumpstertest || exit
 dumpstertest="`runqfsroot -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
 runqfsroot -chmod -w "$dumpstertest" || exit
 runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit
 runqfsroot -mv "$dumpstertest" '/dumpstertest' || exit
-#  runqfsroot -rm -skipTrash '/dumpstertest' || exit
 runqfsroot -mkdir '/dumpster/test' && exit
 runqfsroot -touchz '/dumpster/test' && exit
 runqfsroot -rm -skipTrash '/dumpster' && exit
+runqfsroot -ls '/dumpster/deletequeue' || exit
+runqfsroot -rm -skipTrash '/dumpster/deletequeue' && exit
+runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit
+runqfsroot -mv '/dumpster/deletequeue' '/' && exit
+runqfsroot -chmod +rw '/dumpster/deletequeue' && exit
+runqfsroot -ls '/dumpster/deletequeue' || exit
+for size in 24577 1; do
+    QFS_CLIENT_CONFIG= \
+    rand-sfmt -g 24577 1234 \
+    | cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
+        -t -u 4096 -y 6 -z 3 -d - -k '/truncate.test' || exit
+done
+runqfsroot -rm -skipTrash '/truncate.test' || exit
+#  runqfsroot -rm -skipTrash '/dumpstertest' || exit
 
 # Shorten dumpster cleanup interval to reclaim space faster.
 (

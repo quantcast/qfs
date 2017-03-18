@@ -1831,6 +1831,7 @@ const bool kCSAuthenticationUsesServerPskFlag = false;
 LayoutManager::LayoutManager()
     : mNetManager(globalNetManager()),
       mNumOngoingReplications(0),
+      mMetaTreeCleanupOnExitFlag(false),
       mIsRebalancingEnabled(true),
       mMaxRebalanceSpaceUtilThreshold(0.85),
       mMinRebalanceSpaceUtilThreshold(0.75),
@@ -2085,6 +2086,9 @@ LayoutManager::LayoutManager()
 
 LayoutManager::~LayoutManager()
 {
+    if (mMetaTreeCleanupOnExitFlag) {
+        metatree.removeSubTree(ROOTFID, 0);
+    }
     globals().counterManager.RemoveCounter(mOngoingReplicationStats);
     globals().counterManager.RemoveCounter(mTotalReplicationStats);
     globals().counterManager.RemoveCounter(mFailedReplicationStats);
@@ -2176,6 +2180,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     ChunkServer::SetParameters(props, clientPort);
     MetaRequest::SetParameters(props);
 
+    mMetaTreeCleanupOnExitFlag = props.getValue(
+        "metaServer.metaTreeCleanupOnExit",
+        mMetaTreeCleanupOnExitFlag ? 1 : 0) != 0;
     mMaxConcurrentReadReplicationsPerNode = props.getValue(
         "metaServer.maxConcurrentReadReplicationsPerNode",
         mMaxConcurrentReadReplicationsPerNode);

@@ -231,8 +231,8 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
     if (! parent->CanWrite(euser, egroup)) {
         return -EACCES;
     }
-    if (getDumpsterDirId() == dir) {
-        KFS_LOG_STREAM_ERROR <<
+    if (mEnforceDumpsterRulesFlag && getDumpsterDirId() == dir) {
+        KFS_LOG_STREAM_DEBUG <<
             fname << ": attempt to create file in dumpster denied" <<
         KFS_LOG_EOM;
         return -EPERM;
@@ -484,11 +484,9 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
     if (0 < todumpster) {
         // put the file into dumpster
         todumpster = fa->id();
-        int status = moveToDumpster(dir, fname, *fa, mtime);
-        KFS_LOG_STREAM(status == 0 ?
-                MsgLogger::kLogLevelDEBUG :
-                MsgLogger::kLogLevelERROR) <<
-            "moved " << fname << " to dumpster" <<
+        const int status = moveToDumpster(dir, fname, *fa, mtime);
+        KFS_LOG_STREAM_DEBUG <<
+            "move " << fname << " to dumpster" <<
             " fid: "    << todumpster <<
             " status: " << status <<
         KFS_LOG_EOM;
@@ -530,8 +528,8 @@ Tree::mkdir(fid_t dir, const string& dname,
     if (! legalname(dname) && (dir != ROOTFID || dname != "/")) {
         return -EINVAL;
     }
-    if (getDumpsterDirId() == dir) {
-        KFS_LOG_STREAM_ERROR <<
+    if (mEnforceDumpsterRulesFlag && getDumpsterDirId() == dir) {
+        KFS_LOG_STREAM_DEBUG <<
             dname << ": attempt to create directory in dumpster denied" <<
         KFS_LOG_EOM;
         return -EPERM;
@@ -643,7 +641,7 @@ Tree::rmdir(fid_t dir, const string& dname, const string& pathname,
     }
 
     if (dir == ROOTFID && (dname == DUMPSTERDIR || dname == "/")) {
-        KFS_LOG_STREAM_INFO << "attempt to delete: /" <<
+        KFS_LOG_STREAM_DEBUG << "attempt to delete: /" <<
             dname << KFS_LOG_EOM;
         return -EPERM;
     }
@@ -1913,15 +1911,16 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     if (fa->filesize == offset) {
         return 0;
     }
-    if (0 < fa->numReplicas &&
+    if (mEnforceDumpsterRulesFlag &&
+            0 < fa->numReplicas &&
             0 == fa->filesize &&
             0 == (fa->mode & MetaFattr::kFileModeMask) &&
             fa->parent &&
-            fa->parent->id() == metatree.getDumpsterDirId()) {
+            fa->parent->id() == getDumpsterDirId()) {
         return -EPERM;
     }
     if (0 == fa->numReplicas) {
-        if (! setEofHintFlag || 0 <= endOffset ||
+        if (0 <= endOffset ||
                 (0 < offset && fa->nextChunkOffset() <= 0) ||
                 fa->FilePosToChunkBlkIndex(offset - 1) !=
                 fa->LastChunkBlkIndex() ||
@@ -1978,7 +1977,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     // Delete chunks.
     int cnt = maxChunkDelete;
     while (! chunkInfo.empty()) {
-        if (0 <= cnt && --cnt <= 0) {
+        if (0 <= cnt && --cnt < 0) {
             break;
         }
         chunkInfo.back()->DeleteChunk();
@@ -2149,8 +2148,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         if (ddfattr->type != KFS_DIR) {
             return -ENOTDIR;
         }
-        if (0 < todumpster && getDumpsterDirId() == ddfattr->id()) {
-            KFS_LOG_STREAM_ERROR <<
+        if (0 < todumpster && mEnforceDumpsterRulesFlag &&
+                getDumpsterDirId() == ddfattr->id()) {
+            KFS_LOG_STREAM_DEBUG <<
                 newname << ": attempt to move to dumpster denied" <<
             KFS_LOG_EOM;
             return -EPERM;
@@ -2196,10 +2196,11 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             return status;
         }
     }
-    if (getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
+    if (mEnforceDumpsterRulesFlag &&
+            getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
             (mChunksDeleteQueueFattr == sfattr ||
             ! gLayoutManager.MoveFromDumpster(*sfattr, src->getName()))) {
-        KFS_LOG_STREAM_ERROR <<
+        KFS_LOG_STREAM_DEBUG <<
             newname << ": attempt to move from dumpster denied" <<
         KFS_LOG_EOM;
         return -EPERM;
@@ -2376,7 +2377,7 @@ Tree::moveToDumpster(fid_t dir, const string& fname, MetaFattr& fa,
 }
 
 fid_t
-Tree::getDumpsterDirId()
+Tree::getDumpsterDirIdSelf()
 {
     if (mDumpsterDirId < 0) {
         MetaFattr* fa = 0;
@@ -2425,7 +2426,7 @@ Tree::ensureChunkDeleteQueueExists()
     const int32_t   stripeSize         = 0;
     const kfsMode_t mode               = 0;
     const int status = link(
-        getDumpsterDirId(), CHUNKDELQUEUE, KFS_FILE, fileID.genid(),
+        ddir, CHUNKDELQUEUE, KFS_FILE, fileID.genid(),
         numReplicas,
         KFS_STRIPED_FILE_TYPE_NONE, numStripes, numRecoveryStripes, stripeSize,
         kKfsUserRoot, kKfsGroupRoot, mode,
@@ -2476,6 +2477,100 @@ Tree::cleanupDumpster()
             continue;
         }
         gLayoutManager.ScheduleDumpsterCleanup(*fa, name);
+    }
+}
+
+void
+Tree::removeSubTree(fid_t dir, int64_t mtime)
+{
+    StTmp<vector<MetaDentry*> > dentriesTmp(mDentriesTmp);
+    vector<MetaDentry*>&        entries = dentriesTmp.Get();
+    MetaFattr*                  fa = 0;
+    removeSubTree(dir, entries, &fa);
+    if (fa) {
+        fa->mtime = mtime;
+    }
+}
+
+void
+Tree::removeSubTree(fid_t dir, vector<MetaDentry*>& entries, MetaFattr** dfa)
+{
+    DentryIterator it = readDir(dir);
+    MetaDentry*    e;
+    while ((e = it.next())) {
+        MetaFattr* const fa = getFattr(e);
+        if (! fa) {
+            continue;
+        }
+        if (KFS_DIR == fa->type) {
+            const string& name = e->getName();
+            if (kThisDir == name) {
+                if (dfa) {
+                    *dfa = fa;
+                }
+                continue;
+            }
+            if (kParentDir == name || ROOTFID == e->id()) {
+                continue;
+            }
+            removeFiles(dir, entries);
+            removeSubTree(e->id(), entries, 0);
+            UpdateNumDirs(-1);
+            setFileSize(fa, 0, 0, -1);
+            const fid_t id = fa->id();
+            unlink(id, kThisDir, fa, true);
+            unlink(id, kParentDir, fa, true);
+            unlink(dir, e->getName(), fa, false);
+            // Tree has changed, start over.
+            it = readDir(dir);
+            continue;
+        }
+        entries.push_back(e);
+    }
+    removeFiles(dir, entries);
+    entries.clear();
+}
+
+void
+Tree::removeFiles(fid_t dir, vector<MetaDentry*>& entries)
+{
+    for (vector<const MetaDentry*>::const_iterator it = entries.begin();
+            it != entries.end();
+            ++it) {
+        MetaFattr* const fa = getFattr(*it);
+        assert(KFS_FILE == fa->type);
+        if (0 < fa->chunkcount()) {
+            StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
+            vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+            getalloc(fa->id(), chunkInfo);
+            assert(fa->chunkcount() == (int64_t)chunkInfo.size());
+            UpdateNumChunks(-fa->chunkcount());
+            for_each(chunkInfo.begin(), chunkInfo.end(),
+                 mem_fun(&MetaChunkInfo::DeleteChunk));
+        } else if (0 == fa->numReplicas) {
+            gLayoutManager.DeleteFile(*fa);
+        }
+        UpdateNumFiles(-1);
+        setFileSize(fa, 0, -1, 0);
+        unlink(dir, (*it)->getName(), fa, false);
+    }
+    entries.clear();
+}
+
+Tree::~Tree()
+{
+    if (first) {
+        MetaFattr* const fa = getFattr(ROOTFID);
+        if (fa) {
+            unlink(ROOTFID, kThisDir, fa, true);
+            unlink(ROOTFID, kParentDir, fa, true);
+            unlink(ROOTFID, "/", fa, false);
+        }
+    }
+    if (root) {
+        root->destroySelf();
+        root  = 0;
+        first = 0;
     }
 }
 

@@ -693,7 +693,6 @@ MetaServer::Startup(const Properties& props,
         KFS_LOG_EOM;
         return false;
     }
-
     // Enable directory space update by default.
     metatree.setUpdatePathSpaceUsage(true);
     SetParameters(props);
@@ -897,6 +896,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
         // Init fs id if needed, leave create time 0, restorer will set these
         // unless fsinfo entry doesn't exit.
         Restorer r;
+        r.setVrSequenceRequired(true);
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
         rollChunkIdSeedFlag = true;
     } else {

@@ -178,6 +178,12 @@ LogCompactorMain(int argc, char** argv)
             }
             if (! replayer.logSegmentHasLogSeq() &&
                     replayer.getLastLogSeq().mEpochSeq <= 0) {
+                const fid_t ddir = metatree.getDumpsterDirId();
+                if (0 <= ddir) {
+                    // Delete all entries in the dumpster.
+                    metatree.removeSubTree(ddir, microseconds());
+                }
+                // Ensure dumpster and delete queue exist.
                 makeDumpsterDir();
                 // Roll seeds only with prior log format that has no chunk
                 // servers inventory.
