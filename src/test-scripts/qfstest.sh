@@ -31,14 +31,14 @@ jerasuretest=''
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
         myvalgrind='valgrind'
-        myvalgrind="$myvalgrind="' -v'
-        myvalgrind="$myvalgrind="' --log-file=valgrind.log'
-        myvalgrind="$myvalgrind="' --leak-check=full'
-        myvalgrind="$myvalgrind="' --leak-resolution=high'
-        myvalgrind="$myvalgrind="' --show-reachable=yes'
-        myvalgrind="$myvalgrind="' --track-origins=yes'
-        myvalgrind="$myvalgrind="' --child-silent-after-fork=yes'
-        myvalgrind="$myvalgrind="' --track-fds=yes'
+        myvalgrind="$myvalgrind"' -v'
+        myvalgrind="$myvalgrind"' --log-file=valgrind.log'
+        myvalgrind="$myvalgrind"' --leak-check=full'
+        myvalgrind="$myvalgrind"' --leak-resolution=high'
+        myvalgrind="$myvalgrind"' --show-reachable=yes'
+        myvalgrind="$myvalgrind"' --track-origins=yes'
+        myvalgrind="$myvalgrind"' --child-silent-after-fork=yes'
+        myvalgrind="$myvalgrind"' --track-fds=yes'
         GLIBCPP_FORCE_NEW=1
         export GLIBCPP_FORCE_NEW
         GLIBCXX_FORCE_NEW=1
