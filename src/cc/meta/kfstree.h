@@ -340,6 +340,10 @@ private:
     fid_t                               mDumpsterDirId;
     MetaFattr*                          mChunksDeleteQueueFattr;
     Key                                 mRootKey;
+    const string                        kParentDir;
+    const string                        kThisDir;
+    const string                        DUMPSTERDIR;
+    const string                        CHUNKDELQUEUE;
 
     template<typename MATCH>
     Node* lowerBound(const MATCH &k, int& kp) const
@@ -427,7 +431,11 @@ private:
           mCrTime(),
           mDumpsterDirId(-1),
           mChunksDeleteQueueFattr(0),
-          mRootKey(KFS_SENTINEL, 0)
+          mRootKey(KFS_SENTINEL, 0),
+          kParentDir(".."),
+          kThisDir("."),
+          DUMPSTERDIR("dumpster"),
+          CHUNKDELQUEUE("deletequeue")
     {
         root = Node::create(META_ROOT|META_LEVEL1);
         root->insertData(&mRootKey, 0, 0);
@@ -695,6 +703,8 @@ public:
     void removeSubTree(fid_t dir, int64_t mtime);
     void setEnforceDumpsterRules(bool flag)
         { mEnforceDumpsterRulesFlag = flag; }
+    void makeDumpsterDir();
+    int checkDumpsterExists();
 private:
     Tree(const Tree&);
     Tree& operator=(const Tree&);
@@ -724,9 +734,5 @@ extractAll(Node *n, int kp, const MATCH &k, vector <T *> &result)
 }
 
 extern Tree& metatree;
-void makeDumpsterDir();
-void emptyDumpsterDir();
-int  checkDumpsterExists();
-
 }
 #endif // !defined(KFS_KFSTREE_H)

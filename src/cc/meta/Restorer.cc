@@ -1033,7 +1033,7 @@ Restorer::rebuild(const string& cpname, int16_t minReplicas)
     }
     if (is_ok) {
         if (sHasVrSequenceFlag) {
-            const int err = checkDumpsterExists();
+            const int err = metatree.checkDumpsterExists();
             if (err) {
                 KFS_LOG_STREAM_FATAL <<
                     cpname << ": invalid or missing dumpster directory: " <<

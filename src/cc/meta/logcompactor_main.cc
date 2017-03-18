@@ -184,7 +184,7 @@ LogCompactorMain(int argc, char** argv)
                     metatree.removeSubTree(ddir, microseconds());
                 }
                 // Ensure dumpster and delete queue exist.
-                makeDumpsterDir();
+                metatree.makeDumpsterDir();
                 // Roll seeds only with prior log format that has no chunk
                 // servers inventory.
                 const int64_t kMinRollChunkIdSeed = int64_t(256) << 10;
@@ -224,7 +224,7 @@ LogCompactorMain(int argc, char** argv)
                     status = -EINVAL;
                 }
             }
-            if (0 == status && 0 != (status = checkDumpsterExists())) {
+            if (0 == status && 0 != (status = metatree.checkDumpsterExists())) {
                 KFS_LOG_STREAM_FATAL <<
                     "no dumpster direcotry: " <<
                         QCUtils::SysError(-status) <<

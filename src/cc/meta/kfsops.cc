@@ -43,12 +43,6 @@ using std::set;
 using std::max;
 using std::make_pair;
 
-const string kParentDir("..");
-const string kThisDir(".");
-
-const string DUMPSTERDIR("dumpster");
-const string CHUNKDELQUEUE("deletequeue");
-
 inline void
 Tree::FindChunk(int64_t chunkCount, fid_t fid, chunkOff_t pos,
     ChunkIterator& cit, MetaChunkInfo*& ci) const
@@ -84,22 +78,22 @@ IsDeleteRestricted(const MetaFattr* parent, const MetaFattr* fa, kfsUid_t euser)
  * files.  When the file is non-busy, it is nuked from the dumpster.
  */
 void
-makeDumpsterDir()
+Tree::makeDumpsterDir()
 {
     fid_t dummy = 0;
-    metatree.mkdir(ROOTFID, DUMPSTERDIR,
+    mkdir(ROOTFID, DUMPSTERDIR,
         kKfsUserRoot, kKfsGroupRoot, 0700,
         kKfsUserRoot, kKfsGroupRoot,
         &dummy, 0, microseconds()
     );
-    metatree.ensureChunkDeleteQueueExists();
+    ensureChunkDeleteQueueExists();
 }
 
 int
-checkDumpsterExists()
+Tree::checkDumpsterExists()
 {
     MetaFattr* fa;
-    int status = metatree.lookup(
+    int status = lookup(
             ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
     if (status == 0 && fa->type == KFS_DIR) {
         return 0;

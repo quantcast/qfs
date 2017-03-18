@@ -923,7 +923,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
                 0755),
             now
         );
-        makeDumpsterDir();
+        metatree.makeDumpsterDir();
         rollChunkIdSeedFlag = false;
         writeCheckpointFlag = true;
     }
@@ -967,7 +967,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
         KFS_LOG_EOM;
         return false;
     }
-    if (0 != checkDumpsterExists()) {
+    if (0 != metatree.checkDumpsterExists()) {
         KFS_LOG_STREAM_FATAL <<
             "invalid file system structure: no dumpster directory" <<
         KFS_LOG_EOM;

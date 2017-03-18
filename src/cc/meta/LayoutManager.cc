@@ -8340,12 +8340,22 @@ LayoutManager::DeleteChunk(CSMap::Entry& entry)
             panic("chunk change file id: invalid null file attribute");
             return;
         }
-        const bool checkReplicationFlag = ! entry.GetFattr() ||
-            fa->numReplicas != entry.GetFattr()->numReplicas;
+        const bool deleteQueueFlag = metatree.getChunkDeleteQueue() == fa;
+        const bool checkReplicationFlag = ! deleteQueueFlag && (
+            ! entry.GetFattr() ||
+            fa->numReplicas != entry.GetFattr()->numReplicas);
         mChunkEntryToChange = 0;
         mFattrToChangeTo    = 0;
-        mChunkLeases.ChangeFileId(
-            entry.GetChunkId(), entry.GetFileId(), fa->id());
+        if (deleteQueueFlag) {
+            StTmp<Servers>  serversTmp(mServers3Tmp);
+            Servers&        servers = serversTmp.Get();
+            const bool kStaleChunkIdFlag = false;
+            DeleteChunk(entry.GetFileId(), entry.GetChunkId(), servers,
+                kStaleChunkIdFlag);
+        } else {
+            mChunkLeases.ChangeFileId(
+                entry.GetChunkId(), entry.GetFileId(), fa->id());
+        }
         entry.SetFattr(fa);
         if (checkReplicationFlag) {
             CheckReplication(entry);
