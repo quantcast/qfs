@@ -6982,7 +6982,7 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
         return;
     }
     const CSMap::Entry* const ci = mChunkToServerMap.Find(req.chunkId);
-    if (! ci) {
+    if (! ci || metatree.getChunkDeleteQueue() == ci->GetFattr()) {
         req.statusMsg = "no such chunk";
         req.status    = -EINVAL;
         return;
@@ -7425,7 +7425,8 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
         if ((recoveryFlag && ! req.fromChunkServerFlag) ||
                 ! IsChunkStable(chunkId)) {
             leaseId = -EBUSY;
-        } else if (! (cs = mChunkToServerMap.Find(chunkId))) {
+        } else if (! (cs = mChunkToServerMap.Find(chunkId)) ||
+                metatree.getChunkDeleteQueue() == cs->GetFattr()) {
             leaseId = -EINVAL;
         } else if (mVerifyAllOpsPermissionsFlag &&
                 ((0 < req.leaseTimeout &&
@@ -7642,6 +7643,11 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
                 req.appendRecoveryLocations.empty())) {
         req.statusMsg = cs ? "no replica available" : "no such chunk";
         req.status    = cs ? -EAGAIN : -EINVAL;
+        return;
+    }
+    if (metatree.getChunkDeleteQueue() == cs->GetFattr()) {
+        req.statusMsg = "no such chunk";
+        req.status    = -EINVAL;
         return;
     }
     if (req.fromChunkServerFlag) {
@@ -10918,6 +10924,14 @@ LayoutManager::CanReplicateChunkNow(
             "re-replication delayed chunk:"
             " <" << c.GetFileId() << "," << chunkId << ">"
             " file delete pending" <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    if (metatree.getChunkDeleteQueue() == c.GetFattr()) {
+        KFS_LOG_STREAM_DEBUG <<
+            "re-replication delayed chunk:"
+            " <" << c.GetFileId() << "," << chunkId << ">"
+            " chunk is being deleted" <<
         KFS_LOG_EOM;
         return false;
     }
