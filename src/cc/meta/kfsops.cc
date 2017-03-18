@@ -2534,7 +2534,7 @@ Tree::removeSubTree(fid_t dir, vector<MetaDentry*>& entries, MetaFattr** dfa)
 void
 Tree::removeFiles(fid_t dir, vector<MetaDentry*>& entries)
 {
-    for (vector<const MetaDentry*>::const_iterator it = entries.begin();
+    for (vector<MetaDentry*>::const_iterator it = entries.begin();
             it != entries.end();
             ++it) {
         MetaFattr* const fa = getFattr(*it);
