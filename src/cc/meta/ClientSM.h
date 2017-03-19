@@ -165,6 +165,7 @@ private:
     static int  sBufCompactionThreshold;
     static int  sOutBufCompactionThreshold;
     static int  sAuthMaxTimeSkew;
+    static int  sMinProtocolVersion;
     static int  sClientCount;
     static bool sAuditLoggingFlag;
     static ClientSM* sClientSMPtr[1];

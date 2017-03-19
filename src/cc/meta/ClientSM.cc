@@ -73,6 +73,7 @@ int  ClientSM::sOutBufCompactionThreshold = 8 << 10;
 int  ClientSM::sClientCount               = 0;
 bool ClientSM::sAuditLoggingFlag          = false;
 int  ClientSM::sAuthMaxTimeSkew           = 2 * 60;
+int  ClientSM::sMinProtocolVersion        = -1;
 ClientSM* ClientSM::sClientSMPtr[1]       = {0};
 IOBuffer::WOStream ClientSM::sWOStream;
 
@@ -112,6 +113,9 @@ ClientSM::SetParameters(const Properties& prop)
     sAuthMaxTimeSkew = prop.getValue(
         "metaServer.clientSM.authMaxTimeSkew",
         sAuthMaxTimeSkew);
+    sMinProtocolVersion = min(KFS_CLIENT_PROTO_VERS, prop.getValue(
+        "metaServer.clientSM.minProtocolVersion",
+        sMinProtocolVersion));
     AuditLog::SetParameters(prop);
 }
 
@@ -537,11 +541,18 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
         return;
     }
     if (op->clientProtoVers < mClientProtoVers && op->op != META_ACK) {
-        mClientProtoVers = op->clientProtoVers;
         KFS_LOG_STREAM_INFO << mClientLocation <<
             " command with old protocol version: " <<
             op->clientProtoVers << ' ' << op->Show() <<
         KFS_LOG_EOM;
+        if (0 < op->clientProtoVers &&
+                op->clientProtoVers < sMinProtocolVersion) {
+            op->status    = -EPERM;
+            op->statusMsg = "client upgrade required";
+            CmdDone(*op);
+            return;
+        }
+        mClientProtoVers = op->clientProtoVers;
     }
     // Command is ready to be pushed down.  So remove the cmd from the buffer.
     if (sAuditLoggingFlag) {
