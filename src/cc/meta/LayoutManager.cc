@@ -8353,6 +8353,7 @@ LayoutManager::DeleteChunk(CSMap::Entry& entry)
             const bool kStaleChunkIdFlag = false;
             DeleteChunk(entry.GetFileId(), entry.GetChunkId(), servers,
                 kStaleChunkIdFlag);
+            SetReplicationState(entry, CSMap::Entry::kStateNone);
         } else {
             mChunkLeases.ChangeFileId(
                 entry.GetChunkId(), entry.GetFileId(), fa->id());
