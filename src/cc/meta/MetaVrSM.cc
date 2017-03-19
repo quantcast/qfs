@@ -1395,7 +1395,7 @@ public:
                 theNodes.end() != theIt && inStream;
                 ++theIt) {
             theStream << "vrcn/" << theIt->first << " ";
-            theIt->second.Insert(inStream) << "\n";
+            theIt->second.Insert(theStream) << "\n";
         }
         if (inStream) {
             theStream << "vrce/" << theNodes.size() <<
