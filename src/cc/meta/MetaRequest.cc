@@ -51,6 +51,7 @@
 #include "common/time.h"
 #include "common/kfserrno.h"
 
+#include "qcdio/QCThread.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/qcstutils.h"
 
@@ -3629,10 +3630,13 @@ SigAlarmHandler(int /* sinum */)
 }
 
 static void
-ChildAtFork(int childTimeLimit)
+ChildAtFork(int childTimeLimit, const char* childName)
 {
     signal(SIGHUP, &SigHupHandler);
     signal(SIGALRM, &SigAlarmHandler);
+    if (childName) {
+        QCThread::SetName(childName);
+    }
     if (childTimeLimit > 0) {
         alarm(childTimeLimit);
     }
@@ -3646,7 +3650,7 @@ ChildAtFork(int childTimeLimit)
 }
 
 static int
-DoFork(int childTimeLimit)
+DoFork(int childTimeLimit, const char* childName)
 {
     gNetDispatch.PrepareCurrentThreadToFork();
     MetaRequest::GetLogWriter().PrepareToFork();
@@ -3658,7 +3662,7 @@ DoFork(int childTimeLimit)
     }
     int ret = fork();
     if (ret == 0) {
-        ChildAtFork(childTimeLimit);
+        ChildAtFork(childTimeLimit, childName);
     } else {
         if (ret < 0) {
             ret = -errno;
@@ -3696,7 +3700,7 @@ MetaDumpChunkToServerMap::handle()
         status    = -EAGAIN;
         return;
     }
-    if ((pid = DoFork(20 * 60)) == 0) {
+    if ((pid = DoFork(20 * 60, "meta-dump-map")) == 0) {
         // let the child write out the map; if the map is large, this'll
         // take several seconds.  we get the benefits of writing out the
         // map in the background while the metaserver continues to
@@ -3869,7 +3873,7 @@ MetaFsck::handle()
         names.push_back(string(ptr));
     }
     if ((pid = DoFork((int)(gLayoutManager.GetMaxFsckTime() /
-                    (1000 * 1000)))) == 0) {
+                    (1000 * 1000)), "meta-fsck")) == 0) {
         StBufferT<ostream*, 8> streamsPtrBuf;
         ostream** const ptr        = streamsPtrBuf.Resize(cnt + 1);
         ofstream* const streams    = new ofstream[cnt];
@@ -4203,7 +4207,7 @@ MetaCheckpoint::handle()
     // after DoFork() invocation, then there is a bug with the prepare to
     // fork logic, and checkpoint will not be valid. In such case do not write
     // the checkpoint in the child, and "panic" the parent.
-    if ((pid = DoFork(checkpointWriteTimeoutSec)) == 0) {
+    if ((pid = DoFork(checkpointWriteTimeoutSec, "meta-checkpoint")) == 0) {
         MetaVrLogSeq logSeq;
         int64_t      errChecksum = -1;
         fid_t        fidSeed     = -1;
