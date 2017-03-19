@@ -204,11 +204,9 @@ QCThread::RunnerSelf()
     if (theError) {
         FatalError("sched_setaffinity", theError);
     }
-#if defined(QC_OS_NAME_LINUX) && defined(PR_SET_NAME)
     if (! mName.empty()) {
-        prctl(PR_SET_NAME, (unsigned long)mName.c_str(), 0, 0, 0);
+        QCThread::SetName(mName.c_str());
     }
-#endif
     mRunnablePtr->Run();
 }
     /* static */ void*
@@ -258,6 +256,21 @@ QCThread::SetCurrentThreadAffinity(CpuAffinity inAffinity)
         if (sched_setaffinity(syscall(SYS_gettid), sizeof(theSet), &theSet)) {
             return errno;
         }
+    }
+#endif
+    return 0;
+}
+
+    /* static */ int
+QCThread::SetName(
+    const char* inNamePtr)
+{
+    if (! inNamePtr || ! *inNamePtr) {
+        return -EINVAL;
+    }
+#if defined(QC_OS_NAME_LINUX) && defined(PR_SET_NAME)
+    if (prctl(PR_SET_NAME, (unsigned long)inNamePtr, 0, 0, 0)) {
+        return -errno;
     }
 #endif
     return 0;

@@ -137,6 +137,8 @@ public:
         int inErrorCode);
     static int GetThreadCount();
     static int SetCurrentThreadAffinity(CpuAffinity inAffinity);
+    static int SetName(
+        const char* inNamePtr);
 
 private:
     bool        mStartedFlag;
