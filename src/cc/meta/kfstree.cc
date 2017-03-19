@@ -486,7 +486,9 @@ void
 Tree::poproot()
 {
     if (!root->hasleaves() && root->children() == 1) {
+        Node* const prev = root;
         root = root->child(0);
+        prev->destroy();
         --hgt;
     }
 }
