@@ -604,7 +604,7 @@ metaServer.objectStorePlacementTest = 1
 metaServer.maxSpaceUtilizationThreshold = 0.995
 metaServer.userAndGroup.updatePeriodSec = 30
 metaServer.maxDumpsterCleanupInFlight = 8
-metaServer.maxTruncateChunksDeleteCount = 3
+metaServer.maxTruncateChunksDeleteCount = 1
 metaServer.maxTruncatedChunkDeletesInFlight = 18
 
 chunkServer.objBlockDiscardMinMetaUptime = 8

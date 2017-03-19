@@ -524,9 +524,8 @@ metaServer.objectStorePlacementTest = 1
 metaServer.replicationCheckInterval = 0.5
 metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.maxDumpsterCleanupInFlight = 2
-metaServer.maxTruncateChunksDeleteCount = 2
+metaServer.maxTruncateChunksDeleteCount = 1
 metaServer.maxTruncatedChunkDeletesInFlight = 3
-metaServer.metaTreeCleanupOnExit = 1
 EOF
 
 if [ x"$myvalgrind" = x ]; then
