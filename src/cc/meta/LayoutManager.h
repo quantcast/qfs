@@ -2011,7 +2011,6 @@ protected:
     /// A counter to track the # of ongoing chunk replications
     int mNumOngoingReplications;
 
-    bool mMetaTreeCleanupOnExitFlag;
     /// A switch to toggle rebalancing: if the system is under load,
     /// we'd like to turn off rebalancing.  We can enable it a
     /// suitable time.

@@ -1831,7 +1831,6 @@ const bool kCSAuthenticationUsesServerPskFlag = false;
 LayoutManager::LayoutManager()
     : mNetManager(globalNetManager()),
       mNumOngoingReplications(0),
-      mMetaTreeCleanupOnExitFlag(false),
       mIsRebalancingEnabled(true),
       mMaxRebalanceSpaceUtilThreshold(0.85),
       mMinRebalanceSpaceUtilThreshold(0.75),
@@ -2086,9 +2085,14 @@ LayoutManager::LayoutManager()
 
 LayoutManager::~LayoutManager()
 {
-    if (mMetaTreeCleanupOnExitFlag) {
-        metatree.removeSubTree(ROOTFID, 0);
+    for (Servers::iterator it = mChunkServers.begin();
+            mChunkServers.end() != it;
+            ++it) {
+        (*it)->ForceDown();
     }
+    // Cleanup meta tree prior to destroying chunk hash table, as hash table,
+    // owns and allocates chunk info nodes.
+    metatree.removeSubTree(ROOTFID, 0);
     globals().counterManager.RemoveCounter(mOngoingReplicationStats);
     globals().counterManager.RemoveCounter(mTotalReplicationStats);
     globals().counterManager.RemoveCounter(mFailedReplicationStats);
@@ -2180,9 +2184,6 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     ChunkServer::SetParameters(props, clientPort);
     MetaRequest::SetParameters(props);
 
-    mMetaTreeCleanupOnExitFlag = props.getValue(
-        "metaServer.metaTreeCleanupOnExit",
-        mMetaTreeCleanupOnExitFlag ? 1 : 0) != 0;
     mMaxConcurrentReadReplicationsPerNode = props.getValue(
         "metaServer.maxConcurrentReadReplicationsPerNode",
         mMaxConcurrentReadReplicationsPerNode);
@@ -2260,7 +2261,7 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mMaxDumpsterCleanupInFlight = max(2, props.getValue(
         "metaServer.maxDumpsterCleanupInFlight",
         mMaxDumpsterCleanupInFlight));
-    mMaxTruncateChunksDeleteCount = max(2, props.getValue(
+    mMaxTruncateChunksDeleteCount = max(1, props.getValue(
         "metaServer.maxTruncateChunksDeleteCount",
         mMaxTruncateChunksDeleteCount));
     mMaxTruncatedChunkDeletesInFlight = max(2, props.getValue(
@@ -8842,8 +8843,9 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Log 5 Sec Avg Rate= "    << logCtrs.mLog5SecAvgReqRate << "\t"
         "Log 10 Sec Avg Rate= "   << logCtrs.mLog10SecAvgReqRate << "\t"
         "Log 15 Sec Avg Rate= "   << logCtrs.mLog15SecAvgReqRate << "\t"
-        "Log Avg Rage Div="       <<
-            (int64_t(1) << LogWriter::Counters::kRateFracBits)
+        "Log Avg Rate Div="       <<
+            (int64_t(1) << LogWriter::Counters::kRateFracBits) << "\t"
+        "B Tree Height= "         << metatree.height()
     ;
     mWOstream.flush();
     mWOstream.Reset();

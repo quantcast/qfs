@@ -44,6 +44,7 @@
 #include <iostream>
 #include <fstream>
 
+#include <stdlib.h>
 #include <unistd.h>
 
 namespace KFS
@@ -214,8 +215,14 @@ FsckMain(int argc, char** argv)
     }
     MsgLogger::Stop();
     MdStream::Cleanup();
-
-    return (ok ? 0 : 1);
+    const int ret = ok ? 0 : 1;
+    // Do not do graceful exit in order to save time, if b+tree / file
+    // system is sufficiently large.
+    if (5 < metatree.height() ||
+            (int64_t(1) << 20) < (GetNumFiles() + GetNumDirs())) {
+        _exit(ret);
+    }
+    return ret;
 }
 
 }

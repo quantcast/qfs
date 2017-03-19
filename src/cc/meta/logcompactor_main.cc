@@ -42,6 +42,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include <iostream>
 #include <cassert>
@@ -283,7 +284,14 @@ LogCompactorMain(int argc, char** argv)
     }
     MsgLogger::Stop();
     MdStream::Cleanup();
-    return (status == 0 ? 0 : 1);
+    const int ret = status == 0 ? 0 : 1;
+    // Do not do graceful exit in order to save time, if b+tree / file
+    // system is sufficiently large.
+    if (5 < metatree.height() ||
+            (int64_t(1) << 20) < (GetNumFiles() + GetNumDirs())) {
+        _exit(ret);
+    }
+    return ret;
 }
 
 }

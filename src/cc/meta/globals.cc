@@ -89,6 +89,10 @@ InitializeMetaServerGlobals()
     set_new_handler(&NewHandler);
     InitGlobals();
     globalNetManager();
+    MetaNode::getPoolAllocator<Node>();
+    MetaNode::getPoolAllocator<MetaDentry>();
+    MetaNode::getPoolAllocator<MetaFattr>();
+    CSMap::Entry::GetAllocBlockCount();
     static MetaServerGlobals sMetaServerGlobals;
     return sMetaServerGlobals;
 }

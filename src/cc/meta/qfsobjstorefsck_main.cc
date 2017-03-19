@@ -50,6 +50,7 @@
 #include "libclient/KfsOps.h"
 
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <iostream>
 #include <string>
@@ -84,7 +85,8 @@ public:
         signal(SIGPIPE, SIG_IGN);
         libkfsio::InitGlobals();
         MdStream::Init();
-        int theStatus;
+        bool                   theCleanupFlag;
+        int                    theStatus;
         const SslFilter::Error theError = SslFilter::Initialize();
         if (0 != theError) {
             KFS_LOG_STREAM_FATAL <<
@@ -92,14 +94,20 @@ public:
                 " " << SslFilter::GetErrorMsg(theError) <<
             KFS_LOG_EOM;
             theStatus = -1;
+            theCleanupFlag = true;
         } else {
             ObjStoreFsck theFsck;
             theStatus = theFsck.RunSelf(inArgCnt, inArgaPtr);
+            theCleanupFlag = theFsck.mCleanupFlag;
         }
         SslFilter::Cleanup();
         MdStream::Cleanup();
         MsgLogger::Stop();
-        return (0 == theStatus ? 0 : 1);
+        const int theRet = 0 == theStatus ? 0 : 1;
+        if (! theCleanupFlag) {
+            _exit(theRet);
+        }
+        return theRet;
     }
 private:
     typedef dynamic_bitset<> BlocksBitmap;
@@ -109,6 +117,7 @@ private:
     KfsNetClient      mKfsNetClient;
     LeafIter          mLeafIter;
     bool              mQueryFlag;
+    bool              mCleanupFlag;
     int64_t           mLostCount;
     int               mError;
     int               mInFlightCnt;
@@ -131,6 +140,7 @@ private:
       ),
       mLeafIter(0, 0),
       mQueryFlag(false),
+      mCleanupFlag(true),
       mLostCount(0),
       mError(0),
       mInFlightCnt(0),
@@ -327,13 +337,13 @@ private:
         GetPathNameOp* inOpPtr)
     {
         GetPathNameOp* theOpPtr = inOpPtr;
-        for (const Meta* theNPtr = 0;
+        for (Meta* theNPtr = 0;
                 mLeafIter.parent() && (theNPtr = mLeafIter.current());
                 mLeafIter.next()) {
             if (KFS_FATTR != theNPtr->metaType()) {
                 continue;
             }
-            const MetaFattr& theFattr = *static_cast<const MetaFattr*>(theNPtr);
+            MetaFattr& theFattr = *static_cast<MetaFattr*>(theNPtr);
             if (KFS_FILE != theFattr.type || 0 != theFattr.numReplicas ||
                    theFattr.filesize <= 0) {
                 continue;
@@ -347,9 +357,9 @@ private:
                                 (*thePtr)[theMissingIdx];
                             ++theMissingIdx)
                         {}
-                    // Do not do cleanup to speedup (reduce CPU utilization).
-                    // thePtr->chunkcount() = 0;
-                    // delete thePtr;
+                    if (mCleanupFlag) {
+                        delete thePtr;
+                    }
                 }
             } else {
                 const int64_t theBits = theFattr.chunkcount();
@@ -359,6 +369,9 @@ private:
                         theMissingIdx <= theEnd && 0 != (theBits & theBit);
                         theMissingIdx++, theBit <<= 1)
                     {}
+            }
+            if (mCleanupFlag) {
+                theFattr.chunkcount() = 0;
             }
             if (theMissingIdx * (chunkOff_t)CHUNKSIZE < theFattr.filesize) {
                 if (mQueryFlag) {
@@ -586,8 +599,14 @@ ObjStoreFsck::RunSelf(
         theStatus = Start(theMetaServer);
     }
     if (0 == theStatus &&
-            (theStatus = RestoreCheckpoint(theLockFile)) == 0 &&
-            (theStatus = replayer.playLogs(theReplayLastLogFlag)) == 0) {
+            (theStatus = RestoreCheckpoint(theLockFile)) == 0) {
+        theStatus = replayer.playLogs(theReplayLastLogFlag);
+    }
+    // Do not do graceful exit in order to save time, if b+tree / file
+    // system is sufficiently large.
+    mCleanupFlag = metatree.height() < 6 &&
+        (GetNumFiles() + GetNumDirs()) < (int64_t(1) << 20);
+    if (0 == theStatus) {
         if (! mQueryFlag) {
             // Setup back pointers, to get file names retrival working.
             metatree.setUpdatePathSpaceUsage(true);
@@ -737,12 +756,13 @@ ObjStoreFsck::RunSelf(
             }
         }
         KFS_LOG_STREAM_INFO
-            "read keys: "     << theKeysCount <<
-            " no file keys: " << theNoFileKeyCount <<
+            "read keys: "      << theKeysCount <<
+            " no file keys: "  << theNoFileKeyCount <<
             " total:"
-            " files: "        << GetNumFiles() <<
-            " directories: "  << GetNumDirs() <<
-            " max fid: "      << fileID.getseed() <<
+            " files: "         << GetNumFiles() <<
+            " directories: "   << GetNumDirs() <<
+            " max fid: "       << fileID.getseed() <<
+            " b+tree height: " << metatree.height() <<
         KFS_LOG_EOM;
         // Traverse leaf nodes and query the the status for files with missing
         // blocks.

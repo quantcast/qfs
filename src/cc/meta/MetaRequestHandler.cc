@@ -962,16 +962,14 @@ ValidateHandler(
             )) {
             inErrStream << "failed to write: " << theReqPtr->Show() << "\n";
             theRet = false;
-            continue;
-        }
-        if (theOut.str() != theIn) {
+        } else if (theOut.str() != theIn) {
             inErrStream << "ctor / defaults mismatch: " << theReqPtr->Show() <<
                 " in:  "  << theIn <<
                 " out: "  << theOut.str() <<
             "\n";
             theRet = false;
-            continue;
         }
+        MetaRequest::Release(theReqPtr);
     }
     return theRet;
 }

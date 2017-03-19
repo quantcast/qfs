@@ -2231,7 +2231,6 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         // Set both parent and dentry attribute, ensuring that dentry
         // attribute is setup, in order to make consistency check in
         // recomputeDirSize() work.
-        src->setFattr(sfattr);
         setFileSize(sfattr,
             size >= 0 ? size : chunkOff_t(-1) - size, fileCnt, dirCnt);
         sfattr->filesize = size;
@@ -2551,18 +2550,26 @@ Tree::removeFiles(fid_t dir, vector<MetaDentry*>& entries)
     entries.clear();
 }
 
-Tree::~Tree()
+static void
+deleteNode(MetaNode& node)
 {
-    if (first) {
-        MetaFattr* const fa = getFattr(ROOTFID);
-        if (fa) {
-            unlink(ROOTFID, kThisDir, fa, true);
-            unlink(ROOTFID, kParentDir, fa, true);
-            unlink(ROOTFID, "/", fa, false);
+    if (node.metaType() == KFS_INTERNAL) {
+        Node& cur = static_cast<Node&>(node);
+        int pos = cur.children();
+        while (0 <= --pos) {
+            MetaNode* const child = cur.child(pos);
+            if (child) {
+                deleteNode(*child);
+            }
         }
     }
+    node.destroy();
+}
+
+Tree::~Tree()
+{
     if (root) {
-        root->destroySelf();
+        deleteNode(*root);
         root  = 0;
         first = 0;
     }
