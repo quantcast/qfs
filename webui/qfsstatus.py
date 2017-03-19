@@ -187,6 +187,7 @@ class SystemInfo:
         self.log10SecAvgReqRate = -1
         self.log15SecAvgReqRate = -1
         self.logAvgReqRateDiv = 1
+        self.bTreeHeight = -1
 
 class Status:
     def __init__(self):
@@ -428,6 +429,7 @@ class Status:
                 '''&nbsp;cinfo:&nbsp;''' + splitThousands(systemInfo.cinfos) + \
                 '''x''' + splitThousands(systemInfo.cinfoSize) + \
                 '''&nbsp;''' + bytesToReadable(systemInfo.cinfoAllocSize) + \
+                '''&nbsp;tree&nbsp;height:&nbsp;''' + splitThousands(systemInfo.bTreeHeight) + \
                 '''</td></tr>'''
         if systemInfo.csmapNodes >= 0:
             print >> buffer, '''<tr> <td> Allocations&nbsp;chunk2server</td><td>:</td><td>nodes:&nbsp;''' + \
@@ -1339,6 +1341,9 @@ def processSystemInfo(systemInfo, sysInfo):
     systemInfo.logAvgReqRateDiv = long(info[74].split('=')[1])
     if 0 == systemInfo.logAvgReqRateDiv:
         systemInfo.logAvgReqRateDiv = 1
+    if len(info) < 76:
+        return
+    systemInfo.bTreeHeight = long(info[75].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
@@ -1368,7 +1373,7 @@ def splitServersByRack(status):
 def ping(status, metaserver):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect((metaserver.node, metaserver.port))
-    req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 115\r\n\r\n"
+    req = "PING\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
     sock.send(req)
     sockIn = sock.makefile('r')
     status.tiersColumnNames = {}
@@ -1799,7 +1804,7 @@ class QueryCache:
                 #print "Using cached numbers:", QueryCache.DIR_COUNTERS.printDebug()
                 return QueryCache.GetMatchingCounters(chunkserverHosts)
         dir_counters = ChunkServerData()
-        req = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 115\r\n\r\n"
+        req = "GET_CHUNK_SERVER_DIRS_COUNTERS\r\nVersion: KFS/1.0\r\nCseq: 1\r\nClient-Protocol-Version: 116\r\n\r\n"
         isConnected = False
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
