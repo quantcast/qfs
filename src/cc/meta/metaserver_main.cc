@@ -82,6 +82,12 @@ public:
     BufferAllocator()
         : mBufferPool()
         {}
+    ~BufferAllocator()
+    {
+        if (0 != mBufferPool.GetUsedBufferCount()) {
+            panic("IO buffers still in use");
+        }
+    }
     virtual size_t GetBufferSize() const
         { return mBufferPool.GetBufferSize(); }
     virtual char* Allocate()

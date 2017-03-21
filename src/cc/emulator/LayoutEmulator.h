@@ -90,12 +90,9 @@ protected:
     {
         SetMinChunkserversToExitRecovery(0);
         ToggleRebalancing(true);
-        mReplaySetRackFlag = true;
+        mReplaySetRackFlag = false;
     }
-    ~LayoutEmulator()
-    {
-        mPlanFile.close();
-    }
+    ~LayoutEmulator();
 private:
     typedef map<ServerLocation, ChunkServerPtr> Loc2Server;
     class PlacementVerifier;

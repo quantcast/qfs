@@ -526,6 +526,7 @@ metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.maxDumpsterCleanupInFlight = 2
 metaServer.maxTruncateChunksDeleteCount = 1
 metaServer.maxTruncatedChunkDeletesInFlight = 3
+metaServer.minWritesPerDrive = 256
 EOF
 
 if [ x"$myvalgrind" = x ]; then
@@ -577,6 +578,9 @@ chunkServer.diskQueue.aws.debugTrace.requestProgress = $s3debug
 EOF
 fi
 
+QFS_DEBUG_CHECK_LEAKS_ON_EXIT=1
+export QFS_DEBUG_CHECK_LEAKS_ON_EXIT
+
 "$metabindir"/metaserver \
         -c "$metasrvprop" > "${metaservercreatefsout}" 2>&1 || {
     status=$?
@@ -591,7 +595,14 @@ EOF
 echo "Sync before to starting tests."
 sync
 
-myrunprog "$metabindir"/metaserver \
+if [ x"$myvalgrind" = x ]; then
+    myqfsleakscheck=0
+else
+    myqfsleakscheck=1
+fi
+
+QFS_DEBUG_CHECK_LEAKS_ON_EXIT=$myqfsleakscheck \
+    myrunprog "$metabindir"/metaserver \
     "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
 metapid=$!
 echo "$metapid" > "$metasrvpid"
@@ -870,7 +881,8 @@ echo "$cppid" > "$cppidf"
 
 qfscpidf="qfsctest${pidsuf}"
 cp /dev/null test-qfsc.out
-test-qfsc "$metahost:$metasrvport" 1>>test-qfsc.out 2>test-qfsc.log &
+QFS_CLIENT_LOG_LEVEL=DEBUG \
+    test-qfsc "$metahost:$metasrvport" 1>>test-qfsc.out 2>test-qfsc.log &
 qfscpid=$!
 echo "$qfscpid" > "$qfscpidf"
 

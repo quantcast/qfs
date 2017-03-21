@@ -2527,6 +2527,7 @@ protected:
     size_t                   mReplayServerCount;
     size_t                   mDisconnectedCount;
     time_t                   mServiceStartTime;
+    bool                     mCleanupFlag;
 
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfosTmp;
     StTmp<vector<MetaChunkInfo*> >::Tmp mChunkInfos2Tmp;

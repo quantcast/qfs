@@ -100,7 +100,7 @@ do_build()
         BUILD_TYPE="$MYBUILD_TYPE" \
         CMAKE="$MYCMAKE" \
         CMAKE_OPTIONS="$MYCMAKE_OPTIONS" \
-        JAVA_BUILD_OPTIONS='-r 2' \
+        JAVA_BUILD_OPTIONS='-r 5' \
         test tarball \
     || tail_logs_and_exit
 }

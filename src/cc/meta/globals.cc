@@ -32,6 +32,7 @@
 #include "ChildProcessTracker.h"
 #include "LayoutManager.h"
 #include "MetaDataStore.h"
+#include "ClientSM.h"
 #include "meta.h"
 #include "kfstree.h"
 
@@ -39,11 +40,17 @@
 
 #include <new>
 
+#include <string.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <errno.h>
+
 namespace KFS
 {
 using std::set_new_handler;
 using KFS::libkfsio::globalNetManager;
 using KFS::libkfsio::InitGlobals;
+using KFS::libkfsio::globals;
 
 class MetaServerGlobals
 {
@@ -76,6 +83,57 @@ private:
     MetaServerGlobals& operator=(const MetaServerGlobals&);
 };
 
+class ObjectCountsChecker
+{
+public:
+    ObjectCountsChecker()
+        : mCheckLeaksFlag(IsLeaksChecksEnabled()),
+          mWriteError(0)
+        {}
+    ~ObjectCountsChecker()
+    {
+        if (mCheckLeaksFlag) {
+            Check("object leaks detected\n", &mWriteError);
+        }
+    }
+    static void Check(
+        const char* inMsgPtr,
+        int*        inLastErrorPtr = 0)
+    {
+        if (0 != MetaNode::getPoolAllocator<Node>().GetInUseCount() ||
+                0 != MetaNode::getPoolAllocator<MetaDentry>().GetInUseCount() ||
+                0 != MetaNode::getPoolAllocator<MetaFattr>().GetInUseCount() ||
+                0 != CSMap::Entry::GetAllocBlockCount() ||
+                0 != globals().ctrOpenNetFds.GetValue() ||
+                0 != globals().ctrOpenDiskFds.GetValue() ||
+                0 != ClientSM::GetClientCount() ||
+                0 != MetaRequest::GetRequestCount() ||
+                0 != ChunkServer::GetChunkServerCount()) {
+            if (inMsgPtr && *inMsgPtr) {
+                if (write(2, inMsgPtr, strlen(inMsgPtr))) {
+                    if (inLastErrorPtr) {
+                        *inLastErrorPtr = errno;
+                    }
+                }
+            }
+            abort();
+        }
+    }
+private:
+    const bool mCheckLeaksFlag;
+    int        mWriteError;
+
+    static bool IsLeaksChecksEnabled()
+    {
+        const char* const thePtr = getenv("QFS_DEBUG_CHECK_LEAKS_ON_EXIT");
+        if (! thePtr || ! *thePtr) {
+            return false;
+        }
+        const int theSym = *thePtr & 0xFF;
+        return ('0' != theSym && 'N' != theSym && 'n' != theSym);
+    }
+};
+
 static void
 NewHandler()
 {
@@ -89,11 +147,9 @@ InitializeMetaServerGlobals()
     set_new_handler(&NewHandler);
     InitGlobals();
     globalNetManager();
-    MetaNode::getPoolAllocator<Node>();
-    MetaNode::getPoolAllocator<MetaDentry>();
-    MetaNode::getPoolAllocator<MetaFattr>();
-    CSMap::Entry::GetAllocBlockCount();
-    static MetaServerGlobals sMetaServerGlobals;
+    ObjectCountsChecker::Check("initialization: counts are not 0\n");
+    static ObjectCountsChecker sObjectCountsChecker;
+    static MetaServerGlobals   sMetaServerGlobals;
     return sMetaServerGlobals;
 }
 static MetaServerGlobals& sMetaServerGlobals = InitializeMetaServerGlobals();

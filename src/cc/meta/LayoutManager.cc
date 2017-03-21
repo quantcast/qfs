@@ -2050,6 +2050,7 @@ LayoutManager::LayoutManager()
       mReplayServerCount(0),
       mDisconnectedCount(0),
       mServiceStartTime(TimeNow() - 10 * 24 * 60 * 60),
+      mCleanupFlag(false),
       mChunkInfosTmp(),
       mChunkInfos2Tmp(),
       mServersTmp(),
@@ -2085,11 +2086,17 @@ LayoutManager::LayoutManager()
 
 LayoutManager::~LayoutManager()
 {
+    mCleanupFlag = true;
+    // Cleanup chunk servers to prevent queue ops due to chunk entries delete
+    // in remveSubTree();
     for (Servers::iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
             ++it) {
+        mChunkToServerMap.RemoveServer(*it);
         (*it)->ForceDown();
     }
+    mRacks.clear();
+    mChunkServers.clear();
     // Cleanup meta tree prior to destroying chunk hash table, as hash table,
     // owns and allocates chunk info nodes.
     metatree.removeSubTree(ROOTFID, 0);
@@ -13413,7 +13420,7 @@ LayoutManager::RunObjectBlockDeleteQueue()
 void
 LayoutManager::DeleteFile(const MetaFattr& fa)
 {
-    if (0 != fa.numReplicas || KFS_FILE != fa.type) {
+    if (0 != fa.numReplicas || KFS_FILE != fa.type || mCleanupFlag) {
         return;
     }
     // Queue one past the last block, to handle possible in flight allocation.

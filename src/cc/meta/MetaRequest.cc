@@ -3079,6 +3079,9 @@ MetaHello::start()
 MetaHello::handle()
 {
     gLayoutManager.AddNewServer(*this);
+    if (replayFlag && 0 != status) {
+        server->ScheduleDown(statusMsg.c_str());
+    }
 }
 
 /* virtual */ bool

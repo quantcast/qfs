@@ -125,9 +125,14 @@ ChunkServerEmulator::Enqueue(MetaChunkRequest& req,
         " staleChunk: " << staleChunkIdFlag <<
         " logged: "     << loggedFlag <<
         " remove: "     << removeReplicaFlag <<
+        " up: "         << (mNetConnection ? 1 : 0) <<
         " "             << req.Show() <<
     KFS_LOG_EOM;
-    mPendingReqs.push_back(&req);
+    if (mNetConnection) {
+        mPendingReqs.push_back(&req);
+    } else {
+        MetaRequest::Release(&req);
+    }
 }
 
 size_t
@@ -138,6 +143,10 @@ ChunkServerEmulator::Dispatch()
             mPendingReqs.end() != it;
             ++it) {
         MetaRequest& req = **it;
+        if (! mNetConnection) {
+            MetaRequest::Release(&req);
+            continue;
+        }
         if (req.op == META_CHUNK_REPLICATE) {
             MetaChunkReplicate& mcr = static_cast<MetaChunkReplicate&>(req);
             if (mLayoutEmulator.Handle(mcr)) {

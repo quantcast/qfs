@@ -588,6 +588,10 @@ int
 LayoutEmulator::InitUseCurrentState(
     int64_t chunkServerTotalSpace)
 {
+    KFS_LOG_STREAM_DEBUG <<
+        "servers: " << ChunkServer::GetChunkServerCount() <<
+    KFS_LOG_EOM;
+    mRacks.clear();
     int64_t csTotalSpace = chunkServerTotalSpace;
     if (chunkServerTotalSpace < 0) {
         csTotalSpace = 0;
@@ -650,6 +654,9 @@ LayoutEmulator::InitUseCurrentState(
             KFS_LOG_EOM;
         }
         srv.swap(ep);
+        if (srv->GetRack()) {
+            SetRack(srv, srv->GetRack());
+        }
         UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
         UpdateReplicationsThreshold();
         KFS_LOG_STREAM_INFO <<
@@ -662,6 +669,7 @@ LayoutEmulator::InitUseCurrentState(
             " utilization: " <<
                 srv->GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
         KFS_LOG_EOM;
+        ep->ForceDown();
     }
     for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
             mHibernatingServers.end() != it; ) {
@@ -723,6 +731,9 @@ LayoutEmulator::InitUseCurrentState(
             ++it;
         }
     }
+    KFS_LOG_STREAM_DEBUG <<
+        "servers: " << ChunkServer::GetChunkServerCount() <<
+    KFS_LOG_EOM;
     mChunkToServerMap.RemoveServerCleanup(0);
     mChunkToServerMap.First();
     Servers srvs;
@@ -1038,6 +1049,18 @@ LayoutEmulator::RunFsck(const string& fileName)
         return LayoutManager::RunFsck("tmp.", kReportAbandonedFilesFlag, cout);
     }
     return LayoutManager::RunFsck(fileName, kReportAbandonedFilesFlag);
+}
+
+LayoutEmulator::~LayoutEmulator()
+{
+    mPlanFile.close();
+    for (Servers::iterator it = mChunkServers.begin();
+            it != mChunkServers.end();
+            ++it) {
+        ChunkServerPtr& srv = *it;
+        srv->ForceDown();
+        GetCSEmulator(*srv).Dispatch();
+    }
 }
 
 /* static */ LayoutEmulator&
