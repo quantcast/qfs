@@ -404,7 +404,7 @@ ChunkServer::UpdateChunkWritesPerDrive(
 inline void
 ChunkServer::NewChunkInTier(kfsSTier_t tier)
 {
-    if (! mNetConnection) {
+    if (! mNetConnection || ! mHelloDone) {
         return;
     }
     for (size_t i = 0; i < kKfsSTierCount; i++) {
@@ -1161,6 +1161,10 @@ void
 ChunkServer::SetCanBeChunkMaster(bool flag)
 {
     if (mCanBeChunkMaster == flag) {
+        return;
+    }
+    if (! mHelloDone) {
+        mCanBeChunkMaster = flag;
         return;
     }
     const int64_t delta = -mLoadAvg;
@@ -1997,7 +2001,7 @@ ChunkServer::HandleCmd(IOBuffer* iobuf, int msgLen)
 void
 ChunkServer::UpdateSpace(const MetaChunkEvacuate& op)
 {
-    if (! mNetConnection) {
+    if (! mNetConnection || ! mHelloDone) {
         return;
     }
     if (op.totalSpace >= 0) {

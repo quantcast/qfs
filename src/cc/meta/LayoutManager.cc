@@ -2092,8 +2092,8 @@ LayoutManager::~LayoutManager()
     for (Servers::iterator it = mChunkServers.begin();
             mChunkServers.end() != it;
             ++it) {
-        mChunkToServerMap.RemoveServer(*it);
         (*it)->ForceDown();
+        mChunkToServerMap.RemoveServer(*it);
     }
     mRacks.clear();
     mChunkServers.clear();
@@ -4213,8 +4213,6 @@ LayoutManager::AddNewServer(MetaHello& req)
     } else {
         srv.SetRack(req.rackId);
     }
-    UpdateSrvLoadAvg(srv, 0, 0);
-
     if (! srv.IsReplay()) {
         if (mAssignMasterByIpFlag) {
             // if the server node # is odd, it is master; else slave
@@ -4247,8 +4245,8 @@ LayoutManager::AddNewServer(MetaHello& req)
             mSlavesCount++;
         }
     }
-
     srv.HelloDone(&req);
+    UpdateSrvLoadAvg(srv, 0, 0);
     if (! mChunkServersProps.empty()) {
         srv.SetProperties(mChunkServersProps);
     }
@@ -6153,6 +6151,10 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
     const LayoutManager::StorageTierInfo* tiersDelta,
     bool canBeCandidateFlag)
 {
+    if (! mChunkToServerMap.Validate(srv)) {
+        panic("update load average: invalid server");
+        return;
+    }
     mUpdateCSLoadAvgFlag      = true;
     mUpdatePlacementScaleFlag = true;
     const bool wasPossibleCandidate = srv.GetCanBeCandidateServerFlag();
@@ -6229,10 +6231,12 @@ LayoutManager::UpdateSrvLoadAvg(ChunkServer& srv, int64_t delta,
     if (inc == 0 && ! tiersDelta) {
         return;
     }
-    RackInfos::iterator const rackIter = FindRack(srv.GetRack());
-    if (rackIter != mRacks.end()) {
-        rackIter->updatePossibleCandidatesCount(
-            inc, tiersDelta, racksCandidatesDelta);
+    if (! srv.IsReplay() || mReplaySetRackFlag) {
+        RackInfos::iterator const rackIter = FindRack(srv.GetRack());
+        if (rackIter != mRacks.end()) {
+            rackIter->updatePossibleCandidatesCount(
+                inc, tiersDelta, racksCandidatesDelta);
+        }
     }
     if (inc == 0) {
         return;
@@ -8035,7 +8039,15 @@ LayoutManager::ChunkCorrupt(chunkId_t chunkId, const ChunkServerPtr& server,
 void
 LayoutManager::Handle(MetaChunkEvacuate& req)
 {
-    if (req.server->IsDown() || req.server->IsHibernatingOrRetiring()) {
+    if (! req.server->IsConnected() ||
+            ! mChunkToServerMap.Validate(req.server)) {
+        req.status    = -EAGAIN;
+        req.statusMsg = "stale request ignored";
+        return;
+    }
+    if (req.server->IsHibernatingOrRetiring()) {
+        req.status    = -EINVAL;
+        req.statusMsg = "chunk server is scheduled to hibernate or retire";
         return;
     }
     req.server->UpdateSpace(req);

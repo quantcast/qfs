@@ -561,12 +561,12 @@ public:
         return true;
     }
     bool Validate(const ChunkServerPtr& server) const {
-        if (! server) {
-            return false;
-        }
-        const int idx = server->GetIndex();
+        return (server && Validate(*server));
+    }
+    bool Validate(const ChunkServer& server) const {
+        const int idx = server.GetIndex();
         return (idx >= 0 && idx < (int)mServers.size() &&
-            mServers[idx] == server);
+            mServers[idx].get() == &server);
     }
     bool AddServer(const ChunkServerPtr& server) {
         if (! server || Validate(server)) {
