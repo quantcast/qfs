@@ -120,6 +120,7 @@ private:
         PlacementVerifier&            verifier);
     size_t GetChunkSize(const CSMap::Entry& ci) const;
     void ScheduleReplication();
+    void UseForPlacement(const ChunkServerPtr& srv);
 
     // for the purposes of rebalancing, we compute the cluster
     // wide average space utilization; then we take into the

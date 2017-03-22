@@ -62,6 +62,56 @@ GetCSEmulator(ChunkServer& server)
     return static_cast<ChunkServerEmulator&>(server);
 }
 
+class MetaChunkEvacuateOp : public MetaChunkEvacuate
+{
+public:
+    MetaChunkEvacuateOp()
+        : MetaChunkEvacuate()
+    {
+        numWritableDrives   = 1;
+        numDrives           = 1;
+        numEvacuateInFlight = 0;
+    }
+};
+
+class MetaHelloOp : public MetaHello
+{
+public:
+    MetaHelloOp()
+        : MetaHello()
+        {}
+};
+
+static const
+MetaChunkEvacuate& GetMetaChunkEvacuate()
+{
+    static const MetaChunkEvacuateOp sOp;
+    return sOp;
+}
+
+
+void
+LayoutEmulator::UseForPlacement(const ChunkServerPtr& srv)
+{
+    if (0 <= srv->GetRack()) {
+        SetRack(srv, srv->GetRack());
+    }
+    srv->SetCanBeChunkMaster(mMastersCount <= mSlavesCount);
+    if (srv->CanBeChunkMaster()) {
+        mMastersCount++;
+    } else {
+        mSlavesCount++;
+    }
+    MetaHelloOp hello;
+    hello.server = srv;
+    hello.clnt   = srv.get();
+    srv->HelloDone(&hello);
+    UpdateSrvLoadAvg(*srv, 0, 0);
+    srv->HelloEnd();
+    srv->UpdateSpace(GetMetaChunkEvacuate());
+    UpdateReplicationsThreshold();
+}
+
 int
 LayoutEmulator::LoadChunkmap(
     const string& chunkLocationFn, bool addChunksToReplicationChecker)
@@ -346,17 +396,7 @@ LayoutEmulator::AddServer(
         bind(&ChunkServer::GetServerLocation, _1) < loc
     );
     mChunkServers.insert(its, c);
-    RackInfos::iterator const it = find_if(
-        mRacks.begin(), mRacks.end(),
-        bind(&RackInfo::id, _1) == rack);
-    if (it != mRacks.end()) {
-        it->addServer(c);
-    } else if (rack >= 0) {
-        mRacks.push_back(RackInfo(rack, 1.0, c));
-    }
-    UpdateSrvLoadAvg(srv, 0, 0);
-    UpdateReplicationsThreshold();
-
+    UseForPlacement(c);
     KFS_LOG_STREAM_INFO <<
         "added:"
         " server: "      << srv.GetServerLocation() <<
@@ -591,7 +631,6 @@ LayoutEmulator::InitUseCurrentState(
     KFS_LOG_STREAM_DEBUG <<
         "servers: " << ChunkServer::GetChunkServerCount() <<
     KFS_LOG_EOM;
-    mRacks.clear();
     int64_t csTotalSpace = chunkServerTotalSpace;
     if (chunkServerTotalSpace < 0) {
         csTotalSpace = 0;
@@ -633,6 +672,7 @@ LayoutEmulator::InitUseCurrentState(
         ChunkServerPtr ep;
         ep.reset(&cse);
         cse.Init(csTotalSpace, 0, mUseFsTotalSpaceFlag);
+        srv->ForceDown();
         if (! mChunkToServerMap.ReplaceServerWith(srv, ep)) {
             panic("failed to replace server");
             return -EFAULT;
@@ -653,12 +693,14 @@ LayoutEmulator::InitUseCurrentState(
                 srv->GetServerLocation() << " pending hello in progress" <<
             KFS_LOG_EOM;
         }
-        srv.swap(ep);
-        if (srv->GetRack()) {
-            SetRack(srv, srv->GetRack());
+        RackInfos::iterator const rackIter = FindRack(srv->GetRack());
+        if (rackIter != mRacks.end() &&
+                rackIter->removeServer(srv) &&
+                rackIter->getServers().empty()) {
+            mRacks.erase(rackIter);
         }
-        UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
-        UpdateReplicationsThreshold();
+        srv.swap(ep);
+        UseForPlacement(srv);
         KFS_LOG_STREAM_INFO <<
             "added:"
             " server: "      << srv->GetServerLocation() <<
@@ -669,7 +711,6 @@ LayoutEmulator::InitUseCurrentState(
             " utilization: " <<
                 srv->GetSpaceUtilization(mUseFsTotalSpaceFlag) <<
         KFS_LOG_EOM;
-        ep->ForceDown();
     }
     for (HibernatedServerInfos::const_iterator it = mHibernatingServers.begin();
             mHibernatingServers.end() != it; ) {
@@ -714,19 +755,7 @@ LayoutEmulator::InitUseCurrentState(
             // Convert to non const iterator for pre c++11.
             it = mHibernatingServers.erase(mHibernatingServers.begin() +
                 (it - mHibernatingServers.begin()));
-            if (0 <= rackId) {
-                RackInfos::iterator const itr = find_if(
-                    mRacks.begin(), mRacks.end(),
-                    bind(&RackInfo::id, _1) == rackId
-                );
-                if (itr != mRacks.end()) {
-                    itr->addServer(srv);
-                } else {
-                    mRacks.push_back(RackInfo(rackId, 1.0, srv));
-                }
-            }
-            UpdateSrvLoadAvg(*srv, 0, 0); // Use for placement.
-            UpdateReplicationsThreshold();
+            UseForPlacement(srv);
         } else {
             ++it;
         }
@@ -757,11 +786,11 @@ LayoutEmulator::ReadNetworkDefn(const string& networkFn)
             it != mChunkServers.end();
             ++it) {
         const ChunkServerPtr& srv = *it;
+        srv->ForceDown();
         if (! mChunkToServerMap.RemoveServer(srv)) {
             panic("failed to remove server");
             return -EFAULT;
         }
-        srv->ForceDown();
     }
     mReplayServerCount = 0;
     mDisconnectedCount = 0;
