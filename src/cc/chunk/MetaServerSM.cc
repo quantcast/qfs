@@ -619,7 +619,9 @@ MetaServerSM::Impl::Timeout()
         return;
     }
     DispatchOps();
-    mNetConnection->StartFlush();
+    if (mRecursionCount <= 0) {
+        mNetConnection->StartFlush();
+    }
 }
 
 time_t
@@ -799,12 +801,16 @@ MetaServerSM::Impl::SendHello()
 bool
 MetaServerSM::Impl::Authenticate()
 {
-    if (! mAuthContext.IsEnabled()) {
-        return false;
+    if (! mNetConnection) {
+        die("invalid authenticate invocation: no connection");
+        return true;
     }
     if (mAuthOp) {
         die("invalid authenticate invocation: auth is in flight");
         return true;
+    }
+    if (! mAuthContext.IsEnabled()) {
+        return false;
     }
     mAuthOp = new AuthenticateOp();
     mAuthOp->seq                = nextSeq();
@@ -831,11 +837,13 @@ MetaServerSM::Impl::Authenticate()
     KFS_LOG_STREAM_INFO << mLocation <<
         " started: "   << mAuthOp->Show() <<
         " connected: " << IsConnected() <<
-        " read: "
-        " pending: "   <<
-            (mNetConnection ? mNetConnection->GetNumBytesToRead() : -1) <<
-        " ready: "     << (mNetConnection && mNetConnection->IsReadReady()) <<
+        " read:"
+        " pending: "   << mNetConnection->GetNumBytesToRead() <<
+        " ready: "     << mNetConnection->IsReadReady() <<
     KFS_LOG_EOM;
+    if (mRecursionCount <= 0) {
+        mNetConnection->StartFlush();
+    }
     return true;
 }
 
@@ -1486,6 +1494,9 @@ MetaServerSM::Impl::EnqueueOp(KfsOp* op)
             die("duplicate seq. number");
         }
         Request(*op);
+        if (mRecursionCount <= 0) {
+            mNetConnection->StartFlush();
+        }
         if (op->noReply) {
             SubmitOpResponse(op);
         }
