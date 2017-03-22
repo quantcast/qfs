@@ -890,6 +890,8 @@ struct HeartbeatOp : public KfsOp {
     IOBuffer          response;
     string            cmdShow;
     bool              sendCurrentKeyFlag;
+    bool              omitCountersFlag;
+    int               recvTimeout;
     CryptoKeys::KeyId currentKeyId;
     CryptoKeys::Key   currentKey;
 
@@ -901,6 +903,8 @@ struct HeartbeatOp : public KfsOp {
           response(),
           cmdShow(),
           sendCurrentKeyFlag(false),
+          omitCountersFlag(false),
+          recvTimeout(-1),
           currentKeyId(),
           currentKey()
         {}
@@ -920,9 +924,11 @@ struct HeartbeatOp : public KfsOp {
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
-        .Def2("Num-evacuate", "E",  &HeartbeatOp::metaEvacuateCount, int64_t(-1))
-        .Def2("Authenticate", "A",  &HeartbeatOp::authenticateFlag, false)
-        .Def2("Max-pending",  "MP", &HeartbeatOp::maxPendingOps, 96)
+        .Def2("Num-evacuate",    "E",  &HeartbeatOp::metaEvacuateCount, int64_t(-1))
+        .Def2("Authenticate",    "A",  &HeartbeatOp::authenticateFlag,  false)
+        .Def2("Max-pending",     "MP", &HeartbeatOp::maxPendingOps,     96)
+        .Def2("Omit-counters",   "O",  &HeartbeatOp::omitCountersFlag,  false)
+        .Def2("Receive-timeout", "T",  &HeartbeatOp::recvTimeout,       -1)
         ;
     }
 };

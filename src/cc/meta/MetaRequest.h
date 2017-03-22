@@ -2727,6 +2727,7 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
     int64_t evacuateCount;
     bool    reAuthenticateFlag;
     int     maxPendingOpsCount;
+    int     recvTimeout;
     bool    omitCountersFlag;
     MetaChunkHeartbeat(
         seq_t   n,
@@ -2734,17 +2735,25 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
         int64_t evacuateCnt,
         bool    reAuthFlag,
         int     maxPendingOpsCnt,
+        int     timeout,
         bool    omitCtrsFlag = false)
         : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, kLogNever, s, -1),
           evacuateCount(evacuateCnt),
           reAuthenticateFlag(reAuthFlag),
           maxPendingOpsCount(maxPendingOpsCnt),
+          recvTimeout(timeout),
           omitCountersFlag(omitCtrsFlag)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta-chunk-heartbeat";
+        return os << "meta-chunk-heartbeat:"
+            " evac-cnt: "    << evacuateCount <<
+            " max-pending: " << maxPendingOpsCount <<
+            " re-auth: "     << reAuthenticateFlag <<
+            " recv-to: "     << recvTimeout <<
+            " omit-ctrs: "   << omitCountersFlag
+        ;
     }
 };
 

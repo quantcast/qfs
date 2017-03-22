@@ -115,10 +115,6 @@ public:
         return mCmdSeq++;
     }
 
-    time_t GetLastRecvCmdTime() const {
-        return mLastRecvCmdTime;
-    }
-
     bool IsConnected() const {
         return (mNetConnection && mNetConnection->IsGood());
     }
@@ -213,8 +209,9 @@ private:
     /// handshake again.  Also, we use the timeout to dispatch pending
     /// messages to the server.
     int                           mInactivityTimeout;
+    int                           mReceiveTimeout;
     int                           mMaxReadAhead;
-    time_t                        mLastRecvCmdTime;
+    time_t                        mLastRecvTime;
     time_t                        mLastConnectTime;
     time_t                        mConnectedTime;
     bool                          mReconnectFlag;
@@ -384,9 +381,10 @@ MetaServerSM::Impl::Impl(
       mDispatchedOps(),
       mNetConnection(),
       mInactivityTimeout(65),
+      mReceiveTimeout(24 * 60 * 60),
       mMaxReadAhead(4 << 10),
-      mLastRecvCmdTime(globalNetManager().Now() - 24 * 60 * 60),
-      mLastConnectTime(mLastRecvCmdTime),
+      mLastRecvTime(globalNetManager().Now() - 24 * 60 * 60),
+      mLastConnectTime(mLastRecvTime),
       mConnectedTime(0),
       mReconnectFlag(false),
       mAuthContext(),
@@ -578,12 +576,16 @@ MetaServerSM::Impl::Timeout()
     const time_t now = globalNetManager().Now();
     if (IsConnected() &&
             IsHandshakeDone() &&
-            mLastRecvCmdTime + mInactivityTimeout < now) {
+            mLastRecvTime +
+                min(mReceiveTimeout, mInactivityTimeout) < now) {
         KFS_LOG_STREAM_ERROR << mLocation <<
             " meta server inactivity timeout, last request received: " <<
-            (now - mLastRecvCmdTime) << " secs ago" <<
+            (now - mLastRecvTime) << " secs ago" <<
+            " timeout:"
+            " inactivity: " << mInactivityTimeout <<
+            " receive: "    << mReceiveTimeout <<
         KFS_LOG_EOM;
-        Error("heartbeat request timeout");
+        Error("receive timeout");
     }
     if (! IsConnected()) {
         if (mHelloOp) {
@@ -891,6 +893,9 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
             // came in.
             IOBuffer& iobuf = mNetConnection->GetInBuffer();
             assert(&iobuf == data);
+            if (! iobuf.IsEmpty()) {
+                mLastRecvTime = globalNetManager().Now();
+            }
             if ((mOp || mAuthOp) && iobuf.BytesConsumable() < mContentLength) {
                 break;
             }
@@ -1435,13 +1440,15 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
         iobuf.Consume(mContentLength);
         mContentLength = 0;
     }
-    mLastRecvCmdTime = globalNetManager().Now();
     op->clnt = this;
     KFS_LOG_STREAM_DEBUG << mLocation <<
         " meta request: " << op->Show() <<
     KFS_LOG_EOM;
     if (! mAuthOp && CMD_HEARTBEAT == op->op && mNetConnection) {
         const HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
+        if (0 < hb.recvTimeout) {
+            mReceiveTimeout = hb.recvTimeout;
+        }
         if (hb.authenticateFlag && Authenticate() && ! IsUp()) {
             delete op;
             return false;

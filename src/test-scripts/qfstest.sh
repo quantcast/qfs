@@ -468,6 +468,7 @@ if [ x"$myvalgrind" = x ]; then
     csheartbeatskippedinterval=50
     cssessionmaxtime=`expr $csheartbeatinterval + 10`
     clisessionmaxtime=5
+    csmininactivityinterval=25
 else
     # Run test sequentially with valgrind
     if [ $spacecheck -ne 2 ]; then
@@ -477,6 +478,7 @@ else
     csheartbeatskippedinterval=800
     cssessionmaxtime=`expr $csheartbeatinterval + 50`
     clisessionmaxtime=25
+    csmininactivityinterval=200
     cat >> "$clientprop" << EOF
 client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
@@ -497,6 +499,7 @@ metaServer.logDir = kfslog
 metaServer.chunkServer.heartbeatTimeout  = $csheartbeattimeout
 metaServer.chunkServer.heartbeatInterval = $csheartbeatinterval
 metaServer.chunkServer.heartbeatSkippedInterval = $csheartbeatskippedinterval
+metaServer.chunkServer.minInactivityInterval = $csmininactivityinterval
 metaServer.recoveryInterval = 2
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1

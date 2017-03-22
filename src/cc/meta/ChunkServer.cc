@@ -311,12 +311,12 @@ ChunkServer::DispatchedReqsIterator::~DispatchedReqsIterator()
 
 void ChunkServer::SetParameters(const Properties& prop, int clientPort)
 {
-    sHeartbeatTimeout  = prop.getValue(
+    sHeartbeatTimeout = max(4, prop.getValue(
         "metaServer.chunkServer.heartbeatTimeout",
-        sHeartbeatTimeout);
-    sMinInactivityInterval  = prop.getValue(
+        sHeartbeatTimeout));
+    sMinInactivityInterval = max(2, prop.getValue(
         "metaServer.chunkServer.minInactivityInterval",
-        sMinInactivityInterval);
+        sMinInactivityInterval));
     sHeartbeatInterval = max(3, prop.getValue(
         "metaServer.chunkServer.heartbeatInterval",
         sHeartbeatInterval));
@@ -448,10 +448,12 @@ ChunkServer::HelloDone(const MetaHello* r)
         return;
     }
     mLastHeartbeatSent = TimeNow();
+    mHeartbeatSent     = true;
     const bool kReauthenticateFlag = false;
     Enqueue(*(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
             mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
-            kReauthenticateFlag, sMaxPendingOpsCount)),
+            kReauthenticateFlag, sMaxPendingOpsCount,
+            min(sHeartbeatTimeout, 2 * sMinInactivityInterval))),
         2 * sHeartbeatTimeout
     );
 }
@@ -590,6 +592,7 @@ ChunkServer::ChunkServer(
       mRestartScheduledTime(0),
       mLastHeartBeatLoggedTime(mLastHeartbeatSent - 240 * 60 * 60),
       mLastCountersUpdateTime(mLastHeartBeatLoggedTime),
+      mLastSentTime(mLastHeartBeatLoggedTime),
       mDownReason(),
       mOstream(),
       mRecursionCount(0),
@@ -1024,6 +1027,7 @@ ChunkServer::HandleRequest(int code, void *data)
                 ! mNetConnection->IsWriteReady()) {
             Error(mDisconnectReason.c_str());
         }
+        mLastSentTime = TimeNow();
         // Something went out on the network.
         break;
 
@@ -1078,7 +1082,7 @@ ChunkServer::HandleRequest(int code, void *data)
     }
     if (mHelloDone) {
         if (mRecursionCount <= 1 && ! mReplayFlag) {
-            const int hbTimeout = Heartbeat(EVENT_INACTIVITY_TIMEOUT == code);
+            const int hbTimeout = Heartbeat();
             const int opTimeout = TimeoutOps();
             if (mNetConnection) {
                 mNetConnection->StartFlush();
@@ -2070,12 +2074,12 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         // Most likely op was timed out, or chunk server sent response
         // after re-connect.
         KFS_LOG_STREAM_INFO << GetServerLocation() <<
-            " unable to find command for response cseq: " << cseq <<
+            " unable to find command for response seq: " << cseq <<
         KFS_LOG_EOM;
         return 0;
     }
-
-    mLastHeard = TimeNow();
+    const time_t now = TimeNow();
+    mLastHeard = now;
     op->statusMsg = prop.getValue(
         mShortRpcFormatFlag ? "m" : "Status-message", string());
     op->status    = prop.getValue(mShortRpcFormatFlag ? "s" : "Status", -1);
@@ -2083,141 +2087,159 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         op->status = -KfsToSysErrno(-op->status);
     }
     op->handleReply(prop);
-    if (op->op == META_CHUNK_HEARTBEAT && 0 == op->status &&
-            ! static_cast<MetaChunkHeartbeat*>(op)->omitCountersFlag) {
-        // Heartbeat response uses decimal notation, except key id, to make
-        // chunk server counters response backward compatible.
-        prop.setIntBase(10);
-        mTotalSpace        = prop.getValue("Total-space",           int64_t(0));
-        mTotalFsSpace      = prop.getValue("Total-fs-space",       int64_t(-1));
-        mUsedSpace         = prop.getValue("Used-space",            int64_t(0));
-        mNumChunks         = prop.getValue("Num-chunks",                     0);
-        mNumDrives         = prop.getValue("Num-drives",                     0);
-        mUptime            = prop.getValue("Uptime",                int64_t(0));
-        mLostChunks        = prop.getValue("Chunk-lost",            int64_t(0));
-        mNumCorruptChunks  = max(mNumCorruptChunks,
-            prop.getValue("Chunk-corrupted", int64_t(0)));
-        mNumAppendsWithWid = prop.getValue("Num-appends-with-wids", int64_t(0));
-        mEvacuateCnt       = prop.getValue("Evacuate",              int64_t(-1));
-        mEvacuateBytes     = prop.getValue("Evacuate-bytes",        int64_t(-1));
-        mEvacuateDoneCnt   = prop.getValue("Evacuate-done",         int64_t(-1));
-        mEvacuateDoneBytes = prop.getValue("Evacuate-done-bytes",   int64_t(-1));
-        mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
-        const int     numWrChunks = prop.getValue("Num-writable-chunks", 0);
-        const int     numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
-        const int64_t numObjs     = prop.getValue("Num-objs", int64_t(0));
-        const int64_t numWrObjs   =
-            min(numObjs, prop.getValue("Num-wr-objs", int64_t(0)));
-        if (mNumWrObjects != numWrObjs || numObjs != mNumObjects) {
-            gLayoutManager.UpdateObjectsCount(*this,
-                numObjs - mNumObjects, numWrObjs - mNumWrObjects);
-        }
-        const bool kHexFormatFlag = false;
-        UpdateStorageTiers(prop.getValue("Storage-tiers"),
-            numWrDrives, numWrChunks, kHexFormatFlag);
-        UpdateChunkWritesPerDrive(numWrChunks, numWrDrives);
-        const Properties::String* const cryptoKey = prop.getValue("CKey");
-        if (cryptoKey) {
-            const Properties::String* const keyId = prop.getValue("CKeyId");
-            if (! keyId ||
-                    ! ParseCryptoKey(*keyId, *cryptoKey, mShortRpcFormatFlag) ||
-                    ! mCryptoKeyValidFlag) {
-                KFS_LOG_STREAM_ERROR << GetServerLocation() <<
-                    " invalid heartbeat: invalid crypto key or id"
-                    " seq:" << cseq <<
-                KFS_LOG_EOM;
-                mCryptoKeyValidFlag = false;
-                return -1;
-            }
-            // Remove both crypto key and key ids from chunk server properties,
-            // in order to prevent displaying these as counters.
-            prop.remove("CKeyId");
-            prop.remove("CKey");
-        }
-        if (mEvacuateInFlight == 0) {
-            mChunksToEvacuate.Clear();
-        }
-        const time_t now = TimeNow();
-        if (mEvacuateCnt > 0 && mEvacuateLastRateUpdateTime +
-                sEvacuateRateUpdateInterval < now) {
-            const time_t delta = now - mEvacuateLastRateUpdateTime;
-            if (delta > 0 && delta <=
-                    2 * sEvacuateRateUpdateInterval +
-                    3 * sHeartbeatInterval) {
-                mEvacuateCntRate = max(int64_t(0),
-                    mEvacuateDoneCnt - mPrevEvacuateDoneCnt
-                ) / double(delta);
-                mEvacuateByteRate = max(int64_t(0),
-                    mEvacuateDoneBytes - mPrevEvacuateDoneBytes
-                ) / double(delta);
-            } else {
-                mEvacuateCntRate  = 0.;
-                mEvacuateByteRate = 0.;
-            }
-            mEvacuateLastRateUpdateTime = now;
-            mPrevEvacuateDoneCnt        = mEvacuateDoneCnt;
-            mPrevEvacuateDoneBytes      = mEvacuateDoneBytes;
-        }
-        const int64_t srvLoad = prop.getValue(sSrvLoadPropName, int64_t(0));
-        int64_t loadAvg;
-        if (sSrvLoadSamplerSampleCount > 0) {
-            if (mSrvLoadSampler.GetMaxSamples() != sSrvLoadSamplerSampleCount) {
-                mSrvLoadSampler.SetMaxSamples(
-                    sSrvLoadSamplerSampleCount, srvLoad, now);
-            } else {
-                mSrvLoadSampler.Put(srvLoad, now);
-            }
-            loadAvg = mSrvLoadSampler.GetLastFirstDiffByTime();
-        } else {
-            loadAvg = srvLoad;
-        }
-        if (loadAvg < 0) {
-            KFS_LOG_STREAM_INFO << GetServerLocation() <<
-                " load average: " << loadAvg <<
-                " resetting sampler" <<
-            KFS_LOG_EOM;
-            if (sSrvLoadSamplerSampleCount > 0) {
-                mSrvLoadSampler.Reset(loadAvg, now);
-            }
-            loadAvg = 0;
-        }
-        mAllocSpace = mUsedSpace;
-        if (mNumChunkWrites > 0) {
-            // Overestimate allocated space to approximate the in flight
-            // allocations that are not accounted for in this response.
-            const int kInFlightEst = 16;
-            mAllocSpace +=
-                (mNumChunkWrites >= kInFlightEst * (kInFlightEst + 1)) ?
-                mNumChunkWrites * ((int64_t)CHUNKSIZE / kInFlightEst) :
-                min(kInFlightEst, max(mNumChunkWrites / 8, 1)) *
-                    (int64_t)CHUNKSIZE;
-        }
-        mHeartbeatSent    = false;
-        mHeartbeatSkipped = mLastHeartbeatSent +
-            max(sHeartbeatInterval, sHeartbeatSkippedInterval) < now;
-        mHeartbeatProperties.swap(prop);
-        if (mTotalFsSpace < mTotalSpace) {
-            mTotalFsSpace = mTotalSpace;
-        }
-        const int64_t delta = loadAvg - mLoadAvg;
-        mLoadAvg = loadAvg;
-        gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
-        if (sHeartbeatLogInterval > 0 && mLastHeartBeatLoggedTime +
-                sHeartbeatLogInterval <= mLastHeard) {
-            mLastHeartBeatLoggedTime = mLastHeard;
-            string hbp;
-            mHeartbeatProperties.getList(hbp, " ", "");
-            KFS_LOG_STREAM_INFO <<
-                "===chunk=server: " << mLocation.hostname <<
-                ":" << mLocation.port <<
-                " responsive=" << IsResponsiveServer() <<
-                " retiring="   << mIsRetiring <<
-                " restarting=" << IsRestartScheduled() <<
-                hbp <<
-            KFS_LOG_EOM;
-        }
-        mLastCountersUpdateTime = now;
+    KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
+        " cs-reply:"
+        " -seq: "   << op->opSeqno <<
+        " status: " << op->status <<
+        " "         << op->statusMsg <<
+        " "         << op->Show() <<
+    KFS_LOG_EOM;
+    if (op->op != META_CHUNK_HEARTBEAT) {
+        op->resume();
+        return 0;
     }
+    if (0 != op->status) {
+        const string errMsg = "heartbeat error: " + op->statusMsg;
+        Error(errMsg.c_str());
+        op->resume();
+        return 0;
+    }
+    mHeartbeatSent    = false;
+    mHeartbeatSkipped = mLastHeartbeatSent +
+        max(sHeartbeatInterval, sHeartbeatSkippedInterval) < now;
+    if (static_cast<const MetaChunkHeartbeat*>(op)->omitCountersFlag ||
+            0 != op->status) {
+        op->resume();
+        return 0;
+    }
+    // Heartbeat response uses decimal notation, except key id, to make
+    // chunk server counters response backward compatible.
+    prop.setIntBase(10);
+    mTotalSpace        = prop.getValue("Total-space",           int64_t(0));
+    mTotalFsSpace      = prop.getValue("Total-fs-space",       int64_t(-1));
+    mUsedSpace         = prop.getValue("Used-space",            int64_t(0));
+    mNumChunks         = prop.getValue("Num-chunks",                     0);
+    mNumDrives         = prop.getValue("Num-drives",                     0);
+    mUptime            = prop.getValue("Uptime",                int64_t(0));
+    mLostChunks        = prop.getValue("Chunk-lost",            int64_t(0));
+    mNumCorruptChunks  = max(mNumCorruptChunks,
+        prop.getValue("Chunk-corrupted", int64_t(0)));
+    mNumAppendsWithWid = prop.getValue("Num-appends-with-wids", int64_t(0));
+    mEvacuateCnt       = prop.getValue("Evacuate",              int64_t(-1));
+    mEvacuateBytes     = prop.getValue("Evacuate-bytes",        int64_t(-1));
+    mEvacuateDoneCnt   = prop.getValue("Evacuate-done",         int64_t(-1));
+    mEvacuateDoneBytes = prop.getValue("Evacuate-done-bytes",   int64_t(-1));
+    mEvacuateInFlight  = prop.getValue("Evacuate-in-flight",    int64_t(-1));
+    const int     numWrChunks = prop.getValue("Num-writable-chunks", 0);
+    const int     numWrDrives = prop.getValue("Num-wr-drives", mNumDrives);
+    const int64_t numObjs     = prop.getValue("Num-objs", int64_t(0));
+    const int64_t numWrObjs   =
+        min(numObjs, prop.getValue("Num-wr-objs", int64_t(0)));
+    if (mNumWrObjects != numWrObjs || numObjs != mNumObjects) {
+        gLayoutManager.UpdateObjectsCount(*this,
+            numObjs - mNumObjects, numWrObjs - mNumWrObjects);
+    }
+    const bool kHexFormatFlag = false;
+    UpdateStorageTiers(prop.getValue("Storage-tiers"),
+        numWrDrives, numWrChunks, kHexFormatFlag);
+    UpdateChunkWritesPerDrive(numWrChunks, numWrDrives);
+    const Properties::String* const cryptoKey = prop.getValue("CKey");
+    if (cryptoKey) {
+        const Properties::String* const keyId = prop.getValue("CKeyId");
+        if (! keyId ||
+                ! ParseCryptoKey(*keyId, *cryptoKey, mShortRpcFormatFlag) ||
+                ! mCryptoKeyValidFlag) {
+            KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+                " invalid heartbeat: invalid crypto key or id"
+                " seq:" << cseq <<
+            KFS_LOG_EOM;
+            mCryptoKeyValidFlag = false;
+            return -1;
+        }
+        // Remove both crypto key and key ids from chunk server properties,
+        // in order to prevent displaying these as counters.
+        prop.remove("CKeyId");
+        prop.remove("CKey");
+    }
+    if (mEvacuateInFlight == 0) {
+        mChunksToEvacuate.Clear();
+    }
+    if (mEvacuateCnt > 0 && mEvacuateLastRateUpdateTime +
+            sEvacuateRateUpdateInterval < now) {
+        const time_t delta = now - mEvacuateLastRateUpdateTime;
+        if (delta > 0 && delta <=
+                2 * sEvacuateRateUpdateInterval +
+                3 * sHeartbeatInterval) {
+            mEvacuateCntRate = max(int64_t(0),
+                mEvacuateDoneCnt - mPrevEvacuateDoneCnt
+            ) / double(delta);
+            mEvacuateByteRate = max(int64_t(0),
+                mEvacuateDoneBytes - mPrevEvacuateDoneBytes
+            ) / double(delta);
+        } else {
+            mEvacuateCntRate  = 0.;
+            mEvacuateByteRate = 0.;
+        }
+        mEvacuateLastRateUpdateTime = now;
+        mPrevEvacuateDoneCnt        = mEvacuateDoneCnt;
+        mPrevEvacuateDoneBytes      = mEvacuateDoneBytes;
+    }
+    const int64_t srvLoad = prop.getValue(sSrvLoadPropName, int64_t(0));
+    int64_t loadAvg;
+    if (sSrvLoadSamplerSampleCount > 0) {
+        if (mSrvLoadSampler.GetMaxSamples() != sSrvLoadSamplerSampleCount) {
+            mSrvLoadSampler.SetMaxSamples(
+                sSrvLoadSamplerSampleCount, srvLoad, now);
+        } else {
+            mSrvLoadSampler.Put(srvLoad, now);
+        }
+        loadAvg = mSrvLoadSampler.GetLastFirstDiffByTime();
+    } else {
+        loadAvg = srvLoad;
+    }
+    if (loadAvg < 0) {
+        KFS_LOG_STREAM_INFO << GetServerLocation() <<
+            " load average: " << loadAvg <<
+            " resetting sampler" <<
+        KFS_LOG_EOM;
+        if (sSrvLoadSamplerSampleCount > 0) {
+            mSrvLoadSampler.Reset(loadAvg, now);
+        }
+        loadAvg = 0;
+    }
+    mAllocSpace = mUsedSpace;
+    if (mNumChunkWrites > 0) {
+        // Overestimate allocated space to approximate the in flight
+        // allocations that are not accounted for in this response.
+        const int kInFlightEst = 16;
+        mAllocSpace +=
+            (mNumChunkWrites >= kInFlightEst * (kInFlightEst + 1)) ?
+            mNumChunkWrites * ((int64_t)CHUNKSIZE / kInFlightEst) :
+            min(kInFlightEst, max(mNumChunkWrites / 8, 1)) *
+                (int64_t)CHUNKSIZE;
+    }
+    mHeartbeatProperties.swap(prop);
+    if (mTotalFsSpace < mTotalSpace) {
+        mTotalFsSpace = mTotalSpace;
+    }
+    const int64_t delta = loadAvg - mLoadAvg;
+    mLoadAvg = loadAvg;
+    gLayoutManager.UpdateSrvLoadAvg(*this, delta, mStorageTiersInfoDelta);
+    if (sHeartbeatLogInterval > 0 && mLastHeartBeatLoggedTime +
+            sHeartbeatLogInterval <= mLastHeard) {
+        mLastHeartBeatLoggedTime = mLastHeard;
+        string hbp;
+        mHeartbeatProperties.getList(hbp, " ", "");
+        KFS_LOG_STREAM_INFO <<
+            "===chunk=server: " << mLocation.hostname <<
+            ":" << mLocation.port <<
+            " responsive=" << IsResponsiveServer() <<
+            " retiring="   << mIsRetiring <<
+            " restarting=" << IsRestartScheduled() <<
+            hbp <<
+        KFS_LOG_EOM;
+    }
+    mLastCountersUpdateTime = now;
     op->resume();
     return 0;
 }
@@ -2523,7 +2545,7 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     const bool sendFlag = mNetConnection && mNetConnection->IsGood();
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " send: "   << sendFlag <<
-        " seq: "    << req.opSeqno <<
+        " +seq: "   << req.opSeqno <<
         " status: " << req.status <<
         " "         << req.Show() <<
     KFS_LOG_EOM;
@@ -2550,6 +2572,9 @@ ChunkServer::EnqueueSelf(MetaChunkRequest& req)
         return;
     }
     IOBuffer& buf = mNetConnection->GetOutBuffer();
+    if (buf.IsEmpty()) {
+        mLastSentTime = TimeNow();
+    }
     ChunkServerRequest(req, mOstream.Set(buf), buf);
     mOstream.Reset();
     if (mRecursionCount <= 0) {
@@ -2888,7 +2913,7 @@ ChunkServer::Restart(bool justExitFlag)
 }
 
 int
-ChunkServer::Heartbeat(bool inactivityTimeoutFlag)
+ChunkServer::Heartbeat()
 {
     if (! mHelloDone || mDown || ! mNetConnection) {
         return -1;
@@ -2896,8 +2921,7 @@ ChunkServer::Heartbeat(bool inactivityTimeoutFlag)
     const time_t now           = TimeNow();
     const int    timeSinceSent = (int)(now - mLastHeartbeatSent);
     if (mHeartbeatSent) {
-        if (sHeartbeatTimeout >= 0 &&
-                timeSinceSent >= sHeartbeatTimeout) {
+        if (sHeartbeatTimeout <= timeSinceSent) {
             ostringstream& os = GetTmpOStringStream();
             os << "heartbeat timed out, sent: " <<
                 timeSinceSent << " sec. ago";
@@ -2915,10 +2939,14 @@ ChunkServer::Heartbeat(bool inactivityTimeoutFlag)
                 " last sent " << timeSinceSent << " sec. ago" <<
             KFS_LOG_EOM;
         }
-    } else if (sHeartbeatInterval <= timeSinceSent || inactivityTimeoutFlag) {
+    } else if (sHeartbeatInterval <= timeSinceSent ||
+            mLastSentTime + sMinInactivityInterval <= now) {
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " sending heartbeat,"
-            " last sent " << timeSinceSent << " sec. ago" <<
+            " last sent "    << timeSinceSent <<
+            " / "            << (now - mLastSentTime) <<
+            " ctrs update: " << (now - mLastCountersUpdateTime) <<
+            " sec. ago" <<
         KFS_LOG_EOM;
         mHeartbeatSent     = true;
         mLastHeartbeatSent = now;
@@ -2956,20 +2984,17 @@ ChunkServer::Heartbeat(bool inactivityTimeoutFlag)
                 mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
                 reAuthenticateFlag,
                 sMaxPendingOpsCount,
-                ctrsUpdateInterval <= sMinInactivityInterval ||
-                    mLastCountersUpdateTime + ctrsUpdateInterval <= now
+                min(sHeartbeatTimeout, 2 * sMinInactivityInterval),
+                sMinInactivityInterval < ctrsUpdateInterval &&
+                    now < mLastCountersUpdateTime + ctrsUpdateInterval
             )),
             2 * sHeartbeatTimeout
         );
         mReAuthSentFlag = reAuthenticateFlag;
-        return ((sHeartbeatTimeout >= 0 &&
-                sHeartbeatTimeout < sHeartbeatInterval) ?
-            sHeartbeatTimeout : sHeartbeatInterval
-        );
     }
-    const int timeout = NetManager::Timer::MinTimeout(
-        sHeartbeatTimeout, sMinInactivityInterval);
-    return(timeout < 0 ? timeout : max(1, sHeartbeatTimeout - timeSinceSent));
+    const time_t nextHbTime = mLastHeartbeatSent + sHeartbeatInterval;
+    return max(time_t(1), (mHeartbeatSent ? nextHbTime :
+        min(nextHbTime, mLastSentTime + sMinInactivityInterval)) - now);
 }
 
 int
@@ -3063,7 +3088,9 @@ ChunkServer::FailDispatchedOps(const char* errMsg)
             ++it) {
         MetaChunkRequest& op = *(it->second.second);
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
-            " failing op: " << op.Show() <<
+            " failing op:"
+            " -seq: " << op.opSeqno <<
+            " "       << op.Show() <<
         KFS_LOG_EOM;
         if (! mHelloDone && op.logCompletionSeq.IsValid()) {
             panic("chunk server: op was queued prior to hello completion");
@@ -3239,6 +3266,9 @@ ChunkServer::SendResponse(MetaRequest* op)
         " "         << op->Show() <<
     KFS_LOG_EOM;
     IOBuffer& buf = mNetConnection->GetOutBuffer();
+    if (buf.IsEmpty()) {
+        mLastSentTime = TimeNow();
+    }
     ChunkServerResponse(*op, mOstream.Set(buf), buf);
     mOstream.Reset();
     if (mRecursionCount <= 0) {

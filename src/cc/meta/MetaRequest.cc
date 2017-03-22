@@ -5578,6 +5578,10 @@ MetaChunkHeartbeat::request(ReqOstream& os)
     if (reAuthenticateFlag) {
         os << (shortRpcFormatFlag ? "A:1\r\n" : "Authenticate: 1\r\n");
     }
+    if (0 < recvTimeout) {
+        os << (shortRpcFormatFlag ? "T:" : "Receive-timeout: ") <<
+            recvTimeout << "\r\n";
+    }
     if (omitCountersFlag) {
         os << (omitCountersFlag ? "O:1\r\n" : "Omit-counters: 1\r\n");
     }

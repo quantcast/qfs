@@ -1685,12 +1685,17 @@ AppendStorageTiersInfo(const char* prefix, T& os,
 void
 HeartbeatOp::Execute()
 {
+    gChunkManager.MetaHeartbeat(*this);
+    if (omitCountersFlag) {
+        status = 0;
+        Submit();
+        return;
+    }
+
     double loadavg[3] = {-1, -1, -1};
 #ifndef KFS_OS_NAME_CYGWIN
     getloadavg(loadavg, 3);
 #endif
-    gChunkManager.MetaHeartbeat(*this);
-
     const int64_t writeCount       = gChunkManager.GetNumWritableChunks();
     const int64_t writeAppendCount =
         gAtomicRecordAppendManager.GetOpenAppendersCount();
@@ -3662,6 +3667,9 @@ HeartbeatOp::Response(ReqOstream& os)
     if (sendCurrentKeyFlag) {
         const bool kShortRpcFormatFlag = false;
         SendCryptoKey(os, currentKeyId, currentKey, kShortRpcFormatFlag);
+    }
+    if (response.IsEmpty()) {
+        os << "\r\n"; // No counters, empty response, mark end of headers.
     }
 }
 
