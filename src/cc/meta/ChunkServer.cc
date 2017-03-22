@@ -248,6 +248,7 @@ const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
 
 int ChunkServer::sHeartbeatTimeout         = 60;
 int ChunkServer::sHeartbeatInterval        = 20;
+int ChunkServer::sMinInactivityInterval    = 5;
 int ChunkServer::sHeartbeatSkippedInterval = -1;
 int ChunkServer::sHeartbeatLogInterval     = 1000;
 int ChunkServer::sChunkAllocTimeout        = 40;
@@ -313,6 +314,9 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sHeartbeatTimeout  = prop.getValue(
         "metaServer.chunkServer.heartbeatTimeout",
         sHeartbeatTimeout);
+    sMinInactivityInterval  = prop.getValue(
+        "metaServer.chunkServer.minInactivityInterval",
+        sMinInactivityInterval);
     sHeartbeatInterval = max(3, prop.getValue(
         "metaServer.chunkServer.heartbeatInterval",
         sHeartbeatInterval));
@@ -584,7 +588,8 @@ ChunkServer::ChunkServer(
       mRestartScheduledFlag(false),
       mRestartQueuedFlag(false),
       mRestartScheduledTime(0),
-      mLastHeartBeatLoggedTime(0),
+      mLastHeartBeatLoggedTime(mLastHeartbeatSent - 240 * 60 * 60),
+      mLastCountersUpdateTime(mLastHeartBeatLoggedTime),
       mDownReason(),
       mOstream(),
       mRecursionCount(0),
@@ -1073,7 +1078,7 @@ ChunkServer::HandleRequest(int code, void *data)
     }
     if (mHelloDone) {
         if (mRecursionCount <= 1 && ! mReplayFlag) {
-            const int hbTimeout = Heartbeat();
+            const int hbTimeout = Heartbeat(EVENT_INACTIVITY_TIMEOUT == code);
             const int opTimeout = TimeoutOps();
             if (mNetConnection) {
                 mNetConnection->StartFlush();
@@ -2078,7 +2083,8 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
         op->status = -KfsToSysErrno(-op->status);
     }
     op->handleReply(prop);
-    if (op->op == META_CHUNK_HEARTBEAT) {
+    if (op->op == META_CHUNK_HEARTBEAT && 0 == op->status &&
+            ! static_cast<MetaChunkHeartbeat*>(op)->omitCountersFlag) {
         // Heartbeat response uses decimal notation, except key id, to make
         // chunk server counters response backward compatible.
         prop.setIntBase(10);
@@ -2210,6 +2216,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
                 hbp <<
             KFS_LOG_EOM;
         }
+        mLastCountersUpdateTime = now;
     }
     op->resume();
     return 0;
@@ -2881,7 +2888,7 @@ ChunkServer::Restart(bool justExitFlag)
 }
 
 int
-ChunkServer::Heartbeat()
+ChunkServer::Heartbeat(bool inactivityTimeoutFlag)
 {
     if (! mHelloDone || mDown || ! mNetConnection) {
         return -1;
@@ -2908,10 +2915,7 @@ ChunkServer::Heartbeat()
                 " last sent " << timeSinceSent << " sec. ago" <<
             KFS_LOG_EOM;
         }
-        return(sHeartbeatTimeout < 0 ?
-            sHeartbeatTimeout : sHeartbeatTimeout - timeSinceSent);
-    }
-    if (timeSinceSent >= sHeartbeatInterval) {
+    } else if (sHeartbeatInterval <= timeSinceSent || inactivityTimeoutFlag) {
         KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
             " sending heartbeat,"
             " last sent " << timeSinceSent << " sec. ago" <<
@@ -2945,12 +2949,15 @@ ChunkServer::Heartbeat()
                 " vs: " << authCtx.GetUpdateCount() <<
             KFS_LOG_EOM;
         }
+        const int ctrsUpdateInterval = sHeartbeatInterval * 4 / 5;
         Enqueue(*(new MetaChunkHeartbeat(
                 NextSeq(),
                 mSelfPtr,
                 mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
                 reAuthenticateFlag,
-                sMaxPendingOpsCount
+                sMaxPendingOpsCount,
+                ctrsUpdateInterval <= sMinInactivityInterval ||
+                    mLastCountersUpdateTime + ctrsUpdateInterval <= now
             )),
             2 * sHeartbeatTimeout
         );
@@ -2960,7 +2967,9 @@ ChunkServer::Heartbeat()
             sHeartbeatTimeout : sHeartbeatInterval
         );
     }
-    return (sHeartbeatInterval - timeSinceSent);
+    const int timeout = NetManager::Timer::MinTimeout(
+        sHeartbeatTimeout, sMinInactivityInterval);
+    return(timeout < 0 ? timeout : max(1, sHeartbeatTimeout - timeSinceSent));
 }
 
 int

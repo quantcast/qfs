@@ -1035,6 +1035,7 @@ protected:
     time_t mLastHeartbeatSent;
 
     static int    sHeartbeatTimeout;
+    static int    sMinInactivityInterval;
     static int    sHeartbeatInterval;
     static int    sHeartbeatSkippedInterval;
     static int    sHeartbeatLogInterval;
@@ -1259,6 +1260,7 @@ protected:
     bool                  mRestartQueuedFlag;
     time_t                mRestartScheduledTime;
     time_t                mLastHeartBeatLoggedTime;
+    time_t                mLastCountersUpdateTime;
     string                mDownReason;
     IOBuffer::WOStream    mOstream;
     int                   mRecursionCount;
@@ -1404,7 +1406,7 @@ protected:
     void Error(const char* errorMsg, bool ignoreReplayFlag = false);
     void FailDispatchedOps(const char* errorMsg);
     /// Periodically, send a heartbeat message to the chunk server.
-    int Heartbeat();
+    int Heartbeat(bool inactivityTimeoutFlag);
     int TimeoutOps();
     inline void UpdateChunkWritesPerDrive(
         int  numChunkWrites,

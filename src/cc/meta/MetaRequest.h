@@ -2727,12 +2727,19 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
     int64_t evacuateCount;
     bool    reAuthenticateFlag;
     int     maxPendingOpsCount;
-    MetaChunkHeartbeat(seq_t n, const ChunkServerPtr& s,
-            int64_t evacuateCnt, bool reAuthFlag, int maxPendingOpsCnt)
+    bool    omitCountersFlag;
+    MetaChunkHeartbeat(
+        seq_t   n,
+        const   ChunkServerPtr& s,
+        int64_t evacuateCnt,
+        bool    reAuthFlag,
+        int     maxPendingOpsCnt,
+        bool    omitCtrsFlag = false)
         : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, kLogNever, s, -1),
           evacuateCount(evacuateCnt),
           reAuthenticateFlag(reAuthFlag),
-          maxPendingOpsCount(maxPendingOpsCnt)
+          maxPendingOpsCount(maxPendingOpsCnt),
+          omitCountersFlag(omitCtrsFlag)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
