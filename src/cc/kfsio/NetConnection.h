@@ -155,6 +155,7 @@ public:
         if (mFilter) {
             mFilter->Detach(*this, mSock);
         }
+        mTryWrite = ! mListenOnly;
         mFilter = filter;
         return (mFilter ? mFilter->Attach(*this, mSock, outErrMsg) : 0);
     }
