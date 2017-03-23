@@ -1945,6 +1945,11 @@ MetaGetalloc::handle()
             return;
         }
     }
+    if (-EBUSY == err) {
+        status    = err;
+        statusMsg = "meta server is in recovery mode";
+        return;
+    }
     if (err) {
         status    = -EAGAIN;
         statusMsg = "no replicas available chunk: ";
