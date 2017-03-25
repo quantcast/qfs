@@ -365,7 +365,7 @@ class Status:
                         pass
                     if 0 == status:
                         try:
-                            textBuf += '&nbsp;up&nbsp;nodees:&nbsp;'
+                            textBuf += '&nbsp;up&nbsp;nodes:&nbsp;'
                             textBuf += vrStatus['logTransmitter.activeUpNodesCount']
                             textBuf += '&nbsp;channels:&nbsp;'
                             textBuf += vrStatus['logTransmitter.activeUpChannelsCount']

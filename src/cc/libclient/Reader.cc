@@ -1787,7 +1787,8 @@ private:
                         kErrorLeaseExpired != inOp.status) ||
                     mLeaseWaitStartTime + mOuter.mLeaseWaitTimeout <= Now();
             } else if (&mGetAllocOp == &inOp) {
-                if (inOp.status == kErrorTryAgain) {
+                if (kErrorTryAgain == inOp.status ||
+                        kErrorBusy == inOp.status) {
                     // No servers with this chunk available.
                     // Read should not be in flight, as the chunk id has not
                     // been determined yet.
@@ -1876,7 +1877,8 @@ private:
                     inOp.lastError);
                 return;
             }
-            if (&mGetAllocOp == &inOp || &mSizeOp == &inOp ||
+            if ((&mGetAllocOp == &inOp && kErrorBusy != inOp.status) ||
+                    &mSizeOp == &inOp ||
                     theReadLeaseOtherFalureFlag) {
                 if (! ReportCompletionForPendingWithNoRetryOnly(
                         inOp.status < 0 ? inOp.status : kErrorIO,
