@@ -45,7 +45,6 @@
 namespace KFS {
 using std::string;
 using std::vector;
-using std::lower_bound;
 using std::set;
 using std::ostream;
 using std::map;
@@ -62,22 +61,75 @@ class Tree;
  * the tree to allow linear traversal.
  */
 class Node: public MetaNode {
-    static const int NKEY = 32;
-    // should size the node to near 4k; 120 gets us there...
-    // static const int NKEY = 120;
+    static const int NKEY = 170; // with sizeof(Node) == 4096
     static const int NSPLIT = NKEY / 2;
     static const int NFEWEST = NKEY - NSPLIT;
+    // Keep next in the same cache line as all super class fields, in order
+    // to make keys 16 bytes aligned..
+#ifdef QFS_INTERNAL_NODE_USE_KEY_NODES_PAIRS
+    class KeyNodePairs
+    {
+    private:
+        Key       key0;
+        MetaNode* nodes[2];
+        Key       key1;
+    public:
+        Key& key(int p)
+            { return ((p & 0x1) ? key1 : key0); }
+        MetaNode*& node(int p)
+            { return nodes[p & 0x1]; }
+        Key const& key(int p) const
+            { return ((p & 0x1) ? key1 : key0); }
+        MetaNode* const& node(int p) const
+            { return nodes[p & 0x1]; }
+    };
+    KeyNodePairs childrens[NKEY / 2]; //!< children's key values
+    Node*        next; //!< following peer node
 
-    int count;          //!< how many children
-    Key childKey[NKEY];     //!< children's key values
-    MetaNode *childNode[NKEY];  //!< and pointers to them
+    Key& childKey(int p)
+        { return childrens[p >> 1].key(p); }
+    MetaNode*& childNode(int p)
+        { return childrens[p >> 1].node(p); }
+    Key const& childKey(int p) const
+        { return childrens[p >> 1].key(p); }
+    MetaNode* const& childNode(int p) const
+        { return childrens[p >> 1].node(p); }
+#elif defined(QFS_INTERNAL_NODE_USE_KEY_NODES)
+    class KeyNodes
+    {
+    public:
+        Key       key;
+        MetaNode* node;
+    };
+    KeyNodes childrens[NKEY]; //!< children's key values
+    Node*    next; //!< following peer node
 
-    Node *next;         //!< following peer node
+    Key& childKey(int p)
+        { return childrens[p].key; }
+    MetaNode*& childNode(int p)
+        { return childrens[p].node; }
+    Key const& childKey(int p) const
+        { return childrens[p].key; }
+    MetaNode* const& childNode(int p) const
+        { return childrens[p].node; }
+#else
+    MetaNode* nodes[NKEY];
+    Node*     next; //!< following peer node
+    Key       keys[NKEY];
+    Key& childKey(int p)
+        { return keys[p]; }
+    MetaNode*& childNode(int p)
+        { return nodes[p]; }
+    Key const& childKey(int p) const
+        { return keys[p]; }
+    MetaNode* const& childNode(int p) const
+        { return nodes[p]; }
+#endif
 
     void placeChild(Key k, MetaNode *n, int p)
     {
-        childKey[p] = k;
-        childNode[p] = n;
+        childKey(p) = k;
+        childNode(p) = n;
     }
     void appendChild(Key k, MetaNode *n)
     {
@@ -102,10 +154,11 @@ class Node: public MetaNode {
     void shiftLeft(Node *dest, int nshift);
     void shiftRight(Node *dest, int nshift);
 protected:
-    Node(int f): MetaNode(KFS_INTERNAL, f), count(0), next(0) { }
+    Node(MetaNodeFlagBits f): MetaNode(KFS_INTERNAL, f), next(0) { count = 0; }
     ~Node() {}
 public:
-    static Node* create(int f) { return new (allocate<Node>()) Node(f); }
+    static Node* create(MetaNodeFlagBits f)
+        { return new (allocate<Node>()) Node(f); }
     void destroySelf()
     {
         this->~Node();
@@ -122,22 +175,43 @@ public:
     *           can be off the end of the array
     */
     template<typename MATCH>
-    int findplace(const MATCH &test) const
+    int findplace(const MATCH& test) const
     {
-        const Key* const p = lower_bound(childKey, childKey + count, test);
-        return p - childKey;
+#ifdef QFS_INTERNAL_NODE_USE_LINEAR_SEARCH
+        int p;
+        for (p = 0; p < count; p++) {
+            if (test <= childKey(p)) {
+                break;
+            }
+        }
+        return p;
+#else
+        int cnt   = count;
+        int first = 0;
+        while (0 < cnt) {
+            const int step = cnt / 2;
+            const int pos  = first + step;
+            if (childKey(pos) < test) {
+                first = pos + 1;
+                cnt -= step + 1;
+            } else {
+                cnt = step;
+            }
+        }
+        return first;
+#endif
     }
     //! \brief rightmost (largest) key in node
-    Key keySelf() const { return childKey[count - 1]; }
+    Key keySelf() const { return childKey(count - 1); }
     Node *child(int n) const        //! \brief accessor
     {
-        return static_cast <Node *> (childNode[n]);
+        return static_cast <Node *> (childNode(n));
     }
     Meta *leaf(int n) const         //! \brief accessor
     {
-        return static_cast <Meta *> (childNode[n]);
+        return static_cast <Meta *> (childNode(n));
     }
-    const Key &getkey(int n) const { return childKey[n]; } //!< accessor
+    const Key& getkey(int n) const { return childKey(n); } //!< accessor
     Node *split(Tree *t, Node *father, int pos);    //!< split full node
     void addChild(Key *k, MetaNode *child, int pos); //!< insert child node
     void insertData(Key *key, Meta *item, int pos); //!< insert data item

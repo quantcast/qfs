@@ -194,8 +194,8 @@ public:
         entryCount = 0;
     }
 private:
-    enum { kMaxEntrySize   = 512 << 10 };
-    enum { kMaxEntryTokens = 1   << 10 };
+    enum { kMaxEntrySize   = 2 << 20 };
+    enum { kMaxEntryTokens = 1 << 10 };
     Token*      tokens;
     Token*      cur;
     Token*      end;

@@ -34,21 +34,28 @@
 namespace KFS {
 
 // MetaNode flag values
-static const int META_ROOT = 4; //!< root node
-static const int META_LEVEL1 = 8; //!< children are leaves
+typedef uint8_t MetaNodeFlagBits;
+static const MetaNodeFlagBits META_ROOT = 4; //!< root node
+static const MetaNodeFlagBits META_LEVEL1 = 8; //!< children are leaves
 
 /*!
  * \brief base class for both internal and leaf nodes
  */
 class MetaNode {
 private:
-    MetaType nodetype;
-    int flagbits;
-        MetaNode& operator=(const MetaNode&);
-        MetaNode(const MetaNode&);
+    const uint8_t    nodetype;
+    MetaNodeFlagBits flagbits;
+    const uint8_t    padd0;
+    const uint8_t    padd1;
+    int              count; // Belongs to Node, here due alignment.
+    friend class Node;
+    MetaNode& operator=(const MetaNode&);
+    MetaNode(const MetaNode&);
 protected:
-    MetaNode(MetaType t): nodetype(t), flagbits(0) { }
-    MetaNode(MetaType t, int f): nodetype(t), flagbits(f) { }
+    MetaNode(MetaType t)
+        : nodetype(t), flagbits(0), padd0(0), padd1(0), count(0) { }
+    MetaNode(MetaType t, MetaNodeFlagBits f)
+        : nodetype(t), flagbits(f), padd0(0), padd1(0), count(0) { }
     ~MetaNode() {}
     template <typename T>
     class Allocator
@@ -92,13 +99,13 @@ protected:
     }
 public:
     void destroy();
-    MetaType metaType() const { return nodetype; }
+    MetaType metaType() const { return MetaType(nodetype); }
     Key key() const;  //!< cons up key value for node
     std::ostream& show(std::ostream& os) const;
-    int flags() const { return flagbits; }
-    void setflag(int bit) { flagbits |= bit; }
-    void clearflag(int bit) { flagbits &= ~bit; }
-    bool testflag(int bit) const { return (flagbits & bit) != 0; }
+    MetaNodeFlagBits flags() const { return flagbits; }
+    void setflag(MetaNodeFlagBits bit) { flagbits |= bit; }
+    void clearflag(MetaNodeFlagBits bit) { flagbits &= ~bit; }
+    bool testflag(MetaNodeFlagBits bit) const { return (flagbits & bit) != 0; }
     template <typename T> static const typename Allocator<T>::Alloc&
     getPoolAllocator(T* type = 0) {
         return getAllocator(type).getPoolAllocator();

@@ -45,8 +45,8 @@ void
 Node::addChild(Key *k, MetaNode *child, int pos)
 {
     openHole(pos, 1);
-    childKey[pos] = *k;
-    childNode[pos] = child;
+    childKey(pos) = *k;
+    childNode(pos) = child;
 }
 
 /*!
@@ -67,9 +67,9 @@ void
 Node::moveChildren(Node *dest, int start, int n)
 {
     for (int i = 0; i != n; i++)
-        dest->appendChild(childKey[start + i], childNode[start + i]);
-    childKey[start] = Key(KFS_SENTINEL, 0);
-    childNode[start] = 0;
+        dest->appendChild(childKey(start + i), childNode(start + i));
+    childKey(start) = Key(KFS_SENTINEL, 0);
+    childNode(start) = 0;
 }
 
 /*!
@@ -118,8 +118,8 @@ Node::openHole(int pos, int skip)
     count += skip;
     assert(count <= NKEY);
     for (int i = count - 1; i >= pos + skip; --i) {
-        childKey[i] = childKey[i - skip];
-        childNode[i] = childNode[i - skip];
+        childKey(i) = childKey(i - skip);
+        childNode(i) = childNode(i - skip);
     }
 }
 
@@ -133,11 +133,11 @@ Node::closeHole(int pos, int skip)
     assert(skip < count);
     count -= skip;
     for (int i = pos; i != count; i++) {
-        childKey[i] = childKey[i + skip];
-        childNode[i] = childNode[i + skip];
+        childKey(i) = childKey(i + skip);
+        childNode(i) = childNode(i + skip);
     }
-    childKey[count] = Key(KFS_SENTINEL, 0);
-    childNode[count] = 0;
+    childKey(count) = Key(KFS_SENTINEL, 0);
+    childNode(count) = 0;
 }
 
 /*
@@ -198,8 +198,8 @@ Node::mergeNeighbor(int pos)
     } else
         return false;
 
-    childKey[base] = childKey[base + 1];
-    childNode[base + 1]->destroy();
+    childKey(base) = childKey(base + 1);
+    childNode(base + 1)->destroy();
     closeHole(base + 1, 1);
 
     return true;
@@ -214,7 +214,7 @@ Node::insertChildren(Node *dest, int start, int n)
 {
     count -= n;
     for (int i = 0; i != n; i++)
-        dest->placeChild(childKey[start + i], childNode[start + i], i);
+        dest->placeChild(childKey(start + i), childNode(start + i), i);
 }
 
 /*
@@ -249,7 +249,7 @@ Node::resetKey(int pos)
 {
     Node *c = child(pos);
     assert(c);
-    childKey[pos] = c->key();
+    childKey(pos) = c->key();
 }
 
 /*!
@@ -521,7 +521,9 @@ showNode(MetaNode *n)
 void
 Node::showChildren() const
 {
-    for_each(childNode, childNode + count, showNode);
+    for (int i = 0; i < count; i++) {
+        showNode(childNode(i));
+    }
 }
 
 /*!
