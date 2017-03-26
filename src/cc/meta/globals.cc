@@ -28,6 +28,7 @@
 #include "LogWriter.h"
 #include "MetaRequest.h"
 #include "NetDispatch.h"
+#include "ChunkServer.h"
 #include "Replay.h"
 #include "ChildProcessTracker.h"
 #include "LayoutManager.h"
@@ -171,7 +172,12 @@ InitializeLayoutManager()
     MetaRequest::Initialize();
     return LayoutManager::Instance();
 }
+ChunkServer::ChunkOpsInFlight ChunkServer::sChunkOpsInFlight;
+ChunkServer::HelloInFlight    ChunkServer::sHelloInFlight;
+Properties::String            ChunkServer::sSrvLoadPropName(
+    "Buffer-usec-wait-avg");
 LayoutManager& gLayoutManager = InitializeLayoutManager();
+
 const UserAndGroup& MetaUserAndGroup::sUserAndGroup =
     gLayoutManager.GetUserAndGroup();
 

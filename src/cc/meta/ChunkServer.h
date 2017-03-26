@@ -1047,8 +1047,8 @@ protected:
     static int    sMetaClientPort;
     static bool   sRestartCSOnInvalidClusterKeyFlag;
     static int    sSrvLoadSamplerSampleCount;
-    static string sSrvLoadPropName;
     static size_t sMaxChunksToEvacuate;
+    static Properties::String sSrvLoadPropName;
 
     /// For record append's, can this node be a chunk master
     bool mCanBeChunkMaster;

@@ -63,8 +63,7 @@ private:
     > PropMap;
     PropMap propmap;
     template<typename T> bool Parse(
-        const Properties::String& str, const T& def, T& out) const;
-    inline PropMap::const_iterator find(const String& key) const;
+        const String& str, const T& def, T& out) const;
     string getValueSelf(const String& key, const string& def) const;
     const char* getValueSelf(const String& key, const char* def) const;
     int getValueSelf(const String& key, int def) const;
@@ -83,8 +82,17 @@ public:
     static string AsciiToLower(const string& str);
 
     typedef PropMap::const_iterator iterator;
+    iterator find(const String& key) const
+        { return propmap.find(key); }
     iterator begin() const { return propmap.begin(); }
     iterator end() const { return propmap.end(); }
+private:
+    String getValueSelf(const String& key, const String& def) const
+    {
+        iterator const i = find(key);
+        return (i == end() ? def : i->second);
+    }
+public:
     // load the properties from a file
     int loadProperties(const char* fileName, char delimiter,
         ostream* verbose = 0, bool multiline = false, bool keysAsciiToLower = false);
@@ -105,10 +113,10 @@ public:
     template<typename TKey>
     const char* getValue(const TKey& key, const char* def) const
         { return getValueSelf(String(key), def); }
-    const String* getValue(const Properties::String& key) const
+    const String* getValue(const String& key) const
     {
-        PropMap::const_iterator const it = propmap.find(key);
-        return (it != propmap.end() ? &(it->second) : 0);
+        iterator const it = find(key);
+        return (it != end() ? &(it->second) : 0);
     }
     const String* getValue(const char* key) const
         { return getValue(String(key)); }

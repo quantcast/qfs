@@ -113,12 +113,6 @@ Properties::AsciiToLower(const string& str)
     return s;
 }
 
-inline Properties::iterator
-Properties::find(const Properties::String& key) const
-{
-    return propmap.find(key);
-}
-
 Properties::Properties(int base)
     : intbase(base),
       propmap()

@@ -262,11 +262,8 @@ size_t ChunkServer::sMaxChunksToEvacuate  = 2 << 10; // Max queue size
 // sHeartbeatInterval * sSrvLoadSamplerSampleCount -- boxcar FIR filter
 // if sSrvLoadSamplerSampleCount > 0
 int ChunkServer::sSrvLoadSamplerSampleCount = 0;
-string ChunkServer::sSrvLoadPropName("Buffer-usec-wait-avg");
 bool ChunkServer::sRestartCSOnInvalidClusterKeyFlag = false;
-ChunkServer::ChunkOpsInFlight ChunkServer::sChunkOpsInFlight;
 ChunkServer* ChunkServer::sChunkServersPtr[kChunkSrvListsCount] = { 0, 0 };
-ChunkServer::HelloInFlight ChunkServer::sHelloInFlight;
 int ChunkServer::sChunkServerCount    = 0;
 int ChunkServer::sMaxChunkServerCount = 0;
 int ChunkServer::sPendingHelloCount    = 0;
