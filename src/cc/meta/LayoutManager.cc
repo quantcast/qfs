@@ -8549,8 +8549,8 @@ LayoutManager::GetChunkToServerMapping(
     c.clear();
     const size_t cnt = mChunkToServerMap.GetServers(entry, c);
     if (cnt <= 0) {
-        return ((0 < fa->numRecoveryStripes &&
-            InRecovery() && fa->IsStriped()) ? -EBUSY : -EAGAIN);
+        return ((0 < fa->numRecoveryStripes && fa->IsStriped() &&
+            InRecovery()) ? -EBUSY : -EAGAIN);
     }
     if (cnt <= 1 || ! orderReplicasFlag ||
             ! mGetAllocOrderServersByLoadFlag) {
