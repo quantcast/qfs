@@ -239,6 +239,7 @@ private:
     int                           mRecursionCount;
     int                           mReconnectRetryInterval;
     int                           mHelloDelay;
+    int64_t                       mRequestTimeoutUsec;
     bool                          mPendingHelloFlag;
     time_t                        mHelloSendTime;
     ServerLocation                mMyLocation;
@@ -414,6 +415,7 @@ MetaServerSM::Impl::Impl(
       mRecursionCount(0),
       mReconnectRetryInterval(1),
       mHelloDelay(1),
+      mRequestTimeoutUsec(int64_t(6) * 60 * 1000 * 1000),
       mPendingHelloFlag(false),
       mHelloSendTime(0),
       mMyLocation(),
@@ -524,6 +526,9 @@ MetaServerSM::Impl::SetParameters(const Properties& prop)
         mTraceRequestResponseFlag ? 1 : 0) != 0;
     mHelloDelay               = prop.getValue(
         "chunkServer.meta.helloDelay",        mHelloDelay);
+    mRequestTimeoutUsec       = max(int64_t(5), prop.getValue(
+        "chunkServer.meta.requestTimeout",
+        mRequestTimeoutUsec / (1000 * 1000))) * 1000 * 1000;
     const bool kVerifyFlag = true;
     int ret = mAuthContext.SetParameters(
         kChunkServerAuthParamsPrefix, prop, 0, 0, kVerifyFlag);
@@ -1106,13 +1111,14 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         mOp = 0;
     } else {
         if (mTraceRequestResponseFlag) {
-            IOBuffer::IStream is(iobuf, msgLen);
-            string            line;
+            istream& is = mIStream.Set(iobuf, msgLen);
+            string   line;
             while (getline(is, line)) {
                 KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
                     " " << mLocation << " meta response: " << line <<
                 KFS_LOG_EOM;
             }
+            mIStream.Reset();
         }
         Properties prop(kRpcFormatShort == mRpcFormat ? 16 : 10);
         const char separator = ':';
@@ -1384,29 +1390,31 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
     mOp = 0;
     if (! op) {
         if (ParseMetaCommand(iobuf, cmdLen, &op, mRpcFormat) != 0) {
-            IOBuffer::IStream is(iobuf, cmdLen);
             const string peer = IsConnected() ?
                 mNetConnection->GetPeerName() : string("not connected");
-            string line;
+            istream& is = mIStream.Set(iobuf, cmdLen);
+            string   line;
             int numLines = 32;
             while (--numLines >= 0 && getline(is, line)) {
                 KFS_LOG_STREAM_ERROR << peer <<
                     " invalid meta request: " << line <<
                 KFS_LOG_EOM;
             }
+            mIStream.Reset();
             iobuf.Clear();
             Error("request parse error");
             // got a bogus command
             return false;
         }
         if (mTraceRequestResponseFlag) {
-            IOBuffer::IStream is(iobuf, cmdLen);
-            string            line;
+            istream& is = mIStream.Set(iobuf, cmdLen);
+            string   line;
             while (getline(is, line)) {
                 KFS_LOG_STREAM_DEBUG << reinterpret_cast<const void*>(this) <<
                     " " << mLocation << " meta request: " << line <<
                 KFS_LOG_EOM;
             }
+            mIStream.Reset();
         }
         iobuf.Consume(cmdLen);
         op->generation = mGenerationCount;
@@ -1426,8 +1434,10 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
         mNetConnection->SetMaxReadAhead(mMaxReadAhead);
     }
     if (0 < mContentLength) {
-        IOBuffer::IStream is(iobuf, mContentLength);
-        if (! op->ParseContent(is)) {
+        const bool okFlag = op->ParseContent(
+            mIStream.Set(iobuf, mContentLength));
+        mIStream.Reset();
+        if (! okFlag) {
             KFS_LOG_STREAM_ERROR <<
                 (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
                 " invalid content: " << op->statusMsg <<
@@ -1448,6 +1458,23 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
         const HeartbeatOp& hb = *static_cast<HeartbeatOp*>(op);
         if (0 < hb.recvTimeout) {
             mReceiveTimeout = hb.recvTimeout;
+        }
+        DispatchedOps::const_iterator const it = mDispatchedOps.begin();
+        if (mDispatchedOps.end() != it &&
+                it->second->startTime + mRequestTimeoutUsec <
+                globalNetManager().NowUsec()) {
+            KFS_LOG_STREAM_ERROR << mLocation <<
+                "meta request:"
+                " seq: "     << it->first <<
+                " "          << it->second->Show() <<
+                " timed out"
+                " started: " <<
+                    (globalNetManager().NowUsec() - it->second->startTime) <<
+                " uses. ago" <<
+            KFS_LOG_EOM;
+            delete op;
+            Error("request timed out");
+            return false;
         }
         if (hb.authenticateFlag && Authenticate() && ! IsUp()) {
             delete op;
@@ -1495,7 +1522,8 @@ MetaServerSM::Impl::EnqueueOp(KfsOp* op)
 {
     if (! mAuthOp && mPendingOps.IsEmpty() && IsUp() &&
             mDispatchedOps.size() < mMaxPendingOpsCount) {
-        op->seq = nextSeq();
+        op->seq       = nextSeq();
+        op->startTime = globalNetManager().NowUsec();
         if (! op->noReply &&
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
