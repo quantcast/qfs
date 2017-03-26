@@ -3832,7 +3832,8 @@ struct MetaChunkAvailable : public MetaRequest {
           useThreshold(-1),
           location(),
           server(),
-          staleNotify(0)
+          staleNotify(0),
+          ref(1)
         {}
     virtual bool start();
     virtual void handle();
@@ -3872,7 +3873,9 @@ struct MetaChunkAvailable : public MetaRequest {
         ;
     }
 protected:
+    int ref;
     virtual void ReleaseSelf();
+    friend struct MetaChunkStaleNotify;
 };
 
 struct MetaChunkDirInfo : public MetaRequest {

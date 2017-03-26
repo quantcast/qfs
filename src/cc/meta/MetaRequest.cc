@@ -5128,7 +5128,16 @@ void
 MetaChunkAvailable::response(ReqOstream& os)
 {
     // If stale notify set, then it will send response.
-    if (! staleNotify) {
+    if (staleNotify) {
+        KFS_LOG_STREAM_DEBUG <<
+            "scheduling reply:"
+            " seq: "    << opSeqno <<
+            " status: " << status <<
+            " "         <<  Show() <<
+            " after:"
+            " "         << staleNotify->Show() <<
+        KFS_LOG_EOM;
+    } else {
         responseSelf(os);
     }
 }
@@ -5611,6 +5620,10 @@ MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
     if (req && ! req->staleNotify && server && req->clnt == &*server) {
         req->staleNotify  = this;
         chunkAvailableReq = req;
+        if (req->ref <= 0) {
+            panic("invalid chunk available request");
+        }
+        req->ref++;
     }
 }
 
@@ -5668,28 +5681,28 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
         os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
             len << "\r\n\r\n";
         os.write(p, len);
-        return;
-    }
-    const chunkId_t*      id;
-    IOBuffer              ioBuf;
-    IOBufferWriter        writer(ioBuf);
-    tmpBuf[kBufEnd] = (char)' ';
-    while ((id = it.Next())) {
-        char* const p = ChunkIdToString(*id, hexFormatFlag, end);
-        writer.Write(p, (int)(end - p + 1));
-    }
-    writer.Close();
-    const int len = ioBuf.BytesConsumable();
-    os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
-        len << "\r\n\r\n";
-    IOBuffer::iterator const bi = ioBuf.begin();
-    const int defsz = IOBufferData::GetDefaultBufferSize();
-    if (len < defsz - defsz / 4 &&
-            bi != ioBuf.end() && len == bi->BytesConsumable()) {
-        os.write(bi->Consumer(), len);
     } else {
-        os.flush();
-        buf.Move(&ioBuf);
+        const chunkId_t* id;
+        IOBuffer         ioBuf;
+        IOBufferWriter   writer(ioBuf);
+        tmpBuf[kBufEnd] = (char)' ';
+        while ((id = it.Next())) {
+            char* const p = ChunkIdToString(*id, hexFormatFlag, end);
+            writer.Write(p, (int)(end - p + 1));
+        }
+        writer.Close();
+        const int len = ioBuf.BytesConsumable();
+        os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
+            len << "\r\n\r\n";
+        IOBuffer::iterator const bi = ioBuf.begin();
+        const int defsz = IOBufferData::GetDefaultBufferSize();
+        if (len < defsz - defsz / 4 &&
+                bi != ioBuf.end() && len == bi->BytesConsumable()) {
+            os.write(bi->Consumer(), len);
+        } else {
+            os.flush();
+            buf.Move(&ioBuf);
+        }
     }
 
     // Send available chunk reply immediately after.
@@ -5700,6 +5713,7 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
         }
         os.flush();
         chunkAvailableReq->responseSelf(os);
+        os.flush();
     }
 }
 
@@ -5722,7 +5736,10 @@ MetaChunkStaleNotify::ReleaseSelf()
 /* virtual */ void
 MetaChunkAvailable::ReleaseSelf()
 {
-    if (! staleNotify) {
+    if (--ref <= 0) {
+        if (ref < 0 || staleNotify) {
+            panic("chunk available: invalid ref. count");
+        }
         MetaRequest::ReleaseSelf();
     }
 }
