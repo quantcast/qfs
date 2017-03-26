@@ -896,6 +896,7 @@ private:
     IOBuffer             mReadTail;
     const ServerLocation mLocation;
     const int            mReadSize;
+    const bool           mShortRpcFormatFlag;
     bool                 mReadInFlightFlag;
     bool                 mPendingCloseFlag;
     bool                 mPendingCancelFlag;
@@ -936,6 +937,7 @@ private:
             op->location.port
           ),
           mReadSize(GetReadSize(*op)),
+          mShortRpcFormatFlag(op->shortRpcFormatFlag),
           mReadInFlightFlag(false),
           mPendingCloseFlag(false),
           mPendingCancelFlag(false),
@@ -1353,6 +1355,10 @@ private:
                 die("recovery: invalid null authentication context");
                 mChunkMetadataOp.status = -EFAULT;
             }
+        }
+        if (! mMetaServer.IsConnected()) {
+            mMetaServer.SetRpcFormat(mShortRpcFormatFlag ?
+                KfsNetClient::kRpcFormatShort : KfsNetClient::kRpcFormatLong);
         }
         const ServerLocation& loc = mMetaServer.GetServerLocation();
         if (mLocation != loc) {
