@@ -95,10 +95,12 @@ private:
 public:
     // load the properties from a file
     int loadProperties(const char* fileName, char delimiter,
-        ostream* verbose = 0, bool multiline = false, bool keysAsciiToLower = false);
+        ostream* verbose = 0, bool multiline = false,
+        bool keysAsciiToLower = false);
     // load the properties from an in-core buffer
     int loadProperties(istream& ist, char delimiter,
-        ostream* verbose = 0, bool multiline = false, bool keysAsciiToLower = false);
+        ostream* verbose = 0, bool multiline = false,
+        bool keysAsciiToLower = false);
     int loadProperties(const char* buf, size_t len, char delimiter,
         ostream* verbose = 0, bool multiline = false,
         bool keysAsciiToLower = false);
