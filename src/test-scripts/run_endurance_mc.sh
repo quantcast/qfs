@@ -823,8 +823,12 @@ EOF
             done
         fi
     else
-        cat >> "$metasrvprop" << EOF
+        if [ x"$errsim" = x'yes' ]; then
+            cat >> "$metasrvprop" << EOF
 metaServer.log.failureSimulationInterval = 100
+EOF
+        fi
+        cat >> "$metasrvprop" << EOF
 metaServer.clientPort      = $metasrvport
 metaServer.chunkServerPort = $metasrvchunkport
 EOF
