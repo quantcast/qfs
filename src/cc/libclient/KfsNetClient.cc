@@ -1917,8 +1917,11 @@ private:
                     mStats.mBytesReceivedCount += theCount;
                 }
                 if (mConnPtr) {
-                    mConnPtr->SetMaxReadAhead(max(int(kMaxReadAhead),
-                        mContentLength - inBuffer.BytesConsumable()));
+                    mConnPtr->SetMaxReadAhead((int)max(
+                        IOBuffer::BufPos(kMaxReadAhead),
+                        IOBuffer::BufPos(mContentLength) -
+                            inBuffer.BytesConsumable())
+                    );
                 }
                 break;
             }
@@ -1944,8 +1947,10 @@ private:
             theOp.ParseResponseHeader(mProperties);
             mProperties.clear();
             if (mContentLength > 0) {
-                mStats.mBytesReceivedCount +=
-                    min(mContentLength, inBuffer.BytesConsumable());
+                mStats.mBytesReceivedCount += (int)min(
+                    IOBuffer::BufPos(mContentLength),
+                    inBuffer.BytesConsumable()
+                );
                 if (theBufPtr) {
                     IOBuffer theBuf;
                     theBuf.MoveSpaceAvailable(theBufPtr, mContentLength);

@@ -62,7 +62,7 @@ using namespace KFS::libkfsio;
 // to what they like.
 static libkfsio::IOBufferAllocator* sIOBufferAllocator = 0;
 static volatile bool sIsIOBufferAllocatorUsed = false;
-int IOBufferData::sDefaultBufferSize = 4 << 10;
+IOBufferData::BufPos IOBufferData::sDefaultBufferSize = 4 << 10;
 
 class IOBufferDetacher
 {
@@ -187,31 +187,31 @@ private:
 bool
 libkfsio::SetIOBufferAllocator(libkfsio::IOBufferAllocator* allocator)
 {
-    if (sIsIOBufferAllocatorUsed ||
-            (allocator && (int)allocator->GetBufferSize() <= 0)) {
+    if (sIsIOBufferAllocatorUsed || (allocator &&
+            (IOBufferData::BufPos)allocator->GetBufferSize() <= 0)) {
         return false;
     }
     sIOBufferAllocator = allocator;
     return true;
 }
 
-inline int
-IOBufferData::MaxAvailable(int numBytes) const
+inline IOBufferData::BufPos
+IOBufferData::MaxAvailable(IOBufferData::BufPos numBytes) const
 {
-    return max(0, min(int(SpaceAvailable()), numBytes));
+    return max(BufPos(0), min((BufPos)SpaceAvailable(), numBytes));
 }
 
-inline int
-IOBufferData::MaxConsumable(int numBytes) const
+inline IOBufferData::BufPos
+IOBufferData::MaxConsumable(IOBufferData::BufPos numBytes) const
 {
-    return max(0, min(BytesConsumable(), numBytes));
+    return max(BufPos(0), min(BytesConsumable(), numBytes));
 }
 
 inline void
-IOBufferData::Init(char* buf, int bufSize)
+IOBufferData::Init(char* buf, IOBufferData::BufPos bufSize)
 {
     // glibc malloc returns 2 * sizeof(size_t) aligned blocks.
-    const int size = max(0, bufSize);
+    const BufPos size = max(BufPos(0), bufSize);
     if (size <= 0 && ! buf) {
         mData.reset();
     } else {
@@ -272,7 +272,7 @@ IOBufferData::IOBufferData()
     }
 }
 
-IOBufferData::IOBufferData(int bufsz)
+IOBufferData::IOBufferData(IOBufferData::BufPos bufsz)
     : mData(),
       mEnd(0),
       mProducer(0),
@@ -281,7 +281,10 @@ IOBufferData::IOBufferData(int bufsz)
     IOBufferData::Init(0, bufsz);
 }
 
-IOBufferData::IOBufferData(char* buf, int offset, int size,
+IOBufferData::IOBufferData(
+    char*                        buf,
+    IOBufferData::BufPos         offset,
+    IOBufferData::BufPos         size,
     libkfsio::IOBufferAllocator& allocator)
     : mData(),
       mEnd(0),
@@ -293,7 +296,11 @@ IOBufferData::IOBufferData(char* buf, int offset, int size,
     IOBufferData::Consume(offset);
 }
 
-IOBufferData::IOBufferData(char* buf, int bufSize, int offset, int size)
+IOBufferData::IOBufferData(
+    char*                buf,
+    IOBufferData::BufPos bufSize,
+    IOBufferData::BufPos offset,
+    IOBufferData::BufPos size)
     : mData(),
       mEnd(0),
       mProducer(0),
@@ -304,8 +311,11 @@ IOBufferData::IOBufferData(char* buf, int bufSize, int offset, int size)
     IOBufferData::Consume(offset);
 }
 
-IOBufferData::IOBufferData(const IOBufferBlockPtr& data,
-    int bufSize, int offset, int size)
+IOBufferData::IOBufferData(
+    const IOBufferBlockPtr& data,
+    IOBufferData::BufPos    bufSize,
+    IOBufferData::BufPos    offset,
+    IOBufferData::BufPos    size)
     : mData(data),
       mEnd(0),
       mProducer(0),
@@ -323,45 +333,45 @@ IOBufferData::~IOBufferData()
 {
 }
 
-int
-IOBufferData::ZeroFill(int numBytes)
+IOBufferData::BufPos
+IOBufferData::ZeroFill(IOBufferData::BufPos numBytes)
 {
-    const int nbytes = MaxAvailable(numBytes);
+    const BufPos nbytes = MaxAvailable(numBytes);
     memset(mProducer, '\0', nbytes);
     mProducer += nbytes;
     return nbytes;
 }
 
-int
-IOBufferData::Fill(int numBytes)
+IOBufferData::BufPos
+IOBufferData::Fill(IOBufferData::BufPos numBytes)
 {
-    const int nbytes = MaxAvailable(numBytes);
+    const BufPos nbytes = MaxAvailable(numBytes);
     mProducer += nbytes;
     return nbytes;
 }
 
-int
-IOBufferData::Consume(int numBytes)
+IOBufferData::BufPos
+IOBufferData::Consume(IOBufferData::BufPos numBytes)
 {
-    const int nbytes = MaxConsumable(numBytes);
+    const BufPos nbytes = MaxConsumable(numBytes);
     mConsumer += nbytes;
     assert(mConsumer <= mProducer);
     return nbytes;
 }
 
-int
-IOBufferData::Trim(int numBytes)
+IOBufferData::BufPos
+IOBufferData::Trim(IOBufferData::BufPos numBytes)
 {
-    const int nbytes = MaxConsumable(numBytes);
+    const BufPos nbytes = MaxConsumable(numBytes);
     mProducer = mConsumer + nbytes;
     return nbytes;
 }
 
-int
-IOBufferData::Read(int fd, int maxReadAhead /* = -1 */)
+IOBufferData::BufPos
+IOBufferData::Read(int fd, IOBufferData::BufPos maxReadAhead /* = -1 */)
 {
-    int numBytes = mEnd - mProducer;
-    int nread;
+    BufPos numBytes = mEnd - mProducer;
+    BufPos nread;
 
     if (maxReadAhead >= 0 && numBytes > maxReadAhead) {
         numBytes = maxReadAhead;
@@ -381,11 +391,11 @@ IOBufferData::Read(int fd, int maxReadAhead /* = -1 */)
     return (nread >= 0 ? nread : (errno > 0 ? -errno : nread));
 }
 
-int
+IOBufferData::BufPos
 IOBufferData::Write(int fd)
 {
-    int numBytes = mProducer - mConsumer;
-    int nwrote;
+    BufPos numBytes = mProducer - mConsumer;
+    BufPos nwrote;
 
     assert(numBytes >= 0);
 
@@ -402,10 +412,10 @@ IOBufferData::Write(int fd)
     return (nwrote >= 0 ? nwrote : (errno > 0 ? -errno : nwrote));
 }
 
-int
-IOBufferData::CopyIn(const char *buf, int numBytes)
+IOBufferData::BufPos
+IOBufferData::CopyIn(const char *buf, IOBufferData::BufPos numBytes)
 {
-    const int nbytes = MaxAvailable(numBytes);
+    const BufPos nbytes = MaxAvailable(numBytes);
     if (buf != mProducer) {
         memmove(mProducer, buf, nbytes);
     }
@@ -413,19 +423,20 @@ IOBufferData::CopyIn(const char *buf, int numBytes)
     return nbytes;
 }
 
-int
-IOBufferData::CopyIn(const IOBufferData *other, int numBytes)
+IOBufferData::BufPos
+IOBufferData::CopyIn(const IOBufferData *other, IOBufferData::BufPos numBytes)
 {
-    const int nbytes = MaxAvailable(min(numBytes, other->BytesConsumable()));
+    const BufPos nbytes = MaxAvailable(
+        min(numBytes, other->BytesConsumable()));
     memmove(mProducer, other->mConsumer, nbytes);
     mProducer += nbytes;
     return nbytes;
 }
 
-int
-IOBufferData::CopyOut(char *buf, int numBytes) const
+IOBufferData::BufPos
+IOBufferData::CopyOut(char *buf, IOBufferData::BufPos numBytes) const
 {
-    const int nbytes = MaxConsumable(numBytes);
+    const BufPos nbytes = MaxConsumable(numBytes);
     memmove(buf, mConsumer, nbytes);
     return nbytes;
 }
@@ -450,7 +461,7 @@ IOBufferData::DetachBuffer(bool consumerAtBufferStartFlag)
 #include <zlib.h>
 
 inline void
-IOBuffer::DebugChecksum(const char* buf, int len)
+IOBuffer::DebugChecksum(const char* buf, IOBuffer::BufPos len)
 {
     DebugVerify();
     if (len > 0) {
@@ -462,7 +473,7 @@ inline void
 IOBuffer::DebugChecksum(const IOBufferData& buf)
 {
     DebugVerify();
-    const int nb = buf.BytesConsumable();
+    const BufPos nb = buf.BytesConsumable();
     if (nb > 0) {
         mDebugChecksum =
             adler32(mDebugChecksum, (const Bytef *)buf.Consumer(), nb);
@@ -470,13 +481,13 @@ IOBuffer::DebugChecksum(const IOBufferData& buf)
 }
 
 inline void
-IOBuffer::DebugChecksum(const IOBuffer& buf, int numBytes)
+IOBuffer::DebugChecksum(const IOBuffer& buf, IOBuffer::BufPos numBytes)
 {
     buf.DebugVerify();
     DebugVerify();
-    int rem = numBytes;
+    BufPos rem = numBytes;
     for (iterator i = buf.begin(); rem > 0 && i != buf.end(); ++i) {
-        const int nb = min(rem, i->BytesConsumable());
+        const BufPos nb = min(rem, i->BytesConsumable());
         if (nb <= 0) {
             continue;
         }
@@ -489,10 +500,10 @@ IOBuffer::DebugChecksum(const IOBuffer& buf, int numBytes)
 inline void
 IOBuffer::DebugVerify(bool updateChecksum)
 {
-    int          byteCount = 0;
+    BufPos       byteCount = 0;
     unsigned int checksum  = adler32(0L, Z_NULL, 0);
     for (iterator i = begin(); i != end(); ++i) {
-        const int nb = i->BytesConsumable();
+        const BufPos nb = i->BytesConsumable();
         if (nb <= 0) {
             continue;
         }
@@ -520,11 +531,13 @@ IOBuffer::Clear()
 }
 
 #else
-inline void IOBuffer::DebugChecksum(const char* buf, int len)          {}
-inline void IOBuffer::DebugChecksum(const IOBufferData& buf)           {}
-inline void IOBuffer::DebugChecksum(const IOBuffer& buf, int numBytes) {}
-inline void IOBuffer::DebugVerify(bool updateChecksum)                 {}
-inline void IOBuffer::DebugVerify() const                              {}
+inline void IOBuffer::DebugChecksum(const char* buf,
+    IOBuffer::BufPos len)                                    {}
+inline void IOBuffer::DebugChecksum(const IOBufferData& buf) {}
+inline void IOBuffer::DebugChecksum(const IOBuffer& buf,
+    IOBuffer::BufPos numBytes)                               {}
+inline void IOBuffer::DebugVerify(bool updateChecksum)       {}
+inline void IOBuffer::DebugVerify() const                    {}
 #endif
 
 IOBuffer::IOBuffer()
@@ -551,14 +564,14 @@ IOBuffer::Append(const IOBufferData &buf)
     DebugVerify();
 }
 
-int
+IOBuffer::BufPos
 IOBuffer::Append(IOBuffer *ioBuf)
 {
     DebugChecksum(*ioBuf, ioBuf->mByteCount);
-    int nBytes = 0;
+    BufPos nBytes = 0;
     BList::iterator it;
     for (it = ioBuf->mBuf.begin(); it != ioBuf->mBuf.end(); ) {
-        const int nb = it->BytesConsumable();
+        const BufPos nb = it->BytesConsumable();
         if (nb > 0) {
             mBuf.splice(mBuf.end(), ioBuf->mBuf, it++);
             nBytes += nb;
@@ -576,7 +589,7 @@ IOBuffer::Append(IOBuffer *ioBuf)
 }
 
 inline IOBuffer::BList::iterator
-IOBuffer::BeginSpaceAvailable(int* nBytes /* = 0 */)
+IOBuffer::BeginSpaceAvailable(IOBuffer::BufPos* nBytes /* = 0 */)
 {
     if (! nBytes && IsEmpty()) {
         return mBuf.begin();
@@ -596,8 +609,8 @@ IOBuffer::BeginSpaceAvailable(int* nBytes /* = 0 */)
     return it;
 }
 
-int
-IOBuffer::MoveSpaceAvailable(IOBuffer *other, int numBytes)
+IOBuffer::BufPos
+IOBuffer::MoveSpaceAvailable(IOBuffer *other, IOBuffer::BufPos numBytes)
 {
     other->DebugVerify();
     DebugVerify();
@@ -606,10 +619,10 @@ IOBuffer::MoveSpaceAvailable(IOBuffer *other, int numBytes)
     }
     BList&          buf = other->mBuf;
     BList::iterator it  = other->BeginSpaceAvailable();
-    int nBytes = numBytes;
+    BufPos nBytes = numBytes;
     while (it != buf.end() && nBytes > 0) {
         IOBufferData& d = *it;
-        const int n = (int)d.SpaceAvailable();
+        const BufPos n = (BufPos)d.SpaceAvailable();
         if (n <= 0) {
             ++it;
             continue;
@@ -643,14 +656,14 @@ IOBuffer::MoveSpaceAvailable(IOBuffer *other, int numBytes)
     return (numBytes - nBytes);
 }
 
-int
-IOBuffer::EnsureSpaceAvailable(int numBytes)
+IOBuffer::BufPos
+IOBuffer::EnsureSpaceAvailable(IOBuffer::BufPos numBytes)
 {
-    int nBytes = 0;
+    BufPos nBytes = 0;
     BeginSpaceAvailable(&nBytes);
     while (nBytes < numBytes) {
         IOBufferData buf;
-        const int nb = buf.SpaceAvailable();
+        const BufPos nb = buf.SpaceAvailable();
         assert(nb > 0);
         if (nBytes + nb > numBytes) {
             char* const p = buf.Producer();
@@ -684,8 +697,9 @@ IOBuffer::RemoveSpaceAvailable()
     DebugVerify();
 }
 
-int
-IOBuffer::UseSpaceAvailable(const IOBuffer* other, int numBytes)
+IOBuffer::BufPos
+IOBuffer::UseSpaceAvailable(const IOBuffer* other,
+    IOBuffer::BufPos numBytes)
 {
     other->DebugVerify();
     DebugVerify();
@@ -698,9 +712,9 @@ IOBuffer::UseSpaceAvailable(const IOBuffer* other, int numBytes)
     while (oit != obuf.begin() && (--oit)->IsEmpty())
         {}
     BList::iterator it     = mBuf.begin();
-    int             nBytes = numBytes;
+    BufPos          nBytes = numBytes;
     while (oit != obuf.end() && nBytes > 0) {
-        int nb = min(nBytes, (int)oit->SpaceAvailable());
+        BufPos nb = min(nBytes, (BufPos)oit->SpaceAvailable());
         if (nb > 0) {
             char* const p = const_cast<char*>(oit->Producer());
             IOBufferData d(*oit, p, p + nb, p);
@@ -712,7 +726,7 @@ IOBuffer::UseSpaceAvailable(const IOBuffer* other, int numBytes)
                 if (nb <= 0) {
                     break;
                 }
-                const int n = it->Consume(d.CopyIn(&(*it), nb));
+                const BufPos n = it->Consume(d.CopyIn(&(*it), nb));
                 nb -= n;
                 nBytes -= n;
             }
@@ -734,15 +748,15 @@ IOBuffer::UseSpaceAvailable(const IOBuffer* other, int numBytes)
     return (numBytes - nBytes);
 }
 
-int
-IOBuffer::ZeroFillSpaceAvailable(int numBytes)
+IOBuffer::BufPos
+IOBuffer::ZeroFillSpaceAvailable(IOBuffer::BufPos numBytes)
 {
     DebugVerify();
     if (numBytes <= 0) {
         return 0;
     }
     BList::iterator it = BeginSpaceAvailable();
-    int nBytes = numBytes;
+    BufPos nBytes = numBytes;
     while (nBytes > 0 && it != mBuf.end()) {
         nBytes -= it->ZeroFill(nBytes);
         ++it;
@@ -755,10 +769,10 @@ IOBuffer::ZeroFillSpaceAvailable(int numBytes)
     return nBytes;
 }
 
-int
-IOBuffer::Move(IOBuffer* other, int numBytes)
+IOBuffer::BufPos
+IOBuffer::Move(IOBuffer* other, IOBuffer::BufPos numBytes)
 {
-    int nBytes = other->mByteCount;
+    BufPos nBytes = other->mByteCount;
     if (numBytes >= nBytes) {
         Move(other);
         return nBytes;
@@ -767,7 +781,7 @@ IOBuffer::Move(IOBuffer* other, int numBytes)
     nBytes = numBytes;
     while (! other->mBuf.empty() && nBytes > 0) {
         IOBufferData& s  = other->mBuf.front();
-        const int     nb = s.BytesConsumable();
+        const BufPos  nb = s.BytesConsumable();
         if (nBytes >= nb) {
             if (nb > 0) {
                 mBuf.splice(mBuf.end(), other->mBuf, other->mBuf.begin());
@@ -809,13 +823,13 @@ IOBuffer::Move(IOBuffer* other)
     DebugVerify();
 }
 
-int
-IOBuffer::MoveSpace(IOBuffer* other, int numBytes)
+IOBuffer::BufPos
+IOBuffer::MoveSpace(IOBuffer* other, IOBuffer::BufPos numBytes)
 {
     if (numBytes <= 0 || other->mBuf.empty()) {
         return 0;
     }
-    int nBytes;
+    BufPos nBytes;
     if (other->mByteCount <= numBytes &&
             ! other->mBuf.back().IsEmpty() &&
              (nBytes = other->mByteCount +
@@ -827,9 +841,9 @@ IOBuffer::MoveSpace(IOBuffer* other, int numBytes)
     nBytes = numBytes;
     while (! other->mBuf.empty() && nBytes > 0) {
         IOBufferData& s  = other->mBuf.front();
-        const int     nb = s.BytesConsumable();
-        const int     sa = (int)s.SpaceAvailable();
-        const int     st = nb + sa;
+        const BufPos nb = s.BytesConsumable();
+        const BufPos sa = (BufPos)s.SpaceAvailable();
+        const BufPos st = nb + sa;
         if (nBytes >= st) {
             if (st > 0) {
                 mBuf.splice(mBuf.end(), other->mBuf, other->mBuf.begin());
@@ -846,7 +860,7 @@ IOBuffer::MoveSpace(IOBuffer* other, int numBytes)
             char* const c = s.Consumer();
             mBuf.push_back(IOBufferData(s, c, c + nBytes, c + min(nBytes, nb)));
             s = IOBufferData(s, c + nBytes, c + st, c + max(nBytes, nb));
-            const int n = mBuf.back().BytesConsumable();
+            const BufPos n = mBuf.back().BytesConsumable();
             other->mByteCount -= n;
             mByteCount += n;
             nBytes = 0;
@@ -858,18 +872,18 @@ IOBuffer::MoveSpace(IOBuffer* other, int numBytes)
     return (numBytes - nBytes);
 }
 
-int
-IOBuffer::TrimAndConvertRemainderToAvailableSpace(int numBytes)
+IOBuffer::BufPos
+IOBuffer::TrimAndConvertRemainderToAvailableSpace(IOBuffer::BufPos numBytes)
 {
     DebugVerify();
     assert(0 <= mByteCount);
     if (mByteCount <= numBytes) {
         return mByteCount;
     }
-    int nBytes = max(0, numBytes);
+    BufPos nBytes = max(BufPos(0), numBytes);
     mByteCount = nBytes;
     for (BList::iterator it = mBuf.begin(); it != mBuf.end(); ++it) {
-        const int nb = it->BytesConsumable();
+        const BufPos nb = it->BytesConsumable();
         if ((nBytes -= nBytes < nb ? it->Trim(nBytes) : nb) <= 0) {
             break;
         }
@@ -880,12 +894,12 @@ IOBuffer::TrimAndConvertRemainderToAvailableSpace(int numBytes)
 }
 
 inline IOBuffer::BList::iterator
-IOBuffer::SplitBufferListAt(IOBuffer::BList& buf, int& nBytes)
+IOBuffer::SplitBufferListAt(IOBuffer::BList& buf, IOBuffer::BufPos& nBytes)
 {
     IOBuffer::BList::iterator iter = buf.begin();
     while (nBytes > 0 && iter != buf.end()) {
         IOBufferData& data = *iter;
-        const int nb = data.BytesConsumable();
+        const BufPos nb = data.BytesConsumable();
         if (nb <= 0) {
             iter = buf.erase(iter);
             continue;
@@ -904,12 +918,13 @@ IOBuffer::SplitBufferListAt(IOBuffer::BList& buf, int& nBytes)
 }
 
 void
-IOBuffer::Replace(IOBuffer* other, int offset, int numBytes)
+IOBuffer::Replace(IOBuffer* other,
+    IOBuffer::BufPos offset, IOBuffer::BufPos numBytes)
 {
     other->DebugVerify();
     DebugVerify();
     // find the insertion point
-    int nBytes = offset;
+    BufPos nBytes = offset;
     BList::iterator iter = SplitBufferListAt(mBuf, nBytes);
     // extend buffer if needed
     if (nBytes > 0) {
@@ -945,22 +960,23 @@ IOBuffer::Replace(IOBuffer* other, int offset, int numBytes)
 }
 
 void
-IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
+IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf,
+    IOBuffer::BufPos inOffset, IOBuffer::BufPos numBytes)
 {
     srcBuf->DebugVerify();
     DebugVerify();
-    const int offset  = max(0, inOffset);
-    const int moveLen = min(max(0, numBytes), srcBuf->mByteCount);
-    const int dstLen  = max(mByteCount, offset + moveLen);
+    const BufPos offset  = max(BufPos(0), inOffset);
+    const BufPos moveLen = min(max(BufPos(0), numBytes), srcBuf->mByteCount);
+    const BufPos dstLen  = max(mByteCount, offset + moveLen);
     assert(moveLen >= 0 && dstLen >= 0 &&
         mByteCount >= 0 && srcBuf->mByteCount >= moveLen);
 
     BList&          dst = mBuf;
     BList&          src = srcBuf->mBuf;
     BList::iterator di  = offset == mByteCount ? dst.end() : dst.begin();
-    int             off = offset == mByteCount ? offset    : 0;
+    BufPos          off = offset == mByteCount ? offset    : 0;
     while (di != dst.end()) {
-        const int nb = di->BytesConsumable();
+        const BufPos nb = di->BytesConsumable();
         if (nb <= 0) {
             di = dst.erase(di);
         } else {
@@ -971,9 +987,9 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
             ++di;
         }
     }
-    int rem = numBytes;
+    BufPos rem = numBytes;
     if (offset > off) {
-        int nFill = offset - off;
+        BufPos nFill = offset - off;
         if (! dst.empty()) {
             nFill -= dst.back().ZeroFill(nFill);
         }
@@ -1030,7 +1046,7 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
         // Move whole buffers from src to dst if possible.
         while (rem > 0 && ! src.empty()) {
             IOBufferData& s = src.front();
-            const int nb = s.BytesConsumable();
+            const BufPos nb = s.BytesConsumable();
             if (nb <= 0) {
                 src.pop_front();
                 continue;
@@ -1059,7 +1075,7 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
             src.pop_front();
             continue;
         }
-        int dl;
+        BufPos dl;
         while ((dl = di->BytesConsumable()) <= 0 &&
             (di = dst.erase(di)) != dst.end())
         {}
@@ -1092,7 +1108,7 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
         }
         rem -= dl;
         while (dl > 0) {
-            const int n = s->Consume(s->CopyOut(d, dl));
+            const BufPos n = s->Consume(s->CopyOut(d, dl));
             d += n;
             dl -= n;
             while (s->IsEmpty()) {
@@ -1128,14 +1144,14 @@ IOBuffer::ReplaceKeepBuffersFull(IOBuffer* srcBuf, int inOffset, int numBytes)
 }
 
 void
-IOBuffer::ZeroFill(int numBytes)
+IOBuffer::ZeroFill(IOBuffer::BufPos numBytes)
 {
     if (numBytes <= 0) {
         return;
     }
     DebugVerify();
     BList::iterator it = BeginSpaceAvailable();
-    int nBytes = numBytes;
+    BufPos nBytes = numBytes;
     for (; ;) {
         if (it == mBuf.end()) {
             it = mBuf.insert(it, IOBufferData());
@@ -1158,8 +1174,9 @@ AllocBuffer(size_t allocSize)
         sIOBufferAllocator->Allocate() : new char[allocSize]);
 }
 
-int
-IOBuffer::Read(int fd, int maxReadAhead, IOBuffer::Reader* reader)
+IOBuffer::BufPos
+IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
+    IOBuffer::Reader* reader)
 {
     DebugVerify();
     if (sIOBufferAllocator && ! sIsIOBufferAllocatorUsed) {
@@ -1170,13 +1187,13 @@ IOBuffer::Read(int fd, int maxReadAhead, IOBuffer::Reader* reader)
     const size_t bufSize =
         sIOBufferAllocator ? sIOBufferAllocator->GetBufferSize() :
         IOBufferData::GetDefaultBufferSize();
-    if (maxReadAhead > 0 && maxReadAhead <= int(bufSize)) {
+    if (maxReadAhead > 0 && maxReadAhead <= BufPos(bufSize)) {
         const bool addBufFlag = it == mBuf.end();
         if (addBufFlag) {
             it = mBuf.insert(mBuf.end(), IOBufferData());
         }
         if (it->SpaceAvailable() >= size_t(maxReadAhead)) {
-            const int nRd = reader ?
+            const BufPos nRd = reader ?
                 reader->Read(fd, it->Producer(), maxReadAhead) :
                 it->Read(fd, maxReadAhead);
             if (nRd > 0) {
@@ -1194,13 +1211,13 @@ IOBuffer::Read(int fd, int maxReadAhead, IOBuffer::Reader* reader)
     }
 
     const ssize_t kMaxReadv     = 64 << 10;
-    const int     kMaxReadvBufs(kMaxReadv / (4 << 10) + 1);
-    const int     maxReadvBufs  = min(reader ? 1 : IOV_MAX,
-        min(kMaxReadvBufs, int(kMaxReadv / bufSize + 1)));
+    const BufPos  kMaxReadvBufs(kMaxReadv / (4 << 10) + 1);
+    const BufPos  maxReadvBufs  = min(BufPos(reader ? 1 : IOV_MAX),
+        min(kMaxReadvBufs, BufPos(kMaxReadv / bufSize + 1)));
     struct iovec  readVec[kMaxReadvBufs];
     ssize_t       totRead = 0;
     ssize_t       maxRead(maxReadAhead >= 0 ?
-        maxReadAhead : std::numeric_limits<int>::max());
+        maxReadAhead : std::numeric_limits<BufPos>::max());
 
     while (maxRead > 0) {
         assert(it == mBuf.end() || ! it->IsFull());
@@ -1288,13 +1305,13 @@ IOBuffer::Read(int fd, int maxReadAhead, IOBuffer::Reader* reader)
     return totRead;
 }
 
-int
+IOBuffer::BufPos
 IOBuffer::Write(int fd)
 {
     DebugVerify();
-    const int    kMaxWritevBufs      = 32;
-    const int    maxWriteBufs        = min(IOV_MAX, kMaxWritevBufs);
-    const int    kPreferredWriteSize = 64 << 10;
+    const BufPos kMaxWritevBufs      = 32;
+    const BufPos maxWriteBufs        = min(BufPos(IOV_MAX), kMaxWritevBufs);
+    const BufPos kPreferredWriteSize = 64 << 10;
     struct iovec writeVec[kMaxWritevBufs];
     ssize_t      totWr = 0;
 
@@ -1306,7 +1323,7 @@ IOBuffer::Write(int fd)
                 it != mBuf.end() && nVec < maxWriteBufs &&
                     toWr < kPreferredWriteSize;
                 ) {
-            const int nBytes = it->BytesConsumable();
+            const BufPos nBytes = it->BytesConsumable();
             if (nBytes <= 0) {
                 it = mBuf.erase(it);
                 continue;
@@ -1327,7 +1344,7 @@ IOBuffer::Write(int fd)
             mBuf.clear();
         } else {
             ssize_t nBytes = nWr;
-            int nb;
+            BufPos  nb;
             while ((nb = mBuf.front().BytesConsumable()) <= nBytes) {
                 nBytes -= nb;
                 mBuf.pop_front();
@@ -1363,7 +1380,7 @@ IOBuffer::Verify() const
     DebugVerify();
 #else
     BList::const_iterator it;
-    int numBytes = 0;
+    BufPos                numBytes = 0;
     for (it = mBuf.begin(); it != mBuf.end(); ++it) {
         numBytes += it->BytesConsumable();
     }
@@ -1373,11 +1390,11 @@ IOBuffer::Verify() const
 #endif
 }
 
-int
+IOBuffer::BufPos
 IOBuffer::ZeroFillLast()
 {
     DebugVerify();
-    int nBytes = 0;
+    BufPos nBytes = 0;
     while (! mBuf.empty()) {
         IOBufferData& b = mBuf.back();
         if (b.IsEmpty()) {
@@ -1393,18 +1410,18 @@ IOBuffer::ZeroFillLast()
     return nBytes;
 }
 
-int
-IOBuffer::Consume(int numBytes)
+IOBuffer::BufPos
+IOBuffer::Consume(IOBuffer::BufPos numBytes)
 {
     DebugVerify();
     if (numBytes >= mByteCount) {
         mBuf.clear();
-        const int nBytes = mByteCount;
+        const BufPos nBytes = mByteCount;
         mByteCount = 0;
         DebugVerify(true);
         return nBytes;
     }
-    int             nBytes = numBytes;
+    BufPos          nBytes = numBytes;
     BList::iterator it     = mBuf.begin();
     while (numBytes > 0 && it != mBuf.end()) {
         nBytes -= it->Consume(nBytes);
@@ -1421,8 +1438,8 @@ IOBuffer::Consume(int numBytes)
     return nBytes;
 }
 
-int
-IOBuffer::Trim(int numBytes)
+IOBuffer::BufPos
+IOBuffer::Trim(IOBuffer::BufPos numBytes)
 {
     DebugVerify();
     if (mByteCount <= numBytes) {
@@ -1434,10 +1451,10 @@ IOBuffer::Trim(int numBytes)
         DebugVerify(true);
         return mByteCount;
     }
-    int             nBytes = numBytes;
+    BufPos          nBytes = numBytes;
     BList::iterator iter   = mBuf.begin();
     while (iter != mBuf.end()) {
-        const int nb = iter->BytesConsumable();
+        const BufPos nb = iter->BytesConsumable();
         if (nb <= 0) {
             iter = mBuf.erase(iter);
         } else {
@@ -1471,15 +1488,16 @@ IOBuffer::IsValidCopyInPos(const IOBuffer::iterator& pos)
         cur->IsEmpty() || ++cur == mBuf.end() || cur->IsEmpty());
 }
 
-int
-IOBuffer::CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos)
+IOBuffer::BufPos
+IOBuffer::CopyIn(const char* buf,
+    IOBuffer::BufPos numBytes, IOBuffer::iterator pos)
 {
     assert(IsValidCopyInPos(pos));
     if (numBytes <= 0) {
         return 0;
     }
     DebugChecksum(buf, numBytes);
-    int nBytes = numBytes;
+    BufPos nBytes = numBytes;
     for (; ;) {
         if (pos == mBuf.end()) {
             pos = mBuf.insert(mBuf.end(), IOBufferData());
@@ -1497,29 +1515,29 @@ IOBuffer::CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos)
     return numBytes;
 }
 
-int
+IOBuffer::BufPos
 IOBuffer::CopyInOnlyIntoBufferAtPos(
-    const char* buf, int numBytes, IOBuffer::iterator pos)
+    const char* buf, IOBuffer::BufPos numBytes, IOBuffer::iterator pos)
 {
     if (numBytes <= 0 || pos == mBuf.end()) {
         return 0;
     }
     assert(! mBuf.empty());
     DebugChecksum(buf, numBytes);
-    const int nb = const_cast<IOBufferData&>(*pos).CopyIn(buf, numBytes);
+    const BufPos nb = const_cast<IOBufferData&>(*pos).CopyIn(buf, numBytes);
     mByteCount += nb;
     DebugVerify(true);
     return nb;
 }
 
-int
-IOBuffer::CopyIn(const char *buf, int numBytes)
+IOBuffer::BufPos
+IOBuffer::CopyIn(const char *buf, IOBuffer::BufPos numBytes)
 {
     DebugChecksum(buf, numBytes);
     if (numBytes <= 0) {
         return 0;
     }
-    int defaultBufSz;
+    BufPos defaultBufSz;
     if (! sIOBufferAllocator && mBuf.empty() && numBytes >
             (defaultBufSz = IOBufferData::GetDefaultBufferSize()) * 32) {
         IOBufferData bd(
@@ -1535,10 +1553,10 @@ IOBuffer::CopyIn(const char *buf, int numBytes)
     if (it == mBuf.end()) {
         it = mBuf.insert(it, IOBufferData());
     }
-    int nBytes = numBytes;
-    const char* cur = buf;
+    BufPos      nBytes = numBytes;
+    const char* cur    = buf;
     for (; ;) {
-        const int nb = it->CopyIn(cur, nBytes);
+        const BufPos nb = it->CopyIn(cur, nBytes);
         cur += nb;
         nBytes -= nb;
         if (nBytes <= 0) {
@@ -1556,17 +1574,17 @@ IOBuffer::CopyIn(const char *buf, int numBytes)
     return nBytes;
 }
 
-int
-IOBuffer::CopyOut(char *buf, int numBytes) const
+IOBuffer::BufPos
+IOBuffer::CopyOut(char *buf, IOBuffer::BufPos numBytes) const
 {
     BList::const_iterator it;
-    char* cur    = buf;
-    int   nBytes = numBytes;
+    char*                 cur    = buf;
+    BufPos                nBytes = numBytes;
     if (nBytes > 0) {
         *cur = '\0';
     }
     for (it = mBuf.begin(); nBytes > 0 && it != mBuf.end(); ++it) {
-        const int nb = it->CopyOut(cur, nBytes);
+        const BufPos nb = it->CopyOut(cur, nBytes);
         cur += nb;
         nBytes -= nb;
     }
@@ -1574,11 +1592,11 @@ IOBuffer::CopyOut(char *buf, int numBytes) const
     return (cur - buf);
 }
 
-int
-IOBuffer::Copy(const IOBuffer* buf, int numBytes)
+IOBuffer::BufPos
+IOBuffer::Copy(const IOBuffer* buf, IOBuffer::BufPos numBytes)
 {
     DebugChecksum(*buf, numBytes);
-    int                   rem = numBytes;
+    BufPos                rem = numBytes;
     BList::const_iterator it;
     for (it = buf->mBuf.begin(); it != buf->mBuf.end() && rem > 0; ++it) {
         const int nb = min(rem, it->BytesConsumable());
@@ -1635,7 +1653,7 @@ IOBuffer::MakeBuffersFull()
     buf.swap(mBuf);
     while (! buf.empty()) {
         IOBufferData& s  = buf.front();
-        const int     nb = s.BytesConsumable();
+        const BufPos nb = s.BytesConsumable();
         if (nb <= 0) {
             buf.pop_front();
             continue;
@@ -1653,13 +1671,14 @@ IOBuffer::MakeBuffersFull()
 }
 
 void
-IOBuffer::TrimAtBufferBoundaryLeaveOnly(int& offset, int& numBytes)
+IOBuffer::TrimAtBufferBoundaryLeaveOnly(
+    IOBuffer::BufPos& offset, IOBuffer::BufPos& numBytes)
 {
     // Trim data at the buffer boundary at the beginning.
     DebugVerify();
-    int nBytes = offset;
+    BufPos nBytes = offset;
     while (! mBuf.empty()) {
-        const int nb = mBuf.front().BytesConsumable();
+        const BufPos nb = mBuf.front().BytesConsumable();
         if (nb > nBytes) {
             break;
         }
@@ -1668,7 +1687,7 @@ IOBuffer::TrimAtBufferBoundaryLeaveOnly(int& offset, int& numBytes)
     }
     offset -= nBytes;
     // Trim data at the buffer boundary from the end.
-    nBytes = max(0, nBytes) + numBytes;
+    nBytes = max(BufPos(0), nBytes) + numBytes;
     numBytes = 0;
     for (BList::iterator i = mBuf.begin(); i != mBuf.end(); ) {
         if (nBytes > numBytes) {
@@ -1683,16 +1702,16 @@ IOBuffer::TrimAtBufferBoundaryLeaveOnly(int& offset, int& numBytes)
     DebugVerify(true);
 }
 
-int
-IOBuffer::IndexOf(int offset, const char* str) const
+IOBuffer::BufPos
+IOBuffer::IndexOf(IOBuffer::BufPos offset, const char* str) const
 {
     DebugVerify();
     const char* const     ss     = str ? str : "";
-    const int             soff   = max(0, offset);
-    int                   nBytes = soff;
+    const BufPos          soff   = max(BufPos(0), offset);
+    BufPos                nBytes = soff;
     BList::const_iterator it;
     for (it = mBuf.begin(); it != mBuf.end(); ++it) {
-        const int nb = it->BytesConsumable();
+        const BufPos nb = it->BytesConsumable();
         if (nb > nBytes) {
             break;
         }
@@ -1702,13 +1721,13 @@ IOBuffer::IndexOf(int offset, const char* str) const
         // Nothing to search for.
         return (it != mBuf.end() ? soff : -1);
     }
-    int                   off = soff - nBytes;
+    BufPos                off = soff - nBytes;
     const char*           s   = ss;
-    int                   idx = -1;
-    int                   pbo = -1;
+    BufPos                idx = -1;
+    BufPos                pbo = -1;
     BList::const_iterator pit;
     while (it != mBuf.end()) {
-        const int         nb = it->BytesConsumable();
+        const BufPos      nb = it->BytesConsumable();
         const char* const c  = it->Consumer();
         const char*       n  = c + nBytes;
         const char* const e  = c + nb;
@@ -1741,7 +1760,7 @@ IOBuffer::IndexOf(int offset, const char* str) const
                 if (*s == 0) {
                     // Found.
                     DebugVerify();
-                    return (off + int(f - c));
+                    return (off + BufPos(f - c));
                 }
                 if (n < e) {
                     // Start over, from prefix start index plus one.
@@ -1749,7 +1768,7 @@ IOBuffer::IndexOf(int offset, const char* str) const
                     n = f + 1;
                 } else {
                     // Prefix start, end of buffer: remember the prefix position.
-                    pbo = int(f - c);
+                    pbo = BufPos(f - c);
                     pit = it;
                     idx = off + pbo;
                 }
@@ -1770,7 +1789,7 @@ IOBuffer::DetachFrontBuffer(bool fullOrPartialLastBufferFlag)
         return 0;
     }
     IOBufferData& buf = mBuf.front();
-    const int nb = buf.BytesConsumable();
+    const BufPos nb = buf.BytesConsumable();
     if (fullOrPartialLastBufferFlag && nb < mByteCount && ! buf.IsFull()) {
         return 0; 
     }
@@ -1789,7 +1808,7 @@ IOBuffer::StreamBuffer::underflow()
     if (mMaxReadLength <= 0 || mCur == mIoBuf->end()) {
         return EOF;
     }
-    int nb;
+    BufPos nb;
     while ((nb = mCur->BytesConsumable()) <= 0) {
         if (++mCur == mIoBuf->end()) {
             return EOF;
@@ -1810,7 +1829,7 @@ IOBuffer::StreamBuffer::overflow(int c)
         return EOF;
     }
     char ch(c);
-    const int ret = mIoBuf->CopyIn(&ch, 1);
+    const BufPos ret = mIoBuf->CopyIn(&ch, 1);
     if (ret <= 0) {
         return EOF;
     }
@@ -1821,10 +1840,10 @@ IOBuffer::StreamBuffer::overflow(int c)
 std::streamsize
 IOBuffer::StreamBuffer::xsputn(const char* s, std::streamsize n)
 {
-    if (! mIoBuf || mWriteRem < (int)n) {
+    if (! mIoBuf || mWriteRem < BufPos(n)) {
         return 0;
     }
-    const int ret = mIoBuf->CopyIn(s, int(n));
+    const BufPos ret = mIoBuf->CopyIn(s, BufPos(n));
     if (ret > 0) {
         mWriteRem -= ret;
     }

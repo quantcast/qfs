@@ -1140,8 +1140,9 @@ private:
             }
             const MetaVrLogSeq thePrevLogSeq = mLogSeq;
             mLogSeq         = inOp.startLogSeq;
-            mCurMaxReadSize = min(mMaxReadSize, 0 < inOp.maxReadSize ?
-                inOp.maxReadSize : inOp.mBuffer.BytesConsumable());
+            mCurMaxReadSize = min(IOBuffer::BufPos(mMaxReadSize),
+                IOBuffer::BufPos(0 < inOp.maxReadSize ?
+                    inOp.maxReadSize : inOp.mBuffer.BytesConsumable()));
             mNextReadPos    = inOp.mBuffer.BytesConsumable();
             if (0 <= inOp.fileSize) {
                 mFileSize = inOp.fileSize;
@@ -1624,7 +1625,7 @@ private:
             if (theEndPos < 0) {
                 break;
             }
-            int theLen = theEndPos - thePos;
+            IOBuffer::BufPos theLen = theEndPos - thePos;
             if (kMaxCommitLineLen < theLen) {
                 KFS_LOG_STREAM_ERROR <<
                     "log block commit line"

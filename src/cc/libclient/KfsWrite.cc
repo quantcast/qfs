@@ -161,7 +161,7 @@ KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
     const KfsProtocolWorker::FileInstance fileInstance = entry.instance;
     const string                          pathName     = entry.pathname;
     const int                             bufsz        = entry.ioBufferSize;
-    const int                             prevPending  = entry.pending;
+    const int64_t                         prevPending  = entry.pending;
     const bool                            throttle     =
         ! asyncFlag && bufsz > 0 && bufsz <= entry.pending;
     if ((throttle || bufsz <= 0) && ! asyncFlag) {

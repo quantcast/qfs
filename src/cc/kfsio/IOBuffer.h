@@ -31,6 +31,7 @@
 #ifndef _LIBIO_IOBUFFER_H
 #define _LIBIO_IOBUFFER_H
 
+#include <stdint.h>
 #include <stdio.h>
 
 #include <cassert>
@@ -85,15 +86,17 @@ bool SetIOBufferAllocator(IOBufferAllocator* allocator);
 class IOBufferData
 {
 public:
+    typedef int64_t BufPos;
     /// Data buffer that is ref-counted for sharing.
     typedef shared_ptr<char> IOBufferBlockPtr;
 
     IOBufferData();
-    IOBufferData(int bufsz);
-    IOBufferData(char* buf, int offset, int size,
+    IOBufferData(BufPos bufsz);
+    IOBufferData(char* buf, BufPos offset, BufPos size,
         libkfsio::IOBufferAllocator& allocator);
-    IOBufferData(char* buf, int bufSize, int offset, int size);
-    IOBufferData(const IOBufferBlockPtr& data, int bufSize, int offset, int size);
+    IOBufferData(char* buf, BufPos bufSize, BufPos offset, BufPos size);
+    IOBufferData(const IOBufferBlockPtr& data, BufPos bufSize,
+        BufPos offset, BufPos size);
 
     /// Create an IOBufferData blob by sharing data block from other;
     /// set the producer/consumer based on the start/end positions
@@ -106,14 +109,14 @@ public:
     /// @param[in] fd file descriptor to be used for reading.
     /// @result Returns the # of bytes read
     ///
-    int Read(int fd, int maxReadAhead /* = -1 */);
+    BufPos Read(int fd, BufPos maxReadAhead /* = -1 */);
 
     ///
     /// Write data from the buffer to the file descriptor.
     /// @param[in] fd file descriptor to be used for writing.
     /// @result Returns the # of bytes written
     ///
-    int Write(int fd);
+    BufPos Write(int fd);
 
     ///
     /// Copy data into the buffer.  For doing a copy, data is appended
@@ -128,8 +131,8 @@ public:
     /// @param[in] numBytes # of bytes to be copied.
     /// @retval Returns the # of bytes copied.
     ///
-    int CopyIn(const char *buf, int numBytes);
-    int CopyIn(const IOBufferData *other, int numBytes);
+    BufPos CopyIn(const char *buf, BufPos numBytes);
+    BufPos CopyIn(const IOBufferData *other, BufPos numBytes);
     ///
     /// Copy data out the buffer.  For doing a copy, data is copied
     /// out of the buffer starting at the offset corresponding to
@@ -143,7 +146,7 @@ public:
     /// @param[in] numBytes # of bytes to be copied.
     /// @retval Returns the # of bytes copied.
     ///
-    int CopyOut(char *buf, int numBytes) const;
+    BufPos CopyOut(char *buf, BufPos numBytes) const;
 
     char *Producer() { return mProducer; }
     char *Consumer() { return mConsumer; }
@@ -156,8 +159,8 @@ public:
     /// @param[in] nbytes # of bytes of data filled
     /// @retval # of bytes filled in this buffer.
     ///
-    int Fill(int nbytes);
-    int ZeroFill(int nbytes);
+    BufPos Fill(BufPos nbytes);
+    BufPos ZeroFill(BufPos nbytes);
 
     ///
     /// Some data has been consumed from the buffer.  So, advance
@@ -165,7 +168,7 @@ public:
     /// @param[in] nbytes # of bytes of data consumed
     /// @retval # of bytes consumed from this buffer.
     ///
-    int Consume(int nbytes);
+    BufPos Consume(BufPos nbytes);
 
     ///
     /// Remove some data from the end of the buffer.  So, pull back
@@ -173,15 +176,15 @@ public:
     /// @param[in] nbytes # of bytes of data to be trimmed
     /// @retval # of bytes in this buffer.
     ///
-    int Trim(int nbytes);
+    BufPos Trim(BufPos nbytes);
 
     /// Returns the # of bytes available for consumption.
-    int BytesConsumable() const { return mProducer - mConsumer; }
+    BufPos BytesConsumable() const { return mProducer - mConsumer; }
 
     /// Return the space available in the buffer
     size_t SpaceAvailable() const { return mEnd - mProducer; }
-    int IsFull() const { return mProducer >= mEnd; }
-    int IsEmpty() const { return mProducer <= mConsumer; }
+    bool IsFull() const { return mProducer >= mEnd; }
+    bool IsEmpty() const { return mProducer <= mConsumer; }
     /// Returns true if has whole data buffer.
     bool HasCompleteBuffer() const {
         return (mData.get() == mConsumer &&
@@ -190,7 +193,7 @@ public:
     bool IsShared() const {
         return (! mData.unique());
     }
-    static int GetDefaultBufferSize() {
+    static BufPos GetDefaultBufferSize() {
         return sDefaultBufferSize;
     }
     /// Detach buffer can only detach non shared buffers. The caller assumes
@@ -207,14 +210,14 @@ private:
     char*            mConsumer;
 
     /// Allocate memory and init the pointers.
-    inline void Init(char* buf, int bufSize);
+    inline void Init(char* buf, BufPos bufSize);
     inline void Init(char* buf,
         libkfsio::IOBufferAllocator& allocator);
 
-    inline int MaxAvailable(int numBytes) const;
-    inline int MaxConsumable(int numBytes) const;
+    inline BufPos MaxAvailable(BufPos numBytes) const;
+    inline BufPos MaxConsumable(BufPos numBytes) const;
 
-    static int sDefaultBufferSize;
+    static BufPos sDefaultBufferSize;
 };
 
 
@@ -232,11 +235,12 @@ private:
         StdFastAllocator<IOBufferData>
     > BList;
 public:
+    typedef IOBufferData::BufPos BufPos;
     typedef BList::const_iterator iterator;
     class Reader
     {
     public:
-        virtual int Read(int fd, void* buf, int numRead) = 0;
+        virtual int Read(int fd, void* buf, BufPos numRead) = 0;
     protected:
         Reader() {}
         virtual ~Reader() {}
@@ -254,14 +258,14 @@ public:
     void Append(const IOBufferData& buf);
 
     /// Append the contents of ioBuf to this buffer.
-    int Append(IOBuffer *ioBuf);
+    BufPos Append(IOBuffer *ioBuf);
 
     /// Move data buffers with space available at the end of ioBuf.
     /// @param[in] other  Buffer from which the available space to move
     /// @param[in] numBytes  # of bytes of available space to be used
     /// @retval Returns the # of bytes moved.
     ///
-    int MoveSpaceAvailable(IOBuffer* other, int numBytes);
+    BufPos MoveSpaceAvailable(IOBuffer* other, BufPos numBytes);
     /// Remove space available at the end of ioBuf.
     ///
     void RemoveSpaceAvailable();
@@ -272,26 +276,26 @@ public:
     /// @param[in] numBytes  # of bytes of available space to be used
     /// @retval Returns the # of bytes used.
     ///
-    int UseSpaceAvailable(const IOBuffer* other, int numBytes);
+    BufPos UseSpaceAvailable(const IOBuffer* other, BufPos numBytes);
     /// Zero fill the buffer for length
     /// min(numBytes, <space available at the end>).
     /// @param[in] numBytes  # of bytes to be zero-filled.
     /// @retval Returns the # of bytes filled.
     ///
-    int ZeroFillSpaceAvailable(int numBytes);
+    BufPos ZeroFillSpaceAvailable(BufPos numBytes);
     /// Ensure that at least numBytes, is available.
     /// If more than numBytes is always available do nothing,
     /// otherwise add buffer space to make exactly numBytes available.
     /// @param[in] numBytes size of the available space.
     /// @retval Returns actual available space size.
     ///
-    int EnsureSpaceAvailable(int numBytes);
+    BufPos EnsureSpaceAvailable(BufPos numBytes);
 
 
-    int Read(int fd, int maxReadAhead, Reader* reader);
-    int Read(int fd, int maxReadAhead = -1)
+    BufPos Read(int fd, BufPos maxReadAhead, Reader* reader);
+    BufPos Read(int fd, BufPos maxReadAhead = -1)
         { return Read(fd, maxReadAhead, 0); }
-    int Write(int fd);
+    BufPos Write(int fd);
 
     /// Move data from one buffer to another.  This involves (mostly)
     /// shuffling pointers without incurring data copying.
@@ -301,7 +305,7 @@ public:
     /// @param[in] numBytes  # of bytes of data to be moved over
     /// @retval Returns the # of bytes moved.
     ///
-    int Move(IOBuffer* other, int numBytes);
+    BufPos Move(IOBuffer* other, BufPos numBytes);
     /// Move whole buffer.
     ///
     void Move(IOBuffer *other);
@@ -310,7 +314,7 @@ public:
     /// @param[in] numBytes  # of bytes of space to be moved over
     /// @retval Returns the # of space moved.
     ///
-    int MoveSpace(IOBuffer* other, int numBytes);
+    BufPos MoveSpace(IOBuffer* other, BufPos numBytes);
 
     /// Replace data in the range
     /// [offset, offset + min(numBytes, other->BytesConsumable())
@@ -320,18 +324,19 @@ public:
     /// @param[in] offset  The offset at which data has to be spliced in
     /// @param[in] numBytes  # of bytes of data to be moved over
     ///
-    void Replace(IOBuffer* other, int offset, int numBytes);
+    void Replace(IOBuffer* other, BufPos offset, BufPos numBytes);
     /// Same as Replace, except it ensures that all buffers in the destination
     /// fully utilized: IsFull() && HasCompleteBuffer()
     /// It copies over min(srcBuf->BytesConsumable(), numBytes) into this.
     /// If offset > this->BytesConsumable(), the this is zero filled.
     /// This method "consumes" min(srcBuf->BytesConsumable(), numBytes) from
     /// srcBuf.
-    void ReplaceKeepBuffersFull(IOBuffer* srcBuf, int offset, int numBytes);
+    void ReplaceKeepBuffersFull(IOBuffer* srcBuf, BufPos offset,
+        BufPos numBytes);
 
     /// Zero fill the buffer for length numBytes.
     /// @param[in] numBytes  # of bytes to be zero-filled.
-    void ZeroFill(int numBytes);
+    void ZeroFill(BufPos numBytes);
 
     ///
     /// Copy data into the buffer.  For doing a copy, data is appended
@@ -346,14 +351,14 @@ public:
     /// @param[in] numBytes # of bytes to be copied in.
     /// @retval Returns the # of bytes copied.
     ///
-    int CopyIn(const char* buf, int numBytes);
+    BufPos CopyIn(const char* buf, BufPos numBytes);
     /// Pos must be valid boundary between used and available space.
-    int CopyIn(const char* buf, int numBytes, IOBuffer::iterator pos);
+    BufPos CopyIn(const char* buf, BufPos numBytes, IOBuffer::iterator pos);
     /// Append only to the buffer at the specified position.
-    int CopyInOnlyIntoBufferAtPos(const char* buf, int numBytes,
+    BufPos CopyInOnlyIntoBufferAtPos(const char* buf, BufPos numBytes,
         IOBuffer::iterator pos);
 
-    int Copy(const IOBuffer* buf, int numBytes);
+    BufPos Copy(const IOBuffer* buf, BufPos numBytes);
 
     ///
     /// Copy data out of the buffer.  For doing a copy, data is copied
@@ -370,11 +375,11 @@ public:
     /// bytes are copied out.
     /// @retval Returns the # of bytes copied.
     ///
-    int CopyOut(char* buf, int bufLen) const;
+    BufPos CopyOut(char* buf, BufPos bufLen) const;
 
     /// Copy the data into buf, or get buffer pointer if the data is
     /// contiguous in one buffer.
-    const char* CopyOutOrGetBufPtr(char* buf, int& nbytes) const
+    const char* CopyOutOrGetBufPtr(char* buf, BufPos& nbytes) const
     {
         if (nbytes > mByteCount) {
             nbytes = mByteCount;
@@ -393,31 +398,31 @@ public:
     /// # of buffers.
     /// @retval Returns the # of bytes consumed.
     ///
-    int Consume(int nbytes);
+    BufPos Consume(BufPos nbytes);
 
     /// Returns the # of bytes that are available for consumption.
-    int BytesConsumable() const
+    BufPos BytesConsumable() const
         { return mByteCount; }
 
     /// Trim data from the end of the buffer to nbytes.  This is the
     /// converse of consume, where data is removed from the front of
     /// the buffer.
-    int Trim(int nbytes);
-    int TrimAndConvertRemainderToAvailableSpace(int numBytes);
+    BufPos Trim(BufPos nbytes);
+    BufPos TrimAndConvertRemainderToAvailableSpace(BufPos numBytes);
 
     /// Ensures HasCompleteBuffer() returns true for all buffers,
     /// and all buffers possibly except the last one are full.
     void MakeBuffersFull();
 
     /// Trim at buffer boundary
-    void TrimAtBufferBoundaryLeaveOnly(int& offset, int& numBytes);
+    void TrimAtBufferBoundaryLeaveOnly(BufPos& offset, BufPos& numBytes);
 
     /// Searches for a string in the buffer, strstr() equivalent.
     /// @param[in] offset to start search from.
     /// @param[in] str    string to search for.
     /// @retval Returns position of  the beginning of the "str" if found,
     /// or -1 if not.
-    int IndexOf(int offset, const char* str) const;
+    BufPos IndexOf(BufPos offset, const char* str) const;
 
     /// Returns true if buffer has no data.
     bool IsEmpty() const
@@ -425,16 +430,16 @@ public:
 
     /// Zero fill, if needed the last buffer to make it full.
     /// @retval Returns number of bytes added.
-    int ZeroFillLast();
+    BufPos ZeroFillLast();
 
     /// Returns bytes available for consumption in the last buffer
     /// @retval # of bytes consumable in the last buffer.
-    int BytesConsumableLast() const
+    BufPos BytesConsumableLast() const
         { return (mBuf.empty() ? 0 : mBuf.back().BytesConsumable()); }
 
     /// Returns available space in the last buffer.
     /// @retval available space in the last buffer.
-    int SpaceAvailableLast() const
+    BufPos SpaceAvailableLast() const
         { return (mBuf.empty() ? 0 : mBuf.back().SpaceAvailable()); }
 
     /// Retruns true if the last the buffer is full
@@ -470,8 +475,8 @@ public:
     public:
         StreamBuffer(
             IOBuffer& iobuf,
-            int       maxReadLength  = numeric_limits<int>::max(),
-            int       maxWriteLength = numeric_limits<int>::max())
+            BufPos    maxReadLength  = numeric_limits<BufPos>::max(),
+            BufPos    maxWriteLength = numeric_limits<BufPos>::max())
             : streambuf(),
               mMaxReadLength(maxReadLength),
               mWriteRem(maxWriteLength),
@@ -485,7 +490,7 @@ public:
               mCur(),
               mIoBuf(0)
             {}
-        void Reset(int maxReadLength, int maxWriteLength)
+        void Reset(BufPos maxReadLength, BufPos maxWriteLength)
         {
             if (mIoBuf) {
                 mCur = mIoBuf->begin();
@@ -496,7 +501,7 @@ public:
                 mWriteRem      = 0;
             }
         }
-        void SetReadOnly(IOBuffer* iobuf, int maxReadLength)
+        void SetReadOnly(IOBuffer* iobuf, BufPos maxReadLength)
         {
             // Make sure that overflow() will always return EOF.
             mMaxReadLength = iobuf ? maxReadLength : 0;
@@ -506,7 +511,7 @@ public:
                 mCur = mIoBuf->begin();
             }
         }
-        void SetWriteOnly(IOBuffer* iobuf, int maxWriteLength)
+        void SetWriteOnly(IOBuffer* iobuf, BufPos maxWriteLength)
         {
             // Make sure that underflow() will always return EOF.
             mMaxReadLength = 0;
@@ -518,8 +523,8 @@ public:
         virtual int overflow(int c = EOF);
         virtual streamsize xsputn(const char * s, streamsize n);
     private:
-        int       mMaxReadLength;
-        int       mWriteRem;
+        BufPos    mMaxReadLength;
+        BufPos    mWriteRem;
         iterator  mCur;
         IOBuffer* mIoBuf;
     private:
@@ -561,19 +566,19 @@ public:
         const char*     mEnd;
     };
 private:
-    BList mBuf;
-    int   mByteCount;
+    BList  mBuf;
+    BufPos mByteCount;
 #ifdef DEBUG_IOBuffer
     unsigned int mDebugChecksum;
 #endif
-    inline void DebugChecksum(const char* buf, int len);
+    inline void DebugChecksum(const char* buf, BufPos len);
     inline void DebugChecksum(const IOBufferData& buf);
-    inline void DebugChecksum(const IOBuffer& buf, int numBytes);
+    inline void DebugChecksum(const IOBuffer& buf, BufPos numBytes);
     inline void DebugVerify() const;
     inline void DebugVerify(bool updateChecksum);
 
-    inline static BList::iterator SplitBufferListAt(BList& buf, int& nBytes);
-    inline BList::iterator BeginSpaceAvailable(int* nBytes = 0);
+    inline static BList::iterator SplitBufferListAt(BList& buf, BufPos& nBytes);
+    inline BList::iterator BeginSpaceAvailable(BufPos* nBytes = 0);
     inline bool IsValidCopyInPos(const IOBuffer::iterator& pos);
     IOBuffer(const IOBuffer& buf);
     IOBuffer& operator=(const IOBuffer& buf);
@@ -603,7 +608,7 @@ public:
         {}
     ostream& Set(
         IOBuffer* iobuf,
-        int       maxWriteLength = numeric_limits<int>::max())
+        BufPos    maxWriteLength = numeric_limits<BufPos>::max())
     {
         SetWriteOnly(iobuf, maxWriteLength);
         ostream::clear();
@@ -616,7 +621,7 @@ public:
     }
     ostream& Set(
         IOBuffer& iobuf,
-        int       maxWriteLength = numeric_limits<int>::max())
+        BufPos    maxWriteLength = numeric_limits<BufPos>::max())
         { return Set(&iobuf, maxWriteLength); }
     ostream& Reset()
         { return Set(0, 0); }
@@ -629,7 +634,7 @@ class IOBuffer::IStream :
 public:
     IStream(
         IOBuffer& iobuf,
-        int       maxReadLength = numeric_limits<int>::max())
+        BufPos    maxReadLength = numeric_limits<BufPos>::max())
         : IOBuffer::StreamBuffer(iobuf, maxReadLength, 0),
           istream(this)
         {}
@@ -637,7 +642,7 @@ public:
         : IOBuffer::StreamBuffer(),
           istream(this)
         {}
-    void Rewind(int maxReadLength)
+    void Rewind(BufPos maxReadLength)
     {
         StreamBuffer::Reset(maxReadLength, 0);
         istream::clear();
@@ -645,7 +650,7 @@ public:
     }
     istream& Set(
         IOBuffer* iobuf,
-        int       maxReadLength = numeric_limits<int>::max())
+        BufPos    maxReadLength = numeric_limits<BufPos>::max())
     {
         StreamBuffer::SetReadOnly(iobuf, maxReadLength);
         istream::clear();
@@ -656,7 +661,7 @@ public:
     }
     istream& Set(
         IOBuffer& iobuf,
-        int       maxReadLength = numeric_limits<int>::max())
+        BufPos    maxReadLength = numeric_limits<BufPos>::max())
         { return Set(&iobuf, maxReadLength); }
     istream& Reset()
         { return Set(0, 0); }
@@ -667,7 +672,7 @@ class IOBuffer::DisplayData
 public:
     DisplayData(
         const IOBuffer& inBuffer,
-        int             inLength = numeric_limits<int>::max())
+        BufPos          inLength = numeric_limits<BufPos>::max())
         : mIOBuffer(inBuffer),
           mLength(Min(inLength, inBuffer.BytesConsumable()))
         {}
@@ -676,18 +681,18 @@ public:
         ST& inStream) const
     {
         const char* const kHexDigits = "0123456789ABCDEF";
-        int               theRem     = mLength;
+        BufPos            theRem     = mLength;
         char              theBuf[2];
         theBuf[1] = 0;
         for (IOBuffer::iterator theIt = mIOBuffer.begin();
                 inStream && 0 < theRem && theIt != mIOBuffer.end();
                 ++theIt) {
-            const int theCnt = Min(theRem, theIt->BytesConsumable());
+            const BufPos theCnt = Min(theRem, theIt->BytesConsumable());
             for (const char* thePtr = theIt->Consumer(),
                         * const theEndPtr = thePtr + theCnt;
                     thePtr < theEndPtr;
                     thePtr++) {
-                const int theSym = *thePtr & 0xFF;
+                const BufPos theSym = *thePtr & 0xFF;
                 if (theSym == '\n') {
                     inStream << "\\n";
                 } else if (theSym == '\r') {
@@ -708,11 +713,11 @@ public:
     }
 private:
     const IOBuffer& mIOBuffer;
-    int             mLength;
+    BufPos          mLength;
 
-    static int Min(
-        int inLfs,
-        int inRhs)
+    static BufPos Min(
+        BufPos inLfs,
+        BufPos inRhs)
         { return (inLfs < inRhs ? inLfs : inRhs); }
 };
 

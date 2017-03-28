@@ -179,7 +179,7 @@ ParseCommand(const TS& shortRequestHandlers, const T& requestHandlers,
     // cpu cycles than buffer boundary handling logic (or one symbol
     // per call processing), besides the request headers are small
     // enough to fit into cpu cache.
-    int               reqLen = len;
+    IOBuffer::BufPos  reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(tmpBuf, reqLen);
     assert(reqLen == len);
     if (reqLen != len) {

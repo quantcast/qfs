@@ -1058,7 +1058,7 @@ ParseCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     // cpu cycles than buffer boundary handling logic (or one symbol
     // per call processing), besides the requests header are small
     // enough to fit into cpu cache.
-    int               reqLen = len;
+    IOBuffer::BufPos  reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
         threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
     assert(reqLen == len);
@@ -1077,7 +1077,7 @@ ParseFirstCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
         return -1;
     }
-    int               reqLen = len;
+    IOBuffer::BufPos  reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
         threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
     assert(reqLen == len);
@@ -1111,7 +1111,7 @@ ParseLogRecvCommand(const IOBuffer& ioBuf, int len, MetaRequest **res,
     if (len <= 0 || MAX_RPC_HEADER_LEN < len) {
         return -1;
     }
-    int               reqLen = len;
+    IOBuffer::BufPos  reqLen = len;
     const char* const buf    = ioBuf.CopyOutOrGetBufPtr(
         threadParseBuffer ? threadParseBuffer : sTempBuf, reqLen);
     assert(reqLen == len);

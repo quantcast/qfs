@@ -49,8 +49,8 @@ uint32_t ChecksumBlocksCombine(uint32_t chksum1, uint32_t chksum2, size_t len2);
 /// bytes
 uint32_t ComputeBlockChecksum(const IOBuffer* data, size_t len,
     uint32_t chksum = kKfsNullChecksum);
-uint32_t ComputeBlockChecksumAt(const IOBuffer* data, int pos, size_t len,
-    uint32_t chksum = kKfsNullChecksum);
+uint32_t ComputeBlockChecksumAt(const IOBuffer* data, IOBuffer::BufPos pos,
+    size_t len, uint32_t chksum = kKfsNullChecksum);
 uint32_t ComputeBlockChecksum(const char* data, size_t len);
 uint32_t ComputeBlockChecksum(uint32_t ckhsum, const char* buf, size_t len);
 

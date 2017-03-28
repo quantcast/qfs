@@ -1864,7 +1864,7 @@ MetaReaddirPlus::handle()
     ioBufPending = (int64_t)responseSize;
     if (ioBufPending > 0) {
         gLayoutManager.ChangeIoBufPending(ioBufPending);
-        maxRespSize = max(maxRespSize, (int)ioBufPending +
+        maxRespSize = (int)max((int64_t)maxRespSize, ioBufPending +
             IOBufferData::GetDefaultBufferSize());
     }
 }

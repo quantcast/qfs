@@ -1807,7 +1807,7 @@ private:
                         (theLnLen = inRequest.blockLines.Front()) &&
                     theLnLen < inRequest.blockData.BytesConsumable()) {
                 MetaRequest*      theReqPtr = 0;
-                int               theLen    = theLnLen;
+                IOBuffer::BufPos  theLen    = theLnLen;
                 const char* const thePtr    =
                     inRequest.blockData.CopyOutOrGetBufPtr(
                         mTmpBuffer.Reserve(theLnLen), theLen);

@@ -683,9 +683,9 @@ public:
         SSL_set_fd(mSslPtr, -1);
     }
     virtual int Read(
-        int   /* inFd */,
-        void* inBufPtr,
-        int   inNumRead)
+        int              /* inFd */,
+        void*            inBufPtr,
+        IOBuffer::BufPos inNumRead)
     {
         if (inNumRead <= 0 || mSslEofFlag) {
             return 0;
@@ -694,13 +694,15 @@ public:
             return -EINVAL;
         }
         ERR_clear_error();
-        char*       thePtr      = reinterpret_cast<char*>(inBufPtr);
-        char* const theStartPtr = thePtr;
-        char* const theEndPtr   = thePtr + inNumRead;
-        int         theRet      = 0;
+        char*        thePtr      = reinterpret_cast<char*>(inBufPtr);
+        char* const  theStartPtr = thePtr;
+        char* const  theEndPtr   = thePtr + inNumRead;
+        int          theRet      = 0;
+        const size_t kMaxSslRead = ~(size_t(1) << (sizeof(int) * 8 - 1));
         while (thePtr < theEndPtr &&
                 0 < (theRet = SSL_read(
-                    mSslPtr, thePtr, (int)(theEndPtr - thePtr)))) {
+                    mSslPtr, thePtr, (int)min(
+                        kMaxSslRead, (size_t)(theEndPtr - thePtr))))) {
             thePtr += theRet;
         }
         if (theStartPtr < thePtr) {

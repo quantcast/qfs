@@ -211,9 +211,11 @@ private:
             }
             if (mHeaders.GetContentLength() < 0 &&
                     ! mHeaders.IsChunkedEconding()) {
+                IOBuffer::BufPos  theLen = mHeaderLength;
                 const char* const thePtr = inBuffer.CopyOutOrGetBufPtr(
-                        mOuter.mHdrBuffer, mHeaderLength);
-                if (! mHeaders.Parse(thePtr, mHeaderLength) ||
+                        mOuter.mHdrBuffer, theLen);
+                if (mHeaderLength != theLen ||
+                        ! mHeaders.Parse(thePtr, mHeaderLength) ||
                         mHeaders.IsUnsupportedEncoding() ||
                         (mHeaders.IsHttp11OrGreater() &&
                         (mHeaders.GetContentLength() < 0 &&

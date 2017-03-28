@@ -1044,8 +1044,14 @@ private:
         IOBuffer& inBuffer,
         int       inHeaderLen)
     {
+        IOBuffer::BufPos  theLen       = inHeaderLen;
         const char* const theHeaderPtr = inBuffer.CopyOutOrGetBufPtr(
-            mImpl.GetParseBufferPtr(), inHeaderLen);
+            mImpl.GetParseBufferPtr(), theLen);
+        if (theLen != inHeaderLen) {
+            panic("handle msg: invalid header length");
+            Error("internal error: invalid header length");
+            return -1;
+        }
         if (2 <= inHeaderLen &&
                 (theHeaderPtr[0] & 0xFF) == 'A' &&
                 (theHeaderPtr[1] & 0xFF) <= ' ') {

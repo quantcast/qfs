@@ -985,7 +985,7 @@ private:
         const int kSeparatorLen = 4;
         const int kPrefixLen    = 2;
         if (kSeparatorLen + kPrefixLen < inMsgLen) {
-            int               theLen       = inMsgLen - kSeparatorLen;
+            IOBuffer::BufPos  theLen       = inMsgLen - kSeparatorLen;
             const char* const theHeaderPtr = inBuffer.CopyOutOrGetBufPtr(
                 mImpl.GetParseBufferPtr(), theLen);
             QCRTASSERT(inMsgLen - kSeparatorLen == theLen);
@@ -1064,9 +1064,9 @@ private:
                 max(theRem, mImpl.GetMaxReadAhead()));
             return theRem;
         }
-        int         theMaxHdrLen    =
+        IOBuffer::BufPos theMaxHdrLen    =
             min(mBlockLength, (int)kMaxBlockHeaderLen);
-        const char* theStartPtr     = inBuffer.CopyOutOrGetBufPtr(
+        const char*      theStartPtr     = inBuffer.CopyOutOrGetBufPtr(
                 mImpl.GetParseBufferPtr(), theMaxHdrLen);
         const char* const theEndPtr = theStartPtr + theMaxHdrLen;
         MetaVrLogSeq theBlockEndSeq;

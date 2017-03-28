@@ -178,14 +178,15 @@ ComputeBlockChecksum(const IOBuffer* data, size_t len, uint32_t chksum)
 
 uint32_t
 ComputeBlockChecksumAt(
-    const IOBuffer* data, int pos, size_t len, uint32_t chksum)
+    const IOBuffer* data, IOBuffer::BufPos pos, size_t len, uint32_t chksum)
 {
     IOBuffer::iterator const end = data->end();
     IOBuffer::iterator       it  = data->begin();
     uint32_t                 res = chksum;
     size_t                   l   = len;
-    for (int rem = max(0, pos); 0 < l && it != end; ++it) {
-        const int nb = it->BytesConsumable();
+    for (IOBuffer::BufPos rem = max(IOBuffer::BufPos(0), pos);
+            0 < l && it != end; ++it) {
+        const IOBuffer::BufPos nb = it->BytesConsumable();
         if (rem < nb) {
             const size_t sz = min((size_t)(nb - rem), l);
             res = KfsChecksum(res, it->Consumer() + rem, sz);
@@ -202,7 +203,8 @@ void
 AppendToChecksumVector(const IOBuffer& data, size_t inlen,
     uint32_t* chksum, size_t firstBlockLen, vector<uint32_t>& cksums)
 {
-    size_t len = min(inlen, size_t(max(0, data.BytesConsumable())));
+    size_t len = min(inlen, size_t(
+        max(IOBuffer::BufPos(0), data.BytesConsumable())));
     if (len <= firstBlockLen) {
         const uint32_t cks = ComputeBlockChecksum(&data, len);
         if (chksum) {

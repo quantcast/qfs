@@ -4714,8 +4714,10 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
             op->statusMsg = "invalid request position or size";
             return -EINVAL;
         }
-        int            off     = (int)(offset % CHECKSUM_BLOCKSIZE);
-        const uint32_t blkSize = (size_t(off + numBytesIO) > CHECKSUM_BLOCKSIZE) ?
+        IOBuffer::BufPos off     =
+            (IOBuffer::BufPos)(offset % CHECKSUM_BLOCKSIZE);
+        const uint32_t   blkSize =
+            (size_t(off + numBytesIO) > CHECKSUM_BLOCKSIZE) ?
             2 * CHECKSUM_BLOCKSIZE : CHECKSUM_BLOCKSIZE;
 
         op->checksums.clear();
@@ -4779,7 +4781,7 @@ ChunkManager::WriteChunk(WriteOp* op, const DiskIo::FilePtr* filePtr /* = 0 */)
 
         // Trim data at the buffer boundary from the beginning, to make write
         // offset close to where we were asked from.
-        int numBytes(numBytesIO);
+        IOBuffer::BufPos numBytes(numBytesIO);
         offset -= off;
         op->dataBuf.TrimAtBufferBoundaryLeaveOnly(off, numBytes);
         offset += off;

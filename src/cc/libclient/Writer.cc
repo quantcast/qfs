@@ -554,11 +554,11 @@ private:
         // get executed, and the corresponding completion(s) invoked.
         int QueueWrite(
             IOBuffer& inBuffer,
-            int       inSize,
+            Offset    inSize,
             Offset    inOffset,
             int       inWriteThreshold)
         {
-            int theSize = min(inBuffer.BytesConsumable(), inSize);
+            Offset theSize = min(Offset(inBuffer.BytesConsumable()), inSize);
             if (theSize <= 0) {
                 return 0;
             }
@@ -573,7 +573,7 @@ private:
             } else {
                 QCRTASSERT(mAllocOp.fileOffset == inOffset - theChunkOffset);
             }
-            theSize = min(theSize, (int)(kChunkSize - theChunkOffset));
+            theSize = min(theSize, (Offset)(kChunkSize - theChunkOffset));
             mOuter.mStats.mWriteCount++;
             mOuter.mStats.mWriteByteCount += theSize;
             QCASSERT(theSize > 0);
@@ -587,7 +587,7 @@ private:
                 if (theOpPos + theOpSize == thePos) {
                     const int theHead = (int)(theOpPos % kChecksumBlockSize);
                     int       theNWr  = min(theSize,
-                        (theHead == 0 ?
+                        Offset(theHead == 0 ?
                             mOuter.mMaxWriteSize :
                             kChecksumBlockSize - theHead
                         ) - theOpSize
@@ -620,7 +620,7 @@ private:
                 theWriteOpPtr->mWritePrepareOp.offset = thePos;
                 const int theNWr = theWriteOpPtr->mBuffer.Move(
                     &inBuffer,
-                    min(theSize, kChecksumBlockSize - theBlockOff)
+                    min(theSize, Offset(kChecksumBlockSize - theBlockOff))
                 );
                 theSize -= theNWr;
                 thePos  += theNWr;
@@ -628,7 +628,7 @@ private:
                 Queue::PushBack(mPendingQueue, *theWriteOpPtr);
             }
             while (theSize >= theWriteThreshold) {
-                int theOpSize = min(mOuter.mMaxWriteSize, theSize);
+                int theOpSize = min(Offset(mOuter.mMaxWriteSize), theSize);
                 if (theOpSize > kChecksumBlockSize) {
                     theOpSize -= theOpSize % kChecksumBlockSize;
                 }

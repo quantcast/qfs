@@ -51,7 +51,7 @@ public:
         int   inBufferSize)
     {
         const int   theBufferSize = inBufferSize - 1;
-        char*       theCurPtr     = inBufferPtr +  max(0,
+        char*       theCurPtr     = inBufferPtr +  max(IOBuffer::BufPos(0),
             mOp.reqHeaders.CopyOut(inBufferPtr, theBufferSize));
         char* const theEndPtr     = inBufferPtr + theBufferSize;
         int theRet =

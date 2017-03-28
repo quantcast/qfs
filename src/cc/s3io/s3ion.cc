@@ -1590,9 +1590,11 @@ private:
             }
             if (! mReceivedHeadersFlag) {
                 mReceivedHeadersFlag = true;
+                IOBuffer::BufPos theLen = mHeaderLength;
                 const char* const thePtr = inBuffer.CopyOutOrGetBufPtr(
-                        mOuter.mHdrBufferPtr, mHeaderLength);
-                if (! mHeaders.Parse(thePtr, mHeaderLength) ||
+                        mOuter.mHdrBufferPtr, theLen);
+                if (theLen != mHeaderLength ||
+                        ! mHeaders.Parse(thePtr, mHeaderLength) ||
                         mHeaders.IsUnsupportedEncoding() ||
                         (mHeaders.IsHttp11OrGreater() &&
                         (mHeaders.GetContentLength() < 0 &&

@@ -104,7 +104,7 @@ HttpChunkedDecoder::Parse(
             return mMaxReadAhead;
         }
         char              theBuf[sizeof(int) * 2 + 1];
-        int               theLen    =
+        IOBuffer::BufPos  theLen    =
             min(theIdx, (int)(sizeof(theBuf) / sizeof(theBuf[0])));
         const char* const theLenPtr =
             inBuffer.CopyOutOrGetBufPtr(theBuf, theLen);

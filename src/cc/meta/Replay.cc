@@ -2884,10 +2884,10 @@ Replay::handle(MetaLogWriterControl& op)
     const int*       lenPtr     = op.blockLines.GetPtr();
     const int* const lendEndPtr = lenPtr + op.blockLines.GetSize();
     while (lenPtr < lendEndPtr) {
-        int         lineLen = *lenPtr++;
-        int         len     = lineLen;
-        const char* linePtr;
-        int         trLen;
+        int              lineLen = *lenPtr++;
+        IOBuffer::BufPos len     = lineLen;
+        const char*      linePtr;
+        int              trLen;
         if (lendEndPtr == lenPtr && 0 < (trLen = op.blockTrailer[0] & 0xFF)) {
             if (sizeof(op.blockTrailer) <= (size_t)trLen) {
                 const char* const kErrMsg =

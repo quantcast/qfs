@@ -887,7 +887,7 @@ private:
         mAllocOp.fileOffset           = theOffset;
         mAllocOp.spaceReservationSize = max(
             mClosingFlag ? 0 : mDefaultSpaceReservationSize,
-            mBuffer.BytesConsumable()
+            int(mBuffer.BytesConsumable())
         );
         mAllocOp.maxAppendersPerChunk = mDefaultSpaceReservationSize > 0 ?
             (KFS::CHUNKSIZE / mDefaultSpaceReservationSize) : 64;
@@ -980,7 +980,7 @@ private:
                 mClosingFlag ? 0 : mDefaultSpaceReservationSize,
                 max(theSpaceNeeded, min(
                     max(mPreferredAppendSize, mDefaultSpaceReservationSize),
-                    mBuffer.BytesConsumable()))) -
+                    int(mBuffer.BytesConsumable())))) -
                 mSpaceAvailable
             );
         mStats.mReserveSpaceCount++;
