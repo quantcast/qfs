@@ -1722,7 +1722,7 @@ private:
 
     static void Done(
         Request& inRequest,
-        int      inStatus)
+        int64_t  inStatus)
     {
         if (inRequest.mState == Request::kStateDone) {
             return;
