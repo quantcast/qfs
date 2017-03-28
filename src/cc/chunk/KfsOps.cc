@@ -2074,30 +2074,39 @@ RetireOp::Execute()
 bool
 StaleChunksOp::ParseContent(istream& is)
 {
-    if (status != 0) {
+    if (0 != status) {
         return false;
     }
-    kfsChunkId_t c;
+    if (numStaleChunks <= 0) {
+        if (0 < contentLength) {
+            statusMsg = "invalid stale chunks count";
+            status = -EINVAL;
+        }
+        return (0 == status);
+    }
     staleChunkIds.reserve(numStaleChunks);
     const istream::fmtflags isFlags = is.flags();
     if (hexFormatFlag) {
         is >> hex;
     }
+    kfsChunkId_t c = -1;
     for(int i = 0; i < numStaleChunks; ++i) {
-        if (! (is >> c)) {
-            statusMsg = "failed to parse stale chunks request: expected: ";
-            AppendDecIntToString(statusMsg, numStaleChunks)
-                .append(" got: ");
-            AppendDecIntToString(statusMsg, i)
-                .append(" last chunk: ");
-            AppendDecIntToString(statusMsg, c);
-            status = -EINVAL;
+        if (! (is >> c) || c < 0) {
             break;
         }
         staleChunkIds.push_back(c);
     }
+    if (staleChunkIds.size() != (size_t)numStaleChunks) {
+        statusMsg = "failed to parse stale chunks request: expected: ";
+        AppendDecIntToString(statusMsg, numStaleChunks)
+            .append(" got: ");
+        AppendDecIntToString(statusMsg, staleChunkIds.size())
+            .append(" last chunk: ");
+        AppendDecIntToString(statusMsg, c);
+        status = -EINVAL;
+    }
     is.flags(isFlags);
-    return (status == 0);
+    return (0 == status);
 }
 
 void
@@ -2119,6 +2128,13 @@ StaleChunksOp::Execute()
                 *it, forceDeleteFlag, evacuatedFlag, availChunksSeq, this);
         if (ret < 0) {
             pendingCount--;
+            KFS_LOG_STREAM_DEBUG <<
+                "stale-chunk:"
+                " seq: "     << seq <<
+                " chunk: "   << *it <<
+                " status: "  << ret <<
+                " pending: " << pendingCount <<
+            KFS_LOG_EOM;
             if (0 == status) {
                 status = ret;
             }

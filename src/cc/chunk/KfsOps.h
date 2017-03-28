@@ -957,19 +957,20 @@ struct StaleChunksOp : public KfsOp {
         { SET_HANDLER(this, &StaleChunksOp::Done); }
     void Execute();
     virtual ostream& ShowSelf(ostream& os) const {
-        return os <<
+        os <<
             "stale-chunks:"
             " seq: "       << seq <<
-            " count: "     << numStaleChunks <<
             " evacuated: " << evacuatedFlag <<
             " availseq: "  << availChunksSeq <<
-            " flush: "     << flushStaleQueueFlag
+            " flush: "     << flushStaleQueueFlag <<
+            " chunks["     << numStaleChunks << "]:"
         ;
         for (StaleChunkIds::const_iterator it = staleChunkIds.begin();
                 staleChunkIds.end() != it;
                 ++it) {
             os << ' ' << *it;
         }
+        return os;
     }
     virtual int GetContentLength() const { return contentLength; }
     virtual bool ParseContent(istream& is);
