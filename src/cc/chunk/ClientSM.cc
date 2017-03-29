@@ -911,7 +911,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int inCmdLen)
         mCurOp = 0;
         ReceiveClear();
         if (0 < contentLength && 0 <= op->status) {
-            if (! op->ParseContent(mIStream.Set(iobuf, contentLength))) {
+            if (! op->ParseContent(mIStream.Set(iobuf, contentLength), iobuf)) {
                 if (0 < op->status) {
                     op->status    = -EINVAL;
                     op->statusMsg = "content parse error";
