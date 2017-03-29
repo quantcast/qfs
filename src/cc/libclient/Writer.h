@@ -170,13 +170,13 @@ public:
             : mOuter(inOuter),
               mWriteQueuedFlag(false)
             {}
-        int QueueWrite(
+        Offset QueueWrite(
             IOBuffer& inBuffer,
-            int       inSize,
+            Offset    inSize,
             Offset    inOffset,
             int       inWriteThreshold);
         void StartQueuedWrite(
-            int inQueuedCount);
+            Offset inQueuedCount);
         bool IsWriteQueued() const
             { return mWriteQueuedFlag; }
     private:
@@ -212,9 +212,9 @@ public:
         int         inRecoveryStripeCount,
         int         inReplicaCount);
     int Close();
-    int Write(
+    Offset Write(
         IOBuffer& inBuffer,
-        int       inLength,
+        Offset    inLength,
         Offset    inOffset,
         bool      inFlushFlag,
         int       inWriteThreshold = -1);
