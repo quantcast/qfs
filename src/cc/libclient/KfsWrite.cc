@@ -83,7 +83,7 @@ KfsClientImpl::WriteAsyncCompletionHandler(int fd)
     return Sync(fd);
 }
 
-const size_t kMaxWriteSize = numeric_limits<int>::max();
+const size_t kMaxWriteSize = numeric_limits<int>::max() / CHUNKSIZE * CHUNKSIZE;
 
 ssize_t
 KfsClientImpl::Write(int fd, const char* buf, size_t numBytes,

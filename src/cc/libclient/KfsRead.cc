@@ -556,7 +556,7 @@ KfsClientImpl::ReadPrefetch(
     return theRet;
 }
 
-const size_t kMaxReadSize = numeric_limits<int>::max();
+const size_t kMaxReadSize = numeric_limits<int>::max() / CHUNKSIZE * CHUNKSIZE;
 
 ssize_t
 KfsClientImpl::Read(
