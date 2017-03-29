@@ -322,7 +322,8 @@ struct KfsOp : public KfsCallbackObj
     // finishes, this method should be invoked to signify completion.
     virtual int HandleDone(int code, void* data);
     virtual int GetContentLength() const { return 0; }
-    virtual bool ParseContent(istream& is) { return true; }
+    virtual bool ParseContent(istream& is, const IOBuffer& /* buf */)
+        { return ParseContent(is); }
     virtual bool ParseResponse(
         const Properties& /* props */, IOBuffer& /* iobuf */) { return true; }
     virtual bool ParseResponseContent(istream& /* is */, int /* len */)
@@ -398,6 +399,7 @@ protected:
     virtual void Request(ReqOstream& /* os */) {
         // fill this method if the op requires a message to be sent to a server.
     };
+    virtual bool ParseContent(istream& is) { return true; }
     virtual ostream& ShowSelf(ostream& os) const = 0;
     inline int Submit();
     inline int Submit(int res);
@@ -941,6 +943,7 @@ struct StaleChunksOp : public KfsOp {
     bool          hexFormatFlag;
     bool          flushStaleQueueFlag;
     kfsSeq_t      availChunksSeq;
+    int64_t       contentChecksum;
     StaleChunkIds staleChunkIds;  /* data we parse out */
     size_t        pendingCount;
 
@@ -952,6 +955,7 @@ struct StaleChunksOp : public KfsOp {
           hexFormatFlag(false),
           flushStaleQueueFlag(false),
           availChunksSeq(-1),
+          contentChecksum(-1),
           staleChunkIds(),
           pendingCount(0)
         { SET_HANDLER(this, &StaleChunksOp::Done); }
@@ -973,12 +977,13 @@ struct StaleChunksOp : public KfsOp {
         return os;
     }
     virtual int GetContentLength() const { return contentLength; }
-    virtual bool ParseContent(istream& is);
+    virtual bool ParseContent(istream& is, const IOBuffer& buf);
     int Done(int code, void* data);
     template<typename T> static T& ParserDef(T& parser)
     {
         return KfsOp::ParserDef(parser)
         .Def2("Content-length", "l",  &StaleChunksOp::contentLength)
+        .Def2("Content-chksum", "K",  &StaleChunksOp::contentChecksum, int64_t(-1))
         .Def2("Num-chunks",     "C",  &StaleChunksOp::numStaleChunks)
         .Def2("Evacuated",      "E",  &StaleChunksOp::evacuatedFlag,         false)
         .Def2("HexFormat",      "HF", &StaleChunksOp::hexFormatFlag,         false)

@@ -2072,9 +2072,23 @@ RetireOp::Execute()
 }
 
 bool
-StaleChunksOp::ParseContent(istream& is)
+StaleChunksOp::ParseContent(istream& is, const IOBuffer& buf)
 {
     if (0 != status) {
+        return false;
+    }
+    uint32_t chksum;
+    if (0 <= contentChecksum && (uint32_t)contentChecksum !=
+                (chksum = ComputeBlockChecksum(&buf, max(0, contentLength)))) {
+        status    = -EINVAL;
+        statusMsg = "content checksum mismatch";
+        KFS_LOG_STREAM_ERROR <<
+            statusMsg <<
+            " expected: " << contentChecksum <<
+            " actual: "   << chksum <<
+            " "           << Show() <<
+            " content: "  << IOBuffer::DisplayData(buf, contentLength) <<
+        KFS_LOG_EOM;
         return false;
     }
     if (numStaleChunks <= 0) {

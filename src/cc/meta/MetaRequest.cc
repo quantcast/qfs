@@ -5678,6 +5678,8 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
         char* const p   = count < 1 ? end :
             ChunkIdToString(*it.Next(), hexFormatFlag, end);
         size_t      len = end - p;
+        os << (shortRpcFormatFlag ? "K:" : "Content-chksum: ") <<
+            ComputeBlockChecksum(p, len) << "\r\n";
         os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
             len << "\r\n\r\n";
         os.write(p, len);
@@ -5691,11 +5693,14 @@ MetaChunkStaleNotify::request(ReqOstream& os, IOBuffer& buf)
             writer.Write(p, (int)(end - p + 1));
         }
         writer.Close();
-        const int len = ioBuf.BytesConsumable();
+        const IOBuffer::BufPos len = ioBuf.BytesConsumable();
+        os << (shortRpcFormatFlag ? "K:" : "Content-chksum: ") <<
+            ComputeBlockChecksum(&ioBuf, max(IOBuffer::BufPos(0), len)) <<
+            "\r\n";
         os << (shortRpcFormatFlag ? "l:" : "Content-length: ") <<
             len << "\r\n\r\n";
-        IOBuffer::iterator const bi = ioBuf.begin();
-        const int defsz = IOBufferData::GetDefaultBufferSize();
+        IOBuffer::iterator const bi    = ioBuf.begin();
+        const IOBuffer::BufPos   defsz = IOBufferData::GetDefaultBufferSize();
         if (len < defsz - defsz / 4 &&
                 bi != ioBuf.end() && len == bi->BytesConsumable()) {
             os.write(bi->Consumer(), len);

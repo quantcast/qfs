@@ -1435,7 +1435,7 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
     }
     if (0 < mContentLength) {
         const bool okFlag = op->ParseContent(
-            mIStream.Set(iobuf, mContentLength));
+            mIStream.Set(iobuf, mContentLength), iobuf);
         mIStream.Reset();
         if (! okFlag) {
             KFS_LOG_STREAM_ERROR <<
