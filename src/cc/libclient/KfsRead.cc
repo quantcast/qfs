@@ -556,6 +556,31 @@ KfsClientImpl::ReadPrefetch(
     return theRet;
 }
 
+const size_t kMaxReadSize = numeric_limits<int>::max();
+
+ssize_t
+KfsClientImpl::Read(
+    int         inFd,
+    char*       inBufPtr,
+    size_t      inSize,
+    chunkOff_t* inPosPtr /* = 0 */)
+{
+    char*       thePtr    = inBufPtr;
+    char* const theEndPtr = thePtr + inSize;
+    do {
+        const ssize_t theRet = ReadSelf(inFd, thePtr,
+            min(kMaxReadSize, size_t(theEndPtr - thePtr)), inPosPtr);
+        if (theRet < 0) {
+            return theRet;
+        }
+        if (0 == theRet) {
+            break;
+        }
+        thePtr += theRet;
+    } while (thePtr < theEndPtr);
+    return (thePtr - (theEndPtr - inSize));
+}
+
 inline static int64_t
 SkipChunkTail(
     int64_t inPos,
@@ -567,11 +592,11 @@ SkipChunkTail(
 }
 
 ssize_t
-KfsClientImpl::Read(
+KfsClientImpl::ReadSelf(
     int         inFd,
     char*       inBufPtr,
     size_t      inSize,
-    chunkOff_t* inPosPtr /* = 0 */)
+    chunkOff_t* inPosPtr)
 {
     QCStMutexLocker theLocker(mMutex);
 
