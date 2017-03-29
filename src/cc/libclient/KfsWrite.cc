@@ -31,6 +31,9 @@
 
 #include <cerrno>
 #include <string>
+#include <limits>
+#include <algorithm>
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -39,6 +42,8 @@ namespace KFS {
 namespace client {
 
 using std::string;
+using std::min;
+using std::numeric_limits;
 
 int
 KfsClientImpl::RecordAppend(int fd, const char *buf, int numBytes)
@@ -78,9 +83,30 @@ KfsClientImpl::WriteAsyncCompletionHandler(int fd)
     return Sync(fd);
 }
 
+const size_t kMaxWriteSize = numeric_limits<int>::max();
+
 ssize_t
-KfsClientImpl::Write(int fd, const char *buf, size_t numBytes,
+KfsClientImpl::Write(int fd, const char* buf, size_t numBytes,
     bool asyncFlag, bool appendOnlyFlag, chunkOff_t* pos /* = 0 */)
+{
+    const char*       ptr = buf;
+    const char* const end = ptr + numBytes;
+    do {
+        const ssize_t res = WriteSelf(fd, ptr,
+            min(kMaxWriteSize, size_t(end - ptr)),
+            asyncFlag, appendOnlyFlag, pos
+        );
+        if (res < 0) {
+            return res;
+        }
+        ptr += res;
+    } while (ptr < end);
+    return numBytes;
+}
+
+ssize_t
+KfsClientImpl::WriteSelf(int fd, const char* buf, size_t numBytes,
+    bool asyncFlag, bool appendOnlyFlag, chunkOff_t* pos)
 {
     QCStMutexLocker lock(mMutex);
 
