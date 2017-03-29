@@ -211,6 +211,7 @@ private:
     int                           mInactivityTimeout;
     int                           mReceiveTimeout;
     int                           mMaxReadAhead;
+    bool                          mAbortOnRequestParseErrorFlag;
     time_t                        mLastRecvTime;
     time_t                        mLastConnectTime;
     time_t                        mConnectedTime;
@@ -384,6 +385,7 @@ MetaServerSM::Impl::Impl(
       mInactivityTimeout(65),
       mReceiveTimeout(24 * 60 * 60),
       mMaxReadAhead(4 << 10),
+      mAbortOnRequestParseErrorFlag(false),
       mLastRecvTime(globalNetManager().Now() - 24 * 60 * 60),
       mLastConnectTime(mLastRecvTime),
       mConnectedTime(0),
@@ -511,22 +513,26 @@ MetaServerSM::Impl::ForceDown(
 int
 MetaServerSM::Impl::SetParameters(const Properties& prop)
 {
-    mReconnectRetryInterval   = prop.getValue(
-        "chunkServer.meta.reconnectRetryInterval", mReconnectRetryInterval);
-    mInactivityTimeout        = prop.getValue(
+    mReconnectRetryInterval       = prop.getValue(
+        "chunkServer.meta.reconnectRetryInterval",
+        mReconnectRetryInterval);
+    mInactivityTimeout            = prop.getValue(
         "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
-    mMaxReadAhead      = prop.getValue(
+    mMaxReadAhead                 = prop.getValue(
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
-    mNoFidsFlag               = prop.getValue(
+    mAbortOnRequestParseErrorFlag = prop.getValue(
+        "chunkServer.meta.abortOnRequestParseError",
+        mAbortOnRequestParseErrorFlag ? 1 : 0) != 0;
+    mNoFidsFlag                   = prop.getValue(
         "chunkServer.meta.noFids",            mNoFidsFlag ? 1 : 0) != 0;
-    mHelloResume              = prop.getValue(
+    mHelloResume                  = prop.getValue(
         "chunkServer.meta.helloResume",       mHelloResume);
     mTraceRequestResponseFlag = prop.getValue(
         "chunkServer.meta.traceRequestResponseFlag",
         mTraceRequestResponseFlag ? 1 : 0) != 0;
-    mHelloDelay               = prop.getValue(
+    mHelloDelay                   = prop.getValue(
         "chunkServer.meta.helloDelay",        mHelloDelay);
-    mRequestTimeoutUsec       = max(int64_t(5), prop.getValue(
+    mRequestTimeoutUsec           = max(int64_t(5), prop.getValue(
         "chunkServer.meta.requestTimeout",
         mRequestTimeoutUsec / (1000 * 1000))) * 1000 * 1000;
     const bool kVerifyFlag = true;
@@ -1440,11 +1446,16 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
         if (! okFlag) {
             KFS_LOG_STREAM_ERROR <<
                 (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
-                " invalid content: " << op->statusMsg <<
-                " cmd: " << op->Show() <<
+                " parse error: " << op->statusMsg <<
+                " "              << op->Show() <<
+                " data: "        << IOBuffer::DisplayData(iobuf) <<
             KFS_LOG_EOM;
+            const char* const msg = "request body parse error";
+            if (mAbortOnRequestParseErrorFlag) {
+                die(msg);
+            }
             delete op;
-            Error("request body parse error");
+            Error(msg);
             return false;
         }
         iobuf.Consume(mContentLength);

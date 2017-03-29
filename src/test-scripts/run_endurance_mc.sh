@@ -969,6 +969,7 @@ EOF
             cat > "$dir/$chunksrvprop" << EOF
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
+chunkServer.meta.abortOnRequestParseError = 1
 chunkServer.clientPort = $i
 chunkServer.clusterKey = $clustername
 chunkServer.rackId = $rack

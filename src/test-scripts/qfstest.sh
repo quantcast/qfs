@@ -646,6 +646,7 @@ while [ $i -lt $e ]; do
 chunkServer.clientIp = $iptobind
 chunkServer.metaServer.hostname = $metahost
 chunkServer.metaServer.port = $metasrvchunkport
+chunkServer.meta.abortOnRequestParseError = 1
 chunkServer.clientPort = $i
 chunkServer.clusterKey = $clustername
 chunkServer.rackId = $i
