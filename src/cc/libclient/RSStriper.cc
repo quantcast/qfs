@@ -373,7 +373,7 @@ public:
         Offset&   ioOffset,
         int       inWriteThreshold)
     {
-        const int theSize = inBuffer.BytesConsumable();
+        const Offset theSize = inBuffer.BytesConsumable();
         if (ioOffset < 0 && theSize > 0) {
             return kErrorParameters;
         }
@@ -649,7 +649,7 @@ private:
     }
     void NotSupported(
         Offset      inOffset,
-        int         inSize,
+        Offset      inSize,
         const char* inMsgPtr)
     {
         KFS_LOG_STREAM_ERROR << mLogPrefix <<
@@ -690,7 +690,7 @@ private:
                 }
                 Write(theBuffer); // Flush
             }
-            const int theCnt =
+            const Offset theCnt =
                 theBuffer.mBuffer.Move(&inBuffer, GetStripeRemaining());
             mPendingCount += theCnt;
             theBuffer.mEndPos = GetFilePos() + theCnt;
@@ -731,7 +731,7 @@ private:
             return;
         }
         QCRTASSERT(! IsWriteQueued());
-        const int theQueuedCount = QueueWrite(
+        const Offset theQueuedCount = QueueWrite(
             inBuffer.mBuffer,
             inBuffer.mWriteLen,
             theOffset,

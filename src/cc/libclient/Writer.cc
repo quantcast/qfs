@@ -214,9 +214,9 @@ public:
         mClosingFlag = true;
         return StartWrite();
     }
-    int Write(
+    Offset Write(
         IOBuffer& inBuffer,
-        int       inLength,
+        Offset    inLength,
         Offset    inOffset,
         bool      inFlushFlag,
         int       inWriteThreshold)
@@ -552,7 +552,7 @@ private:
         // writes.
         // This allows the caller to properly update its state before the writes
         // get executed, and the corresponding completion(s) invoked.
-        int QueueWrite(
+        Offset QueueWrite(
             IOBuffer& inBuffer,
             Offset    inSize,
             Offset    inOffset,
@@ -899,7 +899,7 @@ private:
                     " pending: " << mPendingCount <<
                     " w-empty: " << Queue::IsEmpty(mPendingQueue) <<
                 KFS_LOG_EOM;
-                const int    theSize   = mPendingCount;
+                const Offset theSize   = mPendingCount;
                 const Offset theOffset = theSize > 0 ? mAllocOp.fileOffset : 0;
                 mAllocOp.invalidateAllFlag = false;
                 Shutdown();
@@ -1936,7 +1936,7 @@ private:
         StartWrite();
     }
     void QueueWrite(
-        int inWriteThreshold)
+        Offset inWriteThreshold)
     {
         if (mStriperPtr) {
             QCStValueIncrementor<int> theIncrement(mStriperProcessCount, 1);
@@ -1947,7 +1947,7 @@ private:
             }
             return;
         }
-        const int theQueuedCount = QueueWrite(
+        const Offset theQueuedCount = QueueWrite(
             mBuffer,
             mBuffer.BytesConsumable(),
             mOffset,
@@ -1958,9 +1958,9 @@ private:
             StartQueuedWrite(theQueuedCount);
         }
     }
-    int QueueWrite(
+    Offset QueueWrite(
         IOBuffer& inBuffer,
-        int       inSize,
+        Offset    inSize,
         Offset    inOffset,
         int       inWriteThreshold)
     {
@@ -1984,13 +1984,13 @@ private:
             thePtr = new ChunkWriter(
                 *this, mChunkServerInitialSeqNum, mLogPrefix);
         }
-        const int theQueuedCount = thePtr->QueueWrite(
+        const Offset theQueuedCount = thePtr->QueueWrite(
             inBuffer, inSize, inOffset, inWriteThreshold);
         QCASSERT(Writers::Front(mWriters) == thePtr);
         return theQueuedCount;
     }
     void StartQueuedWrite(
-        int inQueuedCount)
+        Offset inQueuedCount)
     {
         if (inQueuedCount <= 0) {
             return;
@@ -2155,14 +2155,14 @@ Writer::Striper::Create(
     return 0;
 }
 
-int
+Writer::Offset
 Writer::Striper::QueueWrite(
     IOBuffer&       inBuffer,
-    int             inSize,
+    Writer::Offset  inSize,
     Writer::Offset  inOffset,
     int             inWriteThreshold)
 {
-    const int theQueuedCount = mOuter.QueueWrite(
+    const Offset theQueuedCount = mOuter.QueueWrite(
         inBuffer, inSize, inOffset, inWriteThreshold);
     mWriteQueuedFlag = theQueuedCount > 0;
     return theQueuedCount;
@@ -2170,7 +2170,7 @@ Writer::Striper::QueueWrite(
 
 void
 Writer::Striper::StartQueuedWrite(
-    int inQueuedCount)
+    Writer::Offset inQueuedCount)
 {
     if (! mWriteQueuedFlag) {
         return;
@@ -2248,10 +2248,10 @@ Writer::Close()
     return mImpl.Close();
 }
 
-int
+Writer::Offset
 Writer::Write(
     IOBuffer&      inBuffer,
-    int            inLength,
+    Writer::Offset inLength,
     Writer::Offset inOffset,
     bool           inFlushFlag,
     int            inWriteThreshold)
