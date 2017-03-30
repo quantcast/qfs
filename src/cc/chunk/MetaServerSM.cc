@@ -1128,8 +1128,13 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         }
         Properties prop(kRpcFormatShort == mRpcFormat ? 16 : 10);
         const char separator = ':';
-        prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
-        mIStream.Reset();
+        IOBuffer::iterator const it = iobuf.begin();
+        if (it != iobuf.end() && msgLen <= it->BytesConsumable()) {
+            prop.loadProperties(it->Consumer(), (size_t)msgLen, separator);
+        } else {
+            prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
+            mIStream.Reset();
+        }
         iobuf.Consume(msgLen);
         if (kRpcFormatUndef == mRpcFormat && (
                 (mHelloOp && mHelloOp->reqShortRpcFmtFlag) ||

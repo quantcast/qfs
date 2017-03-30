@@ -2056,9 +2056,12 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     // sent.  So, match the response to its request and
     // resume request processing.
     Properties prop(mShortRpcFormatFlag ? 16 : 10);
-    const bool ok = ParseResponse(mIStream.Set(iobuf, msgLen), prop);
-    mIStream.Reset();
+    const bool ok = ParseResponse(*iobuf, msgLen, prop);
     if (! ok) {
+        KFS_LOG_STREAM_ERROR << GetServerLocation() <<
+            " bad response header: " <<
+            IOBuffer::DisplayData(*iobuf, msgLen) <<
+        KFS_LOG_EOM;
         return -1;
     }
     // Message is ready to be pushed down.  So remove it.
@@ -2253,22 +2256,32 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
 /// @param[out] prop  Properties object with the response header/values
 ///
 bool
-ChunkServer::ParseResponse(istream& is, Properties& prop)
+ChunkServer::ParseResponse(IOBuffer& iobuf, int msgLen, Properties& prop)
 {
-    string token;
-    is >> token;
-    // Response better start with OK
-    if (token.compare("OK") != 0) {
-        int maxLines = 32;
-        do {
-            KFS_LOG_STREAM_ERROR << GetServerLocation() <<
-                " bad response header: " << token <<
-            KFS_LOG_EOM;
-        } while (--maxLines > 0 && getline(is, token));
+    if (msgLen < 3) {
         return false;
     }
     const char separator = ':';
-    prop.loadProperties(is, separator);
+    IOBuffer::iterator const it = iobuf.begin();
+    if (it != iobuf.end() && msgLen <= it->BytesConsumable()) {
+        const char*       ptr = it->Consumer();
+        const char* const end = ptr + msgLen;
+        if ('O' != ptr[0] || 'K' != ptr[1] || ' ' < (ptr[2] & 0xFF)) {
+            return false;
+        }
+        ptr += 3;
+        prop.loadProperties(ptr, end - ptr, separator);
+    } else {
+        char buf[3];
+        if (iobuf.CopyOut(buf, 3) < 3 || 'O' != buf[0] || 'K' != buf[1] ||
+                ' ' < (buf[2] & 0xFF)) {
+            return false;
+        }
+        istream& is = mIStream.Set(iobuf, msgLen);
+        is.ignore(3);
+        prop.loadProperties(is, separator);
+        mIStream.Reset();
+    }
     return true;
 }
 

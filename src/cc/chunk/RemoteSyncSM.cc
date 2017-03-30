@@ -688,7 +688,12 @@ RemoteSyncSM::HandleResponse(IOBuffer& iobuf, int msgLen)
         }
         Properties prop(mShortRpcFormatFlag ? 16 : 10);
         const char separator(':');
-        prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
+        IOBuffer::iterator const itb = iobuf.begin();
+        if (itb != iobuf.end() && msgLen <= itb->BytesConsumable()) {
+            prop.loadProperties(itb->Consumer(), (size_t)msgLen, separator);
+        } else {
+            prop.loadProperties(mIStream.Set(iobuf, msgLen), separator);
+        }
         mIStream.Reset();
         iobuf.Consume(msgLen);
         nAvail -= msgLen;

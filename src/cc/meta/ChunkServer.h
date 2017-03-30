@@ -1399,7 +1399,7 @@ protected:
     /// @param[in] bufLen length of buf
     /// @param[out] prop  Properties object with the response header/values
     ///
-    bool ParseResponse(istream& is, Properties &prop);
+    bool ParseResponse(IOBuffer& iobuf, int msgLen, Properties& prop);
     ///
     /// The chunk server went down.  So, stop the network timer event;
     /// also, fail all the dispatched ops.
