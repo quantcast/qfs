@@ -54,6 +54,8 @@ using std::max;
 using std::list;
 using std::vector;
 using std::find;
+using std::streamsize;
+using std::numeric_limits;
 
 using namespace KFS::libkfsio;
 
@@ -413,7 +415,7 @@ IOBufferData::Write(int fd)
 }
 
 IOBufferData::BufPos
-IOBufferData::CopyIn(const char *buf, IOBufferData::BufPos numBytes)
+IOBufferData::CopyIn(const char* buf, IOBufferData::BufPos numBytes)
 {
     const BufPos nbytes = MaxAvailable(numBytes);
     if (buf != mProducer) {
@@ -424,7 +426,7 @@ IOBufferData::CopyIn(const char *buf, IOBufferData::BufPos numBytes)
 }
 
 IOBufferData::BufPos
-IOBufferData::CopyIn(const IOBufferData *other, IOBufferData::BufPos numBytes)
+IOBufferData::CopyIn(const IOBufferData* other, IOBufferData::BufPos numBytes)
 {
     const BufPos nbytes = MaxAvailable(
         min(numBytes, other->BytesConsumable()));
@@ -434,7 +436,7 @@ IOBufferData::CopyIn(const IOBufferData *other, IOBufferData::BufPos numBytes)
 }
 
 IOBufferData::BufPos
-IOBufferData::CopyOut(char *buf, IOBufferData::BufPos numBytes) const
+IOBufferData::CopyOut(char* buf, IOBufferData::BufPos numBytes) const
 {
     const BufPos nbytes = MaxConsumable(numBytes);
     memmove(buf, mConsumer, nbytes);
@@ -1217,7 +1219,7 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
     struct iovec  readVec[kMaxReadvBufs];
     ssize_t       totRead = 0;
     ssize_t       maxRead(maxReadAhead >= 0 ?
-        maxReadAhead : std::numeric_limits<BufPos>::max());
+        maxReadAhead : numeric_limits<BufPos>::max());
 
     while (maxRead > 0) {
         assert(it == mBuf.end() || ! it->IsFull());
@@ -1531,7 +1533,7 @@ IOBuffer::CopyInOnlyIntoBufferAtPos(
 }
 
 IOBuffer::BufPos
-IOBuffer::CopyIn(const char *buf, IOBuffer::BufPos numBytes)
+IOBuffer::CopyIn(const char* buf, IOBuffer::BufPos numBytes)
 {
     DebugChecksum(buf, numBytes);
     if (numBytes <= 0) {
@@ -1575,7 +1577,7 @@ IOBuffer::CopyIn(const char *buf, IOBuffer::BufPos numBytes)
 }
 
 IOBuffer::BufPos
-IOBuffer::CopyOut(char *buf, IOBuffer::BufPos numBytes) const
+IOBuffer::CopyOut(char* buf, IOBuffer::BufPos numBytes) const
 {
     BList::const_iterator it;
     char*                 cur    = buf;
@@ -1837,17 +1839,54 @@ IOBuffer::StreamBuffer::overflow(int c)
     return c;
 }
 
-std::streamsize
-IOBuffer::StreamBuffer::xsputn(const char* s, std::streamsize n)
+streamsize
+IOBuffer::StreamBuffer::xsputn(const char* s, streamsize n)
 {
     if (! mIoBuf || mWriteRem < BufPos(n)) {
         return 0;
     }
     const BufPos ret = mIoBuf->CopyIn(s, BufPos(n));
-    if (ret > 0) {
+    if (0 < ret) {
         mWriteRem -= ret;
     }
     return ret;
 }
+
+streamsize
+IOBuffer::StreamBuffer::xsgetn(char* s, streamsize n)
+{
+    if (n <= 0) {
+        return 0;
+    }
+    streamsize  ret = 0;
+    char*       p   = gptr();
+    char* const e   = egptr();
+    if (p && p < e) {
+        ret = (streamsize)min((size_t)n, (size_t)(e - p));
+        memcpy(s, p, ret);
+        gbump(ret);
+        if (n <= ret) {
+            return ret;
+        }
+        ++mCur;
+    }
+    while (0 < mMaxReadLength && mIoBuf->end() != mCur) {
+        BufPos const nb = mCur->CopyOut(
+            s + ret, min((BufPos)(n - ret), mMaxReadLength));
+        ret += nb;
+        if (n <= ret) {
+            const BufPos rem = min(mMaxReadLength, mCur->BytesConsumable());
+            mMaxReadLength -= rem;
+            p = const_cast<char*>(mCur->Consumer());
+            setg(p, p + nb, p + rem);
+            return ret;
+        }
+        mMaxReadLength -= nb;
+        ++mCur;
+    }
+    setg(0, 0, 0);
+    return ret;
+}
+
 
 }

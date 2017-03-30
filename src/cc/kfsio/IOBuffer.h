@@ -492,6 +492,8 @@ public:
             {}
         void Reset(BufPos maxReadLength, BufPos maxWriteLength)
         {
+            setg(0, 0, 0);
+            setp(0, 0);
             if (mIoBuf) {
                 mCur = mIoBuf->begin();
                 mMaxReadLength = maxReadLength;
@@ -504,6 +506,8 @@ public:
         void SetReadOnly(IOBuffer* iobuf, BufPos maxReadLength)
         {
             // Make sure that overflow() will always return EOF.
+            setg(0, 0, 0);
+            setp(0, 0);
             mMaxReadLength = iobuf ? maxReadLength : 0;
             mWriteRem      = 0;
             mIoBuf         = iobuf;
@@ -521,7 +525,8 @@ public:
     protected:
         virtual int underflow();
         virtual int overflow(int c = EOF);
-        virtual streamsize xsputn(const char * s, streamsize n);
+        virtual streamsize xsgetn (char* s, streamsize n);
+        virtual streamsize xsputn(const char* s, streamsize n);
     private:
         BufPos    mMaxReadLength;
         BufPos    mWriteRem;
@@ -610,13 +615,14 @@ public:
         IOBuffer* iobuf,
         BufPos    maxWriteLength = numeric_limits<BufPos>::max())
     {
-        SetWriteOnly(iobuf, maxWriteLength);
+        StreamBuffer::SetWriteOnly(iobuf, maxWriteLength);
         ostream::clear();
         ostream::flags(ostream::dec | ostream::skipws);
         ostream::precision(6);
         ostream::width(0);
         ostream::fill(' ');
         ostream::tie(0);
+        ostream::rdbuf(this);
         return *this;
     }
     ostream& Set(
@@ -646,7 +652,7 @@ public:
     {
         StreamBuffer::Reset(maxReadLength, 0);
         istream::clear();
-        rdbuf(this);
+        istream::rdbuf(this);
     }
     istream& Set(
         IOBuffer* iobuf,
@@ -655,8 +661,11 @@ public:
         StreamBuffer::SetReadOnly(iobuf, maxReadLength);
         istream::clear();
         istream::flags(ostream::dec | istream::skipws);
+        istream::precision(6);
+        istream::width(0);
+        istream::fill(' ');
         istream::tie(0);
-        rdbuf(this);
+        istream::rdbuf(this);
         return *this;
     }
     istream& Set(
