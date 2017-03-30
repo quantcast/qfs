@@ -1837,7 +1837,7 @@ LayoutManager::LayoutManager()
       mIsExecutingRebalancePlan(false),
       mRecoveryStartTime(0),
       mStartTime(time(0)),
-      mRecoveryIntervalSec(LEASE_INTERVAL_SECS),
+      mRecoveryIntervalSec(25),
       mLeaseCleanerOtherIntervalSec(60),
       mLeaseCleanerOtherNextRunTime(TimeNow()),
       mLeaseCleaner(ChunkLeases::kLeaseTimerResolutionSec * 1000),

@@ -382,7 +382,7 @@ MetaServerSM::Impl::Impl(
       mPendingOps(inPendingOps),
       mDispatchedOps(),
       mNetConnection(),
-      mInactivityTimeout(65),
+      mInactivityTimeout(40),
       mReceiveTimeout(24 * 60 * 60),
       mMaxReadAhead(4 << 10),
       mAbortOnRequestParseErrorFlag(false),
