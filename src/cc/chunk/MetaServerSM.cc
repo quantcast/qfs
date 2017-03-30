@@ -1347,13 +1347,21 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
         mContentLength = 0;
         if (! ok) {
             KFS_LOG_STREAM_ERROR << mLocation <<
+                " peer: "    <<
+                    (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
                 " invalid meta reply response content:"
-                " len: "    << len <<
-                " status: " << op->status <<
-                " "         << op->statusMsg <<
-                " "         << op->Show() <<
+                " length: "  << len <<
+                " status: "  << op->status <<
+                " "          << op->statusMsg <<
+                " "          << op->Show() <<
+                " buf size:" << iobuf.BytesConsumable() <<
+                " data: "    << IOBuffer::DisplayData(iobuf) <<
             KFS_LOG_EOM;
-            Error("response body parse error");
+            const char* const msg = "response body parse error";
+            if (mAbortOnRequestParseErrorFlag) {
+                die(msg);
+            }
+            Error(msg);
             return false;
         }
     }
@@ -1402,13 +1410,17 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
             string   line;
             int numLines = 32;
             while (--numLines >= 0 && getline(is, line)) {
-                KFS_LOG_STREAM_ERROR << peer <<
+                KFS_LOG_STREAM_ERROR << mLocation << "/" << peer <<
                     " invalid meta request: " << line <<
                 KFS_LOG_EOM;
             }
             mIStream.Reset();
             iobuf.Clear();
-            Error("request parse error");
+            const char* const msg = "request parse error";
+            if (mAbortOnRequestParseErrorFlag) {
+                die(msg);
+            }
+            Error(msg);
             // got a bogus command
             return false;
         }
@@ -1444,10 +1456,12 @@ MetaServerSM::Impl::HandleCmd(IOBuffer& iobuf, int cmdLen)
             mIStream.Set(iobuf, mContentLength), iobuf);
         mIStream.Reset();
         if (! okFlag) {
-            KFS_LOG_STREAM_ERROR <<
-                (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
+            KFS_LOG_STREAM_ERROR << mLocation <<
+                " / "            <<
+                    (IsConnected() ?  mNetConnection->GetPeerName() : "") <<
                 " parse error: " << op->statusMsg <<
                 " "              << op->Show() <<
+                " buf size: "    << iobuf.BytesConsumable() <<
                 " data: "        << IOBuffer::DisplayData(iobuf) <<
             KFS_LOG_EOM;
             const char* const msg = "request body parse error";

@@ -343,7 +343,7 @@ public:
             QCStMutexLocker theLocker(mMutex);
             if (! mRunFlag) {
                 mRunFlag = true;
-                const int kStackSize = 32 << 10;
+                const int kStackSize = 64 << 10;
                 mThread.Start(this, kStackSize, "ChunkDirsCheck");
             }
         }
@@ -506,7 +506,7 @@ private:
         const string&      inLockName,
         bool               inRequireChunkHeaderChecksumFlag,
         ChunkHeaderBuffer& inChunkHeaderBuffer,
-        const string       inFsIdPrefix,
+        const string&      inFsIdPrefix,
         int64_t            inFileSystemId,
         bool               inDeleteAllChaunksOnFsMismatchFlag,
         int                inIoTimeout,
