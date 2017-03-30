@@ -121,7 +121,7 @@ private:
         bool        inLowerCaseHexFlag)
     {
         char*      thePtr     = inBufEndPtr;
-        const T    kMinInt    = T(1) << (sizeof(T) * 8 - 1);
+        const T    kMinInt    = T(T(1) << (sizeof(T) * 8 - 1));
         const bool theNegFlag = (inVal & kMinInt) != 0; // < 0 generates warning
         if (theNegFlag) {
             // (inVal = -inVal) < 0 doesn't work with gcc optimization
