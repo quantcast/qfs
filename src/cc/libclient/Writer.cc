@@ -116,6 +116,7 @@ public:
           mMaxWriteSize(min((int)CHUNKSIZE,
             (int)((max(0, inMaxWriteSize) + CHECKSUM_BLOCKSIZE - 1) /
                 CHECKSUM_BLOCKSIZE * CHECKSUM_BLOCKSIZE))),
+          mMaxPendingThreshold(mMaxWriteSize),
           mReplicaCount(-1),
           mRetryCount(0),
           mFileSize(0),
@@ -199,6 +200,8 @@ public:
         mTruncateOp.pathname   = 0;
         mTruncateOp.fileOffset = mFileSize;
         mRetryCount            = 0;
+        mMaxPendingThreshold   = Offset(mMaxWriteSize) *
+            (mStriperPtr ? max(1, inStripeCount) : 1);
         return StartWrite();
     }
     int Close()
@@ -1717,6 +1720,7 @@ private:
     const int           mTimeSecBetweenRetries;
     const int           mMaxPartialBuffersCount;
     const int           mMaxWriteSize;
+    Offset              mMaxPendingThreshold;
     int                 mReplicaCount;
     int                 mRetryCount;
     Offset              mFileSize;
@@ -1767,7 +1771,9 @@ private:
             "start write:" <<
             " offset: "  << mOffset <<
             " pending: " << GetPendingSizeSelf() <<
+            " / "        << mBuffer.BytesConsumable() <<
             " thresh: "  << mWriteThreshold <<
+            " / "        << mMaxPendingThreshold <<
             " flush: "   << inFlushFlag <<
             (mSleepingFlag ? " SLEEPING" : "") <<
         KFS_LOG_EOM;
@@ -1775,12 +1781,16 @@ private:
         if (mSleepingFlag) {
             return mErrorCode;
         }
-        const bool theFlushFlag      = inFlushFlag || mClosingFlag;
-        const int  theWriteThreshold =
+        const bool   theFlushFlag           = inFlushFlag || mClosingFlag;
+        const Offset theWriteThreshold      =
             max(1, theFlushFlag ? 1 : mWriteThreshold);
-        while (mErrorCode == 0 && GetPendingSizeSelf() >= theWriteThreshold) {
+        const Offset theQueueWriteThreshold =
+            min(mMaxPendingThreshold, theWriteThreshold);
+        while (mErrorCode == 0 && (
+                mMaxPendingThreshold <= mBuffer.BytesConsumable() ||
+                theWriteThreshold <= GetPendingSizeSelf())) {
             const int thePrevRefCount = GetRefCount();
-            QueueWrite(theWriteThreshold);
+            QueueWrite(theQueueWriteThreshold);
             if (thePrevRefCount > GetRefCount()) {
                 return mErrorCode; // Unwind
             }
