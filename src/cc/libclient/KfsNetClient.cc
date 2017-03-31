@@ -1401,6 +1401,7 @@ private:
               ITimeout(),
               mImplPtr(&inImpl),
               mRetryCount(0),
+              mSleepingFlag(false),
               mCanceledFlag(false),
               mInFlightFlag(false)
             { List::Init(*this); }
