@@ -57,7 +57,15 @@ stop=1
 
 while [ $# -gt 0 ]; do
     if [ x"$1" = x'-valgrind' ]; then
-        valgrind_cmd='valgrind -v --log-file=valgrind-recovery.log --leak-check=full --leak-resolution=high --show-reachable=yes --track-origins=yes --'
+        valgrind_cmd='valgrind'
+        valgrind_cmd="$valgrind_cmd"' -v'
+        valgrind_cmd="$valgrind_cmd"' --log-file=valgrind.log'
+        valgrind_cmd="$valgrind_cmd"' --leak-check=full'
+        valgrind_cmd="$valgrind_cmd"' --leak-resolution=high'
+        valgrind_cmd="$valgrind_cmd"' --show-reachable=yes'
+        valgrind_cmd="$valgrind_cmd"' --track-origins=yes'
+        valgrind_cmd="$valgrind_cmd"' --child-silent-after-fork=yes'
+        valgrind_cmd="$valgrind_cmd"' --track-fds=yes'
     elif [ x"$1" = x'-start-only' ]; then
         start=1
         runtest=0
