@@ -248,7 +248,7 @@ const time_t kMaxSessionTimeoutSec = 10 * 365 * 24 * 60 * 60;
 
 int ChunkServer::sHeartbeatTimeout         = 60;
 int ChunkServer::sHeartbeatInterval        = 20;
-int ChunkServer::sMinInactivityInterval    = 5;
+int ChunkServer::sMinInactivityInterval    = 8;
 int ChunkServer::sHeartbeatSkippedInterval = -1;
 int ChunkServer::sHeartbeatLogInterval     = 1000;
 int ChunkServer::sChunkAllocTimeout        = 40;
