@@ -5256,7 +5256,8 @@ public:
             mFileCounts[i] = 0;
         }
     }
-    bool operator()(const MetaDentry& de,
+    bool operator()(
+            const MetaDentry& de,
             const MetaFattr&  fa,
             size_t            depth)
     {
@@ -5266,15 +5267,14 @@ public:
         if (depth < mDepth) {
             mDepth = depth;
             mPath.resize(mDepth);
-        } else if (depth > mDepth) {
-            assert(depth == mDepth + 1);
-            mDepth = depth;
         }
+        assert(depth == mDepth);
         if (fa.type == KFS_DIR) {
             mPath.resize(mDepth);
             mPath.push_back(&de);
             mMaxDirDepth = max(mMaxDirDepth, mDepth);
             mDirCount++;
+            mDepth++;
             return true;
         }
         const chunkOff_t fsize = metatree.getFileSize(fa);
