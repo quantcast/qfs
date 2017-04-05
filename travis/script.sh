@@ -177,9 +177,6 @@ build_ubuntu32()
 
 build_centos()
 {
-    if [ -f "$MYCENTOSEPEL_RPM" ]; then
-        $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
-    fi
     if [ x"$1" = x'5' ]; then
         # Centos 5 EOL, use vault for now.
         sed -i 's/enabled=1/enabled=0/' \
@@ -188,6 +185,9 @@ build_centos()
             /etc/yum.repos.d/*.repo
         sed -i 's/#\(baseurl.*\)mirror.centos.org/\1vault.centos.org/' \
             /etc/yum.repos.d/*.repo
+    fi
+    if [ -f "$MYCENTOSEPEL_RPM" ]; then
+        $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
     fi
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $MYDEPS
