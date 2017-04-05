@@ -182,17 +182,12 @@ build_centos()
     fi
     if [ x"$1" = x'5' ]; then
         # Centos 5 EOL, use vault for now.
-        if grep 'vault.centos.org' /etc/yum.repos.d/*.repo \
-                > /dev/null 2>&1; then
-            true
-        else
-            sed -i 's/enabled=1/enabled=0/' \
-                /etc/yum/pluginconf.d/fastestmirror.conf
-            sed -i 's/mirrorlist/#mirrorlist/' \
-                /etc/yum.repos.d/*.repo
-            sed -i 's/#\(baseurl.*\)mirror.centos.org/\1vault.centos.org/' \
-                /etc/yum.repos.d/*.repo
-        fi
+        sed -i 's/enabled=1/enabled=0/' \
+            /etc/yum/pluginconf.d/fastestmirror.conf
+        sed -i 's/mirrorlist/#mirrorlist/' \
+            /etc/yum.repos.d/*.repo
+        sed -i 's/#\(baseurl.*\)mirror.centos.org/\1vault.centos.org/' \
+            /etc/yum.repos.d/*.repo
     fi
     eval MYDEPS='${DEPS_CENTOS'"$1"'-$DEPS_CENTOS}'
     $MYSUDO yum install -y $MYDEPS
