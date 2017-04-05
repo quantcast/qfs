@@ -75,7 +75,7 @@ smtest='yes'
 testonly='no'
 mconly='no'
 cponly='no'
-csvalgrind='no'
+myusevalgrind=''
 
 chunkdirerrsim=0
 chunkdirerrsimall=0
@@ -183,7 +183,7 @@ show_help()
  -chunk-dir-err-sim-stop  -- stop chunk directories failure simulation test.
  -chunk-dir-err-sim <num> -- enable chunk directory check failure simulator on
     firtst <num> chunk servers
- -valgrind-cs             -- run chunk servers under valgrind
+ -valgrind                -- run chunk and meta servers under valgrind
  -auth                    -- turn authentication on or off
  -s3                      -- test with AWS S3
  -vr <num>                -- configure to test VR with <num> nodes
@@ -200,6 +200,26 @@ pre_run_cleanup()
     mv *.log* "$1"/ 2>/dev/null
     rm -f core* 2>/dev/null
     return 0
+}
+
+run_with_valgrind()
+{
+    if [ x"$myusevalgrind" = x ]; then
+        ${1+"$@"}
+    else
+        GLIBCPP_FORCE_NEW=1 \
+        GLIBCXX_FORCE_NEW=1 \
+        valgrind \
+            -v \
+            --log-file=valgrind.log \
+            --leak-check=full \
+            --leak-resolution=high \
+            --show-reachable=yes \
+            --track-origins=yes \
+            --child-silent-after-fork=yes \
+            --track-fds=yes \
+            ${1+"$@"}
+    fi
 }
 
 update_parameters
@@ -264,9 +284,9 @@ while [ $# -gt 0 ]; do
     elif [ x"$1" = x'-cp-only' ]; then
         shift
         cponly='yes'
-    elif [ x"$1" = x'-valgrind-cs' ]; then
+    elif [ x"$1" = x'-valgrind' ]; then
         shift
-        csvalgrind='yes'
+        myusevalgrind='yes'
     elif [ x"$1" = x'-s3' ]; then
         shift
         s3test='yes'
@@ -729,8 +749,9 @@ EOF
                 pre_run_cleanup "$prevlogsdir" || exit
             fi
             rm -rf "$metasrvlog"
-            "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
-                > "${metasrvout}" 2>&1 &
+            run_with_valgrind \
+                "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
+                    > "${metasrvout}" 2>&1 &
             mpid=$!
             echo $mpid > "$metasrvpid"
             kill -0 $mpid || exit
@@ -941,12 +962,6 @@ EOF
         exit 1
     }
 
-    if [ x"$csvalgrind" = x'yes' ]; then
-        cscmdline='valgrind -v --log-file=valgrind.log'
-    else
-        cscmdline=''
-    fi
-
     trap 'kill_all_proc "$metasrvdir" $chunkrundirs' EXIT
 
     i=$chunksrvport
@@ -1055,8 +1070,9 @@ EOF
             cd "$dir" || exit
             echo "Starting chunk server $i"
             trap '' HUP INT
-            $cscmdline \
-                ../chunkserver "$chunksrvprop" "$chunksrvlog" > "${chunksrvout}" 2>&1 &
+            run_with_valgrind \
+                ../chunkserver "$chunksrvprop" "$chunksrvlog" \
+                    > "${chunksrvout}" 2>&1 &
             echo $! > "$chunksrvpid"
             ) || exit
             i=`expr $i + 1`
