@@ -1330,7 +1330,8 @@ private:
             }
             mOuter.mProperties.clear();
             if ((0 == mOuter.mLookupOp.status ||
-                    (-EACCES == mOuter.mLookupOp.status &&
+                    ((-EACCES == mOuter.mLookupOp.status ||
+                        -EPERM == mOuter.mLookupOp.status) &&
                         ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag)) &&
                     (mOuter.mLookupOp.vrPrimaryFlag ||
                         ! mOuter.mLookupOp.responseHasVrPrimaryKeyFlag)) {
