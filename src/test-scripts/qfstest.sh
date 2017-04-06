@@ -39,6 +39,7 @@ while [ $# -ge 1 ]; do
         myvalgrind="$myvalgrind"' --track-origins=yes'
         myvalgrind="$myvalgrind"' --child-silent-after-fork=yes'
         myvalgrind="$myvalgrind"' --track-fds=yes'
+        myvalgrind="$myvalgrind"' --num-callers=24'
         GLIBCPP_FORCE_NEW=1
         export GLIBCPP_FORCE_NEW
         GLIBCXX_FORCE_NEW=1

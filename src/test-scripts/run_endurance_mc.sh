@@ -218,6 +218,7 @@ run_with_valgrind()
             --track-origins=yes \
             --child-silent-after-fork=yes \
             --track-fds=yes \
+            --num-callers=24 \
             ${1+"$@"}
     fi
 }

@@ -66,6 +66,7 @@ while [ $# -gt 0 ]; do
         valgrind_cmd="$valgrind_cmd"' --track-origins=yes'
         valgrind_cmd="$valgrind_cmd"' --child-silent-after-fork=yes'
         valgrind_cmd="$valgrind_cmd"' --track-fds=yes'
+        valgrind_cmd="$valgrind_cmd"' --num-callers=24'
     elif [ x"$1" = x'-start-only' ]; then
         start=1
         runtest=0
