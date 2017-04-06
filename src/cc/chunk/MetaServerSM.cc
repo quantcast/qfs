@@ -1554,7 +1554,8 @@ MetaServerSM::Impl::EnqueueOp(KfsOp* op)
             mDispatchedOps.size() < mMaxPendingOpsCount) {
         op->seq       = nextSeq();
         op->startTime = globalNetManager().NowUsec();
-        if (! op->noReply &&
+        const bool noReplyFlag = op->noReply;
+        if (! noReplyFlag &&
                 ! mDispatchedOps.insert(make_pair(op->seq, op)).second) {
             die("duplicate seq. number");
         }
@@ -1562,7 +1563,7 @@ MetaServerSM::Impl::EnqueueOp(KfsOp* op)
         if (mRecursionCount <= 0) {
             mNetConnection->StartFlush();
         }
-        if (op->noReply) {
+        if (noReplyFlag) {
             SubmitOpResponse(op);
         }
     } else {
