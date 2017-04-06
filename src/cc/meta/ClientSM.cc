@@ -549,6 +549,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
                 op->clientProtoVers < sMinProtocolVersion) {
             op->status    = -EPERM;
             op->statusMsg = "client upgrade required";
+            mPendingOpsCount++;
             CmdDone(*op);
             return;
         }
