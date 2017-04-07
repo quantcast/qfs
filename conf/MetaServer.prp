@@ -1263,6 +1263,28 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is 0.
 # chunkServer.diskQueue.<object-store-directory-prefix>useServerSideEncryption = 0
 
+# S3 object storage class.
+# If non empty, then x-amz-storage-class header with the specified value
+# added to all put requests for this bucket.
+# Valid values: STANDARD | STANDARD_IA | REDUCED_REDUNDANCY
+# Default is empty, no x-amz-storage-class header sent.
+# chunkServer.diskQueue.<object-store-directory-prefix>storageClass =
+
+# The following parameter controls querying S3 for upload IDs prior to deleting
+# object store block. By default object store is queried for upload IDs that
+# match the object key being deleted, and uploads are deleted. This is need to
+# cleanup any stale multi part uploads.
+# Setting this parameter to 1 turns off upload IDs querying. Doing so might
+# eliminate query cost, in the case if "external" to QFS procedure is used to
+# clean stale multi part uploads.
+# For example: periodically (say once every 24 hours) perform bulk uploads IDs
+# query, and delete uploads with keys that correspond i-node numbers that were
+# created earlier than the maximum time the file write can take (say 24 hours).
+# A new file file can be created and its i-nodes can be used to determine i-node
+# numbers that were created after this file was created, as i-node numbers are
+# monotonically increasing integer.
+# chunkServer.diskQueue.<object-store-directory-prefix>deleteNoUploadList = 0
+
 # If no parameters with the following prefix exits:
 # chunkServer.diskQueue.<object-store-directory-prefix>.ssl.
 # set, then http protocol instead of https used.

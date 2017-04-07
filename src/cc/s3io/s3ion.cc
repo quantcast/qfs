@@ -816,7 +816,9 @@ public:
                 if (IsRunning()) {
                     mClient.Run(*(new S3Delete(
                         *this, inRequest, inReqType,
-                        string(inNamePtr + mFilePrefix.length()))));
+                        string(inNamePtr + mFilePrefix.length()),
+                        ! mDeleteNoUploadListFlag
+                    )));
                 } else {
                     theError  = QCDiskQueue::kErrorDelete;
                     theSysErr = EIO;
@@ -1787,9 +1789,10 @@ private:
             Outer&        inOuter,
             Request&      inRequest,
             ReqType       inReqType,
-            const string& inFileName)
+            const string& inFileName,
+            bool          inGetUploadsFlag)
             : S3Req(inOuter, &inRequest, inReqType, inFileName),
-              mGetUploadsFlag(true),
+              mGetUploadsFlag(inGetUploadsFlag),
               mUploadId()
             {}
         S3Delete(
@@ -2784,6 +2787,7 @@ private:
     bool                mDebugTraceRequestHeadersFlag;
     bool                mDebugTraceRequestProgressFlag;
     bool                mHttpsFlag;
+    bool                mDeleteNoUploadListFlag;
     int                 mDebugTraceMaxDataSize;
     int                 mDebugTraceMaxErrorDataSize;
     int                 mDebugTraceMaxHeaderSize;
@@ -2886,6 +2890,7 @@ private:
           mDebugTraceRequestHeadersFlag(false),
           mDebugTraceRequestProgressFlag(false),
           mHttpsFlag(false),
+          mDeleteNoUploadListFlag(false),
           mDebugTraceMaxDataSize(256),
           mDebugTraceMaxErrorDataSize(512),
           mDebugTraceMaxHeaderSize(512),
@@ -3044,6 +3049,10 @@ private:
             theName.Truncate(thePrefixSize).Append("maxResponseSize"),
             mMaxResponseSize
         );
+        mDeleteNoUploadListFlag = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("deleteNoUploadList"),
+            mDeleteNoUploadListFlag ? 1 : 0
+        ) != 0;
         const int theMaxHdrLen = min(256 << 10, max(4 << 10,
         mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("maxHttpHeaderSize"),
