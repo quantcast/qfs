@@ -183,7 +183,7 @@ build_centos()
             /etc/yum/pluginconf.d/fastestmirror.conf
         sed -i 's/mirrorlist/#mirrorlist/' \
             /etc/yum.repos.d/*.repo
-        sed -i 's/#\(baseurl.*\)mirror.centos.org/\1vault.centos.org/' \
+        sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/5\//\1vault.centos.org\/5.11\//' \
             /etc/yum.repos.d/*.repo
     fi
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
