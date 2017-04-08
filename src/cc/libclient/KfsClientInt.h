@@ -929,7 +929,8 @@ private:
     /// dies in the middle, retry the op a few times before giving up.
     void DoMetaOpWithRetry(KfsOp *op);
     void ExecuteMeta(KfsOp& op);
-    void DoChunkServerOp(const ServerLocation& loc, KfsOp& op);
+    void DoChunkServerOp(
+        const ServerLocation& loc, bool shortRpcFormatFlag, KfsOp& op);
     void DoServerOp(KfsNetClient& server, const ServerLocation& loc, KfsOp& op);
 
     /// Validate file or directory name.
@@ -961,11 +962,11 @@ private:
     FAttr* LookupFattr(kfsFileId_t parentFid, const string& name);
 
     // name -- is the last component of the pathname
-    int ClaimFileTableEntry(kfsFileId_t parentFid, const string& name, const string& pathname);
-    int AllocFileTableEntry(kfsFileId_t parentFid, const string& name, const string& pathname);
+    int AllocFileTableEntry(
+        kfsFileId_t parentFid, const string& name, const string& pathname);
     void ReleaseFileTableEntry(int fte);
 
-    int GetDataChecksums(const ServerLocation &loc,
+    int GetDataChecksums(const ServerLocation &loc, bool shortRpcFormatFlag,
         kfsChunkId_t chunkId, int64_t chunkVersion, chunkOff_t chunkPosition,
         uint32_t *checksums, bool readVerifyFlag = true);
 
@@ -974,6 +975,7 @@ private:
     int GetChunkFromReplica(
         const ChunkServerAccess& chunkServerAccess,
         const ServerLocation&    loc,
+        bool                     shortRpcFormatFlag,
         kfsChunkId_t             chunkId,
         int64_t                  chunkVersion,
         ostream&                 os);
@@ -1090,6 +1092,7 @@ private:
         kfsChunkId_t          inChunkId,
         int64_t               inChunkVersion,
         chunkOff_t            inChunkPosition,
+        bool                  inUseShortRpcFormatFlag,
         bool*                 inUsedLeaseLocationsFlagPtr = 0);
     void GetLayout(
         GetLayoutOp&    inOp,

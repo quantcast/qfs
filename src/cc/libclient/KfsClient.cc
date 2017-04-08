@@ -1474,7 +1474,16 @@ KfsClientImpl::KfsClientImpl(
       mIsInitialized(metaServer != 0),
       mMetaServerLoc(),
       mNetManager(),
-      mChunkServer(mNetManager),
+      mChunkServer(
+        mNetManager,
+        string(),     // inHost
+        0,            // inPort
+        0,            // inMaxRetryCount
+        10,           // inTimeSecBetweenRetries
+        5 * 60,       // inOpTimeoutSec
+        3 * 60,       // inIdleTimeoutSec
+        RandomSeqNo() //
+      ),
       mCwd("/"),
       mFileTable(),
       mFidNameToFAttrMap(),
@@ -4853,16 +4862,18 @@ struct RespondingServer
     const ChunkLayoutInfo& layout;
     int&                   status;
     chunkOff_t&            size;
+    const bool             shortRpcFormatFlag;
     RespondingServer(KfsClientImpl& cli, const ChunkLayoutInfo& lay,
-            chunkOff_t& sz, int& st)
-        : client(cli), layout(lay), status(st), size(sz)
+            chunkOff_t& sz, int& st, bool shortFmtFlag)
+        : client(cli), layout(lay), status(st), size(sz),
+          shortRpcFormatFlag(shortFmtFlag)
         {}
     bool operator() (ServerLocation loc)
     {
         bool usedLeaseLocationsFlag = false;
         size = client.GetChunkSize(
             loc, layout.chunkId, layout.chunkVersion, layout.fileOffset,
-            &usedLeaseLocationsFlag);
+            shortRpcFormatFlag, &usedLeaseLocationsFlag);
         if (size < 0) {
             status = (int)size;
             size = -1;
@@ -4877,13 +4888,17 @@ struct RespondingServer2
 {
     KfsClientImpl&         client;
     const ChunkLayoutInfo& layout;
-    RespondingServer2(KfsClientImpl& cli, const ChunkLayoutInfo& lay)
-        : client(cli), layout(lay)
+    const bool             shortRpcFormatFlag;
+    RespondingServer2(KfsClientImpl& cli, const ChunkLayoutInfo& lay,
+        bool shortFmtFlag)
+        : client(cli), layout(lay), shortRpcFormatFlag(shortFmtFlag)
         {}
     ssize_t operator() (const ServerLocation& loc)
     {
         return client.GetChunkSize(
-            loc, layout.chunkId, layout.chunkVersion, layout.fileOffset);
+            loc, layout.chunkId, layout.chunkVersion, layout.fileOffset,
+            shortRpcFormatFlag
+        );
     }
 };
 
@@ -5066,8 +5081,8 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
     if (last.chunkServers.empty()) {
         rstatus = -EAGAIN;
     } else if (find_if(last.chunkServers.begin(), last.chunkServers.end(),
-                    RespondingServer(*this, last, endsize, rstatus)) ==
-                last.chunkServers.end()) {
+                    RespondingServer(*this, last, endsize, rstatus,
+                        lop.allCSShortRpcFlag)) == last.chunkServers.end()) {
         KFS_LOG_STREAM_INFO <<
             "failed to connect to any server to get size of"
             " fid: "   << kfsfid <<
@@ -5091,7 +5106,8 @@ KfsClientImpl::ComputeFilesize(kfsFileId_t kfsfid)
         vector<ssize_t> chunksize;
         chunksize.resize(last.chunkServers.size(), -1);
         transform(last.chunkServers.begin(), last.chunkServers.end(),
-            chunksize.begin(), RespondingServer2(*this, last));
+            chunksize.begin(),
+            RespondingServer2(*this, last, lop.allCSShortRpcFlag));
         for (size_t i = 0; i < chunksize.size(); i++) {
             if (chunksize[i] > 0) {
                 endsize = chunksize[i];
@@ -5156,8 +5172,11 @@ KfsClientImpl::ComputeFilesizes(vector<KfsFileAttr>& fattrs,
         if (iter == cattr.chunkServerLoc.end()) {
             continue;
         }
+        // Use long RPC format, as no RPC format info available at this point,
+        const bool kShortRpcFormatFlag = false;
         chunkOff_t const size = GetChunkSize(
-            loc, cattr.chunkId, cattr.chunkVersion, cattr.chunkOffset);
+            loc, cattr.chunkId, cattr.chunkVersion, cattr.chunkOffset,
+            kShortRpcFormatFlag);
         if (size <= 0) {
             return;
         }
@@ -5288,8 +5307,11 @@ KfsClientImpl::ExecuteMeta(KfsOp& op)
 }
 
 void
-KfsClientImpl::DoChunkServerOp(const ServerLocation& loc, KfsOp& op)
+KfsClientImpl::DoChunkServerOp(
+    const ServerLocation& loc, bool shortRpcFormatFlag, KfsOp& op)
 {
+    mChunkServer.SetRpcFormat(shortRpcFormatFlag ?
+        KfsNetClient::kRpcFormatShort : KfsNetClient::kRpcFormatLong);
     DoServerOp(mChunkServer, loc, op);
 }
 
@@ -5314,7 +5336,10 @@ KfsClientImpl::DoServerOp(
     server.GetNetManager().MainLoop(kNullMutexPtr, kWakeupAndCleanupFlag);
     server.Cancel();
     KFS_LOG_STREAM_DEBUG <<
-        op.Show() << " status: " << op.status <<
+        loc <<
+        " seq: "    << op.seq <<
+        " status: " << op.status <<
+        " "         << op.Show() <<
     KFS_LOG_EOM;
 }
 
@@ -5997,7 +6022,8 @@ KfsClientImpl::EnumerateBlocks(
         // Get the size for the chunk from all the responding servers
         chunksize.resize(i->chunkServers.size(), -1);
         transform(i->chunkServers.begin(), i->chunkServers.end(),
-            chunksize.begin(), RespondingServer2(*this, *i));
+            chunksize.begin(),
+            RespondingServer2(*this, *i, lop.allCSShortRpcFlag));
         for (size_t k = 0; k < chunksize.size(); k++) {
             res.push_back(KfsClient::BlockInfo());
             KfsClient::BlockInfo& chunk = res.back();
@@ -6020,9 +6046,14 @@ GetReadLeasePosition(
 }
 
 int
-KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
-    kfsChunkId_t chunkId, int64_t chunkVersion, chunkOff_t chunkPosition,
-    uint32_t* checksums, bool readVerifyFlag)
+KfsClientImpl::GetDataChecksums(
+    const ServerLocation& loc,
+    bool                  shortRpcFormatFlag,
+    kfsChunkId_t          chunkId,
+    int64_t               chunkVersion,
+    chunkOff_t            chunkPosition,
+    uint32_t*             checksums,
+    bool                  readVerifyFlag)
 {
     GetChunkMetadataOp op(0, chunkId, readVerifyFlag);
     int64_t leaseId   = -1;
@@ -6034,7 +6065,7 @@ KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
     CloseOp closeOp(0, chunkId);
     closeOp.chunkVersion = chunkVersion;
     closeOp.access       = op.access;
-    DoChunkServerOp(loc, op);
+    DoChunkServerOp(loc, shortRpcFormatFlag, op);
     if (0 <= leaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, chunkId, leaseId);
         theLeaseRelinquishOp.chunkPos =
@@ -6048,7 +6079,7 @@ KfsClientImpl::GetDataChecksums(const ServerLocation& loc,
             " chunk: " << chunkId <<
         KFS_LOG_EOM;
     }
-    DoChunkServerOp(loc, closeOp);
+    DoChunkServerOp(loc, shortRpcFormatFlag, closeOp);
     if (op.status < 0) {
         return GetOpStatus(op);
     }
@@ -6124,7 +6155,8 @@ KfsClientImpl::VerifyDataChecksumsFid(const FileAttr& attr)
             continue;
         }
         if ((ret = GetDataChecksums(
-                i->chunkServers[0], i->chunkId, i->chunkVersion, i->fileOffset,
+                i->chunkServers[0], lop.allCSShortRpcFlag,
+                i->chunkId, i->chunkVersion, i->fileOffset,
                 chunkChecksums1.get())) < 0) {
             KFS_LOG_STREAM_ERROR << "failed to get checksums from server " <<
                 i->chunkServers[0] << " " << ErrorCodeToStr(ret) <<
@@ -6136,7 +6168,8 @@ KfsClientImpl::VerifyDataChecksumsFid(const FileAttr& attr)
         }
         for (size_t k = 1; k < i->chunkServers.size(); k++) {
             if ((ret = GetDataChecksums(
-                    i->chunkServers[k], i->chunkId, i->chunkVersion,
+                    i->chunkServers[k], lop.allCSShortRpcFlag,
+                    i->chunkId, i->chunkVersion,
                     i->fileOffset, chunkChecksums2.get())) < 0) {
                 KFS_LOG_STREAM_ERROR << "failed get checksums from server: " <<
                     i->chunkServers[k] << " " << ErrorCodeToStr(ret) <<
@@ -6848,6 +6881,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
         const int nbytes = GetChunkFromReplica(
             chunkServerAccess,
             i->chunkServers[0],
+            lop.allCSShortRpcFlag,
             i->chunkId,
             i->chunkVersion,
             mds
@@ -6871,6 +6905,7 @@ KfsClientImpl::CompareChunkReplicas(const char* pathname, string& md5sum)
                 const int n = GetChunkFromReplica(
                     chunkServerAccess,
                     i->chunkServers[k],
+                    lop.allCSShortRpcFlag,
                     i->chunkId,
                     i->chunkVersion,
                     mds
@@ -7075,6 +7110,7 @@ KfsClientImpl::GetChunkSize(
     kfsChunkId_t          inChunkId,
     int64_t               inChunkVersion,
     chunkOff_t            inChunkPosition,
+    bool                  inUseShortRpcFormatFlag,
     bool*                 outUsedLeaseLocationsFlagPtr)
 {
     SizeOp  theSizeOp(0, inChunkId, inChunkVersion);
@@ -7107,21 +7143,23 @@ KfsClientImpl::GetChunkSize(
                 theCloseOp.access = theSizeOp.access;
                 theSizeOp.status = 0;
                 theSizeOp.statusMsg.clear();
-                DoChunkServerOp(theLocation, theSizeOp);
+                DoChunkServerOp(
+                    theLocation, inUseShortRpcFormatFlag, theSizeOp);
                 if (0 <= theSizeOp.status) {
                     break;
                 }
                 theCloseOp.status = 0;
                 theCloseOp.statusMsg.clear();
-                DoChunkServerOp(theLocation, theCloseOp);
+                DoChunkServerOp(
+                    theLocation, inUseShortRpcFormatFlag, theCloseOp);
             }
         } else {
             theSizeOp.status = theStatus;
         }
     } else {
         theCloseOp.access = theSizeOp.access;
-        DoChunkServerOp(inLocation, theSizeOp);
-        DoChunkServerOp(inLocation, theCloseOp);
+        DoChunkServerOp(inLocation, inUseShortRpcFormatFlag, theSizeOp);
+        DoChunkServerOp(inLocation, inUseShortRpcFormatFlag, theCloseOp);
     }
     if (0 <= theLeaseId) {
         LeaseRelinquishOp theLeaseRelinquishOp(0, inChunkId, theLeaseId);
@@ -7149,6 +7187,7 @@ int
 KfsClientImpl::GetChunkFromReplica(
     const ChunkServerAccess& chunkServerAccess,
     const ServerLocation&    loc,
+    bool                     shortRpcFormatFlag,
     kfsChunkId_t             chunkId,
     int64_t                  chunkVersion,
     ostream&                 os)
@@ -7159,7 +7198,7 @@ KfsClientImpl::GetChunkFromReplica(
     if (status < 0) {
         return status;
     }
-    DoChunkServerOp(loc, sizeOp);
+    DoChunkServerOp(loc, shortRpcFormatFlag, sizeOp);
     if (sizeOp.status < 0) {
         return sizeOp.status;
     }
@@ -7181,7 +7220,7 @@ KfsClientImpl::GetChunkFromReplica(
         op.numBytes      = min(size_t(1) << 20, (size_t)(sizeOp.size - nread));
         op.offset        = nread;
         op.contentLength = 0;
-        DoChunkServerOp(loc, op);
+        DoChunkServerOp(loc, shortRpcFormatFlag, op);
         if (op.status < 0) {
             nread = op.status;
             break;
