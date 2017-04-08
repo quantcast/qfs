@@ -6392,6 +6392,8 @@ LayoutManager::AllocateChunk(
             req.servers.clear();
             return -EBUSY;
         }
+        req.allChunkServersShortRpcFlag =
+            req.servers.front()->IsShortRpcFormat();
         req.servers.front()->AllocateChunk(req, req.leaseId, req.minSTier);
         return 0;
     }
