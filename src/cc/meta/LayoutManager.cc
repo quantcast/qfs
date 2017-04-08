@@ -3567,7 +3567,7 @@ LayoutManager::RemoveServer(
     KFS_LOG_STREAM_DEBUG <<
         "-srv: "     << server->GetServerLocation() <<
         " chunk: "   << chunkId <<
-        " version: " << entry->GetChunkVersion() <<
+        " version: " << (entry ? entry->GetChunkVersion() : seq_t(-1)) <<
         (server->IsReplay() ? " replay" : "") <<
         " removed: " << retFlag <<
         (entry ? "" : " no such chunk") <<
