@@ -4000,6 +4000,8 @@ CorruptChunkOp::HandleDone(int code, void* data)
     }
     if (notifyChunkManagerFlag) {
         gChunkManager.NotifyStaleChunkDone(*this);
+    } else {
+        delete this;
     }
     return 0;
 }
