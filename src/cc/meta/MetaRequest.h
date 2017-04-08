@@ -1475,7 +1475,25 @@ struct MetaLogChunkAllocate : public MetaRequest {
     virtual void handle();
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "log allocate: " << ShowReq(alloc);
+        os <<
+            "log-allocate:"
+            " fid: "        << fid <<
+            " offset: "     << offset <<
+            " chunk: "      << chunkId <<
+            " version: "    << initialChunkVersion <<
+            " => "          << chunkVersion <<
+            " append: "     << appendChunk <<
+            " invalidate: " << invalidateAllFlag <<
+            " obj-store: "  << objectStoreFileFlag <<
+            " servers:"
+        ;
+        for (ServerLocations::const_iterator it = servers.begin();
+                servers.end() != it;
+                ++it) {
+            os << " " << *it;
+        }
+        os << " alloc: " << ShowReq(alloc);
+        return os;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {

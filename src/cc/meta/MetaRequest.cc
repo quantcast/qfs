@@ -2409,30 +2409,56 @@ MetaLogChunkAllocate::handle()
         }
     } else {
         if (0 <= initialChunkVersion && ! objectStoreFileFlag) {
-            fid_t curFid = -1;
-            if (! gLayoutManager.GetChunkFileId(chunkId, curFid)) {
+            fid_t   curFid = -1;
+            Servers curServers;
+            if (! gLayoutManager.GetChunkFileId(
+                    chunkId, curFid, 0, 0, &curServers)) {
                 // Chunk was deleted (by truncate), fail the allocation.
                 status    = -ENOENT;
                 statusMsg = "no such chunk";
-                KFS_LOG_STREAM_INFO <<
-                    "allocate: " << statusMsg <<
-                    " chunk: "   << chunkId <<
-                    " fid: "     << fid <<
-                    " version: " << chunkVersion <<
-                    " initial: " << initialChunkVersion <<
+                KFS_LOG_STREAM_DEBUG <<
+                    statusMsg << " " << Show() <<
                 KFS_LOG_EOM;
             } else if (fid != curFid) {
                 // fid = curFid;
                 status    = -ENOENT;
                 statusMsg = "file id has changed";
-                KFS_LOG_STREAM_INFO <<
-                    "allocate:"
-                    " chunk: "      << chunkId <<
-                    " fid: "        << fid <<
-                    " changed to: " << curFid <<
-                    " version: "    << chunkVersion <<
-                    " initial: "    << initialChunkVersion <<
+                KFS_LOG_STREAM_DEBUG <<
+                    statusMsg << " to: " << curFid <<
+                    " " << Show() <<
                 KFS_LOG_EOM;
+            } else {
+                // If replica list has changed, fail allocation to roll back
+                // version change.
+                const char* const kStatusMsg =
+                    "replica list have changed, try again";
+                if (curServers.size() != servers.size()) {
+                    status    = -EALLOCFAILED;
+                    statusMsg = kStatusMsg;
+                    KFS_LOG_STREAM_DEBUG <<
+                        statusMsg <<
+                        " servers: " << servers.size() <<
+                        " => "       << curServers.size() <<
+                        " " << Show() <<
+                    KFS_LOG_EOM;
+                } else {
+                    for (Servers::const_iterator it = curServers.begin();
+                            curServers.end() != it;
+                            ++it) {
+                        if (servers.end() == find(
+                                servers.begin(), servers.end(),
+                                (*it)->GetServerLocation())) {
+                            status    = -EALLOCFAILED;
+                            statusMsg = kStatusMsg;
+                            KFS_LOG_STREAM_DEBUG <<
+                                statusMsg <<
+                                " no server: " << (*it)->GetServerLocation() <<
+                                " " << Show() <<
+                            KFS_LOG_EOM;
+                            break;
+                        }
+                    }
+                }
             }
         }
         if (0 == status) {

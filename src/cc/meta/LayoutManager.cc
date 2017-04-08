@@ -1715,6 +1715,7 @@ LayoutManager::AddHosted(CSMap::Entry& entry, const ChunkServerPtr& c,
     KFS_LOG_STREAM_DEBUG <<
         "+srv: "     << c->GetServerLocation() <<
         " chunk: "   << entry.GetChunkId() <<
+        " version: " << entry.GetChunkVersion() <<
         (c->IsReplay() ? " replay" : "") <<
         " added: "   << retFlag <<
     KFS_LOG_EOM;
@@ -3566,6 +3567,7 @@ LayoutManager::RemoveServer(
     KFS_LOG_STREAM_DEBUG <<
         "-srv: "     << server->GetServerLocation() <<
         " chunk: "   << chunkId <<
+        " version: " << entry->GetChunkVersion() <<
         (server->IsReplay() ? " replay" : "") <<
         " removed: " << retFlag <<
         (entry ? "" : " no such chunk") <<
