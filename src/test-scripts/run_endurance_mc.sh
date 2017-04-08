@@ -600,8 +600,8 @@ metaServer.allocateDebugVerify = 1
 
 metaServer.clientSM.auditLogging = 1
 metaServer.auditLogWriter.logFilePrefixes = audit.log
-metaServer.auditLogWriter.maxLogFileSize = 1e9
-metaServer.auditLogWriter.maxLogFiles = 5
+metaServer.auditLogWriter.maxLogFileSize = 100e6
+metaServer.auditLogWriter.maxLogFiles = 50
 metaServer.auditLogWriter.waitMicroSec = 36000e6
 
 metaServer.rootDirUser = `id -u`
