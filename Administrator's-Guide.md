@@ -372,8 +372,7 @@ the chunk server will exit.
 
 Notes
 -----
-- Currently the only way to extend a hibernation window is to restore the given
-  chunk server and re-hibernate it.
+- Running qfshibernate again with the same chunk server will update hibernation window. 
 - The longer the hibernation window, the greater the likelihood of data loss. A
   window of no more than an hour is recommended for this reason.
 
