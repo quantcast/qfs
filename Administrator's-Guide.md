@@ -26,9 +26,8 @@ with no "latest" checkpoint file.
 Checkpoint and Transaction Log Pruning
 --------------------------------------
 The directories that store metaserver checkpoints (*metaServer.cpDir*) and
-transaction logs (*metaServer.logDir*) must be pruned regularly; otherwise they
-will fill up and run out of space. The pruning interval should be based on the
-configured checkpoint frequency (*metaServer.checkpoint.interval*).
+transaction logs (*metaServer.logDir*) are pruned periodically by the meta server; otherwise they
+will fill up and run out of space. Pruning parameters are described in meta server [annotated configuration file](conf/MetaServer.prp) section "Meta data (checkpoint and trasaction log) store."
 
 To prune the checkpoints directory:
 
