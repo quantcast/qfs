@@ -79,6 +79,9 @@ modifications since the backup will be lost.
 **Note:** The location of the *metaServer.cpDir* and *metaServer.logDir* should
 not change.
 
+Meta server replication.
+-------------------------------
+
 File System Integrity (`qfsfsck`)
 -------------------------------
 The `qfsfsck` tool can be employed in three ways:
