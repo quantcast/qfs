@@ -55,14 +55,7 @@ A possible solution would be to periodically do the following:
 **Note**: this simple script includes all checkpoint files, which is
 inefficient; only the latest checkpoint file is required for the backup.
 
-Using `date +%d-%H` in the file name has the advantage of automatic backup
-rotation, as it will roll over once a month. One backup file will be kept for
-each hour of the day, every day of the month (e.g. 24 files for September 26th,
-24 files for September 27th, etc.). Backups should be archived to a safe place,
-that is, **not** their own QFS file system. A different QFS file system
-designated for backups with a high replication count might be advisable.
-
-QFS meta data backup script that can be found in [here](https://github.com/quantcast/qfs/blob/topic/multimaster/scripts/qfs_backup).
+QFS meta data backup script can be found in [here](https://github.com/quantcast/qfs/blob/topic/multimaster/scripts/qfs_backup).
 
 Restoring Backups
 -----------------
