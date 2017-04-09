@@ -55,7 +55,7 @@ A possible solution would be to periodically do the following:
 **Note**: this simple script includes all checkpoint files, which is
 inefficient; only the latest checkpoint file is required for the backup.
 
-QFS meta data backup script can be found in [here](https://github.com/quantcast/qfs/blob/topic/multimaster/scripts/qfs_backup).
+QFS meta data backup script is available [here](https://github.com/quantcast/qfs/blob/topic/multimaster/scripts/qfs_backup).
 
 Restoring Backups
 -----------------
