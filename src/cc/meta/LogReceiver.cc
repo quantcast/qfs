@@ -695,6 +695,8 @@ public:
         { return mConnectionPtr->TimeNow(); }
     NodeId GetTransmitterId() const
         { return mTransmitterId; }
+    void Close()
+        { Error("close"); }
 private:
     typedef MetaLogWriterControl::Lines                          Lines;
     typedef uint32_t                                             Checksum;
@@ -1389,7 +1391,7 @@ LogReceiver::Impl::Shutdown()
     List::Iterator theIt(mConnectionsHeadPtr);
     Connection* thePtr;
     while (0 < mConnectionCount && (thePtr = theIt.Next())) {
-        thePtr->HandleEvent(EVENT_NET_ERROR, 0);
+        thePtr->Close();
     }
     mAckBroadcastFlag = false;
     ClearQueues();

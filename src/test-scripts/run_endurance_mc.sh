@@ -854,7 +854,9 @@ EOF
 metaServer.clientPort      = $metasrvport
 metaServer.chunkServerPort = $metasrvchunkport
 EOF
-        ./"$metaserverbin" "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+        run_with_valgrind \
+            "`pwd`/$metaserverbin" \
+                "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
         echo $! > "$metasrvpid"
     fi
 

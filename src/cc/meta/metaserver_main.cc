@@ -183,8 +183,17 @@ public:
                 " " << SslFilter::GetErrorMsg(sslErr) << "\n";
             return 1;
         }
-        static MetaServer sServer;
-        const int status = sServer.mProcessRestarter.Init(argsc, argsv);
+        static class MetaServerStorage
+        {
+        public:
+            void* Get() { return mStorage; }
+        private:
+            size_t mStorage[
+                (sizeof(MetaServer) + sizeof(size_t) - 1) / sizeof(size_t)
+            ];
+        } sStorage;
+        MetaServer& server = *(new (sStorage.Get()) MetaServer());
+        const int status = server.mProcessRestarter.Init(argsc, argsv);
         if (0 != status) {
             cerr << "failed to initialize process restarter: " <<
                 " error: " << QCUtils::SysError(status) << "\n";
@@ -196,10 +205,11 @@ public:
             MsgLogger::Init(0);
         }
         AuditLog::Init();
-        const bool okFlag = sServer.Startup(
+        const bool okFlag = server.Startup(
             myname, argv[0], createEmptyFsFlag, resetVrConfigTypePtr);
-        sServer.Cleanup();
+        server.Cleanup();
         AuditLog::Stop();
+        server.~MetaServer();
         sslErr = SslFilter::Cleanup();
         if (sslErr) {
             KFS_LOG_STREAM_ERROR << "failed to cleanup ssl: " <<
@@ -396,15 +406,15 @@ private:
         const char* resetVrConfigTypePtr);
     void SetParameters(const Properties& props);
     static void Usr1Signal(int)
-        { sInstance->mCheckpointFlag = true; }
+        { if (sInstance) { sInstance->mCheckpointFlag = true; } }
     static void HupSignal(int)
-        { sInstance->mSetParametersFlag = true; }
+        { if (sInstance) { sInstance->mSetParametersFlag = true; } }
     static void QuitSignal(int)
-        { globalNetManager().Shutdown(); }
+        { if (sInstance) { globalNetManager().Shutdown(); } }
     static void ChildSignal(int)
         { /* nothing, process tracker does waitpd */ }
     static void AlarmSignal(int)
-        { sInstance->mRestartChunkServersFlag = true; }
+        { if (sInstance) { sInstance->mRestartChunkServersFlag = true; } }
     static string GetFullPath(const string& fileName)
     {
         if (! fileName.empty() && fileName[0] == '/') {
