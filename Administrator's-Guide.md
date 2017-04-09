@@ -27,15 +27,9 @@ Checkpoint and Transaction Log Pruning
 --------------------------------------
 The directories that store metaserver checkpoints (*metaServer.cpDir*) and
 transaction logs (*metaServer.logDir*) are pruned periodically by the meta server; otherwise they
-will fill up and run out of space. Pruning parameters are described in meta server [annotated configuration file](conf/MetaServer.prp) section "Meta data (checkpoint and trasaction log) store."
+will fill up and run out of space. Pruning parameters are described in meta server [annotated configuration file](https://github.com/quantcast/qfs/blob/topic/multimaster/conf/MetaServer.prp) section "Meta data (checkpoint and trasaction log) store."
 
-To prune the checkpoints directory:
-
-`qfs_checkpoint_prune.py /path/to/metaServer.cpDir`
-
-and for the transaction logs do:
-
-`qfs_log_prune.py /path/to/metaServer.logDir`
+Checkpoint and log pruning scrips required by the prior versions are now obsolete have been removed.
 
 Creating Backups
 ----------------
@@ -67,6 +61,8 @@ each hour of the day, every day of the month (e.g. 24 files for September 26th,
 24 files for September 27th, etc.). Backups should be archived to a safe place,
 that is, **not** their own QFS file system. A different QFS file system
 designated for backups with a high replication count might be advisable.
+
+QFS meta data backup script that can be found in [here](https://github.com/quantcast/qfs/blob/topic/multimaster/scripts/qfs_backup).
 
 Restoring Backups
 -----------------
