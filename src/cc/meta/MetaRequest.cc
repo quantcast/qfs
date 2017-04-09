@@ -2411,8 +2411,7 @@ MetaLogChunkAllocate::handle()
         if (0 <= initialChunkVersion && ! objectStoreFileFlag) {
             fid_t   curFid = -1;
             Servers curServers;
-            if (! gLayoutManager.GetChunkFileId(
-                    chunkId, curFid, 0, 0, &curServers)) {
+            if (! gLayoutManager.GetChunkFileId(chunkId, curFid)) {
                 // Chunk was deleted (by truncate), fail the allocation.
                 status    = -ENOENT;
                 statusMsg = "no such chunk";
@@ -2427,38 +2426,6 @@ MetaLogChunkAllocate::handle()
                     statusMsg << " to: " << curFid <<
                     " " << Show() <<
                 KFS_LOG_EOM;
-            } else {
-                // If replica list has changed, fail allocation to roll back
-                // version change.
-                const char* const kStatusMsg =
-                    "replica list have changed, try again";
-                if (curServers.size() != servers.size()) {
-                    status    = -EALLOCFAILED;
-                    statusMsg = kStatusMsg;
-                    KFS_LOG_STREAM_DEBUG <<
-                        statusMsg <<
-                        " servers: " << servers.size() <<
-                        " => "       << curServers.size() <<
-                        " " << Show() <<
-                    KFS_LOG_EOM;
-                } else {
-                    for (Servers::const_iterator it = curServers.begin();
-                            curServers.end() != it;
-                            ++it) {
-                        if (servers.end() == find(
-                                servers.begin(), servers.end(),
-                                (*it)->GetServerLocation())) {
-                            status    = -EALLOCFAILED;
-                            statusMsg = kStatusMsg;
-                            KFS_LOG_STREAM_DEBUG <<
-                                statusMsg <<
-                                " no server: " << (*it)->GetServerLocation() <<
-                                " " << Show() <<
-                            KFS_LOG_EOM;
-                            break;
-                        }
-                    }
-                }
             }
         }
         if (0 == status) {

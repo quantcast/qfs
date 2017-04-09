@@ -3575,6 +3575,14 @@ LayoutManager::RemoveServer(
     return retFlag;
 }
 
+inline bool
+LayoutManager::IsAllocationInFlight(chunkId_t chunkId)
+{
+    const ChunkLeases::WriteLease* const wl =
+        mChunkLeases.GetChunkWriteLease(chunkId);
+    return (wl && wl->allocInFlight && 0 == wl->allocInFlight->status);
+}
+
 void
 LayoutManager::Handle(MetaChunkLogInFlight& req)
 {
@@ -4292,31 +4300,29 @@ LayoutManager::AddNewServer(MetaHello& req)
                 }
                 panic("invalid duplicate chunk to server mapping");
             }
-            const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
-            chunkVersion = ci.chunkVersion;
-            if (chunkVersion != it->chunkVersion) {
-                if (it->chunkVersion < chunkVersion) {
-                    staleReason = "lower chunk version";
-                } else if (chunkVersion + GetChunkVersionRollBack(chunkId) <
-                        it->chunkVersion) {
-                    staleReason = "higher chunk version";
-                } else {
-                    bool kMakeStableFlag = false;
-                    bool kPendingAddFlag = true;
-                    srv.NotifyChunkVersChange(
-                        fileId,
-                        chunkId,
-                        chunkVersion,     // to
-                        it->chunkVersion, // from
-                        kMakeStableFlag,
-                        kPendingAddFlag
-                    );
-                }
+            if (! req.replayFlag && IsAllocationInFlight(chunkId)) {
+                staleReason = "chunk allocation in flight";
             } else {
-                const ChunkLeases::WriteLease* const wl =
-                    mChunkLeases.GetChunkWriteLease(chunkId);
-                if (wl && wl->allocInFlight && wl->allocInFlight->status == 0) {
-                    staleReason = "chunk allocation in flight";
+                const MetaChunkInfo& ci = *(cmi->GetChunkInfo());
+                chunkVersion = ci.chunkVersion;
+                if (chunkVersion != it->chunkVersion) {
+                    if (it->chunkVersion < chunkVersion) {
+                        staleReason = "lower chunk version";
+                    } else if (chunkVersion + GetChunkVersionRollBack(chunkId) <
+                            it->chunkVersion) {
+                        staleReason = "higher chunk version";
+                    } else {
+                        bool kMakeStableFlag = false;
+                        bool kPendingAddFlag = true;
+                        srv.NotifyChunkVersChange(
+                            fileId,
+                            chunkId,
+                            chunkVersion,     // to
+                            it->chunkVersion, // from
+                            kMakeStableFlag,
+                            kPendingAddFlag
+                        );
+                    }
                 } else {
                     // This chunk is non-stale. Check replication,
                     // and update file size if this is the last
@@ -4436,13 +4442,24 @@ LayoutManager::AddNewServer(MetaHello& req)
                 break;
             }
             const chunkId_t chunkId = *id;
-            staleChunkIds.Erase(chunkId);
             modififedChunks.Erase(chunkId);
             CSMap::Entry* const cmi = mChunkToServerMap.Find(chunkId);
             if (! cmi || ! cmi->Remove(mChunkToServerMap, req.server)) {
                 panic("invalid modified chunk list");
+                staleChunkIds.Erase(chunkId);
                 continue;
             }
+            if (! req.replayFlag && IsAllocationInFlight(chunkId)) {
+                staleChunkIds.Insert(chunkId);
+                KFS_LOG_STREAM_DEBUG <<
+                    "-srv: "     << srvId <<
+                    " chunk: "   << chunkId <<
+                    " version: " << cmi->GetChunkInfo()->chunkVersion <<
+                    " allocation in flight => stale" <<
+                KFS_LOG_EOM;
+                continue;
+            }
+            staleChunkIds.Erase(chunkId);
             seq_t const chunkVersion = cmi->GetChunkInfo()->chunkVersion;
             KFS_LOG_STREAM_DEBUG <<
                 "-srv: "     << srvId <<
@@ -8226,10 +8243,7 @@ LayoutManager::Handle(MetaChunkAvailable& req)
         // corresponding chunks as in flight, and must add these to hello
         // resume.
         if (! req.replayFlag) {
-            const ChunkLeases::WriteLease* const lease =
-                mChunkLeases.GetChunkWriteLease(chunkId);
-            if (lease && lease->allocInFlight &&
-                    0 == lease->allocInFlight->status) {
+            if (IsAllocationInFlight(chunkId)) {
                 KFS_LOG_STREAM_DEBUG <<
                     loc <<
                     " available chunk: "  << chunkId <<
@@ -11781,7 +11795,7 @@ LayoutManager::Handle(MetaChunkReplicate& req)
             req.fid,
             req.chunkId,
             req.chunkVersion, // to
-            0,                 // from
+            0,                // from
             kMakeStableFlag,
             kPendingAddFlag,
             &req

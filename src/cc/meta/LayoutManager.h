@@ -2762,6 +2762,7 @@ protected:
     }
     inline bool RemoveServer(
         const ChunkServerPtr& server, bool replayFlag, chunkId_t chunkId);
+    inline bool IsAllocationInFlight(chunkId_t chunkId);
     void ScheduleTruncatedChunksDelete();
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);
