@@ -108,9 +108,9 @@ primary orders are equal. In initial configuration all nodes primary order
 must be set to 0. Node primary order is VR configuration parameter, it can be
 changed with qfsadmin vr_reconfiguration command.
 
-**Note that the node IDs must be unique, and should never be re-used. Non unique
-IDs withing the same meta server group / file system can result in loss of file
-system.**
+**Note that the node ID must be unique, and should never be re-used. Non unique
+IDs withing the same meta server group / file system can result file system
+loss.**
 
 2. Configure meta data fetch / sync, and log receiver listeners. The relevant
 parameters are described in "Meta meta data initial fetch / synchronization"
