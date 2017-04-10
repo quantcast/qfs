@@ -26,10 +26,17 @@ with no "latest" checkpoint file.
 Checkpoint and Transaction Log Pruning
 --------------------------------------
 The directories that store metaserver checkpoints (*metaServer.cpDir*) and
-transaction logs (*metaServer.logDir*) are pruned periodically by the meta server; otherwise they
-will fill up and run out of space. Pruning parameters are described in meta server [annotated configuration file](https://github.com/quantcast/qfs/blob/topic/multimaster/conf/MetaServer.prp) section "Meta data (checkpoint and trasaction log) store."
+transaction logs (*metaServer.logDir*) must be pruned regularly; otherwise they
+will fill up and run out of space. The pruning interval should be based on the
+configured checkpoint frequency (*metaServer.checkpoint.interval*).
 
-Checkpoint and log pruning scrips required by the prior versions are now obsolete have been removed.
+To prune the checkpoints directory:
+
+`qfs_checkpoint_prune.py /path/to/metaServer.cpDir`
+
+and for the transaction logs do:
+
+`qfs_log_prune.py /path/to/metaServer.logDir`
 
 Creating Backups
 ----------------
@@ -55,7 +62,12 @@ A possible solution would be to periodically do the following:
 **Note**: this simple script includes all checkpoint files, which is
 inefficient; only the latest checkpoint file is required for the backup.
 
-QFS meta data backup script is available [here](https://github.com/quantcast/qfs/blob/topic/multimaster/scripts/qfs_backup).
+Using `date +%d-%H` in the file name has the advantage of automatic backup
+rotation, as it will roll over once a month. One backup file will be kept for
+each hour of the day, every day of the month (e.g. 24 files for September 26th,
+24 files for September 27th, etc.). Backups should be archived to a safe place,
+that is, **not** their own QFS file system. A different QFS file system
+designated for backups with a high replication count might be advisable.
 
 Restoring Backups
 -----------------
@@ -78,9 +90,6 @@ modifications since the backup will be lost.
 
 **Note:** The location of the *metaServer.cpDir* and *metaServer.logDir* should
 not change.
-
-Meta server replication.
--------------------------------
 
 File System Integrity (`qfsfsck`)
 -------------------------------
@@ -375,7 +384,8 @@ the chunk server will exit.
 
 Notes
 -----
-- Running qfshibernate again with the same chunk server will update hibernation window. 
+- Currently the only way to extend a hibernation window is to restore the given
+  chunk server and re-hibernate it.
 - The longer the hibernation window, the greater the likelihood of data loss. A
   window of no more than an hour is recommended for this reason.
 
