@@ -156,43 +156,47 @@ listeners' network locations (IP address and port).
 For example:
 ------------
 Add node 0 to VR configuration:
-`qfsadmin -f qfsadmin.cfg \
-    -s <meta server host or ip> \
-    -p <meta server port> \
-    -F op-type=add-node \
-    -F arg-count=1 \
-    -F node-id=0 \
-    -F args='node0-ip-address node0-log-listener-port-number' \
-    vr_reconfiguration`
+
+    `qfsadmin -f qfsadmin.cfg \
+        -s <meta server host or ip> \
+        -p <meta server port> \
+        -F op-type=add-node \
+        -F arg-count=1 \
+        -F node-id=0 \
+        -F args='node0-ip-address node0-log-listener-port-number' \
+        vr_reconfiguration`
 
 Add node 1 to VR configuration:
-`qfsadmin -f qfsadmin.cfg \
-    -s <meta server host or ip> \
-    -p <meta server port> \
-    -F op-type=add-node \
-    -F arg-count=1 \
-    -F node-id=1 \
-    -F args='node1-ip-address node1-log-listener-port-number' \
-    vr_reconfiguration`
+
+    `qfsadmin -f qfsadmin.cfg \
+        -s <meta server host or ip> \
+        -p <meta server port> \
+        -F op-type=add-node \
+        -F arg-count=1 \
+        -F node-id=1 \
+        -F args='node1-ip-address node1-log-listener-port-number' \
+        vr_reconfiguration`
 
 Add node 2 to VR configuration:
-`qfsadmin -f qfsadmin.cfg \
-    -s <meta server host or ip> \
-    -p <meta server port> \
-    -F op-type=add-node \
-    -F arg-count=1 \
-    -F node-id=2 \
-    -F args='node1-ip-address node2-log-listener-port-number' \
-    vr_reconfiguration`
+
+    `qfsadmin -f qfsadmin.cfg \
+        -s <meta server host or ip> \
+        -p <meta server port> \
+        -F op-type=add-node \
+        -F arg-count=1 \
+        -F node-id=2 \
+        -F args='node1-ip-address node2-log-listener-port-number' \
+        vr_reconfiguration`
 
 Activate nodes:
-`qfsadmin -f qfsadmin.cfg \
-    -s <meta server host or ip> \
-    -p <meta server port> \
-    -F op-type=activate-nodes \
-    -F arg-count=3 \
-    -F args='0 1 2' \
-    vr_reconfiguration`
+
+    `qfsadmin -f qfsadmin.cfg \
+        -s <meta server host or ip> \
+        -p <meta server port> \
+        -F op-type=activate-nodes \
+        -F arg-count=3 \
+        -F args='0 1 2' \
+        vr_reconfiguration`
 
 Once VR configured, changing VR configuration does not require
 file system downtime. New meta server nodes can be added to the configuration,

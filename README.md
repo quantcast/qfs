@@ -1,5 +1,8 @@
-QFS version 2.0. The code in the master branch is currently being tested in
+QFS version 2.0.
+
+The code in the master branch is currently being tested in
 Quantcast production cluster.
+
 Meta server replication is the major new feature in this release. Meta server
 replication provides automatic meta server fail over. With meta server replication
 configured QFS does not have single point of failure.

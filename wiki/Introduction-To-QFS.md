@@ -95,7 +95,7 @@ QFS Features
 - **FUSE support on Linux:** By mounting QFS via FUSE, this support allows
   existing linux utilities (such as `ls`) to interface with QFS.
 - **Unix style permissions support**
-- **Meta server replication: ** solves single point of failure problem. QFS file
+- **Meta server replication:** solves single point of failure problem. QFS file
   system meta data stored in checkpoint and transaction log segments can be
   synchronously replicated to multiple meta server nodes, in order to mask
   node and communication failures by automatically determining set of connected
