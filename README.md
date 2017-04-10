@@ -1,4 +1,10 @@
-<img src="wiki/images/Misc/new_logo.png" alt="New announcement"/>QFS version [1.2.0](https://github.com/quantcast/qfs/tree/1.2.0) with Amazon S3 support is out. Check out the blog post [here](https://www.quantcast.com/blog/quantcast-file-system-on-amazon-s3/) for details.
+QFS version 2.0. The code in the master branch is currently being tested in
+Quantcast production cluster.
+Meta server replication is the major new feature in this release. Meta server
+replication provides automatic meta server fail over. With meta server replication
+configured QFS does not have single point of failure.
+
+Release notes for this release are available [here](https://github.com/quantcast/qfs/wiki/Release-Notes).
 
 Quantcast File System
 ================================================================================

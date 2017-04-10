@@ -26,17 +26,10 @@ with no "latest" checkpoint file.
 Checkpoint and Transaction Log Pruning
 --------------------------------------
 The directories that store metaserver checkpoints (*metaServer.cpDir*) and
-transaction logs (*metaServer.logDir*) must be pruned regularly; otherwise they
-will fill up and run out of space. The pruning interval should be based on the
-configured checkpoint frequency (*metaServer.checkpoint.interval*).
+transaction logs (*metaServer.logDir*) are pruned periodically by the meta server; otherwise they
+will fill up and run out of space. Pruning parameters are described in meta server [annotated configuration file](https://github.com/quantcast/qfs/blob/master/conf/MetaServer.prp) section "Meta data (checkpoint and trasaction log) store."
 
-To prune the checkpoints directory:
-
-`qfs_checkpoint_prune.py /path/to/metaServer.cpDir`
-
-and for the transaction logs do:
-
-`qfs_log_prune.py /path/to/metaServer.logDir`
+Checkpoint and log pruning scrips required by the prior versions are now obsolete have been removed.
 
 Creating Backups
 ----------------
@@ -62,12 +55,7 @@ A possible solution would be to periodically do the following:
 **Note**: this simple script includes all checkpoint files, which is
 inefficient; only the latest checkpoint file is required for the backup.
 
-Using `date +%d-%H` in the file name has the advantage of automatic backup
-rotation, as it will roll over once a month. One backup file will be kept for
-each hour of the day, every day of the month (e.g. 24 files for September 26th,
-24 files for September 27th, etc.). Backups should be archived to a safe place,
-that is, **not** their own QFS file system. A different QFS file system
-designated for backups with a high replication count might be advisable.
+QFS meta data backup script is available [here](https://github.com/quantcast/qfs/blob/master/scripts/qfs_backup).
 
 Restoring Backups
 -----------------
@@ -90,6 +78,146 @@ modifications since the backup will be lost.
 
 **Note:** The location of the *metaServer.cpDir* and *metaServer.logDir* should
 not change.
+
+Meta server replication (VR)
+----------------------------
+Meta server replication provoides fault tolerance at the meta server level.
+The file system can be configured with multiple meta server nodes, in order to
+solve single point of failure problem.
+Meta server replication design  based on Veiwstamped replication (VR) [paper](http://pmg.csail.mit.edu/papers/vr-revisited.pdf).
+The minimum number of meta server nodes required is 3, in order solve "network
+partitioning" / connectivity problem. The problem description can be found in
+the VR paper.
+
+Configuring replicated meta server group / cluster consists of the following
+steps.
+
+0. Decide on the number of meta server nodes N. The minimum N is 3. The
+maximum number of tolerated nodes failures is N/2 - 1. QFS clients and chunk
+servers automatically re-connect to newly elected primary node in the case
+when prior primary node becomes unavailable due to node or network
+connectivity failure(s).
+
+1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
+set of nodes must have node with ID 0. The node with lowest ID is elected as a
+primary primary, the remaining active nodes are assigned backup status. Node's
+"primary order" (signed 32 bit signed integer) can be used to change primary
+election, the node with the smallest primary order becomes primary. Node's
+primary order takes precedence over node ID, node ID breaks tie in case when
+primary orders are equal. In initial configuration all nodes primary order
+must be set to 0. Node primary order is VR configuration parameter, it can be
+changed with qfsadmin vr_reconfiguration command.
+
+**Note that the node IDs must be unique, and should never be re-used. Non unique
+IDs withing the same meta server group / file system can result in loss of file
+system.**
+
+2. Configure meta data fetch / sync, and log receiver listeners. The relevant
+parameters are described in "Meta meta data initial fetch / synchronization"
+section of the meta server annotated configuration file.
+
+3. Copy or create new file system checkpoint and transaction log segments
+on/to the node with ID 0, and ensure that other nodes have empty checkpoint
+and transaction log directories. Specify file system ID in the meta server
+configuration file with metaServer.metaDataSync.fileSystemId parameter.
+File system ID can be obtained from the beginning of the checkpoint
+file: the first number on the line with the "filesysteminfo/fsid/" prefix.
+
+4. Create DNS record with the list of meta server nodes IP addresses, or add
+meta server nodes IP addresses to the client configuration file by using
+client.metaServerNodes parameter.
+Chunk servers, similarly to QFS client, need to be configured with the meta
+server DNS name, and / or list of meta server nodes network locations.
+Please see chunkServer.meta.nodes parameter description in chunk server
+configuration file.
+
+5. Start meta server on all meta server nodes. The nodes with non 0 IDs should
+fetch checkpoint and transaction log from node with ID 0.
+
+6. Use qfsadmin vr_reconfiguration command to configure replication. VR
+configuration stored in the checkpoint and transaction log, and replicated
+onto all meta server nodes.
+
+The first step is to add all nodes with their respective transaction log
+listeners network addresses [locations], the second is to activate nodes. Meta
+server should respond to vr_reconfiguration without arguments with the
+command description.
+
+QFS admin configuration file has the same format and parameters as QFS client
+configuration file. Typically configuration file describes autentication
+configuration. Wihout authentication configuration the configuration
+file is not used.
+
+In the case when meta server nodes connected with more than one
+network links / IP addresses, multiple redundant network connections can
+be configured to increase connectivity reliability by specifying list of log
+listeners' network locations (IP address and port).
+
+For example:
+------------
+Add node 0 to VR configuration:
+`qfsadmin -f qfsadmin.cfg \
+    -s <meta server host or ip> \
+    -p <meta server port> \
+    -F op-type=add-node \
+    -F arg-count=1 \
+    -F node-id=0 \
+    -F args='node0-ip-address node0-log-listener-port-number' \
+    vr_reconfiguration`
+
+Add node 1 to VR configuration:
+`qfsadmin -f qfsadmin.cfg \
+    -s <meta server host or ip> \
+    -p <meta server port> \
+    -F op-type=add-node \
+    -F arg-count=1 \
+    -F node-id=1 \
+    -F args='node1-ip-address node1-log-listener-port-number' \
+    vr_reconfiguration`
+
+Add node 2 to VR configuration:
+`qfsadmin -f qfsadmin.cfg \
+    -s <meta server host or ip> \
+    -p <meta server port> \
+    -F op-type=add-node \
+    -F arg-count=1 \
+    -F node-id=2 \
+    -F args='node1-ip-address node2-log-listener-port-number' \
+    vr_reconfiguration`
+
+Activate nodes:
+`qfsadmin -f qfsadmin.cfg \
+    -s <meta server host or ip> \
+    -p <meta server port> \
+    -F op-type=activate-nodes \
+    -F arg-count=3 \
+    -F args='0 1 2' \
+    vr_reconfiguration`
+
+Once VR configured, changing VR configuration does not require
+file system downtime. New meta server nodes can be added to the configuration,
+existing nodes can be removed, or replaced with new nodes.
+
+Adding and removing node is two step configuration. The first step is to
+add node, or inactivate node. The second step is to either activate or remove
+or replace (swap with currently active) node. The two step process allows for
+new node to synchronize its state with active nodes, and verify node
+connectivity prior to its activation, in order to minimize re-configuration
+time, and downtime due possible operator error.
+
+With default parameters system switch over time (new primary election, and
+chunk servers and clients connecting to the new primary) should be around
+10 seconds.
+
+Removing VR configuration
+--------------------------
+VR (meta server replication) configuration stored in checkpoint and transaction
+logs. It is not possible to remove / reset VR configuration at run time, i.e.
+without downtime while servicing requests.
+The following two meta server command line options allow to clear VR configuration
+or inactivate all meta server nodes:
+-clear-vr-config         -- append an entry to the end of the transaction log to clear VR configuration, and exit
+-vr-inactivate-all-nodes -- append an entry to the end of the transaction log to inactivate all VR nodes, and exit
 
 File System Integrity (`qfsfsck`)
 -------------------------------
@@ -331,6 +459,14 @@ The command is similar for a chunk server ping:
 Parsing the output of a ping is beyond the scope of this document but the Python
 web interface `qfsstatus.py` provides an example of this and more.
 
+Ugrading from previous release (`logcompactor`)
+-----------------------------------------------
+The recommended process is to use logcompactor from previous release to create
+checkpoint and possibly single log segment, then use logcompactor from the new
+release to convert file system meta data into new format.
+
+`logcomactor -l state/transactions -c state/checkpoint -T state/transactions_new -C state/checkpoint_new`
+
 Chunk Server
 ============
 The chunk server is the workhorse of QFS file system and is responsible for
@@ -384,8 +520,7 @@ the chunk server will exit.
 
 Notes
 -----
-- Currently the only way to extend a hibernation window is to restore the given
-  chunk server and re-hibernate it.
+- Running qfshibernate again with the same chunk server will update hibernation window.
 - The longer the hibernation window, the greater the likelihood of data loss. A
   window of no more than an hour is recommended for this reason.
 
