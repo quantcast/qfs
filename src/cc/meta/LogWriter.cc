@@ -402,6 +402,7 @@ public:
         }
         mMetaVrSM.Shutdown();
         mLogTransmitter.Shutdown();
+        NetErrorSimulatorConfigure(mNetManager, 0);
         Cancel(mInQueue);
         mPendingCount -= Cancel(mOutQueue);
         mPendingCount -= Cancel(mPendingQueue);

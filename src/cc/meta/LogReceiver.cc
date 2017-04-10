@@ -182,7 +182,7 @@ public:
             panic("LogReceiver::Impl::Start delete pending");
             return -EINVAL;
         }
-        Shutdown();
+        ShutdownSelf();
         if (! inNetManager.IsRunning()) {
             KFS_LOG_STREAM_ERROR <<
                 "net manager shutdown" <<
@@ -503,6 +503,7 @@ private:
         );
     }
     void BroadcastAck();
+    void ShutdownSelf();
 private:
     Impl(
         const Impl& inImpl);
@@ -1381,7 +1382,7 @@ LogReceiver::Impl::Done(
 }
 
     void
-LogReceiver::Impl::Shutdown()
+LogReceiver::Impl::ShutdownSelf()
 {
     if (mAcceptorPtr) {
         mAcceptorPtr->GetNetManager().UnRegisterTimeoutHandler(this);
@@ -1397,6 +1398,15 @@ LogReceiver::Impl::Shutdown()
     ClearQueues();
     mInFlightWriteCount = 0;
     mWakerPtr = 0;
+}
+
+    void
+LogReceiver::Impl::Shutdown()
+{
+    if (mAcceptorPtr) {
+        NetErrorSimulatorConfigure(mAcceptorPtr->GetNetManager(), 0);
+    }
+    ShutdownSelf();
     mAuthContext.Clear();
 }
 
