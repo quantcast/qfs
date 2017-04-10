@@ -20,7 +20,7 @@
 // implied. See the License for the specific language governing
 // permissions and limitations under the License.
 //
-// Veiwstamped replications state machine..
+// Veiwstamped replication state machine.
 //
 // http://pmg.csail.mit.edu/papers/vr-revisited.pdf
 //
