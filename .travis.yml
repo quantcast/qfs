@@ -73,7 +73,7 @@ services:
     - docker
 
 before_deploy:
-    - mkdir artifacts
+    - sudo mkdir artifacts
     - sudo mv build/*.tgz artifacts # docker uses root when writing tarball
 
 deploy:
