@@ -12,7 +12,6 @@ installed in your development system.
 | `maven`          | `maven2`             | `maven` |                    | version 3.0.3 or higher                                                                                                                       |
 | `boost-devel`    | `libboost-regex-dev` | `boost` | `libboost-devel`   | version 1.3.4 or higher (for mac, may need to install boost with `'-no_single'` option if only the `/opt/local/lib/*-mt.dylib` are installed) |
 | `krb5-devel`     | `libkrb5-dev`        |         | `libkrb5-devel`    |                                                                                                                                               |
-| `xfsprogs-devel` | `xfslibs-dev`        |         |                    |                                                                                                                                               |
 | `openssl-devel`  | `libssl-dev`         |         | `openssl-devel`    |                                                                                                                                               |
 | `python-devel`   | `python-dev`         |         |                    | for python bindings                                                                                                                           |
 | `fuse-devel`     | `libfuse-dev`        |         |                    | for FUSE bindings                                                                                                                             |
@@ -102,9 +101,9 @@ Once the build is complete, you will find the build artifacts in the
 `build/debug` directory.
 
 ### Types of Builds
-The default build type is a debug build. You can execute a release build by
-running `BUILD_TYPE=release make`. The build artifacts for this build will be
-available in the `build/release` directory.
+The default build type is a release build. You can execute a debug build by
+running `make BUILD_TYPE=debug CMAKE_OPTIONS=`. The build artifacts for this
+build will be available in the `build/debug` directory.
 
 Debug binaries are useful when developing QFS since they include debugging
 symbols, greatly simplifying debugging. However, for a production deployment,

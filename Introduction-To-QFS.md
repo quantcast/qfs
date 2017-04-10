@@ -95,17 +95,14 @@ QFS Features
 - **FUSE support on Linux:** By mounting QFS via FUSE, this support allows
   existing linux utilities (such as `ls`) to interface with QFS.
 - **Unix style permissions support**
+- **Meta server replication:** solves single point of failure problem. QFS file
+  system meta data stored in checkpoint and transaction log segments can be
+  synchronously replicated to multiple meta server nodes, in order to mask
+  node and communication failures by automatically determining set of connected
+  and usable meta server nodes, and switching over to it.
 
 Key Known Issues And Limitations
 --------------------------------
-- There is a single metaserver in the system. This is a single point of failure.
-  The metaserver logs and checkpoint files are stored on local disk. To avoid
-  losing the file system, the metaserver logs and checkpoint files should be
-  backed up to a remote node periodically.
-- Since the metaserver does data placement in a balanced manner, little control
-  is provided to alter placement. In some cases it may be desirable to provide
-  placement hints to the metaserver. In other words, the data placement
-  algorithm is not network-aware.
 - The maximum value for a file's degree of replication is 64 (assuming resources
   exist).
 - The metaserver currently does not replicate chunks whenever files become "hot"
