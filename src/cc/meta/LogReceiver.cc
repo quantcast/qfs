@@ -1397,6 +1397,7 @@ LogReceiver::Impl::Shutdown()
     ClearQueues();
     mInFlightWriteCount = 0;
     mWakerPtr = 0;
+    mAuthContext.Clear();
 }
 
     void

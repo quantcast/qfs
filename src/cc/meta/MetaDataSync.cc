@@ -676,6 +676,7 @@ public:
         delete [] mReadOpsPtr;
         mReadOpsPtr = 0;
         FreeWriteOps();
+        mAuthContext.Clear();
     }
     virtual void OpDone(
         KfsOp*    inOpPtr,

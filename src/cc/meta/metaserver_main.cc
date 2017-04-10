@@ -183,6 +183,10 @@ public:
                 " " << SslFilter::GetErrorMsg(sslErr) << "\n";
             return 1;
         }
+        // Use data segment (.bss) for meta server instance, in order to
+        // increase the chances for it to be part of partially written core
+        // file, as kernel/os typically begins writing core file from lower
+        // addresses.
         static class MetaServerStorage
         {
         public:
