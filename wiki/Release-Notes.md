@@ -11,7 +11,7 @@ replication configured QFS does not have single point of failure.
  are guaranteed to be applied only once in the presence of communication
  errors. (Idempotent RPCs).
 
-3, Partial chunk server inventory synchronization.
+3. Partial chunk server inventory synchronization.
  The goal is to reduce chunk servers re-connect to the meta server time with
  large chunk inventory.
  Chunk servers  now transmit only list of non-stable / writable chunk IDs, and
