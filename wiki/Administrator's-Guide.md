@@ -205,7 +205,7 @@ Once VR configured, changing VR configuration does not require
 file system downtime. New meta server nodes can be added to the configuration,
 existing nodes can be removed, or replaced with new nodes.
 
-Adding and removing node is two step configuration. The first step is to
+Adding and removing node consists of two steps. The first step is to
 add node, or inactivate node. The second step is to either activate or remove
 or replace (swap with currently active) node. The two step process allows for
 new node to synchronize its state with active nodes, and verify node
