@@ -224,8 +224,8 @@ For example:
 
     qfsadmin -s sfsb0.sea1.qc -p 30000 vr_get_status
 
-The will look like the following. The node state will be primary (it might be
- backup if specific node), if everything is OK.
+The output will look like the following. The node state will be primary (status
+ might be backup when querying specific node), if everything is OK.
 
     vr.nodeId: 0
     vr.status: 0
@@ -298,10 +298,12 @@ Removing VR configuration
 VR (meta server replication) configuration stored in checkpoint and transaction
 logs. It is not possible to remove / reset VR configuration at run time, i.e.
 without downtime while servicing requests.
-The following two meta server command line options allow to clear VR configuration
-or inactivate all meta server nodes:
--clear-vr-config         -- append an entry to the end of the transaction log to clear VR configuration, and exit
--vr-inactivate-all-nodes -- append an entry to the end of the transaction log to inactivate all VR nodes, and exit
+The following two meta server command line options allow to clear VR
+configuration or inactivate all meta server nodes:
+1. -clear-vr-config         -- append an entry to the end of the transaction log
+to clear VR configuration, and exit
+2. -vr-inactivate-all-nodes -- append an entry to the end of the transaction log
+to inactivate all VR nodes, and exit
 
 File System Integrity (`qfsfsck`)
 ---------------------------------
@@ -430,10 +432,12 @@ Object store fsck loads checkpoint, replays transaction logs, then reads
 object store block keys from standard in, one key per line, and outputs "lost"
 file names on standard out (files with keys that were not present in standard
 in), if any.
+
 Note that the list of object store block keys must be more recent than
 checkpoint, and transaction logs, and valid meta server host and port must be
 specified in order for this work correctly (no false positives) if the file
 system is "live" / being modified.
+
 In other words, the correct procedure to check "live" file system is to copy /
 save checkpoint, and transaction logs, then create list of object store
 blocks, then run this tool.
