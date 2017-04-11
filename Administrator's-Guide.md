@@ -565,7 +565,7 @@ web interface `qfsstatus.py` provides an example of this and more.
 
 Ugrading from previous release (`logcompactor`)
 -----------------------------------------------
-The recommended process is to use logcompactor from previous release to create
+The recommended procedure is to use logcompactor from previous release to create
 checkpoint and possibly single log segment, then use logcompactor from the new
 release to convert file system meta data into new format.
 
