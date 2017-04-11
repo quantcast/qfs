@@ -221,7 +221,12 @@ VR status
 `qfsadmin vr_get_status` can be used to query VR status of the file system or
 status of specific meta server node.(with -n parameter)
 For example:
-    $ qfsadmin -s sfsb0.sea1.qc -p 30000 vr_get_status
+
+    qfsadmin -s sfsb0.sea1.qc -p 30000 vr_get_status
+
+The will look like the following. The node state will be primary (it might be
+ backup if specific node), if everything is OK.
+
     vr.nodeId: 0
     vr.status: 0
     vr.active: 1
