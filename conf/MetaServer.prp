@@ -1013,6 +1013,10 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.cryptoKeys.keyChangePeriodSec = 7200
 
 # Meta server crypto keys file name.
+# This parameter is *deprecated*, the keys are now store in checkpoint and
+# transaction log. In non replicated meta server configuration the file will be
+# read and the keys will be loaded if no keys exist in the checkpoint and
+# transaction log.
 # File name to save meta server keys.
 # Specify file name to save keys, in order to ensure that delegation tokens are
 # persistent across meta server restarts.
