@@ -74,7 +74,7 @@ permit super user to move file out of dumpster in order to prevent its deletion.
 15. Meta server crypto keys are now always stored in checkpoint and transaction
  log. Configuration parameter metaServer.cryptoKeys.keysFileName is deprecated.
 
-16.WROM mode configuration parameter metaServer.wormMode is deprecated, and has
+16. WROM mode configuration parameter metaServer.wormMode is deprecated, and has
  no effect. WORM mode is now stored in checkpoint and transaction logs.
  logcompactor has an option to set worm mode when converting checkpoint and
  transaction log into new format. qfsadmin or qfstoggleworm can be used to
