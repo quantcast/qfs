@@ -1353,11 +1353,11 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Configuring replicated meta server group / cluster consists of the following
 # steps.
 #
-# 0. Decide on the number of meta server nodes N. The minimum N is 3. The
-# maximum number of tolerated nodes failures is N/2 - 1. QFS clients and chunk
-# servers automatically re-connect to newly elected primary node in the case
-# when prior primary node becomes unavailable due to node or network
-# connectivity failure.
+# 0. Decide on the number of meta server nodes N. The minimum N is 3. The maximum
+# number of tolerated nodes failures is N - (N/2 + 1). QFS clients and chunk
+# servers automatically re-connect to newly elected primary node in the case when
+# prior primary node becomes unavailable due to node or network connectivity
+# failure.
 #
 # 1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
 # set of nodes must have node with ID 0. The node with lowest ID is
