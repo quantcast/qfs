@@ -81,21 +81,24 @@ not change.
 
 Meta server replication (VR)
 ----------------------------
-Meta server replication provoides fault tolerance at the meta server level.
+Meta server replication provides fault tolerance at the meta server level.
 The file system can be configured with multiple meta server nodes, in order to
 solve single point of failure problem.
 Meta server replication design  based on Veiwstamped replication (VR) [paper](http://pmg.csail.mit.edu/papers/vr-revisited.pdf).
-The minimum number of meta server nodes required is 3, in order solve "network
-partitioning" / connectivity problem. The problem description can be found in
-the VR paper.
+The minimal configuration requires 3 meta server node. At least 3 nodes are
+needed to solve "network partitioning" problem. This problem occurs when some
+subset(s) of meta server nodes cannot communicates with another
+subset(s) of meta server nodes. In such case a subset of nodes larger than or
+equal to N/2 + 1 (a.k.a. quorum), if exists, automatically selected to service
+requests. The problem description can be found in the VR paper.
 
 Configuring replicated meta server group / cluster consists of the following
 steps.
 
 0. Decide on the number of meta server nodes N. The minimum N is 3. The
-maximum number of tolerated nodes failures is N/2 - 1. QFS clients and chunk
-servers automatically re-connect to newly elected primary node in the case
-when prior primary node becomes unavailable due to node or network
+maximum number of tolerated nodes failures is N - (N/2 + 1). QFS clients and
+chunk servers automatically re-connect to newly elected primary node in the
+case when prior primary node becomes unavailable due to node or network
 connectivity failure(s).
 
 1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
@@ -213,6 +216,78 @@ With default parameters system switch over time (new primary election, and
 chunk servers and clients connecting to the new primary) should be around
 10 seconds.
 
+VR status
+----------
+`qfsadmin vr_get_status` can be used to query VR status of the file system or
+status of specific meta server node.(with -n parameter)
+For example:
+    $ qfsadmin -s sfsb0.sea1.qc -p 30000 vr_get_status
+    vr.nodeId: 0
+    vr.status: 0
+    vr.active: 1
+    vr.state: primary
+    vr.primaryId: 0
+    vr.epoch: 5
+    vr.view: 71
+    vr.log: 5 71 120444929
+    vr.commit: 5 71 120444929
+    vr.lastViewEnd: 5 69 1258
+    vr.quorum: 2
+    vr.ignoreInvalidVrState: 0
+    vr.fileSystemId: 160517748448112759
+    vr.clusterKey: mrs-kfs-sort-b
+    vr.metaMd5: b6f2a25365e37c75b7fdf12914d2392d
+    vr.viewChangeReason: restart, node: 2
+    vr.viewChangeStartTime: 1491775660
+    vr.currentTime: 1491877576
+
+    logTransmitter.channel.0.location: 10.6.46.38 30200
+    logTransmitter.channel.0.id: 2
+    logTransmitter.channel.0.receivedId: 2
+    logTransmitter.channel.0.primaryId: 0
+    logTransmitter.channel.0.active: 1
+    logTransmitter.channel.0.ack: 5 71 120444929
+    logTransmitter.channel.0.sent: 5 71 120444929
+    logTransmitter.channel.1.location: 10.6.34.1 30200
+    logTransmitter.channel.1.id: 1
+    logTransmitter.channel.1.receivedId: 1
+    logTransmitter.channel.1.primaryId: 0
+    logTransmitter.channel.1.active: 1
+    logTransmitter.channel.1.ack: 5 71 120444929
+    logTransmitter.channel.1.sent: 5 71 120444929
+    logTransmitter.channel.2.location: 10.6.47.1 30200
+    logTransmitter.channel.2.id: 0
+    logTransmitter.channel.2.receivedId: 0
+    logTransmitter.channel.2.primaryId: 0
+    logTransmitter.channel.2.active: 1
+    logTransmitter.channel.2.ack: 5 71 120444929
+    logTransmitter.channel.2.sent: 5 71 120444929
+
+    logTransmitter.activeUpNodesCount: 3
+    logTransmitter.activeUpChannelsCount: 3
+
+    configuration.primaryTimeout: 4
+    configuration.backupTimeout: 8
+    configuration.changeViewMaxLogDistance: 65536
+    configuration.maxListenersPerNode: 16
+    configuration.node.0.id: 0
+    configuration.node.0.flags: 2
+    configuration.node.0.active: 1
+    configuration.node.0.primaryOrder: 0
+    configuration.node.0.listener: 10.6.47.1 30200
+    configuration.node.1.id: 1
+    configuration.node.1.flags: 2
+    configuration.node.1.active: 1
+    configuration.node.1.primaryOrder: 0
+    configuration.node.1.listener: 10.6.34.1 30200
+    configuration.node.2.id: 2
+    configuration.node.2.flags: 2
+    configuration.node.2.active: 1
+    configuration.node.2.primaryOrder: 0
+    configuration.node.2.listener: 10.6.46.38 30200
+
+Meta server web UI can also be used to obtain VR status.
+
 Removing VR configuration
 --------------------------
 VR (meta server replication) configuration stored in checkpoint and transaction
@@ -224,7 +299,7 @@ or inactivate all meta server nodes:
 -vr-inactivate-all-nodes -- append an entry to the end of the transaction log to inactivate all VR nodes, and exit
 
 File System Integrity (`qfsfsck`)
--------------------------------
+---------------------------------
 The `qfsfsck` tool can be employed in three ways:
 
 - Verify the integrity of a running file system by identifying lost files and/or
@@ -341,6 +416,22 @@ If everything is okay, the output will look something like this:
     09-25-2012 20:39:24.012 INFO - (replay.cc:559) log time: 2012-09-25T20:29:44.712673Z
 
 otherwise `qfsfsck` will exit in error.
+
+Object Store (S3) File System Integrity Verification (`qfsobjstorefsck`)
+------------------------------------------------------------------------
+The `qfsobjstorefsck` tool can be used to verify object store (S3) bloks inventory.
+
+Object store fsck loads checkpoint, replays transaction logs, then reads
+object store block keys from standard in, one key per line, and outputs "lost"
+file names on standard out (files with keys that were not present in standard
+in), if any.
+Note that the list of object store block keys must be more recent than
+checkpoint, and transaction logs, and valid meta server host and port must be
+specified in order for this work correctly (no false positives) if the file
+system is "live" / being modified.
+In other words, the correct procedure to check "live" file system is to copy /
+save checkpoint, and transaction logs, then create list of object store
+blocks, then run this tool.
 
 File System Archive
 -------------------
