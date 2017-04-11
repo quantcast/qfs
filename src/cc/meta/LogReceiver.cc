@@ -1037,9 +1037,11 @@ private:
             return -1;
         }
         if (! ValidateSession()) {
+            MetaRequest::Release(theReqPtr);
             return -1;
         }
         if (mImpl.GetMaxPendingOpsCount() < mPendingOpsCount) {
+            MetaRequest::Release(theReqPtr);
             Error("exceeded max pending RPC limit");
             return -1;
         }
