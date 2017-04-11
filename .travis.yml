@@ -73,8 +73,11 @@ services:
     - docker
 
 before_deploy:
-    - sudo mkdir artifacts
-    - sudo mv build/*.tgz artifacts # docker uses root when writing tarball
+    # Docker build might use different user or root, change ownership back to
+    # the current user.
+    - sudo chown `id -u`:`id -g` . build
+    - mkdir artifacts
+    - mv build/*.tgz artifacts
 
 deploy:
     provider: s3
