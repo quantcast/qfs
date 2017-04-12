@@ -881,25 +881,31 @@ public:
         return servers;
     }
     size_t GetServers(const Entry& entry, Servers& servers) const {
-        size_t hibernatedCount    = 0;
+        size_t hibernatedCount = 0;
         return GetServers(entry, servers, hibernatedCount);
     }
     size_t GetConnectedServers(const Entry& entry, Servers& servers) const {
-        size_t hibernatedCount = 0;
-        return GetConnectedServers(entry, servers, hibernatedCount);
+        size_t hibernatedCount   = 0;
+        size_t disconnectedCount = 0;
+        return GetConnectedServers(
+            entry, servers, hibernatedCount, disconnectedCount);
     }
     size_t GetServers(const Entry& entry, Servers& servers,
             size_t& hibernatedCount) const {
         const bool kConnectedOnlyFlag = false;
-        return GetServers(entry, servers, hibernatedCount, kConnectedOnlyFlag);
+        size_t     disconnectedCount  = 0;
+        return GetServers(entry, servers, hibernatedCount,
+            disconnectedCount, kConnectedOnlyFlag);
     }
     size_t GetConnectedServers(const Entry& entry, Servers& servers,
-            size_t& hibernatedCount) const {
+            size_t& hibernatedCount, size_t& disconnectedCount) const {
         const bool kConnectedOnlyFlag = true;
-        return GetServers(entry, servers, hibernatedCount, kConnectedOnlyFlag);
+        return GetServers(entry, servers,
+            hibernatedCount, disconnectedCount, kConnectedOnlyFlag);
     }
     size_t GetServers(const Entry& entry, Servers& servers,
-            size_t& hibernatedCount, bool connectedOnlyFlag) const {
+            size_t& hibernatedCount, size_t& disconnectedCount,
+            bool connectedOnlyFlag) const {
         hibernatedCount = 0;
         if (mRemoveServerScanPtr) {
             return CleanupStaleServers(entry, &servers, hibernatedCount);
@@ -911,6 +917,7 @@ public:
             if (srv) {
                 if (connectedOnlyFlag && ! srv->IsConnected()) {
                     hibernatedCount++;
+                    disconnectedCount++;
                 } else {
                     servers.push_back(srv);
                     count++;

@@ -7020,8 +7020,14 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
         req.status    = -EINVAL;
         return;
     }
+    req.servers.clear();
+    size_t hibernatedCount   = 0;
+    size_t disconnectedCount = 0;
+    size_t cnt = mChunkToServerMap.GetConnectedServers(
+        *ci, req.servers, hibernatedCount, disconnectedCount);
+    req.servers.clear();
     int ret = 0;
-    if (! mChunkToServerMap.HasServers(*ci)) {
+    if (cnt <= disconnectedCount) {
         req.statusMsg = "no replicas available";
         ret = -EDATAUNAVAIL;
         if (! req.stripedFileFlag) {
@@ -7033,6 +7039,9 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
         // change, and recovery can not be started.
         // Chunk invalidation and normal chunk close (in the case when
         // replica re-appears) will expire the lease.
+    } else if (0 < disconnectedCount) {
+        req.statusMsg = "server down in flight";
+        ret = -EBUSY;
     }
 
     ChunkLeases::EntryKey const leaseKey(req.chunkId);
@@ -7065,8 +7074,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
             " status: "     << ret <<
         KFS_LOG_EOM;
         if (ret < 0) {
-            req.servers.clear();
-            mChunkToServerMap.GetServers(*ci, req.servers);
             req.leaseId       = l->leaseId;
             req.leaseDuration = req.authUid != kKfsUserNone ?
                 l->endTime - TimeNow() : int64_t(-1);
@@ -7110,24 +7117,36 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
     // Check if servers vector has changed:
     // chunk servers can go down in ExpiredCleanup()
     req.servers.clear();
-    mChunkToServerMap.GetServers(*ci, req.servers);
-    if (req.servers.empty()) {
+    hibernatedCount   = 0;
+    disconnectedCount = 0;
+    cnt = mChunkToServerMap.GetConnectedServers(
+        *ci, req.servers, hibernatedCount, disconnectedCount);
+    if (cnt <= disconnectedCount) {
         // all the associated servers are dead...so, fail
         // the allocation request.
         req.statusMsg = "no replicas available";
         req.status    = -EDATAUNAVAIL;
-        return;
+    } else if (0 < disconnectedCount) {
+        req.statusMsg = "server down in progress";
+        req.status    = -EBUSY;
     }
-    // Need space on the servers..otherwise, fail it
-    for (Servers::const_iterator it = req.servers.begin();
-            it != req.servers.end();
-            ++it) {
-        if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
-            req.status = -ENOSPC;
-            return;
+    if (0 == req.status) {
+        // Need space on the servers..otherwise, fail it
+        for (Servers::const_iterator it = req.servers.begin();
+                it != req.servers.end();
+                ++it) {
+            if ((*it)->GetAvailSpace() < mChunkAllocMinAvailSpace) {
+                req.statusMsg = (*it)->GetServerLocation().ToString();
+                req.statusMsg += " no space available";
+                req.status = -ENOSPC;
+                break;
+            }
         }
     }
     req.servers.clear();
+    if (0 != req.status) {
+        return;
+    }
     assert(req.chunkVersion == req.initialChunkVersion);
     // When issuing a new lease, increment the version, skipping over
     // the failed version increment attemtps.
@@ -7135,7 +7154,6 @@ LayoutManager::GetChunkWriteLease(MetaAllocate& req)
     if (! mChunkLeases.NewWriteLease(req)) {
         panic("failed to get write lease for a chunk");
         req.status = -EFAULT;
-        req.servers.clear();
         return;
     }
     KFS_LOG_STREAM_INFO <<
@@ -9370,6 +9388,7 @@ LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version,
     }
     if (req) {
         // Need space on the servers..otherwise, fail it
+        req->servers.clear();
         mChunkToServerMap.GetServers(*ci, req->servers);
         if (req->servers.empty()) {
             // all the associated servers are dead...so, fail
@@ -9388,7 +9407,7 @@ LayoutManager::ChangeChunkVersion(chunkId_t chunkId, seq_t version,
                     req->status = -ENOSPC;
                     break;
                 }
-                if ((*it)->IsDown()) {
+                if (! (*it)->IsConnected()) {
                     req->status    = -EALLOCFAILED;
                     req->statusMsg =
                         (*it)->GetServerLocation().ToString() + " went down";
@@ -10986,11 +11005,13 @@ LayoutManager::CanReplicateChunkNow(
         KFS_LOG_EOM;
         return false;
     }
-    const MetaChunkInfo* const chunk           = c.GetChunkInfo();
-    size_t                     hibernatedCount = 0;
+    const MetaChunkInfo* const chunk             = c.GetChunkInfo();
+    size_t                     hibernatedCount   = 0;
+    size_t                     disconnectedCount = 0;
     StTmp<Servers>             serversTmp(mServers3Tmp);
     Servers&                   servers = serversTmp.Get();
-    mChunkToServerMap.GetConnectedServers(c, servers, hibernatedCount);
+    mChunkToServerMap.GetConnectedServers(
+        c, servers, hibernatedCount, disconnectedCount);
     if (hibernatedReplicaCount) {
         *hibernatedReplicaCount = (int)hibernatedCount;
     }
