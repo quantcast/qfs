@@ -949,6 +949,13 @@ private:
             panic("invalid request next field");
         }
         mPendingOpsCount--;
+        KFS_LOG_STREAM_DEBUG << mPeerLocation <<
+            " pending: " << mPendingOpsCount <<
+            " -seq "     << inReq.opSeqno <<
+            " "          << inReq.Show() <<
+            " down: "    << mDownFlag <<
+            " auth: "    << (mReAuthPendingFlag || mAuthenticateOpPtr) <<
+        KFS_LOG_EOM;
         SendAReAuthenticationAckIfNeeded();
         if ((mReAuthPendingFlag || mAuthenticateOpPtr) && ! mDownFlag) {
             mAuthPendingResponsesQueue.PushBack(inReq);
@@ -1027,6 +1034,11 @@ private:
         inBuffer.Consume(inMsgLen);
         theReqPtr->shortRpcFormatFlag = true;
         theReqPtr->clientIp           = mPeerLocation.hostname;
+        KFS_LOG_STREAM_DEBUG << mPeerLocation <<
+            " pending: " << mPendingOpsCount <<
+            " +seq "     << theReqPtr->opSeqno <<
+            " "          << theReqPtr->Show() <<
+        KFS_LOG_EOM;
         if (META_AUTHENTICATE == theReqPtr->op) {
             mAuthenticateOpPtr = static_cast<MetaAuthenticate*>(theReqPtr);
             mReAuthPendingFlag = false;
@@ -1397,6 +1409,10 @@ LogReceiver::Impl::ShutdownSelf()
         thePtr->Close();
     }
     mAckBroadcastFlag = false;
+    if (0 < mConnectionCount) {
+        mResponseQueue.PushBack(mPendingResponseQueue);
+        Timeout();
+    }
     ClearQueues();
     mInFlightWriteCount = 0;
     mWakerPtr = 0;
