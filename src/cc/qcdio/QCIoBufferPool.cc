@@ -123,6 +123,7 @@ public:
         QCASSERT(theIdx > 0);
         mFreeCnt--;
         *mFreeListPtr = mFreeListPtr[theIdx];
+        mFreeListPtr[theIdx] = 0;
         return (mStartPtr + ((theIdx - 1) << mBufSizeShift));
     }
 
@@ -133,12 +134,17 @@ public:
         }
         const size_t theOffset = inPtr - mStartPtr;
         const size_t theIdx    = (theOffset >> mBufSizeShift) + 1;
-        if (theIdx > size_t(mTotalCnt)) {
+        if (size_t(mTotalCnt) < theIdx) {
             return false;
         }
-        QCRTASSERT(mTotalCnt > mFreeCnt &&
-            (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0);
-        mFreeListPtr[theIdx] = *mFreeListPtr;
+        const BufferIndex theNext = *mFreeListPtr;
+        QCRTASSERT(
+            mFreeCnt < mTotalCnt &&
+            (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
+            theIdx != theNext &&
+            0 == mFreeListPtr[theIdx]
+        );
+        mFreeListPtr[theIdx] = theNext;
         *mFreeListPtr = BufferIndex(theIdx);
         mFreeCnt++;
         return true;
