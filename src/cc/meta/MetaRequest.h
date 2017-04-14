@@ -2507,7 +2507,10 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
-        return os << "meta-chunk-allocate: " << ShowReq(req);
+        return os <<
+            "meta-chunk-allocate:"
+            " seq: " << opSeqno <<
+            " "      << ShowReq(req);
     }
 };
 

@@ -2704,11 +2704,16 @@ MetaAllocate::ChunkAllocDone(const MetaChunkAllocate& chunkAlloc)
 /* virtual */ void
 MetaChunkAllocate::handle()
 {
-    assert(req && req->op == META_ALLOCATE);
+    if (! req || META_ALLOCATE != req->op) {
+        panic("invalid meta chunk allocation op");
+        return;
+    }
     if (req->ChunkAllocDone(*this)) {
         // The time was charged to alloc.
         processTime = microseconds();
     }
+    // Detach allocate op, as it might be resumed and deleted.
+    const_cast<MetaAllocate*&>(req) = 0;
 }
 
 ostream&
@@ -5469,8 +5474,10 @@ MetaDelegate::response(ReqOstream& os)
 void
 MetaChunkAllocate::request(ReqOstream& os)
 {
-    assert(req && META_ALLOCATE == req->op && ! req->servers.empty());
-
+    if (! req || META_ALLOCATE != req->op || req->servers.empty()) {
+        panic("request: invalid meta chunk allocate op");
+        return;
+    }
     if (shortRpcFormatFlag) {
         os << hex;
     }
