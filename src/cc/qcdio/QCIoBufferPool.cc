@@ -34,6 +34,10 @@
 #include <errno.h>
 #include <unistd.h>
 
+#if defined(QC_IO_BUFFER_POOL_TRACE_PUT)
+#include <execinfo.h>
+#endif
+
 class QCIoBufferPool::Partition
 {
 public:
@@ -136,9 +140,23 @@ public:
         if (theIdx > size_t(mTotalCnt)) {
             return false;
         }
-        QCRTASSERT(mTotalCnt > mFreeCnt &&
-            (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0);
-        mFreeListPtr[theIdx] = *mFreeListPtr;
+        const BufferIndex theNext = *mFreeListPtr;
+        QCRTASSERT(
+            mFreeCnt < mTotalCnt &&
+            (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
+            theIdx != theNext &&
+            0 == mFreeListPtr[theIdx]
+        );
+#if defined(QC_IO_BUFFER_POOL_TRACE_PUT)
+        const int theMaxCnt =
+            (size_t(1) << mBufSizeShift) / sizeof(void*);
+        if (1 < theMaxCnt) {
+            void** const thePtr = reinterpret_cast<void**>(inPtr);
+            const int    theCnt = backtrace(thePtr, theMaxCnt - 1);
+            thePtr[theCnt] = 0;
+        }
+#endif
+        mFreeListPtr[theIdx] = theNext;
         *mFreeListPtr = BufferIndex(theIdx);
         mFreeCnt++;
         return true;
