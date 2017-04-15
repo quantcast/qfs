@@ -2190,13 +2190,18 @@ DiskIo::DiskIo(
       mCompletionCode(QCDiskQueue::kErrorNone),
       mChainedPtr(0)
 {
-    QCRTASSERT(mCallbackObjPtr && mFilePtr.get());
+    QCRTASSERT(mCallbackObjPtr && mFilePtr);
     DiskIoQueues::IoQueue::Init(*this);
 }
 
 DiskIo::~DiskIo()
 {
+    QCRTASSERT(mCallbackObjPtr && mFilePtr);
     DiskIo::Close();
+    mIoBuffers.clear();
+    // To catch double delete.
+    const_cast<KfsCallbackObj*&>(mCallbackObjPtr) = 0;
+    mFilePtr.reset();
 }
 
     void
