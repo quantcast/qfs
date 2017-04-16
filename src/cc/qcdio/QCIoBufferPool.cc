@@ -182,7 +182,7 @@ public:
             0 == mFreeListPtr[theIdx]
         );
     }
-    
+
     int GetFreeCount() const
         { return mFreeCnt; }
 
