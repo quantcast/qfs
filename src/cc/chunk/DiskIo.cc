@@ -1337,6 +1337,25 @@ public:
         QCUtils::FatalError("invalid buffer", EINVAL);
     }
     void ValidateIoBuffers(
+        const char*              inBufferPtr,
+        const DiskIo::IoBuffers& inBuffers)
+    {
+        if (! mValidateIoBuffersFlag || GetBufferPool().IsValid(inBufferPtr)) {
+            return;
+        }
+        IoBuffers::const_iterator theIt;
+        for (theIt = inBuffers.begin(); inBuffers.end() != theIt; ++theIt) {
+            if (theIt->Consumer() == inBufferPtr) {
+                break;
+            }
+        }
+        if (inBuffers.end() == theIt) {
+            return;
+        }
+        MsgLogger::Stop();
+        QCUtils::FatalError("invalid buffer", EINVAL);
+    }
+    void ValidateIoBuffers(
         const DiskIo::IoBuffers& inBuffers)
     {
         if (! mValidateIoBuffersFlag) {
@@ -2245,33 +2264,13 @@ DiskIo::Close()
     }
 }
 
-class BufIterator : public QCDiskQueue::InputIterator
-{
-public:
-    BufIterator(
-        DiskIo::IoBuffers& inBufs)
-        : mCur(inBufs.begin()),
-          mEnd(inBufs.end())
-        {}
-        virtual char* Get()
-            { return (mEnd == mCur ? 0 : (mCur++)->Consumer()); }
-private:
-    DiskIo::IoBuffers::iterator       mCur;
-    DiskIo::IoBuffers::iterator const mEnd;
-private:
-    BufIterator(
-        const BufIterator& inIterator);
-    BufIterator& operator=(
-        const BufIterator& inIterator);
-};
-
 class NullBufIterator : public QCDiskQueue::InputIterator
 {
 public:
     NullBufIterator()
         {}
-        virtual char* Get()
-            { return 0; }
+    virtual char* Get()
+        { return 0; }
 private:
     NullBufIterator(
         const NullBufIterator& inIterator);
@@ -2755,6 +2754,26 @@ ValidateWriteRequest(
     );
 }
 
+class BufIterator : public QCDiskQueue::InputIterator
+{
+public:
+    BufIterator(
+        DiskIo::IoBuffers& inBufs)
+        : mCur(inBufs.begin()),
+          mEnd(inBufs.end())
+        {}
+    virtual char* Get()
+        { return (mEnd == mCur ? 0 : (mCur++)->Consumer()); }
+private:
+    DiskIo::IoBuffers::iterator       mCur;
+    DiskIo::IoBuffers::iterator const mEnd;
+private:
+    BufIterator(
+        const BufIterator& inIterator);
+    BufIterator& operator=(
+        const BufIterator& inIterator);
+};
+
     ssize_t
 DiskIo::SubmitWrite(
     bool       inSyncFlag,
@@ -2884,7 +2903,7 @@ DiskIo::Done(
                 int                theCnt   = inBufferCount;
                 char*              thePtr;
                 while (theCnt-- > 0 && (thePtr = inBufferItr.Get())) {
-                    sDiskIoQueuesPtr->ValidateIoBuffer(thePtr);
+                    sDiskIoQueuesPtr->ValidateIoBuffers(thePtr, mIoBuffers);
                     mIoBuffers.push_back(IOBufferData(
                         thePtr, 0, theBufSize, theAlloc));
                 }
