@@ -162,6 +162,27 @@ public:
         return true;
     }
 
+    bool IsValid(
+        const char* inPtr,
+        bool&       outFlag) const
+    {
+        if (inPtr < mStartPtr) {
+            return false;
+        }
+        const size_t theOffset = inPtr - mStartPtr;
+        const size_t theIdx    = (theOffset >> mBufSizeShift) + 1;
+        if (size_t(mTotalCnt) < theIdx) {
+            return false;
+        }
+        const BufferIndex theNext = *mFreeListPtr;
+        return (
+            mFreeCnt < mTotalCnt &&
+            (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
+            theIdx != theNext &&
+            0 == mFreeListPtr[theIdx]
+        );
+    }
+    
     int GetFreeCount() const
         { return mFreeCnt; }
 
@@ -342,6 +363,25 @@ QCIoBufferPool::Put(
         }
         PutSelf(theBufPtr);
     }
+}
+
+bool
+QCIoBufferPool::IsValid(
+    const char* inBufPtr)
+{
+    if (! inBufPtr) {
+        return false;
+    }
+    QCStMutexLocker theLock(mMutex);
+    Partition::List::Iterator theItr(mPartitionListPtr);
+    Partition* thePtr;
+    bool       theRetFlag = false;
+    while ((thePtr = theItr.Next())) {
+        if (thePtr->IsValid(inBufPtr, theRetFlag)) {
+            return theRetFlag;
+        }
+    }
+    return theRetFlag;
 }
 
 bool
