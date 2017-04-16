@@ -1348,7 +1348,7 @@ public:
             ValidateIoBuffer(theIt->Consumer());
         }
     }
-        
+
 private:
     typedef DiskIo::IoBuffers IoBuffers;
     class WriteCancelWaiter : public QCDiskQueue::IoCompletion
