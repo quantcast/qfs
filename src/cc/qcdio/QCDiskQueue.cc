@@ -1002,7 +1002,7 @@ QCDiskQueue::Queue::StopSelf()
     QCASSERT(mCompletionRunningCount == 0);
     if (mRequestsPtr) {
         Request* theReqPtr;
-        for (int i = 0; i < (mRequestAffinityFlag ? mThreadCount : 0); i++) {
+        for (int i = 0; i < (mRequestAffinityFlag ? mThreadCount : 1); i++) {
             while ((theReqPtr = Dequeue(i))) {
                 Cancel(*theReqPtr);
             }
