@@ -125,7 +125,8 @@ public:
     int GetFreeBufferCount();
     int GetTotalBufferCount();
     int GetUsedBufferCount();
-
+    bool IsValid(
+        const char* inBufPtr);
 private:
     class Partition;
     QCMutex    mMutex;
