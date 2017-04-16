@@ -478,6 +478,7 @@ chunkServer.rackId = $i
 chunkServer.chunkDir = kfschunk kfschunk-tier0
 chunkServer.logDir = kfslog
 chunkServer.diskIo.crashOnError = 1
+chunkServer.diskIo.debugValidateIoBuffers = 1
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
