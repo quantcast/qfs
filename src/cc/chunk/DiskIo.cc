@@ -759,6 +759,7 @@ public:
           mMaxIoTime(inConfig.getValue(
             "chunkServer.diskIo.maxIoTimeSec", 4 * 60 + 30)),
           mOverloadedFlag(false),
+          mValidateIoBuffersFlag(false),
           mMaxRequestSize(0),
           mNextIoTimeout(Now()),
           mWriteCancelWaiterPtr(0),
@@ -1314,6 +1315,9 @@ public:
         }
         mMaxIoTime = max(1, inProperties.getValue(
             "chunkServer.diskIo.maxIoTimeSec", mMaxIoTime));
+        mValidateIoBuffersFlag = inProperties.getValue(
+            "chunkServer.diskIo.debugValidateIoBuffers",
+            mValidateIoBuffersFlag ? 1 : 0) != 0;
         mParameters = inProperties;
         DiskQueue* thePtr;
         DiskQueueList::Iterator theIt(mDiskQueuesPtr);
@@ -1323,6 +1327,28 @@ public:
     }
     int GetMaxIoTimeSec() const
         { return mMaxIoTime; }
+    void ValidateIoBuffer(
+        const char* inBufferPtr)
+    {
+        if (! mValidateIoBuffersFlag || GetBufferPool().IsValid(inBufferPtr)) {
+            return;
+        }
+        MsgLogger::Stop();
+        QCUtils::FatalError("invalid buffer", EINVAL);
+    }
+    void ValidateIoBuffers(
+        const DiskIo::IoBuffers& inBuffers)
+    {
+        if (! mValidateIoBuffersFlag) {
+            return;
+        }
+        for (IoBuffers::const_iterator theIt = inBuffers.begin();
+                inBuffers.end() != theIt;
+                ++theIt) {
+            ValidateIoBuffer(theIt->Consumer());
+        }
+    }
+        
 private:
     typedef DiskIo::IoBuffers IoBuffers;
     class WriteCancelWaiter : public QCDiskQueue::IoCompletion
@@ -1407,6 +1433,7 @@ private:
     const BufferManager::ByteCount mMaxClientQuota;
     int                            mMaxIoTime;
     bool                           mOverloadedFlag;
+    bool                           mValidateIoBuffersFlag;
     size_t                         mMaxRequestSize;
     time_t                         mNextIoTimeout;
     WriteCancelWaiter*             mWriteCancelWaiterPtr;
@@ -2238,6 +2265,20 @@ private:
         const BufIterator& inIterator);
 };
 
+class NullBufIterator : public QCDiskQueue::InputIterator
+{
+public:
+    NullBufIterator()
+        {}
+        virtual char* Get()
+            { return 0; }
+private:
+    NullBufIterator(
+        const NullBufIterator& inIterator);
+    NullBufIterator& operator=(
+        const NullBufIterator& inIterator);
+};
+
     ssize_t
 DiskIo::Read(
     DiskIo::Offset inOffset,
@@ -2313,9 +2354,12 @@ DiskIo::Read(
                     theErr);
                 return -theErr;
             }
+            KFS_LOG_STREAM_DEBUG <<
+                "read: write cached" <<
+                " buffers: " << mIoBuffers.size() <<
+            KFS_LOG_EOM;
             // Report completion of cached request.
             mRequestId = 200000; // > 0 != QCDiskQueue::kRequestIdNone
-            BufIterator theBufItr(mIoBuffers);
             const int theBufferCount = (int)mIoBuffers.size();
             const int kSysErrorCode  = 0;
             mCompletionRequestId = mRequestId;
@@ -2323,6 +2367,7 @@ DiskIo::Read(
             mCachedFlag          = true;
             theQueuePtr->ReadPending(inNumBytes, 0, mCachedFlag);
             sDiskIoQueuesPtr->SetInFlight(this);
+            NullBufIterator theBufItr;
             Done(
                 mRequestId,
                 mFilePtr->GetFileIdx(),
@@ -2667,7 +2712,6 @@ DiskIo::Write(
     }
     // Report completion of cached request.
     mRequestId = 100000; // > 0 != QCDiskQueue::kRequestIdNone
-    BufIterator theBufItr(mIoBuffers);
     const int theBufferCount = (int)mIoBuffers.size();
     const int kSysErrorCode  = 0;
     mWriteSyncFlag       = inSyncFlag;
@@ -2676,6 +2720,7 @@ DiskIo::Write(
     mCachedFlag          = true;
     theQueuePtr->WritePending(inNumBytes - theNWr, 0, mCachedFlag);
     sDiskIoQueuesPtr->SetInFlight(this);
+    NullBufIterator theBufItr;
     Done(
         mRequestId,
         mFilePtr->GetFileIdx(),
@@ -2720,6 +2765,7 @@ DiskIo::SubmitWrite(
 {
     QCRTASSERT(ValidateWriteRequest(
         inSyncFlag, inBlockIdx, inNumBytes, inQueuePtr, inEofHint));
+    sDiskIoQueuesPtr->ValidateIoBuffers(mIoBuffers);
     BufIterator theBufItr(mIoBuffers);
     mWriteSyncFlag       = inSyncFlag;
     mCompletionRequestId = QCDiskQueue::kRequestIdNone;
@@ -2803,6 +2849,7 @@ DiskIo::Done(
     int64_t                     inIoByteCount)
 {
     QCASSERT(sDiskIoQueuesPtr);
+    sDiskIoQueuesPtr->ValidateIoBuffers(mIoBuffers);
     bool theOwnBuffersFlag = false;
     mBlockIdx = inBlockIdx;
     if (inCompletionCode != QCDiskQueue::kErrorNone) {
@@ -2829,16 +2876,17 @@ DiskIo::Done(
         } else if (inIoByteCount <= 0) {
             theOwnBuffersFlag = false; // empty read, free buffers if any.
         } else {
-            const int theBufSize =
-                sDiskIoQueuesPtr->GetBufferAllocator().GetBufferSize();
+            IOBufferAllocator& theAlloc   =
+                sDiskIoQueuesPtr->GetBufferAllocator();
+            const int          theBufSize = theAlloc.GetBufferSize();
             if (mIoBuffers.empty()) {
                 QCRTASSERT(inBufferCount * theBufSize >= inIoByteCount);
-                int   theCnt         = inBufferCount;
-                char* thePtr;
+                int                theCnt   = inBufferCount;
+                char*              thePtr;
                 while (theCnt-- > 0 && (thePtr = inBufferItr.Get())) {
+                    sDiskIoQueuesPtr->ValidateIoBuffer(thePtr);
                     mIoBuffers.push_back(IOBufferData(
-                        thePtr, 0, theBufSize,
-                        sDiskIoQueuesPtr->GetBufferAllocator()));
+                        thePtr, 0, theBufSize, theAlloc));
                 }
                 QCRTASSERT((inBufferCount - (theCnt + 1)) * theBufSize >=
                     inIoByteCount);
@@ -2865,6 +2913,7 @@ DiskIo::RunCompletion()
 
     DiskQueue* const theQueuePtr = mFilePtr->GetDiskQueuePtr();
     QCASSERT(theQueuePtr);
+    sDiskIoQueuesPtr->ValidateIoBuffers(mIoBuffers);
     if (mFilePtr.get() == theQueuePtr->GetDeleteNullFile().get()) {
         theOpNamePtr = "delete";
         theMetaFlag = true;
@@ -2969,12 +3018,12 @@ DiskIo::RunCompletion()
                 QCDiskQueue::kErrorNone == theChainedPtr->mCompletionCode ?
                     0 : (int)-theChainedPtr->mIoRetCode;
             theChainedPtr->mBlockIdx = 0;
-            BufIterator   theBufItr(theChainedPtr->mIoBuffers);
             theChainedPtr->mCompletionRequestId = theChainedPtr->mRequestId;
             theChainedPtr->mCachedFlag = true;
             theQueuePtr->WritePending(theBufferCount * theBufferSize, 0,
                 theChainedPtr->mCachedFlag);
             sDiskIoQueuesPtr->SetInFlight(theChainedPtr);
+            NullBufIterator theBufItr;
             theChainedPtr->Done(
                 theChainedPtr->mRequestId,
                 theChainedPtr->mFilePtr->GetFileIdx(),
