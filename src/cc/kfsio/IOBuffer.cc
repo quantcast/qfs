@@ -62,6 +62,7 @@ using namespace KFS::libkfsio;
 // to what they like.
 static libkfsio::IOBufferAllocator* sIOBufferAllocator = 0;
 static volatile bool sIsIOBufferAllocatorUsed = false;
+static libkfsio::IOBufferVerifier* sIoBufferVerifier = 0;
 int IOBufferData::sDefaultBufferSize = 4 << 10;
 
 class IOBufferDetacher
@@ -192,6 +193,13 @@ libkfsio::SetIOBufferAllocator(libkfsio::IOBufferAllocator* allocator)
         return false;
     }
     sIOBufferAllocator = allocator;
+    return true;
+}
+
+bool
+libkfsio::SetIOBufferVerifier(libkfsio::IOBufferVerifier* verifier)
+{
+    sIoBufferVerifier = verifier;
     return true;
 }
 
@@ -505,26 +513,34 @@ IOBuffer::DebugVerify(bool updateChecksum)
     if (checksum != mDebugChecksum || byteCount != mByteCount) {
         abort();
     }
+    if (sIoBufferVerifier) {
+        sIoBufferVerifier->Verify(*this, updateChecksum);
+    }
 }
 
 inline void IOBuffer::DebugVerify() const
 { const_cast<IOBuffer*>(this)->DebugVerify(false); }
 
-void
-IOBuffer::Clear()
-{
-    DebugVerify();
-    mBuf.clear();
-    mByteCount = 0;
-    DebugVerify(true);
-}
-
 #else
 inline void IOBuffer::DebugChecksum(const char* buf, int len)          {}
 inline void IOBuffer::DebugChecksum(const IOBufferData& buf)           {}
 inline void IOBuffer::DebugChecksum(const IOBuffer& buf, int numBytes) {}
-inline void IOBuffer::DebugVerify(bool updateChecksum)                 {}
-inline void IOBuffer::DebugVerify() const                              {}
+
+inline void
+IOBuffer::DebugVerify(bool updateChecksum )
+{
+    if (sIoBufferVerifier) {
+        sIoBufferVerifier->Verify(*this, updateChecksum);
+    }
+}
+
+inline void
+IOBuffer::DebugVerify() const
+{
+    if (sIoBufferVerifier) {
+        sIoBufferVerifier->Verify(*this, false);
+    }
+}
 #endif
 
 IOBuffer::IOBuffer()
@@ -539,6 +555,15 @@ IOBuffer::IOBuffer()
 IOBuffer::~IOBuffer()
 {
     DebugVerify();
+}
+
+void
+IOBuffer::Clear()
+{
+    DebugVerify();
+    mBuf.clear();
+    mByteCount = 0;
+    DebugVerify(true);
 }
 
 void

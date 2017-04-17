@@ -54,6 +54,8 @@ using std::list;
 using std::numeric_limits;
 using boost::shared_ptr;
 
+class IOBuffer;
+
 namespace libkfsio
 {
 // IO buffer allocator. Typically used with io buffer pool.
@@ -71,12 +73,29 @@ public:
     virtual char*  Allocate()            = 0;
     virtual void   Deallocate(char* buf) = 0;
 };
+
 /// API to set the default allocation when allocating
 /// IOBufferData().  The default allocation unit is 4K unless
 /// changed by this API call.
 /// Can only be called once, prior to any buffer allocation.
 bool SetIOBufferAllocator(IOBufferAllocator* allocator);
-}
+
+// IO buffer debug.
+class IOBufferVerifier
+{
+protected:
+    IOBufferVerifier()
+        {}
+    virtual ~IOBufferVerifier()
+        {}
+    IOBufferVerifier& operator=(const IOBufferVerifier&)
+        { return *this; }
+public:
+    virtual void Verify(const IOBuffer& inBuffer, bool inModifiedFlag) = 0;
+};
+
+bool SetIOBufferVerifier(IOBufferVerifier* verifier);
+} // namespace libkfsio
 
 ///
 /// \class IOBufferData
@@ -189,6 +208,9 @@ public:
     }
     bool IsShared() const {
         return (! mData.unique());
+    }
+    const char* GetBufferPtr() const {
+        return mData.get();
     }
     static int GetDefaultBufferSize() {
         return sDefaultBufferSize;
@@ -442,15 +464,11 @@ public:
         { return mBuf.empty() ? true : mBuf.back().IsFull(); }
 
     /// Remove all data.
-#ifdef DEBUG_IOBuffer
     void Clear();
+
+#ifdef DEBUG_IOBuffer
     static bool IsDebugVerify() { return true; }
 #else
-    void Clear()
-    {
-        mBuf.clear();
-        mByteCount = 0;
-    }
     static bool IsDebugVerify() { return false; }
 #endif
     /// Buffer list iterator.
