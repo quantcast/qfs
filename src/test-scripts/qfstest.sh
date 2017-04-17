@@ -25,6 +25,7 @@
 
 s3debug=0
 jerasuretest=''
+mycsdebugverifyiobuffers=0
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -48,10 +49,13 @@ while [ $# -ge 1 ]; do
         jerasuretest='yes'
     elif [ x"$1" = x'-no-jerasure' ]; then
         jerasuretest='no'
+    elif [ x"$1" = x'-cs-iobufsverify' ]; then
+        mycsdebugverifyiobuffers=1
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth] [-s3 | -s3debug]" \
-            "[-jerasure | -no-jerasure]"
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]" \
+            "[-s3 | -s3debug] [-jerasure | -no-jerasure]" \
+            "[-cs-iobufsverify]"
         exit 1
     fi
     shift
@@ -479,6 +483,7 @@ chunkServer.chunkDir = kfschunk kfschunk-tier0
 chunkServer.logDir = kfslog
 chunkServer.diskIo.crashOnError = 1
 chunkServer.diskIo.debugValidateIoBuffers = 1
+chunkServer.diskIo.debugVerifyIoBuffers = $mycsdebugverifyiobuffers
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
 chunkServer.recAppender.closeEmptyWidStateSec = 5
