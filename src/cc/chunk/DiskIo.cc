@@ -60,6 +60,8 @@ using std::setfill;
 using libkfsio::globalNetManager;
 using libkfsio::SetIOBufferAllocator;
 using libkfsio::IOBufferAllocator;
+using libkfsio::IOBufferVerifier;
+using libkfsio::SetIOBufferVerifier;
 using libkfsio::globals;
 
 static void DiskIoReportError(
@@ -720,7 +722,7 @@ public:
           mBufferPoolBufferSize(inConfig.getValue(
             "chunkServer.ioBufferPool.bufferSize", 4 << 10)),
           mBufferPoolLockMemoryFlag(inConfig.getValue(
-            "chunkServer.ioBufferPool.lockMemory", false)),
+            "chunkServer.ioBufferPool.lockMemory", 0) != 0),
           mDiskQueueMaxQueueDepth(max(8, inConfig.getValue(
             "chunkServer.diskQueue.maxDepth",
                 max(4 << 10, (int)(int64_t(mBufferPoolPartitionCount) *
@@ -747,7 +749,9 @@ public:
             "chunkServer.diskIo.clearOverloadedPendingWriteByteCount",
             mDiskOverloadedPendingWriteByteCount * 2 / 3)),
           mCrashOnErrorFlag(inConfig.getValue(
-            "chunkServer.diskIo.crashOnError", false)),
+            "chunkServer.diskIo.crashOnError", 0) != 0),
+          mDebugVerifyIoBuffersFlag(inConfig.getValue(
+            "chunkServer.diskIo.debugVerifyIoBuffers", 0) != 0),
           mBufferManagerMaxRatio(inConfig.getValue(
             "chunkServer.bufferManager.maxRatio", 0.4)),
           mDiskBufferManagerMaxRatio(inConfig.getValue(
@@ -771,7 +775,7 @@ public:
           mPutCond(),
           mBufferAllocator(),
           mBufferManager(inConfig.getValue(
-            "chunkServer.bufferManager.enabled", true)),
+            "chunkServer.bufferManager.enabled", 1) != 0),
           mNullCallback(),
           mBufferredWriteNullCallback(),
           mNullBufferDataPtr(0),
@@ -796,6 +800,9 @@ public:
     {
         DiskIoQueues::Shutdown(0, false);
         globalNetManager().UnRegisterTimeoutHandler(this);
+        if (mDebugVerifyIoBuffersFlag) {
+            SetIOBufferVerifier(0);
+        }
         delete mNullBufferDataPtr;
         delete mNullBufferDataWrittenPtr;
     }
@@ -813,7 +820,10 @@ public:
                 *inErrMessagePtr = QCUtils::SysError(theSysError);
             }
         } else {
-            if (! SetIOBufferAllocator(&GetBufferAllocator())) {
+            if (mDebugVerifyIoBuffersFlag) {
+                SetIOBufferVerifier(&mBufferAllocator);
+            }
+            if (! SetIOBufferAllocator(&mBufferAllocator)) {
                 DiskIoReportError("failed to set buffer allocator");
                 if (inErrMessagePtr) {
                     *inErrMessagePtr = "failed to set buffer allocator";
@@ -1392,11 +1402,15 @@ private:
         }
         IoBuffers mIoBuffers;
     };
-    class BufferAllocator : public IOBufferAllocator
+    class BufferAllocator :
+        public IOBufferAllocator,
+        public IOBufferVerifier
     {
     public:
         BufferAllocator()
-            : mBufferPool()
+            : IOBufferAllocator(),
+              IOBufferVerifier(),
+              mBufferPool()
             {}
         virtual size_t GetBufferSize() const
             { return mBufferPool.GetBufferSize(); }
@@ -1404,6 +1418,7 @@ private:
         {
             char* const theBufPtr = mBufferPool.Get();
             if (! theBufPtr) {
+                MsgLogger::Stop();
                 QCUtils::FatalError("out of io buffers", 0);
             }
             return theBufPtr;
@@ -1413,6 +1428,22 @@ private:
             { mBufferPool.Put(inBufferPtr); }
         QCIoBufferPool& GetBufferPool()
             { return mBufferPool; }
+        virtual void Verify(
+            const IOBuffer& inBuffer,
+            bool            /* inModifiedFlag */)
+        {
+            for (IOBuffer::iterator theIt = inBuffer.begin();
+                    inBuffer.end() != theIt;
+                    ++theIt) {
+                bool theFoundFlag = false;
+                if (! mBufferPool.IsValid(
+                            theIt->GetBufferPtr(), theFoundFlag) &&
+                        theFoundFlag) {
+                    MsgLogger::Stop();
+                    QCUtils::FatalError("invalid IO buffer", 0);
+                }
+            }
+        }
     private:
         QCIoBufferPool mBufferPool;
 
@@ -1447,6 +1478,7 @@ private:
     const int64_t                  mDiskOverloadedPendingWriteByteCount;
     const int64_t                  mDiskClearOverloadedPendingWriteByteCount;
     const bool                     mCrashOnErrorFlag;
+    const bool                     mDebugVerifyIoBuffersFlag;
     const double                   mBufferManagerMaxRatio;
     const double                   mDiskBufferManagerMaxRatio;
     const BufferManager::ByteCount mMaxClientQuota;
