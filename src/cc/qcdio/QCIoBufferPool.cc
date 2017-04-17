@@ -176,12 +176,13 @@ public:
             return false;
         }
         const BufferIndex theNext = *mFreeListPtr;
-        return (
+        outFlag =
             mFreeCnt < mTotalCnt &&
             (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
             theIdx != theNext &&
             0 == mFreeListPtr[theIdx]
-        );
+        ;
+        return true;
     }
 
     int GetFreeCount() const
@@ -368,9 +369,11 @@ QCIoBufferPool::Put(
 
 bool
 QCIoBufferPool::IsValid(
-    const char* inBufPtr)
+    const char* inBufPtr,
+    bool&       outFoundFlag)
 {
     if (! inBufPtr) {
+        outFoundFlag = false;
         return false;
     }
     QCStMutexLocker theLock(mMutex);
@@ -379,9 +382,11 @@ QCIoBufferPool::IsValid(
     bool       theRetFlag = false;
     while ((thePtr = theItr.Next())) {
         if (thePtr->IsValid(inBufPtr, theRetFlag)) {
+            outFoundFlag = true;
             return theRetFlag;
         }
     }
+    outFoundFlag = false;
     return theRetFlag;
 }
 

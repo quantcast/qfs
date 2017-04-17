@@ -126,7 +126,14 @@ public:
     int GetTotalBufferCount();
     int GetUsedBufferCount();
     bool IsValid(
-        const char* inBufPtr);
+        const char* inBufPtr,
+        bool&       outFoundFlag);
+    bool IsValid(
+        const char* inBufPtr)
+    {
+        bool theFoundFlag = false;
+        return IsValid(inBufPtr, theFoundFlag);
+    }
 private:
     class Partition;
     QCMutex    mMutex;
