@@ -32,7 +32,7 @@ QCUtils.cc
 )
 
 string(TOUPPER QC_OS_NAME_${CMAKE_SYSTEM_NAME} QC_OS_NAME)
-add_definitions (-D_GNU_SOURCE -D${QC_OS_NAME} -DQC_USE_BOOST)
+add_definitions (-D${QC_OS_NAME} -DQC_USE_BOOST)
 
 #
 # Build a static and a dynamically linked libraries.  Both libraries
