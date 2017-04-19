@@ -542,7 +542,7 @@ inline void IOBuffer::DebugChecksum(const IOBuffer& buf,
     IOBuffer::BufPos numBytes)                               {}
 
 inline void
-IOBuffer::DebugVerify(bool updateChecksum )
+IOBuffer::DebugVerify(bool updateChecksum)
 {
     if (sIoBufferVerifier) {
         sIoBufferVerifier->Verify(*this, updateChecksum);
