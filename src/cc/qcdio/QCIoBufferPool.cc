@@ -40,6 +40,10 @@
 
 class QCIoBufferPool::Partition
 {
+private:
+    typedef unsigned int BufferIndex;
+    static const BufferIndex kInUse  = ~BufferIndex(0);
+    static const BufferIndex kPinned = kInUse - 1;
 public:
     Partition()
         : mAllocPtr(0),
@@ -61,7 +65,7 @@ public:
     {
         int theBufSizeShift = -1;
         for (int i = inBufferSize; i > 0; i >>= 1, theBufSizeShift++)
-        {}
+            {}
         if (theBufSizeShift < 0 || inBufferSize != (1 << theBufSizeShift)) {
             return EINVAL;
         }
@@ -124,9 +128,10 @@ public:
             return 0;
         }
         const BufferIndex theIdx = *mFreeListPtr;
-        QCASSERT(theIdx > 0);
+        QCRTASSERT(0 < theIdx && theIdx <= mTotalCnt);
         mFreeCnt--;
         *mFreeListPtr = mFreeListPtr[theIdx];
+        mFreeListPtr[theIdx] = kInUse;
         return (mStartPtr + ((theIdx - 1) << mBufSizeShift));
     }
 
@@ -145,7 +150,7 @@ public:
             mFreeCnt < mTotalCnt &&
             (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
             theIdx != theNext &&
-            0 == mFreeListPtr[theIdx]
+            kInUse == mFreeListPtr[theIdx]
         );
 #if defined(QC_IO_BUFFER_POOL_TRACE_PUT)
         const int theMaxCnt =
@@ -179,8 +184,29 @@ public:
             mFreeCnt < mTotalCnt &&
             (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
             theIdx != theNext &&
-            0 == mFreeListPtr[theIdx]
+            (kInUse == mFreeListPtr[theIdx] || kPinned == mFreeListPtr[theIdx])
         ;
+        return true;
+    }
+
+    bool SetPinned(
+        const char* inPtr,
+        bool        inFlag,
+        bool&       outOkFlag)
+    {
+        if (inPtr < mStartPtr) {
+            return false;
+        }
+        const size_t theOffset = inPtr - mStartPtr;
+        const size_t theIdx    = (theOffset >> mBufSizeShift) + 1;
+        if (size_t(mTotalCnt) < theIdx) {
+            return false;
+        }
+        QCRTASSERT((theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0);
+        outOkFlag = (inFlag ? kInUse : kPinned) == mFreeListPtr[theIdx];
+        if (outOkFlag) {
+            mFreeListPtr[theIdx] = inFlag ? kPinned : kInUse;
+        }
         return true;
     }
 
@@ -201,7 +227,6 @@ public:
 private:
     friend class QCDLListOp<Partition, 0>;
     friend class QCDLListOp<const Partition, 0>;
-    typedef unsigned int BufferIndex;
 
     void*        mAllocPtr;
     size_t       mAllocSize;
@@ -387,6 +412,26 @@ QCIoBufferPool::IsValid(
     }
     outFoundFlag = false;
     return theRetFlag;
+}
+
+bool
+QCIoBufferPool::SetPinned(
+    const char* inBufPtr,
+    bool        inFlag)
+{
+    if (! inBufPtr) {
+        return false;
+    }
+    QCStMutexLocker theLock(mMutex);
+    Partition::List::Iterator theItr(mPartitionListPtr);
+    bool       theOkFlag = false;
+    Partition* thePtr;
+    while ((thePtr = theItr.Next())) {
+        if (thePtr->SetPinned(inBufPtr, inFlag, theOkFlag)) {
+            return theOkFlag;
+        }
+    }
+    return false;
 }
 
 bool

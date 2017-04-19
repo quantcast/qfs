@@ -134,6 +134,9 @@ public:
         bool theFoundFlag = false;
         return IsValid(inBufPtr, theFoundFlag);
     }
+    bool SetPinned(
+        const char* inBufPtr,
+        bool        inFlag);
 private:
     class Partition;
     QCMutex    mMutex;
