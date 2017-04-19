@@ -483,6 +483,7 @@ chunkServer.chunkDir = kfschunk kfschunk-tier0
 chunkServer.logDir = kfslog
 chunkServer.diskIo.crashOnError = 1
 chunkServer.diskIo.debugValidateIoBuffers = 1
+chunkServer.diskIo.debugPinIoBuffers = 1
 chunkServer.diskIo.debugVerifyIoBuffers = $mycsdebugverifyiobuffers
 chunkServer.abortOnChecksumMismatchFlag = 1
 chunkServer.msgLogWriter.logLevel = DEBUG
