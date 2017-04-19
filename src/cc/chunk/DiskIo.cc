@@ -752,6 +752,8 @@ public:
             "chunkServer.diskIo.crashOnError", 0) != 0),
           mDebugVerifyIoBuffersFlag(inConfig.getValue(
             "chunkServer.diskIo.debugVerifyIoBuffers", 0) != 0),
+          mDebugPinIoBuffersFlag(inConfig.getValue(
+            "chunkServer.diskIo.debugPinIoBuffers", 0) != 0),
           mBufferManagerMaxRatio(inConfig.getValue(
             "chunkServer.bufferManager.maxRatio", 0.4)),
           mDiskBufferManagerMaxRatio(inConfig.getValue(
@@ -1275,6 +1277,7 @@ public:
         if (! inIoPtr) {
             return;
         }
+        Pin(*inIoPtr);
         inIoPtr->mEnqueueTime = Now();
         QCStMutexLocker theLocker(mMutex);
         AddInFlight(*inIoPtr);
@@ -1285,6 +1288,7 @@ public:
         if (! inIoPtr) {
             return;
         }
+        Unpin(*inIoPtr);
         QCStMutexLocker theLocker(mMutex);
         RemoveInFlight(*inIoPtr);
     }
@@ -1377,6 +1381,12 @@ public:
             ValidateIoBuffer(theIt->Consumer());
         }
     }
+    void Pin(
+        const DiskIo& inIo)
+        { SetPinned(inIo, true); }
+    void Unpin(
+        const DiskIo& inIo)
+        { SetPinned(inIo, false); }
 
 private:
     typedef DiskIo::IoBuffers IoBuffers;
@@ -1439,6 +1449,9 @@ private:
                 if (! mBufferPool.IsValid(
                             theIt->GetBufferPtr(), theFoundFlag) &&
                         theFoundFlag) {
+                    KFS_LOG_STREAM_FATAL <<
+                        "invalid IO buffer: " << theIt->GetBufferPtr() <<
+                    KFS_LOG_EOM;
                     MsgLogger::Stop();
                     QCUtils::FatalError("invalid IO buffer", 0);
                 }
@@ -1479,6 +1492,7 @@ private:
     const int64_t                  mDiskClearOverloadedPendingWriteByteCount;
     const bool                     mCrashOnErrorFlag;
     const bool                     mDebugVerifyIoBuffersFlag;
+    const bool                     mDebugPinIoBuffersFlag;
     const double                   mBufferManagerMaxRatio;
     const double                   mDiskBufferManagerMaxRatio;
     const BufferManager::ByteCount mMaxClientQuota;
@@ -1606,6 +1620,27 @@ private:
         if (! inFlag) {
             // Schedule to run buffer manager's wait queue.
             globalNetManager().Wakeup();
+        }
+    }
+    void SetPinned(
+        const DiskIo& inIo,
+        bool          inFlag)
+    {
+        if (inIo.mCachedFlag ||
+                (! mDebugPinIoBuffersFlag && ! mDebugVerifyIoBuffersFlag)) {
+            return;
+        }
+        for (DiskIo::IoBuffers::const_iterator theIt = inIo.mIoBuffers.begin();
+                inIo.mIoBuffers.end() != theIt;
+                ++theIt) {
+            if (! GetBufferPool().SetPinned(theIt->GetBufferPtr(), inFlag)) {
+                KFS_LOG_STREAM_FATAL <<
+                    "pin: " << inFlag <<
+                    " invalid IO buffer: " << theIt->GetBufferPtr() <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                QCUtils::FatalError("set pinned: invalid IO buffer", 0);
+            }
         }
     }
 };
@@ -2900,6 +2935,7 @@ DiskIo::Done(
     int64_t                     inIoByteCount)
 {
     QCASSERT(sDiskIoQueuesPtr);
+    sDiskIoQueuesPtr->Unpin(*this);
     sDiskIoQueuesPtr->ValidateIoBuffers(mIoBuffers);
     bool theOwnBuffersFlag = false;
     mBlockIdx = inBlockIdx;
@@ -2916,7 +2952,7 @@ DiskIo::Done(
         if (mIoRetCode > 0) {
             mIoRetCode = -mIoRetCode;
         } else if (mIoRetCode == 0) {
-            mIoRetCode = -1000;
+            mIoRetCode = -EIO;
         }
         // If this is read failure, then tell caller to free the buffers.
         theOwnBuffersFlag = mReadLength <= 0;
