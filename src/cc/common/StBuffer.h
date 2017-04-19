@@ -302,7 +302,8 @@ public:
     {
         if (inLen <= DEFAULT_CAPACITY) {
             // memcpy appears slightly faster, if it isn't inlined.
-            if (mBuf <= inPtr && inPtr <= mBuf + DEFAULT_CAPACITY) {
+            if ( (mBuf <= inPtr && inPtr <= mBuf + DEFAULT_CAPACITY) ||
+                 (inPtr < mBuf  &&  mBuf < inPtr + inLen) ) {
                 memmove(mBuf, inPtr, inLen);
             } else {
                 memcpy(mBuf, inPtr, inLen);
