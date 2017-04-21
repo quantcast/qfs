@@ -131,8 +131,8 @@ public:
         QCRTASSERT(0 < theIdx && theIdx <= BufferIndex(mTotalCnt));
         const BufferIndex theNext = mFreeListPtr[theIdx];
         mFreeCnt--;
-        QCRTASSERT((0 < theNext || 0 == mFreeCnt) &&
-            theIdx <= BufferIndex(mTotalCnt));
+        QCRTASSERT(((0 == mFreeCnt) != (0 < theNext)) &&
+            theNext <= BufferIndex(mTotalCnt));
         *mFreeListPtr = theNext;
         mFreeListPtr[theIdx] = kInUse;
         return (mStartPtr + ((theIdx - 1) << mBufSizeShift));
@@ -152,6 +152,8 @@ public:
         QCRTASSERT(
             mFreeCnt < mTotalCnt &&
             (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
+            ((0 == mFreeCnt) != (0 < theNext)) &&
+            theNext <= BufferIndex(mTotalCnt) &&
             theIdx != theNext &&
             kInUse == mFreeListPtr[theIdx]
         );
