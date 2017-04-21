@@ -129,8 +129,11 @@ public:
         }
         const BufferIndex theIdx = *mFreeListPtr;
         QCRTASSERT(0 < theIdx && theIdx <= BufferIndex(mTotalCnt));
+        const BufferIndex theNext = mFreeListPtr[theIdx];
         mFreeCnt--;
-        *mFreeListPtr = mFreeListPtr[theIdx];
+        QCRTASSERT((0 < theNext || 0 == mFreeCnt) &&
+            theIdx <= BufferIndex(mTotalCnt));
+        *mFreeListPtr = theNext;
         mFreeListPtr[theIdx] = kInUse;
         return (mStartPtr + ((theIdx - 1) << mBufSizeShift));
     }
