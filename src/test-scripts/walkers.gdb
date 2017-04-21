@@ -350,3 +350,28 @@ def display_kfanout_pending_input
     set $v=$d.mConsumer
     printf "rec len: %d\n", (int)(($v[0]<<24)+($v[1]<<16)+($v[2]<<8)+($v[3]))
 end
+
+def find_disk_io_buff
+    set $find_disk_io_buff_p = $arg0->mIoBuffers._M_impl._M_start
+    set $find_disk_io_buff_e = $arg0->mIoBuffers._M_impl._M_finish
+    while $find_disk_io_buff_p != $find_disk_io_buff_e
+        if $find_disk_io_buff_p->mData.px == $arg1
+            $arg2 $arg0 $find_disk_io_buff_p
+        end
+        set $find_disk_io_buff_p = $find_disk_io_buff_p + 1
+    end
+end
+
+def find_disk_io_buff_show
+    print $arg0
+    print $arg1
+end
+
+def find_disk_io_buff_set
+    find_disk_io_buff $arg0 $find_disk_io_buff_set_buf_ptr find_disk_io_buff_show
+end
+
+def find_disk_io_buff_in_list
+    set $find_disk_io_buff_set_buf_ptr = $arg1
+    walk_qcdllist $arg0 0 find_disk_io_buff_set
+end
