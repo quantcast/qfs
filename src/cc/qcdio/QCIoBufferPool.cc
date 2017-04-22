@@ -42,8 +42,9 @@ class QCIoBufferPool::Partition
 {
 private:
     typedef unsigned int BufferIndex;
-    static const BufferIndex kInUse  = ~BufferIndex(0);
-    static const BufferIndex kPinned = kInUse - 1;
+    static const BufferIndex kInUse     = ~BufferIndex(0);
+    static const BufferIndex kMinPinned = kInUse -
+        (QCIoBufferPool::kPinnedBufferIdMax);
 public:
     Partition()
         : mAllocPtr(0),
@@ -189,15 +190,16 @@ public:
             mFreeCnt < mTotalCnt &&
             (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
             theIdx != theNext &&
-            (kInUse == mFreeListPtr[theIdx] || kPinned == mFreeListPtr[theIdx])
+            kMinPinned < mFreeListPtr[theIdx]
         ;
         return true;
     }
 
     bool SetPinned(
-        const char* inPtr,
-        bool        inFlag,
-        bool&       outOkFlag)
+        const char*    inPtr,
+        PinnedBufferId inId,
+        bool           inFlag,
+        bool&          outOkFlag)
     {
         if (inPtr < mStartPtr) {
             return false;
@@ -208,9 +210,14 @@ public:
             return false;
         }
         QCRTASSERT((theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0);
-        outOkFlag = (inFlag ? kInUse : kPinned) == mFreeListPtr[theIdx];
+        const BufferIndex theId = kInUse - inId;
+        if (inId <= 0 || theId < kMinPinned) {
+            outOkFlag = false;
+            return true;
+        }
+        outOkFlag = (inFlag ? kInUse : theId) == mFreeListPtr[theIdx];
         if (outOkFlag) {
-            mFreeListPtr[theIdx] = inFlag ? kPinned : kInUse;
+            mFreeListPtr[theIdx] = inFlag ? theId : kInUse;
         }
         return true;
     }
@@ -421,8 +428,9 @@ QCIoBufferPool::IsValid(
 
 bool
 QCIoBufferPool::SetPinned(
-    const char* inBufPtr,
-    bool        inFlag)
+    const char*    inBufPtr,
+    PinnedBufferId inId,
+    bool           inFlag)
 {
     if (! inBufPtr) {
         return false;
@@ -432,7 +440,7 @@ QCIoBufferPool::SetPinned(
     bool       theOkFlag = false;
     Partition* thePtr;
     while ((thePtr = theItr.Next())) {
-        if (thePtr->SetPinned(inBufPtr, inFlag, theOkFlag)) {
+        if (thePtr->SetPinned(inBufPtr, inId, inFlag, theOkFlag)) {
             return theOkFlag;
         }
     }

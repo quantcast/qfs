@@ -49,6 +49,11 @@ public:
         kRefillReqIdRead      = 1
     };
 
+    typedef unsigned int PinnedBufferId;
+    static const PinnedBufferId kPinnedBufferIdMin = 1;
+    static const PinnedBufferId kPinnedBufferIdMax =
+        (PinnedBufferId(1) << (sizeof(PinnedBufferId) * 8 - 1)) - 1;
+
     class Client
     {
     public:
@@ -135,8 +140,9 @@ public:
         return IsValid(inBufPtr, theFoundFlag);
     }
     bool SetPinned(
-        const char* inBufPtr,
-        bool        inFlag);
+        const char*    inBufPtr,
+        PinnedBufferId inId,
+        bool           inFlag);
 private:
     class Partition;
     QCMutex    mMutex;
