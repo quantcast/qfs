@@ -1457,6 +1457,10 @@ private:
                 }
             }
         }
+        virtual void DoRead(
+            const char* inPtr,
+            bool        inStartFlag)
+            { mBufferPool.SetPinned( inPtr, inStartFlag); }
     private:
         QCIoBufferPool mBufferPool;
 
