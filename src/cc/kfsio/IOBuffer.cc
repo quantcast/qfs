@@ -1233,14 +1233,12 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
             DoRead(it->GetBufferPtr(), true);
             const BufPos nRd = reader ?
                 reader->Read(fd, it->Producer(), maxReadAhead) :
-                it->Read(fd, maxReadAhead);
+                read(fd, it->Producer(), maxReadAhead);
             DoRead(it->GetBufferPtr(), false);
             if (nRd > 0) {
                 mByteCount += nRd;
-                if (reader) {
-                    it->Fill(nRd);
-                    globals().ctrNetBytesRead.Update(nRd);
-                }
+                it->Fill(nRd);
+                globals().ctrNetBytesRead.Update(nRd);
             } else if (addBufFlag) {
                 mBuf.erase(it);
             }
