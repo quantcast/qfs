@@ -67,6 +67,14 @@ static volatile bool sIsIOBufferAllocatorUsed = false;
 static libkfsio::IOBufferVerifier* sIoBufferVerifier = 0;
 IOBufferData::BufPos IOBufferData::sDefaultBufferSize = 4 << 10;
 
+inline static void
+DoRead(const char* buf, bool startFlag)
+{
+    if (sIoBufferVerifier) {
+        sIoBufferVerifier->DoRead(buf, startFlag);
+    }
+}
+
 class IOBufferDetacher
 {
 public:
@@ -391,7 +399,9 @@ IOBufferData::Read(int fd, IOBufferData::BufPos maxReadAhead /* = -1 */)
     if (numBytes <= 0) {
         return -1;
     }
+    DoRead(GetBufferPtr(), true);
     nread = read(fd, mProducer, numBytes);
+    DoRead(GetBufferPtr(), false);
 
     if (nread > 0) {
         mProducer += nread;
@@ -1194,7 +1204,7 @@ IOBuffer::ZeroFill(IOBuffer::BufPos numBytes)
     DebugVerify(true);
 }
 
-inline static void*
+inline static char*
 AllocBuffer(size_t allocSize)
 {
     return (sIOBufferAllocator ?
@@ -1220,9 +1230,11 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
             it = mBuf.insert(mBuf.end(), IOBufferData());
         }
         if (it->SpaceAvailable() >= size_t(maxReadAhead)) {
+            DoRead(it->GetBufferPtr(), true);
             const BufPos nRd = reader ?
                 reader->Read(fd, it->Producer(), maxReadAhead) :
                 it->Read(fd, maxReadAhead);
+            DoRead(it->GetBufferPtr(), false);
             if (nRd > 0) {
                 mByteCount += nRd;
                 if (reader) {
@@ -1261,18 +1273,22 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
                 readVec[nVec].iov_base = buf.Producer();
                 nVec++;
                 nBytes -= nb;
+                DoRead(buf.GetBufferPtr(), true);
             }
         }
         const int allocBegin = nVec;
         for ( ; nBytes > 0 && nVec < maxReadvBufs; nVec++) {
-            const size_t nb = min(nBytes, bufSize);
-            readVec[nVec].iov_len = nb;
-            if (! (readVec[nVec].iov_base = AllocBuffer(bufSize))) {
+            const size_t nb  = min(nBytes, bufSize);
+            char* const  buf = AllocBuffer(bufSize);
+            if (! buf) {
                 if (totRead <= 0 && nVec <= 0) {
                     abort(); // Allocation falure.
                 }
                 break;
             }
+            DoRead(buf, true);
+            readVec[nVec].iov_len  = nb;
+            readVec[nVec].iov_base = buf;
             nBytes -= nb;
         }
         numRead -= nBytes;
@@ -1286,7 +1302,10 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
             assert(maxRead >= 0);
         }
         numRead = max(ssize_t(0), nRd);
+        int i = 0;
         for ( ; it != mBuf.end() && numRead > 0; ++it) {
+            DoRead(it->GetBufferPtr(), false);
+            i++;
             numRead -= it->Fill(numRead);
             if (numRead <= 0) {
                 if (it->IsFull()) {
@@ -1295,8 +1314,14 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
                 break;
             }
         }
-        for (int i = allocBegin; i < nVec; i++) {
+        if (sIoBufferVerifier) {
+            for (BList::const_iterator bi = it; i < allocBegin; ++bi, i++) {
+                sIoBufferVerifier->DoRead(bi->GetBufferPtr(), false);
+            }
+        }
+        for (i = allocBegin; i < nVec; i++) {
             char* const buf = reinterpret_cast<char*>(readVec[i].iov_base);
+            DoRead(buf, false);
             if (numRead > 0) {
                 if (sIOBufferAllocator) {
                     mBuf.push_back(
