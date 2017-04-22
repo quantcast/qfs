@@ -1417,6 +1417,11 @@ private:
         public IOBufferVerifier
     {
     public:
+        enum
+        {
+            kPinnedIdWrite = 1,
+            kPinnedIdRead  = 2
+        };
         BufferAllocator()
             : IOBufferAllocator(),
               IOBufferVerifier(),
@@ -1460,10 +1465,30 @@ private:
         virtual void DoRead(
             const char* inPtr,
             bool        inStartFlag)
-            { mBufferPool.SetPinned( inPtr, inStartFlag); }
+            { SetPinnedSelf( inPtr, kPinnedIdRead, inStartFlag); }
+        void SetPinned(
+            const char* inPtr,
+            bool        inFlag)
+            { SetPinnedSelf( inPtr, kPinnedIdWrite, inFlag); }
     private:
         QCIoBufferPool mBufferPool;
 
+        void SetPinnedSelf(
+            const char*                    inPtr,
+            QCIoBufferPool::PinnedBufferId inId,
+            bool                           inFlag)
+        {
+            if (! mBufferPool.SetPinned(inPtr, inId, inFlag)) {
+                KFS_LOG_STREAM_FATAL <<
+                    "pin: " << inFlag <<
+                    " id: " << inId <<
+                    " invalid IO buffer: " <<
+                        reinterpret_cast<const void*>(inPtr) <<
+                KFS_LOG_EOM;
+                MsgLogger::Stop();
+                QCUtils::FatalError("set pinned: invalid IO buffer", 0);
+            }
+        }
     private:
         BufferAllocator(
             const BufferAllocator& inAllocator);
@@ -1637,14 +1662,7 @@ private:
         for (DiskIo::IoBuffers::const_iterator theIt = inIo.mIoBuffers.begin();
                 inIo.mIoBuffers.end() != theIt;
                 ++theIt) {
-            if (! GetBufferPool().SetPinned(theIt->GetBufferPtr(), inFlag)) {
-                KFS_LOG_STREAM_FATAL <<
-                    "pin: " << inFlag <<
-                    " invalid IO buffer: " << theIt->GetBufferPtr() <<
-                KFS_LOG_EOM;
-                MsgLogger::Stop();
-                QCUtils::FatalError("set pinned: invalid IO buffer", 0);
-            }
+            mBufferAllocator.SetPinned(theIt->GetBufferPtr(), inFlag);
         }
     }
 };
