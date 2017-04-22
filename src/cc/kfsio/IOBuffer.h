@@ -92,6 +92,7 @@ protected:
         { return *this; }
 public:
     virtual void Verify(const IOBuffer& inBuffer, bool inModifiedFlag) = 0;
+    virtual void DoRead(const char* inPtr, bool inStartFlag) = 0;
 };
 
 bool SetIOBufferVerifier(IOBufferVerifier* verifier);
