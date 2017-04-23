@@ -1419,8 +1419,9 @@ private:
     public:
         enum
         {
-            kPinnedIdWrite = 1,
-            kPinnedIdRead  = 2
+            kPinnedIdQueuedWrite = 1,
+            kPinnedIdQueuedRead  = 2,
+            kPinnedIdRead        = 3
         };
         BufferAllocator()
             : IOBufferAllocator(),
@@ -1468,8 +1469,15 @@ private:
             { SetPinnedSelf( inPtr, kPinnedIdRead, inStartFlag); }
         void SetPinned(
             const char* inPtr,
+            bool        inReadFlag,
             bool        inFlag)
-            { SetPinnedSelf( inPtr, kPinnedIdWrite, inFlag); }
+        {
+            SetPinnedSelf(
+                inPtr,
+                inReadFlag ? kPinnedIdQueuedRead : kPinnedIdQueuedWrite,
+                inFlag
+            );
+        }
     private:
         QCIoBufferPool mBufferPool;
 
@@ -1659,10 +1667,12 @@ private:
                 (! mDebugPinIoBuffersFlag && ! mDebugVerifyIoBuffersFlag)) {
             return;
         }
+        const bool theReadFlag = 0 < inIo.mReadLength;
         for (DiskIo::IoBuffers::const_iterator theIt = inIo.mIoBuffers.begin();
                 inIo.mIoBuffers.end() != theIt;
                 ++theIt) {
-            mBufferAllocator.SetPinned(theIt->GetBufferPtr(), inFlag);
+            mBufferAllocator.SetPinned(
+                theIt->GetBufferPtr(), theReadFlag, inFlag);
         }
     }
 };
@@ -2952,7 +2962,6 @@ DiskIo::Done(
     int64_t                     inIoByteCount)
 {
     QCASSERT(sDiskIoQueuesPtr);
-    sDiskIoQueuesPtr->Unpin(*this);
     sDiskIoQueuesPtr->ValidateIoBuffers(mIoBuffers);
     bool theOwnBuffersFlag = false;
     mBlockIdx = inBlockIdx;
@@ -2994,6 +3003,7 @@ DiskIo::Done(
                 }
                 QCRTASSERT((inBufferCount - (theCnt + 1)) * theBufSize >=
                     inIoByteCount);
+                sDiskIoQueuesPtr->Pin(*this);
             } else {
                 QCRTASSERT(
                     (int64_t)mIoBuffers.size() * theBufSize == inIoByteCount);
@@ -3017,6 +3027,7 @@ DiskIo::RunCompletion()
 
     DiskQueue* const theQueuePtr = mFilePtr->GetDiskQueuePtr();
     QCASSERT(theQueuePtr);
+    sDiskIoQueuesPtr->Unpin(*this);
     sDiskIoQueuesPtr->ValidateIoBuffers(mIoBuffers);
     if (mFilePtr.get() == theQueuePtr->GetDeleteNullFile().get()) {
         theOpNamePtr = "delete";
