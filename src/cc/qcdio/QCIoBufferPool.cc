@@ -136,7 +136,7 @@ public:
             theNext <= BufferIndex(mTotalCnt));
         *mFreeListPtr = theNext;
         mFreeListPtr[theIdx] = kInUse;
-        return (mStartPtr + ((theIdx - 1) << mBufSizeShift));
+        return (mStartPtr + (size_t(theIdx - 1) << mBufSizeShift));
     }
 
     bool Put(char* inPtr)
