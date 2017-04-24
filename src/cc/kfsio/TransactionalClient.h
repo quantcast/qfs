@@ -50,7 +50,8 @@ public:
             const ServerLocation& inServer) = 0;
         virtual int Response(
             IOBuffer& inBuffer,
-            bool      inEofFlag) = 0;
+            bool      inEofFlag,
+            IOBuffer& inOutBuffer) = 0;
         virtual void Error(
             int         inStatus,
             const char* inMsgPtr) = 0;
