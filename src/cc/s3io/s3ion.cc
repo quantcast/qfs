@@ -1817,7 +1817,8 @@ private:
         }
         virtual int Response(
             IOBuffer& inBuffer,
-            bool      inEofFlag)
+            bool      inEofFlag,
+            IOBuffer& /* inOutBuffer */)
         {
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
@@ -1954,6 +1955,45 @@ private:
     class S3Put : public S3Req
     {
     public:
+        class StClearBuffer
+        {
+        public:
+            StClearBuffer(
+                S3Put&    inReq,
+                IOBuffer& inBuffer)
+                : mBufferPtr(&inBuffer),
+                  mReq(inReq)
+            {
+                if (mReq.mClearBufferPtr) {
+                    mReq.mClearBufferPtr->mBufferPtr = 0;
+                }
+                mReq.mClearBufferPtr = this;
+            }
+            ~StClearBuffer()
+            {
+                if (mBufferPtr) {
+                    mReq.mClearBufferPtr = 0;
+                }
+            }
+            void Clear()
+            {
+                // Cleanup request's output buffer, since the write request's
+                // IO buffers aren't really reference counted, and might go away
+                // when request completion is invoked.
+                if (mBufferPtr) {
+                    QCASSERT(this == mReq.mClearBufferPtr);
+                    mReq.mClearBufferPtr = 0;
+                    IOBuffer& theBuf = *mBufferPtr;
+                    mBufferPtr = 0;
+                    theBuf.Clear();
+                }
+            }
+        private:
+            IOBuffer* mBufferPtr;
+            S3Put&    mReq;
+        };
+        friend class StClearBuffer;
+
         S3Put(
             Outer&        inOuter,
             Request&      inRequest,
@@ -1966,10 +2006,17 @@ private:
             : S3Req(inOuter, &inRequest, inReqType, inFileName,
                 inStartBlockIdx, inGeneration, inFd),
               mDataBuf(),
+              mClearBufferPtr(0),
               mIsSha256Flag(false)
         {
             mMdBuf[0] = 0;
             mDataBuf.Move(&inIOBuffer);
+        }
+        virtual ~S3Put()
+        {
+            if (mClearBufferPtr) {
+                mClearBufferPtr->Clear();
+            }
         }
         virtual ostream& Display(
             ostream& inStream) const
@@ -2003,10 +2050,13 @@ private:
         }
         virtual int Response(
             IOBuffer& inBuffer,
-            bool      inEofFlag)
+            bool      inEofFlag,
+            IOBuffer& inOutBuffer)
         {
-            bool      theDoneFlag = false;
-            const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
+            StClearBuffer theCleanup(*this, inOutBuffer);
+            bool          theDoneFlag = false;
+            const int     theRet      = ParseResponse(
+                inBuffer, inEofFlag, theDoneFlag);
             if (theDoneFlag) {
                 if (IsStatusOk()) {
                     File* const theFilePtr = mOuter.GetFilePtr(mFd);
@@ -2057,9 +2107,10 @@ private:
             return mMdBuf;
         }
     protected:
-        IOBuffer mDataBuf;
-        bool     mIsSha256Flag;
-        char     mMdBuf[1 +
+        IOBuffer       mDataBuf;
+        StClearBuffer* mClearBufferPtr;
+        bool           mIsSha256Flag;
+        char           mMdBuf[1 +
             (kMd5Base64Len < kSha256HexLen ? kSha256HexLen : kMd5Base64Len)];
     private:
         S3Put(
@@ -2124,7 +2175,8 @@ private:
         }
         virtual int Response(
             IOBuffer& inBuffer,
-            bool      inEofFlag)
+            bool      inEofFlag,
+            IOBuffer& /* inOutBuffer */)
         {
             bool      theDoneFlag = false;
             const int theRet = ParseResponse(inBuffer, inEofFlag, theDoneFlag);
@@ -2310,9 +2362,11 @@ private:
         }
         virtual int Response(
             IOBuffer& inBuffer,
-            bool      inEofFlag)
+            bool      inEofFlag,
+            IOBuffer& inOutBuffer)
         {
-            File* const theFilePtr = GetFilePtr();
+            StClearBuffer theCleanup(*this, inOutBuffer);
+            File* const   theFilePtr = GetFilePtr();
             if (! theFilePtr) {
                 return -1;
             }

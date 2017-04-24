@@ -193,7 +193,8 @@ private:
         }
         virtual int Response(
             IOBuffer& inBuffer,
-            bool      inEofFlag)
+            bool      inEofFlag,
+            IOBuffer& /* inOutBuffer */)
         {
             if (mHeaderLength <= 0 &&
                     ((mHeaderLength = GetHeaderLength(inBuffer)) <= 0 ||
