@@ -1419,9 +1419,9 @@ private:
     public:
         enum
         {
-            kPinnedIdQueuedWrite = 1,
-            kPinnedIdQueuedRead  = 2,
-            kPinnedIdRead        = 3
+            kPinnedIdQueuedWrite = QCIoBufferPool::kPinnedBufferIdMin,
+            kPinnedIdQueuedRead  = kPinnedIdQueuedWrite + 1,
+            kPinnedIdRead        = kPinnedIdQueuedRead  + 1
         };
         BufferAllocator()
             : IOBufferAllocator(),
