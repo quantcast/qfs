@@ -564,8 +564,6 @@ public:
                 mPendingOpsCount != 0) {
             panic("LogReceiver::~Impl::Connection invalid invocation");
         }
-        Queue theAuthPendingResponsesQueue;
-        theAuthPendingResponsesQueue.PushBack(mAuthPendingResponsesQueue);
         MetaRequest* thePtr;
         while ((thePtr = mAuthPendingResponsesQueue.PopFront())) {
             MetaRequest::Release(thePtr);
@@ -853,13 +851,14 @@ private:
                 (mSessionExpirationTime - TimeNow()) << " sec." <<
         KFS_LOG_EOM;
         mAuthCount++;
-        Queue theAuthPendingResponsesQueue;
-        theAuthPendingResponsesQueue.PushBack(mAuthPendingResponsesQueue);
+        mRecursionCount++;
         MetaRequest* thePtr;
-        while ((thePtr = theAuthPendingResponsesQueue.PopFront()) &&
-                ! mDownFlag) {
+        while ((thePtr = mAuthPendingResponsesQueue.PopFront())) {
             SendResponse(*thePtr);
             MetaRequest::Release(thePtr);
+        }
+        if (--mRecursionCount <= 0) {
+            mConnectionPtr->StartFlush();
         }
     }
     bool HandleSslShutdown()
