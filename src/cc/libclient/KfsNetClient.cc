@@ -224,6 +224,7 @@ public:
           mMetaVrNodesCount(0),
           mMetaVrNodesActiveCount(0),
           mResolverInFlightCount(0),
+          mResolverReqsCount(0),
           mMetaLocations(),
           mResolverPtr(0)
     {
@@ -1003,6 +1004,7 @@ public:
         if (! thePtr) {
             ResolverList::PushBack(mResolverReqsPtr,
                 *(new ResolverReq(inLocation.hostname, *this)));
+            mResolverReqsCount++;
         }
         return true;
     }
@@ -1058,6 +1060,8 @@ public:
         while ((theReqPtr = ResolverList::Front(mResolverReqsPtr))) {
             theReqPtr->Delete(mResolverReqsPtr);
         }
+        mResolverReqsCount = 0;
+        mMetaVrNodesCount  = 0;
         mMetaLocations.clear();
     }
     void Shutdown()
@@ -1364,13 +1368,13 @@ private:
             KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
                 "VR checker: "        << mLocation <<
                 " retry attempt "     << mRetryCount <<
-                " of "                << mOuter.mMaxRetryCount <<
+                " of "                << theMaxRetryCnt <<
                 ", scheduling retry " << mOuter.mPendingOpQueue.size() <<
                 " pending operation(s)"
                 " in "                << mOuter.mTimeSecBetweenRetries <<
                 " seconds" <<
             KFS_LOG_EOM;
-            if (0 < mOuter.mTimeSecBetweenRetries ) {
+            if (0 < mOuter.mTimeSecBetweenRetries) {
                 mOuter.mStats.mSleepTimeSec += mOuter.mTimeSecBetweenRetries;
                 SetTimeoutInterval(
                     mOuter.mTimeSecBetweenRetries * 1000, true);
@@ -1586,6 +1590,7 @@ private:
     int                        mMetaVrNodesCount;
     int                        mMetaVrNodesActiveCount;
     int                        mResolverInFlightCount;
+    int                        mResolverReqsCount;
     MetaLocations              mMetaLocations;
     Resolver*                  mResolverPtr;
     ResolverReq*               mResolverReqsPtr[1];
@@ -1638,6 +1643,11 @@ private:
         }
         assert(0 <= mMetaVrNodesActiveCount);
         mMetaVrNodesActiveCount--;
+        KFS_LOG_STREAM_DEBUG << mLogPrefix <<
+            "not vr primary: " << inLocation <<
+            " active: "        << mMetaVrNodesActiveCount <<
+            " resolver: "      << mResolverInFlightCount <<
+        KFS_LOG_EOM;
         if (mMetaVrNodesActiveCount <= 0 && mResolverInFlightCount <= 0) {
             CancelVrPrimaryCheck();
             Fail(
@@ -1654,6 +1664,7 @@ private:
         mResolverInFlightCount--;
         MetaCheckVrPrimaryChecker* theListPtr[1];
         MetaVrList::Init(theListPtr);
+        int theResolvedCount = 0;
         if (0 == inReq.GetStatus()) {
             const string&                   theHost = inReq.GetHostName();
             const ResolverReq::IpAddresses& theIps  = inReq.GetIps();
@@ -1681,17 +1692,21 @@ private:
                             KFS_LOG_STREAM_DEBUG << mLogPrefix <<
                                 "add resolved: " << *theIt <<
                                 " => "           << theLocation <<
+                                " active: "      << mMetaVrNodesActiveCount <<
+                                " total: "       << mMetaVrNodesCount <<
+                                " resolver: "    << mResolverInFlightCount <<
                             KFS_LOG_EOM;
                             const bool kLocationResolvedFlag = true;
                             MetaVrList::PushBack(theListPtr,
                                 *(new MetaCheckVrPrimaryChecker(
                                     theLocation, *this, kLocationResolvedFlag)));
+                            theResolvedCount++;
                         }
                     }
                 }
             }
         }
-        if (mMetaVrNodesActiveCount <= 0 && MetaVrList::IsEmpty(theListPtr)) {
+        if (mMetaVrNodesActiveCount <= 0 && theResolvedCount <= 0) {
             assert(! mConnPtr);
             if (0 <= mLookupOp.status) {
                 mLookupOp.status    = inReq.GetStatus();
@@ -1701,15 +1716,23 @@ private:
                 }
                 mLookupOp.status = -ENETUNREACH;
             }
+            mMetaVrNodesActiveCount++;
             SetVrPrimary(mConnPtr, ServerLocation(), kRpcFormatUndef);
             return;
         }
+        mMetaVrNodesCount       += theResolvedCount;
+        mMetaVrNodesActiveCount += theResolvedCount;
         MetaCheckVrPrimaryChecker* thePtr;
+        StRef theRef(*this);
+        bool theScheduleFlag = true;
         while ((thePtr = MetaVrList::PopFront(theListPtr))) {
-            MetaVrList::PushBack(mMetaVrListPtr, *thePtr);
-            mMetaVrNodesCount++;
-            mMetaVrNodesActiveCount++;
-            thePtr->Connect();
+            if (theScheduleFlag && 0 < mMetaVrNodesActiveCount) {
+                MetaVrList::PushBack(mMetaVrListPtr, *thePtr);
+                thePtr->Connect();
+            } else {
+                theScheduleFlag = false;
+                delete thePtr;
+            }
         }
     }
     bool ConnectToVrPrimary(
@@ -1751,16 +1774,17 @@ private:
         StRef theRef(*this);
         ResolverList::Iterator theIt(mResolverReqsPtr);
         ResolverReq*           thePtr;
-        while ((thePtr = theIt.Next())) {
-            mResolverInFlightCount++;
-            thePtr->Enqueue();
-        }
         // Unwind recursion by setting active count to the total node count
         // prior to launching requests.
+        mResolverInFlightCount  = mResolverReqsCount;
+        mMetaVrNodesActiveCount = mMetaVrNodesCount;
+        while (0 < mResolverInFlightCount && (thePtr = theIt.Next())) {
+            thePtr->Enqueue();
+        }
         mMetaVrNodesActiveCount = mMetaVrNodesCount;
         MetaVrList::Iterator       theVrIt(mMetaVrListPtr);
         MetaCheckVrPrimaryChecker* theVrPtr;
-        while ((theVrPtr = theVrIt.Next())) {
+        while (0 < mMetaVrNodesActiveCount && (theVrPtr = theVrIt.Next())) {
             theVrPtr->Connect();
         }
         return true;
@@ -2750,7 +2774,7 @@ KfsNetClient::KfsNetClient(
     /* virtual */
 KfsNetClient::~KfsNetClient()
 {
-    mImpl.Stop();
+    mImpl.Shutdown();
     mImpl.UnRef();
 }
 
