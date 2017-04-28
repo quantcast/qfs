@@ -1253,20 +1253,21 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
         }
     }
 
-    const ssize_t kMaxReadv     = 64 << 10;
+    const ssize_t kMaxReadv    = 64 << 10;
     const BufPos  kMaxReadvBufs(kMaxReadv / (4 << 10) + 1);
-    const BufPos  maxReadvBufs  = min(BufPos(reader ? 1 : IOV_MAX),
+    const BufPos  maxReadvBufs = min(BufPos(reader ? 1 : IOV_MAX),
         min(kMaxReadvBufs, BufPos(kMaxReadv / bufSize + 1)));
     struct iovec  readVec[kMaxReadvBufs];
-    ssize_t       totRead = 0;
-    ssize_t       maxRead(maxReadAhead >= 0 ?
+    BufPos        totRead      = 0;
+    BufPos        maxRead(maxReadAhead >= 0 ?
         maxReadAhead : numeric_limits<BufPos>::max());
+    const BufPos  kMaxRead     = numeric_limits<ssize_t>::max();
 
     while (maxRead > 0) {
         assert(it == mBuf.end() || ! it->IsFull());
         int     nVec    = 0;
-        ssize_t numRead = maxRead;
-        size_t  nBytes(numRead);
+        BufPos  numRead = maxRead;
+        size_t  nBytes  = min(numRead, kMaxRead);
         for (BList::iterator i = it;
                 i != mBuf.end() && nBytes > 0 && nVec < maxReadvBufs;
                 ++i) {
@@ -1349,7 +1350,7 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
             globals().ctrNetBytesRead.Update(nRd);
         } else if (totRead == 0 && nRd < 0 &&
                 (totRead = reader ?
-                    (int)nRd : -(errno == 0 ? EAGAIN : errno)) > 0) {
+                    nRd : -ssize_t(0 == errno ? EAGAIN : errno)) > 0) {
             totRead = -totRead;
         }
     }
