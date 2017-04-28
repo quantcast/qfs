@@ -1231,9 +1231,15 @@ IOBuffer::Read(int fd, IOBuffer::BufPos maxReadAhead,
         }
         if (it->SpaceAvailable() >= size_t(maxReadAhead)) {
             DoRead(it->GetBufferPtr(), true);
-            const BufPos nRd = reader ?
+            BufPos nRd = reader ?
                 reader->Read(fd, it->Producer(), maxReadAhead) :
                 read(fd, it->Producer(), maxReadAhead);
+            if (nRd < 0 && ! reader) {
+                nRd = -errno;
+                if (0 <= nRd) {
+                    nRd = -EIO;
+                }
+            }
             DoRead(it->GetBufferPtr(), false);
             if (nRd > 0) {
                 mByteCount += nRd;
