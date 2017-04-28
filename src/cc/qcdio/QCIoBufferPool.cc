@@ -38,13 +38,15 @@
 #include <execinfo.h>
 #endif
 
+typedef unsigned int QCPartitionBufferIndex;
+const QCPartitionBufferIndex kQCBufferInUse     = ~QCPartitionBufferIndex(0);
+const QCPartitionBufferIndex kQCBufferMinPinned = kQCBufferInUse -
+    (QCIoBufferPool::kPinnedBufferIdMax);
+
 class QCIoBufferPool::Partition
 {
 private:
-    typedef unsigned int BufferIndex;
-    static const BufferIndex kInUse     = ~BufferIndex(0);
-    static const BufferIndex kMinPinned = kInUse -
-        (QCIoBufferPool::kPinnedBufferIdMax);
+    typedef QCPartitionBufferIndex BufferIndex;
 public:
     Partition()
         : mAllocPtr(0),
@@ -135,7 +137,7 @@ public:
         QCRTASSERT(((0 == mFreeCnt) != (0 < theNext)) &&
             theNext <= BufferIndex(mTotalCnt));
         *mFreeListPtr = theNext;
-        mFreeListPtr[theIdx] = kInUse;
+        mFreeListPtr[theIdx] = kQCBufferInUse;
         return (mStartPtr + (size_t(theIdx - 1) << mBufSizeShift));
     }
 
@@ -156,7 +158,7 @@ public:
             ((0 == mFreeCnt) != (0 < theNext)) &&
             theNext <= BufferIndex(mTotalCnt) &&
             theIdx != theNext &&
-            kInUse == mFreeListPtr[theIdx]
+            kQCBufferInUse == mFreeListPtr[theIdx]
         );
 #if defined(QC_IO_BUFFER_POOL_TRACE_PUT)
         const int theMaxCnt =
@@ -190,7 +192,7 @@ public:
             mFreeCnt < mTotalCnt &&
             (theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0 &&
             theIdx != theNext &&
-            kMinPinned < mFreeListPtr[theIdx]
+            kQCBufferMinPinned < mFreeListPtr[theIdx]
         ;
         return true;
     }
@@ -210,14 +212,14 @@ public:
             return false;
         }
         QCRTASSERT((theOffset & ((size_t(1) << mBufSizeShift) - 1)) == 0);
-        const BufferIndex theId = kInUse - inId;
-        if (inId <= 0 || theId < kMinPinned) {
+        const BufferIndex theId = kQCBufferInUse - inId;
+        if (inId <= 0 || theId < kQCBufferMinPinned) {
             outOkFlag = false;
             return true;
         }
-        outOkFlag = (inFlag ? kInUse : theId) == mFreeListPtr[theIdx];
+        outOkFlag = (inFlag ? kQCBufferInUse : theId) == mFreeListPtr[theIdx];
         if (outOkFlag) {
-            mFreeListPtr[theIdx] = inFlag ? theId : kInUse;
+            mFreeListPtr[theIdx] = inFlag ? theId : kQCBufferInUse;
         }
         return true;
     }
