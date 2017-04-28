@@ -50,9 +50,12 @@ public:
     };
 
     typedef unsigned int PinnedBufferId;
-    static const PinnedBufferId kPinnedBufferIdMin = 1;
-    static const PinnedBufferId kPinnedBufferIdMax =
-        (PinnedBufferId(1) << (sizeof(PinnedBufferId) * 8 - 1)) - 1;
+    enum
+    {
+        kPinnedBufferIdMin = 1,
+        kPinnedBufferIdMax =
+            (PinnedBufferId(1) << (sizeof(PinnedBufferId) * 8 - 1)) - 1
+    };
 
     class Client
     {
