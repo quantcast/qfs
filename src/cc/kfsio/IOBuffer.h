@@ -31,19 +31,18 @@
 #ifndef _LIBIO_IOBUFFER_H
 #define _LIBIO_IOBUFFER_H
 
-#include <stdint.h>
-#include <stdio.h>
+#include "common/DisplayData.h"
+#include "common/StdAllocator.h"
 
-#include <cassert>
+#include <stdint.h>
+
 #include <list>
-#include <exception>
 #include <streambuf>
 #include <ostream>
 #include <istream>
 #include <limits>
 
 #include <boost/shared_ptr.hpp>
-#include "common/StdAllocator.h"
 
 namespace KFS
 {
@@ -708,34 +707,15 @@ public:
     ST& Display(
         ST& inStream) const
     {
-        const char* const kHexDigits = "0123456789ABCDEF";
-        BufPos            theRem     = mLength;
-        char              theBuf[2];
-        theBuf[1] = 0;
+        BufPos theRem = mLength;
         for (IOBuffer::iterator theIt = mIOBuffer.begin();
                 inStream && 0 < theRem && theIt != mIOBuffer.end();
                 ++theIt) {
             const BufPos theCnt = Min(theRem, theIt->BytesConsumable());
-            for (const char* thePtr = theIt->Consumer(),
-                        * const theEndPtr = thePtr + theCnt;
-                    thePtr < theEndPtr;
-                    thePtr++) {
-                const BufPos theSym = *thePtr & 0xFF;
-                if (theSym == '\n') {
-                    inStream << "\\n";
-                } else if (theSym == '\r') {
-                    inStream << "\\r";
-                } else if (' ' <= theSym && theSym < 127) {
-                    theBuf[0] = (char)theSym;
-                    inStream << theBuf;
-                } else {
-                    inStream << "\\x" <<
-                        kHexDigits[(theSym >> 4) & 0xF] <<
-                        kHexDigits[theSym & 0xF]
-                    ;
-                }
+            if (0 < theCnt) {
+                inStream << KFS::DisplayData(theIt->Consumer(), (size_t)theCnt);
+                theRem -= theCnt;
             }
-            theRem -= theCnt;
         }
         return inStream;
     }
