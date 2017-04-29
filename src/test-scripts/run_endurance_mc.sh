@@ -750,12 +750,15 @@ EOF
                 pre_run_cleanup "$prevlogsdir" || exit
             fi
             rm -rf "$metasrvlog"
-            run_with_valgrind \
-                "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
-                    > "${metasrvout}" 2>&1 &
-            mpid=$!
-            echo $mpid > "$metasrvpid"
-            kill -0 $mpid || exit
+            (
+                trap '' HUP EXIT
+                run_with_valgrind \
+                    "$mbdir/$metaserverbin" "$metasrvprop" "$metasrvlog" \
+                        > "${metasrvout}" 2>&1 &
+                mpid=$!
+                echo $mpid > "$metasrvpid"
+                kill -0 $mpid
+            ) || exit
             i=`expr $i + 1`
             vrdir="vr$i"
             cd "$mbdir" || exit
@@ -854,10 +857,13 @@ EOF
 metaServer.clientPort      = $metasrvport
 metaServer.chunkServerPort = $metasrvchunkport
 EOF
-        run_with_valgrind \
-            "`pwd`/$metaserverbin" \
-                "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
-        echo $! > "$metasrvpid"
+        (
+            trap '' HUP EXIT
+            run_with_valgrind \
+                "`pwd`/$metaserverbin" \
+                    "$metasrvprop" "$metasrvlog" > "${metasrvout}" 2>&1 &
+            echo $! > "$metasrvpid"
+        ) || exit
     fi
 
     fsckfailures=0
