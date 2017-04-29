@@ -35,6 +35,7 @@
 #include "common/StdAllocator.h"
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include <list>
 #include <streambuf>
