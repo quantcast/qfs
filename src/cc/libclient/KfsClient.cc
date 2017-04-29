@@ -42,6 +42,7 @@
 #include "common/MdStream.h"
 #include "common/StdAllocator.h"
 #include "common/IntToString.h"
+#include "common/DisplayData.h"
 
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
@@ -2241,6 +2242,10 @@ public:
         DeleteAll();
         return this;
     }
+    const char* GetBufPtr() const
+        { return mBuf; }
+    int GetLength() const
+        { return mLen; }
     template<typename T>
     int Parse(T& result)
     {
@@ -2423,33 +2428,42 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
         op.numEntries         = kMaxReaddirEntries;
         op.contentLength      = 0;
         op.hasMoreEntriesFlag = false;
-
+        if (op.status < 0) {
+            if (--retryCnt <= 0) {
+                break;
+            }
+            op.statusMsg.clear();
+            op.fnameStart.clear();
+            last = opResult.Clear();
+        }
+        op.status = 0;
         DoMetaOpWithRetry(&op);
         if (op.status < 0) {
             if (op.fnameStart.empty() ||
                     (op.status != -ENOENT && op.status != -EAGAIN)) {
                 break;
             }
-            if (--retryCnt <= 0) {
+            if (retryCnt <= 1) {
                 KFS_LOG_STREAM_ERROR <<
                     pathname << ": id: " << attr.fileId <<
-                    " directory has changed " <<
-                    kMaxReadDirRetries <<
+                    " directory has changed" <<
                     " times while attempting to list it; giving up" <<
                 KFS_LOG_EOM;
                 op.status = -EAGAIN;
                 break;
             }
-            op.fnameStart.clear();
-            last = opResult.Clear();
             continue;
         }
         if (op.numEntries <= 0) {
             break;
         }
         if (op.contentLength <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid content length: " << op.contentLength <<
+                " " << op.Show() <<
+            KFS_LOG_EOM;
             op.status = -EIO;
-            break;
+            continue;
         }
         last = last->Set(op);
         count += op.numEntries;
@@ -2457,8 +2471,15 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             break;
         }
         if (! last->GetLast(op.fnameStart)) {
+            KFS_LOG_STREAM_ERROR <<
+                "response parse error:"
+                " length: " << op.contentLength <<
+                " " << op.Show() <<
+                " data: " <<
+                    DisplayData(last->GetBufPtr(), last->GetLength()) <<
+            KFS_LOG_EOM;
             op.status = -EIO;
-            break;
+            continue;
         }
     }
     if (op.status == 0) {
@@ -2467,8 +2488,10 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             "readdir parse: entries:" << count <<
         KFS_LOG_EOM;
         op.status = opResult.Parse(result);
-        KFS_LOG_STREAM_DEBUG <<
+        KFS_LOG_STREAM(0 <= op.status ?
+                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
             "readdir parse: entries:" << result.size() <<
+            " status: " << op.status <<
         KFS_LOG_EOM;
         if (op.status == 0) {
             sort(result.begin(), result.end());
@@ -2987,34 +3010,43 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
         op.numEntries         = kMaxReaddirEntries;
         op.contentLength      = 0;
         op.hasMoreEntriesFlag = false;
-
+        if (op.status < 0) {
+            if (--retryCnt <= 0) {
+                break;
+            }
+            last = opResult.Clear();
+            op.fnameStart.clear();
+            beginEntryToken = 0;
+            op.statusMsg.clear();
+        }
+        op.status = 0;
         DoMetaOpWithRetry(&op);
-
         if (op.status < 0) {
             if (op.fnameStart.empty() ||
                     (op.status != -ENOENT && op.status != -EAGAIN)) {
                 break;
             }
-            if (--retryCnt <= 0) {
+            if (retryCnt <= 1) {
                 KFS_LOG_STREAM_ERROR <<
                     pathname << ": id: " << dirFid <<
-                    " directory has changed " <<
-                    kMaxReadDirRetries <<
-                    " times while attempting to list it; giving up" <<
+                    " directory has changed"
+                    " while attempting to list it; giving up" <<
                 KFS_LOG_EOM;
                 op.status = -EAGAIN;
                 break;
             }
-            last = opResult.Clear();
-            op.fnameStart.clear();
             continue;
         }
         if (op.numEntries <= 0) {
             break;
         }
         if (op.contentLength <= 0) {
+            KFS_LOG_STREAM_ERROR <<
+                "invalid content length: " << op.contentLength <<
+                " " << op.Show() <<
+            KFS_LOG_EOM;
             op.status = -EIO;
-            break;
+            continue;
         }
         // The response format:
         // Begin-entry <values> Begin-entry <values>
@@ -3037,8 +3069,14 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             break;
         }
         if (! last->GetLast(*beginEntryToken, *nameEntryToken, op.fnameStart)) {
-            op.status = -EIO;
-            break;
+            KFS_LOG_STREAM_ERROR <<
+                "response parse error:"
+                " length: " << last->GetLength() <<
+                " " << op.Show() <<
+                " data: " <<
+                    DisplayData(last->GetBufPtr(), last->GetLength()) <<
+            KFS_LOG_EOM;
+            continue;
         }
     }
     if (op.status == 0) {
@@ -3047,8 +3085,10 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             "readdirplus parse: entries: " << count <<
         KFS_LOG_EOM;
         op.status = opResult.Parse(parser);
-        KFS_LOG_STREAM_DEBUG <<
+        KFS_LOG_STREAM(0 <= op.status ?
+                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
             "readdirplus parse done: entries: " << result.size() <<
+            " status: " << op.status <<
         KFS_LOG_EOM;
     }
     if (op.status != 0) {
