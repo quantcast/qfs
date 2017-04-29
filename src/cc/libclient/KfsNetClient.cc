@@ -2021,7 +2021,8 @@ private:
                     "error: " << inLocation <<
                     ": exceeded max. response header size: " <<
                     mMaxRpcHeaderLength << "; got " <<
-                    inBuffer.BytesConsumable() << " resetting connection" <<
+                    inBuffer.BytesConsumable() << " resetting connection " <<
+                    " data: " << IOBuffer::DisplayData(inBuffer, 512) <<
                 KFS_LOG_EOM;
                 outErrorFlag = true;
             }
