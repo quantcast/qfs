@@ -403,11 +403,12 @@ public:
         mMetaVrSM.Shutdown();
         mLogTransmitter.Shutdown();
         NetErrorSimulatorConfigure(mNetManager, 0);
-        Cancel(mInQueue);
-        mPendingCount -= Cancel(mOutQueue);
-        mPendingCount -= Cancel(mPendingQueue);
-        mPendingCount -= Cancel(mPendingAckQueue);
-        mPendingCount -= Cancel(mReplayCommitQueue);
+        const string kStatusMsg("canceled due to shutdown");
+        Cancel(mInQueue, kStatusMsg);
+        mPendingCount -= Cancel(mOutQueue, kStatusMsg);
+        mPendingCount -= Cancel(mPendingQueue, kStatusMsg);
+        mPendingCount -= Cancel(mPendingAckQueue, kStatusMsg);
+        mPendingCount -= Cancel(mReplayCommitQueue, kStatusMsg);
     }
     void PrepareToFork()
     {
@@ -446,7 +447,10 @@ public:
             mMetaDataStorePtr->ChildAtFork();
         }
         mNetManager.ChildAtFork();
-        Close();
+        if (0 <= mLogFd) {
+            close(mLogFd);
+            mLogFd = -1;
+        }
     }
     virtual void Notify(
         const MetaVrLogSeq& inSeq)
@@ -926,20 +930,21 @@ private:
         return 0;
     }
     int Cancel(
-        Queue& inQueue)
+        Queue&        inQueue,
+        const string& inStatusMsg)
     {
         Queue theQueue;
         theQueue.Swap(inQueue);
         int          theCnt = 0;
         MetaRequest* thePtr;
         while ((thePtr = theQueue.PopFront())) {
-            if (thePtr->clnt) {
-                thePtr->status    = -ECANCELED;
-                thePtr->statusMsg = "canceled due to shutdown";
-                submit_request(thePtr);
-            } else {
-                MetaRequest::Release(thePtr);
-            }
+            thePtr->status    = -ECANCELED;
+            thePtr->statusMsg = inStatusMsg;
+            KFS_LOG_STREAM_DEBUG <<
+                inStatusMsg <<
+                " " << thePtr->Show() <<
+            KFS_LOG_EOM;
+            submit_request(thePtr);
             theCnt++;
         }
         return theCnt;
