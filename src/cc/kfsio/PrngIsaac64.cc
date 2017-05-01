@@ -35,7 +35,6 @@ namespace KFS
 class PrngIsaac64::Impl
 {
 private:
-    private:
     typedef uint64_t ub8;
     typedef uint8_t  ub1;
     typedef int      word;
