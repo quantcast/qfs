@@ -146,10 +146,13 @@ public:
     T& Display(
         T& inStream) const
     {
+        inStream << "status: "  << mStatus;
+        if (! mStatusMsg.empty()) {
+            inStream << " " << mStatusMsg;
+        } else if (mStatus < 0) {
+            inStream << " " << ErrorCodeToString(mStatus);
+        }
         return (inStream <<
-            "status: "  << mStatus <<
-            " "         << ((mStatusMsg.empty() && mStatus < 0) ?
-                ErrorCodeToString(mStatus).c_str() : mStatusMsg.c_str()) <<
             " epoch: "  << mEpochSeq <<
             " view: "   << mViewSeq <<
             " state: "  << MetaVrSM::GetStateName(mState) <<
@@ -1249,7 +1252,7 @@ public:
     bool IsPrimary() const
         { return (kStatePrimary == mState || kStateReconfiguration == mState); }
     static const char* GetStateName(
-        State inState)
+        int inState)
     {
         switch (inState)
         {
@@ -5039,7 +5042,7 @@ MetaVrSM::ValidateAckPrimaryId(
 MetaVrSM::GetStateName(
     int inState)
 {
-    return Impl::GetStateName(Impl::State(inState));
+    return Impl::GetStateName(inState);
 }
 
     /* static */ MetaVrSM::NodeId
