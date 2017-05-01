@@ -2090,12 +2090,7 @@ LayoutManager::~LayoutManager()
     mCleanupFlag = true;
     // Cleanup chunk servers to prevent queue ops due to chunk entries delete
     // in remveSubTree();
-    for (Servers::iterator it = mChunkServers.begin();
-            mChunkServers.end() != it;
-            ++it) {
-        (*it)->ForceDown();
-        mChunkToServerMap.RemoveServer(*it);
-    }
+    CleanupChunkServers();
     mRacks.clear();
     mChunkServers.clear();
     // Cleanup meta tree prior to destroying chunk hash table, as hash table,
@@ -2112,6 +2107,17 @@ LayoutManager::~LayoutManager()
     delete mStaleChunkCount;
     if (mCleanupScheduledFlag) {
         mNetManager.UnRegisterTimeoutHandler(this);
+    }
+}
+
+void
+LayoutManager::CleanupChunkServers()
+{
+    for (Servers::iterator it = mChunkServers.begin();
+            mChunkServers.end() != it;
+            ++it) {
+        (*it)->ForceDown();
+        mChunkToServerMap.RemoveServer(*it);
     }
 }
 
@@ -3085,6 +3091,7 @@ LayoutManager::Shutdown()
     while ((req = queue.PopFront())) {
         MetaRequest::Release(req);
     }
+    CleanupChunkServers();
 }
 
 template<

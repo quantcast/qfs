@@ -790,8 +790,8 @@ MetaServer::Startup(const Properties& props,
             "failed to set parameters " <<
         KFS_LOG_EOM;
     }
-    gLayoutManager.Shutdown();
     MetaRequest::GetLogWriter().Shutdown();
+    gLayoutManager.Shutdown();
     return okFlag;
 }
 
