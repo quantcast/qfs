@@ -205,11 +205,11 @@ pre_run_cleanup()
 run_with_valgrind()
 {
     if [ x"$myusevalgrind" = x ]; then
-        ${1+"$@"}
+        exec ${1+"$@"}
     else
         GLIBCPP_FORCE_NEW=1 \
         GLIBCXX_FORCE_NEW=1 \
-        valgrind \
+        exec valgrind \
             -v \
             --log-file=valgrind.log \
             --leak-check=full \
