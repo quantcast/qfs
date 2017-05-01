@@ -150,7 +150,7 @@ public:
         const string thePrevErrorSimulatorConfig = mErrorSimulatorConfig;
         mErrorSimulatorConfig = inParameters.getValue(
             theParamName.Truncate(thePrefixLen).Append(
-            "netErrorSimulator").c_str(), mErrorSimulatorConfig);
+            "netErrorSimulator"), mErrorSimulatorConfig);
         if (thePrevErrorSimulatorConfig != mErrorSimulatorConfig &&
                 mAcceptorPtr &&
                 NetErrorSimulatorConfigure(

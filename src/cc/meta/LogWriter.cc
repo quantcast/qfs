@@ -2226,7 +2226,7 @@ private:
         const string thePrevErrorSimulatorConfig = mErrorSimulatorConfig;
         mErrorSimulatorConfig = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append(
-            "netErrorSimulator").c_str(), mErrorSimulatorConfig);
+            "netErrorSimulator"), mErrorSimulatorConfig);
         if (thePrevErrorSimulatorConfig != mErrorSimulatorConfig &&
                 NetErrorSimulatorConfigure(
                     mNetManager,
