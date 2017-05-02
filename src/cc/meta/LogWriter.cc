@@ -1213,6 +1213,11 @@ private:
                 mForkDoneCond.Wait(mMutex);
             }
         }
+        const bool theStopFlag = mStopFlag;
+        if (theStopFlag) {
+            mSetReplayStateFlag = false;
+            mNetManager.Shutdown();
+        }
         if (mSetReplayStateFlag) {
             KFS_LOG_STREAM_DEBUG <<
                 "set replay state pending"
@@ -1221,10 +1226,6 @@ private:
             theLocker.Unlock();
             mMetaVrSM.ProcessReplay(mNetManager.Now());
             return;
-        }
-        const bool theStopFlag = mStopFlag;
-        if (theStopFlag) {
-            mNetManager.Shutdown();
         }
         mInFlightCommitted = mPendingCommitted;
         const MetaVrLogSeq theReplayLogSeq = mPendingReplayLogSeq;

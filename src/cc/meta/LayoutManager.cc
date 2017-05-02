@@ -3076,6 +3076,7 @@ LayoutManager::SetChunkServersProperties(const Properties& props)
 void
 LayoutManager::Shutdown()
 {
+    mCleanupFlag = true;
     CancelRequestsWaitingForBuffers();
     // Return io buffers back into the pool.
     mCSCountersResponse.Clear();
@@ -3089,9 +3090,10 @@ LayoutManager::Shutdown()
     queue.PushBack(mResubmitQueue);
     MetaRequest* req;
     while ((req = queue.PopFront())) {
-        MetaRequest::Release(req);
+        submit_request(req);
     }
     CleanupChunkServers();
+    mCleanupFlag = false;
 }
 
 template<
@@ -9789,7 +9791,7 @@ LayoutManager::ScheduleResubmitOrCancel(MetaRequest& req)
             req.submitCount <= 0) {
         panic("invalid resubmit request attempt");
     }
-    if (! mPrimaryFlag) {
+    if (! mPrimaryFlag || mCleanupFlag) {
         KFS_LOG_STREAM_DEBUG <<
             "not primary, ignoring resubmit: " <<
             " status: " << req.status <<
