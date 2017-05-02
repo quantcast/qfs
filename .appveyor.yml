@@ -35,11 +35,6 @@ init:
     - git config --global core.autocrlf input
 
 install:
-    - ps: |
-        $app = Get-WmiObject -Class Win32_Product -Filter "Name = 'CMake'"
-        if ($app) {
-            $app.Uninstall()
-        }
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
     - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
     - '%CYG_BASH% -lc "cygcheck -dc cygwin && env -i `which cmake` --version"'
