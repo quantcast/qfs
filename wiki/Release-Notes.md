@@ -40,11 +40,11 @@ write behind is no longer latency bound.
 5. Updated GF complete library version, now includes run time CPU vector features
  detection, and ARM NEON vector instructions support.
 
-6. Fixed sporadic file descriptor close in meta server checkpoint path in case
+6. Fixed sporadic file descriptor close in meta server checkpoint write in case
  when lock file was configured / used.
 
 7. Fixed bug in S3 block delete state machine that appear in the case when more
- single upload ID was returned by S3.
+ one upload ID returned by S3.
 
 8. Fixed re-authentication bug in chunk, meta servers, and client library, that
  resulted connection stalls / timeouts.
@@ -67,7 +67,7 @@ permit super user to move file out of dumpster in order to prevent its deletion.
  disk, network bandwidth, and CPU utilization.
 
 14. Added S3 option that allows to turn off upload ID querying prior to
- S3 block delete, in order to allow to use possibly more cost effective
+ S3 block delete, in order to allow to use potentially more cost effective
  external to QFS process of finding and removing possible stale multi part
  uploads.
 
@@ -80,6 +80,14 @@ permit super user to move file out of dumpster in order to prevent its deletion.
  transaction log into new format. qfsadmin or qfstoggleworm can be used to
  change WORM mode.
 
+17. Retry QFS client directory listing in the case of parse errors in order to
+ handle possible network errors.
+ 
+18. Fix integer overflow in IO buffer pool with pool size equal or greater 4GB.
+ The problem affects both chunk and meta servers. However, typically, only chunk
+ server, if configured with IO buffer pool larger than 4GB, and S3, might use
+ enough buffers for the problem to occur.
+ 
 
 Upgrade from prior releases
 ---------------------------
