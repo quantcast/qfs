@@ -25,7 +25,11 @@
 //
 //----------------------------------------------------------------------------
 
+#if defined(__GNUC__) && defined(KFS_OS_NAME_CYGWIN)
 #include <stdint.h>
+typedef int64_t __int64;
+#endif
+
 #include <jni.h>
 #include <string>
 #include <cstddef>
