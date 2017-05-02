@@ -2435,6 +2435,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             op.statusMsg.clear();
             op.fnameStart.clear();
             last = opResult.Clear();
+            count = 0;
         }
         op.status = 0;
         DoMetaOpWithRetry(&op);
@@ -2454,20 +2455,37 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             }
             continue;
         }
-        if (op.numEntries <= 0) {
-            break;
+        if (0 <= op.numEntries) {
+            if (op.contentLength <= 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid content length: " << op.contentLength <<
+                    " " << op.Show() <<
+                KFS_LOG_EOM;
+                op.status = -EIO;
+                continue;
+            }
+            last = last->Set(op);
+            count += op.numEntries;
         }
-        if (op.contentLength <= 0) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid content length: " << op.contentLength <<
-                " " << op.Show() <<
+        if (! op.hasMoreEntriesFlag || op.numEntries <= 0) {
+            result.reserve(count);
+            KFS_LOG_STREAM_DEBUG <<
+                "readdir parse: entries:" << count <<
             KFS_LOG_EOM;
-            op.status = -EIO;
-            continue;
-        }
-        last = last->Set(op);
-        count += op.numEntries;
-        if (! op.hasMoreEntriesFlag) {
+            op.status = opResult.Parse(result);
+            KFS_LOG_STREAM(0 <= op.status ?
+                    MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+                "readdir parse: entries:" << result.size() <<
+                " status: " << op.status <<
+            KFS_LOG_EOM;
+            if (op.status < 0) {
+                continue;
+            }
+            sort(result.begin(), result.end());
+            if (! op.fnameStart.empty()) {
+                result.erase(
+                    unique(result.begin(), result.end()), result.end());
+            }
             break;
         }
         if (! last->GetLast(op.fnameStart)) {
@@ -2482,25 +2500,7 @@ KfsClientImpl::Readdir(const char* pathname, vector<string>& result)
             continue;
         }
     }
-    if (op.status == 0) {
-        result.reserve(count);
-        KFS_LOG_STREAM_DEBUG <<
-            "readdir parse: entries:" << count <<
-        KFS_LOG_EOM;
-        op.status = opResult.Parse(result);
-        KFS_LOG_STREAM(0 <= op.status ?
-                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
-            "readdir parse: entries:" << result.size() <<
-            " status: " << op.status <<
-        KFS_LOG_EOM;
-        if (op.status == 0) {
-            sort(result.begin(), result.end());
-            if (! op.fnameStart.empty()) {
-                result.erase(
-                    unique(result.begin(), result.end()), result.end());
-            }
-        }
-    } else {
+    if (op.status < 0) {
         result.clear();
     }
     return GetOpStatus(op);
@@ -3016,8 +3016,9 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             }
             last = opResult.Clear();
             op.fnameStart.clear();
-            beginEntryToken = 0;
             op.statusMsg.clear();
+            beginEntryToken = 0;
+            count = 0;
         }
         op.status = 0;
         DoMetaOpWithRetry(&op);
@@ -3037,35 +3038,47 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             }
             continue;
         }
-        if (op.numEntries <= 0) {
-            break;
-        }
-        if (op.contentLength <= 0) {
-            KFS_LOG_STREAM_ERROR <<
-                "invalid content length: " << op.contentLength <<
-                " " << op.Show() <<
-            KFS_LOG_EOM;
-            op.status = -EIO;
-            continue;
-        }
-        // The response format:
-        // Begin-entry <values> Begin-entry <values>
-        // The last entry doesn't have a end-marker.
-        if (! beginEntryToken && op.hasMoreEntriesFlag) {
-            PropertiesTokenizer tokenizer(
-                op.contentBuf, op.contentLength, false);
-            tokenizer.Next();
-            if (tokenizer.GetKey() == parser.shortBeginEntry) {
-                nameEntryToken  = &nameTokenShort;
-                beginEntryToken = &parser.shortBeginEntry;
-            } else {
-                nameEntryToken  = &nameToken;
-                beginEntryToken = &parser.beginEntry;
+        if (0 <= op.numEntries) {
+            if (op.contentLength <= 0) {
+                KFS_LOG_STREAM_ERROR <<
+                    "invalid content length: " << op.contentLength <<
+                    " " << op.Show() <<
+                KFS_LOG_EOM;
+                op.status = -EIO;
+                continue;
             }
+            // The response format:
+            // Begin-entry <values> Begin-entry <values>
+            // The last entry doesn't have a end-marker.
+            if (! beginEntryToken && op.hasMoreEntriesFlag) {
+                PropertiesTokenizer tokenizer(
+                    op.contentBuf, op.contentLength, false);
+                tokenizer.Next();
+                if (tokenizer.GetKey() == parser.shortBeginEntry) {
+                    nameEntryToken  = &nameTokenShort;
+                    beginEntryToken = &parser.shortBeginEntry;
+                } else {
+                    nameEntryToken  = &nameToken;
+                    beginEntryToken = &parser.beginEntry;
+                }
+            }
+            last = last->Set(op);
+            count += op.numEntries;
         }
-        last = last->Set(op);
-        count += op.numEntries;
-        if (! op.hasMoreEntriesFlag) {
+        if (! op.hasMoreEntriesFlag || op.numEntries <= 0) {
+            result.reserve(count);
+            KFS_LOG_STREAM_DEBUG <<
+                "readdirplus parse: entries: " << count <<
+            KFS_LOG_EOM;
+            op.status = opResult.Parse(parser);
+            KFS_LOG_STREAM(0 <= op.status ?
+                    MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
+                "readdirplus parse done: entries: " << result.size() <<
+                " status: " << op.status <<
+            KFS_LOG_EOM;
+            if (op.status < 0) {
+                continue;
+            }
             break;
         }
         if (! last->GetLast(*beginEntryToken, *nameEntryToken, op.fnameStart)) {
@@ -3078,18 +3091,6 @@ KfsClientImpl::ReaddirPlus(const string& pathname, kfsFileId_t dirFid,
             KFS_LOG_EOM;
             continue;
         }
-    }
-    if (op.status == 0) {
-        result.reserve(count);
-        KFS_LOG_STREAM_DEBUG <<
-            "readdirplus parse: entries: " << count <<
-        KFS_LOG_EOM;
-        op.status = opResult.Parse(parser);
-        KFS_LOG_STREAM(0 <= op.status ?
-                MsgLogger::kLogLevelDEBUG : MsgLogger::kLogLevelERROR) <<
-            "readdirplus parse done: entries: " << result.size() <<
-            " status: " << op.status <<
-        KFS_LOG_EOM;
     }
     if (op.status != 0) {
         result.clear();
