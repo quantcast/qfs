@@ -1240,12 +1240,32 @@ ChunkServer::Error(const char* errorMsg, bool ignoreReplayFlag)
             " status: " << mNetConnection->GetErrorMsg() <<
             " "         << mNetConnection->GetErrorCode() <<
         KFS_LOG_EOM;
+        if (mDownReason.empty()) {
+            if (mRestartQueuedFlag) {
+                mDownReason = "restart";
+            } else if (mHelloDone || 0 < mPendingOpsCount) {
+                if (errorMsg) {
+                    if (mReplayFlag) {
+                        mDownReason = "replay: ";
+                    }
+                    mDownReason += errorMsg;
+                }
+                const size_t kMaxMsgSize = 128;
+                if (! mReplayFlag && mDownReason.size() < kMaxMsgSize) {
+                    const string msg = mNetConnection->GetErrorMsg();
+                    if (! msg.empty() &&
+                            mDownReason.size() + msg.size() < kMaxMsgSize) {
+                        if (! mDownReason.empty()) {
+                            mDownReason += "; ";
+                        }
+                        mDownReason += msg;
+                    }
+                }
+            }
+        }
         mNetConnection->Close();
         mNetConnection->GetInBuffer().Clear();
         mNetConnection.reset();
-        if (mDownReason.empty() && mRestartQueuedFlag) {
-            mDownReason = "restart";
-        }
         RemoveFromPendingHelloList();
         RemoveFromWriteAllocation();
         MetaRequest::Release(mAuthenticateOp);

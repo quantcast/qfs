@@ -5849,7 +5849,8 @@ LayoutManager::Handle(MetaBye& req)
     const bool           canBeMaster = server->CanBeChunkMaster();
     const ServerLocation loc         = server->GetServerLocation();
     const size_t         blockCount  = server->GetChunkCount();
-    string               reason      = server->DownReason();
+    const string         downReason  = server->DownReason();
+    const char*          reason      = downReason.c_str();
 
     KFS_LOG_STREAM(server->IsReplay() ?
             MsgLogger::kLogLevelDEBUG :
@@ -5858,7 +5859,7 @@ LayoutManager::Handle(MetaBye& req)
         " block count: " << blockCount <<
         " master: "      << canBeMaster <<
         " replay: "      << server->IsReplay() <<
-        (reason.empty() ? "" : " reason: " ) << reason <<
+        (*reason ? " reason: " : "") << reason <<
         " "              << req.Show() <<
     KFS_LOG_EOM;
 
@@ -5893,7 +5894,7 @@ LayoutManager::Handle(MetaBye& req)
 
     if (! hs && server->IsRetiring()) {
         reason = "Retired";
-    } else if (reason.empty()) {
+    } else if (! *reason) {
         reason = "Unreachable";
     }
     // for reporting purposes, record when it went down
@@ -5902,8 +5903,27 @@ LayoutManager::Handle(MetaBye& req)
         "s="        << loc.hostname <<
         ", p="      << loc.port <<
         ", down="   << DisplayDateTime(req.timeUsec) <<
-        ", reason=" << reason <<
-    "\t";
+        ", reason="
+    ;
+    if (downReason.c_str() == reason) {
+        for (const char* p = reason, *const e = p + downReason.size();
+                p < e;
+                ++p) {
+            const int  sym       = *p & 0xFF;
+            const char kSpace    = ' ';
+            const int  kSymSpace = kSpace & 0xFF;
+            switch (sym) {
+                case ',':  os << ';';    break;
+                case '=':  os << ':';    break;
+                case '\t': os << kSpace; break;
+                default:
+                    os << (sym < kSymSpace ? kSpace : *p);
+            }
+        }
+    } else {
+        os << reason;
+    }
+    os << "\t";
     mDownServers.push_back(os.str());
     if (mDownServers.size() > mMaxDownServersHistorySize) {
         mDownServers.erase(mDownServers.begin(), mDownServers.begin() +
