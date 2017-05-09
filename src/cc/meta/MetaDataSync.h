@@ -51,7 +51,8 @@ public:
 
     int SetParameters(
         const char*       inPrefixPtr,
-        const Properties& inParameters);
+        const Properties& inParameters,
+        int               inMaxReadSize);
     int Start(
         const char* inCheckpointDirPtr,
         const char* inLogDirPtr);

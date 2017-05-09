@@ -584,7 +584,7 @@ MetaServer::SetParameters(const Properties& props)
         submit_request(op);
     }
     const int status = mMetaDataSync.SetParameters(
-        "metaServer.metaDataSync.", props);
+        "metaServer.metaDataSync.", props, gLayoutManager.GetMaxResponseSize());
     if (0 != status) {
         KFS_LOG_STREAM_ERROR << "meta data sync set parameters: " <<
             QCUtils::SysError(-status) <<

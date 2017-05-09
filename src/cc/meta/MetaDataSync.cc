@@ -187,7 +187,7 @@ public:
           mFileSystemId(-1),
           mReadOpsCount(16),
           mMaxLogBlockSize((sizeof(void*) < 8 ? 8 : 64) << 20),
-          mMaxReadSize(64 << 10),
+          mMaxReadSize(2 << 20),
           mMaxRetryCount(10),
           mRetryCount(0),
           mRetryTimeout(3),
@@ -251,7 +251,8 @@ public:
     }
     int SetParameters(
         const char*       inParamPrefixPtr,
-        const Properties& inParameters)
+        const Properties& inParameters,
+        int               inMaxReadSize)
     {
         if (mThread.IsStarted()) {
             KFS_LOG_STREAM_ERROR <<
@@ -261,18 +262,23 @@ public:
         }
         Properties::String theName(inParamPrefixPtr ? inParamPrefixPtr : "");
         const size_t       thePrefLen = theName.GetSize();
-        mMaxReadSize = max(1 << 10, inParameters.getValue(
+        const int          kMinReadSize = 1 << 10;
+        mMaxReadSize = max(kMinReadSize, inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxReadSize"),
             mMaxReadSize));
-        mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
         mMaxLogBlockSize = max(4 << 10, inParameters.getValue(
             theName.Truncate(thePrefLen).Append("maxLogBlockSize"),
             mMaxLogBlockSize));
         if (! mReadOpsPtr) {
             mReadOpsCount = max(size_t(1), inParameters.getValue(
-            theName.Truncate(thePrefLen).Append("maxReadOpsCount"),
-            mReadOpsCount));
+                theName.Truncate(thePrefLen).Append("maxReadOpsCount"),
+                mReadOpsCount));
         }
+        if (kMinReadSize * mReadOpsCount <= inMaxReadSize &&
+                inMaxReadSize < mMaxReadSize * mReadOpsCount) {
+            mMaxReadSize = (inMaxReadSize + mReadOpsCount - 1) / mReadOpsCount;
+        }
+        mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
         mFetchOnRestartFileName = inParameters.getValue(
             theName.Truncate(thePrefLen).Append("fetchOnRestartFileName"),
             mFetchOnRestartFileName);
@@ -2419,9 +2425,10 @@ MetaDataSync::~MetaDataSync()
     int
 MetaDataSync::SetParameters(
     const char*       inParamPrefixPtr,
-    const Properties& inParameters)
+    const Properties& inParameters,
+    int               inMaxReadSize)
 {
-    return mImpl.SetParameters(inParamPrefixPtr, inParameters);
+    return mImpl.SetParameters(inParamPrefixPtr, inParameters, inMaxReadSize);
 }
 
     int
