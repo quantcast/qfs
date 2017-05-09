@@ -274,9 +274,11 @@ public:
                 theName.Truncate(thePrefLen).Append("maxReadOpsCount"),
                 mReadOpsCount));
         }
-        if (kMinReadSize * mReadOpsCount <= inMaxReadSize &&
-                inMaxReadSize < mMaxReadSize * mReadOpsCount) {
-            mMaxReadSize = (inMaxReadSize + mReadOpsCount - 1) / mReadOpsCount;
+        const int theReadOpsCount = (int)mReadOpsCount;
+        if (kMinReadSize * theReadOpsCount <= inMaxReadSize &&
+                inMaxReadSize < mMaxReadSize * theReadOpsCount) {
+            mMaxReadSize = (inMaxReadSize + theReadOpsCount - 1) /
+                theReadOpsCount;
         }
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
         mFetchOnRestartFileName = inParameters.getValue(
