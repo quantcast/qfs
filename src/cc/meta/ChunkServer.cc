@@ -191,8 +191,36 @@ MakeAuthUid(const MetaHello& op, const string& authName)
 }
 
 template<typename T>
+class ChunkIdInserter
+{
+public:
+    ChunkIdInserter(
+        T& dest)
+        : mDest(dest)
+        {}
+    void operator()(chunkId_t id)
+        { mDest.Insert(id); }
+private:
+    T& mDest;
+};
+
+template<typename T>
+class ChunkIdRemover
+{
+public:
+    ChunkIdRemover(
+        T& dest)
+        : mDest(dest)
+        {}
+    void operator()(chunkId_t id)
+        { mDest.Erase(id); }
+private:
+    T& mDest;
+};
+
+template<typename T>
 inline static void
-ProcessInFlightChunks(T& dest, const MetaChunkRequest& op, bool insertFlag)
+ProcessInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
     if (op.chunkVersion < 0) {
         return;
@@ -202,18 +230,10 @@ ProcessInFlightChunks(T& dest, const MetaChunkRequest& op, bool insertFlag)
         MetaChunkRequest::ChunkIdSet::ConstIterator it(*ids);
         const chunkId_t*            id;
         while ((id = it.Next())) {
-            if (insertFlag) {
-                dest.Insert(*id);
-            } else {
-                dest.Erase(*id);
-            }
+            dest(*id);
         }
     } else if (0 <= op.chunkId) {
-        if (insertFlag) {
-            dest.Insert(op.chunkId);
-        } else {
-            dest.Erase(op.chunkId);
-        }
+        dest(op.chunkId);
     }
 }
 
@@ -221,7 +241,8 @@ template<typename T>
 inline static void
 AppendInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
-    ProcessInFlightChunks(dest, op, true);
+    ChunkIdInserter<T> inserter(dest);
+    ProcessInFlightChunks(inserter, op);
 }
 
 template<typename T>
@@ -229,7 +250,8 @@ inline static void
 RemoveInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
     if (! dest.IsEmpty()) {
-        ProcessInFlightChunks(dest, op, false);
+        ChunkIdRemover<T> remover(dest);
+        ProcessInFlightChunks(remover, op);
     }
 }
 
@@ -2406,15 +2428,20 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
             if (0 == req.status) {
                 req.status = -ENOENT;
             }
-        } else if (0 <= req.chunkId && 0 <= req.chunkVersion) {
+        } else if (0 <= op->chunkVersion) {
             if (req.doneTimedOutFlag) {
-                bool          insertedFlag = false;
-                TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(
-                    req.chunkId,  TimeoutEntry(TimeNow()), insertedFlag);
-                DoneTimedoutList::Insert(*entry,
-                    DoneTimedoutList::GetPrev(mDoneTimedoutList));
+                if (req.chunkId < 0 || req.chunkVersion < 0) {
+                    panic(
+                        "chunk server: invalid timed out chunk completion op");
+                } else {
+                    bool          insertedFlag = false;
+                    TimeoutEntry* entry        = mDoneTimedoutChunks.Insert(
+                        req.chunkId,  TimeoutEntry(TimeNow()), insertedFlag);
+                    DoneTimedoutList::Insert(*entry,
+                        DoneTimedoutList::GetPrev(mDoneTimedoutList));
+                }
             } else {
-                mDoneTimedoutChunks.Erase(req.chunkId);
+                RemoveInFlightChunks(mDoneTimedoutChunks, *op);
             }
         }
         if (0 != req.status && 0 <= op->status) {
@@ -2543,13 +2570,10 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
             mLogInFlightCount--;
         }
     }
-    if (! restoreFlag && 0 <= req.chunkVersion) {
-        if (req.logseq.IsValid() && 0 <= req.chunkId) {
-            mDoneTimedoutChunks.Erase(req.chunkId);
-        }
-        if (req.logseq.IsValid() || req.logCompletionSeq.IsValid()) {
-            RemoveInFlightChunks(mHelloChunkIds, req);
-        }
+    if (! restoreFlag && 0 <= req.chunkVersion &&
+            (req.logseq.IsValid() || req.logCompletionSeq.IsValid())) {
+        RemoveInFlightChunks(mDoneTimedoutChunks, req);
+        RemoveInFlightChunks(mHelloChunkIds, req);
     }
     if (0 == req.submitCount) {
         req.submitTime = microseconds();
