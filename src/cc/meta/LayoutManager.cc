@@ -8931,7 +8931,16 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Log 15 Sec Avg Rate= "   << logCtrs.mLog15SecAvgReqRate << "\t"
         "Log Avg Rate Div="       <<
             (int64_t(1) << LogWriter::Counters::kRateFracBits) << "\t"
-        "B Tree Height= "         << metatree.height()
+        "B Tree Height= "         << metatree.height() << "\t"
+        "Log Disk Write Time Usec= "  << logCtrs.mDiskWriteTimeUsec << "\t"
+        "Log Disk Write Byte Count= " << logCtrs.mDiskWriteByteCount << "\t"
+        "Log Disk Write Count= "      << logCtrs.mDiskWriteCount << "\t"
+        "Log Disk Write Op 5 sec Avg Usec= " <<
+            logCtrs.mLogOpWrite5SecAvgUsec << "\t"
+        "Log Disk Write Op 10 sec Avg Usec= " <<
+            logCtrs.mLogOpWrite10SecAvgUsec << "\t"
+        "Log Disk Write Op 15 sec Avg Usec= " <<
+            logCtrs.mLogOpWrite15SecAvgUsec
     ;
     mWOstream.flush();
     mWOstream.Reset();

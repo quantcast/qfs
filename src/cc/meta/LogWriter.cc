@@ -149,6 +149,7 @@ public:
           mLogErrorOpsCount(0),
           mPrevLogTimeOpsCount(0),
           mPrevLogTimeUsec(0),
+          mPrevLogWriteUsecs(0),
           mLogAvgUsecsNextTimeUsec(0),
           mLog5SecAvgUsec(0),
           mLog10SecAvgUsec(0),
@@ -156,6 +157,12 @@ public:
           mLog5SecAvgReqRate(0),
           mLog10SecAvgReqRate(0),
           mLog15SecAvgReqRate(0),
+          mLogOpWrite5SecAvgUsec(0),
+          mLogOpWrite10SecAvgUsec(0),
+          mLogOpWrite15SecAvgUsec(0),
+          mIoCounters(),
+          mWorkerIoCounters(),
+          mCurIoCounters(),
           mPrepareToForkFlag(false),
           mPrepareToForkDoneFlag(false),
           mVrNodeId(-1),
@@ -549,6 +556,9 @@ public:
     void GetCounters(
         Counters& outCounters)
     {
+        outCounters.mDiskWriteTimeUsec  = mIoCounters.mDiskWriteTimeUsec;
+        outCounters.mDiskWriteByteCount = mIoCounters.mDiskWriteByteCount;
+        outCounters.mDiskWriteCount     = mIoCounters.mDiskWriteCount;
         outCounters.mPendingOpsCount    = mPendingCount;
         outCounters.mLogTimeUsec        = mLogTimeUsec;
         outCounters.mLogTimeOpsCount    = mLogTimeOpsCount;
@@ -562,6 +572,12 @@ public:
             mLog10SecAvgReqRate >> kLogAvgFracBits;
         outCounters.mLog15SecAvgReqRate =
             mLog15SecAvgReqRate >> kLogAvgFracBits;
+        outCounters.mLogOpWrite5SecAvgUsec      =
+            mLogOpWrite5SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mLogOpWrite10SecAvgUsec =
+            mLogOpWrite10SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mLogOpWrite15SecAvgUsec =
+            mLogOpWrite15SecAvgUsec >> kLogAvgFracBits;
     }
 private:
     typedef uint32_t Checksum;
@@ -594,6 +610,21 @@ private:
     enum { kLogAvgIntervalUsec           = 1000 * 1000 };
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
+
+    class IoCounters
+    {
+    public:
+        typedef Counters::Counter Counter;
+
+        IoCounters()
+            : mDiskWriteTimeUsec(0),
+              mDiskWriteByteCount(0),
+              mDiskWriteCount(0)
+            {}
+        Counter mDiskWriteTimeUsec;
+        Counter mDiskWriteByteCount;
+        Counter mDiskWriteCount;
+    };
 
     NetManager*       mNetManagerPtr;
     MetaDataStore*    mMetaDataStorePtr;
@@ -659,6 +690,7 @@ private:
     int64_t           mLogErrorOpsCount;
     int64_t           mPrevLogTimeOpsCount;
     int64_t           mPrevLogTimeUsec;
+    int64_t           mPrevLogWriteUsecs;
     int64_t           mLogAvgUsecsNextTimeUsec;
     int64_t           mLog5SecAvgUsec;
     int64_t           mLog10SecAvgUsec;
@@ -666,6 +698,12 @@ private:
     int64_t           mLog5SecAvgReqRate;
     int64_t           mLog10SecAvgReqRate;
     int64_t           mLog15SecAvgReqRate;
+    int64_t           mLogOpWrite5SecAvgUsec;
+    int64_t           mLogOpWrite10SecAvgUsec;
+    int64_t           mLogOpWrite15SecAvgUsec;
+    IoCounters        mIoCounters;
+    IoCounters        mWorkerIoCounters;
+    IoCounters        mCurIoCounters;
     bool              mPrepareToForkFlag;
     bool              mPrepareToForkDoneFlag;
     NodeId            mVrNodeId;
@@ -777,10 +815,12 @@ private:
             }
             Close();
             mError = 0;
+            const int64_t theStart = microseconds();
             if ((mLogFd = open(mLogName.c_str(), O_WRONLY, 0666)) < 0) {
                 IoError(errno);
                 return mError;
             }
+            mWorkerIoCounters.mDiskWriteTimeUsec += microseconds() - theStart;
             const off_t theSize = lseek(mLogFd, 0, SEEK_END);
             if (theSize < 0) {
                 IoError(errno);
@@ -967,15 +1007,21 @@ private:
         if (inTimeNowUsec < mLogAvgUsecsNextTimeUsec) {
             return;
         }
-        const int64_t theOpsCount  = mLogTimeOpsCount - mPrevLogTimeOpsCount;
-        const int64_t theLogUsecs  = mLogTimeUsec     - mPrevLogTimeUsec;
-        const int64_t theOpLogRate = (theOpsCount << Counters::kRateFracBits) *
+        const int64_t theOpsCount      =
+            mLogTimeOpsCount - mPrevLogTimeOpsCount;
+        const int64_t theLogUsecs      = mLogTimeUsec     - mPrevLogTimeUsec;
+        const int64_t theLogWriteUsecs =
+            mIoCounters.mDiskWriteTimeUsec - mPrevLogWriteUsecs;
+        const int64_t theOpLogRate     = (theOpsCount << Counters::kRateFracBits) *
             1000 * 1000 / (kLogAvgIntervalUsec +
                 inTimeNowUsec - mLogAvgUsecsNextTimeUsec);
         mPrevLogTimeOpsCount = mLogTimeOpsCount;
         mPrevLogTimeUsec     = mLogTimeUsec;
+        mPrevLogWriteUsecs   = mIoCounters.mDiskWriteTimeUsec;
         const int64_t theOpLogUsecs = 0 < theOpsCount ?
             theLogUsecs / theOpsCount : int64_t(0);
+        const int64_t theOpLogWriteUsecs = 0 < theOpsCount ?
+            theLogWriteUsecs / theOpsCount : int64_t(0);
         while (mLogAvgUsecsNextTimeUsec <= inTimeNowUsec) {
             mLog5SecAvgUsec  = CalcLogAvg(mLog5SecAvgUsec, theOpLogUsecs,
                 kLogAvg5SecondsDecayExponent);
@@ -988,6 +1034,15 @@ private:
             mLog10SecAvgReqRate = CalcLogAvg(mLog10SecAvgReqRate, theOpLogRate,
                 kLogAvg10SecondsDecayExponent);
             mLog15SecAvgReqRate = CalcLogAvg(mLog15SecAvgReqRate, theOpLogRate,
+                kLogAvg15SecondsDecayExponent);
+            mLogOpWrite5SecAvgUsec = CalcLogAvg(mLogOpWrite5SecAvgUsec,
+                theOpLogWriteUsecs,
+                kLogAvg5SecondsDecayExponent);
+            mLogOpWrite10SecAvgUsec = CalcLogAvg(mLogOpWrite10SecAvgUsec,
+                theOpLogWriteUsecs,
+                kLogAvg10SecondsDecayExponent);
+            mLogOpWrite15SecAvgUsec = CalcLogAvg(mLogOpWrite15SecAvgUsec,
+                theOpLogWriteUsecs,
                 kLogAvg15SecondsDecayExponent);
             mLogAvgUsecsNextTimeUsec += kLogAvgIntervalUsec;
         }
@@ -1016,6 +1071,7 @@ private:
         if (theSetReplayStateFlag) {
             mSetReplayLastWriteCommitted = mReplayLastWriteCommitted;
         }
+        mIoCounters = mCurIoCounters;
         theLock.Unlock();
         if (theWakeupFlag) {
             mNetManager.Wakeup();
@@ -1213,6 +1269,7 @@ private:
                 mForkDoneCond.Wait(mMutex);
             }
         }
+        mCurIoCounters = mWorkerIoCounters;
         const bool theStopFlag = mStopFlag;
         if (theStopFlag) {
             mSetReplayStateFlag = false;
@@ -2261,6 +2318,7 @@ private:
             return false;
         }
         if (0 < inSize && IsLogStreamGood()) {
+            const int64_t     theStart  = microseconds();
             const char*       thePtr    = inBufPtr;
             const char* const theEndPtr = thePtr + inSize;
             ssize_t           theNWr    = 0;
@@ -2273,6 +2331,11 @@ private:
                 const int theErr = errno;
                 TruncateOnError(theErr);
                 IoError(theErr);
+            } else {
+                mWorkerIoCounters.mDiskWriteTimeUsec +=
+                    microseconds() - theStart;
+                mWorkerIoCounters.mDiskWriteByteCount += inSize;
+                mWorkerIoCounters.mDiskWriteCount++;
             }
         }
         return IsLogStreamGood();
@@ -2346,8 +2409,11 @@ private:
         if (mLogFd <= 0) {
             return false;
         }
-        const bool theOkFlag = close(mLogFd) == 0;
-        if (! theOkFlag) {
+        const int64_t theStart  = microseconds();
+        const bool    theOkFlag = close(mLogFd) == 0;
+        if (theOkFlag) {
+            mWorkerIoCounters.mDiskWriteTimeUsec += microseconds() - theStart;
+        } else {
             IoError(errno);
         }
         mLogFd = -1;

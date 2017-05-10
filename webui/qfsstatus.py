@@ -188,6 +188,12 @@ class SystemInfo:
         self.log15SecAvgReqRate = -1
         self.logAvgReqRateDiv = 1
         self.bTreeHeight = -1
+        self.logDiskWriteUsec = -1
+        self.logDiskWriteByteCount = -1
+        self.logDiskWriteCount = -1
+        self.logOpWrite5SecAvgUsec = -1
+        self.logOpWrite10SecAvgUsec = -1
+        self.logOpWrite15SecAvgUsec = -1
 
 class Status:
     def __init__(self):
@@ -308,8 +314,10 @@ class Status:
         if 0 <= systemInfo.logPendingOpsCount:
             if systemInfo.logTimeOpsCount:
                 avg = systemInfo.logTimeUsec / systemInfo.logTimeOpsCount
+                opWriteAvg = systemInfo.logDiskWriteUsec / systemInfo.logTimeOpsCount
             else:
                 avg = 0
+                opWriteAvg = 0
             if 0 < systemInfo.uptime:
                 rate = systemInfo.logTimeOpsCount * systemInfo.logAvgReqRateDiv / systemInfo.uptime
             else:
@@ -320,12 +328,16 @@ class Status:
                 '&nbsp;[5&nbsp;sec;&nbsp;10&nbsp;sec;&nbsp;15&nbsp;sec;&nbsp;total]:' + \
                 '&nbsp;'    + showRate(systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log5SecAvgUsec) + \
-                ';&nbsp;'   + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
+                '&nbsp;'    + splitThousands(systemInfo.logOpWrite5SecAvgUsec) + \
+                ';&nbsp;'    + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log10SecAvgUsec) + \
-                ';&nbsp;'   + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
+                '&nbsp;'    + splitThousands(systemInfo.logOpWrite10SecAvgUsec) + \
+                ';&nbsp;'   + showRate(systemInfo.log15SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log15SecAvgUsec) + \
+                '&nbsp;'    + splitThousands(systemInfo.logOpWrite15SecAvgUsec) + \
                 ';&nbsp;'   + showRate(rate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(avg) + \
+                '&nbsp;'    + splitThousands(opWriteAvg) + \
                 '</td></tr>'
         print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
@@ -1344,6 +1356,24 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 76:
         return
     systemInfo.bTreeHeight = long(info[75].split('=')[1])
+    if len(info) < 77:
+        return
+    systemInfo.logDiskWriteUsec = long(info[76].split('=')[1])
+    if len(info) < 78:
+        return
+    systemInfo.logDiskWriteByteCount = long(info[77].split('=')[1])
+    if len(info) < 79:
+        return
+    systemInfo.logDiskWriteCount = long(info[78].split('=')[1])
+    if len(info) < 80:
+        return
+    systemInfo.logOpWrite5SecAvgUsec = long(info[79].split('=')[1])
+    if len(info) < 81:
+        return
+    systemInfo.logOpWrite10SecAvgUsec = long(info[80].split('=')[1])
+    if len(info) < 82:
+        return
+    systemInfo.logOpWrite15SecAvgUsec = long(info[81].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:

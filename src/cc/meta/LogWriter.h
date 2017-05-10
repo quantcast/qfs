@@ -69,7 +69,13 @@ public:
               mLog15SecAvgUsec(0),
               mLog5SecAvgReqRate(0),
               mLog10SecAvgReqRate(0),
-              mLog15SecAvgReqRate(0)
+              mLog15SecAvgReqRate(0),
+              mDiskWriteTimeUsec(0),
+              mDiskWriteByteCount(0),
+              mDiskWriteCount(0),
+              mLogOpWrite5SecAvgUsec(0),
+              mLogOpWrite10SecAvgUsec(0),
+              mLogOpWrite15SecAvgUsec(0)
         {}
         Counter mLogTimeUsec;
         Counter mLogTimeOpsCount;
@@ -81,6 +87,12 @@ public:
         Counter mLog5SecAvgReqRate;
         Counter mLog10SecAvgReqRate;
         Counter mLog15SecAvgReqRate;
+        Counter mDiskWriteTimeUsec;
+        Counter mDiskWriteByteCount;
+        Counter mDiskWriteCount;
+        Counter mLogOpWrite5SecAvgUsec;
+        Counter mLogOpWrite10SecAvgUsec;
+        Counter mLogOpWrite15SecAvgUsec;
     };
 
     LogWriter();
