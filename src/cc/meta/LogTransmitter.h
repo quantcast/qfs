@@ -61,6 +61,31 @@ public:
     class StatusReporter
     {
     public:
+        class Counters
+        {
+        public:
+            typedef int64_t Counter;
+            enum { kRateFracBits = 8 };
+
+            Counters()
+                : mOp5SecAvgUsec(0),
+                  mOp10SecAvgUsec(0),
+                  mOp15SecAvgUsec(0),
+                  mOp5SecAvgRate(0),
+                  mOp10SecAvgRate(0),
+                  mOp15SecAvgRate(0),
+                  mResponseTimeUsec(0),
+                  mResponseSeqLength(0)
+                {}
+            Counter mOp5SecAvgUsec;
+            Counter mOp10SecAvgUsec;
+            Counter mOp15SecAvgUsec;
+            Counter mOp5SecAvgRate;
+            Counter mOp10SecAvgRate;
+            Counter mOp15SecAvgRate;
+            Counter mResponseTimeUsec;
+            Counter mResponseSeqLength;
+        };
         virtual bool Report(
             const ServerLocation& inLocation,
             NodeId                inId,
@@ -68,7 +93,8 @@ public:
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAckSeq,
-            const MetaVrLogSeq&   inLastSentSeq) = 0;
+            const MetaVrLogSeq&   inLastSentSeq,
+            const Counters&       inCounters) = 0;
     protected:
         StatusReporter()
             {}

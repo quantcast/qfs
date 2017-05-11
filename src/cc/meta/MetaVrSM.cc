@@ -1665,6 +1665,8 @@ private:
     class TxStatusCheck : public LogTransmitter::StatusReporter
     {
     public:
+        typedef LogTransmitter::StatusReporter::Counters Counters;
+
         TxStatusCheck(
             bool         inActivateFlag,
             NodeId       inPrimaryNodeId,
@@ -1688,7 +1690,8 @@ private:
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAckSeq,
-            const MetaVrLogSeq&   inLastSentSeq)
+            const MetaVrLogSeq&   inLastSentSeq,
+            const Counters&       /* inCounters */)
         {
             if (0 != mReq.status) {
                 return false;
@@ -1769,6 +1772,8 @@ private:
     class TxStatusCheckSwap :public LogTransmitter::StatusReporter
     {
     public:
+        typedef LogTransmitter::StatusReporter::Counters Counters;
+
         TxStatusCheckSwap(
             NodeId             inPrimaryNodeId,
             const ChangesList& inList,
@@ -1797,7 +1802,8 @@ private:
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAckSeq,
-            const MetaVrLogSeq&   inLastSentSeq)
+            const MetaVrLogSeq&   inLastSentSeq,
+            const Counters&       inCounters)
         {
             return (
                 mCheckInactivate.Report(
@@ -1807,7 +1813,8 @@ private:
                     inActualId,
                     inPrimaryNodeId,
                     inAckSeq,
-                    inLastSentSeq) &&
+                    inLastSentSeq,
+                    inCounters) &&
                 mCheckActivate.Report(
                     inLocation,
                     inId,
@@ -1815,7 +1822,8 @@ private:
                     inActualId,
                     inPrimaryNodeId,
                     inAckSeq,
-                    inLastSentSeq)
+                    inLastSentSeq,
+                    inCounters)
             );
         }
     private:
@@ -1834,6 +1842,8 @@ private:
     class TxStatusCheckNode : public LogTransmitter::StatusReporter
     {
     public:
+        typedef LogTransmitter::StatusReporter::Counters Counters;
+
         TxStatusCheckNode(
             NodeId                   inNodeId,
             const Config::Locations& inLocations,
@@ -1853,7 +1863,8 @@ private:
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAckSeq,
-            const MetaVrLogSeq&   inLastSentSeq)
+            const MetaVrLogSeq&   inLastSentSeq,
+            const Counters&       /* inCounters */)
         {
             if (mNodeId != inId) {
                 return true;
@@ -1889,6 +1900,8 @@ private:
     class TxStatusReporter : public LogTransmitter::StatusReporter
     {
     public:
+        typedef LogTransmitter::StatusReporter::Counters Counters;
+
         TxStatusReporter(
             NodeId      inPrimaryNodeId,
             string&     inPrefixBuf,
@@ -1919,10 +1932,12 @@ private:
             NodeId                inActualId,
             NodeId                inPrimaryNodeId,
             const MetaVrLogSeq&   inAckSeq,
-            const MetaVrLogSeq&   inLastSentSeq)
+            const MetaVrLogSeq&   inLastSentSeq,
+            const Counters&       inCounters)
         {
             mPrefixBuf.resize(mPrefixLen);
             AppendDecIntToString(mPrefixBuf, mChanCnt++);
+            const double kRateMult = 1. / (1 << Counters::kRateFracBits);
             mPrefixBuf += ".";
             mStream <<
                 mPrefixBuf << "location"   << mSepPtr << inLocation      <<
@@ -1938,7 +1953,28 @@ private:
                 mPrefixBuf << "ack"        << mSepPtr << inAckSeq        <<
                     mDelimPtr <<
                 mPrefixBuf << "sent"       << mSepPtr << inLastSentSeq   <<
-                    mDelimPtr
+                    mDelimPtr <<
+                mPrefixBuf << "op5SecAvgUsec"              << mSepPtr   <<
+                    inCounters.mOp5SecAvgUsec              << mDelimPtr <<
+                mPrefixBuf << "op10SecAvgUsec"             << mSepPtr   <<
+                    inCounters.mOp10SecAvgUsec             << mDelimPtr <<
+                mPrefixBuf << "op15SecAvgUsec"             << mSepPtr   <<
+                    inCounters.mOp15SecAvgUsec             << mDelimPtr <<
+                mPrefixBuf << "opAvgUsec"                  << mSepPtr   <<
+                    (0 < inCounters.mResponseSeqLength ?
+                    inCounters.mResponseTimeUsec /
+                        inCounters.mResponseSeqLength :
+                    Counters::Counter(0))                  << mDelimPtr <<
+                mPrefixBuf << "op5SecAvgRate"              << mSepPtr   <<
+                    inCounters.mOp5SecAvgRate  * kRateMult << mDelimPtr <<
+                mPrefixBuf << "op10SecAvgRate"             << mSepPtr   <<
+                    inCounters.mOp10SecAvgRate * kRateMult << mDelimPtr <<
+                mPrefixBuf << "op15SecAvgRate"             << mSepPtr   <<
+                    inCounters.mOp15SecAvgRate * kRateMult << mDelimPtr <<
+                mPrefixBuf << "opsTotal"                   << mSepPtr   <<
+                    inCounters.mResponseSeqLength          << mDelimPtr <<
+                mPrefixBuf << "opsTimeTotalUsec"           << mSepPtr   <<
+                    inCounters.mResponseTimeUsec           << mDelimPtr
             ;
             if (inActiveFlag && 0 <= inActualId && inId == inActualId &&
                     inAckSeq.IsValid() && (inLastSentSeq <= inAckSeq ||

@@ -41,6 +41,7 @@
 #include "common/RequestParser.h"
 #include "common/SingleLinkedQueue.h"
 #include "common/IntToString.h"
+#include "common/AverageFilter.h"
 #include "common/time.h"
 
 #include "kfsio/NetManager.h"
@@ -563,21 +564,24 @@ public:
         outCounters.mLogTimeUsec        = mLogTimeUsec;
         outCounters.mLogTimeOpsCount    = mLogTimeOpsCount;
         outCounters.mLogErrorOpsCount   = mLogErrorOpsCount;
-        outCounters.mLog5SecAvgUsec     = mLog5SecAvgUsec  >> kLogAvgFracBits;
-        outCounters.mLog10SecAvgUsec    = mLog10SecAvgUsec >> kLogAvgFracBits;
-        outCounters.mLog15SecAvgUsec    = mLog15SecAvgUsec >> kLogAvgFracBits;
+        outCounters.mLog5SecAvgUsec     =
+            mLog5SecAvgUsec  >> AverageFilter::kAvgFracBits;
+        outCounters.mLog10SecAvgUsec    =
+            mLog10SecAvgUsec >> AverageFilter::kAvgFracBits;
+        outCounters.mLog15SecAvgUsec    =
+            mLog15SecAvgUsec >> AverageFilter::kAvgFracBits;
         outCounters.mLog5SecAvgReqRate  =
-            mLog5SecAvgReqRate >> kLogAvgFracBits;
+            mLog5SecAvgReqRate >> AverageFilter::kAvgFracBits;
         outCounters.mLog10SecAvgReqRate =
-            mLog10SecAvgReqRate >> kLogAvgFracBits;
+            mLog10SecAvgReqRate >> AverageFilter::kAvgFracBits;
         outCounters.mLog15SecAvgReqRate =
-            mLog15SecAvgReqRate >> kLogAvgFracBits;
+            mLog15SecAvgReqRate >> AverageFilter::kAvgFracBits;
         outCounters.mLogOpWrite5SecAvgUsec      =
-            mLogOpWrite5SecAvgUsec >> kLogAvgFracBits;
+            mLogOpWrite5SecAvgUsec >> AverageFilter::kAvgFracBits;
         outCounters.mLogOpWrite10SecAvgUsec =
-            mLogOpWrite10SecAvgUsec >> kLogAvgFracBits;
+            mLogOpWrite10SecAvgUsec >> AverageFilter::kAvgFracBits;
         outCounters.mLogOpWrite15SecAvgUsec =
-            mLogOpWrite15SecAvgUsec >> kLogAvgFracBits;
+            mLogOpWrite15SecAvgUsec >> AverageFilter::kAvgFracBits;
     }
 private:
     typedef uint32_t Checksum;
@@ -602,12 +606,7 @@ private:
         kWriteStateNone,
         kUpdateBlockChecksum
     };
-    enum { kLogAvgFracBits               = 12 };
-    // DecayExponent = (1 << kLogAvgFracBits) / exp(1. / LogAvgIntervalSec)
-    enum { kLogAvg5SecondsDecayExponent  = 3353 };
-    enum { kLogAvg10SecondsDecayExponent = 3706 };
-    enum { kLogAvg15SecondsDecayExponent = 3832 };
-    enum { kLogAvgIntervalUsec           = 1000 * 1000 };
+    enum { kLogAvgIntervalUsec = 1000 * 1000 };
     typedef MetaVrSM::NodeId     NodeId;
     typedef StBufferT<char, 128> TmpBuffer;
 
@@ -993,14 +992,7 @@ private:
         int64_t inAvg,
         int64_t inSample,
         int64_t inExponent)
-    {
-        // IIR filter
-        const int64_t kLogAvgFixed_1 = int64_t(1) << kLogAvgFracBits;
-        return ((
-            inAvg * inExponent +
-            (inSample << kLogAvgFracBits) * (kLogAvgFixed_1 - inExponent)
-        ) >> kLogAvgFracBits);
-    }
+        { return AverageFilter::Calculate(inAvg, inSample, inExponent); }
     void UpdateLogAvg(
         int64_t inTimeNowUsec)
     {
@@ -1024,26 +1016,26 @@ private:
             theLogWriteUsecs / theOpsCount : int64_t(0);
         while (mLogAvgUsecsNextTimeUsec <= inTimeNowUsec) {
             mLog5SecAvgUsec  = CalcLogAvg(mLog5SecAvgUsec, theOpLogUsecs,
-                kLogAvg5SecondsDecayExponent);
+                AverageFilter::kAvg5SecondsDecayExponent);
             mLog10SecAvgUsec = CalcLogAvg(mLog10SecAvgUsec, theOpLogUsecs,
-                kLogAvg10SecondsDecayExponent);
+                AverageFilter::kAvg10SecondsDecayExponent);
             mLog15SecAvgUsec = CalcLogAvg(mLog15SecAvgUsec, theOpLogUsecs,
-                kLogAvg15SecondsDecayExponent);
+                AverageFilter::kAvg15SecondsDecayExponent);
             mLog5SecAvgReqRate  = CalcLogAvg(mLog5SecAvgReqRate, theOpLogRate,
-                kLogAvg5SecondsDecayExponent);
+                AverageFilter::kAvg5SecondsDecayExponent);
             mLog10SecAvgReqRate = CalcLogAvg(mLog10SecAvgReqRate, theOpLogRate,
-                kLogAvg10SecondsDecayExponent);
+                AverageFilter::kAvg10SecondsDecayExponent);
             mLog15SecAvgReqRate = CalcLogAvg(mLog15SecAvgReqRate, theOpLogRate,
-                kLogAvg15SecondsDecayExponent);
+                AverageFilter::kAvg15SecondsDecayExponent);
             mLogOpWrite5SecAvgUsec = CalcLogAvg(mLogOpWrite5SecAvgUsec,
                 theOpLogWriteUsecs,
-                kLogAvg5SecondsDecayExponent);
+                AverageFilter::kAvg5SecondsDecayExponent);
             mLogOpWrite10SecAvgUsec = CalcLogAvg(mLogOpWrite10SecAvgUsec,
                 theOpLogWriteUsecs,
-                kLogAvg10SecondsDecayExponent);
+                AverageFilter::kAvg10SecondsDecayExponent);
             mLogOpWrite15SecAvgUsec = CalcLogAvg(mLogOpWrite15SecAvgUsec,
                 theOpLogWriteUsecs,
-                kLogAvg15SecondsDecayExponent);
+                AverageFilter::kAvg15SecondsDecayExponent);
             mLogAvgUsecsNextTimeUsec += kLogAvgIntervalUsec;
         }
     }

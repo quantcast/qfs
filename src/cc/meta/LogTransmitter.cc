@@ -36,6 +36,7 @@
 #include "common/kfstypes.h"
 #include "common/MsgLogger.h"
 #include "common/Properties.h"
+#include "common/AverageFilter.h"
 
 #include "kfsio/KfsCallbackObj.h"
 #include "kfsio/NetConnection.h"
@@ -66,7 +67,7 @@ using std::deque;
 using std::pair;
 using std::find;
 
-class LogTransmitter::Impl
+class LogTransmitter::Impl : public ITimeout
 {
 private:
     class Transmitter;
@@ -81,7 +82,8 @@ public:
         LogTransmitter& inTransmitter,
         NetManager&     inNetManager,
         CommitObserver& inCommitObserver)
-        : mTransmitter(inTransmitter),
+        : ITimeout(),
+          mTransmitter(inTransmitter),
           mNetManager(inNetManager),
           mRetryInterval(2),
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
@@ -103,6 +105,7 @@ public:
           mUpFlag(false),
           mSuspendedFlag(false),
           mFileSystemId(-1),
+          mNextTimerRunTimeUsec(inNetManager.NowUsec()),
           mMetaVrSMPtr(0),
           mTransmitterAuthParamsPrefix(),
           mTransmitterAuthParams()
@@ -110,9 +113,13 @@ public:
         List::Init(mTransmittersPtr);
         mTmpBuf[kTmpBufSize] = 0;
         mSeqBuf[kSeqBufSize] = 0;
+        mNetManager.RegisterTimeoutHandler(this);
     }
     ~Impl()
-        { Impl::Shutdown(); }
+    {
+        mNetManager.UnRegisterTimeoutHandler(this);
+        Impl::Shutdown();
+    }
     int SetParameters(
         const char*       inParamPrefixPtr,
         const Properties& inParameters);
@@ -264,6 +271,7 @@ public:
         bool inFlag);
     void ScheduleHelloTransmit();
     void ScheduleHeartbeatTransmit();
+    virtual void Timeout();
 private:
     typedef Properties::String String;
     enum { kTmpBufSize = 2 + 1 + sizeof(seq_t) * 2 + 4 };
@@ -288,6 +296,7 @@ private:
     bool            mUpFlag;
     bool            mSuspendedFlag;
     int64_t         mFileSystemId;
+    int64_t         mNextTimerRunTimeUsec;
     MetaVrSM*       mMetaVrSMPtr;
     string          mTransmitterAuthParamsPrefix;
     Properties      mTransmitterAuthParams;
@@ -318,6 +327,7 @@ class LogTransmitter::Impl::Transmitter :
 public:
     typedef Impl::List   List;
     typedef Impl::NodeId NodeId;
+    typedef LogTransmitter::StatusReporter::Counters Counters;
 
     Transmitter(
         Impl&                 inImpl,
@@ -343,6 +353,9 @@ public:
           mLastSentBlockEndSeq(inLastLogSeq),
           mAckBlockSeq(),
           mAckBlockFlags(0),
+          mCtrs(),
+          mPrevResponseTimeUsec(0),
+          mPrevResponseSeqLength(0),
           mReplyProps(),
           mIstream(),
           mOstream(),
@@ -615,9 +628,89 @@ public:
         }
         Connect();
     }
+    void Timer(
+        int64_t inRunTimeUsec,
+        int64_t inNowUsec,
+        int64_t inIntervalUsec)
+    {
+        const int64_t theResponseTimeUsec =
+            mCtrs.mResponseTimeUsec - mPrevResponseTimeUsec;
+        const int64_t theOpsCount         =
+            mCtrs.mResponseSeqLength - mPrevResponseSeqLength;
+        const int64_t theOpUsecs = 0 < theOpsCount ?
+            theResponseTimeUsec / theOpsCount : int64_t(0);
+        const int64_t theOpLogRate        =
+            (theOpsCount << Counters::kRateFracBits) *
+                1000 * 1000 / (inIntervalUsec + inNowUsec - inRunTimeUsec);
+        mPrevResponseTimeUsec  = mCtrs.mResponseTimeUsec;
+        mPrevResponseSeqLength = mCtrs.mResponseSeqLength;
+        int64_t theRunTimeUsec = inRunTimeUsec;
+        while (theRunTimeUsec <= inNowUsec) {
+            mCtrs.mOp5SecAvgUsec = AverageFilter::Calculate(
+                mCtrs.mOp5SecAvgUsec,
+                theOpUsecs,
+                AverageFilter::kAvg5SecondsDecayExponent
+            );
+            mCtrs.mOp10SecAvgUsec = AverageFilter::Calculate(
+                mCtrs.mOp10SecAvgUsec,
+                theOpUsecs,
+                AverageFilter::kAvg10SecondsDecayExponent
+            );
+            mCtrs.mOp15SecAvgUsec = AverageFilter::Calculate(
+                mCtrs.mOp15SecAvgUsec,
+                theOpUsecs,
+                AverageFilter::kAvg15SecondsDecayExponent
+            );
+            mCtrs.mOp5SecAvgRate = AverageFilter::Calculate(
+                mCtrs.mOp5SecAvgRate,
+                theOpLogRate,
+                AverageFilter::kAvg5SecondsDecayExponent
+            );
+            mCtrs.mOp10SecAvgRate = AverageFilter::Calculate(
+                mCtrs.mOp10SecAvgRate,
+                theOpLogRate,
+                AverageFilter::kAvg10SecondsDecayExponent
+            );
+            mCtrs.mOp15SecAvgRate = AverageFilter::Calculate(
+                mCtrs.mOp15SecAvgRate,
+                theOpLogRate,
+                AverageFilter::kAvg15SecondsDecayExponent
+            );
+            theRunTimeUsec += inIntervalUsec;
+        }
+    }
+    void GetCounters(
+        Counters& outCounters)
+    {
+        outCounters = mCtrs;
+        outCounters.mOp5SecAvgUsec  >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp10SecAvgUsec >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp15SecAvgUsec >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp5SecAvgRate  >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp10SecAvgRate >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp15SecAvgRate >>= AverageFilter::kAvgFracBits;
+    }
 private:
-    typedef ClientAuthContext::RequestCtx   RequestCtx;
-    typedef deque<pair<MetaVrLogSeq, int> > BlocksQueue;
+    class BlocksQueueEntry
+    {
+    public:
+        BlocksQueueEntry(
+            const MetaVrLogSeq& inSeq,
+            int                 inLength,
+            int                 inSeqLength,
+            int64_t             inStartTime)
+            : mSeq(inSeq),
+              mLength(inLength),
+              mSeqLength(inSeqLength),
+              mStartTime(inStartTime)
+            {}
+        MetaVrLogSeq mSeq;
+        int          mLength;
+        int          mSeqLength;
+        int64_t      mStartTime;
+    };
+    typedef ClientAuthContext::RequestCtx RequestCtx;
+    typedef deque<BlocksQueueEntry>       BlocksQueue;
 
     Impl&              mImpl;
     ServerLocation     mServer;
@@ -636,6 +729,9 @@ private:
     MetaVrLogSeq       mLastSentBlockEndSeq;
     MetaVrLogSeq       mAckBlockSeq;
     uint64_t           mAckBlockFlags;
+    Counters           mCtrs;
+    int64_t            mPrevResponseTimeUsec;
+    int64_t            mPrevResponseSeqLength;
     Properties         mReplyProps;
     IOBuffer::IStream  mIstream;
     IOBuffer::WOStream mOstream;
@@ -732,8 +828,12 @@ private:
         }
         mLastSentBlockEndSeq = inBlockEndSeq;
         // Allow to cleanup heartbeats by assigning negative / invalid sequence.
-        mBlocksQueue.push_back(make_pair(
-            inHeartbeatFlag ? MetaVrLogSeq() : mLastSentBlockEndSeq, inLen));
+        mBlocksQueue.push_back(BlocksQueueEntry(
+            inHeartbeatFlag ? MetaVrLogSeq() : mLastSentBlockEndSeq,
+            inLen,
+            inBlockSeqLen,
+            mImpl.GetNetManager().NowUsec()
+        ));
         if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
             if (mConnectionPtr->GetOutBuffer().IsEmpty()) {
                 StartSend();
@@ -1069,10 +1169,19 @@ private:
     {
         if (mLastSentBlockEndSeq <= mAckBlockSeq) {
             if (! mBlocksQueue.empty()) {
-                const BlocksQueue::value_type& theBack = mBlocksQueue.back();
-                if (theBack.first.IsValid() &&
-                        theBack.first != mLastSentBlockEndSeq) {
+                const BlocksQueueEntry& theBack = mBlocksQueue.back();
+                if (theBack.mSeq.IsValid() &&
+                        theBack.mSeq != mLastSentBlockEndSeq) {
                     panic("log transmitter: invalid pending send queue");
+                }
+                const int64_t theNow = mImpl.GetNetManager().NowUsec();
+                for (BlocksQueue::const_iterator theIt = mBlocksQueue.begin();
+                        mBlocksQueue.end() != theIt;
+                        ++theIt) {
+                    if (0 < theIt->mSeqLength) {
+                        mCtrs.mResponseTimeUsec  += theNow - theIt->mStartTime;
+                        mCtrs.mResponseSeqLength += theIt->mSeqLength;
+                    }
                 }
                 mBlocksQueue.clear();
                 mPendingSend.Clear();
@@ -1080,14 +1189,19 @@ private:
             }
             return;
         }
+        const int64_t theNow = mImpl.GetNetManager().NowUsec();
         while (! mBlocksQueue.empty()) {
-            const BlocksQueue::value_type& theFront = mBlocksQueue.front();
-            if (mAckBlockSeq < theFront.first) {
+            const BlocksQueueEntry& theFront = mBlocksQueue.front();
+            if (mAckBlockSeq < theFront.mSeq) {
                 break;
             }
-            if (mPendingSend.Consume(theFront.second) != theFront.second) {
+            if (mPendingSend.Consume(theFront.mLength) != theFront.mLength) {
                 panic("log transmitter: "
                     "invalid pending send buffer or queue");
+            }
+            if (0 < theFront.mSeqLength) {
+                mCtrs.mResponseTimeUsec  += theNow - theFront.mStartTime;
+                mCtrs.mResponseSeqLength += theFront.mSeqLength;
             }
             mBlocksQueue.pop_front();
             if (0 < mCompactBlockCount) {
@@ -1834,9 +1948,11 @@ LogTransmitter::Impl::Update()
 LogTransmitter::Impl::GetStatus(
     LogTransmitter::StatusReporter& inReporter)
 {
-    List::Iterator theIt(mTransmittersPtr);
-    Transmitter*   thePtr;
+    List::Iterator                           theIt(mTransmittersPtr);
+    Transmitter*                             thePtr;
+    LogTransmitter::StatusReporter::Counters theCtrs;
     while ((thePtr = theIt.Next())) {
+        thePtr->GetCounters(theCtrs);
         if (! inReporter.Report(
                 thePtr->GetLocation(),
                 thePtr->GetId(),
@@ -1844,7 +1960,8 @@ LogTransmitter::Impl::GetStatus(
                 thePtr->GetReceivedId(),
                 thePtr->GetPrimaryNodeId(),
                 thePtr->GetAck(),
-                mCommitted)) {
+                mCommitted,
+                theCtrs)) {
             break;
         }
     }
@@ -1968,6 +2085,24 @@ LogTransmitter::Impl::ScheduleHeartbeatTransmit()
     Transmitter*   thePtr;
     while ((thePtr = theIt.Next())) {
         thePtr->ScheduleHeartbeatTransmit();
+    }
+}
+
+    void
+LogTransmitter::Impl::Timeout()
+{
+    const int64_t theNowUsec = mNetManager.NowUsec();
+    if (theNowUsec < mNextTimerRunTimeUsec) {
+        return;
+    }
+    const int64_t kIntervalUsec = 1000 * 1000;
+    List::Iterator theIt(mTransmittersPtr);
+    Transmitter*   thePtr;
+    while ((thePtr = theIt.Next())) {
+        thePtr->Timer(mNextTimerRunTimeUsec, theNowUsec, kIntervalUsec);
+    }
+    while (mNextTimerRunTimeUsec <= theNowUsec) {
+        mNextTimerRunTimeUsec += kIntervalUsec;
     }
 }
 
