@@ -348,6 +348,7 @@ public:
           mRecursionCount(0),
           mCompactBlockCount(0),
           mHeartbeatSendTimeoutCount(0),
+          mLastAckReceivedTime(0),
           mAuthContext(),
           mAuthRequestCtx(),
           mLastSentBlockEndSeq(inLastLogSeq),
@@ -482,7 +483,13 @@ public:
         }
         if (mRecursionCount <= 1) {
             if (mConnectionPtr && mConnectionPtr->IsGood()) {
-                mConnectionPtr->StartFlush();
+                if (! mBlocksQueue.empty() && mLastAckReceivedTime +
+                        4 * mImpl.GetHeartbeatInterval() <
+                            mImpl.GetNetManager().Now()) {
+                    Error("ACK timed out");
+                } else {
+                    mConnectionPtr->StartFlush();
+                }
             } else if (mConnectionPtr) {
                 Error();
             }
@@ -556,7 +563,13 @@ public:
         }
         mPendingSend.Copy(&inBuffer, inLen);
         if (mConnectionPtr && ! mAuthenticateOpPtr) {
-            mConnectionPtr->GetOutBuffer().Copy(&inBuffer, inLen);
+            IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
+            if (mImpl.GetMaxPending() * 3 / 2 <
+                    inLen + theBuf.BytesConsumable()) {
+                Error("exceeded max pending send");
+            } else {
+               theBuf.Copy(&inBuffer, inLen);
+            }
         }
         CompactIfNeeded();
         const bool kHeartbeatFlag = false;
@@ -724,6 +737,7 @@ private:
     int                mRecursionCount;
     int                mCompactBlockCount;
     int                mHeartbeatSendTimeoutCount;
+    time_t             mLastAckReceivedTime;
     ClientAuthContext  mAuthContext;
     RequestCtx         mAuthRequestCtx;
     MetaVrLogSeq       mLastSentBlockEndSeq;
@@ -892,6 +906,7 @@ private:
         if (! mServer.IsValid()) {
             return;
         }
+        mLastAckReceivedTime = mImpl.GetNetManager().Now();
         mReceivedIdFlag = false;
         TcpSocket* theSocketPtr = new TcpSocket();
         mConnectionPtr.reset(new NetConnection(theSocketPtr, this));
@@ -1327,6 +1342,7 @@ private:
             " blocks: "      << mBlocksQueue.size() <<
             " bytes: "       << mPendingSend.BytesConsumable() <<
         KFS_LOG_EOM;
+        mLastAckReceivedTime = mImpl.GetNetManager().Now();
         AdvancePendingQueue();
         inBuffer.Consume(inHeaderLen);
         UpdateAck(thePrevAckSeq, thePrevPrimaryId);
