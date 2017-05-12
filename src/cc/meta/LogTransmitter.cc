@@ -655,6 +655,7 @@ public:
         const int64_t theOpLogRate        =
             (theOpsCount << Counters::kRateFracBits) *
                 1000 * 1000 / (inIntervalUsec + inNowUsec - inRunTimeUsec);
+        mCtrs.mPendingBlockBytes = mPendingSend.BytesConsumable();
         mPrevResponseTimeUsec  = mCtrs.mResponseTimeUsec;
         mPrevResponseSeqLength = mCtrs.mResponseSeqLength;
         int64_t theRunTimeUsec = inRunTimeUsec;
@@ -689,6 +690,36 @@ public:
                 theOpLogRate,
                 AverageFilter::kAvg15SecondsDecayExponent
             );
+            mCtrs.m5SecAvgPendingOps = AverageFilter::Calculate(
+                mCtrs.m5SecAvgPendingOps,
+                mCtrs.mPendingBlockSeqLength,
+                AverageFilter::kAvg5SecondsDecayExponent
+            );
+            mCtrs.m10SecAvgPendingOps = AverageFilter::Calculate(
+                mCtrs.m10SecAvgPendingOps,
+                mCtrs.mPendingBlockSeqLength,
+                AverageFilter::kAvg10SecondsDecayExponent
+            );
+            mCtrs.m15SecAvgPendingOps = AverageFilter::Calculate(
+                mCtrs.m15SecAvgPendingOps,
+                mCtrs.mPendingBlockSeqLength,
+                AverageFilter::kAvg15SecondsDecayExponent
+            );
+            mCtrs.m5SecAvgPendingBytes = AverageFilter::Calculate(
+                mCtrs.m5SecAvgPendingBytes,
+                mCtrs.mPendingBlockBytes,
+                AverageFilter::kAvg5SecondsDecayExponent
+            );
+            mCtrs.m10SecAvgPendingBytes = AverageFilter::Calculate(
+                mCtrs.m10SecAvgPendingBytes,
+                mCtrs.mPendingBlockBytes,
+                AverageFilter::kAvg10SecondsDecayExponent
+            );
+            mCtrs.m15SecAvgPendingByes = AverageFilter::Calculate(
+                mCtrs.m15SecAvgPendingByes,
+                mCtrs.mPendingBlockBytes,
+                AverageFilter::kAvg15SecondsDecayExponent
+            );
             theRunTimeUsec += inIntervalUsec;
         }
     }
@@ -696,12 +727,18 @@ public:
         Counters& outCounters)
     {
         outCounters = mCtrs;
-        outCounters.mOp5SecAvgUsec  >>= AverageFilter::kAvgFracBits;
-        outCounters.mOp10SecAvgUsec >>= AverageFilter::kAvgFracBits;
-        outCounters.mOp15SecAvgUsec >>= AverageFilter::kAvgFracBits;
-        outCounters.mOp5SecAvgRate  >>= AverageFilter::kAvgFracBits;
-        outCounters.mOp10SecAvgRate >>= AverageFilter::kAvgFracBits;
-        outCounters.mOp15SecAvgRate >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp5SecAvgUsec        >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp10SecAvgUsec       >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp15SecAvgUsec       >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp5SecAvgRate        >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp10SecAvgRate       >>= AverageFilter::kAvgFracBits;
+        outCounters.mOp15SecAvgRate       >>= AverageFilter::kAvgFracBits;
+        outCounters.m5SecAvgPendingOps    >>= AverageFilter::kAvgFracBits;
+        outCounters.m10SecAvgPendingOps   >>= AverageFilter::kAvgFracBits;
+        outCounters.m15SecAvgPendingOps   >>= AverageFilter::kAvgFracBits;
+        outCounters.m5SecAvgPendingBytes  >>= AverageFilter::kAvgFracBits;
+        outCounters.m10SecAvgPendingBytes >>= AverageFilter::kAvgFracBits;
+        outCounters.m15SecAvgPendingByes  >>= AverageFilter::kAvgFracBits;
     }
 private:
     class BlocksQueueEntry
@@ -819,6 +856,7 @@ private:
             mPendingSend.Move(&theBuffer);
             CompactIfNeeded();
         }
+        mCtrs.mPendingBlockBytes = mPendingSend.BytesConsumable();
         return FlushBlock(
             inBlockEndSeq,
             inBlockSeqLen,
@@ -848,6 +886,7 @@ private:
             inBlockSeqLen,
             mImpl.GetNetManager().NowUsec()
         ));
+        mCtrs.mPendingBlockSeqLength += inBlockSeqLen;
         if (mRecursionCount <= 0 && ! mAuthenticateOpPtr && mConnectionPtr) {
             if (mConnectionPtr->GetOutBuffer().IsEmpty()) {
                 StartSend();
@@ -862,6 +901,8 @@ private:
         mPendingSend.Clear();
         mBlocksQueue.clear();
         mCompactBlockCount = 0;
+        mCtrs.mPendingBlockSeqLength = 0;
+        mCtrs.mPendingBlockBytes     = 0;
     }
     void Reset(
         const char*         inErrMsgPtr,
@@ -1196,11 +1237,13 @@ private:
                     if (0 < theIt->mSeqLength) {
                         mCtrs.mResponseTimeUsec  += theNow - theIt->mStartTime;
                         mCtrs.mResponseSeqLength += theIt->mSeqLength;
+                        mCtrs.mPendingBlockSeqLength -= theIt->mSeqLength;
                     }
                 }
                 mBlocksQueue.clear();
                 mPendingSend.Clear();
                 mCompactBlockCount = 0;
+                mCtrs.mPendingBlockBytes = 0;
             }
             return;
         }
@@ -1217,12 +1260,14 @@ private:
             if (0 < theFront.mSeqLength) {
                 mCtrs.mResponseTimeUsec  += theNow - theFront.mStartTime;
                 mCtrs.mResponseSeqLength += theFront.mSeqLength;
+                mCtrs.mPendingBlockSeqLength -= theFront.mSeqLength;
             }
             mBlocksQueue.pop_front();
             if (0 < mCompactBlockCount) {
                 mCompactBlockCount--;
             }
         }
+        mCtrs.mPendingBlockBytes = mPendingSend.BytesConsumable();
         if (mBlocksQueue.empty() != mPendingSend.IsEmpty()) {
             panic("log transmitter: invalid pending send queue");
         }

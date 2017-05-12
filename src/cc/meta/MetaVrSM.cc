@@ -1953,7 +1953,10 @@ private:
                 mPrefixBuf << "ack"        << mSepPtr << inAckSeq        <<
                     mDelimPtr <<
                 mPrefixBuf << "sent"       << mSepPtr << inLastSentSeq   <<
-                    mDelimPtr <<
+                    mDelimPtr
+                ;
+            mPrefixBuf += "ctrs.";
+            mStream <<
                 mPrefixBuf << "op5SecAvgUsec"              << mSepPtr   <<
                     inCounters.mOp5SecAvgUsec              << mDelimPtr <<
                 mPrefixBuf << "op10SecAvgUsec"             << mSepPtr   <<
@@ -1974,8 +1977,24 @@ private:
                 mPrefixBuf << "opsTotal"                   << mSepPtr   <<
                     inCounters.mResponseSeqLength          << mDelimPtr <<
                 mPrefixBuf << "opsTimeTotalUsec"           << mSepPtr   <<
-                    inCounters.mResponseTimeUsec           << mDelimPtr
-            ;
+                    inCounters.mResponseTimeUsec           << mDelimPtr <<
+                mPrefixBuf << "5SecAvgPendingOps"          << mSepPtr   <<
+                    inCounters.m5SecAvgPendingOps          << mDelimPtr <<
+                mPrefixBuf << "10SecAvgPendingOps"         << mSepPtr   <<
+                    inCounters.m10SecAvgPendingOps         << mDelimPtr <<
+                mPrefixBuf << "15SecAvgPendingOps"         << mSepPtr   <<
+                    inCounters.m15SecAvgPendingOps         << mDelimPtr <<
+                mPrefixBuf << "pendingOps"                 << mSepPtr   <<
+                    inCounters.mPendingBlockSeqLength      << mDelimPtr <<
+                mPrefixBuf << "5SecAvgPendingBytes"        << mSepPtr   <<
+                    inCounters.m5SecAvgPendingBytes        << mDelimPtr <<
+                mPrefixBuf << "10SecAvgPendingBytes"       << mSepPtr   <<
+                    inCounters.m10SecAvgPendingBytes       << mDelimPtr <<
+                mPrefixBuf << "15SecAvgPendingBytes"       << mSepPtr   <<
+                    inCounters.m15SecAvgPendingByes        << mDelimPtr <<
+                mPrefixBuf << "pendingBytes"               << mSepPtr   <<
+                    inCounters.mPendingBlockBytes          << mDelimPtr
+           ;
             if (inActiveFlag && 0 <= inActualId && inId == inActualId &&
                     inAckSeq.IsValid() && (inLastSentSeq <= inAckSeq ||
                         inLastSentSeq.IsSameView(inAckSeq)) &&

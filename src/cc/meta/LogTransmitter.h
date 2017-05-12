@@ -74,6 +74,14 @@ public:
                   mOp5SecAvgRate(0),
                   mOp10SecAvgRate(0),
                   mOp15SecAvgRate(0),
+                  m5SecAvgPendingOps(0),
+                  m10SecAvgPendingOps(0),
+                  m15SecAvgPendingOps(0),
+                  m5SecAvgPendingBytes(0),
+                  m10SecAvgPendingBytes(0),
+                  m15SecAvgPendingByes(0),
+                  mPendingBlockSeqLength(0),
+                  mPendingBlockBytes(0),
                   mResponseTimeUsec(0),
                   mResponseSeqLength(0)
                 {}
@@ -83,6 +91,14 @@ public:
             Counter mOp5SecAvgRate;
             Counter mOp10SecAvgRate;
             Counter mOp15SecAvgRate;
+            Counter m5SecAvgPendingOps;
+            Counter m10SecAvgPendingOps;
+            Counter m15SecAvgPendingOps;
+            Counter m5SecAvgPendingBytes;
+            Counter m10SecAvgPendingBytes;
+            Counter m15SecAvgPendingByes;
+            Counter mPendingBlockSeqLength;
+            Counter mPendingBlockBytes;
             Counter mResponseTimeUsec;
             Counter mResponseSeqLength;
         };
