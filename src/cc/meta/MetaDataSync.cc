@@ -1485,8 +1485,8 @@ private:
         for (Servers::const_iterator theIt = mServers.begin();
                 mServers.end() != theIt;
                 ++theIt) {
-            theIt->AppendToString(mStrBuffer);
             mStrBuffer += theSepPtr;
+            theIt->AppendToString(mStrBuffer);
             theSepPtr = " ";
         }
         mStrBuffer += '\n';
