@@ -210,7 +210,7 @@ public:
           mNextBlockSeq(0),
           mLogWritesInFlightCount(0),
           mWriteToFileFlag(false),
-          mWriteSyncFlag(true),
+          mWriteSyncFlag(false),
           mMinWriteSize(4 << 20),
           mMaxReadOpRetryCount(8),
           mWakeupTime(0),
