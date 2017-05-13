@@ -1234,8 +1234,11 @@ public:
         }
         mStartedFlag = true;
         if (mutex) {
+            Properties::String cpIdxParamName(kLogReciverParamsPrefix);
             int kStackSize = 64 << 10;
-            mThread.Start(this, kStackSize, "LogReceiver");
+            mThread.Start(this, kStackSize, "LogReceiver",
+                QCThread::CpuAffinity(mParameters.getValue(
+                    cpIdxParamName.Append("cpuAffinityIndex"), -1)));
         }
         return 0;
     }

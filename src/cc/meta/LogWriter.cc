@@ -92,6 +92,7 @@ public:
           mTransmitCommitted(),
           mMaxDoneLogSeq(),
           mCommitted(),
+          mCpuAffinityIndex(-1),
           mThread(),
           mMutex(),
           mStopFlag(true),
@@ -638,6 +639,7 @@ private:
     MetaVrLogSeq      mTransmitCommitted;
     MetaVrLogSeq      mMaxDoneLogSeq;
     Committed         mCommitted;
+    int               mCpuAffinityIndex;
     QCThread          mThread;
     QCMutex           mMutex;
     bool              mStopFlag;
@@ -963,8 +965,9 @@ private:
         mPrimaryLeaseEndTimeUsec = int64_t(1000) * 1000 * (mNetManager.Now() +
             (0 == mEnqueueVrStatus ? 2 : -(24 * 60 * 60)));
         mLogAvgUsecsNextTimeUsec = microseconds() + kLogAvgIntervalUsec;
-        const int kStackSize = 64 << 10;
-        mThread.Start(this, kStackSize, "MetaLogWriter");
+        const int kStackSize = 128 << 10;
+        mThread.Start(this, kStackSize, "MetaLogWriter",
+            QCThread::CpuAffinity(mCpuAffinityIndex));
         mNetManagerPtr->RegisterTimeoutHandler(this);
         return 0;
     }
@@ -2258,6 +2261,9 @@ private:
         mSyncFlag = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("sync"),
             mSyncFlag ? 1 : 0) != 0;
+        mCpuAffinityIndex = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("cpuAffinityIndex"),
+            mCpuAffinityIndex);
         mFailureSimulationInterval = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
             mFailureSimulationInterval);
