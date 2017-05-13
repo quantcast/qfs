@@ -1049,7 +1049,7 @@ CreateOp::ParseResponseHeaderSelf(const Properties& prop)
         shortRpcFormatFlag ? "ST" : "Striper-type",
         int(KFS_STRIPED_FILE_TYPE_NONE));
     metaNumReplicas   = prop.getValue(
-        shortRpcFormatFlag ? "R:" : "Num-replicas: ", numReplicas);
+        shortRpcFormatFlag ? "R" : "Num-replicas", numReplicas);
     if (0 <= status) {
         permissions.user  = prop.getValue(
             shortRpcFormatFlag ? "u" : "User", permissions.user);
