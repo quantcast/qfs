@@ -154,6 +154,7 @@ public:
           mLogTimeStampSec(0),
           mMsgAppendCount(0),
           mRotateLogsDailyFlag(true),
+          mCpuAffinityIndex(-1),
           mMaxMsgStreamCount(256),
           mMsgStreamCount(0),
           mMsgStreamHeadPtr(0)
@@ -233,6 +234,9 @@ public:
         mRotateLogsDailyFlag = inProps.getValue(
             inPropsPrefix + "rotateLogsDaily",
             mRotateLogsDailyFlag ? 1 : 0) != 0;
+        mCpuAffinityIndex = inProps.getValue(
+            inPropsPrefix + "cpuAffinityIndex",
+            mCpuAffinityIndex);
         string theLogFilePrefixes;
         for (LogFileNames::const_iterator theIt =
                 mLogFileNamePrefixes.begin();
@@ -312,8 +316,9 @@ public:
             return;
         }
         mRunFlag = true;
-        const int kStackSize = 32 << 10;
-        mThread.Start(this, kStackSize);
+        const int kStackSize = 64 << 10;
+        mThread.Start(this, kStackSize, 0,
+            QCThread::CpuAffinity(mCpuAffinityIndex));
     }
     bool Reopen()
     {
@@ -991,6 +996,7 @@ private:
     struct tm    mTimeTm;
     struct tm    mLastLogTm;
     bool         mRotateLogsDailyFlag;
+    int          mCpuAffinityIndex;
     int          mMaxMsgStreamCount;
     int          mMsgStreamCount;
     MsgStream*   mMsgStreamHeadPtr;
