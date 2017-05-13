@@ -127,9 +127,9 @@ QCThread::~QCThread()
 
 const int kMinThreadStackSize =
 #ifdef PTHREAD_STACK_MIN
-    PTHREAD_STACK_MIN;
+    PTHREAD_STACK_MIN + (4 << 10);
 #else
-    (1 << 10);
+    (8 << 10);
 #endif
 
     int
@@ -209,6 +209,7 @@ QCThread::RunnerSelf()
     }
     mRunnablePtr->Run();
 }
+
     /* static */ void*
 QCThread::Runner(
     void* inArgPtr)
