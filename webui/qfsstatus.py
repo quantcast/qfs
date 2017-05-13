@@ -324,8 +324,8 @@ class Status:
                 rate = 0
             print >> buffer, '<tr> <td> Transaction log </td><td>:</td><td>' + \
                 'queue&nbsp;depth:&nbsp;' + splitThousands(systemInfo.logPendingOpsCount) + \
-                '&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.&nbsp;average' +\
-                '&nbsp;[5&nbsp;sec;&nbsp;10&nbsp;sec;&nbsp;15&nbsp;sec;&nbsp;total]:' + \
+                '&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.(total&nbsp;disk)' +\
+                '&nbsp;[5;&nbsp;10;&nbsp;15&nbsp;sec.;&nbsp;total&nbsp;averages]:' + \
                 '&nbsp;'    + showRate(systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log5SecAvgUsec) + \
                 '&nbsp;'    + splitThousands(systemInfo.logOpWrite5SecAvgUsec) + \
