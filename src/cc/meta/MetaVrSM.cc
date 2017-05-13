@@ -4201,9 +4201,6 @@ private:
         mViewSeq = kMetaVrLogStartEpochViewSeq;
         if (mActiveFlag && mStartedFlag &&
                 (! inReq.replayFlag || kStateBackup == mState)) {
-            if (mCommittedSeq < inReq.logseq) {
-                mCommittedSeq = inReq.logseq;
-            }
             WriteVrState(-1, inReq.logseq);
         }
         KFS_LOG_STREAM_DEBUG <<
