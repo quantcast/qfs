@@ -3779,7 +3779,7 @@ private:
                 ! inReq.ParseInt(
                     thePtr, theEndPtr - thePtr, theBackupTimeout) ||
                 ((0 <= thePrimaryTimeout || 0 <= theBackupTimeout) &&
-                ! ValidateTimeouts(theBackupTimeout, theBackupTimeout)) ||
+                ! ValidateTimeouts(thePrimaryTimeout, theBackupTimeout)) ||
                 ! inReq.ParseInt(thePtr, theEndPtr - thePtr,
                     thePendingChangeVewMaxLogDistance) ||
                 ! inReq.ParseInt(thePtr, theEndPtr - thePtr,

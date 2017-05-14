@@ -288,7 +288,7 @@ public:
             mNodes.clear();
             mPrimaryTimeout          = 4;
             mBackupTimeout           = 8;
-            mChangeVewMaxLogDistance = 64 << 10;
+            mChangeVewMaxLogDistance = seq_t(128) << 10;
             mMaxListenersPerNode     = 16;
         }
         int GetPrimaryTimeout() const
