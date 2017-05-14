@@ -568,17 +568,26 @@ KfsClientImpl::Read(
     char*       thePtr    = inBufPtr;
     char* const theEndPtr = thePtr + inSize;
     do {
-        const ssize_t theRet = ReadSelf(inFd, thePtr,
-            min(kMaxReadSize, size_t(theEndPtr - thePtr)), inPosPtr);
+        bool          theDirFlag = false;
+        const size_t  theNRd     =
+            min(kMaxReadSize, size_t(theEndPtr - thePtr));
+        const ssize_t theRet     =
+            ReadSelf(inFd, thePtr, theNRd, inPosPtr, theDirFlag);
         if (theRet < 0) {
+            if (theDirFlag && inBufPtr < thePtr) {
+                break;
+            }
             return theRet;
         }
         if (0 == theRet) {
             break;
         }
         thePtr += theRet;
+        if ((size_t)theRet < theNRd || theNRd < kMaxReadSize) {
+            break;
+        }
     } while (thePtr < theEndPtr);
-    return (thePtr - (theEndPtr - inSize));
+    return (thePtr - inBufPtr);
 }
 
 inline static int64_t
@@ -596,10 +605,12 @@ KfsClientImpl::ReadSelf(
     int         inFd,
     char*       inBufPtr,
     size_t      inSize,
-    chunkOff_t* inPosPtr)
+    chunkOff_t* inPosPtr,
+    bool&       outDirFlag)
 {
     QCStMutexLocker theLocker(mMutex);
 
+    outDirFlag = false;
     if (! valid_fd(inFd)) {
         KFS_LOG_STREAM_ERROR <<
             "read error invalid fd: " << inFd <<
@@ -610,7 +621,8 @@ KfsClientImpl::ReadSelf(
     if (theEntry.openMode == O_WRONLY || theEntry.cachedAttrFlag) {
         return -EINVAL;
     }
-    if (theEntry.fattr.isDirectory) {
+    outDirFlag = theEntry.fattr.isDirectory;
+    if (outDirFlag) {
         return ReadDirectory(inFd, inBufPtr, inSize);
     }
 

@@ -1104,7 +1104,8 @@ private:
         vector<vector<string> >& inLocations);
     int InitUserAndGroupMode();
     int UpdateEUserAndEGroup();
-    ssize_t ReadSelf(int fd, char *buf, size_t numBytes, chunkOff_t* pos);
+    ssize_t ReadSelf(int fd, char *buf, size_t numBytes, chunkOff_t* pos,
+        bool& outDirFlag);
     ssize_t WriteSelf(int fd, const char *buf, size_t numBytes,
         bool asyncFlag, bool appendOnlyFlag, chunkOff_t* pos);
     friend struct RespondingServer;
