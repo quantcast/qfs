@@ -561,7 +561,6 @@ public:
         if (mImpl.GetMaxPending() < inLen + mPendingSend.BytesConsumable()) {
             ResetPending();
         }
-        mPendingSend.Copy(&inBuffer, inLen);
         if (mConnectionPtr && ! mAuthenticateOpPtr) {
             IOBuffer& theBuf = mConnectionPtr->GetOutBuffer();
             if (mImpl.GetMaxPending() * 3 / 2 <
@@ -571,6 +570,7 @@ public:
                theBuf.Copy(&inBuffer, inLen);
             }
         }
+        mPendingSend.Copy(&inBuffer, inLen);
         CompactIfNeeded();
         const bool kHeartbeatFlag = false;
         return FlushBlock(inBlockEndSeq, inBlockSeqLen, inLen, kHeartbeatFlag);
@@ -1267,10 +1267,10 @@ private:
                 mCompactBlockCount--;
             }
         }
-        mCtrs.mPendingBlockBytes = mPendingSend.BytesConsumable();
         if (mBlocksQueue.empty() != mPendingSend.IsEmpty()) {
             panic("log transmitter: invalid pending send queue");
         }
+        mCtrs.mPendingBlockBytes = mPendingSend.BytesConsumable();
     }
     int HandleAck(
         const char* inHeaderPtr,
