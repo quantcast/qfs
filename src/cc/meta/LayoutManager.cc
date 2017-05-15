@@ -8940,7 +8940,9 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Log Disk Write Op 10 sec Avg Usec= " <<
             logCtrs.mLogOpWrite10SecAvgUsec << "\t"
         "Log Disk Write Op 15 sec Avg Usec= " <<
-            logCtrs.mLogOpWrite15SecAvgUsec
+            logCtrs.mLogOpWrite15SecAvgUsec << "\t"
+        "Log Exceeded Queue Depth Failure Count= " <<
+            logCtrs.mExceedLogQueueDepthFailureCount
     ;
     mWOstream.flush();
     mWOstream.Reset();

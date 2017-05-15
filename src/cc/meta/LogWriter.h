@@ -75,7 +75,8 @@ public:
               mDiskWriteCount(0),
               mLogOpWrite5SecAvgUsec(0),
               mLogOpWrite10SecAvgUsec(0),
-              mLogOpWrite15SecAvgUsec(0)
+              mLogOpWrite15SecAvgUsec(0),
+              mExceedLogQueueDepthFailureCount(0)
         {}
         Counter mLogTimeUsec;
         Counter mLogTimeOpsCount;
@@ -93,6 +94,7 @@ public:
         Counter mLogOpWrite5SecAvgUsec;
         Counter mLogOpWrite10SecAvgUsec;
         Counter mLogOpWrite15SecAvgUsec;
+        Counter mExceedLogQueueDepthFailureCount;
     };
 
     LogWriter();

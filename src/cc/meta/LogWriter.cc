@@ -141,6 +141,7 @@ public:
           mPanicOnIoErrorFlag(true),
           mSyncFlag(false),
           mWokenFlag(false),
+          mMaxClientOpsPendingCount(20 << 10),
           mLastLogPath(mLogDir + "/" +
             MetaDataStore::GetLogSegmentLastFileNamePtr()),
           mLogFilePos(0),
@@ -163,6 +164,7 @@ public:
           mLogOpWrite5SecAvgUsec(0),
           mLogOpWrite10SecAvgUsec(0),
           mLogOpWrite15SecAvgUsec(0),
+          mExceedLogQueueDepthFailureCount(0),
           mIoCounters(),
           mWorkerIoCounters(),
           mCurIoCounters(),
@@ -183,6 +185,8 @@ public:
           mPrimaryRejectedBlockWriteErrorMsg(
             "block write rejected: VR state is primary"),
           mLogWriterIsNotRunningErrorMsg("log writer is not running"),
+          mMaxExceededPendingLogWriteDepthErrorMsg(
+            "meta server busy: exceed max transaction log write queue depth"),
           mLogStartViewPrefix(
             string(kLogWriteAheadPrefixPtr) +
             kLogVrStatViewNamePtr +
@@ -267,6 +271,25 @@ public:
         if (mStopFlag) {
             inRequest.status    = -ELOGFAILED;
             inRequest.statusMsg = mLogWriterIsNotRunningErrorMsg;
+            return false;
+        }
+        if (inRequest.fromClientSMFlag &&
+                mMaxClientOpsPendingCount <= mPendingCount) {
+            // Shed load / limit log write / replication in flight by failing
+            // *all* client requests, regardless if the request itself requires
+            // transaction log write or not, as the request processing might, in
+            // turn, create request(s) that would require log write (chunk
+            // allocation, for example).
+            mExceedLogQueueDepthFailureCount++;
+            KFS_LOG_STREAM(0 == (mExceedLogQueueDepthFailureCount & 0x1FF) ?
+                    MsgLogger::kLogLevelERROR : MsgLogger::kLogLevelDEBUG) <<
+                "exceeded max log queue depth: " << mPendingCount <<
+                " failed count: "                <<
+                    mExceedLogQueueDepthFailureCount <<
+                " "                              << inRequest.Show() <<
+            KFS_LOG_EOM;
+            inRequest.status    = -ELOGFAILED;
+            inRequest.statusMsg = mMaxExceededPendingLogWriteDepthErrorMsg;
             return false;
         }
         int* const theCounterPtr = inRequest.GetLogQueueCounter();
@@ -584,6 +607,8 @@ public:
             mLogOpWrite10SecAvgUsec >> AverageFilter::kAvgFracBits;
         outCounters.mLogOpWrite15SecAvgUsec =
             mLogOpWrite15SecAvgUsec >> AverageFilter::kAvgFracBits;
+        outCounters.mExceedLogQueueDepthFailureCount =
+            mExceedLogQueueDepthFailureCount;
     }
 private:
     typedef uint32_t Checksum;
@@ -683,6 +708,7 @@ private:
     bool              mPanicOnIoErrorFlag;
     bool              mSyncFlag;
     bool              mWokenFlag;
+    int               mMaxClientOpsPendingCount;
     string            mLastLogPath;
     int64_t           mLogFilePos;
     int64_t           mLogFilePrevPos;
@@ -704,6 +730,7 @@ private:
     int64_t           mLogOpWrite5SecAvgUsec;
     int64_t           mLogOpWrite10SecAvgUsec;
     int64_t           mLogOpWrite15SecAvgUsec;
+    int64_t           mExceedLogQueueDepthFailureCount;
     IoCounters        mIoCounters;
     IoCounters        mWorkerIoCounters;
     IoCounters        mCurIoCounters;
@@ -723,6 +750,7 @@ private:
     const string      mInvalidHeartbeatSequenceErrorMsg;
     const string      mPrimaryRejectedBlockWriteErrorMsg;
     const string      mLogWriterIsNotRunningErrorMsg;
+    const string      mMaxExceededPendingLogWriteDepthErrorMsg;
     const string      mLogStartViewPrefix;
     const size_t      mLogAppendPrefixLen;
     const char* const mLogStartViewPrefixPtr;
@@ -2271,6 +2299,9 @@ private:
         mCpuAffinityIndex = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("cpuAffinityIndex"),
             mCpuAffinityIndex);
+        mMaxClientOpsPendingCount = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("maxClientOpsPendingCount"),
+            mMaxClientOpsPendingCount);
         mFailureSimulationInterval = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
             mFailureSimulationInterval);
