@@ -293,6 +293,8 @@ int ChunkServer::sMinHelloWaitingBytes = 0;
 int64_t ChunkServer::sHelloBytesCommitted = 0;
 int64_t ChunkServer::sHelloBytesInFlight  = 0;
 int64_t ChunkServer::sMaxHelloBufferBytes = 256 << 20;
+int64_t ChunkServer::sMaxPendingHelloLogByteCount = 4 << 20;
+int64_t ChunkServer::sPendingHelloLogByteCount    = 0;
 int ChunkServer::sMaxReadAhead = 4 << 10;
 int ChunkServer::sMaxPendingOpsCount = 128;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
@@ -493,6 +495,15 @@ ChunkServer::Create(const NetConnectionPtr& conn)
         KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
             " chunk servers: "            << sChunkServerCount <<
             " over chunk servers limit: " << sMaxChunkServerCount <<
+            " closing connection" <<
+        KFS_LOG_EOM;
+        return 0;
+    }
+    if (sMaxPendingHelloLogByteCount < sPendingHelloLogByteCount) {
+        KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
+            " chunk servers: "                << sChunkServerCount <<
+            " over pending hello log limit: " << sPendingHelloLogByteCount <<
+            " max: "                          << sMaxPendingHelloLogByteCount <<
             " closing connection" <<
         KFS_LOG_EOM;
         return 0;
@@ -842,13 +853,13 @@ ChunkServer::PutHelloBytes(MetaHello* req)
         return;
     }
     if (sHelloBytesCommitted < req->bufferBytes) {
-        panic("hibernated server: invalid hello request byte counter");
+        panic("chunk server: invalid hello request byte counter");
         sHelloBytesCommitted = 0;
     } else {
         sHelloBytesCommitted -= req->bufferBytes;
     }
     if (sHelloBytesInFlight < req->bytesReceived) {
-        panic("hibernated server: invalid hello received byte counter");
+        panic("chunk server: invalid hello received byte counter");
         sHelloBytesInFlight = 0;
     } else {
         sHelloBytesInFlight -= req->bytesReceived;
@@ -943,6 +954,14 @@ ChunkServer::HandleRequest(int code, void *data)
             if (mDown || helloOp.replayFlag || this != &*helloOp.server ||
                     1 != sHelloInFlight.erase(helloOp.location)) {
                 panic("chunk server: invalid hello completion");
+            }
+            if (0 < helloOp.bufferBytes && helloOp.supportsResumeFlag &&
+                    ! mReplayFlag) {
+                sPendingHelloLogByteCount -= helloOp.bufferBytes;
+                if (sPendingHelloLogByteCount < 0) {
+                    panic("chunk server: invalid pending hello log byte count");
+                    sPendingHelloLogByteCount = 0;
+                }
             }
             PutHelloBytes(&helloOp);
             if (! mNetConnection) {
@@ -1717,6 +1736,18 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
             return 1;
         }
     }
+    if (0 == mHelloOp->status && mHelloOp->supportsResumeFlag &&
+            0 < mHelloOp->bufferBytes &&
+            sMaxPendingHelloLogByteCount < mHelloOp->bufferBytes +
+                sPendingHelloLogByteCount) {
+        KFS_LOG_STREAM_ERROR << GetPeerName() <<
+            " chunk servers: "                << sChunkServerCount <<
+            " over pending hello log limit: " <<
+                mHelloOp->bufferBytes + sPendingHelloLogByteCount <<
+            " max: "                          << sMaxPendingHelloLogByteCount <<
+        KFS_LOG_EOM;
+        return DeclareHelloError(-EBUSY, "over max hello log bytes in flight");
+    }
     // make sure we have the chunk ids...
     if (0 < mHelloOp->contentLength) {
         const int nAvail = iobuf->BytesConsumable();
@@ -1924,6 +1955,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     }
     if (0 != mHelloOp->status) {
         PutHelloBytes(mHelloOp);
+        mHelloOp->bufferBytes = 0;
     }
     if (! gLayoutManager.CanAddServer(sHelloInFlight.size())) {
         return DeclareHelloError(-EBUSY, "no slots available");
@@ -1968,6 +2000,9 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     mHelloResumeFailedCount = mHelloOp->helloResumeFailedCount;
     mShortRpcFormatFlag     = mHelloOp->shortRpcFormatFlag;
     mChannelId              = mHelloOp->channelId;
+    if (0 < mHelloOp->bufferBytes && mHelloOp->supportsResumeFlag) {
+        sPendingHelloLogByteCount += mHelloOp->bufferBytes;
+    }
     MetaHello& op = *mHelloOp;
     mHelloOp = 0;
     Submit(op);

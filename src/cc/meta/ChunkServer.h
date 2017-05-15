@@ -1330,6 +1330,8 @@ protected:
     static int64_t          sMaxHelloBufferBytes;
     static int64_t          sHelloBytesCommitted;
     static int64_t          sHelloBytesInFlight;
+    static int64_t          sMaxPendingHelloLogByteCount;
+    static int64_t          sPendingHelloLogByteCount;
     static int              sEvacuateRateUpdateInterval;
     static int              sTimedoutExpireTime;
     static int              sMaxReadAhead;

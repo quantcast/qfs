@@ -89,7 +89,7 @@ public:
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mHeartbeatInterval(16),
           mMinAckToCommit(numeric_limits<int>::max()),
-          mMaxPending(4 << 20),
+          mMaxPending(8 << 20),
           mCompactionInterval(256),
           mCommitted(),
           mAuthType(
