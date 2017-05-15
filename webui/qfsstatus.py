@@ -194,6 +194,7 @@ class SystemInfo:
         self.logOpWrite5SecAvgUsec = -1
         self.logOpWrite10SecAvgUsec = -1
         self.logOpWrite15SecAvgUsec = -1
+        self.exceedLogQueueDepthFailureCount = 0
 
 class Status:
     def __init__(self):
@@ -338,6 +339,7 @@ class Status:
                 ';&nbsp;'   + showRate(rate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(avg) + \
                 '&nbsp;'    + splitThousands(opWriteAvg) + \
+                "&nbsp;dropped:&nbsp;" + splitThousands(systemInfo.exceedLogQueueDepthFailureCount) + \
                 '</td></tr>'
         print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
@@ -1374,6 +1376,9 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 82:
         return
     systemInfo.logOpWrite15SecAvgUsec = long(info[81].split('=')[1])
+    if len(info) < 83:
+        return
+    systemInfo.exceedLogQueueDepthFailureCount = long(info[82].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
