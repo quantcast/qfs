@@ -100,6 +100,7 @@ public:
           mCommitUpdatedFlag(false),
           mSetReplayStateFlag(false),
           mMaxBlockSize(256),
+          mMaxBlockBytes(128 << 10),
           mPendingCount(0),
           mExraPendingCount(0),
           mLogDir("./kfslog"),
@@ -647,6 +648,7 @@ private:
     bool              mCommitUpdatedFlag;
     bool              mSetReplayStateFlag;
     int               mMaxBlockSize;
+    int               mMaxBlockBytes;
     int               mPendingCount;
     int               mExraPendingCount;
     string            mLogDir;
@@ -1451,7 +1453,9 @@ private:
                 if (theEndBlockSeq <= mLastLogSeq.mLogSeq ||
                         theStartViewFlag ||
                         (META_VR_RECONFIGURATION == thePtr->op &&
-                            thePtr->logseq.IsValid())) {
+                            thePtr->logseq.IsValid()) ||
+                        mMdStream.GetBufferedEnd() <
+                            mMdStream.GetBufferedStart() + mMaxBlockBytes) {
                     break;
                 }
                 if (mMdStream.GetBufferedStart() +
@@ -2249,6 +2253,9 @@ private:
         mMaxBlockSize = max(1, inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("maxBlockSize"),
             mMaxBlockSize));
+        mMaxBlockBytes = max(4 << 10, inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("maxBlockBytes"),
+            mMaxBlockBytes));
         mLogDir = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("logDir"),
             mLogDir);
