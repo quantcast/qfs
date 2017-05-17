@@ -493,7 +493,8 @@ public:
     bool Enqueue(
         KfsOp*    inOpPtr,
         OpOwner*  inOwnerPtr,
-        IOBuffer* inBufferPtr = 0)
+        IOBuffer* inBufferPtr,
+        int       inExtraTimeout)
     {
         const time_t theNow = Now();
         if (mPendingOpQueue.empty() && IsConnected() &&
@@ -515,7 +516,8 @@ public:
         // connection, as later can fail other ops, and invoke the op cancel.
         // The op has to be in the queue in order for cancel to work.
         mStats.mOpsQueuedCount++;
-        const bool theOkFlag = EnqueueSelf(inOpPtr, inOwnerPtr, inBufferPtr, 0);
+        const bool theOkFlag = EnqueueSelf(
+            inOpPtr, inOwnerPtr, inBufferPtr, 0, inExtraTimeout);
         if (theOkFlag) {
             EnsureConnected(0, inOpPtr);
         }
@@ -644,11 +646,22 @@ public:
                 break;
 
             case EVENT_INACTIVITY_TIMEOUT:
-                if (! mIdleTimeoutFlag &&
-                        IsConnected() && mPendingOpQueue.empty()) {
-                    mConnPtr->SetInactivityTimeout(mIdleTimeoutSec);
-                    mIdleTimeoutFlag = true;
-                    break;
+                if (mPendingOpQueue.empty()) {
+                    if (! mIdleTimeoutFlag && IsConnected()) {
+                        mConnPtr->SetInactivityTimeout(mIdleTimeoutSec);
+                        mIdleTimeoutFlag = true;
+                        break;
+                    }
+                } else if (IsConnected()) {
+                    const OpQueueEntry& theEntry =
+                        mPendingOpQueue.begin()->second;
+                    if (0 < theEntry.mExtraTimeout &&
+                            Now() <= theEntry.mTime +
+                                (time_t)theEntry.mExtraTimeout +
+                                mOpTimeoutSec) {
+                        // Do not reset connection, just timeout ops.
+                        break;
+                    }
                 }
                 theReasonPtr = "inactivity timeout";
                 theError     = -ETIMEDOUT;
@@ -1087,14 +1100,16 @@ private:
     struct OpQueueEntry
     {
         OpQueueEntry(
-            KfsOp*    inOpPtr     = 0,
-            OpOwner*  inOwnerPtr  = 0,
-            IOBuffer* inBufferPtr = 0)
+            KfsOp*    inOpPtr        = 0,
+            OpOwner*  inOwnerPtr     = 0,
+            IOBuffer* inBufferPtr    = 0,
+            int       inExtraTimeout = 0)
             : mOpPtr(inOpPtr),
               mOwnerPtr(inOwnerPtr),
               mBufferPtr(inBufferPtr),
               mTime(0),
               mRetryCount(0),
+              mExtraTimeout(max(0, inExtraTimeout)),
               mVrConnectPendingFlag(false)
             {}
         void Cancel()
@@ -1128,7 +1143,8 @@ private:
         IOBuffer* mBufferPtr;
         time_t    mTime;
         int       mRetryCount;
-        bool      mVrConnectPendingFlag;
+        uint32_t  mExtraTimeout:31;
+        bool      mVrConnectPendingFlag:1;
     };
     typedef map<kfsSeq_t, OpQueueEntry, less<kfsSeq_t>,
         StdFastAllocator<pair<const kfsSeq_t, OpQueueEntry> >
@@ -1601,10 +1617,11 @@ private:
     bool IsAuthInFlight()
         { return (0 <= mLookupOp.seq || 0 <= mAuthOp.seq); }
     void SetMaxWaitTime(
-        KfsOp& inOp)
+        KfsOp& inOp,
+        int    inExtraTimeout)
     {
         inOp.maxWaitMillisec = mOpTimeoutSec > 0 ?
-            int64_t(mOpTimeoutSec) * 1000 : int64_t(-1);
+            int64_t(mOpTimeoutSec + inExtraTimeout) * 1000 : int64_t(-1);
     }
     void InitHelloLookupOp()
     {
@@ -1813,18 +1830,20 @@ private:
         KfsOp*    inOpPtr,
         OpOwner*  inOwnerPtr,
         IOBuffer* inBufferPtr,
-        int       inRetryCount)
+        int       inRetryCount,
+        int       inExtraTimeout)
     {
         if (! inOpPtr) {
             return false;
         }
         mIdleTimeoutFlag = false;
-        SetMaxWaitTime(*inOpPtr);
+        SetMaxWaitTime(*inOpPtr, inExtraTimeout);
         inOpPtr->seq = mNextSeqNum++;
         const bool theResetTimerFlag = mPendingOpQueue.empty();
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(
-                inOpPtr->seq, OpQueueEntry(inOpPtr, inOwnerPtr, inBufferPtr)
+                inOpPtr->seq,
+                OpQueueEntry(inOpPtr, inOwnerPtr, inBufferPtr, inExtraTimeout)
             ));
         if (! theRes.second || ! IsConnected() || IsAuthInFlight()) {
             return theRes.second;
@@ -1843,7 +1862,7 @@ private:
         KfsOp& inOp)
     {
         assert(! mOutstandingOpPtr && mConnPtr && ! mConnPtr->IsWriteReady());
-        SetMaxWaitTime(inOp);
+        SetMaxWaitTime(inOp, 0);
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(
                 inOp.seq, OpQueueEntry(&inOp, this, 0)
@@ -2382,7 +2401,8 @@ private:
                     }
                 }
                 EnqueueSelf(theEntry.mOpPtr, theEntry.mOwnerPtr,
-                    theEntry.mBufferPtr, theEntry.mRetryCount);
+                    theEntry.mBufferPtr, theEntry.mRetryCount,
+                    (int)theEntry.mExtraTimeout);
                 theEntry.Clear();
             }
         }
@@ -2586,7 +2606,9 @@ private:
                         static_cast<KfsOp*>(&mLookupOp) :
                         static_cast<KfsOp*>(&mAuthOp))
             );
-            if (theIt->second.mTime + mOpTimeoutSec < theNow) {
+            if (theIt->second.mTime +
+                    (time_t)theIt->second.mExtraTimeout +
+                    mOpTimeoutSec < theNow) {
                 const OpQueueEntry& theEntry = theIt->second;
                 KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
                     " auth. op timed out:"
@@ -2617,6 +2639,11 @@ private:
                 theIt->second.mTime < theExpireTime; ) {
             OpQueueEntry& theEntry = theIt->second;
             assert(theEntry.mOpPtr);
+            if (theExpireTime <= theEntry.mTime + (time_t)theEntry.mExtraTimeout) {
+                // Skip op with extended timeout.
+                theIt++;
+                continue;
+            }
             if (&theEntry == mInFlightOpPtr) {
                 CancelInFlightOp();
             }
@@ -2692,7 +2719,8 @@ private:
                 const OpQueueEntry theTmp = theEntry;
                 theEntry.Clear();
                 EnqueueSelf(theTmp.mOpPtr, theTmp.mOwnerPtr,
-                    theTmp.mBufferPtr, theTmp.mRetryCount + theRetryIncrement);
+                    theTmp.mBufferPtr, theTmp.mRetryCount + theRetryIncrement,
+                    theTmp.mExtraTimeout);
             }
         }
         mQueueStack.erase(theStIt);
@@ -3027,10 +3055,11 @@ KfsNetClient::GetStats(
 KfsNetClient::Enqueue(
     KfsOp*    inOpPtr,
     OpOwner*  inOwnerPtr,
-    IOBuffer* inBufferPtr /* = 0 */)
+    IOBuffer* inBufferPtr    /* = 0 */,
+    int       inExtraTimeout /* = 0 */)
 {
     Impl::StRef theRef(mImpl);
-    return mImpl.Enqueue(inOpPtr, inOwnerPtr, inBufferPtr);
+    return mImpl.Enqueue(inOpPtr, inOwnerPtr, inBufferPtr, inExtraTimeout);
 }
 
     bool

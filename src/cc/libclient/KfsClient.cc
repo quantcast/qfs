@@ -1512,7 +1512,7 @@ KfsClientImpl::KfsClientImpl(
       mMaxNumRetriesPerOp(DEFAULT_NUM_RETRIES_PER_OP),
       mRetryDelaySec(RETRY_DELAY_SECS),
       mDefaultOpTimeout(30),
-      mDefaultMetaOpTimeout(120),
+      mDefaultMetaOpTimeout(25),
       mFreeCondVarsHead(0),
       mEUser(kKfsUserNone),
       mEGroup(kKfsGroupNone),

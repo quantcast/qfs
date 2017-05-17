@@ -874,7 +874,11 @@ private:
             mAllocOp.chunkAccess.clear();
             mAllocOp.chunkServerAccessToken.clear();
             mOuter.mStats.mChunkAllocCount++;
-            EnqueueMeta(mAllocOp);
+            // Use 5x chunk op timeout for "allocation" that can require
+            // chunk version change.
+            const int theMetaOpTimeout = mOuter.mMetaServer.GetOpTimeoutSec();
+            EnqueueMeta(mAllocOp, 0, max(0, max(mOuter.mOpTimeoutSec,
+                    5 * theMetaOpTimeout) - theMetaOpTimeout));
         }
         void Done(
             AllocateOp& inOp,
@@ -1454,11 +1458,12 @@ private:
         void Enqueue(
             KfsOp&    inOp,
             IOBuffer* inBufferPtr = 0)
-            { EnqueueSelf(inOp, inBufferPtr, &mChunkServer); }
+            { EnqueueSelf(inOp, inBufferPtr, &mChunkServer, 0); }
         void EnqueueMeta(
             KfsOp&    inOp,
-            IOBuffer* inBufferPtr = 0)
-            { EnqueueSelf(inOp, inBufferPtr, 0); }
+            IOBuffer* inBufferPtr    = 0,
+            int       inExtraTimeout = 0)
+            { EnqueueSelf(inOp, inBufferPtr, 0, inExtraTimeout); }
         void Reset()
         {
             if (mLastOpPtr == &mAllocOp) {
@@ -1685,7 +1690,8 @@ private:
         void EnqueueSelf(
             KfsOp&        inOp,
             IOBuffer*     inBufferPtr,
-            KfsNetClient* inServerPtr)
+            KfsNetClient* inServerPtr,
+            int           inExtraTimeout)
         {
             mLastOpPtr   = &inOp;
             mOpStartTime = Now();
@@ -1700,7 +1706,7 @@ private:
                 mOuter.mStats.mMetaOpsQueuedCount++;
             }
             if (! (inServerPtr ? *inServerPtr : mOuter.mMetaServer).Enqueue(
-                    &inOp, this, inBufferPtr)) {
+                    &inOp, this, inBufferPtr, inExtraTimeout)) {
                 mOuter.InternalError(inServerPtr ?
                     "chunk op enqueue failure" :
                     "meta op enqueue failure"

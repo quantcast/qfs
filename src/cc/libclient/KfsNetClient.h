@@ -167,7 +167,7 @@ public:
         bool               inMaxOneOutstandingOpFlag        = false,
         ClientAuthContext* inAuthContextPtr                 = 0,
         const QCThread*    inThreadPtr                      = 0);
-    virtual ~KfsNetClient();
+    virtual ~KfsNetClient(); // virtual for debugging: obj. type from pointer.
     bool IsConnected() const;
     int64_t GetDisconnectCount() const; // Used to detect disconnects
     bool Start(
@@ -246,7 +246,8 @@ public:
     bool Enqueue(
         KfsOp*    inOpPtr,
         OpOwner*  inOwnerPtr,
-        IOBuffer* inBufferPtr = 0);
+        IOBuffer* inBufferPtr    = 0,
+        int       inExtraTimeout = 0);
     bool Cancel(
         KfsOp*   inOpPtr,
         OpOwner* inOwnerPtr);
