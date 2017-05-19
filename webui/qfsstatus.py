@@ -194,7 +194,8 @@ class SystemInfo:
         self.logOpWrite5SecAvgUsec = -1
         self.logOpWrite10SecAvgUsec = -1
         self.logOpWrite15SecAvgUsec = -1
-        self.exceedLogQueueDepthFailureCount = 0
+        self.logExceedQueueDepthFailedCount = 0
+        self.logPendingAckByteCount = 0
 
 class Status:
     def __init__(self):
@@ -325,21 +326,22 @@ class Status:
                 rate = 0
             print >> buffer, '<tr> <td> Transaction log </td><td>:</td><td>' + \
                 'queue&nbsp;depth:&nbsp;' + splitThousands(systemInfo.logPendingOpsCount) + \
-                '&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.(total&nbsp;disk)' +\
+                "/" + bytesToReadable(systemInfo.logPendingAckByteCount) + \
+                "&nbsp;dropped:&nbsp;" + splitThousands(systemInfo.logExceedQueueDepthFailedCount) + \
+                '&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.&nbsp;total/disk' +\
                 '&nbsp;[5;&nbsp;10;&nbsp;15&nbsp;sec.;&nbsp;total&nbsp;averages]:' + \
                 '&nbsp;'    + showRate(systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log5SecAvgUsec) + \
-                '&nbsp;'    + splitThousands(systemInfo.logOpWrite5SecAvgUsec) + \
-                ';&nbsp;'    + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
+                '/'         + splitThousands(systemInfo.logOpWrite5SecAvgUsec) + \
+                ';&nbsp;'   + showRate(systemInfo.log10SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log10SecAvgUsec) + \
-                '&nbsp;'    + splitThousands(systemInfo.logOpWrite10SecAvgUsec) + \
+                '/'         + splitThousands(systemInfo.logOpWrite10SecAvgUsec) + \
                 ';&nbsp;'   + showRate(systemInfo.log15SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log15SecAvgUsec) + \
-                '&nbsp;'    + splitThousands(systemInfo.logOpWrite15SecAvgUsec) + \
+                '/'         + splitThousands(systemInfo.logOpWrite15SecAvgUsec) + \
                 ';&nbsp;'   + showRate(rate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(avg) + \
-                '&nbsp;'    + splitThousands(opWriteAvg) + \
-                "&nbsp;dropped:&nbsp;" + splitThousands(systemInfo.exceedLogQueueDepthFailureCount) + \
+                '/'         + splitThousands(opWriteAvg) + \
                 '</td></tr>'
         print >> buffer, '''<tr> <td> Meta server viewstamped replication (VR) </td><td>:</td><td> '''
         if systemInfo.vrNodeId < 0 or len(vrStatus) <= 0:
@@ -1378,7 +1380,10 @@ def processSystemInfo(systemInfo, sysInfo):
     systemInfo.logOpWrite15SecAvgUsec = long(info[81].split('=')[1])
     if len(info) < 83:
         return
-    systemInfo.exceedLogQueueDepthFailureCount = long(info[82].split('=')[1])
+    systemInfo.logExceedQueueDepthFailedCount = long(info[82].split('=')[1])
+    if len(info) < 84:
+        return
+    systemInfo.logPendingAckByteCount = long(info[83].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
