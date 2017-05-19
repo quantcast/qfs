@@ -108,6 +108,7 @@ public class QuantcastFileSystem extends FileSystem {
 
   protected Path makeAbsolute(Path path) throws IOException {
     if (path.isAbsolute()) {
+      checkPath(path);
       return path;
     }
     if (null == workingDir) {
