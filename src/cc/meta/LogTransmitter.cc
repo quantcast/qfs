@@ -89,9 +89,10 @@ public:
           mMaxReadAhead(MAX_RPC_HEADER_LEN),
           mHeartbeatInterval(16),
           mMinAckToCommit(numeric_limits<int>::max()),
-          mMaxPending(8 << 20),
+          mMaxPending(16 << 20),
           mCompactionInterval(256),
           mCommitted(),
+          mPendingAckByteCount(0),
           mAuthType(
             kAuthenticationTypeKrb5 |
             kAuthenticationTypeX509 |
@@ -271,6 +272,8 @@ public:
         bool inFlag);
     void ScheduleHelloTransmit();
     void ScheduleHeartbeatTransmit();
+    int GetPendingAckByteCount() const
+        { return mPendingAckByteCount; }
     virtual void Timeout();
 private:
     typedef Properties::String String;
@@ -286,6 +289,7 @@ private:
     int             mMaxPending;
     int             mCompactionInterval;
     MetaVrLogSeq    mCommitted;
+    int             mPendingAckByteCount;
     int             mAuthType;
     string          mAuthTypeStr;
     CommitObserver& mCommitObserver;
@@ -641,6 +645,8 @@ public:
         }
         Connect();
     }
+    int GetPendingSendByteCount() const
+        { return mPendingSend.BytesConsumable(); }
     void Timer(
         int64_t inRunTimeUsec,
         int64_t inNowUsec,
@@ -1800,10 +1806,12 @@ LogTransmitter::Impl::Acked(
     const NodeId       theCurPrimaryId = mMetaVrSMPtr ?
         mMetaVrSMPtr->GetPrimaryNodeId(theAck) : NodeId(-1);
     if (mCommitted < theAck && 0 <= theCurPrimaryId) {
-        NodeId             thePrevId    = -1;
-        int                theAckAdvCnt = 0;
-        MetaVrLogSeq       theCommitted = theAck;
-        MetaVrLogSeq       theCurMax    = mCommitted;
+        NodeId             thePrevId     = -1;
+        int                thePending    = 0;
+        int                theCurPending = 0;
+        int                theAckAdvCnt  = 0;
+        MetaVrLogSeq       theCommitted  = theAck;
+        MetaVrLogSeq       theCurMax     = mCommitted;
         List::Iterator     theIt(mTransmittersPtr);
         const Transmitter* thePtr;
         while ((thePtr = theIt.Next())) {
@@ -1819,23 +1827,29 @@ LogTransmitter::Impl::Acked(
                 continue;
             }
             if (theId == thePrevId) {
-                theCurMax = max(theCurMax, theCurAck);
+                theCurMax     = max(theCurMax, theCurAck);
+                theCurPending = min(
+                    theCurPending, thePtr->GetPendingSendByteCount());
             } else {
                 if (mCommitted < theCurMax) {
                     theCommitted = min(theCommitted, theCurMax);
+                    thePending   = max(thePending, theCurPending);
                     theAckAdvCnt++;
                 }
+                theCurPending = thePtr->GetPendingSendByteCount();
                 theCurMax = theCurAck;
                 thePrevId = theId;
             }
         }
         if (mCommitted < theCurMax) {
             theCommitted = min(theCommitted, theCurMax);
+            thePending   = max(thePending,   theCurPending);
             theAckAdvCnt++;
         }
         if (mMinAckToCommit <= theAckAdvCnt) {
-            mCommitted = theCommitted;
-            mCommitObserver.Notify(mCommitted);
+            mCommitted           = theCommitted;
+            mPendingAckByteCount = thePending;
+            mCommitObserver.Notify(mCommitted, mPendingAckByteCount);
         }
     }
     if (inPrevAck.IsValid() != theAck.IsValid() ||
@@ -1911,7 +1925,8 @@ LogTransmitter::Impl::NotifyAck(
     if (mMinAckToCommit <= 0 && (inNodeId < 0 ||
             inNodeId == inPrimaryNodeId) && mCommitted < inAckSeq) {
         mCommitted = inAckSeq;
-        mCommitObserver.Notify(mCommitted);
+        mPendingAckByteCount = 0;
+        mCommitObserver.Notify(mCommitted, mPendingAckByteCount);
     }
 }
 
@@ -2001,7 +2016,7 @@ LogTransmitter::Impl::Update()
     mIdsCount = theIdCnt;
     mUpFlag   = theUpFlag;
     if (theNotifyFlag) {
-        mCommitObserver.Notify(mCommitted);
+        mCommitObserver.Notify(mCommitted, mPendingAckByteCount);
     }
 }
 

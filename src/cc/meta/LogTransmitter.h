@@ -50,7 +50,8 @@ public:
     {
     public:
         virtual void Notify(
-            const MetaVrLogSeq& inSeq) = 0;
+            const MetaVrLogSeq& inSeq,
+            int                 inPendingAckByteCount) = 0;
     protected:
         CommitObserver()
             {}

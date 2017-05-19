@@ -76,7 +76,8 @@ public:
               mLogOpWrite5SecAvgUsec(0),
               mLogOpWrite10SecAvgUsec(0),
               mLogOpWrite15SecAvgUsec(0),
-              mExceedLogQueueDepthFailureCount(0)
+              mExceedLogQueueDepthFailureCount(0),
+              mPendingByteCount(0)
         {}
         Counter mLogTimeUsec;
         Counter mLogTimeOpsCount;
@@ -95,6 +96,7 @@ public:
         Counter mLogOpWrite10SecAvgUsec;
         Counter mLogOpWrite15SecAvgUsec;
         Counter mExceedLogQueueDepthFailureCount;
+        Counter mPendingByteCount;
     };
 
     LogWriter();
@@ -154,6 +156,7 @@ public:
         string&       outLogSegmentFileName);
     void GetCounters(
         Counters& outCounters);
+    int GetPendingAckBytesOverage() const;
 private:
     class Impl;
     seq_t            mNextSeq;

@@ -1462,6 +1462,7 @@ protected:
     bool ReplayValidate(MetaRequest& r) const;
     inline void RemoveInFlight(MetaChunkRequest& req);
     void SubmitMetaBye();
+    static inline int GetMaxPendingHelloBytes();
 };
 
 class CSMap;

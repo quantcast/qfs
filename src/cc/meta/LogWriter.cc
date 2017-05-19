@@ -142,6 +142,7 @@ public:
           mSyncFlag(false),
           mWokenFlag(false),
           mMaxClientOpsPendingCount(20 << 10),
+          mMaxPendingAckByteCount(8 << 20),
           mLastLogPath(mLogDir + "/" +
             MetaDataStore::GetLogSegmentLastFileNamePtr()),
           mLogFilePos(0),
@@ -274,7 +275,9 @@ public:
             return false;
         }
         if (inRequest.fromClientSMFlag &&
-                mMaxClientOpsPendingCount <= mPendingCount) {
+                (mMaxClientOpsPendingCount <= mPendingCount ||
+                    mMaxPendingAckByteCount <= mIoCounters.mPendingAckByteCount)
+                ) {
             // Shed load / limit log write / replication in flight by failing
             // *all* client requests, regardless if the request itself requires
             // transaction log write or not, as the request processing might, in
@@ -284,6 +287,8 @@ public:
             KFS_LOG_STREAM(0 == (mExceedLogQueueDepthFailureCount & 0x1FF) ?
                     MsgLogger::kLogLevelERROR : MsgLogger::kLogLevelDEBUG) <<
                 "exceeded max log queue depth: " << mPendingCount <<
+               " bytes: "                        <<
+                    mIoCounters.mPendingAckByteCount <<
                 " failed count: "                <<
                     mExceedLogQueueDepthFailureCount <<
                 " "                              << inRequest.Show() <<
@@ -486,12 +491,16 @@ public:
         }
     }
     virtual void Notify(
-        const MetaVrLogSeq& inSeq)
+        const MetaVrLogSeq& inSeq,
+        int                 inPendingAckByteCount)
     {
         mWokenFlag = mWokenFlag || mTransmitCommitted < inSeq;
         mMetaVrSM.Commit(inSeq);
         if (mTransmitCommitted < inSeq) {
             mTransmitCommitted = inSeq;
+        }
+        if (inPendingAckByteCount < mWorkerIoCounters.mPendingAckByteCount) {
+            mWorkerIoCounters.mPendingAckByteCount = inPendingAckByteCount;
         }
     }
     MetaVrSM& GetMetaVrSM()
@@ -609,6 +618,12 @@ public:
             mLogOpWrite15SecAvgUsec >> AverageFilter::kAvgFracBits;
         outCounters.mExceedLogQueueDepthFailureCount =
             mExceedLogQueueDepthFailureCount;
+        outCounters.mPendingByteCount = mIoCounters.mPendingAckByteCount;
+    }
+    int GetPendingAckBytesOverage() const
+    {
+        return max(0, (int)(mIoCounters.mPendingAckByteCount -
+            mMaxPendingAckByteCount));
     }
 private:
     typedef uint32_t Checksum;
@@ -645,11 +660,13 @@ private:
         IoCounters()
             : mDiskWriteTimeUsec(0),
               mDiskWriteByteCount(0),
-              mDiskWriteCount(0)
+              mDiskWriteCount(0),
+              mPendingAckByteCount(0)
             {}
         Counter mDiskWriteTimeUsec;
         Counter mDiskWriteByteCount;
         Counter mDiskWriteCount;
+        Counter mPendingAckByteCount;
     };
 
     NetManager*       mNetManagerPtr;
@@ -709,6 +726,7 @@ private:
     bool              mSyncFlag;
     bool              mWokenFlag;
     int               mMaxClientOpsPendingCount;
+    int               mMaxPendingAckByteCount;
     string            mLastLogPath;
     int64_t           mLogFilePos;
     int64_t           mLogFilePrevPos;
@@ -1646,6 +1664,7 @@ private:
                 panic("invalid log write write buffer length");
                 theStatus = -EFAULT;
             } else {
+                mWorkerIoCounters.mPendingAckByteCount += theTxLen;
                 theStatus = mLogTransmitter.TransmitBlock(
                     inLogSeq,
                     theBlockLen,
@@ -2299,9 +2318,12 @@ private:
         mCpuAffinityIndex = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("cpuAffinityIndex"),
             mCpuAffinityIndex);
-        mMaxClientOpsPendingCount = inParameters.getValue(
+        mMaxClientOpsPendingCount = max(16, inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("maxClientOpsPendingCount"),
-            mMaxClientOpsPendingCount);
+            mMaxClientOpsPendingCount));
+        mMaxPendingAckByteCount = max(64 << 10, inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("maxPendingAckByteCount"),
+            mMaxPendingAckByteCount));
         mFailureSimulationInterval = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("failureSimulationInterval"),
             mFailureSimulationInterval);
@@ -2608,6 +2630,12 @@ LogWriter::GetCounters(
     Counters& outCounters)
 {
     mImpl.GetCounters(outCounters);
+}
+
+    int
+LogWriter::GetPendingAckBytesOverage() const
+{
+    return mImpl.GetPendingAckBytesOverage();
 }
 
 }

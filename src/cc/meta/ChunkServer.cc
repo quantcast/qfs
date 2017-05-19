@@ -29,6 +29,7 @@
 #include "CSMap.h"
 #include "LayoutManager.h"
 #include "NetDispatch.h"
+#include "LogWriter.h"
 #include "kfstree.h"
 #include "util.h"
 
@@ -303,6 +304,13 @@ size_t ChunkServer::sChunkDirsCount = 0;
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
 const int kMaxRequestResponseHeader = 64 << 10;
 
+/* static */ inline int
+ChunkServer::GetMaxPendingHelloBytes()
+{
+    return (sMaxPendingHelloLogByteCount -
+        MetaRequest::GetLogWriter().GetPendingAckBytesOverage());
+}
+
 inline ChunkServer::DispatchedReqs::iterator&
 ChunkServer::GetDispatchedReqsIterator(ChunkServer::DispatchedReqsIterator& it)
 {
@@ -499,11 +507,12 @@ ChunkServer::Create(const NetConnectionPtr& conn)
         KFS_LOG_EOM;
         return 0;
     }
-    if (sMaxPendingHelloLogByteCount < sPendingHelloLogByteCount) {
+    const int maxPendingByteCount = GetMaxPendingHelloBytes();
+    if (maxPendingByteCount < sPendingHelloLogByteCount) {
         KFS_LOG_STREAM_ERROR << conn->GetPeerName() <<
             " chunk servers: "                << sChunkServerCount <<
             " over pending hello log limit: " << sPendingHelloLogByteCount <<
-            " max: "                          << sMaxPendingHelloLogByteCount <<
+            " max: "                          << maxPendingByteCount <<
             " closing connection" <<
         KFS_LOG_EOM;
         return 0;
@@ -1737,16 +1746,19 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         }
     }
     if (0 == mHelloOp->status && mHelloOp->supportsResumeFlag &&
-            0 < mHelloOp->bufferBytes &&
-            sMaxPendingHelloLogByteCount < mHelloOp->bufferBytes +
-                sPendingHelloLogByteCount) {
-        KFS_LOG_STREAM_ERROR << GetPeerName() <<
-            " chunk servers: "                << sChunkServerCount <<
-            " over pending hello log limit: " <<
-                mHelloOp->bufferBytes + sPendingHelloLogByteCount <<
-            " max: "                          << sMaxPendingHelloLogByteCount <<
-        KFS_LOG_EOM;
-        return DeclareHelloError(-EBUSY, "over max hello log bytes in flight");
+            0 < mHelloOp->bufferBytes) {
+        const int maxPendingByteCount = GetMaxPendingHelloBytes();
+        if (maxPendingByteCount <
+                mHelloOp->bufferBytes + sPendingHelloLogByteCount) {
+            KFS_LOG_STREAM_ERROR << GetPeerName() <<
+                " chunk servers: "                << sChunkServerCount <<
+                " over pending hello log limit: " <<
+                    mHelloOp->bufferBytes + sPendingHelloLogByteCount <<
+                " max: "                          << maxPendingByteCount <<
+            KFS_LOG_EOM;
+            return DeclareHelloError(
+                -EBUSY, "over max hello log bytes in flight");
+        }
     }
     // make sure we have the chunk ids...
     if (0 < mHelloOp->contentLength) {
