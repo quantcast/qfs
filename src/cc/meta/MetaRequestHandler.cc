@@ -727,6 +727,22 @@ private:
         theBuf[2] = kHexChars[inSym & 0xF];
         mOStream.write(theBuf, 3);
     }
+    enum { kSpace = ' ' };
+    static bool IsToBeEscaped(int inSym)
+    {
+        switch (inSym)
+        {
+            case 0xFF:
+            case '%':
+            case '=':
+            case ';':
+            case '/':
+            case ',':
+                return true;
+            default: break;
+        }
+        return (inSym <= kSpace);
+    }
     void Escape(
         const char* inPtr,
         size_t      inLen)
@@ -737,7 +753,6 @@ private:
         // Always escape the first leading and the last trailing spaces, if any,
         // in order to ensure leading and trailing spaces are not discarded by
         // key value tokenizer.
-        const int         kSpace           = ' ';
         const bool        theLastSpaceFlag =
             kSpace == (inPtr[inLen - 1] & 0xFF);
         const char*       thePtr           = inPtr;
@@ -750,7 +765,7 @@ private:
         const char* thePPtr = thePtr;
         while (thePtr < theEndPtr) {
             const int theSym = *thePtr & 0xFF;
-            if (theSym < kSpace || 0xFF <= theSym || strchr("%=;/,", theSym)) {
+            if (IsToBeEscaped(theSym)) {
                 if (thePPtr < thePtr) {
                     mOStream.write(thePPtr, thePtr - thePPtr);
                 }
