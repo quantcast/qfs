@@ -99,7 +99,7 @@ public:
           mOmitDefaultsFlag(true),
           mCommitUpdatedFlag(false),
           mSetReplayStateFlag(false),
-          mMaxBlockSize(256),
+          mMaxBlockSize(512),
           mMaxBlockBytes(128 << 10),
           mPendingCount(0),
           mExraPendingCount(0),
@@ -1500,13 +1500,8 @@ private:
                         theStartViewFlag ||
                         (META_VR_RECONFIGURATION == thePtr->op &&
                             thePtr->logseq.IsValid()) ||
-                        mMdStream.GetBufferedEnd() <
-                            mMdStream.GetBufferedStart() + mMaxBlockBytes) {
-                    break;
-                }
-                if (mMdStream.GetBufferedStart() +
-                            mMdStream.GetBufferSize() / 4 * 3 <
-                        mMdStream.GetBufferedEnd() ||
+                        mMdStream.GetBufferedStart() + mMaxBlockBytes <=
+                            mMdStream.GetBufferedEnd() ||
                         mLogFileMaxSize <= mLogFilePos +
                             (mMdStream.GetBufferedEnd() -
                                 mMdStream.GetBufferedStart())) {
