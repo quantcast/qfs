@@ -166,6 +166,9 @@ public:
           mLogOpWrite10SecAvgUsec(0),
           mLogOpWrite15SecAvgUsec(0),
           mExceedLogQueueDepthFailureCount(0),
+          mPrevExceedLogQueueDepthFailureCount(0),
+          mExceedLogQueueDepthFailureCount300SecAvg(0),
+          mTotalRequestCount(0),
           mIoCounters(),
           mWorkerIoCounters(),
           mCurIoCounters(),
@@ -312,6 +315,7 @@ public:
             }
         }
         inRequest.commitPendingFlag = true;
+        mTotalRequestCount++;
         if (++mPendingCount <= 0) {
             panic("log writer: invalid pending count");
         }
@@ -619,6 +623,10 @@ public:
         outCounters.mExceedLogQueueDepthFailureCount =
             mExceedLogQueueDepthFailureCount;
         outCounters.mPendingByteCount = mIoCounters.mPendingAckByteCount;
+        outCounters.mTotalRequestCount = mTotalRequestCount;
+        outCounters.mExceedLogQueueDepthFailureCount300SecAvg =
+            mExceedLogQueueDepthFailureCount300SecAvg >>
+            AverageFilter::kAvgFracBits;
     }
     int GetPendingAckBytesOverage() const
     {
@@ -749,6 +757,9 @@ private:
     int64_t           mLogOpWrite10SecAvgUsec;
     int64_t           mLogOpWrite15SecAvgUsec;
     int64_t           mExceedLogQueueDepthFailureCount;
+    int64_t           mPrevExceedLogQueueDepthFailureCount;
+    int64_t           mExceedLogQueueDepthFailureCount300SecAvg;
+    int64_t           mTotalRequestCount;
     IoCounters        mIoCounters;
     IoCounters        mWorkerIoCounters;
     IoCounters        mCurIoCounters;
@@ -1065,6 +1076,8 @@ private:
             theLogUsecs / theOpsCount : int64_t(0);
         const int64_t theOpLogWriteUsecs = 0 < theOpsCount ?
             theLogWriteUsecs / theOpsCount : int64_t(0);
+        const int64_t theDroppedCountDelta = mExceedLogQueueDepthFailureCount -
+            mPrevExceedLogQueueDepthFailureCount;
         while (mLogAvgUsecsNextTimeUsec <= inTimeNowUsec) {
             mLog5SecAvgUsec  = CalcLogAvg(mLog5SecAvgUsec, theOpLogUsecs,
                 AverageFilter::kAvg5SecondsDecayExponent);
@@ -1086,6 +1099,10 @@ private:
                 AverageFilter::kAvg10SecondsDecayExponent);
             mLogOpWrite15SecAvgUsec = CalcLogAvg(mLogOpWrite15SecAvgUsec,
                 theOpLogWriteUsecs,
+                AverageFilter::kAvg15SecondsDecayExponent);
+            mExceedLogQueueDepthFailureCount300SecAvg = CalcLogAvg(
+                mExceedLogQueueDepthFailureCount300SecAvg,
+                theDroppedCountDelta,
                 AverageFilter::kAvg15SecondsDecayExponent);
             mLogAvgUsecsNextTimeUsec += kLogAvgIntervalUsec;
         }

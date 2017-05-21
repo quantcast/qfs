@@ -77,8 +77,10 @@ public:
               mLogOpWrite10SecAvgUsec(0),
               mLogOpWrite15SecAvgUsec(0),
               mExceedLogQueueDepthFailureCount(0),
-              mPendingByteCount(0)
-        {}
+              mPendingByteCount(0),
+              mTotalRequestCount(0),
+              mExceedLogQueueDepthFailureCount300SecAvg(0)
+            {}
         Counter mLogTimeUsec;
         Counter mLogTimeOpsCount;
         Counter mLogErrorOpsCount;
@@ -97,6 +99,8 @@ public:
         Counter mLogOpWrite15SecAvgUsec;
         Counter mExceedLogQueueDepthFailureCount;
         Counter mPendingByteCount;
+        Counter mTotalRequestCount;
+        Counter mExceedLogQueueDepthFailureCount300SecAvg;
     };
 
     LogWriter();

@@ -8944,7 +8944,11 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Log Exceeded Queue Depth Failure Count= " <<
             logCtrs.mExceedLogQueueDepthFailureCount << "\t"
         "Log Pending Ack Byte Count= " <<
-            logCtrs.mPendingByteCount
+            logCtrs.mPendingByteCount << "\t"
+        "Log Total Request Count= " <<
+            logCtrs.mTotalRequestCount << "\t"
+        "Log Exceeded Queue Depth Failure Count 300 sec. Avg= " <<
+            logCtrs.mExceedLogQueueDepthFailureCount300SecAvg
     ;
     mWOstream.flush();
     mWOstream.Reset();
