@@ -37,9 +37,12 @@ class AverageFilter
 public:
     enum { kAvgFracBits               = 12 };
     // DecayExponent = (1 << kAvgFracBits) / exp(1. / AvgIntervalSec)
-    enum { kAvg5SecondsDecayExponent  = 3353 };
-    enum { kAvg10SecondsDecayExponent = 3706 };
-    enum { kAvg15SecondsDecayExponent = 3832 };
+    enum { kAvg5SecondsDecayExponent   = 3353 };
+    enum { kAvg10SecondsDecayExponent  = 3706 };
+    enum { kAvg15SecondsDecayExponent  = 3832 };
+    enum { kAvg300SecondsDecayExponent = 4082 };
+    enum { kAvg600SecondsDecayExponent = 4089 };
+    enum { kAvg900SecondsDecayExponent = 4091 };
 
     static int64_t Calculate(
         int64_t inAvg,
