@@ -196,6 +196,8 @@ class SystemInfo:
         self.logOpWrite15SecAvgUsec = -1
         self.logExceedQueueDepthFailedCount = 0
         self.logPendingAckByteCount = 0
+        self.logTotalRequestCount = -1
+        self.logExceedLogQueueDepthFailureCount300SecAvg = 0
 
 class Status:
     def __init__(self):
@@ -324,11 +326,16 @@ class Status:
                 rate = systemInfo.logTimeOpsCount * systemInfo.logAvgReqRateDiv / systemInfo.uptime
             else:
                 rate = 0
+            if 0 < systemInfo.logTotalRequestCount:
+                droppedPct = 100. * systemInfo.logExceedQueueDepthFailedCount / systemInfo.logTotalRequestCount
+            else:
+                droppedPct = 0.
             print >> buffer, '<tr> <td> Transaction log </td><td>:</td><td>' + \
                 'queue&nbsp;depth:&nbsp;' + splitThousands(systemInfo.logPendingOpsCount) + \
                 "/" + bytesToReadable(systemInfo.logPendingAckByteCount) + \
-                "&nbsp;dropped:&nbsp;" + splitThousands(systemInfo.logExceedQueueDepthFailedCount) + \
-                '&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.&nbsp;total/disk' +\
+                ";&nbsp;dropped:&nbsp;" + splitThousands(systemInfo.logExceedLogQueueDepthFailureCount300SecAvg) + \
+                "/%.2e%%" % droppedPct + \
+                ';&nbsp;request&nbsp;rate&nbsp;&amp;&nbsp;time&nbsp;usec.&nbsp;total/disk' + \
                 '&nbsp;[5;&nbsp;10;&nbsp;15&nbsp;sec.;&nbsp;total&nbsp;averages]:' + \
                 '&nbsp;'    + showRate(systemInfo.log5SecAvgReqRate, systemInfo.logAvgReqRateDiv) + \
                 '&nbsp;'    + splitThousands(systemInfo.log5SecAvgUsec) + \
@@ -1384,6 +1391,12 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 84:
         return
     systemInfo.logPendingAckByteCount = long(info[83].split('=')[1])
+    if len(info) < 85:
+        return
+    systemInfo.logTotalRequestCount = long(info[84].split('=')[1])
+    if len(info) < 86:
+        return
+    systemInfo.logExceedLogQueueDepthFailureCount300SecAvg = long(info[85].split('=')[1])
 
 def updateServerState(status, rackId, host, server):
     if rackId in status.serversByRack:
