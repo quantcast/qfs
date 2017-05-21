@@ -1078,6 +1078,7 @@ private:
             theLogWriteUsecs / theOpsCount : int64_t(0);
         const int64_t theDroppedCountDelta = mExceedLogQueueDepthFailureCount -
             mPrevExceedLogQueueDepthFailureCount;
+        mPrevExceedLogQueueDepthFailureCount = mExceedLogQueueDepthFailureCount;
         while (mLogAvgUsecsNextTimeUsec <= inTimeNowUsec) {
             mLog5SecAvgUsec  = CalcLogAvg(mLog5SecAvgUsec, theOpLogUsecs,
                 AverageFilter::kAvg5SecondsDecayExponent);
