@@ -1409,11 +1409,14 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # network links / IP addresses, multiple redundant network connections can
 # be configured to increase connectivity reliability by specifying list of log
 # listeners' network locations (IP address and port).
+#
+# Please note that DNS name that lists all meta server nodes is to be used with
+# qfsadmin commands in the example below.
 # For example:
 #
 ## Add node 0 to VR configuration:
 # qfsadmin -f qfsadmin.cfg
-#    -s <meta server host or ip> \
+#    -s <meta server host> \
 #    -p <meta server port> \
 #    -F op-type=add-node \
 #    -F arg-count=1 \
@@ -1422,7 +1425,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #    vr_reconfiguration
 ## Add node 1 to VR configuration:
 # qfsadmin -f qfsadmin.cfg
-#    -s <meta server host or ip> \
+#    -s <meta server host> \
 #    -p <meta server port> \
 #    -F op-type=add-node \
 #    -F arg-count=1 \
@@ -1431,7 +1434,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #    vr_reconfiguration
 ## Add node 2 to VR configuration:
 # qfsadmin -f qfsadmin.cfg
-#    -s <meta server host or ip> \
+#    -s <meta server host> \
 #    -p <meta server port> \
 #    -F op-type=add-node \
 #    -F arg-count=1 \
@@ -1440,7 +1443,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #    vr_reconfiguration
 ## Activate nodes:
 # qfsadmin -f qfsadmin.cfg
-#    -s <meta server host or ip> \
+#    -s <meta server host> \
 #    -p <meta server port> \
 #    -F op-type=activate-nodes \
 #    -F arg-count=3 \
