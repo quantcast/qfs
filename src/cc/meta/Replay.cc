@@ -2498,14 +2498,13 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     if (0 == status) {
         if (state.mCommitQueue.empty() &&
                 state.mLastBlockCommittedSeq == MetaVrLogSeq(0, 0, 0) &&
-                state.mLastCommittedSeq == state.mBlockStartLogSeq &&
-                state.mLastBlockCommittedSeq < state.mBlockStartLogSeq &&
-                state.mLastBlockCommittedSeq.IsSameView(
-                    state.mLastCommittedSeq)) {
+                state.mLastBlockCommittedSeq == state.mLastLogAheadSeq &&
+                state.mLastBlockCommittedSeq == state.mLastCommittedSeq &&
+                state.mLastBlockCommittedSeq == state.mCheckpointCommitted &&
+                0 == state.mLastBlockSeed) {
             // Set commit state, when converting from prior log version.
-            state.mLastBlockCommittedSeq = state.mLastCommittedSeq;
-            state.mLastBlockSeed         = fileID.getseed();
-            appendToLastLogFlag          = false;
+            state.mLastBlockSeed = fileID.getseed();
+            appendToLastLogFlag  = false;
         }
     } else {
         appendToLastLogFlag = false;
@@ -2977,6 +2976,13 @@ Replay::getReplayCommitQueue(Replay::CommitQueue& queue) const
 {
     const ReplayState& state = replayTokenizer.GetState();
     return state.getReplayCommitQueue(queue);
+}
+
+void
+Replay::updateLastBlockSeed()
+{
+    ReplayState& state   = replayTokenizer.GetState();
+    state.mLastBlockSeed = fileID.getseed();
 }
 
 } // namespace KFS

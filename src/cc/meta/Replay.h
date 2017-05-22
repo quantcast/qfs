@@ -139,6 +139,7 @@ public:
     MetaVrLogSeq getLastNonEmptyViewEndSeq() const;
     typedef vector<const MetaRequest*> CommitQueue;
     void getReplayCommitQueue(CommitQueue& queue) const;
+    void updateLastBlockSeed();
     class BlockChecksum
     {
     public:

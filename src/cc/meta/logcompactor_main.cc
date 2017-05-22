@@ -210,6 +210,7 @@ LogCompactorMain(int argc, char** argv)
                             fa->ctime = fa->crtime;
                         }
                    }
+                   replayer.updateLastBlockSeed();
                 } else {
                     KFS_LOG_STREAM_FATAL <<
                         "invalid checkpoint: no root node exists" <<
