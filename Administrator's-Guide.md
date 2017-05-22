@@ -85,7 +85,7 @@ Meta server replication provides fault tolerance at the meta server level.
 The file system can be configured with multiple meta server nodes, in order to
 solve single point of failure problem.
 Meta server replication design  based on Veiwstamped replication (VR) [paper](http://pmg.csail.mit.edu/papers/vr-revisited.pdf).
-The minimal configuration requires 3 meta server node. At least 3 nodes are
+The minimal configuration requires 3 meta server nodes. At least 3 nodes are
 needed to solve "network partitioning" problem. This problem occurs when some
 subset(s) of meta server nodes cannot communicates with another
 subset(s) of meta server nodes. In such case a subset of nodes larger than or
@@ -147,21 +147,31 @@ server should respond to vr_reconfiguration without arguments with the
 command description.
 
 QFS admin configuration file has the same format and parameters as QFS client
-configuration file. Typically configuration file describes autentication
-configuration. Wihout authentication configuration the configuration
-file is not used.
+configuration file. Typically configuration file describes authentication
+configuration. Without authentication configuration the configuration
+file is required in the case when parameter client.metaServerNodes is used
+instead of DNS meta server host A or AAAA records to associate all meta server
+nodes IP addresses with the meta server host.
 
-In the case when meta server nodes connected with more than one
-network links / IP addresses, multiple redundant network connections can
-be configured to increase connectivity reliability by specifying list of log
-listeners' network locations (IP address and port).
+Admin tool needs to be told of all meta server nodes; it is just a special QFS
+client. Admin tool will find the node that is currently primary (for initial
+configuration it is always be the node with id 0), and then send RPCs to primary
+node. The primary node will, in turn, replicate VR reconfiguration RPC to the
+secondaries nodes, the same way as it replicates non admin RPCs.
 
+In the case when meta server nodes connected with more than one network links /
+IP addresses, multiple redundant network connections can be configured to
+increase connectivity reliability by specifying list of log listeners' network
+locations (IP address and port).
+
+Please note that DNS name that lists all meta server nodes is to be used with
+qfsadmin commands in the example below.
 For example:
 ------------
 Add node 0 to VR configuration:
 
     qfsadmin -f qfsadmin.cfg \
-        -s <meta server host or ip> \
+        -s <meta server host> \
         -p <meta server port> \
         -F op-type=add-node \
         -F arg-count=1 \
@@ -172,7 +182,7 @@ Add node 0 to VR configuration:
 Add node 1 to VR configuration:
 
     qfsadmin -f qfsadmin.cfg \
-        -s <meta server host or ip> \
+        -s <meta server host> \
         -p <meta server port> \
         -F op-type=add-node \
         -F arg-count=1 \
@@ -183,7 +193,7 @@ Add node 1 to VR configuration:
 Add node 2 to VR configuration:
 
     qfsadmin -f qfsadmin.cfg \
-        -s <meta server host or ip> \
+        -s <meta server host> \
         -p <meta server port> \
         -F op-type=add-node \
         -F arg-count=1 \
@@ -194,7 +204,7 @@ Add node 2 to VR configuration:
 Activate nodes:
 
     qfsadmin -f qfsadmin.cfg \
-        -s <meta server host or ip> \
+        -s <meta server host> \
         -p <meta server port> \
         -F op-type=activate-nodes \
         -F arg-count=3 \
