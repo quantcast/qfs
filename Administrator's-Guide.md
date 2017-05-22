@@ -166,6 +166,7 @@ locations (IP address and port).
 
 Please note that DNS name that lists all meta server nodes is to be used with
 qfsadmin commands in the example below.
+
 For example:
 ------------
 Add node 0 to VR configuration:
