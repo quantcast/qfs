@@ -57,6 +57,11 @@ static CmdHandlers handlers;
 
 static void setupHandlers();
 
+bool hasFArg(uint8_t flag);
+bool hasSArg(uint8_t flag);
+bool isCorrectFSArgument(uint8_t flag, string const& serverHost, int port,
+                         char const* config);
+
 /// @retval: status code from executing the last command
 static int processCmds(KfsClient *client, bool quietMode,
                        int nargs, const char **cmdLine);
@@ -72,11 +77,13 @@ kfsshell_main(int argc, char **argv)
     const char*         logLevelStr = 0;
     const char*         config      = 0;
 
+    uint8_t flag = 0x00; // default value is 0
     int optchar;
     while ((optchar = getopt(argc, argv, "hqs:p:vf:l:")) != -1) {
         switch (optchar) {
             case 's':
                 serverHost = optarg;
+                flag = flag | 0x01;
                 break;
             case 'p':
                 port = atoi(optarg);
@@ -93,6 +100,7 @@ kfsshell_main(int argc, char **argv)
                 break;
             case 'f':
                 config = optarg;
+                flag = flag | 0x02;
                 break;
             case 'l':
                 logLevelStr = optarg;
@@ -104,21 +112,27 @@ kfsshell_main(int argc, char **argv)
         }
     }
 
-    if (help || serverHost.empty() || port <= 0) {
-        cout << "Usage: " << argv[0] <<
-            " -s <meta server name>\n"
-            " [-p <port> (default 20000)]\n"
-            " [-q [cmd]]\n"
-            " [-f <config file name>]\n"
-            " [-l <log level> (DEBUG|INFO|NOTICE|WARN|ERROR|FATAL)]\n"
-            "Starts an interactive client shell to QFS.\n"
-            "  -q: switches to execution in quiet mode.\n"
-            " cmd: command to execute, only in quiet mode.\n";
+    if (help || !isCorrectFSArgument(flag, serverHost, port, config)) {
+        cout << "Usage: " << argv[0]
+             << " either -f or -s can be used, if both exist, -f will be used\n"
+                " {-s <meta server name>}\n"
+                " [-p <port> (default 20000)]\n"
+                " [-q [cmd]]\n"
+                " {-f <config file name>}\n"
+                " [-l <log level> (DEBUG|INFO|NOTICE|WARN|ERROR|FATAL)]\n"
+                "Starts an interactive client shell to QFS.\n"
+                "  -q: switches to execution in quiet mode.\n"
+                " cmd: command to execute, only in quiet mode.\n";
         return 1;
     }
 
     MsgLogger::Init(0, logLevel, 0, 0, logLevelStr);
-    KfsClient* const kfsClient = KfsClient::Connect(serverHost, port, config);
+    KfsClient* kfsClient = NULL;
+    if (hasFArg(flag)) {
+        kfsClient = Connect(config);
+    } else if(hasSArg(flag)) {
+        kfsClient = KfsClient::Connect(serverHost, port, config);
+    }
     if (! kfsClient) {
         cout << "qfs client failed to initialize\n";
         return 1;
@@ -128,6 +142,33 @@ kfsshell_main(int argc, char **argv)
 
     return processCmds(kfsClient, quietMode,
         argc - optind, (const char **) &argv[optind]) == 0 ? 0 : 1;
+}
+
+// return true if -f arg exists
+bool hasFArg(uint8_t flag) {
+    return (flag & 0x02) != 0;
+}
+
+// return true if -s arg exists
+bool hasSArg(uint8_t flag) {
+    return (flag & 0x01) != 0;
+}
+
+bool isCorrectFSArgument(uint8_t flag, string const& serverHost, int port, char const* config) {
+    if (hasFArg(flag)) {
+        // -f argument exist, return true
+        return true;
+    }
+
+    if (hasSArg(flag)) {
+        // -s argument exist
+        if (serverHost.empty() || port <= 0) {
+            return false;
+        }
+        return true;
+  }
+  // return false if neither -f nor -s exists
+  return false;
 }
 
 void printCmds()
