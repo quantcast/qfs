@@ -915,6 +915,11 @@ private:
 /// @param[in] propFile that describes where the server is and
 /// other client configuration info.
 ///
+/// The configuration file must have the following two parameters in order to
+/// specify meta server host name and port.
+/// metaServer.name = <host name>
+/// metaServer.port = <port number>
+//
 KfsClient* Connect(const char* propFile);
 
 ///

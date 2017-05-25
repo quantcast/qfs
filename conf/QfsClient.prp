@@ -19,9 +19,7 @@
 # implied. See the License for the specific language governing
 # permissions and limitations under the License.
 #
-# Where is the metaserver
-metaServer.name = 127.0.0.1
-metaServer.port = 20000
+#
 
 # -------------------- Client and meta server authentication. ------------------
 # By default QFS client and meta server authentication (client and chunk server
