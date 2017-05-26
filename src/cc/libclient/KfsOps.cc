@@ -295,7 +295,7 @@ RenameOp::Request(ReqOstream& os)
             oldpath << "\r\n"
     ;
     if (overwrite) {
-        os << (shortRpcFormatFlag ? "W:1\r\n" : "Overwrite: 0\r\n");
+        os << (shortRpcFormatFlag ? "W:1\r\n" : "Overwrite: 1\r\n");
     }
     os << "\r\n";
 }
