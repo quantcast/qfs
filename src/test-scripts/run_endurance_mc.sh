@@ -549,6 +549,11 @@ else
         rm -rf "$wdir"
         cp -a "$webui" . || exit
     fi
+    metabinmd5=`openssl md5 < /dev/null 2>/dev/null | awk '{print $2}'`
+    mymd5=`openssl md5 < ./"$metaserverbin" 2>/dev/null | awk '{print $2}'`
+    metabinmd5="$metabinmd5 $mymd5"
+    mymd5=`echo test | openssl md5 2>/dev/null | awk '{print $2}'`
+    metabinmd5="$metabinmd5 $mymd5"
 
     cat > "$metasrvprop" << EOF
 metaServer.clusterKey = $clustername
@@ -627,6 +632,8 @@ metaServer.userAndGroup.updatePeriodSec = 30
 metaServer.maxDumpsterCleanupInFlight = 8
 metaServer.maxTruncateChunksDeleteCount = 1
 metaServer.maxTruncatedChunkDeletesInFlight = 18
+
+metaServer.metaMds = $metabinmd5
 
 chunkServer.objBlockDiscardMinMetaUptime = 8
 EOF
