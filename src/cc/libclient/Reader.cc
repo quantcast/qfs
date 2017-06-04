@@ -920,10 +920,8 @@ private:
                 const ServerLocation& theLocation =
                     mGetAllocOp.chunkServers[mChunkServerIdx];
                 if (mOuter.mClientPoolPtr) {
-                    mChunkServerPtr = &mOuter.mClientPoolPtr->Get(theLocation,
-                        mGetAllocOp.allCSShortRpcFlag ?
-                            KfsNetClient::kRpcFormatShort :
-                            KfsNetClient::kRpcFormatLong);
+                    mChunkServerPtr = &mOuter.mClientPoolPtr->Get(
+                        theLocation, mGetAllocOp.allCSShortRpcFlag);
                 } else {
                     mChunkServerPtr = &mChunkServer;
                     mChunkServer.SetRpcFormat(mGetAllocOp.allCSShortRpcFlag ?
