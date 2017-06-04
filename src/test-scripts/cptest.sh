@@ -31,7 +31,8 @@ kfstools=${kfstools-'src/cc/tools'}
 cptokfs="cptoqfs $meta $cptokfsopts"
 cpfromkfsopts=${cpfromkfsopts-}
 cpfromkfs="cpfromqfs $meta $cpfromkfsopts"
-qfsshellloglevel=${qfsshellloglevel-'NOTICE'}
+qfsshellloglevel=${qfsshellloglevel-'DEBUG'}
+qfsshelllog='qfsshell.log'
 rand='rand-sfmt'
 randseed=1234
 sizes=${sizes-'1 2 3 127 511 1024 65535 65536 65537 70300 1e5 67108864 67108865 100e6 250e6'}
@@ -87,7 +88,10 @@ mytime()
 
 myqfsshell()
 {
+    (
+    set -x
     qfsshell $meta -l $qfsshellloglevel -q -- ${1+"$@"}
+    ) 2>>"$qfsshelllog"
 }
 
 if expr `$xdatesec 2>/dev/null` - 0 > /dev/null 2>&1; then
@@ -115,6 +119,7 @@ cd "$log" || exit
 # Ensure that the test directory is empty creating it and them removing,
 # and then creating again.
 echo "Starting test: $cptokfs; directory: $dir"
+cp /dev/null "$qfsshelllog" || exit
 myqfsshell mkdir "$dir" || exit
 myqfsshell rm    "$dir" || exit
 myqfsshell mkdir "$dir" || exit
