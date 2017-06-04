@@ -97,6 +97,16 @@ $qfstool -D fs.euser=0 -cfg "$qfstoolrootauthcfg" -chown "$qfstooluser" "$udir"
 # Test move to trash restrictions.
 tdir="$udir/d$$"
 $qfstool -mkdir "$tdir"
+$qfstool -touchz "$tdir/a" "$tdir/b"
+$qfstool -mv     "$tdir/a" "$tdir/b"
+$qfstool -mkdir  "$tdir/b" && exit 1
+$qfstool -mkdir  "$tdir/c" "$tdir/d/c" "$tdir/d/b"
+$qfstool -mv     "$tdir/b" "$tdir/d" && exit 1
+$qfstool -mv     "$tdir/d" "$tdir/b" && exit 1
+$qfstool -mv     "$tdir/c" "$tdir/d"
+$qfstool -rm -skipTrash "$tdir/c" && exit 1
+$qfstool -rm -skipTrash "$tdir/d/b" "$tdir/d/c"
+$qfstool -rm -skipTrash "$tdir/d"
 $qfstool -touchz "$tdir/0"
 $qfstool -touchz "$tdir/1"
 $qfstool -touchz "$tdir-f"
