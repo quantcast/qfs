@@ -913,10 +913,8 @@ MetaServer::Startup(bool createEmptyFsFlag,
             }
             return false;
         }
-        // Init fs id if needed, leave create time 0, restorer will set these
-        // unless fsinfo entry doesn't exit.
         Restorer r;
-        r.setVrSequenceRequired(true);
+        r.setVrSequenceRequired(true); // Ensure format with VR sequence.
         status = r.rebuild(LASTCP, mMinReplicasPerFile) ? 0 : -EIO;
         rollChunkIdSeedFlag = true;
     } else {
