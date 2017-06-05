@@ -2498,13 +2498,15 @@ Replay::playLogs(seq_t last, bool includeLastLogFlag)
     if (0 == status) {
         if (state.mCommitQueue.empty() &&
                 state.mLastBlockCommittedSeq == MetaVrLogSeq(0, 0, 0) &&
-                state.mLastBlockCommittedSeq == state.mLastLogAheadSeq &&
-                state.mLastBlockCommittedSeq == state.mLastCommittedSeq &&
-                state.mLastBlockCommittedSeq == state.mCheckpointCommitted &&
-                0 == state.mLastBlockSeed) {
+                state.mLastLogAheadSeq == state.mLastCommittedSeq &&
+                state.mLastBlockCommittedSeq <= state.mLastCommittedSeq &&
+                0 == state.mLastBlockSeed &&
+                0 == state.mLastBlockErrChecksum &&
+                0 == state.mLastBlockStatus) {
             // Set commit state, when converting from prior log version.
-            state.mLastBlockSeed = fileID.getseed();
-            appendToLastLogFlag  = false;
+            state.mLastBlockSeed         = fileID.getseed();
+            state.mLastBlockCommittedSeq = state.mLastCommittedSeq;
+            appendToLastLogFlag          = false;
         }
     } else {
         appendToLastLogFlag = false;
