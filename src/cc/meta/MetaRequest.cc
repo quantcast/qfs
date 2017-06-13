@@ -831,6 +831,8 @@ MetaIdempotentRequest::IsHandled()
             panic("in-flight idempotent in replay");
             return true;
         }
+        // Set submit time to make expiration of idempotent tracker entries work.
+        submitTime = globalNetManager().NowUsec();;
         if (gLayoutManager.GetIdempotentRequestTracker().Handle(*this)) {
             panic("handled/duplicate idempotent in replay");
             return true;
@@ -873,6 +875,9 @@ MetaCreate::start()
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
         return true;
+    }
+    if (0 != status) {
+        return false;
     }
     const bool invalChunkFlag = dir == ROOTFID &&
         startsWith(name, kInvalidChunksPrefix);
@@ -1049,6 +1054,9 @@ MetaMkdir::start()
     if (handler.IsDone()) {
         return true;
     }
+    if (0 != status) {
+        return false;
+    }
     const bool kDirFlag = true;
     if (! CheckCreatePerms(*this, kDirFlag)) {
         return false;
@@ -1160,8 +1168,10 @@ MetaRmdir::start()
     if (handler.IsDone()) {
         return true;
     }
-    mtime = microseconds();
-    return true;
+    if (0 == status) {
+        mtime = microseconds();
+    }
+    return (0 == status);
 }
 
 /* virtual */ void
@@ -2863,6 +2873,9 @@ MetaRename::start()
     if (handler.IsDone()) {
         return true;
     }
+    if (0 != status) {
+        return false;
+    }
     wormModeFlag = gWormMode;
     if (wormModeFlag && IsWormMutationAllowed(oldname)) {
         statusMsg = "worm mode";
@@ -3189,7 +3202,7 @@ MetaLeaseAcquire::handle()
         // check here isn't strictly required, well unless something pretends to
         // be chunkserver, sends hello, then this request.
         const int64_t kMicroseconds = 1000 * 1000;
-        const int64_t now           = globalNetManager().Now() * kMicroseconds;
+        const int64_t now           = globalNetManager().NowUsec();
         if ((submitTime + leaseTimeout * kMicroseconds < now) ||
                 (0 < maxWaitMillisec &&
                     submitTime + maxWaitMillisec * 1000 < now)) {
@@ -6686,6 +6699,9 @@ MetaVrReconfiguration::start()
     StIdempotentRequestHandler handler(*this);
     if (handler.IsDone()) {
         return true;
+    }
+    if (0 != status) {
+        return false;
     }
     if (! GetLogWriter().GetMetaVrSM().HasValidNodeId()) {
         status    = -ENOENT;

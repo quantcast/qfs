@@ -102,18 +102,23 @@ public:
         mExpirationTimeMicroSec = (int64_t)(inParameters.getValue(
             theParamName.Truncate(thePrefLen).Append("timeout"),
             (double)mExpirationTimeMicroSec * 1e-6) * 1e6);
-        Expire(microseconds());
+        Expire(NowUsec());
     }
     static kfsUid_t GetUid(
         const MetaRequest& inRequest)
     {
-        return (inRequest.authUid == kKfsUserNone ?
+        return (kKfsUserNone == inRequest.authUid ?
             inRequest.euser : inRequest.authUid);
     }
     bool Handle(
-        MetaIdempotentRequest& inRequest)
+        MetaIdempotentRequest& inRequest,
+        bool                   inIgnoreMaxSizeFlag)
     {
-        if (inRequest.reqId < 0 || mMaxSize <= 0) {
+        if (inRequest.reqId < 0) {
+            return false;
+        }
+        if (mMaxSize <= 0 && ! inIgnoreMaxSizeFlag) {
+            OutOfEntries(inRequest);
             return false;
         }
         const kfsUid_t theUid = GetUid(inRequest);
@@ -139,13 +144,12 @@ public:
             );
             Count& theCount = *(theEntryPtr->mCountPtr);
             theCount++;
-            if (mMaxSize < theCount) {
-                Expire(microseconds());
+            if (mMaxSize < theCount && ! inIgnoreMaxSizeFlag) {
+                Expire(NowUsec());
                 if (mMaxSize < theCount) {
                     theTable.Erase(*theEntryPtr);
-                    inRequest.status    = -ESERVERBUSY;
-                    inRequest.statusMsg = "out of idempotent request entries";
-                    return true;
+                    OutOfEntries(inRequest);
+                    return false;
                 }
             }
             inRequest.ackId = inRequest.reqId;
@@ -162,8 +166,7 @@ public:
     bool Remove(
         MetaIdempotentRequest& inRequest)
     {
-        if (inRequest.reqId < 0 || mMaxSize <= 0 ||
-                inRequest.GetReq() != &inRequest) {
+        if (inRequest.reqId < 0 || inRequest.GetReq() != &inRequest) {
             return false;
         }
         if (! Validate(inRequest.op)) {
@@ -236,11 +239,10 @@ public:
     virtual void Timeout()
     {
         if (mSize <= 0 || 0 < mOutstandingExpireAckCount || mDisableTimerFlag ||
-                ! MetaRequest::GetLogWriter().IsPrimary(
-                    globalNetManager().NowUsec())) {
+                ! MetaRequest::GetLogWriter().IsPrimary(NowUsec())) {
             return;
         }
-        Expire(globalNetManager().NowUsec());
+        Expire(NowUsec());
     }
     int Write(
         ostream& inStream) const
@@ -271,26 +273,23 @@ public:
         const char* inPtr,
         size_t      inLen)
     {
-        if (mMaxSize <= 0) {
-            return 0;
-        }
         MetaRequest* const theReqPtr = MetaRequest::Read(inPtr, inLen);
         if (! theReqPtr) {
             return -EINVAL;
         }
-        // This is used for checkpoint load -- assign the "start" time.
-        static const int sStartTime = microseconds();
-        theReqPtr->submitCount = 0xf; // Mark as already logged and handled.
-        theReqPtr->submitTime  = sStartTime;
+        // This is used for checkpoint load -- assign submit time, and mark
+        // request as already handled.
+        theReqPtr->submitTime  = NowUsec();
+        theReqPtr->submitCount = 0xf;
         theReqPtr->processTime = theReqPtr->submitTime;
         theReqPtr->seqno       = 0;
-        const int  theStatus = theReqPtr->status;
-        const bool theOkFlag = Handle(
-            *static_cast<MetaIdempotentRequest*>(theReqPtr)) ||
-            (theReqPtr->status == -ESERVERBUSY &&
-                theStatus != -ESERVERBUSY);
+        MetaIdempotentRequest& theReq =
+            *static_cast<MetaIdempotentRequest*>(theReqPtr);
+        const bool kIgnoreMaxSizeFlag = true;
+        const bool theInsertedFlag    = ! Handle(theReq, kIgnoreMaxSizeFlag) &&
+            theReq.GetReq() == theReqPtr;
         MetaRequest::Release(theReqPtr);
-        return (theOkFlag ? -EINVAL : 0);
+        return (theInsertedFlag ? 0 : -EINVAL);
     }
     void SetDisableTimerFlag(
         bool inFlag)
@@ -425,6 +424,8 @@ private:
         }
         return *thePtr;
     }
+    static int64_t NowUsec()
+        { return globalNetManager().NowUsec(); }
     void Expire(
         int64_t inNow)
     {
@@ -453,6 +454,12 @@ private:
             theOpPtr->clnt = &mNullCallback;
             submit_request(theOpPtr);
         }
+    }
+    void OutOfEntries(
+        MetaIdempotentRequest& inRequest)
+    {
+        inRequest.status    = -ESERVERBUSY;
+        inRequest.statusMsg = "out of idempotent request entries";
     }
 public:
     // Delete observer.
@@ -506,7 +513,7 @@ IdempotentRequestTracker::SetParameters(
 IdempotentRequestTracker::Handle(
     MetaIdempotentRequest& inRequest)
 {
-    return mImpl.Handle(inRequest);
+    return mImpl.Handle(inRequest, inRequest.replayFlag);
 }
 
     bool
