@@ -741,7 +741,7 @@ private:
                 return true;
             default: break;
         }
-        return (inSym <= kSpace);
+        return (inSym < kSpace);
     }
     void Escape(
         const char* inPtr,
