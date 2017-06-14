@@ -2904,7 +2904,7 @@ LayoutManager::Validate(MetaHello& r)
             }
         } else {
             KFS_LOG_STREAM_FATAL <<
-                (cs ? "no hibernated state" : "no valid hibernated state") <<
+                (cs ? "no valid hibernated state" : "no hibernated state") <<
             KFS_LOG_EOM;
         }
         panic("hello resume failure detected: " + r.location.ToString());
