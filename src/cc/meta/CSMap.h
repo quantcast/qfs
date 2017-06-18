@@ -747,6 +747,9 @@ public:
     }
     void SetVersion(Entry& entry, seq_t vers,
             bool notifyHibernatedOnlyFlag) const {
+        if (notifyHibernatedOnlyFlag && mHibernatedCount <= 0) {
+            return;
+        }
         for (size_t i = 0, e = entry.ServerCount(); i < e; i++) {
             const size_t          idx = entry.IndexAt(i);
             const ChunkServerPtr& srv = mServers[idx];

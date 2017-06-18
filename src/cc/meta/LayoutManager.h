@@ -2765,6 +2765,8 @@ protected:
     inline bool IsAllocationInFlight(chunkId_t chunkId);
     void ScheduleTruncatedChunksDelete();
     void CleanupChunkServers();
+    bool AddToInFlightChunkAllocation(
+        const MetaAllocate& req, const ChunkServerPtr& server);
 private:
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);
