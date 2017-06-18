@@ -2932,8 +2932,11 @@ struct MetaLogChunkVersionChange : public MetaRequest {
     virtual ostream& ShowSelf(ostream& os) const
     {
         return os <<
-            "log-chunk-version-change: " <<
-            ShowReq(alloc)
+            "log-chunk-version-change:" <<
+            " fid: "     << fid <<
+            " chunk: "   << chunkId <<
+            " version: " << chunkVersion <<
+            " "          << ShowReq(alloc)
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
