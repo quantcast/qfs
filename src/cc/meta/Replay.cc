@@ -2107,6 +2107,10 @@ replay_cs_inflight(DETokenizer& c)
         const DETokenizer::Token& rtype = c.front();
         op->reqType = MetaChunkLogInFlight::GetReqId(rtype.ptr, rtype.len);
         c.pop_front();
+        if (! c.empty() && 'p' ==  c.front().ptr[0]) {
+            op->hadPendingChunkOpFlag = true;
+            c.pop_front();
+        }
         if (1 != c.front().len || 'z' != c.front().ptr[0]) {
             return false;
         }

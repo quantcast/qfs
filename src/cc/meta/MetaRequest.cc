@@ -6473,6 +6473,7 @@ MetaChunkLogInFlight::Checkpoint(ostream& os, const MetaChunkRequest& req)
     const int  kTimeout    = -1;
     MetaChunkLogInFlight lreq(
         const_cast<MetaChunkRequest*>(&req), kTimeout, kRemoveFlag);
+    lreq.hadPendingChunkOpFlag = req.hadPendingChunkOpFlag;
     if (META_CHUNK_OP_LOG_IN_FLIGHT == req.op) {
         lreq.logseq  = req.logseq;
         lreq.reqType = static_cast<const MetaChunkLogInFlight&>(req).reqType;
@@ -6496,7 +6497,8 @@ MetaChunkLogInFlight::ShowSelf(ostream& os) const
         " type: "    << GetReqName(reqType) <<
         " chunk: "   << chunkId <<
         " version: " << chunkVersion <<
-        " remove: "  << removeServerFlag
+        " remove: "  << removeServerFlag <<
+        (hadPendingChunkOpFlag ? " had-pending-op" : "")
     ;
     if (! chunkIds.IsEmpty()) {
         os << " chunks: size: " << chunkIds.Size() << " ids:";
@@ -6556,6 +6558,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/c/" << chunkId_t(-1) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
+            (hadPendingChunkOpFlag ? "/p" : "") <<
             "/z/" << logseq
         ;
         size_t                    cnt = 0;
@@ -6580,6 +6583,7 @@ MetaChunkLogInFlight::log(ostream& os) const
             "/c/" << (ids ? GetFirtChunkId(*ids, req->chunkId) : req->chunkId) <<
             "/x/" << (removeServerFlag ? 1 : 0) <<
             "/r/" << name <<
+            (hadPendingChunkOpFlag ? "/p" : "") <<
             "/z/" << logseq
         ;
     }

@@ -211,12 +211,20 @@ class ChunkIdRemover
 public:
     ChunkIdRemover(
         T& dest)
-        : mDest(dest)
+        : mDest(dest),
+          mRemovedFlag(false)
         {}
     void operator()(chunkId_t id)
-        { mDest.Erase(id); }
+    {
+        if (0 < mDest.Erase(id)) {
+            mRemovedFlag = true;
+        }
+    }
+    bool GetRemovedFlag() const
+        { return mRemovedFlag; }
 private:
-    T& mDest;
+    T&   mDest;
+    bool mRemovedFlag;
 };
 
 template<typename T>
@@ -247,13 +255,15 @@ AppendInFlightChunks(T& dest, const MetaChunkRequest& op)
 }
 
 template<typename T>
-inline static void
+inline static bool
 RemoveInFlightChunks(T& dest, const MetaChunkRequest& op)
 {
-    if (! dest.IsEmpty()) {
-        ChunkIdRemover<T> remover(dest);
-        ProcessInFlightChunks(remover, op);
+    if (dest.IsEmpty()) {
+        return false;
     }
+    ChunkIdRemover<T> remover(dest);
+    ProcessInFlightChunks(remover, op);
+    return remover.GetRemovedFlag();
 }
 
 static inline void
@@ -2450,8 +2460,21 @@ ChunkServer::Handle(MetaChunkLogCompletion& req)
     if (req.staleChunkIdFlag) {
         if (req.chunkId < 0 || (req.doneOp && req.doneOp->chunkVersion < 0) ||
                 ! mStaleChunkIdsInFlight.Erase(req.chunkId)) {
-            if (mReplayFlag) {
-                req.status = -EFAULT;
+            if (mReplayFlag && 0 < req.chunkId) {
+                if (op && ! op->hadPendingChunkOpFlag) {
+                    req.status    = -EFAULT;
+                    req.statusMsg = "had no pending chunk op in flight";
+                }
+                KFS_LOG_STREAM(0 == req.status ?
+                        MsgLogger::kLogLevelDEBUG :
+                        MsgLogger::kLogLevelERROR) << GetServerLocation() <<
+                    " stale id"
+                    " chunk: "  << req.chunkId <<
+                    " status: " << req.status <<
+                    " "         << req.statusMsg <<
+                    " "         << MetaRequest::ShowReq(op) <<
+                    " "         << req.Show() <<
+                KFS_LOG_EOM;
             } else {
                 panic(
                     "chunk server: invalid log in flight op stale chunk flag");
@@ -2619,8 +2642,12 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     }
     if (! restoreFlag && 0 <= req.chunkVersion &&
             (req.logseq.IsValid() || req.logCompletionSeq.IsValid())) {
-        RemoveInFlightChunks(mDoneTimedoutChunks, req);
-        RemoveInFlightChunks(mHelloChunkIds, req);
+        if (RemoveInFlightChunks(mDoneTimedoutChunks, req)) {
+            req.hadPendingChunkOpFlag = true;
+        }
+        if (RemoveInFlightChunks(mHelloChunkIds, req)) {
+            req.hadPendingChunkOpFlag = true;
+        }
     }
     if (0 == req.submitCount) {
         req.submitTime = microseconds();

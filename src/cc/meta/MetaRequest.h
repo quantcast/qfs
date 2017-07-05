@@ -2384,6 +2384,7 @@ struct MetaChunkRequest : public MetaRequest {
     bool                 pendingAddFlag;
     bool                 timedOutFlag;
     bool                 staleChunkIdFlag;
+    bool                 hadPendingChunkOpFlag;
 private:
     typedef multimap <
         chunkId_t,
@@ -2414,6 +2415,7 @@ protected:
           pendingAddFlag(false),
           timedOutFlag(false),
           staleChunkIdFlag(false),
+          hadPendingChunkOpFlag(false),
           inFlightIt(kNullIterator)
         { List::Init(*this); }
 public:
