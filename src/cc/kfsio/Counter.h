@@ -87,6 +87,9 @@ public:
     int64_t GetValue() const {
         return mCount;
     }
+    int64_t GetTimeSpent() const {
+        return mTimeSpent;
+    }
 protected:
     /// Name of this counter object
     string mName;
