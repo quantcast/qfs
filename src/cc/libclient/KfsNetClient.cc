@@ -226,6 +226,7 @@ public:
           mResolverInFlightCount(0),
           mResolverReqsCount(0),
           mMetaLocations(),
+          mMetaServerLocation(),
           mResolverPtr(0)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
@@ -1057,6 +1058,7 @@ public:
         if (! inLocation.hostname.empty() && 0 < inLocation.port) {
             const bool kAllowDuplicatesFlag = false;
             if (AddMetaServerLocation(inLocation, kAllowDuplicatesFlag)) {
+                mMetaServerLocation = inLocation;
                 theCount++;
             }
         }
@@ -1076,6 +1078,7 @@ public:
         mResolverReqsCount = 0;
         mMetaVrNodesCount  = 0;
         mMetaLocations.clear();
+        mMetaServerLocation.Reset(0, -1);
     }
     void Shutdown()
     {
@@ -1086,6 +1089,11 @@ public:
             delete mResolverPtr;
             mResolverPtr = 0;
         }
+    }
+    const ServerLocation& GetMetaServerLocation() const
+    {
+        return (mMetaServerLocation.IsValid() ?
+            mMetaServerLocation : GetServerLocation());
     }
 private:
     class DoNotDeallocate
@@ -1608,6 +1616,7 @@ private:
     int                        mResolverInFlightCount;
     int                        mResolverReqsCount;
     MetaLocations              mMetaLocations;
+    ServerLocation             mMetaServerLocation;
     Resolver*                  mResolverPtr;
     ResolverReq*               mResolverReqsPtr[1];
     MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
@@ -3188,6 +3197,12 @@ KfsNetClient::ClearMetaServerLocations()
 {
     Impl::StRef theRef(mImpl);
     mImpl.ClearMetaServerLocations();
+}
+
+    const ServerLocation&
+KfsNetClient::GetMetaServerLocation() const
+{
+    return mImpl.GetMetaServerLocation();
 }
 
     int

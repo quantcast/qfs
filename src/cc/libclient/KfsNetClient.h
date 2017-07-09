@@ -187,6 +187,7 @@ public:
     bool AddMetaServerLocation(
         const ServerLocation& inLocation);
     void ClearMetaServerLocations();
+    const ServerLocation& GetMetaServerLocation() const;
     void SetRpcFormat(
         RpcFormat inRpcFormat);
     RpcFormat GetRpcFormat() const;

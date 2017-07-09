@@ -1274,7 +1274,7 @@ private:
                 if (! inCanceledFlag) {
                     Monitor::ReportError(
                             Monitor::kWriteOpError,
-                            mOuter.mMetaServer.GetServerLocation(),
+                            mOuter.mMetaServer.GetMetaServerLocation(),
                             mChunkServer.GetServerLocation(),
                             inOp.status);
                     mOpStartTime = inOp.mOpStartTime;

@@ -1324,7 +1324,7 @@ private:
                 }
                 Monitor::ReportError(
                         Monitor::kReadOpError,
-                        mOuter.mMetaServer.GetServerLocation(),
+                        mOuter.mMetaServer.GetMetaServerLocation(),
                         mChunkServer.GetServerLocation(),
                         inOp.status);
                 mOpStartTime = inOp.mOpStartTime;
