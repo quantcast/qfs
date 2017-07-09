@@ -63,6 +63,22 @@ UpdateSocketCount(int inc)
     globals().ctrOpenNetFds.Update(inc);
 }
 
+static inline void
+IncrementDnsCounter(int64_t timeSpent)
+{
+    Counter& counter = globals().ctrNetDnsResolvedCtr;
+    counter.Update(1);
+    counter.UpdateTime(timeSpent);
+}
+
+static inline void
+IncrementDnsErrorCounter(int64_t timeSpent)
+{
+    Counter& counter = globals().ctrNetDnsErrors;
+    counter.Update(1);
+    counter.UpdateTime(timeSpent);
+}
+
 template<typename T>
 static inline bool
 SetSockOpt(int fd, int level, int name, const T& val)
@@ -193,6 +209,7 @@ struct TcpSocket::Address
             }
         }
         if (useResolverFlag) {
+            const int64_t startTime = microseconds();
             const int proto = mProto;
             memset(&mIp, 0, sizeof(mIp));
             struct addrinfo hints;
@@ -214,6 +231,7 @@ struct TcpSocket::Address
                 if (res) {
                     freeaddrinfo(res);
                 }
+                IncrementDnsErrorCounter(microseconds() - startTime);
                 return -EHOSTUNREACH;
             }
             int                    cnt = 0;
@@ -243,8 +261,10 @@ struct TcpSocket::Address
                     location.hostname <<
                     ": " << "host name resolution failure" <<
                 KFS_LOG_EOM;
+                IncrementDnsErrorCounter(microseconds() - startTime);
                 return -EHOSTUNREACH;
             }
+            IncrementDnsCounter(microseconds() - startTime);
         }
         if (AF_INET == mProto) {
             mIp.v4.sin_port  = htons(location.port);

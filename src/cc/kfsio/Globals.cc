@@ -36,13 +36,15 @@ Globals_t* Globals_t::sForGdbToFindInstance = 0;
 
 Globals_t::Globals_t()
     : counterManager(),
-      ctrOpenNetFds      ("Open network fds"),
-      ctrOpenDiskFds     ("Open disk fds"),
-      ctrNetBytesRead    ("Bytes read from network"),
-      ctrNetBytesWritten ("Bytes written to network"),
-      ctrDiskBytesRead   ("Bytes read from disk"),
-      ctrDiskBytesWritten("Bytes written to disk"),
-      ctrDiskIOErrors    ("Disk I/O errors"),
+      ctrOpenNetFds       ("Open network fds"),
+      ctrOpenDiskFds      ("Open disk fds"),
+      ctrNetBytesRead     ("Bytes read from network"),
+      ctrNetBytesWritten  ("Bytes written to network"),
+      ctrDiskBytesRead    ("Bytes read from disk"),
+      ctrDiskBytesWritten ("Bytes written to disk"),
+      ctrDiskIOErrors     ("Disk I/O errors"),
+      ctrNetDnsResolvedCtr("Network names resolved"),
+      ctrNetDnsErrors     ("Network name resolution errors"),
       mInitedFlag(false),
       mDestructedFlag(false),
       mForGdbToFindNetManager(0)
@@ -54,6 +56,8 @@ Globals_t::Globals_t()
     counterManager.AddCounter(&ctrDiskBytesRead);
     counterManager.AddCounter(&ctrDiskBytesWritten);
     counterManager.AddCounter(&ctrDiskIOErrors);
+    counterManager.AddCounter(&ctrNetDnsResolvedCtr);
+    counterManager.AddCounter(&ctrNetDnsErrors);
     sForGdbToFindInstance = this;
 }
 

@@ -48,6 +48,8 @@ struct Globals_t
     Counter ctrDiskBytesWritten;
     // track the # of failed read/writes
     Counter ctrDiskIOErrors;
+    Counter ctrNetDnsResolvedCtr;
+    Counter ctrNetDnsErrors;
     void Init();
     static NetManager& getNetManager();
     static void Destroy();
