@@ -2044,6 +2044,14 @@ HeartbeatOp::Execute()
         globals().ctrDiskBytesRead.GetValue());
     HBAppend(os, "Disk-bytes-write", "dwr",
         globals().ctrDiskBytesWritten.GetValue());
+    HBAppend(os, "Dns-resolved", "dnsok",
+        globals().ctrNetDnsResolvedCtr.GetValue());
+    HBAppend(os, "Dns-resolved-usec", "dnsokus",
+        globals().ctrNetDnsResolvedCtr.GetTimeSpent());
+    HBAppend(os, "Dns-errors", "dnserr",
+        globals().ctrNetDnsErrors.GetValue());
+    HBAppend(os, "Dns-errors-usec", "dnserrus",
+        globals().ctrNetDnsErrors.GetTimeSpent());
     HBAppend(os, "Total-ops-count",  "ops",
         KfsOp::GetOpsCount());
     HBAppend(os, "Auth-clnt",  "authcl",
