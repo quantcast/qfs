@@ -1049,6 +1049,7 @@ protected:
     static int    sSrvLoadSamplerSampleCount;
     static size_t sMaxChunksToEvacuate;
     static Properties::String sSrvLoadPropName;
+    static MsgLogger::LogLevel sHeartbeatLogLevel;
 
     /// For record append's, can this node be a chunk master
     bool mCanBeChunkMaster;

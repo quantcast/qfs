@@ -310,6 +310,7 @@ int ChunkServer::sMaxReadAhead = 4 << 10;
 int ChunkServer::sMaxPendingOpsCount = 128;
 int ChunkServer::sEvacuateRateUpdateInterval = 120;
 size_t ChunkServer::sChunkDirsCount = 0;
+MsgLogger::LogLevel ChunkServer::sHeartbeatLogLevel = MsgLogger::kLogLevelINFO;
 
 // Bigger than the default MAX_RPC_HEADER_LEN: max heartbeat size.
 const int kMaxRequestResponseHeader = 64 << 10;
@@ -404,6 +405,15 @@ void ChunkServer::SetParameters(const Properties& prop, int clientPort)
     sRestartCSOnInvalidClusterKeyFlag = prop.getValue(
         "metaServer.chunkServer.restartOnInvalidClusterKey",
         sRestartCSOnInvalidClusterKeyFlag ? 1 : 0) != 0;
+    const Properties::String* logLeveStr = prop.getValue(
+        "metaServer.chunkServer.heartbeatLogLevel");
+    if (logLeveStr) {
+        const MsgLogger::LogLevel logLevel =
+            MsgLogger::GetLogLevelId(logLeveStr->c_str());
+        if (MsgLogger::kLogLevelUndef != logLevel) {
+            sHeartbeatLogLevel = logLevel;
+        }
+    }
 }
 
 static seq_t RandomSeqNo()
@@ -2327,16 +2337,22 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     if (sHeartbeatLogInterval > 0 && mLastHeartBeatLoggedTime +
             sHeartbeatLogInterval <= mLastHeard) {
         mLastHeartBeatLoggedTime = mLastHeard;
-        string hbp;
-        mHeartbeatProperties.getList(hbp, " ", "");
-        KFS_LOG_STREAM_INFO <<
-            "===chunk=server: " << mLocation.hostname <<
-            ":" << mLocation.port <<
-            " responsive=" << IsResponsiveServer() <<
-            " retiring="   << mIsRetiring <<
-            " restarting=" << IsRestartScheduled() <<
-            hbp <<
-        KFS_LOG_EOM;
+        KFS_LOG_STREAM_START(sHeartbeatLogLevel, logStream);
+            ostream& os = logStream.GetStream();
+            os <<
+                "===chunk=server: "
+                ";location="   << mLocation <<
+                ",time-usec="  << microseconds() <<
+                ",responsive=" << IsResponsiveServer() <<
+                ",retiring="   << mIsRetiring <<
+                ",restarting=" << IsRestartScheduled()
+            ;
+            for (Properties::iterator it = mHeartbeatProperties.begin();
+                    mHeartbeatProperties.end() != it;
+                    ++it) {
+                os << ',' << it->first << '=' << it->second;
+            }
+        KFS_LOG_STREAM_END;
     }
     mLastCountersUpdateTime = now;
     op->resume();
