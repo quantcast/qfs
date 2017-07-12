@@ -70,6 +70,11 @@ namespace KFS
         }
     };
 
+#ifndef KFS_LOG_STREAM_SRC_PREFIX
+#define KFS_LOG_STREAM_SRC_PREFIX \
+    "(" << MsgLogger::SourceFileName(__FILE__) << ":" << __LINE__ << ") "
+#endif
+
 // The following if prevents arguments evaluation (and possible side effect).
 // The following supports all
 // std stream manipulators, has lower # of allocations, and free of possible
@@ -83,8 +88,7 @@ namespace KFS
                 teeStreamPtr)) {\
         MsgLogger::StStream streamVarName( \
             *MsgLogger::GetLogger(), logLevel, teeStreamPtr); \
-        streamVarName.GetStream() << "(" << \
-            MsgLogger::SourceFileName(__FILE__) << ":" << __LINE__ << ") "
+        streamVarName.GetStream() << KFS_LOG_STREAM_SRC_PREFIX
 #endif
 #ifndef KFS_LOG_STREAM_START
 #   define KFS_LOG_STREAM_START(logLevel, streamVarName) \

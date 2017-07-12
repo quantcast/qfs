@@ -903,6 +903,16 @@ private:
                 theSize
             );
         }
+        virtual int overflow(
+            int inSym = EOF)
+        {
+            if (inSym == EOF) {
+                return EOF;
+            }
+            char theBuf[1];
+            theBuf[0] = (char)inSym;
+            return (0 < MsgStream::xsputn(theBuf, 1) ? inSym : EOF);
+        }
         const char* GetMsgPtr() const
         {
             *pptr() = 0;
