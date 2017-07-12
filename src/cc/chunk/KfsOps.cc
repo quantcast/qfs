@@ -1649,21 +1649,22 @@ ChangeChunkVersOp::HandleChunkMetaWriteDone(int code, void* data)
     return 0;
 }
 
-template<typename T> void
-HBAppend(ostream** os, const char* key1, const char* key2, T val)
+template<typename T>
+inline static void
+HBAppend(ostream** os, const char* key, const T& val)
 {
-    if (key1 && *key1) {
-        *os[0] << key1 << ": " << val << "\r\n";
+    if (os[0]) {
+        *os[0] << key << ": " << val << "\r\n";
     }
-    if (os[1] && key2 && *key2) {
-        *os[1]  << " " << key2 << ": " << val;
+    if (os[1]) {
+        *os[1]  << "," << key << "=" << val;
     }
 }
 
 template<typename T>
 inline static void
 AppendStorageTiersInfo(const char* prefix, T& os,
-    const ChunkManager::StorageTiersInfo& tiersInfo)
+    const ChunkManager::StorageTiersInfo& tiersInfo, const char* suffix = "\r\n")
 {
     os << prefix;
     for (ChunkManager::StorageTiersInfo::const_iterator it = tiersInfo.begin();
@@ -1678,18 +1679,34 @@ AppendStorageTiersInfo(const char* prefix, T& os,
             " " << it->second.mTotalSpace
         ;
     }
-    os << "\r\n";
+    os << suffix;
 }
 
-// This is the heartbeat sent by the meta server
-void
-HeartbeatOp::Execute()
+static void
+HBAppendCounters(ostream* hbos)
 {
-    gChunkManager.MetaHeartbeat(*this);
-    if (omitCountersFlag) {
-        status = 0;
-        Submit();
-        return;
+    ostream* os[2];
+    os[0] = hbos;
+    MsgLogger::LogLevel const logLevel =
+        gChunkManager.GetHeartbeatCtrsLogLevel();
+    if (MsgLogger::kLogLevelUndef != logLevel &&
+            MsgLogger::GetLogger() &&
+            MsgLogger::GetLogger()->IsLogLevelEnabled(logLevel)) {
+        os[1] =
+            &MsgLogger::GetLogger()->GetStream(logLevel, 0);
+        *os[1] << KFS_LOG_STREAM_SRC_PREFIX <<
+            "===counters: "
+            ";time-usec="              << microseconds() <<
+            ",location="               << gChunkServer.GetLocation() <<
+            ",primary="                << gMetaServerSM.CetPrimaryLocation() <<
+            ",meta-connection-uptime=" <<
+                (gMetaServerSM.IsUp() ?
+                    gMetaServerSM.ConnectionUptime() : time_t(-1));
+    } else {
+        if (! hbos) {
+            return;
+        }
+        os[1] = 0;
     }
 
     double loadavg[3] = {-1, -1, -1};
@@ -1716,357 +1733,270 @@ HeartbeatOp::Execute()
     int64_t devWaitAvgUsec         = 0;
     ChunkManager::StorageTiersInfo tiersInfo;
 
-    static IOBuffer::WOStream sWOs;
-    static ostringstream      sOs;
-    ostream* os[2];
-    os[0] = &sWOs.Set(response);
-    if (MsgLogger::GetLogger() &&
-            MsgLogger::GetLogger()->IsLogLevelEnabled(
-                MsgLogger::kLogLevelDEBUG)) {
-        cmdShow.clear();
-        cmdShow.reserve(2 << 10);
-        sOs.str(cmdShow);
-        cmdShow = string(); // De-reference.
-        os[1] = &sOs;
-    } else {
-        os[1] = 0;
-    }
-    HBAppend(os, 0, "space", "");
-    HBAppend(os, "Total-space",    "total",  gChunkManager.GetTotalSpace(
+    HBAppend(os, "Total-space", gChunkManager.GetTotalSpace(
         totalFsSpace, chunkDirs, evacuateInFlightCount, writableDirs,
         evacuateChunks, evacuateByteCount,
         &evacuateDoneChunkCount, &evacuateDoneByteCount, 0, &tiersInfo,
         &devWaitAvgUsec));
-    HBAppend(os, "Total-fs-space", "tfs",      totalFsSpace);
-    HBAppend(os, "Used-space",     "used",     gChunkManager.GetUsedSpace());
-    HBAppend(os, "Num-drives",     "drives",   chunkDirs);
-    HBAppend(os, "Num-wr-drives",  "wr-drv",   writableDirs);
-    HBAppend(os, "Num-chunks",     "chunks",   gChunkManager.GetNumChunks());
-    HBAppend(os, "Num-writable-chunks", "wrchunks",
-        writeCount + writeAppendCount + replicationCount
-    );
-    HBAppend(os, "Num-wr-objs", "wrobjs",
-        gChunkManager.GetNumWritableObjects());
-    HBAppend(os, "Num-objs",    "objs",
-        gChunkManager.GetNumOpenObjects());
-    HBAppend(os, "Evacuate",              "evacuate",
+    HBAppend(os, "Total-fs-space",totalFsSpace);
+    HBAppend(os, "Used-space",    gChunkManager.GetUsedSpace());
+    HBAppend(os, "Num-drives",    chunkDirs);
+    HBAppend(os, "Num-wr-drives", writableDirs);
+    HBAppend(os, "Num-chunks",    gChunkManager.GetNumChunks());
+    HBAppend(os, "Num-writable-chunks",
+        writeCount + writeAppendCount + replicationCount);
+    HBAppend(os, "Num-wr-objs", gChunkManager.GetNumWritableObjects());
+    HBAppend(os, "Num-objs",    gChunkManager.GetNumOpenObjects());
+    HBAppend(os, "Evacuate",
         max(evacuateChunks, evacuateInFlightCount));
-    HBAppend(os, "Evacuate-bytes",        "evac-b",   evacuateByteCount);
-    HBAppend(os, "Evacuate-done",         "evac-d",   evacuateDoneChunkCount);
-    HBAppend(os, "Evacuate-done-bytes",   "evac-d-b", evacuateDoneByteCount);
-    HBAppend(os, "Evacuate-in-flight",    "evac-fl",  evacuateInFlightCount);
-    AppendStorageTiersInfo("Storage-tiers:", *os[0], tiersInfo);
-    HBAppend(os, "Num-random-writes",     "rwr",  writeCount);
-    HBAppend(os, "Num-appends",           "awr",  writeAppendCount);
-    HBAppend(os, "Num-re-replications",   "rep",  replicationCount);
-    HBAppend(os, "Num-appends-with-wids", "awid",
+    HBAppend(os, "Evacuate-bytes",      evacuateByteCount);
+    HBAppend(os, "Evacuate-done",       evacuateDoneChunkCount);
+    HBAppend(os, "Evacuate-done-bytes", evacuateDoneByteCount);
+    HBAppend(os, "Evacuate-in-flight",  evacuateInFlightCount);
+    if (os[0]) {
+        AppendStorageTiersInfo("Storage-tiers:", *os[0], tiersInfo);
+    }
+    if (os[1]) {
+        AppendStorageTiersInfo(",Storage-tiers=", *os[1], tiersInfo, "");
+    }
+    HBAppend(os, "Num-random-writes",   writeCount);
+    HBAppend(os, "Num-appends",         writeAppendCount);
+    HBAppend(os, "Num-re-replications", replicationCount);
+    HBAppend(os, "Num-appends-with-wids",
         gAtomicRecordAppendManager.GetAppendersWithWidCount());
-    HBAppend(os, "Uptime", "up", globalNetManager().UpTime());
+    HBAppend(os, "Uptime",              globalNetManager().UpTime());
 
-    HBAppend(os, "CPU-user", "ucpu", utime);
-    HBAppend(os, "CPU-sys",  "scpu", stime);
-    HBAppend(os, "CPU-load-avg",             "load", loadavg[0]);
+    HBAppend(os, "CPU-user",     utime);
+    HBAppend(os, "CPU-sys",      stime);
+    HBAppend(os, "CPU-load-avg", loadavg[0]);
 
     ChunkManager::Counters cm;
     gChunkManager.GetCounters(cm);
-    HBAppend(os, 0, "chunk: err", "");
-    HBAppend(os, "Chunk-corrupted",     "cor",  cm.mCorruptedChunksCount);
-    HBAppend(os, "Chunk-lost",          "lost", cm.mLostChunksCount);
-    HBAppend(os, "Chunk-header-errors", "hdr",  cm.mBadChunkHeaderErrorCount);
-    HBAppend(os, "Chunk-chksum-errors", "csum", cm.mReadChecksumErrorCount);
-    HBAppend(os, "Chunk-read-errors",   "rd",   cm.mReadErrorCount);
-    HBAppend(os, "Chunk-write-errors",  "wr",   cm.mWriteErrorCount);
-    HBAppend(os, "Chunk-open-errors",   "open", cm.mOpenErrorCount);
-    HBAppend(os, "Dir-chunk-lost",      "dce",  cm.mDirLostChunkCount);
-    HBAppend(os, "Chunk-dir-lost",      "cdl",  cm.mChunkDirLostCount);
-    HBAppend(os, 0, "rdchksum", "");
-    HBAppend(os, "Read-chksum",               "rcs", cm.mReadChecksumCount);
-    HBAppend(os, "Read-chksum-bytes",         "rcb", cm.mReadChecksumByteCount);
-    HBAppend(os, "Read-chksum-skip",          "rsv",
-        cm.mReadSkipDiskVerifyCount);
-    HBAppend(os, "Read-chksum-skip-err",      "rse",
-        cm.mReadSkipDiskVerifyErrorCount);
-    HBAppend(os, "Read-chksum-skip-bytes",    "rsb",
-        cm.mReadSkipDiskVerifyByteCount);
-    HBAppend(os, "Read-chksum-skip-cs-bytes", "rsc",
+    HBAppend(os, "Chunk-corrupted",           cm.mCorruptedChunksCount);
+    HBAppend(os, "Chunk-lost",                cm.mLostChunksCount);
+    HBAppend(os, "Chunk-header-errors",       cm.mBadChunkHeaderErrorCount);
+    HBAppend(os, "Chunk-chksum-errors",       cm.mReadChecksumErrorCount);
+    HBAppend(os, "Chunk-read-errors",         cm.mReadErrorCount);
+    HBAppend(os, "Chunk-write-errors",        cm.mWriteErrorCount);
+    HBAppend(os, "Chunk-open-errors",         cm.mOpenErrorCount);
+    HBAppend(os, "Dir-chunk-lost",            cm.mDirLostChunkCount);
+    HBAppend(os, "Chunk-dir-lost",            cm.mChunkDirLostCount);
+    HBAppend(os, "Read-chksum",               cm.mReadChecksumCount);
+    HBAppend(os, "Read-chksum-bytes",         cm.mReadChecksumByteCount);
+    HBAppend(os, "Read-chksum-skip",          cm.mReadSkipDiskVerifyCount);
+    HBAppend(os, "Read-chksum-skip-err",      cm.mReadSkipDiskVerifyErrorCount);
+    HBAppend(os, "Read-chksum-skip-bytes",    cm.mReadSkipDiskVerifyByteCount);
+    HBAppend(os, "Read-chksum-skip-cs-bytes",
         cm.mReadSkipDiskVerifyChecksumByteCount);
 
     MetaServerSM::Counters mc;
     gMetaServerSM.GetCounters(mc);
-    HBAppend(os, 0, "meta", "");
-    HBAppend(os, "Meta-connect",     "conn", mc.mConnectCount);
-    HBAppend(os, 0, "hello", "");
-    HBAppend(os, "Meta-hello-count",  "cnt", mc.mHelloCount);
-    HBAppend(os, "Meta-hello-errors", "err", mc.mHelloErrorCount);
-    HBAppend(os, 0, "alloc", "");
-    HBAppend(os, "Meta-alloc-count",  "cnt", mc.mAllocCount);
-    HBAppend(os, "Meta-alloc-errors", "err", mc.mAllocErrorCount);
+    HBAppend(os, "Meta-connect",      mc.mConnectCount);
+    HBAppend(os, "Meta-hello-count",  mc.mHelloCount);
+    HBAppend(os, "Meta-hello-errors", mc.mHelloErrorCount);
+    HBAppend(os, "Meta-alloc-count",  mc.mAllocCount);
+    HBAppend(os, "Meta-alloc-errors", mc.mAllocErrorCount);
 
     ClientManager::Counters cli;
     gClientManager.GetCounters(cli);
-    HBAppend(os, 0, "cli", "");
-    HBAppend(os, "Client-accept",  "accept", cli.mAcceptCount);
-    HBAppend(os, "Client-active",  "cur",    cli.mClientCount);
-    HBAppend(os, 0, "req: err", "");
-    HBAppend(os, "Client-req-invalid",        "inval", cli.mBadRequestCount);
-    HBAppend(os, "Client-req-invalid-header", "hdr",
-        cli.mBadRequestHeaderCount);
-    HBAppend(os, "Client-req-invalid-length", "len",
-        cli.mRequestLengthExceededCount);
-    HBAppend(os, "Client-discarded-bytes", "bdcd", cli.mDiscardedBytesCount);
-    HBAppend(os, "Client-wait-exceed",     "wex",  cli.mWaitTimeExceededCount);
-    HBAppend(os, 0, "read", "");
-    HBAppend(os, "Client-read-count",     "cnt",   cli.mReadRequestCount);
-    HBAppend(os, "Client-read-bytes",     "bytes", cli.mReadRequestBytes);
-    HBAppend(os, "Client-read-micro-sec", "tm",
-        cli.mReadRequestTimeMicroSecs);
-    HBAppend(os, "Client-read-errors",    "err",   cli.mReadRequestErrors);
-    HBAppend(os, 0, "write", "");
-    HBAppend(os, "Client-write-count",     "cnt",   cli.mWriteRequestCount);
-    HBAppend(os, "Client-write-bytes",     "bytes", cli.mWriteRequestBytes);
-    HBAppend(os, "Client-write-micro-sec", "tm",
-        cli.mWriteRequestTimeMicroSecs);
-    HBAppend(os, "Client-write-errors",    "err",   cli.mWriteRequestErrors);
-    HBAppend(os, 0, "append", "");
-    HBAppend(os, "Client-append-count",     "cnt",   cli.mAppendRequestCount);
-    HBAppend(os, "Client-append-bytes",     "bytes", cli.mAppendRequestBytes);
-    HBAppend(os, "Client-append-micro-sec", "tm",
-        cli.mAppendRequestTimeMicroSecs);
-    HBAppend(os, "Client-append-errors",    "err",   cli.mAppendRequestErrors);
-    HBAppend(os, 0, "other", "");
-    HBAppend(os, "Client-other-count",     "cnt",   cli.mOtherRequestCount);
-    HBAppend(os, "Client-other-micro-sec", "tm",
-        cli.mOtherRequestTimeMicroSecs);
-    HBAppend(os, "Client-other-errors",    "err",   cli.mOtherRequestErrors);
-    HBAppend(os, "Client-over-limit",      "oce",   cli.mOverClientLimitCount);
-    HBAppend(os, "Client-max-count",       "max",
+    HBAppend(os, "Client-accept",             cli.mAcceptCount);
+    HBAppend(os, "Client-active",             cli.mClientCount);
+    HBAppend(os, "Client-req-invalid",        cli.mBadRequestCount);
+    HBAppend(os, "Client-req-invalid-header", cli.mBadRequestHeaderCount);
+    HBAppend(os, "Client-req-invalid-length", cli.mRequestLengthExceededCount);
+    HBAppend(os, "Client-discarded-bytes",    cli.mDiscardedBytesCount);
+    HBAppend(os, "Client-wait-exceed",        cli.mWaitTimeExceededCount);
+    HBAppend(os, "Client-read-count",         cli.mReadRequestCount);
+    HBAppend(os, "Client-read-bytes",         cli.mReadRequestBytes);
+    HBAppend(os, "Client-read-micro-sec",     cli.mReadRequestTimeMicroSecs);
+    HBAppend(os, "Client-read-errors",        cli.mReadRequestErrors);
+    HBAppend(os, "Client-write-count",        cli.mWriteRequestCount);
+    HBAppend(os, "Client-write-bytes",        cli.mWriteRequestBytes);
+    HBAppend(os, "Client-write-micro-sec",    cli.mWriteRequestTimeMicroSecs);
+    HBAppend(os, "Client-write-errors",       cli.mWriteRequestErrors);
+    HBAppend(os, "Client-append-count",       cli.mAppendRequestCount);
+    HBAppend(os, "Client-append-bytes"    ,   cli.mAppendRequestBytes);
+    HBAppend(os, "Client-append-micro-sec",   cli.mAppendRequestTimeMicroSecs);
+    HBAppend(os, "Client-append-errors",      cli.mAppendRequestErrors);
+    HBAppend(os, "Client-other-count",        cli.mOtherRequestCount);
+    HBAppend(os, "Client-other-micro-sec",    cli.mOtherRequestTimeMicroSecs);
+    HBAppend(os, "Client-other-errors",       cli.mOtherRequestErrors);
+    HBAppend(os, "Client-over-limit",         cli.mOverClientLimitCount);
+    HBAppend(os, "Client-max-count",
         gClientManager.GetMaxClientCount());
 
-    HBAppend(os, 0, "timer: ovr", "");
-    HBAppend(os, "Timer-overrun-count", "cnt",
+    HBAppend(os, "Timer-overrun-count",
         globalNetManager().GetTimerOverrunCount());
-    HBAppend(os, "Timer-overrun-sec",   "sec",
+    HBAppend(os, "Timer-overrun-sec",
         globalNetManager().GetTimerOverrunSec());
 
-    HBAppend(os, 0, "wappend", "");
-    HBAppend(os, "Write-appenders", "cur",
+    HBAppend(os, "Write-appenders",
         gAtomicRecordAppendManager.GetAppendersCount());
     AtomicRecordAppendManager::Counters wa;
     gAtomicRecordAppendManager.GetCounters(wa);
-    HBAppend(os, "WAppend-count", "cnt",   wa.mAppendCount);
-    HBAppend(os, "WAppend-bytes", "bytes", wa.mAppendByteCount);
-    HBAppend(os, "WAppend-errors","err",   wa.mAppendErrorCount);
-    HBAppend(os, 0, "repl", "");
-    HBAppend(os, "WAppend-replication-errors",   "err",
-        wa.mReplicationErrorCount);
-    HBAppend(os, "WAppend-replication-tiemouts", "tmo",
-        wa.mReplicationTimeoutCount);
-    HBAppend(os, 0, "alloc", "");
-    HBAppend(os, "WAppend-alloc-count",        "cnt", wa.mAppenderAllocCount);
-    HBAppend(os, "WAppend-alloc-master-count", "mas",
-        wa.mAppenderAllocMasterCount);
-    HBAppend(os, "WAppend-alloc-errors",       "err",
-        wa.mAppenderAllocErrorCount);
-    HBAppend(os, 0, "wid", "");
-    HBAppend(os, "WAppend-wid-alloc-count",      "cnt", wa.mWriteIdAllocCount);
-    HBAppend(os, "WAppend-wid-alloc-errors",     "err",
-        wa.mWriteIdAllocErrorCount);
-    HBAppend(os, "WAppend-wid-alloc-no-appender","nae",
+    HBAppend(os, "WAppend-count",                wa.mAppendCount);
+    HBAppend(os, "WAppend-bytes",                wa.mAppendByteCount);
+    HBAppend(os, "WAppend-errors",               wa.mAppendErrorCount);
+    HBAppend(os, "WAppend-replication-errors",   wa.mReplicationErrorCount);
+    HBAppend(os, "WAppend-replication-tiemouts", wa.mReplicationTimeoutCount);
+    HBAppend(os, "WAppend-alloc-count",          wa.mAppenderAllocCount);
+    HBAppend(os, "WAppend-alloc-master-count",   wa.mAppenderAllocMasterCount);
+    HBAppend(os, "WAppend-alloc-errors",         wa.mAppenderAllocErrorCount);
+    HBAppend(os, "WAppend-wid-alloc-count",      wa.mWriteIdAllocCount);
+    HBAppend(os, "WAppend-wid-alloc-errors",     wa.mWriteIdAllocErrorCount);
+    HBAppend(os, "WAppend-wid-alloc-no-appender",
         wa.mWriteIdAllocNoAppenderCount);
-    HBAppend(os, 0, "srsrv", "");
-    HBAppend(os, "WAppend-sreserve-count",  "cnt",   wa.mSpaceReserveCount);
-    HBAppend(os, "WAppend-sreserve-bytes",  "bytes", wa.mSpaceReserveByteCount);
-    HBAppend(os, "WAppend-sreserve-errors", "err",
-        wa.mSpaceReserveErrorCount);
-    HBAppend(os, "WAppend-sreserve-denied", "den",
-        wa.mSpaceReserveDeniedCount);
-    HBAppend(os, 0, "bmcs", "");
-    HBAppend(os, "WAppend-bmcs-count",  "cnt", wa.mBeginMakeStableCount);
-    HBAppend(os, "WAppend-bmcs-errors", "err", wa.mBeginMakeStableErrorCount);
-    HBAppend(os, 0, "mcs", "");
-    HBAppend(os, "WAppend-mcs-count",         "cnt", wa.mMakeStableCount);
-    HBAppend(os, "WAppend-mcs-errors",        "err", wa.mMakeStableErrorCount);
-    HBAppend(os, "WAppend-mcs-length-errors", "eln",
+    HBAppend(os, "WAppend-sreserve-count",       wa.mSpaceReserveCount);
+    HBAppend(os, "WAppend-sreserve-bytes",       wa.mSpaceReserveByteCount);
+    HBAppend(os, "WAppend-sreserve-errors",      wa.mSpaceReserveErrorCount);
+    HBAppend(os, "WAppend-sreserve-denied",      wa.mSpaceReserveDeniedCount);
+    HBAppend(os, "WAppend-bmcs-count",           wa.mBeginMakeStableCount);
+    HBAppend(os, "WAppend-bmcs-errors",          wa.mBeginMakeStableErrorCount);
+    HBAppend(os, "WAppend-mcs-count",            wa.mMakeStableCount);
+    HBAppend(os, "WAppend-mcs-errors",           wa.mMakeStableErrorCount);
+    HBAppend(os, "WAppend-mcs-length-errors",
         wa.mMakeStableLengthErrorCount);
-    HBAppend(os, "WAppend-mcs-chksum-errors", "ecs",
+    HBAppend(os, "WAppend-mcs-chksum-errors",
         wa.mMakeStableChecksumErrorCount);
-    HBAppend(os, 0, "gos", "");
-    HBAppend(os, "WAppend-get-op-status-count", "cnt",
-        wa.mGetOpStatusCount);
-    HBAppend(os, "WAppend-get-op-status-errors","err",
-        wa.mGetOpStatusErrorCount);
-    HBAppend(os, "WAppend-get-op-status-known", "knw",
-        wa.mGetOpStatusKnownCount);
-    HBAppend(os, 0, "err", "");
-    HBAppend(os, "WAppend-chksum-erros",    "csum",  wa.mChecksumErrorCount);
-    HBAppend(os, "WAppend-read-erros",      "rd",    wa.mReadErrorCount);
-    HBAppend(os, "WAppend-write-errors",    "wr",    wa.mWriteErrorCount);
-    HBAppend(os, "WAppend-lease-ex-errors", "lease", wa.mLeaseExpiredCount);
-    HBAppend(os, 0, "lost", "");
-    HBAppend(os, "WAppend-lost-timeouts", "tm",   wa.mTimeoutLostCount);
-    HBAppend(os, "WAppend-lost-chunks",   "csum", wa.mLostChunkCount);
-    HBAppend(os, "WAppend-pending-bytes", "pbt",  wa.mPendingByteCount);
-    HBAppend(os, "WAppend-low-buf-flush", "lobf", wa.mLowOnBuffersFlushCount);
+    HBAppend(os, "WAppend-get-op-status-count",  wa.mGetOpStatusCount);
+    HBAppend(os, "WAppend-get-op-status-errors", wa.mGetOpStatusErrorCount);
+    HBAppend(os, "WAppend-get-op-status-known",  wa.mGetOpStatusKnownCount);
+    HBAppend(os, "WAppend-chksum-erros",         wa.mChecksumErrorCount);
+    HBAppend(os, "WAppend-read-erros",           wa.mReadErrorCount);
+    HBAppend(os, "WAppend-write-errors",         wa.mWriteErrorCount);
+    HBAppend(os, "WAppend-lease-ex-errors",      wa.mLeaseExpiredCount);
+    HBAppend(os, "WAppend-lost-timeouts",        wa.mTimeoutLostCount);
+    HBAppend(os, "WAppend-lost-chunks",          wa.mLostChunkCount);
+    HBAppend(os, "WAppend-pending-bytes",        wa.mPendingByteCount);
+    HBAppend(os, "WAppend-low-buf-flush",        wa.mLowOnBuffersFlushCount);
 
-    const BufferManager&  bufMgr = DiskIo::GetBufferManager();
-    HBAppend(os, 0, "buffers: bytes", "");
-    HBAppend(os, "Buffer-bytes-total",      "total",
-        bufMgr.GetTotalByteCount());
-    HBAppend(os, "Buffer-bytes-wait",       "wait",
-        bufMgr.GetWaitingByteCount());
-    HBAppend(os, "Buffer-bytes-wait-avg",   "wavg",
-        bufMgr.GetWaitingAvgBytes());
-    HBAppend(os, "Buffer-s-usec-wait-avg",  "usvg",
-        bufMgr.GetWaitingAvgUsecs());
-    HBAppend(os, "Buffer-usec-wait-avg",    "uavg",
+    const BufferManager& bufMgr = DiskIo::GetBufferManager();
+    HBAppend(os, "Buffer-bytes-total",      bufMgr.GetTotalByteCount());
+    HBAppend(os, "Buffer-bytes-wait",       bufMgr.GetWaitingByteCount());
+    HBAppend(os, "Buffer-bytes-wait-avg",   bufMgr.GetWaitingAvgBytes());
+    HBAppend(os, "Buffer-s-usec-wait-avg",  bufMgr.GetWaitingAvgUsecs());
+    HBAppend(os, "Buffer-usec-wait-avg",
         bufMgr.GetWaitingAvgUsecs() + devWaitAvgUsec);
-    HBAppend(os, "Buffer-clients-wait-avg", "cavg",
-        bufMgr.GetWaitingAvgCount());
-    HBAppend(os, 0, "cnt", "");
-    HBAppend(os, "Buffer-total-count", "total", bufMgr.GetTotalBufferCount());
-    HBAppend(os, "Buffer-min-count",   "min",   bufMgr.GetMinBufferCount());
-    HBAppend(os, "Buffer-free-count",  "free",  bufMgr.GetFreeBufferCount());
-    HBAppend(os, 0, "req", "");
-    HBAppend(os, "Buffer-clients",      "cbuf",
+    HBAppend(os, "Buffer-clients-wait-avg", bufMgr.GetWaitingAvgCount());
+    HBAppend(os, "Buffer-total-count",      bufMgr.GetTotalBufferCount());
+    HBAppend(os, "Buffer-min-count",        bufMgr.GetMinBufferCount());
+    HBAppend(os, "Buffer-free-count",       bufMgr.GetFreeBufferCount());
+    HBAppend(os, "Buffer-clients",
         bufMgr.GetClientsWihtBuffersCount());
-    HBAppend(os, "Buffer-clients-wait", "cwait", bufMgr.GetWaitingCount());
-    HBAppend(os, "Buffer-quota-clients-wait", "cqw",
+    HBAppend(os, "Buffer-clients-wait",     bufMgr.GetWaitingCount());
+    HBAppend(os, "Buffer-quota-clients-wait",
         bufMgr.GetOverQuotaWaitingCount());
+
     BufferManager::Counters bmCnts;
     bufMgr.GetCounters(bmCnts);
-    HBAppend(os, "Buffer-req-total",         "cnt",
-        bmCnts.mRequestCount);
-    HBAppend(os, "Buffer-req-bytes",         "bytes",
-        bmCnts.mRequestByteCount);
-    HBAppend(os, "Buffer-req-denied-total",  "den",
-        bmCnts.mRequestDeniedCount);
-    HBAppend(os, "Buffer-req-denied-bytes",  "denb",
-        bmCnts.mRequestDeniedByteCount);
-    HBAppend(os, "Buffer-req-granted-total", "grn",
-        bmCnts.mRequestGrantedCount);
-    HBAppend(os, "Buffer-req-granted-bytes", "grnb",
-        bmCnts.mRequestGrantedByteCount);
-    HBAppend(os, "Buffer-req-wait-usec",     "rwu",
-        bmCnts.mRequestWaitUsecs);
-    HBAppend(os, "Buffer-req-denied-quota",  "rdq",
+    HBAppend(os, "Buffer-req-total",         bmCnts.mRequestCount);
+    HBAppend(os, "Buffer-req-bytes",         bmCnts.mRequestByteCount);
+    HBAppend(os, "Buffer-req-denied-total",  bmCnts.mRequestDeniedCount);
+    HBAppend(os, "Buffer-req-denied-bytes",  bmCnts.mRequestDeniedByteCount);
+    HBAppend(os, "Buffer-req-granted-total", bmCnts.mRequestGrantedCount);
+    HBAppend(os, "Buffer-req-granted-bytes", bmCnts.mRequestGrantedByteCount);
+    HBAppend(os, "Buffer-req-wait-usec",     bmCnts.mRequestWaitUsecs);
+    HBAppend(os, "Buffer-req-denied-quota",
         bmCnts.mOverQuotaRequestDeniedCount);
-    HBAppend(os, "Buffer-req-denied-quota-bytes", "bdq",
+    HBAppend(os, "Buffer-req-denied-quota-bytes",
         bmCnts.mOverQuotaRequestDeniedByteCount);
 
     DiskIo::Counters dio;
     DiskIo::GetCounters(dio);
-    HBAppend(os, 0, "disk: read", "");
-    HBAppend(os, "Disk-read-count", "cnt",   dio.mReadCount);
-    HBAppend(os, "Disk-read-bytes", "bytes", dio.mReadByteCount);
-    HBAppend(os, "Disk-read-errors","err",   dio.mReadErrorCount);
-    HBAppend(os, 0, "write", "");
-    HBAppend(os, "Disk-write-count", "cnt",   dio.mWriteCount);
-    HBAppend(os, "Disk-write-bytes", "bytes", dio.mWriteByteCount);
-    HBAppend(os, "Disk-write-errors","err",   dio.mWriteErrorCount);
-    HBAppend(os, 0, "sync", "");
-    HBAppend(os, "Disk-sync-count", "cnt",   dio.mSyncCount);
-    HBAppend(os, "Disk-sync-errors","err",   dio.mSyncErrorCount);
-    HBAppend(os, 0, "del", "");
-    HBAppend(os, "Disk-delete-count", "cnt",   dio.mDeleteCount);
-    HBAppend(os, "Disk-delete-errors","err",   dio.mDeleteErrorCount);
-    HBAppend(os, 0, "rnm", "");
-    HBAppend(os, "Disk-rename-count", "cnt",   dio.mRenameCount);
-    HBAppend(os, "Disk-rename-errors","err",   dio.mRenameErrorCount);
-    HBAppend(os, 0, "fsavl", "");
-    HBAppend(os, "Disk-fs-get-free-count", "cnt",
-        dio.mGetFsSpaceAvailableCount);
-    HBAppend(os, "Disk-fs-get-free-errors","err",
+    HBAppend(os, "Disk-read-count",           dio.mReadCount);
+    HBAppend(os, "Disk-read-bytes",           dio.mReadByteCount);
+    HBAppend(os, "Disk-read-errors",          dio.mReadErrorCount);
+    HBAppend(os, "Disk-write-count",          dio.mWriteCount);
+    HBAppend(os, "Disk-write-bytes",          dio.mWriteByteCount);
+    HBAppend(os, "Disk-write-errors",         dio.mWriteErrorCount);
+    HBAppend(os, "Disk-sync-count",           dio.mSyncCount);
+    HBAppend(os, "Disk-sync-errors",          dio.mSyncErrorCount);
+    HBAppend(os, "Disk-delete-count",         dio.mDeleteCount);
+    HBAppend(os, "Disk-delete-errors",        dio.mDeleteErrorCount);
+    HBAppend(os, "Disk-rename-count",         dio.mRenameCount);
+    HBAppend(os, "Disk-rename-errors",        dio.mRenameErrorCount);
+    HBAppend(os, "Disk-fs-get-free-count",    dio.mGetFsSpaceAvailableCount);
+    HBAppend(os, "Disk-fs-get-free-errors",
         dio.mGetFsSpaceAvailableErrorCount);
-    HBAppend(os, 0, "dirchk", "");
-    HBAppend(os, "Disk-dir-readable-count", "rnt",
-        dio.mCheckDirReadableCount);
-    HBAppend(os, "Disk-dir-readable-errors","rer",
-        dio.mCheckDirReadableErrorCount);
-    HBAppend(os, "Disk-dir-writable-count", "wnt",
-        dio.mCheckDirWritableCount);
-    HBAppend(os, "Disk-dir-writable-errors","wer",
-        dio.mCheckDirWritableErrorCount);
-    HBAppend(os, 0, "timedout", "");
-    HBAppend(os, "Disk-timedout-count",      "cnt",
-        dio.mTimedOutErrorCount);
-    HBAppend(os, "Disk-timedout-read-bytes", "rbytes",
-        dio.mTimedOutErrorReadByteCount);
-    HBAppend(os, "Disk-timedout-write-bytes","wbytes",
-        dio.mTimedOutErrorWriteByteCount);
-    HBAppend(os, "Disk-open-files",          "fopen",
-        dio.mOpenFilesCount);
+    HBAppend(os, "Disk-dir-readable-count",   dio.mCheckDirReadableCount);
+    HBAppend(os, "Disk-dir-readable-errors",  dio.mCheckDirReadableErrorCount);
+    HBAppend(os, "Disk-dir-writable-count",   dio.mCheckDirWritableCount);
+    HBAppend(os, "Disk-dir-writable-errors",  dio.mCheckDirWritableErrorCount);
+    HBAppend(os, "Disk-timedout-count",       dio.mTimedOutErrorCount);
+    HBAppend(os, "Disk-timedout-read-bytes",  dio.mTimedOutErrorReadByteCount);
+    HBAppend(os, "Disk-timedout-write-bytes", dio.mTimedOutErrorWriteByteCount);
+    HBAppend(os, "Disk-open-files",           dio.mOpenFilesCount);
 
-    HBAppend(os, 0, "msglog", "");
     MsgLogger::Counters msgLogCntrs;
     MsgLogger::GetLogger()->GetCounters(msgLogCntrs);
-    HBAppend(os, "Msg-log-level",            "level",
+    HBAppend(os, "Msg-log-level",
         MsgLogger::GetLogger()->GetLogLevel());
-    HBAppend(os, "Msg-log-count",            "cnt",
-        msgLogCntrs.mAppendCount);
-    HBAppend(os, "Msg-log-drop",             "drop",
-        msgLogCntrs.mDroppedCount);
-    HBAppend(os, "Msg-log-write-errors",     "werr",
-        msgLogCntrs.mWriteErrorCount);
-    HBAppend(os, "Msg-log-wait",             "wait",
-        msgLogCntrs.mAppendWaitCount);
-    HBAppend(os, "Msg-log-waited-micro-sec", "waittm",
-        msgLogCntrs.mAppendWaitMicroSecs);
+    HBAppend(os, "Msg-log-count",            msgLogCntrs.mAppendCount);
+    HBAppend(os, "Msg-log-drop",             msgLogCntrs.mDroppedCount);
+    HBAppend(os, "Msg-log-write-errors",     msgLogCntrs.mWriteErrorCount);
+    HBAppend(os, "Msg-log-wait",             msgLogCntrs.mAppendWaitCount);
+    HBAppend(os, "Msg-log-waited-micro-sec", msgLogCntrs.mAppendWaitMicroSecs);
 
-    HBAppend(os, 0, "repl", "");
     Replicator::Counters replCntrs;
     Replicator::GetCounters(replCntrs);
-    HBAppend(os, "Replication-count",  "cnt",    replCntrs.mReplicationCount);
-    HBAppend(os, "Replication-errors", "err",
-        replCntrs.mReplicationErrorCount);
-    HBAppend(os, "Replication-cancel", "cancel",
-        replCntrs.mReplicationCanceledCount);
-    HBAppend(os, "Replicator-count",   "obj",    replCntrs.mReplicatorCount);
-    HBAppend(os, 0, "recov", "");
-    HBAppend(os, "Recovery-count",  "cnt",    replCntrs.mRecoveryCount);
-    HBAppend(os, "Recovery-errors", "err",    replCntrs.mRecoveryErrorCount);
-    HBAppend(os, "Recovery-cancel", "cancel", replCntrs.mRecoveryCanceledCount);
-    HBAppend(os, "Replicator-reads",      "rrc",  replCntrs.mReadCount);
-    HBAppend(os, "Replicator-read-bytes", "rrb",  replCntrs.mReadByteCount);
-    HBAppend(os, "Replicator-writes",      "rwc", replCntrs.mWriteCount);
-    HBAppend(os, "Replicator-write-bytes", "rwb", replCntrs.mWriteByteCount);
+    HBAppend(os, "Replication-count",      replCntrs.mReplicationCount);
+    HBAppend(os, "Replication-errors",     replCntrs.mReplicationErrorCount);
+    HBAppend(os, "Replication-cancel",     replCntrs.mReplicationCanceledCount);
+    HBAppend(os, "Replicator-count",       replCntrs.mReplicatorCount);
+    HBAppend(os, "Recovery-count",         replCntrs.mRecoveryCount);
+    HBAppend(os, "Recovery-errors",        replCntrs.mRecoveryErrorCount);
+    HBAppend(os, "Recovery-cancel",        replCntrs.mRecoveryCanceledCount);
+    HBAppend(os, "Replicator-reads",       replCntrs.mReadCount);
+    HBAppend(os, "Replicator-read-bytes",  replCntrs.mReadByteCount);
+    HBAppend(os, "Replicator-writes",      replCntrs.mWriteCount);
+    HBAppend(os, "Replicator-write-bytes", replCntrs.mWriteByteCount);
 
-    HBAppend(os, "Ops-in-flight-count", "opsf", gChunkServer.GetNumOps());
-    HBAppend(os, 0, "gcntrs", "");
-    HBAppend(os, "Socket-count",    "socks",
-        globals().ctrOpenNetFds.GetValue());
-    HBAppend(os, "Disk-fd-count",   "dfds",
-        globals().ctrOpenDiskFds.GetValue());
-    HBAppend(os, "Net-bytes-read",   "nrd",
-        globals().ctrNetBytesRead.GetValue());
-    HBAppend(os, "Net-bytes-write",  "nwr",
+    HBAppend(os, "Ops-in-flight-count", gChunkServer.GetNumOps());
+    HBAppend(os, "Socket-count",        globals().ctrOpenNetFds.GetValue());
+    HBAppend(os, "Disk-fd-count",       globals().ctrOpenDiskFds.GetValue());
+    HBAppend(os, "Net-bytes-read",      globals().ctrNetBytesRead.GetValue());
+    HBAppend(os, "Net-bytes-write",
         globals().ctrNetBytesWritten.GetValue());
-    HBAppend(os, "Disk-bytes-read",  "drd",
-        globals().ctrDiskBytesRead.GetValue());
-    HBAppend(os, "Disk-bytes-write", "dwr",
+    HBAppend(os, "Disk-bytes-read",     globals().ctrDiskBytesRead.GetValue());
+    HBAppend(os, "Disk-bytes-write",
         globals().ctrDiskBytesWritten.GetValue());
-    HBAppend(os, "Dns-resolved", "dnsok",
+    HBAppend(os, "Dns-resolved",
         globals().ctrNetDnsResolvedCtr.GetValue());
-    HBAppend(os, "Dns-resolved-usec", "dnsokus",
+    HBAppend(os, "Dns-resolved-usec",
         globals().ctrNetDnsResolvedCtr.GetTimeSpent());
-    HBAppend(os, "Dns-errors", "dnserr",
-        globals().ctrNetDnsErrors.GetValue());
-    HBAppend(os, "Dns-errors-usec", "dnserrus",
+    HBAppend(os, "Dns-errors",          globals().ctrNetDnsErrors.GetValue());
+    HBAppend(os, "Dns-errors-usec",
         globals().ctrNetDnsErrors.GetTimeSpent());
-    HBAppend(os, "Total-ops-count",  "ops",
-        KfsOp::GetOpsCount());
-    HBAppend(os, "Auth-clnt",  "authcl",
-        gClientManager.IsAuthEnabled() ? 1 : 0);
-    HBAppend(os, "Auth-rsync", "authrs", RemoteSyncSM::IsAuthEnabled() ? 1 : 0);
-    HBAppend(os, "Auth-meta",  "authms", gMetaServerSM.IsAuthEnabled() ? 1 : 0);
-    *os[0] << "\r\n";
-    os[0]->flush();
-    sWOs.Reset();
+    HBAppend(os, "Total-ops-count",     KfsOp::GetOpsCount());
+    HBAppend(os, "Auth-clnt",           gClientManager.IsAuthEnabled() ? 1 : 0);
+    HBAppend(os, "Auth-rsync",          RemoteSyncSM::IsAuthEnabled()  ? 1 : 0);
+    HBAppend(os, "Auth-meta",           gMetaServerSM.IsAuthEnabled()  ? 1 : 0);
+    if (os[0]) {
+        *os[0] << "\r\n";
+        os[0]->flush();
+    }
     if (os[1]) {
         os[1]->flush();
-        cmdShow = sOs.str();
-        sOs.str(string());
+        MsgLogger::GetLogger()->PutStream(*os[1]);
     }
+}
 
+void
+LogChunkServerCounters()
+{
+    HBAppendCounters(0);
+}
+
+// This is the heartbeat sent by the meta server
+void
+HeartbeatOp::Execute()
+{
+    gChunkManager.MetaHeartbeat(*this);
+    if (! omitCountersFlag) {
+        static IOBuffer::WOStream sWOs;
+        HBAppendCounters(&sWOs.Set(response));
+        sWOs.Reset();
+    }
     status = 0;
     Submit();
 }

@@ -2188,6 +2188,9 @@ ChunkManager::ChunkManager()
       mDoneStaleChunksCount(0),
       mStaleChunksCount(0),
       mResumeHelloMaxPendingStaleCount(16 << 10),
+      mLogChunkServerCountersInterval(60),
+      mLogChunkServerCountersLastTime(globalNetManager().Now() - 365 * 24 * 60 * 60),
+      mLogChunkServerCountersLogLevel(MsgLogger::kLogLevelNOTICE),
       mChunkHeaderBuffer()
 {
     mDirChecker.SetInterval(180 * 1000);
@@ -2601,6 +2604,18 @@ ChunkManager::SetParameters(const Properties& prop)
     mObjStoreIoThreadCount = prop.getValue(
         "chunkServer.objStoreIoThreadCount",
         mObjStoreIoThreadCount);
+    mLogChunkServerCountersInterval = prop.getValue(
+        "chunkServer.logChunkServerCountersInterval",
+        mLogChunkServerCountersInterval);
+    const Properties::String* const logLevelStr = prop.getValue(
+        "chunkServer.logChunkServerCountersLogLevel");
+    if (logLevelStr) {
+        const MsgLogger::LogLevel logLevel =
+            MsgLogger::GetLogLevelId(logLevelStr->c_str());
+        if (MsgLogger::kLogLevelUndef != logLevel) {
+            mLogChunkServerCountersLogLevel = logLevel;
+        }
+    }
     if (0 < mObjStoreBlockWriteBufferSize &&
             mObjStoreBlockWriteBufferSize < (int)KFS_CHUNK_HEADER_SIZE) {
         mObjStoreBlockWriteBufferSize = KFS_CHUNK_HEADER_SIZE;
@@ -2968,6 +2983,23 @@ ChunkManager::CanStartReplicationOrRecovery(kfsChunkId_t chunkId)
         return -EEXIST;
     }
     return 0;
+}
+
+MsgLogger::LogLevel
+ChunkManager::GetHeartbeatCtrsLogLevel()
+{
+    if (mLogChunkServerCountersInterval < 0 ||
+            ! MsgLogger::GetLogger() ||
+            ! MsgLogger::GetLogger()->IsLogLevelEnabled(
+                mLogChunkServerCountersLogLevel)) {
+        return MsgLogger::kLogLevelUndef;
+    }
+    const time_t now = globalNetManager().Now();
+    if (now < mLogChunkServerCountersLastTime + mLogChunkServerCountersInterval) {
+        return MsgLogger::kLogLevelUndef;
+    }
+    mLogChunkServerCountersLastTime = now;
+    return mLogChunkServerCountersLogLevel;
 }
 
 int
@@ -6548,6 +6580,12 @@ ChunkManager::Timeout()
     if (mNextSendChunDirInfoTime < now && gMetaServerSM.IsUp()) {
         SendChunkDirInfo();
         mNextSendChunDirInfoTime = now + mSendChunDirInfoIntervalSecs;
+    }
+    if (0 < mLogChunkServerCountersInterval &&
+            mLogChunkServerCountersLastTime +
+                mLogChunkServerCountersInterval < now &&
+            ! gMetaServerSM.IsUp()) {
+        LogChunkServerCounters();
     }
     gLeaseClerk.Timeout();
     gAtomicRecordAppendManager.Timeout();

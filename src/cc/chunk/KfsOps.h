@@ -890,7 +890,6 @@ struct HeartbeatOp : public KfsOp {
     bool              authenticateFlag;
     int               maxPendingOps;
     IOBuffer          response;
-    string            cmdShow;
     bool              sendCurrentKeyFlag;
     bool              omitCountersFlag;
     int               recvTimeout;
@@ -903,7 +902,6 @@ struct HeartbeatOp : public KfsOp {
           authenticateFlag(false),
           maxPendingOps(96),
           response(),
-          cmdShow(),
           sendCurrentKeyFlag(false),
           omitCountersFlag(false),
           recvTimeout(-1),
@@ -915,8 +913,7 @@ struct HeartbeatOp : public KfsOp {
     virtual ostream& ShowSelf(ostream& os) const {
         return os <<
             "heartbeat:"
-            " seq: " << seq <<
-            (cmdShow.empty() ? "" : " ") << cmdShow
+            " seq: " << seq
         ;
     }
     virtual void ResponseContent(IOBuffer*& buf, int& size) {
@@ -2599,6 +2596,7 @@ extern int ParseClientCommand(const IOBuffer& ioBuf, int len, KfsOp** res,
     RpcFormat& rpcFormat, char* tmpBuf = 0);
 extern void SubmitOp(KfsOp *op);
 extern void SubmitOpResponse(KfsOp *op);
+void LogChunkServerCounters();
 
 }
 

@@ -39,6 +39,7 @@
 #include "kfsio/PrngIsaac64.h"
 #include "common/LinearHash.h"
 #include "common/StdAllocator.h"
+#include "common/MsgLogger.h"
 
 #include <vector>
 #include <string>
@@ -462,6 +463,7 @@ public:
     }
     int FlushStaleQueue(KfsOp& op);
     int CanStartReplicationOrRecovery(kfsChunkId_t chunkId);
+    MsgLogger::LogLevel GetHeartbeatCtrsLogLevel();
 private:
     template<typename IDT>
     class PendingWritesT
@@ -1008,6 +1010,10 @@ private:
     uint64_t                    mDoneStaleChunksCount;
     uint64_t                    mStaleChunksCount;
     uint64_t                    mResumeHelloMaxPendingStaleCount;
+
+    int                         mLogChunkServerCountersInterval;
+    time_t                      mLogChunkServerCountersLastTime;
+    MsgLogger::LogLevel         mLogChunkServerCountersLogLevel;
 
     ChunkHeaderBuffer           mChunkHeaderBuffer;
 
