@@ -192,6 +192,21 @@ chunkServer.msgLogWriter.logLevel = INFO
 # Default is -1. Do not wait, drop log record instead.
 # chunkServer.msgLogWriter.waitMicroSec = -1
 
+# Minimal interval in seconds to emit chunk server counters into chunk server
+# message log.
+# The counters are emitted in the following form format
+# ===counters: ;key-name1=key-value1,key-name2=key-value2,...
+# Setting this parameter to a negative value turns of this functionality.
+# Setting to 0 turns off counters logging when chunk server is not connected to
+# the meta server, in this case the counters are logged on every meta server
+# heartbeat request with counters flag on.
+# Default is 60 seconds.
+# chunkServer.logChunkServerCountersInterval = 60
+
+# Counters log level. The message log level must set to this level or greater.
+# Default is NOTICE
+# chunkServer.logChunkServerCountersLogLevel = NOTICE
+
 # -------------------- Chunk and meta server authentication. -------------------
 # By default chunk and meta server authentication is off.
 #
