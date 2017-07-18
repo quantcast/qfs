@@ -2292,7 +2292,7 @@ if __name__ == '__main__':
     except:
         pass
     try:
-        autoRefresh = config.get('webserver', 'webServer.autoRefresh')
+        autoRefresh = int(config.get('webserver', 'webServer.autoRefresh'))
     except:
         pass
     try:
