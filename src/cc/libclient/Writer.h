@@ -197,7 +197,7 @@ public:
         int         inMaxPartialBuffersCount   = 16,
         int         inTimeSecBetweenRetries    = 15,
         int         inOpTimeoutSec             = 30,
-        int         inIdleTimeoutSec           = 5 * 30,
+        int         inIdleTimeoutSec           = IDLE_TIMEOUT_SECS,
         int         inMaxWriteSize             = 1 << 20,
         const char* inLogPrefixPtr             = 0,
         int64_t     inChunkServerInitialSeqNum = 1);

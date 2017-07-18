@@ -1940,7 +1940,7 @@ LayoutManager::LayoutManager()
       mForceDelayedRecoveryUpdateFlag(false),
       mSortCandidatesBySpaceUtilizationFlag(false),
       mSortCandidatesByLoadAvgFlag(false),
-      mMaxFsckFiles(128 << 10),
+      mMaxFsckFiles(1048576),
       mFsckAbandonedFileTimeout(int64_t(1000) * kSecs2MicroSecs),
       mMaxFsckTime(int64_t(19) * 60 * kSecs2MicroSecs),
       mFullFsckFlag(true),
