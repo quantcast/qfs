@@ -2197,16 +2197,16 @@ Writer::Striper::StartQueuedWrite(
 
 Writer::Writer(
     Writer::MetaServer& inMetaServer,
-    Writer::Completion* inCompletionPtr               /* = 0 */,
-    int                 inMaxRetryCount               /* = 6 */,
-    int                 inWriteThreshold              /* = 1 << 20 */,
-    int                 inMaxPartialBuffersCount      /* = 16 */,
-    int                 inTimeSecBetweenRetries       /* = 15 */,
-    int                 inOpTimeoutSec                /* = 30 */,
-    int                 inIdleTimeoutSec              /* = 5 * 30 */,
-    int                 inMaxWriteSize                /* = 1 << 20 */,
-    const char*         inLogPrefixPtr                /* = 0 */,
-    int64_t             inChunkServerInitialSeqNum    /* = 1 */)
+    Writer::Completion* inCompletionPtr,
+    int                 inMaxRetryCount,
+    int                 inWriteThreshold,
+    int                 inMaxPartialBuffersCount,
+    int                 inTimeSecBetweenRetries,
+    int                 inOpTimeoutSec,
+    int                 inIdleTimeoutSec,
+    int                 inMaxWriteSize,
+    const char*         inLogPrefixPtr,
+    int64_t             inChunkServerInitialSeqNum)
     : mImpl(*new Writer::Impl(
         *this,
         inMetaServer,

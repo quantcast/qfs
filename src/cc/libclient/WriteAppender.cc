@@ -1991,19 +1991,19 @@ private:
 
 WriteAppender::WriteAppender(
     MetaServer& inMetaServer,
-    Completion* inCompletionPtr               /* = 0 */,
-    int         inMaxRetryCount               /* = 6 */,
-    int         inWriteThreshold              /* = KFS::CHECKSUM_BLOCKSIZE */,
-    int         inTimeSecBetweenRetries       /* = 15 */,
-    int         inDefaultSpaceReservationSize /* = 1 << 20 */,
-    int         inPreferredAppendSize         /* = KFS::CHECKSUM_BLOCKSIZE */,
-    int         inMaxPartialBuffersCount      /* = 16 */,
-    int         inOpTimeoutSec                /* = 30 */,
-    int         inIdleTimeoutSec              /* = 5 * 30 */,
-    const char* inLogPrefixPtr                /* = 0 */,
-    int64_t     inChunkServerInitialSeqNum    /* = 1 */,
-    bool        inPreAllocationFlag           /* = true */,
-    ClientPool* inClientPoolPtr               /* = 0 */)
+    Completion* inCompletionPtr,
+    int         inMaxRetryCount,
+    int         inWriteThreshold,
+    int         inTimeSecBetweenRetries,
+    int         inDefaultSpaceReservationSize,
+    int         inPreferredAppendSize,
+    int         inMaxPartialBuffersCount,
+    int         inOpTimeoutSec,
+    int         inIdleTimeoutSec,
+    const char* inLogPrefixPtr,
+    int64_t     inChunkServerInitialSeqNum,
+    bool        inPreAllocationFlag,
+    ClientPool* inClientPoolPtr)
     : mImpl(*new WriteAppender::Impl(
         *this,
         inMetaServer,

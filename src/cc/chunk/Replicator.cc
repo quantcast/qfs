@@ -929,7 +929,8 @@ private:
             sRSReaderLeaseRetryTimeout,
             sRSReaderLeaseWaitTimeout,
             MakeLogPrefix(mChunkId),
-            GetSeqNum()
+            GetSeqNum(),
+            0 // inClientPoolPtr
           ),
           mReadTail(),
           mLocation(

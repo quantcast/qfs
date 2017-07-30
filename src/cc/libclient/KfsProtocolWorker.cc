@@ -911,7 +911,8 @@ private:
                 inOwner.mIdleTimeoutSec,
                 inLogPrefixPtr,
                 inOwner.mChunkServerInitialSeqNum,
-                inOwner.mPreAllocateFlag
+                inOwner.mPreAllocateFlag,
+                0 // inClientPoolPtr
               ),
               mWriteThreshold(inOwner.mWriteAppendThreshold),
               mPending(0),

@@ -2695,17 +2695,17 @@ Reader::Striper::ReportInvalidChunk(
 
 Reader::Reader(
     Reader::MetaServer& inMetaServer,
-    Reader::Completion* inCompletionPtr            /* = 0 */,
-    int                 inMaxRetryCount            /* = 6 */,
-    int                 inTimeSecBetweenRetries    /* = 15 */,
-    int                 inOpTimeoutSec             /* = 30 */,
-    int                 inIdleTimeoutSec           /* = 5 * 30 */,
-    int                 inMaxReadSize              /* = 1 << 20 */,
-    int                 inLeaseRetryTimeout        /* = 3 */,
-    int                 inLeaseWaitTimeout         /* = 900 */,
-    const char*         inLogPrefixPtr             /* = 0 */,
-    int64_t             inChunkServerInitialSeqNum /* = 1 */,
-    ClientPool*         inClientPoolPtr            /* = 0 */)
+    Reader::Completion* inCompletionPtr,
+    int                 inMaxRetryCount,
+    int                 inTimeSecBetweenRetries,
+    int                 inOpTimeoutSec,
+    int                 inIdleTimeoutSec,
+    int                 inMaxReadSize,
+    int                 inLeaseRetryTimeout,
+    int                 inLeaseWaitTimeout,
+    const char*         inLogPrefixPtr,
+    int64_t             inChunkServerInitialSeqNum,
+    ClientPool*         inClientPoolPtr)
     : mImpl(*new Reader::Impl(
         *this,
         inMetaServer,

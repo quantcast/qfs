@@ -191,16 +191,16 @@ public:
     typedef KfsNetClient MetaServer;
     Writer(
         MetaServer& inMetaServer,
-        Completion* inCompletionPtr            = 0,
-        int         inMaxRetryCount            = 6,
-        int         inWriteThreshold           = 1 << 20,
-        int         inMaxPartialBuffersCount   = 16,
-        int         inTimeSecBetweenRetries    = 15,
-        int         inOpTimeoutSec             = 30,
-        int         inIdleTimeoutSec           = 5 * 30,
-        int         inMaxWriteSize             = 1 << 20,
-        const char* inLogPrefixPtr             = 0,
-        int64_t     inChunkServerInitialSeqNum = 1);
+        Completion* inCompletionPtr,
+        int         inMaxRetryCount,
+        int         inWriteThreshold,
+        int         inMaxPartialBuffersCount,
+        int         inTimeSecBetweenRetries,
+        int         inOpTimeoutSec,
+        int         inIdleTimeoutSec,
+        int         inMaxWriteSize,
+        const char* inLogPrefixPtr,
+        int64_t     inChunkServerInitialSeqNum);
     virtual ~Writer();
     int Open(
         kfsFileId_t inFileId,
