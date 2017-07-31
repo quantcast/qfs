@@ -2201,7 +2201,7 @@ def parseChunkConfig(config):
     predefinedHeaders = ""
     predefinedChunkDirHeaders = ""
     try:
-        refreshInterval = config.get('chunk', 'refreshInterval')
+        refreshInterval = config.getint('chunk', 'refreshInterval')
     except:
         pass
     try:
@@ -2216,11 +2216,11 @@ def parseChunkConfig(config):
     theSize = 10
     timespan = 10
     try:
-        theSize = config.get('chunk', 'currentSize')
+        theSize = config.getint('chunk', 'currentSize')
     except:
         pass
     try:
-        timespan = config.get('chunk', 'currentSpan')
+        timespan = config.getint('chunk', 'currentSpan')
     except:
         pass
     current = ChunkArrayData(timespan,theSize)
@@ -2228,11 +2228,11 @@ def parseChunkConfig(config):
     theSize = 10
     timespan = 120
     try:
-        theSize = config.get('chunk', 'hourlySize')
+        theSize = config.getint('chunk', 'hourlySize')
     except:
         pass
     try:
-        timespan = config.get('chunk', 'hourlySpan')
+        timespan = config.getint('chunk', 'hourlySpan')
     except:
         pass
     hourly = ChunkArrayData(timespan,theSize)
@@ -2240,11 +2240,11 @@ def parseChunkConfig(config):
     theSize = 10
     timespan = 120
     try:
-        theSize = config.get('chunk', 'daylySize')
+        theSize = config.getint('chunk', 'daylySize')
     except:
         pass
     try:
-        timespan = config.get('chunk', 'daylySpan')
+        timespan = config.getint('chunk', 'daylySpan')
     except:
         pass
     dayly = ChunkArrayData(timespan,theSize)
@@ -2253,11 +2253,11 @@ def parseChunkConfig(config):
     theSize = 10
     timespan = 120
     try:
-        theSize = config.get('chunk', 'monthlySize')
+        theSize = config.getint('chunk', 'monthlySize')
     except:
         pass
     try:
-        timespan = config.get('chunk', 'monthlySpan')
+        timespan = config.getint('chunk', 'monthlySpan')
     except:
         pass
     monthly = ChunkArrayData(timespan,theSize)
@@ -2292,15 +2292,15 @@ if __name__ == '__main__':
     except:
         pass
     try:
-        autoRefresh = int(config.get('webserver', 'webServer.autoRefresh'))
+        autoRefresh = config.getint('webserver', 'webServer.autoRefresh')
     except:
         pass
     try:
-        displayPorts = config.get('webserver', 'webServer.displayPorts')
+        displayPorts = config.getboolean('webserver', 'webServer.displayPorts')
     except:
         pass
     try:
-        socketTimeout = config.get('webserver', 'webServer.socketTimeout')
+        socketTimeout = config.getint('webserver', 'webServer.socketTimeout')
     except:
         socketTimeout = 90
         pass
@@ -2315,8 +2315,11 @@ if __name__ == '__main__':
     except:
         HOST = "0.0.0.0"
         pass
+    try:
+        allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
+    except:
+        pass
     myWebserverPort = config.getint('webserver', 'webServer.port')
-    allMachinesFile = config.get('webserver', 'webServer.allMachinesFn')
     try:
         objectStoreMode = config.getboolean('webserver', 'webServer.objectStoreMode')
     except:
@@ -2330,18 +2333,19 @@ if __name__ == '__main__':
 
     parseChunkConfig(config)
 
-    if not os.path.exists(allMachinesFile):
-        print "Unable to open all machines file: ", allMachinesFile
-    else:
-        # Read in the list of nodes that we should be running a chunkserver on
-        print "Starting HttpServer..."
-        for line in open(allMachinesFile, 'r'):
-            s = socket.gethostbyname(line.strip())
-            rackId = int(s.split('.')[2])
-            if rackId in serversByRack:
-                serversByRack[rackId].append(RackNode(s, rackId))
-            else:
-                serversByRack[rackId] = [RackNode(s, rackId)]
+    if '' != allMachinesFile:
+        if not os.path.exists(allMachinesFile):
+            print "Unable to open all machines file: ", allMachinesFile
+        else:
+            # Read in the list of nodes that we should be running a chunkserver on
+            print "Starting HttpServer..."
+            for line in open(allMachinesFile, 'r'):
+                s = socket.gethostbyname(line.strip())
+                rackId = int(s.split('.')[2])
+                if rackId in serversByRack:
+                    serversByRack[rackId].append(RackNode(s, rackId))
+                else:
+                    serversByRack[rackId] = [RackNode(s, rackId)]
 
     socket.setdefaulttimeout(socketTimeout)
     SocketServer.TCPServer.allow_reuse_address = True
