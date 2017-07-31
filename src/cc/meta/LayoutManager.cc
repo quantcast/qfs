@@ -2368,14 +2368,21 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.sortCandidatesByLoadAvg",
         mSortCandidatesByLoadAvgFlag ? 1 : 0) != 0;
 
+    // The following two parameter names are for backward compatibility.
     mMaxFsckFiles = props.getValue(
         "metaServer.maxFsckChunks",
+        mMaxFsckFiles);
+    mMaxFsckTime = (int64_t)(props.getValue(
+        "metaServer.mMaxFsckTime",
+        mMaxFsckTime * 1e-6) * 1e6);
+    mMaxFsckFiles = props.getValue(
+        "metaServer.maxFsckFiles",
         mMaxFsckFiles);
     mFsckAbandonedFileTimeout = (int64_t)(props.getValue(
         "metaServer.fsckAbandonedFileTimeout",
         mFsckAbandonedFileTimeout * 1e-6) * 1e6);
     mMaxFsckTime = (int64_t)(props.getValue(
-        "metaServer.mMaxFsckTime",
+        "metaServer.maxFsckTime",
         mMaxFsckTime * 1e-6) * 1e6);
     mFullFsckFlag = props.getValue(
         "metaServer.fullFsck",

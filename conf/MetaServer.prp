@@ -1352,6 +1352,24 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Read RPC request size limit.
 # metaServer.dataStore.maxReadSize = 2097152
 
+# ======================= FSCK =================================================
+
+# Maximum number of files to include in FSCK report.
+# Default is 128K
+# metaServer.maxFsckFiles = 131072
+
+# Maximum FSCK run time.
+# FSCK stopped if / when  run time exceeds the maximum and partial report
+# produces..
+# Default is 1140 seconds (19 minutes)
+# metaServer.maxFsckTime = 1140
+
+# Abandoned file timeout.
+# Files with 0 logical size and 1 or more blocks are reported by FSCK if / when
+# modification time plus timeout is less than the FSCK start time.
+# Default is 1000 seconds.
+# metaServer.fsckAbandonedFileTimeout = 1000
+
 # ==================== Meta Server Viewstamped Replication (VR) ================
 
 # Configuring replicated meta server group / cluster consists of the following
