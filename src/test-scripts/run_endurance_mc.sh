@@ -44,6 +44,14 @@ srcdir="`dirname "$0"`"
 srcdir="`cd "$srcdir/../.." >/dev/null 2>&1 && pwd`"
 
 testdirsprefix='/mnt/data'
+n=3
+while [ $n -ge 0 ]; do
+    [ -d "${testdirsprefix}$n" ] || break
+    n=`expr $n - 1`
+done
+if [ $n -ge 0 ]; then
+    testdirsprefix="`basename "$0" .sh`/data"
+fi
 
 chunksdir='./chunks'
 metasrvchunkport=20100
