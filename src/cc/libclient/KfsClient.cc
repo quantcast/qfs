@@ -4652,6 +4652,8 @@ KfsClientImpl::StartProtocolWorker()
         "client.connectionPool", params.mUseClientPoolFlag ? 1 : 0) != 0;
     params.mMetaServerNodes = mConfig.getValue(
         KfsClient::GetMetaServerNodesParamName(), params.mMetaServerNodes);
+    params.mClientRackId    = mConfig.getValue(
+        "client.rackId", -1);
     mProtocolWorker = new KfsProtocolWorker(
         mMetaServerLoc.hostname,
         mMetaServerLoc.port,

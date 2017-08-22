@@ -1484,9 +1484,9 @@ public:
     void SetChunkVersion(MetaChunkInfo& chunkInfo, seq_t version);
     bool IsObjectStoreEnabled() const
         { return mObjectStoreEnabledFlag; }
-    void GetAccessProxyForHost(
-        const string& host,
-        Servers&      servers);
+    bool GetAccessProxy(
+        const MetaRequest& req,
+        Servers&           servers);
     void Done(MetaChunkDelete& req);
     void DeleteFile(const MetaFattr& fa);
     int  WritePendingObjStoreDelete(ostream& os);
@@ -2671,6 +2671,7 @@ protected:
     void ProcessInvalidStripes(MetaChunkReplicate& req);
     RackId GetRackId(const ServerLocation& loc) const;
     RackId GetRackId(const string& loc) const;
+    RackId GetRackId(const MetaRequest& req) const;
     void ScheduleCleanup(size_t maxScanCount = 1);
     void RemoveRetiring(CSMap::Entry& ci, Servers& servers, int numReplicas,
         bool deleteRetiringFlag = false);
@@ -2747,9 +2748,9 @@ protected:
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
     bool FindAccessProxy(MetaAllocate& req);
-    bool FindAccessProxy(const string& host, Servers& srvs);
-    template<typename T>
-    bool GetAccessProxy(T& req, Servers& servers);
+    bool FindAccessProxyFor(const MetaRequest& req, Servers& srvs);
+    template <typename T>
+    bool GetAccessProxyFromReq(T& req, Servers& servers);
     void Replay(MetaHello& req);
     void SetRack(const ChunkServerPtr& server, RackId rackId);
     template<typename T> const ChunkServerPtr* ReplayFindServer(
@@ -2767,6 +2768,8 @@ protected:
     void CleanupChunkServers();
     bool AddToInFlightChunkAllocation(
         const MetaAllocate& req, const ChunkServerPtr& server);
+    inline LayoutManager::Servers::const_iterator FindServerForReq(
+        const MetaRequest& req);
 private:
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);

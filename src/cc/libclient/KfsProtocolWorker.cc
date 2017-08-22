@@ -166,6 +166,7 @@ public:
         FreeSyncRequests::Init(mFreeSyncRequests);
         CleanupList::Init(mCleanupList);
         mMetaServer.SetMaxMetaLogWriteRetryCount(mMetaMaxRetryCount);
+        mMetaServer.SetRackId(inParameters.mClientRackId);
         const bool kHexFormatFlag       = false;
         const bool kAllowDuplicatesFlag = true;
         mMetaServer.SetMetaServerLocations(

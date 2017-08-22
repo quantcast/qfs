@@ -156,6 +156,8 @@ ClientSM::ClientSM(
       mAuthUpdateCount(0),
       mUserAndGroupUpdateCount(0),
       mLogQueueCounter(0),
+      mClientRackId(-1),
+      mClientReportedIp(),
       mNext(0)
 {
     assert(mNetConnection && mNetConnection->IsGood());
@@ -574,6 +576,10 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->validDelegationFlag = mDelegationValidFlag;
     op->authUid             = mAuthUid;
     op->sessionEndTime      = mSessionExpirationTime;
+    if (! mFirstOpFlag) {
+        op->clientRackId     = mClientRackId;
+        op->clientReportedIp = mClientReportedIp;
+    }
     if (mAuthUid != kKfsUserNone) {
         op->fromChunkServerFlag = mDelegationValidFlag &&
             (mDelegationFlags & DelegationToken::kChunkServerFlag) != 0;
@@ -670,7 +676,18 @@ ClientSM::Handle(MetaAuthenticate& op)
     assert(! mAuthenticateOp);
     if (mFirstOpFlag) {
         mShortRpcFormatFlag = op.shortRpcFormatFlag;
+        mClientRackId       = op.clientRackId;
+        if (mClientLocation.hostname != op.clientReportedIp) {
+            mClientReportedIp = op.clientReportedIp;
+        }
         mFirstOpFlag        = false;
+        KFS_LOG_STREAM_DEBUG << mClientLocation <<
+            " client reported"
+            " rack: " << op.clientRackId <<
+            " ip: "   << op.clientReportedIp <<
+            " port: " << op.clientReportedPort <<
+            " "       << op.Show() <<
+        KFS_LOG_EOM;
     }
     mAuthenticateOp = &op;
     HandleAuthenticate(mNetConnection->GetInBuffer());
@@ -690,7 +707,18 @@ ClientSM::Handle(MetaLookup& op)
 {
     if (mFirstOpFlag) {
         mShortRpcFormatFlag = op.shortRpcFormatFlag;
+        mClientRackId       = op.clientRackId;
+        if (mClientLocation.hostname != op.clientReportedIp) {
+            mClientReportedIp = op.clientReportedIp;
+        }
         mFirstOpFlag        = false;
+        KFS_LOG_STREAM_DEBUG << mClientLocation <<
+            " client reported"
+            " rack: " << op.clientRackId <<
+            " ip: "   << op.clientReportedIp <<
+            " port: " << op.clientReportedPort <<
+            " "       << op.Show() <<
+        KFS_LOG_EOM;
     }
     if (! op.authInfoOnlyFlag) {
         if (mAuthUid != kKfsUserNone || ! op.IsAuthNegotiation()) {

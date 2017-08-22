@@ -227,7 +227,9 @@ public:
           mResolverReqsCount(0),
           mMetaLocations(),
           mMetaServerLocation(),
-          mResolverPtr(0)
+          mResolverPtr(0),
+          mPendingConnectOpPtr(0),
+          mRackId(-1)
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
         MetaVrList::Init(mMetaVrListPtr);
@@ -630,24 +632,48 @@ public:
                     IOBuffer& theBuffer = mConnPtr->GetInBuffer();
                     mDataReceivedFlag = mDataReceivedFlag ||
                         (! theBuffer.IsEmpty() && ! IsAuthInFlight());
-                    HandleResponse(theBuffer);
+                    if (mPendingConnectOpPtr && ! theBuffer.IsEmpty()) {
+                        KFS_LOG_STREAM_ERROR << mLogPrefix << mServerLocation <<
+                            " unexpected data received with pending send: " <<
+                                mPendingConnectOpPtr->Show() <<
+                            " data: " <<
+                                IOBuffer::DisplayData(theBuffer, 512) <<
+                        KFS_LOG_EOM;
+                        Reset();
+                        if (! mPendingOpQueue.empty()) {
+                            RetryConnect(theOutstandingOpPtr, theError);
+                        }
+                    } else {
+                        HandleResponse(theBuffer);
+                    }
                 }
                 break;
 
             case EVENT_NET_WROTE:
+                assert(inDataPtr && mConnPtr);
+                mDataSentFlag = mDataSentFlag || ! IsAuthInFlight();
                 if (mConnPtr) {
-                    const int theRem = mConnPtr->GetOutBuffer().BytesConsumable();
+                    const int theRem =
+                        mConnPtr->GetOutBuffer().BytesConsumable();
                     if (theRem < mPendingBytesSend) {
                         mStats.mBytesSentCount += mPendingBytesSend - theRem;
                     }
                     mPendingBytesSend = theRem;
+                    if (mPendingConnectOpPtr) {
+                        KfsOp& theOp = *mPendingConnectOpPtr;
+                        mPendingConnectOpPtr = 0;
+                        KFS_LOG_STREAM_DEBUG << mLogPrefix << mServerLocation <<
+                            " connected, sending request" <<
+                        KFS_LOG_EOM;
+                        EnqueueAuth(theOp);
+                    }
                 }
-                assert(inDataPtr && mConnPtr);
-                mDataSentFlag = mDataSentFlag || ! IsAuthInFlight();
                 break;
 
             case EVENT_INACTIVITY_TIMEOUT:
-                if (mPendingOpQueue.empty()) {
+                if (mPendingConnectOpPtr) {
+                    // Connect timed out;
+                } else if (mPendingOpQueue.empty()) {
                     if (! mIdleTimeoutFlag && IsConnected()) {
                         mConnPtr->SetInactivityTimeout(mIdleTimeoutSec);
                         mIdleTimeoutFlag = true;
@@ -664,7 +690,8 @@ public:
                         break;
                     }
                 }
-                theReasonPtr = "inactivity timeout";
+                theReasonPtr = mPendingConnectOpPtr ?
+                    "connection timeout" : "inactivity timeout";
                 theError     = -ETIMEDOUT;
                 // Fall through.
             case EVENT_NET_ERROR:
@@ -730,7 +757,7 @@ public:
                 } else {
                     mStats.mConnectFailureCount++;
                 }
-                if (! mPendingOpQueue.empty()) {
+                if (! mPendingOpQueue.empty() || mPendingConnectOpPtr) {
                     RetryConnect(theOutstandingOpPtr, theError);
                 }
                 break;
@@ -864,6 +891,7 @@ public:
                     theBufPtr, theBufLen, kOwnsContentBufFlag);
                 mAuthOp.contentLength = theBufLen;
                 mAuthOp.seq           = theSeq + 1;
+                mAuthOp.rackId        = mRackId;
                 EnqueueAuth(mAuthOp);
                 return;
             }
@@ -1022,6 +1050,9 @@ public:
         }
         return true;
     }
+    void SetRackId(
+        int inRackId)
+        { mRackId = inRackId; }
     int SetMetaServerLocations(
         const ServerLocation& inLocation,
         const char*           inLocationsStrPtr,
@@ -1181,7 +1212,8 @@ private:
               mPendingBytesSend(0),
               mRetryCount(0),
               mSleepingFlag(false),
-              mResolvedFlag(inResolvedFlag)
+              mResolvedFlag(inResolvedFlag),
+              mPendingConnectFlag(false)
         {
             SET_HANDLER(this, &MetaCheckVrPrimaryChecker::EventHandler);
             List::Init(*this);
@@ -1206,7 +1238,18 @@ private:
                 case EVENT_NET_READ: {
                         assert(inDataPtr && mConnPtr &&
                             &mConnPtr->GetInBuffer() == inDataPtr);
-                        HandleResponse(mConnPtr->GetInBuffer());
+                        if (mPendingConnectFlag) {
+                            KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix <<
+                                "VR checker: "  << mLocation <<
+                                "unexpected data received with pending send: " <<
+                                    mOuter.mLookupOp.Show() <<
+                                " data: " << IOBuffer::DisplayData(
+                                    mConnPtr->GetInBuffer(), 512) <<
+                            KFS_LOG_EOM;
+                            Retry();
+                        } else {
+                            HandleResponse(mConnPtr->GetInBuffer());
+                        }
                     }
                     break;
 
@@ -1219,6 +1262,14 @@ private:
                                 mPendingBytesSend - theRem;
                         }
                         mPendingBytesSend = theRem;
+                        if (mPendingConnectFlag) {
+                            mPendingConnectFlag = false;
+                            KFS_LOG_STREAM_DEBUG << mOuter.mLogPrefix <<
+                                "VR checker: "  << mLocation <<
+                                " connected, sending request" <<
+                            KFS_LOG_EOM;
+                            Request();
+                        }
                     }
                     break;
 
@@ -1268,7 +1319,8 @@ private:
                 mConnPtr->Close();
                 mConnPtr.reset();
             }
-            mPendingBytesSend = 0;
+            mPendingBytesSend   = 0;
+            mPendingConnectFlag = false;
         }
         bool IsActive() const
             { return (0 != mConnPtr || mSleepingFlag); }
@@ -1293,6 +1345,7 @@ private:
         int                        mRetryCount;
         bool                       mSleepingFlag;
         bool const                 mResolvedFlag;
+        bool                       mPendingConnectFlag;
         MetaCheckVrPrimaryChecker* mPrevPtr[1];
         MetaCheckVrPrimaryChecker* mNextPtr[1];
 
@@ -1311,7 +1364,14 @@ private:
         }
         void Request()
         {
+            assert(mConnPtr && ! mPendingConnectFlag);
+            mPendingConnectFlag =
+                mConnPtr->GetNetManagerEntry()->IsConnectPending();
+            if (mPendingConnectFlag) {
+                return;
+            }
             mOuter.InitHelloLookupOp();
+            mConnPtr->GetSockLocation(mOuter.mLookupOp.clientLocation);
             ReqOstream theStream(mOuter.mOstream.Set(mConnPtr->GetOutBuffer()));
             mOuter.mLookupOp.Request(theStream);
             mOuter.mOstream.Reset();
@@ -1398,15 +1458,11 @@ private:
                 " in "                << mOuter.mTimeSecBetweenRetries <<
                 " seconds" <<
             KFS_LOG_EOM;
-            if (0 < mOuter.mTimeSecBetweenRetries) {
-                mOuter.mStats.mSleepTimeSec += mOuter.mTimeSecBetweenRetries;
-                SetTimeoutInterval(
-                    mOuter.mTimeSecBetweenRetries * 1000, true);
-                mSleepingFlag = true;
-                mOuter.mNetManagerPtr->RegisterTimeoutHandler(this);
-            } else {
-                Timeout();
-            }
+            mOuter.mStats.mSleepTimeSec += mOuter.mTimeSecBetweenRetries;
+            SetTimeoutInterval(
+                max(0, mOuter.mTimeSecBetweenRetries * 1000), true);
+            mSleepingFlag = true;
+            mOuter.mNetManagerPtr->RegisterTimeoutHandler(this);
         }
     private:
         MetaCheckVrPrimaryChecker(
@@ -1618,6 +1674,8 @@ private:
     MetaLocations              mMetaLocations;
     ServerLocation             mMetaServerLocation;
     Resolver*                  mResolverPtr;
+    KfsOp*                     mPendingConnectOpPtr;
+    int                        mRackId;
     ResolverReq*               mResolverReqsPtr[1];
     MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
 
@@ -1642,6 +1700,7 @@ private:
         mLookupOp.authType                    = kAuthenticationTypeNone;
         mLookupOp.vrPrimaryFlag               = false;
         mLookupOp.responseHasVrPrimaryKeyFlag = false;
+        mLookupOp.rackId                      = mRackId;
         mLookupOp.seq                         = mNextSeqNum++;
     }
     void SetVrPrimary(
@@ -1870,7 +1929,16 @@ private:
     void EnqueueAuth(
         KfsOp& inOp)
     {
-        assert(! mOutstandingOpPtr && mConnPtr && ! mConnPtr->IsWriteReady());
+        assert(! mOutstandingOpPtr && mConnPtr && ! mConnPtr->IsWriteReady() &&
+            ! mPendingConnectOpPtr);
+        if (&mLookupOp == &inOp || &mAuthOp == &inOp) {
+            if (mConnPtr->GetNetManagerEntry()->IsConnectPending()) {
+                mPendingConnectOpPtr = &inOp;
+                return;
+            }
+            mConnPtr->GetSockLocation(&mLookupOp == &inOp ?
+                mLookupOp.clientLocation : mAuthOp.clientLocation);
+        }
         SetMaxWaitTime(inOp, 0);
         pair<OpQueue::iterator, bool> const theRes =
             mPendingOpQueue.insert(make_pair(
@@ -2049,7 +2117,7 @@ private:
                     "error: " << inLocation <<
                     ": exceeded max. response header size: " <<
                     mMaxRpcHeaderLength << "; got " <<
-                    inBuffer.BytesConsumable() << " resetting connection " <<
+                    inBuffer.BytesConsumable() << " resetting connection," <<
                     " data: " << IOBuffer::DisplayData(inBuffer, 512) <<
                 KFS_LOG_EOM;
                 outErrorFlag = true;
@@ -2436,6 +2504,7 @@ private:
             Cancel(&mAuthOp, this);
             mAuthOp.seq = -1;
         }
+        mPendingConnectOpPtr       = 0;
         mReadHeaderDoneFlag        = false;
         mContentLength             = 0;
         mSslShutdownInProgressFlag = false;
@@ -2525,22 +2594,18 @@ private:
                 mNonAuthRetryCount = mRetryCount;
             }
             ResetConnection();
-            if (0 < mTimeSecBetweenRetries) {
-                KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
-                    " retry attempt "           << mRetryCount <<
-                    " of "                      << mMaxRetryCount <<
-                    ", will retry "             << mPendingOpQueue.size() <<
-                    " pending operation(s) in " << mTimeSecBetweenRetries <<
-                    " seconds" <<
-                KFS_LOG_EOM;
-                mStats.mSleepTimeSec += mTimeSecBetweenRetries;
-                SetTimeoutInterval(mTimeSecBetweenRetries * 1000, true);
-                mSleepingFlag = true;
-                mNetManagerPtr->RegisterTimeoutHandler(this);
-            } else {
-                Timeout();
-            }
-        } else if (IsAuthInFlight()) {
+            KFS_LOG_STREAM_INFO << mLogPrefix << mServerLocation <<
+                " retry attempt "           << mRetryCount <<
+                " of "                      << mMaxRetryCount <<
+                ", will retry "             << mPendingOpQueue.size() <<
+                " pending operation(s) in " << mTimeSecBetweenRetries <<
+                " seconds" <<
+            KFS_LOG_EOM;
+            mStats.mSleepTimeSec += mTimeSecBetweenRetries;
+            SetTimeoutInterval(max(0, mTimeSecBetweenRetries * 1000), true);
+            mSleepingFlag = true;
+            mNetManagerPtr->RegisterTimeoutHandler(this);
+        } else if (IsAuthInFlight() && ! mPendingConnectOpPtr) {
             OpQueue::iterator const theIt = mPendingOpQueue.begin();
             assert(
                 theIt != mPendingOpQueue.end() &&
@@ -2602,7 +2667,7 @@ private:
     }
     void OpsTimeout()
     {
-        if (mOpTimeoutSec <= 0 || ! IsConnected()) {
+        if (mOpTimeoutSec <= 0 || ! IsConnected() || mPendingConnectOpPtr) {
             return;
         }
         const time_t theNow = Now();
@@ -3226,6 +3291,14 @@ KfsNetClient::SetThread(
     // Do not change ref count, in order to allow to set different thread than
     // the current.
     mImpl.SetThread(inThreadPtr);
+}
+
+    void
+KfsNetClient::SetRackId(
+    int inRackId)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetRackId(inRackId);
 }
 
     void

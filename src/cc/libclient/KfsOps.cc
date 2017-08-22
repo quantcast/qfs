@@ -408,6 +408,17 @@ LookupOp::Request(ReqOstream& os)
     if (reqShortRpcFormatFlag && ! shortRpcFormatFlag) {
         os << "Short-rpc-fmt: 1\r\n";
     }
+    if (0 <= rackId) {
+        os << (shortRpcFormatFlag ? "R:" : "Rack-id: ") << rackId << "\r\n";
+    }
+    if (! clientLocation.hostname.empty()) {
+        os << (shortRpcFormatFlag ? "C:" : "Client-ip: ") <<
+            clientLocation.hostname << "\r\n";
+    }
+    if (0 <= clientLocation.port) {
+        os << (shortRpcFormatFlag ? "CP:" : "Client-port: ") <<
+            clientLocation.port << "\r\n";
+    }
     os << "\r\n";
 }
 
@@ -1704,6 +1715,17 @@ AuthenticateOp::Request(ReqOstream& os)
     }
     if (reqShortRpcFormatFlag && ! shortRpcFormatFlag) {
         os << "Short-rpc-fmt: 1\r\n";
+    }
+    if (0 <= rackId) {
+        os << (shortRpcFormatFlag ? "R:" : "Rack-id: ") << rackId << "\r\n";
+    }
+    if (! clientLocation.hostname.empty()) {
+        os << (shortRpcFormatFlag ? "C:" : "Client-ip: ") <<
+            clientLocation.hostname << "\r\n";
+    }
+    if (0 <= clientLocation.port) {
+        os << (shortRpcFormatFlag ? "CP:" : "Client-port: ") <<
+            clientLocation.port << "\r\n";
     }
     os << "\r\n";
 }

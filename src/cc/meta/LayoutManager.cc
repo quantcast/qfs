@@ -1610,8 +1610,20 @@ LayoutManager::FindServerByHost(const T& host) const
         it : mChunkServers.end());
 }
 
-template<typename T> bool
-LayoutManager::GetAccessProxy(T& req, LayoutManager::Servers& servers)
+inline LayoutManager::Servers::const_iterator
+LayoutManager::FindServerForReq(const MetaRequest& req)
+{
+    LayoutManager::Servers::const_iterator it = req.clientIp.empty() ?
+        mChunkServers.end() : FindServerByHost(req.clientIp);
+    if (mChunkServers.end() == it && ! req.clientReportedIp.empty() &&
+            req.clientIp != req.clientReportedIp) {
+        it = FindServerByHost(req.clientReportedIp);
+    }
+    return it;
+}
+
+template <typename T> bool
+LayoutManager::GetAccessProxyFromReq(T& req, LayoutManager::Servers& servers)
 {
     ServerLocation loc;
     if (! loc.FromString(
@@ -1660,10 +1672,10 @@ LayoutManager::FindAccessProxy(MetaAllocate& req)
     req.servers.clear();
     if (req.chunkServerName.empty()) {
         Servers::const_iterator const it = mObjectStorePlacementTestFlag ?
-            mChunkServers.end() : FindServerByHost(req.clientIp);
+            mChunkServers.end() : FindServerForReq(req);
         if (it == mChunkServers.end()) {
             if (mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag) {
-                if (FindAccessProxy(req.clientIp, req.servers)) {
+                if (FindAccessProxyFor(req, req.servers)) {
                     return true;
                 }
                 req.statusMsg = "no access proxy available";
@@ -1674,7 +1686,7 @@ LayoutManager::FindAccessProxy(MetaAllocate& req)
             }
         }
         req.servers.push_back(*it);
-    } else if (! GetAccessProxy(req, req.servers)) {
+    } else if (! GetAccessProxyFromReq(req, req.servers)) {
         return false;
     }
     return true;
@@ -3042,6 +3054,19 @@ LayoutManager::RackId
 LayoutManager::GetRackId(const string& name) const
 {
     return mRackPrefixes.GetId(name, -1);
+}
+
+LayoutManager::RackId
+LayoutManager::GetRackId(const MetaRequest& req) const
+{
+    if (0 <= req.clientRackId) {
+        return req.clientRackId;
+    }
+    const RackId rackId = mRackPrefixes.GetId(req.clientIp, -1);
+    if (0 <= rackId) {
+        return rackId;
+    }
+    return mRackPrefixes.GetId(req.clientReportedIp, -1);
 }
 
 void
@@ -6558,12 +6583,11 @@ LayoutManager::AllocateChunk(
     // that is a chunk master is never made a slave.
     ChunkServerPtr localserver;
     int            replicaCnt = 0;
-    Servers::const_iterator const li = (! (req.appendChunk ?
+    Servers::const_iterator const li = (req.appendChunk ?
         (mAllowLocalPlacementForAppendFlag && ! mInRackPlacementForAppendFlag) :
-        mAllowLocalPlacementFlag) ||
-        req.clientIp.empty()) ?
-        mChunkServers.end() :
-        FindServerByHost(req.clientIp);
+        mAllowLocalPlacementFlag) ?
+        FindServerForReq(req) :
+        mChunkServers.end();
     if (li != mChunkServers.end() &&
             (mAppendPlacementIgnoreMasterSlaveFlag ||
                 ! req.appendChunk || (*li)->CanBeChunkMaster()) &&
@@ -6583,10 +6607,10 @@ LayoutManager::AllocateChunk(
             rackIdToUse = (*li)->GetRack();
         }
         if (rackIdToUse < 0) {
-            rackIdToUse = GetRackId(req.clientIp);
+            rackIdToUse = GetRackId(req);
         }
         if (rackIdToUse < 0 && li == mChunkServers.end()) {
-            Servers::const_iterator const it = FindServerByHost(req.clientIp);
+            Servers::const_iterator const it = FindServerForReq(req);
             if (it != mChunkServers.end()) {
                 rackIdToUse = (*it)->GetRack();
             }
@@ -7714,8 +7738,8 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
             if (req.chunkServerName.empty()) {
-                GetAccessProxyForHost(req.clientIp, servers);
-            } else if (! GetAccessProxy(req, servers)) {
+                GetAccessProxy(req, servers);
+            } else if (! GetAccessProxyFromReq(req, servers)) {
                 if (0 == req.status) {
                     req.status = -EINVAL;
                 }
@@ -8048,8 +8072,8 @@ LayoutManager::Handle(MetaLeaseRenew& req)
             StTmp<Servers> serversTmp(mServers3Tmp);
             Servers&       servers = serversTmp.Get();
             if (req.chunkServerName.empty()) {
-                GetAccessProxyForHost(req.clientIp, servers);
-            } else if (! GetAccessProxy(req, servers)) {
+                GetAccessProxy(req, servers);
+            } else if (! GetAccessProxyFromReq(req, servers)) {
                 if (0 == req.status) {
                     req.status = -EINVAL;
                 }
@@ -13487,13 +13511,13 @@ LayoutManager::Handle(MetaForceChunkReplication& op)
 }
 
 bool
-LayoutManager::FindAccessProxy(
-    const string&           host,
+LayoutManager::FindAccessProxyFor(
+    const MetaRequest&      req,
     LayoutManager::Servers& srvs)
 {
     for (int pass = 0; pass < 2; pass++) {
         const RackId                    rackId =
-            pass == 0 ? GetRackId(host) : RackId(-1);
+            pass == 0 ? GetRackId(req) : RackId(-1);
         RackInfos::const_iterator const it     =
             rackId < 0 ? mRacks.end() : FindRack(rackId);
         if (it == mRacks.end() && 0 == pass) {
@@ -13537,22 +13561,20 @@ LayoutManager::FindAccessProxy(
     return false;
 }
 
-void
-LayoutManager::GetAccessProxyForHost(
-    const string&           host,
+bool
+LayoutManager::GetAccessProxy(
+    const MetaRequest&      req,
     LayoutManager::Servers& servers)
 {
     Servers::const_iterator it = mObjectStorePlacementTestFlag ?
-        mChunkServers.end() : FindServerByHost(host);
+        mChunkServers.end() : FindServerForReq(req);
     servers.clear();
     if (it != mChunkServers.end()) {
         servers.push_back(*it);
-        return;
+        return true;
     }
-    if (! mObjectStoreReadCanUsePoxoyOnDifferentHostFlag) {
-        return;
-    }
-    FindAccessProxy(host, servers);
+    return (mObjectStoreReadCanUsePoxoyOnDifferentHostFlag &&
+        FindAccessProxyFor(req, servers));
 }
 
 bool

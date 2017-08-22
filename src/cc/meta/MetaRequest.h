@@ -264,6 +264,7 @@ struct MetaRequest {
     int             status;          //!< returned status
     int             clientProtoVers; //!< protocol version # sent by client
     int             submitCount;     //!< for time tracking.
+    int             clientRackId;    //!< set by client
     int64_t         submitTime;      //!< to time requests, optional.
     int64_t         processTime;     //!< same as previous
     string          statusMsg;       //!< optional human readable status message
@@ -280,6 +281,7 @@ struct MetaRequest {
     bool            commitPendingFlag;
     bool            replayBypassFlag;
     string          clientIp;
+    string          clientReportedIp;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
     kfsGid_t        authGid;
@@ -295,6 +297,7 @@ struct MetaRequest {
           status(0),
           clientProtoVers(0),
           submitCount(0),
+          clientRackId(-1),
           submitTime(0),
           processTime(0),
           statusMsg(),
@@ -579,6 +582,7 @@ struct MetaLookup: public MetaRequest {
     fid_t  dir;      //!< parent directory fid
     string name;     //!< name to look up
     int    authType; //!< io auth type
+    int    clientReportedPort;
     bool   authInfoOnlyFlag;
     bool   primaryFlag;
     MFattr fattr;
@@ -587,6 +591,7 @@ struct MetaLookup: public MetaRequest {
           dir(-1),
           name(),
           authType(kAuthenticationTypeUndef),
+          clientReportedPort(-1),
           authInfoOnlyFlag(false),
           primaryFlag(false),
           fattr()
@@ -610,10 +615,13 @@ struct MetaLookup: public MetaRequest {
     {
         return MetaRequest::ParserDef(parser)
         .Def2("Short-rpc-fmt",      "f", &MetaRequest::shortRpcFormatFlag)
-        .Def2("Parent File-handle", "P", &MetaLookup::dir,              fid_t(-1))
-        .Def2("Filename",           "N", &MetaLookup::name              )
+        .Def2("Parent File-handle", "P", &MetaLookup::dir,          fid_t(-1))
+        .Def2("Filename",           "N", &MetaLookup::name)
         .Def2("Auth-type",          "A", &MetaLookup::authType,         int(kAuthenticationTypeUndef))
         .Def2("Auth-info-only",     "I", &MetaLookup::authInfoOnlyFlag, false)
+        .Def2("Rack-id",            "R", &MetaLookup::clientRackId,        -1)
+        .Def2("Client-ip",          "C", &MetaLookup::clientReportedIp)
+        .Def2("Client-port",       "CP", &MetaLookup::clientReportedPort,  -1)
         ;
     }
     bool IsAuthNegotiation() const
@@ -3555,6 +3563,7 @@ struct MetaAuthenticate : public MetaRequest {
     int                    sendContentLen;
     bool                   doneFlag;
     bool                   useSslFlag;
+    int                    clientReportedPort;
     int64_t                credExpirationTime;
     int64_t                sessionExpirationTime;
     string                 authName;
@@ -3571,6 +3580,7 @@ struct MetaAuthenticate : public MetaRequest {
           sendContentLen(0),
           doneFlag(false),
           useSslFlag(false),
+          clientReportedPort(-1),
           credExpirationTime(0),
           sessionExpirationTime(0),
           authName(),
@@ -3594,7 +3604,10 @@ struct MetaAuthenticate : public MetaRequest {
         return MetaRequest::ParserDef(parser)
         .Def2("Short-rpc-fmt",   "f", &MetaRequest::shortRpcFormatFlag)
         .Def2("Auth-type",       "A", &MetaAuthenticate::authType,      int(kAuthenticationTypeUndef))
-        .Def2("Content-length",  "l", &MetaAuthenticate::contentLength, int(0))
+        .Def2("Content-length",  "l", &MetaAuthenticate::contentLength,  int(0))
+        .Def2("Rack-id",         "R", &MetaAuthenticate::clientRackId,       -1)
+        .Def2("Client-ip",       "C", &MetaAuthenticate::clientReportedIp)
+        .Def2("Client-port",    "CP", &MetaAuthenticate::clientReportedPort, -1)
         ;
     }
 };

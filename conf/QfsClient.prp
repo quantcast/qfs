@@ -147,3 +147,7 @@
 # replicated meta server nods are running on the same host.
 # Default is empty.
 # client.metaServerNodes =
+
+# Set client's rack Id; takes precedence over client's IP address.
+# Default is -1, no rack Id specified.
+# client.rackId = -1

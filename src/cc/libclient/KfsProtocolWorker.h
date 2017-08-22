@@ -209,7 +209,8 @@ public:
             int                inMaxMetaServerContentLength  = 1 << 20,
             ClientAuthContext* inAuthContextPtr              = 0,
             bool               inUseClientPoolFlag           = false,
-            const string&      inMetaServerNodes             = string())
+            const string&      inMetaServerNodes             = string(),
+            int                inClientRackId                = -1)
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -261,6 +262,7 @@ public:
             ClientAuthContext*  mAuthContextPtr;
             bool                mUseClientPoolFlag;
             string              mMetaServerNodes;
+            int                 mClientRackId;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,

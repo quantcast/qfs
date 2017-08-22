@@ -283,6 +283,8 @@ public:
         size_t                inLocationsStrLen,
         bool                  inAllowDuplicatesFlag,
         bool                  inHexFormatFlag);
+    void SetRackId(
+        int inRackId);
     void Shutdown();
     // Debug
     void SetThread(

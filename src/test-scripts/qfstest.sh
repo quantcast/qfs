@@ -910,7 +910,8 @@ else
         cp /dev/null "$clientproppool" || exit
     fi
     cat >> "$clientproppool" << EOF
-client.connectionPool=1
+client.connectionPool = 1
+client.rackId = 0
 EOF
     if [ -f "$monitorpluginlib" ]; then
         cat >> "$clientproppool" << EOF

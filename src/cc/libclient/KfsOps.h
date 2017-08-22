@@ -555,20 +555,22 @@ struct ReaddirPlusOp : public KfsOp {
 
 // Lookup the attributes of a file in a directory
 struct LookupOp : public KfsOp {
-    kfsFileId_t parentFid; // fid of the parent dir
-    const char* filename;  // file in the dir
-    FileAttr    fattr;     // result
-    kfsUid_t    euser;     // result -- effective user set by the meta server
-    kfsGid_t    egroup;    // result -- effective group set by the meta server
-    int         authType;  // in / out auth type.
-    bool        getAuthInfoOnlyFlag; // if set retrieve authentication info only
-    bool        reqShortRpcFormatFlag;
-    bool        vrPrimaryFlag;
-    bool        responseHasVrPrimaryKeyFlag;
-    string      userName;
-    string      groupName;
-    string      euserName;
-    string      egroupName;
+    kfsFileId_t    parentFid; // fid of the parent dir
+    const char*    filename;  // file in the dir
+    FileAttr       fattr;     // result
+    kfsUid_t       euser;     // result -- effective user set by the meta server
+    kfsGid_t       egroup;    // result -- effective group set by the meta server
+    int            authType;  // in / out auth type.
+    int            rackId;    // in rack id
+    bool           getAuthInfoOnlyFlag; // if set retrieve authentication info only
+    bool           reqShortRpcFormatFlag;
+    bool           vrPrimaryFlag;
+    bool           responseHasVrPrimaryKeyFlag;
+    string         userName;
+    string         groupName;
+    string         euserName;
+    string         egroupName;
+    ServerLocation clientLocation;
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char* f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
         : KfsOp(CMD_LOOKUP, s),
@@ -577,6 +579,7 @@ struct LookupOp : public KfsOp {
           euser(eu),
           egroup(eg),
           authType(kAuthenticationTypeUndef),
+          rackId(-1),
           getAuthInfoOnlyFlag(false),
           reqShortRpcFormatFlag(false),
           vrPrimaryFlag(false),
@@ -584,7 +587,8 @@ struct LookupOp : public KfsOp {
           userName(),
           groupName(),
           euserName(),
-          egroupName()
+          egroupName(),
+          clientLocation()
         {}
     void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
@@ -1651,12 +1655,14 @@ struct ChownOp : public KfsOp {
 };
 
 struct AuthenticateOp : public KfsOp {
-    int     requestedAuthType;
-    int     chosenAuthType;
-    bool    useSslFlag;
-    bool    reqShortRpcFormatFlag;
-    int64_t currentTime;
-    int64_t sessionEndTime;
+    int            requestedAuthType;
+    int            chosenAuthType;
+    bool           useSslFlag;
+    bool           reqShortRpcFormatFlag;
+    int64_t        currentTime;
+    int64_t        sessionEndTime;
+    int            rackId;
+    ServerLocation clientLocation;
 
     AuthenticateOp(kfsSeq_t s, int authType)
         : KfsOp (CMD_AUTHENTICATE, s),
@@ -1665,7 +1671,9 @@ struct AuthenticateOp : public KfsOp {
           useSslFlag(false),
           reqShortRpcFormatFlag(false),
           currentTime(-1),
-          sessionEndTime(-1)
+          sessionEndTime(-1),
+          rackId(-1),
+          clientLocation()
         {}
     virtual void Request(ReqOstream& os);
     virtual void ParseResponseHeaderSelf(const Properties& prop);
