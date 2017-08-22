@@ -453,16 +453,16 @@ TcpSocket::Connect(
     }
     SetupSocket();
     int res = connect(mSockFd, remoteAddr.Ptr(), remoteAddr.Size());
-    if (res < 0 && errno != EINPROGRESS) {
-        return PerrorFatal(remoteAddr);
-    }
-    if (res && nonblockingConnect) {
+    if (res < 0) {
         res = -errno;
 #ifdef EALREADY
         if (res == -EALREADY) {
             res = -EINPROGRESS;
         }
 #endif
+    }
+    if (res != -EINPROGRESS) {
+        return PerrorFatal(remoteAddr);
     }
     if (! nonblockingConnect) {
         if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
