@@ -41,7 +41,6 @@
 #include "qcdio/QCDLList.h"
 #include "qcdio/QCThread.h"
 #include "KfsOps.h"
-#include "utils.h"
 
 #include <sstream>
 #include <algorithm>
@@ -1015,8 +1014,8 @@ public:
         }
         if (TcpSocket::IsValidConnectToIpAddress(inLocation.hostname.c_str())) {
             if (! inAllowDuplicatesFlag) {
-                MetaVrList::Iterator             theIt(mMetaVrListPtr);
-                const MetaCheckVrPrimaryChecker* thePtr;
+                MetaVrList::Iterator        theIt(mMetaVrListPtr);
+                const MetaVrPrimaryChecker* thePtr;
                 while ((thePtr = theIt.Next())) {
                     if (thePtr->GetLocation() == inLocation) {
                         return false;
@@ -1025,7 +1024,7 @@ public:
             }
             const bool kLocationResolvedFlag = false;
             MetaVrList::PushBack(mMetaVrListPtr,
-                *(new MetaCheckVrPrimaryChecker(
+                *(new MetaVrPrimaryChecker(
                     inLocation, *this, kLocationResolvedFlag)));
             mMetaVrNodesCount++;
             return true;
@@ -1098,7 +1097,7 @@ public:
     void ClearMetaServerLocations()
     {
         CancelVrPrimaryCheck();
-        MetaCheckVrPrimaryChecker* thePtr;
+        MetaVrPrimaryChecker* thePtr;
         while ((thePtr = MetaVrList::PopFront(mMetaVrListPtr))) {
             delete thePtr;
         }
@@ -1136,8 +1135,9 @@ private:
             char* /* inBufferPtr */)
             {}
     };
-    struct OpQueueEntry
+    class OpQueueEntry
     {
+    public:
         OpQueueEntry(
             KfsOp*    inOpPtr        = 0,
             OpOwner*  inOwnerPtr     = 0,
@@ -1194,12 +1194,12 @@ private:
     enum { kMaxReadAhead = 4 << 10 };
     typedef ClientAuthContext::RequestCtx AuthRequestCtx;
 
-    class MetaCheckVrPrimaryChecker : public KfsCallbackObj, public ITimeout
+    class MetaVrPrimaryChecker : public KfsCallbackObj, public ITimeout
     {
     public:
-        typedef QCDLList<MetaCheckVrPrimaryChecker> List;
+        typedef QCDLList<MetaVrPrimaryChecker> List;
 
-        MetaCheckVrPrimaryChecker(
+        MetaVrPrimaryChecker(
             const ServerLocation& inLocation,
             Impl&                 inOuter,
             bool                  inResolvedFlag)
@@ -1215,11 +1215,11 @@ private:
               mResolvedFlag(inResolvedFlag),
               mPendingConnectFlag(false)
         {
-            SET_HANDLER(this, &MetaCheckVrPrimaryChecker::EventHandler);
+            SET_HANDLER(this, &MetaVrPrimaryChecker::EventHandler);
             List::Init(*this);
         }
-        virtual ~MetaCheckVrPrimaryChecker()
-            { MetaCheckVrPrimaryChecker::Reset(); }
+        virtual ~MetaVrPrimaryChecker()
+            { MetaVrPrimaryChecker::Reset(); }
         void Connect()
         {
             mRetryCount = 0;
@@ -1240,10 +1240,10 @@ private:
                             &mConnPtr->GetInBuffer() == inDataPtr);
                         if (mPendingConnectFlag) {
                             KFS_LOG_STREAM_ERROR << mOuter.mLogPrefix <<
-                                "VR checker: "  << mLocation <<
-                                "unexpected data received with pending send: " <<
-                                    mOuter.mLookupOp.Show() <<
-                                " data: " << IOBuffer::DisplayData(
+                                "VR checker: "    << mLocation <<
+                                " unexpected data received with"
+                                " pending send: " << mOuter.mLookupOp.Show() <<
+                                " data: "         << IOBuffer::DisplayData(
                                     mConnPtr->GetInBuffer(), 512) <<
                             KFS_LOG_EOM;
                             Retry();
@@ -1337,19 +1337,19 @@ private:
             ConnectSelf();
         }
     private:
-        Impl&                      mOuter;
-        ServerLocation const       mLocation;
-        NetConnectionPtr           mConnPtr;
-        kfsSeq_t                   mSeq;
-        int                        mPendingBytesSend;
-        int                        mRetryCount;
-        bool                       mSleepingFlag;
-        bool const                 mResolvedFlag;
-        bool                       mPendingConnectFlag;
-        MetaCheckVrPrimaryChecker* mPrevPtr[1];
-        MetaCheckVrPrimaryChecker* mNextPtr[1];
+        Impl&                 mOuter;
+        ServerLocation const  mLocation;
+        NetConnectionPtr      mConnPtr;
+        kfsSeq_t              mSeq;
+        int                   mPendingBytesSend;
+        int                   mRetryCount;
+        bool                  mSleepingFlag;
+        bool const            mResolvedFlag;
+        bool                  mPendingConnectFlag;
+        MetaVrPrimaryChecker* mPrevPtr[1];
+        MetaVrPrimaryChecker* mNextPtr[1];
 
-        friend class QCDLListOp<MetaCheckVrPrimaryChecker>;
+        friend class QCDLListOp<MetaVrPrimaryChecker>;
 
         void ConnectSelf()
         {
@@ -1465,13 +1465,13 @@ private:
             mOuter.mNetManagerPtr->RegisterTimeoutHandler(this);
         }
     private:
-        MetaCheckVrPrimaryChecker(
-            const MetaCheckVrPrimaryChecker& inChecker);
-        MetaCheckVrPrimaryChecker& operator=(
-            const MetaCheckVrPrimaryChecker& inChecker);
+        MetaVrPrimaryChecker(
+            const MetaVrPrimaryChecker& inChecker);
+        MetaVrPrimaryChecker& operator=(
+            const MetaVrPrimaryChecker& inChecker);
     };
-    friend class MetaCheckVrPrimaryChecker;
-    typedef MetaCheckVrPrimaryChecker::List MetaVrList;
+    friend class MetaVrPrimaryChecker;
+    typedef MetaVrPrimaryChecker::List MetaVrList;
 
     class ResolverReq : public Resolver::Request, public ITimeout
     {
@@ -1611,73 +1611,73 @@ private:
     typedef ResolverReq::List ResolverList;
     typedef vector<ServerLocation> MetaLocations;
 
-    ServerLocation             mServerLocation;
-    OpQueue                    mPendingOpQueue;
-    QueueStack                 mQueueStack;
-    NetConnectionPtr           mConnPtr;
-    kfsSeq_t                   mNextSeqNum;
-    bool                       mReadHeaderDoneFlag;
-    bool                       mSleepingFlag;
-    bool                       mDataReceivedFlag;
-    bool                       mDataSentFlag;
-    bool                       mAllDataSentFlag;
-    bool                       mRetryConnectOnlyFlag;
-    bool                       mIdleTimeoutFlag;
-    bool                       mPrevAuthFailureFlag;
-    bool                       mResetConnectionOnOpTimeoutFlag;
-    bool                       mFailAllOpsOnOpTimeoutFlag;
-    bool                       mMaxOneOutstandingOpFlag;
-    bool                       mShutdownSslFlag;
-    bool                       mSslShutdownInProgressFlag;
-    int                        mTimeSecBetweenRetries;
-    int                        mOpTimeoutSec;
-    int                        mIdleTimeoutSec;
-    int                        mRetryCount;
-    int                        mNonAuthRetryCount;
-    int                        mContentLength;
-    int                        mMaxRetryCount;
-    int                        mMaxContentLength;
-    int                        mAuthFailureCount;
-    int                        mMaxRpcHeaderLength;
-    int                        mPendingBytesSend;
-    int                        mMetaLogWriteRetryCount;
-    int                        mMaxMetaLogWriteRetryCount;
-    RpcFormat                  mRpcFormat;
-    OpQueueEntry*              mInFlightOpPtr;
-    OpQueueEntry*              mOutstandingOpPtr;
-    char*                      mInFlightRecvBufPtr;
-    OpQueue::iterator          mCurOpIt;
-    IOBuffer::IStream          mIstream;
-    IOBuffer::WOStream         mOstream;
-    Properties                 mProperties;
-    Stats                      mStats;
-    int64_t                    mDisconnectCount;
-    EventObserver*             mEventObserverPtr;
-    const string               mLogPrefix;
-    NetManager*                mNetManagerPtr;
-    ClientAuthContext*         mAuthContextPtr;
-    int64_t                    mSessionExpirationTime;
-    int64_t                    mKeyExpirationTime;
-    string                     mKeyId;
-    string                     mKeyData;
-    string                     mSessionKeyId;
-    string                     mSessionKeyData;
-    string                     mCommonHeaders;
-    string                     mCommonShortHeaders;
-    AuthRequestCtx             mAuthRequestCtx;
-    LookupOp                   mLookupOp;
-    AuthenticateOp             mAuthOp;
-    int                        mMetaVrNodesCount;
-    int                        mMetaVrNodesActiveCount;
-    int                        mResolverInFlightCount;
-    int                        mResolverReqsCount;
-    MetaLocations              mMetaLocations;
-    ServerLocation             mMetaServerLocation;
-    Resolver*                  mResolverPtr;
-    KfsOp*                     mPendingConnectOpPtr;
-    int                        mRackId;
-    ResolverReq*               mResolverReqsPtr[1];
-    MetaCheckVrPrimaryChecker* mMetaVrListPtr[1];
+    ServerLocation        mServerLocation;
+    OpQueue               mPendingOpQueue;
+    QueueStack            mQueueStack;
+    NetConnectionPtr      mConnPtr;
+    kfsSeq_t              mNextSeqNum;
+    bool                  mReadHeaderDoneFlag;
+    bool                  mSleepingFlag;
+    bool                  mDataReceivedFlag;
+    bool                  mDataSentFlag;
+    bool                  mAllDataSentFlag;
+    bool                  mRetryConnectOnlyFlag;
+    bool                  mIdleTimeoutFlag;
+    bool                  mPrevAuthFailureFlag;
+    bool                  mResetConnectionOnOpTimeoutFlag;
+    bool                  mFailAllOpsOnOpTimeoutFlag;
+    bool                  mMaxOneOutstandingOpFlag;
+    bool                  mShutdownSslFlag;
+    bool                  mSslShutdownInProgressFlag;
+    int                   mTimeSecBetweenRetries;
+    int                   mOpTimeoutSec;
+    int                   mIdleTimeoutSec;
+    int                   mRetryCount;
+    int                   mNonAuthRetryCount;
+    int                   mContentLength;
+    int                   mMaxRetryCount;
+    int                   mMaxContentLength;
+    int                   mAuthFailureCount;
+    int                   mMaxRpcHeaderLength;
+    int                   mPendingBytesSend;
+    int                   mMetaLogWriteRetryCount;
+    int                   mMaxMetaLogWriteRetryCount;
+    RpcFormat             mRpcFormat;
+    OpQueueEntry*         mInFlightOpPtr;
+    OpQueueEntry*         mOutstandingOpPtr;
+    char*                 mInFlightRecvBufPtr;
+    OpQueue::iterator     mCurOpIt;
+    IOBuffer::IStream     mIstream;
+    IOBuffer::WOStream    mOstream;
+    Properties            mProperties;
+    Stats                 mStats;
+    int64_t               mDisconnectCount;
+    EventObserver*        mEventObserverPtr;
+    const string          mLogPrefix;
+    NetManager*           mNetManagerPtr;
+    ClientAuthContext*    mAuthContextPtr;
+    int64_t               mSessionExpirationTime;
+    int64_t               mKeyExpirationTime;
+    string                mKeyId;
+    string                mKeyData;
+    string                mSessionKeyId;
+    string                mSessionKeyData;
+    string                mCommonHeaders;
+    string                mCommonShortHeaders;
+    AuthRequestCtx        mAuthRequestCtx;
+    LookupOp              mLookupOp;
+    AuthenticateOp        mAuthOp;
+    int                   mMetaVrNodesCount;
+    int                   mMetaVrNodesActiveCount;
+    int                   mResolverInFlightCount;
+    int                   mResolverReqsCount;
+    MetaLocations         mMetaLocations;
+    ServerLocation        mMetaServerLocation;
+    Resolver*             mResolverPtr;
+    KfsOp*                mPendingConnectOpPtr;
+    int                   mRackId;
+    ResolverReq*          mResolverReqsPtr[1];
+    MetaVrPrimaryChecker* mMetaVrListPtr[1];
 
     virtual ~Impl()
         { Impl::Shutdown(); }
@@ -1747,7 +1747,7 @@ private:
     {
         assert(0 < mResolverInFlightCount);
         mResolverInFlightCount--;
-        MetaCheckVrPrimaryChecker* theListPtr[1];
+        MetaVrPrimaryChecker* theListPtr[1];
         MetaVrList::Init(theListPtr);
         int theResolvedCount = 0;
         if (0 == inReq.GetStatus()) {
@@ -1767,7 +1767,7 @@ private:
                             ++theIpIt) {
                         ServerLocation const theLocation(*theIpIt, theIt->port);
                         MetaVrList::Iterator             theVrIt(mMetaVrListPtr);
-                        const MetaCheckVrPrimaryChecker* thePtr;
+                        const MetaVrPrimaryChecker* thePtr;
                         while ((thePtr = theVrIt.Next())) {
                             if (thePtr->GetLocation() == theLocation) {
                                 break;
@@ -1783,7 +1783,7 @@ private:
                             KFS_LOG_EOM;
                             const bool kLocationResolvedFlag = true;
                             MetaVrList::PushBack(theListPtr,
-                                *(new MetaCheckVrPrimaryChecker(
+                                *(new MetaVrPrimaryChecker(
                                     theLocation, *this, kLocationResolvedFlag)));
                             theResolvedCount++;
                         }
@@ -1807,7 +1807,7 @@ private:
         }
         mMetaVrNodesCount       += theResolvedCount;
         mMetaVrNodesActiveCount += theResolvedCount;
-        MetaCheckVrPrimaryChecker* thePtr;
+        MetaVrPrimaryChecker* thePtr;
         StRef theRef(*this);
         bool theScheduleFlag = true;
         while ((thePtr = MetaVrList::PopFront(theListPtr))) {
@@ -1867,8 +1867,8 @@ private:
             thePtr->Enqueue();
         }
         mMetaVrNodesActiveCount = mMetaVrNodesCount;
-        MetaVrList::Iterator       theVrIt(mMetaVrListPtr);
-        MetaCheckVrPrimaryChecker* theVrPtr;
+        MetaVrList::Iterator  theVrIt(mMetaVrListPtr);
+        MetaVrPrimaryChecker* theVrPtr;
         while (0 < mMetaVrNodesActiveCount && (theVrPtr = theVrIt.Next())) {
             theVrPtr->Connect();
         }
@@ -1876,8 +1876,8 @@ private:
     }
     void CancelVrPrimaryCheck()
     {
-        MetaVrList::Iterator       theIt(mMetaVrListPtr);
-        MetaCheckVrPrimaryChecker* thePtr;
+        MetaVrList::Iterator  theIt(mMetaVrListPtr);
+        MetaVrPrimaryChecker* thePtr;
         while ((thePtr = theIt.Next())) {
             thePtr->Reset();
             if (thePtr->IsLocationResolved()) {
