@@ -1152,7 +1152,9 @@ ParseFileAttribute(bool shortRpcFormatFlag, const Properties& prop,
             shortRpcFormatFlag ? "DC" : "Dir-count",  int64_t(-1));
     } else {
         fattr.subCount1 = prop.getValue(
-            shortRpcFormatFlag ? "C" : "Chunk-count", int64_t(0));
+            shortRpcFormatFlag ? "C"  : "Chunk-count",    int64_t(0));
+        fattr.subCount2 = prop.getValue(
+            shortRpcFormatFlag ? "NC" : "Next-chunk-pos", int64_t(-1));
     }
     fattr.fileSize    =          prop.getValue(
         shortRpcFormatFlag ? "S" : "File-size",   chunkOff_t(-1));
@@ -1184,11 +1186,11 @@ ParseFileAttribute(bool shortRpcFormatFlag, const Properties& prop,
     fattr.stripeSize         =          prop.getValue(
         shortRpcFormatFlag ? "SS" : "Stripe-size",          int32_t(0));
     fattr.user               =          prop.getValue(
-        shortRpcFormatFlag ? "U" : "User",                  kKfsUserNone);
+        shortRpcFormatFlag ? "U"  : "User",                 kKfsUserNone);
     fattr.group              =          prop.getValue(
-        shortRpcFormatFlag ? "G" : "Group",                 kKfsGroupNone);
+        shortRpcFormatFlag ? "G"  : "Group",                kKfsGroupNone);
     fattr.mode               =          prop.getValue(
-        shortRpcFormatFlag ? "M" : "Mode",                  kKfsModeUndef);
+        shortRpcFormatFlag ? "M"  : "Mode",                 kKfsModeUndef);
     fattr.minSTier           =          prop.getValue(
         shortRpcFormatFlag ? "TL" : "Min-tier",             kKfsSTierMax);
     fattr.maxSTier           =          prop.getValue(

@@ -1108,6 +1108,7 @@ private:
         bool& outDirFlag);
     ssize_t WriteSelf(int fd, const char *buf, size_t numBytes,
         bool asyncFlag, bool appendOnlyFlag, chunkOff_t* pos);
+    inline bool IsFileTableFull() const;
     friend struct RespondingServer;
     friend struct RespondingServer2;
     friend class ChmodFunc;

@@ -1468,6 +1468,12 @@ KfsClientImpl::Validate(
 // Now, the real work is done by the impl object....
 //
 
+inline bool
+KfsClientImpl::IsFileTableFull() const
+{
+    return (! mFreeFileTableEntires.empty() && MAX_FILES <= mFileTable.size());
+}
+
 KfsClientImpl::KfsClientImpl(
     KfsNetClient* metaServer)
     : mMutex(),
@@ -3328,13 +3334,15 @@ KfsClientImpl::CreateSelf(const char *pathname, int numReplicas, bool exclusive,
     if (! pathname || ! *pathname) {
         return -EINVAL;
     }
-
     assert(mMutex.IsOwned());
     int res = KfsClient::ValidateCreateParams(
         numReplicas, numStripes, numRecoveryStripes,
         stripeSize, stripedType, minSTier, maxSTier);
     if (res < 0) {
         return res;
+    }
+    if (IsFileTableFull()) {
+        return -EMFILE;
     }
     kfsFileId_t parentFid;
     string      filename;
@@ -3938,7 +3946,9 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             (openMode & (O_RDWR | O_WRONLY | O_APPEND)) == 0) {
         return -EINVAL;
     }
-
+    if (IsFileTableFull()) {
+        return -EMFILE;
+    }
     kfsFileId_t parentFid = -1;
     string      filename;
     string      fpath;
@@ -3951,14 +3961,19 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     if (path) {
         *path = fpath;
     }
+    bool         objectStoreTruncateFlag   = false;
     LookupOp     op(0, parentFid, filename.c_str());
     FAttr*       fa                        = LookupFAttr(parentFid, filename);
     time_t const now                       = time(0);
     time_t const kShortenFileRevalidateSec = 8;
     if (fa && IsValid(*fa, now +
                 (fa->isDirectory ? time_t(0) : kShortenFileRevalidateSec)) &&
-            (fa->isDirectory || fa->fileSize > 0 ||
-                (fa->fileSize == 0 && fa->chunkCount() <= 0)) &&
+            (fa->isDirectory ||
+                ((cacheAttributesFlag ||
+                        0 < fa->numReplicas || 0 == (openMode & O_TRUNC) ||
+                        0 != (openMode & O_EXCL)) &&
+                (0 < fa->fileSize ||
+                    (0 == fa->fileSize && fa->chunkCount() <= 0)))) &&
             (! mUseOsUserAndGroupFlag ||
                 CheckAccess(openMode, mEUser, mEGroup, *fa))) {
         UpdatePath(fa, fpath);
@@ -3974,10 +3989,26 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
             DoMetaOpWithRetry(&op);
             UpdateUserAndGroup(op, now);
         }
-        if (op.status < 0) {
-            if (! cacheAttributesFlag && (openMode & O_CREAT) != 0 &&
-                    op.status == -ENOENT) {
-                // file doesn't exist.  Create it
+        // Truncate is not supported with object store files. If both create and
+        // truncate flags are set, and exclusive flag is not set, and file is
+        // not empty, or has object store blocks allocated, then create a new
+        // file (new i-node), even even though this violates open truncate
+        // [POSIX] semantics. Doing so is likely to be preferred behavior by
+        // most applications.
+        objectStoreTruncateFlag = 0 == op.status &&
+            ! cacheAttributesFlag &&
+            0 == op.fattr.numReplicas &&
+            ! op.fattr.isDirectory &&
+            0 == (openMode & O_EXCL) &&
+            0 != (openMode & O_TRUNC) && 0 != (openMode & O_CREAT) &&
+            (0 < op.fattr.nextChunkOffset() ||
+                0 < op.fattr.chunkCount() ||
+                0 != op.fattr.fileSize);
+        if (op.status < 0 || objectStoreTruncateFlag) {
+            if (objectStoreTruncateFlag ||
+                    (! cacheAttributesFlag && (openMode & O_CREAT) != 0 &&
+                    op.status == -ENOENT)) {
+                // File doesn't exist. Create it
                 const int fte = CreateSelf(pathname, numReplicas,
                     openMode & O_EXCL,
                     numStripes, numRecoveryStripes, stripeSize, stripedType,
@@ -4047,7 +4078,9 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
     const bool truncateFlag =
         ! cacheAttributesFlag && (openMode & O_TRUNC) != 0;
     if (truncateFlag) {
-        if (entry.fattr.chunkCount() > 0 || entry.fattr.fileSize != 0) {
+        if (! objectStoreTruncateFlag &&
+                (0 < entry.fattr.chunkCount() || 0 != entry.fattr.fileSize ||
+                        0 < op.fattr.nextChunkOffset())) {
             const int res = TruncateSelf(fte, 0);
             if (res < 0) {
                 ReleaseFileTableEntry(fte);

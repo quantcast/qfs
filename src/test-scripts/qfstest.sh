@@ -788,8 +788,9 @@ until qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
     sleep 1
 done
 
-echo "Testing dumpster"
 myfsurl="qfs://${metahost}:${metasrvport}/"
+
+echo "Testing dumpster"
 runqfsroot()
 {
     QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
@@ -835,6 +836,35 @@ if [ x"$jerasuretest" = 'x' ]; then
         jerasuretest='no'
     fi
 fi
+
+ostestname='object store file overwrite'
+echo "Testing $ostestname"
+myostestlog='os-overwrite-test.log'
+ostestrunqfs()
+{
+    qfs -v -D fs.createParams=0 -fs "$myfsurl" ${1+"$@"}
+}
+
+(
+    set -e
+    myostestdir='os-overwrite-test'
+    myostestfile='os-overwrite-test/test-file.txt'
+    myostestfile1='os-overwrite-test/test-file1.txt'
+    set -x
+    ostestrunqfs -mkdir "$myostestdir" 
+    echo test | ostestrunqfs -put - "$myostestfile"
+    echo test | ostestrunqfs -put - "$myostestfile" || true
+    ostestrunqfs -cp "$myostestfile" "$myostestfile1"
+    ostestrunqfs -cp "$myostestfile" "$myostestfile1"
+    ostestrunqfs -cp "$myostestfile1" "$myostestfile"
+    ostestrunqfs -rmr -skipTrash "$myostestdir"
+) > "$myostestlog" 2>&1 \
+|| {
+    echo "Test $ostestname failed"
+    cat "$myostestlog"
+    exit 1
+}
+echo "Test $ostestname passed"
 
 echo "Starting copy test. Test file sizes: $sizes"
 # Run normal test first, then rs test.

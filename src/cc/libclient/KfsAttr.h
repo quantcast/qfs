@@ -95,12 +95,14 @@ struct FileAttr : public Permissions
         ctime  = mtime;
         crtime = mtime;
     }
-    int64_t chunkCount() const
-        { return (isDirectory ? 0 : subCount1); }
     int64_t fileCount() const
         { return (isDirectory ? subCount1 : int64_t(0)); }
     int64_t dirCount() const
         { return (isDirectory ? subCount2 : int64_t(0)); }
+    int64_t chunkCount() const
+        { return (isDirectory ? int64_t(0) : subCount1); }
+    chunkOff_t nextChunkOffset() const
+        { return (isDirectory ? chunkOff_t(0) : subCount2); }
     void ToStat(struct stat& outStat) const;
 };
 
