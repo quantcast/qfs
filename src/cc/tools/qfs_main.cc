@@ -4353,6 +4353,7 @@ private:
                 "Recovery stripes: " << mStat.mNumRecoveryStripes << "\n"
                 "Striper type:     " << mStat.mStriperType        << "\n"
                 "Stripe size:      " << mStat.mStripeSize         << "\n"
+                "Next chunk pos:   " << mStat.mSubCount2          << "\n"
                 ;
             }
             mOutStream <<

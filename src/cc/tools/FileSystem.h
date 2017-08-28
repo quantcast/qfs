@@ -69,7 +69,7 @@ public:
         void Reset()
             { *this = StatBuf(); }
         int64_t mSubCount1; /// chunk in the file or files in directory count
-        int64_t mSubCount2; /// directories count
+        int64_t mSubCount2; /// directories count, or next chunk position
         int16_t mNumReplicas;
         int16_t mNumStripes;
         int16_t mNumRecoveryStripes;
