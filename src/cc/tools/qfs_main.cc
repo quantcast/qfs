@@ -90,6 +90,58 @@ using client::ECMethod;
 const string      kTrashCfgPrefix("fs.trash.");
 const char* const kMsgLogWriterCfgPrefix = "fs.msgLogWriter.";
 
+static int AbsPath(
+    FileSystem& inFs,
+    string&     ioPath)
+{
+    if (! ioPath.empty() && ioPath[0] == '/') {
+        return 0;
+    }
+    string thePath;
+    int theErr = inFs.GetCwd(thePath);
+    if (theErr != 0) {
+        return theErr;
+    }
+    if (*(thePath.rbegin()) != '/' && ! ioPath.empty()) {
+        thePath += "/";
+    }
+    ioPath = thePath + ioPath;
+    return 0;
+}
+
+class DisplayFsUri
+{
+public:
+    DisplayFsUri(
+        FileSystem&   inFs,
+        const string& inPath)
+        : mFs(inFs),
+          mPath(inPath)
+        {}
+    ostream& Display(
+        ostream& inStream) const
+    {
+        string    thePath = mPath;
+        const int theErr  = AbsPath(mFs, thePath);
+        return (inStream <<
+            mFs.GetUri() << (0 == theErr ? thePath : mPath));
+    }
+private:
+    FileSystem&   mFs;
+    const string& mPath;
+private:
+    DisplayFsUri(
+        const DisplayFsUri& inDisplayFsUri);
+    DisplayFsUri& operator=(
+        const DisplayFsUri& inDisplayFsUri);
+};
+ostream& operator<<(
+    ostream&            inStream,
+    const DisplayFsUri& inDisplay)
+{
+    return inDisplay.Display(inStream);
+}
+
 class KfsTool
 {
 public:
@@ -2363,24 +2415,6 @@ private:
         const bool kNormalizePathFlag = false;
         return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
     }
-    static int AbsPath(
-        FileSystem& inFs,
-        string&     ioPath)
-    {
-        if (! ioPath.empty() && ioPath[0] == '/') {
-            return 0;
-        }
-        string thePath;
-        int theErr = inFs.GetCwd(thePath);
-        if (theErr != 0) {
-            return theErr;
-        }
-        if (*(thePath.rbegin()) != '/' && ! ioPath.empty()) {
-            thePath += "/";
-        }
-        ioPath = thePath + ioPath;
-        return 0;
-    }
     int CopyFromLocal(
         char**   inArgsPtr,
         int      inArgCount,
@@ -3496,7 +3530,7 @@ private:
                 return ((S_ISDIR(theStat.st_mode) || theStat.st_size > 0) ?
                     1 : 0);
         }
-        cerr << theFs.GetUri() << thePath << ": " <<
+        cerr << DisplayFsUri(theFs, thePath) << ": " <<
             theFs.StrError(theStatus) << "\n";
         return theStatus;
     }
@@ -3629,7 +3663,7 @@ private:
             }
         }
         if (theErr != 0) {
-            inErrStream << theFs.GetUri() << thePath << ": " <<
+            inErrStream << DisplayFsUri(theFs, thePath) << ": " <<
                 theFs.StrError(theErr) << "\n";
         }
         return theErr;
@@ -3729,7 +3763,7 @@ private:
                     break;
                 }
                 if (theShowNameFlag) {
-                    mProgressStream << inFs.GetUri() << inPath <<
+                    mProgressStream << DisplayFsUri(inFs, inPath) <<
                         " " << theStat.mNumReplicas <<
                         " [" << theMinReplication << "," <<
                         theMaxReplication << "] ";
@@ -3941,7 +3975,7 @@ private:
             theRet = 0;
             if (mShowNameFlag) {
                 mOutStream << mNextNamePrefixPtr <<
-                    "==> " << inFs.GetUri() << inPath << " <==\n";
+                    "==> " << DisplayFsUri(inFs, inPath) << " <==\n";
                 mNextNamePrefixPtr = "\n";
             }
             while (mOutStream) {
@@ -4073,7 +4107,7 @@ private:
                 inPath, theMovedFlag, &mMessage);
             if (theMovedFlag && mProgressStreamPtr) {
                 (*mProgressStreamPtr) << "Moved to trash: " <<
-                    inFs.GetUri() << inPath << "\n";
+                    DisplayFsUri(inFs, inPath) << "\n";
             }
             if (! mMessage.empty()) {
                 inErrorReporter(inPath, mMessage.c_str());
@@ -4295,7 +4329,7 @@ private:
                 return theErr;
             }
             mOutStream <<
-                "Uri:              " << inFs.GetUri() << inPath     << "\n"
+                "Uri:              " << DisplayFsUri(inFs, inPath)  << "\n"
                 "Type:             " << (S_ISDIR(mStat.st_mode) ?
                     "dir" : "file") << "\n"
                 "Created:          " << GetCTime(mStat)             << "\n"
@@ -4365,7 +4399,7 @@ private:
                 return theErr;
             }
             mOutStream <<
-                "Uri: " << inFs.GetUri() << inPath << "\n";
+                "Uri: " << DisplayFsUri(inFs, inPath) << "\n";
             int64_t thePos = mStartPos;
             for (Locations::const_iterator theIt = mLocations.begin();
                     theIt != mLocations.end();
