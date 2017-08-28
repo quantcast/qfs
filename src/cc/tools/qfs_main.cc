@@ -118,6 +118,11 @@ public:
         : mFs(inFs),
           mPath(inPath)
         {}
+    DisplayFsUri(
+        const DisplayFsUri& inDisplayFsUri)
+        : mFs(inDisplayFsUri.mFs),
+          mPath(inDisplayFsUri.mPath)
+        {}
     ostream& Display(
         ostream& inStream) const
     {
@@ -130,8 +135,6 @@ private:
     FileSystem&   mFs;
     const string& mPath;
 private:
-    DisplayFsUri(
-        const DisplayFsUri& inDisplayFsUri);
     DisplayFsUri& operator=(
         const DisplayFsUri& inDisplayFsUri);
 };
