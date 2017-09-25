@@ -196,18 +196,18 @@ LogCompactorMain(int argc, char** argv)
                 }
                 MetaFattr* const fa = metatree.getFattr(ROOTFID);
                 if (fa) {
-                    // Set root directory create, modification and change times
+                    // Set root directory access, modification and change times
                     // if these weren't set.
                     const int64_t crtime = metatree.GetCreateTime();
                     if (0 != crtime) {
-                        if (0 == fa->crtime) {
-                            fa->crtime = crtime;
+                        if (0 == fa->atime) {
+                            fa->atime = crtime;
                         }
                         if (0 == fa->ctime) {
-                            fa->ctime = fa->crtime;
+                            fa->ctime = fa->atime;
                         }
                          if (0 == fa->mtime) {
-                            fa->ctime = fa->crtime;
+                            fa->mtime = fa->atime;
                         }
                    }
                    replayer.updateLastBlockSeed();

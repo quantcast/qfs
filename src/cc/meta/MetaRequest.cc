@@ -470,9 +470,9 @@ FattrReply(ReqOstream& os, const MFattr& fa, const UserAndGroupNames* ugn,
         (shortRpcFmtFlag ? "DC:" : "Dir-count: ")  <<
             fa.dirCount()  << "\r\n";
     }
-    sendtime(os, (shortRpcFmtFlag ? "MT:" : "M-Time: "),  fa.mtime,  "\r\n");
-    sendtime(os, (shortRpcFmtFlag ? "CT:" : "C-Time: "),  fa.ctime,  "\r\n");
-    sendtime(os, (shortRpcFmtFlag ? "CR:" : "CR-Time: "), fa.crtime, "\r\n");
+    sendtime(os, (shortRpcFmtFlag ? "MT:" : "M-Time: "),  fa.mtime, "\r\n");
+    sendtime(os, (shortRpcFmtFlag ? "CT:" : "C-Time: "),  fa.ctime, "\r\n");
+    sendtime(os, (shortRpcFmtFlag ? "CR:" : "CR-Time: "), fa.atime, "\r\n");
     if (fa.IsStriped()) {
         os <<
         (shortRpcFmtFlag ? "ST:" : "Striper-type: ") <<
@@ -1496,12 +1496,12 @@ private:
         }
         Write(kMtime);
         WriteTime(entry.mtime);
-        if (! ShortFormatFlag || entry.ctime != entry.crtime) {
+        if (! ShortFormatFlag || entry.ctime != entry.atime) {
             Write(kCtime);
             WriteTime(entry.ctime);
         }
         Write(kCrtime);
-        WriteTime(entry.crtime);
+        WriteTime(entry.atime);
         Write(kUser);
         WriteInt(entry.user);
         Write(kGroup);
@@ -2940,6 +2940,37 @@ MetaSetMtime::handle()
     }
     if (IsAccessOk(*fa, *this)) {
         fa->mtime = mtime;
+    }
+}
+
+/* virtual */ void
+MetaSetAtime::handle()
+{
+    if (req) {
+        if (req->atimeReqCount <= 0) {
+            panic("invalid set atime request count");
+        }
+        if (0 != status && 0 == req->status) {
+            req->status = status;
+        }
+        req->atimeReqCount--;
+        if (0 == req->atimeReqCount) {
+            MetaRequest* const r = req;
+            req = 0;
+            r->suspended = false;
+            submit_request(r);
+        } else {
+            req = 0;
+        }
+    }
+    if (0 != status) {
+        return;
+    }
+    MetaFattr* const fa = 0 <= fid ? metatree.getFattr(fid) : 0;
+    if (fa) {
+        fa->atime = atime;
+    } else {
+        status = -ENOENT;
     }
 }
 

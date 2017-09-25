@@ -177,7 +177,8 @@ using std::less;
     f(VR_START_VIEW) \
     f(VR_RECONFIGURATION) \
     f(VR_LOG_START_VIEW) \
-    f(VR_GET_STATUS)
+    f(VR_GET_STATUS) \
+    f(SETATIME)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -1678,12 +1679,12 @@ struct MetaSetMtime: public MetaRequest {
     fid_t      fid;      //!< stash the fid for logging
     string     pathname; //!< absolute path for which we want to set the mtime
     int64_t    mtime;
-    MetaSetMtime(fid_t id = -1, int64_t mtime = 0)
+    MetaSetMtime(fid_t id = -1, int64_t mt = 0)
         : MetaRequest(META_SETMTIME, kLogIfOk),
           dir(ROOTFID),
           fid(id),
           pathname(),
-          mtime(mtime),
+          mtime(mt),
           sec(0),
           usec(0)
         {}
@@ -4000,6 +4001,7 @@ struct MetaLeaseAcquire: public MetaRequest {
     chunkOff_t         chunkPos;
     bool               flushFlag;
     int                leaseTimeout;
+    int                atimeReqCount;
     int64_t            leaseId;
     bool               clientCSAllowClearTextFlag;
     time_t             issuedTime;
@@ -4018,6 +4020,7 @@ struct MetaLeaseAcquire: public MetaRequest {
           chunkPos(-1),
           flushFlag(false),
           leaseTimeout(LEASE_INTERVAL_SECS),
+          atimeReqCount(0),
           leaseId(-1),
           clientCSAllowClearTextFlag(false),
           issuedTime(0),
@@ -4067,6 +4070,39 @@ struct MetaLeaseAcquire: public MetaRequest {
     }
 protected:
     int handleCount;
+};
+
+struct MetaSetAtime: public MetaRequest {
+    fid_t             fid;
+    int64_t           atime;
+    MetaLeaseAcquire* req;
+
+    MetaSetAtime(fid_t id = -1, int64_t at = 0, MetaLeaseAcquire* r = 0)
+        : MetaRequest(META_SETATIME, kLogIfOk),
+          fid(id),
+          atime(at),
+          req(r)
+        {}
+    bool Validate() { return (0 <= fid); }
+    virtual bool start() { return (0 == status); }
+    virtual void handle();
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        os <<
+            "set-atime:"
+            " fid: "   << fid <<
+            " atime: " << atime <<
+            " req: "   << ShowReq(req)
+        ;
+        return os;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaRequest::LogIoDef(parser)
+        .Def("P", &MetaSetAtime::fid, fid_t(-1))
+        .Def("A", &MetaSetAtime::atime)
+        ;
+    }
 };
 
 /*!

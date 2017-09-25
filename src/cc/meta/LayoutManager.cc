@@ -1812,6 +1812,18 @@ LayoutManager::IncrementChunkVersionRollBack(chunkId_t chunkId)
     return *res;
 }
 
+inline void
+LayoutManager::UpdateATime(const MetaFattr* fa, MetaLeaseAcquire& req)
+{
+    if (mATimeUpdateResolution < 0 ||
+            req.submitTime <= fa->atime + mATimeUpdateResolution) {
+        return;
+    }
+    req.atimeReqCount++;
+    req.suspended = true;
+    submit_request(new MetaSetAtime(fa->id(), req.submitTime, &req));
+}
+
 int64_t
 LayoutManager::Rand(int64_t interval)
 {
@@ -1956,6 +1968,7 @@ LayoutManager::LayoutManager()
       mFsckAbandonedFileTimeout(int64_t(1000) * kSecs2MicroSecs),
       mMaxFsckTime(int64_t(19) * 60 * kSecs2MicroSecs),
       mFullFsckFlag(true),
+      mATimeUpdateResolution(-1),
       mMTimeUpdateResolution(kSecs2MicroSecs),
       mMaxPendingRecoveryMsgLogInfo(1 << 10),
       mAllowLocalPlacementFlag(true),
@@ -2400,6 +2413,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.fullFsck",
         mFullFsckFlag ? 1 : 0) != 0;
 
+    mATimeUpdateResolution = (int64_t)(props.getValue(
+        "metaServer.ATimeUpdateResolution",
+        mATimeUpdateResolution * 1e-6) * 1e6);
     mMTimeUpdateResolution = (int64_t)(props.getValue(
         "metaServer.MTimeUpdateResolution",
         mMTimeUpdateResolution * 1e-6) * 1e6);
@@ -7595,6 +7611,8 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                 mChunkLeases.FlushWriteLease(ChunkLeases::EntryKey(chunkId),
                     mARAChunkCache, mChunkToServerMap);
             }
+        } else if (0 < req.leaseTimeout) {
+            UpdateATime(cs->GetFattr(), req);
         }
         writer.Write(" ", 1);
         if (req.getChunkLocationsFlag) {
@@ -7759,11 +7777,13 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
                 return;
             }
         }
-        if (! mChunkLeases.NewReadLease(
+        if (mChunkLeases.NewReadLease(
                 fa->id(),
                 ChunkLeases::EntryKey(req.chunkId, req.chunkPos),
                 TimeNow() + req.leaseTimeout,
                 req.leaseId)) {
+            UpdateATime(fa, req);
+        } else {
             req.statusMsg = "write lease exists";
             req.status    = -EBUSY;
             return;
@@ -7909,6 +7929,9 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
                 req.statusMsg = "no chunk server keys available";
                 req.status    = -EAGAIN;
             }
+        }
+        if (0 < req.leaseTimeout && 0 == req.status) {
+            UpdateATime(cs->GetFattr(), req);
         }
         return;
     }
@@ -9749,7 +9772,7 @@ LayoutManager::MakeChunkStableInit(
             const int64_t    now = microseconds();
             if (! fa->IsStriped() &&
                     fa->mtime + mMTimeUpdateResolution < now) {
-                submit_request(new MetaSetMtime(fid, fa->mtime));
+                submit_request(new MetaSetMtime(fid, now));
             }
         }
         if (beginMakeStableFlag) {
@@ -10371,7 +10394,7 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
         if (updateMTimeFlag) {
             const int64_t now = microseconds();
             if (fa->mtime + mMTimeUpdateResolution < now) {
-                submit_request(new MetaSetMtime(fileId, fa->mtime));
+                submit_request(new MetaSetMtime(fileId, now));
             }
         }
         if (fa->numReplicas != numServers) {

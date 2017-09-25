@@ -119,6 +119,10 @@ AddMetaRequestLog(
         inShortNamesFlag ? "TWRM" : "TOGGLE_WORM",
         META_TOGGLE_WORM,
         static_cast<const MetaToggleWORM*>(0))
+    .MakeParser(
+        inShortNamesFlag ? "SA" : "SET_ATIME",
+        META_SETATIME,
+        static_cast<const MetaSetAtime*>(0))
     ;
 }
 

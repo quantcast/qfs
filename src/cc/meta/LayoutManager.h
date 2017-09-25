@@ -2380,6 +2380,7 @@ protected:
     int64_t mFsckAbandonedFileTimeout;
     int64_t mMaxFsckTime;
     bool    mFullFsckFlag;
+    int64_t mATimeUpdateResolution;
     int64_t mMTimeUpdateResolution;
     int64_t mMaxPendingRecoveryMsgLogInfo;
     bool    mAllowLocalPlacementFlag;
@@ -2770,6 +2771,7 @@ protected:
         const MetaAllocate& req, const ChunkServerPtr& server);
     inline LayoutManager::Servers::const_iterator FindServerForReq(
         const MetaRequest& req);
+    inline void UpdateATime(const MetaFattr* fa, MetaLeaseAcquire& req);
 private:
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);

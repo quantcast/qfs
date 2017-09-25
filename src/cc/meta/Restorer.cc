@@ -227,7 +227,7 @@ restore_fattr(DETokenizer& c)
     fid_t fid;
     fid_t chunkcount;
     chunkOff_t filesize = -1;
-    int64_t mtime, ctime, crtime;
+    int64_t mtime, ctime, atime;
     int16_t numReplicas;
 
     bool ok = pop_type(type,    sShortNamesFlag ? "a" : "fattr",       c, true);
@@ -236,7 +236,7 @@ restore_fattr(DETokenizer& c)
     ok = pop_short(numReplicas, sShortNamesFlag ? "r" : "numReplicas", c, ok);
     ok = pop_time(mtime,        sShortNamesFlag ? "m" : "mtime",       c, ok);
     ok = pop_time(ctime,        sShortNamesFlag ? "c" : "ctime",       c, ok);
-    ok = pop_time(crtime,       sShortNamesFlag ? "C" : "crtime",      c, ok);
+    ok = pop_time(atime,        sShortNamesFlag ? "C" : "crtime",      c, ok);
     if (!ok) {
         return false;
     }
@@ -252,7 +252,7 @@ restore_fattr(DETokenizer& c)
     // reason for it being estimate: if a CP is in progress while the
     // metatree is updated, we have cases where the chunkcount is off by 1
     // and the checkpoint contains the newly added chunk.
-    MetaFattr* const f = MetaFattr::create(type, fid, mtime, ctime, crtime,
+    MetaFattr* const f = MetaFattr::create(type, fid, mtime, ctime, atime,
         0, numReplicas, kKfsUserNone, kKfsGroupNone, kKfsModeUndef);
     if (type != KFS_DIR) {
         f->filesize = gotfilesize ? filesize : chunkOff_t(-1);

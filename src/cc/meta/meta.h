@@ -188,7 +188,7 @@ public:
           stripeSize(0),
           mtime(0),
           ctime(0),
-          crtime(0),
+          atime(0),
           subcount1(0),
           subcount2(0),
           filesize(0),
@@ -200,7 +200,7 @@ public:
         fid_t     id,
         int64_t   mt,
         int64_t   ct,
-        int64_t   crt,
+        int64_t   at,
         int64_t   c,
         int16_t   n)
         : fid(id),
@@ -212,7 +212,7 @@ public:
           stripeSize(0),
           mtime(mt),
           ctime(ct),
-          crtime(crt),
+          atime(at),
           subcount1(c),
           subcount2(0),
           filesize(0),
@@ -227,7 +227,7 @@ public:
     uint32_t        stripeSize:27;
     int64_t         mtime; //!< modification time
     int64_t         ctime; //!< attribute change time
-    int64_t         crtime; //!< creation time
+    int64_t         atime; //!< access time
     int64_t         subcount1; //!< number of constituent chunks, or "sub" files for directory
     //!< offset in the file at which the last chunk was allocated.  For
     //!< record appends, the client will issue an allocation request asking
@@ -364,8 +364,8 @@ private:
           MFattr(t, id, n, u, g, m),
           parent(0)
     {
-        crtime = tm;
-        mtime = ctime = crtime;
+        atime = tm;
+        mtime = ctime = atime;
     }
     MetaFattr(
         FileType  t,

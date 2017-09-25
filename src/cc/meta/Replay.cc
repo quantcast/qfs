@@ -848,7 +848,7 @@ replay_create(DETokenizer& c)
         assert(fa);
         updateSeed(fileID, me);
         if (gottime) {
-            fa->mtime = fa->ctime = fa->crtime = ctime;
+            fa->mtime = fa->ctime = fa->atime = ctime;
             if (fa->IsStriped()) {
                 fa->filesize = 0;
             }
@@ -927,7 +927,7 @@ replay_mkdir(DETokenizer& c)
         assert(fa);
         updateSeed(fileID, me);
         if (gottime) {
-            fa->mtime = fa->ctime = fa->crtime = ctime;
+            fa->mtime = fa->ctime = fa->atime = ctime;
         }
     }
     KFS_LOG_STREAM_DEBUG << "replay mkdir: "

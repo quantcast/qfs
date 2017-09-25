@@ -68,7 +68,7 @@ MetaFattr::showSelf(ostream& os) const
     "/r/" << numReplicas <<
     "/m/" << ShowTime(mtime) <<
     "/c/" << ShowTime(ctime) <<
-    "/C/" << ShowTime(crtime) <<
+    "/C/" << ShowTime(atime) <<
     "/e/" << filesize;
     if (IsStriped()) {
         os <<
