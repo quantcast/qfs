@@ -122,7 +122,7 @@ AddMetaRequestLog(
     .MakeParser(
         inShortNamesFlag ? "SA" : "SET_ATIME",
         META_SETATIME,
-        static_cast<const MetaSetAtime*>(0))
+        static_cast<const MetaSetATime*>(0))
     ;
 }
 

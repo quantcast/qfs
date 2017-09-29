@@ -1212,6 +1212,10 @@ GetDirAttr(fid_t dir, const vector<MetaDentry*>& v)
 /* virtual */ void
 MetaReaddir::handle()
 {
+    if (atimeInFlightFlag) {
+        atimeInFlightFlag = false;
+        return;
+    }
     if (status < 0) {
         return;
     }
@@ -1285,6 +1289,9 @@ MetaReaddir::handle()
                 hasMoreEntriesFlag = true;
             }
         }
+    }
+    if (0 == status) {
+        gLayoutManager.UpdateATime(fa, *this);
     }
 }
 
@@ -1742,6 +1749,10 @@ MetaReaddirPlus::~MetaReaddirPlus()
 /* virtual */ void
 MetaReaddirPlus::handle()
 {
+    if (atimeInFlightFlag) {
+        atimeInFlightFlag = false;
+        return;
+    }
     if (status < 0) {
         return;
     }
@@ -1876,6 +1887,9 @@ MetaReaddirPlus::handle()
         gLayoutManager.ChangeIoBufPending(ioBufPending);
         maxRespSize = (int)max((int64_t)maxRespSize, ioBufPending +
             IOBufferData::GetDefaultBufferSize());
+    }
+    if (0 == status) {
+        gLayoutManager.UpdateATime(fa, *this);
     }
 }
 
@@ -2944,24 +2958,23 @@ MetaSetMtime::handle()
 }
 
 /* virtual */ void
-MetaSetAtime::handle()
+MetaSetATime::handle()
 {
-    if (req) {
-        if (req->atimeReqCount <= 0) {
-            panic("invalid set atime request count");
-        }
-        if (0 != status && 0 == req->status) {
-            req->status = status;
-        }
-        req->atimeReqCount--;
-        if (0 == req->atimeReqCount) {
-            MetaRequest* const r = req;
-            req = 0;
-            r->suspended = false;
-            submit_request(r);
-        } else {
-            req = 0;
-        }
+    gLayoutManager.Handle(*this);
+    if (ringTail) {
+        MetaRequest* r = ringTail->next;
+        ringTail = 0;
+        const MetaRequest* const h = r;
+        do {
+            MetaRequest* const op = r;
+            r = op->next;
+            op->next = 0;
+            op->suspended = false;
+            if (0 != status && 0 == op->status) {
+                op->status = status;
+            }
+            submit_request(op);
+        } while (h != r);
     }
     if (0 != status) {
         return;
@@ -3219,6 +3232,10 @@ MetaBye::handle()
 /* virtual */ void
 MetaLeaseAcquire::handle()
 {
+    if (atimeInFlightFlag) {
+        atimeInFlightFlag = false;
+        return;
+    }
     if (status < 0) {
         return;
     }
@@ -3352,6 +3369,9 @@ MetaGetPathName::handle()
 MetaChmod::start()
 {
     SetEUserAndEGroup(*this);
+    if (0 == status) {
+        ctime = microseconds();
+    }
     return (0 == status);
 }
 
@@ -3376,14 +3396,21 @@ MetaChmod::handle()
     }
     if (IsAccessOk(*fa, *this)) {
         status = 0;
-        fa->mode = mode;
+        fa->mode  = mode;
+        if (fa->ctime < ctime) {
+            fa->ctime = ctime;
+        }
     }
 }
 
 /* virtual */ bool
 MetaChown::start()
 {
-    return (SetUserAndGroup(*this) && 0 == status);
+    if (0 != status || ! SetUserAndGroup(*this)) {
+        return false;
+    }
+    ctime = microseconds();
+    return (0 == status);
 }
 
 /* virtual */ void
@@ -3421,6 +3448,9 @@ MetaChown::handle()
     }
     if (group != kKfsGroupNone) {
         fa->group = group;
+    }
+    if (fa->ctime < ctime) {
+        fa->ctime = ctime;
     }
 }
 

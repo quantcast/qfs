@@ -537,6 +537,7 @@ metaServer.maxTruncateChunksDeleteCount = 1
 metaServer.maxTruncatedChunkDeletesInFlight = 3
 metaServer.minWritesPerDrive = 256
 metaServer.ATimeUpdateResolution = 0
+metaServer.dirATimeUpdateResolution = 0
 EOF
 
 if [ x"$myvalgrind" = x ]; then

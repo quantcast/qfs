@@ -1567,6 +1567,9 @@ public:
     int RunFsck(const string& fileName, bool reportAbandonedFilesFlag);
     void Start(MetaTruncate& req);
     void Handle(MetaTruncate& req);
+    void Handle(MetaSetATime& req);
+    void UpdateATime(const MetaFattr* fa, MetaReaddir& req);
+    void UpdateATime(const MetaFattr* fa, MetaReaddirPlus& req);
 protected:
     typedef vector<
         int,
@@ -2251,6 +2254,18 @@ protected:
     > ChunkVersionRollBack;
     ChunkVersionRollBack mChunkVersionRollBack;
 
+    typedef KVPair<fid_t, MetaSetATime*> SetATimeInFlightEntry;
+    typedef LinearHash<
+        SetATimeInFlightEntry,
+        KeyCompare<SetATimeInFlightEntry::Key>,
+        DynamicArray<
+            SingleLinkedList<SetATimeInFlightEntry>*,
+            8 // 2^8
+        >,
+        StdFastAllocator<SetATimeInFlightEntry>
+    > SetATimeInFlight;
+    SetATimeInFlight mSetATimeInFlight;
+
     /// Counters to track chunk replications
     Counter *mOngoingReplicationStats;
     Counter *mTotalReplicationStats;
@@ -2380,6 +2395,7 @@ protected:
     int64_t mFsckAbandonedFileTimeout;
     int64_t mMaxFsckTime;
     bool    mFullFsckFlag;
+    int64_t mDirATimeUpdateResolution;
     int64_t mATimeUpdateResolution;
     int64_t mMTimeUpdateResolution;
     int64_t mMaxPendingRecoveryMsgLogInfo;
@@ -2771,7 +2787,8 @@ protected:
         const MetaAllocate& req, const ChunkServerPtr& server);
     inline LayoutManager::Servers::const_iterator FindServerForReq(
         const MetaRequest& req);
-    inline void UpdateATime(const MetaFattr* fa, MetaLeaseAcquire& req);
+    template<typename T> inline void UpdateATimeSelf(
+        int64_t updateResolutionUsec, const MetaFattr* fa, T& req);
 private:
     LayoutManager(const LayoutManager&);
     LayoutManager& operator=(LayoutManager);

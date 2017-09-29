@@ -1812,16 +1812,28 @@ LayoutManager::IncrementChunkVersionRollBack(chunkId_t chunkId)
     return *res;
 }
 
+template<typename T>
 inline void
-LayoutManager::UpdateATime(const MetaFattr* fa, MetaLeaseAcquire& req)
+LayoutManager::UpdateATimeSelf(int64_t updateResolutionUsec,
+    const MetaFattr* fa, T& req)
 {
-    if (mATimeUpdateResolution < 0 ||
-            req.submitTime <= fa->atime + mATimeUpdateResolution) {
+    if (updateResolutionUsec < 0 ||
+            req.submitTime <= fa->atime + updateResolutionUsec) {
         return;
     }
-    req.atimeReqCount++;
+    req.atimeInFlightFlag = true;
     req.suspended = true;
-    submit_request(new MetaSetAtime(fa->id(), req.submitTime, &req));
+    bool insertedFlag = false;
+    MetaSetATime** const op =
+        mSetATimeInFlight.Insert(fa->id(), 0, insertedFlag);
+    if (insertedFlag) {
+        *op = new MetaSetATime(fa->id(), req.submitTime, &req);
+        submit_request(*op);
+    } else {
+        req.next = (*op)->ringTail->next;
+        (*op)->ringTail->next = &req;
+        (*op)->ringTail = &req;
+    }
 }
 
 int64_t
@@ -1877,6 +1889,11 @@ LayoutManager::LayoutManager()
       mStripedFilesAllocationsInFlight(),
       mChunkLeases(TimeNow()),
       mARAChunkCache(),
+      mNonStableChunks(),
+      mPendingBeginMakeStable(),
+      mPendingMakeStable(),
+      mChunkVersionRollBack(),
+      mSetATimeInFlight(),
       mMastersCount(0),
       mSlavesCount(0),
       mAssignMasterByIpFlag(false),
@@ -1968,6 +1985,7 @@ LayoutManager::LayoutManager()
       mFsckAbandonedFileTimeout(int64_t(1000) * kSecs2MicroSecs),
       mMaxFsckTime(int64_t(19) * 60 * kSecs2MicroSecs),
       mFullFsckFlag(true),
+      mDirATimeUpdateResolution(-1),
       mATimeUpdateResolution(-1),
       mMTimeUpdateResolution(kSecs2MicroSecs),
       mMaxPendingRecoveryMsgLogInfo(1 << 10),
@@ -2413,6 +2431,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
         "metaServer.fullFsck",
         mFullFsckFlag ? 1 : 0) != 0;
 
+    mDirATimeUpdateResolution = (int64_t)(props.getValue(
+        "metaServer.dirATimeUpdateResolution",
+        mDirATimeUpdateResolution * 1e-6) * 1e6);
     mATimeUpdateResolution = (int64_t)(props.getValue(
         "metaServer.ATimeUpdateResolution",
         mATimeUpdateResolution * 1e-6) * 1e6);
@@ -7612,7 +7633,7 @@ LayoutManager::GetChunkReadLeases(MetaLeaseAcquire& req)
                     mARAChunkCache, mChunkToServerMap);
             }
         } else if (0 < req.leaseTimeout) {
-            UpdateATime(cs->GetFattr(), req);
+            UpdateATimeSelf(mATimeUpdateResolution, cs->GetFattr(), req);
         }
         writer.Write(" ", 1);
         if (req.getChunkLocationsFlag) {
@@ -7782,7 +7803,7 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
                 ChunkLeases::EntryKey(req.chunkId, req.chunkPos),
                 TimeNow() + req.leaseTimeout,
                 req.leaseId)) {
-            UpdateATime(fa, req);
+            UpdateATimeSelf(mATimeUpdateResolution, fa, req);
         } else {
             req.statusMsg = "write lease exists";
             req.status    = -EBUSY;
@@ -7931,7 +7952,7 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
             }
         }
         if (0 < req.leaseTimeout && 0 == req.status) {
-            UpdateATime(cs->GetFattr(), req);
+            UpdateATimeSelf(mATimeUpdateResolution, cs->GetFattr(), req);
         }
         return;
     }
@@ -14122,6 +14143,26 @@ LayoutManager::Handle(MetaTruncate& req)
         }
     }
     ScheduleTruncatedChunksDelete();
+}
+
+void
+LayoutManager::Handle(MetaSetATime& req)
+{
+    if (! req.replayFlag && 1 != mSetATimeInFlight.Erase(req.fid)) {
+        panic("invalid set atime op");
+    }
+}
+
+void
+LayoutManager::UpdateATime(const MetaFattr* fa, MetaReaddir& req)
+{
+    UpdateATimeSelf(mDirATimeUpdateResolution, fa, req);
+}
+
+void
+LayoutManager::UpdateATime(const MetaFattr* fa, MetaReaddirPlus& req)
+{
+    UpdateATimeSelf(mDirATimeUpdateResolution, fa, req);
 }
 
 } // namespace KFS

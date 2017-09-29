@@ -1005,6 +1005,7 @@ struct MetaReaddir: public MetaRequest {
     fid_t    dir; //!< directory to read
     IOBuffer resp;
     int      numEntries;
+    bool     atimeInFlightFlag;
     bool     hasMoreEntriesFlag;
     string   fnameStart;
     MetaReaddir()
@@ -1012,6 +1013,7 @@ struct MetaReaddir: public MetaRequest {
           dir(-1),
           resp(),
           numEntries(-1),
+          atimeInFlightFlag(false),
           hasMoreEntriesFlag(false),
           fnameStart()
         {}
@@ -1091,6 +1093,7 @@ struct MetaReaddirPlus: public MetaRequest {
     fid_t    dir;        //!< directory to read
     int      numEntries; //!< max number of entres to return
     int      maxRespSize;
+    bool     atimeInFlightFlag;
     bool     getLastChunkInfoOnlyIfSizeUnknown;
     bool     omitLastChunkInfoFlag;
     bool     fileIdAndTypeOnlyFlag;
@@ -1106,6 +1109,7 @@ struct MetaReaddirPlus: public MetaRequest {
           dir(-1),
           numEntries(-1),
           maxRespSize(-1),
+          atimeInFlightFlag(false),
           getLastChunkInfoOnlyIfSizeUnknown(false),
           omitLastChunkInfoFlag(false),
           fileIdAndTypeOnlyFlag(false),
@@ -2184,10 +2188,12 @@ struct MetaGetPathName: public MetaRequest {
 struct MetaChmod: public MetaRequest {
     fid_t     fid;
     kfsMode_t mode;
+    int64_t   ctime;
     MetaChmod()
         : MetaRequest(META_CHMOD, kLogIfOk),
           fid(-1),
-          mode(kKfsModeUndef)
+          mode(kKfsModeUndef),
+          ctime(0)
         {}
     virtual bool start();
     virtual void handle();
@@ -2213,14 +2219,16 @@ struct MetaChmod: public MetaRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("P", &MetaChmod::fid,  fid_t(-1))
-        .Def("M", &MetaChmod::mode, kKfsModeUndef)
+        .Def("P", &MetaChmod::fid,   fid_t(-1))
+        .Def("M", &MetaChmod::mode,  kKfsModeUndef)
+        .Def("T", &MetaChmod::ctime, int64_t(0))
         ;
     }
 };
 
 struct MetaChown: public MetaRequest {
     fid_t    fid;
+    int64_t  ctime;
     kfsUid_t user;
     kfsGid_t group;
     string   ownerName;
@@ -2228,6 +2236,7 @@ struct MetaChown: public MetaRequest {
     MetaChown()
         : MetaRequest(META_CHOWN, kLogIfOk),
           fid(-1),
+          ctime(0),
           user(kKfsUserNone),
           group(kKfsGroupNone),
           ownerName(),
@@ -2265,6 +2274,7 @@ struct MetaChown: public MetaRequest {
         .Def("P",  &MetaChown::fid,   fid_t(-1))
         .Def("O",  &MetaChown::user,  kKfsUserNone)
         .Def("G",  &MetaChown::group, kKfsGroupNone)
+        .Def("T",  &MetaChown::ctime, int64_t(0))
         ;
     }
 };
@@ -4000,8 +4010,8 @@ struct MetaLeaseAcquire: public MetaRequest {
     chunkId_t          chunkId;
     chunkOff_t         chunkPos;
     bool               flushFlag;
+    bool               atimeInFlightFlag;
     int                leaseTimeout;
-    int                atimeReqCount;
     int64_t            leaseId;
     bool               clientCSAllowClearTextFlag;
     time_t             issuedTime;
@@ -4019,8 +4029,8 @@ struct MetaLeaseAcquire: public MetaRequest {
           chunkId(-1),
           chunkPos(-1),
           flushFlag(false),
+          atimeInFlightFlag(0),
           leaseTimeout(LEASE_INTERVAL_SECS),
-          atimeReqCount(0),
           leaseId(-1),
           clientCSAllowClearTextFlag(false),
           issuedTime(0),
@@ -4072,17 +4082,21 @@ protected:
     int handleCount;
 };
 
-struct MetaSetAtime: public MetaRequest {
-    fid_t             fid;
-    int64_t           atime;
-    MetaLeaseAcquire* req;
+struct MetaSetATime: public MetaRequest {
+    fid_t        fid;
+    int64_t      atime;
+    MetaRequest* ringTail;
 
-    MetaSetAtime(fid_t id = -1, int64_t at = 0, MetaLeaseAcquire* r = 0)
+    MetaSetATime(fid_t id = -1, int64_t at = 0, MetaRequest* r = 0)
         : MetaRequest(META_SETATIME, kLogIfOk),
           fid(id),
           atime(at),
-          req(r)
-        {}
+          ringTail(r)
+    {
+        if (ringTail) {
+            ringTail->next = ringTail;
+        }
+    }
     bool Validate() { return (0 <= fid); }
     virtual bool start() { return (0 == status); }
     virtual void handle();
@@ -4092,15 +4106,15 @@ struct MetaSetAtime: public MetaRequest {
             "set-atime:"
             " fid: "   << fid <<
             " atime: " << atime <<
-            " req: "   << ShowReq(req)
+            " req: "   << ShowReq(ringTail ? ringTail->next : ringTail)
         ;
         return os;
     }
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaRequest::LogIoDef(parser)
-        .Def("P", &MetaSetAtime::fid, fid_t(-1))
-        .Def("A", &MetaSetAtime::atime)
+        .Def("P", &MetaSetATime::fid, fid_t(-1))
+        .Def("A", &MetaSetATime::atime)
         ;
     }
 };
