@@ -588,15 +588,17 @@ KfsClient::Rename(const char *oldpath, const char *newpath, bool overwrite)
 }
 
 int
-KfsClient::CoalesceBlocks(const char *srcPath, const char *dstPath, chunkOff_t *dstStartOffset)
+KfsClient::CoalesceBlocks(const char *srcPath, const char *dstPath,
+    chunkOff_t *dstStartOffset)
 {
     return mImpl->CoalesceBlocks(srcPath, dstPath, dstStartOffset);
 }
 
 int
-KfsClient::SetMtime(const char *pathname, const struct timeval &mtime)
+KfsClient::SetUtimes(const char* pathname, const struct timeval& mtime,
+    int64_t atime, int64_t ctime)
 {
-    return mImpl->SetMtime(pathname, mtime);
+    return mImpl->SetUtimes(pathname, mtime, atime, ctime);
 }
 
 int
@@ -3728,7 +3730,8 @@ KfsClientImpl::CoalesceBlocks(const char* src, const char* dst, chunkOff_t *dstS
 }
 
 int
-KfsClientImpl::SetMtime(const char *pathname, const struct timeval &mtime)
+KfsClientImpl::SetUtimes(const char* pathname, const struct timeval& mtime,
+    int64_t atime, int64_t ctime)
 {
     if (! pathname || ! *pathname) {
         return -EINVAL;
@@ -3743,7 +3746,7 @@ KfsClientImpl::SetMtime(const char *pathname, const struct timeval &mtime)
     if (res < 0) {
         return res;
     }
-    SetMtimeOp op(0, path.c_str(), mtime);
+    SetMtimeOp op(0, path.c_str(), mtime, atime, ctime);
     DoMetaOpWithRetry(&op);
     Delete(LookupFAttr(parentFid, fileName));
     return GetOpStatus(op);

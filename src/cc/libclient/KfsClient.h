@@ -440,12 +440,16 @@ public:
         const char* dstPath,
         chunkOff_t* dstStartOffset);
     ///
-    /// Set the mtime for a path
+    /// Set the mtime, atime, ctime for a path
     /// @param[in] pathname  for which mtime has to be set
     /// @param[in] mtime     the desired mtime
     /// @retval status code
     ///
-    int SetMtime(const char* pathname, const struct timeval& mtime);
+    int SetUtimes(const char* pathname, const struct timeval& mtime,
+        int64_t atime = kSetTimeTimeNotValid,
+        int64_t ctime = kSetTimeTimeNotValid);
+    int SetMtime(const char* pathname, const struct timeval& mtime)
+        { return SetUtimes(pathname, mtime); }
 
     ///
     /// Open a file

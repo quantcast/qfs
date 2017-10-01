@@ -327,7 +327,16 @@ SetMtimeOp::Request(ReqOstream& os)
             mtime.tv_sec      << "\r\n" <<
         (shortRpcFormatFlag ? "U:" : "Mtime-usec: ") <<
             mtime.tv_usec << "\r\n"
-    "\r\n";
+    ;
+    if (kSetTimeTimeNotValid != atime) {
+        os << (shortRpcFormatFlag ? "A:" : "Atime: ") <<
+            atime << "\r\n";
+    }
+    if (kSetTimeTimeNotValid != ctime) {
+        os << (shortRpcFormatFlag ? "C:" : "Ctime: ") <<
+            ctime << "\r\n";
+    }
+    os << "\r\n";
 }
 
 void

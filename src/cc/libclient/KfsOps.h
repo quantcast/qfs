@@ -473,13 +473,26 @@ struct ReaddirOp : public KfsOp {
 struct SetMtimeOp : public KfsOp {
     const char*    pathname;
     struct timeval mtime;
-    SetMtimeOp(kfsSeq_t s, const char* p, const struct timeval& m)
-        : KfsOp(CMD_SETMTIME, s), pathname(p), mtime(m)
+    int64_t        atime;
+    int64_t        ctime;
+    SetMtimeOp(
+            kfsSeq_t              s,
+            const char*           p,
+            const struct timeval& mt,
+            int64_t               at,
+            int64_t               ct)
+        : KfsOp(CMD_SETMTIME, s),
+          pathname(p),
+          mtime(mt),
+          atime(at),
+          ctime(ct)
         {}
     void Request(ReqOstream& os);
     virtual ostream& ShowSelf(ostream& os) const {
         os << "setmtime: " << pathname <<
-            " mtime: " << mtime.tv_sec << ':' << mtime.tv_usec;
+            " mtime: " << mtime.tv_sec << ':' << mtime.tv_usec <<
+            " atime: " << atime <<
+            " ctime: " << ctime;
         return os;
     }
 };

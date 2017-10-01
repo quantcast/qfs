@@ -410,15 +410,17 @@ public:
     ///
     int Rename(const char *oldpath, const char *newpath, bool overwrite = true);
 
-    int CoalesceBlocks(const char *srcPath, const char *dstPath, chunkOff_t *dstStartOffset);
+    int CoalesceBlocks(const char *srcPath, const char *dstPath,
+            chunkOff_t *dstStartOffset);
 
     ///
-    /// Set the mtime for a path
+    /// Set the mtime, ctime, atime for a path
     /// @param[in] pathname  for which mtime has to be set
     /// @param[in] mtime     the desired mtime
     /// @retval status code
     ///
-    int SetMtime(const char *pathname, const struct timeval &mtime);
+    int SetUtimes(const char* pathname, const struct timeval &mtime,
+            int64_t atime, int64_t ctime);
 
     ///
     /// Open a file

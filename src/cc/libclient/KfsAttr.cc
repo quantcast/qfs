@@ -64,14 +64,14 @@ FileAttr::ToStat(
     outStat.st_uid     = (uid_t)user;
     outStat.st_gid     = (gid_t)group;
 #ifdef KFS_OS_NAME_DARWIN
-    outStat.st_atimespec.tv_sec  = mtime.tv_sec;
-    outStat.st_atimespec.tv_nsec = mtime.tv_usec * 1000;
+    outStat.st_atimespec.tv_sec  = crtime.tv_sec;
+    outStat.st_atimespec.tv_nsec = crtime.tv_usec * 1000;
     outStat.st_mtimespec.tv_sec  = mtime.tv_sec;
     outStat.st_mtimespec.tv_nsec = mtime.tv_usec * 1000;
     outStat.st_ctimespec.tv_sec  = ctime.tv_sec;
     outStat.st_ctimespec.tv_nsec = ctime.tv_usec * 1000;
 #else
-    outStat.st_atime = mtime.tv_sec;
+    outStat.st_atime = crtime.tv_sec;
     outStat.st_mtime = mtime.tv_sec;
     outStat.st_ctime = ctime.tv_sec;
 #endif
