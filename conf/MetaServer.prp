@@ -180,8 +180,8 @@ metaServer.recoveryInterval = 30
 # Chunk server executables md5 sums white list.
 # The chunk server sends its executable md5sum when it connects to the meta
 # server. If the following space separated list is not empty and does not
-# does not contain the chunk server executable md5 sum then the chunk server
-# is instructed to exit or restart itself.
+# contain the chunk server executable md5 sum then the chunk server is
+# instructed to exit or restart itself.
 # This might be useful for upgrade or versions control.
 # While the chunk server is connected to the meta server no md5 sum verification
 # performed.
@@ -466,7 +466,8 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 6 hours or 21600 seconds.
 # metaServer.pastEofRecoveryDelay = 21600
 
-# Periodic checkpointing.
+# -------------------------- Periodic checkpointing ----------------------------
+
 # If set to -1 checkpoint is disabled. In such case "logcompactor" can be used
 # periodically create new checkpoint from the transaction logs.
 # Default is 3600 sec.
@@ -505,7 +506,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is 16MB.
 # metaServer.checkpoint.writeBufferSize = 16777216
 
-# ---------------------------------- Audit log. --------------------------------
+# --------------------------------- Audit log ----------------------------------
 
 # All request headers and response status are logged.
 # The audit log records are null ('\0') separated.
@@ -1058,8 +1059,8 @@ metaServer.msgLogWriter.logLevel = INFO
 # at the time the file system is created. The file system id is used to protect
 # against accidental use of chunk files that belong to a different file system.
 # For example file system id should prevent use of stale chunk inventory that
-# belongs to "old"/different file system, in the case where a new file file
-# file system was created, and the same "cluster key" is used.
+# belongs to "old"/different file system, in the case where a new file system
+# was created, and the same "cluster key" is used.
 
 # Require file system id in the chunk server hello.
 # Default is 0, to maintain backward compatibility with file systems crated with
