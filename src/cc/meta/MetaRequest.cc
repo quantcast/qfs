@@ -2954,6 +2954,12 @@ MetaSetMtime::handle()
     }
     if (IsAccessOk(*fa, *this)) {
         fa->mtime = mtime;
+        if (kSetTimeTimeNotValid != atime) {
+            fa->atime = atime;
+        }
+        if (kSetTimeTimeNotValid != ctime) {
+            fa->ctime = ctime;
+        }
     }
 }
 

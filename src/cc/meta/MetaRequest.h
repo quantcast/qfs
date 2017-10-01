@@ -1679,16 +1679,20 @@ struct MetaRename: public MetaIdempotentRequest {
  * \brief set the mtime for a file or directory
  */
 struct MetaSetMtime: public MetaRequest {
-    fid_t      dir;
-    fid_t      fid;      //!< stash the fid for logging
-    string     pathname; //!< absolute path for which we want to set the mtime
-    int64_t    mtime;
+    fid_t   dir;
+    fid_t   fid;      //!< stash the fid for logging
+    string  pathname; //!< absolute path for which we want to set the mtime
+    int64_t mtime;
+    int64_t atime;
+    int64_t ctime;
     MetaSetMtime(fid_t id = -1, int64_t mt = 0)
         : MetaRequest(META_SETMTIME, kLogIfOk),
           dir(ROOTFID),
           fid(id),
           pathname(),
           mtime(mt),
+          atime(kSetTimeTimeNotValid),
+          ctime(kSetTimeTimeNotValid),
           sec(0),
           usec(0)
         {}
@@ -1715,6 +1719,8 @@ struct MetaSetMtime: public MetaRequest {
         .Def2("Mtime-usec", "U", &MetaSetMtime::usec    )
         .Def2("Pathname",   "N", &MetaSetMtime::pathname)
         .Def2("Parent-dir", "D", &MetaSetMtime::dir,   fid_t(-1))
+        .Def2("Atime",      "A", &MetaSetMtime::atime, kSetTimeTimeNotValid)
+        .Def2("Ctime",      "C", &MetaSetMtime::ctime, kSetTimeTimeNotValid)
         ;
     }
     template<typename T> static T& LogIoDef(T& parser)
@@ -1724,6 +1730,8 @@ struct MetaSetMtime: public MetaRequest {
         .Def("N", &MetaSetMtime::pathname)
         .Def("M", &MetaSetMtime::mtime)
         .Def("D", &MetaSetMtime::dir, ROOTFID)
+        .Def("A", &MetaSetMtime::atime, kSetTimeTimeNotValid)
+        .Def("C", &MetaSetMtime::ctime, kSetTimeTimeNotValid)
         ;
     }
 private:

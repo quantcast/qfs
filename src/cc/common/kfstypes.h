@@ -124,8 +124,8 @@ const int EVRNOTPRIMARY = 1009;
 // Not VR primary node.
 const int EVRBACKUP = 1010;
 
-// Catch all, error, only intended for system codes that no corresponding
-// kKFS_* equivalent in kfserrno.cc Should not be returned by KFS code, except
+// Catch all, error, only intended for system codes that have no corresponding
+// kKFS_* equivalents in kfserrno.cc Should not be returned by KFS code, except
 // SysToKfsErrno() and KfsToSysErrno()
 const int EKFSYSSERROR = 2000;
 
@@ -192,6 +192,8 @@ enum AuthenticationType
     kAuthenticationTypePSK   = 0x8
 };
 const int kMaxAuthenticationContentLength = 64 << 10;
+
+const int64_t kSetTimeTimeNotValid = int64_t(1) << (sizeof(int64_t) * 8 - 1);
 
 }
 
