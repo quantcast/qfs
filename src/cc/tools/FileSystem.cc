@@ -623,10 +623,38 @@ public:
         const string&         inPath,
         const struct timeval& inMTime)
     {
-        struct utimbuf theTimes;
-        theTimes.actime  = inMTime.tv_sec;
-        theTimes.modtime = inMTime.tv_sec;
-        return Errno(utime(inPath.c_str(), &theTimes));
+        struct timeval theTimes[2];
+        theTimes[0] = inMTime;
+        theTimes[1] = inMTime;
+        return Errno(utimes(inPath.c_str(), theTimes));
+    }
+    virtual int SetUtimes(
+        const string&         inPath,
+        const struct timeval& inMTime,
+        int64_t               inATime,
+        int64_t               /* inCTime */)
+    {
+        struct timeval theTimes[2];
+        if (kSetTimeTimeNotValid == inATime) {
+            StatBuf theStat;
+            const int theStatus = Stat(inPath, theStat);
+            if (theStatus != 0) {
+                return theStatus;
+            }
+#ifdef KFS_OS_NAME_DARWIN
+            theTimes[0].tv_sec  = theStat.st_atimespec.tv_sec;
+            theTimes[0].tv_usec = theStat.st_atimespec.tv_nsec / 1000;
+#else
+            theTimes[0].tv_sec  = theStat.st_atime;
+            theTimes[0].tv_usec = 0;
+#endif
+        } else {
+            const int64_t kUsecsInSec = 1000 * 1000;
+            theTimes[0].tv_sec  = inATime / kUsecsInSec;
+            theTimes[0].tv_usec = inATime % kUsecsInSec;
+        }
+        theTimes[1] = inMTime;
+        return Errno(utimes(inPath.c_str(), theTimes));
     }
     virtual int SetReplication(
         const string& inPath,
@@ -1233,6 +1261,14 @@ public:
         const struct timeval& inMTime)
     {
         return KfsClient::SetMtime(inPath.c_str(), inMTime);
+    }
+    virtual int SetUtimes(
+        const string&         inPath,
+        const struct timeval& inMTime,
+        int64_t               inATime,
+        int64_t               inCTime)
+    {
+        return KfsClient::SetUtimes(inPath.c_str(), inMTime, inATime, inCTime);
     }
     virtual int SetReplication(
         const string& inPath,

@@ -466,7 +466,31 @@ public:
                     theErr = EINVAL;
                     ShortHelp(cerr, "Usage: ", theCmdPtr);
                 } else {
-                    theErr = SetModTime(theArgsPtr, 1, theMTimeMs);
+                    theErr = SetUTimes(theArgsPtr, 1, theMTimeMs * 1000);
+                }
+            }
+        } else if (strcmp(theCmdPtr, "setUTimes") == 0) {
+            if (theArgCnt < 2 || 4 < theArgCnt) {
+                theErr = EINVAL;
+                ShortHelp(cerr, "Usage: ", theCmdPtr);
+            } else {
+                int64_t theTimesUs[3];
+                int     i;
+                for (i = 1; i < theArgCnt; i++) {
+                    char* theEndPtr  = 0;
+                    theTimesUs[i - 1] = strtoll(theArgsPtr[i], &theEndPtr, 0);
+                    if (! theEndPtr || (*theEndPtr & 0xFF) > ' ') {
+                        theErr = EINVAL;
+                        ShortHelp(cerr, "Usage: ", theCmdPtr);
+                        break;
+                    }
+                }
+                if (0 == theErr) {
+                    for (; i < 4; i++) {
+                        theTimesUs[i - 1] = kSetTimeTimeNotValid;
+                    }
+                    theErr = SetUTimes(theArgsPtr, 1,
+                        theTimesUs[0], theTimesUs[1], theTimesUs[2]);
                 }
             }
         } else if (strcmp(theCmdPtr, "test") == 0) {
@@ -789,6 +813,15 @@ private:
         return inStat.st_ctime;
 #else
         return inStat.st_ctimespec.tv_sec;
+#endif
+    }
+    static time_t GetATime(
+        const FileSystem::StatBuf& inStat)
+    {
+#ifndef KFS_OS_NAME_DARWIN
+        return inStat.st_atime;
+#else
+        return inStat.st_atimespec.tv_sec;
 #endif
     }
     static const char* const sHelpStrings[];
@@ -3442,38 +3475,47 @@ private:
         TouchzFunctor theTouchzFunc(mDefaultCreateParams);
         return ApplyT(inArgsPtr, inArgCount, theTouchzFunc);
     }
-    class SetModTimeFunctor
+    class SetUTimesFunctor
     {
     public:
-        SetModTimeFunctor(
-            int64_t inModTimeMs)
-            : mTime()
+        SetUTimesFunctor(
+            int64_t inModTimeUs,
+	    int64_t inATimeUs,
+            int64_t inCTimeUs)
+            : mTime(),
+              mATimeUs(inATimeUs),
+              mCTimeUs(inCTimeUs)
         {
-            mTime.tv_sec  = inModTimeMs / 1000;
-            mTime.tv_usec = (inModTimeMs % 1000) * 1000;
+            const int64_t kUsecsInSec = 1000 * 1000;
+            mTime.tv_sec  = inModTimeUs / kUsecsInSec;
+            mTime.tv_usec = inModTimeUs % kUsecsInSec;
         }
         int operator()(
             FileSystem&    inFs,
             const string&  inPath,
             ErrorReporter& /* inErrorReporter */)
         {
-            return inFs.SetMtime(inPath, mTime);
+            return inFs.SetUtimes(inPath, mTime, mATimeUs, mCTimeUs);
         }
     private:
         struct timeval mTime;
+        int64_t const  mATimeUs;
+        int64_t const  mCTimeUs;
 
-        SetModTimeFunctor(
-            const SetModTimeFunctor& inFunctor);
-        SetModTimeFunctor& operator=(
-            const SetModTimeFunctor& inFunctor);
+        SetUTimesFunctor(
+            const SetUTimesFunctor& inFunctor);
+        SetUTimesFunctor& operator=(
+            const SetUTimesFunctor& inFunctor);
     };
-    int SetModTime(
+    int SetUTimes(
         char**  inArgsPtr,
         int     inArgCount,
-        int64_t inModTimeMs)
+        int64_t inModTimeUs,
+        int64_t inATimeUs = kSetTimeTimeNotValid,
+        int64_t inCTimeUs = kSetTimeTimeNotValid)
     {
-        SetModTimeFunctor theSetTimeFunc(inModTimeMs);
-        return ApplyT(inArgsPtr, inArgCount, theSetTimeFunc);
+        SetUTimesFunctor theSetTimesFunc(inModTimeUs, inATimeUs, inCTimeUs);
+        return ApplyT(inArgsPtr, inArgCount, theSetTimesFunc);
     }
     int Test(
         char** inArgsPtr,
@@ -4335,8 +4377,9 @@ private:
                 "Uri:              " << DisplayFsUri(inFs, inPath)  << "\n"
                 "Type:             " << (S_ISDIR(mStat.st_mode) ?
                     "dir" : "file") << "\n"
-                "Created:          " << GetCTime(mStat)             << "\n"
                 "Modified:         " << GetMTime(mStat)             << "\n"
+                "Changed:          " << GetCTime(mStat)             << "\n"
+                "Accessed:         " << GetATime(mStat)             << "\n"
                 "Size:             " << mStat.st_size               << "\n"
                 "I-node:           " << mStat.st_ino                << "\n"
                 "Mode:             " << oct << mStat.st_mode << dec << "\n"
@@ -4813,6 +4856,10 @@ const char* const KfsTool::sHelpStrings[] =
 
     "setModTime", "<src> <time>",
     "Set modification time <time in milliseconds>"
+    " on <src>\n",
+
+    "setUTimes", "<src> <modification time> [<access time>] [<change time>]",
+    "Set modification, access, and change time <time in microseconds>"
     " on <src>\n",
 
     "stat", "[format] <path>",

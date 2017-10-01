@@ -191,6 +191,11 @@ public:
     virtual int SetMtime(
         const string&         inPath,
         const struct timeval& inMTime) = 0;
+    virtual int SetUtimes(
+        const string&         inPath,
+        const struct timeval& inMTime,
+        int64_t               inATime,
+        int64_t               inCTime) = 0;
     virtual int SetReplication(
         const string& inPath,
         int           inReplication,
