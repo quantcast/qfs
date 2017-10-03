@@ -2611,7 +2611,7 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         req.resume();
         return;
     }
-    const bool restoreFlag = gLayoutManager.RestoreGetChunkServer();
+    const bool restoreFlag = !! gLayoutManager.RestoreGetChunkServer();
     if (restoreFlag &&
             (! req.replayFlag ||
                 this != &*gLayoutManager.RestoreGetChunkServer() || mDown)) {
@@ -4218,7 +4218,7 @@ HibernatedChunkServer::Checkpoint(ostream& ost, const ServerLocation& loc,
         "hcse/" << mDeletedChunks.Size() <<
         "/"     << mModifiedChunks.Size() <<
         "\n";
-    return ost;
+    return (!! ost);
 }
 
 bool
