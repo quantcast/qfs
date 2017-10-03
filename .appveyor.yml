@@ -26,10 +26,6 @@ environment:
         CYG_MIRROR: http://cygwin.mirror.constant.com
         CYG_CACHE: C:\cygwin\var\cache\setup
         CYG_BASH: C:\cygwin\bin\bash
-        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,openssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel
-
-cache:
-    - '%CYG_CACHE%'
 
 init:
     - git config --global core.autocrlf input
@@ -56,8 +52,6 @@ install:
         # add hadoop bin to environment variables
         $env:HADOOP_HOME = "$hadoopPath/winutils-master/hadoop-$hadoopVer"
         Pop-Location
-    - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
-    - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
     - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version"'
 
 build_script:
