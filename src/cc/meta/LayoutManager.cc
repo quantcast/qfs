@@ -7860,8 +7860,8 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
         // Leases are irrelevant, the client just needs to talk to the write
         // slaves to recover the its last append rpc status.
         // To avoid lease lookup, and to handle the case where no write lease
-        // exists return access tokes to all servers. It is possible that one of
-        // the server is or was the write master -- without the corresponding
+        // exists return access tokens to all servers. It is possible that one
+        // of the server is or was the write master -- without the corresponding
         // write lease, or the client explicitly telling this, it is not
         // possible to determine which one was the master.
         if (req.appendRecoveryLocations.empty()) {
