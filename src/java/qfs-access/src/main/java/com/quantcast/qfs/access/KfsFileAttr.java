@@ -43,7 +43,7 @@ public class KfsFileAttr
     public long    filesize;
     public long    modificationTime;
     public long    attrChangeTime;
-    public long    creationTime;
+    public long    creationTime; // Access time, if access time update enabled.
     public int     replication;
     public int     striperType;
     public int     numStripes;

@@ -48,6 +48,7 @@ final public class KfsAccess
     public final int DEFAULT_STRIPE_SIZE          = 65536;
     public final int DEFAULT_STRIPER_TYPE         =
         KfsFileAttr.STRIPED_FILE_TYPE_RS;
+    public final long SET_TIME_TIME_NOT_VALID     = 1L << 63;
 
     // the pointer in C++
     private long cPtr;
@@ -150,7 +151,7 @@ final public class KfsAccess
     long getReadAheadSize(long ptr, int fd);
 
     private final static native
-    int setModificationTime(long ptr, String path, long time);
+    int setUTimes(long ptr, String path, long mtime_usec, long atime_usec, long ctime_usec);
 
     private final static native
     int compareChunkReplicas(long ptr, String path, StringBuffer md5sum);
@@ -753,7 +754,13 @@ final public class KfsAccess
 
     public int kfs_setModificationTime(String path, long time)
     {
-        return setModificationTime(cPtr, path, time);
+        return kfs_setUTimes(path, time * 1000,
+            SET_TIME_TIME_NOT_VALID, SET_TIME_TIME_NOT_VALID);
+    }
+    public int kfs_setUTimes(String path, long mtimeUsec,
+        long atimeUsec, long ctimeUsec)
+    {
+        return setUTimes(cPtr, path, mtimeUsec, atimeUsec, ctimeUsec);
     }
 
     public boolean kfs_compareChunkReplicas(

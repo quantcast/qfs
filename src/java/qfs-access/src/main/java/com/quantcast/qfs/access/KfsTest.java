@@ -297,6 +297,8 @@ public class KfsTest
 
             inputChannel.close();
 
+            testUtimes(kfsAccess, npath);
+
             // remove the file
             kfsAccess.kfs_remove(npath);
 
@@ -329,6 +331,7 @@ public class KfsTest
                 System.out.println(entry.getKey() + ": " + entry.getValue());
             }
 
+            testUtimes(kfsAccess, basedir);
             // remove the dir
             kfsAccess.kfs_retToIOException(kfsAccess.kfs_rmdir(basedir));
             System.out.println("All done...Test passed!");
@@ -399,20 +402,20 @@ public class KfsTest
     private static void rename(KfsAccess kfsAccess, String source, String dest)
             throws IOException
     {
-	// KFS rename does not have mv semantics.
-	// To move /a/b under /c/, you must ask for "rename /a/b /c/b"
-	String renameTarget;
-	if (kfsAccess.kfs_isDirectory(dest)) {
-	    String sourceBasename = (new File(source)).getName();
-	    if (dest.endsWith("/")) {
-		renameTarget = dest + sourceBasename;
-	    } else {
-		renameTarget = dest + "/" + sourceBasename;
-	    }
-	} else {
-	    renameTarget = dest;
-	}
-	kfsAccess.kfs_retToIOException(
+        // KFS rename does not have mv semantics.
+        // To move /a/b under /c/, you must ask for "rename /a/b /c/b"
+    String renameTarget;
+    if (kfsAccess.kfs_isDirectory(dest)) {
+        String sourceBasename = (new File(source)).getName();
+        if (dest.endsWith("/")) {
+        renameTarget = dest + sourceBasename;
+        } else {
+        renameTarget = dest + "/" + sourceBasename;
+        }
+    } else {
+        renameTarget = dest;
+    }
+    kfsAccess.kfs_retToIOException(
             kfsAccess.kfs_rename(source, renameTarget));
     }
 
@@ -527,5 +530,36 @@ public class KfsTest
         }
         inputChannel.close();
         delete(kfsAccess, filePath);
+    }
+
+    private static void testUtimes(KfsAccess kfsAccess, String path)
+            throws IOException {
+        KfsFileAttr attr = new KfsFileAttr();
+        kfsAccess.kfs_retToIOException(kfsAccess.kfs_stat(path, attr), path);
+        final long mtimeMs = attr.modificationTime - 5001;
+        final long atimeMs = attr.creationTime     - 10001;
+        final long ctimeMs = attr.attrChangeTime   - 8001;
+        kfsAccess.kfs_retToIOException(kfsAccess.kfs_setUTimes(path,
+            mtimeMs * 1000, atimeMs * 1000, ctimeMs * 1000), path);
+        for (int pass = 0; pass < 2; pass++) {
+            kfsAccess.kfs_retToIOException(kfsAccess.kfs_stat(path, attr), path);
+            if (mtimeMs != attr.modificationTime ||
+                    atimeMs != attr.creationTime ||
+                    ctimeMs != attr.attrChangeTime) {
+                throw new IOException(
+                    path + ": kfs_setUTimes result mismatch: " +
+                    " mtime: " + mtimeMs + " -> " + attr.modificationTime +
+                    " atime: " + atimeMs + " -> " + attr.creationTime +
+                    " ctime: " + ctimeMs + " -> " + attr.attrChangeTime +
+                    " pass: " + pass +
+                    " SET_TIME_TIME_NOT_VALID: " +
+                        String.format("0x%x", kfsAccess.SET_TIME_TIME_NOT_VALID)
+                );
+            }
+            kfsAccess.kfs_retToIOException(kfsAccess.kfs_setUTimes(path,
+                mtimeMs * 1000,
+                kfsAccess.SET_TIME_TIME_NOT_VALID,
+                kfsAccess.SET_TIME_TIME_NOT_VALID), path);
+        }
     }
 }

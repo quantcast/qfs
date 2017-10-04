@@ -117,8 +117,8 @@ extern "C" {
     jlong Java_com_quantcast_qfs_access_KfsAccess_getModificationTime(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
-    jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
-        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jmsec);
+    jint Java_com_quantcast_qfs_access_KfsAccess_setUTimes(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jmtime_usec, jlong jatime_usec, jlong jctime_usec);
 
     jint Java_com_quantcast_qfs_access_KfsAccess_open(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jstring jmode, jint jnumReplicas,
@@ -908,8 +908,8 @@ jlong Java_com_quantcast_qfs_access_KfsAccess_getModificationTime(
     return ((jlong) attr.mtime.tv_sec) * 1000 + (jlong) (attr.mtime.tv_usec / 1000);
 }
 
-jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
-    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jmsec)
+jint Java_com_quantcast_qfs_access_KfsAccess_setUTimes(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jlong jmtime_usec, jlong jatime_usec, jlong jctime_usec)
 {
     if (! jptr) {
         return -EFAULT;
@@ -921,10 +921,10 @@ jint Java_com_quantcast_qfs_access_KfsAccess_setModificationTime(
 
     struct timeval mtime;
 
-    // the input is in ms
-    mtime.tv_sec = jmsec / 1000;
-    mtime.tv_usec = jmsec % 1000;
-    if (clnt->SetMtime(path.c_str(), mtime) != 0)
+    const jlong kUsecsInSec = (jlong)1000 * 1000;
+    mtime.tv_sec = jmtime_usec / kUsecsInSec;
+    mtime.tv_usec = jmtime_usec % kUsecsInSec;
+    if (clnt->SetUtimes(path.c_str(), mtime, jatime_usec, jctime_usec) != 0)
         return -1;
 
     return 0;
