@@ -644,6 +644,9 @@ metaServer.maxTruncatedChunkDeletesInFlight = 18
 metaServer.metaMds = $metabinmd5
 
 chunkServer.objBlockDiscardMinMetaUptime = 8
+
+metaServer.ATimeUpdateResolution = 0
+metaServer.dirATimeUpdateResolution = 0
 EOF
 
     if [ x"$auth" = x'yes' ]; then
