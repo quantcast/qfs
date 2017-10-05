@@ -2151,11 +2151,11 @@ protected:
               updateMTimeFlag(updateMTime),
               numServers(nServers),
               numAckMsg(0),
-              pathname(name),
               chunkChecksum(0),
               chunkSize(-1),
               chunkVersion(cvers),
-              pendingReqHead(0)
+              pendingReqRingTail(0),
+              pathname(name)
             {}
         bool         beginMakeStableFlag:1;
         bool         logMakeChunkStableFlag:1;
@@ -2164,11 +2164,11 @@ protected:
         const bool   updateMTimeFlag:1;
         int          numServers;
         int          numAckMsg;
-        const string pathname;
         uint32_t     chunkChecksum;
         chunkOff_t   chunkSize;
         seq_t        chunkVersion;
-        MetaRequest* pendingReqHead;
+        MetaRequest* pendingReqRingTail;
+        const string pathname;
     };
     typedef KVPair<chunkId_t, MakeChunkStableInfo> NonStableChunkKVEntry;
     typedef LinearHash<

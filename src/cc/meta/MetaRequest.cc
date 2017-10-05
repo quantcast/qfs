@@ -2967,20 +2967,15 @@ MetaSetMtime::handle()
 MetaSetATime::handle()
 {
     gLayoutManager.Handle(*this);
-    if (ringTail) {
-        MetaRequest* r = ringTail->next;
-        ringTail = 0;
-        const MetaRequest* const h = r;
-        do {
-            MetaRequest* const op = r;
-            r = op->next;
-            op->next = 0;
-            op->suspended = false;
-            if (0 != status && 0 == op->status) {
-                op->status = status;
-            }
-            submit_request(op);
-        } while (h != r);
+    WaitQueue queue;
+    queue.PushBack(waitQueue);
+    MetaRequest* req;
+    while ((req = queue.PopFront())) {
+        req->suspended = false;
+        if (0 != status && 0 == req->status) {
+            req->status = status;
+        }
+        submit_request(req);
     }
     if (0 != status) {
         return;

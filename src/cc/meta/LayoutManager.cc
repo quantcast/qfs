@@ -1830,9 +1830,7 @@ LayoutManager::UpdateATimeSelf(int64_t updateResolutionUsec,
         *op = new MetaSetATime(fa->id(), req.submitTime, &req);
         submit_request(*op);
     } else {
-        req.next = (*op)->ringTail->next;
-        (*op)->ringTail->next = &req;
-        (*op)->ringTail = &req;
+        (*op)->waitQueue.PushBack(req);
     }
 }
 
@@ -7930,8 +7928,13 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
             return;
         }
         req.suspended = true;
-        req.next = it->pendingReqHead;
-        it->pendingReqHead = &req;
+        if (it->pendingReqRingTail) {
+            req.next = it->pendingReqRingTail->next;
+            it->pendingReqRingTail->next = &req;
+        } else {
+            req.next = &req;
+        }
+        it->pendingReqRingTail = &req;
         KFS_LOG_STREAM_INFO << "chunk: " << req.chunkId <<
             " " << "not yet stable suspending read lease acquire request" <<
         KFS_LOG_EOM;
@@ -10585,18 +10588,15 @@ LayoutManager::DeleteNonStableEntry(
     int                                       status    /* = 0 */,
     const char*                               statusMsg /* = 0 */)
 {
-    MetaRequest* next = it->pendingReqHead;
+    MetaRequest* next = it->pendingReqRingTail;
     mNonStableChunks.Erase(chunkId);
-    // Submit requests in the same order they came in.
-    MetaRequest* head = 0;
-    while (next) {
-        MetaRequest& req = *next;
-        next = req.next;
-        req.next = head;
-        head = &req;
+    if (! next) {
+        return;
     }
-    next = head;
-    while (next) {
+    // Submit requests in the same order they came in.
+    next = next->next;
+    const MetaRequest* const head = next;
+    do {
         MetaRequest& req = *next;
         next = req.next;
         req.next = 0;
@@ -10606,7 +10606,7 @@ LayoutManager::DeleteNonStableEntry(
             req.statusMsg = statusMsg;
         }
         submit_request(&req);
-    }
+    } while (head != next);
 }
 
 int

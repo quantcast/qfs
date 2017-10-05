@@ -54,6 +54,7 @@
 #include "common/kfsatomic.h"
 #include "common/CIdChecksum.h"
 #include "common/LinearHash.h"
+#include "common/SingleLinkedQueue.h"
 #include "common/time.h"
 
 #include "qcdio/QCDLList.h"
@@ -4091,18 +4092,20 @@ protected:
 };
 
 struct MetaSetATime: public MetaRequest {
-    fid_t        fid;
-    int64_t      atime;
-    MetaRequest* ringTail;
+    typedef SingleLinkedQueue<MetaRequest, MetaRequest::GetNext> WaitQueue;
+
+    fid_t     fid;
+    int64_t   atime;
+    WaitQueue waitQueue;
 
     MetaSetATime(fid_t id = -1, int64_t at = 0, MetaRequest* r = 0)
         : MetaRequest(META_SETATIME, kLogIfOk),
           fid(id),
           atime(at),
-          ringTail(r)
+          waitQueue()
     {
-        if (ringTail) {
-            ringTail->next = ringTail;
+        if (r) {
+            waitQueue.PushBack(*r);
         }
     }
     bool Validate() { return (0 <= fid); }
@@ -4114,7 +4117,7 @@ struct MetaSetATime: public MetaRequest {
             "set-atime:"
             " fid: "   << fid <<
             " atime: " << atime <<
-            " req: "   << ShowReq(ringTail ? ringTail->next : ringTail)
+            " req: "   << ShowReq(waitQueue.Front())
         ;
         return os;
     }
