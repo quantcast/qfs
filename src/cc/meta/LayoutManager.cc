@@ -1817,7 +1817,7 @@ inline void
 LayoutManager::UpdateATimeSelf(int64_t updateResolutionUsec,
     const MetaFattr* fa, T& req)
 {
-    if (updateResolutionUsec < 0 ||
+    if (req.fromChunkServerFlag || updateResolutionUsec < 0 ||
             req.submitTime <= fa->atime + updateResolutionUsec) {
         return;
     }
@@ -8131,6 +8131,9 @@ LayoutManager::Handle(MetaLeaseRenew& req)
         }
     }
     req.status = ret;
+    if (0 == ret && req.leaseType == READ_LEASE) {
+        UpdateATimeSelf(mATimeUpdateResolution, fa, req);
+    }
 }
 
 ///

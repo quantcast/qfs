@@ -4150,6 +4150,7 @@ struct MetaLeaseRenew: public MetaRequest {
     ChunkAccess        chunkAccess;
     const ChunkServer* chunkServer;
     int                validForTime;
+    bool               atimeInFlightFlag;
     TokenSeq           tokenSeq;
     MetaLeaseRenew()
         : MetaRequest(META_LEASE_RENEW, kLogNever),
@@ -4165,6 +4166,7 @@ struct MetaLeaseRenew: public MetaRequest {
           chunkAccess(),
           chunkServer(0),
           validForTime(0),
+          atimeInFlightFlag(false),
           tokenSeq(0),
           leaseTypeStr()
         {}

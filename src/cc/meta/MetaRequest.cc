@@ -3271,6 +3271,10 @@ MetaLeaseAcquire::handle()
 /* virtual */ void
 MetaLeaseRenew::handle()
 {
+    if (atimeInFlightFlag) {
+        atimeInFlightFlag = false;
+        return;
+    }
     if (status < 0) {
         return;
     }
