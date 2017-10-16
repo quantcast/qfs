@@ -156,14 +156,14 @@ metaServer.cpDir = meta/checkpoint
 metaServer.recoveryInterval = 30
 
 # Ignore master/slave chunk server assignment for write append.
-# Master/slave assignment can help with append replication 2, so avoid
-# theoretically possible IO buffers resource deadlock when chunk server A is a
-# in one "AB" synchronous append replication chain, and chunk server B is a
-# master in another chunk "BA" synchronous replication.
+# Master/slave assignment can help with append replication 2, to avoid
+# theoretically possible IO buffers resource deadlock when chunk server A is
+# "slave" in one "AB" synchronous append replication chain, and chunk server B
+# is "master" in another chunk "BA" synchronous replication.
 # In practice such deadlocks should be rare enough to matter, and, if occur,
-# are resolve with replication timeout mechanism.
+# are resolved by replication timeout mechanism.
 # The downside of using master/slave assignment is that presently it only works
-# with replication 3, and only half of the chunk server population will be
+# with replication 2, and only half of the chunk server population will be
 # accepting client's append requests.
 # Default is "on" -- ignore.
 # metaServer.appendPlacementIgnoreMasterSlave = 1
@@ -197,7 +197,7 @@ metaServer.recoveryInterval = 30
 # Default is empty string.
 metaServer.clusterKey = my-fs-unique-identifier
 
-# Assign rack id by ip prefix -- ip address treated as string.
+# Assign rack id by ip prefix -- ip address treated as strings.
 # The prefix can be positioned with trailing ??
 # For example: 10.6.34.2?
 # The rack id assigned on chunk server connect, and will not change until the
@@ -269,10 +269,26 @@ metaServer.clusterKey = my-fs-unique-identifier
 # Default is empty.
 # metaServer.rootHosts =
 
-# File modification time update resolution. Increasing the value will reduce the
-# transaction log writes with large files.
+# File modification time update resolution. Increasing the value will reduce
+# number of corresponding transaction log writes with large files.
 # Default is 1 sec.
 # metaServer.MTimeUpdateResolution = 1
+
+# Files access time update resolution in seconds. Increasing the value will
+# reduce number of corresponding transaction log writes.
+# File access time update considered when chunk or object store block read
+# lease acquire or read lease renew completes successfully.
+# Setting to a negative value turns off access time updates.
+# Default is -1 -- no file access time update.
+# metaServer.ATimeUpdateResolution = -1
+
+# Directories access time update resolution in seconds. Increasing the value
+# will reduce number of corresponding transaction log writes.
+# Directory access time update considered every time when directory "read" /
+# "listed", i.e. "read dir" or "read dir plus" RPC issued.
+# Setting to a negative value turns off access time updates.
+# Default is -1 -- n directories access time update.
+# metaServer.ATimeUpdateResolution = -1
 
 # --------------- File create limits. ------------------------------------------
 #
