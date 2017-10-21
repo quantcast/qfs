@@ -1528,8 +1528,10 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is no valid file system id.
 # metaServer.metaDataSync.fileSystemId =
 
-# List of meta server nodes IPs and / or host names, or meta server DNS name
-# which resolves to the list of the meta server nodes.
+# List of meta server nodes IPs and ClientPorts and / or host names and
+# ClientPorts, or meta server DNS name which resolves to the list of the meta
+# meta server nodes and ClientPort. For example:
+# metaServer.metaDataSync.servers = 10.10.10.10 20000 test.example.com 20000
 # metaServer.metaDataSync.servers =
 
 # Meta data read parameters. Read size multiplied by read ops count define
