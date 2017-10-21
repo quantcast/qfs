@@ -1533,7 +1533,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # This node client listener, if it differs different than the IP returned by
 # getpeername() on the other VR nodes, and/or metaServer.clientIp
 # The port should be the same as this node metaServer.clientPort.
-# In other words, this is IP ad port that other VR nodes must use to connect to
+# In other words, this is IP and port that other VR nodes must use to connect to
 # this node client listener.
 # Default is empty.
 # metaServer.vr.metaDataStoreLocation =
