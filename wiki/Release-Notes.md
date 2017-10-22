@@ -87,7 +87,11 @@ permit super user to move file out of dumpster in order to prevent its deletion.
  The problem affects both chunk and meta servers. However, typically, only chunk
  server, if configured with IO buffer pool larger than 4GB, and S3, might use
  enough buffers for the problem to occur.
- 
+
+19. Implemented files and directories access time update. By default access time
+ update turned off. For details please see the following parameters description in
+ meta server annotated configuration file: metaServer.ATimeUpdateResolution
+ and metaServer.dirATimeUpdateResolution.
 
 Upgrade from prior releases
 ---------------------------
