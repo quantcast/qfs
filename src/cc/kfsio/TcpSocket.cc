@@ -460,9 +460,10 @@ TcpSocket::Connect(
             res = -EINPROGRESS;
         }
 #endif
-    }
-    if (res != -EINPROGRESS) {
-        return PerrorFatal(remoteAddr);
+        if (res != -EINPROGRESS) {
+            PerrorFatal(remoteAddr);
+            return res;
+        }
     }
     if (! nonblockingConnect) {
         if (fcntl(mSockFd, F_SETFL, O_NONBLOCK)) {
