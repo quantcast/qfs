@@ -288,7 +288,7 @@ metaServer.clusterKey = my-fs-unique-identifier
 # "listed", i.e. "read dir" or "read dir plus" RPC issued.
 # Setting to a negative value turns off access time updates.
 # Default is -1 -- n directories access time update.
-# metaServer.ATimeUpdateResolution = -1
+# metaServer.dirATimeUpdateResolution = -1
 
 # --------------- File create limits. ------------------------------------------
 #
@@ -1400,7 +1400,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 #
 # 1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
 # set of nodes must have node with ID 0. The node with lowest ID is
-# elected as a primary primary, the remaining active nodes are assigned backup
+# elected as a primary, the remaining active nodes are assigned backup
 # status. Node's "primary order" (32 bit signed integer) can be set to change
 # primary election, the node with the smallest primary order becomes primary.
 # Node's primary order takes precedence over node ID, node ID breaks tie in case
@@ -1519,7 +1519,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 
 # An active meta server node must have valid VR state file in order to be able
 # to form VR quorum. The state includes node ID, and reflects node's replicated
-# state. Valid state must match the state of the transaction log. THe state file
+# state. Valid state must match the state of the transaction log. The state file
 # is used on meta server startup. Meta server validates that the node ID and
 # transaction log state corresponds to the values in VR state file on startup.
 # In case of mismatch the file is deleted. The meta server writes the VR state
@@ -1545,9 +1545,14 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is no valid file system id.
 # metaServer.metaDataSync.fileSystemId =
 
-# List of meta server nodes IPs and ClientPorts and / or host names and
-# ClientPorts, or meta server DNS name which resolves to the list of the meta
-# meta server nodes and ClientPort. For example:
+# Space separated list of replicated meta server nodes locations.
+# Each location consists of IP address (or DNS name) and port number.
+# The port numbers the respective client listener port numbers, i.e. values of
+# each node metaServer.clientPort parameter.
+# This parameter is used for initial meta data fetch, if required, in the cases
+# if no checkpoint and logs exist, or checkpoint and logs are "too old", i.e.
+# more recent checkpoint and logs must be fetched from another meta server node.
+# For example:
 # metaServer.metaDataSync.servers = 10.10.10.10 20000 test.example.com 20000
 # metaServer.metaDataSync.servers =
 
@@ -1707,6 +1712,6 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # over", and have no transactions that immediately follow the last transaction of
 # this node. By default meta server "re-executes" itself when restart is
 # required. In the case when the meta server process is automatically restarted
-# by another process the following parameter can be set to 1 to exit to make
-# meta server process instead of re-executing itself.
+# by another process the following parameter can be set to 1 to exit to allow
+# another process to automatically restart meta server.
 # metaServer.exitOnRestart = 0
