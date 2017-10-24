@@ -1563,6 +1563,7 @@ ChunkLeases::MoveFromDumpster(
     FEntry* const entry = mFileLeases.Find(inFa.id());
     if (! entry || inName != entry->Get().mName || entry->Get().mFa != &inFa) {
         panic("internal error: invalid move from dumpster invocation");
+	return false;
     }
     KFS_LOG_STREAM_DEBUG <<
         "move from dumpster: " << inFa.id() <<

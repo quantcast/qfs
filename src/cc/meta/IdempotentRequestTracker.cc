@@ -474,6 +474,7 @@ public:
                 ! theEntry.mCountPtr ||
                 *(theEntry.mCountPtr) <= 0) {
             panic("IdempotentRequestTracker: invalid idempotent request erase");
+	    return;
         }
         (*theEntry.mCountPtr)--;
         if (mCleanUserEntryFlag && *theEntry.mCountPtr <= 0) {

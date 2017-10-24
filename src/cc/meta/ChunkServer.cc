@@ -2582,12 +2582,17 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     if (0 == r.status) {
         req->logCompletionSeq = r.logseq;
     } else {
-        req->logCompletionSeq = MetaVrLogSeq();
-        req->status           = r.status;
+        if (req) {
+            req->logCompletionSeq = MetaVrLogSeq();
+            req->status           = r.status;
+        }
         // In the case of failure must already be scheduled down.
         if (mNetConnection) {
             panic("chunk server: invalid log in flight op status");
             ScheduleDown(r.statusMsg.c_str());
+        }
+        if (! req) {
+            return;
         }
     }
     const bool kLoggedFlag       = true;
