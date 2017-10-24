@@ -2969,7 +2969,7 @@ int
 ChunkManager::CanStartReplicationOrRecovery(kfsChunkId_t chunkId)
 {
     ChunkInfoHandle** const ci = mChunkTable.Find(chunkId);
-    if (! ci || *ci) {
+    if (! ci || ! *ci) {
         return 0;
     }
     ChunkInfoHandle& cih = **ci;
