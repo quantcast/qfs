@@ -167,8 +167,8 @@ public:
         delete [] mIoBufferPtr;
     }
     int Run(
-        int    inArgCount,
-        char** inArgsPtr)
+        int                inArgCount,
+        const char* const* inArgsPtr)
     {
         MsgLogger::LogLevel theLogLevel = MsgLogger::kLogLevelINFO;
         string              theUri;
@@ -285,14 +285,14 @@ public:
             ShortHelp(cerr);
             return 1;
         }
-        int    theArgCnt        = inArgCount - theArgIndex;
-        char** theArgsPtr       = inArgsPtr + theArgIndex;
-        int    theErr           = 0;
-        bool   theChgrpFlag     = false;
-        bool   theMoveFlag      = false;
-        bool   theRecursiveFlag = false;
-        bool   theCopyFlag      = false;
-        bool   theCancelFlag    = false;
+        int                theArgCnt        = inArgCount - theArgIndex;
+        const char* const* theArgsPtr       = inArgsPtr + theArgIndex;
+        int                theErr           = 0;
+        bool               theChgrpFlag     = false;
+        bool               theMoveFlag      = false;
+        bool               theRecursiveFlag = false;
+        bool               theCopyFlag      = false;
+        bool               theCancelFlag    = false;
         if (strcmp(theCmdPtr, "cat") == 0) {
             if (theArgCnt <= 0) {
                 theErr = EINVAL;
@@ -843,8 +843,8 @@ private:
     }
     int LongHelp(
         ostream& inOutStream,
-        char**   inArgsPtr,
-        int      inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         if (inArgCount <= 0) {
             ShortHelp(inOutStream, "\t");
@@ -1063,12 +1063,12 @@ private:
         string*       outPathPtr = 0)
         { return FileSystem::Get(inUri, outFsPtr, outPathPtr, &mConfig); }
     int Glob(
-        char**       inArgsPtr,
-        int          inArgCount,
-        ostream&     inErrorStream,
-        GlobResult&  outResult,
-        bool&        outMoreThanOneFsFlag,
-        bool         inNormalizePathFlag = true)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        ostream&           inErrorStream,
+        GlobResult&        outResult,
+        bool&              outMoreThanOneFsFlag,
+        bool               inNormalizePathFlag = true)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
         int   theRet = 0;
@@ -1155,13 +1155,13 @@ private:
         return theRet;
     }
     template <typename FuncT> int Apply(
-        char** inArgsPtr,
-        int    inArgCount,
-        FuncT& inFunctor,
-        bool   inNormalizePathFlag = true)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        FuncT&             inFunctor,
+        bool               inNormalizePathFlag = true)
     {
-        char  theArg[1]     = { 0 };
-        char* theArgsPtr[1] = { theArg };
+        char        theArg[1]     = { 0 };
+        const char* theArgsPtr[1] = { theArg };
         GlobResult theResult;
         bool       theMoreThanOneFsFlag = false;
         int theErr = Glob(
@@ -1296,8 +1296,8 @@ private:
             const CatFunctor& inFunctor);
     };
     int Cat(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         cout.flush();
         fflush(stdout);
@@ -1759,16 +1759,16 @@ private:
             const ListFunctor& inFunctor);
     };
     int List(
-        char** inArgsPtr,
-        int    inArgCount,
-        bool   inRecursiveFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        bool               inRecursiveFlag)
     {
         ListFunctor theFunc(mDelimeter, cout, "stdout", cerr, inRecursiveFlag);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int DirSummary(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         const bool kRecursiveFlag  = true;
         const bool kDirSummaryFlag = true;
@@ -1777,10 +1777,10 @@ private:
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int DirSummary(
-        char** inArgsPtr,
-        int    inArgCount,
-        int    inMinTier,
-        int    inMaxTier)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        int                inMinTier,
+        int                inMaxTier)
     {
         const bool kRecursiveFlag  = true;
         const bool kDirSummaryFlag = true;
@@ -1875,10 +1875,10 @@ private:
             const FunctorT& inFunctor);
     };
     template <typename FuncT> int ApplyT(
-        char** inArgsPtr,
-        int    inArgCount,
-        FuncT& inFunctor,
-        bool   inNormalizePathFlag = true)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        FuncT&             inFunctor,
+        bool               inNormalizePathFlag = true)
     {
         FunctorT<FuncT> theFunc(inFunctor, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc, inNormalizePathFlag);
@@ -1916,11 +1916,11 @@ private:
             const ChownFunctor& inFunctor);
     };
     int Chown(
-        char**      inArgsPtr,
-        int         inArgCount,
-        const char* inUserNamePtr,
-        const char* inGroupNamePtr,
-        bool        inRecursiveFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        const char*        inUserNamePtr,
+        const char*        inGroupNamePtr,
+        bool               inRecursiveFlag)
     {
         ChownFunctor theChownFunc(
             inUserNamePtr, inGroupNamePtr, inRecursiveFlag);
@@ -2114,10 +2114,10 @@ private:
             const ChmodFunctor& inFunctor);
     };
     int Chmod(
-        char**      inArgsPtr,
-        int         inArgCount,
-        const char* inModePtr,
-        bool        inRecursiveFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        const char*        inModePtr,
+        bool               inRecursiveFlag)
     {
         ChmodFunctor theChmodFunc(inModePtr, inRecursiveFlag);
         const int theStatus = theChmodFunc.GetModeStatus();
@@ -2154,10 +2154,10 @@ private:
             const MkdirFunctor& inFunctor);
     };
     int Mkdir(
-        char**    inArgsPtr,
-        int       inArgCount,
-        kfsMode_t inMode,
-        bool      inCreateAllFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        kfsMode_t          inMode,
+        bool               inCreateAllFlag)
     {
         MkdirFunctor theMkdirFunc(inMode, inCreateAllFlag);
         const bool   kNormalizePathFlag = false;
@@ -2441,8 +2441,8 @@ private:
     typedef GetGlobLastEntry<true, true> CopyGetlastEntry;
     typedef CopyFunctor<CopyGetlastEntry> CpFunctor;
     int Copy(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         CpFunctor theCopyFunc(mDefaultCreateParams);
         FunctorT<CpFunctor, CopyGetlastEntry, false, false>
@@ -2452,10 +2452,10 @@ private:
         return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
     }
     int CopyFromLocal(
-        char**   inArgsPtr,
-        int      inArgCount,
-        bool     inMoveFlag,
-        ostream& inErrorStream)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        bool               inMoveFlag,
+        ostream&           inErrorStream)
     {
         if (inArgCount < 2) {
             return -EINVAL;
@@ -2539,10 +2539,10 @@ private:
             theErrReporter.GetStatus(), theFunc);
     }
     int CopyToLocal(
-        char**   inArgsPtr,
-        int      inArgCount,
-        bool     inMoveFlag,
-        ostream& inErrorStream)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        bool               inMoveFlag,
+        ostream&           inErrorStream)
     {
         if (inArgCount < 2) {
             return -EINVAL;
@@ -2973,8 +2973,8 @@ private:
         );
     }
     int Move(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         const bool kMoveFlag = true;
         CpFunctor theMoveFunctor(mDefaultCreateParams, kMoveFlag);
@@ -3287,7 +3287,7 @@ private:
             const DiskUtilizationInitFunctor& inFunct);
     };
     int DiskUtilization(
-        char**                inArgsPtr,
+        const char* const*    inArgsPtr,
         int                   inArgCount,
         DiskUtilizationFormat inFormat)
     {
@@ -3298,29 +3298,29 @@ private:
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int DiskUtilizationBytes(
-        char**                inArgsPtr,
-        int                   inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         return DiskUtilization(
             inArgsPtr, inArgCount, kDiskUtilizationFormatBytes);
     }
     int DiskUtilizationSummary(
-        char**                inArgsPtr,
-        int                   inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         return DiskUtilization(
             inArgsPtr, inArgCount, kDiskUtilizationFormatSummaryBytes);
     }
     int DiskUtilizationHumanReadable(
-        char**                inArgsPtr,
-        int                   inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         return DiskUtilization(
             inArgsPtr, inArgCount, kDiskUtilizationFormatHumanReadable);
     }
     int DiskUtilizationSummaryHumanReadable(
-        char**                inArgsPtr,
-        int                   inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         return DiskUtilization(
             inArgsPtr, inArgCount, kDiskUtilizationFormatSummaryHumanReadable);
@@ -3402,9 +3402,9 @@ private:
             const CountFunctor& inFunctor);
     };
     int Count(
-        char** inArgsPtr,
-        int    inArgCount,
-        bool   inShowQuotaFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        bool               inShowQuotaFlag)
     {
         CountFunctor theCountFunc(mDelimeter, inShowQuotaFlag, cout);
         return ApplyT(inArgsPtr, inArgCount, theCountFunc);
@@ -3469,8 +3469,8 @@ private:
             const TouchzFunctor& inFunctor);
     };
     int Touchz(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         TouchzFunctor theTouchzFunc(mDefaultCreateParams);
         return ApplyT(inArgsPtr, inArgCount, theTouchzFunc);
@@ -3480,7 +3480,7 @@ private:
     public:
         SetUTimesFunctor(
             int64_t inModTimeUs,
-	    int64_t inATimeUs,
+            int64_t inATimeUs,
             int64_t inCTimeUs)
             : mTime(),
               mATimeUs(inATimeUs),
@@ -3508,18 +3508,18 @@ private:
             const SetUTimesFunctor& inFunctor);
     };
     int SetUTimes(
-        char**  inArgsPtr,
-        int     inArgCount,
-        int64_t inModTimeUs,
-        int64_t inATimeUs = kSetTimeTimeNotValid,
-        int64_t inCTimeUs = kSetTimeTimeNotValid)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        int64_t            inModTimeUs,
+        int64_t            inATimeUs = kSetTimeTimeNotValid,
+        int64_t            inCTimeUs = kSetTimeTimeNotValid)
     {
         SetUTimesFunctor theSetTimesFunc(inModTimeUs, inATimeUs, inCTimeUs);
         return ApplyT(inArgsPtr, inArgCount, theSetTimesFunc);
     }
     int Test(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         if (inArgCount != 2 || (
                 strcmp(inArgsPtr[0], "-e") != 0 &&
@@ -3829,11 +3829,11 @@ private:
             const WaitReplicationFunctor& inFunctor);
     };
     int SetReplication(
-        char** inArgsPtr,
-        int    inArgCount,
-        int    inReplication,
-        bool   inRecursiveFlag,
-        bool   inWaitFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        int                inReplication,
+        bool               inRecursiveFlag,
+        bool               inWaitFlag)
     {
         if (inArgCount <= 0) {
             return -EINVAL;
@@ -3962,9 +3962,9 @@ private:
             const StatFunctor& inFunctor);
     };
     int Stat(
-        char**      inArgsPtr,
-        int         inArgCount,
-        const char* inFormatPtr)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        const char*        inFormatPtr)
     {
         StatFunctor theStatFunc(inFormatPtr, cout);
         return ApplyT(inArgsPtr, inArgCount, theStatFunc);
@@ -4053,9 +4053,9 @@ private:
             const TailFunctor& inFunctor);
     };
     int Tail(
-        char** inArgsPtr,
-        int    inArgCount,
-        bool   inFollowFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        bool               inFollowFlag)
     {
         if (inArgCount <= 0) {
             return -EINVAL;
@@ -4144,7 +4144,7 @@ private:
             }
             if (mFsPtr != &inFs || ! mTrashPtr) {
                 delete mTrashPtr;
-                mTrashPtr = new Trash(inFs, mConfig, kTrashCfgPrefix); 
+                mTrashPtr = new Trash(inFs, mConfig, kTrashCfgPrefix);
             }
             bool theMovedFlag = false;
             mMessage.clear();
@@ -4164,7 +4164,7 @@ private:
         const bool          mSkipTrashFlag;
         const bool          mRecursiveFlag;
         ostream* const      mProgressStreamPtr;
-        const Properties&   mConfig; 
+        const Properties&   mConfig;
         Trash*              mTrashPtr;
         FileSystem*         mFsPtr;
         FileSystem::StatBuf mStat;
@@ -4177,10 +4177,10 @@ private:
             const RemoveFunctor& inFunctor);
     };
     int Remove(
-        char** inArgsPtr,
-        int    inArgCount,
-        bool   inSkipTrashFlag,
-        bool   inRecursiveFlag)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        bool               inSkipTrashFlag,
+        bool               inRecursiveFlag)
     {
         RemoveFunctor theRemoveFunc(
             inSkipTrashFlag, inRecursiveFlag, &cout, mConfig);
@@ -4350,8 +4350,8 @@ private:
             const UnzipFunctor& inFunctor);
     };
     int Unzip(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         UnzipFunctor theFunc(cout, "stdout", mIoBufferSize, mIoBufferPtr);
         return ApplyT(inArgsPtr, inArgCount, theFunc);
@@ -4413,8 +4413,8 @@ private:
         FileSystem::StatBuf mStat;
     };
     int FullStat(
-        char** inArgsPtr,
-        int    inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         FullStatFunc theFullStatFunc(cout);
         FunctorT<FullStatFunc> theFunc(theFullStatFunc, cerr);
@@ -4482,16 +4482,16 @@ private:
     int GetDataLocation(
         int64_t inStartPos,
         int64_t inLength,
-        char**  inArgsPtr,
-        int     inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         DataLoctionFunc theDataLocationFunc(inStartPos, inLength, cout);
         FunctorT<DataLoctionFunc> theFunc(theDataLocationFunc, cerr);
         return Apply(inArgsPtr, inArgCount, theFunc);
     }
     int ShowDelegationTokenInfo(
-        char**  inArgsPtr,
-        int     inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         FileSystem* theFsPtr = 0;
         int theStatus = GetFs(string(), theFsPtr);
@@ -4539,8 +4539,8 @@ private:
         return theRet;
     }
     int ShowErasureCodecInfo(
-        char**  inArgsPtr,
-        int     inArgCount)
+        const char* const* inArgsPtr,
+        int                inArgCount)
     {
         int theRet = 0;
         if (inArgCount <= 0) {
@@ -4602,10 +4602,10 @@ private:
             const SetStorageTierRangeFunctor& inFunctor);
     };
     int SetTierRange(
-        char** inArgsPtr,
-        int    inArgCount,
-        int    inMinSTier,
-        int    inMaxSTier)
+        const char* const* inArgsPtr,
+        int                inArgCount,
+        int                inMinSTier,
+        int                inMaxSTier)
     {
         if (inArgCount <= 0) {
             return -EINVAL;

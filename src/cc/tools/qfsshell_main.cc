@@ -32,7 +32,6 @@
 #include <iostream>
 #include <cerrno>
 #include <map>
-#include <memory>
 #include <iomanip>
 #include <unistd.h>
 
@@ -42,6 +41,7 @@ namespace tools
 {
 using std::cin;
 using std::cout;
+using std::cerr;
 using std::endl;
 using std::map;
 using std::vector;
@@ -58,11 +58,11 @@ static CmdHandlers handlers;
 static void setupHandlers();
 
 /// @retval: status code from executing the last command
-static int processCmds(KfsClient *client, bool quietMode,
-                       int nargs, const char **cmdLine);
+static int processCmds(KfsClient* client, bool quietMode, int nargs,
+    const char* const* cmdLine);
 
 static int
-kfsshell_main(int argc, char **argv)
+kfsshell_main(int argc, char** argv)
 {
     string              serverHost;
     int                 port        = 20000;
@@ -98,14 +98,15 @@ kfsshell_main(int argc, char **argv)
                 logLevelStr = optarg;
                 break;
             default:
-                cout << "Unrecognized flag : " << char(optchar);
+                cerr << "Unrecognized flag : " << char(optchar) << "\n";
                 help = true;
                 break;
         }
     }
 
     if (help || serverHost.empty() || port <= 0) {
-        cout << "Usage: " << argv[0] <<
+        (help ? static_cast<ostream&>(cout) : static_cast<ostream&>(cerr)) <<
+            "Usage: " << argv[0] <<
             " -s <meta server name>\n"
             " [-p <port> (default 20000)]\n"
             " [-q [cmd]]\n"
@@ -118,19 +119,20 @@ kfsshell_main(int argc, char **argv)
     }
 
     MsgLogger::Init(0, logLevel, 0, 0, logLevelStr);
+    setupHandlers();
     KfsClient* const kfsClient = KfsClient::Connect(serverHost, port, config);
     if (! kfsClient) {
-        cout << "qfs client failed to initialize\n";
+        cerr << "qfs client failed to initialize\n";
         return 1;
     }
-    auto_ptr<KfsClient> cleanup(kfsClient);
-    setupHandlers();
-
-    return processCmds(kfsClient, quietMode,
-        argc - optind, (const char **) &argv[optind]) == 0 ? 0 : 1;
+    const int res = processCmds(kfsClient, quietMode, argc - optind,
+        argv + optind);
+    delete kfsClient;
+    return (0 == res ? 0 : 1);
 }
 
-void printCmds()
+void
+printCmds()
 {
     for (CmdHandlers::const_iterator
             it = handlers.begin(); it != handlers.end(); ++it) {
@@ -138,19 +140,24 @@ void printCmds()
     }
 }
 
-int handleHelp(KfsClient *client, const vector<string> &args)
+int
+handleHelp(KfsClient *client, const vector<string> &args)
 {
     printCmds();
     return 0;
 }
 
-int handleExit(KfsClient *client, const vector<string> &args)
+static bool gStopFlag = false;
+
+int
+handleExit(KfsClient *client, const vector<string> &args)
 {
-    exit(0);
+    gStopFlag = true;
     return 0;
 }
 
-void setupHandlers()
+void
+setupHandlers()
 {
     handlers["cd"] = handleCd;
     handlers["changeReplication"] = handleChangeReplication;
@@ -173,12 +180,14 @@ void setupHandlers()
     handlers["exit"] = handleExit;
 }
 
-int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLine)
+int
+processCmds(KfsClient* client, bool quietMode, int nargs,
+    const char* const* cmdLine)
 {
     string s, cmd;
     int retval = 0;
 
-    for (; ;) {
+    while (! gStopFlag) {
         if (quietMode) {
             // Turn off prompt printing when quiet mode is enabled;
             // this allows scripting with KfsShell
@@ -233,10 +242,12 @@ int processCmds(KfsClient *client, bool quietMode, int nargs, const char **cmdLi
 
         CmdHandlers::const_iterator h = handlers.find(cmd);
         if (h == handlers.end()) {
-            cout << "Unknown cmd: " << cmd << endl;
-            cout << "Supported cmds are: " << endl;
-            printCmds();
-            cout << "Type <cmd name> --help for command specific help" << endl;
+            cerr << "Unknown cmd: " << cmd << endl;
+            if (! quietMode) {
+                cout << "Supported cmds are:\n";
+                printCmds();
+                cout << "Type <cmd name> --help for command specific help\n";
+            }
             continue;
         }
 
