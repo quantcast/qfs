@@ -46,7 +46,6 @@ using std::endl;
 using std::map;
 using std::vector;
 using std::string;
-using std::auto_ptr;
 using std::getline;
 using std::flush;
 
