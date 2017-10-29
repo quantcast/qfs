@@ -1,0 +1,367 @@
+\documentclass[11pt, oneside]{memoir}
+%\documentclass[11pt, oneside, draft]{memoir}
+
+\usepackage{fullpage}
+%\usepackage[titles]{tocloft}
+\usepackage{makeidx}
+\usepackage{xspace}
+\usepackage[colorlinks=true, linkcolor=blue]{hyperref}
+\usepackage{color}
+\usepackage{listings}
+\usepackage[nonumberlist, toc]{glossaries}
+
+\makeglossaries
+\makeindex
+
+
+%                                                _     
+%   ___ ___  _ __ ___  _ __ ___   __ _ _ __   __| |___ 
+%  / __/ _ \| '_ ` _ \| '_ ` _ \ / _` | '_ \ / _` / __|
+% | (_| (_) | | | | | | | | | | | (_| | | | | (_| \__ \
+%  \___\___/|_| |_| |_|_| |_| |_|\__,_|_| |_|\__,_|___/
+%                                                      
+\newcommand*{\dnsc}[0]{\texttt{dns.c}\xspace}
+\newcommand*{\file}[1]{\textit{#1}\index{file!#1}}
+\newcommand*{\ic}[1]{\texttt{#1}}
+\newcommand*{\struct}[1]{\ic{struct #1}\index{struct!struct #1}}
+\newcommand*{\fn}[1]{\ic{#1}\index{function!#1}}
+\newcommand*{\gloss}[1]{\gls{#1}\index{#1}}
+\newcommand*{\Gloss}[1]{\Gls{#1}\index{#1}}
+\newcommand*{\Glosspl}[1]{\Glspl{#1}\index{#1}}
+\newcommand*{\dn}[1]{\ic{#1}\xspace}
+\newcommand*{\key}[1]{#1\index{#1}\xspace}
+%\newcommand*{\todo}[2]{\textcolor{red}{\fbox{\textbf{#1}\index{TODO!\lowercase{#1}} #2}}}
+
+\newenvironment{todo}[1]{
+	\begin{color}{red}
+	\sf
+	\begin{tabular}{|p{0.9\textwidth}|}
+	\hline
+	TODO---\uppercase{#1} \\\hline
+	\index{TODO!\lowercase{#1}}
+}{
+	\\\hline
+	\end{tabular}
+	\end{color}
+}
+
+%
+% Members
+%
+\renewcommand{\arraystretch}{1.2}
+
+\newenvironment{members}{
+	\begin{ctabular}{r c p{4in}}
+%	Name & Type & Description \\ \midrule
+}{
+	\end{ctabular}
+}
+
+\newcommand*{\member}[3]{.#1 & {#2} & {#3} \\ }
+
+
+%
+% Signature
+%
+\newenvironment{signature}{
+	\begin{ctabular}{r c c p{4in}}
+}{
+	\end{ctabular}
+}
+
+\renewcommand*{\in}[0]{$\rightarrow$}
+\newcommand*{\out}[0]{$\leftarrow$}
+\newcommand*{\inout}[0]{$\leftrightarrow$}
+
+\newcommand*{\parameter}[4]{
+	#1 & #2 & \ic{#3} & #4 \\
+}
+
+\newcommand*{\return}[2]{
+	& \out & \ic{#1} & #2 \\
+}
+
+
+
+%        _                                
+%   __ _| | ___  ___ ___  __ _ _ __ _   _ 
+%  / _` | |/ _ \/ __/ __|/ _` | '__| | | |
+% | (_| | | (_) \__ \__ \ (_| | |  | |_| |
+%  \__, |_|\___/|___/___/\__,_|_|   \__, |
+%  |___/                            |___/ 
+\newcommand{\newgloss}[2]{\newglossaryentry{#1}{name={#1},description={#2}}}
+
+\newgloss{glue}{packet which resolves a reference so that the resolver does not need to execute a separate query. In the case of NS records, especially,
+glue might be necessary to prevent an infinite loop. For example, when
+querying for \ic{www.example.com.\ IN A} the .com name server may
+refer the resolver to \dn{ns.example.com.}, the authoritative name server for
+example.com domains. But in resolving the IP address to
+\dn{ns.example.com.}---to which the query for www.example.com would be
+sent---the .com name server may again refer the resolver to
+\dn{ns.example.com.} The solution is for the .com name server to include a
+glue A or AAAA record for \dn{ns.example.com.}, short--circuiting the
+process.}
+
+\newgloss{out--of--bailiwick}{Describes a domain name which is not in the same
+lexical zone of a reference domain name. For example, in the record
+``\texttt{example.com.\ IN MX 10 aspmx.l.google.com.}'' aspmx.google.com. is
+not within the lexical zone of example.com. Typically such a response will
+not include glue, necessitating an extra recursive query---in this case an A
+or AAAA query for aspmx.l.google.com. Additionally, implementations will
+often ignore or fail to cache glue records for out--of--bailiwick references
+because of security concerns. Out--of--bailiwick is more commonly used in
+the context of CNAME references.}
+
+\newgloss{recursive resolver}{A resolver implementation that is capable of traversing the hierarchy of global name server authorities, starting with the root zone. A recursive resolver must already know the IP addresses of the root name servers. Recursive resolvers are usually stand--alone implementations residing on the local network.}
+
+\newgloss{stub resolver}{A resolver implementation which depends on a
+recursive resolver to fetch answers from the global domain name
+system. A stub resolver is usually implemented as a library, communicating
+with a recursive resolver over the network on behalf of the client
+application. To function a stub resolver must acquire the IP address of
+local recursive name servers by some other means. Traditionally, local
+recursive name servers are listed in \file{/etc/resolv.conf}, or if
+unspecified presumed to be at \textit{127.0.0.1}. Other protocols such as
+\textit{Multicast DNS} and \textit{DHCP} provide methods to identify local recursive name servers.}
+
+
+%      _                                       _   
+%   __| | ___   ___ _   _ _ __ ___   ___ _ __ | |_ 
+%  / _` |/ _ \ / __| | | | '_ ` _ \ / _ \ '_ \| __|
+% | (_| | (_) | (__| |_| | | | | | |  __/ | | | |_ 
+%  \__,_|\___/ \___|\__,_|_| |_| |_|\___|_| |_|\__|
+%                                                  
+\begin{document}
+
+
+%  _   _ _   _      
+% | |_(_) |_| | ___ 
+% | __| | __| |/ _ \
+% | |_| | |_| |  __/
+%  \__|_|\__|_|\___|
+%                   
+\title{\dnsc Userguide [draft]}
+\date{\today}
+\author{William Ahern}
+\maketitle
+
+\maxtocdepth{subsubsection}
+\tableofcontents
+
+\pagenumbering{roman}
+
+\clearpage
+
+\setcounter{page}{1}
+\pagenumbering{arabic}
+
+\chapter{Design}
+%\section{Overview}
+
+\dnsc is an asynchronous, reentrant, recursive, embeddable DNS resolver. There are many resolver libraries available, including \href{http://www.chiark.greenend.org.uk/~ian/adns/}{\textit{adns}}, \href{http://c-ares.haxx.se/}{\textit{c-ares}}, \href{http://www.corpit.ru/mjt/udns.html}{\textit{udns}}, and \href{http://nlnetlabs.nl/projects/ldns/}{\textit{ldns}}. Though well written, none met my personal requirements at the outset of writing \dnsc, and today this remains the case. The reader should consider them, however. I make no claim that \dnsc is the absolute best choice.
+
+\dnsc is also a work in progress. It would be a fair criticism that parts of the following design description are more aspiration than explication. There can be no substitute for reading the actual source code to determine behavior. In fact, making the code easy to read and hack is perhaps the most important design goal of \dnsc, and one which is by nature impossible to achieve.
+
+\section{Asynchronous}
+
+Asynchronous means that \dnsc does not block on network I/O.\footnote{The core resolver does not do file I/O; however, some optional, ancillary routines use \texttt{stdio}.} Internally \dnsc directly uses the \textsc{BSD Sockets} API for network I/O. Whenever a socket operation would block, the \textsc{BSD Sockets} routine immediately returns, setting \texttt{EAGAIN}\index{errno!EAGAIN}\footnote{\dnsc translates \texttt{EINPROGRESS}\index{errno!EINPROGRESS} and \texttt{EWOULDBLOCK}\index{errno!EWOULDBLOCK} to \texttt{EAGAIN}.}. This error value is returned to the calling application with haste.
+
+\dnsc does not presume any particular kind of event loop\footnote{However, \texttt{events()} can be configured to return \textit{libevent} event sets}, nor queues events internally. Instead, resolver objects expose a common trio of interfaces: \texttt{pollfd()}, \texttt{events()}, \texttt{timeout()}. And \dnsc intentionally eschews completion callbacks. This is a critical design choice best left to the user.
+
+\section{Reentrant}
+
+\dnsc rigorously adheres to a simple object--oriented design pattern. There is no global, mutable data. Some types of objects can be shared between resolver objects, but once instantiated and configured they're immutable. For example, while two resolver objects can share a \texttt{struct dns\_hints} object, to query the hints the caller must provision a separate iteration state variable. Ownership of objects never passes. Instead, ownership becomes shared and the callee increments a reference count if necessary. However, \dnsc does not implement locking internally, and use of resolver objects must be explicitly synchronized.
+
+One consequence is that socket descriptors are not shared between resolver objects. Superficially, sharing sockets would seem the obvious choice, given the nature of DNS and \key{UDP}. But there are significant costs in terms of complexity. For example, two separate resolver contexts which share an underlying descriptor might cause headaches for simple event loops using \key{epoll} or \key{kqueue} directly, which allow only one context association per descriptor. And secure querying demands using random ports with short lifespans, a technique at odds with sharing sockets. Ultimately, sharing \key{UDP} sockets constituted premature optimization and conflicted with other design goals. Though \dnsc was implemented so that this optimization could be added with only moderate refactoring, it was intentionally left out.
+
+%\hfill
+
+%\begin{todo}{atomics}
+%Most objects use reference counting for
+%lifetime management. These reference counts are intended to be incremented
+%and decremented by async--signal safe methods, but as these are inherently
+%non--portable, and because there is no easy way to detect compiler atomic
+%intrinsics, currently a \texttt{volatile sig\_atomic\_t} type is used with
+%increment and decrement operators. In the future atomic intrinsics should be
+%specifiable at build--time, similar to \texttt{DNS\_RANDOM}.
+%\end{todo}
+
+\section{Recursive}
+
+Most client DNS libraries operate in stub mode. A stub resolver acts as a simple messenger between the client application and a \gloss{recursive resolver} on the local network. \Glosspl{stub resolver} require minimal sophistication, relaying a single DNS question and waiting for a single reply. Traditionally, the presumption has been that most client applications merely want to resolve a hostname to an IP address via an A or AAAA record, and this minimal sophistication fully sufficed to address this need.
+
+This presumption has proven costly as SRV and other similar record types have become widespread. The reason being, stub resolvers usually have no ability to follow the embedded canonical names in the record data of these types. For example, an MX record specifies a canonical host name for which an IP address should be queried. Usually the A or AAAA record for this canonical host name is included as \gloss{glue} in the original answer, but this is not guaranteed. Indeed, \gloss{out--of--bailiwick} host names---names which are not in the same lexical zone of the name server, and thus for which the name server is unlikely to be authoritative or able to provide name server glue for the authoritative server---are becoming increasingly common.
+
+Unfortunately, the burden of following these canonical names inevitably falls to the client application. First, as mentioned before stub resolvers usually do not have the sophistication to recursively resolve these names. Second, recursive name servers rarely resolve these canonical names, and will return them only if they've already been resolved and cached previously. Rather, the role of a recursive name server is to follow chains of authority and CNAME references, not to understand the semantics and data dependencies of myriad other record types.
+
+Historically, the only client applications required to implement this logic have been mail servers. The move to SRV, NAPTR, and similar record types, however, dramatically increases the categories of client applications required to support this logic. Clearly, a reusable implementation would be desirable for these new classes of applications.
+
+Broadly speaking there are two ways to go about supporting this canonical name problem. The easiest would seem to be to hack or wrap existing stub resolvers to provide the minimally necessary functionality. Alternatively, one could write a full--blown recursive query implementation, which inherently provides the lesser capability. \dnsc takes this second approach---which turns out to take roughly the same amount of implementation work---and thus can operate in a fully recursive query mode, a traditional stub mode, or a ``smart'' stub, minimally recursive mode. The result is that \dnsc can follow canonical names for known record types, and is easily modifiable---and readily composable---to deliver all relevant DNS information to a requesting application in one simple operation.
+
+\section{Embeddable}
+
+The license\index{license} has been deliberately chosen to allow integration into all classes of applications, not only those licensed as Free or Open Source Software. Niche, novel DNS applications tend to occur in commercial and private software with quirky build, execution, and maintenance environments. Allowing unrestricted embedding supports the goal of providing a simple, easily integrated resolver implementation.
+
+\dnsc is designed to have zero build--time or run--time dependencies, requiring only a nominally \textsc{POSIX}\index{POSIX} compliant environment. All macros and routines use a ``dns\_'' prefix, and all non--public routines are declared \texttt{static}. The header and source files, \texttt{dns.h} and \texttt{dns.c}, compile to a single object file. This object file can be built into the application directly, or optionally installed as a static or dynamic library. Looked at alone, the fact  that \texttt{dns.c} is a very large file appears as a liability. But in a directory with twenty other compilation units, the fact that ``everything DNS'' exists in a single compilation unit stands out as a favorable attribute.
+
+The source code largely adheres to the ISO \key{C99} standard, with the notable exception that the packet structure relies on an anonymous union. Most compilers support anonymous unions, and this feature was included in ISO \key{C11}. At present \dnsc is regularly tested using \key{GCC}, \key{clang}, and \key{SunPro} compilers.
+
+\dnsc tries to provide features without dictating the structure or design of the application. Rather than dictate a sub-par solution for state resumption and event loop integration---which even if optional would tend to obligate applications to follow the convention---it directly exposes all the relevant information necessary for writing more suitable solutions.
+
+
+\chapter{Implementation}
+
+\section{Configuration}
+
+
+%\section{Resolver Configuration}
+%
+%\subsection{Policy}
+%
+%\subsubsection{\texttt{struct dns\_resolv\_conf}}
+%
+%Resolver policy is controlled by setting the appropriate fields of the
+%\texttt{struct dns\_resolv\_conf} object. The fields and layout reflect the
+%syntax of the traditional BSD \texttt{/etc/resolv.conf} file format. This
+%explains the somewhat quirky split between the top--level fields and the
+%``options'' fields.
+%
+%\begin{itemize}
+%\item[\texttt{.nameserver}] Addresses of local recursive nameservers, used
+%to initialize a stub--mode \texttt{struct dns\_hints} object.
+%\item[\texttt{.search}] List of domain aliases.
+%\item[\texttt{.lookup}]
+%\item[\texttt{.options}] Option fields use a colon to delimit any arguments.
+%\begin{itemize}
+%\item[\texttt{.edns0}] Enable EDNS0 support. \\
+%\begin{todo}{EDNS0}
+%EDNS0 support is still in the draft stage, though there is no limitation
+%to manually adding EDNS0 record or to the size of packets.
+%\end{todo}
+%\end{itemize}
+%\item[\texttt{.iface}] The network address to bind sockets. Defaults to \texttt{INADDR\_ANY}.
+%\end{itemize}
+%
+%\subsubsection{\texttt{/etc/resolv.conf}}
+%
+%\subsection{Local Hosts}
+%
+%\subsubsection{\texttt{struct dns\_hosts}}
+%
+%\subsubsection{\texttt{/etc/hosts}}
+%
+%\subsection{Nameserver Hints}
+%
+%\subsubsection{\texttt{struct dns\_hints}}
+
+\chapter{Interfaces}
+
+\section{Configuration}
+
+\subsection{\struct{dns\_resolv\_conf}}
+
+This object mirrors \file{/etc/resolv.conf}, particularly as defined by \key{OpenBSD}. Once constructed and the members initialized by the application, it should be treated as immutable. It cannot be declared constant, however, when passed as a parameter because the reference count must be incremented.
+
+\subsubsection{Members}
+
+\begin{members}
+\member{nameserver}{struct[]}{\struct{sockaddr\_storage} addresses of local recursive servers.}
+\member{search}{str[]}{Domain suffixes used to create fully qualified domain names from local names.}
+\member{lookup}{str}{Describes the order of searching, and is directly interpreted by the resolver. This does not need to be null terminated and can be set using strncpy and strncat.}
+\member{options.edns0}{bool}{TODO.}
+\member{options.ndots}{int}{FIXME.}
+\member{options.timeout}{int}{FIXME.}
+\member{options.attempts}{int}{FIXME.}
+\member{options.rotate}{bool}{FIXME.}
+\member{options.recurse}{bool}{FIXME.}
+\member{options.smart}{bool}{FIXME.}
+\member{options.tcp}{enum}{FIXME.}
+\member{face}{struct}{\struct{sockaddr\_storage} of the interface to bind for outgoing queries.}
+\end{members}
+
+\subsubsection{Methods}
+
+\paragraph{\fn{dns\_resconf\_open}} Allocate and initialize a new \struct{dns\_resolve\_conf} object. On success a new object is returned with a reference count of one. On failure NULL is returned and the error stored in \ic{error}.
+
+\begin{signature}
+\parameter{error}{\out}{int*}{error value.}
+\return{struct*}{\struct{dns\_resolv\_conf} or NULL.}
+\end{signature}
+
+\paragraph{\fn{dns\_resconf\_close}} Release a \struct{dns\_resolve\_conf} object. The object is freed if the reference count falls to zero.
+
+\begin{signature}
+\parameter{resconf}{\in}{struct*}{\struct{dns\_resolv\_conf}.}
+\end{signature}
+
+\paragraph{\fn{dns\_resconf\_acquire}} Increment the reference count.
+
+\begin{signature}
+\parameter{resconf}{\in}{struct*}{\struct{dns\_resolv\_conf}.}
+\end{signature}
+
+\paragraph{\fn{dns\_resconf\_release}} Decrement the reference count. This routine should not usually be used directly. It's the mirror of \fn{dns\_resconf\_acquire}, but is not particularly useful except internally.
+
+\begin{signature}
+\parameter{resconf}{\in}{struct*}{\struct{dns\_resolv\_conf}.}
+\end{signature}
+
+
+\subsubsection{\file{/etc/resolv.conf}}
+
+Foo
+
+\subsubsection{\file{/etc/nsswitch.conf}}
+
+Foo
+
+\subsection{\struct{dns\_hosts}}
+
+This is an opaque object which mirrors \file{/etc/hosts}. To populate
+you must use an appropriate method.
+
+\subsubsection{Methods}
+
+\paragraph{\fn{dns\_hosts\_open}} Allocate and initialize a \struct{dns\_hosts}.
+
+\begin{signature}
+\parameter{error}{\out}{int*}{error value.}
+\return{struct*}{\struct{dns\_hosts} or NULL.}
+\end{signature}
+
+\paragraph{\fn{dns\_hosts\_close}} Release a \struct{dns\_hosts} object. The object is freed if the reference count falls to zero.
+
+\begin{signature}
+\parameter{hosts}{\in}{struct*}{\struct{dns\_hosts}.}
+\end{signature}
+
+\paragraph{\fn{dns\_hosts\_acquire}} Increment the reference count.
+
+\begin{signature}
+\parameter{hosts}{\in}{struct*}{\struct{dns\_hosts}.}
+\end{signature}
+
+\paragraph{\fn{dns\_hosts\_release}} Decrement the reference count. This routine should not usually be used directly. It's the mirror of \fn{dns\_hosts\_acquire}, but is not particularly useful except internally.
+
+\paragraph{\fn{dns\_hosts\_loadfile}} Parse the specified FILE object according to the syntax of \file{/etc/hosts}. On success returns 0, otherwise returns an error value.
+
+\begin{signature}
+\parameter{hosts}{\in}{struct*}{\struct{dns\_hosts}.}
+\parameter{file}{\in}{FILE*}{FILE to parse.}
+\return{int}{error value.}
+\end{signature}
+
+
+
+\subsubsection{\file{/etc/hosts}}
+
+
+\subsection{\struct{dns\_hints}}
+
+\appendix
+\printglossaries
+
+\printindex
+
+
+\end{document}
