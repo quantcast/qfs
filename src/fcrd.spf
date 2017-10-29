@@ -1,0 +1,120 @@
+#!/usr/bin/env PATH=. spf -f
+#
+# Bytecode to do forward-confirmed reverse DNS the hard way (not using the
+# handy iterator addrinfo/nextent ops, and of course not using the actual
+# fcrd/fcrdx ops).
+#
+
+# Using a hotmail.com address which had--as of the time this was
+# written--multiple PTR records. Multiple PTR records is illegal, but
+# Microsoft tends not to care about such things. (They also do illegal CNAME
+# chaining, even with their MX records!)
+"64.4.32.7
+dup
+'i
+setenv
+"in-addr
+'v
+setenv
+"%{ir}.%{v}.arpa.
+expand
+
+#
+# Resolve IN PTR
+#
+## debug
+dup
+">>> Querying 
+swap
+cat
+" IN PTR
+cat
+puts
+## query
+$DNS_T_PTR
+submit
+fetch
+"
+$DNS_S_AN
+$DNS_T_PTR
+grep
+## OUTER LOOP
+L0
+next
+dup
+not
+J7
+
+#
+# Resolve the PTR CNAME at [-1]
+#
+## debug
+dup
+">>> Querying 
+swap
+cat
+" IN A
+cat
+puts
+## query
+$DNS_T_A
+submit
+fetch
+"
+$DNS_S_AN
+$DNS_T_A
+grep
+## INNER LOOP
+L1
+next
+dup
+not
+J2
+
+#
+# Print PTR ([-3]) and A records ([-1])
+#
+dup
+-4
+load
+qname
+" -- 
+cat
+swap
+cat
+swap
+0
+load
+cmp
+not
+not
+J4
+" (CONFIRMED)
+true
+J5
+L4
+"
+L5
+cat
+puts
+## JUMP TO INNER LOOP
+true
+J1
+
+## JUMP TO OUTER LOOP
+L2
+pop
+pop
+pop
+true
+J0
+
+#
+# HALT
+#
+L7
+pop
+pop
+pop
+pop
+halt
