@@ -893,8 +893,9 @@ private:
         {
             char* const theEndPtr = epptr();
             char* const theCurPtr = pptr();
-            const streamsize theSize(min(max(streamsize(0), inLength),
-                streamsize(theEndPtr - theCurPtr)));
+            const streamsize theSize(
+                max(streamsize(0),
+                    min(inLength, streamsize(theEndPtr - theCurPtr))));
             memcpy(theCurPtr, inBufPtr, theSize);
             pbump(theSize);
             return (mTeeStreamPtr ?
