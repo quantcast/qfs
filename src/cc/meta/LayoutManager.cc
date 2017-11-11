@@ -3259,15 +3259,15 @@ protected:
     CtrWriteExtra()
         : mBufEnd(mBuf + kBufSize)
         {}
-    const Properties::String& BoolToString(bool flag) const
-    {
-        return (flag ? kTrueStr : kFalseStr);
-    }
     template<typename T>
     void Write(IOBufferWriter& writer, T val)
     {
         const char* const b = IntToDecString(val, mBufEnd);
         writer.Write(b, mBufEnd - b);
+    }
+    void Write(IOBufferWriter& writer, bool val)
+    {
+        writer.Write(val ? kTrueStr : kFalseStr);
     }
 
     enum { kBufSize = 32 };
@@ -3347,11 +3347,11 @@ struct CSWriteExtra : public CtrWriteExtra
         writer.Write(columnDelim);
         writer.Write(srv.GetHostPortStr());
         writer.Write(columnDelim);
-        writer.Write(BoolToString(srv.IsRetiring()));
+        Write(writer, srv.IsRetiring());
         writer.Write(columnDelim);
-        writer.Write(BoolToString(srv.IsRestartScheduled()));
+        Write(writer, srv.IsRestartScheduled());
         writer.Write(columnDelim);
-        writer.Write(BoolToString(srv.IsResponsiveServer()));
+        Write(writer, srv.IsResponsiveServer());
         writer.Write(columnDelim);
         Write(writer, srv.GetAvailSpace());
         writer.Write(columnDelim);
