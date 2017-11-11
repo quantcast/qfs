@@ -6177,7 +6177,7 @@ LayoutManager::Validate(MetaRetireChunkserver& req)
     }
     req.status    = -EPERM;
     req.statusMsg = "chunk server retire is deprecated,"
-        "please use chunk directory evacuation ";
+        " please use chunk directory evacuation ";
     KFS_LOG_STREAM_INFO << req.statusMsg <<
     KFS_LOG_EOM;
     return false;
@@ -6208,15 +6208,19 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
     server->SetRetiring(req.startTime, req.nSecsDown);
     if (server->IsHibernating()) {
         HibernatedServerInfos::iterator it;
-        HibernatingServerInfo* const    hs =
+        HibernatingServerInfo*          hs =
             FindHibernatingCSInfo(req.location, &it);
         if (hs) {
             hs->sleepEndTime = req.startTime + req.nSecsDown;
         } else {
-            mHibernatingServers.insert(it, HibernatingServerInfo(
+            it = mHibernatingServers.insert(it, HibernatingServerInfo(
                 req.location, req.startTime, req.nSecsDown, req.replayFlag));
+            hs = &*it;
         }
-        KFS_LOG_STREAM_INFO << "hibernating server: " << req.location <<
+        KFS_LOG_STREAM(req.replayFlag ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelINFO) <<
+            "hibernating server: " << req.location <<
             " down time: " << req.nSecsDown <<
         KFS_LOG_EOM;
         hs->retiredFlag = true;
@@ -12085,6 +12089,7 @@ LayoutManager::RemoveRetiring(
                     (server->IsReplay() ? " replay" : "") <<
                     " removed: "  << retFlag <<
                     " retiring: " << server->IsRetiring() <<
+                    " chunks: "   << server->GetChunkCount() <<
                 KFS_LOG_EOM;
             }
             if (server->GetChunkCount() <= 0) {

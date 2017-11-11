@@ -1892,7 +1892,7 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
         return os <<
             (nSecsDown > 0 ? "hibernating server: " : "retiring server: ") <<
             location <<
-            "down time: " << nSecsDown
+            " down time: " << nSecsDown
         ;
     }
     bool Validate()
