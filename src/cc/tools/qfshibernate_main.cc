@@ -91,7 +91,7 @@ main(
                 break;
         }
     }
-    help = help || ! metaserver || ! chunkserver || sleepTime <= 0 ||
+    help = help || ! metaserver || ! chunkserver || sleepTime < 0 ||
         metaport <= 0 || chunkport <= 0;
     if (help) {
         cout <<
