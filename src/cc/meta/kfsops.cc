@@ -1902,7 +1902,8 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     if (! fa->CanWrite(euser, egroup)) {
         return -EACCES;
     }
-    if (fa->filesize == offset) {
+    if (fa->filesize == offset &&
+            (0 < offset || ! fa->IsStriped() || fa->chunkcount() <= 0)) {
         return 0;
     }
     if (mEnforceDumpsterRulesFlag &&
