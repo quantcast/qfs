@@ -155,7 +155,7 @@ public:
         size_t inIndex) const
         { return mBufPtr[inIndex]; }
     void Swap(
-        const StBufferT& inBuf)
+        StBufferT& inBuf)
     {
         if (mBufPtr != mBuf) {
             if (inBuf.mBufPtr != inBuf.mBuf) {
