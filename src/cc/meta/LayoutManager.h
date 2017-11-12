@@ -349,7 +349,7 @@ public:
     inline void RescheduleDumpsterCleanup(
         time_t nextRunTime)
         { mDumpsterCleanupTimer.SetNextRunTime(nextRunTime); }
-
+    inline void Start(MetaRename& req);
 private:
     class EntryKeyHash
     {
@@ -1570,6 +1570,7 @@ public:
     void Handle(MetaSetATime& req);
     void UpdateATime(const MetaFattr* fa, MetaReaddir& req);
     void UpdateATime(const MetaFattr* fa, MetaReaddirPlus& req);
+    void Start(MetaRename& req);
 protected:
     typedef vector<
         int,

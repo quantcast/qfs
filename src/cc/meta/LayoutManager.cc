@@ -1563,7 +1563,7 @@ ChunkLeases::MoveFromDumpster(
     FEntry* const entry = mFileLeases.Find(inFa.id());
     if (! entry || inName != entry->Get().mName || entry->Get().mFa != &inFa) {
         panic("internal error: invalid move from dumpster invocation");
-	return false;
+        return false;
     }
     KFS_LOG_STREAM_DEBUG <<
         "move from dumpster: " << inFa.id() <<
@@ -1571,7 +1571,7 @@ ChunkLeases::MoveFromDumpster(
         " count: "             << entry->Get().mCount <<
     KFS_LOG_EOM;
     if (entry->Get().mCount <= 0) {
-        // Delete already in progress.
+        panic("internal error: dumpster cleanup already in progress");
         return false;
     }
     if (entry->Get().mCount <= 1) {
@@ -1583,6 +1583,43 @@ ChunkLeases::MoveFromDumpster(
         FEntry::List::Remove(*entry);
     }
     return true;
+}
+
+inline void
+ChunkLeases::Start(MetaRename& req)
+{
+    if (0 != req.status || metatree.getDumpsterDirId() != req.dir) {
+        return;
+    }
+    // The source must exists at start of the RPC execution, i.e. the file must
+    // already be in the dumpster. In other words, any possibly already pending
+    // in the log queue RPC(s) (remove) that can potentially successfully move
+    // the file into dumpster, are effectively ignored in order to reduce
+    // complexity.
+    MetaFattr* fa = 0;
+    if (0 != (req.status = metatree.lookup(
+            req.dir, req.oldname, req.euser, req.egroup, fa))) {
+        return;
+    }
+    if (metatree.getChunkDeleteQueue() == fa || KFS_FILE != fa->type) {
+        // Do not allow delete queue and sub directory removal, even though at
+        // the moment of writing dumpster should have no sub directories.
+        req.status = -EPERM;
+        return;
+    }
+    FEntry* const entry = mFileLeases.Find(fa->id());
+    if (! entry || req.oldname != entry->Get().mName ||
+            entry->Get().mFa != fa) {
+        const char* const msg = "internal error: invalid dumpster entry";
+        panic(msg);
+        req.status    = -EFAULT;
+        req.statusMsg = msg;
+        return;
+    }
+    if (entry->Get().mCount <= 0) {
+        req.status    = -EPERM;
+        req.statusMsg = "delete already in progress";
+    }
 }
 
 inline LayoutManager::Servers::const_iterator
@@ -14172,6 +14209,12 @@ void
 LayoutManager::UpdateATime(const MetaFattr* fa, MetaReaddirPlus& req)
 {
     UpdateATimeSelf(mDirATimeUpdateResolution, fa, req);
+}
+
+void
+LayoutManager::Start(MetaRename& req)
+{
+    mChunkLeases.Start(req);
 }
 
 } // namespace KFS

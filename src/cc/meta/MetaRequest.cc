@@ -2895,6 +2895,9 @@ MetaRename::start()
         statusMsg = "worm mode";
         status    = -EPERM;
     }
+    if (0 == status && metatree.getDumpsterDirId() == dir) {
+        gLayoutManager.Start(*this);
+    }
     if (0 == status) {
         mtime = microseconds();
     }
