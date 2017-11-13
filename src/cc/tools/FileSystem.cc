@@ -977,7 +977,7 @@ public:
             const char* kNullPrefixPtr = 0;
             inPropertiesPtr->copyWithPrefix(kNullPrefixPtr, 0, theProperties);
         }
-	if (inPropertiesPtr) {
+        if (inPropertiesPtr) {
             kfsUid_t theEUser  = kKfsUserNone;
             kfsGid_t theEGroup = kKfsGroupNone;
             theEUser  = inPropertiesPtr->getValue("fs.euser",  theEUser);

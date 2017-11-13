@@ -2,7 +2,7 @@
 // $Id$
 //
 // Created 2013/07/15
-// Author:  Mike Ovsiannikov 
+// Author:  Mike Ovsiannikov
 //
 // Copyright 2013,2016 Quantcast Corporation. All rights reserved.
 //
@@ -166,21 +166,21 @@ private:
             QCASSERT(mRecursionCount >= 1);
 
             switch (inEventCode) {
-	        case EVENT_NET_READ: {
+                case EVENT_NET_READ: {
                     IOBuffer& theIoBuf = mConnectionPtr->GetInBuffer();
                     QCASSERT(&theIoBuf == inEventDataPtr);
                     // Simple echo.
                     mConnectionPtr->Write(&theIoBuf);
                     break;
                 }
-	        case EVENT_NET_WROTE:
+                case EVENT_NET_WROTE:
                     if (mCloseConnectionFlag &&
                             ! mConnectionPtr->IsWriteReady()) {
                         mConnectionPtr->Close();
                     }
                     break;
 
-	        case EVENT_NET_ERROR:
+                case EVENT_NET_ERROR:
                     mConnectionPtr->SetMaxReadAhead(0);
                     if (mConnectionPtr->IsGood() &&
                             mConnectionPtr->IsWriteReady()) {
@@ -194,7 +194,7 @@ private:
                     mConnectionPtr->GetInBuffer().Clear();
                     break;
 
-	        default:
+                default:
                     QCASSERT(!"Unexpected event code");
                     break;
             }
@@ -363,21 +363,21 @@ private:
             QCASSERT(mRecursionCount >= 1);
 
             switch (inEventCode) {
-	        case EVENT_NET_READ: {
+                case EVENT_NET_READ: {
                     IOBuffer& theIoBuf = mInputConnectionPtr->GetInBuffer();
                     QCASSERT(&theIoBuf == inEventDataPtr);
                     mConnectionPtr->Write(&theIoBuf);
                     break;
                 }
 
-	        case EVENT_NET_ERROR:
+                case EVENT_NET_ERROR:
                     // Fall through
                 case EVENT_INACTIVITY_TIMEOUT:
                     KFS_LOG_STREAM_ERROR << "input: " <<
                         (inEventCode == EVENT_INACTIVITY_TIMEOUT  ?
                             string("input timed out") :
                             (mInputConnectionPtr->IsGood() ?
-                                string("EOF") : 
+                                string("EOF") :
                                 QCUtils::SysError(errno, ""))
                             ) <<
                     KFS_LOG_EOM;
@@ -392,7 +392,7 @@ private:
                     }
                     break;
 
-	        default:
+                default:
                     QCASSERT(!"Unexpected event code");
                     break;
             }
@@ -406,14 +406,14 @@ private:
             QCASSERT(mRecursionCount >= 1);
 
             switch (inEventCode) {
-	        case EVENT_NET_WROTE:
+                case EVENT_NET_WROTE:
                     if (mCloseConnectionFlag &&
                             ! mOutputConnectionPtr->IsWriteReady()) {
                         mOutputConnectionPtr->Close();
                     }
                     break;
 
-	        case EVENT_NET_ERROR:
+                case EVENT_NET_ERROR:
                     // Fall through
                 case EVENT_INACTIVITY_TIMEOUT:
                     KFS_LOG_STREAM_ERROR << "output: " <<
@@ -425,7 +425,7 @@ private:
                     mOutputConnectionPtr->Close();
                     break;
 
-	        default:
+                default:
                     QCASSERT(!"Unexpected event code");
                     break;
             }
@@ -439,13 +439,13 @@ private:
             QCASSERT(mRecursionCount >= 1);
 
             switch (inEventCode) {
-	        case EVENT_NET_READ: {
+                case EVENT_NET_READ: {
                     IOBuffer& theIoBuf = mConnectionPtr->GetInBuffer();
                     QCASSERT(&theIoBuf == inEventDataPtr);
                     mOutputConnectionPtr->Write(&theIoBuf);
                     break;
                 }
-	        case EVENT_NET_WROTE:
+                case EVENT_NET_WROTE:
                     if (mUseFilterFlag && ! mConnectionPtr->GetFilter()) {
                         string theErrMsg;
                         const int theErr = mConnectionPtr->SetFilter(
@@ -469,7 +469,7 @@ private:
                     }
                     break;
 
-	        case EVENT_NET_ERROR:
+                case EVENT_NET_ERROR:
                     mConnectionPtr->SetMaxReadAhead(0);
                     if (mConnectionPtr->IsGood() &&
                             mConnectionPtr->IsWriteReady()) {
@@ -483,7 +483,7 @@ private:
                     mConnectionPtr->GetInBuffer().Clear();
                     break;
 
-	        default:
+                default:
                     QCASSERT(!"Unexpected event code");
                     break;
             }
@@ -650,7 +650,7 @@ private:
         if (0 <= theAcceptPort) {
             const bool kServerFlag  = true;
             const bool kPskOnlyFlag = true;
-            string theErrMsg;  
+            string theErrMsg;
             if (! (mSslCtxPtr = SslFilter::CreateCtx(
                     kServerFlag,
                     kPskOnlyFlag,
@@ -754,7 +754,7 @@ private:
     }
     virtual unsigned long GetPsk(
         const char*    inIdentityPtr,
-	unsigned char* inPskBufferPtr,
+        unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen,
         string&        outAuthName)
     {

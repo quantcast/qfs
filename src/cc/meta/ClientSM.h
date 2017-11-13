@@ -84,7 +84,7 @@ public:
     const AuthContext& GetAuthContext() const
         { return mAuthContext; }
     virtual bool Verify(
-	string&       ioFilterAuthName,
+        string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
         const string& inPeerName,

@@ -30,29 +30,29 @@ import java.util.AbstractQueue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public final class BufferPool {
-	public static final int BUFFER_SIZE = Integer.getInteger("qfs.access.buffer.size", 1 << 20);
+    public static final int BUFFER_SIZE = Integer.getInteger("qfs.access.buffer.size", 1 << 20);
 
-	private final AbstractQueue<ByteBuffer> buffers = new ConcurrentLinkedQueue<ByteBuffer>();
+    private final AbstractQueue<ByteBuffer> buffers = new ConcurrentLinkedQueue<ByteBuffer>();
 
-	private static final BufferPool INSTANCE = new BufferPool();
+    private static final BufferPool INSTANCE = new BufferPool();
 
-	private BufferPool() {
-	};
+    private BufferPool() {
+    };
 
-	public static BufferPool getInstance() {
-		return INSTANCE;
-	}
+    public static BufferPool getInstance() {
+        return INSTANCE;
+    }
 
-	public ByteBuffer getBuffer() {
-		ByteBuffer ret = buffers.poll();
-		if (ret == null) {
-			ret = ByteBuffer.allocateDirect(BUFFER_SIZE);
-		}
-		return ret;
-	}
+    public ByteBuffer getBuffer() {
+        ByteBuffer ret = buffers.poll();
+        if (ret == null) {
+            ret = ByteBuffer.allocateDirect(BUFFER_SIZE);
+        }
+        return ret;
+    }
 
-	public void releaseBuffer(ByteBuffer b) {
-		b.clear();
-		buffers.add(b);
-	}
+    public void releaseBuffer(ByteBuffer b) {
+        b.clear();
+        buffers.add(b);
+    }
 }

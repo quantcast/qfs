@@ -328,7 +328,7 @@ private:
             QCASSERT(mRecursionCount >= 1);
 
             switch (inEventCode) {
-	        case EVENT_NET_READ: {
+                case EVENT_NET_READ: {
                     mWasIdleFlag = false;
                     IOBuffer& theIoBuf = mConnectionPtr->GetInBuffer();
                     QCASSERT(&theIoBuf == inEventDataPtr);
@@ -348,7 +348,7 @@ private:
                     break;
                 }
 
-	        case EVENT_NET_WROTE:
+                case EVENT_NET_WROTE:
                     if (mTransactionPtr) {
                         IOBuffer& theIoBuf = mConnectionPtr->GetOutBuffer();
                         const int theCnt   = theIoBuf.BytesConsumable();
@@ -373,7 +373,7 @@ private:
                     }
                     break;
 
-	        case EVENT_NET_ERROR:
+                case EVENT_NET_ERROR:
                     if (mConnectionPtr->IsGood()) {
                         // EOF
                         if (mTransactionPtr && mTransactionPtr->Response(
@@ -388,7 +388,7 @@ private:
                     mConnectionPtr->Close();
                     break;
 
-	        default:
+                default:
                     QCASSERT(!"Unexpected event code");
                     break;
             }
@@ -506,7 +506,7 @@ private:
             return ClientSM::EventHandler(inEventCode, inEventDataPtr);
         }
         virtual bool Verify(
-	    string&       ioFilterAuthName,
+            string&       ioFilterAuthName,
             bool          inPreverifyOkFlag,
             int           inCurCertDepth,
             const string& inPeerName,

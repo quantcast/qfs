@@ -46,7 +46,7 @@ class SslFilterServerPsk
 public:
     virtual unsigned long GetPsk(
         const char*    inIdentityPtr,
-	unsigned char* inPskBufferPtr,
+        unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen,
         string&        outAuthName) = 0;
 protected:
@@ -60,7 +60,7 @@ class SslFilterVerifyPeer
 {
 public:
     virtual bool Verify(
-	string&       ioFilterAuthName,
+        string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
         const string& inPeerName,

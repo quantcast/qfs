@@ -856,7 +856,7 @@ done
 i=0
 while [ $i -lt 10 ]; do
     echo "$i" | runqfsuser -D fs.createParams=0,1,0,0,1,15,15 \
-	-put - "$chunkinventorytestdir/os.$i.dat" || exit
+        -put - "$chunkinventorytestdir/os.$i.dat" || exit
     i=`expr $i + 1`
 done
 [ $spacecheck -ne 0 ] && sleep 3
@@ -883,7 +883,7 @@ ostestrunqfs()
     myostestfile='os-overwrite-test/test-file.txt'
     myostestfile1='os-overwrite-test/test-file1.txt'
     set -x
-    ostestrunqfs -mkdir "$myostestdir" 
+    ostestrunqfs -mkdir "$myostestdir"
     echo test | ostestrunqfs -put - "$myostestfile"
     echo test | ostestrunqfs -put - "$myostestfile" || true
     ostestrunqfs -cp "$myostestfile" "$myostestfile1"

@@ -885,7 +885,7 @@ private:
     static unsigned int PskServerCB(
         SSL*           inSslPtr,
         const char*    inIdentityPtr,
-	unsigned char* inPskBufferPtr,
+        unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen)
     {
         if (! inSslPtr || ! inPskBufferPtr || ! sOpenSslInitPtr) {
@@ -904,9 +904,9 @@ private:
         SSL*           inSslPtr,
         const char*    inHintPtr,
         char*          inIdentityBufferPtr,
-	unsigned int   inIdentityBufferLen,
+        unsigned int   inIdentityBufferLen,
         unsigned char* inPskBufferPtr,
-	unsigned int   inPskBufferLen)
+        unsigned int   inPskBufferLen)
     {
         if (! inSslPtr || ! inPskBufferPtr || ! sOpenSslInitPtr) {
             return 0;
@@ -925,7 +925,7 @@ private:
     }
     unsigned int PskSetServer(
         const char*    inIdentityPtr,
-	unsigned char* inPskBufferPtr,
+        unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen)
     {
         mVerifyOrGetPskInvokedFlag = true;
@@ -948,9 +948,9 @@ private:
     unsigned int PskSetClient(
         const char*    inHintPtr,
         char*          inIdentityBufferPtr,
-	unsigned int   inIdentityBufferLen,
+        unsigned int   inIdentityBufferLen,
         unsigned char* inPskBufferPtr,
-	unsigned int   inPskBufferLen)
+        unsigned int   inPskBufferLen)
     {
         mVerifyOrGetPskInvokedFlag = true;
         mPeerPskId.clear();
@@ -1275,25 +1275,25 @@ private:
         if (! sOpenSslInitPtr) {
             return false;
         }
-	if (inLen < 10) {
+        if (inLen < 10) {
             return false;
         }
-	for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < 10; i++) {
             if (inStrPtr[i] > '9' || inStrPtr[i] < '0') {
                 return false;
             }
         }
-	int       theYear   = (inStrPtr[0] - '0') * 10 + (inStrPtr[1] - '0');
-	if (theYear < 50) {
+        int       theYear   = (inStrPtr[0] - '0') * 10 + (inStrPtr[1] - '0');
+        if (theYear < 50) {
             theYear += 100;
         }
-	const int theMonth  = (inStrPtr[2] - '0') * 10 + (inStrPtr[3] - '0');
-	if (12 < theMonth || theMonth < 1) {
+        const int theMonth  = (inStrPtr[2] - '0') * 10 + (inStrPtr[3] - '0');
+        if (12 < theMonth || theMonth < 1) {
             return false;
         }
-	const int theDay    = (inStrPtr[4] - '0') * 10 + (inStrPtr[5] - '0');
-	const int theHour   = (inStrPtr[6] - '0') * 10 + (inStrPtr[7] - '0');
-	const int theMinute = (inStrPtr[8] - '0') * 10 + (inStrPtr[9] - '0');
+        const int theDay    = (inStrPtr[4] - '0') * 10 + (inStrPtr[5] - '0');
+        const int theHour   = (inStrPtr[6] - '0') * 10 + (inStrPtr[7] - '0');
+        const int theMinute = (inStrPtr[8] - '0') * 10 + (inStrPtr[9] - '0');
         const int theSecond = (12 <= inLen &&
                 inStrPtr[10] >= '0' && inStrPtr[10] <= '9' &&
                 inStrPtr[11] >= '0' && inStrPtr[11] <= '9') ?
@@ -1333,21 +1333,21 @@ private:
                 return false;
             }
         }
-	const int theYear = ((
+        const int theYear = ((
              (inStrPtr[0] - '0')  * 10 +
              (inStrPtr[1] - '0')) * 10 +
              (inStrPtr[2] - '0')) * 10 +
              (inStrPtr[3] - '0');
-	const int theMonth = (inStrPtr[4] - '0') * 10 + (inStrPtr[5] - '0');
-	if (theMonth > 12 || theMonth < 1) {
+        const int theMonth = (inStrPtr[4] - '0') * 10 + (inStrPtr[5] - '0');
+        if (theMonth > 12 || theMonth < 1) {
             return false;
         }
-	const int theDay    = (inStrPtr[ 6] - '0') * 10 + (inStrPtr[ 7] - '0');
-	const int theHour   = (inStrPtr[ 8] - '0') * 10 + (inStrPtr[ 9] - '0');
-	const int theMinute = (inStrPtr[10] - '0') * 10 + (inStrPtr[11] - '0');
+        const int theDay    = (inStrPtr[ 6] - '0') * 10 + (inStrPtr[ 7] - '0');
+        const int theHour   = (inStrPtr[ 8] - '0') * 10 + (inStrPtr[ 9] - '0');
+        const int theMinute = (inStrPtr[10] - '0') * 10 + (inStrPtr[11] - '0');
         int theSecond = 0;
         int theTmzPos = 12;
-	if (14 <= inLen &&
+        if (14 <= inLen &&
                 inStrPtr[12] >= '0' && inStrPtr[12] <= '9' &&
                 inStrPtr[13] >= '0' && inStrPtr[13] <= '9') {
             theSecond = (inStrPtr[12] - '0') * 10 + (inStrPtr[13] - '0');
@@ -1776,7 +1776,7 @@ public:
                 inExpectedPeerNamePtr ? inExpectedPeerNamePtr : "")
         {}
     virtual bool Verify(
-	string&       ioFilterAuthName,
+        string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
         const string& inPeerName,

@@ -36,7 +36,7 @@ class KrbService
 public:
     enum PrincipalUnparseFlags
     {
-        kPrincipalUnparseShort	 = 0x1,
+        kPrincipalUnparseShort   = 0x1,
         kPrincipalUnparseNoRealm = 0x2,
         kPrincipalUnparseDisplay = 0x4
     };
@@ -92,7 +92,6 @@ private:
         const KrbService& inService);
     KrbService& operator=(
         const KrbService& inService);
-  
 };
 
 }
