@@ -3294,7 +3294,7 @@ WriteCounters(
     }
 }
 
-struct CtrWriteExtra
+class CtrWriteExtra
 {
 protected:
     CtrWriteExtra()
@@ -3308,23 +3308,19 @@ protected:
     }
     void Write(IOBufferWriter& writer, bool val)
     {
-        writer.Write(val ? kTrueStr : kFalseStr);
+        mBuf[0] = val ? '1' : '0';
+        writer.Write(mBuf, 1);
     }
 
     enum { kBufSize = 32 };
 
     char        mBuf[kBufSize];
     char* const mBufEnd;
-
-    static const Properties::String kFalseStr;
-    static const Properties::String kTrueStr;
 };
 
-const Properties::String CtrWriteExtra::kFalseStr("0");
-const Properties::String CtrWriteExtra::kTrueStr ("1");
-
-struct GetHeartbeatCounters
+class GetHeartbeatCounters
 {
+public:
     typedef const Properties* iterator;
 
     void operator()(
@@ -3362,8 +3358,9 @@ const Properties::String kCSExtraHeaders[] = {
     "XMeta-chunks"
 };
 
-struct CSWriteExtra : public CtrWriteExtra
+class CSWriteExtra : public CtrWriteExtra
 {
+public:
     typedef LayoutManager::RackInfos RackInfos;
 
     CSWriteExtra(const RackInfos& ri)
@@ -3429,8 +3426,9 @@ private:
     const time_t     mNow;
 };
 
-struct GetChunkDirCounters
+class GetChunkDirCounters
 {
+public:
     typedef ChunkServer::ChunkDirInfos::const_iterator iterator;
 
     void operator()(
@@ -3452,8 +3450,9 @@ const Properties::String kCSDirExtraHeaders[] = {
     "Chunk-server-dir" // row id for the web ui samples collector
 };
 
-struct CSDirWriteExtra : public CtrWriteExtra
+class CSDirWriteExtra : public CtrWriteExtra
 {
+public:
     void operator()(
         IOBufferWriter&                      writer,
         const ChunkServerPtr&                cs,
@@ -3471,8 +3470,9 @@ struct CSDirWriteExtra : public CtrWriteExtra
     }
 };
 
-struct CSWriteHeader
+class CSWriteHeader
 {
+public:
     CSWriteHeader(
         const Properties::String* first,
         const Properties::String* last)
