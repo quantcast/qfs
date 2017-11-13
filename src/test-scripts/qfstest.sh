@@ -774,6 +774,29 @@ runqfsadmin()
     qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
 }
 
+metaserversetparameter()
+{
+    {
+        cat >> "$metasrvdir/$metasrvprop" << EOF
+$1
+EOF
+    } || exit
+    kill -HUP $metapid || exit
+
+    # Ensure that parameter has changed.
+    i=10
+    until runqfsadmin ping \
+            | grep -E 'Config:.*( |;)'"$1"'(;|$)' \
+            > /dev/null; do
+        i=`expr $i - 1`
+        if [ $i -le 0 ]; then
+            echo "meta server parameter update has failed" 1>&2
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
 waitrecoveryperiodend()
 {
     remretry=30
@@ -819,12 +842,25 @@ runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit
 runqfsroot -mv '/dumpster/deletequeue' '/' && exit
 runqfsroot -chmod +rw '/dumpster/deletequeue' && exit
 runqfsroot -ls '/dumpster/deletequeue' || exit
-for size in 24577 0; do
-    QFS_CLIENT_CONFIG= \
-    rand-sfmt -g $size 1234 \
-    | cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-        -t -u 4096 -y 6 -z 3 -r 3 -d - -k '/truncate.test' || exit
-done
+
+truncatetest='/truncate.test'
+rand-sfmt -g 24577 1234 \
+| QFS_CLIENT_CONFIG= \
+cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
+    -t -u 4096 -y 6 -z 3 -r 3 -d - -k "$truncatetest" || exit
+
+# Test move into chunk delete queue enforcement..
+metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1'
+QFS_CLIENT_CONFIG= \
+cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
+    -t -d /dev/null -k "$truncatetest" && exit
+
+# Restore parameter, and inssue truncate.
+metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1048576'
+QFS_CLIENT_CONFIG= \
+cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
+    -t -d /dev/null -k "$truncatetest" || exit
+
 runqfsroot -rm -skipTrash '/truncate.test' || exit
 #  runqfsroot -rm -skipTrash '/dumpstertest' || exit
 
@@ -1148,29 +1184,6 @@ runqfsroot -ls '/dumpster' \
     cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
         -t -d /dev/null -k "$movefromdumpster/$n" || exit
 done
-
-metaserversetparameter()
-{
-    {
-        cat >> "$metasrvdir/$metasrvprop" << EOF
-$1
-EOF
-    } || exit
-    kill -HUP $metapid || exit
-
-    # Ensure that parameter has changed.
-    i=10
-    until runqfsadmin ping \
-            | grep -E 'Config:.*( |;)'"$1"'(;|$)' \
-            > /dev/null; do
-        i=`expr $i - 1`
-        if [ $i -le 0 ]; then
-            echo "meta server parameter update has failed" 1>&2
-            exit 1
-        fi
-        sleep 1
-    done
-}
 
 # Turn off spurious chunk server disconnect debug.
 metaserversetparameter 'metaServer.panicOnRemoveFromPlacement=0'
