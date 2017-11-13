@@ -647,6 +647,8 @@ chunkServer.objBlockDiscardMinMetaUptime = 8
 
 metaServer.ATimeUpdateResolution = 0
 metaServer.dirATimeUpdateResolution = 0
+
+metaServer.allowChunkServerRetire = 1
 EOF
 
     if [ x"$auth" = x'yes' ]; then

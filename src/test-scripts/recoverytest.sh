@@ -184,6 +184,7 @@ if [ $start -ne 0 ]; then
         echo "metaServer.maxRecoveryStripeCount=10000"
         echo "metaServer.maxRSDataStripeCount=10000"
         echo "metaServer.rebalancingEnabled=0"
+        echo "metaServer.minChunkservers=2"
         if [ x = x"$valgrind_cmd" ]; then
             true;
         else
