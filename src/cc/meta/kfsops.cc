@@ -2120,7 +2120,7 @@ Tree::is_descendant(fid_t src, fid_t dst, const MetaFattr* dstFa)
 int
 Tree::rename(fid_t parent, const string& oldname, const string& newname,
     const string& oldpath, bool overwrite, fid_t& todumpster,
-    kfsUid_t euser, kfsGid_t egroup, int64_t mtime)
+    kfsUid_t euser, kfsGid_t egroup, int64_t mtime, fid_t* outSrcFid)
 {
     int status;
 
@@ -2204,10 +2204,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             return status;
         }
     }
-    if (mEnforceDumpsterRulesFlag &&
-            getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
-            (mChunksDeleteQueueFattr == sfattr ||
-            ! gLayoutManager.MoveFromDumpster(*sfattr, src->getName()))) {
+    if (mEnforceDumpsterRulesFlag && t == KFS_FILE &&
+            getDumpsterDirId() == src->getDir() &&
+            mChunksDeleteQueueFattr == sfattr) {
         KFS_LOG_STREAM_DEBUG <<
             newname << ": attempt to move from dumpster denied" <<
         KFS_LOG_EOM;
@@ -2255,6 +2254,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
             kKfsUserNone, kKfsGroupNone, 0, ddfattr, 0, mtime);
         assert(status == 0);
+    }
+    if (outSrcFid) {
+        *outSrcFid = srcfid;
     }
     return 0;
 }

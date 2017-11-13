@@ -2919,11 +2919,17 @@ MetaRename::handle()
             ROOTFID, newname, euser, egroup, fa)) != -ENOENT) {
         statusMsg = "worm mode";
         status    = -EPERM;
-        return;
     }
-    todumpster = 1;
-    status = metatree.rename(dir, oldname, newname,
-        oldpath, overwrite, todumpster, euser, egroup, mtime);
+    if (0 == status) {
+        todumpster = 1;
+        srcFid     = -1;
+        status = metatree.rename(dir, oldname, newname,
+            oldpath, overwrite, todumpster, euser, egroup, mtime, &srcFid);
+    }
+    if (leaseFileEntry ||
+            (replayFlag && metatree.getDumpsterDirId() == dir)) {
+        gLayoutManager.Done(*this);
+    }
 }
 
 /* virtual */ bool

@@ -618,7 +618,8 @@ public:
     int getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c);
     int rename(fid_t dir, const string& oldname, const string& newname,
             const string& oldpath, bool once, fid_t& todumpster,
-            kfsUid_t euser, kfsGid_t egroup, int64_t mtime);
+            kfsUid_t euser, kfsGid_t egroup, int64_t mtime,
+            fid_t* outSrcFid = 0);
     int lookup(fid_t dir, const string& fname,
         kfsUid_t euser, kfsGid_t egroup, MetaFattr*& fa,
         MetaFattr** outParent = 0, MetaDentry** outDentry = 0);

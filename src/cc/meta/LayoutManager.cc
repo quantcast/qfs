@@ -359,6 +359,20 @@ ChunkLeases::ChunkLeases(
 
 inline void
 ChunkLeases::DecrementFileLease(
+    ChunkLeases::FEntry& entry)
+{
+    if (--(entry.Get().mCount) <= 1) {
+        if (entry.Get().mName.empty()) {
+            mFileLeases.Erase(entry.GetKey());
+        } else {
+            mDumpsterCleanupTimer.Schedule(
+                entry, TimeNow() + mDumpsterCleanupDelaySec);
+        }
+    }
+}
+
+inline void
+ChunkLeases::DecrementFileLease(
     fid_t fid)
 {
     if (fid < 0) {
@@ -369,14 +383,19 @@ ChunkLeases::DecrementFileLease(
         panic("internal error: invalid decrement file lease count");
         return;
     }
-    if (--(entry->Get().mCount) <= 1) {
-        if (entry->Get().mName.empty()) {
-            mFileLeases.Erase(fid);
-        } else {
-            mDumpsterCleanupTimer.Schedule(
-                *entry, TimeNow() + mDumpsterCleanupDelaySec);
-        }
+    DecrementFileLease(*entry);
+}
+
+inline bool
+ChunkLeases::IncrementFileLease(
+    ChunkLeases::FEntry& entry)
+{
+    if (++(entry.Get().mCount) <= 1) {
+        panic("internal error: invalid increment file lease count");
+        return false;
     }
+    FEntry::List::Remove(entry);
+    return true;
 }
 
 inline bool
@@ -395,11 +414,7 @@ ChunkLeases::IncrementFileLease(
         KFS_LOG_EOM;
         return false;
     }
-    if (++(entry->Get().mCount) <= 1) {
-        panic("internal error: invalid increment file lease count");
-        return false;
-    }
-    FEntry::List::Remove(*entry);
+    IncrementFileLease(*entry);
     return true;
 }
 
@@ -1555,36 +1570,6 @@ ChunkLeases::Handle(
         mRemoveFromDumpsterInFlightCount : -1);
 }
 
-inline bool
-ChunkLeases::MoveFromDumpster(
-    const MetaFattr& inFa,
-    const string&    inName)
-{
-    FEntry* const entry = mFileLeases.Find(inFa.id());
-    if (! entry || inName != entry->Get().mName || entry->Get().mFa != &inFa) {
-        panic("internal error: invalid move from dumpster invocation");
-        return false;
-    }
-    KFS_LOG_STREAM_DEBUG <<
-        "move from dumpster: " << inFa.id() <<
-        " name: "              << inName <<
-        " count: "             << entry->Get().mCount <<
-    KFS_LOG_EOM;
-    if (entry->Get().mCount <= 0) {
-        panic("internal error: dumpster cleanup already in progress");
-        return false;
-    }
-    if (entry->Get().mCount <= 1) {
-        mFileLeases.Erase(inFa.id());
-    } else {
-        // Remove from the timer wheel.
-        entry->Get().mFa = 0;
-        entry->Get().mName.clear();
-        FEntry::List::Remove(*entry);
-    }
-    return true;
-}
-
 inline void
 ChunkLeases::Start(MetaRename& req)
 {
@@ -1619,7 +1604,39 @@ ChunkLeases::Start(MetaRename& req)
     if (entry->Get().mCount <= 0) {
         req.status    = -EPERM;
         req.statusMsg = "delete already in progress";
+        return;
     }
+    IncrementFileLease(*entry);
+    req.leaseFileEntry = entry;
+}
+
+inline void
+ChunkLeases::Done(MetaRename& req)
+{
+    if (! req.leaseFileEntry) {
+        if (req.replayFlag && 0 == req.status &&
+                metatree.getDumpsterDirId() == req.dir &&
+                mFileLeases.Erase(req.srcFid) <= 0) {
+            panic("internal error: invalid dumpster entry rename completion"
+                " in replay");
+        }
+        return;
+    }
+    FEntry& entry = *reinterpret_cast<FEntry*>(req.leaseFileEntry);
+    if (entry.Get().mCount <= 1) {
+        const char* const msg =
+            "internal error: invalid dumpster entry rename completion";
+        panic(msg);
+        req.status    = -EFAULT;
+        req.statusMsg = msg;
+        return;
+    }
+    if (0 == req.status) {
+        // Moved out of the dumpster -- clear attribute and name.
+        entry.Get().mFa = 0;
+        entry.Get().mName.clear();
+    }
+    DecrementFileLease(entry);
 }
 
 inline LayoutManager::Servers::const_iterator
@@ -8068,14 +8085,6 @@ LayoutManager::Handle(MetaRemoveFromDumpster& op)
 }
 
 bool
-LayoutManager::MoveFromDumpster(
-    const MetaFattr& fa,
-    const string&    name)
-{
-    return mChunkLeases.MoveFromDumpster(fa, name);
-}
-
-bool
 LayoutManager::IsValidObjBlockLeaseIssued(fid_t fid, chunkOff_t last)
 {
     if (mChunkLeases.IsEmpty()) {
@@ -14220,6 +14229,12 @@ void
 LayoutManager::Start(MetaRename& req)
 {
     mChunkLeases.Start(req);
+}
+
+void
+LayoutManager::Done(MetaRename& req)
+{
+    mChunkLeases.Done(req);
 }
 
 } // namespace KFS

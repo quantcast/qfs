@@ -350,6 +350,7 @@ public:
         time_t nextRunTime)
         { mDumpsterCleanupTimer.SetNextRunTime(nextRunTime); }
     inline void Start(MetaRename& req);
+    inline void Done(MetaRename& req);
 private:
     class EntryKeyHash
     {
@@ -623,6 +624,10 @@ private:
     inline bool IsWriteLease(
         LeaseId leaseId);
     inline LeaseId NewWriteLeaseId();
+    inline void DecrementFileLease(
+        FEntry& entry);
+    inline bool IncrementFileLease(
+        FEntry& entry);
     inline void DecrementFileLease(
         fid_t fid);
     inline bool IncrementFileLease(
@@ -1472,7 +1477,6 @@ public:
         { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
     void ScheduleDumpsterCleanup(const MetaFattr& fa, const string& name);
     void Handle(MetaRemoveFromDumpster& op);
-    bool MoveFromDumpster(const MetaFattr& fa, const string& name);
     bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void SetPrimary(bool flag);
     bool IsPrimary() const
@@ -1571,6 +1575,7 @@ public:
     void UpdateATime(const MetaFattr* fa, MetaReaddir& req);
     void UpdateATime(const MetaFattr* fa, MetaReaddirPlus& req);
     void Start(MetaRename& req);
+    void Done(MetaRename& req);
 protected:
     typedef vector<
         int,

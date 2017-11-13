@@ -1620,7 +1620,9 @@ struct MetaRename: public MetaIdempotentRequest {
     bool    overwrite;  //!< overwrite newname if it exists
     bool    wormModeFlag;
     fid_t   todumpster; //!< moved original to dumpster
+    fid_t   srcFid;
     int64_t mtime;
+    void*   leaseFileEntry;
     MetaRename()
         : MetaIdempotentRequest(META_RENAME, kLogIfOk),
           dir(-1),
@@ -1630,7 +1632,9 @@ struct MetaRename: public MetaIdempotentRequest {
           overwrite(false),
           wormModeFlag(false),
           todumpster(-1),
-          mtime()
+          srcFid(-1),
+          mtime(),
+          leaseFileEntry(0)
         {}
     virtual bool start();
     virtual void handle();
