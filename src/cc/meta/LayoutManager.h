@@ -2284,6 +2284,7 @@ protected:
     int    mLeaseOwnerDownExpireDelay;
     int    mMaxDumpsterCleanupInFlight;
     int    mMaxTruncateChunksDeleteCount;
+    int    mMaxTruncateChunksQueueCount;
     int    mMaxTruncatedChunkDeletesInFlight;
     int    mTruncatedChunkDeletesInFlight;
     bool   mWasServicingFlag;

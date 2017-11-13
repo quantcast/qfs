@@ -2870,10 +2870,12 @@ MetaTruncate::handle()
             status = metatree.cleanupChunks(maxDeleteCount, mtime);
         } else if (pruneBlksFromHead) {
             status = metatree.pruneFromHead(
-                fid, offset, mtime, euser, egroup, maxDeleteCount);
+                fid, offset, mtime, euser, egroup, maxDeleteCount,
+                maxQueueCount, &statusMsg);
         } else {
             status = metatree.truncate(fid, offset, mtime, euser, egroup,
-                endOffset, setEofHintFlag, maxDeleteCount);
+                endOffset, setEofHintFlag, maxDeleteCount,
+                maxQueueCount, &statusMsg);
         }
     }
     gLayoutManager.Handle(*this);

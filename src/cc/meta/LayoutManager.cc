@@ -1936,6 +1936,7 @@ LayoutManager::LayoutManager()
       mLeaseOwnerDownExpireDelay(30),
       mMaxDumpsterCleanupInFlight(256),
       mMaxTruncateChunksDeleteCount(36),
+      mMaxTruncateChunksQueueCount(1 << 20),
       mMaxTruncatedChunkDeletesInFlight(256),
       mTruncatedChunkDeletesInFlight(0),
       mWasServicingFlag(false),
@@ -2357,6 +2358,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mMaxTruncateChunksDeleteCount = max(1, props.getValue(
         "metaServer.maxTruncateChunksDeleteCount",
         mMaxTruncateChunksDeleteCount));
+    mMaxTruncateChunksQueueCount = max(1, props.getValue(
+        "metaServer.maxTruncateChunksQueueCount",
+        mMaxTruncateChunksQueueCount));
     mMaxTruncatedChunkDeletesInFlight = max(2, props.getValue(
         "metaServer.maxTruncatedChunkDeletesInFlight",
         mMaxTruncatedChunkDeletesInFlight));
@@ -14138,6 +14142,7 @@ LayoutManager::Start(MetaTruncate& req)
         return;
     }
     req.maxDeleteCount = mMaxTruncateChunksDeleteCount;
+    req.maxQueueCount  = mMaxTruncateChunksQueueCount;
 }
 
 void
