@@ -1976,7 +1976,7 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
         chunkInfo.push_back(ci);
         ci = cit.next();
     }
-    if (--rem < 0) {
+    if (rem < 0) {
         if (statusMsg) {
             *statusMsg = "exceeded truncate blocks limit";
         }
