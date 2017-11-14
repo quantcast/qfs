@@ -1667,6 +1667,8 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
         }
     }
     const char* const kAuthParamPrefix = KfsClient::GetClientAuthParamsPrefix();
+    kfsUid_t euser  = mEUser;
+    kfsGid_t egroup = mEGroup;
     if (properties) {
         string errMsg;
         int    err;
@@ -1722,6 +1724,14 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
         mDefaultMetaOpTimeout = GetOpTimeout(properties->getValue(
             "client.defaultMetaOpTimeout", mDefaultMetaOpTimeout));
         mConfig.clear();
+        euser  = properties->getValue("client.euser",  euser);
+        egroup = properties->getValue("client.egroup", egroup);
+        if (kKfsUserNone == euser) {
+            euser = mEUser;
+        }
+        if (kKfsGroupNone == egroup) {
+            egroup = mEGroup;
+        }
         properties->copyWithPrefix("client.", mConfig);
     }
     KFS_LOG_STREAM_DEBUG <<
@@ -1735,6 +1745,9 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
             metaServerHost << ":" << metaServerPort <<
         KFS_LOG_EOM;
         return -EINVAL;
+    }
+    if (euser != mEUser || egroup != mEGroup) {
+        SetEUserAndEGroup(euser, egroup, 0, 0);
     }
     const int ret = InitUserAndGroupMode();
     mIsInitialized = ret == 0;
