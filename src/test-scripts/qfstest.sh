@@ -749,9 +749,7 @@ for pid in `getpids`; do
 done
 
 if [ x"$auth" = x'yes' ]; then
-    clientdelegation=`qfs \
-        -fs "qfs://${metahosturl}:${metasrvport}" \
-        -cfg "${clientprop}" -delegate | awk '
+    clientdelegation=`runqfsuser -delegate | awk '
     { if ($1 == "Token:") t=$2; else if ($1 == "Key:") k=$2; }
     END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }'`
     clientenvcfg="${clientdelegation} client.auth.allowChunkServerClearText=0"
