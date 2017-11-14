@@ -630,8 +630,16 @@ if [ x"$myvalgrind" = x ]; then
 else
     echo "With valgrind meta server unit tests might take serveral minutes."
 fi
+
+myfsurl="qfs://${metahost}:${metasrvport}/"
+
+runqfsuser()
+{
+    qfs -D fs.msgLogWriter.logLevel=ERROR -fs "$myfsurl" ${1+"$@"}
+}
+
 remretry=20
-until qfsshell -s "$metahost" -p "$metasrvport" -q -- stat / 1>/dev/null; do
+until runqfsuser -test -e / 1>/dev/null; do
     kill -0 "$metapid" || exit
     remretry=`expr $remretry - 1`
     if [ $remretry -le 0 ]; then
@@ -755,7 +763,9 @@ client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
 else
     clientenvcfg=
-    cp /dev/null "$clientrootprop"
+    cat > "$clientrootprop" << EOF
+client.euser=0
+EOF
 fi
 qfstoolrootauthcfg=$clientrootprop
 
@@ -817,8 +827,6 @@ waitrecoveryperiodend()
 echo "Waiting for chunk servers to connect to meta server."
 waitrecoveryperiodend
 
-myfsurl="qfs://${metahost}:${metasrvport}/"
-
 echo "Testing dumpster"
 runqfsroot()
 {
@@ -831,35 +839,35 @@ runqfsroot -touchz '/dumpstertest' || exit
 runqfsroot -rm -skipTrash /dumpstertest || exit
 dumpstertest="`runqfsroot -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
 runqfsroot -chmod -w "$dumpstertest" || exit
-runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit
+runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit 1
 runqfsroot -mv "$dumpstertest" '/dumpstertest' || exit
-runqfsroot -mkdir '/dumpster/test' && exit
-runqfsroot -touchz '/dumpster/test' && exit
-runqfsroot -rm -skipTrash '/dumpster' && exit
+runqfsroot -mkdir '/dumpster/test' && exit 1
+runqfsroot -touchz '/dumpster/test' && exit 1
+runqfsroot -rm -skipTrash '/dumpster' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit
-runqfsroot -rm -skipTrash '/dumpster/deletequeue' && exit
-runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit
-runqfsroot -mv '/dumpster/deletequeue' '/' && exit
-runqfsroot -chmod +rw '/dumpster/deletequeue' && exit
+runqfsroot -rm -skipTrash '/dumpster/deletequeue' && exit 1
+runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit 1
+runqfsroot -mv '/dumpster/deletequeue' '/' && exit 1
+runqfsroot -chmod +rw '/dumpster/deletequeue' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit
+
+runcptoqfsroot()
+{
+    QFS_CLIENT_CONFIG= \
+    cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
+}
 
 truncatetest='/truncate.test'
 rand-sfmt -g 24577 1234 \
-| QFS_CLIENT_CONFIG= \
-cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-    -t -u 4096 -y 6 -z 3 -r 3 -d - -k "$truncatetest" || exit
+| runcptoqfsroot -t -u 4096 -y 6 -z 3 -r 3 -d - -k "$truncatetest" || exit
 
 # Test move into chunk delete queue enforcement..
 metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1'
-QFS_CLIENT_CONFIG= \
-cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-    -t -d /dev/null -k "$truncatetest" && exit
+runcptoqfsroot -t -d /dev/null -k "$truncatetest" && exit 1
 
 # Restore parameter, and inssue truncate.
 metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1048576'
-QFS_CLIENT_CONFIG= \
-cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-    -t -d /dev/null -k "$truncatetest" || exit
+runcptoqfsroot -t -d /dev/null -k "$truncatetest" || exit
 
 runqfsroot -rm -skipTrash '/truncate.test' || exit
 #  runqfsroot -rm -skipTrash '/dumpstertest' || exit
@@ -871,11 +879,6 @@ metaServer.dumpsterCleanupDelaySec = 2
 EOF
 } || exit
 kill -HUP $metapid || exit
-
-runqfsuser()
-{
-    qfs -D fs.msgLogWriter.logLevel=ERROR -fs "$myfsurl" ${1+"$@"}
-}
 
 # Create small chunk to test chunk inventory sync. and fsck later on at the end
 # of the test. Do not create too many chunks as each writable chunk takes 64MB.
@@ -1180,10 +1183,8 @@ runqfsroot -ls '/dumpster' \
         continue
     }
     n=`basename "$fn"`
-    QFS_CLIENT_CONFIG= \
-    cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-        -t -d /dev/null -k "$movefromdumpster/$n" || exit
-done
+    runcptoqfsroot -t -d /dev/null -k "$movefromdumpster/$n" || exit
+done || exit
 
 # Turn off spurious chunk server disconnect debug.
 metaserversetparameter 'metaServer.panicOnRemoveFromPlacement=0'
