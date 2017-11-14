@@ -1623,6 +1623,7 @@ ChunkLeases::Done(MetaRename& req)
         return;
     }
     FEntry& entry = *reinterpret_cast<FEntry*>(req.leaseFileEntry);
+    req.leaseFileEntry = 0;
     if (entry.Get().mCount <= 1) {
         const char* const msg =
             "internal error: invalid dumpster entry rename completion";
