@@ -963,7 +963,7 @@ public:
         const char*  kEnvPrefixPtr     = 0; // use default
         const char*  theConfigValuePtr = 0;
         Properties   theProperties;
-        int          theError = KfsClient::LoadProperties(
+        int          theError          = KfsClient::LoadProperties(
             theMetaHost.c_str(),
             thePort,
             kEnvPrefixPtr,
@@ -972,28 +972,21 @@ public:
         if (theError != 0) {
             return theError;
         }
-        if (theConfigValuePtr && inPropertiesPtr) {
+        if (inPropertiesPtr) {
             // The supplied config, if any, takes precedence.
             const char* kNullPrefixPtr = 0;
             inPropertiesPtr->copyWithPrefix(kNullPrefixPtr, 0, theProperties);
-        }
-        if (inPropertiesPtr) {
-            kfsUid_t theEUser  = kKfsUserNone;
-            kfsGid_t theEGroup = kKfsGroupNone;
-            theEUser  = inPropertiesPtr->getValue("fs.euser",  theEUser);
-            theEGroup = inPropertiesPtr->getValue("fs.egroup", theEGroup);
-            if (theEUser != kKfsUserNone || theEGroup != kKfsGroupNone) {
-                theError = KfsClient::SetEUserAndEGroup(
-                    theEUser, theEGroup, 0, 0);
-                if (theError != 0) {
-                    return theError;
-                }
+            const Properties::String* theValPtr;
+            if ((theValPtr = inPropertiesPtr->getValue("fs.euser"))) {
+                theProperties.setValue("client.euser", *theValPtr);
+            }
+            if ((theValPtr = inPropertiesPtr->getValue("fs.egroup"))) {
+                theProperties.setValue("client.egroup", *theValPtr);
             }
             KfsClient::SetDefaultIoBufferSize(inPropertiesPtr->getValue(
                 "fs.iobufsize", KfsClient::GetDefaultIoBufferSize()));
         }
-        theError = KfsClient::Init(theMetaHost, thePort,
-            theConfigValuePtr ? &theProperties : inPropertiesPtr);
+        theError = KfsClient::Init(theMetaHost, thePort, &theProperties);
         if (theError != 0) {
             return theError;
         }
