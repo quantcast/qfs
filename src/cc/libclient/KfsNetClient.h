@@ -286,6 +286,9 @@ public:
     void SetRackId(
         int inRackId);
     void Shutdown();
+    bool FailAll(
+        const char* inStatusMsgPtr,
+        int         inLastError);
     // Debug
     void SetThread(
         const QCThread* inThreadPtr);

@@ -103,14 +103,16 @@ public:
     {
         ++mRefCount;
         QCRTASSERT(
-            (! mThreadPtr || mThreadPtr->IsCurrentThread()) &&
+            (! mThreadPtr || ! mThreadPtr->IsStarted() ||
+                mThreadPtr->IsCurrentThread()) &&
             inMinRefCount < mRefCount
         );
     }
     void UnRef()
     {
         QCRTASSERT(
-            (! mThreadPtr || mThreadPtr->IsCurrentThread()) &&
+            (! mThreadPtr || ! mThreadPtr->IsStarted() ||
+                mThreadPtr->IsCurrentThread()) &&
             0 < mRefCount
         );
         if (--mRefCount == 0) {
@@ -3306,6 +3308,16 @@ KfsNetClient::Shutdown()
 {
     Impl::StRef theRef(mImpl);
     mImpl.Shutdown();
+}
+
+    bool
+KfsNetClient::FailAll(
+    const char* inStatusMsgPtr,
+    int         inLastError)
+{
+    Impl::StRef theRef(mImpl);
+    return mImpl.Fail(kErrorMaxRetryReached,
+        string(inStatusMsgPtr ? inStatusMsgPtr : ""), inLastError);
 }
 
 }} /* namespace cient KFS */
