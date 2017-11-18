@@ -28,12 +28,13 @@ trdverify=${trdverify-0}
 s3debug=0
 jerasuretest=''
 mycsdebugverifyiobuffers=0
+myvalgrindlog='valgrind.log'
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
         myvalgrind='valgrind'
         myvalgrind="$myvalgrind"' -v'
-        myvalgrind="$myvalgrind"' --log-file=valgrind.log'
+        myvalgrind="$myvalgrind"' --log-file='"$myvalgrindlog"
         myvalgrind="$myvalgrind"' --leak-check=full'
         myvalgrind="$myvalgrind"' --leak-resolution=high'
         myvalgrind="$myvalgrind"' --show-reachable=yes'
@@ -1165,11 +1166,16 @@ echo "Testing chunk server hibernate and retire"
 # in the dumpster with replication larger than the number of chunk server
 # would prevent chunk server "retirement", until expiration / cleanup.
 # until they expire.
-for d in /user /sort; do
-    if runqfsroot -test -e "$d"; then
-        runqfsroot -rmr -skipTrash "$d" || exit
-    fi
-done
+
+rootrmlist=`runqfsroot -ls '/' \
+| awk '/^[d-]/{ if ($NF != "/dumpster" &&
+    $NF != "'"$chunkinventorytestdir"'") print $NF; }'`
+if [ x"$rootrmlist" = x ]; then
+    true
+else
+    runqfsroot -rmr -skipTrash $rootrmlist || exit
+fi
+
 movefromdumpster='/movefromdumpster.tmp'
 runqfsroot -mkdir "$movefromdumpster" || exit
 runqfsroot -ls '/dumpster' \
@@ -1188,7 +1194,6 @@ done || exit
 metaserversetparameter 'metaServer.panicOnRemoveFromPlacement=0'
 
 upserverslist='upservers.tmp'
-QFS_CLIENT_CONFIG= \
 runqfsadmin upservers > "$upserverslist" || exit
 
 # Tell chunk servers to re-connect to the meta server, in order to exercise
@@ -1241,6 +1246,9 @@ while [ $i -lt $e ]; do
         true
     else
         echo "Restarting chunk server $i"
+        if [ -e "$myvalgrindlog" ]; then
+            mv "$myvalgrindlog" "$myvalgrindlog"'.run.log' || exit
+        fi
         myrunprog "$chunkbindir"/chunkserver \
             "$chunksrvprop" "$chunksrvlog" >> "${chunksrvout}" 2>&1 &
         echo $! > "$chunksrvpid"
@@ -1250,10 +1258,14 @@ done
 cd "$testdir" || exit
 waitrecoveryperiodend
 
-# For now pause to let chunk server IOs complete
+# Allow meta server to run re-balancer
 sleep 5
 echo "Shutting down"
-pids=`getpids`
+kill -QUIT "$metapid" || exit
+
+pids=`getpids | grep -v "$metapid"`
+# For now pause to let chunk server IOs complete
+sleep 2
 for pid in $pids; do
     kill -QUIT "$pid" || exit
 done

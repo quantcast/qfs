@@ -25,7 +25,7 @@
 # recovery by deleting chunk files and running file verification, and
 # using admin tool to force recovery of existing chunks.
 
-ulimit -c unlimited || exit
+ulimit -c unlimited
 
 builddir=`pwd`
 toolsdir=${toolsdir-"$builddir"/src/cc/tools}
