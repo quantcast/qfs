@@ -2349,6 +2349,7 @@ ChunkManager::Shutdown()
             "DiskIo::Shutdown failure: " << errMsg <<
         KFS_LOG_EOM;
     }
+    gClientManager.Shutdown();
 }
 
 bool

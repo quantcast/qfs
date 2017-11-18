@@ -897,7 +897,7 @@ public:
         return sChunkDirsCount;
     }
     virtual bool Verify(
-	string&       ioFilterAuthName,
+        string&       ioFilterAuthName,
         bool          inPreverifyOkFlag,
         int           inCurCertDepth,
         const string& inPeerName,

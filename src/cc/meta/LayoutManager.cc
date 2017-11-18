@@ -359,6 +359,20 @@ ChunkLeases::ChunkLeases(
 
 inline void
 ChunkLeases::DecrementFileLease(
+    ChunkLeases::FEntry& entry)
+{
+    if (--(entry.Get().mCount) <= 1) {
+        if (entry.Get().mName.empty()) {
+            mFileLeases.Erase(entry.GetKey());
+        } else {
+            mDumpsterCleanupTimer.Schedule(
+                entry, TimeNow() + mDumpsterCleanupDelaySec);
+        }
+    }
+}
+
+inline void
+ChunkLeases::DecrementFileLease(
     fid_t fid)
 {
     if (fid < 0) {
@@ -369,14 +383,19 @@ ChunkLeases::DecrementFileLease(
         panic("internal error: invalid decrement file lease count");
         return;
     }
-    if (--(entry->Get().mCount) <= 1) {
-        if (entry->Get().mName.empty()) {
-            mFileLeases.Erase(fid);
-        } else {
-            mDumpsterCleanupTimer.Schedule(
-                *entry, TimeNow() + mDumpsterCleanupDelaySec);
-        }
+    DecrementFileLease(*entry);
+}
+
+inline bool
+ChunkLeases::IncrementFileLease(
+    ChunkLeases::FEntry& entry)
+{
+    if (++(entry.Get().mCount) <= 1) {
+        panic("internal error: invalid increment file lease count");
+        return false;
     }
+    FEntry::List::Remove(entry);
+    return true;
 }
 
 inline bool
@@ -395,11 +414,7 @@ ChunkLeases::IncrementFileLease(
         KFS_LOG_EOM;
         return false;
     }
-    if (++(entry->Get().mCount) <= 1) {
-        panic("internal error: invalid increment file lease count");
-        return false;
-    }
-    FEntry::List::Remove(*entry);
+    IncrementFileLease(*entry);
     return true;
 }
 
@@ -1555,34 +1570,74 @@ ChunkLeases::Handle(
         mRemoveFromDumpsterInFlightCount : -1);
 }
 
-inline bool
-ChunkLeases::MoveFromDumpster(
-    const MetaFattr& inFa,
-    const string&    inName)
+inline void
+ChunkLeases::Start(MetaRename& req)
 {
-    FEntry* const entry = mFileLeases.Find(inFa.id());
-    if (! entry || inName != entry->Get().mName || entry->Get().mFa != &inFa) {
-        panic("internal error: invalid move from dumpster invocation");
-	return false;
+    if (0 != req.status || metatree.getDumpsterDirId() != req.dir) {
+        return;
     }
-    KFS_LOG_STREAM_DEBUG <<
-        "move from dumpster: " << inFa.id() <<
-        " name: "              << inName <<
-        " count: "             << entry->Get().mCount <<
-    KFS_LOG_EOM;
+    // The source must exists at start of the RPC execution, i.e. the file must
+    // already be in the dumpster. In other words, any possibly already pending
+    // in the log queue RPC(s) (remove) that can potentially successfully move
+    // the file into dumpster, are effectively ignored in order to reduce
+    // complexity.
+    MetaFattr* fa = 0;
+    if (0 != (req.status = metatree.lookup(
+            req.dir, req.oldname, req.euser, req.egroup, fa))) {
+        return;
+    }
+    if (metatree.getChunkDeleteQueue() == fa || KFS_FILE != fa->type) {
+        // Do not allow delete queue and sub directory removal, even though at
+        // the moment of writing dumpster should have no sub directories.
+        req.status = -EPERM;
+        return;
+    }
+    FEntry* const entry = mFileLeases.Find(fa->id());
+    if (! entry || req.oldname != entry->Get().mName ||
+            entry->Get().mFa != fa) {
+        const char* const msg = "internal error: invalid dumpster entry";
+        panic(msg);
+        req.status    = -EFAULT;
+        req.statusMsg = msg;
+        return;
+    }
     if (entry->Get().mCount <= 0) {
-        // Delete already in progress.
-        return false;
+        req.status    = -EPERM;
+        req.statusMsg = "delete already in progress";
+        return;
     }
-    if (entry->Get().mCount <= 1) {
-        mFileLeases.Erase(inFa.id());
-    } else {
-        // Remove from the timer wheel.
-        entry->Get().mFa = 0;
-        entry->Get().mName.clear();
-        FEntry::List::Remove(*entry);
+    IncrementFileLease(*entry);
+    req.leaseFileEntry = entry;
+}
+
+inline void
+ChunkLeases::Done(MetaRename& req)
+{
+    if (! req.leaseFileEntry) {
+        if (req.replayFlag && 0 == req.status &&
+                metatree.getDumpsterDirId() == req.dir &&
+                mFileLeases.Erase(req.srcFid) <= 0) {
+            panic("internal error: invalid dumpster entry rename completion"
+                " in replay");
+        }
+        return;
     }
-    return true;
+    FEntry& entry = *reinterpret_cast<FEntry*>(req.leaseFileEntry);
+    req.leaseFileEntry = 0;
+    if (entry.Get().mCount <= 1) {
+        const char* const msg =
+            "internal error: invalid dumpster entry rename completion";
+        panic(msg);
+        req.status    = -EFAULT;
+        req.statusMsg = msg;
+        return;
+    }
+    if (0 == req.status) {
+        // Moved out of the dumpster -- clear attribute and name.
+        entry.Get().mFa = 0;
+        entry.Get().mName.clear();
+    }
+    DecrementFileLease(entry);
 }
 
 inline LayoutManager::Servers::const_iterator
@@ -1899,6 +1954,7 @@ LayoutManager::LayoutManager()
       mLeaseOwnerDownExpireDelay(30),
       mMaxDumpsterCleanupInFlight(256),
       mMaxTruncateChunksDeleteCount(36),
+      mMaxTruncateChunksQueueCount(1 << 20),
       mMaxTruncatedChunkDeletesInFlight(256),
       mTruncatedChunkDeletesInFlight(0),
       mWasServicingFlag(false),
@@ -2320,6 +2376,9 @@ LayoutManager::SetParameters(const Properties& props, int clientPort)
     mMaxTruncateChunksDeleteCount = max(1, props.getValue(
         "metaServer.maxTruncateChunksDeleteCount",
         mMaxTruncateChunksDeleteCount));
+    mMaxTruncateChunksQueueCount = max(1, props.getValue(
+        "metaServer.maxTruncateChunksQueueCount",
+        mMaxTruncateChunksQueueCount));
     mMaxTruncatedChunkDeletesInFlight = max(2, props.getValue(
         "metaServer.maxTruncatedChunkDeletesInFlight",
         mMaxTruncatedChunkDeletesInFlight));
@@ -3253,37 +3312,33 @@ WriteCounters(
     }
 }
 
-struct CtrWriteExtra
+class CtrWriteExtra
 {
 protected:
     CtrWriteExtra()
         : mBufEnd(mBuf + kBufSize)
         {}
-    const Properties::String& BoolToString(bool flag) const
-    {
-        return (flag ? kTrueStr : kFalseStr);
-    }
     template<typename T>
     void Write(IOBufferWriter& writer, T val)
     {
         const char* const b = IntToDecString(val, mBufEnd);
         writer.Write(b, mBufEnd - b);
     }
+    void Write(IOBufferWriter& writer, bool val)
+    {
+        mBuf[0] = val ? '1' : '0';
+        writer.Write(mBuf, 1);
+    }
 
     enum { kBufSize = 32 };
 
     char        mBuf[kBufSize];
     char* const mBufEnd;
-
-    static const Properties::String kFalseStr;
-    static const Properties::String kTrueStr;
 };
 
-const Properties::String CtrWriteExtra::kFalseStr("0");
-const Properties::String CtrWriteExtra::kTrueStr ("1");
-
-struct GetHeartbeatCounters
+class GetHeartbeatCounters
 {
+public:
     typedef const Properties* iterator;
 
     void operator()(
@@ -3321,8 +3376,9 @@ const Properties::String kCSExtraHeaders[] = {
     "XMeta-chunks"
 };
 
-struct CSWriteExtra : public CtrWriteExtra
+class CSWriteExtra : public CtrWriteExtra
 {
+public:
     typedef LayoutManager::RackInfos RackInfos;
 
     CSWriteExtra(const RackInfos& ri)
@@ -3347,11 +3403,11 @@ struct CSWriteExtra : public CtrWriteExtra
         writer.Write(columnDelim);
         writer.Write(srv.GetHostPortStr());
         writer.Write(columnDelim);
-        writer.Write(BoolToString(srv.IsRetiring()));
+        Write(writer, srv.IsRetiring());
         writer.Write(columnDelim);
-        writer.Write(BoolToString(srv.IsRestartScheduled()));
+        Write(writer, srv.IsRestartScheduled());
         writer.Write(columnDelim);
-        writer.Write(BoolToString(srv.IsResponsiveServer()));
+        Write(writer, srv.IsResponsiveServer());
         writer.Write(columnDelim);
         Write(writer, srv.GetAvailSpace());
         writer.Write(columnDelim);
@@ -3388,8 +3444,9 @@ private:
     const time_t     mNow;
 };
 
-struct GetChunkDirCounters
+class GetChunkDirCounters
 {
+public:
     typedef ChunkServer::ChunkDirInfos::const_iterator iterator;
 
     void operator()(
@@ -3411,8 +3468,9 @@ const Properties::String kCSDirExtraHeaders[] = {
     "Chunk-server-dir" // row id for the web ui samples collector
 };
 
-struct CSDirWriteExtra : public CtrWriteExtra
+class CSDirWriteExtra : public CtrWriteExtra
 {
+public:
     void operator()(
         IOBufferWriter&                      writer,
         const ChunkServerPtr&                cs,
@@ -3430,8 +3488,9 @@ struct CSDirWriteExtra : public CtrWriteExtra
     }
 };
 
-struct CSWriteHeader
+class CSWriteHeader
 {
+public:
     CSWriteHeader(
         const Properties::String* first,
         const Properties::String* last)
@@ -6177,7 +6236,7 @@ LayoutManager::Validate(MetaRetireChunkserver& req)
     }
     req.status    = -EPERM;
     req.statusMsg = "chunk server retire is deprecated,"
-        "please use chunk directory evacuation ";
+        " please use chunk directory evacuation ";
     KFS_LOG_STREAM_INFO << req.statusMsg <<
     KFS_LOG_EOM;
     return false;
@@ -6208,15 +6267,19 @@ LayoutManager::RetireServer(MetaRetireChunkserver& req)
     server->SetRetiring(req.startTime, req.nSecsDown);
     if (server->IsHibernating()) {
         HibernatedServerInfos::iterator it;
-        HibernatingServerInfo* const    hs =
+        HibernatingServerInfo*          hs =
             FindHibernatingCSInfo(req.location, &it);
         if (hs) {
             hs->sleepEndTime = req.startTime + req.nSecsDown;
         } else {
-            mHibernatingServers.insert(it, HibernatingServerInfo(
+            it = mHibernatingServers.insert(it, HibernatingServerInfo(
                 req.location, req.startTime, req.nSecsDown, req.replayFlag));
+            hs = &*it;
         }
-        KFS_LOG_STREAM_INFO << "hibernating server: " << req.location <<
+        KFS_LOG_STREAM(req.replayFlag ?
+                MsgLogger::kLogLevelDEBUG :
+                MsgLogger::kLogLevelINFO) <<
+            "hibernating server: " << req.location <<
             " down time: " << req.nSecsDown <<
         KFS_LOG_EOM;
         hs->retiredFlag = true;
@@ -8020,14 +8083,6 @@ LayoutManager::Handle(MetaRemoveFromDumpster& op)
     if (0 <= cnt && mPrimaryFlag && cnt < mMaxDumpsterCleanupInFlight) {
         mLeaseCleaner.ScheduleNext();
     }
-}
-
-bool
-LayoutManager::MoveFromDumpster(
-    const MetaFattr& fa,
-    const string&    name)
-{
-    return mChunkLeases.MoveFromDumpster(fa, name);
 }
 
 bool
@@ -12085,6 +12140,7 @@ LayoutManager::RemoveRetiring(
                     (server->IsReplay() ? " replay" : "") <<
                     " removed: "  << retFlag <<
                     " retiring: " << server->IsRetiring() <<
+                    " chunks: "   << server->GetChunkCount() <<
                 KFS_LOG_EOM;
             }
             if (server->GetChunkCount() <= 0) {
@@ -14096,6 +14152,7 @@ LayoutManager::Start(MetaTruncate& req)
         return;
     }
     req.maxDeleteCount = mMaxTruncateChunksDeleteCount;
+    req.maxQueueCount  = mMaxTruncateChunksQueueCount;
 }
 
 void
@@ -14167,6 +14224,18 @@ void
 LayoutManager::UpdateATime(const MetaFattr* fa, MetaReaddirPlus& req)
 {
     UpdateATimeSelf(mDirATimeUpdateResolution, fa, req);
+}
+
+void
+LayoutManager::Start(MetaRename& req)
+{
+    mChunkLeases.Start(req);
+}
+
+void
+LayoutManager::Done(MetaRename& req)
+{
+    mChunkLeases.Done(req);
 }
 
 } // namespace KFS

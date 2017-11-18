@@ -168,6 +168,8 @@ ChunkServer::MainLoop(
     gClientManager.Stop();
     mRemoteSyncers.ReleaseAllServers();
     gChunkManager.Shutdown();
+    mRemoteSyncers.ReleaseAllServers();
+    gClientManager.Shutdown();
     RemoteSyncSM::Shutdown();
     return true;
 }

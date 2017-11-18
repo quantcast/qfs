@@ -2870,10 +2870,12 @@ MetaTruncate::handle()
             status = metatree.cleanupChunks(maxDeleteCount, mtime);
         } else if (pruneBlksFromHead) {
             status = metatree.pruneFromHead(
-                fid, offset, mtime, euser, egroup, maxDeleteCount);
+                fid, offset, mtime, euser, egroup, maxDeleteCount,
+                maxQueueCount, &statusMsg);
         } else {
             status = metatree.truncate(fid, offset, mtime, euser, egroup,
-                endOffset, setEofHintFlag, maxDeleteCount);
+                endOffset, setEofHintFlag, maxDeleteCount,
+                maxQueueCount, &statusMsg);
         }
     }
     gLayoutManager.Handle(*this);
@@ -2895,6 +2897,9 @@ MetaRename::start()
         statusMsg = "worm mode";
         status    = -EPERM;
     }
+    if (0 == status && metatree.getDumpsterDirId() == dir) {
+        gLayoutManager.Start(*this);
+    }
     if (0 == status) {
         mtime = microseconds();
     }
@@ -2914,11 +2919,17 @@ MetaRename::handle()
             ROOTFID, newname, euser, egroup, fa)) != -ENOENT) {
         statusMsg = "worm mode";
         status    = -EPERM;
-        return;
     }
-    todumpster = 1;
-    status = metatree.rename(dir, oldname, newname,
-        oldpath, overwrite, todumpster, euser, egroup, mtime);
+    if (0 == status) {
+        todumpster = 1;
+        srcFid     = -1;
+        status = metatree.rename(dir, oldname, newname,
+            oldpath, overwrite, todumpster, euser, egroup, mtime, &srcFid);
+    }
+    if (leaseFileEntry ||
+            (replayFlag && metatree.getDumpsterDirId() == dir)) {
+        gLayoutManager.Done(*this);
+    }
 }
 
 /* virtual */ bool

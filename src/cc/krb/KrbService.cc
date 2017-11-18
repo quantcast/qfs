@@ -298,7 +298,7 @@ private:
         }
         mInitedFlag = true;
         mServerPtr  = 0;
-	mErrCode = krb5_sname_to_principal(
+        mErrCode = krb5_sname_to_principal(
             mCtx,
             mServiceHostName.empty() ? 0 : mServiceHostName.c_str(),
             mServiceName.c_str(),
@@ -420,7 +420,7 @@ private:
             if (mErrCode) {
                 return;
             }
-	    if (! theRCachePtr)  {
+            if (! theRCachePtr)  {
                 mErrCode = KfsKrb5::get_server_rcache(
                     mCtx, mServerPtr, &theRCachePtr);
                 if (mErrCode) {
@@ -447,7 +447,7 @@ private:
                 theErr = theCloseErr;
             }
         }
-	if (mServerPtr) {
+        if (mServerPtr) {
             krb5_free_principal(mCtx, mServerPtr);
             mServerPtr = 0;
         }

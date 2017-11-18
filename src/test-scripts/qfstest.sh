@@ -28,12 +28,13 @@ trdverify=${trdverify-0}
 s3debug=0
 jerasuretest=''
 mycsdebugverifyiobuffers=0
+myvalgrindlog='valgrind.log'
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
         myvalgrind='valgrind'
         myvalgrind="$myvalgrind"' -v'
-        myvalgrind="$myvalgrind"' --log-file=valgrind.log'
+        myvalgrind="$myvalgrind"' --log-file='"$myvalgrindlog"
         myvalgrind="$myvalgrind"' --leak-check=full'
         myvalgrind="$myvalgrind"' --leak-resolution=high'
         myvalgrind="$myvalgrind"' --show-reachable=yes'
@@ -506,6 +507,7 @@ metaServer.chunkServer.heartbeatInterval = $csheartbeatinterval
 metaServer.chunkServer.heartbeatSkippedInterval = $csheartbeatskippedinterval
 metaServer.chunkServer.minInactivityInterval = $csmininactivityinterval
 metaServer.recoveryInterval = 2
+metaServer.minChunkservers = $numchunksrv
 metaServer.loglevel = DEBUG
 metaServer.rebalancingEnabled = 1
 metaServer.allocateDebugVerify = 1
@@ -538,6 +540,9 @@ metaServer.maxTruncatedChunkDeletesInFlight = 3
 metaServer.minWritesPerDrive = 256
 metaServer.ATimeUpdateResolution = 0
 metaServer.dirATimeUpdateResolution = 0
+metaServer.allowChunkServerRetire = 1
+metaServer.pingUpdateInterval = 0
+metaServer.debugPanicOnHelloResumeFailureCount = 0
 EOF
 
 if [ x"$myvalgrind" = x ]; then
@@ -626,8 +631,16 @@ if [ x"$myvalgrind" = x ]; then
 else
     echo "With valgrind meta server unit tests might take serveral minutes."
 fi
+
+myfsurl="qfs://${metahost}:${metasrvport}/"
+
+runqfsuser()
+{
+    qfs -D fs.msgLogWriter.logLevel=ERROR -fs "$myfsurl" ${1+"$@"}
+}
+
 remretry=20
-until qfsshell -s "$metahost" -p "$metasrvport" -q -- stat / 1>/dev/null; do
+until runqfsuser -test -e / 1>/dev/null; do
     kill -0 "$metapid" || exit
     remretry=`expr $remretry - 1`
     if [ $remretry -le 0 ]; then
@@ -681,6 +694,7 @@ chunkServer.meta.traceRequestResponseFlag   = $csrpctrace
 chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 chunkServer.maxSpaceUtilizationThreshold = 0.00001
 chunkServer.meta.inactivityTimeout = $csmetainactivitytimeout
+chunkServer.minChunkCountForHelloResume = 0
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 # chunkServer.diskQueue.trace = 1
@@ -736,9 +750,7 @@ for pid in `getpids`; do
 done
 
 if [ x"$auth" = x'yes' ]; then
-    clientdelegation=`qfs \
-        -fs "qfs://${metahosturl}:${metasrvport}" \
-        -cfg "${clientprop}" -delegate | awk '
+    clientdelegation=`runqfsuser -delegate | awk '
     { if ($1 == "Token:") t=$2; else if ($1 == "Key:") k=$2; }
     END{printf("client.auth.psk.key=%s client.auth.psk.keyId=%s", k, t); }'`
     clientenvcfg="${clientdelegation} client.auth.allowChunkServerClearText=0"
@@ -750,7 +762,9 @@ client.auth.X509.CAFile      = $certsdir/qfs_ca/cacert.pem
 EOF
 else
     clientenvcfg=
-    cp /dev/null "$clientrootprop"
+    cat > "$clientrootprop" << EOF
+client.euser=0
+EOF
 fi
 qfstoolrootauthcfg=$clientrootprop
 
@@ -763,73 +777,127 @@ client.defaultMetaOpTimeout=600
 EOF
 fi
 
-echo "Waiting for chunk servers to connect to meta server."
-remretry=30
-until [ `qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-            upservers 2>/dev/null | wc -l` -eq $numchunksrv ]; do
-    kill -0 "$metapid" || exit
-    remretry=`expr $remretry - 1`
-    if [ $remretry -le 0 ]; then
-        echo "Wait for chunk servers to connect timed out" 1>&2
-        exit 1
-    fi
-    sleep 1
-done
-remretry=30
-until qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-            ping 2>/dev/null \
-        | grep 'System Info:' \
-        | tr '\t' '\n' \
-        | grep 'In recovery= 0' > /dev/null; do
-    kill -0 "$metapid" || exit
-    remretry=`expr $remretry - 1`
-    if [ $remretry -le 0 ]; then
-        echo "Wait for QFS startup timed out" 1>&2
-        exit 1
-    fi
-    sleep 1
-done
+runqfsadmin()
+{
+    QFS_CLIENT_CONFIG= \
+    qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
+}
 
-myfsurl="qfs://${metahost}:${metasrvport}/"
+metaserversetparameter()
+{
+    {
+        cat >> "$metasrvdir/$metasrvprop" << EOF
+$1
+EOF
+    } || exit
+    kill -HUP $metapid || exit
+
+    # Ensure that parameter has changed.
+    i=10
+    until runqfsadmin ping \
+            | grep -E 'Config:.*( |;)'"$1"'(;|$)' \
+            > /dev/null; do
+        i=`expr $i - 1`
+        if [ $i -le 0 ]; then
+            echo "meta server parameter update has failed" 1>&2
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
+waitrecoveryperiodend()
+{
+    remretry=30
+    until runqfsadmin ping 2>/dev/null \
+            | grep 'System Info:' \
+            | tr '\t' '\n' \
+            | grep 'In recovery= 0' > /dev/null; do
+        kill -0 "$metapid" || exit
+        remretry=`expr $remretry - 1`
+        if [ $remretry -le 0 ]; then
+            echo "Wait for QFS chunk servers to connect timed out" 1>&2
+            exit 1
+        fi
+        sleep 1
+    done
+}
+
+echo "Waiting for chunk servers to connect to meta server."
+waitrecoveryperiodend
 
 echo "Testing dumpster"
 runqfsroot()
 {
-    QFS_CLIENT_CONFIG= qfs -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
+    QFS_CLIENT_CONFIG= \
+    qfs -D fs.msgLogWriter.logLevel=ERROR \
+        -cfg "$clientrootprop" -fs "$myfsurl" -D fs.euser=0 \
         ${1+"$@"}
 }
 runqfsroot -touchz '/dumpstertest' || exit
 runqfsroot -rm -skipTrash /dumpstertest || exit
 dumpstertest="`runqfsroot -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
 runqfsroot -chmod -w "$dumpstertest" || exit
-runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit
+runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit 1
 runqfsroot -mv "$dumpstertest" '/dumpstertest' || exit
-runqfsroot -mkdir '/dumpster/test' && exit
-runqfsroot -touchz '/dumpster/test' && exit
-runqfsroot -rm -skipTrash '/dumpster' && exit
+runqfsroot -mkdir '/dumpster/test' && exit 1
+runqfsroot -touchz '/dumpster/test' && exit 1
+runqfsroot -rm -skipTrash '/dumpster' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit
-runqfsroot -rm -skipTrash '/dumpster/deletequeue' && exit
-runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit
-runqfsroot -mv '/dumpster/deletequeue' '/' && exit
-runqfsroot -chmod +rw '/dumpster/deletequeue' && exit
+runqfsroot -rm -skipTrash '/dumpster/deletequeue' && exit 1
+runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit 1
+runqfsroot -mv '/dumpster/deletequeue' '/' && exit 1
+runqfsroot -chmod +rw '/dumpster/deletequeue' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit
-for size in 24577 1; do
+
+runcptoqfsroot()
+{
     QFS_CLIENT_CONFIG= \
-    rand-sfmt -g 24577 1234 \
-    | cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" \
-        -t -u 4096 -y 6 -z 3 -d - -k '/truncate.test' || exit
-done
+    cptoqfs -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
+}
+
+truncatetest='/truncate.test'
+rand-sfmt -g 24577 1234 \
+| runcptoqfsroot -t -u 4096 -y 6 -z 3 -r 3 -d - -k "$truncatetest" || exit
+
+# Test move into chunk delete queue enforcement..
+metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1'
+runcptoqfsroot -t -d /dev/null -k "$truncatetest" && exit 1
+
+# Restore parameter, and inssue truncate.
+metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1048576'
+runcptoqfsroot -t -d /dev/null -k "$truncatetest" || exit
+
 runqfsroot -rm -skipTrash '/truncate.test' || exit
 #  runqfsroot -rm -skipTrash '/dumpstertest' || exit
 
 # Shorten dumpster cleanup interval to reclaim space faster.
-(
-    cd "$metasrvdir" || exit
-    cat >> "$metasrvprop" << EOF
+{
+    cat >> "$metasrvdir/$metasrvprop" << EOF
 metaServer.dumpsterCleanupDelaySec = 2
 EOF
-) || exit
-kill -HUP $metapid
+} || exit
+kill -HUP $metapid || exit
+
+# Create small chunk to test chunk inventory sync. and fsck later on at the end
+# of the test. Do not create too many chunks as each writable chunk takes 64MB.
+chunkinventorytestdir='/chunkinventorytest'
+echo "Creating test files in $chunkinventorytestdir"
+runqfsuser -mkdir "$chunkinventorytestdir" || exit
+i=0
+while [ $i -lt 10 ]; do
+    echo "$i" | runqfsuser -put - "$chunkinventorytestdir/$i.dat" || exit
+    i=`expr $i + 1`
+done
+[ $spacecheck -ne 0 ] && sleep 2
+# Create object store files.
+i=0
+while [ $i -lt 10 ]; do
+    echo "$i" | runqfsuser -D fs.createParams=0,1,0,0,1,15,15 \
+        -put - "$chunkinventorytestdir/os.$i.dat" || exit
+    i=`expr $i + 1`
+done
+[ $spacecheck -ne 0 ] && sleep 3
 
 if [ x"$jerasuretest" = 'x' ]; then
     if qfs -ecinfo | grep -w jerasure > /dev/null; then
@@ -853,7 +921,7 @@ ostestrunqfs()
     myostestfile='os-overwrite-test/test-file.txt'
     myostestfile1='os-overwrite-test/test-file1.txt'
     set -x
-    ostestrunqfs -mkdir "$myostestdir" 
+    ostestrunqfs -mkdir "$myostestdir"
     echo test | ostestrunqfs -put - "$myostestfile"
     echo test | ostestrunqfs -put - "$myostestfile" || true
     ostestrunqfs -cp "$myostestfile" "$myostestfile1"
@@ -1090,10 +1158,114 @@ status=0
 
 cd "$testdir" || exit
 
-# For now pause to let chunk server IOs complete
+echo "Testing chunk server hibernate and retire"
+
+# Clean up write leases, if any, (sorters' speculative sorts might leave
+# stale leases), and force chunks deletion by truncating files in dumpster.
+# This is needed to minimize the "retire" test time, as write leases, and files
+# in the dumpster with replication larger than the number of chunk server
+# would prevent chunk server "retirement", until expiration / cleanup.
+# until they expire.
+
+rootrmlist=`runqfsroot -ls '/' \
+| awk '/^[d-]/{ if ($NF != "/dumpster" &&
+    $NF != "'"$chunkinventorytestdir"'") print $NF; }'`
+if [ x"$rootrmlist" = x ]; then
+    true
+else
+    runqfsroot -rmr -skipTrash $rootrmlist || exit
+fi
+
+movefromdumpster='/movefromdumpster.tmp'
+runqfsroot -mkdir "$movefromdumpster" || exit
+runqfsroot -ls '/dumpster' \
+| awk '/^-/{ if (0 < $2 && $NF != "/dumpster/deletequeue") print $NF; }' \
+| while read fn; do
+    runqfsroot -mv "$fn" "$movefromdumpster/" 2>/dev/null || {
+        # Check if the file has already been removed.
+        runqfsroot -test -e "$fn" && exit 1
+        continue
+    }
+    n=`basename "$fn"`
+    runcptoqfsroot -t -d /dev/null -k "$movefromdumpster/$n" || exit
+done || exit
+
+# Turn off spurious chunk server disconnect debug.
+metaserversetparameter 'metaServer.panicOnRemoveFromPlacement=0'
+
+upserverslist='upservers.tmp'
+runqfsadmin upservers > "$upserverslist" || exit
+
+# Tell chunk servers to re-connect to the meta server, in order to exercise
+# chunk inventory sync. logic.
+while read server port; do
+    pidf=$chunksrvdir/$port/$chunksrvpid
+    xargs kill -HUP < "$pidf" || exit
+done < "$upserverslist"
+# Give chunk servers couple seconds to initiate re-connect.
+sleep 2
+waitrecoveryperiodend
+
+hibernatesleep=0
+hibernateshutdowntimeout=600
+while read server port; do
+    qfshibernate -m "$metahost" -p "$metasrvport" -s "$hibernatesleep" \
+        -f "$clientrootprop" -c "$server" -d "$port" || exit
+    pidf=$chunksrvdir/$port/$chunksrvpid
+    pid=`cat "$pidf"`
+    i=0
+    while kill -0 "$pid" 2>/dev/null; do
+        i=`expr $i + 1`
+        if [ $i -gt $hibernateshutdowntimeout ]; then
+            echo "hibernate failed; chunk server still up after" \
+                " $hibernateshutdowntimeout sec; $pidf" 1>&2
+            exit 1
+        fi
+        sleep 1
+    done
+    wait "$pid"
+    estatus=$?
+    rm "$pidf" || exit
+    if [ $estatus -ne 0 ]; then
+        echo "Exit status: $estatus $pidf" 1>&2
+        exit 1
+    fi
+    [ $hibernatesleep -gt 0 ] && break
+    hibernatesleep=10000
+done < "$upserverslist"
+
+# Turn off chunk inventory mismatch debug, as retire does not delete evacuated
+# chunks.
+metaserversetparameter 'metaServer.debugPanicOnHelloResumeFailureCount=-1'
+
+i=$chunksrvport
+e=`expr $i + $numchunksrv`
+while [ $i -lt $e ]; do
+    cd "$chunksrvdir/$i" || exit
+    if [ -e "$chunksrvpid" ]; then
+        true
+    else
+        echo "Restarting chunk server $i"
+        if [ -e "$myvalgrindlog" ]; then
+            mv "$myvalgrindlog" "$myvalgrindlog"'.run.log' || exit
+        fi
+        myrunprog "$chunkbindir"/chunkserver \
+            "$chunksrvprop" "$chunksrvlog" >> "${chunksrvout}" 2>&1 &
+        echo $! > "$chunksrvpid"
+    fi
+    i=`expr $i + 1`
+done
+cd "$testdir" || exit
+waitrecoveryperiodend
+
+# Allow meta server to run re-balancer
 sleep 5
 echo "Shutting down"
-pids=`getpids`
+kill -QUIT "$metapid" || exit
+
+pids=`getpids | grep -v "$metapid"`
+# For now pause to let chunk server IOs complete
+sleep 2
 for pid in $pids; do
     kill -QUIT "$pid" || exit
 done
@@ -1104,7 +1276,7 @@ i=0
 while true; do
     rpids=
     for pid in $pids; do
-        if kill -O "$pid" 2>/dev/null; then
+        if kill -0 "$pid" 2>/dev/null; then
             rpids="$rpids $pid"
         elif [ x"$kfstestnoshutdownwait" = x ]; then
             wait "$pid"

@@ -618,7 +618,8 @@ public:
     int getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c);
     int rename(fid_t dir, const string& oldname, const string& newname,
             const string& oldpath, bool once, fid_t& todumpster,
-            kfsUid_t euser, kfsGid_t egroup, int64_t mtime);
+            kfsUid_t euser, kfsGid_t egroup, int64_t mtime,
+            fid_t* outSrcFid = 0);
     int lookup(fid_t dir, const string& fname,
         kfsUid_t euser, kfsGid_t egroup, MetaFattr*& fa,
         MetaFattr** outParent = 0, MetaDentry** outDentry = 0);
@@ -733,7 +734,8 @@ public:
      */
     int truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
         kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset,
-        bool setEofHintFlag, int maxDeleteCount);
+        bool setEofHintFlag, int maxDeleteCount, int maxQueueCount,
+        string* statusMsg);
 
     /*
      * \brief Is like truncate, but in the opposite direction: delete blks
@@ -745,7 +747,8 @@ public:
      * \retval 0 on success; -errno on failure
      */
     int pruneFromHead(fid_t file, chunkOff_t offset, const int64_t mtime,
-        kfsUid_t euser, kfsGid_t egroup, int maxDeleteCount);
+        kfsUid_t euser, kfsGid_t egroup, int maxDeleteCount, int maxQueueCount,
+        string* statusMsg);
     void invalidatePathCache(const string& pathname, const string& name,
         const MetaFattr* fa, bool removeDirPrefixFlag = false);
     // PathListerT can be used as argument to build path.

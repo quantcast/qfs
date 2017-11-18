@@ -430,7 +430,7 @@ private:
     void GrantedSelf(ByteCount byteCount, bool devBufManagerFlag);
     virtual unsigned long GetPsk(
         const char*    inIdentityPtr,
-	unsigned char* inPskBufferPtr,
+        unsigned char* inPskBufferPtr,
         unsigned int   inPskBufferLen,
         string&        outAuthName);
     int DispatchRequest(int code, void* data)

@@ -1848,20 +1848,22 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
  */
 int
 Tree::pruneFromHead(fid_t file, chunkOff_t offset, const int64_t mtime,
-    kfsUid_t euser, kfsGid_t egroup, int maxDeleteCount)
+    kfsUid_t euser, kfsGid_t egroup, int maxDeleteCount, int maxQueueCount,
+    string* statusMsg)
 {
     if (offset < 0) {
         return -EINVAL;
     }
     const bool kSetEofHintFlag = false;
     return truncate(file, 0, mtime, euser, egroup,
-        chunkStartOffset(offset), kSetEofHintFlag, maxDeleteCount);
+        chunkStartOffset(offset), kSetEofHintFlag, maxDeleteCount,
+        maxQueueCount, statusMsg);
 }
 
 int
 Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     kfsUid_t euser, kfsGid_t egroup, chunkOff_t endOffset, bool setEofHintFlag,
-    int maxChunkDelete)
+    int maxChunkDelete, int maxQueueCount, string* statusMsg)
 {
     if (endOffset >= 0 &&
             (endOffset < offset || endOffset % CHUNKSIZE != 0)) {
@@ -1902,7 +1904,8 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     if (! fa->CanWrite(euser, egroup)) {
         return -EACCES;
     }
-    if (fa->filesize == offset) {
+    if (fa->filesize == offset &&
+            (0 < offset || ! fa->IsStriped() || fa->chunkcount() <= 0)) {
         return 0;
     }
     if (mEnforceDumpsterRulesFlag &&
@@ -1964,9 +1967,20 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     }
     StTmp<vector<MetaChunkInfo*> > cinfoTmp(mChunkInfosTmp);
     vector<MetaChunkInfo*>&        chunkInfo = cinfoTmp.Get();
+    int64_t                        rem       = 0 <= maxQueueCount ?
+        int64_t(max(0, maxChunkDelete)) + maxQueueCount : fa->chunkcount() + 1;
     while (ci && (endOffset < 0 || ci->offset < endOffset)) {
+        if (--rem < 0) {
+            break;
+        }
         chunkInfo.push_back(ci);
         ci = cit.next();
+    }
+    if (rem < 0) {
+        if (statusMsg) {
+            *statusMsg = "exceeded truncate blocks limit";
+        }
+        return -EPERM;
     }
     // Delete chunks.
     int cnt = maxChunkDelete;
@@ -2106,7 +2120,7 @@ Tree::is_descendant(fid_t src, fid_t dst, const MetaFattr* dstFa)
 int
 Tree::rename(fid_t parent, const string& oldname, const string& newname,
     const string& oldpath, bool overwrite, fid_t& todumpster,
-    kfsUid_t euser, kfsGid_t egroup, int64_t mtime)
+    kfsUid_t euser, kfsGid_t egroup, int64_t mtime, fid_t* outSrcFid)
 {
     int status;
 
@@ -2190,10 +2204,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             return status;
         }
     }
-    if (mEnforceDumpsterRulesFlag &&
-            getDumpsterDirId() == src->getDir() && t == KFS_FILE &&
-            (mChunksDeleteQueueFattr == sfattr ||
-            ! gLayoutManager.MoveFromDumpster(*sfattr, src->getName()))) {
+    if (mEnforceDumpsterRulesFlag && t == KFS_FILE &&
+            getDumpsterDirId() == src->getDir() &&
+            mChunksDeleteQueueFattr == sfattr) {
         KFS_LOG_STREAM_DEBUG <<
             newname << ": attempt to move from dumpster denied" <<
         KFS_LOG_EOM;
@@ -2241,6 +2254,9 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             KFS_STRIPED_FILE_TYPE_NONE, 0, 0, 0,
             kKfsUserNone, kKfsGroupNone, 0, ddfattr, 0, mtime);
         assert(status == 0);
+    }
+    if (outSrcFid) {
+        *outSrcFid = srcfid;
     }
     return 0;
 }

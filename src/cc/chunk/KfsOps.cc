@@ -2005,8 +2005,9 @@ void
 RetireOp::Execute()
 {
     // we are told to retire...so, bow out
-    KFS_LOG_STREAM_INFO << "we have been asked to retire, bye" << KFS_LOG_EOM;
+    KFS_LOG_STREAM_WARN << "we have been asked to retire, bye" << KFS_LOG_EOM;
     globalNetManager().Shutdown();
+    Submit();
 }
 
 bool

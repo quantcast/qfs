@@ -1154,9 +1154,8 @@ public:
         const char* inMsgPtr,
         int         inErr)
     {
-        if (mCrashOnErrorFlag) {
-            MsgLogger::Stop();
-            QCUtils::FatalError(inMsgPtr, inErr);
+        if (mCrashOnErrorFlag && globalNetManager().IsRunning()) {
+            FatalError(inMsgPtr, inErr);
         }
     }
     size_t GetMaxRequestSize() const
@@ -1347,8 +1346,7 @@ public:
         if (! mValidateIoBuffersFlag || GetBufferPool().IsValid(inBufferPtr)) {
             return;
         }
-        MsgLogger::Stop();
-        QCUtils::FatalError("invalid buffer", EINVAL);
+        FatalError("invalid buffer", EINVAL);
     }
     void ValidateIoBuffers(
         const char*              inBufferPtr,
@@ -1366,8 +1364,7 @@ public:
         if (inBuffers.end() == theIt) {
             return;
         }
-        MsgLogger::Stop();
-        QCUtils::FatalError("invalid buffer", EINVAL);
+        FatalError("invalid buffer", EINVAL);
     }
     void ValidateIoBuffers(
         const DiskIo::IoBuffers& inBuffers)
@@ -1387,6 +1384,17 @@ public:
     void Unpin(
         const DiskIo& inIo)
         { SetPinned(inIo, false); }
+    static void FatalError(
+        const char* inMsgPtr,
+        int         inError)
+    {
+        KFS_LOG_STREAM_FATAL <<
+            (inMsgPtr ? inMsgPtr : "unspecified error") <<
+            " " << inError <<
+        KFS_LOG_EOM;
+        MsgLogger::Stop();
+        QCUtils::FatalError(inMsgPtr, inError);
+    }
 
 private:
     typedef DiskIo::IoBuffers IoBuffers;
@@ -1434,8 +1442,7 @@ private:
         {
             char* const theBufPtr = mBufferPool.Get();
             if (! theBufPtr) {
-                MsgLogger::Stop();
-                QCUtils::FatalError("out of io buffers", 0);
+                FatalError("out of io buffers", 0);
             }
             return theBufPtr;
         }
@@ -1458,8 +1465,7 @@ private:
                     KFS_LOG_STREAM_FATAL <<
                         "invalid IO buffer: " << theIt->GetBufferPtr() <<
                     KFS_LOG_EOM;
-                    MsgLogger::Stop();
-                    QCUtils::FatalError("invalid IO buffer", 0);
+                    FatalError("invalid IO buffer", 0);
                 }
             }
         }
@@ -1493,8 +1499,7 @@ private:
                     " invalid IO buffer: " <<
                         reinterpret_cast<const void*>(inPtr) <<
                 KFS_LOG_EOM;
-                MsgLogger::Stop();
-                QCUtils::FatalError("set pinned: invalid IO buffer", 0);
+                FatalError("set pinned: invalid IO buffer", 0);
             }
         }
     private:

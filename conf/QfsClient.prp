@@ -151,3 +151,14 @@
 # Set client's rack Id; takes precedence over client's IP address.
 # Default is -1, no rack Id specified.
 # client.rackId = -1
+
+#-------------------------------------------------------------------------------
+# The following two parameter only have effect with no authentication configured.
+
+# Set client effective user id, must be numeric string.
+# The default is an empty string, in this case getuid()
+# client.euser =
+
+# Set client effective group id, must be numeric string.
+# The default is an empty string, in this case getgid()
+# client.egroup =

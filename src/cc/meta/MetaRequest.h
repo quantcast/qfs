@@ -1544,6 +1544,7 @@ struct MetaTruncate: public MetaRequest {
     StringBufT<256> pathname; //!< full pathname for file being truncated
     int64_t         mtime;
     int             maxDeleteCount;
+    int             maxQueueCount;
     MetaTruncate()
         : MetaRequest(META_TRUNCATE, kLogIfOk),
           fid(-1),
@@ -1555,7 +1556,8 @@ struct MetaTruncate: public MetaRequest {
           chunksCleanupFlag(false),
           pathname(),
           mtime(),
-          maxDeleteCount(-1)
+          maxDeleteCount(-1),
+          maxQueueCount(-1)
         {}
     virtual bool start();
     virtual void handle();
@@ -1570,6 +1572,7 @@ struct MetaTruncate: public MetaRequest {
             " offset: "  << offset <<
             " seteof: "  << setEofHintFlag <<
             " max: "     << maxDeleteCount <<
+            " queue: "   << maxQueueCount <<
             " cleanup: " << chunksCleanupFlag
         ;
     }
@@ -1600,6 +1603,7 @@ struct MetaTruncate: public MetaRequest {
         .Def("M", &MetaTruncate::checkPermsFlag,           false)
         .Def("T", &MetaTruncate::mtime)
         .Def("C", &MetaTruncate::maxDeleteCount,              -1)
+        .Def("Q", &MetaTruncate::maxQueueCount ,              -1)
         .Def("X", &MetaTruncate::chunksCleanupFlag,        false)
         ;
     }
@@ -1616,7 +1620,9 @@ struct MetaRename: public MetaIdempotentRequest {
     bool    overwrite;  //!< overwrite newname if it exists
     bool    wormModeFlag;
     fid_t   todumpster; //!< moved original to dumpster
+    fid_t   srcFid;
     int64_t mtime;
+    void*   leaseFileEntry;
     MetaRename()
         : MetaIdempotentRequest(META_RENAME, kLogIfOk),
           dir(-1),
@@ -1626,7 +1632,9 @@ struct MetaRename: public MetaIdempotentRequest {
           overwrite(false),
           wormModeFlag(false),
           todumpster(-1),
-          mtime()
+          srcFid(-1),
+          mtime(),
+          leaseFileEntry(0)
         {}
     virtual bool start();
     virtual void handle();
@@ -1892,7 +1900,7 @@ struct MetaRetireChunkserver : public MetaRequest, public ServerLocation {
         return os <<
             (nSecsDown > 0 ? "hibernating server: " : "retiring server: ") <<
             location <<
-            "down time: " << nSecsDown
+            " down time: " << nSecsDown
         ;
     }
     bool Validate()

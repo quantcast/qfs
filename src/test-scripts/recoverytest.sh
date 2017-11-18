@@ -25,7 +25,7 @@
 # recovery by deleting chunk files and running file verification, and
 # using admin tool to force recovery of existing chunks.
 
-ulimit -c unlimited || exit
+ulimit -c unlimited
 
 builddir=`pwd`
 toolsdir=${toolsdir-"$builddir"/src/cc/tools}
@@ -184,6 +184,7 @@ if [ $start -ne 0 ]; then
         echo "metaServer.maxRecoveryStripeCount=10000"
         echo "metaServer.maxRSDataStripeCount=10000"
         echo "metaServer.rebalancingEnabled=0"
+        echo "metaServer.minChunkservers=2"
         if [ x = x"$valgrind_cmd" ]; then
             true;
         else

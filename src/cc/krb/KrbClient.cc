@@ -124,12 +124,12 @@ public:
             }
         }
         mCreds.server = mServerPtr;
-	if ((mErrCode = krb5_cc_get_principal(
+        if ((mErrCode = krb5_cc_get_principal(
                 mCtx, mCachePtr, &mCreds.client)) != 0) {
             return ErrStr();
         }
         krb5_creds* theCredsPtr = 0;
-	if ((mErrCode = krb5_get_credentials(
+        if ((mErrCode = krb5_get_credentials(
                 mCtx, 0, mCachePtr, &mCreds, &theCredsPtr)) != 0) {
             return ErrStr();
         }
@@ -293,7 +293,7 @@ private:
                     krb5_free_cred_contents(mCtx, &mCreds);
                 }
                 memset(&mCreds, 0, sizeof(mCreds));
-	        if (theClientPtr) {
+                if (theClientPtr) {
                     krb5_free_principal(mCtx, theClientPtr);
                     theClientPtr = 0;
                 }
@@ -336,7 +336,7 @@ private:
         mInitedFlag = true;
         memset(&mCreds, 0, sizeof(mCreds));
         mCachePtr = 0;
-	if ((mErrCode = krb5_sname_to_principal(
+        if ((mErrCode = krb5_sname_to_principal(
                 mCtx,
                 mServiceHost.c_str(),
                 mServiceName.c_str(),
@@ -345,7 +345,7 @@ private:
             ))) {
             return;
         }
-	if ((mErrCode = krb5_cc_default(mCtx, &mCachePtr)) != 0) {
+        if ((mErrCode = krb5_cc_default(mCtx, &mCachePtr)) != 0) {
             return;
         }
         if (mUseKeyTabFlag) {
@@ -380,7 +380,7 @@ private:
         krb5_error_code theErr = CleanupAuth();
         mInitedFlag = false;
         memset(&mCreds, 0, sizeof(mCreds));
-	if (mServerPtr) {
+        if (mServerPtr) {
             krb5_free_principal(mCtx, mServerPtr);
             mServerPtr = 0;
         }
@@ -399,7 +399,7 @@ private:
         if (! mInitedFlag) {
             return 0;
         }
-	if (mCreds.client) {
+        if (mCreds.client) {
             krb5_free_principal(mCtx, mCreds.client);
             mCreds.client = 0;
         }

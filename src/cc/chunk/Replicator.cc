@@ -1520,6 +1520,7 @@ private:
         {
             for (int i = 0; i < mCount; i++) {
                 mServers[i].mMeta->SetThread(0);
+                mServers[i].mMeta->FailAll("shutdown", -ECANCELED);
                 mServers[i].mMeta->Stop();
                 ClientAuthContext* const authCtx =
                      mServers[i].mMeta->GetAuthContext();
@@ -1808,6 +1809,12 @@ Replicator::Run(ReplicateChunkOp* op)
             op->statusMsg <<
             " " << op->Show() <<
         KFS_LOG_EOM;
+        SubmitOpResponse(op);
+        return;
+    }
+    if (! globalNetManager().IsRunning()) {
+        op->status    = -ECANCELED;
+        op->statusMsg = "shutdown";
         SubmitOpResponse(op);
         return;
     }
