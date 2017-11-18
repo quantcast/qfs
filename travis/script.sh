@@ -267,6 +267,7 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
         fi
     fi
     MYSRCD="$(pwd)"
+    ulimit -c unlimited
     docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
         /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
