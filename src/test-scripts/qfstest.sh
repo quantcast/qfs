@@ -337,8 +337,8 @@ monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
 
 fusedir='src/cc/fuse'
 if [ x'yes' = x"$myopttestfuse" -a -d "$fusedir" ] && \
-        \( [ x'Darwin' = x"`uname`" ] || \
-            fusermount -V > /dev/null 2>&1 \); then
+        { [ x'Darwin' = x"`uname`" ] || \
+            fusermount -V > /dev/null 2>&1 ; }; then
     testfuse=1
 else
     testfuse=0

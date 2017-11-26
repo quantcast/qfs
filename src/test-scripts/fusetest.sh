@@ -33,9 +33,10 @@ mytesruns=${4-2}
 mytestfiles=${5-3}
 mytestfilesize=${6-`expr 1024 \* 1024`}
 myfuseumount=${7-'fusermount -u'}
+myfuselog=${8-'qfs_fuse.log'}
 
 if [ x"$7" = x ]; then
-    if $myfuseumount -V >/dev/null 2>&1; then
+    if fusermount -V >/dev/null 2>&1; then
         true
     else
         myfuseumount='umount'
@@ -68,22 +69,35 @@ if mount | grep "$mymnt" > /dev/null; then
     true
 else
     QFS_CLIENT_LOG_LEVEL=DEBUG qfs_fuse -f \
-        "$myfs" "$mymnt" -o rrw,create=2 > qfs_fuse.log 2>&1 &
+        "$myfs" "$mymnt" -o rrw,create=2 > "$myfuselog" 2>&1 &
     mypid=$!
     i=0
     until mount | grep "$mymnt" > /dev/null; do
-        sleep 1
+        if kill -0 $mypid > /dev/null; then
+            true
+        else
+            wait "$mypid"
+            $status $?
+            echo "QFS $myfs fuse mount exited, status: $status" 1>&2
+            exit 1
+        fi
         if [ $i -gt 15 ]; then
-            echo "QFS $myfs fuse mount wait timedout"
+            echo "QFS $myfs fuse mount wait timedout" 1>&2
             exit 1
         fi
         i=`expr $i + 1`
+        sleep 1
     done
-    trap '$myfuseumount "$mymnt; exit 1"' EXIT INT
+    trap '$myfuseumount "$mymnt"; exit 1' EXIT INT
 fi
 df -h "$mymnt"
 mkdir -p "$mytd"
-mybin=`which qfs_fuse`
+mydu='du -bhs'
+if $mydu "$myfuselog" >/dev/null 2>&1; then
+    true
+else
+    mydu='du -hs'
+fi
 k=0
 while [ $k -lt $mytesruns ]; do
     i=0
@@ -107,7 +121,7 @@ while [ $k -lt $mytesruns ]; do
         fi
         i=`expr $i + 1`
     done
-    du -bhs "$mytd"
+    $mydu "$mytd"
     k=`expr $k + 1`
 done
 df -h "$mymnt"
