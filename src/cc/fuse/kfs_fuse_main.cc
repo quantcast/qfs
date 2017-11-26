@@ -267,7 +267,7 @@ fuse_write(const char *path, const char* buf, size_t nbytes, off_t off,
 static int
 fuse_flush(const char* path, struct fuse_file_info* finfo)
 {
-    if (! sReadOnlyFlag && finfo && 0 <= finfo->fh) {
+    if (! sReadOnlyFlag && finfo) {
         return client->Sync(finfo->fh);
     }
     return 0;
@@ -540,9 +540,6 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
 static struct fuse_args*
 get_fs_args(struct fuse_args* args)
 {
-#ifdef KFS_OS_NAME_DARWIN
-    return NULL;
-#else
     if (! args) {
         return 0;
     }
@@ -552,7 +549,6 @@ get_fs_args(struct fuse_args* args)
     args->argv[1] = strdup("-obig_writes");
     args->allocated = 1;
     return args;
-#endif
 }
 
 static struct fuse_args*
