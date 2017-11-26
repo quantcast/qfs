@@ -60,7 +60,7 @@ FileAttr::ToStat(
     }
 #endif
     outStat.st_blksize = CHUNKSIZE;
-    outStat.st_blocks  = (fileSize + CHUNKSIZE - 1) / CHUNKSIZE;
+    outStat.st_blocks  = chunkCount();
     outStat.st_uid     = (uid_t)user;
     outStat.st_gid     = (gid_t)group;
 #ifdef KFS_OS_NAME_DARWIN
