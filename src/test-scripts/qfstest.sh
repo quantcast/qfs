@@ -331,6 +331,12 @@ else
 fi
 
 monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
+fusedir='src/cc/fuse'
+if [ -d "$fusedir" ] && fusermount -V > /dev/null 2>&1; then
+    testfuse=1
+else
+    testfuse=0
+fi
 
 for dir in  \
         'src/cc/devtools' \
@@ -345,6 +351,7 @@ for dir in  \
         'src/cc/qfsc' \
         'src/cc/krb' \
         'src/cc/emulator' \
+        "$fusedir" \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
@@ -1149,6 +1156,14 @@ else
     rm "$smpidf"
 fi
 
+fusestatus=0
+if [ $testfuse -ne 0 ]; then
+    cd "$testdir" || exit
+    echo "Testing fuse"
+    fusetest.sh "${metahost}:${metasrvport}"
+    fusestatus=$?
+fi
+
 cd "$metasrvdir" || exit
 echo "Running online fsck"
 qfsfsck -s "$metahost" -p "$metasrvport" -f "$clientrootprop"
@@ -1361,6 +1376,7 @@ if [ $status -eq 0 \
         -a $kfsaccessstatus -eq 0 \
         -a $qfscstatus -eq 0 \
         -a $fsckstatus -eq 0 \
+        -a $fusestatus -eq 0 \
         ]; then
     echo "Passed all tests"
 else
