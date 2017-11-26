@@ -54,8 +54,22 @@ using KFS::kKfsModeUndef;
 using KFS::Permissions;
 using KFS::KFS_STRIPED_FILE_TYPE_NONE;
 using KFS::Properties;
+using KFS::kfsSTier_t;
+using KFS::CHUNKSIZE;
 
 static KfsClient* client;
+
+static struct
+{
+    int        numReplicas;
+    int        numStripes;
+    int        numRecoveryStripes;
+    int        stripeSize;
+    int        stripedType;
+    kfsSTier_t minSTier;
+    kfsSTier_t maxSTier;
+} sFileCreateParams;
+static bool sReadOnlyFlag;
 
 static inline kfsMode_t
 mode2kfs_mode(mode_t mode)
@@ -122,12 +136,78 @@ fuse_truncate(const char *path, off_t size)
     return client->Truncate(path, size);
 }
 
+static bool
+CanWriteFile(int stripedType, int numReplicas)
+{
+    // Striped and object store file, need to be explicitly closed only once,
+    // which is impossible given fuse flush / release semantics.
+    return (KFS_STRIPED_FILE_TYPE_NONE == stripedType &&
+        0 < numReplicas);
+}
+
+static int
+CanWrite(const char *path)
+{
+    KfsFileAttr attr;
+    const int   res = client->Stat(path, attr);
+    if (0 == client->Stat(path, attr)) {
+        if (attr.isDirectory) {
+            return -EISDIR;
+        }
+        if (! CanWriteFile(attr.striperType, attr.numReplicas)) {
+            return -EPERM;
+        }
+    }
+    return res;
+}
+
+static int
+CanOpen(const char *path, int flags)
+{
+    if (sReadOnlyFlag) {
+        return ((0 != (flags & (O_WRONLY | O_TRUNC | O_APPEND))) ? -EROFS : 0);
+    }
+    if (0 != (flags & O_APPEND)) {
+        // Do not allow append, as it has different than POSIX semantics.
+        return -EPERM;
+    }
+    const int res = CanWrite(path);
+    if (-ENOENT == res) {
+        if (! CanWriteFile(sFileCreateParams.stripedType,
+                sFileCreateParams.numReplicas)) {
+            return -EPERM;
+        }
+    }
+    return res;
+}
+
 static int
 fuse_open(const char *path, struct fuse_file_info *finfo)
 {
-    int fd = client->Open(path, finfo->flags);
-    if (fd < 0)
+    int res = CanOpen(path, finfo->flags);
+    if (res < 0 && -ENOENT != res) {
+        return res;
+    }
+    const kfsMode_t kfs_mode = 0666;
+    const int fd = client->Open(path,
+        (finfo->flags &
+            (sReadOnlyFlag ? ~((int)O_TRUNC | O_CREAT) : finfo->flags)),
+        sFileCreateParams.numStripes,
+        sFileCreateParams.numRecoveryStripes,
+        sFileCreateParams.stripeSize,
+        sFileCreateParams.stripedType,
+        kfs_mode,
+        sFileCreateParams.minSTier,
+        sFileCreateParams.maxSTier
+    );
+    if (fd < 0) {
         return fd;
+    }
+    // Meta server can override file type, -- check create result.
+    if (-ENOENT == res && (res = CanWrite(path)) < 0) {
+        client->Close(fd);
+        return res;
+    }
     finfo->fh = fd;
     return 0;
 }
@@ -135,27 +215,34 @@ fuse_open(const char *path, struct fuse_file_info *finfo)
 static int
 fuse_create(const char *path, mode_t mode, struct fuse_file_info *finfo)
 {
-    const int       numReplicas        = 3;
-    const bool      exclusive          = false;
-    const int       numStripes         = 0;
-    const int       numRecoveryStripes = 0;
-    const int       stripeSize         = 0;
-    const int       stripedType        = KFS_STRIPED_FILE_TYPE_NONE;
-    const bool      forceTypeFlag      = true;
-    const kfsMode_t kfs_mode           =
+    int res = CanOpen(path, finfo->flags);
+    if (res < 0 && -ENOENT != res) {
+        return res;
+    }
+    const bool      exclusive     = 0 != (finfo->flags & O_EXCL);
+    const bool      forceTypeFlag = false;
+    const kfsMode_t kfs_mode      =
         (kfsMode_t)mode & Permissions::kAccessModeMask;
-    int fd = client->Create(path,
-        numReplicas,
+    const int fd = client->Create(path,
+        sFileCreateParams.numReplicas,
         exclusive,
-        numStripes,
-        numRecoveryStripes,
-        stripeSize,
-        stripedType,
+        sFileCreateParams.numStripes,
+        sFileCreateParams.numRecoveryStripes,
+        sFileCreateParams.stripeSize,
+        sFileCreateParams.stripedType,
         forceTypeFlag,
-        kfs_mode
+        kfs_mode,
+        sFileCreateParams.minSTier,
+        sFileCreateParams.maxSTier
     );
-    if (fd < 0)
+    if (fd < 0) {
         return fd;
+    }
+    // Meta server can override file type, -- check create result.
+    if (-ENOENT == res && (res = CanWrite(path)) < 0) {
+        client->Close(fd);
+        return res;
+    }
     finfo->fh = fd;
     return 0;
 }
@@ -261,6 +348,40 @@ fuse_chown(const char *path, uid_t user, gid_t group)
     );
 }
 
+static int
+fuse_statfs(const char *path, struct statvfs *stat)
+{
+    KfsFileAttr attr;
+    int res = path ? client->Stat(path, attr) : 0;
+    if (res < 0) {
+        return res;
+    }
+    if (! stat) {
+        return 0;
+    }
+    memset(stat, 0, sizeof(*stat));
+    if ('/' != path[0] || ! path[1]) {
+        res = client->Stat("/", attr);
+        if (res < 0) {
+            return 0;
+        }
+    }
+    stat->f_bsize   = CHUNKSIZE;
+    if (sizeof(stat->f_blocks) < 8) {
+        stat->f_frsize  = CHUNKSIZE;
+        stat->f_blocks  = (attr.fileSize + CHUNKSIZE - 1) / CHUNKSIZE;
+    } else {
+        stat->f_frsize  = 1;
+        stat->f_blocks  = attr.fileSize;
+    }
+    stat->f_files   = attr.fileCount() + attr.dirCount();
+    stat->f_namemax = 256;
+    if (sReadOnlyFlag) {
+        stat->f_flag |= ST_RDONLY;
+    }
+    return 0;
+}
+
 struct fuse_operations ops = {
         fuse_getattr,
         NULL,                   /* readlink */
@@ -279,7 +400,7 @@ struct fuse_operations ops = {
         fuse_open,
         fuse_read,
         fuse_write,
-        NULL,                   /* statfs */
+        fuse_statfs,            /* statfs */
         fuse_flush,             /* flush */
         fuse_release,           /* release */
         fuse_fsync,             /* fsync */
@@ -317,7 +438,7 @@ struct fuse_operations ops_readonly = {
         fuse_open,
         fuse_read,
         NULL,                   /* write */
-        NULL,                   /* statfs */
+        fuse_statfs,            /* statfs */
         NULL,                   /* flush */
         fuse_release,           /* release */
         NULL,                   /* fsync */
@@ -356,6 +477,21 @@ fatal(const char *fmt, ...)
 }
 
 static void
+SetDefaults(Properties& props)
+{
+    struct { const char* name; const char* value; } const kDefaults[] = {
+        { "client.fullSparseFileSupport", "1" },
+        { 0, 0 }
+    };
+    for (size_t i = 0; kDefaults[i].name; i++) {
+        props.setValue(
+            Properties::String(kDefaults[i].name),
+            Properties::String(kDefaults[i].value)
+        );
+    }
+}
+
+static void
 initkfs(char* addr, const string& cfg_file, const string& cfg_props)
 {
     char *cp;
@@ -370,8 +506,12 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
     if (cfg_file.empty()) {
         if (cfg_props.empty()) {
             client = KFS::Connect(host, port);
+            if (client) {
+                client->SetDefaultFullSparseFileSupport(true);
+            }
         } else {
             Properties props;
+            SetDefaults(props);
             if (props.loadProperties(
                     cfg_props.data(), cfg_props.size(), delim) == 0) {
                 client = KFS::Connect(host, port, &props);
@@ -379,8 +519,8 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
         }
     } else {
         Properties props;
-        if (props.loadProperties(
-                cfg_file.c_str(), delim) == 0) {
+        SetDefaults(props);
+        if (props.loadProperties(cfg_file.c_str(), delim) == 0) {
             client = KFS::Connect(host, port, &props);
         }
     }
@@ -444,6 +584,7 @@ massage_options(
 
     vector<string> opts;
     const string delim = " ,";
+    const string create("create=");
     for(size_t start = 0; ;) {
         start = cmdline.find_first_not_of(delim, start);
         if (start == string::npos){
@@ -455,7 +596,20 @@ massage_options(
         if (token == "rrw") {
             *readonly = false;
             opts.push_back("rw");
-        } else if (token != "rw") {
+        } else if (0 == token.compare(0, create.size(), create)) {
+           if (0 != KfsClient::ParseCreateParams(
+                   token.c_str() + create.size(),
+                   sFileCreateParams.numReplicas,
+                   sFileCreateParams.numStripes,
+                   sFileCreateParams.numRecoveryStripes,
+                   sFileCreateParams.stripeSize,
+                   sFileCreateParams.stripedType,
+                   sFileCreateParams.minSTier,
+                   sFileCreateParams.maxSTier)) {
+                printf("invalid file create parameters: %s", token.c_str());
+                return -1;
+            }
+        } else if ("rw" != token) {
             opts.push_back(token);
         }
         if (end == string::npos) {
@@ -529,11 +683,15 @@ initfuse(char* kfs_host_address, const char* mountpoint,
             delete client;
             fatal("fuse_new:");
         }
-#ifdef KFS_OS_NAME_SUNOS
-        fuse_loop(fuse);
-#else
-        fuse_loop_mt(fuse);
+        sReadOnlyFlag = readonly;
+#ifndef KFS_OS_NAME_SUNOS
+        if (! readonly) {
+            fuse_loop_mt(fuse);
+        } else
 #endif
+        {
+            fuse_loop(fuse);
+        }
         fuse_unmount(mountpoint, ch);
         fuse_destroy(fuse);
         delete client;
@@ -542,16 +700,19 @@ initfuse(char* kfs_host_address, const char* mountpoint,
 }
 
 static void
-usage(int e, const char* name)
+usage(const char* name)
 {
     //Undocumented option: 'rrw'. See massage_options() above.
     fprintf(stderr,
         "usage: %s qfshost mountpoint [-o opt1[,opt2..]]\n"
         "       eg: %s 127.0.0.1:20000 "
-        "/mnt/qfs -o allow_other,ro,cfg=FILE:client_config_file.prp\n",
-        name, name
+        "/mnt/qfs -o allow_other,ro,cfg=FILE:client_config_file.prp\n"
+        "       rrw option can be used to enable read write mode, however, this"
+        " mode has *very* limited support: only replicated files write"
+        " is supported, file append is not supported.\n"
+        "       File system IO in read write mode is serialized.\n"
+        , name, name
     );
-    exit(e);
 }
 
 int
@@ -570,14 +731,32 @@ main(int argc, char **argv)
         fork_flag = false;
     }
     if (0 < argc && (
-        strcmp("-h", argv[0]) == 0 ||
-        strcmp("-help", argv[0]) == 0 ||
-        strcmp("--help", argv[0]) == 0)) {
-      usage(0, name);
+            strcmp("-h", argv[0]) == 0 ||
+            strcmp("-help", argv[0]) == 0 ||
+            strcmp("--help", argv[0]) == 0)) {
+        usage(name);
+        return 0;
     }
     if (argc < 2) {
-        usage(1, name);
+        usage(name);
+        return 1;
     }
+    // Init defaults, and set number of replicas to 3.
+    errno = 0;
+    if (0 != KfsClient::ParseCreateParams(
+            "",
+            sFileCreateParams.numReplicas,
+            sFileCreateParams.numStripes,
+            sFileCreateParams.numRecoveryStripes,
+            sFileCreateParams.stripeSize,
+            sFileCreateParams.stripedType,
+            sFileCreateParams.minSTier,
+            sFileCreateParams.maxSTier)) {
+        fprintf(stderr, "internal error:"
+                " create parameters initialization failure");
+        return 2;
+    }
+    sFileCreateParams.numReplicas = 3;
     // Default is readonly mount,private mount.
     string options("-oro");
     bool readonly = true;
@@ -586,7 +765,8 @@ main(int argc, char **argv)
     if (argc > 2) {
         if (massage_options(argv + 2, argc - 2, &options, &readonly,
                 cfg_file, cfg_props) < 0) {
-            usage(1, name);
+            usage(name);
+            return 1;
         }
     }
 
