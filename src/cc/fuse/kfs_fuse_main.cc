@@ -69,6 +69,7 @@ static struct
     kfsSTier_t minSTier;
     kfsSTier_t maxSTier;
 } sFileCreateParams;
+
 static bool sReadOnlyFlag;
 
 static inline kfsMode_t
@@ -84,48 +85,50 @@ mode2kfs_mode(mode_t mode)
 }
 
 static int
-fuse_getattr(const char *path, struct stat *s)
+fuse_getattr(const char* path, struct stat* s)
 {
     KfsFileAttr attr;
     int status = client->Stat(path, attr);
-    if (status < 0)
+    if (status < 0) {
         return status;
+    }
     attr.ToStat(*s);
     return 0;
 }
 
 static int
-fuse_fgetattr(const char *path, struct stat *s, struct fuse_file_info *finfo)
+fuse_fgetattr(const char* path, struct stat* s,
+        struct fuse_file_info* /* finfo */)
 {
     return fuse_getattr(path, s);
 }
 
 static int
-fuse_mkdir(const char *path, mode_t mode)
+fuse_mkdir(const char* path, mode_t mode)
 {
     return client->Mkdir(path, mode2kfs_mode(mode));
 }
 
 static int
-fuse_unlink(const char *path)
+fuse_unlink(const char* path)
 {
     return client->Remove(path);
 }
 
 static int
-fuse_rmdir(const char *path)
+fuse_rmdir(const char* path)
 {
     return client->Rmdir(path);
 }
 
 static int
-fuse_rename(const char *src, const char *dst)
+fuse_rename(const char* src, const char* dst)
 {
     return client->Rename(src, dst, false);
 }
 
 static int
-fuse_ftruncate(const char *path, off_t size, struct fuse_file_info *finfo)
+fuse_ftruncate(const char* /* path */, off_t size, struct fuse_file_info* finfo)
 {
     return client->Truncate(finfo->fh, size);
 }
@@ -146,7 +149,7 @@ CanWriteFile(int stripedType, int numReplicas)
 }
 
 static int
-CanWrite(const char *path)
+CanWrite(const char* path)
 {
     KfsFileAttr attr;
     const int   res = client->Stat(path, attr);
@@ -162,10 +165,10 @@ CanWrite(const char *path)
 }
 
 static int
-CanOpen(const char *path, int flags)
+CanOpen(const char* path, int flags)
 {
     if (sReadOnlyFlag) {
-        return ((0 != (flags & (O_WRONLY | O_TRUNC | O_APPEND))) ? -EROFS : 0);
+        return ((0 != (flags & (O_WRONLY | O_RDWR | O_APPEND))) ? -EROFS : 0);
     }
     if (0 != (flags & O_APPEND)) {
         // Do not allow append, as it has different than POSIX semantics.
@@ -182,7 +185,7 @@ CanOpen(const char *path, int flags)
 }
 
 static int
-fuse_open(const char *path, struct fuse_file_info *finfo)
+fuse_open(const char* path, struct fuse_file_info* finfo)
 {
     int res = CanOpen(path, finfo->flags);
     if (res < 0 && -ENOENT != res) {
@@ -213,7 +216,7 @@ fuse_open(const char *path, struct fuse_file_info *finfo)
 }
 
 static int
-fuse_create(const char *path, mode_t mode, struct fuse_file_info *finfo)
+fuse_create(const char* path, mode_t mode, struct fuse_file_info* finfo)
 {
     int res = CanOpen(path, finfo->flags);
     if (res < 0 && -ENOENT != res) {
@@ -255,48 +258,53 @@ fuse_read(const char *path, char *buf, size_t nbytes, off_t off,
 }
 
 static int
-fuse_write(const char *path, const char *buf, size_t nbytes, off_t off,
-           struct fuse_file_info *finfo)
+fuse_write(const char *path, const char* buf, size_t nbytes, off_t off,
+           struct fuse_file_info* finfo)
 {
     return (int)client->PWrite(finfo->fh, off, buf, nbytes);
 }
 
 static int
-fuse_flush(const char *path, struct fuse_file_info *finfo)
+fuse_flush(const char* path, struct fuse_file_info* finfo)
 {
-    // NO!
+    if (! sReadOnlyFlag && finfo && 0 <= finfo->fh) {
+        return client->Sync(finfo->fh);
+    }
     return 0;
 }
 
 static int
-fuse_release(const char *path, struct fuse_file_info *finfo)
+fuse_release(const char* /* path */, struct fuse_file_info* finfo)
 {
     return client->Close(finfo->fh);
 }
 
 static int
-fuse_fsync(const char *path, int flags, struct fuse_file_info *finfo)
+fuse_fsync(const char* /* path */, int /* flags */,
+        struct fuse_file_info* finfo)
 {
     return client->Sync(finfo->fh);
 }
 
 static int
-fuse_opendir(const char *path, struct fuse_file_info *finfo)
+fuse_opendir(const char* path, struct fuse_file_info* /* finfo */)
 {
-    if (!client->IsDirectory(path))
+    if (!client->IsDirectory(path)) {
         return -ENOTDIR;
+    }
     return 0;
 }
 
 static int
-fuse_readdir(const char *path, void *buf,
-             fuse_fill_dir_t filler, off_t offset,
-             struct fuse_file_info *finfo)
+fuse_readdir(const char* path, void* buf,
+             fuse_fill_dir_t filler, off_t /* offset */,
+             struct fuse_file_info* /* finfo */)
 {
     vector <KfsFileAttr> contents;
     int status = client->ReaddirPlus(path, contents);
-    if (status < 0)
+    if (status < 0) {
         return status;
+    }
     int n = contents.size();
     for (int i = 0; i < n; i++) {
         struct stat s;
@@ -309,13 +317,13 @@ fuse_readdir(const char *path, void *buf,
 }
 
 static int
-fuse_releasedir(const char *path, struct fuse_file_info *finfo)
+fuse_releasedir(const char* /* path */, struct fuse_file_info* /* finfo */)
 {
     return 0;
 }
 
 static int
-fuse_access(const char *path, int mode)
+fuse_access(const char* path, int mode)
 {
     KfsFileAttr attr;
     int status = client->Stat(path, attr);
@@ -334,13 +342,13 @@ fuse_access(const char *path, int mode)
 }
 
 static int
-fuse_chmod(const char *path, mode_t mode)
+fuse_chmod(const char* path, mode_t mode)
 {
     return client->Chmod(path, mode2kfs_mode(mode));
 }
 
 static int
-fuse_chown(const char *path, uid_t user, gid_t group)
+fuse_chown(const char* path, uid_t user, gid_t group)
 {
     return client->Chown(path,
         user  == (uid_t)-1 ? kKfsUserNone  : (kfsUid_t)user,
@@ -349,7 +357,7 @@ fuse_chown(const char *path, uid_t user, gid_t group)
 }
 
 static int
-fuse_statfs(const char *path, struct statvfs *stat)
+fuse_statfs(const char* path, struct statvfs* stat)
 {
     KfsFileAttr attr;
     int res = path ? client->Stat(path, attr) : 0;
@@ -459,7 +467,7 @@ struct fuse_operations ops_readonly = {
 };
 
 static void
-fatal(const char *fmt, ...)
+fatal(const char* fmt, ...)
 {
     va_list arg;
 
@@ -621,6 +629,11 @@ massage_options(
         *options = "-oro";
     } else {
         *options = "-orw";
+        if (! CanWriteFile(sFileCreateParams.stripedType,
+                sFileCreateParams.numReplicas)) {
+            printf("specified file type is not supported by QFS fuse\n");
+            return -1;
+        }
     }
     const string cfg("cfg=");
     const string cfg_file("cfg=FILE:");
