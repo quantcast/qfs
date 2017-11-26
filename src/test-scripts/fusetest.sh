@@ -24,6 +24,8 @@
 # QFS fuse test.
 #
 
+set -e
+
 myfs=${1-'127.0.0.1:20000'}
 mytf=${2-'qfs_fuse_test.data'}
 mymnt=${3-"`pwd`/qfs_fuse_mnt"}
@@ -32,7 +34,13 @@ mytestfiles=${5-3}
 mytestfilesize=${6-`expr 1024 \* 1024`}
 myfuseumount=${7-'fusermount -u'}
 
-set -e
+if [ x"$7" = x ]; then
+    if $myfuseumount -V >/dev/null 2>&1; then
+        true
+    else
+        myfuseumount='umount'
+    fi
+fi
 
 myfusebuilddir="`pwd`/src/cc/fuse"
 if [ -d "$myfusebuilddir" ]; then

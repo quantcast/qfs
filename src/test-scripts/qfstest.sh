@@ -29,6 +29,7 @@ s3debug=0
 jerasuretest=''
 mycsdebugverifyiobuffers=0
 myvalgrindlog='valgrind.log'
+myopttestfuse='yes'
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -63,6 +64,8 @@ while [ $# -ge 1 ]; do
         jerasuretest='yes'
     elif [ x"$1" = x'-no-jerasure' ]; then
         jerasuretest='no'
+    elif [ x"$1" = x'-no-fuse' ]; then
+        myopttestfuse='no'
     elif [ x"$1" = x'-cs-iobufsverify' ]; then
         mycsdebugverifyiobuffers=1
     else
@@ -70,7 +73,7 @@ while [ $# -ge 1 ]; do
         echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]" \
             "[-s3 | -s3debug] [-csrpctrace] [-trdverify]" \
             "[-jerasure | -no-jerasure]" \
-            "[-cs-iobufsverify]"
+            "[-cs-iobufsverify] [-no-fuse]"
         exit 1
     fi
     shift
@@ -331,11 +334,15 @@ else
 fi
 
 monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
+
 fusedir='src/cc/fuse'
-if [ -d "$fusedir" ] && fusermount -V > /dev/null 2>&1; then
+if [ x'yes' = x"$myopttestfuse" -a -d "$fusedir" ] && \
+        \( [ x'Darwin' = x"`uname`" ] || \
+            fusermount -V > /dev/null 2>&1 \); then
     testfuse=1
 else
     testfuse=0
+    fusedir=''
 fi
 
 for dir in  \
