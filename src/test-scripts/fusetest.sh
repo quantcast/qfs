@@ -27,13 +27,14 @@
 set -e
 
 myfs=${1-'127.0.0.1:20000'}
-mytf=${2-'qfs_fuse_test.data'}
-mymnt=${3-"`pwd`/qfs_fuse_mnt"}
+myfuseopt=${2-'rrw,create=S'}
+mytestfilesize=${3-`expr 1024 \* 1024 \* 1`}
 mytesruns=${4-2}
 mytestfiles=${5-3}
-mytestfilesize=${6-`expr 1024 \* 1024`}
-myfuseumount=${7-'fusermount -u'}
-myfuselog=${8-'qfs_fuse.log'}
+mytf=${6-'qfs_fuse_test.data'}
+mymnt=${7-"`pwd`/qfs_fuse_mnt"}
+myfuseumount=${8-'fusermount -u'}
+myfuselog=${9-'qfs_fuse.log'}
 
 if [ x"$7" = x ]; then
     if fusermount -V >/dev/null 2>&1; then
@@ -69,25 +70,29 @@ if mount | grep "$mymnt" > /dev/null; then
     true
 else
     QFS_CLIENT_LOG_LEVEL=DEBUG qfs_fuse -f \
-        "$myfs" "$mymnt" -o rrw,create=2 > "$myfuselog" 2>&1 &
+        "$myfs" "$mymnt" -o "$myfuseopt" > "$myfuselog" 2>&1 &
     mypid=$!
     i=0
+    set +e
     until mount | grep "$mymnt" > /dev/null; do
-        if kill -0 $mypid > /dev/null; then
+        if kill -0 $mypid > /dev/null 2>&1; then
             true
         else
             wait "$mypid"
-            $status $?
+            status=$?
+            tail "$myfuselog"
             echo "QFS $myfs fuse mount exited, status: $status" 1>&2
             exit 1
         fi
         if [ $i -gt 15 ]; then
+            tail "$myfuselog"
             echo "QFS $myfs fuse mount wait timedout" 1>&2
             exit 1
         fi
         i=`expr $i + 1`
         sleep 1
     done
+    set -e
     trap '$myfuseumount "$mymnt"; exit 1' EXIT INT
 fi
 df -h "$mymnt"
