@@ -30,6 +30,7 @@
 
 #include "libclient/KfsClient.h"
 #include "common/Properties.h"
+#include "common/MsgLogger.h"
 
 #include <fuse.h>
 #include <sys/stat.h>
@@ -41,8 +42,13 @@
 #include <unistd.h>
 #include <errno.h>
 
+#include <iomanip>
+
 using std::string;
 using std::vector;
+using std::hex;
+using std::dec;
+using std::oct;
 using KFS::KfsClient;
 using KFS::KfsFileAttr;
 using KFS::kfsMode_t;
@@ -55,6 +61,7 @@ using KFS::Permissions;
 using KFS::KFS_STRIPED_FILE_TYPE_NONE;
 using KFS::Properties;
 using KFS::kfsSTier_t;
+using KFS::MsgLogger;
 using KFS::CHUNKSIZE;
 
 static KfsClient* client;
@@ -128,24 +135,43 @@ fuse_rename(const char* src, const char* dst)
 }
 
 static int
-fuse_ftruncate(const char* /* path */, off_t size, struct fuse_file_info* finfo)
+fuse_ftruncate(const char* path, off_t size, struct fuse_file_info* finfo)
 {
+    KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+        " ftruncate:" << (path ? path : "") <<
+        " fd: "       << finfo->fh <<
+        " size: "     << size <<
+    KFS_LOG_EOM;
     return client->Truncate(finfo->fh, size);
 }
 
 static int
-fuse_truncate(const char *path, off_t size)
+fuse_truncate(const char* path, off_t size)
 {
+    KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+        " truncate:" << (path ? path : "") <<
+        " size: "    << size <<
+    KFS_LOG_EOM;
     return client->Truncate(path, size);
+}
+
+static bool
+IsStripedOrObjectStoreFile(int stripedType, int numReplicas)
+{
+    return (KFS_STRIPED_FILE_TYPE_NONE != stripedType ||
+        numReplicas <= 0);
 }
 
 static bool
 CanWriteFile(int stripedType, int numReplicas)
 {
+#ifndef QFS_FUSE_NO_PARTIAL_RS_AND_OBJ_STORE_SUPPORT
+    return true;
+#else
     // Striped and object store file, need to be explicitly closed only once,
     // which is impossible given fuse flush / release semantics.
-    return (KFS_STRIPED_FILE_TYPE_NONE == stripedType &&
-        0 < numReplicas);
+    return (! IsStripedOrObjectStoreFile(stripedType, numReplicas));
+#endif
 }
 
 static int
@@ -211,6 +237,11 @@ fuse_open(const char* path, struct fuse_file_info* finfo)
         client->Close(fd);
         return res;
     }
+    KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+        " open: "  << (path ? path : "") <<
+        " fd: "    << fd <<
+        " flags: " << oct << finfo->flags << dec <<
+    KFS_LOG_EOM;
     finfo->fh = fd;
     return 0;
 }
@@ -246,6 +277,11 @@ fuse_create(const char* path, mode_t mode, struct fuse_file_info* finfo)
         client->Close(fd);
         return res;
     }
+    KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+        " create: " << (path ? path : "") <<
+        " fd: "     << fd <<
+        " flags: "  << oct << finfo->flags << dec <<
+    KFS_LOG_EOM;
     finfo->fh = fd;
     return 0;
 }
@@ -268,21 +304,33 @@ static int
 fuse_flush(const char* path, struct fuse_file_info* finfo)
 {
     if (! sReadOnlyFlag && finfo) {
+        KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+            " flush: " << (path ? path : "") <<
+            " fd: "    << finfo->fh <<
+        KFS_LOG_EOM;
         return client->Sync(finfo->fh);
     }
     return 0;
 }
 
 static int
-fuse_release(const char* /* path */, struct fuse_file_info* finfo)
+fuse_release(const char* path, struct fuse_file_info* finfo)
 {
+    KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+        " release: " << (path ? path : "") <<
+        " fd: "      << finfo->fh <<
+    KFS_LOG_EOM;
     return client->Close(finfo->fh);
 }
 
 static int
-fuse_fsync(const char* /* path */, int /* flags */,
+fuse_fsync(const char* path, int /* flags */,
         struct fuse_file_info* finfo)
 {
+    KFS_LOG_STREAM_DEBUG << "qfs_fuse"
+        " fsync:" << (path ? path : "") <<
+        " fd: "   << finfo->fh <<
+    KFS_LOG_EOM;
     return client->Sync(finfo->fh);
 }
 
@@ -374,7 +422,7 @@ fuse_statfs(const char* path, struct statvfs* stat)
             return 0;
         }
     }
-    stat->f_bsize   = CHUNKSIZE;
+    stat->f_bsize = CHUNKSIZE;
     if (sizeof(stat->f_blocks) < 8) {
         stat->f_frsize  = CHUNKSIZE;
         stat->f_blocks  = (attr.fileSize + CHUNKSIZE - 1) / CHUNKSIZE;
@@ -532,7 +580,11 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
             client = KFS::Connect(host, port, &props);
         }
     }
-    if (! client) {
+    if (client) {
+        if (! sReadOnlyFlag) {
+            client->SetCloseWriteOnRead(true);
+        }
+    } else {
         fatal("connect: %s:%d", host.c_str(), port);
     }
 }
@@ -627,8 +679,21 @@ massage_options(
         *options = "-orw";
         if (! CanWriteFile(sFileCreateParams.stripedType,
                 sFileCreateParams.numReplicas)) {
-            printf("specified file type is not supported by QFS fuse\n");
+            fprintf(stderr,
+                "The specified file type is not supported by QFS fuse"
+                "in read write mode.\n");
             return -1;
+        }
+        if (IsStripedOrObjectStoreFile(sFileCreateParams.stripedType,
+                sFileCreateParams.numReplicas)) {
+            fprintf(stderr,
+                "Warning: object store and RS file types read write"
+                " support in QFS fuse is incomplete.\n"
+                "Files of this type might not be completely written"
+                " synced, unless file read is performed after file write"
+                " from the same QFS fuse process.\n"
+            );
+            fflush(stderr);
         }
     }
     const string cfg("cfg=");
