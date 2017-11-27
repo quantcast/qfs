@@ -699,6 +699,11 @@ KfsClientImpl::ReadSelf(
         return theRet;
     }
     // Do not return if nothing more to read -- start the read ahead.
+    const bool theWriteCloseFlag =
+        mCloseWriteOnReadFlag &&
+        ! theEntry.readUsedProtocolWorkerFlag &&
+        mProtocolWorker &&
+        theEntry.usedProtocolWorkerFlag;
     StartProtocolWorker();
     theEntry.readUsedProtocolWorkerFlag = true;
 
@@ -775,6 +780,13 @@ KfsClientImpl::ReadSelf(
         }
         return theRet;
     }
+    KfsProtocolWorker::RequestType  theCloseType;
+    if (theWriteCloseFlag) {
+        theCloseType = (theEntry.openMode & O_APPEND) != 0 ?
+            KfsProtocolWorker::kRequestTypeWriteAppendClose :
+            KfsProtocolWorker::kRequestTypeWriteClose;
+        theEntry.usedProtocolWorkerFlag = false;
+    }
     KfsProtocolWorker::Request::Params theOpenParams;
     theOpenParams.mPathName            = theEntry.pathname;
     theOpenParams.mFileSize            = theEntry.fattr.fileSize;
@@ -790,6 +802,19 @@ KfsClientImpl::ReadSelf(
     theLocker.Unlock();
     QCASSERT(! mMutex.IsOwned());
 
+    if (theWriteCloseFlag) {
+        KFS_LOG_STREAM_DEBUG <<
+            "closing write on read: " << inFd <<
+        KFS_LOG_EOM;
+        const int theRet = (int)mProtocolWorker->Execute(
+            theCloseType,
+            theInstance - 1,
+            theFileId
+        );
+        KFS_LOG_STREAM_DEBUG <<
+            "ckised write on read: " << inFd << " status: " << theRet <<
+        KFS_LOG_EOM;
+    }
     int64_t theChunkEnd = theSkipHolesFlag ?
         min(theEof, (thePos - thePos % kChunkSize + kChunkSize)) : theEof;
     for (; ;) {

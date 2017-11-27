@@ -607,8 +607,12 @@ struct LookupOp : public KfsOp {
     virtual void ParseResponseHeaderSelf(const Properties& prop);
 
     virtual ostream& ShowSelf(ostream& os) const {
-        os << "lookup: " << filename << " parent: " << parentFid;
-        return os;
+        return (os <<
+            "lookup: "  << filename <<
+            " parent: " << parentFid <<
+            " fileId: " << fattr.fileId <<
+            " size: "   << fattr.fileSize
+        );
     }
 };
 

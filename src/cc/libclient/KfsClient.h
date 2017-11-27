@@ -843,6 +843,7 @@ public:
         uint64_t&   outIssuedTime,
         uint32_t&   outValidForSec);
     Properties* GetStats(); // DisposeProperties() must be invoked to cleanup.
+    void SetCloseWriteOnRead(bool inFlag);
     static Properties* CreateProperties();
     static void DisposeProperties(
         Properties* props);
