@@ -780,11 +780,12 @@ KfsClientImpl::ReadSelf(
         }
         return theRet;
     }
-    KfsProtocolWorker::RequestType  theCloseType;
-    if (theWriteCloseFlag) {
-        theCloseType = (theEntry.openMode & O_APPEND) != 0 ?
+    KfsProtocolWorker::RequestType const theCloseType = theWriteCloseFlag ?
+        ((theEntry.openMode & O_APPEND) != 0 ?
             KfsProtocolWorker::kRequestTypeWriteAppendClose :
-            KfsProtocolWorker::kRequestTypeWriteClose;
+            KfsProtocolWorker::kRequestTypeWriteClose) :
+    	KfsProtocolWorker::kRequestTypeUnknown;
+    if (theWriteCloseFlag) {
         theEntry.usedProtocolWorkerFlag = false;
     }
     KfsProtocolWorker::Request::Params theOpenParams;
@@ -802,7 +803,7 @@ KfsClientImpl::ReadSelf(
     theLocker.Unlock();
     QCASSERT(! mMutex.IsOwned());
 
-    if (theWriteCloseFlag) {
+    if (KfsProtocolWorker::kRequestTypeUnknown != theCloseType) {
         KFS_LOG_STREAM_DEBUG <<
             "closing write on read: " << inFd <<
         KFS_LOG_EOM;
