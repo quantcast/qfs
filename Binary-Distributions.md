@@ -2,17 +2,17 @@ Binary tarballs of QFS are made available for the following platforms. These are
 ideal for quickly trying out QFS as a Single Node deployment. See [[Getting
 Started|Home]] for how to use them.
 
-| Release          | Ubuntu 14.04 Trusty Tahr       | Ubuntu 16.04.3 LTS (Xenial Xerus) | CentOS 6 		    | CentOS 7                 | Mac OS X                 |
-|------------------|--------------------------------|-----------------------------------|---------------------------|--------------------------|--------------------------|
-| [master][master] | [download][master,ubuntu14.04] | [download][master,ubuntu16.04]    | [download][master,centos6]|[download][master,centos7]| [download][master,macos] |
-| [1.2.1][1.2.1]   | [download][1.2.1,ubuntu]       |                                   | [download][1.2.1,centos6] |[download][1.2.1,centos7] | [download][1.2.1,macos]  |
-| [1.2.0][1.2.0]   | [download][1.2.0,ubuntu]       |                                   | [download][1.2.0,centos6] |[download][1.2.0,centos7] | [download][1.2.0,macos]  |
-| [1.1.4][1.1.4]   | [download][1.1.4,ubuntu]       |                                   | [download][1.1.4,centos6] |			       | [download][1.1.4,macos]  |
-| [1.1.3][1.1.3]   | [download][1.1.3,ubuntu]       |                                   | [download][1.1.3,centos6] |			       | [download][1.1.3,macos]  |
-| [1.1.2][1.1.2]   | [download][1.1.2,ubuntu]       |                                   | [download][1.1.2,centos6] |			       | [download][1.1.2,macos]  |
-| [1.1.1][1.1.1]   | [download][1.1.1,ubuntu]       |                                   | [download][1.1.1,centos6] |			       | [download][1.1.1,macos]  |
-| [1.1.0][1.1.0]   | [download][1.1.0,ubuntu]       |                                   | [download][1.1.0,centos6] |			       | [download][1.1.0,macos]  |
-| [1.0.1][1.0.1]   | [download][1.0.1,ubuntu]       |                                   | [download][1.0.1,centos6] |			       |                          |
+| Release          | Ubuntu 14.04 Trusty Tahr       | Ubuntu 16.04.3 LTS (Xenial Xerus) | Debian 9 Stretch           | CentOS 6                  | CentOS 7                 | Mac OS X                 |
+|------------------|--------------------------------|-----------------------------------|----------------------------|---------------------------|--------------------------|--------------------------|
+| [master][master] | [download][master,ubuntu14.04] | [download][master,ubuntu16.04]    | [download][master,debian9] | [download][master,centos6]|[download][master,centos7]| [download][master,macos] |
+| [1.2.1][1.2.1]   | [download][1.2.1,ubuntu]       |                                   |                            | [download][1.2.1,centos6] |[download][1.2.1,centos7] | [download][1.2.1,macos]  |
+| [1.2.0][1.2.0]   | [download][1.2.0,ubuntu]       |                                   |                            | [download][1.2.0,centos6] |[download][1.2.0,centos7] | [download][1.2.0,macos]  |
+| [1.1.4][1.1.4]   | [download][1.1.4,ubuntu]       |                                   |                            | [download][1.1.4,centos6] |		            | [download][1.1.4,macos]  |
+| [1.1.3][1.1.3]   | [download][1.1.3,ubuntu]       |                                   |                            | [download][1.1.3,centos6] |			    | [download][1.1.3,macos]  |
+| [1.1.2][1.1.2]   | [download][1.1.2,ubuntu]       |                                   |                            | [download][1.1.2,centos6] |			    | [download][1.1.2,macos]  |
+| [1.1.1][1.1.1]   | [download][1.1.1,ubuntu]       |                                   |                            | [download][1.1.1,centos6] |			    | [download][1.1.1,macos]  |
+| [1.1.0][1.1.0]   | [download][1.1.0,ubuntu]       |                                   |                            | [download][1.1.0,centos6] |			    | [download][1.1.0,macos]  |
+| [1.0.1][1.0.1]   | [download][1.0.1,ubuntu]       |                                   |                            | [download][1.0.1,centos6] |			    |			       |
 
 ![Quantcast](//pixel.quantserve.com/pixel/p-9fYuixa7g_Hm2.gif?labels=opensource.qfs.wiki)
 
@@ -37,6 +37,8 @@ Started|Home]] for how to use them.
 [1.0.1,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.0.1-x86_64.tgz
 
 [master,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04.3-master-x86_64.tgz
+
+[master,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-master-x86_64.tgz
 
 [master,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.9-master-x86_64.tgz
 [1.2.1,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.9-1.2.1-x86_64.tgz
