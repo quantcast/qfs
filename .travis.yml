@@ -45,6 +45,7 @@ env:
         - DISTRO=centos        VER=5     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=centos        VER=6     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=centos        VER=7     CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=debian        VER=9     CODECOV=no  BTYPE=release BUSER=qfsbuild
 
 matrix:
     exclude:
@@ -66,6 +67,8 @@ matrix:
           env: DISTRO=centos        VER=6     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
           env: DISTRO=centos        VER=7     CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - os: osx
+          env: DISTRO=debian        VER=9     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: linux
           env: DISTRO=osx           VER=none  CODECOV=no  BTYPE=release BUSER=''
 
