@@ -162,6 +162,27 @@ KfsClientImpl::WriteSelf(int fd, const char* buf, size_t numBytes,
     KfsProtocolWorker::Request::Params* const openParamsPtr =
         entry.usedProtocolWorkerFlag ? 0 : &openParams;
     if (openParamsPtr) {
+        if (0 < entry.fattr.fileSize &&
+                (KFS_STRIPED_FILE_TYPE_NONE != entry.fattr.striperType ||
+                0 == entry.fattr.numReplicas)) {
+            // Re-validate file size, in case truncate was issued, as for
+            // striped and object store files logical EOF has to be updated
+            // explicitly on close.
+            const FAttr* const fa = LookupFAttr(entry.fattr.fileId, entry.name);
+            if (! fa || fa->fileId != entry.fattr.fileId ||
+                    ! IsValid(*fa, time(0))) {
+                KfsFileAttr attr;
+                const bool computeFileSizeFlag = false;
+                const int ret = StatSelf(
+                    entry.pathname.c_str(), attr, computeFileSizeFlag);
+                if (0 == ret && entry.fattr.fileId == attr.fileId &&
+                        ! attr.isDirectory) {
+                    entry.fattr.fileSize = attr.fileSize;
+                }
+            } else {
+                entry.fattr.fileSize = fa->fileSize;
+            }
+        }
         openParams.mPathName            = entry.pathname;
         openParams.mFileSize            = entry.fattr.fileSize;
         openParams.mStriperType         = entry.fattr.striperType;

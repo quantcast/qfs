@@ -25,12 +25,13 @@
 set -ex
 
 DEPS_UBUNTU='g++ cmake git libboost-regex-dev libkrb5-dev libssl-dev python-dev'
-DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk unzip maven sudo passwd'
-DEPS_UBUNTU=$DEPS_UBUNTU' curl openssl gdb'
+DEPS_UBUNTU=$DEPS_UBUNTU' libfuse-dev default-jdk zlib1g-dev unzip maven sudo'
+DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb'
+DEPS_DEBIAN=$DEPS_UBUNTU
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
 DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
-DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl gdb'
+DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
 
 DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
@@ -171,6 +172,11 @@ build_ubuntu()
 }
 
 build_ubuntu32()
+{
+    build_ubuntu
+}
+
+build_debian()
 {
     build_ubuntu
 }

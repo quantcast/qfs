@@ -645,6 +645,7 @@ public:
         uint64_t&   outIssuedTime,
         uint32_t&   outValidForSec);
     Properties* GetStats();
+    void SetCloseWriteOnRead(bool inFlag);
 
 private:
      /// Maximum # of files a client can have open minus 1.
@@ -819,6 +820,7 @@ private:
     KfsNetClient* const            mMetaServer;
     string                         mCommonRpcHdrs;
     string                         mShortCommonRpcHdrs;
+    bool                           mCloseWriteOnReadFlag;
     bool                           mIsMonitored;
     unsigned int                   mClientId;
     KfsClientImpl*                 mPrevPtr[1];

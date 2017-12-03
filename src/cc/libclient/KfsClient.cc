@@ -1053,6 +1053,12 @@ KfsClient::GetStats()
     return mImpl->GetStats();
 }
 
+void
+KfsClient::SetCloseWriteOnRead(bool inFlag)
+{
+    mImpl->SetCloseWriteOnRead(inFlag);
+}
+
 static int
 LoadConfig(const char* configEnvName, const char* cfg, Properties& props)
 {
@@ -1556,6 +1562,7 @@ KfsClientImpl::KfsClientImpl(
       mMetaServer(metaServer),
       mCommonRpcHdrs(),
       mShortCommonRpcHdrs(),
+      mCloseWriteOnReadFlag(false),
       mIsMonitored(false),
       mClientId(0)
 {
@@ -4127,6 +4134,7 @@ KfsClientImpl::OpenSelf(const char *pathname, int openMode, int numReplicas,
         "opened:"
         " fd: "       << fte <<
         " fileId: "   << entry.fattr.fileId <<
+        " size: "     << entry.fattr.fileSize <<
         " instance: " << entry.instance <<
         " mode: "     << entry.openMode <<
     KFS_LOG_EOM;
@@ -7605,6 +7613,13 @@ KfsClientImpl::GetStats()
     Properties* const ret = new Properties();
     ret->swap(stats);
     return ret;
+}
+
+void
+KfsClientImpl::SetCloseWriteOnRead(bool inFlag)
+{
+    QCStMutexLocker l(mMutex);
+    mCloseWriteOnReadFlag = inFlag;
 }
 
 } // client

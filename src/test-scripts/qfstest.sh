@@ -29,6 +29,7 @@ s3debug=0
 jerasuretest=''
 mycsdebugverifyiobuffers=0
 myvalgrindlog='valgrind.log'
+myopttestfuse='yes'
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -63,6 +64,8 @@ while [ $# -ge 1 ]; do
         jerasuretest='yes'
     elif [ x"$1" = x'-no-jerasure' ]; then
         jerasuretest='no'
+    elif [ x"$1" = x'-no-fuse' ]; then
+        myopttestfuse='no'
     elif [ x"$1" = x'-cs-iobufsverify' ]; then
         mycsdebugverifyiobuffers=1
     else
@@ -70,7 +73,7 @@ while [ $# -ge 1 ]; do
         echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]" \
             "[-s3 | -s3debug] [-csrpctrace] [-trdverify]" \
             "[-jerasure | -no-jerasure]" \
-            "[-cs-iobufsverify]"
+            "[-cs-iobufsverify] [-no-fuse]"
         exit 1
     fi
     shift
@@ -332,6 +335,18 @@ fi
 
 monitorpluginlib="`pwd`/`echo 'contrib/plugins/libqfs_monitor.'*`"
 
+fusedir='src/cc/fuse'
+if [ x'yes' = x"$myopttestfuse" -a -d "$fusedir" ] && \
+        { [ x'Darwin' = x"`uname`" -a -w /dev/osxfuse0 ] || \
+            [ x'FreeBSD' = x"`uname`" -a -w /dev/fuse ] || \
+            { [ x'Linux' = x"`uname`" -a -w /dev/fuse ] && \
+                fusermount -V > /dev/null 2>&1 ; } }; then
+    testfuse=1
+else
+    testfuse=0
+    fusedir=''
+fi
+
 for dir in  \
         'src/cc/devtools' \
         'src/cc/chunk' \
@@ -345,6 +360,7 @@ for dir in  \
         'src/cc/qfsc' \
         'src/cc/krb' \
         'src/cc/emulator' \
+        "$fusedir" \
         "`dirname "$0"`" \
         "$fosdir" \
         "$fodir" \
@@ -1149,6 +1165,14 @@ else
     rm "$smpidf"
 fi
 
+fusestatus=0
+if [ $testfuse -ne 0 ]; then
+    cd "$testdir" || exit
+    echo "Testing fuse"
+    fusetest.sh "${metahost}:${metasrvport}"
+    fusestatus=$?
+fi
+
 cd "$metasrvdir" || exit
 echo "Running online fsck"
 qfsfsck -s "$metahost" -p "$metasrvport" -f "$clientrootprop"
@@ -1158,14 +1182,14 @@ status=0
 
 cd "$testdir" || exit
 
-echo "Testing chunk server hibernate and retire"
-
 # Clean up write leases, if any, (sorters' speculative sorts might leave
 # stale leases), and force chunks deletion by truncating files in dumpster.
 # This is needed to minimize the "retire" test time, as write leases, and files
 # in the dumpster with replication larger than the number of chunk server
 # would prevent chunk server "retirement", until expiration / cleanup.
 # until they expire.
+
+echo "Cleaning up write leases by removing and truncating files"
 
 rootrmlist=`runqfsroot -ls '/' \
 | awk '/^[d-]/{ if ($NF != "/dumpster" &&
@@ -1181,14 +1205,26 @@ runqfsroot -mkdir "$movefromdumpster" || exit
 runqfsroot -ls '/dumpster' \
 | awk '/^-/{ if (0 < $2 && $NF != "/dumpster/deletequeue") print $NF; }' \
 | while read fn; do
-    runqfsroot -mv "$fn" "$movefromdumpster/" 2>/dev/null || {
+    if runqfsroot -mv "$fn" "$movefromdumpster/" 2>/dev/null; then
+        n=`basename "$fn"`
+        runcptoqfsroot -t -d /dev/null -k "$movefromdumpster/$n" || exit
+    else
         # Check if the file has already been removed.
-        runqfsroot -test -e "$fn" && exit 1
-        continue
-    }
-    n=`basename "$fn"`
-    runcptoqfsroot -t -d /dev/null -k "$movefromdumpster/$n" || exit
+        if runqfsroot -test -e "$fn"; then
+            # Try again, emitting error / diagnostic message.
+            if runqfsroot -mv "$fn" "$movefromdumpster/"; then
+                continue
+            fi
+            # The meta server is likely started deleting the file, by truncating
+            # n chunks at a time.
+            # List and stat the file for diagnostics.
+            runqfsroot -ls    "$fn"
+            runqfsroot -astat "$fn"
+        fi
+    fi
 done || exit
+
+echo "Testing chunk server hibernate and retire"
 
 # Turn off spurious chunk server disconnect debug.
 metaserversetparameter 'metaServer.panicOnRemoveFromPlacement=0'
@@ -1361,6 +1397,7 @@ if [ $status -eq 0 \
         -a $kfsaccessstatus -eq 0 \
         -a $qfscstatus -eq 0 \
         -a $fsckstatus -eq 0 \
+        -a $fusestatus -eq 0 \
         ]; then
     echo "Passed all tests"
 else

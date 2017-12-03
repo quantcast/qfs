@@ -102,7 +102,7 @@ public:
         sOpenSslInitPtr = &sOpenSslInit;
 #if OPENSSL_VERSION_NUMBER < 0x10000000L
         CRYPTO_set_id_callback(&ThreadIdCB);
-#else
+#elif OPENSSL_VERSION_NUMBER < 0x10100000L
         // Ensure that the CRYPTO_THREADID_* is present, and use the default
         // implementation.
         CRYPTO_THREADID_get_callback();
