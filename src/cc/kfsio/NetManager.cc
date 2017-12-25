@@ -91,7 +91,8 @@ NetManager::~NetManager()
 }
 
 void
-NetManager::AddConnection(const NetConnectionPtr& conn)
+NetManager::AddConnection(const NetConnectionPtr& conn,
+    const ServerLocation* loc)
 {
     if (mShutdownFlag) {
         conn->HandleErrorEvent();
@@ -119,6 +120,15 @@ NetManager::AddConnection(const NetConnectionPtr& conn)
         entry->mNetManager = this;
         if (mPollEventHook) {
             mPollEventHook->Add(*this, *conn);
+        }
+        if (loc && ! conn->IsConnected() &&
+                ! entry->mPendingNameResolutionFlag) {
+            entry->mPendingNameResolutionFlag = true;
+            if (conn->IsGood()) {
+                entry->NameResolutionDone(*conn, *loc, 0, 0);
+                return;
+            }
+            entry->mPendingNameResolutionFlag = false;
         }
     }
     conn->Update();
@@ -247,10 +257,11 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
     entry.mPendingUpdateFlag     = false;
     entry.mPendingCloseFlag      = false;
     entry.mPendingResetTimerFlag = false;
-    assert(fd >= 0 || ! conn.IsGood());
+    assert(0 <= fd || entry.mPendingNameResolutionFlag || ! conn.IsGood());
     // Always check if connection has to be removed: this method always
     // called before socket fd gets closed.
-    if (! conn.IsGood() || fd < 0 || epollError) {
+    if (! conn.IsGood() || (fd < 0 && ! entry.mPendingNameResolutionFlag) ||
+            epollError) {
         PendingReadList::Remove(entry);
         if (entry.mFd >= 0) {
             PollRemove(entry.mFd);
@@ -310,7 +321,8 @@ NetManager::UpdateSelf(NetConnection::NetManagerEntry& entry, int fd,
     // Update poll set.
     const bool in  = (! mIsOverloaded || entry.mEnableReadIfOverloaded) &&
         conn.WantRead();
-    const bool out = entry.mConnectPending || conn.WantWrite();
+    const bool out = (entry.mConnectPending &&
+        ! entry.mPendingNameResolutionFlag) || conn.WantWrite();
     if (in != entry.mIn || out != entry.mOut) {
         assert(fd >= 0);
         const int op =

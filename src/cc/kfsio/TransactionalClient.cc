@@ -269,34 +269,20 @@ private:
             QCASSERT(! mTransactionPtr);
             mIdleFlag    = false;
             mWasIdleFlag = false;
-            const bool theNonBlockingFlag = true;
-            TcpSocket& theSocket          = *(new TcpSocket());
-            const int theErr              = theSocket.Connect(
-                mImpl.mLocation, theNonBlockingFlag);
-            if (theErr && theErr != -EINPROGRESS) {
-                const string theError = QCUtils::SysError(-theErr);
-                KFS_LOG_STREAM_ERROR <<
-                    reinterpret_cast<const void*>(&inTransaction) <<
-                    " failed to connect to server " << mImpl.mLocation <<
-                    " : " << theError <<
-                KFS_LOG_EOM;
-                delete &theSocket;
-                mImpl.Remove(*this);
-                inTransaction.Error(theErr, theError.c_str());
-                return;
-            }
+            mConnectionPtr.reset();
             mTransactionPtr = &inTransaction;
-            KFS_LOG_STREAM_DEBUG <<
-                reinterpret_cast<const void*>(&inTransaction) <<
-                " connecting to server: " << mImpl.mLocation <<
-            KFS_LOG_EOM;
-            mConnectionPtr.reset(new NetConnection(&theSocket, this));
-            mConnectionPtr->EnableReadIfOverloaded();
-            mConnectionPtr->SetDoingNonblockingConnect();
-            mConnectionPtr->SetMaxReadAhead(1);
-            mConnectionPtr->SetInactivityTimeout(mImpl.mTimeout);
-            // Add connection to the poll vector
-            mImpl.mNetManager.AddConnection(mConnectionPtr);
+            const bool             theReadIfOverloadedFlag = true;
+            const int              theReadAhead            = 1;
+            const NetConnectionPtr theConnectionPtr        =
+                NetConnection::Connect(mImpl.mNetManager, mImpl.mLocation,
+                    this, 0,  theReadIfOverloadedFlag, theReadAhead,
+                    mImpl.mTimeout, mConnectionPtr);
+            if (theConnectionPtr && theConnectionPtr->IsGood()) {
+                KFS_LOG_STREAM_DEBUG <<
+                    reinterpret_cast<const void*>(&inTransaction) <<
+                    " connecting to server: " << mImpl.mLocation <<
+                KFS_LOG_EOM;
+            }
         }
         void Run(
             Transaction& inTransaction)
@@ -484,7 +470,9 @@ private:
             int   inEventCode,
             void* inEventDataPtr)
         {
-            if (! mConnectionPtr->GetFilter()) {
+            if (! mConnectionPtr->GetFilter() &&
+                    (EVENT_NET_ERROR != inEventCode ||
+                        mConnectionPtr->IsGood())) {
                 SET_HANDLER(this, &ClientSM::EventHandler);
                 string    theErrMsg;
                 const int theErr = mConnectionPtr->SetFilter(

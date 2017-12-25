@@ -144,6 +144,16 @@ public:
         assert(mSock);
     }
 
+    static NetConnectionPtr Connect(
+        NetManager&           inNetManager,
+        const ServerLocation& inLocation,
+        KfsCallbackObj*       inCbObj,
+        Filter*               inFilter,
+        bool                  inEnableReadIfOverloadedFlag,
+        int                   inMaxReadAhead,
+        int                   inInactivityTimeoutSecs,
+        NetConnectionPtr&     ioConnection);
+
     Filter* GetFilter() const {
         return mFilter;
     }
@@ -157,7 +167,8 @@ public:
         }
         mTryWrite = ! mListenOnly;
         mFilter = filter;
-        return (mFilter ? mFilter->Attach(*this, mSock, outErrMsg) : 0);
+        return ((mFilter && ! IsNameResolutionPending()) ?
+            mFilter->Attach(*this, mSock, outErrMsg) : 0);
     }
 
     ~NetConnection() {
@@ -232,11 +243,18 @@ public:
 
     /// Is the connection still good?
     bool IsGood() const {
+        return (mSock && (mSock->IsGood() || IsNameResolutionPending()));
+    }
+
+    bool IsConnected() const {
         return (mSock && mSock->IsGood());
     }
 
     string GetPeerName() const {
         if (IsGood()) {
+            if (IsNameResolutionPending()) {
+                return "name resolution pending";
+            }
             if (mPeerName.empty()) {
                 // mutable
                 const_cast<NetConnection*>(this)->mPeerName =
@@ -250,15 +268,15 @@ public:
     }
 
     string GetSockName() const {
-        return (IsGood() ? mSock->GetSockName() : string("not connected"));
+        return (IsConnected() ? mSock->GetSockName() : string("not connected"));
     }
 
     int GetPeerLocation(ServerLocation& loc) const {
-        return (IsGood() ? mSock->GetPeerLocation(loc) : -ENOTCONN);
+        return (IsConnected() ? mSock->GetPeerLocation(loc) : -ENOTCONN);
     }
 
     int GetSockLocation(ServerLocation& loc) const {
-        return (IsGood() ? mSock->GetSockLocation(loc) : -ENOTCONN);
+        return (IsConnected() ? mSock->GetSockLocation(loc) : -ENOTCONN);
     }
 
     /// Enqueue data to be sent out.
@@ -306,7 +324,7 @@ public:
     }
 
     bool CanStartFlush() const {
-        return (mTryWrite && IsWriteReady() && IsGood());
+        return (mTryWrite && IsWriteReady() && IsConnected());
     }
 
     /// If there is any data to be sent out, start the send.
@@ -415,11 +433,13 @@ public:
     }
 
     bool WantRead() const {
-        return (mFilter ? mFilter->WantRead(*this) : IsReadReady());
+        return (! IsNameResolutionPending() &&
+            (mFilter ? mFilter->WantRead(*this) : IsReadReady()));
     }
 
     bool WantWrite() const {
-        return (mFilter ? mFilter->WantWrite(*this) : IsWriteReady());
+        return (! IsNameResolutionPending() &&
+            (mFilter ? mFilter->WantWrite(*this) : IsWriteReady()));
     }
 
     time_t TimeNow() const
@@ -444,6 +464,7 @@ public:
               mPendingUpdateFlag(false),
               mPendingCloseFlag(false),
               mPendingResetTimerFlag(false),
+              mPendingNameResolutionFlag(false),
               mFd(-1),
               mWriteByteCount(0),
               mTimerWheelSlot(-1),
@@ -460,6 +481,8 @@ public:
         bool IsOut() const                { return mOut; }
         bool IsAdded() const              { return mAdded; }
         bool IsPendingClose() const       { return mPendingCloseFlag; }
+        bool IsNameResolutionPending() const
+            { return mPendingNameResolutionFlag; }
         time_t TimeNow() const;
 
     private:
@@ -473,6 +496,7 @@ public:
         bool             mPendingUpdateFlag:1;
         bool             mPendingCloseFlag:1;
         bool             mPendingResetTimerFlag:1;
+        bool             mPendingNameResolutionFlag:1;
         int              mFd;
         int              mWriteByteCount;
         int              mTimerWheelSlot;
@@ -496,6 +520,15 @@ public:
         {
             mPendingCloseFlag = conn.mOwnsSocket;
         }
+        void NameResolutionDone(NetConnection& conn, const ServerLocation& loc,
+            int status, const char* errMsg)
+        {
+            if (mPendingNameResolutionFlag)
+            {
+                mPendingNameResolutionFlag = false;
+                conn.NameResolutionDone(loc, status, errMsg);
+            }
+        }
         friend class NetManager;
         friend class QCDLListOp<NetManagerEntry, 0>;
 
@@ -510,6 +543,9 @@ public:
         return &mNetManagerEntry;
     }
     void Update(bool resetTimer = true);
+    bool IsNameResolutionPending() const {
+        return mNetManagerEntry.IsNameResolutionPending();
+    }
 
 private:
     NetManagerEntry mNetManagerEntry;
@@ -536,6 +572,9 @@ private:
 
     inline void SetLastError(int status);
     friend class NetManagerEntry;
+
+    void NameResolutionDone(const ServerLocation& loc,
+        int status, const char* errMsg);
 private:
     // No copies.
     NetConnection(const NetConnection&);

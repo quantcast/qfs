@@ -59,6 +59,8 @@ using std::vector;
 ///
 //
 
+struct ServerLocation;
+
 class NetManager
 {
 public:
@@ -79,7 +81,8 @@ public:
     /// Add a connection to the net manager's list of connections that
     /// are used for building poll vector.
     /// @param[in] conn The connection that should be added.
-    void AddConnection(const NetConnectionPtr &conn);
+    void AddConnection(const NetConnectionPtr &conn,
+        const ServerLocation* loc = 0);
     void RegisterTimeoutHandler(ITimeout *handler);
     void UnRegisterTimeoutHandler(ITimeout *handler);
 
@@ -88,7 +91,8 @@ public:
     void ChangeDiskOverloadState(bool v);
 
     ///
-    /// This function never returns.  It builds a poll vector, calls
+    /// This method never returns, unless runOnceFlag is ture.
+    /// This method builds a poll vector, calls
     /// select(), and then evaluates the result of select():  for
     /// connections on which data is I/O is possible---either for
     /// reading or writing are called back.  In the callback, the
@@ -219,7 +223,7 @@ private:
     NetConnection*  mCurConnection;
     int             mCurTimerWheelSlot;
     int             mConnectionsCount;
-    /// when the system is overloaded--either because of disk or we
+    /// when the system is overloaded -- either because of disk or we
     /// have too much network I/O backlogged---we avoid polling fd's for
     /// read.  this causes back-pressure and forces the clients to
     /// slow down

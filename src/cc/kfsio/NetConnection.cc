@@ -27,6 +27,7 @@
 
 #include "Globals.h"
 #include "NetConnection.h"
+#include "common/kfsdecls.h"
 #include "common/MsgLogger.h"
 #include "qcdio/QCUtils.h"
 
@@ -63,6 +64,67 @@ NetConnection::SetLastError(int status)
         return;
     }
     mLastError = status;
+}
+
+/* static */ NetConnectionPtr
+NetConnection::Connect(
+    NetManager&           inNetManager,
+    const ServerLocation& inLocation,
+    KfsCallbackObj*       inCbObj,
+    Filter*               inFilter,
+    bool                  inEnableReadIfOverloadedFlag,
+    int                   inMaxReadAhead,
+    int                   inInactivityTimeoutSecs,
+    NetConnectionPtr&     ioConnection)
+{
+    const bool listenOnlyFlag = false;
+    const bool ownsSocketFlag = true;
+    NetConnectionPtr ret;
+    ret.reset(new NetConnection(
+        new TcpSocket(), inCbObj, listenOnlyFlag, ownsSocketFlag, inFilter));
+    if (inEnableReadIfOverloadedFlag) {
+        ret->mNetManagerEntry.EnableReadIfOverloaded();
+    }
+    ret->mMaxReadAhead = inMaxReadAhead;
+    ret->mInactivityTimeoutSecs = inInactivityTimeoutSecs;
+    ioConnection = ret;
+    inNetManager.AddConnection(ret, &inLocation);
+    return ret;
+}
+
+void
+NetConnection::NameResolutionDone(const ServerLocation& loc,
+    int status, const char* errMsg)
+{
+    if (mSock) {
+        if (0 != status) {
+            mLastErrorMsg = errMsg ? errMsg : "name resolution error";
+            mLastError    = status;
+            Close();
+            mCallbackObj->HandleEvent(EVENT_NET_ERROR, &status);
+        } else {
+            const bool nonBlockingFlag = true;
+            int        res             = mSock->Connect(loc, nonBlockingFlag);
+            if (0 != res && -EINPROGRESS != res) {
+                mLastError = res;
+                mCallbackObj->HandleEvent(EVENT_NET_ERROR, &res);
+            } else {
+                if (-EINPROGRESS == res) {
+                    mNetManagerEntry.SetConnectPending(true);
+                    mTryWrite = false;
+                }
+                if (mFilter) {
+                    mLastError = mFilter->Attach(*this, mSock, &mLastErrorMsg);
+                    if (0 != mLastError) {
+                        res = mLastError;
+                        Close();
+                        mCallbackObj->HandleEvent(EVENT_NET_ERROR, &res);
+                    }
+                }
+            }
+        }
+    }
+    Update();
 }
 
 void
