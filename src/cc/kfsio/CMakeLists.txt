@@ -62,6 +62,9 @@ else (QFS_OMIT_EXT_DNS_RESOLVER)
     include_directories (
         ${dns-src-dir}
     )
+    if (CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        set( CMAKE_C_FLAGS  "${CMAKE_C_FLAGS} -std=c99" )
+    endif (CMAKE_C_COMPILER_ID STREQUAL "GNU")
 endif (QFS_OMIT_EXT_DNS_RESOLVER)
 
 add_library (kfsIO STATIC ${sources})
