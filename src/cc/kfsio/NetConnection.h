@@ -131,6 +131,9 @@ public:
           mOwnsSocket(ownsSocket),
           mTryWrite(! listenOnly),
           mAuthFailureFlag(false),
+          mPendingShutdownFlag(false),
+          mPendingShutdownReadFlag(false),
+          mPendingShutdownWriteFlag(false),
           mCallbackObj(c),
           mSock(sock),
           mInBuffer(),
@@ -165,7 +168,7 @@ public:
         if (mFilter) {
             mFilter->Detach(*this, mSock);
         }
-        mTryWrite = ! mListenOnly;
+        mTryWrite = ! mListenOnly && ! IsNameResolutionPending();
         mFilter = filter;
         return ((mFilter && ! IsNameResolutionPending()) ?
             mFilter->Attach(*this, mSock, outErrMsg) : 0);
@@ -546,6 +549,9 @@ public:
     bool IsNameResolutionPending() const {
         return mNetManagerEntry.IsNameResolutionPending();
     }
+    bool IsConnectPending() const {
+        return mNetManagerEntry.IsConnectPending();
+    }
 
 private:
     NetManagerEntry mNetManagerEntry;
@@ -553,6 +559,9 @@ private:
     const bool      mOwnsSocket:1;
     bool            mTryWrite:1;
     bool            mAuthFailureFlag:1;
+    bool            mPendingShutdownFlag:1;
+    bool            mPendingShutdownReadFlag:1;
+    bool            mPendingShutdownWriteFlag:1;
     /// KfsCallbackObj that will be notified whenever "events" occur.
     KfsCallbackObj* mCallbackObj;
     /// Socket on which I/O will be done.

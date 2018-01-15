@@ -27,6 +27,7 @@
 #ifndef KFSIO_RESOLVER_H
 #define KFSIO_RESOLVER_H
 
+#include <stdint.h>
 #include <string>
 #include <vector>
 
@@ -41,26 +42,41 @@ class Resolver
 {
 private:
     class Impl;
+    class OsImpl;
+    class ExtImpl;
 public:
+    enum ResolverType
+    {
+        ResolverTypeOs  = 0,
+        ResolverTypeExt = 1
+    };
+
     class Request
     {
     public:
+        typedef vector<string> IpAddresses;
+
         Request(
-            const string& inHostName)
+            const string& inHostName,
+            int           inMaxResults = -1)
             : mHostName(inHostName),
               mIpAddresses(),
+              mMaxResults(inMaxResults),
               mStatus(0),
               mStatusMsg(),
+              mStartUsec(),
+              mEndUsec(),
               mNextPtr(0)
             {}
         virtual void Done() = 0;
     protected:
-        typedef vector<string> IpAddresses;
-
         string      mHostName;
         IpAddresses mIpAddresses;
+        int         mMaxResults;
         int         mStatus;
         string      mStatusMsg;
+        int64_t     mStartUsec;
+        int64_t     mEndUsec;
         virtual ~Request()
             {}
     private:
@@ -69,15 +85,26 @@ public:
             const Request& inRequest);
         Request& operator=(
             const Request& inRequest);
+
         friend class Impl;
+        friend class OsImpl;
+        friend class ExtImpl;
     };
     Resolver(
-        NetManager& inNetManager);
+        NetManager&  inNetManager,
+        ResolverType inResolverType);
     ~Resolver();
     int Start();
     void Shutdown();
     int Enqueue(
-        Request& inRequest);
+        Request& inRequest,
+        int      inTimeout);
+    void SetCacheSizeAndTimeout(
+        size_t inMaxCacheSize,
+        int    inTimeoutSec);
+    void ChildAtFork();
+    static int Initialize();
+    static void Cleanup();
 private:
     Impl& mImpl;
 private:

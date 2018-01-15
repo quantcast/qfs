@@ -31,8 +31,11 @@
 #include "NetManager.h"
 #include "TcpSocket.h"
 #include "ITimeout.h"
+#include "Resolver.h"
 
 #include "common/MsgLogger.h"
+#include "common/kfsdecls.h"
+
 #include "qcdio/QCFdPoll.h"
 #include "qcdio/QCUtils.h"
 #include "qcdio/QCMutex.h"
@@ -48,6 +51,52 @@ namespace KFS
 using std::min;
 using std::max;
 using std::numeric_limits;
+
+
+/* static */ inline void
+NetManager::NameResolutionDone(const NetConnectionPtr& conn,
+    const ServerLocation& loc, int status, const char* errMsg)
+{
+    NetConnection::NetManagerEntry* const entry =
+        conn->GetNetManagerEntry();
+    if (entry) {
+        entry->NameResolutionDone(*conn, loc, status, errMsg);
+    }
+}
+
+class NetManager::ResolverRequest : public Resolver::Request
+{
+public:
+    ResolverRequest(const NetConnectionPtr& conn, const ServerLocation& loc)
+        : Resolver::Request(loc.hostname, 1),
+          mLocation(loc),
+          mConnection(conn)
+        {}
+    virtual ~ResolverRequest()
+    {
+        if (mConnection) {
+            if (mIpAddresses.empty() && 0 == mStatus) {
+                mStatus = -ECANCELED;
+            }
+            ResolverRequest::Done();
+        }
+    }
+    virtual void Done()
+    {
+        if (mConnection) {
+            NetConnectionPtr conn;
+            conn.swap(mConnection);
+            if (! mIpAddresses.empty()) {
+                mLocation.hostname = *mIpAddresses.begin();
+            }
+            NetManager::NameResolutionDone(
+                conn, mLocation, mStatus, mStatusMsg.c_str());
+        }
+    }
+private:
+    ServerLocation   mLocation;
+    NetConnectionPtr mConnection;
+};
 
 NetManager::NetManager(int timeoutMs)
     : mRemove(),
@@ -72,8 +121,10 @@ NetManager::NetManager(int timeoutMs)
       mTimerOverrunCount(0),
       mTimerOverrunSec(0),
       mMaxAcceptsPerRead(1),
+      mUseOsResolverFlag(false),
       mPoll(*(new QCFdPoll(true))), // Wakeable
       mPollEventHook(0),
+      mResolver(0),
       mPendingReadList(),
       mPendingUpdate(),
       mCurTimeoutHandler(0),
@@ -88,6 +139,7 @@ NetManager::~NetManager()
     NetManager::CleanUp();
     assert(! PendingReadList::IsInList(mPendingReadList));
     delete &mPoll;
+    delete mResolver;
 }
 
 void
@@ -125,13 +177,47 @@ NetManager::AddConnection(const NetConnectionPtr& conn,
                 ! entry->mPendingNameResolutionFlag) {
             entry->mPendingNameResolutionFlag = true;
             if (conn->IsGood()) {
-                entry->NameResolutionDone(*conn, *loc, 0, 0);
+                if (! loc->IsValid()) {
+                    entry->NameResolutionDone(
+                        *conn, *loc, -EINVAL, "invalid network address");
+                    return;
+                }
+                if (TcpSocket::IsValidConnectToIpAddress(
+                        loc->hostname.c_str())) {
+                    entry->NameResolutionDone(*conn, *loc, 0, 0);
+                    return;
+                }
+                conn->Update();
+                ResolverRequest& req = *(new ResolverRequest(conn, *loc));
+                const int status = Enqueue(req, conn->GetInactivityTimeout());
+                if (0 != status) {
+                    delete &req;
+                    const string msg = QCUtils::SysError(
+                        -status, "failed to start name resolver");
+                    entry->NameResolutionDone(*conn, *loc, status, msg.c_str());
+                }
                 return;
             }
             entry->mPendingNameResolutionFlag = false;
         }
     }
     conn->Update();
+}
+
+int
+NetManager::EnqueueSelf(Resolver::Request& req, int timeout)
+{
+    if (! mResolver) {
+        mResolver = new Resolver(*this, mUseOsResolverFlag ?
+            Resolver::ResolverTypeOs : Resolver::ResolverTypeExt);
+        const int status = mResolver->Start();
+        if (0 != status) {
+            delete mResolver;
+            mResolver = 0;
+            return status;
+        }
+    }
+    return mResolver->Enqueue(req, timeout);
 }
 
 void
@@ -628,6 +714,13 @@ NetManager::CleanUp(bool childAtForkFlag, bool onlyCloseFdFlag)
     }
     if (childAtForkFlag) {
         mPoll.Close();
+    }
+    if (mResolver) {
+        if (childAtForkFlag) {
+            mResolver->ChildAtFork();
+        } else {
+            mResolver->Shutdown();
+        }
     }
     for (int i = 0; i <= kTimerWheelSize; i++) {
         for (mTimerWheelBucketItr = mTimerWheel[i].begin();

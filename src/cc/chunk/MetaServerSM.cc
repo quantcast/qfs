@@ -98,7 +98,8 @@ public:
     /// binary update or are running versions that the metaserver
     /// doesn't know about and shouldn't be inlcuded in the system.
     int SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKey,
-        int rackId, const string& md5sum, const Properties& prop);
+        int inactivityTimeout, int rackId, const string& md5sum,
+        const Properties& prop);
 
     void EnqueueOp(KfsOp* op);
 
@@ -133,7 +134,7 @@ public:
         mReconnectFlag = true;
     }
 
-    int SetParameters(const Properties& prop);
+    int SetParameters(const Properties& prop, int inactivityTimeout);
 
     bool IsAuthEnabled() const {
         return mAuthContext.IsEnabled();
@@ -453,6 +454,7 @@ int
 MetaServerSM::Impl::SetMetaInfo(
     const ServerLocation& metaLoc,
     const string&         clusterKey,
+    int                   inactivityTimeout,
     int                   rackId,
     const string&         md5sum,
     const Properties&     prop)
@@ -467,7 +469,7 @@ MetaServerSM::Impl::SetMetaInfo(
     mClusterKey = clusterKey;
     mRackId     = rackId;
     mMD5Sum     = md5sum;
-    return SetParameters(prop);
+    return SetParameters(prop, inactivityTimeout);
 }
 
 void
@@ -511,13 +513,12 @@ MetaServerSM::Impl::ForceDown(
 }
 
 int
-MetaServerSM::Impl::SetParameters(const Properties& prop)
+MetaServerSM::Impl::SetParameters(const Properties& prop, int inactivityTimeout)
 {
+    mInactivityTimeout            = inactivityTimeout;
     mReconnectRetryInterval       = prop.getValue(
         "chunkServer.meta.reconnectRetryInterval",
         mReconnectRetryInterval);
-    mInactivityTimeout            = prop.getValue(
-        "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
     mMaxReadAhead                 = prop.getValue(
         "chunkServer.meta.maxReadAhead",      mMaxReadAhead);
     mAbortOnRequestParseErrorFlag = prop.getValue(
@@ -664,35 +665,23 @@ MetaServerSM::Impl::Connect()
     mSentHello             = false;
     mUpdateCurrentKeyFlag  = false;
     mPendingHelloFlag      = false;
-    TcpSocket * const sock = new TcpSocket();
-    const bool nonBlocking = true;
-    const int  ret         = sock->Connect(mLocation, nonBlocking);
-    if (ret < 0 && ret != -EINPROGRESS) {
-        KFS_LOG_STREAM_ERROR <<
-            "connect to meter server " << mLocation <<
-            " error: " << QCUtils::SysError(-ret) <<
-        KFS_LOG_EOM;
-        delete sock;
-        return -1;
-    }
-    KFS_LOG_STREAM_INFO <<
-        (ret < 0 ? "connecting" : "connected") <<
-            " to metaserver " << mLocation <<
-    KFS_LOG_EOM;
-    mNetConnection.reset(new NetConnection(sock, this));
-    if (ret != 0) {
-        mNetConnection->SetDoingNonblockingConnect();
-    }
     // when the system is overloaded, we still want to add this
     // connection to the poll vector for reads; this ensures that we
     // get the heartbeats and other RPCs from the metaserver
-    mNetConnection->EnableReadIfOverloaded();
-    mNetConnection->SetInactivityTimeout(mInactivityTimeout);
-    mNetConnection->SetMaxReadAhead(mMaxReadAhead);
-    // Add this to the poll vector
-    globalNetManager().AddConnection(mNetConnection);
-    if (ret == 0) {
-        ScheduleSendHello();
+    const bool readIfOverloadedFlag = true;
+    const NetConnectionPtr conn = NetConnection::Connect(
+        globalNetManager(), mLocation, this, 0, readIfOverloadedFlag,
+        mMaxReadAhead, mInactivityTimeout, mNetConnection);
+    if (conn && conn->IsGood()) {
+        const bool connectedFlag = conn->IsConnected() &&
+            ! conn->IsConnectPending();
+        KFS_LOG_STREAM_INFO <<
+            (connectedFlag ? "connecting" : "connected") <<
+                " to metaserver " << mLocation <<
+        KFS_LOG_EOM;
+        if (connectedFlag) {
+            ScheduleSendHello();
+        }
     }
     return 0;
 }
@@ -1854,39 +1843,27 @@ public:
     bool IsInFlight() const
         { return mInFlightFlag; }
     void Enqueue(
-        Resolver*& ioResolverPtr)
+        int inTimeoutSec)
     {
         if (mInFlightFlag) {
             die("resolver request is already in flight");
             return;
         }
         mInFlightFlag = true;
-        if (! ioResolverPtr) {
-            ioResolverPtr = new Resolver(globalNetManager());
-            const int theStatus = ioResolverPtr->Start();
-            if (0 != theStatus) {
-                const char* const theMsgPtr = "failed to start resolver";
-                KFS_LOG_STREAM_FATAL << theMsgPtr <<
-                    " status: " << theStatus <<
-                    " "         << QCUtils::SysError(-theStatus) <<
-                KFS_LOG_EOM;
-                die(theMsgPtr);
-                delete ioResolverPtr;
-                ioResolverPtr = 0;
-                mStatusMsg = theMsgPtr;
-                mStatus    = theStatus;
-                Done();
-                return;
-            }
-        }
-        const int theStatus = ioResolverPtr->Enqueue(*this);
+        const int theStatus = globalNetManager().Enqueue(*this, inTimeoutSec);
         if (0 != theStatus) {
+            const bool runningFlag = globalNetManager().IsRunning();
             const char* const theMsgPtr = "failed to queue resolver request";
-            KFS_LOG_STREAM_FATAL << theMsgPtr <<
+            KFS_LOG_STREAM(runningFlag ?
+                    MsgLogger::kLogLevelFATAL :
+                    MsgLogger::kLogLevelDEBUG) <<
+                theMsgPtr <<
                 " status: " << theStatus <<
                 " "         << QCUtils::SysError(-theStatus) <<
             KFS_LOG_EOM;
-            die(theMsgPtr);
+            if (runningFlag) {
+                die(theMsgPtr);
+            }
             mStatusMsg = theMsgPtr;
             mStatus    = theStatus;
             Done();
@@ -1920,11 +1897,11 @@ MetaServerSM::MetaServerSM()
       mResolverRetryInterval(5),
       mResolverInFlightCount(0),
       mResolvedInFlightCount(0),
+      mInactivityTimeout(40),
       mPendingOps(),
       mPrimary(0),
       mLocations(),
       mChanId(1),
-      mResolver(0),
       mParameters(),
       mClusterKey(),
       mMd5sum(),
@@ -1958,11 +1935,6 @@ MetaServerSM::Cleanup()
     if (0 != mResolverInFlightCount) {
         die("cleanup: invalid resolver in flight count");
         mResolverInFlightCount = 0;
-    }
-    if (mResolver) {
-        mResolver->Shutdown();
-        delete mResolver;
-        mResolver = 0;
     }
 }
 
@@ -2018,11 +1990,13 @@ MetaServerSM::SetParameters(const Properties& prop)
 {
     prop.copyWithPrefix("chunkServer.meta", mParameters);
     prop.copyWithPrefix(kChunkServerAuthParamsPrefix, mParameters);
+    mInactivityTimeout = prop.getValue(
+        "chunkServer.meta.inactivityTimeout", mInactivityTimeout);
     int res = 0;
     Impl::List::Iterator it(mImpls);
     Impl* ptr;
     while ((ptr = it.Next())) {
-        const int ret = ptr->SetParameters(mParameters);
+        const int ret = ptr->SetParameters(mParameters, mInactivityTimeout);
         if (0 == res) {
             res = ret;
         }
@@ -2111,7 +2085,7 @@ MetaServerSM::Timeout()
     while ((ptr = it.Next())) {
         if (! ptr->IsInFlight()) {
             mResolverInFlightCount++;
-            ptr->Enqueue(mResolver);
+            ptr->Enqueue(mInactivityTimeout);
         }
     }
 }
@@ -2159,8 +2133,8 @@ MetaServerSM::Resolved(MetaServerSM::ResolverReq& req)
             }
             Impl& impl = *(new Impl(mCounters, mPendingOps,
                 mPrimary, mUpdateServerIpFlag, mChanId++, this));
-            const int res = impl.SetMetaInfo(
-                loc, mClusterKey, mRackId, mMd5sum, mParameters);
+            const int res = impl.SetMetaInfo(loc, mClusterKey,
+                mInactivityTimeout, mRackId, mMd5sum, mParameters);
             if (0 != res) {
                 KFS_LOG_STREAM_ERROR <<
                     *it << ": " << QCUtils::SysError(-res) <<
@@ -2264,8 +2238,8 @@ MetaServerSM::SetMetaInfo(
         Impl& impl = *(new Impl(mCounters, mPendingOps, mPrimary,
             mUpdateServerIpFlag, mChanId++, 0));
         Impl::List::PushBack(mImpls, impl);
-        if ((res = impl.SetMetaInfo(
-                *it, mClusterKey, mRackId, mMd5sum, mParameters)) != 0) {
+        if ((res = impl.SetMetaInfo(*it, mClusterKey,
+                mInactivityTimeout, mRackId, mMd5sum, mParameters)) != 0) {
             break;
         }
     }

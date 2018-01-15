@@ -115,8 +115,8 @@ if [ x"$testipv6" = x'yes' ]; then
     metahosturl="[$metahost]"
     iptobind='::'
 else
-    metahost='127.0.0.1'
-    # metahost='localhost'
+    # metahost='127.0.0.1'
+    metahost='localhost'
     metahosturl=$metahost
     iptobind='0.0.0.0'
 fi

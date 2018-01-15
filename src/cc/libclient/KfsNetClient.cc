@@ -228,7 +228,6 @@ public:
           mResolverReqsCount(0),
           mMetaLocations(),
           mMetaServerLocation(),
-          mResolverPtr(0),
           mPendingConnectOpPtr(0),
           mRackId(-1)
     {
@@ -996,11 +995,6 @@ public:
         }
         Stop();
         mNetManagerPtr = &inNetManager;
-        if (mResolverPtr) {
-            mResolverPtr->Shutdown();
-            delete mResolverPtr;
-            mResolverPtr = 0;
-        }
     }
     int GetMaxMetaLogWriteRetryCount() const
         { return mMaxMetaLogWriteRetryCount; }
@@ -1116,11 +1110,6 @@ public:
     {
         Reset();
         ClearMetaServerLocations();
-        if (mResolverPtr) {
-            mResolverPtr->Shutdown();
-            delete mResolverPtr;
-            mResolverPtr = 0;
-        }
     }
     const ServerLocation& GetMetaServerLocation() const
     {
@@ -1356,12 +1345,8 @@ private:
         void ConnectSelf()
         {
             Reset();
-            mOuter.mLookupOp.status = mOuter.Connect(
-                mLocation, mConnPtr, *this, &mOuter.mLookupOp.statusMsg);
-            if (0 == mOuter.mLookupOp.status) {
+            if (mOuter.Connect(mLocation, mConnPtr, *this)) {
                 Request();
-            } else {
-                Retry();
             }
         }
         void Request()
@@ -1531,11 +1516,14 @@ private:
         virtual void Timeout()
         {
             if (mSleepingFlag) {
-                mImplPtr->mNetManagerPtr->UnRegisterTimeoutHandler(this);
+                if (mImplPtr) {
+                    mImplPtr->mNetManagerPtr->UnRegisterTimeoutHandler(this);
+                }
                 mSleepingFlag = false;
             }
             if (mImplPtr) {
-                mImplPtr->mResolverPtr->Enqueue(*this);
+                mImplPtr->mNetManagerPtr->Enqueue(
+                    *this, mImplPtr->mOpTimeoutSec);
             }
         }
         const IpAddresses& GetIps() const
@@ -1561,23 +1549,28 @@ private:
                 return;
             }
             mInFlightFlag = true;
-            if (! mImplPtr->mResolverPtr) {
-                mImplPtr->mResolverPtr = new Resolver(*(mImplPtr->mNetManagerPtr));
-                mStatus = mImplPtr->mResolverPtr->Start();
-                if (0 != mStatus) {
-                    mStatusMsg = QCUtils::SysError(-mStatus) ;
-                    KFS_LOG_STREAM_FATAL << mImplPtr->mLogPrefix <<
-                        "failed to start resolver:" <<
-                        " status: " << mStatus <<
-                        " "         << mStatusMsg <<
-                    KFS_LOG_EOM;
-                    MsgLogger::Stop();
-                    abort();
-                    Done();
-                    return;
-                }
+            const int theStatus = mImplPtr->mNetManagerPtr->Enqueue(
+                *this, mImplPtr->mOpTimeoutSec);
+            if (0 == theStatus) {
+                return;
             }
-            mImplPtr->mResolverPtr->Enqueue(*this);
+            mStatus    = theStatus;
+            mStatusMsg = QCUtils::SysError(-mStatus);
+            const bool theRunningFlag =
+                mImplPtr->mNetManagerPtr->IsRunning();
+            KFS_LOG_STREAM(theRunningFlag ?
+                    MsgLogger::kLogLevelFATAL :
+                    MsgLogger::kLogLevelDEBUG) <<
+                mImplPtr->mLogPrefix <<
+                "failed to enqueue resolver request:" <<
+                " status: " << mStatus <<
+                " "         << mStatusMsg <<
+            KFS_LOG_EOM;
+            if (theRunningFlag) {
+                MsgLogger::Stop();
+                abort();
+            }
+            Done();
         }
         void Delete(
             ResolverReq** inListPtr)
@@ -1675,7 +1668,6 @@ private:
     int                   mResolverReqsCount;
     MetaLocations         mMetaLocations;
     ServerLocation        mMetaServerLocation;
-    Resolver*             mResolverPtr;
     KfsOp*                mPendingConnectOpPtr;
     int                   mRackId;
     ResolverReq*          mResolverReqsPtr[1];
@@ -2298,39 +2290,18 @@ private:
         { return (mAuthContextPtr && mAuthContextPtr->IsEnabled()); }
     bool IsPskAuth() const
         { return (IsAuthEnabled() && ! mKeyData.empty()); }
-    int Connect(
+    bool Connect(
         const ServerLocation& inServerLocation,
         NetConnectionPtr&     inConnPtr,
-        KfsCallbackObj&       inCallbackObj,
-        string*               inErrMsgPtr = 0)
+        KfsCallbackObj&       inCallbackObj)
     {
         mStats.mConnectCount++;
-        const bool theNonBlockingFlag = true;
-        TcpSocket& theSocket          = *(new TcpSocket());
-        const int theErr              = theSocket.Connect(
-            inServerLocation, theNonBlockingFlag);
-        if (theErr && theErr != -EINPROGRESS) {
-            if (inErrMsgPtr) {
-                *inErrMsgPtr = QCUtils::SysError(-theErr);
-            }
-            KFS_LOG_STREAM_ERROR << mLogPrefix <<
-                "failed to connect to server " << inServerLocation <<
-                " : " << QCUtils::SysError(-theErr) <<
-            KFS_LOG_EOM;
-            delete &theSocket;
-            mStats.mConnectFailureCount++;
-            return theErr;
-        }
-        inConnPtr.reset(new NetConnection(&theSocket, &inCallbackObj));
-        inConnPtr->EnableReadIfOverloaded();
-        if (theErr) {
-            inConnPtr->SetDoingNonblockingConnect();
-        }
-        inConnPtr->SetMaxReadAhead(kMaxReadAhead);
-        inConnPtr->SetInactivityTimeout(mOpTimeoutSec);
-        // Add connection to the poll vector
-        mNetManagerPtr->AddConnection(inConnPtr);
-        return 0;
+        const bool theReadIfOverloadedFlag = true;
+        const NetConnectionPtr theConnPtr = NetConnection::Connect(
+            *mNetManagerPtr, inServerLocation,
+            &inCallbackObj, 0, theReadIfOverloadedFlag, kMaxReadAhead,
+            mOpTimeoutSec, inConnPtr);
+        return (theConnPtr && theConnPtr->IsGood());
     }
     void InitConnect()
     {
@@ -2349,10 +2320,7 @@ private:
         }
         assert(mLookupOp.seq < 0 && mAuthOp.seq < 0);
         InitConnect();
-        const int theError = Connect(
-            mServerLocation, mConnPtr, *this, inErrMsgPtr);
-        if (0 != theError) {
-            RetryConnect(0, theError);
+        if (! Connect(mServerLocation, mConnPtr, *this)) {
             return;
         }
         const bool kVrPrimaryFlag = false;

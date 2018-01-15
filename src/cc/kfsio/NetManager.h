@@ -32,6 +32,7 @@
 
 #include "NetConnection.h"
 #include "ITimeout.h"
+#include "Resolver.h"
 
 #include <list>
 #include <vector>
@@ -153,6 +154,17 @@ public:
         mPollEventHook = hook;
         return prev;
     }
+    void SetUseOsResolver(bool flag)
+        { mUseOsResolverFlag = false; }
+    bool GetUseOsResolverFlag() const
+        { return mUseOsResolverFlag; }
+    int Enqueue(Resolver::Request& req, int timeout)
+    {
+        if (mResolver) {
+            return mResolver->Enqueue(req, timeout);
+        }
+        return EnqueueSelf(req, timeout);
+    }
     // Use net manager's timer wheel, with no fd/socket.
     // Has about 100 bytes overhead.
     class Timer
@@ -217,6 +229,8 @@ private:
     typedef NetManagerEntry::PendingReadList PendingReadList;
     typedef vector<NetConnection*>           PendingUpdate;
     enum { kTimerWheelSize = (1 << 8) };
+    class ResolverRequest;
+    friend class ResolverRequest;
 
     List            mRemove;
     List::iterator  mTimerWheelBucketItr;
@@ -245,8 +259,10 @@ private:
     int64_t         mTimerOverrunCount;
     int64_t         mTimerOverrunSec;
     int             mMaxAcceptsPerRead;
+    bool            mUseOsResolverFlag;
     QCFdPoll&       mPoll;
     PollEventHook*  mPollEventHook;
+    Resolver*       mResolver;
     NetManagerEntry mPendingReadList;
     PendingUpdate   mPendingUpdate;
     /// Handlers that are notified whenever a call to select()
@@ -262,6 +278,9 @@ private:
     void UpdateSelf(NetManagerEntry& entry, int fd,
         bool resetTimer, bool epollError);
     void PollRemove(int fd);
+    int EnqueueSelf(Resolver::Request& req, int timeout);
+    static inline void NameResolutionDone(const NetConnectionPtr& conn,
+        const ServerLocation& loc, int status, const char* errMsg);
 private:
     NetManager(const NetManager&);
     NetManager& operator=(const NetManager&);

@@ -955,21 +955,14 @@ private:
         }
         mLastAckReceivedTime = mImpl.GetNetManager().Now();
         mReceivedIdFlag = false;
-        TcpSocket* theSocketPtr = new TcpSocket();
-        mConnectionPtr.reset(new NetConnection(theSocketPtr, this));
-        const bool kNonBlockingFlag = true;
-        const int  theErr = theSocketPtr->Connect(mServer, kNonBlockingFlag);
-        if (theErr != 0 && theErr != -EINPROGRESS) {
-            Error("failed to connect");
+        const bool theReadIfOverloadedFlag = true;
+        const NetConnectionPtr theConnPtr = NetConnection::Connect(
+            mImpl.GetNetManager(), mServer,
+            this, 0, theReadIfOverloadedFlag, mImpl.GetMaxReadAhead(),
+            mImpl.GetHeartbeatInterval() * 3 / 2, mConnectionPtr);
+        if (! theConnPtr || ! theConnPtr->IsGood()) {
             return;
         }
-        if (theErr != 0) {
-            mConnectionPtr->SetDoingNonblockingConnect();
-        }
-        mConnectionPtr->SetInactivityTimeout(
-            mImpl.GetHeartbeatInterval() * 3 / 2);
-        mConnectionPtr->EnableReadIfOverloaded();
-        mImpl.GetNetManager().AddConnection(mConnectionPtr);
         if (! Authenticate()) {
             StartSend();
         }

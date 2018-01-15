@@ -120,11 +120,11 @@ private:
     int          mResolverRetryInterval;
     int          mResolverInFlightCount;
     int          mResolvedInFlightCount;
+    int          mInactivityTimeout;
     OpsQueue     mPendingOps;
     Impl*        mPrimary;
     Locations    mLocations;
     int64_t      mChanId;
-    Resolver*    mResolver;
     Properties   mParameters;
     string       mClusterKey;
     string       mMd5sum;

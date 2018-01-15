@@ -267,22 +267,19 @@ private:
             Transaction& inTransaction)
         {
             QCASSERT(! mTransactionPtr);
-            mIdleFlag    = false;
-            mWasIdleFlag = false;
-            mConnectionPtr.reset();
+            mIdleFlag       = false;
+            mWasIdleFlag    = false;
             mTransactionPtr = &inTransaction;
-            const bool             theReadIfOverloadedFlag = true;
-            const int              theReadAhead            = 1;
-            const NetConnectionPtr theConnectionPtr        =
-                NetConnection::Connect(mImpl.mNetManager, mImpl.mLocation,
-                    this, 0,  theReadIfOverloadedFlag, theReadAhead,
-                    mImpl.mTimeout, mConnectionPtr);
-            if (theConnectionPtr && theConnectionPtr->IsGood()) {
-                KFS_LOG_STREAM_DEBUG <<
-                    reinterpret_cast<const void*>(&inTransaction) <<
-                    " connecting to server: " << mImpl.mLocation <<
-                KFS_LOG_EOM;
-            }
+            mConnectionPtr.reset();
+            KFS_LOG_STREAM_DEBUG <<
+                reinterpret_cast<const void*>(mTransactionPtr) <<
+                " connecting to server: " << mImpl.mLocation <<
+            KFS_LOG_EOM;
+            const bool theReadIfOverloadedFlag = true;
+            const int  theReadAhead            = 1;
+            NetConnection::Connect(mImpl.mNetManager, mImpl.mLocation,
+                this, 0,  theReadIfOverloadedFlag, theReadAhead,
+                mImpl.mTimeout, mConnectionPtr);
         }
         void Run(
             Transaction& inTransaction)

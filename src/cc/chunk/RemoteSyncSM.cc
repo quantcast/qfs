@@ -356,36 +356,26 @@ RemoteSyncSM::Connect()
     QCASSERT(! mNetConnection && IsMutexOwner(GetMutexPtr()) && ! mDeleteFlag);
 
     mConnectCount++;
-    SYNC_SM_LOG_STREAM_DEBUG <<
-        "initiating connection" <<
-    KFS_LOG_EOM;
-
     if (! GetNetManager().IsRunning()) {
         SYNC_SM_LOG_STREAM_DEBUG <<
             "net manager shutdown, failing connection attempt" <<
         KFS_LOG_EOM;
         return false;
     }
-    TcpSocket* const sock = new TcpSocket();
-    // do a non-blocking connect
-    const int res = sock->Connect(mLocation, true);
-    if (res < 0 && res != -EINPROGRESS) {
-        SYNC_SM_LOG_STREAM_INFO <<
-            "connection to remote server failed: status: " << res <<
-            " " << QCUtils::SysError(-res) <<
-        KFS_LOG_EOM;
-        delete sock;
+    SYNC_SM_LOG_STREAM_DEBUG <<
+        "connecting to remote server: " << mLocation <<
+    KFS_LOG_EOM;
+    mLastRecvTime = GetNetManager().Now();
+    const bool readIfOverloadedFlag = false;
+    const NetConnectionPtr conn = NetConnection::Connect(
+        GetNetManager(), mLocation,
+        this, 0, readIfOverloadedFlag, kMaxCmdHeaderLength,
+        mOpResponseTimeoutSec, mNetConnection);
+    if (! conn || ! conn->IsGood()) {
         return false;
     }
-    SYNC_SM_LOG_STREAM_INFO <<
-        "connection to remote server succeeded, status: " << res <<
-    KFS_LOG_EOM;
-
     mCurrentSessionExpirationTime = mSessionExpirationTime;
-    mNetConnection.reset(new NetConnection(sock, this));
-    mNetConnection->SetDoingNonblockingConnect();
-    mNetConnection->SetMaxReadAhead(kMaxCmdHeaderLength);
-    QCASSERT(sAuthPtr);
+    QCASSERT(sAuthPtr && conn == mNetConnection);
     mSslShutdownInProgressFlag = false;
     if (! mSessionId.empty()) {
         int  err          = 0;
@@ -411,14 +401,6 @@ RemoteSyncSM::Connect()
             mSslShutdownInProgressFlag = false;
         }
     }
-    mLastRecvTime = GetNetManager().Now();
-
-    // If there is no activity on this socket, we want
-    // to be notified, so that we can close connection.
-    mNetConnection->SetInactivityTimeout(mOpResponseTimeoutSec);
-    // Add this to the poll vector
-    GetNetManager().AddConnection(mNetConnection);
-
     return true;
 }
 

@@ -97,9 +97,26 @@ NetConnection::NameResolutionDone(const ServerLocation& loc,
     int status, const char* errMsg)
 {
     if (mSock) {
+        NET_CONNECTION_LOG_STREAM_DEBUG <<
+            "resolved: "   << loc <<
+            " status: "    << status <<
+            (errMsg ? " " : "") << (errMsg ? errMsg : "") <<
+        KFS_LOG_EOM;
         if (0 != status) {
-            mLastErrorMsg = errMsg ? errMsg : "name resolution error";
-            mLastError    = status;
+            mLastErrorMsg = loc.hostname;
+            if (mLastErrorMsg.empty()) {
+                mLastErrorMsg = "host";
+            }
+            if (errMsg && *errMsg) {
+                mLastErrorMsg += ": ";
+                mLastErrorMsg += errMsg;
+            } else {
+                mLastErrorMsg +=  ": name resolution error";
+            }
+            if (0 < status) {
+                status =  -status;
+            }
+            mLastError = status;
             Close();
             mCallbackObj->HandleEvent(EVENT_NET_ERROR, &status);
         } else {
@@ -107,6 +124,7 @@ NetConnection::NameResolutionDone(const ServerLocation& loc,
             int        res             = mSock->Connect(loc, nonBlockingFlag);
             if (0 != res && -EINPROGRESS != res) {
                 mLastError = res;
+                Close();
                 mCallbackObj->HandleEvent(EVENT_NET_ERROR, &res);
             } else {
                 if (-EINPROGRESS == res) {
@@ -120,6 +138,13 @@ NetConnection::NameResolutionDone(const ServerLocation& loc,
                         Close();
                         mCallbackObj->HandleEvent(EVENT_NET_ERROR, &res);
                     }
+                }
+                if (mPendingShutdownFlag && 0 == mLastError &&
+                        0 != (mLastError = Shutdown(
+                            mPendingShutdownReadFlag,
+                            mPendingShutdownWriteFlag))) {
+                    Close();
+                    mCallbackObj->HandleEvent(EVENT_NET_ERROR, &res);
                 }
             }
         }
@@ -253,7 +278,7 @@ NetConnection::HandleTimeoutEvent()
         NET_CONNECTION_LOG_STREAM_DEBUG <<
             "ignoring timeout event, time out value: " << timeOut <<
         KFS_LOG_EOM;
-    } else {
+    } else if (mSock) {
         NET_CONNECTION_LOG_STREAM_DEBUG << "inactivity timeout:" <<
             " read-ahead: " << mMaxReadAhead <<
             " in: "  << mInBuffer.BytesConsumable() <<
@@ -319,6 +344,12 @@ NetConnection::Shutdown(bool readFlag, bool writeFlag)
 {
     if (! mSock) {
         return -EINVAL;
+    }
+    if (IsNameResolutionPending()) {
+        mPendingShutdownFlag      = true;
+        mPendingShutdownReadFlag  = readFlag;
+        mPendingShutdownWriteFlag = writeFlag;
+        return 0;
     }
     if (mFilter) {
         return mFilter->Shutdown(*this, *mSock);

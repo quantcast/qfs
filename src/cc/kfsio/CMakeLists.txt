@@ -24,6 +24,7 @@
 #
 
 # Take all the .cc files and build a library out of them
+
 set (sources
     Acceptor.cc
     checksum.cc
@@ -50,6 +51,18 @@ set (sources
     ProcessRestarter.cc
     Resolver.cc
 )
+
+if (QFS_OMIT_EXT_DNS_RESOLVER)
+    add_definitions(-DQFS_OMIT_EXT_DNS_RESOLVER)
+else (QFS_OMIT_EXT_DNS_RESOLVER)
+    set (dns-src-dir ${KFS_DIR_PREFIX}/ext/dns/src)
+    set (sources ${sources}
+        ${dns-src-dir}/dns.c
+    )
+    include_directories (
+        ${dns-src-dir}
+    )
+endif (QFS_OMIT_EXT_DNS_RESOLVER)
 
 add_library (kfsIO STATIC ${sources})
 add_library (kfsIO-shared SHARED ${sources})
