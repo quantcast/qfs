@@ -4412,7 +4412,7 @@ error:
 
 struct dns_resolv_conf *dns_resconf_open(int *error) {
 	static const struct dns_resolv_conf resconf_initializer = {
-		.lookup = "bf",
+		.lookup = "fb",
 		.family = { AF_INET, AF_INET6 },
 		.options = { .ndots = 1, .timeout = 5, .attempts = 2, .tcp = DNS_RESCONF_TCP_ENABLE, },
 		.iface = { .ss_family = AF_INET },
