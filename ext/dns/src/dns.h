@@ -79,6 +79,7 @@
 #define DNS_V_ABI  0x20160608
 #define DNS_V_API  0x20160608
 
+typedef int dns_bool;
 
 DNS_PUBLIC const char *dns_vendor(void);
 
@@ -502,7 +503,7 @@ struct dns_rr {
 	} dn;
 
 	enum dns_type type;
-	enum dns_class class;
+	enum dns_class d_class;
 	unsigned ttl;
 
 	struct {
@@ -530,7 +531,7 @@ struct dns_rr_i {
 	enum dns_section section;
 	const void *name;
 	enum dns_type type;
-	enum dns_class class;
+	enum dns_class d_class;
 	const void *data;
 
 	int follow;
@@ -740,10 +741,8 @@ struct dns_opt {
 	unsigned char version;
 	unsigned short flags;
 
-	union {
-		unsigned short maxsize; /* deprecated as confusing */
-		unsigned short maxudp; /* maximum UDP payload size */
-	};
+	/* unsigned short maxsize; */ /* deprecated as confusing */
+	unsigned short maxudp; /* maximum UDP payload size */
 
 	size_t size, len;
 	unsigned char data[DNS_OPT_MINDATA];
@@ -878,7 +877,7 @@ DNS_PUBLIC int dns_hosts_loadpath(struct dns_hosts *, const char *);
 
 DNS_PUBLIC int dns_hosts_dump(struct dns_hosts *, FILE *);
 
-DNS_PUBLIC int dns_hosts_insert(struct dns_hosts *, int, const void *, const void *, _Bool);
+DNS_PUBLIC int dns_hosts_insert(struct dns_hosts *, int, const void *, const void *, dns_bool);
 
 DNS_PUBLIC struct dns_packet *dns_hosts_query(struct dns_hosts *, struct dns_packet *, int *);
 
@@ -900,7 +899,7 @@ struct dns_resolv_conf {
 	int family[3];
 
 	struct {
-		_Bool edns0;
+		dns_bool edns0;
 
 		unsigned ndots;
 
@@ -908,11 +907,11 @@ struct dns_resolv_conf {
 
 		unsigned attempts;
 
-		_Bool rotate;
+		dns_bool rotate;
 
-		_Bool recurse;
+		dns_bool recurse;
 
-		_Bool smart;
+		dns_bool smart;
 
 		enum {
 			DNS_RESCONF_TCP_ENABLE,
