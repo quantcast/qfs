@@ -49,10 +49,7 @@
 
 #ifndef QFS_OMIT_EXT_DNS_RESOLVER
 extern "C" {
-#include <stdbool.h>
-#define class d_class;
 #include "dns.h"
-#undef class
 }
 #endif
 
