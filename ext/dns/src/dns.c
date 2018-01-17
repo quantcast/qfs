@@ -23,12 +23,12 @@
  * USE OR OTHER DEALINGS IN THE SOFTWARE.
  * ==========================================================================
  */
-#if !defined(__FreeBSD__) && !defined(__sun)
+#if !defined(__FreeBSD__) && !defined(__sun) && !defined(_GNU_SOURCE)
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE	600
 #endif
 
-#if ! defined(_BSD_SOURCE) && ! defined(_GNU_SOURCE)
+#ifndef _BSD_SOURCE
 #define _BSD_SOURCE
 #endif
 
@@ -40,6 +40,8 @@
 #define _NETBSD_SOURCE
 #endif
 #endif
+
+#include "dns.h"
 
 #include <limits.h>		/* INT_MAX */
 #include <stddef.h>		/* offsetof() */
@@ -56,8 +58,6 @@
 #include <time.h>		/* time_t time(2) difftime(3) */
 #include <signal.h>		/* SIGPIPE sigemptyset(3) sigaddset(3) sigpending(2) sigprocmask(2) pthread_sigmask(3) sigtimedwait(2) */
 #include <errno.h>		/* errno EINVAL ENOENT */
-#undef NDEBUG
-#include <assert.h>		/* assert(3) */
 
 #if _WIN32
 #ifndef FD_SETSIZE
@@ -80,8 +80,10 @@
 #include <netdb.h>		/* struct addrinfo */
 #endif
 
-#include "dns.h"
-
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>		/* assert(3) */
 
 /*
  * C O M P I L E R  V E R S I O N  &  F E A T U R E  D E T E C T I O N
