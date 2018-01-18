@@ -195,7 +195,8 @@ struct TcpSocket::Address
         memset(&mIp, 0, sizeof(mIp));
         if (location.hostname.find(':') != string::npos) {
             struct sockaddr_in6& addr = mIp.v6;
-            if (inet_pton(AF_INET6, location.hostname.c_str(), &addr.sin6_addr)) {
+            if (inet_pton(AF_INET6, location.hostname.c_str(),
+                    &addr.sin6_addr)) {
                 mProto           = AF_INET6;
                 addr.sin6_family = mProto;
                 useResolverFlag  = false;
@@ -456,12 +457,16 @@ TcpSocket::Connect(
     if (res < 0) {
         res = -errno;
 #ifdef EALREADY
-        if (res == -EALREADY) {
+        if (-EALREADY == res) {
             res = -EINPROGRESS;
         }
 #endif
-        if (res != -EINPROGRESS) {
-            PerrorFatal(remoteAddr);
+        if (-EINPROGRESS != res) {
+            Close();
+            KFS_LOG_STREAM_DEBUG <<
+                "connect to " << remoteAddr.ToString() <<
+                " :" << QCUtils::SysError(-res) <<
+            KFS_LOG_EOM;
             return res;
         }
     }
