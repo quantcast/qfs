@@ -128,6 +128,9 @@ protected:
                 Entry*       thePtr;
                 while ((thePtr = &Entry::List::GetNext(mExpirationList)) !=
                         &mExpirationList && thePtr->mTime < theExpTime) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        "cached expired: " << thePtr->mHostName <<
+                    KFS_LOG_EOM;
                     mCache.erase(*thePtr);
                 }
             }
@@ -136,6 +139,11 @@ protected:
                 while (mMaxCacheSize < mCache.size() &&
                         (thePtr = &Entry::List::GetNext(mExpirationList)) !=
                             &mExpirationList) {
+                    KFS_LOG_STREAM_DEBUG <<
+                        " cache size: " << mCache.size() <<
+                        " max: "        << mMaxCacheSize <<
+                        " evicting: "   << thePtr->mHostName <<
+                    KFS_LOG_EOM;
                     mCache.erase(*thePtr);
 		}
                 Entry theEntry(inRequest.mHostName);
