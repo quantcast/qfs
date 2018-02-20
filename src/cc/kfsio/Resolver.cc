@@ -125,13 +125,19 @@ protected:
             if (inExpireFlag) {
                 const time_t theExpTime =
                     mNetManager.Now() - mExpirationTimeSec;
-                Entry*       thePtr     = &mExpirationList;
+                Entry*       thePtr;
                 while ((thePtr = &Entry::List::GetNext(mExpirationList)) !=
                         &mExpirationList && thePtr->mTime < theExpTime) {
                     mCache.erase(*thePtr);
                 }
             }
-            if (0 == inRequest.mStatus && mMaxCacheSize < mCache.size()) {
+            if (0 == inRequest.mStatus) {
+                Entry* thePtr;
+                while (mMaxCacheSize < mCache.size() &&
+                        (thePtr = &Entry::List::GetNext(mExpirationList)) !=
+                            &mExpirationList) {
+                    mCache.erase(*thePtr);
+		}
                 Entry theEntry(inRequest.mHostName);
                 theEntry.mTime        = mNetManager.Now();
                 theEntry.mIpAddresses = inRequest.mIpAddresses;
