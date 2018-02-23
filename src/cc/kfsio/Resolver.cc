@@ -66,6 +66,7 @@ public:
         NetManager& inNetManager)
         : mNetManager(inNetManager),
           mRunFlag(false),
+          mPendingRequests(),
           mCache(),
           mExpirationList(),
           mSearchEntry(),
@@ -93,6 +94,9 @@ public:
         if (Find(inRequest)) {
             return 0;
         }
+        if (AddToPending(inRequest)) {
+            return 0;
+        }
         return EnqueueSelf(inRequest, inTimeout);
     }
     void SetCacheSizeAndTimeout(
@@ -116,11 +120,6 @@ protected:
         Request& inRequest,
         bool     inExpireFlag = true)
     {
-        const int64_t theTime    = mNetManager.NowUsec() - inRequest.mStartUsec;
-        Counter&      theCounter = 0 == inRequest.mStatus ?
-            globals().ctrNetDnsErrors : globals().ctrNetDnsErrors;
-        theCounter.Update(1);
-        theCounter.UpdateTime(theTime);
         if (0 < mExpirationTimeSec && 0 < mMaxCacheSize) {
             if (inExpireFlag) {
                 const time_t theExpTime =
@@ -160,6 +159,30 @@ protected:
                     theInserted, Entry::List::GetPrev(mExpirationList));
             }
         }
+        if (1 != mPendingRequests.erase(PendingReqEntry(inRequest))) {
+            QCRTASSERT(! "invalid request completion -- no pending entry");
+        }
+        Request* thePtr = &inRequest;
+        do {
+            Request& theCur = *thePtr;
+            thePtr = theCur.mNextPendingPtr;
+            if (thePtr) {
+                theCur.mNextPendingPtr = 0;
+                thePtr->mIpAddresses = theCur.mIpAddresses;
+                thePtr->mStatus      = theCur.mStatus;
+                thePtr->mStatusMsg   = theCur.mStatusMsg;
+            }
+            DoneSelf(theCur);
+        } while (thePtr);
+    }
+    void DoneSelf(
+        Request& inRequest)
+    {
+        const int64_t theTime    = mNetManager.NowUsec() - inRequest.mStartUsec;
+        Counter&      theCounter = 0 == inRequest.mStatus ?
+            globals().ctrNetDnsErrors : globals().ctrNetDnsErrors;
+        theCounter.Update(1);
+        theCounter.UpdateTime(theTime);
         inRequest.Done();
     }
     virtual int EnqueueSelf(
@@ -204,12 +227,47 @@ private:
         std::less<Entry>,
         StdFastAllocator< Entry>
     > Cache;
+    class PendingReqEntry
+    {
+    public:
+        PendingReqEntry()
+            : mRequestPtr(0)
+            {}
+        PendingReqEntry(
+            Request& inRequest)
+            : mRequestPtr(&inRequest)
+            {}
+        bool operator<(
+            const PendingReqEntry& inRhs) const
+        {
+            return (
+                mRequestPtr->mHostName < inRhs.mRequestPtr->mHostName ||
+                (mRequestPtr->mHostName == inRhs.mRequestPtr->mHostName &&
+                mRequestPtr->mMaxResults < inRhs.mRequestPtr->mMaxResults)
+            );
+        }
+        bool operator==(
+            const PendingReqEntry& inRhs) const
+        {
+            return (
+                mRequestPtr->mHostName == inRhs.mRequestPtr->mHostName &&
+                mRequestPtr->mMaxResults == inRhs.mRequestPtr->mMaxResults
+            );
+        }
+        Request* mRequestPtr;
+    };
+    typedef std::set<
+        PendingReqEntry,
+        std::less<PendingReqEntry>,
+        StdFastAllocator< PendingReqEntry>
+    > PendingRequests;
 
-    Cache  mCache;
-    Entry  mExpirationList;
-    Entry  mSearchEntry;
-    size_t mMaxCacheSize;
-    int    mExpirationTimeSec;
+    PendingRequests mPendingRequests;
+    Cache           mCache;
+    Entry           mExpirationList;
+    Entry           mSearchEntry;
+    size_t          mMaxCacheSize;
+    int             mExpirationTimeSec;
 
     bool Find(
         Request& inRequest)
@@ -237,7 +295,21 @@ private:
         inRequest.mIpAddresses = theIt->mIpAddresses;
         inRequest.mStatus      = 0;
         inRequest.mStatusMsg.clear();
-        Done(inRequest);
+        DoneSelf(inRequest);
+        return true;
+    }
+
+    bool AddToPending(
+        Request& inRequest)
+    {
+        pair<PendingRequests::iterator, bool> const theRes =
+            mPendingRequests.insert(PendingReqEntry(inRequest));
+        if (theRes.second) {
+            inRequest.mNextPendingPtr = 0;
+            return false;
+        }
+        inRequest.mNextPendingPtr = theRes.first->mRequestPtr->mNextPendingPtr;
+        theRes.first->mRequestPtr->mNextPendingPtr = &inRequest;
         return true;
     }
 protected:

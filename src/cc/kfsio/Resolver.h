@@ -66,7 +66,8 @@ public:
               mStatusMsg(),
               mStartUsec(),
               mEndUsec(),
-              mNextPtr(0)
+              mNextPtr(0),
+	      mNextPendingPtr(0)
             {}
         virtual void Done() = 0;
     protected:
@@ -81,6 +82,8 @@ public:
             {}
     private:
         Request* mNextPtr;
+	Request* mNextPendingPtr;
+
         Request(
             const Request& inRequest);
         Request& operator=(
