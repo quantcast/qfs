@@ -2953,6 +2953,10 @@ private:
         HMAC_CTX_init(&mHmacCtx);
         EVP_MD_CTX_init(&mMdCtx);
 #endif
+        const int theMaxCacheSize            = 8 << 10;
+        const int theResolverCacheExpiration = 1;
+        mNetManager.SetResolverParameters(mNetManager.GetResolverOsFlag(),
+            theMaxCacheSize, theResolverCacheExpiration);
     }
     void SetParameters()
     {
@@ -3077,6 +3081,17 @@ private:
             theName.Truncate(thePrefixSize).Append("maxHttpHeaderSize"),
             mMaxHdrLen
         )));
+        const bool theUseOsResolverFlag = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("useOsResolver"),
+            mNetManager.GetResolverOsFlag() ? 0 : 1) != 0;
+        const int theMaxCacheSize = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("resolverMaxCacheSize"),
+            mNetManager.GetResolverCacheSize());
+        const int theResolverCacheExpiration = mParameters.getValue(
+            theName.Truncate(thePrefixSize).Append("resolverCacheExpiration"),
+            mNetManager.GetResolverCacheExpiration());
+        mNetManager.SetResolverParameters(
+            theUseOsResolverFlag, theMaxCacheSize, theResolverCacheExpiration);
         if (theMaxHdrLen != mMaxHdrLen) {
             mMaxHdrLen = theMaxHdrLen;
             delete [] mHdrBufferPtr;
