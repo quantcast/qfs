@@ -121,10 +121,13 @@ NetManager::NetManager(int timeoutMs)
       mTimerOverrunCount(0),
       mTimerOverrunSec(0),
       mMaxAcceptsPerRead(1),
-      mUseOsResolverFlag(false),
+      mResolverCacheSize(8 << 10),
+      mResolverCacheExpiration(-1),
+      mResolverOsFlag(false),
       mPoll(*(new QCFdPoll(true))), // Wakeable
       mPollEventHook(0),
       mResolver(0),
+      mResolverPrev(0),
       mPendingReadList(),
       mPendingUpdate(),
       mCurTimeoutHandler(0),
@@ -140,6 +143,7 @@ NetManager::~NetManager()
     assert(! PendingReadList::IsInList(mPendingReadList));
     delete &mPoll;
     delete mResolver;
+    delete mResolverPrev;
 }
 
 void
@@ -208,8 +212,10 @@ int
 NetManager::EnqueueSelf(Resolver::Request& req, int timeout)
 {
     if (! mResolver) {
-        mResolver = new Resolver(*this, mUseOsResolverFlag ?
+        mResolver = new Resolver(*this, mResolverOsFlag ?
             Resolver::ResolverTypeOs : Resolver::ResolverTypeExt);
+        mResolver->SetCacheSizeAndTimeout(
+            mResolverCacheSize, mResolverCacheExpiration);
         const int status = mResolver->Start();
         if (0 != status) {
             delete mResolver;
@@ -218,6 +224,26 @@ NetManager::EnqueueSelf(Resolver::Request& req, int timeout)
         }
     }
     return mResolver->Enqueue(req, timeout);
+}
+
+void
+NetManager::SetResolverParameters(bool useOsResolverFlag,
+    int cacheSize, int cacheExpiration)
+{
+    if (mResolverOsFlag != useOsResolverFlag) {
+        Resolver* const tmp = mResolver;
+        mResolver = mResolverPrev;
+        mResolverPrev = tmp;
+    }
+    mResolverCacheSize       = cacheSize;
+    mResolverCacheExpiration = cacheExpiration;
+    for (int i = 0; i < 2; i++) {
+        Resolver* const resolver = 0 == i ? mResolver : mResolverPrev;
+        if (resolver) {
+            resolver->SetCacheSizeAndTimeout(
+                mResolverCacheSize, mResolverCacheExpiration);
+        }
+    }
 }
 
 void
@@ -715,11 +741,14 @@ NetManager::CleanUp(bool childAtForkFlag, bool onlyCloseFdFlag)
     if (childAtForkFlag) {
         mPoll.Close();
     }
-    if (mResolver) {
-        if (childAtForkFlag) {
-            mResolver->ChildAtFork();
-        } else {
-            mResolver->Shutdown();
+    for (int i = 0; i < 2; i++) {
+        Resolver* const resolver = 0 == i ? mResolver : mResolverPrev;
+        if (resolver) {
+            if (childAtForkFlag) {
+                resolver->ChildAtFork();
+            } else {
+                resolver->Shutdown();
+            }
         }
     }
     for (int i = 0; i <= kTimerWheelSize; i++) {

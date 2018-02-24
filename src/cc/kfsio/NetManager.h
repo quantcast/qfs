@@ -154,10 +154,14 @@ public:
         mPollEventHook = hook;
         return prev;
     }
-    void SetUseOsResolver(bool flag)
-        { mUseOsResolverFlag = false; }
-    bool GetUseOsResolverFlag() const
-        { return mUseOsResolverFlag; }
+    void SetResolverParameters(bool useOsResolverFlag,
+        int cacheSize, int cacheExpiration);
+    bool GetResolverOsFlag() const
+        { return mResolverOsFlag; }
+    int GetResolverCacheSize() const
+        { return mResolverCacheSize; }
+    int GetResolverCacheExpiration() const
+        { return mResolverCacheExpiration; }
     int Enqueue(Resolver::Request& req, int timeout)
     {
         if (mResolver) {
@@ -259,10 +263,13 @@ private:
     int64_t         mTimerOverrunCount;
     int64_t         mTimerOverrunSec;
     int             mMaxAcceptsPerRead;
-    bool            mUseOsResolverFlag;
+    int             mResolverCacheSize;
+    int             mResolverCacheExpiration;
+    bool            mResolverOsFlag;
     QCFdPoll&       mPoll;
     PollEventHook*  mPollEventHook;
     Resolver*       mResolver;
+    Resolver*       mResolverPrev;
     NetManagerEntry mPendingReadList;
     PendingUpdate   mPendingUpdate;
     /// Handlers that are notified whenever a call to select()
