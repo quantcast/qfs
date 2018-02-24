@@ -127,6 +127,11 @@ public:
                 mPath = inArgsPtr[3];
             }
         }
+        bool theResolverUseOsFlag           = true;
+        int  theResolverCacheSize           = 8 << 10;
+        int  theResolverCacheExpirationTime = 2;
+        mNetManager.SetResolverParameters(theResolverUseOsFlag,
+		theResolverCacheSize, theResolverCacheExpirationTime);
         mNetManager.RegisterTimeoutHandler(this);
         mNetManager.MainLoop();
         mNetManager.UnRegisterTimeoutHandler(this);
