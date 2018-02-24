@@ -145,7 +145,7 @@ public:
         const int kStartConcurrently = 3;
         if (kMaxDoneReqCount <= mDoneCount) {
             KFS_LOG_STREAM_DEBUG <<
-                " shutdown: "  <<
+                "shutdown:"
                 " in flight: " << mInFlightCount <<
                 " done: "      << mDoneCount <<
             KFS_LOG_EOM;
