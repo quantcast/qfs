@@ -3083,7 +3083,7 @@ private:
         )));
         const bool theUseOsResolverFlag = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("useOsResolver"),
-            mNetManager.GetResolverOsFlag() ? 0 : 1) != 0;
+            mNetManager.GetResolverOsFlag() ? 1 : 0) != 0;
         const int theMaxCacheSize = mParameters.getValue(
             theName.Truncate(thePrefixSize).Append("resolverMaxCacheSize"),
             mNetManager.GetResolverCacheSize());
