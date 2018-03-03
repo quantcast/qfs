@@ -297,6 +297,8 @@ ClientManager::SetParameters(
         inProps.getValue(theParamName.Truncate(thePrefLen).Append(
         "firstClientThreadIndex"), mFirstClientThreadIndex);
     mMaxClientCount = inMaxClientCount;
+    ClientThread::SetParameters(mThreadsPtr, mThreadCount,
+        inParamsPrefixPtr, inProps);
     return mAuth.SetParameters(
         theParamName.Truncate(thePrefLen).Append("auth.").GetPtr(),
         inProps,

@@ -37,6 +37,7 @@ class RemoteSyncSM;
 class NetManager;
 class RemoteSyncSM;
 class RSReplicatorEntry;
+class Properties;
 struct KfsOp;
 
 class ClientThreadImpl;
@@ -86,6 +87,11 @@ public:
         int       inThreadCount,
         int       inFirstCpuIdx,
         QCMutex*& outMutexPtr);
+    static void SetParameters(
+        ClientThread*     inThreadsPtr,
+        int               inThreadCount,
+        const char*       inParamsPrefixPtr,
+        const Properties& inProps);
     static void Stop(
         ClientThread* inThreadsPtr,
         int           inThreadCount);

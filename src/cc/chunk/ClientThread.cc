@@ -46,6 +46,7 @@
 namespace KFS
 {
 using std::ostringstream;
+using libkfsio::globalNetManager;
 
     inline int
 ClientThreadListEntry::HandleRequest(
@@ -176,6 +177,10 @@ public:
           mTmpDispatchQueue(),
           mTmpSyncSMQueue(),
           mTmpRSReplicatorQueue(),
+          mResolverCacheSize(mNetManager.GetResolverCacheSize()),
+          mResolverCacheExpiration(mNetManager.GetResolverCacheExpiration()),
+          mUseOsResolverFlag(mNetManager.GetResolverOsFlag()),
+          mResolverUpdateParamsFlag(false),
           mWakeupCnt(0),
           mOuter(inOuter)
     {
@@ -271,6 +276,11 @@ public:
         QCASSERT(! mShutdownFlag || ! mRunFlag);
 
         mWakeupCnt = 0;
+        if (mResolverUpdateParamsFlag) {
+            mNetManager.SetResolverParameters(mUseOsResolverFlag,
+                mResolverCacheSize, mResolverCacheExpiration);
+            mResolverUpdateParamsFlag = false;
+        }
         ClientThreadListEntry* theAddQueuePtr[kDispatchQueueCount];
         DispatchQueue::Init(theAddQueuePtr);
         DispatchQueue::PushBackList(theAddQueuePtr, mAddQueuePtr);
@@ -486,6 +496,25 @@ public:
     {
         return (0 < mWakeupCnt);
     }
+    void SetParameters(
+        const char*       /* inParamsPrefixPtr */,
+        const Properties& /* inProps */)
+    {
+        if (mUseOsResolverFlag != globalNetManager().GetResolverOsFlag()) {
+            mUseOsResolverFlag = globalNetManager().GetResolverOsFlag();
+            mResolverUpdateParamsFlag = true;
+        }
+        if (mResolverCacheSize != globalNetManager().GetResolverCacheSize()) {
+            mResolverCacheSize = globalNetManager().GetResolverCacheSize();
+            mResolverUpdateParamsFlag = true;
+        }
+        if (mResolverCacheExpiration !=
+                globalNetManager().GetResolverCacheExpiration()) {
+            mResolverCacheExpiration =
+                globalNetManager().GetResolverCacheExpiration();
+            mResolverUpdateParamsFlag = true;
+        }
+    }
     static ClientThread* GetCurrentClientThreadPtr()
     {
         QCASSERT(GetMutex().IsOwned());
@@ -515,6 +544,10 @@ private:
     TmpDispatchQueue       mTmpDispatchQueue;
     TmpSyncSMQueue         mTmpSyncSMQueue;
     TmpRSReplicatorQueue   mTmpRSReplicatorQueue;
+    int                    mResolverCacheSize;
+    int                    mResolverCacheExpiration;
+    bool                   mUseOsResolverFlag;
+    bool                   mResolverUpdateParamsFlag;
     volatile int           mWakeupCnt;
     ClientThread&          mOuter;
     ClientThreadListEntry* mAddQueuePtr[kDispatchQueueCount];
@@ -862,6 +895,22 @@ ClientThread::CreateThreads(
             inFirstCpuIdx < 0 ? -1 : inFirstCpuIdx + i);
     }
     return theThreadsPtr;
+}
+
+    /* static */ void
+ClientThread::SetParameters(
+    ClientThread*     inThreadsPtr,
+    int               inThreadCount,
+    const char*       inParamsPrefixPtr,
+    const Properties& inProps)
+{
+    if (! inThreadsPtr || inThreadCount <= 0) {
+        return;
+    }
+    QCASSERT(ClientThreadImpl::GetMutex().IsOwned());
+    for (int i = 0; i < inThreadCount; i++) {
+        inThreadsPtr[i].mImpl.SetParameters(inParamsPrefixPtr, inProps);
+    }
 }
 
     /* static */ void

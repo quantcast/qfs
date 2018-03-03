@@ -2504,9 +2504,21 @@ ChunkManager::SetParameters(const Properties& prop)
         "chunkServer.tcpSocket.sendBufSize",
         TcpSocket::GetDefaultSendBufSize()));
 
-    globalNetManager().SetMaxAcceptsPerRead(prop.getValue(
+    NetManager& netManager = globalNetManager();
+    netManager.SetMaxAcceptsPerRead(prop.getValue(
         "chunkServer.net.maxAcceptsPerRead",
-        globalNetManager().GetMaxAcceptsPerRead()));
+        netManager.GetMaxAcceptsPerRead()));
+    const bool useOsResolverFlag = prop.getValue(
+        "chunkServer.useOsResolver",
+        netManager.GetResolverOsFlag() ? 1 : 0) != 0;
+    const int maxCacheSize = prop.getValue(
+        "chunkServer.resolverMaxCacheSize",
+        netManager.GetResolverCacheSize());
+    const int resolverCacheExpiration = prop.getValue(
+       "chunkServer.resolverCacheExpiration",
+        netManager.GetResolverCacheExpiration());
+    netManager.SetResolverParameters(
+        useOsResolverFlag, maxCacheSize, resolverCacheExpiration);
 
     DiskIo::SetParameters(prop);
     Replicator::SetParameters(prop);
@@ -2543,7 +2555,7 @@ ChunkManager::SetParameters(const Properties& prop)
 
     gAtomicRecordAppendManager.SetParameters(prop);
 
-    const time_t now = globalNetManager().Now();
+    const time_t now = netManager.Now();
     mNextGetFsSpaceAvailableTime = min(mNextGetFsSpaceAvailableTime,
         now + mGetFsSpaceAvailableIntervalSecs);
     mNextChunkDirsCheckTime = min(mNextChunkDirsCheckTime,
