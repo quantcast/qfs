@@ -2915,10 +2915,14 @@ MetaRename::handle()
     // renames are disabled in WORM mode: otherwise, we
     // ocould overwrite an existing file
     MetaFattr* fa = 0;
-    if (wormModeFlag && (status = metatree.lookupPath(
-            ROOTFID, newname, euser, egroup, fa)) != -ENOENT) {
-        statusMsg = "worm mode";
-        status    = -EPERM;
+    if (wormModeFlag) {
+        if (-ENOENT == (status = metatree.lookupPath(
+                ROOTFID, newname, euser, egroup, fa))) {
+            status = 0;
+        } else if (0 == status) {
+            statusMsg = "worm mode";
+            status    = -EPERM;
+        }
     }
     if (0 == status) {
         todumpster = 1;
