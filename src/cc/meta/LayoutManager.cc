@@ -8049,24 +8049,6 @@ public:
     }
 };
 
-bool
-LayoutManager::IsValidLeaseIssued(const vector<MetaChunkInfo*>& c)
-{
-    if (mChunkLeases.IsEmpty()) {
-        return false;
-    }
-    vector<MetaChunkInfo*>::const_iterator const i = find_if(
-        c.begin(), c.end(),
-        ValidLeaseIssued(mChunkLeases)
-    );
-    if (i == c.end()) {
-        return false;
-    }
-    KFS_LOG_STREAM_DEBUG << "valid lease issued on chunk: " <<
-            (*i)->chunkId << KFS_LOG_EOM;
-    return true;
-}
-
 void
 LayoutManager::ScheduleDumpsterCleanup(
     const MetaFattr& fa,
@@ -8083,25 +8065,6 @@ LayoutManager::Handle(MetaRemoveFromDumpster& op)
     if (0 <= cnt && mPrimaryFlag && cnt < mMaxDumpsterCleanupInFlight) {
         mLeaseCleaner.ScheduleNext();
     }
-}
-
-bool
-LayoutManager::IsValidObjBlockLeaseIssued(fid_t fid, chunkOff_t last)
-{
-    if (mChunkLeases.IsEmpty()) {
-        return false;
-    }
-    for (chunkOff_t pos = last; 0 <= pos; pos -= CHUNKSIZE) {
-        if (mChunkLeases.HasValidLease(ChunkLeases::EntryKey(fid, pos))) {
-            KFS_LOG_STREAM_DEBUG <<
-                "valid lease issued on object block: " <<
-                " fid: " << fid <<
-                " pos: " << pos <<
-            KFS_LOG_EOM;
-            return true;
-        }
-    }
-    return false;
 }
 
 void
@@ -10726,16 +10689,6 @@ LayoutManager::CancelPendingMakeStable(fid_t fid, chunkId_t chunkId)
         " " << MetaRequest::ShowReq(op) <<
     KFS_LOG_EOM;
     submit_request(op);
-}
-
-bool
-LayoutManager::IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const
-{
-    const CSMap::Entry* ci;
-    return (IsChunkStable(chunkId) && ! mChunkLeases.HasWriteLease(chunkId) &&
-        (ci = mChunkToServerMap.Find(chunkId)) != 0 &&
-        ci->GetChunkInfo()->chunkVersion == chunkVersion
-    );
 }
 
 bool
