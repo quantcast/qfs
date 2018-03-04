@@ -312,12 +312,6 @@ public:
         chunkId_t chunkId,
         fid_t     fidFrom,
         fid_t     fidTo);
-    inline size_t GetFileChunksWithLeasesCount(
-        fid_t fid) const
-    {
-        const FileLeases::Val* const entry = mFileLeases.Find(fid);
-        return (entry ? entry->Get().mCount : size_t(0));
-    }
     inline void ScheduleDumpsterCleanup(
         const MetaFattr& inFa,
         const string&    inName);
@@ -1081,11 +1075,6 @@ public:
     void CommitOrRollBackChunkVersion(MetaAllocate& req);
     void CommitOrRollBackChunkVersion(MetaLogChunkAllocate& req);
 
-    /// Is a valid lease issued on any of the chunks in the
-    /// vector of MetaChunkInfo's?
-    bool IsValidLeaseIssued(const vector<MetaChunkInfo*> &c);
-    bool IsValidObjBlockLeaseIssued(fid_t fid, chunkOff_t last);
-
     void MakeChunkStableInit(
         const CSMap::Entry& entry,
         seq_t               chunkVersion,
@@ -1473,11 +1462,8 @@ public:
     bool Validate(MetaCreate& createOp) const;
     IdempotentRequestTracker& GetIdempotentRequestTracker()
         { return mIdempotentRequestTracker; }
-    size_t GetFileChunksWithLeasesCount(fid_t fid) const
-        { return mChunkLeases.GetFileChunksWithLeasesCount(fid); }
     void ScheduleDumpsterCleanup(const MetaFattr& fa, const string& name);
     void Handle(MetaRemoveFromDumpster& op);
-    bool IsValidChunkStable(chunkId_t chunkId, seq_t chunkVersion) const;
     void SetPrimary(bool flag);
     bool IsPrimary() const
         { return mPrimaryFlag; }
