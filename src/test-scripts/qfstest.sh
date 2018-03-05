@@ -864,7 +864,17 @@ runqfsroot -rm -skipTrash '/dumpster/deletequeue' && exit 1
 runqfsroot -mv '/dumpstertest' '/dumpster/deletequeue' && exit 1
 runqfsroot -mv '/dumpster/deletequeue' '/' && exit 1
 runqfsroot -chmod +rw '/dumpster/deletequeue' && exit 1
+runqfsroot -mv '/dumpster/deletequeue' '/dumpster/deletequeue1' && exit 1
+runqfsroot -rmr -skipTrash '/dumpster' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit
+
+until runqfsroot -rmr -skipTrash '/dumpster' \
+        2>"$testdir/dumpster-test-run.err" ; do
+    sleep 0.1
+done > "$testdir/dumpster-test.log" 2>&1 &
+dumpstertestpid=$!
+dumpstertestpidf="$testdir/dumpster-test${pidsuf}"
+echo $dumpstertestpid > "$dumpstertestpidf"
 
 runcptoqfsroot()
 {
@@ -1223,6 +1233,14 @@ runqfsroot -ls '/dumpster' \
         fi
     fi
 done || exit
+
+if kill -0 $dumpstertestpid; then
+    kill $dumpstertestpid
+    rm "$dumpstertestpidf"
+else
+    echo "Dumpster test failure"
+    exit 1
+fi
 
 echo "Testing chunk server hibernate and retire"
 
