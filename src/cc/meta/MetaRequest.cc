@@ -2912,23 +2912,18 @@ MetaRename::handle()
     if (IsHandled()) {
         return;
     }
-    // renames are disabled in WORM mode: otherwise, we
-    // ocould overwrite an existing file
-    MetaFattr* fa = 0;
-    if (wormModeFlag) {
-        if (-ENOENT == (status = metatree.lookupPath(
-                ROOTFID, newname, euser, egroup, fa))) {
-            status = 0;
-        } else if (0 == status) {
-            statusMsg = "worm mode";
-            status    = -EPERM;
-        }
-    }
     if (0 == status) {
+        // renames are disabled in WORM mode: otherwise, we
+        // ocould overwrite an existing file
         todumpster = 1;
         srcFid     = -1;
         status = metatree.rename(dir, oldname, newname,
-            oldpath, overwrite, todumpster, euser, egroup, mtime, &srcFid);
+            oldpath, overwrite && ! wormModeFlag, todumpster, euser, egroup,
+            mtime, &srcFid);
+        if (wormModeFlag && -EEXIST == status) {
+            statusMsg = "worm mode";
+            status    = -EPERM;
+        }
     }
     if (leaseFileEntry ||
             (replayFlag && metatree.getDumpsterDirId() == dir)) {

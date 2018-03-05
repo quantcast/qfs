@@ -2143,6 +2143,13 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
     const string::size_type rslash = newname.rfind('/');
     MetaFattr* ddfattr;
     if (rslash == string::npos) {
+        if (0 < todumpster && mEnforceDumpsterRulesFlag &&
+                getDumpsterDirId() == parent) {
+            KFS_LOG_STREAM_DEBUG <<
+                newname << ": attempt to rename in dumpster denied" <<
+            KFS_LOG_EOM;
+            return -EPERM;
+        }
         ddir  = parent;
         dname = newname;
         // Parent doesn't change.
