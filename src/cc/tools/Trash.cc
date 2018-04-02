@@ -142,6 +142,13 @@ public:
         if (*thePath.rbegin() != '/') {
             thePath += "/";
         }
+        size_t const kPrefixLen = 10;
+        if (kPrefixLen < thePath.size() &&
+                0 == thePath.compare(0, kPrefixLen, "/dumpster/", kPrefixLen)) {
+            *inErrMsgPtr = "Move to trash from dumpster is not permitted " +
+                inPath;
+            return -EPERM;
+        }
         if (thePath.length() <= mTrashPrefix.length()) {
             if (mTrashPrefix.compare(0, thePath.length(), thePath) == 0) {
                 if (inErrMsgPtr) {

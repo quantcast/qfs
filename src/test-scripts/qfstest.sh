@@ -853,6 +853,7 @@ runqfsroot()
 runqfsroot -touchz '/dumpstertest' || exit
 runqfsroot -rm -skipTrash /dumpstertest || exit
 dumpstertest="`runqfsroot -ls /dumpster | awk '/dumpstertest/{print $NF}'`"
+runqfsroot -D dfs.force.remove=true -rm "$dumpstertest" && exit 1
 runqfsroot -chmod -w "$dumpstertest" || exit
 runqfsroot -mv "$dumpstertest" '/dumpster/test' && exit 1
 runqfsroot -mv "$dumpstertest" '/dumpstertest' || exit
@@ -866,7 +867,7 @@ runqfsroot -mv '/dumpster/deletequeue' '/' && exit 1
 runqfsroot -chmod +rw '/dumpster/deletequeue' && exit 1
 runqfsroot -mv '/dumpster/deletequeue' '/dumpster/deletequeue1' && exit 1
 runqfsroot -rmr -skipTrash '/dumpster' && exit 1
-runqfsroot -ls '/dumpster/deletequeue' || exit
+runqfsroot -ls '/dumpster/deletequeue' || exit 1
 
 until runqfsroot -rmr -skipTrash '/dumpster' \
         2>"$testdir/dumpster-test-run.err" ; do
