@@ -31,6 +31,8 @@ permissions and limitations under the License.
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <buildDirectory>${project.basedir}/../../../build/java</buildDirectory>
+    <maven.compiler.source>1.6</maven.compiler.source>
+    <maven.compiler.target>1.6</maven.compiler.target>
   </properties>
 
   <build>
