@@ -30,7 +30,7 @@ if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then
     brew install cmake || true
     brew install maven || true
     brew install boost || true
-    # brew cask install osxfuse || true
+    brew cask install osxfuse || true
 fi
 
 # use docker to build on linux; pull the corresponding docker image
