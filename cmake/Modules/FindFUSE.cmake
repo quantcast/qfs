@@ -81,13 +81,13 @@ set(PC_FUSE_LIBRARY_DIRS )
 if(PKG_CONFIG_FOUND)
     pkg_check_modules(PC_FUSE "fuse" QUIET)
     if(PC_FUSE_FOUND)
-#         fusedebug(PC_FUSE_LIBRARIES)
-#         fusedebug(PC_FUSE_LIBRARY_DIRS)
-#         fusedebug(PC_FUSE_LDFLAGS)
-#         fusedebug(PC_FUSE_LDFLAGS_OTHER)
-#         fusedebug(PC_FUSE_INCLUDE_DIRS)
-#         fusedebug(PC_FUSE_CFLAGS)
-#         fusedebug(PC_FUSE_CFLAGS_OTHER)
+        fusedebug(PC_FUSE_LIBRARIES)
+        fusedebug(PC_FUSE_LIBRARY_DIRS)
+        fusedebug(PC_FUSE_LDFLAGS)
+        fusedebug(PC_FUSE_LDFLAGS_OTHER)
+        fusedebug(PC_FUSE_INCLUDE_DIRS)
+        fusedebug(PC_FUSE_CFLAGS)
+        fusedebug(PC_FUSE_CFLAGS_OTHER)
         set(FUSE_DEFINITIONS "${PC_FUSE_CFLAGS_OTHER}")
     endif(PC_FUSE_FOUND)
 endif(PKG_CONFIG_FOUND)
@@ -105,10 +105,11 @@ endif(NOT FUSE_INCLUDE_DIRS)
 
 find_library(
     FUSE_LIBRARIES
-    NAMES "fuse" "osxfuse"
+    NAMES "fuse" "osxfuse.dylib"
     PATHS "${PC_FUSE_LIBRARY_DIRS}"
     DOC "Libraries for FUSE"
 )
+fusedebug(FUSE_LIBRARIES)
 
 if(NOT FUSE_LIBRARIES)
     set(FUSE_FOUND FALSE)
