@@ -49,7 +49,7 @@ if [ $# -gt 0 -a -d "$1" -a -f "$1"/current ]; then
     {
         echo "$1"/@*.s | tr ' ' '\n' | sort | tail -n $nf | xargs gunzip -c 
         cat "$1"/current
-    } | eval "$stripts" "$0" $myarg
+    } | "$0" $myarg
     exit $?
 fi
 
@@ -58,7 +58,9 @@ fi
 #    print "    names[i++] = \"" tolower(substr($1,3,length($1)-3)) "\";"; \
 # }' ../cc/meta/MetaRequest.h
 
-grep -h -F  ' ===request=counters: ' ${1+"$@"} | awk '
+grep -h -F  ' ===request=counters: ' ${1+"$@"} \
+| sed -e 's/^@[0-9a-fA-F]* //' \
+| awk '
 BEGIN {
     i=0
     names[i++] = "total";
@@ -152,6 +154,7 @@ BEGIN {
     names[i++] = "vr_reconfiguration";
     names[i++] = "vr_log_start_view";
     names[i++] = "vr_get_status";
+    names[i++] = "setatime";
 
     names[i++] = "other";
     names[i++] = "alloc_reuse";
@@ -165,12 +168,13 @@ function showCounters(date, time, dhv, pv, dv)
     i = 0;
     for (f = 0 ; f < ncnt; f++) {
         if (pv[i] != 0 || f == 0) {
-            printf("%3d %s %32s %11d %6.2f%% %10d %6.2f%% %10.1f %10.1f\n", \
+            printf("%3d %s %32s %11d %6.2f%% %10d %6.2f%% %10.1f %10.1f %6.2f%%\n", \
                 f + 1, time, names[f], \
                 dv[i],   dv[0] > 0 ? dv[i]   * 100. / dv[0] : 0, \
                 dv[i+1], dv[1] > 0 ? dv[i+1] * 100. / dv[1] : 0, \
                 dv[i] > 0 ? dv[i+2] / dv[i] : dv[i+2], \
-                dv[i] > 0 ? dv[i+3] / dv[i] : dv[i+3] \
+                dv[i] > 0 ? dv[i+3] / dv[i] : dv[i+3], \
+                dhv[0] > 0 ? dv[i+3] * 100. / dhv[0] : 0 \
             );
         }
         i += 4;
@@ -212,7 +216,7 @@ END {
         phv[i] -= shv[i];
     }
     showCounters("TOTAL " date, time, phv, pv, pv);
-    printf("id time op total %% errors %% time exec_time [time: 1e-6 sec]\n"); 
+    printf("id time op total %% errors %% time exec_time %%time [time: 1e-6 sec]\n");
     if (badlines) {
         printf("WARNING: unsupported counters format encoutered: %d times\n", \
             badlines);
