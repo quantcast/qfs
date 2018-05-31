@@ -750,6 +750,12 @@ chunkServer.objStoreBlockWriteBufferSize      = $objectstorebuffersize
 chunkServer.objectDir                         = $objectstoredir
 EOF
     fi
+    if [ `expr $chunksrvport + 1` -eq $i ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.resolverCacheExpiration = 5
+chunkServer.useOsResolver           = 1
+EOF
+    fi
     cd "$dir" || exit
     echo "Starting chunk server $i"
     myrunprog "$chunkbindir"/chunkserver \
@@ -868,6 +874,17 @@ runqfsroot -chmod +rw '/dumpster/deletequeue' && exit 1
 runqfsroot -mv '/dumpster/deletequeue' '/dumpster/deletequeue1' && exit 1
 runqfsroot -rmr -skipTrash '/dumpster' && exit 1
 runqfsroot -ls '/dumpster/deletequeue' || exit 1
+
+# Test with OS DNS resolver.
+clientpropresolver=${clientprop}.res.cfg
+cp "$clientprop" "$clientpropresolver" || exit
+cat "$clientpropresolver" << EOF
+client.useOsResolver           = 1
+client.resolverCacheExpiration = 10
+EOF
+QFS_CLIENT_CONFIG= \
+qfs -D fs.msgLogWriter.logLevel=ERROR \
+    -cfg "$clientpropresolver" -ls / > /dev/null || exit 1
 
 until runqfsroot -rmr -skipTrash '/dumpster' \
         2>"$testdir/dumpster-test-run.err" ; do
