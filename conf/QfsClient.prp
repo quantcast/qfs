@@ -48,6 +48,20 @@
 # QFS_CLIENT_CONFIG_127_0_0_1_20000='client.auth.psk.keyId=AAAB9dYIWfKBXhXCI1jJ9gAAU0XunwAAAACMoK0z30ztT5S7k9slRuRdzy9CXmi1 client.auth.psk.keyId=P+4XRIBLLBvkICXWO+1aXBPUTMghEakkTk1T+RVsifR9NQ71E32KVd27y+2DbyC2'
 # export QFS_CLIENT_CONFIG_127_0_0_1_20000
 
+# Use host os DNS resolver if set to 1.
+# If set to 0 then load /etc/hosts and /etc/resolv.conf and use QFS built-in non
+# blocking DNS resolver.
+# client.useOsResolver = 0
+
+# DNS resolver maximum cache size.
+# DNS cache is off if set to 0 or less.
+# Default is 8192 entries.
+# client.resolverMaxCacheSize = 8192
+
+# DNS resolver cache expiration time in seconds.
+# If set to 0 or less the DNS cache is off.
+# Default is -1.
+# client.resolverCacheExpiration = -1
 
 # ================= X509 authentication ========================================
 #

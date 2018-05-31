@@ -1219,6 +1219,21 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is assign all chunk directories to tier 15.
 # chunkServer.storageTierPrefixes =
 
+# Use host os DNS resolver if set to 1.
+# If set to 0 then load /etc/hosts and /etc/resolv.conf and use QFS built-in non
+# blocking DNS resolver.
+# chunkServer.useOsResolver = 0
+
+# DNS resolver maximum cache size.
+# DNS cache is off if set to 0 or less.
+# Default is 8192 entries.
+# chunkServer.resolverMaxCacheSize = 8192
+
+# DNS resolver cache expiration time in seconds.
+# If set to 0 or less the DNS cache is off.
+# Default is -1.
+# chunkServer.resolverCacheExpiration = -1
+
 # ==================== AWS S3 object store =====================================
 #
 # Global toggle to enable object store.
@@ -1333,6 +1348,21 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # OpenSSL cipher configuration.
 # Default is !ADH:!AECDH:!MD5:HIGH:@STRENGTH
 # chunkServer.diskQueue.<object-store-directory-prefix>ssl.cipher = !ADH:!AECDH:!MD5:HIGH:@STRENGTH
+
+# Use host os DNS resolver if set to 1.
+# If set to 0 then load /etc/hosts and /etc/resolv.conf and use QFS built-in non
+# blocking DNS resolver.
+# chunkServer.diskQueue.<object-store-directory-prefix>useOsResolver = 0
+
+# DNS resolver maximum cache size.
+# DNS cache is off if set to 0 or less.
+# Default is 8192 entries.
+# chunkServer.diskQueue.<object-store-directory-prefix>resolverMaxCacheSize = 8192
+
+# DNS resolver cache expiration time in seconds.
+# If set to 0 or less the DNS cache is off.
+# Default is 1 second.
+# chunkServer.diskQueue.<object-store-directory-prefix>resolverCacheExpiration = 1
 
 # ================= Trasaction log writer. ====================================
 
