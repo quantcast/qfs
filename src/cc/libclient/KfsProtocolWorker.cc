@@ -165,6 +165,10 @@ public:
         WorkQueue::Init(mWorkQueue);
         FreeSyncRequests::Init(mFreeSyncRequests);
         CleanupList::Init(mCleanupList);
+        mNetManager.SetResolverParameters(
+            inParameters.mResolverUseOsResolverFlag,
+            inParameters.mResolverCacheSize,
+            inParameters.mResolverCacheExpiration);
         mMetaServer.SetMaxMetaLogWriteRetryCount(mMetaMaxRetryCount);
         mMetaServer.SetRackId(inParameters.mClientRackId);
         const bool kHexFormatFlag       = false;

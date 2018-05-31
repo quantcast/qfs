@@ -1739,6 +1739,14 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
         if (kKfsGroupNone == egroup) {
             egroup = mEGroup;
         }
+        mNetManager.SetResolverParameters(
+            properties->getValue("client.useOsResolver",
+                mNetManager.GetResolverOsFlag() ? 1 : 0) != 0,
+            properties->getValue("client.resolverMaxCacheSize",
+                mNetManager.GetResolverCacheSize()),
+            properties->getValue("client.resolverCacheExpiration",
+                mNetManager.GetResolverCacheExpiration())
+        );
         properties->copyWithPrefix("client.", mConfig);
     }
     KFS_LOG_STREAM_DEBUG <<
@@ -4711,6 +4719,9 @@ KfsClientImpl::StartProtocolWorker()
         KfsClient::GetMetaServerNodesParamName(), params.mMetaServerNodes);
     params.mClientRackId    = mConfig.getValue(
         "client.rackId", -1);
+    params.mResolverUseOsResolverFlag = mNetManager.GetResolverOsFlag();
+    params.mResolverCacheSize         = mNetManager.GetResolverCacheSize();
+    params.mResolverCacheExpiration   = mNetManager.GetResolverCacheExpiration();
     mProtocolWorker = new KfsProtocolWorker(
         mMetaServerLoc.hostname,
         mMetaServerLoc.port,

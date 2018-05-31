@@ -210,7 +210,10 @@ public:
             ClientAuthContext* inAuthContextPtr              = 0,
             bool               inUseClientPoolFlag           = false,
             const string&      inMetaServerNodes             = string(),
-            int                inClientRackId                = -1)
+            int                inClientRackId                = -1,
+            bool               inResolverUseOsResolverFlag   = false,
+            int                inResolverCacheSize           = 8 << 10,
+            int                inResolverCacheExpiration     = -1)
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -235,7 +238,11 @@ public:
               mMaxMetaServerContentLength(inMaxMetaServerContentLength),
               mAuthContextPtr(inAuthContextPtr),
               mUseClientPoolFlag(inUseClientPoolFlag),
-              mMetaServerNodes(inMetaServerNodes)
+              mMetaServerNodes(inMetaServerNodes),
+              mClientRackId(inClientRackId),
+              mResolverUseOsResolverFlag(inResolverUseOsResolverFlag),
+              mResolverCacheSize(inResolverCacheSize),
+              mResolverCacheExpiration(inResolverCacheExpiration)
             {}
             int                 mMetaMaxRetryCount;
             int                 mMetaTimeSecBetweenRetries;
@@ -263,6 +270,9 @@ public:
             bool                mUseClientPoolFlag;
             string              mMetaServerNodes;
             int                 mClientRackId;
+            bool                mResolverUseOsResolverFlag;
+            int                 mResolverCacheSize;
+            int                 mResolverCacheExpiration;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,
