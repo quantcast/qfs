@@ -576,11 +576,25 @@ MetaServer::SetParameters(const Properties& props)
         "metaServer.updateDirSizes",
         metatree.getUpdatePathSpaceUsageFlag() ? 1 : 0) != 0);
 
+    globalNetManager().SetResolverParameters(
+        props.getValue(
+            "metaServer.useOsResolver",
+            globalNetManager().GetResolverOsFlag() ? 1 : 0) != 0,
+        props.getValue(
+            "metaServer.resolverMaxCacheSize",
+            globalNetManager().GetResolverCacheSize()),
+        props.getValue(
+           "metaServer.resolverCacheExpiration",
+            globalNetManager().GetResolverCacheExpiration())
+    );
     if (mLogWriterRunningFlag) {
         MetaLogWriterControl* const op = new MetaLogWriterControl(
             MetaLogWriterControl::kSetParameters);
-        op->paramsPrefix = kLogWriterParamsPrefix;
-        op->params       = props;
+        op->paramsPrefix            = kLogWriterParamsPrefix;
+        op->params                  = props;
+        op->resolverOsFlag          = globalNetManager().GetResolverOsFlag();
+        op->resolverCacheSize       = globalNetManager().GetResolverCacheSize();
+        op->resolverCacheExpiration = globalNetManager().GetResolverCacheExpiration();
         submit_request(op);
     }
     const int status = mMetaDataSync.SetParameters(

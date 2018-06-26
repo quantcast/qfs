@@ -4378,6 +4378,9 @@ struct MetaLogWriterControl : public MetaRequest {
     vrNodeId_t         primaryNodeId;
     seq_t              logSegmentNum;
     Properties         params;
+    bool               resolverOsFlag;
+    int                resolverCacheSize;
+    int                resolverCacheExpiration;
     string             paramsPrefix;
     string             logName;
     MetaRequest* const completion;
@@ -4402,6 +4405,9 @@ struct MetaLogWriterControl : public MetaRequest {
           primaryNodeId(-1),
           logSegmentNum(-1),
           params(),
+          resolverOsFlag(false),
+          resolverCacheSize(0),
+          resolverCacheExpiration(-1),
           paramsPrefix(),
           logName(),
           completion(c),
@@ -4449,23 +4455,26 @@ struct MetaLogWriterControl : public MetaRequest {
     void Reset(Type t)
     {
         ResetSelf();
-        logAction        = kLogAlways;
-        replayBypassFlag = kCheckpointNewLog != t;
-        type             = t;
-        committed        = MetaVrLogSeq();
-        lastLogSeq       = MetaVrLogSeq();
-        primaryNodeId    = -1;
-        logSegmentNum    = -1;
+        logAction               = kLogAlways;
+        replayBypassFlag        = kCheckpointNewLog != t;
+        type                    = t;
+        committed               = MetaVrLogSeq();
+        lastLogSeq              = MetaVrLogSeq();
+        primaryNodeId           = -1;
+        logSegmentNum           = -1;
         params.clear();
-        paramsPrefix     = string();
-        logName          = string();
-        transmitterId    = -1;
-        generation       = 0;
-        blockChecksum    = 0;
-        blockSeq         = -1;
-        blockStartSeq    = MetaVrLogSeq();
-        blockEndSeq      = MetaVrLogSeq();
-        blockCommitted   = MetaVrLogSeq();
+        paramsPrefix            = string();
+        resolverOsFlag          = false;
+        resolverCacheSize       = 0;
+        resolverCacheExpiration = -1;
+        logName                 = string();
+        transmitterId           = -1;
+        generation              = 0;
+        blockChecksum           = 0;
+        blockSeq                = -1;
+        blockStartSeq           = MetaVrLogSeq();
+        blockEndSeq             = MetaVrLogSeq();
+        blockCommitted          = MetaVrLogSeq();
         blockLines.Clear();
         blockData.Clear();
     }

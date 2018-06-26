@@ -808,6 +808,11 @@ private:
         mLogTransmitter.SetFileSystemId(inFileSystemId);
         mNextBlockChecksum = ComputeBlockChecksum(kKfsNullChecksum, "\n", 1);
         mLogNum = inLogNum;
+        mNetManager.SetResolverParameters(
+            inNetManager.GetResolverOsFlag(),
+            inNetManager.GetResolverCacheSize(),
+            inNetManager.GetResolverCacheExpiration()
+        );
         const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
         if (0 != theErr) {
             return theErr;
@@ -1824,6 +1829,11 @@ private:
             case MetaLogWriterControl::kLogFetchDone:
                 return false;
             case MetaLogWriterControl::kSetParameters:
+                mNetManager.SetResolverParameters(
+                    inRequest.resolverOsFlag,
+                    inRequest.resolverCacheSize,
+                    inRequest.resolverCacheExpiration
+                );
                 SetParameters(
                     inRequest.paramsPrefix.c_str(),
                     inRequest.params

@@ -235,6 +235,10 @@ public:
           mMetaMds()
     {
         SET_HANDLER(this, &Impl::LogWriteDone);
+        mStartupNetManager.SetResolverParameters(
+            mRuntimeNetManager.GetResolverOsFlag(),
+            mRuntimeNetManager.GetResolverCacheSize(),
+            mRuntimeNetManager.GetResolverCacheExpiration());
         mKfsNetClient.SetAuthContext(&mAuthContext);
         mKfsNetClient.SetMaxContentLength(3 * mMaxReadSize / 2);
         mKfsNetClient.SetMaxRetryCount(5);
@@ -320,6 +324,10 @@ public:
         mKfsNetClient.SetTimeSecBetweenRetries(inParameters.getValue(
                 theName.Truncate(thePrefLen).Append("timeBetweenRetries"),
                 mKfsNetClient.GetTimeSecBetweenRetries()));
+        mStartupNetManager.SetResolverParameters(
+            mRuntimeNetManager.GetResolverOsFlag(),
+            mRuntimeNetManager.GetResolverCacheSize(),
+            mRuntimeNetManager.GetResolverCacheExpiration());
         const Properties::String* const theMdsPtr =
             inParameters.getValue(kMetaserverMetaMdsParamNamePtr);
         if (theMdsPtr) {
