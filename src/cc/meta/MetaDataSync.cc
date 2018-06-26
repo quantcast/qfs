@@ -363,10 +363,15 @@ public:
                         if (theServer == theServers[mServerIdx]) {
                             break;
                         }
+                        ++mServerIdx;
                     }
+                    if (theServers.size() <= mServerIdx) {
+                        mServerIdx = 0;
+                    }
+                } else {
+                    mServerIdx = 0;
                 }
                 mServers.swap(theServers);
-                mServerIdx = 0;
             }
         }
         const bool               kVerifyFlag = true;
