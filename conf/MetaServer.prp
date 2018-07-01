@@ -1745,3 +1745,21 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # by another process the following parameter can be set to 1 to exit to allow
 # another process to automatically restart meta server.
 # metaServer.exitOnRestart = 0
+
+# Meta server can use DNS resolver for meta data fetch on startup, when DNS
+# name(s) is(are) present in metaServer.metaDataSync.servers list.
+#
+# Use host os DNS resolver if set to 1.
+# If set to 0 then load /etc/hosts and /etc/resolv.conf and use QFS built-in non
+# blocking DNS resolver.
+# metaServer.useOsResolver = 0
+
+# DNS resolver maximum cache size.
+# DNS cache is off if set to 0 or less.
+# Default is 8192 entries.
+# metaServer.resolverMaxCacheSize = 8192
+
+# DNS resolver cache expiration time in seconds.
+# If set to 0 or less the DNS cache is off.
+# Default is -1.
+# metaServer.resolverCacheExpiration = -1
