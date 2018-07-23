@@ -515,7 +515,7 @@ struct fuse_operations ops_readonly = {
 };
 
 static void
-fatal(const char* fmt, ...)
+fatal(int status, const char* fmt, ...)
 {
     va_list arg;
 
@@ -525,10 +525,10 @@ fatal(const char* fmt, ...)
     vfprintf(stderr, fmt, arg);
     va_end(arg);
 
-    if (errno != 0)
-        fprintf(stderr, " %s", strerror(errno));
+    if (status != 0) {
+        fprintf(stderr, " %s", strerror(status));
+    }
     fprintf(stderr, "\n");
-
     exit(2);
 }
 
@@ -553,7 +553,7 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
     char *cp;
 
     if (! (cp = strrchr(addr, ':'))) {
-        fatal("bad address: %s", addr);
+        fatal(0, "bad address: %s", addr);
         return;
     }
     string host(addr, cp - addr);
@@ -585,7 +585,7 @@ initkfs(char* addr, const string& cfg_file, const string& cfg_props)
             client->SetCloseWriteOnRead(true);
         }
     } else {
-        fatal("connect: %s:%d", host.c_str(), port);
+        fatal(0, "connect: %s:%d", host.c_str(), port);
     }
 }
 
@@ -595,10 +595,15 @@ get_fs_args(struct fuse_args* args)
     if (! args) {
         return 0;
     }
-    args->argc = 2;
+    args->argc = 1;
     args->argv = (char**)calloc(sizeof(char*), args->argc + 1);
     args->argv[0] = strdup("qfs_fuse");
+#if defined(FUSE_MAJOR_VERSION) && ! defined(KFS_OS_NAME_DARWIN)
+#if FUSE_MAJOR_VERSION < 3
+    args->argc++;
     args->argv[1] = strdup("-obig_writes");
+#endif
+#endif
     args->allocated = 1;
     return args;
 }
@@ -732,7 +737,7 @@ initfuse(char* kfs_host_address, const char* mountpoint,
 {
     int pid = fork_flag ? fork() : 0;
     if (pid < 0) {
-        fatal("fork:");
+        fatal(errno, "fork:");
     }
     if (pid == 0) {
         initkfs(kfs_host_address, cfg_file, cfg_props);
@@ -743,8 +748,9 @@ initfuse(char* kfs_host_address, const char* mountpoint,
         struct fuse_chan* ch = NULL;
         ch = fuse_mount(mountpoint, get_mount_args(&mnt_args, options));
         if (ch == NULL) {
+            const int err = errno;
             delete client;
-            fatal("fuse_mount: %s:", mountpoint);
+            fatal(err, "fuse_mount: %s:", mountpoint);
         }
 
         struct fuse* fuse = NULL;
@@ -753,9 +759,10 @@ initfuse(char* kfs_host_address, const char* mountpoint,
                         (readonly ? sizeof(ops_readonly) : sizeof(ops)),
                         NULL);
         if (fuse == NULL) {
+            const int err = errno;
             fuse_unmount(mountpoint, ch);
             delete client;
-            fatal("fuse_new:");
+            fatal(err, "fuse_new:");
         }
         sReadOnlyFlag = readonly;
 #ifndef KFS_OS_NAME_SUNOS
@@ -778,13 +785,15 @@ usage(const char* name)
 {
     //Undocumented option: 'rrw'. See massage_options() above.
     fprintf(stderr,
-        "usage: %s qfshost mountpoint [-o opt1[,opt2..]]\n"
+        "usage: %s [-f][-h] qfshost mountpoint [-o opt1[,opt2..]]\n"
         "       eg: %s 127.0.0.1:20000 "
         "/mnt/qfs -o allow_other,ro,cfg=FILE:client_config_file.prp\n"
         "       rrw option can be used to enable read write mode, however, this"
         " mode has *very* limited support: only replicated files write"
         " is supported, file append is not supported.\n"
         "       File system IO in read write mode is serialized.\n"
+        " -f -- do not fork, remain foreground process (debugging).\n"
+        " -g -- help, emit this message and exit.\n"
         , name, name
     );
 }
