@@ -105,7 +105,7 @@ endif(NOT FUSE_INCLUDE_DIRS)
 
 find_library(
     FUSE_LIBRARIES
-    NAMES "fuse" "osxfuse.dylib"
+    NAMES "libosxfuse.dylib" "fuse"
     PATHS "${PC_FUSE_LIBRARY_DIRS}"
     DOC "Libraries for FUSE"
 )
@@ -117,6 +117,7 @@ endif(NOT FUSE_LIBRARIES)
 
 if(FUSE_FOUND)
     FOREACH(FUSE_VERSION_INCLUDE
+            "${FUSE_INCLUDE_DIRS}/osxfuse/fuse_common.h"
             "${FUSE_INCLUDE_DIRS}/fuse/fuse_common.h"
             "${FUSE_INCLUDE_DIRS}/fuse_common.h")
         if (EXISTS "${FUSE_VERSION_INCLUDE}")

@@ -174,16 +174,6 @@ if(DEFINED QFS_EXTRA_C_OPTIONS)
     message(STATUS "Extra C options: ${QFS_EXTRA_C_OPTIONS}")
 endif()
 
-# include dirs
-include_directories(
-    ${Boost_INCLUDE_DIRS}
-    ${OPENSSL_INCLUDE_DIR}
-    ${KRB5_INCLUDE_DIRS}
-    ${KFS_DIR_PREFIX}/src/cc
-    ${JAVA_INCLUDE_PATH}
-    ${JAVA_INCLUDE_PATH2}
-)
-
 if(FUSE_FOUND)
     message(STATUS "Building qfs_fuse")
     message(STATUS "fuse libs:         ${FUSE_LIBRARIES}")
@@ -195,6 +185,16 @@ if(FUSE_FOUND)
 else()
     message(STATUS "Not building qfs_fuse")
 endif()
+
+# include dirs
+include_directories(
+    ${Boost_INCLUDE_DIRS}
+    ${OPENSSL_INCLUDE_DIR}
+    ${KRB5_INCLUDE_DIRS}
+    ${KFS_DIR_PREFIX}/src/cc
+    ${JAVA_INCLUDE_PATH}
+    ${JAVA_INCLUDE_PATH2}
+)
 
 # get the subdirs we want
 if (NOT QFS_OMIT_JNI)
