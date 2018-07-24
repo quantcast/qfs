@@ -598,7 +598,7 @@ get_fs_args(struct fuse_args* args)
     args->argc = 1;
     args->argv = (char**)calloc(sizeof(char*), args->argc + 1);
     args->argv[0] = strdup("qfs_fuse");
-#if defined(FUSE_MAJOR_VERSION) && ! defined(KFS_OS_NAME_DARWIN)
+#if defined(FUSE_MAJOR_VERSION)
 #if FUSE_MAJOR_VERSION < 3
     args->argc++;
     args->argv[1] = strdup("-obig_writes");
