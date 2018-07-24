@@ -805,6 +805,15 @@ runqfsadmin()
     qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
 }
 
+reoirt_test_status()
+{
+    if [ $2 -ne 0 ]; then
+        echo "$1 test failure"
+    else
+        echo "$1 test passed"
+    fi
+}
+
 metaserversetparameter()
 {
     {
@@ -1162,7 +1171,7 @@ EOF
     cp /dev/null sortmaster_test.out
     QFS_CLIENT_CONFIG=$clientenvcfg "$smtest" >> sortmaster_test.out 2>&1 &
     smpid=$!
-    echo "$smpid" > "$smpidf"
+    echo "$smpid" > "$smpidf" || exit
 fi
 
 if [ $spacecheck -eq 0 ]; then
@@ -1371,6 +1380,7 @@ while true; do
         break
     fi
 done
+reoirt_test_status "Shutdown" $status
 
 if [ $status -ne 0 ]; then
     showpids
@@ -1389,6 +1399,7 @@ if [ $status -eq 0 ]; then
     echo "Running meta server log compactor"
     logcompactor -T newlog -C newcp
     status=$?
+    reoirt_test_status "Log compactor" $status
 fi
 if [ $status -eq 0 ]; then
     cd "$metasrvdir" || exit
@@ -1407,20 +1418,24 @@ if [ $status -eq 0 ]; then
         qfsfsck -c kfscp -A 0 -F
         status=$?
     fi
+    reoirt_test_status "fsck" $status
 fi
 if [ $status -eq 0 ]; then
     qfsfsck -c newcp $newcpfsckopt
     status=$?
+    reoirt_test_status "fsck new checkpoint" $status
 fi
 if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
     echo "Running meta server object store fsck"
     ls -1 "$objectstoredir" | qfsobjstorefsck
     status=$?
+    reoirt_test_status "Meta server object store fsck" $status
 fi
 if [ $status -eq 0 ]; then
     echo "Running re-balance planner"
     rebalanceplanner -d -L ERROR
     status=$?
+    reoirt_test_status "Re-balance planner" $status
 fi
 
 find "$testdir" -name core\* || status=1
@@ -1437,6 +1452,14 @@ if [ $status -eq 0 \
         ]; then
     echo "Passed all tests"
 else
+    reoirt_test_status "Copy"        $cpstatus
+    reoirt_test_status "Qfs tool"    $qfstoolstatus
+    reoirt_test_status "Fanout"      $fostatus
+    reoirt_test_status "Sort master" $smstatus
+    reoirt_test_status "Java shim"   $kfsaccessstatus
+    reoirt_test_status "C bindings"  $qfscstatus
+    reoirt_test_status "Fsck"        $fsckstatus
+    reoirt_test_status "Fuse"        $fusestatus
     echo "Test failure"
     status=1
 fi
