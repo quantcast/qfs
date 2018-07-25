@@ -92,12 +92,22 @@ if(PKG_CONFIG_FOUND)
     endif(PC_FUSE_FOUND)
 endif(PKG_CONFIG_FOUND)
 
-find_path(
-    FUSE_INCLUDE_DIRS
-    NAMES fuse.h
-    PATHS "${PC_FUSE_INCLUDE_DIRS}"
-    DOC "Include directories for FUSE"
-)
+if ("${PC_FUSE_INCLUDE_DIRS}" STREQUAL "")
+    find_path(
+        FUSE_INCLUDE_DIRS
+        NAMES fuse.h
+        PATHS "${PC_FUSE_INCLUDE_DIRS}"
+        DOC "Include directories for FUSE"
+    )
+else()
+    find_path(
+        FUSE_INCLUDE_DIRS
+        NAMES fuse.h
+        NO_DEFAULT_PATH
+        PATHS "${PC_FUSE_INCLUDE_DIRS}"
+        DOC "Include directories for FUSE"
+    )
+endif()
 
 if(NOT FUSE_INCLUDE_DIRS)
     set(FUSE_FOUND FALSE)
@@ -117,7 +127,7 @@ endif(NOT FUSE_LIBRARIES)
 
 if(FUSE_FOUND)
     FOREACH(FUSE_VERSION_INCLUDE
-            "${FUSE_INCLUDE_DIRS}/osxfuse/fuse_common.h"
+            "${FUSE_INCLUDE_DIRS}/osxfuse/fuse/fuse_common.h"
             "${FUSE_INCLUDE_DIRS}/fuse/fuse_common.h"
             "${FUSE_INCLUDE_DIRS}/fuse_common.h")
         if (EXISTS "${FUSE_VERSION_INCLUDE}")
