@@ -75,7 +75,7 @@ else:
     kfsext.libraries.append('boost_regex')
 
 setup(
-    name = "qfs", version = "1.0",
+    name = "qfs", version = "2.0",
     description="QFS client module",
     author="Blake Lewis and Sriram Rao",
     ext_modules = [kfsext]
