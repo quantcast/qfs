@@ -1506,6 +1506,12 @@ NetDispatch::ForkDone()
 /* virtual */ void
 MainThreadPrepareToFork::DispatchStart()
 {
+    if (gLayoutManager.GetUserAndGroup().GetUpdateCount() !=
+            gLayoutManager.GetClientAuthContext().GetUserAndGroupUpdateCount()
+            ) {
+        gLayoutManager.GetClientAuthContext().SetUserAndGroup(
+            gLayoutManager.GetUserAndGroup());
+    }
     mClientManager.PrepareToFork();
 }
 
@@ -1794,20 +1800,19 @@ ClientManager::Impl::StartAcceptor(int threadCount, int startCpuAffinity,
         return true;
     }
     mClientThreadCount = max(threadCount, 0);
-    if (mClientThreadCount <= 0) {
-        return true;
-    }
-    int cpuIndex = startCpuAffinity;
-    mClientThreads = new ClientManager::ClientThread[mClientThreadCount];
-    for (int i = 0; i < mClientThreadCount; i++) {
-        if (! mClientThreads[i].Start(&mMutex, cpuIndex)) {
-            delete [] mClientThreads;
-            mClientThreads     = 0;
-            mClientThreadCount = -1;
-            return false;
-        }
-        if (cpuIndex >= 0) {
-            cpuIndex++;
+    if (0 < mClientThreadCount) {
+        int cpuIndex = startCpuAffinity;
+        mClientThreads = new ClientManager::ClientThread[mClientThreadCount];
+        for (int i = 0; i < mClientThreadCount; i++) {
+            if (! mClientThreads[i].Start(&mMutex, cpuIndex)) {
+                delete [] mClientThreads;
+                mClientThreads     = 0;
+                mClientThreadCount = -1;
+                return false;
+            }
+            if (cpuIndex >= 0) {
+                cpuIndex++;
+            }
         }
     }
     metaDataSync.StartLogSync(
