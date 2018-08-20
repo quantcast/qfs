@@ -30,6 +30,16 @@ jerasuretest=''
 mycsdebugverifyiobuffers=0
 myvalgrindlog='valgrind.log'
 myopttestfuse='yes'
+chunkserverclithreads=${chunkserverclithreads-3}
+metaserverclithreads=${metaserverclithreads-2}
+
+validnumorexit()
+{
+    if [ x"`expr "$2" - 0 2>/dev/null`" = x ]; then
+        echo "invalid argument value $1 $2"
+        exit 1
+    fi
+}
 
 while [ $# -ge 1 ]; do
     if [ x"$1" = x'-valgrind' ]; then
@@ -57,7 +67,7 @@ while [ $# -ge 1 ]; do
         s3test='yes'
         s3debug=1
     elif [ x"$1" = x'-auth' ]; then
-        auth='no'
+        auth='yes'
     elif [ x"$1" = x'-csrpctrace' ]; then
         csrpctrace=1
     elif [ x"$1" = x'-jerasure' ]; then
@@ -68,12 +78,24 @@ while [ $# -ge 1 ]; do
         myopttestfuse='no'
     elif [ x"$1" = x'-cs-iobufsverify' ]; then
         mycsdebugverifyiobuffers=1
+    elif [ x"$1" = x'-cs-cli-threads' ]; then
+    	argname=$1
+    	shift
+        chunkserverclithreads=$1
+        validnumorexit $argname $chunkserverclithreads
+    elif [ x"$1" = x'-meta-cli-threads' ]; then
+    	argname=$1
+    	shift
+        metaserverclithreads=$1
+        validnumorexit $argname $metaserverclithreads
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth]" \
+        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth|-noauth]" \
             "[-s3 | -s3debug] [-csrpctrace] [-trdverify]" \
             "[-jerasure | -no-jerasure]" \
-            "[-cs-iobufsverify] [-no-fuse]"
+            "[-cs-iobufsverify] [-no-fuse]" \
+	    "[-cs-cli-threads <num>]" \
+	    "[-meta-cli-threads <num>]"
         exit 1
     fi
     shift
@@ -163,7 +185,6 @@ minrequreddiskspace=${minrequreddiskspace-6.5e9}
 minrequreddiskspacefanoutsort=${minrequreddiskspacefanoutsort-11e9}
 lowrequreddiskspace=${lowrequreddiskspace-20e9}
 lowrequreddiskspacefanoutsort=${lowrequreddiskspacefanoutsort-30e9}
-chunkserverclithreads=${chunkserverclithreads-3}
 csheartbeatinterval=${csheartbeatinterval-5}
 cptestextraopts=${cptestextraopts-}
 mkcerts=`dirname "$0"`
@@ -541,7 +562,7 @@ metaServer.rootDirMode = 0777
 metaServer.maxSpaceUtilizationThreshold = 0.99999
 metaServer.clientCSAllowClearText = $csallowcleartext
 metaServer.appendPlacementIgnoreMasterSlave = 1
-metaServer.clientThreadCount = 2
+metaServer.clientThreadCount = $metaserverclithreads
 metaServer.startupAbortOnPanic = 1
 metaServer.objectStoreEnabled  = 1
 metaServer.objectStoreDeleteDelay = 2
