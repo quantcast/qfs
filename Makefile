@@ -106,7 +106,7 @@ python: build
 .PHONY: test
 test: hadoop-jars
 	cd build/${BUILD_TYPE} && \
-	    ../../src/test-scripts/qfstest.sh ${QFSTEST_OPTIONS} && \
+	    ../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS} && \
             echo '--------- QC RS recovery test ---------' && \
 	    ../../src/test-scripts/recoverytest.sh && \
             echo '--------- Jerasure recovery test ------' && \
