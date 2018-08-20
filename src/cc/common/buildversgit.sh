@@ -19,7 +19,7 @@
 # permissions and limitations under the License.
 
 # default version to use if git is not available
-qfs_no_git_version="2.0.0"
+qfs_no_git_version="2.0.1"
 
 usage() {
     echo "
