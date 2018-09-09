@@ -42,6 +42,7 @@ env:
         - DISTRO=ubuntu        VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - DISTRO=ubuntu        VER=18.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=centos        VER=5     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=centos        VER=6     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - DISTRO=centos        VER=7     CODECOV=no  BTYPE=release BUSER=qfsbuild
@@ -61,6 +62,8 @@ matrix:
           env: DISTRO=f69m/ubuntu32 VER=16.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
           env: DISTRO=ubuntu        VER=14.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
+        - os: osx
+          env: DISTRO=ubuntu        VER=18.04 CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
           env: DISTRO=centos        VER=5     CODECOV=no  BTYPE=release BUSER=qfsbuild
         - os: osx
