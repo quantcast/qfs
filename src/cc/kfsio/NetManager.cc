@@ -234,6 +234,7 @@ NetManager::SetResolverParameters(bool useOsResolverFlag,
         Resolver* const tmp = mResolver;
         mResolver = mResolverPrev;
         mResolverPrev = tmp;
+        mResolverOsFlag = useOsResolverFlag;
     }
     mResolverCacheSize       = cacheSize;
     mResolverCacheExpiration = cacheExpiration;
