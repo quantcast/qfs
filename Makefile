@@ -27,6 +27,7 @@ CMAKE=cmake
 MAKE_OPTIONS=
 QFSTEST_OPTIONS=
 JAVA_BUILD_OPTIONS=
+QFSHADOOP_VERSIONS=0.23.4  0.23.11  1.0.4  1.1.2  2.5.1  2.7.2
 
 .PHONY: all
 all: build
@@ -49,15 +50,14 @@ java: build
 	./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS}
 
 .PHONY: hadoop-jars
-hadoop-jars: build java
+hadoop-jars: java
 	if mvn --version >/dev/null 2>&1 ; then \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean   && \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 0.23.4  && \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 0.23.11 && \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 1.0.4   && \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 1.1.2   && \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 2.5.1   && \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} 2.7.2      \
+		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean && \
+                for hadoop_version in ${QFSHADOOP_VERSIONS}; do \
+		./src/java/javabuild.sh \
+                    ${JAVA_BUILD_OPTIONS} "$${hadoop_version}" \
+                    || break; \
+                done \
 	; fi
 
 .PHONY: tarball

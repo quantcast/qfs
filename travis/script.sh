@@ -168,7 +168,11 @@ build_ubuntu()
 {
     $MYSUDO apt-get update
     $MYSUDO apt-get install -y $DEPS_UBUNTU
-    do_build_linux
+    if [ x"$1" = x'18.04' ]; then
+        do_build_linux QFSHADOOP_VERSIONS='1.0.4 1.1.2 2.7.2'
+    else
+        do_build_linux
+    fi
 }
 
 build_ubuntu32()
