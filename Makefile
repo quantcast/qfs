@@ -52,12 +52,12 @@ java: build
 .PHONY: hadoop-jars
 hadoop-jars: java
 	if mvn --version >/dev/null 2>&1 ; then \
-		./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean && \
-                for hadoop_version in ${QFSHADOOP_VERSIONS}; do \
-		./src/java/javabuild.sh \
-                    ${JAVA_BUILD_OPTIONS} "$${hadoop_version}" \
-                    || break; \
-                done \
+	    ./src/java/javabuild.sh ${JAVA_BUILD_OPTIONS} clean && \
+	    for hadoop_version in ${QFSHADOOP_VERSIONS}; do \
+	        ./src/java/javabuild.sh \
+	            ${JAVA_BUILD_OPTIONS} "$${hadoop_version}" \
+	            || break; \
+	    done \
 	; fi
 
 .PHONY: tarball
