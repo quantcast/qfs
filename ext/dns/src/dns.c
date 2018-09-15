@@ -8223,21 +8223,23 @@ static int dns_ai_setent(struct addrinfo **ent, union dns_any *any, enum dns_typ
 
 	switch (type) {
 	case DNS_T_A:
-		saddr	= memset(&sin, '\0', sizeof sin);
+		memset(&sin, '\0', sizeof sin);
 
 		sin.sin_family	= AF_INET;
 		sin.sin_port	= htons(ai->port);
 
 		memcpy(&sin.sin_addr, any, sizeof sin.sin_addr);
+                saddr = (void*)&sin;
 
 		break;
 	case DNS_T_AAAA:
-		saddr	= memset(&sin6, '\0', sizeof sin6);
+		memset(&sin6, '\0', sizeof sin6);
 
 		sin6.sin6_family	= AF_INET6;
 		sin6.sin6_port		= htons(ai->port);
 
 		memcpy(&sin6.sin6_addr, any, sizeof sin6.sin6_addr);
+                saddr = (void*)&sin6;
 
 		break;
 	default:
