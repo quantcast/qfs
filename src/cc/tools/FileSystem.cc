@@ -927,8 +927,8 @@ public:
         int          thePort     = 20000;
         const bool   theIpV6Flag = ! inHostPort.empty() &&
             (*inHostPort.begin() & 0xFF) == '[';
-        if ((theIpV6Flag && inHostPort.length() < 2) ||
-                (inHostPort[1] & 0xFF) == 'v') {
+        if (theIpV6Flag && (inHostPort.length() < 2 ||
+                (inHostPort[1] & 0xFF) == 'v')) {
             // Future ip version is not supported.
             return -EINVAL;
         }
