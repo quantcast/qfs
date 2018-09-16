@@ -3,12 +3,13 @@
 New features
 -------------
 
-1. Non blocking DNS resolver. Resolver implementation at [https://github.com/wahern/dns]: https://github.com/wahern/dns
+1. Non blocking DNS resolver. Resolver implementation at https://github.com/wahern/dns
 is used by default. It is possible to configure QFS to use OS DNS resolver.
-DNS related configuration options are described in the annotated [configuration files]: https://github.com/quantcast/qfs/tree/master/conf
-Non blocking DNS resolver allows higher IO concurrency with S3 [compatible] object stores.
+DNS related configuration options are described in the annotated [configuration
+files](https://github.com/quantcast/qfs/tree/master/conf)
+Non blocking DNS resolver allows higher IO concurrency with S3 [compatible] object store.
 
-2  Basic DNS query results cache. The cache is on by default only for S3 object
+2. Basic DNS query result cache. The cache is on by default only for S3 object
 store. The default cache timeout is 1 second. The cache is intended to improve
 S3 object store IO performance and reduce DNS servers load.
 
