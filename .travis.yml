@@ -96,4 +96,5 @@ deploy:
     secret_access_key:
         - secure: HkCLJKSX7jUPzsbZeiK3pSwECP79q6ypRnzudsTlRzmbW/eKloJHLwPEZycAakH9S24cqgjKTvv1O8XZ8sTGx0lhonRRBOXeYN9tVKrwL7CIbDHy4fOJkVQYG321EmKr3UIL9rAYZyR01WC1hEJ6pPJK7xgcFTDhZ0e47wegUlI=
     on:
-        condition: "$CODECOV != yes && $BTYPE = release && $BUSER != root"
+        all_branches: true
+        condition: "$CODECOV != yes && $BTYPE = release && $BUSER != root && ( $TRAVIS_BRANCH = $TRAVIS_TAG || $TRAVIS_BRANCH = master )"
