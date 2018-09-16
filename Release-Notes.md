@@ -1,4 +1,33 @@
-QFS version 2.0.
+## QFS version 2.1.0
+
+New features
+-------------
+
+1. Non blocking DNS resolver. Resolver implementation at [https://github.com/wahern/dns]: https://github.com/wahern/dns
+is used by default. It is possible to configure QFS to use OS DNS resolver.
+DNS related configuration options are described in the annotated [configuration files]: https://github.com/quantcast/qfs/tree/master/conf
+Non blocking DNS resolver allows higher IO concurrency with S3 [compatible] object stores.
+
+2  Basic DNS query results cache. The cache is on by default only for S3 object
+store. The default cache timeout is 1 second. The cache is intended to improve
+S3 object store IO performance and reduce DNS servers load.
+
+Bug fixes
+----------------------------------------------
+
+1. Fixed homebrew osxfuse build.
+
+2. Fixed client authentication in the case when meta server configured
+with no "client" threads.
+
+3. Fixed file system URL parsing in QFS tool.
+
+Upgrade from 2.0. release.
+---------------------------
+
+The 2.0.1 release is backward and forward compatible with 2.0 release.
+
+## QFS version 2.0.
 
 New features
 -------------
