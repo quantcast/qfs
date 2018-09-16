@@ -1,19 +1,22 @@
-QFS version 2.0.
+QFS version 2.1.0
 
-The code in the master branch is currently being tested in
-Quantcast production cluster.
+Non blocking DNS resolver is the new feature in release 2.1.0. The new
+DNS resolver is intended to improve S3 [compatible] object store IO
+concurrency and reduce latency.
 
-Meta server replication is the major new feature in this release. Meta server
+Meta server replication is the major new feature in release 2.0.0. Meta server
 replication provides automatic meta server fail over. With meta server replication
 configured QFS does not have single point of failure.
 
-Release notes for this release are available [here](https://github.com/quantcast/qfs/wiki/Release-Notes).
+Release notes are available [here](https://github.com/quantcast/qfs/wiki/Release-Notes).
 
 Quantcast File System
 ================================================================================
 Quantcast File System (QFS) is a high-performance, fault-tolerant, distributed
 file system developed to support MapReduce processing, or other applications
 reading and writing large files sequentially.
+
+QFS used in Quantcast production cluster.
 
 QFS servers have been tested on 64-bit CentOS 6 extensively and run on Linux
 variants. The QFS client tools work on OS X and Cygwin as well.
@@ -22,8 +25,10 @@ variants. The QFS client tools work on OS X and Cygwin as well.
 |--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Mac OS X     | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
 | Ubuntu 14.04 | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
+| Ubuntu 18.04 | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
 | CentOS 6     | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
 | CentOS 7     | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
+| Debian 9     | [![Build Status](https://travis-ci.org/quantcast/qfs.svg?branch=master)](https://travis-ci.org/quantcast/qfs)                                                         |
 
 The implementation details and features of QFS are discussed in detail in the
 project [wiki](https://github.com/quantcast/qfs/wiki/Introduction-To-QFS).
