@@ -71,11 +71,11 @@ tarball: hadoop-jars
 	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
 	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
-		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2`" ; \
+		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
 	    elif [ x"$$myflavor" = x ]; then \
 		myflavor=$$myuname ; \
 	    else \
-		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3`" ; \
+		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
 	    fi ; \
 	else \
 	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
