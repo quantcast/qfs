@@ -5974,7 +5974,7 @@ MetaChunkReplicate::request(ReqOstream& os)
             srcLocation << "\r\n";
     }
     if (shortRpcFormatFlag && longRpcFormatFlag) {
-        os << "LF:1\r\n";
+        rs << "LF:1\r\n";
     }
     if (0 < validForTime) {
         if (clientCSAllowClearTextFlag) {
