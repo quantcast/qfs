@@ -97,7 +97,7 @@ public:
     }
     void RemoveExpired()
     {
-        QCStMutexLocker(mMutexPtr);
+        QCStMutexLocker theLocker(mMutexPtr);
         Expire();
     }
     virtual void Timeout()
@@ -114,7 +114,7 @@ public:
             ++theIt;
         }
         if (mTokens.begin() != theIt) {
-            QCStMutexLocker(mMutexPtr);
+            QCStMutexLocker theLocker(mMutexPtr);
             mTokens.erase(mTokens.begin(), theIt);
         }
     }
@@ -124,7 +124,7 @@ public:
         if (inToken.GetValidForSec() <= 0) {
             return false;
         }
-        QCStMutexLocker(mMutexPtr);
+        QCStMutexLocker theLocker(mMutexPtr);
         mUpdateCount++;
         return mTokens.insert(Token(inToken)).second;
     }
@@ -135,7 +135,7 @@ public:
         DelegationToken::TokenSeq inSeq,
         uint16_t                  inFlags)
     {
-        QCStMutexLocker(mMutexPtr);
+        QCStMutexLocker theLocker(mMutexPtr);
         mUpdateCount++;
         return mTokens.insert(Token(
             inExpiration,
@@ -153,7 +153,7 @@ public:
         uint16_t                  inFlags,
         uint64_t&                 outUpdateCount)
     {
-        QCStMutexLocker(mMutexPtr);
+        QCStMutexLocker theLocker(mMutexPtr);
         outUpdateCount = mUpdateCount;
         return (mTokens.find(Token(
             inExpiration,
@@ -167,7 +167,7 @@ public:
         const DelegationToken& inToken,
         uint64_t&              outUpdateCount)
     {
-        QCStMutexLocker(mMutexPtr);
+        QCStMutexLocker theLocker(mMutexPtr);
         outUpdateCount = mUpdateCount;
         return (mTokens.find(Token(inToken)) != mTokens.end());
     }
