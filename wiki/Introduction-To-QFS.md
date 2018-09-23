@@ -92,9 +92,28 @@ QFS Features
   to stat a file from 700 milliseconds to below 10 milliseconds in our tests.
   Additional tools for loading/unloading data into QFS, as well as tools to
   monitor the chunk servers and metaserver are also provided.
-- **FUSE support on Linux:** By mounting QFS via FUSE, this support allows
-  existing linux utilities (such as `ls`) to interface with QFS.
-- **Unix style permissions support**
+- **FUSE support on Linux and MacOS X:** By mounting QFS via FUSE, this support
+ allows  existing linux utilities (such as `ls`) to interface with QFS.
+- **Concurrent atomic write append support:** multiple QFS clients can
+  simultaneously append data to the same chunk. Each write is synchronously
+  replicated. QFS write append protocol guarantees append operation atomicity
+  [all or nothing] and ensures that all chunk replicas are identical.
+- **N+M Reed-Solomon error correction / encoding support:** QFS has two
+  encoders: one is optimized for N+3 (3 error correction stripes), the other
+  supports arbitrary number of error correction stripes.
+- **Unix style permissions support.**
+- **Kerberos and X.509 authentication support:** meta server, chunk server, and
+  QFS client can optionally use Kerberos and/or X.509 authentication.
+- **TLS encrypted network communication:** TLS can optionally be used to secure
+  communications between meta server, chunk server, and QFS client nodes.
+- **Object store [S3] support:** file data can be optionally stored in AWS S3
+  compatible object store. "Object store" and conventional files can exist in
+  same file system.
+- **Storage tiers support:** files and directories can be assigned storage tiers
+  range. When created, files and directories are assigned parent's directory
+  tier range. Chunk servers, in turn, can be configured to use storage media with
+  different characteristics for each tier. For example: RAM disk, SSD, and
+  rotational media tiers, or standard S3 and "glacier" tiers.
 - **Meta server replication:** solves single point of failure problem. QFS file
   system meta data stored in checkpoint and transaction log segments can be
   synchronously replicated to multiple meta server nodes, in order to mask
