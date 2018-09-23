@@ -1,3 +1,16 @@
+## QFS version 2.1.1
+
+Bug fixes
+----------------------------------------------
+
+1. Fix backward compatibility with chunk server 1.x releases by correctly handling
+the case where 1.x chunk server is a replication data source for 2.x chunk server.
+The problem can only occur with mix of 2.x and 1.x chunk server versions.
+
+2. Omit linux release patch version from the tar file name in order to make links to Travis builds consistent.
+
+3. Update wiki in qfs.git from qfs.wiki.git.
+
 ## QFS version 2.1.0
 
 New features
