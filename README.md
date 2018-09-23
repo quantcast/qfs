@@ -1,4 +1,6 @@
-QFS version 2.1.0
+QFS version 2.1.1
+
+Release 2.1.1 contains minor bug fixes..
 
 Non blocking DNS resolver is the new feature in release 2.1.0. The new
 DNS resolver is intended to improve S3 [compatible] object store IO
