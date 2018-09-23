@@ -92,6 +92,8 @@ QFS Features
   to stat a file from 700 milliseconds to below 10 milliseconds in our tests.
   Additional tools for loading/unloading data into QFS, as well as tools to
   monitor the chunk servers and metaserver are also provided.
+- **Direct IO:** is used by default if supported by the OS and host file system
+  in order to minimize CPU and OS memory utilization.
 - **FUSE support on Linux and MacOS X:** By mounting QFS via FUSE, this support
  allows  existing linux utilities (such as `ls`) to interface with QFS.
 - **Concurrent atomic write append support:** multiple QFS clients can
