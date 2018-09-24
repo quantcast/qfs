@@ -68,7 +68,7 @@ Started|Home]] for how to use them.
 [1.0.1,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.0.1-x86_64.tgz
 
 [master,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.5-master-x86_64.tgz
-[2.1.1,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.5.-2.1.1-x86_64.tgz
+[2.1.1,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.5-2.1.1-x86_64.tgz
 [2.1.0,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.5.1804-2.1.0-x86_64.tgz
 [1.2.1,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.3.1611-1.2.1-x86_64.tgz
 [1.2.0,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.2.1511-1.2.0-x86_64.tgz
