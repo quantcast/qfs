@@ -1,6 +1,6 @@
 Binary tarballs of QFS are made available for the following platforms. These are
-ideal for quickly trying out QFS as a Single Node deployment. See [[Getting
-Started|Home]] for how to use them.
+ideal for quickly trying out QFS as a Single Node deployment. See
+[Trying QFS](//github.com/quantcast/qfs#trying-qfs) for how to use them.
 
 | Release          | Ubuntu 14.04 Trusty Tahr       | Ubuntu 16.04 LTS (Xenial Xerus)   | Ubuntu 18.04 LTS (Bionic Beaver)   | Debian 9 Stretch           | CentOS 6                  | CentOS 7                 | Mac OS X                 |
 |------------------|--------------------------------|-----------------------------------|------------------------------------|----------------------------|---------------------------|--------------------------|--------------------------|
