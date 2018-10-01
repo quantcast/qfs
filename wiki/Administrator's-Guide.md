@@ -87,7 +87,7 @@ solve single point of failure problem.
 Meta server replication design  based on Veiwstamped replication (VR) [paper](http://pmg.csail.mit.edu/papers/vr-revisited.pdf).
 The minimal configuration requires 3 meta server nodes. At least 3 nodes are
 needed to solve "network partitioning" problem. This problem occurs when some
-subset(s) of meta server nodes cannot communicates with another
+subset(s) of meta server nodes cannot communicate with another
 subset(s) of meta server nodes. In such case a subset of nodes larger than or
 equal to N/2 + 1 (a.k.a. quorum), if exists, automatically selected to service
 requests. The problem description can be found in the VR paper.
@@ -103,10 +103,10 @@ connectivity failure(s).
 
 1. Assign node IDs. The node ID must be non negative 63 bit integer. Initial
 set of nodes must have node with ID 0. The node with lowest ID is elected as a
-primary primary, the remaining active nodes are assigned backup status. Node's
-"primary order" (signed 32 bit signed integer) can be used to change primary
-election, the node with the smallest primary order becomes primary. Node's
-primary order takes precedence over node ID, node ID breaks tie in case when
+primaryf. The remaining active nodes are assigned backup status. Node's
+"primary order" (32 bit signed integer) can be used to change primary
+election. The node with the smallest primary order becomes primary. Node's
+primary order takes precedence over node ID. The node ID breaks tie in case when
 primary orders are equal. In initial configuration all nodes primary order
 must be set to 0. Node primary order is VR configuration parameter, it can be
 changed with qfsadmin vr_reconfiguration command.
@@ -148,14 +148,14 @@ command description.
 
 QFS admin configuration file has the same format and parameters as QFS client
 configuration file. Typically configuration file describes authentication
-configuration. Without authentication configuration the configuration
+configuration. With no authentication configured the configuration
 file is required in the case when parameter client.metaServerNodes is used
 instead of DNS meta server host A or AAAA records to associate all meta server
 nodes IP addresses with the meta server host.
 
 Admin tool needs to be told of all meta server nodes; it is just a special QFS
 client. Admin tool will find the node that is currently primary (for initial
-configuration it is always be the node with id 0), and then send RPCs to primary
+configuration it is always be the node with id 0), and then send RPCs to the primary
 node. The primary node will, in turn, replicate VR reconfiguration RPC to the
 secondaries nodes, the same way as it replicates non admin RPCs.
 
