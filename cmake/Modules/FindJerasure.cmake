@@ -23,6 +23,12 @@
 include(ExternalProject)
 set(KFS_EXTERNAL_PROJECT_DIR ${KFS_DIR_PREFIX}/ext/)
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set (Jfe_CONFIGURE_C_COMPILER cc)
+else()
+    set (Jfe_CONFIGURE_C_COMPILER ${CMAKE_C_COMPILER})
+endif()
+
 set(Gf_complete          "gf-complete")
 set(Gf_complete_CPPFLAGS
     "-I${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/include")
@@ -32,7 +38,7 @@ ExternalProject_Add(Gf_complete_proj
     DOWNLOAD_COMMAND  ""
     SOURCE_DIR        ${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}
     CONFIGURE_COMMAND ${KFS_EXTERNAL_PROJECT_DIR}${Gf_complete}/configure
-        CC=${Gf_complete_CC}
+        CC=${Jfe_CONFIGURE_C_COMPILER}
         CPPFLAGS=${Gf_complete_CPPFLAGS}
         --enable-static=yes
         --enable-shared=yes
@@ -52,14 +58,13 @@ set(Jerasure          "jerasure")
 set(Jerasure_CPPFLAGS
     "-I${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/include -I${Gf_complete_INCLUDE}")
 set(Jerasure_LDFLAGS  "-L${Gf_complete_LIB_DIR}")
-set(Jerasure_CC       ${CMAKE_C_COMPILER})
 set(Jerasure_PREFIX   ${CMAKE_CURRENT_BINARY_DIR}/${Jerasure})
 ExternalProject_Add(Jerasure_proj
     DEPENDS           Gf_complete_proj
     DOWNLOAD_COMMAND  ""
     SOURCE_DIR        ${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}
     CONFIGURE_COMMAND ${KFS_EXTERNAL_PROJECT_DIR}${Jerasure}/configure
-        CC=${Jerasure_CC}
+        CC=${Jfe_CONFIGURE_C_COMPILER}
         CPPFLAGS=${Jerasure_CPPFLAGS}
         LDFLAGS=${Jerasure_LDFLAGS}
         --enable-static=yes
