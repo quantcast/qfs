@@ -147,6 +147,7 @@ InitializeMetaServerGlobals()
 {
     set_new_handler(&NewHandler);
     InitGlobals();
+    MetaFattr::Init();
     globalNetManager();
     ObjectCountsChecker::Check("initialization: counts are not 0\n");
     static ObjectCountsChecker sObjectCountsChecker;

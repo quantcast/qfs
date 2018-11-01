@@ -27,6 +27,7 @@
 #include "kfstree.h"
 #include "LayoutManager.h"
 #include "util.h"
+#include "common/LinearHash.h"
 
 #include <iostream>
 #include <fstream>
@@ -187,6 +188,87 @@ Meta::match(const Meta* test) const
             panic("Meta::match: invalid node type");
     }
     return false;
+}
+
+typedef KVPair<fid_t, string> MetaFattrExtEntry;
+typedef LinearHash<
+    MetaFattrExtEntry,
+    KeyCompare<fid_t>,
+    DynamicArray<
+        SingleLinkedList<MetaFattrExtEntry>*,
+        19 // 2^19 * sizeof(void*) => 4 MB
+    >,
+    PoolAllocatorAdapter<
+        MetaFattrExtEntry,
+        size_t(1)   << 20, // size_t TMinStorageAlloc,
+        size_t(128) << 20, // size_t TMaxStorageAlloc,
+        false              // bool   TForceCleanupFlag
+    >
+> MetaFattrExtAttributes;
+
+static const MetaFattrExtAttributes* sMetaFattrExtAttributesForDebugPtr = 0;
+
+static MetaFattrExtAttributes&
+GetMetaFattrExtAttributesTable()
+{
+    static MetaFattrExtAttributes sMetaFattrExtAttributes;
+
+    if (! sMetaFattrExtAttributesForDebugPtr)
+    {
+        sMetaFattrExtAttributesForDebugPtr = &sMetaFattrExtAttributes;
+    }
+    return sMetaFattrExtAttributes;
+}
+
+static const string&
+GetEmptyString()
+{
+    static const string sEmptyString;
+
+    return sEmptyString;
+}
+
+const string&
+MetaFattr::GetExtAttributesSelf(fid_t fid) const
+{
+    const string* const ret = GetMetaFattrExtAttributesTable().Find(fid);
+
+    return ret ? *ret : GetEmptyString();
+}
+
+void
+MetaFattr::ExtAttributesClear()
+{
+    GetMetaFattrExtAttributesTable().Erase(id());
+    fattrExtType = FattrExtTypeNone;
+}
+
+void
+MetaFattr::SetExtAttributes(MetaFattr::FattrExtTypes type, const string& attrs)
+{
+    MetaFattrExtAttributes& table = GetMetaFattrExtAttributesTable();
+
+    if (fattrExtType == type && attrs.empty())
+    {
+        table.Erase(id());
+    }
+    else
+    {
+        bool insertedFlag = false;
+        string* const val = table.Insert(id(), attrs, insertedFlag);
+        if (! insertedFlag)
+        {
+            *val = attrs;
+        }
+    }
+    fattrExtType = type;
+}
+
+void
+MetaFattr::Init()
+{
+    GetMetaFattrExtAttributesTable();
+    GetEmptyString();
 }
 
 } // namespace KFS

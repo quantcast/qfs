@@ -36,7 +36,6 @@
 
 #include <ostream>
 #include <string>
-#include <cassert>
 
 namespace KFS {
 
@@ -175,6 +174,12 @@ class BaseFattr {
 protected:
     fid_t fid;      //!< id of this item's owner
 public:
+    typedef uint16_t FattrExtType; // Extended attributes type.
+    enum FattrExtTypes
+    {
+        FattrExtTypeNone = 0,
+        FattrExtTypeSymlink
+    };
     BaseFattr(
         FileType  t  = KFS_NONE,
         fid_t     id = 0,
@@ -193,7 +198,8 @@ public:
           subcount2(0),
           filesize(0),
           minSTier(kKfsSTierMax),
-          maxSTier(kKfsSTierMax)
+          maxSTier(kKfsSTierMax),
+          fattrExtType(FattrExtTypeNone)
         {}
     BaseFattr(
         FileType  t,
@@ -217,7 +223,8 @@ public:
           subcount2(0),
           filesize(0),
           minSTier(kKfsSTierMax),
-          maxSTier(kKfsSTierMax)
+          maxSTier(kKfsSTierMax),
+          fattrExtType(FattrExtTypeNone)
         {}
     FileType        type:2;         //!< file or directory
     StripedFileType striperType:5;
@@ -240,6 +247,9 @@ public:
     chunkOff_t      filesize;
     kfsSTier_t      minSTier;
     kfsSTier_t      maxSTier;
+protected:
+    FattrExtType    fattrExtType;
+public:
 
     fid_t id() const { return fid; }    //!< return the owner id
     void setReplication(int16_t val) {
@@ -305,6 +315,7 @@ public:
     const int64_t&    fileCount() const       { return subcount1; }
     chunkOff_t&       dirCount()              { return subcount2; }
     const chunkOff_t& dirCount() const        { return subcount2; }
+    FattrExtType GetExtType() const { return fattrExtType; }
 };
 
 class MetaUserAndGroup
@@ -322,9 +333,9 @@ typedef PermissionsT<MetaUserAndGroup> FAPermissions;
 // the beginning (hopefully all fits into a cache line), while avoiding extra
 // method forwarding / wrappers required if permissions was declared an instance
 // variable.
-class MFattr : public BaseFattr, public PermissionsT<MetaUserAndGroup> {
+class MFattrBase : public BaseFattr, public PermissionsT<MetaUserAndGroup> {
 public:
-    MFattr(
+    MFattrBase(
         FileType  t  = KFS_NONE,
         fid_t     id = 0,
         int16_t   n  = 0,
@@ -334,7 +345,7 @@ public:
         : BaseFattr(t, id, n),
           PermissionsT<MetaUserAndGroup>(u, g, m)
         {}
-    MFattr(
+    MFattrBase(
         FileType  t,
         fid_t     id,
         int64_t   mt,
@@ -356,12 +367,12 @@ public:
  * This structure plays the role of an inode in KFS.  Currently just
  * an "artist's conception"; more attritbutes will be added as needed.
  */
-class MetaFattr: public Meta, public MFattr {
+class MetaFattr: public Meta, public MFattrBase {
 private:
     MetaFattr(FileType t, fid_t id, int16_t n,
         kfsUid_t u, kfsGid_t g, kfsMode_t m, int64_t tm)
         : Meta(KFS_FATTR),
-          MFattr(t, id, n, u, g, m),
+          MFattrBase(t, id, n, u, g, m),
           parent(0)
     {
         atime = tm;
@@ -379,7 +390,7 @@ private:
         kfsGid_t  g,
         kfsMode_t m)
         : Meta(KFS_FATTR),
-          MFattr(t, id, mt, ct, crt, c, n, u, g, m),
+          MFattrBase(t, id, mt, ct, crt, c, n, u, g, m),
           parent(0)
         {}
 protected:
@@ -408,6 +419,9 @@ public:
     }
     void destroySelf()
     {
+        if (FattrExtTypeNone != fattrExtType) {
+            ExtAttributesClear();
+        }
         this->~MetaFattr();
         deallocate(this);
     }
@@ -422,6 +436,39 @@ public:
         return (test->metaType() == KFS_FATTR &&
             id() == refine<MetaFattr>(test)->id());
     }
+    void SetExtAttributes(FattrExtTypes type, const string& attrs);
+    string GetExtAttributes() const {
+        if (FattrExtTypeNone == fattrExtType) {
+            return string();
+        }
+        return GetExtAttributesSelf(id());
+    }
+    static void Init();
+private:
+    const string& GetExtAttributesSelf(fid_t fid) const;
+    void ExtAttributesClear();
+};
+
+// The following class is shallow copy intended to be used as RPCs return
+// result.
+class MFattr : public MFattrBase
+{
+public:
+    MFattr()
+        : MFattrBase(),
+          extAttributes()
+        {}
+    MFattr(const MetaFattr& other)
+        : MFattrBase(other),
+          extAttributes(other.GetExtAttributes())
+        {}
+    MFattr& operator=(const MetaFattr& other)
+    {
+        MFattrBase::operator=(other);
+        extAttributes = other.GetExtAttributes();
+        return *this;
+    }
+    string extAttributes;
 };
 
 /*!
