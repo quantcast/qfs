@@ -53,6 +53,9 @@ MYCMAKE_CENTOS5='cmake28'
 MYCMAKE_OPTIONS_CENTOS5=$MYCMAKE_OPTIONS' -D _OPENSSL_INCLUDEDIR=/usr/include/openssl101e'
 MYCMAKE_OPTIONS_CENTOS5=$MYCMAKE_OPTIONS_CENTOS5' -D _OPENSSL_LIBDIR=/usr/lib64/openssl101e'
 
+MYQFSHADOOP_VERSIONS_UBUNTU1804='1.0.4  1.1.2  2.5.1  2.7.2'
+MYQFSHADOOP_VERSIONS_CENTOS5='0.23.4  0.23.11  1.0.4  1.1.2  2.5.1'
+
 MYBUILD_TYPE='release'
 
 set_sudo()
@@ -169,10 +172,10 @@ build_ubuntu()
     $MYSUDO apt-get update
     $MYSUDO apt-get install -y $DEPS_UBUNTU
     if [ x"$1" = x'18.04' ]; then
-        do_build_linux QFSHADOOP_VERSIONS='1.0.4 1.1.2 2.7.2'
-    else
-        do_build_linux
+        QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
+    do_build_linux \
+        ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
 }
 
 build_ubuntu32()
@@ -226,13 +229,15 @@ build_centos()
         MYPATH="$MYBINDIR:$MYPATH:/usr/kerberos/bin"
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS_CENTOS5
         MYCMAKE=$MYCMAKE_CENTOS5
+        QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_CENTOS5
     fi
     if [ x"$1" = x'7' ]; then
         # CentOS7 has the distro information in /etc/redhat-release
         $MYSUDO /bin/bash -c \
             "cut /etc/redhat-release -d' ' --fields=1,3,4 > /etc/issue"
     fi
-    do_build_linux PATH="$MYPATH" ${M2_HOME+M2_HOME="$M2_HOME"}
+    do_build_linux PATH="$MYPATH" ${M2_HOME+M2_HOME="$M2_HOME"} \
+        ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
 }
 
 set_build_type()
