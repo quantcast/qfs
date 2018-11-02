@@ -56,7 +56,7 @@ hadoop-jars: java
 	    for hadoop_version in ${QFSHADOOP_VERSIONS}; do \
 	        ./src/java/javabuild.sh \
 	            ${JAVA_BUILD_OPTIONS} "$${hadoop_version}" \
-	            || break; \
+	            || exit 1; \
 	    done \
 	; fi
 
