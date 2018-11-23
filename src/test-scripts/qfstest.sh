@@ -123,13 +123,17 @@ export myvalgrind
 exec </dev/null
 cd ${1-.} || exit
 
-if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
-    auth=${auth-yes}
-else
-    auth=${auth-no}
+if [ x"$auth" = x ]; then
+    if openssl version | grep 'OpenSSL 0\.' > /dev/null; then
+        auth='no'
+    else
+        auth='yes'
+    fi
 fi
+
 if [ x"$auth" = x'yes' ]; then
     echo "Authentication on"
+    openssl version || exit 1
 fi
 
 if [ x"$testipv6" = x'yes' ]; then
