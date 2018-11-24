@@ -587,15 +587,15 @@ public:
             int16_t numReplicas, bool exclusive,
             int32_t striperType, int32_t numStripes,
             int32_t numRecoveryStripes, int32_t stripeSize,
-            fid_t& todumpster,
             kfsUid_t user, kfsGid_t group, kfsMode_t mode,
             kfsUid_t euser, kfsGid_t egroup,
             MetaFattr** newFattr,
-            int64_t     mtime);
+            int64_t mtime,
+            bool todumpster);
     //!< final argument is optional: when non-null, this call will return
     //!< the size of the file (if known)
-    int remove(fid_t dir, const string& fname, const string& pathname, fid_t& todumpster,
-        kfsUid_t euser, kfsGid_t egroup, int64_t mtime);
+    int remove(fid_t dir, const string& fname, const string& pathname,
+        kfsUid_t euser, kfsGid_t egroup, int64_t mtime, bool todumpster);
     int mkdir(fid_t dir, const string& dname,
         kfsUid_t user, kfsGid_t group, kfsMode_t mode,
         kfsUid_t euser, kfsGid_t egroup,
@@ -617,9 +617,9 @@ public:
     int getalloc(fid_t fid, chunkOff_t offset, MetaChunkInfo **c);
     int getLastChunkInfo(fid_t fid, MetaFattr*& fa, MetaChunkInfo*& c);
     int rename(fid_t dir, const string& oldname, const string& newname,
-            const string& oldpath, bool once, fid_t& todumpster,
+            const string& oldpath, bool once,
             kfsUid_t euser, kfsGid_t egroup, int64_t mtime,
-            fid_t* outSrcFid = 0);
+            fid_t* outSrcFid, bool todumpster);
     int lookup(fid_t dir, const string& fname,
         kfsUid_t euser, kfsGid_t egroup, MetaFattr*& fa,
         MetaFattr** outParent = 0, MetaDentry** outDentry = 0);

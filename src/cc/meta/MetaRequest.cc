@@ -959,8 +959,7 @@ MetaCreate::start()
         status    = -EPERM;
         return false;
     }
-    fid        = 0;
-    todumpster = -1;
+    fid = 0;
     const bool wasNotObjectStoreFileFlag = 0 < numReplicas;
     if (striperType != KFS_STRIPED_FILE_TYPE_NONE && 0 < numRecoveryStripes) {
         numReplicas = min(numReplicas,
@@ -1011,9 +1010,9 @@ MetaCreate::handle()
     if (IsHandled()) {
         return;
     }
-    fid        = 0;
-    todumpster = 1;
+    fid = 0;
     MetaFattr* fa = 0;
+    bool const kToDumpsterFlag = true;
     status = metatree.create(
         dir,
         name,
@@ -1024,14 +1023,14 @@ MetaCreate::handle()
         numStripes,
         numRecoveryStripes,
         stripeSize,
-        todumpster,
         user,
         group,
         mode,
         euser,
         egroup,
         &fa,
-        mtime
+        mtime,
+        kToDumpsterFlag
     );
     if (status == 0) {
         if (minSTier < kKfsSTierMax) {
@@ -1149,9 +1148,9 @@ MetaRemove::handle()
     if ((status = LookupAbsPath(dir, name, euser, egroup)) != 0) {
         return;
     }
-    todumpster = 1;
-    status = metatree.remove(dir, name, pathname, todumpster,
-        euser, egroup, mtime);
+    bool const kToDumpsterFlag = true;
+    status = metatree.remove(dir, name, pathname, euser, egroup, mtime,
+        kToDumpsterFlag);
 }
 
 /* virtual */ bool
@@ -2915,11 +2914,11 @@ MetaRename::handle()
     if (0 == status) {
         // renames are disabled in WORM mode: otherwise, we
         // ocould overwrite an existing file
-        todumpster = 1;
-        srcFid     = -1;
+        srcFid = -1;
+        bool const kToDumpsterFlag = true;
         status = metatree.rename(dir, oldname, newname,
-            oldpath, overwrite && ! wormModeFlag, todumpster, euser, egroup,
-            mtime, &srcFid);
+            oldpath, overwrite && ! wormModeFlag, euser, egroup,
+            mtime, &srcFid, kToDumpsterFlag);
         if (wormModeFlag && -EEXIST == status) {
             statusMsg = "worm mode";
             status    = -EPERM;

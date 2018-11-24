@@ -841,9 +841,10 @@ replay_create(DETokenizer& c)
     // when we replay it should work; so, exclusive = false
     MetaFattr* fa = 0;
     status = metatree.create(parent, myname, &me, numReplicas, false,
-        t, n, nr, ss, todumpster, user, group, mode,
+        t, n, nr, ss, user, group, mode,
         kKfsUserRoot, kKfsGroupRoot, &fa,
-        gottime ? ctime : ReplayState::get(c).mLogSegmentTimeUsec);
+        gottime ? ctime : ReplayState::get(c).mLogSegmentTimeUsec,
+        0 < todumpster);
     if (0 == status) {
         assert(fa);
         updateSeed(fileID, me);
@@ -958,8 +959,8 @@ replay_remove(DETokenizer& c)
         if (! pop_time(mtime, "mtime", c, ok)) {
             mtime = ReplayState::get(c).mLogSegmentTimeUsec;
         }
-        status = metatree.remove(parent, myname, "", todumpster,
-        kKfsUserRoot, kKfsGroupRoot, mtime);
+        status = metatree.remove(parent, myname, "",
+            kKfsUserRoot, kKfsGroupRoot, mtime, 0 < todumpster);
     }
     return (ok && 0 == status);
 }
@@ -1017,7 +1018,7 @@ replay_rename(DETokenizer& c)
         }
         string oldpath;
         status = metatree.rename(parent, oldname, newpath, oldpath,
-            true, todumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
+            true, kKfsUserRoot, kKfsGroupRoot, mtime, 0, 0 < todumpster);
     }
     return (ok && 0 == status);
 }

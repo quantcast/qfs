@@ -195,14 +195,13 @@ Tree::link(fid_t dir, const string& fname, FileType type, fid_t myID,
  */
 int
 Tree::create(fid_t dir, const string& fname, fid_t *newFid,
-        int16_t numReplicas, bool exclusive,
-        int32_t striperType, int32_t numStripes,
-        int32_t numRecoveryStripes, int32_t stripeSize,
-        fid_t& todumpster,
-        kfsUid_t user, kfsGid_t group, kfsMode_t mode,
-        kfsUid_t euser, kfsGid_t egroup,
-        MetaFattr** newFattr,
-        int64_t mtime)
+    int16_t numReplicas, bool exclusive,
+    int32_t striperType, int32_t numStripes,
+    int32_t numRecoveryStripes, int32_t stripeSize,
+    kfsUid_t user, kfsGid_t group, kfsMode_t mode,
+    kfsUid_t euser, kfsGid_t egroup,
+    MetaFattr** newFattr,
+    int64_t mtime, bool const todumpster)
 {
     if (!legalname(fname)) {
         KFS_LOG_STREAM_WARN << "Bad file name " << fname <<
@@ -249,10 +248,10 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
         if (IsDeleteRestricted(parent, fa, euser)) {
             return -EPERM;
         }
-        const int status = remove(dir, fname, "", todumpster,
-            euser, egroup, mtime);
+        const int status = remove(dir, fname, "",
+            euser, egroup, mtime, todumpster);
         if (status != 0) {
-            assert(status == -EBUSY || todumpster > 0);
+            assert(status == -EBUSY || todumpster);
             KFS_LOG_STREAM_ERROR << "remove failed: " <<
                 " dir: "        << dir <<
                 " file: "       << fname <<
@@ -453,7 +452,8 @@ Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
  */
 int
 Tree::remove(fid_t dir, const string& fname, const string& pathname,
-    fid_t& todumpster, kfsUid_t euser, kfsGid_t egroup, int64_t mtime)
+    kfsUid_t euser, kfsGid_t egroup, int64_t mtime,
+    bool const todumpster)
 {
     MetaFattr* fa     = 0;
     MetaFattr* parent = 0;
@@ -475,13 +475,12 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         return -EPERM;
     }
     invalidatePathCache(pathname, fname, fa);
-    if (0 < todumpster) {
+    if (todumpster) {
         // put the file into dumpster
-        todumpster = fa->id();
         const int status = moveToDumpster(dir, fname, *fa, mtime);
         KFS_LOG_STREAM_DEBUG <<
             "move " << fname << " to dumpster" <<
-            " fid: "    << todumpster <<
+            " fid: "    << fa->id() <<
             " status: " << status <<
         KFS_LOG_EOM;
         return status;
@@ -2119,8 +2118,9 @@ Tree::is_descendant(fid_t src, fid_t dst, const MetaFattr* dstFa)
  */
 int
 Tree::rename(fid_t parent, const string& oldname, const string& newname,
-    const string& oldpath, bool overwrite, fid_t& todumpster,
-    kfsUid_t euser, kfsGid_t egroup, int64_t mtime, fid_t* outSrcFid)
+    const string& oldpath, bool overwrite,
+    kfsUid_t euser, kfsGid_t egroup, int64_t mtime, fid_t* outSrcFid,
+    bool const todumpster)
 {
     int status;
 
@@ -2143,7 +2143,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
     const string::size_type rslash = newname.rfind('/');
     MetaFattr* ddfattr;
     if (rslash == string::npos) {
-        if (0 < todumpster && mEnforceDumpsterRulesFlag &&
+        if (todumpster && mEnforceDumpsterRulesFlag &&
                 getDumpsterDirId() == parent) {
             KFS_LOG_STREAM_DEBUG <<
                 newname << ": attempt to rename in dumpster denied" <<
@@ -2163,7 +2163,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
         if (ddfattr->type != KFS_DIR) {
             return -ENOTDIR;
         }
-        if (0 < todumpster && mEnforceDumpsterRulesFlag &&
+        if (todumpster && mEnforceDumpsterRulesFlag &&
                 getDumpsterDirId() == ddfattr->id()) {
             KFS_LOG_STREAM_DEBUG <<
                 newname << ": attempt to move to dumpster denied" <<
@@ -2205,8 +2205,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
     if (dexists) {
         status = (t == KFS_DIR) ?
             rmdir(ddir, dname, newname, euser, egroup, mtime) :
-            remove(ddir, dname, newname, todumpster,
-                euser, egroup, mtime);
+            remove(ddir, dname, newname, euser, egroup, mtime, todumpster);
         if (status != 0) {
             return status;
         }
@@ -2380,11 +2379,11 @@ Tree::moveToDumpster(fid_t dir, const string& fname, MetaFattr& fa,
     }
     AppendHexIntToString(tempname, fid);
 
-    fid_t        nodumpster     = -1;
-    const bool   kOverwriteFlag = false;
+    const bool   kToDumpsterFlag = false;
+    const bool   kOverwriteFlag  = false;
     const string kOldPath;      // Path cache must be already invalidated.
     const int    ret            = rename(dir, fname, tempname, kOldPath,
-        kOverwriteFlag, nodumpster, kKfsUserRoot, kKfsGroupRoot, mtime);
+        kOverwriteFlag, kKfsUserRoot, kKfsGroupRoot, mtime, 0, kToDumpsterFlag);
     if (ret == 0) {
         tempname.erase(0, plen);
         gLayoutManager.ScheduleDumpsterCleanup(fa, tempname);

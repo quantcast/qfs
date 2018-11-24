@@ -681,7 +681,6 @@ struct MetaCreate: public MetaIdempotentRequest {
     int32_t    numRecoveryStripes;
     int32_t    stripeSize;
     bool       exclusive;           //!< model the O_EXCL flag
-    fid_t      todumpster;          //!< moved existing to dumpster
     kfsUid_t   user;
     kfsGid_t   group;
     kfsMode_t  mode;
@@ -701,7 +700,6 @@ struct MetaCreate: public MetaIdempotentRequest {
           numRecoveryStripes(0),
           stripeSize(0),
           exclusive(false),
-          todumpster(-1),
           user(kKfsUserNone),
           group(kKfsGroupNone),
           mode(kKfsModeUndef),
@@ -726,7 +724,6 @@ struct MetaCreate: public MetaIdempotentRequest {
             " stripes: "     << numStripes <<
             " recovery: "    << numRecoveryStripes <<
             " stripe-size: " << stripeSize <<
-            " todumpster: "  << todumpster <<
             " user: "        << user <<
             " group: "       << group <<
             " mode: "        << oct << mode << dec
@@ -889,14 +886,12 @@ struct MetaRemove: public MetaIdempotentRequest {
     fid_t    dir;      //!< parent directory fid
     string   name;     //!< name to remove
     string   pathname; //!< full pathname to remove
-    fid_t    todumpster;
     int64_t  mtime;
     MetaRemove()
         : MetaIdempotentRequest(META_REMOVE, kLogIfOk),
           dir(-1),
           name(),
           pathname(),
-          todumpster(-1),
           mtime()
         {}
     virtual bool start();
@@ -908,8 +903,7 @@ struct MetaRemove: public MetaIdempotentRequest {
             "remove:"
             " path: "       << pathname <<
             " name: "       << name <<
-            " dir: "        << dir <<
-            " todumpster: " << todumpster
+            " dir: "        << dir
         ;
     }
     bool Validate()
@@ -1619,7 +1613,6 @@ struct MetaRename: public MetaIdempotentRequest {
     string  oldpath;    //!< fully-qualified old pathname
     bool    overwrite;  //!< overwrite newname if it exists
     bool    wormModeFlag;
-    fid_t   todumpster; //!< moved original to dumpster
     fid_t   srcFid;
     int64_t mtime;
     void*   leaseFileEntry;
@@ -1631,7 +1624,6 @@ struct MetaRename: public MetaIdempotentRequest {
           oldpath(),
           overwrite(false),
           wormModeFlag(false),
-          todumpster(-1),
           srcFid(-1),
           mtime(),
           leaseFileEntry(0)
@@ -1645,8 +1637,7 @@ struct MetaRename: public MetaIdempotentRequest {
             "rename:"
             " dir: "        << dir     <<
             " from: "       << oldpath <<
-            " to: "         << newname <<
-            " todumpster: " << todumpster
+            " to: "         << newname
         ;
     }
     bool Validate()
