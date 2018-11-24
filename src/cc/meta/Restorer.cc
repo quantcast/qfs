@@ -297,7 +297,7 @@ restore_fattr(DETokenizer& c)
                 return false;
             }
         }
-        if (! c.empty() &&
+        if (c.isLastOk() && ! c.empty() &&
                 pop_num(n, sShortNamesFlag ? "o" : "nextChunkOffset", c, ok)) {
             if (n < 0 || n % CHUNKSIZE != 0) {
                 f->destroy();
@@ -307,10 +307,7 @@ restore_fattr(DETokenizer& c)
                 f->nextChunkOffset() = (chunkOff_t)n;
             }
         }
-        if (! c.isLastOk()) {
-            return false;
-        }
-        if (! c.empty() && pop_num(n, "a", c, ok) &&
+        if (c.isLastOk() && ! c.empty() && pop_num(n, "a", c, ok) &&
                 MetaFattr::kFattrExtTypeNone != n) {
             string str;
             if (! c.isLastOk() || n != MetaFattr::kFattrExtTypeSymlink ||
@@ -322,6 +319,10 @@ restore_fattr(DETokenizer& c)
             }
             c.pop_front();
             f->SetExtAttributes(MetaFattr::FattrExtTypes(n), str);
+        }
+        if (! c.isLastOk()) {
+            f->destroy();
+            return false;
         }
     } else {
         f->user  = gLayoutManager.GetDefaultLoadUser();
