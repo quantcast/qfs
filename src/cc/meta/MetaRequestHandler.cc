@@ -32,6 +32,7 @@
 
 #include "common/RequestParser.h"
 #include "common/CIdChecksum.h"
+#include "common/StringIo.h"
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
 #include "kfsio/IOBuffer.h"
@@ -545,32 +546,7 @@ private:
         T&          inStr,
         const char* inPtr,
         size_t      inLen)
-    {
-        inStr.clear();
-        const char*       thePtr    = inPtr;
-        const char* const theEndPtr = thePtr + inLen;
-        const char*       theEPtr;
-        while ((theEPtr = (const char*)memchr(
-                thePtr, '%', theEndPtr - thePtr))) {
-            inStr.append(thePtr, theEPtr - thePtr);
-            if (theEndPtr < theEPtr + 3) {
-                return false;
-            }
-            const int theFirst = sCharToHex[*++theEPtr & 0xFF];
-            if (theFirst == 0xFF) {
-                return false;
-            }
-            const int theSecond = sCharToHex[*++theEPtr & 0xFF];
-            if (theSecond == 0xFF) {
-                return false;
-            }
-            const char theSym = (char)((theFirst << 4) | theSecond);
-            inStr.append(&theSym, 1);
-            thePtr = theEPtr + 1;
-        }
-        inStr.append(thePtr, theEndPtr - thePtr);
-        return true;
-    }
+        { return StringIo::Unescape(inPtr, inLen, inStr); }
     template<typename T, typename ET>
     static void ReadCollection(
         const char* inPtr,
@@ -602,10 +578,7 @@ private:
             }
         }
     }
-    static const unsigned char* const sCharToHex;
 };
-const unsigned char* const StringEscapeIoParser::sCharToHex =
-    HexIntParser::GetChar2Hex();
 
 class StringInsertEscapeOStream
 {
@@ -654,6 +627,9 @@ public:
     }
     ReqOstream& GetOStream()
         { return mOStream; }
+    void WriteEscapedString(
+        const string& inStr)
+        { WriteVal(inStr); }
 private:
     ReqOstream              mOStream;
     const char*             mPrefixPtr;
@@ -722,69 +698,10 @@ private:
         CryptoKeys::Key::UrlSafeFmt const theKeyFmt(inKey);
         mOStream << theKeyFmt;
     }
-    void Escape(int inSym)
-    {
-        const char* const kHexChars = "0123456789ABCDEF";
-        char              theBuf[3];
-        theBuf[0] = '%';
-        theBuf[1] = kHexChars[(inSym >> 4) & 0xF];
-        theBuf[2] = kHexChars[inSym & 0xF];
-        mOStream.write(theBuf, 3);
-    }
-    enum { kSpace = ' ' };
-    static bool IsToBeEscaped(int inSym)
-    {
-        switch (inSym)
-        {
-            case 0xFF:
-            case '%':
-            case '=':
-            case ';':
-            case '/':
-            case ',':
-                return true;
-            default: break;
-        }
-        return (inSym < kSpace);
-    }
     void Escape(
         const char* inPtr,
         size_t      inLen)
-    {
-        if (inLen <= 0) {
-            return;
-        }
-        // Always escape the first leading and the last trailing spaces, if any,
-        // in order to ensure leading and trailing spaces are not discarded by
-        // key value tokenizer.
-        const bool        theLastSpaceFlag =
-            kSpace == (inPtr[inLen - 1] & 0xFF);
-        const char*       thePtr           = inPtr;
-        const char* const theEndPtr        = thePtr + inLen -
-            (theLastSpaceFlag ? 1 : 0);
-        if (thePtr < theEndPtr && kSpace == (*thePtr & 0xFF)) {
-            Escape(kSpace);
-            ++thePtr;
-        }
-        const char* thePPtr = thePtr;
-        while (thePtr < theEndPtr) {
-            const int theSym = *thePtr & 0xFF;
-            if (IsToBeEscaped(theSym)) {
-                if (thePPtr < thePtr) {
-                    mOStream.write(thePPtr, thePtr - thePPtr);
-                }
-                Escape(theSym);
-                thePPtr = thePtr + 1;
-            }
-            ++thePtr;
-        }
-        if (thePPtr < theEndPtr) {
-            mOStream.write(thePPtr, theEndPtr - thePPtr);
-        }
-        if (theLastSpaceFlag) {
-            Escape(kSpace);
-        }
-    }
+        { StringIo::Escape(inPtr, inLen, mOStream); }
 private:
     StringInsertEscapeOStream(
         const StringInsertEscapeOStream& inParser);
