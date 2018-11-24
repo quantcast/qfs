@@ -39,6 +39,7 @@
 
 #include "common/MdStream.h"
 #include "common/MsgLogger.h"
+#include "common/StringIo.h"
 
 #include "qcdio/QCUtils.h"
 
@@ -296,16 +297,31 @@ restore_fattr(DETokenizer& c)
                 return false;
             }
         }
-        if (! c.empty()) {
-            if (! pop_num(
-                    n, sShortNamesFlag ? "o" : "nextChunkOffset", c, ok) ||
-                    n < 0 || n % CHUNKSIZE != 0) {
+        if (! c.empty() &&
+                pop_num(n, sShortNamesFlag ? "o" : "nextChunkOffset", c, ok)) {
+            if (n < 0 || n % CHUNKSIZE != 0) {
                 f->destroy();
                 return false;
             }
             if (0 == numReplicas) {
                 f->nextChunkOffset() = (chunkOff_t)n;
             }
+        }
+        if (! c.isLastOk()) {
+            return false;
+        }
+        if (! c.empty() && pop_num(n, "a", c, ok) &&
+                MetaFattr::kFattrExtTypeNone != n) {
+            string str;
+            if (! c.isLastOk() || n != MetaFattr::kFattrExtTypeSymlink ||
+                    c.empty() || n < MetaFattr::kFattrExtTypeNone ||
+                    MetaFattr::kFattrExtTypeEnd <= n ||
+                    ! StringIo::Unescape(c.front().ptr, c.front().len, str)) {
+                f->destroy();
+                return false;
+            }
+            c.pop_front();
+            f->SetExtAttributes(MetaFattr::FattrExtTypes(n), str);
         }
     } else {
         f->user  = gLayoutManager.GetDefaultLoadUser();

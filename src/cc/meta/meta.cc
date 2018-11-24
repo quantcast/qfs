@@ -27,7 +27,9 @@
 #include "kfstree.h"
 #include "LayoutManager.h"
 #include "util.h"
+
 #include "common/LinearHash.h"
+#include "common/StringIo.h"
 
 #include <iostream>
 #include <fstream>
@@ -89,6 +91,11 @@ MetaFattr::showSelf(ostream& os) const
     }
     if (KFS_FILE == type && 0 == numReplicas) {
         os << "/o/" << nextChunkOffset();
+    }
+    if (kFattrExtTypeNone != fattrExtType) {
+        os <<
+            "/a/" << fattrExtType <<
+	    "/"   << MakeEscapedStringInserter(GetExtAttributesSelf());
     }
     return os;
 }
@@ -213,8 +220,7 @@ GetMetaFattrExtAttributesTable()
 {
     static MetaFattrExtAttributes sMetaFattrExtAttributes;
 
-    if (! sMetaFattrExtAttributesForDebugPtr)
-    {
+    if (! sMetaFattrExtAttributesForDebugPtr) {
         sMetaFattrExtAttributesForDebugPtr = &sMetaFattrExtAttributes;
     }
     return sMetaFattrExtAttributes;
@@ -224,15 +230,13 @@ static const string&
 GetEmptyString()
 {
     static const string sEmptyString;
-
     return sEmptyString;
 }
 
 const string&
-MetaFattr::GetExtAttributesSelf(fid_t fid) const
+MetaFattr::GetExtAttributesSelf() const
 {
-    const string* const ret = GetMetaFattrExtAttributesTable().Find(fid);
-
+    const string* const ret = GetMetaFattrExtAttributesTable().Find(id());
     return ret ? *ret : GetEmptyString();
 }
 
@@ -240,28 +244,25 @@ void
 MetaFattr::ExtAttributesClear()
 {
     GetMetaFattrExtAttributesTable().Erase(id());
-    fattrExtType = FattrExtTypeNone;
+    fattrExtType = kFattrExtTypeNone;
 }
 
 void
 MetaFattr::SetExtAttributes(MetaFattr::FattrExtTypes type, const string& attrs)
 {
-    MetaFattrExtAttributes& table = GetMetaFattrExtAttributesTable();
-
-    if (fattrExtType == type && attrs.empty())
-    {
-        table.Erase(id());
-    }
-    else
-    {
+    if ((fattrExtType == type || kFattrExtTypeNone == fattrExtType) && attrs.empty()) {
+        ExtAttributesClear();
+    } else if (fattrExtType == type || kFattrExtTypeNone == fattrExtType) {
         bool insertedFlag = false;
-        string* const val = table.Insert(id(), attrs, insertedFlag);
-        if (! insertedFlag)
-        {
+        string* const val = GetMetaFattrExtAttributesTable().Insert(
+		id(), attrs, insertedFlag);
+        if (! insertedFlag)  {
             *val = attrs;
         }
+        fattrExtType = type;
+    } else {
+        panic("not yet implemented");
     }
-    fattrExtType = type;
 }
 
 void

@@ -177,8 +177,9 @@ public:
     typedef uint16_t FattrExtType; // Extended attributes type.
     enum FattrExtTypes
     {
-        FattrExtTypeNone = 0,
-        FattrExtTypeSymlink
+        kFattrExtTypeNone = 0,
+        kFattrExtTypeSymlink,
+	kFattrExtTypeEnd
     };
     BaseFattr(
         FileType  t  = KFS_NONE,
@@ -199,7 +200,7 @@ public:
           filesize(0),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
-          fattrExtType(FattrExtTypeNone)
+          fattrExtType(kFattrExtTypeNone)
         {}
     BaseFattr(
         FileType  t,
@@ -224,7 +225,7 @@ public:
           filesize(0),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
-          fattrExtType(FattrExtTypeNone)
+          fattrExtType(kFattrExtTypeNone)
         {}
     FileType        type:2;         //!< file or directory
     StripedFileType striperType:5;
@@ -419,7 +420,7 @@ public:
     }
     void destroySelf()
     {
-        if (FattrExtTypeNone != fattrExtType) {
+        if (kFattrExtTypeNone != fattrExtType) {
             ExtAttributesClear();
         }
         this->~MetaFattr();
@@ -438,14 +439,14 @@ public:
     }
     void SetExtAttributes(FattrExtTypes type, const string& attrs);
     string GetExtAttributes() const {
-        if (FattrExtTypeNone == fattrExtType) {
+        if (kFattrExtTypeNone == fattrExtType) {
             return string();
         }
-        return GetExtAttributesSelf(id());
+        return GetExtAttributesSelf();
     }
     static void Init();
 private:
-    const string& GetExtAttributesSelf(fid_t fid) const;
+    const string& GetExtAttributesSelf() const;
     void ExtAttributesClear();
 };
 
