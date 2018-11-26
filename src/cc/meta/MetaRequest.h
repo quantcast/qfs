@@ -179,7 +179,8 @@ using std::less;
     f(VR_RECONFIGURATION) \
     f(VR_LOG_START_VIEW) \
     f(VR_GET_STATUS) \
-    f(SETATIME)
+    f(SETATIME) \
+    f(LINK)
 
 enum MetaOp {
 #define KfsMakeMetaOpEnumEntry(name) META_##name,
@@ -761,7 +762,7 @@ struct MetaCreate: public MetaIdempotentRequest {
         .Def("H",  &MetaCreate::fid,         fid_t(-1))
         .Def("ST", &MetaCreate::striperType, int32_t(KFS_STRIPED_FILE_TYPE_NONE))
         .Def("U",  &MetaCreate::user,        kKfsUserNone)
-        .Def("G",  &MetaCreate::group,       kKfsUserNone)
+        .Def("G",  &MetaCreate::group,       kKfsGroupNone)
         .Def("M",  &MetaCreate::mode,        kKfsModeUndef)
         .Def("TL", &MetaCreate::minSTier,    kKfsSTierMax)
         .Def("TH", &MetaCreate::maxSTier,    kKfsSTierMax)
@@ -854,12 +855,12 @@ struct MetaMkdir: public MetaIdempotentRequest {
         // Make every response field persistent.
         // Keep parent directory and name for debugging.
         return MetaIdempotentRequest::IoParserDef(parser)
-        .Def("P",  &MetaMkdir::dir,      fid_t(-1))
-        .Def("N",  &MetaMkdir::name)
-        .Def("H",  &MetaMkdir::fid,      fid_t(-1))
+        .Def("P",  &MetaMkdir::dir,         fid_t(-1))
+        .Def("N",  &MetaMkdir::name                  )
+        .Def("H",  &MetaMkdir::fid,         fid_t(-1))
         .Def("U",  &MetaMkdir::user,     kKfsUserNone)
-        .Def("G",  &MetaMkdir::group,    kKfsUserNone)
-        .Def("M",  &MetaMkdir::mode,     kKfsModeUndef)
+        .Def("G",  &MetaMkdir::group,   kKfsGroupNone)
+        .Def("M",  &MetaMkdir::mode,    kKfsModeUndef)
         .Def("TL", &MetaMkdir::minSTier, kKfsSTierMax)
         .Def("TH", &MetaMkdir::maxSTier, kKfsSTierMax)
         ;
@@ -867,11 +868,11 @@ struct MetaMkdir: public MetaIdempotentRequest {
     template<typename T> static T& LogIoDef(T& parser)
     {
         return MetaIdempotentRequest::LogIoDef(parser)
-        .Def("P",  &MetaMkdir::dir,      fid_t(-1))
-        .Def("N",  &MetaMkdir::name)
+        .Def("P",  &MetaMkdir::dir,         fid_t(-1))
+        .Def("N",  &MetaMkdir::name                  )
         .Def("U",  &MetaMkdir::user,     kKfsUserNone)
-        .Def("G",  &MetaMkdir::group,    kKfsUserNone)
-        .Def("M",  &MetaMkdir::mode,     kKfsModeUndef)
+        .Def("G",  &MetaMkdir::group,   kKfsGroupNone)
+        .Def("M",  &MetaMkdir::mode,    kKfsModeUndef)
         .Def("TL", &MetaMkdir::minSTier, kKfsSTierMax)
         .Def("TH", &MetaMkdir::maxSTier, kKfsSTierMax)
         .Def("T",  &MetaMkdir::mtime)
@@ -883,10 +884,10 @@ struct MetaMkdir: public MetaIdempotentRequest {
  * \brief remove a file
  */
 struct MetaRemove: public MetaIdempotentRequest {
-    fid_t    dir;      //!< parent directory fid
-    string   name;     //!< name to remove
-    string   pathname; //!< full pathname to remove
-    int64_t  mtime;
+    fid_t   dir;      //!< parent directory fid
+    string  name;     //!< name to remove
+    string  pathname; //!< full pathname to remove
+    int64_t mtime;
     MetaRemove()
         : MetaIdempotentRequest(META_REMOVE, kLogIfOk),
           dir(-1),
@@ -901,9 +902,9 @@ struct MetaRemove: public MetaIdempotentRequest {
     {
         return os <<
             "remove:"
-            " path: "       << pathname <<
-            " name: "       << name <<
-            " dir: "        << dir
+            " path: " << pathname <<
+            " name: " << name <<
+            " dir: "  << dir
         ;
     }
     bool Validate()
@@ -1635,9 +1636,9 @@ struct MetaRename: public MetaIdempotentRequest {
     {
         return os <<
             "rename:"
-            " dir: "        << dir     <<
-            " from: "       << oldpath <<
-            " to: "         << newname
+            " dir: "  << dir     <<
+            " from: " << oldpath <<
+            " to: "   << newname
         ;
     }
     bool Validate()
@@ -1671,6 +1672,101 @@ struct MetaRename: public MetaIdempotentRequest {
         .Def("W", &MetaRename::overwrite,    false)
         .Def("M", &MetaRename::wormModeFlag, false)
         .Def("T", &MetaRename::mtime)
+        ;
+    }
+};
+
+/*!
+ * \brief [sym] link.
+ * For now only symbolik (soft) links are supported.
+ */
+struct MetaLink: public MetaIdempotentRequest {
+    fid_t     dir;           //!< parent directory
+    string    targetPath;    //!< link target path name
+    string    name;          //!< file name
+    bool      overwriteFlag; //!< overwrite if it exists
+    kfsUid_t  user;
+    kfsGid_t  group;
+    kfsMode_t mode;
+    string    ownerName;
+    string    groupName;
+    bool      wormModeFlag;
+    int64_t   mtime;
+    fid_t     fid;           //!< result: file ID
+    MetaLink()
+        : MetaIdempotentRequest(META_LINK, kLogIfOk),
+          dir(-1),
+          targetPath(),
+          name(),
+          overwriteFlag(false),
+          user(kKfsUserNone),
+          group(kKfsGroupNone),
+          mode(kKfsModeUndef),
+          ownerName(),
+          groupName(),
+          wormModeFlag(false),
+          mtime(),
+          fid(-1)
+        {}
+    virtual bool start();
+    virtual void handle();
+    virtual void response(ReqOstream &os);
+    virtual ostream& ShowSelf(ostream& os) const
+    {
+        return os <<
+            "link:"
+            " dir: "       << dir           <<
+            " from: "      << targetPath    <<
+            " to: "        << name          <<
+            " overwrite: " << overwriteFlag <<
+            " oname: "     << ownerName     <<
+            " gname: "     << ownerName     <<
+            " user: "      << user          <<
+            " group: "     << group         <<
+            " mode: "      << oct << mode << dec <<
+            " fid: "       << fid
+        ;
+    }
+    bool Validate();
+    template<typename T> static T& ParserDef(T& parser)
+    {
+        return MetaIdempotentRequest::ParserDef(parser)
+        .Def2("Parent File-handle", "P",  &MetaLink::dir,       fid_t(-1))
+        .Def2("Target-path",        "T",  &MetaLink::targetPath          )
+        .Def2("New-path",           "N",  &MetaLink::name                )
+        .Def2("Overwrite",          "W",  &MetaLink::overwriteFlag, false)
+        .Def2("Owner",              "O",  &MetaLink::user,   kKfsUserNone)
+        .Def2("Group",              "G",  &MetaLink::group, kKfsGroupNone)
+        .Def2("Mode",               "M",  &MetaLink::mode,  kKfsModeUndef)
+        .Def2("OName",              "ON", &MetaLink::ownerName           )
+        .Def2("GName",              "GN", &MetaLink::groupName           )
+        ;
+    }
+    template<typename T> static T& IoParserDef(T& parser)
+    {
+        // Make every response field persistent.
+        // Keep parent directory, replication, and name for debugging.
+        return MetaIdempotentRequest::IoParserDef(parser)
+        .Def("P",  &MetaLink::dir,       fid_t(-1))
+        .Def("N",  &MetaLink::name                )
+        .Def("U",  &MetaLink::user,   kKfsUserNone)
+        .Def("G",  &MetaLink::group, kKfsGroupNone)
+        .Def("M",  &MetaLink::mode,  kKfsModeUndef)
+        .Def("H",  &MetaLink::fid,       fid_t(-1))
+        ;
+    }
+    template<typename T> static T& LogIoDef(T& parser)
+    {
+        return MetaIdempotentRequest::LogIoDef(parser)
+        .Def("P", &MetaLink::dir,        fid_t(-1))
+        .Def("O", &MetaLink::targetPath           )
+        .Def("N", &MetaLink::name                 )
+        .Def("W", &MetaLink::overwriteFlag,  false)
+        .Def("U", &MetaLink::user,    kKfsUserNone)
+        .Def("G", &MetaLink::group,  kKfsGroupNone)
+        .Def("M", &MetaLink::mode,   kKfsModeUndef)
+        .Def("R", &MetaLink::wormModeFlag,   false)
+        .Def("T", &MetaLink::mtime                )
         ;
     }
 };

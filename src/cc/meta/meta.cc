@@ -92,9 +92,9 @@ MetaFattr::showSelf(ostream& os) const
     if (KFS_FILE == type && 0 == numReplicas) {
         os << "/o/" << nextChunkOffset();
     }
-    if (kFattrExtTypeNone != fattrExtType) {
+    if (HasExtAttrs()) {
         os <<
-            "/a/" << fattrExtType <<
+            "/a/" << fattrExtTypes <<
 	    "/"   << MakeEscapedStringInserter(GetExtAttributesSelf());
     }
     return os;
@@ -244,24 +244,25 @@ void
 MetaFattr::ExtAttributesClear()
 {
     GetMetaFattrExtAttributesTable().Erase(id());
-    fattrExtType = kFattrExtTypeNone;
+    fattrExtTypes = kFileAttrExtTypeNone;
 }
 
 void
-MetaFattr::SetExtAttributes(MetaFattr::FattrExtTypes type, const string& attrs)
+MetaFattr::SetExtAttributes(FileAttrExtTypes types, const string& attrs)
 {
-    if ((fattrExtType == type || kFattrExtTypeNone == fattrExtType) && attrs.empty()) {
+    if (HasExtAttrs() && fattrExtTypes != types) {
+        panic("not yet implemented");
+    }
+    if (attrs.empty()) {
         ExtAttributesClear();
-    } else if (fattrExtType == type || kFattrExtTypeNone == fattrExtType) {
+    } else {
         bool insertedFlag = false;
         string* const val = GetMetaFattrExtAttributesTable().Insert(
 		id(), attrs, insertedFlag);
         if (! insertedFlag)  {
             *val = attrs;
         }
-        fattrExtType = type;
-    } else {
-        panic("not yet implemented");
+        fattrExtTypes = types;
     }
 }
 

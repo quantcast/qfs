@@ -160,7 +160,7 @@ static inline bool
 IsObjectStoreBlock(fid_t fid, chunkOff_t pos)
 {
     const MetaFattr* const fa = metatree.getFattr(fid);
-    return (fa && KFS_FILE == fa->type && fa->numReplicas == 0 &&
+    return (fa && KFS_FILE == fa->type && 0 == fa->numReplicas &&
         pos <= fa->nextChunkOffset());
 }
 
@@ -1576,11 +1576,11 @@ ChunkLeases::Start(MetaRename& req)
     if (0 != req.status || metatree.getDumpsterDirId() != req.dir) {
         return;
     }
-    // The source must exists at start of the RPC execution, i.e. the file must
-    // already be in the dumpster. In other words, any possibly already pending
-    // in the log queue RPC(s) (remove) that can potentially successfully move
-    // the file into dumpster, are effectively ignored in order to reduce
-    // complexity.
+    // The source must exist at the beginning of the RPC execution, i.e. the
+    // file must already be in the dumpster. In other words, any possibly
+    // already pending in the log queue RPC(s) (remove) that can potentially
+    // successfully move the file into dumpster, are effectively ignored in
+    // order to reduce complexity.
     MetaFattr* fa = 0;
     if (0 != (req.status = metatree.lookup(
             req.dir, req.oldname, req.euser, req.egroup, fa))) {
@@ -7825,6 +7825,11 @@ LayoutManager::Handle(MetaLeaseAcquire& req)
             req.status    = -EISDIR;
             return;
         }
+        if (fa->IsSymLink()) {
+            req.statusMsg = "symbolic link";
+            req.status    = -ENXIO;
+            return;
+        }
         if (0 != fa->numReplicas) {
             req.statusMsg = "not an object store file";
             req.status    = -EINVAL;
@@ -8082,6 +8087,11 @@ LayoutManager::Handle(MetaLeaseRenew& req)
         if (KFS_FILE != fa->type) {
             req.statusMsg = "not a file";
             req.status    = -EISDIR;
+            return;
+        }
+        if (fa->IsSymLink()) {
+            req.statusMsg = "symbolic link";
+            req.status    = -ENXIO;
             return;
         }
         if (0 != fa->numReplicas) {
@@ -10711,7 +10721,8 @@ LayoutManager::Start(MetaChunkSize& req)
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
     if (req.chunkVersion == chunk->chunkVersion &&
-            ! fa->IsStriped() && fa->filesize < 0 && fa->type == KFS_FILE &&
+            ! fa->IsStriped() && fa->filesize < 0 && KFS_FILE == fa->type &&
+            ! fa->IsSymLink() &&
             fa->nextChunkOffset() <= chunk->offset + (chunkOff_t)CHUNKSIZE &&
             0 != fa->numReplicas &&
             metatree.getChunkDeleteQueue() != fa) {
@@ -10783,7 +10794,8 @@ LayoutManager::Handle(MetaChunkSize& req)
     }
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
-    if (fa->IsStriped() || 0 <= fa->filesize || fa->type != KFS_FILE ||
+    if (fa->IsStriped() || 0 <= fa->filesize || KFS_FILE != fa->type ||
+    	    fa->IsSymLink() ||
             metatree.getChunkDeleteQueue() == fa ||
             chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
             0 == fa->numReplicas) {

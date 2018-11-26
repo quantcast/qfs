@@ -308,17 +308,16 @@ restore_fattr(DETokenizer& c)
             }
         }
         if (c.isLastOk() && ! c.empty() && pop_num(n, "a", c, ok) &&
-                MetaFattr::kFattrExtTypeNone != n) {
+                kFileAttrExtTypeNone != n) {
             string str;
-            if (! c.isLastOk() || n != MetaFattr::kFattrExtTypeSymlink ||
-                    c.empty() || n < MetaFattr::kFattrExtTypeNone ||
-                    MetaFattr::kFattrExtTypeEnd <= n ||
+            if (! c.isLastOk() || c.empty() || n < kFileAttrExtTypeNone ||
+                    kFileAttrExtTypeEnd <= n ||
                     ! StringIo::Unescape(c.front().ptr, c.front().len, str)) {
                 f->destroy();
                 return false;
             }
             c.pop_front();
-            f->SetExtAttributes(MetaFattr::FattrExtTypes(n), str);
+            f->SetExtAttributes(FileAttrExtTypes(n), str);
         }
         if (! c.isLastOk()) {
             f->destroy();

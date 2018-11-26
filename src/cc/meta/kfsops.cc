@@ -237,7 +237,7 @@ Tree::create(fid_t dir, const string& fname, fid_t *newFid,
         return status;
     }
     if (fa) {
-        if (fa->type != KFS_FILE) {
+        if (KFS_FILE != fa->type) {
             return -EISDIR;
         }
         // Model O_EXECL behavior in create: if the file exists
@@ -369,7 +369,7 @@ void Tree::invalidatePathCache(const string& pathname, const string& name,
 void
 Tree::setFileSize(MetaFattr* fa, chunkOff_t size, int64_t nfiles, int64_t ndirs)
 {
-    if (fa->filesize < 0 && fa->type != KFS_FILE) {
+    if (fa->filesize < 0 && KFS_FILE != fa->type) {
         panic("invalid size attribute");
         return;
     }
@@ -465,7 +465,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         panic("remove: null file or parent attribute");
         return -EFAULT;
     }
-    if (fa->type != KFS_FILE) {
+    if (KFS_FILE != fa->type) {
         return -EISDIR;
     }
     if (! parent->CanWrite(euser, egroup)) {
@@ -475,7 +475,17 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         return -EPERM;
     }
     invalidatePathCache(pathname, fname, fa);
-    if (todumpster) {
+    if (fa->IsSymLink()) {
+        if (0 != fa->chunkcount()) {
+            panic("symbolic link with chunks");
+        }
+        if (0 != fa->filesize) {
+            panic("symbolic link non zero size");
+        }
+        if (1 != fa->numReplicas) {
+            panic("symbolic link replication other than 1");
+        }
+    } else if (todumpster) {
         // put the file into dumpster
         const int status = moveToDumpster(dir, fname, *fa, mtime);
         KFS_LOG_STREAM_DEBUG <<
@@ -1301,9 +1311,13 @@ Tree::getalloc(fid_t fid, MetaFattr*& fa, vector<MetaChunkInfo*>& v, int maxChun
     }
     LeafIter it(l, kp);
     fa = refine<MetaFattr>(it.current());
-    if (fa->type != KFS_FILE) {
+    if (KFS_FILE != fa->type) {
         fa = 0;
         return -EISDIR;
+    }
+    if (fa->IsSymLink()) {
+    	fa = 0;
+        return -ENXIO;
     }
     // Chunk attributes follow the file attribute: they have same fid, and
     // KFS_FATTR < KFS_CHUNKINFO
@@ -1342,7 +1356,7 @@ Tree::getAlloc(fid_t fid, MetaFattr*& fa) const
     }
     LeafIter it(l, kp);
     fa = refine<MetaFattr>(it.current());
-    if (fa->type != KFS_FILE) {
+    if (KFS_FILE != fa->type || fa->IsSymLink()) {
         fa = 0;
         return ChunkIterator();
     }
@@ -1388,9 +1402,13 @@ Tree::getalloc(fid_t fid, chunkOff_t& offset,
     }
     LeafIter it(n, kp);
     fa = refine<MetaFattr>(it.current());
-    if (fa->type != KFS_FILE) {
+    if (KFS_FILE != fa->type) {
         fa = 0;
         return -EISDIR;
+    }
+    if (fa->IsSymLink()) {
+    	fa = 0;
+        return -ENXIO;
     }
     if (offset < 0) {
         offset = fa->nextChunkOffset();
@@ -1548,6 +1566,10 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
         file, offset, fa, ci, chunkBlock, chunkBlockStart);
     if (! fa || (res != 0 && res != -ENOENT)) {
         return res;
+    }
+    if (fa->IsSymLink()) {
+        panic("symbolic link: invalid getalloc return code");
+    	return -ENXIO;
     }
     if (! fa->CanWrite(euser, egroup)) {
         return -EACCES;
@@ -1742,8 +1764,11 @@ Tree::coalesceBlocks(MetaFattr* srcFa, MetaFattr* dstFa,
     if (srcFa == dstFa) {
         return -EINVAL;
     }
-    if (srcFa->type != KFS_FILE || dstFa->type != KFS_FILE) {
+    if (KFS_FILE != srcFa->type || KFS_FILE != dstFa->type) {
         return -EISDIR;
+    }
+    if (srcFa->IsSymLink() || dstFa->IsSymLink()) {
+        return -ENXIO;
     }
     if (! srcFa->CanWrite(euser, egroup) ||
             ! dstFa->CanWrite(euser, egroup)) {
@@ -1891,8 +1916,11 @@ Tree::truncate(fid_t file, chunkOff_t offset, const int64_t mtime,
     if (! fa) {
         return -ENOENT;
     }
-    if (fa->type != KFS_FILE) {
+    if (KFS_FILE != fa->type) {
         return -EISDIR;
+    }
+    if (fa->IsSymLink()) {
+        return -ENXIO;
     }
     if (fa == mChunksDeleteQueueFattr) {
         return -EPERM;
@@ -2210,7 +2238,7 @@ Tree::rename(fid_t parent, const string& oldname, const string& newname,
             return status;
         }
     }
-    if (mEnforceDumpsterRulesFlag && t == KFS_FILE &&
+    if (mEnforceDumpsterRulesFlag && KFS_FILE == t &&
             getDumpsterDirId() == src->getDir() &&
             mChunksDeleteQueueFattr == sfattr) {
         KFS_LOG_STREAM_DEBUG <<
@@ -2294,11 +2322,14 @@ int
 Tree::changeFileReplication(MetaFattr* fa, int16_t numReplicas,
     kfsSTier_t minSTier, kfsSTier_t maxSTier)
 {
-    if (fa->type != KFS_FILE && 0 < numReplicas) {
+    if (KFS_FILE != fa->type && 0 < numReplicas) {
         // Allow to change directory tiers, sot that the tiers can be
         // "inherited" by sub directories and files, but do not allow to change
         // directory replication.
         return -EISDIR;
+    }
+    if (fa->IsSymLink()) {
+        return -ENXIO;
     }
     if ((minSTier != kKfsSTierUndef && ! IsValidSTier(minSTier)) ||
             (maxSTier != kKfsSTierUndef && ! IsValidSTier(maxSTier))) {
@@ -2419,7 +2450,8 @@ Tree::getChunkDeleteQueueSelf()
     }
     int status = lookup(ddir, CHUNKDELQUEUE,
         kKfsUserRoot, kKfsGroupRoot, mChunksDeleteQueueFattr);
-    if (0 == status && KFS_FILE == mChunksDeleteQueueFattr->type) {
+    if (0 == status && KFS_FILE == mChunksDeleteQueueFattr->type &&
+            ! mChunksDeleteQueueFattr->HasExtAttrs()) {
         return mChunksDeleteQueueFattr;
     }
     if (-ENOENT != status) {

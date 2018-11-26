@@ -195,6 +195,14 @@ const int kMaxAuthenticationContentLength = 64 << 10;
 
 const int64_t kSetTimeTimeNotValid = int64_t(1) << (sizeof(int64_t) * 8 - 1);
 
+enum FileAttrExtTypeBits
+{
+    kFileAttrExtTypeNone    = 0,
+    kFileAttrExtTypeSymLink = 0x1,
+    kFileAttrExtTypeEnd
+};
+typedef uint16_t FileAttrExtTypes; // Extended attributes type.
+
 }
 
 #endif // COMMON_KFSTYPES_H

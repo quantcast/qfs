@@ -54,7 +54,7 @@ using std::set;
 using std::ostringstream;
 
 template<typename T>
-    T&
+    static T&
 AddMetaRequestLog(
     T&   inHandler,
     bool inShortNamesFlag)
@@ -124,6 +124,10 @@ AddMetaRequestLog(
         inShortNamesFlag ? "SA" : "SET_ATIME",
         META_SETATIME,
         static_cast<const MetaSetATime*>(0))
+    .MakeParser(
+        inShortNamesFlag ? "LN" : "LINK",
+        META_LINK,
+        static_cast<const MetaLink*>(0))
     ;
 }
 

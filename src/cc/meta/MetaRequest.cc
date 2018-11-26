@@ -50,6 +50,7 @@
 #include "common/SingleLinkedQueue.h"
 #include "common/time.h"
 #include "common/kfserrno.h"
+#include "common/StringIo.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCUtils.h"
@@ -397,7 +398,7 @@ FattrReply(const MetaFattr* fa, MFattr& ofa)
     // file size as append files are sparse anyway, and always sets file size
     // equal to the begining of the "next" chunk.
     if (fa->filesize < 0 &&
-            fa->type == KFS_FILE &&
+            KFS_FILE == fa->type &&
             fa->chunkcount() > 0 &&
             fa->nextChunkOffset() >= (chunkOff_t)CHUNKSIZE &&
             ! fa->IsStriped()) {
@@ -456,7 +457,7 @@ FattrReply(ReqOstream& os, const MFattr& fa, const UserAndGroupNames* ugn,
     (shortRpcFmtFlag ? "T:" : "Type: ")        << ftypes[fa.type] << "\r\n" <<
     (shortRpcFmtFlag ? "S:" : "File-size: ")   << fa.filesize     << "\r\n" <<
     (shortRpcFmtFlag ? "R:" : "Replication: ") << fa.numReplicas  << "\r\n";
-    if (fa.type == KFS_FILE) {
+    if (KFS_FILE == fa.type) {
         os << (shortRpcFmtFlag ? "C:" : "Chunk-count: ") <<
             fa.chunkcount() << "\r\n";
         if (0 == fa.numReplicas) {
@@ -494,6 +495,14 @@ FattrReply(ReqOstream& os, const MFattr& fa, const UserAndGroupNames* ugn,
             (int)fa.minSTier << "\r\n" <<
         (shortRpcFmtFlag ? "TH:" : "Max-tier: ") <<
             (int)fa.maxSTier << "\r\n";
+    }
+    if (fa.HasExtAttrs()) {
+        os << (shortRpcFmtFlag ? "ET:" : "Ext-attrs-types: ") <<
+            fa.GetExtTypes() << "\r\n";
+        if (! fa.extAttributes.empty()) {
+            os << (shortRpcFmtFlag ? "EA:" : "Ext-attrs: ");
+            os.Get() << MakeEscapedStringInserter(fa.extAttributes) << "\r\n";
+        }
     }
     return UserAndGroupNamesReply(os, ugn, fa.user, fa.group, shortRpcFmtFlag);
 }
@@ -1344,6 +1353,11 @@ public:
     typedef MetaReaddirPlus::DEntry   DEntry;
     typedef MetaReaddirPlus::DEntries DEntries;
     typedef MetaReaddirPlus::CInfos   CInfos;
+
+    void write(const char* data, size_t len)
+    {
+        Write(data, len);
+    }
 private:
     enum { kNumBufSize = 64 };
 
@@ -1409,6 +1423,8 @@ private:
     static const PropName kSpace;
     static const PropName kUserName;
     static const PropName kGroupName;
+    static const PropName kExtAttrsType;
+    static const PropName kExtAttrs;
     static const Token    kFileType[];
 
     template<typename T> static
@@ -1537,6 +1553,17 @@ private:
                 insertPrevGidFlag = true;
             }
         }
+        if (entry.HasExtAttrs()) {
+            Write(kExtAttrsType);
+            WriteInt(entry.GetExtTypes());
+            Write(kNL);
+            if (! entry.extAttributes.empty()) {
+                Write(kExtAttrs);
+                StringIo::Escape(entry.extAttributes.data(),
+                    entry.extAttributes.size(), *this);
+                Write(kNL);
+            }
+        }
         if (entry.type == KFS_DIR) {
             if (entry.filesize >= 0) {
                 Write(kFSize);
@@ -1566,7 +1593,7 @@ private:
         Write(kRepl);
         WriteInt(entry.numReplicas);
         if (entry.minSTier < kKfsSTierMax &&
-                (entry.type == KFS_FILE || entry.type == KFS_DIR)) {
+                (KFS_FILE == entry.type || KFS_DIR == entry.type)) {
             Write(kMinTier);
             WriteInt(entry.minSTier);
             Write(kMaxTier);
@@ -1735,6 +1762,12 @@ template<bool F> const typename ReaddirPlusWriter<F>::PropName
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kGroupName(
     "\nGN:" , "\r\nGroup-name: ");
+template<bool F> const typename ReaddirPlusWriter<F>::PropName
+    ReaddirPlusWriter<F>::kExtAttrsType(
+    "\nET:" , "\r\Ext-attrs-types: ");
+template<bool F> const typename ReaddirPlusWriter<F>::PropName
+    ReaddirPlusWriter<F>::kExtAttrs(
+    "\nEA:" , "\r\Ext-attrs: ");
 template<bool F> const typename ReaddirPlusWriter<F>::Token
     ReaddirPlusWriter<F>::kFileType[] = { "empty", "file", "dir" };
 
@@ -1954,7 +1987,7 @@ MetaGetalloc::handle()
         chunkVersion = chunkInfo->chunkVersion;
         err = gLayoutManager.GetChunkToServerMapping(
             *chunkInfo, c, fa, &replicasOrderedFlag);
-        if (! fa) {
+        if (! fa || fa->IsSymLink()) {
             panic("invalid chunk to server map", false);
         }
     }
@@ -2927,6 +2960,89 @@ MetaRename::handle()
     if (leaseFileEntry ||
             (replayFlag && metatree.getDumpsterDirId() == dir)) {
         gLayoutManager.Done(*this);
+    }
+}
+
+bool
+MetaLink::Validate()
+{
+    string orig;
+    orig.swap(targetPath);
+
+    return (0 <= dir && ! name.empty() &&
+        StringIo::Unescape(orig.data(), orig.size(), targetPath) &&
+        ! targetPath.empty());
+}
+
+/* virtual */ bool
+MetaLink::start()
+{
+    if (targetPath.empty()) {
+        status    = -EINVAL;
+        statusMsg = "empty target path";
+        return false;
+    }
+    if (MAX_PATH_NAME_LENGTH < targetPath.length()) {
+        status    = -ENAMETOOLONG;
+        statusMsg = "target path is too long";
+        return false;
+    }
+    if (! SetUserAndGroup(*this)) {
+        return false;
+    }
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
+        return true;
+    }
+    if (0 == status) {
+        wormModeFlag = gWormMode;
+        mtime = microseconds();
+    }
+    return (0 == status);
+}
+
+/* virtual */ void
+MetaLink::handle()
+{
+    if (IsHandled()) {
+        return;
+    }
+    MetaFattr*    fa                  = 0;
+    bool    const kToDumpsterFlag     = true;
+    bool    const exclusiveFlag       = ! overwriteFlag || wormModeFlag;
+    bool    const numReplicas         = 1;
+    int32_t const numStripes          = 0;
+    int32_t const numRecoveryStripes  = 0;
+    int32_t const stripeSize          = 0;
+    status = metatree.create(
+        dir,
+        name,
+        &fid,
+        numReplicas,
+        exclusiveFlag,
+        KFS_STRIPED_FILE_TYPE_NONE,
+        numStripes,
+        numRecoveryStripes,
+        stripeSize,
+        user,
+        group,
+        mode,
+        euser,
+        egroup,
+        &fa,
+        mtime,
+        kToDumpsterFlag
+    );
+    if (status == 0 && fa) {
+        if (0 != fa->chunkcount() || 0 != fa->filesize ||
+                1 != fa->numReplicas) {
+            panic("invalid symbolic link attributes");
+        }
+        // Do not inherit directory tiers, reset them to
+        // keep all symbolic links consistent. 
+        fa->minSTier = kKfsSTierMax;
+        fa->maxSTier = kKfsSTierMax;
+        fa->SetExtAttributes(kFileAttrExtTypeSymLink, targetPath);
     }
 }
 
@@ -4590,7 +4706,6 @@ MetaCreate::response(ReqOstream &os)
         user        = r.user;
         group       = r.group;
         mode        = r.mode;
-        group       = r.group;
         minSTier    = r.minSTier;
         maxSTier    = r.maxSTier;
     }
@@ -4638,7 +4753,6 @@ MetaMkdir::response(ReqOstream &os)
         user     = r.user;
         group    = r.group;
         mode     = r.mode;
-        group    = r.group;
         minSTier = r.minSTier;
         maxSTier = r.maxSTier;
     }
@@ -4745,6 +4859,31 @@ MetaRename::response(ReqOstream &os)
         return;
     }
     os << "\r\n";
+}
+
+void
+MetaLink::response(ReqOstream &os)
+{
+    if (! IdempotentAck(os)) {
+        return;
+    }
+    if (GetReq() && GetReq() != this) {
+        // Copy fields, as GetUserAndGroupNames() won't work if requests are
+        // handled by different client network threads.
+        const MetaLink& r = *static_cast<const MetaLink*>(GetReq());
+        fid   = r.fid;
+        user  = r.user;
+        group = r.group;
+        mode  = r.mode;
+    }
+    os <<
+    (shortRpcFormatFlag ? "P:" : "File-handle: ") << fid   << "\r\n" <<
+    (shortRpcFormatFlag ? "u:" : "User: ")        << user  << "\r\n" <<
+    (shortRpcFormatFlag ? "g:" : "Group: ")       << group << "\r\n" <<
+    (shortRpcFormatFlag ? "M:" : "Mode: ")        << mode  << "\r\n"
+    ;
+    UserAndGroupNamesReply(os, GetUserAndGroupNames(*this), user, group,
+        shortRpcFormatFlag) << "\r\n";
 }
 
 void

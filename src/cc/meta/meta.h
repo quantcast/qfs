@@ -174,13 +174,6 @@ class BaseFattr {
 protected:
     fid_t fid;      //!< id of this item's owner
 public:
-    typedef uint16_t FattrExtType; // Extended attributes type.
-    enum FattrExtTypes
-    {
-        kFattrExtTypeNone = 0,
-        kFattrExtTypeSymlink,
-	kFattrExtTypeEnd
-    };
     BaseFattr(
         FileType  t  = KFS_NONE,
         fid_t     id = 0,
@@ -200,7 +193,7 @@ public:
           filesize(0),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
-          fattrExtType(kFattrExtTypeNone)
+          fattrExtTypes(kFileAttrExtTypeNone)
         {}
     BaseFattr(
         FileType  t,
@@ -225,7 +218,7 @@ public:
           filesize(0),
           minSTier(kKfsSTierMax),
           maxSTier(kKfsSTierMax),
-          fattrExtType(kFattrExtTypeNone)
+          fattrExtTypes(kFileAttrExtTypeNone)
         {}
     FileType        type:2;         //!< file or directory
     StripedFileType striperType:5;
@@ -249,7 +242,7 @@ public:
     kfsSTier_t      minSTier;
     kfsSTier_t      maxSTier;
 protected:
-    FattrExtType    fattrExtType;
+    FileAttrExtTypes fattrExtTypes;
 public:
 
     fid_t id() const { return fid; }    //!< return the owner id
@@ -309,14 +302,18 @@ public:
         return true;
     }
     int64_t&          chunkcount()            { return subcount1; }
-    const int64_t&    chunkcount() const      { return subcount1; }
+    const int64_t&    chunkcount()      const { return subcount1; }
     chunkOff_t&       nextChunkOffset()       { return subcount2; }
     const chunkOff_t& nextChunkOffset() const { return subcount2; }
     int64_t&          fileCount()             { return subcount1; }
-    const int64_t&    fileCount() const       { return subcount1; }
+    const int64_t&    fileCount()       const { return subcount1; }
     chunkOff_t&       dirCount()              { return subcount2; }
-    const chunkOff_t& dirCount() const        { return subcount2; }
-    FattrExtType GetExtType() const { return fattrExtType; }
+    const chunkOff_t& dirCount()        const { return subcount2; }
+    FileAttrExtTypes  GetExtTypes()     const { return fattrExtTypes; }
+    bool HasExtAttrs() const
+        { return kFileAttrExtTypeNone != fattrExtTypes; }
+    bool IsSymLink() const
+        { return 0 != (kFileAttrExtTypeSymLink & fattrExtTypes); }
 };
 
 class MetaUserAndGroup
@@ -420,7 +417,7 @@ public:
     }
     void destroySelf()
     {
-        if (kFattrExtTypeNone != fattrExtType) {
+        if (kFileAttrExtTypeNone != fattrExtTypes) {
             ExtAttributesClear();
         }
         this->~MetaFattr();
@@ -437,9 +434,9 @@ public:
         return (test->metaType() == KFS_FATTR &&
             id() == refine<MetaFattr>(test)->id());
     }
-    void SetExtAttributes(FattrExtTypes type, const string& attrs);
+    void SetExtAttributes(FileAttrExtTypes types, const string& attrs);
     string GetExtAttributes() const {
-        if (kFattrExtTypeNone == fattrExtType) {
+        if (HasExtAttrs()) {
             return string();
         }
         return GetExtAttributesSelf();
