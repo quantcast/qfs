@@ -127,6 +127,7 @@ enum KfsOp_t {
     CMD_META_READ_META_DATA,
     CMD_META_VR_RECONFIGURATION,
     CMD_META_VR_GET_STATUS,
+    CMD_LINK,
     CMD_NCMDS
 };
 
@@ -437,6 +438,48 @@ struct RenameOp : public KfsIdempotentOp {
             " old: "       << oldname <<
             " parent: "    << parentFid <<
             " new: "       << newpath <<
+            " reqId: "     << reqId
+        ;
+        return os;
+    }
+};
+
+struct LinkOp : public KfsIdempotentOp {
+    kfsFileId_t parentFid;  // input parent file-id
+    const char* name;       // link entry name
+    const char* targetPath; // target path
+    bool        overwrite;  // set if the rename can overwrite newpath
+    Permissions permissions;
+    string      userName;
+    string      groupName;
+    kfsFileId_t fileId;     // result
+    LinkOp(
+        kfsSeq_t           s,
+        kfsFileId_t        p,
+        const char*        n,
+        const char*        t,
+        bool               ow,
+        kfsSeq_t           id    = -1,
+        const Permissions& perms = Permissions())
+        : KfsIdempotentOp(CMD_LINK, s, id),
+          parentFid(p),
+          name(n),
+          targetPath(t),
+          overwrite(ow),
+          permissions(perms),
+          userName(),
+          groupName(),
+          fileId(-1)
+        {}
+    void Request(ReqOstream& os);
+    virtual void ParseResponseHeaderSelf(const Properties& prop);
+    virtual ostream& ShowSelf(ostream& os) const {
+        os <<
+            "link: "  <<
+            " parent: "    << parentFid <<
+            " name: "      << name <<
+            " target: "    << targetPath <<
+            " overwrite: " << overwrite <<
             " reqId: "     << reqId
         ;
         return os;

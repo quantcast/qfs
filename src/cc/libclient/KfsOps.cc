@@ -33,6 +33,7 @@
 #include "common/BufferInputStream.h"
 #include "common/kfserrno.h"
 #include "common/IntToString.h"
+#include "common/StringIo.h"
 
 #include <cassert>
 #include <iostream>
@@ -297,6 +298,25 @@ RenameOp::Request(ReqOstream& os)
     if (overwrite) {
         os << (shortRpcFormatFlag ? "W:1\r\n" : "Overwrite: 1\r\n");
     }
+    os << "\r\n";
+}
+
+void
+LinkOp::Request(ReqOstream& os)
+{
+    os <<
+        "LINK \r\n"          << ReqHeaders(*this)   <<
+        (shortRpcFormatFlag ? "P:" : "Parent File-handle: ") <<
+            parentFid << "\r\n" <<
+        (shortRpcFormatFlag ? "N:" : "Name: ") <<
+            name << "\r\n" <<
+        (shortRpcFormatFlag ? "T:" : "Target-path: ") <<
+            targetPath << "\r\n"
+    ;
+    if (overwrite) {
+        os << (shortRpcFormatFlag ? "W:1\r\n" : "Overwrite: 1\r\n");
+    }
+    PutPermissions(shortRpcFormatFlag, os, permissions);
     os << "\r\n";
 }
 
@@ -1080,7 +1100,7 @@ CreateOp::ParseResponseHeaderSelf(const Properties& prop)
         userName          = prop.getValue(
             shortRpcFormatFlag ? "UN" : "UName", string());
         groupName         = prop.getValue(
-            shortRpcFormatFlag ? "GN" : "GName",    string());
+            shortRpcFormatFlag ? "GN" : "GName", string());
         minSTier          = prop.getValue(
             shortRpcFormatFlag ? "TL" : "Min-tier", minSTier);
         maxSTier          = prop.getValue(
@@ -1141,6 +1161,25 @@ MkdirOp::ParseResponseHeaderSelf(const Properties& prop)
             shortRpcFormatFlag ? "TL" : "Min-tier", minSTier);
         maxSTier          = prop.getValue(
             shortRpcFormatFlag ? "TH" : "Max-tier", maxSTier);
+    }
+}
+
+void
+LinkOp::ParseResponseHeaderSelf(const Properties& prop)
+{
+    fileId = prop.getValue(
+        shortRpcFormatFlag ? "P" : "File-handle", (kfsFileId_t) -1);
+    if (0 <= status) {
+        permissions.user  = prop.getValue(
+            shortRpcFormatFlag ? "u" : "User", permissions.user);
+        permissions.group = prop.getValue(
+            shortRpcFormatFlag ? "g" : "Group", permissions.group);
+        permissions.mode  = prop.getValue(
+            shortRpcFormatFlag ? "M" : "Mode", permissions.mode);
+        userName          = prop.getValue(
+            shortRpcFormatFlag ? "UN" : "UName", string());
+        groupName         = prop.getValue(
+            shortRpcFormatFlag ? "GN" : "GName", string());
     }
 }
 
@@ -1209,6 +1248,20 @@ ParseFileAttribute(bool shortRpcFormatFlag, const Properties& prop,
         shortRpcFormatFlag ? "UN" : "UName", string());
     outGroupName = prop.getValue(
         shortRpcFormatFlag ? "GN" : "GName", string());
+
+    fattr.extAttrTypes = prop.getValue(
+        shortRpcFormatFlag ? "ET" : "Ext-attrs-types",
+        FileAttrExtTypes(kFileAttrExtTypeNone));
+    if (kFileAttrExtTypeNone != fattr.extAttrTypes) {
+        const Properties::String* const val = prop.getValue(
+            shortRpcFormatFlag ? "EA" : "Ext-attrs");
+        if (val) {
+            if (! StringIo::Unescape(val->data(), val->size(),
+                    fattr.extAttrs)) {
+                fattr.extAttrs.clear();
+            }
+        }
+    }
 }
 
 void

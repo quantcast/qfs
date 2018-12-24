@@ -43,6 +43,7 @@
 #include "common/StdAllocator.h"
 #include "common/IntToString.h"
 #include "common/DisplayData.h"
+#include "common/StringIo.h"
 
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
@@ -2639,6 +2640,7 @@ private:
         TokenValue  filename;
         TokenValue  userName;
         TokenValue  groupName;
+        TokenValue  extAttrsToken;
 
         Entry()
             : FileAttr(),
@@ -2650,7 +2652,8 @@ private:
               type(),
               filename(),
               userName(),
-              groupName()
+              groupName(),
+              extAttrsToken()
           {}
         void Reset()
         {
@@ -2667,6 +2670,7 @@ private:
             filename.clear();
             userName.clear();
             groupName.clear();
+            extAttrsToken.clear();
         }
         bool Validate()
         {
@@ -2684,7 +2688,9 @@ private:
             if (ctime.tv_usec == kCTimeUndef) {
                 ctime = crtime;
             }
-            return (! filename.empty());
+            return (kFileAttrExtTypeNone == extAttrTypes ||
+                StringIo::Unescape(extAttrsToken.mPtr, extAttrsToken.mLen,
+                    extAttrs)) && ! filename.empty();
         }
         bool HandleUnknownField(
             const char* /* key */, size_t /* keyLen */,
@@ -2844,6 +2850,9 @@ private:
             .Def("Max-tier",             &Entry::maxSTier,         kKfsSTierMax)
             .Def("User-name",            &Entry::userName                      )
             .Def("Group-name",           &Entry::groupName                     )
+            .Def("Ext-attrs-types",      &Entry::extAttrTypes,
+                                         FileAttrExtTypes(kFileAttrExtTypeNone))
+            .Def("Ext-attrs",            &Entry::extAttrsToken                 )
             .DefDone()
         ;
     };
@@ -2879,6 +2888,9 @@ private:
             .Def("LT", &Entry::maxSTier,           kKfsSTierMax)
             .Def("UN", &Entry::userName                        )
             .Def("GN", &Entry::groupName                       )
+            .Def("ET", &Entry::extAttrTypes,
+                         FileAttrExtTypes(kFileAttrExtTypeNone))
+            .Def("EA", &Entry::extAttrsToken                   )
             .DefDone()
         ;
     }

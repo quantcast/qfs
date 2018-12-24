@@ -52,21 +52,23 @@ using std::vector;
 ///
 struct FileAttr : public Permissions
 {
-    kfsFileId_t     fileId;      /// i-node number
-    struct timeval  mtime;       /// modification time
-    struct timeval  ctime;       /// attribute change time
-    struct timeval  crtime;      /// access (was creation) time
-    bool            isDirectory; /// is this a directory?
-    chunkOff_t      fileSize;    /// logical eof
-    int64_t         subCount1;   /// number of chunks in the file or files in directory
-    int64_t         subCount2;   /// directories count
-    int16_t         numReplicas;
-    int16_t         numStripes;
-    int16_t         numRecoveryStripes;
-    StripedFileType striperType;
-    int32_t         stripeSize;
-    kfsSTier_t      minSTier;
-    kfsSTier_t      maxSTier;
+    kfsFileId_t      fileId;      /// i-node number
+    struct timeval   mtime;       /// modification time
+    struct timeval   ctime;       /// attribute change time
+    struct timeval   crtime;      /// access (was creation) time
+    bool             isDirectory; /// is this a directory?
+    chunkOff_t       fileSize;    /// logical eof
+    int64_t          subCount1;   /// number of chunks in the file or files in directory
+    int64_t          subCount2;   /// directories count
+    int16_t          numReplicas;
+    int16_t          numStripes;
+    int16_t          numRecoveryStripes;
+    StripedFileType  striperType;
+    int32_t          stripeSize;
+    kfsSTier_t       minSTier;
+    kfsSTier_t       maxSTier;
+    FileAttrExtTypes extAttrTypes;
+    string           extAttrs;
 
     FileAttr()
         : Permissions(),
@@ -84,7 +86,9 @@ struct FileAttr : public Permissions
           striperType(KFS_STRIPED_FILE_TYPE_NONE),
           stripeSize(0),
           minSTier(kKfsSTierMax),
-          maxSTier(kKfsSTierMax)
+          maxSTier(kKfsSTierMax),
+          extAttrTypes(kFileAttrExtTypeNone),
+          extAttrs()
         {}
     void Reset()
         { *this = FileAttr(); }
