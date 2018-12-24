@@ -1733,7 +1733,7 @@ struct MetaLink: public MetaIdempotentRequest {
         return MetaIdempotentRequest::ParserDef(parser)
         .Def2("Parent File-handle", "P",  &MetaLink::dir,       fid_t(-1))
         .Def2("Target-path",        "T",  &MetaLink::targetPath          )
-        .Def2("New-path",           "N",  &MetaLink::name                )
+        .Def2("Name",               "N",  &MetaLink::name                )
         .Def2("Overwrite",          "W",  &MetaLink::overwriteFlag, false)
         .Def2("Owner",              "O",  &MetaLink::user,   kKfsUserNone)
         .Def2("Group",              "G",  &MetaLink::group, kKfsGroupNone)
