@@ -1316,7 +1316,7 @@ Tree::getalloc(fid_t fid, MetaFattr*& fa, vector<MetaChunkInfo*>& v, int maxChun
         return -EISDIR;
     }
     if (fa->IsSymLink()) {
-    	fa = 0;
+        fa = 0;
         return -ENXIO;
     }
     // Chunk attributes follow the file attribute: they have same fid, and
@@ -1407,7 +1407,7 @@ Tree::getalloc(fid_t fid, chunkOff_t& offset,
         return -EISDIR;
     }
     if (fa->IsSymLink()) {
-    	fa = 0;
+        fa = 0;
         return -ENXIO;
     }
     if (offset < 0) {
@@ -1569,7 +1569,7 @@ Tree::allocateChunkId(fid_t file, chunkOff_t& offset, chunkId_t* chunkId,
     }
     if (fa->IsSymLink()) {
         panic("symbolic link: invalid getalloc return code");
-    	return -ENXIO;
+        return -ENXIO;
     }
     if (! fa->CanWrite(euser, egroup)) {
         return -EACCES;

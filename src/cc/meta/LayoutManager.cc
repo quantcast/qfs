@@ -10795,7 +10795,7 @@ LayoutManager::Handle(MetaChunkSize& req)
     MetaFattr* const           fa    = ci->GetFattr();
     const MetaChunkInfo* const chunk = ci->GetChunkInfo();
     if (fa->IsStriped() || 0 <= fa->filesize || KFS_FILE != fa->type ||
-    	    fa->IsSymLink() ||
+            fa->IsSymLink() ||
             metatree.getChunkDeleteQueue() == fa ||
             chunk->offset + (chunkOff_t)CHUNKSIZE < fa->nextChunkOffset() ||
             0 == fa->numReplicas) {
