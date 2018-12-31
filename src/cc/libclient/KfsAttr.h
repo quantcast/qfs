@@ -108,6 +108,8 @@ struct FileAttr : public Permissions
     chunkOff_t nextChunkOffset() const
         { return (isDirectory ? chunkOff_t(0) : subCount2); }
     void ToStat(struct stat& outStat) const;
+    bool IsSymLink() const
+        { return 0 != (kFileAttrExtTypeSymLink & extAttrTypes); }
 };
 
 struct ChunkAttr

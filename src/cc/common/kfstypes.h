@@ -203,6 +203,8 @@ enum FileAttrExtTypeBits
 };
 typedef uint16_t FileAttrExtTypes; // Extended attributes type.
 
+const int KFS_SYMLOOP_MAX = 32;
+
 }
 
 #endif // COMMON_KFSTYPES_H

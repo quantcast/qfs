@@ -3513,8 +3513,9 @@ KfsClientImpl::Remove(const char* pathname)
     string      filename;
     string      path;
     const bool  kInvalidateSubCountsFlag = true;
+    const bool  kFollowSymLinkFlag       = false;
     int res = GetPathComponents(pathname, &parentFid, filename, &path,
-        kInvalidateSubCountsFlag);
+        kInvalidateSubCountsFlag, kFollowSymLinkFlag);
     if (res < 0) {
         return res;
     }
@@ -5770,7 +5771,7 @@ KfsClientImpl::ValidateName(const string& name)
 int
 KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
     string& name, string* path, bool invalidateSubCountsFlag,
-    bool enforceLastDirFlag)
+    bool enforceLastDirFlag, bool followSymLinkFlag, int symLinksDepth)
 {
     if (! pathname) {
         return -EFAULT;
@@ -5780,7 +5781,7 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
     if (! mTmpAbsPath.Set(ptr, len)) {
         return -EINVAL;
     }
-    const size_t sz  = mTmpAbsPath.size();
+    const size_t sz = mTmpAbsPath.size();
     if (sz < 1 || mTmpAbsPath[0] != Path::Token("/", 1)) {
         return -EINVAL;
     }
@@ -5798,8 +5799,10 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
     }
     const Path::Token kThisDir(".",    1);
     const Path::Token kParentDir("..", 2);
-    const time_t      now = sz <= 1 ? 0 : time(0);
-    int               res = 0;
+    const time_t      now                = sz <= 1 ? 0 : time(0);
+    int               res                = 0;
+    const bool        noCheckLastDirFlag =
+        ! enforceLastDirFlag || ! mTmpAbsPath.IsDir();
     for (size_t i = 1; i < sz; i++) {
         const Path::Token& dname = mTmpAbsPath[i];
         if (dname == kThisDir || dname.mLen <= 0) {
@@ -5831,14 +5834,48 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
             break;
         }
         const bool lastFlag = i + 1 == sz;
-        if (lastFlag && (! enforceLastDirFlag || ! mTmpAbsPath.IsDir())) {
+        if (! followSymLinkFlag && lastFlag && noCheckLastDirFlag) {
             break;
         }
         fa = 0;
         if ((res = Lookup(*parentFid, name, fa, now, npath)) != 0) {
+            if (lastFlag && -ENOENT == res && noCheckLastDirFlag) {
+                res = 0;
+            }
+            break;
+        }
+        if (0 <= symLinksDepth && fa->IsSymLink()) {
+            if (KFS_SYMLOOP_MAX < symLinksDepth || name == fa->extAttrs) {
+                res = -ELOOP;
+                break;
+            }
+            if (fa->extAttrs.empty()) {
+                res = -EIO;
+                break;
+            }
+            string cpath;
+            if ('/' != fa->extAttrs[0]) {
+                cpath.assign(npath.data(), npath.size() - dname.mLen);
+            }
+            cpath += fa->extAttrs;
+            bool dirSepFlag = '/' != *cpath.rbegin();
+            while (++i < sz) {
+                const Path::Token& name = mTmpAbsPath[i];
+                if (dirSepFlag) {
+                    cpath += '/';
+                }
+                cpath.append(name.mPtr, name.mLen);
+                dirSepFlag = true;
+            }
+            res = GetPathComponents(cpath.c_str(), parentFid, name, path,
+                invalidateSubCountsFlag, enforceLastDirFlag,
+                symLinksDepth + 1);
             break;
         }
         if (! fa->isDirectory) {
+            if (lastFlag && noCheckLastDirFlag) {
+                break;
+            }
             res = -ENOTDIR;
             break;
         }
@@ -5857,7 +5894,8 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
     mTmpAbsPath.Clear();
 
     KFS_LOG_STREAM_DEBUG <<
-        "path: "    << pathname <<
+        "depth: "   << symLinksDepth <<
+        " path: "   << pathname <<
         " file: "   << name <<
         " npath: "  << (npath.empty() ? name : npath) <<
         " parent: " << *parentFid <<

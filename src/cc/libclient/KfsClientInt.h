@@ -944,7 +944,8 @@ private:
     /// trailing "/"
     int GetPathComponents(const char *pathname, kfsFileId_t *parentFid,
         string &name, string* path = 0, bool invalidateSubCountsFlag = false,
-        bool enforceLastDirFlag = true);
+        bool enforceLastDirFlag = true, bool followSymLinkFlag = true,
+        int symLinksDepth = 0);
 
     /// File table management utilities: find a free entry in the
     /// table, find the entry corresponding to a pathname, "mark" an
