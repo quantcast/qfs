@@ -26,7 +26,7 @@ fi
 SRC="`cd "$1" > /dev/null && pwd`"
 
 MYURL='http://apache.mirrors.pair.com//creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz'
-MYSHA1URL='https://www.apache.org/dist/creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz.sha1'
+MYSHAURL='https://www.apache.org/dist/creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz.sha512'
 MYTAR="`basename "$MYURL"`"
 MYNAME="`basename "$MYTAR" -bin.tar.gz`"
 MYJAR="$MYNAME/$MYNAME.jar"
@@ -36,13 +36,14 @@ if [ -f "$MYJAR" ]; then
 else
     rm -f "$MYTAR"
     if curl --retry 3 -Ss -o "$MYTAR" "$MYURL"; then
-        MYTARSHA1="`curl --retry 3 -Ss "$MYSHA1URL" | awk '{print $1}'`"
-        MYACTSHA1="`openssl sha1 < "$MYTAR" | awk '{print $2}'`"
-        if [ x"$MYACTSHA1" = x"$MYTARSHA1" ]; then
+        MYTARSHA="`curl --retry 3 -Ss "$MYSHAURL" \
+            | sed -e 's/^.*://' | tr -d ' \n' | tr ABCDEF abcdef`"
+        MYACTSHA="`openssl sha512 < "$MYTAR" | sed -e 's/^.*)= *//'`"
+        if [ x"$MYACTSHA" = x"$MYTARSHA" ]; then
             true
         else
-            echo "$MYTAR: sha1 mismatch:" \
-                "downloaded: $MYACTSHA1, expected: $MYTARSHA1"
+            echo "$MYTAR: sha512 mismatch:" \
+                "downloaded: $MYACTSHA, expected: $MYTARSHA"
             rm "$MYTAR"
             exit 1
         fi
