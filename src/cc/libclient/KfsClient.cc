@@ -2052,8 +2052,8 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
     kfsFileId_t parentFid;
     string      dirname;
     string      path;
-    const bool  kEnforceLastDirFlag      = false;
     const bool  kInvalidateSubCountsFlag = true;
+    const bool  kEnforceLastDirFlag      = false;
     int         res                      = GetPathComponents(
         pathname, &parentFid, dirname, &path,
         kInvalidateSubCountsFlag, kEnforceLastDirFlag);
@@ -2099,8 +2099,10 @@ KfsClientImpl::Rmdir(const char *pathname)
     string      path;
     kfsFileId_t parentFid;
     const bool  kInvalidateSubCountsFlag = true;
+    const bool  kEnforceLastDirFlag      = false;
+    const bool  kFollowSymLinkFlag       = false;
     int res = GetPathComponents(pathname, &parentFid, dirname, &path,
-        kInvalidateSubCountsFlag);
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (res < 0) {
         return res;
     }
@@ -2138,7 +2140,11 @@ KfsClientImpl::RmdirsFast(const char *pathname,
     string      dirname;
     kfsFileId_t parentFid = -1;
     string      path;
-    int ret = GetPathComponents(pathname, &parentFid, dirname, &path);
+    const bool  kInvalidateSubCountsFlag = false;
+    const bool  kEnforceLastDirFlag      = false;
+    const bool  kFollowSymLinkFlag       = false;
+    int ret = GetPathComponents(pathname, &parentFid, dirname, &path,
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (ret < 0) {
         return ret;
     }
@@ -3513,9 +3519,10 @@ KfsClientImpl::Remove(const char* pathname)
     string      filename;
     string      path;
     const bool  kInvalidateSubCountsFlag = true;
+    const bool  kEnforceLastDirFlag      = true;
     const bool  kFollowSymLinkFlag       = false;
     int res = GetPathComponents(pathname, &parentFid, filename, &path,
-        kInvalidateSubCountsFlag, kFollowSymLinkFlag);
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (res < 0) {
         return res;
     }
@@ -3585,8 +3592,10 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
     string      srcFileName;
     string      srcPath;
     const bool  kInvalidateSubCountsFlag = true;
+    const bool  kEnforceLastDirFlag      = true;
+    const bool  kFollowSymLinkFlag       = false;
     int res = GetPathComponents(src, &srcParentFid, srcFileName, &srcPath,
-        kInvalidateSubCountsFlag);
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (res < 0) {
         KFS_LOG_STREAM_DEBUG << "reanme: " <<
             src << " " << dst << " status: " << res <<
@@ -3597,7 +3606,7 @@ KfsClientImpl::Rename(const char* src, const char* dst, bool overwrite)
     string      dstPath;
     kfsFileId_t dstParentFid;
     res = GetPathComponents(dst, &dstParentFid, dstFileName, &dstPath,
-        kInvalidateSubCountsFlag);
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (res < 0) {
         KFS_LOG_STREAM_DEBUG << "reanme: " <<
             src << " " << dst << " status: " << res <<
@@ -3710,7 +3719,12 @@ KfsClientImpl::InvalidateAttribute(const string& pathname,
             }
             continue;
         }
-        if (GetPathComponents(pathstr.c_str(), &parentFid, name) != 0) {
+        const bool kInvalidateSubCountsFlag = false;
+        const bool kEnforceLastDirFlag      = true;
+        const bool kFollowSymLinkFlag       = false;
+        if (GetPathComponents(pathstr.c_str(), &parentFid, name,
+                0, kInvalidateSubCountsFlag, kEnforceLastDirFlag,
+                kFollowSymLinkFlag) != 0) {
             continue;
         }
         FAttr* const fa = LookupFAttr(parentFid, name);
