@@ -283,7 +283,7 @@ public:
     /// present, they are also made.
     /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if mkdir is successful; -errno otherwise
-    int Mkdirs(const char *pathname, kfsMode_t mode);
+    int Mkdirs(const char *pathname, kfsMode_t mode, int symLinksDepth);
 
     ///
     /// Make a directory in KFS.
@@ -1114,6 +1114,9 @@ private:
     ssize_t WriteSelf(int fd, const char *buf, size_t numBytes,
         bool asyncFlag, bool appendOnlyFlag, chunkOff_t* pos);
     inline bool IsFileTableFull() const;
+    static int FollowSymLink(const char* path, size_t pathLen,
+        Path::iterator pathRemIt, Path::iterator pathRemEndIt,
+        const FAttr& fa, string& outPath);
     friend struct RespondingServer;
     friend struct RespondingServer2;
     friend class ChmodFunc;

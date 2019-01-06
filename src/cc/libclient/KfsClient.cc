@@ -251,7 +251,7 @@ KfsClient::GetCwd()
 int
 KfsClient::Mkdirs(const char *pathname, kfsMode_t mode)
 {
-    return mImpl->Mkdirs(pathname, mode);
+    return mImpl->Mkdirs(pathname, mode, 0);
 }
 
 int
@@ -1910,7 +1910,7 @@ KfsClientImpl::GetTmpAbsPath(const char* pathname, size_t& ioLen)
 /// Make a directory hierarchy in KFS.
 ///
 int
-KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
+KfsClientImpl::Mkdirs(const char* pathname, kfsMode_t mode, int symLinksDepth)
 {
     if (! pathname) {
         return -EFAULT;
@@ -1982,7 +1982,23 @@ KfsClientImpl::Mkdirs(const char *pathname, kfsMode_t mode)
         if (res == 0) {
             assert(fa);
             if (! fa->isDirectory) {
-                res = -ENOTDIR;
+                if (0 <= symLinksDepth && fa->IsSymLink()) {
+                    if (KFS_SYMLOOP_MAX < symLinksDepth ||
+                            mTmpDirName == fa->extAttrs) {
+                        res = -ELOOP;
+                    } else {
+                        string cpath;
+                        if (0 == (res = FollowSymLink(mTmpCurPath.data(),
+                                mTmpCurPath.size() - cname.mLen,
+                                mTmpAbsPath.begin() + i + 1, mTmpAbsPath.end(),
+                                *fa, cpath))) {
+                            res = Mkdirs(cpath.c_str(), mode,
+                                symLinksDepth + 1);
+                        }
+                    }
+                } else {
+                    res = -ENOTDIR;
+                }
                 break;
             }
             // Invalidate the counts, assuming that in most cases case a new sub
@@ -2838,7 +2854,8 @@ private:
             .Def("Replication",          &Entry::numReplicas,        int16_t(1))
             .Def("Chunk-count",          &Entry::subCount1                     )
             .Def("File-size",            &Entry::fileSize,       chunkOff_t(-1))
-            .Def("Striper-type",         &Entry::striperType, KFS_STRIPED_FILE_TYPE_UNKNOWN)
+            .Def("Striper-type",         &Entry::striperType,
+                                                  KFS_STRIPED_FILE_TYPE_UNKNOWN)
             .Def("Num-stripes",          &Entry::numStripes                    )
             .Def("Num-recovery-stripes", &Entry::numRecoveryStripes            )
             .Def("Stripe-size",          &Entry::stripeSize                    )
@@ -2876,7 +2893,8 @@ private:
             .Def("R",  &Entry::numReplicas,          int16_t(1))
             .Def("CC", &Entry::subCount1                       )
             .Def("S",  &Entry::fileSize,         chunkOff_t(-1))
-            .Def("ST", &Entry::striperType, KFS_STRIPED_FILE_TYPE_UNKNOWN)
+            .Def("ST", &Entry::striperType,
+                                  KFS_STRIPED_FILE_TYPE_UNKNOWN)
             .Def("SC", &Entry::numStripes                      )
             .Def("SR", &Entry::numRecoveryStripes              )
             .Def("SS", &Entry::stripeSize                      )
@@ -5863,27 +5881,15 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
                 res = -ELOOP;
                 break;
             }
-            if (fa->extAttrs.empty()) {
-                res = -EIO;
-                break;
-            }
             string cpath;
-            if ('/' != fa->extAttrs[0]) {
-                cpath.assign(npath.data(), npath.size() - dname.mLen);
+            if (0 == (res = FollowSymLink(npath.data(),
+                    npath.size() - dname.mLen,
+                    mTmpAbsPath.begin() + i + 1, mTmpAbsPath.end(),
+                    *fa, cpath))) {
+                res = GetPathComponents(cpath.c_str(), parentFid, name, path,
+                    invalidateSubCountsFlag, enforceLastDirFlag,
+                    symLinksDepth + 1);
             }
-            cpath += fa->extAttrs;
-            bool dirSepFlag = '/' != *cpath.rbegin();
-            while (++i < sz) {
-                const Path::Token& name = mTmpAbsPath[i];
-                if (dirSepFlag) {
-                    cpath += '/';
-                }
-                cpath.append(name.mPtr, name.mLen);
-                dirSepFlag = true;
-            }
-            res = GetPathComponents(cpath.c_str(), parentFid, name, path,
-                invalidateSubCountsFlag, enforceLastDirFlag,
-                symLinksDepth + 1);
             break;
         }
         if (! fa->isDirectory) {
@@ -7695,6 +7701,40 @@ KfsClientImpl::SetCloseWriteOnRead(bool inFlag)
 {
     QCStMutexLocker l(mMutex);
     mCloseWriteOnReadFlag = inFlag;
+}
+
+/* static */ int
+KfsClientImpl::FollowSymLink(const char* const path, size_t const pathLen,
+    Path::iterator const pathRemIt, Path::iterator const pathRemEndIt,
+    const KfsClientImpl::FAttr& fa, string& outPath)
+{
+    char const kDirSep = '/';
+
+    if (! fa.IsSymLink()) {
+        return -EINVAL;
+    }
+    if (fa.extAttrs.empty()) {
+        return -EIO;
+    }
+    if (kDirSep != fa.extAttrs[0]) {
+        outPath.assign(path, pathLen);
+        if (kDirSep != *outPath.rbegin()) {
+            outPath.append(1, kDirSep);
+        }
+    } else {
+        outPath.clear();
+    }
+    outPath.append(fa.extAttrs);
+    bool dirSepFlag = kDirSep != *outPath.rbegin();
+    for (Path::iterator it = pathRemIt; pathRemEndIt != it; ++it) {
+        const Path::Token& name = *it;
+        if (dirSepFlag) {
+            outPath.append(1, kDirSep);
+        }
+        outPath.append(name.mPtr, name.mLen);
+        dirSepFlag = true;
+    }
+    return 0;
 }
 
 } // client
