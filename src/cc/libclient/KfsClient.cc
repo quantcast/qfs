@@ -267,6 +267,13 @@ KfsClient::Rmdir(const char *pathname)
 }
 
 int
+KfsClient::Symlink(const char* target, const char* linkPath, kfsMode_t mode,
+    bool overwriteFlag)
+{
+    return mImpl->Symlink(target, linkPath, mode, overwriteFlag);
+}
+
+int
 KfsClient::Rmdirs(const char *pathname,
     KfsClient::ErrorHandler* errHandler)
 {
@@ -2067,11 +2074,10 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
 
     kfsFileId_t parentFid;
     string      dirname;
-    string      path;
     const bool  kInvalidateSubCountsFlag = true;
     const bool  kEnforceLastDirFlag      = false;
     int         res                      = GetPathComponents(
-        pathname, &parentFid, dirname, &path,
+        pathname, &parentFid, dirname, 0,
         kInvalidateSubCountsFlag, kEnforceLastDirFlag);
     if (res < 0) {
         return res;
@@ -2089,6 +2095,64 @@ KfsClientImpl::Mkdir(const char *pathname, kfsMode_t mode)
         return GetOpStatus(op);
     }
     time_t now = 0; // assign to suppress compiler warning.
+    if (! op.userName.empty()) {
+        now = time(0);
+        UpdateUserId(op.userName, op.permissions.user, now);
+    }
+    if (! op.groupName.empty()) {
+        if (op.userName.empty()) {
+            now = time(0);
+        }
+        UpdateGroupId(op.groupName, op.permissions.group, now);
+    }
+    return 0;
+}
+
+///
+/// Create symbolic link in KFS.
+/// @param[in] target Symbolic link target.
+/// @param[in] linkPath Symbolic link name / path.
+/// @mode[in] link permissions.
+/// @param[in] overwriteFlag Delete if already exists.
+/// @retval 0 if successful; -errno otherwise
+int
+KfsClientImpl::Symlink(const char* target, const char* linkPath,
+    kfsMode_t mode, bool overwriteFlag)
+{
+    if (! target) {
+        return -EFAULT;
+    }
+    if (! *target) {
+        return -EINVAL;
+    }
+
+    QCStMutexLocker l(mMutex);
+
+    kfsFileId_t parentFid;
+    string      linkName;
+    const bool  kInvalidateSubCountsFlag = true;
+    const bool  kEnforceLastDirFlag      = false;
+    int         res                      = GetPathComponents(
+        linkPath, &parentFid, linkName, 0,
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag);
+    if (res < 0) {
+        return res;
+    }
+    Delete(LookupFAttr(parentFid, linkName));
+    LinkOp op(0, parentFid, linkName.c_str(), target,
+        overwriteFlag,
+        NextIdempotentOpId(),
+        Permissions(
+            mUseOsUserAndGroupFlag ? mEUser  : kKfsUserNone,
+            mUseOsUserAndGroupFlag ? mEGroup : kKfsGroupNone,
+            mode != kKfsModeUndef  ? (mode & ~mUMask) : mode
+        )
+    );
+    DoMetaOpWithRetry(&op);
+    if (op.status < 0) {
+        return GetOpStatus(op);
+    }
+    time_t now = 0;
     if (! op.userName.empty()) {
         now = time(0);
         UpdateUserId(op.userName, op.permissions.user, now);

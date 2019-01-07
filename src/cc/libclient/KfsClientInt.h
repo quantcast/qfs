@@ -298,6 +298,16 @@ public:
     int Rmdir(const char *pathname);
 
     ///
+    /// Create symbolic link in KFS.
+    /// @param[in] target Symbolic link target.
+    /// @param[in] linkPath Symbolic link name / path.
+    /// @mode[in] link permissions.
+    /// @param[in] overwriteFlag Delete if already exists.
+    /// @retval 0 if successful; -errno otherwise
+    int Symlink(const char* target, const char* linkPath, kfsMode_t mode,
+        bool overwriteFlag);
+
+    ///
     /// Remove a directory hierarchy in KFS.
     /// @param[in] pathname The full pathname such as /.../dir
     /// @retval 0 if rmdir is successful; -errno otherwise

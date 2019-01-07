@@ -459,8 +459,8 @@ struct LinkOp : public KfsIdempotentOp {
         const char*        n,
         const char*        t,
         bool               ow,
-        kfsSeq_t           id    = -1,
-        const Permissions& perms = Permissions())
+        kfsSeq_t           id,
+        const Permissions& perms)
         : KfsIdempotentOp(CMD_LINK, s, id),
           parentFid(p),
           name(n),
