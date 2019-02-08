@@ -92,9 +92,9 @@ deploy:
     region: us-east-1
     local_dir: artifacts
     access_key_id:
-        - secure: IvmQ1sHBE+/USw+/adukFk1Wxq9Pn49PTvlbbRoI1D3W+ILc7u7+rFuNwQqAexXfBP71oMEE8YDR4U9dcoD4NinMd02lciFzrbtzErQ2Re2fU6k3I2OiyJ8ApAalKLxNmFC8jPTPufFT8gfCfOjoSDIpEffA75EzJVmDdDOspvw=
+        - secure: UqMk3DuP3phOQTNLropADqDSjFInV8+imvfU5dhevYU6ycaDeEp9PI6bIJE53nxckpED3j3CaWs8CzgHJmeQ+yC8SCoJWti5zhHb12APuPQQfOFp7vjSQsEUI29Ymaz7bqcZBODmWg5es70Zuxes9mRSBd4PzpCFvvUsBKUYYKg=
     secret_access_key:
-        - secure: HkCLJKSX7jUPzsbZeiK3pSwECP79q6ypRnzudsTlRzmbW/eKloJHLwPEZycAakH9S24cqgjKTvv1O8XZ8sTGx0lhonRRBOXeYN9tVKrwL7CIbDHy4fOJkVQYG321EmKr3UIL9rAYZyR01WC1hEJ6pPJK7xgcFTDhZ0e47wegUlI=
+        - secure: UOL4vCiUFALq2MwOji2dUbT9HrSw1GInFH6SfY1pN5fnanmEGgw3jRwnqTu2hu9KhFEhZq5vZDEGogRU8AVQPJjCkGQFZW/sakKuJfLKMM7qr6+mLZ8VmWr8cmVIUswosknoxplXlRx2FnuEYwbN0ju0QZFfARehR03W5Ehii8o=
     on:
         all_branches: true
-        condition: "$CODECOV != yes && $BTYPE = release && $BUSER != root && ( $TRAVIS_BRANCH = $TRAVIS_TAG || $TRAVIS_BRANCH = Xmaster )"
+        condition: "$CODECOV != yes && $BTYPE = release && $BUSER != root && ( $TRAVIS_BRANCH = $TRAVIS_TAG || $TRAVIS_BRANCH = master )"
