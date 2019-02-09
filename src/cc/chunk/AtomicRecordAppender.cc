@@ -335,7 +335,7 @@ public:
     static bool ComputeChecksum(
         kfsChunkId_t chunkId, int64_t chunkVersion,
         int64_t& chunkSize, uint32_t& chunkChecksum);
-    void FatalError(const char* msg = "AtomicRecordAppender internal error")
+    void FatalError(const char* msg = "AtomicRecordAppender: internal error")
         { die(msg); }
     void BeginChunkMakeStable(BeginMakeChunkStableOp* op)
     {
@@ -1331,13 +1331,16 @@ AtomicRecordAppender::Relock(ClientThread& cliThread)
         FatalError("AtomicRecordAppender::Relock: invalid mutex state");
         return;
     }
-    mMutex->Unlock();
-    if (mMutex->IsOwned()) {
+    if (! mMutex->Unlock()) {
         FatalError("AtomicRecordAppender::Relock: failed to release mutex");
         return;
     }
     // Re-acquire in the same order.
-    cliThread.Lock();
+    if (! cliThread.Lock()) {
+        FatalError("AtomicRecordAppender::Relock:"
+            " client thread mutex wan not released");
+        return;
+    }
     mMutex->Lock();
     if (mState == kStateNone) {
         FatalError("AtomicRecordAppender::Relock:"
@@ -1515,7 +1518,15 @@ AtomicRecordAppender::AppendBegin(
                         mAlignment = (int)((mNextOffset + op->numBytes) %
                             IOBufferData::GetDefaultBufferSize());
                     }
-                    cliThread->Unlock();
+                    if (! cliThread->Unlock()) {
+                        // If failed to release the lock, restore lock count,
+                        // and do not invoke re-lock.
+                        if (cliThread->Lock()) {
+                            FatalError("AtomicRecordAppender:AppendBegin:"
+                                " invalid client thread mutex state");
+                        }
+                        cliThread = 0;
+                    }
                 }
             }
             uint32_t     checksum       = kKfsNullChecksum;

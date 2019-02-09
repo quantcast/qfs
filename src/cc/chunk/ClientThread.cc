@@ -106,7 +106,7 @@ class ClientThreadImpl : public QCRunnable, public NetManager::Dispatcher
 public:
     typedef ClientThread Outer;
 
-    static void Lock(
+    static bool Lock(
         Outer& inThread)
     {
         GetMutex().Lock();
@@ -119,24 +119,32 @@ public:
                 die("client thread lock: client thread is not current thread");
             }
             sCurrentClientThreadPtr = &inThread;
+            return true;
         }
+        return false;
     }
-    static void Unlock(
+    static bool Unlock(
         Outer& inThread)
     {
         if (sLockCnt <= 0 || &inThread != sCurrentClientThreadPtr) {
             die("unlock: invalid client thread lock state");
-            return;
+            return false;
         }
-        if (--sLockCnt == 0) {
+        const bool theUnlockedFlag = 0 == --sLockCnt;
+        if (theUnlockedFlag) {
             if (! inThread.mImpl.mShutdownFlag &&
                     ! inThread.mImpl.mThread.IsCurrentThread()) {
                 die("client thread unlock:"
-                    "client thread is not current thread");
+                    " client thread is not current thread");
             }
             sCurrentClientThreadPtr = 0;
         }
-        GetMutex().Unlock();
+        if (GetMutex().Unlock() != theUnlockedFlag &&
+                ! inThread.mImpl.mShutdownFlag) {
+            die("client thread unlock:"
+                " unlock failed");
+        }
+        return theUnlockedFlag;
     }
 
     class StMutexLocker
@@ -834,16 +842,16 @@ ClientThread::~ClientThread()
     delete &mImpl;
 }
 
-    void
+    bool
 ClientThread::Lock()
 {
-    ClientThreadImpl::Lock(*this);
+    return ClientThreadImpl::Lock(*this);
 }
 
-    void
+    bool
 ClientThread::Unlock()
 {
-    ClientThreadImpl::Unlock(*this);
+    return ClientThreadImpl::Unlock(*this);
 }
 
     void

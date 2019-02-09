@@ -78,8 +78,8 @@ public:
     void Add(
         ClientSM& inClient);
     NetManager& GetNetManager();
-    void Lock();
-    void Unlock();
+    bool Lock();
+    bool Unlock();
     const QCThread& GetThread() const;
     static ClientThread* GetCurrentClientThreadPtr();
     static const QCMutex& GetMutex();
