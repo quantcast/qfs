@@ -27,6 +27,7 @@
 #include "ClientSM.h"
 #include "RemoteSyncSM.h"
 #include "Replicator.h"
+#include "ChunkServer.h"
 
 #include "common/kfsatomic.h"
 
@@ -37,6 +38,7 @@
 #include "qcdio/qcdebug.h"
 
 #include "kfsio/NetManager.h"
+#include "kfsio/NetManagerWatcher.h"
 #include "kfsio/IOBuffer.h"
 #include "kfsio/Globals.h"
 #include "kfsio/checksum.h"
@@ -190,7 +192,8 @@ public:
           mUseOsResolverFlag(mNetManager.GetResolverOsFlag()),
           mResolverUpdateParamsFlag(false),
           mWakeupCnt(0),
-          mOuter(inOuter)
+          mOuter(inOuter),
+          mNetManagerWatcher("client", mNetManager)
     {
         QCASSERT(GetMutex().IsOwned());
         DispatchQueue::Init(mDispatchQueuePtr);
@@ -235,7 +238,9 @@ public:
     {
         QCMutex* const kNullMutexPtr         = 0;
         bool     const kWakeupAndCleanupFlag = true;
+        gChunkServer.GetWatchdog().Register(mNetManagerWatcher);
         mNetManager.MainLoop(kNullMutexPtr, kWakeupAndCleanupFlag, this);
+        gChunkServer.GetWatchdog().Unregister(mNetManagerWatcher);
     }
     bool IsStarted() const
         { return mThread.IsStarted(); }
@@ -558,6 +563,7 @@ private:
     bool                   mResolverUpdateParamsFlag;
     volatile int           mWakeupCnt;
     ClientThread&          mOuter;
+    NetManagerWatcher      mNetManagerWatcher;
     ClientThreadListEntry* mAddQueuePtr[kDispatchQueueCount];
     ClientThreadListEntry* mDispatchQueuePtr[kDispatchQueueCount];
     char                   mParseBuffer[MAX_RPC_HEADER_LEN];

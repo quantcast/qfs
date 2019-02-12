@@ -1649,16 +1649,46 @@ ChangeChunkVersOp::HandleChunkMetaWriteDone(int code, void* data)
     return 0;
 }
 
+
+static inline ostream&
+HBAppendKey(ostream& os, const char* keyPrefix, int idx, const char* key)
+{
+    if (keyPrefix) {
+        os << keyPrefix;
+    }
+    os << key;
+    if (0 < idx) {
+        os << idx;
+    }
+    return os;
+}
+
 template<typename T>
 inline static void
-HBAppend(ostream** os, const char* key, const T& val)
+HBAppend(ostream** os, const char* key, const T& val,
+    const char* keyPrefix = 0, int idx = -1)
 {
     if (os[0]) {
-        *os[0] << key << ": " << val << "\r\n";
+        HBAppendKey(*os[0], keyPrefix, idx, key) << ": " << val << "\r\n";
     }
     if (os[1]) {
-        *os[1]  << "," << key << "=" << val;
+        HBAppendKey(*os[1]  << ",", keyPrefix, idx, key) << "=" << val;
     }
+}
+
+inline static void
+HBAppend(ostream** os, int idx, const Watchdog::Counters& counters)
+{
+    HBAppend(os, counters.mName, counters.mTimeoutCount,
+        "WD-timeouts-", idx);
+    HBAppend(os, counters.mName, counters.mPollCount,
+        "WD-polls-",    idx);
+    HBAppend(os, counters.mName, counters.mTotalTimeoutCount,
+        "WD-tot-timeouts-", idx);
+    HBAppend(os, counters.mName, counters.mTotalTimeoutCount,
+        "WD-tot-timeouts-", idx);
+    HBAppend(os, counters.mName, counters.mLastChangedTimeAgoUsec,
+        "WD-changed-usec-ago-", idx);
 }
 
 template<typename T>
@@ -1971,6 +2001,25 @@ HBAppendCounters(ostream* hbos)
     HBAppend(os, "Auth-clnt",           gClientManager.IsAuthEnabled() ? 1 : 0);
     HBAppend(os, "Auth-rsync",          RemoteSyncSM::IsAuthEnabled()  ? 1 : 0);
     HBAppend(os, "Auth-meta",           gMetaServerSM.IsAuthEnabled()  ? 1 : 0);
+
+    Watchdog& watchdog = gChunkServer.GetWatchdog();
+    HBAppend(os, "WD-timeouts", watchdog.GetTimeoutCount());
+    HBAppend(os, "WD-polls",    watchdog.GetPollCount());
+    Watchdog::Counters wdCntrs;
+    Watchdog::Counters wdCntrsSum;
+    int idx;
+    const int kMaxWdCountersToReport = 8;
+    for (idx = 0; watchdog.GetCounters(idx, wdCntrs); ++idx) {
+        if (kMaxWdCountersToReport <= idx) {
+            wdCntrsSum.Add(wdCntrs);
+        } else {
+            HBAppend(os, idx, wdCntrs);
+        }
+    }
+    if (kMaxWdCountersToReport < idx) {
+        --idx;
+        HBAppend(os, idx, kMaxWdCountersToReport == idx ? wdCntrs : wdCntrsSum);
+    }
     if (os[0]) {
         *os[0] << "\r\n";
         os[0]->flush();
@@ -4220,6 +4269,7 @@ SetProperties::Execute()
         } else {
             MsgLogger::GetLogger()->SetParameters(
                 properties, "chunkServer.msgLogWriter.");
+            gChunkServer.SetParameters(properties);
             gMetaServerSM.SetParameters(properties);
             gChunkManager.SetParameters(properties);
         }

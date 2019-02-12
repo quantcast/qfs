@@ -34,6 +34,7 @@
 
 #include "common/MsgLogger.h"
 #include "kfsio/Globals.h"
+#include "kfsio/NetManagerWatcher.h"
 #include "qcdio/qcstutils.h"
 
 namespace KFS {
@@ -81,6 +82,9 @@ ChunkServer::Init(
             return false;
         }
     }
+    mNetManagerWatcher = new (mNetManagerWatcherStorage.mStorage)
+        NetManagerWatcher("main", globalNetManager());
+    mWatchdog.Register(*mNetManagerWatcher);
     if (! gClientManager.BindAcceptor(
                 clientListener,
                 ipV6OnlyFlag,
@@ -139,6 +143,7 @@ ChunkServer::MainLoop(
     QCStMutexLocker lock(mMutex);
 
     assert(! mMutex || ! ClientThread::GetCurrentClientThreadPtr());
+    SetParameters(props);
     if (! gChunkManager.Init(chunkDirs, props)) {
         gClientManager.Shutdown();
         return false;
@@ -158,11 +163,14 @@ ChunkServer::MainLoop(
         ClientThreadVerifier verifier(mMutex);
         QCStMutexUnlocker    unlocker(mMutex);
         const bool kWakeupAndCleanupFlag = true;
+        mWatchdog.Start();
         globalNetManager().MainLoop(
             mMutex,
             kWakeupAndCleanupFlag,
             mMutex ? &verifier : 0
         );
+        mWatchdog.Stop();
+	mWatchdog.Unregister(*mNetManagerWatcher);
     }
     Replicator::CancelAll();
     gClientManager.Stop();
