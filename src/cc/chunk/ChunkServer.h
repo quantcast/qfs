@@ -120,10 +120,14 @@ private:
           mRemoteSyncers(),
           mMutex(0),
           mWatchdog(),
-          mNetManagerWatcher()
+          mNetManagerWatcher(0)
         {}
-    ~ChunkServer()
-        {}
+    ~ChunkServer() {
+        if (mNetManagerWatcher) {
+            mNetManagerWatcher->~NetManagerWatcher();
+            mNetManagerWatcher = 0;
+        }
+    }
     friend class ChunkServerGlobals;
 private:
     // No copy.

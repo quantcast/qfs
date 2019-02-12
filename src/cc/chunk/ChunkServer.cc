@@ -82,8 +82,10 @@ ChunkServer::Init(
             return false;
         }
     }
-    mNetManagerWatcher = new (mNetManagerWatcherStorage.mStorage)
-        NetManagerWatcher("main", globalNetManager());
+    if (! mNetManagerWatcher) {
+        mNetManagerWatcher = new (mNetManagerWatcherStorage.mStorage)
+            NetManagerWatcher("main", globalNetManager());
+    }
     mWatchdog.Register(*mNetManagerWatcher);
     if (! gClientManager.BindAcceptor(
                 clientListener,
@@ -170,7 +172,9 @@ ChunkServer::MainLoop(
             mMutex ? &verifier : 0
         );
         mWatchdog.Stop();
-	mWatchdog.Unregister(*mNetManagerWatcher);
+        if (mNetManagerWatcher) {
+	    mWatchdog.Unregister(*mNetManagerWatcher);
+        }
     }
     Replicator::CancelAll();
     gClientManager.Stop();
