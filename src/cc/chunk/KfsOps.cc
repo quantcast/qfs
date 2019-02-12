@@ -1899,6 +1899,8 @@ HBAppendCounters(ostream* hbos)
     HBAppend(os, "WAppend-lost-chunks",          wa.mLostChunkCount);
     HBAppend(os, "WAppend-pending-bytes",        wa.mPendingByteCount);
     HBAppend(os, "WAppend-low-buf-flush",        wa.mLowOnBuffersFlushCount);
+    HBAppend(os, "WAppend-chksum-unlock",        wa.mChecksumUnlockedCount);
+    HBAppend(os, "WAppend-chksum-unlock-fail",   wa.mChecksumUnlockFailCount);
 
     const BufferManager& bufMgr = DiskIo::GetBufferManager();
     HBAppend(os, "Buffer-bytes-total",      bufMgr.GetTotalByteCount());

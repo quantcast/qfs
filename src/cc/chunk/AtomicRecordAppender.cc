@@ -1526,6 +1526,7 @@ AtomicRecordAppender::AppendBegin(
                                 " invalid client thread mutex state");
                         }
                         cliThread = 0;
+                        Cntrs().mChecksumUnlockFailCount++;
                     }
                 }
             }
@@ -1664,6 +1665,7 @@ AtomicRecordAppender::AppendBegin(
     }
     if (cliThread) {
         Relock(*cliThread);
+        Cntrs().mChecksumUnlockedCount++;
     }
     RunPendingSubmitQueue();
 }
