@@ -237,7 +237,7 @@ private:
             Impl& inOuter)
         {
             const bool    theFatalFlag = 0 <= inOuter.mMaxTimeoutCount &&
-                mTimeoutCount < inOuter.mMaxTimeoutCount;
+                mTimeoutCount < Counter(inOuter.mMaxTimeoutCount);
             const int64_t theNow       = microseconds();
             if (theFatalFlag) {
                 inOuter.FatalPollFailure(mWatchedPtr->GetName());
