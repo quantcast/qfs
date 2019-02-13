@@ -1657,7 +1657,7 @@ HBAppendKey(ostream& os, const char* keyPrefix, int idx, const char* key)
         os << keyPrefix;
     }
     os << key;
-    if (0 < idx) {
+    if (0 <= idx) {
         os << idx;
     }
     return os;
@@ -1683,8 +1683,6 @@ HBAppend(ostream** os, int idx, const Watchdog::Counters& counters)
         "WD-timeouts-", idx);
     HBAppend(os, counters.mName, counters.mPollCount,
         "WD-polls-",    idx);
-    HBAppend(os, counters.mName, counters.mTotalTimeoutCount,
-        "WD-tot-timeouts-", idx);
     HBAppend(os, counters.mName, counters.mTotalTimeoutCount,
         "WD-tot-timeouts-", idx);
     HBAppend(os, counters.mName, counters.mLastChangedTimeAgoUsec,
@@ -2009,8 +2007,8 @@ HBAppendCounters(ostream* hbos)
     HBAppend(os, "WD-polls",    watchdog.GetPollCount());
     Watchdog::Counters wdCntrs;
     Watchdog::Counters wdCntrsSum;
-    int idx;
-    const int kMaxWdCountersToReport = 8;
+    int                idx;
+    const int          kMaxWdCountersToReport = 8;
     for (idx = 0; watchdog.GetCounters(idx, wdCntrs); ++idx) {
         if (kMaxWdCountersToReport <= idx) {
             wdCntrsSum.Add(wdCntrs);
