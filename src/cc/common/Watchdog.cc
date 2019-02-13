@@ -90,9 +90,17 @@ public:
     {
         Properties::String theName(inPrefixPtr ? inPrefixPtr : "");
         const size_t       thePrefixLen = theName.length();
-        mPollIntervalUsec = (uint64_t)(1e6 * max(4., inParameters.getValue(
-            theName.Truncate(thePrefixLen).Append("pollIntervalSec"),
-            mPollIntervalUsec * 1e-6
+        // Enforce min 4 seconds interval to protect against accidentally
+        // setting the interval too small, and allowing changing the minimum for
+        // debugging and testing purposes.
+	const double theMinIntervalSec = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("minPollIntervalSec"),
+            double(4)
+        );
+        mPollIntervalUsec = (uint64_t)(1e6 * max(theMinIntervalSec,
+            inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append("pollIntervalSec"),
+                mPollIntervalUsec * 1e-6
         )));
         mMinPollIntervalUsec = mPollIntervalUsec * 3 / 4;
         mPollIntervalNanoSec = QCMutex::Time(mPollIntervalUsec) * 1000;
