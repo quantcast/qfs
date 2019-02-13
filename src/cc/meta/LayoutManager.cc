@@ -8877,6 +8877,23 @@ ShowTiersInfo(
     }
 }
 
+inline static void
+ShowWatchdogCounters(ostream& os, int idx, const Watchdog::Counters& cntrs)
+{
+    os <<
+    "wd." << idx << ".name=" <<
+        cntrs.mName << ";"
+    "wd." << idx << ".polls=" <<
+        cntrs.mPollCount << ";"
+    "wd." << idx << ".timeouts=" <<
+        cntrs.mTimeoutCount << ";"
+    "wd." << idx << ".totalTimeouts=" <<
+        cntrs.mTotalTimeoutCount << ";"
+    "wd." << idx << ".changedAgoUsec=" <<
+        cntrs.mLastChangedTimeAgoUsec << ";"
+    ;
+}
+
 void
 LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
 {
@@ -8931,6 +8948,17 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "\r\n"
         "Rusage children: ";
     showrusage(mWOstream, "= ", "\t", ! kRusageSelfFlag);
+    Watchdog& watchdog = gNetDispatch.GetWatchdog();
+    mWOstream <<
+        "\r\n"
+        "Watchdog: "
+        "wd.polls=" << watchdog.GetPollCount() << ";"
+        "wd.timeouts=" << watchdog.GetTimeoutCount() << ";";
+    Watchdog::Counters wdCntrs;
+    int                idx;
+    for (idx = 0; watchdog.GetCounters(idx, wdCntrs); ++idx) {
+        ShowWatchdogCounters(mWOstream, idx, wdCntrs);
+    }
     mWOstream <<
         "\r\n"
         "Storage tiers info names: "
@@ -9083,7 +9111,9 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Log Total Request Count= " <<
             logCtrs.mTotalRequestCount << "\t"
         "Log Exceeded Queue Depth Failure Count 300 sec. Avg= " <<
-            logCtrs.mExceedLogQueueDepthFailureCount300SecAvg
+            logCtrs.mExceedLogQueueDepthFailureCount300SecAvg << "\t"
+        "WD Polls= "    << watchdog.GetPollCount() << "\t"
+        "WD Timeouts= " << watchdog.GetTimeoutCount()
     ;
     mWOstream.flush();
     mWOstream.Reset();

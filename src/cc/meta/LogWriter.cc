@@ -49,6 +49,7 @@
 #include "kfsio/checksum.h"
 #include "kfsio/PrngIsaac64.h"
 #include "kfsio/NetErrorSimulator.h"
+#include "kfsio/NetManagerWatcher.h"
 
 #include "qcdio/QCThread.h"
 #include "qcdio/QCMutex.h"
@@ -198,7 +199,9 @@ public:
           ),
           mLogAppendPrefixLen(strlen(kLogWriteAheadPrefixPtr)),
           mLogStartViewPrefixPtr(mLogStartViewPrefix.data()),
-          mLogStartViewPrefixLen(mLogStartViewPrefix.size())
+          mLogStartViewPrefixLen(mLogStartViewPrefix.size()),
+          mNetManagerWatcher("LogWriter", mNetManager),
+          mWatchdogPtr(0)
         { mLogName.reserve(1 << 10); }
     ~Impl()
         { Impl::Shutdown(); }
@@ -215,6 +218,7 @@ public:
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
         const char*           inVrResetTypeStrPtr,
+        Watchdog*             inWatchdogPtr,
         string&               outCurLogFileName)
     {
         const int theError = StartSelf(
@@ -230,6 +234,7 @@ public:
             inDataStoreLocation,
             inMetaMd,
             inVrResetTypeStrPtr,
+            inWatchdogPtr,
             outCurLogFileName
         );
         if (0 != theError) {
@@ -784,6 +789,8 @@ private:
     const size_t      mLogAppendPrefixLen;
     const char* const mLogStartViewPrefixPtr;
     const size_t      mLogStartViewPrefixLen;
+    NetManagerWatcher mNetManagerWatcher;
+    Watchdog*         mWatchdogPtr;
 
     int StartSelf(
         NetManager&           inNetManager,
@@ -798,6 +805,7 @@ private:
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
         const char*           inVrResetTypeStrPtr,
+        Watchdog*             inWatchdogPtr,
         string&               outCurLogFileName)
     {
         if (inLogNum < 0 || ! inReplayer.getLastLogSeq().IsValid() ||
@@ -1029,6 +1037,7 @@ private:
         mPrimaryLeaseEndTimeUsec = int64_t(1000) * 1000 * (mNetManager.Now() +
             (0 == mEnqueueVrStatus ? 2 : -(24 * 60 * 60)));
         mLogAvgUsecsNextTimeUsec = microseconds() + kLogAvgIntervalUsec;
+        mWatchdogPtr = inWatchdogPtr;
         const int kStackSize = 128 << 10;
         mThread.Start(this, kStackSize, "MetaLogWriter",
             QCThread::CpuAffinity(mCpuAffinityIndex));
@@ -1437,7 +1446,13 @@ private:
     {
         QCMutex* const kMutexPtr             = 0;
         bool const     kWakeupAndCleanupFlag = true;
+        if (mWatchdogPtr) {
+            mWatchdogPtr->Register(mNetManagerWatcher);
+        }
         mNetManager.MainLoop(kMutexPtr, kWakeupAndCleanupFlag, this);
+        if (mWatchdogPtr) {
+            mWatchdogPtr->Unregister(mNetManagerWatcher);
+        }
         Sync();
         Close();
     }
@@ -2528,6 +2543,7 @@ LogWriter::Start(
     const ServerLocation& inDataStoreLocation,
     const string&         inMetaMd,
     const char*           inVrResetTypeStrPtr,
+    Watchdog*             inWatchdogPtr,
     string&               outCurLogFileName)
 {
     return mImpl.Start(
@@ -2543,6 +2559,7 @@ LogWriter::Start(
         inDataStoreLocation,
         inMetaMd,
         inVrResetTypeStrPtr,
+        inWatchdogPtr,
         outCurLogFileName
     );
 }

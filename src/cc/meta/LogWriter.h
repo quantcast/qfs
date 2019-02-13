@@ -48,6 +48,7 @@ class MetaVrSM;
 class MetaDataSync;
 class MetaVrLogSeq;
 class Replay;
+class Watchdog;
 
 class LogWriter
 {
@@ -118,6 +119,7 @@ public:
         const ServerLocation& inDataStoreLocation,
         const string&         inMetaMd,
         const char*           inVrResetTypeStrPtr,
+        Watchdog*             inWatchdogPtr,
         string&               outCurLogFileName);
     bool Enqueue(
         MetaRequest& inRequest);
