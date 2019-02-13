@@ -42,6 +42,17 @@ namespace KFS {
 using std::string;
 using libkfsio::globalNetManager;
 
+ChunkServer::ChunkServer()
+    : mOpCount(0),
+      mUpdateServerIpFlag(false),
+      mLocation(),
+      mRemoteSyncers(),
+      mMutex(0),
+      mWatchdog(),
+      mNetManagerWatcher("main", globalNetManager())
+{
+}
+
 bool
 ChunkServer::Init(
     const ServerLocation& clientListener,
@@ -82,11 +93,7 @@ ChunkServer::Init(
             return false;
         }
     }
-    if (! mNetManagerWatcher) {
-        mNetManagerWatcher = new (mNetManagerWatcherStorage.mStorage)
-            NetManagerWatcher("main", globalNetManager());
-    }
-    mWatchdog.Register(*mNetManagerWatcher);
+    mWatchdog.Register(mNetManagerWatcher);
     if (! gClientManager.BindAcceptor(
                 clientListener,
                 ipV6OnlyFlag,
@@ -172,9 +179,7 @@ ChunkServer::MainLoop(
             mMutex ? &verifier : 0
         );
         mWatchdog.Stop();
-        if (mNetManagerWatcher) {
-	    mWatchdog.Unregister(*mNetManagerWatcher);
-        }
+        mWatchdog.Unregister(mNetManagerWatcher);
     }
     Replicator::CancelAll();
     gClientManager.Stop();

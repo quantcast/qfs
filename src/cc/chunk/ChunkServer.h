@@ -106,28 +106,11 @@ private:
     RemoteSyncSMList   mRemoteSyncers;
     QCMutex*           mMutex;
     Watchdog           mWatchdog;
-    NetManagerWatcher* mNetManagerWatcher;
-    struct
-    {
-        size_t mStorage[(sizeof(NetManagerWatcher) + sizeof(size_t) - 1) /
-            sizeof(size_t)];
-    } mNetManagerWatcherStorage;
+    NetManagerWatcher  mNetManagerWatcher;
 
-    ChunkServer()
-        : mOpCount(0),
-          mUpdateServerIpFlag(false),
-          mLocation(),
-          mRemoteSyncers(),
-          mMutex(0),
-          mWatchdog(),
-          mNetManagerWatcher(0)
+    ChunkServer();
+    ~ChunkServer()
         {}
-    ~ChunkServer() {
-        if (mNetManagerWatcher) {
-            mNetManagerWatcher->~NetManagerWatcher();
-            mNetManagerWatcher = 0;
-        }
-    }
     friend class ChunkServerGlobals;
 private:
     // No copy.
