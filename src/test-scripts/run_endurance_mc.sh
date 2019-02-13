@@ -100,10 +100,10 @@ cabundlefileos='/etc/pki/tls/certs/ca-bundle.crt'
 prevlogsdir='prev_logs'
 vrcount=0
 
-if openssl version | grep 'OpenSSL 1\.' > /dev/null; then
-    auth=${auth-yes}
-else
+if openssl version | grep 'SSL 0\.' > /dev/null; then
     auth=${auth-no}
+else
+    auth=${auth-yes}
 fi
 
 if [ x"$SECONDS" = x ]; then
