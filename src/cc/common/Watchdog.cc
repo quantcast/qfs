@@ -55,7 +55,9 @@ public:
     Impl(
         volatile uint64_t const& inStrobedValue,
         uint64_t&                inTimoutCount,
-        uint64_t&                inPollCount)
+        uint64_t&                inPollCount,
+        uint64_t&                inTimerOverrunCount,
+        uint64_t&                inTimerOverrunUsecCount)
         : QCRunnable(),
           mWatchedList(),
           mMutex(),
@@ -66,6 +68,7 @@ public:
           mMinPollIntervalUsec(mPollIntervalUsec * 3 / 4),
           mPollIntervalNanoSec(QCMutex::Time(mPollIntervalUsec) * 1000),
           mTimeoutLogIntervalUsec(0),
+          mTimerOverrunThresholdUsec(1000 * 1000),
           mMaxTimeoutCount(-1),
           mRunFlag(false),
           mSuspendFlag(false),
@@ -73,6 +76,8 @@ public:
           mPollEndTime(),
           mTimoutCount(inTimoutCount),
           mPollCount(inPollCount),
+          mTimerOverrunCount(inTimerOverrunCount),
+          mTimerOverrunUsecCount(inTimerOverrunUsecCount),
           mFailureWriteRet()
     {}
     ~Impl()
@@ -93,7 +98,7 @@ public:
         // Enforce min 4 seconds interval to protect against accidentally
         // setting the interval too small, and allowing changing the minimum for
         // debugging and testing purposes.
-	const double theMinIntervalSec = inParameters.getValue(
+        const double theMinIntervalSec = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("minPollIntervalSec"),
             double(4)
         );
@@ -108,6 +113,16 @@ public:
             theName.Truncate(thePrefixLen).Append("maxTimeoutCount"),
             mMaxTimeoutCount
         );
+        // Enforce min 1 second timer overrun threshold.
+        const double theMinTimerOverrunThresholdSec = inParameters.getValue(
+            theName.Truncate(thePrefixLen).Append("minTimerOverrunThresholdSec"),
+            double(0.5)
+        );
+        mTimerOverrunThresholdUsec = (int64_t)(1e6 * max(theMinTimerOverrunThresholdSec,
+            inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append("timerOverrunThresholdSec"),
+                mTimerOverrunThresholdUsec * 1e-6
+        )));
         mTimeoutLogIntervalUsec = (int64_t)(1e6 * inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("timeoutLogIntervalSec"),
             mTimeoutLogIntervalUsec * 1e-6
@@ -316,6 +331,7 @@ private:
     int64_t       mMinPollIntervalUsec;
     QCMutex::Time mPollIntervalNanoSec;
     int64_t       mTimeoutLogIntervalUsec;
+    int64_t       mTimerOverrunThresholdUsec;
     int           mMaxTimeoutCount;
     bool          mRunFlag;
     bool          mSuspendFlag;
@@ -323,6 +339,8 @@ private:
     int64_t       mPollEndTime;
     uint64_t&     mTimoutCount;
     uint64_t&     mPollCount;
+    uint64_t&     mTimerOverrunCount;
+    uint64_t&     mTimerOverrunUsecCount;
     ssize_t       mFailureWriteRet;
     char          mFailureMsg[kMaxFailurMsgLen + 1];
 
@@ -349,15 +367,31 @@ private:
     {
         QCStMutexLocker theLocker(mMutex);
 
-        for (; ;) {
+        for (bool thePollEndFlag = true; ;) {
+            const int64_t theStartWait = microseconds();
+            if (thePollEndFlag) {
+                mPollEndTime   = theStartWait;
+                thePollEndFlag = false;
+            }
             mCond.Wait(mMutex, mPollIntervalNanoSec);
+            const int64_t theNow = microseconds();
+            if (theStartWait + mPollIntervalUsec + mTimerOverrunThresholdUsec <
+                    theNow) {
+                const uint64_t theOverrun = theNow - theStartWait;
+                ++mTimerOverrunCount;
+                mTimerOverrunUsecCount += theOverrun;
+                KFS_LOG_STREAM_ERROR <<
+                    "wathdog: detected timer overrun"
+                    ": " << mTimerOverrunCount <<
+                    " of " << theOverrun * 1e-9 << " sec." <<
+                KFS_LOG_EOM;
+            }
             if (! mRunFlag) {
                 break;
             }
             if (mSuspendFlag) {
                 continue;
             }
-            const int64_t theNow = microseconds();
             if (theNow < mPollEndTime + mMinPollIntervalUsec) {
                 continue;
             }
@@ -367,7 +401,7 @@ private:
                 ++mPollCount;
                 theIt->Poll(*this);
             }
-            mPollEndTime = microseconds();
+            thePollEndFlag = true;
         }
     }
     WatchedList::iterator Find(
@@ -392,7 +426,10 @@ Watchdog::Watchdog(
     : mStrobedValue(0),
       mTimeoutCount(0),
       mPollCount(0),
-      mImpl(*new Impl(mStrobedValue, mTimeoutCount, mPollCount))
+      mTimerOverrunCount(0),
+      mTimerOverrunUsecCount(0),
+      mImpl(*new Impl(mStrobedValue, mTimeoutCount, mPollCount,
+        mTimerOverrunCount, mTimerOverrunUsecCount))
 {
     Watchdog::SetMustBeStrobed(inMustBeStrobedFlag);
 }

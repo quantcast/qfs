@@ -119,10 +119,16 @@ public:
         { return mTimeoutCount; }
     uint64_t GetPollCount() const
         { return mPollCount; }
+    uint64_t GetTimerOverrunCount() const
+        { return mTimerOverrunCount; }
+    uint64_t GetTimerOverrunUsecCount() const
+        { return mTimerOverrunUsecCount; }
 private:
     volatile uint64_t mStrobedValue;
     uint64_t          mTimeoutCount;
     uint64_t          mPollCount;
+    uint64_t          mTimerOverrunCount;
+    uint64_t          mTimerOverrunUsecCount;
     Impl&             mImpl;
 
 private:
