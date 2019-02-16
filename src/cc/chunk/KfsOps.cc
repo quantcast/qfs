@@ -2003,8 +2003,10 @@ HBAppendCounters(ostream* hbos)
     HBAppend(os, "Auth-meta",           gMetaServerSM.IsAuthEnabled()  ? 1 : 0);
 
     Watchdog& watchdog = gChunkServer.GetWatchdog();
-    HBAppend(os, "WD-timeouts", watchdog.GetTimeoutCount());
-    HBAppend(os, "WD-polls",    watchdog.GetPollCount());
+    HBAppend(os, "WD-timeouts",          watchdog.GetTimeoutCount());
+    HBAppend(os, "WD-polls",             watchdog.GetPollCount());
+    HBAppend(os, "WD-tm-overruns",       watchdog.GetTimerOverrunCount());
+    HBAppend(os, "WD-tm-oversuns-usecs", watchdog.GetTimerOverrunUsecCount());
     Watchdog::Counters wdCntrs;
     Watchdog::Counters wdCntrsSum;
     int                idx;
