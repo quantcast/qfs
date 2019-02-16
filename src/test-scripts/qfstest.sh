@@ -32,6 +32,11 @@ myvalgrindlog='valgrind.log'
 myopttestfuse='yes'
 chunkserverclithreads=${chunkserverclithreads-3}
 metaserverclithreads=${metaserverclithreads-2}
+myexmetaconfig=''
+myexchunkconfig=''
+myexclientconfig=''
+mynewlinechar='
+'
 
 validnumorexit()
 {
@@ -88,14 +93,41 @@ while [ $# -ge 1 ]; do
     	shift
         metaserverclithreads=$1
         validnumorexit $argname $metaserverclithreads
+    elif [ x"$1" = x'-meta-ex-config' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}${1}
+    elif [ x"$1" = x'-chunk-ex-config' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}${1}
+    elif [ x"$1" = x'-client-ex-config' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        myexclientconfig=${myexclientconfig}${mynewlinechar}${1}
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth|-noauth]" \
-            "[-s3 | -s3debug] [-csrpctrace] [-trdverify]" \
+        echo "Usage: $0 " \
+            "[-valgrind]" \
+            "[-ipv6]" \
+            "[-auth | -noauth]" \
+            "[-s3 | -s3debug]" \
+            "[-csrpctrace]" \
+            "[-trdverify]" \
             "[-jerasure | -no-jerasure]" \
-            "[-cs-iobufsverify] [-no-fuse]" \
+            "[-cs-iobufsverify]" \
+            "[-no-fuse]" \
 	    "[-cs-cli-threads <num>]" \
-	    "[-meta-cli-threads <num>]"
+	    "[-meta-cli-threads <num>]" \
+	    "[-meta-ex-config <param>]" \
+	    "[-chunk-ex-config <param>]" \
+	    "[-client-ex-config <param>]"
         exit 1
     fi
     shift
@@ -527,6 +559,13 @@ client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
 EOF
 fi
+if [ x"$myexclientconfig" = x ]; then
+    true
+else
+    cat >> "$clientprop" << EOF
+$myexclientconfig
+EOF
+fi
 
 cd "$metasrvdir" || exit
 mkdir kfscp || exit
@@ -644,6 +683,14 @@ export QFS_DEBUG_CHECK_LEAKS_ON_EXIT
 cat >> "$metasrvprop" << EOF
 metaServer.csmap.unittest = 1
 EOF
+
+if [ x"$myexmetaconfig" = x ]; then
+    true
+else
+    cat >> "$metasrvprop" << EOF
+$myexmetaconfig
+EOF
+fi
 
 echo "Sync before to starting tests."
 sync
@@ -775,6 +822,13 @@ EOF
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.resolverCacheExpiration = 5
 chunkServer.useOsResolver           = 1
+EOF
+    fi
+    if [ x"$myexchunkconfig" = x ]; then
+        true
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+$myexchunkconfig
 EOF
     fi
     cd "$dir" || exit
