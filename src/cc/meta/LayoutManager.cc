@@ -8953,7 +8953,9 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "\r\n"
         "Watchdog: "
         "wd.polls=" << watchdog.GetPollCount() << ";"
-        "wd.timeouts=" << watchdog.GetTimeoutCount() << ";";
+        "wd.timeouts=" << watchdog.GetTimeoutCount() << ";"
+        "wd.timerOverruns=" << watchdog.GetTimerOverrunCount() << ";"
+        "wd.timerOverrunsUsecs=" << watchdog.GetTimerOverrunUsecCount() << ";";
     Watchdog::Counters wdCntrs;
     int                idx;
     for (idx = 0; watchdog.GetCounters(idx, wdCntrs); ++idx) {
@@ -9112,8 +9114,10 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
             logCtrs.mTotalRequestCount << "\t"
         "Log Exceeded Queue Depth Failure Count 300 sec. Avg= " <<
             logCtrs.mExceedLogQueueDepthFailureCount300SecAvg << "\t"
-        "WD Polls= "    << watchdog.GetPollCount() << "\t"
-        "WD Timeouts= " << watchdog.GetTimeoutCount()
+        "WD Polls= "                << watchdog.GetPollCount() << "\t"
+        "WD Timeouts= "             << watchdog.GetTimeoutCount() << "\t"
+        "WD Timer Overruns= "       << watchdog.GetTimerOverrunCount() << "\t"
+        "WD Timer Overruns Usecs= " << watchdog.GetTimerOverrunUsecCount()
     ;
     mWOstream.flush();
     mWOstream.Reset();
