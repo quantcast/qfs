@@ -1344,6 +1344,40 @@ else
     exit 1
 fi
 
+echo "Testing admin commands"
+
+adminstatus=0
+myfsid=`awk -F / '/^filesysteminfo\//{print $3; exit 0;}' \
+    "$metasrvdir/kfscp/latest"`
+mymetareadargs="-F FsId=$myfsid -F Read-pos=0 -F Read-size=2047"
+for cmd in \
+        get_chunk_server_dirs_counters \
+        get_chunk_servers_counters \
+        get_request_counters \
+        ping \
+        dump_chunkreplicationcandidates \
+        dump_chunktoservermap \
+        open_files \
+        stats \
+        upservers \
+        check_leases \
+        recompute_dirsize \
+        "vr_get_status || true" \
+        "-F op-type=help vr_reconfiguration || true" \
+        "-F Toggle-WORM=1 toggle_worm" \
+        "-F Toggle-WORM=0 toggle_worm" \
+        "-F Checkpoint=1      $mymetareadargs read_meta_data && echo ''" \
+        "-F Start-log='0 0 0' $mymetareadargs read_meta_data && echo ''" \
+    ; do
+    echo "===================== start $cmd ==================================="
+    if eval runqfsadmin $cmd; then
+        true
+    else
+        adminstatus=`expr $adminstatus + 1`
+    fi
+    echo "===================== end $cmd ====================================="
+done > qfsadmintest.out 2>qfsadmintest.err
+
 echo "Testing chunk server hibernate and retire"
 
 # Turn off spurious chunk server disconnect debug.
@@ -1524,6 +1558,7 @@ if [ $status -eq 0 \
         -a $qfscstatus -eq 0 \
         -a $fsckstatus -eq 0 \
         -a $fusestatus -eq 0 \
+        -a $adminstatus -eq 0 \
         ]; then
     echo "Passed all tests"
 else
@@ -1535,6 +1570,7 @@ else
     reoirt_test_status "C bindings"  $qfscstatus
     reoirt_test_status "Fsck"        $fsckstatus
     reoirt_test_status "Fuse"        $fusestatus
+    reoirt_test_status "Admin"       $adminstatus
     echo "Test failure"
     status=1
 fi
