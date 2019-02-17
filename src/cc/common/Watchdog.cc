@@ -370,7 +370,7 @@ private:
     }
     void UpdatePollInterval()
     {
-        const uint64_t theParamPollIntervalUsec = mParamPollIntervalUsec;
+        const int64_t theParamPollIntervalUsec = mParamPollIntervalUsec;
         if (theParamPollIntervalUsec != mPollIntervalUsec) {
             mPollIntervalUsec    = theParamPollIntervalUsec;
             mMinPollIntervalUsec = mPollIntervalUsec * 3 / 4;
