@@ -1234,6 +1234,19 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is -1.
 # chunkServer.resolverCacheExpiration = -1
 
+# ---------------- Chunk server watchdog. --------------------------------------
+# Watchdog thread polls chunk server threads and aborts chunk server process,
+# when configured to do so, in the case if one or more threads appear not to be
+# making progress due to likely chunk server and / or OS malfunction.
+
+# Poll interval. Default is 16 seconds. Minimum interval is 4 sec.
+# chunkServer.watchdog.pollIntervalSec = 16
+
+# Abort process if no progress detected after the specified consecutive poll
+# intervals.
+# Default is -1, do not abort the process.
+# chunkServer.watchdog.maxTimeoutCount = -1
+
 # ==================== AWS S3 object store =====================================
 #
 # Global toggle to enable object store.
@@ -1251,12 +1264,12 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # non host local AP has to be used.
 #
 #
-# Allow to use AP running on different than client host to server read requests.
+# Allow to use AP running on different than client host to serve read requests.
 # Enabling this option might result in additional network traffic.
 # Default is 0.
 # metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 0
 #
-# Allow to use AP running on different than client host to server write requests.
+# Allow to use AP running on different than client host to serve write requests.
 # Enabling this option might result in additional network traffic, and reduced
 # write reliability in the cases where AP and client run on different hosts, as
 # object write protocol provides no redundancy. Therefore permanently loosing
@@ -1763,3 +1776,16 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # If set to 0 or less the DNS cache is off.
 # Default is -1.
 # metaServer.resolverCacheExpiration = -1
+
+# ---------------- Meta server watchdog. --------------------------------------
+# Watchdog thread polls meta server threads and aborts meta server process,
+# when configured to do so, in the case if one or more threads appear not to be
+# making progress due to likely meta server and / or OS malfunction.
+
+# Poll interval. Default is 16 seconds. Minimum interval is 4 sec.
+# metaServer.watchdog.pollIntervalSec = 16
+
+# Abort process if no progress detected after the specified consecutive poll
+# intervals.
+# Default is -1, do not abort the process.
+# metaServer.watchdog.maxTimeoutCount = -1
