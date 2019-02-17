@@ -6,7 +6,7 @@
 //
 // Copyright 2019 Quantcast Corporation. All rights reserved.
 //
-// This file is part of Kosmos File System (KFS).
+// This file is part of Quantcast File System (QFS).
 //
 // Licensed under the Apache License, Version 2.0
 // (the "License"); you may not use this file except in compliance with
