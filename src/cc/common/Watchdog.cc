@@ -6,7 +6,7 @@
 //
 // Copyright 2019 Quantcast Corporation. All rights reserved.
 //
-// This file is part of Kosmos File System (KFS).
+// This file is part of Quantcast File System (QFS).
 //
 // Licensed under the Apache License, Version 2.0
 // (the "License"); you may not use this file except in compliance with
@@ -64,9 +64,10 @@ public:
           mCond(),
           mStrobed(inStrobedValue),
           mThread(this, "Watchdog"),
-          mPollIntervalUsec(int64_t(16) * 1000 * 1000),
-          mMinPollIntervalUsec(mPollIntervalUsec * 3 / 4),
-          mPollIntervalNanoSec(QCMutex::Time(mPollIntervalUsec) * 1000),
+          mParamPollIntervalUsec(int64_t(16) * 1000 * 1000),
+          mPollIntervalUsec(),
+          mMinPollIntervalUsec(),
+          mPollIntervalNanoSec(),
           mTimeoutLogIntervalUsec(0),
           mTimerOverrunThresholdUsec(1000 * 1000),
           mMaxTimeoutCount(-1),
@@ -102,13 +103,11 @@ public:
             theName.Truncate(thePrefixLen).Append("minPollIntervalSec"),
             double(4)
         );
-        mPollIntervalUsec = (uint64_t)(1e6 * max(theMinIntervalSec,
+        mParamPollIntervalUsec = (uint64_t)(1e6 * max(theMinIntervalSec,
             inParameters.getValue(
                 theName.Truncate(thePrefixLen).Append("pollIntervalSec"),
-                mPollIntervalUsec * 1e-6
+                mParamPollIntervalUsec * 1e-6
         )));
-        mMinPollIntervalUsec = mPollIntervalUsec * 3 / 4;
-        mPollIntervalNanoSec = QCMutex::Time(mPollIntervalUsec) * 1000;
         mMaxTimeoutCount = inParameters.getValue(
             theName.Truncate(thePrefixLen).Append("maxTimeoutCount"),
             mMaxTimeoutCount
@@ -260,7 +259,7 @@ private:
             Impl& inOuter)
         {
             const bool    theFatalFlag = 0 <= inOuter.mMaxTimeoutCount &&
-                mTimeoutCount < Counter(inOuter.mMaxTimeoutCount);
+                Counter(inOuter.mMaxTimeoutCount) < mTimeoutCount;
             const int64_t theNow       = microseconds();
             if (theFatalFlag) {
                 inOuter.FatalPollFailure(mWatchedPtr->GetName());
@@ -282,18 +281,23 @@ private:
                 " last changed: " <<
                     (theNow - mLastChangedTime) * 1e-6 <<
                     " sec. ago"
-                " polled:"
+                " poll started:"
                 " " << (theNow - inOuter.mPollStartTime) * 1e-6 <<
                     " sec. ago" <<
-                " last: " << (theNow - inOuter.mPollEndTime) * 1e-6 <<
+                " last poll ended:"
+                    " " << (theNow - inOuter.mPollEndTime) * 1e-6 <<
                     " sec. ago"
                 " total:"
                 " poll count: " << inOuter.mPollCount <<
                 " timeouts: " << inOuter.mTimoutCount <<
+                " timer overruns: " << inOuter.mTimerOverrunCount <<
+                " timer overruns seconds: " <<
+                    inOuter.mTimerOverrunCount * 1e-6 <<
             KFS_LOG_EOM;
             if (! theFatalFlag) {
                 return;
             }
+            MsgLogger::Stop();
             abort();
         }
     };
@@ -327,6 +331,7 @@ private:
     QCCondVar     mCond;
     Strobed       mStrobed;
     QCThread      mThread;
+    int64_t       mParamPollIntervalUsec;
     int64_t       mPollIntervalUsec;
     int64_t       mMinPollIntervalUsec;
     QCMutex::Time mPollIntervalNanoSec;
@@ -363,31 +368,43 @@ private:
         alarm(20);
         mFailureWriteRet = write(2, mFailureMsg, len);
     }
+    void UpdatePollInterval()
+    {
+        const uint64_t theParamPollIntervalUsec = mParamPollIntervalUsec;
+        if (theParamPollIntervalUsec != mPollIntervalUsec) {
+            mPollIntervalUsec    = theParamPollIntervalUsec;
+            mMinPollIntervalUsec = mPollIntervalUsec * 3 / 4;
+            mPollIntervalNanoSec = QCMutex::Time(mPollIntervalUsec) * 1000;
+        }
+    }
     virtual void Run()
     {
         QCStMutexLocker theLocker(mMutex);
 
+        UpdatePollInterval();
         for (bool thePollEndFlag = true; ;) {
+            UpdatePollInterval();
             const int64_t theStartWait = microseconds();
             if (thePollEndFlag) {
                 mPollEndTime   = theStartWait;
                 thePollEndFlag = false;
             }
             mCond.Wait(mMutex, mPollIntervalNanoSec);
+            if (! mRunFlag) {
+                break;
+            }
             const int64_t theNow = microseconds();
             if (theStartWait + mPollIntervalUsec + mTimerOverrunThresholdUsec <
                     theNow) {
-                const uint64_t theOverrun = theNow - theStartWait;
+                const uint64_t theOverrun =
+                    theNow - theStartWait - mPollIntervalUsec;
                 ++mTimerOverrunCount;
                 mTimerOverrunUsecCount += theOverrun;
                 KFS_LOG_STREAM_ERROR <<
                     "wathdog: detected timer overrun"
                     ": " << mTimerOverrunCount <<
-                    " of " << theOverrun * 1e-9 << " sec." <<
+                    " of " << theOverrun * 1e-6 << " sec." <<
                 KFS_LOG_EOM;
-            }
-            if (! mRunFlag) {
-                break;
             }
             if (mSuspendFlag) {
                 continue;
