@@ -1581,7 +1581,7 @@ chunkServer.msgLogWriter.logLevel = NOTICE
 # Default is empty.
 # metaServer.vr.metaDataStoreLocation =
 
-# ------------ Meta meta data initial fetch / synchronization. -----------------
+# ------------ Meta data initial fetch / synchronization. -----------------
 
 # File system ID, required for initial (when no checkpoint exists) meta
 # data fetch to work.
