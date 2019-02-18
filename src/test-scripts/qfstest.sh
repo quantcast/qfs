@@ -84,13 +84,13 @@ while [ $# -ge 1 ]; do
     elif [ x"$1" = x'-cs-iobufsverify' ]; then
         mycsdebugverifyiobuffers=1
     elif [ x"$1" = x'-cs-cli-threads' ]; then
-    	argname=$1
-    	shift
+        argname=$1
+        shift
         chunkserverclithreads=$1
         validnumorexit $argname $chunkserverclithreads
     elif [ x"$1" = x'-meta-cli-threads' ]; then
-    	argname=$1
-    	shift
+        argname=$1
+        shift
         metaserverclithreads=$1
         validnumorexit $argname $metaserverclithreads
     elif [ x"$1" = x'-meta-ex-config' ]; then
@@ -123,11 +123,11 @@ while [ $# -ge 1 ]; do
             "[-jerasure | -no-jerasure]" \
             "[-cs-iobufsverify]" \
             "[-no-fuse]" \
-	    "[-cs-cli-threads <num>]" \
-	    "[-meta-cli-threads <num>]" \
-	    "[-meta-ex-config <param>]" \
-	    "[-chunk-ex-config <param>]" \
-	    "[-client-ex-config <param>]"
+            "[-cs-cli-threads <num>]" \
+            "[-meta-cli-threads <num>]" \
+            "[-meta-ex-config <param>]" \
+            "[-chunk-ex-config <param>]" \
+            "[-client-ex-config <param>]"
         exit 1
     fi
     shift
