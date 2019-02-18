@@ -58,7 +58,7 @@ install:
         Pop-Location
     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
     - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
-    - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version && type libtool && libtool -V"'
+    - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version && type libtool && libtool --version"'
 
 build_script:
     - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && { df -h . ; make --no-print-directory tarball; }"'
