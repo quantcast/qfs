@@ -619,6 +619,7 @@ metaServer.dirATimeUpdateResolution = 0
 metaServer.allowChunkServerRetire = 1
 metaServer.pingUpdateInterval = 0
 metaServer.debugPanicOnHelloResumeFailureCount = 0
+metaServer.vr.id = 0
 EOF
 
 if [ x"$myvalgrind" = x ]; then
@@ -1363,7 +1364,7 @@ for cmd in \
         check_leases \
         recompute_dirsize \
         "vr_get_status || true" \
-        "-F op-type=help vr_reconfiguration || true" \
+        "-F op-type=help vr_reconfiguration" \
         "-F Toggle-WORM=1 toggle_worm" \
         "-F Toggle-WORM=0 toggle_worm" \
         "-F Checkpoint=1      $mymetareadargs read_meta_data && echo ''" \
