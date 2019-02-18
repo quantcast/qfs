@@ -117,7 +117,8 @@ public:
             theName.Truncate(thePrefixLen).Append("minTimerOverrunThresholdSec"),
             double(0.5)
         );
-        mTimerOverrunThresholdUsec = (int64_t)(1e6 * max(theMinTimerOverrunThresholdSec,
+        mTimerOverrunThresholdUsec = (int64_t)(1e6 * max(
+            theMinTimerOverrunThresholdSec,
             inParameters.getValue(
                 theName.Truncate(thePrefixLen).Append("timerOverrunThresholdSec"),
                 mTimerOverrunThresholdUsec * 1e-6
@@ -126,6 +127,13 @@ public:
             theName.Truncate(thePrefixLen).Append("timeoutLogIntervalSec"),
             mTimeoutLogIntervalUsec * 1e-6
         ));
+        if (mParamPollIntervalUsec < mPollIntervalUsec && mRunFlag) {
+            QCStMutexLocker theLocker(mMutex);
+            if (mParamPollIntervalUsec < mPollIntervalUsec) {
+                 // Wake up thread to update the interval.
+                mCond.Notify();
+            }
+        }
     }
     void Register(
         const Watched& inWatched,
