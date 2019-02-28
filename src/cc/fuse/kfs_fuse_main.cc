@@ -416,10 +416,10 @@ fuse_statfs(const char* path, struct statvfs* stat)
         return 0;
     }
     memset(stat, 0, sizeof(*stat));
-    if ('/' != path[0] || ! path[1]) {
+    if (! path || '/' != path[0] || ! path[1]) {
         res = client->Stat("/", attr);
         if (res < 0) {
-            return 0;
+            return path ? 0 : res;
         }
     }
     stat->f_bsize = CHUNKSIZE;
