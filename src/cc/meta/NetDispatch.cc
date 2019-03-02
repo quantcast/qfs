@@ -1614,7 +1614,7 @@ public:
         reqPendingQueue.PushBack(mReqPendingQueue);
 
         // Keep the lock acquisition and PrepareToFork() next to each other, in
-        // order to ensure that the mutext is locked while dispatching requests
+        // order to ensure that the mutex is locked while dispatching requests
         // and prevent prepare to fork recursion, as PrepareToFork() can release
         // and re-acquire the mutex by waiting on the "fork done" condition.
         QCStMutexLocker dispatchLocker(gNetDispatch.GetMutex());
