@@ -10509,7 +10509,6 @@ LayoutManager::MakeChunkStableDone(const MetaChunkMakeStable& req)
         // The following will invoke Handle(MetaChunkSize),
         // and update the log.
         MetaChunkSize& op = *(new MetaChunkSize(
-            0, // seq #
             req.server, // chunk server
             fileId, req.chunkId, req.chunkVersion,
             false

@@ -499,7 +499,7 @@ ChunkServer::HelloDone(const MetaHello* r)
     mLastHeartbeatSent = TimeNow();
     mHeartbeatSent     = true;
     const bool kReauthenticateFlag = false;
-    Enqueue(*(new MetaChunkHeartbeat(NextSeq(), mSelfPtr,
+    Enqueue(*(new MetaChunkHeartbeat(mSelfPtr,
             mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
             kReauthenticateFlag, sMaxPendingOpsCount,
             min(sHeartbeatTimeout, 2 * sMinInactivityInterval))),
@@ -1076,7 +1076,7 @@ ChunkServer::HandleRequest(int code, void *data)
                         mPendingResponseOps.Back()->opSeqno) <<
             KFS_LOG_EOM;
             if (mHelloDone && 0 <= mAuthPendingSeq) {
-                // Enqueue rpcs that were waiting for authentication to finish.
+                // Enqueue RPCs that were waiting for authentication to finish.
                 DispatchedReqs::const_iterator it = mDispatchedReqs.lower_bound(
                     CseqToVrLogSeq(mAuthPendingSeq));
                 mAuthPendingSeq = -1;
@@ -1967,11 +1967,11 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
         mOstream.Set(ioBuf);
         ChunkServerResponse(*mHelloOp, mOstream, ioBuf);
         if (mHelloOp->retireFlag) {
-            MetaChunkRetire retire(NextSeq(), mSelfPtr);
+            MetaChunkRetire retire(mSelfPtr);
             ChunkServerRequest(retire, mOstream, ioBuf);
             mDisconnectReason = "retiring chunk server";
         } else {
-            MetaChunkServerRestart restart(NextSeq(), mSelfPtr);
+            MetaChunkServerRestart restart(mSelfPtr);
             ChunkServerRequest(restart, mOstream, ioBuf);
             mDisconnectReason = "restarting chunk server";
         }
@@ -2199,6 +2199,7 @@ ChunkServer::HandleReply(IOBuffer* iobuf, int msgLen)
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " cs-reply:"
         " -seq: "   << op->opSeqno <<
+        " log: "    << op->logCompletionSeq <<
         " status: " << op->status <<
         " "         << op->statusMsg <<
         " "         << op->Show() <<
@@ -2677,6 +2678,9 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
         TimeNow() + (timeout < 0 ? sRequestTimeout : timeout),
         DispatchedReqsIterator()
     ));
+    if (! req.replayFlag) {
+        req.opSeqno = NextSeq();
+    }
     pair<DispatchedReqs::iterator, bool> const res =
         mDispatchedReqs.insert(make_pair(
             req.replayFlag ? req.logseq : CseqToVrLogSeq(req.opSeqno),
@@ -2695,6 +2699,7 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     KFS_LOG_STREAM_DEBUG << GetServerLocation() <<
         " send: "   << sendFlag <<
         " +seq: "   << req.opSeqno <<
+        " log: "    << req.logCompletionSeq <<
         " status: " << req.status <<
         " "         << req.Show() <<
     KFS_LOG_EOM;
@@ -2738,7 +2743,7 @@ ChunkServer::AllocateChunk(MetaAllocate& alc, int64_t leaseId, kfsSTier_t tier)
         NewChunkInTier(tier);
     }
     MetaChunkAllocate& req = *(new MetaChunkAllocate(
-        NextSeq(), &alc, GetSelfPtr(), leaseId, tier, alc.maxSTier
+        &alc, GetSelfPtr(), leaseId, tier, alc.maxSTier
     ));
     size_t sz;
     if (0 <= leaseId && 0 < alc.validForTime && 1 < (sz = alc.servers.size())) {
@@ -2819,8 +2824,8 @@ ChunkServer::DeleteChunkVers(chunkId_t chunkId, seq_t chunkVersion,
         mChunksToEvacuate.Erase(chunkId);
     }
     Enqueue(*(new MetaChunkDelete(
-        NextSeq(), GetSelfPtr(), chunkId, chunkVersion,
-                staleChunkIdFlag || forceDeleteFlag)),
+        GetSelfPtr(), chunkId, chunkVersion,
+            staleChunkIdFlag || forceDeleteFlag)),
         -1, staleChunkIdFlag);
     return 0;
 }
@@ -2829,7 +2834,7 @@ int
 ChunkServer::GetChunkSize(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
     bool retryFlag)
 {
-    Enqueue(*(new MetaChunkSize(NextSeq(), GetSelfPtr(),
+    Enqueue(*(new MetaChunkSize(GetSelfPtr(),
         fid, chunkId, chunkVersion, retryFlag)));
     return 0;
 }
@@ -2838,7 +2843,7 @@ int
 ChunkServer::BeginMakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion)
 {
     Enqueue(*(new MetaBeginMakeChunkStable(
-        NextSeq(), GetSelfPtr(),
+        GetSelfPtr(),
         mLocation, fid, chunkId, chunkVersion
     )), sMakeStableTimeout);
     return 0;
@@ -2850,7 +2855,7 @@ ChunkServer::MakeChunkStable(fid_t fid, chunkId_t chunkId, seq_t chunkVersion,
     bool addPending)
 {
     Enqueue(*(new MetaChunkMakeStable(
-        NextSeq(), GetSelfPtr(),
+        GetSelfPtr(),
         fid, chunkId, chunkVersion,
         chunkSize, hasChunkChecksum, chunkChecksum, addPending
     )), sMakeStableTimeout);
@@ -2866,7 +2871,7 @@ ChunkServer::ReplicateChunk(fid_t fid, chunkId_t chunkId,
 {
     mNumChunkWriteReplications++;
     MetaChunkReplicate& req = *(new MetaChunkReplicate(
-        NextSeq(), GetSelfPtr(), fid, chunkId,
+        GetSelfPtr(), fid, chunkId,
         dataServer->GetServerLocation(), dataServer, minSTier, maxSTier, it));
     if (! dataServer) {
         panic("chunk server: invalid null replication source");
@@ -2961,7 +2966,6 @@ ChunkServer::NotifyStaleChunks(
     MetaHello*                   hello)
 {
     MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
-        NextSeq(),
         GetSelfPtr(),
         evacuatedFlag,
         mStaleChunksHexFormatFlag,
@@ -2997,7 +3001,7 @@ void
 ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
 {
     MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
-        NextSeq(), GetSelfPtr(), evacuatedFlag,
+        GetSelfPtr(), evacuatedFlag,
         mStaleChunksHexFormatFlag, 0));
     req.staleChunkIds.Insert(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
@@ -3010,7 +3014,7 @@ ChunkServer::NotifyChunkVersChange(fid_t fid, chunkId_t chunkId, seq_t chunkVers
     MetaChunkReplicate* replicate, bool verifyStableFlag)
 {
     Enqueue(*(new MetaChunkVersChange(
-        NextSeq(), GetSelfPtr(), fid, chunkId, chunkVers,
+        GetSelfPtr(), fid, chunkId, chunkVers,
         fromVersion, makeStableFlag, pendingAddFlag, replicate,
         verifyStableFlag)),
         sMakeStableTimeout);
@@ -3041,13 +3045,13 @@ void
 ChunkServer::Retire()
 {
     mRetiredFlag = true;
-    Enqueue(*(new MetaChunkRetire(NextSeq(), GetSelfPtr())));
+    Enqueue(*(new MetaChunkRetire(GetSelfPtr())));
 }
 
 void
 ChunkServer::SetProperties(const Properties& props)
 {
-    Enqueue(*(new MetaChunkSetProperties(NextSeq(), GetSelfPtr(), props)));
+    Enqueue(*(new MetaChunkSetProperties(GetSelfPtr(), props)));
 }
 
 void
@@ -3055,10 +3059,10 @@ ChunkServer::Restart(bool justExitFlag)
 {
     mRestartQueuedFlag = true;
     if (justExitFlag) {
-        Enqueue(*(new MetaChunkRetire(NextSeq(), GetSelfPtr())));
+        Enqueue(*(new MetaChunkRetire(GetSelfPtr())));
         return;
     }
-    Enqueue(*(new MetaChunkServerRestart(NextSeq(), GetSelfPtr())));
+    Enqueue(*(new MetaChunkServerRestart(GetSelfPtr())));
 }
 
 int
@@ -3128,7 +3132,6 @@ ChunkServer::Heartbeat()
         }
         const int ctrsUpdateInterval = sHeartbeatInterval * 4 / 5;
         Enqueue(*(new MetaChunkHeartbeat(
-                NextSeq(),
                 mSelfPtr,
                 mIsRetiring ? int64_t(1) : (int64_t)mChunksToEvacuate.Size(),
                 reAuthenticateFlag,
@@ -3203,7 +3206,7 @@ ChunkServer::TimeoutOps()
             mDoneTimedoutChunks.Erase(cur.GetKey());
             continue;
         }
-        MetaChunkSize& op = *(new MetaChunkSize(NextSeq(), mSelfPtr));
+        MetaChunkSize& op = *(new MetaChunkSize(mSelfPtr));
         op.logAction      = MetaChunkSize::kLogNever;
         op.chunkId        = cur.GetKey();
         op.chunkVersion   = 0;
@@ -3578,6 +3581,7 @@ ChunkServer::Authenticate(IOBuffer& iobuf)
     KFS_LOG_STREAM(mAuthenticateOp->status == 0 ?
         MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR) <<
         GetPeerName()           << " chunk server authentication"
+        " +seq: "               << mAuthenticateOp->opSeqno <<
         " type: "               << mAuthenticateOp->sendAuthType <<
         " name: "               << mAuthenticateOp->authName <<
         " filter: "             <<
