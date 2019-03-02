@@ -963,7 +963,7 @@ runqfsroot -ls '/dumpster/deletequeue' || exit 1
 # Test with OS DNS resolver.
 clientpropresolver=${clientprop}.res.cfg
 cp "$clientprop" "$clientpropresolver" || exit
-cat "$clientpropresolver" << EOF
+cat >> "$clientpropresolver" << EOF
 client.useOsResolver           = 1
 client.resolverCacheExpiration = 10
 EOF
