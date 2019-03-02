@@ -948,8 +948,8 @@ metaServer.msgLogWriter.logLevel = INFO
 # metaServer.userAndGroup.omitGroupPrefix =
 
 # Update / re-read user and group to id mappings with every N seconds.
-# By default period updates are effectively disabled. The parameter reload with
-# HUP signal can be used to trigger user and group information update.
+# By default periodic updates are effectively disabled. The parameter reload
+# with HUP signal can be used to trigger user and group information update.
 # Default is 315360000.
 # metaServer.userAndGroup.updatePeriodSec = 315360000
 
