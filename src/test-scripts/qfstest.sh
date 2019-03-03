@@ -1450,6 +1450,26 @@ done
 cd "$testdir" || exit
 waitrecoveryperiodend
 
+echo "Testing chunk server directory evacuation"
+i=`expr $e - 1`
+myevacuatefile="$chunksrvdir/$i/kfschunk/evacuate"
+touch "$myevacuatefile" || exit
+
+echo "Waiting chunk server directory evacuation to complete"
+myevacuatefile="$myevacuatefile.done"
+myevacuatestatus=0
+i=0
+until [ -f "$myevacuatefile" ]; do
+    if [ 60 -le $i ]; then
+        echo "Wait for evacuation completion timed out ($myevacuatefile)"
+        myevacuatestatus=1
+        break
+    fi
+    i=`expr $i + 1`
+    sleep 1
+done
+echo "Chunk server directory evacuation is now complete"
+
 # Allow meta server to run re-balancer
 sleep 5
 echo "Shutting down"
@@ -1561,6 +1581,7 @@ if [ $status -eq 0 \
         -a $fsckstatus -eq 0 \
         -a $fusestatus -eq 0 \
         -a $adminstatus -eq 0 \
+        -a $myevacuatestatus -eq 0 \
         ]; then
     echo "Passed all tests"
 else
@@ -1573,6 +1594,7 @@ else
     reoirt_test_status "Fsck"        $fsckstatus
     reoirt_test_status "Fuse"        $fusestatus
     reoirt_test_status "Admin"       $adminstatus
+    reoirt_test_status "Evacuate"    $myevacuatestatus
     echo "Test failure"
     status=1
 fi
