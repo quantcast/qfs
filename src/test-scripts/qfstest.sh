@@ -621,6 +621,7 @@ metaServer.pingUpdateInterval = 0
 metaServer.debugPanicOnHelloResumeFailureCount = 0
 metaServer.userAndGroup.updatePeriodSec = 4
 metaServer.vr.id = 0
+chunkServer.getFsSpaceAvailableIntervalSecs = 2
 EOF
 
 if [ x"$myvalgrind" = x ]; then
