@@ -37,6 +37,7 @@ set (lib_src
     nofilelimit.cc
     kfserrno.cc
     kfsdecls.cc
+    Watchdog.cc
 )
 
 # for the version file

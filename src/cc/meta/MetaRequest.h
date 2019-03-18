@@ -2528,9 +2528,9 @@ private:
 
     static ChunkOpsInFlight::iterator MakeNullIterator();
 protected:
-    MetaChunkRequest(MetaOp o, seq_t s, LogAction la,
+    MetaChunkRequest(MetaOp o, LogAction la,
             const ChunkServerPtr& c, chunkId_t cid)
-        : MetaRequest(o, la, s),
+        : MetaRequest(o, la),
           chunkId(cid),
           server(c),
           chunkVersion(0),
@@ -2617,10 +2617,10 @@ struct MetaChunkAllocate : public MetaChunkRequest {
     string              chunkServerAccessStr;
     string              chunkAccessStr;
     MetaAllocate* const req;
-    MetaChunkAllocate(seq_t n, MetaAllocate *r,
+    MetaChunkAllocate(MetaAllocate *r,
             const ChunkServerPtr& s, int64_t l, kfsSTier_t minTier,
             kfsSTier_t maxTier)
-        : MetaChunkRequest(META_CHUNK_ALLOCATE, n, kLogNever, s, r->chunkId),
+        : MetaChunkRequest(META_CHUNK_ALLOCATE, kLogNever, s, r->chunkId),
           leaseId(l),
           minSTier(minTier),
           maxSTier(maxTier),
@@ -2645,12 +2645,11 @@ struct MetaChunkAllocate : public MetaChunkRequest {
 struct MetaChunkDelete: public MetaChunkRequest {
     bool deleteStaleChunkIdFlag;
     MetaChunkDelete(
-        seq_t                 n,
         const ChunkServerPtr& s,
         chunkId_t             c,
         seq_t                 v,
         bool                  staleIdFlag)
-        : MetaChunkRequest(META_CHUNK_DELETE, n, kLogNever, s, c),
+        : MetaChunkRequest(META_CHUNK_DELETE, kLogNever, s, c),
           deleteStaleChunkIdFlag(staleIdFlag)
         { chunkVersion = v; }
     virtual void handle();
@@ -2711,11 +2710,11 @@ struct MetaChunkReplicate: public MetaChunkRequest {
     MetaChunkVersChange*                versChange;
     FileRecoveryInFlightCount::iterator recovIt;
     string                              metaServerAccess;
-    MetaChunkReplicate(seq_t n, const ChunkServerPtr& s,
+    MetaChunkReplicate(const ChunkServerPtr& s,
             fid_t f, chunkId_t c, const ServerLocation& loc,
             const ChunkServerPtr& src, kfsSTier_t minTier, kfsSTier_t maxTier,
             FileRecoveryInFlightCount::iterator it)
-        : MetaChunkRequest(META_CHUNK_REPLICATE, n, kLogNever, s, c),
+        : MetaChunkRequest(META_CHUNK_REPLICATE, kLogNever, s, c),
           fid(f),
           chunkOffset(-1),
           striperType(KFS_STRIPED_FILE_TYPE_NONE),
@@ -2758,7 +2757,6 @@ struct MetaChunkVersChange: public MetaChunkRequest {
     MetaChunkReplicate* replicate;
 
     MetaChunkVersChange(
-        seq_t                 n,
         const ChunkServerPtr& s,
         fid_t                 f,
         chunkId_t             c,
@@ -2768,7 +2766,7 @@ struct MetaChunkVersChange: public MetaChunkRequest {
         bool                  pendAddFlag,
         MetaChunkReplicate*   repl,
         bool                  verifyStblFlag)
-        : MetaChunkRequest(META_CHUNK_VERSCHANGE, n, kLogNever, s, c),
+        : MetaChunkRequest(META_CHUNK_VERSCHANGE, kLogNever, s, c),
           fid(f),
           fromVersion(fromVers),
           makeStableFlag(mkStableFlag),
@@ -2812,13 +2810,12 @@ struct MetaChunkSize: public MetaChunkRequest {
     seq_t      replyChunkVersion;
     bool       stableFlag;
     MetaChunkSize(
-            seq_t                 n = 0,
             const ChunkServerPtr& s = ChunkServerPtr(),
             fid_t                 f = -1,
             chunkId_t             c = -1,
             seq_t                 v = -1,
             bool                  retry = false)
-        : MetaChunkRequest(META_CHUNK_SIZE, n, kLogIfOk, s, c),
+        : MetaChunkRequest(META_CHUNK_SIZE, kLogIfOk, s, c),
           fid(f),
           chunkSize(-1),
           retryFlag(retry),
@@ -2876,14 +2873,13 @@ struct MetaChunkHeartbeat: public MetaChunkRequest {
     int     recvTimeout;
     bool    omitCountersFlag;
     MetaChunkHeartbeat(
-        seq_t   n,
         const   ChunkServerPtr& s,
         int64_t evacuateCnt,
         bool    reAuthFlag,
         int     maxPendingOpsCnt,
         int     timeout,
         bool    omitCtrsFlag = false)
-        : MetaChunkRequest(META_CHUNK_HEARTBEAT, n, kLogNever, s, -1),
+        : MetaChunkRequest(META_CHUNK_HEARTBEAT, kLogNever, s, -1),
           evacuateCount(evacuateCnt),
           reAuthenticateFlag(reAuthFlag),
           maxPendingOpsCount(maxPendingOpsCnt),
@@ -2914,7 +2910,7 @@ struct MetaChunkStaleNotify: public MetaChunkRequest {
     bool         evacuatedFlag;
     bool         hexFormatFlag;
     bool         flushStaleQueueFlag;
-    MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
+    MetaChunkStaleNotify(const ChunkServerPtr& s,
             bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req);
     virtual void request(ReqOstream& os, IOBuffer& buf);
     virtual ostream& ShowSelf(ostream& os) const;
@@ -2929,9 +2925,9 @@ struct MetaBeginMakeChunkStable : public MetaChunkRequest {
     const ServerLocation serverLoc;     // processing this cmd
     int64_t              chunkSize;     // output
     uint32_t             chunkChecksum; // output
-    MetaBeginMakeChunkStable(seq_t n, const ChunkServerPtr& s,
+    MetaBeginMakeChunkStable(const ChunkServerPtr& s,
             const ServerLocation& l, fid_t f, chunkId_t c, seq_t v) :
-        MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, n, kLogNever, s, c),
+        MetaChunkRequest(META_BEGIN_MAKE_CHUNK_STABLE, kLogNever, s, c),
         fid(f),
         serverLoc(l),
         chunkSize(-1),
@@ -3085,7 +3081,6 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
     const bool       hasChunkChecksum;
     const uint32_t   chunkChecksum;
     MetaChunkMakeStable(
-        seq_t                 inSeqNo,
         const ChunkServerPtr& inServer,
         fid_t                 inFileId,
         chunkId_t             inChunkId,
@@ -3095,7 +3090,7 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
         uint32_t              inChunkChecksum,
         bool                  inAddPending)
         : MetaChunkRequest(META_CHUNK_MAKE_STABLE,
-                inSeqNo, kLogNever, inServer, inChunkId),
+            kLogNever, inServer, inChunkId),
           fid(inFileId),
           chunkSize(inChunkSize),
           hasChunkChecksum(inHasChunkChecksum),
@@ -3115,8 +3110,8 @@ struct MetaChunkMakeStable: public MetaChunkRequest {
  * we know that the evacuation is finished, we tell the chunkserver to retire.
  */
 struct MetaChunkRetire: public MetaChunkRequest {
-    MetaChunkRetire(seq_t n, const ChunkServerPtr& s):
-        MetaChunkRequest(META_CHUNK_RETIRE, n, kLogQueue, s, -1) { }
+    MetaChunkRetire(const ChunkServerPtr& s):
+        MetaChunkRequest(META_CHUNK_RETIRE, kLogQueue, s, -1) { }
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const
     {
@@ -3126,9 +3121,9 @@ struct MetaChunkRetire: public MetaChunkRequest {
 
 struct MetaChunkSetProperties: public MetaChunkRequest {
     const string serverProps;
-    MetaChunkSetProperties(seq_t n, const ChunkServerPtr& s,
+    MetaChunkSetProperties(const ChunkServerPtr& s,
             const Properties& props)
-        : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, n, kLogQueue, s, -1),
+        : MetaChunkRequest(META_CHUNK_SET_PROPERTIES, kLogQueue, s, -1),
           serverProps(Properties2Str(props))
         {}
     virtual void request(ReqOstream &os);
@@ -3145,8 +3140,8 @@ struct MetaChunkSetProperties: public MetaChunkRequest {
 };
 
 struct MetaChunkServerRestart : public MetaChunkRequest {
-    MetaChunkServerRestart(seq_t n, const ChunkServerPtr& s)
-        : MetaChunkRequest(META_CHUNK_SERVER_RESTART, n, kLogQueue, s, -1)
+    MetaChunkServerRestart(const ChunkServerPtr& s)
+        : MetaChunkRequest(META_CHUNK_SERVER_RESTART, kLogQueue, s, -1)
         {}
     virtual void request(ReqOstream &os);
     virtual ostream& ShowSelf(ostream& os) const

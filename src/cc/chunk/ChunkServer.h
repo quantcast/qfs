@@ -28,6 +28,7 @@
 #define _CHUNKSERVER_H
 
 #include "common/kfsdecls.h"
+#include "kfsio/NetManagerWatcher.h"
 #include "RemoteSyncSM.h"
 
 #include <vector>
@@ -90,22 +91,24 @@ public:
     bool CanUpdateServerIp() const {
         return mUpdateServerIpFlag;
     }
+    Watchdog& GetWatchdog() {
+        return mWatchdog;
+    }
+    void SetParameters(const Properties& props) {
+        mWatchdog.SetParameters("chunkServer.watchdog.", props);
+    }
     inline void SetLocation(const ServerLocation& loc);
 private:
     // # of ops in the system
-    int              mOpCount;
-    bool             mUpdateServerIpFlag;
-    ServerLocation   mLocation;
-    RemoteSyncSMList mRemoteSyncers;
-    QCMutex*         mMutex;
+    int                mOpCount;
+    bool               mUpdateServerIpFlag;
+    ServerLocation     mLocation;
+    RemoteSyncSMList   mRemoteSyncers;
+    QCMutex*           mMutex;
+    Watchdog           mWatchdog;
+    NetManagerWatcher  mNetManagerWatcher;
 
-    ChunkServer()
-        : mOpCount(0),
-          mUpdateServerIpFlag(false),
-          mLocation(),
-          mRemoteSyncers(),
-          mMutex(0)
-        {}
+    ChunkServer();
     ~ChunkServer()
         {}
     friend class ChunkServerGlobals;

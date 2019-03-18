@@ -124,9 +124,8 @@ public:
                 }
                 const size_t theLen = mFileName.length();
                 mFileName += theRetPtr->d_name;
-                if (stat(mFileName.c_str(), &mStatBuf)) {
-                    mError    = errno;
-                    // theRetPtr = 0;
+                if (lstat(mFileName.c_str(), &mStatBuf)) {
+                    mError = errno;
                 } else {
                     outStatPtr = &mStatBuf;
                     if (S_ISDIR(mStatBuf.st_mode) && mStatBuf.st_size >= 0) {
@@ -327,12 +326,12 @@ public:
             // Cygwin has no d_type, all other supported platforms have the file
             // type
             struct stat theStat;
-            theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
+            theDirFlag = lstat(inPath.c_str(), &theStat) == 0 &&
                 S_ISDIR(theStat.st_mode);
 #else
             if (thePtr->d_type == DT_UNKNOWN) {
                 struct stat theStat;
-                theDirFlag = stat(inPath.c_str(), &theStat) == 0 &&
+                theDirFlag = lstat(inPath.c_str(), &theStat) == 0 &&
                     S_ISDIR(theStat.st_mode);
             } else {
                 theDirFlag = thePtr->d_type == DT_DIR;
@@ -355,7 +354,7 @@ public:
         T&            inFunctor)
     {
         struct stat theStat = {0};
-        if (stat(inPath.c_str(), &theStat)) {
+        if (lstat(inPath.c_str(), &theStat)) {
             return RetErrno(errno);
         }
         if (S_ISDIR(theStat.st_mode)) {

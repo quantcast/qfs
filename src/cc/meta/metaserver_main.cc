@@ -1034,6 +1034,7 @@ MetaServer::Startup(bool createEmptyFsFlag,
             mClientListenerLocation,
             mMetaMd,
             writeCheckpointFlag ? 0 : resetVrConfigTypePtr,
+            &gNetDispatch.GetWatchdog(),
             logFileName)) != 0) {
         KFS_LOG_STREAM_FATAL <<
             "transaction log writer initialization failure: " <<

@@ -856,7 +856,7 @@ LeaseRenewOp::Request(ReqOstream& os)
 {
     os <<
     "LEASE_RENEW\r\n" << ReqHeaders(*this);
-    if (! pathname && *pathname) {
+    if (pathname && *pathname) {
         os << (shortRpcFormatFlag ? "N:" : "Pathname: ") << pathname << "\r\n";
     }
     os <<

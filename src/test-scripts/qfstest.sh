@@ -32,6 +32,11 @@ myvalgrindlog='valgrind.log'
 myopttestfuse='yes'
 chunkserverclithreads=${chunkserverclithreads-3}
 metaserverclithreads=${metaserverclithreads-2}
+myexmetaconfig=''
+myexchunkconfig=''
+myexclientconfig=''
+mynewlinechar='
+'
 
 validnumorexit()
 {
@@ -79,23 +84,50 @@ while [ $# -ge 1 ]; do
     elif [ x"$1" = x'-cs-iobufsverify' ]; then
         mycsdebugverifyiobuffers=1
     elif [ x"$1" = x'-cs-cli-threads' ]; then
-    	argname=$1
-    	shift
+        argname=$1
+        shift
         chunkserverclithreads=$1
         validnumorexit $argname $chunkserverclithreads
     elif [ x"$1" = x'-meta-cli-threads' ]; then
-    	argname=$1
-    	shift
+        argname=$1
+        shift
         metaserverclithreads=$1
         validnumorexit $argname $metaserverclithreads
+    elif [ x"$1" = x'-meta-ex-config' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        myexmetaconfig=${myexmetaconfig}${mynewlinechar}${1}
+    elif [ x"$1" = x'-chunk-ex-config' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        myexchunkconfig=${myexchunkconfig}${mynewlinechar}${1}
+    elif [ x"$1" = x'-client-ex-config' ]; then
+        if [ $# -le 1 ]; then
+            echo "invalid argument $1"
+        fi
+        shift
+        myexclientconfig=${myexclientconfig}${mynewlinechar}${1}
     else
         echo "unsupported option: $1" 1>&2
-        echo "Usage: $0 [-valgrind] [-ipv6] [-noauth] [-auth|-noauth]" \
-            "[-s3 | -s3debug] [-csrpctrace] [-trdverify]" \
+        echo "Usage: $0 " \
+            "[-valgrind]" \
+            "[-ipv6]" \
+            "[-auth | -noauth]" \
+            "[-s3 | -s3debug]" \
+            "[-csrpctrace]" \
+            "[-trdverify]" \
             "[-jerasure | -no-jerasure]" \
-            "[-cs-iobufsverify] [-no-fuse]" \
-	    "[-cs-cli-threads <num>]" \
-	    "[-meta-cli-threads <num>]"
+            "[-cs-iobufsverify]" \
+            "[-no-fuse]" \
+            "[-cs-cli-threads <num>]" \
+            "[-meta-cli-threads <num>]" \
+            "[-meta-ex-config <param>]" \
+            "[-chunk-ex-config <param>]" \
+            "[-client-ex-config <param>]"
         exit 1
     fi
     shift
@@ -124,7 +156,7 @@ exec </dev/null
 cd ${1-.} || exit
 
 if [ x"$auth" = x ]; then
-    if openssl version | grep 'OpenSSL 0\.' > /dev/null; then
+    if openssl version | grep 'SSL 0\.' > /dev/null; then
         auth='no'
     else
         auth='yes'
@@ -531,6 +563,13 @@ client.defaultOpTimeout=600
 client.defaultMetaOpTimeout=600
 EOF
 fi
+if [ x"$myexclientconfig" = x ]; then
+    true
+else
+    cat >> "$clientprop" << EOF
+$myexclientconfig
+EOF
+fi
 
 cd "$metasrvdir" || exit
 mkdir kfscp || exit
@@ -584,6 +623,9 @@ metaServer.dirATimeUpdateResolution = 0
 metaServer.allowChunkServerRetire = 1
 metaServer.pingUpdateInterval = 0
 metaServer.debugPanicOnHelloResumeFailureCount = 0
+metaServer.userAndGroup.updatePeriodSec = 4
+metaServer.vr.id = 0
+chunkServer.getFsSpaceAvailableIntervalSecs = 2
 EOF
 
 if [ x"$myvalgrind" = x ]; then
@@ -648,6 +690,14 @@ export QFS_DEBUG_CHECK_LEAKS_ON_EXIT
 cat >> "$metasrvprop" << EOF
 metaServer.csmap.unittest = 1
 EOF
+
+if [ x"$myexmetaconfig" = x ]; then
+    true
+else
+    cat >> "$metasrvprop" << EOF
+$myexmetaconfig
+EOF
+fi
 
 echo "Sync before to starting tests."
 sync
@@ -781,6 +831,13 @@ chunkServer.resolverCacheExpiration = 5
 chunkServer.useOsResolver           = 1
 EOF
     fi
+    if [ x"$myexchunkconfig" = x ]; then
+        true
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+$myexchunkconfig
+EOF
+    fi
     cd "$dir" || exit
     echo "Starting chunk server $i"
     myrunprog "$chunkbindir"/chunkserver \
@@ -912,7 +969,7 @@ runqfsroot -ls '/dumpster/deletequeue' || exit 1
 # Test with OS DNS resolver.
 clientpropresolver=${clientprop}.res.cfg
 cp "$clientprop" "$clientpropresolver" || exit
-cat "$clientpropresolver" << EOF
+cat >> "$clientpropresolver" << EOF
 client.useOsResolver           = 1
 client.resolverCacheExpiration = 10
 EOF
@@ -1294,6 +1351,40 @@ else
     exit 1
 fi
 
+echo "Testing admin commands"
+
+adminstatus=0
+myfsid=`awk -F / '/^filesysteminfo\//{print $3; exit 0;}' \
+    "$metasrvdir/kfscp/latest"`
+mymetareadargs="-F FsId=$myfsid -F Read-pos=0 -F Read-size=2047"
+for cmd in \
+        get_chunk_server_dirs_counters \
+        get_chunk_servers_counters \
+        get_request_counters \
+        ping \
+        dump_chunkreplicationcandidates \
+        dump_chunktoservermap \
+        open_files \
+        stats \
+        upservers \
+        check_leases \
+        recompute_dirsize \
+        "vr_get_status || true" \
+        "-F op-type=help vr_reconfiguration" \
+        "-F Toggle-WORM=1 toggle_worm" \
+        "-F Toggle-WORM=0 toggle_worm" \
+        "-F Checkpoint=1      $mymetareadargs read_meta_data && echo ''" \
+        "-F Start-log='0 0 0' $mymetareadargs read_meta_data && echo ''" \
+    ; do
+    echo "===================== start $cmd ==================================="
+    if eval runqfsadmin $cmd; then
+        true
+    else
+        adminstatus=`expr $adminstatus + 1`
+    fi
+    echo "===================== end $cmd ====================================="
+done > qfsadmintest.out 2>qfsadmintest.err
+
 echo "Testing chunk server hibernate and retire"
 
 # Turn off spurious chunk server disconnect debug.
@@ -1363,6 +1454,26 @@ while [ $i -lt $e ]; do
 done
 cd "$testdir" || exit
 waitrecoveryperiodend
+
+echo "Testing chunk server directory evacuation"
+i=`expr $e - 1`
+myevacuatefile="$chunksrvdir/$i/kfschunk/evacuate"
+touch "$myevacuatefile" || exit
+
+echo "Waiting chunk server directory evacuation to complete"
+myevacuatefile="$myevacuatefile.done"
+myevacuatestatus=0
+i=0
+until [ -f "$myevacuatefile" ]; do
+    if [ 60 -le $i ]; then
+        echo "Wait for evacuation completion timed out ($myevacuatefile)"
+        myevacuatestatus=1
+        break
+    fi
+    i=`expr $i + 1`
+    sleep 1
+done
+echo "Chunk server directory evacuation is now complete"
 
 # Allow meta server to run re-balancer
 sleep 5
@@ -1474,6 +1585,8 @@ if [ $status -eq 0 \
         -a $qfscstatus -eq 0 \
         -a $fsckstatus -eq 0 \
         -a $fusestatus -eq 0 \
+        -a $adminstatus -eq 0 \
+        -a $myevacuatestatus -eq 0 \
         ]; then
     echo "Passed all tests"
 else
@@ -1485,6 +1598,8 @@ else
     reoirt_test_status "C bindings"  $qfscstatus
     reoirt_test_status "Fsck"        $fsckstatus
     reoirt_test_status "Fuse"        $fusestatus
+    reoirt_test_status "Admin"       $adminstatus
+    reoirt_test_status "Evacuate"    $myevacuatestatus
     echo "Test failure"
     status=1
 fi

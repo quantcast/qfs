@@ -719,12 +719,11 @@ private:
             const string* const theNamePtr      = mTmpGidNameMap.Insert(
                 theGid, theName, theInsertedFlag);
             if (! theInsertedFlag && *theNamePtr != theName) {
-                KFS_LOG_STREAM_ERROR <<
-                    "getgrent duplicate id: " << theGid <<
-                    " group name: "           << theName <<
-                    " current: "              << *theNamePtr <<
+                KFS_LOG_STREAM_DEBUG <<
+                    "getgrent id: " << theGid <<
+                    " name: "       << *theNamePtr <<
+                    " add: "        << theName <<
                 KFS_LOG_EOM;
-                continue;
             }
             const bool theNewGroupFlag = theInsertedFlag;
             theInsertedFlag = false;
@@ -733,13 +732,23 @@ private:
             if (! theInsertedFlag && *theGidPtr != theGid) {
                 KFS_LOG_STREAM_ERROR <<
                     "getgrent duplicate group name: " << theName <<
-                    " id: " << theGid <<
-                    " id: " << *theGidPtr <<
+                    " id: "                           << theGid <<
+                    " current id: "                   << *theGidPtr <<
                 KFS_LOG_EOM;
                 continue;
             }
             if (theGid == kKfsGroupNone) {
                 // "No group" shouldn't have any users.
+               for (char** thePtr = theEntryPtr->gr_mem;
+                       thePtr && *thePtr;
+                       ++thePtr) {
+                    KFS_LOG_STREAM_ERROR <<
+                        "group: "     << theName <<
+                        " id: "       << theGid  <<
+                        " can not have any users"
+                        " ignoring: " << *thePtr <<
+                    KFS_LOG_EOM;
+                }
                 continue;
             }
             theInsertedFlag = false;

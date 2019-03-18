@@ -430,10 +430,16 @@ MetaServerSM::Impl::Impl(
 {
     SetHandler(this, &MetaServerSM::Impl::HandleRequest);
     List::Init(*this);
+    KFS_LOG_STREAM_DEBUG <<
+        "MetaServerSM::Impl::Impl: " << (const void*)this <<
+    KFS_LOG_EOM;
 }
 
 MetaServerSM::Impl::~Impl()
 {
+    KFS_LOG_STREAM_DEBUG <<
+        "MetaServerSM::Impl::~Impl: " << (const void*)this <<
+    KFS_LOG_EOM;
     MetaServerSM::Impl::Shutdown();
     if (0 != mRecursionCount || 0 != mInFlightRequestCount) {
         die("meta server state machine: invalid destructor invocation");
@@ -1008,8 +1014,14 @@ MetaServerSM::Impl::HandleRequest(int code, void* data)
         mNetConnection->StartFlush();
     }
     --mRecursionCount;
-    if (mRecursionCount <= 0 && mDeleteFlag && mInFlightRequestCount <= 0) {
-        delete this;
+    if (mRecursionCount <= 0) {
+        if (mDeleteFlag) {
+            if (mInFlightRequestCount <= 0) {
+                delete this;
+            }
+        } else if (mPendingDeleteFlag && ! globalNetManager().IsRunning()) {
+            Delete();
+        }
     }
     return 0;
 }

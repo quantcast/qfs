@@ -45,6 +45,7 @@
 #include "kfsio/IOBuffer.h"
 #include "kfsio/SslFilter.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/NetManagerWatcher.h"
 
 #include "common/Properties.h"
 #include "common/MsgLogger.h"
@@ -518,12 +519,16 @@ NetDispatch::NetDispatch()
       mCanceledTokens(*(new CanceledTokens())),
       mRunningFlag(false),
       mClientThreadCount(0),
-      mClientThreadsStartCpuAffinity(-1)
+      mClientThreadsStartCpuAffinity(-1),
+      mWatchdog(),
+      mNetManagerWatcher("main", globalNetManager())
 {
+    mWatchdog.Register(mNetManagerWatcher);
 }
 
 NetDispatch::~NetDispatch()
 {
+    mWatchdog.Unregister(mNetManagerWatcher);
     delete &mCanceledTokens;
     delete &mKeyStore;
 }
@@ -630,12 +635,14 @@ NetDispatch::Start(MetaDataSync& metaDataSync)
             const bool              kWakeupAndCleanupFlag = true;
             MainThreadPrepareToFork prepareToFork(mClientManager);
             gLayoutManager.StartServicing();
+            mWatchdog.Start();
             // Run main thread event processing.
             globalNetManager().MainLoop(
                 GetMutex(),
                 kWakeupAndCleanupFlag,
                 &prepareToFork
             );
+            mWatchdog.Stop();
         }
     } else {
         err = -EINVAL;
@@ -1057,6 +1064,7 @@ static RequestStatsGatherer& sReqStatsGatherer =
 
 int NetDispatch::SetParameters(const Properties& props)
 {
+    mWatchdog.SetParameters("metaServer.watchdog.", props);
     if (! mRunningFlag) {
         mClientThreadCount = props.getValue(
             "metaServer.clientThreadCount",
@@ -1193,7 +1201,8 @@ public:
           mWakeupFlag(false),
           mStartedFlag(false),
           mParametersUpdatePendingFlag(false),
-          mSignalCnt(0)
+          mSignalCnt(0),
+          mNetManagerWatcher("LogRecv", mNetManager)
           {}
     ~LogReceiverThread()
         { LogReceiverThread::Shutdown(); }
@@ -1306,20 +1315,23 @@ public:
         // processing in MainThreadPrepareToFork::DispatchEnd()
     }
 private:
-    Properties   mParameters;
-    NetManager   mNetManager;
-    LogReceiver  mLogReceiver;
-    QCThread     mThread;
-    bool         mWakeupFlag;
-    bool         mStartedFlag;
-    bool         mParametersUpdatePendingFlag;
-    volatile int mSignalCnt;
+    Properties        mParameters;
+    NetManager        mNetManager;
+    LogReceiver       mLogReceiver;
+    QCThread          mThread;
+    bool              mWakeupFlag;
+    bool              mStartedFlag;
+    bool              mParametersUpdatePendingFlag;
+    volatile int      mSignalCnt;
+    NetManagerWatcher mNetManagerWatcher;
 
     virtual void Run()
     {
         QCMutex* const kMutex                = 0;
         const bool     kWakeupAndCleanupFlag = true;
+        gNetDispatch.GetWatchdog().Register(mNetManagerWatcher);
         mNetManager.MainLoop(kMutex, kWakeupAndCleanupFlag, this);
+        gNetDispatch.GetWatchdog().Unregister(mNetManagerWatcher);
     }
     virtual void DispatchStart()
     {
@@ -1552,7 +1564,8 @@ public:
           mReqPendingQueue(),
           mFlushQueue(8 << 10),
           mAuthContext(),
-          mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1)
+          mAuthCtxUpdateCount(gLayoutManager.GetAuthCtxUpdateCount() - 1),
+          mNetManagerWatcher("client", mNetManager)
     {
         gLayoutManager.UpdateClientAuthContext(
             mAuthCtxUpdateCount, mAuthContext);
@@ -1591,7 +1604,9 @@ public:
     {
         QCMutex* const kMutex                = 0;
         bool     const kWakeupAndCleanupFlag = true;
+        gNetDispatch.GetWatchdog().Register(mNetManagerWatcher);
         mNetManager.MainLoop(kMutex, kWakeupAndCleanupFlag, this);
+        gNetDispatch.GetWatchdog().Unregister(mNetManagerWatcher);
     }
     virtual void DispatchStart()
     {
@@ -1599,7 +1614,7 @@ public:
         reqPendingQueue.PushBack(mReqPendingQueue);
 
         // Keep the lock acquisition and PrepareToFork() next to each other, in
-        // order to ensure that the mutext is locked while dispatching requests
+        // order to ensure that the mutex is locked while dispatching requests
         // and prevent prepare to fork recursion, as PrepareToFork() can release
         // and re-acquire the mutex by waiting on the "fork done" condition.
         QCStMutexLocker dispatchLocker(gNetDispatch.GetMutex());
@@ -1755,6 +1770,7 @@ private:
     AuthContext        mAuthContext;
     uint64_t           mAuthCtxUpdateCount;
     bool               mPrimaryFlag;
+    NetManagerWatcher  mNetManagerWatcher;
     char               mParseBuffer[MAX_RPC_HEADER_LEN];
 
     const NetConnectionPtr& GetConnection(MetaRequest& op)

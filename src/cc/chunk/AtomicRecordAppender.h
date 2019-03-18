@@ -79,6 +79,8 @@ public:
         Counter mLostChunkCount;
         Counter mPendingByteCount;
         Counter mLowOnBuffersFlushCount;
+        Counter mChecksumUnlockedCount;
+        Counter mChecksumUnlockFailCount;
 
         void Clear()
         {
@@ -114,6 +116,8 @@ public:
             mLostChunkCount = 0;
             mPendingByteCount = 0;
             mLowOnBuffersFlushCount = 0;
+            mChecksumUnlockedCount = 0;
+            mChecksumUnlockFailCount = 0;
         }
     };
     void SetParameters(const Properties& props);

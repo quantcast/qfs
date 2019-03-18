@@ -5835,9 +5835,9 @@ ChunkIdToString(chunkId_t id, bool hexFormatFlag, char* end)
     return (hexFormatFlag ? IntToHexString(id, end) : IntToDecString(id, end));
 }
 
-MetaChunkStaleNotify::MetaChunkStaleNotify(seq_t n, const ChunkServerPtr& s,
+MetaChunkStaleNotify::MetaChunkStaleNotify(const ChunkServerPtr& s,
     bool evacFlag, bool hexFmtFlag, MetaChunkAvailable* req)
-    : MetaChunkRequest(META_CHUNK_STALENOTIFY, n, kLogNever, s, -1),
+    : MetaChunkRequest(META_CHUNK_STALENOTIFY, kLogNever, s, -1),
       staleChunkIds(),
       evacuatedFlag(evacFlag),
       hexFormatFlag(hexFmtFlag),
@@ -6636,7 +6636,6 @@ MetaChunkLogInFlight::MetaChunkLogInFlight(
     bool              removeFlag)
     : MetaChunkRequest(
         META_CHUNK_OP_LOG_IN_FLIGHT,
-        0,
         kLogIfOk,
         req ? req->server  : ChunkServerPtr(),
         req ? req->chunkId : chunkId_t(-1)),

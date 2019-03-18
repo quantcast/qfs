@@ -35,6 +35,7 @@
 
 #include "kfsio/DelegationToken.h"
 #include "kfsio/CryptoKeys.h"
+#include "kfsio/NetManagerWatcher.h"
 
 #include <ostream>
 
@@ -109,6 +110,8 @@ public:
         const CryptoKeys::Key& inKey,
         int64_t                inKeyTime);
     bool EnsureHasValidCryptoKey();
+    Watchdog& GetWatchdog()
+        { return mWatchdog; }
 private:
     NetDispatch();
     ~NetDispatch();
@@ -127,6 +130,8 @@ private:
     bool               mRunningFlag;
     int                mClientThreadCount;
     int                mClientThreadsStartCpuAffinity;
+    Watchdog           mWatchdog;
+    NetManagerWatcher  mNetManagerWatcher;
 private:
     NetDispatch(const NetDispatch&);
     NetDispatch& operator=(const NetDispatch&);
