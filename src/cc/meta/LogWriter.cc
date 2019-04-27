@@ -715,6 +715,7 @@ private:
               mWriteIntervalSec(60),
               mLastWriteTime(0),
               mFileName(),
+              mFileNameTmp(),
               mTraceTee(),
               mPos(0),
               mRing()
@@ -736,6 +737,7 @@ private:
             mFileName = inParameters.getValue(
                 theName.Truncate(thePrefixLen).Append("fileName"),
                 mFileName);
+            mFileNameTmp = mFileName + ".tmp";
         }
         void Put(
             const Committed& inCommitted)
@@ -747,7 +749,8 @@ private:
                 mEmptyFlag = true;
             }
             if (0 < mSize) {
-                mEmptyFlag = false;
+                mEmptyFlag     = false;
+                mLastWriteTime = 0;
                 if (mSize <= mPos) {
                     mPos = 0;
                 }
@@ -758,24 +761,28 @@ private:
             ostream& inStream) const
         {
             if (mEmptyFlag || mRing.empty()) {
+                inStream << "history committed: 0\n";
                 return inStream;
             }
+            size_t                     theSize  = mRing.size();
             Ring::const_iterator       theIt    = mRing.begin() + mPos;
             Ring::const_iterator const theEndIt = theIt;
+            if (theIt < mRing.end() && ! theIt->mSeq.IsValid()) {
+                theIt = mRing.begin(); // Ring is not full.
+                theSize = theEndIt - theIt;
+            }
+            inStream << "history committed: " << theSize <<
+                " log seq: seed: status: error checksum:\n";
             do {
                 if (mRing.end() <= theIt) {
                     theIt = mRing.begin();
                 }
                 const Committed& theCommitted = *theIt;
-                if (! theCommitted.mSeq.IsValid()) {
-                    break; // Ring is not full.
-                }
                 inStream <<
-                    "history committed:"
-                    " seq: "    << theCommitted.mSeq <<
-                    " seed: "   << theCommitted.mFidSeed <<
-                    " status: " << theCommitted.mStatus <<
-                    " chksum: " << theCommitted.mErrChkSum <<
+                    " " << theCommitted.mSeq <<
+                    " " << theCommitted.mFidSeed <<
+                    " " << theCommitted.mStatus <<
+                    " " << theCommitted.mErrChkSum <<
                 "\n";
             } while (++theIt != theEndIt);
             return inStream;
@@ -785,7 +792,7 @@ private:
             int    inVrStatus,
             time_t inTimeNow)
         {
-            if (inPrimaryFlag || mEmptyFlag) {
+            if (mEmptyFlag || (0 == inVrStatus && inPrimaryFlag)) {
                 return;
             }
             if (-EVRBACKUP == inVrStatus) {
@@ -802,9 +809,16 @@ private:
                 return;
             }
             mLastWriteTime = inTimeNow;
-            if (! mFileName.empty()) {
-                mTraceTee.open(mFileName.c_str(),
-                    ofstream::app | ofstream::out);
+            if (! mFileNameTmp.empty()) {
+                mTraceTee.open(mFileNameTmp.c_str(),
+                    ofstream::trunc | ofstream::out);
+                if (! mTraceTee) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "open: " << mFileNameTmp <<
+                         ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                }
             }
             // Use error trace level if the level is less than info to write the
             // debug info into trace log.
@@ -814,10 +828,17 @@ private:
                 MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR;
             KFS_LOG_STREAM_START_TEE(theLogLevel, theLogStream,
                     mTraceTee.is_open() ? &mTraceTee : 0);
-                Write(theLogStream);
+                Write(theLogStream.GetStream());
             KFS_LOG_STREAM_END;
             if (mTraceTee.is_open()) {
                 mTraceTee.close();
+                if (::rename(mFileNameTmp.c_str() , mFileName.c_str())) {
+                    const int theErr = errno;
+                    KFS_LOG_STREAM_ERROR <<
+                        "rename: " << mFileNameTmp << " to: " << mFileName <<
+                         ": " << QCUtils::SysError(theErr) <<
+                    KFS_LOG_EOM;
+                }
             }
         }
 
@@ -829,6 +850,7 @@ private:
         int64_t  mWriteIntervalSec;
         int64_t  mLastWriteTime;
         string   mFileName;
+        string   mFileNameTmp;
         ofstream mTraceTee;
         size_t   mPos;
         Ring     mRing;
@@ -1286,7 +1308,7 @@ private:
     virtual void Timeout()
     {
         mDebugHistoryCommittedRing.Process(
-            mPrimaryFlag, mVrStatus, mNetManagerPtr->Now());
+            mPrimaryFlag, mEnqueueVrStatus, mNetManagerPtr->Now());
         if (mPendingCount <= 0 && ! mSetReplayStateFlag) {
             UpdateLogAvg(mNetManagerPtr->NowUsec());
             return;
