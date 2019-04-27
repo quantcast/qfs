@@ -60,11 +60,14 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <vector>
+
 #include <boost/static_assert.hpp>
 
 namespace KFS
 {
 using std::ofstream;
+using std::vector;
 
 class LogWriter::Impl :
     private ITimeout,
@@ -201,7 +204,8 @@ public:
           mLogStartViewPrefixPtr(mLogStartViewPrefix.data()),
           mLogStartViewPrefixLen(mLogStartViewPrefix.size()),
           mNetManagerWatcher("LogWriter", mNetManager),
-          mWatchdogPtr(0)
+          mWatchdogPtr(0),
+          mDebugHistoryCommittedRing(4 << 10)
         { mLogName.reserve(1 << 10); }
     ~Impl()
         { Impl::Shutdown(); }
@@ -324,6 +328,14 @@ public:
         if (++mPendingCount <= 0) {
             panic("log writer: invalid pending count");
         }
+        if (META_LOG_WRITER_CONTROL == inRequest.op) {
+            const MetaLogWriterControl& theReq =
+                static_cast<const MetaLogWriterControl&>(inRequest);
+            if (MetaLogWriterControl::kSetParameters == theReq.type) {
+                mDebugHistoryCommittedRing.SetParameters(
+                    theReq.paramsPrefix.c_str(), theReq.params);
+            }
+        }
         mPendingQueue.PushBack(inRequest);
         return true;
     }
@@ -384,6 +396,7 @@ public:
                 " / "       << inRequest.status <<
                 " chksum: " << mCommitted.mErrChkSum <<
             KFS_LOG_EOM;
+            mDebugHistoryCommittedRing.Put(mCommitted);
         }
         mCommitUpdatedFlag = true;
     }
@@ -456,6 +469,16 @@ public:
         mPendingCount -= Cancel(mPendingQueue, kStatusMsg);
         mPendingCount -= Cancel(mPendingAckQueue, kStatusMsg);
         mPendingCount -= Cancel(mReplayCommitQueue, kStatusMsg);
+        if (MsgLogger::GetLogger() && MsgLogger::GetLogger()->IsLogLevelEnabled(
+                    MsgLogger::kLogLevelDEBUG)) {
+            // Force to write debug info, if any, by pretending to transition
+            // from primary.
+            const bool   thePrimaryFlag = false;
+            const int    theVrStatus    = -ELOGFAILED;
+            const time_t theNow         = microseconds() / (1000 * 1000);
+            mDebugHistoryCommittedRing.Process(
+                thePrimaryFlag, theVrStatus, theNow);
+        }
     }
     void PrepareToFork()
     {
@@ -682,6 +705,141 @@ private:
         Counter mPendingAckByteCount;
     };
 
+    class CommittedRing
+    {
+    public:
+        CommittedRing(
+            int inSize)
+            : mSize(inSize),
+              mEmptyFlag(true),
+              mWriteIntervalSec(60),
+              mLastWriteTime(0),
+              mFileName(),
+              mTraceTee(),
+              mPos(0),
+              mRing()
+            {}
+        void SetParameters(
+            const char*       inParametersPrefixPtr,
+            const Properties& inParameters)
+        {
+            Properties::String theName(
+                inParametersPrefixPtr ? inParametersPrefixPtr : "");
+            theName.Append("debugCommitted.");
+            const size_t       thePrefixLen = theName.length();
+            mSize = min(128 << 10, max(0, inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append("size"),
+                (int)mSize)));
+            mWriteIntervalSec = (int64_t)inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append("intervalSec"),
+                (double)mWriteIntervalSec);
+            mFileName = inParameters.getValue(
+                theName.Truncate(thePrefixLen).Append("fileName"),
+                mFileName);
+        }
+        void Put(
+            const Committed& inCommitted)
+        {
+            if (mRing.size() != mSize) {
+                mPos = 0;
+                mRing.clear();
+                mRing.resize(mSize);
+                mEmptyFlag = true;
+            }
+            if (0 < mSize) {
+                mEmptyFlag = false;
+                if (mSize <= mPos) {
+                    mPos = 0;
+                }
+                mRing[mPos++] = inCommitted;
+            }
+        }
+        ostream& Write(
+            ostream& inStream) const
+        {
+            if (mEmptyFlag || mRing.empty()) {
+                return inStream;
+            }
+            Ring::const_iterator       theIt    = mRing.begin() + mPos;
+            Ring::const_iterator const theEndIt = theIt;
+            do {
+                if (mRing.end() <= theIt) {
+                    theIt = mRing.begin();
+                }
+                const Committed& theCommitted = *theIt;
+                if (! theCommitted.mSeq.IsValid()) {
+                    break; // Ring is not full.
+                }
+                inStream <<
+                    "history committed:"
+                    " seq: "    << theCommitted.mSeq <<
+                    " seed: "   << theCommitted.mFidSeed <<
+                    " status: " << theCommitted.mStatus <<
+                    " chksum: " << theCommitted.mErrChkSum <<
+                "\n";
+            } while (++theIt != theEndIt);
+            return inStream;
+        }
+        void Process(
+            bool   inPrimaryFlag,
+            int    inVrStatus,
+            time_t inTimeNow)
+        {
+            if (inPrimaryFlag || mEmptyFlag) {
+                return;
+            }
+            if (-EVRBACKUP == inVrStatus) {
+                mRing.clear();
+                mPos = 0;
+                mEmptyFlag = true;
+                return;
+            }
+            // On transition from primary periodically write into trace log
+            // statuses of the last committed transactions in order to
+            // facilitate debugging case where primary and backup commit status
+            // diverged, and backups are down.
+            if (inTimeNow < mLastWriteTime + mWriteIntervalSec) {
+                return;
+            }
+            mLastWriteTime = inTimeNow;
+            if (! mFileName.empty()) {
+                mTraceTee.open(mFileName.c_str(),
+                    ofstream::app | ofstream::out);
+            }
+            // Use error trace level if the level is less than info to write the
+            // debug info into trace log.
+            const MsgLogger::LogLevel theLogLevel = (MsgLogger::GetLogger() &&
+                MsgLogger::GetLogger()->IsLogLevelEnabled(
+                    MsgLogger::kLogLevelINFO)) ?
+                MsgLogger::kLogLevelINFO : MsgLogger::kLogLevelERROR;
+            KFS_LOG_STREAM_START_TEE(theLogLevel, theLogStream,
+                    mTraceTee.is_open() ? &mTraceTee : 0);
+                Write(theLogStream);
+            KFS_LOG_STREAM_END;
+            if (mTraceTee.is_open()) {
+                mTraceTee.close();
+            }
+        }
+
+    private:
+        typedef vector<Committed> Ring;
+
+        size_t   mSize;
+        bool     mEmptyFlag;
+        int64_t  mWriteIntervalSec;
+        int64_t  mLastWriteTime;
+        string   mFileName;
+        ofstream mTraceTee;
+        size_t   mPos;
+        Ring     mRing;
+
+    private:
+        CommittedRing(
+            const CommittedRing&);
+        CommittedRing& operator=(
+            const CommittedRing&);
+    };
+
     NetManager*       mNetManagerPtr;
     MetaDataStore*    mMetaDataStorePtr;
     Replay*           mReplayerPtr;
@@ -791,6 +949,7 @@ private:
     const size_t      mLogStartViewPrefixLen;
     NetManagerWatcher mNetManagerWatcher;
     Watchdog*         mWatchdogPtr;
+    CommittedRing     mDebugHistoryCommittedRing;
 
     int StartSelf(
         NetManager&           inNetManager,
@@ -821,6 +980,8 @@ private:
             inNetManager.GetResolverCacheSize(),
             inNetManager.GetResolverCacheExpiration()
         );
+        mDebugHistoryCommittedRing.SetParameters(
+            inParametersPrefixPtr, inParameters);
         const int theErr = SetParameters(inParametersPrefixPtr, inParameters);
         if (0 != theErr) {
             return theErr;
@@ -1124,6 +1285,8 @@ private:
     }
     virtual void Timeout()
     {
+        mDebugHistoryCommittedRing.Process(
+            mPrimaryFlag, mVrStatus, mNetManagerPtr->Now());
         if (mPendingCount <= 0 && ! mSetReplayStateFlag) {
             UpdateLogAvg(mNetManagerPtr->NowUsec());
             return;
