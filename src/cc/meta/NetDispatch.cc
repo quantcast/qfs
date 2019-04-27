@@ -815,7 +815,7 @@ private:
     }
     void Init()
     {
-#       define KfsAddMetaRpcCounter(name) AddCounter(#name, META_##name);
+#       define KfsAddMetaRpcCounter(name) AddCounter("OP_" #name, META_##name);
             KfsForEachMetaOpId(KfsAddMetaRpcCounter)
 #       undef KfsAddMetaRpcCounter
 
