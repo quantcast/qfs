@@ -628,6 +628,7 @@ metaServer.debugPanicOnHelloResumeFailureCount = 0
 metaServer.helloResumeFailureTraceFileName = helloresumefail.log
 
 metaServer.log.panicOnIoError = 1
+metaServer.log.debugCommitted.fileName = committeddebug.txt
 
 metaServer.dataStore.maxCheckpointsToKeepCount = 120
 
