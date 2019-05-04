@@ -625,6 +625,8 @@ metaServer.pingUpdateInterval = 0
 metaServer.debugPanicOnHelloResumeFailureCount = 0
 metaServer.userAndGroup.updatePeriodSec = 4
 metaServer.vr.id = 0
+metaServer.log.debugCommitted.size = 111
+metaServer.log.debugCommitted.fileName = committeddebug.txt
 chunkServer.getFsSpaceAvailableIntervalSecs = 2
 EOF
 
