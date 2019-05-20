@@ -54,6 +54,9 @@ FileAttr::ToStat(
             (kfsMode_t)0666 : mode) & 0777);
         outStat.st_size = fileSize;
     }
+    if (IsSymLink()) {
+        outStat.st_mode |= S_IFLNK;
+    }
 #ifdef S_ISVTX
     if (IsSticky()) {
         outStat.st_mode |= S_ISVTX;

@@ -318,6 +318,13 @@ KfsClient::Stat(const char *pathname, KfsFileAttr& result, bool computeFilesize)
 }
 
 int
+KfsClient::Lstat(const char *pathname, KfsFileAttr& result, bool computeFilesize)
+{
+    return mImpl->Lstat(pathname, result, computeFilesize);
+}
+
+
+int
 KfsClient::Stat(int fd, KfsFileAttr& result)
 {
     return mImpl->Stat(fd, result);
@@ -3295,6 +3302,16 @@ KfsClientImpl::Stat(const char *pathname, KfsFileAttr& kfsattr, bool computeFile
 }
 
 int
+KfsClientImpl::Lstat(const char *pathname, KfsFileAttr& kfsattr, bool computeFilesize)
+{
+    QCStMutexLocker l(mMutex);
+    const bool kValidSubCountsRequiredFlag = false;
+    const bool kSymLinkStatFlag            = true;
+    return StatSelf(pathname, kfsattr, computeFilesize, 0, 0,
+        kValidSubCountsRequiredFlag, kSymLinkStatFlag);
+}
+
+int
 KfsClientImpl::Stat(int fd, KfsFileAttr& kfsattr)
 {
     QCStMutexLocker l(mMutex);
@@ -3311,7 +3328,7 @@ KfsClientImpl::Stat(int fd, KfsFileAttr& kfsattr)
 int
 KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
     bool computeFilesize, string* path, KfsClientImpl::FAttr** cattr,
-    bool validSubCountsRequiredFlag)
+    bool validSubCountsRequiredFlag, bool followSymLinkFlag)
 {
     assert(mMutex.IsOwned());
 
@@ -3335,13 +3352,16 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
     if (! fa || (computeFilesize && ! fa->isDirectory && fa->fileSize < 0) ||
             (validSubCountsRequiredFlag && fa->staleSubCountsFlag) ||
             ! IsValid(*fa, time(0))) {
+	const bool  kInvalidateSubCountsFlag = false;
+	const bool  kEnforceLastDirFlag      = true;
         kfsFileId_t parentFid;
         string      filename;
         string      tmpPath;
         string&     fpath = path ? *path : tmpPath;
         mDeleteClearFattr = &fa;
         int res = GetPathComponents(
-            mTmpAbsPathStr.c_str(), &parentFid, filename, &fpath);
+            mTmpAbsPathStr.c_str(), &parentFid, filename, &fpath,
+	    kInvalidateSubCountsFlag, kEnforceLastDirFlag, followSymLinkFlag);
         assert(mDeleteClearFattr ? *mDeleteClearFattr == fa : ! fa);
         Validate(fa);
         mDeleteClearFattr = 0;
@@ -5952,7 +5972,7 @@ KfsClientImpl::GetPathComponents(const char* pathname, kfsFileId_t* parentFid,
                     *fa, cpath))) {
                 res = GetPathComponents(cpath.c_str(), parentFid, name, path,
                     invalidateSubCountsFlag, enforceLastDirFlag,
-                    symLinksDepth + 1);
+                    followSymLinkFlag, symLinksDepth + 1);
             }
             break;
         }

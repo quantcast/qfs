@@ -356,6 +356,7 @@ public:
     ///
     int Stat(const char* pathname, KfsFileAttr& result, bool computeFilesize = true);
     int Stat(int fd, KfsFileAttr& result);
+    int Lstat(const char* pathname, KfsFileAttr& result, bool computeFilesize = true);
 
     ///
     /// Return the # of chunks in the file specified by the fully qualified pathname.
@@ -870,7 +871,8 @@ private:
     bool Cache(time_t now, const string& dirname, kfsFileId_t dirFid,
         const KfsFileAttr& attr, bool staleSubCountsFlag = false);
     int StatSelf(const char *pathname, KfsFileAttr &kfsattr, bool computeFilesize,
-        string* path = 0, FAttr** fa = 0, bool validSubCountsRequiredFlag = false);
+        string* path = 0, FAttr** fa = 0, bool validSubCountsRequiredFlag = false,
+        bool symLinkStatFlag = false);
     int OpenSelf(const char *pathname, int openFlags, int numReplicas = 3,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE,

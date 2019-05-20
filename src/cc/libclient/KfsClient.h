@@ -204,6 +204,17 @@ public:
     inline int Stat(const char* pathname, KfsFileAttr& result)
         { return Stat(pathname, result, true); }
     int Stat(int fd, KfsFileAttr& result);
+    ///
+    /// Return i-node (file, directory or symbolic link) attributes.
+    /// @param[in] pathname The full pathname such as /.../foo
+    /// @param[out] result  The attributes that we get back from server
+    /// @param[in] computeFilesize  When set, for files, the size of
+    /// file is computed and the value is returned in result.st_size
+    /// @retval 0 if stat was successful; -errno otherwise
+    ///
+    int Lstat(const char* pathname, KfsFileAttr& result, bool computeFilesize);
+    inline int Lstat(const char* pathname, KfsFileAttr& result)
+        { return Lstat(pathname, result, true); }
 
     ///
     /// Given a file, return the # of chunks in the file
