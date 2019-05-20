@@ -64,19 +64,23 @@ public:
               mStriperType(-1),
               mStripeSize(-1),
               mMinSTier(-1),
-              mMaxSTier(-1)
+              mMaxSTier(-1),
+              mExtAttrTypes(kFileAttrExtTypeNone),
+              mExtAttrs()
             {}
         void Reset()
             { *this = StatBuf(); }
-        int64_t mSubCount1; /// chunk in the file or files in directory count
-        int64_t mSubCount2; /// directories count, or next chunk position
-        int16_t mNumReplicas;
-        int16_t mNumStripes;
-        int16_t mNumRecoveryStripes;
-        int32_t mStriperType;
-        int32_t mStripeSize;
-        int16_t mMinSTier;
-        int16_t mMaxSTier;
+        int64_t          mSubCount1; /// chunk in the file or files in directory count
+        int64_t          mSubCount2; /// directories count, or next chunk position
+        int16_t          mNumReplicas;
+        int16_t          mNumStripes;
+        int16_t          mNumRecoveryStripes;
+        int32_t          mStriperType;
+        int32_t          mStripeSize;
+        int16_t          mMinSTier;
+        int16_t          mMaxSTier;
+        FileAttrExtTypes mExtAttrTypes;
+        string           mExtAttrs;
     };
     class DirIterator
     {
@@ -130,6 +134,9 @@ public:
     virtual int Stat(
         const string& inFileName,
         StatBuf&      outStat) = 0;
+    virtual int Lstat(
+        const string& inFileName,
+        StatBuf&      outStat) = 0;
     virtual int Stat(
         int      inFd,
         StatBuf& outStat) = 0;
@@ -170,6 +177,9 @@ public:
         kfsMode_t     inMode,
         bool          inCreateAllFlag) = 0;
     virtual int Rename(
+        const string& inSrcName,
+        const string& inDstName) = 0;
+    virtual int Symlink(
         const string& inSrcName,
         const string& inDstName) = 0;
     virtual int SetUMask(

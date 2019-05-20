@@ -79,6 +79,33 @@ public:
 class LocalFileSystem : public FileSystemImpl
 {
 public:
+    static int LstatSelf(
+        const string& inFileName,
+        StatBuf&      outStatBuf)
+    {
+        outStatBuf.Reset();
+        int theStatus = Errno(lstat(inFileName.c_str(), &outStatBuf));
+        if (theStatus < 0) {
+            return theStatus;
+        }
+        if (S_ISDIR(outStatBuf.st_mode) && outStatBuf.st_size >= 0) {
+            outStatBuf.st_size = -(outStatBuf.st_size + 1);
+        }
+        if (S_ISLNK(outStatBuf.st_mode)) {
+            StBufferT<char, 1> theBuf;
+            char*   const      thePathBufPtr = theBuf.Resize(PATH_MAX);
+            ssize_t const       theLen       = readlink(
+                inFileName.c_str(), thePathBufPtr, PATH_MAX);
+            if (theLen < 0) {
+                theStatus = RetErrno(errno);
+            } else {
+                QCRTASSERT(theLen <= PATH_MAX);
+                outStatBuf.mExtAttrs.assign(thePathBufPtr, theLen);
+                outStatBuf.mExtAttrTypes = kFileAttrExtTypeSymLink;
+            }
+        }
+        return theStatus;
+    }
     class LocalDirIterator : public DirIterator
     {
     public:
@@ -124,13 +151,10 @@ public:
                 }
                 const size_t theLen = mFileName.length();
                 mFileName += theRetPtr->d_name;
-                if (lstat(mFileName.c_str(), &mStatBuf)) {
+                if (LocalFileSystem::LstatSelf(mFileName.c_str(), mStatBuf)) {
                     mError = errno;
                 } else {
                     outStatPtr = &mStatBuf;
-                    if (S_ISDIR(mStatBuf.st_mode) && mStatBuf.st_size >= 0) {
-                        mStatBuf.st_size = -(mStatBuf.st_size + 1);
-                    }
                 }
                 mFileName.erase(theLen);
             }
@@ -233,6 +257,12 @@ public:
             outStatBuf.st_size = -(outStatBuf.st_size + 1);
         }
         return theStatus;
+    }
+    virtual int Lstat(
+        const string& inFileName,
+        StatBuf&      outStatBuf)
+    {
+        return LstatSelf(inFileName, outStatBuf);
     }
     virtual int Stat(
         int      inFd,
@@ -579,6 +609,12 @@ public:
     {
         return Errno(rename(inSrcName.c_str(), inDstName.c_str()));
     }
+    virtual int Symlink(
+        const string& inSrcName,
+        const string& inDstName)
+    {
+        return Errno(symlink(inSrcName.c_str(), inDstName.c_str()));
+    }
     virtual int SetUMask(
         mode_t inUMask)
     {
@@ -854,6 +890,8 @@ public:
         outStatBuf.mStripeSize         = inAttr.stripeSize;
         outStatBuf.mMinSTier           = inAttr.minSTier;
         outStatBuf.mMaxSTier           = inAttr.maxSTier;
+        outStatBuf.mExtAttrTypes       = inAttr.extAttrTypes;
+        outStatBuf.mExtAttrs           = inAttr.extAttrs;
         if (inAttr.fileSize > 0) {
             outStatBuf.st_size = inAttr.fileSize;
         }
@@ -1093,6 +1131,19 @@ public:
         }
         return theRet;
     }
+    virtual int Lstat(
+        const string& inFileName,
+        StatBuf&      outStat)
+    {
+        KfsFileAttr theAttr;
+        const int theRet = KfsClient::Lstat(inFileName.c_str(), theAttr);
+        if (theRet == 0) {
+            ToStat(theAttr, outStat);
+        } else {
+            outStat.Reset();
+        }
+        return theRet;
+    }
     virtual int Stat(
         int      inFd,
         StatBuf& outStat)
@@ -1212,6 +1263,15 @@ public:
         const bool kOverwriteFlag = true;
         return KfsClient::Rename(inSrcName.c_str(), inDstName.c_str(),
             kOverwriteFlag);
+    }
+    virtual int Symlink(
+        const string& inSrcName,
+        const string& inDstName)
+    {
+        const bool kOverwriteFlag = false;
+        const int  kMode          = 0777;
+        return KfsClient::Symlink(inSrcName.c_str(), inDstName.c_str(),
+            kMode, kOverwriteFlag);
     }
     virtual int SetUMask(
         mode_t inUMask)

@@ -188,7 +188,7 @@ public:
                 return theStatus;
             }
             int k = 0;
-            while ((theStatus = mFs.Stat(theDest, theStat)) == 0) {
+            while ((theStatus = mFs.Lstat(theDest, theStat)) == 0) {
                 theDest.resize(theDestLen);
                 ostringstream theOs;
                 theOs << "." << ++k;
@@ -365,7 +365,7 @@ private:
             }
             int theErr = 0;
             for (int i = 0; ;) {
-                theErr = mFs.Stat(theDirName, theStat);
+                theErr = mFs.Lstat(theDirName, theStat);
                 if (theErr != 0 || S_ISDIR(theStat.st_mode) ||
                         theDirName.length() <= theMinPrefixLen) {
                     break;

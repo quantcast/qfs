@@ -329,6 +329,8 @@ public:
             }
         } else if (strcmp(theCmdPtr, "cp") == 0) {
             theErr = Copy(theArgsPtr, theArgCnt);
+        } else if (strcmp(theCmdPtr, "ln") == 0) {
+            theErr = Link(theArgsPtr, theArgCnt);
         } else if (strcmp(theCmdPtr, "put") == 0 ||
                 (theCopyFlag = strcmp(theCmdPtr, "copyFromLocal") == 0) ||
                 (theMoveFlag = strcmp(theCmdPtr, "moveFromLocal") == 0)) {
@@ -1162,8 +1164,8 @@ private:
     {
         char        theArg[1]     = { 0 };
         const char* theArgsPtr[1] = { theArg };
-        GlobResult theResult;
-        bool       theMoreThanOneFsFlag = false;
+        GlobResult  theResult;
+        bool        theMoreThanOneFsFlag = false;
         int theErr = Glob(
             inArgCount <= 0 ? theArgsPtr : inArgsPtr,
             inArgCount <= 0 ? 1 : inArgCount,
@@ -1317,7 +1319,8 @@ private:
             bool        inDirSummaryFlag    = false,
             int         inDirSummaryMinTier = 1 << (sizeof(int) * 8 - 1),
             int         inDirSummaryMaxTier =
-                ~(1 << (sizeof(int) * 8 - 1)))
+                ~(1 << (sizeof(int) * 8 - 1)),
+            bool        inLstatFlag         = false)
             : mOutStream(inOutStream),
               mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
@@ -1338,6 +1341,7 @@ private:
               mMaxReplicas(0),
               mMaxFileSize(0),
               mDirListEntries(),
+              mLstatFlag(inLstatFlag),
               mDirSummaryFlag(inDirSummaryFlag),
               mDirSummaryMinTier(inDirSummaryMinTier),
               mDirSummaryMaxTier(inDirSummaryMaxTier),
@@ -1366,7 +1370,8 @@ private:
             }
             int theErr;
             if (mRecursionCount == 0) {
-                theErr = inFs.Stat(inPath, mStat);
+                theErr = mLstatFlag ? inFs.Lstat(inPath, mStat) :
+                    inFs.Stat(inPath, mStat);
                 if (theErr != 0) {
                     mErrorStream << inFs.GetUri() << inPath <<
                         ": " << inFs.StrError(theErr) << "\n";
@@ -1463,6 +1468,7 @@ private:
             time_t  mMTime;
             string  mPath;
             string  mName;
+            string  mExtAttrs;
             void Set(
                 const FileSystem::StatBuf& inStat)
             {
@@ -1471,6 +1477,7 @@ private:
                     0 : max(1, (int)inStat.mNumReplicas);
                 mSize        = max(int64_t(0), (int64_t)inStat.st_size);
                 mMTime       = GetMTime(inStat);
+                mExtAttrs    = inStat.mExtAttrs;
             }
         };
         typedef deque<DirListEntry> DirListEntries;
@@ -1566,6 +1573,7 @@ private:
         int                       mMaxReplicas;
         int64_t                   mMaxFileSize;
         DirListEntries            mDirListEntries;
+        bool const                mLstatFlag;
         bool const                mDirSummaryFlag;
         int const                 mDirSummaryMinTier;
         int const                 mDirSummaryMaxTier;
@@ -1677,7 +1685,8 @@ private:
             FileSystem&         inFs,
             const DirListEntry& inEntry)
         {
-            mOutStream << (S_ISDIR(inEntry.mMode) ? "d" : "-");
+            mOutStream << (S_ISDIR(inEntry.mMode) ? "d" :
+                (S_ISLNK(inEntry.mMode) ? "l" : "-"));
             for (int i = 8; i > 0; ) {
                 const char* const kPerms[2] = {"---", "rwx"};
                 const int theNBits =
@@ -1723,6 +1732,10 @@ private:
                     mOutStream << "/";
                 }
                 mOutStream << inEntry.mName;
+            }
+            if (S_ISLNK(inEntry.mMode)) {
+                mOutStream << mDelimeter << "->" << mDelimeter <<
+                    inEntry.mExtAttrs;
             }
             mOutStream << "\n";
         }
@@ -2163,7 +2176,8 @@ private:
         const bool   kNormalizePathFlag = false;
         return ApplyT(inArgsPtr, inArgCount, theMkdirFunc, kNormalizePathFlag);
     }
-    template<bool TDestDirFlag = false, bool TDestDirDestFlag = false>
+    template<bool TDestDirFlag = false, bool TDestDirDestFlag = false,
+        bool TUseCwdWithOneArgFlag = false>
     class GetGlobLastEntry
     {
     public:
@@ -2187,14 +2201,19 @@ private:
             ostream&    inErrorStream,
             bool        /* inMoreThanOneFsFlag */ )
         {
-            if (ioGlobError != 0) {
+            if (ioGlobError != 0 || inGlobResult.empty()) {
                 return false;
             }
+            bool theUseCwdFlag = false;
             if (inGlobResult.size() <= 1 &&
                     inGlobResult.back().second.size() <= 1) {
-                inErrorStream << "source and destination required\n";
-                ioGlobError = -EINVAL;
-                return false;
+                if (TUseCwdWithOneArgFlag) {
+                    theUseCwdFlag = true;
+                } else {
+                    inErrorStream << "source and destination required\n";
+                    ioGlobError = -EINVAL;
+                    return false;
+                }
             }
             mFsPtr = inGlobResult.back().first;
             if (! mFsPtr) {
@@ -2202,10 +2221,16 @@ private:
                 ioGlobError = -EINVAL;
                 return false;
             }
-            mPathName = inGlobResult.back().second.back();
-            inGlobResult.back().second.pop_back();
-            if (inGlobResult.back().second.empty()) {
-                inGlobResult.pop_back();
+            if (theUseCwdFlag) {
+                if (0 != (ioGlobError = mFsPtr->GetCwd(mPathName))) {
+                    return false;
+                }
+            } else {
+                mPathName = inGlobResult.back().second.back();
+                inGlobResult.back().second.pop_back();
+                if (inGlobResult.back().second.empty()) {
+                    inGlobResult.pop_back();
+                }
             }
             if ((ioGlobError = mFsPtr->GetUMask(mUMask)) != 0) {
                 return false;
@@ -2276,7 +2301,7 @@ private:
         GetGlobLastEntry& operator=(
             const GetGlobLastEntry& inFunctor);
     };
-    template<typename TGetGlobLastEntry>
+    template<typename TGetGlobLastEntry, bool TLinkFlag>
     class CopyFunctor
     {
     public:
@@ -2338,6 +2363,17 @@ private:
             }
             FileSystem& theDstFs = *(mDestPtr->GetFsPtr());
             int theStatus;
+            if (TLinkFlag) {
+                if (theDstFs != inFs) {
+                    theStatus = -EXDEV;
+                } else {
+                    theStatus = inFs.Symlink(inPath, mDstName);
+                }
+                if (0 != theStatus) {
+                    theStatus = inErrorReporter(inPath, theStatus);
+                }
+                return theStatus;
+            }
             if (mMoveFlag && theDstFs == inFs) {
                 if ((theStatus = inFs.Rename(inPath, mDstName)) != 0 &&
                         theStatus != -EXDEV) {
@@ -2438,16 +2474,30 @@ private:
         CopyFunctor& operator=(
             const CopyFunctor& inFunctor);
     };
-    typedef GetGlobLastEntry<true, true> CopyGetlastEntry;
-    typedef CopyFunctor<CopyGetlastEntry> CpFunctor;
+    typedef GetGlobLastEntry<true, true> CopyGetLastEntry;
+    typedef CopyFunctor<CopyGetLastEntry, false> CpFunctor;
     int Copy(
         const char* const* inArgsPtr,
         int                inArgCount)
     {
         CpFunctor theCopyFunc(mDefaultCreateParams);
-        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
+        FunctorT<CpFunctor, CopyGetLastEntry, false, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
+        const bool kNormalizePathFlag = false;
+        return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
+    }
+    int Link(
+        const char* const* inArgsPtr,
+        int                inArgCount)
+    {
+        typedef GetGlobLastEntry<true, true, true>  LinkGetLastEntry;
+        typedef CopyFunctor<LinkGetLastEntry, true> LnFunctor;
+
+        LnFunctor theLinkFunc(mDefaultCreateParams);
+        FunctorT<LnFunctor, LinkGetLastEntry, false, false>
+            theFunc(theLinkFunc, cerr);
+        theLinkFunc.SetDest(theFunc.GetInit());
         const bool kNormalizePathFlag = false;
         return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
     }
@@ -2532,7 +2582,7 @@ private:
         theGlob.back().second.push_back(thePath);
         const bool kOverwriteFlag = false;
         CpFunctor theCopyFunc(mDefaultCreateParams, inMoveFlag, kOverwriteFlag);
-        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
+        FunctorT<CpFunctor, CopyGetLastEntry, false, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(theGlob, theGlob.front().first != theFsPtr,
@@ -2595,7 +2645,7 @@ private:
         theGlob.back().second.push_back(thePath);
         const bool kOverwriteFlag = false;
         CpFunctor theCopyFunc(mDefaultCreateParams, inMoveFlag, kOverwriteFlag);
-        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
+        FunctorT<CpFunctor, CopyGetLastEntry, false, false>
             theFunc(theCopyFunc, cerr);
         theCopyFunc.SetDest(theFunc.GetInit());
         return Apply(theGlob, theGlob.front().first != theFsPtr, theErr,
@@ -2978,7 +3028,7 @@ private:
     {
         const bool kMoveFlag = true;
         CpFunctor theMoveFunctor(mDefaultCreateParams, kMoveFlag);
-        FunctorT<CpFunctor, CopyGetlastEntry, false, false>
+        FunctorT<CpFunctor, CopyGetLastEntry, false, false>
             theFunc(theMoveFunctor, cerr);
         theMoveFunctor.SetDest(theFunc.GetInit());
         const bool kNormalizePathFlag = false;
@@ -4132,7 +4182,7 @@ private:
                 return inFs.Remove(inPath, mRecursiveFlag, &inErrorReporter);
             }
             if (! mRecursiveFlag) {
-                const int theStatus = inFs.Stat(inPath, mStat);
+                const int theStatus = inFs.Lstat(inPath, mStat);
                 if (theStatus != 0) {
                     return theStatus;
                 }
@@ -4778,8 +4828,14 @@ const char* const KfsTool::sHelpStrings[] =
 
     "cp", "<src> <dst>",
     "Copy files that match the file pattern <src> to a\n\t\t"
-    "destination.  When copying multiple files, the destination\n\t\t"
+    "destination. When copying multiple files, the destination\n\t\t"
     "must be a directory.\n",
+
+    "ln", "<src> [<dst>]",
+    "Symlink files that match the file pattern <src> to a\n\t\t"
+    "destination. When symlinking multiple files, the destination\n\t\t"
+    "must be a directory. With one argument symbolic link created\n\t\t"
+    "in the current working directory.\n",
 
     "rm", "[-skipTrash] <src>",
     "Delete all files that match the specified file pattern.\n\t\t"
