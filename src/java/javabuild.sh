@@ -77,28 +77,44 @@ fi
 
 test_build_data=${test_build_data:-"/tmp"}
 
+min_supported_release=6
+until javac --release $min_supported_release -version >/dev/null 2>&1; do
+	if [ $min_supported_release -ge 20 ]; then
+		min_supported_release=6
+		break
+	fi
+	min_supported_release=$(expr $min_supported_release + 1)
+done
+min_supported_release=1.$min_supported_release
+
 echo "qfs_release_version = $qfs_release_version"
 echo "qfs_source_revision = $qfs_source_revision"
 echo "hadoop_qfs_profile  = $hadoop_qfs_profile"
 echo "test_build_data     = $test_build_data"
 
+run_maven_exit_if_success()
+{
+	set -x
+	mvn \
+		-Dhttps.protocols='TLSv1,TLSv1.1,TLSv1.2' \
+		-Dmaven.compiler.source="$min_supported_release" \
+		-Dmaven.compiler.target="$min_supported_release" \
+		-Dqfs.release.version="$qfs_release_version" \
+		-Dqfs.source.revision="$qfs_source_revision" \
+		-Dtest.build.data="$test_build_data" \
+		${1+"$@"} \
+		&& exit
+	set +x
+}
+
 mytry=0
 while true; do
     if [ x"$hadoop_qfs_profile" = x'none' ]; then
-        set -x
-        mvn -Dqfs.release.version="$qfs_release_version" \
-            -Dqfs.source.revision="$qfs_source_revision" \
-            -Dtest.build.data="$test_build_data" \
-            --projects qfs-access package && exit
+        run_maven_exit_if_success --projects qfs-access package
     else
-        set -x
-        mvn -P "$hadoop_qfs_profile" \
-            -Dqfs.release.version="$qfs_release_version" \
-            -Dqfs.source.revision="$qfs_source_revision" \
-            -Dtest.build.data="$test_build_data" \
-            -Dhadoop.release.version="$1" package && exit
+        run_maven_exit_if_success -P "$hadoop_qfs_profile" \
+            -Dhadoop.release.version="$1" package
     fi
-    set +x
     mytry=`expr $mytry + 1`
     [ $mytry -lt $mymaxtry ] || break
     echo "Retry: $mytry in 20 * $mytry seconds"
