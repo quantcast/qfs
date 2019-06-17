@@ -198,6 +198,8 @@ metaServer.recoveryInterval = 30
 metaServer.clusterKey = my-fs-unique-identifier
 
 # Assign rack id by ip prefix -- ip address treated as strings.
+# Valid rack id range is from 0 to 65535. Entries with rack ids outside of this
+# range have no effect.
 # The prefix can be positioned with trailing ??
 # For example: 10.6.34.2?
 # The rack id assigned on chunk server connect, and will not change until the
