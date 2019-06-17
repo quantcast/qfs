@@ -3103,6 +3103,16 @@ LayoutManager::Start(MetaHello& r)
             r.rackId = rackId;
         }
     }
+    if (-1 != r.rackId && (r.rackId < 0 ||
+            ChunkPlacement::kMaxRackId < r.rackId)) {
+        KFS_LOG_STREAM_ERROR <<
+            "chunk server: " << r.location <<
+            " rack id: " << r.rackId <<
+            " is out of supported range: [0:" << ChunkPlacement::kMaxRackId <<
+            "] -- treated as undefined" <<
+        KFS_LOG_EOM;
+        r.rackId = -1;
+    }
 }
 
 bool
