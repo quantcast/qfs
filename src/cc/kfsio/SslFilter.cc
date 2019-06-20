@@ -236,6 +236,13 @@ public:
 #ifdef SSL_OP_NO_TICKET
                 | (inPskOnlyFlag ? long(SSL_OP_NO_TICKET) : long(0))
 #endif
+#if 0x10101000L <= OPENSSL_VERSION_NUMBER
+#   ifdef SSL_OP_NO_TLSv1_3
+                // For now turn off TLS 1.3 as PSK does not appear to work
+                // with it.
+                | (inPskOnlyFlag ? long(SSL_OP_NO_TLSv1_3) : long(0))
+#   endif
+#endif
         ));
         SSL_CTX_set_timeout(
                 theRetPtr,
