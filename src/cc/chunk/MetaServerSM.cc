@@ -1180,7 +1180,7 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
             }
             if (! mAuthOp->ParseResponse(prop, iobuf) && 0 <= status) {
                 KFS_LOG_STREAM_ERROR << mLocation <<
-                    " invalid meta reply response: " << op->Show() <<
+                    " invalid meta reply response: " << mAuthOp->Show() <<
                 KFS_LOG_EOM;
                 Error("invalid meta server response");
                 return false;

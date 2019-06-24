@@ -6277,6 +6277,7 @@ ChunkManager::HelloNotifyDone(int code, void* data)
 {
     if (EVENT_CMD_DONE != code || ! data || mHelloNotifyInFlightCount <= 0) {
         die("HelloNotifyDone: invalid completion");
+        return -1;
     }
     AvailableChunksOp& op = *reinterpret_cast<AvailableChunksOp*>(data);
     if (op.numChunks <= mHelloNotifyInFlightCount) {

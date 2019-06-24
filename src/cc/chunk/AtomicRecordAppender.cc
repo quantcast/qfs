@@ -2654,6 +2654,7 @@ AtomicRecordAppender::MakeChunkStable(MakeChunkStableOp* op /* = 0 */)
     KFS_LOG_EOM;
     if (! mMakeChunkStableOp) {
         FatalError();
+        return;
     }
     if (mState == kStateOpen || mState == kStateReplicationFailed) {
         SetState(kStateClosed);
@@ -2961,14 +2962,15 @@ AtomicRecordAppender::OpDone(WriteOp* op)
         " status: "     << op->status <<
         " chunk size: " << GetChunkSize() <<
     KFS_LOG_EOM;
-    const int64_t end = op->offset + op->numBytes;
+    const int64_t end    = op->offset + op->numBytes;
+    const int     status = op->status;
     delete op;
     if (DeleteIfNeeded()) {
         return;
     }
     if (failedFlag) {
         Cntrs().mWriteErrorCount++;
-        SetState(kStateChunkLost, true, op->status);
+        SetState(kStateChunkLost, true, status);
     }
     // There could be more that one write in flight, but only one stagger.
     // The stagger end, by definition, is not on checksum block boundary, but
@@ -3261,7 +3263,9 @@ AtomicRecordAppendManager::AllocateChunk(
 {
     if (! op || op->chunkVersion < 0) {
         die("invalid chunk allocation attempt for append");
-        op->status = -EFAULT;
+        if (op) {
+            op->status = -EFAULT;
+        }
         return;
     }
     bool insertedFlag = false;
