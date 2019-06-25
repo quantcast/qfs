@@ -885,7 +885,7 @@ runqfsadmin()
     qfsadmin -s "$metahost" -p "$metasrvport" -f "$clientrootprop" ${1+"$@"}
 }
 
-reoirt_test_status()
+report_test_status()
 {
     if [ $2 -ne 0 ]; then
         echo "$1 test failure"
@@ -1001,16 +1001,11 @@ runcptoqfsroot -t -d /dev/null -k "$truncatetest" && exit 1
 metaserversetparameter 'metaServer.maxTruncateChunksQueueCount=1048576'
 runcptoqfsroot -t -d /dev/null -k "$truncatetest" || exit
 
-runqfsroot -rm -skipTrash '/truncate.test' || exit
+runqfsroot -rm -skipTrash "$truncatetest" || exit
 #  runqfsroot -rm -skipTrash '/dumpstertest' || exit
 
 # Shorten dumpster cleanup interval to reclaim space faster.
-{
-    cat >> "$metasrvdir/$metasrvprop" << EOF
-metaServer.dumpsterCleanupDelaySec = 2
-EOF
-} || exit
-kill -HUP $metapid || exit
+metaserversetparameter 'metaServer.dumpsterCleanupDelaySec=2'
 
 # Create small chunk to test chunk inventory sync. and fsck later on at the end
 # of the test. Do not create too many chunks as each writable chunk takes 64MB.
@@ -1514,7 +1509,7 @@ while true; do
         break
     fi
 done
-reoirt_test_status "Shutdown" $status
+report_test_status "Shutdown" $status
 
 if [ $status -ne 0 ]; then
     showpids
@@ -1533,7 +1528,7 @@ if [ $status -eq 0 ]; then
     echo "Running meta server log compactor"
     logcompactor -T newlog -C newcp
     status=$?
-    reoirt_test_status "Log compactor" $status
+    report_test_status "Log compactor" $status
 fi
 if [ $status -eq 0 ]; then
     cd "$metasrvdir" || exit
@@ -1552,24 +1547,24 @@ if [ $status -eq 0 ]; then
         qfsfsck -c kfscp -A 0 -F
         status=$?
     fi
-    reoirt_test_status "fsck" $status
+    report_test_status "fsck" $status
 fi
 if [ $status -eq 0 ]; then
     qfsfsck -c newcp $newcpfsckopt
     status=$?
-    reoirt_test_status "fsck new checkpoint" $status
+    report_test_status "fsck new checkpoint" $status
 fi
 if [ $status -eq 0 ] && [ -d "$objectstoredir" ]; then
     echo "Running meta server object store fsck"
     ls -1 "$objectstoredir" | qfsobjstorefsck
     status=$?
-    reoirt_test_status "Meta server object store fsck" $status
+    report_test_status "Meta server object store fsck" $status
 fi
 if [ $status -eq 0 ]; then
     echo "Running re-balance planner"
     rebalanceplanner -d -L ERROR
     status=$?
-    reoirt_test_status "Re-balance planner" $status
+    report_test_status "Re-balance planner" $status
 fi
 
 find "$testdir" -name core\* || status=1
@@ -1588,16 +1583,16 @@ if [ $status -eq 0 \
         ]; then
     echo "Passed all tests"
 else
-    reoirt_test_status "Copy"        $cpstatus
-    reoirt_test_status "Qfs tool"    $qfstoolstatus
-    reoirt_test_status "Fanout"      $fostatus
-    reoirt_test_status "Sort master" $smstatus
-    reoirt_test_status "Java shim"   $kfsaccessstatus
-    reoirt_test_status "C bindings"  $qfscstatus
-    reoirt_test_status "Fsck"        $fsckstatus
-    reoirt_test_status "Fuse"        $fusestatus
-    reoirt_test_status "Admin"       $adminstatus
-    reoirt_test_status "Evacuate"    $myevacuatestatus
+    report_test_status "Copy"        $cpstatus
+    report_test_status "Qfs tool"    $qfstoolstatus
+    report_test_status "Fanout"      $fostatus
+    report_test_status "Sort master" $smstatus
+    report_test_status "Java shim"   $kfsaccessstatus
+    report_test_status "C bindings"  $qfscstatus
+    report_test_status "Fsck"        $fsckstatus
+    report_test_status "Fuse"        $fusestatus
+    report_test_status "Admin"       $adminstatus
+    report_test_status "Evacuate"    $myevacuatestatus
     echo "Test failure"
     status=1
 fi
