@@ -1,4 +1,6 @@
-QFS version 2.1.1
+QFS version 2.1.2
+
+Release 2.1.2 contains minor bug fixes, meta and chunk servers watchdog.
 
 Release 2.1.1 contains minor bug fixes.
 
