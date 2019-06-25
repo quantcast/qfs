@@ -11,9 +11,9 @@ Bug fixes
 
 1. Fix hex integer parser return code in the case when input length is 0.
 
-2. Chunk server: theoretically possible null pointer de-reference, and access
-after free in the record appender and meta server state machines error handling
-code paths.
+2. Chunk server: fix theoretically possible null pointer de-reference, and
+access after free in the record appender and meta server state machines error
+handling code paths.
 
 3. Turn off TLS 1.3 with openssl 1.1.1 by default for PSK only SSL contexts as
 PSK does not appear to work with it, even though openssl documentation suggests
