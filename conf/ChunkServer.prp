@@ -49,6 +49,8 @@ chunkServer.clientPort = 22000
 # Chunk server's rack id. Has effect only if meta server rack prefixes
 # (metaServer.rackPrefixes) are not set, or chunk server's ip do not match
 # any of the prefix.
+# Valid rack id range is from 0 to 65535. Rack ids outside of this range are
+# treated by the meta server as undefined / unassigned, i.e. the same as -1.
 # Default is no rack assigned.
 # chunkServer.rackId = -1
 

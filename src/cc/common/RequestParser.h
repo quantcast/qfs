@@ -114,7 +114,7 @@ public:
         T&           outValue)
     {
         if (inLen <= 0) {
-            return -1;
+            return false;
         }
         const unsigned char* thePtr =
             reinterpret_cast<const unsigned char*>(ioPtr);
