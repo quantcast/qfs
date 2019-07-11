@@ -1042,6 +1042,11 @@ MetaCreate::handle()
         kToDumpsterFlag
     );
     if (status == 0) {
+        if (! fa || fa->id() <= 0) {
+            panic("invalid file attributes");
+            status = -EFAULT;
+            return;
+        }
         if (minSTier < kKfsSTierMax) {
             fa->minSTier = minSTier;
             fa->maxSTier = maxSTier;
@@ -3014,6 +3019,7 @@ MetaLink::handle()
     int32_t const numStripes          = 0;
     int32_t const numRecoveryStripes  = 0;
     int32_t const stripeSize          = 0;
+    fid = 0; // Set to 0 in order to generate new ID.
     status = metatree.create(
         dir,
         name,
@@ -3033,10 +3039,12 @@ MetaLink::handle()
         mtime,
         kToDumpsterFlag
     );
-    if (status == 0 && fa) {
-        if (0 != fa->chunkcount() || 0 != fa->filesize ||
-                1 != fa->numReplicas) {
+    if (0 == status) {
+        if (! fa || fa->id() <= 0 || 0 != fa->chunkcount() ||
+                0 != fa->filesize || 1 != fa->numReplicas) {
             panic("invalid symbolic link attributes");
+            status = -EFAULT;
+            return;
         }
         // Do not inherit directory tiers, reset them to
         // keep all symbolic links consistent.
