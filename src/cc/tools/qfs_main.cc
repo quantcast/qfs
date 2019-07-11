@@ -3155,7 +3155,7 @@ private:
         {
             mDiskUtilizationEntries.clear();
             FileSystem::StatBuf theStat;
-            const int theStatus = inFs.Stat(inPath, theStat);
+            const int theStatus = inFs.Lstat(inPath, theStat);
             if (theStatus != 0) {
                 return theStatus;
             }
@@ -3398,7 +3398,7 @@ private:
             ErrorReporter& inErrorReporter)
         {
             mStat.Reset();
-            const int theStatus = inFs.Stat(inPath, mStat);
+            const int theStatus = inFs.Lstat(inPath, mStat);
             if (theStatus != 0) {
                 return theStatus;
             }
@@ -4424,14 +4424,14 @@ private:
             const string&  inPath,
             ErrorReporter& /* inErrorReporter */)
         {
-            const int theErr = inFs.Stat(inPath, mStat);
+            const int theErr = inFs.Lstat(inPath, mStat);
             if (theErr != 0) {
                 return theErr;
             }
             mOutStream <<
                 "Uri:              " << DisplayFsUri(inFs, inPath)  << "\n"
                 "Type:             " << (S_ISDIR(mStat.st_mode) ?
-                    "dir" : "file") << "\n"
+                    "dir" : S_ISLNK(mStat.st_mode) ? "link" : "file") << "\n"
                 "Modified:         " << GetMTime(mStat)             << "\n"
                 "Changed:          " << GetCTime(mStat)             << "\n"
                 "Accessed:         " << GetATime(mStat)             << "\n"
@@ -4446,7 +4446,7 @@ private:
                 "Files:            " << mStat.mSubCount1 << "\n"
                 "Dirs:             " << mStat.mSubCount2 << "\n"
                 ;
-            } else {
+            } else if (! S_ISLNK(mStat.st_mode)) {
                 mOutStream <<
                 "Chunks:           " << mStat.mSubCount1          << "\n"
                 "Replicas:         " << mStat.mNumReplicas        << "\n"
@@ -4457,10 +4457,12 @@ private:
                 "Next chunk pos:   " << mStat.mSubCount2          << "\n"
                 ;
             }
-            mOutStream <<
-            "Min. tier:        " << mStat.mMinSTier           << "\n"
-            "Max. tier:        " << mStat.mMaxSTier           << "\n"
-            ;
+            if (! S_ISLNK(mStat.st_mode)) {
+                mOutStream <<
+                "Min. tier:        " << mStat.mMinSTier           << "\n"
+                "Max. tier:        " << mStat.mMaxSTier           << "\n"
+                ;
+            }
             return theErr;
         }
     private:
