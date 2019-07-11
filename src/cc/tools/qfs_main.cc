@@ -1323,7 +1323,7 @@ private:
             int         inDirSummaryMinTier = 1 << (sizeof(int) * 8 - 1),
             int         inDirSummaryMaxTier =
                 ~(1 << (sizeof(int) * 8 - 1)),
-            bool        inLstatFlag         = false)
+            bool        inLstatFlag         = true)
             : mOutStream(inOutStream),
               mOutStreamNamePtr(inOutStreamNamePtr ? inOutStreamNamePtr : ""),
               mErrorStream(inErrorStream),
@@ -1650,7 +1650,7 @@ private:
                     return;
                 }
                 mDirSummaryEntries.back().Add(theSubDir);
-            } else {
+            } else if (! (S_ISLNK(inStat.st_mode))) {
                 mDirSummaryEntries.back().Add(
                     inStat,
                     mAbandonedModTime,
