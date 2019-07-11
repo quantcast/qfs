@@ -2982,6 +2982,13 @@ MetaLink::Validate()
 /* virtual */ bool
 MetaLink::start()
 {
+    if (! SetUserAndGroup(*this)) {
+        return false;
+    }
+    StIdempotentRequestHandler handler(*this);
+    if (handler.IsDone()) {
+        return true;
+    }
     if (targetPath.empty()) {
         status    = -EINVAL;
         statusMsg = "empty target path";
@@ -2992,12 +2999,9 @@ MetaLink::start()
         statusMsg = "target path is too long";
         return false;
     }
-    if (! SetUserAndGroup(*this)) {
+    const bool kDirFlag = false;
+    if (! CheckCreatePerms(*this, kDirFlag)) {
         return false;
-    }
-    StIdempotentRequestHandler handler(*this);
-    if (handler.IsDone()) {
-        return true;
     }
     if (0 == status) {
         wormModeFlag = gWormMode;
