@@ -1070,7 +1070,8 @@ private:
         ostream&           inErrorStream,
         GlobResult&        outResult,
         bool&              outMoreThanOneFsFlag,
-        bool               inNormalizePathFlag = true)
+        bool               inNormalizePathFlag = true,
+        bool               inAbsPathFlag       = true)
     {
         outResult.reserve(outResult.size() + max(0, inArgCount));
         int   theRet = 0;
@@ -1107,7 +1108,7 @@ private:
             }
             if (theErr == 0) {
                 string thePrefix;
-                if (thePath.empty() || thePath[0] != '/') {
+                if (inAbsPathFlag && (thePath.empty() || thePath[0] != '/')) {
                     string theCwd;
                     if ((theErr = theFsPtr->GetCwd(theCwd))) {
                         inErrorStream << theArg <<
@@ -1160,7 +1161,8 @@ private:
         const char* const* inArgsPtr,
         int                inArgCount,
         FuncT&             inFunctor,
-        bool               inNormalizePathFlag = true)
+        bool               inNormalizePathFlag = true,
+        bool               inAbsPathFlag       = true)
     {
         char        theArg[1]     = { 0 };
         const char* theArgsPtr[1] = { theArg };
@@ -1172,7 +1174,8 @@ private:
             cerr,
             theResult,
             theMoreThanOneFsFlag,
-            inNormalizePathFlag
+            inNormalizePathFlag,
+            inAbsPathFlag
         );
         return Apply(theResult, theMoreThanOneFsFlag, theErr, inFunctor);
     }
@@ -2499,7 +2502,9 @@ private:
             theFunc(theLinkFunc, cerr);
         theLinkFunc.SetDest(theFunc.GetInit());
         const bool kNormalizePathFlag = false;
-        return Apply(inArgsPtr, inArgCount, theFunc, kNormalizePathFlag);
+        const bool kAbsPathFlag       = false;
+        return Apply(inArgsPtr, inArgCount, theFunc,
+            kNormalizePathFlag, kAbsPathFlag);
     }
     int CopyFromLocal(
         const char* const* inArgsPtr,
