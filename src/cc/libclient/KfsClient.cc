@@ -7798,6 +7798,9 @@ KfsClientImpl::FollowSymLink(const char* const path, size_t const pathLen,
         return -EINVAL;
     }
     if (fa.extAttrs.empty()) {
+        KFS_LOG_STREAM_ERROR << string(path, pathLen) <<
+            ": invalid empty extra file attributes" <<
+        KFS_LOG_EOM;
         return -EIO;
     }
     if (kDirSep != fa.extAttrs[0]) {
