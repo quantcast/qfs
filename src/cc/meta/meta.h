@@ -436,10 +436,7 @@ public:
     }
     void SetExtAttributes(FileAttrExtTypes types, const string& attrs);
     string GetExtAttributes() const {
-        if (HasExtAttrs()) {
-            return string();
-        }
-        return GetExtAttributesSelf();
+        return  HasExtAttrs() ? GetExtAttributesSelf() : string();
     }
     static void Init();
 private:
