@@ -110,7 +110,16 @@ $qfstool -rm -skipTrash "$tdir/d"
 $qfstool -touchz "$tdir/0"
 $qfstool -touchz "$tdir/1"
 $qfstool -touchz "$tdir-f"
+$qfstool -ln "$tdir-f" && exit 1
 $qfstool -rm  "$tdir-f" && exit 1
+$qfstool -D dfs.force.remove=true -rm "$tdir-f"
+$qfstool -ln "$tdir-f"
+$qfstool -D dfs.force.remove=true -rm "$tdir-f"
+$qfstool -ln "$tdir/0" "$tdir-f"
+$qfstool -cat "$tdir-f"
+$qfstool -D dfs.force.remove=true -rm "$tdir-f"
+$qfstool -ln "$tdir" "$tdir-f"
+$qfstool -cat "$tdir-f/0"
 $qfstool -D dfs.force.remove=true -rm "$tdir-f"
 $qfstool -rm  "$tdir" && exit 1
 $qfstool -rmr "$tdir" && exit 1
