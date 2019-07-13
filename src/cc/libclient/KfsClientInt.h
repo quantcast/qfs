@@ -872,7 +872,7 @@ private:
         const KfsFileAttr& attr, bool staleSubCountsFlag = false);
     int StatSelf(const char *pathname, KfsFileAttr &kfsattr, bool computeFilesize,
         string* path = 0, FAttr** fa = 0, bool validSubCountsRequiredFlag = false,
-        bool symLinkStatFlag = false);
+        bool followSymLinkFlag = true);
     int OpenSelf(const char *pathname, int openFlags, int numReplicas = 3,
         int numStripes = 0, int numRecoveryStripes = 0, int stripeSize = 0,
         int stripedType = KFS_STRIPED_FILE_TYPE_NONE,

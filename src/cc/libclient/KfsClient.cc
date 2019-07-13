@@ -3306,9 +3306,9 @@ KfsClientImpl::Lstat(const char *pathname, KfsFileAttr& kfsattr, bool computeFil
 {
     QCStMutexLocker l(mMutex);
     const bool kValidSubCountsRequiredFlag = false;
-    const bool kSymLinkStatFlag            = true;
+    const bool kFollowSymLinkFlag          = false;
     return StatSelf(pathname, kfsattr, computeFilesize, 0, 0,
-        kValidSubCountsRequiredFlag, kSymLinkStatFlag);
+        kValidSubCountsRequiredFlag, kFollowSymLinkFlag);
 }
 
 int
@@ -3339,7 +3339,9 @@ KfsClientImpl::StatSelf(const char* pathname, KfsFileAttr& kfsattr,
         return -EINVAL;
     }
     KFS_LOG_STREAM_DEBUG <<
-        "stat self: " << pathname <<
+        "stat self:"
+        " folow sym links: " << followSymLinkFlag <<
+        " path: " << pathname <<
     KFS_LOG_EOM;
     if (pathname[0] == '/') {
         mTmpAbsPathStr = pathname;
