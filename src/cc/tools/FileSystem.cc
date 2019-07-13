@@ -1233,7 +1233,7 @@ public:
     {
         const bool  kComputeFileSizeFlag = false;
         KfsFileAttr theAttr;
-        int         theRes = KfsClient::Stat(
+        int         theRes = KfsClient::Lstat(
             inPathName.c_str(), theAttr, kComputeFileSizeFlag);
         if (theRes != 0) {
             return theRes;
