@@ -1517,6 +1517,16 @@ private:
         WriteInt(entry.id());
         Write(kType);
         Write(kFileType[entry.type]);
+        // Always write symbolic link info as it is implicit file type.
+        if (entry.HasExtAttrs()) {
+            Write(kExtAttrsType);
+            WriteInt(entry.GetExtTypes());
+            if (! entry.extAttributes.empty()) {
+                Write(kExtAttrs);
+                StringIo::Escape(entry.extAttributes.data(),
+                    entry.extAttributes.size(), *this);
+            }
+        }
         if (fileIdAndTypeOnlyFlag) {
             Write(kNL);
             return;
@@ -1556,17 +1566,6 @@ private:
                 prevGid = entry.group;
                 insertPrevUidFlag = true;
                 insertPrevGidFlag = true;
-            }
-        }
-        if (entry.HasExtAttrs()) {
-            Write(kExtAttrsType);
-            WriteInt(entry.GetExtTypes());
-            Write(kNL);
-            if (! entry.extAttributes.empty()) {
-                Write(kExtAttrs);
-                StringIo::Escape(entry.extAttributes.data(),
-                    entry.extAttributes.size(), *this);
-                Write(kNL);
             }
         }
         if (entry.type == KFS_DIR) {
@@ -1769,10 +1768,10 @@ template<bool F> const typename ReaddirPlusWriter<F>::PropName
     "\nGN:" , "\r\nGroup-name: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kExtAttrsType(
-    "\nET:" , "\r\Ext-attrs-types: ");
+    "\nET:" , "\r\nExt-attrs-types: ");
 template<bool F> const typename ReaddirPlusWriter<F>::PropName
     ReaddirPlusWriter<F>::kExtAttrs(
-    "\nEA:" , "\r\Ext-attrs: ");
+    "\nEA:" , "\r\nExt-attrs: ");
 template<bool F> const typename ReaddirPlusWriter<F>::Token
     ReaddirPlusWriter<F>::kFileType[] = { "empty", "file", "dir" };
 
