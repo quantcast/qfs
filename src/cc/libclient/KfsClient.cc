@@ -3305,7 +3305,7 @@ int
 KfsClientImpl::Lstat(const char *pathname, KfsFileAttr& kfsattr, bool computeFilesize)
 {
     QCStMutexLocker l(mMutex);
-    const bool kValidSubCountsRequiredFlag = false;
+    const bool kValidSubCountsRequiredFlag = true;
     const bool kFollowSymLinkFlag          = false;
     return StatSelf(pathname, kfsattr, computeFilesize, 0, 0,
         kValidSubCountsRequiredFlag, kFollowSymLinkFlag);
