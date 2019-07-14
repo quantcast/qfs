@@ -89,7 +89,7 @@ public:
             Glob&           theInstance = Instance();
             QCStMutexLocker theLock(GetMutexPtr());
             StRef           theRef(theInstance);
-            // The mutex doesn't exists or cannot be deleted when "theRef"
+            // The mutex doesn't exist or cannot be deleted when "theRef"
             // destructor is invoked as the condition in the following
             // assertion shows, therefore no problem exists with "theLock"
             // destructor releasing mutex after de-referencing.
@@ -413,7 +413,8 @@ private:
 #ifndef QC_OS_NAME_CYGWIN
             // Cygwin has no d_type, all other supported platforms have the file
             // type, and glob uses this field instead of invoking stat.
-            mCurEntry.d_type = mCurPtr->isDirectory ? DT_DIR : DT_REG;
+            mCurEntry.d_type = mCurPtr->isDirectory ? DT_DIR :
+                (mCurPtr->IsSymLink() ? DT_REG : DT_LNK);
 #endif
             break;
         }
