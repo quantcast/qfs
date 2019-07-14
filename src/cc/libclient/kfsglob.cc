@@ -175,12 +175,11 @@ public:
         static int Stat(
             const char* inPathNamePtr,
             StatBuf*    inStatPtr)
-            { return Instance().StatSelf(inPathNamePtr, inStatPtr); }
-        // For now same as stat as sym links aren't supported.
+            { return Instance().StatSelf(inPathNamePtr, inStatPtr, false); }
         static int LStat(
             const char* inPathNamePtr,
             StatBuf*    inStatPtr)
-            { return Instance().StatSelf(inPathNamePtr, inStatPtr); }
+            { return Instance().StatSelf(inPathNamePtr, inStatPtr, true); }
         void* OpenDirSelf(
             const char* inPathNamePtr)
         {
@@ -255,7 +254,8 @@ public:
         }
         int StatSelf(
             const char* inPathNamePtr,
-            StatBuf*    inStatBufPtr)
+            StatBuf*    inStatBufPtr,
+            bool        inLstatFlag)
         {
             QCASSERT(mClientPtr && IsMutexOwner());
 
@@ -264,12 +264,16 @@ public:
                 return -1;
             }
             const char* const theAbsPathNamePtr = GetAbsPathName(inPathNamePtr);
-            if (mOpenDirs.empty() || ! mOpenDirs.back()->Stat(
-                    theAbsPathNamePtr, *inStatBufPtr)) {
+            if (mOpenDirs.empty() || ! mOpenDirs.back()->Lstat(
+                    theAbsPathNamePtr, *inStatBufPtr) ||
+                    (! inLstatFlag && S_ISLNK(inStatBufPtr->st_mode))) {
                 KfsFileAttr theAttr;
                 const bool  kComputeFileSizesFlag = false;
-                mError = mClientPtr->Stat(
-                    theAbsPathNamePtr, theAttr, kComputeFileSizesFlag);
+                mError = inLstatFlag ?
+                    mClientPtr->Lstat(
+                        theAbsPathNamePtr, theAttr, kComputeFileSizesFlag) :
+                    mClientPtr->Stat(
+                        theAbsPathNamePtr, theAttr, kComputeFileSizesFlag);
                 if (mError != 0) {
                     errno = mError < 0 ? -mError : mError;
                     return -1;
@@ -415,7 +419,7 @@ private:
         }
         return &mCurEntry;
     }
-    bool Stat(
+    bool Lstat(
         const char* inPathNamePtr,
         StatBuf&    outStatBuf)
     {
