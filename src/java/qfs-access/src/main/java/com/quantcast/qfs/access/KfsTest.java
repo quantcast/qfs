@@ -135,7 +135,8 @@ public class KfsTest
                 throw new IOException("QFS doesn't think " + basedir + " is a dir!");
 
             }
-            String path = new String(basedir + "/foo.1");
+            final String fname = new String("foo.1");
+            final String path = new String(basedir + "/" + fname);
             final KfsOutputChannel outputChannel = kfsAccess.kfs_create(path);
 
             long mTime = kfsAccess.kfs_getModificationTime(path);
@@ -177,6 +178,51 @@ public class KfsTest
             // flush out the changes
             outputChannel.sync();
             outputChannel.close();
+
+            final String symName = new String("foo.1.sym");
+            final String slPath = new String(basedir + "/" + symName);
+            boolean overwrite = false;
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_symlink(path + ".1", slPath, 0777, overwrite),
+                "kfs_symlink " + slPath
+            );
+            res = kfsAccess.kfs_symlink(path + "2", slPath, 0777, overwrite);
+            if (0 == res) {
+                throw new IOException(
+                    slPath + ": symlink succeeded: " + res);
+            }
+            System.out.println(slPath + ": " + res);
+            overwrite = true;
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_symlink(fname, slPath, 0777, overwrite),
+                "kfs_symlink overwrite " + slPath
+            );
+            KfsFileAttr slattr = new KfsFileAttr();
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_lstat(slPath, slattr),
+                "kfs_lstat overwrite " + slPath
+            );
+            System.out.println(attrToString(slattr, "\n"));
+            if (KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK !=
+                    slattr.extAttrTypes) {
+                throw new IOException(
+                    slPath + ": lstat extAttrTypes: " + slattr.extAttrTypes +
+                    " expected: " + KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK);
+            }
+            if (null == slattr.extAttrs || ! slattr.extAttrs.equals(fname)) {
+                throw new IOException(
+                    slPath + ": lstat: " + slattr.extAttrs +
+                    " expected: " + fname);
+            }
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_stat(slPath, slattr),
+                "kfs_stat " + slPath
+            );
+            System.out.println(attrToString(slattr, "\n"));
+            if (null != slattr.extAttrs) {
+                throw new IOException(
+                    slPath + ": stat: " + slattr.extAttrs);
+            }
 
             KfsFileAttr[] fattr;
             if ((fattr = kfsAccess.kfs_readdirplus(basedir)) == null) {
@@ -265,7 +311,14 @@ public class KfsTest
                     "rename with overwrite disabled succeeded!");
             }
 
-            kfsAccess.kfs_remove(path);
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_remove(path),
+                "kfs_remove: " + path
+            );
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_remove(slPath),
+                "kfs_remove: " + slPath
+            );
 
             if (!kfsAccess.kfs_isFile(npath)) {
                 throw new IOException(npath + " is not a normal file!");
@@ -300,7 +353,10 @@ public class KfsTest
             testUtimes(kfsAccess, npath);
 
             // remove the file
-            kfsAccess.kfs_remove(npath);
+            kfsAccess.kfs_retToIOException(
+                kfsAccess.kfs_remove(npath),
+                "kfs_remove: " + npath
+            );
 
             testDirs(kfsAccess, basedir + "/");
 
@@ -380,7 +436,10 @@ public class KfsTest
         "fileCount: "          + attr.fileCount + delim +
         "chunkCount: "         + attr.chunkCount + delim +
         "ownerName: "          + attr.ownerName + delim +
-        "groupName: "          + attr.groupName;
+        "groupName: "          + attr.groupName + delim +
+        "extAttrTypes: "       + attr.extAttrTypes + delim +
+        "extAttrs: "           + attr.extAttrs
+        ;
     }
 
     private static void testDirs(KfsAccess fs, String root) throws IOException

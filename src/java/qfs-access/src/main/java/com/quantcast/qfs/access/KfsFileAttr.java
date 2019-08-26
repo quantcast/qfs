@@ -28,14 +28,16 @@ package com.quantcast.qfs.access;
 
 public class KfsFileAttr
 {
-    public static final int STRIPED_FILE_TYPE_UNKNOWN = 0;
-    public static final int STRIPED_FILE_TYPE_NONE    = 1;
-    public static final int STRIPED_FILE_TYPE_RS      = 2;
-    public static final long KFS_USER_ROOT            = 0;
-    public static final long KFS_GROUP_ROOT           = 0;
-    public static final long KFS_USER_NONE            = 0xFFFFFFFF;
-    public static final long KFS_GROUP_NONE           = 0xFFFFFFFF;
-    public static final int  KFS_MODE_UNDEF           = 0xFFFF;
+    public static final int STRIPED_FILE_TYPE_UNKNOWN        = 0;
+    public static final int STRIPED_FILE_TYPE_NONE           = 1;
+    public static final int STRIPED_FILE_TYPE_RS             = 2;
+    public static final long KFS_USER_ROOT                   = 0;
+    public static final long KFS_GROUP_ROOT                  = 0;
+    public static final long KFS_USER_NONE                   = 0xFFFFFFFF;
+    public static final long KFS_GROUP_NONE                  = 0xFFFFFFFF;
+    public static final int  KFS_MODE_UNDEF                  = 0xFFFF;
+    public static final int  KFS_FILE_ATTR_EXT_TYPE_NONE     = 0;
+    public static final int  KFS_FILE_ATTR_EXT_TYPE_SYM_LINK = 0x1;
 
     public KfsFileAttr() {}
     public String  filename;
@@ -60,4 +62,6 @@ public class KfsFileAttr
     public long    fileCount;
     public long    chunkCount;
     public long    fileId;
+    public int     extAttrTypes;
+    public String  extAttrs;
 }

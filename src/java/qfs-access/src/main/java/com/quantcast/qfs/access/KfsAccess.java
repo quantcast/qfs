@@ -110,6 +110,9 @@ final public class KfsAccess
     int rename(long ptr, String oldpath, String newpath, boolean overwrite);
 
     private final static native
+    int symlink(long ptr, String target, String linkpath, int mode, boolean overwrite);
+
+    private final static native
     int open(long ptr, String path, String mode, int numReplicas,
         int numStripes, int numRecoveryStripes, int stripeSize, int stripedType,
         int createMode);
@@ -194,6 +197,9 @@ final public class KfsAccess
 
     private final static native
     int stat(long ptr, String path, KfsFileAttr attr);
+
+    private final static native
+    int lstat(long ptr, String path, KfsFileAttr attr);
 
     private final static native
     String strerror(long ptr, int err);
@@ -325,6 +331,8 @@ final public class KfsAccess
         public long    fileCount;
         public long    chunkCount;
         public long    fileId;
+        public int     extAttrTypes;
+        public String  extAttrs;
 
         private KfsInputChannel      input;
         private ByteBuffer           buf;
@@ -405,6 +413,10 @@ final public class KfsAccess
                 maxSTier           = buf.get();
                 final int onameLen = buf.getInt();
                 final int gnameLen = buf.getInt();
+                extAttrTypes       = buf.getInt();
+                final int exAtLen  =
+                    KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_NONE == extAttrTypes ?
+                    0 : buf.getInt();
                 owner &= 0xFFFFFFFFL;
                 group &= 0xFFFFFFFFL;
                 mode  &= 0xFFFF;
@@ -421,6 +433,7 @@ final public class KfsAccess
                     prevGroup = group;
                     groupName = readString(gnameLen);
                 }
+                extAttrs = 0 < exAtLen ? readString(exAtLen) : null;
                 if (nameLen > 0) {
                     break;
                 }
@@ -472,6 +485,8 @@ final public class KfsAccess
                 entry.chunkCount         = itr.chunkCount;
                 entry.minSTier           = itr.minSTier;
                 entry.maxSTier           = itr.maxSTier;
+                entry.extAttrTypes       = itr.extAttrTypes;
+                entry.extAttrs           = itr.extAttrs;
                 ret.add(entry);
             }
             return ret.toArray(new KfsFileAttr[0]);
@@ -690,6 +705,11 @@ final public class KfsAccess
         return rename(cPtr, oldpath, newpath, overwrite);
     }
 
+    public int kfs_symlink(String target, String linkpath, int mode, boolean overwrite)
+    {
+        return symlink(cPtr, target, linkpath, mode, overwrite);
+    }
+
     public boolean kfs_exists(String path)
     {
         return exists(cPtr, path) == 1;
@@ -869,6 +889,11 @@ final public class KfsAccess
     public int kfs_stat(String path, KfsFileAttr attr)
     {
         return stat(cPtr, path, attr);
+    }
+
+    public int kfs_lstat(String path, KfsFileAttr attr)
+    {
+        return lstat(cPtr, path, attr);
     }
 
     public void kfs_retToIOException(int ret) throws IOException
