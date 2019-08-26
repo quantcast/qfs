@@ -2139,9 +2139,10 @@ KfsClientImpl::Symlink(const char* target, const char* linkPath,
     string      linkName;
     const bool  kInvalidateSubCountsFlag = true;
     const bool  kEnforceLastDirFlag      = false;
+    const bool  kFollowSymLinkFlag       = false;
     int         res                      = GetPathComponents(
         linkPath, &parentFid, linkName, 0,
-        kInvalidateSubCountsFlag, kEnforceLastDirFlag);
+        kInvalidateSubCountsFlag, kEnforceLastDirFlag, kFollowSymLinkFlag);
     if (res < 0) {
         return res;
     }
@@ -4013,14 +4014,17 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
         } else {
             gnameLen = 0;
         }
-        const int32_t nameLen   = (int32_t)attr.filename.length();
-        const size_t  entrySize =
-            (64 * 4 + 32 * 2 + 8 + 32 * 6 + 16 + 64 + 8 * 2 + 32 * 2) / 8 +
-            nameLen + unameLen + gnameLen +
-            (attr.isDirectory ? 2 * 64/8 : 64/8);
+        const int32_t nameLen = (int32_t)attr.filename.length();
         if (nameLen <= 0) {
             continue;
         }
+        const int32_t extAttrsLen = kFileAttrExtTypeNone == attr.extAttrTypes ?
+            int32_t(0) : (int32_t)attr.extAttrs.length();
+        const size_t  entrySize   =
+            (64 * 4 + 32 * 2 + 8 + 32 * 6 + 16 + 64 + 8 * 2 + 32 * 2 +
+                (kFileAttrExtTypeNone == attr.extAttrTypes ? 1 : 2) * 32) / 8 +
+            nameLen + unameLen + gnameLen + extAttrsLen +
+            (attr.isDirectory ? 2 * 64/8 : 64/8);
         if (ptr + entrySize > end) {
             break;
         }
@@ -4052,12 +4056,18 @@ KfsClientImpl::ReadDirectory(int fd, char* buf, size_t numBytes)
         *ptr++ = attr.maxSTier;
         ptr += WriteInt32(ptr, unameLen);
         ptr += WriteInt32(ptr, gnameLen);
+        ptr += WriteInt32(ptr, attr.extAttrTypes);
+        if (kFileAttrExtTypeNone != attr.extAttrTypes) {
+            ptr += WriteInt32(ptr, extAttrsLen);
+        }
         memcpy(ptr, attr.filename.data(), nameLen);
         ptr += nameLen;
         memcpy(ptr, uname.data(), unameLen);
         ptr += unameLen;
         memcpy(ptr, gname.data(), gnameLen);
         ptr += gnameLen;
+        memcpy(ptr, attr.extAttrs.data(), extAttrsLen);
+        ptr += extAttrsLen;
     }
     if (ptr <= (int8_t*)buf && (size_t)entry.currPos.fileOffset <
             dirEntries.size()) {
