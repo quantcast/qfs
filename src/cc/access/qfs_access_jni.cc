@@ -90,6 +90,10 @@ extern "C" {
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring joldpath, jstring jnewpath,
         jboolean joverwrite);
 
+    jint Java_com_quantcast_qfs_access_KfsAccess_symlink(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring joldpath, jstring jnewpath,
+        jint jmode, jboolean joverwrite);
+
     jint Java_com_quantcast_qfs_access_KfsAccess_exists(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath);
 
@@ -194,6 +198,9 @@ extern "C" {
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong user, jlong group, jlongArray);
 
     jint Java_com_quantcast_qfs_access_KfsAccess_stat(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr);
+
+    jint Java_com_quantcast_qfs_access_KfsAccess_lstat(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr);
 
     jstring Java_com_quantcast_qfs_access_KfsAccess_strerror(
@@ -541,6 +548,22 @@ jint Java_com_quantcast_qfs_access_KfsAccess_rename(
     setStr(npath, jenv, jnewpath);
 
     return clnt->Rename(opath.c_str(), npath.c_str(), joverwrite);
+}
+
+jint Java_com_quantcast_qfs_access_KfsAccess_symlink(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring target,
+    jstring linkpath, jint jmode, jboolean joverwrite)
+{
+    if (! jptr) {
+        return -EFAULT;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    string starget, slinkpath;
+    setStr(starget, jenv, target);
+    setStr(slinkpath, jenv, linkpath);
+
+    return clnt->Symlink(starget.c_str(), slinkpath.c_str(), jmode, joverwrite);
 }
 
 jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultIoBufferSize(
@@ -1064,7 +1087,7 @@ jshort Java_com_quantcast_qfs_access_KfsAccess_setReplication(
     return clnt->SetReplicationFactor(path.c_str(), jnumReplicas);
 }
 
-jint Java_com_quantcast_qfs_access_KfsAccess_stat(
+static jint Java_com_quantcast_qfs_access_KfsAccess_xstat(bool lstat_flag,
     JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr)
 {
     if (! jptr) {
@@ -1083,12 +1106,14 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
     setStr(path, jenv, jpath);
     KfsFileAttr kfsAttr;
     KfsClient* const clnt = (KfsClient*)jptr;
-    int ret = clnt->Stat(path.c_str(), kfsAttr);
+    int ret = lstat_flag ? clnt->Lstat(path.c_str(), kfsAttr) :
+        clnt->Stat(path.c_str(), kfsAttr);
     if (ret != 0) {
         return (jint)ret;
     }
-    string names[3];
+    string names[4];
     names[0] = kfsAttr.filename;
+    names[3] = kfsAttr.extAttrs;
     ret = clnt->GetUserAndGroupNames(
         kfsAttr.user, kfsAttr.group, names[1], names[2]);
     if (ret != 0) {
@@ -1218,11 +1243,23 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
     }
     jenv->SetLongField(attr, fid, (jbyte)kfsAttr.maxSTier);
 
-    const char* const fieldNames[] = {"filename", "ownerName", "groupName"};
-    for (int i = 0; i < 3; i++) {
-        jstring const nm = jenv->NewStringUTF(names[i].c_str());
-        if (! nm) {
-            return -EFAULT;
+    fid = jenv->GetFieldID(acls, "extAttrTypes", "I");
+    if (! fid) {
+        return -EFAULT;
+    }
+    jenv->SetIntField(attr, fid, kfsAttr.extAttrTypes);
+
+    const char* const fieldNames[4] =
+        {"filename", "ownerName", "groupName", "extAttrs"};
+    for (int i = 0; i < 4; i++) {
+        jstring nm;
+        if (3 == i && kFileAttrExtTypeNone == kfsAttr.extAttrTypes) {
+            nm = 0;
+        } else {
+            nm = jenv->NewStringUTF(names[i].c_str());
+            if (! nm) {
+                return -EFAULT;
+            }
         }
         fid = jenv->GetFieldID(acls, fieldNames[i], "Ljava/lang/String;");
         if (! fid) {
@@ -1232,6 +1269,18 @@ jint Java_com_quantcast_qfs_access_KfsAccess_stat(
     }
 
     return 0;
+}
+
+jint Java_com_quantcast_qfs_access_KfsAccess_stat(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr)
+{
+    return Java_com_quantcast_qfs_access_KfsAccess_xstat(false, jenv, jcls, jptr, jpath, attr);
+}
+
+jint Java_com_quantcast_qfs_access_KfsAccess_lstat(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jobject attr)
+{
+    return Java_com_quantcast_qfs_access_KfsAccess_xstat(true, jenv, jcls, jptr, jpath, attr);
 }
 
 jstring Java_com_quantcast_qfs_access_KfsAccess_strerror(
