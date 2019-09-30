@@ -363,6 +363,40 @@ static char* test_qfs_get_data_locations() {
   return 0;
 }
 
+#define QFS_TEST_SYMLINK_NAME "symlink"
+
+const char* const symlink_test_path = "/unit-test/" QFS_TEST_SYMLINK_NAME;
+
+static char* test_qfs_symlink() {
+  check_qfs_call(qfs_symlink(qfs, QFS_TEST_SYMLINK_NAME, symlink_test_path, 0777, 0));
+  return 0;
+}
+
+static char* test_qfs_lstat() {
+  struct qfs_attr attr;
+  struct qfs_ext_attrs ext_attrs;
+  const mode_t mode = ~qfs_get_umask(qfs) & 0777;
+  check_qfs_call(qfs_lstat_ex(qfs, symlink_test_path, &attr, &ext_attrs));
+
+  check(strcmp(attr.filename, QFS_TEST_SYMLINK_NAME) == 0,
+    "attr should have correct path name: %s != %s",
+    attr.filename, QFS_TEST_SYMLINK_NAME);
+  check(! attr.directory, "file should not be a directory");
+  check(attr.mode == mode, "mode should be %o != %o", mode, attr.mode);
+  check(KFS_FILE_ATTR_EXT_TYPE_SYMLINK == ext_attrs.ext_attr_types,
+    "not a symbolic link");
+  check(ext_attrs.ext_atrts_len == strlen(QFS_TEST_SYMLINK_NAME),
+    "invlid symbolic link target legth: %u != %u",
+    (unsigned int)ext_attrs.ext_atrts_len,
+    (unsigned int)strlen(QFS_TEST_SYMLINK_NAME));
+  check(0 == strcmp(ext_attrs.ext_attrs, QFS_TEST_SYMLINK_NAME),
+    "invnalid symbolic link target: %s %s",
+    ext_attrs.ext_attrs, QFS_TEST_SYMLINK_NAME);
+  free(ext_attrs.ext_attrs);
+
+  return 0;
+}
+
 static char * all_tests() {
   run(test_qfs_connect);
   run(test_get_metaserver_location);
@@ -375,6 +409,8 @@ static char * all_tests() {
   run(test_readdir);
   run(test_readdirnames);
   run(test_qfs_stat);
+  run(test_qfs_symlink);
+  run(test_qfs_lstat);
   run(test_qfs_create);
   run(test_qfs_write);
   run(test_qfs_close);
