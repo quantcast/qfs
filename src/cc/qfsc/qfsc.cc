@@ -42,7 +42,8 @@ struct QFS {
   KFS::KfsClient client;
 };
 
-static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src);
+static int qfs_attr_from_KfsFileAttr(struct qfs_attr* dst,
+  struct qfs_ext_attrs* ext_attrs, const KfsFileAttr& src);
 static int qfs_get_data_locations_inner_impl(struct QFS* qfs,
   void* path_or_fd, off_t offset, size_t len,
   vector< vector <string> > &locations);
@@ -186,7 +187,13 @@ void qfs_iter_free(struct qfs_iter** iter) {
   *iter = NULL;
 }
 
-int qfs_readdir(struct QFS* qfs, const char* path, struct qfs_iter** it, struct qfs_attr* attr) {
+int qfs_readdir(struct QFS* qfs, const char* path, struct qfs_iter** it,
+   struct qfs_attr* attr) {
+    return qfs_readdir_ex(qfs, path, it, attr, NULL);
+}
+
+int qfs_readdir_ex(struct QFS* qfs, const char* path, struct qfs_iter** it,
+   struct qfs_attr* attr, struct qfs_ext_attrs* ext_attrs) {
   if(!it) {
     return -EINVAL;
   }
@@ -218,7 +225,10 @@ int qfs_readdir(struct QFS* qfs, const char* path, struct qfs_iter** it, struct 
 
   if(iter->iter < iter->dentries.end()) {
     int left = iter->dentries.size() - (iter->iter - iter->dentries.begin());
-    qfs_attr_from_KfsFileAttr(attr, *(iter->iter));
+    int const err = qfs_attr_from_KfsFileAttr(attr, ext_attrs, *(iter->iter));
+    if (err) {
+        return err;
+    }
     (iter->iter)++;
 
     // Return the number of items left to iterate
@@ -281,6 +291,11 @@ if(!it) {
 }
 
 int qfs_stat(struct QFS* qfs, const char* path, struct qfs_attr* attr) {
+    return qfs_stat_ex(qfs, path, attr, NULL);
+}
+
+int qfs_stat_ex(struct QFS* qfs, const char* path, struct qfs_attr* attr,
+    struct qfs_ext_attrs* ext_attrs) {
   KfsFileAttr kfsAttrs;
 
   int res = qfs->client.Stat(path, kfsAttrs);
@@ -288,11 +303,15 @@ int qfs_stat(struct QFS* qfs, const char* path, struct qfs_attr* attr) {
     return res;
   }
 
-  qfs_attr_from_KfsFileAttr(attr, kfsAttrs);
-  return res;
+  return qfs_attr_from_KfsFileAttr(attr, ext_attrs, kfsAttrs);
 }
 
 int qfs_stat_fd(struct QFS* qfs, int fd, struct qfs_attr* attr) {
+  return qfs_stat_fd_ex(qfs, fd, attr, NULL);
+}
+
+int qfs_stat_fd_ex(struct QFS* qfs, int fd, struct qfs_attr* attr,
+    struct qfs_ext_attrs* ext_attrs) {
   KfsFileAttr kfsAttrs;
 
   int res = qfs->client.Stat(fd, kfsAttrs);
@@ -300,8 +319,23 @@ int qfs_stat_fd(struct QFS* qfs, int fd, struct qfs_attr* attr) {
     return res;
   }
 
-  qfs_attr_from_KfsFileAttr(attr, kfsAttrs);
-  return res;
+  return qfs_attr_from_KfsFileAttr(attr, ext_attrs, kfsAttrs);
+}
+
+int qfs_lstat(struct QFS* qfs, const char* path, struct qfs_attr* attr) {
+    return qfs_lstat_ex(qfs, path, attr, NULL);
+}
+
+int qfs_lstat_ex(struct QFS* qfs, const char* path, struct qfs_attr* attr,
+    struct qfs_ext_attrs* ext_attrs) {
+  KfsFileAttr kfsAttrs;
+
+  int res = qfs->client.Lstat(path, kfsAttrs);
+  if(res < 0) {
+    return res;
+  }
+
+  return qfs_attr_from_KfsFileAttr(attr, ext_attrs, kfsAttrs);
 }
 
 ssize_t qfs_get_chunksize(struct QFS* qfs, const char* path) {
@@ -576,8 +610,12 @@ int qfs_set_euserandegroup(struct QFS* qfs,
   return qfs->client.SetEUserAndEGroup(uid, gid, gids, ngroups);
 }
 
-static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src) {
-  snprintf((char*) dst->filename, sizeof(dst->filename), "%s", src.filename.c_str());
+static int qfs_attr_from_KfsFileAttr(struct qfs_attr* dst,
+    struct qfs_ext_attrs* ext_attrs, const KfsFileAttr& src) {
+
+  const size_t len = std::min((size_t)src.filename.size(), sizeof(dst->filename) - 1);
+  memcpy((void*)dst->filename, src.filename.c_str(), len);
+  ((char*)dst->filename)[len] = 0;
 
   dst->uid = src.user;
   dst->gid = src.group;
@@ -598,6 +636,18 @@ static void qfs_attr_from_KfsFileAttr(struct qfs_attr* dst, KfsFileAttr& src) {
   dst->stripe_size = src.stripeSize;
   dst->min_stier = src.minSTier;
   dst->max_stier = src.maxSTier;
+
+ if (ext_attrs) {
+    ext_attrs->ext_attr_types = (enum qfs_ext_attribute_type)src.extAttrTypes;
+    ext_attrs->ext_atrts_len  = src.extAttrs.size();
+    ext_attrs->ext_attrs      = (char*)malloc(ext_attrs->ext_atrts_len + 1);
+    if (! ext_attrs->ext_attrs) {
+      return errno < 0 ? errno : -errno;
+    }
+    memcpy(ext_attrs->ext_attrs, src.extAttrs.data(), ext_attrs->ext_atrts_len);
+    ext_attrs->ext_attrs[ext_attrs->ext_atrts_len] = 0;
+  }
+  return 0;
 }
 
 static int qfs_get_data_locations_inner_impl(struct QFS* qfs,
@@ -675,4 +725,10 @@ static int qfs_get_data_locations_inner(struct QFS* qfs,
 
   // We are done: dealloc and return that there are zero left.
   return 0;
+}
+
+int qfs_symlink(struct QFS* qfs, const char* target, const char* link_path,
+  mode_t mode, bool overwrite_flag)
+{
+  return qfs->client.Symlink(target, link_path, mode, overwrite_flag);
 }

@@ -66,6 +66,12 @@ extern "C" {
       KFS_STRIPED_FILE_TYPE_RS_JERASURE = 3
   };
 
+  enum qfs_ext_attribute_type {
+    KFS_FILE_ATTR_EXT_TYPE_NONE    = 0,
+    KFS_FILE_ATTR_EXT_TYPE_SYMLINK = 0x1,
+    KFS_FILE_ATTR_EXT_TYPE_END
+  };
+
 // From KfsClient.h
 #define QFS_MAX_FILENAME_LEN 256
 
@@ -95,6 +101,12 @@ extern "C" {
     int32_t           stripe_size;
     int8_t            min_stier;
     int8_t            max_stier;
+  };
+
+  struct qfs_ext_attrs {
+    enum qfs_ext_attribute_type ext_attr_types;
+    size_t                      ext_atrts_len;
+    char*                       ext_attrs; // Caller is to invoke free(ext_attrs);
   };
 
   // qfs_iter is an opaque, iterator type, used for reentrant iteration.
@@ -174,6 +186,8 @@ extern "C" {
   //  if(left < 0) { // handle error condition }
   //
   int qfs_readdir(struct QFS* qfs, const char* path, struct qfs_iter** iter, struct qfs_attr* attr);
+  int qfs_readdir_ex(struct QFS* qfs, const char* path, struct qfs_iter** iter,
+    struct qfs_attr* attr, struct qfs_ext_attrs* ext_attrs);
 
   // qfs_readdirnames iterates through all the file names in the given path if
   // it is a directory, pointing the result at the directing name, returning
@@ -200,6 +214,15 @@ extern "C" {
   // reference by id.
   int qfs_stat(struct QFS* qfs, const char* path, struct qfs_attr* attr);
   int qfs_stat_fd(struct QFS* qfs, int fd, struct qfs_attr* attr);
+  int qfs_stat_ex(struct QFS* qfs, const char* path, struct qfs_attr* attr,
+    struct qfs_ext_attrs* ext_attrs);
+  int qfs_stat_fd_ex(struct QFS* qfs, int fd, struct qfs_attr* attr,
+    struct qfs_ext_attrs* ext_attrs);
+
+  // qfs_lstat: get symlink attribute, if the target is symlink.
+  int qfs_lstat(struct QFS* qfs, const char* path, struct qfs_attr* attr);
+  int qfs_lstat_ex(struct QFS* qfs, const char* path, struct qfs_attr* attr,
+    struct qfs_ext_attrs* ext_attrs);
 
   // Omitted GetNumChunks in favor of call to Stat
 
@@ -441,6 +464,10 @@ extern "C" {
   int qfs_set_euserandegroup(struct QFS* qfs,
     uid_t uid, gid_t gid,
     gid_t* gids, int ngroups);
+
+  // qfs_symlink creates symbolic link
+  int qfs_symlink(struct QFS* qfs, const char* target, const char* link_path,
+    mode_t mode, bool overwrite_flag);
 
   // TODO(sday): Provide some control over the logging system from the c
   // client. It can be handy for debugging.
