@@ -798,7 +798,7 @@ NetManager::Timer::Handler::Handler(NetManager& netManager, KfsCallbackObj& obj,
     : KfsCallbackObj(),
       mObj(obj),
       mStartTime(tmSec >= 0 ? netManager.Now() : 0),
-      mSock(numeric_limits<int>::max()), // Fake fd, for IsGood()
+      mSock(TcpSocket::kFakeValidFd), // Fake fd, for IsGood()
       mConn(new NetConnection(&mSock, this, false, false))
 {
     SET_HANDLER(this, &Handler::EventHandler);
@@ -852,7 +852,7 @@ NetManager::Timer::Handler::Cleanup()
 {
     mConn->Close();
     // Reset fd to prevent calling close().
-    mSock = TcpSocket();
+    mSock.DetachFd();
 }
 
 void

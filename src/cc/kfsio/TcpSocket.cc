@@ -60,7 +60,8 @@ using KFS::libkfsio::globals;
 static inline void
 UpdateSocketCount(int inc)
 {
-    globals().ctrOpenNetFds.Update(inc);
+    const int64_t socketCount = globals().ctrOpenNetFds.Update(inc);
+    QCRTASSERT(0 <= socketCount);
 }
 
 static inline void
@@ -311,6 +312,12 @@ private:
     }
 };
 
+void
+TcpSocket::UpdateCount(int increment)
+{
+    UpdateSocketCount(increment);
+}
+
 bool
 TcpSocket::IsValidConnectToAddress(const ServerLocation& location)
 {
@@ -367,7 +374,9 @@ TcpSocket::Bind(
         return PerrorFatal("socket");
     }
     mType = addr.GetType();
-    UpdateSocketCount(1);
+    if (IsCountableSocketFd(mSockFd)){
+        UpdateSocketCount(1);
+    }
     if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
@@ -419,7 +428,9 @@ TcpSocket::Accept(int* status /* = 0 */)
     }
     accSock = new TcpSocket(fd, mType);
     accSock->SetupSocket();
-    UpdateSocketCount(1);
+    if (IsCountableSocketFd(mSockFd)){
+        UpdateSocketCount(1);
+    }
     if (status) {
         *status = 0;
     }
@@ -439,7 +450,9 @@ TcpSocket::Connect(
     if (mSockFd < 0) {
         return (errno > 0 ? -errno : mSockFd);
     }
-    UpdateSocketCount(1);
+    if (IsCountableSocketFd(mSockFd)){
+        UpdateSocketCount(1);
+    }
     if (fcntl(mSockFd, F_SETFD, FD_CLOEXEC)) {
         Perror("set FD_CLOEXEC");
     }
@@ -603,10 +616,11 @@ TcpSocket::Close()
     if (mSockFd < 0) {
         return;
     }
+    const int cnt = IsCountableSocketFd(mSockFd) ? -1 : 0;
     close(mSockFd);
     mSockFd = -1;
     mType   = kTypeNone;
-    UpdateSocketCount(-1);
+    UpdateSocketCount(cnt);
 }
 
 int
