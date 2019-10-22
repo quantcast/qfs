@@ -56,10 +56,10 @@ public:
 
     Counter() : mName(""), mCount(0), mTimeSpent(0) { }
     Counter(const char *name) : mName(name), mCount(0), mTimeSpent(0) { }
-    virtual ~Counter() { }
+    ~Counter() { }
 
     /// Print out some information about this counter
-    virtual void Show(ostream &os) {
+    void Show(ostream &os) {
         os << mName << ": " << mCount << "," << (mTimeSpent * 1e-6) << "\r\n";
     }
 
@@ -68,18 +68,18 @@ public:
     }
 
     /// Update the counter
-    virtual void Update(int64_t amount) {
-        SyncAddAndFetch(mCount, amount);
+    int64_t Update(int64_t amount) {
+        return SyncAddAndFetch(mCount, amount);
     }
 
-    virtual void UpdateTime(int64_t timeSpentMicroSec) {
-        SyncAddAndFetch(mTimeSpent, timeSpentMicroSec);
+    int64_t UpdateTime(int64_t timeSpentMicroSec) {
+        return SyncAddAndFetch(mTimeSpent, timeSpentMicroSec);
     }
 
-    virtual void Set(int64_t c) { mCount = c; }
+    void Set(int64_t c) { mCount = c; }
 
     /// Reset the state of this counter
-    virtual void Reset() { mCount = 0; mTimeSpent = 0; }
+    void Reset() { mCount = 0; mTimeSpent = 0; }
 
     const string& GetName() const {
         return mName;
@@ -90,7 +90,7 @@ public:
     int64_t GetTimeSpent() const {
         return mTimeSpent;
     }
-protected:
+private:
     /// Name of this counter object
     string mName;
     /// Value of this counter
