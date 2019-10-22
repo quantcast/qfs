@@ -799,9 +799,7 @@ private:
                 CloseConnection();
             }
             if (mSocket.GetFd() != theFd) {
-                TcpSocket theSocket(theFd);
-                mSocket = theSocket;
-                theSocket = TcpSocket();
+                mSocket.SetFd(theFd);
             }
             const bool kListenOnlyFlag = false;
             const bool kOwnsSocketFlag = false;

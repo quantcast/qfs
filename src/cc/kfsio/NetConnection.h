@@ -373,7 +373,7 @@ public:
         if (sock) {
             if (mNetManagerEntry.IsPendingClose()) {
                 // Keep fd open, will be closed by pending update.
-                *sock = TcpSocket();
+                sock->DetachFd();
             } else {
                 sock->Close();
             }

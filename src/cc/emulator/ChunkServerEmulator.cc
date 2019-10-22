@@ -61,8 +61,7 @@ ChunkServerEmulator::~ChunkServerEmulator()
     if (mNetConnection) {
         mNetConnection->Close();
     }
-    TcpSocket& sock = *this;
-    sock = TcpSocket(); // Reset socket's fake fd.
+    DetachFd(); // Reset socket's fake fd.
     for (PendingReqs::const_iterator it = mPendingReqs.begin();
             mPendingReqs.end() != it;
             ++it) {

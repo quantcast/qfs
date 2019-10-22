@@ -46,6 +46,7 @@ public:
         kTypeIpV4 = 0x1,
         kTypeIpV6 = 0x2
     };
+    enum { kFakeValidFd = ~(1 << (sizeof(int) * 8 - 1)) };
     TcpSocket(
         Type type = kTypeNone)
         : mSockFd(-1),
@@ -58,8 +59,25 @@ public:
         Type type = kTypeNone)
         : mSockFd(fd),
           mType(type)
-        {}
+    {
+        if (IsCountableSocketFd(mSockFd)) {
+            UpdateCount(1);
+        }
+    }
     ~TcpSocket();
+
+    void SetFd(int fd)
+    {
+        if (IsCountableSocketFd(mSockFd)) {
+            UpdateCount(-1);
+        }
+        mSockFd = fd;
+        if (IsCountableSocketFd(mSockFd)) {
+            UpdateCount(1);
+        }
+    }
+
+    void DetachFd() { SetFd(-1); }
 
     /// Setup and bind TCP socket to the port specified.
     int Bind(const ServerLocation& location, Type type, bool ipV6OnlyFlag);
@@ -139,10 +157,16 @@ private:
     int PerrorFatal(const char* msg);
     int PerrorFatal(const char* msg, int err);
     int PerrorFatal(const Address& saddr);
+    static bool IsCountableSocketFd(int fd)
+        { return 0 <= fd && kFakeValidFd != fd; }
+    static void UpdateCount(int increment);
 
     static int sRecvBufSize;
     static int sSendBufSize;
     static int sMaxOpenSockets;
+private:
+    TcpSocket(const TcpSocket& socket);
+    TcpSocket& operator=(const TcpSocket& socket);
 };
 
 typedef boost::shared_ptr<TcpSocket> TcpSocketPtr;
