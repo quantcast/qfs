@@ -1,6 +1,6 @@
 QFS version 2.1.3
 
-Release 2.1.3 DNS resolver's number of open socket accounting bug fix.
+Release 2.1.3 contains DNS resolver's number of open socket accounting bug fix.
 This bug might manifest itself in at least one non obvious way: chunk server
 might continuously fail to create or open chunk files if/when the open sockets
 counter becomes negative.
