@@ -1,3 +1,60 @@
+## QFS version 2.1.3
+
+Bug fixes
+----------------------------------------------
+1. Fix DNS resolver's number of open socket accounting bug. This bug might
+manifest itself in at least one non obvious way: chunk server might
+continuously fail to create or open chunk files if/when the open sockets counter
+becomes negative.
+
+## QFS version 2.1.2
+
+New features
+-------------
+Watchdog thread polls meta and / or chunk server threads and aborts the process,
+when configured to do so, in the case if one or more threads appear not to be
+making progress due to likely server and / or OS malfunction.
+
+Bug fixes
+----------------------------------------------
+
+1. Fix hex integer parser return code in the case when input length is 0.
+
+2. Chunk server: fix theoretically possible null pointer de-reference, and
+access after free in the record appender and meta server state machines error
+handling code paths.
+
+3. Turn off TLS 1.3 with openssl 1.1.1 by default for PSK only SSL contexts as
+PSK does not appear to work with it, even though openssl documentation suggests
+that TLS 1.2 callbacks are intended to work with 1.3.
+
+4. Meta server: validate chunk server hello rack id, emit error message in the
+case if rack id is outside of the supported range, and mark rack id as undefined
+in order treat it as such consistently everywhere including meta server web UI.
+Annotated configuration files: add valid rack ID range definition, and describe
+handling of rack ids outside of valid range.
+
+5. Meta server: implement debug instrumentation that stores pre-configured
+number of committed RPC status codes, and writes this information into trace and
+optionally separate file log when transitioning out primary VR state.
+
+6. Meta server: change user and group DB load / update to allow assigning
+multiple names to same group numeric ID.
+
+7. Meta server: fix chunkserver RPC transmit after re-authentication.
+
+8. Java build: automatically determine if the lowest supported release by java
+compiler is higher than 1.6 and use this release to build QFS java shim.
+
+9. Tools: do not follow symbolic links on local file system in the case of
+recursive traversal and / or fetching directory entries attributes in order to
+make qfs tool behavior more similar to the relevant Unix commands.
+
+10. Client library: fix condition reversal in the chunk lease renew RPC.
+
+11. Update build QFS system to work with newer versions of external / system
+libraries and tools.
+
 ## QFS version 2.1.1
 
 Bug fixes

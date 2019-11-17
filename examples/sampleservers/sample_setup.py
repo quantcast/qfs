@@ -677,7 +677,7 @@ def start_servers(config, whichServers, createNewFsFlag, authFlag):
         for section in config.sections():
             if section.startswith('chunkserver'):
                 chunkRunDir = config.get(section, 'rundir')
-                kill_running_program_pid(chunkRunDir, chunkRunDir)
+                kill_running_program_pid(Globals.CHUNKSERVER, chunkRunDir)
                 if chunkRunDir:
                     chunkConf = chunkRunDir + '/conf/ChunkServer.prp'
                     chunkLog  = chunkRunDir + '/ChunkServer.log'
