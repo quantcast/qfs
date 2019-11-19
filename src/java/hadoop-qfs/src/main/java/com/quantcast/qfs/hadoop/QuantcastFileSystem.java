@@ -40,7 +40,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
-
 import com.quantcast.qfs.access.KfsFileAttr;
 
 public class QuantcastFileSystem extends FileSystem {
@@ -445,14 +444,42 @@ public class QuantcastFileSystem extends FileSystem {
     return null;
   }
 
-  // The following two methods are needed to compile Qfs.java with hadoop 0.23.x
+  public Path getLinkTarge(final Path f)
+    throws IOException {
+    final FileStatus s = qfsImpl.lstat(f);
+    if (! s.isSymlink()) {
+      throw new IOException(f + ": not a symlink");
+    }
+    return s.getSymlink();
+  }
+
+  public void createSymlink(final Path target, final Path link,
+      final boolean createParent) throws FileNotFoundException, IOException {
+    if (createParent) {
+      final Path parent = link.getParent();
+      if (parent != null && !mkdirs(parent)) {
+        throw new IOException("Mkdirs failed to create " + parent);
+      }
+    }
+    final int     mode      = 0777;
+    final boolean overwrite = false;
+    qfsImpl.symlink(target.toString(),
+      makeAbsolute(link).toUri().getPath(), mode, overwrite);
+ }
+
   public FileStatus getFileLinkStatus(Path path)
-      throws IOException {
-    return getFileStatus(path);
+    throws FileNotFoundException, IOException {
+    return qfsImpl.lstat(makeAbsolute(path).makeQualified(uri, null));
   }
 
   public boolean supportsSymlinks() {
-    return false;
+    return true;
   }
-
+/*
+  FIXME: implement to support the case when this class is used directly,
+  instead of Qfs class derived from AbstractFileSystem 
+  @Override
+  protected Path resolveLink(Path f) throws IOException {
+  }
+*/
 }

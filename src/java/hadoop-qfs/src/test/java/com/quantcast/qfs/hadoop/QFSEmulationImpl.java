@@ -32,6 +32,9 @@ import org.apache.hadoop.fs.permission.FsPermission;
 
 import com.quantcast.qfs.access.KfsFileAttr;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+
 
 public class QFSEmulationImpl implements IFSImpl {
   FileSystem localFS;
@@ -75,6 +78,24 @@ public class QFSEmulationImpl implements IFSImpl {
 
   public FileStatus stat(Path path) throws IOException {
     return localFS.getFileStatus(new Path(path.toUri().getPath()));
+  }
+
+  public FileStatus lstat(Path path) throws IOException {
+    Method getFileLinkStatusMethod;
+    try {
+      getFileLinkStatusMethod = FileSystem.class.getMethod(
+        "getFileLinkStatus", Path.class);
+    } catch (Exception ex) {
+        throw new IOException("symlink should not be invoked," +
+            " as getFileLinkStatus() is not defined: " + ex.getMessage());
+    }
+    try {
+      return (FileStatus)getFileLinkStatusMethod.invoke(
+        localFS, new Path(path.toUri().getPath()));
+    } catch (Exception ex) {
+        throw new IOException("getFileLinkStatus method invocation: " +
+          ex.getMessage());
+    }
   }
 
   public KfsFileAttr fullStat(Path path) throws IOException {
@@ -255,6 +276,27 @@ public class QFSEmulationImpl implements IFSImpl {
     throws IOException {
     if (status < 0) {
       throw new IOException("IO exception status: " + status);
+    }
+  }
+
+  public void symlink(String target, String link, int mode, boolean overwrite)
+    throws IOException {
+    Method createSymlinkMethod;
+    try {
+      createSymlinkMethod = FileSystem.class.getMethod(
+        "createSymlink", Path.class, Path.class, boolean.class);
+    } catch (Exception ex) {
+        throw new IOException("symlink should not be invoked," +
+            " as symlink() is not definedL " + ex.getMessage());
+    }
+    try {
+      final boolean createParent = false;
+      createSymlinkMethod.invoke(
+        localFS, new Path(target), new Path(link), createParent);
+      return;
+    } catch (Exception ex) {
+        throw new IOException("symlink method invocation: " +
+          ex.getMessage());
     }
   }
 }

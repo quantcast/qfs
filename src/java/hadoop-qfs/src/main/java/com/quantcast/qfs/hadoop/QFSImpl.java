@@ -158,6 +158,27 @@ class QFSImpl implements IFSImpl {
     );
   }
 
+  public FileStatus lstat(Path path) throws IOException {
+    final KfsFileAttr fa  = new KfsFileAttr();
+    final String      pn  = path.toUri().getPath();
+    kfsAccess.kfs_retToIOException(kfsAccess.kfs_lstat(pn, fa), pn);
+    final Path        lp  = KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK ==
+        fa.extAttrTypes ? new Path(fa.extAttrs) : null;
+    return new FileStatus(
+      fa.isDirectory ? 0L : fa.filesize,
+      fa.isDirectory,
+      fa.isDirectory ? 1 : fa.replication,
+      fa.isDirectory ? 0 : BLOCK_SIZE,
+      fa.modificationTime,
+      ACCESS_TIME,
+      FsPermission.createImmutable((short)fa.mode),
+      fa.ownerName,
+      fa.groupName,
+      lp,
+      path
+    );
+  }
+
   public KfsFileAttr fullStat(Path path) throws IOException {
     final KfsFileAttr fa  = new KfsFileAttr();
     final String      pn  = path.toUri().getPath();
@@ -316,6 +337,12 @@ class QFSImpl implements IFSImpl {
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
     throws IOException {
     return new KfsFileStatusIterator(fs, path);
+  }
+
+  public void symlink(String target, String link, int mode, boolean overwrite)
+    throws IOException {
+    kfsAccess.kfs_retToIOException(
+      kfsAccess.kfs_symlink(target, link, mode, overwrite));
   }
 
   // Iterator returning each directory entry as a FileStatus

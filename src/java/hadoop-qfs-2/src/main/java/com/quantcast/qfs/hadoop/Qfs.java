@@ -258,4 +258,16 @@ public class Qfs extends AbstractFileSystem {
     }
     return tokenList;
   }
+
+  @Override
+  public void createSymlink(Path target, Path link, boolean createParent)
+      throws IOException, UnresolvedLinkException {
+    qfs.createSymlink(target, link, createParent);
+  }
+
+  @Override
+  public Path getLinkTarget(Path f)
+      throws IOException {
+    return qfs.getLinkTarget(f);
+  }
 }

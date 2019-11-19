@@ -41,6 +41,7 @@ interface IFSImpl {
   public String[] readdir(String path) throws IOException;
   public FileStatus[] readdirplus(Path path) throws IOException;
   public FileStatus stat(Path path) throws IOException;
+  public FileStatus lstat(Path path) throws IOException;
   public KfsFileAttr fullStat(Path path) throws IOException;
 
   public int mkdirs(String path, int mode) throws IOException;
@@ -80,5 +81,7 @@ interface IFSImpl {
   public int getUMask() throws IOException;
   public void setUMask(int mask) throws IOException;
   public CloseableIterator<FileStatus> getFileStatusIterator(FileSystem fs, Path path)
+           throws IOException;
+  public void symlink(String target, String link, int mode, boolean overwrite)
            throws IOException;
 };
