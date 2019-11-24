@@ -33,12 +33,12 @@ import com.quantcast.qfs.access.KfsAccess;
 import com.quantcast.qfs.access.KfsFileAttr;
 
 import java.util.ArrayList;
+import java.lang.reflect.Constructor;
 
 class QFSImpl implements IFSImpl {
   protected KfsAccess kfsAccess = null;
   private FileSystem.Statistics statistics;
   private final long BLOCK_SIZE  = 1 << 26;
-  private final long ACCESS_TIME = 0;
   private final String CREATE_PARAMS;
   public QFSImpl(String metaServerHost, int metaServerPort,
                  FileSystem.Statistics stats,
@@ -89,6 +89,90 @@ class QFSImpl implements IFSImpl {
     statistics = stats;
   }
 
+  class FileStatusCreator {
+    private Constructor<FileStatus> constr;
+    public FileStatusCreator() {
+      try {
+        constr = FileStatus.class.getConstructor(
+          long.class,
+          boolean.class,
+          int.class,
+          long.class,
+          long.class,
+          long.class,
+          FsPermission.class,
+          String.class,
+          String.class,
+          Path.class,
+          Path.class);
+      } catch (NoSuchMethodException ex) {
+        constr = null;
+      }
+    }
+    public FileStatus create(
+      long         length,
+      boolean      isdir,
+      int          blockReplication,
+      long         blockSize,
+      long         modificationTime,
+      long         accessTime,
+      FsPermission permission,
+      String       owner,
+      String       group,
+      String       symlink,
+      Path         path) throws IOException {
+      if (null != constr) {
+        final Path link = null == symlink ? null : new Path(symlink);
+        try {
+          return constr.newInstance(
+            length,
+            isdir,
+            blockReplication,
+            blockSize,
+            modificationTime,
+            accessTime,
+            permission,
+            owner,
+            group,
+            link,
+            path);
+        } catch (Exception ex) {
+          throw new IOException(ex);
+        }
+      } else {
+          return new FileStatus(
+            length,
+            isdir,
+            blockReplication,
+            blockSize,
+            modificationTime,
+            accessTime,
+            permission,
+            owner,
+            group,
+            path);
+      }
+    }
+    public FileStatus create(Path path, KfsFileAttr fa) throws IOException {
+      final String lp = KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK ==
+          fa.extAttrTypes ? fa.extAttrs : null;
+      return create(
+        fa.isDirectory ? 0L : fa.filesize,
+        fa.isDirectory,
+        fa.isDirectory ? 1 : fa.replication,
+        fa.isDirectory ? 0 : BLOCK_SIZE,
+        fa.modificationTime,
+        fa.creationTime,
+        FsPermission.createImmutable((short)fa.mode),
+        fa.ownerName,
+        fa.groupName,
+        lp,
+        path);
+    }
+  }
+
+  private final FileStatusCreator statusCreator = new FileStatusCreator();
+
   public boolean exists(String path) throws IOException {
     return kfsAccess.kfs_exists(path);
   }
@@ -119,16 +203,18 @@ class QFSImpl implements IFSImpl {
             itr.filename.compareTo("..") == 0) {
           continue;
         }
-        ret.add(new FileStatus(
+        ret.add(statusCreator.create(
           itr.isDirectory ? 0L : itr.filesize,
           itr.isDirectory,
           itr.isDirectory ? 1 : itr.replication,
           itr.isDirectory ? 0 : BLOCK_SIZE,
           itr.modificationTime,
-          ACCESS_TIME,
+          itr.creationTime,
           FsPermission.createImmutable((short)itr.mode),
           itr.ownerName,
           itr.groupName,
+          KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK ==
+            itr.extAttrTypes ? itr.extAttrs : null,
           new Path(prefix + itr.filename)
         ));
       }
@@ -144,18 +230,7 @@ class QFSImpl implements IFSImpl {
     final KfsFileAttr fa  = new KfsFileAttr();
     final String      pn  = path.toUri().getPath();
     kfsAccess.kfs_retToIOException(kfsAccess.kfs_stat(pn, fa), pn);
-    return new FileStatus(
-      fa.isDirectory ? 0L : fa.filesize,
-      fa.isDirectory,
-      fa.isDirectory ? 1 : fa.replication,
-      fa.isDirectory ? 0 : BLOCK_SIZE,
-      fa.modificationTime,
-      ACCESS_TIME,
-      FsPermission.createImmutable((short)fa.mode),
-      fa.ownerName,
-      fa.groupName,
-      path
-    );
+    return statusCreator.create(path, fa);
   }
 
   public FileStatus lstat(Path path) throws IOException {
@@ -164,19 +239,7 @@ class QFSImpl implements IFSImpl {
     kfsAccess.kfs_retToIOException(kfsAccess.kfs_lstat(pn, fa), pn);
     final Path        lp  = KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK ==
         fa.extAttrTypes ? new Path(fa.extAttrs) : null;
-    return new FileStatus(
-      fa.isDirectory ? 0L : fa.filesize,
-      fa.isDirectory,
-      fa.isDirectory ? 1 : fa.replication,
-      fa.isDirectory ? 0 : BLOCK_SIZE,
-      fa.modificationTime,
-      ACCESS_TIME,
-      FsPermission.createImmutable((short)fa.mode),
-      fa.ownerName,
-      fa.groupName,
-      lp,
-      path
-    );
+    return statusCreator.create(path, fa);
   }
 
   public KfsFileAttr fullStat(Path path) throws IOException {
@@ -318,6 +381,16 @@ class QFSImpl implements IFSImpl {
     kfsAccess.kfs_retToIOException(ret);
   }
 
+  public Path getLinkTarget(Path path) throws IOException {
+    final KfsFileAttr fa = new KfsFileAttr();
+    final String      pn = path.toUri().getPath();
+    kfsAccess.kfs_retToIOException(kfsAccess.kfs_lstat(pn, fa), pn);
+    if (KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK != fa.extAttrTypes) {
+        throw new IOException(path + ": not a symlink");
+    }
+    return new Path(fa.extAttrs);
+  }
+
   protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
                                                   short replication, boolean overwrite,
                                                   boolean append, int mode) throws IOException {
@@ -349,6 +422,7 @@ class QFSImpl implements IFSImpl {
   public class KfsFileStatusIterator implements CloseableIterator<FileStatus> {
     final Path path;
     final FileSystem fileSystem;
+    private final QFSImpl.FileStatusCreator statusCreator = new QFSImpl.FileStatusCreator();
     String prefix;
     KfsAccess.DirectoryIterator itr;
     FileStatus current;
@@ -409,16 +483,18 @@ class QFSImpl implements IFSImpl {
               itr.filename.compareTo("..") == 0) {
             continue;
           }
-          current = new FileStatus(
+          current = statusCreator.create(
               itr.isDirectory ? 0L : itr.filesize,
               itr.isDirectory,
               itr.isDirectory ? 1 : itr.replication,
               itr.isDirectory ? 0 : BLOCK_SIZE,
               itr.modificationTime,
-              ACCESS_TIME,
+              itr.creationTime,
               FsPermission.createImmutable((short)itr.mode),
               itr.ownerName,
               itr.groupName,
+              KfsFileAttr.KFS_FILE_ATTR_EXT_TYPE_SYM_LINK ==
+                itr.extAttrTypes ? itr.extAttrs : null,
               new Path(prefix + itr.filename).makeQualified(fileSystem));
           break;
         }

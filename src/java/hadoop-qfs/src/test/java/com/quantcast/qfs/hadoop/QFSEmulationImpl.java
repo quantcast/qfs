@@ -32,7 +32,6 @@ import org.apache.hadoop.fs.permission.FsPermission;
 
 import com.quantcast.qfs.access.KfsFileAttr;
 
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 
@@ -93,8 +92,11 @@ public class QFSEmulationImpl implements IFSImpl {
       return (FileStatus)getFileLinkStatusMethod.invoke(
         localFS, new Path(path.toUri().getPath()));
     } catch (Exception ex) {
+        if (ex.getCause().getClass().isInstance(IOException.class)) {
+            throw (IOException)ex.getCause();
+        }
         throw new IOException("getFileLinkStatus method invocation: " +
-          ex.getMessage());
+          ex.getMessage(), ex);
     }
   }
 
@@ -295,8 +297,31 @@ public class QFSEmulationImpl implements IFSImpl {
         localFS, new Path(target), new Path(link), createParent);
       return;
     } catch (Exception ex) {
+        if (ex.getCause().getClass().isInstance(IOException.class)) {
+            throw (IOException)ex.getCause();
+        }
         throw new IOException("symlink method invocation: " +
-          ex.getMessage());
+          ex.getMessage(), ex);
+    }
+  }
+
+  public Path getLinkTarget(Path path) throws IOException {
+    Method getLinkTargetMethod;
+    try {
+      getLinkTargetMethod = FileSystem.class.getMethod(
+        "getLinkTarget", Path.class);
+    } catch (Exception ex) {
+        throw new IOException("getLinkTarget should not be invoked," +
+            " as getLinkTarget is not definedL " + ex.getMessage());
+    }
+    try {
+      return (Path)getLinkTargetMethod.invoke(localFS, path);
+    } catch (Exception ex) {
+        if (ex.getCause().getClass().isInstance(IOException.class)) {
+            throw (IOException)ex.getCause();
+        }
+        throw new IOException("getLinkTarget method invocation: " +
+          ex.getMessage(), ex);
     }
   }
 }

@@ -84,4 +84,5 @@ interface IFSImpl {
            throws IOException;
   public void symlink(String target, String link, int mode, boolean overwrite)
            throws IOException;
+  public Path getLinkTarget(Path path) throws IOException;
 };

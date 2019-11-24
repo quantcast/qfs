@@ -444,13 +444,8 @@ public class QuantcastFileSystem extends FileSystem {
     return null;
   }
 
-  public Path getLinkTarge(final Path f)
-    throws IOException {
-    final FileStatus s = qfsImpl.lstat(f);
-    if (! s.isSymlink()) {
-      throw new IOException(f + ": not a symlink");
-    }
-    return s.getSymlink();
+  public Path getLinkTarge(Path path) throws IOException {
+    return qfsImpl.getLinkTarget(makeAbsolute(path));
   }
 
   public void createSymlink(final Path target, final Path link,
