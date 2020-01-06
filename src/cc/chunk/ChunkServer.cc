@@ -84,8 +84,8 @@ ChunkServer::Init(
         // The server ip can also be used for the testing purposes, so that the
         // clients always fail to connect to the chunk server, but the meta
         // server considers this server operational.
-        const int err = TcpSocket::IsValidConnectToIpAddress(serverIp.c_str());
-        if (err) {
+        const bool validFlag = TcpSocket::IsValidConnectToIpAddress(serverIp.c_str());
+        if (! validFlag && "0.0.0.0" != serverIp) {
             KFS_LOG_STREAM_FATAL <<
                 "invalid server ip: " << serverIp <<
                 " " <<
