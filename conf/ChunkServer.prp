@@ -46,6 +46,33 @@ chunkServer.metaServer.port     = 30000
 # Port to open for client connections
 chunkServer.clientPort = 22000
 
+# IPv[46] chink server addresses used by clients to connect to the chunk server.
+# The IP does not have to be assigned to any local NICs. The IP is valid as long
+# as the clients can reach chunk server process using this IP.
+#
+# In the case when the chunk server is on the same host as the meta server, but
+# the clients aren't, the server IP must be specified. Setting
+# cnchunkServer.metaServer.hostname to the client "visible" IP might also work.
+#
+# This also allows to work with NAT between the clients, and chunk and meta
+# servers.
+#
+# The chunk server IP address by default is assigned by chunk server, and
+# updated every time chunk server connects to the meta server. The IP address is
+# obtained by calling getsockname() on the meta server connection socket, i.e.
+# local IP address as perceived by the chunk server.
+#
+# Setting this parameter to 0.0.0.0 changes the default IP address assignment
+# behavior. In this mode, meta server obtains chunk server IP by invoking
+# getpeername() with the chunk server connection socket.
+# This mode is intended to handle the cases with NAT between chunk, meta
+# server, and clients, when the "local" IP address obtained by the default
+# method cannot be used by clients to connect to the chunk servers (for example
+# Kubernetes).
+#
+# Default is empty string.
+# chunkServer.hostname =
+
 # Chunk server's rack id. Has effect only if meta server rack prefixes
 # (metaServer.rackPrefixes) are not set, or chunk server's ip do not match
 # any of the prefix.
