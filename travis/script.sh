@@ -177,7 +177,7 @@ install_maven()
             $MYSUDO ln -snf "$(basename "$MYMVNTAR" '-bin.tar.gz')" maven
         )
         M2_HOME='/usr/local/maven'
-        MYPATH="${M2_HOME}/bin:${MYPATH}"
+        MYPATH="${M2_HOME}/bin${MYPATH+:${MYPATH}}"
     fi
 }
 
@@ -192,7 +192,7 @@ build_ubuntu()
         install_maven
     fi
     do_build_linux \
-        ${MYPATH+PATH="$MYPATH"} \
+        ${MYPATH+PATH="${MYPATH}:${PATH}"} \
         ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
 }
 
@@ -239,6 +239,10 @@ build_centos()
         MYCMAKE_OPTIONS=$MYCMAKE_OPTIONS_CENTOS5
         MYCMAKE=$MYCMAKE_CENTOS5
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_CENTOS5
+    fi
+    if [ x"$1" = x'6' ]; then
+        # Remove jre 1.8 as jdk is only 1.7
+        alternatives --remove java /usr/lib/jvm/jre-1.8.0-openjdk.x86_64/bin/java
     fi
     if [ x"$1" = x'7' ]; then
         # CentOS7 has the distro information in /etc/redhat-release
