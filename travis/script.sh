@@ -192,6 +192,7 @@ build_ubuntu()
         install_maven
     fi
     do_build_linux \
+        ${MYPATH+PATH="$MYPATH"} \
         ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
 }
 
