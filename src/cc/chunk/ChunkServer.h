@@ -97,12 +97,16 @@ public:
     void SetParameters(const Properties& props) {
         mWatchdog.SetParameters("chunkServer.watchdog.", props);
     }
+    const ServerLocation& GetConfigLocation() const {
+        return mUpdateServerIpFlag ? mLocation : mConfigLocation;
+    }
     inline void SetLocation(const ServerLocation& loc);
 private:
     // # of ops in the system
     int                mOpCount;
     bool               mUpdateServerIpFlag;
     ServerLocation     mLocation;
+    ServerLocation     mConfigLocation;
     RemoteSyncSMList   mRemoteSyncers;
     QCMutex*           mMutex;
     Watchdog           mWatchdog;
