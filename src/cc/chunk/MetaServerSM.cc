@@ -1265,6 +1265,23 @@ MetaServerSM::Impl::HandleReply(IOBuffer& iobuf, int msgLen)
                 mMaxPendingOpsCount = (size_t)max(1, prop.getValue(
                     kRpcFormatShort == mRpcFormat ? "MP" : "Max-pending",
                     96));
+                const Properties::String* const metaChunkServerName =
+                    prop.getValue(kRpcFormatShort == mRpcFormat ?
+                        "SN" : "Chunk-server-name");
+                if (metaChunkServerName && ! metaChunkServerName->empty() &&
+                        *metaChunkServerName != mMyLocation.hostname) {
+                    mMyLocation.hostname.assign(metaChunkServerName->data(),
+                        metaChunkServerName->size());
+                    KFS_LOG_STREAM_INFO << mLocation <<
+                        " set chunk server location: " << mMyLocation <<
+                    KFS_LOG_EOM;
+                } else {
+                    KFS_LOG_STREAM_DEBUG << mLocation <<
+                        " got chunk server location: " <<
+                            (metaChunkServerName ?
+                             metaChunkServerName->data() : "NULL") <<
+                    KFS_LOG_EOM;
+                }
             } else {
                 mHelloOp->resumeStep = -1;
                 mSentHello    = false;

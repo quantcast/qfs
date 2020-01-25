@@ -5158,6 +5158,8 @@ MetaHello::response(ReqOstream& os, IOBuffer& buf)
     if (! OkHeader(this, os)) {
         return;
     }
+    os << (shortRpcFormatFlag ? "SN:" : "Chunk-server-name: ") <<
+        location.hostname << "\r\n";
     if (0 <= metaFileSystemId) {
         os << (shortRpcFormatFlag ? "FI:" : "File-system-id: ") <<
             metaFileSystemId << "\r\n";
