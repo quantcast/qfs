@@ -36,7 +36,7 @@ DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
 DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
 
-MYMVN_URL='https://www.apache.org/dist/maven/binaries/apache-maven-3.0.5-bin.tar.gz'
+MYMVN_URL='https://www.apache.org/dist/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
@@ -167,12 +167,29 @@ init_codecov()
     } > "$MYCODECOV"
 }
 
+install_maven()
+{
+    if [ -f "$MYMVNTAR" ]; then
+        $MYSUDO tar -xf "$MYMVNTAR" -C '/usr/local'
+        # Set up PATH and links
+        (
+            cd '/usr/local'
+            $MYSUDO ln -snf "$(basename "$MYMVNTAR" '-bin.tar.gz')" maven
+        )
+        M2_HOME='/usr/local/maven'
+        MYPATH="${M2_HOME}/bin:${MYPATH}"
+    fi
+}
+
 build_ubuntu()
 {
     $MYSUDO apt-get update
     $MYSUDO apt-get install -y $DEPS_UBUNTU
     if [ x"$1" = x'18.04' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
+    fi
+    if [ x"$1" = x'14.04' ]; then
+        install_maven
     fi
     do_build_linux \
         ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
@@ -206,16 +223,7 @@ build_centos()
     $MYSUDO yum install -y $MYDEPS
     MYPATH=$PATH
     # CentOS doesn't package maven directly so we have to install it manually
-    if [ -f "$MYMVNTAR" ]; then
-        $MYSUDO tar -xf "$MYMVNTAR" -C '/usr/local'
-        # Set up PATH and links
-        (
-            cd '/usr/local'
-            $MYSUDO ln -snf "$(basename "$MYMVNTAR" '-bin.tar.gz')" maven
-        )
-        M2_HOME='/usr/local/maven'
-        MYPATH="${M2_HOME}/bin:${MYPATH}"
-    fi
+    install_maven
     if [ x"$1" = x'5' ]; then
         # Force build and test to use openssl101e.
         # Add Kerberos binaries dir to path to make krb5-config available.
@@ -271,10 +279,10 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     if [ x"$CODECOV" = x'yes' ]; then
         init_codecov
     fi
-    if [ x"$DISTRO" = x'centos' ]; then
+    if [ x"$DISTRO" = x'centos' -o x"$DISTRO $VER" = x'ubuntu 14.04' ]; then
         mkdir -p  "$MYTMPDIR"
         curl --retry 3 -S -o "$MYMVNTAR" "$MYMVN_URL"
-        if [ x"$VER" = x'5' ]; then
+        if [ x"$DISTRO $VER" = x'centos 5' ]; then
             # Download here as curl/openssl and root certs are dated on centos5,
             # and https downloads don't work.
             curl --retry 3 -S -o "$MYCENTOSEPEL_RPM" \
@@ -287,9 +295,15 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
         /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
-    MYSSLD='/usr/local/Cellar/openssl/'
+    for pkg_name in \
+            'openssl@1.1' \
+            'openssl' \
+            ; do
+        MYSSLD=$(brew list "$pkg_name" | sed -ne 's/^\(.*\)\/bin\/.*$/\1/p' \
+            | sort -u | head -1)
+        [ -d "$MYSSLD" ] && break
+    done
     if [ -d "$MYSSLD" ]; then
-        MYSSLD="${MYSSLD}$(LANG=C ls -1 "$MYSSLD" | tail -n 1)"
         MYCMAKE_OPTIONS="$MYCMAKE_OPTIONS -D OPENSSL_ROOT_DIR=${MYSSLD}"
         MYSSLBIND="$MYSSLD/bin"
         if [ -f "$MYSSLBIND/openssl" ] && \
