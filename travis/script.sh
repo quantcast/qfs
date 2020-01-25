@@ -193,6 +193,7 @@ build_ubuntu()
     fi
     do_build_linux \
         ${MYPATH+PATH="${MYPATH}:${PATH}"} \
+        ${M2_HOME+M2_HOME="$M2_HOME"} \
         ${QFSHADOOP_VERSIONS+QFSHADOOP_VERSIONS="$QFSHADOOP_VERSIONS"}
 }
 
@@ -242,7 +243,8 @@ build_centos()
     fi
     if [ x"$1" = x'6' ]; then
         # Remove jre 1.8 as jdk is only 1.7
-        alternatives --remove java /usr/lib/jvm/jre-1.8.0-openjdk.x86_64/bin/java
+        alternatives --remove java \
+            /usr/lib/jvm/jre-1.8.0-openjdk.x86_64/bin/java
     fi
     if [ x"$1" = x'7' ]; then
         # CentOS7 has the distro information in /etc/redhat-release
@@ -296,7 +298,8 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     fi
     MYSRCD="$(pwd)"
     ulimit -c unlimited
-    docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" "$DISTRO:$VER" \
+    docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
+        "$DISTRO:$VER" \
         /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
