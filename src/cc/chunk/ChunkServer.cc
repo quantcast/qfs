@@ -46,6 +46,7 @@ ChunkServer::ChunkServer()
     : mOpCount(0),
       mUpdateServerIpFlag(false),
       mLocation(),
+      mConfigLocation(),
       mRemoteSyncers(),
       mMutex(0),
       mWatchdog(),
@@ -107,6 +108,7 @@ ChunkServer::Init(
         return false;
     }
     mLocation.Reset(serverIp.c_str(), gClientManager.GetPort());
+    mConfigLocation = mLocation;
     return true;
 }
 
