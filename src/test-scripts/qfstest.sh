@@ -788,7 +788,6 @@ chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 chunkServer.maxSpaceUtilizationThreshold = 0.00001
 chunkServer.meta.inactivityTimeout = $csmetainactivitytimeout
 chunkServer.minChunkCountForHelloResume = 0
-chunkServer.meta.traceRequestResponseFlag = 1
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 # chunkServer.diskQueue.trace = 1
