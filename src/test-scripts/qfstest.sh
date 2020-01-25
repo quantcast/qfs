@@ -788,12 +788,18 @@ chunkServer.placementMaxWaitingAvgSecsThreshold = 600
 chunkServer.maxSpaceUtilizationThreshold = 0.00001
 chunkServer.meta.inactivityTimeout = $csmetainactivitytimeout
 chunkServer.minChunkCountForHelloResume = 0
+chunkServer.meta.traceRequestResponseFlag = 1
 # chunkServer.forceVerifyDiskReadChecksum = 1
 # chunkServer.debugTestWriteSync = 1
 # chunkServer.diskQueue.trace = 1
 # chunkServer.diskQueue.maxDepth = 8
 # chunkServer.diskErrorSimulator.enqueueFailInterval = 5
 EOF
+    if [ $i -eq $chunksrvport ]; then
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.hostname = 0.0.0.0
+EOF
+    fi
     if [ x"$myvalgrind" = x ]; then
         true
     else
