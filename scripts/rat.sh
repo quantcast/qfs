@@ -25,8 +25,8 @@ fi
 
 SRC="`cd "$1" > /dev/null && pwd`"
 
-MYURL='http://www.apache.org/dist/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz'
-MYSHAURL='https://www.apache.org/dist/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz.sha512'
+MYURL='http://www.trieuvan.com/apache//creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz'
+MYSHAURL='https://downloads.apache.org/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz.sha512'
 MYTAR="`basename "$MYURL"`"
 MYNAME="`basename "$MYTAR" -bin.tar.gz`"
 MYJAR="$MYNAME/$MYNAME.jar"
