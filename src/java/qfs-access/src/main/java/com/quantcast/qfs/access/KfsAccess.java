@@ -104,6 +104,10 @@ final public class KfsAccess
     int create2(long ptr, String path, boolean exclusive, String createParams);
 
     private final static native
+    int create2ex(long ptr, String path, boolean exclusive, String createParams,
+        int mode, boolean forceTypeFlag);
+
+    private final static native
     int remove(long ptr, String path);
 
     private final static native
@@ -610,9 +614,23 @@ final public class KfsAccess
     }
 
     public KfsOutputChannel kfs_create_ex(String path, boolean exclusive,
+            String createParams, int mode,
+            boolean forceTypeFlag) throws IOException
+    {
+        return kfs_create_ex_fd(create2ex(cPtr, path, exclusive, createParams,
+            mode, forceTypeFlag), path);
+    }
+
+    public KfsOutputChannel kfs_create_ex(String path, boolean exclusive,
             String createParams) throws IOException
     {
-        final int fd = create2(cPtr, path, exclusive, createParams);
+        return kfs_create_ex_fd(create2(cPtr, path, exclusive, createParams),
+            path);
+    }
+
+    private final KfsOutputChannel kfs_create_ex_fd(int fd,
+            String path) throws IOException
+    {
         kfs_retToIOException(fd, path);
         KfsOutputChannel chan = null;
         try {

@@ -429,22 +429,25 @@ public class KfsTest
 
     private static void testCreateAPI(KfsAccess kfsAccess, String baseDir)
             throws IOException {
+        kfsAccess.kfs_retToIOException(kfsAccess.kfs_setUMask(0));
         final String filePath1 = baseDir + "/sample_file.1";
-        final String createParams = "1,6,3,1048576,2,15,15";
+        final boolean exclusiveFlag = true;
+        final String  createParams = "1,6,3,1048576,2,15,15";
+        final boolean forceTypeFlag = true;
         KfsOutputChannel outputChannel = kfsAccess.kfs_create_ex(filePath1,
-                true, createParams);
-        verifyFileAttr(kfsAccess, outputChannel, filePath1);
+                exclusiveFlag, createParams, 0600, forceTypeFlag);
+        verifyFileAttr(kfsAccess, outputChannel, filePath1, 0600);
 
         String filePath2 = baseDir + "/sample_file.2";
-        outputChannel = kfsAccess.kfs_create_ex(filePath2, 1, true, -1, -1,
-                6, 3, 1048576, 2, false, 0666, 15, 15);
-        verifyFileAttr(kfsAccess, outputChannel, filePath2);
+        outputChannel = kfsAccess.kfs_create_ex(filePath2, 1, exclusiveFlag,
+                -1, -1, 6, 3, 1048576, 2, false, 0666, 15, 15);
+        verifyFileAttr(kfsAccess, outputChannel, filePath2, 0666);
         delete(kfsAccess, filePath1);
         delete(kfsAccess, filePath2);
     }
 
     private static void verifyFileAttr(KfsAccess kfsAccess,
-            KfsOutputChannel outputChannel, String filePath)
+            KfsOutputChannel outputChannel, String filePath, int mode)
             throws IOException {
         final int numBytes = 1048576;
         final char[] dataBuf = new char[numBytes];
@@ -463,7 +466,8 @@ public class KfsTest
         kfsAccess.kfs_retToIOException(kfsAccess.kfs_stat(filePath, attr));
         if (numBytes != attr.filesize || attr.replication != 1 ||
                 attr.striperType != 2 || attr.numStripes != 6 ||
-                attr.numRecoveryStripes != 3 || attr.stripeSize != 1048576) {
+                attr.numRecoveryStripes != 3 || attr.stripeSize != 1048576 ||
+                mode != attr.mode) {
             throw new IOException(filePath + ": file attributes mismatch");
         }
     }

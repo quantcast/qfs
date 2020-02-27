@@ -130,8 +130,12 @@ extern "C" {
         jboolean foreceType, jint mode, jint jminSTier, jint jmaxSTier);
 
     jint Java_com_quantcast_qfs_access_KfsAccess_create2(
+        JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath,
+	jboolean jexclusive, jstring jcreateParams);
+
+    jint Java_com_quantcast_qfs_access_KfsAccess_create2ex(
         JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jexclusive,
-        jstring jcreateParams);
+        jstring jcreateParams, jint jmode, jboolean jforceTypeFlag);
 
     jlong Java_com_quantcast_qfs_access_KfsAccess_setDefaultIoBufferSize(
         JNIEnv *jenv, jclass jcls, jlong jptr, jlong jsize);
@@ -512,6 +516,22 @@ jint Java_com_quantcast_qfs_access_KfsAccess_create2(
     setStr(path, jenv, jpath);
     setStr(createParams, jenv, jcreateParams);
     return clnt->Create(path.c_str(), (bool) jexclusive, createParams.c_str());
+}
+
+jint Java_com_quantcast_qfs_access_KfsAccess_create2ex(
+    JNIEnv *jenv, jclass jcls, jlong jptr, jstring jpath, jboolean jexclusive,
+    jstring jcreateParams, jint jmode, jboolean jforceTypeFlag)
+{
+    if (! jptr) {
+        return -EFAULT;
+    }
+    KfsClient* const clnt = (KfsClient*)jptr;
+
+    string path, createParams;
+    setStr(path, jenv, jpath);
+    setStr(createParams, jenv, jcreateParams);
+    return clnt->Create(path.c_str(), (bool)jexclusive, createParams.c_str(),
+        (kfsMode_t)jmode, (bool)jforceTypeFlag);
 }
 
 jint Java_com_quantcast_qfs_access_KfsAccess_remove(

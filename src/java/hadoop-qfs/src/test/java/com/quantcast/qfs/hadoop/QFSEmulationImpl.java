@@ -211,7 +211,7 @@ public class QFSEmulationImpl implements IFSImpl {
   }
 
   public FSDataOutputStream create(String path, boolean overwrite,
-          String createParams) throws IOException {
+          String createParams, int mode, boolean forceType) throws IOException {
       // besides path/overwrite, the other args don't matter for
       // testing purposes.
       return localFS.create(new Path(path));
