@@ -39,7 +39,9 @@ class QFSImpl implements IFSImpl {
   protected KfsAccess kfsAccess = null;
   private FileSystem.Statistics statistics;
   private final long BLOCK_SIZE  = 1 << 26;
+  private final String CREATE_PARAMS_DEFAULT = "S";
   private final String CREATE_PARAMS;
+  private final boolean CREATE_FORCE_TYPE_FLAG;
   public QFSImpl(String metaServerHost, int metaServerPort,
                  FileSystem.Statistics stats,
                  Configuration cfg) throws IOException {
@@ -53,12 +55,15 @@ class QFSImpl implements IFSImpl {
     final String groupsSeparator = ","; // No regex special symbols.
     final String groupsCfg       = cfg.get(groupsCfgName, "");
     long[]       groups          = null;
-    CREATE_PARAMS                = cfg.get("fs.qfs.createParams", "S");
+    CREATE_PARAMS                =
+        cfg.get("fs.qfs.createParams", CREATE_PARAMS_DEFAULT);
+    CREATE_FORCE_TYPE_FLAG       =
+        cfg.getBoolean("fs.qfs.create.forceType", false);
     if (kDefaultUser != euser && (euser < 0 || kMaxUserGroupId <= euser)) {
-            throw new IOException("invalid effective user id: " + euser);
+        throw new IOException("invalid effective user id: " + euser);
     }
     if (kDefaultGroup != egroup && (egroup < 0 || kMaxUserGroupId <= egroup)) {
-            throw new IOException("invalid effective group id: " + egroup);
+        throw new IOException("invalid effective group id: " + egroup);
     }
     if (groupsCfg.contains(groupsSeparator)) {
         try {
@@ -333,12 +338,13 @@ class QFSImpl implements IFSImpl {
   }
 
   public FSDataOutputStream create(String path, boolean overwrite,
-          String createParams) throws IOException {
+          String createParams, int mode, boolean forceType) throws IOException {
     if(createParams == null || createParams.length() == 0) {
         createParams = CREATE_PARAMS;
+        forceType    = CREATE_FORCE_TYPE_FLAG;
     }
     return new FSDataOutputStream(createQFSOutputStream(kfsAccess, path,
-            overwrite, createParams), statistics);
+            overwrite, createParams, mode, forceType), statistics);
   }
 
   public FSDataInputStream open(String path, int bufferSize)
@@ -391,19 +397,27 @@ class QFSImpl implements IFSImpl {
     return new Path(fa.extAttrs);
   }
 
-  protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
-                                                  short replication, boolean overwrite,
-                                                  boolean append, int mode) throws IOException {
-    return new QFSOutputStream(kfsAccess, path, replication, overwrite, append, mode);
+  protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess,
+      String path, short replication, boolean overwrite, boolean append,
+      int mode) throws IOException {
+    final String  createParams = null;
+    final boolean forceType    = false;
+    return (append || CREATE_PARAMS_DEFAULT == CREATE_PARAMS) ?
+      new QFSOutputStream(kfsAccess, path, replication, overwrite, append,
+        mode) :
+      new QFSOutputStream(kfsAccess, path, overwrite, createParams, mode,
+        forceType);
   }
 
   protected QFSOutputStream createQFSOutputStream(KfsAccess kfsAccess, String path,
-          boolean overwrite, String createParams) throws IOException {
-      return new QFSOutputStream(kfsAccess, path, overwrite, createParams);
+      boolean overwrite, String createParams, int mode,
+      boolean forceType) throws IOException {
+    return new QFSOutputStream(kfsAccess, path, overwrite, createParams, mode,
+      forceType);
   }
 
-  protected QFSInputStream createQFSInputStream(KfsAccess kfsAccess, String path,
-                                                FileSystem.Statistics stats) throws IOException {
+  protected QFSInputStream createQFSInputStream(KfsAccess kfsAccess,
+      String path, FileSystem.Statistics stats) throws IOException {
     return new QFSInputStream(kfsAccess, path, stats);
   }
 

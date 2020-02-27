@@ -179,13 +179,20 @@ public class QuantcastFileSystem extends FileSystem {
   }
 
   public FSDataOutputStream create(Path file, boolean overwrite,
-          String createParams) throws IOException {
+          String createParams, int mode, boolean forceType) throws IOException {
     Path parent = file.getParent();
     if (parent != null && !mkdirs(parent)) {
         throw new IOException("Mkdirs failed to create " + parent);
     }
     return qfsImpl.create(makeAbsolute(file).toUri().getPath(),
-            overwrite, createParams);
+            overwrite, createParams, mode, forceType);
+  }
+
+  public FSDataOutputStream create(Path file, boolean overwrite,
+          String createParams) throws IOException {
+    final int     mode      = 0666;
+    final boolean forceType = false;
+    return create(file, overwrite, createParams, mode, forceType);
   }
 
   public FSDataOutputStream createNonRecursive(Path file,

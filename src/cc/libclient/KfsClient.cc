@@ -570,7 +570,8 @@ KfsClient::CreateSelf(
 
 
 int
-KfsClient::Create(const char *pathname, bool exclusive, const char *params)
+KfsClient::Create(const char *pathname, bool exclusive, const char *params,
+    kfsMode_t mode, bool forceTypeFlag)
 {
     int        numReplicas;
     int        numStripes;
@@ -586,8 +587,8 @@ KfsClient::Create(const char *pathname, bool exclusive, const char *params)
         return ret;
     }
     return mImpl->Create(pathname, numReplicas, exclusive,
-        numStripes, numRecoveryStripes, stripeSize, stripedType, true,
-        0666, maxSTier, minSTier);
+        numStripes, numRecoveryStripes, stripeSize, stripedType, forceTypeFlag,
+        mode, maxSTier, minSTier);
 }
 
 int

@@ -437,7 +437,8 @@ public:
     /// @retval on success, fd corresponding to the created file;
     /// -errno on failure.
     ///
-    int Create(const char* pathname, bool exclusive, const char* params);
+    int Create(const char* pathname, bool exclusive, const char* params,
+        kfsMode_t mode = 0666, bool forceTypeFlag = false);
 
     ///
     /// Remove a file which is specified by a complete path.

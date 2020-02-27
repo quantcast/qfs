@@ -52,9 +52,11 @@ class QFSOutputStream extends OutputStream {
   }
 
   public QFSOutputStream(KfsAccess kfsAccess, String path, boolean overwrite,
-          String createParams) throws IOException {
+          String createParams, int mode,
+          boolean forceTypeFlag) throws IOException {
       final boolean exclusive     = ! overwrite;
-      this.kfsChannel = kfsAccess.kfs_create_ex(path, exclusive, createParams);
+      this.kfsChannel = kfsAccess.kfs_create_ex(path, exclusive, createParams,
+        mode, forceTypeFlag);
       if (kfsChannel == null) {
         throw new IOException("QFS internal error -- null channel");
       }

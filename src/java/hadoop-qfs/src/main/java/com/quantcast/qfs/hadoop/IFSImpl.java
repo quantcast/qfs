@@ -68,7 +68,7 @@ interface IFSImpl {
             int bufferSize, boolean overwrite, int mode,
             boolean append) throws IOException;
   public FSDataOutputStream create(String path, boolean overwrite,
-          String createParams) throws IOException;
+          String createParams, int mode, boolean forceType) throws IOException;
   public FSDataOutputStream append(String path, short replication,
            int bufferSize) throws IOException;
   public FSDataInputStream open(String path, int bufferSize)
