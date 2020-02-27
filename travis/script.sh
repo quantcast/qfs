@@ -36,7 +36,7 @@ DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
 DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
 
-MYMVN_URL='https://www.apache.org/dist/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz'
+MYMVN_URL='https://downloads.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz'
 
 MYTMPDIR='.tmp'
 MYCODECOV="$MYTMPDIR/codecov.sh"
