@@ -1,3 +1,19 @@
+## QFS version 2.2.0
+
+New features
+-------------
+1. Symbolic links support.
+In this release QFS client library and Hadoop shim do not support cross file
+systems symbolic links.
+
+Bug fixes
+----------------------------------------------
+1. QFS-350 bug fix.
+Ensure that Hadoop configuration parameter fs.qfs.createParams value if
+different than default (S) has effect with Hadoop versions higher than 1.
+Add fs.qfs.create.forceType boolean configuration parameter to allow to set
+force file type parameter in Hadoop configuration.
+
 ## QFS version 2.1.3
 
 Bug fixes
