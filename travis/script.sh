@@ -293,7 +293,7 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
             # Download here as curl/openssl and root certs are dated on centos5,
             # and https downloads don't work.
             curl --retry 3 -S -o "$MYCENTOSEPEL_RPM" \
-                'http://archives.fedoraproject.org/pub/archive/epel/epel-release-latest-5.noarch.rpm'
+                'https://archive.fedoraproject.org/pub/archive/epel/5/x86_64/epel-release-5-4.noarch.rpm'
         fi
     fi
     MYSRCD="$(pwd)"
