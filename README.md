@@ -1,3 +1,7 @@
+QFS version 2.2.0
+
+Release 2.2.0  constains symbolic links support, and minor bug fixes.
+
 QFS version 2.1.3
 
 Release 2.1.3 contains DNS resolver's number of open socket accounting bug fix.
