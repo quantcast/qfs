@@ -229,7 +229,7 @@ class Status:
         self.serversByRack = {}
         self.numReallyDownServers = 0
         self.freeFsSpace = 0
-        self.canNotBeUsedForPlacment = 0
+        self.canNotBeUsedForPlacement = 0
         self.goodNoRackAssignedCount = 0
         self.tiersColumnNames = {}
         self.tiersInfo = {}
@@ -247,7 +247,7 @@ class Status:
             self.serversByRack,
             self.numReallyDownServers,
             self.freeFsSpace,
-            self.canNotBeUsedForPlacment,
+            self.canNotBeUsedForPlacement,
             self.goodNoRackAssignedCount,
             self.systemInfo,
             self.tiersColumnNames,
@@ -999,7 +999,7 @@ class UpServer:
 
             status.freeFsSpace += self.free
             if not self.good or self.overloaded:
-                status.canNotBeUsedForPlacment += 1
+                status.canNotBeUsedForPlacement += 1
             elif self.rack < 0:
                 status.goodNoRackAssignedCount += 1
 
@@ -1016,7 +1016,7 @@ class UpServer:
     def setRetiring(self, status):
         self.retiring = 1
         if not self.overloaded and self.good:
-            status.canNotBeUsedForPlacment += 1
+            status.canNotBeUsedForPlacement += 1
             if self.rack < 0:
                 status.goodNoRackAssignedCount -= 1
 
