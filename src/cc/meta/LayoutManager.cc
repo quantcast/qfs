@@ -9017,7 +9017,7 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Pending recovery= "    << mChunkToServerMap.GetCount(
             CSMap::Entry::kStatePendingRecovery) << "\t"
         "Repl check timeouts= " << mReplicationCheckTimeouts << "\t"
-        "Find repl timemoust= " << mReplicationFindWorkTimeouts << "\t"
+        "Find repl timeouts= "  << mReplicationFindWorkTimeouts << "\t"
         "Update time= "         << DisplayDateTime(kSecs2MicroSecs * mPingUpdateTime) << "\t"
         "Uptime= "              << (mPingUpdateTime - mStartTime) << "\t"
         "Buffers= "             <<
