@@ -231,10 +231,12 @@ class Status:
         self.freeFsSpace = 0
         self.canNotBeUsedForPlacement = 0
         self.goodNoRackAssignedCount = 0
+        self.rebalanceStatus = {}
         self.tiersColumnNames = {}
         self.tiersInfo = {}
         self.config = {}
         self.vrStatus = {}
+        self.watchdog = {}
         self.systemInfo = SystemInfo()
 
     def systemStatus(self, buffer):
@@ -1502,22 +1504,20 @@ def ping(status, metaserver):
             status.tiersInfo = line[line.find(':') + 1:].strip().split('\t')
             continue
 
-        config = line.startswith('Config:')
-        if config or line.startswith('VR Status:'):
-            if gHasCollections:
-                res = collections.OrderedDict()
-            else:
-                res = {}
-            for keyval in line[line.find(':') + 1:].strip().split(';'):
-                try:
-                    [ key, value ] = keyval.split('=')
-                    res[key] = value
-                except ValueError:
-                    continue
-            if config:
-                status.config = res
-            else:
-                status.vrStatus = res;
+        if line.startswith('Rebalance status:'):
+            status.rebalanceStatus = parse_fields(line, field_sep='\t', key_sep='=')
+            continue
+
+        if line.startswith('Config:'):
+            status.config = parse_fields(line, field_sep=';', key_sep='=')
+            continue
+
+        if line.startswith('VR Status:'):
+            status.vrStatus = parse_fields(line, field_sep=';', key_sep='=')
+            continue
+
+        if line.startswith('Watchdog:'):
+            status.watchdog = parse_fields(line, field_sep=';', key_sep='=')
             continue
 
     mergeDownUpNodes(status)
@@ -1525,6 +1525,21 @@ def ping(status, metaserver):
     status.upServers.sort()
 
     sock.close()
+
+
+def parse_fields(line, field_sep='\t', key_sep='='):
+    if gHasCollections:
+        res = collections.OrderedDict()
+    else:
+        res = {}
+    for keyval in line[line.find(':') + 1:].strip().split(field_sep):
+        try:
+            key, value = keyval.split(key_sep, 1)
+            res[key] = value
+        except ValueError:
+            continue
+    return res
+
 
 def splitThousands( s, tSep=',', dSep='.'):
     '''Splits a general float on thousands. GIGO on general input'''
