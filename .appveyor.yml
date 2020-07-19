@@ -61,4 +61,5 @@ install:
     - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version"'
 
 build_script:
-    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && { df -h . ; make --no-print-directory tarball -j8 | ts ''[%Y-%m-%d %H:%M:%S]''; }"'
+    - |
+        %CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && { df -h . ; make --no-print-directory tarball -j8 | ts '[%%Y-%%m-%%d %%H:%%M:%%S]'; }"
