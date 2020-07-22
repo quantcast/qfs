@@ -585,12 +585,20 @@ public:
     ~CleanupChecker()
     {
         const int64_t cnt = KfsOp::GetOpsCount();
-        if (cnt == 0) {
+        if (0 == cnt && 0 == globals().ctrOpenNetFds.GetValue() &&
+                0 == globals().ctrOpenDiskFds.GetValue()) {
             return;
         }
-        char buffer[] = { "error: ops count at extit 000000000000000\n" };
+        char buffer[] = { "error: ops / sockets / disk fds at extit"
+                          "                "
+                          "                "
+                          "                \n" };
         const size_t sz = sizeof(buffer) / sizeof(buffer[0]);
-        IntToDecString(cnt, buffer + sz - 1);
+        IntToDecString(cnt,
+            IntToDecString(globals().ctrOpenNetFds.GetValue(),
+                IntToDecString(globals().ctrOpenDiskFds.GetValue(),
+                    buffer + sz - 1) - 1) - 1
+        );
         if (write(2, buffer, sizeof(buffer))) {
             QCUtils::SetLastIgnoredError(errno);
         }

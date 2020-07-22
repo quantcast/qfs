@@ -428,9 +428,6 @@ TcpSocket::Accept(int* status /* = 0 */)
     }
     accSock = new TcpSocket(fd, mType);
     accSock->SetupSocket();
-    if (IsCountableSocketFd(mSockFd)){
-        UpdateSocketCount(1);
-    }
     if (status) {
         *status = 0;
     }
