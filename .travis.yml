@@ -97,4 +97,4 @@ deploy:
         - secure: UOL4vCiUFALq2MwOji2dUbT9HrSw1GInFH6SfY1pN5fnanmEGgw3jRwnqTu2hu9KhFEhZq5vZDEGogRU8AVQPJjCkGQFZW/sakKuJfLKMM7qr6+mLZ8VmWr8cmVIUswosknoxplXlRx2FnuEYwbN0ju0QZFfARehR03W5Ehii8o=
     on:
         all_branches: true
-        condition: "$CODECOV != yes && $BTYPE = release && $BUSER != root && ( $TRAVIS_BRANCH = $TRAVIS_TAG || $TRAVIS_BRANCH = master )"
+        condition: "false && $CODECOV != yes && $BTYPE = release && $BUSER != root && ( $TRAVIS_BRANCH = $TRAVIS_TAG || $TRAVIS_BRANCH = master )"
