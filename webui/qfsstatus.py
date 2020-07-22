@@ -53,6 +53,27 @@ try:
             if isinstance(obj, set):
                 return list(obj)
             return json.JSONEncoder.default(self, obj)
+    import inspect
+    class ObjectEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if hasattr(obj, "to_json"):
+                return self.default(obj.to_json())
+            elif hasattr(obj, "__dict__"):
+                d = dict(
+                    (key, value)
+                    for key, value in inspect.getmembers(obj)
+                    if not key.startswith("__")
+                    and not inspect.isabstract(value)
+                    and not inspect.isbuiltin(value)
+                    and not inspect.isfunction(value)
+                    and not inspect.isgenerator(value)
+                    and not inspect.isgeneratorfunction(value)
+                    and not inspect.ismethod(value)
+                    and not inspect.ismethoddescriptor(value)
+                    and not inspect.isroutine(value)
+                )
+                return self.default(d)
+            return obj
 except ImportError:
     sys.stderr.write("Warning: '%s'. Proceeding without query support.\n" % str(sys.exc_info()[1]))
     gJsonSupported = False
@@ -208,12 +229,14 @@ class Status:
         self.serversByRack = {}
         self.numReallyDownServers = 0
         self.freeFsSpace = 0
-        self.canNotBeUsedForPlacment = 0
+        self.canNotBeUsedForPlacement = 0
         self.goodNoRackAssignedCount = 0
+        self.rebalanceStatus = {}
         self.tiersColumnNames = {}
         self.tiersInfo = {}
         self.config = {}
         self.vrStatus = {}
+        self.watchdog = {}
         self.systemInfo = SystemInfo()
 
     def systemStatus(self, buffer):
@@ -226,7 +249,7 @@ class Status:
             self.serversByRack,
             self.numReallyDownServers,
             self.freeFsSpace,
-            self.canNotBeUsedForPlacment,
+            self.canNotBeUsedForPlacement,
             self.goodNoRackAssignedCount,
             self.systemInfo,
             self.tiersColumnNames,
@@ -978,7 +1001,7 @@ class UpServer:
 
             status.freeFsSpace += self.free
             if not self.good or self.overloaded:
-                status.canNotBeUsedForPlacment += 1
+                status.canNotBeUsedForPlacement += 1
             elif self.rack < 0:
                 status.goodNoRackAssignedCount += 1
 
@@ -995,7 +1018,7 @@ class UpServer:
     def setRetiring(self, status):
         self.retiring = 1
         if not self.overloaded and self.good:
-            status.canNotBeUsedForPlacment += 1
+            status.canNotBeUsedForPlacement += 1
             if self.rack < 0:
                 status.goodNoRackAssignedCount -= 1
 
@@ -1481,22 +1504,20 @@ def ping(status, metaserver):
             status.tiersInfo = line[line.find(':') + 1:].strip().split('\t')
             continue
 
-        config = line.startswith('Config:')
-        if config or line.startswith('VR Status:'):
-            if gHasCollections:
-                res = collections.OrderedDict()
-            else:
-                res = {}
-            for keyval in line[line.find(':') + 1:].strip().split(';'):
-                try:
-                    [ key, value ] = keyval.split('=')
-                    res[key] = value
-                except ValueError:
-                    continue
-            if config:
-                status.config = res
-            else:
-                status.vrStatus = res;
+        if line.startswith('Rebalance status:'):
+            status.rebalanceStatus = parse_fields(line, field_sep='\t', key_sep='=')
+            continue
+
+        if line.startswith('Config:'):
+            status.config = parse_fields(line, field_sep=';', key_sep='=')
+            continue
+
+        if line.startswith('VR Status:'):
+            status.vrStatus = parse_fields(line, field_sep=';', key_sep='=')
+            continue
+
+        if line.startswith('Watchdog:'):
+            status.watchdog = parse_fields(line, field_sep=';', key_sep='=')
             continue
 
     mergeDownUpNodes(status)
@@ -1504,6 +1525,21 @@ def ping(status, metaserver):
     status.upServers.sort()
 
     sock.close()
+
+
+def parse_fields(line, field_sep='\t', key_sep='='):
+    if gHasCollections:
+        res = collections.OrderedDict()
+    else:
+        res = {}
+    for keyval in line[line.find(':') + 1:].strip().split(field_sep):
+        try:
+            key, value = keyval.split(key_sep, 1)
+            res[key] = value
+        except ValueError:
+            continue
+    return res
+
 
 def splitThousands( s, tSep=',', dSep='.'):
     '''Splits a general float on thousands. GIGO on general input'''
@@ -1926,6 +1962,14 @@ class QFSQueryHandler:
                 output['up_servers'] = upServers
                 output['down_servers'] = downServers
                 print >> buffer, json.dumps(output, cls=SetEncoder)
+                return (200, '')
+            except IOError:
+                return (504, 'Unable to ping metaserver')
+        elif queryPath.startswith('/query/meta'):
+            status = Status()
+            try:
+                ping(status, metaserver)
+                print >> buffer, json.dumps(status.__dict__, cls=ObjectEncoder)
                 return (200, '')
             except IOError:
                 return (504, 'Unable to ping metaserver')
