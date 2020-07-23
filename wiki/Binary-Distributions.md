@@ -64,6 +64,7 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [2.1.1,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.1.1-x86_64.tgz
 
 [master,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-master-x86_64.tgz
+[2.2.1,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.2.1-x86_64.tgz
 [2.2.0,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.2.0-x86_64.tgz
 [2.1.3,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.1.3-x86_64.tgz
 [2.1.2,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.1.2-x86_64.tgz
