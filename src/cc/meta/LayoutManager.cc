@@ -1982,7 +1982,6 @@ LayoutManager::LayoutManager()
       mMaxConcurrentWriteReplicationsPerNode(5),
       mMaxConcurrentReadReplicationsPerNode(10),
       mUseEvacuationRecoveryFlag(true),
-      mReplicationFindWorkTimeouts(0),
       // Replication check 30ms/.20-30ms = 120 -- 20% cpu when idle
       mMaxTimeForChunkReplicationCheck(30 * 1000),
       mMinChunkReplicationCheckInterval(120 * 1000),
@@ -9017,7 +9016,7 @@ LayoutManager::Handle(MetaPing& inReq, bool wormModeFlag)
         "Pending recovery= "    << mChunkToServerMap.GetCount(
             CSMap::Entry::kStatePendingRecovery) << "\t"
         "Repl check timeouts= " << mReplicationCheckTimeouts << "\t"
-        "Find repl timemoust= " << mReplicationFindWorkTimeouts << "\t"
+        "Open Files= "          << mChunkLeases.GetFileLeasesCount() << "\t"
         "Update time= "         << DisplayDateTime(kSecs2MicroSecs * mPingUpdateTime) << "\t"
         "Uptime= "              << (mPingUpdateTime - mStartTime) << "\t"
         "Buffers= "             <<

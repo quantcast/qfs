@@ -141,6 +141,7 @@ class SystemInfo:
         self.sourceVersion = ''
         self.replications = -1;
         self.pendingRecovery = -1
+        self.openFilesCount = -1
         self.uptime = -1
         self.replicationsCheck = -1
         self.pendingReplication = -1
@@ -327,6 +328,7 @@ class Status:
             print >> buffer, '<tr> <td> File system </td><td>:</td><td>directories:&nbsp;' + \
                 splitThousands(systemInfo.dirCount) + \
                 '&nbsp;files:&nbsp;' + splitThousands(systemInfo.fileCount) + \
+                '&nbsp;open:&nbsp;' + splitThousands(systemInfo.openFilesCount) + \
                 '&nbsp;sum&nbsp;of&nbsp;logical&nbsp;file&nbsp;sizes:&nbsp;' + \
                      bytesToReadable(systemInfo.sumOfLogicalFileSizes) + \
                 '&nbsp;ID:&nbsp;' + str(systemInfo.fileSystemId) + \
@@ -1187,6 +1189,9 @@ def processSystemInfo(systemInfo, sysInfo):
     if len(info) < 6:
         return
     systemInfo.pendingRecovery = long(info[5].split('=')[1])
+    if len(info) < 8:
+        return
+    systemInfo.openFilesCount = long(info[7].split('=')[1])
     if len(info) < 10:
         return
     systemInfo.uptime = long(info[9].split('=')[1])

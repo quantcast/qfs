@@ -345,6 +345,8 @@ public:
         { mDumpsterCleanupTimer.SetNextRunTime(nextRunTime); }
     inline void Start(MetaRename& req);
     inline void Done(MetaRename& req);
+    inline size_t GetFileLeasesCount()
+        { return mFileLeases.GetSize(); }
 private:
     class EntryKeyHash
     {
@@ -2314,7 +2316,6 @@ protected:
     int     mMaxConcurrentWriteReplicationsPerNode;
     int     mMaxConcurrentReadReplicationsPerNode;
     bool    mUseEvacuationRecoveryFlag;
-    int64_t mReplicationFindWorkTimeouts;
     /// How much do we spend on each internal RPC in chunk-replication-check to handout
     /// replication work.
     int64_t mMaxTimeForChunkReplicationCheck;
