@@ -1,3 +1,11 @@
+## QFS version 2.2.1
+
+Bug fixes
+----------------------------------------------
+1. Fix open socket double accounting in TCP socket accept. The bug manifests
+itself as chunk server IO failures because the counter is used to limit number
+of open sockets.
+
 ## QFS version 2.2.0
 
 New features
