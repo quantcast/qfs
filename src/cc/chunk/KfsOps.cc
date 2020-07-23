@@ -589,7 +589,7 @@ public:
                 0 == globals().ctrOpenDiskFds.GetValue()) {
             return;
         }
-        char buffer[] = { "error: ops / sockets / disk fds at extit"
+        char buffer[] = { "error: ops / sockets / disk fds at exit"
                           "                "
                           "                "
                           "                \n" };
