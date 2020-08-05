@@ -11500,6 +11500,20 @@ LayoutManager::CanReplicateChunkNow(
     //
     const bool readLeaseWaitFlag = recoveryInfo && extraReplicas < 0 &&
         mChunkLeases.UpdateReadLeaseReplicationCheck(chunkId, true);
+    // Chunk to server map is updated after stale notify was successfully
+    // appended to the transaction log. Handle possible out of date map entry by
+    // delaying / rescheduling extra replicas removal if / when any stale notify
+    // for this chunk is in flight.
+    // In theory delete is redundant in the pending op list below at the moment,
+    // as delete should not be issued to remove extra replicas. Is is in the list
+    // for additional safety / in case if this changes in the future.
+    MetaOp const kPendingOpTypes[] = {
+        META_CHUNK_STALENOTIFY,
+        META_CHUNK_DELETE,
+        META_NUM_OPS_COUNT // Sentinel
+    };
+    const bool delExtraReplWaitFlag = readLeaseWaitFlag || (extraReplicas < 0 &&
+        0 < GetInFlightChunkOpsCount(chunkId, kPendingOpTypes));
     KFS_LOG_STREAM_DEBUG <<
         "re-replicate: chunk:"
         " <" << c.GetFileId() << "," << chunkId << ">"
@@ -11510,10 +11524,11 @@ LayoutManager::CanReplicateChunkNow(
         " retiring: "   << numRetiringServers <<
         " target: "     << fa->numReplicas <<
         " rlease: "     << readLeaseWaitFlag <<
+        " wait: "       << delExtraReplWaitFlag <<
         " hibernated: " << hibernatedCount <<
         " needed: "     << extraReplicas <<
     KFS_LOG_EOM;
-    if (readLeaseWaitFlag) {
+    if (delExtraReplWaitFlag) {
         SetReplicationState(c, CSMap::Entry::kStatePendingReplication);
         return false;
     }
@@ -11629,7 +11644,8 @@ LayoutManager::HandoutChunkReplicationWork()
         META_CHUNK_REPLICATE,
         META_CHUNK_VERSCHANGE,
         META_CHUNK_MAKE_STABLE,
-        META_CHUNK_DELETE, // Possible extra replicas delete.
+        // Possible extra replicas delete:
+        META_CHUNK_DELETE, META_CHUNK_STALENOTIFY,
         META_NUM_OPS_COUNT // Sentinel
     };
 
