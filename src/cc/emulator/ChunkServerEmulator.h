@@ -64,7 +64,8 @@ public:
 
 protected:
     virtual void Enqueue(MetaChunkRequest& req, int timeout,
-        bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
+        bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag,
+        chunkId_t addChunkIdInFlight);
 
 private:
     typedef vector<MetaChunkRequest*> PendingReqs;

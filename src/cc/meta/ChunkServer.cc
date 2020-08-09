@@ -581,9 +581,9 @@ ChunkServer::Submit(MetaRequest& op)
 inline void
 ChunkServer::RemoveInFlight(MetaChunkRequest& req)
 {
-    if (0 <= req.chunkId) {
-        if (MetaChunkRequest::kNullIterator == req.inFlightIt) {
-            panic("chunk server invalid chunks in flight iterator");
+    if (MetaChunkRequest::kNullIterator != req.inFlightIt) {
+        if (req.chunkId < 0 && ! req.GetChunkIds()) {
+            panic("chunk server invalid chunks in flight op");
             return;
         }
         sChunkOpsInFlight.erase(req.inFlightIt);
@@ -2561,9 +2561,8 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
     if (r.replayFlag || r.submitCount <= 0 ||
             (! r.logseq.IsValid() && 0 <= r.status) ||
             ! req || 0 != req->submitCount ||
-                (0 <= req->chunkId ?
-                    req != req->inFlightIt->second :
-                    MetaChunkRequest::kNullIterator != req->inFlightIt)) {
+                (MetaChunkRequest::kNullIterator != req->inFlightIt ?
+                    req != req->inFlightIt->second : 0 <= req->chunkId)) {
         panic("chunk server: invalid submit attempt");
         r.status = -EFAULT;
     }
@@ -2606,7 +2605,8 @@ ChunkServer::Enqueue(MetaChunkLogInFlight& r)
 ///
 void
 ChunkServer::Enqueue(MetaChunkRequest& req,
-    int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag)
+    int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag,
+    chunkId_t addChunkIdInFlight)
 {
     if (this != &*req.server || ! mHelloDone) {
         panic(mHelloDone ?
@@ -2650,9 +2650,11 @@ ChunkServer::Enqueue(MetaChunkRequest& req,
     req.suspended = true;
     req.shortRpcFormatFlag = mShortRpcFormatFlag;
     if (! loggedFlag) {
-        if (0 <= req.chunkId) {
+        const chunkId_t chunkIdInFlight = 0 <= addChunkIdInFlight ?
+            addChunkIdInFlight : req.chunkId;
+        if (0 <= chunkIdInFlight) {
             req.inFlightIt = sChunkOpsInFlight.insert(
-                make_pair(req.chunkId, &req));
+                make_pair(chunkIdInFlight, &req));
         }
         if (! req.replayFlag) {
             mLogInFlightCount++;
@@ -2998,14 +3000,19 @@ ChunkServer::NotifyStaleChunks(
 }
 
 void
-ChunkServer::NotifyStaleChunk(chunkId_t staleChunkId, bool evacuatedFlag)
+ChunkServer::NotifyStaleChunkSelf(chunkId_t staleChunkId, bool evacuatedFlag)
 {
     MetaChunkStaleNotify& req = *(new MetaChunkStaleNotify(
         GetSelfPtr(), evacuatedFlag,
         mStaleChunksHexFormatFlag, 0));
     req.staleChunkIds.Insert(staleChunkId);
     mChunksToEvacuate.Erase(staleChunkId);
-    Enqueue(req);
+    const int  kTimeout           = -1;
+    const bool kStaleChunkIdFlag  = false;
+    const bool kLoggedFlag        = false;
+    const bool kRemoveReplicaFlag = false;
+    Enqueue(req, kTimeout, kStaleChunkIdFlag, kLoggedFlag, kRemoveReplicaFlag,
+        staleChunkId);
 }
 
 void

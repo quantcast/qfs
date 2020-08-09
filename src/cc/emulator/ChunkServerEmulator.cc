@@ -95,7 +95,8 @@ ChunkServerEmulator::Init(int64_t totalSpace, int64_t usedSpace,
 
 void
 ChunkServerEmulator::Enqueue(MetaChunkRequest& req,
-    int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag)
+    int timeout, bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag,
+    chunkId_t addChunkIdInFlight)
 {
     if (0 != mDispatchRecursionCount) {
         panic("dispatch recursion");

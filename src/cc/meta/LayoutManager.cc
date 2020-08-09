@@ -11484,7 +11484,7 @@ LayoutManager::CanReplicateChunkNow(
     // number of replicas, then delete all extra copies at once.
     // Take into the account hibernated servers, delay the re-replication /
     // recovery until the hibernated servers are removed.
-    // For now count hibernated server only in the case if
+    // For now count hibernated server only if it is not chunk recovery.
     if (extraReplicas <= 0) {
         extraReplicas -= numRetiringServers;
     } else if (recoveryInfo && (int)hibernatedCount <= extraReplicas) {
@@ -11504,9 +11504,6 @@ LayoutManager::CanReplicateChunkNow(
     // appended to the transaction log. Handle possible out of date map entry by
     // delaying / rescheduling extra replicas removal if / when any stale notify
     // for this chunk is in flight.
-    // In theory delete is redundant in the pending op list below at the moment,
-    // as delete should not be issued to remove extra replicas. Is is in the list
-    // for additional safety / in case if this changes in the future.
     MetaOp const kPendingOpTypes[] = {
         META_CHUNK_STALENOTIFY,
         META_CHUNK_DELETE,
@@ -12145,10 +12142,18 @@ LayoutManager::RemoveRetiring(
             i++;
             continue;
         }
+        KFS_LOG_STREAM_DEBUG <<
+            "remove retiring:"
+            " srv: "      << server->GetServerLocation() <<
+            " chunk: "    << ci.GetChunkId() <<
+            (server->IsReplay() ? " replay" : "") <<
+            " retiring: " << server->IsRetiring() <<
+            " down: "     << server->IsDown() <<
+            " del: "      << deleteRetiringFlag <<
+        KFS_LOG_EOM;
         if (server->IsDown() || ! server->IsRetiring()) {
             // Queue RPC to log and remove entry, and replica.
-            const bool kEvacuateChunkFlag = true;
-            server->NotifyStaleChunk(chunkId, kEvacuateChunkFlag);
+            server->NotifyStaleChunkEvacuated(chunkId);
         } else {
             if (deleteRetiringFlag) {
                 server->DeleteChunk(chunkId);

@@ -642,7 +642,10 @@ public:
         { NotifyStaleChunks(staleChunks, false, true, &ca); }
     void NotifyStaleChunks(InFlightChunks& staleChunks, MetaHello& hello)
         { NotifyStaleChunks(staleChunks, false, true, 0, &hello); }
-    void NotifyStaleChunk(chunkId_t staleChunk, bool evacuatedFlag = false);
+    void NotifyStaleChunk(chunkId_t staleChunk)
+        { NotifyStaleChunkSelf(staleChunk, false); }
+    void NotifyStaleChunkEvacuated(chunkId_t staleChunk)
+        { NotifyStaleChunkSelf(staleChunk, true); }
 
     /// There is a difference between the version # as stored
     /// at the chunkserver and what is on the metaserver.  By sending
@@ -994,10 +997,16 @@ protected:
         const NetConnectionPtr& conn, const ServerLocation& loc);
     /// Chunk server emulator overrides this.
     virtual void Enqueue(MetaChunkRequest& req, int timeout,
-        bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag);
+        bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag,
+        chunkId_t addChunkIdInFlight);
+    void Enqueue(MetaChunkRequest& req, int timeout,
+            bool staleChunkIdFlag, bool loggedFlag, bool removeReplicaFlag) {
+        Enqueue(req, timeout, staleChunkIdFlag, loggedFlag, removeReplicaFlag,
+            -1);
+    }
     void Enqueue(MetaChunkRequest& req, int timeout,
             bool staleChunkIdFlag, bool loggedFlag) {
-        Enqueue(req, timeout, staleChunkIdFlag, loggedFlag, false);
+        Enqueue(req, timeout, staleChunkIdFlag, loggedFlag, false, -1);
     }
     void Enqueue(MetaChunkRequest& req, int timeout, bool staleChunkIdFlag) {
         Enqueue(req, timeout, staleChunkIdFlag, false);
@@ -1462,6 +1471,7 @@ protected:
     inline ChunkServerPtr GetSelfPtr();
     bool ReplayValidate(MetaRequest& r) const;
     inline void RemoveInFlight(MetaChunkRequest& req);
+    void NotifyStaleChunkSelf(chunkId_t staleChunk, bool evacuatedFlag);
     void SubmitMetaBye();
     static inline int GetMaxPendingHelloBytes();
 };
