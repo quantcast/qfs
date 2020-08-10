@@ -12116,23 +12116,16 @@ LayoutManager::Handle(MetaChunkReplicate& req)
         " done" <<
     KFS_LOG_EOM;
     req.server->MovingChunkDone(req.chunkId);
-    StTmp<Servers> serversTmp(mServersTmp);
-    Servers&       servers = serversTmp.Get();
-    mChunkToServerMap.GetServers(*ci, servers);
-    // if any of the hosting servers were being "retired", notify them that
-    // re-replication of any chunks hosted on them is finished
     // Replication check is already scheduled by UpdateReplicationState the
     // above. Let the normal path figure out if the any further actions are
     // needed.
-    RemoveRetiring(*ci, servers, ci->GetFattr()->numReplicas);
 }
 
 void
 LayoutManager::RemoveRetiring(
     CSMap::Entry&           ci,
     LayoutManager::Servers& servers,
-    int                     numReplicas,
-    bool                    deleteRetiringFlag /* = false */)
+    int                     numReplicas)
 {
     const chunkId_t chunkId = ci.GetChunkId();
     int             cnt     = (int)servers.size();
@@ -12149,31 +12142,15 @@ LayoutManager::RemoveRetiring(
             (server->IsReplay() ? " replay" : "") <<
             " retiring: " << server->IsRetiring() <<
             " down: "     << server->IsDown() <<
-            " del: "      << deleteRetiringFlag <<
         KFS_LOG_EOM;
-        if (server->IsDown() || ! server->IsRetiring()) {
-            // Queue RPC to log and remove entry, and replica.
-            server->NotifyStaleChunkEvacuated(chunkId);
+        if (! server->IsDown() && server->IsRetiring()) {
+            // Chunk count will be updated once delete is appended to the
+            // transaction log, then retiring server check will issue retire
+            // if/when chunk count becomes 0.
+            server->DeleteChunk(chunkId);
         } else {
-            if (deleteRetiringFlag) {
-                server->DeleteChunk(chunkId);
-            } else {
-                const bool retFlag = mChunkToServerMap.RemoveServer(server, ci);
-                if (! retFlag) {
-                    panic("failed to remove server");
-                }
-                KFS_LOG_STREAM_DEBUG <<
-                    "-srv: "      << server->GetServerLocation() <<
-                    " chunk: "    << ci.GetChunkId() <<
-                    (server->IsReplay() ? " replay" : "") <<
-                    " removed: "  << retFlag <<
-                    " retiring: " << server->IsRetiring() <<
-                    " chunks: "   << server->GetChunkCount() <<
-                KFS_LOG_EOM;
-            }
-            if (server->GetChunkCount() <= 0) {
-                server->Retire();
-            }
+            // Queue RPC to log and remove replica from chunk entry.
+            server->NotifyStaleChunkEvacuated(chunkId);
         }
         servers.erase(servers.begin() + i);
         cnt--;
@@ -12385,9 +12362,8 @@ LayoutManager::DeleteAddlChunkReplicas(
     // Remove retiring / evacuating first, regardless of the placement
     // constraints to make retirement / evacuation work in the case where
     // not enough racks or disk space is available.
-    const size_t numReplicas         = cnt - extraReplicas;
-    const bool   kDeleteRetiringFlag = true;
-    RemoveRetiring(entry, servers, (int)numReplicas, kDeleteRetiringFlag);
+    const size_t numReplicas = cnt - extraReplicas;
+    RemoveRetiring(entry, servers, (int)numReplicas);
     if (servers.size() <= numReplicas) {
         return;
     }

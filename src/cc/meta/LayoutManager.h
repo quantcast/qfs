@@ -2684,8 +2684,7 @@ protected:
     RackId GetRackId(const string& loc) const;
     RackId GetRackId(const MetaRequest& req) const;
     void ScheduleCleanup(size_t maxScanCount = 1);
-    void RemoveRetiring(CSMap::Entry& ci, Servers& servers, int numReplicas,
-        bool deleteRetiringFlag = false);
+    void RemoveRetiring(CSMap::Entry& ci, Servers& servers, int numReplicas);
     void DeleteChunk(fid_t fid, chunkId_t chunkId, const Servers& servers,
         bool staleChunkIdFlag = false);
     void UpdateGoodCandidateLoadAvg();
