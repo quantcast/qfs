@@ -89,7 +89,7 @@ bool IsValidChunkFile(
     // guaranteed to be less or equal to the KFS_CHUNK_HEADER_SIZE.
     const int64_t kMaxChunkFileSize =
         (int64_t)(KFS_CHUNK_HEADER_SIZE + CHUNKSIZE);
-    if (filesz < (int64_t)KFS_CHUNK_HEADER_SIZE ||
+    if (filesz < chunkHeaderBuffer.GetSize() ||
             filesz > (int64_t)(kMaxChunkFileSize + KFS_CHUNK_HEADER_SIZE)) {
         KFS_LOG_STREAM_INFO <<
             "ignoring invalid chunk file: " << dirname << filename <<
@@ -102,8 +102,9 @@ bool IsValidChunkFile(
     outFileId    = components[0];
     outChunkId   = chunkId;
     outChunkVers = chunkVers;
-    outChunkSize = filesz - GetChunkHeaderSize(chunkVers);
-    if (filesz > kMaxChunkFileSize || forceReadFlag) {
+    const size_t hdrSize = GetChunkHeaderSize(chunkVers);
+    outChunkSize = filesz - hdrSize;
+    if (kMaxChunkFileSize < filesz || outChunkSize < 0 || forceReadFlag) {
         outReadFlag = true;
         // Load and validate chunk header, and set proper file size.
         const string cf(dirname + filename);
@@ -153,7 +154,8 @@ bool IsValidChunkFile(
             }
         }
         uint32_t hdrChecksum = 0;
-        if ((checksum != 0 || requireChunkHeaderChecksumFlag) &&
+        if ((checksum != 0 || requireChunkHeaderChecksumFlag ||
+                outChunkSize < 0) &&
                 ((hdrChecksum = ComputeBlockChecksum(
                     chunkHeaderBuffer.GetPtr(), sizeof(dci))) != checksum)) {
             KFS_LOG_STREAM_INFO <<
@@ -182,8 +184,8 @@ bool IsValidChunkFile(
             }
         }
         outFileSystemId = dci.GetFsId();
-        filesz = dci.chunkSize + KFS_CHUNK_HEADER_SIZE;
-        if (filesz < infilesz) {
+        filesz = dci.chunkSize + hdrSize;
+        if (filesz < infilesz || (outChunkSize < 0 && 0 == dci.chunkSize)) {
             if (truncate(cf.c_str(), filesz)) {
                 const int err = errno;
                 KFS_LOG_STREAM_ERROR <<
@@ -198,10 +200,11 @@ bool IsValidChunkFile(
                         " size: "            << infilesz <<
                         " to: "              << filesz <<
                 KFS_LOG_EOM;
+                outChunkSize = dci.chunkSize;
             }
         }
     }
-    return true;
+    return 0 <= outChunkSize;
 }
 
 }
