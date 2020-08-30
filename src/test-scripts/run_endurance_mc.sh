@@ -1176,6 +1176,13 @@ if [ x"$cponly" = x'yes' ]; then
     exit 0
 fi
 
+if [ -e "$bdir/src/cc/fanout" ]; then
+    true
+else
+    trap '' EXIT
+    exit 0
+fi
+
 (
     trap '' EXIT
     mydir="$clitestdir/fanout"
