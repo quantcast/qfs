@@ -1,3 +1,16 @@
+## QFS version 2.2.2
+
+Bug fixes
+----------------------------------------------
+1. Meta server: fix rare intermittent incorrect extra replicas removal that
+could be triggered by re-replication and re-balancing.
+2. Chunk server: recover 0 sized chunk files that have smaller size than padded
+header on startup. Such files can appear in the case when host file system does
+not support space pre-allocation and the chunk file was created, and then
+transitioned into stable state with no data / payload, and chunk server did no
+gracefully exist (i.e. exited without closing chunk files). Presently 0 sized
+chunk files can appear due to write append failure.
+
 ## QFS version 2.2.1
 
 Bug fixes
