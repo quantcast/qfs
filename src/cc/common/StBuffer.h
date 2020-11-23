@@ -453,6 +453,9 @@ public:
     bool operator<(
         const string& inStr) const
         { return (Compare(inStr) < 0); }
+    bool operator>(
+        const string& inStr) const
+        { return (Compare(inStr) > 0); }
     const char* c_str() const
         { return GetPtr(); }
     const char* data() const
@@ -520,6 +523,38 @@ inline static bool operator==(
     const StringBufT<DEFAULT_CAPACITY>& inBuf)
 {
     return (inBuf == inStrPtr);
+}
+
+template<size_t DEFAULT_CAPACITY>
+inline static bool operator!=(
+    const string&                       inStr,
+    const StringBufT<DEFAULT_CAPACITY>& inBuf)
+{
+    return (inBuf != inStr);
+}
+
+template<size_t DEFAULT_CAPACITY>
+inline static bool operator!=(
+    const char*                         inStrPtr,
+    const StringBufT<DEFAULT_CAPACITY>& inBuf)
+{
+    return (inBuf != inStrPtr);
+}
+
+template<size_t DEFAULT_CAPACITY>
+inline static bool operator<(
+    const string&                       inStr,
+    const StringBufT<DEFAULT_CAPACITY>& inBuf)
+{
+    return (inBuf > inStr);
+}
+
+template<size_t DEFAULT_CAPACITY>
+inline static bool operator<(
+    const char*                         inStrPtr,
+    const StringBufT<DEFAULT_CAPACITY>& inBuf)
+{
+    return (inBuf > inStrPtr);
 }
 
 template<size_t DEFAULT_CAPACITY>
