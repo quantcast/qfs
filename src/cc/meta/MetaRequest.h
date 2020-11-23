@@ -285,6 +285,7 @@ struct MetaRequest {
     bool            replayBypassFlag;
     string          clientIp;
     string          clientReportedIp;
+    StringBufT<64>  nodeId;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
     kfsGid_t        authGid;
@@ -317,6 +318,8 @@ struct MetaRequest {
           commitPendingFlag(false),
           replayBypassFlag(false),
           clientIp(),
+          clientReportedIp(),
+          nodeId(),
           reqHeaders(),
           authUid(kKfsUserNone),
           authGid(kKfsGroupNone),
@@ -373,6 +376,7 @@ struct MetaRequest {
         .Def2("UserId",                  "u", &MetaRequest::euser,          kKfsUserNone)
         .Def2("GroupId",                 "g", &MetaRequest::egroup,        kKfsGroupNone)
         .Def2("Max-wait-ms",             "w", &MetaRequest::maxWaitMillisec, int64_t(-1))
+        .Def2("Node-id",                 "n", &MetaRequest::nodeId                      )
         ;
     }
     template<typename T> static T& IoParserDef(T& parser)

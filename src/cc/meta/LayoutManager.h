@@ -2050,6 +2050,7 @@ protected:
 
     /// List of connected chunk servers.
     Servers mChunkServers;
+    Servers mChunkServersByNodeId;
 
     //
     // For maintenance reasons, we'd like to schedule downtime for a server.
@@ -2755,6 +2756,9 @@ protected:
     chunkOff_t DeleteFileBlocks(fid_t fid, chunkOff_t first, chunkOff_t last,
         int& remScanCnt);
     inline Servers::const_iterator FindServer(const ServerLocation& loc) const;
+    template<typename T, typename N>
+    inline Servers::const_iterator FindServerByNodeId(const T& nodeId,
+        const N& loc) const;
     template<typename T>
     inline Servers::const_iterator FindServerByHost(const T& host) const;
     bool FindAccessProxy(MetaAllocate& req);
@@ -2778,8 +2782,7 @@ protected:
     void CleanupChunkServers();
     bool AddToInFlightChunkAllocation(
         const MetaAllocate& req, const ChunkServerPtr& server);
-    inline LayoutManager::Servers::const_iterator FindServerForReq(
-        const MetaRequest& req);
+    inline const ChunkServerPtr& FindServerForReq(const MetaRequest& req);
     template<typename T> inline void UpdateATimeSelf(
         int64_t updateResolutionUsec, const MetaFattr* fa, T& req);
 private:

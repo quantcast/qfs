@@ -1640,6 +1640,29 @@ ChunkLeases::Done(MetaRename& req)
     DecrementFileLease(entry);
 }
 
+const ChunkServerPtr kNullChunkServerPtr;
+
+template<typename T, typename N>
+inline LayoutManager::Servers::const_iterator
+LayoutManager::FindServerByNodeId(const T& nodeId, const N& loc) const
+{
+    if (nodeId.empty()) {
+        return mChunkServersByNodeId.end();
+    }
+    Servers::const_iterator it = lower_bound(
+        mChunkServersByNodeId.begin(), mChunkServersByNodeId.end(), nodeId,
+        bind(&ChunkServer::GetNodeId, _1) < nodeId ||
+        (bind(&ChunkServer::GetNodeId, _1) == nodeId &&
+            bind(&ChunkServer::GetServerLocation, _1) < loc));
+    if (it != mChunkServersByNodeId.begin() &&
+            (it == mChunkServersByNodeId.end() ||
+                (*it)->GetNodeId() != nodeId)) {
+            --it; // See if prior node matches without location.
+    }
+    return ((it == mChunkServersByNodeId.end() ||
+            (*it)->GetNodeId() == nodeId) ? it : mChunkServersByNodeId.end());
+}
+
 inline LayoutManager::Servers::const_iterator
 LayoutManager::FindServer(const ServerLocation& loc) const
 {
@@ -1666,16 +1689,24 @@ LayoutManager::FindServerByHost(const T& host) const
         it : mChunkServers.end());
 }
 
-inline LayoutManager::Servers::const_iterator
+inline const ChunkServerPtr&
 LayoutManager::FindServerForReq(const MetaRequest& req)
 {
+    if (! req.nodeId.empty()) {
+        ServerLocation const loc(req.clientIp.empty() ?
+            req.clientReportedIp : req.clientIp, -1);
+        Servers::const_iterator const it = FindServerByNodeId(req.nodeId, loc);
+        if (it != mChunkServersByNodeId.end()) {
+            return *it;
+        }
+    }
     LayoutManager::Servers::const_iterator it = req.clientIp.empty() ?
         mChunkServers.end() : FindServerByHost(req.clientIp);
     if (mChunkServers.end() == it && ! req.clientReportedIp.empty() &&
             req.clientIp != req.clientReportedIp) {
         it = FindServerByHost(req.clientReportedIp);
     }
-    return it;
+    return mChunkServers.end() != it ? *it : kNullChunkServerPtr;
 }
 
 template <typename T> bool
@@ -1727,21 +1758,20 @@ LayoutManager::FindAccessProxy(MetaAllocate& req)
 {
     req.servers.clear();
     if (req.chunkServerName.empty()) {
-        Servers::const_iterator const it = mObjectStorePlacementTestFlag ?
-            mChunkServers.end() : FindServerForReq(req);
-        if (it == mChunkServers.end()) {
+        const ChunkServerPtr& server = mObjectStorePlacementTestFlag ?
+            kNullChunkServerPtr : FindServerForReq(req);
+        if (! server) {
             if (mObjectStoreWriteCanUsePoxoyOnDifferentHostFlag) {
                 if (FindAccessProxyFor(req, req.servers)) {
                     return true;
                 }
                 req.statusMsg = "no access proxy available";
                 return false;
-            } else  {
-                req.statusMsg = "no access proxy on host: " + req.clientIp;
-                return false;
             }
+            req.statusMsg = "no access proxy on host: " + req.clientIp;
+            return false;
         }
-        req.servers.push_back(*it);
+        req.servers.push_back(server);
     } else if (! GetAccessProxyFromReq(req, req.servers)) {
         return false;
     }
@@ -1936,6 +1966,7 @@ LayoutManager::LayoutManager()
       mCheckpoint(5 * 1000),
       mMinChunkserversToExitRecovery(1),
       mChunkServers(),
+      mChunkServersByNodeId(),
       mHibernatingServers(),
       mDownServers(),
       mRacks(),
@@ -3382,7 +3413,8 @@ const Properties::String kCSExtraHeaders[] = {
     "XMeta-replay",
     "XMeta-connected",
     "XMeta-stopped",
-    "XMeta-chunks"
+    "XMeta-chunks",
+    "XMeta-node-id",
 };
 
 class CSWriteExtra : public CtrWriteExtra
@@ -3447,6 +3479,8 @@ public:
         Write(writer, srv.IsStoppedServicing());
         writer.Write(columnDelim);
         Write(writer, srv.GetChunkCount());
+        writer.Write(columnDelim);
+        writer.Write(srv.GetNodeId());
     }
 private:
     const RackInfos& mRacks;
@@ -4391,6 +4425,15 @@ LayoutManager::AddNewServer(MetaHello& req)
         mReplayServerCount++;
     }
     mChunkServers.insert(existing, req.server);
+    const string& nodeId = req.server->GetNodeId();
+    if (! nodeId.empty()) {
+        mChunkServersByNodeId.insert(lower_bound(
+            mChunkServersByNodeId.begin(), mChunkServersByNodeId.end(), nodeId,
+            bind(&ChunkServer::GetNodeId, _1) < nodeId ||
+            (bind(&ChunkServer::GetNodeId, _1) == nodeId &&
+                bind(&ChunkServer::GetServerLocation, _1) < srvId)),
+            req.server);
+    }
 
     const uint64_t allocSpace = req.chunks.size() * CHUNKSIZE;
     srv.SetSpace(req.totalSpace, req.usedSpace, allocSpace);
@@ -6145,6 +6188,12 @@ LayoutManager::Handle(MetaBye& req)
         }
         mDisconnectedCount--;
     }
+    Servers::const_iterator const nit = FindServerByNodeId(
+        server->GetNodeId(), server->GetServerLocation());
+    if (mChunkServersByNodeId.end() != nit && *nit == server) {
+        mChunkServersByNodeId.erase(mChunkServersByNodeId.begin() +
+            (nit - mChunkServersByNodeId.begin()));
+    }
     // Convert const_iterator to iterator below to make erase() compile.
     mChunkServers.erase(mChunkServers.begin() + (sit - mChunkServers.begin()));
     if (mPrimaryFlag && ! mAssignMasterByIpFlag &&
@@ -6691,19 +6740,19 @@ LayoutManager::AllocateChunk(
     // that is a chunk master is never made a slave.
     ChunkServerPtr localserver;
     int            replicaCnt = 0;
-    Servers::const_iterator const li = (req.appendChunk ?
+    const ChunkServerPtr& srv = (req.appendChunk ?
         (mAllowLocalPlacementForAppendFlag && ! mInRackPlacementForAppendFlag) :
         mAllowLocalPlacementFlag) ?
         FindServerForReq(req) :
-        mChunkServers.end();
-    if (li != mChunkServers.end() &&
+        kNullChunkServerPtr;
+    if (srv &&
             (mAppendPlacementIgnoreMasterSlaveFlag ||
-                ! req.appendChunk || (*li)->CanBeChunkMaster()) &&
-            IsCandidateServer(**li, minTier, GetRackWeight(
-                mRacks, (*li)->GetRack(), mMaxLocalPlacementWeight)) &&
-            ! placement.IsExcluded(*li)) {
+                ! req.appendChunk || srv->CanBeChunkMaster()) &&
+            IsCandidateServer(*srv, minTier, GetRackWeight(
+                mRacks, srv->GetRack(), mMaxLocalPlacementWeight)) &&
+            ! placement.IsExcluded(srv)) {
         replicaCnt++;
-        localserver = *li;
+        localserver = srv;
         placement.ExcludeServer(localserver);
     }
     RackId rackIdToUse = -1;
@@ -6711,16 +6760,16 @@ LayoutManager::AllocateChunk(
             mInRackPlacementForAppendFlag :
             mInRackPlacementFlag) &&
             ! mRacks.empty() && ! req.clientIp.empty()) {
-        if (li != mChunkServers.end()) {
-            rackIdToUse = (*li)->GetRack();
+        if (srv) {
+            rackIdToUse = srv->GetRack();
         }
         if (rackIdToUse < 0) {
             rackIdToUse = GetRackId(req);
         }
-        if (rackIdToUse < 0 && li == mChunkServers.end()) {
-            Servers::const_iterator const it = FindServerForReq(req);
-            if (it != mChunkServers.end()) {
-                rackIdToUse = (*it)->GetRack();
+        if (rackIdToUse < 0 && srv) {
+            const ChunkServerPtr& cs = FindServerForReq(req);
+            if (cs) {
+                rackIdToUse = cs->GetRack();
             }
         }
     }
@@ -13674,11 +13723,11 @@ LayoutManager::GetAccessProxy(
     const MetaRequest&      req,
     LayoutManager::Servers& servers)
 {
-    Servers::const_iterator it = mObjectStorePlacementTestFlag ?
-        mChunkServers.end() : FindServerForReq(req);
+    const ChunkServerPtr& srv = mObjectStorePlacementTestFlag ?
+        kNullChunkServerPtr : FindServerForReq(req);
     servers.clear();
-    if (it != mChunkServers.end()) {
-        servers.push_back(*it);
+    if (srv) {
+        servers.push_back(srv);
         return true;
     }
     return (mObjectStoreReadCanUsePoxoyOnDifferentHostFlag &&

@@ -617,6 +617,7 @@ ChunkServer::ChunkServer(
       mChunksToEvacuate(),
       mLocation(),
       mHostPortStr(),
+      mNodeId(),
       mRackId(-1),
       mNumCorruptChunks(0),
       mTotalSpace(0),
@@ -2032,6 +2033,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
     mHelloResumeFailedCount = mHelloOp->helloResumeFailedCount;
     mShortRpcFormatFlag     = mHelloOp->shortRpcFormatFlag;
     mChannelId              = mHelloOp->channelId;
+    mNodeId.assign(mHelloOp->nodeId.data(), mHelloOp->nodeId.size());
     if (0 < mHelloOp->bufferBytes && mHelloOp->supportsResumeFlag) {
         sPendingHelloLogByteCount += mHelloOp->bufferBytes;
     }

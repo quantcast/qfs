@@ -659,6 +659,9 @@ public:
     const ServerLocation& GetServerLocation() const {
         return mLocation;
     }
+    const string& GetNodeId() const {
+        return mNodeId;
+    }
 
     /// Check if the hostname/port matches what is passed in
     /// @param[in] name  name to match
@@ -1084,6 +1087,8 @@ protected:
     /// connect to
     ServerLocation mLocation;
     string         mHostPortStr;
+    string         mNodeId;
+
 
     /// A unique id to denote the rack on which the server is located.
     /// -1 signifies that we don't what rack the server is on and by
