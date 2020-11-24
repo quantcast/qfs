@@ -1642,6 +1642,28 @@ ChunkLeases::Done(MetaRename& req)
 
 const ChunkServerPtr kNullChunkServerPtr;
 
+template<typename T>
+class ChunkServerNodeIdComparator
+{
+public:
+    ChunkServerNodeIdComparator(const T& loc)
+        : mLoc(loc)
+        {}
+    template<typename TV, typename TK>
+    bool operator()(const TV& v, const TK& k) const {
+        const int res = v->GetNodeId().compare(k.c_str());
+        return res < 0 || (0 == res && v->GetServerLocation() < mLoc);
+    }
+private:
+    const T& mLoc;
+};
+
+template<typename T>
+inline ChunkServerNodeIdComparator<T> MakeNodeIdComparator(const T& loc)
+{
+    return ChunkServerNodeIdComparator<T>(loc);
+}
+
 template<typename T, typename N>
 inline LayoutManager::Servers::const_iterator
 LayoutManager::FindServerByNodeId(const T& nodeId, const N& loc) const
@@ -1651,9 +1673,7 @@ LayoutManager::FindServerByNodeId(const T& nodeId, const N& loc) const
     }
     Servers::const_iterator it = lower_bound(
         mChunkServersByNodeId.begin(), mChunkServersByNodeId.end(), nodeId,
-        bind(&ChunkServer::GetNodeId, _1) < nodeId ||
-        (bind(&ChunkServer::GetNodeId, _1) == nodeId &&
-            bind(&ChunkServer::GetServerLocation, _1) < loc));
+        MakeNodeIdComparator(loc));
     if (it != mChunkServersByNodeId.begin() &&
             (it == mChunkServersByNodeId.end() ||
                 (*it)->GetNodeId() != nodeId)) {
@@ -4429,10 +4449,7 @@ LayoutManager::AddNewServer(MetaHello& req)
     if (! nodeId.empty()) {
         mChunkServersByNodeId.insert(lower_bound(
             mChunkServersByNodeId.begin(), mChunkServersByNodeId.end(), nodeId,
-            bind(&ChunkServer::GetNodeId, _1) < nodeId ||
-            (bind(&ChunkServer::GetNodeId, _1) == nodeId &&
-                bind(&ChunkServer::GetServerLocation, _1) < srvId)),
-            req.server);
+            MakeNodeIdComparator(srvId)), req.server);
     }
 
     const uint64_t allocSpace = req.chunks.size() * CHUNKSIZE;
