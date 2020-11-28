@@ -2228,6 +2228,7 @@ struct HelloMetaOp : public KfsOp {
     ServerLocation const     myLocation;
     string                   clusterKey;
     string                   md5sum;
+    string                   nodeId;
     int                      rackId;
     int64_t                  totalSpace;
     int64_t                  totalFsSpace;
@@ -2263,6 +2264,7 @@ struct HelloMetaOp : public KfsOp {
           myLocation(l),
           clusterKey(k),
           md5sum(m),
+          nodeId(),
           rackId(r),
           totalSpace(0),
           totalFsSpace(0),
@@ -2302,6 +2304,7 @@ struct HelloMetaOp : public KfsOp {
             " mylocation: "   << myLocation <<
             " cluster-key: "  << clusterKey <<
             " md5sum: "       << md5sum <<
+            " nodeId: "       << nodeId <<
             " rackId: "       << rackId <<
             " space: "        << totalSpace <<
             " used: "         << usedSpace <<

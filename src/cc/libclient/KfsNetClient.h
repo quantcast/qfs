@@ -285,6 +285,8 @@ public:
         bool                  inHexFormatFlag);
     void SetRackId(
         int inRackId);
+    void SetNodeId(
+        const char* inNodeIdPtr);
     void Shutdown();
     bool FailAll(
         const char* inStatusMsgPtr,

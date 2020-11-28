@@ -1807,6 +1807,7 @@ ChunkServer::HandleHelloMsg(IOBuffer* iobuf, int msgLen)
                 MsgLogger::kLogLevelINFO :
                 MsgLogger::kLogLevelDEBUG) << GetPeerName() <<
             " location: "    << mHelloOp->location <<
+            " nodeId: "      << mHelloOp->nodeId <<
             " hello:"
             " status: "      << mHelloOp->status <<
             " bytes:"

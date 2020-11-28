@@ -44,6 +44,7 @@
 #include "common/IntToString.h"
 #include "common/DisplayData.h"
 #include "common/StringIo.h"
+#include "common/computemd5.h"
 
 #include "qcdio/qcstutils.h"
 #include "qcdio/QCUtils.h"
@@ -1544,6 +1545,7 @@ KfsClientImpl::KfsClientImpl(
       mDefaultOpTimeout(30),
       mDefaultMetaOpTimeout(25),
       mFreeCondVarsHead(0),
+      mNodeId(),
       mEUser(kKfsUserNone),
       mEGroup(kKfsGroupNone),
       mUMask(0),
@@ -1764,10 +1766,32 @@ int KfsClientImpl::Init(const string& metaServerHost, int metaServerPort,
                 mNetManager.GetResolverCacheExpiration())
         );
         properties->copyWithPrefix("client.", mConfig);
+        string nodeId = properties->getValue("client.nodeId", mNodeId);
+        const char* const kFilePrefix    = "FILE:";
+        size_t      const kFilePrefixLen = strlen(kFilePrefix);
+        if (0 == nodeId.compare(0, kFilePrefixLen, kFilePrefix)) {
+            nodeId = ComputeMD5(nodeId.c_str() + kFilePrefixLen);
+            if (nodeId.empty()) {
+                KFS_LOG_STREAM_ERROR <<
+                    nodeId << ": read failure" <<
+                KFS_LOG_EOM;
+                return -EINVAL;
+            }
+        } else if ((size_t)MAX_RPC_HEADER_LEN / 8 < nodeId.size()) {
+            KFS_LOG_STREAM_ERROR <<
+                nodeId << ": exceeds size limit of " <<
+                    MAX_RPC_HEADER_LEN / 8 <<
+            KFS_LOG_EOM;
+            return -EINVAL;
+        }
+        if (nodeId != mNodeId) {
+            mNodeId = nodeId;
+        }
     }
     KFS_LOG_STREAM_DEBUG <<
         "will use metaserver at: " <<
         metaServerHost << ":" << metaServerPort <<
+        " nodeId: " << mNodeId <<
     KFS_LOG_EOM;
     mIsInitialized = mMetaServerLoc.IsValid();
     if (! mIsInitialized) {
@@ -4864,6 +4888,7 @@ KfsClientImpl::StartProtocolWorker()
     params.mResolverUseOsResolverFlag = mNetManager.GetResolverOsFlag();
     params.mResolverCacheSize         = mNetManager.GetResolverCacheSize();
     params.mResolverCacheExpiration   = mNetManager.GetResolverCacheExpiration();
+    params.mNodeId                    = mNodeId;
     mProtocolWorker = new KfsProtocolWorker(
         mMetaServerLoc.hostname,
         mMetaServerLoc.port,

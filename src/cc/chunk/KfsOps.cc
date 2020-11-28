@@ -4099,7 +4099,13 @@ HelloMetaOp::Request(ReqOstream& os, IOBuffer& buf)
     (shortRpcFormatFlag ? "CK:" : "Cluster-key: ") <<
         clusterKey << "\r\n" <<
     (shortRpcFormatFlag ? "5:"  : "MD5Sum: ") <<
-        md5sum  << "\r\n" <<
+        md5sum  << "\r\n";
+    if (! nodeId.empty()) {
+        os <<
+        (shortRpcFormatFlag ? "ND:"  : "Node-id: ") <<
+            nodeId  << "\r\n";
+    }
+    os <<
     (shortRpcFormatFlag ? "RI:" : "Rack-id: ") <<
         rackId << "\r\n" <<
     (shortRpcFormatFlag ? "T:"  : "Total-space: ") <<

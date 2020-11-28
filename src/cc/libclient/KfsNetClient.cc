@@ -229,7 +229,8 @@ public:
           mMetaLocations(),
           mMetaServerLocation(),
           mPendingConnectOpPtr(0),
-          mRackId(-1)
+          mRackId(-1),
+          mNodeId()
     {
         SET_HANDLER(this, &KfsNetClient::Impl::EventHandler);
         MetaVrList::Init(mMetaVrListPtr);
@@ -892,6 +893,7 @@ public:
                 mAuthOp.contentLength = theBufLen;
                 mAuthOp.seq           = theSeq + 1;
                 mAuthOp.rackId        = mRackId;
+                mAuthOp.nodeId        = mNodeId;
                 EnqueueAuth(mAuthOp);
                 return;
             }
@@ -1048,6 +1050,9 @@ public:
     void SetRackId(
         int inRackId)
         { mRackId = inRackId; }
+    void SetNodeId(
+        const char* inNodeIdPtr)
+        { mNodeId = inNodeIdPtr ? inNodeIdPtr : ""; }
     int SetMetaServerLocations(
         const ServerLocation& inLocation,
         const char*           inLocationsStrPtr,
@@ -1670,6 +1675,7 @@ private:
     ServerLocation        mMetaServerLocation;
     KfsOp*                mPendingConnectOpPtr;
     int                   mRackId;
+    string                mNodeId;
     ResolverReq*          mResolverReqsPtr[1];
     MetaVrPrimaryChecker* mMetaVrListPtr[1];
 
@@ -1695,6 +1701,7 @@ private:
         mLookupOp.vrPrimaryFlag               = false;
         mLookupOp.responseHasVrPrimaryKeyFlag = false;
         mLookupOp.rackId                      = mRackId;
+        mLookupOp.nodeId                      = mNodeId;
         mLookupOp.seq                         = mNextSeqNum++;
     }
     void SetVrPrimary(
@@ -3269,6 +3276,14 @@ KfsNetClient::SetRackId(
 {
     Impl::StRef theRef(mImpl);
     mImpl.SetRackId(inRackId);
+}
+
+    void
+KfsNetClient::SetNodeId(
+    const char* inNodeIdPtr)
+{
+    Impl::StRef theRef(mImpl);
+    mImpl.SetNodeId(inNodeIdPtr);
 }
 
     void

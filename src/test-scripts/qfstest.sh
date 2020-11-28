@@ -611,7 +611,7 @@ metaServer.objectStoreEnabled  = 1
 metaServer.objectStoreDeleteDelay = 2
 metaServer.objectStoreReadCanUsePoxoyOnDifferentHost = 1
 metaServer.objectStoreWriteCanUsePoxoyOnDifferentHost = 1
-metaServer.objectStorePlacementTest = 1
+# metaServer.objectStorePlacementTest = 1
 metaServer.replicationCheckInterval = 0.5
 metaServer.checkpoint.lockFileName = ckpt.lock
 metaServer.maxDumpsterCleanupInFlight = 2
@@ -797,6 +797,11 @@ EOF
     if [ $i -eq $chunksrvport ]; then
         cat >> "$dir/$chunksrvprop" << EOF
 chunkServer.hostname = 0.0.0.0
+chunkServer.nodeId = FILE:$chunksrvprop
+EOF
+    else
+        cat >> "$dir/$chunksrvprop" << EOF
+chunkServer.nodeId = ${i}_node_id
 EOF
     fi
     if [ x"$myvalgrind" = x ]; then
@@ -878,6 +883,7 @@ client.euser=0
 EOF
 fi
 qfstoolrootauthcfg=$clientrootprop
+clientenvcfg="${clientenvcfg} client.nodeId=`expr $chunksrvport + 1`_node_id"
 
 if [ x"$myvalgrind" = x ]; then
     true

@@ -213,7 +213,8 @@ public:
             int                inClientRackId                = -1,
             bool               inResolverUseOsResolverFlag   = false,
             int                inResolverCacheSize           = 8 << 10,
-            int                inResolverCacheExpiration     = -1)
+            int                inResolverCacheExpiration     = -1,
+            const string&      inNodeId                      = string())
             : mMetaMaxRetryCount(inMetaMaxRetryCount),
               mMetaTimeSecBetweenRetries(inMetaTimeSecBetweenRetries),
               mMetaOpTimeoutSec(inMetaOpTimeoutSec),
@@ -242,7 +243,8 @@ public:
               mClientRackId(inClientRackId),
               mResolverUseOsResolverFlag(inResolverUseOsResolverFlag),
               mResolverCacheSize(inResolverCacheSize),
-              mResolverCacheExpiration(inResolverCacheExpiration)
+              mResolverCacheExpiration(inResolverCacheExpiration),
+              mNodeId(inNodeId)
             {}
             int                 mMetaMaxRetryCount;
             int                 mMetaTimeSecBetweenRetries;
@@ -273,6 +275,7 @@ public:
             bool                mResolverUseOsResolverFlag;
             int                 mResolverCacheSize;
             int                 mResolverCacheExpiration;
+            string              mNodeId;
     };
     KfsProtocolWorker(
         std::string       inMetaHost,

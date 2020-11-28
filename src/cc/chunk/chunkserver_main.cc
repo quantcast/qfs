@@ -36,6 +36,7 @@
 #include "common/Properties.h"
 #include "common/MdStream.h"
 #include "common/MemLock.h"
+#include "common/computemd5.h"
 
 #include "kfsio/NetManager.h"
 #include "kfsio/Globals.h"
@@ -151,6 +152,7 @@ private:
     int            mFirstCpuIndex;
     string         mChunkServerHostname;
     string         mClusterKey;
+    string         mNodeId;
     int            mChunkServerRackId;
     int64_t        mMaxLockedMemorySize;
 
@@ -164,45 +166,18 @@ private:
           mFirstCpuIndex(-1),
           mChunkServerHostname(),
           mClusterKey(),
+          mNodeId(),
           mChunkServerRackId(-1),
           mMaxLockedMemorySize(0)
         {}
     ~ChunkServerMain()
         {}
-    void ComputeMD5(const char *pathname);
     bool LoadParams(const char *fileName);
     friend class ChunkServerGlobals;
 private:
     ChunkServerMain(const ChunkServerMain&);
     ChunkServerMain& operator=(const ChunkServerMain&);
 };
-
-void
-ChunkServerMain::ComputeMD5(const char* pathname)
-{
-    const size_t kBufSize = size_t(1) << 20;
-    char* const  buf      = new char[kBufSize];
-    fstream      is(pathname, fstream::in | fstream::binary);
-    MdStream     mds(0, false, string(), 0);
-
-    while (is && mds) {
-        is.read(buf, kBufSize);
-        mds.write(buf, is.gcount());
-    }
-    delete [] buf;
-
-    if (! is.eof() || ! mds) {
-        KFS_LOG_STREAM_ERROR <<
-            "md5sum " << QCUtils::SysError(errno, pathname) <<
-        KFS_LOG_EOM;
-    } else {
-        mMD5Sum = mds.GetMd();
-        KFS_LOG_STREAM_INFO <<
-            "md5sum " << pathname << ": " << mMD5Sum <<
-        KFS_LOG_EOM;
-    }
-    is.close();
-}
 
 ///
 /// Read and validate the configuration settings for the chunk
@@ -279,6 +254,28 @@ ChunkServerMain::LoadParams(const char* fileName)
         mChunkDirs.push_back(dir);
     }
 
+    mNodeId = mProp.getValue("chunkServer.nodeId", mNodeId);
+    const char* const kFilePrefix    = "FILE:";
+    size_t      const kFilePrefixLen = strlen(kFilePrefix);
+    if (0 == mNodeId.compare(0, kFilePrefixLen, kFilePrefix)) {
+        const char* const fileName = mNodeId.c_str() + kFilePrefixLen;
+        string      const md5      = ComputeMD5(fileName);
+        if (md5.empty()) {
+            KFS_LOG_STREAM_FATAL <<
+                mNodeId << " " << fileName << ": read failure" <<
+            KFS_LOG_EOM;
+            return false;
+        }
+        mNodeId = md5;
+    } else if ((size_t)MAX_RPC_HEADER_LEN / 8 < mNodeId.size()) {
+        KFS_LOG_STREAM_FATAL <<
+            mNodeId << ": exceeds size limit of " <<
+                MAX_RPC_HEADER_LEN / 8 <<
+        KFS_LOG_EOM;
+        return false;
+    }
+    KFS_LOG_STREAM_INFO << "nodeId: " << mNodeId <<
+    KFS_LOG_EOM;
     mChunkServerRackId = mProp.getValue("chunkServer.rackId", mChunkServerRackId);
     KFS_LOG_STREAM_INFO << "rack: " << mChunkServerRackId <<
     KFS_LOG_EOM;
@@ -391,10 +388,10 @@ ChunkServerMain::Run(int argc, char **argv)
 
     // compute the MD5 of the binary
 #ifdef KFS_OS_NAME_LINUX
-    ComputeMD5("/proc/self/exe");
+    mMD5Sum = ComputeMD5("/proc/self/exe");
 #endif
     if (mMD5Sum.empty()) {
-        ComputeMD5(argv[0]);
+        mMD5Sum = ComputeMD5(argv[0]);
     }
     if (! LoadParams(argv[1])) {
         return 1;
@@ -413,6 +410,7 @@ ChunkServerMain::Run(int argc, char **argv)
                 mClusterKey,
                 mChunkServerRackId,
                 mMD5Sum,
+                mNodeId,
                 mProp) == 0 &&
             gChunkServer.Init(
                 mClientListener,

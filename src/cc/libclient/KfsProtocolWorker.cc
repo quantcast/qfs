@@ -171,6 +171,7 @@ public:
             inParameters.mResolverCacheExpiration);
         mMetaServer.SetMaxMetaLogWriteRetryCount(mMetaMaxRetryCount);
         mMetaServer.SetRackId(inParameters.mClientRackId);
+        mMetaServer.SetNodeId(inParameters.mNodeId.c_str());
         const bool kHexFormatFlag       = false;
         const bool kAllowDuplicatesFlag = true;
         mMetaServer.SetMetaServerLocations(

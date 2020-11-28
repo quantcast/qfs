@@ -801,6 +801,7 @@ private:
     int                            mDefaultOpTimeout;
     int                            mDefaultMetaOpTimeout;
     ReadRequestCondVar*            mFreeCondVarsHead;
+    string                         mNodeId;
     kfsUid_t                       mEUser;
     kfsGid_t                       mEGroup;
     kfsMode_t                      mUMask;

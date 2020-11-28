@@ -99,7 +99,7 @@ public:
     /// doesn't know about and shouldn't be inlcuded in the system.
     int SetMetaInfo(const ServerLocation& metaLoc, const string& clusterKey,
         int inactivityTimeout, int rackId, const string& md5sum,
-        const Properties& prop);
+        const string& nodeId, const Properties& prop);
 
     void EnqueueOp(KfsOp* op);
 
@@ -182,6 +182,7 @@ private:
 
     /// An MD5 sum computed over the binaries that we send to the metaserver.
     string mMD5Sum;
+    string mNodeId;
 
     /// the port that the metaserver tells the clients to connect to us at.
     int mChunkServerPort;
@@ -375,6 +376,7 @@ MetaServerSM::Impl::Impl(
       mRackId(-1),
       mClusterKey(),
       mMD5Sum(),
+      mNodeId(),
       mChunkServerPort(-1),
       mChunkServerHostname(),
       mSentHello(false),
@@ -463,6 +465,7 @@ MetaServerSM::Impl::SetMetaInfo(
     int                   inactivityTimeout,
     int                   rackId,
     const string&         md5sum,
+    const string&         nodeId,
     const Properties&     prop)
 {
     if (! metaLoc.IsValid()) {
@@ -475,6 +478,7 @@ MetaServerSM::Impl::SetMetaInfo(
     mClusterKey = clusterKey;
     mRackId     = rackId;
     mMD5Sum     = md5sum;
+    mNodeId     = nodeId;
     return SetParameters(prop, inactivityTimeout);
 }
 
@@ -1795,6 +1799,7 @@ MetaServerSM::Impl::SubmitHello()
     }
     mHelloOp = new HelloMetaOp(
         mMyLocation, mClusterKey, mMD5Sum, mRackId, mChannelId);
+    mHelloOp->nodeId             = mNodeId;
     mHelloOp->seq                = nextSeq();
     mHelloOp->sendCurrentKeyFlag = true;
     mHelloOp->noFidsFlag         = mNoFidsFlag;
@@ -1934,6 +1939,7 @@ MetaServerSM::MetaServerSM()
       mParameters(),
       mClusterKey(),
       mMd5sum(),
+      mNodeId(),
       mRackId(-1)
 {
     Impl::List::Init(mImpls);
@@ -2163,7 +2169,7 @@ MetaServerSM::Resolved(MetaServerSM::ResolverReq& req)
             Impl& impl = *(new Impl(mCounters, mPendingOps,
                 mPrimary, mUpdateServerIpFlag, mChanId++, this));
             const int res = impl.SetMetaInfo(loc, mClusterKey,
-                mInactivityTimeout, mRackId, mMd5sum, mParameters);
+                mInactivityTimeout, mRackId, mMd5sum, mNodeId, mParameters);
             if (0 != res) {
                 KFS_LOG_STREAM_ERROR <<
                     *it << ": " << QCUtils::SysError(-res) <<
@@ -2195,6 +2201,7 @@ MetaServerSM::SetMetaInfo(
     const string&     clusterKey,
     int               rackId,
     const string&     md5sum,
+    const string&     nodeId,
     const Properties& prop)
 {
     if (! Impl::List::IsEmpty(mImpls) || ! mLocations.empty() || mRunningFlag) {
@@ -2206,6 +2213,7 @@ MetaServerSM::SetMetaInfo(
     mClusterKey = clusterKey;
     mRackId     = rackId;
     mMd5sum     = md5sum;
+    mNodeId     = nodeId;
     int res = SetParameters(prop);
     if (0 != res) {
         return res;
@@ -2267,8 +2275,8 @@ MetaServerSM::SetMetaInfo(
         Impl& impl = *(new Impl(mCounters, mPendingOps, mPrimary,
             mUpdateServerIpFlag, mChanId++, 0));
         Impl::List::PushBack(mImpls, impl);
-        if ((res = impl.SetMetaInfo(*it, mClusterKey,
-                mInactivityTimeout, mRackId, mMd5sum, mParameters)) != 0) {
+        if ((res = impl.SetMetaInfo(*it, mClusterKey, mInactivityTimeout,
+                mRackId, mMd5sum, mNodeId, mParameters)) != 0) {
             break;
         }
     }

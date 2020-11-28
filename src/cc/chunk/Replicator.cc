@@ -1587,6 +1587,8 @@ private:
             if (thread && sDebugSetThreadFlag) {
                 ret[i].mMeta->SetThread(&thread->GetThread());
             }
+            ret[i].mMeta->SetRackId(gMetaServerSM.GetRackId());
+            ret[i].mMeta->SetNodeId(gMetaServerSM.GetNodeId().c_str());
             ret[i].mDebugSetThreadUpdateCount = sDebugSetThreadUpdateCount;
         }
         return ret;

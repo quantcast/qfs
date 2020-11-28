@@ -166,6 +166,25 @@
 # Default is -1, no rack Id specified.
 # client.rackId = -1
 
+# QFS client's node id. If set to non empty string, used as network node /
+# host identifier to determine if chunk server and client are co-located on the
+# same network node. Takes precedence over client and chunk server IP addresses.
+# Intended to be used in the cases where NAT and / or docker containers makes IP
+# addresses comparison meaningless for this purpose.
+#
+# The values with FILE: prefix handled by setting node id to the md5 of the
+# file content.
+# For example the following would set node id to
+# d41d8cd98f00b204e9800998ecf8427e
+# client.nodeId = FILE:/dev/null
+#
+# The chunkServer.nodeId parameter must also be set by the QFS client configuration
+# to the same value as chunk server nodeId in order to indicate that both chunk
+# server and client are co-located on the same node.
+#
+# Default is empty string.
+# client.nodeId =
+
 #-------------------------------------------------------------------------------
 # The following two parameter only have effect with no authentication configured.
 

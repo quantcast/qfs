@@ -103,9 +103,16 @@ public:
         const string&     clusterKey,
         int               rackId,
         const string&     md5sum,
+        const string&     nodeId,
         const Properties& prop
     );
     virtual void Timeout();
+    int GetRackId() const {
+        return mRackId;
+    }
+    const string& GetNodeId() const {
+        return mNodeId;
+    }
 private:
     typedef SingleLinkedQueue<KfsOp, KfsOp::GetNext> OpsQueue;
     class Impl;
@@ -128,6 +135,7 @@ private:
     Properties   mParameters;
     string       mClusterKey;
     string       mMd5sum;
+    string       mNodeId;
     int          mRackId;
     Impl*        mImpls[1];
     ResolverReq* mResolverReqs[1];

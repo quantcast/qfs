@@ -235,10 +235,10 @@ struct KfsOp {
     // The headers must be properly formatted: each header line must end with
     // \r\n
     static void AddDefaultRequestHeaders(
-        bool     shortRpcFormatFlag,
-        string&  headers,
-        kfsUid_t euser  = kKfsUserNone,
-        kfsGid_t egroup = kKfsGroupNone);
+        bool          shortRpcFormatFlag,
+        string&       headers,
+        kfsUid_t      euser  = kKfsUserNone,
+        kfsGid_t      egroup = kKfsGroupNone);
     inline ReqOstream& ParentHeaders(ReqOstream& os) const;
     template<typename T> class ReqHeadersT;
     template<typename T> static inline ReqHeadersT<T> ReqHeaders(const T& op);
@@ -626,6 +626,7 @@ struct LookupOp : public KfsOp {
     string         groupName;
     string         euserName;
     string         egroupName;
+    string         nodeId;
     ServerLocation clientLocation;
     LookupOp(kfsSeq_t s, kfsFileId_t p, const char* f,
         kfsUid_t eu = kKfsUserNone, kfsGid_t eg = kKfsGroupNone)
@@ -644,6 +645,7 @@ struct LookupOp : public KfsOp {
           groupName(),
           euserName(),
           egroupName(),
+          nodeId(),
           clientLocation()
         {}
     void Request(ReqOstream& os);
@@ -1722,6 +1724,7 @@ struct AuthenticateOp : public KfsOp {
     int64_t        currentTime;
     int64_t        sessionEndTime;
     int            rackId;
+    string         nodeId;
     ServerLocation clientLocation;
 
     AuthenticateOp(kfsSeq_t s, int authType)
@@ -1733,6 +1736,7 @@ struct AuthenticateOp : public KfsOp {
           currentTime(-1),
           sessionEndTime(-1),
           rackId(-1),
+          nodeId(),
           clientLocation()
         {}
     virtual void Request(ReqOstream& os);

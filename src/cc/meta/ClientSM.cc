@@ -157,6 +157,7 @@ ClientSM::ClientSM(
       mUserAndGroupUpdateCount(0),
       mLogQueueCounter(0),
       mClientRackId(-1),
+      mNodeId(),
       mClientReportedIp(),
       mNext(0)
 {
@@ -578,6 +579,7 @@ ClientSM::HandleClientCmd(IOBuffer& iobuf, int cmdLen)
     op->sessionEndTime      = mSessionExpirationTime;
     if (! mFirstOpFlag) {
         op->clientRackId     = mClientRackId;
+        op->nodeId           = mNodeId;
         op->clientReportedIp = mClientReportedIp;
     }
     if (mAuthUid != kKfsUserNone) {
@@ -677,6 +679,7 @@ ClientSM::Handle(MetaAuthenticate& op)
     if (mFirstOpFlag) {
         mShortRpcFormatFlag = op.shortRpcFormatFlag;
         mClientRackId       = op.clientRackId;
+        mNodeId             = op.nodeId;
         if (mClientLocation.hostname != op.clientReportedIp) {
             mClientReportedIp = op.clientReportedIp;
         }
@@ -708,6 +711,7 @@ ClientSM::Handle(MetaLookup& op)
     if (mFirstOpFlag) {
         mShortRpcFormatFlag = op.shortRpcFormatFlag;
         mClientRackId       = op.clientRackId;
+        mNodeId             = op.nodeId;
         if (mClientLocation.hostname != op.clientReportedIp) {
             mClientReportedIp = op.clientReportedIp;
         }

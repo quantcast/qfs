@@ -138,6 +138,7 @@ private:
     uint64_t                           mUserAndGroupUpdateCount;
     int                                mLogQueueCounter;
     int                                mClientRackId;
+    string                             mNodeId;
     string                             mClientReportedIp;
     ClientSM*                          mNext;
     ClientSM*                          mPrevPtr[1];

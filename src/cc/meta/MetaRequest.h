@@ -285,7 +285,7 @@ struct MetaRequest {
     bool            replayBypassFlag;
     string          clientIp;
     string          clientReportedIp;
-    StringBufT<64>  nodeId;
+    string          nodeId;
     IOBuffer        reqHeaders;
     kfsUid_t        authUid;
     kfsGid_t        authGid;
@@ -376,7 +376,6 @@ struct MetaRequest {
         .Def2("UserId",                  "u", &MetaRequest::euser,          kKfsUserNone)
         .Def2("GroupId",                 "g", &MetaRequest::egroup,        kKfsGroupNone)
         .Def2("Max-wait-ms",             "w", &MetaRequest::maxWaitMillisec, int64_t(-1))
-        .Def2("Node-id",                 "n", &MetaRequest::nodeId                      )
         ;
     }
     template<typename T> static T& IoParserDef(T& parser)
@@ -470,6 +469,7 @@ protected:
         commitPendingFlag   = false;
         replayBypassFlag    = false;
         clientIp = string();
+        nodeId = string();
         reqHeaders.Clear();
         authUid             = kKfsUserNone;
         authGid             = kKfsGroupNone;
@@ -629,6 +629,7 @@ struct MetaLookup: public MetaRequest {
         .Def2("Rack-id",            "R", &MetaLookup::clientRackId,        -1)
         .Def2("Client-ip",          "C", &MetaLookup::clientReportedIp)
         .Def2("Client-port",       "CP", &MetaLookup::clientReportedPort,  -1)
+        .Def2("Node-id",           "ND", &MetaLookup::nodeId                 )
         ;
     }
     bool IsAuthNegotiation() const
@@ -2196,6 +2197,7 @@ struct MetaHello : public MetaRequest, public ServerLocation {
         .Def2("Total-chunks",                 "TC", &MetaHello::totalChunks,          int64_t(0))
         .Def2("ChannelId",                   "CID", &MetaHello::channelId,           int64_t(-1))
         .Def2("SupportsResume",               "SR", &MetaHello::supportsResumeFlag,        false)
+        .Def2("Node-id",                      "ND", &MetaHello::nodeId                          )
         ;
     }
 };
@@ -3722,6 +3724,7 @@ struct MetaAuthenticate : public MetaRequest {
         .Def2("Rack-id",         "R", &MetaAuthenticate::clientRackId,       -1)
         .Def2("Client-ip",       "C", &MetaAuthenticate::clientReportedIp)
         .Def2("Client-port",    "CP", &MetaAuthenticate::clientReportedPort, -1)
+        .Def2("Node-id",        "ND", &MetaLookup::nodeId                      )
         ;
     }
 };

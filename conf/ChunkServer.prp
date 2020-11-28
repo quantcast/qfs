@@ -81,6 +81,25 @@ chunkServer.clientPort = 22000
 # Default is no rack assigned.
 # chunkServer.rackId = -1
 
+# Chunk server's node id. If set to non empty string, used as network node /
+# host identifier to determine if chunk server and client are co-located on the
+# same network node. Takes precedence over client and chunk server IP addresses.
+# Intended to be used in the cases where NAT and / or docker containers makes IP
+# addresses comparison meaningless for this purpose.
+#
+# The values with FILE: prefix handled by setting node id to the md5 of the
+# file content.
+# For example the following would set node id to
+# d41d8cd98f00b204e9800998ecf8427e
+# chunkServer.nodeId = FILE:/dev/null
+#
+# The client.nodeId parameter must also be set by the QFS client configuration
+# to the same value as chunk server nodeId in order to indicate that both chunk
+# server and client are co-located on the same node.
+#
+# Default is empty string.
+# chunkServer.nodeId =
+
 # Space separated list of directories to store chunks (blocks).
 # Usually one directory per physical disk. More than one directory can
 # be used in the cases where the host file system has problems / limitations

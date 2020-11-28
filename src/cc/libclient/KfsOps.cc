@@ -440,6 +440,9 @@ LookupOp::Request(ReqOstream& os)
     if (0 <= rackId) {
         os << (shortRpcFormatFlag ? "R:" : "Rack-id: ") << rackId << "\r\n";
     }
+    if (! nodeId.empty()) {
+        os << (shortRpcFormatFlag ? "ND:" : "Node-id: ") << nodeId << "\r\n";
+    }
     if (! clientLocation.hostname.empty()) {
         os << (shortRpcFormatFlag ? "C:" : "Client-ip: ") <<
             clientLocation.hostname << "\r\n";
@@ -1040,10 +1043,10 @@ KfsOp::ParseResponseHeaderSelf(const Properties& prop)
 
 /* static */ void
 KfsOp::AddDefaultRequestHeaders(
-        bool     shortRpcFormatFlag,
-        string&  headers,
-        kfsUid_t euser  /* = kKfsUserNone */,
-        kfsGid_t egroup /* = kKfsGroupNone */)
+        bool          shortRpcFormatFlag,
+        string&       headers,
+        kfsUid_t      euser  /* = kKfsUserNone */,
+        kfsGid_t      egroup /* = kKfsGroupNone */)
 {
     headers += shortRpcFormatFlag ? "u:" : "UserId: ";
     if (euser == kKfsUserNone) {
@@ -1782,6 +1785,9 @@ AuthenticateOp::Request(ReqOstream& os)
     }
     if (0 <= rackId) {
         os << (shortRpcFormatFlag ? "R:" : "Rack-id: ") << rackId << "\r\n";
+    }
+    if (! nodeId.empty()) {
+        os << (shortRpcFormatFlag ? "ND:" : "Node-id: ") << nodeId << "\r\n";
     }
     if (! clientLocation.hostname.empty()) {
         os << (shortRpcFormatFlag ? "C:" : "Client-ip: ") <<
