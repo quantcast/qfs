@@ -217,6 +217,14 @@ build_centos()
             /etc/yum.repos.d/*.repo
         sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/5.11\//' \
             /etc/yum.repos.d/*.repo
+    elif [ x"$1" = x'6' ]; then
+        # Centos 6 EOL, use vault for now.
+        sed -i 's/enabled=1/enabled=0/' \
+            /etc/yum/pluginconf.d/fastestmirror.conf
+        sed -i 's/mirrorlist/#mirrorlist/' \
+            /etc/yum.repos.d/*.repo
+        sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/6.10\//' \
+            /etc/yum.repos.d/*.repo
     fi
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
