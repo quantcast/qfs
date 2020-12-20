@@ -1504,6 +1504,12 @@ AtomicRecordAppender::AppendBegin(
                     gAtomicRecordAppendManager.GetAppendDropLockMinSize() <
                     (int)op->numBytes) {
                 cliThread = gClientManager.GetCurrentClientThreadPtr();
+                if (cliThread && (
+                        1 != mMutex->GetLockCount() ||
+                        1 != ClientThread::GetMutex().GetLockCount())) {
+                    cliThread = 0;
+                    Cntrs().mChecksumUnlockFailCount++;
+                }
                 if (cliThread) {
                     if (mFlushStartByteCount < 0) {
                         mAppendInProgressFlag = true;
@@ -1518,15 +1524,24 @@ AtomicRecordAppender::AppendBegin(
                         mAlignment = (int)((mNextOffset + op->numBytes) %
                             IOBufferData::GetDefaultBufferSize());
                     }
+                    int rnd = gAtomicRecordAppendManager.GetRelockDebugRnd()
+                        <= 0 ? 0 : rand();
                     if (! cliThread->Unlock()) {
-                        // If failed to release the lock, restore lock count,
-                        // and do not invoke re-lock.
-                        if (cliThread->Lock()) {
-                            FatalError("AtomicRecordAppender:AppendBegin:"
-                                " invalid client thread mutex state");
-                        }
-                        cliThread = 0;
-                        Cntrs().mChecksumUnlockFailCount++;
+                        FatalError("AtomicRecordAppender:AppendBegin:"
+                            " invalid client thread mutex state");
+                    }
+                    if (0 != rnd) {
+                        rnd = (rnd < 0 ? -rnd : rnd) %
+                            gAtomicRecordAppendManager.GetRelockDebugRnd();
+                        WAPPEND_LOG_STREAM_INFO << "sleep: " << rnd <<
+                            " relock: " << Cntrs().mChecksumUnlockedCount <<
+                            " fail: " << Cntrs().mChecksumUnlockFailCount <<
+                        KFS_LOG_EOM;
+                        struct timespec st;
+                        const int kUSecsInSec = 1000000;
+                        st.tv_sec  = rnd / kUSecsInSec;
+                        st.tv_nsec = rnd % kUSecsInSec * 1000;
+                        nanosleep(&st, NULL);
                     }
                 }
             }
@@ -3133,6 +3148,7 @@ AtomicRecordAppendManager::AtomicRecordAppendManager()
       mCloseOutOfSpaceSec(5),
       mRecursionCount(0),
       mAppendDropLockMinSize((4 << 10) - 1),
+      mRelockDebugRnd(0),
       mCloseMinChunkSize(
         (chunkOff_t)CHUNKSIZE - (chunkOff_t)CHECKSUM_BLOCKSIZE),
       mMutexesCount(-1),
@@ -3187,6 +3203,8 @@ AtomicRecordAppendManager::SetParameters(const Properties& props)
         "chunkServer.recAppender.dropLockMinSize",    mAppendDropLockMinSize));
     mCloseMinChunkSize  = max((chunkOff_t)CHECKSUM_BLOCKSIZE, props.getValue(
         "chunkServer.recAppender.closeMinChunkSize",  mCloseMinChunkSize));
+    mRelockDebugRnd = props.getValue(
+        "chunkServer.recAppender.relockDebugRnd",     mRelockDebugRnd);
     mTotalBuffersBytes       = 0;
     if (! mAppenders.IsEmpty()) {
         UpdateAppenderFlushLimit();

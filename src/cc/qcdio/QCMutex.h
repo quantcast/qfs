@@ -65,6 +65,8 @@ public:
     bool IsOwned() const
         { return (::pthread_equal(mOwner, ::pthread_self()) != 0); }
 
+    int GetLockCount() const
+        { return mLockCnt; }
 private:
     int             mLockCnt;
     pthread_t       mOwner;

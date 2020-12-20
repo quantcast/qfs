@@ -201,6 +201,8 @@ public:
     inline void IncAppendersWithWidCount();
     inline void DecAppendersWithWidCount();
     inline Counters& Cntrs();
+    inline int GetRelockDebugRnd() const
+        { return mRelockDebugRnd; }
 
 private:
     typedef KVPair<kfsChunkId_t, AtomicRecordAppender*> ARAMapEntry;
@@ -234,6 +236,7 @@ private:
     int                   mCloseOutOfSpaceSec;
     int                   mRecursionCount;
     int                   mAppendDropLockMinSize;
+    int                   mRelockDebugRnd;
     chunkOff_t            mCloseMinChunkSize;
     int                   mMutexesCount;
     int                   mCurMutexIdx;
