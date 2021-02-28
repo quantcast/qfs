@@ -1477,11 +1477,11 @@ private:
             KFS_LOG_STREAM_ERROR <<
                 mServer << ": "
                 "unexpected reply" <<
-                "auth: "  << MetaRequest::ShowReq(mAuthenticateOpPtr) <<
+                " auth : "  << MetaRequest::ShowReq(mAuthenticateOpPtr) <<
                 "vr:"
-                " seq: "  << mVrOpSeq <<
-                " "       << MetaRequest::ShowReq(mVrOpPtr) <<
-                "hello: " << MetaRequest::ShowReq(
+                " seq: "    << mVrOpSeq <<
+                " "         << MetaRequest::ShowReq(mVrOpPtr) <<
+                " hello:  " << MetaRequest::ShowReq(
                     mMetaVrHello.opSeqno < 0 ? 0 : &mMetaVrHello) <<
             KFS_LOG_EOM;
             MsgLogLines(MsgLogger::kLogLevelERROR,

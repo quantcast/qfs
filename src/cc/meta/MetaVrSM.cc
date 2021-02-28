@@ -1769,7 +1769,7 @@ private:
             const TxStatusCheck& inCheck);
     };
 
-    class TxStatusCheckSwap :public LogTransmitter::StatusReporter
+    class TxStatusCheckSwap : public LogTransmitter::StatusReporter
     {
     public:
         typedef LogTransmitter::StatusReporter::Counters Counters;
@@ -2203,6 +2203,13 @@ private:
         int inActiveCount)
     {
         return (kMinActiveCount <= inActiveCount ? inActiveCount / 2 + 1 : 0);
+    }
+    size_t GetUpChannelsCount(
+        NodeId inNodeId)
+    {
+        TxStatusCheckNode theCheck(inNodeId, Locations(), NodeId(-1));
+        mLogTransmitter.GetStatus(theCheck);
+        return theCheck.GetUpCount();
     }
     void ActivateNodes(
         MetaVrReconfiguration& inReq)
@@ -2932,6 +2939,12 @@ private:
                     inReq.status    = -EINVAL;
                     inReq.statusMsg = "not primary, state: ";
                     inReq.statusMsg += GetStateName(mState);
+                } else if (kStatePrimary == mState &&
+                        inReq.mNodeId != mNodeId &&
+                        GetUpChannelsCount(inReq.mNodeId) <= 0) {
+                    inReq.status    = -EINVAL;
+                    inReq.statusMsg = "primary has no up channels with: ";
+                    AppendDecIntToString(inReq.statusMsg, inReq.mNodeId);
                 } else if (kStateLogSync != mState &&
                         (kStateBackup != mState ||
                             mPrimaryNodeId < 0 ||
