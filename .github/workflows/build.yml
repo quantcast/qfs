@@ -1,6 +1,6 @@
 name: Build
 
-on: push
+on: [push]
 
 jobs:
   codecov-init:
@@ -8,6 +8,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: Codecov init
         run: travis/script.sh init_codecov
 
   rat:
@@ -15,6 +17,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: rat
         run: make rat clean
 
   docker-build:
