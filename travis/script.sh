@@ -286,6 +286,11 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
     exit
 fi
 
+if [ $# -eq 1 -a x"$1" = x'init_codecov']; then
+    init_codecov
+    exit
+fi
+
 if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     if [ -e "$MYTMPDIR" ]; then
         rm -r "$MYTMPDIR"
