@@ -286,7 +286,7 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
     exit
 fi
 
-if [ $# -eq 1 -a x"$1" = x'init_codecov']; then
+if [ $# -eq 1 -a x"$1" = x'init_codecov' ]; then
     init_codecov
     exit
 fi
