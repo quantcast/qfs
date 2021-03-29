@@ -21,9 +21,9 @@ jobs:
     steps:
       - name: Update git
         run: >
-          sudo add-apt-repository ppa:git-core/ppa -y
-          && sudo apt-get update
-          && sudo apt-get install git -y
+          add-apt-repository ppa:git-core/ppa -y
+          && apt-get update
+          && apt-get install git -y
 
       - name: Checkout code
         uses: actions/checkout@v2
@@ -39,6 +39,7 @@ jobs:
       - name: Brew update and install
         run: >
           brew update || true
+          brew upgrade || true
           brew install git || true
           brew install cmake || true
           brew install maven || true
