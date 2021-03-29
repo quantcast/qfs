@@ -17,9 +17,9 @@ jobs:
       matrix:
         distro: [ubuntu, f69m/ubuntu32, centos, debian]
         ver: [x]
-        codecov: [no]
-        btype: [release]
-        buser: [qfsbuild]
+        codecov: [x]
+        btype: [x]
+        buser: [x]
         exclude:
           - distro: ubuntu
             ver: x
