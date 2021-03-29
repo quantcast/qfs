@@ -15,7 +15,6 @@ jobs:
   linux-build:
     strategy:
       matrix:
-        distro: [ubuntu, centos, debian]
         codecov: [no]
         btype: [release]
         buser: [qfsbuild]
@@ -24,9 +23,16 @@ jobs:
             ver: 18.04
             btype: debug
           - distro: ubuntu
-            ver: [14.04, 16.04]
+            ver: 18.04
+            buser: root
+          - distro: ubuntu
+            ver: 16.04
+          - distro: ubuntu
+            ver: 14.04
           - distro: centos
-            ver: [6, 7]
+            ver: 6
+          - distro: centos
+            ver: 7
           - distro: debian
             ver: 9
     runs-on: ubuntu-latest
