@@ -13,6 +13,13 @@ jobs:
         run: make rat clean
 
   linux-build:
+    strategy:
+      matrix:
+        distro: [ubuntu, ubuntu, ubuntu, ubuntu]
+        ver: [18.04, 18.04, 18.04, 18.04]
+        codecov: [yes, no, no, no]
+        btype: [release, release, debug, release]
+        buser: [qfsbuild, qfsbuild, qfsbuild, root]
     runs-on: ubuntu-latest
     env:
       TRAVIS_OS_NAME: linux
@@ -24,13 +31,6 @@ jobs:
       BUSER: ${{ matrix.buser }}
     container:
       image: ${{ matrix.distro }}:${{ matrix.ver }}
-    strategy:
-      matrix:
-        distro: [ubuntu, ubuntu, ubuntu, ubuntu]
-        ver: [18.04, 18.04, 18.04, 18.04]
-        codecov: [yes, no, no, no]
-        btype: [release, release, debug, release]
-        buser: [qfsbuild, qfsbuild, qfsbuild, root]
     steps:
       - name: Update git and install curl
         run: |
