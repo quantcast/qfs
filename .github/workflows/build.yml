@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TRAVIS_OS_NAME: linux
-      BUILD_RUN_DOCKER: no
+      BUILD_RUN_DOCKER: 'no'
       DISTRO: ${{ matrix.distro }}
       VER: ${{ matrix.ver }}
       CODECOV: ${{ matrix.codecov }}
@@ -26,47 +26,11 @@ jobs:
       image: ${{ matrix.distro }}:${{ matrix.ver }}
     strategy:
       matrix:
-        distro:
-          [
-            ubuntu,
-            ubuntu,
-            ubuntu,
-            ubuntu,
-            ubuntu,
-            ubuntu,
-            f69m/ubuntu32,
-            centos,
-            centos,
-            debian,
-          ]
+        distro: [ubuntu, ubuntu, ubuntu, ubuntu, ubuntu, ubuntu, f69m/ubuntu32, centos, centos, debian]
         ver: [18.04, 14.04, 16.04, 18.04, 18.04, 18.04, 16.04, 6, 7, 9]
         codecov: [yes, no, no, no, no, no, no, no, no, no]
-        btype:
-          [
-            release,
-            release,
-            release,
-            release,
-            debug,
-            release,
-            release,
-            release,
-            release,
-            release,
-          ]
-        buser:
-          [
-            qfsbuild,
-            qfsbuild,
-            qfsbuild,
-            qfsbuild,
-            qfsbuild,
-            root,
-            qfsbuild,
-            qfsbuild,
-            qfsbuild,
-            qfsbuild,
-          ]
+        btype: [release, release, release, release, debug, release, release, release, release, release]
+        buser: [qfsbuild, qfsbuild, qfsbuild, qfsbuild, qfsbuild, root, qfsbuild, qfsbuild, qfsbuild, qfsbuild]
     steps:
       - name: Update git
         run: |
