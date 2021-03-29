@@ -32,7 +32,7 @@ jobs:
         btype: [release]
         buser: [qfsbuild]
     steps:
-      - name: Update git
+      - name: Update git and install curl
         run: |
           if [ x"$DISRTO" = x'centos' ]; then
             if [ x"$VER" = x'6' ]; then
@@ -41,12 +41,14 @@ jobs:
               yum install -y 'http://opensource.wandisco.com/centos/7/git/x86_64/wandisco-git-release-7-2.noarch.rpm'
             fi
             yum install -y git
+            yum install -y curl
           else
             apt-get update \
             && apt-get install software-properties-common -y \
             && add-apt-repository ppa:git-core/ppa -y \
             && apt-get update \
-            && apt-get install git -y
+            && apt-get install git -y \
+            && apt-get install curl -y
           fi
 
       - name: Checkout code

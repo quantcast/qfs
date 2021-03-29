@@ -290,7 +290,6 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     if [ -e "$MYTMPDIR" ]; then
         rm -r "$MYTMPDIR"
     fi
-    make rat clean
     if [ x"$CODECOV" = x'yes' ]; then
         init_codecov
     fi
