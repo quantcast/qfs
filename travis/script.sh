@@ -204,6 +204,7 @@ build_ubuntu32()
 
 build_debian()
 {
+    QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     build_ubuntu
 }
 

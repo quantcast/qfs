@@ -68,15 +68,20 @@ tarball: hadoop-jars
 	[ x"$$myarch" = x ] && \
 	    myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && myarch=`uname -m` ; \
-	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
-	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
-	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
-		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
-	    elif [ x"$$myflavor" = x ]; then \
-		myflavor=$$myuname ; \
-	    else \
-		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
-	    fi ; \
+	if [ x"$$myuname" = x'Linux' -a \( -f /etc/issue -o -f /etc/system-release \) ]; then \
+		if [ -f /etc/system-release ]; then \
+			myflavor=`head -n 1 /etc/system-release | cut -d' ' -f1` ; \
+			myflavor="$$myflavor-`head -n 1 /etc/system-release | cut -d' ' -f4 | cut -d. -f1,2`" ; \
+		else \
+			myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
+			if [ x"$$myflavor" = x'Ubuntu' ]; then \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
+			elif [ x"$$myflavor" = x ]; then \
+				myflavor=$$myuname ; \
+			else \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
+			fi ; \
+		fi ;
 	else \
 	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
 		myflavor=cygwin ; \
