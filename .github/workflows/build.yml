@@ -87,7 +87,7 @@ jobs:
       - name: Update git and install curl
         run: |
           if [ x"$DISTRO" = x'centos' ]; then
-            yum update
+            yum update -y
             yum upgrade -y
             if [ x"$VER" = x'7' ]; then
               yum install -y 'http://opensource.wandisco.com/centos/7/git/x86_64/wandisco-git-release-7-2.noarch.rpm'
