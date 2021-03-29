@@ -88,7 +88,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Build
+      - name: Linux build
         run: travis/script.sh
 
   osx-build:
@@ -104,5 +104,5 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Build on macos
+      - name: MacOS build
         run: travis/script.sh
