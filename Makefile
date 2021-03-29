@@ -81,7 +81,7 @@ tarball: hadoop-jars
 			else \
 				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
 			fi ; \
-		fi ;
+		fi ; \
 	else \
 	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
 		myflavor=cygwin ; \
