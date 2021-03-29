@@ -63,11 +63,6 @@ jobs:
             btype: release
             buser: qfsbuild
           - distro: centos
-            ver: 6
-            codecov: no
-            btype: release
-            buser: qfsbuild
-          - distro: centos
             ver: 7
             codecov: no
             btype: release
@@ -92,11 +87,9 @@ jobs:
       - name: Update git and install curl
         run: |
           if [ x"$DISTRO" = x'centos' ]; then
-            if [ x"$VER" = x'6' ]; then
-              yum update
-              yum upgrade -y
-              yum install -y 'http://opensource.wandisco.com/centos/6/git/x86_64/wandisco-git-release-6-1.noarch.rpm'
-            else
+            yum update
+            yum upgrade -y
+            if [ x"$VER" = x'7' ]; then
               yum install -y 'http://opensource.wandisco.com/centos/7/git/x86_64/wandisco-git-release-7-2.noarch.rpm'
             fi
             yum install -y git curl
