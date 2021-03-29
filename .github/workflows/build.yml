@@ -19,12 +19,21 @@ jobs:
         btype: [release]
         buser: [qfsbuild]
         include:
-          - distro: ubuntu
+          - codecov: no
+            distro: ubuntu
             ver: 18.04
-            btype: debug
-          - distro: ubuntu
+          - codecov: no
+            distro: ubuntu
             ver: 18.04
             buser: root
+          - codecov: no
+            distro: ubuntu
+            ver: 18.04
+            buser: root
+          - btype: release
+            distro: ubuntu
+            ver: 18.04
+            codecov: yes
           - distro: ubuntu
             ver: 16.04
           - distro: ubuntu
@@ -33,8 +42,6 @@ jobs:
             ver: 6
           - distro: centos
             ver: 7
-          - distro: debian
-            ver: 9
     runs-on: ubuntu-latest
     env:
       TRAVIS_OS_NAME: linux
@@ -51,6 +58,8 @@ jobs:
         run: |
           if [ x"$DISRTO" = x'centos' ]; then
             if [ x"$VER" = x'6' ]; then
+              yum update
+              yum upgrade -y
               yum install -y 'http://opensource.wandisco.com/centos/6/git/x86_64/wandisco-git-release-6-1.noarch.rpm'
             else
               yum install -y 'http://opensource.wandisco.com/centos/7/git/x86_64/wandisco-git-release-7-2.noarch.rpm'
