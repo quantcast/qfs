@@ -286,11 +286,6 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
     exit
 fi
 
-if [ $# -eq 1 -a x"$1" = x'init_codecov' ]; then
-    init_codecov
-    exit
-fi
-
 if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     if [ -e "$MYTMPDIR" ]; then
         rm -r "$MYTMPDIR"
@@ -311,9 +306,13 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     fi
     MYSRCD="$(pwd)"
     ulimit -c unlimited
-    docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
-        "$DISTRO:$VER" \
-        /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+    if [ x"$BUILD_RUN_DOCKER" = x'no' ]; then
+        "$0" build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+    else
+        docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
+            "$DISTRO:$VER" \
+            /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+    fi
 elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
     for pkg_name in \
