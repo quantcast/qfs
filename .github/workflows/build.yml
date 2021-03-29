@@ -28,7 +28,7 @@ jobs:
       matrix:
         distro: [ubuntu, ubuntu, ubuntu]
         ver: [18.04, 18.04, 18.04, 18.04]
-        codecov: [yes, no]
+        codecov: [yes, no, no, no]
         btype: [release, release, debug, release]
         buser: [qfsbuild, qfsbuild, qfsbuild, root]
     steps:
