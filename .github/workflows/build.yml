@@ -15,11 +15,20 @@ jobs:
   linux-build:
     strategy:
       matrix:
-        distro: [ubuntu, ubuntu]
-        ver: [18.04, 18.04]
-        codecov: [yes, no]
-        btype: [release, release]
-        buser: [qfsbuild, qfsbuild]
+        distro: [ubuntu, centos, debian]
+        codecov: [no]
+        btype: [release]
+        buser: [qfsbuild]
+        include:
+          - distro: ubuntu
+            ver: 18.04
+            btype: debug
+          - distro: ubuntu
+            ver: [14.04, 16.04]
+          - distro: centos
+            ver: [6, 7]
+          - distro: debian
+            ver: 9
     runs-on: ubuntu-latest
     env:
       TRAVIS_OS_NAME: linux
