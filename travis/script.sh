@@ -295,7 +295,7 @@ fi
 if [ x"$TRAVIS_OS_NAME" = x ]; then
         true
     else
-        if [x"$BUILD_OS_NAME" = x ]; then
+        if [ x"$BUILD_OS_NAME" = x ]; then
             BUILD_OS_NAME=$TRAVIS_OS_NAME
         fi
     fi
