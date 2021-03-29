@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         distro: [ubuntu]
-        ver: ['18.04']
+        ver: [18.04]
         codecov: [yes]
         btype: [release]
         buser: [qfsbuild]
@@ -42,10 +42,10 @@ jobs:
             fi
             yum install -y git
           else
-            apt-get update
-            && apt-get install software-properties-common -y
-            && add-apt-repository ppa:git-core/ppa -y
-            && apt-get update
+            apt-get update \
+            && apt-get install software-properties-common -y \
+            && add-apt-repository ppa:git-core/ppa -y \
+            && apt-get update \
             && apt-get install git -y
           fi
 
