@@ -51,7 +51,7 @@ else
     openssl req \
         -days 3650 \
         -subj "$subjectprefix/CN=$cacommonname" \
-        -newkey rsa:2048 \
+        -newkey rsa:4096 \
         -new \
         -nodes \
         -x509 \
@@ -106,7 +106,7 @@ for n in ${certs-"$@"}; do
             -days 3650 \
             -subj "$subjectprefix/CN=$cn" \
             -nodes \
-            -newkey rsa:1024 \
+            -newkey rsa:2048 \
             -keyout "$n.key" \
             -out "$n.req"
         openssl ca -batch -config "$caconf" -out "$n.crt" -infiles "$n.req"
