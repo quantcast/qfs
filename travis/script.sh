@@ -30,7 +30,7 @@ DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb'
 DEPS_DEBIAN=$DEPS_UBUNTU
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
-DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
+DEPS_CENTOS=$DEPS_CENTOS' fuse-devel java-openjdk java-devel'
 DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
 
 DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
