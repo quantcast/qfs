@@ -101,11 +101,11 @@ jobs:
             fi
             yum install -y git curl
           else
-            apt-get Update
             if [ x"$DISTRO" = x'ubuntu' \
                 -a \( x'VER' = x'14.04' \
                   -o x'VER' = x'16.04' -o x'VER' = x'18.04' \) ]; then
-              apt-get install software-properties-common -y \
+              apt-get update \
+              && apt-get install software-properties-common -y \
               && add-apt-repository ppa:git-core/ppa -y
             fi
             apt-get update \
