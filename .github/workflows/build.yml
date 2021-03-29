@@ -16,6 +16,19 @@ jobs:
     strategy:
       matrix:
         distro: [ubuntu, f69m/ubuntu32, centos, debian]
+        ver: [x]
+        codecov: [no]
+        btype: [release]
+        buser: [qfsbuild]
+        exclude:
+          - distro: ubuntu
+            ver: x
+          - distro: f69m/ubuntu32
+            ver: x
+          - distro: centos
+            ver: x
+          - distro: debian
+            ver: x
         include:
           - distro: ubuntu
             ver: 18.04
