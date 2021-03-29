@@ -26,7 +26,7 @@ jobs:
       image: ${{ matrix.distro }}:${{ matrix.ver }}
     strategy:
       matrix:
-        distro: [ubuntu, ubuntu, ubuntu]
+        distro: [ubuntu, ubuntu, ubuntu, ubuntu]
         ver: [18.04, 18.04, 18.04, 18.04]
         codecov: [yes, no, no, no]
         btype: [release, release, debug, release]
