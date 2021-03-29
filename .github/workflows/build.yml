@@ -128,7 +128,7 @@ jobs:
       BUSER: ${{ matrix.buser }}
     steps:
       - name: Install curl
-        run:  apt-get install curl -y
+        run:  sudo apt-get install curl -y
 
       - name: Checkout code
         uses: actions/checkout@v2
