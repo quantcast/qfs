@@ -75,7 +75,7 @@ else
 
     default_days     = 3650                 # how long to certify for
     default_crl_days = 30                   # how long before next CRL
-    default_md       = sha1                 # md to use
+    default_md       = sha256               # md to use
 
     policy           = policy_any           # default policy
     email_in_dn      = no                   # Don't add the email into cert DN

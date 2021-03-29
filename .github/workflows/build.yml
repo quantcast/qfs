@@ -126,8 +126,6 @@ jobs:
       CODECOV: ${{ matrix.codecov }}
       BTYPE: ${{ matrix.btype }}
       BUSER: ${{ matrix.buser }}
-    container:
-      image: ${{ matrix.distro }}:${{ matrix.ver }}
     steps:
       - name: Install curl
         run:  apt-get install curl -y
