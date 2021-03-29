@@ -26,11 +26,11 @@ jobs:
       image: ${{ matrix.distro }}:${{ matrix.ver }}
     strategy:
       matrix:
-        distro: [ubuntu]
-        ver: [18.04]
-        codecov: [yes]
-        btype: [release]
-        buser: [qfsbuild]
+        distro: [ubuntu, ubuntu, ubuntu]
+        ver: [18.04, 18.04, 18.04, 18.04]
+        codecov: [yes, no]
+        btype: [release, release, debug, release]
+        buser: [qfsbuild, qfsbuild, qfsbuild, root]
     steps:
       - name: Update git and install curl
         run: |
@@ -40,15 +40,13 @@ jobs:
             else
               yum install -y 'http://opensource.wandisco.com/centos/7/git/x86_64/wandisco-git-release-7-2.noarch.rpm'
             fi
-            yum install -y git
-            yum install -y curl
+            yum install -y git curl
           else
             apt-get update \
             && apt-get install software-properties-common -y \
             && add-apt-repository ppa:git-core/ppa -y \
             && apt-get update \
-            && apt-get install git -y \
-            && apt-get install curl -y
+            && apt-get install git curl -y
           fi
 
       - name: Checkout code
