@@ -1,6 +1,6 @@
 name: Build
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   rat:
@@ -12,13 +12,41 @@ jobs:
       - name: rat
         run: make rat clean
 
-  docker-build:
+  ubuntu-build:
     runs-on: ubuntu-latest
+    env:
+      TRAVIS_OS_NAME: linux
     container:
       image: ubuntu:16.04
     steps:
+      - name: Update git
+        run: >
+          sudo add-apt-repository ppa:git-core/ppa -y
+          && sudo apt-get update
+          && sudo apt-get install git -y
+
       - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Build on ubuntu-16.04
         run: travis/script.sh build ubuntu 16.04 release qfsbuild
+
+  osx-build:
+    runs-on: macos-latest
+    env:
+      TRAVIS_OS_NAME: osx
+    steps:
+      - name: Brew update and install
+        run: >
+          brew update || true
+          brew install git || true
+          brew install cmake || true
+          brew install maven || true
+          brew install boost || true
+          brew cask install osxfuse || true
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Build on macos
+        run: travis/script.sh
