@@ -58,7 +58,7 @@ jobs:
             btype: release
             buser: qfsbuild
           - distro: debian
-            ver: 9
+            ver: 10
             codecov: no
             btype: release
             buser: qfsbuild
@@ -69,6 +69,11 @@ jobs:
             buser: qfsbuild
           - distro: centos
             ver: 7
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: centos
+            ver: 8
             codecov: no
             btype: release
             buser: qfsbuild
@@ -86,7 +91,7 @@ jobs:
     steps:
       - name: Update git and install curl
         run: |
-          if [ x"$DISRTO" = x'centos' ]; then
+          if [ x"$DISTRO" = x'centos' ]; then
             if [ x"$VER" = x'6' ]; then
               yum update
               yum upgrade -y
@@ -96,10 +101,14 @@ jobs:
             fi
             yum install -y git curl
           else
+            apt-get Update
+            if [ x"$DISTRO" = x'ubuntu' \
+                -a \( x'VER' = x'14.04' \
+                  -o x'VER' = x'16.04' -o x'VER' = x'18.04' \) ]; then
+              apt-get install software-properties-common -y \
+              && add-apt-repository ppa:git-core/ppa -y
+            fi
             apt-get update \
-            && apt-get install software-properties-common -y \
-            && add-apt-repository ppa:git-core/ppa -y \
-            && apt-get update \
             && apt-get install git curl -y
           fi
 
