@@ -21,7 +21,9 @@ jobs:
     steps:
       - name: Update git
         run: >
-          add-apt-repository ppa:git-core/ppa -y
+          apt-get update
+          && apt-get install software-properties-common -y
+          && add-apt-repository ppa:git-core/ppa -y
           && apt-get update
           && apt-get install git -y
 
@@ -37,7 +39,7 @@ jobs:
       TRAVIS_OS_NAME: osx
     steps:
       - name: Brew update and install
-        run: >
+        run: |
           brew update || true
           brew upgrade || true
           brew install git || true
