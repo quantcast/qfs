@@ -15,7 +15,7 @@ jobs:
   linux-build:
     strategy:
       matrix:
-        distro: [ubuntu, f69m/ubuntu32, centos, debian]
+        distro: [ubuntu, i386/ubuntu, centos, debian]
         exclude:
           - distro: ubuntu
           - distro: f69m/ubuntu32
@@ -52,8 +52,8 @@ jobs:
             codecov: no
             btype: release
             buser: qfsbuild
-          - distro: f69m/ubuntu32
-            ver: 14.04
+          - distro: i386/ubuntu
+            ver: 16.04
             codecov: no
             btype: release
             buser: qfsbuild
@@ -94,7 +94,7 @@ jobs:
             fi
             yum install -y git curl
           else
-            if [ x"$DISTRO" = x'ubuntu' \
+            if [ \( x"$DISTRO" = x'ubuntu' -o x"$DISTRO" = x'i386/ubuntu' \)\
                 -a \( x'VER' = x'14.04' \
                   -o x'VER' = x'16.04' -o x'VER' = x'18.04' \) ]; then
               apt-get update \
