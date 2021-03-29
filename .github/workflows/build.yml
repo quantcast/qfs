@@ -89,7 +89,7 @@ jobs:
             buser: qfsbuild
     runs-on: ubuntu-latest
     env:
-      TRAVIS_OS_NAME: linux
+      BUILD_OS_NAME: linux
       BUILD_RUN_DOCKER: 'yes'
       DISTRO: ${{ matrix.distro }}
       VER: ${{ matrix.ver }}
@@ -106,7 +106,7 @@ jobs:
   osx-build:
     runs-on: macos-latest
     env:
-      TRAVIS_OS_NAME: osx
+      BUILD_OS_NAME: osx
     steps:
       - name: Brew install
         run: |
