@@ -110,9 +110,12 @@ jobs:
 
       - name: Upload tarball
         if: >
-          ${{ github.ref == 'refs/heads/master'
-          || github.ref == 'refs/heads/topic/github_actions'
-          || startsWith(github.ref, 'refs/tags/') }}
+          ${{ ('refs/heads/master' == github.ref
+          || 'refs/heads/topic/github_actions' == github.ref
+          || startsWith(github.ref, 'refs/tags/'))
+          && 'yes' != matrix.codecov
+          && 'release' == matrix.btype
+          && 'qfsbuild' == matrix.buser }}
         uses: actions/upload-artifact@v2
         with:
           path: build/qfs-*.tgz
@@ -135,8 +138,8 @@ jobs:
 
       - name: Upload tarball
         if: >
-          ${{ github.ref == 'refs/heads/master'
-          || github.ref == 'refs/heads/topic/github_actions'
+          ${{ 'refs/heads/master' == github.ref
+          || 'refs/heads/topic/github_actions' == github.ref
           || startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v2
         with:
