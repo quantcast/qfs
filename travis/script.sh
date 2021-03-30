@@ -185,7 +185,8 @@ install_maven()
 build_ubuntu()
 {
     $MYSUDO apt-get update
-    $MYSUDO DEBIAN_FRONTEND="noninteractive" apt-get install -y $DEPS_UBUNTU
+    $MYSUDO /bin/bash -c \
+        "DEBIAN_FRONTEND='noninteractive' apt-get install -y $DEPS_UBUNTU"
     if [ x"$1" = x'18.04' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
