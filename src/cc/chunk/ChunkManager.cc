@@ -3598,7 +3598,7 @@ ChunkManager::ReadChunkMetadataDone(ReadChunkMetaOp* op, IOBuffer* dataBuf)
                     " " << op->Show() <<
                 KFS_LOG_EOM;
             } else {
-                cih->chunkInfo.SetChecksums(dci.chunkBlockChecksum);
+                cih->chunkInfo.SetChecksums(dci);
                 cih->chunkInfo.chunkFlags = dci.flags;
                 if (cih->chunkInfo.chunkSize > (int64_t)dci.chunkSize) {
                     const int64_t extra =

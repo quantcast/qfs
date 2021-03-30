@@ -279,14 +279,10 @@ struct ChunkInfo_t
         KFS_LOG_EOM;
     }
 
-    void SetChecksums(const uint32_t* checksums) {
+    void SetChecksums(const DiskChunkInfo_t& dci) {
         delete [] chunkBlockChecksum;
-        if (! checksums) {
-            chunkBlockChecksum = 0;
-            return;
-        }
         chunkBlockChecksum = new uint32_t[MAX_CHUNK_CHECKSUM_BLOCKS];
-        memcpy(chunkBlockChecksum, checksums,
+        memcpy(chunkBlockChecksum, dci.chunkBlockChecksum,
             MAX_CHUNK_CHECKSUM_BLOCKS * sizeof(uint32_t));
     }
 
