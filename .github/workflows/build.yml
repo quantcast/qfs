@@ -23,6 +23,11 @@ jobs:
           - distro: i386/ubuntu
         include:
           - distro: ubuntu
+            ver: 20.04
+            codecov: no
+            btype: release
+            buser: qfsbuild
+          - distro: ubuntu
             ver: 18.04
             codecov: no
             btype: release
@@ -103,6 +108,15 @@ jobs:
       - name: Linux docker build
         run: travis/script.sh
 
+      - name: Upload tarball
+        if: >
+          ${{ github.ref == 'refs/heads/master'
+          || github.ref == 'refs/heads/topic/github_actions'
+          || startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v2
+        with:
+          path: build/qfs-*.tgz
+
   osx-build:
     runs-on: macos-latest
     env:
@@ -118,3 +132,12 @@ jobs:
 
       - name: MacOS build
         run: travis/script.sh
+
+      - name: Upload tarball
+        if: >
+          ${{ github.ref == 'refs/heads/master'
+          || github.ref == 'refs/heads/topic/github_actions'
+          || startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v2
+        with:
+          path: build/qfs-*.tgz

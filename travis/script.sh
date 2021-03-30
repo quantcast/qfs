@@ -293,7 +293,7 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
 fi
 
 if [ x"$TRAVIS_OS_NAME" = x ]; then
-        true
+    true
 else
     if [ x"$BUILD_OS_NAME" = x ]; then
         BUILD_OS_NAME=$TRAVIS_OS_NAME

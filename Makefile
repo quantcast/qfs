@@ -71,7 +71,7 @@ tarball: hadoop-jars
 	if [ x"$$myuname" = x'Linux' -a \( -f /etc/issue -o -f /etc/system-release \) ]; then \
 		if [ -f /etc/system-release ]; then \
 			myflavor=`head -n 1 /etc/system-release | cut -d' ' -f1` ; \
-			myflavor="$$myflavor-`head -n 1 /etc/system-release | sed -e 's/^.* *release *//' | cut -d. -f1,2`" ; \
+			myflavor="$$myflavor-`head -n 1 /etc/system-release | sed -e 's/^.* *release *//' | cut -d' ' -f1 | cut -d. -f1`" ; \
 		else \
 			myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
 			if [ x"$$myflavor" = x'Ubuntu' ]; then \
