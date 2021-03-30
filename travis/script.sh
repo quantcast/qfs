@@ -187,7 +187,7 @@ build_ubuntu()
     $MYSUDO apt-get update
     $MYSUDO /bin/bash -c \
         "DEBIAN_FRONTEND='noninteractive' apt-get install -y $DEPS_UBUNTU"
-    if [ x"$1" = x'18.04' ]; then
+    if [ x"$1" = x'18.04' -o x"$1" = x'20.04' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
     if [ x"$1" = x'14.04' ]; then
