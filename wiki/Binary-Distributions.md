@@ -44,7 +44,7 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [1.1.0]: https://github.com/quantcast/qfs/tree/1.1.0
 [1.0.1]: https://github.com/quantcast/qfs/tree/1.0.1
 [master,ubuntu14.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04-master-x86_64.tgz
-[2.2.3,ubuntu14.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04-2.2.3-x86_64.tgz
+[2.2.3,ubuntu14.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04-x86_64.tgz
 [2.2.2,ubuntu14.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04-2.2.2-x86_64.tgz
 [2.2.1,ubuntu14.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04-2.2.1-x86_64.tgz
 [2.2.0,ubuntu14.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04-2.2.0-x86_64.tgz
@@ -61,7 +61,7 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [1.1.0,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.1.0-x86_64.tgz
 [1.0.1,ubuntu]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-14.04.4-1.0.1-x86_64.tgz
 [master,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-master-x86_64.tgz
-[2.2.3,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.2.3-x86_64.tgz
+[2.2.3,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-x86_64.tgz
 [2.2.2,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.2.2-x86_64.tgz
 [2.2.1,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.2.1-x86_64.tgz
 [2.2.0,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.2.0-x86_64.tgz
@@ -69,7 +69,7 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [2.1.2,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.1.2-x86_64.tgz
 [2.1.1,ubuntu16.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-16.04-2.1.1-x86_64.tgz
 [master,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-master-x86_64.tgz
-[2.2.3,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.2.3-x86_64.tgz
+[2.2.3,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-x86_64.tgz
 [2.2.2,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.2.2-x86_64.tgz
 [2.2.1,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.2.1-x86_64.tgz
 [2.2.0,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.2.0-x86_64.tgz
@@ -78,7 +78,7 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [2.1.1,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04-2.1.1-x86_64.tgz
 [2.1.0,ubuntu18.04]: https://s3.amazonaws.com/quantcast-qfs/qfs-ubuntu-18.04.1-2.1.0-x86_64.tgz
 [master,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-master-x86_64.tgz
-[2.2.3,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.2.3-x86_64.tgz
+[2.2.3,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-x86_64.tgz
 [2.2.2,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.2.2-x86_64.tgz
 [2.2.1,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.2.1-x86_64.tgz
 [2.2.0,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.2.0-x86_64.tgz
@@ -86,8 +86,8 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [2.1.2,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.1.2-x86_64.tgz
 [2.1.1,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.1.1-x86_64.tgz
 [2.1.0,debian9]: https://s3.amazonaws.com/quantcast-qfs/qfs-debian-9-2.1.0-x86_64.tgz
-[master,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.10-master-x86_64.tgz
-[2.2.3,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.10-2.2.3-x86_64.tgz
+[master,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6-master-x86_64.tgz
+[2.2.3,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6-2.2.3-x86_64.tgz
 [2.2.2,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.10-2.2.2-x86_64.tgz
 [2.2.1,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.10-2.2.1-x86_64.tgz
 [2.2.0,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.10-2.2.0-x86_64.tgz
@@ -103,8 +103,8 @@ ideal for quickly trying out QFS as a Single Node deployment. See
 [1.1.1,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.1.1-x86_64.tgz
 [1.1.0,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.1.0-x86_64.tgz
 [1.0.1,centos6]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-6.7-1.0.1-x86_64.tgz
-[master,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.9-master-x86_64.tgz
-[2.2.3,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.9-2.2.3-x86_64.tgz
+[master,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7-master-x86_64.tgz
+[2.2.3,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7-2.2.3-x86_64.tgz
 [2.2.2,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.8-2.2.2-x86_64.tgz
 [2.2.1,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.8-2.2.1-x86_64.tgz
 [2.2.0,centos7]: https://s3.amazonaws.com/quantcast-qfs/qfs-centos-7.7-2.2.0-x86_64.tgz

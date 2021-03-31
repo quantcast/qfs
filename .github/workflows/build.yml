@@ -190,14 +190,14 @@ jobs:
           }
           Invoke-WebRequest -Uri "http://cygwin.com/setup-x86.exe" `
             -OutFile "setup-x86.exe"
-          .\setup-x86.exe --quiet-mode --no-shortcuts --only-site `
+          & .\setup-x86.exe --quiet-mode --no-shortcuts --only-site `
             --root $cygwinPath --site "$env:CYG_MIRROR" `
             --local-package-dir "$cygwinPath\var\cache\setup" `
             --packages $env:DEPENDENCIES
           Pop-Location
           # Check if Cygwin bash works
-          $cygwinPath\bin\bash `
-            -lc "cygcheck -dc cygwin && cmake --version && mvn --version"
+          & $cygwinPath\bin\bash `
+            -lc 'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
-          $cygwinPath\bin\bash `
-            -lc "df -h . ; make -j2 --no-print-directory tarball"
+          & $cygwinPath\bin\bash `
+            -lc 'df -h . ; make -j2 --no-print-directory tarball'
