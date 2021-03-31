@@ -106,7 +106,9 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Linux docker build
-        run: travis/script.sh
+        run: |
+          travis/script.sh
+          sudo chown "$USER" .git/config
 
       - name: Upload tarball
         if: >
@@ -116,9 +118,11 @@ jobs:
           && 'yes' != matrix.codecov
           && 'release' == matrix.btype
           && 'qfsbuild' == matrix.buser }}
-        uses: actions/upload-artifact@v2
-        with:
-          path: build/qfs-*.tgz
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   osx-build:
     runs-on: macos-latest
@@ -141,6 +145,8 @@ jobs:
           ${{ 'refs/heads/master' == github.ref
           || 'refs/heads/topic/github_actions' == github.ref
           || startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v2
-        with:
-          path: build/qfs-*.tgz
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
