@@ -195,6 +195,9 @@ jobs:
             --local-package-dir "$cygwinPath\var\cache\setup" `
             --packages $env:DEPENDENCIES
           $env:CYG_ROOT = "$cygwinPath"
+          dir $env:CYG_ROOT
+          dir $env:CYG_ROOT/bin
+          dir $env:CYG_ROOT/bin/bash
           Pop-Location
 
       - name: Cygwin build
