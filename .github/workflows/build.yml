@@ -213,4 +213,4 @@ jobs:
             'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
           & "$cygwinPath\bin\bash" -lc `
-            'df -h . ; cd ../.. ; ls -l ; make -j2 --no-print-directory tarball'
+            "cd '$cur' ; df -h . ; make -j2 --no-print-directory tarball"
