@@ -215,7 +215,22 @@ jobs:
           & "$cygwinPath\bin\bash" -lc `
             'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
-          $cmo = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
-          $cmo += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
+          $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
+          $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
+          $mko += ' -j2 --no-print-directory'
           & "$cygwinPath\bin\bash" -lc `
-            "cd '$cur' ; df -h . ; make $cmo -j2 --no-print-directory tarball"
+            "cd '$cur' ; df -h . ; make $mko tarball mintest"
+
+      - name: Upload tarball
+        if: >
+          ${{ ('refs/heads/master' == github.ref
+          || 'refs/heads/topic/github_actions' == github.ref
+          || startsWith(github.ref, 'refs/tags/'))
+          && 'yes' != matrix.codecov
+          && 'release' == matrix.btype
+          && 'qfsbuild' == matrix.buser }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs

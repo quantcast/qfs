@@ -108,19 +108,23 @@ tarball: hadoop-jars
 python: build
 	cd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
 
-.PHONY: test
-test: hadoop-jars
+.PHONY: mintest
+mintest: hadoop-jars
 	cd build/${BUILD_TYPE} && \
-	    ../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS} && \
-            echo '--------- QC RS recovery test ---------' && \
-	    ../../src/test-scripts/recoverytest.sh && \
-            echo '--------- Jerasure recovery test ------' && \
-	    filecreateparams='fs.createParams=1,6,3,1048576,3,15,15' \
-	    ../../src/test-scripts/recoverytest.sh && \
-	    if [ -d qfstest/certs ]; then \
-                echo '--------- Test without authentication --------' && \
-	        ../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
-            fi
+	../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS}
+
+.PHONY: test
+test: mintest
+	cd build/${BUILD_TYPE} && \
+	echo '--------- QC RS recovery test ---------' && \
+	../../src/test-scripts/recoverytest.sh && \
+	echo '--------- Jerasure recovery test ------' && \
+	filecreateparams='fs.createParams=1,6,3,1048576,3,15,15' \
+	../../src/test-scripts/recoverytest.sh && \
+	if [ -d qfstest/certs ]; then \
+		echo '--------- Test without authentication --------' && \
+		../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
+	fi
 
 .PHONY: rat
 rat: dir
