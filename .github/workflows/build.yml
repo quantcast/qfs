@@ -159,7 +159,7 @@ jobs:
           gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,
           bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
     steps:
-      - name: Install Hadoop Tools, Cygwin
+      - name: Install Hadoop Tools, Cygwin, and build
         shell: pwsh
         run: |
           $cur = (Get-Item -Path "." -Verbose).FullName
@@ -190,22 +190,24 @@ jobs:
           }
           Invoke-WebRequest -Uri "http://cygwin.com/setup-x86.exe" `
             -OutFile "setup-x86.exe"
-          .\setup-x86.exe --quiet-mode --no-shortcuts --only-site `
-            --root $cygwinPath --site "$env:CYG_MIRROR" `
-            --local-package-dir "$cygwinPath\var\cache\setup" `
-            --packages $env:DEPENDENCIES
-          $env:CYG_ROOT = "$cygwinPath"
-          dir $env:CYG_ROOT
-          dir $env:CYG_ROOT/bin
-          dir $env:CYG_ROOT/bin/bash
+          $psi = new-object "Diagnostics.ProcessStartInfo"
+          $psi.FileName = "$tools\setup-x86.exe"
+          $psi.Arguments = '--quiet-mode --no-shortcuts --only-site --root "'
+          $psi.Arguments += "$cygwinPath"
+          $psi.Arguments += '" --site "'
+          $psi.Arguments += "$env:CYG_MIRROR"
+          $psi.Arguments += '" --local-package-dir "'
+          $psi.Arguments += "$cygwinPath\var\cache\setup"
+          $psi.Arguments += '" --packages "'
+          $psi.Arguments += "$env:DEPENDENCIES"
+          $psi.Arguments += '"'
+          $psi.WorkingDirectory = "$tools"
+          $proc = [Diagnostics.Process]::Start($psi)
+          $proc.WaitForExit()
           Pop-Location
-
-      - name: Cygwin build
-        shell: pwsh
-        run: |
           # Check if Cygwin bash works
-          & $env:CYG_ROOT\bin\bash `
+          & "$cygwinPath\bin\bash" `
             -lc 'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
-          & $env:CYG_ROOT\bin\bash `
+          & "$cygwinPath\bin\bash" `
             -lc 'df -h . ; make -j2 --no-print-directory tarball'
