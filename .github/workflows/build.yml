@@ -217,5 +217,7 @@ jobs:
           & "$cygwinPath\bin\bash" -lc `
             'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
+          $cmo = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
+          $cmo += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
           & "$cygwinPath\bin\bash" -lc `
-            "cd '$cur' ; df -h . ; make -j2 --no-print-directory tarball"
+            "cd '$cur' ; df -h . ; make $cmo -j2 --no-print-directory tarball"
