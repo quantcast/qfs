@@ -155,9 +155,7 @@ jobs:
     runs-on: windows-latest
     env:
         CYG_MIRROR: http://cygwin.mirror.constant.com
-        DEPENDENCIES: >
-          gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,
-          bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
     steps:
       - name: Set git to use LF
         run: |
