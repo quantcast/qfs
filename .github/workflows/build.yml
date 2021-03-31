@@ -159,6 +159,9 @@ jobs:
           gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,
           bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
       - name: Install Hadoop Tools, Cygwin, and build
         shell: pwsh
         run: |
@@ -206,8 +209,8 @@ jobs:
           $proc.WaitForExit()
           Pop-Location
           # Check if Cygwin bash works
-          & "$cygwinPath\bin\bash" `
-            -lc 'cygcheck -dc cygwin && cmake --version && mvn --version'
+          & "$cygwinPath\bin\bash" -lc `
+            'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
-          & "$cygwinPath\bin\bash" `
-            -lc 'df -h . ; cd ../.. && make -j2 --no-print-directory tarball'
+          & "$cygwinPath\bin\bash" -lc `
+            'df -h . ; cd ../.. ; ls -l ; make -j2 --no-print-directory tarball'
