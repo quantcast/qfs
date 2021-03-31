@@ -81,11 +81,19 @@ void
 Tree::makeDumpsterDir()
 {
     fid_t dummy = 0;
-    mkdir(ROOTFID, DUMPSTERDIR,
+    int const status = mkdir(ROOTFID, DUMPSTERDIR,
         kKfsUserRoot, kKfsGroupRoot, 0700,
         kKfsUserRoot, kKfsGroupRoot,
         &dummy, 0, microseconds()
     );
+    if (0 != status) {
+        KFS_LOG_STREAM_FATAL <<
+            "mkdir:"    << DUMPSTERDIR <<
+            " status: " << status <<
+            " "         << ErrorCodeToString(status) <<
+        KFS_LOG_EOM;
+        panic("failed to create dumpster");
+    }
     ensureChunkDeleteQueueExists();
 }
 
