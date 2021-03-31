@@ -80,20 +80,19 @@ IsDeleteRestricted(const MetaFattr* parent, const MetaFattr* fa, kfsUid_t euser)
 void
 Tree::makeDumpsterDir()
 {
-    fid_t dummy = 0;
+    fid_t fid = 0;
     int const status = mkdir(ROOTFID, DUMPSTERDIR,
         kKfsUserRoot, kKfsGroupRoot, 0700,
         kKfsUserRoot, kKfsGroupRoot,
-        &dummy, 0, microseconds()
+        &fid, 0, microseconds()
     );
-    if (0 != status) {
-        KFS_LOG_STREAM_FATAL <<
-            "mkdir:"    << DUMPSTERDIR <<
-            " status: " << status <<
-            " "         << ErrorCodeToString(status) <<
-        KFS_LOG_EOM;
-        panic("failed to create dumpster");
-    }
+    KFS_LOG_STREAM_DEBUG <<
+        "mkdir: "   << DUMPSTERDIR <<
+        " fid: "    << fid <<
+        " / "       << getDumpsterDirIdSelf() <<
+        " status: " << status <<
+        " "         << ErrorCodeToString(status) <<
+    KFS_LOG_EOM;
     ensureChunkDeleteQueueExists();
 }
 
@@ -2392,7 +2391,7 @@ Tree::moveToDumpster(fid_t dir, const string& fname, MetaFattr& fa,
     string tempname = "/" + DUMPSTERDIR + "/";
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
-        panic("no dumpster");
+        panic("move to dumpster: no dumpster");
         return -EINVAL;
     }
     // can't move something in the dumpster back to dumpster
@@ -2453,7 +2452,7 @@ Tree::getChunkDeleteQueueSelf()
     }
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
-        panic("no dumpster");
+        panic("get chunk delete queue: no dumpster");
         return mChunksDeleteQueueFattr;
     }
     int status = lookup(ddir, CHUNKDELQUEUE,
@@ -2508,7 +2507,7 @@ Tree::cleanupDumpster()
 {
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
-        panic("no dumpster");
+        panic("cleanup dumpster: no dumpster");
         return;
     }
     getChunkDeleteQueue();
