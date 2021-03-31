@@ -113,7 +113,7 @@ jobs:
       - name: Upload tarball
         if: >
           ${{ ('refs/heads/master' == github.ref
-          || 'refs/heads/topic/github_actions' == github.ref
+          || 'refs/heads/topic/github_actions_xxx' == github.ref
           || startsWith(github.ref, 'refs/tags/'))
           && 'yes' != matrix.codecov
           && 'release' == matrix.btype
@@ -143,10 +143,59 @@ jobs:
       - name: Upload tarball
         if: >
           ${{ 'refs/heads/master' == github.ref
-          || 'refs/heads/topic/github_actions' == github.ref
+          || 'refs/heads/topic/github_actions_xxx' == github.ref
           || startsWith(github.ref, 'refs/tags/') }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
+
+  cygwin-build:
+    runs-on: windows-latest
+    env:
+        CYG_ROOT: C:\cygwin_q
+        CYG_MIRROR: http://cygwin.mirror.constant.com
+        CYG_CACHE: C:\cygwin_q\var\cache\setup
+        CYG_BASH: C:\cygwin_q\bin\bash
+        DEPENDENCIES: >
+          gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,
+          bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
+    steps:
+      - name: Install Hadoop Tools and Cygwin
+        shell: pwsh
+        run: |
+          $up = (Get-Item -Path ".." -Verbose).FullName
+          $tools = "$up\tools"
+          if (!(Test-Path $tools)) {
+              New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          }
+          $hadoopVer = "2.6.0"
+          $hadoopPath = "$tools\hadoop"
+          if (!(Test-Path $hadoopPath)) {
+              New-Item -ItemType Directory -Force -Path $hadoopPath | Out-Null
+          }
+          Push-Location $hadoopPath
+
+          Start-FileDownload `
+            "https://github.com/steveloughran/winutils/archive/master.zip" `
+            "winutils-master.zip"
+
+          # extract
+          Invoke-Expression "7z.exe x winutils-master.zip"
+
+          # add hadoop bin to environment variables
+          $env:HADOOP_HOME = "$hadoopPath/winutils-master/hadoop-$hadoopVer"
+          Pop-Location
+          Start-FileDownload "http://cygwin.com/setup-x86.exe" `
+            -FileName "setup-x86.exe"
+          .\setup-x86.exe --quiet-mode --no-shortcuts --only-site `
+            --root "$env:CYG_ROOT" --site "$env:CYG_MIRROR" `
+            --local-package-dir "$env:CYG_CACHE" `
+            --packages $env:DEPENDENCIES
+
+      - name: Cygwin build
+        shell: cmd
+        run: |
+          "%CYG_BASH%" -lc "cygcheck -dc cygwin && cmake --version && mvn --version"
+          "%CYG_BASH%" -lc "df -h . ; make -j2 --no-print-directory tarball;"
