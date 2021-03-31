@@ -86,12 +86,20 @@ Tree::makeDumpsterDir()
         kKfsUserRoot, kKfsGroupRoot,
         &fid, 0, microseconds()
     );
+    MetaFattr* fa      = 0;
+    int const  lstatus = lookup(
+        ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
     KFS_LOG_STREAM_DEBUG <<
         "mkdir: "   << DUMPSTERDIR <<
         " fid: "    << fid <<
         " / "       << getDumpsterDirIdSelf() <<
+        " / "       << (fa ? fa->id() : (fid_t)-1) <<
         " status: " << status <<
         " "         << ErrorCodeToString(status) <<
+        " lookup: "
+        " status: " << lstatus <<
+        " "         << ErrorCodeToString(lstatus) <<
+        " fa: "     << reinterpret_cast<const void*>(fa) <<
     KFS_LOG_EOM;
     ensureChunkDeleteQueueExists();
 }
@@ -2433,10 +2441,10 @@ fid_t
 Tree::getDumpsterDirIdSelf()
 {
     if (mDumpsterDirId < 0) {
-        MetaFattr* fa = 0;
-        mDumpsterDirId = lookup(
+        MetaFattr* fa     = 0;
+        int const  status = lookup(
             ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-        if (! fa || fa->type != KFS_DIR) {
+        if (0 != status || ! fa || fa->type != KFS_DIR) {
             return -1;
         }
         mDumpsterDirId = fa->id();

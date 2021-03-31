@@ -215,7 +215,7 @@ jobs:
           & "$cygwinPath\bin\bash" -lc `
             'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
-          $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
+          $mko = "BUILD_TYPE=debug CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=Debug"
           $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
           $mko += ' -j2 --no-print-directory'
           & "$cygwinPath\bin\bash" -lc `
