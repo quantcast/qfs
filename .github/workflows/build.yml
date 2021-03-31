@@ -159,7 +159,7 @@ jobs:
           gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,
           bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
     steps:
-      - name: Install Hadoop Tools, Cygwin and do build
+      - name: Install Hadoop Tools, Cygwin
         shell: pwsh
         run: |
           $cur = (Get-Item -Path "." -Verbose).FullName
@@ -190,14 +190,19 @@ jobs:
           }
           Invoke-WebRequest -Uri "http://cygwin.com/setup-x86.exe" `
             -OutFile "setup-x86.exe"
-          & .\setup-x86.exe --quiet-mode --no-shortcuts --only-site `
+          .\setup-x86.exe --quiet-mode --no-shortcuts --only-site `
             --root $cygwinPath --site "$env:CYG_MIRROR" `
             --local-package-dir "$cygwinPath\var\cache\setup" `
             --packages $env:DEPENDENCIES
+          $env:CYG_ROOT = "$cygwinPath"
           Pop-Location
+
+      - name: Cygwin build
+        shell: pwsh
+        run: |
           # Check if Cygwin bash works
-          & $cygwinPath\bin\bash `
+          & $env:CYG_ROOT\bin\bash `
             -lc 'cygcheck -dc cygwin && cmake --version && mvn --version'
           # Build
-          & $cygwinPath\bin\bash `
+          & $env:CYG_ROOT\bin\bash `
             -lc 'df -h . ; make -j2 --no-print-directory tarball'
