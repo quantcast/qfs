@@ -159,6 +159,11 @@ jobs:
           gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,
           bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
     steps:
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
       - name: Checkout code
         uses: actions/checkout@v2
 
