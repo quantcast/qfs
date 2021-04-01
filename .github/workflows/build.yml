@@ -141,7 +141,7 @@ jobs:
 
       - name: Upload tarball
         if: >
-          ${{ (github.ref == 'refs/heads/master'
+          ${{ github.ref == 'refs/heads/master'
           || startsWith(github.ref, 'refs/tags/') }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -212,11 +212,11 @@ jobs:
           # To make "$tools\setup-x86.exe" work, add localhost to /etc/hosts as
           # cygwin has no /etc/resolv.conf, an alternative is to create
           # resolv.conf
-          $hostsEdit = "grep -E '^[^#]+localhost' /etc/hosts || {"
-          $hostsEdit += " chmod +w /etc/hosts"
-          $hostsEdit += "; printf '\r\n127.0.0.1 localhost\r\n' >> /etc/hosts"
-          $hostsEdit += "; grep -E '^[^#]+localhost' /etc/hosts; }"
-          & "$cygwinPath\bin\bash" -lc "$hostsEdit"
+          # $hostsEdit = "grep -E '^[^#]+localhost' /etc/hosts || {"
+          # $hostsEdit += " chmod +w /etc/hosts"
+          # $hostsEdit += "; printf '\r\n127.0.0.1 localhost\r\n' >> /etc/hosts"
+          # $hostsEdit += "; grep -E '^[^#]+localhost' /etc/hosts; }"
+          # & "$cygwinPath\bin\bash" -lc "$hostsEdit"
           # Check if Cygwin bash works
           & "$cygwinPath\bin\bash" -lc `
             "cygcheck -dc cygwin && cmake --version && mvn --version"
@@ -231,7 +231,7 @@ jobs:
 
       - name: Upload tarball
         if: >
-          ${{ (github.ref == 'refs/heads/master'
+          ${{ github.ref == 'refs/heads/master'
           || startsWith(github.ref, 'refs/tags/') }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
