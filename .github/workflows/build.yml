@@ -214,13 +214,14 @@ jobs:
           # To make "$tools\setup-x86.exe" work, add localhost to /etc/hosts as
           # cygwin has no /etc/resolv.conf, an alternative is to create
           # resolv.conf
-          $extra = "grep -E '^[^#]+localhost' /etc/hosts || {"
-          $extra += " chmod +w /etc/hosts ;"
-          $extra += " { echo ; echo 127.0.0.1 localhost ; } >> /etc/hosts ; "
-          $extra += " grep -E '^[^#]+localhost' /etc/hosts ; } ;"
-          # Check if Cygwin bash works, and run additional setup
+          $hostsEdit = "grep -E '^[^#]+localhost' /etc/hosts || {"
+          $hostsEdit += " chmod +w /etc/hosts"
+          $hostsEdit += "; printf '\r\n127.0.0.1 localhost\r\n' >> /etc/hosts"
+          $hostsEdit += "; grep -E '^[^#]+localhost' /etc/hosts; }"
+          & "$cygwinPath\bin\bash" -lc "$hostsEdit"
+          # Check if Cygwin bash works
           & "$cygwinPath\bin\bash" -lc `
-            "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
+            "cygcheck -dc cygwin && cmake --version && mvn --version"
           # Build
           # Debug build for now, as otherwise gcc produces unusable meta server
           # executable even with -O1.
