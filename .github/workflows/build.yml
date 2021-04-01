@@ -111,13 +111,13 @@ jobs:
           sudo chown "$USER" .git/config
 
       - name: Upload tarball
-        if: >-
+        if: |
           ${{
-          ('refs/heads/master' == github.ref
-          || startsWith(github.ref, 'refs/tags/'))
-          && 'release' == matrix.btype
-          && 'qfsbuild' == matrix.buser
-          && 'yes' != matrix.codecov
+            ('refs/heads/master' == github.ref ||
+            startsWith(github.ref, 'refs/tags/')) &&
+            'release' == matrix.btype &&
+            'qfsbuild' == matrix.buser &&
+            'yes' != matrix.codecov &&
           }}
         env:
           AWS_ACCESS_KEY_ID: ${{ github.secrets.AWS_ACCESS_KEY_ID }}
