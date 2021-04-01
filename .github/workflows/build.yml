@@ -165,7 +165,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Install Hadoop Tools, Cygwin, and build
+      - name: Install Hadoop tools, Cygwin, and do build
         shell: pwsh
         run: |
           $cur = (Get-Item -Path "." -Verbose).FullName
@@ -211,15 +211,21 @@ jobs:
           $proc = [Diagnostics.Process]::Start($psi)
           $proc.WaitForExit()
           Pop-Location
-          $extra = "cat /etc/hosts ; chmod +w /etc/hosts ;"
-          $extra += " { echo ; echo '127.0.0.1	localhost' ; } >> /etc/hosts"
-          $extra += " ; cat /etc/hosts ;"
+          # To make "$tools\setup-x86.exe" work, add localhost to /etc/hosts as
+          # cygwin has no /etc/resolv.conf, an alternative is to create
+          # resolv.conf
+          $extra = "grep localhost /etc/hosts || { chmod +w /etc/hosts ;"
+          $extra += " { echo ; echo '127.0.0.1 localhost' ; } >> /etc/hosts "
+          $extra += " ; grep localhost /etc/hosts ; } ;"
           # Check if Cygwin bash works, and run additional setup
           & "$cygwinPath\bin\bash" -lc `
             "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
           # Build
           $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
-          $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
+          $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions"
+          # Try min. c++ optimization for now, as otherwise gcc produces
+          # unusable meta server executable.
+          $mko += " -D QFS_EXTRA_CXX_OPTIONS=-O1'"
           $mko += ' -j2 --no-print-directory'
           & "$cygwinPath\bin\bash" -lc `
             "cd '$cur' ; df -h . ; make $mko tarball mintest"
