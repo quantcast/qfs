@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload tarball
         if: >
-          ${{ 'refs/heads/master' == github.ref
+          ${{ ('refs/heads/master' == github.ref
           || 'refs/heads/topic/github_actions_xxx' == github.ref
           || startsWith(github.ref, 'refs/tags/'))
           && 'yes' != matrix.codecov
