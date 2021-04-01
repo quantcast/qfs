@@ -112,8 +112,8 @@ jobs:
 
       - name: Upload tarball
         if: |
-          ('refs/heads/master' == github.ref ||
-            startsWith(github.ref, 'refs/tags/'))
+          ('refs/heads/master' == github.ref
+            || startsWith(github.ref, 'refs/tags/'))
           && 'release' == matrix.btype
           && 'qfsbuild' == matrix.buser
           && 'yes' != matrix.codecov
@@ -124,7 +124,6 @@ jobs:
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   osx-build:
-    if: ${{ false }}
     runs-on: macos-latest
     env:
       BUILD_OS_NAME: osx
@@ -138,10 +137,12 @@ jobs:
         uses: actions/checkout@v2
 
       - name: MacOS build
-        run: travis/script.sh
+        run: echo travis/script.sh
 
       - name: Upload tarball
-        if: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/') }}
+        if: |
+          'refs/heads/master' == github.ref
+          || startsWith(github.ref, 'refs/tags/')
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -149,7 +150,6 @@ jobs:
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   cygwin-build:
-    if: ${{ false }}
     runs-on: windows-latest
     env:
       CYG_MIRROR: http://cygwin.mirror.constant.com
@@ -164,6 +164,8 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Install Hadoop tools, Cygwin, and do build
+        if: |
+          false
         shell: pwsh
         run: |
           $cur = (Get-Item -Path "." -Verbose).FullName
@@ -230,7 +232,9 @@ jobs:
             "cd '$cur' ; df -h . ; make $mko tarball"
 
       - name: Upload tarball
-        if: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/') }}
+        if: |
+          'refs/heads/master' == github.ref
+          || startsWith(github.ref, 'refs/tags/')
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
