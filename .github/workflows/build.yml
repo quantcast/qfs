@@ -221,11 +221,10 @@ jobs:
           & "$cygwinPath\bin\bash" -lc `
             "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
           # Build
+          # Debug build for now, as otherwise gcc produces unusable meta server
+          # executable even with -O1.
           $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=Debug"
           $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions"
-          # Try min. c++ optimization for now, as otherwise gcc produces
-          # unusable meta server executable.
-          $mko += " -D QFS_EXTRA_CXX_OPTIONS=-O1'"
           $mko += ' -j2 --no-print-directory'
           & "$cygwinPath\bin\bash" -lc `
             "cd '$cur' ; df -h . ; make $mko tarball mintest"
