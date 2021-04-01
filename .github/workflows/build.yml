@@ -113,6 +113,7 @@ jobs:
       - name: Upload tarball
         if: |
           ('refs/heads/master' == github.ref
+            || 'refs/heads/topic/github_actions' == github.ref
             || startsWith(github.ref, 'refs/tags/'))
           && 'release' == matrix.btype
           && 'qfsbuild' == matrix.buser
