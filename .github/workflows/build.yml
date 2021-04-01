@@ -112,11 +112,10 @@ jobs:
 
       - name: Upload tarball
         if: |
-            ('refs/heads/master' == github.ref ||
-            startsWith(github.ref, 'refs/tags/')) &&
-            matrix.btype == 'release' &&
-            matrix.buser == 'qfsbuild' &&
-            matrix.codecov != 'yes'
+          ${{
+            github.ref == 'refs/heads/master' ||
+            startsWith(github.ref, 'refs/tags/')
+          }}
         env:
           AWS_ACCESS_KEY_ID: ${{ github.secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
