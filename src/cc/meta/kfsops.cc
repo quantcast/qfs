@@ -96,7 +96,7 @@ Tree::makeDumpsterDir()
         " / "       << (fa ? fa->id() : (fid_t)-1) <<
         " status: " << status <<
         " "         << ErrorCodeToString(status) <<
-        " lookup: "
+        " lookup:"
         " status: " << lstatus <<
         " "         << ErrorCodeToString(lstatus) <<
         " fa: "     << reinterpret_cast<const void*>(fa) <<

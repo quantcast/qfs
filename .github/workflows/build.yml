@@ -211,11 +211,13 @@ jobs:
           $proc = [Diagnostics.Process]::Start($psi)
           $proc.WaitForExit()
           Pop-Location
-          # Check if Cygwin bash works
+          $extra = "cat /etc/hosts ; chmod +w /etc/hosts ;"
+          $extra += " echo '127.0.0.1	localhost' >> /etc/hosts ; cat /etc/hosts"
+          # Check if Cygwin bash works, and run additional setup
           & "$cygwinPath\bin\bash" -lc `
-            'cygcheck -dc cygwin && cmake --version && mvn --version'
+            "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
           # Build
-          $mko = "BUILD_TYPE=debug CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=Debug"
+          $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
           $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
           $mko += ' -j2 --no-print-directory'
           & "$cygwinPath\bin\bash" -lc `
