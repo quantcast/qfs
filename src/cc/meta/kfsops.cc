@@ -90,7 +90,6 @@ Tree::makeDumpsterDir()
         "mkdir: "   << DUMPSTERDIR <<
         " fid: "    << fid <<
         " / "       << getDumpsterDirIdSelf() <<
-        " / "       << (fa ? fa->id() : (fid_t)-1) <<
         " status: " << status <<
         " "         << ErrorCodeToString(status) <<
     KFS_LOG_EOM;
