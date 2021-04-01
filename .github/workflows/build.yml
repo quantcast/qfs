@@ -214,9 +214,10 @@ jobs:
           # To make "$tools\setup-x86.exe" work, add localhost to /etc/hosts as
           # cygwin has no /etc/resolv.conf, an alternative is to create
           # resolv.conf
-          $extra = "grep localhost /etc/hosts || { chmod +w /etc/hosts ;"
-          $extra += " { echo ; echo '127.0.0.1 localhost' ; } >> /etc/hosts "
-          $extra += " ; grep localhost /etc/hosts ; } ;"
+          $extra = 'grep -E "^[^#]+localhost" /etc/hosts || {'
+          $extra += ' chmod +w /etc/hosts ;'
+          $extra += ' { echo ; echo 127.0.0.1 localhost ; } >> /etc/hosts ; '
+          $extra += ' grep -E "^[^#]+localhost" /etc/hosts ; } ;'
           # Check if Cygwin bash works, and run additional setup
           & "$cygwinPath\bin\bash" -lc `
             "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
