@@ -111,12 +111,7 @@ jobs:
           sudo chown "$USER" .git/config
 
       - name: Upload tarball
-        if: >
-          ${{ (github.ref == 'refs/heads/master'
-          || startsWith(github.ref, 'refs/tags/'))
-          && matrix.codecov != 'yes'
-          && matrix.btype == 'release'
-          && matrix.buser == 'qfsbuild' }}
+        if: ${{ false }}
         env:
           AWS_ACCESS_KEY_ID: ${{ github.secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -140,9 +135,7 @@ jobs:
         run: travis/script.sh
 
       - name: Upload tarball
-        if: >
-          ${{ github.ref == 'refs/heads/master'
-          || startsWith(github.ref, 'refs/tags/') }}
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -230,9 +223,7 @@ jobs:
             "cd '$cur' ; df -h . ; make $mko tarball"
 
       - name: Upload tarball
-        if: >
-          ${{ github.ref == 'refs/heads/master'
-          || startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/') }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
