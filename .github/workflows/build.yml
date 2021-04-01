@@ -212,7 +212,8 @@ jobs:
           $proc.WaitForExit()
           Pop-Location
           $extra = "cat /etc/hosts ; chmod +w /etc/hosts ;"
-          $extra += " echo '127.0.0.1	localhost' >> /etc/hosts ; cat /etc/hosts"
+          $extra += " { echo ; echo '127.0.0.1	localhost' ; } >> /etc/hosts"
+          $extra += " ; cat /etc/hosts ;"
           # Check if Cygwin bash works, and run additional setup
           & "$cygwinPath\bin\bash" -lc `
             "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
