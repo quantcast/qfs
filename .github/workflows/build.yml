@@ -221,7 +221,7 @@ jobs:
           & "$cygwinPath\bin\bash" -lc `
             "cygcheck -dc cygwin && cmake --version && mvn --version ; $extra"
           # Build
-          $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=RelWithDebInfo"
+          $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=Debug"
           $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions"
           # Try min. c++ optimization for now, as otherwise gcc produces
           # unusable meta server executable.
