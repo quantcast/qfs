@@ -226,7 +226,7 @@ jobs:
           # Debug build for now, as otherwise gcc produces unusable meta server
           # executable even with -O1.
           $mko = "CMAKE_OPTIONS='-D CMAKE_BUILD_TYPE=Debug"
-          $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions"
+          $mko += " -D QFS_EXTRA_C_OPTIONS=-flax-vector-conversions'"
           $mko += ' -j2 --no-print-directory'
           & "$cygwinPath\bin\bash" -lc `
             "cd '$cur' ; df -h . ; make $mko tarball mintest"
