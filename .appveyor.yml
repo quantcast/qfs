@@ -1,0 +1,66 @@
+#
+# $Id$
+#
+# Copyright 2016-2017 Quantcast Corporation. All rights reserved.
+#
+# This file is part of Quantcast File System.
+#
+# Licensed under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License. You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+# implied. See the License for the specific language governing
+# permissions and limitations under the License.
+
+version: '2.1.2-{build}'
+clone_depth: 1
+test: off
+environment:
+    global:
+        CYG_ROOT: C:\cygwin_q
+        CYG_MIRROR: http://cygwin.mirror.constant.com
+        CYG_CACHE: C:\cygwin_q\var\cache\setup
+        CYG_BASH: C:\cygwin_q\bin\bash
+        DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
+
+cache:
+    - '%CYG_CACHE%'
+
+init:
+    - git config --global core.autocrlf input
+
+install:
+    - ps: |
+        exit 0
+        $up = (Get-Item -Path ".." -Verbose).FullName
+        $tools = "$up\tools"
+        if (!(Test-Path $tools)) {
+            New-Item -ItemType Directory -Force -Path $tools | Out-Null
+        }
+        $hadoopVer = "2.6.0"
+        $hadoopPath = "$tools\hadoop"
+        if (!(Test-Path $hadoopPath)) {
+            New-Item -ItemType Directory -Force -Path $hadoopPath | Out-Null
+        }
+        Push-Location $hadoopPath
+
+        Start-FileDownload "https://github.com/steveloughran/winutils/archive/master.zip" "winutils-master.zip"
+
+        # extract
+        Invoke-Expression "7z.exe x winutils-master.zip"
+
+        # add hadoop bin to environment variables
+        $env:HADOOP_HOME = "$hadoopPath/winutils-master/hadoop-$hadoopVer"
+        Pop-Location
+    # - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
+    # - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
+    # - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version"'
+
+build_script:
+    - exit 0
+    # - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && { df -h . ; make -j2 --no-print-directory tarball; }"'
