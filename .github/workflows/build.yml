@@ -140,7 +140,7 @@ jobs:
         run: |
           echo travis/script.sh
           mkdir -p build && touch test \
-          && tar cvf - test | gizp -c > qfs-null.tgz
+          && tar cvf - test | gzip -c > qfs-null.tgz
 
       - name: Upload tarball
         if: |
