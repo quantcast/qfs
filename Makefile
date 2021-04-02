@@ -68,15 +68,20 @@ tarball: hadoop-jars
 	[ x"$$myarch" = x ] && \
 	    myarch=`gcc -dumpmachine 2>/dev/null | cut -d - -f 1` ; \
 	[ x"$$myarch" = x ] && myarch=`uname -m` ; \
-	if [ x"$$myuname" = x'Linux' -a -f /etc/issue ]; then \
-	    myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
-	    if [ x"$$myflavor" = x'Ubuntu' ]; then \
-		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
-	    elif [ x"$$myflavor" = x ]; then \
-		myflavor=$$myuname ; \
-	    else \
-		myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
-	    fi ; \
+	if [ x"$$myuname" = x'Linux' -a \( -f /etc/issue -o -f /etc/system-release \) ]; then \
+		if [ -f /etc/system-release ]; then \
+			myflavor=`head -n 1 /etc/system-release | cut -d' ' -f1` ; \
+			myflavor="$$myflavor-`head -n 1 /etc/system-release | sed -e 's/^.* *release *//' | cut -d' ' -f1 | cut -d. -f1`" ; \
+		else \
+			myflavor=`head -n 1 /etc/issue | cut -d' ' -f1` ; \
+			if [ x"$$myflavor" = x'Ubuntu' ]; then \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f2 | cut -d. -f1,2`" ; \
+			elif [ x"$$myflavor" = x ]; then \
+				myflavor=$$myuname ; \
+			else \
+				myflavor="$$myflavor-`head -n 1 /etc/issue | cut -d' ' -f3 | cut -d. -f1,2`" ; \
+			fi ; \
+		fi ; \
 	else \
 	    if echo "$$myuname" | grep CYGWIN > /dev/null; then \
 		myflavor=cygwin ; \
@@ -103,19 +108,23 @@ tarball: hadoop-jars
 python: build
 	cd build/${BUILD_TYPE} && python ../../src/cc/access/kfs_setup.py build
 
-.PHONY: test
-test: hadoop-jars
+.PHONY: mintest
+mintest: hadoop-jars
 	cd build/${BUILD_TYPE} && \
-	    ../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS} && \
-            echo '--------- QC RS recovery test ---------' && \
-	    ../../src/test-scripts/recoverytest.sh && \
-            echo '--------- Jerasure recovery test ------' && \
-	    filecreateparams='fs.createParams=1,6,3,1048576,3,15,15' \
-	    ../../src/test-scripts/recoverytest.sh && \
-	    if [ -d qfstest/certs ]; then \
-                echo '--------- Test without authentication --------' && \
-	        ../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
-            fi
+	../../src/test-scripts/qfstest.sh -auth ${QFSTEST_OPTIONS}
+
+.PHONY: test
+test: mintest
+	cd build/${BUILD_TYPE} && \
+	echo '--------- QC RS recovery test ---------' && \
+	../../src/test-scripts/recoverytest.sh && \
+	echo '--------- Jerasure recovery test ------' && \
+	filecreateparams='fs.createParams=1,6,3,1048576,3,15,15' \
+	../../src/test-scripts/recoverytest.sh && \
+	if [ -d qfstest/certs ]; then \
+		echo '--------- Test without authentication --------' && \
+		../../src/test-scripts/qfstest.sh -noauth ${QFSTEST_OPTIONS} ; \
+	fi
 
 .PHONY: rat
 rat: dir

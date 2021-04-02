@@ -53,7 +53,7 @@
     } while(0);
 
 // Buffer to format all error messages
-static char mbuf[4096];
+static char mbuf[16<<10];
 
 static int tests_run;
 static char* metaserver_host = "localhost";

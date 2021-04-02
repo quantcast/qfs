@@ -34,31 +34,32 @@ cache:
 init:
     - git config --global core.autocrlf input
 
-install:
-    - ps: |
-        $up = (Get-Item -Path ".." -Verbose).FullName
-        $tools = "$up\tools"
-        if (!(Test-Path $tools)) {
-            New-Item -ItemType Directory -Force -Path $tools | Out-Null
-        }
-        $hadoopVer = "2.6.0"
-        $hadoopPath = "$tools\hadoop"
-        if (!(Test-Path $hadoopPath)) {
-            New-Item -ItemType Directory -Force -Path $hadoopPath | Out-Null
-        }
-        Push-Location $hadoopPath
+# install:
+#     - ps: |
+#         $up = (Get-Item -Path ".." -Verbose).FullName
+#         $tools = "$up\tools"
+#         if (!(Test-Path $tools)) {
+#             New-Item -ItemType Directory -Force -Path $tools | Out-Null
+#         }
+#         $hadoopVer = "2.6.0"
+#         $hadoopPath = "$tools\hadoop"
+#         if (!(Test-Path $hadoopPath)) {
+#             New-Item -ItemType Directory -Force -Path $hadoopPath | Out-Null
+#         }
+#         Push-Location $hadoopPath
 
-        Start-FileDownload "https://github.com/steveloughran/winutils/archive/master.zip" "winutils-master.zip"
+#         Start-FileDownload "https://github.com/steveloughran/winutils/archive/master.zip" "winutils-master.zip"
 
-        # extract
-        Invoke-Expression "7z.exe x winutils-master.zip"
+#         # extract
+#         Invoke-Expression "7z.exe x winutils-master.zip"
 
-        # add hadoop bin to environment variables
-        $env:HADOOP_HOME = "$hadoopPath/winutils-master/hadoop-$hadoopVer"
-        Pop-Location
-    - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
-    - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
-    - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version"'
+#         # add hadoop bin to environment variables
+#         $env:HADOOP_HOME = "$hadoopPath/winutils-master/hadoop-$hadoopVer"
+#         Pop-Location
+#     - ps: 'Start-FileDownload "http://cygwin.com/setup-x86.exe" -FileName "setup-x86.exe"'
+#     - 'setup-x86.exe --quiet-mode --no-shortcuts --only-site --root "%CYG_ROOT%" --site "%CYG_MIRROR%" --local-package-dir "%CYG_CACHE%" --packages %DEPENDENCIES%'
+#     - '%CYG_BASH% -lc "cygcheck -dc cygwin && cmake --version && mvn --version"'
 
 build_script:
-    - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && { df -h . ; make -j2 --no-print-directory tarball; }"'
+    - echo build moved to github actions
+    # - '%CYG_BASH% -lc "cd $APPVEYOR_BUILD_FOLDER && { df -h . ; make -j2 --no-print-directory tarball; }"'

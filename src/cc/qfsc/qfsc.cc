@@ -236,7 +236,7 @@ int qfs_readdir_ex(struct QFS* qfs, const char* path, struct qfs_iter** it,
   }
 
   // Zero-out destination parameter.
-  memset(attr, 0, sizeof(struct qfs_attr));
+  memset((void*)attr, 0, sizeof(struct qfs_attr));
   return 0;
 }
 

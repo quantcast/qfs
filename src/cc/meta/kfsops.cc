@@ -80,12 +80,19 @@ IsDeleteRestricted(const MetaFattr* parent, const MetaFattr* fa, kfsUid_t euser)
 void
 Tree::makeDumpsterDir()
 {
-    fid_t dummy = 0;
-    mkdir(ROOTFID, DUMPSTERDIR,
+    fid_t fid = 0;
+    int const status = mkdir(ROOTFID, DUMPSTERDIR,
         kKfsUserRoot, kKfsGroupRoot, 0700,
         kKfsUserRoot, kKfsGroupRoot,
-        &dummy, 0, microseconds()
+        &fid, 0, microseconds()
     );
+    KFS_LOG_STREAM_DEBUG <<
+        "mkdir: "   << DUMPSTERDIR <<
+        " fid: "    << fid <<
+        " / "       << getDumpsterDirIdSelf() <<
+        " status: " << status <<
+        " "         << ErrorCodeToString(status) <<
+    KFS_LOG_EOM;
     ensureChunkDeleteQueueExists();
 }
 
@@ -2384,7 +2391,7 @@ Tree::moveToDumpster(fid_t dir, const string& fname, MetaFattr& fa,
     string tempname = "/" + DUMPSTERDIR + "/";
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
-        panic("no dumpster");
+        panic("move to dumpster: no dumpster");
         return -EINVAL;
     }
     // can't move something in the dumpster back to dumpster
@@ -2426,10 +2433,10 @@ fid_t
 Tree::getDumpsterDirIdSelf()
 {
     if (mDumpsterDirId < 0) {
-        MetaFattr* fa = 0;
-        mDumpsterDirId = lookup(
+        MetaFattr* fa     = 0;
+        int const  status = lookup(
             ROOTFID, DUMPSTERDIR, kKfsUserRoot, kKfsGroupRoot, fa);
-        if (! fa || fa->type != KFS_DIR) {
+        if (0 != status || ! fa || fa->type != KFS_DIR) {
             return -1;
         }
         mDumpsterDirId = fa->id();
@@ -2445,7 +2452,7 @@ Tree::getChunkDeleteQueueSelf()
     }
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
-        panic("no dumpster");
+        panic("get chunk delete queue: no dumpster");
         return mChunksDeleteQueueFattr;
     }
     int status = lookup(ddir, CHUNKDELQUEUE,
@@ -2500,7 +2507,7 @@ Tree::cleanupDumpster()
 {
     const fid_t ddir = getDumpsterDirId();
     if (ddir < 0) {
-        panic("no dumpster");
+        panic("cleanup dumpster: no dumpster");
         return;
     }
     getChunkDeleteQueue();

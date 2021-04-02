@@ -30,11 +30,12 @@ DEPS_UBUNTU=$DEPS_UBUNTU' passwd curl openssl fuse gdb'
 DEPS_DEBIAN=$DEPS_UBUNTU
 
 DEPS_CENTOS='gcc-c++ make git boost-devel krb5-devel'
-DEPS_CENTOS=$DEPS_CENTOS' python-devel fuse-devel java-openjdk java-devel'
+DEPS_CENTOS=$DEPS_CENTOS' fuse-devel java-openjdk java-devel'
 DEPS_CENTOS=$DEPS_CENTOS' libuuid-devel curl unzip sudo which openssl fuse gdb'
 
 DEPS_CENTOS5=$DEPS_CENTOS' cmake28 openssl101e openssl101e-devel'
 DEPS_CENTOS=$DEPS_CENTOS' openssl-devel cmake'
+DEPS_CENTOS8=$DEPS_CENTOS' diffutils'
 
 MYMVN_URL='https://downloads.apache.org/maven/maven-3/3.6.3/binaries/apache-maven-3.6.3-bin.tar.gz'
 
@@ -158,7 +159,7 @@ init_codecov()
     # Pass travis env vars to code coverage.
     mkdir -p  "$MYTMPDIR"
     {
-        env | grep -E '^(TRAVIS|CI)' | sed \
+        env | grep -E '^(TRAVIS|CI|GITHUB)' | sed \
             -e "s/'/'\\\''/g"  \
             -e "s/=/=\'/" \
             -e 's/$/'"'/" \
@@ -184,8 +185,9 @@ install_maven()
 build_ubuntu()
 {
     $MYSUDO apt-get update
-    $MYSUDO apt-get install -y $DEPS_UBUNTU
-    if [ x"$1" = x'18.04' ]; then
+    $MYSUDO /bin/bash -c \
+        "DEBIAN_FRONTEND='noninteractive' apt-get install -y $DEPS_UBUNTU"
+    if [ x"$1" = x'18.04' -o x"$1" = x'20.04' ]; then
         QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
     fi
     if [ x"$1" = x'14.04' ]; then
@@ -204,6 +206,11 @@ build_ubuntu32()
 
 build_debian()
 {
+    if [ x"$1" = x'9' ]; then
+        true
+    else
+        QFSHADOOP_VERSIONS=$MYQFSHADOOP_VERSIONS_UBUNTU1804
+    fi
     build_ubuntu
 }
 
@@ -286,11 +293,18 @@ if [ $# -eq 5 -a x"$1" = x'build' ]; then
     exit
 fi
 
-if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
+if [ x"$TRAVIS_OS_NAME" = x ]; then
+    true
+else
+    if [ x"$BUILD_OS_NAME" = x ]; then
+        BUILD_OS_NAME=$TRAVIS_OS_NAME
+    fi
+fi
+
+if [ x"$BUILD_OS_NAME" = x'linux' ]; then
     if [ -e "$MYTMPDIR" ]; then
         rm -r "$MYTMPDIR"
     fi
-    make rat clean
     if [ x"$CODECOV" = x'yes' ]; then
         init_codecov
     fi
@@ -306,10 +320,14 @@ if [ x"$TRAVIS_OS_NAME" = x'linux' ]; then
     fi
     MYSRCD="$(pwd)"
     ulimit -c unlimited
-    docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
-        "$DISTRO:$VER" \
-        /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
-elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
+    if [ x"$BUILD_RUN_DOCKER" = x'no' ]; then
+        "$0" build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+    else
+        docker run --rm --dns=8.8.8.8 -t -v "$MYSRCD:$MYSRCD" -w "$MYSRCD" \
+            "$DISTRO:$VER" \
+            /bin/bash ./travis/script.sh build "$DISTRO" "$VER" "$BTYPE" "$BUSER"
+    fi
+elif [ x"$BUILD_OS_NAME" = x'osx' ]; then
     set_build_type "$BTYPE"
     for pkg_name in \
             'openssl@1.1' \
@@ -334,6 +352,6 @@ elif [ x"$TRAVIS_OS_NAME" = x'osx' ]; then
     df -h || true
     do_build -j 2
 else
-    echo "OS: $TRAVIS_OS_NAME not yet supported"
+    echo "OS: $BUILD_OS_NAME not yet supported"
     exit 1
 fi

@@ -39,6 +39,16 @@ if [ $# = 0 ]; then
     certs='qfs_test_meta qfs_test_chunk1 qfs_test_chunk2 qfs_test_client'
 fi
 
+if openssl version | grep ' 0\.' > /dev/null; then
+    ca_key_size=2048
+    non_ca_key_size=1024
+    default_md=sha1
+else
+    ca_key_size=4096
+    non_ca_key_size=2048
+    default_md=sha256
+fi
+
 subjectprefix=${subjectprefix-'/C=US/ST=California/L=San Francisco'}
 cacommonname=${cacommonname-'qfs_test_ca'}
 cadir="$workdir/qfs_ca"
@@ -51,7 +61,7 @@ else
     openssl req \
         -days 3650 \
         -subj "$subjectprefix/CN=$cacommonname" \
-        -newkey rsa:2048 \
+        -newkey rsa:"$ca_key_size" \
         -new \
         -nodes \
         -x509 \
@@ -75,7 +85,7 @@ else
 
     default_days     = 3650                 # how long to certify for
     default_crl_days = 30                   # how long before next CRL
-    default_md       = sha1                 # md to use
+    default_md       = $default_md          # md to use
 
     policy           = policy_any           # default policy
     email_in_dn      = no                   # Don't add the email into cert DN
@@ -106,7 +116,7 @@ for n in ${certs-"$@"}; do
             -days 3650 \
             -subj "$subjectprefix/CN=$cn" \
             -nodes \
-            -newkey rsa:1024 \
+            -newkey rsa:"$non_ca_key_size" \
             -keyout "$n.key" \
             -out "$n.req"
         openssl ca -batch -config "$caconf" -out "$n.crt" -infiles "$n.req"
