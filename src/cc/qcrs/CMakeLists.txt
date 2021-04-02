@@ -68,7 +68,8 @@ if (NOT DEFINED vectormode AND
                 set(vectormode sse2)
             endif (MY_SSE2_SUPPORTED_RET EQUAL 0)
         endif (MY_SSSE3_SUPPORTED_RET EQUAL 0)
-    elseif (CMAKE_SYSTEM_PROCESSOR MATCHES ^arm)
+    elseif (CMAKE_SYSTEM_PROCESSOR MATCHES ^arm OR
+        CMAKE_SYSTEM_PROCESSOR MATCHES aarch64)
         if (EXISTS /proc/cpuinfo)
             # Check for the NEON feature in /proc/cpuinfo on ARM processors
             execute_process(
