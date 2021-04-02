@@ -108,7 +108,7 @@ jobs:
       - name: Linux docker build
         run: |
           travis/script.sh
-          sudo chown "$USER" .git/config
+          sudo chown -R "$USER" .git || true
 
       - name: Upload tarball
         if: |
