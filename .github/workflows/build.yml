@@ -94,9 +94,6 @@ jobs:
             buser: qfsbuild
     runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID: ${{ github.secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-west-2
       BUILD_OS_NAME: linux
       BUILD_RUN_DOCKER: "yes"
       DISTRO: ${{ matrix.distro }}
@@ -120,15 +117,16 @@ jobs:
           && 'release' == matrix.btype
           && 'qfsbuild' == matrix.buser
           && 'yes' != matrix.codecov
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-west-2
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   osx-build:
     runs-on: macos-latest
     env:
       BUILD_OS_NAME: osx
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-west-2
     steps:
       - name: Brew install
         run: |
@@ -145,6 +143,10 @@ jobs:
         if: |
           'refs/heads/master' == github.ref
           || startsWith(github.ref, 'refs/tags/')
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-west-2
         run: aws s3 cp build/qfs-*.tgz s3://quantcast-qfs
 
   cygwin-build:
@@ -152,9 +154,6 @@ jobs:
     env:
       CYG_MIRROR: http://cygwin.mirror.constant.com
       DEPENDENCIES: gcc-g++,autoconf,automake,make,cmake,libboost-devel,libssl-devel,bzip2,python,git,libstdc++6-devel,libkrb5-devel,zlib-devel
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-west-2
     steps:
       - name: Set git to use LF
         run: |
@@ -234,6 +233,10 @@ jobs:
         if: |
           'refs/heads/master' == github.ref
           || startsWith(github.ref, 'refs/tags/')
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-west-2
         shell: pwsh
         run: |
           aws s3 cp (Get-ChildItem "build\qfs-*.tgz").FullName `
