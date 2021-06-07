@@ -2929,7 +2929,7 @@ MetaRename::start()
         return false;
     }
     wormModeFlag = gWormMode;
-    if (wormModeFlag && IsWormMutationAllowed(oldname)) {
+    if (wormModeFlag && ! IsWormMutationAllowed(oldname)) {
         statusMsg = "worm mode";
         status    = -EPERM;
     }
