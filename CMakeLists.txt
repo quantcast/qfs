@@ -136,6 +136,10 @@ if(ENABLE_COVERAGE)
     set(CMAKE_C_FLAGS "-coverage")
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -std=gnu++14")
+endif()
+
 if(ENABLE_PROFILING)
     message(STATUS "Enabling profiling with gprof")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -pg")

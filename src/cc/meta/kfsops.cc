@@ -32,11 +32,12 @@
 #include "common/MsgLogger.h"
 #include "common/time.h"
 #include "kfsio/Globals.h"
+#include <boost/bind.hpp>
 
 namespace KFS
 {
 
-using std::mem_fun;
+using boost::bind;
 using std::for_each;
 using std::lower_bound;
 using std::set;
@@ -427,7 +428,7 @@ Tree::removeFromDumpster(fid_t fid, const string& name, int64_t mtime,
         UpdateNumChunks(-cnt);
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),
-             mem_fun(&MetaChunkInfo::DeleteChunk));
+             bind(&MetaChunkInfo::DeleteChunk, _1));
         if (0 < fa->chunkcount()) {
             // Update modification time and set file size to 0 in order
             // to signal not to start recovery, not report file as abandoned,
@@ -510,7 +511,7 @@ Tree::remove(fid_t dir, const string& fname, const string& pathname,
         UpdateNumChunks(-fa->chunkcount());
         // fire-away...
         for_each(chunkInfo.begin(), chunkInfo.end(),
-             mem_fun(&MetaChunkInfo::DeleteChunk));
+             bind(&MetaChunkInfo::DeleteChunk, _1));
     } else if (0 == fa->numReplicas) {
         gLayoutManager.DeleteFile(*fa);
     }
@@ -2600,7 +2601,7 @@ Tree::removeFiles(fid_t dir, vector<MetaDentry*>& entries)
             assert(fa->chunkcount() == (int64_t)chunkInfo.size());
             UpdateNumChunks(-fa->chunkcount());
             for_each(chunkInfo.begin(), chunkInfo.end(),
-                 mem_fun(&MetaChunkInfo::DeleteChunk));
+                 bind(&MetaChunkInfo::DeleteChunk, _1));
         } else if (0 == fa->numReplicas) {
             gLayoutManager.DeleteFile(*fa);
         }

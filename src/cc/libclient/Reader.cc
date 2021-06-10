@@ -53,6 +53,10 @@
 #include <limits>
 #include <string.h>
 
+#if __cplusplus >= 201103L
+#include <random>
+#endif
+
 namespace KFS
 {
 namespace client
@@ -63,10 +67,16 @@ using std::max;
 using std::string;
 using std::ostream;
 using std::ostringstream;
-using std::random_shuffle;
 using std::vector;
 using std::pair;
 using std::make_pair;
+#if __cplusplus < 201103L
+using std::random_shuffle;
+#else
+using std::shuffle;
+using std::random_device;
+using std::mt19937;
+#endif
 
 // Kfs client read state machine implementation.
 class Reader::Impl : public QCRefCountedObj
@@ -1039,11 +1049,22 @@ private:
                 HandleError(inOp);
                 return;
             }
-            if (! mGetAllocOp.serversOrderedFlag) {
+            if (! mGetAllocOp.serversOrderedFlag &&
+                    1 < mGetAllocOp.chunkServers.size()) {
+#if __cplusplus < 201103L
                 random_shuffle(
                     mGetAllocOp.chunkServers.begin(),
                     mGetAllocOp.chunkServers.end()
                 );
+#else
+                random_device theRandDev;
+                mt19937       theRandGen(theRandDev());
+                shuffle(
+                    mGetAllocOp.chunkServers.begin(),
+                    mGetAllocOp.chunkServers.end(),
+                    theRandGen
+                );
+#endif
             }
             mChunkServerIdx = 0;
             StartRead();
