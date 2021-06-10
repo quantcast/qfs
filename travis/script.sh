@@ -232,6 +232,8 @@ build_centos()
             /etc/yum.repos.d/*.repo
         sed -i 's/#\(baseurl.*\)mirror.centos.org\/centos\/\$releasever\//\1vault.centos.org\/6.10\//' \
             /etc/yum.repos.d/*.repo
+    else
+        $MYSUDO yum update -y
     fi
     if [ -f "$MYCENTOSEPEL_RPM" ]; then
         $MYSUDO rpm -Uvh "$MYCENTOSEPEL_RPM"
