@@ -19,7 +19,7 @@
 # permissions and limitations under the License.
 
 # default version to use if git is not available
-qfs_no_git_version="2.2.3"
+qfs_no_git_version="2.2.4"
 
 usage() {
     echo "
@@ -251,7 +251,7 @@ const std::string KFS_BUILD_INFO_STRING='
 echo KFS_BUILD_INFO_START
 echo "host: `hostname`"
 echo "user: $USER"
-echo "date: `date`" 
+echo "date: `date`"
 echo "build type: $BUILD_TYPE"
 echo "release: $RELEASE"
 echo "source dir: $SOURCE_DIR"

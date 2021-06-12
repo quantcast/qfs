@@ -1,3 +1,12 @@
+## QFS version 2.2.4
+
+## Bug fixes
+1. Meta server: fix condition reversal in rename RPC WORM mode specific handling
+   logic resulting treating files with .tmp suffix as files with no such suffix
+   and the other way around.
+2. Fix CentOS builds by updating all RPMs prior to dependencies installation.
+3. Update to compile with newer boost version and C++ compiler dialect on MacOS.
+
 ## QFS version 2.2.3
 
 ## New features
