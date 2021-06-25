@@ -36,6 +36,7 @@
 #include <vector>
 #include <queue>
 #include <algorithm>
+#include <errno.h>
 
 using namespace std;
 

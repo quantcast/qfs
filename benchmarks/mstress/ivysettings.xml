@@ -25,7 +25,7 @@
     <include url="${ivy.default.settings.dir}/ivysettings-local.xml"/>
     <resolvers>
       <!-- set checkconsistency="false" to bypass POM error in commons-daemon -->
-        <ibiblio name="public" m2compatible="true" checkconsistency="false" />
+        <ibiblio name="public" m2compatible="true" checkconsistency="false" root="https://repo1.maven.org/maven2"/>
         <chain name="main" dual="true">
             <resolver ref="local"/>
             <resolver ref="public"/>
